@@ -253,7 +253,9 @@ func (s *Service) SweepNudges(ctx context.Context, now int64) int {
 func (s *Service) fireNudge(ctx context.Context, a jobstore.AgentSession, n jobstore.SessionNudge, now int64) bool {
 	sctx, cancel := context.WithTimeout(ctx, nudgeSendTimeout)
 	defer cancel()
-	_, serr := s.SendMessage(sctx, a.SessionID, n.Text, nudgeOperator+":"+n.ID)
+	// The nudge speaks under its own label, but the delivery belongs to the caller that armed
+	// it: a relay job it dispatches is bounded by that caller's ceiling (ceiling_origin.go).
+	_, serr := s.SendMessage(sctx, a.SessionID, n.Text, nudgeOperator+":"+n.ID, n.CreatedBy)
 	errText := ""
 	if serr != nil {
 		errText = serr.Error()

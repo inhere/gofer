@@ -46,7 +46,7 @@ func TestWakeCommandPathVerbatimNoWebTrace(t *testing.T) {
 	cmdSession(t, s, "sid-wake-cmd", "%1")
 	before, _, _ := s.store.GetAgentSession("sid-wake-cmd")
 
-	res, err := s.Wake(context.Background(), "sid-wake-cmd", "<gofer-mail-wake count=\"2\"/>", "gofer-mail")
+	res, err := s.Wake(context.Background(), "sid-wake-cmd", "<gofer-mail-wake count=\"2\"/>", "gofer-mail", "gofer-mail")
 	assert.NoErr(t, err)
 	assert.Eq(t, PathCommand, res.Path)
 	assert.Len(t, inj.reqs, 1)
@@ -63,7 +63,7 @@ func TestWakeTmuxPathNoPrefixNoWebTrace(t *testing.T) {
 	assert.NoErr(t, err)
 	before, _, _ := s.store.GetAgentSession("sid-wake-tmux")
 
-	res, err := s.Wake(context.Background(), "sid-wake-tmux", "WAKE-TEXT", "gofer-mail")
+	res, err := s.Wake(context.Background(), "sid-wake-tmux", "WAKE-TEXT", "gofer-mail", "gofer-mail")
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTmux, res.Path)
 	assert.Len(t, inj.reqs, 1)
@@ -85,7 +85,7 @@ func TestWakeMessengerPathHasNoWebPrefix(t *testing.T) {
 	assert.NoErr(t, err)
 	before, _, _ := s.store.GetAgentSession("sid-wake-msgr")
 
-	res, err := s.Wake(context.Background(), "sid-wake-msgr", "WAKE-TEXT", "gofer-mail")
+	res, err := s.Wake(context.Background(), "sid-wake-msgr", "WAKE-TEXT", "gofer-mail", "gofer-mail")
 	assert.NoErr(t, err)
 	assert.Eq(t, PathMessenger, res.Path)
 	assert.Len(t, m.prompts, 1)
@@ -104,7 +104,7 @@ func TestWakeNeverAnswersAnOpenTurn(t *testing.T) {
 	turn, err := s.OpenTurn("sid-wake-turn", "which plan?", 60)
 	assert.NoErr(t, err)
 
-	_, err = s.Wake(context.Background(), "sid-wake-turn", "WAKE-TEXT", "gofer-mail")
+	_, err = s.Wake(context.Background(), "sid-wake-turn", "WAKE-TEXT", "gofer-mail", "gofer-mail")
 	assert.NoErr(t, err)
 	d, ok, err := s.store.GetDecision(turn.ID)
 	assert.NoErr(t, err)
@@ -119,19 +119,19 @@ func TestDeliverLetterExitCodes(t *testing.T) {
 	s.SetDeliverPlanner(planFor(true))
 	cmdSession(t, s, "sid-letter", "%1")
 
-	_, err := s.DeliverLetter(context.Background(), "sid-letter", "LETTER", "gofer-mail")
+	_, err := s.DeliverLetter(context.Background(), "sid-letter", "LETTER", "gofer-mail", "gofer-mail")
 	assert.Eq(t, ReasonNotRunning, DeliverReason(err))
 	assert.Len(t, inj.reqs, 1) // tmux is never tried for a letter
 
 	inj.deliverExit = 0
-	res, err := s.DeliverLetter(context.Background(), "sid-letter", "LETTER", "gofer-mail")
+	res, err := s.DeliverLetter(context.Background(), "sid-letter", "LETTER", "gofer-mail", "gofer-mail")
 	assert.NoErr(t, err)
 	assert.Eq(t, PathCommand, res.Path)
 	assert.Eq(t, "LETTER", inj.reqs[1].Stdin)
 
 	inj.deliverExit = 1
 	inj.deliverOut = "boom"
-	_, err = s.DeliverLetter(context.Background(), "sid-letter", "LETTER", "gofer-mail")
+	_, err = s.DeliverLetter(context.Background(), "sid-letter", "LETTER", "gofer-mail", "gofer-mail")
 	assert.Eq(t, DeliverFailedPrefix+"boom", DeliverReason(err))
 }
 
@@ -140,7 +140,7 @@ func TestDeliverLetterWithoutDeliverCommand(t *testing.T) {
 	s.SetInjector(&scriptedInjector{})
 	s.SetDeliverPlanner(planFor(true))
 	tmuxSession(t, s, "sid-letter-none") // agent "claude": no deliver_command
-	_, err := s.DeliverLetter(context.Background(), "sid-letter-none", "LETTER", "gofer-mail")
+	_, err := s.DeliverLetter(context.Background(), "sid-letter-none", "LETTER", "gofer-mail", "gofer-mail")
 	assert.Eq(t, ReasonNoDeliverCommand, DeliverReason(err))
 }
 

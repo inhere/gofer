@@ -455,16 +455,26 @@ type DeliverResult struct {
 // continues the session with `--resume` and gets the reply as its first input
 // (path B). Say itself keeps its old turn-only semantics.
 //
+// by is the display label of the speaker ("web", a user name, "gofer"); origin is the
+// caller-scope ceiling owner of the delivery — the caller whose request caused it (see
+// ceiling_origin.go). The two are separate on purpose: `by` may be a gofer label nobody
+// holds a ceiling for, while the internal jobs the delivery dispatches must stay bounded by
+// the caller that asked for it. An owner that cannot be named is refused while the server
+// restricts callers (ErrNoCeilingOwner).
+//
 // Failures carry a reason code (see DeliverReason): no_runner, no_tmux, ended,
 // handed_off:<job>, inject_failed:<...>, no_resume_template,
 // interactive_not_allowed, cwd_outside_project. An over-long or empty reply is
 // ErrInvalidInput.
-func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeover bool) (DeliverResult, error) {
+func (s *Service) Deliver(ctx context.Context, sid, text, by, origin string, allowTakeover bool) (DeliverResult, error) {
 	if strings.TrimSpace(text) == "" {
 		return DeliverResult{}, fmt.Errorf("%w: empty text", ErrInvalidInput)
 	}
 	if len(text) > MaxDeliverText {
 		return DeliverResult{}, fmt.Errorf("%w: text is %d bytes, limit %d", ErrInvalidInput, len(text), MaxDeliverText)
+	}
+	if _, err := s.ceilingOwner(origin, "a session delivery"); err != nil {
+		return DeliverResult{}, err
 	}
 	a, ok, err := s.store.GetAgentSession(sid)
 	if err != nil {
@@ -495,7 +505,7 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeov
 	// whitelist) — and a delivered or FAILED command ends the ladder (a failure could
 	// still have delivered, so a second path would risk double delivery).
 	notRunning := false
-	if res, tried, err := s.deliverCommand(ctx, a, text, by); tried {
+	if res, tried, err := s.deliverCommand(ctx, a, text, by, origin); tried {
 		switch {
 		case err == nil:
 			return res, nil
@@ -505,7 +515,7 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeov
 			return DeliverResult{}, err
 		}
 	}
-	res, err := s.deliverTmux(ctx, a, text, by)
+	res, err := s.deliverTmux(ctx, a, text, by, origin)
 	if err == nil {
 		return res, nil
 	}
@@ -521,7 +531,7 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeov
 	if err := s.takeoverAliveCheck(a, notRunning); err != nil {
 		return DeliverResult{}, err
 	}
-	return s.deliverTakeover(ctx, a, text, by)
+	return s.deliverTakeover(ctx, a, text, by, origin)
 }
 
 // takeoverAliveCheck refuses a takeover while the original process still looks alive:
@@ -553,8 +563,8 @@ func (s *Service) takeoverAliveCheck(a jobstore.AgentSession, notRunning bool) e
 // deliverCommand is path C. tried=false means the agent has no deliver_command (or the
 // session cannot be reached by one) and the caller proceeds as before. A not-running
 // answer is returned as an UndeliverableError{ReasonNotRunning}.
-func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, bool, error) {
-	res, tried, err := s.runDeliverCommand(ctx, a, InjectPrefix+text, by)
+func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, text, by, origin string) (DeliverResult, bool, error) {
+	res, tried, err := s.runDeliverCommand(ctx, a, InjectPrefix+text, by, origin)
 	if !tried || err != nil {
 		return DeliverResult{}, tried, err
 	}
@@ -578,7 +588,7 @@ func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, t
 // runner and map its outcome. tried=false: the agent has no deliver_command (or the session
 // cannot be reached by one). A nil error with res.Status != "" means the job had begun but
 // outlived the wait window (it is on its way); a nil error with Status "" means exit 0.
-func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession, payload, by string) (InjectResult, bool, error) {
+func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession, payload, by, origin string) (InjectResult, bool, error) {
 	if s.deliverPlan == nil || s.injector == nil {
 		return InjectResult{}, false, nil
 	}
@@ -609,7 +619,7 @@ func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession
 		// gofer-dzv3: the delivery must run even while an update waits for idle — the
 		// message it carries is what the pause would otherwise lose.
 		UpdateExempt: true,
-		OriginCaller: by,
+		OriginCaller: origin,
 	})
 	if err != nil {
 		return InjectResult{}, true, undeliverable(DeliverFailedPrefix+truncateRunes(err.Error(), 160), err)
@@ -690,8 +700,8 @@ func takeoverFallback(reason string) bool {
 // agent CLI (the human may be editing a file in that pane), and the whole thing
 // is auditable — the row is the only trace left when someone asks later "who
 // typed this into my terminal?".
-func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, error) {
-	res, err := s.runTmuxInject(ctx, a, InjectPrefix+text, by)
+func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text, by, origin string) (DeliverResult, error) {
+	res, err := s.runTmuxInject(ctx, a, InjectPrefix+text, by, origin)
 	if err != nil {
 		return DeliverResult{}, err
 	}
@@ -716,7 +726,7 @@ func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text
 // check the session can be typed into, run the injection job with payload and map its
 // outcome. A nil error with res.Status != "" means the job had begun but outlived the wait
 // window (the text is on its way); with Status "" the pane got the text.
-func (s *Service) runTmuxInject(ctx context.Context, a jobstore.AgentSession, payload, by string) (InjectResult, error) {
+func (s *Service) runTmuxInject(ctx context.Context, a jobstore.AgentSession, payload, by, origin string) (InjectResult, error) {
 	// An `ended` session has no terminal left.
 	if a.State == jobstore.SessionEnded {
 		return InjectResult{}, undeliverable(ReasonEnded, errors.New("the session has ended"))
@@ -751,7 +761,7 @@ func (s *Service) runTmuxInject(ctx context.Context, a jobstore.AgentSession, pa
 		// gofer-dzv3: typing a web reply is gofer's own short control-plane work; an
 		// update waiting for idle must not park it (see InjectRequest.UpdateExempt).
 		UpdateExempt: true,
-		OriginCaller: by,
+		OriginCaller: origin,
 	})
 	if err != nil {
 		return InjectResult{}, undeliverable(InjectFailedPrefix+injectRunnerError, err)
@@ -814,7 +824,7 @@ func (s *Service) takeoverCheck(a jobstore.AgentSession) (TakeoverPlan, CwdChoic
 // deliverTakeover is path B: start a new interactive pty job that continues the
 // session's CLI conversation and prime it with the reply (text may be empty for a
 // plain wake-up: the new terminal then just opens on the resumed conversation).
-func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, error) {
+func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, text, by, origin string) (DeliverResult, error) {
 	plan, choice, err := s.takeoverCheck(a)
 	if err != nil {
 		return DeliverResult{}, err
@@ -843,7 +853,7 @@ func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, 
 		ResumeSourceAgent: a.Agent,
 		InitialInput:      initial,
 		CallerID:          by,
-		OriginCaller:      by,
+		OriginCaller:      origin,
 	})
 	if err != nil {
 		// An attempted takeover that could not be submitted is a runner-side failure;

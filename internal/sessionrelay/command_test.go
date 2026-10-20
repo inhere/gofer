@@ -62,7 +62,7 @@ func TestDeliverCommandDelivered(t *testing.T) {
 		s.SetDeliverPlanner(planFor(stdin))
 		cmdSession(t, s, "sid-cmd-ok", "%1")
 
-		res, err := s.Deliver(context.Background(), "sid-cmd-ok", "hello", "alice", false)
+		res, err := s.Deliver(context.Background(), "sid-cmd-ok", "hello", "alice", "alice", false)
 		assert.NoErr(t, err)
 		assert.Eq(t, PathCommand, res.Path)
 		assert.Len(t, inj.reqs, 1) // tmux never touched
@@ -94,13 +94,13 @@ func TestDeliverCommandNotRunningFallsThrough(t *testing.T) {
 	s.SetTakeoverer(to)
 
 	cmdSession(t, s, "sid-nr-tmux", "%1")
-	res, err := s.Deliver(context.Background(), "sid-nr-tmux", "hi", "alice", false)
+	res, err := s.Deliver(context.Background(), "sid-nr-tmux", "hi", "alice", "alice", false)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTmux, res.Path)
 	assert.Len(t, inj.reqs, 2) // deliver first, then tmux
 
 	cmdSession(t, s, "sid-nr-takeover", "")
-	res, err = s.Deliver(context.Background(), "sid-nr-takeover", "hi", "alice", true)
+	res, err = s.Deliver(context.Background(), "sid-nr-takeover", "hi", "alice", "alice", true)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path) // exit 3 is the evidence the old process is gone
 }
@@ -114,7 +114,7 @@ func TestDeliverCommandFailureStops(t *testing.T) {
 	s.SetDeliverPlanner(planFor(false))
 	cmdSession(t, s, "sid-cmd-fail", "%1")
 
-	_, err := s.Deliver(context.Background(), "sid-cmd-fail", "hi", "alice", true)
+	_, err := s.Deliver(context.Background(), "sid-cmd-fail", "hi", "alice", "alice", true)
 	assert.Err(t, err)
 	assert.Eq(t, DeliverFailedPrefix+"socket refused", DeliverReason(err))
 	assert.Len(t, inj.reqs, 1)
@@ -138,7 +138,7 @@ func TestDeliverCommandOfflineMatch(t *testing.T) {
 	s.SetInjector(inj)
 	s.SetDeliverPlanner(plan("no rollout found"))
 	cmdSession(t, s, "sid-om-hit", "%1")
-	res, err := s.Deliver(context.Background(), "sid-om-hit", "hi", "alice", false)
+	res, err := s.Deliver(context.Background(), "sid-om-hit", "hi", "alice", "alice", false)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTmux, res.Path)
 	assert.Len(t, inj.reqs, 2)
@@ -149,7 +149,7 @@ func TestDeliverCommandOfflineMatch(t *testing.T) {
 	s.SetInjector(inj)
 	s.SetDeliverPlanner(plan("no rollout found"))
 	cmdSession(t, s, "sid-om-miss", "%1")
-	_, err = s.Deliver(context.Background(), "sid-om-miss", "hi", "alice", true)
+	_, err = s.Deliver(context.Background(), "sid-om-miss", "hi", "alice", "alice", true)
 	assert.Err(t, err)
 	assert.Eq(t, DeliverFailedPrefix+"socket refused", DeliverReason(err))
 	assert.Len(t, inj.reqs, 1)
@@ -160,7 +160,7 @@ func TestDeliverCommandOfflineMatch(t *testing.T) {
 	s.SetInjector(inj)
 	s.SetDeliverPlanner(plan("no rollout found"))
 	cmdSession(t, s, "sid-om-ok", "%1")
-	res, err = s.Deliver(context.Background(), "sid-om-ok", "hi", "alice", false)
+	res, err = s.Deliver(context.Background(), "sid-om-ok", "hi", "alice", "alice", false)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathCommand, res.Path)
 }
@@ -172,7 +172,7 @@ func TestDeliverCommandAbsentUsesTmux(t *testing.T) {
 	s.SetInjector(inj)
 	s.SetDeliverPlanner(planFor(false))
 	tmuxSession(t, s, "sid-plain") // agent claude
-	res, err := s.Deliver(context.Background(), "sid-plain", "hi", "alice", false)
+	res, err := s.Deliver(context.Background(), "sid-plain", "hi", "alice", "alice", false)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTmux, res.Path)
 }
@@ -188,7 +188,7 @@ func TestDeliverCommandOpenTurnFirst(t *testing.T) {
 	assert.NoErr(t, err)
 	_, err = s.OpenTurn("sid-cmd-turn", "q?", 60)
 	assert.NoErr(t, err)
-	res, err := s.Deliver(context.Background(), "sid-cmd-turn", "a", "alice", false)
+	res, err := s.Deliver(context.Background(), "sid-cmd-turn", "a", "alice", "alice", false)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTurn, res.Path)
 	assert.Len(t, inj.reqs, 0)
@@ -204,23 +204,23 @@ func TestTakeoverRefusedWhileHeartbeatFresh(t *testing.T) {
 	s.SetTakeoverAliveSec(120)
 	takeoverSession(t, s, "sid-alive")
 
-	_, err := s.Deliver(context.Background(), "sid-alive", "hi", "alice", true)
+	_, err := s.Deliver(context.Background(), "sid-alive", "hi", "alice", "alice", true)
 	assert.Err(t, err)
 	assert.Eq(t, ReasonSessionAlive, DeliverReason(err))
 	assert.Len(t, to.reqs, 0)
-	_, err = s.Resume(context.Background(), "sid-alive", "", "alice")
+	_, err = s.Resume(context.Background(), "sid-alive", "", "alice", "alice")
 	assert.Eq(t, ReasonSessionAlive, DeliverReason(err))
 
 	real := time.Now
 	s.nowFn = func() time.Time { return real().Add(200 * time.Second) }
-	res, err := s.Deliver(context.Background(), "sid-alive", "hi", "alice", true)
+	res, err := s.Deliver(context.Background(), "sid-alive", "hi", "alice", "alice", true)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path)
 
 	s.nowFn = real
 	s.SetTakeoverAliveSec(0)
 	takeoverSession(t, s, "sid-alive-off")
-	res, err = s.Deliver(context.Background(), "sid-alive-off", "hi", "alice", true)
+	res, err = s.Deliver(context.Background(), "sid-alive-off", "hi", "alice", "alice", true)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path)
 }
@@ -234,7 +234,7 @@ func TestSendMessageFallsBackToDeliverLadder(t *testing.T) {
 	s.SetInjector(inj)
 	s.SetDeliverPlanner(planFor(true))
 	cmdSession(t, s, "sid-msg-cmd", "")
-	m, err := s.SendMessage(context.Background(), "sid-msg-cmd", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-msg-cmd", "hello", "alice", "alice")
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.SessionMessageDelivered, m.Status)
 	assert.Eq(t, PathCommand, m.Channel)
@@ -243,7 +243,7 @@ func TestSendMessageFallsBackToDeliverLadder(t *testing.T) {
 	// reason code first.
 	_, err = s.Register(RegisterInput{SessionID: "sid-msg-none", Agent: "other", ProjectKey: "self", Runner: "w-x", Event: EventSessionStart})
 	assert.NoErr(t, err)
-	m, err = s.SendMessage(context.Background(), "sid-msg-none", "hello", "alice")
+	m, err = s.SendMessage(context.Background(), "sid-msg-none", "hello", "alice", "alice")
 	assert.Err(t, err)
 	assert.Eq(t, jobstore.SessionMessageUndelivered, m.Status)
 	assert.True(t, strings.HasPrefix(m.Error, ReasonNoTmux+":"), m.Error)

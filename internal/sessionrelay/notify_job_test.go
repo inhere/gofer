@@ -43,7 +43,7 @@ func notifySession(t *testing.T, s *Service, sid string) {
 	t.Helper()
 	_, err := s.Register(RegisterInput{
 		SessionID: sid, Agent: "claude", ProjectKey: "self", Runner: "local",
-		PeerName: "proj-" + sid, PeerMessaging: true, Event: EventSessionStart,
+		PeerName: "proj-" + sid, PeerMessaging: true, Event: EventSessionStart, CallerID: "alice",
 	})
 	assert.NoErr(t, err)
 }
@@ -73,7 +73,9 @@ func TestNotifyJobEndedDeliversOnceAndClaimsTheWatch(t *testing.T) {
 	assert.NoErr(t, s.NotifyJobEnded(context.Background(), n))
 
 	assert.Eq(t, 1, f.submitted)
-	assert.Eq(t, OperatorGofer, f.lastCaller)
+	// The messenger job carries the SESSION OWNER as its ceiling owner; the notice itself is
+	// spoken by gofer (the outbox operator below), which is a label nobody holds a ceiling for.
+	assert.Eq(t, "alice", f.lastCaller)
 	msgs := outboxMessages(t, s, "sid-notify")
 	if len(msgs) != 1 {
 		t.Fatalf("outbox messages = %d, want 1 (%+v)", len(msgs), msgs)

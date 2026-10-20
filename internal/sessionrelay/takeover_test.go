@@ -87,7 +87,7 @@ func TestDeliverTakeoverSubmitsInteractiveResume(t *testing.T) {
 	s.SetNotifier(nf)
 	takeoverSession(t, s, "sid-takeover-01")
 
-	res, err := s.Deliver(context.Background(), "sid-takeover-01", "carry on", "alice", true)
+	res, err := s.Deliver(context.Background(), "sid-takeover-01", "carry on", "alice", "alice", true)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path)
 	assert.Eq(t, "job-takeover-1", res.JobID)
@@ -159,12 +159,12 @@ func TestDeliverTakeoverRequiresAllowTakeover(t *testing.T) {
 	// Without the opt-in the reply stops where path A stops: no pane to type into.
 	// A takeover starts a SECOND process against the session, so it never happens
 	// implicitly (the web asks first).
-	_, err := s.Deliver(context.Background(), "sid-noperm", "hello", "alice", false)
+	_, err := s.Deliver(context.Background(), "sid-noperm", "hello", "alice", "alice", false)
 	assert.True(t, errors.Is(err, ErrUndeliverable))
 	assert.Eq(t, ReasonNoTmux, DeliverReason(err))
 	assert.Len(t, to.reqs, 0)
 
-	res, err := s.Deliver(context.Background(), "sid-noperm", "hello", "alice", true)
+	res, err := s.Deliver(context.Background(), "sid-noperm", "hello", "alice", "alice", true)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path)
 
@@ -172,7 +172,7 @@ func TestDeliverTakeoverRequiresAllowTakeover(t *testing.T) {
 	// with pane_missing, and the takeover takes over from there.
 	paneSession(t, s, "sid-stale-pane", "%9")
 	s.SetInjector(&fakeInjector{res: InjectResult{JobID: "job-gone", ExitCode: 3, Output: "pane_missing\n"}})
-	res, err = s.Deliver(context.Background(), "sid-stale-pane", "hi", "alice", true)
+	res, err = s.Deliver(context.Background(), "sid-stale-pane", "hi", "alice", "alice", true)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTakeover, res.Path)
 
@@ -180,7 +180,7 @@ func TestDeliverTakeoverRequiresAllowTakeover(t *testing.T) {
 	// that terminal, and typing into it was correctly refused.
 	paneSession(t, s, "sid-busy-pane", "%10")
 	s.SetInjector(&fakeInjector{res: InjectResult{JobID: "job-busy", ExitCode: 4, Output: "pane_busy:vim\n"}})
-	_, err = s.Deliver(context.Background(), "sid-busy-pane", "hi", "alice", true)
+	_, err = s.Deliver(context.Background(), "sid-busy-pane", "hi", "alice", "alice", true)
 	assert.Eq(t, "inject_failed:pane_busy:vim", DeliverReason(err))
 }
 
@@ -242,7 +242,7 @@ func TestDeliverTakeoverPreconditions(t *testing.T) {
 				assert.NoErr(t, err)
 			}
 
-			_, err := s.Deliver(context.Background(), "sid-pre", "hello", "alice", true)
+			_, err := s.Deliver(context.Background(), "sid-pre", "hello", "alice", "alice", true)
 			assert.True(t, errors.Is(err, ErrUndeliverable))
 			assert.Eq(t, tc.want, DeliverReason(err))
 			assert.Len(t, to.reqs, 0)
@@ -316,7 +316,7 @@ func TestReleaseTakeover(t *testing.T) {
 	s.SetTakeoverer(to)
 	takeoverSession(t, s, "sid-release")
 
-	_, err := s.Deliver(context.Background(), "sid-release", "hello", "alice", true)
+	_, err := s.Deliver(context.Background(), "sid-release", "hello", "alice", "alice", true)
 	assert.NoErr(t, err)
 
 	a, err := s.ReleaseTakeover(context.Background(), "sid-release")

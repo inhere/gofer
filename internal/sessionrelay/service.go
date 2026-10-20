@@ -216,6 +216,9 @@ type Service struct {
 	agentInject      func(agentKey string) []string
 	deliverPlan      func(agentKey, sessionID, text string) CommandPlan
 	takeoverAliveSec int
+	// restricted reports whether this deployment gives any caller a ceiling (see
+	// ceiling_origin.go). nil = nobody is restricted.
+	restricted       func() bool
 	messagingMu      sync.Mutex
 	messagingLocks   map[string]*sync.Mutex
 	messengerSlots   map[string]chan struct{}

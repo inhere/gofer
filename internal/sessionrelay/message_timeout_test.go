@@ -72,7 +72,7 @@ func TestMessengerTimeoutRunningJobIsDeliveringThenSettles(t *testing.T) {
 	s := newSlowMessengerSvc(t, f)
 	messengerSession(t, s, "sid-m-run")
 
-	m, err := s.SendMessage(context.Background(), "sid-m-run", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-m-run", "hello", "alice", "alice")
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.SessionMessageDelivering, m.Status)
 	assert.Eq(t, "job-msgr", m.JobID)
@@ -97,7 +97,7 @@ func TestMessengerTimeoutLateFailureIsWrittenBack(t *testing.T) {
 	f := &slowMessenger{abandon: InjectResult{JobID: "job-msgr", ExitCode: -1, Running: true, Status: "running"}}
 	s := newSlowMessengerSvc(t, f)
 	messengerSession(t, s, "sid-m-fail")
-	m, err := s.SendMessage(context.Background(), "sid-m-fail", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-m-fail", "hello", "alice", "alice")
 	assert.NoErr(t, err)
 
 	// exit 0 without the receipt is not a delivery.
@@ -113,7 +113,7 @@ func TestMessengerTimeoutUnstartedJobIsCancelledAndUndelivered(t *testing.T) {
 	s := newSlowMessengerSvc(t, f)
 	messengerSession(t, s, "sid-m-queued")
 
-	m, err := s.SendMessage(context.Background(), "sid-m-queued", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-m-queued", "hello", "alice", "alice")
 	assert.Err(t, err)
 	assert.Eq(t, []string{"job-msgr"}, f.abandoned)
 	assert.Eq(t, jobstore.SessionMessageUndelivered, m.Status)
@@ -125,7 +125,7 @@ func TestMessengerTimeoutJobFinishedMeanwhile(t *testing.T) {
 	f := &slowMessenger{abandon: InjectResult{JobID: "job-msgr", ExitCode: 0, Output: "已发送"}}
 	s := newSlowMessengerSvc(t, f)
 	messengerSession(t, s, "sid-m-done")
-	m, err := s.SendMessage(context.Background(), "sid-m-done", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-m-done", "hello", "alice", "alice")
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.SessionMessageDelivered, m.Status)
 }
@@ -136,7 +136,7 @@ func TestMessengerTimeoutWithoutAbandonerFails(t *testing.T) {
 	s.ConfigureMessaging(true, "", 80*time.Millisecond, 0)
 	s.SetMessenger(plainSlowMessenger{})
 	messengerSession(t, s, "sid-m-plain")
-	m, err := s.SendMessage(context.Background(), "sid-m-plain", "hello", "alice")
+	m, err := s.SendMessage(context.Background(), "sid-m-plain", "hello", "alice", "alice")
 	assert.Err(t, err)
 	assert.Eq(t, jobstore.SessionMessageFailed, m.Status)
 	assert.Contains(t, m.Error, "超时")

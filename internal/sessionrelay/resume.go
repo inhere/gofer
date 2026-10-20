@@ -90,10 +90,14 @@ func (s *Service) PlanResumeFor(a jobstore.AgentSession) ResumePlan {
 // (or is released), and an ended session returns to ended then.
 //
 // Failures are *UndeliverableError with a reason code (see DeliverReason); their
-// wrapped error is the Chinese explanation.
-func (s *Service) Resume(ctx context.Context, sid, initialInput, by string) (DeliverResult, error) {
+// wrapped error is the Chinese explanation. by is the display label, origin the caller-scope
+// ceiling owner of the takeover job (see ceiling_origin.go).
+func (s *Service) Resume(ctx context.Context, sid, initialInput, by, origin string) (DeliverResult, error) {
 	if len(initialInput) > MaxDeliverText {
 		return DeliverResult{}, fmt.Errorf("%w: text is %d bytes, limit %d", ErrInvalidInput, len(initialInput), MaxDeliverText)
+	}
+	if _, err := s.ceilingOwner(origin, "a session takeover"); err != nil {
+		return DeliverResult{}, err
 	}
 	a, ok, err := s.store.GetAgentSession(sid)
 	if err != nil {
@@ -105,7 +109,7 @@ func (s *Service) Resume(ctx context.Context, sid, initialInput, by string) (Del
 	if err := s.takeoverAliveCheck(a, false); err != nil {
 		return DeliverResult{}, &UndeliverableError{Reason: ReasonSessionAlive, Err: errors.New(ExplainReason(ReasonSessionAlive, a, err))}
 	}
-	res, err := s.deliverTakeover(ctx, a, initialInput, by)
+	res, err := s.deliverTakeover(ctx, a, initialInput, by, origin)
 	if err != nil {
 		if reason := DeliverReason(err); reason != "" {
 			return DeliverResult{}, &UndeliverableError{Reason: reason, Err: errors.New(ExplainReason(reason, a, err))}

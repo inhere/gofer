@@ -39,7 +39,7 @@ func TestRecordReplyFromSessionOwner(t *testing.T) {
 	f := &residentFake{}
 	s.SetMessenger(f)
 	registerReplySession(t, s, "sid-r", "server", "proj-a", "hook-alice")
-	msg, err := s.SendMessage(context.Background(), "sid-r", "进度如何", "alice")
+	msg, err := s.SendMessage(context.Background(), "sid-r", "进度如何", "alice", "alice")
 	assert.NoErr(t, err)
 
 	_, _, err = s.RecordReply("sid-r", "答复", "uds:/x.sock", jobstore.SessionReplySourceSession, "")
