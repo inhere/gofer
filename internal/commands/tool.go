@@ -177,13 +177,14 @@ or delivered; the hook runs on this machine with this machine's config.
 	}
 	return &gcli.Command{
 		Name: "tool",
-		Desc: "Small utilities: file copy to/from a worker, the transfer staging area, certificates and the stats backfill",
+		Desc: "Small utilities: a raw API call, file copy to/from a worker, the transfer staging area, certificates and the stats backfill",
 		Subs: []*gcli.Command{
 			cp,
 			cert,
 			hookTest,
 			backfill,
 			{Name: "xfer", Desc: "Manage staged file transfers", Subs: []*gcli.Command{ls, show, rm}},
+			NewToolApiCmd(),
 			// GIT-02 plumbing: the internal job that delivers a worker's worktree job.
 			{Name: "deliver", Hidden: true, Desc: "Run a delivery plan read from stdin (internal)", Func: runToolDeliver},
 		},
