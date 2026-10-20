@@ -201,7 +201,9 @@ func TestJobDeadlineEnvReportsClampedTimeout(t *testing.T) {
 
 // TestBatchAgentPromptGetsDeadlineLineOnce asserts the one-line notice in the prompt the
 // agent actually received (the cli-agent's argv echoes the rendered prompt): exactly one
-// line, at the end, naming the effective limit and the wall clock it ends at.
+// line, at the end, naming the effective limit and — gofer-drlm — the moment it starts
+// counting, with the absolute end left to the env var instead of a wall clock fixed at
+// submit.
 func TestBatchAgentPromptGetsDeadlineLineOnce(t *testing.T) {
 	t.Parallel()
 	clk := &fakeClock{}
@@ -224,10 +226,14 @@ func TestBatchAgentPromptGetsDeadlineLineOnce(t *testing.T) {
 	if got := strings.Count(out, deadlineLinePrefix); got != 1 {
 		t.Fatalf("prompt carries %d deadline lines, want exactly 1:\n%s", got, out)
 	}
-	deadline := time.Unix(clk.unix+120, 0)
-	want := "本 job 时限 2 分钟，截止 " + deadline.Format("15:04") + "（" + deadline.Format("-07:00") + "）"
+	want := "本 job 时限 2 分钟，从开始执行算起（排队等锁的时间不计入）；截止时刻与环境变量 $GOFER_JOB_DEADLINE 一致"
 	if !strings.Contains(out, want) {
 		t.Fatalf("prompt is missing %q:\n%s", want, out)
+	}
+	// No wall clock from the submit moment: a queued job would read one that already lost
+	// its queue time (gofer-drlm).
+	if clock := time.Unix(clk.unix+120, 0).Format("15:04"); strings.Contains(out, "截止 "+clock) {
+		t.Fatalf("the prompt line names the submit-time clock %s instead of the start-relative limit:\n%s", clock, out)
 	}
 	// LAST line of the prompt: the argv echo prints the prompt as its final argument.
 	if !strings.HasSuffix(strings.TrimRight(out, " \t\r\n"), "接近时限时先提交已完成的部分，汇报里写清未完成项。") {
@@ -303,12 +309,12 @@ func TestAppendJobDeadlineLineShapes(t *testing.T) {
 	}
 }
 
-// TestJobDeadlineLineRendersMinutesAndClock pins the text the agent reads, including the
+// TestJobDeadlineLineRendersDurationAndEnv pins the text the agent reads, including the
 // seconds fallback for a limit that is not a whole minute.
-func TestJobDeadlineLineRendersMinutesAndClock(t *testing.T) {
+func TestJobDeadlineLineRendersDurationAndEnv(t *testing.T) {
 	t.Parallel()
 	got := jobDeadlineLine(jobLimit{Sec: 1800, Deadline: deadlineTestNow.Add(30 * time.Minute)})
-	want := "本 job 时限 30 分钟，截止 08:30（+00:00）。剩余时间看 $GOFER_JOB_DEADLINE 或运行 gofer job show $GOFER_JOB_ID；接近时限时先提交已完成的部分，汇报里写清未完成项。"
+	want := "本 job 时限 30 分钟，从开始执行算起（排队等锁的时间不计入）；截止时刻与环境变量 $GOFER_JOB_DEADLINE 一致，也可运行 gofer job show $GOFER_JOB_ID 查看。接近时限时先提交已完成的部分，汇报里写清未完成项。"
 	if got != want {
 		t.Fatalf("line = %q\nwant %q", got, want)
 	}
@@ -364,6 +370,53 @@ func TestJobDeadlineEnvContinuationUsesItsOwnLimit(t *testing.T) {
 	}
 	if srcDeadline, _ := time.Parse(time.RFC3339, srcValues[jobDeadlineEnv]); parsed.Equal(srcDeadline) {
 		t.Fatalf("continuation deadline %s equals the source's — the clock did not advance", parsed)
+	}
+}
+
+// TestJobDeadlineStartsWhenTheJobStartsRunning is the gofer-drlm regression: a job that
+// queues for a long time must hand its agent a deadline measured from the moment it STARTS
+// RUNNING, not from its submit. A holder job owns the directory lock for a moment and the
+// waiter parks in waiting_dir behind it — the queue F12 keeps out of the run — while the
+// fake clock moves 30 minutes forward, so the two answers are far apart and nothing sleeps
+// for the queue itself.
+func TestJobDeadlineStartsWhenTheJobStartsRunning(t *testing.T) {
+	t.Parallel()
+	clk := &fakeClock{}
+	root := t.TempDir()
+	s := newDeadlineService(t, root, clk)
+
+	exclusive := true
+	holder := mustSubmit(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "sleep", "1s"), Cwd: ".", TimeoutSec: 60, ExclusiveDir: &exclusive,
+	})
+	waitForStatus(t, s, holder.ID, StatusRunning, 10*time.Second)
+
+	waiter := mustSubmit(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "env-print", jobTimeoutSecEnv, jobDeadlineEnv), Cwd: ".",
+		TimeoutSec: 600, ExclusiveDir: &exclusive,
+	})
+	waitForStatus(t, s, waiter.ID, StatusWaitingDir, 10*time.Second)
+
+	queued := int64(1800) // 30 minutes on the directory lock
+	clk.advance(queued)
+
+	final := waitStatus(t, s, waiter.ID, 30*time.Second, StatusDone, StatusFailed, StatusTimeout, StatusCancelled)
+	if final.Status != StatusDone {
+		t.Fatalf("job %s status = %s (err=%s), want done", waiter.ID, final.Status, final.Error)
+	}
+	values := parseEnvPrint(readJobLog(t, final, store.StdoutFile))
+	if values[jobTimeoutSecEnv] != "120" {
+		t.Fatalf("child %s = %q, want the admitted 120", jobTimeoutSecEnv, values[jobTimeoutSecEnv])
+	}
+	parsed, err := time.Parse(time.RFC3339, values[jobDeadlineEnv])
+	if err != nil {
+		t.Fatalf("child %s = %q is not RFC3339: %v", jobDeadlineEnv, values[jobDeadlineEnv], err)
+	}
+	if want := time.Unix(deadlineTestNow.Unix()+queued+120, 0); !parsed.Equal(want) {
+		t.Fatalf("child %s = %s, want start+120s = %s (submit+120s = %s would be the old behaviour)",
+			jobDeadlineEnv, parsed, want, time.Unix(deadlineTestNow.Unix()+120, 0))
 	}
 }
 

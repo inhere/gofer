@@ -612,8 +612,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// variables can never disagree. It runs HERE, on the side that composes the prompt for
 	// this job (the hub for a dispatched job carries it in Forward.Prompt, the worker's own
 	// re-entry must not add a second), and BEFORE the runner branch so both cases get it.
-	// A remote job's line names the dispatch moment as the start — its variables are the
-	// executing machine's own (see the local branch below).
+	// gofer-drlm: the prompt line quotes the DURATION only — the absolute end is the moment
+	// execution starts, and execute re-derives GOFER_JOB_DEADLINE from there (a prompt is
+	// written once, here, but a job can queue for a long time before it runs).
 	limit := jobTimeLimit(s.nowFn(), timeout, &req, 0)
 	prompt = appendJobDeadlineLine(cfg, &req, prompt, limit)
 
@@ -902,6 +903,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// GOFER_JOB_DEADLINE, from the limit resolved above) — the executing machine's own
 		// start time is the base, so a dispatched job's variables are computed HERE, on the
 		// machine that runs it, and not on the hub that wrote its prompt line.
+		// gofer-drlm: execute re-derives both variables once the last queue is behind the job
+		// (that is the start the agent should count from); the values set here are only the
+		// pre-run shape of the same limit.
 		// A continuation carrier (ResumeSourceAgent) layers the SOURCE agent's env and the
 		// source job's own env between agent.env and the request's explicit env, so the
 		// resumed CLI sees the same HOME / model / credentials as the first turn. They
@@ -1084,10 +1088,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Cwd:                 workDir,
 			ResultDir:           resultDir,
 			StartedAt:           startedAt,
-			RequestJSON:         string(reqJSON),
-			CallerID:            req.CallerID,
-			OriginCaller:        req.OriginCaller,
-			SourceSessionID:     req.SourceSessionID,
+			// gofer-drlm：这一行被接受、开始排队等槽位/目录锁的时刻；StartedAt 是真正开跑的时刻，
+			// 两者之差就是「排队 X」（排队时间不计入执行时限，F12）。
+			QueuedAt:        now,
+			RequestJSON:     string(reqJSON),
+			CallerID:        req.CallerID,
+			OriginCaller:    req.OriginCaller,
+			SourceSessionID: req.SourceSessionID,
 			// gofer-3db4: the decided end-notification (request_json carries it; the
 			// snapshot fields are what the terminal notify reads).
 			Notify:        req.Notify,

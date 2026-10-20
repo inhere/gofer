@@ -2576,6 +2576,17 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	c.Printf("runner:     %s\n", res.Runner)
 	c.Printf("status:     %s\n", res.Status)
 	c.Printf("exit_code:  %d\n", res.ExitCode)
+	// gofer-drlm：排队（并发槽位 / 目录锁，不计入执行时限）与运行分开显示——排了多久看一眼就知道，
+	// 不必自己拿 started_at 去减提交时刻。
+	if res.QueuedAt > 0 {
+		c.Printf("queued_at:  %s\n", formatStarted(res.QueuedAt))
+	}
+	if res.StartedAt > 0 {
+		c.Printf("started_at: %s\n", formatStarted(res.StartedAt))
+	}
+	if res.QueuedAt > 0 && res.StartedAt > res.QueuedAt {
+		c.Printf("排队:       %s\n", (time.Duration(res.StartedAt-res.QueuedAt) * time.Second).String())
+	}
 	c.Printf("cwd:        %s\n", res.Cwd)
 	c.Printf("result_dir: %s\n", res.ResultDir)
 	// bd h-aii-s9ck：生效 deadline 与截断提示，解释 job 为何在请求时长之前被杀

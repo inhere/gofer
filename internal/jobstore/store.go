@@ -94,6 +94,7 @@ var schemaStmts = []string{
   request_json TEXT,
   error        TEXT,
   started_at   INTEGER NOT NULL,
+  queued_at    INTEGER,
   ended_at     INTEGER,
   updated_at   INTEGER NOT NULL,
   rendered_command TEXT,
@@ -1538,6 +1539,11 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("hold_json", "hold_json TEXT"); err != nil {
+		return err
+	}
+	// gofer-drlm: when the row began waiting for its turn. NULL on pre-existing rows =
+	// "unknown", never a fabricated submit time.
+	if err := add("queued_at", "queued_at INTEGER"); err != nil {
 		return err
 	}
 	// MCP 注册表（MCP-06）：mcp_json=该 job 绑定的 MCP server 名字清单（JSON），空=没绑。
