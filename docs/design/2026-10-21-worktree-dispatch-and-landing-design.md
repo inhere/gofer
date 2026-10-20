@@ -99,3 +99,21 @@ gofer job worktree merge <job-id> [--squash] [--message <m>]
 ## 结论与人工计划 Gate
 
 本稿经用户具名批准后写实施计划；设计批准不授权实施。
+
+## 实施记录
+
+计划 `docs/plans/2026-10-21-worktree-dispatch-and-landing-plan.md`（用户 2026-10-21 批准），随 v0.180.0 发布。
+
+| 任务 | 合并 | 要点 |
+|---|---|---|
+| W1 位置 / 分支 / 链接、`--var @file` | a33bb3f5 | 项目 `worktree.dir` / `branch` / `links`，`--worktree-name` / `--branch`；链接建在 worktree 建好之后、job 执行之前，建立失败只记事件；`@file` 上限 1 MiB |
+| W2 合并收尾、`job wait` | 70d5ab11 | 清理按 job 上记录的「实际建立的链接」逐个先删，删目录前再扫一遍链接 / 联接兜底；合并允许只有 `.gofer/tracker/` 脏；`index.lock` 最多等 60 s；`--todo-done` / `--note` / `--comment` / `--cleanup`；`gofer job wait`（轮询） |
+| 补测 | d8a96544 | `--todo-done` 成功与冲突路径（服务层与 HTTP） |
+
+与设计的出入：
+
+- W1 最初按清理时的项目配置推导要删的链接；审阅发现配置变更后可能顺着目录联接误删主 checkout 的目标，W2 改为记录实际建立的链接并加扫描兜底。
+- 按保留期自动清理（prune）的路径没有读取记录的链接，依靠删除前的扫描兜底。
+- worker 上建立的链接记录在该执行机自己的 job 行，不经 wire 回报主机（清理只在执行机发生）。
+- `gofer job wait` 用轮询现有读取接口实现，没有用推送。
+
