@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
@@ -32,6 +33,9 @@ type Store interface {
 
 type Jobs interface {
 	ResumeJob(jobID, prompt, runner, callerID string) (job.JobResult, error)
+	// ResumeJobWithImages continues a session with image paths riding the continuation's
+	// argv (image_input: arg).
+	ResumeJobWithImages(jobID, prompt, runner, callerID string, imagePaths []string) (job.JobResult, error)
 	SaySession(jobID, message string) error
 }
 
@@ -560,7 +564,12 @@ func rowRouteInput(row jobstore.JobRecord) (RouteInput, string, string) {
 // sayWithImages sends images into the live resident session job row.
 func (s *Service) sayWithImages(callerID, threadID string, row jobstore.JobRecord, text string, atts []jobstore.Attachment) (TurnResult, error) {
 	in, runner, project := rowRouteInput(row)
-	in.FilePath = s.filePathAgent(in.Agent)
+	// A live resident session takes an image as a protocol block or not at all: its next
+	// turn has no argv of its own, so the arg delivery (which rides a fresh job's argv)
+	// does not apply here and the route reports the agent as file-only/none instead.
+	if s.imageInputAgent(in.Agent) == config.ImageInputPath {
+		in.FilePath = true
+	}
 	if s.att.Jobs != nil && !in.Pty {
 		in.ACPAccepts, _ = s.att.Jobs.SessionAcceptsImages(row.ID)
 	}
@@ -581,15 +590,26 @@ func (s *Service) sayWithImages(callerID, threadID string, row jobstore.JobRecor
 	return TurnResult{ThreadID: threadID, JobID: row.ID}, nil
 }
 
-// resumeWithImages continues an ended session with a new job; images can only travel by file.
+// resumeWithImages continues an ended session with a new job; the images are placed on the
+// executing machine and reach the agent either by path in the text (file) or as argv flags
+// (arg).
 func (s *Service) resumeWithImages(callerID, threadID string, row jobstore.JobRecord, text string, atts []jobstore.Attachment) (TurnResult, error) {
 	in, runner, project := rowRouteInput(row)
-	in.FilePath = s.filePathAgent(in.Agent)
+	s.applyImageInput(&in)
 	var result job.JobResult
 	m := imageSend{
 		callerID: callerID, threadID: threadID, atts: atts, in: in, runner: runner, project: project,
 		text: func(t string) (string, string, error) {
 			r, err := s.jobs.ResumeJob(row.ID, t, "", callerID)
+			if err != nil {
+				return "", "", err
+			}
+			result = r
+			return RefKindPrompt, PromptRef(r.ID, 1), nil
+		},
+		// arg delivery: the paths ride the continuation's argv, so the body stays as typed.
+		paths: func(t string, paths []string) (string, string, error) {
+			r, err := s.jobs.ResumeJobWithImages(row.ID, t, "", callerID, paths)
 			if err != nil {
 				return "", "", err
 			}
@@ -651,7 +671,13 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 			return TurnResult{}, relaySendError(jobstore.SessionMessage{}, err)
 		}
 	}
-	in := RouteInput{Kind: KindRelay, Agent: sess.Agent, Runner: sess.Runner, Project: sess.ProjectKey, FilePath: s.filePathAgent(sess.Agent)}
+	in := RouteInput{Kind: KindRelay, Agent: sess.Agent, Runner: sess.Runner, Project: sess.ProjectKey}
+	// The session's own delivery channel (stdin / a queue command) carries text only, so an
+	// arg agent is not advertised as image-capable on this path; only path-readers get the
+	// file delivery here.
+	if s.imageInputAgent(sess.Agent) == config.ImageInputPath {
+		in.FilePath = true
+	}
 	var result TurnResult
 	m := imageSend{
 		callerID: callerID, threadID: threadID, atts: atts, in: in, runner: sess.Runner, project: sess.ProjectKey,

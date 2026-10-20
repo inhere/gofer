@@ -23,7 +23,7 @@ export const DESKTOP_COMPRESS_MIN_BYTES = 10 * 1024 * 1024
 const UNCOMPRESSED_MIME = 'image/gif'
 
 // thread 的附件能力位（后端 P4 提供；缺失 = 老服务端，按不支持处理）。
-export type AttachmentMode = 'inline' | 'file' | 'none'
+export type AttachmentMode = 'inline' | 'file' | 'arg' | 'none'
 
 export interface AttachmentCapability {
   mode: AttachmentMode
@@ -128,8 +128,9 @@ export function planCompression(input: CompressionInput): CompressionPlan {
 // attachmentCapability：thread 的能力位 → 📎 的可用性。字段缺失（老服务端）按「不支持」处理。
 export function attachmentCapability(thread?: AttachmentCapabilitySource | null): AttachmentCapability {
   const mode = thread?.attachments
-  if (mode === 'inline' || mode === 'file') {
-    // inline 与 file 对用户没有差别：都能附图，送达方式由服务端决定。
+  if (mode === 'inline' || mode === 'file' || mode === 'arg') {
+    // 送达方式对用户没有差别（inline 随消息、file 写路径、arg 作为命令行参数）：都能附图，
+    // 具体怎么送由服务端决定。
     return { mode, enabled: true, reason: '' }
   }
   if (mode === 'none') {

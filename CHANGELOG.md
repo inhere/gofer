@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新功能
+
+- **工作台附图新增「命令行参数」送达（gofer-r0ke）**：`agents.<k>.image_input` 新增取值 `arg`，配合新字段 `agents.<k>.image_args`（如 `["--image", "{{path}}"]`，每张图展开一次，须含 `{{path}}`、不得含 `{{prompt}}`）：图片仍先放到执行机，但路径不再写进正文的 `[附图 n]` 行，而是追加到该次续接 job 的 argv（落在 job 的 `cmd` 里，落库与转发 worker 都不丢）。内置 `suga` 模板改为 `image_input: arg` + `image_args: [--image, "{{path}}"]`（suga v0.40+ 的 `suga run --image`），工作台里命令行 suga 会话的 📎 不再置灰；`suga-acp` 仍由 ACP `promptCapabilities.image` 决定是否内联。发送给**正在运行的终端会话**（`suga send`）还没接 `--image`，那条通路仍按不支持处理。thread 能力位新增取值 `arg`（Web 与 `inline` / `file` 一样可用 📎）。
+
 ## [0.179.0] - 2026-10-20
 
 ### 新功能

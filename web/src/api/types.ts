@@ -2021,7 +2021,7 @@ export interface WorkbenchTurnResult {
   decision_id?: string
 }
 
-export type WorkbenchAttachmentMode = 'inline' | 'file' | 'none'
+export type WorkbenchAttachmentMode = 'inline' | 'file' | 'arg' | 'none'
 
 // 上传一张图后服务端回的东西（POST /v1/attachments）。
 export interface AttachmentInfo {

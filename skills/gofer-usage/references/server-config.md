@@ -174,7 +174,8 @@ agents:
     args: [exec, "{{prompt}}"]          # 批处理 argv(job run); 模板: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
     interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
     detect: { command: codex, args: [--version] }   # 探测本机是否装了
-    # image_input: path                # 工作台附图的「文件送达」：agent 能否按绝对路径读图片(path|none)。不写 = 内置表(claude/codex 及 -acp 变体=path, suga/suga-acp=none, 未知=none); none 的会话在工作台里 📎 置灰。ACP 内联图片块只看 agent 自己声明的 promptCapabilities.image，与此项无关
+    # image_input: path                # 工作台附图的送达方式(path|arg|none)。path = agent 自己按绝对路径读图（消息末尾得到 `[附图 n] 绝对路径`）；arg = 图片路径作为命令行参数随续接 job 的 argv 送给 agent（不在正文写路径，需要 image_args）；none = 收不到图。不写 = 内置表(claude/codex 及 -acp 变体=path, suga=arg, suga-acp=none, 未知=none); none 的会话在工作台里 📎 置灰。ACP 内联图片块只看 agent 自己声明的 promptCapabilities.image，与此项无关
+    # image_args: [--image, "{{path}}"]  # image_input: arg 必填：每张图片展开一次（三张图就是 --image p1 --image p2 --image p3），须含 {{path}}、不得含 {{prompt}}；内置 suga 默认 [--image, "{{path}}"]
     # model_args: ["-m", "{{model}}"]   # --model 时插在含 {{prompt}} 的参数之前（prompt 是 `--prompt`/`-p` 的值时插在该 flag 之前）；须含 {{model}}、不得含 {{prompt}}；不写 = 内置(claude --model / codex -m / suga --model)
     # from_session_args: [--from, "{{from_session}}"]  # --from-session 时追加在 args 之后；须含 {{from_session}}；内置 claude 默认 [--resume, "{{from_session}}", --fork-session]
     # add_dir_args: [--add-dir, "{{dir}}:ro"]   # job 的 cwd 是【嵌套仓】（所在 git 仓顶层 ≠ 项目根）时追加，把项目根作为 {{dir}} 交给 agent；须含 {{dir}}、不得含 {{prompt}}；内置 suga 默认 [--add-dir, "{{dir}}:ro"]

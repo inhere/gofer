@@ -35,6 +35,10 @@ func TestRouteAttachmentsTruthTable(t *testing.T) {
 		{"unnamed agent cannot", RouteInput{Runner: "local", Project: "p"}, AttachNone, "该 agent 暂不支持读取图片"},
 		{"no runner", RouteInput{Agent: "claude", Project: "p", FilePath: true}, AttachNone, "会话没有执行机信息"},
 		{"no project", RouteInput{Agent: "claude", Runner: "local", FilePath: true}, AttachNone, "会话没有执行机信息"},
+		// image_input: arg — the paths ride the next job's argv instead of the text.
+		{"arg agent", RouteInput{Kind: KindAgent, Agent: "suga", Runner: "local", Project: "p", Arg: true}, AttachArg, ""},
+		{"arg agent needs executor info", RouteInput{Kind: KindAgent, Agent: "suga", Arg: true}, AttachNone, "会话没有执行机信息"},
+		{"arg agent cannot be a pty", RouteInput{Kind: KindAgent, Agent: "suga", Runner: "local", Project: "p", Pty: true, Arg: true}, AttachNone, "pty 会话不支持附图"},
 	}
 	for _, c := range cases {
 		got := RouteAttachments(c.in)
@@ -219,6 +223,48 @@ func TestTurnFileDeliveryLocalRunnerWritesRealFile(t *testing.T) {
 	rec := f.bound(t, id)
 	assert.Eq(t, "s:sid-2", rec.ThreadID)
 	assert.Eq(t, "continued-job#1", rec.RefID)
+}
+
+// arg delivery (image_input: arg): the images are placed on the executing machine and the
+// paths ride the continuation's argv, so the body is exactly what the user typed.
+func TestTurnArgDeliveryRidesTheArgv(t *testing.T) {
+	placer := &fakePlacer{abs: "/exec/alpha/tmp/gofer-attachments/20261019/a.png"}
+	f := newAttFixture(t, placer)
+	f.cfg.Agents = map[string]config.AgentConfig{
+		"suga": {Type: "cli-agent", Command: "suga", ImageInput: config.ImageInputArg, ImageArgs: []string{"--image", "{{path}}"}},
+	}
+	f.put(t, jobstore.JobRecord{ID: "su", ProjectKey: "alpha", Agent: "suga", Runner: "local", Cwd: ".",
+		SessionID: "sid-su", Status: job.StatusDone, EndedAt: 110})
+	id := f.upload(t, "alice", "PNGDATA")
+
+	res, err := f.svc.TurnWithAttachments("alice", "s:sid-su", "look", []string{id})
+	assert.NoErr(t, err)
+	assert.Eq(t, "continued-job", res.JobID)
+	// No `[附图 n]` line: the path travels as an argv flag, not as text.
+	assert.Eq(t, "look", f.jobs.prompt)
+	assert.Eq(t, []string{"/exec/alpha/tmp/gofer-attachments/20261019/a.png"}, f.jobs.imagePaths)
+	assert.Len(t, placer.calls, 1)
+	rec := f.bound(t, id)
+	assert.Eq(t, "s:sid-su", rec.ThreadID)
+	assert.Eq(t, "continued-job#1", rec.RefID)
+}
+
+// An old worker cannot report where it wrote the file, so the argv would carry a path the
+// agent cannot read: the send is refused and nothing is submitted.
+func TestTurnArgDeliveryNeedsAbsolutePath(t *testing.T) {
+	f := newAttFixture(t, &fakePlacer{}) // abs "" = a worker below protocol v25
+	f.cfg.Agents = map[string]config.AgentConfig{
+		"suga": {Type: "cli-agent", Command: "suga", ImageInput: config.ImageInputArg, ImageArgs: []string{"--image", "{{path}}"}},
+	}
+	f.put(t, jobstore.JobRecord{ID: "su", ProjectKey: "alpha", Agent: "suga", Runner: "w-old", Cwd: ".",
+		SessionID: "sid-su2", Status: job.StatusDone, EndedAt: 110})
+	id := f.upload(t, "alice", "PNGDATA")
+
+	_, err := f.svc.TurnWithAttachments("alice", "s:sid-su2", "look", []string{id})
+	assert.True(t, errors.Is(err, ErrAttachmentDelivery), err)
+	assert.True(t, strings.Contains(err.Error(), "绝对路径未知"), err)
+	assert.Eq(t, "", f.jobs.prompt)
+	assert.Eq(t, "", f.bound(t, id).ThreadID)
 }
 
 func TestTurnPlacementFailureSendsNothing(t *testing.T) {
