@@ -183,8 +183,15 @@ func (h *recoverHub) waitResult(t *testing.T, jobID string, timeout time.Duratio
 	return out
 }
 
+// waitForCond waits on the success path (G052): the timeout is at least 10 s and is
+// scaled by GOFER_TEST_TIMEOUT_SCALE, because a loaded CI runner (Windows) missed the
+// old fixed 3 s waits; the condition is polled, so a fast pass still returns at once.
 func waitForCond(t *testing.T, what string, timeout time.Duration, cond func() bool) {
 	t.Helper()
+	if timeout < 10*time.Second {
+		timeout = 10 * time.Second
+	}
+	timeout = wait.Timeout(t, timeout)
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if cond() {
