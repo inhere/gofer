@@ -11,6 +11,13 @@
 
 ## [未发布]
 
+### 新功能
+
+- **整理与管家降噪（gofer-k1cg）**：测试 / 试一试的会话不再变成工作项，也不再被整理器和管家拿去点评。
+  - 工作项草稿改成同一会话**第 `work.draft.min_prompts` 次人工提问**（默认 2）才建，标题取触发它的那次提问；不属于任何项目的会话不建；`work.draft.exclude_projects` / `work.draft.exclude_cwds`（前缀，Windows 不分大小写与分隔符）/ `work.draft.exclude_title_patterns`（正则）命中的不建。已经建出来的草稿不动。会话表新增人工提问计数（additive）。
+  - 短命会话（已结束或离线、存活短于 `work.short_session.max_minutes`（默认 10）且人工提问少于 `work.short_session.max_prompts`（默认 3））不进整理器：整理记录里留一条 `skipped` 与原因，**不占每日整理额度**；管家巡检、首条摘要的未结列表、会话离线 / 结束事件同样跳过。
+  - 上面六个都是扩展设置（`settings` 表），web 设置 →「扩展设置」或 `gofer settings set` 改了立即生效；读设置失败时退回默认值并记日志。
+
 ## [0.178.0] - 2026-10-20
 
 ### 新功能
