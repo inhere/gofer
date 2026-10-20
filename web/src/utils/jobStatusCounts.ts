@@ -21,7 +21,7 @@ const COUNTED: ReadonlySet<JobStatus> = new Set<JobStatus>([
 ])
 
 /** 状态栏上这个状态要不要显示数字。 */
-export function isCountedStatus(status: JobStatus | ''): boolean {
+export function isCountedStatus(status: JobStatus | ''): status is JobStatus {
   return status !== '' && COUNTED.has(status)
 }
 
