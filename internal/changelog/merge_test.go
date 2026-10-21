@@ -121,6 +121,78 @@ func TestMergeDeletedEntry(t *testing.T) {
 	assert.StrContains(t, string(res.Merged), ">>>>>>> theirs")
 }
 
+// TestMergeEntryChangedOnOneSideOnly: an entry only theirs rewrote is theirs'
+// text, not a conflict; ours did not touch it.
+func TestMergeEntryChangedOnOneSideOnly(t *testing.T) {
+	base := repoDoc(unreleased, released)
+	theirs := repoDoc("## [未发布]\n\n### 新功能\n\n- 已有功能，对方改写\n\n### 改进\n\n- 已有改进\n\n", released)
+	res := mergeOK(t, base, base, theirs)
+	assertDoc(t, string(theirs), res.Merged)
+	assert.Eq(t, 0, len(res.Notes))
+}
+
+// TestMergeEntryChangedByTheirsAfterOursAdded: ours appended an entry right after
+// an entry theirs rewrote byte for byte differently. The neighbouring addition is
+// no change of the old entry on ours: theirs' text wins and nothing conflicts.
+func TestMergeEntryChangedByTheirsAfterOursAdded(t *testing.T) {
+	base := repoDoc(unreleased, released)
+	ours := repoDoc("## [未发布]\n\n### 新功能\n\n- 已有功能\n- 我方新增\n\n### 改进\n\n- 已有改进\n\n", released)
+	theirs := repoDoc("## [未发布]\n\n### 新功能\n\n- 已有功能，对方改写\n\n### 改进\n\n- 已有改进\n\n", released)
+	res := mergeOK(t, base, ours, theirs)
+	assertDoc(t, string(repoDoc(
+		"## [未发布]\n\n### 新功能\n\n- 已有功能，对方改写\n- 我方新增\n\n### 改进\n\n- 已有改进\n\n", released)), res.Merged)
+}
+
+// TestMergeEntryChangedByTheirsBeforeOursAdded: same with ours' entry inserted in
+// front of the entry theirs rewrote.
+func TestMergeEntryChangedByTheirsBeforeOursAdded(t *testing.T) {
+	base := repoDoc(unreleased, released)
+	ours := repoDoc("## [未发布]\n\n### 新功能\n\n- 我方新增\n- 已有功能\n\n### 改进\n\n- 已有改进\n\n", released)
+	theirs := repoDoc("## [未发布]\n\n### 新功能\n\n- 已有功能，对方改写\n\n### 改进\n\n- 已有改进\n\n", released)
+	res := mergeOK(t, base, ours, theirs)
+	assertDoc(t, string(repoDoc(
+		"## [未发布]\n\n### 新功能\n\n- 我方新增\n- 已有功能，对方改写\n\n### 改进\n\n- 已有改进\n\n", released)), res.Merged)
+}
+
+// TestMergeEntryChangedAndAddedByTheirs: theirs rewrote an entry and added one
+// after it while ours left the subsection alone: both of theirs' changes land.
+func TestMergeEntryChangedAndAddedByTheirs(t *testing.T) {
+	base := repoDoc(unreleased, released)
+	theirs := repoDoc("## [未发布]\n\n### 新功能\n\n- 已有功能，对方改写\n- 对方新增\n\n### 改进\n\n- 已有改进\n\n", released)
+	res := mergeOK(t, base, base, theirs)
+	assertDoc(t, string(theirs), res.Merged)
+}
+
+// TestMergeEntriesAddedAtSamePosition: both sides add a different entry in the
+// same place; ours' order is kept, theirs' additions follow.
+func TestMergeEntriesAddedAtSamePosition(t *testing.T) {
+	base := repoDoc(unreleased, released)
+	ours := repoDoc("## [未发布]\n\n### 新功能\n\n- 我方新增\n- 已有功能\n\n### 改进\n\n- 已有改进\n\n", released)
+	theirs := repoDoc("## [未发布]\n\n### 新功能\n\n- 对方新增\n- 已有功能\n\n### 改进\n\n- 已有改进\n\n", released)
+	res := mergeOK(t, base, ours, theirs)
+	assertDoc(t, string(repoDoc(
+		"## [未发布]\n\n### 新功能\n\n- 我方新增\n- 已有功能\n- 对方新增\n\n### 改进\n\n- 已有改进\n\n", released)), res.Merged)
+}
+
+// TestMergeRealChangelogOneSideEntryChange: the merge that used to report
+// "changed on both sides" for an entry ours never touched. Ours only appended a
+// new entry behind it, theirs rewrote one of its sub-lines.
+func TestMergeRealChangelogOneSideEntryChange(t *testing.T) {
+	base := readTestdata(t, "real-base.md")
+	ours := readTestdata(t, "real-ours.md")
+	theirs := readTestdata(t, "real-theirs.md")
+	res := mergeOK(t, base, ours, theirs)
+	assert.Eq(t, 0, len(res.Notes))
+	got := string(res.Merged)
+	assert.False(t, strings.Contains(got, "<<<<<<<"))
+	// theirs' rewrite of the sub-line replaces ours' (unchanged) copy
+	assert.StrContains(t, got, "- 步骤与 fan 新增 `env`、`ref`（执行侧见下一条）")
+	assert.False(t, strings.Contains(got, "下发 worker 待后续版本，提交时明确报「暂不支持」"))
+	// ours' and theirs' new entries are both there
+	assert.StrContains(t, got, "- **workflow 模板可以查看源文件、保存与删除**")
+	assert.StrContains(t, got, "- **workflow 的 `ref:` 临时检出与 `env` 下发 worker**")
+}
+
 // TestMergeReleasedSectionConflict: outside the unreleased section the driver
 // leaves git's own markers and a non-zero exit.
 func TestMergeReleasedSectionConflict(t *testing.T) {
@@ -265,6 +337,14 @@ func TestChangelogDriverGitEndToEnd(t *testing.T) {
 }
 
 // --- test helpers -------------------------------------------------------
+
+// readTestdata reads a file of the testdata directory.
+func readTestdata(t *testing.T, name string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", name))
+	assert.Require(t, assert.NoErr(t, err))
+	return b
+}
 
 func driverFiles(t *testing.T, base, ours, theirs []byte) (string, string, string) {
 	t.Helper()
