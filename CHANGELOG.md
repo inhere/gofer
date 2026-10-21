@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **worktree 合并 / 交付失败不再丢掉主 checkout 里未提交的 tracker 改动（gofer-nwyw）**：合并允许在 `.gofer/tracker/` 有未提交的 issue / memory 改动时开始，失败时（冲突、`--squash` 冲突、squash 提交失败、分支与本地 tracker 改动撞车被 git 拒绝）以前一律 `git reset --hard HEAD`，把这些未提交改动一起回滚到 HEAD，实测丢过一条新建的 issue。现在只撤销合并本身（`merge --abort`；`--squash` 没有 MERGE_HEAD 时用 `reset --merge`），被合并改动涉及的路径照样复原，合并之外的未提交改动保持原样。
+
 ## [0.181.2] - 2026-10-21
 
 ### 修复
