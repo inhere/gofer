@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # verify 与 release 通用模板 设计
 
-> 状态：Draft 0.3 / 待用户批准
+> 状态：Draft 0.3 / 已批准（用户 2026-10-21：「好的，批准设计」——D1–D7 均取推荐值）
 > issue：gofer-byev、gofer-51b0
 
 - 思考模式：rigorous。
@@ -170,7 +170,7 @@ steps:
 4. **D4** 推送 main / tag 需要 `allow_push` + 新权限 `repo.push`（已确认）。
 5. **D5** CI 与产物查询复用 delivery 平台 API（已确认）。
 6. **D6** 删 `continue_on_failure`，沿用 `on_failure`，另加 `run: always`（已确认）。
-7. **D7（新，待确认）** web 查看与编辑模板：全局模板可编辑保存；项目模板保存为工作区里的未提交改动并提示提交；运行记录可另存为模板；内置模板只读。备选：web 只读查看源文件，编辑一律在仓库里改。推荐：前者。
+7. **D7**（已确认）web 查看与编辑模板：全局模板可编辑保存；项目模板保存为工作区里的未提交改动并提示提交；运行记录可另存为模板；内置模板只读。备选：web 只读查看源文件，编辑一律在仓库里改。推荐：前者。
 
 ## 结论与人工计划 Gate
 
