@@ -67,6 +67,9 @@ func repoWithWorktree(t *testing.T) (main, wt, bare string) {
 	// env, and a CI runner has no global user — give the repository one.
 	git(t, main, "config", "user.name", "t")
 	git(t, main, "config", "user.email", "t@t")
+	// Byte-exact content checks: a Windows runner whose global git config sets
+	// core.autocrlf=true would otherwise check files out with CRLF.
+	git(t, main, "config", "core.autocrlf", "false")
 	git(t, main, "config", "url."+bare+".insteadOf", "https://github.com/o/r.git")
 	git(t, main, "remote", "add", "origin", "https://github.com/o/r.git")
 	if err := os.WriteFile(filepath.Join(main, "a.txt"), []byte("a\n"), 0o644); err != nil {
