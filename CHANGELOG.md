@@ -16,6 +16,7 @@
 - **worktree 合并 / 交付失败不再丢掉主 checkout 里未提交的 tracker 改动（gofer-nwyw）**：合并允许在 `.gofer/tracker/` 有未提交的 issue / memory 改动时开始，失败时（冲突、`--squash` 冲突、squash 提交失败、分支与本地 tracker 改动撞车被 git 拒绝）以前一律 `git reset --hard HEAD`，把这些未提交改动一起回滚到 HEAD，实测丢过一条新建的 issue。现在只撤销合并本身（`merge --abort`；`--squash` 没有 MERGE_HEAD 时用 `reset --merge`），被合并改动涉及的路径照样复原，合并之外的未提交改动保持原样。
 - **workflow 结果视图（gofer-j5xc）**：`gofer wf show` 结果表里扇出步每一路的 NAME 以前都显示步骤名（如 `checks`），现在显示那一路 fan 自己声明的 `name`（如 `linux-race` / `web`），没命名才回落步骤名；`GET /v1/workflows/{id}` 的每个 fan 行新增 `fan_name` 字段（原 `name` 保留），web 详情页结果表同样显示。
 - **失败摘录不再被预期的 `ERROR:` 行淹没（gofer-j5xc）**：摘录改为优先收 go test 这类强信号失败块——`--- FAIL:` 头连同其后几行细节、`FAIL\t<pkg>` 汇总、`panic:`、`WARNING: DATA RACE` 及其后几行上下文；只有整段日志都找不到强信号时才回落到 `ERROR:` / `error:` / `✗` 弱信号行。
+- **会话停在 Stop hook 的「只等 job」等待里时，job 完成通知不再被积压到下一轮（gofer-fv6a）**：等待中的 Stop hook 是轮询自己 watch 的那个通道，但通知以前会先删掉 watch、再起传话人推送——传话人的消息送不进被自己的 Stop hook 挡住的 agent，watch 又已经被消费，通知就一直压到人下一次发消息（实测滞后约 25 分钟）。现在 Stop hook 进入「只等 job」等待时向 server 报一个 park 截止时间（`stop_park_sec`），在它到期前（以及会话有打开的 relay turn 时）通知不认领 watch、不走传话人，交给那个等待在下一次轮询里带出；送达仍是一次性的（watch 就是送达凭据，由 hook 交付时消费），等待结束 / 未在等待的会话照旧走传话人。同时把 `SendMessage` 的选路与 `deliver` 统一为「有打开回合就答复回合」，不再看会漂移的会话状态。
 
 ## [0.181.2] - 2026-10-21
 

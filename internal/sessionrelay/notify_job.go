@@ -122,6 +122,15 @@ func formatNoticeDuration(d time.Duration) string {
 
 // NotifyJobEnded tells a session that a job ended, through the messenger.
 //
+// One case is decided BEFORE anything is claimed (gofer-fv6a): a session whose
+// Stop hook is PARKED on its watched jobs (announced as StopParkUntil) is told by
+// that hook, not by the messenger. The hook polls the watches; a notice claimed
+// here would be handed to the messenger, whose peer message cannot reach an agent
+// blocked in its own Stop hook — it was read at the next human prompt (~25 minutes
+// late in the reported case) while the watch that would have woken it was gone.
+// Leaving the watch in place keeps the at-most-once rule untouched: the hook claims
+// it (CompleteSessionWatches) exactly when it hands the notice over.
+//
 // Delivery is at-most-once per (session, job) and survives a server restart,
 // because the durable record is the session's job WATCH — the row the Stop hook
 // and its catch-up read:
@@ -144,6 +153,14 @@ func (s *Service) NotifyJobEnded(ctx context.Context, n JobEndedNotice) error {
 	jobID := strings.TrimSpace(n.JobID)
 	if target == "" || jobID == "" {
 		return fmt.Errorf("%w: job end notification needs a target session and a job id", ErrInvalidInput)
+	}
+	if a, ok, err := s.store.GetAgentSession(target); err != nil {
+		return fmt.Errorf("read notification target: %w", err)
+	} else if ok && StopHookParked(a, s.now().Unix()) {
+		slog.Info("sessionrelay: job end notice left to the parked Stop hook",
+			"event", "sessionrelay.job_end_deferred_to_hook", "session_id", target, "job_id", jobID,
+			"parked_until", a.StopParkUntil)
+		return nil
 	}
 	claimed, err := s.store.RemoveSessionJobWatch(target, jobID)
 	if err != nil {

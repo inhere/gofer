@@ -2610,6 +2610,11 @@ type SessionHeartbeat struct {
 	ClearProgress  bool   `json:"clear_progress,omitempty"`
 	// Cwd is the hook's current directory (the server records it as last_cwd, for display).
 	Cwd string `json:"cwd,omitempty"`
+	// StopParkSec (gofer-fv6a) announces that this Stop hook is PARKING for that many
+	// seconds, waiting on the session's watched jobs: while it holds, a job-end notice
+	// is left to the hook rather than handed to the messenger (a peer message cannot
+	// reach an agent blocked in its own Stop hook). 0 clears an announced park.
+	StopParkSec *int `json:"stop_park_sec,omitempty"`
 	// SubagentID / SubagentDelta report a SubagentStart (+1) / SubagentStop (-1).
 	SubagentID    string `json:"subagent_id,omitempty"`
 	SubagentDelta int    `json:"subagent_delta,omitempty"`
