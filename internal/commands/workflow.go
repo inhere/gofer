@@ -529,14 +529,11 @@ func runWorkflowRun(c *gcli.Command, _ []string) error {
 			return verr
 		}
 		// -p is the project the template is resolved against (its own
-		// .gofer/workflows, then the global ones) and the workflow's default project;
-		// the template's own `project` variable, when given, keeps precedence.
-		if wfRunOpts.project != "" {
-			if _, ok := vars["project"]; !ok {
-				vars["project"] = wfRunOpts.project
-			}
-		}
-		wf, err = cli.SubmitWorkflowTemplate(wfRunOpts.template, vars)
+		// .gofer/workflows, then the global ones) and the workflow's default project. It
+		// travels as the body's project, not as a template variable: a template that does
+		// not declare `project` would refuse the unknown variable (the server fills a
+		// declared one from it).
+		wf, err = cli.SubmitWorkflowTemplate(wfRunOpts.template, wfRunOpts.project, vars)
 	} else {
 		spec, err = workflow.ParseWorkflowFile(file)
 		if err == nil {

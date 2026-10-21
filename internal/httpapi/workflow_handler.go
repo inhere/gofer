@@ -76,6 +76,18 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 			projectKey = vars["project"]
 		}
 		projectDir, globalDir := s.workflowTemplateDirs(projectKey)
+		// A template that declares its own `project` variable gets the body's project
+		// when the caller did not set the variable explicitly.
+		if _, set := vars["project"]; !set && bodyProject != "" {
+			for _, tpl := range workflow.LookupWorkflowTemplates(projectDir, globalDir) {
+				if tpl.Name == name {
+					if _, declared := tpl.Spec.Vars["project"]; declared {
+						vars["project"] = bodyProject
+					}
+					break
+				}
+			}
+		}
 		spec, err = workflow.ResolveWorkflowTemplate(name, vars, projectDir, globalDir)
 		if err != nil {
 			writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())

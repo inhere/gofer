@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -438,4 +439,38 @@ func TestSaveWorkflowAsTemplate(t *testing.T) {
 		t.Fatalf("unknown workflow status = %d, want 404", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+// TestSubmitTemplateWithBodyProject pins `gofer wf run --template <t> -p <project>`: the
+// project travels as the body's `project`, so a template without a `project` variable is
+// accepted (it used to be refused as an unknown variable), and a template that declares
+// one gets it filled from the body when the caller did not set it.
+func TestSubmitTemplateWithBodyProject(t *testing.T) {
+	s, _, _ := newTemplateTestServer(t)
+	const noVarTemplate = `title: "no project var"
+steps:
+  - name: check
+    agent: exec
+    cmd: ["echo", "ok"]
+    cwd: .
+    timeout_sec: 60
+`
+	for name, content := range map[string]string{"op-novar": noVarTemplate, "op-withvar": validProjectTemplateYAML} {
+		resp := do(t, s, http.MethodPut, "/v1/workflow-templates/"+name+"?scope=project&project=seed", adminToken,
+			map[string]string{"content": content})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("save %s status = %d, want 200", name, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	for _, name := range []string{"op-novar", "op-withvar"} {
+		resp := do(t, s, http.MethodPost, "/v1/workflows", adminToken,
+			map[string]any{"template": name, "project": "seed", "vars": map[string]string{}})
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			t.Fatalf("submit %s status = %d (%s), want it accepted with project from the body", name, resp.StatusCode, body)
+		}
+		resp.Body.Close()
+	}
 }

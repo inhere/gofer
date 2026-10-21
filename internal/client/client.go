@@ -1454,8 +1454,12 @@ func (c *Client) SubmitWorkflow(spec workflow.Spec) (Workflow, error) {
 }
 
 // SubmitWorkflowTemplate asks the server to resolve a named workflow template.
-func (c *Client) SubmitWorkflowTemplate(name string, vars map[string]string) (Workflow, error) {
-	body, err := json.Marshal(map[string]any{"template": name, "vars": vars})
+func (c *Client) SubmitWorkflowTemplate(name, project string, vars map[string]string) (Workflow, error) {
+	payload := map[string]any{"template": name, "vars": vars}
+	if project != "" {
+		payload["project"] = project
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return Workflow{}, err
 	}
