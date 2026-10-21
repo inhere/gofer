@@ -80,6 +80,36 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 						"输出一份汇总报告：已确认的发现（附 文件:行 证据）、被否决的发现（附原因），以及评审遗漏的问题。不要修改任何文件。"},
 			}},
 		},
+		{
+			Name: "verify", Desc: "Check one commit with a single command in a temporary checkout",
+			Spec: Spec{Title: "verify ${vars.commit}", Vars: map[string]gotemplate.Var{
+				"project": {Required: true, Desc: "project key"},
+				"commit":  {Required: true, Desc: "commit, branch or tag to check"},
+				"cmd":     {Required: true, Desc: "the check command line, e.g. 'go test ./...'"},
+				"runner":  runnerVar,
+			}, Steps: []StepSpec{{
+				Name: "check", ProjectKey: "${vars.project}", Agent: "exec", Runner: "${vars.runner}", Ref: "${vars.commit}",
+				// A step command is always argv (never split by gofer), so `sh -c` keeps a
+				// multi-word check usable from the single `cmd` variable.
+				Cmd: []string{"sh", "-c", "${vars.cmd}"},
+			}}},
+		},
+		{
+			Name: "release", Desc: "Push a branch and a version tag, then wait for the tag's CI checks",
+			Spec: Spec{Title: "release v${vars.version}", Vars: map[string]gotemplate.Var{
+				"project": {Required: true, Desc: "project key"},
+				"version": {Required: true, Desc: "version to release, e.g. 1.2.3 (the tag is v<version>)"},
+				"branch":  {Default: "main", Desc: "branch to push"},
+				"runner":  runnerVar,
+			}, Steps: []StepSpec{
+				{Name: "push", ProjectKey: "${vars.project}", Runner: "${vars.runner}", Uses: "gofer/push",
+					With: map[string]any{"refs": []any{"${vars.branch}", "v${vars.version}"}},
+					// One attempt is one job, so the retry never eats into a single job's budget.
+					OnFailure: onFailureRetry, Retry: &job.RetryPolicy{MaxAttempts: 5}},
+				{Name: "ci", ProjectKey: "${vars.project}", Runner: "${vars.runner}", Uses: "gofer/wait-ci",
+					With: map[string]any{"ref": "v${vars.version}", "timeout_min": 40}},
+			}},
+		},
 	}
 }
 
