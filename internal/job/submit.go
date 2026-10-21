@@ -1600,12 +1600,14 @@ func (s *Service) createJobDir(st store.Store) (string, error) {
 	return "", fmt.Errorf("could not allocate unique job id: %w", lastErr)
 }
 
-// genJobID returns a timestamp-prefixed id with a random hex suffix, e.g.
-// 20060102-150405-1a2b3c4d. The random suffix guarantees uniqueness across
-// process restarts (a seconds+in-memory-seq scheme would collide on restart).
+// genJobID returns a kind-prefixed id with a timestamp and a random hex suffix,
+// e.g. job-20060102-150405-1a2b3c4d. The random suffix guarantees uniqueness
+// across process restarts (a seconds+in-memory-seq scheme would collide on
+// restart); JobIDPrefix makes a job id recognizable next to wf- / plan- / todo-
+// (ids minted before the prefix stay valid and are not migrated).
 func (s *Service) genJobID() string {
 	ts := s.nowFn().Format(JobIDLayout)
-	return ts + "-" + RandomSuffix()
+	return JobIDPrefix + ts + "-" + RandomSuffix()
 }
 
 // resolveRole expands a JobRequest.Role preset (E35, design §8.5) IN PLACE: an

@@ -232,7 +232,12 @@ func (s *Service) NotifySessionNudgePaused(sessionID, projectKey, title, nudgeID
 	})
 }
 
+// shortID shortens a session or job id for a notice. A job id drops the job-
+// marker first: the notice already says "job", and both the current
+// job-20261021-212412-6a715d34 shape and the older prefix-less one then read as
+// a timestamp.
 func shortID(id string) string {
+	id = strings.TrimPrefix(id, JobIDPrefix)
 	if len(id) > 8 {
 		return id[:8]
 	}

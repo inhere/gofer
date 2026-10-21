@@ -39,6 +39,33 @@ func TestEnsureCreatesDatedJobDir(t *testing.T) {
 	}
 }
 
+// TestEnsureCreatesDatedJobDirForPrefixedID: a job id carrying the kind marker
+// (job-20260706-…) still lands under <base>/<yyyymmdd>/<job-id>; ids minted
+// before the prefix keep their date dir too.
+func TestEnsureCreatesDatedJobDirForPrefixedID(t *testing.T) {
+	tests := []struct {
+		name    string
+		jobID   string
+		dateDir string
+	}{
+		{name: "prefixed", jobID: "job-20260706-150405-1a2b3c4d", dateDir: "20260706"},
+		{name: "legacy", jobID: "20260706-150405-1a2b3c4d", dateDir: "20260706"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := t.TempDir()
+			fs := NewFileStore(base)
+			if err := fs.Ensure(tt.jobID); err != nil {
+				t.Fatalf("Ensure: %v", err)
+			}
+			want := filepath.Join(base, tt.dateDir, tt.jobID)
+			if got := fs.Dir(tt.jobID); got != want {
+				t.Fatalf("Dir=%q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestDirReturnsLegacyFlatDirWhenPresent(t *testing.T) {
 	base := t.TempDir()
 	fs := NewFileStore(base)

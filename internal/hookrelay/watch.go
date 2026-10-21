@@ -27,9 +27,10 @@ type WatchedJob struct {
 const watchReasonRunes = 200
 
 var (
-	// submittedJobRE only takes a real job id (YYYYMMDD-HHMMSS-<8 hex>): ordinary prose
+	// submittedJobRE only takes a real job id: the current job-YYYYMMDD-HHMMSS-<8 hex>
+	// shape and the pre-prefix YYYYMMDD-HHMMSS-<8 hex> one old ids keep. Ordinary prose
 	// such as "the job was submitted" must not register a watch for a job named "was".
-	submittedJobRE = regexp.MustCompile(`(?m)\bjob\s+(\d{8}-\d{6}-[0-9a-f]{8})\s+submitted\b`)
+	submittedJobRE = regexp.MustCompile(`(?m)\bjob\s+((?:job-)?\d{8}-\d{6}-[0-9a-f]{8})\s+submitted\b`)
 	watchJobRE     = regexp.MustCompile(`(?m)\bgofer\s+job\s+watch\s+([A-Za-z0-9][A-Za-z0-9._:-]*)\b`)
 	finishedJobRE  = regexp.MustCompile(`(?m)\bjob\s+([A-Za-z0-9][A-Za-z0-9._:-]*)\s+(?:finished|completed)\s*:`)
 )

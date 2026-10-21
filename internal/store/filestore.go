@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -60,19 +61,27 @@ func (s *FileStore) Ensure(jobID string) error {
 	return nil
 }
 
-// dateSubdir extracts the yyyymmdd prefix from expected job ids
-// (20060102-...). Store cannot import job, so the shape check stays local.
+// dateSubdir extracts the yyyymmdd prefix from expected job ids — both the
+// current job-20260102-... shape and the pre-prefix 20260102-... one that old
+// jobs keep (the job- marker is optional; the date still drives the dated
+// result dir <base>/<yyyymmdd>/<job-id>). Store cannot import job, so the shape
+// check stays local.
 func dateSubdir(jobID string) string {
-	if len(jobID) < 9 || jobID[8] != '-' {
+	date := strings.TrimPrefix(jobID, jobIDDatePrefix)
+	if len(date) < 9 || date[8] != '-' {
 		return ""
 	}
 	for i := 0; i < 8; i++ {
-		if jobID[i] < '0' || jobID[i] > '9' {
+		if date[i] < '0' || date[i] > '9' {
 			return ""
 		}
 	}
-	return jobID[:8]
+	return date[:8]
 }
+
+// jobIDDatePrefix is the kind marker a job id carries (job-20260102-…, see
+// job.JobIDPrefix). Kept local for the same reason as the shape check above.
+const jobIDDatePrefix = "job-"
 
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
