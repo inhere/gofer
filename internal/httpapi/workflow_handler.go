@@ -32,6 +32,7 @@ type workflowDetail struct {
 	Error       string          `json:"error,omitempty"`
 	CreatedAt   int64           `json:"created_at"`
 	UpdatedAt   int64           `json:"updated_at"`
+	RerunOf     string          `json:"rerun_of,omitempty"`
 	Steps       []workflow.Step `json:"steps"`
 }
 
@@ -229,6 +230,7 @@ func (s *Server) handleGetWorkflow(c *rux.Context) {
 		CurrentStep: wf.CurrentStep, TotalSteps: wf.TotalSteps,
 		CallerID: wf.CallerID, Error: wf.Error,
 		CreatedAt: wf.CreatedAt, UpdatedAt: wf.UpdatedAt,
+		RerunOf: wf.RerunOf,
 		Steps: steps,
 	})
 }
@@ -365,6 +367,7 @@ type workflowSummary struct {
 	Error       string `json:"error,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
+	RerunOf     string `json:"rerun_of,omitempty"`
 }
 
 // toWorkflowSummary projects a jobstore.Workflow onto the API summary shape.
@@ -374,5 +377,41 @@ func toWorkflowSummary(wf jobstore.Workflow) workflowSummary {
 		CurrentStep: wf.CurrentStep, TotalSteps: wf.TotalSteps,
 		CallerID: wf.CallerID, Error: wf.Error,
 		CreatedAt: wf.CreatedAt, UpdatedAt: wf.UpdatedAt,
+		RerunOf: wf.RerunOf,
 	}
+}
+
+// rerunWorkflowRequest is the POST /v1/workflows/{id}/rerun body: mode ("failed" or
+// "from") and, for "from", the step (number or name) it starts at.
+type rerunWorkflowRequest struct {
+	Mode string `json:"mode"`
+	Step string `json:"step"`
+}
+
+// handleRerunWorkflow serves POST /v1/workflows/{id}/rerun: it trims the finished
+// workflow's stored spec (`failed` = only the failed steps / fans, `from` = that step
+// and every later one) and submits it as a NEW workflow whose rerun_of is the original
+// (design §一·7). The original is left untouched. A running workflow can not be re-run
+// (400): its outcome is not known yet.
+func (s *Server) handleRerunWorkflow(c *rux.Context) {
+	var req rerunWorkflowRequest
+	if err := c.BindJSON(&req); err != nil && err.Error() != "EOF" {
+		writeError(c, http.StatusBadRequest, "invalid rerun request", err.Error())
+		return
+	}
+	id := c.Param("id")
+	if wf, ok, err := s.workflow.GetWorkflow(id); err == nil && ok && !s.mayManageOwnedRow(c, wf.CallerID, true) {
+		s.denyJobAction(c, authz.PermJobManageOthers, authz.PermJobSubmit)
+		return
+	}
+	nw, ok, err := s.workflow.RerunWorkflow(id, req.Mode, req.Step, callerFromCtx(c))
+	if err != nil {
+		writeError(c, submitStatus(err), "workflow rerun rejected", err.Error())
+		return
+	}
+	if !ok {
+		writeError(c, http.StatusNotFound, "unknown workflow", "no workflow with id "+id)
+		return
+	}
+	c.JSON(http.StatusOK, toWorkflowSummary(nw))
 }

@@ -287,6 +287,11 @@ var jobAuthzCases = []authzCase{
 	{key: "POST /v1/workflows/{id}/pick", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/workflows/" + e.workflow() + "/pick", map[string]int{"step": 1, "fan": 0}}
 	}},
+	// S4 rerun: same rule as pick / resume — the submit permission, or job.manage.others for
+	// someone else's workflow.
+	{key: "POST /v1/workflows/{id}/rerun", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/workflows/" + e.workflow() + "/rerun", map[string]string{"mode": "failed"}}
+	}},
 
 	// wakeups
 	{key: "POST /v1/jobs/{id}/wakeups", req: func(e *authzCaseEnv) caseReq {

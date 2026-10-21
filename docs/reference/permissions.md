@@ -449,6 +449,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/workflows/{id}/events` | `InHandler(deny)` | `job.read.others` | — | `Resource(workflow)` | 读 |
 | `GET` | `/v1/workflows/{id}/export` | `InHandler(deny)` | `job.read.others` | — | `Resource(workflow)` | 读 |
 | `POST` | `/v1/workflows/{id}/pick` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(workflow)` | 写 |
+| `POST` | `/v1/workflows/{id}/rerun` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(workflow)` | 写 |
 | `POST` | `/v1/workflows/{id}/save-as-template` | `Require` | `config.write` | — | `Resource(workflow)` | 写 |
 | `GET` | `/v1/ws` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
 | `POST` | `/v1/ws-ticket` | `Public` | — | — | `NoProject` | 读（ReadSafe） |

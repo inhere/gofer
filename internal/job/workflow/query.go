@@ -34,7 +34,7 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 	}
 	out := make([]Step, 0, len(jobs))
 	for _, j := range jobs {
-		out = append(out, Step{
+		row := Step{
 			StepIndex:      j.StepIndex,
 			Attempt:        j.Attempt,
 			FanIndex:       j.FanIndex,
@@ -44,7 +44,22 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 			WorktreeBranch: j.WorktreeBranch,
 			Diff:           j.DiffSummary,
 			DiffSummary:    j.DiffSummary,
-		})
+			Runner:         j.Runner,
+		}
+		// Result view (design §一·6): only a row that actually ran has an exit code /
+		// duration, and only a failed row needs an excerpt (the logs are read lazily so
+		// a plain detail view does not stat every finished step's result dir).
+		if job.IsTerminal(j.Status) {
+			exit := j.ExitCode
+			row.ExitCode = &exit
+			if j.StartedAt > 0 && j.EndedAt >= j.StartedAt {
+				row.DurationSec = j.EndedAt - j.StartedAt
+			}
+		}
+		if j.Status == job.StatusFailed || j.Status == job.StatusTimeout || j.Status == job.StatusCancelled {
+			row.FailureExcerpt = failureExcerpt(j)
+		}
+		out = append(out, row)
 	}
 	// P3 UI fix: workflow-type steps run NO step-job, so they are missing from the
 	// job-derived rows above (the web/CLI chain only saw job steps, hiding the whole

@@ -1402,6 +1402,12 @@ type WorkflowStep struct {
 	WorktreeBranch  string `json:"worktree_branch,omitempty"`
 	Diff            string `json:"diff,omitempty"`
 	DiffSummary     string `json:"diff_summary,omitempty"`
+	// Result view (design §一·6): where the row ran, its exit code, how long it took
+	// and why it failed (the failure-looking lines of its log tail, at most 20).
+	Runner         string `json:"runner,omitempty"`
+	ExitCode       *int   `json:"exit_code,omitempty"`
+	DurationSec    int64  `json:"duration_sec,omitempty"`
+	FailureExcerpt string `json:"failure_excerpt,omitempty"`
 }
 
 // WorkflowEvent mirrors jobstore.WorkflowEvent's JSON (P1 timeline): the monotonic
@@ -1429,7 +1435,9 @@ type Workflow struct {
 	Error       string         `json:"error,omitempty"`
 	CreatedAt   int64          `json:"created_at"`
 	UpdatedAt   int64          `json:"updated_at"`
-	Steps       []WorkflowStep `json:"steps,omitempty"`
+	// RerunOf is the workflow this one was trimmed from by `wf rerun` (design §一·7).
+	RerunOf string           `json:"rerun_of,omitempty"`
+	Steps   []WorkflowStep `json:"steps,omitempty"`
 }
 
 // SubmitWorkflow POSTs a WorkflowSpec as JSON to /v1/workflows and returns the
@@ -1578,6 +1586,22 @@ func (c *Client) PickWorkflowFan(id string, step, fan int) (Workflow, error) {
 	}
 	var wf Workflow
 	if err := c.doJSON(http.MethodPost, "/v1/workflows/"+url.PathEscape(id)+"/pick", bytes.NewReader(body), &wf); err != nil {
+		return Workflow{}, err
+	}
+	return wf, nil
+}
+
+// RerunWorkflow re-runs a finished workflow as a NEW one (POST /v1/workflows/{id}/rerun):
+// mode "failed" keeps only its failed steps (and fans), mode "from" keeps step `step`
+// (number or name) and every later step. The new workflow records rerun_of; the
+// original is untouched. A running workflow is refused.
+func (c *Client) RerunWorkflow(id, mode, step string) (Workflow, error) {
+	body, err := json.Marshal(map[string]string{"mode": mode, "step": step})
+	if err != nil {
+		return Workflow{}, err
+	}
+	var wf Workflow
+	if err := c.doJSON(http.MethodPost, "/v1/workflows/"+url.PathEscape(id)+"/rerun", bytes.NewReader(body), &wf); err != nil {
 		return Workflow{}, err
 	}
 	return wf, nil

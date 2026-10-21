@@ -1520,6 +1520,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/workflows/{id}/export", s.handleExportWorkflow)
 		r.POST("/workflows/{id}/cancel", s.handleCancelWorkflow)
 		r.POST("/workflows/{id}/pick", s.handlePickWorkflow)
+		// S4 (design §一·7): rerun a finished workflow as a NEW one — only its failed
+		// steps (`mode: failed`) or from a step on (`mode: from`), recording rerun_of.
+		r.POST("/workflows/{id}/rerun", s.handleRerunWorkflow)
 		// D7: save a finished workflow's exported spec as a named template (same validation
 		// and scopes as an authored template).
 		r.POST("/workflows/{id}/save-as-template", s.handleSaveWorkflowAsTemplate)

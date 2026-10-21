@@ -260,6 +260,14 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: reconciled %d orphan non-terminal job(s) left by a prior serve/worker\n", n)
 	}
 
+	// Temporary `ref:` checkouts are removed when their job ends; a crash or restart can
+	// leave one behind (design 2026-10-21 §一·3). Run the same cleanup here for anything no
+	// live job owns, after the orphan reconcile so a job that is about to be failed is
+	// already terminal (and its checkout therefore not skipped).
+	if n := cr.Jobs.SweepStaleTempCheckouts(context.Background()); n > 0 {
+		c.Printf("gofer: removed %d stale temporary checkout(s) left by a prior serve\n", n)
+	}
+
 	// gofer-9b1b hold expiry: cancel the held jobs whose deadline passed — once now
 	// (holds that expired while serve was down end on boot), then every 30s. Started
 	// after the orphan reconcile, which leaves awaiting_approval rows untouched.

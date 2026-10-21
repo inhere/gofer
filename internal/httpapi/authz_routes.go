@@ -311,6 +311,10 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/jobs/{id}/resume":         {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("job")},
 	"POST /v1/jobs/{id}/rebuild":        {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("job")},
 	"POST /v1/workflows/{id}/pick":      {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("workflow")},
+	// S4 rerun (design §一·7) starts NEW work from the original spec, so it needs what a
+	// submit needs (job.submit; job.manage.others for someone else's workflow) — the same
+	// rule as resume / pick above.
+	"POST /v1/workflows/{id}/rerun":     {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("workflow")},
 	"POST /v1/jobs/{id}/deliver":        {user: InHandler(permDeny, authz.PermJobManageOthers), scope: Resource("job")},
 	"DELETE /v1/jobs/{id}/worktree":     {user: InHandler(permDeny, authz.PermJobManageOthers), scope: Resource("job")},
 	"POST /v1/jobs/{id}/worktree/merge": {user: InHandler(permDeny, authz.PermJobManageOthers), scope: Resource("job")},

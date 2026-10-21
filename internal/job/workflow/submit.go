@@ -33,7 +33,7 @@ func (e *Engine) SubmitWorkflow(spec Spec, callerID string) (jobstore.Workflow, 
 		return jobstore.Workflow{}, err
 	}
 	defer release()
-	return view.submitWorkflowImpl(spec, callerID, "", 0, 0)
+	return view.submitWorkflowImpl(spec, callerID, "", 0, 0, "")
 }
 
 // SubmitWorkflowChild submits an inline sub-workflow bound to a parent step (P3, D19).
@@ -52,7 +52,7 @@ func (e *Engine) SubmitWorkflowChild(spec Spec, callerID, parentID string, paren
 		return jobstore.Workflow{}, err
 	}
 	defer release()
-	return view.submitWorkflowImpl(spec, callerID, parentID, parentStep, parentAtt)
+	return view.submitWorkflowImpl(spec, callerID, parentID, parentStep, parentAtt, "")
 }
 
 // childWorkflowID derives the deterministic sub-workflow id for a parent step's attempt
@@ -65,11 +65,12 @@ func childWorkflowID(parentID string, parentStep, parentAtt int) string {
 	return fmt.Sprintf("%s:sub:s%d:a%d", parentID, parentStep, parentAtt)
 }
 
-// submitWorkflowImpl is the shared submit body for top-level (parentID=="") and child
-// (parentID!="") workflows. parentID/parentStep/parentAtt bind a sub-workflow to its
-// parent step+attempt and drive a DETERMINISTIC child id (childWorkflowID) so a
-// re-submit is idempotent.
-func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parentStep, parentAtt int) (jobstore.Workflow, error) {
+// submitWorkflowImpl is the shared submit body for top-level (parentID==""), child
+// (parentID!="") and rerun (rerunOf!="") workflows. parentID/parentStep/parentAtt bind
+// a sub-workflow to its parent step+attempt and drive a DETERMINISTIC child id
+// (childWorkflowID) so a re-submit is idempotent. rerunOf records the workflow id this
+// one was trimmed from (`wf rerun`, design §一·7); empty for an original submit.
+func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parentStep, parentAtt int, rerunOf string) (jobstore.Workflow, error) {
 	if len(spec.Steps) == 0 {
 		return jobstore.Workflow{}, fmt.Errorf("%w: workflow has no steps", job.ErrInvalidRequest)
 	}
@@ -177,6 +178,7 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 		CallerID:         callerID,
 		ParentWorkflowID: parentID,
 		ParentStepIndex:  parentStep,
+		RerunOf:          rerunOf,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -483,9 +485,10 @@ func unsupportedStepField(stepNo int, field string) error {
 }
 
 // validateStepFeatures validates the S1-parsed spec fields whose execution lands in a
-// later stage (run: always → S4, still refused) and the built-in steps that are
-// implemented (S3: `uses` / `with`). `ref` and `env` are implemented since S2 (a
-// temporary detached checkout, and the v26 dispatch field), so they pass.
+// later stage and the built-in steps that are implemented (S3: `uses` / `with`). `ref`
+// and `env` are implemented since S2 (a temporary detached checkout, and the v26
+// dispatch field) and `run: always` since S4, so they pass; only an unknown `run` value
+// is rejected.
 func validateStepFeatures(spec Spec, cfg *config.Config) error {
 	for i := range spec.Steps {
 		stepNo := i + 1
@@ -495,11 +498,8 @@ func validateStepFeatures(spec Spec, cfg *config.Config) error {
 				return fmt.Errorf("step %d: %w", stepNo, err)
 			}
 		}
-		if st.Run != "" {
-			if st.Run != runAlways {
-				return fmt.Errorf("%w: step %d has unknown run %q (want always)", job.ErrInvalidRequest, stepNo, st.Run)
-			}
-			return unsupportedStepField(stepNo, "run: always")
+		if st.Run != "" && st.Run != runAlways {
+			return fmt.Errorf("%w: step %d has unknown run %q (want always)", job.ErrInvalidRequest, stepNo, st.Run)
 		}
 		if st.SubWorkflow != nil {
 			if err := validateStepFeatures(*st.SubWorkflow, cfg); err != nil {

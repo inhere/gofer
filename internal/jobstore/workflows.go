@@ -77,6 +77,10 @@ type Workflow struct {
 	// sub-workflow (P3, design §5.2). 0 for a top-level workflow. Together with
 	// ParentWorkflowID it locates this sub-workflow as a parent step's child. 旧库行→0.
 	ParentStepIndex int
+	// RerunOf is the id of the workflow this one re-runs (S4, design §一·7). Empty for
+	// an original submit; set when `wf rerun --failed / --from` trimmed the original
+	// spec into a fresh workflow (the original is never modified). 旧库行→"".
+	RerunOf string
 }
 
 // UpdateWorkflowSpec replaces the declarative spec while a workflow remains
@@ -97,12 +101,14 @@ func (s *Store) UpdateWorkflowSpec(id, specJSON string) error {
 // P1 step_attempt/next_step_at columns COALESCE旧库行 into the v1-equivalent zero
 // value (attempt 1, no pending backoff) so a pre-existing workflow scans cleanly.
 // The P3 parent_workflow_id/parent_step_index columns COALESCE旧库/top-level 行 into
-// ""/0 (top-level, no parent), so向后兼容 (D23).
+// ""/0 (top-level, no parent), so向后兼容 (D23). rerun_of is the S4 rerun origin
+// (旧库行 → "").
 const selectWorkflowCols = `SELECT id, COALESCE(title,''), status, current_step,
   total_steps, spec_json, COALESCE(caller_id,''), COALESCE(error,''),
   created_at, updated_at,
   COALESCE(step_attempt,1), COALESCE(next_step_at,0),
-  COALESCE(parent_workflow_id,''), COALESCE(parent_step_index,0) FROM workflows`
+  COALESCE(parent_workflow_id,''), COALESCE(parent_step_index,0),
+  COALESCE(rerun_of,'') FROM workflows`
 
 // scanWorkflow reads one row (in selectWorkflowCols order) into a Workflow.
 func scanWorkflow(sc rowScanner) (Workflow, error) {
@@ -113,6 +119,7 @@ func scanWorkflow(sc rowScanner) (Workflow, error) {
 		&w.CreatedAt, &w.UpdatedAt,
 		&w.StepAttempt, &w.NextStepAt,
 		&w.ParentWorkflowID, &w.ParentStepIndex,
+		&w.RerunOf,
 	)
 	return w, err
 }
@@ -141,18 +148,26 @@ func (s *Store) InsertWorkflow(w Workflow) error {
 		parentStep = w.ParentStepIndex
 	}
 	const q = `INSERT INTO workflows
-  (id, title, status, current_step, total_steps, spec_json, caller_id, error, created_at, updated_at, step_attempt, next_step_at, parent_workflow_id, parent_step_index)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  (id, title, status, current_step, total_steps, spec_json, caller_id, error, created_at, updated_at, step_attempt, next_step_at, parent_workflow_id, parent_step_index, rerun_of)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		w.ID, w.Title, w.Status, w.CurrentStep, w.TotalSteps,
 		w.SpecJSON, w.CallerID, w.Error, w.CreatedAt, w.UpdatedAt,
-		w.StepAttempt, w.NextStepAt, parentWf, parentStep,
+		w.StepAttempt, w.NextStepAt, parentWf, parentStep, rerunOf(w.RerunOf),
 	); err != nil {
 		return fmt.Errorf("jobstore: insert workflow %q: %w", w.ID, err)
 	}
 	return nil
+}
+
+// rerunOf maps an empty rerun origin to NULL so a plain submit scans back as "".
+func rerunOf(id string) any {
+	if id == "" {
+		return nil
+	}
+	return id
 }
 
 // GetWorkflow returns the workflow by id. The bool is false (nil error) when no

@@ -21,7 +21,7 @@
 - **workflow 顶层 `project` 与每路不同的扇出**：一个 workflow 可以只声明一次项目，`fan` 的每一路可以跑自己的命令。
   - 顶层 `project:` 是默认项目，步骤不写 `project_key` 就在它里面跑；从某个项目 `.gofer/workflows` 读出的模板以该项目为默认。`gofer workflow run -p <project>`（文件与模板两种提交都可用），HTTP 提交体同名字段，`vars.project` 仍作兼容回退。
   - `fan[]` 新增 `name`、`cmd`、`env`、`cwd`、`timeout_sec`，未写的沿用步骤的值；带 `cmd` 时 `agent` 可省（默认 exec）。配合 `join: all` 一个步骤就能并行跑完整套检查。`name` 在步骤内唯一，并可用 `${steps.<step>.<fan 名>.<field>}` 引用这一路的输出（`${steps.<step>.fK.<field>}` 照旧）。
-  - 步骤与 fan 新增 `env`、`ref`（执行侧见下一条）、`uses` / `with`、`run: always`：字段已能解析、渲染与校验；`run: always` 的执行侧随后续版本提供，提交时会明确报「暂不支持：run: always（后续版本提供）」，不会被静默忽略。
+  - 步骤与 fan 新增 `env`、`ref`（执行侧见下一条）、`uses` / `with`、`run: always`：字段已能解析、渲染与校验；其中 `run: always` 的执行侧见下面「结果视图」条。
   - 模板渲染与 `${steps…}` 静态校验覆盖以上全部新字段（含 `with` 递归、fan 的 `cmd` / `env` / `cwd`），markdown 分步文件的 frontmatter 同样可填这些字段。
 - **workflow 模板可以查看源文件、保存与删除**：新建 workflow 时不再只能预览渲染后的步骤，也能看到模板自己的 YAML（并标明来源是内置 / 全局 / 项目），并把改过的模板存回去。
   - `GET /v1/workflow-templates/{name}/source[?project=<p>]` → `{name, source, path, content, shadows}`：按「项目 `.gofer/workflows` → `<config-dir>/workflows` → 内置」的顺序取第一份，内置模板没有路径，内容是它的 spec 序列化成的 YAML；`shadows` 是这一份盖住了哪些来源（项目文件盖住全局与内置，全局文件盖住内置）。
@@ -39,12 +39,17 @@
 - **workflow 的 `ref:` 临时检出与 `env` 下发 worker**：检查固定提交、给每一步 / 每一路设置自己的环境变量。
   - `ref:`（sha / 短 sha / tag / 分支 / `${vars.x}`）让这一步在指定提交的**临时检出**里跑：执行机上建无分支的 detached worktree（`<仓库顶层>/tmp/gofer/wt/<job-id>`，与 `--worktree` 同落点、同样带项目依赖链接），任务一结束（成功 / 失败 / 取消）就删除。提交 workflow 时 `ref` 解析成完整 sha 写回 spec，所以同一步骤的所有 fan 与每次重试检查的都是同一个提交；`ref` 与 `worktree: true` 同写报错。
   - worker 上执行时先在自己的仓库里找该提交，没有就 `git fetch <默认远端> <sha>`（不行再全量 fetch），仍拿不到即失败并提示「该提交不在远端，先推送该提交，或改在 server 本机检查」。
+  - server 启动时扫描各项目仓库的临时检出目录，把不属于运行中任务的残留（崩溃 / 重启遗留）按任务结束时的同一套步骤清掉（先删依赖链接、扫描兜底、`git worktree remove --force`、`git worktree prune`），并记日志；属于运行中任务的目录保留。
   - `env` 随派发下发 worker（worker 协议升到 v26；`wsproto.Dispatch.env` / `ref`），worker 侧按既有 env 合并规则叠加，gofer 自己的变量（服务地址、worker id）仍然优先。向协议 < v26 的 worker 派发带 `env` / `ref` 的任务会被拒绝并提示升级该 worker（旧 worker 会丢掉字段，前者跑出缺变量的假通过，后者跑错树）。`env` 的值随任务记录落库，文档已注明不要放秘密。
 - **workflow 内置步骤 `uses: gofer/<名>`**：release / verify 这类流程不用再写一堆 shell，而是把「推分支与 tag、等 CI、等发布产物」交给 gofer 自己执行。
   - 三个内置步骤：`gofer/push`（`with: {refs: [...], remote}`；分支推 `refs/heads/`、tag 推 `refs/tags/`，**永不强推**，推完用 `ls-remote` 核对每个 ref 的远端 sha）、`gofer/wait-ci`（`ref` / `required` / `code_scanning` / `timeout_min`；GitHub，`required` 任一失败即失败，`code_scanning` 只看该 ref 上开放的告警）、`gofer/wait-assets`（`tag` / `assets` glob，等 Release 上的产物齐全）。
   - `with` 按步骤自己的结构**严格校验**，未知键、缺必填参数都在提交时报错；`uses` 只接受 `gofer/<内置名>`，不能与 `cmd` / `prompt` / `fan` 同写。
   - 执行是一个内部 exec job（`gofer tool step <名>`，标签 `workflow-step`，`with` 以 JSON 走 stdin），所以在步骤的 `runner:` 上跑，日志 / 取消 / `on_failure: retry` 与普通步骤一致；在 worker 上跑要求该 worker 协议 ≥ v26，旧 worker 提交时即被拒。
   - 信任模型：推送需要项目 `delivery.allow_push` **且**提交方持有新权限 `repo.push`（中风险，默认不授予任何人），否则提交即 403 并说明。
+- **workflow 结果视图、重跑与 `run: always`**：跑完（尤其是失败时）能一眼看出哪一步、哪一路失败，只重跑要重跑的部分。
+  - **结果表**：workflow 详情（`GET /v1/workflows/{id}` 的 `steps[]`、`gofer wf show`）每一行步骤 / fan 都带 `runner`、`exit_code`、`duration_sec`，失败行还带 `failure_excerpt`：从该任务日志尾部按规则抽 `--- FAIL:` / `FAIL` / `✗` / `error:` / `panic:` 之类行，去重、保持顺序、最多 20 行；没有这类行时（内置步骤、只报一句错的 agent）取任务记录的错误信息。`gofer wf show` 打印成一张表（STEP / ATT / FAN / NAME / RUNNER / STATUS / EXIT / TIME），失败摘录跟在表后。失败即停（fail-fast）也不影响已结束步骤的信息：workflow 失败时同样完整显示。
+  - **重跑**：`gofer wf rerun <id> [--failed | --from <step>]`，HTTP `POST /v1/workflows/{id}/rerun {mode: failed|from, step?}`。它基于原 spec 裁剪出**新的** workflow 提交，原 workflow 一行不改：`--failed` 只保留失败的步骤，失败步骤里只保留失败的那几路 fan；`--from` 从该步（序号或名字）起保留后续全部。变量与原 `ref` 解析出的 sha 保持原值，所以重跑检查的是同一个提交；新 workflow 带 `rerun_of`（原 id）。仍在运行的 workflow 不能重跑（先取消）。裁剪后如果某步的 `${steps.N…}` 引用指向了被去掉的步骤，提交时会明确报错而不会跑错。
+  - **`run: always`**：步骤在前面失败后仍然执行（失败即停时跳到这些步骤按顺序执行，其余步骤跳过），但**不改变** workflow 的最终结论——前面失败了整体仍然失败，失败原因保留（第二次失败会附加在后面）。此前提交会报「暂不支持」，现在可以直接用，典型写法是 release 失败后的清理 / 通知步骤。
 
 ## [0.180.1] - 2026-10-21
 

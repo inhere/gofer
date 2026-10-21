@@ -81,13 +81,14 @@ type StepSpec struct {
 	// checkout lacks the commit it is fetched from the default remote first.
 	Ref string `json:"ref,omitempty" yaml:"ref,omitempty"`
 	// Uses names a built-in step (design §一·5, `gofer/<name>`), with its arguments in
-	// With. Both are parsed / rendered / validated here; the registry and execution
-	// arrive in S3, so submit rejects them for now.
+	// With: the engine submits an internal `gofer tool step <name>` exec job whose stdin
+	// is the With JSON and whose last stdout line is the step result (S3).
 	Uses string         `json:"uses,omitempty" yaml:"uses,omitempty"`
 	With map[string]any `json:"with,omitempty" yaml:"with,omitempty"`
 	// Run changes WHEN a step runs (design §一·8): "" (the default) runs it in chain
-	// order, "always" runs it even after an earlier failure. Only "always" is a known
-	// value; the execution side arrives in S4, so submit rejects it for now.
+	// order, "always" runs it even after an earlier failure (fail-fast jumps to the
+	// run: always steps and runs them in order) without changing the workflow's final
+	// outcome — a failure before them still fails the whole workflow.
 	Run string `json:"run,omitempty" yaml:"run,omitempty"`
 	// Review overrides the project's require_review default for THIS step
 	// (GATE-01 S3): true parks the step's job in needs_review until a human accepts
@@ -274,4 +275,13 @@ type Step struct {
 	// fields let the chain show it and link into the child workflow's detail.
 	Type            string `json:"type,omitempty"`
 	ChildWorkflowID string `json:"child_workflow_id,omitempty"`
+	// Runner/ExitCode/DurationSec/FailureExcerpt are the result-view columns (design
+	// §一·6): where the row ran, how it exited, how long it took and why it failed.
+	// ExitCode is a pointer so a successful exec step still shows "0" while a step
+	// that never started shows none. FailureExcerpt is the failure-looking lines of
+	// the job's log tail (at most 20), or the built-in step's error message.
+	Runner         string `json:"runner,omitempty"`
+	ExitCode       *int   `json:"exit_code,omitempty"`
+	DurationSec    int64  `json:"duration_sec,omitempty"`
+	FailureExcerpt string `json:"failure_excerpt,omitempty"`
 }

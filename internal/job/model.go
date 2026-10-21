@@ -1480,4 +1480,5 @@ const (
 	EventSubworkflowStarted = "subworkflow.started" // {step,child_workflow_id,total_steps} (P3, type=workflow step)
 	EventWorkflowTerminal   = "workflow.terminal"   // {status,error}
 	EventWorkflowCancelled  = "workflow.cancelled"  // {was_terminal}
+	EventWorkflowRerun      = "workflow.rerun"      // {rerun_of,mode,step,steps} on the NEW workflow (S4, design §一·7)
 )
