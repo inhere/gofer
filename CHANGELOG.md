@@ -11,6 +11,13 @@
 
 ## [未发布]
 
+## [0.181.2] - 2026-10-21
+
+### 修复
+
+- **`gofer wf run --template <t> -p <project>`**：`-p` 以前被当成模板变量 `project`，没声明该变量的模板会被拒（`workflow template has no variable "project"`）；现在作为请求体的项目传给服务端，模板自己声明了 `project` 变量时由它填上。
+- **`ref:` 在嵌套仓库里解析**：项目根下有多个仓库、步骤的 `cwd` 指向其中一个时，`ref` 以前按项目根解析而找不到提交；现在按「项目根 + 步骤 cwd」所在的仓库解析。
+
 ## [0.181.1] - 2026-10-21
 
 与 0.181.0 内容相同，另修复 CodeQL `go/allocation-size-overflow` 告警（`make` 的容量提示统一走 `util.CapSum`）并整理 gofmt。0.181.0 因 code scanning 告警未推送到 mirror 与一键更新；请直接用 0.181.1。
