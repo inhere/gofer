@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -101,11 +102,17 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 
 	cfg := e.ops.Config()
 
-	// S1: the spec fields whose execution lands in a later stage (ref → S2, uses/with →
-	// S3, run: always → S4) are parsed and rendered but must not be silently ignored, and
-	// env only reaches the server's own runner so far (a worker dispatch needs the v26
-	// field, S2). Rejected here, before any DB row / job exists.
+	// S1: the spec fields whose execution lands in a later stage (uses/with → S3, run:
+	// always → S4) are parsed and rendered but must not be silently ignored. Rejected
+	// here, before any DB row / job exists. env and ref are implemented (S2) and pass.
 	if err := validateStepFeatures(spec, cfg); err != nil {
+		return jobstore.Workflow{}, err
+	}
+
+	// S2 / design 一·3: resolve every `ref:` to the commit sha the step will check out and
+	// store that sha in the spec, so all fans of the step (and every retried attempt) see
+	// ONE tree even if the branch or tag moves while the workflow runs.
+	if spec, err = resolveStepRefs(spec, cfg); err != nil {
 		return jobstore.Workflow{}, err
 	}
 
@@ -290,19 +297,22 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 		TimeoutSec:       timeoutSec,
 		Title:            step.Name,
 		Tags:             step.Tags,
-		Worktree:         step.Worktree,
-		WorktreeBase:     step.WorktreeBase,
-		Template:         step.Template,
-		TemplateVars:     step.Vars,
-		ReadOnly:         step.ReadOnly,
-		Verify:           step.Verify,
-		CallerID:         callerID,
-		OriginCaller:     callerID, // a step is bounded by the ceiling of the caller that created the workflow
-		WorkflowID:       wfID,
-		StepIndex:        stepIndex,
-		Attempt:          attempt,
-		FanIndex:         fanIndex,
-		RequestID:        reqID,
+		// `ref:` (design 一·3): the spec carries the resolved sha by now (resolveStepRefs),
+		// so every fan of the step checks out the same commit in a temporary worktree.
+		Ref:          step.Ref,
+		Worktree:     step.Worktree,
+		WorktreeBase: step.WorktreeBase,
+		Template:     step.Template,
+		TemplateVars: step.Vars,
+		ReadOnly:     step.ReadOnly,
+		Verify:       step.Verify,
+		CallerID:     callerID,
+		OriginCaller: callerID, // a step is bounded by the ceiling of the caller that created the workflow
+		WorkflowID:   wfID,
+		StepIndex:    stepIndex,
+		Attempt:      attempt,
+		FanIndex:     fanIndex,
+		RequestID:    reqID,
 		// GATE-01 S3: the step's review decision (see above) rides the job request.
 		Review:      review,
 		ReviewFixed: reviewFixed,
@@ -434,17 +444,12 @@ func unsupportedStepField(stepNo int, field string) error {
 }
 
 // validateStepFeatures rejects the S1-parsed spec fields whose execution arrives in a
-// later stage (ref → S2, uses/with → S3, run: always → S4), and an env that only the
-// server's own runner can carry today (a worker needs the v26 dispatch field, S2). cfg
-// is used to tell a worker/peer runner from the local one; a nil cfg skips that check
-// (nothing remote can be resolved without it).
+// later stage (uses/with → S3, run: always → S4). `ref` and `env` are implemented since
+// S2 (a temporary detached checkout, and the v26 dispatch field), so they pass.
 func validateStepFeatures(spec Spec, cfg *config.Config) error {
 	for i := range spec.Steps {
 		stepNo := i + 1
 		st := spec.Steps[i]
-		if st.Ref != "" {
-			return unsupportedStepField(stepNo, "ref")
-		}
 		if st.Uses != "" {
 			return unsupportedStepField(stepNo, "uses")
 		}
@@ -457,24 +462,6 @@ func validateStepFeatures(spec Spec, cfg *config.Config) error {
 			}
 			return unsupportedStepField(stepNo, "run: always")
 		}
-		if len(st.Env) > 0 {
-			if err := checkStepEnvRunner(cfg, stepNo, 0, st.Runner); err != nil {
-				return err
-			}
-		}
-		for j := range st.Fan {
-			f := st.Fan[j]
-			if len(f.Env) == 0 {
-				continue
-			}
-			runner := f.Runner
-			if runner == "" {
-				runner = st.Runner
-			}
-			if err := checkStepEnvRunner(cfg, stepNo, j+1, runner); err != nil {
-				return err
-			}
-		}
 		if st.SubWorkflow != nil {
 			if err := validateStepFeatures(*st.SubWorkflow, cfg); err != nil {
 				return err
@@ -484,18 +471,43 @@ func validateStepFeatures(spec Spec, cfg *config.Config) error {
 	return nil
 }
 
-// checkStepEnvRunner rejects step/fan env on a runner that is not the server's own: the
-// worker dispatch carries no env field until the protocol bump (S2), so accepting it
-// now would silently drop the variables.
-func checkStepEnvRunner(cfg *config.Config, stepNo, fanNo int, runner string) error {
-	if cfg == nil || !job.IsRemoteRunner(cfg, runner) {
-		return nil
+// resolveStepRefs replaces every step's `ref:` with the full commit sha it names, resolved
+// against the project's checkout on THIS machine (design 一·3). The stored spec then pins
+// one commit for the whole workflow, which is what makes a fan-out of the step a check of
+// the SAME tree on every runner.
+//
+// A ref and worktree on one step are refused: ref is a detached checkout thrown away when
+// the job ends, worktree is a branch meant to be delivered.
+func resolveStepRefs(spec Spec, cfg *config.Config) (Spec, error) {
+	for i := range spec.Steps {
+		st := &spec.Steps[i]
+		if st.SubWorkflow != nil {
+			sub, err := resolveStepRefs(*st.SubWorkflow, cfg)
+			if err != nil {
+				return spec, fmt.Errorf("step %d sub_workflow: %w", i+1, err)
+			}
+			st.SubWorkflow = &sub
+		}
+		if strings.TrimSpace(st.Ref) == "" {
+			continue
+		}
+		if st.Worktree {
+			return spec, fmt.Errorf("%w: step %d sets both ref and worktree (mutually exclusive: ref checks out one commit in a temporary worktree)", job.ErrInvalidRequest, i+1)
+		}
+		if cfg == nil {
+			return spec, fmt.Errorf("%w: step %d ref: no config to resolve the project", job.ErrInvalidRequest, i+1)
+		}
+		proj, ok := cfg.Projects[st.ProjectKey]
+		if !ok {
+			return spec, fmt.Errorf("%w: step %d ref: unknown project %q", job.ErrInvalidRequest, i+1, st.ProjectKey)
+		}
+		sha, err := job.ResolveCommitRef(context.Background(), cfg.ExecPath(proj), st.Ref)
+		if err != nil {
+			return spec, fmt.Errorf("step %d ref: %w", i+1, err)
+		}
+		st.Ref = sha
 	}
-	where := fmt.Sprintf("step %d", stepNo)
-	if fanNo > 0 {
-		where = fmt.Sprintf("step %d fan %d", stepNo, fanNo)
-	}
-	return fmt.Errorf("%w: %s: 暂不支持：env 下发 worker（后续版本提供，当前仅在 server 本机 runner 生效）", job.ErrInvalidRequest, where)
+	return spec, nil
 }
 
 // validateSubworkflow checks each step's type/sub_workflow at submit time and

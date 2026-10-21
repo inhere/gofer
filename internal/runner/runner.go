@@ -495,10 +495,21 @@ type Forward struct {
 	// templates with them, so the name override has to travel with a dispatched job.
 	WorktreeName   string
 	WorktreeBranch string
-	TimeoutSec     int
-	Interactive    bool
-	Cols           int
-	Rows           int
+	// Ref is the commit the EXECUTING machine checks out in a TEMPORARY detached
+	// worktree for this job (design 一·3 `ref:`). The submitting side resolved the
+	// spec's ref to a full sha, so every fan of a step checks out the same commit. The
+	// executor fetches the commit if its checkout lacks it, runs the job there and
+	// removes the checkout when the job ends. Mutually exclusive with Worktree.
+	Ref string
+	// Env is the job's extra environment (a workflow step / fan `env`), layered over
+	// the executor's process env. It travels in Dispatch.Env, so a worker below
+	// wsproto.JobEnvMinProtocolVersion is refused rather than given a job that runs
+	// without its variables.
+	Env         map[string]string
+	TimeoutSec  int
+	Interactive bool
+	Cols        int
+	Rows        int
 	// InitialInput / InitialInputQuietMs carry path B's priming text and quiet
 	// window to the EXECUTING machine (session relay §9.1 B): the pty is started
 	// there, so the text and the window the hub resolved must travel with the

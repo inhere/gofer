@@ -68,7 +68,7 @@ var continuationFieldClasses = map[string]string{
 	"Deliver": fieldCleared, "DeliverDraft": fieldCleared, "DeliverBranch": fieldCleared,
 	"LockPaths": fieldCleared, "Secrets": fieldCleared, "EnvFiles": fieldCleared, "ReviewFixed": fieldCleared,
 	"Template": fieldCleared, "TemplateVars": fieldCleared, "Worktree": fieldCleared, "WorktreeBase": fieldCleared,
-	"WorktreeName": fieldCleared, "WorktreeBranch": fieldCleared,
+	"WorktreeName": fieldCleared, "WorktreeBranch": fieldCleared, "Ref": fieldCleared,
 	"ExclusiveDir": fieldCleared, "Env": fieldCleared,
 	// the ordinary request of the item
 	"ProjectKey": fieldTodo, "Title": fieldTodo, "Acceptance": fieldTodo, "Scope": fieldTodo, "NoScopeDiscipline": fieldTodo,

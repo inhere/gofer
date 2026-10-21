@@ -536,14 +536,36 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// by job id. A remote (forwarding) submit skips it: the flag rides the Forward and
 	// the peer creates the worktree against its own project root (设计 §二).
 	var wt *worktreeRef
-	if req.Worktree && !remote {
+	// `ref:` (design 一·3) and `--worktree` are mutually exclusive: the first is a
+	// detached checkout of ONE fixed commit that is thrown away when the job ends, the
+	// second a branch meant to be delivered. A job that asked for both has not decided
+	// what it produces, so it is refused instead of guessing.
+	if req.Ref != "" && req.Worktree {
+		dropDir()
+		return JobResult{}, fmt.Errorf("%w: ref and worktree are mutually exclusive (ref checks out one commit in a temporary worktree)", ErrInvalidRequest)
+	}
+	if (req.Worktree || req.Ref != "") && !remote {
 		wtOpts, oerr := worktreeOptionsFor(proj, &req, jobID)
 		if oerr != nil {
 			dropDir()
 			return JobResult{}, oerr
 		}
 		wtCtx, wtCancel := context.WithTimeout(context.Background(), worktreeTimeout)
-		wt, err = prepareJobWorktree(wtCtx, workDir, jobID, req.WorktreeBase, wtOpts)
+		if req.Ref != "" {
+			// `ref:` (design 一·3): the commit must be in THIS checkout before the temporary
+			// worktree can be created — fetch it from the default remote when this machine
+			// (typically a worker) has never seen it, and fail with the reason when the
+			// remote does not have it either (D3: only pushed commits can be checked out
+			// remotely).
+			if ferr := fetchCommit(wtCtx, workDir, req.Ref); ferr != nil {
+				wtCancel()
+				dropDir()
+				return JobResult{}, ferr
+			}
+			wt, err = prepareTempWorktree(wtCtx, workDir, jobID, req.Ref, wtOpts)
+		} else {
+			wt, err = prepareJobWorktree(wtCtx, workDir, jobID, req.WorktreeBase, wtOpts)
+		}
 		wtCancel()
 		if err != nil {
 			// No job was launched, so drop the just-created result dir (nothing else
@@ -732,6 +754,12 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// executor renders the same layout from ITS project templates.
 			WorktreeName:   req.WorktreeName,
 			WorktreeBranch: req.WorktreeBranch,
+			// `ref:` (design 一·3): the executor checks out this commit in a temporary
+			// worktree, fetching it first when its own checkout lacks it.
+			Ref: req.Ref,
+			// The job's extra env (a workflow step / fan env) rides Dispatch.Env; the
+			// worker layers it onto its own gofer metadata env.
+			Env: req.Env,
 			// The ADMITTED deadline (clamped above), not the raw request: the server
 			// owns admission, so a remote execution must not re-admit 2h for a request
 			// this server already cut to 1h (bd h-aii-s9ck).

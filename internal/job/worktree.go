@@ -66,6 +66,9 @@ type worktreeRef struct {
 	// Links are the project-relative dependency links this worktree carries (see
 	// linkWorktreeDeps); removal unlinks them before the checkout goes away.
 	Links []string
+	// Temp marks the checkout of a `ref:` job (design 一·3): detached at BaseSHA, on NO
+	// branch, and removed the moment the job ends (see cleanupTempWorktree).
+	Temp bool
 }
 
 // prepareJobWorktree 为请求了 --worktree 的 job 创建受管 worktree 并返回它。
@@ -118,6 +121,117 @@ func prepareJobWorktree(ctx context.Context, cwd, jobID, base string, opts workt
 		return nil, fmt.Errorf("worktree switch -c %s: %w", branch, err)
 	}
 	return &worktreeRef{Path: path, Branch: branch, BaseSHA: baseSHA, Top: top, Links: opts.Links}, nil
+}
+
+// prepareTempWorktree creates the TEMPORARY checkout a `ref:` job runs in (design 一·3):
+// <top>/tmp/gofer/wt/<job-id> detached at commit sha, with NO branch, so nothing of it
+// can be merged, pushed or kept. It is the same落点 and the same dependency links as a
+// managed worktree (a `ref:` verify needs the project's node_modules just as much);
+// only the branch and the lifetime differ — cleanupTempWorktree removes it when the job
+// ends.
+//
+// sha must already be in the checkout at cwd (fetchCommit gets it there);
+// `worktree add --detach` can only check out an object this repository has.
+func prepareTempWorktree(ctx context.Context, cwd, jobID, sha string, opts worktreeCreateOptions) (*worktreeRef, error) {
+	if strings.TrimSpace(sha) == "" {
+		return nil, fmt.Errorf("%w: ref checkout needs a commit", ErrInvalidRequest)
+	}
+	if opts.Dir == "" {
+		opts.Dir = config.DefaultWorktreeDir
+	}
+	top, err := gitTopLevel(ctx, cwd)
+	if err != nil {
+		return nil, err
+	}
+	sha, err = gitOut(ctx, top, "rev-parse", "--verify", sha+"^{commit}")
+	if err != nil {
+		return nil, fmt.Errorf("%w: ref commit %q is not in %s", ErrInvalidRequest, sha, top)
+	}
+	path := filepath.Join(top, filepath.FromSlash(opts.Dir))
+	if isDir(path) {
+		return nil, fmt.Errorf("%w: worktree dir %s already exists", ErrInvalidRequest, path)
+	}
+	if _, err := gitOut(ctx, top, "worktree", "add", "--detach", path, sha); err != nil {
+		return nil, fmt.Errorf("worktree add --detach %s: %w", path, err)
+	}
+	return &worktreeRef{Path: path, BaseSHA: sha, Top: top, Links: opts.Links, Temp: true}, nil
+}
+
+// ResolveCommitRef resolves a ref — full or abbreviated sha, tag, branch, HEAD~N — to the
+// full commit sha of the checkout at dir. The workflow resolves its `ref:` ONCE at submit
+// with it, so every fan of the step, on every runner, checks out the SAME tree even if a
+// branch moves while the workflow runs (design 一·3).
+func ResolveCommitRef(ctx context.Context, dir, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", fmt.Errorf("%w: empty ref", ErrInvalidRequest)
+	}
+	sha, err := gitOut(ctx, dir, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if err != nil || sha == "" {
+		return "", fmt.Errorf("%w: ref %q is not a commit in %s", ErrInvalidRequest, ref, dir)
+	}
+	return sha, nil
+}
+
+// fetchCommit makes sure commit is present in the checkout at dir, fetching it from the
+// repository's default remote when it is not (design 一·3, D3): the hub resolved the sha,
+// and the machine that runs the job may be a worker whose clone never saw that commit
+// yet. Two attempts, most specific first — `git fetch <remote> <sha>` (modern git servers
+// allow fetching a reachable sha) and then a plain `git fetch <remote>`, which picks the
+// commit up as soon as it is reachable from any branch or tag. Neither touches the
+// working tree or the current branch.
+//
+// When both fail the job fails with the actionable reason instead of silently checking
+// out something else: the commit has not been pushed (D3: the worker only ever sees
+// commits the remote already has).
+func fetchCommit(ctx context.Context, dir, sha string) error {
+	if commitPresent(ctx, dir, sha) {
+		return nil
+	}
+	remote := defaultRemoteName(ctx, dir)
+	_, firstErr := gitOut(ctx, dir, "fetch", "--no-tags", remote, sha)
+	if !commitPresent(ctx, dir, sha) {
+		if _, err := gitOut(ctx, dir, "fetch", "--no-tags", remote); err != nil {
+			firstErr = err
+		}
+	}
+	if commitPresent(ctx, dir, sha) {
+		return nil
+	}
+	reason := ""
+	if firstErr != nil {
+		reason = ": " + firstErr.Error()
+	}
+	return fmt.Errorf("%w: commit %s 不在远端 %q，先推送该提交，或改在 server 本机检查%s", ErrInvalidRequest, sha, remote, reason)
+}
+
+// commitPresent reports whether the checkout at dir has the commit object sha.
+func commitPresent(ctx context.Context, dir, sha string) bool {
+	if strings.TrimSpace(sha) == "" {
+		return false
+	}
+	_, err := gitOut(ctx, dir, "cat-file", "-e", sha+"^{commit}")
+	return err == nil
+}
+
+// defaultRemoteName returns the remote to fetch a missing commit from: "origin" when the
+// repository has it, else its first remote, else "origin" (the git default, so the
+// failure message names something the operator recognises).
+func defaultRemoteName(ctx context.Context, dir string) string {
+	out, err := gitOut(ctx, dir, "remote")
+	if err != nil {
+		return "origin"
+	}
+	remotes := strings.Fields(out)
+	for _, r := range remotes {
+		if r == "origin" {
+			return r
+		}
+	}
+	if len(remotes) > 0 {
+		return remotes[0]
+	}
+	return "origin"
 }
 
 // mapCwd 把 job 的 checkout cwd 按**相同相对子路径**映射进 worktree：`--cwd sub`
@@ -721,6 +835,39 @@ func worktreeSquashMerged(ctx context.Context, main, branch string) bool {
 		return false
 	}
 	return strings.TrimSpace(merged) == strings.TrimSpace(head)
+}
+
+// cleanupTempWorktree removes a `ref:` job's temporary checkout (design 一·3). finish()
+// calls it for every terminal path, so a job that failed, was cancelled or timed out
+// leaves no checkout behind either. The removal is the managed-worktree one — unlink the
+// recorded dependency links, sweep any link the list missed, then `git worktree remove
+// --force` — with no branch to delete (a temp checkout has none).
+//
+// Best-effort by design: a failure only leaves a directory behind (that machine's `git
+// worktree prune` reclaims it) and is logged; it never changes the job's outcome.
+func (s *Service) cleanupTempWorktree(entry *jobEntry) {
+	entry.mu.Lock()
+	wt := entry.wt
+	if wt == nil || !wt.Temp {
+		entry.mu.Unlock()
+		return
+	}
+	// The row must stop advertising a checkout that is about to be gone; the resolved
+	// commit stays in worktree_base_sha for audit.
+	entry.wt = nil
+	entry.result.WorktreePath = ""
+	jobID := entry.result.ID
+	entry.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	if err := removeWorktree(ctx, wt, true, false); err != nil {
+		slog.Warn("job.worktree_removed_failed", "event", "job.worktree_removed_failed", "component", "job",
+			"job_id", jobID, "path", wt.Path, "err", err)
+		return
+	}
+	slog.Info("job.worktree_removed", "event", "job.worktree_removed", "component", "job",
+		"job_id", jobID, "path", wt.Path, "ref", wt.BaseSHA, "reason", "temporary ref checkout")
 }
 
 // isDir reports whether p exists and is a directory.

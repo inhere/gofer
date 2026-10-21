@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -94,6 +95,9 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		WorktreeBase:   d.WorktreeBase,
 		WorktreeName:   d.WorktreeName,
 		WorktreeBranch: d.WorktreeBranch,
+		// `ref:` (design 一·3): the temporary checkout is created on THIS machine by the
+		// shared job.Service — it fetches the commit first when the checkout lacks it.
+		Ref:            d.Ref,
 		TimeoutSec:     d.TimeoutSec,
 		Session:        d.Session,
 		IdleTimeoutSec: d.IdleTimeoutSec,
@@ -193,10 +197,15 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		//
 		// CFG-16: GOFER_WORKER_ID tells the job (scripts, the agent) which worker it runs
 		// on; Submit also reads it to name this worker in the tools section.
-		Env: map[string]string{
+		//
+		// design 一·4: the job's OWN env (a workflow step / fan env, v26) layers UNDER
+		// these — util.EnvWith keeps gofer's own keys on top, so a step env can add
+		// variables (GOOS, a project switch) but never redirect this job's server address
+		// or rename the worker it runs on (G042).
+		Env: util.EnvWith(d.Env, map[string]string{
 			job.EnvServerAddr: workerServerAddrString(sessionURL),
 			job.EnvWorkerID:   cl.workerID,
-		},
+		}),
 	})
 	if err != nil {
 		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", err.Error())
