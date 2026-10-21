@@ -211,6 +211,12 @@ func ValidateWorkflowTemplateContent(content string) (Spec, error) {
 	if err := validateFanout(rendered); err != nil {
 		return Spec{}, wrapTemplateError(err)
 	}
+	// `run:` / `shell:` / a legacy `run: always` are validated the way submit converts
+	// them, so a template that a run would refuse (cmd+run, an unknown shell) is refused
+	// at save time too.
+	if _, err := normalizeRunScripts(rendered); err != nil {
+		return Spec{}, wrapTemplateError(fmt.Errorf("%w: %v", job.ErrInvalidRequest, err))
+	}
 	return spec, nil
 }
 

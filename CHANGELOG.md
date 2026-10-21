@@ -26,6 +26,8 @@
 
 ### 新增
 
+- **workflow 步骤支持 GitHub Actions 风格的多行脚本与 `if: always`（gofer-od84）**：步骤与 fan 可以用 `run: |` 写多行脚本代替 `cmd`（两者互斥），用 `shell:` 选解释器——`bash`（默认，`bash -eo pipefail -c <脚本>`）/ `sh`（`sh -ec`）/ `pwsh`（`pwsh -NoProfile -Command`）/ `python`（`python -c`）；没有 `shell: cmd`，Windows 用 `pwsh` 或直接写 `cmd:`。fan 不写 `run` / `cmd` 就沿用步骤的，写了则覆盖。脚本在提交时转成 argv 的 `cmd`，下发与执行链路不变（worker 无协议变化）。
+- **条件字段从 `run: always` 改为 `if: always`**：语义不变（前面失败后仍执行、结论仍是失败）。旧写法 `run: always`（该层没写 `shell` / `cmd` 时）仍然当条件处理，并在提交与 CLI 解析时给一条弃用警告；代码标 `DEPRECATED(v0.182): remove in v0.185`，v0.185 起不再兼容。
 - **工作流 / 任务显示补全（gofer-plkx）**：`gofer wf list` 与 web 工作流列表新增「开始时间」列（终态另显示耗时）；`gofer wf show` 结果表新增 STARTED 列，`-v` 在表下逐行打印实际执行目录（`ref:` 步骤同时标出检出的提交），头部新增 `started_at` / `finished_at` / `duration`；web 工作流详情每路结果行显示开始时间与 `cwd`（含 `ref`）。
 - **job 与 workflow 的关联可见（gofer-plkx）**：`gofer job show` 对 step-job 打印 `workflow:` 一行（工作流 id、步骤 / 重试 / fan 序号与 fan 名），web 任务详情页多一行可点击的 `workflow` 链接；`gofer job list --wf <wf-id>` 与 web 任务看板的「工作流」过滤框只列该工作流的 step-job，对应 `GET /v1/jobs?workflow_id=`。
 - **HTTP 视图补齐（gofer-plkx）**：`GET /v1/workflows/{id}` 的每行新增 `cwd` / `ref` / `started_at` / `finished_at`（job 的 `workflow_id` / `step_index` / `attempt` / `fan_index` 原本已有）；新增 `GET /v1/jobs?workflow_id=` 过滤。

@@ -2744,6 +2744,11 @@ export interface WorkflowStepSpec {
   read_only?: boolean
   prompt?: string
   cmd?: string[]
+  // run/shell 是 cmd 的 GitHub Actions 风格脚本写法（提交时后端转成 cmd）。
+  run?: string
+  shell?: 'bash' | 'sh' | 'pwsh' | 'python' | string
+  // if: always 让步骤在前面失败后仍执行（结论仍为失败）。
+  if?: 'always' | string
   cwd?: string
   timeout_sec?: number
   tags?: string[]

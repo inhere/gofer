@@ -177,8 +177,14 @@ func mergeStepFromMarkdown(step *StepSpec, fromMD StepSpec, prompt string) {
 	if len(step.With) == 0 {
 		step.With = fromMD.With
 	}
+	if step.If == "" {
+		step.If = fromMD.If
+	}
 	if step.Run == "" {
 		step.Run = fromMD.Run
+	}
+	if step.Shell == "" {
+		step.Shell = fromMD.Shell
 	}
 	if step.Retry == nil {
 		step.Retry = fromMD.Retry

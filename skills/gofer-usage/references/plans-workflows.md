@@ -242,13 +242,14 @@ gofer wf save-as-template <wf-id> <name> [--global | --project <p>]  # 把一个
 - 需要 `config.write`；只能写自己项目范围内的模板（全局模板要不受限的调用方），每次写入记审计。
 - web 的新建 workflow 页可直接看模板源文件并编辑保存（见 [web-console.md](web-console.md)）。
 
-## 结果表、重跑与 `run: always`
+## 结果表、重跑与 `if: always`
 
 - **看结果**：`gofer wf show <id>` 把每个步骤 / 每一路 fan 打成一张表（STEP / ATT / FAN / NAME / RUNNER / STATUS / EXIT / STARTED / TIME / JOB），NAME 列在扇出时显示那一路 fan 自己声明的 `name`（如 `linux-race` / `web`），没命名才回落步骤名；JOB 是那一行的 job id，直接拿去 `gofer job show|logs`（失败摘录标题里也带）。扇出步每一路的 job 标题是「步骤名 · fan 名」，job 列表里能分清是哪一路。失败行下面是失败摘录：优先收 go test 这类**强信号**的失败块——`--- FAIL:` 头连同其后几行细节、`FAIL\t<pkg>` 汇总、`panic:`、`WARNING: DATA RACE` 及其后几行上下文；只有整段日志都找不到强信号时，才回落到 `ERROR:` / `error:` / `✗` 这类弱信号行（所以「校验报错测试」打印的一大片预期 `ERROR:` 不会再淹没真失败）。摘录去重、保持顺序、最多 20 行；内置步骤这类没有日志行的取任务记录的错误。HTTP 详情接口的 `steps[]` 同样带 `fan_name`、`runner`、`exit_code`、`duration_sec`、`failure_excerpt`。失败即停也不影响已结束步骤的信息：失败的 workflow 一样完整显示。
 - **工作目录与开始时间**：`gofer wf show <id>` 表里的 STARTED 是那一步 / 那一路真正开始的时刻（未起为 `-`），表头上方另有 `started_at` / `finished_at` / `duration`（工作流级，终态才有后两个）；加 `-v` 会在表下逐行列出实际执行目录（`cwd`），`ref:` 步骤同时标出它检出的提交（临时检出目录）。`gofer wf list` 的列是 ID / STATUS / STEP / TITLE / STARTED / TIME（STARTED = 提交即开始，TIME = 终态的 created_at→updated_at）。
 - **从 job 反查工作流**：`gofer job show <id>` 对 step-job 会打一行 `workflow:`（工作流 id + 第几步 + 重试次数 + 第几路 fan 与 fan 名）；`gofer job list --wf <wf-id>` 列出该工作流的全部 step-job（等价于 `GET /v1/jobs?workflow_id=`），排查一个 workflow 卡在哪一步时不用自己去捞 job。
 - **只重跑需要重跑的部分**：`gofer wf rerun <id> --failed` 只保留失败的步骤（失败的扇出步骤只保留失败的那几路）；`--from <序号或步骤名>` 从那步起保留后续全部。它是**提交一条新的 workflow**，原 workflow 一行不改（状态、指针、任务都留着），新 workflow 记 `rerun_of` = 原 id。变量与原 `ref` 解析出的 sha 保持原值，所以重跑检查的是同一个提交。仍在运行的 workflow 不能重跑（先 `cancel`）；裁剪后某步的 `${steps.N…}` 引用指向被去掉的步骤会提交即报错。`-w` 轮询到终态。
-- **`run: always`**：步骤写 `run: always` 就在前面失败后仍然执行（失败即停时跳到这些步骤按顺序跑完，其余步骤跳过），但不改变结论——前面失败了整体还是失败，原因保留（后续又失败时附加在后面）。典型用法：release 失败后的清理 / 通知。
+- **`if: always`**：步骤写 `if: always` 就在前面失败后仍然执行（失败即停时跳到这些步骤按顺序跑完，其余步骤跳过），但不改变结论——前面失败了整体还是失败，原因保留（后续又失败时附加在后面）。典型用法：release 失败后的清理 / 通知。
+- **多行脚本 `run: |`**：步骤或 fan 可以用 `run:` 写一段脚本代替 `cmd:`（两者互斥）。`shell:` 选解释器：`bash`（默认，`bash -eo pipefail -c <脚本>`）/ `sh`（`sh -ec`）/ `pwsh`（`pwsh -NoProfile -Command`）/ `python`（`python -c`）；没有 `shell: cmd`（Windows 用 `pwsh`，或直接写 `cmd:`）。fan 不写 `run` / `cmd` 就沿用步骤的，写了则覆盖。旧写法 `run: always`（当条件用）仍然当 `if: always` 处理并给一条弃用警告，请改成 `if: always`（v0.185 起不再兼容）。
 
 ## 内置步骤：`uses` + `with`
 
@@ -305,7 +306,7 @@ gofer workflow init release [--dir <仓库目录>] [--force]    # 生成 .gofer/
 
 | 模板 | var | 做什么 |
 |---|---|---|
-| `verify` | `project`、`commit`、`cmd`（必填）、`runner` | 在 `commit` 的临时检出里跑一条命令（`sh -c "<cmd>"`，例如 `go test ./...`） |
+| `verify` | `project`、`commit`、`cmd`（必填）、`runner` | 在 `commit` 的临时检出里跑一条脚本（`run: <cmd>`，`bash -eo pipefail -c`，例如 `go test ./...`） |
 | `release` | `project`、`version`（必填）、`branch`（默认 `main`）、`runner` | `gofer/push` 推 `branch` 与 `v<version>` → `gofer/wait-ci` 等该 tag 的检查 |
 
 ```bash
@@ -340,7 +341,7 @@ steps:
         timeout_sec: 900
   - name: report
     agent: exec
-    run: always                 # 上面失败也执行（结论不变：仍算失败）
+    if: always                  # 上面失败也执行（结论不变：仍算失败）
     cmd: [echo, "unit 退出码为 ${steps.checks.unit.exit_code}"]
 ```
 
@@ -367,8 +368,10 @@ steps:
     with: {tag: "v${vars.version}", assets: ["*-linux-amd64.tar.gz"], timeout_min: 30}
   - name: mirror                            # 自己的追加步骤，照常写 exec
     agent: exec
-    run: always
-    cmd: [sh, -c, "<同步 / 通知命令> v${vars.version}"]
+    if: always
+    run: |                                  # 多行脚本；shell 默认 bash，也可 sh / pwsh / python
+      echo "sync v${vars.version}"
+      <同步 / 通知命令> v${vars.version}
 ```
 
 提交前先看渲染结果（web 新建页的「预览步骤」，或 `POST /v1/workflow-templates/release/render`），确认无误再跑：这一步会真的推 main 与 tag。
@@ -379,7 +382,7 @@ steps:
 |---|---|---|
 | 复用别人的动作 | `uses: gofer/<名>`，版本随 gofer 二进制，没有 `@v1` | 任意 action 仓库 + 版本 |
 | 参数 | `with:` 按每个内置步骤的结构严格校验，未知键提交即报错 | action 自己决定 |
-| 失败处理 | `on_failure: fail \| continue \| retry`；`run: always` | `continue-on-error`、`if: always()` |
+| 失败处理 | `on_failure: fail \| continue \| retry`；`if: always` | `continue-on-error`、`if: always()` |
 | 并行 | 同一步骤内的 `fan` 并行，步骤之间串行 | 多个 job + `needs` |
 | 执行位置 | 步骤 / fan 的 `runner:`（server 或某台 worker） | `runs-on` |
 | 看结果 | workflow 详情的结果表（每步 / 每路）与 `gofer workflow show` | 各 job 的日志页 |
