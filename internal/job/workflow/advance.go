@@ -350,7 +350,7 @@ func wfPending(wf jobstore.Workflow, msg string) string {
 // the loop walks the 0-based spec, so index i is step i+1.
 func nextAlwaysStep(spec Spec, after int) int {
 	for i := after; i < len(spec.Steps); i++ {
-		if spec.Steps[i].If == ifAlways {
+		if stepRunsAlways(spec.Steps[i]) {
 			return i + 1
 		}
 	}

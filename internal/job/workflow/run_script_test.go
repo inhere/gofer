@@ -142,10 +142,6 @@ func TestNormalizeRunScriptsErrors(t *testing.T) {
 			s.With = map[string]any{"refs": []any{"main"}}
 			s.Run = "echo x"
 		}), "may not also set run"},
-		{"legacy run always with cmd", mk(func(s *StepSpec) {
-			s.Cmd = []string{"echo", "x"}
-			s.Run = "always"
-		}), "deprecated"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -312,5 +308,26 @@ func TestSubmitRejectsCmdAndRun(t *testing.T) {
 		t.Fatal("SubmitWorkflow = nil, want the cmd/run conflict to be rejected")
 	} else if !strings.Contains(err.Error(), "both cmd and run") {
 		t.Fatalf("SubmitWorkflow error = %v, want it to name the cmd/run conflict", err)
+	}
+}
+
+// TestLegacyRunAlwaysWithCmd: the shape every pre-`if:` spec used — the step's cmd plus
+// `run: always` as its condition — keeps the cmd and becomes `if: always`; a spec stored
+// before the upgrade (Run still "always", If empty) still runs as an always-step.
+func TestLegacyRunAlwaysWithCmd(t *testing.T) {
+	spec := Spec{Steps: []StepSpec{{Name: "cleanup", Agent: "exec", Cmd: []string{"echo", "x"}, Run: "always"}}}
+	got, err := normalizeRunScripts(spec)
+	if err != nil {
+		t.Fatalf("legacy run: always + cmd: %v", err)
+	}
+	st := got.Steps[0]
+	if st.If != ifAlways || st.Run != "" || strings.Join(st.Cmd, " ") != "echo x" {
+		t.Fatalf("converted step = if %q run %q cmd %v, want if: always with the cmd kept", st.If, st.Run, st.Cmd)
+	}
+	if !stepRunsAlways(StepSpec{Cmd: []string{"echo"}, Run: "always"}) {
+		t.Fatal("a stored pre-upgrade spec (run: always, no if) must still run as an always-step")
+	}
+	if stepRunsAlways(StepSpec{Cmd: []string{"echo"}}) {
+		t.Fatal("a plain step must not be an always-step")
 	}
 }

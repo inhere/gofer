@@ -103,8 +103,8 @@ func normalizeStepRun(st *StepSpec, stepNo int) error {
 // so it passes nil and `run: always` is refused there).
 //
 // DEPRECATED(v0.182): remove in v0.185 — `run: always` used to BE the condition field,
-// so a bare `run: always` (no shell, no cmd) is still read as `if: always` with a
-// warning instead of running a script named "always".
+// so `run: always` without a shell (with or without the step's cmd) is still read as
+// `if: always` with a warning instead of running a script named "always".
 func convertRunLayer(run, shell string, cmd []string, cond *string, label string) ([]string, string, error) {
 	script := strings.TrimSpace(run)
 	if script == "" {
@@ -114,11 +114,8 @@ func convertRunLayer(run, shell string, cmd []string, cond *string, label string
 		return cmd, "", nil
 	}
 	if strings.EqualFold(script, ifAlways) && strings.TrimSpace(shell) == "" {
-		if len(cmd) > 0 {
-			// The old specs wrote `run: always` together with `cmd:`; that spelling is now a
-			// cmd/run conflict, which the message explains instead of guessing.
-			return cmd, "", fmt.Errorf("%s sets cmd together with the deprecated `run: always` condition (write `if: always` and keep cmd)", label)
-		}
+		// The old specs wrote `run: always` TOGETHER with the step's `cmd:` (that was the
+		// only way to write a condition), so the cmd is kept and run becomes the condition.
 		if cond == nil {
 			return cmd, "", fmt.Errorf("%s: run: always is a step condition, a fan can not use it", label)
 		}
@@ -163,4 +160,13 @@ func LegacyRunAlwaysWarning(spec Spec) string {
 	}
 	return fmt.Sprintf("warning: %s still use `run: always` as a condition; it is read as `if: always` for now — switch to `if: always` (removed in v0.185)",
 		strings.Join(steps, ", "))
+}
+
+// stepRunsAlways reports whether a step runs even after an earlier failure. A spec
+// stored before `if:` existed still carries the condition as `run: always` (submit
+// converts every other `run:` into cmd and clears it).
+//
+// DEPRECATED(v0.182): remove in v0.185 together with the `run: always` spelling.
+func stepRunsAlways(st StepSpec) bool {
+	return st.If == ifAlways || (st.Shell == "" && strings.EqualFold(strings.TrimSpace(st.Run), ifAlways))
 }
