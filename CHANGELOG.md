@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+## [0.181.1] - 2026-10-21
+
+与 0.181.0 内容相同，另修复 CodeQL `go/allocation-size-overflow` 告警（`make` 的容量提示统一走 `util.CapSum`）并整理 gofmt。0.181.0 因 code scanning 告警未推送到 mirror 与一键更新；请直接用 0.181.1。
+
 ## [0.181.0] - 2026-10-21
 
 ### 修复
