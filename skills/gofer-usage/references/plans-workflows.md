@@ -218,7 +218,7 @@ gofer workflow export <id>                            # 导出 spec（去密钥�
 
 - 文件格式：`.json` 按 json，其余按 yaml；顶层 `title` + `project` + `steps: [...]`。先 `export` 一个跑通的当模板最快。
 - 顶层 `project:` 是这个 workflow 的默认项目：步骤不写 `project_key` 就在它里面跑。`wf run -p <project>` 覆盖文件里的 `project`（用 `--template` 时同时作为模板查找的项目与模板 `project` 变量的默认值）。
-- step 可声明依赖、`fan_out` 扇出、汇合；步骤可带 `worktree`、`worktree_base`、`template`、`vars`、`read_only`、`verify`、`review`。runner 留空 = 项目默认（项目允许本机就用本机；只列一个就用它；列多个且不含本机则必须显式指定）。
+- step 可声明依赖、`fan_out` 扇出、汇合；步骤可带 `worktree`、`worktree_base`、`ref`、`env`、`template`、`vars`、`read_only`、`verify`、`review`。runner 留空 = 项目默认（项目允许本机就用本机；只列一个就用它；列多个且不含本机则必须显式指定）。
 - 引用前序结果：`${steps.<name>.<field>}`，`.fK.` 选第 K 个 fan，`.<fan 名>.` 按 fan 的 `name` 选，`.all.` 选所有成功 fan，`.picked.` 选被择优的 fan。字段：`result_dir`、`result`、`stdout`、`exit_code`、`status`、`job_id`、`worktree_branch`、`diff`（`changes.diff` 的路径）、`diff_summary`。`.all.` 聚合超过 32KB 时自动写成文件、引用处换成文件路径。大段或不可信文本（如评审输出）请以**文件路径**传给下一步的 agent，不要插值进 exec 命令。
 - 流程模板位置：项目 `.gofer/workflows/<name>.{yaml,yml,json}` → `<config-dir>/workflows/` → 内置。模板的 `vars:`（`default` / `required` / `desc`）以 `${vars.x}` 或 `{{x}}` 在步骤字段里替换；未声明的 `--var`、残留占位、含特殊字符的 agent / runner / project 值都被拒绝。模板默认 agent 不被项目允许时报 400 并列出可用 agent，用 `--var <变量>=<agent>` 覆盖。
 
@@ -253,7 +253,8 @@ steps:
     cmd: [echo, "unit 输出：${steps.checks.unit.stdout}"]
 ```
 
-  一段 fan 的 `env` 叠加在步骤 `env` 之上；`env` 目前只在 server 本机 runner 的 exec 步骤生效（下发 worker 会报「暂不支持」）。
+  一段 fan 的 `env` 叠加在步骤 `env` 之上（fan 的键优先）。`env` 在本机 runner 与 worker 上都生效：worker 拿到的是随任务下发的环境变量，需要支持它的 worker（协议 v26）；给协议更旧的 worker 派发带 `env` 的任务会被拒绝并提示升级该 worker，而不是在缺少变量的情况下跑出一个假的通过。`env` 的值会随任务记录落库，**不要放秘密**（token / 密码改从执行机的环境或项目配置取）。
+- 检查固定提交：`ref:` 让这一步在「指定提交的临时检出」里跑 —— 执行机上建一个无分支、detached 的临时 worktree（位置与 `worktree` 相同：`<仓库顶层>/tmp/gofer/wt/<job-id>`），任务结束（成功、失败、取消都算）立即删除。提交 workflow 时 `ref` 会**解析成完整 sha** 写回 spec，所以同一 step 的所有 fan、重试的每次尝试检查的都是同一个提交（分支/tag 之后移动不影响）。`ref` 可写 sha、短 sha、tag、分支，也可用 `${vars.x}`。worker 上执行时先在自己仓库里找该提交，没有就从默认远端 fetch（先 `fetch <remote> <sha>`，不行再全量 fetch）；仍拿不到就失败并提示「该提交不在远端，先推送该提交，或改在 server 本机检查」——worker 只能检出远端已有的提交。`ref` 与 `worktree: true` 写在同一步骤会报错（一个是用完即删的临时检出，一个是留着交付的分支）。
 - `join: pick`：所有 fan 结束后停在待择优，`gofer workflow pick <wf-id> <step> <fan> [--merge [--squash] [--cleanup-others]]` 选一个成功的 fan 后才推进；`--merge` 紧接着把选中分支合入项目主 checkout，`--cleanup-others` 删掉其余 fan 的 worktree 与分支。单独合并：`gofer job worktree merge <job-id>`，它也能一并收尾：`--todo-done [--note <说明>]`（把该 job 所属 todo 标 done，说明默认 `<分支> 合入 <主线短 sha>`）、`--comment <评论>`、`--cleanup`（删链接 → 删 worktree → 删已合并分支）。合并规则与收尾细节见 [job-advanced.md](job-advanced.md)「并行」。
 - 方案转 todo：`plan-implement` 跑完后 `gofer plan import <plan> --from-job <规划 job>` 把方案变成 todo 链。
 - web：workflow 详情里扇出步显示为对比视图（每路一列：agent、状态、耗时、diff 摘要与提交、verify、汇报尾部，可并排展开 diff，「选这个并合并」）；新建 workflow 页有「从模板新建」向导（选项目 → 模板 → 按 vars 生成表单 → 预览步骤 → 提交）。见 [web-console.md](web-console.md)。

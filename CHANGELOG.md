@@ -20,8 +20,13 @@
 - **workflow 顶层 `project` 与每路不同的扇出**：一个 workflow 可以只声明一次项目，`fan` 的每一路可以跑自己的命令。
   - 顶层 `project:` 是默认项目，步骤不写 `project_key` 就在它里面跑；从某个项目 `.gofer/workflows` 读出的模板以该项目为默认。`gofer workflow run -p <project>`（文件与模板两种提交都可用），HTTP 提交体同名字段，`vars.project` 仍作兼容回退。
   - `fan[]` 新增 `name`、`cmd`、`env`、`cwd`、`timeout_sec`，未写的沿用步骤的值；带 `cmd` 时 `agent` 可省（默认 exec）。配合 `join: all` 一个步骤就能并行跑完整套检查。`name` 在步骤内唯一，并可用 `${steps.<step>.<fan 名>.<field>}` 引用这一路的输出（`${steps.<step>.fK.<field>}` 照旧）。
-  - 步骤与 fan 新增 `env`（server 本机 runner 的 exec 步骤直接生效；下发 worker 待后续版本，提交时明确报「暂不支持」）、`ref`、`uses` / `with`、`run: always`：这些字段已能解析、渲染与校验，执行侧随后续版本提供，提交时会明确报「暂不支持：<字段>（后续版本提供）」，不会被静默忽略。
+  - 步骤与 fan 新增 `env`、`ref`（执行侧见下一条）、`uses` / `with`、`run: always`：字段已能解析、渲染与校验；`uses` / `with` / `run: always` 的执行侧随后续版本提供，提交时会明确报「暂不支持：<字段>（后续版本提供）」，不会被静默忽略。
   - 模板渲染与 `${steps…}` 静态校验覆盖以上全部新字段（含 `with` 递归、fan 的 `cmd` / `env` / `cwd`），markdown 分步文件的 frontmatter 同样可填这些字段。
+
+- **workflow 的 `ref:` 临时检出与 `env` 下发 worker**：检查固定提交、给每一步 / 每一路设置自己的环境变量。
+  - `ref:`（sha / 短 sha / tag / 分支 / `${vars.x}`）让这一步在指定提交的**临时检出**里跑：执行机上建无分支的 detached worktree（`<仓库顶层>/tmp/gofer/wt/<job-id>`，与 `--worktree` 同落点、同样带项目依赖链接），任务一结束（成功 / 失败 / 取消）就删除。提交 workflow 时 `ref` 解析成完整 sha 写回 spec，所以同一步骤的所有 fan 与每次重试检查的都是同一个提交；`ref` 与 `worktree: true` 同写报错。
+  - worker 上执行时先在自己的仓库里找该提交，没有就 `git fetch <默认远端> <sha>`（不行再全量 fetch），仍拿不到即失败并提示「该提交不在远端，先推送该提交，或改在 server 本机检查」。
+  - `env` 随派发下发 worker（worker 协议升到 v26；`wsproto.Dispatch.env` / `ref`），worker 侧按既有 env 合并规则叠加，gofer 自己的变量（服务地址、worker id）仍然优先。向协议 < v26 的 worker 派发带 `env` / `ref` 的任务会被拒绝并提示升级该 worker（旧 worker 会丢掉字段，前者跑出缺变量的假通过，后者跑错树）。`env` 的值随任务记录落库，文档已注明不要放秘密。
 
 - **审阅提示：删除热点、被删注释与验证结果行（gofer-hjj1）**：验收材料不再只有「汇报 + Diff」，服务端按同一个 job 的 `changes.diff` 与 stdout 尾部现算三节提示，`gofer job review` 打印为「审阅提示」块、web 验收面板「汇报」页签顶部显示为默认折叠的卡片，空节省略：
   - **删除热点**：diff 里删除 ≥10 行的文件，按删除行数取前 5（附新增行数）；
