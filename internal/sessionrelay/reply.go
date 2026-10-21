@@ -10,8 +10,10 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
-// WebMessagePrefix opens every message the messenger delivers ("[来自 web，<用户>] …").
-// The target's hook uses it to recognise a SendMessage that answers one.
+// WebMessagePrefix opens every message a PERSON sends to a session through the
+// messenger ("[来自 web，<用户>] …"). Gofer's own notices do not wear it — they open
+// with SystemNoticePrefix (notify_job.go): the target's hook uses the difference to
+// recognise a SendMessage that answers a web message.
 const WebMessagePrefix = "[来自 web"
 
 // replyDedupeWindow is how long an identical reply text counts as the same reply:

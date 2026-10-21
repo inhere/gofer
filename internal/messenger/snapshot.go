@@ -165,8 +165,10 @@ func excerpt(s string) string {
 	return s
 }
 
-// originalMessage extracts the user's text from the messenger prompt, which has
-// the shape "<instruction>\n[来自 web，<operator>] <text>".
+// originalMessage extracts the forwarded text from the messenger prompt, which has
+// the shape "<instruction>\n[来自 web，<operator>] <text>" for a person's message or
+// "<instruction>\n[gofer 通知] <text>" for a gofer system notice. The brackets of
+// the notice's own tags are skipped so the history shows the notice text.
 func originalMessage(prompt string) string {
 	if i := strings.LastIndex(prompt, "] "); i >= 0 && strings.Contains(prompt[:i], "[") {
 		return strings.TrimSpace(prompt[i+2:])

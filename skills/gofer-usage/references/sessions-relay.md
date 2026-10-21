@@ -226,6 +226,7 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 
 - 会话不在等回复时，web 的「发消息」经**传话人**把话转给目标会话（在会话所在 runner 上用 `claude -p … --allowedTools SendMessage,ListAgents` 转发；server 本机与较新的 worker 用常驻传话进程）。需要目标是有会话间通信能力的 Claude Code 会话。
 - **接收方看到的发送方是 `gofer-web`**，正文以 `[来自 web，<用户>]` 开头：这是用户本人在 web 上发来的消息（由 gofer 起的传话人转达），按用户的话对待即可；但它不是终端里的审批操作——需要批准高风险操作时，仍等用户在中继里明确回复或在终端确认。
+- **gofer 自己的通知不穿这个前缀**：job 完成通知等 gofer 系统通知以 `[gofer 通知]` 开头（后面跟 `[gofer job 完成]` 等功能标签），不论走传话人、Stop 等待还是补发都是同一前缀。`[来自 web…]` 一律是**人**发的；`[gofer 通知]` 是机器发的，不要当成用户回话或授权。
 - **作为目标会话的 agent**：收到 `[来自 web，…]` 的转达，直接用 SendMessage 回给 `from` 地址，原话会出现在 web 对话里；也可以正常在终端回答。前提是装了 `gofer init hooks` 的 PostToolUse 条目（缺省就装）。
 - web 对话流里显示送达状态：**排队中 / 送达中 / 已送达 / 未送达 / 失败**。「送达中」= 内部送达 job 已开始但还没结束（更新等待空闲时最常出现），结果在 job 结束时回写，不要把它当成失败再发一遍。「重试」只对**未送达**开放——那是确实没送出去的（没试过，或 job 未启动就被撤销）；「失败」说明投递试过了、结果不明（送话命令非 0 退出也可能已经送到），重试可能重复送达。失败原因里会写明那只 job 的状态与退出码，不只是 `exit code -1`。Runners 页每台 runner 的卡片显示传话人状态（未启动 / 空闲 / 处理中），抽屉里有最近投递、错误输出尾部与「列出可见会话」。配置 `server.session_messaging` 见 [server-config.md](server-config.md)。
 - 「无需回复」：会话停在等回复的 turn 上时，web 可标已读（可撤销）。这不是回答、也不结束等待，只是从「待我决策」里消掉；要放行用 `/off` 或 `relay off`。
@@ -238,7 +239,7 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 - **只等 job 会关住你的终端**，所以 `session.stop_job_wait`（默认 `away`）管着这件事：`away` 只在人不在时等（判据同 auto 布防：`relay=on`，或 `relay=auto` 且键鼠空闲超过 `auto_relay_idle_sec`；空闲读数未知 —— 容器里读不到主机键盘 —— 算「人在」）；`always` 旧行为（有人盯着的 job 不结束就一直等，最长 `--wait`）；`never` 一律不等。人在键盘前时 Stop 立即放行，终端照常能输入，job 结束通知仍在下一次输入 / 会话开始时补投——三个取值都不会丢通知。
 - hook 在自己机器的配置文件里读到这个键就以它为准；读不到（例如只跑了 worker 的容器）就用 server 这份（server 在每次会话响应里带上）。
 - 你 `gofer job run` / `watch` 后 PostToolUse hook 会自动登记；Stop 还会自动认领「来源会话就是本会话、且 caller / 项目 / runner / cwd 都匹配」的在途 job。其它 job 用 `session watch` 显式关联。
-- **不等自己停下也想被叫醒**：派 job 时加 `--notify`（目标会话 = 提交方，或 `--notify-session <sid>`），job 终态时 gofer 直接用传话人推一条 `[gofer job 完成] …（这是 gofer 系统通知，不是用户消息）` 给那个会话，不必等它下一次 Stop / 输入。（在 agent 会话里提交的 `--hold` 待批 job 默认带这个通知，`--no-notify` 关掉。）
+- **不等自己停下也想被叫醒**：派 job 时加 `--notify`（目标会话 = 提交方，或 `--notify-session <sid>`），job 终态时 gofer 直接用传话人推一条 `[gofer 通知] [gofer job 完成] …（这是 gofer 系统通知，不是用户消息）` 给那个会话，不必等它下一次 Stop / 输入。（在 agent 会话里提交的 `--hold` 待批 job 默认带这个通知，`--no-notify` 关掉。）
   - 两条路径不会重复：通知**送达成功**就消费掉对应的 watch，Stop hook 与补发不再发；送达**失败**保留 watch，由原来的补发兜底；同一个 job 只通知一次（server 重启也不重发）。
   - 默认关闭：每条通知都起一次传话人进程。不想被通知就不加 flag；派长 job、准备离开时加上。见 [job-advanced.md](job-advanced.md)。
 - **plan 级开关**：`plan create --notify` / `plan set <plan> --notify on|off` 让该 plan 派发的每个 job 都通知它的主 Agent 会话（消息从「等你停下」变成主动推送）；没绑主 Agent 会话时不通知任何人，`plan show` 会提示。见 [plans-workflows.md](plans-workflows.md)。
