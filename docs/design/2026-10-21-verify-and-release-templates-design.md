@@ -1,12 +1,12 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # verify 与 release 通用模板 设计
 
-> 状态：Draft 0.1 / 待用户批准
+> 状态：Draft 0.2 / 待用户批准
 > issue：gofer-byev、gofer-51b0
 
 - 思考模式：rigorous。
-- 核心目标：任何项目都能用两个内置 workflow 模板，把「对一个提交做全套检查」和「打 tag 之后把版本发出去」交给 gofer：并行执行、失败即停、最后给一张结果表；项目只需要在配置里写自己的检查命令与发布步骤。
-- scope freeze：只做两个模板与它们需要的项目配置；gofer 自身的发版脚本（mirror、一键更新）保持在工作区脚本里。
+- 核心目标：任何项目都能把「对一个提交做全套检查」和「打 tag 之后把版本发出去」写成仓库里的 gofer workflow（`.gofer/workflows/verify.yaml`、`release.yaml`），跟代码一起版本化；gofer 提供几个内置步骤（`uses: gofer/...`）承担机械部分，并给出起步文件。
+- scope freeze：只做内置步骤、起步文件生成、内置的通用 verify / release 模板与汇总展示；不在 server 的 `projects` 配置里新增字段；gofer 自身的发版脚本保持在工作区脚本里。
 - review budget：本稿最多一轮独立评审；评审后修订由作者自查。
 - 停止条件：用户对本稿给出具名的批准，或明确要求停止。
 
@@ -15,6 +15,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-10-21 | Claude（监督会话） | 初稿：项目 `checks` 与 `release` 配置；`verify` 模板（并行检查 + 汇总表）；`release` 模板（检查 tag → 推送重试 → 等 CI → 等发布产物 → 追加步骤） |
+| 0.2 | 2026-10-21 | Claude（监督会话） | 按用户意见改为仓库内 workflow：去掉 server 项目配置 `checks` / `release`；新增内置步骤 `uses: gofer/summary|push|wait-ci|wait-assets`、步骤 `ref:`（在指定提交的独立检出上执行）、`gofer workflow init verify|release` |
 
 ## 背景
 
@@ -33,70 +34,80 @@ gofer 自身的发版已收进工作区脚本，但这些步骤其他项目（su
 
 ## 方案
 
-### 一、项目配置
+用户 2026-10-21 指出：放进 server 的项目配置太复杂，看起来像 GitHub Actions，应该放在项目的 `.gofer/` 里，或者它本身就是一个 gofer workflow。据此：**检查与发布写成仓库里的 workflow 文件**，gofer 只补 workflow 缺的几块能力。
+
+### 一、workflow 补的能力
+
+1. **步骤 `ref:`**：exec 步骤在指定提交的独立检出上执行（server 本机：临时 worktree，结束删除；worker：执行机上的临时 worktree），不碰主 checkout。值可以是 sha、tag、分支或 `${vars.commit}`。
+2. **内置步骤 `uses: gofer/<名>`**（不起 agent，由 gofer 自己执行；参数用 `with:`）：
+   - `gofer/summary`：等前面列出的步骤（默认全部）结束，生成结果表——步骤名、runner、状态、退出码、耗时、失败用例（从输出抽取 `--- FAIL:`、`FAIL`、`✗`、`error` 等行，最多 20 行）、日志位置；写进 workflow 结果，web workflow 详情与 `gofer workflow show` 展示。
+   - `gofer/push`：`with: {refs: [main, "v${vars.version}"], remote: origin, runner: <r>, retries: 24, retry_sec: 300}`；经项目 `delivery.proxy` 推送，按 git 输出确认每个 ref 都已推送（不只看退出码），失败按次数重试。
+   - `gofer/wait-ci`：`with: {repo: <owner/name>, commit: <sha|ref>, required: [Unit-Tests, CodeQL], code_scanning: true, timeout_min: 40}`；在执行机上用已登录的 `gh` 查询，直到全部结束；必需的 workflow 失败或有未处理告警即失败。
+   - `gofer/wait-assets`：`with: {repo, tag, assets: ["*-linux-amd64.tar.gz"], timeout_min: 30}`；等 GitHub Release 上出现这些产物。
+3. **失败策略**：步骤可写 `continue_on_failure: true`（verify 的各项检查用它：一项失败其余照常跑完）；默认仍是失败即停。
+
+### 二、内置模板与起步文件
+
+- 内置 `verify` 与 `release` 模板保持通用、最小（verify：一个 `go test ./...` 或 `npm test` 之类按仓库类型选择的检查 + summary；release：push → wait-ci → summary），供没写自己文件的项目直接用。
+- `gofer workflow init verify|release [--force]`：在当前仓库生成 `.gofer/workflows/verify.yaml` / `release.yaml` 起步文件，按仓库内容预填常见检查（有 go.mod → `go test` / `go vet`；有 package.json → 对应脚本；有 `.github/workflows` → release 的 `wait-ci.required` 预填其 workflow 名），并带注释说明每一段。项目里的同名文件覆盖内置模板（现有查找规则）。
+- 运行：`gofer workflow run --template verify -p <p> --var commit=<sha>`；`gofer workflow run --template release -p <p> --var version=<X.Y.Z>`。
+
+示例（`.gofer/workflows/verify.yaml`）：
 
 ```yaml
-projects:
-  <project>:
-    checks:                          # 命名的检查，verify 模板按名字取用
-      unit:
-        runner: <worker 或 local>    # 在哪台机器跑；省略 = 项目默认 runner
-        cmd: [go, test, -race, -count=1, -timeout, 30m, ./...]
-        cwd: .                       # 相对项目根
-        timeout_sec: 3600
-      vet-darwin:
-        cmd: [go, vet, ./...]
-        env: {GOOS: darwin}
-      web:
-        cwd: web
-        cmd: [sh, -c, "npx vue-tsc --noEmit && npx vitest run && npx vite build"]
-    release:
-      repo: <owner>/<name>           # GitHub 仓库（CI 与发布产物）
-      branch: main                   # 与 tag 一起推送的分支
-      push_runner: local             # 在哪台机器推送（需要能连上远端）
-      push_retries: 24               # 推送失败重试次数（间隔 push_retry_sec，默认 300）
-      ci_required: [Unit-Tests, CodeQL]   # 必须成功的 workflow 名；省略 = 该提交的全部 run
-      code_scanning: true            # 有未处理的告警即失败
-      assets: ["*-linux-amd64.tar.gz", "*-windows-amd64.zip"]   # 等这些发布产物出现（glob）；省略 = 不等
-      post:                          # 发布之后的追加步骤（可选），与 checks 同形
-        - name: mirror
-          runner: local
-          cmd: [cmd, /c, "scripts\\upload-mirror.cmd", "${vars.version}"]
+title: "verify ${vars.commit}"
+vars:
+  commit: {required: true, desc: 要检查的提交}
+steps:
+  - name: unit
+    agent: exec
+    ref: ${vars.commit}
+    continue_on_failure: true
+    cmd: [go, test, -race, -count=1, -timeout, 30m, ./...]
+  - name: vet-darwin
+    agent: exec
+    ref: ${vars.commit}
+    continue_on_failure: true
+    env: {GOOS: darwin}
+    cmd: [go, vet, ./...]
+  - name: windows
+    agent: exec
+    runner: <windows worker>
+    ref: ${vars.commit}
+    continue_on_failure: true
+    cmd: [go, test, -count=1, ./...]
+  - name: summary
+    uses: gofer/summary
 ```
 
-- `cmd` 是 argv 数组（不经 shell）；需要 shell 时显式写 `sh -c` / `cmd /c`。`${vars.commit}`、`${vars.version}` 在模板展开时替换。
-- 命令需要项目 `allow_exec: true`；受调用方上限（ceiling）约束与普通 exec job 相同。
+示例（`.gofer/workflows/release.yaml`）：
 
-### 二、`verify` 模板
-
+```yaml
+title: "release v${vars.version}"
+vars:
+  version: {required: true}
+steps:
+  - name: push
+    uses: gofer/push
+    with: {refs: [main, "v${vars.version}"]}
+  - name: ci
+    uses: gofer/wait-ci
+    with: {repo: owner/name, commit: "v${vars.version}", required: [Unit-Tests], code_scanning: true}
+  - name: assets
+    uses: gofer/wait-assets
+    with: {repo: owner/name, tag: "v${vars.version}", assets: ["*-linux-amd64.tar.gz"]}
+  - name: mirror                  # 项目自己的追加步骤
+    agent: exec
+    runner: local
+    cmd: [sh, -c, "./scripts/upload-mirror.sh ${vars.version}"]
+  - name: summary
+    uses: gofer/summary
 ```
-gofer workflow run --template verify --var project=<p> --var commit=<sha|ref> [--var checks=unit,web]
-```
-
-- 每个检查一个并行的 exec 步骤，在该提交的独立检出上执行（server 本机用 worktree；worker 上用 worker 自己的检出 + `git checkout --detach <commit>` 到临时 worktree，结束清理），互不影响主 checkout。
-- 汇总步骤（内置，不起 agent）：生成一张表——检查名、runner、状态、退出码、耗时、失败用例（从输出里抽取 `--- FAIL:` / `FAIL` / `✗` 等行，最多 20 行）、日志路径；写进 workflow 的结果，web 的 workflow 详情页展示，CLI `gofer workflow show` 打印。
-- 任一检查失败，workflow 结果为失败，但其余检查照常跑完（一次看到全部问题）。
-
-### 三、`release` 模板
-
-```
-gofer workflow run --template release --var project=<p> --var version=<X.Y.Z>
-```
-
-步骤依次执行，任一步失败即停：
-
-1. **check**：tag `v<version>` 存在且指向 `release.branch` 上的提交；工作区不需要干净（只读检查）。
-2. **push**：在 `push_runner` 上推送分支与 tag，经项目 `delivery.proxy`；按输出确认两个 ref 都已推送（不只看退出码）；失败按 `push_retries` 重试。
-3. **ci**：在一个 job 里等该提交的 CI（`gh run list`，需要执行机已登录 `gh`）直到全部结束；`ci_required` 有失败即停；`code_scanning: true` 时有未处理告警即停。
-4. **assets**（可选）：等 GitHub Release 上出现 `assets` 列出的产物。
-5. **post**（可选）：依次执行追加步骤。
-
-结束时汇总同样的表格。
 
 ## 范围与非目标
 
-- 范围：两个模板、项目 `checks` / `release` 配置及校验、汇总表、web 展示、文档。
-- 非目标：GitHub 以外的托管平台（GitLab / Gitea 先不做，配置里留 `provider` 字段以后扩展）；改写 gofer 自身的发版脚本（它可以以后改成调用 `release` 模板 + post 步骤，另议）。
+- 范围：步骤 `ref:` 与 `continue_on_failure`、四个内置步骤、内置 verify / release 模板、`gofer workflow init`、汇总表在 web 与 CLI 的展示、文档。
+- 非目标：server 项目配置新增字段；GitHub 以外的平台（内置步骤的 `with` 预留 `provider`）；改写 gofer 自身的发版脚本。
 
 ## 测试计划
 
@@ -113,11 +124,12 @@ gofer workflow run --template release --var project=<p> --var version=<X.Y.Z>
 
 以下为本稿的提案，待用户确认：
 
-1. **检查与发布步骤写在项目配置里（推荐）**，模板只负责编排；备选：每个项目自己在 `.gofer/workflows/` 写完整模板——更灵活但每个项目都要重写一遍编排。
-2. **verify 失败后其余检查照常跑完**，最后一次性汇总。
-3. **release 依赖执行机上已登录的 `gh`** 查询 CI 与发布产物；不在 gofer 里保存 GitHub token。
-4. **先只支持 GitHub**，配置预留 `provider`。
-5. **gofer 自身发版暂不改用模板**，等模板稳定后再评估。
+1. **检查与发布写成仓库里的 workflow 文件**（用户 2026-10-21 提出），不在 server 配置里加字段。
+2. **内置步骤用 `uses: gofer/<名>` + `with:`**（形似 GitHub Actions，降低上手成本）；第一批四个：summary、push、wait-ci、wait-assets。
+3. **verify 的检查用 `continue_on_failure: true`**，一次看到全部失败；其余场景默认失败即停。
+4. **CI 与发布产物用执行机上已登录的 `gh` 查询**，gofer 不保存 GitHub token；先只支持 GitHub。
+5. **`gofer workflow init` 按仓库内容预填**起步文件，生成后由项目自己维护。
+6. **gofer 自身发版暂不改用模板**，等内置步骤稳定后再评估。
 
 ## 结论与人工计划 Gate
 
