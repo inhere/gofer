@@ -117,3 +117,29 @@ func refTestGit(t *testing.T, dir string, args ...string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// TestResolveStepRefsInNestedRepo: a project root that holds several repositories (the
+// step's cwd names the nested one) resolves the ref in the repository the step runs in,
+// not in the project root — the root may be another repository or none at all.
+func TestResolveStepRefsInNestedRepo(t *testing.T) {
+	root := t.TempDir()
+	repo, head := refTestRepo(t)
+	nested := filepath.Join(root, "tools", "app")
+	if err := os.MkdirAll(filepath.Dir(nested), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(repo, nested); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Projects: map[string]config.ProjectConfig{
+		"proj": {HostPath: root, AllowedAgents: []string{"exec"}, AllowedRunners: []string{"local"}, AllowExec: true},
+	}}
+	spec := Spec{Steps: []StepSpec{{Name: "checks", ProjectKey: "proj", Agent: "exec", Runner: "local", Cwd: "tools/app", Ref: "main", Cmd: []string{"true"}}}}
+	got, err := resolveStepRefs(spec, cfg)
+	if err != nil {
+		t.Fatalf("resolveStepRefs(nested) = %v, want the ref resolved in tools/app", err)
+	}
+	if got.Steps[0].Ref != head {
+		t.Fatalf("ref = %q, want %q", got.Steps[0].Ref, head)
+	}
+}

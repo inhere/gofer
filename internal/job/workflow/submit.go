@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -586,7 +587,13 @@ func resolveStepRefs(spec Spec, cfg *config.Config) (Spec, error) {
 		if !ok {
 			return spec, fmt.Errorf("%w: step %d ref: unknown project %q", job.ErrInvalidRequest, i+1, st.ProjectKey)
 		}
-		sha, err := job.ResolveCommitRef(context.Background(), cfg.ExecPath(proj), st.Ref)
+		// Resolve in the repository the step runs in: a project root may hold several
+		// nested repositories, and the step's cwd names the one its checkout comes from.
+		dir := cfg.ExecPath(proj)
+		if c := strings.TrimSpace(st.Cwd); c != "" && !filepath.IsAbs(c) {
+			dir = filepath.Join(dir, filepath.FromSlash(c))
+		}
+		sha, err := job.ResolveCommitRef(context.Background(), dir, st.Ref)
 		if err != nil {
 			return spec, fmt.Errorf("step %d ref: %w", i+1, err)
 		}
