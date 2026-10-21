@@ -107,8 +107,9 @@ func BaseBranch(ctx context.Context, wtPath string) (main, branch string, err er
 // MergeBranch merges branch (checked out in the worktree wtPath) into its
 // repository's main checkout: --no-ff with a merge commit, or --squash plus one
 // commit. The main checkout must have no tracked changes and be on a named branch;
-// a conflict is fully undone before the typed error is returned. It returns the main
-// checkout and the branch merged into.
+// a conflict is fully undone before the typed error is returned, and uncommitted
+// .gofer/tracker/ changes survive the undo. It returns the main checkout and the
+// branch merged into.
 func MergeBranch(ctx context.Context, wtPath, branch string, squash bool) (main, base string, err error) {
 	main, err = MainCheckout(ctx, wtPath)
 	if err != nil {
@@ -137,10 +138,7 @@ func MergeBranch(ctx context.Context, wtPath, branch string, squash bool) (main,
 	}
 	if _, err := GitOut(ctx, main, args...); err != nil {
 		files := mergeConflictFiles(ctx, main)
-		_, _ = GitOut(ctx, main, "merge", "--abort")
-		// The checkout was verified clean above, so a hard reset only discards the
-		// half-applied merge (a failed --squash leaves no MERGE_HEAD to abort).
-		_, _ = GitOut(ctx, main, "reset", "--hard", "HEAD")
+		undoFailedMerge(ctx, main)
 		if len(files) == 0 {
 			// No conflicted path: git failed for another reason (no committer
 			// identity, a hook, a lock) — say what git said, not "conflicts".
@@ -153,7 +151,7 @@ func MergeBranch(ctx context.Context, wtPath, branch string, squash bool) (main,
 			return main, base, err
 		}
 		if _, err := GitOut(ctx, main, "commit", "-m", "gofer: squash merge "+branch); err != nil {
-			_, _ = GitOut(ctx, main, "reset", "--hard", "HEAD")
+			undoFailedMerge(ctx, main)
 			return main, base, err
 		}
 	}
@@ -235,6 +233,42 @@ func waitIndexUnlocked(ctx context.Context, main string) error {
 		case <-time.After(mergeWaitTick):
 		}
 	}
+}
+
+// undoFailedMerge puts the main checkout back to its state before a failed merge
+// WITHOUT `git reset --hard`. A merge may legitimately start while .gofer/tracker/
+// holds uncommitted rows (mergeBlockingChanges lets those through), and a hard reset
+// silently dropped them — gofer lost a freshly created issue that way (gofer-nwyw).
+// `merge --abort` restores the merged paths and keeps local changes that were not
+// part of the merge; a --squash merge leaves no MERGE_HEAD to abort, so
+// `reset --merge` — the same "keep local changes" reset — undoes it instead. Both
+// were checked to leave uncommitted tracker rows in place. The hard reset stays only
+// as a last resort: a merge left half-applied in the tree would block every later
+// merge, while the two cleanup commands above cover every failure this code produces.
+func undoFailedMerge(ctx context.Context, main string) {
+	if mergeInProgress(ctx, main) {
+		if _, err := GitOut(ctx, main, "merge", "--abort"); err == nil {
+			return
+		}
+	}
+	if _, err := GitOut(ctx, main, "reset", "--merge", "HEAD"); err == nil {
+		return
+	}
+	_, _ = GitOut(ctx, main, "reset", "--hard", "HEAD")
+}
+
+// mergeInProgress reports whether main has a merge to abort (a --squash merge is not
+// recorded in MERGE_HEAD, so it cannot be aborted).
+func mergeInProgress(ctx context.Context, main string) bool {
+	path, err := GitOut(ctx, main, "rev-parse", "--git-path", "MERGE_HEAD")
+	if err != nil || path == "" {
+		return false
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(main, path)
+	}
+	_, statErr := os.Stat(path)
+	return statErr == nil
 }
 
 func mergeConflictFiles(ctx context.Context, main string) []string {
