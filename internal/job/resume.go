@@ -660,7 +660,7 @@ func (s *Service) cliCarrierRequest(req JobRequest, src JobResult, ac config.Age
 	}
 	argv = append(argv, budgetArgs...)
 	if len(budgetEnv) > 0 {
-		env := make(map[string]string, len(req.Env)+len(budgetEnv))
+		env := make(map[string]string, util.CapSum(len(req.Env), len(budgetEnv)))
 		for k, v := range req.Env {
 			env[k] = v
 		}

@@ -14,6 +14,7 @@ import (
 	"github.com/gookit/goutil/maputil"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // tool_api.go implements `gofer tool api`: one raw request against the server's HTTP
@@ -178,7 +179,7 @@ func normalizeAPIPath(raw string) string {
 // toolApiFields merges -f and -F into one map. A key given twice keeps the last value;
 // -F and -f are two ways to spell one field, not two fields.
 func toolApiFields() (map[string]any, error) {
-	out := make(map[string]any, len(toolApiOpts.fields)+len(toolApiOpts.files))
+	out := make(map[string]any, util.CapSum(len(toolApiOpts.fields), len(toolApiOpts.files)))
 	for _, f := range toolApiOpts.fields {
 		key, value, ok := strings.Cut(f, "=")
 		if !ok || strings.TrimSpace(key) == "" {

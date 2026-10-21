@@ -231,7 +231,7 @@ func (s *Server) handleGetWorkflow(c *rux.Context) {
 		CallerID: wf.CallerID, Error: wf.Error,
 		CreatedAt: wf.CreatedAt, UpdatedAt: wf.UpdatedAt,
 		RerunOf: wf.RerunOf,
-		Steps: steps,
+		Steps:   steps,
 	})
 }
 

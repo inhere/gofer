@@ -1426,17 +1426,17 @@ type WorkflowEvent struct {
 // header only, so Steps is nil there; GetWorkflow inlines the chain. Field tags
 // match httpapi's workflowSummary / workflowDetail JSON so one struct decodes both.
 type Workflow struct {
-	ID          string         `json:"id"`
-	Title       string         `json:"title,omitempty"`
-	Status      string         `json:"status"`
-	CurrentStep int            `json:"current_step"`
-	TotalSteps  int            `json:"total_steps"`
-	CallerID    string         `json:"caller_id,omitempty"`
-	Error       string         `json:"error,omitempty"`
-	CreatedAt   int64          `json:"created_at"`
-	UpdatedAt   int64          `json:"updated_at"`
+	ID          string `json:"id"`
+	Title       string `json:"title,omitempty"`
+	Status      string `json:"status"`
+	CurrentStep int    `json:"current_step"`
+	TotalSteps  int    `json:"total_steps"`
+	CallerID    string `json:"caller_id,omitempty"`
+	Error       string `json:"error,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
 	// RerunOf is the workflow this one was trimmed from by `wf rerun` (design §一·7).
-	RerunOf string           `json:"rerun_of,omitempty"`
+	RerunOf string         `json:"rerun_of,omitempty"`
 	Steps   []WorkflowStep `json:"steps,omitempty"`
 }
 

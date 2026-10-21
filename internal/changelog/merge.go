@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/inhere/gofer/internal/procattr"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // DefaultUnreleasedTitles are the section titles treated as "not released yet".
@@ -521,7 +522,7 @@ func mergeEntries(base, ours, theirs []string, heading string, st *state) []stri
 		oursBase[oi] = bi
 	}
 	emitted := make(map[string]bool, len(ours))
-	out := make([]string, 0, len(ours)+len(theirs))
+	out := make([]string, 0, util.CapSum(len(ours), len(theirs)))
 	for j, text := range ours {
 		bi := oursBase[j]
 		if bi < 0 {

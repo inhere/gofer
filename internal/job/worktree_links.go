@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // worktreeCreateOptions is the resolved "where does this job's worktree go" decision
@@ -163,8 +164,8 @@ func removeWorktreeLinks(wtPath string, links []string) []string {
 // mergeWorktreeLinks merges the recorded links (what the checkout actually carries) with
 // the project's current ones, keeping the record's order and dropping blanks/duplicates.
 func mergeWorktreeLinks(recorded, configured []string) []string {
-	seen := make(map[string]bool, len(recorded)+len(configured))
-	out := make([]string, 0, len(recorded)+len(configured))
+	seen := make(map[string]bool, util.CapSum(len(recorded), len(configured)))
+	out := make([]string, 0, util.CapSum(len(recorded), len(configured)))
 	for _, group := range [][]string{recorded, configured} {
 		for _, rel := range group {
 			rel = strings.TrimSpace(rel)

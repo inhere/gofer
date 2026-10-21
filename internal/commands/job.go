@@ -24,6 +24,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/secret"
 	"github.com/inhere/gofer/internal/tracker"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // jobRunFlags is the `job run` flag surface. It is a NAMED type so tests (and any
@@ -1382,7 +1383,7 @@ func runJobWait(c *gcli.Command, args []string) error {
 // Func args and as the declared argument, so accept whichever carried them.
 func jobWaitIDs(c *gcli.Command, args []string) []string {
 	var out []string
-	seen := make(map[string]bool, len(args)+1)
+	seen := make(map[string]bool, util.CapSum(len(args), 1))
 	add := func(id string) {
 		id = strings.TrimSpace(id)
 		if id == "" || seen[id] {

@@ -325,7 +325,7 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 			if req.ACP.TurnTimeoutSec > 0 {
 				turnCtx, cancelTurn = context.WithTimeout(sessionCtx, time.Duration(req.ACP.TurnTimeoutSec)*time.Second)
 			}
-			blocks := make([]acp.ContentBlock, 0, 1+len(images))
+			blocks := make([]acp.ContentBlock, 0, util.CapSum(1, len(images)))
 			if prompt != "" {
 				blocks = append(blocks, acp.TextBlock(prompt))
 			}

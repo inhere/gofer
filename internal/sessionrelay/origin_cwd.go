@@ -5,6 +5,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Wake-up directory decision (M8, bd tools-jqk).
@@ -181,7 +182,7 @@ func execJoin(execRoot, rel string) string {
 // ok is false when the registered cwd is not under the project at all and nothing
 // verified (the relay refuses with cwd_outside_project rather than guess).
 func ChooseResumeCwd(a jobstore.AgentSession, plan TakeoverPlan) (CwdChoice, bool) {
-	roots := make([]string, 0, 1+len(plan.AltRoots))
+	roots := make([]string, 0, util.CapSum(1, len(plan.AltRoots)))
 	for _, r := range append([]string{plan.ExecRoot}, plan.AltRoots...) {
 		if strings.TrimSpace(r) != "" {
 			roots = append(roots, r)

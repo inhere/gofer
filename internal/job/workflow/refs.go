@@ -11,6 +11,7 @@ import (
 	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // maxRefInlineBytes caps how large an inlined ${steps.N.result} / ${steps.N.stdout}
@@ -70,7 +71,7 @@ func fanSelectorPositional(selector string) bool { return fanPositionalRe.MatchS
 // fan-name / cmd / env / cwd fields of each fan (S1: the new spec fields take part in
 // the static reference check exactly like the old ones).
 func stepRefSources(st StepSpec) []string {
-	out := make([]string, 0, 8+len(st.Cmd)+len(st.Env))
+	out := make([]string, 0, util.CapSum(8, len(st.Cmd), len(st.Env)))
 	out = append(out, st.Prompt, st.Cwd, st.Ref)
 	out = append(out, st.Cmd...)
 	for _, v := range st.Env {
