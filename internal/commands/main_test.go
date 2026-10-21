@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/testutil/gitenv"
 )
 
@@ -45,6 +46,11 @@ func TestMain(m *testing.M) {
 		_ = os.Unsetenv(k)
 	}
 	_ = os.Unsetenv("GOFER_JOB_ID")
+	// A worker that runs the tests as a job hands its own role down (GOFER_RUN_MODE=worker,
+	// GOFER_HOOK_RUNNER): commands would then read the worker's config instead of the
+	// fixture's (TestProjectAddListShowValidate failed that way in a verify workflow).
+	_ = os.Unsetenv(config.EnvRunMode)
+	_ = os.Unsetenv("GOFER_HOOK_RUNNER")
 	// The developer's config directory and server stay out of the tests: commands
 	// that open <config-dir>/tracker (the global memory copy) or sync it would
 	// otherwise touch the real ones. A test that needs either sets its own.
