@@ -2241,6 +2241,13 @@ export interface WorkflowStep {
   // Z4：join=pick 的扇出步为 'pick'；picked=人已选中的那一路
   join?: string
   picked?: boolean
+  // 结果视图（design 2026-10-21 §一·6）：这一行在哪台 runner 上跑、退出码、耗时与失败摘录。
+  // exit_code 用指针语义（后端 omitempty）：没起的步没有，成功的是 0。
+  runner?: string
+  exit_code?: number
+  duration_sec?: number
+  // 该 job 日志尾部的失败行（最多 20 行），内置步骤取它的错误信息。
+  failure_excerpt?: string
 }
 
 // 工作流生命周期事件（P1 workflow_events）：seq 游标 + 类型 + 可选 detail_json + 时间。
@@ -2278,6 +2285,8 @@ export interface Workflow {
   updated_at: number
   // 仅详情（getWorkflow）内联；列表为空
   steps?: WorkflowStep[]
+  // 由 rerun 产生时是原 workflow id（后端 omitempty）
+  rerun_of?: string
 }
 
 export interface WorkflowsResp {
@@ -2653,6 +2662,45 @@ export interface WorkflowTemplateInfo {
 
 export interface WorkflowTemplatesResp {
   templates: WorkflowTemplateInfo[]
+}
+
+// GET /v1/workflow-templates/{name}/source：模板自己的文本（仍带 ${vars.x}）与来源。
+// shadows 是这一份盖住的来源（项目文件盖住全局与内置，全局文件盖住内置）。
+export interface WorkflowTemplateSource {
+  name: string
+  source: 'builtin' | 'global' | 'project' | string
+  path?: string
+  content: string
+  shadows?: string[]
+}
+
+// PUT / DELETE /v1/workflow-templates/{name} 与 POST /v1/workflows/{id}/save-as-template
+// 的返回（internal/job/workflow.TemplateWriteResult）。
+export interface WorkflowTemplateWriteResult {
+  name: string
+  scope: string
+  path?: string
+  content_length?: number
+  // 项目模板：写进工作区的未提交改动，需要自己提交
+  uncommitted?: boolean
+  commit_command?: string
+  // 保存的是内置同名模板（覆盖内置）
+  overrides_builtin?: boolean
+  // 删除后这个名字回落到哪个来源（global / builtin；都没了则省略）
+  falls_back_to?: string
+}
+
+// POST /v1/workflows/{id}/rerun：failed 只保留失败的步骤 / 路，from 从该步起。
+export interface WorkflowRerunReq {
+  mode: 'failed' | 'from'
+  step?: string
+}
+
+// POST /v1/workflows/{id}/save-as-template
+export interface WorkflowSaveAsTemplateReq {
+  name: string
+  scope: 'global' | 'project'
+  project?: string
 }
 
 // GET /v1/jobs/{id}/worktree 与 POST .../worktree/merge 的返回（internal/job.WorktreeStatus + MergeResult）。

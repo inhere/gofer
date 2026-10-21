@@ -96,7 +96,11 @@ import type {
   TunnelPresetWriteReq,
   Workflow,
   WorkflowEventsResp,
+  WorkflowRerunReq,
+  WorkflowSaveAsTemplateReq,
   WorkflowSpec,
+  WorkflowTemplateSource,
+  WorkflowTemplateWriteResult,
   WorkflowTemplatesResp,
   WorktreeStatus,
   MergeWorktreeReq,
@@ -1242,6 +1246,65 @@ export function mergeJobWorktree(id: string, req: MergeWorktreeReq = {}): Promis
 export function cancelWorkflow(id: string): Promise<Workflow> {
   return request<Workflow>(`/v1/workflows/${encodeURIComponent(id)}/cancel`, {
     method: 'POST',
+  })
+}
+
+// 模板源文件（GET /v1/workflow-templates/{name}/source，D7）：来源、路径与模板自己的文本。
+export function getWorkflowTemplateSource(name: string, project?: string): Promise<WorkflowTemplateSource> {
+  const qs = project ? `?project=${encodeURIComponent(project)}` : ''
+  return request<WorkflowTemplateSource>(`/v1/workflow-templates/${encodeURIComponent(name)}/source${qs}`)
+}
+
+// 保存模板（PUT /v1/workflow-templates/{name}?scope=global|project[&project=<p>]）：
+// 先校验后写盘；项目范围写进工作区是未提交改动（响应带 uncommitted / commit_command）。
+export function saveWorkflowTemplate(
+  name: string,
+  scope: 'global' | 'project',
+  content: string,
+  project?: string,
+): Promise<WorkflowTemplateWriteResult> {
+  const qs = new URLSearchParams({ scope })
+  if (project) qs.set('project', project)
+  return request<WorkflowTemplateWriteResult>(`/v1/workflow-templates/${encodeURIComponent(name)}?${qs.toString()}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+}
+
+// 删除模板（DELETE /v1/workflow-templates/{name}?scope=…）：只删这一层的文件，
+// 名字回落到下一层（响应 falls_back_to）。
+export function deleteWorkflowTemplate(
+  name: string,
+  scope: 'global' | 'project',
+  project?: string,
+): Promise<WorkflowTemplateWriteResult> {
+  const qs = new URLSearchParams({ scope })
+  if (project) qs.set('project', project)
+  return request<WorkflowTemplateWriteResult>(`/v1/workflow-templates/${encodeURIComponent(name)}?${qs.toString()}`, {
+    method: 'DELETE',
+  })
+}
+
+// 运行记录另存为模板（POST /v1/workflows/{id}/save-as-template）：服务端用 export 的
+// spec（已剥 secret）序列化，走同一套校验与 scope。
+export function saveWorkflowAsTemplate(
+  id: string,
+  req: WorkflowSaveAsTemplateReq,
+): Promise<WorkflowTemplateWriteResult> {
+  return request<WorkflowTemplateWriteResult>(`/v1/workflows/${encodeURIComponent(id)}/save-as-template`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
+// 续跑（POST /v1/workflows/{id}/rerun）：基于原 spec 裁剪出新 workflow，原 workflow 不动。
+export function rerunWorkflow(id: string, req: WorkflowRerunReq): Promise<Workflow> {
+  return request<Workflow>(`/v1/workflows/${encodeURIComponent(id)}/rerun`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
   })
 }
 
