@@ -1737,6 +1737,10 @@ func (s *Store) migrateWorkflows() error {
 	if err := add("parent_step_index", "parent_step_index INTEGER"); err != nil {
 		return err
 	}
+	// S4: the rerun origin (design §一·7). 旧行 COALESCE→"" (an original submit).
+	if err := add("rerun_of", "rerun_of TEXT"); err != nil {
+		return err
+	}
 	return nil
 }
 

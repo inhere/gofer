@@ -232,7 +232,9 @@ func TestValidateStepFeatures(t *testing.T) {
 			s.Uses = "gofer/wait-ci"
 			s.With = map[string]any{"ref": "v1"}
 		}), ""},
-		{"run always", mk(func(s *StepSpec) { s.Run = "always" }), "run: always"},
+		// S4: run: always executes now (a fail-fast jump to the always steps), so it passes;
+		// only an unknown value is still rejected.
+		{"run always", mk(func(s *StepSpec) { s.Run = "always" }), ""},
 		{"unknown run", mk(func(s *StepSpec) { s.Run = "sometimes" }), "unknown run"},
 		// S2: ref and env execute now, on a worker runner too (dispatch v26).
 		{"ref", mk(func(s *StepSpec) { s.Ref = "HEAD~1" }), ""},

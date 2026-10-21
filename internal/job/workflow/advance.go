@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	job "github.com/inhere/gofer/internal/job"
@@ -130,6 +131,13 @@ func (e *Engine) advanceAdmitted(wfID string) {
 
 	switch verdict {
 	case job.StatusDone:
+		// run: always (design §一·8): when an earlier step already failed, only the
+		// remaining run: always steps still run and the workflow still fails at the end
+		// (the failure is carried in workflows.error while it does).
+		if wf.Error != "" {
+			e.runAlwaysTail(wf, spec, cur, att, jobs)
+			return
+		}
 		// Win推进权 for this (step,attempt). Only the winner advances / starts the next
 		// step, so done is committed exactly once. The last step claims and finishes
 		// the workflow in one transaction (finishStep) so no reader ever sees a
@@ -186,7 +194,7 @@ func (e *Engine) advanceAdmitted(wfID string) {
 				return
 			}
 			// Retry exhausted (or this exit code is not retryable): fail-fast.
-			e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, fmt.Sprintf("step %d %s after %d attempt(s)", cur, failStatus, att))
+			e.failStep(wf, spec, cur, att, jobs, fmt.Sprintf("step %d %s after %d attempt(s)", cur, failStatus, att))
 		case onFailureContinue:
 			// 继续: skip the failed step, advance to the next (or finish).
 			skipped := map[string]any{"step": cur, "attempt": att, "status": failStatus}
@@ -200,8 +208,8 @@ func (e *Engine) advanceAdmitted(wfID string) {
 			}
 			e.recordWorkflowEvent(wfID, job.EventStepSkipped, skipped)
 			e.startNextStep(wf, cur, jobs, spec)
-		default: // "" / fail: v1 fail-fast (D17 default)
-			e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, fmt.Sprintf("step %d %s", cur, failStatus))
+		default: // "" / fail: v1 fail-fast (D17 default), jumping to run: always steps
+			e.failStep(wf, spec, cur, att, jobs, fmt.Sprintf("step %d %s", cur, failStatus))
 		}
 	}
 }
@@ -243,6 +251,10 @@ func (e *Engine) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, a
 
 	// Child terminal: done → step done; failed/cancelled → step failed (then on_failure).
 	if child.Status == jobstore.WorkflowDone {
+		if wf.Error != "" { // a run: always tail after an earlier failure
+			e.runAlwaysTail(wf, spec, cur, att, jobs)
+			return
+		}
 		if cur >= wf.TotalSteps { // last step: claim + finish in one transaction
 			e.finishStep(wfID, cur, att, jobstore.WorkflowDone, "")
 			return
@@ -276,7 +288,7 @@ func (e *Engine) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, a
 			e.scheduleRetryAdvance(wfID, backoff)
 			return
 		}
-		e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, fmt.Sprintf("step %d sub-workflow %s after %d attempt(s)", cur, failStatus, att))
+		e.failStep(wf, spec, cur, att, jobs, fmt.Sprintf("step %d sub-workflow %s after %d attempt(s)", cur, failStatus, att))
 	case onFailureContinue:
 		skipped := map[string]any{"step": cur, "attempt": att, "status": failStatus}
 		if cur >= wf.TotalSteps { // last step skipped -> workflow done, atomically
@@ -289,8 +301,8 @@ func (e *Engine) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, a
 		}
 		e.recordWorkflowEvent(wfID, job.EventStepSkipped, skipped)
 		e.startNextStep(wf, cur, jobs, spec)
-	default: // "" / fail: fail-fast (D17 default)
-		e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, fmt.Sprintf("step %d sub-workflow %s", cur, failStatus))
+	default: // "" / fail: fail-fast (D17 default), jumping to run: always steps
+		e.failStep(wf, spec, cur, att, jobs, fmt.Sprintf("step %d sub-workflow %s", cur, failStatus))
 	}
 }
 
@@ -301,17 +313,90 @@ func (e *Engine) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, a
 // runs exactly once). priorJobs are the already-started step-jobs (for ref resolve).
 // submitStepFan starts a single job (FanOut<=1) or fans out N (FanOut>1, P2).
 func (e *Engine) startNextStep(wf jobstore.Workflow, cur int, priorJobs []jobstore.JobRecord, spec Spec) {
-	next := spec.Steps[cur] // 0-based: the next step (1-based step cur+1)
-	// P2 接入点：resolveRefs 把 ${steps.N.field} 替换为前序产出（含 fan-out 聚合）。替换
-	// 失败 → 整条工作流 failed，不起此步（advance 已抢权，此处只跑一次）。
+	e.startStepAt(wf, cur+1, priorJobs, spec)
+}
+
+// startStepAt resolves the refs of step stepIdx (1-based) and starts its job(s) at
+// attempt 1. It is startNextStep's general form so the run: always tail can jump to a
+// later step (design §一·8). A resolve/submit failure fails the whole workflow, but a
+// failure that is already parked (a run: always tail) stays in the message.
+func (e *Engine) startStepAt(wf jobstore.Workflow, stepIdx int, priorJobs []jobstore.JobRecord, spec Spec) {
+	if stepIdx < 1 || stepIdx > len(spec.Steps) {
+		e.setWorkflowFailed(wf.ID, wfPending(wf, "spec/total step mismatch"))
+		return
+	}
+	next := spec.Steps[stepIdx-1]
 	if err := e.resolveRefs(&next, priorJobs, spec); err != nil {
-		e.setWorkflowFailed(wf.ID, fmt.Sprintf("step %d resolve refs: %s", cur+1, err.Error()))
+		e.setWorkflowFailed(wf.ID, wfPending(wf, fmt.Sprintf("step %d resolve refs: %s", stepIdx, err.Error())))
 		return
 	}
-	if err := e.submitStepFan(wf, next, cur+1, 1); err != nil {
-		e.setWorkflowFailed(wf.ID, "submit step: "+err.Error())
+	if err := e.submitStepFan(wf, next, stepIdx, 1); err != nil {
+		e.setWorkflowFailed(wf.ID, wfPending(wf, "submit step: "+err.Error()))
 		return
 	}
+}
+
+// wfPending prefixes msg with the failure already parked in a running workflow's error
+// column (a run: always tail), so the final reason names the original failure too.
+func wfPending(wf jobstore.Workflow, msg string) string {
+	if wf.Error == "" {
+		return msg
+	}
+	return wf.Error + "; " + msg
+}
+
+// nextAlwaysStep returns the 1-based index of the first step after `after` marked
+// run: always, or 0 when none is left (design §一·8). `after` is a 1-based step index;
+// the loop walks the 0-based spec, so index i is step i+1.
+func nextAlwaysStep(spec Spec, after int) int {
+	for i := after; i < len(spec.Steps); i++ {
+		if spec.Steps[i].Run == runAlways {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// failStep is the fail-fast terminal handling of the current step (design §一·8). When
+// a LATER step is marked run: always the chain does not finish failed yet: the pointer
+// jumps to that step, the reason is parked in workflows.error (the status stays
+// running) and only after the last run: always step does the workflow finish failed —
+// an always step never turns a failed run into a done one. Without such a step it
+// finishes failed right away, exactly as before.
+func (e *Engine) failStep(wf jobstore.Workflow, spec Spec, cur, att int, jobs []jobstore.JobRecord, msg string) {
+	msg = wfPending(wf, msg)
+	next := nextAlwaysStep(spec, cur)
+	if next == 0 {
+		e.finishStep(wf.ID, cur, att, jobstore.WorkflowFailed, msg)
+		return
+	}
+	won, aerr := e.meta.AdvanceStep(wf.ID, cur, att, next, 1, 0)
+	if aerr != nil || !won {
+		return
+	}
+	// Park the reason while the workflow still runs; a later advance reads it back.
+	if err := e.meta.SetWorkflowStatus(wf.ID, jobstore.WorkflowRunning, msg); err != nil {
+		slog.Warn("workflow run: always: record pending failure", "workflow_id", wf.ID, "err", err)
+	}
+	e.recordWorkflowEvent(wf.ID, job.EventStepSkipped, map[string]any{
+		"step": cur, "attempt": att, "status": job.StatusFailed, "run_always_from": next,
+	})
+	e.startStepAt(wf, next, jobs, spec)
+}
+
+// runAlwaysTail continues a workflow whose step just finished DONE while an earlier
+// failure is parked in workflows.error (design §一·8): it starts the next run: always
+// step, and when none is left it finishes the workflow FAILED with the parked reason.
+func (e *Engine) runAlwaysTail(wf jobstore.Workflow, spec Spec, cur, att int, jobs []jobstore.JobRecord) {
+	if next := nextAlwaysStep(spec, cur); next > 0 {
+		won, aerr := e.meta.AdvanceStep(wf.ID, cur, att, next, 1, 0)
+		if aerr != nil || !won {
+			return
+		}
+		e.startStepAt(wf, next, jobs, spec)
+		return
+	}
+	e.finishStep(wf.ID, cur, att, jobstore.WorkflowFailed, wf.Error)
 }
 
 // startStepJob (re)starts the (step, attempt) generation for the CURRENT pointer. It

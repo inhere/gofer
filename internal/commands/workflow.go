@@ -67,6 +67,14 @@ var wfPickOpts struct {
 	cleanupOthers bool
 }
 
+// wfRerunOpts are `wf rerun`'s selectors: --failed (only the failed steps/fans) or
+// --from <step>, plus the shared --watch polling.
+var wfRerunOpts struct {
+	failed bool
+	from   string
+	watch  bool
+}
+
 // NewWorkflowCmd builds the `workflow` command group (run/show/list/cancel). It
 // wraps the server's /v1/workflows HTTP API so the host can submit and inspect
 // job-chains without curl (P3-a). A workflow file is yaml (title + steps[]); the
@@ -163,6 +171,19 @@ func NewWorkflowCmd() *gcli.Command {
 					c.AddArg("name", "template name to create", true)
 				},
 				Func: runWorkflowSaveAsTemplate,
+			},
+			{
+				Name: "rerun",
+				Desc: "Re-run a finished workflow as a new one: only its failed steps, or from a step on",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&wfRerunOpts.failed, "failed", "", false, "keep only the failed steps (and, inside a failed fan-out step, only the failed fans)")
+					c.StrOpt(&wfRerunOpts.from, "from", "", "", "keep this step and every later one (1-based number or step name)")
+					c.BoolOpt(&wfRerunOpts.watch, "watch", "w", false, "poll the new workflow until it reaches a terminal state")
+					c.AddArg("id", "workflow id to re-run", true)
+				},
+				Func: runWorkflowRerun,
 			},
 			{
 				Name: "show",
@@ -546,22 +567,116 @@ func runWorkflowShow(c *gcli.Command, _ []string) error {
 	return nil
 }
 
+// runWorkflowRerun re-runs a finished workflow as a NEW workflow (design §一·7). The
+// selectors are exclusive: --failed keeps only the failed steps (a failed fan-out step
+// only its failed fans), --from <step> keeps that step and everything after it. The
+// original workflow is never modified; the new one records rerun_of.
+func runWorkflowRerun(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("workflow rerun requires an <id> argument")
+	}
+	if wfRerunOpts.failed == (wfRerunOpts.from != "") {
+		return fmt.Errorf("workflow rerun needs exactly one of --failed or --from <step>")
+	}
+	mode, step := workflow.RerunModeFailed, ""
+	if !wfRerunOpts.failed {
+		mode, step = workflow.RerunModeFrom, wfRerunOpts.from
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	wf, err := cli.RerunWorkflow(id, mode, step)
+	if err != nil {
+		return err
+	}
+	c.Printf("workflow %s rerun of %s: status=%s steps=%d\n", wf.ID, id, wf.Status, wf.TotalSteps)
+	if !wfRerunOpts.watch {
+		return nil
+	}
+	final, err := watchWorkflow(c, cli, wf.ID)
+	if err != nil {
+		return err
+	}
+	c.Printf("workflow %s finished: status=%s\n", final.ID, final.Status)
+	printStepChain(c, final.Steps)
+	if code := workflowExitCode(final.Status); code != 0 {
+		os.Exit(code)
+	}
+	return nil
+}
+
 // printStepChain renders a workflow's started step-jobs as a table
-// (STEP/ATT/FAN/NAME/JOB ID/STATUS, T4.3). A step not yet reached has no row (the
-// chain is strictly serial), so an empty chain prints a friendly hint. A retried
-// step contributes one row per attempt and a fan-out step one row per fan, so the
-// ATT/FAN columns expose the v2 dimensions; both render "-" for a v1 single-job step.
+// (STEP/ATT/FAN/NAME/RUNNER/STATUS/EXIT/TIME, design §一·6). A step not yet reached has
+// no row (the chain is strictly serial), so an empty chain prints a friendly hint. A
+// retried step contributes one row per attempt and a fan-out step one row per fan, so
+// the ATT/FAN columns expose the v2 dimensions; both render "-" for a v1 single-job
+// step. The failure excerpts follow the table, since they are multi-line.
 func printStepChain(c *gcli.Command, steps []client.WorkflowStep) {
 	if len(steps) == 0 {
 		c.Println("  (no steps started yet)")
 		return
 	}
-	c.Printf("  %-5s %-4s %-4s %-18s %-26s %s\n", "STEP", "ATT", "FAN", "NAME", "JOB ID", "STATUS")
+	c.Printf("  %-5s %-4s %-4s %-18s %-10s %-10s %-5s %s\n", "STEP", "ATT", "FAN", "NAME", "RUNNER", "STATUS", "EXIT", "TIME")
+	var excerpts []client.WorkflowStep
 	for _, st := range steps {
-		c.Printf("  %-5d %-4s %-4s %-18s %-26s %s\n",
+		c.Printf("  %-5d %-4s %-4s %-18s %-10s %-10s %-5s %s\n",
 			st.StepIndex, attemptCol(st.Attempt), fanCol(st.FanIndex),
-			stepName(st), st.JobID, st.Status)
+			stepName(st), runnerCol(st.Runner), st.Status, exitCol(st.ExitCode), durationCol(st.DurationSec))
+		if st.FailureExcerpt != "" {
+			excerpts = append(excerpts, st)
+		}
 	}
+	for _, st := range excerpts {
+		c.Printf("\nfailed %s (%s):\n", stepRowLabel(st), st.Status)
+		for _, line := range strings.Split(st.FailureExcerpt, "\n") {
+			c.Printf("  | %s\n", line)
+		}
+	}
+}
+
+// stepRowLabel names a table row for the excerpt heading: the step and, when it is a
+// fan / retry row, its fan and attempt.
+func stepRowLabel(st client.WorkflowStep) string {
+	label := fmt.Sprintf("step %d", st.StepIndex)
+	if st.FanIndex > 0 {
+		label += fmt.Sprintf(" fan %d", st.FanIndex)
+	}
+	if st.Attempt > 1 {
+		label += fmt.Sprintf(" attempt %d", st.Attempt)
+	}
+	if st.Name != "" {
+		label += " " + st.Name
+	}
+	return label
+}
+
+// runnerCol renders the runner a row ran on, "-" when the row never started.
+func runnerCol(runner string) string {
+	if runner == "" {
+		return "-"
+	}
+	return runner
+}
+
+// exitCol renders a row's exit code, "-" when it has none (not started / not a process).
+func exitCol(code *int) string {
+	if code == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%d", *code)
+}
+
+// durationCol renders a row's runtime as <n>s (<m>m<n>s past a minute), "-" when unknown.
+func durationCol(sec int64) string {
+	if sec <= 0 {
+		return "-"
+	}
+	if sec < 60 {
+		return fmt.Sprintf("%ds", sec)
+	}
+	return fmt.Sprintf("%dm%ds", sec/60, sec%60)
 }
 
 // attemptCol renders a step's attempt for the chain table: an attempt of 0/1 (a v1

@@ -214,6 +214,7 @@ gofer workflow run --template <name> --var k=v [-w]   # 从流程模板提交（
 gofer workflow template ls|show <name> [-p <project>] # 看模板（含来源）与 vars
 gofer workflow template show <name> --source          # 看模板自己的 YAML 与文件路径
 gofer workflow list / show <id> / events <id> / cancel <id>
+gofer workflow rerun <id> --failed | --from <step> [-w] # 重跑失败的部分 / 从某步起重跑（新 workflow）
 gofer workflow export <id>                            # 导出 spec（去密钥），可再 run
 ```
 
@@ -239,6 +240,12 @@ gofer wf save-as-template <wf-id> <name> [--global | --project <p>]  # 把一个
 - 项目模板存下去是**未提交改动**，命令会回显建议的 `git add … && git commit …`；运行读的是工作区当前内容，所以未提交也立即生效，但提交后仓库才留得住。
 - 需要 `config.write`；只能写自己项目范围内的模板（全局模板要不受限的调用方），每次写入记审计。
 - web 的新建 workflow 页可直接看模板源文件并编辑保存（见 [web-console.md](web-console.md)）。
+
+## 结果表、重跑与 `run: always`
+
+- **看结果**：`gofer wf show <id>` 把每个步骤 / 每一路 fan 打成一张表（STEP / ATT / FAN / NAME / RUNNER / STATUS / EXIT / TIME），失败行下面是失败摘录（日志尾部里像 `--- FAIL:`、`FAIL`、`✗`、`error:`、`panic:` 的行，去重、保持顺序、最多 20 行；内置步骤这类没有日志行的取任务记录的错误）。HTTP 详情接口的 `steps[]` 同样带 `runner`、`exit_code`、`duration_sec`、`failure_excerpt`。失败即停也不影响已结束步骤的信息：失败的 workflow 一样完整显示。
+- **只重跑需要重跑的部分**：`gofer wf rerun <id> --failed` 只保留失败的步骤（失败的扇出步骤只保留失败的那几路）；`--from <序号或步骤名>` 从那步起保留后续全部。它是**提交一条新的 workflow**，原 workflow 一行不改（状态、指针、任务都留着），新 workflow 记 `rerun_of` = 原 id。变量与原 `ref` 解析出的 sha 保持原值，所以重跑检查的是同一个提交。仍在运行的 workflow 不能重跑（先 `cancel`）；裁剪后某步的 `${steps.N…}` 引用指向被去掉的步骤会提交即报错。`-w` 轮询到终态。
+- **`run: always`**：步骤写 `run: always` 就在前面失败后仍然执行（失败即停时跳到这些步骤按顺序跑完，其余步骤跳过），但不改变结论——前面失败了整体还是失败，原因保留（后续又失败时附加在后面）。典型用法：release 失败后的清理 / 通知。
 
 ## 内置步骤：`uses` + `with`
 
