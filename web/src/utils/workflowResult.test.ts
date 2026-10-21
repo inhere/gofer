@@ -109,7 +109,7 @@ describe('workflow result rows', () => {
     const rows = resultRows(
       wf([
         step({ step_index: 1, status: 'done', cwd: '/tmp/ref-checkout', ref: 'abc123def4567890', started_at: 1_700_000_000 }),
-        step({ step_index: 2, status: '' }),
+        step({ step_index: 2 }),
       ]),
     )
     expect(rows[0].cwd).toBe('/tmp/ref-checkout')
