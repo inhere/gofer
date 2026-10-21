@@ -49,6 +49,7 @@ import {
   patchJobTitle,
   puntInteraction,
   resumeJob,
+  getWorkflow,
   createWakeup,
   deleteWakeup,
   setWakeupEnabled,
@@ -59,6 +60,7 @@ import { createLiveTopic, type LiveTopicHandle } from '../utils/useLiveTopic'
 import { MAX_STDERR_BUFFER_BYTES, appendCappedWithStats, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
+import { fanNameForJob, jobWorkflowLabel } from '../utils/workflowResult'
 import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
 import { wrapUpText } from '../utils/wrapUpDisplay'
 import { normalizeJobTitle } from '../utils/jobTitle'
@@ -1059,6 +1061,26 @@ const commentsReloadKey = ref(0)
 const eventsTruncated = ref(false)
 const eventsLoadingEarlier = ref(false)
 
+// 所属工作流（job 详情页 workflow 行）：id / 步骤 / fan 序号在 job 自身字段上，
+// fan 名只在 workflow 步骤链里，所以按 workflow_id 取一次详情。取不到就只显示序号。
+const wfFanName = ref('')
+watch(
+  () => [job.value?.workflow_id, job.value?.step_index, job.value?.attempt, job.value?.fan_index] as const,
+  async ([wfID]) => {
+    wfFanName.value = ''
+    const j = job.value
+    if (!wfID || !j) return
+    try {
+      const wf = await getWorkflow(wfID)
+      wfFanName.value = fanNameForJob(wf.steps, j)
+    } catch {
+      // 工作流详情取不到不影响 job 详情：仍然显示 id 与步骤 / fan 序号
+    }
+  },
+)
+
+const workflowLabel = computed(() => (job.value ? jobWorkflowLabel(job.value, wfFanName.value) : ''))
+
 // 把聚合响应拆开落到各自的状态上；某一项在 include_errors 里就退回该项原来的单独请求，
 // 保证「聚合失败一项」不比拆开请求更差。
 function applyDetail(d: JobDetailResp): void {
@@ -2033,6 +2055,13 @@ onUnmounted(() => {
         <RouterLink class="meta-v meta-link mono" :to="`/plans/${encodeURIComponent(job.plan_id)}`">
           {{ job.plan_id }}
         </RouterLink>
+      </div>
+      <div v-if="job.workflow_id" class="meta-item">
+        <span class="meta-k mono">workflow</span>
+        <RouterLink class="meta-v meta-link mono" :to="`/workflows/${encodeURIComponent(job.workflow_id)}`" :title="job.workflow_id">
+          {{ job.workflow_id }}
+        </RouterLink>
+        <span class="meta-v mono">{{ workflowLabel }}</span>
       </div>
       <!-- MCP-05 阶段 B：这条 job 是 leader 回合起的（tags: leader / leader_round:<n>）。 -->
       <div v-if="isLeaderJob" class="meta-item">

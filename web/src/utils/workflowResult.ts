@@ -1,7 +1,7 @@
 // workflow 详情的结果表与模板编辑的纯逻辑（design 2026-10-21 §一·6 / §四，plan S6）。
 // 只做「后端字段 → 给人看的一行」的换算与文案，不碰网络，方便单测。
-import type { JobStatus, Workflow, WorkflowStep, WorkflowTemplateWriteResult } from '../api/types'
-import { fmtDuration } from '../api/time'
+import type { Job, JobStatus, Workflow, WorkflowStep, WorkflowTemplateWriteResult } from '../api/types'
+import { fmtDateTime, fmtDuration } from '../api/time'
 import { runnerLabel } from './runnerDisplay'
 
 // 结果表一行 = 一个 step-job（重试每次一行、扇出每路一行）。
@@ -19,6 +19,11 @@ export interface ResultRow {
   // 退出码文案：没有退出码（未起 / 内置步骤失败无码）时为空
   exitCode: string
   duration: string
+  // 开始时间（本地时间串；未起的行为空）
+  startedAt: string
+  // 实际执行目录（ref: 步是临时检出目录）与检出 ref；未起的行为空
+  cwd: string
+  ref: string
   // 失败行（空数组 = 无摘录，不显示展开）
   excerpt: string[]
   failed: boolean
@@ -78,6 +83,9 @@ export function resultRows(wf: Workflow | null | undefined): ResultRow[] {
       runner: runnerLabel(st.runner) || '—',
       exitCode: typeof st.exit_code === 'number' ? String(st.exit_code) : '',
       duration: fmtDuration(typeof st.duration_sec === 'number' ? st.duration_sec : null),
+      startedAt: st.started_at ? fmtDateTime(st.started_at) : '',
+      cwd: st.cwd ?? '',
+      ref: st.ref ?? '',
       excerpt: failed ? excerptLines(st.failure_excerpt) : [],
       failed,
       jobId: st.job_id,
@@ -104,6 +112,41 @@ export function fromStepValue(row: ResultRow): string {
 // 结果表的失败 / 成功计数（标题旁一句「3 路失败」）。
 export function failedCount(rows: ResultRow[]): number {
   return rows.filter((r) => r.failed).length
+}
+
+// ---- job ↔ workflow 关联（job 详情页）----
+
+// job 在所属工作流里的位置文案：step-job 才有 workflow_id，普通 job 返回空。
+// 步骤 / 重试 / fan 序号都从 job 自身字段取；fan 名不在 job 行上，由调用方从
+// workflow 详情的步骤链里找出来传进来。
+export function jobWorkflowLabel(
+  job: Pick<Job, 'workflow_id' | 'step_index' | 'attempt' | 'fan_index'>,
+  fanName?: string,
+): string {
+  if (!job.workflow_id) return ''
+  const parts = [`第 ${job.step_index ?? 1} 步`]
+  if ((job.attempt ?? 1) >= 2) parts.push(`第 ${job.attempt} 次尝试`)
+  if ((job.fan_index ?? 0) >= 1) {
+    parts.push(fanName ? `第 ${job.fan_index} 路（${fanName}）` : `第 ${job.fan_index} 路`)
+  }
+  return parts.join(' · ')
+}
+
+// 从 workflow 步骤链里找出这个 job 的那一行，返回它的 fan 名（没有则空）。
+// 比对 step/attempt/fan 三元组：同一个 step 的重试 / 并行路各有自己的 job_id。
+export function fanNameForJob(
+  steps: WorkflowStep[] | undefined,
+  job: Pick<Job, 'step_index' | 'attempt' | 'fan_index'>,
+): string {
+  const step = job.step_index ?? 0
+  const attempt = job.attempt ?? 1
+  const fan = job.fan_index ?? 0
+  for (const st of steps ?? []) {
+    if (st.step_index === step && (st.attempt ?? 1) === attempt && (st.fan_index ?? 0) === fan) {
+      return st.fan_name ?? ''
+    }
+  }
+  return ''
 }
 
 // ---- 模板编辑（D7）----

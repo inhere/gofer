@@ -617,6 +617,9 @@ export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
   if (opts?.source_job) {
     params.set('source_job', opts.source_job)
   }
+  if (opts?.workflow_id) {
+    params.set('workflow_id', opts.workflow_id)
+  }
   if (opts?.limit != null) {
     params.set('limit', String(opts.limit))
   }
