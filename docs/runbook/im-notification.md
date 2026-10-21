@@ -189,13 +189,13 @@ job 相关事件的钩子投递和 webhook 一样出现在 job 详情页的投�
 {
   "event": {
     "seq": 1287,
-    "job_id": "20261011-101500-a1b2c3d4",
+    "job_id": "job-20261011-101500-a1b2c3d4",
     "type": "job.terminal",
     "detail": {"status": "done", "exit_code": 0, "error": ""},
     "at": 1791684900
   },
   "job": {
-    "id": "20261011-101500-a1b2c3d4",
+    "id": "job-20261011-101500-a1b2c3d4",
     "status": "done",
     "project": "my-project",
     "agent": "codex",

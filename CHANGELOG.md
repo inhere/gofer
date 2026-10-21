@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 变更
+
+- **新 job id 带 `job-` 前缀（gofer-qo3t）**：新提交的 job id 形如 `job-20261021-212412-6a715d34`，与 `wf-` / `plan-` / `todo-` 一致，从 id 就能看出是哪种对象。只改新 id 的生成：已经存在的、没有前缀的 id（`20261021-212412-6a715d34`）不迁移，按 id 查询 / 续接 / 取消 / 合并 / worktree 分支（`gofer/<job-id>`）/ 结果目录（`<root>/<yyyymmdd>/<job-id>`）照常可用；识别 id 形状的地方（如 Stop hook 从终端输出里识别「job … submitted」）现在新旧两种都认。脚本里若用正则抓 job id，请写成 `(job-)?[0-9]{8}-[0-9]{6}-[0-9a-f]{8}`。
+
 ### 修复
 
 - **worktree 合并 / 交付失败不再丢掉主 checkout 里未提交的 tracker 改动（gofer-nwyw）**：合并允许在 `.gofer/tracker/` 有未提交的 issue / memory 改动时开始，失败时（冲突、`--squash` 冲突、squash 提交失败、分支与本地 tracker 改动撞车被 git 拒绝）以前一律 `git reset --hard HEAD`，把这些未提交改动一起回滚到 HEAD，实测丢过一条新建的 issue。现在只撤销合并本身（`merge --abort`；`--squash` 没有 MERGE_HEAD 时用 `reset --merge`），被合并改动涉及的路径照样复原，合并之外的未提交改动保持原样。

@@ -85,10 +85,10 @@ server:
   "hook": "pr-check",
   "project": "demo",
   "delivery": {
-    "job_id": "20261012-120000-abcd1234",
+    "job_id": "job-20261012-120000-abcd1234",
     "mode": "pr",
-    "branch": "gofer/20261012-120000-abcd1234",
-    "remote_branch": "gofer/20261012-120000-abcd1234",
+    "branch": "gofer/job-20261012-120000-abcd1234",
+    "remote_branch": "gofer/job-20261012-120000-abcd1234",
     "remote": "origin",
     "base": "",
     "draft": true,
