@@ -76,6 +76,11 @@ func TestJobEndNotifyReachesTheSessionThroughTheMessenger(t *testing.T) {
 	wait.Until(t, wait.Timeout(t, 10*time.Second), "the job-end notice to reach the messenger", func() bool {
 		return len(goferNotices(t, s, sid)) == 1
 	})
+	// The outbox row is written before the messenger is called, so wait for the
+	// messenger too rather than reading it right after the row appears (G052).
+	wait.Until(t, wait.Timeout(t, 10*time.Second), "the messenger to receive the notice", func() bool {
+		return strings.Contains(msgr.delivered(), "[gofer job 完成]")
+	})
 	delivered := msgr.delivered()
 	for _, want := range []string{"[gofer job 完成]", notified.ID, "notify e2e", "status=done", "gofer job show " + notified.ID} {
 		if !strings.Contains(delivered, want) {
