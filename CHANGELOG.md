@@ -17,10 +17,16 @@
 
 ### 新功能
 
+- **workflow 内置步骤 `uses: gofer/<名>`**：release / verify 这类流程不用再写一堆 shell，而是把「推分支与 tag、等 CI、等发布产物」交给 gofer 自己执行。
+  - 三个内置步骤：`gofer/push`（`with: {refs: [...], remote}`；分支推 `refs/heads/`、tag 推 `refs/tags/`，**永不强推**，推完用 `ls-remote` 核对每个 ref 的远端 sha）、`gofer/wait-ci`（`ref` / `required` / `code_scanning` / `timeout_min`；GitHub，`required` 任一失败即失败，`code_scanning` 只看该 ref 上开放的告警）、`gofer/wait-assets`（`tag` / `assets` glob，等 Release 上的产物齐全）。
+  - `with` 按步骤自己的结构**严格校验**，未知键、缺必填参数都在提交时报错；`uses` 只接受 `gofer/<内置名>`，不能与 `cmd` / `prompt` / `fan` 同写。
+  - 执行是一个内部 exec job（`gofer tool step <名>`，标签 `workflow-step`，`with` 以 JSON 走 stdin），所以在步骤的 `runner:` 上跑，日志 / 取消 / `on_failure: retry` 与普通步骤一致；在 worker 上跑要求该 worker 协议 ≥ v26，旧 worker 提交时即被拒。
+  - 信任模型：推送需要项目 `delivery.allow_push` **且**提交方持有新权限 `repo.push`（中风险，默认不授予任何人），否则提交即 403 并说明。
+
 - **workflow 顶层 `project` 与每路不同的扇出**：一个 workflow 可以只声明一次项目，`fan` 的每一路可以跑自己的命令。
   - 顶层 `project:` 是默认项目，步骤不写 `project_key` 就在它里面跑；从某个项目 `.gofer/workflows` 读出的模板以该项目为默认。`gofer workflow run -p <project>`（文件与模板两种提交都可用），HTTP 提交体同名字段，`vars.project` 仍作兼容回退。
   - `fan[]` 新增 `name`、`cmd`、`env`、`cwd`、`timeout_sec`，未写的沿用步骤的值；带 `cmd` 时 `agent` 可省（默认 exec）。配合 `join: all` 一个步骤就能并行跑完整套检查。`name` 在步骤内唯一，并可用 `${steps.<step>.<fan 名>.<field>}` 引用这一路的输出（`${steps.<step>.fK.<field>}` 照旧）。
-  - 步骤与 fan 新增 `env`、`ref`（执行侧见下一条）、`uses` / `with`、`run: always`：字段已能解析、渲染与校验；`uses` / `with` / `run: always` 的执行侧随后续版本提供，提交时会明确报「暂不支持：<字段>（后续版本提供）」，不会被静默忽略。
+  - 步骤与 fan 新增 `env`、`ref`（执行侧见下一条）、`uses` / `with`、`run: always`：字段已能解析、渲染与校验；`run: always` 的执行侧随后续版本提供，提交时会明确报「暂不支持：run: always（后续版本提供）」，不会被静默忽略。
   - 模板渲染与 `${steps…}` 静态校验覆盖以上全部新字段（含 `with` 递归、fan 的 `cmd` / `env` / `cwd`），markdown 分步文件的 frontmatter 同样可填这些字段。
 - **workflow 模板可以查看源文件、保存与删除**：新建 workflow 时不再只能预览渲染后的步骤，也能看到模板自己的 YAML（并标明来源是内置 / 全局 / 项目），并把改过的模板存回去。
   - `GET /v1/workflow-templates/{name}/source[?project=<p>]` → `{name, source, path, content, shadows}`：按「项目 `.gofer/workflows` → `<config-dir>/workflows` → 内置」的顺序取第一份，内置模板没有路径，内容是它的 spec 序列化成的 YAML；`shadows` 是这一份盖住了哪些来源（项目文件盖住全局与内置，全局文件盖住内置）。

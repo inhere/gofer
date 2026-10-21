@@ -240,6 +240,41 @@ gofer wf save-as-template <wf-id> <name> [--global | --project <p>]  # 把一个
 - 需要 `config.write`；只能写自己项目范围内的模板（全局模板要不受限的调用方），每次写入记审计。
 - web 的新建 workflow 页可直接看模板源文件并编辑保存（见 [web-console.md](web-console.md)）。
 
+## 内置步骤：`uses` + `with`
+
+一个步骤可以不是「跑某条命令」，而是让 gofer 自己做一个动作：
+
+```yaml
+steps:
+  - name: push
+    uses: gofer/push
+    with: {refs: [main, "v${vars.version}"]}
+    on_failure: retry             # 推送失败（网络 / 钩子）重试，每次尝试是独立 job
+    retry: {max_attempts: 10, backoff_sec: 300}
+  - name: ci
+    uses: gofer/wait-ci
+    with: {ref: "v${vars.version}", required: [Unit-Tests], code_scanning: true, timeout_min: 40}
+  - name: assets
+    uses: gofer/wait-assets
+    with: {tag: "v${vars.version}", assets: ["*-linux-amd64.tar.gz"]}
+```
+
+内置步骤的规则：
+
+- `uses` 只接受 `gofer/<内置名>`，没有版本号（随 gofer 二进制）；名字与 `with` 的参数**严格校验**，写错一个键直接提交失败，不会静默忽略。
+- 参数走 `with:`，可用 `vars` / `${steps…}` 插值。`uses` 步骤不能同时写 `cmd` / `prompt` / `fan`。
+- 执行位置看步骤的 `runner:`（默认项目默认 runner）；在 worker 上执行要求该 worker 协议 ≥ v26（旧 worker 提交时即被拒，不会跑到一半才失败）。内置步骤是一次内部 exec job（标签 `workflow-step`），日志 / 取消 / 超时 / `on_failure: retry` 与普通步骤一样。
+
+| 步骤 | `with` | 说明 |
+|---|---|---|
+| `gofer/push` | `refs`（必填）、`remote`（默认 origin）、`proxy` | 本地分支推 `refs/heads/<名>`、本地 tag 推 `refs/tags/<名>`；**永不强推**；推完用 `ls-remote` 核对每个 ref 的远端 sha 与本地一致，不一致即失败。 |
+| `gofer/wait-ci` | `ref`（必填）、`required`、`code_scanning`、`timeout_min`（默认 40）、`interval_sec`（默认 20）、`remote` | 仓库从远端 URL 推导（目前只支持 GitHub，gitlab / gitea 报「暂不支持」）；等到该 ref 的所有 check 结束，`required` 名单里任一失败 / 没跑即失败；`code_scanning: true` 时再查该 ref 上**开放的**告警（GitHub 的 ref 过滤，不区分新旧基线），有则失败。 |
+| `gofer/wait-assets` | `tag`（必填）、`assets`（必填，glob 列表）、`timeout_min`（默认 30）、`interval_sec`（默认 20）、`remote` | 等该 tag 的 Release 上出现全部产物（按文件名 glob 匹配）；超时失败会列出还缺哪些、Release 上已有哪些。 |
+
+- 重试、失败策略、步骤顺序仍走 workflow 自己的规则（`on_failure: fail | continue | retry`）；一次推送失败重跑是**新的 job**，不受单 job 时限累积影响。
+- **信任模型**：仓库里的 workflow 决定跑什么，所以「能改 `release.yaml` 的人就能改发版命令」。推送分支 / tag 需要两把锁：项目 `delivery.allow_push: true` **且**提交方持有 `repo.push` 权限（否则 403）；其余 exec 步骤仍受项目 `allow_exec` 与调用方的运行上限约束。
+- `gofer tool step <name>` 是这个内部 job 的命令（隐藏，参数为 `with` 的 JSON 走 stdin）；手工排查可直接跑：`echo '{"refs":["main"]}' | gofer tool step push`。
+
 ## 多 agent 对比与择优
 
 内置流程模板（公共 var：`project`、`task` 必填；`runner` 留空 = 项目默认）：

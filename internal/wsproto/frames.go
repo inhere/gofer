@@ -354,6 +354,16 @@ const TempCheckoutMinProtocolVersion = 26
 // SupportsTempCheckout reports whether a peer at protocol proto takes dispatch.ref.
 func SupportsTempCheckout(proto int) bool { return proto >= TempCheckoutMinProtocolVersion }
 
+// WorkflowStepMinProtocolVersion is the first protocol version whose worker binary carries
+// the `gofer tool step` sub-command a built-in workflow step (`uses: gofer/<name>`) runs
+// as an internal exec job (design §一·5). It rides the v26 bump: a worker below it has no
+// such sub-command, so the step would die with "unknown command" mid-workflow — such a
+// submission is refused up front and names the floor instead.
+const WorkflowStepMinProtocolVersion = 26
+
+// SupportsWorkflowStep reports whether a peer at protocol proto can run `gofer tool step`.
+func SupportsWorkflowStep(proto int) bool { return proto >= WorkflowStepMinProtocolVersion }
+
 // TunnelOpen requests a worker to open a TCP tunnel (protocol v5).
 type TunnelOpen struct {
 	TunnelID   string `json:"tunnel_id"`

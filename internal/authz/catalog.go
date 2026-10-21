@@ -229,6 +229,9 @@ const (
 	PermJobWakeOthers     = "job.wake.others"
 	PermInteractionAnswer = "interaction.answer"
 
+	// repository writes made on the caller's behalf (a workflow's gofer/push step).
+	PermRepoPush = "repo.push"
+
 	// terminal sessions.
 	PermSessionReadOthers       = "session.read.others"
 	PermSessionReplyOthers      = "session.reply.others"
@@ -320,6 +323,11 @@ var catalog = []Permission{
 		Name: PermJobReview, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceConfig,
 		Description: "验收、拒绝、批准 hold（只有人签收）",
+	},
+	{
+		Name: PermRepoPush, Risk: RiskMedium, SessionGrantable: false,
+		Scope: ScopeYes, Source: SourceRoot,
+		Description: "推送分支与 tag：提交含 `uses: gofer/push` 步骤的 workflow（分支推 `refs/heads/`、tag 推 `refs/tags/`，永不强推，推后 `ls-remote` 核对）；另需项目 `delivery.allow_push`",
 	},
 	{
 		Name: PermJobReviewOthers, Risk: RiskMedium, SessionGrantable: false,
