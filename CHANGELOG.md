@@ -18,6 +18,10 @@
 - **失败摘录不再被预期的 `ERROR:` 行淹没（gofer-j5xc）**：摘录改为优先收 go test 这类强信号失败块——`--- FAIL:` 头连同其后几行细节、`FAIL\t<pkg>` 汇总、`panic:`、`WARNING: DATA RACE` 及其后几行上下文；只有整段日志都找不到强信号时才回落到 `ERROR:` / `error:` / `✗` 弱信号行。
 - **会话停在 Stop hook 的「只等 job」等待里时，job 完成通知不再被积压到下一轮（gofer-fv6a）**：等待中的 Stop hook 是轮询自己 watch 的那个通道，但通知以前会先删掉 watch、再起传话人推送——传话人的消息送不进被自己的 Stop hook 挡住的 agent，watch 又已经被消费，通知就一直压到人下一次发消息（实测滞后约 25 分钟）。现在 Stop hook 进入「只等 job」等待时向 server 报一个 park 截止时间（`stop_park_sec`），在它到期前（以及会话有打开的 relay turn 时）通知不认领 watch、不走传话人，交给那个等待在下一次轮询里带出；送达仍是一次性的（watch 就是送达凭据，由 hook 交付时消费），等待结束 / 未在等待的会话照旧走传话人。同时把 `SendMessage` 的选路与 `deliver` 统一为「有打开回合就答复回合」，不再看会漂移的会话状态。
 
+### 变更
+
+- **新 job id 带 `job-` 前缀（gofer-qo3t）**：新提交的 job id 形如 `job-20261021-212412-6a715d34`，与 `wf-` / `plan-` / `todo-` 一致，从 id 就能看出是哪种对象。只改新 id 的生成：已经存在的、没有前缀的 id（`20261021-212412-6a715d34`）不迁移，按 id 查询 / 续接 / 取消 / 合并 / worktree 分支（`gofer/<job-id>`）/ 结果目录（`<root>/<yyyymmdd>/<job-id>`）照常可用；识别 id 形状的地方（如 Stop hook 从终端输出里识别「job … submitted」）现在新旧两种都认。脚本里若用正则抓 job id，请写成 `(job-)?[0-9]{8}-[0-9]{6}-[0-9a-f]{8}`。
+
 ## [0.181.2] - 2026-10-21
 
 ### 修复

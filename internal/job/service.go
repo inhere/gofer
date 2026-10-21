@@ -36,6 +36,13 @@ const (
 // restarts (plan §9 P4: a seconds+seq scheme collides after a restart).
 const JobIDLayout = "20060102-150405"
 
+// JobIDPrefix marks a job id as a job, the way wf- / plan- / todo- do for their
+// kinds: new ids look like job-20261021-212412-6a715d34. Ids minted before the
+// prefix exist (20261021-212412-6a715d34) stay valid everywhere — nothing
+// migrates them — so any shape check must accept both; the generators in the
+// httpapi / workflow / work layers keep appending their own prefix.
+const JobIDPrefix = "job-"
+
 // jobIDCreateRetries bounds how many times Submit re-rolls a colliding id.
 const jobIDCreateRetries = 5
 

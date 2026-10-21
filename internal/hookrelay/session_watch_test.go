@@ -16,6 +16,8 @@ func TestPostToolUseRegistersJobWatch(t *testing.T) {
 		want   []string
 	}{
 		{name: "claude submitted", tool: "Bash", output: "gofer job 20261017-214236-7dfedcab submitted", want: []string{"20261017-214236-7dfedcab"}},
+		{name: "prefixed job id", tool: "Bash", output: "job job-20261021-212412-6a715d34 submitted: status=queued result_dir=/r/job-h", want: []string{"job-20261021-212412-6a715d34"}},
+		{name: "prefixed and legacy ids both register", tool: "Bash", output: "job job-20261021-212412-6a715d34 submitted\njob 20261017-214236-7dfedcab submitted", want: []string{"20261017-214236-7dfedcab", "job-20261021-212412-6a715d34"}},
 		{name: "prose is not a job id", tool: "Bash", output: "the job was submitted to the queue", want: nil},
 		{name: "codex watch", tool: "shell", output: "gofer job watch abc123", want: []string{"abc123"}},
 		{name: "same output deduplicates", tool: "Bash", output: "job 20261017-214236-7dfedcab submitted\ngofer job watch 20261017-214236-7dfedcab", want: []string{"20261017-214236-7dfedcab"}},

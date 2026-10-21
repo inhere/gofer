@@ -14,8 +14,8 @@
 
 ```bash
 # job 线程（web job 详情页底部也有同一块）
-gofer job comment 20260923-135117-b721eca6 "@echoer 请接着把这一步做完"
-gofer job comments 20260923-135117-b721eca6
+gofer job comment job-20260923-135117-b721eca6 "@echoer 请接着把这一步做完"
+gofer job comments job-20260923-135117-b721eca6
 
 # plan 线程 / 某个待办自己的线程
 gofer plan comment plan-20260923-abc "这一步按 X 做"
@@ -62,7 +62,7 @@ server:
 ```
 你在一条评论里被 @ 点名接手工作（gofer 评论派活）。
 
-被评论的 job：20260923-135117-b721eca6 "smoke source"
+被评论的 job：job-20260923-135117-b721eca6 "smoke source"
 状态：done
 最近一次汇报（stdout 末尾 40 行）：
 SOURCE-REPORT-MARKER-9

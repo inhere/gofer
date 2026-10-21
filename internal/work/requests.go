@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -72,7 +73,12 @@ func requestText(kind, rid, itemID, title, status string) string {
 		rid, itemID, title, itemID, rid)
 }
 
+// shortID renders an id in about 8 chars for a journal line. A job id keeps the
+// job- marker off the shortened form (the line already says "job"), so both the
+// current job-20261021-212412-6a715d34 shape and the older prefix-less one read
+// as a timestamp; session ids pass through unchanged.
 func shortID(sid string) string {
+	sid = strings.TrimPrefix(sid, job.JobIDPrefix)
 	if len(sid) > 8 {
 		return sid[:8]
 	}

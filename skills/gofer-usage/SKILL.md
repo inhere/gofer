@@ -81,7 +81,7 @@ gofer job watch <id>         # 异步任务跟随到结束
 
 ② **每个 job 带 `--title "<一句话>"`**，否则 `job list` 里难辨识；忘了用 `gofer job set <id> --title "…"` 补。
 
-- **同步 / 异步**：`--sync` 等到终态（默认约 30 秒，`--wait-timeout` 放宽，等不到转异步）；长任务不加 `--sync`，配 `--timeout` 后 `job watch`。脚本里取 job id：`… 2>&1 | grep -oE '[0-9]{8}-[0-9]{6}-[0-9a-f]{8}' | head -1`。
+- **同步 / 异步**：`--sync` 等到终态（默认约 30 秒，`--wait-timeout` 放宽，等不到转异步）；长任务不加 `--sync`，配 `--timeout` 后 `job watch`。脚本里取 job id：`… 2>&1 | grep -oE '(job-)?[0-9]{8}-[0-9]{6}-[0-9a-f]{8}' | head -1`（新 id 形如 `job-20261021-212412-6a715d34`；没有 `job-` 的旧 id 照常可用，故此模式两种都认）。
 - **agent**（`-a`）：`exec` 跑命令（命令放 `--` 之后）；`codex` / `claude` 等跑 AI agent（`--prompt "…"` 或任务文件 `-f task.md`）。能用哪些看项目的 `allowed_agents` / `gofer agent list`。
 - **runner**（`--runner`）：默认 `server`（server 本机）；`<worker-id>` 派到那台 worker。容器里能做的活直接在容器里跑，不必绕 gofer。
 - 交给 agent 的实施 job 带 `--acceptance "<验收列表>"` / `--scope 'glob,…'`：gofer 会注入「验收标准」「交付约定」两节——只改范围内的东西，范围外发现写进汇报的「## 发现但不碰」，可复用经验写进「## 可复用经验」。
