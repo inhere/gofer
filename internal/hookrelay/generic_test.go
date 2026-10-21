@@ -113,8 +113,8 @@ func TestGenericInjectedFlag(t *testing.T) {
 	if b.Injected || b.Title == "" {
 		t.Fatalf("injected=false beat = %+v", b)
 	}
-	if !IsHarnessPrompt(JobDoneTag+" x") || !strings.HasPrefix(formatWatchedJobCompletion(WatchedJob{ID: "j"}), JobDoneTag) {
-		t.Fatal("JobDoneTag not recognised")
+	if !IsHarnessPrompt(JobDoneTag+" x") || !strings.HasPrefix(formatWatchedJobCompletion(WatchedJob{ID: "j"}), SystemNoticePrefix+" "+JobDoneTag) {
+		t.Fatal("job notice not recognised")
 	}
 }
 

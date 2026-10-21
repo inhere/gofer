@@ -13,21 +13,23 @@ import (
 )
 
 // notifyFake counts the messenger jobs a notice started, so a test can assert that
-// a notification was (or was not) sent exactly once.
+// a notification was (or was not) sent exactly once. lastCommand is the argv the
+// messenger was started with (the prompt tells how the target will read the text).
 type notifyFake struct {
-	submitted  int
-	submitErr  error
-	deliverErr error
-	lastTitle  string
-	lastCaller string
+	submitted   int
+	submitErr   error
+	deliverErr  error
+	lastTitle   string
+	lastCaller  string
+	lastCommand []string
 }
 
-func (f *notifyFake) SubmitMessenger(_, _, _ string, _ []string, title, caller string) (string, error) {
+func (f *notifyFake) SubmitMessenger(_, _, _ string, command []string, title, caller string) (string, error) {
 	if f.submitErr != nil {
 		return "", f.submitErr
 	}
 	f.submitted++
-	f.lastTitle, f.lastCaller = title, caller
+	f.lastTitle, f.lastCaller, f.lastCommand = title, caller, command
 	return "messenger-job-1", nil
 }
 
@@ -165,10 +167,73 @@ func TestNotifyJobEndedRequiresATarget(t *testing.T) {
 // to rule on it, like the hook's own notice does.
 func TestFormatJobEndedNoticeNeedsReviewHint(t *testing.T) {
 	text := FormatJobEndedNotice(JobEndedNotice{JobID: "job-r", Title: "review me", Status: "needs_review"})
-	if !strings.HasPrefix(text, JobDoneTag+" job-r review me") {
+	if !strings.HasPrefix(text, SystemNoticePrefix+" "+JobDoneTag+" job-r review me") {
 		t.Fatalf("notice = %q", text)
 	}
 	if !strings.Contains(text, "gofer job show job-r") {
 		t.Fatalf("notice = %q", text)
+	}
+}
+
+// The notice opens with gofer's own prefix and never with the web's, which a session
+// (and the rules an agent is given) reads as "the user typed this on the web"
+// (gofer-11gk).
+func TestFormatJobEndedNoticeUsesTheSystemNoticePrefix(t *testing.T) {
+	text := FormatJobEndedNotice(JobEndedNotice{JobID: "job-p", Status: "done"})
+	if !strings.HasPrefix(text, SystemNoticePrefix) {
+		t.Fatalf("notice = %q, want the %q prefix", text, SystemNoticePrefix)
+	}
+	if strings.Contains(text, WebMessagePrefix) {
+		t.Fatalf("notice %q must not carry the web message prefix", text)
+	}
+}
+
+// The messenger is handed the notice line verbatim: no web prefix is glued in front
+// of it, so the target session reads a system notice and not a message from a web
+// user called "gofer" (gofer-11gk). A person's message keeps the web prefix.
+func TestMessengerPromptKeepsNoticesApartFromWebMessages(t *testing.T) {
+	notice := FormatJobEndedNotice(JobEndedNotice{JobID: "job-m", Status: "done"})
+	prompt := messengerPrompt("proj-a", OperatorGofer, notice)
+	line := prompt[strings.LastIndex(prompt, "\n")+1:]
+	if !strings.HasPrefix(line, SystemNoticePrefix+" "+JobDoneTag) {
+		t.Fatalf("forwarded line = %q, want the notice under %q", line, SystemNoticePrefix)
+	}
+	if strings.Contains(prompt, WebMessagePrefix) {
+		t.Fatalf("a system notice must not wear the web prefix: %q", prompt)
+	}
+	if web := messengerPrompt("proj-a", "alice", "hi"); !strings.Contains(web, WebMessagePrefix+"，alice] hi") {
+		t.Fatalf("a person's message keeps the web prefix: %q", web)
+	}
+}
+
+// TestNotifyJobEndedMessengerPromptIsASystemNotice is the delivered-text half: the
+// messenger job the notice starts is one whose forwarded line opens with
+// SystemNoticePrefix (the same words the hook's caught-up lines use).
+func TestNotifyJobEndedMessengerPromptIsASystemNotice(t *testing.T) {
+	s := newSvc(t)
+	f := &notifyFake{}
+	s.SetMessenger(f)
+	notifySession(t, s, "sid-notice-prompt")
+	if _, err := s.store.AddSessionJobWatch("sid-notice-prompt", "job-np"); err != nil {
+		t.Fatal(err)
+	}
+	n := JobEndedNotice{TargetSession: "sid-notice-prompt", JobID: "job-np", Status: "done"}
+	assert.NoErr(t, s.NotifyJobEnded(context.Background(), n))
+
+	prompt := ""
+	for i, arg := range f.lastCommand {
+		if arg == "-p" && i+1 < len(f.lastCommand) {
+			prompt = f.lastCommand[i+1]
+		}
+	}
+	if prompt == "" {
+		t.Fatalf("messenger started without a -p prompt: %q", f.lastCommand)
+	}
+	line := prompt[strings.LastIndex(prompt, "\n")+1:]
+	if !strings.HasPrefix(line, SystemNoticePrefix) || !strings.Contains(line, JobDoneTag+" job-np") {
+		t.Fatalf("forwarded line = %q, want %q + %q", line, SystemNoticePrefix, JobDoneTag)
+	}
+	if strings.Contains(prompt, WebMessagePrefix) {
+		t.Fatalf("the notice prompt must not carry the web prefix: %q", prompt)
 	}
 }

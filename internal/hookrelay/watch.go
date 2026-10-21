@@ -72,6 +72,9 @@ func extractJobWatchCandidates(tool, output string) []string {
 	return out
 }
 
+// formatWatchedJobCompletion renders one watched-job notice. It opens with
+// SystemNoticePrefix, the same prefix the messenger path uses (sessionrelay
+// .FormatJobEndedNotice): gofer's own notice, never a person's "[来自 web，…]" line.
 func formatWatchedJobCompletion(job WatchedJob) string {
 	d := job.Duration
 	if d <= 0 && job.StartedAt > 0 && job.EndedAt >= job.StartedAt {
@@ -80,7 +83,7 @@ func formatWatchedJobCompletion(job WatchedJob) string {
 	if d < 0 {
 		d = 0
 	}
-	line := fmt.Sprintf(JobDoneTag+" %s %s status=%s exit=%d 耗时%s", job.ID,
+	line := fmt.Sprintf(SystemNoticePrefix+" "+JobDoneTag+" %s %s status=%s exit=%d 耗时%s", job.ID,
 		strings.TrimSpace(job.Title), job.Status, job.ExitCode, formatDuration(d))
 	if reason := watchReason(job); reason != "" {
 		line += " reason=" + reason

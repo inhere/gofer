@@ -139,6 +139,12 @@ func TestOriginalMessage(t *testing.T) {
 	if got := originalMessage("plain"); got != "plain" {
 		t.Fatalf("got %q", got)
 	}
+	// A gofer system notice has no operator in its line, only its own tags; the
+	// history shows the notice text, not the messenger's instruction.
+	notice := originalMessage("请使用 SendMessage\n[gofer 通知] [gofer job 完成] job-1 t status=done exit=0")
+	if !strings.HasPrefix(notice, "job-1") || strings.Contains(notice, "请使用 SendMessage") {
+		t.Fatalf("got %q", notice)
+	}
 }
 
 func TestUsableDirPrefersSessionThenWorkspaceThenHome(t *testing.T) {

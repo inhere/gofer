@@ -18,7 +18,9 @@ const sendMessageTool = "SendMessage"
 // webReplyOf reports the reply text and its address when this PostToolUse is the
 // session answering a web message: a SendMessage whose recipient is the Claude
 // Code address a "[来自 web，…]" message came from (the messenger). Everything
-// else — messages to other sessions, structured (non-text) messages — is "".
+// else — messages to other sessions, structured (non-text) messages, and an answer
+// to a gofer SYSTEM NOTICE ("[gofer 通知] …", gofer-11gk), which is not a person —
+// is "".
 func webReplyOf(p Payload) (text, to string) {
 	if p.ToolName != sendMessageTool || strings.TrimSpace(p.TranscriptPath) == "" || len(p.ToolInput) == 0 {
 		return "", ""
@@ -44,10 +46,22 @@ func webReplyOf(p Payload) (text, to string) {
 	return strings.TrimSpace(text), to
 }
 
+// webMessageBody reports whether a peer message body is a person's web message: it
+// opens with the web prefix and is not a gofer system notice. The notice has its
+// own prefix (sessionrelay.SystemNoticePrefix), so it must never be read as the
+// person having written — neither here nor in the Stop wait (gofer-11gk).
+func webMessageBody(body string) bool {
+	t := strings.TrimSpace(body)
+	if strings.HasPrefix(t, sessionrelay.SystemNoticePrefix) {
+		return false
+	}
+	return strings.HasPrefix(t, sessionrelay.WebMessagePrefix)
+}
+
 // webMessageFrom reports whether the transcript holds a web message delivered
 // from address: a non-assistant entry whose peer origin (top level, or the
 // attachment of a message absorbed mid-turn) has from == address and a body that
-// starts with the web prefix. Claude Code 2.1.296 writes
+// is a person's web message. Claude Code 2.1.296 writes
 // origin={kind:"peer", from, name, body, msg_id}; when that shape changes, a line
 // carrying both `from=\"<address>\"` and the web prefix still counts.
 func webMessageFrom(path, address string) bool {
@@ -74,7 +88,7 @@ func webMessageFrom(path, address string) bool {
 			continue
 		}
 		for _, o := range []*replyOrigin{entry.Origin, attachmentOrigin(entry.Attachment)} {
-			if o != nil && o.Kind == "peer" && o.From == address && strings.HasPrefix(strings.TrimSpace(o.Body), sessionrelay.WebMessagePrefix) {
+			if o != nil && o.Kind == "peer" && o.From == address && webMessageBody(o.Body) {
 				return true
 			}
 		}
