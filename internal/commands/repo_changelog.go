@@ -26,9 +26,11 @@ func newRepoChangelogMergeCmd() *gcli.Command {
 			"replaces <ours>. Only the unreleased section is auto-merged: its `### ` subsections merge per\n" +
 			"entry — ours keeps the entry order, theirs' new entries (multi-line and nested ones included)\n" +
 			"are appended in theirs' order, an entry deleted on the other untouched side disappears, an\n" +
-			"entry changed differently on both sides becomes a conflict marker. A subsection only one side\n" +
-			"added is kept whole. The header and the released versions go through `git merge-file`, so a\n" +
-			"region both sides changed comes back with git's standard conflict markers and a non-zero exit.\n" +
+			"entry changed on one side only takes that side's text (a new entry next to it is not a change\n" +
+			"of it), an entry changed differently on both sides becomes a conflict marker. A subsection\n" +
+			"only one side added is kept whole. The header and the released versions go through\n" +
+			"`git merge-file`, so a region both sides changed comes back with git's standard conflict\n" +
+			"markers and a non-zero exit.\n" +
 			"When one side released (renamed the unreleased heading to a version and opened a new\n" +
 			"unreleased section) while the other added entries, the new entries land in the new section.\n\n" +
 			"--install appends `" + changelog.AttributesLine("<file>") + "` to .gitattributes (commit it) and\n" +
