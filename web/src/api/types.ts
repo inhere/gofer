@@ -1315,6 +1315,8 @@ export interface ListJobsOpts {
   session?: string
   // 血缘反查（P5，本次追加）：列出某 job 派生出的所有 job
   source_job?: string
+  // 工作流过滤：只列该 workflow 的 step-job（?workflow_id=）
+  workflow_id?: string
 	limit?: number
 	offset?: number
 	// Include internal delivery records such as session messenger jobs.
@@ -2250,6 +2252,12 @@ export interface WorkflowStep {
   duration_sec?: number
   // 该 job 日志尾部的失败行（最多 20 行），内置步骤取它的错误信息。
   failure_excerpt?: string
+  // 该行实际执行目录（ref: 步是提交时刻的临时检出目录）与它在 spec 里要检出的 ref；
+  // started_at / finished_at 是 unix 秒，未起 / 未结束为空。
+  cwd?: string
+  ref?: string
+  started_at?: number
+  finished_at?: number
 }
 
 // 工作流生命周期事件（P1 workflow_events）：seq 游标 + 类型 + 可选 detail_json + 时间。

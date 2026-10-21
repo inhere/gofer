@@ -72,6 +72,7 @@ const activeFilterCount = computed(() =>
     statusFilter.value,
     projectFilter.value,
     planFilter.value,
+    wfFilter.value,
     tagFilter.value.trim(),
     agentFilter.value.trim(),
     runnerFilter.value.trim(),
@@ -161,6 +162,28 @@ const planFilter = computed(() => {
   return typeof p === 'string' && p ? p : undefined
 })
 
+// 工作流过滤（?wf=<wf-id>）：job 详情里的 workflow 链接与工作流详情都可以带过来。
+const wfFilter = computed(() => {
+  const p = route.query.wf
+  return typeof p === 'string' && p ? p : undefined
+})
+
+const wfInput = ref(wfFilter.value ?? '')
+watch(wfFilter, (v) => {
+  wfInput.value = v ?? ''
+})
+
+function applyWfInput(): void {
+  const value = wfInput.value.trim()
+  if (value === (wfFilter.value ?? '')) {
+    return
+  }
+  const nextQuery = { ...route.query }
+  if (value) nextQuery.wf = value
+  else delete nextQuery.wf
+  void router.push({ path: '/board', query: nextQuery })
+}
+
 const projectSelectValue = computed({
   get: () => projectFilter.value ?? '',
   set: (value: string) => {
@@ -237,6 +260,7 @@ async function fetchJobs(): Promise<void> {
       status: statusFilter.value || undefined,
       project: projectFilter.value,
       plan: planFilter.value,
+      workflow_id: wfFilter.value,
       tag: tagFilter.value.trim() || undefined,
       agent: agentFilter.value.trim() || undefined,
       runner: runnerFilter.value.trim() || undefined,
@@ -262,6 +286,7 @@ async function fetchStatusCounts(): Promise<void> {
     const resp = await listJobs({
       project: projectFilter.value,
       plan: planFilter.value,
+      workflow_id: wfFilter.value,
       tag: tagFilter.value.trim() || undefined,
       agent: agentFilter.value.trim() || undefined,
       runner: runnerFilter.value.trim() || undefined,
@@ -293,6 +318,7 @@ watch(
     statusFilter,
     projectFilter,
     planFilter,
+    wfFilter,
     tagFilter,
     agentFilter,
     runnerFilter,
@@ -307,7 +333,7 @@ watch(
   },
 )
 
-watch([projectFilter, planFilter, tagFilter, agentFilter, runnerFilter, callerFilter, sinceFilter, showMessengerJobs], () => {
+watch([projectFilter, planFilter, wfFilter, tagFilter, agentFilter, runnerFilter, callerFilter, sinceFilter, showMessengerJobs], () => {
   void fetchStatusCounts()
 })
 
@@ -460,6 +486,18 @@ onUnmounted(() => {
             @focus="loadRecentPlans"
             @keydown.enter.prevent="applyPlanInput"
             @blur="applyPlanInput"
+          />
+        </label>
+        <label class="filter">
+          <span class="filter-label">工作流</span>
+          <input
+            v-model="wfInput"
+            class="filter-input filter-input--plan mono"
+            placeholder="工作流 ID"
+            spellcheck="false"
+            data-test="wf-filter"
+            @keydown.enter.prevent="applyWfInput"
+            @blur="applyWfInput"
           />
         </label>
         <label class="filter">

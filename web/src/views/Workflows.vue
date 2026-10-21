@@ -7,7 +7,7 @@ import { useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import { listWorkflows } from '../api/client'
-import { fmtDuration } from '../api/time'
+import { fmtDateTime, fmtDuration } from '../api/time'
 import { workflowStepText } from '../utils/workflowStep'
 import { workflowStatusOptions } from '../utils/statusText'
 import { COL, PAGE } from '../utils/uiText'
@@ -99,6 +99,7 @@ onUnmounted(() => {
         <span class="col-status">{{ COL.status }}</span>
         <span class="col-wf">工作流 · 标题 / ID</span>
         <span class="col-step">步骤</span>
+        <span class="col-started">开始时间</span>
         <span class="col-dur">耗时</span>
       </div>
 
@@ -117,6 +118,7 @@ onUnmounted(() => {
           <span class="wf-id mono" :title="wf.id">{{ shortId(wf.id) }}</span>
         </span>
         <span class="col-step mono">{{ workflowStepText(wf.status, wf.current_step, wf.total_steps) }}</span>
+        <span class="col-started mono" :title="fmtDateTime(wf.created_at)">{{ fmtDateTime(wf.created_at) }}</span>
         <span class="col-dur mono">{{ rowDuration(wf) }}</span>
       </div>
 
@@ -213,7 +215,7 @@ onUnmounted(() => {
 .thead,
 .trow {
   display: grid;
-  grid-template-columns: 124px minmax(200px, 1fr) 90px 120px;
+  grid-template-columns: 124px minmax(200px, 1fr) 90px 150px 120px;
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
@@ -267,6 +269,11 @@ onUnmounted(() => {
 }
 .col-step {
   color: var(--queue);
+}
+.col-started {
+  color: var(--queue);
+  font-size: 12px;
+  white-space: nowrap;
 }
 .col-dur {
   color: var(--queue);
@@ -328,6 +335,7 @@ onUnmounted(() => {
     justify-content: flex-end;
   }
   .col-step,
+  .col-started,
   .col-dur {
     order: 3;
     flex: none;

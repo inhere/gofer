@@ -271,6 +271,7 @@ type ListQuery struct {
 	Session     string   // exact session_id match when non-empty (P3, list --session)
 	Plan        string   // exact plan_id match when non-empty (plan-orchestration P1)
 	SourceJob   string   // exact source_job_id match when non-empty (P5, list ?source_job=)
+	WorkflowID  string   // exact workflow_id match when non-empty (job list ?workflow_id=)
 	ExcludeTags []string // hide jobs carrying any of these internal tags
 	Limit       int      // <= 0 => DefaultListLimit
 	Offset      int      // skip the first Offset rows (pagination); ignored when <= 0
@@ -1144,6 +1145,11 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 	if q.SourceJob != "" {
 		where = append(where, "source_job_id = ?")
 		args = append(args, q.SourceJob)
+	}
+	if q.WorkflowID != "" {
+		// workflow_id 是普通 job 的空值列；精确匹配即"该工作流的 step-job"。
+		where = append(where, "workflow_id = ?")
+		args = append(args, q.WorkflowID)
 	}
 	for _, tag := range q.ExcludeTags {
 		if tag == "" {

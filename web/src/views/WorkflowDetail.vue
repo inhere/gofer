@@ -368,6 +368,7 @@ onUnmounted(() => {
             <span v-if="row.tag" class="res-tag mono">{{ row.tag }}</span>
             <span class="res-badge"><StatusBadge v-if="row.status" :status="row.status as JobStatus" /><span v-else class="step-pending mono">待起</span></span>
             <span class="res-cell mono" data-test="res-runner"><em>runner</em>{{ row.runner }}</span>
+            <span class="res-cell mono" data-test="res-started"><em>开始</em>{{ row.startedAt || '—' }}</span>
             <span class="res-cell mono"><em>退出码</em>{{ row.exitCode || '—' }}</span>
             <span class="res-cell mono"><em>耗时</em>{{ row.duration }}</span>
             <span class="res-acts">
@@ -404,6 +405,10 @@ onUnmounted(() => {
             </span>
           </div>
           <pre v-if="expanded[row.key] && hasExcerpt(row)" class="res-excerpt mono" data-test="res-excerpt">{{ row.excerpt.join('\n') }}</pre>
+          <!-- 工作目录：ref: 步跑在临时检出目录里，光看路径说不出是哪棵树，所以并排显示 ref。 -->
+          <p v-if="row.cwd" class="res-cwd mono" data-test="res-cwd">
+            <em>cwd</em>{{ row.cwd }}<span v-if="row.ref" class="res-cwd-ref"> (ref {{ row.ref.slice(0, 12) }})</span>
+          </p>
         </li>
       </ol>
 
@@ -891,6 +896,20 @@ onUnmounted(() => {
   word-break: break-word;
   max-height: 240px;
   overflow: auto;
+}
+.res-cwd {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--queue);
+  word-break: break-all;
+}
+.res-cwd em {
+  font-style: normal;
+  color: var(--line);
+  margin-right: 6px;
+}
+.res-cwd-ref {
+  color: var(--phosphor);
 }
 .save-tpl {
   margin-top: 12px;

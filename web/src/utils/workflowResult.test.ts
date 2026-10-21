@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import type { Workflow, WorkflowStep } from '../api/types'
+import type { Job, Workflow, WorkflowStep } from '../api/types'
 import {
   canRerunFailed,
   excerptLines,
   failedCount,
+  fanNameForJob,
   fromStepValue,
   hasExcerpt,
+  jobWorkflowLabel,
   overridesBuiltinNotice,
   resultRows,
   rowName,
@@ -100,6 +102,49 @@ describe('workflow result rows', () => {
   it('does not repeat a fan name that equals the step name', () => {
     expect(rowName(step({ step_index: 1, fan_index: 1, fan_name: 'checks' }))).toBe('checks')
     expect(rowName(step({ step_index: 1, fan_index: 1 }))).toBe('checks')
+  })
+
+  // gofer-plkx: 每一行带上它实际跑在哪（cwd、ref）与何时开始。
+  it('carries the run directory, ref and start time of each row', () => {
+    const rows = resultRows(
+      wf([
+        step({ step_index: 1, status: 'done', cwd: '/tmp/ref-checkout', ref: 'abc123def4567890', started_at: 1_700_000_000 }),
+        step({ step_index: 2, status: '' }),
+      ]),
+    )
+    expect(rows[0].cwd).toBe('/tmp/ref-checkout')
+    expect(rows[0].ref).toBe('abc123def4567890')
+    expect(rows[0].startedAt).not.toBe('')
+    // 未起的行没有工作目录 / 开始时间
+    expect(rows[1].cwd).toBe('')
+    expect(rows[1].startedAt).toBe('')
+  })
+})
+
+describe('job ↔ workflow association', () => {
+  function job(over: Partial<Job>): Job {
+    return { id: 'job-1', status: 'done', ...over } as Job
+  }
+
+  it('says where a step-job sits in its workflow', () => {
+    expect(jobWorkflowLabel(job({ workflow_id: 'wf-1', step_index: 2, fan_index: 1 }), 'linux-race')).toBe(
+      '第 2 步 · 第 1 路（linux-race）',
+    )
+    expect(jobWorkflowLabel(job({ workflow_id: 'wf-1', step_index: 3 }))).toBe('第 3 步')
+    // 重试的 step-job 带上尝试序号
+    expect(jobWorkflowLabel(job({ workflow_id: 'wf-1', step_index: 3, attempt: 2 }))).toBe('第 3 步 · 第 2 次尝试')
+    // 普通 job 没有工作流关联
+    expect(jobWorkflowLabel(job({}))).toBe('')
+  })
+
+  it('finds the fan name of the row that matches the job step/attempt/fan', () => {
+    const steps: WorkflowStep[] = [
+      { step_index: 2, fan_index: 1, fan_name: 'linux-race' },
+      { step_index: 2, fan_index: 2, fan_name: 'web' },
+    ]
+    expect(fanNameForJob(steps, { step_index: 2, fan_index: 2 })).toBe('web')
+    expect(fanNameForJob(steps, { step_index: 2 })).toBe('')
+    expect(fanNameForJob(undefined, { step_index: 2, fan_index: 1 })).toBe('')
   })
 })
 

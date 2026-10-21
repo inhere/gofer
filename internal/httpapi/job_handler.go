@@ -256,7 +256,7 @@ func submitStatus(err error) int {
 
 // handleListJobs returns job snapshots merged from the per-project index and
 // the in-memory live state. Optional query params: status, project, caller,
-// tag, agent, runner, session, plan, source_job, since (unix 秒), limit, offset. A non-numeric limit/since/
+// tag, agent, runner, session, plan, source_job, workflow_id, since (unix 秒), limit, offset. A non-numeric limit/since/
 // offset falls back to 0 (default/no-filter). The list is always a non-nil array,
 // so an empty result serialises as {"jobs":[]}。
 func (s *Server) handleListJobs(c *rux.Context) {
@@ -290,20 +290,21 @@ func (s *Server) handleListJobs(c *rux.Context) {
 		}
 	}
 	list, err := s.jobs.ListJobs(job.ListOpts{
-		Project:   project,
-		Projects:  projects,
-		Status:    c.Query("status"),
-		Caller:    caller,
-		Tag:       c.Query("tag"),
-		Agent:     c.Query("agent"),
-		Runner:    c.Query("runner"),
-		Session:   c.Query("session"),
-		Plan:      c.Query("plan"),
-		SourceJob: c.Query("source_job"),
-		Since:     since,
-		Limit:     limit,
-		Offset:    offset,
-		All:       all,
+		Project:    project,
+		Projects:   projects,
+		Status:     c.Query("status"),
+		Caller:     caller,
+		Tag:        c.Query("tag"),
+		Agent:      c.Query("agent"),
+		Runner:     c.Query("runner"),
+		Session:    c.Query("session"),
+		Plan:       c.Query("plan"),
+		SourceJob:  c.Query("source_job"),
+		WorkflowID: c.Query("workflow_id"),
+		Since:      since,
+		Limit:      limit,
+		Offset:     offset,
+		All:        all,
 	})
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list jobs failed", err.Error())

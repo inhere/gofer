@@ -70,3 +70,45 @@ func TestWorkflowStepsFanName(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkflowStepsRunLocation pins gofer-plkx: a detail row reports WHERE and WHEN it
+// ran — the resolved cwd, its start and end as unix seconds — so the CLI/web detail view
+// can show them without a second job lookup per row.
+func TestWorkflowStepsRunLocation(t *testing.T) {
+	t.Parallel()
+	e := newTestEngine(t, t.TempDir())
+	wf, err := e.SubmitWorkflow(Spec{
+		Project: "self",
+		Steps: []StepSpec{
+			{Name: "one", Agent: "exec", Runner: "local", Cmd: testcmd.Cmd(t, "exit", "0"), Cwd: "."},
+			{Name: "two", Agent: "exec", Runner: "local", Cmd: testcmd.Cmd(t, "exit", "0")},
+		},
+	}, "alice")
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+	if final := waitWorkflow(t, e, wf.ID); final.Status != jobstore.WorkflowDone {
+		t.Fatalf("workflow = %s (err=%s), want done", final.Status, final.Error)
+	}
+	steps, err := e.WorkflowSteps(wf.ID)
+	if err != nil {
+		t.Fatalf("WorkflowSteps: %v", err)
+	}
+	if len(steps) != 2 {
+		t.Fatalf("steps = %d, want 2: %+v", len(steps), steps)
+	}
+	for _, st := range steps {
+		if st.Cwd == "" {
+			t.Fatalf("step %d cwd is empty, want the directory it ran in", st.StepIndex)
+		}
+		if st.StartedAt <= 0 {
+			t.Fatalf("step %d started_at = %d, want a unix timestamp", st.StepIndex, st.StartedAt)
+		}
+		if st.FinishedAt < st.StartedAt {
+			t.Fatalf("step %d finished_at = %d before started_at = %d", st.StepIndex, st.FinishedAt, st.StartedAt)
+		}
+		if st.Ref != "" {
+			t.Fatalf("step %d ref = %q, want empty for a step without ref:", st.StepIndex, st.Ref)
+		}
+	}
+}
