@@ -175,3 +175,34 @@ steps:
 ## 结论与人工计划 Gate
 
 本稿经用户具名批准（含 D7）后写实施计划；设计批准不授权实施。
+
+## 实施记录
+
+计划 `docs/plans/2026-10-21-verify-and-release-templates-plan.md`（用户 2026-10-21 批准），随 v0.181.0 发布。派活与收尾首次全程使用 `job run --worktree --worktree-name` 与 `job worktree merge --todo-done --comment --cleanup`。
+
+| 任务 | 合并 | 要点 |
+|---|---|---|
+| S1 spec 与扇出 | 10b3efa2 | 顶层 `project` 与 `wf run -p`；fan 每路 `name / cmd / env / cwd / timeout_sec`；新字段解析、渲染、校验 |
+| S5 模板读写 | 0d2753a0 | 读源文件；全局增删改（`config.write`、审计）；项目写工作区（未提交提示）；另存为模板；项目 / 全局同名覆盖内置（`overrides_builtin` / `falls_back_to` / `shadows`），内置本身只读 |
+| S2 临时检出与 env | 18f150e1 | `ref:` 提交时解析 sha、无分支临时检出、job 结束清理；`env` 与 `ref` 经协议 v26 下发 worker，旧 worker 拒绝 |
+| S3 内置步骤 | 03f778ca | 注册表（新包 `internal/workflowstep`）+ `gofer tool step`；push（`PushRefs`、`ls-remote` 核对、`allow_push` + `repo.push`）、wait-ci、wait-assets（delivery 平台 API）；`InternalExec` 类别 `workflow-step` |
+| S4 结果视图 / rerun / run: always | bfda85d7 | 步骤与 fan 的 runner、退出码、耗时、失败摘录；`wf rerun --failed / --from`；`run: always`；启动时清理残留临时检出 |
+| S6 web | aaf1949c | 模板源文件查看 / 编辑 / 保存层级 / 另存为；结果表与重跑按钮 |
+| S7 init、内置模板、文档 | b2d955e9 | `gofer wf init verify|release` 按 go.mod / package.json / `.github/workflows` 预填；内置 verify / release；plans-workflows 新章节 |
+| 合并驱动修复（gofer-7y8b） | 46cff346 | 只有一边改的条目判成两边都改 |
+
+与设计的出入：
+
+- `repo.push` 在权限目录登记为「仅根」来源：默认只有根管理员持有，可通过授权单独发给调用方（与「默认不发、可授予」一致，文档标注为仅根）。
+- `allow_push` 在提交 workflow 时检查（内部 job 在 worker 上不再推导项目配置）。
+- code scanning 以该 ref 上未关闭的告警为准，不与历史基线做差：仓库有遗留告警时 release 会被卡住。
+- wait-ci 只读 check runs；内置步骤的 worker 门槛随协议 v26（未新开 v27）；结果回填用 `$GOFER_RESULT_DIR/result.json`。
+- `--failed` 重跑不重编号 `${steps.N}` 引用：引用到被裁掉的步骤时提交即报错。
+- 内置 release 模板不预填 `required`（只有 `wf init release` 按仓库预填）；空仓库的起步文件用步骤自身的 `cmd` 做占位。
+- `retry.backoff_sec` 是列表：设计与文档示例曾写成 `300`，实测解析失败，已改为 `[300]`；接受单个数字另立 issue（gofer-pn0x）。
+
+实施中发现并登记：
+
+- gofer-fv6a：会话停在 Stop hook 等回复时，job 完成通知走传话人被积压到下一轮。
+- gofer-6zmd：`worktree rm` 删除被运行中 job（含自动续接）使用的 worktree；Windows 上目录删不掉时返回 500、分支未删。
+
