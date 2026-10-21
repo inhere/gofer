@@ -2225,6 +2225,8 @@ export interface WorkflowStep {
   attempt?: number
   // 后端 omitempty：1-based fan-out 并行序号（非 fan 为 0/省略）
   fan_index?: number
+  // 后端 omitempty：该路 fan 在模板里声明的 name（linux-race / web …），未命名 fan 为空
+  fan_name?: string
   // 后端 omitempty：步骤名（来自 spec name / 原始请求 title）
   name?: string
   // 后端 omitempty：该步 step-job id（未起为空；workflow 型步无 job）

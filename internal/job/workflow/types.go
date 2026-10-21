@@ -257,9 +257,13 @@ func retryableExit(step StepSpec, exitCode int) bool {
 // 1-based fan-out parallel index (P2): a fan-out step contributes one row per fan
 // job (each its own job_id), 0 for a single-job step.
 type Step struct {
-	StepIndex      int    `json:"step_index"`
-	Attempt        int    `json:"attempt,omitempty"`
-	FanIndex       int    `json:"fan_index,omitempty"`
+	StepIndex int `json:"step_index"`
+	Attempt   int `json:"attempt,omitempty"`
+	FanIndex  int `json:"fan_index,omitempty"`
+	// FanName is the `name` the spec's fan list declares for this fan (linux-race / web
+	// …), so a fan row shows WHAT it ran instead of repeating the step name
+	// (gofer-j5xc). Empty for a plain FanOut/Agents step and for a single-job step.
+	FanName        string `json:"fan_name,omitempty"`
 	Name           string `json:"name,omitempty"`
 	JobID          string `json:"job_id,omitempty"`
 	Status         string `json:"status,omitempty"`

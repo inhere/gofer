@@ -8,6 +8,7 @@ import {
   hasExcerpt,
   overridesBuiltinNotice,
   resultRows,
+  rowName,
   shadowsNote,
   templateDeleteNotice,
   templateEditGate,
@@ -80,6 +81,25 @@ describe('workflow result rows', () => {
   it('reruns from a step by its 1-based number', () => {
     const row = resultRows(wf([step({ step_index: 3 })]))[0]
     expect(fromStepValue(row)).toBe('3')
+  })
+
+  // gofer-j5xc: 扇出的每一路显示该路 fan 自己声明的 name，以前每路都只显示步骤名。
+  it('shows the fan name of each fan row, falling back to the step name', () => {
+    const rows = resultRows(
+      wf([
+        step({ step_index: 2, name: 'checks', fan_index: 1, fan_name: 'linux-race', status: 'done' }),
+        step({ step_index: 2, name: 'checks', fan_index: 2, fan_name: 'web', status: 'failed' }),
+        step({ step_index: 3, name: 'report', status: 'done' }),
+      ]),
+    )
+    expect(rows.map((r) => r.stepLabel)).toEqual(['2 · checks · linux-race', '2 · checks · web', '3 · report'])
+    // fan 徽标照旧（f1 / f2，非 fan 行没有）
+    expect(rows.map((r) => r.tag)).toEqual(['f1', 'f2', ''])
+  })
+
+  it('does not repeat a fan name that equals the step name', () => {
+    expect(rowName(step({ step_index: 1, fan_index: 1, fan_name: 'checks' }))).toBe('checks')
+    expect(rowName(step({ step_index: 1, fan_index: 1 }))).toBe('checks')
   })
 })
 

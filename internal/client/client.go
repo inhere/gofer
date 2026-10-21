@@ -1389,12 +1389,15 @@ func (c *Client) ResumeJobWith(id, prompt, runner string, opts job.ResumeOptions
 // (P2); both are 0/omitted for a v1 single-job step, so the CLI only renders them when
 // a step actually fanned out / retried (T4.3 `workflow show`).
 type WorkflowStep struct {
-	StepIndex int    `json:"step_index"`
-	Attempt   int    `json:"attempt,omitempty"`
-	FanIndex  int    `json:"fan_index,omitempty"`
-	Name      string `json:"name,omitempty"`
-	JobID     string `json:"job_id,omitempty"`
-	Status    string `json:"status,omitempty"`
+	StepIndex int `json:"step_index"`
+	Attempt   int `json:"attempt,omitempty"`
+	FanIndex  int `json:"fan_index,omitempty"`
+	// FanName is the fan's own declared name (linux-race / web …), empty when the step
+	// fanned out without named fans (gofer-j5xc).
+	FanName string `json:"fan_name,omitempty"`
+	Name    string `json:"name,omitempty"`
+	JobID   string `json:"job_id,omitempty"`
+	Status  string `json:"status,omitempty"`
 	// Type=="workflow" + ChildWorkflowID mark a sub-workflow step (P3 UI fix): it runs
 	// no step-job, so JobID is empty and the link target is the child workflow.
 	Type            string `json:"type,omitempty"`

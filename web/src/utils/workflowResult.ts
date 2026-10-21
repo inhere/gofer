@@ -43,6 +43,15 @@ function stepName(st: WorkflowStep): string {
   return st.name || `step ${st.step_index}`
 }
 
+// 结果行的名字列：扇出的一路显示该路自己的 name（linux-race / web …），并保留步骤名做
+// 上下文（`checks · linux-race`）；没有 fan 名（普通 fan_out / 单 job 步）时只有步骤名。
+// 以前每路都只显示步骤名，同一个 step 的行看起来一模一样（gofer-j5xc）。
+export function rowName(st: WorkflowStep): string {
+  const base = stepName(st)
+  const fan = st.fan_name
+  return fan && fan !== base ? `${base} · ${fan}` : base
+}
+
 // workflow 的步骤行 → 结果表行（按 step / attempt / fan 顺序，后端已排好，这里再稳一次）。
 export function resultRows(wf: Workflow | null | undefined): ResultRow[] {
   const steps = wf?.steps ?? []
@@ -63,7 +72,7 @@ export function resultRows(wf: Workflow | null | undefined): ResultRow[] {
     return {
       key: `${st.step_index}:${attempt}:${fan}:${st.job_id ?? st.name ?? ''}`,
       stepIndex: st.step_index,
-      stepLabel: `${st.step_index} · ${stepName(st)}`,
+      stepLabel: `${st.step_index} · ${rowName(st)}`,
       tag: tag.join(' '),
       status,
       runner: runnerLabel(st.runner) || '—',

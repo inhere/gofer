@@ -244,7 +244,7 @@ gofer wf save-as-template <wf-id> <name> [--global | --project <p>]  # 把一个
 
 ## 结果表、重跑与 `run: always`
 
-- **看结果**：`gofer wf show <id>` 把每个步骤 / 每一路 fan 打成一张表（STEP / ATT / FAN / NAME / RUNNER / STATUS / EXIT / TIME），失败行下面是失败摘录（日志尾部里像 `--- FAIL:`、`FAIL`、`✗`、`error:`、`panic:` 的行，去重、保持顺序、最多 20 行；内置步骤这类没有日志行的取任务记录的错误）。HTTP 详情接口的 `steps[]` 同样带 `runner`、`exit_code`、`duration_sec`、`failure_excerpt`。失败即停也不影响已结束步骤的信息：失败的 workflow 一样完整显示。
+- **看结果**：`gofer wf show <id>` 把每个步骤 / 每一路 fan 打成一张表（STEP / ATT / FAN / NAME / RUNNER / STATUS / EXIT / TIME），NAME 列在扇出时显示那一路 fan 自己声明的 `name`（如 `linux-race` / `web`），没命名才回落步骤名。失败行下面是失败摘录：优先收 go test 这类**强信号**的失败块——`--- FAIL:` 头连同其后几行细节、`FAIL\t<pkg>` 汇总、`panic:`、`WARNING: DATA RACE` 及其后几行上下文；只有整段日志都找不到强信号时，才回落到 `ERROR:` / `error:` / `✗` 这类弱信号行（所以「校验报错测试」打印的一大片预期 `ERROR:` 不会再淹没真失败）。摘录去重、保持顺序、最多 20 行；内置步骤这类没有日志行的取任务记录的错误。HTTP 详情接口的 `steps[]` 同样带 `fan_name`、`runner`、`exit_code`、`duration_sec`、`failure_excerpt`。失败即停也不影响已结束步骤的信息：失败的 workflow 一样完整显示。
 - **只重跑需要重跑的部分**：`gofer wf rerun <id> --failed` 只保留失败的步骤（失败的扇出步骤只保留失败的那几路）；`--from <序号或步骤名>` 从那步起保留后续全部。它是**提交一条新的 workflow**，原 workflow 一行不改（状态、指针、任务都留着），新 workflow 记 `rerun_of` = 原 id。变量与原 `ref` 解析出的 sha 保持原值，所以重跑检查的是同一个提交。仍在运行的 workflow 不能重跑（先 `cancel`）；裁剪后某步的 `${steps.N…}` 引用指向被去掉的步骤会提交即报错。`-w` 轮询到终态。
 - **`run: always`**：步骤写 `run: always` 就在前面失败后仍然执行（失败即停时跳到这些步骤按顺序跑完，其余步骤跳过），但不改变结论——前面失败了整体还是失败，原因保留（后续又失败时附加在后面）。典型用法：release 失败后的清理 / 通知。
 
