@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // SubmitWorkflow validates the spec, persists a running workflow header
@@ -97,6 +100,14 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 	}
 
 	cfg := e.ops.Config()
+
+	// S1: the spec fields whose execution lands in a later stage (ref → S2, uses/with →
+	// S3, run: always → S4) are parsed and rendered but must not be silently ignored, and
+	// env only reaches the server's own runner so far (a worker dispatch needs the v26
+	// field, S2). Rejected here, before any DB row / job exists.
+	if err := validateStepFeatures(spec, cfg); err != nil {
+		return jobstore.Workflow{}, err
+	}
 
 	// P3: per-step type/sub_workflow validation + RECURSIVE sub-workflow准入. A
 	// workflow-type step must carry a non-empty inline sub_workflow (validated through
@@ -241,6 +252,30 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 		review = *step.Review
 	}
 	agent, runner := fanAgentRunner(step, fanIndex)
+	// S1 (design §一·2): a fan may carry its own cmd / env / cwd / timeout_sec so one step
+	// fans out the checks of a verify workflow; each override falls back to the step's
+	// value. The fan's env layers over the step's (G042: extra wins).
+	cmd, env, cwd, timeoutSec := step.Cmd, step.Env, step.Cwd, step.TimeoutSec
+	if f := fanSpecAt(step, fanIndex); f != nil {
+		if len(f.Cmd) > 0 {
+			cmd = f.Cmd
+		}
+		if len(f.Env) > 0 {
+			env = util.MergeEnv(step.Env, f.Env)
+		}
+		if f.Cwd != "" {
+			cwd = f.Cwd
+		}
+		if f.TimeoutSec > 0 {
+			timeoutSec = f.TimeoutSec
+		}
+	}
+	// A step / fan that runs a command but names no agent runs the built-in exec agent
+	// (design §一·2). defaultStepRunners already stores that explicitly; this also covers
+	// a spec built in memory (a retried step, a nested sub-workflow).
+	if agent == "" && len(cmd) > 0 {
+		agent = config.BuiltinExecAgentKey
+	}
 	return job.JobRequest{
 		ProjectKey: step.ProjectKey,
 		Agent:      agent,
@@ -249,9 +284,10 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 		// address is dropped with an event rather than failing the chain.
 		NotifyDegradable: true,
 		Prompt:           step.Prompt,
-		Cmd:              step.Cmd,
-		Cwd:              step.Cwd,
-		TimeoutSec:       step.TimeoutSec,
+		Cmd:              cmd,
+		Env:              env,
+		Cwd:              cwd,
+		TimeoutSec:       timeoutSec,
 		Title:            step.Name,
 		Tags:             step.Tags,
 		Worktree:         step.Worktree,
@@ -344,13 +380,122 @@ func validateFanout(spec Spec) error {
 				return fmt.Errorf("%w: step %d agents[%d] is empty", job.ErrInvalidRequest, stepNo, j)
 			}
 		}
+		names := make(map[string]bool, len(st.Fan))
 		for j, f := range st.Fan {
-			if f.Agent == "" {
-				return fmt.Errorf("%w: step %d fan[%d].agent is empty", job.ErrInvalidRequest, stepNo, j)
+			// S1: an exec fan may omit its agent as long as it carries its own command
+			// (design §一·2: the verify workflow's checks are per-fan cmd lines).
+			if f.Agent == "" && len(f.Cmd) == 0 {
+				return fmt.Errorf("%w: step %d fan[%d] needs agent or cmd", job.ErrInvalidRequest, stepNo, j)
+			}
+			if err := validateFanName(stepNo, j, f.Name, names); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+// fanNameRe is the shape of a fan name: an identifier, because it appears as the
+// selector of a ${steps.<step>.<fan name>.<field>} reference.
+var fanNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+
+// reservedFanNameRe matches the positional / aggregate selectors that already mean
+// something else in a reference (f1, all, picked), so a fan may not take one as name.
+var reservedFanNameRe = regexp.MustCompile(`^(f\d+|all|picked)$`)
+
+// validateFanName checks one fan's optional name: a plain identifier, not one of the
+// reserved selector spellings, and unique within its step (S1: the name is how
+// ${steps.<step>.<fan name>.<field>} addresses that fan).
+func validateFanName(stepNo, fanIdx int, name string, seen map[string]bool) error {
+	if name == "" {
+		return nil
+	}
+	if !fanNameRe.MatchString(name) {
+		return fmt.Errorf("%w: step %d fan[%d] name %q is not a valid identifier", job.ErrInvalidRequest, stepNo, fanIdx, name)
+	}
+	if reservedFanNameRe.MatchString(name) {
+		return fmt.Errorf("%w: step %d fan[%d] name %q is reserved (fN/all/picked select a fan by position or aggregate)", job.ErrInvalidRequest, stepNo, fanIdx, name)
+	}
+	if seen[name] {
+		return fmt.Errorf("%w: step %d has duplicate fan name %q", job.ErrInvalidRequest, stepNo, name)
+	}
+	seen[name] = true
+	return nil
+}
+
+// runAlways is the only known StepSpec.Run value (design §一·8).
+const runAlways = "always"
+
+// unsupportedStepField is the shape of the error a spec field whose execution lands in
+// a later stage returns: an explicit "not supported yet" instead of a silent ignore
+// (a step that quietly drops ref / uses / with would run the WRONG command).
+func unsupportedStepField(stepNo int, field string) error {
+	return fmt.Errorf("%w: step %d: 暂不支持：%s（后续版本提供）", job.ErrInvalidRequest, stepNo, field)
+}
+
+// validateStepFeatures rejects the S1-parsed spec fields whose execution arrives in a
+// later stage (ref → S2, uses/with → S3, run: always → S4), and an env that only the
+// server's own runner can carry today (a worker needs the v26 dispatch field, S2). cfg
+// is used to tell a worker/peer runner from the local one; a nil cfg skips that check
+// (nothing remote can be resolved without it).
+func validateStepFeatures(spec Spec, cfg *config.Config) error {
+	for i := range spec.Steps {
+		stepNo := i + 1
+		st := spec.Steps[i]
+		if st.Ref != "" {
+			return unsupportedStepField(stepNo, "ref")
+		}
+		if st.Uses != "" {
+			return unsupportedStepField(stepNo, "uses")
+		}
+		if len(st.With) > 0 {
+			return unsupportedStepField(stepNo, "with")
+		}
+		if st.Run != "" {
+			if st.Run != runAlways {
+				return fmt.Errorf("%w: step %d has unknown run %q (want always)", job.ErrInvalidRequest, stepNo, st.Run)
+			}
+			return unsupportedStepField(stepNo, "run: always")
+		}
+		if len(st.Env) > 0 {
+			if err := checkStepEnvRunner(cfg, stepNo, 0, st.Runner); err != nil {
+				return err
+			}
+		}
+		for j := range st.Fan {
+			f := st.Fan[j]
+			if len(f.Env) == 0 {
+				continue
+			}
+			runner := f.Runner
+			if runner == "" {
+				runner = st.Runner
+			}
+			if err := checkStepEnvRunner(cfg, stepNo, j+1, runner); err != nil {
+				return err
+			}
+		}
+		if st.SubWorkflow != nil {
+			if err := validateStepFeatures(*st.SubWorkflow, cfg); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkStepEnvRunner rejects step/fan env on a runner that is not the server's own: the
+// worker dispatch carries no env field until the protocol bump (S2), so accepting it
+// now would silently drop the variables.
+func checkStepEnvRunner(cfg *config.Config, stepNo, fanNo int, runner string) error {
+	if cfg == nil || !job.IsRemoteRunner(cfg, runner) {
+		return nil
+	}
+	where := fmt.Sprintf("step %d", stepNo)
+	if fanNo > 0 {
+		where = fmt.Sprintf("step %d fan %d", stepNo, fanNo)
+	}
+	return fmt.Errorf("%w: %s: 暂不支持：env 下发 worker（后续版本提供，当前仅在 server 本机 runner 生效）", job.ErrInvalidRequest, where)
 }
 
 // validateSubworkflow checks each step's type/sub_workflow at submit time and
@@ -444,21 +589,39 @@ func (e *Engine) genWorkflowID() string {
 // built-in local runner when the project allows it (or lists no runners), else the
 // project's single allowed runner. It never guesses between several runners. The
 // input spec is not mutated.
+//
+// It also applies the other submit-time defaults that come from the spec instead of
+// the config: a step without project_key runs in Spec.Project (S1, design §一·1) and an
+// exec step / fan without agent but with its own cmd defaults to the built-in exec
+// agent (design §一·2).
 func defaultStepRunners(spec Spec, cfg *config.Config) (Spec, error) {
 	steps := append([]StepSpec(nil), spec.Steps...)
 	for i := range steps {
 		st := &steps[i]
 		if st.SubWorkflow != nil {
-			sub, err := defaultStepRunners(*st.SubWorkflow, cfg)
+			sub := *st.SubWorkflow
+			if sub.Project == "" {
+				sub.Project = spec.Project
+			}
+			rendered, err := defaultStepRunners(sub, cfg)
 			if err != nil {
 				return spec, err
 			}
-			st.SubWorkflow = &sub
+			st.SubWorkflow = &rendered
+		}
+		if st.ProjectKey == "" {
+			st.ProjectKey = spec.Project
+		}
+		if st.Agent == "" && len(st.Cmd) > 0 && st.Type != stepTypeWorkflow && st.Uses == "" {
+			st.Agent = agent.ExecAgentKey
 		}
 		if len(st.Fan) > 0 {
 			fan := append([]FanSpec(nil), st.Fan...)
 			for j := range fan {
 				fan[j].Runner = config.NormalizeRunnerName(fan[j].Runner)
+				if fan[j].Agent == "" && len(fan[j].Cmd) > 0 {
+					fan[j].Agent = agent.ExecAgentKey
+				}
 			}
 			st.Fan = fan
 		}

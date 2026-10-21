@@ -47,6 +47,15 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 		return
 	}
 	var spec workflow.Spec
+	// The body's `project` field is the authoritative project key for this submit;
+	// vars.project (the template's own variable) stays supported as the fallback.
+	bodyProject := ""
+	if raw, ok := payload["project"]; ok {
+		if err := json.Unmarshal(raw, &bodyProject); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid workflow project", err.Error())
+			return
+		}
+	}
 	if raw, ok := payload["template"]; ok {
 		var name string
 		if err := json.Unmarshal(raw, &name); err != nil || name == "" {
@@ -61,11 +70,20 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 			}
 		}
 		var err error
-		projectDir, globalDir := s.workflowTemplateDirs(vars["project"])
+		projectKey := bodyProject
+		if projectKey == "" {
+			projectKey = vars["project"]
+		}
+		projectDir, globalDir := s.workflowTemplateDirs(projectKey)
 		spec, err = workflow.ResolveWorkflowTemplate(name, vars, projectDir, globalDir)
 		if err != nil {
 			writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
 			return
+		}
+		// A template taken from a project's `.gofer/workflows` (or resolving with a
+		// project var) runs in that project unless it states its own default.
+		if spec.Project == "" {
+			spec.Project = projectKey
 		}
 		if err := workflow.CheckTemplateAgents(s.jobs.Config(), spec); err != nil {
 			writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
@@ -75,7 +93,11 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid workflow spec", err.Error())
 		return
 	}
-	// BodyProject: every step must run in a project inside the caller's ceiling.
+	// BodyProject: every step (and the workflow's default project) must run in a project
+	// inside the caller's ceiling.
+	if !s.requireProjectScope(c, spec.Project) {
+		return
+	}
 	for _, st := range spec.Steps {
 		if !s.requireProjectScope(c, st.ProjectKey) {
 			return
@@ -161,6 +183,10 @@ func (s *Server) handleRenderWorkflowTemplate(c *rux.Context) {
 	if err != nil {
 		writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
 		return
+	}
+	// Preview the same default project the submit would use.
+	if spec.Project == "" {
+		spec.Project = req.Vars["project"]
 	}
 	c.JSON(http.StatusOK, spec)
 }

@@ -69,6 +69,24 @@ type StepSpec struct {
 	// crosses the wire to the server (the server only ever sees the expanded fields), and
 	// is absent from a v1 spec (D23). Resolved relative to the workflow file's directory.
 	File string `json:"-" yaml:"file,omitempty"`
+	// Env is the extra environment for this step's job (S1: parsed and rendered here;
+	// it rides JobRequest.Env, so it takes effect directly for an exec step on the
+	// server's own runner). Handing it to a worker needs the v26 dispatch field (S2),
+	// so a step that sets env on a worker runner is rejected at submit for now.
+	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	// Ref is the commit a step should check out in a temporary detached worktree
+	// (design §一·3). S1 only parses / renders / validates it; the execution side
+	// arrives in S2, so submit rejects a step that sets it.
+	Ref string `json:"ref,omitempty" yaml:"ref,omitempty"`
+	// Uses names a built-in step (design §一·5, `gofer/<name>`), with its arguments in
+	// With. Both are parsed / rendered / validated here; the registry and execution
+	// arrive in S3, so submit rejects them for now.
+	Uses string         `json:"uses,omitempty" yaml:"uses,omitempty"`
+	With map[string]any `json:"with,omitempty" yaml:"with,omitempty"`
+	// Run changes WHEN a step runs (design §一·8): "" (the default) runs it in chain
+	// order, "always" runs it even after an earlier failure. Only "always" is a known
+	// value; the execution side arrives in S4, so submit rejects it for now.
+	Run string `json:"run,omitempty" yaml:"run,omitempty"`
 	// Review overrides the project's require_review default for THIS step
 	// (GATE-01 S3): true parks the step's job in needs_review until a human accepts
 	// (the chain advances then) or rejects (the step counts as failed, so on_failure
@@ -85,10 +103,20 @@ type StepSpec struct {
 }
 
 // FanSpec overrides the agent and runner for one ordered fan. Runner may be empty
-// to inherit the step runner; Agent is required when Fan is used.
+// to inherit the step runner. Agent may be empty when the fan carries its own Cmd:
+// an exec fan defaults to the built-in exec agent (design §一·2), so one step can fan
+// out per-check commands (`cmd` / `env` / `cwd` / `timeout_sec` each overridable).
+// Name, when set, must be unique within the step and is what
+// ${steps.<step>.<fan name>.<field>} refers to (the positional ${steps.<step>.fK.…}
+// form keeps working).
 type FanSpec struct {
-	Agent  string `json:"agent" yaml:"agent"`
-	Runner string `json:"runner,omitempty" yaml:"runner,omitempty"`
+	Name       string            `json:"name,omitempty" yaml:"name,omitempty"`
+	Agent      string            `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Runner     string            `json:"runner,omitempty" yaml:"runner,omitempty"`
+	Cmd        []string          `json:"cmd,omitempty" yaml:"cmd,omitempty"`
+	Env        map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	Cwd        string            `json:"cwd,omitempty" yaml:"cwd,omitempty"`
+	TimeoutSec int               `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 }
 
 // onFailure* are the known StepSpec.OnFailure values. "" is treated as
@@ -135,10 +163,14 @@ const maxRetryAttempts = 10
 // strictly serially (single active step, D1/D10). It is the body of POST
 // /v1/workflows and the parsed yaml workflow file (P3).
 type Spec struct {
-	Title  string                    `json:"title,omitempty" yaml:"title,omitempty"`
-	Steps  []StepSpec                `json:"steps" yaml:"steps"`
-	Vars   map[string]gotemplate.Var `json:"vars,omitempty" yaml:"vars,omitempty"`
-	Picked map[int]int               `json:"picked,omitempty" yaml:"-"`
+	Title string `json:"title,omitempty" yaml:"title,omitempty"`
+	// Project is the workflow's default project key: every step whose project_key is
+	// empty runs there (design §一·1). A template read from a project's
+	// `.gofer/workflows` defaults to that project.
+	Project string                    `json:"project,omitempty" yaml:"project,omitempty"`
+	Steps   []StepSpec                `json:"steps" yaml:"steps"`
+	Vars    map[string]gotemplate.Var `json:"vars,omitempty" yaml:"vars,omitempty"`
+	Picked  map[int]int               `json:"picked,omitempty" yaml:"-"`
 }
 
 // fanWant returns the effective parallelism of a step: max(1, FanOut). A fan_out of
@@ -154,6 +186,25 @@ func fanWant(step StepSpec) int {
 		return step.FanOut
 	}
 	return 1
+}
+
+// fanSpecAt returns the FanSpec of a 1-based fan index, or nil when fanIndex is out of
+// the fan list (a plain FanOut/Agents step, or a single-job step).
+func fanSpecAt(step StepSpec, fanIndex int) *FanSpec {
+	if fanIndex >= 1 && fanIndex <= len(step.Fan) {
+		return &step.Fan[fanIndex-1]
+	}
+	return nil
+}
+
+// fanIndexByName returns the 1-based index of the fan named name in step, or 0.
+func fanIndexByName(step StepSpec, name string) int {
+	for i := range step.Fan {
+		if step.Fan[i].Name == name {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 func fanAgentRunner(step StepSpec, fanIndex int) (string, string) {

@@ -179,6 +179,38 @@ func TestCreateWorkflowEmptySteps400(t *testing.T) {
 	}
 }
 
+// TestCreateWorkflowBodyProject asserts the request body's `project` field is the
+// workflow's default project (S1): a step that names no project_key is admitted and
+// runs there, and an unknown project is rejected.
+func TestCreateWorkflowBodyProject(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, map[string]any{
+		"project": "self",
+		"steps": []map[string]any{{
+			"name": "a", "agent": "exec", "runner": "local",
+			"cmd": testcmd.Cmd(t, "exit", "0"), "cwd": ".", "timeout_sec": 30,
+		}},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create with project default status=%d, want 200", resp.StatusCode)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	decode(t, resp, &created)
+	waitWorkflowStatus(t, s, created.ID, "done")
+
+	// A project the caller can not reach is refused before anything starts.
+	resp = do(t, s, http.MethodPost, "/v1/workflows", testToken, map[string]any{
+		"project": "no-such-project",
+		"steps":   []map[string]any{{"name": "a", "agent": "exec", "cmd": testcmd.Cmd(t, "exit", "0")}},
+	})
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("create with an unknown project status=%d, want a rejection", resp.StatusCode)
+	}
+}
+
 // waitWorkflowStatus polls GET /v1/workflows/{id} until its status matches want
 // or the deadline elapses.
 func waitWorkflowStatus(t *testing.T, s *Server, id, want string) {
@@ -247,6 +279,10 @@ func TestRenderWorkflowTemplate(t *testing.T) {
 	decode(t, resp, &spec)
 	if len(spec.Steps) != 1 || spec.Steps[0].ProjectKey != "self" || spec.Steps[0].Prompt != "fix it" || len(spec.Steps[0].Agents) != 2 {
 		t.Fatalf("rendered spec = %+v", spec)
+	}
+	// The preview carries the same default project the submit would use.
+	if spec.Project != "self" {
+		t.Fatalf("rendered spec project = %q, want self", spec.Project)
 	}
 
 	// Missing required variable -> 400.

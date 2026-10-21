@@ -227,17 +227,29 @@ func renderWorkflowTemplate(spec Spec, supplied map[string]string) (Spec, error)
 
 func renderSpec(spec *Spec, replace func(string) string) {
 	spec.Title = replace(spec.Title)
+	spec.Project = replace(spec.Project)
 	for i := range spec.Steps {
 		s := &spec.Steps[i]
 		s.Name, s.ProjectKey, s.Agent, s.Runner = replace(s.Name), replace(s.ProjectKey), replace(s.Agent), replace(s.Runner)
 		s.Prompt, s.Cwd, s.WorktreeBase, s.Template = replace(s.Prompt), replace(s.Cwd), replace(s.WorktreeBase), replace(s.Template)
+		// S1: the newer spec fields carry variables too (ref / uses, the env values and
+		// the built-in step's with block), so they are rendered like every other field.
+		s.Ref, s.Uses = replace(s.Ref), replace(s.Uses)
+		s.Env = renderEnv(s.Env, replace)
+		s.With = renderAnyMap(s.With, replace)
 		for _, list := range [][]string{s.Cmd, s.Agents, s.Verify, s.Tags} {
 			for j := range list {
 				list[j] = replace(list[j])
 			}
 		}
 		for j := range s.Fan {
-			s.Fan[j].Agent, s.Fan[j].Runner = replace(s.Fan[j].Agent), replace(s.Fan[j].Runner)
+			f := &s.Fan[j]
+			f.Name, f.Agent, f.Runner = replace(f.Name), replace(f.Agent), replace(f.Runner)
+			f.Cwd = replace(f.Cwd)
+			f.Env = renderEnv(f.Env, replace)
+			for k := range f.Cmd {
+				f.Cmd[k] = replace(f.Cmd[k])
+			}
 		}
 		for k, v := range s.Vars {
 			s.Vars[k] = replace(v)
@@ -248,6 +260,83 @@ func renderSpec(spec *Spec, replace func(string) string) {
 	}
 }
 
+// renderEnv renders every value of an env map, returning a fresh map (a shared builtin
+// spec must never be mutated by rendering).
+func renderEnv(env map[string]string, replace func(string) string) map[string]string {
+	if env == nil {
+		return nil
+	}
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		out[k] = replace(v)
+	}
+	return out
+}
+
+// renderAnyMap renders the strings inside a `with` argument tree, which decodes from
+// yaml/json as nested map[string]any / []any values.
+func renderAnyMap(in map[string]any, replace func(string) string) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = renderAny(v, replace)
+	}
+	return out
+}
+
+// renderAny renders the strings of an arbitrary decoded yaml/json value (a `with`
+// argument may be a string, a list or a nested map).
+func renderAny(v any, replace func(string) string) any {
+	switch t := v.(type) {
+	case string:
+		return replace(t)
+	case []any:
+		out := make([]any, len(t))
+		for i := range t {
+			out[i] = renderAny(t[i], replace)
+		}
+		return out
+	case []string:
+		out := make([]string, len(t))
+		for i := range t {
+			out[i] = replace(t[i])
+		}
+		return out
+	case map[string]any:
+		return renderAnyMap(t, replace)
+	case map[string]string:
+		return renderEnv(t, replace)
+	default:
+		return v
+	}
+}
+
+// anyStrings collects every string inside a decoded yaml/json value (for the
+// leftover-placeholder check).
+func anyStrings(v any, out []string) []string {
+	switch t := v.(type) {
+	case string:
+		return append(out, t)
+	case []any:
+		for i := range t {
+			out = anyStrings(t[i], out)
+		}
+	case []string:
+		out = append(out, t...)
+	case map[string]any:
+		for _, item := range t {
+			out = anyStrings(item, out)
+		}
+	case map[string]string:
+		for _, item := range t {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 // checkRenderedSpec validates what substitution produced: no leftover ${vars.x},
 // and agent/runner/project keys that are plain identifiers (a variable value must
 // not smuggle whitespace or shell/path syntax into a routing field).
@@ -255,12 +344,26 @@ func checkRenderedSpec(spec Spec) error {
 	if m := unresolvedVarRe.FindString(spec.Title); m != "" {
 		return fmt.Errorf("workflow template: undefined variable %s", m)
 	}
+	if m := unresolvedVarRe.FindString(spec.Project); m != "" {
+		return fmt.Errorf("workflow template: undefined variable %s", m)
+	}
 	for i, s := range spec.Steps {
-		all := append([]string{s.Name, s.Prompt, s.Cwd, s.WorktreeBase, s.Template}, s.Cmd...)
+		all := append([]string{s.Name, s.Prompt, s.Cwd, s.WorktreeBase, s.Template, s.Ref, s.Uses}, s.Cmd...)
 		all = append(all, s.Verify...)
 		all = append(all, s.Tags...)
 		for _, v := range s.Vars {
 			all = append(all, v)
+		}
+		for _, v := range s.Env {
+			all = append(all, v)
+		}
+		all = anyStrings(s.With, all)
+		for _, f := range s.Fan {
+			all = append(all, f.Name, f.Cwd)
+			all = append(all, f.Cmd...)
+			for _, v := range f.Env {
+				all = append(all, v)
+			}
 		}
 		for _, v := range all {
 			if m := unresolvedVarRe.FindString(v); m != "" {
@@ -284,6 +387,9 @@ func checkRenderedSpec(spec Spec) error {
 				return err
 			}
 		}
+	}
+	if spec.Project != "" && !routingKeyRe.MatchString(spec.Project) {
+		return fmt.Errorf("workflow template: invalid project key %q", spec.Project)
 	}
 	return nil
 }
