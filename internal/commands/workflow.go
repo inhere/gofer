@@ -723,10 +723,10 @@ func printStepChain(c *gcli.Command, steps []client.WorkflowStep) {
 		c.Println("  (no steps started yet)")
 		return
 	}
-	c.Printf("  %-5s %-4s %-4s %-18s %-10s %-10s %-5s %-19s %s\n", "STEP", "ATT", "FAN", "NAME", "RUNNER", "STATUS", "EXIT", "STARTED", "TIME")
+	c.Printf("  %-5s %-4s %-4s %-18s %-10s %-10s %-5s %-25s %s\n", "STEP", "ATT", "FAN", "NAME", "RUNNER", "STATUS", "EXIT", "STARTED", "TIME")
 	var excerpts []client.WorkflowStep
 	for _, st := range steps {
-		c.Printf("  %-5d %-4s %-4s %-18s %-10s %-10s %-5s %-19s %s\n",
+		c.Printf("  %-5d %-4s %-4s %-18s %-10s %-10s %-5s %-25s %s\n",
 			st.StepIndex, attemptCol(st.Attempt), fanCol(st.FanIndex),
 			stepName(st), runnerCol(st.Runner), st.Status, exitCol(st.ExitCode),
 			startedCol(st.StartedAt), durationCol(st.DurationSec))
@@ -845,9 +845,9 @@ func runWorkflowList(c *gcli.Command, _ []string) error {
 		c.Println("no workflows matched the given filter")
 		return nil
 	}
-	c.Printf("%-26s %-10s %-11s %-24s %-19s %s\n", "ID", "STATUS", "STEP", "TITLE", "STARTED", "TIME")
+	c.Printf("%-26s %-10s %-11s %-24s %-25s %s\n", "ID", "STATUS", "STEP", "TITLE", "STARTED", "TIME")
 	for _, wf := range list {
-		c.Printf("%-26s %-10s %-11s %-24s %-19s %s\n",
+		c.Printf("%-26s %-10s %-11s %-24s %-25s %s\n",
 			wf.ID, wf.Status, workflowStepText(wf.Status, wf.CurrentStep, wf.TotalSteps),
 			truncate(wf.Title, 24), formatStarted(wf.CreatedAt), workflowDurationCol(wf))
 	}
