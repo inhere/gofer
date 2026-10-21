@@ -237,7 +237,11 @@ gofer job worktree ls [-p <project>]                       # 分支 / 领先提�
 gofer job worktree merge <job-id> [--squash] [--cleanup-others] \
       [--todo-done [--note <说明>]] [--comment <评论>] [--cleanup]
 gofer job worktree rm <job-id> [--force] [--delete-branch]  # 清理；分支默认保留
+```
 
+`rm` 的边界：**正在被 job 使用**（含自动续接出来的新 job —— 它承接源 job 的同一个目录）时一律拒绝（409）并指明是哪个 job，`--force` 也不覆盖；git 已经把登记和文件清掉、只剩目录删不掉（Windows 上有进程占着）时照常删完分支并返回成功，用 `warning:` 列出残留目录；目录还被锁住什么都没能删时返回 409 说明原因，不留「目录在、分支没删」的半状态。
+
+```bash
 gofer job wait <id>... [--any] [--timeout 30m]             # 等到终态，输出状态 / 退出码 / 标题
 ```
 

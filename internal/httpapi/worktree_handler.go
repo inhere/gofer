@@ -98,12 +98,17 @@ func queryBool(c *rux.Context, name string) bool {
 //   - a worktree that still holds uncommitted changes, or whose directory is already
 //     gone → 409 (a conflict with the on-disk state that the caller resolves either by
 //     deciding to discard the work, or by cleaning up on the owning machine);
+//   - a worktree a live job still works in, or one whose directory another process
+//     holds so nothing could be removed → 409 with the reason (the request was
+//     well-formed but cannot be honoured now);
 //   - anything else (git failed, …) → 500 with the original detail.
 func writeWorktreeError(c *rux.Context, err error) {
 	switch {
 	case errors.Is(err, job.ErrJobNotFound), errors.Is(err, job.ErrNoManagedWorktree):
 		writeError(c, http.StatusNotFound, err.Error(), "")
 	case errors.Is(err, job.ErrWorktreeDirty), errors.Is(err, job.ErrWorktreeGone):
+		writeError(c, http.StatusConflict, err.Error(), "")
+	case errors.Is(err, job.ErrWorktreeInUse), errors.Is(err, job.ErrWorktreeBusy):
 		writeError(c, http.StatusConflict, err.Error(), "")
 	case errors.Is(err, job.ErrWorktreeMergeConflict), errors.Is(err, job.ErrWorktreeMergeUnsupported), errors.Is(err, job.ErrWorktreeMainNotReady),
 		errors.Is(err, job.ErrWorktreeIndexLocked):

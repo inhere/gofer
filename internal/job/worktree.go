@@ -435,6 +435,10 @@ type WorktreeStatus struct {
 	Merged bool `json:"merged"`
 	// Exists reports that the worktree directory is present on THIS machine.
 	Exists bool `json:"exists"`
+	// Warnings explain a removal that completed with a leftover on disk (a Windows
+	// directory a process still holds open): the branch and the worktree registration are
+	// gone as asked, only the directory itself could not be deleted.
+	Warnings []string `json:"warnings,omitempty"`
 	// Links lists the dependency links the checkout carries, as RECORDED when they were
 	// created (not what the project config says now).
 	Links []string `json:"links,omitempty"`
@@ -451,7 +455,18 @@ var (
 	// ErrWorktreeGone: the recorded worktree directory is not there anymore (deleted
 	// by hand / the job ran on another machine). The row may still be cleaned up by
 	// `git worktree prune` on the owning machine.
-	ErrWorktreeGone             = errors.New("worktree directory is not present on this machine")
+	ErrWorktreeGone = errors.New("worktree directory is not present on this machine")
+	// ErrWorktreeInUse: removal refused because a LIVE job still works in the checkout. A
+	// continuation job (auto-resume, todo continue) inherits its source's worktree and
+	// keeps running in the same directory, so "the job whose id was given is finished"
+	// says nothing about who owns the checkout now; --force must not override this, or
+	// the running job loses the tree under its feet. The HTTP layer maps it to 409.
+	ErrWorktreeInUse = errors.New("worktree is still used by a running job")
+	// ErrWorktreeBusy: git could not remove the checkout and nothing about it could be
+	// completed (the directory is locked and still registered), so the branch and the
+	// registration are kept together instead of leaving a half state. The HTTP layer maps
+	// it to 409 with the underlying reason.
+	ErrWorktreeBusy             = errors.New("worktree checkout is locked by another process")
 	ErrWorktreeMergeConflict    = delivery.ErrMergeConflict
 	ErrWorktreeMainNotReady     = delivery.ErrMainNotReady
 	ErrWorktreeIndexLocked      = delivery.ErrIndexLocked
@@ -685,6 +700,12 @@ func (s *Service) WorktreeStatus(jobID string) (WorktreeStatus, error) {
 // optionally deletes the branch (the deliverable — hence opt-in). The job row's
 // worktree_path is cleared on success so `ls` stops advertising a checkout that is
 // gone; branch/base/head stay for audit.
+//
+// A checkout a LIVE job still works in is refused regardless of force: a continuation
+// job continues in its source's worktree, so removing it would delete the tree the
+// running job is editing. When the directory itself cannot be deleted (Windows: a
+// process still holds it) but the branch and the registration can, the removal
+// completes and reports a warning naming the leftover path instead of failing.
 func (s *Service) RemoveWorktree(jobID string, force, deleteBranch bool) (WorktreeStatus, error) {
 	st, err := s.WorktreeStatus(jobID)
 	if err != nil {
@@ -692,6 +713,10 @@ func (s *Service) RemoveWorktree(jobID string, force, deleteBranch bool) (Worktr
 	}
 	if !st.Exists {
 		return st, fmt.Errorf("%w: %s", ErrWorktreeGone, st.Path)
+	}
+	if users := s.worktreeUsers(st.Path); len(users) > 0 {
+		return st, fmt.Errorf("%w: %s is used by %s; wait for those jobs to finish (--force does not override this)",
+			ErrWorktreeInUse, st.Path, strings.Join(users, ", "))
 	}
 	if st.Dirty && !force {
 		return st, fmt.Errorf("%w: %s", ErrWorktreeDirty, st.Path)
@@ -705,10 +730,12 @@ func (s *Service) RemoveWorktree(jobID string, force, deleteBranch bool) (Worktr
 	// itself, never what it points at.
 	wt := &worktreeRef{Path: st.Path, Branch: st.Branch, BaseSHA: st.BaseSHA,
 		Links: mergeWorktreeLinks(st.Links, projCfg.WorktreeLinks())}
-	if err := removeWorktree(ctx, wt, force, deleteBranch); err != nil {
+	warnings, err := removeWorktreeWithWarnings(ctx, wt, force, deleteBranch)
+	if err != nil {
 		return st, err
 	}
 	st.Exists = false
+	st.Warnings = warnings
 
 	// The row is the index of record: drop the path so a later `ls` does not report a
 	// checkout that no longer exists. Best-effort — the removal already happened, and
@@ -726,11 +753,22 @@ func (s *Service) RemoveWorktree(jobID string, force, deleteBranch bool) (Worktr
 
 // removeWorktree runs `git worktree remove` for wt and, optionally, deletes the
 // branch. It runs from the repository's MAIN checkout (derived from the worktree's
-// own git dir) so it works regardless of the process's cwd.
+// own git dir) so it works regardless of the process's cwd. The warnings of
+// removeWorktreeWithWarnings are dropped: every caller of this shape either has no
+// operator to report to (retention, a temp checkout) or reports its own outcome.
 func removeWorktree(ctx context.Context, wt *worktreeRef, force, deleteBranch bool) error {
+	_, err := removeWorktreeWithWarnings(ctx, wt, force, deleteBranch)
+	return err
+}
+
+// removeWorktreeWithWarnings is removeWorktree plus the leftovers it could not delete:
+// an empty warning list means the checkout and the branch are fully gone, a non-empty
+// one means everything the caller asked for was done except the directory (see
+// finishCheckoutRemoval).
+func removeWorktreeWithWarnings(ctx context.Context, wt *worktreeRef, force, deleteBranch bool) ([]string, error) {
 	main, err := mainCheckout(ctx, wt.Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Unlink the dependency links FIRST, one by one, and only the links: this is the
 	// step that keeps a cleanup from reaching into the main checkout's tree through a
@@ -746,8 +784,12 @@ func removeWorktree(ctx context.Context, wt *worktreeRef, force, deleteBranch bo
 	if force {
 		args = append(args, "--force")
 	}
+	var warnings []string
 	if _, err := gitOut(ctx, main, append(args, wt.Path)...); err != nil {
-		return err
+		warnings, err = finishCheckoutRemoval(ctx, main, wt, force, err)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if deleteBranch && wt.Branch != "" {
 		// -D (not -d): the caller has decided to discard the branch, which is usually
@@ -755,10 +797,105 @@ func removeWorktree(ctx context.Context, wt *worktreeRef, force, deleteBranch bo
 		// refuse and leave the branch behind AFTER its worktree is gone — half-done and
 		// confusing.
 		if _, err := gitOut(ctx, main, "branch", "-D", wt.Branch); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return warnings, nil
+}
+
+// finishCheckoutRemoval turns a failed `git worktree remove` into one of the two honest
+// outcomes instead of a bare 500:
+//
+//   - the checkout is GONE as far as git is concerned (git drops the files first and the
+//     registration last, so on Windows a process still holding the directory leaves an
+//     empty one behind after the entry is already unregistered): carry on, delete the
+//     branch as asked, and return a warning naming the directory that survived. Never
+//     leave "directory present, branch still there";
+//   - the checkout is still registered: nothing is deleted, and ErrWorktreeBusy says so
+//     with the reason, so the caller knows the removal did not happen at all.
+//
+// A plain `git worktree remove` refusal for uncommitted changes is reported as
+// ErrWorktreeDirty: a probe can race the job that writes into the tree, and the caller's
+// answer to that is --force, not a retry.
+func finishCheckoutRemoval(ctx context.Context, main string, wt *worktreeRef, force bool, cause error) ([]string, error) {
+	if strings.Contains(cause.Error(), "contains modified or untracked files") {
+		return nil, fmt.Errorf("%w: %s", ErrWorktreeDirty, wt.Path)
+	}
+	if force {
+		// git could not finish the directory (a locked file); with --force the contents are
+		// already meant to be discarded, so delete whatever is left of it ourselves.
+		if err := os.RemoveAll(wt.Path); err != nil {
+			slog.Warn("job.worktree_removal_incomplete", "event", "job.worktree_removal_incomplete",
+				"component", "job", "path", wt.Path, "err", err)
+		}
+	} else if isDir(wt.Path) {
+		// Without --force the tree may hold work the caller did not agree to discard;
+		// leave the files alone and let the registration decide the outcome below.
+		if worktreeRegistered(ctx, main, wt.Path) {
+			return nil, fmt.Errorf("%w: %s: %v", ErrWorktreeBusy, wt.Path, cause)
+		}
+	}
+	if worktreeRegistered(ctx, main, wt.Path) {
+		// A registered entry whose directory is gone is exactly what prune drops; run it so
+		// the repository stops advertising the checkout.
+		if _, err := gitOut(ctx, main, "worktree", "prune"); err != nil {
+			return nil, fmt.Errorf("%w: %s: %v", ErrWorktreeBusy, wt.Path, err)
+		}
+		if worktreeRegistered(ctx, main, wt.Path) {
+			return nil, fmt.Errorf("%w: %s: %v", ErrWorktreeBusy, wt.Path, cause)
+		}
+	}
+	if isDir(wt.Path) {
+		return []string{fmt.Sprintf("worktree directory %s could not be deleted (a process may still be using it); "+
+			"the branch and the git worktree entry are cleaned up — delete the directory later", wt.Path)}, nil
+	}
+	return nil, nil
+}
+
+// worktreeRegistered reports whether path is still a registered worktree of the
+// repository at main. The comparison goes through util.RealPath because git reports the
+// resolved path while the job row may carry a differently spelled one.
+func worktreeRegistered(ctx context.Context, main, path string) bool {
+	out, err := gitOut(ctx, main, "worktree", "list", "--porcelain")
+	if err != nil {
+		return false
+	}
+	want := util.RealPath(path)
+	for _, line := range strings.Split(out, "\n") {
+		entry, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "worktree ")
+		if !ok {
+			continue
+		}
+		if util.RealPath(strings.TrimSpace(entry)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// worktreeUsers names the jobs that still work in the managed worktree at path: a row
+// whose process has not ended (status !IsFinished, which covers queued/running/waiting
+// for a directory slot and a job paused for approval). A continuation job records its
+// source's worktree, so this is also how an auto-resume continuation keeps its checkout
+// from being deleted under it.
+func (s *Service) worktreeUsers(path string) []string {
+	if s.meta == nil {
+		return nil
+	}
+	recs, err := s.meta.ListWorktrees()
+	if err != nil {
+		slog.Warn("job.worktree_users", "event", "job.worktree_users", "component", "job", "path", path, "err", err)
+		return nil
+	}
+	want := util.RealPath(path)
+	var users []string
+	for _, r := range recs {
+		if IsFinished(r.Status) || util.RealPath(r.Path) != want {
+			continue
+		}
+		users = append(users, r.JobID+" ("+r.Status+")")
+	}
+	return users
 }
 
 // removeWorktreeMerged removes a worktree whose branch has just been merged: the same

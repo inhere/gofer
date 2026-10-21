@@ -287,15 +287,19 @@ type WorktreeRecord struct {
 	Path       string
 	Branch     string
 	BaseSHA    string
+	// Status is the job's lifecycle status: removal checks it to tell a checkout a live
+	// job is still using (a continuation job inherits its source's worktree) from one
+	// nobody owns anymore.
+	Status string
 }
 
 // ListWorktrees returns every job row that records a managed worktree (WT-01),
 // newest first. The retention sweep snapshots these BEFORE pruning so it can tell
 // which worktrees lost their row (PruneJobs returns result dirs, not ids) and clean
-// up the merged ones.
+// up the merged ones; removal uses the statuses to refuse a checkout a live job owns.
 func (s *Store) ListWorktrees() ([]WorktreeRecord, error) {
 	rows, err := s.db.Query(`SELECT id, project_key, COALESCE(worktree_path,''),
-  COALESCE(worktree_branch,''), COALESCE(worktree_base_sha,'')
+  COALESCE(worktree_branch,''), COALESCE(worktree_base_sha,''), COALESCE(status,'')
   FROM jobs WHERE COALESCE(worktree_path,'') <> '' ORDER BY started_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list worktrees: %w", err)
@@ -304,7 +308,7 @@ func (s *Store) ListWorktrees() ([]WorktreeRecord, error) {
 	var out []WorktreeRecord
 	for rows.Next() {
 		var r WorktreeRecord
-		if err := rows.Scan(&r.JobID, &r.ProjectKey, &r.Path, &r.Branch, &r.BaseSHA); err != nil {
+		if err := rows.Scan(&r.JobID, &r.ProjectKey, &r.Path, &r.Branch, &r.BaseSHA, &r.Status); err != nil {
 			return nil, fmt.Errorf("jobstore: scan worktree: %w", err)
 		}
 		out = append(out, r)
