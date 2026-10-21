@@ -531,24 +531,30 @@ func mergeEntries(base, ours, theirs []string, heading string, st *state) []stri
 		}
 		_, inTheirs := th.origin[bi]
 		tMod := th.modified[bi]
+		oursChanged := text != base[bi]
 		switch {
 		case !inTheirs && tMod == "":
 			// replaced on one side, removed on the other.
-			if ob.modified[bi] != "" {
+			if oursChanged {
 				st.conflictf("entry %q in %s: changed on ours, removed on theirs", entryLabel(text), heading)
 				out = append(out, conflictBlock(text, "", true, false))
 			}
-		case !inTheirs || tMod != "":
-			if tMod == text {
-				out = append(out, text)
-				emitted[text] = true
-				continue
-			}
-			st.conflictf("entry %q in %s: changed on both sides", entryLabel(text), heading)
-			out = append(out, conflictBlock(text, tMod, true, true))
-		default:
+			// left alone on ours and removed on theirs: the removal wins.
+		case tMod == "":
+			// theirs left it alone: ours' text stands, changed or not.
 			out = append(out, text)
 			emitted[text] = true
+		case tMod == text:
+			// both sides changed it the same way (or theirs rewrote it to ours' text).
+			out = append(out, text)
+			emitted[text] = true
+		case !oursChanged:
+			// rewritten on theirs only: theirs' text is the change, not a conflict.
+			out = append(out, tMod)
+			emitted[tMod] = true
+		default:
+			st.conflictf("entry %q in %s: changed on both sides", entryLabel(text), heading)
+			out = append(out, conflictBlock(text, tMod, true, true))
 		}
 	}
 	for _, j := range th.added {
