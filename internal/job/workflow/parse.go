@@ -164,6 +164,22 @@ func mergeStepFromMarkdown(step *StepSpec, fromMD StepSpec, prompt string) {
 	if step.OnFailure == "" {
 		step.OnFailure = fromMD.OnFailure
 	}
+	// S1: the newer step fields merge with the same inline-wins rule.
+	if len(step.Env) == 0 {
+		step.Env = fromMD.Env
+	}
+	if step.Ref == "" {
+		step.Ref = fromMD.Ref
+	}
+	if step.Uses == "" {
+		step.Uses = fromMD.Uses
+	}
+	if len(step.With) == 0 {
+		step.With = fromMD.With
+	}
+	if step.Run == "" {
+		step.Run = fromMD.Run
+	}
 	if step.Retry == nil {
 		step.Retry = fromMD.Retry
 	}

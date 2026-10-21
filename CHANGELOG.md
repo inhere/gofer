@@ -17,6 +17,12 @@
 
 ### 新功能
 
+- **workflow 顶层 `project` 与每路不同的扇出**：一个 workflow 可以只声明一次项目，`fan` 的每一路可以跑自己的命令。
+  - 顶层 `project:` 是默认项目，步骤不写 `project_key` 就在它里面跑；从某个项目 `.gofer/workflows` 读出的模板以该项目为默认。`gofer workflow run -p <project>`（文件与模板两种提交都可用），HTTP 提交体同名字段，`vars.project` 仍作兼容回退。
+  - `fan[]` 新增 `name`、`cmd`、`env`、`cwd`、`timeout_sec`，未写的沿用步骤的值；带 `cmd` 时 `agent` 可省（默认 exec）。配合 `join: all` 一个步骤就能并行跑完整套检查。`name` 在步骤内唯一，并可用 `${steps.<step>.<fan 名>.<field>}` 引用这一路的输出（`${steps.<step>.fK.<field>}` 照旧）。
+  - 步骤与 fan 新增 `env`（server 本机 runner 的 exec 步骤直接生效；下发 worker 待后续版本，提交时明确报「暂不支持」）、`ref`、`uses` / `with`、`run: always`：这些字段已能解析、渲染与校验，执行侧随后续版本提供，提交时会明确报「暂不支持：<字段>（后续版本提供）」，不会被静默忽略。
+  - 模板渲染与 `${steps…}` 静态校验覆盖以上全部新字段（含 `with` 递归、fan 的 `cmd` / `env` / `cwd`），markdown 分步文件的 frontmatter 同样可填这些字段。
+
 - **审阅提示：删除热点、被删注释与验证结果行（gofer-hjj1）**：验收材料不再只有「汇报 + Diff」，服务端按同一个 job 的 `changes.diff` 与 stdout 尾部现算三节提示，`gofer job review` 打印为「审阅提示」块、web 验收面板「汇报」页签顶部显示为默认折叠的卡片，空节省略：
   - **删除热点**：diff 里删除 ≥10 行的文件，按删除行数取前 5（附新增行数）；
   - **被删注释**：被删除、且同文件新增行里没有原样出现的注释行（`//`、`#`、`/* */`、`<!-- -->`、Go doc 注释），最多 20 行，带旧文件行号；顺手删注释、把注释挪走都看得出来（挪走的不算删除）；

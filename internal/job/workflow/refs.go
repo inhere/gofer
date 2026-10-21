@@ -37,7 +37,11 @@ const maxAggregateReadBytes = 8 << 20
 // Without a fan selector, ${steps.N.result_dir} on a fan-out step aggregates ALL
 // successful fans' result_dir (newline-joined); ${steps.N.fK.result_dir} picks fan K.
 var stepRefRe = regexp.MustCompile(`\$\{steps\.(\d+)(?:\.f(\d+))?\.(\w+)\}`)
-var namedStepRefRe = regexp.MustCompile(`\$\{steps\.([A-Za-z_][A-Za-z0-9_-]*)(?:\.(f\d+|all|picked))?\.(\w+)\}`)
+
+// namedStepRefRe matches the name-addressed form ${steps.<step name>.<selector>.<field>},
+// where the selector is optional and is either a positional fan (fK), an aggregate
+// (all / picked) or — since S1 — a NAMED fan (${steps.checks.unit.stdout}, design §一·2).
+var namedStepRefRe = regexp.MustCompile(`\$\{steps\.([A-Za-z_][A-Za-z0-9_-]*)(?:\.(f\d+|all|picked|[A-Za-z_][A-Za-z0-9_-]*))?\.(\w+)\}`)
 
 // allowedRefFields is the closed set of step-output fields a ${steps.N.field}
 // reference may name (design §5.4). Kept as a map so both resolveRefs (runtime) and
@@ -52,6 +56,35 @@ var allowedRefFields = map[string]bool{
 	"worktree_branch": true,
 	"diff":            true,
 	"diff_summary":    true,
+}
+
+// fanPositionalRe matches the positional fan selector of a reference (f1, f2, ...).
+var fanPositionalRe = regexp.MustCompile(`^f\d+$`)
+
+// fanSelectorPositional reports whether a named-form selector addresses a fan by its
+// 1-based position (fK) instead of by name.
+func fanSelectorPositional(selector string) bool { return fanPositionalRe.MatchString(selector) }
+
+// stepRefSources collects every string field of a step that may carry a
+// ${steps.…} reference: prompt, each argv element, cwd, ref, each env value and the
+// fan-name / cmd / env / cwd fields of each fan (S1: the new spec fields take part in
+// the static reference check exactly like the old ones).
+func stepRefSources(st StepSpec) []string {
+	out := make([]string, 0, 8+len(st.Cmd)+len(st.Env))
+	out = append(out, st.Prompt, st.Cwd, st.Ref)
+	out = append(out, st.Cmd...)
+	for _, v := range st.Env {
+		out = append(out, v)
+	}
+	for i := range st.Fan {
+		f := st.Fan[i]
+		out = append(out, f.Cwd)
+		out = append(out, f.Cmd...)
+		for _, v := range f.Env {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // validateRefs statically checks every ${steps.N.field} reference in a workflow
@@ -73,9 +106,7 @@ func validateRefs(spec Spec) error {
 	}
 	for i := range spec.Steps {
 		stepNo := i + 1 // 1-based
-		fields := []string{spec.Steps[i].Prompt, spec.Steps[i].Cwd}
-		fields = append(fields, spec.Steps[i].Cmd...)
-		for _, f := range fields {
+		for _, f := range stepRefSources(spec.Steps[i]) {
 			for _, m := range stepRefRe.FindAllStringSubmatch(f, -1) {
 				n, _ := strconv.Atoi(m[1]) // m[1] is \d+, always parses
 				fanK := m[2]               // optional fan selector (empty when absent)
@@ -114,10 +145,16 @@ func validateRefs(spec Spec) error {
 				if n >= stepNo {
 					return fmt.Errorf("%w: step %d references ${steps.%s.%s} which is not a prior step", job.ErrInvalidRequest, stepNo, name, field)
 				}
-				if strings.HasPrefix(selector, "f") {
+				if fanSelectorPositional(selector) {
 					k, _ := strconv.Atoi(strings.TrimPrefix(selector, "f"))
 					if k < 1 || k > fanWant(spec.Steps[n-1]) {
 						return fmt.Errorf("%w: step %d references ${steps.%s.%s} with invalid fan", job.ErrInvalidRequest, stepNo, name, selector)
+					}
+				}
+				// S1: any other selector is a fan NAME of the referenced step.
+				if selector != "" && selector != "all" && selector != "picked" && !fanSelectorPositional(selector) {
+					if fanIndexByName(spec.Steps[n-1], selector) == 0 {
+						return fmt.Errorf("%w: step %d references ${steps.%s.%s.%s} but step %q has no fan named %q", job.ErrInvalidRequest, stepNo, name, selector, field, name, selector)
 					}
 				}
 			}
@@ -157,6 +194,13 @@ func (e *Engine) resolveRefs(step *StepSpec, priorJobs []jobstore.JobRecord, spe
 		}
 		step.Cmd[i] = out
 	}
+	if step.Ref != "" {
+		out, err := e.resolveString(step.Ref, priorJobs, specs...)
+		if err != nil {
+			return err
+		}
+		step.Ref = out
+	}
 	if step.Cwd != "" {
 		out, err := e.resolveString(step.Cwd, priorJobs, specs...)
 		if err != nil {
@@ -164,7 +208,54 @@ func (e *Engine) resolveRefs(step *StepSpec, priorJobs []jobstore.JobRecord, spe
 		}
 		step.Cwd = out
 	}
+	// S1: env values and the per-fan cmd / cwd / env take part in references too, so a
+	// check can pass a prior step's output through its environment.
+	if len(step.Env) > 0 {
+		env, err := e.resolveEnv(step.Env, priorJobs, specs...)
+		if err != nil {
+			return err
+		}
+		step.Env = env
+	}
+	for i := range step.Fan {
+		f := &step.Fan[i]
+		for j := range f.Cmd {
+			out, err := e.resolveString(f.Cmd[j], priorJobs, specs...)
+			if err != nil {
+				return err
+			}
+			f.Cmd[j] = out
+		}
+		if f.Cwd != "" {
+			out, err := e.resolveString(f.Cwd, priorJobs, specs...)
+			if err != nil {
+				return err
+			}
+			f.Cwd = out
+		}
+		if len(f.Env) > 0 {
+			env, err := e.resolveEnv(f.Env, priorJobs, specs...)
+			if err != nil {
+				return err
+			}
+			f.Env = env
+		}
+	}
 	return nil
+}
+
+// resolveEnv resolves references in every value of an env map, returning a NEW map so a
+// retried step re-resolves from the untouched spec values.
+func (e *Engine) resolveEnv(env map[string]string, priorJobs []jobstore.JobRecord, specs ...Spec) (map[string]string, error) {
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		val, err := e.resolveString(v, priorJobs, specs...)
+		if err != nil {
+			return nil, err
+		}
+		out[k] = val
+	}
+	return out, nil
 }
 
 // resolveString replaces every ${steps.N.field} / ${steps.N.fK.field} in one string
@@ -273,8 +364,16 @@ func (e *Engine) resolveNamedRef(name, selector, field string, priorJobs []jobst
 		return e.resolveRef(stepNo, fanK, field, priorJobs)
 	}
 	fanK := 0
-	if strings.HasPrefix(selector, "f") {
+	if fanSelectorPositional(selector) {
 		fanK, _ = strconv.Atoi(strings.TrimPrefix(selector, "f"))
+	}
+	// S1: a non-positional selector is a fan NAME of the referenced step.
+	if selector != "" && !fanSelectorPositional(selector) {
+		idx := fanIndexByName(spec.Steps[stepNo-1], selector)
+		if idx == 0 {
+			return "", fmt.Errorf("${steps.%s.%s.%s}: step %q has no fan named %q", name, selector, field, name, selector)
+		}
+		fanK = idx
 	}
 	return e.resolveRef(stepNo, fanK, field, priorJobs)
 }

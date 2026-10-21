@@ -28,6 +28,7 @@ import (
 var wfRunOpts = struct {
 	watch    bool
 	template string
+	project  string
 	vars     gcli.Strings
 }{}
 
@@ -73,6 +74,7 @@ func NewWorkflowCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.BoolOpt(&wfRunOpts.watch, "watch", "w", false, "poll the workflow until it reaches a terminal state, printing each step")
 					c.StrOpt(&wfRunOpts.template, "template", "t", "", "workflow template name (project .gofer/workflows, config-dir workflows, or built-in)")
+					c.StrOpt(&wfRunOpts.project, "project", "p", "", "project key: the workflow's default project (a step without project_key runs there)")
 					c.VarOpt(&wfRunOpts.vars, "var", "", "workflow template variable k=v (repeatable)")
 					c.AddArg("file", "path to the workflow file (.json => json, else yaml; json also auto-detected by content)", false)
 				},
@@ -292,10 +294,21 @@ func runWorkflowRun(c *gcli.Command, _ []string) error {
 		if verr != nil {
 			return verr
 		}
+		// -p is the project the template is resolved against (its own
+		// .gofer/workflows, then the global ones) and the workflow's default project;
+		// the template's own `project` variable, when given, keeps precedence.
+		if wfRunOpts.project != "" {
+			if _, ok := vars["project"]; !ok {
+				vars["project"] = wfRunOpts.project
+			}
+		}
 		wf, err = cli.SubmitWorkflowTemplate(wfRunOpts.template, vars)
 	} else {
 		spec, err = workflow.ParseWorkflowFile(file)
 		if err == nil {
+			if wfRunOpts.project != "" {
+				spec.Project = wfRunOpts.project
+			}
 			wf, err = cli.SubmitWorkflow(spec)
 		}
 	}
