@@ -193,7 +193,7 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 gofer job run … --review                                 # 正常完成后停在 needs_review 等人验收
 gofer job run … --acceptance $'- 测试通过\n- 文档已更新'  # prompt 末尾追加「## 验收标准」
 gofer job run … --scope 'src/api/**,web/src/x.vue'       # 声明改动范围（可重复）
-gofer job review <id> [--tail N] [--diff]                # 验收材料一屏
+gofer job review <id> [--tail N] [--diff] [--json]   # 验收材料一屏
 gofer job findings <id> [--create-issues] [-p 2] [--tag discovered]
 gofer job accept <id> [--note "…"]                       # needs_review → done（只有人能做）
 gofer job reject <id> --note "…" [--resume]              # → rejected；--resume 以 note 为 prompt 续投
@@ -203,7 +203,8 @@ gofer job list --status needs_review                     # 谁在等验收
 - `reject --resume` 会新建续接 job，除验收权限 `job.review` 外还要 `job.submit`；缺 `job.submit` 返回 403，退回不会被记录。
 - 开 review：`--review`、项目 `require_review: true` 或 workflow 步骤 `review:`。`needs_review` 不能 `cancel`（用 reject），也要先裁决才能 resume。MCP 只有 reject 工具，没有 accept。
 - `--worktree` job 被 `reject --resume` 退回返工时，续接 job 在**同一个 worktree 和分支**上接着做，并沿用源 job 的交付设置（`--deliver` 等）与验收要求；返工后 accept 即按原方式交付整条分支，PR 标题与任务说明仍取最初的任务，不是退回理由。只限 server 本机执行的 job。
-- `job review` 内容：状态、验收标准、提交、`diff --stat`、越界文件、汇报尾部（默认 60 行）、「发现但不碰」；`--diff` 追加完整 patch。web 的验收面板是同一份材料（见 [web-console.md](web-console.md)「验收台」）。
+- `job review` 内容：状态、验收标准、提交、`diff --stat`、越界文件、**审阅提示**、汇报尾部（默认 60 行）、「发现但不碰」；`--diff` 追加完整 patch。web 的验收面板是同一份材料（见 [web-console.md](web-console.md)「验收台」）。
+- 「审阅提示」（review hints）是服务端现算的三小节，空则整块省略：**删除热点**（该 job 的 diff 里删除 ≥10 行的文件，按删除行数取前 5）、**被删注释**（diff 删掉、同文件新增行里没有原样出现的注释行，最多 20 行，带旧文件行号）、**验证结果行**（从汇报里抽出的 `ok  <pkg>` / `FAIL` / `--- FAIL:` / `PASS` / `*_EXIT=n` / `exit=n` / `tsc=n` / `Test Files … passed` / `Tests … passed`，最多 30 行）。作用是先看哪里可疑（顺手删注释、大段删除、汇报里到底贴了哪几行验证），不是裁决依据。`--json` 打 `{id, status, review_hints}`，字段见 `docs/reference/http-api.md`。
 - 验收标准随活走：非 exec 的 agent job，prompt 末尾追加「## 验收标准」并要求汇报逐条答「满足 / 未满足 / 无法验证 + 依据」；exec job 只记录、照样在面板显示。plan todo 用 `--acceptance` 或 `--acceptance-from-issue <issue-id>`（从当前仓库 tracker 读该 issue 的验收标准）。
 - 交付约定：项目 `scope_discipline: auto|on|off`（默认 `auto` = plan todo 派出的、要人验收的、带验收标准或 scope 的 job；`on` = 所有非 exec 批处理 agent job；交互与 `--session` 不加）会追加「## 交付约定」：只改与任务相关的内容，范围外问题写进汇报的「## 发现但不碰」（`- <位置>：<问题>`），发现注入的记忆与实际不符用 `gofer memory flag` 上报。单次关闭 `--no-scope-discipline`。
 - 越界文件只是提示，不挡 accept；已提交的文件也算，共享 checkout 里他人同期的提交可能造成误报。

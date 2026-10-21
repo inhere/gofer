@@ -24,6 +24,9 @@ import { deliveryModeLabel } from '../utils/delivery'
 import MemoryCandidatesTab from './MemoryCandidatesTab.vue'
 import { listMemoryCandidates } from '../api/memoryCandidates'
 import type { MemoryCandidate } from '../api/memoryCandidates'
+import { fetchReviewHints } from '../api/reviewHints'
+import type { ReviewHints } from '../api/reviewHints'
+import { hasReviewHints, hotspotLine, removedCommentLine, reviewHintCount } from '../utils/reviewHints'
 import type { Job } from '../api/types'
 
 const props = defineProps<{ job: Job; blockedReason?: string }>()
@@ -80,6 +83,7 @@ async function load(res: Ref<Resource>, fetchText: () => Promise<string>): Promi
 function ensureTab(t: Tab): void {
   if (t === 'report') {
     void load(report, () => logsTail(props.job.id, 'stdout', TAIL_BYTES))
+    void loadHints()
     return
   }
   if (t === 'diff') {
@@ -105,6 +109,28 @@ const acceptance = computed(() => acceptanceLines(props.job.acceptance))
 const acceptanceItems = computed(() => acceptance.value.filter((l) => l.kind === 'item').length)
 const acceptanceChecked = ref<Record<number, boolean>>({})
 const acceptanceDone = computed(() => Object.values(acceptanceChecked.value).filter(Boolean).length)
+
+// 审阅提示（gofer-hjj1）：服务端从 changes.diff 与 stdout 尾部算出的三块建议，只在「汇报」页签
+// 顶部折叠展示；拉不到就不显示卡片（不影响汇报本身）。
+const hints = ref<ReviewHints | null>(null)
+const hintsJobID = ref('')
+
+async function loadHints(): Promise<void> {
+  const id = props.job.id
+  if (hintsJobID.value === id) {
+    return
+  }
+  hintsJobID.value = id
+  try {
+    const got = await fetchReviewHints(id)
+    if (props.job.id === id) {
+      hints.value = got
+    }
+  } catch {
+    // 提示是锦上添花：接口失败就不显示卡片。
+    hints.value = null
+  }
+}
 
 // 「发现」页签（gofer-3nxa.3）：汇报里「## 发现但不碰」小节的列表项；有发现才出现（带计数）。
 // 每条可复制成在当前仓库建 issue 的命令（服务端暂无建 tracker issue 的写接口）。
@@ -396,6 +422,28 @@ onMounted(() => {
     <div class="rp-body">
       <!-- 汇报：agent 最终文本（stdout 尾部 64KB），markdown 渲染。 -->
       <div v-if="tab === 'report'">
+        <!-- 审阅提示（gofer-hjj1）：先看哪里可疑，再读汇报；默认折叠，纯只读。 -->
+        <details v-if="hasReviewHints(hints)" class="rp-hints">
+          <summary class="mono">审阅提示 ({{ reviewHintCount(hints) }})：删除热点 / 被删注释 / 验证结果行</summary>
+          <div v-if="hints?.deletion_hotspots?.length" class="rp-hint-section">
+            <h4>deletion hotspots (删除最多)</h4>
+            <ul>
+              <li v-for="d in hints.deletion_hotspots" :key="d.path" class="mono">{{ hotspotLine(d) }}</li>
+            </ul>
+          </div>
+          <div v-if="hints?.removed_comments?.length" class="rp-hint-section">
+            <h4>removed comments (被删注释)</h4>
+            <ul>
+              <li v-for="(rc, i) in hints.removed_comments" :key="i" class="mono">{{ removedCommentLine(rc) }}</li>
+            </ul>
+          </div>
+          <div v-if="hints?.verify_lines?.length" class="rp-hint-section">
+            <h4>verify lines (汇报里的验证结果)</h4>
+            <ul>
+              <li v-for="(line, i) in hints.verify_lines" :key="i" class="mono">{{ line }}</li>
+            </ul>
+          </div>
+        </details>
         <p v-if="report.loading" class="rp-note mono">加载中…</p>
         <p v-else-if="report.error" class="rp-err mono">
           {{ report.error }}

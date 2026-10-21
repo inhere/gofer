@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -393,6 +394,7 @@ func NewJobCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.IntOpt(&jobReviewOpts.tail, "tail", "", defaultReviewTailLines, "how many lines of the agent's final report (stdout tail) to print")
 					c.BoolOpt(&jobReviewOpts.diff, "diff", "", false, "also print the full diff (the captured changes.diff)")
+					c.BoolOpt(&jobReviewOpts.jsonOut, "json", "", false, "print the job's id/status and the review hints as JSON instead of the review screen")
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobReview,
@@ -3243,10 +3245,11 @@ var (
 )
 
 // jobReviewOpts holds `job review` flags (REV-01 §1.3): how much of the agent's
-// final report to print, and whether to append the full diff.
+// final report to print, whether to append the full diff, and whether to emit JSON.
 var jobReviewOpts = struct {
-	tail int
-	diff bool
+	tail    int
+	diff    bool
+	jsonOut bool
 }{}
 
 // defaultReviewTailLines is how much of the agent's report `job review` shows
@@ -3278,6 +3281,9 @@ func runJobReview(c *gcli.Command, _ []string) error {
 	res, err := cli.GetJob(id)
 	if err != nil {
 		return err
+	}
+	if jobReviewOpts.jsonOut {
+		return writeJobReviewJSON(c, cli, &res)
 	}
 
 	c.Printf("id:         %s\n", res.ID)
@@ -3367,6 +3373,14 @@ func runJobReview(c *gcli.Command, _ []string) error {
 		}
 	}
 
+	// gofer-hjj1：审阅提示（删除热点 / 被删注释 / 汇报里的验证结果行）服务端现算，
+	// Web 汇报页用同一接口，两边看到的提示一致。取不到只是少一块建议，不影响首屏。
+	if hints, err := cli.GetJobReviewHints(id); err != nil {
+		c.Printf("\nreview_hints: unavailable (%v)\n", err)
+	} else {
+		printReviewHints(c, hints)
+	}
+
 	// gofer-3nxa.4：验收标准放在汇报前——先看标准，再对照汇报逐条判断。
 	if a := strings.TrimSpace(res.Acceptance); a != "" {
 		c.Printf("\n验收标准 (acceptance):\n%s\n", a)
@@ -3411,6 +3425,57 @@ func runJobReview(c *gcli.Command, _ []string) error {
 // summary, and a job that delivered hundreds of commits still answers "what did it
 // base on / did it commit at all" in the first twenty.
 const reviewMaxCommits = 20
+
+// jobReviewJSON is `job review --json` (gofer-hjj1): the job's identity and verdict
+// plus the same review hints the human screen prints, for a script that sorts the
+// queue by "which delivery deleted the most".
+type jobReviewJSON struct {
+	ID          string          `json:"id"`
+	Status      string          `json:"status"`
+	ReviewHints job.ReviewHints `json:"review_hints"`
+}
+
+// writeJobReviewJSON prints the --json form of the review screen.
+func writeJobReviewJSON(c *gcli.Command, cli *client.Client, res *job.JobResult) error {
+	hints, err := cli.GetJobReviewHints(res.ID)
+	if err != nil {
+		return err
+	}
+	out, err := json.MarshalIndent(jobReviewJSON{ID: res.ID, Status: res.Status, ReviewHints: hints}, "", "  ")
+	if err != nil {
+		return err
+	}
+	c.Println(string(out))
+	return nil
+}
+
+// printReviewHints writes the 审阅提示 block: where to start reviewing, and which
+// proof the agent's report closes with. Empty sections are left out entirely, and a
+// job with nothing to hint at prints no block (a clean diff is not "no review").
+func printReviewHints(c *gcli.Command, h job.ReviewHints) {
+	if len(h.DeletionHotspots) == 0 && len(h.RemovedComments) == 0 && len(h.VerifyLines) == 0 {
+		return
+	}
+	c.Printf("\n审阅提示 (review hints):\n")
+	if len(h.DeletionHotspots) > 0 {
+		c.Printf("deletion hotspots (删除最多):\n")
+		for _, d := range h.DeletionHotspots {
+			c.Printf("  %+d/-%d  %s\n", d.Added, d.Deleted, d.Path)
+		}
+	}
+	if len(h.RemovedComments) > 0 {
+		c.Printf("removed comments (被删注释):\n")
+		for _, rc := range h.RemovedComments {
+			c.Printf("  %s:%d  %s\n", rc.Path, rc.Line, rc.Text)
+		}
+	}
+	if len(h.VerifyLines) > 0 {
+		c.Printf("verify lines (汇报里的验证结果):\n")
+		for _, line := range h.VerifyLines {
+			c.Printf("  %s\n", line)
+		}
+	}
+}
 
 // lastLines returns the last n lines of s, with the trailing newline dropped.
 func lastLines(s string, n int) string {

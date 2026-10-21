@@ -135,6 +135,23 @@ Registered keys (first batch; consumers land in later work):
 - `GET /v1/plans/{id}` `usage`: `jobs`, `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cost_usd`, `by_agent{<agent>: {jobs, total_tokens, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd}}`, plus `session` / `overall`. `by_agent` is keyed by the real agent: a cli resume carrier (agent `exec` with a `resume_agent`) is counted under the agent it resumed. `GET /v1/jobs?plan=<id>` rows carry each job's `usage` object (above), so a plan's per-job numbers can be read without a request per job.
 - `wrap_up` on a job (`GET /v1/jobs/{id}`, job list rows, omitempty; gofer-gk74): the reason the AGENT itself reported for ending the run early instead of answering — `max_steps` / `max_tokens` / `timeout` / `budget` (the agent's own soft budget ran out, see `usage.agent_budget`), read off its structured stream (`result.wrap_up`, or an `error` row saying `max steps exceeded: <n>`). The job keeps `done` and its report: the agent stopped itself, which is how a prematurely wrapped-up task is told apart from a finished one. Absent when the agent answered, or when its dialect reports no such reason (unlike `stop_reason`, which is the ACP protocol's stopReason). Budget kills by gofer itself are a different signal (`failure_class=budget`, `failed`).
 
+## Review hints (gofer-hjj1)
+
+`GET /v1/jobs/{id}/review-hints` — what a supervisor otherwise digs out of the diff and the report by hand. Computed on demand (nothing stored) from the same two inputs the review screen shows: `<result_dir>/changes.diff` (the Diff tab; worktree jobs' `base..HEAD` included) and the stdout tail (64KB, the report tab). Missing inputs are not an error: the endpoint answers `200` with the sections it could compute. Same permission as the diff (`InHandler`: `job.read.others` for someone else's job).
+
+```json
+{"id": "<job id>", "review_hints": {
+  "deletion_hotspots": [{"path": "internal/job/x.go", "added": 4, "deleted": 30}],
+  "removed_comments": [{"path": "internal/job/x.go", "line": 42, "text": "// old note"}],
+  "verify_lines": ["ok  github.com/owner/repo/internal/job"]
+}}
+```
+
+- `deletion_hotspots` (omitempty): up to 5 files with at least 10 deleted lines, sorted by `deleted` (ties: more `added` first, then path). `added` / `deleted` count patch body lines of that file.
+- `removed_comments` (omitempty, up to 20): comment lines the diff deletes whose text no added line of the **same file** repeats (a moved comment is not a deleted one). `line` is the old file's line number, `text` the trimmed comment content. Recognised forms: `//`, `#`, `/* … */` (and its `*` continuation), `<!-- … -->`.
+- `verify_lines` (omitempty, up to 30): verification result lines of the report in report order without repeated identical lines — `go test` (`ok  <pkg>`, `FAIL`, `--- FAIL:`, `PASS`), captured exit codes (`<NAME>_EXIT=<n>`, `exit=<n>`, `tsc=<n>`) and the vitest summary lines (`Test Files … passed`, `Tests … passed`).
+- `gofer job review --json` prints `{id, status, review_hints}` with the same object; the human screen prints the same three sections as 「审阅提示」 and omits empty ones.
+
 ## Runner tools
 
 - `GET /v1/runners`: every row with known capabilities has `capabilities.tools: [{name, desc?, bin?}]` — the local row from the server's top-level `tools`, a worker row from the worker's report (also under `worker.tools`). Omitted when nothing is declared.

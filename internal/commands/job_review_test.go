@@ -206,8 +206,8 @@ func TestJobReviewPrintsSections(t *testing.T) {
 	t.Cleanup(func() { config.InputCfgFile = "" })
 	jobConnOpts.server, jobConnOpts.token = "", ""
 	t.Cleanup(func() { jobConnOpts.server, jobConnOpts.token = "", "" })
-	jobReviewOpts.tail, jobReviewOpts.diff = 0, false
-	t.Cleanup(func() { jobReviewOpts.tail, jobReviewOpts.diff = 0, false })
+	jobReviewOpts.tail, jobReviewOpts.diff, jobReviewOpts.jsonOut = 0, false, false
+	t.Cleanup(func() { jobReviewOpts.tail, jobReviewOpts.diff, jobReviewOpts.jsonOut = 0, false, false })
 
 	const (
 		diffBody  = "diff --git a/main.go b/main.go\n+the full patch\n"
@@ -239,6 +239,13 @@ func TestJobReviewPrintsSections(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "text/plain")
 			_, _ = w.Write([]byte(diffBody))
+		case "/v1/jobs/job-rev/review-hints":
+			// gofer-hjj1: the server computes the hints; the CLI only prints them.
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"job-rev","review_hints":{
+				"deletion_hotspots":[{"path":"internal/job/x.go","added":4,"deleted":30}],
+				"removed_comments":[{"path":"internal/job/x.go","line":42,"text":"// old note"}],
+				"verify_lines":["ok  example.com/pkg/in","exit=0"]}}`))
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			http.Error(w, "unexpected request", http.StatusNotFound)
@@ -278,6 +285,15 @@ func TestJobReviewPrintsSections(t *testing.T) {
 	if logBytes != "65536" {
 		t.Fatalf("report fetch bytes=%q, want the 64KB window", logBytes)
 	}
+	// gofer-hjj1: the review hints block prints the three sections before the report.
+	for _, want := range []string{"审阅提示 (review hints):", "+4/-30  internal/job/x.go", "internal/job/x.go:42  // old note", "ok  example.com/pkg/in"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("job review output missing the hint %q:\n%s", want, out)
+		}
+	}
+	if hi, ri := strings.Index(out, "审阅提示 (review hints):"), strings.Index(out, reportEnd); hi < 0 || hi > ri {
+		t.Fatalf("the hints must come before the report they describe:\n%s", out)
+	}
 
 	// --diff appends the captured patch verbatim.
 	out = captureOutput(t, func() {
@@ -289,5 +305,23 @@ func TestJobReviewPrintsSections(t *testing.T) {
 	})
 	if !strings.Contains(out, "the full patch") {
 		t.Fatalf("job review --diff must print the diff body:\n%s", out)
+	}
+
+	// --json prints the same hints as a machine-readable object (no screen sections).
+	out = captureOutput(t, func() {
+		if code := app.Run([]string{"job", "review", "job-rev", "--json", "--server", ts.URL}); code != 0 {
+			t.Fatalf("job review --json exit code=%d", code)
+		}
+	})
+	var parsed jobReviewJSON
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("job review --json is not JSON (%v):\n%s", err, out)
+	}
+	if parsed.ID != "job-rev" || parsed.Status != job.StatusNeedsReview {
+		t.Fatalf("job review --json carries id/status: %+v", parsed)
+	}
+	if len(parsed.ReviewHints.DeletionHotspots) != 1 || parsed.ReviewHints.DeletionHotspots[0].Deleted != 30 ||
+		len(parsed.ReviewHints.VerifyLines) != 2 {
+		t.Fatalf("job review --json carries the hints: %+v", parsed.ReviewHints)
 	}
 }
