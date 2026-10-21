@@ -9,11 +9,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
@@ -155,6 +157,44 @@ func TestJobWorktreeEndpoints(t *testing.T) {
 		t.Fatalf("unknown job status=%d, want 404", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+// TestWorktreeDeleteRefusedWhileJobRuns: DELETE refuses a checkout a LIVE job still
+// works in — a continuation job inherits its source's worktree — with a 409 that names
+// that job, even when force=1 is given; nothing is deleted. The body shape is the
+// contract: an error message naming the job, not a bare 500.
+func TestWorktreeDeleteRefusedWhileJobRuns(t *testing.T) {
+	t.Parallel()
+	s, repo := newWorktreeTestServer(t)
+	j := newWorktreeJob(t, s)
+
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "cont-http", ProjectKey: "repo", Agent: "exec", Runner: localrunner.Name,
+		Status: job.StatusRunning, Cwd: j.Cwd, ResultDir: t.TempDir(), RequestJSON: `{}`,
+		StartedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+		WorktreePath: j.WorktreePath, WorktreeBranch: j.WorktreeBranch, WorktreeBaseSHA: j.WorktreeBaseSHA,
+	}); err != nil {
+		t.Fatalf("seed the live continuation job: %v", err)
+	}
+
+	resp := do(t, s, http.MethodDelete, "/v1/jobs/"+j.ID+"/worktree?force=1&delete_branch=1", testToken, nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("delete of a worktree used by a live job status=%d, want 409", resp.StatusCode)
+	}
+	b, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := string(b); !strings.Contains(body, "cont-http") || !strings.Contains(body, "used by") {
+		t.Fatalf("body=%q, want it to name the live job", body)
+	}
+	if _, err := os.Stat(j.WorktreePath); err != nil {
+		t.Fatalf("refused delete must leave the worktree: %v", err)
+	}
+	if out := gitTestRun(t, repo, "branch", "--list", j.WorktreeBranch); out == "" {
+		t.Fatalf("refused delete removed the branch %s", j.WorktreeBranch)
+	}
 }
 
 func TestWorktreeMergeConflictReturns409(t *testing.T) {

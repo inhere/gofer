@@ -1290,6 +1290,11 @@ func runJobWorktreeRemove(c *gcli.Command, _ []string) error {
 		// hint that removes it, so nobody assumes the job's commits were dropped.
 		c.Printf("kept branch     %s (use --delete-branch once it is merged)\n", st.Branch)
 	}
+	// A directory another process still holds (Windows) leaves everything else done:
+	// say plainly what is left on disk instead of reporting a failure.
+	for _, w := range st.Warnings {
+		c.Printf("warning: %s\n", w)
+	}
 	return nil
 }
 
