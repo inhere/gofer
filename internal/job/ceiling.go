@@ -58,9 +58,13 @@ const (
 	// InternalExecSummarizer is the work summarizer's read-only one-shot run (agent argv
 	// from the work configuration). Owner: the caller that asked for the tidy-up.
 	InternalExecSummarizer = "summarizer"
+	// InternalExecWorkflowStep is `gofer tool step <name>`: a built-in workflow step
+	// (`uses: gofer/<name>`) the workflow engine starts on the step's runner. Owner: the
+	// caller that submitted the workflow (its project / runner / worker ceilings apply).
+	InternalExecWorkflowStep = "workflow-step"
 )
 
-var internalExecKinds = []string{InternalExecDelivery, InternalExecRelay, InternalExecTrackerSync, InternalExecSummarizer}
+var internalExecKinds = []string{InternalExecDelivery, InternalExecRelay, InternalExecTrackerSync, InternalExecSummarizer, InternalExecWorkflowStep}
 
 // InternalExecKinds returns the registered internal exec kinds, sorted.
 func InternalExecKinds() []string {

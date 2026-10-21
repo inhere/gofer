@@ -14,6 +14,7 @@ import (
 	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/util"
+	"github.com/inhere/gofer/internal/workflowstep"
 )
 
 // SubmitWorkflow validates the spec, persists a running workflow header
@@ -283,6 +284,22 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 	if agent == "" && len(cmd) > 0 {
 		agent = config.BuiltinExecAgentKey
 	}
+	// A built-in step (design §一·5) runs gofer's own `gofer tool step <name>` on the step's
+	// runner, with its `with:` block as JSON on stdin; gofer's own command is what makes it
+	// an InternalExec job (the owner's exec dimension is waived, everything else applies).
+	uses := step.Uses
+	internalExec := ""
+	if uses != "" {
+		agent = config.BuiltinExecAgentKey
+		cmd = []string{"gofer", "tool", "step", usesName(uses)}
+		internalExec = job.InternalExecWorkflowStep
+	}
+	stdin := ""
+	if uses != "" && len(step.With) > 0 {
+		if raw, err := json.Marshal(step.With); err == nil {
+			stdin = string(raw)
+		}
+	}
 	return job.JobRequest{
 		ProjectKey: step.ProjectKey,
 		Agent:      agent,
@@ -292,11 +309,13 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 		NotifyDegradable: true,
 		Prompt:           step.Prompt,
 		Cmd:              cmd,
+		Stdin:            stdin,
+		InternalExec:     internalExec,
 		Env:              env,
 		Cwd:              cwd,
 		TimeoutSec:       timeoutSec,
 		Title:            step.Name,
-		Tags:             step.Tags,
+		Tags:             stepTags(step, internalExec),
 		// `ref:` (design 一·3): the spec carries the resolved sha by now (resolveStepRefs),
 		// so every fan of the step checks out the same commit in a temporary worktree.
 		Ref:          step.Ref,
@@ -317,6 +336,26 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 		Review:      review,
 		ReviewFixed: reviewFixed,
 	}
+}
+
+// usesName returns the registered step name of a `uses:` value. The name was validated at
+// submit (validateUsesStep), so an unparseable value yields the raw spelling and the job
+// fails with the step's own "unknown built-in step" message rather than silently running
+// the wrong command.
+func usesName(uses string) string {
+	if name, err := workflowstep.ParseUses(uses); err == nil {
+		return name
+	}
+	return uses
+}
+
+// stepTags is the step's tags, with gofer's own workflow-step tag added to an internal
+// step job so it is recognisable in the job list (job.WorkflowStepJobTag).
+func stepTags(step StepSpec, internalExec string) []string {
+	if internalExec == "" {
+		return step.Tags
+	}
+	return append(append([]string{}, step.Tags...), job.WorkflowStepJobTag)
 }
 
 // validateRetry checks each step's失败策略 at submit time (P1). on_failure must be
@@ -443,18 +482,18 @@ func unsupportedStepField(stepNo int, field string) error {
 	return fmt.Errorf("%w: step %d: 暂不支持：%s（后续版本提供）", job.ErrInvalidRequest, stepNo, field)
 }
 
-// validateStepFeatures rejects the S1-parsed spec fields whose execution arrives in a
-// later stage (uses/with → S3, run: always → S4). `ref` and `env` are implemented since
-// S2 (a temporary detached checkout, and the v26 dispatch field), so they pass.
+// validateStepFeatures validates the S1-parsed spec fields whose execution lands in a
+// later stage (run: always → S4, still refused) and the built-in steps that are
+// implemented (S3: `uses` / `with`). `ref` and `env` are implemented since S2 (a
+// temporary detached checkout, and the v26 dispatch field), so they pass.
 func validateStepFeatures(spec Spec, cfg *config.Config) error {
 	for i := range spec.Steps {
 		stepNo := i + 1
 		st := spec.Steps[i]
-		if st.Uses != "" {
-			return unsupportedStepField(stepNo, "uses")
-		}
-		if len(st.With) > 0 {
-			return unsupportedStepField(stepNo, "with")
+		if st.Uses != "" || len(st.With) > 0 {
+			if err := validateUsesStep(cfg, st); err != nil {
+				return fmt.Errorf("step %d: %w", stepNo, err)
+			}
 		}
 		if st.Run != "" {
 			if st.Run != runAlways {
@@ -469,6 +508,52 @@ func validateStepFeatures(spec Spec, cfg *config.Config) error {
 		}
 	}
 	return nil
+}
+
+// validateUsesStep checks one built-in step at submit (design §一·5): the `uses:` name is
+// a registered step, the `with:` block decodes strictly into that step's arguments and
+// passes its own checks, the step does not also carry a command / prompt / fan (it runs
+// gofer's code, not a job of its own), and a `gofer/push` step's project allows pushing
+// (delivery.allow_push — the trust model of the design's §五: pushing main / tags is
+// never implicit).
+func validateUsesStep(cfg *config.Config, st StepSpec) error {
+	if st.Uses == "" {
+		return fmt.Errorf("%w: with: is only allowed together with uses: gofer/<name>", job.ErrInvalidRequest)
+	}
+	if err := workflowstep.Validate(st.Uses, st.With); err != nil {
+		return fmt.Errorf("%w: %v", job.ErrInvalidRequest, err)
+	}
+	switch {
+	case len(st.Cmd) > 0:
+		return fmt.Errorf("%w: a uses: step may not also set cmd (it runs gofer's own command)", job.ErrInvalidRequest)
+	case st.Prompt != "":
+		return fmt.Errorf("%w: a uses: step may not also set prompt", job.ErrInvalidRequest)
+	case len(st.Fan) > 0 || len(st.Agents) > 0 || st.FanOut > 1:
+		return fmt.Errorf("%w: a uses: step may not fan out", job.ErrInvalidRequest)
+	}
+	if name, _ := workflowstep.ParseUses(st.Uses); name == workflowstep.NamePush && cfg != nil {
+		if d := cfg.Projects[st.ProjectKey].Delivery; d == nil || !d.AllowPush {
+			return fmt.Errorf("%w: %s: project %q does not allow pushing (set projects.%s.delivery.allow_push)",
+				job.ErrInvalidRequest, st.Uses, st.ProjectKey, st.ProjectKey)
+		}
+	}
+	return nil
+}
+
+// SpecUsesPush reports whether a spec (or any nested sub-workflow) runs a `gofer/push`
+// step. The HTTP entry point uses it to require the `repo.push` permission before a
+// workflow that would push anything is submitted.
+func SpecUsesPush(spec Spec) bool {
+	for i := range spec.Steps {
+		st := spec.Steps[i]
+		if name, err := workflowstep.ParseUses(st.Uses); st.Uses != "" && err == nil && name == workflowstep.NamePush {
+			return true
+		}
+		if st.SubWorkflow != nil && SpecUsesPush(*st.SubWorkflow) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveStepRefs replaces every step's `ref:` with the full commit sha it names, resolved
@@ -625,6 +710,10 @@ func defaultStepRunners(spec Spec, cfg *config.Config) (Spec, error) {
 			st.ProjectKey = spec.Project
 		}
 		if st.Agent == "" && len(st.Cmd) > 0 && st.Type != stepTypeWorkflow && st.Uses == "" {
+			st.Agent = agent.ExecAgentKey
+		}
+		// A built-in step (`uses:`) runs gofer's own exec command on the step's runner.
+		if st.Uses != "" {
 			st.Agent = agent.ExecAgentKey
 		}
 		if len(st.Fan) > 0 {

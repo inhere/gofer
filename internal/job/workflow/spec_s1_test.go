@@ -212,8 +212,26 @@ func TestValidateStepFeatures(t *testing.T) {
 		spec    Spec
 		wantErr string
 	}{
-		{"uses", mk(func(s *StepSpec) { s.Uses = "gofer/push" }), "uses"},
-		{"with", mk(func(s *StepSpec) { s.With = map[string]any{"refs": []any{"main"}} }), "with"},
+		// S3: uses / with execute now — the built-in step is validated (name + strictly
+		// decoded with block) instead of being refused as unsupported.
+		{"uses unknown step", mk(func(s *StepSpec) { s.Cmd = nil; s.Uses = "gofer/nope" }), "unknown built-in step"},
+		{"uses not gofer", mk(func(s *StepSpec) { s.Cmd = nil; s.Uses = "actions/checkout@v4" }), "not a built-in step"},
+		{"uses bad with", mk(func(s *StepSpec) {
+			s.Cmd = nil
+			s.Uses = "gofer/wait-ci"
+			s.With = map[string]any{"refer": "v1"}
+		}), "with"},
+		{"uses push without allow_push", mk(func(s *StepSpec) {
+			s.Cmd = nil
+			s.Uses = "gofer/push"
+			s.With = map[string]any{"refs": []any{"main"}}
+		}), "allow_push"},
+		{"with without uses", mk(func(s *StepSpec) { s.With = map[string]any{"refs": []any{"main"}} }), "with"},
+		{"uses wait-ci", mk(func(s *StepSpec) {
+			s.Cmd = nil
+			s.Uses = "gofer/wait-ci"
+			s.With = map[string]any{"ref": "v1"}
+		}), ""},
 		{"run always", mk(func(s *StepSpec) { s.Run = "always" }), "run: always"},
 		{"unknown run", mk(func(s *StepSpec) { s.Run = "sometimes" }), "unknown run"},
 		// S2: ref and env execute now, on a worker runner too (dispatch v26).

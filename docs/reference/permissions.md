@@ -30,6 +30,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `job.attach` | attach 自己的交互 job、看自己的 pty 录像与会话 | 中 | 是 | 是 | 配置 |
 | `job.attach.others` | attach 他人 job、他人录像；全局 pty 会话列表（过滤型） | 高 | 否 | 是 | 仅根 |
 | `job.review` | 验收、拒绝、批准 hold（只有人签收） | 中 | 否 | 是 | 配置 |
+| `repo.push` | 推送分支与 tag：提交含 `uses: gofer/push` 步骤的 workflow（分支推 `refs/heads/`、tag 推 `refs/tags/`，永不强推，推后 `ls-remote` 核对）；另需项目 `delivery.allow_push` | 中 | 否 | 是 | 仅根 |
 | `job.review.others` | 审阅（accept / reject / approve）**他人提交的** job；自己的 job 仍只需 `job.review` | 中 | 否 | 是 | 种入 |
 | `job.wake.others` | 唤醒他人 job | 中 | 是 | 是 | 配置 |
 | `interaction.answer` | 回答 job 的工具审批与提问、punt、非中继类决策、推送通知按钮 | 中 | 是 | 是 | 配置 |

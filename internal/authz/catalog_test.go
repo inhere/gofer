@@ -71,6 +71,7 @@ var addedRows = []struct {
 	after string
 	row   designRow
 }{
+	{PermJobReview, designRow{PermRepoPush, RiskMedium, false, ScopeYes, SourceRoot, NotSeeded}},
 	{PermJobReview, designRow{PermJobReviewOthers, RiskMedium, false, ScopeYes, SourceSeed, SeedV2}},
 	{PermMcpTest, designRow{PermSettingsRead, RiskLow, true, ScopeYes, SourceSeed, SeedV3}},
 	{PermMcpTest, designRow{PermSettingsWrite, RiskMedium, false, ScopeYes, SourceRoot, NotSeeded}},
@@ -141,6 +142,7 @@ func TestPermissionConstantsMatchCatalog(t *testing.T) {
 	constNames := []string{
 		PermJobReadOthers, PermJobSubmit, PermJobCancelOthers, PermJobManageOthers,
 		PermJobDeleteOthers, PermJobAttach, PermJobAttachOthers, PermJobReview,
+		PermRepoPush,
 		PermJobReviewOthers, PermJobWakeOthers, PermInteractionAnswer,
 		PermSessionReadOthers, PermSessionReplyOthers, PermSessionManageOthers,
 		PermSessionPermissionAnswer, PermSessionTransfer,

@@ -107,6 +107,15 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 		return
 	}
 	callerID := callerFromCtx(c)
+	// repo.push (design §五 trust model): a workflow that pushes branches / tags makes a
+	// repository write on the caller's behalf, so the caller must hold the permission on
+	// top of the project's delivery.allow_push (checked with the step's other arguments at
+	// submit).
+	if workflow.SpecUsesPush(spec) && !s.can(c, authz.PermRepoPush) {
+		writeError(c, http.StatusForbidden, "workflow rejected",
+			"this workflow runs a `uses: gofer/push` step: pushing a branch or tag needs the repo.push permission")
+		return
+	}
 	wf, err := s.workflow.SubmitWorkflow(spec, callerID)
 	if err != nil {
 		writeError(c, submitStatus(err), "workflow rejected", err.Error())
