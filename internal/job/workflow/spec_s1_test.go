@@ -191,9 +191,9 @@ func TestJoinAllOneFanFails(t *testing.T) {
 	}
 }
 
-// TestValidateStepFeatures: the S1-parsed fields whose execution lands later are
-// rejected with a clear "not supported yet" instead of being silently ignored, and
-// env is refused on a worker runner only.
+// TestValidateStepFeatures: the spec fields whose execution lands even later (S3/S4) are
+// rejected with a clear "not supported yet" instead of being silently ignored, while the
+// ones S2 implemented (ref, env — on any runner, since the v26 dispatch carries both) pass.
 func TestValidateStepFeatures(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{
@@ -212,15 +212,16 @@ func TestValidateStepFeatures(t *testing.T) {
 		spec    Spec
 		wantErr string
 	}{
-		{"ref", mk(func(s *StepSpec) { s.Ref = "HEAD~1" }), "ref"},
 		{"uses", mk(func(s *StepSpec) { s.Uses = "gofer/push" }), "uses"},
 		{"with", mk(func(s *StepSpec) { s.With = map[string]any{"refs": []any{"main"}} }), "with"},
 		{"run always", mk(func(s *StepSpec) { s.Run = "always" }), "run: always"},
 		{"unknown run", mk(func(s *StepSpec) { s.Run = "sometimes" }), "unknown run"},
-		{"env on worker", mk(func(s *StepSpec) { s.Runner = "w1"; s.Env = map[string]string{"GOOS": "darwin"} }), "env 下发 worker"},
+		// S2: ref and env execute now, on a worker runner too (dispatch v26).
+		{"ref", mk(func(s *StepSpec) { s.Ref = "HEAD~1" }), ""},
+		{"env on worker", mk(func(s *StepSpec) { s.Runner = "w1"; s.Env = map[string]string{"GOOS": "darwin"} }), ""},
 		{"fan env on worker", mk(func(s *StepSpec) {
 			s.Fan = []FanSpec{{Name: "a", Runner: "w1", Cmd: []string{"true"}, Env: map[string]string{"GOOS": "darwin"}}}
-		}), "env 下发 worker"},
+		}), ""},
 		{"env on local runner", mk(func(s *StepSpec) { s.Env = map[string]string{"GOOS": "darwin"} }), ""},
 	}
 	for _, tc := range cases {

@@ -95,7 +95,16 @@ type JobRequest struct {
 	// WorktreeBranch overrides the project's worktree.branch template for this job
 	// (--branch). Empty = the template. Only meaningful together with Worktree.
 	WorktreeBranch string `json:"worktree_branch_name,omitempty" yaml:"worktree_branch_name,omitempty"`
-	TimeoutSec     int    `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
+	// Ref is a commit this job checks out in a TEMPORARY detached worktree
+	// (design 一·3, the workflow's `ref:`): gofer creates
+	// <repo top>/tmp/gofer/wt/<job-id> at that commit with NO branch, runs the job
+	// there and removes the checkout when the job ends (success, failure or cancel).
+	// The commit is a full sha — the workflow resolves `ref:` once at submit so every
+	// fan of a step sees the same tree. On a machine whose checkout lacks the commit it
+	// is fetched from the default remote first; if that fails too the job fails with an
+	// explanation instead of running the wrong tree. Mutually exclusive with Worktree.
+	Ref        string `json:"ref,omitempty" yaml:"ref,omitempty"`
+	TimeoutSec int    `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 	// StrictTimeout refuses a timeout_sec above the applicable ceiling (400, naming the
 	// limit and the config key behind it) instead of clamping it silently.
 	StrictTimeout bool `json:"strict_timeout,omitempty" yaml:"strict_timeout,omitempty"`

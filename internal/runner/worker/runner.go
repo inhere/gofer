@@ -174,6 +174,18 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	if f.Stdin != "" && !wsproto.SupportsStdin(proto) {
 		lacks = append(lacks, "stdin")
 	}
+	// A job that carries its own environment (a workflow step / fan env) needs v26's
+	// dispatch.env: a peer below it drops the key silently and runs the job WITHOUT the
+	// variables the spec asked for (a verify fan differing only in GOOS would check the
+	// wrong target) while reporting success — refuse and name the capability.
+	if len(f.Env) > 0 && !wsproto.SupportsJobEnv(proto) {
+		lacks = append(lacks, "env")
+	}
+	// `ref:` needs v26's dispatch.ref for the same reason: a peer that drops the key runs
+	// the job in its MAIN checkout instead of the requested commit — the wrong tree.
+	if f.Ref != "" && !wsproto.SupportsTempCheckout(proto) {
+		lacks = append(lacks, "ref")
+	}
 	// A list_agents op on an older worker would run as a plain send and forward the
 	// list prompt to a session as a message: refuse it with the capability named.
 	if f.Messenger != nil && f.Messenger.Op == "list_agents" && !wsproto.SupportsMessengerList(proto) {
@@ -431,6 +443,12 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		WorktreeBase:   f.WorktreeBase, // WT-01: base ref, empty = that checkout's HEAD
 		WorktreeName:   f.WorktreeName, // 2026-10-21: {name} in the worker's templates
 		WorktreeBranch: f.WorktreeBranch,
+		// `ref:` (design 一·3): the commit to check out in a temporary worktree here;
+		// disjoint from Worktree, which the gate above mirrors.
+		Ref: f.Ref,
+		// The job's own env (v26). The worker's own Submit layers it over its process
+		// env, G042's EnvWith keeping gofer's metadata keys on top.
+		Env:            f.Env,
 		TimeoutSec:     f.TimeoutSec,
 		Session:        f.Session,
 		IdleTimeoutSec: f.IdleTimeoutSec,

@@ -59,7 +59,8 @@ const (
 	// v25 adds the optional file_xfer_result.abs_path (see XferAbsPathMinProtocolVersion)
 	// and image blocks in a session say: session_cmd.images, status/inflight
 	// session_images (see ImageSayMinProtocolVersion).
-	CurrentProtocolVersion = 25
+	// v26 adds the optional dispatch.env (see JobEnvMinProtocolVersion).
+	CurrentProtocolVersion = 26
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -330,6 +331,28 @@ const JobCredentialMinProtocolVersion = 11
 // SupportsJobCredential reports whether a peer that registered with protocol version
 // proto can receive a job's credential on its dispatch frame.
 func SupportsJobCredential(proto int) bool { return proto >= JobCredentialMinProtocolVersion }
+
+// JobEnvMinProtocolVersion is the first protocol version whose Dispatch carries env:
+// the job's extra environment (a workflow step / fan `env`). Same refusal rule as
+// SessionLoadMinProtocolVersion rather than the skills floor: a peer below it silently
+// drops the key, so the job would run WITHOUT the variables the spec asked for (a
+// verify fan that only differs by GOOS would check the wrong target) while reporting
+// success. The hub therefore refuses such a dispatch and names the capability, and the
+// caller upgrades that worker.
+const JobEnvMinProtocolVersion = 26
+
+// SupportsJobEnv reports whether a peer at protocol proto takes dispatch.env.
+func SupportsJobEnv(proto int) bool { return proto >= JobEnvMinProtocolVersion }
+
+// TempCheckoutMinProtocolVersion is the first protocol version whose Dispatch carries ref:
+// the commit a job checks out in a TEMPORARY detached worktree (design 一·3). It is the
+// same v26 bump as env, and the same refusal rule: a peer below it drops the key and runs
+// the job in its MAIN checkout — the wrong tree, not a missing convenience — so such a
+// dispatch is refused instead.
+const TempCheckoutMinProtocolVersion = 26
+
+// SupportsTempCheckout reports whether a peer at protocol proto takes dispatch.ref.
+func SupportsTempCheckout(proto int) bool { return proto >= TempCheckoutMinProtocolVersion }
 
 // TunnelOpen requests a worker to open a TCP tunnel (protocol v5).
 type TunnelOpen struct {
@@ -726,6 +749,19 @@ type Dispatch struct {
 	// refuse the dispatch over it, it records job.credential_skipped), and a hub below
 	// JobCredentialMinProtocolVersion never sets it.
 	JobToken string `json:"job_token,omitempty"`
+	// Env is the job's extra environment as the submitting side resolved it (a
+	// workflow step / fan `env`, design §一·4). The worker layers it onto its own
+	// gofer metadata env (gofer's own keys win, util.EnvWith), so a job can add
+	// variables without overriding GOFER_SERVER_ADDR / GOFER_WORKER_ID. Additive and
+	// optional on the wire, but a job that NEEDS it is refused for a peer below
+	// JobEnvMinProtocolVersion (the key would be dropped silently). Values ride the
+	// dispatch frame and the job row, so they are no place for secrets.
+	Env map[string]string `json:"env,omitempty"`
+	// Ref is the commit this job checks out in a TEMPORARY detached worktree on the
+	// executing machine (design 一·3). The submitting side already resolved it to a full
+	// sha and the worker fetches it from its default remote when its checkout lacks it.
+	// A job that carries ref is refused below TempCheckoutMinProtocolVersion.
+	Ref string `json:"ref,omitempty"`
 	// Session enables the resident ACP process on the worker. The worker owns the
 	// per-turn idle/max clocks; the host mirrors status and does not start a whole
 	// job timer for this mode.

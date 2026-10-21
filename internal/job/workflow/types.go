@@ -69,14 +69,16 @@ type StepSpec struct {
 	// crosses the wire to the server (the server only ever sees the expanded fields), and
 	// is absent from a v1 spec (D23). Resolved relative to the workflow file's directory.
 	File string `json:"-" yaml:"file,omitempty"`
-	// Env is the extra environment for this step's job (S1: parsed and rendered here;
-	// it rides JobRequest.Env, so it takes effect directly for an exec step on the
-	// server's own runner). Handing it to a worker needs the v26 dispatch field (S2),
-	// so a step that sets env on a worker runner is rejected at submit for now.
+	// Env is the extra environment for this step's job (design 一·4): it rides
+	// JobRequest.Env, so it applies on the server's own runner directly and reaches a
+	// worker as wsproto.Dispatch.env (protocol v26; a job that carries env is refused for
+	// an older worker rather than run without its variables). Values are stored with the
+	// job, so they are no place for secrets.
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	// Ref is the commit a step should check out in a temporary detached worktree
-	// (design §一·3). S1 only parses / renders / validates it; the execution side
-	// arrives in S2, so submit rejects a step that sets it.
+	// Ref is the commit a step checks out in a TEMPORARY detached worktree (design 一·3).
+	// It is resolved to a full sha at submit (so every fan checks the same tree), removed
+	// when the job ends, and mutually exclusive with Worktree. On a machine whose
+	// checkout lacks the commit it is fetched from the default remote first.
 	Ref string `json:"ref,omitempty" yaml:"ref,omitempty"`
 	// Uses names a built-in step (design §一·5, `gofer/<name>`), with its arguments in
 	// With. Both are parsed / rendered / validated here; the registry and execution

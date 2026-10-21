@@ -20,9 +20,8 @@
 - **workflow 顶层 `project` 与每路不同的扇出**：一个 workflow 可以只声明一次项目，`fan` 的每一路可以跑自己的命令。
   - 顶层 `project:` 是默认项目，步骤不写 `project_key` 就在它里面跑；从某个项目 `.gofer/workflows` 读出的模板以该项目为默认。`gofer workflow run -p <project>`（文件与模板两种提交都可用），HTTP 提交体同名字段，`vars.project` 仍作兼容回退。
   - `fan[]` 新增 `name`、`cmd`、`env`、`cwd`、`timeout_sec`，未写的沿用步骤的值；带 `cmd` 时 `agent` 可省（默认 exec）。配合 `join: all` 一个步骤就能并行跑完整套检查。`name` 在步骤内唯一，并可用 `${steps.<step>.<fan 名>.<field>}` 引用这一路的输出（`${steps.<step>.fK.<field>}` 照旧）。
-  - 步骤与 fan 新增 `env`（server 本机 runner 的 exec 步骤直接生效；下发 worker 待后续版本，提交时明确报「暂不支持」）、`ref`、`uses` / `with`、`run: always`：这些字段已能解析、渲染与校验，执行侧随后续版本提供，提交时会明确报「暂不支持：<字段>（后续版本提供）」，不会被静默忽略。
+  - 步骤与 fan 新增 `env`、`ref`（执行侧见下一条）、`uses` / `with`、`run: always`：字段已能解析、渲染与校验；`uses` / `with` / `run: always` 的执行侧随后续版本提供，提交时会明确报「暂不支持：<字段>（后续版本提供）」，不会被静默忽略。
   - 模板渲染与 `${steps…}` 静态校验覆盖以上全部新字段（含 `with` 递归、fan 的 `cmd` / `env` / `cwd`），markdown 分步文件的 frontmatter 同样可填这些字段。
-
 - **workflow 模板可以查看源文件、保存与删除**：新建 workflow 时不再只能预览渲染后的步骤，也能看到模板自己的 YAML（并标明来源是内置 / 全局 / 项目），并把改过的模板存回去。
   - `GET /v1/workflow-templates/{name}/source[?project=<p>]` → `{name, source, path, content, shadows}`：按「项目 `.gofer/workflows` → `<config-dir>/workflows` → 内置」的顺序取第一份，内置模板没有路径，内容是它的 spec 序列化成的 YAML；`shadows` 是这一份盖住了哪些来源（项目文件盖住全局与内置，全局文件盖住内置）。
   - `PUT /v1/workflow-templates/{name}?scope=global`（体 `{content}`）写 `<config-dir>/workflows/<name>.yaml`，`?scope=project&project=<p>` 写该项目工作区（gofer 进程视角的路径，见 `server.path_view`）里的 `.gofer/workflows/<name>.yaml`；`DELETE` 同两个 scope。保存前先校验：YAML 能否解析、有步骤、变量按默认值渲染后不留 `${vars.x}`、扇出 / `on_failure` 等步骤字段过得了提交时的检查；不过返回 400 且一个字节都不写。名字只允许 `[A-Za-z0-9._-]`。
@@ -31,12 +30,15 @@
   - **覆盖内置模板**：项目 / 全局里存一个同名文件就盖住内置模板（响应 `overrides_builtin: true`，CLI 会提示），这正是「把内置 verify 换成自己那套」的路径；内置本身永远不会被改写，不带 scope 或 `scope=builtin` 直接写内置层返回 409。删除只删该层文件，之后回落到下一层 / 内置（响应 `falls_back_to`），`GET …/source` 用 `shadows` 列出被盖住的来源。
   - `POST /v1/workflows/{id}/save-as-template {name, scope, project?}`：把已完成 workflow 的 `export` spec（已剥敏感值）序列化成模板，走同一套校验与 scope。
   - CLI：`gofer wf template show <name> --source`、`gofer wf template save <name> -f <file>`、`gofer wf template rm <name>`、`gofer wf save-as-template <wf-id> <name>`，两者都带 `--global` / `--project <p>`（默认全局，互斥）。
-
 - **审阅提示：删除热点、被删注释与验证结果行（gofer-hjj1）**：验收材料不再只有「汇报 + Diff」，服务端按同一个 job 的 `changes.diff` 与 stdout 尾部现算三节提示，`gofer job review` 打印为「审阅提示」块、web 验收面板「汇报」页签顶部显示为默认折叠的卡片，空节省略：
   - **删除热点**：diff 里删除 ≥10 行的文件，按删除行数取前 5（附新增行数）；
   - **被删注释**：被删除、且同文件新增行里没有原样出现的注释行（`//`、`#`、`/* */`、`<!-- -->`、Go doc 注释），最多 20 行，带旧文件行号；顺手删注释、把注释挪走都看得出来（挪走的不算删除）；
   - **验证结果行**：从汇报正文里抽出的 `ok  <pkg>` / `FAIL` / `--- FAIL:` / `PASS` / `*_EXIT=n` / `exit=n` / `tsc=n` / `Test Files … passed` / `Tests … passed`，最多 30 行、保持原文顺序。
   - 新增 `GET /v1/jobs/{id}/review-hints`（权限同 diff）；`gofer job review --json` 打 `{id, status, review_hints}`。只是提示，不挡 accept / reject。
+- **workflow 的 `ref:` 临时检出与 `env` 下发 worker**：检查固定提交、给每一步 / 每一路设置自己的环境变量。
+  - `ref:`（sha / 短 sha / tag / 分支 / `${vars.x}`）让这一步在指定提交的**临时检出**里跑：执行机上建无分支的 detached worktree（`<仓库顶层>/tmp/gofer/wt/<job-id>`，与 `--worktree` 同落点、同样带项目依赖链接），任务一结束（成功 / 失败 / 取消）就删除。提交 workflow 时 `ref` 解析成完整 sha 写回 spec，所以同一步骤的所有 fan 与每次重试检查的都是同一个提交；`ref` 与 `worktree: true` 同写报错。
+  - worker 上执行时先在自己的仓库里找该提交，没有就 `git fetch <默认远端> <sha>`（不行再全量 fetch），仍拿不到即失败并提示「该提交不在远端，先推送该提交，或改在 server 本机检查」。
+  - `env` 随派发下发 worker（worker 协议升到 v26；`wsproto.Dispatch.env` / `ref`），worker 侧按既有 env 合并规则叠加，gofer 自己的变量（服务地址、worker id）仍然优先。向协议 < v26 的 worker 派发带 `env` / `ref` 的任务会被拒绝并提示升级该 worker（旧 worker 会丢掉字段，前者跑出缺变量的假通过，后者跑错树）。`env` 的值随任务记录落库，文档已注明不要放秘密。
 
 ## [0.180.1] - 2026-10-21
 

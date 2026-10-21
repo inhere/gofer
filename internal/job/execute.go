@@ -630,6 +630,11 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	if entry.skipFinishForShutdown() {
 		return
 	}
+	// `ref:` (design 一·3): a temporary checkout lives only for the duration of its job, so
+	// it is removed here — every terminal path (done, failed, cancelled, timed out) passes
+	// through finish. It runs BEFORE the terminal row is persisted, so no reader ever sees
+	// a worktree_path that no longer exists.
+	s.cleanupTempWorktree(entry)
 	// Everything finish starts (its writes, the hooks, the advance) is background work
 	// Shutdown and WaitTerminalHooks wait for — registered before the status flips, so
 	// a waiter can never see the job terminal while its tail is still unaccounted for.
