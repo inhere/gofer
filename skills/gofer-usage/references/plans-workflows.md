@@ -258,7 +258,7 @@ steps:
     uses: gofer/push
     with: {refs: [main, "v${vars.version}"]}
     on_failure: retry             # 推送失败（网络 / 钩子）重试，每次尝试是独立 job
-    retry: {max_attempts: 10, backoff_sec: 300}
+    retry: {max_attempts: 10, backoff_sec: [300]}
   - name: ci
     uses: gofer/wait-ci
     with: {ref: "v${vars.version}", required: [Unit-Tests], code_scanning: true, timeout_min: 40}

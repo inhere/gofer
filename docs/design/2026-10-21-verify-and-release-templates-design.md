@@ -86,7 +86,7 @@ steps:
     uses: gofer/push
     with: {refs: [main, "v${vars.version}"]}
     on_failure: retry
-    retry: {max_attempts: 10, backoff_sec: 300}
+    retry: {max_attempts: 10, backoff_sec: [300]}
   - name: ci
     uses: gofer/wait-ci
     with: {ref: "v${vars.version}", required: [Unit-Tests], code_scanning: true}
