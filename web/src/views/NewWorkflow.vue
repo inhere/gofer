@@ -7,8 +7,24 @@ import { load as loadYaml } from 'js-yaml'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getMetaCached } from '../api/metaCache'
-import { listWorkflowTemplates, renderWorkflowTemplate, submitWorkflow, submitWorkflowFromTemplate } from '../api/client'
-import type { MetaAgent, MetaProject, MetaRunner, MetaWorker, WorkflowSpec, WorkflowTemplateInfo } from '../api/types'
+import {
+  deleteWorkflowTemplate,
+  getWorkflowTemplateSource,
+  listWorkflowTemplates,
+  renderWorkflowTemplate,
+  saveWorkflowTemplate,
+  submitWorkflow,
+  submitWorkflowFromTemplate,
+} from '../api/client'
+import type {
+  MetaAgent,
+  MetaProject,
+  MetaRunner,
+  MetaWorker,
+  WorkflowSpec,
+  WorkflowTemplateInfo,
+  WorkflowTemplateSource,
+} from '../api/types'
 import { computeRunnerBlocks } from '../utils/runnerChoice'
 import { runnerOptionText } from '../utils/runnerDisplay'
 import { BACK } from '../utils/uiText'
@@ -28,10 +44,20 @@ import {
   type PreviewStep,
   type VarField,
 } from '../utils/workflowTemplate'
+import {
+  overridesBuiltinNotice,
+  shadowsNote,
+  templateDeleteNotice,
+  templateEditGate,
+  templateReadOnlyNote,
+  templateSaveNotice,
+  type SaveNotice,
+  type TemplateScope,
+} from '../utils/workflowResult'
 
 const router = useRouter()
 // 调用方上限（ceiling）：本人 token 的范围上界（utils/ceiling.ts），用于收窄向导里的候选。
-const { ceiling: ceil } = useWhoami()
+const { ceiling: ceil, whoami, can } = useWhoami()
 
 const loading = ref(true)
 const loadError = ref('')
@@ -57,6 +83,42 @@ const tplNotes = ref<string[]>([])
 const preview = ref<PreviewStep[] | null>(null)
 const previewError = ref('')
 const previewing = ref(false)
+
+// ---- 模板源文件 / 编辑（D7）----
+// 查看：GET …/{name}/source（来源、路径、原文、盖住了哪些层）；编辑 / 新建 / 删除需要
+// config.write。项目范围的保存只是工作区里的未提交改动，页面必须说清楚并给出提交命令。
+const showSource = ref(false)
+const src = ref<WorkflowTemplateSource | null>(null)
+const srcLoading = ref(false)
+const srcError = ref('')
+const editing = ref(false)
+const editText = ref('')
+const saveScope = ref<TemplateScope>('project')
+const saving = ref(false)
+const saveError = ref('')
+const notice = ref<SaveNotice | null>(null)
+const deleteNotice = ref('')
+const confirmingDelete = ref(false)
+const removing = ref(false)
+const creating = ref(false)
+const newName = ref('')
+
+const gated = computed(() => templateEditGate(can('config.write'), whoami.value != null))
+const editingName = computed(() => (creating.value ? newName.value.trim() : tplName.value))
+// 删除针对模板所在那一层：内置没有文件，只能做全局 / 项目（无文件时 404）。
+const deleteScope = computed<TemplateScope>(() => {
+  const s = src.value?.source
+  return s === 'global' || s === 'project' ? s : saveScope.value
+})
+const readOnlyNote = computed(() => templateReadOnlyNote(src.value?.source))
+const shadowText = computed(() => shadowsNote(src.value?.shadows))
+const overrideNote = computed(() =>
+  overridesBuiltinNotice(editingName.value, selectedTpl.value?.source, saveScope.value),
+)
+const canDelete = computed(() => {
+  const s = src.value?.source
+  return !!tplName.value && (s === 'global' || s === 'project')
+})
 
 const selectedProject = computed(() => projects.value.find((p) => p.key === tplProject.value))
 const selectedTpl = computed(() => templates.value.find((t) => t.name === tplName.value))
@@ -95,6 +157,16 @@ function pickTemplate(name: string): void {
   tplTouched.value = false
   preview.value = null
   previewError.value = ''
+  // 源文件面板跟着选项重置：换了模板就不该再显示上一份的文本或编辑区
+  showSource.value = false
+  src.value = null
+  srcError.value = ''
+  editing.value = false
+  creating.value = false
+  saveError.value = ''
+  notice.value = null
+  deleteNotice.value = ''
+  confirmingDelete.value = false
   for (const k of Object.keys(tplValues)) delete tplValues[k]
   const tpl = templates.value.find((t) => t.name === name)
   if (tpl) Object.assign(tplValues, initialValues(varFields(tpl.spec), tplProject.value))
@@ -112,9 +184,154 @@ function adaptAgents(): void {
 watch(tplProject, (key) => {
   for (const f of fields.value) if (f.kind === 'project') tplValues[f.name] = key
   preview.value = null
+  saveScope.value = key ? 'project' : 'global'
   adaptAgents()
   void loadTemplates()
 })
+
+// 模板源文件：打开时拉一次（内置模板取它的 spec 序列化文本）。
+async function loadSource(): Promise<void> {
+  if (!tplName.value) {
+    src.value = null
+    return
+  }
+  srcLoading.value = true
+  srcError.value = ''
+  try {
+    src.value = await getWorkflowTemplateSource(tplName.value, tplProject.value || undefined)
+  } catch (e) {
+    src.value = null
+    srcError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    srcLoading.value = false
+  }
+}
+
+function toggleSource(): void {
+  showSource.value = !showSource.value
+  editing.value = false
+  creating.value = false
+  saveError.value = ''
+  if (showSource.value && !src.value) void loadSource()
+}
+
+function startEdit(): void {
+  if (!tplName.value || !gated.value.editable) return
+  creating.value = false
+  showSource.value = true
+  editText.value = src.value?.content ?? ''
+  saveScope.value = src.value?.source === 'global' ? 'global' : tplProject.value ? 'project' : 'global'
+  editing.value = true
+  saveError.value = ''
+  notice.value = null
+  deleteNotice.value = ''
+  confirmingDelete.value = false
+}
+
+function newTemplateText(): string {
+  const project = tplProject.value || 'your-project'
+  return [
+    '# 新模板：变量用 ${vars.name}，提交 workflow 时填写。',
+    'title: 新模板 ${vars.project}',
+    'vars:',
+    '  project: {default: ' + project + '}',
+    'steps:',
+    '  - name: prepare',
+    '    project_key: ${vars.project}',
+    '    agent: exec',
+    '    runner: local',
+    '    cmd: ["echo", "hello"]',
+    '',
+  ].join('\n')
+}
+
+function startCreate(): void {
+  if (!gated.value.editable) return
+  creating.value = true
+  editing.value = true
+  showSource.value = true
+  src.value = null
+  newName.value = ''
+  editText.value = newTemplateText()
+  saveScope.value = tplProject.value ? 'project' : 'global'
+  saveError.value = ''
+  notice.value = null
+  deleteNotice.value = ''
+  confirmingDelete.value = false
+}
+
+function cancelEdit(): void {
+  const wasCreating = creating.value
+  editing.value = false
+  creating.value = false
+  saveError.value = ''
+  if (!wasCreating && !src.value) void loadSource()
+}
+
+async function onSaveTemplate(): Promise<void> {
+  const name = editingName.value
+  if (!name || saving.value || !gated.value.editable) return
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+    saveError.value = '模板名只能包含字母、数字、. _ -'
+    return
+  }
+  saving.value = true
+  saveError.value = ''
+  notice.value = null
+  try {
+    const r = await saveWorkflowTemplate(name, saveScope.value, editText.value, tplProject.value || undefined)
+    const wasCreating = creating.value
+    editing.value = false
+    creating.value = false
+    await loadTemplates()
+    if (wasCreating) pickTemplate(name)
+    showSource.value = true
+    await loadSource()
+    // 提示放在重新拉模板之后：pickTemplate 会清空上一份面板状态
+    notice.value = templateSaveNotice(r)
+  } catch (e) {
+    saveError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function onDeleteTemplate(): Promise<void> {
+  if (!tplName.value || removing.value || !gated.value.editable) return
+  if (!confirmingDelete.value) {
+    confirmingDelete.value = true
+    return
+  }
+  removing.value = true
+  saveError.value = ''
+  deleteNotice.value = ''
+  try {
+    const r = await deleteWorkflowTemplate(tplName.value, deleteScope.value, tplProject.value || undefined)
+    confirmingDelete.value = false
+    editing.value = false
+    src.value = null
+    await loadTemplates()
+    if (templates.value.some((t) => t.name === tplName.value) && showSource.value) await loadSource()
+    // 回落到哪一层要说清楚；同样放在重拉列表之后
+    deleteNotice.value = templateDeleteNotice(r)
+  } catch (e) {
+    saveError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    removing.value = false
+  }
+}
+
+// 提交命令一键复制（写不进去也不算错：用户还能手选）。
+const copiedCommand = ref(false)
+async function copyCommitCommand(cmd: string): Promise<void> {
+  if (!cmd) return
+  try {
+    await navigator.clipboard.writeText(cmd)
+    copiedCommand.value = true
+  } catch {
+    copiedCommand.value = false
+  }
+}
 
 async function onPreview(): Promise<void> {
   tplTouched.value = true
@@ -291,6 +508,7 @@ async function loadMeta() {
   } finally {
     yamlText.value = exampleTemplate()
     loading.value = false
+    saveScope.value = tplProject.value ? 'project' : 'global'
     // 有项目时由 watch(tplProject) 触发拉取；没有项目只能看内置 / 全局模板
     if (!tplProject.value) void loadTemplates()
   }
@@ -389,7 +607,107 @@ onMounted(() => {
             </button>
           </li>
         </ul>
+        <div v-if="!tplLoading && templates.length" class="toolbar mono tpl-tools">
+          <button v-if="selectedTpl" class="plain-btn" type="button" data-test="tpl-view-source" @click="toggleSource">
+            {{ showSource ? '收起源文件' : '查看源文件' }}
+          </button>
+          <button
+            v-if="gated.editable"
+            class="plain-btn"
+            type="button"
+            data-test="tpl-new"
+            @click="startCreate"
+          >
+            新建模板
+          </button>
+        </div>
+        <p v-if="!gated.editable && templates.length" class="hint mono" data-test="tpl-readonly-reason">
+          {{ gated.reason }}
+        </p>
       </div>
+
+      <section v-if="showSource" class="src-pane" data-test="tpl-source">
+        <div class="src-head mono">
+          <span class="src-name">{{ editingName || '(未命名)' }}</span>
+          <span v-if="creating" class="tpl-src tpl-src--new">新建</span>
+          <span v-else-if="src" class="tpl-src" :class="`tpl-src--${src.source}`">{{ sourceLabel(src.source) }}</span>
+          <span v-if="src?.path" class="src-path" :title="src.path">{{ src.path }}</span>
+        </div>
+        <p v-if="srcLoading" class="hint mono">读取源文件…</p>
+        <p v-if="srcError" class="error mono" data-test="tpl-source-error">{{ srcError }}</p>
+        <p v-if="shadowText" class="hint mono" data-test="tpl-shadows">{{ shadowText }}</p>
+        <p v-if="readOnlyNote && !editing" class="hint mono" data-test="tpl-builtin-note">{{ readOnlyNote }}</p>
+
+        <div v-if="creating" class="field">
+          <label class="label mono" for="tpl-new-name">模板名（字母、数字、. _ -）</label>
+          <input id="tpl-new-name" v-model="newName" class="control mono" type="text" data-test="tpl-new-name" />
+        </div>
+
+        <textarea
+          v-if="editing"
+          v-model="editText"
+          class="control mono area-src"
+          spellcheck="false"
+          data-test="tpl-source-editor"
+        ></textarea>
+        <pre v-else-if="src" class="src-text mono" data-test="tpl-source-text">{{ src.content }}</pre>
+
+        <div v-if="editing" class="field">
+          <span class="label mono">保存到哪一层</span>
+          <label class="radio mono"
+            ><input v-model="saveScope" type="radio" value="global" data-test="tpl-scope-global" /> 全局（server 上所有项目）</label
+          >
+          <label class="radio mono" :class="{ 'radio--off': !tplProject }"
+            ><input
+              v-model="saveScope"
+              type="radio"
+              value="project"
+              :disabled="!tplProject"
+              data-test="tpl-scope-project"
+            />
+            当前项目{{ tplProject ? `（${tplProject}）` : '' }}</label
+          >
+          <p v-if="overrideNote" class="hint mono" data-test="tpl-override-note">{{ overrideNote }}</p>
+        </div>
+
+        <p v-if="saveError" class="error mono" data-test="tpl-save-error">{{ saveError }}</p>
+
+        <div v-if="editing" class="toolbar mono">
+          <button class="plain-btn" type="button" :disabled="saving || !editingName" data-test="tpl-save" @click="onSaveTemplate">
+            {{ saving ? '保存中…' : '保存模板' }}
+          </button>
+          <button class="plain-btn" type="button" :disabled="saving" data-test="tpl-cancel" @click="cancelEdit">
+            取消
+          </button>
+        </div>
+        <div v-else-if="gated.editable && src" class="toolbar mono">
+          <button class="plain-btn" type="button" data-test="tpl-edit" @click="startEdit">编辑</button>
+          <button
+            v-if="canDelete"
+            class="plain-btn plain-btn--danger"
+            type="button"
+            :disabled="removing"
+            data-test="tpl-delete"
+            @click="onDeleteTemplate"
+          >
+            {{ confirmingDelete ? '确认删除（不可撤销）' : '删除' }}
+          </button>
+          <button v-if="confirmingDelete" class="plain-btn" type="button" @click="confirmingDelete = false">
+            取消删除
+          </button>
+        </div>
+
+        <p v-if="notice" class="notice mono" :class="`notice--${notice.tone}`" data-test="tpl-save-notice">
+          {{ notice.text }}
+        </p>
+        <div v-if="notice?.command" class="notice-cmd" data-test="tpl-commit-cmd">
+          <code class="mono">{{ notice.command }}</code>
+          <button class="plain-btn" type="button" data-test="tpl-commit-copy" @click="copyCommitCommand(notice.command)">
+            {{ copiedCommand ? '已复制' : '复制' }}
+          </button>
+        </div>
+        <p v-if="deleteNotice" class="notice mono notice--warn" data-test="tpl-delete-notice">{{ deleteNotice }}</p>
+      </section>
 
       <template v-if="selectedTpl">
         <p v-for="n in tplNotes" :key="n" class="hint mono" data-test="agent-adapted">{{ n }}</p>
@@ -550,6 +868,114 @@ onMounted(() => {
   font-size: 12px;
   color: var(--queue);
   line-height: 1.4;
+}
+
+/* D7：模板源文件查看 / 编辑 */
+.tpl-tools {
+  margin-top: 8px;
+  justify-content: flex-start;
+  gap: 8px;
+}
+.src-pane {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.src-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.src-name {
+  color: var(--paper);
+  font-weight: 600;
+}
+.src-path {
+  color: var(--queue);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.tpl-src--new {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.src-text {
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+  background: var(--term-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+  font-size: 12px;
+  color: var(--paper);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.area-src {
+  min-height: 320px;
+  resize: vertical;
+  tab-size: 2;
+}
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--paper);
+  margin-bottom: 4px;
+}
+.radio--off {
+  color: var(--queue);
+}
+.plain-btn--danger {
+  color: var(--fail);
+  border-color: var(--fail);
+}
+.plain-btn--danger:hover {
+  background: var(--fail);
+  color: var(--ink);
+  border-color: var(--fail);
+}
+.notice {
+  margin: 0;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  word-break: break-word;
+}
+.notice--ok {
+  color: var(--done);
+  border-color: var(--done);
+}
+.notice--warn {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+  background: var(--ink);
+}
+.notice-cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+}
+.notice-cmd code {
+  font-size: 11px;
+  color: var(--paper);
+  word-break: break-all;
+  flex: 1 1 200px;
 }
 .req {
   color: var(--fail);
@@ -715,5 +1141,4 @@ onMounted(() => {
   .area {
     min-height: 460px;
   }
-}
-</style>
+}</style>
