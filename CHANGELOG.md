@@ -39,6 +39,7 @@
 - **workflow 的 `ref:` 临时检出与 `env` 下发 worker**：检查固定提交、给每一步 / 每一路设置自己的环境变量。
   - `ref:`（sha / 短 sha / tag / 分支 / `${vars.x}`）让这一步在指定提交的**临时检出**里跑：执行机上建无分支的 detached worktree（`<仓库顶层>/tmp/gofer/wt/<job-id>`，与 `--worktree` 同落点、同样带项目依赖链接），任务一结束（成功 / 失败 / 取消）就删除。提交 workflow 时 `ref` 解析成完整 sha 写回 spec，所以同一步骤的所有 fan 与每次重试检查的都是同一个提交；`ref` 与 `worktree: true` 同写报错。
   - worker 上执行时先在自己的仓库里找该提交，没有就 `git fetch <默认远端> <sha>`（不行再全量 fetch），仍拿不到即失败并提示「该提交不在远端，先推送该提交，或改在 server 本机检查」。
+  - server 启动时扫描各项目仓库的临时检出目录，把不属于运行中任务的残留（崩溃 / 重启遗留）按任务结束时的同一套步骤清掉（先删依赖链接、扫描兜底、`git worktree remove --force`、`git worktree prune`），并记日志；属于运行中任务的目录保留。
   - `env` 随派发下发 worker（worker 协议升到 v26；`wsproto.Dispatch.env` / `ref`），worker 侧按既有 env 合并规则叠加，gofer 自己的变量（服务地址、worker id）仍然优先。向协议 < v26 的 worker 派发带 `env` / `ref` 的任务会被拒绝并提示升级该 worker（旧 worker 会丢掉字段，前者跑出缺变量的假通过，后者跑错树）。`env` 的值随任务记录落库，文档已注明不要放秘密。
 - **workflow 内置步骤 `uses: gofer/<名>`**：release / verify 这类流程不用再写一堆 shell，而是把「推分支与 tag、等 CI、等发布产物」交给 gofer 自己执行。
   - 三个内置步骤：`gofer/push`（`with: {refs: [...], remote}`；分支推 `refs/heads/`、tag 推 `refs/tags/`，**永不强推**，推完用 `ls-remote` 核对每个 ref 的远端 sha）、`gofer/wait-ci`（`ref` / `required` / `code_scanning` / `timeout_min`；GitHub，`required` 任一失败即失败，`code_scanning` 只看该 ref 上开放的告警）、`gofer/wait-assets`（`tag` / `assets` glob，等 Release 上的产物齐全）。
