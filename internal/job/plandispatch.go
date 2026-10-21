@@ -198,13 +198,13 @@ func (s *Service) normalTodoRequest(plan jobstore.Plan, todo jobstore.PlanTodo, 
 		PlanID: todo.PlanID,
 		// Provenance: which interface asked for this job. CallerID is the human the
 		// dispatch was triggered by (the CLI's caller, the web session's caller).
-		Channel:         channelPlan,
-		CallerID:        by,
+		Channel:  channelPlan,
+		CallerID: by,
 		// A dispatched item is bounded by whoever triggered the dispatch AND by the item's
 		// own author — both ceilings must admit it (design 2026-10-18, decision 8).
 		OriginCaller:       by,
 		ExtraCeilingOwners: todoCeilingOwners(todo, by),
-		SourceSessionID: plan.SupervisorSessionID,
+		SourceSessionID:    plan.SupervisorSessionID,
 		// gofer-3db4: a plan with the notify switch on makes every job it dispatches
 		// tell the supervising session that it ended. The target is named EXPLICITLY as
 		// well as being the source session, because the source claim is dropped below

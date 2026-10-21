@@ -25,9 +25,9 @@ type statsResp struct {
 	Usage    *statsUsage    `json:"usage,omitempty"`
 	// SessionUsage is the terminal-session token usage (N2 §A) per window.
 	SessionUsage       *statsSessionUsage `json:"session_usage,omitempty"`
-	EscalationsPending int               `json:"escalations_pending"`
-	Projects           int               `json:"projects"`
-	ServerTime         int64             `json:"server_time"`
+	EscalationsPending int                `json:"escalations_pending"`
+	Projects           int                `json:"projects"`
+	ServerTime         int64              `json:"server_time"`
 	// ServerTZOffsetSec is the server's local UTC offset in seconds (bd
 	// h-aii-tnua): the CLI renders schedule/wakeup times with it, so a stamp means
 	// the same clock the server acted on. Times stay unix seconds on the wire.

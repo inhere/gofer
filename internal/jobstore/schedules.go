@@ -36,7 +36,7 @@ type ScheduleRecord struct {
 	CreatorCaller string
 	TriggerToken  string
 	CreatedAt     int64
-	UpdatedAt    int64
+	UpdatedAt     int64
 }
 
 const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'cron'), cron_expr, request_json, enabled,
