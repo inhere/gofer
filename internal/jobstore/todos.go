@@ -120,7 +120,7 @@ type PlanTodo struct {
 	// Scope are path globs (relative to the repository root of the job's cwd) the
 	// item's job is expected to change (gofer-3nxa.3). Copied to JobRequest.Scope; the
 	// review marks changed files outside them.
-	Scope     []string
+	Scope []string
 	// AuthorCaller is the CEILING OWNER of the item: the caller that CREATED it. A
 	// dispatch of this item carries it next to the dispatcher's own owner, so an item
 	// authored by a restricted caller stays bounded even when somebody else starts it

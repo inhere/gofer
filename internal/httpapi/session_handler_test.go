@@ -369,7 +369,7 @@ func TestSessionWatchesCarrySubagentCount(t *testing.T) {
 		resp := do(t, s, http.MethodGet, "/v1/sessions/sid-sa/watches", testToken, nil)
 		var out struct {
 			Watches       []sessionWatchView `json:"watches"`
-			SubagentCount int               `json:"subagent_count"`
+			SubagentCount int                `json:"subagent_count"`
 		}
 		decode(t, resp, &out)
 		return out.SubagentCount, out.Watches
