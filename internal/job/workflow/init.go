@@ -12,6 +12,8 @@ import (
 	"time"
 
 	yaml "github.com/goccy/go-yaml"
+
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // initGitTimeout bounds the one git probe `wf init` makes (reading the remote HEAD).
@@ -229,7 +231,9 @@ func readGitHubWorkflows(dir string) []string {
 func defaultBranch(dir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), initGitTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").Output()
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+	procattr.Background(cmd)
+	out, err := cmd.Output()
 	if err != nil {
 		return "main"
 	}
@@ -400,4 +404,3 @@ func yamlScalarList(items []string) string {
 	}
 	return strings.Join(out, ", ")
 }
-
