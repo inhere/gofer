@@ -685,16 +685,19 @@ func printStepChain(c *gcli.Command, steps []client.WorkflowStep) {
 }
 
 // stepRowLabel names a table row for the excerpt heading: the step and, when it is a
-// fan / retry row, its fan and attempt.
+// fan / retry row, its fan index, the fan's name and the attempt.
 func stepRowLabel(st client.WorkflowStep) string {
 	label := fmt.Sprintf("step %d", st.StepIndex)
 	if st.FanIndex > 0 {
 		label += fmt.Sprintf(" fan %d", st.FanIndex)
+		if st.FanName != "" {
+			label += " (" + st.FanName + ")"
+		}
 	}
 	if st.Attempt > 1 {
 		label += fmt.Sprintf(" attempt %d", st.Attempt)
 	}
-	if st.Name != "" {
+	if st.Name != "" && st.Name != st.FanName {
 		label += " " + st.Name
 	}
 	return label
@@ -746,8 +749,14 @@ func fanCol(fan int) string {
 	return fmt.Sprintf("%d", fan)
 }
 
-// stepName returns a step's display name, falling back to "-" when unnamed.
+// stepName returns a row's display name for the NAME column: the fan's own name when
+// the step fanned out with named fans (linux-race / web …), else the step name,
+// falling back to "-" when unnamed. Before gofer-j5xc every fan row repeated the step
+// name, so the column never told the fans apart.
 func stepName(st client.WorkflowStep) string {
+	if st.FanName != "" {
+		return st.FanName
+	}
 	if st.Name == "" {
 		return "-"
 	}

@@ -11,6 +11,11 @@
 
 ## [未发布]
 
+### 修复
+
+- **workflow 结果视图（gofer-j5xc）**：`gofer wf show` 结果表里扇出步每一路的 NAME 以前都显示步骤名（如 `checks`），现在显示那一路 fan 自己声明的 `name`（如 `linux-race` / `web`），没命名才回落步骤名；`GET /v1/workflows/{id}` 的每个 fan 行新增 `fan_name` 字段（原 `name` 保留），web 详情页结果表同样显示。
+- **失败摘录不再被预期的 `ERROR:` 行淹没（gofer-j5xc）**：摘录改为优先收 go test 这类强信号失败块——`--- FAIL:` 头连同其后几行细节、`FAIL\t<pkg>` 汇总、`panic:`、`WARNING: DATA RACE` 及其后几行上下文；只有整段日志都找不到强信号时才回落到 `ERROR:` / `error:` / `✗` 弱信号行。
+
 ## [0.181.2] - 2026-10-21
 
 ### 修复

@@ -72,7 +72,15 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 			// render the compare view without re-reading the spec.
 			for i := range out {
 				idx := out[i].StepIndex
-				if idx < 1 || idx > len(spec.Steps) || spec.Steps[idx-1].Type == stepTypeWorkflow {
+				if idx < 1 || idx > len(spec.Steps) {
+					continue
+				}
+				// gofer-j5xc: each fan row carries the fan's own `name` (falling back to
+				// nothing, so the CLI/web show the step name for an unnamed fan).
+				if f := fanSpecAt(spec.Steps[idx-1], out[i].FanIndex); f != nil {
+					out[i].FanName = f.Name
+				}
+				if spec.Steps[idx-1].Type == stepTypeWorkflow {
 					continue
 				}
 				if joinPolicy(spec.Steps[idx-1]) != joinPick {
