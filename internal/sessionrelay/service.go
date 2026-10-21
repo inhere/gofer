@@ -555,6 +555,10 @@ type HeartbeatInput struct {
 	// UsageDelta is the token usage read from the transcript since the hook's last
 	// report (N2 §A); it is ADDED to the session's total.
 	UsageDelta *runner.SessionUsage
+	// StopParkSec (gofer-fv6a) is how long the Stop hook is about to PARK, waiting on
+	// this session's watched jobs: the hook announces the park it is entering (its
+	// remaining --wait budget). nil = this beat says nothing about a park.
+	StopParkSec *int
 }
 
 // DefaultState maps a hook event to the session state it implies when the
@@ -671,6 +675,9 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
 		ProgressText: in.ProgressText, ProgressAt: in.ProgressAt, ClearProgress: in.ClearProgress,
 		Cwd: in.Cwd,
+		// gofer-fv6a: the Stop hook announces the park it is entering, and a human-input
+		// event means the terminal is back at the person, so nothing is parked any more.
+		StopParkUntil: stopParkUntil(s.now().Unix(), in, human || in.Event == EventInterrupt || in.Event == EventSessionEnd),
 	})
 	if err != nil {
 		return jobstore.AgentSession{}, err
@@ -728,6 +735,31 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		}
 	}
 	return a, nil
+}
+
+// stopParkUntil resolves the Stop-park deadline this beat carries (gofer-fv6a):
+// the deadline the hook announced (now + StopParkSec), 0 when the beat proves the
+// terminal is not parked any more (a human input, an interrupt, the session end),
+// and nil when the beat says nothing about a park.
+func stopParkUntil(now int64, in HeartbeatInput, cleared bool) *int64 {
+	var until int64
+	switch {
+	case in.StopParkSec != nil:
+		if sec := *in.StopParkSec; sec > 0 {
+			until = now + int64(sec)
+		}
+	case cleared:
+	default:
+		return nil
+	}
+	return &until
+}
+
+// StopHookParked reports whether this session's Stop hook announced a park on its
+// watched jobs that is still running at now (see jobstore.AgentSession.StopParkUntil).
+// While it is, the hook — not the messenger — is the channel that reaches the agent.
+func StopHookParked(a jobstore.AgentSession, now int64) bool {
+	return a.StopParkUntil > now
 }
 
 // releaseAutoTurns closes the session's OPEN turns because a human-input event

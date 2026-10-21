@@ -520,7 +520,13 @@ var schemaStmts = []string{
   -- human_prompts（降噪设计 2026-10-20 §总体方案 1）：这个会话里人一共提问了几次。草稿工作项
   -- 等到第 work.draft.min_prompts 次才建，短命会话的判据也看它。additive，旧库经
   -- migrateAgentSessions 补列，旧行读回 0（= 没记过，按「还没有提问」算）。
-  human_prompts     INTEGER NOT NULL DEFAULT 0
+  human_prompts     INTEGER NOT NULL DEFAULT 0,
+  -- stop_park_until (gofer-fv6a) is the unix second until which the session's Stop
+  -- hook is PARKED waiting for its watched jobs (the hook says so on a heartbeat).
+  -- While it is in the future a job-end notice must not be taken away from the
+  -- parked hook and handed to the messenger: the hook is the channel that reaches
+  -- the agent NOW. 0 = no park announced. additive, old rows read back 0.
+  stop_park_until   INTEGER NOT NULL DEFAULT 0
 )`,
 	// session_usage_daily is the per-day, per-model token tally of terminal sessions
 	// (N2 §A): what /v1/stats sums for its 24h / 7d windows. day is the UTC date.
@@ -2153,6 +2159,9 @@ func (s *Store) migrateAgentSessions() error {
 		{"scope_json", "ALTER TABLE agent_sessions ADD COLUMN scope_json TEXT NOT NULL DEFAULT ''"},
 		{"topic_source", "ALTER TABLE agent_sessions ADD COLUMN topic_source TEXT NOT NULL DEFAULT ''"},
 		{"topic_at", "ALTER TABLE agent_sessions ADD COLUMN topic_at INTEGER NOT NULL DEFAULT 0"},
+		// stop_park_until (gofer-fv6a): the deadline of the Stop hook's park on the
+		// session's watched jobs; a pre-column row reads back 0 ("no park").
+		{"stop_park_until", "ALTER TABLE agent_sessions ADD COLUMN stop_park_until INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if _, ok := cols[col.name]; ok {
 			continue

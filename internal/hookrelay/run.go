@@ -762,6 +762,19 @@ func (r *runner) mayBlockForJobs(mode string, a client.AgentSession, idle int64)
 func (r *runner) waitJobsOnly(a client.AgentSession) Result {
 	r.log("relay not waiting (mode=%s) but %d watched job(s) pending (%s), waiting up to %s for job events only",
 		a.RelayMode, a.WatchCount, strings.TrimSpace(a.WaitReasonDetail), r.opts.Wait)
+	// gofer-fv6a: tell the hub this Stop is PARKING on the watched jobs. Nothing else
+	// would let it know the terminal is sitting in this wait loop instead of having
+	// returned, and until it knows, a job-end notice is claimed away and handed to the
+	// messenger — whose peer message cannot reach an agent blocked here, so it waited
+	// for the next human prompt. With the park announced the hub leaves the notice to
+	// the watch this loop polls (sessionrelay.NotifyJobEnded).
+	if secs := int(r.opts.Wait / time.Second); secs > 0 {
+		r.heartbeat(client.SessionHeartbeat{StopParkSec: &secs})
+		defer func() {
+			secs := 0
+			r.heartbeat(client.SessionHeartbeat{StopParkSec: &secs})
+		}()
+	}
 	// gofer-7lac: this wait covers the session's sub-agents too. Claude Code raises
 	// SubagentStop when one finishes and hands the main agent a turn carrying its
 	// result, but that turn cannot arrive while the terminal is parked here — and

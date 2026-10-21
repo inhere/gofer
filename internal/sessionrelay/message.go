@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -115,15 +116,34 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 	if err := s.store.AppendSessionOutbox(m); err != nil {
 		return jobstore.SessionMessage{}, err
 	}
-	if a.State == jobstore.SessionWaitingReply {
+	// Phase 1 is judged on the TURN, not on the session state (gofer-fv6a): the state
+	// is a summary that another beat can move while the turn stays open, and a message
+	// sent through the messenger then sits unread inside a session that is blocked in
+	// its own Stop hook. Deliver already routes on the open turn (ListOpenSessionTurns);
+	// the two must agree, or a web reply and a job-end notice reach the same waiting
+	// agent by different paths — one instantly, the other at the next human prompt.
+	openTurn := false
+	if turns, oerr := s.store.ListOpenSessionTurns(sid, 1); oerr != nil {
+		// A read that fails must not fail the message: fall back to the state the last
+		// heartbeat left, which is all this ladder had before gofer-fv6a.
+		slog.Warn("sessionrelay: list open turns failed", "session_id", sid, "err", oerr)
+		openTurn = a.State == jobstore.SessionWaitingReply
+	} else {
+		openTurn = len(turns) > 0
+	}
+	if openTurn {
 		d, err := s.Say(sid, text, operator)
-		if err != nil {
+		switch {
+		case err == nil:
+			m.DecisionID = d.ID
+			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, PathTurn, time.Now().Unix()
+			_ = s.store.AppendSessionOutbox(m)
+			return m, nil
+		case !errors.Is(err, ErrNoOpenTurn):
 			return s.failMessage(m, "relay: "+err.Error())
 		}
-		m.DecisionID = d.ID
-		m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, PathTurn, time.Now().Unix()
-		_ = s.store.AppendSessionOutbox(m)
-		return m, nil
+		// The turn settled between the read and the answer: fall through to the
+		// terminal paths, exactly as Deliver does.
 	}
 	// A session with no Claude SendMessage address (any self-built agent, an old
 	// Claude Code) is reached through the routed deliver ladder instead: the agent's

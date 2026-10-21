@@ -358,6 +358,13 @@ type AgentSession struct {
 	// rule reads it. It is only grown by IncrementSessionHumanPrompts; 0 = never counted
 	// (a row written before the column existed).
 	HumanPrompts int
+	// StopParkUntil (gofer-fv6a) is the unix second until which this session's Stop
+	// hook is parked, waiting on its watched jobs (the hook announces it on a
+	// heartbeat, since nothing else tells the server that a Stop is sitting in its
+	// wait loop instead of having returned). 0 = no park announced. A job-end notice
+	// must not be claimed away from a parked hook: the messenger's peer message
+	// cannot reach an agent that is blocked in its own Stop hook.
+	StopParkUntil int64
 }
 
 // Who set a session's topic (AgentSession.TopicSource). The read view adds a third
@@ -378,7 +385,7 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0),
   COALESCE(refused_caller_id,''), COALESCE(refused_at,0),
   COALESCE(topic,''), COALESCE(scope_json,''), COALESCE(topic_source,''), COALESCE(topic_at,0),
-  COALESCE(human_prompts,0)
+  COALESCE(human_prompts,0), COALESCE(stop_park_until,0)
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -390,7 +397,8 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
 		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt,
-		&a.RefusedCallerID, &a.RefusedAt, &a.Topic, &scopeJSON, &a.TopicSource, &a.TopicAt, &a.HumanPrompts)
+		&a.RefusedCallerID, &a.RefusedAt, &a.Topic, &scopeJSON, &a.TopicSource, &a.TopicAt, &a.HumanPrompts,
+		&a.StopParkUntil)
 	if err == nil && scopeJSON != "" {
 		// A malformed value reads back as no scope rather than failing the whole row.
 		_ = json.Unmarshal([]byte(scopeJSON), &a.Scope)
@@ -710,6 +718,10 @@ type SessionHeartbeat struct {
 	// Cwd is the hook's current directory (display only → last_cwd). "" leaves the
 	// stored value alone.
 	Cwd string
+	// StopParkUntil is the deadline of the Stop hook's park on this session's
+	// watched jobs (gofer-fv6a), unix seconds; nil leaves the stored value alone.
+	// 0 clears it (the hook is no longer in its wait loop).
+	StopParkUntil *int64
 }
 
 // TouchAgentSession applies a hook heartbeat: refreshes last_seen_at and
@@ -794,6 +806,10 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 	if c := strings.TrimSpace(hb.Cwd); c != "" {
 		sets = append(sets, "last_cwd=?")
 		args = append(args, c)
+	}
+	if hb.StopParkUntil != nil {
+		sets = append(sets, "stop_park_until=?")
+		args = append(args, *hb.StopParkUntil)
 	}
 	if hb.PeerName != "" {
 		sets = append(sets, "peer_name=?")

@@ -838,6 +838,10 @@ type sessionHeartbeatReq struct {
 	// Cwd is the hook's current directory — shown as "current directory", never used
 	// to decide where a wake-up runs.
 	Cwd string `json:"cwd,omitempty"`
+	// StopParkSec (gofer-fv6a) is how long this Stop hook is about to block waiting on
+	// the session's watched jobs (nil = the beat carries no park news). While the park
+	// holds, the server leaves a job-end notice to the hook instead of the messenger.
+	StopParkSec *int `json:"stop_park_sec,omitempty"`
 	// SubagentID / SubagentDelta ride the SubagentStart (+1) / SubagentStop (-1)
 	// events (N1 §C): the sub-agent's id for dedupe, and the count change.
 	SubagentID    string `json:"subagent_id,omitempty"`
@@ -868,7 +872,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		PeerName: body.PeerName, PeerNameSource: body.PeerNameSource, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
 		ProgressText: body.ProgressText, ProgressAt: body.ProgressAt, ClearProgress: body.ClearProgress,
 		Cwd: body.Cwd, SubagentID: body.SubagentID, SubagentDelta: body.SubagentDelta,
-		UsageDelta: body.UsageDelta,
+		UsageDelta: body.UsageDelta, StopParkSec: body.StopParkSec,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())
