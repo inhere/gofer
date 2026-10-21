@@ -212,6 +212,7 @@ gofer plan answer <decision-id> --answer "方案A"
 gofer workflow run <file.yaml> [-p <project>] [-w]     # 从 yaml / json 提交；-w 轮询到终态并打印每步
 gofer workflow run --template <name> --var k=v [-w]   # 从流程模板提交（-p 也可指模板所属项目）
 gofer workflow template ls|show <name> [-p <project>] # 看模板（含来源）与 vars
+gofer workflow template show <name> --source          # 看模板自己的 YAML 与文件路径
 gofer workflow list / show <id> / events <id> / cancel <id>
 gofer workflow export <id>                            # 导出 spec（去密钥），可再 run
 ```
@@ -221,6 +222,23 @@ gofer workflow export <id>                            # 导出 spec（去密钥�
 - step 可声明依赖、`fan_out` 扇出、汇合；步骤可带 `worktree`、`worktree_base`、`template`、`vars`、`read_only`、`verify`、`review`。runner 留空 = 项目默认（项目允许本机就用本机；只列一个就用它；列多个且不含本机则必须显式指定）。
 - 引用前序结果：`${steps.<name>.<field>}`，`.fK.` 选第 K 个 fan，`.<fan 名>.` 按 fan 的 `name` 选，`.all.` 选所有成功 fan，`.picked.` 选被择优的 fan。字段：`result_dir`、`result`、`stdout`、`exit_code`、`status`、`job_id`、`worktree_branch`、`diff`（`changes.diff` 的路径）、`diff_summary`。`.all.` 聚合超过 32KB 时自动写成文件、引用处换成文件路径。大段或不可信文本（如评审输出）请以**文件路径**传给下一步的 agent，不要插值进 exec 命令。
 - 流程模板位置：项目 `.gofer/workflows/<name>.{yaml,yml,json}` → `<config-dir>/workflows/` → 内置。模板的 `vars:`（`default` / `required` / `desc`）以 `${vars.x}` 或 `{{x}}` 在步骤字段里替换；未声明的 `--var`、残留占位、含特殊字符的 agent / runner / project 值都被拒绝。模板默认 agent 不被项目允许时报 400 并列出可用 agent，用 `--var <变量>=<agent>` 覆盖。
+
+### 模板的查看与保存
+
+```bash
+gofer wf template show <name> --source [-p <project>]                # 源文件 + 来源（内置 / 全局 / 项目）
+gofer wf template save <name> -f <file> [--global | --project <p>]   # 新建或改模板（先校验）
+gofer wf template rm <name> [--global | --project <p>]
+gofer wf save-as-template <wf-id> <name> [--global | --project <p>]  # 把一个跑过的 workflow 存成模板
+```
+
+- `--global`（默认）写 `<config-dir>/workflows/<name>.yaml`；`--project <p>` 写该项目工作区里的 `.gofer/workflows/<name>.yaml`（gofer 进程视角的路径），两者互斥。名字只能用 `[A-Za-z0-9._-]`。
+- 保存前先校验：YAML 能解析、有步骤、变量按默认值渲染后不留 `${vars.x}`、扇出 / `on_failure` 等步骤字段过得了提交时的检查；不过就报错且**不会写文件**。
+- **覆盖内置模板**：项目或全局里存一个同名文件就盖住内置模板（例：`.gofer/workflows/verify.yaml` 盖住内置 verify），命令会提示「将覆盖内置模板」；内置本身永远不被改写，不带 scope（或 `scope=builtin`）直接写内置层会被拒（409）。`show --source` 会列出被盖住的来源（`shadows`）。
+- 删除只删**这一层**的文件，之后回落到下一层 / 内置（命令会告诉你回落到哪层）。
+- 项目模板存下去是**未提交改动**，命令会回显建议的 `git add … && git commit …`；运行读的是工作区当前内容，所以未提交也立即生效，但提交后仓库才留得住。
+- 需要 `config.write`；只能写自己项目范围内的模板（全局模板要不受限的调用方），每次写入记审计。
+- web 的新建 workflow 页可直接看模板源文件并编辑保存（见 [web-console.md](web-console.md)）。
 
 ## 多 agent 对比与择优
 

@@ -1483,6 +1483,61 @@ func (c *Client) ListWorkflowTemplates(name, project string) ([]workflow.Workflo
 	return resp.Templates, nil
 }
 
+// GetWorkflowTemplateSource fetches a template's own text plus where it came from
+// (project / global / builtin) via GET /v1/workflow-templates/{name}/source.
+func (c *Client) GetWorkflowTemplateSource(name, project string) (workflow.TemplateSource, error) {
+	path := "/v1/workflow-templates/" + url.PathEscape(name) + "/source"
+	if project != "" {
+		path += "?project=" + url.QueryEscape(project)
+	}
+	var src workflow.TemplateSource
+	err := c.doJSON(http.MethodGet, path, nil, &src)
+	return src, err
+}
+
+// SaveWorkflowTemplate writes a template to the global scope (scope=global) or a project's
+// workspace (scope=project + project key): PUT /v1/workflow-templates/{name}. The body is
+// validated server-side; a project template comes back flagged uncommitted with the git
+// command that would commit it.
+func (c *Client) SaveWorkflowTemplate(name, content, scope, project string) (workflow.TemplateWriteResult, error) {
+	body, err := json.Marshal(map[string]string{"content": content})
+	if err != nil {
+		return workflow.TemplateWriteResult{}, err
+	}
+	var res workflow.TemplateWriteResult
+	err = c.doJSON(http.MethodPut, templateWritePath(name, scope, project), bytes.NewReader(body), &res)
+	return res, err
+}
+
+// DeleteWorkflowTemplate removes a global or project template (DELETE
+// /v1/workflow-templates/{name}).
+func (c *Client) DeleteWorkflowTemplate(name, scope, project string) (workflow.TemplateWriteResult, error) {
+	var res workflow.TemplateWriteResult
+	err := c.doJSON(http.MethodDelete, templateWritePath(name, scope, project), nil, &res)
+	return res, err
+}
+
+// SaveWorkflowAsTemplate stores a workflow's exported spec as a named template (POST
+// /v1/workflows/{id}/save-as-template), with the same scopes and validation as SaveWorkflowTemplate.
+func (c *Client) SaveWorkflowAsTemplate(id, name, scope, project string) (workflow.TemplateWriteResult, error) {
+	body, err := json.Marshal(map[string]string{"name": name, "scope": scope, "project": project})
+	if err != nil {
+		return workflow.TemplateWriteResult{}, err
+	}
+	var res workflow.TemplateWriteResult
+	err = c.doJSON(http.MethodPost, "/v1/workflows/"+url.PathEscape(id)+"/save-as-template", bytes.NewReader(body), &res)
+	return res, err
+}
+
+// templateWritePath builds /v1/workflow-templates/{name}?scope=…&project=… for a write.
+func templateWritePath(name, scope, project string) string {
+	path := "/v1/workflow-templates/" + url.PathEscape(name) + "?scope=" + url.QueryEscape(scope)
+	if project != "" {
+		path += "&project=" + url.QueryEscape(project)
+	}
+	return path
+}
+
 // GetWorkflow fetches a workflow header + its step chain by id (GET
 // /v1/workflows/{id}). An unknown id surfaces as a 404 error.
 func (c *Client) GetWorkflow(id string) (Workflow, error) {

@@ -287,6 +287,13 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/workflows/{id}/export":             {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("workflow")},
 	"GET /v1/workflow-templates":                {user: Public(), scope: Filter()},
 	"GET /v1/workflow-templates/{name}":         {user: Public(), scope: Filter()},
+	"GET /v1/workflow-templates/{name}/source":  {user: Public(), scope: BodyProject()},
+	// Template writes are server-configuration writes: config.write, and a caller limited to
+	// some projects can only write those projects' templates (BodyProject + the handler's
+	// requireProjectScope; a global template needs the unscoped caller).
+	"PUT /v1/workflow-templates/{name}":    {user: Require(authz.PermConfigWrite), scope: BodyProject()},
+	"DELETE /v1/workflow-templates/{name}": {user: Require(authz.PermConfigWrite), scope: BodyProject()},
+	"POST /v1/workflows/{id}/save-as-template": {user: Require(authz.PermConfigWrite), scope: Resource("workflow")},
 	"POST /v1/workflow-templates/{name}/render": {user: Public(), scope: BodyProject(), rw: ReadSafe()},
 	"POST /v1/jobs/secret-scan":                 {user: InHandler(permFilter, authz.PermSecretScanAll), scope: BodyProject()},
 	"POST /v1/jobs/{id}/findings/issue":         {user: Public(), scope: Resource("job")},

@@ -436,8 +436,11 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/workers/{id}/upgrade/file` | `NoUserSurface` | — | `worker` | `Resource(worker)` | 读 |
 | `PUT` | `/v1/workers/{id}/upgrade/file` | `Require` | `worker.upgrade.upload` | — | `Resource(worker)` | 写 |
 | `GET` | `/v1/workflow-templates` | `Public` | — | — | `Filter` | 读 |
+| `DELETE` | `/v1/workflow-templates/{name}` | `Require` | `config.write` | — | `BodyProject` | 写 |
 | `GET` | `/v1/workflow-templates/{name}` | `Public` | — | — | `Filter` | 读 |
+| `PUT` | `/v1/workflow-templates/{name}` | `Require` | `config.write` | — | `BodyProject` | 写 |
 | `POST` | `/v1/workflow-templates/{name}/render` | `Public` | — | — | `BodyProject` | 读（ReadSafe） |
+| `GET` | `/v1/workflow-templates/{name}/source` | `Public` | — | — | `BodyProject` | 读 |
 | `GET` | `/v1/workflows` | `InHandler(filter)` | `job.read.others` | — | `Filter` | 读 |
 | `POST` | `/v1/workflows` | `Require` | `job.submit` | — | `BodyProject` | 写 |
 | `GET` | `/v1/workflows/{id}` | `InHandler(deny)` | `job.read.others` | — | `Resource(workflow)` | 读 |
@@ -445,6 +448,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/workflows/{id}/events` | `InHandler(deny)` | `job.read.others` | — | `Resource(workflow)` | 读 |
 | `GET` | `/v1/workflows/{id}/export` | `InHandler(deny)` | `job.read.others` | — | `Resource(workflow)` | 读 |
 | `POST` | `/v1/workflows/{id}/pick` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(workflow)` | 写 |
+| `POST` | `/v1/workflows/{id}/save-as-template` | `Require` | `config.write` | — | `Resource(workflow)` | 写 |
 | `GET` | `/v1/ws` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
 | `POST` | `/v1/ws-ticket` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
 | `GET` | `/v1/xfer` | `InHandler(filter)` | `xfer.manage.others` | — | `Filter` | 读 |
