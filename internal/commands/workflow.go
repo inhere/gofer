@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -46,6 +47,17 @@ var wfEventsOpts = struct {
 }{}
 
 var wfTemplateProject string
+
+// wfTemplateSource selects `template show --source`: print the template's YAML source.
+var wfTemplateSource bool
+
+// wfTemplateWriteOpts holds the write-side template flags (`template save` / `template
+// rm` / `save-as-template`): the target scope and, for a project template, the project.
+var wfTemplateWriteOpts = struct {
+	global  bool
+	project string
+	file    string
+}{}
 
 var wfPickOpts struct {
 	step          int
@@ -99,7 +111,7 @@ func NewWorkflowCmd() *gcli.Command {
 			},
 			{
 				Name: "template",
-				Desc: "List or show workflow templates",
+				Desc: "List, show, save or remove workflow templates",
 				Subs: []*gcli.Command{
 					{
 						Name: "ls", Aliases: []string{"list"},
@@ -116,11 +128,41 @@ func NewWorkflowCmd() *gcli.Command {
 							bindConfigFlag(c)
 							bindServerFlags(c)
 							c.StrOpt(&wfTemplateProject, "project", "p", "", "also search this project's .gofer/workflows")
+							c.BoolOpt(&wfTemplateSource, "source", "", false, "print the template's own YAML source (and where it comes from) instead of the parsed spec")
 							c.AddArg("name", "workflow template name", true)
 						},
 						Func: runWorkflowTemplateShow,
 					},
+					{
+						Name: "save",
+						Desc: "Save a template file to the global scope or a project workspace (validated first)",
+						Config: func(c *gcli.Command) {
+							bindTemplateWriteFlags(c)
+							c.StrOpt(&wfTemplateWriteOpts.file, "file", "f", "", "template YAML file to read (default: stdin)")
+							c.AddArg("name", "workflow template name (A-Z a-z 0-9 . _ -)", true)
+						},
+						Func: runWorkflowTemplateSave,
+					},
+					{
+						Name: "rm", Aliases: []string{"remove", "delete"},
+						Desc: "Remove a global or project template",
+						Config: func(c *gcli.Command) {
+							bindTemplateWriteFlags(c)
+							c.AddArg("name", "workflow template name", true)
+						},
+						Func: runWorkflowTemplateRemove,
+					},
 				},
+			},
+			{
+				Name: "save-as-template",
+				Desc: "Save a workflow's exported spec as a named template",
+				Config: func(c *gcli.Command) {
+					bindTemplateWriteFlags(c)
+					c.AddArg("id", "workflow id", true)
+					c.AddArg("name", "template name to create", true)
+				},
+				Func: runWorkflowSaveAsTemplate,
 			},
 			{
 				Name: "show",
@@ -201,6 +243,19 @@ func runWorkflowTemplateShow(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if wfTemplateSource {
+		src, err := cli.GetWorkflowTemplateSource(name, wfTemplateProject)
+		if err != nil {
+			return err
+		}
+		where := src.Source
+		if src.Path != "" {
+			where += " (" + src.Path + ")"
+		}
+		c.Printf("# %s source: %s\n", src.Name, where)
+		c.Println(src.Content)
+		return nil
+	}
 	templates, err := cli.ListWorkflowTemplates(name, wfTemplateProject)
 	if err != nil {
 		return err
@@ -214,6 +269,105 @@ func runWorkflowTemplateShow(c *gcli.Command, _ []string) error {
 	}
 	c.Println(string(b))
 	return nil
+}
+
+// bindTemplateWriteFlags binds the scope flags shared by `template save`, `template rm` and
+// `save-as-template`: --global for <config-dir>/workflows, --project <p> for that project's
+// workspace. Without either, the global scope is the default.
+func bindTemplateWriteFlags(c *gcli.Command) {
+	bindConfigFlag(c)
+	bindServerFlags(c)
+	c.BoolOpt(&wfTemplateWriteOpts.global, "global", "", false, "write the global template (<config-dir>/workflows)")
+	c.StrOpt(&wfTemplateWriteOpts.project, "project", "p", "", "write the template into this project's workspace (.gofer/workflows)")
+}
+
+// templateWriteScope resolves --global / --project into the (scope, project) pair the API
+// takes. --global is the default; naming both is refused because they are two places.
+func templateWriteScope() (scope, project string, err error) {
+	if wfTemplateWriteOpts.global && wfTemplateWriteOpts.project != "" {
+		return "", "", fmt.Errorf("--global and --project are mutually exclusive")
+	}
+	if wfTemplateWriteOpts.project != "" {
+		return "project", wfTemplateWriteOpts.project, nil
+	}
+	return "global", "", nil
+}
+
+// runWorkflowTemplateSave reads a template YAML from --file (or stdin) and saves it.
+func runWorkflowTemplateSave(c *gcli.Command, _ []string) error {
+	name := c.Arg("name").String()
+	var content []byte
+	var err error
+	if wfTemplateWriteOpts.file != "" {
+		content, err = os.ReadFile(wfTemplateWriteOpts.file)
+	} else {
+		content, err = io.ReadAll(os.Stdin)
+	}
+	if err != nil {
+		return err
+	}
+	scope, project, err := templateWriteScope()
+	if err != nil {
+		return err
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.SaveWorkflowTemplate(name, string(content), scope, project)
+	if err != nil {
+		return err
+	}
+	printTemplateWrite(c, res, "saved")
+	return nil
+}
+
+// runWorkflowTemplateRemove deletes a global or project template.
+func runWorkflowTemplateRemove(c *gcli.Command, _ []string) error {
+	name := c.Arg("name").String()
+	scope, project, err := templateWriteScope()
+	if err != nil {
+		return err
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.DeleteWorkflowTemplate(name, scope, project)
+	if err != nil {
+		return err
+	}
+	printTemplateWrite(c, res, "removed")
+	return nil
+}
+
+// runWorkflowSaveAsTemplate saves a workflow's exported spec as a template.
+func runWorkflowSaveAsTemplate(c *gcli.Command, _ []string) error {
+	id, name := c.Arg("id").String(), c.Arg("name").String()
+	scope, project, err := templateWriteScope()
+	if err != nil {
+		return err
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.SaveWorkflowAsTemplate(id, name, scope, project)
+	if err != nil {
+		return err
+	}
+	printTemplateWrite(c, res, "saved")
+	return nil
+}
+
+// printTemplateWrite reports a template write, including the "this is an uncommitted
+// change" notice a project template needs (gofer never commits for the user).
+func printTemplateWrite(c *gcli.Command, res workflow.TemplateWriteResult, verb string) {
+	c.Printf("template %s %s (%s) %s\n", res.Name, verb, res.Scope, res.Path)
+	if res.Uncommitted {
+		c.Println("note: this is an uncommitted change in the project workspace; commit it so the repository keeps it:")
+		c.Println("  " + res.CommitCommand)
+	}
 }
 
 func runWorkflowPick(c *gcli.Command, _ []string) error {

@@ -439,6 +439,7 @@ func TestCeilingWorkerKind(t *testing.T) {
 var bodyProjectKeys = []string{
 	"POST /v1/jobs", "POST /v1/work-items/capture", "POST /v1/memory-suggestions", "POST /v1/workflows",
 	"POST /v1/workflow-templates/{name}/render", "POST /v1/jobs/secret-scan", "POST /v1/sessions",
+	"GET /v1/workflow-templates/{name}/source", "PUT /v1/workflow-templates/{name}", "DELETE /v1/workflow-templates/{name}",
 	"POST /v1/schedules", "POST /v1/plans", "POST /v1/work-items", "POST /v1/xfer", "POST /v1/xfer/precheck",
 	"POST /v1/projects", "POST /v1/memories", "POST /v1/mail",
 }

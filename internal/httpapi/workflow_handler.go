@@ -124,11 +124,13 @@ func jsonBytes(payload map[string]json.RawMessage, out any) error {
 }
 
 // workflowTemplateDirs resolves the project (?project=<key>) and global template
-// directories used by both list/show and run.
+// directories used by list / show / source / run. The project directory is the workspace as
+// the gofer process sees it (Config.ExecPath, G002: host_path, or container_path when
+// server.path_view is container) — the same root every other gofer-side path uses.
 func (s *Server) workflowTemplateDirs(projectKey string) (projectDir, globalDir string) {
 	if projectKey != "" {
 		if cfg := s.jobs.Config(); cfg != nil {
-			projectDir = cfg.Projects[projectKey].HostPath
+			projectDir = cfg.ExecPath(cfg.Projects[projectKey])
 		}
 	}
 	if dir, err := config.ConfigDir(); err == nil {

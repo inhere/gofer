@@ -1506,6 +1506,12 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/workflow-templates", s.handleListWorkflowTemplates)
 		r.GET("/workflow-templates/{name}", s.handleListWorkflowTemplates)
 		r.POST("/workflow-templates/{name}/render", s.handleRenderWorkflowTemplate)
+		// D7: template source view + global / project template writes. A builtin template is
+		// read-only (409); a project template lands in the project workspace as an uncommitted
+		// change and the response says how to commit it.
+		r.GET("/workflow-templates/{name}/source", s.handleWorkflowTemplateSource)
+		r.PUT("/workflow-templates/{name}", s.handleSaveWorkflowTemplate)
+		r.DELETE("/workflow-templates/{name}", s.handleDeleteWorkflowTemplate)
 		r.GET("/workflows", s.handleListWorkflows)
 		r.GET("/workflows/{id}", s.handleGetWorkflow)
 		// P1: workflow 级 append-only 事件流（?since=<seq> 增量）。
@@ -1514,6 +1520,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/workflows/{id}/export", s.handleExportWorkflow)
 		r.POST("/workflows/{id}/cancel", s.handleCancelWorkflow)
 		r.POST("/workflows/{id}/pick", s.handlePickWorkflow)
+		// D7: save a finished workflow's exported spec as a named template (same validation
+		// and scopes as an authored template).
+		r.POST("/workflows/{id}/save-as-template", s.handleSaveWorkflowAsTemplate)
 
 		// plan 编排：纯归组容器。jobs.plan_id 支持提交即归组；attach 补挂已有 job。
 		r.POST("/plans", s.handleCreatePlan)
