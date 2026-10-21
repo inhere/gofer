@@ -114,7 +114,7 @@ func TestRunAlwaysKeepsFailedOutcome(t *testing.T) {
 	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	cleanup := echoStep("cleanup")
-	cleanup.Run = runAlways
+	cleanup.If = ifAlways
 	wf, err := e.SubmitWorkflow(Spec{Steps: []StepSpec{failStep("boom"), cleanup}}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
@@ -144,7 +144,7 @@ func TestRunAlwaysStepIsSkippedOnSuccess(t *testing.T) {
 	t.Parallel()
 	e := newTestEngine(t, t.TempDir())
 	cleanup := echoStep("cleanup")
-	cleanup.Run = runAlways
+	cleanup.If = ifAlways
 	wf, err := e.SubmitWorkflow(Spec{Steps: []StepSpec{echoStep("build"), cleanup}}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)

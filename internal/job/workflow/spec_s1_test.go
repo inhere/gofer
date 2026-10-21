@@ -232,10 +232,10 @@ func TestValidateStepFeatures(t *testing.T) {
 			s.Uses = "gofer/wait-ci"
 			s.With = map[string]any{"ref": "v1"}
 		}), ""},
-		// S4: run: always executes now (a fail-fast jump to the always steps), so it passes;
-		// only an unknown value is still rejected.
-		{"run always", mk(func(s *StepSpec) { s.Run = "always" }), ""},
-		{"unknown run", mk(func(s *StepSpec) { s.Run = "sometimes" }), "unknown run"},
+		// S4: `if: always` executes (a fail-fast jump to the always steps), so it passes;
+		// only an unknown value is still rejected (`run`/`shell` are normalized before this).
+		{"if always", mk(func(s *StepSpec) { s.If = "always" }), ""},
+		{"unknown if", mk(func(s *StepSpec) { s.If = "sometimes" }), "unknown if"},
 		// S2: ref and env execute now, on a worker runner too (dispatch v26).
 		{"ref", mk(func(s *StepSpec) { s.Ref = "HEAD~1" }), ""},
 		{"env on worker", mk(func(s *StepSpec) { s.Runner = "w1"; s.Env = map[string]string{"GOOS": "darwin"} }), ""},
@@ -461,11 +461,12 @@ func TestMergeStepFromMarkdownNewFields(t *testing.T) {
 	t.Parallel()
 	fromMD := StepSpec{
 		Name: "from-md", Env: map[string]string{"A": "1"}, Ref: "main",
-		Uses: "gofer/push", Run: "always", With: map[string]any{"refs": []any{"main"}},
+		Uses: "gofer/push", If: "always", Run: "echo hi", Shell: "sh", With: map[string]any{"refs": []any{"main"}},
 	}
 	var empty StepSpec
 	mergeStepFromMarkdown(&empty, fromMD, "body prompt")
-	if empty.Env["A"] != "1" || empty.Ref != "main" || empty.Uses != "gofer/push" || empty.Run != "always" || len(empty.With) != 1 {
+	if empty.Env["A"] != "1" || empty.Ref != "main" || empty.Uses != "gofer/push" || empty.If != "always" ||
+		empty.Run != "echo hi" || empty.Shell != "sh" || len(empty.With) != 1 {
 		t.Fatalf("merged step = %+v, want every md field applied", empty)
 	}
 	inline := StepSpec{Env: map[string]string{"B": "2"}, Ref: "dev", Uses: "gofer/other", With: map[string]any{"tag": "v1"}}

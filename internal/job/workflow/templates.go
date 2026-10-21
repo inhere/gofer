@@ -89,9 +89,9 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 				"runner":  runnerVar,
 			}, Steps: []StepSpec{{
 				Name: "check", ProjectKey: "${vars.project}", Agent: "exec", Runner: "${vars.runner}", Ref: "${vars.commit}",
-				// A step command is always argv (never split by gofer), so `sh -c` keeps a
-				// multi-word check usable from the single `cmd` variable.
-				Cmd: []string{"sh", "-c", "${vars.cmd}"},
+				// A `run:` script keeps a multi-word check usable from the single `cmd`
+				// variable (bash -eo pipefail -c <script> at submit).
+				Run: "${vars.cmd}",
 			}}},
 		},
 		{
@@ -265,6 +265,7 @@ func renderSpec(spec *Spec, replace func(string) string) {
 		// S1: the newer spec fields carry variables too (ref / uses, the env values and
 		// the built-in step's with block), so they are rendered like every other field.
 		s.Ref, s.Uses = replace(s.Ref), replace(s.Uses)
+		s.Run = replace(s.Run)
 		s.Env = renderEnv(s.Env, replace)
 		s.With = renderAnyMap(s.With, replace)
 		for _, list := range [][]string{s.Cmd, s.Agents, s.Verify, s.Tags} {
@@ -276,6 +277,7 @@ func renderSpec(spec *Spec, replace func(string) string) {
 			f := &s.Fan[j]
 			f.Name, f.Agent, f.Runner = replace(f.Name), replace(f.Agent), replace(f.Runner)
 			f.Cwd = replace(f.Cwd)
+			f.Run = replace(f.Run)
 			f.Env = renderEnv(f.Env, replace)
 			for k := range f.Cmd {
 				f.Cmd[k] = replace(f.Cmd[k])
@@ -378,7 +380,7 @@ func checkRenderedSpec(spec Spec) error {
 		return fmt.Errorf("workflow template: undefined variable %s", m)
 	}
 	for i, s := range spec.Steps {
-		all := append([]string{s.Name, s.Prompt, s.Cwd, s.WorktreeBase, s.Template, s.Ref, s.Uses}, s.Cmd...)
+		all := append([]string{s.Name, s.Prompt, s.Cwd, s.WorktreeBase, s.Template, s.Ref, s.Uses, s.Run}, s.Cmd...)
 		all = append(all, s.Verify...)
 		all = append(all, s.Tags...)
 		for _, v := range s.Vars {
@@ -389,7 +391,7 @@ func checkRenderedSpec(spec Spec) error {
 		}
 		all = anyStrings(s.With, all)
 		for _, f := range s.Fan {
-			all = append(all, f.Name, f.Cwd)
+			all = append(all, f.Name, f.Cwd, f.Run)
 			all = append(all, f.Cmd...)
 			for _, v := range f.Env {
 				all = append(all, v)

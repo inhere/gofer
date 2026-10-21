@@ -451,6 +451,8 @@ function exampleTemplate(): string {
 # project_key/agent/runner: 必填，和单个 job 提交一致。
 # prompt: cli-agent 类 agent 的输入正文；exec 类 agent 通常改用 cmd。
 # cmd: exec 命令 argv 数组，例如 ["go", "test", "./..."]。
+# run: 多行脚本（与 cmd 互斥）；shell: bash（默认）/sh/pwsh/python。
+# if: always 表示前面步骤失败后这一步仍然执行（不改变最终结论）。
 # cwd: 相对项目执行目录，可选，默认由后端处理。
 # timeout_sec/tags: 可选。
 # on_failure: 可选，fail/continue/retry；retry 需要 retry.max_attempts。

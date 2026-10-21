@@ -82,6 +82,15 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 		return jobstore.Workflow{}, err
 	}
 
+	// `run:` / `shell:` / `if:` (GitHub Actions style): a multi-line script is converted
+	// into the argv cmd here, so everything below — refs, admission, the stored spec, the
+	// worker — keeps seeing cmd only. A legacy `run: always` condition is read as
+	// `if: always` with a warning (DEPRECATED(v0.182)).
+	spec, err = normalizeRunScripts(spec)
+	if err != nil {
+		return jobstore.Workflow{}, fmt.Errorf("%w: %v", job.ErrInvalidRequest, err)
+	}
+
 	// Static ${steps.N.field} reference check (P2): every ref must point at an
 	// earlier step with a known field (no self/forward ref, step1 ref-free). Rejected
 	// at submit so the chain never starts a step it cannot resolve mid-flight.
@@ -105,9 +114,10 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 
 	cfg := e.ops.Config()
 
-	// S1: the spec fields whose execution lands in a later stage (uses/with → S3, run:
-	// always → S4) are parsed and rendered but must not be silently ignored. Rejected
-	// here, before any DB row / job exists. env and ref are implemented (S2) and pass.
+	// S1: the spec fields whose execution lands in a later stage (uses/with → S3) are
+	// parsed and rendered but must not be silently ignored. Rejected here, before any DB
+	// row / job exists. env and ref are implemented (S2), the condition `if: always` since
+	// S4, so they pass.
 	if err := validateStepFeatures(spec, cfg); err != nil {
 		return jobstore.Workflow{}, err
 	}
@@ -485,9 +495,6 @@ func validateFanName(stepNo, fanIdx int, name string, seen map[string]bool) erro
 	return nil
 }
 
-// runAlways is the only known StepSpec.Run value (design §一·8).
-const runAlways = "always"
-
 // unsupportedStepField is the shape of the error a spec field whose execution lands in
 // a later stage returns: an explicit "not supported yet" instead of a silent ignore
 // (a step that quietly drops ref / uses / with would run the WRONG command).
@@ -498,8 +505,8 @@ func unsupportedStepField(stepNo int, field string) error {
 // validateStepFeatures validates the S1-parsed spec fields whose execution lands in a
 // later stage and the built-in steps that are implemented (S3: `uses` / `with`). `ref`
 // and `env` are implemented since S2 (a temporary detached checkout, and the v26
-// dispatch field) and `run: always` since S4, so they pass; only an unknown `run` value
-// is rejected.
+// dispatch field) and `if: always` since S4, so they pass; only an unknown `if` value is
+// rejected here (`run:` / `shell:` are converted by normalizeRunScripts before this).
 func validateStepFeatures(spec Spec, cfg *config.Config) error {
 	for i := range spec.Steps {
 		stepNo := i + 1
@@ -509,8 +516,8 @@ func validateStepFeatures(spec Spec, cfg *config.Config) error {
 				return fmt.Errorf("step %d: %w", stepNo, err)
 			}
 		}
-		if st.Run != "" && st.Run != runAlways {
-			return fmt.Errorf("%w: step %d has unknown run %q (want always)", job.ErrInvalidRequest, stepNo, st.Run)
+		if st.If != "" && st.If != ifAlways {
+			return fmt.Errorf("%w: step %d has unknown if %q (want always)", job.ErrInvalidRequest, stepNo, st.If)
 		}
 		if st.SubWorkflow != nil {
 			if err := validateStepFeatures(*st.SubWorkflow, cfg); err != nil {

@@ -27,12 +27,21 @@ type StepSpec struct {
 	// exclusive with Fan and takes precedence over legacy numeric FanOut when set.
 	Agents []string `json:"agents,omitempty" yaml:"agents,omitempty"`
 	// Fan provides per-fan agent/runner overrides. The slice order is the fan index.
-	Fan        []FanSpec `json:"fan,omitempty" yaml:"fan,omitempty"`
-	Prompt     string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
-	Cmd        []string  `json:"cmd,omitempty" yaml:"cmd,omitempty"`
-	Cwd        string    `json:"cwd,omitempty" yaml:"cwd,omitempty"`
-	TimeoutSec int       `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
-	Tags       []string  `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Fan    []FanSpec `json:"fan,omitempty" yaml:"fan,omitempty"`
+	Prompt string    `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	// Cmd is the step command as an argv array (gofer never splits it). Mutually
+	// exclusive with Run.
+	Cmd []string `json:"cmd,omitempty" yaml:"cmd,omitempty"`
+	// Run is the step command as a multi-line SCRIPT (GitHub Actions style), executed by
+	// Shell. At submit it is converted into Cmd (shell -c <script>), so the wire, the
+	// worker and the stored spec keep carrying argv only. Mutually exclusive with Cmd.
+	Run string `json:"run,omitempty" yaml:"run,omitempty"`
+	// Shell is the interpreter Run is executed by: "" / bash (default) | sh | pwsh |
+	// python. Only meaningful together with Run.
+	Shell      string   `json:"shell,omitempty" yaml:"shell,omitempty"`
+	Cwd        string   `json:"cwd,omitempty" yaml:"cwd,omitempty"`
+	TimeoutSec int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
+	Tags       []string `json:"tags,omitempty" yaml:"tags,omitempty"`
 	// OnFailure is the per-step失败策略 (P1, design §5.1): "" / "fail" keeps v1
 	// fail-fast (the whole workflow fails); "continue" skips the failed step and
 	// advances to the next; "retry" re-runs the step (bounded by Retry, backoff
@@ -85,11 +94,11 @@ type StepSpec struct {
 	// is the With JSON and whose last stdout line is the step result (S3).
 	Uses string         `json:"uses,omitempty" yaml:"uses,omitempty"`
 	With map[string]any `json:"with,omitempty" yaml:"with,omitempty"`
-	// Run changes WHEN a step runs (design §一·8): "" (the default) runs it in chain
+	// If changes WHEN a step runs (design §一·8): "" (the default) runs it in chain
 	// order, "always" runs it even after an earlier failure (fail-fast jumps to the
-	// run: always steps and runs them in order) without changing the workflow's final
+	// if: always steps and runs them in order) without changing the workflow's final
 	// outcome — a failure before them still fails the whole workflow.
-	Run string `json:"run,omitempty" yaml:"run,omitempty"`
+	If string `json:"if,omitempty" yaml:"if,omitempty"`
 	// Review overrides the project's require_review default for THIS step
 	// (GATE-01 S3): true parks the step's job in needs_review until a human accepts
 	// (the chain advances then) or rejects (the step counts as failed, so on_failure
@@ -113,10 +122,14 @@ type StepSpec struct {
 // ${steps.<step>.<fan name>.<field>} refers to (the positional ${steps.<step>.fK.…}
 // form keeps working).
 type FanSpec struct {
-	Name       string            `json:"name,omitempty" yaml:"name,omitempty"`
-	Agent      string            `json:"agent,omitempty" yaml:"agent,omitempty"`
-	Runner     string            `json:"runner,omitempty" yaml:"runner,omitempty"`
-	Cmd        []string          `json:"cmd,omitempty" yaml:"cmd,omitempty"`
+	Name   string   `json:"name,omitempty" yaml:"name,omitempty"`
+	Agent  string   `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Runner string   `json:"runner,omitempty" yaml:"runner,omitempty"`
+	Cmd    []string `json:"cmd,omitempty" yaml:"cmd,omitempty"`
+	// Run/Shell are the fan's own multi-line script and its interpreter (see
+	// StepSpec.Run). A fan that sets neither cmd nor run runs the step's command.
+	Run        string            `json:"run,omitempty" yaml:"run,omitempty"`
+	Shell      string            `json:"shell,omitempty" yaml:"shell,omitempty"`
 	Env        map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	Cwd        string            `json:"cwd,omitempty" yaml:"cwd,omitempty"`
 	TimeoutSec int               `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`

@@ -131,8 +131,8 @@ func (e *Engine) advanceAdmitted(wfID string) {
 
 	switch verdict {
 	case job.StatusDone:
-		// run: always (design §一·8): when an earlier step already failed, only the
-		// remaining run: always steps still run and the workflow still fails at the end
+		// if: always (design §一·8): when an earlier step already failed, only the
+		// remaining if: always steps still run and the workflow still fails at the end
 		// (the failure is carried in workflows.error while it does).
 		if wf.Error != "" {
 			e.runAlwaysTail(wf, spec, cur, att, jobs)
@@ -208,7 +208,7 @@ func (e *Engine) advanceAdmitted(wfID string) {
 			}
 			e.recordWorkflowEvent(wfID, job.EventStepSkipped, skipped)
 			e.startNextStep(wf, cur, jobs, spec)
-		default: // "" / fail: v1 fail-fast (D17 default), jumping to run: always steps
+		default: // "" / fail: v1 fail-fast (D17 default), jumping to if: always steps
 			e.failStep(wf, spec, cur, att, jobs, fmt.Sprintf("step %d %s", cur, failStatus))
 		}
 	}
@@ -251,7 +251,7 @@ func (e *Engine) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, a
 
 	// Child terminal: done → step done; failed/cancelled → step failed (then on_failure).
 	if child.Status == jobstore.WorkflowDone {
-		if wf.Error != "" { // a run: always tail after an earlier failure
+		if wf.Error != "" { // a if: always tail after an earlier failure
 			e.runAlwaysTail(wf, spec, cur, att, jobs)
 			return
 		}
@@ -301,7 +301,7 @@ func (e *Engine) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, a
 		}
 		e.recordWorkflowEvent(wfID, job.EventStepSkipped, skipped)
 		e.startNextStep(wf, cur, jobs, spec)
-	default: // "" / fail: fail-fast (D17 default), jumping to run: always steps
+	default: // "" / fail: fail-fast (D17 default), jumping to if: always steps
 		e.failStep(wf, spec, cur, att, jobs, fmt.Sprintf("step %d sub-workflow %s", cur, failStatus))
 	}
 }
@@ -317,9 +317,9 @@ func (e *Engine) startNextStep(wf jobstore.Workflow, cur int, priorJobs []jobsto
 }
 
 // startStepAt resolves the refs of step stepIdx (1-based) and starts its job(s) at
-// attempt 1. It is startNextStep's general form so the run: always tail can jump to a
+// attempt 1. It is startNextStep's general form so the if: always tail can jump to a
 // later step (design §一·8). A resolve/submit failure fails the whole workflow, but a
-// failure that is already parked (a run: always tail) stays in the message.
+// failure that is already parked (a if: always tail) stays in the message.
 func (e *Engine) startStepAt(wf jobstore.Workflow, stepIdx int, priorJobs []jobstore.JobRecord, spec Spec) {
 	if stepIdx < 1 || stepIdx > len(spec.Steps) {
 		e.setWorkflowFailed(wf.ID, wfPending(wf, "spec/total step mismatch"))
@@ -337,7 +337,7 @@ func (e *Engine) startStepAt(wf jobstore.Workflow, stepIdx int, priorJobs []jobs
 }
 
 // wfPending prefixes msg with the failure already parked in a running workflow's error
-// column (a run: always tail), so the final reason names the original failure too.
+// column (a if: always tail), so the final reason names the original failure too.
 func wfPending(wf jobstore.Workflow, msg string) string {
 	if wf.Error == "" {
 		return msg
@@ -346,11 +346,11 @@ func wfPending(wf jobstore.Workflow, msg string) string {
 }
 
 // nextAlwaysStep returns the 1-based index of the first step after `after` marked
-// run: always, or 0 when none is left (design §一·8). `after` is a 1-based step index;
+// if: always, or 0 when none is left (design §一·8). `after` is a 1-based step index;
 // the loop walks the 0-based spec, so index i is step i+1.
 func nextAlwaysStep(spec Spec, after int) int {
 	for i := after; i < len(spec.Steps); i++ {
-		if spec.Steps[i].Run == runAlways {
+		if spec.Steps[i].If == ifAlways {
 			return i + 1
 		}
 	}
@@ -358,9 +358,9 @@ func nextAlwaysStep(spec Spec, after int) int {
 }
 
 // failStep is the fail-fast terminal handling of the current step (design §一·8). When
-// a LATER step is marked run: always the chain does not finish failed yet: the pointer
+// a LATER step is marked if: always the chain does not finish failed yet: the pointer
 // jumps to that step, the reason is parked in workflows.error (the status stays
-// running) and only after the last run: always step does the workflow finish failed —
+// running) and only after the last if: always step does the workflow finish failed —
 // an always step never turns a failed run into a done one. Without such a step it
 // finishes failed right away, exactly as before.
 func (e *Engine) failStep(wf jobstore.Workflow, spec Spec, cur, att int, jobs []jobstore.JobRecord, msg string) {
@@ -376,7 +376,7 @@ func (e *Engine) failStep(wf jobstore.Workflow, spec Spec, cur, att int, jobs []
 	}
 	// Park the reason while the workflow still runs; a later advance reads it back.
 	if err := e.meta.SetWorkflowStatus(wf.ID, jobstore.WorkflowRunning, msg); err != nil {
-		slog.Warn("workflow run: always: record pending failure", "workflow_id", wf.ID, "err", err)
+		slog.Warn("workflow if: always: record pending failure", "workflow_id", wf.ID, "err", err)
 	}
 	e.recordWorkflowEvent(wf.ID, job.EventStepSkipped, map[string]any{
 		"step": cur, "attempt": att, "status": job.StatusFailed, "run_always_from": next,
@@ -385,7 +385,7 @@ func (e *Engine) failStep(wf jobstore.Workflow, spec Spec, cur, att int, jobs []
 }
 
 // runAlwaysTail continues a workflow whose step just finished DONE while an earlier
-// failure is parked in workflows.error (design §一·8): it starts the next run: always
+// failure is parked in workflows.error (design §一·8): it starts the next if: always
 // step, and when none is left it finishes the workflow FAILED with the parked reason.
 func (e *Engine) runAlwaysTail(wf jobstore.Workflow, spec Spec, cur, att int, jobs []jobstore.JobRecord) {
 	if next := nextAlwaysStep(spec, cur); next > 0 {

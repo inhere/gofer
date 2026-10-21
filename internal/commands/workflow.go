@@ -544,6 +544,11 @@ func runWorkflowRun(c *gcli.Command, _ []string) error {
 	} else {
 		spec, err = workflow.ParseWorkflowFile(file)
 		if err == nil {
+			// The server reads a legacy `run: always` as `if: always` with a warning; the CLI
+			// says it too, so the author of the file sees which steps to update.
+			if warn := workflow.LegacyRunAlwaysWarning(spec); warn != "" {
+				c.Printf("%s\n", warn)
+			}
 			if wfRunOpts.project != "" {
 				spec.Project = wfRunOpts.project
 			}

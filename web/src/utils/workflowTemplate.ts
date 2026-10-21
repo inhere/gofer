@@ -198,8 +198,11 @@ export function previewSteps(spec: WorkflowSpec): PreviewStep[] {
     if (s.worktree) badges.push('worktree')
     if (s.read_only) badges.push('只读')
     if (s.review) badges.push('人工验收闸')
+    if (s.if === 'always') badges.push('if:always')
     if (s.type === 'workflow') badges.push('子工作流')
-    const text = (s.prompt ?? (s.cmd ? s.cmd.join(' ') : '')).replace(/\s+/g, ' ').trim()
+    // `run:` 是多行脚本写法（提交时后端转成 cmd），预览里当命令回退显示。
+    const command = s.cmd ? s.cmd.join(' ') : (s.run ?? '')
+    const text = (s.prompt ?? command).replace(/\s+/g, ' ').trim()
     return {
       index: i + 1,
       name: s.name || `step ${i + 1}`,

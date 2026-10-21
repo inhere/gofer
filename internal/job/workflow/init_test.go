@@ -291,8 +291,8 @@ func TestBuiltinVerifyReleaseTemplates(t *testing.T) {
 	if step.ProjectKey != "demo" || step.Agent != "exec" || step.Ref != "abc123" {
 		t.Fatalf("verify step = %+v, want project/exec/ref filled from the variables", step)
 	}
-	if len(step.Cmd) != 3 || step.Cmd[0] != "sh" || step.Cmd[2] != "go test ./..." {
-		t.Fatalf("verify cmd = %v, want [sh -c go test ./...]", step.Cmd)
+	if step.Run != "go test ./..." || len(step.Cmd) != 0 {
+		t.Fatalf("verify run = %q cmd = %v, want the run: script spelling (converted to cmd at submit)", step.Run, step.Cmd)
 	}
 
 	release, err := ResolveBuiltinWorkflowTemplate("release", map[string]string{
