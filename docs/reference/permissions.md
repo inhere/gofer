@@ -174,6 +174,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/jobs/{id}/request` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `POST` | `/v1/jobs/{id}/resume` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(job)` | 写 |
 | `GET` | `/v1/jobs/{id}/retries` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/review-hints` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `POST` | `/v1/jobs/{id}/say` | `InHandler(deny)` | `job.manage.others` | `job` | `Resource(job)` | 写 |
 | `GET` | `/v1/jobs/{id}/stream` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `GET` | `/v1/jobs/{id}/wakeups` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |

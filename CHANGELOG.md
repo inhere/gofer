@@ -15,6 +15,14 @@
 
 - **job 完成通知改用独立前缀 `[gofer 通知]`（gofer-11gk）**：之前系统通知经传话人送达时被包成 `[来自 web，gofer] [gofer job 完成] …`，与用户本人在 web 上发的消息（`[来自 web，<用户>]`）同形，监督 agent 会误当成用户回话。现在 gofer 自己发的通知一律以 `[gofer 通知]` 开头（后跟 `[gofer job 完成]` 等功能标签）：传话人、Stop 等待的放行理由、SessionStart / 下一轮输入的补发都是同一个前缀；`[来自 web，…]` 只代表人发的消息。同时修正识别：这类自动重入的输入仍不进「人回来了」的判定，会话对系统通知的 SendMessage 也不会被当成 web 回复。
 
+### 新功能
+
+- **审阅提示：删除热点、被删注释与验证结果行（gofer-hjj1）**：验收材料不再只有「汇报 + Diff」，服务端按同一个 job 的 `changes.diff` 与 stdout 尾部现算三节提示，`gofer job review` 打印为「审阅提示」块、web 验收面板「汇报」页签顶部显示为默认折叠的卡片，空节省略：
+  - **删除热点**：diff 里删除 ≥10 行的文件，按删除行数取前 5（附新增行数）；
+  - **被删注释**：被删除、且同文件新增行里没有原样出现的注释行（`//`、`#`、`/* */`、`<!-- -->`、Go doc 注释），最多 20 行，带旧文件行号；顺手删注释、把注释挪走都看得出来（挪走的不算删除）；
+  - **验证结果行**：从汇报正文里抽出的 `ok  <pkg>` / `FAIL` / `--- FAIL:` / `PASS` / `*_EXIT=n` / `exit=n` / `tsc=n` / `Test Files … passed` / `Tests … passed`，最多 30 行、保持原文顺序。
+  - 新增 `GET /v1/jobs/{id}/review-hints`（权限同 diff）；`gofer job review --json` 打 `{id, status, review_hints}`。只是提示，不挡 accept / reject。
+
 ## [0.180.1] - 2026-10-21
 
 与 0.180.0 内容相同，只修了一个测试：Windows CI 上 `TestDispatchOutlivesConnection` 因固定 3 秒等待超时，0.180.0 的 CI 未通过，因此未推送到 mirror 与一键更新；请直接用 0.180.1。

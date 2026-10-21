@@ -1202,6 +1202,33 @@ func (c *Client) GetJobDiffFull(id string) (string, error) {
 	return string(data), nil
 }
 
+// GetJobReviewHints fetches a job's review hints (GET /v1/jobs/{id}/review-hints,
+// gofer-hjj1): the deletion hotspots, the removed comment lines and the report's
+// verification result lines, computed server-side from the same changes.diff and
+// stdout tail the review screen shows. A job with neither gets empty sections, not an
+// error.
+func (c *Client) GetJobReviewHints(id string) (job.ReviewHints, error) {
+	var out struct {
+		ReviewHints job.ReviewHints `json:"review_hints"`
+	}
+	resp, err := c.do(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/review-hints", nil)
+	if err != nil {
+		return out.ReviewHints, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return out.ReviewHints, fmt.Errorf("read review hints response: %w", err)
+	}
+	if err := errorFor(resp.StatusCode, data); err != nil {
+		return out.ReviewHints, err
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return out.ReviewHints, fmt.Errorf("decode review hints: %w", err)
+	}
+	return out.ReviewHints, nil
+}
+
 // GetLogsWindow reads a log using a line window, or the legacy byte tail when Lines is zero.
 func (c *Client) GetLogsWindow(id string, opts LogOpts) (string, error) {
 	if opts.Stream != "stdout" && opts.Stream != "stderr" {

@@ -210,8 +210,8 @@ var routeDecls = map[string]routeDecl{
 	// recipient is judged) and is closed to job credentials. Redaction (POST /v1/mail/{id}/redact,
 	// M8) follows job redaction's rule — the letter's own two sides or a holder of
 	// job.delete.others — and a job credential may not redact either.
-	"POST /v1/mail":                       {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail", scope: BodyProject()},
-	"GET /v1/mail":                        {user: InHandler(permFilter, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail", scope: Filter()},
+	"POST /v1/mail": {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail", scope: BodyProject()},
+	"GET /v1/mail":  {user: InHandler(permFilter, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail", scope: Filter()},
 	// The conversation aggregation of plan M1 is the same read as GET /v1/mail, only grouped: it
 	// filters with that listing's keep predicate, so it shows nothing the listing would not. The
 	// SEC-01 middleware keys it as /v1/mail/* (one segment of wildcard), like the listing.
@@ -276,6 +276,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/jobs/{id}/artifacts":               {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/artifacts/{name}":        {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/diff":                    {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
+	"GET /v1/jobs/{id}/review-hints":            {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/worktree":                {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/wakeups":                 {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/wakeups/{wid}":                     {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("wakeup")},
