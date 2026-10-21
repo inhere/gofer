@@ -220,11 +220,21 @@ func TestWorktreeLinksRecordedAndCleanupAfterConfigDrop(t *testing.T) {
 		t.Fatalf("status links = %v (err=%v), want the recorded link", st.Links, err)
 	}
 
-	// The operator removes the link from the project config AFTER the checkout exists.
-	cfg := s.config()
-	proj := cfg.Projects["repo"]
+	// The job's terminal hooks (auto delivery reads the config) must be done before the
+	// config changes (G051: wait for the job, not just its terminal status).
+	s.Wait(final.ID)
+	// The operator removes the link from the project config AFTER the checkout exists. The
+	// change goes in as a new config (a reload), never by mutating the live one in place.
+	cur := s.config()
+	next := *cur
+	next.Projects = make(map[string]config.ProjectConfig, len(cur.Projects))
+	for k, v := range cur.Projects {
+		next.Projects[k] = v
+	}
+	proj := next.Projects["repo"]
 	proj.Worktree = &config.ProjectWorktree{}
-	cfg.Projects["repo"] = proj
+	next.Projects["repo"] = proj
+	s.Reload(&next)
 
 	if _, err := s.RemoveWorktree(final.ID, true, true); err != nil {
 		t.Fatalf("remove worktree after the config dropped the link: %v", err)
