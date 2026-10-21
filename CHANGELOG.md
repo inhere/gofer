@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+### 新增
+
+- **工作流 / 任务显示补全（gofer-plkx）**：`gofer wf list` 与 web 工作流列表新增「开始时间」列（终态另显示耗时）；`gofer wf show` 结果表新增 STARTED 列，`-v` 在表下逐行打印实际执行目录（`ref:` 步骤同时标出检出的提交），头部新增 `started_at` / `finished_at` / `duration`；web 工作流详情每路结果行显示开始时间与 `cwd`（含 `ref`）。
+- **job 与 workflow 的关联可见（gofer-plkx）**：`gofer job show` 对 step-job 打印 `workflow:` 一行（工作流 id、步骤 / 重试 / fan 序号与 fan 名），web 任务详情页多一行可点击的 `workflow` 链接；`gofer job list --wf <wf-id>` 与 web 任务看板的「工作流」过滤框只列该工作流的 step-job，对应 `GET /v1/jobs?workflow_id=`。
+- **HTTP 视图补齐（gofer-plkx）**：`GET /v1/workflows/{id}` 的每行新增 `cwd` / `ref` / `started_at` / `finished_at`（job 的 `workflow_id` / `step_index` / `attempt` / `fan_index` 原本已有）；新增 `GET /v1/jobs?workflow_id=` 过滤。
+
 ### 修复
 
 - **worktree 合并 / 交付失败不再丢掉主 checkout 里未提交的 tracker 改动（gofer-nwyw）**：合并允许在 `.gofer/tracker/` 有未提交的 issue / memory 改动时开始，失败时（冲突、`--squash` 冲突、squash 提交失败、分支与本地 tracker 改动撞车被 git 拒绝）以前一律 `git reset --hard HEAD`，把这些未提交改动一起回滚到 HEAD，实测丢过一条新建的 issue。现在只撤销合并本身（`merge --abort`；`--squash` 没有 MERGE_HEAD 时用 `reset --merge`），被合并改动涉及的路径照样复原，合并之外的未提交改动保持原样。
