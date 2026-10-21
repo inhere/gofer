@@ -45,6 +45,8 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 			Diff:           j.DiffSummary,
 			DiffSummary:    j.DiffSummary,
 			Runner:         j.Runner,
+			Cwd:            j.Cwd,
+			StartedAt:      j.StartedAt,
 		}
 		// Result view (design §一·6): only a row that actually ran has an exit code /
 		// duration, and only a failed row needs an excerpt (the logs are read lazily so
@@ -52,6 +54,7 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 		if job.IsTerminal(j.Status) {
 			exit := j.ExitCode
 			row.ExitCode = &exit
+			row.FinishedAt = j.EndedAt
 			if j.StartedAt > 0 && j.EndedAt >= j.StartedAt {
 				row.DurationSec = j.EndedAt - j.StartedAt
 			}
@@ -80,6 +83,9 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 				if f := fanSpecAt(spec.Steps[idx-1], out[i].FanIndex); f != nil {
 					out[i].FanName = f.Name
 				}
+				// The ref a ref:-step checked out (the row's Cwd is then the temporary
+				// detached worktree the engine created for that commit).
+				out[i].Ref = spec.Steps[idx-1].Ref
 				if spec.Steps[idx-1].Type == stepTypeWorkflow {
 					continue
 				}
@@ -101,6 +107,13 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 				if child, found, cerr := e.meta.FindChildWorkflow(wfID, i+1); cerr == nil && found {
 					row.ChildWorkflowID = child.ID
 					row.Status = child.Status
+					row.StartedAt = child.CreatedAt
+					if job.IsTerminal(child.Status) {
+						row.FinishedAt = child.UpdatedAt
+						if child.UpdatedAt >= child.CreatedAt {
+							row.DurationSec = child.UpdatedAt - child.CreatedAt
+						}
+					}
 				}
 				out = append(out, row)
 			}

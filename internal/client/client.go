@@ -435,6 +435,9 @@ func (c *Client) ListJobs(opts job.ListOpts) ([]job.JobResult, error) {
 	if opts.SourceJob != "" {
 		q.Set("source_job", opts.SourceJob)
 	}
+	if opts.WorkflowID != "" {
+		q.Set("workflow_id", opts.WorkflowID)
+	}
 	if opts.Since > 0 {
 		q.Set("since", strconv.FormatInt(opts.Since, 10))
 	}
@@ -1411,6 +1414,12 @@ type WorkflowStep struct {
 	ExitCode       *int   `json:"exit_code,omitempty"`
 	DurationSec    int64  `json:"duration_sec,omitempty"`
 	FailureExcerpt string `json:"failure_excerpt,omitempty"`
+	// Cwd/Ref are where the row actually ran (a ref: step runs in a temporary
+	// checkout of Ref) and StartedAt/FinishedAt are its unix-second start/end.
+	Cwd        string `json:"cwd,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+	StartedAt  int64  `json:"started_at,omitempty"`
+	FinishedAt int64  `json:"finished_at,omitempty"`
 }
 
 // WorkflowEvent mirrors jobstore.WorkflowEvent's JSON (P1 timeline): the monotonic

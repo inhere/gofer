@@ -167,6 +167,7 @@ var jobListOpts = struct {
 	session         string
 	plan            string
 	sourceJob       string
+	workflow        string
 	since           int
 	limit           int
 	all             bool
@@ -451,6 +452,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobListOpts.session, "session", "", "", "filter by session id (exact match; lists a session's turns)")
 					c.StrOpt(&jobListOpts.plan, "plan", "", "", "filter by plan id (exact match)")
 					c.StrOpt(&jobListOpts.sourceJob, "source-job", "", "", "filter by source job id (list jobs derived from it)")
+					c.StrOpt(&jobListOpts.workflow, "wf", "", "", "filter by workflow id (list that workflow's step-jobs)")
 					c.IntOpt(&jobListOpts.since, "since", "", 0, "keep jobs with started_at >= since (unix seconds)")
 					c.IntOpt(&jobListOpts.limit, "limit", "", 0, "max jobs to return (0 = server default)")
 					c.BoolOpt(&jobListOpts.all, "all", "", false, "include internal delivery jobs (messenger)")
@@ -2776,6 +2778,32 @@ func waitTerminal(cli *client.Client, id string, timeoutSec int) (job.JobResult,
 	}
 }
 
+// jobWorkflowLine renders a step-job's workflow association for `job show`:
+// the workflow id, the 1-based step and (for a fan-out step) the fan number and
+// name. The fan name lives in the workflow spec, not on the job row, so it costs
+// one best-effort detail fetch; when that fails the id/step still print.
+func jobWorkflowLine(cli *client.Client, res job.JobResult) string {
+	line := fmt.Sprintf("%s step %d", res.WorkflowID, res.StepIndex)
+	if res.Attempt > 1 {
+		line += fmt.Sprintf(" attempt %d", res.Attempt)
+	}
+	if res.FanIndex > 0 {
+		line += fmt.Sprintf(" fan %d", res.FanIndex)
+	}
+	if wf, err := cli.GetWorkflow(res.WorkflowID); err == nil {
+		for _, st := range wf.Steps {
+			if st.FanIndex != res.FanIndex || st.StepIndex != res.StepIndex || st.Attempt != res.Attempt {
+				continue
+			}
+			if st.FanName != "" {
+				line += " (" + st.FanName + ")"
+			}
+			break
+		}
+	}
+	return line
+}
+
 func runJobShow(c *gcli.Command, _ []string) error {
 	id := argID(c)
 	if id == "" {
@@ -2793,6 +2821,9 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	c.Printf("project:    %s\n", res.ProjectKey)
 	c.Printf("agent:      %s\n", displayJobAgent(res))
 	c.Printf("runner:     %s\n", res.Runner)
+	if res.WorkflowID != "" {
+		c.Printf("workflow:   %s\n", jobWorkflowLine(cli, res))
+	}
 	c.Printf("status:     %s\n", res.Status)
 	c.Printf("exit_code:  %d\n", res.ExitCode)
 	// gofer-drlm：排队（并发槽位 / 目录锁，不计入执行时限）与运行分开显示——排了多久看一眼就知道，
@@ -3607,18 +3638,19 @@ func runJobList(c *gcli.Command, _ []string) error {
 		return err
 	}
 	jobs, err := cli.ListJobs(job.ListOpts{
-		Project:   jobListOpts.project,
-		Status:    jobListOpts.status,
-		Caller:    jobListOpts.caller,
-		Tag:       jobListOpts.tag,
-		Agent:     jobListOpts.agent,
-		Runner:    jobListOpts.runner,
-		Session:   jobListOpts.session,
-		Plan:      jobListOpts.plan,
-		SourceJob: jobListOpts.sourceJob,
-		Since:     int64(jobListOpts.since),
-		Limit:     jobListOpts.limit,
-		All:       jobListOpts.all,
+		Project:    jobListOpts.project,
+		Status:     jobListOpts.status,
+		Caller:     jobListOpts.caller,
+		Tag:        jobListOpts.tag,
+		Agent:      jobListOpts.agent,
+		Runner:     jobListOpts.runner,
+		Session:    jobListOpts.session,
+		Plan:       jobListOpts.plan,
+		SourceJob:  jobListOpts.sourceJob,
+		WorkflowID: jobListOpts.workflow,
+		Since:      int64(jobListOpts.since),
+		Limit:      jobListOpts.limit,
+		All:        jobListOpts.all,
 	})
 	if err != nil {
 		return err

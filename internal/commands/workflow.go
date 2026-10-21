@@ -37,6 +37,12 @@ var wfListOpts = struct {
 	status string
 }{}
 
+// wfShowOpts holds `wf show` flags: -v also prints each step's working directory
+// (and the ref a ref: step checked out) under the chain table.
+var wfShowOpts = struct {
+	verbose bool
+}{}
+
 var wfExportOpts = struct {
 	out    string
 	format string
@@ -209,6 +215,7 @@ func NewWorkflowCmd() *gcli.Command {
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
+					c.BoolOpt(&wfShowOpts.verbose, "verbose", "v", false, "also print each step's working directory and ref")
 					c.AddArg("id", "workflow id", true)
 				},
 				Func: runWorkflowShow,
@@ -607,12 +614,62 @@ func runWorkflowShow(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("status:       %s\n", wf.Status)
 	c.Printf("current_step: %s\n", workflowStepText(wf.Status, wf.CurrentStep, wf.TotalSteps))
+	if wf.CreatedAt > 0 {
+		c.Printf("started_at:   %s\n", formatStarted(wf.CreatedAt))
+	}
+	if workflowIsTerminal(wf.Status) && wf.UpdatedAt >= wf.CreatedAt && wf.CreatedAt > 0 {
+		c.Printf("finished_at:  %s\n", formatStarted(wf.UpdatedAt))
+		c.Printf("duration:     %s\n", durationCol(wf.UpdatedAt-wf.CreatedAt))
+	}
 	if wf.Error != "" {
 		c.Printf("error:        %s\n", wf.Error)
 	}
 	c.Println("steps:")
 	printStepChain(c, wf.Steps)
+	if wfShowOpts.verbose {
+		printStepDirs(c, wf.Steps)
+	}
 	return nil
+}
+
+// printStepDirs prints each started row's working directory (and the ref it checked
+// out) under the chain table: a ref: step runs in a temporary detached worktree, so
+// the path alone does not say what tree it was. Only rows that ran have a dir.
+func printStepDirs(c *gcli.Command, steps []client.WorkflowStep) {
+	printed := false
+	for _, st := range steps {
+		if st.Cwd == "" {
+			continue
+		}
+		if !printed {
+			c.Println("workdirs:")
+			printed = true
+		}
+		line := fmt.Sprintf("  %s: %s", stepRowLabel(st), st.Cwd)
+		if st.Ref != "" {
+			line += " (ref " + shortRef(st.Ref) + ")"
+		}
+		c.Println(line)
+	}
+}
+
+// shortRef keeps a commit sha short enough for a table line (a ref: step stores the
+// full sha it resolved at submit).
+func shortRef(ref string) string {
+	if len(ref) > 12 {
+		return ref[:12]
+	}
+	return ref
+}
+
+// workflowIsTerminal reports whether a workflow status is one of the terminal ones
+// (the header's updated_at is then its finish time).
+func workflowIsTerminal(status string) bool {
+	switch status {
+	case "done", "failed", "cancelled", "timeout", "rejected":
+		return true
+	}
+	return false
 }
 
 // runWorkflowRerun re-runs a finished workflow as a NEW workflow (design §一·7). The
@@ -666,12 +723,13 @@ func printStepChain(c *gcli.Command, steps []client.WorkflowStep) {
 		c.Println("  (no steps started yet)")
 		return
 	}
-	c.Printf("  %-5s %-4s %-4s %-18s %-10s %-10s %-5s %s\n", "STEP", "ATT", "FAN", "NAME", "RUNNER", "STATUS", "EXIT", "TIME")
+	c.Printf("  %-5s %-4s %-4s %-18s %-10s %-10s %-5s %-19s %s\n", "STEP", "ATT", "FAN", "NAME", "RUNNER", "STATUS", "EXIT", "STARTED", "TIME")
 	var excerpts []client.WorkflowStep
 	for _, st := range steps {
-		c.Printf("  %-5d %-4s %-4s %-18s %-10s %-10s %-5s %s\n",
+		c.Printf("  %-5d %-4s %-4s %-18s %-10s %-10s %-5s %-19s %s\n",
 			st.StepIndex, attemptCol(st.Attempt), fanCol(st.FanIndex),
-			stepName(st), runnerCol(st.Runner), st.Status, exitCol(st.ExitCode), durationCol(st.DurationSec))
+			stepName(st), runnerCol(st.Runner), st.Status, exitCol(st.ExitCode),
+			startedCol(st.StartedAt), durationCol(st.DurationSec))
 		if st.FailureExcerpt != "" {
 			excerpts = append(excerpts, st)
 		}
@@ -717,6 +775,15 @@ func exitCol(code *int) string {
 		return "-"
 	}
 	return fmt.Sprintf("%d", *code)
+}
+
+// startedCol renders a row's start time in the same local format as the list views,
+// "-" when the row never started.
+func startedCol(sec int64) string {
+	if sec <= 0 {
+		return "-"
+	}
+	return formatStarted(sec)
 }
 
 // durationCol renders a row's runtime as <n>s (<m>m<n>s past a minute), "-" when unknown.
@@ -778,13 +845,23 @@ func runWorkflowList(c *gcli.Command, _ []string) error {
 		c.Println("no workflows matched the given filter")
 		return nil
 	}
-	c.Printf("%-26s %-10s %-11s %-24s %s\n", "ID", "STATUS", "STEP", "TITLE", "CREATED")
+	c.Printf("%-26s %-10s %-11s %-24s %-19s %s\n", "ID", "STATUS", "STEP", "TITLE", "STARTED", "TIME")
 	for _, wf := range list {
-		c.Printf("%-26s %-10s %-11s %-24s %s\n",
+		c.Printf("%-26s %-10s %-11s %-24s %-19s %s\n",
 			wf.ID, wf.Status, workflowStepText(wf.Status, wf.CurrentStep, wf.TotalSteps),
-			truncate(wf.Title, 24), formatStarted(wf.CreatedAt))
+			truncate(wf.Title, 24), formatStarted(wf.CreatedAt), workflowDurationCol(wf))
 	}
 	return nil
+}
+
+// workflowDurationCol renders a workflow's total runtime in the list table: the
+// header only keeps created_at/updated_at, so a terminal workflow's duration is their
+// difference (a running one shows "-").
+func workflowDurationCol(wf client.Workflow) string {
+	if !workflowIsTerminal(wf.Status) || wf.CreatedAt <= 0 || wf.UpdatedAt < wf.CreatedAt {
+		return "-"
+	}
+	return durationCol(wf.UpdatedAt - wf.CreatedAt)
 }
 
 // truncate caps a string at max runes, appending an ellipsis when cut, so the

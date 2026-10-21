@@ -288,4 +288,12 @@ type Step struct {
 	ExitCode       *int   `json:"exit_code,omitempty"`
 	DurationSec    int64  `json:"duration_sec,omitempty"`
 	FailureExcerpt string `json:"failure_excerpt,omitempty"`
+	// Cwd is the directory the row actually ran in (the resolved overlay path for the
+	// step's project, or the temporary ref checkout when Ref is set); Ref is the commit
+	// the spec asked to check out there. StartedAt/FinishedAt are unix seconds: the
+	// former is set once the job started, the latter once it reached a terminal state.
+	Cwd        string `json:"cwd,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+	StartedAt  int64  `json:"started_at,omitempty"`
+	FinishedAt int64  `json:"finished_at,omitempty"`
 }

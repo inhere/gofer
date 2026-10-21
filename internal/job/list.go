@@ -39,6 +39,9 @@ type ListOpts struct {
 	// SourceJob, when non-empty, keeps only jobs whose source_job_id matches exactly
 	// (P5, ?source_job=：列出某 job 直接派生出的所有 job)。
 	SourceJob string
+	// WorkflowID, when non-empty, keeps only the step-jobs of that workflow
+	// (job list --wf / ?workflow_id=).
+	WorkflowID string
 	// All includes internal delivery jobs such as web session messenger records.
 	All bool
 	// Since, when > 0, keeps only jobs with started_at >= Since (E5; unix 秒)。
@@ -88,17 +91,18 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		dbLimit += opts.Offset
 	}
 	recs, _ := s.meta.ListJobs(jobstore.ListQuery{
-		Project:   opts.Project,
-		Projects:  opts.Projects,
-		Status:    opts.Status,
-		Caller:    opts.Caller,
-		Tag:       opts.Tag,
-		Agent:     opts.Agent,
-		Runner:    opts.Runner,
-		RunnerAlt: legacyRunnerSpelling(opts.Runner),
-		Session:   opts.Session,
-		Plan:      opts.Plan,
-		SourceJob: opts.SourceJob,
+		Project:    opts.Project,
+		Projects:   opts.Projects,
+		Status:     opts.Status,
+		Caller:     opts.Caller,
+		Tag:        opts.Tag,
+		Agent:      opts.Agent,
+		Runner:     opts.Runner,
+		RunnerAlt:  legacyRunnerSpelling(opts.Runner),
+		Session:    opts.Session,
+		Plan:       opts.Plan,
+		SourceJob:  opts.SourceJob,
+		WorkflowID: opts.WorkflowID,
 		ExcludeTags: func() []string {
 			if opts.All {
 				return nil
@@ -150,6 +154,9 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 			continue
 		}
 		if opts.SourceJob != "" && snap.SourceJobID != opts.SourceJob {
+			continue
+		}
+		if opts.WorkflowID != "" && snap.WorkflowID != opts.WorkflowID {
 			continue
 		}
 		if !opts.All && hiddenJobTag(snap.Tags) {

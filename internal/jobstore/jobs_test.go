@@ -266,6 +266,40 @@ func TestUpsertGetPlanIDRoundTripAndFilter(t *testing.T) {
 	assert.Eq(t, "", gotPlain.PlanID)
 }
 
+func TestUpsertGetWorkflowIDRoundTripAndFilter(t *testing.T) {
+	s := openTest(t)
+
+	in := sampleJob("job-wf-1", "alpha", 2000)
+	in.WorkflowID = "wf-1"
+	in.StepIndex = 2
+	in.FanIndex = 1
+	assert.NoErr(t, s.UpsertJob(in))
+
+	plain := sampleJob("job-wf-plain", "alpha", 2001)
+	assert.NoErr(t, s.UpsertJob(plain))
+
+	got, ok, err := s.GetJob("job-wf-1")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "wf-1", got.WorkflowID)
+	assert.Eq(t, 2, got.StepIndex)
+	assert.Eq(t, 1, got.FanIndex)
+
+	// gofer-plkx: job list --wf / ?workflow_id= 只列该工作流的 step-job。
+	byWF, err := s.ListJobs(ListQuery{WorkflowID: "wf-1"})
+	assert.NoErr(t, err)
+	assert.Len(t, byWF, 1)
+	assert.Eq(t, "job-wf-1", byWF[0].ID)
+
+	none, err := s.ListJobs(ListQuery{WorkflowID: "wf-none"})
+	assert.NoErr(t, err)
+	assert.Len(t, none, 0)
+
+	gotPlain, _, err := s.GetJob("job-wf-plain")
+	assert.NoErr(t, err)
+	assert.Eq(t, "", gotPlain.WorkflowID)
+}
+
 func TestUpsertGetSourceJobIDRoundTripAndFilter(t *testing.T) {
 	s := openTest(t)
 

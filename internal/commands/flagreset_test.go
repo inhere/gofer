@@ -111,6 +111,7 @@ func flagGlobals() map[string]any {
 		"wfPickOpts":            &wfPickOpts,
 		"wfRerunOpts":           &wfRerunOpts,
 		"wfRunOpts":             &wfRunOpts,
+		"wfShowOpts":            &wfShowOpts,
 		"wfTemplateWriteOpts":   &wfTemplateWriteOpts,
 		"workOpts":              &workOpts,
 		"workerDoctorOpts":      &workerDoctorOpts,
