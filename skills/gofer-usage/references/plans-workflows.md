@@ -234,8 +234,9 @@ gofer wf save-as-template <wf-id> <name> [--global | --project <p>]  # 把一个
 
 - `--global`（默认）写 `<config-dir>/workflows/<name>.yaml`；`--project <p>` 写该项目工作区里的 `.gofer/workflows/<name>.yaml`（gofer 进程视角的路径），两者互斥。名字只能用 `[A-Za-z0-9._-]`。
 - 保存前先校验：YAML 能解析、有步骤、变量按默认值渲染后不留 `${vars.x}`、扇出 / `on_failure` 等步骤字段过得了提交时的检查；不过就报错且**不会写文件**。
+- **覆盖内置模板**：项目或全局里存一个同名文件就盖住内置模板（例：`.gofer/workflows/verify.yaml` 盖住内置 verify），命令会提示「将覆盖内置模板」；内置本身永远不被改写，不带 scope（或 `scope=builtin`）直接写内置层会被拒（409）。`show --source` 会列出被盖住的来源（`shadows`）。
+- 删除只删**这一层**的文件，之后回落到下一层 / 内置（命令会告诉你回落到哪层）。
 - 项目模板存下去是**未提交改动**，命令会回显建议的 `git add … && git commit …`；运行读的是工作区当前内容，所以未提交也立即生效，但提交后仓库才留得住。
-- 内置模板只读（改 / 删返回 409）：要改就先 `--source` 看内容，换个名字存成自己的模板。
 - 需要 `config.write`；只能写自己项目范围内的模板（全局模板要不受限的调用方），每次写入记审计。
 - web 的新建 workflow 页可直接看模板源文件并编辑保存（见 [web-console.md](web-console.md)）。
 

@@ -360,10 +360,18 @@ func runWorkflowSaveAsTemplate(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-// printTemplateWrite reports a template write, including the "this is an uncommitted
-// change" notice a project template needs (gofer never commits for the user).
+// printTemplateWrite reports a template write, including the two things a caller needs to
+// know: that the name now overrides a builtin template (or, after a delete, which source it
+// falls back to), and that a project template is an uncommitted change (gofer never commits
+// for the user).
 func printTemplateWrite(c *gcli.Command, res workflow.TemplateWriteResult, verb string) {
 	c.Printf("template %s %s (%s) %s\n", res.Name, verb, res.Scope, res.Path)
+	if res.OverridesBuiltin {
+		c.Printf("note: this overrides the builtin template %q (the builtin itself stays read-only)\n", res.Name)
+	}
+	if res.FallsBackTo != "" {
+		c.Printf("note: %q now resolves to the %s template\n", res.Name, res.FallsBackTo)
+	}
 	if res.Uncommitted {
 		c.Println("note: this is an uncommitted change in the project workspace; commit it so the repository keeps it:")
 		c.Println("  " + res.CommitCommand)

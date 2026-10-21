@@ -95,6 +95,9 @@ func TestWorkflowTemplateSourceAPI(t *testing.T) {
 	if code != http.StatusOK || src.Source != "project" || src.Path != projectFile || src.Content != validProjectTemplateYAML {
 		t.Fatalf("project source = %d %+v, want the project file", code, src)
 	}
+	if len(src.Shadows) != 0 {
+		t.Fatalf("project source shadows = %v, want none", src.Shadows)
+	}
 	code, src = get("shared", "seed")
 	if code != http.StatusOK || src.Source != "global" {
 		t.Fatalf("global source = %d %+v, want global", code, src)
@@ -102,6 +105,20 @@ func TestWorkflowTemplateSourceAPI(t *testing.T) {
 	code, src = get("compare", "")
 	if code != http.StatusOK || src.Source != "builtin" || src.Path != "" || !strings.Contains(src.Content, "steps:") {
 		t.Fatalf("builtin source = %d %+v, want a builtin with YAML content", code, src)
+	}
+
+	// A project file over a builtin name is what a run reads, and the source view says which
+	// sources that file hides.
+	shadowing := filepath.Join(projectDir, ".gofer", "workflows", "compare.yaml")
+	if err := os.WriteFile(shadowing, []byte(validProjectTemplateYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, src = get("compare", "seed")
+	if code != http.StatusOK || src.Source != "project" || src.Path != shadowing {
+		t.Fatalf("overriding source = %d %+v, want the project file", code, src)
+	}
+	if len(src.Shadows) != 1 || src.Shadows[0] != "builtin" {
+		t.Fatalf("overriding source shadows = %v, want [builtin]", src.Shadows)
 	}
 	if code, _ = get("nope", "seed"); code != http.StatusNotFound {
 		t.Fatalf("unknown template status = %d, want 404", code)
@@ -175,21 +192,59 @@ func TestSaveGlobalWorkflowTemplate(t *testing.T) {
 		t.Fatalf("a rejected save changed the file: %q", after)
 	}
 
-	// An invalid name and a builtin name are refused.
-	for _, tc := range []struct {
-		name string
-		code int
-	}{
-		{"bad%20name", http.StatusBadRequest},
-		{"compare", http.StatusConflict},
-	} {
-		resp = do(t, s, http.MethodPut, "/v1/workflow-templates/"+tc.name+"?scope=global", adminToken,
+	// An invalid name is a 400.
+	resp = do(t, s, http.MethodPut, "/v1/workflow-templates/bad%20name?scope=global", adminToken,
+		map[string]string{"content": validProjectTemplateYAML})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid name status = %d, want 400", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// A builtin name may be saved: the global file then overrides the builtin, and the
+	// response says so.
+	resp = do(t, s, http.MethodPut, "/v1/workflow-templates/compare?scope=global", adminToken,
+		map[string]string{"content": validProjectTemplateYAML})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("overriding save status = %d, want 200", resp.StatusCode)
+	}
+	var override workflow.TemplateWriteResult
+	decode(t, resp, &override)
+	if !override.OverridesBuiltin || override.Path != filepath.Join(configDir, "workflows", "compare.yaml") {
+		t.Fatalf("overriding save = %+v, want overrides_builtin at the global path", override)
+	}
+	resp = do(t, s, http.MethodGet, "/v1/workflow-templates/compare/source", adminToken, nil)
+	var shadowed workflow.TemplateSource
+	decode(t, resp, &shadowed)
+	if shadowed.Source != "global" || len(shadowed.Shadows) != 1 || shadowed.Shadows[0] != "builtin" {
+		t.Fatalf("overriding source = %+v, want global shadowing [builtin]", shadowed)
+	}
+
+	// Writing the builtin layer itself is refused: no scope, or scope=builtin.
+	for _, q := range []string{"", "?scope=builtin"} {
+		resp = do(t, s, http.MethodPut, "/v1/workflow-templates/compare"+q, adminToken,
 			map[string]string{"content": validProjectTemplateYAML})
-		if resp.StatusCode != tc.code {
-			t.Fatalf("%s status = %d, want %d", tc.name, resp.StatusCode, tc.code)
+		if resp.StatusCode != http.StatusConflict {
+			t.Fatalf("builtin write %q status = %d, want 409", q, resp.StatusCode)
 		}
 		resp.Body.Close()
 	}
+
+	// Deleting the global override falls back to the builtin, and the name is then a 404 in
+	// that layer (a builtin is not a file to delete).
+	resp = do(t, s, http.MethodDelete, "/v1/workflow-templates/compare?scope=global", adminToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("override delete status = %d, want 200", resp.StatusCode)
+	}
+	var deleted workflow.TemplateWriteResult
+	decode(t, resp, &deleted)
+	if deleted.FallsBackTo != "builtin" {
+		t.Fatalf("override delete = %+v, want falls_back_to builtin", deleted)
+	}
+	resp = do(t, s, http.MethodDelete, "/v1/workflow-templates/compare?scope=global", adminToken, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("second override delete status = %d, want 404", resp.StatusCode)
+	}
+	resp.Body.Close()
 
 	// Without config.write the save is refused and nothing is written.
 	resp = do(t, s, http.MethodPut, "/v1/workflow-templates/op-check?scope=global", opToken,
@@ -206,19 +261,17 @@ func TestSaveGlobalWorkflowTemplate(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("delete status = %d, want 200", resp.StatusCode)
 	}
-	resp.Body.Close()
+	var gone workflow.TemplateWriteResult
+	decode(t, resp, &gone)
+	if gone.FallsBackTo != "" {
+		t.Fatalf("delete of verify = %+v, want no fallback (no builtin verify)", gone)
+	}
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
 		t.Fatal("delete left the file behind")
 	}
 	resp = do(t, s, http.MethodDelete, path, adminToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("second delete status = %d, want 404", resp.StatusCode)
-	}
-	resp.Body.Close()
-	// A builtin cannot be deleted either.
-	resp = do(t, s, http.MethodDelete, "/v1/workflow-templates/compare?scope=global", adminToken, nil)
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("builtin delete status = %d, want 409", resp.StatusCode)
 	}
 	resp.Body.Close()
 }
@@ -267,6 +320,28 @@ func TestSaveProjectWorkflowTemplate(t *testing.T) {
 		t.Fatalf("unknown scope status = %d, want 400", resp.StatusCode)
 	}
 	resp.Body.Close()
+
+	// Saving a builtin name in the project layer is allowed, and says what it hides; deleting
+	// it falls back to the builtin again.
+	resp = do(t, s, http.MethodPut, "/v1/workflow-templates/compare?scope=project&project=seed", adminToken,
+		map[string]string{"content": validProjectTemplateYAML})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("project override status = %d, want 200", resp.StatusCode)
+	}
+	var projectOverride workflow.TemplateWriteResult
+	decode(t, resp, &projectOverride)
+	if !projectOverride.OverridesBuiltin || !projectOverride.Uncommitted {
+		t.Fatalf("project override = %+v, want overrides_builtin + uncommitted", projectOverride)
+	}
+	resp = do(t, s, http.MethodDelete, "/v1/workflow-templates/compare?scope=project&project=seed", adminToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("project override delete status = %d, want 200", resp.StatusCode)
+	}
+	var projectGone workflow.TemplateWriteResult
+	decode(t, resp, &projectGone)
+	if projectGone.FallsBackTo != "builtin" {
+		t.Fatalf("project override delete = %+v, want falls_back_to builtin", projectGone)
+	}
 }
 
 // TestWorkflowTemplateWriteRespectsCeiling asserts a caller whose ceiling covers another

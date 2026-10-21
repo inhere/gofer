@@ -24,10 +24,12 @@ import (
 // <config-dir>/workflows, and save project templates into the project workspace as an
 // uncommitted change. Builtin templates are read-only.
 
-// templateScopes are the two writable scopes.
+// templateScopes are the two writable scopes, plus the read-only builtin layer a write must
+// not address directly (a global / project file OVERRIDES a builtin of the same name).
 const (
 	templateScopeGlobal  = "global"
 	templateScopeProject = "project"
+	templateScopeBuiltin = "builtin"
 )
 
 // handleWorkflowTemplateSource serves GET /v1/workflow-templates/{name}/source: the
@@ -77,11 +79,14 @@ func (s *Server) handleSaveWorkflowTemplate(c *rux.Context) {
 	c.JSON(http.StatusOK, workflow.TemplateWriteResult{
 		Name: name, Scope: scope, Path: path, ContentLength: len(req.Content),
 		Uncommitted: scope == templateScopeProject, CommitCommand: commitCommand,
+		OverridesBuiltin: overridesBuiltin(name),
 	})
 }
 
 // handleDeleteWorkflowTemplate serves DELETE /v1/workflow-templates/{name} with the same
-// ?scope= / ?project= pair. A builtin is a 409; a name with no file is a 404.
+// ?scope= / ?project= pair: it removes THIS layer's file, so the name falls back to the next
+// source (a global file, or the builtin) — the response says which. A name with no file in
+// that layer is a 404.
 func (s *Server) handleDeleteWorkflowTemplate(c *rux.Context) {
 	name := c.Param("name")
 	dir, scope, commitCommand, ok := s.templateWriteTarget(c, name)
@@ -97,6 +102,7 @@ func (s *Server) handleDeleteWorkflowTemplate(c *rux.Context) {
 	c.JSON(http.StatusOK, workflow.TemplateWriteResult{
 		Name: name, Scope: scope, Path: path,
 		Uncommitted: scope == templateScopeProject, CommitCommand: commitCommand,
+		FallsBackTo: s.fallBackTemplateSource(c, name),
 	})
 }
 
@@ -150,7 +156,27 @@ func (s *Server) handleSaveWorkflowAsTemplate(c *rux.Context) {
 	c.JSON(http.StatusOK, workflow.TemplateWriteResult{
 		Name: req.Name, Scope: scope, Path: path, ContentLength: len(content),
 		Uncommitted: scope == templateScopeProject, CommitCommand: commitCommand,
+		OverridesBuiltin: overridesBuiltin(req.Name),
 	})
+}
+
+// overridesBuiltin reports whether saving `name` in a writable scope hides a builtin
+// template of the same name (the supported way to replace a builtin: a project / global file
+// wins over it, the builtin itself is never written).
+func overridesBuiltin(name string) bool {
+	_, builtin := workflow.BuiltinWorkflowTemplate(name)
+	return builtin
+}
+
+// fallBackTemplateSource names the source `name` resolves to now that this layer's file is
+// gone (empty when nothing defines it any more).
+func (s *Server) fallBackTemplateSource(c *rux.Context, name string) string {
+	projectDir, globalDir := s.workflowTemplateDirs(c.Query("project"))
+	src, err := workflow.ReadWorkflowTemplateSource(name, projectDir, globalDir)
+	if err != nil {
+		return ""
+	}
+	return src.Source
 }
 
 // templateWriteTarget resolves the directory a template write goes to and the write scope.
@@ -207,12 +233,14 @@ func (s *Server) templateWriteTarget(c *rux.Context, name string, override ...st
 		rel := filepath.ToSlash(filepath.Join(".gofer", "workflows", name+".yaml"))
 		commitCommand = "git add " + rel + " && git commit -m \"chore(gofer): update workflow template " + name + "\""
 	default:
+		if scope == "" || scope == templateScopeBuiltin {
+			// The builtin layer is read-only, and a write that names no scope targets it. A
+			// global / project file of the same name overrides the builtin instead.
+			writeError(c, http.StatusConflict, "workflow template is read-only",
+				"builtin template "+name+" cannot be changed; save it with scope=global or scope=project to override it")
+			return "", "", "", false
+		}
 		writeError(c, http.StatusBadRequest, "invalid scope", `scope must be "global" or "project"`)
-		return "", "", "", false
-	}
-	if _, builtin := workflow.BuiltinWorkflowTemplate(name); builtin {
-		writeError(c, http.StatusConflict, "workflow template is read-only",
-			"builtin template "+name+" cannot be changed; save it under another name")
 		return "", "", "", false
 	}
 	if err := workflow.CheckTemplateName(name); err != nil {

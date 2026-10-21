@@ -24,10 +24,11 @@
   - 模板渲染与 `${steps…}` 静态校验覆盖以上全部新字段（含 `with` 递归、fan 的 `cmd` / `env` / `cwd`），markdown 分步文件的 frontmatter 同样可填这些字段。
 
 - **workflow 模板可以查看源文件、保存与删除**：新建 workflow 时不再只能预览渲染后的步骤，也能看到模板自己的 YAML（并标明来源是内置 / 全局 / 项目），并把改过的模板存回去。
-  - `GET /v1/workflow-templates/{name}/source[?project=<p>]` → `{name, source, path, content}`：按「项目 `.gofer/workflows` → `<config-dir>/workflows` → 内置」的顺序取第一份，内置模板没有路径，内容是它的 spec 序列化成的 YAML。
+  - `GET /v1/workflow-templates/{name}/source[?project=<p>]` → `{name, source, path, content, shadows}`：按「项目 `.gofer/workflows` → `<config-dir>/workflows` → 内置」的顺序取第一份，内置模板没有路径，内容是它的 spec 序列化成的 YAML；`shadows` 是这一份盖住了哪些来源（项目文件盖住全局与内置，全局文件盖住内置）。
   - `PUT /v1/workflow-templates/{name}?scope=global`（体 `{content}`）写 `<config-dir>/workflows/<name>.yaml`，`?scope=project&project=<p>` 写该项目工作区（gofer 进程视角的路径，见 `server.path_view`）里的 `.gofer/workflows/<name>.yaml`；`DELETE` 同两个 scope。保存前先校验：YAML 能否解析、有步骤、变量按默认值渲染后不留 `${vars.x}`、扇出 / `on_failure` 等步骤字段过得了提交时的检查；不过返回 400 且一个字节都不写。名字只允许 `[A-Za-z0-9._-]`。
   - 项目模板保存后是**未提交改动**，响应带 `uncommitted: true` 与建议的 `git add … && git commit …`；gofer 不替你提交。
-  - 权限 `config.write`；保存在 `auth_audit` 里留一行（谁、模板名、scope、内容长度与 sha256），不存正文。受调用方上限约束：只能写自己项目范围内的模板，全局模板要不受限的调用方。内置模板只读（改 / 删一律 409，另存为新名字即可）。
+  - 权限 `config.write`；保存在 `auth_audit` 里留一行（谁、模板名、scope、内容长度与 sha256），不存正文。受调用方上限约束：只能写自己项目范围内的模板，全局模板要不受限的调用方。
+  - **覆盖内置模板**：项目 / 全局里存一个同名文件就盖住内置模板（响应 `overrides_builtin: true`，CLI 会提示），这正是「把内置 verify 换成自己那套」的路径；内置本身永远不会被改写，不带 scope 或 `scope=builtin` 直接写内置层返回 409。删除只删该层文件，之后回落到下一层 / 内置（响应 `falls_back_to`），`GET …/source` 用 `shadows` 列出被盖住的来源。
   - `POST /v1/workflows/{id}/save-as-template {name, scope, project?}`：把已完成 workflow 的 `export` spec（已剥敏感值）序列化成模板，走同一套校验与 scope。
   - CLI：`gofer wf template show <name> --source`、`gofer wf template save <name> -f <file>`、`gofer wf template rm <name>`、`gofer wf save-as-template <wf-id> <name>`，两者都带 `--global` / `--project <p>`（默认全局，互斥）。
 

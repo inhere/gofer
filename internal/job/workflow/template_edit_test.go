@@ -68,6 +68,27 @@ func TestReadWorkflowTemplateSource(t *testing.T) {
 	if src, err = ReadWorkflowTemplateSource("compare", projectDir, globalDir); err != nil || src.Source != "project" {
 		t.Fatalf("shadowed builtin source = %+v, %v; want project", src, err)
 	}
+	if len(src.Shadows) != 1 || src.Shadows[0] != "builtin" {
+		t.Fatalf("project file shadows = %v, want [builtin]", src.Shadows)
+	}
+
+	// Overriding a builtin name is supported: a global file of the same name also shadows the
+	// builtin, and with both files the project one hides the global one too.
+	if err := os.WriteFile(filepath.Join(globalDir, "compare.yaml"), []byte(validTemplateYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if src, err = ReadWorkflowTemplateSource("compare", projectDir, globalDir); err != nil || src.Source != "project" {
+		t.Fatalf("double shadow source = %+v, %v; want project", src, err)
+	}
+	if len(src.Shadows) != 2 || src.Shadows[0] != "global" || src.Shadows[1] != "builtin" {
+		t.Fatalf("double shadow shadows = %v, want [global builtin]", src.Shadows)
+	}
+	if src, err = ReadWorkflowTemplateSource("compare", "", globalDir); err != nil || src.Source != "global" {
+		t.Fatalf("global override source = %+v, %v; want global", src, err)
+	}
+	if len(src.Shadows) != 1 || src.Shadows[0] != "builtin" {
+		t.Fatalf("global override shadows = %v, want [builtin]", src.Shadows)
+	}
 
 	// A builtin has no path and serialises its spec as YAML.
 	src, err = ReadWorkflowTemplateSource("compare", t.TempDir(), t.TempDir())

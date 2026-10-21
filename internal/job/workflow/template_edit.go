@@ -47,23 +47,33 @@ func CheckTemplateName(name string) error {
 // GET /v1/workflow-templates/{name}/source. A builtin template has no Path; its Content is
 // the YAML serialisation of the template spec (exactly what saving it under a new name
 // would write).
+//
+// Shadows lists the sources this definition hides: a project file hides the global file and
+// the builtin of the same name, a global file hides the builtin. Overriding a builtin name
+// is the supported way to replace a builtin template (the builtin itself stays read-only).
 type TemplateSource struct {
-	Name    string `json:"name"`
-	Source  string `json:"source"` // project | global | builtin
-	Path    string `json:"path,omitempty"`
-	Content string `json:"content"`
+	Name    string   `json:"name"`
+	Source  string   `json:"source"` // project | global | builtin
+	Path    string   `json:"path,omitempty"`
+	Content string   `json:"content"`
+	Shadows []string `json:"shadows,omitempty"`
 }
 
 // TemplateWriteResult describes a saved or deleted template. Uncommitted / CommitCommand
 // are set for a project template: its file lands in the project workspace as an
 // uncommitted change, so the caller is told how to commit it (gofer never commits).
+// OverridesBuiltin marks a save that now hides a builtin template of the same name;
+// FallsBackTo names the source the name resolves to after a delete (global / builtin, empty
+// when nothing is left).
 type TemplateWriteResult struct {
-	Name          string `json:"name"`
-	Scope         string `json:"scope"` // global | project
-	Path          string `json:"path"`
-	ContentLength int    `json:"content_length,omitempty"`
-	Uncommitted   bool   `json:"uncommitted,omitempty"`
-	CommitCommand string `json:"commit_command,omitempty"`
+	Name             string `json:"name"`
+	Scope            string `json:"scope"` // global | project
+	Path             string `json:"path"`
+	ContentLength    int    `json:"content_length,omitempty"`
+	Uncommitted      bool   `json:"uncommitted,omitempty"`
+	CommitCommand    string `json:"commit_command,omitempty"`
+	OverridesBuiltin bool   `json:"overrides_builtin,omitempty"`
+	FallsBackTo      string `json:"falls_back_to,omitempty"`
 }
 
 // BuiltinWorkflowTemplate returns the builtin template of that name.
@@ -116,7 +126,7 @@ func ReadWorkflowTemplateSource(name, projectDir, globalDir string) (TemplateSou
 	if err := CheckTemplateName(name); err != nil {
 		return TemplateSource{}, err
 	}
-	for _, loc := range templateLocations(projectDir, globalDir) {
+	for i, loc := range templateLocations(projectDir, globalDir) {
 		path := findTemplateFile(loc.dir, name)
 		if path == "" {
 			continue
@@ -125,7 +135,10 @@ func ReadWorkflowTemplateSource(name, projectDir, globalDir string) (TemplateSou
 		if err != nil {
 			return TemplateSource{}, fmt.Errorf("read workflow template %q: %w", name, err)
 		}
-		return TemplateSource{Name: name, Source: loc.source, Path: path, Content: string(body)}, nil
+		return TemplateSource{
+			Name: name, Source: loc.source, Path: path, Content: string(body),
+			Shadows: ShadowedTemplateSources(name, projectDir, globalDir)[i],
+		}, nil
 	}
 	tpl, ok := BuiltinWorkflowTemplate(name)
 	if !ok {
@@ -136,6 +149,32 @@ func ReadWorkflowTemplateSource(name, projectDir, globalDir string) (TemplateSou
 		return TemplateSource{}, fmt.Errorf("serialise builtin workflow template %q: %w", name, err)
 	}
 	return TemplateSource{Name: name, Source: "builtin", Content: string(body)}, nil
+}
+
+// ShadowedTemplateSources returns, for every template location in lookup order, the sources
+// that location hides when it defines `name` (empty when it defines nothing): a project file
+// hides the global file and the builtin of the same name, a global file hides the builtin.
+// It is what makes "save over a builtin name" visible to a caller instead of silent.
+func ShadowedTemplateSources(name, projectDir, globalDir string) map[int][]string {
+	locs := templateLocations(projectDir, globalDir)
+	out := make(map[int][]string, len(locs))
+	_, builtin := BuiltinWorkflowTemplate(name)
+	for i, loc := range locs {
+		if findTemplateFile(loc.dir, name) == "" {
+			continue
+		}
+		shadows := make([]string, 0, len(locs)-i)
+		for _, later := range locs[i+1:] {
+			if findTemplateFile(later.dir, name) != "" {
+				shadows = append(shadows, later.source)
+			}
+		}
+		if builtin {
+			shadows = append(shadows, "builtin")
+		}
+		out[i] = shadows
+	}
+	return out
 }
 
 // templatePlaceholder stands in for a variable that has no default, so a required
