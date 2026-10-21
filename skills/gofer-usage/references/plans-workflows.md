@@ -13,6 +13,7 @@
 - [决策点问人（gofer_ask_human）](#决策点问人gofer_ask_human)
 - [主 Agent 会话与 job 来源会话](#主-agent-会话与-job-来源会话)
 - [workflow：有依赖的多步编排](#workflow有依赖的多步编排)
+- [verify / release 起步 workflow](#verify--release-起步-workflow)
 - [多 agent 对比与择优](#多-agent-对比与择优)
 
 ## plan 与 workflow 的分工
@@ -281,6 +282,115 @@ steps:
 - 重试、失败策略、步骤顺序仍走 workflow 自己的规则（`on_failure: fail | continue | retry`）；一次推送失败重跑是**新的 job**，不受单 job 时限累积影响。
 - **信任模型**：仓库里的 workflow 决定跑什么，所以「能改 `release.yaml` 的人就能改发版命令」。推送分支 / tag 需要两把锁：项目 `delivery.allow_push: true` **且**提交方持有 `repo.push` 权限（否则 403）；其余 exec 步骤仍受项目 `allow_exec` 与调用方的运行上限约束。
 - `gofer tool step <name>` 是这个内部 job 的命令（隐藏，参数为 `with` 的 JSON 走 stdin）；手工排查可直接跑：`echo '{"refs":["main"]}' | gofer tool step push`。
+
+## verify / release 起步 workflow
+
+「每次提交都跑一遍检查」和「打 tag 发版」这两件事有现成的起步文件，不用从空白 yaml 写：
+
+```bash
+gofer workflow init verify  [--dir <仓库目录>] [--force]    # 生成 .gofer/workflows/verify.yaml
+gofer workflow init release [--dir <仓库目录>] [--force]    # 生成 .gofer/workflows/release.yaml
+```
+
+- 生成的文件按仓库内容**预填**：有 `go.mod` → `go test ./...` 与 `go vet ./...` 两路；有 `package.json` → 其中存在的 `test` / `build` / `lint` 各一路（按 lock 文件用 `npm` / `pnpm` / `yarn run`）；`package.json` 在子目录（如 `web/`）时那几路带 `cwd`；两者都有就合在**同一个步骤**的 fan 里（并行，`join: all`）；都没有则留一路占位命令并注明怎么改。
+- release 预填 `push`（当前默认分支 + `v${vars.version}`）→ `wait-ci`（有 `.github/workflows` 就取其各 workflow 的 `name:` 作 `required`）→ `wait-assets`（注释示例，按需启用）。
+- 文件里每一段都有注释说明改法：加 `-race`、`GOOS: darwin` 的 vet、指定某台 worker 跑、子目录 `cwd`、`env` 不要放秘密等。
+- 已存在且不带 `--force` 时**拒绝**并说明，不会覆盖你改过的文件。
+- 文件写在仓库里，**提交到仓库后 server 才读得到**（server 从项目工作区的 `.gofer/workflows` 读模板）；未提交的改动也立即生效，但没有提交就留不住。
+- 想替换内置模板就存一个同名项目文件：`.gofer/workflows/verify.yaml` 盖住内置的 `verify`（见上文「模板的查看与保存」）。
+
+对应的内置模板（项目里没有同名文件时直接可用）：
+
+| 模板 | var | 做什么 |
+|---|---|---|
+| `verify` | `project`、`commit`、`cmd`（必填）、`runner` | 在 `commit` 的临时检出里跑一条命令（`sh -c "<cmd>"`，例如 `go test ./...`） |
+| `release` | `project`、`version`（必填）、`branch`（默认 `main`）、`runner` | `gofer/push` 推 `branch` 与 `v<version>` → `gofer/wait-ci` 等该 tag 的检查 |
+
+```bash
+gofer workflow run --template verify  -p <project> --var commit=<sha> --var cmd='<检查命令>' -w
+gofer workflow run --template release -p <project> --var version=1.2.3 -w
+```
+
+### 示例一：检查一个提交（多路并行）
+
+```yaml
+title: "verify ${vars.commit}"
+project: <project>
+vars:
+  commit: {required: true, desc: 要检查的提交}
+steps:
+  - name: checks
+    agent: exec                 # 直接跑命令，不经过 agent
+    ref: ${vars.commit}         # 提交时解析成 sha，临时检出，结束即删
+    join: all                   # 全部跑完，任一路失败则整体失败
+    fan:
+      - name: unit
+        cmd: [go, test, ./...]
+      - name: vet-darwin
+        cmd: [go, vet, ./...]
+        env: {GOOS: darwin}
+      - name: test-worker
+        runner: <worker-id>     # 换一台执行机跑
+        cmd: [go, test, -count=1, ./...]
+      - name: web
+        cwd: web
+        cmd: [sh, -c, "<前端检查命令>"]
+        timeout_sec: 900
+  - name: report
+    agent: exec
+    run: always                 # 上面失败也执行（结论不变：仍算失败）
+    cmd: [echo, "unit 退出码为 ${steps.checks.unit.exit_code}"]
+```
+
+提交：`gofer workflow run verify.yaml -w`。结果看 `gofer workflow show <id>` 的结果表（每路 runner / 状态 / 退出码 / 耗时 / 失败摘录）。只想重跑失败的那几路：`gofer workflow rerun <id> --failed -w`（新 workflow，原记录不动；`--from <步骤>` 从某步起重跑）。
+
+### 示例二：发版（推送 → 等 CI → 等产物）
+
+```yaml
+title: "release v${vars.version}"
+project: <project>
+vars:
+  version: {required: true}
+steps:
+  - name: push
+    uses: gofer/push
+    with: {refs: [main, "v${vars.version}"]}
+    on_failure: retry                      # 网络 / 钩子类失败重试，每次尝试是独立 job
+    retry: {max_attempts: 10, backoff_sec: [300]}
+  - name: ci
+    uses: gofer/wait-ci
+    with: {ref: "v${vars.version}", required: [<CI 检查名>], code_scanning: true, timeout_min: 40}
+  - name: assets
+    uses: gofer/wait-assets
+    with: {tag: "v${vars.version}", assets: ["*-linux-amd64.tar.gz"], timeout_min: 30}
+  - name: mirror                            # 自己的追加步骤，照常写 exec
+    agent: exec
+    run: always
+    cmd: [sh, -c, "<同步 / 通知命令> v${vars.version}"]
+```
+
+提交前先看渲染结果（web 新建页的「预览步骤」，或 `POST /v1/workflow-templates/release/render`），确认无误再跑：这一步会真的推 main 与 tag。
+
+### 与 GitHub Actions 的对照
+
+| 写法 | gofer workflow | GitHub Actions |
+|---|---|---|
+| 复用别人的动作 | `uses: gofer/<名>`，版本随 gofer 二进制，没有 `@v1` | 任意 action 仓库 + 版本 |
+| 参数 | `with:` 按每个内置步骤的结构严格校验，未知键提交即报错 | action 自己决定 |
+| 失败处理 | `on_failure: fail \| continue \| retry`；`run: always` | `continue-on-error`、`if: always()` |
+| 并行 | 同一步骤内的 `fan` 并行，步骤之间串行 | 多个 job + `needs` |
+| 执行位置 | 步骤 / fan 的 `runner:`（server 或某台 worker） | `runs-on` |
+| 看结果 | workflow 详情的结果表（每步 / 每路）与 `gofer workflow show` | 各 job 的日志页 |
+| 只重跑失败的 | `gofer workflow rerun <id> --failed` | Re-run failed jobs |
+| 触发方式 | 由人或 agent 提交（`workflow run`、HTTP、web），没有仓库内触发器 | push / tag / cron 触发器 |
+
+### 信任模型（谁能改 workflow，谁就能改它跑什么）
+
+- server 从**项目主 checkout 的工作区**读模板，不是从被检查的那个提交读；改了模板而没提交的改动也立即生效。
+- 所以仓库里 `release.yaml` 的写权限约等于发版权限：能改它的人就能改发版时执行的命令。普通 exec 步骤仍受项目 `allow_exec` 与调用方上限约束，但有 exec 权限的调用方本来就能在 `runner: local` 上执行任意命令——这是 exec 的既有边界。
+- 推送非 `gofer/*` 分支与 tag 需要两把锁：项目 `delivery.allow_push: true` **且**提交方持有 `repo.push` 权限（中风险，默认不授予任何人），否则提交即 403。
+- `env` 的值随任务记录落库，**不要放秘密**（token / 密码从执行机环境或项目配置取）。
+- 人在 web / CLI 上运行 release 前先看渲染后的步骤再确认提交。
 
 ## 多 agent 对比与择优
 

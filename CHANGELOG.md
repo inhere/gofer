@@ -50,6 +50,12 @@
   - **结果表**：workflow 详情（`GET /v1/workflows/{id}` 的 `steps[]`、`gofer wf show`）每一行步骤 / fan 都带 `runner`、`exit_code`、`duration_sec`，失败行还带 `failure_excerpt`：从该任务日志尾部按规则抽 `--- FAIL:` / `FAIL` / `✗` / `error:` / `panic:` 之类行，去重、保持顺序、最多 20 行；没有这类行时（内置步骤、只报一句错的 agent）取任务记录的错误信息。`gofer wf show` 打印成一张表（STEP / ATT / FAN / NAME / RUNNER / STATUS / EXIT / TIME），失败摘录跟在表后。失败即停（fail-fast）也不影响已结束步骤的信息：workflow 失败时同样完整显示。
   - **重跑**：`gofer wf rerun <id> [--failed | --from <step>]`，HTTP `POST /v1/workflows/{id}/rerun {mode: failed|from, step?}`。它基于原 spec 裁剪出**新的** workflow 提交，原 workflow 一行不改：`--failed` 只保留失败的步骤，失败步骤里只保留失败的那几路 fan；`--from` 从该步（序号或名字）起保留后续全部。变量与原 `ref` 解析出的 sha 保持原值，所以重跑检查的是同一个提交；新 workflow 带 `rerun_of`（原 id）。仍在运行的 workflow 不能重跑（先取消）。裁剪后如果某步的 `${steps.N…}` 引用指向了被去掉的步骤，提交时会明确报错而不会跑错。
   - **`run: always`**：步骤在前面失败后仍然执行（失败即停时跳到这些步骤按顺序执行，其余步骤跳过），但**不改变** workflow 的最终结论——前面失败了整体仍然失败，失败原因保留（第二次失败会附加在后面）。此前提交会报「暂不支持」，现在可以直接用，典型写法是 release 失败后的清理 / 通知步骤。
+- **`gofer workflow init verify|release` 与内置 verify / release 模板**：检查与发版这两类流程不用再从空白 yaml 写起。
+  - `gofer workflow init verify [--dir <仓库目录>]` 生成 `.gofer/workflows/verify.yaml`，按仓库内容预填：有 `go.mod` → `go test ./...` 与 `go vet ./...` 两路；有 `package.json` → 其中存在的 `test` / `build` / `lint` 各一路（按 lock 文件用 `npm` / `pnpm` / `yarn run`，在子目录时带 `cwd`）；两者都有则合在同一步骤的 `fan` 里（`join: all` 并行）；都没有则留一路占位命令并注明改法。
+  - `gofer workflow init release [--dir <仓库目录>]` 生成 `push`（当前默认分支 + `v${vars.version}`）→ `wait-ci`（有 `.github/workflows` 则取其各 workflow 的 `name:` 作 `required`）→ `wait-assets`（注释示例）。
+  - 生成的文件带中文注释逐段说明改法；生成结果先过一遍模板校验（同保存模板的规则），不可能写出一个跑不起来的文件。已存在且不带 `--force` 时拒绝并说明；生成后提示「提交到仓库后 server 才读得到」。
+  - 内置模板 `verify`（var `project` / `commit` / `cmd` / `runner`）与 `release`（var `project` / `version` / `branch` 默认 `main` / `runner`）：项目里存同名文件即可盖住。
+  - skill 的 [plans-workflows](skills/gofer-usage/references/plans-workflows.md) 新增「verify / release 起步 workflow」一节：两个完整示例、与 GitHub Actions 的对照表、信任模型与 `repo.push`。
 
 ## [0.180.1] - 2026-10-21
 
