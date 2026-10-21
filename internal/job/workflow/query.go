@@ -25,8 +25,8 @@ func (e *Engine) ListWorkflows(status string, limit int) ([]jobstore.Workflow, e
 // WorkflowSteps returns the per-step summary for a workflow's detail view, in
 // step order. It reads the started step-jobs (a step not yet reached has no job
 // row, so the list only contains started steps — the chain is strictly serial).
-// The name is recovered from the step-job's persisted request (Title == step
-// name).
+// The name comes from the spec, falling back to the step-job's persisted title (a
+// fan job is titled "<step> · <fan>").
 func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 	jobs, err := e.meta.ListWorkflowJobs(wfID)
 	if err != nil {
@@ -82,6 +82,11 @@ func (e *Engine) WorkflowSteps(wfID string) ([]Step, error) {
 				// nothing, so the CLI/web show the step name for an unnamed fan).
 				if f := fanSpecAt(spec.Steps[idx-1], out[i].FanIndex); f != nil {
 					out[i].FanName = f.Name
+				}
+				// The spec names the step; the job title of a named fan is
+				// "<step> · <fan>", so it is only the fallback above.
+				if name := spec.Steps[idx-1].Name; name != "" {
+					out[i].Name = name
 				}
 				// The ref a ref:-step checked out (the row's Cwd is then the temporary
 				// detached worktree the engine created for that commit).

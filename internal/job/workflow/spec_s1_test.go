@@ -474,3 +474,19 @@ func TestMergeStepFromMarkdownNewFields(t *testing.T) {
 		t.Fatalf("merged step = %+v, want the inline fields to win", inline)
 	}
 }
+
+// TestFanJobTitleNamesTheFan: each fan's job is titled "<step> · <fan name>", so the
+// job list tells the fans of one step apart; a fan without a name keeps the step name.
+func TestFanJobTitleNamesTheFan(t *testing.T) {
+	step := StepSpec{
+		Name: "checks",
+		Cmd:  []string{"go", "version"},
+		Fan:  []FanSpec{{Name: "linux-race"}, {}},
+	}
+	if got := stepToRequestForFan(step, "wf-x", 1, 1, 1, "").Title; got != "checks · linux-race" {
+		t.Fatalf("fan 1 title = %q, want %q", got, "checks · linux-race")
+	}
+	if got := stepToRequestForFan(step, "wf-x", 1, 1, 2, "").Title; got != "checks" {
+		t.Fatalf("unnamed fan title = %q, want the step name", got)
+	}
+}

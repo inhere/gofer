@@ -263,6 +263,9 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 		review = *step.Review
 	}
 	agent, runner := fanAgentRunner(step, fanIndex)
+	// A fan's job is titled "<step> · <fan name>" so the job list tells the fans of one
+	// step apart (every fan used to carry the bare step name).
+	title := step.Name
 	// S1 (design §一·2): a fan may carry its own cmd / env / cwd / timeout_sec so one step
 	// fans out the checks of a verify workflow; each override falls back to the step's
 	// value. The fan's env layers over the step's (G042: extra wins).
@@ -279,6 +282,13 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 		}
 		if f.TimeoutSec > 0 {
 			timeoutSec = f.TimeoutSec
+		}
+		if f.Name != "" && f.Name != title {
+			if title == "" {
+				title = f.Name
+			} else {
+				title += " · " + f.Name
+			}
 		}
 	}
 	// A step / fan that runs a command but names no agent runs the built-in exec agent
@@ -317,7 +327,7 @@ func stepToRequestForFan(step StepSpec, wfID string, stepIndex, attempt, fanInde
 		Env:              env,
 		Cwd:              cwd,
 		TimeoutSec:       timeoutSec,
-		Title:            step.Name,
+		Title:            title,
 		Tags:             stepTags(step, internalExec),
 		// `ref:` (design 一·3): the spec carries the resolved sha by now (resolveStepRefs),
 		// so every fan of the step checks out the same commit in a temporary worktree.

@@ -713,7 +713,8 @@ func runWorkflowRerun(c *gcli.Command, _ []string) error {
 }
 
 // printStepChain renders a workflow's started step-jobs as a table
-// (STEP/ATT/FAN/NAME/RUNNER/STATUS/EXIT/TIME, design §一·6). A step not yet reached has
+// (STEP/ATT/FAN/NAME/RUNNER/STATUS/EXIT/STARTED/TIME/JOB, design §一·6). JOB is the
+// row's job id (already in the view, no extra query) for `gofer job show|logs`. A step not yet reached has
 // no row (the chain is strictly serial), so an empty chain prints a friendly hint. A
 // retried step contributes one row per attempt and a fan-out step one row per fan, so
 // the ATT/FAN columns expose the v2 dimensions; both render "-" for a v1 single-job
@@ -723,19 +724,19 @@ func printStepChain(c *gcli.Command, steps []client.WorkflowStep) {
 		c.Println("  (no steps started yet)")
 		return
 	}
-	c.Printf("  %-5s %-4s %-4s %-18s %-10s %-10s %-5s %-25s %s\n", "STEP", "ATT", "FAN", "NAME", "RUNNER", "STATUS", "EXIT", "STARTED", "TIME")
+	c.Printf("  %-5s %-4s %-4s %-18s %-15s %-10s %-5s %-25s %-8s %s\n", "STEP", "ATT", "FAN", "NAME", "RUNNER", "STATUS", "EXIT", "STARTED", "TIME", "JOB")
 	var excerpts []client.WorkflowStep
 	for _, st := range steps {
-		c.Printf("  %-5d %-4s %-4s %-18s %-10s %-10s %-5s %-25s %s\n",
+		c.Printf("  %-5d %-4s %-4s %-18s %-15s %-10s %-5s %-25s %-8s %s\n",
 			st.StepIndex, attemptCol(st.Attempt), fanCol(st.FanIndex),
 			stepName(st), runnerCol(st.Runner), st.Status, exitCol(st.ExitCode),
-			startedCol(st.StartedAt), durationCol(st.DurationSec))
+			startedCol(st.StartedAt), durationCol(st.DurationSec), jobCol(st.JobID))
 		if st.FailureExcerpt != "" {
 			excerpts = append(excerpts, st)
 		}
 	}
 	for _, st := range excerpts {
-		c.Printf("\nfailed %s (%s):\n", stepRowLabel(st), st.Status)
+		c.Printf("\nfailed %s (%s, job %s):\n", stepRowLabel(st), st.Status, jobCol(st.JobID))
 		for _, line := range strings.Split(st.FailureExcerpt, "\n") {
 			c.Printf("  | %s\n", line)
 		}
@@ -767,6 +768,14 @@ func runnerCol(runner string) string {
 		return "-"
 	}
 	return runner
+}
+
+// jobCol renders a row's job id, "-" for a row without one (a sub-workflow step).
+func jobCol(id string) string {
+	if id == "" {
+		return "-"
+	}
+	return id
 }
 
 // exitCol renders a row's exit code, "-" when it has none (not started / not a process).
