@@ -149,8 +149,27 @@ func TestJoinPickAdvancesAfterSelection(t *testing.T) {
 }
 
 func TestBuiltinWorkflowTemplatesValidate(t *testing.T) {
+	// Every builtin resolves with the values its own variables need; an undeclared name
+	// is rejected by renderWorkflowTemplate, so the map is built from the declaration.
 	for _, tpl := range BuiltinWorkflowTemplates() {
-		spec, err := ResolveBuiltinWorkflowTemplate(tpl.Name, map[string]string{"project": "self", "task": "demo"})
+		// renderWorkflowTemplate rejects an undeclared variable, so only the names the
+		// template declares are supplied (a generic value where the name does not matter).
+		vars := make(map[string]string, len(tpl.Spec.Vars))
+		for name := range tpl.Spec.Vars {
+			switch name {
+			case "project":
+				vars[name] = "self"
+			case "commit":
+				vars[name] = "abc123"
+			case "cmd":
+				vars[name] = "go test ./..."
+			case "version":
+				vars[name] = "1.2.3"
+			default:
+				vars[name] = "demo"
+			}
+		}
+		spec, err := ResolveBuiltinWorkflowTemplate(tpl.Name, vars)
 		if err != nil {
 			t.Fatalf("%s resolve: %v", tpl.Name, err)
 		}

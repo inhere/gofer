@@ -54,6 +54,12 @@
   - **新建 workflow → 模板**：每张模板卡可以「查看源文件」，标明来源（内置 / 全局 / 项目）、来自哪个文件、盖住了哪些层。有 `config.write` 时可以「编辑」：YAML 编辑区 + 保存；服务端校验不过时把原因就地显示（YAML 位置与原因），一个字节都不写。保存前选「全局」或「当前项目」；存的是内置同名模板时提示「将覆盖内置模板 <name>」。
   - 项目模板保存后是**未提交改动**：页面醒目提示「已写入项目工作区，尚未提交——提交到仓库才算数」并给出可复制的 `git add … && git commit …`；还能「新建模板」与「删除」（删除要二次确认，删完说明名字回落到全局还是内置）。内置模板只能查看；没有 `config.write` 时整块只读并写明原因。
   - **workflow 详情 → 结果**：每个步骤 / 每路 fan 一行，列出 runner、状态、退出码、耗时；失败行可展开 `failure_excerpt`，并有到该任务日志的链接。「只重跑失败的」与每行的「从此步重跑」确认后提交，完成后直接跳到新的 workflow；「另存为模板」把这次运行的 spec（已剥 secret）存成全局或项目模板，同样的未提交提示。手机宽度下结果表改成纵向卡片（字段带标签）。
+- **`gofer workflow init verify|release` 与内置 verify / release 模板**：检查与发版这两类流程不用再从空白 yaml 写起。
+  - `gofer workflow init verify [--dir <仓库目录>]` 生成 `.gofer/workflows/verify.yaml`，按仓库内容预填：有 `go.mod` → `go test ./...` 与 `go vet ./...` 两路；有 `package.json` → 其中存在的 `test` / `build` / `lint` 各一路（按 lock 文件用 `npm` / `pnpm` / `yarn run`，在子目录时带 `cwd`）；两者都有则合在同一步骤的 `fan` 里（`join: all` 并行）；都没有则留一路占位命令并注明改法。
+  - `gofer workflow init release [--dir <仓库目录>]` 生成 `push`（当前默认分支 + `v${vars.version}`）→ `wait-ci`（有 `.github/workflows` 则取其各 workflow 的 `name:` 作 `required`）→ `wait-assets`（注释示例）。
+  - 生成的文件带中文注释逐段说明改法；生成结果先过一遍模板校验（同保存模板的规则），不可能写出一个跑不起来的文件。已存在且不带 `--force` 时拒绝并说明；生成后提示「提交到仓库后 server 才读得到」。
+  - 内置模板 `verify`（var `project` / `commit` / `cmd` / `runner`）与 `release`（var `project` / `version` / `branch` 默认 `main` / `runner`）：项目里存同名文件即可盖住。
+  - skill 的 [plans-workflows](skills/gofer-usage/references/plans-workflows.md) 新增「verify / release 起步 workflow」一节：两个完整示例、与 GitHub Actions 的对照表、信任模型与 `repo.push`。
 
 ## [0.180.1] - 2026-10-21
 

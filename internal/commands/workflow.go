@@ -75,6 +75,13 @@ var wfRerunOpts struct {
 	watch  bool
 }
 
+// wfInitOpts are `wf init`'s flags: where to write the starter file and whether an
+// existing one may be replaced.
+var wfInitOpts struct {
+	dir   string
+	force bool
+}
+
 // NewWorkflowCmd builds the `workflow` command group (run/show/list/cancel). It
 // wraps the server's /v1/workflows HTTP API so the host can submit and inspect
 // job-chains without curl (P3-a). A workflow file is yaml (title + steps[]); the
@@ -161,6 +168,17 @@ func NewWorkflowCmd() *gcli.Command {
 						Func: runWorkflowTemplateRemove,
 					},
 				},
+			},
+			{
+				Name: "init",
+				Desc: "Write a starter workflow file (.gofer/workflows/verify.yaml or release.yaml) for a repository",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					c.StrOpt(&wfInitOpts.dir, "dir", "", "", "repository directory (default: the current directory)")
+					c.BoolOpt(&wfInitOpts.force, "force", "", false, "overwrite the file when it already exists")
+					c.AddArg("kind", "which starter to write: verify or release", true)
+				},
+				Func: runWorkflowInit,
 			},
 			{
 				Name: "save-as-template",
@@ -397,6 +415,39 @@ func printTemplateWrite(c *gcli.Command, res workflow.TemplateWriteResult, verb 
 		c.Println("note: this is an uncommitted change in the project workspace; commit it so the repository keeps it:")
 		c.Println("  " + res.CommitCommand)
 	}
+}
+
+// runWorkflowInit writes a starter workflow file (verify / release) into a repository,
+// pre-filled from what the repository contains (workflow.GenerateWorkflowInit). It
+// talks to no server: the file only takes effect once it is committed, because the
+// server reads project templates from the project workspace.
+func runWorkflowInit(c *gcli.Command, _ []string) error {
+	kind := c.Arg("kind").String()
+	dir := wfInitOpts.dir
+	if dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		dir = wd
+	}
+	path, err := workflow.WriteWorkflowInit(kind, dir, wfInitOpts.force)
+	if err != nil {
+		return err
+	}
+	c.Printf("wrote %s\n", path)
+	c.Printf("run it: gofer wf run --template %s -p <project> --var %s=<value>\n", kind, initKindVar(kind))
+	c.Printf("the server reads it from the project workspace, so commit it first: git add %s\n", path)
+	return nil
+}
+
+// initKindVar names the one required variable a starter of kind carries, for the run
+// hint printed after writing it.
+func initKindVar(kind string) string {
+	if kind == workflow.InitRelease {
+		return "version"
+	}
+	return "commit"
 }
 
 func runWorkflowPick(c *gcli.Command, _ []string) error {

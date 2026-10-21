@@ -179,7 +179,7 @@ gofer session say <id> "<回复>"      # CLI 代答；"/off" = 关中继并放�
 |---|---|
 | [commands.md](references/commands.md) | 查某组命令的常用写法（job 之外的全部命令索引） |
 | [job-advanced.md](references/job-advanced.md) | 续跑、持续会话、交互 pty、只读、模型、预算、verify、验收、worktree / 目录锁、故障转移、任务书模板、日志 |
-| [plans-workflows.md](references/plans-workflows.md) | plan / todo 链、plan import 与方案规则、决策点问人、workflow 与多 agent 择优 |
+| [plans-workflows.md](references/plans-workflows.md) | plan / todo 链、plan import 与方案规则、决策点问人、workflow（含 verify / release 起步与内置步骤）与多 agent 择优 |
 | [sessions-relay.md](references/sessions-relay.md) | 会话交给 web 的完整用法：hooks、自动布防、送话、接管 / 唤醒、转达、watch、催办 |
 | [tracker.md](references/tracker.md) | issue / memory / brief / prime 的细节、记忆体检、子项目适用路径、经验候选、合并驱动、从 bd 迁移 |
 | [hold-approval.md](references/hold-approval.md) | 待批 job 的提交、批准、结果与限制 |

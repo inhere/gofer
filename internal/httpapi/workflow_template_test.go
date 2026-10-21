@@ -62,7 +62,7 @@ func newTemplateTestServer(t *testing.T) (s *Server, configDir, projectDir strin
 func TestWorkflowTemplateSourceAPI(t *testing.T) {
 	s, configDir, projectDir := newTemplateTestServer(t)
 
-	projectFile := filepath.Join(projectDir, ".gofer", "workflows", "verify.yaml")
+	projectFile := filepath.Join(projectDir, ".gofer", "workflows", "op-check.yaml")
 	if err := os.MkdirAll(filepath.Dir(projectFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestWorkflowTemplateSourceAPI(t *testing.T) {
 		return resp.StatusCode, src
 	}
 
-	code, src := get("verify", "seed")
+	code, src := get("op-check", "seed")
 	if code != http.StatusOK || src.Source != "project" || src.Path != projectFile || src.Content != validProjectTemplateYAML {
 		t.Fatalf("project source = %d %+v, want the project file", code, src)
 	}
@@ -148,7 +148,7 @@ steps:
 // 404.
 func TestSaveGlobalWorkflowTemplate(t *testing.T) {
 	s, configDir, _ := newTemplateTestServer(t)
-	path := "/v1/workflow-templates/verify?scope=global"
+	path := "/v1/workflow-templates/op-save?scope=global"
 
 	resp := do(t, s, http.MethodPut, path, adminToken, map[string]string{"content": validProjectTemplateYAML})
 	if resp.StatusCode != http.StatusOK {
@@ -156,7 +156,7 @@ func TestSaveGlobalWorkflowTemplate(t *testing.T) {
 	}
 	var saved workflow.TemplateWriteResult
 	decode(t, resp, &saved)
-	file := filepath.Join(configDir, "workflows", "verify.yaml")
+	file := filepath.Join(configDir, "workflows", "op-save.yaml")
 	if saved.Path != file || saved.Uncommitted || saved.ContentLength != len(validProjectTemplateYAML) {
 		t.Fatalf("save result = %+v, want %s", saved, file)
 	}
@@ -166,7 +166,7 @@ func TestSaveGlobalWorkflowTemplate(t *testing.T) {
 	}
 
 	// The write is audited: who, which template, which scope, and a digest of the body.
-	rows, err := s.settingsAuditStore().ListAuthAudit(jobstore.AuthAuditFilter{Subject: "verify"})
+	rows, err := s.settingsAuditStore().ListAuthAudit(jobstore.AuthAuditFilter{Subject: "op-save"})
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestSaveGlobalWorkflowTemplate(t *testing.T) {
 	var gone workflow.TemplateWriteResult
 	decode(t, resp, &gone)
 	if gone.FallsBackTo != "" {
-		t.Fatalf("delete of verify = %+v, want no fallback (no builtin verify)", gone)
+		t.Fatalf("delete of op-save = %+v, want no fallback (op-save is not a builtin)", gone)
 	}
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
 		t.Fatal("delete left the file behind")
@@ -280,7 +280,7 @@ func TestSaveGlobalWorkflowTemplate(t *testing.T) {
 // as an uncommitted change and the response carries the commit command.
 func TestSaveProjectWorkflowTemplate(t *testing.T) {
 	s, _, projectDir := newTemplateTestServer(t)
-	path := "/v1/workflow-templates/verify?scope=project&project=seed"
+	path := "/v1/workflow-templates/op-check?scope=project&project=seed"
 
 	resp := do(t, s, http.MethodPut, path, adminToken, map[string]string{"content": validProjectTemplateYAML})
 	if resp.StatusCode != http.StatusOK {
@@ -288,11 +288,11 @@ func TestSaveProjectWorkflowTemplate(t *testing.T) {
 	}
 	var saved workflow.TemplateWriteResult
 	decode(t, resp, &saved)
-	file := filepath.Join(projectDir, ".gofer", "workflows", "verify.yaml")
+	file := filepath.Join(projectDir, ".gofer", "workflows", "op-check.yaml")
 	if saved.Path != file || !saved.Uncommitted || saved.Scope != "project" {
 		t.Fatalf("save result = %+v, want an uncommitted file at %s", saved, file)
 	}
-	if !strings.Contains(saved.CommitCommand, "git add .gofer/workflows/verify.yaml") ||
+	if !strings.Contains(saved.CommitCommand, "git add .gofer/workflows/op-check.yaml") ||
 		!strings.Contains(saved.CommitCommand, "git commit") {
 		t.Fatalf("commit command = %q, want git add + git commit for the path", saved.CommitCommand)
 	}

@@ -75,12 +75,16 @@ gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 
 ```bash
 gofer workflow run <file.yaml> [-w] | run --template <name> --var k=v [-w]
-gofer workflow template ls | show <name> [-p <project>]
+gofer workflow init verify|release [--dir <仓库目录>] [--force]   # 生成起步文件
+gofer workflow template ls | show <name> [-p <project>] [--source]
+gofer workflow template save <name> -f <file> | rm <name> [--global | --project <p>]
+gofer workflow save-as-template <wf-id> <name> [--global | --project <p>]
 gofer workflow list / show <id> / events <id> / cancel <id> / export <id>
+gofer workflow rerun <id> --failed | --from <step> [-w]
 gofer workflow pick <id> <step> <fan> [--merge [--squash] [--cleanup-others]]
 ```
 
-细节见 [plans-workflows.md](plans-workflows.md)「workflow」「多 agent 对比与择优」。
+细节见 [plans-workflows.md](plans-workflows.md)「workflow」「verify / release 起步 workflow」「内置步骤」「多 agent 对比与择优」。
 
 ## issue / memory / repo
 
