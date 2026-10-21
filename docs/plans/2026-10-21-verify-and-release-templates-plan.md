@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # verify 与 release 通用模板 实施计划
 
-> 状态：Draft 0.1 / 待用户批准
+> 状态：Draft 0.1 / 已批准并请求执行（用户 2026-10-21：「批准实施计划，开始实施」；已合入的小改随本批一起发版）
 > issue：gofer-byev、gofer-51b0
 
 - 思考模式：rigorous。
