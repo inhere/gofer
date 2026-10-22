@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 变更
+
+- **GitHub CI 的测试分片改为按包耗时自动均衡（gofer-fofi）**：Windows 由固定的 4 个任务改为 6 个、Ubuntu 2 个，分片由 `.github/scripts/ci_shard.py` 依据实测包耗时装箱生成（耗时最长的 `internal/job` / `internal/commands` / `internal/httpapi` 再按测试名切成几份，用 `-run` 分别跑）。测试覆盖不变——每个 Go 版本（1.26 / stable）× 每个平台仍然跑全部包、不加 `-short`；目的只是把发版时等 CI 的时间从 12–15 分钟压到 6 分钟左右。
+
 ## [0.182.1] - 2026-10-21
 
 ### 修复

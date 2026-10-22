@@ -5,6 +5,7 @@ on:
       - "go.mod"
       - "**.go"
       - "**.yml"
+      - ".github/scripts/**"
   push:
     branches: # Only trigger branch pushes; tag pushes are ignored.
       - "**"
@@ -12,35 +13,44 @@ on:
       - "go.mod"
       - "**.go"
       - "**.yml"
+      - ".github/scripts/**"
 
 jobs:
   test:
-    name: Test on go ${{ matrix.go_version }} and ${{ matrix.os }}${{ matrix.shard && format(' ({0})', matrix.shard) || '' }}
+    name: Test on go ${{ matrix.go_version }} and ${{ matrix.os }}${{ matrix.shards > 1 && format(' ({0}/{1})', matrix.shard, matrix.shards) || '' }}
     runs-on: ${{ matrix.os }}
     strategy:
       # One failing OS must not cancel the others: the first failure otherwise
       # hides the real results of the remaining platforms (a cancelled job reports
       # the package as FAIL with no test names, which reads like a mystery failure).
       fail-fast: false
+      # Every package runs on every leg; the shards only decide which runner runs
+      # what, assigned by .github/scripts/ci_shard.py from measured package times
+      # so the shards of one leg cost about the same. Windows needs the most
+      # shards (its runners are the slowest of the three), so it is cut into 6;
+      # ubuntu into 2 (one of them also carries the shuffle guard below); macOS
+      # stays whole in one job per Go version - macOS runners are the scarcest
+      # resource here, so splitting further would only queue longer.
       matrix:
-        go_version: [1.26, stable]
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        # Windows runs as four shards, one runner each. internal/commands is a
-        # long serial package (shared flag globals, no t.Parallel); sharing a
-        # 4-vCPU runner with internal/job and internal/httpapi (heavily
-        # t.Parallel) starved it to ~6x its solo time (389s in CI vs 67s alone
-        # on a desktop), and it became the critical path of the whole run.
-        exclude:
-          - os: windows-latest
         include:
-          - { go_version: "1.26", os: windows-latest, shard: internal/commands }
-          - { go_version: "1.26", os: windows-latest, shard: internal/job }
-          - { go_version: "1.26", os: windows-latest, shard: internal/httpapi }
-          - { go_version: "1.26", os: windows-latest, shard: rest }
-          - { go_version: stable, os: windows-latest, shard: internal/commands }
-          - { go_version: stable, os: windows-latest, shard: internal/job }
-          - { go_version: stable, os: windows-latest, shard: internal/httpapi }
-          - { go_version: stable, os: windows-latest, shard: rest }
+          - { go_version: "1.26", os: ubuntu-latest, shard: 1, shards: 2 }
+          - { go_version: "1.26", os: ubuntu-latest, shard: 2, shards: 2 }
+          - { go_version: stable, os: ubuntu-latest, shard: 1, shards: 2 }
+          - { go_version: stable, os: ubuntu-latest, shard: 2, shards: 2 }
+          - { go_version: "1.26", os: macos-latest, shard: 1, shards: 1 }
+          - { go_version: stable, os: macos-latest, shard: 1, shards: 1 }
+          - { go_version: "1.26", os: windows-latest, shard: 1, shards: 6 }
+          - { go_version: "1.26", os: windows-latest, shard: 2, shards: 6 }
+          - { go_version: "1.26", os: windows-latest, shard: 3, shards: 6 }
+          - { go_version: "1.26", os: windows-latest, shard: 4, shards: 6 }
+          - { go_version: "1.26", os: windows-latest, shard: 5, shards: 6 }
+          - { go_version: "1.26", os: windows-latest, shard: 6, shards: 6 }
+          - { go_version: stable, os: windows-latest, shard: 1, shards: 6 }
+          - { go_version: stable, os: windows-latest, shard: 2, shards: 6 }
+          - { go_version: stable, os: windows-latest, shard: 3, shards: 6 }
+          - { go_version: stable, os: windows-latest, shard: 4, shards: 6 }
+          - { go_version: stable, os: windows-latest, shard: 5, shards: 6 }
+          - { go_version: stable, os: windows-latest, shard: 6, shards: 6 }
 
     steps:
       - name: Check out code
@@ -78,45 +88,43 @@ jobs:
       # leg went red on it, run 38689331663), so gate the step on the OS as well.
       - name: Run staticcheck
         uses: reviewdog/action-staticcheck@v1
-        if: ${{ github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' }}
+        if: ${{ github.event_name == 'pull_request' && matrix.os == 'ubuntu-latest' && matrix.shard == 1 }}
         with:
           github_token: ${{ secrets.github_token }}
           reporter: github-pr-check
           filter_mode: added
           fail_on_error: true
 
+      # Which packages (and, for the few dominating packages, which of their tests)
+      # this shard runs is computed from measured per-package times, see the script.
+      # `-p 2` on windows: the heavy packages (job, httpapi, core, mcpserver) are
+      # dominated by contention rather than by their own work there - internal/job
+      # ran in 488s with the default `-p` (4 packages at once on 4 vCPUs) but in
+      # 178s alone - so overlapping fewer of them is cheaper overall.
+      # `-timeout 20m` is per test binary: internal/job alone already needs over
+      # 500s there, and the timeout only exists so a hung test is reported as a
+      # hang rather than as a mystery package failure.
       - name: Run unit tests
         if: ${{ matrix.os == 'windows-latest' }}
-        # Two measured settings:
-        #   -p 2     : the same commit runs internal/job in 488s under the default
-        #              -p (4 packages at once on 4 vCPUs) but in 178s when that
-        #              package runs alone — the heavy packages (job, httpapi, core,
-        #              mcpserver) are dominated by contention, not by their own work,
-        #              so overlapping fewer of them is cheaper overall.
-        #   -timeout : 10m is the default PER TEST BINARY; internal/job alone already
-        #              needs 178s here, and the timeout only exists so a hung test is
-        #              reported as a hang rather than as a mystery package failure.
         shell: pwsh
         run: |
-          $heavy = 'internal/commands', 'internal/job', 'internal/httpapi'
-          if ('${{ matrix.shard }}' -eq 'rest') {
-            $pkgs = go list ./... | Where-Object { $heavy -notcontains ($_ -replace '^github.com/inhere/gofer/', '') }
-          } else {
-            $pkgs = @('./${{ matrix.shard }}/')
-          }
-          go test -timeout 20m -p 2 @pkgs
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python .github/scripts/ci_shard.py --shard ${{ matrix.shard }} --count ${{ matrix.shards }} -- go test -timeout 20m -p 2
 
       - name: Run unit tests with coverage
-        if: ${{ matrix.os != 'windows-latest' }}
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          python3 .github/scripts/ci_shard.py --shard ${{ matrix.shard }} --count ${{ matrix.shards }} -- go test -timeout 20m -cover
+
+      - name: Run unit tests with coverage
+        if: ${{ matrix.os == 'macos-latest' }}
         run: go test -timeout 20m -cover ./...
 
       # Order guard (gofer-r7am, D class): commands tests share package-level flag
       # structs; a random order exposes any test that leaks state into the next.
+      # One ubuntu shard per Go version carries it, as before.
       - name: Run commands tests in shuffled order
-        if: ${{ matrix.os == 'ubuntu-latest' }}
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.shard == 1 }}
         run: go test -timeout 20m -shuffle=on ./internal/commands/
-
 
       # Race detector is slow (~5-10x) and only supported on linux/amd64, so run
       # it on a single recent-Go + ubuntu job instead of the whole matrix.
