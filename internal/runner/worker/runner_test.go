@@ -1263,7 +1263,14 @@ func TestRunInteractiveCancelResolvesOnWorkerLost(t *testing.T) {
 	}()
 	sink := waitForSink(t, h)
 	cancel()
-	time.Sleep(wait.Timeout(t, 50*time.Millisecond)) // let Run enter the 3-way wait
+	// Wait for the cancel FRAME: sending it proves Run took the ctx.Done branch and is
+	// now in the 3-way drain-wait — the state the old fixed sleep only approximated.
+	// Arriving "too early" is no risk either: lostCh is buffered (cap 1, see
+	// OnDisconnect), so a worker-lost landing before the select is still there when Run
+	// reaches it.
+	wait.Until(t, 5*time.Second, "cancel frame sent (Run parked in the drain-wait)", func() bool {
+		return h.cancelCount() == 1
+	})
 	sink.OnDisconnect(errors.New("worker disconnected"))
 	select {
 	case res := <-done:
