@@ -93,6 +93,7 @@ gofer job end <job-id>                   # 结束会话并释放目录锁
 
 - 状态：一轮结束停在 `awaiting_input`，`say` 回到 `running`；`end` 或空闲到期为 `done`，`cancel` 为 `cancelled`，agent 进程异常退出为 `failed`。
 - 超时：`--timeout` 限每一轮；`--idle-timeout` 限等下一条消息（0 = 1800 秒）；`--max-session` 限整个会话（0 = 不限）。`--prompt` 可省，直接等第一条 `say`。
+- 每轮计时会为人工审批让路：一轮里停下等人作答（工具调用审批，job 处于 `pending_interaction`）的时间**不计入**这一轮的 `--timeout`，答完继续计时，所以开了 `approval` 的会话不会因为人回得慢被判 turn timed out。暂停 / 恢复各记一条 job 事件（`job.turn_timeout_paused` / `job.turn_timeout_resumed`，详情带本轮预算 `timeout_sec`、已用 `used_sec`、剩余 `remaining_sec`、欠着的 `interaction_id`）。审批自己的 `timeout_sec` + `on_timeout` 仍然兜底，等待有上限；`--max-session` 与 job 总时限按墙上时间算，不暂停。
 - 占用：整个会话期间（含 `awaiting_input`）都持有目录锁并占 agent 的并发名额，尽量配 `--lock <子目录>` 或 `--worktree`，用完及时 `end`。
 - 在哪跑：server 本机或较新的 worker；太旧的 worker 提交时被拒并提示升级。`--interactive` 与 `--session` 互斥，非 acp-agent 带 `--session` 被拒。server 重启 / worker 断线后用协议的会话载入恢复，agent 不支持就 `failed`，改开新会话。
 - 内置 `claude-acp` / `codex-acp` 用 `npx -y @agentclientprotocol/claude-agent-acp`、`npx -y @agentclientprotocol/codex-acp` 适配器（在 config 里自定义过的，确认用的是这两个包）。codex-acp 认证读 `~/.codex/auth.json` 或 `CODEX_API_KEY` / `OPENAI_API_KEY`，`CODEX_PATH` 可指向别的 codex。
@@ -331,6 +332,8 @@ gofer job answer <id> <interaction-id> <optionId>   # 作答（web 交互面板 
 ```
 
 无人作答到 `timeout_sec` 按 `on_timeout` 兜底（默认 reject）。
+
+等人作答的时间**不计入** job 的每轮超时：job 停在 `pending_interaction` 期间，这一轮的计时暂停（答完恢复），所以人回得慢不会让 job 以 "turn timed out" 失败。暂停 / 恢复各记一条 job 事件（`job.turn_timeout_paused` / `job.turn_timeout_resumed`，详情带本轮预算 `timeout_sec`、已用 `used_sec`、剩余 `remaining_sec` 与 `interaction_id`）。审批自己的 `timeout_sec` 照旧兜底，因此等待仍有上限；会话 / job 的总时长上限（`--max-session`、`--timeout` 的整体上限）不暂停，照旧按墙上时间算。
 
 `mode: ask` 下，agent 调用 **gofer 自己的只读 MCP 工具**（`gofer_work_list`、`gofer_today_list`、`gofer_get_job`、`gofer_list_*` 等）不弹审批：不论 agent 把工具调用报成什么 `kind`（ACP agent 常报 `other`）都自动放行，并在 `artifacts/acp.jsonl` 记一条 `reason=gofer_readonly_tool`。写类工具（提交 job、改状态、写记忆等）与别的 MCP server 的**同名工具**照旧按策略；`mode: strict` 仍然每个工具都问人。
 

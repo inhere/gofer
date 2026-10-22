@@ -1277,6 +1277,10 @@ const (
 	EventJobPermissionRequested = runner.EventPermissionRequested
 	EventJobPermissionAnswered  = runner.EventPermissionAnswered
 	EventJobPermissionTimedOut  = runner.EventPermissionTimedOut
+	// The turn-clock pause/resume rows (gofer-ji7m) follow the same rule: the acp runner
+	// owns them and cannot import this package, so the literals live there.
+	EventJobTurnTimeoutPaused  = runner.EventTurnTimeoutPaused
+	EventJobTurnTimeoutResumed = runner.EventTurnTimeoutResumed
 	// EventJobFellBack is a transient failure taken over by the next candidate agent
 	// (SUP-01 P3): {to_job, agent, reason} where reason is the matched provider-error
 	// text. It REPLACES job.terminal for that transition (the failure is about to be

@@ -52,12 +52,17 @@ var mirroredEventTypes = map[string]bool{
 	EventJobPermissionRequested: true,
 	EventJobPermissionAnswered:  true,
 	EventJobPermissionTimedOut:  true,
-	EventJobACPSummary:          true,
-	EventJobTurnStarted:         true,
-	EventJobTurnEnded:           true,
-	EventJobAwaitingInput:       true,
-	EventJobVerifyStarted:       true,
-	EventJobVerifyFinished:      true,
+	// gofer-ji7m: the turn clock paused for an approval wait and resumed with the answer.
+	// Raised on the executing machine (the runner owns the clock), and a "did this turn's
+	// budget get paused, and why" read from the hub would be blind without them.
+	EventJobTurnTimeoutPaused:  true,
+	EventJobTurnTimeoutResumed: true,
+	EventJobACPSummary:         true,
+	EventJobTurnStarted:        true,
+	EventJobTurnEnded:          true,
+	EventJobAwaitingInput:      true,
+	EventJobVerifyStarted:      true,
+	EventJobVerifyFinished:     true,
 	// SEC-01: the allowance is resolved on the machine that SPAWNS the child, which for
 	// a dispatched job is the worker — the host would otherwise never learn that this
 	// job ran with a variable its denylist would have stripped, which is exactly the

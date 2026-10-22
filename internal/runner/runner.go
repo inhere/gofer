@@ -32,6 +32,16 @@ const (
 	EventPermissionTimedOut  = "job.permission_timed_out"
 )
 
+// The turn-clock job events (gofer-ji7m): recorded by the acp runner when a resident
+// turn's running budget is paused for a wait on a human (an approval) and resumed by the
+// answer. They live here for the same reason as the approval-gate events above — the acp
+// runner cannot import job (G022) and the worker→hub mirror whitelist must name them;
+// job.EventJobTurnTimeoutPaused / job.EventJobTurnTimeoutResumed alias them.
+const (
+	EventTurnTimeoutPaused  = "job.turn_timeout_paused"
+	EventTurnTimeoutResumed = "job.turn_timeout_resumed"
+)
+
 // EventACPSummary is the ONE lifecycle row an acp turn contributes to the job timeline
 // (bd h-aii-rnxk): {tool_calls,thoughts,permissions,permissions_auto,stop_reason},
 // recorded when the prompt turn ends. The per-tool-call detail it replaces lives on the
