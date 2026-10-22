@@ -1,7 +1,9 @@
 package desktop
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +31,14 @@ func (r *recordingNotifier) shown() []Notification {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]Notification(nil), r.seen...)
+}
+
+// setErr changes the verdict of later Show calls (the fake desktop settings switching
+// off and on again).
+func (r *recordingNotifier) setErr(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.err = err
 }
 
 // A window of 0 pops immediately: nothing is merged, so a single event arrives whole.
@@ -152,6 +162,95 @@ func TestDispatcherReportsSkipOncePerReason(t *testing.T) {
 	d2.Push(Notification{EventType: "job.needs_review", Title: "x"})
 	if len(d2.logged) != 0 {
 		t.Errorf("logged = %v, want nothing for a real failure", d2.logged)
+	}
+}
+
+// logCapture records the slog calls of the dispatcher, so "once per cause" is asserted
+// on the real log lines instead of on internal counters.
+type logCapture struct {
+	mu      sync.Mutex
+	skipped []string // reason attribute of each notify.desktop_skipped line
+}
+
+func (h *logCapture) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *logCapture) Handle(_ context.Context, r slog.Record) error {
+	if r.Message != "notify.desktop_skipped" {
+		return nil
+	}
+	reason := ""
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == "reason" {
+			reason = a.Value.String()
+		}
+		return true
+	})
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.skipped = append(h.skipped, reason)
+	return nil
+}
+
+func (h *logCapture) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *logCapture) WithGroup(string) slog.Handler      { return h }
+
+func (h *logCapture) reasons() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.skipped...)
+}
+
+// useLogCapture routes the default logger into a capture handler for one test.
+func useLogCapture(t *testing.T) *logCapture {
+	t.Helper()
+	h := &logCapture{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return h
+}
+
+// The skip line is written once per CAUSE, not once per event: a cause that changes is
+// reported again, and so is the same cause after the channel recovered (the person
+// switched notifications back on and later off again).
+func TestDispatcherReportsSkipOncePerCauseAndAgainAfterRecovery(t *testing.T) {
+	h := useLogCapture(t)
+	rec := &recordingNotifier{}
+	d := NewDispatcher(rec, 0)
+
+	disabled := &SkipError{Reason: toastDisabledReason("DisabledForUser")}
+	rec.setErr(disabled)
+	for i := 0; i < 3; i++ {
+		d.Push(Notification{EventType: "job.needs_review", Title: "x"})
+	}
+	if got := h.reasons(); len(got) != 1 {
+		t.Fatalf("skipped lines = %v, want 1 for three events on the same cause", got)
+	}
+
+	// Same cause still disabled: still one line.
+	d.Push(Notification{EventType: "job.needs_review", Title: "y"})
+	if got := h.reasons(); len(got) != 1 {
+		t.Fatalf("skipped lines = %v, want still 1", got)
+	}
+
+	// A different setting value is a different cause.
+	rec.setErr(&SkipError{Reason: toastDisabledReason("DisabledByGroupPolicy")})
+	d.Push(Notification{EventType: "job.needs_review", Title: "z"})
+	if got := h.reasons(); len(got) != 2 {
+		t.Fatalf("skipped lines = %v, want a second line for the changed cause", got)
+	}
+
+	// The popup works again, then the same cause returns: report it again.
+	rec.setErr(nil)
+	d.Push(Notification{EventType: "job.needs_review", Title: "ok"})
+	rec.setErr(disabled)
+	d.Push(Notification{EventType: "job.needs_review", Title: "w"})
+	reasons := h.reasons()
+	if len(reasons) != 3 {
+		t.Fatalf("skipped lines = %v, want a third line after recovery", reasons)
+	}
+	if !strings.Contains(reasons[2], "DisabledForUser") || !strings.Contains(reasons[2], "Windows 设置") {
+		t.Errorf("reason after recovery = %q, want the setting value and the fix hint", reasons[2])
 	}
 }
 

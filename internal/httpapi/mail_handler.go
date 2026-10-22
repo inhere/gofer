@@ -305,6 +305,26 @@ func mailJobRelated(jobID string, m jobstore.Mail) bool {
 		(m.ToKind == jobstore.MailKindJob && m.ToID == jobID)
 }
 
+// mailJobMayTouch decides whether a JOB credential may touch a letter (gofer-sh7r): the
+// letters of its own job, and the letters the resident 收件会话 it currently IS received —
+// a letter addressed to agent:<name> belongs to the job serving that address right now.
+// Anything else (another agent's letters, another session's thread) is refused, which is
+// what keeps the approval gate's mail-reply allowance from reaching somebody else's mail.
+func (s *Server) mailJobMayTouch(jobID string, m jobstore.Mail) bool {
+	if mailJobRelated(jobID, m) {
+		return true
+	}
+	if m.ToKind != jobstore.MailKindAgent || s.jobs == nil || s.jobs.Meta() == nil {
+		return false
+	}
+	name, project := jobstore.SplitResidentKey(m.ToID)
+	row, ok, err := s.jobs.Meta().GetResidentAgent(name, project)
+	if err != nil || !ok {
+		return false
+	}
+	return row.JobID == jobID && row.Status == jobstore.MailResidentLive
+}
+
 // mailOthersPerm is the `.others` permission a user without a relation to the letter needs:
 // by the recipient's type (设计「路由与权限」), and write=false is the read form.
 func mailOthersPerm(m jobstore.Mail, write bool) string {
@@ -321,7 +341,7 @@ func mailOthersPerm(m jobstore.Mail, write bool) string {
 // refusal, which permission it lacked ("" = a rule without a permission).
 func (s *Server) mayTouchMail(c *rux.Context, m jobstore.Mail, write bool) (bool, string) {
 	if jc, isJob := jobCallerFromCtx(c); isJob {
-		return mailJobRelated(jc.JobID, m), ""
+		return s.mailJobMayTouch(jc.JobID, m), ""
 	}
 	if callerKindFromCtx(c) != callerKindUser {
 		return false, ""

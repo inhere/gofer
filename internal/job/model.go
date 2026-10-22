@@ -307,6 +307,12 @@ type JobRequest struct {
 	// and out of request_json, so no caller can promote a job to steward; the durable
 	// marker is jobstore's steward_jobs row (read back when a session is recovered).
 	Steward bool `json:"-" yaml:"-"`
+	// MailResident marks this job as the gofer mailbox's resident 收件会话
+	// (mail.agents.<name>, design 2026-10-22 mail-agent-address「D4」): the gofer MCP is
+	// injected into its ACP session and the gate auto-allows gofer_session_mail_reply.
+	// Internal and server-set — json/yaml "-" keeps it off the wire and out of
+	// request_json, so no caller can promote a job to a resident mailbox session.
+	MailResident bool `json:"-" yaml:"-"`
 	// JobToken is the job-scoped credential (SEC-01) the executing process injects as
 	// GOFER_JOB_TOKEN. It is server-set on both paths and never a client input:
 	//   - a hub-local job is minted one by Submit itself (issueJobToken);
