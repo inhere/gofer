@@ -1,5 +1,7 @@
 package job
 
+import "context"
+
 // semaphore returns (creating if needed) the per-project concurrency semaphore.
 // A limit <= 0 means unbounded and returns nil (no gating).
 func (s *Service) semaphore(projectKey string, limit int) chan struct{} {
@@ -51,6 +53,51 @@ func (s *Service) agentSemaphore(agentKey string, limit int) chan struct{} {
 	sem := make(chan struct{}, limit)
 	s.agentSems[agentKey] = sem
 	return sem
+}
+
+// waitGate acquires one slot of sem, blocking until a slot frees up or ctx ends; it
+// reports whether a slot was acquired. A nil sem means ungated and always succeeds.
+// The wait is bracketed in semWaiters, so a job PARKED on a gate is an observable
+// fact rather than something a test has to sleep past (G052): the caller releases the
+// slot itself, exactly as the open-coded acquire did before.
+func (s *Service) waitGate(ctx context.Context, sem chan struct{}) bool {
+	if sem == nil {
+		return true
+	}
+	s.semWaitInc(sem)
+	defer s.semWaitDec(sem)
+	select {
+	case sem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// semWaitInc / semWaitDec bracket one job's wait on sem (see waitGate).
+func (s *Service) semWaitInc(sem chan struct{}) {
+	s.mu.Lock()
+	s.semWaiters[sem]++
+	s.mu.Unlock()
+}
+
+func (s *Service) semWaitDec(sem chan struct{}) {
+	s.mu.Lock()
+	if n := s.semWaiters[sem] - 1; n > 0 {
+		s.semWaiters[sem] = n
+	} else {
+		delete(s.semWaiters, sem)
+	}
+	s.mu.Unlock()
+}
+
+// semWaitersOn reports how many jobs are parked on sem right now. Test-visible: it is
+// the queue of a concurrency gate (project / caller / agent), read without touching
+// the semaphore itself.
+func (s *Service) semWaitersOn(sem chan struct{}) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.semWaiters[sem]
 }
 
 // CallerRate exposes the effective per-caller submit rate for the HTTP

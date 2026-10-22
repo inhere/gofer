@@ -68,14 +68,12 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// Wait for a project concurrency slot (if limited), but abort if cancelled
 	// while queued.
 	if gates.project != nil {
-		select {
-		case gates.project <- struct{}{}:
-			defer func() { <-gates.project }()
-		case <-ctx.Done():
+		if !s.waitGate(ctx, gates.project) {
 			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
 			s.finish(entry, req.JobID, status, code, runErr)
 			return
 		}
+		defer func() { <-gates.project }()
 	}
 
 	// E17: after the project slot, wait for the per-caller slot (design §7.2).
@@ -85,28 +83,24 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// holding a project slot never blocks indefinitely on a caller slot another
 	// project-slot holder is waiting to release.
 	if gates.caller != nil {
-		select {
-		case gates.caller <- struct{}{}:
-			defer func() { <-gates.caller }()
-		case <-ctx.Done():
+		if !s.waitGate(ctx, gates.caller) {
 			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
 			s.finish(entry, req.JobID, status, code, runErr)
 			return
 		}
+		defer func() { <-gates.caller }()
 	}
 
 	// JOB-11: the per-agent slot (agents.<key>.max_concurrent), last of the three
 	// semaphores so a job releases them in reverse order and a saturated agent never
 	// holds a project slot another project is waiting for. Same queuing semantics.
 	if gates.agent != nil {
-		select {
-		case gates.agent <- struct{}{}:
-			defer func() { <-gates.agent }()
-		case <-ctx.Done():
+		if !s.waitGate(ctx, gates.agent) {
 			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
 			s.finish(entry, req.JobID, status, code, runErr)
 			return
 		}
+		defer func() { <-gates.agent }()
 	}
 
 	// JOB-11: serialize the jobs that must not share a working directory. Acquired

@@ -73,6 +73,12 @@ func runAgentJob(t *testing.T, s *Service, prompt string) JobResult {
 func TestAgentDegradedEventOnTransition(t *testing.T) {
 	t.Parallel()
 	s := newAgentHealthService(t, t.TempDir())
+	// ended_at (the time the recovery aggregate compares) is unix SECONDS, so the test
+	// needs to cross a second boundary; an injected clock lets it do that explicitly
+	// instead of sleeping past one (G052).
+	clk := &fixedClock{}
+	clk.set(time.Now().Unix())
+	s.nowFn = func() time.Time { return time.Unix(clk.now(), 0) }
 
 	// Two failures are below the default degraded_after (3): the agent is still healthy,
 	// and nothing is announced.
@@ -124,11 +130,12 @@ func TestAgentDegradedEventOnTransition(t *testing.T) {
 	}
 
 	// A delivery clears the window's recovery count: degraded → healthy is announced.
-	// The wait is the aggregate's own granularity: ok_since_transient counts successes
-	// STRICTLY after the last transient failure's ended_at, and those are unix SECONDS —
-	// so a recovery in the same second as the failure it recovers from does not count
-	// yet (self-correcting on the next success, and it is how SUP-01 P3 has always read).
-	time.Sleep(1100 * time.Millisecond)
+	// ok_since_transient counts successes STRICTLY after the last transient failure's
+	// ended_at, and those are unix SECONDS — so a recovery stamped in the same second as
+	// the failure it recovers from does not count yet (self-correcting on the next
+	// success, and it is how SUP-01 P3 has always read). Advance the injected clock past
+	// that boundary rather than sleeping a second of wall time.
+	clk.set(clk.now() + 2)
 	if res := runAgentJob(t, s, "0"); res.Status != StatusDone {
 		t.Fatalf("recovering job status = %q (%s), want done", res.Status, res.Error)
 	}
@@ -158,7 +165,7 @@ func TestAgentDegradedEventOnTransition(t *testing.T) {
 
 	// The event stream is durable and the health of the agent is readable from the same
 	// aggregate the badge uses (the transition is an observation OF that aggregate).
-	h, err := s.Meta().AgentHealth("flaky", time.Now().Add(-time.Hour).Unix())
+	h, err := s.Meta().AgentHealth("flaky", s.Now().Add(-time.Hour).Unix())
 	if err != nil {
 		t.Fatalf("AgentHealth: %v", err)
 	}

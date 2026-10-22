@@ -236,6 +236,12 @@ type Service struct {
 	// agents.<key>.max_concurrent). Same lazy-create + fixed-capacity model as sems
 	// (guarded by s.mu); an agent with no limit (<= 0) gets nil (no gating).
 	agentSems map[string]chan struct{}
+	// semWaiters counts, per concurrency semaphore, the jobs currently PARKED on it
+	// (blocked in the acquire select, holding no slot yet) — the queue itself, as a
+	// fact a test can wait for instead of sleeping past the moment a job "should"
+	// have arrived at the gate (G052). Guarded by s.mu; an entry exists only while
+	// at least one job waits on that semaphore.
+	semWaiters map[chan struct{}]int
 	// dirLock serializes the exclusive jobs that share a working directory (JOB-11).
 	// It is process-scoped: the machine that RUNS a job is the one that locks its
 	// directory (a dispatched remote job is locked by the worker's own Service).
@@ -485,6 +491,7 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 		sems:       map[string]chan struct{}{},
 		callerSems: map[string]chan struct{}{},
 		agentSems:  map[string]chan struct{}{},
+		semWaiters: map[chan struct{}]int{},
 		dirLock:    newDirLocks(),
 		adoptWake:  make(chan struct{}, 1),
 		nowFn:      time.Now,

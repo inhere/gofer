@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // TestCallerConcurrencyLimit (E17, design §7.2) proves the per-caller concurrency
@@ -23,6 +24,9 @@ func TestCallerConcurrencyLimit(t *testing.T) {
 	s.cfg.Store(cfg)
 
 	const caller = "ci"
+	// The caller's semaphore is this test's synchronization point: job2's ARRIVAL at the
+	// (full) gate is waited for, never slept past (G052).
+	sem := s.callerSemaphore(caller, cfg.Server.CallerConcurrencyLimit(caller))
 	// Submit job1 (sleep) under caller ci and wait until it actually runs and holds
 	// the single caller slot before submitting job2 — deterministic slot ownership.
 	r1, err := s.Submit(JobRequest{
@@ -41,8 +45,12 @@ func TestCallerConcurrencyLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second submit must NOT be rejected (queue, not reject): %v", err)
 	}
-	// Let job2's goroutine reach the (blocked) caller-slot acquisition.
-	time.Sleep(50 * time.Millisecond)
+	// Job2's goroutine must reach the blocked caller-slot acquisition: wait for the job
+	// to be PARKED on the caller semaphore (1 waiter, the slot held by job1) instead of
+	// sleeping a fixed 50ms and hoping it got there.
+	wait.Until(t, 10*time.Second, "job2 parked on the caller semaphore", func() bool {
+		return s.semWaitersOn(sem) == 1
+	})
 	// While job1 runs, job2 must still be queued (caller slot held by job1).
 	if j2, _ := s.Get(r2.ID); j2.Status != StatusQueued {
 		t.Fatalf("expected job2 queued while job1 holds the caller slot, got %s", j2.Status)
