@@ -17,6 +17,7 @@ import {
   listAgentSessions,
   listMail,
   listMailConversations,
+  previewMail,
   readdressMail,
   replyMail,
   sendMail,
@@ -33,16 +34,28 @@ import {
   buildMailReaddress,
   buildMailReply,
   buildMailSend,
+  emptyMailCompose,
+  filterComposeSessions,
   MAIL_FILTERS,
+  MAIL_SCOPES,
+  mailAddressLabel,
+  mailComposeAddresses,
+  mailComposePreviewText,
   mailFilterFromQuery,
   mailListQuery,
   mailOutgoing,
   mailPartyLabel,
   mailRecipientPreview,
+  mailSessionOptionLabel,
   mailStateLabel,
   mailStateTone,
+  parseMailRecipients,
+  type ComposeSessionOption,
+  type MailComposeState,
   type MailFilter,
   type MailIdentity,
+  type MailPreviewCount,
+  type MailScope,
 } from '../utils/mail'
 import {
   bubbleSide,
@@ -92,26 +105,102 @@ const sessionFilter = ref(queryValue(route.query.session))
 const candidates = ref<Record<number, MailCandidate[]>>({})
 
 const composeOpen = ref(false)
-const compose = ref({ to: '', body: '', urgent: false })
-// 群发预览用的会话表（写信框打开时惰性加载一次）：each:project: / each:agent: / each:topic:
-// 要按当前会话匹配才能说出「将投递几个」。服务端还会按权限再筛，所以这只是上限。
-const composeSessions = ref<{ session_id: string; agent?: string; project_key?: string; topic?: string }[]>([])
-const composePreview = computed(() => mailRecipientPreview(compose.value.to, composeSessions.value))
+// 写信框的收件人（gofer-ndy5，设计 2026-10-22「D5」）：会话多选 + 「按项目 / 主题 / agent
+// 全部」选器 + 手写地址（高级）。地址怎么拼是 utils/mail.ts 的 mailComposeAddresses。
+const compose = ref<MailComposeState>(emptyMailCompose())
+const composeSearch = ref('')
+const scopePick = ref<MailScope>({ scheme: 'project', value: '' })
+const composeAddresses = computed(() => mailComposeAddresses(compose.value))
+// 标签只显示真选的收件人（空选择时的 caller 是内部缺省，不画成标签）。
+const composeTags = computed(() => composeAddresses.value.addresses.filter((a) => a !== 'caller'))
+// 会话多选的可选项（打开写信框时惰性加载一次），搜索词在本地过滤。
+const composeSessions = ref<ComposeSessionOption[]>([])
+const composeSessionOptions = computed(() => filterComposeSessions(composeSessions.value, composeSearch.value))
+// 服务端的投递预览（POST /v1/mail dry_run）：与真发同一套解析、不落库。
+const composePreview = ref<MailPreviewCount | null>(null)
+const composePreviewError = ref('')
+const composeLocalEstimate = computed(() =>
+  mailRecipientPreview(composeAddresses.value.addresses.join(' '), composeSessions.value),
+)
+const composePreviewText = computed(() =>
+  mailComposePreviewText(composeAddresses.value.addresses, composePreview.value, composeLocalEstimate.value),
+)
 
 async function loadComposeSessions(): Promise<void> {
   try {
     const resp = await listAgentSessions({ limit: 200 })
     composeSessions.value = resp.sessions.map((s) => ({
-      session_id: s.session_id, agent: s.agent, project_key: s.project_key, topic: s.topic,
+      session_id: s.session_id, agent: s.agent, project_key: s.project_key, topic: s.topic, title: s.title,
     }))
   } catch {
     composeSessions.value = []
   }
 }
 
+let previewTimer = 0
+async function refreshComposePreview(): Promise<void> {
+  composePreview.value = null
+  composePreviewError.value = ''
+  if (!composeAddresses.value.ok) return
+  // 没选收件人（投给自己）不用问服务端，文案本来就说「留空 = 收集箱」。
+  if (composeAddresses.value.addresses.length === 1 && composeAddresses.value.addresses[0] === 'caller') return
+  try {
+    // 预览也要过正文校验（服务端拒绝空正文）：还没写正文时先带个占位。
+    const resp = await previewMail({ to: composeAddresses.value.addresses, body: compose.value.body.trim() || '预览' })
+    composePreview.value = { delivered: resp.delivered_count, skipped: resp.skipped_count, matched: resp.matched }
+  } catch (e) {
+    composePreviewError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
 watch(composeOpen, (open) => {
   if (open && composeSessions.value.length === 0) void loadComposeSessions()
 })
+
+// 收件人一变（抖一下）就向服务端要一次投递预览：选器可能命中很多会话，只有服务端知道得准。
+watch(
+  () => [
+    composeOpen.value,
+    compose.value.sessions.join(','),
+    compose.value.scopes.map((s) => `${s.scheme}:${s.value}`).join(','),
+    compose.value.manual,
+  ],
+  () => {
+    if (!composeOpen.value) return
+    window.clearTimeout(previewTimer)
+    previewTimer = window.setTimeout(() => void refreshComposePreview(), 400)
+  },
+)
+
+function toggleComposeSession(sid: string): void {
+  const list = compose.value.sessions
+  compose.value.sessions = list.includes(sid) ? list.filter((x) => x !== sid) : [...list, sid]
+}
+
+function addComposeScope(): void {
+  const value = scopePick.value.value.trim()
+  if (!value) return
+  compose.value.scopes = [...compose.value.scopes, { scheme: scopePick.value.scheme, value }]
+  scopePick.value = { ...scopePick.value, value: '' }
+}
+
+function removeComposeAddress(address: string): void {
+  if (address.startsWith('session:')) {
+    const sid = address.slice('session:'.length)
+    compose.value.sessions = compose.value.sessions.filter((x) => x !== sid)
+    return
+  }
+  if (address.startsWith('each:')) {
+    const [, scheme, ...rest] = address.split(':')
+    const value = rest.join(':')
+    compose.value.scopes = compose.value.scopes.filter((s) => !(s.scheme === scheme && s.value === value))
+    return
+  }
+  // 手写地址：从手写串里去掉那一个。
+  const manual = parseMailRecipients(compose.value.manual)
+  compose.value.manual = manual.ok ? manual.addresses.filter((a) => a !== address).join(' ') : compose.value.manual
+}
+
 const composeError = ref('')
 const sending = ref(false)
 
@@ -265,16 +354,26 @@ function backToList(): void {
 }
 
 async function sendCompose(): Promise<void> {
-  const built = buildMailSend(compose.value)
-  composeError.value = built.error
+  const built = buildMailSend({ to: composeAddresses.value.addresses, body: compose.value.body, urgent: compose.value.urgent })
+  composeError.value = composeAddresses.value.ok ? built.error : composeAddresses.value.error
   if (!built.req) return
   sending.value = true
   try {
     const resp = await sendMail(built.req)
-    noteSendResult(resp.mail, resp.held, resp.candidates ?? [])
-    compose.value = { to: '', body: '', urgent: false }
+    const count = resp.delivered_count ?? 1
+    const skipped = resp.skipped_count ?? 0
+    if (count > 1 || skipped > 0) {
+      // 广播：回一句投递了几个人（略过几个），不再说「信件 #N 已发出」。
+      notice.value = `已群发给 ${count} 个会话${skipped ? `（因权限略过 ${skipped} 个）` : ''}。`
+      await load(true)
+    } else {
+      noteSendResult(resp.mail, resp.held, resp.candidates ?? [])
+      await load(true)
+    }
+    compose.value = emptyMailCompose()
+    composeSearch.value = ''
+    composePreview.value = null
     composeOpen.value = false
-    await load(true)
   } catch (e) {
     composeError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -409,18 +508,66 @@ onMounted(() => {
     </header>
 
     <form v-if="composeOpen" class="compose" data-test="mail-compose" @submit.prevent="sendCompose">
-      <input
-        v-model="compose.to"
-        class="compose-to mono"
-        type="text"
-        placeholder="一个或多个地址（空格 / 逗号分隔）：session:<sid> / job:<id> / topic:<关键词> / path:<子路径> / caller；群发用 each:topic: / each:path: / each:project:<key> / each:agent:<名字>"
-        data-test="mail-to"
-      />
-      <p class="compose-preview mono" data-test="mail-to-preview">
-        <template v-if="!compose.to.trim()">收件人留空 = 投给自己的收集箱</template>
-        <template v-else-if="composePreview < 0">含 path: 选择器：投递数由服务端按范围匹配，发送后可见</template>
-        <template v-else>将投递 {{ composePreview }} 个会话<template v-if="composePreview > 1">（群发）</template>，服务端按权限可能更少</template>
-      </p>
+      <!-- 收件人（gofer-ndy5，设计 2026-10-22「D5」）：已选的显示为可删除标签，下面是会话多选
+           与「按项目 / 主题 / agent 全部」选器，手写地址收在高级里。 -->
+      <div class="compose-tags" data-test="mail-to-tags">
+        <span v-for="a in composeTags" :key="a" class="tag-chip mono" data-test="mail-to-tag">
+          {{ mailAddressLabel(a) }}
+          <button class="chip-x" type="button" :title="`去掉 ${a}`" data-test="mail-to-tag-x" @click="removeComposeAddress(a)">×</button>
+        </span>
+        <span v-if="!composeTags.length" class="dim mono">未选收件人 = 投给自己的收集箱</span>
+      </div>
+      <p v-if="!composeAddresses.ok" class="err" data-test="mail-to-error">{{ composeAddresses.error }}</p>
+
+      <div class="compose-pick">
+        <input
+          v-model="composeSearch"
+          class="compose-to mono"
+          type="text"
+          placeholder="搜索会话：标题 / agent / 项目 / 会话 id"
+          data-test="mail-session-search"
+        />
+        <div class="pick-list" data-test="mail-session-options">
+          <label v-for="s in composeSessionOptions" :key="s.session_id" class="pick-row mono">
+            <input
+              type="checkbox"
+              :checked="compose.sessions.includes(s.session_id)"
+              :data-test="`mail-session-${s.session_id}`"
+              @change="toggleComposeSession(s.session_id)"
+            />
+            <span class="pick-label">{{ mailSessionOptionLabel(s) }}</span>
+          </label>
+          <p v-if="!composeSessionOptions.length" class="dim mono">没有匹配的会话</p>
+        </div>
+      </div>
+
+      <div class="compose-scope">
+        <select v-model="scopePick.scheme" class="compose-to mono" data-test="mail-scope-scheme">
+          <option v-for="s in MAIL_SCOPES" :key="s.key" :value="s.key">{{ s.label }}</option>
+        </select>
+        <input
+          v-model="scopePick.value"
+          class="compose-to mono"
+          type="text"
+          :placeholder="MAIL_SCOPES.find((s) => s.key === scopePick.scheme)?.hint"
+          data-test="mail-scope-value"
+          @keydown.enter.prevent="addComposeScope"
+        />
+        <button class="act mono" type="button" data-test="mail-scope-add" @click="addComposeScope">加「全部」</button>
+      </div>
+
+      <p v-if="composePreviewError" class="err" data-test="mail-preview-error">{{ composePreviewError }}</p>
+
+      <details class="compose-advanced">
+        <summary class="mono">高级：手写地址</summary>
+        <input
+          v-model="compose.manual"
+          class="compose-to mono"
+          type="text"
+          placeholder="空格 / 逗号分隔：session:<sid> / job:<id> / topic:<关键词> / path:<子路径> / caller / each:…"
+          data-test="mail-to"
+        />
+      </details>
       <textarea
         v-model="compose.body"
         class="compose-body"
@@ -432,6 +579,7 @@ onMounted(() => {
         <label class="urgent-pick"
           ><input v-model="compose.urgent" type="checkbox" data-test="mail-urgent" /> 急件（在收件会话的下一轮内注入）</label
         >
+        <span class="compose-preview mono" data-test="mail-to-preview">{{ composePreviewText }}</span>
         <button class="act act--primary mono" type="submit" :disabled="sending" data-test="mail-send">
           {{ sending ? '发送中…' : '发送' }}
         </button>
@@ -683,6 +831,68 @@ onMounted(() => {
   margin: 0;
   font-size: 11px;
   color: var(--dim);
+}
+/* 收件人：已选标签、会话多选、选器（gofer-ndy5）。 */
+.compose-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--queue);
+}
+.compose-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pick-list {
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--term-bg);
+  padding: 4px 6px;
+}
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--paper);
+  padding: 2px 0;
+}
+.pick-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compose-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.compose-scope .compose-to {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.compose-advanced summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--dim);
+}
+.compose-advanced input {
+  width: 100%;
+  margin-top: 6px;
 }
 .broadcast {
   display: flex;

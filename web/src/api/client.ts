@@ -38,6 +38,7 @@ import type {
   MailConversationsResp,
   MailListResp,
   MailMessage,
+  MailPreviewResp,
   MailSendResp,
   MetaResp,
   Plan,
@@ -2059,6 +2060,20 @@ export function sendMail(body: { to: string | string[]; body: string; urgent?: b
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  })
+}
+
+// 投递预览（写信框）：同一个 POST /v1/mail，带 dry_run——服务端按与真发一致的口径解析收件人
+// （权限过滤、上限、each: 选择器），但不写任何信件、不占广播限流。
+export function previewMail(body: {
+  to: string | string[]
+  body: string
+  project?: string
+}): Promise<MailPreviewResp> {
+  return request<MailPreviewResp>('/v1/mail', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...body, dry_run: true }),
   })
 }
 

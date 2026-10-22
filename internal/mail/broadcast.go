@@ -26,7 +26,8 @@ var (
 	ErrBroadcastAmbiguous = fmt.Errorf("mail: broadcast address is not a single recipient")
 )
 
-// eachScanLimit bounds how many sessions one each:project: / each:agent: selector scans.
+// eachScanLimit is the page size of an each:project: / each:agent: scan; the scan keeps paging
+// until a short page, so a project with more live sessions than that is not cut short.
 const eachScanLimit = 200
 
 // BroadcastInput is one broadcast to send. To is every address given (repeated --to); an address
@@ -81,35 +82,18 @@ func targetKey(t Target) string {
 // are resolved first (an explicit address must name exactly one deliverable recipient), then
 // judged per recipient, then written — so a refused broadcast leaves no letter behind.
 func (s *Service) Broadcast(in BroadcastInput) (BroadcastResult, error) {
-	org, err := in.Origin.Validate()
+	org, err := s.checkedOrigin(in)
 	if err != nil {
 		return BroadcastResult{}, err
-	}
-	if err := s.checkBody(in.Body); err != nil {
-		return BroadcastResult{}, err
-	}
-	if in.Urgent {
-		return BroadcastResult{}, ErrUrgentBroadcast
-	}
-	if len(in.To) == 0 {
-		return BroadcastResult{}, ErrNoRecipients
 	}
 	if err := s.checkBroadcastRate(org); err != nil {
 		return BroadcastResult{}, err
 	}
-	targets, skipped, err := s.planBroadcast(in, org)
+	targets, skipped, err := s.planCheckedBroadcast(in, org)
 	if err != nil {
 		return BroadcastResult{}, err
 	}
-	matched := len(targets) + len(skipped)
-	if len(targets) == 0 {
-		return BroadcastResult{}, ErrNoRecipients
-	}
-	if max := s.broadcastMaxRecipients(); max > 0 && len(targets) > max {
-		return BroadcastResult{}, fmt.Errorf("%w: %d recipients (at most %d); narrow the selector",
-			ErrBroadcastTooMany, len(targets), max)
-	}
-	out := BroadcastResult{Matched: matched, Skipped: len(skipped)}
+	out := BroadcastResult{Matched: len(targets) + len(skipped), Skipped: len(skipped)}
 	for _, t := range targets {
 		res := resolution{target: t}
 		mi := jobstore.MailInput{
@@ -142,6 +126,63 @@ func (s *Service) Broadcast(in BroadcastInput) (BroadcastResult, error) {
 		out.Recipients = append(out.Recipients, st)
 	}
 	return out, nil
+}
+
+// Preview resolves a broadcast without storing anything (POST /v1/mail with dry_run): the sender
+// sees who the letter would reach and who a selector would skip. It does not count against the
+// broadcast rate — a preview is not a send — but every other rule (body, urgent, recipient
+// ceiling, no recipient) answers exactly as Broadcast would.
+func (s *Service) Preview(in BroadcastInput) (BroadcastResult, error) {
+	org, err := s.checkedOrigin(in)
+	if err != nil {
+		return BroadcastResult{}, err
+	}
+	targets, skipped, err := s.planCheckedBroadcast(in, org)
+	if err != nil {
+		return BroadcastResult{}, err
+	}
+	out := BroadcastResult{Matched: len(targets) + len(skipped), Skipped: len(skipped)}
+	for _, t := range targets {
+		out.Recipients = append(out.Recipients, BroadcastRecipient{Address: t.Address, Kind: t.Kind, ID: t.ID})
+	}
+	out.Recipients = append(out.Recipients, skipped...)
+	return out, nil
+}
+
+// checkedOrigin applies the rules that depend on neither the addresses nor the store: a validated
+// sender and a body a broadcast may carry (no urgent broadcast).
+func (s *Service) checkedOrigin(in BroadcastInput) (Origin, error) {
+	org, err := in.Origin.Validate()
+	if err != nil {
+		return Origin{}, err
+	}
+	if err := s.checkBody(in.Body); err != nil {
+		return Origin{}, err
+	}
+	if in.Urgent {
+		return Origin{}, ErrUrgentBroadcast
+	}
+	if len(in.To) == 0 {
+		return Origin{}, ErrNoRecipients
+	}
+	return org, nil
+}
+
+// planCheckedBroadcast resolves the addresses and applies the recipient rules: at least one
+// recipient, at most mail.broadcast_max_recipients.
+func (s *Service) planCheckedBroadcast(in BroadcastInput, org Origin) ([]Target, []BroadcastRecipient, error) {
+	targets, skipped, err := s.planBroadcast(in, org)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(targets) == 0 {
+		return nil, nil, ErrNoRecipients
+	}
+	if max := s.broadcastMaxRecipients(); max > 0 && len(targets) > max {
+		return nil, nil, fmt.Errorf("%w: %d recipients (at most %d); narrow the selector",
+			ErrBroadcastTooMany, len(targets), max)
+	}
+	return targets, skipped, nil
 }
 
 // planBroadcast resolves the addresses into the recipients to write and the selector matches the
@@ -250,22 +291,31 @@ func (s *Service) resolveEach(in resolveInput) ([]Target, error) {
 		} else {
 			opts.Agent = in.addr.Value
 		}
-		sessions, err := s.store.ListAgentSessions(opts)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]Target, 0, len(sessions))
-		for _, a := range sessions {
-			if !sessionrelay.IsDeliverableState(a.State) {
-				continue
+		out := make([]Target, 0, eachScanLimit)
+		// One page is not the whole answer: a project (or one agent) may hold more live sessions
+		// than a page and the tail must not be dropped (gofer-ndy5). Page until a short page;
+		// the recipient ceiling still decides whether such a selector may be sent.
+		for {
+			sessions, err := s.store.ListAgentSessions(opts)
+			if err != nil {
+				return nil, err
 			}
-			if in.visible != nil && !in.visible(a) {
-				continue
+			for _, a := range sessions {
+				if !sessionrelay.IsDeliverableState(a.State) {
+					continue
+				}
+				if in.visible != nil && !in.visible(a) {
+					continue
+				}
+				out = append(out, Target{
+					Kind: jobstore.MailKindSession, ID: a.SessionID, Address: in.addr.Raw,
+					Topic: a.Topic, Source: a.TopicSource, Offline: a.State == jobstore.SessionOffline, Deliver: true,
+				})
 			}
-			out = append(out, Target{
-				Kind: jobstore.MailKindSession, ID: a.SessionID, Address: in.addr.Raw,
-				Topic: a.Topic, Source: a.TopicSource, Offline: a.State == jobstore.SessionOffline, Deliver: true,
-			})
+			if len(sessions) < eachScanLimit {
+				break
+			}
+			opts.Offset += eachScanLimit
 		}
 		return out, nil
 	}
