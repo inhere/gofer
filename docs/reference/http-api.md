@@ -176,6 +176,16 @@ Registered keys (first batch; consumers land in later work):
 - `GET /v1/workers/{id}`: `worker.tools`, same shape.
 - Descriptive only: the list is what agent jobs on that machine are told; it does not affect routing.
 
+## Runner messenger (`messenger_detail`)
+
+The local row of `GET /v1/runners` carries `messenger_detail` read in-process; a worker row carries the worker's last heartbeat copy (absent = an older build or no heartbeat yet). Rotation / usage fields (gofer-li3t):
+
+- `messages` / `age_sec`: what the CURRENT resident process handled and how long it has lived (0 when none runs).
+- `usage`: `{input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, cost_usd}` summed from the process's stream-json result frames; omitted when the process never reported any.
+- `max_messages` / `max_age_sec`: the rotation limits in force (`0` = that limit off).
+- `rotations` (newest first, up to 10): `{at, reason, messages?, age_sec?, usage?}` — one entry per rebuild; `reason` is `idle`, `failed`, `max_messages` or `max_age`. Rotation happens between two messages, so a delivery is never interrupted.
+- `deliveries` / `stderr_tail` keep their meaning (recent deliveries, newest first; child stderr tail).
+
 ## Job detail aggregation: `include`
 
 `GET /v1/jobs/{id}?include=a,b,c` 一次取回详情页要的附属数据；缺省 `include` 为空，等于普通 job 快照（CLI / MCP 不受影响）。可选项：

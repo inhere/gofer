@@ -26,11 +26,13 @@ import (
 // Manager keeps one stream-json Claude process per local runner. A process is
 // never shared with a remote worker; remote paths use the worker's own Manager.
 type Manager struct {
-	mu        sync.Mutex
-	command   string
-	idle      time.Duration
-	processes map[string]*process
-	stats     map[string]*runnerStats
+	mu          sync.Mutex
+	command     string
+	idle        time.Duration
+	maxMessages int           // rotate the resident process after this many messages (0 = unlimited)
+	maxAge      time.Duration // rotate it after this long (0 = unlimited)
+	processes   map[string]*process
+	stats       map[string]*runnerStats
 
 	// replies is what a resident process learns when another Claude session
 	// messages IT (a target answering a web message with SendMessage): see reply.go.
@@ -38,13 +40,31 @@ type Manager struct {
 }
 
 // New creates a resident messenger manager. Non-positive idle values use the
-// shipped ten minute default, matching the pre-package implementation.
+// shipped ten minute default, matching the pre-package implementation. The
+// rotation limits start at the shipped defaults (config.DefaultMessengerMaxMessages /
+// DefaultMessengerMaxAgeSec); SetRotation overrides them from the config.
 func New(command string, idle time.Duration) *Manager {
 	if idle <= 0 {
 		idle = 10 * time.Minute
 	}
 	return &Manager{command: strings.TrimSpace(command), idle: idle,
+		maxMessages: config.DefaultMessengerMaxMessages, maxAge: time.Duration(config.DefaultMessengerMaxAgeSec) * time.Second,
 		processes: make(map[string]*process), stats: make(map[string]*runnerStats)}
+}
+
+// SetRotation sets the rotation limits: a resident process that has handled
+// maxMessages messages or lived maxAge is replaced BEFORE the next message, never
+// mid-delivery. Non-positive values switch that limit off (no rotation).
+func (m *Manager) SetRotation(maxMessages int, maxAge time.Duration) {
+	if maxMessages < 0 {
+		maxMessages = 0
+	}
+	if maxAge < 0 {
+		maxAge = 0
+	}
+	m.mu.Lock()
+	m.maxMessages, m.maxAge = maxMessages, maxAge
+	m.mu.Unlock()
 }
 
 // Command is the configured messenger binary ("" on a worker, where each
@@ -97,7 +117,7 @@ func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []s
 		return event{}, err
 	}
 	for attempt := 0; attempt < 2; attempt++ {
-		p, err := m.process(runner, cwd, command)
+		p, err := m.processForRequest(runner, cwd, command)
 		if err != nil {
 			return event{}, err
 		}
@@ -109,7 +129,7 @@ func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []s
 		if !p.pause() {
 			p.mu.Unlock()
 			m.remove(runner, p)
-			p.stop()
+			p.stopWithReason(ReasonIdle)
 			if attempt == 0 {
 				continue
 			}
@@ -123,7 +143,7 @@ func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []s
 			p.waiting.Store(false)
 			p.mu.Unlock()
 			m.remove(runner, p)
-			p.stop()
+			p.stopWithReason(ReasonFailed)
 			if attempt == 0 && retryableWriteError(writeErr) {
 				continue
 			}
@@ -135,7 +155,7 @@ func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []s
 			p.mu.Unlock()
 			if ev.err != nil {
 				m.remove(runner, p)
-				p.stop()
+				p.stopWithReason(ReasonFailed)
 				return event{}, ev.err
 			}
 			p.touch()
@@ -144,12 +164,13 @@ func (m *Manager) roundTrip(ctx context.Context, runner, cwd string, command []s
 			p.waiting.Store(false)
 			p.mu.Unlock()
 			m.remove(runner, p)
+			p.stopWithReason(ReasonFailed)
 			return event{}, fmt.Errorf("resident messenger exited: %w", err)
 		case <-ctx.Done():
 			p.waiting.Store(false)
 			p.mu.Unlock()
 			m.remove(runner, p)
-			p.stop()
+			p.stopWithReason(ReasonFailed)
 			return event{}, ctx.Err()
 		}
 	}
@@ -208,7 +229,7 @@ func (m *Manager) process(runner, cwd string, command []string) (*process, error
 		return nil, fmt.Errorf("resident messenger start: %w", err)
 	}
 	p := &process{cmd: cmd, stdin: stdin, events: make(chan event, 1), done: make(chan error, 1), exited: make(chan struct{}),
-		stopped: make(chan struct{}), idle: m.idle, owner: m, runner: runner}
+		stopped: make(chan struct{}), idle: m.idle, owner: m, runner: runner, createdAt: time.Now()}
 	st := m.statsFor(runner)
 	st.startedAt = time.Now().Unix()
 	_, _ = fmt.Fprintf(st.stderr, "[gofer] resident messenger started (pid %d, dir %q)\n", cmd.Process.Pid, cmd.Dir)
@@ -244,6 +265,13 @@ func (p *process) read(stdout io.Reader) {
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 			ToolUseResult json.RawMessage `json:"tool_use_result"`
+			Usage         struct {
+				InputTokens         int64 `json:"input_tokens"`
+				OutputTokens        int64 `json:"output_tokens"`
+				CacheReadTokens     int64 `json:"cache_read_input_tokens"`
+				CacheCreationTokens int64 `json:"cache_creation_input_tokens"`
+			} `json:"usage"`
+			TotalCostUSD float64 `json:"total_cost_usd"`
 		}
 		if json.Unmarshal(scanner.Bytes(), &frame) != nil {
 			continue
@@ -287,6 +315,12 @@ func (p *process) read(stdout io.Reader) {
 			}
 			continue
 		case "result":
+			// Every result frame is one turn this process now carries in its context,
+			// whether we asked for it or a peer did, so it counts toward the rotation
+			// limit; the same frame carries the token / cost accounting.
+			p.messages.Add(1)
+			p.recordUsage(frame.Usage.InputTokens, frame.Usage.OutputTokens, frame.Usage.CacheReadTokens,
+				frame.Usage.CacheCreationTokens, frame.TotalCostUSD)
 		default:
 			continue
 		}
@@ -364,7 +398,8 @@ func (p *process) touch() {
 	if p.timer != nil {
 		p.timer.Stop()
 	}
-	p.timer = time.AfterFunc(p.idle, p.stop)
+	// The idle timer is one of the recorded rebuild reasons (ReasonIdle).
+	p.timer = time.AfterFunc(p.idle, func() { p.stopWithReason(ReasonIdle) })
 	p.timerMu.Unlock()
 	p.deadline.Store(time.Now().Add(p.idle).Unix())
 }
@@ -431,6 +466,53 @@ func (m *Manager) remove(runner string, p *process) {
 	}
 }
 
+// processForRequest returns the process to write the next request to. A process
+// that reached a rotation limit is retired first: the message that tripped the
+// limit was already answered, so the rebuild lands between two messages instead
+// of cutting one off (gofer-li3t).
+func (m *Manager) processForRequest(runner, cwd string, command []string) (*process, error) {
+	p, err := m.process(runner, cwd, command)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	maxMessages, maxAge := m.maxMessages, m.maxAge
+	m.mu.Unlock()
+	if reason := p.rotationReason(maxMessages, maxAge); reason != "" {
+		m.remove(runner, p)
+		m.retire(p, reason)
+		return m.process(runner, cwd, command)
+	}
+	return p, nil
+}
+
+// retire stops p and records why it was rebuilt, together with what it handled
+// (messages, lifetime, token / cost usage). The first reason wins: a process that
+// idled out and is then noticed by a request is recorded once.
+func (m *Manager) retire(p *process, reason string) {
+	p.reasonOnce.Do(func() {
+		now := time.Now()
+		r := Rotation{At: now.Unix(), Reason: reason, Messages: p.messages.Load(), AgeSec: int64(p.age(now) / time.Second)}
+		if u := p.usageSnapshot(); !u.empty() {
+			r.Usage = &u
+		}
+		m.mu.Lock()
+		m.statsFor(p.runner).recordRotation(r)
+		m.mu.Unlock()
+	})
+	p.stop()
+}
+
+// stopWithReason stops the process and records the rebuild reason. A test double
+// built without a Manager only stops.
+func (p *process) stopWithReason(reason string) {
+	if p.owner == nil {
+		p.stop()
+		return
+	}
+	p.owner.retire(p, reason)
+}
+
 func promptFromCommand(command []string) string {
 	for i, part := range command {
 		if part == "-p" && i+1 < len(command) {
@@ -475,11 +557,53 @@ type process struct {
 	killOnce sync.Once
 	// waiting is true while a round trip waits for its result frame.
 	waiting atomic.Bool
+	// createdAt is when the child started (the rotation age limit) and messages
+	// counts the turns it handled (result frames, incl. peer turns).
+	createdAt time.Time
+	messages  atomic.Int64
+	// usageMu guards usage: the accounting the result frames reported.
+	usageMu sync.Mutex
+	usage   Usage
+	// reasonOnce keeps the FIRST rebuild reason of this process, so an idle exit
+	// and the request that notices it record one rotation, not two.
+	reasonOnce sync.Once
 	// sessMu guards the Claude session id / cwd of the latest system/init frame
 	// (where the process's own transcript lives).
 	sessMu    sync.Mutex
 	sessionID string
 	sessCwd   string
+}
+
+// age is how long the process has lived (0 for a test double without createdAt).
+func (p *process) age(now time.Time) time.Duration {
+	if p.createdAt.IsZero() {
+		return 0
+	}
+	return now.Sub(p.createdAt)
+}
+
+func (p *process) recordUsage(in, out, cacheRead, cacheCreation int64, cost float64) {
+	p.usageMu.Lock()
+	p.usage.add(in, out, cacheRead, cacheCreation, cost)
+	p.usageMu.Unlock()
+}
+
+func (p *process) usageSnapshot() Usage {
+	p.usageMu.Lock()
+	defer p.usageMu.Unlock()
+	return p.usage
+}
+
+// rotationReason reports why this process must be replaced before the next
+// message is written to it ("" = it may serve another one).
+func (p *process) rotationReason(maxMessages int, maxAge time.Duration) string {
+	if maxMessages > 0 && p.messages.Load() >= int64(maxMessages) {
+		return ReasonMaxMessages
+	}
+	if maxAge > 0 && p.age(time.Now()) >= maxAge {
+		return ReasonMaxAge
+	}
+	return ""
 }
 
 type event struct {

@@ -74,6 +74,16 @@ server:
   #                         # (pending_interaction)与 verify 阶段不计时。0 = 全局关闭；
   #                         # `job run --no-stall` 关闭单个 job。
 
+  # session_messaging：web 给终端会话「发消息」的传话人。每个 runner 一个常驻
+  # stream-json 进程，所有目标会话共用。
+  # session_messaging:
+  #   enabled: true                    # 未写 = 开；false = 不提供「发消息」按钮
+  #   messenger_command: claude        #   传话进程命令(可写路径)
+  #   messenger_timeout_sec: 90        #   单条送达超时
+  #   messenger_idle_sec: 600          #   空闲这么久后退出常驻进程; 改它需重启
+  #   messenger_max_messages: 50       #   处理满这么多条后在两条消息之间重建(清上下文); 0 = 不限
+  #   messenger_max_age_sec: 7200      #   存活满这么久后重建; 0 = 不限
+
   # callers：多调用方鉴权。每项把一个 bearer token 映射到一个 caller id，记在提交的 job 上
   # (审计 / 按调用方筛选)。上面的单一 token 仍然有效(caller id 记为 "default")；删掉某项
   # 并 reload 即吊销该调用方。优先用 token_env，不要直接写 token。
