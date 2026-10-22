@@ -973,6 +973,16 @@ func submitDueSchedule(jobs *job.Service, permit *job.AdmissionPermit, r jobstor
 	if req.OriginCaller == "" {
 		req.OriginCaller = req.CallerID
 	}
+	// Design 2026-10-22 §D2: a due run uses the schedule's parameter DEFAULTS, overlaid on
+	// the env the request stored. A row whose params cannot be decoded is a broken row, not
+	// a reason to fire it with a half-applied env: report the error instead.
+	params, err := job.DecodeScheduleParams(r.ParamsJSON)
+	if err != nil {
+		return "", err
+	}
+	if err := job.ApplyScheduleParams(&req, params, nil); err != nil {
+		return "", err
+	}
 	// gofer-3db4: a cron tick is gofer's own trigger — an end-notification the stored
 	// request asks for but nobody can be told about is dropped (with a
 	// job.notify_dropped event) instead of losing the run.

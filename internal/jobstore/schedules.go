@@ -35,14 +35,17 @@ type ScheduleRecord struct {
 	// with no caller.
 	CreatorCaller string
 	TriggerToken  string
-	CreatedAt     int64
-	UpdatedAt     int64
+	// ParamsJSON is the schedule's declared parameter list as opaque JSON (design
+	// 2026-10-22 §D1), decoded by job.DecodeScheduleParams. Empty = no params.
+	ParamsJSON string
+	CreatedAt  int64
+	UpdatedAt  int64
 }
 
 const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'cron'), cron_expr, request_json, enabled,
   next_run_at, COALESCE(last_run_at,0), COALESCE(last_job_id,''),
   COALESCE(catch_up,0), COALESCE(project_key,''), COALESCE(trigger_token,''),
-  COALESCE(creator_caller,''), created_at, updated_at
+  COALESCE(creator_caller,''), COALESCE(params_json,''), created_at, updated_at
   FROM schedules`
 
 func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
@@ -50,7 +53,7 @@ func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
 	err := sc.Scan(
 		&r.ID, &r.Name, &r.ScheduleType, &r.CronExpr, &r.RequestJSON, &r.Enabled,
 		&r.NextRunAt, &r.LastRunAt, &r.LastJobID,
-		&r.CatchUp, &r.ProjectKey, &r.TriggerToken, &r.CreatorCaller, &r.CreatedAt, &r.UpdatedAt,
+		&r.CatchUp, &r.ProjectKey, &r.TriggerToken, &r.CreatorCaller, &r.ParamsJSON, &r.CreatedAt, &r.UpdatedAt,
 	)
 	return r, err
 }
@@ -65,13 +68,13 @@ func (s *Store) InsertSchedule(r ScheduleRecord) error {
 	}
 	const q = `INSERT INTO schedules
   (id, name, schedule_type, cron_expr, request_json, enabled, next_run_at, last_run_at,
-   last_job_id, catch_up, project_key, trigger_token, creator_caller, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   last_job_id, catch_up, project_key, trigger_token, creator_caller, params_json, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		r.ID, r.Name, r.ScheduleType, r.CronExpr, r.RequestJSON, r.Enabled, r.NextRunAt, r.LastRunAt,
-		r.LastJobID, r.CatchUp, r.ProjectKey, r.TriggerToken, r.CreatorCaller, r.CreatedAt, r.UpdatedAt,
+		r.LastJobID, r.CatchUp, r.ProjectKey, r.TriggerToken, r.CreatorCaller, r.ParamsJSON, r.CreatedAt, r.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert schedule %q: %w", r.ID, err)
 	}
@@ -184,6 +187,38 @@ func (s *Store) SetScheduleLastJob(id, jobID string) error {
 		jobID, now, id,
 	); err != nil {
 		return fmt.Errorf("jobstore: set schedule %q last job: %w", id, err)
+	}
+	return nil
+}
+
+// ScheduleUpdate is the MUTABLE half of a schedule row (design 2026-10-22 §D4): what
+// PATCH /v1/schedules/{id} may replace. The identity fields — id, project, the stored
+// request's command/agent/runner — are deliberately absent: changing those is a
+// different schedule, which is deleted and recreated instead.
+type ScheduleUpdate struct {
+	Name         string
+	ScheduleType string
+	CronExpr     string
+	// RequestJSON replaces the stored request; the handler rewrites it only for
+	// timeout_sec / the parameter env of a param-bearing schedule.
+	RequestJSON string
+	ParamsJSON  string
+	Enabled     int
+	NextRunAt   int64
+}
+
+// UpdateSchedule writes a schedule's mutable fields in one statement.
+func (s *Store) UpdateSchedule(id string, u ScheduleUpdate) error {
+	defer s.emit(Change{Kind: ChangeSchedule})
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(
+		`UPDATE schedules SET name = ?, schedule_type = ?, cron_expr = ?, request_json = ?,
+   params_json = ?, enabled = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
+		u.Name, u.ScheduleType, u.CronExpr, u.RequestJSON, u.ParamsJSON, u.Enabled, u.NextRunAt,
+		time.Now().Unix(), id,
+	); err != nil {
+		return fmt.Errorf("jobstore: update schedule %q: %w", id, err)
 	}
 	return nil
 }
