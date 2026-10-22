@@ -179,7 +179,7 @@ func TestExecAndReadOnlyJobsShareDir(t *testing.T) {
 	root := t.TempDir()
 	rv := t.TempDir() // 三个 job 共同的会合目录（绝对路径：cwds 都在项目里）
 	bin := testcmd.Path(t)
-	s := dirlockService(t, root, []string{"rendezvous", rv, "{{job_id}}", "5s", "3"}, nil)
+	s := dirlockService(t, root, []string{"rendezvous", rv, "{{job_id}}", "20s", "3"}, nil)
 
 	write := mustSubmit(t, s, JobRequest{
 		ProjectKey: "self", Agent: "agent", Runner: "local",
@@ -188,7 +188,7 @@ func TestExecAndReadOnlyJobsShareDir(t *testing.T) {
 	waitForStatus(t, s, write.ID, StatusRunning, 10*time.Second)
 	execJob := mustSubmit(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
-		Cmd: []string{bin, "rendezvous", rv, "exec", "5s", "3"},
+		Cmd: []string{bin, "rendezvous", rv, "exec", "20s", "3"},
 		Cwd: ".", TimeoutSec: 60,
 	})
 	readOnly := mustSubmit(t, s, JobRequest{
@@ -254,7 +254,7 @@ func TestSharedDirFlagBypassesLock(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	rv := t.TempDir()
-	s := dirlockService(t, root, []string{"rendezvous", rv, "{{job_id}}", "5s", "2"}, nil)
+	s := dirlockService(t, root, []string{"rendezvous", rv, "{{job_id}}", "20s", "2"}, nil)
 
 	shared := func(prompt string) JobRequest {
 		return JobRequest{
@@ -280,6 +280,9 @@ func TestSharedDirFlagBypassesLock(t *testing.T) {
 	}
 }
 
+// rendezvous 窗口 20s：负载高的 Windows 上建 worktree 本身就可能超过 5s（G052）；窗口只
+// 拉长「没有重叠」时的失败时间，不会让串行化的错误行为通过。
+//
 // TestWorktreeJobsDoNotConflict: 受管 worktree 的 job 各有自己的目录，因此既互不冲突，
 // 也不被主 checkout（项目根 cwd）上的 job 挡住——正是 WT-01「并行编辑同一 checkout」的前提。
 func TestWorktreeJobsDoNotConflict(t *testing.T) {
@@ -287,7 +290,7 @@ func TestWorktreeJobsDoNotConflict(t *testing.T) {
 	repo, _ := gitRepo(t)
 	state := t.TempDir()
 	rv := t.TempDir()
-	s := worktreeLockService(t, repo, state, []string{"rendezvous", rv, "{{job_id}}", "5s", "3"})
+	s := worktreeLockService(t, repo, state, []string{"rendezvous", rv, "{{job_id}}", "20s", "3"})
 
 	main := mustSubmit(t, s, JobRequest{
 		ProjectKey: "repo", Agent: "agent", Runner: "local",
@@ -381,7 +384,7 @@ func TestDirLockDisabledByConfig(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	rv := t.TempDir()
-	s := dirlockService(t, root, []string{"rendezvous", rv, "{{job_id}}", "5s", "2"}, func(cfg *config.Config) {
+	s := dirlockService(t, root, []string{"rendezvous", rv, "{{job_id}}", "20s", "2"}, func(cfg *config.Config) {
 		cfg.Server.DirLock = boolPtr(false)
 	})
 
