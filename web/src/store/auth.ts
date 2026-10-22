@@ -5,6 +5,9 @@ const TOKEN_KEY = 'gofer-token'
 let unauthorizedHandler: (() => void) | null = null
 
 export function getToken(): string | null {
+  // 没有 sessionStorage 的环境（服务端渲染、node 里的组件渲染测试）当作未登录：
+  // whoami 之类按身份读取的 store 因此不会在渲染时抛错，而是保持 null（界面不隐藏任何操作）。
+  if (typeof sessionStorage === 'undefined') return null
   return sessionStorage.getItem(TOKEN_KEY)
 }
 

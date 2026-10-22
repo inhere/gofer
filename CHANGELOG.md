@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **web 在没有 `sessionStorage` 的渲染环境里不再抛错**：`store/auth.getToken` 对缺失的 `sessionStorage` 返回未登录，按身份取的 store（whoami 等）在服务端渲染 / 组件渲染测试里保持 null，而不是抛 `ReferenceError`。
+
 ## [0.182.1] - 2026-10-21
 
 ### 修复
