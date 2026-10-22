@@ -84,7 +84,8 @@ type Dispatcher struct {
 }
 
 // NewDispatcher builds a dispatcher around notifier. window <= 0 pops each
-// notification immediately (no merging).
+// notification immediately (no merging) — on the PUSHING goroutine, so a caller on a
+// hot path should keep the window on (the default) and let the timer thread show it.
 func NewDispatcher(notifier Notifier, window time.Duration) *Dispatcher {
 	if window < 0 {
 		window = 0
