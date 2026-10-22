@@ -92,3 +92,17 @@ choice 的可选值较长，用 `--params-file <yaml>` 给整段声明，格式�
 
 - D4 编辑放进本批：用户的「调整清理时间」就是改 cron，删掉重建会丢失事件历史和 webhook token。
 - D2 叠加顺序：参数 > 存下的 env，同名时参数生效。
+
+## 实施记录（2026-10-22）
+
+按 D1–D6 全部落地：
+
+- **声明与校验**：`internal/job/schedule_params.go`（`ScheduleParam`、`Encode/DecodeScheduleParams`、`ValidateScheduleParams`、`ApplyScheduleParams`、`ParseParamDef` / `ParamDefsToParams`、`ParseParamBindings`）。上限常量 `MaxScheduleParams=20` / `MaxScheduleParamValueLen=1024`，`GOFER_` 前缀拒绝。
+- **存储**：`schedules.params_json`（additive，`migrateSchedules` 补列，旧行读回空）；`jobstore.ScheduleUpdate` + `UpdateSchedule` 一次写入可改字段。
+- **提交叠加**：`httpapi.handleRunSchedule`（run-now）、`serve.submitDueSchedule`（cron）、`httpapi.handleScheduleTrigger`（webhook）三处都经 `job.ApplyScheduleParams`，因此 cron 与 webhook 只用默认值，run-now 可覆盖。
+- **HTTP**：`POST /v1/schedules/{id}/run-now` 可选 body `{"params":{...}}`；`PATCH /v1/schedules/{id}` 新路由 `internal/httpapi/schedule_patch_handler.go`（可改 cron/at/title/params/enabled/timeout_sec，白名单之外的键 400，命令/agent/runner/project 明确提示删掉重建；改时间重算 next_run_at）；`schedule.run_now` 事件带覆盖的键值。路由在 `authz_routes.go` 登记（PATCH 权限同删除，开启时另查 `job.submit`），已 `go generate ./internal/httpapi/...` 更新 `docs/reference/permissions.md`。
+- **CLI**：`schedule run --param K=V`、`schedule edit <id> …`、`schedule add|edit --param-def|--params-file`、`schedule show` 列参数声明。
+- **Web**：`Schedules.vue` 立即执行参数表单（按类型生成控件、预填默认、desc、底部环境变量预览）+ 编辑弹窗；`utils/scheduleParams.ts` 放纯函数便于单测。
+- **测试**：Go 侧 `internal/job/schedule_params_test.go`、`internal/httpapi/schedule_params_test.go`；web `web/src/views/schedulesParams.test.ts`。
+- **文档**：`docs/reference/http-api.md`（新节「Schedule parameters and editing」）、`skills/gofer-usage/references/commands.md` 与 `web-console.md`、`CHANGELOG.md`。
+- **未做（有意）**：web 新建页（`NewSchedule.vue`）还没摆参数声明编辑器——声明目前从 CLI（`--param-def` / `--params-file`）或 API 建，建好后可在 web 编辑弹窗里改。
