@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **Windows 关掉通知时桌面通知不再“假成功”（gofer-3a9e）**：`ToastNotificationManager` 的 `Show()` 在 `ToastNotifier.Setting` 不是 `Enabled`（`DisabledForUser` / `DisabledForApplication` / `DisabledByGroupPolicy` / `DisabledByManifest`）时静默返回，看起来弹了实际什么都不显示，日志里也什么都没有。现在固定 PowerShell 脚本在 `Show()` 之前先读 `Setting`，非 `Enabled` 就以退出码 3 结束并打印 `setting=<值>`，Go 侧映射成“跳过”：日志记一条 `notify.desktop_skipped`，`reason` 带设置值与修复路径（Windows 设置 → 系统 → 通知：打开通知总开关与 Windows PowerShell）。同一原因仍只记一条；原因变了（例如被组策略关掉）或恢复正常弹过之后又坏，会重新记一条。脚本仍固定，事件数据仍经环境变量传入。
+
 ## [0.186.0] - 2026-10-22
 
 ### 修复
