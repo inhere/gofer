@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	yaml "github.com/goccy/go-yaml"
 	"github.com/gookit/cliui/show/table"
 	"github.com/gookit/gcli/v3"
-	yaml "github.com/goccy/go-yaml"
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
