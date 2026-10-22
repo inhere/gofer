@@ -511,6 +511,9 @@ export interface AgentSession {
   // notice 是给【原终端】的一行提示（hook 打到 stderr）：会话已被 web 接管、本终端
   // 中继已停用。仅 handed_off 时非空。
   notice?: string
+  // mail_pending 是会话还有多少封信待读（pending 或投递中）：留待的投递也算在里面，
+  // Stop hook 按它决定要不要取信。
+  mail_pending?: number
   watch_count?: number
   watches?: SessionJobWatch[]
   // Claude Code 自己的会话名（`name`，其它 Claude 会话用它作 SendMessage 地址）及来源（user / auto…）；

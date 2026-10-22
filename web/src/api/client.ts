@@ -52,6 +52,7 @@ import type {
   ProjectsResp,
   PtySessionsResp,
   AgentSession,
+  AgentSessionInjectMode,
   AgentSessionRelayMode,
   AgentSessionState,
   AgentSessionsResp,
