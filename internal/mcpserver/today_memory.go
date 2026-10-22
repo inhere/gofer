@@ -33,11 +33,11 @@ type memorySuggestOutput struct {
 }
 
 func registerMemoryHygieneTools(s *mcp.Server, b Backend) {
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_memory_findings",
 		Description: "Read the server-side memory doctor over the mirrored repository tracker memories (read-only): per flagged memory its tracker_id, key, kind, summary, age, findings (handoff-expired | note-stale | summary-missing | duplicate; path / commit checks need a checkout and are skipped), the still-open cleanup actions (archive | summary | merge) and the content. Filters: tracker_id, all (also findings already proposed or dismissed recently).",
 	}, memoryFindingsHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_memory_suggest",
 		Description: "Propose ONE cleanup of one repository tracker memory as a 「今天」 card the person adopts (「采纳」) or dismisses (「忽略」); nothing changes until a person adopts it. action: archive | merge (payload.into = target key; optional payload.content = merged body for the target) | kind (payload.kind = rule|note|handoff) | summary (payload.summary <=80 characters) | when (payload.keywords = trigger keywords to add). reason: one line <=120 characters. At most 5 per day; a key + action dismissed within 30 days is refused; the same key + action still pending is returned as is.",
 	}, memorySuggestHandler(b))

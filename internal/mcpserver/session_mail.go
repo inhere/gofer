@@ -44,25 +44,25 @@ type mailReplyInput struct {
 }
 
 func registerSessionMailTools(s *mcp.Server, b Backend) {
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name: "gofer_session_mail_send",
 		Description: "Send a letter to another session, a session job or yourself. to: session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller (your own capture box). " +
 			"Only a unique recipient is delivered to; an ambiguous topic / path address is held in the capture box; an ambiguous or unknown session prefix is an error with its candidates (held=true in the answer — pick one and send again with session:<sid>). " +
 			"A letter arrives in the recipient's next turn wrapped in a <gofer-mail> tag; it is not a user message. urgent=true asks for delivery inside the running turn. Needs a running gofer server.",
 	}, mailSendHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_session_mail_list",
 		Description: "List letters you sent or received (read-only). box: in | out | all (default), plus optional thread / state / session filters and limit. Needs a running gofer server.",
 	}, mailListHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_session_mail_read",
 		Description: "Read one letter in full. Reading marks it read as its recipient, so it is not injected into a later turn again. Needs a running gofer server.",
 	}, mailReadHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_session_mail_reply",
 		Description: "Answer a letter in its thread; the answer goes back to the sender's address. This is the only way to answer a letter. Needs a running gofer server.",
 	}, mailReplyHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_session_mail_cancel",
 		Description: "Withdraw a letter that has not been delivered yet (an already delivered letter cannot be cancelled). Needs a running gofer server.",
 	}, mailCancelHandler(b))

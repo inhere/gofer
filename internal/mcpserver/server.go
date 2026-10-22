@@ -75,45 +75,45 @@ func newServer(b Backend, scoped string) *mcp.Server {
 		return s
 	}
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_projects",
 		Description: "List the registered projects and their agent/runner allowlists.",
 	}, listProjectsHandler(b, scoped))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_agents",
 		Description: "List the configured/built-in agents with their availability probe.",
 	}, listAgentsHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_run_job",
 		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan. Set budget {max_tokens (input+output+cache), max_cost_usd, max_turns (model requests)} to cap its spend: the job is killed and fails with failure_class=budget when a limit is crossed (0/omitted = unlimited; the agent must report readable usage). Inside budget, agent_tokens / agent_cost_usd are a SOFT budget the agent enforces on itself (it winds the run up and reports; set them below the hard max_*): only agents with an agent_budget mapping (e.g. suga) take them, any other agent is refused. Set from_session=<session id> to open a NEW agent session that inherits an earlier session's context (cli-agent with from_session_args only; not combinable with a resume). Timeout_sec above the applicable limit is clamped, reported in the result (timeout_sec, requested_timeout_sec, timeout_clamped, timeout_limit_source project|server, timeout_limit_key); set strict_timeout=true to refuse instead. Set hold=true (with hold_reason, optional hold_timeout_sec) for an outward or irreversible step (e.g. git push) your own permissions stop: the job parks in awaiting_approval and runs only after a PERSON approves it in the web console — never approve it yourself; withdraw it with gofer_cancel_job.",
 	}, runJobHandler(b, scoped))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_get_job",
 		Description: "Get the current state of a job by id.",
 	}, getJobHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_job_set",
 		Description: "Set or clear a job title. A job credential may only change its own job.",
 	}, setJobTitleHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_tail_log",
 		Description: "Return the tail of a job's stdout/stderr log (capped at 256KB by default).",
 	}, tailLogHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_cancel_job",
 		Description: "Request cancellation of a running job and return its current state.",
 	}, cancelJobHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_job_say",
 		Description: "Send another message to the same resident ACP session job.",
 	}, sessionJobSayHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_job_end",
 		Description: "End a resident ACP session job and release its lock.",
 	}, sessionJobEndHandler(b))
@@ -122,46 +122,46 @@ func newServer(b Backend, scoped string) *mcp.Server {
 	// and optionally hand the work back for another attempt), but it can never ACCEPT
 	// one — there is deliberately no gofer_accept_job tool. Accepting is a human action
 	// (web / CLI / HTTP /v1/jobs/{id}/accept).
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_reject_job",
 		Description: "Reject a job awaiting human review (needs_review): record why it is unacceptable, and with resume=true start a continuation that uses the note as its prompt. Not for a job awaiting approval (hold): approving or rejecting that is a person's decision — withdraw your own held job with gofer_cancel_job.",
 	}, rejectJobHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_get_interactions",
 		Description: "List a job's running-time interactions (pending questions and their answers).",
 	}, getInteractionsHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_answer_interaction",
 		Description: "Answer a pending interaction on a running job so the agent can continue.",
 	}, answerInteractionHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_punt_interaction",
 		Description: "As a supervisor, mark a pending interaction as needing a human (高危/拿不准, 留给人处理): leaves it pending for a person and stops the supervisor being re-woken for it. Use this instead of guessing when you can't safely answer.",
 	}, puntInteractionHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_get_artifacts",
 		Description: "List a finished job's captured artifact files (name/size/mtime under its result dir).",
 	}, getArtifactsHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_get_result",
 		Description: "Get a finished job's structured result.json content, as a raw JSON string.",
 	}, getResultHandler(b))
 
 	// SUP-01 P5: task-book templates — read the templates a project can be driven
 	// with, then submit one with gofer_run_job's template/vars.
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_templates",
 		Description: "List the task-book templates a project can be driven with (name/source/path/desc/vars). Submit one with gofer_run_job template=<name> vars={...}.",
 	}, listTemplatesHandler(b, scoped))
 
 	// E25: cross-job pending interactions, for a supervisor agent to discover
 	// questions awaiting an answer (then answer via gofer_answer_interaction).
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_pending_interactions",
 		Description: "List pending interactions across active jobs (for a supervisor agent to discover questions awaiting an answer).",
 	}, listPendingInteractionsHandler(b))
@@ -169,12 +169,12 @@ func newServer(b Backend, scoped string) *mcp.Server {
 	// Operator-only (xu64.15): plan authoring is a cross-project orchestration
 	// concern, so a project-scoped MCP does NOT register these two tools.
 	if scoped == "" {
-		mcp.AddTool(s, &mcp.Tool{
+		addGoferTool(s, &mcp.Tool{
 			Name:        "gofer_create_plan",
 			Description: "Create a lightweight plan grouping header and return it. Use plan_id from the result to attach jobs or submit jobs with plan_id set. Without supervisor_session_id the plan is bound to the calling agent's own terminal session when gofer knows it (supervisor_note says so); pass no_supervisor=true to skip.",
 		}, createPlanHandler(b))
 
-		mcp.AddTool(s, &mcp.Tool{
+		addGoferTool(s, &mcp.Tool{
 			Name:        "gofer_attach_job",
 			Description: "Attach an existing job to a plan by id. Returns the plan header.",
 		}, attachJobHandler(b))
@@ -184,48 +184,48 @@ func newServer(b Backend, scoped string) *mcp.Server {
 	// Tag maintenance and filtered listing are available to both operator and
 	// project-scoped MCP sessions; the server still applies its normal caller
 	// authorization to writes.
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_update_plan_tags",
 		Description: "Replace or remove a plan's tags and return the updated plan.",
 	}, updatePlanTagsHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_set_plan_supervisor_session",
 		Description: "Bind or clear the authenticated terminal session that supervises plan dispatches. Requires an authenticated HTTP-backed Gofer server.",
 	}, setPlanSupervisorSessionHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_set_plan_notify",
 		Description: "Turn a plan's end-notification switch on or off (on|off): with it on, every job the plan dispatches tells the plan's supervisor session that it ended, through the session messenger.",
 	}, setPlanNotifyHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_plans",
 		Description: "List plans, optionally requiring every tag and matching a title or id keyword.",
 	}, listPlansHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_get_plan",
 		Description: "Get a plan with its jobs and a live status roll-up {total,queued,running,done,failed}.",
 	}, getPlanHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_add_todo",
 		Description: "Add a todo to a plan. Omit job_id for a plain checklist item, or set it to bind the todo to a job run. The dispatch fields (assignee/project/template/vars/verify/review/runner/cwd/timeout_sec/model/budget) describe how the item runs once it turns ready; the item is created pending.",
 	}, addTodoHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_update_todo",
 		Description: "Update a todo by todo_id: move it along its lifecycle (status: pending|ready|doing|done|skipped — doing stamps started_at, done/skipped stamp done_at) and/or set a short outcome note, and/or set the dispatch fields (assignee/project/template/vars/verify/review/runner/cwd/timeout_sec/model/budget). A write that makes the item ready AND assigned dispatches it immediately (a job starts; the item turns doing). Returns the updated todo.",
 	}, updateTodoHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_dispatch_todo",
 		Description: "Dispatch a todo's assigned agent NOW, regardless of the item's status (the explicit fallback to \"ready + assigned\"): starts a job for it and returns {todo, job, dispatched, reason}. Needs an assignee and no live job — when nothing is started, reason says why.",
 	}, dispatchTodoHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_plan_run",
 		Description: "Start a plan's dependency chain: queue every pending item whose `after` dependencies are done or skipped and that has an assignee (root items included), release a pause/block, and return the plan header {plan_id, status, paused, blocked_todo, ...}. Items then run one after another as each finishes; a failed chain item parks the plan (status=blocked, blocked_todo names it).",
 	}, planRunHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_plan_handoff",
 		Description: "Read or write a plan's versioned Markdown handoff note. action=get reads the latest or version; action=set appends a version using expected_version.",
 	}, planHandoffHandler(b))
@@ -233,17 +233,17 @@ func newServer(b Backend, scoped string) *mcp.Server {
 	// JOB-09 wakeups: end the run and be woken when the condition arrives. An agent
 	// running inside a job passes ITS OWN id (job_id = the value of GOFER_JOB_ID) to
 	// be resumed later, which is the whole point: nothing stays resident waiting.
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_wakeup_create",
 		Description: "Register a wakeup on a job: an event subscription or timer that RESUMES that job when it fires. kind=at (at, unix seconds), every (every_sec >= 60), cron (cron + optional timezone) or event (event_types from job.terminal|job.verify_finished|job.needs_review|job.reviewed|job.fell_back|job.stalled|interaction.answered|session.takeover_released; optional filter_job_id + filter_status). instruction is the prompt the continuation receives; mode once (default) or continuous. From inside a job, pass that job's own id to be woken after it ends.",
 	}, wakeupCreateHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_wakeup_list",
 		Description: "List a job's wakeups with their state (enabled, next_run_at, fired_count, coalesced_count, continuation_job_id).",
 	}, wakeupListHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_wakeup_disable",
 		Description: "Disable a wakeup by id so it stops firing (it stays listed; enabling again re-arms a timer from now).",
 	}, wakeupDisableHandler(b))
@@ -254,12 +254,12 @@ func newServer(b Backend, scoped string) *mcp.Server {
 	// @-mention starts work (阶段 B adds the leader whitelist). Registered
 	// unconditionally (same precedent as add_todo/ask_human): a project-scoped MCP
 	// keeps them.
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_comment",
 		Description: "Comment on a job, plan or todo (scope=job|plan|todo, id, body) in its thread. You speak as the agent of the job this process runs in (GOFER_JOB_ID; pass as_job to name it explicitly) — the comment is RECORDED and dispatches nothing: only a human's @mention starts a job. Use it to report progress, answer a human in the thread, or leave the reasoning behind a decision.",
 	}, commentHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_comments",
 		Description: "Read the comment thread of a job, plan or todo (scope=job|plan|todo, id), oldest first — including the jobs a human's @mentions dispatched.",
 	}, listCommentsHandler(b))
@@ -270,7 +270,7 @@ func newServer(b Backend, scoped string) *mcp.Server {
 
 	// Decision channel (Part C §C3). Registered UNCONDITIONALLY (plan M4, same
 	// precedent as add_todo/update_todo): a project-scoped MCP keeps it too.
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_ask_human",
 		Description: "Block and ask a HUMAN a question when a plan hits a decision point; the call returns when a person answers on the web console (bell / plan page) or the timeout expires. Returns {state:\"answered\", answer, answered_by} or {state:\"expired\"} — on expired, continue with your prepared fallback (e.g. recommended option, or mark the todo skipped+note); never block forever. Set timeout_sec within your host's own tool-call timeout.",
 	}, askHumanHandler(b))
@@ -1814,32 +1814,32 @@ const envLeaderPlan = "GOFER_LEADER_PLAN"
 // not author plans, never reviews a delivery (no gofer_reject_job either: a leader must
 // not hand work back on its own) and cannot touch configuration.
 func registerLeaderTools(s *mcp.Server, b Backend) {
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_comment",
 		Description: "Comment on a job, plan or todo (scope=job|plan|todo, id, body) as the agent of THIS job (GOFER_JOB_ID). You are the plan's leader, so an `@<agent 或 role>` in your comment really dispatches work (subject to the server's throttle + the project's allowlist) — that is how you hand the next step to a member.",
 	}, commentHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_comments",
 		Description: "Read the comment thread of a job, plan or todo (scope=job|plan|todo, id), oldest first — including the jobs that were dispatched from it.",
 	}, listCommentsHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_get_plan",
 		Description: "Get a plan with its todos and jobs and a live status roll-up {total,queued,running,done,failed}: the state you decide on.",
 	}, getPlanHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_update_todo",
 		Description: "Move a todo of your plan to `ready` (an item that has an assignee is dispatched immediately) or `skipped` (drop it, with a note). Those two statuses are the ONLY ones a leader may set: marking work done or accepted is a human's call.",
 	}, leaderUpdateTodoHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_wakeup_create",
 		Description: "Register a wakeup on a job (kind=at|every|cron|event, see the ordinary tool) so that job is resumed later — the way to come back to a member's follow-up without staying resident.",
 	}, wakeupCreateHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_ask_human",
 		Description: "Block and ask a HUMAN when the plan needs a decision you should not make alone (gate approval, product choice, spending money). Returns {state:\"answered\", answer} or {state:\"expired\"}; never block forever.",
 	}, askHumanHandler(b))
