@@ -1688,6 +1688,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/schedules", s.handleCreateSchedule)
 		r.GET("/schedules", s.handleListSchedules)
 		r.GET("/schedules/{id}", s.handleGetSchedule)
+		// PATCH edits the schedule in place (cron/at, title, params, enabled, timeout_sec);
+		// the command / agent / runner / project are refused there on purpose (§D4).
+		r.PATCH("/schedules/{id}", s.handlePatchSchedule)
 		// The schedule's own event stream (schedule.run_failed…), newest first — the same
 		// shape as /v1/plans/{id}/events.
 		r.GET("/schedules/{id}/events", s.handleListScheduleEvents)

@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -33,6 +35,9 @@ type createScheduleReq struct {
 	// server mints a trigger_token, and POST /v1/schedules/{id}/trigger runs the
 	// schedule for anyone presenting it.
 	Webhook bool `json:"webhook,omitempty"`
+	// Params declares the schedule's parameters (design 2026-10-22 §D1). Their defaults
+	// are overlaid on the stored request env at every run; a run-now may override them.
+	Params []job.ScheduleParam `json:"params,omitempty"`
 }
 
 // scheduleView is the JSON projection of one schedule. TriggerToken is masked for a caller that
@@ -54,6 +59,9 @@ type scheduleView struct {
 	// endpoint is not enabled for it. It is shown to authenticated callers only (every
 	// /v1 schedule read is authenticated).
 	TriggerToken string `json:"trigger_token,omitempty"`
+	// Params is the schedule's parameter declaration list (design 2026-10-22 §D1);
+	// omitted when it declares none.
+	Params []job.ScheduleParam `json:"params,omitempty"`
 }
 
 func (s *Server) handleCreateSchedule(c *rux.Context) {
@@ -94,6 +102,13 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		writeError(c, scheduleStatus(err), "invalid schedule request", err.Error())
 		return
 	}
+	// Design 2026-10-22 §D1: the declarations themselves are validated at the boundary
+	// (name shape, uniqueness, defaults fitting their type) and stored as opaque JSON.
+	paramsJSON, err := job.EncodeScheduleParams(req.Params)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid schedule params", err.Error())
+		return
+	}
 
 	raw, err := json.Marshal(req.Request)
 	if err != nil {
@@ -119,6 +134,7 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		NextRunAt:    next,
 		CatchUp:      catchUp,
 		ProjectKey:   req.Request.ProjectKey,
+		ParamsJSON:   paramsJSON,
 		// The creator is the schedule's ceiling owner: the sweeper and the webhook submit
 		// with it, so a timer made by a restricted caller stays bounded after the creating
 		// request is gone (design 2026-10-18, 上限所有者).
@@ -306,9 +322,26 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 	if !s.mayStartScheduleJobs(c, scheduleOwner(rec)) {
 		return
 	}
+	params, err := job.DecodeScheduleParams(rec.ParamsJSON)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid schedule params", err.Error())
+		return
+	}
+	overrides, err := readScheduleRunParams(c)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid run-now body", err.Error())
+		return
+	}
 	var req job.JobRequest
 	if err := json.Unmarshal([]byte(rec.RequestJSON), &req); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid schedule request", err.Error())
+		return
+	}
+	// Design 2026-10-22 §D2: stored env < declared defaults < this run's values. An
+	// override naming an undeclared param is refused here, so run-now cannot inject
+	// arbitrary env variables into the stored request.
+	if err := job.ApplyScheduleParams(&req, params, overrides); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid schedule params", err.Error())
 		return
 	}
 	req.Channel = "cron"
@@ -330,7 +363,31 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 		writeError(c, scheduleStatus(err), "run schedule failed", err.Error())
 		return
 	}
+	// §D3: the overrides a person chose are part of the schedule's own history — this is
+	// what answers "who ran it for real, and with which settings" afterwards.
+	detail := map[string]any{"schedule_id": rec.ID, "job_id": res.ID}
+	if len(overrides) > 0 {
+		detail["params"] = overrides
+	}
+	s.jobs.RecordScopedEvent(job.ScheduleEventScope(rec.ID), job.EventScheduleRunNow, rec.ProjectKey, detail)
 	c.JSON(http.StatusOK, res)
+}
+
+// readScheduleRunParams reads the OPTIONAL run-now body (design 2026-10-22 §D3):
+// {"params": {"CLEAN_APPLY": "1"}}. No body at all means "run with the defaults",
+// which is what every pre-params caller sends.
+func readScheduleRunParams(c *rux.Context) (map[string]string, error) {
+	raw, _ := io.ReadAll(c.Req.Body)
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	var body struct {
+		Params map[string]string `json:"params"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, fmt.Errorf(`body must be {"params":{"NAME":"value"}}: %w`, err)
+	}
+	return body.Params, nil
 }
 
 // newTriggerToken mints a schedule's webhook secret (AUTO-02b): 24 random bytes in
@@ -422,6 +479,18 @@ func (s *Server) handleScheduleTrigger(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid schedule request", err.Error())
 		return
 	}
+	// Design 2026-10-22 §D2/§D3: a webhook caller has only the trigger_token, so it may
+	// not choose parameter values — the run uses the DEFAULTS, exactly like a cron tick.
+	// (No request body is read here at all.)
+	params, err := job.DecodeScheduleParams(rec.ParamsJSON)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid schedule params", err.Error())
+		return
+	}
+	if err := job.ApplyScheduleParams(&req, params, nil); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid schedule params", err.Error())
+		return
+	}
 	req.Channel = channelWebhook
 	// An external caller has no gofer identity; the schedule's own record is the
 	// provenance, and CallerID stays empty rather than being invented. The CEILING OWNER,
@@ -493,6 +562,9 @@ func (s *Server) validateScheduleRequest(req job.JobRequest) error {
 func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 	var req job.JobRequest
 	_ = json.Unmarshal([]byte(rec.RequestJSON), &req)
+	// A row whose params_json cannot be decoded renders as "no params" rather than
+	// failing the read: the declaration is advisory metadata next to the request.
+	params, _ := job.DecodeScheduleParams(rec.ParamsJSON)
 	return scheduleView{
 		ID:         rec.ID,
 		Name:       rec.Name,
@@ -510,6 +582,7 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 		// which masks it for a caller that neither owns the schedule nor administers the
 		// deployment (gofer-hxld).
 		TriggerToken: rec.TriggerToken,
+		Params:       params,
 	}
 }
 

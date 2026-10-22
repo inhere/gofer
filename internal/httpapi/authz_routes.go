@@ -480,6 +480,10 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/schedules/{id}/enable":       {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit), scope: Resource("schedule")},
 	"POST /v1/schedules/{id}/run-now":      {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit), scope: Resource("schedule")},
 	"POST /v1/schedules/{id}/rotate-token": {user: InHandler(permDeny, authz.PermScheduleManageOthers), scope: Resource("schedule")},
+	// PATCH edits the task in place (cron/at, title, params, enabled, timeout_sec): the same
+	// permission as deleting it. The handler asks job.submit only when the patch turns the
+	// switch ON, because that turns the cron loop loose on the stored request.
+	"PATCH /v1/schedules/{id}": {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit), scope: Resource("schedule")},
 
 	// ---- plan T1.5d: plans 与 todos、work items（含 Today 首页）----
 	//
