@@ -37,12 +37,12 @@ type sessionFindOutput struct {
 }
 
 func registerSessionTopicTools(s *mcp.Server, b Backend) {
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name: "gofer_session_set_topic",
 		Description: "Record what THIS session works on so others (and the person) can find it: topic is one short sentence, scope are the project-relative sub-paths you own (clear_scope empties them). " +
 			"Omitted fields stay unchanged. The current session comes from the environment (session_id overrides); an ended session is refused. Needs a running gofer server.",
 	}, sessionSetTopicHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name: "gofer_session_find",
 		Description: "Find which live session works on something (read-only): query matches topics / session names / projects, path matches the sessions' scopes. Returns ranked sessions with the reasons they matched; " +
 			"maybe_offline marks one that stopped heart-beating. Needs a running gofer server.",

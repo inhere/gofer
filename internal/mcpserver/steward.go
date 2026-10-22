@@ -123,35 +123,35 @@ type stewardNotesOutput struct {
 // merge (only a suggestion), no way to end a work item.
 func registerStewardTools(s *mcp.Server, b Backend) {
 	// Reads.
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_list",
 		Description: "List the human's work items with the header counts. Filters: status[] (active|needs_me|waiting_resource|needs_onsite|review|parked|done|dropped), project, workspace, unsorted (drafts), query, due, include_closed. Each item carries goal / blocker / next step, its current sessions and in-flight requests.",
 	}, workListHandler(b, ""))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_get",
 		Description: "Read one work item with its journal (newest entries, oldest first), all sessions (current and past), links and field sources.",
 	}, workGetHandler(b, ""))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_requests",
 		Description: "Read the work request ledger (read-only): the report / hand-over / tidy-up asks and what became of them (pending|sent|answered|failed|expired). id limits it to one work item, active only the in-flight ones.",
 	}, workRequestsHandler(b, ""))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_session_list",
 		Description: "List registered terminal agent sessions (read-only): id, agent, project, runner, cwd, title, state, last message, last seen.",
 	}, sessionListHandler(b, ""))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_session_get",
 		Description: "Read one terminal agent session (read-only; id may be a unique prefix).",
 	}, sessionGetHandler(b, ""))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_session_tail",
 		Description: "Read the tail of a session's transcript as plain text (read-only, size-limited; id is the full session id). Falls back to the session's last message / progress line when the transcript cannot be read.",
 	}, sessionTailHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_jobs",
 		Description: "List jobs (read-only): optional project / status filters, newest first. Only states — no logs, no prompts.",
 	}, listJobsHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_get_job",
 		Description: "Get the current state of a job by id (read-only).",
 	}, getJobHandler(b))
@@ -159,32 +159,32 @@ func registerStewardTools(s *mcp.Server, b Backend) {
 	registerIssueReadTools(s, b, "")
 
 	// Writes: the descriptive / scheduling side of work items, nothing that decides.
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_update",
 		Description: "Change a work item's descriptive fields (title, goal, blocker_kind/blocker_text, next_step, summary, project_key, workspace, priority, park_until / remind_at as unix seconds, park_note, unsorted). status may be a NON-final one (active|needs_me|waiting_resource|needs_onsite|review|parked); a status a person set wins and is reported back in `notes`, and done / dropped are refused — ending a work item is the person's call. Pass rev for an optimistic-lock check.",
 	}, stewardWorkUpdateHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_note",
 		Description: "Append a note to a work item's journal (append-only; recorded as steward(<agent>)). level is optional: detail (default — bookkeeping) or milestone (only for a real progress point worth showing on the Today lane).",
 	}, workNoteHandler(b, ""))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_remind",
 		Description: "Set (at = unix seconds, or after_sec = seconds from now) or clear (clear=true) a work item's reminder. A due reminder notifies the person.",
 	}, workRemindHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_merge_suggest",
 		Description: "Suggest that work item source_id is the same thing as target_id and should be merged into it. This ONLY records the suggestion (and a journal line on both items): a person confirms or dismisses it; nothing is merged.",
 	}, workMergeSuggestHandler(b))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_request_report",
 		Description: "Ask a work item's running session(s) to report (kind report, default) or to write a hand-over (kind handoff) through the request ledger; the session answers with gofer_work_report. Asynchronous: do not wait — read the result later with gofer_work_requests. A session that is not running is tidied up instead.",
 	}, workRequestReportHandler(b, ""))
 	registerSessionAskTool(s, b)
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_summarize",
 		Description: "Tidy a work item up now: a cheap one-shot read-only model reads the session transcript tail and fills goal / blocker / next. Fields a person or the session wrote become suggestions for the person to adopt (never overwritten). Returns the ledger request that tracks it.",
 	}, workSummarizeHandler(b, ""))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_steward_notes",
 		Description: "Your long-term notes (versioned Markdown). action=get (default; version=0 is the latest) | history (versions, no bodies) | set (text = the whole new notes, version = the version you read; a conflict means someone wrote since — get again and merge) | review_summary (text = your <=300-character point of view for today's digest, during a review). Keep the notes under 8KB; every set keeps the old version.",
 	}, stewardNotesHandler(b))

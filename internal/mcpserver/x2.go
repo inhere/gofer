@@ -40,7 +40,7 @@ type issueGetInput struct {
 }
 
 func registerSessionAskTool(s *mcp.Server, b Backend) {
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name: "gofer_session_ask",
 		Description: "带话: deliver a short message to a RUNNING session over the existing relay channels (\"the resource arrived, you can continue\"). id is a terminal session id or an ACP / pty session job id. " +
 			"A session that is not online is an error (nothing is queued — tell the person instead). The message is logged on the session's work item as yours. Not for asking a session to report — use gofer_work_request_report for that.",
@@ -48,11 +48,11 @@ func registerSessionAskTool(s *mcp.Server, b Backend) {
 }
 
 func registerIssueReadTools(s *mcp.Server, b Backend, scoped string) {
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_issue_list",
 		Description: "List tracker issues from the server's mirror (read-only). Filters: project, tracker_id / repo (rel path), status (open|in_progress|closed…), type, tags[] (all must match), query (id / title / description substring), limit (default 50, max 200). Returns brief rows plus total / truncated.",
 	}, issueListHandler(b, scoped))
-	mcp.AddTool(s, &mcp.Tool{
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_issue_get",
 		Description: "Read one tracker issue in full from the server's mirror (read-only). Give tracker_id when the same id exists in several repos.",
 	}, issueGetHandler(b))

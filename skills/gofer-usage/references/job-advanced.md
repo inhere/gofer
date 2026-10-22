@@ -332,6 +332,8 @@ gofer job answer <id> <interaction-id> <optionId>   # 作答（web 交互面板 
 
 无人作答到 `timeout_sec` 按 `on_timeout` 兜底（默认 reject）。
 
+`mode: ask` 下，agent 调用 **gofer 自己的只读 MCP 工具**（`gofer_work_list`、`gofer_today_list`、`gofer_get_job`、`gofer_list_*` 等）不弹审批：不论 agent 把工具调用报成什么 `kind`（ACP agent 常报 `other`）都自动放行，并在 `artifacts/acp.jsonl` 记一条 `reason=gofer_readonly_tool`。写类工具（提交 job、改状态、写记忆等）与别的 MCP server 的**同名工具**照旧按策略；`mode: strict` 仍然每个工具都问人。
+
 ## 日志：stdout / stderr 的分工
 
 - `gofer job logs <id>` 读 stdout / stderr；交互 job 读 `pty.txt`。

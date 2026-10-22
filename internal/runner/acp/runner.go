@@ -35,6 +35,7 @@ import (
 
 	"github.com/inhere/gofer/internal/acp"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/mcptools"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/runner/ndjsonfilter"
 	"github.com/inhere/gofer/internal/util"
@@ -859,6 +860,14 @@ func (h *handler) usageSnapshot() *runner.Usage {
 // §1). Mode off auto-allows (the S0 behaviour); ask auto-allows the policy's
 // auto_allow_kinds and remembers an allow_always answer for the kind; everything else
 // is put to a human as a `permission` interaction and the agent waits for the answer.
+//
+// Under mode=ask a request for one of gofer's OWN read-only MCP tools is allowed
+// whatever kind the agent reported: an ACP agent calls an MCP tool with kind=other
+// (suga sends session/request_permission with kind=other even when the tool advertises
+// readOnlyHint), and other is in the default ask_kinds — so without this rule asking
+// gofer_work_list or gofer_today_list parked a steward on a human. The tool is
+// resolved by exact name against internal/mcptools, never by a name prefix, and a tool
+// qualified by another MCP server is not gofer's. mode=strict still asks everything.
 func (h *handler) RequestPermission(p acp.RequestPermissionParams) acp.PermissionOutcome {
 	kind := ""
 	if p.ToolCall != nil {
@@ -867,6 +876,8 @@ func (h *handler) RequestPermission(p acp.RequestPermissionParams) acp.Permissio
 	switch {
 	case h.policy.Mode == config.ApprovalOff:
 		return h.answerAutomatically(p, kind, "off")
+	case h.policy.Mode == config.ApprovalAsk && isGoferReadOnlyTool(p.ToolCall):
+		return h.answerAutomatically(p, kind, "gofer_readonly_tool")
 	case h.rememberedAllowAlways(kind):
 		return h.answerAutomatically(p, kind, "remembered_allow_always")
 	case h.policy.Mode == config.ApprovalAsk && h.policy.AutoAllow(kind):
@@ -1169,6 +1180,16 @@ func toolCallTitle(tc *acp.ToolCall) string {
 		return ""
 	}
 	return tc.Title
+}
+
+// isGoferReadOnlyTool reports whether this permission request is for one of gofer's own
+// read-only MCP tools (internal/mcptools): the ACP tool call names it in its title, bare
+// ("gofer_work_list", what suga sends) or MCP-qualified ("mcp__gofer__gofer_work_list").
+// A tool that another MCP server names the same way is not gofer's tool and stays
+// gated; so does a write tool with the same prefix.
+func isGoferReadOnlyTool(tc *acp.ToolCall) bool {
+	_, ok := mcptools.ReadOnlyToolName(toolCallTitle(tc))
+	return ok
 }
 
 // pickOption returns the first offered optionId of the given kind ("" if none).
