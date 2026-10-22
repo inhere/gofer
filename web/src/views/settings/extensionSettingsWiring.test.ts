@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 const raw = (g: Record<string, unknown>): string => Object.values(g)[0] as string
 const page = raw(import.meta.glob('./Extensions.vue', { eager: true, query: '?raw', import: 'default' }))
 const layout = raw(import.meta.glob('./SettingsLayout.vue', { eager: true, query: '?raw', import: 'default' }))
-const router = raw(import.meta.glob('../../router.ts', { eager: true, query: '?raw', import: 'default' }))
+const router = raw(import.meta.glob('../../router.routes.ts', { eager: true, query: '?raw', import: 'default' }))
 const api = raw(import.meta.glob('../../api/settings.ts', { eager: true, query: '?raw', import: 'default' }))
 const gate = raw(import.meta.glob('../../utils/permissionGate.ts', { eager: true, query: '?raw', import: 'default' }))
 

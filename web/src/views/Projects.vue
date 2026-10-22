@@ -441,7 +441,7 @@ function fmtTs(ts: number): string {
 }
 
 function viewOnBoard(key: string) {
-  void router.push({ path: '/board', query: { project: key } })
+  void router.push({ path: '/jobs', query: { project: key } })
 }
 
 onMounted(() => {

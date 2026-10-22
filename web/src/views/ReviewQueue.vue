@@ -35,7 +35,7 @@ const rejectError = ref('')
 const toast = ref<{ text: string; jobId?: string } | null>(null)
 // gofer-9b1b：待批 job 不进验收台（它们还没跑），页头只放一个「待批准 N →」入口（N>0 才显示）。
 const approvalCount = ref(0)
-const APPROVAL_LIST = '/board?status=awaiting_approval'
+const APPROVAL_LIST = '/jobs?status=awaiting_approval'
 
 let clockTimer: number | null = null
 let toastTimer: number | null = null

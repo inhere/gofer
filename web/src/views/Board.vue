@@ -181,7 +181,7 @@ function applyWfInput(): void {
   const nextQuery = { ...route.query }
   if (value) nextQuery.wf = value
   else delete nextQuery.wf
-  void router.push({ path: '/board', query: nextQuery })
+  void router.push({ path: '/jobs', query: nextQuery })
 }
 
 const projectSelectValue = computed({
@@ -193,7 +193,7 @@ const projectSelectValue = computed({
     } else {
       delete nextQuery.project
     }
-    void router.push({ path: '/board', query: nextQuery })
+    void router.push({ path: '/jobs', query: nextQuery })
   },
 })
 
@@ -211,7 +211,7 @@ function applyPlanInput(): void {
   const nextQuery = { ...route.query }
   if (value) nextQuery.plan = value
   else delete nextQuery.plan
-  void router.push({ path: '/board', query: nextQuery })
+  void router.push({ path: '/jobs', query: nextQuery })
 }
 
 function pickRecentPlan(id: string): void {
@@ -392,7 +392,7 @@ function clearFilters(): void {
   hasUploadFilter.value = false
   showMessengerJobs.value = false
   if (projectFilter.value || planFilter.value) {
-    void router.push({ path: '/board' })
+    void router.push({ path: '/jobs' })
   }
 }
 
