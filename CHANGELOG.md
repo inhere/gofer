@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 变更
+
+- **web 控制台启用新的一份设计 token（P0 基础层，gofer-hez1）**：界面颜色换成松绿 + 万寿菊的新色板（黄色只用于「需要人」），字体换成自托管的 Schibsted Grotesk（正文）/ IBM Plex Mono（id、命令、日志、diff），只打包拉丁子集，CJK 用系统字体。旧变量名保留为别名，页面布局、间距、圆角与文案不变，所以 P0 只看到配色与字体变化。同时新增状态族与中英文 i18n 骨架，供后续分期接入各页面（设计见 [`docs/design/2026-10-23-ui-redesign-design.md`](docs/design/2026-10-23-ui-redesign-design.md)）。
+
 ## [0.187.0] - 2026-10-23
 
 ### 修复

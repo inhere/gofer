@@ -1,0 +1,130 @@
+/* 基础层：元素级排版、焦点、滚动条、可访问性默认值（设计稿 §4、§10）。
+ * 只有「旧页面本来就这样」或「纯增量」的规则，迁移期的页面外观不应因此变化；
+ * 组件基元（.btn / .chip / .panel …）属于 P2，不在这里。
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  /* 数字一律等宽，时间/计数/token 用量在列表里才对得齐 */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  min-height: 100%;
+}
+
+/* 预留滚动条宽度：页面从短变长（换列表/换页签）时内容不会横向跳动。 */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* 滚动条跟随主题；Firefox 走标准属性，WebKit 走伪元素。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 2px solid transparent;
+  border-radius: var(--r-chip);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-3);
+  background-clip: content-box;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+code,
+kbd,
+samp,
+pre,
+.mono {
+  font-family: var(--font-mono);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+/* 可访问性：所有可交互元素都有可见焦点环，用 --focus；只在键盘聚焦时显示。 */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--r-chip);
+}
+
+/* 只给读屏的文本（图标按钮的无障碍名称、表格补充说明等）。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* prefers-reduced-motion：冻结全部动画/过渡/滚动惯性（与各组件局部规则兼容）。
+   设计稿 §4.3：常驻动画只有信号带流光与运行态脉冲，这里统一关掉。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  html {
+    scroll-behavior: auto !important;
+  }
+}

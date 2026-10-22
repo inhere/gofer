@@ -1,22 +1,28 @@
 import { createApp } from 'vue'
 
-// 离线字体（不依赖外网 CDN）
-import '@fontsource/ibm-plex-sans/400.css'
-import '@fontsource/ibm-plex-sans/500.css'
-import '@fontsource/ibm-plex-sans/600.css'
-import '@fontsource/ibm-plex-mono/400.css'
-import '@fontsource/ibm-plex-mono/500.css'
+// 离线字体（自托管，不依赖外网 CDN，也不请求 Google Fonts）：只打包拉丁子集，
+// CJK 回退系统字体（设计稿 §4.2、§15 字体体积）。
+import '@fontsource/schibsted-grotesk/latin-400.css'
+import '@fontsource/schibsted-grotesk/latin-500.css'
+import '@fontsource/schibsted-grotesk/latin-600.css'
+import '@fontsource/ibm-plex-mono/latin-400.css'
+import '@fontsource/ibm-plex-mono/latin-500.css'
 
 import './styles/tokens.css'
+import './styles/base.css'
+import './styles/status.css'
 
 import App from './App.vue'
 import router from './router'
 import { setUnauthorizedHandler } from './store/auth'
 import { markStaleBuild } from './store/staleBuild'
 import { initTheme } from './store/theme'
+import { initLocale } from './store/locale'
 
-// 挂载前应用主题（持久化偏好或跟随系统 prefers-color-scheme），尽量减少首屏闪烁
+// 挂载前应用主题（持久化偏好或跟随系统 prefers-color-scheme）与界面语言（写 <html lang>），
+// 尽量减少首屏闪烁
 initTheme()
+initLocale()
 
 // W2b: install the notification-only service worker. Registration is best-effort;
 // the SPA and its page-level attention fallback remain fully usable without it.
