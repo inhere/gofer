@@ -211,8 +211,10 @@ server:
   #     projects: [demo]                              #   只对这些项目弹(省略 = 全部)
   #     merge_sec: 10                                 #   同类事件合并窗口(默认 10s)；0 = 不合并
   #   说明：Windows 走 Windows.UI.Notifications 的 toast(点击打开 web_base_url 对应页面)；
-  #   macOS 走 osascript，Linux 走 notify-send(没装则跳过)。以服务(session 0)或无桌面会话
-  #   运行时自动跳过，日志记一条 notify.desktop_skipped。整段不写 = 不启用。
+  #   macOS 走 osascript，Linux 走 notify-send(没装则跳过)。以服务(session 0)、无桌面会话
+  #   或被系统关掉通知(Windows 需在「设置 → 系统 → 通知」里打开通知总开关与 Windows
+  #   PowerShell，gofer 借用它的 AUMID)时自动跳过，日志记一条 notify.desktop_skipped
+  #   (带设置值与修复提示，同一原因只记一次)。整段不写 = 不启用。
   #
   # kind：出站格式。省略或 generic = 上面的 {event, job} 机器格式 + HMAC 头；
   # dingtalk / feishu = 渲染成对应群机器人的消息 JSON。

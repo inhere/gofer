@@ -3,11 +3,9 @@
 package desktop
 
 import (
-	"encoding/base64"
+	"errors"
 	"fmt"
 	"os/exec"
-	"strings"
-	"unicode/utf16"
 
 	"golang.org/x/sys/windows"
 
@@ -19,48 +17,52 @@ import (
 // toast, posted by a short PowerShell child.
 func NewSystemNotifier() Notifier { return windowsNotifier{} }
 
-// toastAppID is the AUMID the toast is posted under. WinRT refuses an id that is not
-// REGISTERED in the Start Menu ("element not found"), so gofer borrows Windows
-// PowerShell's own AUMID: PowerShell 5.1 is part of Windows 10/11, which makes a toast
-// possible with neither a launcher shortcut nor a resident tray helper. That is the
-// reason this approach is more reliable here than driving the WinRT API from Go (which
-// would need a COM interop layer AND the same registered-id dance).
-const toastAppID = `{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe`
-
-// toastScript is a FIXED program: every piece of event data travels in the
-// environment (GOFER_TOAST_XML), so no job title / prompt is ever interpolated into
-// PowerShell source.
-const toastScript = `$ErrorActionPreference = 'Stop'
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-$doc = New-Object Windows.Data.Xml.Dom.XmlDocument
-$doc.LoadXml($env:` + toastXMLEnv + `)
-$toast = New-Object Windows.UI.Notifications.ToastNotification $doc
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('` + toastAppID + `').Show($toast)
-`
-
-// toastScriptEncoded is toastScript as -EncodedCommand wants it: base64 of UTF-16LE.
-// Encoding it once keeps every popup to a single argv slot with no quoting rules.
-var toastScriptEncoded = encodePSCommand(toastScript)
-
 type windowsNotifier struct{}
+
+// toastExecutor runs the fixed toast program (toastps.go) with the event data in env
+// and reports the child's exit code and combined output. It is a package variable only
+// so a test can exercise the verdict mapping (toastResult) through showToast without
+// popping a real toast. started is false when no powershell.exe could be launched.
+type toastExecutor func(env map[string]string) (code int, out string, started bool)
+
+var runToast toastExecutor = execToast
 
 func (windowsNotifier) Show(n Notification) error {
 	if err := requireInteractiveSession(); err != nil {
 		return err
 	}
+	return showToast(runToast, n)
+}
+
+// showToast separates "can this machine pop at all" (Show's session check) from "what
+// did the child say": the mapping is then testable with a stub executor.
+func showToast(run toastExecutor, n Notification) error {
+	code, out, started := run(map[string]string{toastXMLEnv: toastXML(n)})
+	if !started {
+		return &SkipError{Reason: "powershell.exe not found"}
+	}
+	return toastResult(code, out)
+}
+
+// execToast is the production executor: one short, detached PowerShell running the
+// fixed script. Every argv item is constant, so no event data reaches the command line.
+func execToast(env map[string]string) (int, string, bool) {
 	exe, err := exec.LookPath("powershell.exe")
 	if err != nil {
-		return &SkipError{Reason: "powershell.exe not found"}
+		return 0, "", false
 	}
 	cmd := exec.Command(exe, "-NoProfile", "-NonInteractive", "-EncodedCommand", toastScriptEncoded)
 	procattr.Background(cmd)
-	cmd.Env = util.Environ(map[string]string{toastXMLEnv: toastXML(n)})
+	cmd.Env = util.Environ(env)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("powershell toast: %w: %s", err, strings.TrimSpace(string(out)))
+	if err == nil {
+		return toastExitOK, string(out), true
 	}
-	return nil
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), string(out), true
+	}
+	return toastExitStartFailed, err.Error() + ": " + string(out), true
 }
 
 // requireInteractiveSession rejects the one Windows context where a toast can never
@@ -76,15 +78,4 @@ func requireInteractiveSession() error {
 		return &SkipError{Reason: "windows session 0 (service session, no interactive desktop)"}
 	}
 	return nil
-}
-
-// encodePSCommand base64-encodes script as UTF-16LE, the only encoding
-// `powershell -EncodedCommand` accepts.
-func encodePSCommand(script string) string {
-	units := utf16.Encode([]rune(script))
-	buf := make([]byte, 0, util.CapMul(len(units), 2))
-	for _, u := range units {
-		buf = append(buf, byte(u), byte(u>>8))
-	}
-	return base64.StdEncoding.EncodeToString(buf)
 }

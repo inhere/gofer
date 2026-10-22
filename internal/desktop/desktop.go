@@ -156,7 +156,9 @@ func (d *Dispatcher) show(batch []Notification) {
 	for _, n := range mergeBatch(batch) {
 		if err := d.notifier.Show(n); err != nil {
 			d.report(err)
+			continue
 		}
+		d.clearSkips()
 	}
 }
 
@@ -174,6 +176,17 @@ func (d *Dispatcher) report(err error) {
 	d.mu.Unlock()
 	if !seen {
 		slog.Warn("notify.desktop_skipped", "reason", skip.Reason)
+	}
+}
+
+// clearSkips forgets the recorded skip reasons after a notification WAS shown: the
+// channel works again, so a cause that returns later (settings switched off again, the
+// service back in session 0) is news and gets its own notify.desktop_skipped line.
+func (d *Dispatcher) clearSkips() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.logged) > 0 {
+		d.logged = make(map[string]bool)
 	}
 }
 

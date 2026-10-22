@@ -263,13 +263,15 @@ server:
 
 | 平台 | 实现 | 点击 | 跳过条件 |
 |---|---|---|---|
-| Windows | PowerShell 调 `Windows.UI.Notifications` 发 ToastGeneric toast | 有（`activationType="protocol"`，交给默认浏览器） | 进程在 **session 0**（以服务 / 「不论用户是否登录」的计划任务运行）；找不到 `powershell.exe` |
+| Windows | PowerShell 调 `Windows.UI.Notifications` 发 ToastGeneric toast | 有（`activationType="protocol"`，交给默认浏览器） | 进程在 **session 0**（以服务 / 「不论用户是否登录」的计划任务运行）；找不到 `powershell.exe`；**Windows 通知被关掉**（`ToastNotifier.Setting` 不是 `Enabled`：`DisabledForUser` / `DisabledForApplication` / `DisabledByGroupPolicy` / `DisabledByManifest`） |
 | macOS | `osascript -e 'display notification …'` | 无（链接写在正文里） | 找不到 `osascript`（macOS 自带）；首次需在系统设置里允许通知 |
 | Linux | `notify-send --app-name=gofer` | 无（链接写在正文里） | 没装 `notify-send`（libnotify）；`DISPLAY` / `WAYLAND_DISPLAY` / `DBUS_SESSION_BUS_ADDRESS` 全空（容器、无头机） |
 
 Windows 用 PowerShell 而不是 Go 直接调 WinRT 的原因：WinRT toast 要求 AUMID **已在开始菜单注册**，否则 `CreateToastNotifier` 报 element not found；gofer 借用 Windows PowerShell 自带的 AUMID（Windows 10/11 必有），于是既不用装启动器快捷方式、也不留常驻进程。事件数据（标题 / 正文 / 链接）不拼进脚本——脚本是固定程序，XML 经环境变量传入，避免任务标题里的引号变成命令。
 
-检测到不能弹时不是每来一个事件就报一次：每种原因只记一条 `notify.desktop_skipped`（JSONL 日志里带 `reason`），其余照常推 webhook / IM。
+**Windows 关掉通知时不会假成功**：`Show()` 在 `Setting` 不是 `Enabled` 时照常返回、什么都不显示。所以固定脚本在 `Show()` 之前先读 `ToastNotifier.Setting`，非 `Enabled` 就以约定退出码 3 结束并打印 `setting=<值>`；Go 侧把它映射成「跳过」，`notify.desktop_skipped` 的 `reason` 带设置值与修复路径，例如 `windows notification setting DisabledForUser (ToastNotifier.Setting) — Windows 设置 → 系统 → 通知：打开通知总开关与 Windows PowerShell`。
+
+检测到不能弹时不是每来一个事件就报一次：每种原因只记一条 `notify.desktop_skipped`（JSONL 日志里带 `reason`），其余照常推 webhook / IM。**原因变了**（例如 `DisabledForUser` 变成 `DisabledByGroupPolicy`）或**恢复正常后又坏了**（成功弹过一条之后再被关掉 / 回到 session 0）会重新记一条。
 
 排障：
 
@@ -280,4 +282,4 @@ Select-String -Path <config-dir>\run\serve.log -Pattern 'notify\.desktop'
 
 - **一条都没有、也不弹**：确认 `desktop:` 段写在 `server.notification` 下（不是 `server:` 下），并且 `server.notification.enabled` 与 `server.notification.desktop.enabled` 都不是 `false`；项目的 `notify_enabled: false` 也会压掉桌面通知。
 - **Windows 上记 `windows session 0`**：现在的 server 跑成了服务而不是计划任务。`gofer serve install` 建的计划任务（登录时触发、以用户身份、带交互令牌）跑在用户桌面会话里，可以弹；服务方式运行则不行，改用计划任务或换一台有桌面会话的机器。
-- **Windows 上 toast 不出现也不报错**：检查「设置 → 系统 → 通知」里 PowerShell 的通知是否被关掉（gofer 借用它的 AUMID）。
+- **Windows 上 toast 不出现也不报错**：这是通知被系统关掉的老表现（`Show()` 静默成功）。现在的日志里会有一条 `notify.desktop_skipped`，`reason` 写明 `ToastNotifier.Setting` 的值与修复路径：打开「设置 → 系统 → 通知」的通知总开关，以及其中 **Windows PowerShell** 这一项（gofer 借用它的 AUMID）。企业策略（`DisabledByGroupPolicy`）下需要在组策略 / 注册表里放开。
