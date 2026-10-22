@@ -4,11 +4,14 @@
 // 过滤与翻页全部落在 URL query（status/project/q/offset），刷新/分享都保持同一视图。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import { createPlan, listPlans, listProjects } from '../api/client'
-import { fmtDuration } from '../api/time'
+import { t } from '../i18n'
 import type { Plan, PlanStatus } from '../api/types'
-import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
+import FilterChips from '../ui/FilterChips.vue'
+import FilterDrawer from '../ui/FilterDrawer.vue'
+import PlanOverviewRow from '../ui/PlanOverviewRow.vue'
+import ProjectFilter from '../ui/ProjectFilter.vue'
+import { chipItems, type ChipValue } from '../ui/filterChips'
 import { planStatusOptions } from '../utils/statusText'
 import { COL, PAGE } from '../utils/uiText'
 import { createLiveTopic } from '../utils/useLiveTopic'
@@ -101,6 +104,12 @@ const creating = ref(false)
 const createError = ref('')
 
 const statusOptions: Array<{ value: PlanStatus | ''; label: string }> = planStatusOptions()
+// 状态 chip（设计稿 §7）：多选累积，一个不选 = 全部。计数不在列表接口里，不显示徽标。
+const statusChipItems = computed(() => chipItems(statusOptions))
+
+// 「筛选」抽屉：关键字与 tag（项目与状态已经在列表头）。
+const filtersOpen = ref(false)
+const drawerFilterCount = computed(() => [qFilter.value, tagFilter.value].filter(Boolean).length)
 
 const pageFrom = computed(() => (plans.value.length === 0 ? 0 : offset.value + 1))
 const pageTo = computed(() => offset.value + plans.value.length)
@@ -108,14 +117,14 @@ const hasPrev = computed(() => offset.value > 0)
 const hasNext = computed(() => pageTo.value < total.value)
 const hasFilters = computed(() => Boolean(projectFilter.value || tagFilter.value || qFilter.value || (statusFilter.value.length > 0 && (statusFilter.value.length !== 1 || statusFilter.value[0] !== 'open'))))
 
-function toggleStatus(value: PlanStatus | ''): void {
-  if (value === '') {
-    setFilter('status', 'all')
-    return
-  }
-  const current = statusFilter.value
-  const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
-  setFilter('status', next.length ? next.join(',') : 'all')
+// FilterChips 的多选结果直接换算成 URL 上的 status=open,blocked（空 = all）。
+function onStatusChips(value: ChipValue): void {
+  const list = (Array.isArray(value) ? value : value ? [value] : []).filter(Boolean) as PlanStatus[]
+  setFilter('status', list.length ? list.join(',') : 'all')
+}
+
+function clearFilters(): void {
+  pushQuery({ status: 'all', project: undefined, tag: undefined, q: undefined, offset: undefined })
 }
 
 function prevPage(): void {
@@ -184,25 +193,7 @@ async function onCreate(): Promise<void> {
   }
 }
 
-// 进度条 / 进度文字 / 副信息见 utils/planProgress：completion（待办优先、无待办回落 job）；
-// 旧服务端无 completion 时回落原 job counts 显示。
-
-function shortId(id: string): string {
-  return id.length > 14 ? id.slice(-14) : id
-}
-
-function rowAge(p: Plan): string {
-  const base = p.updated_at || p.created_at
-  if (!base) {
-    return '—'
-  }
-  return fmtDuration(Math.max(0, Math.floor(Date.now() / 1000) - base))
-}
-
-function openPlan(p: Plan): void {
-  void router.push(`/plans/${encodeURIComponent(p.plan_id)}`)
-}
-
+// 进度条 / 卡点 / 主会话 / 最近活动都在 PlanOverviewRow 里算（ui/progress.ts 的分段口径）。
 // Q3：`plans` 主题（plan / todo / 决策变化）触发重拉当前页；WS 断开 >15s 才由 30s 兜底轮询接手。
 const livePlans = createLiveTopic('plans', { initial: false, fetch: fetchPlans })
 
@@ -224,19 +215,21 @@ onUnmounted(() => {
     <div class="board-head">
       <h1 class="title mono">{{ PAGE.plans }}</h1>
       <div class="controls mono">
-        <div class="status-chips" aria-label="状态筛选">
-          <button v-for="opt in statusOptions" :key="opt.value || 'all'" type="button" class="status-chip mono" :class="[`status-chip--${opt.value || 'all'}`, { 'status-chip--active': opt.value === '' ? statusFilter.length === 0 : statusFilter.includes(opt.value as PlanStatus) }]" @click="toggleStatus(opt.value)">{{ opt.label }}</button>
-        </div>
-        <details class="filter-drawer">
-          <summary class="filter-drawer-toggle mono">筛选<template v-if="hasFilters">（{{ [projectFilter, qFilter, tagFilter].filter(Boolean).length }}）</template></summary>
+        <ProjectFilter v-model="projectFilter" :options="projectOptions" />
+        <FilterChips
+          :items="statusChipItems"
+          :model-value="statusFilter"
+          multiple
+          label="状态筛选"
+          @update:model-value="onStatusChips"
+        />
+        <FilterDrawer
+          v-model:open="filtersOpen"
+          :active-count="drawerFilterCount"
+          :clearable="hasFilters"
+          @clear="clearFilters"
+        >
           <div class="filter-drawer-body">
-            <label class="filter">
-              <span class="filter-label">{{ COL.project }}</span>
-              <select v-model="projectFilter" class="filter-select mono">
-                <option value="">全部</option>
-                <option v-for="key in projectOptions" :key="key" :value="key">{{ key }}</option>
-              </select>
-            </label>
             <label class="filter">
               <span class="filter-label">关键字</span>
               <input
@@ -253,7 +246,7 @@ onUnmounted(() => {
               <input v-model="tagFilter" class="filter-input mono" placeholder="标签，可逗号分隔" spellcheck="false" />
             </label>
           </div>
-        </details>
+        </FilterDrawer>
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
         <button v-if="!readOnly" class="create-toggle mono" type="button" :aria-expanded="createOpen" @click="createOpen = !createOpen">
           {{ createOpen ? '收起' : '＋ 新建计划' }}
@@ -282,54 +275,18 @@ onUnmounted(() => {
     <p v-if="createError" class="error mono">{{ createError }}</p>
     <p v-if="error" class="error mono">{{ error }}</p>
 
+    <!-- 计划总览（设计稿 §7）：每行一个计划，进度、卡点、主会话、最近活动都在行里。 -->
     <div class="table">
       <div class="thead mono">
-        <span class="col-status">{{ COL.status }}</span>
-        <span class="col-plan">计划 · 标题 / ID</span>
-        <span class="col-project">{{ COL.project }}</span>
-        <span class="col-tags">{{ COL.tags }}</span>
-        <span class="col-counts">{{ COL.progress }}</span>
-        <span class="col-updated">{{ COL.updated }}</span>
+        <span>{{ COL.status }}</span>
+        <span>计划 · 标题 / ID</span>
+        <span>{{ COL.progress }}</span>
+        <span>{{ t('plans.overview.blockers') }}</span>
+        <span>{{ t('plans.overview.supervisor') }}</span>
+        <span>{{ t('plans.overview.activity') }}</span>
       </div>
 
-      <div
-        v-for="p in plans"
-        :key="p.plan_id"
-        class="trow"
-        role="button"
-        tabindex="0"
-        @click="openPlan(p)"
-        @keydown.enter="openPlan(p)"
-      >
-        <span class="col-status"><PlanStatusBadge :status="p.status" /></span>
-        <span class="col-plan" :class="{ 'col-plan--titled': p.title }">
-          <span v-if="p.title" class="plan-title" :title="p.title">{{ p.title }}</span>
-          <span class="plan-id mono" :title="p.plan_id">{{ shortId(p.plan_id) }}</span>
-        </span>
-        <!-- PLAN-02 P2：该 plan 的待办派发进哪个 project（空 = 未指定，派发时要求待办自带）。 -->
-        <span class="col-project mono" :title="p.project || '未指定项目'">
-          {{ p.project || '—' }}
-        </span>
-        <span class="col-tags mono"><span v-for="tag in p.tags ?? []" :key="tag" class="plan-tag">{{ tag }}</span><span v-if="!(p.tags ?? []).length">—</span></span>
-        <span class="col-counts mono">
-          <span class="count-line">
-            <span class="cbar" aria-hidden="true">
-              <span
-                v-for="s in progressSegments(p)"
-                :key="s.cls"
-                class="seg"
-                :class="s.cls"
-                :style="{ width: `${s.pct}%` }"
-              ></span>
-            </span>
-            <span class="count-frac">{{ progressText(p) }}</span>
-          </span>
-          <span v-if="progressDetail(p)" class="count-detail">
-            {{ progressDetail(p) }}
-          </span>
-        </span>
-        <span class="col-updated mono">{{ rowAge(p) }}</span>
-      </div>
+      <PlanOverviewRow v-for="p in plans" :key="p.plan_id" :plan="p" />
 
       <div v-if="plans.length === 0 && !error" class="empty mono">
         <p>{{ hasFilters ? '没有匹配的 plan' : '暂无 plan' }}</p>
@@ -397,12 +354,6 @@ onUnmounted(() => {
   min-width: 180px;
 }
 .status-chips { display: inline-flex; flex-wrap: wrap; gap: 5px; }
-.status-chip { background: transparent; color: var(--queue); border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 11px; opacity: .65; }
-.status-chip--active { color: var(--phosphor); border-color: var(--phosphor); opacity: 1; }
-.status-chip--open.status-chip--active { color: var(--done); border-color: var(--done); }
-.status-chip--done.status-chip--active { color: var(--done); border-color: var(--done); }
-.status-chip--blocked.status-chip--active { color: var(--fail); border-color: var(--fail); }
-.status-chip--archived.status-chip--active { color: var(--queue); border-color: var(--queue); }
 .filter-select:focus,
 .filter-input:focus,
 .create-input:focus {
@@ -477,97 +428,18 @@ onUnmounted(() => {
   border-radius: var(--radius);
   overflow: hidden;
 }
-.thead,
-.trow {
+.thead {
   display: grid;
-  grid-template-columns: 124px minmax(180px, 1fr) 120px 160px minmax(260px, 360px) 90px;
+  grid-template-columns: 96px minmax(180px, 1.4fr) 190px minmax(140px, 1fr) 120px 96px;
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
-}
-.thead {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   font-size: 11px;
   letter-spacing: 0.06em;
   color: var(--queue);
   text-transform: uppercase;
-}
-.trow {
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-  font-size: 13px;
-  outline: none;
-}
-.trow:last-child {
-  border-bottom: none;
-}
-.trow:hover {
-  background: var(--panel);
-}
-.trow:focus-visible {
-  background: var(--panel);
-  box-shadow: inset 2px 0 0 var(--phosphor);
-}
-.col-plan {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-.plan-title {
-  color: var(--paper);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.plan-id {
-  color: var(--phosphor);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.col-plan:not(.col-plan--titled) .plan-id {
-  font-size: 13px;
-}
-/* project 列（PLAN-02 P2）：plan 的待办派发进哪个 project；空渲染 —。 */
-.col-project {
-  color: var(--queue);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.col-tags { display: flex; flex-wrap: wrap; gap: 4px; color: var(--queue); }
-.plan-tag { color: var(--phosphor); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; font-size: 10px; }
-.col-counts {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.count-line {
-  display: grid;
-  grid-template-columns: minmax(120px, 1fr) 48px;
-  align-items: center;
-  gap: 10px;
-}
-.count-frac {
-  color: var(--paper);
-  font-size: 12px;
-  text-align: right;
-}
-.count-detail {
-  color: var(--queue);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.col-updated {
-  color: var(--queue);
 }
 .empty {
   padding: 28px 14px;
@@ -609,30 +481,10 @@ onUnmounted(() => {
   letter-spacing: 0.04em;
 }
 
-.cbar {
+.filter-drawer-body {
   display: flex;
-  width: 100%;
-  height: 8px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--term-bg);
-}
-.seg {
-  height: 100%;
-  min-width: 2px;
-}
-.seg--done {
-  background: var(--done);
-}
-.seg--run {
-  background: var(--run);
-}
-.seg--fail {
-  background: var(--fail);
-}
-.seg--queue {
-  background: var(--queue);
+  flex-direction: column;
+  gap: 12px;
 }
 
 .create-toggle {
