@@ -667,8 +667,8 @@ type ListMailOpts struct {
 	// It is the "older than this one" cursor of a paged conversation (id grows with time).
 	BeforeID int64
 	States   []string
-	Since   int64
-	Until   int64
+	Since    int64
+	Until    int64
 	// OldestFirst orders by id ascending (a thread read from its first letter) instead of
 	// the default newest-first listing.
 	OldestFirst bool

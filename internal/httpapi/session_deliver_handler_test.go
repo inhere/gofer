@@ -11,7 +11,6 @@ import (
 
 // fakeInjector stands in for the job service behind path A (§9.1): the HTTP
 // contract is about routing and status codes, not about running tmux.
-//
 type fakeInjector struct {
 	reqs []sessionrelay.InjectRequest
 	res  sessionrelay.InjectResult
