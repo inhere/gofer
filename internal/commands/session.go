@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 var sessionListOpts = struct {
@@ -103,6 +104,19 @@ func NewSessionCmd() *gcli.Command {
 					c.StrOpt(&sessionRelayOpts.session, "session", "", "", "session id (default: resolve by current directory)")
 				},
 				Func: runSessionRelay,
+			},
+			{
+				Name: "inject-mode",
+				Desc: "Set how a message is typed into a session's terminal: auto (only into a confirmed-empty input area) | hold (never type, the message waits for the next hook) | force (type without looking)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("mode", "auto | hold | force", true)
+					c.StrOpt(&sessionInjectModeOpts.session, "session", "", "", "session id (default: resolve by current directory)")
+					c.BoolOpt(&sessionInjectModeOpts.sendHeld, "send-held", "", false,
+						"instead of setting a mode, send the messages waiting for this session right now (「现在送」)")
+				},
+				Func: runSessionInjectMode,
 			},
 			{
 				Name: "say",
@@ -493,6 +507,57 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 		}
 	}
 	return nil
+}
+
+// runSessionInjectMode sets the terminal delivery mode (design 2026-10-22 D5), or —
+// with --send-held — pastes the messages waiting for the session right now.
+func runSessionInjectMode(c *gcli.Command, _ []string) error {
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	sid := strings.TrimSpace(sessionInjectModeOpts.session)
+	if sid == "" {
+		sid, err = resolveCurrentSession(cli)
+		if err != nil {
+			return err
+		}
+	} else if sid, err = resolveSessionID(cli, sid); err != nil {
+		return err
+	}
+	if sessionInjectModeOpts.sendHeld {
+		if err := cli.SendHeldSessionMessages(sid); err != nil {
+			return err
+		}
+		c.Printf("sent the waiting messages to session %s\n", shortSID(sid))
+		return nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(c.Arg("mode").String()))
+	switch mode {
+	case jobstore.InjectModeAuto, jobstore.InjectModeHold, jobstore.InjectModeForce:
+	default:
+		return errorx.Failf(configExitErr, "delivery mode must be auto|hold|force, got %q", mode)
+	}
+	a, err := cli.SetSessionInjectMode(sid, mode)
+	if err != nil {
+		return err
+	}
+	c.Printf("delivery mode %s for session %s (%s)\n", a.InjectMode, shortSID(a.SessionID), sessionTitle(a))
+	switch a.InjectMode {
+	case jobstore.InjectModeAuto:
+		c.Println("  messages are typed only when the input area is confirmed empty; otherwise they wait for the session's next hook (the web page sends them with 「现在送」)")
+	case jobstore.InjectModeHold:
+		c.Println("  nothing is typed into this terminal: every message waits for the session's next hook")
+	default:
+		c.Println("  messages are typed without looking at the input area (use only when nobody is at that terminal)")
+	}
+	return nil
+}
+
+// sessionInjectModeOpts is the `session inject-mode` flag set.
+var sessionInjectModeOpts struct {
+	session  string
+	sendHeld bool
 }
 
 func runSessionRelay(c *gcli.Command, _ []string) error {

@@ -2213,6 +2213,10 @@ func (s *Store) migrateAgentSessions() error {
 		// stop_park_until (gofer-fv6a): the deadline of the Stop hook's park on the
 		// session's watched jobs; a pre-column row reads back 0 ("no park").
 		{"stop_park_until", "ALTER TABLE agent_sessions ADD COLUMN stop_park_until INTEGER NOT NULL DEFAULT 0"},
+		// inject_mode (gofer-k23r D5): how a message that must be typed into the
+		// terminal is handled. A pre-column row reads back 'auto' (COALESCE), the mode
+		// that only types into a confirmed-empty input area.
+		{"inject_mode", "ALTER TABLE agent_sessions ADD COLUMN inject_mode TEXT NOT NULL DEFAULT 'auto'"},
 	} {
 		if _, ok := cols[col.name]; ok {
 			continue

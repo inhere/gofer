@@ -216,12 +216,17 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 会话没有等待中的 turn（在干活或已空闲）时，`session say --deliver`（web 抽屉的「送入终端」）按顺序尝试：
 
 1. **agent 的送话命令**（`deliver_command`）：在会话登记的执行机上跑这条命令，退出码 `0` = 已送达，`3` = 进程不在线（继续往下），其它 = 失败（不再退到 tmux，避免重复送）。内置默认：codex 用 `codex queue` 排队消息（已退出的会话下次 resume 时收到），suga 用 `suga send --session <id>`（文本走 stdin，`suga send` 自己对不在线的会话就返回 3）。
-2. **tmux 注入**：确认 pane 存在、前台是 agent CLI（默认白名单 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配），把 `[来自 web 回复，<用户>] …` 逐行敲进去（上限 8KB）。
+2. **tmux 注入**：确认 pane 存在、前台是 agent CLI（默认白名单 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配），把 `[来自 web 回复，<用户>] …` **整段粘贴**进去（一个 tmux buffer + 括号粘贴 + 一次回车，多行消息还是一条输入；上限 8KB）。
+   - **先看输入区再打字**（默认模式 `auto`）：用 `tmux capture-pane` 读 pane 最后几行，只有确认为**空输入框**才投递；输入框里有半截文字、或停在选择界面（AskUserQuestion、权限确认）时不打字，消息改为**留待**（不会丢，见下）。识别不了也算不确定，同样留待。
+   - 投递模式按会话设：`auto`（默认）/ `hold`（从不打字，消息一律留待）/ `force`（不检查直接粘贴，只在确定那个终端没人用时选）。CLI `gofer session inject-mode auto|hold|force`（默认取当前目录的会话，`--session <id>` 指定），web 会话页可选择。
+   - 留待的消息进会话信箱（`mail`），由会话下一次 SessionStart / UserPromptSubmit / Stop hook 注入；web 会话页显示待读数量并可「现在送」（立刻粘贴一次，跳过检查）。每次留待都在审计事件 `session.inject_hold` 里记原因（输入框有内容 / 选择界面 / 不确定 / hold 模式）。
    - 前提：会话跑在 tmux 里（建议 `tmux new -A -s claude`）且登记了执行机。**容器里的会话**要在容器内起一个 gofer worker，并在容器 `.env` 配 `GOFER_HOOK_RUNNER=<worker-id>`；纯客户端节点不会登记执行机。
    - 注入是一个 exec job，项目需 `allow_exec: true`（worker 侧 `guards.allow_exec` 也不能收紧）。
 3. 前两步都不行时，`--takeover` 起新进程接管（见下）。
 
 失败原因：`no_runner`（未登记执行机）、`no_tmux`（不在 tmux）、`ended`、`deliver_failed:<原因>`、`inject_failed:pane_missing`（pane 没了）、`inject_failed:pane_busy:<cmd>`（前台是别的程序，如 vim）、`inject_failed:runner_error`、`not_delivered:<job 状态>`（那只内部 job 还没来得及跑就被撤销，例如更新等待空闲把新 job 停住：什么都没送出去，可以放心重试）。
+
+留待不是失败：投递返回 `path=held`（web/CLI 会说明消息在等下一个 hook），消息在会话信箱里，`gofer session mail ls` 看得到。
 
 送话的内部 job 跑得比服务端等得久（超过 25 秒）时不会被当成失败：job 已开始 → 这次投递是**送达中**，job 结束时回写真实结果；job 尚未开始 → 撤销它并报 `not_delivered:<状态>`。web「发消息」用的一次性传话人 job 超出 `session_messaging.timeout` 时同样处理：已开始记「送达中」并在终态回写（要有 `已发送` 回执才算送达），未开始则撤销并记「未送达」。
 
@@ -273,7 +278,7 @@ gofer session nudge rm|pause|resume <nudge-id>
 ## 自研 agent 接入（generic）
 
 - hook：agent 自己调 `gofer hook generic --agent <gofer agent key>`，stdin 与 claude 同形 JSON；事件 SessionStart、UserPromptSubmit（可带 `"injected": true` 表示注入输入，不算人工输入）、PreToolUse（带 `tool_name` 与 `tool_input.command`，输出命令记忆）、PostToolUse、Stop、Interrupt、SessionEnd、Notification。Stop 阻塞，输出同 claude；最后一条消息取载荷的 `last_assistant_message`。
-- agent 配置可加：`ndjson_usage_path`（用量）、`transcript_dialect: generic`（会话记录方言）、`inject_process`（tmux 送话前台进程名）、`session_family`（与同族 agent 互相续接）、`deliver_command` / `deliver_stdin` / `deliver_offline_match`（在线送话）。配置样例见 [server-config.md](server-config.md)「agents」与 <https://github.com/inhere/gofer/blob/main/docs/runbook/session-relay.md>。
+- agent 配置可加：`ndjson_usage_path`（用量）、`transcript_dialect: generic`（会话记录方言）、`inject_process`（tmux 送话前台进程名）、`inject_guard`（输入区识别规则：`empty` / `has_input` / `selecting` 三组正则，未配时用内置 claude / codex 规则；没有任何规则的 agent 不做 `auto` 检查）、`session_family`（与同族 agent 互相续接）、`deliver_command` / `deliver_stdin` / `deliver_offline_match`（在线送话）。配置样例见 [server-config.md](server-config.md)「agents」与 <https://github.com/inhere/gofer/blob/main/docs/runbook/session-relay.md>。
 
 ## 其它约定
 

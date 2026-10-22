@@ -11,13 +11,29 @@ import (
 
 // fakeInjector stands in for the job service behind path A (§9.1): the HTTP
 // contract is about routing and status codes, not about running tmux.
+//
 type fakeInjector struct {
 	reqs []sessionrelay.InjectRequest
 	res  sessionrelay.InjectResult
 	err  error
+	// capture is what the input-area guard probe (2026-10-22 D4) reads back; the
+	// default is Claude Code at its prompt with nothing typed, so `auto` lets a
+	// delivery through. Guard jobs are NOT recorded in reqs, where every test counts
+	// the deliveries.
+	capture string
 }
 
+// claudeEmptyPaneCapture is the default guard answer: the empty Claude Code input box.
+const claudeEmptyPaneCapture = "╭──────────────────────╮\n│ > Try \"fix it\"        │\n╰──────────────────────╯\n"
+
 func (f *fakeInjector) InjectSession(_ context.Context, req sessionrelay.InjectRequest) (sessionrelay.InjectResult, error) {
+	if len(req.Tags) > 0 && req.Tags[0] == sessionrelay.TagRelayGuard {
+		capture := f.capture
+		if capture == "" {
+			capture = claudeEmptyPaneCapture
+		}
+		return sessionrelay.InjectResult{JobID: "job-guard-http", ExitCode: 0, Output: capture}, nil
+	}
 	f.reqs = append(f.reqs, req)
 	return f.res, f.err
 }

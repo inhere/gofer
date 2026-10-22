@@ -213,7 +213,10 @@ type Service struct {
 	refusedMu     sync.Mutex
 	refusedLogged map[string]time.Time
 	// agentInject returns an agent's own inject_process names (nil = none wired).
-	agentInject      func(agentKey string) []string
+	agentInject func(agentKey string) []string
+	// agentGuard returns an agent's input-area recognition rules for the terminal
+	// delivery guard (nil = no guard wired: nothing is captured before typing).
+	agentGuard       func(agentKey string) InjectGuardRules
 	deliverPlan      func(agentKey, sessionID, text string) CommandPlan
 	takeoverAliveSec int
 	// restricted reports whether this deployment gives any caller a ceiling (see

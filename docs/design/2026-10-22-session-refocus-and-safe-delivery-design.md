@@ -74,4 +74,21 @@ D6 不变：hook 注入路径（UserPromptSubmit / Stop 等）本来就不打字
 - server：新增 `GET /v1/sessions/{sid}/focus`（`internal/httpapi/session_focus_handler.go`），一次返回会话的 agent / title / topic / project / cwd / caller / started_at、本会话监督的 open 或 blocked plan（含 progress / total / next / blocked）、待等的 job watch（与 `/watches` 同一视图）与已投递但未回的信件（`from` 显示名 + 正文首行摘要）。只读（不把信件标为已读），权限与其它会话读一致（别人的会话需要 `session.read.others`）。G056：路由已在 `routeDecls` 声明为 `InHandler(permDeny, session.read.others)` + `Resource("session")`。`jobstore.PlanFilter` 加了 `SupervisorSessionID` 过滤字段（`planWhere`），不新增表 / 索引。
 - prime：`gofer repo prime` 增加 `--session <sid>` / `--source <s>`；`--hook-json` 下再由 prime 自己从 stdin JSON 读 `session_id` / `source`（两家 SessionStart 都带，prime 本来就为主存读 stdin，因此**不用重装 hook**，也不用在 shell 命令行里插值），flag 优先。`source` 为 `compact` / `resume` 时取 focus 并追加一段 `[gofer · 提示]`（`msgprefix.HintOpen`），段长复用 prime 剩余预算（`tracker.PrimeMaxBytes - len(base)`），放不下的条目整行丢弃；`startup` / `clear`、无当前任务、server 不可达一律不追加、不影响其余段落。
 - claim 推断：tracker 的 issue 没有 claim 的会话 id，因此 prime 在本机 tracker 里挑 `in_progress` 的 issue：`assignee` 等于 focus 的 caller 是确定认领，否则（`updated_at` 晚于会话 `started_at`）标「可能」；最多 3 条。渲染在 `internal/brief/refocus.go`（可单测），prime 只做取数与拼接（G021）。
-- 第二部分 D3–D6（安全投递）不在本次实施范围，仍未实现。
+
+## 实施记录（gofer-k23r，第二部分 D3–D6；2026-10-22）
+
+第二部分（D3–D6）已实施：
+
+- **D3 整段粘贴**：`sessionrelay.injectScript` 改为 `printf '%s' <单引号字面量> | tmux load-buffer -b gofer-inject-<pane> -` + `tmux paste-buffer -p -d -b <buf> -t <pane>` + **一次** `send-keys Enter`；逐行 `send-keys -l` + Enter 全部删除。buffer 名按 pane 派生，两个 pane 并发投递不会互相覆盖，粘贴后 `-d` 清掉。
+- **D4 输入区检查**：`inject_guard.go` 新增 `tmux capture-pane -p -S -30` 探针 job（tag `relay-guard`）+ 服务端判定 `ClassifyInjectGuard`：`selecting`（选择界面优先）→ `empty` → `has_input` → `unknown`（规则写的就是占位符也认作空）。规则来自 `agents.<k>.inject_guard`（`empty` / `has_input` / `selecting` 三组 Go 正则，配置校验时编译），未配时用内置 claude / codex 规则（夹具见 `deliver_guard_test.go`），配置里某一组留空则保留该组内置规则。探针失败 / 超时一律 `unknown`。
+- **D5 投递模式**：`agent_sessions.inject_mode`（additive 列，`auto` 默认）+ `AgentSession.InjectMode` + `Store.SetSessionInjectMode` + `Service.SetInjectMode`（写审计事件 `session.inject_mode_set`）。路由 `POST /v1/sessions/{sid}/inject-mode`（`{"mode": "auto|hold|force"}`）。`auto` 在路径 A 前探针判定，非空即留待；`hold` 在路径 C 之前就留待（连在线送话也不走）；`force` 不探针直接粘贴。路径 B（`--resume` 新进程）天然空输入，不探针。
+  - **留待**实现为会话信箱的一封信（`mail`: `to_kind=session`, `state=pending`, 30 天送达期限），因此 D6 完全不用改：会话下一次 SessionStart / UserPromptSubmit / Stop 的现有 claim → confirm 路径会注入它。每次留待写审计事件 `session.inject_hold`（`{"reason","mail_id"}`，原因 `input_has_content` / `selecting` / `guard_unknown` / `hold_mode`）。
+  - **「现在送」**：`Service.DeliverHeld` + `POST /v1/sessions/{sid}/held/send` —— 取走会话待投递的信件（`ClaimSessionMail`），按普通注入 job **强制**粘贴（不探针、不看模式），确认后 `ConfirmSessionMail` 标记送达；粘贴失败则 `ReleaseSessionMail` 退回 pending，可重试。审计事件 `session.inject_flush`。
+  - CLI：`gofer session inject-mode auto|hold|force [--session <id>]`，`--send-held` 即「现在送」（G033：放在既有 `session` 组内）。
+- **配置**：`agents.<k>.inject_guard`（`empty` / `has_input` / `selecting`），加载时编译校验（`validateAgentIntegration`）。
+- **web**：会话抽屉头部新增投递模式三态按钮（看输入框 / 留待 / 直送）与「现在送 N」按钮（仅在会话有待投递消息时出现），分别走 `POST /v1/sessions/{sid}/inject-mode` 与 `…/held/send`；展示口径在 `web/src/utils/injectMode.ts`（vitest 覆盖）。
+- **遗留 / 取舍**：
+  - 输入区识别规则是按已知 TUI 形态写的（夹具在 `deliver_guard_test.go`），本开发机没有 tmux / claude / codex，**未能按设计稿在真实终端里观察取图**；上线后若发现某版 TUI 界面变了，用 `agents.<k>.inject_guard` 补正则即可，不需要改代码。
+  - 没有任何 `inject_guard` 规则的 agent（自研 agent 没配）不做 `auto` 检查：否则“永远确认不了空”等于把 `auto` 变成 `hold`，自研 agent 就再也收不到终端投递了。
+  - 会话列表页（Sessions 表）没加模式列，切换在抽屉里。
+

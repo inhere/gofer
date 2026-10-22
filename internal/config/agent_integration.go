@@ -10,6 +10,23 @@ import (
 // the dialect constants of internal/work/transcript).
 var TranscriptDialects = []string{"claude", "codex", "omp", "generic"}
 
+// InjectGuardConfig is one agent's input-area recognition for the terminal delivery
+// guard (design 2026-10-22 D4): the tmux pane's last lines are captured before a
+// message is typed into it, and the lists answer three questions. An empty list means
+// "no rule of this kind"; every pattern is a Go regexp matched against one trimmed
+// line of the capture. `selecting` is judged first (a dialog drawn over the input box),
+// then `has_input`, then `empty` — a capture matching nothing is 不确定 and no message
+// is typed into it while the session's mode is auto.
+type InjectGuardConfig struct {
+	// Empty matches the agent's EMPTY input area (the prompt line, or its placeholder).
+	Empty []string `yaml:"empty,omitempty"`
+	// HasInput matches an input line that already carries text a person typed.
+	HasInput []string `yaml:"has_input,omitempty"`
+	// Selecting matches a selection UI / question dialog (AskUserQuestion, a permission
+	// prompt) where the Enter behind a paste would answer for the person.
+	Selecting []string `yaml:"selecting,omitempty"`
+}
+
 // validateAgentIntegration checks the four fields a self-built agent uses to plug into
 // gofer (usage path, transcript dialect, tmux inject process names, session family).
 // A typo'd value would otherwise silently do nothing, so every one is rejected at load.
@@ -39,6 +56,20 @@ func validateAgentIntegration(key string, ac AgentConfig) error {
 	for i, n := range ac.InjectProcess {
 		if !ValidInjectProcessName(n) {
 			return fmt.Errorf("agent %q: inject_process[%d] %q must be a bare process name (no path separator, no extension)", key, i, n)
+		}
+	}
+	if g := ac.InjectGuard; g != nil {
+		for _, list := range []struct {
+			name string
+			pats []string
+		}{
+			{"empty", g.Empty}, {"has_input", g.HasInput}, {"selecting", g.Selecting},
+		} {
+			for i, p := range list.pats {
+				if _, err := regexp.Compile(p); err != nil {
+					return fmt.Errorf("agent %q: inject_guard.%s[%d] %q is not a valid regexp: %v", key, list.name, i, p, err)
+				}
+			}
 		}
 	}
 	if len(ac.DeliverCommand) > 0 {

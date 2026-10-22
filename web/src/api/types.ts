@@ -409,6 +409,10 @@ export type AgentSessionState =
 // AgentSessionRelayMode 是会话中继开关的三态（R1）。
 export type AgentSessionRelayMode = 'auto' | 'on' | 'off'
 
+// AgentSessionInjectMode 是往终端投递消息的模式：auto 只在确认输入框为空时打字，
+// hold 从不打字（消息留待下一次 hook），force 不检查直接粘贴。
+export type AgentSessionInjectMode = 'auto' | 'hold' | 'force'
+
 export interface SessionJobWatch {
   job_id: string
   title?: string
@@ -463,6 +467,9 @@ export interface AgentSession {
   // 键盘空闲 / 距上次人工输入的时长判定（session.auto_relay_idle_sec /
   // auto_relay_turn_sec）。新会话默认 auto。
   relay_mode: AgentSessionRelayMode
+  // inject_mode 是怎么往终端打字（2026-10-22 D5）：auto 只在确认输入框为空时投递（否则消息留待下一个 hook）、
+  // hold 从不打字、force 不检查直接粘贴。
+  inject_mode?: AgentSessionInjectMode
   // relay_demoted_at：on 因终端有人工输入自动回到 auto 的时间（unix 秒；只有单会话详情返回，
   // 之后又显式拨过开关则不返回）。
   relay_demoted_at?: number
@@ -504,6 +511,9 @@ export interface AgentSession {
   // notice 是给【原终端】的一行提示（hook 打到 stderr）：会话已被 web 接管、本终端
   // 中继已停用。仅 handed_off 时非空。
   notice?: string
+  // mail_pending 是会话还有多少封信待读（pending 或投递中）：留待的投递也算在里面，
+  // Stop hook 按它决定要不要取信。
+  mail_pending?: number
   watch_count?: number
   watches?: SessionJobWatch[]
   // Claude Code 自己的会话名（`name`，其它 Claude 会话用它作 SendMessage 地址）及来源（user / auto…）；

@@ -297,7 +297,12 @@ type AgentSession struct {
 	State    string
 	// RelayMode is the switch itself (auto | on | off) and the source of truth
 	// for the relay rules (see RelayModeAuto).
-	RelayMode   string
+	RelayMode string
+	// InjectMode is how a message that has to be TYPED into the terminal is handled
+	// (design 2026-10-22 D5): auto = only when the input area is confirmed empty,
+	// hold = never type (the message waits for the session's next hook), force = type
+	// without looking (the pre-guard behaviour). "" reads back as auto.
+	InjectMode  string
 	TurnNo      int64
 	LastMessage string
 	LastEvent   string
@@ -385,7 +390,7 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0),
   COALESCE(refused_caller_id,''), COALESCE(refused_at,0),
   COALESCE(topic,''), COALESCE(scope_json,''), COALESCE(topic_source,''), COALESCE(topic_at,0),
-  COALESCE(human_prompts,0), COALESCE(stop_park_until,0)
+  COALESCE(human_prompts,0), COALESCE(stop_park_until,0), COALESCE(inject_mode,'auto')
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -398,7 +403,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
 		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt,
 		&a.RefusedCallerID, &a.RefusedAt, &a.Topic, &scopeJSON, &a.TopicSource, &a.TopicAt, &a.HumanPrompts,
-		&a.StopParkUntil)
+		&a.StopParkUntil, &a.InjectMode)
 	if err == nil && scopeJSON != "" {
 		// A malformed value reads back as no scope rather than failing the whole row.
 		_ = json.Unmarshal([]byte(scopeJSON), &a.Scope)
@@ -1143,6 +1148,45 @@ func (s *Store) SetSessionRelayMode(sid, mode string) (bool, error) {
 	res, err := s.db.Exec(`UPDATE agent_sessions SET relay_mode=? WHERE session_id=?`, mode, sid)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: set relay mode %q: %w", sid, err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// Delivery modes of a message that would be typed into the terminal (design 2026-10-22
+// D5, AgentSession.InjectMode).
+const (
+	// InjectModeAuto types only when the input area is confirmed empty; a pane that
+	// has content, a dialog, or an unrecognised screen leaves the message waiting
+	// for the session's next hook.
+	InjectModeAuto = "auto"
+	// InjectModeHold never types: every message waits for the hook.
+	InjectModeHold = "hold"
+	// InjectModeForce types without looking at the pane (a terminal nobody is using).
+	InjectModeForce = "force"
+)
+
+// ValidInjectMode reports whether m is one of the delivery modes.
+func ValidInjectMode(m string) bool {
+	switch m {
+	case InjectModeAuto, InjectModeHold, InjectModeForce:
+		return true
+	}
+	return false
+}
+
+// SetSessionInjectMode stores the session's delivery mode (auto | hold | force). ok
+// is false when the session is unknown.
+func (s *Store) SetSessionInjectMode(sid, mode string) (bool, error) {
+	defer s.emit(Change{Kind: ChangeSession})
+	if !ValidInjectMode(mode) {
+		return false, fmt.Errorf("jobstore: SetSessionInjectMode: invalid mode %q", mode)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE agent_sessions SET inject_mode=? WHERE session_id=?`, mode, sid)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: set inject mode %q: %w", sid, err)
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil

@@ -99,8 +99,11 @@ func TestDeliverTmuxDispatchesInjectJob(t *testing.T) {
 	script := req.Cmd[2]
 	assert.Contains(t, script, "tmux display -p -t '%3' '#{pane_current_command}'")
 	assert.Contains(t, script, "echo pane_missing; exit 3")
-	assert.Contains(t, script, "send-keys -t '%3' -l -- '[来自 web 回复，alice] carry on'")
-	assert.Contains(t, script, "send-keys -t '%3' Enter")
+	// D3: the whole reply is one bracketed paste from a buffer, submitted by ONE Enter.
+	assert.Contains(t, script, "printf '%s' '[来自 web 回复，alice] carry on' | tmux load-buffer -b 'gofer-inject-3' - || exit 1")
+	assert.Contains(t, script, "tmux paste-buffer -p -d -b 'gofer-inject-3' -t '%3' || exit 1")
+	assert.Eq(t, 1, strings.Count(script, "tmux send-keys -t '%3' Enter"))
+	assert.True(t, !strings.Contains(script, "-l --"), "the message must never be typed literally, line by line: "+script)
 
 	a, ok, err := s.store.GetAgentSession("sid-tmux-0001")
 	assert.NoErr(t, err)
@@ -118,9 +121,10 @@ func TestDeliverTmuxDispatchesInjectJob(t *testing.T) {
 }
 
 // TestDeliverTmuxShellEscaping pins the shell safety of the injection script: the
-// reply is a single-quoted literal, so quotes are escaped and `$` / backticks
-// stay inert, and a multi-line reply is sent line by line (each line gets its own
-// `-l` literal plus the Enter that submits it).
+// reply is a single-quoted literal on printf's stdin, so quotes are escaped and `$` /
+// backticks stay inert, and a MULTI-LINE reply stays ONE paste (design 2026-10-22 D3) —
+// one `load-buffer`, one `paste-buffer -p`, one Enter, never a line-by-line type-and-
+// submit that would turn each line into a separate prompt.
 func TestDeliverTmuxShellEscaping(t *testing.T) {
 	s := newSvc(t)
 	inj := &fakeInjector{res: InjectResult{JobID: "job-x", ExitCode: 0}}
@@ -132,17 +136,12 @@ func TestDeliverTmuxShellEscaping(t *testing.T) {
 	assert.NoErr(t, err)
 
 	script := inj.reqs[0].Cmd[2]
-	// ' → '\'' ; $ and backticks are inside the single quotes and stay literal.
-	assert.Contains(t, script, `-l -- '[来自 web 回复，alice] it'\''s $(x) `+"`y`"+`'`)
-	assert.Contains(t, script, `-l -- 'second '\''line'\'''`)
-	// Line by line: two literals, two Enters, and no raw newline inside a literal.
-	assert.Eq(t, 2, strings.Count(script, " -l -- "))
-	assert.Eq(t, 2, strings.Count(script, "send-keys -t '%3' Enter"))
-	for _, line := range strings.Split(script, "\n") {
-		if strings.Contains(line, " -l -- ") {
-			assert.True(t, strings.HasSuffix(line, "' || exit 1"), line)
-		}
-	}
+	// ' → '\'' ; $ and backticks are inside the single quotes and stay literal, and the
+	// newline is part of the SAME literal (one paste, one input).
+	assert.Contains(t, script, "printf '%s' '[来自 web 回复，alice] it'\\''s $(x) `y`\nsecond '\\''line'\\''' | tmux load-buffer")
+	assert.Eq(t, 1, strings.Count(script, "tmux load-buffer"))
+	assert.Eq(t, 1, strings.Count(script, "tmux paste-buffer -p"))
+	assert.Eq(t, 1, strings.Count(script, "send-keys -t '%3' Enter"))
 }
 
 // TestDeliverRefusesNoRunnerNoTmuxEnded pins the three "cannot even try" reasons

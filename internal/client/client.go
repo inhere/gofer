@@ -2532,6 +2532,9 @@ type AgentSession struct {
 	// whether a Stop would wait right now and why (mode_on / idle_probe /
 	// turn_age; empty = it would not wait) — it is what the Stop hook keys on.
 	RelayMode string `json:"relay_mode"`
+	// InjectMode is how a message that must be TYPED into the terminal is handled
+	// (auto|hold|force, design 2026-10-22 D5).
+	InjectMode string `json:"inject_mode"`
 	// RelayDemotedAt: when `on` fell back to `auto` because the human typed in the
 	// terminal (single-session reads; 0 = not the current story).
 	RelayDemotedAt int64  `json:"relay_demoted_at,omitempty"`
@@ -2926,6 +2929,23 @@ func (c *Client) SetSessionRelayMode(sid, mode string) (AgentSession, error) {
 	var a AgentSession
 	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/relay", bytes.NewReader(body), &a)
 	return a, err
+}
+
+// SetSessionInjectMode sets the terminal delivery mode (auto|hold|force, design
+// 2026-10-22 D5): whether a message may be typed into the session's terminal, and
+// whether the input area has to be confirmed empty first.
+func (c *Client) SetSessionInjectMode(sid, mode string) (AgentSession, error) {
+	body, _ := json.Marshal(map[string]string{"mode": mode})
+	var a AgentSession
+	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/inject-mode", bytes.NewReader(body), &a)
+	return a, err
+}
+
+// SendHeldSessionMessages is 「现在送」: paste the session's waiting messages into its
+// terminal right now, past the input-area guard and the delivery mode.
+func (c *Client) SendHeldSessionMessages(sid string) error {
+	return c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/held/send",
+		bytes.NewReader([]byte("{}")), nil)
 }
 
 // SetSessionOwner hands a session to another caller (POST /v1/sessions/{sid}/owner,
