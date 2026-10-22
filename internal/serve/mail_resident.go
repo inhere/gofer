@@ -35,7 +35,7 @@ func (h mailResidentHost) StartSession(sp mail.ResidentSpec) (string, error) {
 	// start on a worker: there it would be answered by that worker's project policy, which
 	// can be "allow everything" - the very thing the gate was set to prevent. Fail closed;
 	// the start failure is recorded and the letter waits / goes to the inbox as usual.
-	if sp.Approval != nil && config.NormalizeRunnerName(runner) != config.BuiltinLocalRunner {
+	if sp.Approval != nil && !config.IsLocalRunnerName(runner) {
 		return "", fmt.Errorf("mail agent %q sets its own approval policy, which a worker runner (%q) cannot enforce yet: run it on the server's local runner or drop the approval", sp.Name, runner)
 	}
 	req := job.JobRequest{
