@@ -667,8 +667,8 @@ func (r *runner) stop() Result {
 				r.log("answered /off, released")
 				return Result{}
 			}
-				r.log("answered (%d bytes), continuing", len(reply))
-				return Result{Blocked: true, Reason: webReplyContinuation(reply, st.Decision.AnsweredBy)}
+			r.log("answered (%d bytes), continuing", len(reply))
+			return Result{Blocked: true, Reason: webReplyContinuation(reply, st.Decision.AnsweredBy)}
 		case "relay_off":
 			// The auto rules stopped arming mid-wait (typically: an approved job started
 			// running, which makes the caller "supervising"). Releasing silently would
