@@ -877,6 +877,11 @@ func validate(cfg *Config) error {
 				return fmt.Errorf("server.notification.webhooks[%d].kind %q is unknown (use: generic | dingtalk | feishu)", i, w.Kind)
 			}
 		}
+		// gofer-3wce: a negative merge window would make the desktop channel's
+		// coalescing timer undefined; 0 (no merging) is the explicit way to opt out.
+		if d := n.Desktop; d != nil && d.MergeSec != nil && *d.MergeSec < 0 {
+			return fmt.Errorf("server.notification.desktop.merge_sec must be >= 0")
+		}
 	}
 	// AUTO-04: a hook that cannot run, cannot be addressed or would stall the
 	// delivery sweep fails the load (and therefore validate / reload).

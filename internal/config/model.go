@@ -383,6 +383,14 @@ func cloneServer(sc ServerConfig) ServerConfig {
 		// DirLock/AgentHealth clones above avoid.
 		n.Enabled = clonePtr(sc.Notification.Enabled)
 		n.SessionReplyDelaySec = clonePtr(sc.Notification.SessionReplyDelaySec)
+		if sc.Notification.Desktop != nil {
+			d := *sc.Notification.Desktop
+			d.Enabled = clonePtr(sc.Notification.Desktop.Enabled)
+			d.MergeSec = clonePtr(sc.Notification.Desktop.MergeSec)
+			d.Events = slices.Clone(sc.Notification.Desktop.Events)
+			d.Projects = slices.Clone(sc.Notification.Desktop.Projects)
+			n.Desktop = &d
+		}
 		n.Webhooks = make([]WebhookConfig, len(sc.Notification.Webhooks))
 		for i, w := range sc.Notification.Webhooks {
 			w.Events = slices.Clone(w.Events)
@@ -1540,6 +1548,46 @@ type NotificationConfig struct {
 	// awaiting_input state creates a notification. Nil uses 120 seconds; zero
 	// disables this reminder.
 	SessionReplyDelaySec *int `yaml:"session_reply_delay_sec,omitempty"`
+	// Desktop is the OS-notification channel (gofer-3wce): the server pops a system
+	// notification on the machine it runs on. A nil block means the channel is off —
+	// a server must not start popping windows because it was upgraded.
+	Desktop *DesktopNotifyConfig `yaml:"desktop,omitempty"`
+}
+
+// DesktopNotifyConfig is the desktop (OS notification) channel of the notification
+// block: the server shows a system notification on ITS OWN machine for the events it
+// subscribes to. The subscription fields mean exactly what a webhook's do (Events an
+// empty filter = the channel's own default set, Projects empty = every project,
+// Enabled nil = on), which is why one block can carry both channels' syntax.
+type DesktopNotifyConfig struct {
+	// Enabled pauses the channel without deleting its events / projects (nil = on).
+	Enabled *bool `yaml:"enabled,omitempty"`
+	// Events is the subscribed trigger set; empty means DefaultDesktopEvents.
+	Events []string `yaml:"events,omitempty"`
+	// Projects restricts the channel to those project keys (empty = all projects).
+	Projects []string `yaml:"projects,omitempty"`
+	// MergeSec is the coalescing window: same-type events inside it become ONE popup
+	// ("3 个 job 等待批准"). Nil uses DefaultDesktopMergeSec; zero disables merging.
+	MergeSec *int `yaml:"merge_sec,omitempty"`
+}
+
+// IsEnabled reports whether the desktop channel is on (nil block / nil switch = off
+// for the block, on for the switch — see NotificationConfig.Desktop).
+func (d *DesktopNotifyConfig) IsEnabled() bool { return d != nil && (d.Enabled == nil || *d.Enabled) }
+
+// DefaultDesktopMergeSec is the coalescing window used when merge_sec is unset.
+const DefaultDesktopMergeSec = 10
+
+// EffectiveMergeSec returns the coalescing window in seconds, defaulting to
+// DefaultDesktopMergeSec when unset; a configured 0 disables merging.
+func (d *DesktopNotifyConfig) EffectiveMergeSec() int {
+	if d == nil || d.MergeSec == nil {
+		return DefaultDesktopMergeSec
+	}
+	if *d.MergeSec < 0 {
+		return 0
+	}
+	return *d.MergeSec
 }
 
 // IsEnabled reports whether E14 webhook delivery is on for this notification block

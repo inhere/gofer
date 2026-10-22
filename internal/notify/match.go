@@ -154,8 +154,15 @@ func projectMatches(filter []string, projectKey string) bool {
 // eventMatches reports whether a webhook's event filter admits eventType. An
 // empty filter falls back to the DefaultTriggerEvents set.
 func eventMatches(filter []string, eventType string) bool {
+	return eventMatchesAny(filter, eventType, DefaultTriggerEvents)
+}
+
+// eventMatchesAny is eventMatches with an explicit default set: the desktop channel
+// subscribes to a narrower default set than a webhook (see DefaultDesktopEvents), so
+// the two channels share the matching rules but not the fallback.
+func eventMatchesAny(filter []string, eventType string, defaults []string) bool {
 	if len(filter) == 0 {
-		filter = DefaultTriggerEvents
+		filter = defaults
 	}
 	for _, e := range filter {
 		if e == eventType {
@@ -163,6 +170,32 @@ func eventMatches(filter []string, eventType string) bool {
 		}
 	}
 	return false
+}
+
+// DefaultDesktopEvents is the trigger set the DESKTOP channel subscribes to when its
+// `events` list is omitted (gofer-3wce). It is deliberately narrower than the webhook
+// default: a desktop notification is an interruption on the machine's own screen, so
+// only "this waits for a person right now" belongs in it — a job held for approval, an
+// interaction (a question / permission) the agent raised, a continuous session waiting
+// for a reply, and a job parked for human review.
+var DefaultDesktopEvents = []string{"job.awaiting_approval", "interaction.created", "session.awaiting_reply", "job.needs_review"}
+
+// MatchDesktop reports whether an event should pop a desktop notification on the
+// server's own machine (gofer-3wce): the notification block is not paused, the desktop
+// channel exists and is not paused, the project filter admits projectKey and the event
+// filter admits eventType (empty = DefaultDesktopEvents).
+//
+// Like MatchWebhooks it applies the pause switches at ENQUEUE time and does not consult
+// the per-project notify_enabled gate, which the caller applies (it has the
+// ProjectConfig).
+func MatchDesktop(cfg *config.NotificationConfig, eventType, projectKey string) bool {
+	if cfg == nil || !cfg.IsEnabled() || !cfg.Desktop.IsEnabled() {
+		return false
+	}
+	if !projectMatches(cfg.Desktop.Projects, projectKey) {
+		return false
+	}
+	return eventMatchesAny(cfg.Desktop.Events, eventType, DefaultDesktopEvents)
 }
 
 // EventPayload / JobSummary / Payload are the webhook POST body shape (design
