@@ -1689,6 +1689,13 @@ func (s *Store) migrate() error {
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate todo_id index: %w", err)
 	}
+	// session_id lookup: the session lists hide the sessions internal jobs left behind by
+	// asking, per listed session, whether a job carries its id (internalSessionSQL).
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_jobs_session_id ON jobs(session_id) WHERE session_id <> ''`,
+	); err != nil {
+		return fmt.Errorf("jobstore: migrate session_id index: %w", err)
+	}
 	return nil
 }
 

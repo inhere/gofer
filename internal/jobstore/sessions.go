@@ -959,6 +959,10 @@ const summarizerTagSQL = `j.tags_json LIKE '%"work-summarizer"%'`
 //     own id instead of the one gofer injected). The job's cwd is relative to the project
 //     root while a session's is absolute, so the project key is what they share.
 //
+// The window is written as "j.started_at <= session start + 10" (the same bound as a
+// BETWEEN) so idx_jobs_agent_started can range-scan it; idx_jobs_session_id serves the
+// first branch.
+//
 // agent_sessions must be the table's own name in the query (it is in selectSessionCols).
 const internalSessionSQL = `NOT (
   EXISTS (SELECT 1 FROM jobs j WHERE j.session_id = agent_sessions.session_id
@@ -967,8 +971,8 @@ const internalSessionSQL = `NOT (
     AND j.agent = agent_sessions.agent
     AND COALESCE(j.project_key,'') = COALESCE(agent_sessions.project_key,'')
     AND COALESCE(agent_sessions.title,'') = '' AND COALESCE(agent_sessions.last_message,'') = ''
-    AND agent_sessions.started_at BETWEEN j.started_at - 10
-      AND COALESCE(NULLIF(j.ended_at,0), j.started_at) + 10)
+    AND j.started_at <= agent_sessions.started_at + 10
+    AND agent_sessions.started_at <= COALESCE(NULLIF(j.ended_at,0), j.started_at) + 10)
 )`
 
 // InternalAgentSessions reports which of ids are gofer-internal sessions (the ones
