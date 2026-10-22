@@ -174,6 +174,14 @@ type JobRequest struct {
 	// a value above server.hold.max_timeout_sec (or a negative one) is refused. The
 	// deadline is fixed at submit; the expiry sweep cancels the job when it passes.
 	HoldTimeoutSec int `json:"hold_timeout_sec,omitempty" yaml:"hold_timeout_sec,omitempty"`
+	// SessionApproval is the ACP approval gate THIS job runs under, replacing the project's
+	// `approval` (设计 2026-10-22 mail-agent-address「D4」): the 常驻收件会话's own policy
+	// (mail.agents.<名字>.approval) must not change how every other ACP session of the
+	// project is approved. Set by the SERVER only (a resident session start); the entry
+	// layers refuse a caller that sends it, so it can never be used to widen a gate. It
+	// rides request_json, so a continuation, a retry or a rebuild keeps approving the same
+	// way; nil = the project policy (the behaviour before this field existed).
+	SessionApproval *config.ApprovalConfig `json:"session_approval,omitempty" yaml:"session_approval,omitempty"`
 	// heldJobID marks the approval re-entry of a held job (internal, never on the wire):
 	// Submit reuses this id and result dir, skips the request_id self-hit and the second
 	// job.submitted, and runs instead of parking again. held carries the stored hold

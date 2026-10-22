@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -39,6 +40,9 @@ type ResidentAgentSpec struct {
 	MaxHours   int
 	// Prompt is appended to gofer's own opening prompt.
 	Prompt string
+	// Approval is this resident session's own ACP approval gate
+	// (mail.agents.<名字>.approval): nil = the project's policy.
+	Approval *config.ApprovalConfig
 }
 
 // ResidentsConfig is the `mail.agents` block plus its ceiling, as the mailbox sees it.
@@ -148,6 +152,9 @@ type ResidentSpec struct {
 	OriginCaller string
 	// CallerID is the caller id stamped on the job.
 	CallerID string
+	// Approval is the approval gate this session is started under (nil = the project's
+	// policy): the resident 收件会话 may ask a human where the project auto-allows.
+	Approval *config.ApprovalConfig
 }
 
 // ResidentHost is the job seam of the resident sessions: *job.Service behind an adapter built in

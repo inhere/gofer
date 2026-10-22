@@ -127,6 +127,7 @@ func (d *Deliverer) startResident(ctx context.Context, key, project string, spec
 		Name: spec.Name, Project: project, Agent: spec.Identity(), Args: spec.Args, Runner: spec.Runner,
 		IdleSec: idle, Prompt: specPrompt, Title: "mail agent " + spec.Name,
 		ResumeSessionID: resume, ResumeFromJobID: resumeFrom, OriginCaller: originCaller, CallerID: originCaller,
+		Approval: spec.Approval,
 	})
 	if err != nil {
 		slog.Warn("mail deliverer: starting a resident session failed", "resident", key, "error", err)

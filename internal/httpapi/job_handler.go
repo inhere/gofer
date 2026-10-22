@@ -53,6 +53,16 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 		return
 	}
 
+	// gofer-81b4: session_approval is decided by the SERVER (a resident 收件会话's
+	// mail.agents.<名字>.approval), never by the submitter: a body that sends it is
+	// REFUSED rather than ignored, so a caller cannot believe its own gate took effect —
+	// and cannot use the field to widen one either.
+	if req.SessionApproval != nil {
+		writeError(c, http.StatusBadRequest, "session_approval is server-internal",
+			"a submitted job cannot carry its own approval policy; configure it per 收件 agent (mail.agents.<name>.approval) or per project (projects.<key>.approval)")
+		return
+	}
+
 	// A caller with a scope ceiling submits only into its projects; outside is "no such
 	// project" (404, BodyProject). A submit that names no project is outside too.
 	if !s.requireProjectScope(c, req.ProjectKey) {

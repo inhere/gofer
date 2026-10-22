@@ -454,6 +454,9 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		// gofer-3nxa.2: the session was asked for 「## 可复用经验」, so the continuation's
 		// report is captured like its source's.
 		KnowledgeCapture: src.KnowledgeCapture,
+		// gofer-81b4: a resident 收件会话 keeps its own approval gate across a continuation —
+		// the resumed session is the same mailbox, so it is approved the same way.
+		SessionApproval: srcReq.SessionApproval,
 		// JOB-11: the continuation works in the SAME directory as the run it
 		// continues, so it inherits that run's lock decision instead of re-deriving
 		// one from its own carrier shape.

@@ -32,6 +32,9 @@ func (h mailResidentHost) StartSession(sp mail.ResidentSpec) (string, error) {
 		ProjectKey: sp.Project, Agent: sp.Agent, Runner: runner, Cwd: ".",
 		Prompt: sp.Prompt, Title: sp.Title, AgentArgs: sp.Args,
 		Session: true, IdleTimeoutSec: sp.IdleSec, TimeoutSec: residentTurnTimeoutSec,
+		// gofer-81b4: the resident 收件会话's own approval gate (config
+		// mail.agents.<名字>.approval), which REPLACES the project's policy for this job only.
+		SessionApproval: sp.Approval,
 		// A resident session lives for hours: it must not hold the project's directory lock,
 		// which would block every other job of that project (设计「常驻」/ the acp session lock).
 		ExclusiveDir: &shared,
@@ -91,8 +94,20 @@ func mailResidents(m config.MailConfig) mail.ResidentsConfig {
 		cfg.Agents[strings.ToLower(strings.TrimSpace(name))] = mail.ResidentAgentSpec{
 			Name: strings.TrimSpace(name), Agent: a.Identity(), Args: a.Args, Runner: strings.TrimSpace(a.Runner),
 			Idle: a.EffectiveIdle(), MaxLetters: a.EffectiveMaxLetters(), MaxHours: a.EffectiveMaxHours(),
-			Prompt: a.Prompt,
+			Prompt: a.Prompt, Approval: cloneApproval(a.Approval),
 		}
 	}
 	return cfg
+}
+
+// cloneApproval copies a configured approval block, so the mailbox's snapshot cannot be
+// mutated through the config it was read from (the spec outlives a reload).
+func cloneApproval(a *config.ApprovalConfig) *config.ApprovalConfig {
+	if a == nil {
+		return nil
+	}
+	cp := *a
+	cp.AutoAllowKinds = append([]string(nil), a.AutoAllowKinds...)
+	cp.AskKinds = append([]string(nil), a.AskKinds...)
+	return &cp
 }
