@@ -4,6 +4,7 @@ import type {
   AgentSession,
   MessengerAgent,
   MessengerSnapshot,
+  MessengerUsage,
   Runner,
 } from '../api/types'
 
@@ -62,6 +63,52 @@ export function opLabel(op: string | undefined): string {
   if (op === 'list_agents') return '列出会话'
   if (op === 'reply') return '收到回复'
   return '传话'
+}
+
+// 一次常驻进程重建的原因（中文；未知原因原样显示）。
+export function rotationReasonLabel(reason: string | undefined): string {
+  switch (reason) {
+    case 'max_messages':
+      return '达到条数上限'
+    case 'max_age':
+      return '达到存活上限'
+    case 'idle':
+      return '空闲退出'
+    case 'failed':
+      return '进程失败'
+  }
+  return reason ?? ''
+}
+
+// 秒数转中文时长（1h20m / 8m / 40s；0 = 空串）。
+export function formatAge(sec: number | undefined): string {
+  if (!sec || sec <= 0) return ''
+  if (sec < 60) return `${sec}s`
+  if (sec < 3600) return `${Math.floor(sec / 60)}m`
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  return m ? `${h}h${m}m` : `${h}h`
+}
+
+// 轮换上限（中文；0 = 该限制关闭）。
+export function rotationLimitText(snap: MessengerSnapshot | undefined): string {
+  if (!snap) return ''
+  const msgs = snap.max_messages ? `${snap.max_messages} 条` : '条数不限'
+  const age = snap.max_age_sec ? formatAge(snap.max_age_sec) : '时长不限'
+  return `${msgs} / ${age}后重建`
+}
+
+// 当前进程的 token / 成本用量（空串 = 没有上报）。
+export function usageText(u: MessengerUsage | undefined): string {
+  if (!u) return ''
+  const parts: string[] = []
+  const n = (v?: number) => (v ?? 0).toLocaleString()
+  if (u.input_tokens) parts.push(`输入 ${n(u.input_tokens)}`)
+  if (u.output_tokens) parts.push(`输出 ${n(u.output_tokens)}`)
+  if (u.cache_read_input_tokens) parts.push(`缓存读 ${n(u.cache_read_input_tokens)}`)
+  if (u.cache_creation_input_tokens) parts.push(`缓存写 ${n(u.cache_creation_input_tokens)}`)
+  if (u.cost_usd) parts.push(`$${u.cost_usd.toFixed(4)}`)
+  return parts.join(' · ')
 }
 
 export interface AgentRow {
