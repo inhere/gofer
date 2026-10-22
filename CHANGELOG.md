@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.183.0] - 2026-10-22
+
 ### 修复
 
 - **gofer 自己的只读 MCP 工具不再转给人审批（gofer-o49v）**：acp-agent 调用 MCP 工具时把 `kind` 报成 `other`（默认 `ask_kinds` 里就有 `other`），于是管家 job 调 `gofer_work_list` / `gofer_today_list` 时被要求人批。现在 `mode: ask` 下，工具名解析为 gofer 自己的**只读**工具（`internal/mcptools` 登记表，精确名单，不靠前缀猜）时不论 `kind` 都自动放行，并在 `artifacts/acp.jsonl` 记 `reason=gofer_readonly_tool`；写类工具、别的 MCP server 的同名伪装仍按策略，`mode: strict` 仍然每个都问人。同时每个 gofer MCP 工具都补了标准 `annotations`（`readOnlyHint`；删除 / 覆盖类标 `destructiveHint`；可选 `idempotentHint`），MCP 客户端能先分清读与写。
