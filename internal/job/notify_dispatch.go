@@ -3,8 +3,10 @@ package job
 import (
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/desktop"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 )
@@ -62,7 +64,97 @@ func (s *Service) NotifyEvent(eventType, projectKey string, msg notify.Message) 
 	if msg.At == 0 {
 		msg.At = s.nowFn().Unix()
 	}
+	s.notifyDesktop(cfg, eventType, projectKey, msg)
 	return s.notifyWebhooks(cfg, eventType, projectKey, msg) + s.notifyEventHooks(cfg, eventType, projectKey, msg)
+}
+
+// notifyDesktop pops a desktop notification on the SERVER's own machine (gofer-3wce)
+// when the desktop channel subscribes to eventType for projectKey. Like the webhook
+// half it honours the per-project notify_enabled gate; unlike it, it needs no delivery
+// row — the popup is fire-and-forget, with the dispatcher doing the coalescing.
+func (s *Service) notifyDesktop(cfg *config.Config, eventType, projectKey string, msg notify.Message) {
+	if !notify.MatchDesktop(cfg.Server.Notification, eventType, projectKey) {
+		return
+	}
+	if projectKey != "" {
+		if proj, ok := cfg.Projects[projectKey]; ok && !proj.IsNotifyEnabled() {
+			return // project opted out of notification
+		}
+	}
+	s.pushDesktop(desktop.Notification{
+		EventType: eventType,
+		Title:     msg.Title,
+		Text:      msg.Text,
+		Link:      msg.Link,
+		At:        msg.At,
+	})
+}
+
+// notifyDesktopJobEvent is the desktop half of a JOB event (gofer-3wce): it renders
+// the same immediate message the IM adapters receive — the approval / question /
+// session-reply shapes say what a person has to decide, and job.needs_review falls
+// back to the job headline — and hands it to the coalescing dispatcher.
+func (s *Service) notifyDesktopJobEvent(cfg *config.Config, jr JobResult, eventType, detailJSON string, at int64) {
+	if !notify.MatchDesktop(cfg.Server.Notification, eventType, jr.ProjectKey) {
+		return
+	}
+	if proj, ok := cfg.Projects[jr.ProjectKey]; ok && !proj.IsNotifyEnabled() {
+		return
+	}
+	msg, ok := s.immediateMessage(jr, eventType, detailJSON, at)
+	if !ok {
+		return
+	}
+	msg.EventType = eventType
+	if msg.At == 0 {
+		msg.At = at
+	}
+	s.pushDesktop(desktop.Notification{
+		EventType: eventType,
+		Title:     msg.Title,
+		Text:      msg.Text,
+		Link:      msg.Link,
+		At:        msg.At,
+	})
+}
+
+// pushDesktop hands one notification to the dispatcher, which merges same-type ones
+// and shows them on the desktop.
+func (s *Service) pushDesktop(n desktop.Notification) {
+	if d := s.desktopDispatcher(); d != nil {
+		d.Push(n)
+	}
+}
+
+// desktopDispatcher lazily builds the desktop dispatcher. The merge window is taken
+// from the config at FIRST use and then frozen (a reload changing merge_sec takes
+// effect on the next start) — the same rule the concurrency semaphores follow.
+// desktopNotifier is a test seam: production uses the platform notifier.
+func (s *Service) desktopDispatcher() *desktop.Dispatcher {
+	s.desktopMu.Lock()
+	defer s.desktopMu.Unlock()
+	if s.desktop == nil {
+		n := s.desktopNotifier
+		if n == nil {
+			n = desktop.NewSystemNotifier()
+		}
+		window := time.Duration(config.DefaultDesktopMergeSec) * time.Second
+		if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
+			window = time.Duration(cfg.Server.Notification.Desktop.EffectiveMergeSec()) * time.Second
+		}
+		s.desktop = desktop.NewDispatcher(n, window)
+	}
+	return s.desktop
+}
+
+// closeDesktop flushes whatever the dispatcher still holds; shutdown calls it so a
+// notification queued just before exit is not swallowed.
+func (s *Service) closeDesktop() {
+	s.desktopMu.Lock()
+	d := s.desktop
+	s.desktop = nil
+	s.desktopMu.Unlock()
+	d.Close()
 }
 
 // notifyWebhooks is NotifyEvent's webhook half: gated by the notification config and
