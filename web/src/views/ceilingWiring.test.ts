@@ -9,7 +9,7 @@ const newWorkflow = raw(import.meta.glob('./NewWorkflow.vue', { eager: true, que
 const plans = raw(import.meta.glob('./Plans.vue', { eager: true, query: '?raw', import: 'default' }))
 const workflows = raw(import.meta.glob('./Workflows.vue', { eager: true, query: '?raw', import: 'default' }))
 const schedules = raw(import.meta.glob('./Schedules.vue', { eager: true, query: '?raw', import: 'default' }))
-const app = raw(import.meta.glob('../App.vue', { eager: true, query: '?raw', import: 'default' }))
+const app = raw(import.meta.glob('../ui/AppShell.vue', { eager: true, query: '?raw', import: 'default' }))
 const permissions = raw(
   import.meta.glob('./settings/Permissions.vue', { eager: true, query: '?raw', import: 'default' }),
 )

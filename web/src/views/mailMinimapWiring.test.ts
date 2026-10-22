@@ -3,7 +3,7 @@
 // 占满视口」——也就是一改就会「地图在但不动 / 页面又出现外层滚动条」的地方。
 import { describe, expect, it } from 'vitest'
 
-const mods = import.meta.glob(['../views/Mail.vue', '../components/mail/MailMinimap.vue', '../App.vue'], {
+const mods = import.meta.glob(['../views/Mail.vue', '../components/mail/MailMinimap.vue', '../ui/AppShell.vue'], {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -47,12 +47,11 @@ describe('the conversation minimap is on the mailbox page', () => {
 
 describe('the mailbox page fills the viewport', () => {
   it('locks the shell height and scrolls inside the two panes', () => {
-    const app = src('App.vue')
+    const app = src('AppShell.vue')
     // 顶栏以下的高度锁在视口里（外层不出滚动条），滚动交给页内列表 / 时间线。
-    expect(app).toContain("const fillContent = computed(() => route.path === '/mail')")
-    expect(app).toContain("'app-root--fill': showChrome && fillContent")
-    expect(app).toContain("'content--fill': fillContent")
-    expect(app).toContain('.app-root--fill {')
+    expect(app).toContain("'shell--fill': route.path === '/mail'")
+    expect(app).toContain("'content--fill': route.path === '/mail'")
+    expect(app).toContain('.shell--fill {')
 
     const page = src('Mail.vue')
     // 左列表与右时间线都是各自滚动的弹性列，不再写死 max-height: 70vh / 62vh。

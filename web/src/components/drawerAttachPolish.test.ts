@@ -58,9 +58,9 @@ describe('drawer attach availability', () => {
   })
 })
 
-describe('edge nav tab', () => {
-  it('draws the stored percentage through the clamped position', () => {
-    expect(app).toContain('pctToTop(navTab.value.pct, viewportH.value)')
-    expect(app).toContain('posFromPoint(point.x, point.y, window.innerWidth, window.innerHeight)')
+describe('edge nav tab removal', () => {
+  it('drops the draggable rail toggle from the shell (design §6.3)', () => {
+    expect(app).not.toContain('rail-toggle')
+    expect(app).not.toContain('navTab')
   })
 })

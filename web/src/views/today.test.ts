@@ -4,15 +4,16 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { renderToString } from 'vue/server-renderer'
 import type { TodayCard, TodayResponse } from '../api/today'
 import { hiddenKeys, overlayOpen, todayData } from '../store/today'
-import { navMoreGroups, navPrimary } from '../utils/nav'
+import { SHELL_NAV_GROUPS, TAB_BAR_ITEMS, moreItems } from '../utils/shell'
 import Today from './Today.vue'
 import DecisionOverlay from '../components/today/DecisionOverlay.vue'
 
 const raw = (glob: Record<string, unknown>) => Object.values(glob)[0] as string
 const todaySrc = raw(import.meta.glob('./Today.vue', { eager: true, query: '?raw', import: 'default' }))
 const appSrc = raw(import.meta.glob('../App.vue', { eager: true, query: '?raw', import: 'default' }))
-const routerSrc = raw(import.meta.glob('../router.ts', { eager: true, query: '?raw', import: 'default' }))
-const bellSrc = raw(import.meta.glob('../components/EscalationBell.vue', { eager: true, query: '?raw', import: 'default' }))
+const routerSrc = raw(import.meta.glob('../router.routes.ts', { eager: true, query: '?raw', import: 'default' }))
+const bellSrc = raw(import.meta.glob('../ui/NeedsMeButton.vue', { eager: true, query: '?raw', import: 'default' }))
+const shellSrc = raw(import.meta.glob('../ui/AppShell.vue', { eager: true, query: '?raw', import: 'default' }))
 const schedulesSrc = raw(import.meta.glob('./Schedules.vue', { eager: true, query: '?raw', import: 'default' }))
 const workbenchSrc = raw(import.meta.glob('./Workbench.vue', { eager: true, query: '?raw', import: 'default' }))
 const cardSrc = raw(import.meta.glob('../components/today/DecisionCard.vue', { eager: true, query: '?raw', import: 'default' }))
@@ -133,7 +134,7 @@ describe('global decision overlay', () => {
   })
 
   it('is opened by the top-bar 「待我决策 N」 and the g d shortcut installed by App', () => {
-    expect(bellSrc).toContain('<span class="bell-label">待我决策</span>')
+    expect(bellSrc).toContain('{{ label }}')
     expect(bellSrc).toContain('overlayOpen.value = !overlayOpen.value')
     expect(appSrc).toContain('installTodayGlobals(router)')
     expect(appSrc).toContain('<DecisionOverlay />')
@@ -141,20 +142,24 @@ describe('global decision overlay', () => {
   })
 })
 
-describe('navigation (N3 §6)', () => {
-  it('splits 工作 / 配置 between the row and the 更多 menu, relabelling Board as 任务', () => {
-    expect(navPrimary.map((i) => i.label)).toEqual(['今天', '工作台', '工作项', '计划', '任务', '会话'])
-    expect(navPrimary.find((i) => i.label === '任务')?.to).toBe('/board')
-    expect(navMoreGroups.map((g) => g.label)).toEqual(['工作', '配置'])
-    expect(navMoreGroups[1].items.map((i) => i.label)).toEqual(['Agents', 'Runners', '项目', '工作流', '定时'])
+describe('navigation (design §6)', () => {
+  it('groups the sidebar into 核心 / 协作 / 自动化 / 基础设施 and renames Board as /jobs', () => {
+    expect(SHELL_NAV_GROUPS.map((g) => g.key)).toEqual(['nav.group.core', 'nav.group.collab', 'nav.group.auto', 'nav.group.infra'])
+    expect(SHELL_NAV_GROUPS[0].items.map((i) => i.key)).toEqual(['nav.today', 'nav.workbench', 'nav.work', 'nav.plans', 'nav.jobs', 'nav.sessions'])
+    expect(SHELL_NAV_GROUPS[0].items.find((i) => i.key === 'nav.jobs')?.to).toBe('/jobs')
+  })
+
+  it('keeps 工作项 as the first item of the phone 更多 sheet, 计划 in the tab bar', () => {
+    expect(TAB_BAR_ITEMS.map((i) => i.to)).toEqual(['/today', '/workbench', '/jobs', '/plans'])
+    expect(moreItems()[0].to).toBe('/work')
   })
 
   it('lands on /today, drops the /review badge and the top-bar 新建 cron, keeps /review routable', () => {
     expect(routerSrc).toContain("{ path: '/', redirect: '/today' }")
     expect(routerSrc).toContain("path: '/review'")
-    expect(appSrc).toContain("const homeTo = '/today'")
+    expect(shellSrc).toContain('to="/today"')
     expect(appSrc).not.toContain('nav-review-badge')
-    expect(appSrc).not.toContain('to="/schedules/new"')
+    expect(shellSrc).not.toContain('to="/schedules/new"')
     expect(schedulesSrc).toMatch(/<RouterLink[^>]*to="\/schedules\/new" class="new-sched"/)
   })
 

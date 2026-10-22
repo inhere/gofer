@@ -1,19 +1,25 @@
 <script setup lang="ts">
-// 顶栏「待我决策 N」（N3 §1 / §6）：点它或在任何页面按 g d 打开右侧全局决策浮层
-// （components/today/DecisionOverlay.vue，与 /today 页同一套队列组件）。原来的铃铛下拉
-// （interaction / decision 就地作答）已并入决策卡，这里只保留：
-//  - 计数与「会超时」高亮（来自 store/today 的同一份队列）；
-//  - 新的人工介入请求 / 决策请求 / 待批准 job（gofer-5wvc，--hold）的提示条
-//    （`pending` 快照主题，弹哪一条的逻辑在 utils/pendingAlert，可单测）；
-//  - 顶栏常驻的 `meta` / `stats` 订阅：配置热重载失效缓存、服务端时区、新版本提示（F8）。
-import { computed, ref } from 'vue'
-import { getStats, listJobs, listOpenDecisions, listPendingInteractions } from '../api/client'
+// 顶栏「待我决策 N」（设计稿 §6.1 / §16-4）：合并原来的 EscalationBell（决策队列）
+// 与 EnrollmentBell（worker 申请），申请作为一种决策卡片；信箱待指派仍是独立入口（MailButton）。
+//
+//  - 计数 = store/today 的决策队列（含待批准 job / needs_human 交互）+ worker 申请数；
+//  - 点它或任何页面按 g d 打开右侧全局决策浮层（components/today/DecisionOverlay.vue）；
+//  - 顶栏常驻的 `meta` / `stats` 订阅照旧：配置热重载失效缓存、服务端时区、新版本提示（F8）；
+//  - `pending` 快照仍接 utils/pendingAlert 弹提示条（新的人工介入请求 / 决策 / 待批准 job）；
+//  - worker 申请只对持有 worker.manage 的人订阅（无权限订阅该主题会被服务端拒）。
+import { computed, onUnmounted, ref, watch } from 'vue'
+import { getStats, listEnrollments, listJobs, listOpenDecisions, listPendingInteractions } from '../api/client'
 import type { PendingSnapshot, Stats } from '../api/types'
 import { noteServerVersion } from '../store/staleBuild'
 import { decisionCount, overlayOpen, visibleCards } from '../store/today'
+import { t } from '../i18n'
+import { needsMeTotal } from '../utils/shell'
 import { useLiveTopic } from '../utils/useLiveTopic'
 import { invalidateMetaCache } from '../api/metaCache'
 import { setServerTZOffset } from '../api/time'
+import { TOPIC_WORKER_ENROLLMENTS } from '../api/live'
+import { useWhoami } from '../store/whoami'
+import { createLiveTopic } from '../utils/useLiveTopic'
 import {
   PENDING_APPROVAL_LIMIT,
   approvalFromJob,
@@ -24,7 +30,7 @@ import {
   type PendingSeen,
   type PendingToast,
 } from '../utils/pendingAlert'
-import InteractionToast from './InteractionToast.vue'
+import InteractionToast from '../components/InteractionToast.vue'
 
 const toast = ref<PendingToast | null>(null)
 // 已弹过提示的待办（needs_human 交互 / 决策 / 待批准 job）；条目从快照里消失就被 forget。
@@ -76,10 +82,50 @@ function applyPending(lists: PendingLists): void {
   toast.value = r.toast
 }
 
+// ---- worker 申请（原 EnrollmentBell）：并入「待我决策」的计数 ----
+const { can } = useWhoami()
+const allowed = computed(() => can('worker.manage'))
+const enrollments = ref(0)
+
+async function fetchEnrollments(): Promise<void> {
+  if (!allowed.value) {
+    enrollments.value = 0
+    return
+  }
+  try {
+    const resp = await listEnrollments()
+    // 功能关闭时列表恒为空，也不该有提醒。
+    enrollments.value = resp.enabled ? resp.pending_count : 0
+  } catch {
+    // 只是提醒：拉不到就保留上一帧；Runners 页有完整错误信息与重试。
+  }
+}
+
+const enrollLive = createLiveTopic(TOPIC_WORKER_ENROLLMENTS, { initial: false, fetch: fetchEnrollments })
+
 // 顶栏常驻组件顺带订阅 `meta`：配置热重载 / agent 降级恢复时失效 agents、meta 缓存。
 useLiveTopic('meta', { fetch: invalidateMetaCache, initial: false })
 useLiveTopic('stats', { fetch: refreshStats, onSnap: onStatsSnap, initial: false })
 useLiveTopic('pending', { fetch: fetchPending, onSnap: onPendingSnap, initial: false })
+
+watch(
+  allowed,
+  (on) => {
+    if (on) {
+      void fetchEnrollments()
+      enrollLive.start()
+    } else {
+      enrollLive.stop()
+      enrollments.value = 0
+    }
+  },
+  { immediate: true },
+)
+
+onUnmounted(() => enrollLive.stop())
+
+const total = computed(() => needsMeTotal(decisionCount.value, enrollments.value))
+const label = computed(() => t('act.needsMe'))
 
 function toggleOpen(): void {
   overlayOpen.value = !overlayOpen.value
@@ -87,19 +133,19 @@ function toggleOpen(): void {
 </script>
 
 <template>
-  <div class="bell-wrap">
+  <div class="nm-wrap">
     <button
-      class="bell mono"
-      :class="{ 'bell--hot': hot, 'bell--some': decisionCount > 0 }"
+      class="nm"
+      :class="{ 'nm--hot': hot, 'nm--some': total > 0 }"
       type="button"
-      aria-label="待我决策"
-      title="待我决策（任何页面按 g 再按 d 打开）"
+      :aria-label="label"
+      :title="`${label}（g d）`"
       :aria-expanded="overlayOpen"
-      data-test="decision-bell"
+      data-test="needs-me"
       @click="toggleOpen"
     >
-      <span class="bell-label">待我决策</span>
-      <span class="bell-n">{{ decisionCount }}</span>
+      <span class="nm-label">{{ label }}</span>
+      <span class="nm-n" data-test="needs-me-count">{{ total }}</span>
     </button>
 
     <InteractionToast
@@ -114,60 +160,56 @@ function toggleOpen(): void {
 </template>
 
 <style scoped>
-.bell-wrap {
+.nm-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
 }
 
-.bell {
+.nm {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   background: transparent;
   border: 1px solid var(--line);
-  color: var(--queue);
-  border-radius: var(--radius);
+  color: var(--fg-3);
+  border-radius: var(--r-ctl);
   padding: 4px 9px;
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.2;
   white-space: nowrap;
 }
-
-.bell:hover {
-  border-color: var(--phosphor);
-  color: var(--paper);
+.nm:hover {
+  border-color: var(--accent);
+  color: var(--fg);
 }
-
-.bell-n {
+.nm-n {
   min-width: 16px;
   text-align: center;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
-
-.bell--some {
-  color: var(--paper);
-  border-color: var(--run);
+.nm--some {
+  color: var(--need-ink);
+  border-color: var(--need);
+  background: var(--need-soft);
 }
-
-.bell--some .bell-n {
-  color: var(--run);
-}
-
-.bell--hot {
+.nm--hot {
   border-color: var(--fail);
 }
-
-.bell--hot .bell-n {
+.nm--hot .nm-n {
   color: var(--fail);
 }
-
-@media (max-width: 768px) {
-  .bell-label {
+@media (max-width: 760px) {
+  .nm-label {
     display: none;
   }
-  .bell::before {
-    content: '待决';
+  .nm {
+    gap: 4px;
+  }
+  .nm::before {
+    content: '◔';
+    font-size: 14px;
   }
 }
 </style>
