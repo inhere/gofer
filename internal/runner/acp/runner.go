@@ -322,9 +322,14 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 			events.write(pev)
 			req.Meter.AddTurn() // N2 §B: every prompt turn of a resident session counts
 			turnCtx := sessionCtx
-			cancelTurn := func() {}
+			var clock *turnTimer
+			stopTurn := func() {}
 			if req.ACP.TurnTimeoutSec > 0 {
-				turnCtx, cancelTurn = context.WithTimeout(sessionCtx, time.Duration(req.ACP.TurnTimeoutSec)*time.Second)
+				// A PAUSABLE clock, not context.WithTimeout: the turn's budget must not be
+				// charged for the time the agent spends waiting on a human (gofer-ji7m).
+				turnCtx, clock = newTurnTimer(sessionCtx, time.Duration(req.ACP.TurnTimeoutSec)*time.Second)
+				stopTurn = clock.Stop
+				h.setTurnTimer(clock)
 			}
 			blocks := make([]acp.ContentBlock, 0, util.CapSum(1, len(images)))
 			if prompt != "" {
@@ -335,8 +340,11 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 			}
 			images = nil
 			response, err := client.PromptBlocks(turnCtx, sessionID, blocks, h)
-			turnErr := turnCtx.Err()
-			cancelTurn()
+			// Read the clock's verdict BEFORE stopping it: Stop cancels the context, and the
+			// timeout classification is the clock's own, not the parent's.
+			turnTimedOut := clock.TimedOut()
+			h.setTurnTimer(nil)
+			stopTurn()
 			h.endTurn()
 			h.emitSummary(response.StopReason)
 			events.write(map[string]any{"t": "turn_ended", "turn": turn, "stop_reason": response.StopReason})
@@ -350,7 +358,7 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 				result.ExitCode, result.SessionEndReason = 0, "max_session_timeout"
 				return result
 			}
-			if turnErr == context.DeadlineExceeded {
+			if turnTimedOut {
 				result.ExitCode, result.Err = -1, fmt.Errorf("acp: turn timed out after %ds", req.ACP.TurnTimeoutSec)
 				return result
 			}
@@ -557,6 +565,12 @@ type handler struct {
 	// the executing side has no interaction surface (then a gated call is cancelled,
 	// never approved).
 	approvals runner.ApprovalSink
+	// turnTimer is the RUNNING clock of the current resident turn (nil when the turn has
+	// no budget and once the turn is over). The approval gate pauses it while it waits
+	// for a human, so an answer nobody can give quickly is not charged to the agent
+	// (gofer-ji7m). Guarded by mu: the gate runs on the ACP reader goroutine while the
+	// runner sets and clears the clock.
+	turnTimer *turnTimer
 	jobID     string
 	// logThoughts keeps the coalesced thought line in the logs (acp.log_thoughts).
 	logThoughts bool
@@ -939,6 +953,11 @@ func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.Pe
 	ctx, cancel := context.WithTimeout(h.ctx, time.Duration(h.policy.TimeoutSec)*time.Second)
 	defer cancel()
 	var interactionID string
+	// gofer-ji7m: the turn's own budget stops for as long as the gate waits. The wait
+	// has its own bound (timeout_sec + on_timeout below), so pausing the turn clock
+	// cannot hang the session; both ends are recorded on the job timeline with the time
+	// used and left, so "why did this turn not time out" is answerable from `job show`.
+	resumeClock := h.pauseTurnClock("approval")
 	out, err := h.approvals.RequestApproval(ctx, runner.ApprovalRequest{
 		Prompt:     prompt,
 		Options:    approvalRequestOptions(p.Options),
@@ -968,6 +987,7 @@ func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.Pe
 			})
 		},
 	})
+	resumeClock(interactionID)
 	if err == nil {
 		if out.Answer == "" {
 			// Cancelled instead of answered (the job ended underneath us).
@@ -1004,6 +1024,54 @@ func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.Pe
 	}
 	// The approval deadline passed (the sink returns the ctx error it gave up on).
 	return h.answerOnTimeout(p, kind, hint, interactionID, err)
+}
+
+// setTurnTimer installs (or clears, nil) the running clock of the current turn.
+func (h *handler) setTurnTimer(t *turnTimer) {
+	h.mu.Lock()
+	h.turnTimer = t
+	h.mu.Unlock()
+}
+
+// pauseTurnClock stops the current turn's clock while the gate waits for a human and
+// records the pause on the job timeline (gofer-ji7m). It returns the resume half, which
+// takes the interaction id assigned WHILE the wait was in flight and records the resume
+// with the time used and left. With no clock (the turn has no budget) both halves do
+// nothing and record nothing.
+func (h *handler) pauseTurnClock(reason string) func(interactionID string) {
+	h.mu.Lock()
+	clock := h.turnTimer
+	h.mu.Unlock()
+	if clock == nil {
+		return func(string) {}
+	}
+	used, remaining := clock.Pause()
+	h.recordTurnClock(runner.EventTurnTimeoutPaused, reason, "", clock.Budget(), used, remaining)
+	return func(interactionID string) {
+		used, remaining := clock.Resume()
+		h.recordTurnClock(runner.EventTurnTimeoutResumed, reason, interactionID, clock.Budget(), used, remaining)
+	}
+}
+
+// recordTurnClock writes one pause/resume row on the job timeline: why the clock stopped,
+// the turn's whole budget, and the running time used and left at that moment. It is the
+// answer to "why did this turn not time out" without reading the runner's logs.
+func (h *handler) recordTurnClock(eventType, reason, interactionID string, budget, used, remaining time.Duration) {
+	if h.onJobEvent == nil {
+		return
+	}
+	detail := map[string]any{
+		"reason":        reason,
+		"timeout_sec":   int(budget / time.Second),
+		"used_sec":      int(used / time.Second),
+		"remaining_sec": int(remaining / time.Second),
+	}
+	if interactionID != "" {
+		detail["interaction_id"] = interactionID
+	}
+	slog.Info("acp runner: turn clock", "job_id", h.jobID, "event", eventType,
+		"reason", reason, "used", used, "remaining", remaining)
+	h.onJobEvent(eventType, detail)
 }
 
 // answerOnTimeout applies the project's on_timeout policy to a request nobody
