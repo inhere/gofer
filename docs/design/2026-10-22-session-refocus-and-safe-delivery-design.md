@@ -80,4 +80,8 @@ D6 不变：hook 注入路径（UserPromptSubmit / Stop 等）本来就不打字
   - **「现在送」**：`Service.DeliverHeld` + `POST /v1/sessions/{sid}/held/send` —— 取走会话待投递的信件（`ClaimSessionMail`），按普通注入 job **强制**粘贴（不探针、不看模式），确认后 `ConfirmSessionMail` 标记送达；粘贴失败则 `ReleaseSessionMail` 退回 pending，可重试。审计事件 `session.inject_flush`。
   - CLI：`gofer session inject-mode auto|hold|force [--session <id>]`，`--send-held` 即「现在送」（G033：放在既有 `session` 组内）。
 - **配置**：`agents.<k>.inject_guard`（`empty` / `has_input` / `selecting`），加载时编译校验（`validateAgentIntegration`）。
-- **未实施**：web 会话页的模式选择器与「N 条等待投递 / 现在送」按钮（后端与接口已就绪，`inject_mode` 已在会话视图里，待投递数量沿用会话视图的 `mail_pending`），以及对应的 vitest。第一部分（D1/D2，gofer-o53s）不在本任务范围。
+- **web**：会话抽屉头部新增投递模式三态按钮（看输入框 / 留待 / 直送）与「现在送 N」按钮（仅在会话有待投递消息时出现），分别走 `POST /v1/sessions/{sid}/inject-mode` 与 `…/held/send`；展示口径在 `web/src/utils/injectMode.ts`（vitest 覆盖）。
+- **遗留 / 取舍**：
+  - 输入区识别规则是按已知 TUI 形态写的（夹具在 `deliver_guard_test.go`），本开发机没有 tmux / claude / codex，**未能按设计稿在真实终端里观察取图**；上线后若发现某版 TUI 界面变了，用 `agents.<k>.inject_guard` 补正则即可，不需要改代码。
+  - 没有任何 `inject_guard` 规则的 agent（自研 agent 没配）不做 `auto` 检查：否则“永远确认不了空”等于把 `auto` 变成 `hold`，自研 agent 就再也收不到终端投递了。
+  - 会话列表页（Sessions 表）没加模式列，切换在抽屉里。
