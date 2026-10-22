@@ -433,7 +433,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 用英文语义命名，不用中文原文做 key（初稿 D4）。
 - 域：`nav.* page.* col.* status.* act.* empty.* err.* toast.* confirm.* hint.* field.* help.* shell.* palette.*`。新增域必须先改这一节。
   （`shell.*` 是外壳自己的文案：连接状态、侧栏收起、节点摘要；`palette.*` 是命令面板。P1 实施时追加。）
-- 页面专属的 key 用 `<page>.<area>.<name>`，例如 `plans.h.progress`。
+- 页面专属的 key 用 `<page>.<area>.<name>`，例如 `plans.h.progress`。页面专属的前缀（目前是 `plans.`）同样受域白名单管辖，新增一个先在 `i18n.test.ts` 的 `pageDomains` 里登记。
 - `status.<状态值>` 对应接口里的状态值（`status.needs_review`），`status.family.<族>` 是 7 个族名（`status.family.need`）。状态值不是业务内容，可以翻译；用户写的标题、消息、评论不翻译。
 - 字典是扁平对象，key 里的点号不作嵌套解析；插值只支持 `{name}`（`t('jobs.count', { n })`）。
 - `zh-CN` 是回退字典：`en-US` 缺 key 时用中文，两本都没有就原样返回 key（开发环境 `console.warn`）。`te(key)` 用来判断「有翻译才翻译」。
@@ -678,6 +678,51 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 | 390 | 同上，搜索只留图标、连接状态收成一个点 | 顶栏 gap 收到 `--s1`，`search-label` / `search-kbd` 隐藏，标签文字 `--fs-xs` |
 
 未做（如实记录）：没有在真机 / 浏览器里按这四个宽度截图核对（P1 的验收靠 CSS 口径 + 现有各页手机断言的测试）；会话段还没进信号带；命令面板还没有任务 / 会话 / 计划结果。
+
+### P2 列表基元（2026-10-23，issue gofer-hez1）
+
+落地范围即 §14 表格 P2 行：六个列表基元 + 在任务列表与计划总览落地。不涉及 Go 代码，也没有新增接口。
+
+**组件（`web/src/ui/`，文案全部走 `t()`）**
+
+| 文件 | 职责 |
+|---|---|
+| `ProjectFilter.vue` + `projectFilter.ts` | 列表头的项目 chip（空 = 全部项目），受控组件；`projectFilter.ts` 的 `useProjectFilter(path)` 是读写 `?project=` 的唯一入口（换项目回第一页），`readProjectQuery` / `defaultProject` / `rememberProject` 处理「URL 优先、否则 `gofer.lastProject`」的新建表单默认值 |
+| `FilterChips.vue` + `filterChips.ts` | 带计数的 chip 行，单选（再点一次取消）与多选（`multiple`）两种语义；`chipItems(options, counts)` 把值→计数折成 chip 数据。桌面换行、≤760 一行横向滑动（框内 `overflow-x:auto`，不撑宽页面），点按目标 40px |
+| `FilterDrawer.vue` | 「更多筛选」触发按钮 + `Sheet` 外壳，内容走默认插槽；触发按钮带已生效维度数，`clearable` 时抽屉里给「清空过滤」 |
+| `Sheet.vue` / `Drawer.vue` + `overlay.ts` | 底部抽屉与侧抽屉外壳：`role=dialog`、`aria-modal`、Esc 关闭、点遮罩关闭、Tab 在面板内循环、关闭后焦点回到打开它的元素、打开时 `body` 不滚；Sheet 还带抓手下滑 60px 关闭（手机手势友好）。共用行为在 `overlay.ts`（`focusables` / `trapTab` / `useOverlayBehavior`） |
+| `Tabs.vue` + `tabs.ts` | `?tab=` 深链（不是默认页签才写进 URL）、`role=tablist`/`tab`/`tabpanel`、roving tabindex、← → Home End 键盘切换、页签计数与「需要人」黄色角标。值→URL 的换算在 `tabs.ts`（可单测） |
+| `BackLink.vue` + `listReturn.ts` + `useListReturn.ts` | 返回列表并保留筛选与滚动位置：列表页 `useListReturn(listId, path)` 把 `fullPath` + `scrollY` 记进 `sessionStorage`（`gofer.return.<listId>`），`BackLink` 读回来跳转，列表页再复原滚动（只有 URL 一致时才复原）。为 P3 任务详情的单栏模式准备 |
+| `ProgressBar.vue` + `progress.ts` | 分段进度条：完成 / 进行中 / 待验收 / 受阻 / 未开始五段，`planProgressModel(plan)` 用 `todo_counts` 折算（`done+skipped` 算完成、`doing` 算进行中、其余算未开始），无 todo 时回落 job 计数，百分比优先取服务端 `completion.percent`；带 `done/total` 与百分比，图例给文字与计数，每族另有纹理（实心 / 斜纹 / 点阵 / 交叉纹 / 虚底），不靠颜色区分 |
+| `PlanOverviewRow.vue` | 计划总览的一行：状态、标题/id/项目/tags、`ProgressBar`、卡点、主会话、最近活动；≤760 变成卡片 |
+
+**任务列表（/jobs，Board.vue）**
+
+- 列表头换成 `ProjectFilter` + `FilterChips`（状态，计数仍只给 `isCountedStatus` 的进行中类状态）。原来的项目 `<select>` 与状态 tabs 删除：项目只有一个入口（§6.4）。
+- 其余维度（计划、工作流、tag、agent、runner、调用方、时间范围、含上传、显示传话 job）原封不动搬进 `FilterDrawer`，请求参数、watch、状态计数、最近 open plan 提示都保持原行为；「刷新 / 清空过滤」仍在页头。
+- 滚动位置记录接了 `useListReturn('jobs', '/jobs')`（P3 详情页的 `BackLink` 就能回到当前筛选）。
+
+**计划总览（/plans）**
+
+- 表头换成：状态 · 计划 · 进度 · 卡点 · 主会话 · 最近活动；每行一个 `PlanOverviewRow`。
+- 筛选：`ProjectFilter` + 状态 `FilterChips`（多选累积，空 = 全部）+ `FilterDrawer`（关键字、tag）；分页仍走 `?offset`，服务端分页不变。
+- 卡点列：卡在哪个 todo（`blocked_todo`）、N 个 job 失败（`counts.failed`）、N 进行中（`todo_counts.doing`）；没有卡点写「无卡点」。
+- **未做（数据不够）**：列表接口没有 `needs_review` 的分状态计数，「N 待验收」要等计划详情（P3，有完整 job 列表）或新接口；因此列表里的「待验收」段恒为 0（`progress.ts` 保留该族，详情页可传）。
+
+**测试**（§13）
+
+- 新增 `ui/progress.test.ts`：`percentOf` 取整/钳制/无总数、`planProgressModel` 的 todo 口径 / job 回落 / `completion` 优先 / 空计划，`ProgressBar` 的分段宽度、`done/total` 与百分比、图例文案、空条。
+- 新增 `ui/primitives.test.ts`：chip 单选/多选逻辑、`FilterChips` 的 `aria-pressed` 与计数、`ProjectFilter` 的「全部项目」/当前值/`?project=` 与 `gofer.lastProject` 的默认值优先级、`FilterDrawer` 的维度计数与关闭态、`Sheet`/`Drawer` 的 `role=dialog` 与 `aria-modal`（SSR Teleport）、Esc/Tab/焦点归还的接线、`Tabs` 的 `?tab=` 深链 / 未知值回落 / 默认页签不写 URL / roving tabindex / 计数与角标、`listReturn` 的存取与坏值、`BackLink` 的回落地址、`PlanOverviewRow` 的进度 / 卡点 / 主会话 / 最近活动。
+- 新增 `views/listLandings.test.ts`：任务列表的项目 chip 来自 `?project=`、状态 chip 的选中来自 `?status=`、其余九个筛选维度仍在（源码断言，行为不变）、计划总览的列表头顺序与 `PlanOverviewRow` 渲染。
+- 同步修改：`views/plansMobile.test.ts`（不再用正则匹配旧 CSS，改为断言用了 `FilterChips`/`FilterDrawer`/`ProjectFilter` 与 ≤760 的卡片布局）、`utils/jobStatusCounts.test.ts`（v-if 断言改成 chip 的 `isCountedStatus` 口径）、`i18n/i18n.test.ts`（页面专属域 `plans.`，§9.2 已给例子）。
+- 全量 `npx vitest run` 194 个文件 / 1303 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build` 通过。
+
+**如实记录的范围边界**
+
+- `Tabs`、`Sheet`/`Drawer`、`BackLink` 只交付外壳与行为，现有抽屉 / 页签内容一行没有迁移（P3/P4 逐页换）。
+- 计划总览的「主会话」只显示会话 id 尾部（完整 id 在 `title` 里），点击行为留在详情页。
+- 手机上的筛选走 `FilterDrawer`（底部抽屉），桌面同样是抽屉，没有做「桌面内联展开」的第二套形态。
+- i18n 只覆盖新组件与新的列表头；页面其余中文文案按 P3 起逐页抽取。
 
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
