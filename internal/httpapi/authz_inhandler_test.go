@@ -583,6 +583,9 @@ var sessionAuthzCases = []authzCase{
 	{key: "GET /v1/sessions/{sid}/watches", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/watches", nil}
 	}},
+	{key: "GET /v1/sessions/{sid}/focus", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/focus", nil}
+	}},
 	// The cross-session nudge list is the FILTER form: the answer stays 200 and only loses the
 	// other caller's rows.
 	{key: "GET /v1/nudges",

@@ -246,6 +246,10 @@ type PlanFilter struct {
 	Q string
 	// Tags requires every named tag to be present (intersection semantics).
 	Tags []string
+	// SupervisorSessionID restricts to the plans bound to one supervising session
+	// ("" = any). It backs `GET /v1/sessions/{sid}/focus`, which lists the plans
+	// a session was supervising before its context was compacted.
+	SupervisorSessionID string
 	// Limit caps one page (see NormalizePlanLimit). Offset skips rows of the filtered,
 	// newest-first list.
 	Limit  int
@@ -283,6 +287,10 @@ func (f PlanFilter) planWhere() (string, []any) {
 	for _, tag := range NormalizePlanTags(f.Tags) {
 		conds = append(conds, "tags_json LIKE ?")
 		args = append(args, `%"`+tag+`"%`)
+	}
+	if sid := strings.TrimSpace(f.SupervisorSessionID); sid != "" {
+		conds = append(conds, "supervisor_session_id = ?")
+		args = append(args, sid)
 	}
 	if len(conds) == 0 {
 		return "", nil
