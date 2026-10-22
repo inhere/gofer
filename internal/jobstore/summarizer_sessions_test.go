@@ -63,6 +63,14 @@ func TestListAgentSessionsHidesSummarizerSessions(t *testing.T) {
 	if len(all) != 3 {
 		t.Fatalf("IncludeInternal list = %d rows, want 3", len(all))
 	}
+	// The find path ranks first and asks afterwards.
+	hidden, err := st.InternalAgentSessions([]string{"sess-pinned", "sess-legacy", "sess-human"})
+	if err != nil {
+		t.Fatalf("internal ids: %v", err)
+	}
+	if !hidden["sess-pinned"] || !hidden["sess-legacy"] || hidden["sess-human"] {
+		t.Fatalf("internal ids = %v, want the two summarizer sessions only", hidden)
+	}
 }
 
 func TestSummarizerSessionRecordRoundTrip(t *testing.T) {

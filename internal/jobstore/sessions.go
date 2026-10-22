@@ -971,6 +971,40 @@ const internalSessionSQL = `NOT (
       AND COALESCE(NULLIF(j.ended_at,0), j.started_at) + 10)
 )`
 
+// InternalAgentSessions reports which of ids are gofer-internal sessions (the ones
+// internalSessionSQL hides). The find path ranks sessions before the list's WHERE can
+// drop them, so it asks afterwards instead.
+func (s *Store) InternalAgentSessions(ids []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	args := make([]any, 0, len(ids))
+	ph := make([]string, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+		ph = append(ph, "?")
+	}
+	q := "SELECT session_id FROM agent_sessions WHERE session_id IN (" + strings.Join(ph, ",") +
+		") AND NOT " + internalSessionSQL
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: internal agent sessions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("jobstore: scan internal agent session: %w", err)
+		}
+		out[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: internal agent sessions rows: %w", err)
+	}
+	return out, nil
+}
+
 // ListAgentSessions lists sessions, waiting_reply / needs_attention first, then
 // most recently seen first.
 func (s *Store) ListAgentSessions(opts ListSessionsOpts) ([]AgentSession, error) {
