@@ -392,6 +392,10 @@ mail:
   # deliver_by_sec: 86400
   # 投递器占用信件的租期(秒)，未确认则回到 pending。未写 = 60。
   # claim_lease_sec: 60
+  # 单次广播最多收件人数。超出直接拒绝（提示收窄选择器）。未写 = 20。
+  # broadcast_max_recipients: 20
+  # 广播频率「<次数>/<窗口>」，每个调用方每窗口最多几次广播（一次广播算一次，不按收件人数）。未写 = 5/10m。
+  # broadcast_rate: "5/10m"
 
 # 日志：server / worker 默认把 JSONL 日志写到 <config-dir>/run 下的文件；纯 CLI 子命令默认只写 stderr。
 # file 与 dir 互斥；显式配置的路径不可写会阻止启动，未配置时默认路径失败则降级为 stderr。

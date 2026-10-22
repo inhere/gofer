@@ -183,6 +183,9 @@ type Mail struct {
 	ReadAt        int64
 	DeliverBy     int64
 	CaptureItemID string
+	// BroadcastID groups the copies of one broadcast: the id of the FIRST copy (its own id), 0
+	// for a single letter (设计 2026-10-22「D2 存储」).
+	BroadcastID int64
 }
 
 // MailInput is one letter to store. ThreadID empty starts a fresh thread. DeliverBy 0 takes
@@ -206,6 +209,8 @@ type MailInput struct {
 	// dispatched to a session). Empty for a letter nobody dispatched from the box; a HELD
 	// letter gets the item that parks IT here (SetMailCaptureItem).
 	CaptureItemID string
+	// BroadcastID is the broadcast group of this copy (the first copy's id); 0 = single letter.
+	BroadcastID int64
 }
 
 const selectMailCols = `SELECT id, thread_id, COALESCE(reply_to,0), from_kind, COALESCE(from_id,''),
@@ -213,7 +218,7 @@ const selectMailCols = `SELECT id, thread_id, COALESCE(reply_to,0), from_kind, C
   COALESCE(to_caller,''), COALESCE(job_id,''), COALESCE(urgent,0), COALESCE(body,''), state,
   COALESCE(claimed_by,''), COALESCE(claim_until,0), COALESCE(attempts,0), COALESCE(last_error,''),
   created_at, COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(deliver_by,0),
-  COALESCE(capture_item_id,'')
+  COALESCE(capture_item_id,''), COALESCE(broadcast_id,0)
   FROM mail`
 
 func scanMail(sc rowScanner) (Mail, error) {
@@ -222,7 +227,7 @@ func scanMail(sc rowScanner) (Mail, error) {
 	err := sc.Scan(&m.ID, &m.ThreadID, &m.ReplyTo, &m.FromKind, &m.FromID, &m.FromCaller,
 		&m.ToAddress, &m.ToKind, &m.ToID, &m.ToCaller, &m.JobID, &urgent, &m.Body, &m.State,
 		&m.ClaimedBy, &m.ClaimUntil, &m.Attempts, &m.LastError,
-		&m.CreatedAt, &m.DeliveredAt, &m.ReadAt, &m.DeliverBy, &m.CaptureItemID)
+		&m.CreatedAt, &m.DeliveredAt, &m.ReadAt, &m.DeliverBy, &m.CaptureItemID, &m.BroadcastID)
 	m.Urgent = urgent != 0
 	return m, err
 }
@@ -248,12 +253,13 @@ func (s *Store) InsertMail(in MailInput) (Mail, error) {
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(`INSERT INTO mail(thread_id, reply_to, from_kind, from_id, from_caller,
   to_address, to_kind, to_id, to_caller, job_id, urgent, body, state, attempts, created_at, deliver_by,
-  capture_item_id)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)`,
+  capture_item_id, broadcast_id)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)`,
 		strings.TrimSpace(in.ThreadID), in.ReplyTo, in.FromKind, strings.TrimSpace(in.FromID),
 		strings.TrimSpace(in.FromCaller), strings.TrimSpace(in.ToAddress), in.ToKind,
 		strings.TrimSpace(in.ToID), strings.TrimSpace(in.ToCaller), strings.TrimSpace(in.JobID),
-		boolInt(in.Urgent), in.Body, MailPending, now, deliverBy, strings.TrimSpace(in.CaptureItemID))
+		boolInt(in.Urgent), in.Body, MailPending, now, deliverBy, strings.TrimSpace(in.CaptureItemID),
+		in.BroadcastID)
 	if err != nil {
 		return Mail{}, fmt.Errorf("jobstore: insert mail: %w", err)
 	}
@@ -308,8 +314,8 @@ func validateMailInput(in MailInput) error {
 	if strings.TrimSpace(in.Body) == "" {
 		return fmt.Errorf("%w: body required", ErrMailInvalid)
 	}
-	if in.ReplyTo < 0 || in.DeliverBy < 0 {
-		return fmt.Errorf("%w: negative reply_to / deliver_by", ErrMailInvalid)
+	if in.ReplyTo < 0 || in.DeliverBy < 0 || in.BroadcastID < 0 {
+		return fmt.Errorf("%w: negative reply_to / deliver_by / broadcast_id", ErrMailInvalid)
 	}
 	return nil
 }
@@ -582,8 +588,13 @@ func (s *Store) ExpireOverdue(now int64) ([]Mail, error) {
 		if !exists {
 			continue // it was pruned between the scan and the write
 		}
-		ok, err := s.moveMailLocked(id, MailHeld, ", claim_until=0, last_error=?",
-			[]any{mailOverdueReason}, "", nil)
+		// A broadcast copy only expires: parking every copy in the capture box would dump a
+		// dozen "待指派" items on a person for one undelivered notice (设计 2026-10-22「D3」).
+		to, reason := MailHeld, mailOverdueReason
+		if before.BroadcastID > 0 {
+			to, reason = MailExpired, "broadcast copy expired"
+		}
+		ok, err := s.moveMailLocked(id, to, ", claim_until=0, last_error=?", []any{reason}, "", nil)
 		if err != nil {
 			return out, err
 		}
@@ -636,6 +647,8 @@ type ListMailOpts struct {
 	FromID     string
 	FromCaller string
 	ThreadID   string
+	// BroadcastID selects the copies of one broadcast; 0 does not filter.
+	BroadcastID int64
 	// ReplyTo selects the answers to one letter (reply_to = id); 0 does not filter.
 	ReplyTo int64
 	States  []string
@@ -671,6 +684,10 @@ func (s *Store) ListMail(opts ListMailOpts) ([]Mail, error) {
 	add("from_id", opts.FromID)
 	add("from_caller", opts.FromCaller)
 	add("thread_id", opts.ThreadID)
+	if opts.BroadcastID > 0 {
+		where = append(where, "broadcast_id=?")
+		args = append(args, opts.BroadcastID)
+	}
 	if opts.ReplyTo > 0 {
 		where = append(where, "reply_to=?")
 		args = append(args, opts.ReplyTo)
@@ -754,6 +771,50 @@ func (s *Store) CountMailFrom(fromKind, fromID, fromCaller string, since int64) 
 		return 0, fmt.Errorf("jobstore: count mail from sender: %w", err)
 	}
 	return n, nil
+}
+
+// CountBroadcastFrom counts the letters ONE BROADCAST of this author produced at or after
+// since — a broadcast is its copies (inserted in one go), so a letter that opened a thread and
+// has no broadcast group of its own still counts as one. It is the rate window of the broadcast
+// limit (internal/mail), which must not be multiplied by the number of recipients.
+func (s *Store) CountBroadcastFrom(fromKind, fromID, fromCaller string, since int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(DISTINCT COALESCE(broadcast_id, id)) FROM mail
+  WHERE from_kind=? AND COALESCE(from_id,'')=? AND COALESCE(from_caller,'')=? AND created_at>=?`,
+		strings.TrimSpace(fromKind), strings.TrimSpace(fromID), strings.TrimSpace(fromCaller), since).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: count broadcasts from sender: %w", err)
+	}
+	return n, nil
+}
+
+// CountBroadcastMail counts the copies of one broadcast (the N of a letter's "recipients").
+func (s *Store) CountBroadcastMail(broadcastID int64) (int, error) {
+	if broadcastID <= 0 {
+		return 0, nil
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM mail WHERE broadcast_id=?`, broadcastID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("jobstore: count broadcast mail: %w", err)
+	}
+	return n, nil
+}
+
+// SetMailBroadcastID stamps a letter as a copy of broadcastID (the first copy is inserted
+// before its own id is known, so it stamps itself afterwards).
+func (s *Store) SetMailBroadcastID(id, broadcastID int64) (bool, error) {
+	defer s.emit(Change{Kind: ChangeMail, ID: mailIDString(id)})
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE mail SET broadcast_id=? WHERE id=?`, broadcastID, id)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: set mail %d broadcast: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 // CountThreadMail counts the letters of one conversation thread — the automatic-round-trip

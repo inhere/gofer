@@ -32,6 +32,10 @@ type Letter struct {
 	Urgent    bool
 	Body      string
 	Truncated bool
+	// BroadcastID / Recipients mark a copy of a broadcast (设计 2026-10-22「D2」): the agent then
+	// knows it is one of several recipients instead of the only one. 0 / 0 = a single letter.
+	BroadcastID int64
+	Recipients  int
 }
 
 // RenderLetter renders one letter as the fixed harness tag, so the model (and
@@ -43,8 +47,18 @@ func RenderLetter(l Letter) string {
 		body += "\n…（正文已截断，完整内容：gofer session mail read " + strconv.FormatInt(l.ID, 10) + "）"
 	}
 	return "<" + TagLetter + ` id="` + strconv.FormatInt(l.ID, 10) + `" from="` + tagAttr(l.From) +
-		`" topic="` + tagAttr(l.Topic) + `" urgent="` + strconv.FormatBool(l.Urgent) + `">` +
+		`" topic="` + tagAttr(l.Topic) + `" urgent="` + strconv.FormatBool(l.Urgent) + `"` +
+		broadcastAttrs(l) + ">" +
 		body + "</" + TagLetter + ">"
+}
+
+// broadcastAttrs renders the broadcast / recipients attributes of a broadcast copy, nothing at
+// all for a single letter.
+func broadcastAttrs(l Letter) string {
+	if l.BroadcastID <= 0 {
+		return ""
+	}
+	return ` broadcast="b` + strconv.FormatInt(l.BroadcastID, 10) + `" recipients="` + strconv.Itoa(l.Recipients) + `"`
 }
 
 func tagAttr(v string) string {

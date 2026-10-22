@@ -62,6 +62,25 @@ type MailSent struct {
 	Held          bool            `json:"held"`
 	CaptureItemID string          `json:"capture_item_id,omitempty"`
 	Candidates    []MailCandidate `json:"candidates,omitempty"`
+	// BroadcastID / ThreadID / Matched / Delivered / Skipped / Recipients describe a broadcast
+	// (设计 2026-10-22「D5」); all empty for a single letter.
+	BroadcastID int64                    `json:"broadcast_id,omitempty"`
+	ThreadID    string                   `json:"thread_id,omitempty"`
+	Matched     int                      `json:"matched,omitempty"`
+	Delivered   int                      `json:"delivered_count,omitempty"`
+	Skipped     int                      `json:"skipped_count,omitempty"`
+	Recipients  []MailBroadcastRecipient `json:"recipients,omitempty"`
+}
+
+// MailBroadcastRecipient is one addressee of a broadcast (a skipped one says why).
+type MailBroadcastRecipient struct {
+	Address string `json:"address"`
+	Kind    string `json:"kind"`
+	ID      string `json:"id,omitempty"`
+	MailID  int64  `json:"mail_id,omitempty"`
+	State   string `json:"state,omitempty"`
+	Skipped bool   `json:"skipped,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // MailListOpts filters a listing (GET /v1/mail): Box is in | out | all ("" = all).
@@ -70,8 +89,19 @@ type MailListOpts struct {
 	Limit, Offset               int
 }
 
-// SendMail sends one letter. to "" or "caller" is the caller's own capture box.
+// SendMail sends one letter. to "" or "caller" is the caller's own capture box. The wire keeps
+// the single-string form, so a single letter looks exactly as it did before broadcasts.
 func (c *Client) SendMail(to, body string, urgent bool) (MailSent, error) {
+	payload := map[string]any{"to": to, "body": body}
+	if urgent {
+		payload["urgent"] = true
+	}
+	return c.postMail("/v1/mail", payload)
+}
+
+// SendMailTo sends one letter to several recipients (a broadcast): repeated addresses and `each:`
+// selectors are resolved by the server, which answers with the addressee table.
+func (c *Client) SendMailTo(to []string, body string, urgent bool) (MailSent, error) {
 	payload := map[string]any{"to": to, "body": body}
 	if urgent {
 		payload["urgent"] = true

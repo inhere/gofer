@@ -817,7 +817,7 @@ func (b *localBackend) FindSessions(client.SessionFindOpts) ([]client.SessionFou
 	return nil, errNeedsServer
 }
 
-func (b *localBackend) SendMail(string, string, bool) (client.MailSent, error) {
+func (b *localBackend) SendMail([]string, string, bool) (client.MailSent, error) {
 	return client.MailSent{}, errNeedsServer
 }
 

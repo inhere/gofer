@@ -59,15 +59,31 @@ type takenMailView struct {
 	Body      string        `json:"body"`
 	Truncated bool          `json:"truncated,omitempty"`
 	CreatedAt int64         `json:"created_at"`
+	// BroadcastID / Recipients mark a copy of a broadcast (设计 2026-10-22「D2」): the injected tag
+	// then says the letter went to several sessions.
+	BroadcastID int64 `json:"broadcast_id,omitempty"`
+	Recipients  int   `json:"recipients,omitempty"`
 }
 
 func (s *Server) takenMailViews(in []jobstore.TakenMail) []takenMailView {
 	out := make([]takenMailView, 0, len(in))
+	counts := map[int64]int{}
 	for _, t := range in {
 		v := takenMailView{
 			ID: t.ID, ThreadID: t.ThreadID,
 			From:   mailPartyView{Kind: t.FromKind, ID: t.FromID, Caller: t.FromCaller, Display: mail.OriginOf(t.Mail).Display()},
 			Urgent: t.Urgent, Body: t.Body, Truncated: t.Truncated, CreatedAt: t.CreatedAt,
+			BroadcastID: t.BroadcastID,
+		}
+		if t.BroadcastID > 0 {
+			// One broadcast's recipient count is read once, however many of its copies a take
+			// returns.
+			if n, ok := counts[t.BroadcastID]; ok {
+				v.Recipients = n
+			} else if n, err := s.jobs.Meta().CountBroadcastMail(t.BroadcastID); err == nil {
+				counts[t.BroadcastID] = n
+				v.Recipients = n
+			}
 		}
 		// The thread's topic is what the SENDER says it works on; a caller or job sender has none.
 		if t.FromKind == jobstore.MailKindSession && s.relay != nil {

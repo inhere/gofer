@@ -108,6 +108,11 @@ type Service struct {
 	now    func() time.Time
 	// deliverByOverride (seconds, 0 = none) is the hot-reloaded delivery deadline; see SetDeliverBy.
 	deliverByOverride atomic.Int64
+	// broadcastMax / broadcastRate / broadcastWindow override Limits' broadcast numbers from
+	// the `mail:` config block (0 = use Limits): hot-reloaded like deliverByOverride.
+	broadcastMax    atomic.Int64
+	broadcastRate   atomic.Int64
+	broadcastWindow atomic.Int64
 }
 
 // NewService builds the mailbox over the store, resolving topic: / path: through finder (nil =

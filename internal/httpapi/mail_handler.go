@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -68,7 +70,9 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 	case errors.Is(err, mail.ErrMailTooLong):
 		writeError(c, http.StatusRequestEntityTooLarge, "mail too long", err.Error())
 	case errors.Is(err, mail.ErrInvalidAddress), errors.Is(err, mail.ErrUnsupportedAddress),
-		errors.Is(err, mail.ErrInvalidBody), errors.Is(err, mail.ErrInvalidOrigin), errors.Is(err, jobstore.ErrMailInvalid):
+		errors.Is(err, mail.ErrInvalidBody), errors.Is(err, mail.ErrInvalidOrigin), errors.Is(err, jobstore.ErrMailInvalid),
+		errors.Is(err, mail.ErrNoRecipients), errors.Is(err, mail.ErrBroadcastAmbiguous),
+		errors.Is(err, mail.ErrBroadcastTooMany), errors.Is(err, mail.ErrUrgentBroadcast):
 		writeError(c, http.StatusBadRequest, "invalid mail", err.Error())
 	case errors.Is(err, mail.ErrMailNotFound):
 		writeError(c, http.StatusNotFound, "not found", "mail not found")
@@ -113,6 +117,10 @@ type mailView struct {
 	ReadAt        int64         `json:"read_at,omitempty"`
 	DeliverBy     int64         `json:"deliver_by,omitempty"`
 	CaptureItemID string        `json:"capture_item_id,omitempty"`
+	// BroadcastID marks a copy of a broadcast (0 = a single letter); the group's addressee table
+	// is in Broadcast (GET /v1/mail/{id} only).
+	BroadcastID int64              `json:"broadcast_id,omitempty"`
+	Broadcast   *mailBroadcastView `json:"broadcast,omitempty"`
 }
 
 func toMailView(m jobstore.Mail) mailView {
@@ -123,7 +131,7 @@ func toMailView(m jobstore.Mail) mailView {
 		To:        mailPartyView{Kind: m.ToKind, ID: m.ToID, Caller: m.ToCaller},
 		JobID:     m.JobID, Urgent: m.Urgent, Body: m.Body, State: m.State, Attempts: m.Attempts,
 		LastError: m.LastError, CreatedAt: m.CreatedAt, DeliveredAt: m.DeliveredAt, ReadAt: m.ReadAt,
-		DeliverBy: m.DeliverBy, CaptureItemID: m.CaptureItemID,
+		DeliverBy: m.DeliverBy, CaptureItemID: m.CaptureItemID, BroadcastID: m.BroadcastID,
 	}
 }
 
@@ -143,6 +151,37 @@ type mailSendView struct {
 	Held          bool                `json:"held"`
 	CaptureItemID string              `json:"capture_item_id,omitempty"`
 	Candidates    []mailCandidateView `json:"candidates,omitempty"`
+	// BroadcastID / Recipients / matched / delivered / skipped describe a broadcast (设计
+	// 2026-10-22「D5」): the group the copies belong to and the addressee table with why a
+	// selector match was skipped.
+	BroadcastID int64                        `json:"broadcast_id,omitempty"`
+	ThreadID    string                       `json:"thread_id,omitempty"`
+	Matched     int                          `json:"matched,omitempty"`
+	Delivered   int                          `json:"delivered_count,omitempty"`
+	Skipped     int                          `json:"skipped_count,omitempty"`
+	Recipients  []mailBroadcastRecipientView `json:"recipients,omitempty"`
+}
+
+type mailBroadcastRecipientView struct {
+	Address string `json:"address"`
+	Kind    string `json:"kind"`
+	ID      string `json:"id,omitempty"`
+	MailID  int64  `json:"mail_id,omitempty"`
+	State   string `json:"state,omitempty"`
+	Skipped bool   `json:"skipped,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+// mailBroadcastView is the `broadcast` section of GET /v1/mail/{id}: one broadcast's addressee
+// table with each copy's own delivery state (and whether it has been answered).
+type mailBroadcastView struct {
+	ID         int64                        `json:"id"`
+	Count      int                          `json:"count"`
+	Delivered  int                          `json:"delivered"`
+	Answered   int                          `json:"answered"`
+	Expired    int                          `json:"expired"`
+	Pending    int                          `json:"pending"`
+	Recipients []mailBroadcastRecipientView `json:"recipients"`
 }
 
 func (s *Server) toMailSendView(r mail.SendResult) mailSendView {
@@ -418,10 +457,37 @@ func (s *Server) mailVisibleFor(c *rux.Context, to string) func(jobstore.AgentSe
 // ---- handlers ----
 
 type mailSendReq struct {
-	To      string `json:"to"`
-	Body    string `json:"body"`
-	Urgent  bool   `json:"urgent,omitempty"`
-	Project string `json:"project,omitempty"`
+	To      mailToField `json:"to"`
+	Body    string      `json:"body"`
+	Urgent  bool        `json:"urgent,omitempty"`
+	Project string      `json:"project,omitempty"`
+}
+
+// mailToField accepts the letter's recipient as ONE string or as an ARRAY of them (设计
+// 2026-10-22「D5」): one address keeps the single-letter behaviour, several (or one `each:`
+// selector) are a broadcast.
+type mailToField []string
+
+func (f *mailToField) UnmarshalJSON(b []byte) error {
+	t := bytes.TrimSpace(b)
+	if len(t) == 0 || string(t) == "null" {
+		*f = nil
+		return nil
+	}
+	if t[0] == '[' {
+		var list []string
+		if err := json.Unmarshal(t, &list); err != nil {
+			return err
+		}
+		*f = list
+		return nil
+	}
+	var one string
+	if err := json.Unmarshal(t, &one); err != nil {
+		return err
+	}
+	*f = []string{one}
+	return nil
 }
 
 // checkJobMailAddress: a job credential names its recipient directly — a session or its
@@ -438,7 +504,7 @@ func checkJobMailAddress(to string) error {
 	return mailForbidden("a job credential may only mail a session or its caller")
 }
 
-// POST /v1/mail {to, body, urgent?, project?}
+// POST /v1/mail {to: string|[string], body, urgent?, project?}
 func (s *Server) handleMailSend(c *rux.Context) {
 	if !s.mailReady(c) {
 		return
@@ -452,8 +518,14 @@ func (s *Server) handleMailSend(c *rux.Context) {
 	if !ok {
 		return
 	}
+	to := cleanMailAddresses(req.To)
+	broadcast := isBroadcastAddresses(to)
 	if _, isJob := jobCallerFromCtx(c); isJob {
-		if err := checkJobMailAddress(req.To); err != nil {
+		if broadcast {
+			writeError(c, http.StatusForbidden, "mail not permitted", "a job credential may not send a broadcast")
+			return
+		}
+		if err := checkJobMailAddress(to[0]); err != nil {
 			s.writeMailError(c, err)
 			return
 		}
@@ -463,9 +535,22 @@ func (s *Server) handleMailSend(c *rux.Context) {
 	if p := strings.TrimSpace(req.Project); p != "" && !s.requireProjectScope(c, p) {
 		return
 	}
+	if broadcast {
+		res, err := s.mail.Broadcast(mail.BroadcastInput{
+			To: to, Body: req.Body, Urgent: req.Urgent, Origin: org, Project: strings.TrimSpace(req.Project),
+			Visible: s.mailVisibleForAll(c, to), Roots: s.projectRoots, Authorize: s.mailAuthorize(c, org, false),
+		})
+		c.Set(ctxCeilingChecked, true)
+		if err != nil {
+			s.writeMailError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, s.toMailBroadcastView(res))
+		return
+	}
 	res, err := s.mail.Send(mail.SendInput{
-		To: req.To, Body: req.Body, Urgent: req.Urgent, Origin: org, Project: strings.TrimSpace(req.Project),
-		Visible: s.mailVisibleFor(c, req.To), Roots: s.projectRoots, Authorize: s.mailAuthorize(c, org, false),
+		To: to[0], Body: req.Body, Urgent: req.Urgent, Origin: org, Project: strings.TrimSpace(req.Project),
+		Visible: s.mailVisibleFor(c, to[0]), Roots: s.projectRoots, Authorize: s.mailAuthorize(c, org, false),
 	})
 	c.Set(ctxCeilingChecked, true)
 	if err != nil {
@@ -473,6 +558,93 @@ func (s *Server) handleMailSend(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, s.toMailSendView(res))
+}
+
+// cleanMailAddresses trims the given addresses and drops the empty ones; nothing left means the
+// caller's own capture box (one empty address, exactly as before the array form).
+func cleanMailAddresses(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, a := range in {
+		if a = strings.TrimSpace(a); a != "" {
+			out = append(out, a)
+		}
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+// isBroadcastAddresses: several addresses, or one `each:` selector, ask for a broadcast; a single
+// address keeps the single-letter meaning (several matches still park it).
+func isBroadcastAddresses(to []string) bool {
+	if len(to) > 1 {
+		return true
+	}
+	return len(to) == 1 && strings.HasPrefix(strings.ToLower(strings.TrimSpace(to[0])), mail.EachPrefix)
+}
+
+// mailVisibleForAll is mailVisibleFor for a list of addresses: the reader filter applies when any
+// of them is a search address.
+func (s *Server) mailVisibleForAll(c *rux.Context, to []string) func(jobstore.AgentSession) bool {
+	for _, a := range to {
+		if v := s.mailVisibleFor(c, a); v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+// toMailBroadcastView renders a broadcast's answer: the first copy as the letter, plus the group
+// id and the addressee table.
+func (s *Server) toMailBroadcastView(r mail.BroadcastResult) mailSendView {
+	out := mailSendView{
+		BroadcastID: r.BroadcastID, ThreadID: r.ThreadID, Matched: r.Matched,
+		Delivered: len(r.Mails), Skipped: r.Skipped,
+	}
+	if len(r.Mails) > 0 {
+		v := toMailView(r.Mails[0])
+		s.newMailPersonas(r.Mails).forView(&v)
+		out.Mail = v
+		out.Held = r.Mails[0].State == jobstore.MailHeld
+		out.CaptureItemID = r.Mails[0].CaptureItemID
+	}
+	for _, rc := range r.Recipients {
+		out.Recipients = append(out.Recipients, mailBroadcastRecipientView{
+			Address: rc.Address, Kind: rc.Kind, ID: rc.ID, MailID: rc.MailID, State: rc.State,
+			Skipped: rc.Skipped, Reason: rc.Reason,
+		})
+	}
+	return out
+}
+
+// mailBroadcastSummary reads one broadcast's copies (the addressee table of GET /v1/mail/{id}).
+func (s *Server) mailBroadcastSummary(m jobstore.Mail) (*mailBroadcastView, error) {
+	if m.BroadcastID <= 0 {
+		return nil, nil
+	}
+	rows, err := s.jobs.Meta().ListMail(jobstore.ListMailOpts{BroadcastID: m.BroadcastID, Limit: jobstore.MailListMaxLimit, OldestFirst: true})
+	if err != nil {
+		return nil, err
+	}
+	v := &mailBroadcastView{ID: m.BroadcastID, Count: len(rows), Recipients: make([]mailBroadcastRecipientView, 0, len(rows))}
+	for _, row := range rows {
+		switch row.State {
+		case jobstore.MailAnswered:
+			v.Answered++
+			v.Delivered++
+		case jobstore.MailDelivered:
+			v.Delivered++
+		case jobstore.MailExpired:
+			v.Expired++
+		case jobstore.MailPending, jobstore.MailDelivering:
+			v.Pending++
+		}
+		v.Recipients = append(v.Recipients, mailBroadcastRecipientView{
+			Address: row.ToAddress, Kind: row.ToKind, ID: row.ToID, MailID: row.ID, State: row.State,
+		})
+	}
+	return v, nil
 }
 
 // GET /v1/mail/{id}
@@ -486,6 +658,12 @@ func (s *Server) handleMailGet(c *rux.Context) {
 	}
 	v := toMailView(m)
 	s.newMailPersonas([]jobstore.Mail{m}).forView(&v)
+	if sum, err := s.mailBroadcastSummary(m); err != nil {
+		s.writeMailError(c, err)
+		return
+	} else {
+		v.Broadcast = sum
+	}
 	c.JSON(http.StatusOK, v)
 }
 
