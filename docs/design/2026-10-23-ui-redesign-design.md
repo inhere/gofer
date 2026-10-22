@@ -607,7 +607,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 - 依赖加在 `web/package.json`（`@fontsource/schibsted-grotesk@^5.1.1`，`@fontsource/ibm-plex-mono` 沿用），`main.ts` 只导入 `latin-400/500/600`（Schibsted Grotesk）与 `latin-400/500`（Plex Mono）。CJK 不打包，回退系统字体。
 - 构建产物：5 个字面共 5 个 woff2 + 5 个 woff，合计约 217 KB（woff2 约 102 KB；woff 是 Fontsource 的兼容回退，现代浏览器不取）。无任何外部字体请求。
-- 迁移前用的 `@fontsource/ibm-plex-sans` 在 `main.ts` 里不再导入（新界面字体换成 Schibsted Grotesk）；依赖条目本身留到 P6 一起清。
+- 迁移前用的 `@fontsource/ibm-plex-sans` 已无人引用，依赖条目一并删除（新界面字体是 Schibsted Grotesk）。
 
 **状态系统**（§5）
 
