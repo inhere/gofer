@@ -32,7 +32,7 @@ func TestSummarizerPromptDefaults(t *testing.T) {
 	svc, st, _ := noiseSvc(t)
 	w := promptItem(t, st)
 
-	p := svc.buildPrompt(w, "MATERIAL-1", false)
+	p := svc.buildPrompt(w, "MATERIAL-1", false, false)
 	assert.True(t, strings.HasPrefix(p, defaultSummarizerPrompt))
 	assert.False(t, strings.Contains(p, settings.ExtraHeading))
 	// The rewritten default says what the noise rule wants and keeps the parse keys.
@@ -50,7 +50,7 @@ func TestSummarizerPromptReplacement(t *testing.T) {
 	_, _, err := set.Set(settings.KeyPromptWorkSummarizer, "只记录有实质进展的事。", "human:me")
 	assert.NoErr(t, err)
 
-	p := svc.buildPrompt(w, "MATERIAL-2", false)
+	p := svc.buildPrompt(w, "MATERIAL-2", false, false)
 	assert.True(t, strings.HasPrefix(p, "只记录有实质进展的事。"))
 	assert.False(t, strings.Contains(p, "你是一个只读的"))
 	// The material still comes from the code, so a replacement cannot lose it.
@@ -65,7 +65,7 @@ func TestSummarizerPromptExtraIsAppended(t *testing.T) {
 	_, _, err := set.Set(settings.KeyPromptWorkSummarizerExtra, "少说废话；不确定的字段一律留空。", "human:me")
 	assert.NoErr(t, err)
 
-	p := svc.buildPrompt(w, "MATERIAL-3", true)
+	p := svc.buildPrompt(w, "MATERIAL-3", true, false)
 	// The extra follows the default instruction it was appended to.
 	assert.True(t, strings.HasPrefix(p, defaultSummarizerPrompt))
 	assert.True(t, strings.Contains(p, settings.ExtraHeading+"\n少说废话；不确定的字段一律留空。"))
@@ -82,7 +82,7 @@ func TestSummarizerPromptReplacementAndExtra(t *testing.T) {
 	_, _, err = set.Set(settings.KeyPromptWorkSummarizerExtra, "补充一条偏好。", "human:me")
 	assert.NoErr(t, err)
 
-	p := svc.buildPrompt(w, "MATERIAL-4", false)
+	p := svc.buildPrompt(w, "MATERIAL-4", false, false)
 	assert.True(t, strings.HasPrefix(p, "自己写的指令。\n\n"+settings.ExtraHeading+"\n补充一条偏好。"))
 	assert.False(t, strings.Contains(p, "你是一个只读的"))
 	endsWithSpec(t, p)
@@ -96,7 +96,7 @@ func TestReplacementCannotRemoveTheFormatSpec(t *testing.T) {
 	_, _, err := set.Set(settings.KeyPromptWorkSummarizer, "不要输出 JSON。", "human:me")
 	assert.NoErr(t, err)
 
-	p := svc.buildPrompt(w, "MATERIAL-5", false)
+	p := svc.buildPrompt(w, "MATERIAL-5", false, false)
 	endsWithSpec(t, p)
 	assert.True(t, strings.Index(p, "不要输出 JSON。") < strings.Index(p, summaryFormatSpec))
 }
@@ -107,7 +107,7 @@ func TestSummarizerPromptSettingsFailureFallsBack(t *testing.T) {
 	svc.SetSettings(errSettings{})
 	w := promptItem(t, st)
 
-	p := svc.buildPrompt(w, "MATERIAL-6", false)
+	p := svc.buildPrompt(w, "MATERIAL-6", false, false)
 	assert.True(t, strings.HasPrefix(p, defaultSummarizerPrompt))
 	assert.False(t, strings.Contains(p, settings.ExtraHeading))
 	endsWithSpec(t, p)

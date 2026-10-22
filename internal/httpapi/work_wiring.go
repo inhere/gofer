@@ -97,10 +97,26 @@ func summarizerJobRequest(r work.OneShotRequest) job.JobRequest {
 		ProjectKey: r.ProjectKey, Agent: r.Agent, Runner: config.BuiltinLocalRunner, Prompt: r.Prompt,
 		AgentArgs: r.Args, ReadOnly: true, NoRules: true, Title: r.Title, Tags: []string{job.WorkSummarizerJobTag},
 		TimeoutSec: r.TimeoutSec, EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
+		// SessionID pins the run to the summarizer's own session (gofer-ayu0): a session
+		// per project instead of one per tidy-up.
+		SessionID: r.SessionID,
 		// Bounded by the ceiling of the caller that asked for the tidy-up (empty for the
 		// timer); the agent argv comes from the work configuration, not from the caller.
 		OriginCaller: r.Origin, InternalExec: job.InternalExecSummarizer,
 	}
+}
+
+// SessionCaps implements work.SessionCaps: whether the agent takes a pre-allocated
+// session id (session_inject) and whether its session can be continued (session_resume).
+func (o workOneShot) SessionCaps(agentKey string) (inject, resume bool) {
+	if o.agents == nil {
+		return false, false
+	}
+	ac, ok := o.agents.Get(agentKey)
+	if !ok {
+		return false, false
+	}
+	return len(ac.SessionInject) > 0, len(ac.SessionResume) > 0
 }
 
 func (o workOneShot) Run(ctx context.Context, r work.OneShotRequest) (work.OneShotResult, error) {
@@ -111,14 +127,34 @@ func (o workOneShot) Run(ctx context.Context, r work.OneShotRequest) (work.OneSh
 	if err != nil {
 		return work.OneShotResult{}, err
 	}
-	out := work.OneShotResult{JobID: res.ID}
-	wait := time.Duration(r.TimeoutSec+30) * time.Second
+	return o.finish(ctx, res.ID, r.TimeoutSec)
+}
+
+// Resume continues the session of r.JobID. The continuation is a normal `job resume`:
+// it inherits the source's read-only / tag / timeout, so the tidy-up stays hidden and
+// bounded like the run it continues.
+func (o workOneShot) Resume(ctx context.Context, r work.ResumeRequest) (work.OneShotResult, error) {
+	if strings.TrimSpace(r.ProjectKey) == "" {
+		return work.OneShotResult{}, errors.New("整理 job 没有可用的项目：在 work.summarizer_project 里指定一个项目，或在配置里保留 default 项目")
+	}
+	res, err := o.jobs.ResumeJob(r.JobID, r.Prompt, "", "")
+	if err != nil {
+		return work.OneShotResult{JobID: res.ID}, err
+	}
+	return o.finish(ctx, res.ID, r.TimeoutSec)
+}
+
+// finish waits for a submitted summarizer job and reads its output: both the fresh run and
+// the continuation end here.
+func (o workOneShot) finish(ctx context.Context, jobID string, timeoutSec int) (work.OneShotResult, error) {
+	out := work.OneShotResult{JobID: jobID}
+	wait := time.Duration(timeoutSec+30) * time.Second
 	if dl, ok := ctx.Deadline(); ok && time.Until(dl) < wait {
 		wait = time.Until(dl)
 	}
-	final, ok := o.jobs.WaitFor(res.ID, wait)
+	final, ok := o.jobs.WaitFor(jobID, wait)
 	if !ok || !job.IsTerminal(final.Status) {
-		_ = o.jobs.Cancel(res.ID)
+		_ = o.jobs.Cancel(jobID)
 		return out, errors.New("整理 job 超时")
 	}
 	if final.Status != job.StatusDone {
@@ -128,7 +164,7 @@ func (o workOneShot) Run(ctx context.Context, r work.OneShotRequest) (work.OneSh
 		}
 		return out, fmt.Errorf("整理 job 未成功（%s）", msg)
 	}
-	stdout, _ := o.jobs.TailLog(res.ID, store.StreamStdout, 64*1024)
+	stdout, _ := o.jobs.TailLog(jobID, store.StreamStdout, 64*1024)
 	out.Output = string(stdout)
 	return out, nil
 }

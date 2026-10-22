@@ -3286,6 +3286,12 @@ type WorkConfig struct {
 	SummarizerAgent   string   `yaml:"summarizer_agent,omitempty"`
 	SummarizerArgs    []string `yaml:"summarizer_args,omitempty"`
 	SummarizerProject string   `yaml:"summarizer_project,omitempty"`
+	// SummarizerSessionMaxRuns / SummarizerSessionMaxAge rotate the summarizer's own
+	// agent session: it serves at most this many tidy-ups (default 20) and is replaced
+	// once it is older than the age (default 24h), so one long-lived session cannot grow
+	// without bound and does not carry yesterday's work forever.
+	SummarizerSessionMaxRuns int    `yaml:"summarizer_session_max_runs,omitempty"`
+	SummarizerSessionMaxAge  string `yaml:"summarizer_session_max_age,omitempty"`
 	// SummarizeEnabled switches the automatic tidy-up off with an explicit false
 	// (pointer: unset = ON). The manual 「整理」 action stays available.
 	SummarizeEnabled *bool `yaml:"summarize_enabled,omitempty"`
@@ -3335,7 +3341,31 @@ const (
 	DefaultWorkSummarizeDaily     = 50
 	DefaultWorkRequestTimeoutMin  = 30
 	DefaultWorkNeedsMeThrottleMin = 30
+	// DefaultWorkSummarizerSessionRuns / Age are how long one summarizer session is
+	// reused before it is replaced by a fresh one.
+	DefaultWorkSummarizerSessionRuns = 20
+	DefaultWorkSummarizerSessionAge  = 24 * time.Hour
 )
+
+// SummarizerSessionRuns is the number of tidy-ups one summarizer session serves before
+// it is rotated (0 unset = the default; a negative value means never rotate by count).
+func (w WorkConfig) SummarizerSessionRuns() int {
+	if w.SummarizerSessionMaxRuns < 0 {
+		return 0
+	}
+	return posOr(w.SummarizerSessionMaxRuns, DefaultWorkSummarizerSessionRuns)
+}
+
+// SummarizerSessionAge is how long one summarizer session may be reused (a negative /
+// malformed value falls back to the default; validate refuses it on load).
+func (w WorkConfig) SummarizerSessionAge() time.Duration {
+	if v := strings.TrimSpace(w.SummarizerSessionMaxAge); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			return d
+		}
+	}
+	return DefaultWorkSummarizerSessionAge
+}
 
 // SummarizerAgentName is the configured summarizer agent or the default.
 func (w WorkConfig) SummarizerAgentName() string {
@@ -3410,6 +3440,11 @@ func (w WorkConfig) validate() error {
 	if v := strings.TrimSpace(w.StallAfter); v != "" {
 		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
 			return fmt.Errorf("work.stall_after %q must be a positive duration such as 4h or 90m", w.StallAfter)
+		}
+	}
+	if v := strings.TrimSpace(w.SummarizerSessionMaxAge); v != "" {
+		if d, err := time.ParseDuration(v); err != nil || d <= 0 {
+			return fmt.Errorf("work.summarizer_session_max_age %q must be a positive duration such as 24h or 90m", w.SummarizerSessionMaxAge)
 		}
 	}
 	return nil
