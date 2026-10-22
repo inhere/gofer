@@ -1583,6 +1583,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/owner", s.handleSetSessionOwner)
 		r.POST("/sessions/{sid}/watches", s.handleAddSessionWatch)
 		r.GET("/sessions/{sid}/watches", s.handleListSessionWatches)
+		// 会话焦点 (gofer-o53s): what this session was supervising before its context
+		// was compacted / the session resumed; `repo prime` appends it after a compact.
+		r.GET("/sessions/{sid}/focus", s.handleSessionFocus)
 		r.POST("/sessions/{sid}/watches/complete", s.handleCompleteWatchedJobs)
 		r.DELETE("/sessions/{sid}/watches/{job_id}", s.handleRemoveSessionWatch)
 		r.POST("/sessions/{sid}/relay", s.handleSetSessionRelay)
