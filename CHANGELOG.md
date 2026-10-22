@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **等人工审批的时间不再计入 ACP 每轮超时（gofer-ji7m）**：`--session` 持续会话的一轮原先用普通超时计时，人回审批慢（一轮里几次 permission 交互）就会把这一轮撑过 `--timeout` 而判 "acp: turn timed out" 失败。现在 job 停在 `pending_interaction`（工具调用审批）期间暂停这一轮的计时，作答后继续；暂停 / 恢复各记一条 job 事件 `job.turn_timeout_paused` / `job.turn_timeout_resumed`（详情带本轮预算 `timeout_sec`、已用 `used_sec`、剩余 `remaining_sec`、`interaction_id`），worker 上的 job 也镜像到 hub。审批自己的 `timeout_sec` + `on_timeout` 仍照旧兜底，等待有上限；`--max-session` 与 job 总时限按墙上时间算，**不**暂停。不影响单轮（非持续会话）job。
+
 ## [0.186.0] - 2026-10-22
 
 ### 修复
