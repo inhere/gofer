@@ -12,8 +12,9 @@ import (
 
 // Addresses (设计「地址写法」): where a letter is sent. "session:<sid>" and "job:<id>" name one
 // recipient directly; "topic:<kw>" and "path:<sub>" find one by what a session works on;
-// "caller" (or no address at all) is the sender's own capture box; "agent:" belongs to the
-// third phase and is refused for now.
+// "agent:<名字>[@<项目>]" sends to the resident session gofer keeps for that agent (设计
+// 2026-10-22 mail-agent-address); "caller" (or no address at all) is the sender's own capture
+// box.
 const (
 	SchemeSession = "session"
 	SchemeJob     = "job"
@@ -36,6 +37,8 @@ type Address struct {
 	Raw    string
 	Scheme string
 	Value  string
+	// Project is the `@<项目>` of an agent: address (empty = the sender's own project).
+	Project string
 	// Each marks the `each:` prefix: the address fans out to every deliverable match instead
 	// of requiring exactly one.
 	Each bool
@@ -89,12 +92,28 @@ func ParseAddress(raw string) (Address, error) {
 		}
 		return Address{Raw: rawAddr, Scheme: scheme, Value: value, Each: true}, nil
 	case SchemeAgent:
-		if each && value != "" {
-			return Address{Raw: rawAddr, Scheme: scheme, Value: value, Each: true}, nil
+		name, project := splitAgentValue(value)
+		if name == "" {
+			return Address{}, fmt.Errorf("%w: agent: needs a configured agent name (agent:<名字>[@<项目>])", ErrInvalidAddress)
 		}
-		return Address{}, fmt.Errorf("%w: %s: (host agents are the third phase; a broadcast selector is each:agent:<name>)", ErrUnsupportedAddress, SchemeAgent)
+		// each:agent:<名字> stays a broadcast selector over the sessions that already exist
+		// (设计「不做」: a broadcast never starts a session), so its @<项目> is not meaningful.
+		if each {
+			return Address{Raw: rawAddr, Scheme: scheme, Value: name, Project: project, Each: true}, nil
+		}
+		return Address{Raw: rawAddr, Scheme: scheme, Value: name, Project: project}, nil
 	}
 	return Address{}, fmt.Errorf("%w: unknown scheme %q", ErrInvalidAddress, scheme)
+}
+
+// splitAgentValue splits an agent: value into the name and the optional `@<项目>` (the LAST '@'
+// separates: a configured name cannot contain one).
+func splitAgentValue(v string) (name, project string) {
+	v = strings.TrimSpace(v)
+	if i := strings.LastIndex(v, "@"); i >= 0 {
+		return strings.TrimSpace(v[:i]), strings.TrimSpace(v[i+1:])
+	}
+	return v, ""
 }
 
 // Target is the recipient an address resolved to. Deliver is false when there is no delivery
@@ -181,6 +200,8 @@ func (s *Service) resolve(in resolveInput) (resolution, error) {
 		return s.resolveByFind(in, true)
 	case SchemePath:
 		return s.resolveByFind(in, false)
+	case SchemeAgent:
+		return s.residentAgent(in)
 	}
 	return resolution{}, fmt.Errorf("%w: %s:", ErrInvalidAddress, in.addr.Scheme)
 }

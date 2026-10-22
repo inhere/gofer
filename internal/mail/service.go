@@ -30,7 +30,8 @@ var (
 	// ErrSessionAmbiguous: a session: address is a prefix of several sessions.
 	ErrSessionAmbiguous = fmt.Errorf("mail: session id prefix is ambiguous")
 	// ErrUnsupportedAddress: a well-formed address whose scheme this version does not
-	// deliver to yet — `agent:` (host agents) is the third phase.
+	// deliver to (kept for the entry layers' wording; `agent:` is delivered since
+	// 2026-10-22).
 	ErrUnsupportedAddress = fmt.Errorf("mail: address not supported yet")
 	// ErrInvalidOrigin: the sender's (kind, id, caller) combination is not legal.
 	ErrInvalidOrigin = fmt.Errorf("mail: invalid sender origin")
@@ -113,6 +114,12 @@ type Service struct {
 	broadcastMax    atomic.Int64
 	broadcastRate   atomic.Int64
 	broadcastWindow atomic.Int64
+	// residents is the `mail.agents` block (hot-reloaded like the numbers above): which names
+	// an `agent:` address may use and how their resident session is started.
+	residents atomic.Pointer[ResidentsConfig]
+	// residentHost starts / ends / looks up the resident session jobs (nil = this process cannot
+	// start sessions, so `agent:` letters are parked).
+	residentHost ResidentHost
 }
 
 // NewService builds the mailbox over the store, resolving topic: / path: through finder (nil =

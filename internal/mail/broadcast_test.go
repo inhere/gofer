@@ -255,7 +255,7 @@ func TestBroadcastAddressParsing(t *testing.T) {
 			t.Fatalf("%s: addr=%+v err=%v, want an each: address", raw, a, err)
 		}
 	}
-	for _, raw := range []string{"each:session:sess-a", "each:job:j1", "each:caller", "project:gofer", "agent:suga"} {
+	for _, raw := range []string{"each:session:sess-a", "each:job:j1", "each:caller", "project:gofer"} {
 		if _, err := ParseAddress(raw); err == nil {
 			t.Fatalf("%s must be refused", raw)
 		}

@@ -1197,6 +1197,25 @@ var schemaStmts = []string{
 	`CREATE INDEX IF NOT EXISTS idx_mail_thread ON mail(thread_id, id)`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_claim ON mail(state, claim_until)`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_due ON mail(state, deliver_by)`,
+	// mail_resident_agents remembers the resident session gofer started for an `agent:<名字>`
+	// address (design 2026-10-22 mail-agent-address「D3」): one row per (name, project), the job
+	// it currently runs, the letters it took, and the session to carry over when it has to be
+	// started again. status is "resident" (the row's job is the live one), "ended" (stopped,
+	// idle or by hand) or "failed" (could not be started). A new table + index only (IF NOT
+	// EXISTS) — no migrate() ALTER; an older binary simply ignores it.
+	`CREATE TABLE IF NOT EXISTS mail_resident_agents (
+  name       TEXT NOT NULL,
+  project    TEXT NOT NULL DEFAULT '',
+  job_id     TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  letters    INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  ended_at   INTEGER NOT NULL DEFAULT 0,
+  status     TEXT NOT NULL,
+  last_error TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (name, project)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_mail_resident_status ON mail_resident_agents(status)`,
 	// attachments is the workbench image-attachment index (design 2026-10-19-workbench-image-
 	// attachments-design.md 「附件存储（server）」): one row per uploaded file, the file itself
 	// lives under <config-dir>/attachments/ (path is relative to that root). thread_id is empty

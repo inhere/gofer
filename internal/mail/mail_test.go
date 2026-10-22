@@ -277,16 +277,18 @@ func TestSendToTheCallerGoesToTheCaptureBox(t *testing.T) {
 	}
 }
 
-func TestSendAgentAddressIsNotSupportedYet(t *testing.T) {
+// TestSendAgentAddressNeedsConfiguration: `agent:` parses now (设计 2026-10-22「D1」); a name that
+// the mailbox does not configure is refused before anything is stored.
+func TestSendAgentAddressNeedsConfiguration(t *testing.T) {
 	f := threeSessionMailbox(t)
-	if _, err := ParseAddress("agent:codex"); !errors.Is(err, ErrUnsupportedAddress) {
-		t.Fatalf("ParseAddress(agent:) err=%v, want ErrUnsupportedAddress", err)
+	if a, err := ParseAddress("agent:codex"); err != nil || a.Scheme != SchemeAgent || a.Value != "codex" {
+		t.Fatalf("ParseAddress(agent:codex) = %+v, %v", a, err)
 	}
-	if _, err := f.svc.Send(SendInput{To: "agent:codex", Body: "hi", Origin: sender()}); !errors.Is(err, ErrUnsupportedAddress) {
-		t.Fatalf("Send(agent:) err=%v, want ErrUnsupportedAddress", err)
+	if _, err := f.svc.Send(SendInput{To: "agent:codex", Body: "hi", Origin: sender()}); !errors.Is(err, ErrUnknownAgent) {
+		t.Fatalf("Send(agent:codex) err=%v, want ErrUnknownAgent", err)
 	}
-	if _, err := f.svc.Send(SendInput{To: "agent:", Body: "hi", Origin: sender()}); !errors.Is(err, ErrUnsupportedAddress) {
-		t.Fatalf("Send(agent:) with no name err=%v", err)
+	if _, err := f.svc.Send(SendInput{To: "agent:", Body: "hi", Origin: sender()}); !errors.Is(err, ErrInvalidAddress) {
+		t.Fatalf("Send(agent:) with no name err=%v, want ErrInvalidAddress", err)
 	}
 	for _, bad := range []string{"session:", "job:", "topic:", "path:", "ghost:x", "caller:me"} {
 		if _, err := ParseAddress(bad); !errors.Is(err, ErrInvalidAddress) {
