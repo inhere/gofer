@@ -431,7 +431,8 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 ### 9.2 key 命名（P0 冻结）
 
 - 用英文语义命名，不用中文原文做 key（初稿 D4）。
-- 域：`nav.* page.* col.* status.* act.* empty.* err.* toast.* confirm.* hint.* field.* help.*`。新增域必须先改这一节。
+- 域：`nav.* page.* col.* status.* act.* empty.* err.* toast.* confirm.* hint.* field.* help.* shell.* palette.*`。新增域必须先改这一节。
+  （`shell.*` 是外壳自己的文案：连接状态、侧栏收起、节点摘要；`palette.*` 是命令面板。P1 实施时追加。）
 - 页面专属的 key 用 `<page>.<area>.<name>`，例如 `plans.h.progress`。
 - `status.<状态值>` 对应接口里的状态值（`status.needs_review`），`status.family.<族>` 是 7 个族名（`status.family.need`）。状态值不是业务内容，可以翻译；用户写的标题、消息、评论不翻译。
 - 字典是扁平对象，key 里的点号不作嵌套解析；插值只支持 `{name}`（`t('jobs.count', { n })`）。
@@ -624,6 +625,58 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - `web/src/utils/format.ts`：`formatRelative` / `formatDuration` / `formatNumber` / `formatPercent` / `formatDate(Time)` / `formatTime`，全部走 `Intl`；时长单位统一 h/m/s/ms（与 locale 无关，等宽字体下不跳字）。
 
 **测试**（§13）：`statusFamily` 穷举（每个实体的每个状态 + 黄色只给「需要人」）、`StatusGlyph` / `StatusPill` 的 SSR 渲染与族映射、`t()` 回退与插值、字典 key 集合相等、`format.ts` 两种 locale 输出。全量 `npx vitest run` 195 个文件 1283 个用例通过。
+
+### P1 外壳（2026-10-23，issue gofer-hez1）
+
+落地范围即 §14 表格 P1 行：外壳、顶栏、信号带、命令面板、/jobs 改名。页面内容一行未动，仍由原来的 view 渲染，只是放进新外壳。不涉及 Go 代码（server 内嵌链接与通知里没有 `/board`，`internal/httpapi/server.go` 只是注释里举例；SPA fallback 对 `/jobs` 同样返回 index.html）。
+
+**外壳与导航**
+
+- `web/src/ui/AppShell.vue`：侧栏 / 图标栏、顶栏、信号带、手机标签栏、「更多」抽屉。形态只看视口宽度，与路由无关。
+- `web/src/utils/shell.ts`（纯函数，可单测）：`shellForm(width)` 给出 `tabs`(≤760) / `rail`(761–1099) / `desktop`(≥1100)；`sidebarExpanded()` 把「桌面可收起」与断点合起来判断；`readShellPrefs`/`writeShellPrefs` 存 `gofer.shell`（`collapsed` 侧栏收起、`nodesOpen` 节点区展开，坏值回落默认）；`SHELL_NAV_GROUPS` 是四组导航（核心 / 协作 / 自动化 / 基础设施）的唯一出处，文案全是 i18n `nav.*`；`TAB_BAR_ITEMS` + `moreItems()` 给手机的五标签与「更多」，工作项在「更多」第一位（§16-3）。
+- 侧栏**没有**项目选择器（§6.4）。底部运行节点区默认收起，只显示「节点 N/M 在线」，点开展开列表，两个状态都记本地。桌面档侧栏底部有收起按钮，收起后与 761–1099 的图标栏同一形态（悬停 title 显示名称）。
+- 删除 `rail-toggle` 与它的拖动 / 位置持久化（`utils/navTab.ts`）、`components/NavMore.vue`、`components/TopbarMenu.vue`、`utils/nav.ts`（旧的分组常量和它的测试、接线测试一并去掉）。设置入口只留在侧栏底部，主题 / 语言是顶栏上的两个直接开关。
+
+**顶栏**
+
+- `web/src/ui/NeedsMeButton.vue`：合并原来的 `EscalationBell` 与 `EnrollmentBell`（§16-4）。计数是决策队列（`store/today`）+ worker 申请数（`listEnrollments`，仅 `worker.manage` 订阅该主题），两个旧组件删除。原来挂在铃铛上的 `meta`/`stats`/`pending` 订阅与提示条（`utils/pendingAlert`）整体搬过来，行为不变。
+- 顶栏顺序：搜索（打开命令面板，Ctrl+K）· 只读徽标 · 新版本提示 · 待我决策 · 新建任务 · 随手记 · 信箱 · 主题 · 语言。信箱待指派仍是独立图标（§16-4）。
+- `web/src/ui/LangToggle.vue`：zh/en 直接切换，走 P0 的 `store/locale`。没有新增主题 store：`components/ThemeToggle.vue` 的「跟随系统 / 手动记住」已由 `store/theme` 实现（§16-2），只是从 Access 页搬到了顶栏。
+
+**信号带**
+
+- `web/src/ui/Wire.vue`：顶栏下 4px 的分段带，每段一个排队 / 运行 / 需要人 / 验收中的 job，颜色取 `statusFamily`，运行中的段有流光，`prefers-reduced-motion` 下关闭。数据用现有的 `GET /v1/jobs`（`createPoller` 20s + 后台标签页停表），**不新增接口**；会话段留到 P3 接工作台数据源时再加。
+
+**命令面板**
+
+- `web/src/ui/CommandPalette.vue`：Ctrl/⌘K 或非输入状态下 `/` 打开，Esc 关闭，↑↓ 选择，Enter 跳转。P1 只做页面跳转与 `p:<项目>` 前缀（把 `?project=` 写进目标 URL，只对支持项目筛选的页面生效，§6.4/§6.5）。匹配逻辑是 `utils/shell.ts` 的 `parsePaletteQuery` / `paletteHits`，纯函数单测。任务 / 会话 / 计划三类结果、以及 `/` 与 Today 的 `g d` / `z` 的键位冲突留给 P3（现在 `/` 只在非输入状态、面板未打开时生效）。
+
+**路由**
+
+- `web/src/router.routes.ts`：路由表从 `router.ts` 拆出来（`router.ts` 只建 router 与守卫），这样路由表测试能在 node 环境导入而不需要 DOM。
+- 任务列表改名：`/jobs`（name `jobs`，仍是 `Board.vue`），`/board` 保留为重定向、带原 query（`/board?status=needs_review&project=p1` → `/jobs?status=...&project=...`）。页面内所有 `/board` 链接（Board 自身的筛选 push、JobDetail 返回、NewJob 返回、PlanDetail 的「在任务列表查看」、Projects 跳转、ReviewQueue 的待批准入口）改成 `/jobs`。其他旧重定向（`/skills`、`/cluster`、`/config`）与全部现有路由不变。
+
+**i18n**
+
+- 新增两个域：`shell.*`（连接状态、侧栏收起、节点摘要、只读、新版本）与 `palette.*`（面板标题、占位、项目提示、空态），§9.2 已同步。外壳文案全部走 `t()`，zh/en 两本字典同名同数（`i18n.test.ts` 的完整性用例保证）。页面内容仍是原来的中文文案，按 P3 起逐页迁移。
+
+**测试**（§13）
+
+- 新增：`utils/shell.test.ts`（三档断点与边界值、侧栏展开判定、`gofer.shell` 本地记忆的正常 / 坏值 / 存储不可用、四组导航与 `/jobs`、手机五标签与「更多」顺序、`needsMeTotal` 合并、命令面板 `p:` 前缀与项目 URL）、`ui/appShell.test.ts`（合并后的待我决策、顶栏只有一套铃声 / 无重复齿轮 / 无 rail-toggle、本地记忆与手机抽屉接线）、`router.test.ts`（`/jobs` 是列表页、`/board` 是带原 query 的函数式重定向、旧重定向仍在）。
+- 同步修改：`views/today.test.ts`（导航断言改成 `SHELL_NAV_GROUPS` / `TAB_BAR_ITEMS`）、`views/work.test.ts`、`views/ceilingWiring.test.ts`、`views/mailWiring.test.ts`、`views/mailMinimapWiring.test.ts`、`views/captureBoxWiring.test.ts`（从 App.vue 改读 `ui/AppShell.vue` / `utils/shell.ts`）、`i18n/i18n.test.ts`（两个新域）、`components/drawerAttachPolish.test.ts`（改为断言 rail-toggle 已删除）。
+- 删除：`utils/nav.test.ts`、`utils/navTab.test.ts`、`navTabWiring.test.ts`、`components/navTopbar.test.ts`、`components/navTopbarLayout.test.ts`、`components/enrollmentBell.test.ts`、`components/escalationBellAck.test.ts`、`components/escalationBellApproval.test.ts`——被删的组件 / util 就是它们的对象，覆盖搬到 `utils/shell.test.ts` 与 `ui/appShell.test.ts`（`pendingAlert` 的纯逻辑测试原样保留）。
+- 全量 `npx vitest run` 190 个文件 / 1264 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build` 通过。
+
+**四种宽度的形态**（无截图，按 CSS 口径说明）
+
+| 宽度 | 形态 | 不横向滚动的依据 |
+|---|---|---|
+| 1440 | 完整侧栏 236px + 顶栏 + 信号带 | 侧栏 `flex:none` 固定宽，主列 `flex:1; min-width:0`，内容区 `overflow-x:auto` 兜底，顶栏右侧按钮不换行、`new-job-label` 在 ≤1099 收起 |
+| 1024 | 64px 图标栏 + 顶栏（新建任务只留图标） | 同一套 flex，侧栏宽 64px；导航项只留字形、分组标题隐藏 |
+| 760 | 手机：顶栏（标 + 搜索 + 待我决策）+ 底部 5 标签 | `.shell--tabs` 改纵向 flex，标签栏 `flex:1 1 0` 均分；`.content` 的 `min-width:0` + 页面自带换行；「更多」抽屉本身 `overflow-y:auto` |
+| 390 | 同上，搜索只留图标、连接状态收成一个点 | 顶栏 gap 收到 `--s1`，`search-label` / `search-kbd` 隐藏，标签文字 `--fs-xs` |
+
+未做（如实记录）：没有在真机 / 浏览器里按这四个宽度截图核对（P1 的验收靠 CSS 口径 + 现有各页手机断言的测试）；会话段还没进信号带；命令面板还没有任务 / 会话 / 计划结果。
 
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
