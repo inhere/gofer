@@ -452,7 +452,7 @@ var planAuthzCases = []authzCase{
 // scheduleAuthzCases is the reverse-case registry of plan T1.5e: the write entries of the
 // schedule container. The domain's other three routes need no case here — the two reads are
 // Public and POST /v1/schedules is a Require(job.submit) — so the derivation below (which reads
-// the declaration table) claims exactly these five.
+// the declaration table) claims exactly these six.
 var scheduleAuthzCases = []authzCase{
 	{key: "DELETE /v1/schedules/{id}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodDelete, "/v1/schedules/" + e.schedule(), nil}

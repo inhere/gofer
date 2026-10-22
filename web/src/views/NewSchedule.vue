@@ -964,6 +964,7 @@ select.control {
 /* 参数声明行（设计 2026-10-22 §D1）：名字 / 类型 / 默认值 / 可选值 / 说明 */
 .param-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-top: 6px;
