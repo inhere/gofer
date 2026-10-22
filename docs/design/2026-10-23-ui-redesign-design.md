@@ -47,6 +47,10 @@
 
 所有 token 放在 `web/src/styles/tokens.css`。旧变量（`--ink`、`--panel`、`--paper`、`--phosphor` 等）在迁移期保留为别名，指向新 token，迁移完成后删除。
 
+> P0 实施时的命名修正（只两处，其余与上表一致，见文末「实施记录 P0」）：
+> - 上表的 `--ink` / `--ink-2` / `--ink-3`（正文三档）在 P0 取名 `--fg` / `--fg-2` / `--fg-3`。原因是旧的 `--ink` 是「页面底色」，全库还有 118 处 `var(--ink)` 当底色用，同一个作用域里不能既当底色又当正文色。P6 删别名时把 `--fg` 改回 `--ink`。
+> - 上表的 `--term-bg` / `--term-ink` 在 P0 取名 `--log-bg` / `--log-ink` / `--log-dim`。旧的 `--term-bg` 是**分主题**的终端底（浅色主题下是浅底），新设计里日志查看器两种主题下都是深底；别名语义不同，所以新 token 另起名字。
+
 ### 4.1 颜色
 
 | token | 浅色 | 深色 | 用途 |
@@ -424,11 +428,15 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - `i18n/index.ts` 提供 `t(key, params)`。自己写，不依赖库，平铺字典，插值只支持 `{name}`。缺 key 时回退到中文，并在开发环境 `console.warn`。等 key 超过约 800 个，或者需要复数规则时，再换 vue-i18n（初稿 D3）。
 - `utils/format.ts` 用 `Intl` 统一处理相对时间、时长、数字、日期，替换现在的 17 处 `toLocaleString` 和 3 套时长写法（初稿 D6）。
 
-### 9.2 key 命名
+### 9.2 key 命名（P0 冻结）
 
 - 用英文语义命名，不用中文原文做 key（初稿 D4）。
-- 域：`nav.* page.* col.* status.* act.* empty.* err.* toast.* confirm.* hint.* field.* help.*`。
+- 域：`nav.* page.* col.* status.* act.* empty.* err.* toast.* confirm.* hint.* field.* help.*`。新增域必须先改这一节。
 - 页面专属的 key 用 `<page>.<area>.<name>`，例如 `plans.h.progress`。
+- `status.<状态值>` 对应接口里的状态值（`status.needs_review`），`status.family.<族>` 是 7 个族名（`status.family.need`）。状态值不是业务内容，可以翻译；用户写的标题、消息、评论不翻译。
+- 字典是扁平对象，key 里的点号不作嵌套解析；插值只支持 `{name}`（`t('jobs.count', { n })`）。
+- `zh-CN` 是回退字典：`en-US` 缺 key 时用中文，两本都没有就原样返回 key（开发环境 `console.warn`）。`te(key)` 用来判断「有翻译才翻译」。
+- 两侧字典的 key 集合必须相等，由 `web/src/i18n/i18n.test.ts` 的字典完整性用例保证。
 
 ### 9.3 不翻译的内容
 
@@ -568,6 +576,54 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - **侧栏底部的运行节点区默认收起**：只显示一行摘要（如「节点 3/4 在线」），点开展开列表；展开状态记在本地。
 - **侧栏整体可以收起**：桌面宽度下也能收成图标栏（与 761–1099 的图标栏同一形态），收起状态记在本地；收起时悬停图标显示名称。
 - **任务页列表与详情的布局按宽度决定**：JobDetail 信息量大（元信息、验收、日志、diff、消息、事件），在不够宽时并排会挤。规则：主内容区宽度 ≥ 1280px（约等于视口 ≥ 1560px 且侧栏展开）时可以列表 + 详情并排，并提供「单栏」切换；更窄时列表占满，点开任务进入完整的 `/jobs/:id` 详情页，带返回列表（保留列表的筛选与滚动位置）。手机始终是两级页面。并排时详情面板宽度不小于 760px，不够就自动退回单栏。
+
+## 17. 实施记录
+
+### P0 基础层（2026-10-23，issue gofer-hez1）
+
+落地范围即 §14 表格 P0 行，不碰任何页面组件与 Go 代码。
+
+**token 与基础层**
+
+- `web/src/styles/tokens.css`：只放变量（颜色两套主题、字号阶梯、间距、四档圆角、动效、阴影），深色为默认值，浅色在 `[data-theme="light"]` 覆盖。断点口径（≤760 / 761–1099 / ≥1280）写进注释，CSS 变量不能用于 media query。
+- `web/src/styles/base.css`：元素级排版（`font-variant-numeric: tabular-nums`）、焦点环（`--focus`）、主题化滚动条、`::selection`、`.sr-only`、`prefers-reduced-motion`。原来写在 tokens.css 里的全局规则整体搬到这里，规则内容未变。
+- `web/src/styles/status.css`：`.k-<族>` 给出 `--c` / `--soft`，以及 `.glyph` / `.pill` 两个基元样式（组件不带 scoped 样式，P2 的基元层可以复用）。
+
+**旧变量别名映射**（P6 删除）：全部按「角色」指向新 token，旧页面不改一行也能拿到新色板：
+
+| 旧变量 | 迁移期指向 | 说明 |
+|---|---|---|
+| `--ink`（页面底） | `var(--bg)` | 与新版正文色同名冲突，新正文色取名 `--fg` |
+| `--panel` | `var(--surface)` | |
+| `--paper`（正文） | `var(--fg)` | |
+| `--phosphor`（强调/链接） | `var(--accent)` | |
+| `--queue`（灰字/待排队） | `var(--fg-3)` | 设计稿 §5：queue 族用中性色 |
+| `--line` / `--run` / `--done` / `--fail` | 同名新 token | 角色一致 |
+| `--term-bg` | 迁移前的分主题终端底 | 新日志底色叫 `--log-bg` |
+| `--radius`（4px） | 保持 4px | 旧页面的圆角层级不动 |
+| `--font-sans` / `--font-mono` | `var(--font-ui)` / 新等宽栈 | |
+
+**字体**（§4.2、§15）
+
+- 依赖加在 `web/package.json`（`@fontsource/schibsted-grotesk@^5.1.1`，`@fontsource/ibm-plex-mono` 沿用），`main.ts` 只导入 `latin-400/500/600`（Schibsted Grotesk）与 `latin-400/500`（Plex Mono）。CJK 不打包，回退系统字体。
+- 构建产物：5 个字面共 5 个 woff2 + 5 个 woff，合计约 217 KB（woff2 约 102 KB；woff 是 Fontsource 的兼容回退，现代浏览器不取）。无任何外部字体请求。
+- 迁移前用的 `@fontsource/ibm-plex-sans` 在 `main.ts` 里不再导入（新界面字体换成 Schibsted Grotesk）；依赖条目本身留到 P6 一起清。
+
+**状态系统**（§5）
+
+- `web/src/utils/statusFamily.ts`：7 个族（run / need / done / fail / time / idle / queue），状态值 → 族的唯一映射；空值和未登记值落到 idle（后端加新状态不会变成空白或误报「需要人」）。多义值 `pending` 按设计稿归 queue，需要黄色时调用方显式传 family。
+- `web/src/ui/statusGlyph.ts` + `StatusGlyph.vue`：7 种字形（脉冲圆 / 菱形 / 圆勾 / 方叉 / 时钟 / 空心圆 / 虚线圆），`role="img"` + `aria-label`，带 `data-family` / `data-kind` 供测试与截图检查。
+- `web/src/ui/StatusPill.vue`：字形 + 文字；文字优先取 `label`，其次 i18n `status.<值>`，最后退回旧的 `statusText`（P5 迁移页面时逐步去掉这条退路）。
+- P0 **不替换** `StatusBadge` 等旧表达，两个组件只在测试里示范使用。
+
+**i18n 与格式化**（§9）
+
+- `web/src/store/locale.ts`：单例 `locale`，`gofer.locale` 持久化，首访按 `navigator.languages`（en → en-US，其余 zh-CN），`?lang=` 只调试不持久化；挂载前 `initLocale()` 写 `<html lang>`。
+- `web/src/i18n/`：自写 `t(key, params)` / `te(key)` / `translate(key, params, locale)`，扁平字典、`{name}` 插值、缺 key 回退中文（再缺就返回 key 并在开发环境 warn）。
+- 字典 seed：`nav.*` `act.*` `status.*`（含 `status.family.*`）`empty.*` `err.*` `toast.*` `confirm.*` `hint.*` `field.*` `help.*`。key 命名规范见 §9.2（P0 冻结）。
+- `web/src/utils/format.ts`：`formatRelative` / `formatDuration` / `formatNumber` / `formatPercent` / `formatDate(Time)` / `formatTime`，全部走 `Intl`；时长单位统一 h/m/s/ms（与 locale 无关，等宽字体下不跳字）。
+
+**测试**（§13）：`statusFamily` 穷举（每个实体的每个状态 + 黄色只给「需要人」）、`StatusGlyph` / `StatusPill` 的 SSR 渲染与族映射、`t()` 回退与插值、字典 key 集合相等、`format.ts` 两种 locale 输出。全量 `npx vitest run` 195 个文件 1283 个用例通过。
 
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
