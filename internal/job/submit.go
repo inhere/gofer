@@ -1009,6 +1009,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 				return JobResult{}, fmt.Errorf("%w: %v", ErrInvalidRequest, serr)
 			}
 		}
+		// gofer-sh7r: the mailbox's resident 收件会话 gets the gofer MCP (so the mailbox
+		// tools are there) and the marker the acp gate auto-allows a letter's answer on.
+		if req.MailResident {
+			applyMailResidentRun(&runReq)
+		}
 		// MCP-05 阶段 B: a LEADER job tells its agent process (and the gofer MCP child
 		// that process spawns) which plan it leads, so the MCP surface can narrow itself
 		// to the leader tool whitelist. Server-set from the request's marker (which is
@@ -1522,6 +1527,9 @@ func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, promp
 		LoadSessionID: resumeLoadSessionID(req),
 		ModelID:       req.Model,
 		LogThoughts:   ac.ACP.LogsThoughts(),
+		// gofer-sh7r: the mailbox's resident 收件会话 answers letters without a human;
+		// its run request carries the marker (applyMailResidentRun).
+		MailResident: req.MailResident,
 		// F14: read claude's user settings file on the EXECUTING machine. For a
 		// dispatched job this resolves against the WORKER's own agent config (the
 		// worker builds its own acp request), which is the machine that has the file.

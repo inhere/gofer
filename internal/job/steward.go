@@ -29,6 +29,14 @@ const StewardTag = "steward"
 // ok=false when the pieces are not there (no credential minted: the job simply runs without
 // a gofer MCP rather than with a half-working one).
 func stewardMCPServer(env map[string]string) (runner.ACPMCPServer, bool) {
+	return goferMCPStdioServer(env, map[string]string{goferStewardEnv: "1"})
+}
+
+// goferMCPStdioServer builds the ACP mcpServers entry for this server's own gofer binary
+// running `mcp` as a stdio client of this hub, with an explicit env — the job credential,
+// the hub address, the job id and the caller's MARKERS — instead of whatever the agent
+// happens to pass on. ok=false when no credential was minted.
+func goferMCPStdioServer(env, markers map[string]string) (runner.ACPMCPServer, bool) {
 	tok := env[EnvJobToken]
 	if tok == "" {
 		return runner.ACPMCPServer{}, false
@@ -42,8 +50,10 @@ func stewardMCPServer(env map[string]string) (runner.ACPMCPServer, bool) {
 		bin = exe
 	}
 	mcpEnv := map[string]string{
-		EnvJobToken:     tok,
-		goferStewardEnv: "1",
+		EnvJobToken: tok,
+	}
+	for k, v := range markers {
+		mcpEnv[k] = v
 	}
 	if addr := env[EnvServerAddr]; addr != "" {
 		mcpEnv[EnvServerAddr] = addr
