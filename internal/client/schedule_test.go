@@ -135,7 +135,7 @@ func TestScheduleClientMethods(t *testing.T) {
 		t.Fatalf("enable enabled=%d want 1", enabled.Enabled)
 	}
 
-	res, err := cli.RunSchedule("sch-1")
+	res, err := cli.RunSchedule("sch-1", nil)
 	if err != nil {
 		t.Fatalf("RunSchedule: %v", err)
 	}

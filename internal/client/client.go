@@ -587,6 +587,8 @@ type Schedule struct {
 	// TriggerToken is the schedule's webhook secret (AUTO-02b); empty = the external
 	// trigger endpoint is not enabled for it.
 	TriggerToken string `json:"trigger_token,omitempty"`
+	// Params is the schedule's parameter declaration list (design 2026-10-22 §D1).
+	Params []job.ScheduleParam `json:"params,omitempty"`
 }
 
 // CreateScheduleRequest is POST /v1/schedules. Enabled/CatchUp are pointers so
@@ -603,6 +605,31 @@ type CreateScheduleRequest struct {
 	// Webhook enables the schedule's external trigger endpoint (AUTO-02b): the server
 	// mints a trigger_token, shown on the schedule from then on.
 	Webhook bool `json:"webhook,omitempty"`
+	// Params declares the schedule's parameters (design 2026-10-22 §D1).
+	Params []job.ScheduleParam `json:"params,omitempty"`
+}
+
+// PatchScheduleRequest is PATCH /v1/schedules/{id} (design 2026-10-22 §D4). Every field
+// is a pointer so an untouched one stays absent; the command / agent / runner / project
+// are not here at all — the server refuses them (delete and recreate instead).
+type PatchScheduleRequest struct {
+	Cron       *string              `json:"cron,omitempty"`
+	At         *int64               `json:"at,omitempty"`
+	Title      *string              `json:"title,omitempty"`
+	Params     *[]job.ScheduleParam `json:"params,omitempty"`
+	Enabled    *bool                `json:"enabled,omitempty"`
+	TimeoutSec *int                 `json:"timeout_sec,omitempty"`
+}
+
+// PatchSchedule edits a schedule in place and returns the updated view.
+func (c *Client) PatchSchedule(id string, req PatchScheduleRequest) (Schedule, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return Schedule{}, fmt.Errorf("encode schedule patch: %w", err)
+	}
+	var out Schedule
+	err = c.doJSON(http.MethodPatch, "/v1/schedules/"+url.PathEscape(id), bytes.NewReader(body), &out)
+	return out, err
 }
 
 // CreateSchedule creates a cron schedule via POST /v1/schedules.
@@ -782,10 +809,21 @@ func (c *Client) RotateScheduleToken(id string) (Schedule, error) {
 	return out, err
 }
 
-// RunSchedule triggers a schedule immediately without changing its next_run_at.
-func (c *Client) RunSchedule(id string) (job.JobResult, error) {
+// RunSchedule triggers a schedule immediately without changing its next_run_at. params
+// carries the run's parameter overrides (design 2026-10-22 §D3); nil runs with the
+// declared defaults. An override the schedule does not declare is refused by the server
+// (400 listing the declared names).
+func (c *Client) RunSchedule(id string, params map[string]string) (job.JobResult, error) {
+	var body io.Reader
+	if len(params) > 0 {
+		raw, err := json.Marshal(map[string]any{"params": params})
+		if err != nil {
+			return job.JobResult{}, fmt.Errorf("encode run-now params: %w", err)
+		}
+		body = bytes.NewReader(raw)
+	}
 	var out job.JobResult
-	err := c.doJSON(http.MethodPost, "/v1/schedules/"+url.PathEscape(id)+"/run-now", nil, &out)
+	err := c.doJSON(http.MethodPost, "/v1/schedules/"+url.PathEscape(id)+"/run-now", body, &out)
 	return out, err
 }
 
