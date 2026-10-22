@@ -85,6 +85,14 @@ mail:
 - CLI：`gofer session mail agents`（列出），`gofer session mail send --to agent:suga "…"`。
 - MCP：发信工具的地址说明里加上 `agent:`。
 
+### D7 收件会话单独的审批策略（gofer-81b4，2026-10-22 追加）
+
+- 痛点：收件常驻会话本来只按项目级 `approval` 审批（项目为 off 时全部自动放行），给项目开 ask 会影响该项目所有 ACP 会话。
+- 方案：`mail.agents.<名字>.approval`，结构与项目 `approval` 一致、校验同一套（`validateApprovalAt`），未写 = 沿用项目策略。
+- 生效：启动常驻会话时由 `mail.ResidentSpec.Approval` → `JobRequest.SessionApproval` 带进 job，`acpRequest` 用 `Config.EffectiveApprovalWith(项目, agent, override)` 算策略——**替代**项目策略，只有 agent 自己的 `acp.permission_policy` 还能继续收紧。
+- 外部不可设：`session_approval` 是 server 内部字段，HTTP 提交带它直接 400（拒绝而非静默忽略，不然调用方会以为自己的门生效了）；MCP / CLI 没有对应字段。
+- 持久：随 `request_json` 保存，`continuationBase` 继承给续接 job，server 重启恢复与 `job resume` 都仍按它审批；续接出的新常驻会话由 `mail.agents` 配置重新带入。
+
 ## 已定（2026-10-22 用户批准，按推荐）
 
 1. `agent:` 只投递 gofer 管理的常驻会话，不挑用户的终端会话（发给终端会话用 `session:`）。
@@ -102,3 +110,4 @@ mail:
 - **测试**：`internal/mail/resident_test.go`（地址解析含默认项目 / `@项目` / 未配置名字、首封启动、第二封复用、`max_letters` 轮换、终态续接、上限转待指派、启动失败与重试窗口、回信同串、手动结束与列表）用假 `ResidentHost`；`internal/mail/mail_test.go` 的 `agent:` 未支持用例改为「未配置名字」用例，`broadcast_test.go` 的解析期望同步。
 - **web**：常驻 agent 列表放在独立组件 `web/src/components/mail/ResidentAgents.vue`（名字 / 项目 / job 链接 / 信件数与待投递 / 空闲 / 状态 / 结束按钮），`Mail.vue` 只多一行导入与一个 `<MailResidentAgents />` 挂载；API client 加 `listMailAgents` / `endMailAgent`，types 加 `MailAgentsResp` 等；接线用 `web/src/views/mailResidentAgents.test.ts` 钉住。
 - **已完成**：D1–D6 全部落地。
+- **D7 收件会话单独的审批策略（gofer-81b4）**：`config.MailAgentConfig.Approval`（`*ApprovalConfig`）+ `validateApprovalAt` 复用项目 approval 的校验；`mail.ResidentAgentSpec/ResidentSpec.Approval` 一路带到 `serve.mailResidentHost.StartSession` 填 `job.JobRequest.SessionApproval`，`job.acpRequest` 改走 `config.EffectiveApprovalWith`。`internal/serve/mail_resident.go` 的 `cloneApproval` 让会话快照不被后续 reload 改写。HTTP 入口在 `handleCreateJob` 解码后拒绝 `session_approval`（400）。测试：`internal/config/mail_agents_test.go`（解析 / 校验）、`internal/config/approval_test.go`（覆盖替代项目策略、agent 仍只收紧）、`internal/job/session_approval_test.go`（ask 产生 interaction、读类自动放行、覆盖替代 ask 项目、续接后仍生效）、`internal/httpapi/session_approval_test.go`（外部带字段 400）、`internal/serve/mail_resident_test.go`（配置映射与快照隔离）。

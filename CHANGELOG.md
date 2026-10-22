@@ -18,6 +18,8 @@
 
 ### 新增
 
+- **收件常驻会话单独的 ACP 审批策略：`mail.agents.<名字>.approval`（gofer-81b4）**：给一个收件 agent 的常驻会话单独设审批（结构与项目的 `approval` 完全一致：`mode` / `auto_allow_kinds` / `ask_kinds` / `timeout_sec` / `on_timeout` / `remember_allow_always`，校验同项目 approval），例如 `approval: {mode: ask}` 让它在写文件、执行命令前逐次问人，而项目里其他 ACP 会话仍按项目策略自动放行；不写 = 沿用项目策略（行为不变）。它**替代**（不是叠加）项目策略，只有 agent 自己的 `acp.permission_policy` 还能继续收紧。审批交互不变（web 交互面板、钉钉 / 桌面通知）。策略随 job 保存，`job resume` / 会话续接 / server 重启恢复后仍按它审批，续接出的新常驻会话继续用同一条配置。这是 server 内部字段（`session_approval`）：HTTP / MCP / CLI 提交 job 时带它一律 400 拒绝，想改审批就改配置。
+
 - **webhook 新增 `keyword`：自动满足钉钉 / 飞书的「自定义关键词」安全设置**：消息标题与正文都不含该关键词时，gofer 把它加到标题前（钉钉 markdown 的 `title` 与正文标题行都带），已经包含时不重复加。这样机器人侧只开关键词模式也能收到 gofer 的各类通知，不必为每个模板手工塞词。`keyword` 只对 `kind: dingtalk | feishu` 有效，配在 generic 上、写成空串或含换行时 `gofer config validate` 直接报错。
 - **桌面通知通道（gofer-3wce）**：`server.notification.desktop` 让 server 在**自己所在主机**弹系统通知，解决审批 / 等回复的 job 在浏览器里被漏掉的问题（不需要托盘进程，也不要求 HTTPS）。默认订阅 `job.awaiting_approval`、`interaction.created`、`session.awaiting_reply`、`job.needs_review`，可用 `events` / `projects` 过滤；标题与正文复用 IM 通知的渲染，点击打开 `web_base_url` 对应页面。`merge_sec`（默认 10s）把同类事件合成一条（「3 个 job 等待批准」）。平台：Windows 用 `Windows.UI.Notifications` toast（点击可开链接），macOS 用 `osascript`，Linux 用 `notify-send`（没装则跳过）；以服务（Windows session 0）或无桌面会话运行时自动跳过，每种原因只记一条 `notify.desktop_skipped`，不刷屏。整段不写 = 不启用。见 [`docs/runbook/im-notification.md`](docs/runbook/im-notification.md) §10。
 
