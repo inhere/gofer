@@ -188,6 +188,10 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
   - 收件人看到的标签多两个属性：`<gofer-mail … broadcast="b12" recipients="5">`——说明这是群发，不必以为只发给了自己；回信照旧只回发件方（没有「回复全部」）。
   - 广播副本过期只标 `expired`，不进收集箱；发件人 `session mail read <id>` 看到的是这一封副本，web 信箱里能看到整组收件人状态。
   - web：写信框的收件人可直接写多个地址（空格 / 逗号分隔）或 `each:` 选择器，下方实时预览「将投递 N 个会话」（按已加载会话估算，服务端按权限再筛）；对话里的广播副本卡带收件人状态条（已送达 / 已回复 / 过期 / 待送达）。
+
+- **发给常驻 agent（`agent:<名字>`）**：地址写 `agent:<名字>`（项目取发件方所在项目）或 `agent:<名字>@<项目>`。名字必须是 server 配置 `mail.agents` 里写过的（没配过返回 400 并列出可用的名字），配置里 `agent:` 指向一个 acp-agent。gofer 为每个（名字, 项目）保留一个**常驻 ACP 持续会话**：有活着的就送进去，没有就新建一个（agent 声明 `loadSession` 时续接上一个会话的上下文），收满 `max_letters` 封或存在超过 `max_hours` 小时则轮换新会话，空闲 `idle_minutes` 后由会话自己的 idle-timeout 结束。全局最多同时 `mail.agents_max_resident`（默认 6）个，超出的信件转「待指派」并写明原因。启动与投递都在投递器里异步做，发信不等待。收件 agent 用 gofer 的信箱工具（MCP `gofer_session_mail_reply` 或 `gofer session mail reply <id>`）回信，回信挂在原对话串；它只在会话里输出文字不算回信。
+- **常驻会话的查看与结束**：`gofer session mail agents` 列出配置的名字与当前常驻会话（项目、job、信件数、待投递数、状态），`--end <名字> [--project <项目>]` 手动结束一个；web 信箱页的「常驻 agent」区同样能看与结束。发 `agent:` 信件需要 `job.submit`（可能启动新的会话 job）。
+  - 启动、轮换、空闲结束、启动失败都记审计事件（kind `mail_resident`）；启动失败的信件留待下次重试（间隔约 2 分钟）。
 - **限额**：单封 32 KB；每个发件方每分钟 10 封、每小时 100 封；同一对话串自动往返超过 20 封后，回信转待指派。
 - **地址里的会话 id**：`session:<sid>` 可写完整 id 或前缀，规则同 `--session`：唯一匹配就按完整 id 投递；多个匹配报错并列出候选完整 id（最多 8 个，HTTP 409）；没有匹配报 not found（HTTP 404）；已结束会话的前缀仍能匹配，信转待指派。发信人身份取自环境里的会话变量（见上），suga 子进程里发的信记作 `session:<SUGA_SESSION_ID>`，收件会话回信才送得回来。
 - **秘密扫描与脱敏**：`gofer job secret-scan` 的报告多一段 `mail`（信件 id、所在串、收发双方的显示名、状态、项目、命中位置与计数，不回显原文），普通 caller 只看到自己发或自己会话 / job 收到的信；`gofer session mail redact <id>` 按信件 id 抹掉正文与摘录里的秘密，同时改写收集箱条目里引用这封信的摘要（条目文本的正文摘录、条目日志的回复摘要），信件的 id 引用保留；`job secret-scan --redact --yes` 连同命中的信件一起脱敏，`job redact <job>` 也会处理带该 `job_id` 的信件。权限与 `job redact` 一致：信件收发双方（发件调用方、收件会话 / job 的属主）或持有 `job.delete.others` 的管理员。

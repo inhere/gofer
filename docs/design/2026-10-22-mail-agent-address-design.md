@@ -90,3 +90,14 @@ mail:
 1. `agent:` 只投递 gofer 管理的常驻会话，不挑用户的终端会话（发给终端会话用 `session:`）。
 2. 常驻会话重启时续接上一次的上下文（agent 支持 `loadSession` 时）；轮换时开新会话。
 3. 默认项目取发件方所在的项目，跨项目写 `agent:<名字>@<项目>`。
+
+## 实施记录（2026-10-22）
+
+- **D1 地址**：`internal/mail/address.go` 解析 `agent:<名字>[@<项目>]`（`Address.Project`，最后一个 `@` 分隔）；非 `each:` 的 `agent:` 走 `residentAgent` 解析，未配置的名字是 `mail.ErrUnknownAgent`（入口层 400，错误里列出 `mail.agents` 的名字）；`each:agent:<名字>` 仍是「只投递已存在会话」的广播选择器。
+- **D2 配置**：`internal/config/mail.go` 增加 `MailAgentConfig`（`agent` / `args` / `runner` / `idle_minutes` / `max_letters` / `max_hours` / `prompt`，后两者用指针区分「未写 = 默认」与「0 = 不限」）与 `agents_max_resident`，加载时校验名字字符、必填 `agent`、非负值；`config/gofer.example.yaml` 有注释示例。开场说明由 `mail.OpeningPrompt` 生成（收信会话、`<gofer-mail>` 标签、用信箱工具回信、空闲时长）再追加配置的 `prompt`。
+- **D3 常驻会话**：additive 表 `mail_resident_agents`（name / project / job_id / session_id / letters / created_at / ended_at / status / last_error，主键 name+project），存储层 `internal/jobstore/mail_resident.go`。投递器 `internal/mail/resident_deliver.go` 每个 sweep 处理待投递的 `to_kind=agent` 信件：活着的会话 job 在 `awaiting_input` 时按 `job say` 路径投递（claim → say → confirm）并累加信件数；达到轮换条件先结束再开新会话（不续接）；job 已终态则标记行 ended，能续接时带 `ResumeSessionID` + `ResumeFromJobID`（`ResumedFrom` + `SessionID` = 执行侧的 loadSession）；达到 `agents_max_resident` 转待指派；启动失败记 failed 并在约 2 分钟后重试。会话 job 由 `internal/serve/mail_resident.go` 的适配器提交（`Session: true`、`IdleTimeoutSec=idle_minutes`、`ExclusiveDir=false` 避免长期占用项目目录锁、`OriginCaller` = 发件调用方）。空闲结束靠会话自身 idle-timeout，投递器在下个 sweep 看到终态即记事件。
+- **D4 回信**：沿用第一期权限表——常驻会话 job 用自身 job 凭据通过 `gofer_session_mail_reply` / `gofer session mail reply <id>` 回信，挂原对话串；会话里的普通输出不转回信。
+- **D5 权限与事件**：`internal/httpapi/mail_handler.go` 的 `mailAuthorize` 对 `MailKindAgent` 目标要求 `job.submit`（job 凭据直接放行，它自己的提交已证明）；事件走 `AppendAuditEvent("mail_resident", <名字@项目>, detail)` 并写 slog。
+- **D6 接口**：`GET /v1/mail/agents`、`POST /v1/mail/agents/{name}/end?project=`（`internal/httpapi/mail_agents.go`，G056 声明已登记并重跑 `go generate ./internal/httpapi/...`）；CLI `gofer session mail agents [--end <名字>] [--project <项目>]`；MCP 发信工具地址说明加 `agent:`。
+- **测试**：`internal/mail/resident_test.go`（地址解析含默认项目 / `@项目` / 未配置名字、首封启动、第二封复用、`max_letters` 轮换、终态续接、上限转待指派、启动失败与重试窗口、回信同串、手动结束与列表）用假 `ResidentHost`；`internal/mail/mail_test.go` 的 `agent:` 未支持用例改为「未配置名字」用例，`broadcast_test.go` 的解析期望同步。
+- **未完成 / 后续**：web 信箱页的「常驻 agent」区（D6 的前端部分）本次未做——它要在独立新组件里挂到 Mail.vue，留待与正在改 Mail.vue 写信箱布局的任务一起做。

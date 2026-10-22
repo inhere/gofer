@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **信箱第三期：`agent:` 地址与常驻 agent 会话（gofer-utyo）**：信件可以写给一个配置好的收件 agent——`agent:<名字>`（取发件方所在项目）或 `agent:<名字>@<项目>`。名字在 `mail:` 配置的 `agents:` 里声明（`agent:` 必须是 acp-agent，另有 `args` / `runner` / `idle_minutes` / `max_letters` / `max_hours` / `prompt`），未配置的名字返回 400 并列出可用的名字。gofer 为每个（名字, 项目）保留一个常驻 ACP 持续会话 job：有活着的就直接送进去（复用 awaiting_input → `job say`），没有就启动一个（agent 声明 `loadSession` 时续接上一个会话），收满 `max_letters` 或超过 `max_hours` 轮换新会话，空闲 `idle_minutes` 后由会话自己的 idle-timeout 结束；全局最多 `agents_max_resident`（默认 6）个，超出的信件转待指派并写明原因。启动与投递在投递器里异步完成，发信接口不等待。发 `agent:` 信件需要 `job.submit`；启动、轮换、空闲结束、启动失败记审计事件（`mail_resident`）。接口：`GET /v1/mail/agents`、`POST /v1/mail/agents/{name}/end?project=`、CLI `gofer session mail agents [--end <名字>]`；MCP 发信工具的地址说明加上 `agent:`。
+
 ## [0.184.0] - 2026-10-22
 
 ### 修复
