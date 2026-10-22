@@ -225,6 +225,13 @@ type Client struct {
 
 	conn    *websocket.Conn
 	writeMu sync.Mutex
+	// connEpoch counts the connections published by setConn and is guarded by
+	// writeMu — the same lock a frame write takes — so the epoch a frame reports
+	// names the exact connection it was written on. A dispatch goroutine outlives
+	// a blip, so the state it pushes to the hub must be per CONNECTION, not per
+	// process: whatever the hub never received on the previous connection has to be
+	// re-announced (see the session Status frame in streamLocalJob).
+	connEpoch uint64
 	// dispatchWG tracks per-dispatch goroutines spawned by recvLoop. Production
 	// does not wait on it during reconnect, but tests can use WaitIdle after
 	// cancelling Run to make teardown deterministic.
@@ -1418,15 +1425,35 @@ func (cl *Client) notify(event string) {
 // connection is published (setConn) only after its handshake is complete, a write
 // either goes to a fully registered connection or fails fast.
 func (cl *Client) writeFrame(ctx context.Context, t wsproto.FrameType, jobID string, payload any) error {
+	_, err := cl.writeFrameEpoch(ctx, t, jobID, payload)
+	return err
+}
+
+// writeFrameEpoch is writeFrame, and it also reports the connection EPOCH the frame
+// went out on (see connEpoch). The epoch is read under the same lock the write takes,
+// so it names exactly the connection written to — never a newer one. That is what lets
+// a caller whose frame carries per-connection state (the session Status frame) tell
+// "the hub has this on the CURRENT connection" from "the hub may only have it on a
+// connection that has since been replaced": a write into an already-dying socket
+// returns nil while the frame lands nowhere, and the dedupe state must not swallow the
+// re-send that follows (gofer-pcbc).
+func (cl *Client) writeFrameEpoch(ctx context.Context, t wsproto.FrameType, jobID string, payload any) (uint64, error) {
 	cl.writeMu.Lock()
 	defer cl.writeMu.Unlock()
 	if cl.conn == nil {
 		// The reload executor outlives any single connection (a SIGHUP can land
 		// before the first connect / while reconnecting): applying the config still
 		// works, only the re-report has nowhere to go.
-		return errors.New("worker: not connected to a hub")
+		return cl.connEpoch, errors.New("worker: not connected to a hub")
 	}
-	return wsjson.Write(ctx, cl.conn, wsproto.Envelope{Type: t, JobID: jobID, Payload: mustRaw(payload)})
+	return cl.connEpoch, wsjson.Write(ctx, cl.conn, wsproto.Envelope{Type: t, JobID: jobID, Payload: mustRaw(payload)})
+}
+
+// connEpochNow reports the epoch of the connection a frame would be written on now.
+func (cl *Client) connEpochNow() uint64 {
+	cl.writeMu.Lock()
+	defer cl.writeMu.Unlock()
+	return cl.connEpoch
 }
 
 // writeFrameOn is writeFrame bound to an EXPLICIT connection, for the frames that
@@ -1441,10 +1468,13 @@ func (cl *Client) writeFrameOn(ctx context.Context, conn *websocket.Conn, t wspr
 
 // setConn publishes the current session's connection under writeMu — the same lock
 // writeFrame reads it under, so the reload executor (which writes frames across
-// reconnects) never races the reconnect loop's swap.
+// reconnects) never races the reconnect loop's swap — and bumps connEpoch, which is
+// what marks everything pushed on the previous connection as "not confirmed by the
+// hub" (see writeFrameEpoch).
 func (cl *Client) setConn(conn *websocket.Conn) {
 	cl.writeMu.Lock()
 	cl.conn = conn
+	cl.connEpoch++
 	cl.writeMu.Unlock()
 }
 

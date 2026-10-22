@@ -561,6 +561,15 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 	// A whole turn can run between two ticks (awaiting → running → awaiting), so a
 	// report is due when the status OR the turn changed.
 	lastSessionStatus, lastSessionTurn, lastSessionImages := "", -1, false
+	// lastSessionEpoch is the connection the last session Status frame went out on.
+	// It belongs to the "already reported" state because that frame is per-CONNECTION
+	// state: the hub dedupes session statuses per connection (workerConn.sessionStatusSeen),
+	// i.e. it expects the worker to announce it again on a new one. Without the epoch a
+	// status written into a connection that was already dying (writeFrame returns nil,
+	// the frame lands nowhere) counted as delivered and was never re-sent, so the host
+	// job's turn/session status stayed stale until the status happened to change
+	// (gofer-pcbc: the macOS CI flake of TestDispatchOutlivesConnection).
+	var lastSessionEpoch uint64
 
 	pump := func() {
 		for _, ent := range []struct {
@@ -606,13 +615,16 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				cl.inflightSetStatus(remoteJobID, cur.Status)
 				if cur.Session {
 					cl.inflightSetSession(remoteJobID, cur.TurnNo, cur.Status, cur.SessionImages)
-					if cur.Status != lastSessionStatus || cur.TurnNo != lastSessionTurn || cur.SessionImages != lastSessionImages {
-						if err := cl.writeFrame(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{
+					if cur.Status != lastSessionStatus || cur.TurnNo != lastSessionTurn ||
+						cur.SessionImages != lastSessionImages || cl.connEpochNow() != lastSessionEpoch {
+						epoch, err := cl.writeFrameEpoch(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{
 							JobID: remoteJobID, Status: cur.Status, StartedAt: cur.StartedAt,
 							TurnNo: cur.TurnNo, IdleDeadlineAt: cur.IdleDeadlineAt, SessionStatus: cur.Status,
 							SessionID: cur.SessionID, SessionImages: cur.SessionImages,
-						}); err == nil {
+						})
+						if err == nil {
 							lastSessionStatus, lastSessionTurn, lastSessionImages = cur.Status, cur.TurnNo, cur.SessionImages
+							lastSessionEpoch = epoch
 						}
 					}
 				}
