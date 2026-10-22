@@ -73,3 +73,12 @@ gofer 送进 agent 会话的文字有十来种，前缀是各功能各自加的�
 
 1. 系统消息格式 `[gofer · <类型>]`。
 2. 用户回复改为 `[来自 web 回复，<用户>]`。
+
+## 实施记录（2026-10-22）
+
+- **一处定义**：新建 `internal/msgprefix`（不依赖其他 internal 包）：每种类型一个常量（`WebMessage` / `WebReply` / `JobDone` / `Wakeup` / `WorkHandoff` / `WorkReport` / `Steward` / `Memory` / `Hint`）+ 整前缀字面常量（`WebMessageOpen` / `WebReplyOpen` / `JobDoneOpen` …），`Prefix(kind, user)` / `Format(kind, user, body)` / `Classify(text) (kind, fromPerson)` / `IsSystem` / `IsPerson`；用户名为空回落到 `DefaultUser`（`web`）。未知系统类型（`[gofer · 未来类型]`）仍判为系统消息。
+- **生成方全部切新**：`sessionrelay`（job 完成通知、传话人行、`injectText`＝路径 A/B/C）、`hookrelay`（Stop 续写、看护 job 通知、话题提醒、记忆注入、`IsHarnessPrompt`、`webMessageBody`）、`job.wakeup`、`work.requestText`、`httpapi` 管家带话、`hooks/omp.gofer-relay.ts`。
+- **两包同源约束**：`hookrelay.ReplyPrefix` / `sessionrelay.InjectPrefix` / `SystemNoticePrefix` 三个各自定义的常量删掉，改为两包都用 `msgprefix`；原「两个常量必须相同」的测试改为钉「同一个表项 + 生成/识别两侧一致」（`TestDeliveredPersonReplyIsNotHumanInput`）。
+- **语义拆分**：`IsHarnessPrompt` 只管「这段文字是不是 harness 写的」（系统前缀 / 邮件标签 / XML 标签），对 `[来自 web…]` 为 false；「gofer 把人话打进终端」这一半由 `isHarnessInput` 里的 `isDeliveredPersonReply` 判（否则路径 A 注入会被当成「人回来了」而自动关中继）。
+- **兼容（G032）**：识别侧同时认旧前缀（`[gofer web 回复]` → 用户回复；`[gofer 通知]` / `[gofer job 完成]` / `[gofer wakeup]` / `[gofer 工作项*请求]` / `[gofer 管家带话]` / `[gofer 记忆]` / `[gofer]` → 系统），全部标 `// DEPRECATED(v0.185): remove in v0.188`；生成侧不再产生旧前缀。
+- **对外说明**：`skills/gofer-usage`（`SKILL.md` 一句 + `references/sessions-relay.md` / `job-advanced.md` / `plans-workflows.md` / `tracker.md`）改为说明这张表：`[来自 web…]` 是用户本人，`[gofer · …]` 是系统消息、不是用户输入。`gofer repo prime` 注入文案与 job prompt 注入段里没有提到具体前缀（grep 确认），无需改动。

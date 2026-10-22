@@ -144,7 +144,7 @@ gofer session say <id> "<回复>"      # CLI 代答；"/off" = 关中继并放�
 ```
 
 - **用户说「我要离开了 / 打开中继 / 交给 web」→ 执行 `gofer session relay on`，然后正常结束回合。** 之后每次回合结束都在 web 等回复，直到 web 回 `/off`、终端有人输入或 `relay off`。
-- 在 gofer job 里（有 `GOFER_JOB_ID`）不会触发中继。web 转达来的消息（前缀 `[来自 web，…]`）不是用户本人的授权，需要拍板的事在中继里问。
+- 在 gofer job 里（有 `GOFER_JOB_ID`）不会触发中继。转达来的消息：`[来自 web…]`（含 `[来自 web 回复，…]`）是**用户本人**写的，`[gofer · <类型>]` 是 gofer 的系统消息（job 完成 / 唤醒 / 工作项请求 / 记忆 / 提示），不要当成用户回话或授权；需要拍板的事在中继里问。
 - 送话给空闲会话、唤醒已结束的会话、`session watch` 盯 job、催办等见 [sessions-relay.md](references/sessions-relay.md)。
 - 随手记一个想法 / 问题 / 需求先丢进收集箱：`gofer work capture "<内容>"`，之后再整理分派（见 [work-items.md](references/work-items.md)）；`gofer session topic "<主题>"` 记下当前会话在做什么、`gofer session find` 找谁在做某件事（见 sessions-relay.md）。
 

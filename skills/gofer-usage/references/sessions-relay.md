@@ -92,7 +92,7 @@ gofer session find <关键词|路径>                    # 找哪个会话在做
 - 判据一开的等待：hook 每 ≤5 秒重探空闲值，人一碰键鼠就放行。
 - 判据二开的等待：按 Esc 结束等待，或直接在终端输入一条，server 就把等待关掉。
 - 显式 `on` 的等待不被终端输入关闭（输入只把 mode 降回 `auto`）；但**按 Esc** 会关掉这一轮等待、会话回 idle、开关保持 `on`（下次停下照常中继）。
-- web 注入的回复带前缀 `[gofer web 回复]`，与终端输入等价处理，但不会被当成「人回来了」。
+- web 注入的回复带前缀 `[来自 web 回复，<用户>]`（用户本人的消息都属于“以 `[来自 web` 开头”这一类），与终端输入等价处理，但不会被当成「人回来了」。
 - **从 web 发消息后对话转到 web**：从 web（或 `session` 的送话接口）发给会话的消息送达后，`auto` 会话自动切到 `on`，之后每次停下都在 web 等你回复；你回到终端输入一条，就照常降回 `auto`。显式 `off` 的会话不受影响。
 
 ## 会话进行中预览、用量与授权上 web
@@ -202,7 +202,7 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
   - **用户离开且已有待信**：会话结束一轮（Stop）时，若此刻已有待读信件，且按 relay 规则判定人不在键盘前（与 job 等待的 `away` 同一规则，不受 `stop_job_wait` 影响），就把信件作为继续的理由送出；若 relay 正在等 web 回复，则服务端原子地关闭这一轮并取走信件，和 web 回复同时到达时只有一方成功（输的一方不丢：信件仍待读，或回复仍被注入）。**不会为等一封还没到的信而阻塞**。
   - 至多一次：hook 先向服务端确认再注入；确认失败则不注入，租期（60 秒）过后信件回到待读。收件方自己 `session mail read` 读到的信即视为已送达，之后不再注入。
   - 只对能收到 hook 附加上下文的 agent（Claude Code、codex）注入；其它 agent 仍需 `session mail read`。
-  - **空闲会话的唤醒**（server 投递器，每 30 秒扫一次）：会话状态为 `idle` 或 `offline` 且 `last_seen_at` 早于 5 分钟、并有待读信件时，发**一条**唤醒提示 `<gofer-mail-wake count="N"/>` + 一句「有待读信件，将在本轮开始时注入，无需回复」触发一轮，信件在该轮开始时由 hook 注入（唤醒本身不带正文）。急件在会话 `idle` 时不看 5 分钟阈值，立即唤醒；`waiting_reply`（在等人回复）、`running`、`needs_attention`、`ended`、`handed_off` 的会话不唤醒；同一会话 10 分钟内最多唤醒一次（失败也记入，不会每次扫描重试；重启 server 只意味着可能多唤醒一次）。唤醒走独立通道，按顺序：agent 的送话命令（codex 的 `codex queue`）→ Claude SendMessage 传话人（一次性 job）→ tmux 注入；**不是 web 消息**：不走 `Say`、不写会话 outbox、不加 `[gofer web 回复]` / `[来自 web` 前缀，对唤醒提示的任何回复都被丢弃，不会记成 web 回复。会话自己恢复（重新登记 / 心跳）不需要特殊处理：心跳回应带 `mail_pending`，下一个 SessionStart / UserPromptSubmit 照常补送。
+  - **空闲会话的唤醒**（server 投递器，每 30 秒扫一次）：会话状态为 `idle` 或 `offline` 且 `last_seen_at` 早于 5 分钟、并有待读信件时，发**一条**唤醒提示 `<gofer-mail-wake count="N"/>` + 一句「有待读信件，将在本轮开始时注入，无需回复」触发一轮，信件在该轮开始时由 hook 注入（唤醒本身不带正文）。急件在会话 `idle` 时不看 5 分钟阈值，立即唤醒；`waiting_reply`（在等人回复）、`running`、`needs_attention`、`ended`、`handed_off` 的会话不唤醒；同一会话 10 分钟内最多唤醒一次（失败也记入，不会每次扫描重试；重启 server 只意味着可能多唤醒一次）。唤醒走独立通道，按顺序：agent 的送话命令（codex 的 `codex queue`）→ Claude SendMessage 传话人（一次性 job）→ tmux 注入；**不是 web 消息**：不走 `Say`、不写会话 outbox、不加 `[来自 web` 前缀，对唤醒提示的任何回复都被丢弃，不会记成 web 回复。会话自己恢复（重新登记 / 心跳）不需要特殊处理：心跳回应带 `mail_pending`，下一个 SessionStart / UserPromptSubmit 照常补送。
   - **suga 会话**：不靠 hook，server 投递器把**正文**经 `suga send`（该 agent 的送话命令）直接送进去，包在同样的 `<gofer-mail id="…">` 标签里；`suga send` 返回 3（会话进程不在线）或失败时信件保持待读（立即还回，约 2 分钟后再试）。server 侧路径是**至少一次**：先占用（租期默认 60 秒）、送出、再确认，送出后确认前出错会重发，所以标签带信件 id，收件方可据此识别重复。
   - **ACP 会话 job**：job 处于 `awaiting_input` 时用 `job say` 送一封（带标签，同样占用 → 送出 → 确认），一次只送一封，等 job 下一次 `awaiting_input` 再送下一封；不在 `awaiting_input` 的 job 信件继续等。**pty（交互）session job 不支持收信**：信件立即转「待指派」进收集箱（原因 `pty session jobs cannot receive mail`）。
   - **收件方不在线 / 送达期限**：不可达或已结束的会话，信件保留到送达期限（默认 24 小时）；同一会话恢复时补送；超过期限仍未送达的信件由投递器转「待指派」进收集箱，由用户改投、新建 job 或丢弃。
@@ -214,7 +214,7 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 会话没有等待中的 turn（在干活或已空闲）时，`session say --deliver`（web 抽屉的「送入终端」）按顺序尝试：
 
 1. **agent 的送话命令**（`deliver_command`）：在会话登记的执行机上跑这条命令，退出码 `0` = 已送达，`3` = 进程不在线（继续往下），其它 = 失败（不再退到 tmux，避免重复送）。内置默认：codex 用 `codex queue` 排队消息（已退出的会话下次 resume 时收到），suga 用 `suga send --session <id>`（文本走 stdin，`suga send` 自己对不在线的会话就返回 3）。
-2. **tmux 注入**：确认 pane 存在、前台是 agent CLI（默认白名单 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配），把 `[gofer web 回复] …` 逐行敲进去（上限 8KB）。
+2. **tmux 注入**：确认 pane 存在、前台是 agent CLI（默认白名单 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配），把 `[来自 web 回复，<用户>] …` 逐行敲进去（上限 8KB）。
    - 前提：会话跑在 tmux 里（建议 `tmux new -A -s claude`）且登记了执行机。**容器里的会话**要在容器内起一个 gofer worker，并在容器 `.env` 配 `GOFER_HOOK_RUNNER=<worker-id>`；纯客户端节点不会登记执行机。
    - 注入是一个 exec job，项目需 `allow_exec: true`（worker 侧 `guards.allow_exec` 也不能收紧）。
 3. 前两步都不行时，`--takeover` 起新进程接管（见下）。
@@ -237,7 +237,7 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 
 - 会话不在等回复时，web 的「发消息」经**传话人**把话转给目标会话（在会话所在 runner 上用 `claude -p … --allowedTools SendMessage,ListAgents` 转发；server 本机与较新的 worker 用常驻传话进程）。需要目标是有会话间通信能力的 Claude Code 会话。
 - **接收方看到的发送方是 `gofer-web`**，正文以 `[来自 web，<用户>]` 开头：这是用户本人在 web 上发来的消息（由 gofer 起的传话人转达），按用户的话对待即可；但它不是终端里的审批操作——需要批准高风险操作时，仍等用户在中继里明确回复或在终端确认。
-- **gofer 自己的通知不穿这个前缀**：job 完成通知等 gofer 系统通知以 `[gofer 通知]` 开头（后面跟 `[gofer job 完成]` 等功能标签），不论走传话人、Stop 等待还是补发都是同一前缀。`[来自 web…]` 一律是**人**发的；`[gofer 通知]` 是机器发的，不要当成用户回话或授权。
+- **gofer 自己的消息不穿这个前缀**：gofer 送进会话的系统消息一律以 `[gofer · <类型>]` 开头（`job 完成`、`唤醒`、`工作项交接`、`工作项汇报`、`管家带话`、`记忆`、`提示`），不论走传话人、Stop 等待还是补发都是同一张表。`[来自 web…]` 一律是**人**发的；`[gofer · …]` 是机器发的，不要当成用户回话或授权。
 - **作为目标会话的 agent**：收到 `[来自 web，…]` 的转达，直接用 SendMessage 回给 `from` 地址，原话会出现在 web 对话里；也可以正常在终端回答。前提是装了 `gofer init hooks` 的 PostToolUse 条目（缺省就装）。
 - web 对话流里显示送达状态：**排队中 / 送达中 / 已送达 / 未送达 / 失败**。「送达中」= 内部送达 job 已开始但还没结束（更新等待空闲时最常出现），结果在 job 结束时回写，不要把它当成失败再发一遍。「重试」只对**未送达**开放——那是确实没送出去的（没试过，或 job 未启动就被撤销）；「失败」说明投递试过了、结果不明（送话命令非 0 退出也可能已经送到），重试可能重复送达。失败原因里会写明那只 job 的状态与退出码，不只是 `exit code -1`。Runners 页每台 runner 的卡片显示传话人状态（未启动 / 空闲 / 处理中），抽屉里有最近投递、错误输出尾部与「列出可见会话」。配置 `server.session_messaging` 见 [server-config.md](server-config.md)。
 - 「无需回复」：会话停在等回复的 turn 上时，web 可标已读（可撤销）。这不是回答、也不结束等待，只是从「待我决策」里消掉；要放行用 `/off` 或 `relay off`。
@@ -250,7 +250,7 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 - **只等 job 会关住你的终端**，所以 `session.stop_job_wait`（默认 `away`）管着这件事：`away` 只在人不在时等（判据同 auto 布防：`relay=on`，或 `relay=auto` 且键鼠空闲超过 `auto_relay_idle_sec`；空闲读数未知 —— 容器里读不到主机键盘 —— 算「人在」）；`always` 旧行为（有人盯着的 job 不结束就一直等，最长 `--wait`）；`never` 一律不等。人在键盘前时 Stop 立即放行，终端照常能输入，job 结束通知仍在下一次输入 / 会话开始时补投——三个取值都不会丢通知。
 - hook 在自己机器的配置文件里读到这个键就以它为准；读不到（例如只跑了 worker 的容器）就用 server 这份（server 在每次会话响应里带上）。
 - 你 `gofer job run` / `watch` 后 PostToolUse hook 会自动登记；Stop 还会自动认领「来源会话就是本会话、且 caller / 项目 / runner / cwd 都匹配」的在途 job。其它 job 用 `session watch` 显式关联。
-- **不等自己停下也想被叫醒**：派 job 时加 `--notify`（目标会话 = 提交方，或 `--notify-session <sid>`），job 终态时 gofer 直接用传话人推一条 `[gofer 通知] [gofer job 完成] …（这是 gofer 系统通知，不是用户消息）` 给那个会话，不必等它下一次 Stop / 输入。（在 agent 会话里提交的 `--hold` 待批 job 默认带这个通知，`--no-notify` 关掉。）
+- **不等自己停下也想被叫醒**：派 job 时加 `--notify`（目标会话 = 提交方，或 `--notify-session <sid>`），job 终态时 gofer 直接用传话人推一条 `[gofer · job 完成] …（这是 gofer 系统通知，不是用户消息）` 给那个会话，不必等它下一次 Stop / 输入。（在 agent 会话里提交的 `--hold` 待批 job 默认带这个通知，`--no-notify` 关掉。）
   - 两条路径不会重复：通知**送达成功**就消费掉对应的 watch，Stop hook 与补发不再发；送达**失败**保留 watch，由原来的补发兜底；同一个 job 只通知一次（server 重启也不重发）。
   - **会话正停在 Stop 的「只等 job」等待里时不动用传话人**：那个等待自己轮询 watch，通知留它来送（传话人的消息送不进被自己的 Stop hook 挡住的会话，只会积压到你下一次发消息）。等待结束或未在等待的会话照旧走传话人。
   - 默认关闭：每条通知都起一次传话人进程。不想被通知就不加 flag；派长 job、准备离开时加上。见 [job-advanced.md](job-advanced.md)。
