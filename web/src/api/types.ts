@@ -3580,6 +3580,22 @@ export interface MailSendResp {
   held: boolean
   capture_item_id?: string
   candidates?: MailCandidate[]
+  // 广播（设计 2026-10-22「D5」）：组 id、线程、匹配数、写入数、因权限略过数、收件人表。
+  broadcast_id?: number
+  thread_id?: string
+  matched?: number
+  delivered_count?: number
+  skipped_count?: number
+  recipients?: MailBroadcastRecipient[]
+}
+
+// 写信框的投递预览（POST /v1/mail 带 dry_run）：与真发一次回答同一套解析结果，但不落库。
+export interface MailPreviewResp {
+  dry_run: boolean
+  matched: number
+  delivered_count: number
+  skipped_count: number
+  recipients: MailBroadcastRecipient[]
 }
 
 // GIT-02：交付结果（合并 / 推送 / PR）。

@@ -192,7 +192,7 @@ func (s *Service) offlineMatch(m jobstore.SessionMessage, output string) bool {
 	if err != nil || !ok {
 		return false
 	}
-	plan := s.deliverPlan(a.Agent, a.SessionID, InjectPrefix+m.Text)
+	plan := s.deliverPlan(a.Agent, a.SessionID, injectText(m.Text))
 	return plan.OfflineMatch != nil && plan.OfflineMatch.MatchString(output)
 }
 

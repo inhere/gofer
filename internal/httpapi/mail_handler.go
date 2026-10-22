@@ -474,6 +474,9 @@ type mailSendReq struct {
 	Body    string      `json:"body"`
 	Urgent  bool        `json:"urgent,omitempty"`
 	Project string      `json:"project,omitempty"`
+	// DryRun resolves the recipients and answers how many would be written / skipped, without
+	// storing anything (G056: no new route for it; 设计 2026-10-22「D5」的投递预览).
+	DryRun bool `json:"dry_run,omitempty"`
 }
 
 // mailToField accepts the letter's recipient as ONE string or as an ARRAY of them (设计
@@ -517,6 +520,32 @@ func checkJobMailAddress(to string) error {
 	return mailForbidden("a job credential may only mail a session or its caller")
 }
 
+// mailPreviewView is the answer of a dry run: how many recipients the addresses would reach and
+// how many a selector would skip, with no letter stored.
+type mailPreviewView struct {
+	DryRun     bool                         `json:"dry_run"`
+	Matched    int                          `json:"matched"`
+	Delivered  int                          `json:"delivered_count"`
+	Skipped    int                          `json:"skipped_count"`
+	Recipients []mailBroadcastRecipientView `json:"recipients"`
+}
+
+// toMailPreviewView renders a resolved-but-not-written broadcast.
+func toMailPreviewView(r mail.BroadcastResult) mailPreviewView {
+	v := mailPreviewView{DryRun: true, Matched: r.Matched, Skipped: r.Skipped,
+		Recipients: make([]mailBroadcastRecipientView, 0, len(r.Recipients))}
+	for _, rc := range r.Recipients {
+		if !rc.Skipped {
+			v.Delivered++
+		}
+		v.Recipients = append(v.Recipients, mailBroadcastRecipientView{
+			Address: rc.Address, Kind: rc.Kind, ID: rc.ID, MailID: rc.MailID, State: rc.State,
+			Skipped: rc.Skipped, Reason: rc.Reason,
+		})
+	}
+	return v
+}
+
 // POST /v1/mail {to: string|[string], body, urgent?, project?}
 func (s *Server) handleMailSend(c *rux.Context) {
 	if !s.mailReady(c) {
@@ -546,6 +575,19 @@ func (s *Server) handleMailSend(c *rux.Context) {
 	// BodyProject: a named project bounds the lookup; the recipient's own project is judged in
 	// Authorize once the address is resolved.
 	if p := strings.TrimSpace(req.Project); p != "" && !s.requireProjectScope(c, p) {
+		return
+	}
+	if req.DryRun {
+		res, err := s.mail.Preview(mail.BroadcastInput{
+			To: to, Body: req.Body, Urgent: req.Urgent, Origin: org, Project: strings.TrimSpace(req.Project),
+			Visible: s.mailVisibleForAll(c, to), Roots: s.projectRoots, Authorize: s.mailAuthorize(c, org, false),
+		})
+		c.Set(ctxCeilingChecked, true)
+		if err != nil {
+			s.writeMailError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, toMailPreviewView(res))
 		return
 	}
 	if broadcast {

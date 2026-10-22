@@ -69,6 +69,17 @@ const TagRelayTakeover = "relay-takeover"
 // hookrelay.ReplyPrefix, which a test in that package pins.
 const InjectPrefix = "[gofer web 回复] "
 
+// injectText is the text path A types into the terminal: a person's web reply wears
+// InjectPrefix, but a gofer system notice ("[gofer 通知] …") keeps its own line — it is
+// machine text, and the prefix would make the agent read it as the person having written
+// (the same rule as the Stop hook's continuation, gofer-11gk).
+func injectText(text string) string {
+	if strings.HasPrefix(strings.TrimSpace(text), SystemNoticePrefix) {
+		return text
+	}
+	return InjectPrefix + text
+}
+
 // injectTimeoutSec is the deadline of the internal injection job: the script
 // only talks to tmux, so anything slower is a broken runner, not a slow pane.
 const injectTimeoutSec = 30
@@ -564,7 +575,7 @@ func (s *Service) takeoverAliveCheck(a jobstore.AgentSession, notRunning bool) e
 // session cannot be reached by one) and the caller proceeds as before. A not-running
 // answer is returned as an UndeliverableError{ReasonNotRunning}.
 func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, text, by, origin string) (DeliverResult, bool, error) {
-	res, tried, err := s.runDeliverCommand(ctx, a, InjectPrefix+text, by, origin)
+	res, tried, err := s.runDeliverCommand(ctx, a, injectText(text), by, origin)
 	if !tried || err != nil {
 		return DeliverResult{}, tried, err
 	}
@@ -701,7 +712,7 @@ func takeoverFallback(reason string) bool {
 // is auditable — the row is the only trace left when someone asks later "who
 // typed this into my terminal?".
 func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text, by, origin string) (DeliverResult, error) {
-	res, err := s.runTmuxInject(ctx, a, InjectPrefix+text, by, origin)
+	res, err := s.runTmuxInject(ctx, a, injectText(text), by, origin)
 	if err != nil {
 		return DeliverResult{}, err
 	}
@@ -834,7 +845,7 @@ func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, 
 		// The reply is the new terminal's first input, carrying the same prefix path
 		// A types (design D7) so the hook's UserPromptSubmit recognises it as ours
 		// and does not treat it as the human returning to the keyboard.
-		initial = InjectPrefix + text + "\r"
+		initial = injectText(text) + "\r"
 	}
 	res, err := s.takeoverer.TakeoverSession(ctx, TakeoverRequest{
 		ProjectKey: a.ProjectKey,

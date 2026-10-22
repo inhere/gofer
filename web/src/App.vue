@@ -238,6 +238,9 @@ const { readOnly } = useWhoami()
 const settingsNav = { to: '/settings', label: `⚙ ${PAGE.settings}` }
 const settingsActive = computed(() => route.path.startsWith('/settings'))
 const workbenchActive = computed(() => route.path === '/workbench')
+// 信箱页要占满顶栏以下的视口：左对话列表与右时间线各自在自己的区域里滚，页面本身不出现
+// 外层滚动条。做法与工作台（content--workbench）同一套：给壳加一个「填满视口」的修饰类。
+const fillContent = computed(() => route.path === '/mail')
 
 
 function logout() {
@@ -258,7 +261,7 @@ function reloadPage() {
 </script>
 
 <template>
-  <div class="app-root" :class="{ 'app-root--bare': !showChrome }">
+  <div class="app-root" :class="{ 'app-root--bare': !showChrome, 'app-root--fill': showChrome && fillContent }">
     <header v-if="showChrome" class="topbar">
       <div class="brand mono">
         <RouterLink :to="homeTo" class="brand-name" title="回到首页">Gofer</RouterLink>
@@ -382,7 +385,7 @@ function reloadPage() {
           <path v-else d="M4 7h16M4 12h16M4 17h16" />
         </svg>
       </button>
-      <main class="content" :class="{ 'content--workbench': workbenchActive }">
+      <main class="content" :class="{ 'content--workbench': workbenchActive, 'content--fill': fillContent }">
         <RouterView />
       </main>
     </div>
@@ -405,6 +408,16 @@ function reloadPage() {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+/* 填满视口的页面（信箱）：壳的高度锁在视口里，滚动交给页内的列表 / 时间线。 */
+.app-root--fill {
+  height: 100vh;
+  overflow: hidden;
+}
+@supports (height: 100dvh) {
+  .app-root--fill {
+    height: 100dvh;
+  }
 }
 
 .topbar {
@@ -634,6 +647,12 @@ function reloadPage() {
   flex: 1;
   min-height: 0;
 }
+/* 填满视口时主内容区是壳里的弹性列，高度由壳夹住（否则 .content 只按内容撑高）。 */
+.app-root--fill .shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 
 .drawer-nav {
   display: none;
@@ -699,6 +718,14 @@ function reloadPage() {
 .content--workbench {
   padding: 0;
   overflow: hidden;
+}
+/* 信箱：主区自己不滚，而是变成一个定高的列容器，页内的两栏各滚各的。 */
+.content--fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 响应式：窄屏左轨折叠为抽屉 */

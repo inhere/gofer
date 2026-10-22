@@ -89,6 +89,33 @@ describe('mailbox page wiring', () => {
     // 页签切回地址栏（可分享 / 供 Today 与抽屉深链复用）。
     expect(page).toContain('router.replace({ path: \'/mail\'')
   })
+
+  // 写信框的收件人（gofer-ndy5，设计 2026-10-22「D5」）：会话多选 + 「按项目 / 主题 / agent
+  // 全部」选器 + 可删除标签 + 手写地址（高级）+ 服务端投递预览。
+  it('the compose form picks sessions, scopes and previews the delivery count', () => {
+    const page = src('Mail.vue')
+    for (const t of [
+      'data-test="mail-to-tags"',
+      'data-test="mail-to-tag"',
+      'data-test="mail-session-search"',
+      'data-test="mail-session-options"',
+      'data-test="mail-scope-scheme"',
+      'data-test="mail-scope-value"',
+      'data-test="mail-scope-add"',
+      'data-test="mail-to-preview"',
+      'data-test="mail-preview-error"',
+      'mailComposeAddresses(',
+      'mailComposePreviewText(',
+      'toggleComposeSession(',
+      'removeComposeAddress(',
+      'addComposeScope(',
+    ]) {
+      expect(page).toContain(t)
+    }
+    // 预览是服务端的 dry_run（同一个 POST /v1/mail，不新增路由；G056）。
+    expect(page).toContain('previewMail(')
+    expect(src('client.ts')).toContain('dry_run: true')
+  })
 })
 
 describe('the Today held-mail card navigates to the mailbox', () => {

@@ -187,7 +187,7 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
   - 限制：不能群发急件；job / steward 凭据不能发广播；0 个收件人报错；单次最多 `mail.broadcast_max_recipients`（默认 20），每个调用方 `mail.broadcast_rate`（默认 5 次 / 10 分钟，一次广播算一次）。超出分别是 400 / 429。
   - 收件人看到的标签多两个属性：`<gofer-mail … broadcast="b12" recipients="5">`——说明这是群发，不必以为只发给了自己；回信照旧只回发件方（没有「回复全部」）。
   - 广播副本过期只标 `expired`，不进收集箱；发件人 `session mail read <id>` 看到的是这一封副本，web 信箱里能看到整组收件人状态。
-  - web：写信框的收件人可直接写多个地址（空格 / 逗号分隔）或 `each:` 选择器，下方实时预览「将投递 N 个会话」（按已加载会话估算，服务端按权限再筛）；对话里的广播副本卡带收件人状态条（已送达 / 已回复 / 过期 / 待送达）。
+  - web：写信框的收件人是**勾选**——搜索框可按会话名 / 标题 / agent / 项目筛会话、勾多个；再加「按项目 / 主题 / agent / 子路径全部」选器（生成 `each:` 地址）；已选显示为可删除标签，手写地址收在「高级」里。下方按服务端预览显示「将投递 M 个会话（略过 K 个）」（`POST /v1/mail` 带 `dry_run`，不落库也不占广播限流）；对话里的广播副本卡带收件人状态条（已送达 / 已回复 / 过期 / 待送达）。
 
 - **发给常驻 agent（`agent:<名字>`）**：地址写 `agent:<名字>`（项目取发件方所在项目）或 `agent:<名字>@<项目>`。名字必须是 server 配置 `mail.agents` 里写过的（没配过返回 400 并列出可用的名字），配置里 `agent:` 指向一个 acp-agent。gofer 为每个（名字, 项目）保留一个**常驻 ACP 持续会话**：有活着的就送进去，没有就新建一个（agent 声明 `loadSession` 时续接上一个会话的上下文），收满 `max_letters` 封或存在超过 `max_hours` 小时则轮换新会话，空闲 `idle_minutes` 后由会话自己的 idle-timeout 结束。全局最多同时 `mail.agents_max_resident`（默认 6）个，超出的信件转「待指派」并写明原因。启动与投递都在投递器里异步做，发信不等待。收件 agent 用 gofer 的信箱工具（MCP `gofer_session_mail_reply` 或 `gofer session mail reply <id>`）回信，回信挂在原对话串；它只在会话里输出文字不算回信。
 - **常驻会话的查看与结束**：`gofer session mail agents` 列出配置的名字与当前常驻会话（项目、job、信件数、待投递数、状态），`--end <名字> [--project <项目>]` 手动结束一个；web 信箱页的「常驻 agent」区同样能看与结束。发 `agent:` 信件需要 `job.submit`（可能启动新的会话 job）。

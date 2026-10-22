@@ -77,8 +77,10 @@ describe('the right column is a timeline', () => {
     expect(page).toContain(':data-side="bubbleSide(m, active, me)"')
     expect(page).toContain('`bubble--${bubbleSide(m, active, me)}`')
     expect(page).toContain('data-test="mail-reply-ref"')
-    expect(page).toContain('document.getElementById(`mail-${m.reply_to}`)')
+    // 跳转抽成了 scrollToLetter：回信角标与小地图上的标记共用（都按信件 id 找那封信）。
+    expect(page).toContain('document.getElementById(`mail-${id}`)')
     expect(page).toContain('scrollIntoView(')
+    expect(page).toContain('scrollToLetter(m.reply_to)')
     expect(page).toContain('bubble--hot')
     // 投递状态沿用现有的文案与颜色
     expect(page).toContain('mailStateLabel(m.state)')

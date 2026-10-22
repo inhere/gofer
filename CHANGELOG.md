@@ -14,6 +14,12 @@
 ### 新增
 
 - **信箱第三期：`agent:` 地址与常驻 agent 会话（gofer-utyo）**：信件可以写给一个配置好的收件 agent——`agent:<名字>`（取发件方所在项目）或 `agent:<名字>@<项目>`。名字在 `mail:` 配置的 `agents:` 里声明（`agent:` 必须是 acp-agent，另有 `args` / `runner` / `idle_minutes` / `max_letters` / `max_hours` / `prompt`），未配置的名字返回 400 并列出可用的名字。gofer 为每个（名字, 项目）保留一个常驻 ACP 持续会话 job：有活着的就直接送进去（复用 awaiting_input → `job say`），没有就启动一个（agent 声明 `loadSession` 时续接上一个会话），收满 `max_letters` 或超过 `max_hours` 轮换新会话，空闲 `idle_minutes` 后由会话自己的 idle-timeout 结束；全局最多 `agents_max_resident`（默认 6）个，超出的信件转待指派并写明原因。启动与投递在投递器里异步完成，发信接口不等待。发 `agent:` 信件需要 `job.submit`；启动、轮换、空闲结束、启动失败记审计事件（`mail_resident`）。接口：`GET /v1/mail/agents`、`POST /v1/mail/agents/{name}/end?project=`、CLI `gofer session mail agents [--end <名字>]`；MCP 发信工具的地址说明加上 `agent:`。
+- **信箱页占满视口，并加了一条对话小地图**：信箱（`/mail`）整页锁定在顶栏以下的高度——左栏对话列表与右栏时间线各自在自己的区域内滚动，页面本身不再出现外层滚动条；信件占对话区的大部分宽度（收发仍左右分边，超宽屏上用行长上限，手机宽度下满宽）。时间线右边缘新增竖向小地图：每封信一个标记，按在对话里的位置排列（信多时按比例压缩），颜色区分收件 / 发件 / 急件 / 未读，一条高亮带标出当前可视范围；点标记滚到那封信，悬停显示发件方与时间、首行摘要；三封以上才出现，手机宽度下隐藏。信件的数据与接口不变。
+- **写信框收件人改为勾选，带服务端投递预览（gofer-ndy5）**：web 信箱写信框不再是一行文本——会话列表可搜索（会话名 / 标题 / agent / 项目）多选；另有「按项目 / 主题 / agent / 子路径全部」选器生成 `each:` 地址；已选显示为可删除标签，手写地址收在「高级」里。发送前向服务端要一次投递预览，显示「将投递 M 个会话（略过 K 个）」。预览就是同一个 `POST /v1/mail` 带 `dry_run: true`（G056：不新增路由），按与真发一致的口径解析（权限过滤、`each:` 选择器、收件人上限），不写任何信件、也不占广播限流。
+
+### 修复
+
+- **`each:project:` / `each:agent:` 选择器不再只扫一页会话（gofer-ndy5）**：旧实现只读 `ListAgentSessions` 的第一页（200 条），会话多的项目会漏掉尾部；现在分页读到短页为止，命中总数仍由 `mail.broadcast_max_recipients` 决定能不能发。
 
 ## [0.184.0] - 2026-10-22
 
