@@ -57,8 +57,8 @@ func (u Usage) empty() bool { return u == Usage{} }
 // Rotation is one resident-process rebuild: why it happened and what the
 // retired process had handled before it (gofer-li3t).
 type Rotation struct {
-	At       int64  `json:"at"`              // unix seconds of the rebuild
-	Reason   string `json:"reason"`          // idle | failed | max_messages | max_age
+	At       int64  `json:"at"`                 // unix seconds of the rebuild
+	Reason   string `json:"reason"`             // idle | failed | max_messages | max_age
 	Messages int64  `json:"messages,omitempty"` // messages the retired process handled
 	AgeSec   int64  `json:"age_sec,omitempty"`  // how long it lived
 	Usage    *Usage `json:"usage,omitempty"`    // token / cost totals it reported
@@ -80,10 +80,10 @@ type Delivery struct {
 // Snapshot is a point-in-time, JSON-friendly view of one runner's messenger.
 // Times are unix seconds (0 = never). Deliveries are newest first.
 type Snapshot struct {
-	Status       string     `json:"status"`
-	StartedAt    int64      `json:"started_at,omitempty"`
-	LastUsedAt   int64      `json:"last_used_at,omitempty"`
-	IdleDeadline int64      `json:"idle_deadline,omitempty"`
+	Status       string `json:"status"`
+	StartedAt    int64  `json:"started_at,omitempty"`
+	LastUsedAt   int64  `json:"last_used_at,omitempty"`
+	IdleDeadline int64  `json:"idle_deadline,omitempty"`
 	// Messages and AgeSec describe the CURRENT resident process (0 when none is
 	// running): how many messages it handled and how long it has lived. Usage is
 	// what its result frames reported for tokens / cost. MaxMessages and MaxAgeSec
