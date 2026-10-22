@@ -18,7 +18,7 @@
   - 权限逐个收件人按单封规则：显式列出的收件人只要有一个没权限，整封拒绝并说明是哪个；`each:` 按权限过滤，并在结果里写「匹配 N 个、投递 M 个、略过 K 个」（略过的只报地址与原因，不回报会话 id）。job / steward 凭据不能发广播（403），急件不能广播（400），0 个收件人 400。
   - 限流：每个调用方 `mail.broadcast_rate`（默认 `5/10m`，超出 429）；单次最多 `mail.broadcast_max_recipients`（默认 20）个收件人。两个配置项都可热加载。
   - 收件人看到的注入标签多两个属性：`<gofer-mail ... broadcast="b12" recipients="5">`；广播副本过期只标 `expired`，不进收集箱。
-  - 接口：`POST /v1/mail` 的 `to` 接受字符串或数组，响应新增 `broadcast_id` / `thread_id` / `matched` / `delivered_count` / `skipped_count` / `recipients[]`；`GET /v1/mail/{id}` 对广播返回 `broadcast` 汇总段；`gofer session mail send --to <地址> [--to …]`；MCP 发信工具的 `to` 接受数组。
+  - 接口：`POST /v1/mail` 的 `to` 接受字符串或数组，响应新增 `broadcast_id` / `thread_id` / `matched` / `delivered_count` / `skipped_count` / `recipients[]`；`GET /v1/mail/{id}` 对广播返回 `broadcast` 汇总段（列表里的广播副本也带）；`gofer session mail send --to <地址> [--to …]`；MCP 发信工具的 `to` 接受数组；web 写信框可直接写多个地址（空格 / 逗号分隔）或 `each:` 选择器，并预览「将投递 N 个会话」，对话里广播副本卡带收件人状态条。
 
 ### 修复
 

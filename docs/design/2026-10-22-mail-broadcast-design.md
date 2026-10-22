@@ -89,7 +89,7 @@
 - **D2 存储**：`mail.broadcast_id`（additive，`migrateMail` 补列 + `idx_mail_broadcast`）。`internal/mail/tags.go` 的 `RenderLetter` 对广播副本多输出 `broadcast="b<id>" recipients="N"`；tag 解析与 `IsHarnessPrompt` 不需改动（不认识的属性不影响）。
 - **D3 回复与状态**：回复路径未变（回到发件人、同一串）。`ExpireOverdue` 对 `broadcast_id>0` 的副本标 `expired` 而不是 `held`，也不返回给收集箱写入方。`gofer session mail read` / `GET /v1/mail/{id}` 给出收件人表（`broadcast` 段：count / delivered / answered / expired / pending / recipients）。
 - **D4 权限与限流**：权限仍为入口层判定，广播只改「判定几次」；`mail.broadcast_max_recipients`（默认 20）与 `mail.broadcast_rate`（`5/10m`，按 `COUNT(DISTINCT COALESCE(broadcast_id,id))` 计，一次广播算一次）在 `internal/mail/limits.go`，经 `Service.SetBroadcastLimits` 热加载；job / steward 凭据、急件广播、0 收件人在 handler 层拒绝。
-- **D5 接口**：`POST /v1/mail` 的 `to` 用 `mailToField` 兼容字符串 / 数组，广播响应加 `broadcast_id` / `thread_id` / `matched` / `delivered_count` / `skipped_count` / `recipients[]`；CLI `session mail send --to`（可重复）；MCP 发信工具 `to` 改为数组。**web 写信框的多选与预览本轮未做**（对话视图的广播状态条也未做）——留待后续，接口侧已足够。
+- **D5 接口**：`POST /v1/mail` 的 `to` 用 `mailToField` 兼容字符串 / 数组，广播响应加 `broadcast_id` / `thread_id` / `matched` / `delivered_count` / `skipped_count` / `recipients[]`；CLI `session mail send --to`（可重复）；MCP 发信工具 `to` 改为数组；web 写信框收件人可写多个地址（空格 / 逗号分隔）或 `each:` 选择器，带「将投递 N 个会话」预览（`mailRecipientPreview`，`each:path:` 由服务端定），对话视图的广播副本卡带收件人状态条（`GET /v1/mail` 列表对广播副本一并返回 `broadcast` 汇总段，每个广播只查一次）。
 - **D6 配置**：`mail.broadcast_max_recipients` / `mail.broadcast_rate`（`<次数>/<窗口>`，形如 `5/10m`），`config/gofer.example.yaml` 已加注释示例。
 - **测试**：`internal/mail/broadcast_test.go`（显式多个、each 过滤与计数、整封拒绝、上限 / 限流 / 无收件人 / 急件、each:project / each:agent、无 each 多命中仍 held、回复同串、标签属性、地址解析）、`internal/jobstore/mail_broadcast_test.go`（过期副本只 expired、计数器）、`internal/httpapi/mail_broadcast_test.go`（数组 to、GET 汇总段、400 / 403）、`internal/config/mail_test.go`（默认值与非法 rate）。
-- **未做（记录在案）**：web 端多选收件人与发送前预览、对话视图广播卡片状态条；`--var` 之外无需迁移。
+- **未做（记录在案）**：web 的收件人是「多地址输入 + 选择器」与投递数预览，不是逐会话勾选下拉；`each:path:` 的预览数由服务端定（前端显示不以具体数字为准）。
