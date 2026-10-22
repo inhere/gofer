@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -21,7 +22,7 @@ func TestRemoteSessionFailsOnWorkerRestart(t *testing.T) {
 			Forward: &runner.Forward{Session: true},
 		})
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // eventLog collects Forwarder.OnEvent calls so tests can assert on the
@@ -351,7 +353,7 @@ func TestForwarderUDPTraceDatagrams(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	var up, down []recordedEvent
 	for time.Now().Before(deadline) && len(up)+len(down) < 6 {
 		up, down = up[:0], down[:0]

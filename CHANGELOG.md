@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **测试里写死的短等待统一改成随负载伸缩的时间窗（G052）**：发版前五路并行验证（主机负载高）暴露的「偶发失败」都是测试自带的固定阈值太紧——`select` 里 1–2s 的 `time.After` 等 goroutine 返回、`waitFor` / `waitForStatus` / `eventuallyTrue` 等 helper 里硬编码 2s、`context.WithTimeout` 的 400–500ms 读窗口、会话 per-turn 预算 3s 只比等待长 200ms。现在这些成功路径的等待都经 `internal/testutil/wait`（随 `GOFER_TEST_TIMEOUT_SCALE` 伸缩），断言「应当超时 / 不该发生」的负向窗口保持短。只改测试，不改生产行为。
+
 ## [0.185.0] - 2026-10-22
 
 ### 新增

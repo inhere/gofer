@@ -8,6 +8,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 func offlineStore(t *testing.T) *jobstore.Store {
@@ -145,7 +146,7 @@ func TestSessionOfflineLoopPicksUpReloadedThreshold(t *testing.T) {
 		t.Fatal("sweep ran while disabled")
 	}
 	after.Store(1) // "reload": 1s threshold, session already silent >1s
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) {
 		if stateOf(t, st, "s1") == jobstore.SessionOffline {
 			return

@@ -803,7 +803,7 @@ func TestCancelJobTool(t *testing.T) {
 	structured(t, res, &created)
 
 	// Wait until the job is actually running before cancelling.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) {
 		if r, ok := jobs.Get(created.ID); ok && r.Status == job.StatusRunning {
 			break

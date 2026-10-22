@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // buildCastRecorder returns a nil recorder when recording is disabled (G023 default).
@@ -137,7 +138,7 @@ func TestStartPruneLoopCastEnabledTriggersStart(t *testing.T) {
 	startPruneLoop(gcli.NewCommand("t", ""), cr.Jobs, config.RetentionConfig{}, true, 24*3600, 0, nil, stop)
 
 	// The startup prune runs async; poll until the expired cast file is gone.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(castPath); os.IsNotExist(err) {
 			return // swept as expected

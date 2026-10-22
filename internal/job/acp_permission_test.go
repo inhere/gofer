@@ -12,6 +12,7 @@ import (
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // The approval gate (GATE-01 §1) is driven end-to-end here: the fake ACP agent raises
@@ -630,7 +631,7 @@ func TestPermissionWaitAnswerIntegration(t *testing.T) {
 		if werr != nil {
 			t.Fatalf("WaitAnswer: %v", werr)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("WaitAnswer did not return after the answer")
 	}
 }

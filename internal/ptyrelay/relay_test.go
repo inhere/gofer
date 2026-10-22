@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // fakePtySource is a scriptable PtySource for the relay tests: output is fed via
@@ -434,7 +436,7 @@ func TestBoundedCastCloseTimeout(t *testing.T) {
 	// And Close was actually entered (grace path, not skipped).
 	select {
 	case <-fc.closeEntered:
-	case <-time.After(time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("cast.Close was never entered")
 	}
 	// H1: a wedged Close that timed out means the cast was NOT sealed — the flag

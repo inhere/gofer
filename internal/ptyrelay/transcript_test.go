@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // TestTranscriptStripsAnsiAndFoldsCR pins the text filter (PTY-01 §四): CSI, OSC,
@@ -179,7 +181,7 @@ func TestTranscriptFlushesWhileRunning(t *testing.T) {
 	if _, err := tr.Write([]byte(chunk)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for {
 		if fi, err := os.Stat(path); err == nil && fi.Size() >= int64(len(chunk)) {
 			return

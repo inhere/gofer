@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // rendezvousJobs is a minimal worker.Jobs for the session-rendezvous / pendingCancel
@@ -116,7 +117,7 @@ func TestWaitSessionWaiterBeforeObserver(t *testing.T) {
 		if got != sess {
 			t.Fatalf("waitSession = %p, want delivered sess %p", got, sess)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("waitSession did not return after OnSessionStart")
 	}
 	cl.sessMu.Lock()
@@ -159,7 +160,7 @@ func TestWaitSessionCtxCancelReturnsNil(t *testing.T) {
 		if got != nil {
 			t.Fatalf("waitSession = %p, want nil on ctx cancel", got)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("waitSession did not return after ctx cancel")
 	}
 	cl.sessMu.Lock()

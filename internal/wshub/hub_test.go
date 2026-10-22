@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -538,10 +539,12 @@ func TestBackPressureChattyJob(t *testing.T) {
 	}
 }
 
-// waitFor polls cond up to ~2s; fails the test if it never becomes true.
+// waitFor polls cond until it holds; the deadline is a success-path wait (G052):
+// at least 10s and scaled by GOFER_TEST_TIMEOUT_SCALE, so a loaded run does not
+// fail on a fixed 2s window while a fast pass returns at once.
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 10*time.Second))
 	for time.Now().Before(deadline) {
 		if cond() {
 			return

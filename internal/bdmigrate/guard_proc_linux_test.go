@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // fakeBd copies `sleep` to <dir>/bd so the process shows up as argv0 "bd".
@@ -56,7 +58,7 @@ func TestActivityGuardIgnoresGoferOwnBdProcesses(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = own.Process.Kill(); _ = own.Wait() })
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	var got []string
 	for time.Now().Before(deadline) {
 		if got = findBdProcesses(root); len(got) > 0 {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/acp/acptest"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 func TestACPResumeCreatesContinuousSession(t *testing.T) {
@@ -26,7 +27,7 @@ func TestACPResumeCreatesContinuousSession(t *testing.T) {
 		t.Fatalf("resumed session_id = %q, want %q", resumed.SessionID, src.SessionID)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) {
 		current, ok := s.Get(resumed.ID)
 		if ok && current.Status == StatusAwaitingInput {

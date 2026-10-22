@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -191,7 +192,7 @@ func TestGracefulShutdownNoLeak(t *testing.T) {
 
 	// Allow goroutines to wind down, then compare counts (with a tolerance for the
 	// test http server's own transient goroutines).
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 2*time.Second))
 	for time.Now().Before(deadline) {
 		if runtime.NumGoroutine() <= before+2 {
 			return
