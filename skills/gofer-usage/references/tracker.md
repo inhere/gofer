@@ -25,7 +25,7 @@ gofer repo sync [--timeout 1m]   # 与 server 镜像同步（用客户端配置�
 gofer repo mirror ls              # 列出 server 上的 tracker 镜像（tracker_id / 前缀 / 项目 / 路径 / 最近同步）
 gofer repo mirror rm <tracker_id> --yes   # 删除 server 上的一个镜像（测试或废弃仓库；需管理员，仓库本地 tracker 不动，再 sync 会重建）
 gofer repo status [--changed] [--tracker <dir>] [--json]
-gofer repo prime [--agent claude|codex] [--keywords 任务关键词] [--hook-json]
+gofer repo prime [--agent claude|codex] [--keywords 任务关键词] [--hook-json] [--session <sid>] [--source compact|resume]
 ```
 
 - 提交策略：新仓库默认 `local-commit`（按功能点本地提交已授权、push 需用户授权），`ask` = 提交前先问，`none` = 不提交；托管块与会话开场注入的提交说明都按它生成，`repo init` 会打印当前取值。
@@ -183,6 +183,7 @@ SessionStart hook 调 `gofer repo prime --hook-json --agent <名>`；也可手�
 - **当前重点**：在做的 issue / plan 进度 / 最新交接、近期解锁的 issue、未提交改动与未推送提交、分支与 HEAD，以及 server 版本和**服务本项目**的 worker 在线情况（取不到就省略；`prime.focus: false` 整段关闭，`prime.focus_env: false` 只关仓库与服务行，`prime.focus_tag: true` 额外显示「最近 tag 之后 N 个提交」，适合按 tag 发版的仓库）。
 - **规则**（rule 全文）→ 进行中 issue → ready 列表 → 记忆索引（按第一个标签分组，任务命中的排最前、带「（相关）」标记，其次 cwd 命中 `when.paths` 的）→ 未过期交接 → 接手入口提示（`gofer issue brief` / `gofer plan brief`）→ 全局 / 项目记忆 → 进行中 plan。
 - 每段独立截断并写「另有 N 条：`gofer …`」；总长有上限，没有 tracker 时也会注入全局 / 项目记忆。全局记忆读本机副本（连着 server 时先在预算内同步一次），server 连不上也照常注入；项目记忆与进行中 plan 来自 server，连不上时静默省略。
+- **压缩 / 恢复后重注入本会话的任务**（`source=compact` / `resume`）：SessionStart 的 stdin JSON 带着 `session_id` 与 `source`，prime 读到后向 server 取一次 `GET /v1/sessions/{sid}/focus`，在最后追加一段 `[gofer · 提示]`「本会话当前任务」——会话主题、认领中的 issue（`gofer issue brief`）、监督中的 plan（`gofer plan brief`）、在等的 job（`gofer job show`）、未回的信件（`gofer mail show`），每项一行、只给标题与接手命令。tracker 不记录 claim 的会话 id，所以 assignee 与调用方一致的是确定认领，会话启动后动过的 in_progress issue 标「可能」。`startup` / `clear` 不追加；没有任何当前任务、server 连不上都不追加，也不影响其余部分。手动跑时用 `--session <sid> --source compact|resume` 补这两个值。
 - 可在 `.gofer/tracker/config.yaml` 的 `prime:` 块开关 `issues` / `ready` / `memory` / `scoped_memory` / `handoff` / `focus`，并设 `issues_limit` / `ready_limit` / `memory_summary_limit`。
 - 派发给 job 的规则段（`tracker-prime`）：提交策略 + **适用于该 job cwd** 的 rule 全文 + 其它适用记忆的一行索引（被 flag 的带「⚠ 待复核」）。选材与会话 prime 同一套规则：`when.paths` 不覆盖 cwd 的 rule 不全文给，索引只列适用于 cwd 的记忆（没设 `when.paths` 的，或命中的），命中的排前面；cwd 相对 tracker 根目录算（根目录 `""` 只被 `**` 命中）。
   - **找哪个 tracker**：默认（`nearest`）从 cwd 逐级向上找最近的 `.gofer/tracker`。工作区里的项目彼此相关，没有自己 tracker 的嵌套仓用工作区的 tracker。少数需要隔离的项目设 `projects.<k>.tracker_prime: repo`：只找 cwd 所在 git 仓内的 tracker，到该仓顶层就停，嵌套的独立仓拿不到外层工作区的规则与记忆。`off` 不注入 job 的 tracker-prime（`gofer repo prime` 不受影响）。house-rules 等绑定规则、`.gofer/RULES.md` 照常注入。

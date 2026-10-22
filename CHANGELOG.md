@@ -18,6 +18,7 @@
 
 ### 新增
 
+- **会话压缩 / 恢复后重新注入「本会话当前任务」（gofer-o53s）**：`gofer repo prime --hook-json` 在 SessionStart 的 `source` 为 `compact` 或 `resume` 时，在原有仓库级内容之后追加一段 `[gofer · 提示]`「本会话当前任务」——本会话的主题、认领中的 issue、监督中的 plan（进度 / 下一项 / 阻塞）、在等的 job、未回的信件，每项只给标题与接手命令（`gofer issue brief` / `gofer plan brief` / `gofer job show` / `gofer mail show`）。`session_id` 与 `source` 由 prime 直接读 hook 的 stdin JSON（两家的 SessionStart 都带），已装好的 hook 不用重装；`startup` / `clear` 不追加，没有当前任务或 server 连不上也不追加、不影响其余内容。tracker 不记录 claim 的会话 id，因此 assignee 与调用方对得上的是确定认领，会话启动后动过的 in_progress issue 标「可能」。新增接口 `GET /v1/sessions/{sid}/focus` 一次返回这些数据（只读，不标记信件已读，权限同读本会话）；`repo prime` 另增 `--session` / `--source` 供手动指定。
 - **webhook 新增 `keyword`：自动满足钉钉 / 飞书的「自定义关键词」安全设置**：消息标题与正文都不含该关键词时，gofer 把它加到标题前（钉钉 markdown 的 `title` 与正文标题行都带），已经包含时不重复加。这样机器人侧只开关键词模式也能收到 gofer 的各类通知，不必为每个模板手工塞词。`keyword` 只对 `kind: dingtalk | feishu` 有效，配在 generic 上、写成空串或含换行时 `gofer config validate` 直接报错。
 
 ## [0.185.0] - 2026-10-22
