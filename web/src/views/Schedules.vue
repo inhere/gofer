@@ -124,6 +124,8 @@ async function submitRun(): Promise<void> {
 const editTarget = ref<Schedule | null>(null)
 const editTitle = ref('')
 const editCron = ref('')
+// editAt 是一次性任务的触发时间（datetime-local 的本地写法）。
+const editAt = ref('')
 const editTimeout = ref('')
 const editEnabled = ref(true)
 const editParams = ref<ScheduleParam[]>([])
@@ -134,9 +136,24 @@ function openEdit(s: Schedule): void {
   editTarget.value = s
   editTitle.value = s.name
   editCron.value = s.type === 'once' ? '' : s.cron
+  editAt.value = s.type === 'once' ? toLocalInput(s.next_run_at) : ''
   editTimeout.value = String(s.request.timeout_sec ?? 0)
   editEnabled.value = s.enabled === 1
   editParams.value = (s.params ?? []).map((p) => ({ ...p, choices: p.choices ? [...p.choices] : undefined }))
+}
+
+// toLocalInput / fromLocalInput 在 unix 秒与 <input type=datetime-local> 的本地写法之间换算。
+function toLocalInput(sec: number): string {
+  if (!sec) return ''
+  const d = new Date(sec * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function fromLocalInput(v: string): number {
+  if (!v) return 0
+  const ms = new Date(v).getTime()
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : 0
 }
 
 function addParamRow(): void {
@@ -170,12 +187,14 @@ async function saveEdit(): Promise<void> {
   try {
     const params = editParams.value.filter((p) => p.name.trim() !== '')
     const timeout = Number(editTimeout.value.trim() || '0')
+    // 一次性任务改的是触发时间（at），cron 任务改的是表达式；两者互斥（服务端也是）。
+    const at = s.type === 'once' ? fromLocalInput(editAt.value) : 0
     const updated = await patchSchedule(s.id, {
       title: editTitle.value.trim(),
       params,
       enabled: editEnabled.value,
       timeout_sec: Number.isFinite(timeout) ? timeout : 0,
-      ...(s.type === 'once' ? {} : { cron: editCron.value.trim() }),
+      ...(s.type === 'once' ? (at > 0 ? { at } : {}) : { cron: editCron.value.trim() }),
     })
     editTarget.value = null
     notice.value = `已保存 ${updated.name}，下次运行 ${fmtDateTime(updated.next_run_at)}`
@@ -485,11 +504,15 @@ onUnmounted(() => {
           <template v-if="editTarget.type !== 'once'">
             当前下次运行：{{ fmtDateTime(editTarget.next_run_at) }}，保存后按新 cron 重算。
           </template>
-          <template v-else>一次性任务：只剩启用 / 停用、标题与参数可改。</template>
+          <template v-else>一次性任务：改的是触发时间（at），以及标题、参数与启停。</template>
         </p>
         <label v-if="editTarget.type !== 'once'" class="erow">
           <span class="ekey">cron</span>
           <input v-model="editCron" type="text" data-test="edit-cron" />
+        </label>
+        <label v-else class="erow">
+          <span class="ekey">触发时间</span>
+          <input v-model="editAt" type="datetime-local" data-test="edit-at" />
         </label>
         <label class="erow">
           <span class="ekey">标题</span>

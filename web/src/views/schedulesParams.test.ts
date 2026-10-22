@@ -81,6 +81,9 @@ describe('Schedules.vue 的立即执行与编辑', () => {
 
   it('编辑弹窗可改 cron / 标题 / 参数声明 / 启停，并走 PATCH', () => {
     expect(source).toContain('data-test="edit-cron"')
+    // 一次性任务改的是触发时间（at），cron 任务改的是表达式
+    expect(source).toContain('data-test="edit-at"')
+    expect(source).toMatch(/s\.type === 'once' \? \(at > 0 \? \{ at \} : \{\}\) : \{ cron: editCron\.value\.trim\(\) \}/)
     expect(source).toContain('data-test="edit-title"')
     expect(source).toContain('data-test="edit-enabled"')
     expect(source).toContain('data-test="edit-param-add"')
