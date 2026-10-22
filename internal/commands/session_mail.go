@@ -35,6 +35,12 @@ var sessionMailRedactOpts struct {
 	patterns         gcli.Strings
 }
 
+// sessionMailAgentOpts holds `session mail agents` flags.
+var sessionMailAgentOpts struct {
+	end     string
+	project string
+}
+
 // newSessionMailCmd builds `session mail`.
 func newSessionMailCmd() *gcli.Command {
 	common := func(c *gcli.Command) {
@@ -47,14 +53,14 @@ func newSessionMailCmd() *gcli.Command {
 	}
 	return &gcli.Command{
 		Name: "mail",
-		Desc: "Letters between sessions, jobs and callers: send <address> <text> | ls | read <id> | reply <id> <text> | cancel <id> | redact <id>",
+		Desc: "Letters between sessions, jobs and callers: send <address> <text> | ls | read <id> | reply <id> <text> | cancel <id> | agents | redact <id>",
 		Subs: []*gcli.Command{
 			{
 				Name: "send",
-				Desc: "Send a letter: <address> is session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller (your own capture box); repeat --to or use each:topic:/each:path:/each:project:/each:agent: to send to every match",
+				Desc: "Send a letter: <address> is session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); repeat --to or use each:topic:/each:path:/each:project:/each:agent: to send to every match",
 				Config: func(c *gcli.Command) {
 					common(c)
-					c.AddArg("address", "session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller", false)
+					c.AddArg("address", "session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller", false)
 					c.AddArg("text", "the letter (or --body-file; `-` reads stdin)", false)
 					c.VarOpt(&sessionMailOpts.to, "to", "", "recipient address (repeatable; also each: selectors)")
 					c.BoolOpt(&sessionMailOpts.urgent, "urgent", "", false, "deliver inside the running turn / wake an idle session at once")
@@ -91,6 +97,16 @@ func newSessionMailCmd() *gcli.Command {
 				Func: runSessionMailReply,
 			},
 			{Name: "cancel", Desc: "Withdraw a letter that has not been delivered", Config: idArg, Func: runSessionMailCancel},
+			{
+				Name: "agents",
+				Desc: "List the mail agents (the names `agent:<name>` may use) and their resident sessions; --end stops one",
+				Config: func(c *gcli.Command) {
+					common(c)
+					c.StrOpt(&sessionMailAgentOpts.end, "end", "", "", "end the resident session of this agent name")
+					c.StrOpt(&sessionMailAgentOpts.project, "project", "p", "", "project of the resident session")
+				},
+				Func: runSessionMailAgents,
+			},
 			{
 				Name: "redact",
 				Desc: "Erase secrets from a letter (and from the collection-box summaries quoting it)",
@@ -417,5 +433,58 @@ func formatMail(m client.Mail) string {
 		}
 	}
 	b.WriteString("\n" + m.Body + "\n")
+	return b.String()
+}
+
+// runSessionMailAgents lists the `agent:` names and their resident sessions (设计 2026-10-22
+// mail-agent-address「D6」); --end stops one by hand.
+func runSessionMailAgents(c *gcli.Command, _ []string) error {
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	if name := strings.TrimSpace(sessionMailAgentOpts.end); name != "" {
+		if err := cli.EndMailAgent(name, sessionMailAgentOpts.project); err != nil {
+			return err
+		}
+		c.Printf("ended the resident session of %s\n", name)
+		return nil
+	}
+	list, err := cli.ListMailAgents()
+	if err != nil {
+		return err
+	}
+	c.Print(formatMailAgents(list))
+	return nil
+}
+
+// formatMailAgents renders the `agent:` listing: the configured names, then the sessions.
+func formatMailAgents(list client.MailAgents) string {
+	var b strings.Builder
+	if len(list.Agents) == 0 {
+		b.WriteString("no mail agents configured (add a mail.agents block to the config)\n")
+	} else {
+		fmt.Fprintf(&b, "mail agents (at most %d resident sessions):\n", list.MaxResident)
+		for _, a := range list.Agents {
+			fmt.Fprintf(&b, "  %-12s agent=%s idle=%dm letters<=%d hours<=%d\n",
+				a.Name, a.Agent, a.IdleMinutes, a.MaxLetters, a.MaxHours)
+		}
+	}
+	if len(list.Residents) == 0 {
+		b.WriteString("no resident sessions\n")
+		return b.String()
+	}
+	b.WriteString("resident sessions:\n")
+	for _, r := range list.Residents {
+		fmt.Fprintf(&b, "  %-12s project=%-16s job=%-14s letters=%d pending=%d status=%s",
+			r.Name, dashIfEmpty(r.Project), dashIfEmpty(r.JobID), r.Letters, r.Pending, r.Status)
+		if r.CreatedAt > 0 {
+			fmt.Fprintf(&b, " since=%s", time.Unix(r.CreatedAt, 0).Format("2006-01-02 15:04"))
+		}
+		if r.LastError != "" {
+			fmt.Fprintf(&b, " last_error=%s", r.LastError)
+		}
+		b.WriteString("\n")
+	}
 	return b.String()
 }
