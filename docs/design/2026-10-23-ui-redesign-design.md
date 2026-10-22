@@ -705,7 +705,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 **计划总览（/plans）**
 
 - 表头换成：状态 · 计划 · 进度 · 卡点 · 主会话 · 最近活动；每行一个 `PlanOverviewRow`。
-- 筛选：`ProjectFilter` + 状态 `FilterChips`（多选累积，空 = 全部）+ `FilterDrawer`（关键字、tag）；分页仍走 `?offset`，服务端分页不变。
+- 筛选：`ProjectFilter` + 状态 `FilterChips`（多选累积，空 = 全部）+ `FilterDrawer`（关键字、tag）；分页仍走 `?offset`，服务端分页不变；同样接了 `useListReturn('plans', '/plans')`，P3 的计划详情可以直接用 `BackLink`。
 - 卡点列：卡在哪个 todo（`blocked_todo`）、N 个 job 失败（`counts.failed`）、N 进行中（`todo_counts.doing`）；没有卡点写「无卡点」。
 - **未做（数据不够）**：列表接口没有 `needs_review` 的分状态计数，「N 待验收」要等计划详情（P3，有完整 job 列表）或新接口；因此列表里的「待验收」段恒为 0（`progress.ts` 保留该族，详情页可传）。
 

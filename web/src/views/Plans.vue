@@ -11,6 +11,7 @@ import FilterChips from '../ui/FilterChips.vue'
 import FilterDrawer from '../ui/FilterDrawer.vue'
 import PlanOverviewRow from '../ui/PlanOverviewRow.vue'
 import ProjectFilter from '../ui/ProjectFilter.vue'
+import { useListReturn } from '../ui/useListReturn'
 import { chipItems, type ChipValue } from '../ui/filterChips'
 import { planStatusOptions } from '../utils/statusText'
 import { COL, PAGE } from '../utils/uiText'
@@ -205,6 +206,10 @@ onMounted(() => {
   void fetchProjects()
   livePlans.start()
 })
+
+// 计划详情的 BackLink 能回到当前筛选与滚动位置（设计稿 §16）。
+useListReturn('plans', '/plans')
+
 onUnmounted(() => {
   livePlans.stop()
 })
