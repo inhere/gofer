@@ -9,6 +9,10 @@ const source = Object.values(
   import.meta.glob('./Schedules.vue', { eager: true, query: '?raw', import: 'default' }),
 )[0] as string
 
+const newSource = Object.values(
+  import.meta.glob('./NewSchedule.vue', { eager: true, query: '?raw', import: 'default' }),
+)[0] as string
+
 const params: ScheduleParam[] = [
   { name: 'CLEAN_DAYS', type: 'int', default: '7', desc: '保留天数' },
   { name: 'CLEAN_APPLY', type: 'bool', default: '0', desc: '打开即真删' },
@@ -84,5 +88,20 @@ describe('Schedules.vue 的立即执行与编辑', () => {
     expect(source).toMatch(/await patchSchedule\(s\.id, \{/)
     // 命令 / agent / runner / 项目不在编辑表单里
     expect(source).not.toMatch(/data-test="edit-(cmd|agent|runner|project)"/)
+  })
+})
+
+describe('NewSchedule.vue 的参数声明', () => {
+  it('新建时可以声明参数（一行一个：名字 / 类型 / 默认值 / 可选值 / 说明）', () => {
+    expect(newSource).toContain('data-test="new-param-add"')
+    expect(newSource).toContain('data-test="new-param-row"')
+    for (const t of ['string', 'int', 'bool', 'choice']) {
+      expect(newSource).toContain(`<option value="${t}">${t}</option>`)
+    }
+  })
+
+  it('声明在提交前先按后端同一口径校验，空的声明不发', () => {
+    expect(newSource).toMatch(/参数名 .*GOFER_ 前缀/)
+    expect(newSource).toMatch(/declaredParams\(\)[\s\S]*?if \(declared.length > 0\) \{[\s\S]*?req\.params = declared/)
   })
 })

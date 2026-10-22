@@ -18,6 +18,7 @@ import type {
   MetaProject,
   MetaRunner,
   MetaWorker,
+  ScheduleParam,
   SubmitJobReq,
 } from '../api/types'
 
@@ -43,6 +44,47 @@ const onceMode = ref<'delay' | 'at'>('delay')
 const delayValue = ref<number | null>(30)
 const delayUnit = ref<'s' | 'm' | 'h'>('s')
 const runAtLocal = ref('')
+
+// 参数声明（设计 2026-10-22 §D1）：一行一个，值作为 job 的环境变量。
+const params = ref<ScheduleParam[]>([])
+
+function addParamRow(): void {
+  params.value = [...params.value, { name: '', type: 'string', default: '', desc: '' }]
+}
+
+function removeParamRow(i: number): void {
+  params.value = params.value.filter((_, idx) => idx !== i)
+}
+
+function setParamField(i: number, key: 'name' | 'type' | 'default' | 'desc', value: string): void {
+  params.value = params.value.map((p, idx) => (idx === i ? { ...p, [key]: value } : p))
+}
+
+function setParamChoices(i: number, value: string): void {
+  const choices = value
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c) => c !== '')
+  params.value = params.value.map((p, idx) =>
+    idx === i ? { ...p, choices: choices.length > 0 ? choices : undefined } : p,
+  )
+}
+
+// declaredParams 是提交用的声明：去掉名字为空的行，并去掉空的可选值列表。
+function declaredParams(): ScheduleParam[] {
+  return params.value
+    .filter((p) => p.name.trim() !== '')
+    .map((p) => {
+      const out: ScheduleParam = { name: p.name.trim(), type: p.type || 'string', default: p.default ?? '' }
+      if (p.desc) {
+        out.desc = p.desc
+      }
+      if (p.type === 'choice' && p.choices && p.choices.length > 0) {
+        out.choices = p.choices
+      }
+      return out
+    })
+}
 
 // job 请求字段
 const projectKey = ref('')
@@ -294,6 +336,29 @@ const validationError = computed<string>(() => {
       return 'runner=worker：请填写 worker_labels，或切换为指定 worker'
     }
   }
+  // 参数声明（与后端声明校验同一口径，先挡在前面给出人话提示）
+  const seen = new Set<string>()
+  for (const p of declaredParams()) {
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(p.name)) {
+      return `参数名 ${p.name} 不合法：只能是环境变量名（^[A-Z_][A-Z0-9_]*$）`
+    }
+    if (p.name.startsWith('GOFER_')) {
+      return `参数名 ${p.name} 不能用 GOFER_ 前缀（保留给 gofer 自己）`
+    }
+    if (seen.has(p.name)) {
+      return `参数 ${p.name} 重复声明`
+    }
+    seen.add(p.name)
+    if (p.type === 'int' && (p.default ?? '') !== '' && !/^-?\d+$/.test(p.default ?? '')) {
+      return `参数 ${p.name} 的默认值必须是整数`
+    }
+    if (p.type === 'bool' && !['', '0', '1'].includes(p.default ?? '')) {
+      return `参数 ${p.name} 的默认值只能是 0 或 1`
+    }
+    if (p.type === 'choice' && (!p.choices || p.choices.length === 0)) {
+      return `参数 ${p.name} 是 choice，请填写可选值（逗号分隔）`
+    }
+  }
   return ''
 })
 
@@ -391,6 +456,10 @@ async function onSubmit() {
       } else {
         req.run_at = runAtSeconds.value
       }
+    }
+    const declared = declaredParams()
+    if (declared.length > 0) {
+      req.params = declared
     }
     await createSchedule(req)
     void router.push('/schedules')
@@ -718,6 +787,56 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- 参数声明（设计 2026-10-22 §D1）：值以环境变量传给 job -->
+      <div class="field">
+        <span class="label mono">参数（可选，一行一个；值作为环境变量传给 job）</span>
+        <div v-for="(p, i) in params" :key="i" class="param-row" data-test="new-param-row">
+          <input
+            class="control mono param-name"
+            type="text"
+            placeholder="NAME"
+            :value="p.name"
+            @input="setParamField(i, 'name', ($event.target as HTMLInputElement).value)"
+          />
+          <select
+            class="control mono param-type"
+            :value="p.type || 'string'"
+            @change="setParamField(i, 'type', ($event.target as HTMLSelectElement).value)"
+          >
+            <option value="string">string</option>
+            <option value="int">int</option>
+            <option value="bool">bool</option>
+            <option value="choice">choice</option>
+          </select>
+          <input
+            class="control mono param-def"
+            type="text"
+            placeholder="default"
+            :value="p.default"
+            @input="setParamField(i, 'default', ($event.target as HTMLInputElement).value)"
+          />
+          <input
+            v-if="p.type === 'choice'"
+            class="control mono param-def"
+            type="text"
+            placeholder="choices, 逗号分隔"
+            :value="(p.choices || []).join(', ')"
+            @input="setParamChoices(i, ($event.target as HTMLInputElement).value)"
+          />
+          <input
+            class="control mono param-desc"
+            type="text"
+            placeholder="说明（显示在立即执行表单里）"
+            :value="p.desc"
+            @input="setParamField(i, 'desc', ($event.target as HTMLInputElement).value)"
+          />
+          <button class="param-del mono" type="button" title="删除这个参数" @click="removeParamRow(i)">−</button>
+        </div>
+        <button class="param-add mono" type="button" data-test="new-param-add" @click="addParamRow()">
+          + 添加参数
+        </button>
+      </div>
+
       <p v-if="validationError" class="field-hint field-hint--warn mono">
         {{ validationError }}
       </p>
@@ -840,6 +959,46 @@ select.control {
   color: var(--queue);
   font-size: 11px;
   margin: 6px 0 0;
+}
+
+/* 参数声明行（设计 2026-10-22 §D1）：名字 / 类型 / 默认值 / 可选值 / 说明 */
+.param-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.param-name {
+  flex: 0 0 150px;
+}
+.param-type {
+  flex: 0 0 90px;
+}
+.param-def {
+  flex: 1 1 110px;
+  min-width: 0;
+}
+.param-desc {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.param-del,
+.param-add {
+  background: transparent;
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.param-add {
+  margin-top: 8px;
+}
+.param-del:hover,
+.param-add:hover {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
 }
 .field-hint--warn {
   color: var(--run);
