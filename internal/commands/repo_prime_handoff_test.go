@@ -12,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -76,7 +77,15 @@ func TestPrimeHandoffServerTimeoutIsSilent(t *testing.T) {
 	if _, _, err := tracker.Init(root, "prime-timeout", true); err != nil {
 		t.Fatalf("init tracker: %v", err)
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { time.Sleep(3 * time.Second) }))
+	// The server hangs until the client gives up (or 30s pass): a prime that does not
+	// time out then takes 30s, far outside the bound below, while the bound itself can
+	// leave room for the local part and the server budget on a loaded CI runner.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(30 * time.Second):
+		}
+	}))
 	defer server.Close()
 	configPath := filepath.Join(root, "config.yaml")
 	config := fmt.Sprintf("server:\n  addr: %q\n  allow_empty_token: true\nprojects:\n  self:\n    host_path: %q\n", server.URL, root)
@@ -92,7 +101,8 @@ func TestPrimeHandoffServerTimeoutIsSilent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(start); elapsed > 2500*time.Millisecond {
+	// primeFocusTimeout + the 1.5s server budget, with margin (G052: scaled).
+	if elapsed := time.Since(start); elapsed > wait.Timeout(t, 8*time.Second) {
 		t.Fatalf("prime timeout took %s", elapsed)
 	}
 	if strings.Contains(body, "## 进行中 plan") {
