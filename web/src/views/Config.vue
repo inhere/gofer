@@ -127,6 +127,7 @@ interface WebhookForm {
   url: string
   maxTextRunes: string
   kind: string
+  keyword: string
   enabled: boolean
   eventsText: string
   projectsText: string
@@ -225,6 +226,7 @@ function webhookFormFrom(w: WebhookView): WebhookForm {
     url: w.url,
     maxTextRunes: w.max_text_runes > 0 ? String(w.max_text_runes) : '',
     kind: w.kind ?? '',
+    keyword: w.keyword ?? '',
     enabled: w.enabled ?? true,
     eventsText: linesText(w.events),
     projectsText: linesText(w.projects),
@@ -239,6 +241,7 @@ function addWebhook(): void {
     url: '',
     maxTextRunes: '',
     kind: '',
+    keyword: '',
     enabled: true,
     eventsText: '',
     projectsText: '',
@@ -505,6 +508,7 @@ function buildServerWrite(): Record<string, unknown> {
           url: w.url.trim(),
           max_text_runes: optionalInt(w.maxTextRunes) ?? 0,
           kind: w.kind,
+          keyword: w.keyword.trim(),
           enabled: w.enabled,
           events: lines(w.eventsText),
           projects: lines(w.projectsText),
@@ -1208,6 +1212,15 @@ onUnmounted(() => {
                     <option value="dingtalk">dingtalk（钉钉机器人）</option>
                     <option value="feishu">feishu（飞书机器人）</option>
                   </select>
+                </label>
+                <label class="field">
+                  <span class="field-name">keyword（钉钉/飞书「自定义关键词」；消息不含它时自动加到标题前）</span>
+                  <input
+                    v-model="w.keyword"
+                    class="input"
+                    placeholder="gofer"
+                    @change="refreshPreview()"
+                  />
                 </label>
                 <label class="field">
                   <span class="field-name">max_text_runes（留空/0 = 继承全局）</span>

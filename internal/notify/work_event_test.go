@@ -24,7 +24,7 @@ func TestWorkEventsAreDefaultTriggersAndRender(t *testing.T) {
 	long := "等我 3 · 等资源 1 · 需现场 2 · 待验收 0\n\n搁置超过 7 天（1）：\n- [老搁置](http://g/work?id=w-1)\n" + strings.Repeat("很长的内容", 200)
 	body, err := RenderMessageWithLimit(KindDingTalk, Message{
 		EventType: EventWorkDigest, Title: "工作摘要 · 2026-10-05", Text: long, Link: "http://g/work", LinkLabel: "打开工作页",
-	}, 120)
+	}, "", 120)
 	if err != nil {
 		t.Fatal(err)
 	}

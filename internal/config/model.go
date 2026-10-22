@@ -1604,6 +1604,13 @@ type WebhookConfig struct {
 	// `{event, job}` JSON contract; dingtalk / feishu render the provider's own bot
 	// message so a group robot shows a readable card.
 	Kind string `yaml:"kind,omitempty"`
+	// Keyword is the bot's 自定义关键词 security setting (gofer-map1): DingTalk and
+	// Feishu only accept a message whose title or text CONTAINS one of the robot's
+	// keywords and refuse the rest with HTTP 200 + a business error. When the
+	// rendered title and text carry none of it, gofer prefixes it to the title. Only
+	// the IM kinds use it (a generic webhook has no such setting); 加签 is
+	// secret_env and IP allow-list is configured on the provider side.
+	Keyword string `yaml:"keyword,omitempty"`
 	// Enabled pauses ONE target without deleting it (S4, 2026-09-23). A pointer,
 	// nil = on: pausing a noisy robot keeps its url / secret_env / events, which
 	// deleting the entry would lose. A paused webhook is skipped at MATCH time

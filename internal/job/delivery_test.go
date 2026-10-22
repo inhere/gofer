@@ -50,7 +50,7 @@ func TestDeliverDueSuccess(t *testing.T) {
 
 	var gotType string
 	var gotBody []byte
-	s.postFn = func(_ context.Context, _, eventType string, body []byte, _ string, _ config.NotificationConfig) error {
+	s.postFn = func(_ context.Context, _, _, eventType string, body []byte, _ string, _ config.NotificationConfig) error {
 		gotType = eventType
 		gotBody = body
 		return nil
@@ -92,7 +92,7 @@ func TestDeliverDueRetryThenFail(t *testing.T) {
 	s.nowFn = func() time.Time { return time.Unix(clk.now(), 0) }
 
 	var calls atomic.Int64
-	s.postFn = func(_ context.Context, _, _ string, _ []byte, _ string, _ config.NotificationConfig) error {
+	s.postFn = func(_ context.Context, _, _, _ string, _ []byte, _ string, _ config.NotificationConfig) error {
 		calls.Add(1)
 		return errors.New("boom 500")
 	}
@@ -172,7 +172,7 @@ func TestDeliverDueNoDoubleDeliver(t *testing.T) {
 	s.nowFn = func() time.Time { return time.Unix(clk.now(), 0) }
 
 	var posts atomic.Int64
-	s.postFn = func(_ context.Context, _, _ string, _ []byte, _ string, _ config.NotificationConfig) error {
+	s.postFn = func(_ context.Context, _, _, _ string, _ []byte, _ string, _ config.NotificationConfig) error {
 		posts.Add(1)
 		return nil
 	}

@@ -155,13 +155,17 @@ func Sign(body []byte, secret string) string {
 // could bounce to an internal host). A 2xx is success (nil); any other status or
 // a transport error is returned.
 //
+// For the IM kinds a 2xx is not the last word: dingtalk / feishu answer 200 with
+// a business code in the body when they refuse the message, so the body is parsed
+// too and a non-zero code becomes a *ProviderError (gofer-map1).
+//
 // eventType is stamped into X-Gofer-Event. secretValue is the already-resolved
 // secret (the caller reads the env so this stays test-friendly / pure).
-func PostWebhook(ctx context.Context, target, eventType string, body []byte, secretValue string, cfg config.NotificationConfig) error {
+func PostWebhook(ctx context.Context, kind, target, eventType string, body []byte, secretValue string, cfg config.NotificationConfig) error {
 	if err := ValidateWebhookURL(target, cfg); err != nil {
 		return err
 	}
-	return postRequest(ctx, target, eventType, body, secretValue)
+	return postRequest(ctx, kind, target, eventType, body, secretValue)
 }
 
 // postRequest performs the signed POST without re-validating the URL. It is the
@@ -170,7 +174,10 @@ func PostWebhook(ctx context.Context, target, eventType string, body []byte, sec
 // tested against an httptest loopback server, which ValidateWebhookURL would (by
 // design) reject. PRODUCTION callers MUST go through PostWebhook so validation is
 // never skipped.
-func postRequest(ctx context.Context, target, eventType string, body []byte, secretValue string) error {
+//
+// kind selects whether the response body is inspected for a provider business
+// error (dingtalk / feishu); the generic kind only looks at the status code.
+func postRequest(ctx context.Context, kind, target, eventType string, body []byte, secretValue string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build webhook request: %w", err)
@@ -193,10 +200,14 @@ func postRequest(ctx context.Context, target, eventType string, body []byte, sec
 		return fmt.Errorf("webhook POST %s: %w", target, err)
 	}
 	defer resp.Body.Close()
-	// Drain a little so the connection can be reused; ignore content.
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	// Read a bounded response body: the IM bots report a business error here
+	// (gofer-map1), so a 2xx alone does not prove the message was accepted.
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook POST %s: status %d", target, resp.StatusCode)
+	}
+	if err := CheckProviderResponse(kind, respBody); err != nil {
+		return fmt.Errorf("webhook POST %s: %w", target, err)
 	}
 	return nil
 }

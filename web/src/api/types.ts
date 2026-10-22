@@ -974,6 +974,8 @@ export interface WebhookView {
   max_text_runes: number
   // OBS-07a：出站适配器（'' / generic / dingtalk / feishu）。
   kind: string
+  // 钉钉 / 飞书的「自定义关键词」（不是密钥，读路径会回声）：消息里不含它时 gofer 加到标题前。
+  keyword: string
   events: string[]
   projects: string[]
   // S4：单个目标的暂停开关（nil = 开）。暂停保留 url/secret_env/events（删除会丢）。

@@ -32,7 +32,7 @@ func TestNotifySessionWaitingEndToEnd(t *testing.T) {
 	var gotURL, gotType string
 	var gotBody []byte
 	var gotSecret string
-	s.postFn = func(_ context.Context, target, eventType string, body []byte, secret string, _ config.NotificationConfig) error {
+	s.postFn = func(_ context.Context, _, target, eventType string, body []byte, secret string, _ config.NotificationConfig) error {
 		gotURL, gotType, gotBody, gotSecret = target, eventType, body, secret
 		return nil
 	}
@@ -113,7 +113,7 @@ func TestJobEventRendersForIMKind(t *testing.T) {
 	s.config().Server.WebBaseURL = "https://gofer.example.com"
 
 	var gotBody []byte
-	s.postFn = func(_ context.Context, _, _ string, body []byte, _ string, _ config.NotificationConfig) error {
+	s.postFn = func(_ context.Context, _, _, _ string, body []byte, _ string, _ config.NotificationConfig) error {
 		gotBody = body
 		return nil
 	}
@@ -149,7 +149,7 @@ func TestNotifySessionNudgePausedIsOptIn(t *testing.T) {
 
 	s := newNotifyService(t, t.TempDir(), []config.WebhookConfig{{URL: "https://hooks.example.com/b", Events: []string{EventSessionNudgePaused}}}, nil)
 	var gotType string
-	s.postFn = func(_ context.Context, _, eventType string, _ []byte, _ string, _ config.NotificationConfig) error {
+	s.postFn = func(_ context.Context, _, _, eventType string, _ []byte, _ string, _ config.NotificationConfig) error {
 		gotType = eventType
 		return nil
 	}

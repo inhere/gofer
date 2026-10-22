@@ -24,7 +24,7 @@ func TestHoldNotifiesApprover(t *testing.T) {
 
 	bodies := map[string][]byte{}
 	types := map[string][]string{}
-	s.postFn = func(_ context.Context, target, eventType string, body []byte, _ string, _ config.NotificationConfig) error {
+	s.postFn = func(_ context.Context, _, target, eventType string, body []byte, _ string, _ config.NotificationConfig) error {
 		if eventType == EventJobAwaitingApproval {
 			bodies[target] = body
 		}
