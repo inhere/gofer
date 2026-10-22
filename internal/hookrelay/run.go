@@ -125,7 +125,7 @@ type Result struct {
 	Reason  string
 	Notice  string
 	// Context is extra context for the agent on SessionStart / UserPromptSubmit
-	// (undelivered "[gofer job 完成]" notices, caught up after a missed Stop) and
+	// (undelivered "[gofer · job 完成]" notices, caught up after a missed Stop) and
 	// on PreToolUse (when.commands-matched memories). The
 	// caller prints it as hookSpecificOutput.additionalContext.
 	Context string
@@ -752,7 +752,7 @@ func (r *runner) mayBlockForJobs(mode string, a client.AgentSession, idle int64)
 
 // waitJobsOnly is the Stop path of a session that does NOT relay web input but
 // still has pending job watches: block (within the --wait budget) until a watched
-// job reaches a terminal state, then hand its "[gofer job 完成]" notice to the
+// job reaches a terminal state, then hand its "[gofer · job 完成]" notice to the
 // agent as the block reason. No turn is opened, so nothing reaches the web and a
 // web reply is never injected. Released when every watch is gone (delivered or
 // removed) or the budget runs out; a still-pending watch is then caught up by
