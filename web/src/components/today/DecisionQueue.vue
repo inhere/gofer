@@ -6,6 +6,8 @@ import DecisionCard from './DecisionCard.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
 import type { SnoozeOption } from '../../utils/todaySnooze'
 import { groupByTier } from '../../utils/today'
+import { CEILING_READ_ONLY_NOTICE } from '../../utils/ceiling'
+import { useWhoami } from '../../store/whoami'
 
 const props = defineProps<{ cards: TodayCard[]; nowSec: number; limit?: number; emptyText?: string }>()
 const emit = defineEmits<{
@@ -19,6 +21,8 @@ const emit = defineEmits<{
 const shown = computed(() => (props.limit && props.limit > 0 ? props.cards.slice(0, props.limit) : props.cards))
 const rest = computed(() => props.cards.length - shown.value.length)
 const groups = computed(() => groupByTier(shown.value))
+// 只读身份把「专注处理」灰显（整页都在做写操作，服务端也会 403）——gofer-darr。
+const { readOnly } = useWhoami()
 </script>
 
 <template>
@@ -38,7 +42,7 @@ const groups = computed(() => groupByTier(shown.value))
     </template>
     <div v-if="rest > 0" class="dq-rest mono">
       <button class="dq-more" type="button" data-test="dq-more" @click="emit('more')">还有 {{ rest }} 张 · 打开全部</button>
-      <button class="dq-focus" type="button" data-test="dq-focus" @click="emit('focus')">专注处理</button>
+      <button class="dq-focus" type="button" data-test="dq-focus" :disabled="readOnly" :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined" @click="emit('focus')">专注处理</button>
     </div>
   </div>
 </template>
@@ -84,6 +88,9 @@ const groups = computed(() => groupByTier(shown.value))
   border-radius: var(--radius);
   font-size: 12px;
   font-weight: 600;
+}
+.dq-focus:disabled {
+  opacity: 0.5;
 }
 .dq-more {
   flex: 1 1 auto;

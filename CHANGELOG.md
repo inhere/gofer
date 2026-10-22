@@ -13,6 +13,7 @@
 
 ### 修复
 
+- **只读身份（调用方上限 `read_only: true`）在今天页不再看到会 403 的按钮（gofer-darr）**：顶栏「只读」标记与 `+job` 之外，决策卡的 回复 / 请求汇报 / 搁置 / 按建议 / 验收与批准 / 采纳记忆建议 / 采纳建议 等会改状态的按钮现在按对应权限灰显，悬停说明「只读身份」或缺少哪个权限（判定在 `web/src/utils/todayGate.ts`，复用 `permissionGate` / `reviewGate` / `ceiling` 的现有口径）；「专注处理」同样灰显。纯查看（详情、看 diff、打开 plan、稍后 / 从稍后放回）不受影响——「稍后」是 ReadSafe 的个人偏好写，服务端对只读身份照收。
 - **web 在没有 `sessionStorage` 的渲染环境里不再抛错**：`store/auth.getToken` 对缺失的 `sessionStorage` 返回未登录，按身份取的 store（whoami 等）在服务端渲染 / 组件渲染测试里保持 null，而不是抛 `ReferenceError`。
 
 ## [0.182.1] - 2026-10-21
