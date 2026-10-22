@@ -72,7 +72,8 @@ export function parseMailAddress(input: string): ParsedMailAddress {
 // ---- 写信 / 回信 / 改投的请求体 ----
 
 export interface MailComposeForm {
-  to: string
+  // 手写地址串，或写信框拼好的地址数组（会话多选 + 「全部」选器 + 手写）。
+  to: string | string[]
   body: string
   urgent: boolean
 }
@@ -160,20 +161,155 @@ export function mailRecipientPreview(input: string, sessions: PreviewSession[]):
   return unknown ? -1 : seen.size
 }
 
+// ---- 写信框的收件人（gofer-ndy5：会话多选 + 「按项目 / 主题 / agent 全部」+ 手写地址）----
+
+// MailScope 是一种「全部」选器：项目 / 主题 / agent / 子路径，生成 each:<scheme>:<value>。
+export interface MailScope {
+  scheme: 'project' | 'topic' | 'agent' | 'path'
+  value: string
+}
+
+// MailComposeState 是写信框选出来的收件人：会话 id 多选、若干个「全部」选器、手写地址（高级）；
+// 正文与急件也放这里，写信框就一个状态对象。
+export interface MailComposeState {
+  sessions: string[]
+  scopes: MailScope[]
+  manual: string
+  body: string
+  urgent: boolean
+}
+
+export function emptyMailCompose(): MailComposeState {
+  return { sessions: [], scopes: [], manual: '', body: '', urgent: false }
+}
+
+// mailComposeAddresses 把写信框的状态拼成地址表（保序去重）：每个选中会话一个 session:<sid>，
+// 每个选器一个 each:<scheme>:<value>，手写部分按老规则解析。什么都没选 = 自己的收集箱（caller）。
+export function mailComposeAddresses(st: MailComposeState): MailRecipients {
+  const out: string[] = []
+  const push = (a: string): void => {
+    if (a && !out.includes(a)) out.push(a)
+  }
+  for (const sid of st.sessions) {
+    const v = (sid ?? '').trim()
+    if (v) push(`session:${v}`)
+  }
+  for (const sc of st.scopes) {
+    const scheme = (sc.scheme ?? '').trim().toLowerCase()
+    const value = (sc.value ?? '').trim()
+    if (!EACH_SCHEMES.has(scheme) || !value || /\s/.test(value)) {
+      return { ok: false, addresses: [], error: `「全部」选器要填值（按${mailScopeLabel(scheme as MailScope['scheme'])}），且不能有空白` }
+    }
+    push(`each:${scheme}:${value}`)
+  }
+  const manual = (st.manual ?? '').trim()
+  if (manual) {
+    const parsed = parseMailRecipients(manual)
+    if (!parsed.ok) return { ok: false, addresses: [], error: parsed.error }
+    // 手写部分为空时 parseMailRecipients 回 caller；这里只有填了手写才进来，照常接受。
+    for (const a of parsed.addresses) push(a)
+  }
+  if (!out.length) return { ok: true, addresses: ['caller'], error: '' }
+  return { ok: true, addresses: out, error: '' }
+}
+
+// 选器的人话名称（下拉与提示共用）。
+export const MAIL_SCOPES: Array<{ key: MailScope['scheme']; label: string; hint: string }> = [
+  { key: 'project', label: '按项目全部', hint: '项目 key，例如 <project>' },
+  { key: 'topic', label: '按主题全部', hint: '主题关键词，例如 login' },
+  { key: 'agent', label: '按 agent 全部', hint: 'agent 名，例如 claude / codex' },
+  { key: 'path', label: '按工作区子路径全部', hint: '子路径，例如 web/src' },
+]
+
+export function mailScopeLabel(scheme: MailScope['scheme'] | ''): string {
+  const label = MAIL_SCOPES.find((s) => s.key === scheme)?.label ?? String(scheme)
+  return label.replace(/^按/, '').replace(/全部$/, '').trim()
+}
+
+// mailAddressLabel 是已选收件人标签上的文字：会话短 id、job id，选器写「项目 X 全部」。
+export function mailAddressLabel(address: string): string {
+  if (address === 'caller') return '我自己的收集箱'
+  if (address.startsWith('each:')) {
+    const [, scheme, ...rest] = address.split(':')
+    const value = rest.join(':')
+    return `${mailScopeLabel(scheme as MailScope['scheme'])} ${value} 全部`
+  }
+  const sep = address.indexOf(':')
+  const scheme = sep < 0 ? '' : address.slice(0, sep)
+  const value = sep < 0 ? address : address.slice(sep + 1)
+  switch (scheme) {
+    case 'session':
+      return `会话 ${value}`
+    case 'job':
+      return `job ${value}`
+    case 'topic':
+      return `主题 ${value}`
+    case 'path':
+      return `路径 ${value}`
+  }
+  return address
+}
+
+// ComposeSessionOption 是会话多选里的一行（GET /v1/sessions 的一行 + 标题）。
+export type ComposeSessionOption = PreviewSession & { title?: string }
+
+// filterComposeSessions 按搜索词过滤会话多选的可选项（会话 id / 标题 / agent / 项目 / 主题）。
+export function filterComposeSessions(sessions: ComposeSessionOption[], q: string): ComposeSessionOption[] {
+  const needle = (q ?? '').trim().toLowerCase()
+  if (!needle) return sessions
+  return sessions.filter((s) =>
+    [s.session_id, s.title, s.agent, s.project_key, s.topic].some((v) => (v ?? '').toLowerCase().includes(needle)),
+  )
+}
+
+// mailSessionOptionLabel 是会话多选里的一行：会话名（短 id）+ 标题 + agent + 项目。
+export function mailSessionOptionLabel(s: PreviewSession & { title?: string; state?: string }): string {
+  const bits = [s.title || '(无标题)', s.agent || '—', s.project_key || '(无项目)']
+  return `${shortId(s.session_id)} · ${bits.join(' · ')}`
+}
+
+// mailComposePreviewText 是发送按钮上的预览文案：有服务端的 dry_run 回答就用它（「将投递 M 个
+// 会话（略过 K 个）」），否则显示本地估算或等待中。
+export interface MailPreviewCount {
+  delivered: number
+  skipped: number
+  matched: number
+}
+
+export function mailComposePreviewText(
+  addresses: string[],
+  preview: MailPreviewCount | null,
+  localEstimate: number,
+): string {
+  if (!addresses.length || (addresses.length === 1 && addresses[0] === 'caller')) {
+    return '收件人留空 = 投给自己的收集箱'
+  }
+  if (preview) {
+    const skip = preview.skipped > 0 ? `（略过 ${preview.skipped} 个）` : ''
+    return `将投递 ${preview.delivered} 个会话${skip}`
+  }
+  if (localEstimate < 0) return '含 path: 选择器：投递数由服务端按范围匹配'
+  return `约 ${localEstimate} 个会话（服务端确认中…）`
+}
+
 export interface MailBuild {
   req: MailSendBody | null
   error: string
 }
 
-// buildMailSend 校验写信表单并构造 POST /v1/mail 的请求体（urgent 只在勾选时带上）。
+// buildMailSend 校验写信表单并构造 POST /v1/mail 的请求体（urgent 只在勾选时带上）。to 可以是
+// 手写地址串（老写法）或写信框拼好的地址数组。
 export function buildMailSend(f: MailComposeForm): MailBuild {
   const body = f.body.trim()
   if (!body) return { req: null, error: '先写点内容' }
   if (new TextEncoder().encode(body).length > MAIL_BODY_MAX) {
     return { req: null, error: `正文最多 ${MAIL_BODY_MAX} 字节` }
   }
-  const addr = parseMailRecipients(f.to)
+  const addr = Array.isArray(f.to)
+    ? { ok: true, addresses: f.to, error: '' }
+    : parseMailRecipients(f.to)
   if (!addr.ok) return { req: null, error: addr.error }
+  if (!addr.addresses.length) return { req: null, error: '没有收件人' }
   // 一个普通地址保持原来的字符串写法；多个地址 / any each: 选择器发成数组（群发）。
   const broadcast = addr.addresses.length > 1 || addr.addresses.some((a) => a.startsWith('each:'))
   const req: MailSendBody = { to: broadcast ? addr.addresses : addr.addresses[0], body }
