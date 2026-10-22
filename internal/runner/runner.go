@@ -296,6 +296,10 @@ type ACPRequest struct {
 	Approval config.ApprovalConfig
 	// MCPServers are advertised to the agent in session/new.
 	MCPServers []ACPMCPServer
+	// MailResident marks the gofer mailbox's resident 收件会话 (mail.agents.<name>): the
+	// gate auto-allows its call to gofer_session_mail_reply, so answering a letter does
+	// not park on a human. Everything else stays gated (gofer-sh7r).
+	MailResident bool
 	// LoadSessionID, when non-empty, is the agent session this job CONTINUES: the
 	// runner calls session/load{sessionId} instead of session/new (ACP-01 S2). It is
 	// filled only for a resume (JobRequest.ResumedFrom set) — a plain job that carries

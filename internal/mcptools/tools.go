@@ -181,6 +181,22 @@ func IsReadOnly(name string) bool {
 	return ok && t.Class == ReadOnly
 }
 
+// MailReplyTool is the mailbox's answer tool. It is a Write tool, but the resident 收件会话
+// may call it without a human (gofer-sh7r): answering a letter that arrived in this session
+// is the whole job. Callers still gate every other gofer write tool.
+const MailReplyTool = "gofer_session_mail_reply"
+
+// MailReplyToolName reports the gofer mailbox reply tool raw names, if it names one. It uses
+// the same exact-name resolution as ToolName, so a tool qualified by another MCP server (or a
+// name that only looks like it) is not gofer's and stays gated.
+func MailReplyToolName(raw string) (string, bool) {
+	name, ok := ToolName(raw)
+	if !ok || name != MailReplyTool {
+		return "", false
+	}
+	return name, true
+}
+
 // ToolName resolves the gofer tool a raw name refers to. raw is either the bare tool
 // name (what suga and most ACP agents put in a tool call's title, e.g.
 // "gofer_work_list") or an MCP-qualified name in the mcp__<server>__<tool> shape

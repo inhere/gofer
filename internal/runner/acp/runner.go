@@ -94,18 +94,19 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	}()
 
 	h := &handler{
-		ctx:         ctx,
-		stdout:      req.Stdout,
-		stderr:      req.Stderr,
-		events:      events,
-		onJobEvent:  req.OnJobEvent,
-		meter:       req.Meter,
-		policy:      policy,
-		approvals:   req.Approvals,
-		jobID:       req.JobID,
-		logThoughts: req.ACP.LogThoughts,
-		toolStatus:  map[string]string{},
-		toolEvents:  map[string]string{},
+		ctx:          ctx,
+		stdout:       req.Stdout,
+		stderr:       req.Stderr,
+		events:       events,
+		onJobEvent:   req.OnJobEvent,
+		meter:        req.Meter,
+		policy:       policy,
+		approvals:    req.Approvals,
+		jobID:        req.JobID,
+		mailResident: req.ACP.MailResident,
+		logThoughts:  req.ACP.LogThoughts,
+		toolStatus:   map[string]string{},
+		toolEvents:   map[string]string{},
 	}
 	// F14: when the agent's config asks for it, the process starts with the `env` block
 	// of claude's user settings file layered in — keys neither the process environment
@@ -558,6 +559,10 @@ type handler struct {
 	// never approved).
 	approvals runner.ApprovalSink
 	jobID     string
+	// mailResident marks the gofer mailbox's resident 收件会话 (mail.agents.<name>):
+	// its call to gofer_session_mail_reply is answered without a human, because
+	// answering a letter that arrived in this session is the whole job (gofer-sh7r).
+	mailResident bool
 	// logThoughts keeps the coalesced thought line in the logs (acp.log_thoughts).
 	logThoughts bool
 
@@ -868,6 +873,13 @@ func (h *handler) usageSnapshot() *runner.Usage {
 // gofer_work_list or gofer_today_list parked a steward on a human. The tool is
 // resolved by exact name against internal/mcptools, never by a name prefix, and a tool
 // qualified by another MCP server is not gofer's. mode=strict still asks everything.
+//
+// A resident 收件会话 (gofer-sh7r) gets ONE more allowance: gofer_session_mail_reply, the
+// answer path of a letter that arrived in its own conversation. Answering IS that
+// session's job, so asking a human for every letter made the mailbox unusable under
+// approval: ask. Only that exact tool is allowed — any other gofer write tool, a write
+// file or a shell command still goes to a human, and the server independently refuses a
+// reply to a letter the job did not receive.
 func (h *handler) RequestPermission(p acp.RequestPermissionParams) acp.PermissionOutcome {
 	kind := ""
 	if p.ToolCall != nil {
@@ -878,6 +890,8 @@ func (h *handler) RequestPermission(p acp.RequestPermissionParams) acp.Permissio
 		return h.answerAutomatically(p, kind, "off")
 	case h.policy.Mode == config.ApprovalAsk && isGoferReadOnlyTool(p.ToolCall):
 		return h.answerAutomatically(p, kind, "gofer_readonly_tool")
+	case h.policy.Mode == config.ApprovalAsk && h.mailResident && isGoferMailReplyTool(p.ToolCall):
+		return h.answerAutomatically(p, kind, autoReasonMailResidentReply)
 	case h.rememberedAllowAlways(kind):
 		return h.answerAutomatically(p, kind, "remembered_allow_always")
 	case h.policy.Mode == config.ApprovalAsk && h.policy.AutoAllow(kind):
@@ -1189,6 +1203,20 @@ func toolCallTitle(tc *acp.ToolCall) string {
 // gated; so does a write tool with the same prefix.
 func isGoferReadOnlyTool(tc *acp.ToolCall) bool {
 	_, ok := mcptools.ReadOnlyToolName(toolCallTitle(tc))
+	return ok
+}
+
+// autoReasonMailResidentReply is the acp.jsonl / stderr reason recorded when a resident
+// 收件会话's letter answer was allowed without a human (gofer-sh7r).
+const autoReasonMailResidentReply = "mail_resident_reply"
+
+// isGoferMailReplyTool reports whether this permission request is gofer's mailbox reply
+// tool (gofer_session_mail_reply), resolved by exact name through internal/mcptools — so a
+// tool another MCP server names the same way, or any other gofer write tool, stays gated.
+// Which letter may be answered is NOT decided here: the server refuses a reply whose
+// letter this job did not receive (the credential rule in the mail routes).
+func isGoferMailReplyTool(tc *acp.ToolCall) bool {
+	_, ok := mcptools.MailReplyToolName(toolCallTitle(tc))
 	return ok
 }
 

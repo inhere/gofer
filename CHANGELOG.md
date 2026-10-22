@@ -14,6 +14,7 @@
 ### 修复
 
 - **Windows 关掉通知时桌面通知不再“假成功”（gofer-3a9e）**：`ToastNotificationManager` 的 `Show()` 在 `ToastNotifier.Setting` 不是 `Enabled`（`DisabledForUser` / `DisabledForApplication` / `DisabledByGroupPolicy` / `DisabledByManifest`）时静默返回，看起来弹了实际什么都不显示，日志里也什么都没有。现在固定 PowerShell 脚本在 `Show()` 之前先读 `Setting`，非 `Enabled` 就以退出码 3 结束并打印 `setting=<值>`，Go 侧映射成“跳过”：日志记一条 `notify.desktop_skipped`，`reason` 带设置值与修复路径（Windows 设置 → 系统 → 通知：打开通知总开关与 Windows PowerShell）。同一原因仍只记一条；原因变了（例如被组策略关掉）或恢复正常弹过之后又坏，会重新记一条。脚本仍固定，事件数据仍经环境变量传入。
+- **常驻收件会话用 gofer 信箱工具回信，回信不再每次找人批（gofer-sh7r）**：`mail.agents.<名字>` 的常驻会话现在启动时由 gofer 自己把 gofer MCP 注入到 ACP 会话（带该 job 的凭据，与 steward 同一套注入），所以 `gofer_session_mail_reply` 等信箱工具一定在——以前要等 agent 自己的 MCP 配置碰巧绑了 `gofer`，否则会话只能用命令行回信。开场说明也改为只给 MCP 工具一种回信方式，明确不要用命令行 / shell 回信。`approval: ask` 下，常驻会话用 `gofer_session_mail_reply` 回复**它自己收到的信**自动放行（`acp.jsonl` 记 `reason: mail_resident_reply`）；其余 gofer 写工具（`gofer_session_mail_send`、`gofer_run_job` …）、写文件、执行命令照旧按策略审批，`mode: strict` 也不放行。服务端另加一道校验：job 凭据只能碰本 job 的信件，以及它当前作为那个 `agent:<名字>@<项目>` 常驻会话收到的信，回复别的对话串 / 别的常驻会话的信件返回 403。
 
 ## [0.186.0] - 2026-10-22
 

@@ -49,6 +49,11 @@ func (h mailResidentHost) StartSession(sp mail.ResidentSpec) (string, error) {
 		// which would block every other job of that project (设计「常驻」/ the acp session lock).
 		ExclusiveDir: &shared,
 		Channel:      "mail", CallerID: sp.CallerID, OriginCaller: sp.OriginCaller,
+		// gofer-sh7r: a resident 收件会话 answers letters through gofer's MCP tools, and
+		// that one answer must not park on a human — the job layer injects the gofer MCP
+		// and marks the session so the approval gate knows (mail.ResidentSpec has no such
+		// field: the mailbox names a job, not its plumbing).
+		MailResident: true,
 	}
 	if sid := strings.TrimSpace(sp.ResumeSessionID); sid != "" && sp.ResumeFromJobID != "" &&
 		h.canResume(sp.Agent) {
