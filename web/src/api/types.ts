@@ -3653,3 +3653,35 @@ export interface SettingsImportResp {
   // 被拒的键数（changes 里同时标了 error）。
   errors: number
 }
+
+// 收件 agent（设计 2026-10-22 mail-agent-address「D6」）：`agent:<名字>` 地址可用哪些名字，
+// 以及当前常驻的会话。agents 来自 server 配置 mail.agents；residents 是正在跑的会话。
+export interface MailResidentAgent {
+  name: string
+  agent: string
+  runner?: string
+  idle_minutes: number
+  max_letters: number
+  max_hours: number
+  prompt?: string
+  args?: string[]
+}
+
+export interface MailResidentSession {
+  name: string
+  project?: string
+  job_id?: string
+  session_id?: string
+  letters: number
+  pending: number
+  status: string
+  created_at: number
+  idle_since?: number
+  last_error?: string
+}
+
+export interface MailAgentsResp {
+  agents_max_resident: number
+  agents: MailResidentAgent[]
+  residents: MailResidentSession[]
+}

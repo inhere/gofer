@@ -100,4 +100,5 @@ mail:
 - **D5 权限与事件**：`internal/httpapi/mail_handler.go` 的 `mailAuthorize` 对 `MailKindAgent` 目标要求 `job.submit`（job 凭据直接放行，它自己的提交已证明）；事件走 `AppendAuditEvent("mail_resident", <名字@项目>, detail)` 并写 slog。
 - **D6 接口**：`GET /v1/mail/agents`、`POST /v1/mail/agents/{name}/end?project=`（`internal/httpapi/mail_agents.go`，G056 声明已登记并重跑 `go generate ./internal/httpapi/...`）；CLI `gofer session mail agents [--end <名字>] [--project <项目>]`；MCP 发信工具地址说明加 `agent:`。
 - **测试**：`internal/mail/resident_test.go`（地址解析含默认项目 / `@项目` / 未配置名字、首封启动、第二封复用、`max_letters` 轮换、终态续接、上限转待指派、启动失败与重试窗口、回信同串、手动结束与列表）用假 `ResidentHost`；`internal/mail/mail_test.go` 的 `agent:` 未支持用例改为「未配置名字」用例，`broadcast_test.go` 的解析期望同步。
-- **未完成 / 后续**：web 信箱页的「常驻 agent」区（D6 的前端部分）本次未做——它要在独立新组件里挂到 Mail.vue，留待与正在改 Mail.vue 写信箱布局的任务一起做。
+- **web**：常驻 agent 列表放在独立组件 `web/src/components/mail/ResidentAgents.vue`（名字 / 项目 / job 链接 / 信件数与待投递 / 空闲 / 状态 / 结束按钮），`Mail.vue` 只多一行导入与一个 `<MailResidentAgents />` 挂载；API client 加 `listMailAgents` / `endMailAgent`，types 加 `MailAgentsResp` 等；接线用 `web/src/views/mailResidentAgents.test.ts` 钉住。
+- **已完成**：D1–D6 全部落地。

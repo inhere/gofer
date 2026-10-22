@@ -28,6 +28,7 @@ import { pageWriteBlock } from '../utils/pageGate'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import MailPersonaChip from '../components/mail/PersonaChip.vue'
+import MailResidentAgents from '../components/mail/ResidentAgents.vue'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import {
   buildMailReaddress,
@@ -407,6 +408,9 @@ onMounted(() => {
         {{ composeOpen ? '收起' : '写信' }}
       </button>
     </header>
+
+    <!-- 常驻 agent（设计 2026-10-22 mail-agent-address）：独立组件，这里只挂载。 -->
+    <MailResidentAgents />
 
     <form v-if="composeOpen" class="compose" data-test="mail-compose" @submit.prevent="sendCompose">
       <input

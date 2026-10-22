@@ -35,6 +35,7 @@ import type {
   JobStatus,
   ListJobsOpts,
   LogStream,
+  MailAgentsResp,
   MailConversationsResp,
   MailListResp,
   MailMessage,
@@ -2088,4 +2089,15 @@ export function readdressMail(id: number, body: { to: string; project?: string }
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+// 收件 agent（`agent:<名字>`）：配置的名字与当前常驻会话。
+export function listMailAgents(): Promise<MailAgentsResp> {
+  return request<MailAgentsResp>('/v1/mail/agents')
+}
+
+// 手动结束某个 agent 的常驻会话（没有常驻会话时是 404）。
+export function endMailAgent(name: string, project = ''): Promise<{ name: string; project?: string; job_id?: string; status: string }> {
+  const qs = project ? `?project=${encodeURIComponent(project)}` : ''
+  return request(`/v1/mail/agents/${encodeURIComponent(name)}/end${qs}`, { method: 'POST' })
 }
