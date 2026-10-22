@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -391,6 +392,16 @@ func (s *Server) mailAuthorize(c *rux.Context, org mail.Origin, replying bool) f
 			}
 			if !ceilingAllowsProject(ceil, project) {
 				return &mailRefusal{status: http.StatusNotFound, kind: t.Kind, id: t.ID}
+			}
+		case jobstore.MailKindAgent:
+			// The recipient id is `<name>@<project>`: the resident session will RUN in that
+			// project, so a caller whose ceiling does not cover it is refused HERE — otherwise the
+			// letter would be stored and only fail when the session start is refused (and then
+			// sit pending until it expires). An address with no project in it (the sender named
+			// none and the request has none) cannot be judged and is left to the next checks.
+			name, project := jobstore.SplitResidentKey(t.ID)
+			if strings.TrimSpace(project) != "" && !ceilingAllowsProject(ceil, project) {
+				return mailForbidden(fmt.Sprintf("agent:%s runs in project %q, outside your caller ceiling", name, project))
 			}
 		}
 		if replying {

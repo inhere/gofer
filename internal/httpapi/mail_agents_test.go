@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
 )
 
@@ -57,6 +58,26 @@ func TestMailAgentEndWithoutASession(t *testing.T) {
 	}
 }
 
+func TestMailAgentSendRespectsTheCallerCeiling(t *testing.T) {
+	e := mailEnvWithAgent(t)
+	e.grant(authz.PermJobSubmit)
+	// carol's ceiling is project p1: a resident session in p2 is refused before anything is
+	// stored (it would otherwise sit pending until the session start is refused and expires).
+	status, body := e.req(t, mailTokCarol, "", "POST", "/v1/mail",
+		map[string]any{"to": "agent:suga@p2", "body": "hello", "project": "p1"})
+	if status != http.StatusForbidden {
+		t.Fatalf("agent: send outside the ceiling = %d (%s), want 403", status, body)
+	}
+	if n, err := e.s.jobs.Meta().CountMailFrom(jobstore.MailKindCaller, "", "carol", 0); err != nil || n != 0 {
+		t.Fatalf("carol's letters = %d (err=%v), want none stored", n, err)
+	}
+	// Inside the ceiling the same send goes through.
+	status, body = e.req(t, mailTokCarol, "", "POST", "/v1/mail",
+		map[string]any{"to": "agent:suga@p1", "body": "hello", "project": "p1"})
+	if status != http.StatusOK {
+		t.Fatalf("agent: send inside the ceiling = %d (%s), want 200", status, body)
+	}
+}
 func TestMailAgentSendNeedsJobSubmit(t *testing.T) {
 	e := mailEnvWithAgent(t)
 	// No permissions at all: the agent address refuses before anything is stored.

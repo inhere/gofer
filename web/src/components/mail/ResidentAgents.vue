@@ -117,6 +117,10 @@ defineExpose({ load })
   border-radius: 6px;
   padding: 10px 12px;
   margin-bottom: 12px;
+  /* 信箱页是满高 flex 布局：这块按内容高度但不超过 30vh，长了内部自己滚，不挤对话区。 */
+  flex: 0 0 auto;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 .resident-head {
   display: flex;
