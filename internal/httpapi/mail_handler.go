@@ -403,6 +403,10 @@ func (s *Server) mailAuthorize(c *rux.Context, org mail.Origin, replying bool) f
 				if allowedSessions[t.ID] {
 					return nil
 				}
+			case jobstore.MailKindAgent:
+				// A job credential's own submit already proved it may start work in its
+				// project; a resident session is the same kind of work.
+				return nil
 			}
 			return mailForbidden("a job credential may only mail its job's source session, its plan's supervisor session and its caller")
 		}
@@ -422,6 +426,14 @@ func (s *Server) mailAuthorize(c *rux.Context, org mail.Origin, replying bool) f
 			}
 			if !s.mayManageJob(c, rec, false) {
 				return mailForbidden("another caller's job", authz.PermJobManageOthers)
+			}
+		}
+		switch t.Kind {
+		case jobstore.MailKindAgent:
+			// A letter to an agent may START a resident session job: that costs job.submit
+			// (设计 2026-10-22「D5」).
+			if !s.can(c, authz.PermJobSubmit) {
+				return mailForbidden("sending to an agent may start a resident session", authz.PermJobSubmit)
 			}
 		}
 		return nil
