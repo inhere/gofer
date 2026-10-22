@@ -158,11 +158,15 @@ func MergeBranch(ctx context.Context, wtPath, branch string, squash bool) (main,
 	return main, base, nil
 }
 
-// gitStatusPorcelain returns `git status --porcelain --untracked-files=no` output RAW,
-// without GitOut's TrimSpace: the two status columns are significant (a leading space
-// means "not staged"), and trimming it would shift every path by one character.
+// gitStatusPorcelain returns the raw records of
+// `git status --porcelain -z --untracked-files=no`, NUL-separated and RAW (no GitOut's
+// TrimSpace): the two status columns are significant (a leading space means "not
+// staged"), and trimming them would shift every path by one character. -z is what makes
+// the paths comparable at all: the default short format C-quotes every path holding
+// non-ASCII characters, a quote or a control character (core.quotePath, `\351\227\256`
+// style), and stripping the surrounding quotes cannot undo that escaping (gofer-7lp5).
 func gitStatusPorcelain(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain", "--untracked-files=no")
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain", "-z", "--untracked-files=no")
 	procattr.Background(cmd)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
@@ -182,23 +186,27 @@ func gitStatusPorcelain(ctx context.Context, dir string) (string, error) {
 	return string(out), nil
 }
 
-// mergeBlockingChanges picks the paths out of `git status --porcelain` that must stop a
-// merge: everything but .gofer/tracker/. Renamed entries carry two paths; either one
-// outside the tracker blocks.
+// mergeBlockingChanges picks the paths out of `git status --porcelain -z` output that
+// must stop a merge: everything but .gofer/tracker/. Each record is the two status
+// columns, one space, then the path — unescaped, because of -z. A rename or copy marks
+// two paths, the new one in the record itself and the original as the NEXT record
+// (-z reverses the `old -> new` pair and drops the arrow); either one outside the
+// tracker blocks. Consuming that second record is what keeps a later entry aligned
+// instead of reading its original path as a status line.
 func mergeBlockingChanges(porcelain string) []string {
 	var blocked []string
-	for _, line := range strings.Split(porcelain, "\n") {
-		line = strings.TrimRight(line, "\r")
-		if len(line) < 4 {
+	records := strings.Split(porcelain, "\x00")
+	for i := 0; i < len(records); i++ {
+		record := records[i]
+		if len(record) < 4 {
 			continue
 		}
-		p := strings.TrimSpace(line[3:])
-		paths := []string{p}
-		if old, newPath, ok := strings.Cut(p, " -> "); ok {
-			paths = []string{old, newPath}
+		paths := []string{record[3:]}
+		if isRenameOrCopy(record[:2]) && i+1 < len(records) {
+			i++
+			paths = append(paths, records[i])
 		}
 		for _, candidate := range paths {
-			candidate = strings.Trim(candidate, "\"")
 			if candidate == "" || strings.HasPrefix(candidate, trackerPathPrefix) {
 				continue
 			}
@@ -206,6 +214,12 @@ func mergeBlockingChanges(porcelain string) []string {
 		}
 	}
 	return blocked
+}
+
+// isRenameOrCopy reports whether a porcelain status pair marks a rename or a copy, whose
+// original path git prints as the next NUL-separated record.
+func isRenameOrCopy(status string) bool {
+	return strings.ContainsAny(status, "RC")
 }
 
 // waitIndexUnlocked waits until the main checkout has no `.git/index.lock`, polling once
