@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gookit/goutil/x/assert"
 
@@ -81,6 +82,25 @@ func TestSummarizerRotatesSessionAfterMaxRuns(t *testing.T) {
 	rec, _, _ := st.GetSummarizerSession("p1")
 	assert.Eq(t, second, rec.SessionID)
 	assert.Eq(t, 1, rec.Runs, "the rotation starts the count over")
+}
+
+func TestSummarizerRotatesSessionWhenTooOld(t *testing.T) {
+	svc, st, w, fake := sumFixture(t, goodJSON)
+	svc.SetOneShot(&pinnedOneShot{fakeOneShot: fake, inject: true, resume: true})
+
+	if _, err := svc.RunSummarize(context.Background(), w.ID, SummarizeOpts{Cause: CauseManual}); err != nil {
+		t.Fatalf("first tidy-up: %v", err)
+	}
+	first := fake.calls[0].SessionID
+	clockOf(svc).Advance(25 * time.Hour) // work.summarizer_session_max_age defaults to 24h
+
+	if _, err := svc.RunSummarize(context.Background(), w.ID, SummarizeOpts{Cause: CauseManual}); err != nil {
+		t.Fatalf("second tidy-up: %v", err)
+	}
+	assert.Eq(t, 2, len(fake.calls), "an expired session is replaced instead of continued")
+	assert.True(t, fake.calls[1].SessionID != first, "the rotated run gets a new session id")
+	rec, _, _ := st.GetSummarizerSession("p1")
+	assert.Eq(t, 1, rec.Runs)
 }
 
 func TestSummarizerFallsBackToNewSessionWhenResumeFails(t *testing.T) {
