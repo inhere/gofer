@@ -85,7 +85,7 @@
 
 ## Runners、Agents、项目与设置
 
-- **Runners**：server 本机与每台 worker 一张卡：在线状态、心跳、在跑 job、版本；「工作目录」折叠区显示默认工作空间、roots 映射与各项目在该 runner 上的路径（不存在或被拒的标红）；「传话人」抽屉（状态、最近投递、错误输出尾部、列出可见会话）；「升级」按钮与升级历史（最近 5 次，带时间）；「添加 worker」。
+- **Runners**：server 本机与每台 worker 一张卡：在线状态、心跳、在跑 job、版本；「工作目录」折叠区显示默认工作空间、roots 映射与各项目在该 runner 上的路径（不存在或被拒的标红）；「传话人」抽屉（状态、已处理条数与存活时长、token / 成本用量、最近重建记录、最近投递、错误输出尾部、列出可见会话）；「升级」按钮与升级历史（最近 5 次，带时间）；「添加 worker」。
 - **待接受**（Runners 页，需要 `worker.manage`）：worker 机器上 `gofer worker join --server <server 地址>` 发起的注册申请列在这里——来源地址、主机名、OS / 架构、gofer 版本与协议版本、提议的 worker id 与标签、它报的 agents 与 roots，以及决定倒计时（默认 2 分钟，到点自动过期）。点「接受…」要输入 **worker 终端上显示的 8 位配对码**（web 不显示码，这正是用来分辨冒名申请的一步），同时可改 worker id（`server` / `local` 是保留名）、选项目、填标签；点「拒绝…」可写理由并勾选屏蔽该来源 10 分钟。server 配置里没开 `server.worker_enrollment.enabled` 时，这一区只显示怎么开启。功能没开或 worker 凭据进来时，这区与顶栏提醒都不出现。
 - **Agents**：每个 agent 的健康度徽标（绿 / 橙 / 灰）、「探针」按钮；从内置模板注入的 agent 标「内置」。
 - **项目**：项目表单（允许的 agent / runner、交互、exec 等）；内置 `default` 项目标「内置」。
