@@ -635,6 +635,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - `web/src/ui/AppShell.vue`：侧栏 / 图标栏、顶栏、信号带、手机标签栏、「更多」抽屉。形态只看视口宽度，与路由无关。
 - `web/src/utils/shell.ts`（纯函数，可单测）：`shellForm(width)` 给出 `tabs`(≤760) / `rail`(761–1099) / `desktop`(≥1100)；`sidebarExpanded()` 把「桌面可收起」与断点合起来判断；`readShellPrefs`/`writeShellPrefs` 存 `gofer.shell`（`collapsed` 侧栏收起、`nodesOpen` 节点区展开，坏值回落默认）；`SHELL_NAV_GROUPS` 是四组导航（核心 / 协作 / 自动化 / 基础设施）的唯一出处，文案全是 i18n `nav.*`；`TAB_BAR_ITEMS` + `moreItems()` 给手机的五标签与「更多」，工作项在「更多」第一位（§16-3）。
 - 侧栏**没有**项目选择器（§6.4）。底部运行节点区默认收起，只显示「节点 N/M 在线」，点开展开列表，两个状态都记本地。桌面档侧栏底部有收起按钮，收起后与 761–1099 的图标栏同一形态（悬停 title 显示名称）。
+- 计数徽标：今天（决策队列件数）与工作项（等我件数）用黄色徽标，只在 `> 0` 时出现（§6.1「黄色只代表需要人」）；任务 / 信箱的灰色数量徽标未接（它们要单独的计数数据源，留给 P2 的 `ProjectFilter` / `FilterChips` 一起做）。图标栏（761–1099 与收起态）里徽标不显示，只有字形 + title。
 - 删除 `rail-toggle` 与它的拖动 / 位置持久化（`utils/navTab.ts`）、`components/NavMore.vue`、`components/TopbarMenu.vue`、`utils/nav.ts`（旧的分组常量和它的测试、接线测试一并去掉）。设置入口只留在侧栏底部，主题 / 语言是顶栏上的两个直接开关。
 
 **顶栏**
