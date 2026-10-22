@@ -189,11 +189,14 @@ async function saveEdit(): Promise<void> {
     const timeout = Number(editTimeout.value.trim() || '0')
     // 一次性任务改的是触发时间（at），cron 任务改的是表达式；两者互斥（服务端也是）。
     const at = s.type === 'once' ? fromLocalInput(editAt.value) : 0
+    // 只在启停真的改了时才发 enabled：服务端对 enabled:true 会额外要 job.submit，
+    // 只改标题的人不应该被这条要求挡住。
+    const enabledChanged = editEnabled.value !== (s.enabled === 1)
     const updated = await patchSchedule(s.id, {
       title: editTitle.value.trim(),
       params,
-      enabled: editEnabled.value,
       timeout_sec: Number.isFinite(timeout) ? timeout : 0,
+      ...(enabledChanged ? { enabled: editEnabled.value } : {}),
       ...(s.type === 'once' ? (at > 0 ? { at } : {}) : { cron: editCron.value.trim() }),
     })
     editTarget.value = null
