@@ -15,6 +15,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // The gofer mailbox over HTTP (design 2026-10-16「二、gofer 信箱」, plan M3). The business
@@ -871,7 +872,7 @@ const (
 	mailListScanPages = 10
 )
 
-// GET /v1/mail?box=in|out|all&thread=&state=&session=&peer=&with=&limit=&offset=
+// GET /v1/mail?box=in|out|all&thread=&state=&session=&peer=&with=&limit=&offset=&before=&order=
 //
 // The listing is the FILTER form of the permission table: the caller's own letters (sent or
 // received) need nothing; another caller's letters appear only with the `.others` permission of
@@ -880,6 +881,12 @@ const (
 //
 // peer= / with= narrow it to ONE conversation (the letters between those two parties, whichever
 // way they went, oldest first) for the conversation timeline of the console.
+//
+// before= / order= page that conversation: `order=desc&limit=N` takes the NEWEST N letters,
+// `before=<id>` keeps only the letters older than that one (so `order=desc&before=<oldest loaded>
+// &limit=N` walks backwards through the history). The answer always says whether a further page
+// exists (`has_more`: with `order=desc` it means earlier letters remain). Paging happens AFTER
+// the permission filter, so a page is never short because letters were hidden from this caller.
 func (s *Server) handleMailList(c *rux.Context) {
 	if !s.mailReady(c) {
 		return
@@ -897,6 +904,14 @@ func (s *Server) handleMailList(c *rux.Context) {
 		def = mailListMax // a conversation comes whole unless the caller pages it itself
 	}
 	limit, offset := mailPageQuery(c, def, mailListMax)
+	before, ok := mailBeforeQuery(c)
+	if !ok {
+		return
+	}
+	order, ok := mailOrderQuery(c)
+	if !ok {
+		return
+	}
 	var states []string
 	for _, st := range strings.Split(c.Query("state"), ",") {
 		if st = strings.TrimSpace(st); st != "" {
@@ -905,7 +920,12 @@ func (s *Server) handleMailList(c *rux.Context) {
 	}
 	thread := strings.TrimSpace(c.Query("thread"))
 	session := strings.TrimSpace(c.Query("session"))
-	opts := jobstore.ListMailOpts{ThreadID: thread, States: states, Limit: jobstore.MailListMaxLimit, OldestFirst: thread != "" || convKey != ""}
+	// A thread and a conversation read from their first letter unless the caller asks otherwise.
+	oldestFirst := thread != "" || convKey != ""
+	if order != "" {
+		oldestFirst = order == "asc"
+	}
+	opts := jobstore.ListMailOpts{ThreadID: thread, States: states, Limit: jobstore.MailListMaxLimit, OldestFirst: oldestFirst, BeforeID: before}
 	if session != "" {
 		// A session filter narrows the store query when the box fixes the side.
 		switch box {
@@ -917,9 +937,11 @@ func (s *Server) handleMailList(c *rux.Context) {
 	}
 	keep := s.mailListKeep(c, box, session)
 
-	kept := make([]jobstore.Mail, 0, limit)
+	// One letter past the page is fetched: seeing it IS the answer to `has_more`.
+	goal := limit + 1
+	kept := make([]jobstore.Mail, 0, util.CapSum(limit, 1))
 	skipped := 0
-	for page := 0; page < mailListScanPages && len(kept) < limit; page++ {
+	for page := 0; page < mailListScanPages && len(kept) < goal; page++ {
 		opts.Offset = page * jobstore.MailListMaxLimit
 		rows, err := s.jobs.Meta().ListMail(opts)
 		if err != nil {
@@ -938,13 +960,17 @@ func (s *Server) handleMailList(c *rux.Context) {
 				continue
 			}
 			kept = append(kept, m)
-			if len(kept) >= limit {
+			if len(kept) >= goal {
 				break
 			}
 		}
 		if len(rows) < jobstore.MailListMaxLimit {
 			break
 		}
+	}
+	hasMore := len(kept) > limit
+	if hasMore {
+		kept = kept[:limit]
 	}
 	ps := s.newMailPersonas(kept)
 	result := make([]mailView, 0, len(kept))
@@ -963,7 +989,34 @@ func (s *Server) handleMailList(c *rux.Context) {
 		}
 		result = append(result, v)
 	}
-	c.JSON(http.StatusOK, map[string]any{"mail": result, "count": len(result)})
+	c.JSON(http.StatusOK, map[string]any{"mail": result, "count": len(result), "has_more": hasMore})
+}
+
+// mailBeforeQuery reads ?before= — the id-only cursor of a paged conversation (0 = no cursor);
+// ok=false: the answer is already written.
+func mailBeforeQuery(c *rux.Context) (int64, bool) {
+	raw := strings.TrimSpace(c.Query("before"))
+	if raw == "" {
+		return 0, true
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n <= 0 {
+		writeError(c, http.StatusBadRequest, "invalid before", "before must be a mail id")
+		return 0, false
+	}
+	return n, true
+}
+
+// mailOrderQuery reads ?order=asc|desc ("" = the listing's own default: newest first, except a
+// thread / conversation, which reads from its first letter).
+func mailOrderQuery(c *rux.Context) (string, bool) {
+	order := strings.ToLower(strings.TrimSpace(c.Query("order")))
+	switch order {
+	case "", "asc", "desc":
+		return order, true
+	}
+	writeError(c, http.StatusBadRequest, "invalid order", "order must be asc or desc")
+	return "", false
 }
 
 // mailListKeep is the keep predicate of GET /v1/mail for one box (and one optional session).

@@ -106,6 +106,32 @@ describe('the right column is a timeline', () => {
   })
 })
 
+describe('the timeline is paged', () => {
+  it('opens on the newest page and walks back with a before cursor', () => {
+    const page = src('Mail.vue')
+    // 首屏只取最新的一页（utils/mailPaging 里定页大小与合并规则），往上翻用 before=。
+    for (const fn of [
+      'timelinePage(',
+      'timelineFirstPage(',
+      'timelineWithOlder(',
+      'timelineWithNewest(',
+      'oldestMailId(',
+      'scrollTopAfterPrepend(',
+    ]) {
+      expect(page).toContain(fn)
+    }
+    expect(page).toContain('data-test="mail-older-load"')
+    expect(page).toContain('data-test="mail-older-end"')
+    expect(page).toContain('data-test="mail-minimap-more"')
+    // 同一对话的刷新（ack / 回信 / 新信）只补最新的，不重载已加载的页。
+    expect(page).toContain('refreshTimeline(')
+    expect(page).toContain('timelineNearBottom(')
+    const c = src('client.ts')
+    expect(c).toContain("params.set('before', String(opts.before))")
+    expect(c).toContain("params.set('order', opts.order)")
+  })
+})
+
 describe('the persona card', () => {
   it('is one shared component with a stable color, a state dot and a tooltip', () => {
     const chip = src('PersonaChip.vue')
