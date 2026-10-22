@@ -142,6 +142,8 @@ async function refreshComposePreview(): Promise<void> {
   composePreview.value = null
   composePreviewError.value = ''
   if (!composeAddresses.value.ok) return
+  // 没选收件人（投给自己）不用问服务端，文案本来就说「留空 = 收集箱」。
+  if (composeAddresses.value.addresses.length === 1 && composeAddresses.value.addresses[0] === 'caller') return
   try {
     // 预览也要过正文校验（服务端拒绝空正文）：还没写正文时先带个占位。
     const resp = await previewMail({ to: composeAddresses.value.addresses, body: compose.value.body.trim() || '预览' })
@@ -554,7 +556,6 @@ onMounted(() => {
         <button class="act mono" type="button" data-test="mail-scope-add" @click="addComposeScope">加「全部」</button>
       </div>
 
-      <p class="compose-preview mono" data-test="mail-to-preview">{{ composePreviewText }}</p>
       <p v-if="composePreviewError" class="err" data-test="mail-preview-error">{{ composePreviewError }}</p>
 
       <details class="compose-advanced">
@@ -578,6 +579,7 @@ onMounted(() => {
         <label class="urgent-pick"
           ><input v-model="compose.urgent" type="checkbox" data-test="mail-urgent" /> 急件（在收件会话的下一轮内注入）</label
         >
+        <span class="compose-preview mono" data-test="mail-to-preview">{{ composePreviewText }}</span>
         <button class="act act--primary mono" type="submit" :disabled="sending" data-test="mail-send">
           {{ sending ? '发送中…' : '发送' }}
         </button>
