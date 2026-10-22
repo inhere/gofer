@@ -2054,7 +2054,7 @@ export function getMail(id: number): Promise<MailMessage> {
 
 // 发信：to 是 session:<sid> / job:<id> / topic:<关键词> / path:<子路径> / caller。
 // 没有唯一命中时服务端把信存成「待指派」并在回答里带 candidates（held=true）。
-export function sendMail(body: { to: string; body: string; urgent?: boolean; project?: string }): Promise<MailSendResp> {
+export function sendMail(body: { to: string | string[]; body: string; urgent?: boolean; project?: string }): Promise<MailSendResp> {
   return request<MailSendResp>('/v1/mail', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

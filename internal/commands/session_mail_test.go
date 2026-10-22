@@ -123,6 +123,51 @@ func TestSessionMailSendCLI(t *testing.T) {
 	}
 }
 
+func TestSessionMailSendBroadcastCLI(t *testing.T) {
+	var calls []mailCall
+	mailServer(t, &calls)
+	resetMailOpts(t)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "cur-session")
+
+	// Repeated --to (and the positional address) go out as an ARRAY: one broadcast.
+	c := bindCmd(findSub(t, findSub(t, NewSessionCmd(), "mail"), "send"))
+	c.Arg("text").Set("v0.183.1 已发布")
+	sessionMailOpts.to = []string{"session:sess-a", "each:project:gofer"}
+	out := captureOutput(t, func() {
+		if err := runSessionMailSend(c, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var body map[string]any
+	if err := json.Unmarshal([]byte(calls[0].body), &body); err != nil {
+		t.Fatal(err)
+	}
+	to, ok := body["to"].([]any)
+	if !ok || len(to) != 2 || to[0] != "session:sess-a" || to[1] != "each:project:gofer" {
+		t.Fatalf("body = %s, want the two addresses as an array", calls[0].body)
+	}
+	_ = out
+}
+
+func TestFormatMailBroadcastRecipients(t *testing.T) {
+	out := formatMail(client.Mail{
+		ID: 12, ThreadID: "m12", State: "pending", Body: "群发", CreatedAt: 1760000000,
+		BroadcastID: 12,
+		Broadcast: &client.MailBroadcast{
+			ID: 12, Count: 2, Delivered: 1, Answered: 1,
+			Recipients: []client.MailBroadcastRecipient{
+				{Kind: "session", ID: "sess-a", MailID: 12, State: "answered"},
+				{Address: "each:project:p1", Kind: "session", Skipped: true, Reason: "another caller's session"},
+			},
+		},
+	})
+	for _, want := range []string{"broadcast b12: 2 recipients", "delivered 1", "answered 1", "#12 session sess-a (answered)", "skipped: another caller's session"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out = %q, missing %q", out, want)
+		}
+	}
+}
+
 func TestSessionMailListReadReplyCancelCLI(t *testing.T) {
 	var calls []mailCall
 	mailServer(t, &calls)

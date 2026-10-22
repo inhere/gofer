@@ -67,6 +67,7 @@ func RenderMail(m client.TakenMail) string {
 	}
 	return mail.RenderLetter(mail.Letter{
 		ID: m.ID, From: from, Topic: m.Topic, Urgent: m.Urgent, Body: m.Body, Truncated: m.Truncated,
+		BroadcastID: m.BroadcastID, Recipients: m.Recipients,
 	})
 }
 

@@ -21,7 +21,14 @@ const (
 	SchemePath    = "path"
 	SchemeCaller  = "caller"
 	SchemeAgent   = "agent"
+	// SchemeProject addresses every deliverable session of one project (each: only).
+	SchemeProject = "project"
 )
+
+// EachPrefix turns an address into a selector for ALL it matches (设计 2026-10-22「D1」):
+// `each:topic:login` is every session the topic matches, not "exactly one or park it". An
+// address without the prefix keeps its meaning exactly (several matches still park).
+const EachPrefix = "each:"
 
 // Address is one parsed address: the scheme and the value after its first colon (a path may
 // itself contain colons — a Windows drive letter, say — so only the FIRST one separates).
@@ -29,6 +36,9 @@ type Address struct {
 	Raw    string
 	Scheme string
 	Value  string
+	// Each marks the `each:` prefix: the address fans out to every deliverable match instead
+	// of requiring exactly one.
+	Each bool
 }
 
 // ParseAddress parses what a caller addressed a letter to. An empty (or blank) address and the
@@ -39,24 +49,50 @@ func ParseAddress(raw string) (Address, error) {
 	if trimmed == "" {
 		return Address{Raw: "", Scheme: SchemeCaller}, nil
 	}
+	each := false
+	if len(trimmed) > len(EachPrefix) && strings.EqualFold(trimmed[:len(EachPrefix)], EachPrefix) {
+		each = true
+		trimmed = strings.TrimSpace(trimmed[len(EachPrefix):])
+	}
 	scheme, value := trimmed, ""
 	if i := strings.Index(trimmed, ":"); i >= 0 {
 		scheme, value = trimmed[:i], strings.TrimSpace(trimmed[i+1:])
 	}
 	scheme = strings.ToLower(strings.TrimSpace(scheme))
+	rawAddr := trimmed
+	if each {
+		rawAddr = EachPrefix + trimmed
+	}
 	switch scheme {
 	case SchemeCaller:
 		if value != "" {
 			return Address{}, fmt.Errorf("%w: caller takes no value", ErrInvalidAddress)
 		}
-		return Address{Raw: trimmed, Scheme: SchemeCaller}, nil
+		if each {
+			return Address{}, fmt.Errorf("%w: each: takes a selector (topic: / path: / project: / agent:), not the caller box", ErrInvalidAddress)
+		}
+		return Address{Raw: rawAddr, Scheme: SchemeCaller}, nil
 	case SchemeSession, SchemeJob, SchemeTopic, SchemePath:
 		if value == "" {
 			return Address{}, fmt.Errorf("%w: %s: needs a value", ErrInvalidAddress, scheme)
 		}
-		return Address{Raw: trimmed, Scheme: scheme, Value: value}, nil
+		if each && (scheme == SchemeSession || scheme == SchemeJob) {
+			return Address{}, fmt.Errorf("%w: each: takes a selector (topic: / path: / project: / agent:), not %s:", ErrInvalidAddress, scheme)
+		}
+		return Address{Raw: rawAddr, Scheme: scheme, Value: value, Each: each}, nil
+	case SchemeProject:
+		if value == "" {
+			return Address{}, fmt.Errorf("%w: %s: needs a value", ErrInvalidAddress, scheme)
+		}
+		if !each {
+			return Address{}, fmt.Errorf("%w: project: is a selector: write each:project:<key>", ErrInvalidAddress)
+		}
+		return Address{Raw: rawAddr, Scheme: scheme, Value: value, Each: true}, nil
 	case SchemeAgent:
-		return Address{}, fmt.Errorf("%w: %s: (host agents are the third phase)", ErrUnsupportedAddress, SchemeAgent)
+		if each && value != "" {
+			return Address{Raw: rawAddr, Scheme: scheme, Value: value, Each: true}, nil
+		}
+		return Address{}, fmt.Errorf("%w: %s: (host agents are the third phase; a broadcast selector is each:agent:<name>)", ErrUnsupportedAddress, SchemeAgent)
 	}
 	return Address{}, fmt.Errorf("%w: unknown scheme %q", ErrInvalidAddress, scheme)
 }

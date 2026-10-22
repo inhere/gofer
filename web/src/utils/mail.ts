@@ -78,9 +78,86 @@ export interface MailComposeForm {
 }
 
 export interface MailSendBody {
-  to: string
+  // 一个地址是不带前缀 / 数组两种写法的旧形态；多个地址（或 each: 选择器）是群发。
+  to: string | string[]
   body: string
   urgent?: boolean
+}
+
+// ---- 收件人（群发，设计 2026-10-22「D1」）----
+
+// 可选的选择器：`each:` 前缀取全部可投递命中。
+const EACH_SCHEMES = new Set(['topic', 'path', 'project', 'agent'])
+
+export interface MailRecipients {
+  ok: boolean
+  // 规范化后的地址；空选择 = 自己的收集箱（caller）。
+  addresses: string[]
+  error: string
+}
+
+// parseMailRecipients 把写信框的收件人拆成地址表：逗号 / 空白分隔，每一项要么是普通地址
+// （session: / job: / topic: / path: / caller），要么是 each:<选择器>。多个地址就是群发；
+// 能否命中、能不能投递由服务端解析，这里只判形状。
+export function parseMailRecipients(input: string): MailRecipients {
+  const raw = (input ?? '').trim()
+  if (raw === '') return { ok: true, addresses: ['caller'], error: '' }
+  const parts = raw.split(/[\s,]+/).filter(Boolean)
+  const out: string[] = []
+  for (const part of parts) {
+    if (/^each:/i.test(part)) {
+      const rest = part.slice('each:'.length)
+      const sep = rest.indexOf(':')
+      const scheme = sep < 0 ? '' : rest.slice(0, sep).trim().toLowerCase()
+      const value = sep < 0 ? '' : rest.slice(sep + 1).trim()
+      if (!EACH_SCHEMES.has(scheme) || !value || /\s/.test(value)) {
+        return { ok: false, addresses: [], error: 'each: 后面要写 topic: / path: / project: / agent: 选择器，例如 each:project:gofer' }
+      }
+      out.push(`each:${scheme}:${value}`)
+      continue
+    }
+    const addr = parseMailAddress(part)
+    if (!addr.ok) return { ok: false, addresses: [], error: addr.error }
+    out.push(addr.address)
+  }
+  return { ok: true, addresses: out, error: '' }
+}
+
+// PreviewSession 是预览只需要的那几个会话字段（GET /v1/sessions 的一行）。
+export interface PreviewSession {
+  session_id: string
+  agent?: string
+  project_key?: string
+  topic?: string
+}
+
+// mailRecipientPreview 预览这封信大约投给几个会话：显式地址按个数算，each:project: /
+// each:agent: / each:topic: 按已加载的会话匹配。服务端还会按权限再筛，所以这只是上限；
+// each:path: 需要服务端的范围匹配，这里不估（返回 -1 表示「里面有路径选择器，以服务端为准」）。
+export function mailRecipientPreview(input: string, sessions: PreviewSession[]): number {
+  const parsed = parseMailRecipients(input)
+  if (!parsed.ok) return 0
+  const seen = new Set<string>()
+  let unknown = false
+  for (const a of parsed.addresses) {
+    if (!a.startsWith('each:')) {
+      // 一个显式会话地址与 each:project: 选中的同一个会话只算一次。
+      seen.add(a.startsWith('session:') ? a.slice('session:'.length) : a)
+      continue
+    }
+    const [, scheme, ...rest] = a.split(':')
+    const value = rest.join(':')
+    if (scheme === 'path') {
+      unknown = true
+      continue
+    }
+    for (const s of sessions) {
+      if (scheme === 'project' && s.project_key === value) seen.add(s.session_id)
+      else if (scheme === 'agent' && s.agent === value) seen.add(s.session_id)
+      else if (scheme === 'topic' && (s.topic ?? '').includes(value)) seen.add(s.session_id)
+    }
+  }
+  return unknown ? -1 : seen.size
 }
 
 export interface MailBuild {
@@ -95,9 +172,11 @@ export function buildMailSend(f: MailComposeForm): MailBuild {
   if (new TextEncoder().encode(body).length > MAIL_BODY_MAX) {
     return { req: null, error: `正文最多 ${MAIL_BODY_MAX} 字节` }
   }
-  const addr = parseMailAddress(f.to)
+  const addr = parseMailRecipients(f.to)
   if (!addr.ok) return { req: null, error: addr.error }
-  const req: MailSendBody = { to: addr.address, body }
+  // 一个普通地址保持原来的字符串写法；多个地址 / any each: 选择器发成数组（群发）。
+  const broadcast = addr.addresses.length > 1 || addr.addresses.some((a) => a.startsWith('each:'))
+  const req: MailSendBody = { to: broadcast ? addr.addresses : addr.addresses[0], body }
   if (f.urgent) req.urgent = true
   return { req, error: '' }
 }

@@ -27,6 +27,9 @@ type TakenMail struct {
 	Body      string    `json:"body"`
 	Truncated bool      `json:"truncated,omitempty"`
 	CreatedAt int64     `json:"created_at"`
+	// BroadcastID / Recipients mark a copy of a broadcast (设计 2026-10-22「D2」).
+	BroadcastID int64 `json:"broadcast_id,omitempty"`
+	Recipients  int   `json:"recipients,omitempty"`
 }
 
 // MailClaim is the answer of a claim: the claimed letters and how many eligible ones remain.

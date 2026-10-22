@@ -1189,7 +1189,8 @@ var schemaStmts = []string{
   delivered_at    INTEGER,
   read_at         INTEGER,
   deliver_by      INTEGER NOT NULL DEFAULT 0,
-  capture_item_id TEXT NOT NULL DEFAULT ''
+  capture_item_id TEXT NOT NULL DEFAULT '',
+  broadcast_id    INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_to_state ON mail(to_kind, to_id, state, id)`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_from ON mail(from_kind, from_id, id)`,
@@ -1642,6 +1643,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateXfers(); err != nil {
+		return err
+	}
+	if err := s.migrateMail(); err != nil {
 		return err
 	}
 	if err := s.migrateTracker(); err != nil {
@@ -2298,6 +2302,25 @@ func (s *Store) migrateWorkItems() error {
 		if _, e := s.db.Exec("ALTER TABLE work_items ADD COLUMN " + c + " TEXT NOT NULL DEFAULT ''"); e != nil {
 			return fmt.Errorf("jobstore: migrate work_items add %s: %w", c, e)
 		}
+	}
+	return nil
+}
+
+// migrateMail adds the mailbox's post-initial columns (设计 2026-10-22「D2」: broadcast_id
+// groups the copies of one broadcast). The index is created here, not in schemaStmts: on a
+// database written before the column exists the CREATE INDEX there would fail.
+func (s *Store) migrateMail() error {
+	cols, err := s.tableColumns("mail")
+	if err != nil {
+		return err
+	}
+	if _, ok := cols["broadcast_id"]; !ok {
+		if _, e := s.db.Exec("ALTER TABLE mail ADD COLUMN broadcast_id INTEGER NOT NULL DEFAULT 0"); e != nil {
+			return fmt.Errorf("jobstore: migrate mail add broadcast_id: %w", e)
+		}
+	}
+	if _, e := s.db.Exec("CREATE INDEX IF NOT EXISTS idx_mail_broadcast ON mail(broadcast_id, id)"); e != nil {
+		return fmt.Errorf("jobstore: migrate mail index: %w", e)
 	}
 	return nil
 }

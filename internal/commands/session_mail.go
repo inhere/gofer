@@ -20,6 +20,7 @@ import (
 var sessionMailOpts struct {
 	urgent   bool
 	bodyFile string
+	to       gcli.Strings
 	in, out  bool
 	thread   string
 	state    string
@@ -50,11 +51,12 @@ func newSessionMailCmd() *gcli.Command {
 		Subs: []*gcli.Command{
 			{
 				Name: "send",
-				Desc: "Send a letter: <address> is session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller (your own capture box)",
+				Desc: "Send a letter: <address> is session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller (your own capture box); repeat --to or use each:topic:/each:path:/each:project:/each:agent: to send to every match",
 				Config: func(c *gcli.Command) {
 					common(c)
-					c.AddArg("address", "session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller", true)
+					c.AddArg("address", "session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller", false)
 					c.AddArg("text", "the letter (or --body-file; `-` reads stdin)", false)
+					c.VarOpt(&sessionMailOpts.to, "to", "", "recipient address (repeatable; also each: selectors)")
 					c.BoolOpt(&sessionMailOpts.urgent, "urgent", "", false, "deliver inside the running turn / wake an idle session at once")
 					c.StrOpt(&sessionMailOpts.bodyFile, "body-file", "f", "", "read the letter from a file (`-` = stdin)")
 				},
@@ -139,16 +141,49 @@ func runSessionMailSend(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	to := mailSendAddresses(c)
 	cli, err := sessionClient()
 	if err != nil {
 		return err
 	}
-	res, err := cli.SendMail(strings.TrimSpace(c.Arg("address").String()), body, sessionMailOpts.urgent)
+	res, err := sendMail(clientSend{cli, to}, body)
 	if err != nil {
 		return err
 	}
 	c.Print(formatMailSent("sent", res))
 	return nil
+}
+
+// clientSend is the one-door send the CLI and the MCP tool share: one plain address keeps the
+// single-letter request, several (or one each: selector) go out as a broadcast.
+type clientSend struct {
+	cli *client.Client
+	to  []string
+}
+
+func sendMail(s clientSend, body string) (client.MailSent, error) {
+	if len(s.to) == 1 && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(s.to[0])), "each:") {
+		return s.cli.SendMail(s.to[0], body, sessionMailOpts.urgent)
+	}
+	return s.cli.SendMailTo(s.to, body, sessionMailOpts.urgent)
+}
+
+// mailSendAddresses collects where a letter goes: repeated --to, plus the positional address
+// (still the common one-recipient form). Nothing at all is the caller's own capture box.
+func mailSendAddresses(c *gcli.Command) []string {
+	to := make([]string, 0, len(sessionMailOpts.to)+1)
+	for _, a := range sessionMailOpts.to {
+		if a = strings.TrimSpace(a); a != "" {
+			to = append(to, a)
+		}
+	}
+	if a := strings.TrimSpace(c.Arg("address").String()); a != "" {
+		to = append(to, a)
+	}
+	if len(to) == 0 {
+		to = append(to, "")
+	}
+	return to
 }
 
 func runSessionMailReply(c *gcli.Command, _ []string) error {
@@ -295,6 +330,17 @@ func formatMailSent(verb string, r client.MailSent) string {
 	var b strings.Builder
 	m := r.Mail
 	fmt.Fprintf(&b, "%s letter #%d → %s (%s)\n", verb, m.ID, mailParty(m.To, m.ToAddress), m.State)
+	if r.BroadcastID > 0 {
+		fmt.Fprintf(&b, "broadcast b%d: matched %d, delivered %d, skipped %d (thread %s)\n",
+			r.BroadcastID, r.Matched, r.Delivered, r.Skipped, r.ThreadID)
+		for _, rc := range r.Recipients {
+			if rc.Skipped {
+				fmt.Fprintf(&b, "  skipped %s: %s\n", rc.Address, rc.Reason)
+				continue
+			}
+			fmt.Fprintf(&b, "  #%d %s %s (%s)\n", rc.MailID, rc.Kind, rc.ID, rc.State)
+		}
+	}
 	if !r.Held {
 		return b.String()
 	}
@@ -347,6 +393,29 @@ func formatMail(m client.Mail) string {
 	if m.ReplyTo > 0 {
 		fmt.Fprintf(&b, "   in reply to #%d", m.ReplyTo)
 	}
-	b.WriteString("\n\n" + m.Body + "\n")
+	b.WriteString("\n")
+	if m.Broadcast != nil {
+		fmt.Fprintf(&b, "broadcast b%d: %d recipients, delivered %d, answered %d",
+			m.Broadcast.ID, m.Broadcast.Count, m.Broadcast.Delivered, m.Broadcast.Answered)
+		if m.Broadcast.Expired > 0 {
+			fmt.Fprintf(&b, ", expired %d", m.Broadcast.Expired)
+		}
+		if m.Broadcast.Pending > 0 {
+			fmt.Fprintf(&b, ", pending %d", m.Broadcast.Pending)
+		}
+		b.WriteString("\n")
+		for _, r := range m.Broadcast.Recipients {
+			who := r.ID
+			if who == "" {
+				who = r.Address
+			}
+			state := r.State
+			if r.Skipped {
+				state = "skipped: " + r.Reason
+			}
+			fmt.Fprintf(&b, "  #%d %s %s (%s)\n", r.MailID, r.Kind, who, state)
+		}
+	}
+	b.WriteString("\n" + m.Body + "\n")
 	return b.String()
 }

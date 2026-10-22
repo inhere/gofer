@@ -21,6 +21,7 @@ func startMailDeliverer(cr *core.Core, srv *httpapi.Server, cfg *config.Config) 
 	}
 	set := cfg.EffectiveMail()
 	cr.Mail.SetDeliverBy(set.DeliverBy)
+	cr.Mail.SetBroadcastLimits(set.BroadcastMax, set.BroadcastRate, set.BroadcastWindow)
 	dl := mail.NewDeliverer(mail.DelivererOptions{
 		Svc: cr.Mail, Sender: relay, Jobs: cr.Jobs,
 		IsSuga:   func(key string) bool { return isSugaAgent(cr.Agents, key) },
@@ -35,6 +36,7 @@ func applyMailSettings(svc *mail.Service, dl *mail.Deliverer, next *config.Confi
 	set := next.EffectiveMail()
 	if svc != nil {
 		svc.SetDeliverBy(set.DeliverBy)
+		svc.SetBroadcastLimits(set.BroadcastMax, set.BroadcastRate, set.BroadcastWindow)
 	}
 	if dl != nil {
 		dl.Configure(mailSettings(set))

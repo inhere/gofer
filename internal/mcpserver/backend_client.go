@@ -705,8 +705,8 @@ func (b *clientBackend) SessionAsk(sid, text, workID string) (work.AskResult, er
 	return b.cli.SessionAsk(sid, text, workID)
 }
 
-func (b *clientBackend) SendMail(to, body string, urgent bool) (client.MailSent, error) {
-	return b.cli.SendMail(to, body, urgent)
+func (b *clientBackend) SendMail(to []string, body string, urgent bool) (client.MailSent, error) {
+	return b.cli.SendMailTo(to, body, urgent)
 }
 
 func (b *clientBackend) ListMail(o client.MailListOpts) ([]client.Mail, error) {

@@ -15,7 +15,7 @@ var mailToolNames = []string{
 }
 
 var mailToolArgs = map[string]map[string]any{
-	"gofer_session_mail_send":   {"to": "caller", "body": "x"},
+	"gofer_session_mail_send":   {"to": []string{"caller"}, "body": "x"},
 	"gofer_session_mail_list":   {},
 	"gofer_session_mail_read":   {"id": 3},
 	"gofer_session_mail_reply":  {"id": 3, "body": "x"},
@@ -64,7 +64,7 @@ func TestSessionMailToolsCallTheServer(t *testing.T) {
 		}
 	}
 	want := []string{
-		`POST /v1/mail {"body":"x","to":"caller"}`,
+		`POST /v1/mail {"body":"x","to":["caller"]}`,
 		`GET /v1/mail `,
 		`GET /v1/mail/3 `,
 		`POST /v1/mail/3/ack {}`,
@@ -82,7 +82,7 @@ func TestSessionMailToolsValidateInput(t *testing.T) {
 	}))
 	defer srv.Close()
 	for name, args := range map[string]map[string]any{
-		"gofer_session_mail_send":  {"to": "caller", "body": " "},
+		"gofer_session_mail_send":  {"to": []string{"caller"}, "body": " "},
 		"gofer_session_mail_read":  {},
 		"gofer_session_mail_reply": {"id": 3},
 	} {

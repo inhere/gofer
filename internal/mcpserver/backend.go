@@ -165,7 +165,7 @@ type Backend interface {
 	IssueList(o client.IssueListOpts) (client.IssueListResp, error)
 	IssueGet(id, trackerID string) (client.IssueGetResp, error)
 	// The gofer mailbox (plan M3): all of it needs a running server.
-	SendMail(to, body string, urgent bool) (client.MailSent, error)
+	SendMail(to []string, body string, urgent bool) (client.MailSent, error)
 	ListMail(o client.MailListOpts) ([]client.Mail, error)
 	ReadMail(id int64) (client.Mail, error)
 	ReplyMail(id int64, body string, urgent bool) (client.MailSent, error)
