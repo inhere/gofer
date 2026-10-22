@@ -30,4 +30,12 @@ describe('review hints wiring', () => {
     expect(panel).toContain('void loadHints()')
     expect(panel).toContain('hints.value = null')
   })
+
+  it('shows the report blocks as agent self-report in the verify tab of a job with no verify step', () => {
+    expect(panel).toContain('hints.value?.report_verify')
+    expect(panel).toContain('reportVerify.length > 0')
+    expect(panel).toContain('来源：agent 自述')
+    // 有 verify 步骤时输出留尾部（失败信息在末尾），不再留开头。
+    expect(panel).toContain('block.slice(kept)')
+  })
 })

@@ -1,6 +1,7 @@
 package job
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -23,7 +24,21 @@ const (
 	reviewRemovedCommentLimit = 20
 	// reviewVerifyLineLimit caps verify_lines lines.
 	reviewVerifyLineLimit = 30
+	// reviewReportVerifyLimit caps report_verify blocks: a report that pastes ten
+	// command outputs needs its best one shown, not all ten.
+	reviewReportVerifyLimit = 3
+	// reviewReportVerifyLineLimit caps one report_verify block. The tail is kept:
+	// a verification output ends with its verdict, its command at the top.
+	reviewReportVerifyLineLimit = 60
+	// reviewHotspotHeavyRatio marks a file whose deletions are at least this many
+	// times its additions: a rewrite that mostly removed code, the shape a reviewer
+	// wants to read first (a compressed/reordered file also looks like this).
+	reviewHotspotHeavyRatio = 2
 )
+
+// VerifySourceAgent marks a report_verify block as the agent's own account of its
+// verification: shown for reference, never as proof that a verify step passed.
+const VerifySourceAgent = "agent"
 
 // ReviewHints is the review material computed from a job's diff and report
 // (gofer-hjj1). Empty sections are omitted from JSON, and the review screen prints
@@ -32,14 +47,34 @@ type ReviewHints struct {
 	DeletionHotspots []DeletionHotspot `json:"deletion_hotspots,omitempty"`
 	RemovedComments  []RemovedComment  `json:"removed_comments,omitempty"`
 	VerifyLines      []string          `json:"verify_lines,omitempty"`
+	ReportVerify     []ReportVerify    `json:"report_verify,omitempty"`
 }
 
 // DeletionHotspot is one file's churn in the job's diff: Deleted lines is what the
-// list is sorted by.
+// list is sorted by, DeletionHeavy marks the files whose deletions dwarf their
+// additions.
 type DeletionHotspot struct {
 	Path    string `json:"path"`
 	Added   int    `json:"added"`
 	Deleted int    `json:"deleted"`
+	// Net is added-deleted: negative means the file shrank.
+	Net int `json:"net"`
+	// DeletionHeavy is true when the file lost at least twice the lines it gained
+	// (and lost at least reviewHotspotMinDeleted of them).
+	DeletionHeavy bool `json:"deletion_heavy"`
+}
+
+// ReportVerify is a verification output block the agent's own report presents: the
+// fenced code block under a 「验证」/Verification heading. It is the agent's account
+// of what it ran (Source is always VerifySourceAgent), shown as a reference when the
+// job itself ran no verify step.
+type ReportVerify struct {
+	// Heading is the report heading the block sits under, without the leading '#'.
+	Heading string `json:"heading"`
+	// Text is the block body, its tail kept when it is very long.
+	Text string `json:"text"`
+	// Source names where the block comes from: "agent" (its own report).
+	Source string `json:"source"`
 }
 
 // RemovedComment is a comment line the diff deletes without re-adding the same text
@@ -59,6 +94,7 @@ func BuildReviewHints(diff, report string) ReviewHints {
 		DeletionHotspots: deletionHotspots(files),
 		RemovedComments:  removedComments(files),
 		VerifyLines:      verifyLines(report),
+		ReportVerify:     reportVerify(report),
 	}
 }
 
@@ -68,6 +104,9 @@ type diffFileScan struct {
 	path    string
 	added   int
 	deleted int
+	// binary is set on a "Binary files … differ" / "GIT binary patch" section: its
+	// lines are not patch body, so neither churn nor comments are counted.
+	binary bool
 	// plusText holds the trimmed text of every added line, per file: a removed
 	// comment whose text is still added somewhere in the same file only moved.
 	plusText map[string]bool
@@ -94,6 +133,13 @@ func scanDiff(diff string) []*diffFileScan {
 			oldLine, newLine = 0, 0
 			inHeader = true
 		case cur == nil:
+			continue
+		case strings.HasPrefix(line, "Binary files "):
+			// Binary content has no lines to count (and no comments to lose).
+			cur.binary = true
+		case strings.HasPrefix(line, "GIT binary patch"):
+			cur.binary = true
+		case cur.binary:
 			continue
 		case inHeader && strings.HasPrefix(line, "--- "):
 			// The old-side file header, not a removed line.
@@ -192,7 +238,10 @@ func deletionHotspots(files []*diffFileScan) []DeletionHotspot {
 		if f.deleted < reviewHotspotMinDeleted {
 			continue
 		}
-		out = append(out, DeletionHotspot{Path: f.path, Added: f.added, Deleted: f.deleted})
+		out = append(out, DeletionHotspot{
+			Path: f.path, Added: f.added, Deleted: f.deleted,
+			Net: f.added - f.deleted, DeletionHeavy: deletionHeavy(f.added, f.deleted),
+		})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
@@ -208,6 +257,14 @@ func deletionHotspots(files []*diffFileScan) []DeletionHotspot {
 		out = out[:reviewHotspotLimit]
 	}
 	return out
+}
+
+// deletionHeavy reports whether a file's churn is mostly deletion: it lost at least
+// reviewHotspotHeavyRatio times what it gained. Below the hotspot threshold the
+// ratio alone would flag ordinary churn, and a deletion of every line of a small
+// file is not a hotspot either.
+func deletionHeavy(added, deleted int) bool {
+	return deleted >= reviewHotspotMinDeleted && deleted >= reviewHotspotHeavyRatio*added
 }
 
 // removedComments keeps the comment lines that no added line of the same file
@@ -275,4 +332,106 @@ func isVerifyLine(s string) bool {
 		}
 	}
 	return false
+}
+
+// reportVerify collects the verification output blocks the agent's report presents:
+// every fenced code block under a 「验证」/Verification heading, in report order. The
+// blocks are the agent's own account (Source "agent") — a reference for a job whose
+// own verify step was not configured, not a substitute for it.
+func reportVerify(report string) []ReportVerify {
+	var out []ReportVerify
+	heading, level := "", 0 // the verify section currently open
+	var body []string
+	inFence := false
+
+	flush := func() {
+		defer func() { body = nil }()
+		if heading == "" || len(out) >= reviewReportVerifyLimit {
+			return
+		}
+		text := strings.TrimRight(strings.Join(body, "\n"), "\n")
+		if strings.TrimSpace(text) == "" {
+			return
+		}
+		out = append(out, ReportVerify{
+			Heading: heading, Text: markedTailLines(text, reviewReportVerifyLineLimit), Source: VerifySourceAgent,
+		})
+	}
+
+	for _, raw := range strings.Split(report, "\n") {
+		line := strings.TrimRight(raw, "\r")
+		switch {
+		case inFence:
+			if isFence(line) {
+				inFence = false
+				flush()
+				continue
+			}
+			body = append(body, line)
+		case isFence(line):
+			// A fence outside a verify section is the agent's own code sample.
+			if heading != "" {
+				inFence = true
+				body = nil
+			}
+		default:
+			text, lv, ok := atxHeading(line)
+			if !ok {
+				continue
+			}
+			switch {
+			case isVerifyHeading(text):
+				heading, level = text, lv
+			case heading != "" && lv <= level:
+				// The next heading of the same or a higher level closes the section.
+				heading, level = "", 0
+			}
+		}
+	}
+	if inFence {
+		flush() // a block that runs to the end of the report
+	}
+	return out
+}
+
+// isFence reports whether a line opens or closes a markdown code fence.
+func isFence(line string) bool {
+	t := strings.TrimLeft(line, " \t")
+	return strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~")
+}
+
+// atxHeading parses a markdown ATX heading ("## Verification"): its text without the
+// leading '#'s and its level. A '#' run not followed by a space is not a heading.
+func atxHeading(line string) (text string, level int, ok bool) {
+	t := strings.TrimLeft(line, " \t")
+	n := 0
+	for n < len(t) && t[n] == '#' {
+		n++
+	}
+	if n == 0 || n > 6 || (n < len(t) && t[n] != ' ' && t[n] != '\t') {
+		return "", 0, false
+	}
+	text = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(t[n:]), "#"))
+	if text == "" {
+		return "", 0, false
+	}
+	return text, n, true
+}
+
+// isVerifyHeading reports whether a heading announces verification output:
+// 「验证」/「验证结果」 or Verification/verify/tests in English.
+func isVerifyHeading(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(text, "验证") || strings.Contains(lower, "verif") ||
+		strings.Contains(lower, "verify")
+}
+
+// markedTailLines keeps the last n lines of s, prefixed with a marker line naming how
+// many were dropped (a verification block ends with its verdict).
+func markedTailLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return fmt.Sprintf("…（前面 %d 行已省略）\n%s", len(lines)-n, strings.Join(lines[len(lines)-n:], "\n"))
 }

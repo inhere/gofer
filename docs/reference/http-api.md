@@ -157,16 +157,18 @@ Registered keys (first batch; consumers land in later work):
 
 ```json
 {"id": "<job id>", "review_hints": {
-  "deletion_hotspots": [{"path": "internal/job/x.go", "added": 4, "deleted": 30}],
+  "deletion_hotspots": [{"path": "internal/job/x.go", "added": 4, "deleted": 30, "net": -26, "deletion_heavy": true}],
   "removed_comments": [{"path": "internal/job/x.go", "line": 42, "text": "// old note"}],
-  "verify_lines": ["ok  github.com/owner/repo/internal/job"]
+  "verify_lines": ["ok  github.com/owner/repo/internal/job"],
+  "report_verify": [{"heading": "验证", "text": "go test ./internal/job/\nok  github.com/owner/repo/internal/job", "source": "agent"}]
 }}
 ```
 
-- `deletion_hotspots` (omitempty): up to 5 files with at least 10 deleted lines, sorted by `deleted` (ties: more `added` first, then path). `added` / `deleted` count patch body lines of that file.
+- `deletion_hotspots` (omitempty): up to 5 files with at least 10 deleted lines, sorted by `deleted` (ties: more `added` first, then path). `added` / `deleted` count patch body lines of that file; `net` is `added - deleted` (negative = the file shrank). `deletion_heavy` marks a file whose deletions are at least twice its additions — the shape a reviewer reads first (a rewrite that mostly removed code; a compressed/reordered file looks the same). A rename is listed under its new path, and a binary section (`Binary files … differ`, `GIT binary patch`) contributes no churn.
 - `removed_comments` (omitempty, up to 20): comment lines the diff deletes whose text no added line of the **same file** repeats (a moved comment is not a deleted one). `line` is the old file's line number, `text` the trimmed comment content. Recognised forms: `//`, `#`, `/* … */` (and its `*` continuation), `<!-- … -->`.
 - `verify_lines` (omitempty, up to 30): verification result lines of the report in report order without repeated identical lines — `go test` (`ok  <pkg>`, `FAIL`, `--- FAIL:`, `PASS`), captured exit codes (`<NAME>_EXIT=<n>`, `exit=<n>`, `tsc=<n>`) and the vitest summary lines (`Test Files … passed`, `Tests … passed`).
-- `gofer job review --json` prints `{id, status, review_hints}` with the same object; the human screen prints the same three sections as 「审阅提示」 and omits empty ones.
+- `report_verify` (omitempty, up to 3 blocks): the fenced code blocks of the agent's report that sit under a 「验证」/Verification heading — what the agent itself pasted as its verification output. `heading` is that heading without the `#`s, `text` the block body (last 60 lines kept, with a leading `…` marker line when longer), `source` is always `agent`: this is the agent's self-report, shown as a reference for a job that has no verify step of its own, never as proof a verify step passed.
+- `gofer job review --json` prints `{id, status, review_hints}` with the same object; the human screen prints the sections as 「审阅提示」 (hotspots with net change and a ⚠ on `deletion_heavy` files, report verification blocks labelled `来源: agent 自述`) and omits empty ones. The web acceptance panel shows the same object in its 「汇报」 tab and uses `report_verify` in the 「验证」 tab when the job has no verify step.
 
 ## Runner tools
 

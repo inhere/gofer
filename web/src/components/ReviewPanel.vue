@@ -91,8 +91,13 @@ function ensureTab(t: Tab): void {
     return
   }
   // skipped 是"agent 没正常结束所以没跑"，不会写横幅，不必拉 stderr。
-  if (t === 'verify' && verify.value && verify.value.status !== 'skipped') {
-    void load(verifyOut, () => logsTail(props.job.id, 'stderr', TAIL_BYTES))
+  if (t === 'verify') {
+    // 没有 verify 步骤时，这一页展示汇报里「验证」标题下的代码块（agent 自述，仅参考），
+    // 数据来自审阅提示接口，所以与「汇报」页签一样先拉 hints。
+    void loadHints()
+    if (verify.value && verify.value.status !== 'skipped') {
+      void load(verifyOut, () => logsTail(props.job.id, 'stderr', TAIL_BYTES))
+    }
   }
 }
 
@@ -227,7 +232,8 @@ const usage = computed(() => props.job.usage ?? null)
 const headSha = computed(() => commits.value[0]?.sha ?? props.job.worktree_head_sha ?? '')
 
 // verify 输出：stderr 里最后一段 `===== gofer verify: <argv> =====` 到它的
-// `===== gofer verify: exit=… dur=… =====` 之间（含两端横幅），最多 200 行。
+// `===== gofer verify: exit=… dur=… =====` 之间（含两端横幅），最多 200 行——超出留**尾部**
+// （失败时的报错与退出码在末尾，开头只是命令行）。
 const verifyOutput = computed(() => {
   const lines = verifyOut.value.text.split('\n')
   let start = -1
@@ -251,8 +257,12 @@ const verifyOutput = computed(() => {
   if (block.length <= MAX_VERIFY_LINES) {
     return block.join('\n')
   }
-  return [...block.slice(0, MAX_VERIFY_LINES), `…（已截断，本段共 ${block.length} 行）`].join('\n')
+  const kept = block.length - MAX_VERIFY_LINES
+  return [`…（前面 ${kept} 行已省略，本段共 ${block.length} 行）`, ...block.slice(kept)].join('\n')
 })
+
+// 没有 verify 步骤时这一页的参考输出：汇报里「验证」标题下的代码块，来源是 agent 自述。
+const reportVerify = computed(() => hints.value?.report_verify ?? [])
 
 // 用量页签逐项列出（缺项显示 "—"：agent 没报 ≠ 0，这一页就是要看"哪项没报"）。
 const usageRows = computed<Array<{ k: string; v: string }>>(() => {
@@ -528,9 +538,23 @@ onMounted(() => {
         </template>
       </div>
 
-      <!-- 验证：状态/命令/exit/耗时 + stderr 里最后一段 verify 横幅之间的输出。 -->
+      <!-- 验证：状态/命令/exit/耗时 + stderr 里最后一段 verify 横幅之间的输出（超出留尾部）。
+           没有 verify 步骤的 job 展示汇报里「验证」标题下的代码块，明确标为 agent 自述。 -->
       <div v-else-if="tab === 'verify'">
-        <p v-if="!verify" class="rp-note mono">本 job 没有验证步骤（提交时未指定 verify）</p>
+        <template v-if="!verify">
+          <p class="rp-note mono">本 job 没有验证步骤（提交时未指定 verify）</p>
+          <div v-if="reportVerify.length > 0" class="rp-report-verify">
+            <p class="rp-note mono">
+              以下来自 agent 汇报的「验证」小节（<strong>来源：agent 自述</strong>），仅作参考，不是 gofer 跑的 verify 步骤。
+            </p>
+            <div v-for="(b, i) in reportVerify" :key="i" class="rp-report-verify-block">
+              <div class="rp-report-verify-head mono">
+                「{{ b.heading }}」 · 来源 {{ b.source === 'agent' ? 'agent 自述' : b.source }}
+              </div>
+              <pre class="rp-pre rp-pre--out mono">{{ b.text }}</pre>
+            </div>
+          </div>
+        </template>
         <template v-else>
           <div class="rp-verify-head">
             <span class="rp-verify-status mono" :class="verifyTone">{{ verifyText }}</span>
@@ -825,6 +849,14 @@ onMounted(() => {
 }
 .rp-verify-status.verify--skip {
   color: var(--queue);
+}
+/* 没有 verify 步骤时的参考输出：agent 自述的「验证」小节代码块。 */
+.rp-report-verify-block {
+  margin-top: 8px;
+}
+.rp-report-verify-head {
+  font-size: 11px;
+  color: var(--muted, #888);
 }
 
 .rp-pre {

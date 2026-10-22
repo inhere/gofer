@@ -13,7 +13,7 @@ describe('review hints', () => {
   it('counts the items of all three sections', () => {
     expect(
       reviewHintCount({
-        deletion_hotspots: [{ path: 'a.go', added: 1, deleted: 12 }],
+        deletion_hotspots: [{ path: 'a.go', added: 1, deleted: 12, net: -11, deletion_heavy: true }],
         removed_comments: [{ path: 'a.go', line: 3, text: '// note' }],
         verify_lines: ['PASS', 'exit=0'],
       }),
@@ -25,8 +25,17 @@ describe('review hints', () => {
     expect(hasReviewHints({ verify_lines: ['ok  pkg'] })).toBe(true)
   })
 
-  it('formats a hotspot as added/deleted then the path', () => {
-    expect(hotspotLine({ path: 'internal/job/x.go', added: 4, deleted: 30 })).toBe('+4/-30  internal/job/x.go')
+  it('formats a hotspot as added/deleted, net change and then the path', () => {
+    expect(
+      hotspotLine({ path: 'internal/job/x.go', added: 4, deleted: 30, net: -26, deletion_heavy: true }),
+    ).toBe('⚠ +4/-30 net -26  internal/job/x.go')
+    expect(hotspotLine({ path: 'web/src/a.ts', added: 40, deleted: 12, net: 28 })).toBe(
+      '+40/-12 net +28  web/src/a.ts',
+    )
+  })
+
+  it('leaves out the net change for a payload that does not carry it', () => {
+    expect(hotspotLine({ path: 'a.go', added: 4, deleted: 30 })).toBe('+4/-30  a.go')
   })
 
   it('formats a removed comment with its old-file line number', () => {

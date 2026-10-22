@@ -3490,14 +3490,19 @@ func writeJobReviewJSON(c *gcli.Command, cli *client.Client, res *job.JobResult)
 // proof the agent's report closes with. Empty sections are left out entirely, and a
 // job with nothing to hint at prints no block (a clean diff is not "no review").
 func printReviewHints(c *gcli.Command, h job.ReviewHints) {
-	if len(h.DeletionHotspots) == 0 && len(h.RemovedComments) == 0 && len(h.VerifyLines) == 0 {
+	if len(h.DeletionHotspots) == 0 && len(h.RemovedComments) == 0 && len(h.VerifyLines) == 0 &&
+		len(h.ReportVerify) == 0 {
 		return
 	}
 	c.Printf("\n审阅提示 (review hints):\n")
 	if len(h.DeletionHotspots) > 0 {
-		c.Printf("deletion hotspots (删除最多):\n")
+		c.Printf("deletion hotspots (删除最多; net = 新增-删除, ⚠ = 删除显著多于新增):\n")
 		for _, d := range h.DeletionHotspots {
-			c.Printf("  %+d/-%d  %s\n", d.Added, d.Deleted, d.Path)
+			mark := "  "
+			if d.DeletionHeavy {
+				mark = "⚠ "
+			}
+			c.Printf("  %s%+d/-%d net %+d  %s\n", mark, d.Added, d.Deleted, d.Net, d.Path)
 		}
 	}
 	if len(h.RemovedComments) > 0 {
@@ -3510,6 +3515,16 @@ func printReviewHints(c *gcli.Command, h job.ReviewHints) {
 		c.Printf("verify lines (汇报里的验证结果):\n")
 		for _, line := range h.VerifyLines {
 			c.Printf("  %s\n", line)
+		}
+	}
+	if len(h.ReportVerify) > 0 {
+		// 来源是 agent 自述：没有 verify 步骤的 job 只能作参考，不能当验收证据。
+		c.Printf("report verify (来源: agent 自述, 仅参考):\n")
+		for _, b := range h.ReportVerify {
+			c.Printf("  [%s] source=%s\n", b.Heading, b.Source)
+			for _, line := range strings.Split(b.Text, "\n") {
+				c.Printf("    %s\n", line)
+			}
 		}
 	}
 }

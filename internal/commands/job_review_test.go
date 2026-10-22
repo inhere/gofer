@@ -243,9 +243,10 @@ func TestJobReviewPrintsSections(t *testing.T) {
 			// gofer-hjj1: the server computes the hints; the CLI only prints them.
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"id":"job-rev","review_hints":{
-				"deletion_hotspots":[{"path":"internal/job/x.go","added":4,"deleted":30}],
+				"deletion_hotspots":[{"path":"internal/job/x.go","added":4,"deleted":30,"net":-26,"deletion_heavy":true}],
 				"removed_comments":[{"path":"internal/job/x.go","line":42,"text":"// old note"}],
-				"verify_lines":["ok  example.com/pkg/in","exit=0"]}}`))
+				"verify_lines":["ok  example.com/pkg/in","exit=0"],
+				"report_verify":[{"heading":"验证","text":"go test ./...\nok  example.com/pkg/in","source":"agent"}]}}`))
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			http.Error(w, "unexpected request", http.StatusNotFound)
@@ -285,8 +286,13 @@ func TestJobReviewPrintsSections(t *testing.T) {
 	if logBytes != "65536" {
 		t.Fatalf("report fetch bytes=%q, want the 64KB window", logBytes)
 	}
-	// gofer-hjj1: the review hints block prints the three sections before the report.
-	for _, want := range []string{"审阅提示 (review hints):", "+4/-30  internal/job/x.go", "internal/job/x.go:42  // old note", "ok  example.com/pkg/in"} {
+	// gofer-hjj1: the review hints block prints the sections before the report (hotspots carry
+	// the net change and the ⚠ of a deletion-heavy file; report verification is labelled agent).
+	for _, want := range []string{
+		"审阅提示 (review hints):", "⚠ +4/-30 net -26  internal/job/x.go",
+		"internal/job/x.go:42  // old note", "ok  example.com/pkg/in",
+		"report verify (来源: agent 自述, 仅参考):", "[验证] source=agent",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("job review output missing the hint %q:\n%s", want, out)
 		}
@@ -321,7 +327,8 @@ func TestJobReviewPrintsSections(t *testing.T) {
 		t.Fatalf("job review --json carries id/status: %+v", parsed)
 	}
 	if len(parsed.ReviewHints.DeletionHotspots) != 1 || parsed.ReviewHints.DeletionHotspots[0].Deleted != 30 ||
-		len(parsed.ReviewHints.VerifyLines) != 2 {
+		parsed.ReviewHints.DeletionHotspots[0].Net != -26 || !parsed.ReviewHints.DeletionHotspots[0].DeletionHeavy ||
+		len(parsed.ReviewHints.VerifyLines) != 2 || len(parsed.ReviewHints.ReportVerify) != 1 {
 		t.Fatalf("job review --json carries the hints: %+v", parsed.ReviewHints)
 	}
 }

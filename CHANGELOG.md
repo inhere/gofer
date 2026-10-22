@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 变更
+
+- **审阅提示补全：删除热点带净变化与「删除显著多于新增」标记，验证页签补 agent 自述输出（gofer-hjj1）**：`deletion_hotspots` 每项新增 `net`（新增-删除）与 `deletion_heavy`（删除 ≥ 2× 新增），CLI 打印 `+4/-30 net -26` 并给后者加 ⚠；改名文件按新路径列，二进制段（`Binary files … differ` / `GIT binary patch`）不计行数。`review_hints` 新增 `report_verify`：从 agent 汇报「验证」/Verification 标题下的 ``` 代码块提取（最多 3 块，长块留尾部），带 `source: "agent"`，`job review` 标「来源: agent 自述」，web 在没有 verify 步骤的「验证」页签里作参考展示；有 verify 时该页签的输出超出 200 行改为留**尾部**（以前留开头，把失败的报错截掉）。
+
 ## [0.182.1] - 2026-10-21
 
 ### 修复
