@@ -42,6 +42,17 @@ type recoverHub struct {
 	envs  []wsproto.Envelope
 	conn  *websocket.Conn
 	conns int
+	// connEnvs holds the frames read on each accept (index 0 = the first connection),
+	// so a test can tell what the worker pushed AFTER a reconnect from what the
+	// previous connection already got; envs stays the merged log of every connection.
+	connEnvs [][]wsproto.Envelope
+	// loseConns marks an accept (same 0-based index as connEnvs) as DYING: the hub
+	// reads what the worker writes, but keeps none of it. That is what a write into a
+	// socket whose peer is already gone looks like from the worker side — writeFrame
+	// returns nil, the frame lands nowhere — and it is the window a reconnect has to
+	// heal (gofer-pcbc). lost holds the frames dropped that way.
+	loseConns map[int]bool
+	lost      []wsproto.Envelope
 	// gate, when non-nil, is consumed by every accept AFTER the first: the test
 	// releases one token to let a reconnect complete its handshake. Up to the
 	// register frame everything has already happened, but no ack was sent — so the
@@ -81,9 +92,11 @@ func (h *recoverHub) serve(w http.ResponseWriter, req *http.Request) {
 	reg, _ := wsproto.As[wsproto.Register](env)
 
 	h.mu.Lock()
+	idx := h.conns
 	h.conns++
 	h.conn = conn
 	h.regs = append(h.regs, reg)
+	h.connEnvs = append(h.connEnvs, nil)
 	gate, resumeFn, conns := h.gate, h.resumeFn, h.conns
 	h.mu.Unlock()
 
@@ -110,7 +123,12 @@ func (h *recoverHub) serve(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		h.mu.Lock()
-		h.envs = append(h.envs, f)
+		if h.loseConns[idx] {
+			h.lost = append(h.lost, f)
+		} else {
+			h.envs = append(h.envs, f)
+			h.connEnvs[idx] = append(h.connEnvs[idx], f)
+		}
 		h.mu.Unlock()
 	}
 }
@@ -155,6 +173,36 @@ func (h *recoverHub) frames() []wsproto.Envelope {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return append([]wsproto.Envelope(nil), h.envs...)
+}
+
+// framesOnConn returns the frames the hub KEPT from connection idx (0 = the first
+// accept).
+func (h *recoverHub) framesOnConn(idx int) []wsproto.Envelope {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if idx >= len(h.connEnvs) {
+		return nil
+	}
+	return append([]wsproto.Envelope(nil), h.connEnvs[idx]...)
+}
+
+// loseFramesOn marks connection idx (0 = the first accept) as dying: everything the
+// worker writes on it is read and dropped (see loseConns).
+func (h *recoverHub) loseFramesOn(idx int) {
+	h.mu.Lock()
+	if h.loseConns == nil {
+		h.loseConns = map[int]bool{}
+	}
+	h.loseConns[idx] = true
+	h.mu.Unlock()
+}
+
+// lostFrames returns the frames the hub read on a dying connection and dropped: the
+// worker wrote them "successfully" and the hub never saw them.
+func (h *recoverHub) lostFrames() []wsproto.Envelope {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]wsproto.Envelope(nil), h.lost...)
 }
 
 func (h *recoverHub) waitConnections(t *testing.T, n int, timeout time.Duration) {
@@ -715,6 +763,88 @@ func TestDispatchOutlivesConnection(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("no %s event logged; got:\n%s", want, got)
 		}
+	}
+}
+
+// TestSessionStatusResentAfterReconnect pins the RECOV-01 rule for the session Status
+// frame (gofer-pcbc). That frame carries per-CONNECTION state — the hub de-dupes
+// session statuses per connection (workerConn.sessionStatusSeen) — so a worker that
+// reconnects must announce the status again. The worker used to remember "already
+// sent" per PROCESS, and a write only reports what the local socket did: a Status
+// written into a connection that was already dying returns nil while the frame lands
+// nowhere. That counted as delivered and was never re-sent, so the host job's
+// turn/session status stayed stale until it happened to change (the macOS CI flake of
+// TestDispatchOutlivesConnection).
+//
+// Falsification: drop the connection epoch from streamLocalJob's "already reported"
+// state (keep lastSessionStatus/lastSessionTurn only) → the worker never pushes the
+// status on the second connection and the wait below times out.
+func TestSessionStatusResentAfterReconnect(t *testing.T) {
+	jobs := newRunningJobs(t)
+	hub := newRecoverHub(t)
+	// Connection #1 is the dying one: the hub reads what the worker writes on it and
+	// keeps none of it, which is what the socket of a blip looks like from here.
+	hub.loseFramesOn(0)
+	cl := New(Config{
+		WorkerID: "w1", Token: "t", URLs: []string{hub.wsURL()},
+		InitialBackoff: 10 * time.Millisecond, MaxBackoff: 20 * time.Millisecond,
+	}, jobs)
+	cl.pollInterval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	StartClient(t, ctx, cl)
+	hub.waitConnections(t, 1, 5*time.Second)
+
+	dispatchDone := make(chan struct{})
+	go func() {
+		defer close(dispatchDone)
+		cl.handleDispatch(ctx, hub.wsURL(), wsproto.Dispatch{
+			JobID: "job-s", ProjectKey: "alpha", Agent: "exec", Runner: builtinLocalRunner, Cmd: []string{"echo", "hi"}, Session: true,
+		})
+	}()
+
+	// The first session Status goes out on #1 while it still looks alive, and is lost.
+	isRunningTurn := func(env wsproto.Envelope) bool {
+		if env.Type != wsproto.TypeStatus || env.JobID != "job-s" {
+			return false
+		}
+		st, _ := wsproto.As[wsproto.Status](env)
+		return st.TurnNo == 1 && st.SessionStatus == job.StatusRunning
+	}
+	waitForCond(t, "the first session status frame (swallowed by the dying connection)", 5*time.Second, func() bool {
+		for _, env := range hub.lostFrames() {
+			if isRunningTurn(env) {
+				return true
+			}
+		}
+		return false
+	})
+
+	// The blip: #1 dies and the worker comes back as #2. Nothing about the JOB changed,
+	// so only per-connection "already reported" state makes the status go out again.
+	hub.dropConn()
+	hub.waitRegisters(t, 2, 5*time.Second)
+	waitForCond(t, "the session status re-announced on the new connection", 5*time.Second, func() bool {
+		for _, env := range hub.framesOnConn(1) {
+			if isRunningTurn(env) {
+				return true
+			}
+		}
+		return false
+	})
+
+	// The dispatch outlived the blip; finish the job so it reports its Result on the
+	// live connection and unwinds before the test's stores and TempDirs go away.
+	jobs.finish(job.JobResult{ID: "local-1", Status: job.StatusDone, ExitCode: 0})
+	select {
+	case <-dispatchDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("dispatch did not finish after the local job completed")
+	}
+	res := hub.waitResult(t, "job-s", 3*time.Second)
+	if res.Status != job.StatusDone || res.ExitCode != 0 {
+		t.Fatalf("result = %+v, want done/0", res)
 	}
 }
 
