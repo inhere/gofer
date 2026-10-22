@@ -940,6 +940,9 @@ type ListSessionsOpts struct {
 	// sessions API's all=1 set it, so the escape hatch stays one flag.
 	IncludeInternal bool
 	Limit           int
+	// Offset skips that many rows of the same ordering (paging a list that can be longer than
+	// one page; the order is total, last_seen_at then session_id).
+	Offset int
 }
 
 // summarizerTagSQL matches the jobs the work summarizer submits (the tag is the
@@ -1057,6 +1060,10 @@ func (s *Store) ListAgentSessions(opts ListSessionsOpts) ([]AgentSession, error)
 	}
 	q += " LIMIT ?"
 	args = append(args, limit)
+	if opts.Offset > 0 {
+		q += " OFFSET ?"
+		args = append(args, opts.Offset)
+	}
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list agent sessions: %w", err)

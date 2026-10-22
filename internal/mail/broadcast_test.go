@@ -2,6 +2,7 @@ package mail
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +196,69 @@ func TestBroadcastEachProjectAndAgent(t *testing.T) {
 	}
 	if len(res.Mails) != 1 || res.Recipients[0].ID != "sess-p1-b" {
 		t.Fatalf("agent broadcast = %+v, want sess-p1-b only", res.Recipients)
+	}
+}
+
+// TestBroadcastEachProjectPagesThroughAllSessions: an each:project: selector reads EVERY page of
+// live sessions, not just the first one (gofer-ndy5: a project with more than one page of
+// sessions used to lose the tail).
+func TestBroadcastEachProjectPagesThroughAllSessions(t *testing.T) {
+	f := newFixture(t)
+	const n = eachScanLimit + 60
+	want := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
+		sid := fmt.Sprintf("sess-bulk-%03d", i)
+		want[sid] = true
+		if _, err := f.store.UpsertAgentSession(jobstore.AgentSession{
+			SessionID: sid, Agent: "claude", CallerID: "alice", ProjectKey: "proj-bulk",
+			State: jobstore.SessionIdle,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.svc.SetBroadcastLimits(n+10, 5, 10*time.Minute)
+	res, err := f.svc.Preview(BroadcastInput{To: []string{"each:project:proj-bulk"}, Body: "群发", Origin: sender()})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if res.Matched != n || len(res.Recipients) != n {
+		t.Fatalf("matched=%d recipients=%d, want %d (every page)", res.Matched, len(res.Recipients), n)
+	}
+	got := make(map[string]bool, n)
+	for _, rc := range res.Recipients {
+		got[rc.ID] = true
+	}
+	for sid := range want {
+		if !got[sid] {
+			t.Fatalf("session %s of the last page was dropped", sid)
+		}
+	}
+}
+
+// TestBroadcastPreviewStoresNothing: the preview answers the same table a send would write and
+// stores no letter (nor counts as a broadcast for the rate limit).
+func TestBroadcastPreviewStoresNothing(t *testing.T) {
+	f := threeSessionMailbox(t)
+	res, err := f.svc.Preview(BroadcastInput{
+		To: []string{"session:sess-a", "session:sess-off"}, Body: "预览", Origin: sender(),
+	})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if res.Matched != 2 || res.Skipped != 0 || len(res.Recipients) != 2 {
+		t.Fatalf("preview = %+v, want 2 recipients", res)
+	}
+	for _, rc := range res.Recipients {
+		if rc.MailID != 0 || rc.ID == "" {
+			t.Fatalf("preview recipient = %+v, want an id and no stored letter", rc)
+		}
+	}
+	mails, err := f.store.ListMail(jobstore.ListMailOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mails) != 0 {
+		t.Fatalf("preview stored %d letters, want none", len(mails))
 	}
 }
 
