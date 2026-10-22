@@ -12,6 +12,9 @@ import { actionKey, actionLink, adviceAction, blockShort, cardLink, expiresText,
 import { approveAction, focusActions, replyAction as replyActionOf } from '../../utils/todayFocus'
 import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
+import { cardActionBlock } from '../../utils/todayGate'
+import { CEILING_READ_ONLY_NOTICE } from '../../utils/ceiling'
+import { useWhoami } from '../../store/whoami'
 
 const props = defineProps<{ card: TodayCard; nowSec: number; initialInfoOpen?: boolean }>()
 const emit = defineEmits<{
@@ -32,6 +35,12 @@ const snoozeWrap = ref<HTMLElement | null>(null)
 const woke = computed(() => wokeText(props.card))
 const snoozeOpts = computed(() => (snoozeOpen.value ? snoozeOptions(props.card) : []))
 const snoozeTips = computed(() => snoozeHints(props.card, props.nowSec))
+
+// 只读身份 / 缺权限时按钮灰显并说明原因（gofer-darr，判定见 utils/todayGate.ts）。
+const { whoami, readOnly } = useWhoami()
+function actionBlock(a: TodayAction): string {
+  return cardActionBlock(whoami.value, props.card, a)
+}
 
 const advice = computed(() => adviceAction(props.card))
 const otherActions = computed(() => props.card.actions.filter((a) => a !== advice.value))
@@ -74,6 +83,8 @@ function styleClass(a: TodayAction): string {
 }
 
 function onAction(a: TodayAction, viaAdvice = false): void {
+  // 灰显的写操作即使在专注模式里按了数字键 / a / r 也不发请求（服务端反正会 403）。
+  if (actionBlock(a)) return
   if (a.id === 'diff' || a.id === 'open') {
     emit('navigate')
     return
@@ -117,6 +128,7 @@ function onRerun(note: string, resume: boolean): void {
 }
 
 function suggestionAct(field: string, adopt: boolean): void {
+  if (readOnly.value) return
   emit('act', { id: `${adopt ? 'adopt' : 'dismiss'}:${field}`, label: adopt ? '采纳建议' : '忽略建议' }, '', false)
 }
 
@@ -208,6 +220,8 @@ function linkFor(a: TodayAction): string {
           class="dc-btn dc-btn--pri"
           type="button"
           data-test="dc-advice"
+          :disabled="!!actionBlock(advice)"
+          :title="actionBlock(advice) || undefined"
           @click="onAction(advice, true)"
         >按建议：{{ advice.label }}</button>
         <template v-for="a in otherActions" :key="actionKey(a)">
@@ -223,6 +237,9 @@ function linkFor(a: TodayAction): string {
             :class="styleClass(a)"
             type="button"
             :data-act="actionKey(a)"
+            :data-blocked="actionBlock(a) ? '1' : undefined"
+            :disabled="!!actionBlock(a)"
+            :title="actionBlock(a) || undefined"
             @click="onAction(a)"
           >{{ a.label }}</button>
         </template>
@@ -303,8 +320,20 @@ function linkFor(a: TodayAction): string {
         </template>
         <div v-for="sg in card.suggestions ?? []" :key="sg.field" class="dc-sg">
           <span><b>建议</b>{{ sg.text }}</span>
-          <button class="dc-btn dc-btn--ok" type="button" @click="suggestionAct(sg.field, true)">采纳</button>
-          <button class="dc-btn" type="button" @click="suggestionAct(sg.field, false)">忽略</button>
+          <button
+            class="dc-btn dc-btn--ok"
+            type="button"
+            :disabled="readOnly"
+            :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
+            @click="suggestionAct(sg.field, true)"
+          >采纳</button>
+          <button
+            class="dc-btn"
+            type="button"
+            :disabled="readOnly"
+            :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
+            @click="suggestionAct(sg.field, false)"
+          >忽略</button>
         </div>
       </div>
     </div>

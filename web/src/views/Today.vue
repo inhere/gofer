@@ -26,6 +26,11 @@ import {
   visibleCards,
 } from '../store/today'
 import { TOP_N, minutesText } from '../utils/today'
+import { CEILING_READ_ONLY_NOTICE } from '../utils/ceiling'
+import { useWhoami } from '../store/whoami'
+
+// 只读身份（调用方上限 read_only）只能看：专注处理整页都在做写操作，灰显并说明原因（gofer-darr）。
+const { readOnly } = useWhoami()
 
 const nowSec = ref(Math.floor(Date.now() / 1000))
 let clock: ReturnType<typeof setInterval> | null = null
@@ -114,7 +119,8 @@ onUnmounted(() => {
           class="focus-btn"
           type="button"
           data-test="open-focus"
-          :disabled="!visibleCards.length"
+          :disabled="!visibleCards.length || readOnly"
+          :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
           @click="openFocus"
         >专注处理</button>
       </div>

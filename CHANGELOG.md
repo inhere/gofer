@@ -14,6 +14,8 @@
 ### 修复
 
 - **含空格 / 非 ASCII 字符路径的未提交改动不再误判是否在 `.gofer/tracker/` 下（gofer-7lp5）**：交付（合并）前的脏检查以前解析 `git status --porcelain` 的普通文本输出，只去掉路径两侧的双引号，没有反解 git 对特殊路径的 C 风格转义（`core.quotePath`，默认开启），于是路径里的中文变成 `\350\257\264` 这类转义，错误信息里列出的路径也不可读；名称里带 ` -> ` 的 tracker 文件还会被当成分支重命名、凭空多出一个 tracker 外的路径而拒绝合并。现在改用 `git status --porcelain -z`（NUL 分隔、路径不转义），重命名按 git 的「新路径、旧路径」两个字段各自判断，错误信息里列出的始终是原样路径。影响 `job worktree merge` / `job merge` 等走交付合并的路径。
+- **只读身份（调用方上限 `read_only: true`）在今天页不再看到会 403 的按钮（gofer-darr）**：顶栏「只读」标记与 `+job` 之外，决策卡的 回复 / 请求汇报 / 搁置 / 按建议 / 验收与批准 / 采纳记忆建议 / 采纳建议 等会改状态的按钮现在按对应权限灰显，悬停说明「只读身份」或缺少哪个权限（判定在 `web/src/utils/todayGate.ts`，复用 `permissionGate` / `reviewGate` / `ceiling` 的现有口径）；「专注处理」同样灰显。纯查看（详情、看 diff、打开 plan、稍后 / 从稍后放回）不受影响——「稍后」是 ReadSafe 的个人偏好写，服务端对只读身份照收。
+- **web 在没有 `sessionStorage` 的渲染环境里不再抛错**：`store/auth.getToken` 对缺失的 `sessionStorage` 返回未登录，按身份取的 store（whoami 等）在服务端渲染 / 组件渲染测试里保持 null，而不是抛 `ReferenceError`。
 
 ### 变更
 
