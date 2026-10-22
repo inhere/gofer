@@ -54,9 +54,12 @@ func remoteSleepRequest(t *testing.T, seconds string, timeout int) job.JobReques
 
 func TestRemoteJobQueueTimeNotCounted(t *testing.T) {
 	f := startRemoteQueueFixture(t)
-	holder := createJob(t, f.hub.ts, remoteSleepRequest(t, "2s", 10))
+	// The holder keeps the worker's only slot for 6s, longer than the queued job's 4s
+	// budget: counted queue time would time it out, uncounted it has 4s for 500ms of work
+	// (a 1s budget lost to process start on a loaded runner, G052).
+	holder := createJob(t, f.hub.ts, remoteSleepRequest(t, "6s", 20))
 	waitRemoteSnapshot(t, f.hub.jobs, holder.ID, func(g job.JobResult) bool { return g.Status == job.StatusRunning })
-	queued := createJob(t, f.hub.ts, remoteSleepRequest(t, "500ms", 1))
+	queued := createJob(t, f.hub.ts, remoteSleepRequest(t, "500ms", 4))
 	waitRemoteSnapshot(t, f.hub.jobs, queued.ID, func(g job.JobResult) bool { return g.Status == job.StatusQueued })
 	final, ok := f.hub.jobs.Wait(queued.ID)
 	if !ok || final.Status != job.StatusDone {
