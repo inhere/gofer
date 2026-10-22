@@ -1,0 +1,93 @@
+/* 状态族的绘制规则（设计稿 §5）。族名 → 颜色在这里一次给全：
+ *   --c    形状与文字的主色
+ *   --soft pill / 卡片底
+ * queue 没有自己的颜色，用中性色 --fg-3（设计稿明确）。
+ * need 的文字用 --need-ink（在 -soft 底上过 AA），形状仍用万寿菊 --need。
+ */
+.k-run {
+  --c: var(--run);
+  --soft: var(--run-soft);
+}
+
+.k-need {
+  --c: var(--need);
+  --soft: var(--need-soft);
+}
+
+.k-done {
+  --c: var(--done);
+  --soft: var(--done-soft);
+}
+
+.k-fail {
+  --c: var(--fail);
+  --soft: var(--fail-soft);
+}
+
+.k-time {
+  --c: var(--time);
+  --soft: var(--time-soft);
+}
+
+.k-idle {
+  --c: var(--idle);
+  --soft: var(--idle-soft);
+}
+
+.k-queue {
+  --c: var(--fg-3);
+  --soft: var(--sunken);
+}
+
+/* StatusGlyph：只有形状，颜色跟随族的 --c。 */
+.glyph {
+  display: inline-block;
+  flex: none;
+  color: var(--c);
+  vertical-align: -0.15em;
+}
+
+/* 运行态是唯一常驻动画之一（另一处是信号带流光），reduced-motion 由 base.css 统一关闭。 */
+.glyph-pulse {
+  transform-origin: 50% 50%;
+  animation: glyph-pulse 1.8s var(--ease) infinite;
+}
+
+@keyframes glyph-pulse {
+  0% {
+    opacity: .35;
+    transform: scale(.72);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+}
+
+/* StatusPill：字形 + 文字，文字色保证对比度。 */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: var(--r-chip);
+  background: var(--soft);
+  color: var(--c);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.pill.k-need {
+  color: var(--need-ink);
+}
+
+.pill.pill-lg {
+  padding: 2px 9px;
+  font-size: var(--fs-sm);
+}
