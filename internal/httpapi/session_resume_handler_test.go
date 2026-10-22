@@ -106,7 +106,7 @@ func TestSessionResumeWithInitialInput(t *testing.T) {
 		t.Fatalf("resume status = %d", resp.StatusCode)
 	}
 	resp.Body.Close()
-	if len(to.reqs) != 1 || to.reqs[0].InitialInput != "[gofer web 回复] 继续\r" {
+	if len(to.reqs) != 1 || to.reqs[0].InitialInput != "[来自 web 回复，default] 继续\r" {
 		t.Fatalf("requests = %+v", to.reqs)
 	}
 }

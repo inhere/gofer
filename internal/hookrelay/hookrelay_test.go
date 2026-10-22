@@ -12,7 +12,7 @@ import (
 	"github.com/gookit/goutil/x/assert"
 
 	"github.com/inhere/gofer/internal/client"
-	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 // fakeAPI is an in-memory hub for the runner tests.
@@ -385,14 +385,19 @@ func TestInjectedPromptWithoutTurnIsNotHuman(t *testing.T) {
 	assert.Eq(t, 0, f.waits)
 }
 
-// TestInjectPrefixMatchesReplyPrefix guards the one string two packages must
-// agree on: the relay types InjectPrefix into the terminal (§9.1 A) and the hook
-// recognises exactly ReplyPrefix as its own input. If they drift, a tmux-injected
-// reply looks like the human coming back — relay would auto-off and the wait
-// would be released.
-func TestInjectPrefixMatchesReplyPrefix(t *testing.T) {
-	assert.Eq(t, ReplyPrefix, sessionrelay.InjectPrefix)
-	assert.True(t, IsHarnessPrompt(sessionrelay.InjectPrefix+"carry on"))
+// ReplyPrefix is a person's reply prefix as the ONE table builds it, with the
+// speaker the fakes answer as (a web caller whose name was not recorded): the
+// prompts these tests build and the Stop continuation read the same string.
+var ReplyPrefix = msgprefix.Format(msgprefix.WebReply, "", "")
+
+// TestDeliveredPersonReplyIsNotHumanInput guards the rule the two packages share:
+// a person's web reply reaches the terminal prefixed by gofer (§9.1 A), so the
+// prompt it raises is not the human coming back — relay must not auto-off. Both
+// halves are read from the one table (msgprefix), never from a private constant.
+func TestDeliveredPersonReplyIsNotHumanInput(t *testing.T) {
+	assert.Eq(t, ReplyPrefix, msgprefix.Prefix(msgprefix.WebReply, ""))
+	assert.False(t, IsHarnessPrompt(ReplyPrefix+"carry on"))
+	assert.True(t, isHarnessInput(Payload{Prompt: ReplyPrefix + "carry on"}))
 }
 
 func TestRunStopRelayOffReleases(t *testing.T) {

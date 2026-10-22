@@ -99,7 +99,7 @@ func TestDeliverTmuxDispatchesInjectJob(t *testing.T) {
 	script := req.Cmd[2]
 	assert.Contains(t, script, "tmux display -p -t '%3' '#{pane_current_command}'")
 	assert.Contains(t, script, "echo pane_missing; exit 3")
-	assert.Contains(t, script, "send-keys -t '%3' -l -- '[gofer web 回复] carry on'")
+	assert.Contains(t, script, "send-keys -t '%3' -l -- '[来自 web 回复，alice] carry on'")
 	assert.Contains(t, script, "send-keys -t '%3' Enter")
 
 	a, ok, err := s.store.GetAgentSession("sid-tmux-0001")
@@ -133,7 +133,7 @@ func TestDeliverTmuxShellEscaping(t *testing.T) {
 
 	script := inj.reqs[0].Cmd[2]
 	// ' → '\'' ; $ and backticks are inside the single quotes and stay literal.
-	assert.Contains(t, script, `-l -- '[gofer web 回复] it'\''s $(x) `+"`y`"+`'`)
+	assert.Contains(t, script, `-l -- '[来自 web 回复，alice] it'\''s $(x) `+"`y`"+`'`)
 	assert.Contains(t, script, `-l -- 'second '\''line'\'''`)
 	// Line by line: two literals, two Enters, and no raw newline inside a literal.
 	assert.Eq(t, 2, strings.Count(script, " -l -- "))
@@ -236,7 +236,7 @@ func TestDeliverTooLong(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTmux, res.Path)
 	assert.Len(t, inj.reqs, 1)
-	assert.Contains(t, inj.reqs[0].Cmd[2], "[gofer web 回复] "+strings.Repeat("a", MaxDeliverText))
+	assert.Contains(t, inj.reqs[0].Cmd[2], "[来自 web 回复，alice] "+strings.Repeat("a", MaxDeliverText))
 }
 
 // TestDeliverInjectCommandsWhitelist pins the pane whitelist plumbing: the

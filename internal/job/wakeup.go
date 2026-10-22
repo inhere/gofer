@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -38,8 +39,9 @@ const (
 	// terminal state before giving up (see dispatchWakeup).
 	wakeupTerminalWait = 30 * time.Second
 	// wakeupPromptMarker prefixes the instruction appended to a rebuilt prompt, so
-	// the continued agent can tell its own earlier task from the wakeup's.
-	wakeupPromptMarker = "[gofer wakeup] "
+	// the continued agent can tell its own earlier task from the wakeup's (the
+	// system wakeup prefix of msgprefix).
+	wakeupPromptMarker = msgprefix.WakeupOpen + " "
 	// wakeupTagPrefix is the tag every continuation carries, so a job list answers
 	// "which jobs ran because a wakeup fired".
 	wakeupTagPrefix = "wakeup:"

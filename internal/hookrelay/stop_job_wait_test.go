@@ -78,7 +78,7 @@ func TestStopJobWaitMatrix(t *testing.T) {
 				t.Fatalf("blocked=%v, want %v (log=%s)", got, tc.want, log.String())
 			}
 			if tc.want {
-				if !strings.Contains(res.Reason, "[gofer job 完成] job-9") {
+				if !strings.Contains(res.Reason, "[gofer · job 完成] job-9") {
 					t.Fatalf("block reason=%q, want the job notice", res.Reason)
 				}
 				if !strings.Contains(log.String(), "waiting up to") {
@@ -119,7 +119,7 @@ func TestStopJobWaitReleasedNoticeIsCaughtUp(t *testing.T) {
 	}
 	p := payload(t, "claude", map[string]any{"session_id": sid, "hook_event_name": "UserPromptSubmit", "prompt": "next"})
 	res, err = Run(f, p, opts)
-	if err != nil || !strings.Contains(res.Context, "[gofer job 完成] job-5 tests status=done") {
+	if err != nil || !strings.Contains(res.Context, "[gofer · job 完成] job-5 tests status=done") {
 		t.Fatalf("catch-up res=%+v err=%v", res, err)
 	}
 	if len(f.watchRows) != 0 {

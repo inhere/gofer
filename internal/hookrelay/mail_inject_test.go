@@ -248,7 +248,7 @@ func TestMailMergesWithJobNoticeAndMemoryContext(t *testing.T) {
 	if mem := strings.Index(res.Context, "step 1"); mem < 0 || mem < strings.Index(res.Context, "<gofer-mail id=\"7\"") {
 		t.Fatalf("the memory must share the same context after the letter: %q", res.Context)
 	}
-	job := strings.Index(res.Context, "[gofer job 完成] job-5")
+	job := strings.Index(res.Context, "[gofer · job 完成] job-5")
 	mailAt := strings.Index(res.Context, "<gofer-mail id=\"7\"")
 	if job < 0 || mailAt < 0 || job > mailAt {
 		t.Fatalf("one context with the job notice then the letter, got %q", res.Context)

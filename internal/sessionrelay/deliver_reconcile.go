@@ -186,13 +186,13 @@ func (s *Service) deliveryOutcome(m jobstore.SessionMessage, state InjectState) 
 // offlineMatch answers whether a deliver_command's non-zero exit is its own "no such
 // live process" signal (agent config offline_match), which the synchronous path reads as
 // "not running" instead of a failure — the plan is re-rendered here, because the outbox
-// record only keeps the text.
+// record only keeps the text (and the speaker, for the prefix).
 func (s *Service) offlineMatch(m jobstore.SessionMessage, output string) bool {
 	a, ok, err := s.store.GetAgentSession(m.SessionID)
 	if err != nil || !ok {
 		return false
 	}
-	plan := s.deliverPlan(a.Agent, a.SessionID, injectText(m.Text))
+	plan := s.deliverPlan(a.Agent, a.SessionID, injectText(m.Text, m.Operator))
 	return plan.OfflineMatch != nil && plan.OfflineMatch.MatchString(output)
 }
 

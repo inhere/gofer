@@ -167,7 +167,7 @@ func TestNotifyJobEndedRequiresATarget(t *testing.T) {
 // to rule on it, like the hook's own notice does.
 func TestFormatJobEndedNoticeNeedsReviewHint(t *testing.T) {
 	text := FormatJobEndedNotice(JobEndedNotice{JobID: "job-r", Title: "review me", Status: "needs_review"})
-	if !strings.HasPrefix(text, SystemNoticePrefix+" "+JobDoneTag+" job-r review me") {
+	if !strings.HasPrefix(text, JobDoneTag+" job-r review me") {
 		t.Fatalf("notice = %q", text)
 	}
 	if !strings.Contains(text, "gofer job show job-r") {
@@ -180,8 +180,8 @@ func TestFormatJobEndedNoticeNeedsReviewHint(t *testing.T) {
 // (gofer-11gk).
 func TestFormatJobEndedNoticeUsesTheSystemNoticePrefix(t *testing.T) {
 	text := FormatJobEndedNotice(JobEndedNotice{JobID: "job-p", Status: "done"})
-	if !strings.HasPrefix(text, SystemNoticePrefix) {
-		t.Fatalf("notice = %q, want the %q prefix", text, SystemNoticePrefix)
+	if !strings.HasPrefix(text, JobDoneTag+" ") {
+		t.Fatalf("notice = %q, want the %q prefix", text, JobDoneTag)
 	}
 	if strings.Contains(text, WebMessagePrefix) {
 		t.Fatalf("notice %q must not carry the web message prefix", text)
@@ -195,8 +195,8 @@ func TestMessengerPromptKeepsNoticesApartFromWebMessages(t *testing.T) {
 	notice := FormatJobEndedNotice(JobEndedNotice{JobID: "job-m", Status: "done"})
 	prompt := messengerPrompt("proj-a", OperatorGofer, notice)
 	line := prompt[strings.LastIndex(prompt, "\n")+1:]
-	if !strings.HasPrefix(line, SystemNoticePrefix+" "+JobDoneTag) {
-		t.Fatalf("forwarded line = %q, want the notice under %q", line, SystemNoticePrefix)
+	if !strings.HasPrefix(line, JobDoneTag) {
+		t.Fatalf("forwarded line = %q, want the notice under %q", line, JobDoneTag)
 	}
 	if strings.Contains(prompt, WebMessagePrefix) {
 		t.Fatalf("a system notice must not wear the web prefix: %q", prompt)
@@ -207,8 +207,8 @@ func TestMessengerPromptKeepsNoticesApartFromWebMessages(t *testing.T) {
 }
 
 // TestNotifyJobEndedMessengerPromptIsASystemNotice is the delivered-text half: the
-// messenger job the notice starts is one whose forwarded line opens with
-// SystemNoticePrefix (the same words the hook's caught-up lines use).
+// messenger job the notice starts is one whose forwarded line opens with the
+// job-done prefix (the same words the hook's caught-up lines use).
 func TestNotifyJobEndedMessengerPromptIsASystemNotice(t *testing.T) {
 	s := newSvc(t)
 	f := &notifyFake{}
@@ -230,8 +230,8 @@ func TestNotifyJobEndedMessengerPromptIsASystemNotice(t *testing.T) {
 		t.Fatalf("messenger started without a -p prompt: %q", f.lastCommand)
 	}
 	line := prompt[strings.LastIndex(prompt, "\n")+1:]
-	if !strings.HasPrefix(line, SystemNoticePrefix) || !strings.Contains(line, JobDoneTag+" job-np") {
-		t.Fatalf("forwarded line = %q, want %q + %q", line, SystemNoticePrefix, JobDoneTag)
+	if !strings.HasPrefix(line, JobDoneTag) || !strings.Contains(line, "job-np") {
+		t.Fatalf("forwarded line = %q, want %q + job-np", line, JobDoneTag)
 	}
 	if strings.Contains(prompt, WebMessagePrefix) {
 		t.Fatalf("the notice prompt must not carry the web prefix: %q", prompt)

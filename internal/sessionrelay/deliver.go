@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -64,20 +65,15 @@ const TagRelayInject = "relay-inject"
 // user has taken over).
 const TagRelayTakeover = "relay-takeover"
 
-// InjectPrefix marks the text path A types into the terminal (design D7). The
-// hook keys on it to recognise its own input: it MUST stay identical to
-// hookrelay.ReplyPrefix, which a test in that package pins.
-const InjectPrefix = "[gofer web 回复] "
-
-// injectText is the text path A types into the terminal: a person's web reply wears
-// InjectPrefix, but a gofer system notice ("[gofer 通知] …") keeps its own line — it is
-// machine text, and the prefix would make the agent read it as the person having written
-// (the same rule as the Stop hook's continuation, gofer-11gk).
-func injectText(text string) string {
-	if strings.HasPrefix(strings.TrimSpace(text), SystemNoticePrefix) {
+// injectText is the text a delivery types into the terminal: a person's web reply
+// wears the web-reply prefix with the speaker's name ("[来自 web 回复，<user>] …"),
+// while a gofer system message keeps its own line — it is machine text, and a web
+// prefix would make the agent read it as the person having written (gofer-11gk).
+func injectText(text, user string) string {
+	if msgprefix.IsSystem(text) {
 		return text
 	}
-	return InjectPrefix + text
+	return msgprefix.Format(msgprefix.WebReply, user, text)
 }
 
 // injectTimeoutSec is the deadline of the internal injection job: the script
@@ -575,7 +571,7 @@ func (s *Service) takeoverAliveCheck(a jobstore.AgentSession, notRunning bool) e
 // session cannot be reached by one) and the caller proceeds as before. A not-running
 // answer is returned as an UndeliverableError{ReasonNotRunning}.
 func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, text, by, origin string) (DeliverResult, bool, error) {
-	res, tried, err := s.runDeliverCommand(ctx, a, injectText(text), by, origin)
+	res, tried, err := s.runDeliverCommand(ctx, a, injectText(text, by), by, origin)
 	if !tried || err != nil {
 		return DeliverResult{}, tried, err
 	}
@@ -712,7 +708,7 @@ func takeoverFallback(reason string) bool {
 // is auditable — the row is the only trace left when someone asks later "who
 // typed this into my terminal?".
 func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text, by, origin string) (DeliverResult, error) {
-	res, err := s.runTmuxInject(ctx, a, injectText(text), by, origin)
+	res, err := s.runTmuxInject(ctx, a, injectText(text, by), by, origin)
 	if err != nil {
 		return DeliverResult{}, err
 	}
@@ -843,9 +839,9 @@ func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, 
 	initial := ""
 	if strings.TrimSpace(text) != "" {
 		// The reply is the new terminal's first input, carrying the same prefix path
-		// A types (design D7) so the hook's UserPromptSubmit recognises it as ours
-		// and does not treat it as the human returning to the keyboard.
-		initial = injectText(text) + "\r"
+		// A types (design D7) so the hook's UserPromptSubmit recognises it as gofer's
+		// delivery and does not treat it as the human returning to the keyboard.
+		initial = injectText(text, by) + "\r"
 	}
 	res, err := s.takeoverer.TakeoverSession(ctx, TakeoverRequest{
 		ProjectKey: a.ProjectKey,

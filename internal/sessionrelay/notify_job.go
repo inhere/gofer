@@ -19,45 +19,42 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 // JobDoneTag opens every "your job finished" notice — this package's and the Stop
 // hook's catch-up line alike (hookrelay.JobDoneTag aliases it, and its tests count
 // the tag). One spelling means a session recognises both as the same message.
-const JobDoneTag = "[gofer job 完成]"
-
-// SystemNoticePrefix opens every message gofer sends to a session ON ITS OWN
-// BEHALF — a job-end notice here, the Stop hook's caught-up job lines alike — so
-// both open with the same words.
 //
-// A system notice never wears the web's prefix: "[来自 web，<user>] …" is the
-// person talking (the web's send box), while gofer's own notices are read by the
-// supervising agent as machine text. The two shared one prefix once
-// (gofer-11gk), and a job-end notice looked like a message from a web user called
-// `gofer` — the rules an agent is given say "[来自 web] means the user typed it".
-const SystemNoticePrefix = "[gofer 通知]"
+// It is the message's whole prefix (msgprefix.JobDone), not a second bracket behind
+// another one: the notice used to arrive as "[gofer 通知] [gofer job 完成] …" and
+// the doubled bracket was half of what made system text unreadable at a glance.
+const JobDoneTag = msgprefix.JobDoneOpen
 
 // OperatorGofer is the operator (the message's source, as the outbox and the
 // receiving session see it) of a gofer SYSTEM notice. It is what tells a notice
 // apart from a person's message ("web", a user name): a person's message arrives
-// prefixed "[来自 web，<user>] …", a notice is sent as gofer itself.
+// prefixed "[来自 web，<user>] …", a notice as gofer itself ("[gofer · <type>] …").
 const OperatorGofer = "gofer"
 
 // IsSystemNoticeOperator reports whether an operator label means "gofer is
 // speaking" rather than a person: the message then goes out as a system notice
-// (SystemNoticePrefix) and never as a web message.
+// (msgprefix's system prefixes) and never as a web message.
 func IsSystemNoticeOperator(operator string) bool {
 	return strings.TrimSpace(operator) == OperatorGofer
 }
 
-// SystemNoticeLine renders the delivered line of a gofer notice: the text already
-// opens with SystemNoticePrefix, so it is passed through as is (a text that does
-// not carry it — an older caller — gets the prefix).
+// SystemNoticeLine renders the delivered line of a gofer notice: a text that
+// already opens with a system prefix is passed through as is; one that carries
+// none (an older caller) gets the generic hint prefix, because a message labeled
+// as gofer's must never reach a session looking like a person's.
 func SystemNoticeLine(text string) string {
-	if strings.HasPrefix(strings.TrimSpace(text), SystemNoticePrefix) {
-		return strings.TrimSpace(text)
+	t := strings.TrimSpace(text)
+	if msgprefix.IsSystem(t) {
+		return t
 	}
-	return SystemNoticePrefix + " " + strings.TrimSpace(text)
+	return msgprefix.Format(msgprefix.Hint, "", t)
 }
 
 // JobEndedNotice is the terminal snapshot one notice is rendered from. It is the
@@ -78,17 +75,14 @@ type JobEndedNotice struct {
 	WrapUp string
 }
 
-// FormatJobEndedNotice renders the one-line notice. It opens with
-// SystemNoticePrefix (never the web's "[来自 web，…]", which means a person typed
-// it), carries JobDoneTag and states the job's identity, its outcome and where to
-// look next; it says out loud that it is a system notification, because the
-// receiving session cannot tell a gofer notice from a person's message otherwise.
+// FormatJobEndedNotice renders the one-line notice. It opens with the job-done
+// prefix (never a person's "[来自 web，…]", which means somebody typed it), and
+// states the job's identity, its outcome and where to look next; it says out loud
+// that it is a system notification, because the receiving session's rules tell it
+// that a prefixed message of this shape is gofer speaking.
 func FormatJobEndedNotice(n JobEndedNotice) string {
 	var b strings.Builder
-	b.WriteString(SystemNoticePrefix)
-	b.WriteString(" ")
-	b.WriteString(JobDoneTag)
-	b.WriteString(" ")
+	b.WriteString(msgprefix.Prefix(msgprefix.JobDone, ""))
 	b.WriteString(strings.TrimSpace(n.JobID))
 	if title := strings.TrimSpace(n.Title); title != "" {
 		b.WriteString(" ")

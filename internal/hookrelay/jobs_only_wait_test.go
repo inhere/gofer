@@ -36,7 +36,7 @@ func TestStopRelayOffWaitsForWatchedJob(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !res.Blocked || !strings.Contains(res.Reason, "[gofer job 完成] job-9 build status=done exit=0") {
+			if !res.Blocked || !strings.Contains(res.Reason, "[gofer · job 完成] job-9 build status=done exit=0") {
 				t.Fatalf("result=%+v log=%s", res, log.String())
 			}
 			if len(f.turns) != 0 {
@@ -99,7 +99,7 @@ func TestCatchUpUndeliveredJobNotice(t *testing.T) {
 	f.watchRows = []client.SessionJobWatch{{JobID: "job-7", Title: "t", Status: "failed", ExitCode: 2}}
 	p := payload(t, "claude", map[string]any{"session_id": "sid-cu", "hook_event_name": "UserPromptSubmit", "prompt": "hello"})
 	res, err := Run(f, p, fastOpts(nil))
-	if err != nil || !strings.Contains(res.Context, "[gofer job 完成] job-7 t status=failed exit=2") {
+	if err != nil || !strings.Contains(res.Context, "[gofer · job 完成] job-7 t status=failed exit=2") {
 		t.Fatalf("res=%+v err=%v", res, err)
 	}
 	res, _ = Run(f, p, fastOpts(nil))

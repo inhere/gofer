@@ -113,7 +113,7 @@ func TestSessionDeliverTakeover(t *testing.T) {
 	if out.Path != "takeover" || out.JobID != "job-http-takeover" || out.DecisionID == "" {
 		t.Fatalf("takeover deliver result=%+v, want path=takeover with the job and audit ids", out)
 	}
-	if len(to.reqs) != 1 || to.reqs[0].InitialInput != "[gofer web 回复] carry on\r" {
+	if len(to.reqs) != 1 || to.reqs[0].InitialInput != "[来自 web 回复，default] carry on\r" {
 		t.Fatalf("takeover requests=%+v, want the reply primed with the injection prefix", to.reqs)
 	}
 

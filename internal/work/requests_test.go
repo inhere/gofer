@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 type fakeMessenger struct {
@@ -153,7 +154,7 @@ func TestParkAndOnsiteAutoHandoffOnlyForRunningSessions(t *testing.T) {
 	assert.NoErr(t, err)
 	svc.WaitIdle()
 	assert.Eq(t, 1, len(m.sent))
-	assert.True(t, strings.Contains(m.sent[0], "交接请求"))
+	assert.True(t, strings.Contains(m.sent[0], msgprefix.WorkHandoffOpen))
 
 	// needs_onsite via Update also asks; an unchanged status does not ask again.
 	onsite := jobstore.WorkNeedsOnsite

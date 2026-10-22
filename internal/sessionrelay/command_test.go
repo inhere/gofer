@@ -70,11 +70,11 @@ func TestDeliverCommandDelivered(t *testing.T) {
 		assert.Eq(t, "myagent", r.SourceAgent)
 		assert.Eq(t, []string{TagRelayDeliver}, r.Tags)
 		if stdin {
-			assert.Eq(t, InjectPrefix+"hello", r.Stdin)
+			assert.Eq(t, "[来自 web 回复，alice] hello", r.Stdin)
 			assert.False(t, strings.Contains(strings.Join(r.Cmd, " "), "hello"))
 		} else {
 			assert.Eq(t, "", r.Stdin)
-			assert.Eq(t, InjectPrefix+"hello", r.Cmd[len(r.Cmd)-1])
+			assert.Eq(t, "[来自 web 回复，alice] hello", r.Cmd[len(r.Cmd)-1])
 		}
 		a, _, _ := s.store.GetAgentSession("sid-cmd-ok")
 		assert.Eq(t, jobstore.SessionRunning, a.State)

@@ -10,7 +10,7 @@ import (
 
 // The mailbox's own delivery paths (design 2026-10-16「二、gofer 信箱」, plan M5). Letters and
 // the wake prompt are NOT web messages, so they take the same transports as Deliver /
-// SendMessage but none of their web semantics: no InjectPrefix / web prefix on the text, no
+// SendMessage but none of their web semantics: no person's web prefix on the text, no
 // turn answered (never Say), no outbox row, no audit decision, no session state change. What
 // the transport reports is all that is left of a delivery; the mailbox keeps its own state
 // in the letter.

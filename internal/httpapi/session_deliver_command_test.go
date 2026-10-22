@@ -89,7 +89,7 @@ func TestSessionDeliverCommandEndToEnd(t *testing.T) {
 			t.Fatalf("the deliver command did not run: %v", err)
 		}
 		got := string(b)
-		wantText := "[gofer web 回复] hi 你好 \"q\" $x"
+		wantText := "[来自 web 回复，default] hi 你好 \"q\" $x"
 		if stdin {
 			if !strings.Contains(got, "stdin="+wantText) || strings.Contains(strings.SplitN(got, "\n", 2)[0], "hi") {
 				t.Fatalf("stdin form record = %q", got)

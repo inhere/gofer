@@ -2677,7 +2677,8 @@ type AgentConfig struct {
 	// agent's sessions (session relay path C): argv appended to the agent's `command`
 	// (like session_resume), or a full argv when its first element is an absolute
 	// path. Placeholders {{session_id}} and {{text}} (the text carries the
-	// "[gofer web 回复] " prefix). It runs as an internal job on the runner the
+	// "[来自 web 回复，<user>] " prefix, or a gofer system prefix of its own when the
+	// message is gofer's). It runs as an internal job on the runner the
 	// session registered. Exit codes: 0 = delivered to the live process, 3 = the
 	// session's process is not running, anything else = failure (stderr is the
 	// reason). Unset = no live-process channel (tmux injection, then takeover).

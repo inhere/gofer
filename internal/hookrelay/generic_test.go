@@ -101,7 +101,7 @@ func TestGenericInjectedFlag(t *testing.T) {
 	if !b.Injected || b.Title != "" || f.humanEvents != 0 {
 		t.Fatalf("injected=true beat = %+v humanEvents=%d", b, f.humanEvents)
 	}
-	b = run(map[string]any{"prompt": "[gofer job 完成] job-1 t status=done exit=0 耗时1s"})
+	b = run(map[string]any{"prompt": "[gofer · job 完成] job-1 t status=done exit=0 耗时1s"})
 	if !b.Injected || b.Title != "" {
 		t.Fatalf("job notice beat = %+v", b)
 	}
@@ -113,7 +113,7 @@ func TestGenericInjectedFlag(t *testing.T) {
 	if b.Injected || b.Title == "" {
 		t.Fatalf("injected=false beat = %+v", b)
 	}
-	if !IsHarnessPrompt(JobDoneTag+" x") || !strings.HasPrefix(formatWatchedJobCompletion(WatchedJob{ID: "j"}), SystemNoticePrefix+" "+JobDoneTag) {
+	if !IsHarnessPrompt(JobDoneTag+" x") || !strings.HasPrefix(formatWatchedJobCompletion(WatchedJob{ID: "j"}), JobDoneTag+" ") {
 		t.Fatal("job notice not recognised")
 	}
 }
@@ -136,7 +136,7 @@ func TestGenericStopWaitsAndBlocksWithReply(t *testing.T) {
 	if f.turns["dec-1"].Question != "A or B?" {
 		t.Fatalf("turn question = %q", f.turns["dec-1"].Question)
 	}
-	if string(BlockJSON(res.Reason)) != `{"decision":"block","reason":"[gofer web 回复] use plan B"}` {
+	if string(BlockJSON(res.Reason)) != `{"decision":"block","reason":"[来自 web 回复，web] use plan B"}` {
 		t.Fatalf("block json = %s", BlockJSON(res.Reason))
 	}
 	// An empty payload message never falls back to a transcript read.
@@ -174,7 +174,7 @@ func TestGenericCatchUpOnce(t *testing.T) {
 	f.watchRows = []client.SessionJobWatch{{JobID: "job-7", Title: "t", Status: "failed", ExitCode: 2}}
 	p := gpayload(t, "myagent", map[string]any{"session_id": "g-cu", "hook_event_name": "UserPromptSubmit", "prompt": "hello"})
 	res, _ := Run(f, p, fastOpts(nil))
-	if !strings.Contains(res.Context, "[gofer job 完成] job-7 t status=failed exit=2") {
+	if !strings.Contains(res.Context, "[gofer · job 完成] job-7 t status=failed exit=2") {
 		t.Fatalf("res = %+v", res)
 	}
 	if res, _ = Run(f, p, fastOpts(nil)); res.Context != "" {

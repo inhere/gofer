@@ -10,11 +10,13 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/work"
 )
 
-// stewardAskPrefix tells the receiving session who is talking.
-const stewardAskPrefix = "[gofer 管家带话]"
+// stewardAskPrefix tells the receiving session who is talking (the steward relaying
+// a person's words — msgprefix.Steward, the one table of delivered prefixes).
+const stewardAskPrefix = msgprefix.StewardOpen
 
 // POST /v1/session-ask {session_id, text, work_id?} — "带话": a short message for a
 // running session ("the resource arrived, carry on"), over the existing 传话 channels

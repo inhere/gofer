@@ -117,9 +117,9 @@ func TestDeliverTakeoverSubmitsInteractiveResume(t *testing.T) {
 	// resume), so the takeover does not need the broad allow_exec.
 	assert.Eq(t, "claude", req.ResumeSourceAgent)
 	assert.Eq(t, "alice", req.CallerID)
-	// The reply is the pty's FIRST input, with the injection prefix the hook and
-	// the model key on, plus the Enter that submits it.
-	assert.Eq(t, "[gofer web 回复] carry on\r", req.InitialInput)
+	// The reply is the pty's FIRST input, with the web-reply prefix (the one table
+	// both the hook and the relay read) plus the Enter that submits it.
+	assert.Eq(t, "[来自 web 回复，alice] carry on\r", req.InitialInput)
 
 	a, ok, err := s.store.GetAgentSession("sid-takeover-01")
 	assert.NoErr(t, err)
