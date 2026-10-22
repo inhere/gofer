@@ -2,6 +2,7 @@ package serve
 
 import (
 	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -28,6 +29,14 @@ func (h mailResidentHost) StartSession(sp mail.ResidentSpec) (string, error) {
 		runner = config.BuiltinLocalRunner
 	}
 	shared := false
+	// gofer-81b4: the gate is resolved by the machine that RUNS the job (it is part of the
+	// job's own request), and a worker dispatch does not carry it yet (the wire frame is the
+	// worker protocol's business). Say so rather than leave a silently weaker gate behind.
+	if sp.Approval != nil && runner != config.BuiltinLocalRunner && runner != config.BuiltinLocalRunnerAlias {
+		slog.Warn("mail resident: the session's own approval policy does not follow a worker dispatch",
+			"resident", sp.Name, "project", sp.Project, "runner", runner,
+			"effect", "the job is approved by the executing machine's project policy")
+	}
 	req := job.JobRequest{
 		ProjectKey: sp.Project, Agent: sp.Agent, Runner: runner, Cwd: ".",
 		Prompt: sp.Prompt, Title: sp.Title, AgentArgs: sp.Args,
