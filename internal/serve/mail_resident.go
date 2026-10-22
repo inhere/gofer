@@ -2,6 +2,7 @@ package serve
 
 import (
 	"errors"
+	"log/slog"
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -28,10 +29,21 @@ func (h mailResidentHost) StartSession(sp mail.ResidentSpec) (string, error) {
 		runner = config.BuiltinLocalRunner
 	}
 	shared := false
+	// gofer-81b4: the gate is resolved by the machine that RUNS the job (it is part of the
+	// job's own request), and a worker dispatch does not carry it yet (the wire frame is the
+	// worker protocol's business). Say so rather than leave a silently weaker gate behind.
+	if sp.Approval != nil && runner != config.BuiltinLocalRunner && runner != config.BuiltinLocalRunnerAlias {
+		slog.Warn("mail resident: the session's own approval policy does not follow a worker dispatch",
+			"resident", sp.Name, "project", sp.Project, "runner", runner,
+			"effect", "the job is approved by the executing machine's project policy")
+	}
 	req := job.JobRequest{
 		ProjectKey: sp.Project, Agent: sp.Agent, Runner: runner, Cwd: ".",
 		Prompt: sp.Prompt, Title: sp.Title, AgentArgs: sp.Args,
 		Session: true, IdleTimeoutSec: sp.IdleSec, TimeoutSec: residentTurnTimeoutSec,
+		// gofer-81b4: the resident 收件会话's own approval gate (config
+		// mail.agents.<名字>.approval), which REPLACES the project's policy for this job only.
+		SessionApproval: sp.Approval,
 		// A resident session lives for hours: it must not hold the project's directory lock,
 		// which would block every other job of that project (设计「常驻」/ the acp session lock).
 		ExclusiveDir: &shared,
@@ -91,8 +103,20 @@ func mailResidents(m config.MailConfig) mail.ResidentsConfig {
 		cfg.Agents[strings.ToLower(strings.TrimSpace(name))] = mail.ResidentAgentSpec{
 			Name: strings.TrimSpace(name), Agent: a.Identity(), Args: a.Args, Runner: strings.TrimSpace(a.Runner),
 			Idle: a.EffectiveIdle(), MaxLetters: a.EffectiveMaxLetters(), MaxHours: a.EffectiveMaxHours(),
-			Prompt: a.Prompt,
+			Prompt: a.Prompt, Approval: cloneApproval(a.Approval),
 		}
 	}
 	return cfg
+}
+
+// cloneApproval copies a configured approval block, so the mailbox's snapshot cannot be
+// mutated through the config it was read from (the spec outlives a reload).
+func cloneApproval(a *config.ApprovalConfig) *config.ApprovalConfig {
+	if a == nil {
+		return nil
+	}
+	cp := *a
+	cp.AutoAllowKinds = append([]string(nil), a.AutoAllowKinds...)
+	cp.AskKinds = append([]string(nil), a.AskKinds...)
+	return &cp
 }

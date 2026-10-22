@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -344,5 +345,26 @@ func TestEndResidentByHand(t *testing.T) {
 	list, err := f.svc.ListResidents()
 	if err != nil || len(list) != 1 || list[0].Name != "suga" || !list[0].Configured {
 		t.Fatalf("ListResidents = %+v, %v", list, err)
+	}
+}
+
+// TestAgentResidentSessionCarriesItsApproval (gofer-81b4): the agent's own approval gate
+// (mail.agents.<名字>.approval) reaches the session the deliverer starts.
+func TestAgentResidentSessionCarriesItsApproval(t *testing.T) {
+	f := newAgentFixture(t)
+	f.svc.SetResidents(ResidentsConfig{Max: 6, Agents: map[string]ResidentAgentSpec{
+		"suga": {
+			Name: "suga", Agent: "suga-acp", Idle: 120 * time.Minute, MaxLetters: 50, MaxHours: 24,
+			Approval: &config.ApprovalConfig{Mode: config.ApprovalAsk},
+		},
+	}})
+	f.send(t, "agent:suga", "gofer")
+	f.dl.Tick(t.Context())
+	if len(f.host.started) != 1 {
+		t.Fatalf("started = %d sessions, want 1", len(f.host.started))
+	}
+	sp := f.host.started[0]
+	if sp.Approval == nil || sp.Approval.Mode != config.ApprovalAsk {
+		t.Fatalf("start spec approval = %+v, want the configured ask", sp.Approval)
 	}
 }

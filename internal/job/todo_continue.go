@@ -336,6 +336,9 @@ func (s *Service) assembleContinuation(cfg *config.Config, pred jobstore.PlanTod
 	req.BaselineSHA = s.predecessorEndPoint(predJob)
 	req.Runner = predJob.Runner
 	req.MCP = predJob.MCP
+	// gofer-81b4: the item continues the predecessor's session, so it is approved the way
+	// that session was (a resident 收件会话's own gate, not the project policy).
+	req.SessionApproval = requestOfJob(predJob).SessionApproval
 	// The item's model, else the predecessor's (checkResume settled which).
 	req.Model = chk.Model
 

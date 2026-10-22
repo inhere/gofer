@@ -75,6 +75,26 @@ func TestMailAgentsOverrides(t *testing.T) {
 	}
 }
 
+func TestMailAgentsApproval(t *testing.T) {
+	cfg, err := loadMailCfg(t, mailAgentBase+
+		"mail:\n  agents:\n    suga:\n      agent: suga-acp\n      approval: {mode: ask, timeout_sec: 60}\n"+
+		"    quiet:\n      agent: codex-acp\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := cfg.Mail.Agent("suga")
+	if !ok || a.Approval == nil {
+		t.Fatalf("suga approval = %+v, want the configured block", a.Approval)
+	}
+	if a.Approval.Mode != ApprovalAsk || a.Approval.TimeoutSec != 60 {
+		t.Fatalf("approval = %+v, want mode=ask timeout=60", *a.Approval)
+	}
+	// Unset stays nil: the mailbox then uses the project policy (unchanged behaviour).
+	if quiet, _ := cfg.Mail.Agent("quiet"); quiet.Approval != nil {
+		t.Fatalf("quiet approval = %+v, want nil", quiet.Approval)
+	}
+}
+
 func TestMailAgentsValidation(t *testing.T) {
 	for _, tc := range []struct{ name, body, want string }{
 		{"no agent", "  agents:\n    suga:\n      idle_minutes: 5\n", "mail.agents.suga.agent"},
@@ -83,6 +103,10 @@ func TestMailAgentsValidation(t *testing.T) {
 		{"negative hours", "  agents:\n    suga:\n      agent: suga-acp\n      max_hours: -2\n", "mail.agents.suga.max_hours"},
 		{"negative cap", "  agents_max_resident: -1\n", "mail.agents_max_resident"},
 		{"at in the name", "  agents:\n    \"su@ga\":\n      agent: suga-acp\n", "cannot contain"},
+		{"unknown approval mode", "  agents:\n    suga:\n      agent: suga-acp\n      approval: {mode: on}\n", "mail.agents.suga: unknown approval.mode"},
+		{"unknown approval kind", "  agents:\n    suga:\n      agent: suga-acp\n      approval:\n        mode: ask\n        auto_allow_kinds: [write]\n",
+			"mail.agents.suga: unknown approval.auto_allow_kinds"},
+		{"negative approval timeout", "  agents:\n    suga:\n      agent: suga-acp\n      approval: {timeout_sec: -1}\n", "mail.agents.suga: approval.timeout_sec"},
 	} {
 		_, err := loadMailCfg(t, mailAgentBase+"mail:\n"+tc.body)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

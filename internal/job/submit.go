@@ -1518,7 +1518,7 @@ func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, promp
 	r := &runner.ACPRequest{
 		Prompt:        prompt,
 		ResultDir:     resultDir,
-		Approval:      cfg.EffectiveApproval(req.ProjectKey, req.Agent),
+		Approval:      cfg.EffectiveApprovalWith(req.ProjectKey, req.Agent, req.SessionApproval),
 		LoadSessionID: resumeLoadSessionID(req),
 		ModelID:       req.Model,
 		LogThoughts:   ac.ACP.LogsThoughts(),

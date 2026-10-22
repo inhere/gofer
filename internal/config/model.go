@@ -2472,11 +2472,25 @@ func (p ProjectConfig) ApprovalPolicy() ApprovalConfig {
 // raises off to ask, strict raises anything to strict. An unknown project/agent
 // resolves to the default (off) policy.
 func (c *Config) EffectiveApproval(projectKey, agent string) ApprovalConfig {
+	return c.EffectiveApprovalWith(projectKey, agent, nil)
+}
+
+// EffectiveApprovalWith is EffectiveApproval with an explicit request-level policy that
+// REPLACES the project's one (设计 2026-10-22 mail-agent-address「D4」): a resident 收件
+// session may carry its own gate (mail.agents.<名字>.approval) without changing how every
+// other ACP session of the project is approved. The override is never relaxed by the
+// project block, because it is not merged with it at all; the agent's acp.permission_policy
+// still TIGHTENS it, exactly as it tightens the project policy. A nil override is the
+// project policy, unchanged.
+func (c *Config) EffectiveApprovalWith(projectKey, agent string, override *ApprovalConfig) ApprovalConfig {
 	pol := ProjectConfig{}.ApprovalPolicy()
+	if override != nil {
+		pol = override.WithDefaults()
+	}
 	if c == nil {
 		return pol
 	}
-	if p, ok := c.Projects[projectKey]; ok {
+	if p, ok := c.Projects[projectKey]; ok && override == nil {
 		pol = p.ApprovalPolicy()
 	}
 	if a, ok := c.Agents[agent]; ok && a.ACP != nil {

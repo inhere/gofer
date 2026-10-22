@@ -451,34 +451,40 @@ func checkFallbackCandidate(cfg *Config, owner, cand string) error {
 // rather than silently widening the gate: an unknown kind in auto_allow_kinds would
 // otherwise never match and an unknown mode would read as off.
 func validateApproval(project string, a ApprovalConfig) error {
+	return validateApprovalAt(fmt.Sprintf("project %q", project), a)
+}
+
+// validateApprovalAt is validateApproval for any owner label (a project, or one
+// `mail.agents.<名字>` block whose approval gate is held to the same bar).
+func validateApprovalAt(owner string, a ApprovalConfig) error {
 	switch a.Mode {
 	case "", ApprovalOff, ApprovalAsk, ApprovalStrict:
 	default:
-		return fmt.Errorf("project %q: unknown approval.mode %q (want %s|%s|%s)",
-			project, a.Mode, ApprovalOff, ApprovalAsk, ApprovalStrict)
+		return fmt.Errorf("%s: unknown approval.mode %q (want %s|%s|%s)",
+			owner, a.Mode, ApprovalOff, ApprovalAsk, ApprovalStrict)
 	}
 	switch a.OnTimeout {
 	case "", ApprovalOnTimeoutReject, ApprovalOnTimeoutAllow:
 	default:
-		return fmt.Errorf("project %q: unknown approval.on_timeout %q (want %s|%s)",
-			project, a.OnTimeout, ApprovalOnTimeoutReject, ApprovalOnTimeoutAllow)
+		return fmt.Errorf("%s: unknown approval.on_timeout %q (want %s|%s)",
+			owner, a.OnTimeout, ApprovalOnTimeoutReject, ApprovalOnTimeoutAllow)
 	}
 	if a.TimeoutSec < 0 {
-		return fmt.Errorf("project %q: approval.timeout_sec must be >= 0", project)
+		return fmt.Errorf("%s: approval.timeout_sec must be >= 0", owner)
 	}
-	if err := validateApprovalKinds(project, "auto_allow_kinds", a.AutoAllowKinds); err != nil {
+	if err := validateApprovalKinds(owner, "auto_allow_kinds", a.AutoAllowKinds); err != nil {
 		return err
 	}
-	return validateApprovalKinds(project, "ask_kinds", a.AskKinds)
+	return validateApprovalKinds(owner, "ask_kinds", a.AskKinds)
 }
 
 // validateApprovalKinds rejects a kind outside the ACP ToolKind vocabulary — kinds
 // come from the protocol, so an unknown one is a typo, never a future feature.
-func validateApprovalKinds(project, field string, kinds []string) error {
+func validateApprovalKinds(owner, field string, kinds []string) error {
 	for _, k := range kinds {
 		if !slices.Contains(acp.ToolKinds, k) {
-			return fmt.Errorf("project %q: unknown approval.%s entry %q (want one of %s)",
-				project, field, k, strings.Join(acp.ToolKinds, "|"))
+			return fmt.Errorf("%s: unknown approval.%s entry %q (want one of %s)",
+				owner, field, k, strings.Join(acp.ToolKinds, "|"))
 		}
 	}
 	return nil
