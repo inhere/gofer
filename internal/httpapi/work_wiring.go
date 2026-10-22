@@ -97,26 +97,24 @@ func summarizerJobRequest(r work.OneShotRequest) job.JobRequest {
 		ProjectKey: r.ProjectKey, Agent: r.Agent, Runner: config.BuiltinLocalRunner, Prompt: r.Prompt,
 		AgentArgs: r.Args, ReadOnly: true, NoRules: true, Title: r.Title, Tags: []string{job.WorkSummarizerJobTag},
 		TimeoutSec: r.TimeoutSec, EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
-		// SessionID pins the run to the summarizer's own session (gofer-ayu0): a session
-		// per project instead of one per tidy-up.
-		SessionID: r.SessionID,
 		// Bounded by the ceiling of the caller that asked for the tidy-up (empty for the
 		// timer); the agent argv comes from the work configuration, not from the caller.
 		OriginCaller: r.Origin, InternalExec: job.InternalExecSummarizer,
 	}
 }
 
-// SessionCaps implements work.SessionCaps: whether the agent takes a pre-allocated
-// session id (session_inject) and whether its session can be continued (session_resume).
-func (o workOneShot) SessionCaps(agentKey string) (inject, resume bool) {
+// CanContinueSession implements work.SessionKeeper: whether a finished summarizer job of
+// this agent can be continued (its config has a session_resume template). Only then does a
+// project keep one summarizer session instead of opening one per tidy-up (gofer-ayu0).
+func (o workOneShot) CanContinueSession(agentKey string) bool {
 	if o.agents == nil {
-		return false, false
+		return false
 	}
 	ac, ok := o.agents.Get(agentKey)
 	if !ok {
-		return false, false
+		return false
 	}
-	return len(ac.SessionInject) > 0, len(ac.SessionResume) > 0
+	return len(ac.SessionResume) > 0
 }
 
 func (o workOneShot) Run(ctx context.Context, r work.OneShotRequest) (work.OneShotResult, error) {
@@ -166,6 +164,7 @@ func (o workOneShot) finish(ctx context.Context, jobID string, timeoutSec int) (
 	}
 	stdout, _ := o.jobs.TailLog(jobID, store.StreamStdout, 64*1024)
 	out.Output = string(stdout)
+	out.SessionID = final.SessionID
 	return out, nil
 }
 

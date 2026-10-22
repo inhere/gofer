@@ -13,7 +13,7 @@
 
 ### 新增
 
-- **整理器每个项目只用一个会话，并会轮换（gofer-ayu0）**：整理器不再每整理一件工作就新开一个 agent 会话——第一次整理用 agent 的 `session_inject` 拿到预分配会话 id（`suga run --session-id` 即「创建或续用」，claude 用 `--session-id`），之后每次续在该会话里（agent 的 `session_resume`，即 `job resume` 那套）；续用时提示开头说明「这是新的一件工作，忽略之前的工作项」，仍只输出 JSON。累计整理 `work.summarizer_session_max_runs`（默认 20）次或会话存在超过 `work.summarizer_session_max_age`（默认 24h）后换新会话；续接失败回退成新会话并记 `work.summarizer_session_reset` 事件，整理不失败。整理器会话是内部会话：`gofer session ls` 与 web 工作台会话列表默认不显示，`--all`（接口 `all=1` / `internal=1`）可见，旧版本产生的整理器会话只要认得出也一并隐藏。
+- **整理器每个项目只用一个会话，并会轮换（gofer-ayu0）**：整理器不再每整理一件工作就新开一个 agent 会话——第一次整理照旧由 job 层给 agent 分配会话（`session_inject`），gofer 记下这次 job 的会话 id，之后每次续在该会话里（agent 的 `session_resume`，即 `job resume` 那套）；续用时提示开头说明「这是新的一件工作，忽略之前的工作项」，仍只输出 JSON。累计整理 `work.summarizer_session_max_runs`（默认 20）次或会话存在超过 `work.summarizer_session_max_age`（默认 24h）后换新会话；续接失败回退成新会话并记 `work.summarizer_session_reset` 事件，整理不失败。整理器会话是内部会话：`gofer session ls`、web 工作台会话列表与会话搜索默认不显示，`--all`（接口 `all=1` / `internal=1`）可见，旧版本产生的整理器会话只要认得出也一并隐藏。
 
 ### 修复
 

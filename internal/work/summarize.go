@@ -76,10 +76,6 @@ type OneShotRequest struct {
 	Prompt     string
 	Title      string
 	TimeoutSec int
-	// SessionID pins the job to a pre-allocated agent session id (agent session_inject):
-	// the summarizer keeps one session per project instead of opening one per tidy-up
-	// (gofer-ayu0). Empty lets the agent open its own (the old behaviour).
-	SessionID string
 	// Origin is the ceiling owner the job is submitted under ("" = none).
 	Origin string
 }
@@ -96,12 +92,12 @@ type ResumeRequest struct {
 	Origin     string
 }
 
-// SessionCaps is the optional second face of a OneShot: whether the summarizer's agent
-// can be pinned to a session id (its config has session_inject) and whether a finished
-// job of it can be continued (session_resume). An agent that offers neither keeps
-// opening a new session per tidy-up.
-type SessionCaps interface {
-	SessionCaps(agent string) (inject, resume bool)
+// SessionKeeper is the optional second face of a OneShot: whether a finished summarizer
+// job's agent session can be continued (the agent has a session_resume template). Only
+// then does the project keep ONE session instead of opening one per tidy-up; every other
+// agent keeps the old behaviour.
+type SessionKeeper interface {
+	CanContinueSession(agent string) bool
 }
 
 // SessionResumer is the optional third face of a OneShot: continue the agent session of
@@ -112,8 +108,11 @@ type SessionResumer interface {
 
 // OneShotResult is what the job produced.
 type OneShotResult struct {
-	JobID  string
-	Output string
+	JobID string
+	// SessionID is the agent session the job ran in (injected or captured by the job
+	// layer); recorded so the next tidy-up knows what it is continuing.
+	SessionID string
+	Output    string
 }
 
 // OneShot runs the summarizer job (the entry layer adapts job.Service).
@@ -410,12 +409,12 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	res.Degraded = degraded
 	project, _ := s.resolveProject(c, agentName, w.ProjectKey, a.ProjectKey)
 	// gofer-ayu0: one agent session per project, continued by every tidy-up, rotated by
-	// count / age. Agents that cannot be pinned nor continued keep the old behaviour.
-	inject, resume := false, false
-	if caps, ok := s.oneShot.(SessionCaps); ok {
-		inject, resume = caps.SessionCaps(agentName)
+	// count / age. An agent whose session cannot be continued keeps the old behaviour.
+	canResume := false
+	if keeper, ok := s.oneShot.(SessionKeeper); ok {
+		canResume = keeper.CanContinueSession(agentName)
 	}
-	session, resumed := s.summarizerSession(project, c, inject, resume)
+	session, resumed := s.summarizerSession(project, c, canResume)
 	// One tidy-up at a time in a project: two runs sharing the session would interleave.
 	if !s.claimSession(summarizerProjectKey(project)) {
 		return fail("该项目的整理器会话已有整理在进行")
@@ -424,12 +423,15 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 
 	title := "work summarizer · " + shortID(w.ID)
 	var out SummaryOut
-	var jobID string
+	var last OneShotResult
 	var perr error
 	for round := 0; round < 2; round++ {
-		j, o2, rerr := s.runSummaryAttempt(ctx, w, material, degraded, agentName, c, project, title, session, resumed, o.Origin)
-		if j != "" {
-			jobID = j
+		r, o2, rerr := s.runSummaryAttempt(ctx, w, material, degraded, agentName, c, project, title, session, resumed, o.Origin)
+		if r.JobID != "" {
+			last.JobID = r.JobID
+		}
+		if r.SessionID != "" {
+			last.SessionID = r.SessionID
 		}
 		if rerr == nil {
 			out, perr = o2, nil
@@ -440,21 +442,21 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 			// one instead of failing the tidy-up, and record why.
 			s.resetSummarizerSession(project, agentName, rerr)
 			session, resumed = jobstore.SummarizerSession{
-				ProjectKey: project, SessionID: newSummarizerSessionID(inject),
-				CreatedAt: s.nowFn().Unix(), UpdatedAt: s.nowFn().Unix(),
+				ProjectKey: project, CreatedAt: s.nowFn().Unix(), UpdatedAt: s.nowFn().Unix(),
 			}, false
 			continue
 		}
 		perr = rerr
 		break
 	}
+	jobID := last.JobID
 	res.JobID = jobID
 	if perr != nil {
 		finish(jobstore.SummaryFailed, jobID, perr.Error())
 		s.journalSteward(w.ID, SummarizerBy(agentName), "整理失败："+perr.Error())
 		return fail("整理失败：" + perr.Error())
 	}
-	s.commitSummarizerSession(session, project, jobID)
+	s.commitSummarizerSession(session, project, jobID, last.SessionID)
 	applied, suggested, hint := s.applySummary(w.ID, out, SummarizerBy(agentName), jobID)
 	res.Applied, res.Suggested, res.StatusHint, res.Confidence = applied, suggested, hint, out.Confidence
 	finish(jobstore.SummaryOK, jobID, "")

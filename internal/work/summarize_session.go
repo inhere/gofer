@@ -2,8 +2,6 @@ package work
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,10 +13,10 @@ import (
 
 // The summarizer's own agent session (gofer-ayu0). Every tidy-up used to open a fresh
 // cli-agent session, so a busy workspace ended up with a long tail of sessions nobody
-// ever talks in. Now a project keeps ONE summarizer session: the first run opens it with
-// a pre-allocated id (agent session_inject), later runs continue it through the agent's
-// own resume argv (session_resume, the same seam `job resume` uses), and it is replaced
-// once it has served work.summarizer_session_max_runs tidy-ups or is older than
+// ever talks in. Now a project keeps ONE summarizer session: the first run opens it, every
+// later run continues it through the agent's own resume argv (session_resume, the same
+// seam `job resume` uses), and it is replaced once it has served
+// work.summarizer_session_max_runs tidy-ups or is older than
 // work.summarizer_session_max_age. A session that cannot be continued (deleted, agent
 // refuses) falls back to a fresh one — the tidy-up itself must not fail over that.
 
@@ -31,27 +29,10 @@ var errSummaryOutput = errors.New("summarizer output is not the fixed JSON")
 // tidy-ups sharing one session would interleave their turns.
 func summarizerProjectKey(project string) string { return "project:" + project }
 
-// newSummarizerSessionID mints the id the next session is pinned to. Empty when the
-// agent cannot take one (session_inject missing): it then opens and captures its own.
-func newSummarizerSessionID(inject bool) string {
-	if !inject {
-		return ""
-	}
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return ""
-	}
-	// uuid v4 shape: every built-in agent that takes a session id validates it.
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	h := hex.EncodeToString(b[:])
-	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
-}
-
-// summarizerSession picks the session this tidy-up runs in: the project's recorded one,
-// or a fresh record when there is none / the rotation says so. resumed reports whether
-// the run continues the previous job's session (only then is there something to ignore).
-func (s *Service) summarizerSession(project string, c config.WorkConfig, inject, resume bool) (jobstore.SummarizerSession, bool) {
+// summarizerSession picks the session this tidy-up runs in: the project's recorded one, or
+// a fresh record when there is none / the rotation says so. resumed reports whether the run
+// continues the previous job's session (only then is there something to ignore).
+func (s *Service) summarizerSession(project string, c config.WorkConfig, canResume bool) (jobstore.SummarizerSession, bool) {
 	now := s.nowFn().Unix()
 	rec, ok, err := s.store.GetSummarizerSession(project)
 	if err != nil {
@@ -64,30 +45,25 @@ func (s *Service) summarizerSession(project string, c config.WorkConfig, inject,
 		age := int64(c.SummarizerSessionAge() / time.Second)
 		rotated := (runs > 0 && rec.Runs >= runs) || (age > 0 && now-rec.CreatedAt >= age)
 		if !rotated {
-			if resume && rec.LastJobID != "" {
-				return rec, true
-			}
-			if inject && rec.SessionID == "" {
-				rec.SessionID = newSummarizerSessionID(true)
-			}
-			return rec, false
+			return rec, canResume && rec.LastJobID != ""
 		}
 	}
-	return jobstore.SummarizerSession{
-		ProjectKey: project, SessionID: newSummarizerSessionID(inject), CreatedAt: now, UpdatedAt: now,
-	}, false
+	return jobstore.SummarizerSession{ProjectKey: project, CreatedAt: now, UpdatedAt: now}, false
 }
 
 // commitSummarizerSession records a successful run: the session now has served one more
 // tidy-up and the job whose session the next run continues. Without a job id there is
 // nothing to continue, so the next run starts a new session.
-func (s *Service) commitSummarizerSession(rec jobstore.SummarizerSession, project, jobID string) {
+func (s *Service) commitSummarizerSession(rec jobstore.SummarizerSession, project, jobID, sessionID string) {
 	if project == "" {
 		return
 	}
 	rec.ProjectKey = project
 	rec.Runs++
 	rec.LastJobID = jobID
+	if sessionID != "" {
+		rec.SessionID = sessionID
+	}
 	rec.UpdatedAt = s.nowFn().Unix()
 	if rec.CreatedAt == 0 {
 		rec.CreatedAt = rec.UpdatedAt
@@ -99,7 +75,7 @@ func (s *Service) commitSummarizerSession(rec jobstore.SummarizerSession, projec
 }
 
 // resetSummarizerSession drops the recorded session after a continuation failed, so the
-// next run opens a fresh one, and leaves the event on the item's journal.
+// next run opens a fresh one, and leaves the event behind.
 func (s *Service) resetSummarizerSession(project, agentName string, cause error) {
 	if project != "" {
 		if err := s.store.DeleteSummarizerSession(project); err != nil {
@@ -111,15 +87,14 @@ func (s *Service) resetSummarizerSession(project, agentName string, cause error)
 		"project", project, "agent", agentName, "err", cause)
 }
 
-// runSummaryAttempt runs one tidy-up in the chosen session: a continuation of the
-// recorded job when resumed, a fresh job otherwise. The JSON retry lives here, so a bad
-// answer is retried in the same session; anything else climbs out, which lets the caller
-// start a new session instead of failing the tidy-up.
+// runSummaryAttempt runs one tidy-up in the chosen session: a continuation of the recorded
+// job when resumed, a fresh job otherwise. The JSON retry lives here, so a bad answer is
+// retried in the same session; anything else climbs out, which lets the caller start a new
+// session instead of failing the tidy-up.
 func (s *Service) runSummaryAttempt(ctx context.Context, w jobstore.WorkItem, material string, degraded bool,
 	agentName string, c config.WorkConfig, project, title string, session jobstore.SummarizerSession,
-	resumed bool, origin string) (string, SummaryOut, error) {
-	var jobID string
-	var lastErr error
+	resumed bool, origin string) (OneShotResult, SummaryOut, error) {
+	var last OneShotResult
 	for attempt := 0; attempt < 2; attempt++ {
 		prompt := s.buildPrompt(w, material, degraded, resumed)
 		if attempt > 0 {
@@ -130,7 +105,7 @@ func (s *Service) runSummaryAttempt(ctx context.Context, w jobstore.WorkItem, ma
 		if resumed {
 			resumer, ok := s.oneShot.(SessionResumer)
 			if !ok {
-				return jobID, SummaryOut{}, errors.New("整理器没有续用会话的通道")
+				return last, SummaryOut{}, errors.New("整理器没有续用会话的通道")
 			}
 			r, err = resumer.Resume(ctx, ResumeRequest{
 				JobID: session.LastJobID, Prompt: prompt, ProjectKey: project, Title: title,
@@ -140,20 +115,25 @@ func (s *Service) runSummaryAttempt(ctx context.Context, w jobstore.WorkItem, ma
 			r, err = s.oneShot.Run(ctx, OneShotRequest{
 				Agent: agentName, Args: c.SummarizerArgsOrDefault(), ProjectKey: project, Prompt: prompt,
 				Title: title, TimeoutSec: int(summarizeTimeout / time.Second), Origin: origin,
-				SessionID: session.SessionID,
 			})
 		}
 		if r.JobID != "" {
-			jobID = r.JobID
+			last.JobID = r.JobID
+		}
+		if r.SessionID != "" {
+			last.SessionID = r.SessionID
 		}
 		if err != nil {
-			return jobID, SummaryOut{}, err
+			return last, SummaryOut{}, err
 		}
 		out, perr := ParseSummary(r.Output)
 		if perr == nil {
-			return jobID, out, nil
+			return last, out, nil
 		}
-		lastErr = fmt.Errorf("%w: %v", errSummaryOutput, perr)
+		lastErr := fmt.Errorf("%w: %v", errSummaryOutput, perr)
+		if attempt == 1 {
+			return last, SummaryOut{}, lastErr
+		}
 	}
-	return jobID, SummaryOut{}, lastErr
+	return last, SummaryOut{}, fmt.Errorf("%w: 没有拿到输出", errSummaryOutput)
 }
