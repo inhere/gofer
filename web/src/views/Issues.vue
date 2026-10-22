@@ -37,6 +37,8 @@ import {
   buildNewIssueRequest, ISSUE_PRIORITIES, ISSUE_TYPES, issueRepoLabel, issueRepos,
 } from '../utils/dispatch'
 import { runTrackerSync } from '../utils/trackerSync'
+import { pageWriteBlock } from '../utils/pageGate'
+import { useWhoami } from '../store/whoami'
 import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, memoryKindMatches, syncClientLine, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
 
 type IssueRow = TrackerIssue & { data: TrackerIssue['body'] }
@@ -44,6 +46,13 @@ type MemoryRow = TrackerMemory & { data: TrackerMemory['body'] }
 
 const route = useRoute()
 const router = useRouter()
+
+// issue 的写入口（新建 / 保存 / 评论）调用的 POST /v1/tracker/repos/{id}/issues、
+// PUT /v1/tracker/issues/{id}、POST /v1/tracker/issues/{id}/comments 在服务端是 Public
+// （design §1：tracker issue 的读写不要权限），只受只读上限约束：只读身份一律灰显
+// （gofer-bp9c，判定见 utils/pageGate.ts）。
+const { whoami } = useWhoami()
+const writeBlock = computed(() => pageWriteBlock(whoami.value))
 const repos = ref<TrackerRepo[]>([])
 const trackerId = ref('')
 const memoryScope = ref<'repo' | 'project' | 'global'>('repo')
@@ -442,7 +451,7 @@ onMounted(async () => {
       </div>
       <p v-if="newError" class="ni-err mono" role="alert" data-test="new-issue-error">{{ newError }}</p>
       <p v-if="newMsg" class="ni-ok mono" role="status" data-test="new-issue-ok">{{ newMsg }}</p>
-      <div class="ni-actions"><button class="primary-btn mono" type="submit" :disabled="newBusy" data-test="new-issue-submit">{{ newBusy ? '创建中…' : '创建 issue' }}</button><button class="secondary-btn mono" type="button" @click="newOpen = false">收起</button></div>
+      <div class="ni-actions"><button class="primary-btn mono" type="submit" :disabled="newBusy || !!writeBlock" :title="writeBlock || undefined" data-test="new-issue-submit">{{ newBusy ? '创建中…' : '创建 issue' }}</button><button class="secondary-btn mono" type="button" @click="newOpen = false">收起</button></div>
     </form>
     <!-- The top panel has the SAME structure on both tabs (one select slot + one sync slot, each with
          a reserved height) so switching Issues / Memories never moves it or the tabs below it. The
@@ -499,7 +508,7 @@ onMounted(async () => {
       </nav>
       <MemoryList v-if="tab === 'memories' && !loading" :doctor="memoryScope === 'repo' ? memoryDoctor : {}" :rows="filteredMemories" :selected="selectedMemory" :draft="memoryDraft" @open="openMemory" @update:draft="memoryDraft = $event" @save="saveMemory" @remove="removeMemory" />
     </template>
-    <IssueDrawer v-if="selected" :issue="selected" :all-issues="issueNodes" @open-issue="openById" :saving="saving" :expected-rev="selectedRow?.rev ?? 0" @close="closeDrawer" @save="saveIssue" @comment="addComment" />
+    <IssueDrawer v-if="selected" :issue="selected" :all-issues="issueNodes" @open-issue="openById" :saving="saving" :write-block="writeBlock" :expected-rev="selectedRow?.rev ?? 0" @close="closeDrawer" @save="saveIssue" @comment="addComment" />
   </main>
 </template>
 

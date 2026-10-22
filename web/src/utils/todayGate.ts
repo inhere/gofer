@@ -10,6 +10,7 @@
 // whoami 没取到（旧服务端 / 网络）时一律放行，让服务端的 403 说话（与 utils/permissionGate 同口径）。
 import type { TodayAction, TodayCard } from '../api/today'
 import { CEILING_READ_ONLY_NOTICE, ceilingReadOnly } from './ceiling'
+import { missingPermissionText } from './pageGate'
 import { holdsPermission } from './permissionGate'
 import type { AuthWhoami } from './permissions'
 import { canReviewJob } from './reviewGate'
@@ -17,10 +18,8 @@ import { canReviewJob } from './reviewGate'
 export const INTERACTION_ANSWER_PERM = 'interaction.answer'
 export const MEMORY_WRITE_PERM = 'memory.write'
 
-// 缺权限时按钮 title 的统一说法（灰显原因）。
-export function missingPermissionText(perm: string): string {
-  return `缺少权限：${perm}`
-}
+// 缺权限的统一说法与其它页面的写入口共用（utils/pageGate.ts）。
+export { missingPermissionText }
 
 // cardActionBlock：这一个卡片动作能不能点。返回空串 = 可以；否则是灰显原因（挂到 title）。
 export function cardActionBlock(

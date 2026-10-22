@@ -40,6 +40,8 @@ import { progressDetail, progressSegments, progressText } from '../utils/planPro
 import { COL } from '../utils/uiText'
 import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
 import { PLAN_CONTROL_HELP, planChainState, planUsageRows } from '../utils/planControls'
+import { pageWriteBlock } from '../utils/pageGate'
+import { useWhoami } from '../store/whoami'
 import {
   continueApiErrorText, continueCandidates, continueFromValue, continuationLines, defaultContinueFrom,
 } from '../utils/todoContinue'
@@ -51,6 +53,16 @@ import type { AgentSession } from '../api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
+
+// plan 的写操作（改状态 / leader / 挂起 · 继续 · 启动 / 交接说明）在服务端都是
+// PATCH /v1/plans/{id}、POST /v1/plans/{id}/{run,pause,resume}、PUT /v1/plans/{id}/handoff 上的
+// InHandler(permDeny, plan.manage.others)：自己的 plan 不要权限，别人的 plan 要
+// plan.manage.others（gofer-bp9c，判定见 utils/pageGate.ts）。run / resume 在真的派发
+// 待办时另要 job.submit，那是服务端按这次请求会不会起 job 决定的，界面不预判。
+const { whoami } = useWhoami()
+function planWriteBlock(): string {
+  return pageWriteBlock(whoami.value, { perms: ['plan.manage.others'], ownerId: plan.value?.owner })
+}
 
 const plan = ref<PlanDetail | null>(null)
 const error = ref('')
@@ -948,7 +960,8 @@ onUnmounted(() => {
             v-if="plan.status === 'open'"
             class="status-action"
             type="button"
-            :disabled="updating"
+            :disabled="updating || !!planWriteBlock()"
+            :title="planWriteBlock() || undefined"
             @click="setStatus('done')"
           >
             标记完成
@@ -960,7 +973,8 @@ onUnmounted(() => {
                 v-if="plan.status === 'open' || plan.status === 'done'"
                 class="status-action"
                 type="button"
-                :disabled="updating"
+                :disabled="updating || !!planWriteBlock()"
+                :title="planWriteBlock() || undefined"
                 @click="setStatus('archived')"
               >
                 归档
@@ -969,7 +983,8 @@ onUnmounted(() => {
                 v-if="plan.status === 'done' || plan.status === 'archived'"
                 class="status-action"
                 type="button"
-                :disabled="updating"
+                :disabled="updating || !!planWriteBlock()"
+                :title="planWriteBlock() || undefined"
                 @click="setStatus('open')"
               >
                 重新打开
@@ -1089,8 +1104,8 @@ onUnmounted(() => {
               v{{ item.version }} · {{ item.by }} · {{ fmtDateTime(item.at) }}
             </option>
           </select>
-          <button class="op-btn" type="button" @click="startHandoffNew">＋ 新增</button>
-          <button v-if="handoffLatest && !handoffIsHistorical && !handoffEditing" class="op-btn" type="button" @click="startHandoffEdit">修改</button>
+          <button class="op-btn" type="button" :disabled="!!planWriteBlock()" :title="planWriteBlock() || undefined" @click="startHandoffNew">＋ 新增</button>
+          <button v-if="handoffLatest && !handoffIsHistorical && !handoffEditing" class="op-btn" type="button" :disabled="!!planWriteBlock()" :title="planWriteBlock() || undefined" @click="startHandoffEdit">修改</button>
         </div>
       </div>
       <div class="handoff-body-panel">
@@ -1106,7 +1121,7 @@ onUnmounted(() => {
           <MarkdownBlock v-else :text="handoffDraft" />
           <p v-if="handoffError" class="error mono">{{ handoffError }}</p>
           <div class="handoff-actions">
-            <button class="op-btn handoff-save" type="button" :disabled="handoffSaving" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存' }}</button>
+            <button class="op-btn handoff-save" type="button" :disabled="handoffSaving || !!planWriteBlock()" :title="planWriteBlock() || undefined" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存' }}</button>
             <button class="op-btn handoff-cancel" type="button" :disabled="handoffSaving" @click="cancelHandoffEdit">取消</button>
           </div>
         </template>
@@ -1140,11 +1155,11 @@ onUnmounted(() => {
       </p>
       <div class="ctl-row">
         <!-- LEAD-02 C2：本 plan 自己的 leader 回合开关（服务端缺省 off）。 -->
-        <label class="leader-switch mono" :title="PLAN_CONTROL_HELP.leader.help">
+        <label class="leader-switch mono" :title="planWriteBlock() || PLAN_CONTROL_HELP.leader.help">
           <input
             type="checkbox"
             :checked="plan.leader === 'on'"
-            :disabled="leaderSaving"
+            :disabled="leaderSaving || !!planWriteBlock()"
             @change="onToggleLeader"
           />
           <span>{{ PLAN_CONTROL_HELP.leader.label }}：{{ leaderSaving ? '…' : plan.leader === 'on' ? '开' : '关' }}</span>
@@ -1152,11 +1167,11 @@ onUnmounted(() => {
         <!-- 标注挂在 label 外面：徽标不触发开关。 -->
         <ExperimentalBadge />
         <!-- gofer-3db4：plan 级结束通知开关（服务端缺省 off）。 -->
-        <label class="leader-switch mono" data-test="plan-notify" :title="PLAN_CONTROL_HELP.notify.help">
+        <label class="leader-switch mono" data-test="plan-notify" :title="planWriteBlock() || PLAN_CONTROL_HELP.notify.help">
           <input
             type="checkbox"
             :checked="plan.notify === 'on'"
-            :disabled="notifySaving"
+            :disabled="notifySaving || !!planWriteBlock()"
             @change="onToggleNotify"
           />
           <span>{{ PLAN_CONTROL_HELP.notify.label }}：{{ notifySaving ? '…' : plan.notify === 'on' ? '开' : '关' }}</span>
@@ -1165,15 +1180,15 @@ onUnmounted(() => {
         <template v-if="plan.status !== 'archived'">
           <template v-if="confirmRun">
             <span class="ops-hint">启动链？</span>
-            <button class="status-action" type="button" :disabled="!!acting" @click="onPlanAction('run')">确认启动</button>
+            <button class="status-action" type="button" :disabled="!!acting || !!planWriteBlock()" :title="planWriteBlock() || undefined" @click="onPlanAction('run')">确认启动</button>
             <button class="status-action" type="button" @click="confirmRun = false">取消</button>
           </template>
           <button
             v-else
             class="status-action"
             type="button"
-            :title="PLAN_CONTROL_HELP.run.help"
-            :disabled="!!acting"
+            :title="planWriteBlock() || PLAN_CONTROL_HELP.run.help"
+            :disabled="!!acting || !!planWriteBlock()"
             @click="confirmRun = true"
           >
             {{ PLAN_CONTROL_HELP.run.label }}
@@ -1184,8 +1199,8 @@ onUnmounted(() => {
           v-if="plan.paused"
           class="status-action"
           type="button"
-          :title="PLAN_CONTROL_HELP.resume.help"
-          :disabled="!!acting"
+          :title="planWriteBlock() || PLAN_CONTROL_HELP.resume.help"
+          :disabled="!!acting || !!planWriteBlock()"
           @click="onPlanAction('resume')"
         >
           {{ acting === 'resume' ? '继续中…' : PLAN_CONTROL_HELP.resume.label }}
@@ -1194,8 +1209,8 @@ onUnmounted(() => {
           v-else-if="plan.status === 'blocked'"
           class="status-action"
           type="button"
-          :title="PLAN_CONTROL_HELP.unblock.help"
-          :disabled="!!acting"
+          :title="planWriteBlock() || PLAN_CONTROL_HELP.unblock.help"
+          :disabled="!!acting || !!planWriteBlock()"
           @click="onPlanAction('resume')"
         >
           {{ acting === 'resume' ? '解除中…' : PLAN_CONTROL_HELP.unblock.label }}
@@ -1204,8 +1219,8 @@ onUnmounted(() => {
           v-else-if="plan.status !== 'done' && plan.status !== 'archived'"
           class="status-action"
           type="button"
-          :title="PLAN_CONTROL_HELP.pause.help"
-          :disabled="!!acting"
+          :title="planWriteBlock() || PLAN_CONTROL_HELP.pause.help"
+          :disabled="!!acting || !!planWriteBlock()"
           @click="onPlanAction('pause')"
         >
           {{ acting === 'pause' ? '挂起中…' : PLAN_CONTROL_HELP.pause.label }}

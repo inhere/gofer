@@ -23,6 +23,7 @@ import {
 import { fmtAgo, fmtDateTime } from '../api/time'
 import type { MailCandidate, MailConversation, MailMessage } from '../api/types'
 import { useWhoami } from '../store/whoami'
+import { pageWriteBlock } from '../utils/pageGate'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import MailPersonaChip from '../components/mail/PersonaChip.vue'
@@ -109,6 +110,20 @@ function queryValue(v: unknown): string {
 // 我在这台 web 上的身份：调用方 id；带 ?session= 进来时那个会话也算「我」（会话抽屉里
 // 点进来，要把它发的信认成我方，气泡在自己这一侧）。
 const me = computed<MailIdentity>(() => ({ caller: whoami.value?.caller_id ?? '', session: sessionFilter.value }))
+
+// 回信（POST /v1/mail/{id}/reply）：信的两端任意一端是自己就不需要权限（收发都算自己的信）；
+// 投到别人的会话要 session.reply.others、别人的 job / 调用方要 job.manage.others——
+// 路由上就是 InHandler(permDeny, 这两条)，不是同时要求。只读身份一律灰显（gofer-bp9c，
+// 判定见 utils/pageGate.ts，服务端仍是权威）。
+const replyWriteBlock = computed(() => {
+  const target = replyTarget(timeline.value, me.value)
+  const caller = whoami.value?.caller_id
+  const own = !!target && !!caller && (target.from.caller === caller || target.to.caller === caller)
+  return pageWriteBlock(whoami.value, {
+    ownerId: own ? caller : undefined,
+    anyPerms: ['session.reply.others', 'job.manage.others'],
+  })
+})
 
 const active = computed(() => rows.value.find((r) => r.key === activeKey.value) ?? null)
 const seq = computed(() => mailConversationSeq(timeline.value))
@@ -522,7 +537,7 @@ onMounted(() => {
             ></textarea>
             <div class="compose-row">
               <label class="urgent-pick"><input v-model="reply.urgent" type="checkbox" /> 急件</label>
-              <button class="act act--primary mono" type="submit" :disabled="replying" data-test="mail-reply">
+              <button class="act act--primary mono" type="submit" :disabled="replying || !!replyWriteBlock" :title="replyWriteBlock || undefined" data-test="mail-reply">
                 {{ replying ? '发送中…' : '回复' }}
               </button>
             </div>

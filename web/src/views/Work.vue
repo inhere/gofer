@@ -35,6 +35,8 @@ import {
 import { fmtAgo } from '../api/time'
 import { pruneExpanded, toggleExpanded } from '../utils/cardExpand'
 import { resumeConfirmText, resumeFailText } from '../utils/sessionResume'
+import { pageWriteBlock } from '../utils/pageGate'
+import { useWhoami } from '../store/whoami'
 import {
   groupByStatus,
   groupByWorkspace,
@@ -47,6 +49,12 @@ import type { AgentSession, WorkItem, WorkStatus } from '../api/types'
 
 const route = useRoute()
 const router = useRouter()
+
+// 写操作（整理建议 / 合并建议的采纳 · 忽略）调用的 POST /v1/work-items/{id}/suggestions/*、
+// POST /v1/work-items/merge-suggestions/{n}/* 在服务端是 Public（work item 没有 owner 模型），
+// 只受只读上限约束：只读身份一律灰显（gofer-bp9c，判定见 utils/pageGate.ts）。
+const { whoami } = useWhoami()
+const writeBlock = computed(() => pageWriteBlock(whoami.value))
 
 const items = ref<WorkItem[]>([])
 // 收集箱（status=captured）单独取，永远不进看板 / 分组 / 计数
@@ -339,8 +347,8 @@ onUnmounted(() => {
       <h2 class="group-title mono">管家的合并建议 <span class="group-count mono">{{ mergeSuggestions.length }}</span></h2>
       <div v-for="sg in mergeSuggestions" :key="sg.id" class="merge-row" data-test="merge-suggestion">
         <span class="merge-text mono">{{ mergeSuggestionText(sg, titleOf) }}</span>
-        <button class="icard-btn icard-btn--primary mono" type="button" data-test="merge-accept" @click="resolveMerge(sg, true)">采纳</button>
-        <button class="icard-btn mono" type="button" data-test="merge-dismiss" @click="resolveMerge(sg, false)">忽略</button>
+        <button class="icard-btn icard-btn--primary mono" type="button" data-test="merge-accept" :disabled="!!writeBlock" :title="writeBlock || undefined" @click="resolveMerge(sg, true)">采纳</button>
+        <button class="icard-btn mono" type="button" data-test="merge-dismiss" :disabled="!!writeBlock" :title="writeBlock || undefined" @click="resolveMerge(sg, false)">忽略</button>
       </div>
     </section>
 
@@ -384,6 +392,7 @@ onUnmounted(() => {
           :sessions="sessionMap"
           :busy="busyIds.has(it.id)"
           :now-sec="nowSec"
+          :write-block="writeBlock"
           @toggle="toggleCard(it.id)"
           @open="openItem(it.id)"
           @open-session="openSession"
@@ -411,6 +420,7 @@ onUnmounted(() => {
           :sessions="sessionMap"
           :busy="busyIds.has(it.id)"
           :now-sec="nowSec"
+          :write-block="writeBlock"
           @toggle="toggleCard(it.id)"
           @open="openItem(it.id)"
           @open-session="openSession"
@@ -441,6 +451,7 @@ onUnmounted(() => {
             :sessions="sessionMap"
             :busy="busyIds.has(it.id)"
             :now-sec="nowSec"
+            :write-block="writeBlock"
             @toggle="toggleCard(it.id)"
             @open="openItem(it.id)"
             @open-session="openSession"
@@ -469,6 +480,7 @@ onUnmounted(() => {
             :sessions="sessionMap"
             :busy="busyIds.has(it.id)"
             :now-sec="nowSec"
+            :write-block="writeBlock"
             @toggle="toggleCard(it.id)"
             @open="openItem(it.id)"
             @open-session="openSession"
