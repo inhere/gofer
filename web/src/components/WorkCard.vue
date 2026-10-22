@@ -37,8 +37,10 @@ const props = withDefaults(
     sessions?: Record<string, AgentSession>
     busy?: boolean
     nowSec?: number
+    // 写操作灰显原因（只读身份 / 缺权限）：空串 = 可点，非空挂到按钮 title（utils/pageGate.ts）。
+    writeBlock?: string
   }>(),
-  { expanded: false, active: false, sessions: () => ({}), busy: false, nowSec: undefined },
+  { expanded: false, active: false, sessions: () => ({}), busy: false, nowSec: undefined, writeBlock: '' },
 )
 
 const emit = defineEmits<{
@@ -121,8 +123,8 @@ function whenText(sec: number | undefined): string {
         <div v-for="sg in suggestions" :key="sg.field" class="suggest-row" :data-field="sg.field">
           <span class="suggest-text"><span class="icard-line--muted">整理建议 · {{ suggestionLabel(sg.field) }}：</span>{{ suggestionValueText(sg) }}</span>
           <span class="suggest-btns">
-            <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy" data-test="accept-suggestion" @click.stop="emit('accept-suggestion', sg.field)">采纳</button>
-            <button class="icard-btn mono" type="button" :disabled="busy" data-test="dismiss-suggestion" @click.stop="emit('dismiss-suggestion', sg.field)">忽略</button>
+            <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy || !!writeBlock" :title="writeBlock || undefined" data-test="accept-suggestion" @click.stop="emit('accept-suggestion', sg.field)">采纳</button>
+            <button class="icard-btn mono" type="button" :disabled="busy || !!writeBlock" :title="writeBlock || undefined" data-test="dismiss-suggestion" @click.stop="emit('dismiss-suggestion', sg.field)">忽略</button>
           </span>
         </div>
       </div>

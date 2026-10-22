@@ -6,7 +6,7 @@ import MarkdownBlock from './MarkdownBlock.vue'
 import type { TrackerIssueView } from '../api/types'
 import { ISSUE_STATUS_VALUES, issueStatusText } from '../utils/statusText'
 
-const props = defineProps<{ issue: TrackerIssueView; saving: boolean; expectedRev: number; allIssues?: IssueNode[] }>()
+const props = defineProps<{ issue: TrackerIssueView; saving: boolean; expectedRev: number; allIssues?: IssueNode[]; writeBlock?: string }>()
 const emit = defineEmits<{
   (event: 'close'): void
   (event: 'save', value: { title: string; status: string; priority: number; description: string }): void
@@ -39,10 +39,10 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
       </section>
       <label>描述<textarea v-model="description" class="editor-input" rows="5" /></label>
       <MarkdownBlock v-if="issue.description" :text="issue.description" />
-      <div class="actions"><button class="primary-btn" type="button" :disabled="saving" @click="save">保存</button></div>
+      <div class="actions"><button class="primary-btn" type="button" :disabled="saving || !!props.writeBlock" :title="props.writeBlock || undefined" @click="save">保存</button></div>
       <h3>备注</h3><ul v-if="issue.notes?.length"><li v-for="note in issue.notes" :key="`${note.at}-${note.by}`"><span class="mono">{{ note.at }} · {{ note.by }}</span><p>{{ note.text }}</p></li></ul><p v-else class="empty-line mono">暂无</p>
       <h3>评论</h3><ul v-if="issue.comments?.length"><li v-for="item in issue.comments" :key="`${item.at}-${item.by}`"><span class="mono">{{ item.at }} · {{ item.by }}</span><p>{{ item.text }}</p></li></ul><p v-else class="empty-line mono">暂无</p>
-      <div class="comment-form"><textarea v-model="comment" class="editor-input" rows="4" placeholder="发表评论" /><div class="comment-actions"><button class="secondary-btn" type="button" @click="sendComment">评论</button></div></div>
+      <div class="comment-form"><textarea v-model="comment" class="editor-input" rows="4" placeholder="发表评论" /><div class="comment-actions"><button class="secondary-btn" type="button" :disabled="!!props.writeBlock" :title="props.writeBlock || undefined" @click="sendComment">评论</button></div></div>
     </div>
   </aside>
 </template>
