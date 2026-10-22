@@ -87,7 +87,11 @@ func (f *fakePtySource) Resizes() [][2]int {
 
 func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(d)
+	// Success-path wait (G052): at least 10s, scaled by GOFER_TEST_TIMEOUT_SCALE.
+	if d < 10*time.Second {
+		d = 10 * time.Second
+	}
+	deadline := time.Now().Add(wait.Timeout(t, d))
 	for time.Now().Before(deadline) {
 		if cond() {
 			return

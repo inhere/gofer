@@ -267,7 +267,7 @@ func TestLocalPtyObserverCapturesSessionIDFromPtyOutput(t *testing.T) {
 
 	const sid = "abcd1234-aaaa-bbbb-cccc-001122334455"
 	src.Emit([]byte("banner\nsession id: " + sid + "\nready\n"))
-	waitForLocalObserver(t, 2*time.Second, func() bool {
+	waitForLocalObserver(t, 10*time.Second, func() bool {
 		got, ok := s.jobs.Get("job-codex-pty")
 		return ok && got.SessionID == sid
 	})
