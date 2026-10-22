@@ -3484,6 +3484,31 @@ export interface MailMessage {
   read_at?: number
   deliver_by?: number
   capture_item_id?: string
+  // 广播（设计 2026-10-22「D5」）：副本的组 id（0 / 缺省 = 单封）与整组的收件人表。
+  broadcast_id?: number
+  broadcast?: MailBroadcast
+}
+
+// 一封广播的收件人表（GET /v1/mail/{id} 与列表里的广播副本带）。
+export interface MailBroadcast {
+  id: number
+  count: number
+  delivered: number
+  answered: number
+  expired: number
+  pending: number
+  recipients: MailBroadcastRecipient[]
+}
+
+// 广播的一个收件人：address 是选中它的地址；skipped 表示因权限被略过（只给原因，不回报会话 id）。
+export interface MailBroadcastRecipient {
+  address: string
+  kind: string
+  id?: string
+  mail_id?: number
+  state?: string
+  skipped?: boolean
+  reason?: string
 }
 
 // 待指派信件的候选收件方（发信 / 改投的回答里带回；列表接口不带）。

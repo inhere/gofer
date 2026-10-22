@@ -14,6 +14,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   ackMail,
   cancelMail,
+  listAgentSessions,
   listMail,
   listMailConversations,
   readdressMail,
@@ -37,6 +38,7 @@ import {
   mailListQuery,
   mailOutgoing,
   mailPartyLabel,
+  mailRecipientPreview,
   mailStateLabel,
   mailStateTone,
   type MailFilter,
@@ -91,6 +93,25 @@ const candidates = ref<Record<number, MailCandidate[]>>({})
 
 const composeOpen = ref(false)
 const compose = ref({ to: '', body: '', urgent: false })
+// 群发预览用的会话表（写信框打开时惰性加载一次）：each:project: / each:agent: / each:topic:
+// 要按当前会话匹配才能说出「将投递几个」。服务端还会按权限再筛，所以这只是上限。
+const composeSessions = ref<{ session_id: string; agent?: string; project_key?: string; topic?: string }[]>([])
+const composePreview = computed(() => mailRecipientPreview(compose.value.to, composeSessions.value))
+
+async function loadComposeSessions(): Promise<void> {
+  try {
+    const resp = await listAgentSessions({ limit: 200 })
+    composeSessions.value = resp.sessions.map((s) => ({
+      session_id: s.session_id, agent: s.agent, project_key: s.project_key, topic: s.topic,
+    }))
+  } catch {
+    composeSessions.value = []
+  }
+}
+
+watch(composeOpen, (open) => {
+  if (open && composeSessions.value.length === 0) void loadComposeSessions()
+})
 const composeError = ref('')
 const sending = ref(false)
 
@@ -392,9 +413,14 @@ onMounted(() => {
         v-model="compose.to"
         class="compose-to mono"
         type="text"
-        placeholder="session:<sid> / job:<id> / topic:<关键词> / path:<子路径> / caller"
+        placeholder="一个或多个地址（空格 / 逗号分隔）：session:<sid> / job:<id> / topic:<关键词> / path:<子路径> / caller；群发用 each:topic: / each:path: / each:project:<key> / each:agent:<名字>"
         data-test="mail-to"
       />
+      <p class="compose-preview mono" data-test="mail-to-preview">
+        <template v-if="!compose.to.trim()">收件人留空 = 投给自己的收集箱</template>
+        <template v-else-if="composePreview < 0">含 path: 选择器：投递数由服务端按范围匹配，发送后可见</template>
+        <template v-else>将投递 {{ composePreview }} 个会话<template v-if="composePreview > 1">（群发）</template>，服务端按权限可能更少</template>
+      </p>
       <textarea
         v-model="compose.body"
         class="compose-body"
@@ -477,6 +503,16 @@ onMounted(() => {
                 <span class="dim mono" :title="fmtDateTime(m.created_at)">#{{ m.id }} · {{ fmtAgo(m.created_at, nowSec) }}</span>
               </header>
 
+              <!-- 广播（设计 2026-10-22「D5」）：这张卡是一封群发的副本，下面是整组的收件人状态条。 -->
+              <div v-if="m.broadcast" class="broadcast" data-test="mail-broadcast">
+                <span class="broadcast-head mono">群发 b{{ m.broadcast.id }} · 收件人 {{ m.broadcast.count }} · 已送达 {{ m.broadcast.delivered }} · 已回复 {{ m.broadcast.answered }}<template v-if="m.broadcast.expired"> · 过期 {{ m.broadcast.expired }}</template><template v-if="m.broadcast.pending"> · 待送达 {{ m.broadcast.pending }}</template></span>
+                <span
+                  v-for="r in m.broadcast.recipients"
+                  :key="r.mail_id || r.address"
+                  class="broadcast-dot mono"
+                  :title="`${r.address}${r.skipped ? ' · 因权限略过' : r.state ? ' · ' + mailStateLabel(r.state) : ''}`"
+                >{{ r.id || r.address }} · {{ r.skipped ? '略过' : mailStateLabel(r.state || '') }}</span>
+              </div>
               <!-- 正文是别的 agent 会话写的 markdown：走 MarkdownBlock（marked + DOMPurify 消毒）。 -->
               <div class="bubble-body" data-test="mail-letter-body">
                 <MarkdownBlock :text="bodyText(m)" />
@@ -641,6 +677,30 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+/* 群发（设计 2026-10-22）：写信框的投递数预览与副本卡上的收件人状态条。 */
+.compose-preview {
+  margin: 0;
+  font-size: 11px;
+  color: var(--dim);
+}
+.broadcast {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+.broadcast-head {
+  font-size: 11px;
+  color: var(--dim);
+}
+.broadcast-dot {
+  font-size: 11px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--dim);
 }
 .urgent-pick {
   color: var(--queue);

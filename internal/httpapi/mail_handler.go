@@ -882,9 +882,19 @@ func (s *Server) handleMailList(c *rux.Context) {
 	}
 	ps := s.newMailPersonas(kept)
 	result := make([]mailView, 0, len(kept))
+	// A broadcast's addressee table is read once per group, however many copies the page shows.
+	broadcasts := map[int64]*mailBroadcastView{}
 	for _, m := range kept {
 		v := toMailView(m)
 		ps.forView(&v)
+		if m.BroadcastID > 0 {
+			if sum, ok := broadcasts[m.BroadcastID]; ok {
+				v.Broadcast = sum
+			} else if sum, err := s.mailBroadcastSummary(m); err == nil {
+				broadcasts[m.BroadcastID] = sum
+				v.Broadcast = sum
+			}
+		}
 		result = append(result, v)
 	}
 	c.JSON(http.StatusOK, map[string]any{"mail": result, "count": len(result)})
