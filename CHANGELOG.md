@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **桌面通知通道（gofer-3wce）**：`server.notification.desktop` 让 server 在**自己所在主机**弹系统通知，解决审批 / 等回复的 job 在浏览器里被漏掉的问题（不需要托盘进程，也不要求 HTTPS）。默认订阅 `job.awaiting_approval`、`interaction.created`、`session.awaiting_reply`、`job.needs_review`，可用 `events` / `projects` 过滤；标题与正文复用 IM 通知的渲染，点击打开 `web_base_url` 对应页面。`merge_sec`（默认 10s）把同类事件合成一条（「3 个 job 等待批准」）。平台：Windows 用 `Windows.UI.Notifications` toast（点击可开链接），macOS 用 `osascript`，Linux 用 `notify-send`（没装则跳过）；以服务（Windows session 0）或无桌面会话运行时自动跳过，每种原因只记一条 `notify.desktop_skipped`，不刷屏。整段不写 = 不启用。见 [`docs/runbook/im-notification.md`](docs/runbook/im-notification.md) §10。
+
 ## [0.185.0] - 2026-10-22
 
 ### 新增
