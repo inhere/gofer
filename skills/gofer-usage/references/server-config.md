@@ -284,6 +284,8 @@ server:
   #   messenger_command: claude        #   传话进程命令(可写路径)
   #   messenger_timeout_sec: 90        #   单条超时
   #   messenger_idle_sec: 600          #   常驻传话进程空闲退出; 改它需重启
+  #   messenger_max_messages: 50       #   处理满这么多条后在两条消息之间重建(清上下文); 0 = 不限
+  #   messenger_max_age_sec: 7200      #   常驻进程存活上限, 满了下一条消息起新进程; 0 = 不限
   # agent_fallback:                    # 故障转移开关
   #   on_failure: true                 #   失败后转移(配了候选才生效)
   #   pre_dispatch: false              #   提交时主 agent degraded 就改派(默认 false)

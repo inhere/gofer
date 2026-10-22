@@ -12,11 +12,15 @@ import { fmtAgo, fmtDateTime } from '../api/time'
 import type { AgentSession, MessengerAgentsResp, Runner } from '../api/types'
 import {
   crossReference,
+  formatAge,
   idleLeftText,
   messageBlockReason,
   messengerDisplay,
   messengerListBlock,
   opLabel,
+  rotationLimitText,
+  rotationReasonLabel,
+  usageText,
 } from '../utils/messenger'
 
 const props = defineProps<{ runner: Runner; nowMs: number }>()
@@ -35,6 +39,8 @@ const snap = computed(() => props.runner.messenger_detail)
 const listBlock = computed(() => messengerListBlock(props.runner))
 const rows = computed(() => (listing.value ? crossReference(listing.value.agents, registered.value) : []))
 const deliveries = computed(() => snap.value?.deliveries ?? [])
+const rotations = computed(() => snap.value?.rotations ?? [])
+const ageText = computed(() => formatAge(snap.value?.age_sec))
 const isWorker = computed(() => props.runner.type === 'worker')
 
 async function loadAgents(refresh: boolean): Promise<void> {
@@ -90,6 +96,13 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
             <dt>状态</dt><dd>{{ display.text }}<span v-if="idleLeftText(snap, nowSec)" class="dim"> · {{ idleLeftText(snap, nowSec) }}</span></dd>
             <dt>进程启动</dt><dd>{{ snap.started_at ? `${fmtDateTime(snap.started_at)}（${fmtAgo(snap.started_at, nowSec)}）` : '未启动' }}</dd>
             <dt>最近使用</dt><dd>{{ snap.last_used_at ? `${fmtDateTime(snap.last_used_at)}（${fmtAgo(snap.last_used_at, nowSec)}）` : '还没用过' }}</dd>
+            <dt>已处理</dt>
+            <dd data-test="messenger-counters">
+              {{ snap.messages ?? 0 }} 条<template v-if="ageText"> · 已存活 {{ ageText }}</template>
+              <span class="dim"> · {{ rotationLimitText(snap) }}</span>
+            </dd>
+            <dt>用量</dt>
+            <dd data-test="messenger-usage">{{ usageText(snap.usage) || '还没上报（旧版进程或没有 result 用量）' }}</dd>
           </dl>
           <p v-else class="mnote mono">server 没有启用会话传话。</p>
         </section>
@@ -150,6 +163,21 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
             <button class="link-btn mono" type="button" @click="rawOpen = !rawOpen">{{ rawOpen ? '收起原始输出' : '原始输出' }}</button>
             <pre v-if="rawOpen" class="mpre mono">{{ listing.raw_output }}</pre>
           </template>
+        </section>
+
+        <section class="msec">
+          <h3 class="msec-title mono">最近重建 <span class="dim">（最多 10 条，新的在上；进程在两条消息之间重建）</span></h3>
+          <ul v-if="rotations.length" class="mdeliv mono" data-test="messenger-rotations">
+            <li v-for="(r, i) in rotations" :key="`${r.at}-${i}`">
+              <span class="dtime" :title="fmtDateTime(r.at)">{{ fmtAgo(r.at, nowSec) }}</span>
+              <span class="dop">{{ rotationReasonLabel(r.reason) }}</span>
+              <span class="dres">
+                处理 {{ r.messages ?? 0 }} 条<template v-if="formatAge(r.age_sec)"> · 存活 {{ formatAge(r.age_sec) }}</template>
+              </span>
+              <span v-if="usageText(r.usage)" class="dmsg">{{ usageText(r.usage) }}</span>
+            </li>
+          </ul>
+          <p v-else class="mnote mono">还没有重建记录。</p>
         </section>
 
         <section class="msec">

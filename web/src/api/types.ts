@@ -1523,12 +1523,40 @@ export interface MessengerDelivery {
   duration_ms?: number
 }
 
+// 传话人当前进程的 token / 成本用量（来自 stream-json 的 result 帧；没上报 = 全 0）。
+export interface MessengerUsage {
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+  cost_usd?: number
+}
+
+// 一次常驻传话进程的重建记录：原因 idle | failed | max_messages | max_age，
+// messages / age_sec / usage 是被换下那个进程的累计值。
+export interface MessengerRotation {
+  at: number
+  reason: 'idle' | 'failed' | 'max_messages' | 'max_age' | string
+  messages?: number
+  age_sec?: number
+  usage?: MessengerUsage
+}
+
 // 传话人快照（local 由 server 进程内读取，worker 来自心跳）。时间为 Unix 秒，0/缺省 = 无。
 export interface MessengerSnapshot {
   status: MessengerStatus | string
   started_at?: number
   last_used_at?: number
   idle_deadline?: number
+  // 当前常驻进程处理过的条数、已存活秒数（无进程时为 0 / 缺省）
+  messages?: number
+  age_sec?: number
+  usage?: MessengerUsage
+  // 轮换上限（0 = 不限）
+  max_messages?: number
+  max_age_sec?: number
+  // 重建历史，最新在前，最多 10 条
+  rotations?: MessengerRotation[]
   // 最新在前，最多 20 条
   deliveries?: MessengerDelivery[]
   // 子进程 stderr 尾部（<=4KB）

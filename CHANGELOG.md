@@ -19,6 +19,10 @@
 
 - **GitHub CI 再提速：少排队、commands 独占一片（gofer-fofi）**：`internal/commands` 现在整包单独一个 CI 任务，不再与其他包同片、也不再按测试名对半拆（它有包级 flag 全局状态和不少计时测试，与别的包同跑会慢数倍）；Windows 分片由 6 降为 5，且 Windows / macOS 只跑 `stable`（Ubuntu 仍跑 `1.26` + `stable`，版本差异由它覆盖），一次 CI 的任务数从 18 降到 10。分片表按 v0.183.0 / v0.183.1 两次实测的包耗时重算。测试覆盖不变：每个分片仍跑全部包、不加 `-short`。
 
+### 新增
+
+- **常驻传话人按条数 / 时长轮换，用量可见（gofer-li3t）**：web 给终端会话「发消息」共用的常驻 stream-json 进程不再无限增长上下文——`server.session_messaging.messenger_max_messages`（默认 50 条）与 `messenger_max_age_sec`（默认 2h）任一达到，就在**两条消息之间**重建（正在送达的那条不受影响），`0` = 该限制关闭。`GET /v1/runners` 的 `messenger_detail` 现在带当前进程的 `messages` / `age_sec` / `usage`（result 帧里的 token 与 `total_cost_usd`）、生效的上限 `max_messages` / `max_age_sec`，以及重建记录 `rotations`（原因 `idle` / `failed` / `max_messages` / `max_age`，含被换下进程的条数、存活时长与用量；最多 10 条）；Web「传话人」抽屉同步显示「已处理 / 存活 / 用量」与「最近重建」。
+
 ## [0.183.1] - 2026-10-22
 
 ### 修复

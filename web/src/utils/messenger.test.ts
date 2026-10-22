@@ -3,10 +3,14 @@ import type { AgentSession, MessengerAgent, Runner } from '../api/types'
 import {
   MESSENGER_LIST_MIN_PROTOCOL,
   crossReference,
+  formatAge,
   idleLeftText,
   messageBlockReason,
   messengerDisplay,
   messengerListBlock,
+  rotationLimitText,
+  rotationReasonLabel,
+  usageText,
 } from './messenger'
 
 const local = (extra: Partial<Runner> = {}): Runner => ({ name: 'local', type: 'local', status: 'up', ...extra })
@@ -38,6 +42,36 @@ describe('messengerDisplay', () => {
     const d = messengerDisplay(local({ messenger_detail: { status: 'weird' } }))
     expect(d.text).toBe('weird')
     expect(d.known).toBe(false)
+  })
+})
+
+describe('rotation / usage display', () => {
+  it('labels every rebuild reason so a reader can tell a limit from an idle exit', () => {
+    expect(rotationReasonLabel('max_messages')).toBe('达到条数上限')
+    expect(rotationReasonLabel('max_age')).toBe('达到存活上限')
+    expect(rotationReasonLabel('idle')).toBe('空闲退出')
+    expect(rotationReasonLabel('failed')).toBe('进程失败')
+    expect(rotationReasonLabel('future')).toBe('future')
+  })
+
+  it('formats the limits in force, with 0 shown as unlimited', () => {
+    expect(rotationLimitText({ status: 'idle', max_messages: 50, max_age_sec: 7200 })).toBe('50 条 / 2h后重建')
+    expect(rotationLimitText({ status: 'idle', max_messages: 0, max_age_sec: 0 })).toBe('条数不限 / 时长不限后重建')
+  })
+
+  it('renders the reported token / cost usage and nothing when there is none', () => {
+    expect(usageText(undefined)).toBe('')
+    expect(usageText({})).toBe('')
+    expect(usageText({ input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 20, cache_creation_input_tokens: 1, cost_usd: 0.25 }))
+      .toBe('输入 10 · 输出 5 · 缓存读 20 · 缓存写 1 · $0.2500')
+  })
+
+  it('formats ages in seconds / minutes / hours', () => {
+    expect(formatAge(0)).toBe('')
+    expect(formatAge(40)).toBe('40s')
+    expect(formatAge(8 * 60)).toBe('8m')
+    expect(formatAge(7200)).toBe('2h')
+    expect(formatAge(4800)).toBe('1h20m')
   })
 })
 

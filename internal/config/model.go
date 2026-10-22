@@ -826,13 +826,43 @@ type SessionMessagingConfig struct {
 	MessengerCommand    string `yaml:"messenger_command,omitempty"`
 	MessengerTimeoutSec int    `yaml:"messenger_timeout_sec,omitempty"`
 	MessengerIdleSec    int    `yaml:"messenger_idle_sec,omitempty"`
+	// MessengerMaxMessages and MessengerMaxAgeSec rotate the resident messenger
+	// process: once it has handled this many messages (or turns), or lived this
+	// long, the NEXT message starts a fresh process instead of growing the old
+	// one's context (gofer-li3t). Both are POINTERS for the same unset≠zero reason
+	// as JobRecoverWindowSec: an omitted key keeps the shipped default, while an
+	// explicit 0 disables that limit (no rotation). The rotation never interrupts a
+	// delivery in flight — it happens between two messages.
+	MessengerMaxMessages *int `yaml:"messenger_max_messages,omitempty"`
+	MessengerMaxAgeSec   *int `yaml:"messenger_max_age_sec,omitempty"`
 }
 
 const (
-	DefaultMessengerCommand    = "claude"
-	DefaultMessengerTimeoutSec = 90
-	DefaultMessengerIdleSec    = 600
+	DefaultMessengerCommand     = "claude"
+	DefaultMessengerTimeoutSec  = 90
+	DefaultMessengerIdleSec     = 600
+	DefaultMessengerMaxMessages = 50   // rotate the resident process after this many messages
+	DefaultMessengerMaxAgeSec   = 7200 // rotate the resident process after this long (2h)
 )
+
+// MaxMessages is the effective rotation limit on messages a resident process may
+// handle. An unset key (nil) and a negative value mean the shipped default; an
+// explicit 0 means unlimited.
+func (c SessionMessagingConfig) MaxMessages() int {
+	if c.MessengerMaxMessages == nil || *c.MessengerMaxMessages < 0 {
+		return DefaultMessengerMaxMessages
+	}
+	return *c.MessengerMaxMessages
+}
+
+// MaxAge is the effective rotation limit on a resident process's lifetime. Same
+// unset/0 rules as MaxMessages (0 = unlimited).
+func (c SessionMessagingConfig) MaxAge() time.Duration {
+	if c.MessengerMaxAgeSec == nil || *c.MessengerMaxAgeSec < 0 {
+		return time.Duration(DefaultMessengerMaxAgeSec) * time.Second
+	}
+	return time.Duration(*c.MessengerMaxAgeSec) * time.Second
+}
 
 func (c ServerConfig) EffectiveSessionMessaging() SessionMessagingConfig {
 	out := c.SessionMessaging
