@@ -20,6 +20,7 @@
 ### 变更
 
 - **审阅提示补全：删除热点带净变化与「删除显著多于新增」标记，验证页签补 agent 自述输出（gofer-hjj1）**：`deletion_hotspots` 每项新增 `net`（新增-删除）与 `deletion_heavy`（删除 ≥ 2× 新增），CLI 打印 `+4/-30 net -26` 并给后者加 ⚠；改名文件按新路径列，二进制段（`Binary files … differ` / `GIT binary patch`）不计行数。`review_hints` 新增 `report_verify`：从 agent 汇报「验证」/Verification 标题下的 ``` 代码块提取（最多 3 块，长块留尾部），带 `source: "agent"`，`job review` 标「来源: agent 自述」，web 在没有 verify 步骤的「验证」页签里作参考展示；有 verify 时该页签的输出超出 200 行改为留**尾部**（以前留开头，把失败的报错截掉）。
+- **GitHub CI 的测试分片改为按包耗时自动均衡（gofer-fofi）**：Windows 由固定的 4 个任务改为 6 个、Ubuntu 2 个，分片由 `.github/scripts/ci_shard.py` 依据实测包耗时装箱生成（耗时最长的 `internal/job` / `internal/commands` / `internal/httpapi` 再按测试名切成几份，用 `-run` 分别跑）。测试覆盖不变——每个 Go 版本（1.26 / stable）× 每个平台仍然跑全部包、不加 `-short`；目的只是把发版时等 CI 的时间从 12–15 分钟压到 6 分钟左右。
 
 ### 新功能
 
