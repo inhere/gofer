@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
@@ -266,7 +267,7 @@ func (s *Service) RecordScopedEvent(scope, eventType, projectKey string, detail 
 // next_retry_at=now so the sweeper picks them up immediately.
 func (s *Service) enqueueDeliveries(seq int64, jobID, eventType, detailJSON string, at int64) {
 	cfg := s.config()
-	if cfg == nil || (!hasWebhooks(cfg) && len(cfg.Server.EventHooks) == 0) {
+	if cfg == nil || (!hasWebhooks(cfg) && len(cfg.Server.EventHooks) == 0 && !hasDesktopChannel(cfg)) {
 		return // nothing configured — nothing to enqueue (zero behaviour change)
 	}
 	// Resolve the job's project (and per-project gate). Get falls back to the meta
@@ -277,9 +278,11 @@ func (s *Service) enqueueDeliveries(seq int64, jobID, eventType, detailJSON stri
 		return
 	}
 	// A manually ended session is not news for a PERSON; it is still an event an
-	// automation hook (an audit log, a sync script) wants to see.
+	// automation hook (an audit log, a sync script) wants to see. This covers the
+	// desktop popup too: it is the most person-facing channel of all.
 	if !(eventType == EventJobTerminal && jr.Session && jr.SessionEndReason == "manual_end") {
 		s.enqueueWebhookDeliveries(cfg, seq, jobID, jr.ProjectKey, eventType, detailJSON, at)
+		s.notifyDesktopJobEvent(cfg, jr, eventType, detailJSON, at)
 	}
 	s.enqueueHookDeliveries(cfg, seq, jobID, jr.ProjectKey, eventType, at)
 }
@@ -301,6 +304,13 @@ func (s *Service) enqueueScopedDeliveries(seq int64, jobID, projectKey, eventTyp
 // hasWebhooks reports whether any webhook target is configured at all.
 func hasWebhooks(cfg *config.Config) bool {
 	return cfg != nil && cfg.Server.Notification != nil && len(cfg.Server.Notification.Webhooks) > 0
+}
+
+// hasDesktopChannel reports whether the desktop (OS notification) channel is on —
+// the third destination an event can have besides webhooks and event hooks, and one
+// that needs no target row, so it is checked separately in the cheap early-out.
+func hasDesktopChannel(cfg *config.Config) bool {
+	return cfg != nil && cfg.Server.Notification != nil && cfg.Server.Notification.Desktop.IsEnabled()
 }
 
 // enqueueWebhookDeliveries enqueues the WEBHOOK half of an event: subject to the
@@ -377,18 +387,33 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 	if !ok {
 		return nil, false
 	}
-	if eventType == EventJobAwaitingApproval {
+	msg, ok := s.immediateMessage(result, eventType, detailJSON, at)
+	if !ok {
+		return nil, false
+	}
+	limit := config.DefaultMaxTextRunes
+	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
+		limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
+	}
+	body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.Keyword, limit)
+	return body, err == nil
+}
+
+// immediateMessage renders an event's notification message NOW, from the live job as a
+// person will see it when the notification arrives (by the time a delivery is posted
+// the job may already have moved on). It is the shared body of the IM adapters and the
+// desktop channel (gofer-3wce): the three "a person must act" shapes first, then a
+// plain job headline for everything else an operator subscribed to (job.needs_review …).
+//
+// The renderer's keyword is a per-webhook field (gofer-map1), so it stays with the
+// CALLER (renderImmediateNotification): this function only builds the Message.
+func (s *Service) immediateMessage(result JobResult, eventType, detailJSON string, at int64) (notify.Message, bool) {
+	switch eventType {
+	case EventJobAwaitingApproval:
 		// gofer-9b1b: rendered NOW, from the held job as the approver will see it — by
 		// the time the sweeper posts it the job may already be approved and running.
-		msg := s.approvalIMMessage(result, eventType, at)
-		limit := config.DefaultMaxTextRunes
-		if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
-			limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
-		}
-		body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.Keyword, limit)
-		return body, err == nil
-	}
-	if eventType == EventSessionAwaitingReply {
+		return s.approvalIMMessage(result, eventType, at), true
+	case EventSessionAwaitingReply:
 		var d struct {
 			Turn    int    `json:"turn_no"`
 			Idle    int64  `json:"idle_deadline_at"`
@@ -415,40 +440,68 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 		if result.SessionID != "" {
 			link = s.webURL("/workbench?thread=s:" + url.QueryEscape(result.SessionID))
 		}
-		msg := notify.SessionAwaitingReplyMessage(eventType, d.Title, d.Preview, d.Turn, d.Agent, d.Project, idle, link, at)
-		limit := config.DefaultMaxTextRunes
-		if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
-			limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
+		return notify.SessionAwaitingReplyMessage(eventType, d.Title, d.Preview, d.Turn, d.Agent, d.Project, idle, link, at), true
+	case EventInteractionCreated:
+		var d struct {
+			InteractionID string `json:"interaction_id"`
+			Prompt        string `json:"prompt"`
 		}
-		body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.Keyword, limit)
-		return body, err == nil
-	}
-	var d struct {
-		InteractionID string `json:"interaction_id"`
-		Prompt        string `json:"prompt"`
-	}
-	_ = json.Unmarshal([]byte(detailJSON), &d)
-	options := []string{}
-	if list, err := s.GetInteractions(jobID); err == nil {
-		for _, it := range list {
-			if it.ID == d.InteractionID {
-				for _, option := range it.Options {
-					options = append(options, deliveryFirstNonEmpty(option.Label, option.Value))
+		_ = json.Unmarshal([]byte(detailJSON), &d)
+		options := []string{}
+		if list, err := s.GetInteractions(result.ID); err == nil {
+			for _, it := range list {
+				if it.ID == d.InteractionID {
+					for _, option := range it.Options {
+						options = append(options, deliveryFirstNonEmpty(option.Label, option.Value))
+					}
+					if it.ToolCall != nil && it.ToolCall.Title != "" {
+						d.Prompt = it.ToolCall.Title
+					}
+					break
 				}
-				if it.ToolCall != nil && it.ToolCall.Title != "" {
-					d.Prompt = it.ToolCall.Title
-				}
-				break
 			}
 		}
+		return notify.InteractionMessage(eventType, d.Prompt, options, s.webURL("/jobs/"+result.ID), at), true
 	}
-	msg := notify.InteractionMessage(eventType, d.Prompt, options, s.webURL("/jobs/"+result.ID), at)
-	limit := config.DefaultMaxTextRunes
-	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
-		limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
+	return s.jobHeadlineMessage(result, eventType, at), true
+}
+
+// jobHeadlineMessage is the fallback notification for an event with no dedicated
+// shape: who/what/where, plus the job page as the click target.
+func (s *Service) jobHeadlineMessage(result JobResult, eventType string, at int64) notify.Message {
+	title := deliveryFirstNonEmpty(result.Title, result.ID)
+	parts := make([]string, 0, 3)
+	if result.ProjectKey != "" {
+		parts = append(parts, "project "+result.ProjectKey)
 	}
-	body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.Keyword, limit)
-	return body, err == nil
+	if result.Agent != "" {
+		parts = append(parts, "agent "+result.Agent)
+	}
+	parts = append(parts, "job "+result.ID)
+	return notify.Message{
+		EventType: eventType,
+		Title:     jobEventLabel(eventType) + "：" + title,
+		Text:      strings.Join(parts, " · "),
+		Link:      s.webURL("/jobs/" + result.ID),
+		LinkLabel: "查看 job",
+		At:        at,
+	}
+}
+
+// jobEventLabel names a job event for a person (a notification title). An event with
+// no label of its own keeps its wire name — better a raw type than no notification.
+func jobEventLabel(eventType string) string {
+	switch eventType {
+	case EventJobNeedsReview:
+		return "job 等待验收"
+	case EventJobAwaitingApproval:
+		return "job 等待批准"
+	case EventInteractionCreated:
+		return "job 等待确认"
+	case EventSessionAwaitingReply:
+		return "会话等你回复"
+	}
+	return eventType
 }
 
 // ListDeliveriesByJob returns a job's webhook deliveries (E14) for the read-only
