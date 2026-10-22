@@ -105,4 +105,4 @@ choice 的可选值较长，用 `--params-file <yaml>` 给整段声明，格式�
 - **Web**：`Schedules.vue` 立即执行参数表单（按类型生成控件、预填默认、desc、底部环境变量预览）+ 编辑弹窗；`utils/scheduleParams.ts` 放纯函数便于单测。
 - **测试**：Go 侧 `internal/job/schedule_params_test.go`、`internal/httpapi/schedule_params_test.go`；web `web/src/views/schedulesParams.test.ts`。
 - **文档**：`docs/reference/http-api.md`（新节「Schedule parameters and editing」）、`skills/gofer-usage/references/commands.md` 与 `web-console.md`、`CHANGELOG.md`。
-- **未做（有意）**：web 新建页（`NewSchedule.vue`）还没摆参数声明编辑器——声明目前从 CLI（`--param-def` / `--params-file`）或 API 建，建好后可在 web 编辑弹窗里改。
+- **未做（有意）**：无。（web 新建页 `NewSchedule.vue` 也加了参数声明编辑器。）
