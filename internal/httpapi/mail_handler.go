@@ -72,7 +72,8 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 	case errors.Is(err, mail.ErrInvalidAddress), errors.Is(err, mail.ErrUnsupportedAddress),
 		errors.Is(err, mail.ErrInvalidBody), errors.Is(err, mail.ErrInvalidOrigin), errors.Is(err, jobstore.ErrMailInvalid),
 		errors.Is(err, mail.ErrNoRecipients), errors.Is(err, mail.ErrBroadcastAmbiguous),
-		errors.Is(err, mail.ErrBroadcastTooMany), errors.Is(err, mail.ErrUrgentBroadcast):
+		errors.Is(err, mail.ErrBroadcastTooMany), errors.Is(err, mail.ErrUrgentBroadcast),
+		errors.Is(err, mail.ErrUnknownAgent):
 		writeError(c, http.StatusBadRequest, "invalid mail", err.Error())
 	case errors.Is(err, mail.ErrMailNotFound):
 		writeError(c, http.StatusNotFound, "not found", "mail not found")

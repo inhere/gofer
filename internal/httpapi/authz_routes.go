@@ -217,10 +217,11 @@ var routeDecls = map[string]routeDecl{
 	// SEC-01 middleware keys it as /v1/mail/* (one segment of wildcard), like the listing.
 	"GET /v1/mail/conversations": {user: InHandler(permFilter, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail/*", scope: Filter()},
 	// The `agent:` addresses (设计 2026-10-22 mail-agent-address「D6」): the listing follows the
-	// mailbox's read rules, ending a resident session manages a job (like a reply). The static
+	// mailbox's read rules, ending a resident session manages a job (like a reply). Neither is
+	// open to a job credential (it would be ending / listing somebody else's session): the static
 	// /mail/agents routes are declared before /mail/{id}.
-	"GET /v1/mail/agents":                 {user: InHandler(permFilter, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail/*", scope: Filter()},
-	"POST /v1/mail/agents/{name}/end":     {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*", scope: Resource("mail")},
+	"GET /v1/mail/agents":                 {user: InHandler(permFilter, authz.PermSessionReplyOthers, authz.PermJobReadOthers), scope: Filter()},
+	"POST /v1/mail/agents/{name}/end":     {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), scope: Resource("mail")},
 	"GET /v1/mail/{id}":                   {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobReadOthers), jobCred: "GET /v1/mail/*", scope: Resource("mail")},
 	"POST /v1/mail/{id}/reply":            {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*/reply", scope: Resource("mail")},
 	"POST /v1/mail/{id}/ack":              {user: InHandler(permDeny, authz.PermSessionReplyOthers, authz.PermJobManageOthers), jobCred: "POST /v1/mail/*/ack", scope: Resource("mail"), rw: ReadSafe()},
