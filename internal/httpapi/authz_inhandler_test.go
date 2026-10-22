@@ -613,6 +613,13 @@ var sessionAuthzCases = []authzCase{
 	{key: "POST /v1/sessions/{sid}/relay", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/relay", map[string]string{"mode": "on"}}
 	}},
+	// Deliver 模式与「现在送」（2026-10-22 D5）：改的是“消息能不能打进来”，权限同回答本会话。
+	{key: "POST /v1/sessions/{sid}/inject-mode", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/inject-mode", map[string]string{"mode": "hold"}}
+	}},
+	{key: "POST /v1/sessions/{sid}/held/send", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/held/send", map[string]any{}}
+	}},
 	{key: "POST /v1/sessions/{sid}/nudges", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/nudges",
 			map[string]any{"kind": "every", "interval_sec": 600, "text": "hi"}}

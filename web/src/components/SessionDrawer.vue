@@ -12,6 +12,7 @@
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { sessionUsageRows } from '../utils/sessionUsage'
 import { runnerLabel } from '../utils/runnerDisplay'
+import { heldLabel, INJECT_MODES, injectModeLabel, injectModeTitle } from '../utils/injectMode'
 import SessionNudges from './SessionNudges.vue'
 import SessionTopic from './SessionTopic.vue'
 import SessionGrantDialog from './SessionGrantDialog.vue'
@@ -40,6 +41,8 @@ import {
   resumeSession,
   saySession,
   sendSessionMessage,
+  sendHeldSessionMessages,
+  setSessionInjectMode,
   setSessionRelay,
   unackSessionTurn,
 } from '../api/client'
@@ -60,6 +63,7 @@ import { mergeNewestPage, mergeOlderPage, preserveScrollAfterPrepend, shouldFoll
 import type {
   AgentInfo,
   AgentSession,
+  AgentSessionInjectMode,
   AgentSessionRelayMode,
   AgentSessionState,
   Decision,
@@ -444,6 +448,11 @@ const relayDemotedText = computed(() => {
 // RELAY_MODES 是三态开关的展示顺序（R1）。
 const RELAY_MODES: AgentSessionRelayMode[] = ['auto', 'on', 'off']
 
+// injectBusy 是投递模式 / 「现在送」请求在途（按钮禁用，防重复点）。
+const injectBusy = ref(false)
+// heldPending 是这个会话里等待投递的消息数（留待的消息由会话下一次 hook 注入）。
+const heldPending = computed(() => session.value?.mail_pending ?? 0)
+
 // humanSilence 是人在这个会话里安静了多久（秒，-1 = 还没见过人工输入）；探测不到
 // 键盘的终端（容器）靠它判定（R2）。
 function humanSilence(s: AgentSession): number {
@@ -685,6 +694,51 @@ async function setRelayMode(mode: AgentSessionRelayMode): Promise<void> {
     actionError.value = `切换中继失败：${errorMessage(e)}`
   } finally {
     relayBusy.value = false
+  }
+}
+
+// 投递模式（2026-10-22 D5）：点击即 POST，乐观更新，失败回滚。
+async function setInjectMode(mode: AgentSessionInjectMode): Promise<void> {
+  const s = session.value
+  if (!s || injectBusy.value || (s.inject_mode || 'auto') === mode) {
+    return
+  }
+  const prev = s.inject_mode
+  injectBusy.value = true
+  actionError.value = ''
+  actionInfo.value = ''
+  s.inject_mode = mode
+  try {
+    session.value = await setSessionInjectMode(s.session_id, mode)
+    emit('changed')
+  } catch (e) {
+    if (session.value) {
+      session.value.inject_mode = prev
+    }
+    actionError.value = `切换投递模式失败：${errorMessage(e)}`
+  } finally {
+    injectBusy.value = false
+  }
+}
+
+// 现在送：把留待的消息立刻粘贴进终端（跳过输入区检查与投递模式）。
+async function sendHeldNow(): Promise<void> {
+  const s = session.value
+  if (!s || injectBusy.value) {
+    return
+  }
+  injectBusy.value = true
+  actionError.value = ''
+  actionInfo.value = ''
+  try {
+    await sendHeldSessionMessages(s.session_id)
+    actionInfo.value = '已把等待中的消息送进终端'
+    await load()
+    emit('changed')
+  } catch (e) {
+    actionError.value = `现在送失败：${errorMessage(e)}`
+  } finally {
+    injectBusy.value = false
   }
 }
 
@@ -983,6 +1037,36 @@ defineExpose({ load, loadMore, setRelayMode, remove })
               {{ m }}
             </button>
           </span>
+          <span
+            v-if="session"
+            class="relay-modes mono"
+            :class="{ busy: injectBusy }"
+            title="投递模式：auto = 只在输入框确认为空时打字（有人在打字或停在选择界面时消息留待）；hold = 从不打字，消息留待；force = 不检查直接粘贴"
+          >
+            <button
+              v-for="m in INJECT_MODES"
+              :key="m"
+              type="button"
+              class="relay-mode"
+              :class="{ active: (session.inject_mode || 'auto') === m }"
+              :disabled="injectBusy || session.state === 'ended'"
+              :title="injectModeTitle(m)"
+              @click="setInjectMode(m)"
+            >
+              {{ injectModeLabel(m) }}
+            </button>
+          </span>
+          <button
+            v-if="session && heldPending > 0"
+            class="act mono"
+            type="button"
+            data-test="drawer-send-held"
+            :disabled="injectBusy || session.state === 'ended'"
+            :title="'把这个会话里等待投递的消息立刻粘贴进终端（跳过输入框检查）'"
+            @click="sendHeldNow()"
+          >
+            {{ heldLabel(heldPending) }}
+          </button>
           <button
             v-if="canGrantSession(whoMode.canManage, session)"
             class="act mono"

@@ -834,6 +834,26 @@ export function setSessionRelay(sid: string, mode: AgentSessionRelayMode): Promi
   })
 }
 
+// setSessionInjectMode 设置往终端投递的模式（POST /v1/sessions/{sid}/inject-mode，body {mode}）：
+// auto 只在确认输入框为空时打字，hold 从不打字（消息留待下一次 hook），force 不检查直接粘贴。
+export function setSessionInjectMode(sid: string, mode: AgentSessionInjectMode): Promise<AgentSession> {
+  return request<AgentSession>(`/v1/sessions/${encodeURIComponent(sid)}/inject-mode`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  })
+}
+
+// sendHeldSessionMessages 是「现在送」（POST /v1/sessions/{sid}/held/send）：把这个会话
+// 里等待投递的消息立即粘贴进终端，跳过输入区检查与投递模式。
+export function sendHeldSessionMessages(sid: string): Promise<unknown> {
+  return request<unknown>(`/v1/sessions/${encodeURIComponent(sid)}/held/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+}
+
 // 修改会话主题与范围（PATCH /v1/sessions/{sid}）：只带要改的字段，省略 = 保持，scope: [] = 清空。
 // 别人的会话需要 session.manage.others（403），已结束 409，未知 404，不合法 400。
 export function patchSessionTopic(sid: string, patch: { topic?: string; scope?: string[] }): Promise<AgentSession> {

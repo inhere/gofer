@@ -233,7 +233,6 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.ndjson_usage_path":     {Editable: true},
 	"agents.*.transcript_dialect":    {Editable: true},
 	"agents.*.inject_process":        {Editable: true},
-	"agents.*.inject_guard":          {Editable: true},
 	"agents.*.session_family":        {Editable: true},
 	"agents.*.deliver_command":       {Editable: true},
 	"agents.*.deliver_stdin":         {Editable: true},
