@@ -149,6 +149,154 @@ func TestMergeBranchRefusedOverDirtyTrackerKeepsIt(t *testing.T) {
 	}
 }
 
+// commitFile writes rel (slash-separated, relative to dir) with content and commits it.
+func commitFile(t *testing.T, dir, rel, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "--", rel)
+	git(t, dir, "commit", "-m", "add "+rel)
+	return path
+}
+
+// TestMergeBlockingChangesParsesNulRecords pins the `git status --porcelain -z` record
+// shape: two status columns, one space, the path — unescaped — and, for a rename or copy,
+// the original path as its own following record (git's -z order is new then old). That
+// second record must be consumed as an origin, or a later entry is misread as a status
+// line (gofer-7lp5).
+func TestMergeBlockingChangesParsesNulRecords(t *testing.T) {
+	porcelain := strings.Join([]string{
+		" M .gofer/tracker/记录 一.jsonl",   // tracker: allowed
+		"R  .gofer/tracker/新 名.jsonl",    // renamed inside the tracker:
+		".gofer/tracker/旧 名.jsonl",       //   this original path is allowed too
+		"R  .gofer/tracker/移入 a.txt",     // renamed into the tracker:
+		"a.txt",                          //   the original path is outside
+		" M .gofer/tracker/前 -> 后.jsonl", // a space in a path is not a rename:
+		"M  说明 文档.txt",                   // outside: blocks
+	}, "\x00") + "\x00"
+
+	got := mergeBlockingChanges(porcelain)
+	want := []string{"a.txt", "说明 文档.txt"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("blocked = %q, want %q", got, want)
+	}
+}
+
+// TestMergeBranchTrackerPathsNotQuoted: git's short status C-quotes a path holding
+// non-ASCII characters or a space (core.quotePath), so the check whether a change sits
+// under .gofer/tracker/ has to run on the real path: such a tracker file must not block
+// a merge, and a blocker outside the tracker must be named as written (gofer-7lp5).
+func TestMergeBranchTrackerPathsNotQuoted(t *testing.T) {
+	main, wt, _ := repoWithWorktree(t)
+	// git's default is core.quotePath=true (C-quoted non-ASCII bytes); a machine config
+	// may disable it, and the quoted shape is what this test is about.
+	git(t, main, "config", "core.quotePath", "true")
+	const trackerRel = ".gofer/tracker/问题 清单.jsonl"
+	trackerFile := commitFile(t, main, trackerRel, "{\"id\":\"a\"}\n")
+	// An uncommitted row: the state a supervision leaves the tracker in mid-merge.
+	if err := os.WriteFile(trackerFile, []byte("{\"id\":\"b\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, base, err := MergeBranch(context.Background(), wt, "gofer/j1", false); err != nil {
+		t.Fatalf("a tracker path with a space and non-ASCII characters must not block: %v", err)
+	} else if base != "main" {
+		t.Fatalf("merged into %q, want main", base)
+	}
+
+	const outsideRel = "说明 文档.txt"
+	outside := commitFile(t, main, outsideRel, "one\n")
+	if err := os.WriteFile(outside, []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := MergeBranch(context.Background(), wt, "gofer/j1", false)
+	if !errors.Is(err, ErrMainNotReady) {
+		t.Fatalf("a dirty tracked file outside the tracker must still refuse: err = %v", err)
+	}
+	if !strings.Contains(err.Error(), outsideRel) {
+		t.Fatalf("the refusal must name the path as written (%q): %v", outsideRel, err)
+	}
+	if strings.Contains(err.Error(), ".gofer/tracker/") {
+		t.Fatalf("no tracker path may be listed as blocking: %v", err)
+	}
+}
+
+// TestMergeBranchRenamedPathsAcrossTracker: a rename leaves two paths, the new one and
+// (in the record that follows) the original; both are judged. A rename wholly inside
+// .gofer/tracker/ does not block — and with two of them, a parser that did not consume
+// the trailing origin record would read it as a dirty path — while a rename whose other
+// end is outside blocks, naming that end as written (gofer-7lp5).
+func TestMergeBranchRenamedPathsAcrossTracker(t *testing.T) {
+	renames := [][2]string{
+		{".gofer/tracker/旧 名.jsonl", ".gofer/tracker/新 名.jsonl"},
+		{".gofer/tracker/记录 一.jsonl", ".gofer/tracker/记录 二.jsonl"},
+	}
+	for _, tc := range []struct {
+		name    string
+		renames [][2]string
+		blocked []string
+	}{
+		{name: "inside tracker", renames: renames},
+		{name: "original outside", renames: [][2]string{{"a.txt", ".gofer/tracker/移入 a.txt"}}, blocked: []string{"a.txt"}},
+		{name: "new outside", renames: [][2]string{{".gofer/tracker/issues.jsonl", "说明 文档.txt"}}, blocked: []string{"说明 文档.txt"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			main, wt, _ := repoWithWorktree(t)
+			// Status rename detection is what makes this one record pair instead of an add
+			// plus a delete; a user config turning it off must not skew the test.
+			git(t, main, "config", "status.renames", "true")
+			for _, r := range tc.renames {
+				commitFile(t, main, r[0], "one\n")
+			}
+			for _, r := range tc.renames {
+				from := filepath.Join(main, filepath.FromSlash(r[0]))
+				to := filepath.Join(main, filepath.FromSlash(r[1]))
+				if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(from, to); err != nil {
+					t.Fatal(err)
+				}
+			}
+			git(t, main, "add", "-A")
+
+			// Judge git's real -z output first: that is the decision under test, and a
+			// staged rename inside the tracker is refused by `git merge` itself (the staged
+			// destination would be overwritten), which is not the dirty check's business.
+			dirty, err := gitStatusPorcelain(context.Background(), main)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := mergeBlockingChanges(dirty); strings.Join(got, "\n") != strings.Join(tc.blocked, "\n") {
+				t.Fatalf("blocked = %q, want %q (status %q)", got, tc.blocked, dirty)
+			}
+			_, _, err = MergeBranch(context.Background(), wt, "gofer/j1", false)
+			if len(tc.blocked) == 0 {
+				if errors.Is(err, ErrMainNotReady) {
+					t.Fatalf("%v must not be a dirty-main refusal: %v", tc.renames, err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrMainNotReady) {
+				t.Fatalf("%v must refuse the merge: err = %v", tc.renames, err)
+			}
+			for _, want := range tc.blocked {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("the refusal must name %q as written: %v", want, err)
+				}
+			}
+			if strings.Contains(err.Error(), ".gofer/tracker/") {
+				t.Fatalf("no tracker path may be listed as blocking: %v", err)
+			}
+		})
+	}
+}
+
 // TestMergeBranchWaitsForIndexLock: a lock that disappears within the wait does not
 // fail the merge.
 func TestMergeBranchWaitsForIndexLock(t *testing.T) {
