@@ -111,7 +111,9 @@ func TestStallKillsSilentAgentJob(t *testing.T) {
 func TestStallResetsOnOutput(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	s := stallService(t, root, []string{"stdout-lines", "tick", "6", "400ms"}, intPtr(1), nil, nil)
+	// A 5s window over 400ms ticks: a loaded runner can stretch one gap past 1s, which is
+	// not what this test is about (G052: the threshold must sit far above the test's pace).
+	s := stallService(t, root, []string{"stdout-lines", "tick", "6", "400ms"}, intPtr(5), nil, nil)
 
 	res := mustSubmit(t, s, JobRequest{
 		ProjectKey: "self", Agent: "codex", Runner: "local",
