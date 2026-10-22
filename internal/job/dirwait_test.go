@@ -47,12 +47,13 @@ func exclusiveCmd(t *testing.T, timeoutSec int) JobRequest {
 	}
 }
 
-// TestDirLockWaitDoesNotConsumeTimeout: job A 持锁 4s；job B（timeout=2）排队等锁，拿到锁
-// 后必须仍能完整跑完自己的 1s 预算 → B 是 done，不是 timeout（旧行为：等锁的 2s 就把它判死）。
+// TestDirLockWaitDoesNotConsumeTimeout: job A 持锁 8s；job B（timeout=5）排队等锁，拿到锁
+// 后必须仍能完整跑完自己的 1s 活 → B 是 done，不是 timeout（旧行为：等锁的 8s 就把它判死）。
+// 5s 而不是 2s：负载高的机器上「起进程 + sleep 1s」本身就可能超过 2s（G052）。
 func TestDirLockWaitDoesNotConsumeTimeout(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	s := dirlockService(t, root, []string{"excl-guard", "marker", "4s"}, nil)
+	s := dirlockService(t, root, []string{"excl-guard", "marker", "8s"}, nil)
 
 	holder := mustSubmit(t, s, JobRequest{
 		ProjectKey: "self", Agent: "agent", Runner: "local",
@@ -60,11 +61,11 @@ func TestDirLockWaitDoesNotConsumeTimeout(t *testing.T) {
 	})
 	waitForStatus(t, s, holder.ID, StatusRunning, 10*time.Second)
 
-	waiter := mustSubmit(t, s, exclusiveCmd(t, 2))
+	waiter := mustSubmit(t, s, exclusiveCmd(t, 5))
 	final := waitStatus(t, s, waiter.ID, 30*time.Second,
 		StatusDone, StatusTimeout, StatusFailed, StatusCancelled)
 	if final.Status != StatusDone {
-		t.Fatalf("waiter status = %s (err=%s), want done: the wait for the lock must not consume its own 2s budget",
+		t.Fatalf("waiter status = %s (err=%s), want done: the wait for the lock must not consume its own 5s budget",
 			final.Status, final.Error)
 	}
 	if _, ok := waitingDirEvent(t, s, waiter.ID); !ok {
