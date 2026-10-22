@@ -11,11 +11,13 @@ import { useWhoami } from '../store/whoami'
 import {
   deleteSchedule,
   listSchedules,
+  patchSchedule,
   runSchedule,
   setScheduleEnabled,
 } from '../api/client'
 import { fmtDateTime, fmtUntil } from '../api/time'
-import type { Schedule } from '../api/types'
+import { boolValue, envPreview, hasParams, paramControl, paramDefaults } from '../utils/scheduleParams'
+import type { Schedule, ScheduleParam } from '../api/types'
 
 const router = useRouter()
 // 调用方上限只读时，新建入口一律不摆出来（服务端也会 403）。
@@ -76,13 +78,107 @@ function toggleExpand(id: string): void {
   expanded.value = next
 }
 
-async function onRun(s: Schedule): Promise<void> {
+async function onRun(s: Schedule, params?: Record<string, string>): Promise<void> {
   notice.value = ''
   error.value = ''
   setBusy(s.id, true)
   try {
-    const job = await runSchedule(s.id)
+    const job = await runSchedule(s.id, params)
     notice.value = `已触发 ${s.name}，job ${job.id}`
+    await fetchSchedules()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    setBusy(s.id, false)
+  }
+}
+
+// ---- 立即执行：有参数时先弹表单（设计 §D5），无参数仍一键执行 ----
+const runTarget = ref<Schedule | null>(null)
+const runValues = ref<Record<string, string>>({})
+const runPreview = computed(() => envPreview(runTarget.value?.params, runValues.value))
+
+function startRun(s: Schedule): void {
+  if (!hasParams(s.params)) {
+    void onRun(s)
+    return
+  }
+  error.value = ''
+  notice.value = ''
+  runTarget.value = s
+  runValues.value = paramDefaults(s.params)
+}
+
+function setRunValue(name: string, value: string): void {
+  runValues.value = { ...runValues.value, [name]: value }
+}
+
+async function submitRun(): Promise<void> {
+  const s = runTarget.value
+  if (!s) return
+  runTarget.value = null
+  await onRun(s, runValues.value)
+}
+
+// ---- 编辑（设计 §D4/D5）：cron/at、标题、参数声明、启停、超时 ----
+const editTarget = ref<Schedule | null>(null)
+const editTitle = ref('')
+const editCron = ref('')
+const editTimeout = ref('')
+const editEnabled = ref(true)
+const editParams = ref<ScheduleParam[]>([])
+
+function openEdit(s: Schedule): void {
+  error.value = ''
+  notice.value = ''
+  editTarget.value = s
+  editTitle.value = s.name
+  editCron.value = s.type === 'once' ? '' : s.cron
+  editTimeout.value = String(s.request.timeout_sec ?? 0)
+  editEnabled.value = s.enabled === 1
+  editParams.value = (s.params ?? []).map((p) => ({ ...p, choices: p.choices ? [...p.choices] : undefined }))
+}
+
+function addParamRow(): void {
+  editParams.value = [...editParams.value, { name: '', type: 'string', default: '', desc: '' }]
+}
+
+function removeParamRow(i: number): void {
+  editParams.value = editParams.value.filter((_, idx) => idx !== i)
+}
+
+function setParamField(i: number, key: 'name' | 'type' | 'default' | 'desc', value: string): void {
+  editParams.value = editParams.value.map((p, idx) => (idx === i ? { ...p, [key]: value } : p))
+}
+
+function setParamChoices(i: number, value: string): void {
+  const choices = value
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c) => c !== '')
+  editParams.value = editParams.value.map((p, idx) =>
+    idx === i ? { ...p, choices: choices.length > 0 ? choices : undefined } : p,
+  )
+}
+
+async function saveEdit(): Promise<void> {
+  const s = editTarget.value
+  if (!s) return
+  error.value = ''
+  notice.value = ''
+  setBusy(s.id, true)
+  try {
+    const params = editParams.value.filter((p) => p.name.trim() !== '')
+    const timeout = Number(editTimeout.value.trim() || '0')
+    const updated = await patchSchedule(s.id, {
+      title: editTitle.value.trim(),
+      params,
+      enabled: editEnabled.value,
+      timeout_sec: Number.isFinite(timeout) ? timeout : 0,
+      ...(s.type === 'once' ? {} : { cron: editCron.value.trim() }),
+    })
+    editTarget.value = null
+    notice.value = `已保存 ${updated.name}，下次运行 ${fmtDateTime(updated.next_run_at)}`
     await fetchSchedules()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -244,10 +340,21 @@ onUnmounted(() => {
               class="act act--run"
               type="button"
               :disabled="busy.has(s.id)"
-              title="立即运行一次"
-              @click="onRun(s)"
+              :title="hasParams(s.params) ? '立即运行一次（可改参数）' : '立即运行一次'"
+              data-test="schedule-run"
+              @click="startRun(s)"
             >
-              运行
+              运行<span v-if="hasParams(s.params)" class="gear" data-test="schedule-param-gear">⚙</span>
+            </button>
+            <button
+              class="act"
+              type="button"
+              :disabled="busy.has(s.id)"
+              title="编辑：cron、标题、参数、启停、超时"
+              data-test="schedule-edit"
+              @click="openEdit(s)"
+            >
+              编辑
             </button>
             <button
               class="act"
@@ -294,6 +401,14 @@ onUnmounted(() => {
             <template v-if="s.request.tags && s.request.tags.length">
               <span class="dk">tags</span><span class="dv">{{ s.request.tags.join(', ') }}</span>
             </template>
+            <template v-if="hasParams(s.params)">
+              <span class="dk">params</span>
+              <span class="dv">
+                <span v-for="p in s.params" :key="p.name" class="param-chip mono" :title="p.desc || ''">
+                  {{ p.name }}<template v-if="p.type">:{{ p.type }}</template>=<q>{{ p.default }}</q>
+                </span>
+              </span>
+            </template>
           </div>
           <pre v-if="reqSummary(s)" class="detail-cmd">{{ reqSummary(s) }}</pre>
         </div>
@@ -301,6 +416,123 @@ onUnmounted(() => {
 
       <div v-if="schedules.length === 0 && !error" class="empty mono">
         暂无定时调度<template v-if="!readOnly">，<RouterLink to="/schedules/new" class="empty-link">新建一个</RouterLink></template>
+      </div>
+    </div>
+
+    <!-- 立即执行参数表单（设计 §D5）：按类型生成控件、预填默认、底部预览将设置的环境变量 -->
+    <div v-if="runTarget" class="modal-mask" data-test="run-param-form" @click.self="runTarget = null">
+      <div class="modal mono">
+        <h2 class="modal-title">立即执行 · {{ runTarget.name }}</h2>
+        <p class="modal-hint">参数以环境变量传给任务；留空则用声明里的默认值。</p>
+        <div v-for="p in runTarget.params" :key="p.name" class="pfield">
+          <label class="prow">
+            <span class="pname">{{ p.name }}<span class="ptype">{{ p.type || 'string' }}</span></span>
+            <template v-if="paramControl(p) === 'toggle'">
+              <input
+                type="checkbox"
+                :data-test="`param-${p.name}`"
+                :checked="runValues[p.name] === '1'"
+                @change="setRunValue(p.name, boolValue(($event.target as HTMLInputElement).checked))"
+              />
+            </template>
+            <template v-else-if="paramControl(p) === 'select'">
+              <select
+                :data-test="`param-${p.name}`"
+                :value="runValues[p.name]"
+                @change="setRunValue(p.name, ($event.target as HTMLSelectElement).value)"
+              >
+                <option v-for="c in p.choices || []" :key="c" :value="c">{{ c === '' ? '（空）' : c }}</option>
+              </select>
+            </template>
+            <template v-else-if="paramControl(p) === 'number'">
+              <input
+                type="number"
+                :data-test="`param-${p.name}`"
+                :value="runValues[p.name]"
+                @input="setRunValue(p.name, ($event.target as HTMLInputElement).value)"
+              />
+            </template>
+            <template v-else>
+              <input
+                type="text"
+                :data-test="`param-${p.name}`"
+                :value="runValues[p.name]"
+                @input="setRunValue(p.name, ($event.target as HTMLInputElement).value)"
+              />
+            </template>
+          </label>
+          <p v-if="p.desc" class="pdesc">{{ p.desc }}</p>
+        </div>
+        <div class="preview" data-test="run-param-preview">
+          <div class="preview-head">本次将设置的环境变量</div>
+          <div v-for="e in runPreview" :key="e.name" class="preview-row">
+            <span class="pk">{{ e.name }}</span>=<span class="pv">{{ e.value }}</span>
+          </div>
+        </div>
+        <div class="modal-act">
+          <button class="act" type="button" @click="runTarget = null">取消</button>
+          <button class="act act--run" type="button" data-test="run-param-submit" @click="submitRun()">执行</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑（设计 §D4/D5）：cron + 下次运行预览、标题、参数声明增删改、启停 -->
+    <div v-if="editTarget" class="modal-mask" data-test="schedule-edit-form" @click.self="editTarget = null">
+      <div class="modal modal--wide mono">
+        <h2 class="modal-title">编辑 · {{ editTarget.name }}</h2>
+        <p class="modal-hint">
+          命令 / agent / runner / 项目不能在这里改（要换请删掉重建）。<br />
+          <template v-if="editTarget.type !== 'once'">
+            当前下次运行：{{ fmtDateTime(editTarget.next_run_at) }}，保存后按新 cron 重算。
+          </template>
+          <template v-else>一次性任务：只剩启用 / 停用、标题与参数可改。</template>
+        </p>
+        <label v-if="editTarget.type !== 'once'" class="erow">
+          <span class="ekey">cron</span>
+          <input v-model="editCron" type="text" data-test="edit-cron" />
+        </label>
+        <label class="erow">
+          <span class="ekey">标题</span>
+          <input v-model="editTitle" type="text" data-test="edit-title" />
+        </label>
+        <label class="erow">
+          <span class="ekey">超时(s)</span>
+          <input v-model="editTimeout" type="number" data-test="edit-timeout" />
+        </label>
+        <label class="erow">
+          <span class="ekey">启用</span>
+          <input v-model="editEnabled" type="checkbox" data-test="edit-enabled" />
+        </label>
+
+        <div class="params-editor">
+          <div class="preview-head">参数声明（一行一个；choice 的可选值用逗号分隔）</div>
+          <div v-for="(p, i) in editParams" :key="i" class="prow prow--edit" :data-test="`edit-param-row-${i}`">
+            <input class="pcol-name" type="text" placeholder="NAME" :value="p.name" @input="setParamField(i, 'name', ($event.target as HTMLInputElement).value)" />
+            <select class="pcol-type" :value="p.type || 'string'" @change="setParamField(i, 'type', ($event.target as HTMLSelectElement).value)">
+              <option value="string">string</option>
+              <option value="int">int</option>
+              <option value="bool">bool</option>
+              <option value="choice">choice</option>
+            </select>
+            <input class="pcol-def" type="text" placeholder="default" :value="p.default" @input="setParamField(i, 'default', ($event.target as HTMLInputElement).value)" />
+            <input
+              v-if="p.type === 'choice'"
+              class="pcol-def"
+              type="text"
+              placeholder="choices, 逗号分隔"
+              :value="(p.choices || []).join(', ')"
+              @input="setParamChoices(i, ($event.target as HTMLInputElement).value)"
+            />
+            <input class="pcol-desc" type="text" placeholder="说明" :value="p.desc" @input="setParamField(i, 'desc', ($event.target as HTMLInputElement).value)" />
+            <button class="act act--del" type="button" title="删除这个参数" @click="removeParamRow(i)">−</button>
+          </div>
+          <button class="act" type="button" data-test="edit-param-add" @click="addParamRow()">+ 添加参数</button>
+        </div>
+
+        <div class="modal-act">
+          <button class="act" type="button" @click="editTarget = null">取消</button>
+          <button class="act act--run" type="button" data-test="edit-save" @click="saveEdit()">保存</button>
+        </div>
       </div>
     </div>
   </div>
@@ -599,6 +831,155 @@ onUnmounted(() => {
 .empty-link,
 .empty-link:hover {
   color: var(--phosphor);
+}
+
+.gear {
+  margin-left: 4px;
+  font-size: 10px;
+  opacity: 0.85;
+}
+.param-chip {
+  display: inline-block;
+  margin: 0 6px 2px 0;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 11px;
+  color: var(--paper);
+}
+.param-chip q {
+  color: var(--phosphor);
+}
+
+/* 立即执行参数表单 / 编辑弹窗 */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh 16px 16px;
+  background: rgba(0, 0, 0, 0.6);
+  overflow: auto;
+}
+.modal {
+  width: min(560px, 100%);
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  font-size: 12px;
+}
+.modal--wide {
+  width: min(860px, 100%);
+}
+.modal-title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  color: var(--paper);
+}
+.modal-hint {
+  margin: 0 0 12px;
+  color: var(--queue);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.pfield {
+  margin-bottom: 10px;
+}
+.prow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pname {
+  flex: 1 1 45%;
+  color: var(--paper);
+  word-break: break-all;
+}
+.ptype {
+  margin-left: 6px;
+  color: var(--queue);
+  font-size: 10px;
+}
+.prow input[type='text'],
+.prow input[type='number'],
+.prow select,
+.erow input[type='text'],
+.erow input[type='number'],
+.prow--edit input,
+.prow--edit select {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--panel);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.pdesc {
+  margin: 3px 0 0;
+  color: var(--queue);
+  font-size: 11px;
+}
+.preview {
+  margin: 12px 0;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.preview-head {
+  color: var(--queue);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.preview-row {
+  color: var(--paper);
+  font-size: 11px;
+  word-break: break-all;
+}
+.preview-row .pk {
+  color: var(--phosphor);
+}
+.preview-row .pv {
+  color: var(--done);
+}
+.erow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.ekey {
+  flex: 0 0 70px;
+  color: var(--queue);
+}
+.params-editor {
+  margin-top: 12px;
+}
+.prow--edit {
+  margin-bottom: 6px;
+}
+.pcol-name {
+  flex: 1 1 130px;
+}
+.pcol-type {
+  flex: 0 0 84px;
+}
+.pcol-def {
+  flex: 1 1 110px;
+}
+.pcol-desc {
+  flex: 1 1 130px;
+}
+.modal-act {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
 }
 
 /* 手机档（断点与 utils/mobileLayout.ts 的 MOBILE_MAX_WIDTH = 900 一致）：列头隐藏，一行调度

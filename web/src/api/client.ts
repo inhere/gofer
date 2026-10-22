@@ -78,6 +78,7 @@ import type {
   WorkerUpgradeResp,
   WorkerRegistrationResp,
   Schedule,
+  PatchScheduleReq,
   SchedulesResp,
   Stats,
   UpdateApply,
@@ -1701,10 +1702,23 @@ export function setScheduleEnabled(id: string, enabled: boolean): Promise<Schedu
   })
 }
 
-// 立即触发一次（不改 next_run_at）：返回提交的 job（channel=cron）。
-export function runSchedule(id: string): Promise<Job> {
-  return request<Job>(`/v1/schedules/${encodeURIComponent(id)}/run-now`, {
-    method: 'POST',
+// 立即触发一次（不改 next_run_at）：返回提交的 job（channel=cron）。params 是本次
+// 覆盖的参数值（设计 2026-10-22 §D3）；未声明的键后端 400 并列出可用参数。
+export function runSchedule(id: string, params?: Record<string, string>): Promise<Job> {
+  const init: RequestInit = { method: 'POST' }
+  if (params && Object.keys(params).length > 0) {
+    init.headers = { 'Content-Type': 'application/json' }
+    init.body = JSON.stringify({ params })
+  }
+  return request<Job>(`/v1/schedules/${encodeURIComponent(id)}/run-now`, init)
+}
+
+// 编辑定时任务（PATCH）：只改 cron/at、标题、参数声明、启停、超时。
+export function patchSchedule(id: string, req: PatchScheduleReq): Promise<Schedule> {
+  return request<Schedule>(`/v1/schedules/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
   })
 }
 
