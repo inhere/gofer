@@ -20,7 +20,8 @@ describe('job status counts', () => {
   })
 
   it('is wired into the jobs board', () => {
-    expect(boardSrc).toContain('v-if="isCountedStatus(opt.value)"')
+    // 表头改成 chip 后，计数仍只给 isCountedStatus 的状态（其它状态不显示徽标）
+    expect(boardSrc).toContain('isCountedStatus(opt.value)')
     expect(boardSrc).toContain('since: statusCountSince(Math.floor(Date.now() / 1000), sinceParam())')
     expect(boardSrc).toContain('limit: STATUS_COUNT_LIMIT')
   })

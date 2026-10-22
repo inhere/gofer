@@ -23,7 +23,9 @@ describe('dictionaries', () => {
   })
 
   it('uses the frozen key naming scheme', () => {
-    const domains = ['nav.', 'page.', 'col.', 'status.', 'act.', 'empty.', 'err.', 'toast.', 'confirm.', 'hint.', 'field.', 'help.', 'shell.', 'palette.']
+    // 页面专属的 key 用 <page>.<area>.<name>（§9.2 的例子就是 plans.h.progress）
+    const pageDomains = ['plans.']
+    const domains = ['nav.', 'page.', 'col.', 'status.', 'act.', 'empty.', 'err.', 'toast.', 'confirm.', 'hint.', 'field.', 'help.', 'shell.', 'palette.', ...pageDomains]
     for (const key of Object.keys(zh)) {
       expect(domains.some((d) => key.startsWith(d)), `${key} 不在冻结的域里`).toBe(true)
     }

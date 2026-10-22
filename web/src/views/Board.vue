@@ -8,6 +8,11 @@ import { useRoute, useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
 import UncommittedBadge from '../components/UncommittedBadge.vue'
+import FilterChips from '../ui/FilterChips.vue'
+import FilterDrawer from '../ui/FilterDrawer.vue'
+import ProjectFilter from '../ui/ProjectFilter.vue'
+import { chipItems } from '../ui/filterChips'
+import { useListReturn } from '../ui/useListReturn'
 import { listJobs, listPlans, listProjects } from '../api/client'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { fmtDuration, jobDurationSec } from '../api/time'
@@ -65,7 +70,8 @@ const sinceOptions: Array<{ value: '' | '1h' | '24h' | '7d'; label: string }> = 
   { value: '7d', label: '近 7d' },
 ]
 
-// 窄屏时筛选面板默认收起（它一个就占满一屏），桌面宽度下 CSS 始终展开。
+// 窄屏时筛选面板默认收起（它一个就占满一屏），桌面宽度下从「更多筛选」抽屉打开。
+// 状态与项目是 ListHeader 上的 chip，其余维度进 FilterDrawer（设计稿 §7 任务列表）。
 const filtersOpen = ref(false)
 const activeFilterCount = computed(() =>
   [
@@ -81,6 +87,32 @@ const activeFilterCount = computed(() =>
     hasUploadFilter.value,
   ].filter(Boolean).length,
 )
+
+// 「更多筛选」抽屉里的维度数（状态与项目已经在列表头，不重复计）
+const drawerFilterCount = computed(
+  () =>
+    [
+      planFilter.value,
+      wfFilter.value,
+      tagFilter.value.trim(),
+      agentFilter.value.trim(),
+      runnerFilter.value.trim(),
+      callerFilter.value.trim(),
+      sinceFilter.value,
+      hasUploadFilter.value,
+      showMessengerJobs.value,
+    ].filter(Boolean).length,
+)
+
+// 状态 chip（带计数）：值与文案仍取自 statusText / jobStatusOptions，计数只给「进行中」类
+// 状态（isCountedStatus），与表头旧口径一致。
+const statusChipItems = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const opt of statusOptions) {
+    if (isCountedStatus(opt.value)) counts[opt.value] = statusCounts.value[opt.value]
+  }
+  return chipItems(statusOptions, counts)
+})
 
 const statusCounts = computed<Record<JobStatus, number>>(() => {
   const base: Record<JobStatus, number> = {
@@ -403,6 +435,9 @@ onMounted(() => {
   liveJobs.start()
 })
 
+// 详情页的 BackLink 靠这份记录回到当前筛选 + 滚动位置（设计稿 §16）。
+useListReturn('jobs', '/jobs')
+
 onUnmounted(() => {
   liveJobs.stop()
 })
@@ -432,48 +467,31 @@ onUnmounted(() => {
         >
           清空过滤
         </button>
-        <button
-          class="head-btn filter-toggle"
-          type="button"
-          :aria-expanded="filtersOpen"
-          @click="filtersOpen = !filtersOpen"
-        >
-          {{ filtersOpen ? '收起筛选' : activeFilterCount > 0 ? `筛选（${activeFilterCount}）` : '筛选' }}
-        </button>
       </div>
     </div>
 
-    <div class="filter-panel mono" :class="{ 'filter-panel--open': filtersOpen }">
-      <div class="status-tabs" aria-label="状态过滤">
-        <button
-          v-for="opt in statusOptions"
-          :key="opt.value"
-          type="button"
-          class="status-tab"
-          :class="{ 'status-tab--active': statusFilter === opt.value }"
-          @click="statusFilter = opt.value"
-        >
-          <span>{{ opt.label }}</span>
-          <span v-if="isCountedStatus(opt.value)" class="status-count">{{ statusCounts[opt.value] }}</span>
-        </button>
-      </div>
-
-      <div class="controls">
-        <span v-if="projectFilter" class="proj-chip">项目：{{ projectFilter }}</span>
+    <!-- 列表头（设计稿 §7）：项目 chip + 状态 chip；其余维度进「筛选」抽屉。 -->
+    <div class="filter-bar mono">
+      <ProjectFilter
+        v-model="projectSelectValue"
+        :options="projectOptions"
+        :loading="!projectKeys.length && !projectLoadError"
+        :error="projectLoadError"
+      />
+      <FilterChips
+        :items="statusChipItems"
+        :model-value="statusFilter"
+        label="状态过滤"
+        @update:model-value="(v) => (statusFilter = v as '' | JobStatus)"
+      />
+      <FilterDrawer
+        v-model:open="filtersOpen"
+        :active-count="drawerFilterCount"
+        :clearable="activeFilterCount > 0"
+        @clear="clearFilters"
+      >
+        <div class="controls">
         <span v-if="planFilter" class="proj-chip">计划：{{ planFilter }}</span>
-        <label class="filter">
-          <span class="filter-label">{{ COL.project }}</span>
-          <select
-            v-model="projectSelectValue"
-            class="filter-select filter-select--project mono"
-            :title="projectLoadError || undefined"
-          >
-            <option value="">全部</option>
-            <option v-for="key in projectOptions" :key="key" :value="key">
-              {{ key }}
-            </option>
-          </select>
-        </label>
         <label class="filter filter-check"><input v-model="hasUploadFilter" type="checkbox" class="filter-checkbox" /><span class="filter-label">含上传</span></label>
         <label class="filter filter-check"><input v-model="showMessengerJobs" type="checkbox" class="filter-checkbox" /><span class="filter-label">显示传话 job</span></label>
         <label class="filter">
@@ -544,22 +562,23 @@ onUnmounted(() => {
             </option>
           </select>
         </label>
-      </div>
+        </div>
 
-      <!-- F-b：plan 输入框下方的轻量提示（最近 5 个 open plan，点一下填入），不是下拉。 -->
-      <div v-if="recentPlans.length" class="recent-plans mono">
-        <span class="recent-label">最近：</span>
-        <button
-          v-for="p in recentPlans"
-          :key="p.id"
-          type="button"
-          class="recent-plan"
-          :title="p.title ? `${p.title} · ${p.id}` : p.id"
-          @click="pickRecentPlan(p.id)"
-        >
-          {{ p.id }}
-        </button>
-      </div>
+        <!-- F-b：plan 输入框下方的轻量提示（最近 5 个 open plan，点一下填入），不是下拉。 -->
+        <div v-if="recentPlans.length" class="recent-plans mono">
+          <span class="recent-label">最近：</span>
+          <button
+            v-for="p in recentPlans"
+            :key="p.id"
+            type="button"
+            class="recent-plan"
+            :title="p.title ? `${p.title} · ${p.id}` : p.id"
+            @click="pickRecentPlan(p.id)"
+          >
+            {{ p.id }}
+          </button>
+        </div>
+      </FilterDrawer>
     </div>
 
     <p v-if="error" class="error mono">{{ error }}</p>
@@ -702,51 +721,12 @@ onUnmounted(() => {
   cursor: default;
   opacity: 0.65;
 }
-.filter-panel {
+.filter-bar {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  padding: 10px;
-  margin-bottom: 14px;
-}
-.status-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.status-tab {
-  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: transparent;
-  color: var(--queue);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 9px;
-  font-size: 12px;
-  min-height: 28px;
-}
-.status-tab:hover {
-  color: var(--paper);
-  border-color: var(--queue);
-}
-.status-tab--active {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
-  background: var(--ink);
-}
-.status-count {
-  color: var(--paper);
-  font-size: 11px;
-  min-width: 16px;
-  text-align: center;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0 4px;
-  line-height: 16px;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-bottom: 14px;
 }
 .controls {
   display: flex;
