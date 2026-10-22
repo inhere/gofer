@@ -272,7 +272,7 @@ func TestEventHookSlowDoesNotBlockWebhook(t *testing.T) {
 		[]config.EventHookConfig{{
 			Name: "slow", Command: []string{bin, "wait-file", flag, "20s"}, Events: []string{"*"}, Dir: t.TempDir(), TimeoutSec: 30,
 		}})
-	s.postFn = func(_ context.Context, _, _ string, _ []byte, _ string, _ config.NotificationConfig) error {
+	s.postFn = func(_ context.Context, _, _, _ string, _ []byte, _ string, _ config.NotificationConfig) error {
 		return os.WriteFile(flag, []byte("1"), 0o644)
 	}
 	now := s.nowFn().Unix()

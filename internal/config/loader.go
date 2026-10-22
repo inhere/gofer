@@ -876,6 +876,23 @@ func validate(cfg *Config) error {
 			if !ValidWebhookKind(w.Kind) {
 				return fmt.Errorf("server.notification.webhooks[%d].kind %q is unknown (use: generic | dingtalk | feishu)", i, w.Kind)
 			}
+			// gofer-map1: keyword answers the provider's 自定义关键词 security setting,
+			// which only IM bots have. Rejecting it on a generic target (and a keyword
+			// that cannot appear in a one-line title) keeps a typo from silently
+			// disabling the operator's intent.
+			if kw := w.Keyword; kw != "" {
+				if strings.TrimSpace(kw) == "" {
+					return fmt.Errorf("server.notification.webhooks[%d].keyword must not be blank", i)
+				}
+				if strings.ContainsAny(kw, "\r\n") {
+					return fmt.Errorf("server.notification.webhooks[%d].keyword must be a single line", i)
+				}
+				switch strings.ToLower(strings.TrimSpace(w.Kind)) {
+				case WebhookKindDingTalk, WebhookKindFeishu:
+				default:
+					return fmt.Errorf("server.notification.webhooks[%d].keyword only applies to kind dingtalk | feishu", i)
+				}
+			}
 		}
 	}
 	// AUTO-04: a hook that cannot run, cannot be addressed or would stall the

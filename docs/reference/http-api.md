@@ -193,6 +193,7 @@ The local row of `GET /v1/runners` carries `messenger_detail` read in-process; a
 - `events`：最近 200 条升序，带 `events_last_seq` / `events_truncated`，更早的用 `&before=<seq>`。
 - `comments`：最新 100 条 + `comments_total`。
 - `deliveries`、`retries`、`wakeups`。
+  - 每条 delivery 是 `{id, job_id, event_seq, target, status, attempts, next_retry_at, last_error, created_at, event_type, body}`（`GET /v1/jobs/{id}/deliveries` 同一形状）。`status` 为 `pending` / `delivered` / `failed`。钉钉 / 飞书的业务错误码（响应体 `errcode` / `code` / `StatusCode` 非 0）现在算失败，`last_error` 是机器人返回的错误原文（例：`webhook POST <url>: dingtalk rejected message: code 310000: keywords not in content (permanent)`）；`(permanent)` 的错误（关键词没命中、签名错、token 失效）首次即 `failed` 不重试，限流类仍按退避重试。generic webhook 只看 HTTP 状态。
 - `pty_sessions`：无 attach 权限时省略，并在 `include_errors.pty_sessions` 写 `forbidden`。
 - `artifacts`：仅终态 job 内联，最多 200 + `artifacts_total`。
 - `session_jobs`：同 session 的 job，最多 50。

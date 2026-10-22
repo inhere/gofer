@@ -152,7 +152,7 @@ func TestPostWebhookSuccess(t *testing.T) {
 	secret := "topsecret"
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := postRequest(ctx, srv.URL, "job.terminal", body, secret); err != nil {
+	if err := postRequest(ctx, KindGeneric, srv.URL, "job.terminal", body, secret); err != nil {
 		t.Fatalf("post: %v", err)
 	}
 	if gotCT != "application/json" {
@@ -180,7 +180,7 @@ func TestPostWebhookNoSignatureWithoutSecret(t *testing.T) {
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := postRequest(ctx, srv.URL, "job.terminal", []byte("{}"), ""); err != nil {
+	if err := postRequest(ctx, KindGeneric, srv.URL, "job.terminal", []byte("{}"), ""); err != nil {
 		t.Fatalf("post: %v", err)
 	}
 	if sawSig {
@@ -196,7 +196,7 @@ func TestPostWebhookNon2xx(t *testing.T) {
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := postRequest(ctx, srv.URL, "job.terminal", []byte("{}"), ""); err == nil {
+	if err := postRequest(ctx, KindGeneric, srv.URL, "job.terminal", []byte("{}"), ""); err == nil {
 		t.Fatal("expected error on 500")
 	}
 }
@@ -210,7 +210,7 @@ func TestPostWebhookTimeout(t *testing.T) {
 	defer srv.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if err := postRequest(ctx, srv.URL, "job.terminal", []byte("{}"), ""); err == nil {
+	if err := postRequest(ctx, KindGeneric, srv.URL, "job.terminal", []byte("{}"), ""); err == nil {
 		t.Fatal("expected timeout error")
 	}
 }
@@ -220,7 +220,7 @@ func TestPostWebhookTimeout(t *testing.T) {
 func TestPostWebhookValidatesBeforeSend(t *testing.T) {
 	cfg := config.NotificationConfig{AllowHosts: []string{"127.0.0.1"}, AllowHTTP: true}
 	ctx := context.Background()
-	if err := PostWebhook(ctx, "http://127.0.0.1:1/x", "job.terminal", []byte("{}"), "", cfg); err == nil {
+	if err := PostWebhook(ctx, KindGeneric, "http://127.0.0.1:1/x", "job.terminal", []byte("{}"), "", cfg); err == nil {
 		t.Fatal("PostWebhook must reject loopback before sending")
 	}
 }

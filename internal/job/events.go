@@ -385,7 +385,7 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 		if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
 			limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
 		}
-		body, err := notify.RenderMessageWithLimit(w.Kind, msg, limit)
+		body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.Keyword, limit)
 		return body, err == nil
 	}
 	if eventType == EventSessionAwaitingReply {
@@ -420,7 +420,7 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 		if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
 			limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
 		}
-		body, err := notify.RenderMessageWithLimit(w.Kind, msg, limit)
+		body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.Keyword, limit)
 		return body, err == nil
 	}
 	var d struct {
@@ -447,7 +447,7 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
 		limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
 	}
-	body, err := notify.RenderMessageWithLimit(w.Kind, msg, limit)
+	body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.Keyword, limit)
 	return body, err == nil
 }
 

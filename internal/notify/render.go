@@ -105,25 +105,46 @@ const truncationMarker = "…（已截断，完整内容见链接）"
 
 // RenderMessage builds the POST body for kind. The provider signature is NOT
 // applied here (it is time-sensitive): call ApplyProviderAuth at post time.
-func RenderMessage(kind string, m Message) ([]byte, error) {
-	return RenderMessageWithLimit(kind, m, config.DefaultMaxTextRunes)
+// keyword is the target webhook's `keyword` (see withKeyword); "" injects nothing.
+func RenderMessage(kind string, m Message, keyword string) ([]byte, error) {
+	return RenderMessageWithLimit(kind, m, keyword, config.DefaultMaxTextRunes)
 }
 
 // RenderMessageWithLimit renders an IM payload using the target webhook's rune
 // budget. Generic webhooks retain their original JSON contract and are not
 // truncated; IM adapters apply the rune budget and provider byte ceiling.
-func RenderMessageWithLimit(kind string, m Message, maxRunes int) ([]byte, error) {
+func RenderMessageWithLimit(kind string, m Message, keyword string, maxRunes int) ([]byte, error) {
 	if maxRunes <= 0 {
 		maxRunes = config.DefaultMaxTextRunes
 	}
 	switch NormalizeKind(kind) {
 	case KindDingTalk:
-		return renderDingTalkWithLimit(m, maxRunes)
+		return renderDingTalkWithLimit(withKeyword(m, keyword), maxRunes)
 	case KindFeishu:
-		return renderFeishuWithLimit(m, maxRunes)
+		return renderFeishuWithLimit(withKeyword(m, keyword), maxRunes)
 	default:
 		return renderGeneric(m)
 	}
+}
+
+// withKeyword applies a webhook's `keyword` (gofer-map1). A DingTalk / Feishu
+// custom bot whose security setting is 自定义关键词 only accepts a message that
+// CONTAINS one of its keywords and answers every other message with HTTP 200 + a
+// business error; prefixing the keyword to the title makes gofer's own messages
+// pass without the operator touching each template. It does nothing when the
+// title or the text already carries the keyword, so no message gets a doubled
+// prefix. Both IM renderers print the title as the first line of the body (and
+// as DingTalk's markdown title), so one prefix satisfies both matching spots.
+func withKeyword(m Message, keyword string) Message {
+	kw := strings.TrimSpace(keyword)
+	if kw == "" {
+		return m
+	}
+	if strings.Contains(m.Title, kw) || strings.Contains(m.Text, kw) {
+		return m
+	}
+	m.Title = kw + " " + m.Title
+	return m
 }
 
 // PlanMessage renders a plan-scope event (scope `plan:<id>`) as the short message an IM

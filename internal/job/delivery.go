@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/url"
 	"os"
@@ -145,7 +146,7 @@ func (s *Service) deliverOne(ctx context.Context, d jobstore.Delivery, nconf *co
 	if post == nil {
 		post = notify.PostWebhook
 	}
-	err := post(postCtx, target, eventType, body, hmacSecret, *nconf)
+	err := post(postCtx, kind, target, eventType, body, hmacSecret, *nconf)
 	now := s.nowFn().Unix()
 	if err == nil {
 		if mErr := s.meta.MarkDelivered(d.ID, now); mErr != nil {
@@ -155,13 +156,25 @@ func (s *Service) deliverOne(ctx context.Context, d jobstore.Delivery, nconf *co
 	}
 
 	attempts := d.Attempts + 1
-	if attempts >= maxAttempts {
+	// gofer-map1: an IM bot refuses a message with HTTP 200 + a business code, and a
+	// refusal a retry cannot fix (keyword not found, bad 加签 secret, invalid token)
+	// is final on the FIRST attempt — retrying would spend the whole backoff table
+	// (up to an hour) on a message that is refused deterministically. The provider's
+	// original description goes into the delivery's last_error, the log line and
+	// therefore the console's delivery list.
+	var providerErr *notify.ProviderError
+	permanent := errors.As(err, &providerErr) && providerErr.Permanent
+	if permanent || attempts >= maxAttempts {
+		slog.Warn("DeliverDue: delivery failed", "delivery_id", d.ID, "target", d.Target,
+			"attempts", attempts, "permanent", permanent, "err", err)
 		if mErr := s.meta.MarkFailed(d.ID, attempts, err.Error(), now); mErr != nil {
 			slog.Warn("DeliverDue: mark failed", "delivery_id", d.ID, "err", mErr)
 		}
 		return
 	}
 	nextAt := now + int64(nextBackoff(attempts)/time.Second)
+	slog.Warn("DeliverDue: delivery retry scheduled", "delivery_id", d.ID, "target", d.Target,
+		"attempts", attempts, "next_retry_at", nextAt, "err", err)
 	if mErr := s.meta.MarkRetry(d.ID, attempts, nextAt, err.Error(), now); mErr != nil {
 		slog.Warn("DeliverDue: mark retry", "delivery_id", d.ID, "err", mErr)
 	}
@@ -253,7 +266,8 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 				bmsg.LinkLabel = "查看 job"
 				msg = bmsg
 			}
-			rendered, rErr := notify.RenderMessageWithLimit(kind, msg, webhook.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes()))
+			// gofer-map1: the keyword is what makes a 自定义关键词 robot accept the message.
+			rendered, rErr := notify.RenderMessageWithLimit(kind, msg, webhook.Keyword, webhook.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes()))
 			if rErr != nil {
 				slog.Warn("DeliverDue: render im body", "seq", d.EventSeq, "kind", kind, "err", rErr)
 				return nil, "", false

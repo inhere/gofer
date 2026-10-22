@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	yaml "github.com/goccy/go-yaml"
@@ -115,5 +116,44 @@ func TestEffectiveMaxTextRunesDefault(t *testing.T) {
 	}
 	if got := (WebhookConfig{}).EffectiveMaxTextRunes(123); got != 123 {
 		t.Errorf("inherited webhook max_text_runes = %d, want 123", got)
+	}
+}
+
+// TestWebhookKeywordValidation pins the gofer-map1 keyword rules: it answers the IM
+// bots' 自定义关键词 setting, so a blank one, a multi-line one, or one on a target
+// that has no such setting (generic) fails at load instead of being ignored at post
+// time (where the bot would refuse every message and nobody would see why).
+func TestWebhookKeywordValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		kind    string
+		keyword string
+		wantErr bool
+	}{
+		{name: "dingtalk keyword ok", kind: "dingtalk", keyword: "gofer"},
+		{name: "feishu keyword ok", kind: "feishu", keyword: "gofer"},
+		{name: "no keyword ok", kind: "dingtalk"},
+		{name: "generic rejects keyword", kind: "", keyword: "gofer", wantErr: true},
+		{name: "explicit generic rejects keyword", kind: "generic", keyword: "gofer", wantErr: true},
+		{name: "blank keyword", kind: "dingtalk", keyword: "   ", wantErr: true},
+		{name: "multi-line keyword", kind: "feishu", keyword: "gofer\nnext", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{Server: ServerConfig{Notification: &NotificationConfig{
+				Webhooks: []WebhookConfig{{URL: "https://hooks.example.com/gofer", Kind: tc.kind, Keyword: tc.keyword}},
+			}}}
+			ApplyDefaults(cfg)
+			err := validate(cfg)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "keyword") {
+					t.Fatalf("err = %v, want a keyword validation error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validate: %v", err)
+			}
+		})
 	}
 }

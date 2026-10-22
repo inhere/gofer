@@ -196,10 +196,13 @@ type notificationView struct {
 }
 
 type webhookView struct {
-	URL          string   `json:"url"`
-	MaxTextRunes int      `json:"max_text_runes"`
-	Kind         string   `json:"kind"`
-	Events       []string `json:"events"`
+	URL          string `json:"url"`
+	MaxTextRunes int    `json:"max_text_runes"`
+	Kind         string `json:"kind"`
+	// Keyword is the bot's 自定义关键词 setting (gofer-map1) — not a secret, so it IS
+	// echoed (the console has to show what it will prefix).
+	Keyword string   `json:"keyword"`
+	Events  []string `json:"events"`
 	// Projects restricts the target to those project keys (empty = all).
 	Projects []string `json:"projects"`
 	// Enabled pauses this target without deleting it (S4).
@@ -597,6 +600,7 @@ func buildNotificationView(n *config.NotificationConfig) *notificationView {
 			URL:          wh.URL,
 			MaxTextRunes: wh.MaxTextRunes,
 			Kind:         wh.Kind,
+			Keyword:      wh.Keyword,
 			Events:       nonNil(wh.Events),
 			Projects:     nonNil(wh.Projects),
 			Enabled:      wh.IsEnabled(),

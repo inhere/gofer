@@ -28,7 +28,7 @@ func TestRenderMessagePerKind(t *testing.T) {
 	}
 
 	// generic: machine contract
-	b, err := RenderMessage("", m)
+	b, err := RenderMessage("", m, "")
 	assert.NoErr(t, err)
 	var g map[string]any
 	assert.NoErr(t, json.Unmarshal(b, &g))
@@ -39,7 +39,7 @@ func TestRenderMessagePerKind(t *testing.T) {
 
 	// dingtalk: markdown with a tappable link; title repeated in the text so a
 	// keyword-mode bot sees it.
-	b, err = RenderMessage(KindDingTalk, m)
+	b, err = RenderMessage(KindDingTalk, m, "")
 	assert.NoErr(t, err)
 	var d struct {
 		MsgType  string            `json:"msgtype"`
@@ -53,7 +53,7 @@ func TestRenderMessagePerKind(t *testing.T) {
 	assert.True(t, strings.Contains(d.Markdown["text"], "[打开会话回复]("+m.Link+")"))
 
 	// feishu: plain text, URL inline (the client auto-links it)
-	b, err = RenderMessage(KindFeishu, m)
+	b, err = RenderMessage(KindFeishu, m, "")
 	assert.NoErr(t, err)
 	var f struct {
 		MsgType string            `json:"msg_type"`
@@ -66,12 +66,12 @@ func TestRenderMessagePerKind(t *testing.T) {
 
 	// no link → no link line, and the default label is used when one is set
 	nolink := Message{Title: "t", Text: "x"}
-	b, _ = RenderMessage(KindFeishu, nolink)
+	b, _ = RenderMessage(KindFeishu, nolink, "")
 	assert.False(t, strings.Contains(string(b), "打开"))
 
 	// long text uses the configurable default rune budget; the link carries the rest.
 	long := Message{Title: "t", Text: strings.Repeat("字", 5000)}
-	b, _ = RenderMessage(KindFeishu, long)
+	b, _ = RenderMessage(KindFeishu, long, "")
 	assert.NoErr(t, json.Unmarshal(b, &f))
 	assert.True(t, len([]rune(f.Content["text"])) > 3000)
 	assert.True(t, strings.Contains(f.Content["text"], "…（已截断，完整内容见链接）"))
@@ -79,7 +79,7 @@ func TestRenderMessagePerKind(t *testing.T) {
 
 func TestNotifyMaxTextRunesConfigurable(t *testing.T) {
 	m := Message{Title: "title", Text: strings.Repeat("长", 40)}
-	b, err := RenderMessageWithLimit(KindFeishu, m, 12)
+	b, err := RenderMessageWithLimit(KindFeishu, m, "", 12)
 	if err != nil {
 		t.Fatalf("RenderMessageWithLimit: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestNotifyMaxTextRunesConfigurable(t *testing.T) {
 		t.Fatalf("rendered rune count = %d, want 12: %q", got, text)
 	}
 
-	b, err = RenderMessageWithLimit(KindFeishu, m, 0)
+	b, err = RenderMessageWithLimit(KindFeishu, m, "", 0)
 	if err != nil {
 		t.Fatalf("RenderMessageWithLimit default: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestNotifyMaxTextRunesConfigurable(t *testing.T) {
 
 func TestNotifyByteCapForDingTalk(t *testing.T) {
 	m := Message{Title: "title", Text: strings.Repeat("界", 20000)}
-	b, err := RenderMessageWithLimit(KindDingTalk, m, 50000)
+	b, err := RenderMessageWithLimit(KindDingTalk, m, "", 50000)
 	if err != nil {
 		t.Fatalf("RenderMessageWithLimit: %v", err)
 	}

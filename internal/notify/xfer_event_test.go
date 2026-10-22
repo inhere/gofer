@@ -52,7 +52,7 @@ func TestTransferMessageShortShape(t *testing.T) {
 			t.Fatalf("text = %q, want it to carry %q", msg.Text, want)
 		}
 	}
-	body, err := RenderMessage(KindDingTalk, msg)
+	body, err := RenderMessage(KindDingTalk, msg, "")
 	if err != nil {
 		t.Fatalf("render dingtalk: %v", err)
 	}
