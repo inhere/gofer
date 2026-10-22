@@ -1,112 +1,163 @@
-/* 主题：默认深色（夜班 CRT/蓝灰调度板）。颜色全部走语义 token，
-   浅色模式仅在 [data-theme="light"] 覆盖同名变量，组件无需改动。
-   token 语义：--ink=底/在亮色上的反白字；--panel=抬升面板；--line=发丝线；
-   --paper=正文前景；--run/done/fail/queue/phosphor=状态/强调；--term-bg=日志/输入的终端底。 */
+/* 设计 token（对应 docs/design/2026-10-23-ui-redesign-design.md §4）。
+ *
+ * 只有变量，不含任何元素样式——基础排版、焦点、滚动条在 base.css。
+ * 深色是默认值；浅色模式仅在 [data-theme="light"] 覆盖同名变量，组件无需区分主题。
+ * 语义：黄色（--need）只代表「需要人」；--accent（松绿）代表「可以操作」；
+ * 状态色一律配一个 -soft 底色。圆角分四档：chip 5 / ctl 8 / panel 12 / sheet 18。
+ *
+ * 断点只有 3 个（CSS 变量不能用于 media query，这里只记录口径，数值在 base.css 与
+ * utils/mobileLayout.ts 同步维护）：≤760 手机；761–1099 图标栏；≥1280 完整三栏。
+ */
 :root {
-  --ink: #0E1A24;
-  --panel: #15252F;
-  --line: #2A3D49;
-  --paper: #E8E2D4;
-  --run: #E0A24A;
-  --done: #5BA66E;
-  --fail: #C8553D;
-  --queue: #6B8A99;
-  --phosphor: #2BD9F5;
-  --term-bg: #08121A;
-  --radius: 4px;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
-  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  /* 字体：界面 Schibsted Grotesk，等宽只用于 id / 命令 / 路径 / 日志 / diff。
+     CJK 不打包字体，回退到系统字体（PingFang SC / Microsoft YaHei / Noto Sans SC）。 */
+  --font-ui: "Schibsted Grotesk", "Segoe UI", -apple-system, "Helvetica Neue", Arial,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC",
+    system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas,
+    "Noto Sans Mono CJK SC", monospace;
+
+  /* 字号阶梯：11.5 / 12.5 / 14（正文）/ 15.5 / 18 / 22 / 28；Today 标题 34；手机正文 15。
+     微字下限 11.5，只用于计数和时间戳。 */
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-md: 14px;
+  --fs-lg: 15.5px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+  --fs-3xl: 28px;
+  --fs-hero: 34px;
+  --fs-body-mobile: 15px;
+
+  /* 间距：4 的倍数 */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s8: 32px;
+  --s10: 40px;
+
+  /* 圆角层级 */
+  --r-chip: 5px;
+  --r-ctl: 8px;
+  --r-panel: 12px;
+  --r-sheet: 18px;
+
+  /* 动效：常驻动画只允许信号带流光与运行态脉冲，且遵守 prefers-reduced-motion */
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  --dur-fast: 150ms;
+  --dur-slow: 250ms;
+
+  /* 颜色——深色（默认） */
+  --bg: #0F1513;
+  --surface: #161E1B;
+  --surface-2: #1A2420;
+  --sunken: #0B110F;
+  --line: #25302B;
+  --line-strong: #35433D;
+  --fg: #E3EBE7;
+  --fg-2: #A7B4AE;
+  --fg-3: #7C8A84;
+  --accent: #5BC39F;
+  --accent-hover: #73D3B1;
+  --accent-ink: #08170F;
+  --accent-soft: #17302A;
+  --focus: #7FD9B9;
+  --need: #F2B84B;
+  --need-ink: #F6C870;
+  --need-soft: #2F2513;
+  --run: #74AAE8;
+  --run-soft: #172638;
+  --done: #59C190;
+  --done-soft: #142A20;
+  --fail: #EE7B6F;
+  --fail-soft: #34191A;
+  --time: #BB96E2;
+  --time-soft: #261C33;
+  --idle: #8D9994;
+  --idle-soft: #1F2825;
+  --log-bg: #0A0F0D;
+  --log-ink: #D2DCD7;
+  --log-dim: #6E7C76;
+  --diff-add: #13291E;
+  --diff-add-ink: #7FD6A7;
+  --diff-del: #321818;
+  --diff-del-ink: #F29A90;
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, .25);
+  --shadow-pop: 0 24px 60px -10px rgba(0, 0, 0, .7), 0 0 0 1px var(--line-strong);
+  --scrim: rgba(0, 0, 0, .55);
+
   color-scheme: dark;
+
+  /* ---------------------------------------------------------------- 迁移期别名
+   * 旧页面用的是迁移前的变量名。这里按「角色」把它们指到新 token，旧页面因此自动
+   * 拿到新色板，而排版、间距、圆角、布局都不变（=外观基本不变）。
+   * P6 删除整块时，把组件里的旧名一起换成新名。
+   *
+   * 角色对应：旧 --ink(页面底) → --bg；旧 --panel → --surface；旧 --paper(正文) → --fg；
+   * 旧 --phosphor(强调/链接) → --accent；旧 --queue(灰字/待排队) → --fg-3。
+   *
+   * 两个名字有角色冲突，因此新 token 改了名（P6 再统一）：
+   * - 旧 --ink 是「页面底色」，新 token 的正文色按设计稿叫 --ink；旧页面有 118 处
+   *   var(--ink) 当底色用，让位给迁移期，新正文色取名 --fg。
+   * - 旧 --term-bg 是主题相关的终端底（浅色主题下是浅底），新设计里日志查看器两种主题
+   *   都是深底；新 token 取名 --log-bg / --log-ink / --log-dim，--term-bg 保留旧语义。
+   */
+  --ink: var(--bg);
+  --panel: var(--surface);
+  --paper: var(--fg);
+  --phosphor: var(--accent);
+  --queue: var(--fg-3);
+  --font-sans: var(--font-ui);
+  --radius: 4px;
+  --term-bg: #08121A;
+  --term-ink: var(--log-ink);
 }
 
-/* 浅色模式：日班「冷调蓝灰制图纸 / 搪瓷调度板」——非通用暖奶油。
-   冷白纸底 + 深墨蓝字，沿用同一套状态色但压暗以达 WCAG AA（正文/次要文本均 ≥4.5:1）；
-   发丝线对比刻意贴近深色主题（≈1.5:1）保持「hairline」克制感。 */
+/* 浅色模式：浅色和深色是同等完成度的一套色板，正文/次要文本都 ≥4.5:1。 */
 :root[data-theme="light"] {
-  --ink: #E3E7E6;
-  --panel: #F0F2F0;
-  --line: #B2BDBA;
-  --paper: #16242C;
-  --run: #955411;
-  --done: #287140;
-  --fail: #B23A24;
-  --queue: #4F6571;
-  --phosphor: #0369A1;
+  --bg: #F2F4F3;
+  --surface: #FFFFFF;
+  --surface-2: #F8FAF9;
+  --sunken: #E9EDEB;
+  --line: #DCE2DF;
+  --line-strong: #C3CCC7;
+  --fg: #16201C;
+  --fg-2: #47544E;
+  --fg-3: #6F7C76;
+  --accent: #1E6B57;
+  --accent-hover: #175746;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #DFEFE8;
+  --focus: #2E8C72;
+  --need: #E3A21A;
+  --need-ink: #8A5A00;
+  --need-soft: #FCF0D3;
+  --run: #2B69B0;
+  --run-soft: #E2EDF8;
+  --done: #1E7A55;
+  --done-soft: #DFF1E7;
+  --fail: #B6382F;
+  --fail-soft: #FAE4E1;
+  --time: #8653B3;
+  --time-soft: #F0E7F8;
+  --idle: #78847F;
+  --idle-soft: #ECEFEE;
+  --log-bg: #18201D;
+  --log-ink: #D5DED9;
+  --log-dim: #7F8C86;
+  --diff-add: #E3F4EA;
+  --diff-add-ink: #17613F;
+  --diff-del: #FBE7E4;
+  --diff-del-ink: #9C2F27;
+  --shadow-1: 0 1px 0 rgba(22, 32, 28, .04), 0 1px 2px rgba(22, 32, 28, .06);
+  --shadow-pop: 0 18px 50px -12px rgba(16, 30, 24, .35), 0 2px 6px rgba(16, 30, 24, .08);
+  --scrim: rgba(18, 26, 23, .42);
+
+  /* 迁移期别名里唯一需要分主题的是终端底：旧日志/终端组件在浅色主题下是浅底。 */
   --term-bg: #ECEFEE;
+
   color-scheme: light;
-}
-
-/* 底色蓝灰调度板(非纯黑)，前景暖纸白；正文 sans，数据/ID/状态用 mono；低圆角 4px、发丝线 --line */
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-}
-
-body {
-  background: var(--ink);
-  color: var(--paper);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
-
-#app {
-  min-height: 100%;
-}
-
-/* Reserve the scrollbar's space so a page that gains/loses a scrollbar (a long list vs a short
-   tab) does not shift its content sideways. */
-html {
-  scrollbar-gutter: stable;
-}
-
-code,
-.mono {
-  font-family: var(--font-mono);
-}
-
-a {
-  color: var(--phosphor);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
-
-button {
-  font-family: var(--font-sans);
-  cursor: pointer;
-}
-
-/* a11y：全局可见焦点环（克制 phosphor），覆盖按钮/链接/输入/可点行。
-   只对键盘聚焦显示（:focus-visible），避免鼠标点击留环。 */
-:focus {
-  outline: none;
-}
-:focus-visible {
-  outline: 2px solid var(--phosphor);
-  outline-offset: 2px;
-  border-radius: var(--radius);
-}
-
-/* prefers-reduced-motion：冻结全部动画/过渡/滚动惯性（与各组件局部规则兼容） */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
-  html {
-    scroll-behavior: auto !important;
-  }
 }
