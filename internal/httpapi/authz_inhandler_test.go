@@ -485,6 +485,12 @@ var scheduleAuthzCases = []authzCase{
 	{key: "POST /v1/schedules/{id}/rotate-token", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/schedules/" + e.schedule() + "/rotate-token", nil}
 	}},
+	// PATCH asks the manage rule for everything it edits, plus job.submit when the body sets
+	// enabled:true (the switch turns the cron loop loose with no later checkpoint) — so the
+	// request that decides both is an enable patch.
+	{key: "PATCH /v1/schedules/{id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPatch, "/v1/schedules/" + e.schedule(), map[string]any{"enabled": true}}
+	}},
 }
 
 // tunnelAuthzCases is the reverse-case registry of plan T1.5f: the tunnel endpoint (which

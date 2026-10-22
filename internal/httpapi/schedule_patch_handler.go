@@ -154,8 +154,10 @@ func (s *Server) handlePatchSchedule(c *rux.Context) {
 
 	// ---- enable switch ----
 	if req.Enabled != nil {
-		enabling := *req.Enabled && upd.Enabled == 0
-		if enabling && !s.can(c, authz.PermJobSubmit) {
+		// "This schedule should be running" asks job.submit, exactly like POST .../enable:
+		// after this request there is no further checkpoint before the cron loop starts
+		// jobs. An explicit enabled:true is what counts, so a re-assertion asks it too.
+		if *req.Enabled && !s.can(c, authz.PermJobSubmit) {
 			s.denyScheduleAction(c, authz.PermJobSubmit)
 			return
 		}
