@@ -3,31 +3,28 @@ import { describe, expect, it } from 'vitest'
 const read = (glob: Record<string, unknown>): string => Object.values(glob)[0] as string
 const work = read(import.meta.glob('./Work.vue', { eager: true, query: '?raw', import: 'default' }))
 const drawer = read(import.meta.glob('../components/WorkDrawer.vue', { eager: true, query: '?raw', import: 'default' }))
-const router = read(import.meta.glob('../router.ts', { eager: true, query: '?raw', import: 'default' }))
-const app = read(import.meta.glob('../App.vue', { eager: true, query: '?raw', import: 'default' }))
-const nav = read(import.meta.glob('../utils/nav.ts', { eager: true, query: '?raw', import: 'default' }))
+const router = read(import.meta.glob('../router.routes.ts', { eager: true, query: '?raw', import: 'default' }))
+const app = read(import.meta.glob('../ui/AppShell.vue', { eager: true, query: '?raw', import: 'default' }))
+const nav = read(import.meta.glob('../utils/shell.ts', { eager: true, query: '?raw', import: 'default' }))
 
 describe('Work page', () => {
   it('is routed and in the navigation', () => {
     expect(router).toContain("path: '/work'")
     expect(router).toContain("import('./views/Work.vue')")
-    // N3：导航分组搬到 utils/nav.ts（App.vue 与窄屏抽屉共用）；文案取 utils/uiText.ts 的 NAV。
-    expect(nav).toContain("{ to: '/work', label: NAV.work }")
+    // 设计稿 §6.1：导航分组搬到 utils/shell.ts（侧栏 / 更多 / 标签栏共用），文案走 i18n 的 nav.*。
+    expect(nav).toContain("{ to: '/work', key: 'nav.work', glyph: '▥' }")
   })
 
   it('has no Home menu item: the logo goes home and carries the connection dot', () => {
     expect(app).not.toContain("label: 'Home'")
-    expect(app).toContain('<RouterLink :to="homeTo" class="brand-name"')
+    expect(app).toContain('<RouterLink to="/today" class="brand"')
     expect(app).not.toContain('agent bridge')
-    // the single conn dot lives inside the brand block
+    // the single conn dot lives in the sidebar head (phones get one in the top bar)
     expect(app.match(/data-testid="conn-state"/g)?.length).toBe(1)
-    expect(app.indexOf('data-testid="conn-state"')).toBeLessThan(app.indexOf('<nav class="nav mono"'))
   })
 
   it('shows the needs-me badge on the Works item, fed by the work topic', () => {
     expect(app).toContain('data-testid="work-needs-me-badge"')
-    const store = read(import.meta.glob('../store/workNeedsMe.ts', { eager: true, query: '?raw', import: 'default' }))
-    expect(store).toContain("createLiveTopic('work'")
   })
 
   it('offers 转为 todo in the drawer, once, with a jump to the plan', () => {

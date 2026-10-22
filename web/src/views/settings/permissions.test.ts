@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 const read = (glob: Record<string, unknown>): string => Object.values(glob)[0] as string
 const page = read(import.meta.glob('./Permissions.vue', { eager: true, query: '?raw', import: 'default' }))
 const layout = read(import.meta.glob('./SettingsLayout.vue', { eager: true, query: '?raw', import: 'default' }))
-const router = read(import.meta.glob('../../router.ts', { eager: true, query: '?raw', import: 'default' }))
+const router = read(import.meta.glob('../../router.routes.ts', { eager: true, query: '?raw', import: 'default' }))
 const client = read(import.meta.glob('../../api/client.ts', { eager: true, query: '?raw', import: 'default' }))
 const planDetail = read(import.meta.glob('../PlanDetail.vue', { eager: true, query: '?raw', import: 'default' }))
 const api = read(import.meta.glob('../../api/permissions.ts', { eager: true, query: '?raw', import: 'default' }))

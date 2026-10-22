@@ -831,7 +831,7 @@ async function doDelete(): Promise<void> {
   deleting.value = true
   try {
     await deleteJob(props.id)
-    await router.push('/board')
+    await router.push('/jobs')
   } catch (err) {
     headError.value = err instanceof Error ? err.message : String(err)
   } finally {
@@ -1925,7 +1925,7 @@ onUnmounted(() => {
 <template>
   <div class="detail">
     <div class="detail-head">
-      <RouterLink to="/board" class="back mono">{{ BACK.board }}</RouterLink>
+      <RouterLink to="/jobs" class="back mono">{{ BACK.board }}</RouterLink>
       <div class="head-right">
         <StatusBadge v-if="job" :status="status" :holder="job.waiting_on_job" />
         <UncommittedBadge v-if="job" :count="job.uncommitted_count" :files="job.uncommitted_files" />

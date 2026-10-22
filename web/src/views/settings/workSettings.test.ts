@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 const read = (glob: Record<string, unknown>): string => Object.values(glob)[0] as string
 const page = read(import.meta.glob('./WorkSettings.vue', { eager: true, query: '?raw', import: 'default' }))
 const layout = read(import.meta.glob('./SettingsLayout.vue', { eager: true, query: '?raw', import: 'default' }))
-const router = read(import.meta.glob('../../router.ts', { eager: true, query: '?raw', import: 'default' }))
+const router = read(import.meta.glob('../../router.routes.ts', { eager: true, query: '?raw', import: 'default' }))
 
 describe('Work settings page', () => {
   it('is reachable from the settings menu and the router', () => {

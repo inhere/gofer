@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 const mods = import.meta.glob(
-  ['../views/Work.vue', '../views/Board.vue', '../App.vue', '../components/QuickCapture.vue', '../components/SessionTopic.vue', '../components/today/DecisionCard.vue', '../api/client.ts', '../store/today.ts'],
+  ['../views/Work.vue', '../views/Board.vue', '../App.vue', '../ui/AppShell.vue', '../components/QuickCapture.vue', '../components/SessionTopic.vue', '../components/today/DecisionCard.vue', '../api/client.ts', '../store/today.ts'],
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>
 const src = (n: string): string => {
@@ -26,7 +26,7 @@ describe('capture box wiring', () => {
     expect(b).not.toContain('listWorkItems')
   })
   it('the top bar mounts the quick capture which posts to the capture route', () => {
-    expect(src('App.vue')).toContain('<QuickCapture />')
+    expect(src('AppShell.vue')).toContain('<QuickCapture')
     const q = src('QuickCapture.vue')
     expect(q).toContain('captureWorkItem(built.req)')
     expect(q).toContain('data-test="quick-capture-link"')

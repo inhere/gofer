@@ -866,7 +866,7 @@ function openJob(jobId: string): void {
 
 // 「在 Board 查看该 plan 的 job」深链（复用 T7 的 ?plan= 过滤）。
 function viewInBoard(): void {
-  void router.push({ path: '/board', query: { plan: props.id } })
+  void router.push({ path: '/jobs', query: { plan: props.id } })
 }
 
 // 进度条 / 进度文字 / 副信息见 utils/planProgress：completion（待办优先、无待办回落 job）；

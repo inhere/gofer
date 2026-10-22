@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 
 const mods = import.meta.glob(
   [
-    '../router.ts',
-    '../utils/nav.ts',
+    '../router.routes.ts',
+    '../utils/shell.ts',
     '../api/client.ts',
     '../api/today.ts',
     '../utils/today.ts',
@@ -25,12 +25,11 @@ const src = (n: string): string => {
 
 describe('mailbox page wiring', () => {
   it('is a route and a nav entry', () => {
-    const r = src('router.ts')
+    const r = src('router.routes.ts')
     expect(r).toContain("path: '/mail'")
     expect(r).toContain("import('./views/Mail.vue')")
-    // 信箱不再占主导航：它只在抽屉的完整分组列表（drawerNavGroups）里还是导航项，
-    // 顶栏上是「随手记」旁边的信封按钮（components/MailButton.vue）。
-    expect(src('nav.ts')).toContain("label: NAV.mail }")
+    // 信箱在侧栏「协作」分组里是导航项（utils/shell.ts），顶栏另有信封按钮（components/MailButton.vue）。
+    expect(src('shell.ts')).toContain("{ to: '/mail', key: 'nav.mail', glyph: '✉' }")
   })
 
   it('the page talks to /v1/mail through the client', () => {

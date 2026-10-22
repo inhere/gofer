@@ -23,7 +23,7 @@ describe('dictionaries', () => {
   })
 
   it('uses the frozen key naming scheme', () => {
-    const domains = ['nav.', 'page.', 'col.', 'status.', 'act.', 'empty.', 'err.', 'toast.', 'confirm.', 'hint.', 'field.', 'help.']
+    const domains = ['nav.', 'page.', 'col.', 'status.', 'act.', 'empty.', 'err.', 'toast.', 'confirm.', 'hint.', 'field.', 'help.', 'shell.', 'palette.']
     for (const key of Object.keys(zh)) {
       expect(domains.some((d) => key.startsWith(d)), `${key} 不在冻结的域里`).toBe(true)
     }

@@ -1127,7 +1127,7 @@ watch(interactive, (on) => {
 <template>
   <div class="newjob">
     <div class="newjob-head">
-      <RouterLink to="/board" class="back mono">{{ BACK.board }}</RouterLink>
+      <RouterLink to="/jobs" class="back mono">{{ BACK.board }}</RouterLink>
       <h1 class="title mono">{{ isRebuild ? '快速重建' : fromSession ? '从会话新开' : PAGE.newJob }}</h1>
     </div>
 
