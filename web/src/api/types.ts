@@ -2193,6 +2193,17 @@ export interface Schedule {
   last_job_id: string
   project_key: string
   request: SubmitJobReq
+  // params：参数声明（设计 2026-10-22 §D1）；未声明时后端不下发。
+  params?: ScheduleParam[]
+}
+
+// 定时任务的一个参数声明：值以环境变量传给 job（string|int|bool|choice）。
+export interface ScheduleParam {
+  name: string
+  type?: 'string' | 'int' | 'bool' | 'choice'
+  default?: string
+  desc?: string
+  choices?: string[]
 }
 
 export interface SchedulesResp {
@@ -2210,6 +2221,18 @@ export interface CreateScheduleReq {
   request: SubmitJobReq
   enabled?: boolean
   catch_up?: boolean
+  params?: ScheduleParam[]
+}
+
+// PATCH /v1/schedules/{id}（设计 2026-10-22 §D4）：只能改调度自身的设置，命令 /
+// agent / runner / project 在服务端直接被拒（要换就删掉重建）。
+export interface PatchScheduleReq {
+  cron?: string
+  at?: number
+  title?: string
+  params?: ScheduleParam[]
+  enabled?: boolean
+  timeout_sec?: number
 }
 
 // 工作流（job 链）。状态取值是 JobStatus 的子集（running/done/failed/cancelled），

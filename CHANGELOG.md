@@ -21,6 +21,15 @@
 
 - **审阅提示补全：删除热点带净变化与「删除显著多于新增」标记，验证页签补 agent 自述输出（gofer-hjj1）**：`deletion_hotspots` 每项新增 `net`（新增-删除）与 `deletion_heavy`（删除 ≥ 2× 新增），CLI 打印 `+4/-30 net -26` 并给后者加 ⚠；改名文件按新路径列，二进制段（`Binary files … differ` / `GIT binary patch`）不计行数。`review_hints` 新增 `report_verify`：从 agent 汇报「验证」/Verification 标题下的 ``` 代码块提取（最多 3 块，长块留尾部），带 `source: "agent"`，`job review` 标「来源: agent 自述」，web 在没有 verify 步骤的「验证」页签里作参考展示；有 verify 时该页签的输出超出 200 行改为留**尾部**（以前留开头，把失败的报错截掉）。
 
+### 新功能
+
+- **定时任务参数与编辑（gofer-15jj）**：
+  - 定时任务可以**声明参数**，值作为环境变量传给 job（不拼进命令行、不替换 prompt）：`string` / `int` / `bool` / `choice` 四种类型，名字必须是环境变量名且不能以 `GOFER_` 开头，最多 20 个，值最长 1024 字符。叠加顺序：计划里存的 env < 参数默认值 < 本次给的值；cron 触发与 webhook 触发用默认值。
+  - `POST /v1/schedules/{id}/run-now` 可选 body `{"params":{...}}`，CLI `gofer schedule run <id> --param K=V`；给未声明的键返回 400 并列出可用参数（防止借立即执行注入任意环境变量）。每次立即执行的覆盖值记在计划事件 `schedule.run_now` 里。
+  - `PATCH /v1/schedules/{id}` 原地编辑：`cron` / `at` / `title` / `params` / `enabled` / `timeout_sec`，改时间后重算下次触发；命令 / agent / runner / project 不可改（400，要换就删掉重建），权限同删除。CLI `gofer schedule edit <id> …`。
+  - 声明参数的 CLI 写法：`--param-def 'NAME[:type]=default[#说明]'`（可重复）或 `--params-file <yaml>`（choice 这类带可选值列表的用这个）；`gofer schedule show <id>` 列出参数声明。
+  - Web 定时页：有参数的任务「运行」带 ⚙，点开是按声明生成的参数表单（预填默认值、显示说明、底部预览将设置的环境变量），无参数的任务保持一键执行；新增「编辑」弹窗（cron + 下次运行、标题、超时、启停、参数声明增删改）；新建页也能直接声明参数。
+
 ## [0.182.1] - 2026-10-21
 
 ### 修复

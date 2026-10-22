@@ -313,6 +313,10 @@ var schemaStmts = []string{
   -- AUTO-02b: trigger_token is the schedule's own webhook secret (empty = the webhook
   -- endpoint is not enabled for it). Added by migrateSchedules on a pre-existing db.
   trigger_token TEXT,
+  -- Scheduled job parameters (design 2026-10-22 §D1): the JSON array of declared
+  -- {name,type,default,desc,choices} params, overlaid on the stored request env at
+  -- submit. Empty = no params (every row written before the column).
+  params_json  TEXT,
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL,
   PRIMARY KEY (id)
@@ -1819,7 +1823,12 @@ func (s *Store) migrateSchedules() error {
 	}
 	// Caller ceilings: the creator whose ceiling bounds every run of this schedule. An old
 	// row reads back "" = no owner (the pre-ceiling behaviour).
-	return add("creator_caller", "creator_caller TEXT")
+	if err := add("creator_caller", "creator_caller TEXT"); err != nil {
+		return err
+	}
+	// Schedule parameters (design 2026-10-22 §D1): an old row declares none, so it keeps
+	// submitting exactly the request it stored.
+	return add("params_json", "params_json TEXT")
 }
 
 // migratePlanTodos adds the todo lifecycle columns (Part C §C2): status /

@@ -128,11 +128,15 @@ gofer steward status | start | restart | stop | ask "…" | notes | review | mer
 ## schedule（别名 sch）
 
 ```bash
-gofer schedule add <job 请求 flag…> (--cron '*/5 * * * *' | --delay 30m | --at <RFC3339|unix秒>) [--webhook]
-gofer schedule list / show <id> / enable <id> / disable <id> / run <id> / rm <id>
+gofer schedule add <job 请求 flag…> (--cron '*/5 * * * *' | --delay 30m | --at <RFC3339|unix秒>) [--webhook] [--param-def … | --params-file <yaml>]
+gofer schedule list / show <id> / enable <id> / disable <id> / run <id> [--param K=V …] / rm <id>
+gofer schedule edit <id> [--cron … | --at …] [--title …] [--param-def … | --params-file <yaml>] [--timeout <sec>] [--enable|--disable]
 gofer schedule rotate-token <id>        # 换 webhook 触发 token（旧的立即失效）；没开 webhook 的计划也可用它开启
 ```
 
+- **参数**：`--param-def 'NAME[:type]=default[#说明]'`（可重复，type = `string`（默认）/ `int` / `bool`），`choice` 这类带可选值列表的用 `--params-file <yaml>`（格式是 `[{name, type, default, desc, choices}]`）。两种写法互斥。名字必须是环境变量名（`^[A-Z_][A-Z0-9_]*$`，不能以 `GOFER_` 开头），最多 20 个。
+- **参数的传递方式**：值只作为 job 的环境变量传入（不拼进命令行、不替换 prompt），脚本自己读 `$env:NAME` / `$NAME`。叠加顺序：计划里存的 env < 参数默认值 < `schedule run --param` 给的值；cron 触发与 webhook 触发用默认值。一次性临时改参数：`gofer schedule run <id> --param CLEAN_APPLY=1`（给未声明的键会 400 并列出可用参数）。`schedule show` 列出参数声明。
+- **`schedule edit` 只能改调度自身的设置**：cron / 一次性时间（改了会重算下次触发）、标题、参数声明、启停、超时。命令 / agent / runner / project 不能在这里改——那算另一个任务，删掉重建（webhook token 会换）。
 - `--webhook`：给计划一个外部触发入口（不需要 gofer 的 bearer token）：
   `curl -X POST -H 'X-Gofer-Trigger-Token: <token>' 'http://<server>/v1/schedules/<id>/trigger'`（也可 `?token=<token>`）。语义同 `schedule run`（立即跑一次、不改下次触发时间）；token 错 → 401，同一计划 10 秒内重复触发 → 429。
 - **token 归属**：计划属于创建它的 caller。别人（非 owner、无 `schedule.manage.others`）`list` / `show` 时只看到 `trigger_token` 的前 4 位、其余打 `*`，`rotate-token` 的响应同样掩码。

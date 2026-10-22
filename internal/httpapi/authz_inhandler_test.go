@@ -452,7 +452,7 @@ var planAuthzCases = []authzCase{
 // scheduleAuthzCases is the reverse-case registry of plan T1.5e: the write entries of the
 // schedule container. The domain's other three routes need no case here — the two reads are
 // Public and POST /v1/schedules is a Require(job.submit) — so the derivation below (which reads
-// the declaration table) claims exactly these five.
+// the declaration table) claims exactly these six.
 var scheduleAuthzCases = []authzCase{
 	{key: "DELETE /v1/schedules/{id}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodDelete, "/v1/schedules/" + e.schedule(), nil}
@@ -484,6 +484,12 @@ var scheduleAuthzCases = []authzCase{
 		}},
 	{key: "POST /v1/schedules/{id}/rotate-token", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/schedules/" + e.schedule() + "/rotate-token", nil}
+	}},
+	// PATCH asks the manage rule for everything it edits, plus job.submit when the body sets
+	// enabled:true (the switch turns the cron loop loose with no later checkpoint) — so the
+	// request that decides both is an enable patch.
+	{key: "PATCH /v1/schedules/{id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPatch, "/v1/schedules/" + e.schedule(), map[string]any{"enabled": true}}
 	}},
 }
 

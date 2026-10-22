@@ -1447,6 +1447,12 @@ const (
 	// sweep records it for a PERMANENT refusal (a caller ceiling, design §准入); other
 	// submit failures stay in the server log. Not in the default notification set.
 	EventScheduleRunFailed = "schedule.run_failed"
+	// EventScheduleRunNow is recorded on the SCHEDULE's own scope when a caller ran the
+	// schedule by hand (design 2026-10-22 §D3): {schedule_id, job_id, params}. params
+	// carries only the values THIS run overrode (its defaults are not repeated), so the
+	// event answers "who really deleted something, and with which settings" without
+	// replaying every default. A run-now that overrode nothing records no params key.
+	EventScheduleRunNow = "schedule.run_now"
 	// Agent health transitions (design §六), recorded on the AGENT's own scope
 	// (`agent:<key>`, see AgentEventScope) because they belong to no job:
 	//   - agent.degraded  {agent, transient_fail, window_sec, last_error}

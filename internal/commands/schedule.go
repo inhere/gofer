@@ -3,15 +3,18 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	yaml "github.com/goccy/go-yaml"
 	"github.com/gookit/cliui/show/table"
 	"github.com/gookit/gcli/v3"
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 )
 
 var scheduleOpts = struct {
@@ -25,6 +28,18 @@ var scheduleOpts = struct {
 	// eventsLimit / eventsBefore page `schedule events` (newest first, like a plan's stream).
 	eventsLimit  int
 	eventsBefore int64
+	// paramDefs / paramsFile declare a schedule's parameters (design 2026-10-22 §D6) on
+	// add / edit; paramBindings are the run-now overrides (`schedule run --param K=V`).
+	paramDefs     gcli.Strings
+	paramsFile    string
+	paramBindings gcli.Strings
+	// editCron / editAt / editTitle / editTimeout / editEnable patch an existing schedule.
+	editCron    string
+	editAt      string
+	editTitle   string
+	editTimeout string
+	editEnable  bool
+	editDisable bool
 }{}
 
 // NewScheduleCmd builds the `schedule` command group. It talks to the running
@@ -99,11 +114,29 @@ func NewScheduleCmd() *gcli.Command {
 				Func: func(c *gcli.Command, args []string) error { return runScheduleSetEnabled(c, false) },
 			},
 			{
+				Name: "edit",
+				Desc: "Edit a schedule in place: cron/at, title, params, enabled, timeout (the command, agent, runner and project cannot change)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					bindScheduleParamFlags(c)
+					c.StrOpt(&scheduleOpts.editCron, "cron", "", "", "new cron expression (recomputes the next run)")
+					c.StrOpt(&scheduleOpts.editAt, "at", "", "", "new one-shot run time (RFC3339 or unix seconds)")
+					c.StrOpt(&scheduleOpts.editTitle, "title", "", "", "new title")
+					c.StrOpt(&scheduleOpts.editTimeout, "timeout", "", "", "new job timeout in seconds (0 = server default)")
+					c.BoolOpt(&scheduleOpts.editEnable, "enable", "", false, "turn the schedule on")
+					c.BoolOpt(&scheduleOpts.editDisable, "disable", "", false, "turn the schedule off")
+					c.AddArg("id", "schedule id", true)
+				},
+				Func: runScheduleEdit,
+			},
+			{
 				Name: "run",
 				Desc: "Run a schedule now",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
+					c.VarOpt(&scheduleOpts.paramBindings, "param", "", "override a declared param for this run, NAME=VALUE (repeatable)")
 					c.AddArg("id", "schedule id", true)
 				},
 				Func: runScheduleRun,
@@ -150,7 +183,16 @@ func bindScheduleAddFlags(c *gcli.Command) {
 	c.StrOpt(&jobRunOpts.plan, "plan", "", "", "attach the job to a plan (grouping key)")
 	c.StrOpt(&jobRunOpts.role, "role", "", "", "role preset: fills agent/system_prompt/project/tags when unset")
 	c.StrOpt(&jobRunOpts.systemPrompt, "system-prompt", "", "", "resident system prompt injected via the agent")
+	bindScheduleParamFlags(c)
 	c.AddArg("cmd", "raw command for exec agent (after --)", false, true)
+}
+
+// bindScheduleParamFlags binds the parameter declarations shared by `schedule add` and
+// `schedule edit` (design 2026-10-22 §D6): --param-def for short declarations and
+// --params-file when a choice param's value list needs YAML.
+func bindScheduleParamFlags(c *gcli.Command) {
+	c.VarOpt(&scheduleOpts.paramDefs, "param-def", "", "declare a param as NAME[:type]=default[#desc] (repeatable; type: string|int|bool)")
+	c.StrOpt(&scheduleOpts.paramsFile, "params-file", "", "", "YAML file with the full param declaration list (name/type/default/desc/choices)")
 }
 
 func runScheduleAdd(c *gcli.Command, _ []string) error {
@@ -207,6 +249,11 @@ func buildScheduleCreateRequest(c *gcli.Command, cli *client.Client) (client.Cre
 		CatchUp: &scheduleOpts.catchUp,
 		Webhook: scheduleOpts.webhook,
 	}
+	params, err := scheduleParamsFromFlags()
+	if err != nil {
+		return client.CreateScheduleRequest{}, err
+	}
+	out.Params = params
 	if delayRaw != "" {
 		d, err := time.ParseDuration(delayRaw)
 		if err != nil {
@@ -291,6 +338,21 @@ func runScheduleShow(c *gcli.Command, _ []string) error {
 	c.Printf("last_run:    %s\n", formatScheduleTime(s.LastRunAt))
 	c.Printf("last_job:    %s\n", emptyDash(s.LastJobID))
 	c.Printf("webhook:     %s\n", webhookText(s))
+	if len(s.Params) == 0 {
+		c.Println("params:      (none declared)")
+	} else {
+		c.Println("params:")
+		for _, p := range s.Params {
+			c.Printf("  %-24s %-6s default=%q", p.Name, p.TypeOrString(), p.Default)
+			if len(p.Choices) > 0 {
+				c.Printf(" choices=%q", p.Choices)
+			}
+			if p.Desc != "" {
+				c.Printf("  # %s", p.Desc)
+			}
+			c.Println("")
+		}
+	}
 	c.Println("request:")
 	body, err := json.MarshalIndent(s.Request, "  ", "  ")
 	if err != nil {
@@ -385,12 +447,110 @@ func runScheduleRun(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := cli.RunSchedule(id)
+	params, err := job.ParseParamBindings(scheduleOpts.paramBindings)
+	if err != nil {
+		return err
+	}
+	res, err := cli.RunSchedule(id, params)
 	if err != nil {
 		return err
 	}
 	c.Printf("schedule %s submitted job %s: status=%s\n", id, res.ID, res.Status)
 	return nil
+}
+
+// runScheduleEdit patches a schedule in place (design 2026-10-22 §D4/D6): only the
+// schedule's own settings — the command / agent / runner / project stay put, since
+// changing them is a different task (delete and recreate).
+func runScheduleEdit(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("schedule edit requires an <id> argument")
+	}
+	var req client.PatchScheduleRequest
+	touched := false
+	if v := strings.TrimSpace(scheduleOpts.editCron); v != "" {
+		req.Cron = &v
+		touched = true
+	}
+	if v := strings.TrimSpace(scheduleOpts.editAt); v != "" {
+		runAt, err := parseScheduleAt(v)
+		if err != nil {
+			return err
+		}
+		req.At = &runAt
+		touched = true
+	}
+	if req.Cron != nil && req.At != nil {
+		return fmt.Errorf("--cron and --at are mutually exclusive")
+	}
+	if v := strings.TrimSpace(scheduleOpts.editTitle); v != "" {
+		req.Title = &v
+		touched = true
+	}
+	if v := strings.TrimSpace(scheduleOpts.editTimeout); v != "" {
+		sec, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse --timeout: %w", err)
+		}
+		req.TimeoutSec = &sec
+		touched = true
+	}
+	if scheduleOpts.editEnable && scheduleOpts.editDisable {
+		return fmt.Errorf("--enable and --disable are mutually exclusive")
+	}
+	if scheduleOpts.editEnable || scheduleOpts.editDisable {
+		enabled := scheduleOpts.editEnable
+		req.Enabled = &enabled
+		touched = true
+	}
+	if len(scheduleOpts.paramDefs) > 0 || strings.TrimSpace(scheduleOpts.paramsFile) != "" {
+		params, err := scheduleParamsFromFlags()
+		if err != nil {
+			return err
+		}
+		req.Params = &params
+		touched = true
+	}
+	if !touched {
+		return fmt.Errorf("nothing to change: give at least one of --cron, --at, --title, --param-def, --params-file, --timeout, --enable, --disable")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	s, err := cli.PatchSchedule(id, req)
+	if err != nil {
+		return err
+	}
+	c.Printf("schedule %s updated: name=%s type=%s cron=%q next_run=%s enabled=%s params=%d\n",
+		s.ID, s.Name, scheduleTypeText(s.Type), s.Cron, formatScheduleTime(s.NextRunAt), enabledText(s.Enabled), len(s.Params))
+	return nil
+}
+
+// scheduleParamsFromFlags builds the declaration list from --param-def and --params-file
+// (design §D6). The file carries the whole list (choice params live there); the two are
+// mutually exclusive so there is exactly one source of truth per invocation.
+func scheduleParamsFromFlags() ([]job.ScheduleParam, error) {
+	file := strings.TrimSpace(scheduleOpts.paramsFile)
+	if file == "" {
+		return job.ParamDefsToParams(scheduleOpts.paramDefs)
+	}
+	if len(scheduleOpts.paramDefs) > 0 {
+		return nil, fmt.Errorf("--param-def and --params-file are mutually exclusive")
+	}
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil, fmt.Errorf("read --params-file: %w", err)
+	}
+	var params []job.ScheduleParam
+	if err := yaml.Unmarshal(raw, &params); err != nil {
+		return nil, fmt.Errorf("parse --params-file %s: %w", file, err)
+	}
+	if err := job.ValidateScheduleParams(params); err != nil {
+		return nil, err
+	}
+	return params, nil
 }
 
 func runScheduleDelete(c *gcli.Command, _ []string) error {
