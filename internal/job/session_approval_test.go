@@ -71,6 +71,27 @@ func TestSessionApprovalAsksWhereProjectAutoAllows(t *testing.T) {
 	}
 }
 
+// TestSessionApprovalUnsetUsesProjectPolicy: with no session approval the job is
+// approved exactly as before — the project's policy decides.
+func TestSessionApprovalUnsetUsesProjectPolicy(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	s := newACPServiceWith(t, root, acptest.Options{}, &config.ApprovalConfig{Mode: config.ApprovalAsk}, "")
+	jobID := submitSessionApprovalJob(t, s, nil)
+
+	it := waitPermissionInteraction(t, s, jobID, 15*time.Second)
+	if !strings.Contains(it.PolicyHint, config.ApprovalAsk) {
+		t.Errorf("policy_hint = %q, want the project's %q", it.PolicyHint, config.ApprovalAsk)
+	}
+	if _, err := s.AnswerInteractionByHuman(jobID, it.ID, acptest.AllowOnceOptionID, ""); err != nil {
+		t.Fatalf("AnswerInteractionByHuman: %v", err)
+	}
+	final, ok := s.Wait(jobID)
+	if !ok || final.Status != StatusDone {
+		t.Fatalf("status = %+v, want done", final)
+	}
+}
+
 // TestSessionApprovalAutoAllowsReadKinds: the override is mode=ask, so its own
 // auto_allow_kinds still release a read-kind tool call without a human.
 func TestSessionApprovalAutoAllowsReadKinds(t *testing.T) {
