@@ -404,6 +404,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/sessions/{sid}/takeover-plan": {user: InHandler(permDeny, authz.PermSessionReadOthers), scope: Resource("session")},
 	"GET /v1/sessions/{sid}/turns/{id}":    {user: InHandler(permDeny, authz.PermSessionReadOthers), scope: Resource("session")},
 	"GET /v1/sessions/{sid}/watches":       {user: InHandler(permDeny, authz.PermSessionReadOthers), scope: Resource("session")},
+	"GET /v1/sessions/{sid}/focus":         {user: InHandler(permDeny, authz.PermSessionReadOthers), scope: Resource("session")},
 	"GET /v1/nudges":                       {user: InHandler(permFilter, authz.PermSessionReadOthers), scope: Filter()},
 	"POST /v1/sessions/{sid}/messages":     {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("session")},
 	"GET /v1/sessions/{sid}/outbox":        {user: InHandler(permDeny, authz.PermSessionReplyOthers), scope: Resource("session")},

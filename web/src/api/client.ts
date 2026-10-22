@@ -2038,6 +2038,10 @@ export interface ListMailOpts {
   with?: string
   limit?: number
   offset?: number
+  // before：只要 id 更小的信（对话页往上翻的游标）。
+  before?: number
+  // order=desc：按时间倒序取（拿「最新的 N 封」）；缺省时对话 / thread 是从最早开始。
+  order?: 'asc' | 'desc'
 }
 
 export function listMail(opts: ListMailOpts = {}): Promise<MailListResp> {
@@ -2050,6 +2054,8 @@ export function listMail(opts: ListMailOpts = {}): Promise<MailListResp> {
   if (opts.with) params.set('with', opts.with)
   if (opts.limit) params.set('limit', String(opts.limit))
   if (opts.offset) params.set('offset', String(opts.offset))
+  if (opts.before) params.set('before', String(opts.before))
+  if (opts.order) params.set('order', opts.order)
   const qs = params.toString()
   return request<MailListResp>(`/v1/mail${qs ? `?${qs}` : ''}`)
 }

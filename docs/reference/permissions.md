@@ -275,6 +275,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.read.others` | `job` | `Resource(session)` | 读 |
 | `PATCH` | `/v1/sessions/{sid}` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/deliver` | `InHandler(deny)` | `session.reply.others`、`job.submit` | — | `Resource(session)` | 写 |
+| `GET` | `/v1/sessions/{sid}/focus` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
 | `POST` | `/v1/sessions/{sid}/heartbeat` | `Public` | — | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/held/send` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/inject-mode` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |

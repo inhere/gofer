@@ -165,6 +165,9 @@ func (s *Service) Drain(ctx context.Context) error { return s.shutdown(ctx, true
 
 func (s *Service) shutdown(ctx context.Context, includeRemote bool) error {
 	s.bg.close()
+	// Flush a desktop notification queued a moment before exit (gofer-3wce): an
+	// approval the person was about to be told about must not be swallowed by a restart.
+	s.closeDesktop()
 
 	s.admissionMu.Lock()
 	s.admissionClosed = true

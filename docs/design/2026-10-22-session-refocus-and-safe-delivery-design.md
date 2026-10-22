@@ -69,7 +69,13 @@ D6 不变：hook 注入路径（UserPromptSubmit / Stop 等）本来就不打字
 2. 重注入覆盖 `compact` 与 `resume`。
 3. claim 没记会话 id 时，按调用方 + 最近活动推断并标「可能」。
 
-## 实施记录（gofer-k23r，2026-10-22）
+## 实施记录（gofer-o53s，第一部分 D1–D2；2026-10-22）
+
+- server：新增 `GET /v1/sessions/{sid}/focus`（`internal/httpapi/session_focus_handler.go`），一次返回会话的 agent / title / topic / project / cwd / caller / started_at、本会话监督的 open 或 blocked plan（含 progress / total / next / blocked）、待等的 job watch（与 `/watches` 同一视图）与已投递但未回的信件（`from` 显示名 + 正文首行摘要）。只读（不把信件标为已读），权限与其它会话读一致（别人的会话需要 `session.read.others`）。G056：路由已在 `routeDecls` 声明为 `InHandler(permDeny, session.read.others)` + `Resource("session")`。`jobstore.PlanFilter` 加了 `SupervisorSessionID` 过滤字段（`planWhere`），不新增表 / 索引。
+- prime：`gofer repo prime` 增加 `--session <sid>` / `--source <s>`；`--hook-json` 下再由 prime 自己从 stdin JSON 读 `session_id` / `source`（两家 SessionStart 都带，prime 本来就为主存读 stdin，因此**不用重装 hook**，也不用在 shell 命令行里插值），flag 优先。`source` 为 `compact` / `resume` 时取 focus 并追加一段 `[gofer · 提示]`（`msgprefix.HintOpen`），段长复用 prime 剩余预算（`tracker.PrimeMaxBytes - len(base)`），放不下的条目整行丢弃；`startup` / `clear`、无当前任务、server 不可达一律不追加、不影响其余段落。
+- claim 推断：tracker 的 issue 没有 claim 的会话 id，因此 prime 在本机 tracker 里挑 `in_progress` 的 issue：`assignee` 等于 focus 的 caller 是确定认领，否则（`updated_at` 晚于会话 `started_at`）标「可能」；最多 3 条。渲染在 `internal/brief/refocus.go`（可单测），prime 只做取数与拼接（G021）。
+
+## 实施记录（gofer-k23r，第二部分 D3–D6；2026-10-22）
 
 第二部分（D3–D6）已实施：
 
@@ -85,3 +91,4 @@ D6 不变：hook 注入路径（UserPromptSubmit / Stop 等）本来就不打字
   - 输入区识别规则是按已知 TUI 形态写的（夹具在 `deliver_guard_test.go`），本开发机没有 tmux / claude / codex，**未能按设计稿在真实终端里观察取图**；上线后若发现某版 TUI 界面变了，用 `agents.<k>.inject_guard` 补正则即可，不需要改代码。
   - 没有任何 `inject_guard` 规则的 agent（自研 agent 没配）不做 `auto` 检查：否则“永远确认不了空”等于把 `auto` 变成 `hold`，自研 agent 就再也收不到终端投递了。
   - 会话列表页（Sessions 表）没加模式列，切换在抽屉里。
+

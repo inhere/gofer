@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
+	"github.com/inhere/gofer/internal/desktop"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -186,6 +187,13 @@ type Service struct {
 	// (enqueueDeliveries falls back to s.meta); tests inject a sink to observe or
 	// fail the enqueue and prove it is best-effort.
 	deliveries deliverySink
+
+	// desktopMu guards desktop, the lazily-built desktop-notification dispatcher
+	// (gofer-3wce), and desktopNotifier, its nil-in-production test seam (production
+	// uses the platform notifier — a real popup, which no test may trigger).
+	desktopMu       sync.Mutex
+	desktop         *desktop.Dispatcher
+	desktopNotifier desktop.Notifier
 
 	// eventObserver, when set, receives the whitelisted events a REMOTE executor must
 	// mirror to the machine that submitted the job (SUP-01 G). Set only by the worker

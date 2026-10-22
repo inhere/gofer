@@ -3562,6 +3562,8 @@ export interface MailCandidate {
 export interface MailListResp {
   mail: MailMessage[]
   count: number
+  // has_more：还有没有超出这一页的信（配合 order=desc + before= 翻更早的页）。
+  has_more?: boolean
 }
 
 // 对话（计划 M1 / 设计决策 3）：两个参与方之间方向无关的全部信件，服务端按参与方对聚合。

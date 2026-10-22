@@ -2700,6 +2700,50 @@ type SessionDetail struct {
 	NextBefore string       `json:"next_before,omitempty"`
 }
 
+// SessionFocusPlan is one open plan the session supervises.
+type SessionFocusPlan struct {
+	PlanID   string `json:"plan_id"`
+	Title    string `json:"title,omitempty"`
+	Status   string `json:"status"`
+	Progress int    `json:"progress"`
+	Total    int    `json:"total"`
+	Next     string `json:"next,omitempty"`
+	Blocked  string `json:"blocked,omitempty"`
+}
+
+// SessionFocusMail is one letter the session has been given but not answered.
+type SessionFocusMail struct {
+	ID        int64  `json:"id"`
+	From      string `json:"from,omitempty"`
+	Subject   string `json:"subject,omitempty"`
+	CreatedAt int64  `json:"created_at,omitempty"`
+}
+
+// SessionFocus is GET /v1/sessions/{sid}/focus: what the session was doing
+// before its context was compacted (or before the session resumed).
+type SessionFocus struct {
+	SessionID  string `json:"session_id"`
+	Agent      string `json:"agent,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Topic      string `json:"topic,omitempty"`
+	ProjectKey string `json:"project_key,omitempty"`
+	Cwd        string `json:"cwd,omitempty"`
+	Caller     string `json:"caller,omitempty"`
+	StartedAt  int64  `json:"started_at,omitempty"`
+
+	Plans []SessionFocusPlan `json:"plans,omitempty"`
+	Jobs  []SessionJobWatch  `json:"jobs,omitempty"`
+	Mail  []SessionFocusMail `json:"mail,omitempty"`
+}
+
+// SessionFocus reads the session's own supervision state (plans, job watches,
+// unreplied letters) for `repo prime`'s post-compact re-injection.
+func (c *Client) SessionFocus(sid string) (SessionFocus, error) {
+	var out SessionFocus
+	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid)+"/focus", nil, &out)
+	return out, err
+}
+
 // SessionJobWatch is a job summary held for Stop-hook completion injection.
 type SessionJobWatch struct {
 	JobID     string `json:"job_id"`

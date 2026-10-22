@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -23,6 +24,7 @@ import (
 func NewRepoCmd() *gcli.Command {
 	var statusChanged bool
 	var prefix, initTracker, statusTracker, syncServer, primeAgent, primeKeywords, syncRemote, commitPolicy string
+	var primeSession, primeSource string
 	var syncTimeout time.Duration
 	var noAgents, noHooks, asJSON, fromBD, applyMigration, forceMigration bool
 	return &gcli.Command{
@@ -126,6 +128,8 @@ func NewRepoCmd() *gcli.Command {
 					bindConfigFlag(c)
 					c.StrOpt(&primeAgent, "agent", "", "", "agent name for server memory injection")
 					c.StrOpt(&primeKeywords, "keywords", "", "", "comma-separated subsystems / languages / modules this session is about: the matching memories are injected in full and ranked first (default: $GOFER_PRIME_KEYWORDS)")
+					c.StrOpt(&primeSession, "session", "", "", "session id whose own tasks are re-injected after a compact / resume (default: the SessionStart hook's session_id on stdin)")
+					c.StrOpt(&primeSource, "source", "", "", "SessionStart source: compact | resume re-inject this session's own tasks; startup | clear do not (default: the hook's source on stdin)")
 					c.BoolOpt(&asJSON, "hook-json", "", false, "Claude SessionStart JSON output")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
@@ -136,12 +140,29 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						s = nil
 					}
+					if asJSON {
+						// A SessionStart hook gets its payload on stdin (Claude Code and Codex both
+						// send session_id + source there), so prime reads it itself: the installed
+						// `gofer repo prime --hook-json` command needs no re-install and no shell
+						// quoting to pass the values. Flags win over stdin.
+						if sid, source := readPrimeHookStdin(os.Stdin); sid != "" || source != "" {
+							if primeSession == "" {
+								primeSession = sid
+							}
+							if primeSource == "" {
+								primeSource = source
+							}
+						}
+					}
 					body, err := primeWithServerContext(s, config.InputCfgFile, primeAgent, primeKeywordsFromFlag(primeKeywords))
 					if err != nil {
 						if asJSON {
 							return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": ""}})
 						}
 						return err
+					}
+					if section := primeRefocusSection(s, config.InputCfgFile, primeSession, primeSource, tracker.PrimeMaxBytes-len(body)); section != "" {
+						body = tracker.AppendPrimeSections(body, section)
 					}
 					if asJSON {
 						return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": body}})
@@ -251,6 +272,141 @@ func NewRepoCmd() *gcli.Command {
 			},
 		},
 	}
+}
+
+// primeRefocusSource reports whether a SessionStart source asks for the session's own
+// tasks back, and whether to word it as a resume (false = a compact).
+func primeRefocusSource(source string) (enabled, resumed bool) {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "compact":
+		return true, false
+	case "resume":
+		return true, true
+	}
+	return false, false
+}
+
+// primeHookStdinTimeout bounds how long prime waits for a hook payload on stdin. A
+// real hook writes it and closes at once; a stdin that never answers (an unusual
+// wrapper) must not delay the session start.
+const primeHookStdinTimeout = 300 * time.Millisecond
+
+// readPrimeHookStdin reads the SessionStart payload when stdin is a pipe (a hook).
+// A terminal or an unreadable stdin yields empty values.
+func readPrimeHookStdin(f *os.File) (sid, source string) {
+	if f == nil {
+		return "", ""
+	}
+	fi, err := f.Stat()
+	if err != nil || fi.Mode()&os.ModeCharDevice != 0 {
+		return "", ""
+	}
+	type found struct{ sid, source string }
+	ch := make(chan found, 1)
+	go func() {
+		data, _ := io.ReadAll(io.LimitReader(f, 1<<20))
+		sid, source := parsePrimeHookStdin(data)
+		ch <- found{sid: sid, source: source}
+	}()
+	select {
+	case got := <-ch:
+		return got.sid, got.source
+	case <-time.After(primeHookStdinTimeout):
+		return "", ""
+	}
+}
+
+// parsePrimeHookStdin reads session_id and source out of a SessionStart hook's stdin
+// JSON (Claude Code and Codex both send them). Unknown or malformed input is "" —
+// prime then simply skips the re-injection.
+func parsePrimeHookStdin(data []byte) (sid, source string) {
+	var raw struct {
+		SessionID string `json:"session_id"`
+		Source    string `json:"source"`
+	}
+	if json.Unmarshal(data, &raw) != nil {
+		return "", ""
+	}
+	return strings.TrimSpace(raw.SessionID), strings.TrimSpace(raw.Source)
+}
+
+// primeRefocusSection renders 「本会话当前任务」for a compact / resume, or "".
+// Server unreachable, an unknown source and a session with nothing in flight all
+// yield "" — the rest of the prime is never affected.
+func primeRefocusSection(s *tracker.Store, configPath, session, source string, budget int) string {
+	enabled, resumed := primeRefocusSource(source)
+	if !enabled {
+		return ""
+	}
+	session = strings.TrimSpace(session)
+	if session == "" {
+		return ""
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	addr, _, err := primeServerTarget(s, configPath, root)
+	if err != nil || addr == "" {
+		return ""
+	}
+	focus, err := client.NewWithTimeout(addr, os.Getenv("GOFER_SERVER_TOKEN"), primeClientTimeout).SessionFocus(session)
+	if err != nil {
+		return ""
+	}
+	r := brief.Refocus{Topic: focus.Topic}
+	for _, p := range focus.Plans {
+		r.Plans = append(r.Plans, brief.RefocusPlan{PlanID: p.PlanID, Title: p.Title, Status: p.Status,
+			Progress: p.Progress, Total: p.Total, Next: p.Next, Blocked: p.Blocked})
+	}
+	for _, j := range focus.Jobs {
+		r.Jobs = append(r.Jobs, brief.RefocusJob{JobID: j.JobID, Title: j.Title, Status: j.Status})
+	}
+	for _, m := range focus.Mail {
+		r.Mail = append(r.Mail, brief.RefocusMail{ID: m.ID, From: m.From, Subject: m.Subject})
+	}
+	r.Claims = refocusClaims(s, focus)
+	return brief.RenderRefocus(r, resumed, budget)
+}
+
+// refocusClaimsLimit caps how many claimed issues the section reminds about.
+const refocusClaimsLimit = 3
+
+// refocusClaims finds the issues this session claimed. The tracker records no
+// session id on a claim, so an issue whose assignee is the session's caller is a
+// direct hit and an in_progress issue touched after the session started is only a
+// probable one (Inferred, rendered as 「可能」).
+func refocusClaims(s *tracker.Store, focus client.SessionFocus) []brief.RefocusClaim {
+	if s == nil {
+		return nil
+	}
+	issues, err := s.ReadIssues()
+	if err != nil {
+		return nil
+	}
+	caller := strings.TrimSpace(focus.Caller)
+	out := make([]brief.RefocusClaim, 0, refocusClaimsLimit)
+	for _, issue := range issues {
+		if issue.Status != "in_progress" {
+			continue
+		}
+		inferred := true
+		if caller != "" && strings.EqualFold(strings.TrimSpace(issue.Assignee), caller) {
+			inferred = false
+		} else if focus.StartedAt > 0 {
+			t, err := time.Parse(time.RFC3339, issue.UpdatedAt)
+			if err != nil || t.Unix() < focus.StartedAt {
+				continue
+			}
+		} else {
+			continue
+		}
+		out = append(out, brief.RefocusClaim{ID: issue.ID, Title: issue.Title, Status: issue.Status, Inferred: inferred})
+		if len(out) >= refocusClaimsLimit {
+			break
+		}
+	}
+	return out
 }
 
 func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error) {

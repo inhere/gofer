@@ -238,3 +238,46 @@ Get-Content sample.json -Raw | python3 D:\ops\gofer_audit.py; "exit=$LASTEXITCOD
 ## 9. 为什么不是 QQ
 
 QQ 官方机器人单聊的主动推送额度是 30 天内 4 条（当天 1、1-3 天 1、3-7 天 1、7-30 天 1），做不了每次会话停下都提醒。非官方 OneBot 实现驱动真实账号，有封号风险，不采用。
+
+## 10. 桌面通知（server 所在主机弹系统通知）
+
+`server.notification.desktop` 是第三条通知通道：事件发生时，**server 在它自己所在的那台机器的桌面上弹一条系统通知**。它专门解决「审批 / 等回复的 job 在浏览器里没被注意到」这个问题——不需要额外的托盘进程，不需要 HTTPS（Web Push 的要求），也不用手机上装 IM。
+
+```yaml
+server:
+  web_base_url: https://gofer.example.com   # 点击通知打开的页面前缀；留空则不带链接
+  notification:
+    desktop:
+      enabled: true
+      # 省略 events = 默认这四个「等你现在处理」的事件
+      events: [job.awaiting_approval, interaction.created, session.awaiting_reply, job.needs_review]
+      projects: [demo]          # 省略 = 全部项目
+      merge_sec: 10             # 同类事件合并窗口（默认 10s；0 = 不合并）
+```
+
+整段不写 = 不启用（升级不会自己开始弹窗）。标题和正文复用 IM 通道的消息渲染：待批 job 是「待批准：<标题>」加理由、要执行的命令、过期时间；`job.needs_review` 是「job 等待验收：<标题>」加项目 / agent；会话等回复带轮次与回复预览。点击打开 `web_base_url` 对应页面。
+
+**合并**：`merge_sec` 窗口内同一类事件合成一条（「3 个 job 等待批准」，正文列各自标题），不同类型各弹一条。一次 plan 交出的多个 item 同时等批时不会刷屏。
+
+各平台怎么弹：
+
+| 平台 | 实现 | 点击 | 跳过条件 |
+|---|---|---|---|
+| Windows | PowerShell 调 `Windows.UI.Notifications` 发 ToastGeneric toast | 有（`activationType="protocol"`，交给默认浏览器） | 进程在 **session 0**（以服务 / 「不论用户是否登录」的计划任务运行）；找不到 `powershell.exe` |
+| macOS | `osascript -e 'display notification …'` | 无（链接写在正文里） | 找不到 `osascript`（macOS 自带）；首次需在系统设置里允许通知 |
+| Linux | `notify-send --app-name=gofer` | 无（链接写在正文里） | 没装 `notify-send`（libnotify）；`DISPLAY` / `WAYLAND_DISPLAY` / `DBUS_SESSION_BUS_ADDRESS` 全空（容器、无头机） |
+
+Windows 用 PowerShell 而不是 Go 直接调 WinRT 的原因：WinRT toast 要求 AUMID **已在开始菜单注册**，否则 `CreateToastNotifier` 报 element not found；gofer 借用 Windows PowerShell 自带的 AUMID（Windows 10/11 必有），于是既不用装启动器快捷方式、也不留常驻进程。事件数据（标题 / 正文 / 链接）不拼进脚本——脚本是固定程序，XML 经环境变量传入，避免任务标题里的引号变成命令。
+
+检测到不能弹时不是每来一个事件就报一次：每种原因只记一条 `notify.desktop_skipped`（JSONL 日志里带 `reason`），其余照常推 webhook / IM。
+
+排障：
+
+```powershell
+# 日志里看是否有跳过（JSONL 日志默认 <config-dir>\run\serve.log）
+Select-String -Path <config-dir>\run\serve.log -Pattern 'notify\.desktop'
+```
+
+- **一条都没有、也不弹**：确认 `desktop:` 段写在 `server.notification` 下（不是 `server:` 下），并且 `server.notification.enabled` 与 `server.notification.desktop.enabled` 都不是 `false`；项目的 `notify_enabled: false` 也会压掉桌面通知。
+- **Windows 上记 `windows session 0`**：现在的 server 跑成了服务而不是计划任务。`gofer serve install` 建的计划任务（登录时触发、以用户身份、带交互令牌）跑在用户桌面会话里，可以弹；服务方式运行则不行，改用计划任务或换一台有桌面会话的机器。
+- **Windows 上 toast 不出现也不报错**：检查「设置 → 系统 → 通知」里 PowerShell 的通知是否被关掉（gofer 借用它的 AUMID）。

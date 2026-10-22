@@ -160,6 +160,7 @@ gofer session find 登录 --path web/src -p <project> --limit 5
 - `find` 每个会话一行：短 id、agent、状态（离线的带「可能不在线」）、主题（带来源）、范围、命中原因（`scope` 范围命中 > `scope_weak` 弱命中 > `topic` > `peer_name` > `project`）。只搜还能收到消息的会话；看不到他人会话的调用方只搜到自己的。
 - MCP：`gofer_session_set_topic`（`topic` / `scope` / `clear_scope` / `session_id`）与 `gofer_session_find`（`query` / `path` / `project` / `limit`），语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
 - SessionStart hook：登记回应里主题为空或只有推断值时，会往 additionalContext 加一行提示，告诉 agent 用 `gofer session topic` 记下主题；已有自己或人设的主题不再提示。
+- **压缩 / 恢复后重新注入**：`source` 为 `compact` / `resume` 时，`gofer repo prime --hook-json` 在仓库级内容之后追加一段 `[gofer · 提示]`「本会话当前任务」——主题、认领中的 issue、监督中的 plan、在等的 job、未回的信件，每项一行带接手命令；`startup` / `clear` 不追加。数据来自 `GET /v1/sessions/{sid}/focus`，详见 `tracker.md` 的「prime」一节。
 
 ## 信箱（mail）
 
