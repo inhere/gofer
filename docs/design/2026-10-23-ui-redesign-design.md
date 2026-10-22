@@ -662,10 +662,10 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 **测试**（§13）
 
-- 新增：`utils/shell.test.ts`（三档断点与边界值、侧栏展开判定、`gofer.shell` 本地记忆的正常 / 坏值 / 存储不可用、四组导航与 `/jobs`、手机五标签与「更多」顺序、`needsMeTotal` 合并、命令面板 `p:` 前缀与项目 URL）、`ui/appShell.test.ts`（合并后的待我决策、顶栏只有一套铃声 / 无重复齿轮 / 无 rail-toggle、本地记忆与手机抽屉接线）、`router.test.ts`（`/jobs` 是列表页、`/board` 是带原 query 的函数式重定向、旧重定向仍在）。
+- 新增：`utils/shell.test.ts`（三档断点与边界值、侧栏展开判定、`gofer.shell` 本地记忆的正常 / 坏值 / 存储不可用、四组导航与 `/jobs`、手机五标签与「更多」顺序、`needsMeTotal` 合并、命令面板 `p:` 前缀与项目 URL）、`ui/appShell.test.ts`（合并后的待我决策、顶栏只有一套铃声 / 无重复齿轮 / 无 rail-toggle、本地记忆与手机抽屉接线）、`ui/appShellRender.test.ts`（SSR 冒烟：1440 完整侧栏、1024 图标栏、390 五标签 + 无侧栏；推送客户端用 `setLiveClientForTest` 替身）、`router.test.ts`（`/jobs` 是列表页、`/board` 是带原 query 的函数式重定向、旧重定向仍在）。
 - 同步修改：`views/today.test.ts`（导航断言改成 `SHELL_NAV_GROUPS` / `TAB_BAR_ITEMS`）、`views/work.test.ts`、`views/ceilingWiring.test.ts`、`views/mailWiring.test.ts`、`views/mailMinimapWiring.test.ts`、`views/captureBoxWiring.test.ts`（从 App.vue 改读 `ui/AppShell.vue` / `utils/shell.ts`）、`i18n/i18n.test.ts`（两个新域）、`components/drawerAttachPolish.test.ts`（改为断言 rail-toggle 已删除）。
 - 删除：`utils/nav.test.ts`、`utils/navTab.test.ts`、`navTabWiring.test.ts`、`components/navTopbar.test.ts`、`components/navTopbarLayout.test.ts`、`components/enrollmentBell.test.ts`、`components/escalationBellAck.test.ts`、`components/escalationBellApproval.test.ts`——被删的组件 / util 就是它们的对象，覆盖搬到 `utils/shell.test.ts` 与 `ui/appShell.test.ts`（`pendingAlert` 的纯逻辑测试原样保留）。
-- 全量 `npx vitest run` 190 个文件 / 1264 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build` 通过。
+- 全量 `npx vitest run` 191 个文件 / 1270 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build` 通过。
 
 **四种宽度的形态**（无截图，按 CSS 口径说明）
 
