@@ -125,6 +125,45 @@ func TestApprovalPolicyDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+// TestApprovalWithOverrideReplacesProject: a request-level policy (a resident 收件会话's
+// mail.agents.<名字>.approval, gofer-81b4) REPLACES the project's policy rather than
+// tightening it — that is what lets one session ask while the project auto-allows — and
+// only the agent's own acp.permission_policy still tightens it.
+func TestApprovalWithOverrideReplacesProject(t *testing.T) {
+	cfg := &Config{
+		Projects: map[string]ProjectConfig{
+			"strictproj": {Approval: &ApprovalConfig{Mode: ApprovalStrict, TimeoutSec: 5}},
+			"openproj":   {},
+		},
+		Agents: map[string]AgentConfig{
+			"plain":  {Type: "acp-agent"},
+			"strict": {Type: "acp-agent", ACP: &ACPConfig{PermissionPolicy: ApprovalStrict}},
+		},
+	}
+	ask := &ApprovalConfig{Mode: ApprovalAsk, TimeoutSec: 60}
+
+	// The override wins over a STRICTER project: it is not a merge.
+	got := cfg.EffectiveApprovalWith("strictproj", "plain", ask)
+	if got.Mode != ApprovalAsk || got.TimeoutSec != 60 {
+		t.Fatalf("override over strict project = %+v, want mode=ask timeout=60", got)
+	}
+	if len(got.AutoAllowKinds) == 0 || len(got.AskKinds) == 0 {
+		t.Fatalf("the override lost its resolved kind lists: %+v", got)
+	}
+	// An override of off over an asking project stays off (the project is replaced).
+	if got := cfg.EffectiveApprovalWith("openproj", "plain", &ApprovalConfig{Mode: ApprovalOff}); got.Mode != ApprovalOff {
+		t.Fatalf("override off = %q, want off", got.Mode)
+	}
+	// The agent knob still only tightens: strict beats the session's ask.
+	if got := cfg.EffectiveApprovalWith("openproj", "strict", ask); got.Mode != ApprovalStrict {
+		t.Fatalf("override ask + agent strict = %q, want %q", got.Mode, ApprovalStrict)
+	}
+	// No override = the project policy, exactly as before.
+	if got := cfg.EffectiveApprovalWith("strictproj", "plain", nil); got.Mode != ApprovalStrict || got.TimeoutSec != 5 {
+		t.Fatalf("nil override over strict project = %+v, want the project policy", got)
+	}
+}
+
 // TestApprovalAgentCanOnlyTighten: an agent's acp.permission_policy may only TIGHTEN
 // the project's approval mode (design §GATE-01.1) — ask/strict raise a permissive
 // project, and a stricter project always wins over a laxer agent.

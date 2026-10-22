@@ -59,6 +59,12 @@ type MailAgentConfig struct {
 	MaxHours *int `yaml:"max_hours,omitempty"`
 	// Prompt is appended to gofer's own opening prompt (optional).
 	Prompt string `yaml:"prompt,omitempty"`
+	// Approval is the ACP approval gate of THIS resident session (设计 2026-10-22
+	// mail-agent-address「D4」), same structure and validation as the project's `approval`:
+	// e.g. `approval: {mode: ask}` makes the 收件会话 ask a human before writing files or
+	// running commands while every other ACP session of the project keeps the project's
+	// policy. Unset = the project's policy (unchanged behaviour).
+	Approval *ApprovalConfig `yaml:"approval,omitempty"`
 }
 
 // Mail agent defaults.
@@ -247,6 +253,11 @@ func (m MailConfig) validate() error {
 		}
 		if a.MaxHours != nil && *a.MaxHours < 0 {
 			return fmt.Errorf("%s.max_hours must be >= 0 (0 = unlimited)", key)
+		}
+		if a.Approval != nil {
+			if err := validateApprovalAt(key, *a.Approval); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
