@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -72,7 +73,8 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 	case errors.Is(err, mail.ErrInvalidAddress), errors.Is(err, mail.ErrUnsupportedAddress),
 		errors.Is(err, mail.ErrInvalidBody), errors.Is(err, mail.ErrInvalidOrigin), errors.Is(err, jobstore.ErrMailInvalid),
 		errors.Is(err, mail.ErrNoRecipients), errors.Is(err, mail.ErrBroadcastAmbiguous),
-		errors.Is(err, mail.ErrBroadcastTooMany), errors.Is(err, mail.ErrUrgentBroadcast):
+		errors.Is(err, mail.ErrBroadcastTooMany), errors.Is(err, mail.ErrUrgentBroadcast),
+		errors.Is(err, mail.ErrUnknownAgent):
 		writeError(c, http.StatusBadRequest, "invalid mail", err.Error())
 	case errors.Is(err, mail.ErrMailNotFound):
 		writeError(c, http.StatusNotFound, "not found", "mail not found")
@@ -391,6 +393,16 @@ func (s *Server) mailAuthorize(c *rux.Context, org mail.Origin, replying bool) f
 			if !ceilingAllowsProject(ceil, project) {
 				return &mailRefusal{status: http.StatusNotFound, kind: t.Kind, id: t.ID}
 			}
+		case jobstore.MailKindAgent:
+			// The recipient id is `<name>@<project>`: the resident session will RUN in that
+			// project, so a caller whose ceiling does not cover it is refused HERE — otherwise the
+			// letter would be stored and only fail when the session start is refused (and then
+			// sit pending until it expires). An address with no project in it (the sender named
+			// none and the request has none) cannot be judged and is left to the next checks.
+			name, project := jobstore.SplitResidentKey(t.ID)
+			if strings.TrimSpace(project) != "" && !ceilingAllowsProject(ceil, project) {
+				return mailForbidden(fmt.Sprintf("agent:%s runs in project %q, outside your caller ceiling", name, project))
+			}
 		}
 		if replying {
 			return nil
@@ -403,6 +415,10 @@ func (s *Server) mailAuthorize(c *rux.Context, org mail.Origin, replying bool) f
 				if allowedSessions[t.ID] {
 					return nil
 				}
+			case jobstore.MailKindAgent:
+				// A job credential's own submit already proved it may start work in its
+				// project; a resident session is the same kind of work.
+				return nil
 			}
 			return mailForbidden("a job credential may only mail its job's source session, its plan's supervisor session and its caller")
 		}
@@ -422,6 +438,14 @@ func (s *Server) mailAuthorize(c *rux.Context, org mail.Origin, replying bool) f
 			}
 			if !s.mayManageJob(c, rec, false) {
 				return mailForbidden("another caller's job", authz.PermJobManageOthers)
+			}
+		}
+		switch t.Kind {
+		case jobstore.MailKindAgent:
+			// A letter to an agent may START a resident session job: that costs job.submit
+			// (设计 2026-10-22「D5」).
+			if !s.can(c, authz.PermJobSubmit) {
+				return mailForbidden("sending to an agent may start a resident session", authz.PermJobSubmit)
 			}
 		}
 		return nil

@@ -250,6 +250,7 @@ func (d *Deliverer) Tick(ctx context.Context) {
 	}
 	d.sweepSessions(ctx, now, st)
 	d.sweepJobs(ctx, now, st)
+	d.sweepAgents(ctx, now, st)
 }
 
 // pendingBy lists the pending letters to one kind of recipient, grouped by recipient in the

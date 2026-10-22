@@ -408,6 +408,21 @@ mail:
   # broadcast_max_recipients: 20
   # 广播频率「<次数>/<窗口>」，每个调用方每窗口最多几次广播（一次广播算一次，不按收件人数）。未写 = 5/10m。
   # broadcast_rate: "5/10m"
+  #
+  # 收件 agent（`agent:<名字>` 地址，见设计 2026-10-22 mail-agent-address）：
+  # gofer 为每个（名字, 项目）保留一个常驻 ACP 持续会话，信件送进去，回信走信箱工具。
+  # agent 必须是 acp-agent。只写名字、不写 @项目 时取发件方所在项目。
+  # agents:
+  #   suga:
+  #     agent: suga-acp              # 必填：用哪个 acp-agent
+  #     args: [--model, some-model]  # 可选：追加给 agent 的参数
+  #     runner: ""                   # 可选：空 = 项目默认 runner
+  #     idle_minutes: 120            # 可选：空闲多久结束会话（未写 = 120）
+  #     max_letters: 50              # 可选：收满多少封后轮换（未写 = 50；0 = 不限）
+  #     max_hours: 24                # 可选：存在多久后轮换（未写 = 24；0 = 不限）
+  #     prompt: ""                   # 可选：追加给开场说明的提示词
+  # 全局最多同时存在的常驻会话，超出时信件转待指派。未写 = 6。
+  # agents_max_resident: 6
 
 # 日志：server / worker 默认把 JSONL 日志写到 <config-dir>/run 下的文件；纯 CLI 子命令默认只写 stderr。
 # file 与 dir 互斥；显式配置的路径不可写会阻止启动，未配置时默认路径失败则降级为 stderr。

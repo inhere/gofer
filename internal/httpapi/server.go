@@ -1622,6 +1622,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/mail", s.handleMailList)
 		// Plan M1: the caller's letters grouped into conversations (static route before /mail/{id}).
 		r.GET("/mail/conversations", s.handleMailConversations)
+		// The `agent:` addresses (设计 2026-10-22 mail-agent-address): what names can be written and
+		// the resident sessions serving them. Static, so before /mail/{id}.
+		r.GET("/mail/agents", s.handleMailAgents)
+		r.POST("/mail/agents/{name}/end", s.handleMailAgentEnd)
 		r.GET("/mail/{id}", s.handleMailGet)
 		r.POST("/mail/{id}/reply", s.handleMailReply)
 		r.POST("/mail/{id}/ack", s.handleMailAck)

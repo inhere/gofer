@@ -79,6 +79,7 @@ func flagGlobals() map[string]any {
 		"sessionListOpts":       &sessionListOpts,
 		"sessionNudgeOpts":      &sessionNudgeOpts,
 		"sessionMailOpts":       &sessionMailOpts,
+		"sessionMailAgentOpts":  &sessionMailAgentOpts,
 		"sessionMailRedactOpts": &sessionMailRedactOpts,
 		"sessionRelayOpts":      &sessionRelayOpts,
 		"sessionResumeOpts":     &sessionResumeOpts,

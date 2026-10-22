@@ -184,6 +184,55 @@ func (c *Client) CancelMail(id int64) (Mail, error) {
 	return m, err
 }
 
+// MailResidentAgent is one configured 收件 agent (config mail.agents.<名字>): the names an
+// `agent:` address may use.
+type MailResidentAgent struct {
+	Name        string   `json:"name"`
+	Agent       string   `json:"agent"`
+	Runner      string   `json:"runner,omitempty"`
+	IdleMinutes int      `json:"idle_minutes"`
+	MaxLetters  int      `json:"max_letters"`
+	MaxHours    int      `json:"max_hours"`
+	Args        []string `json:"args,omitempty"`
+}
+
+// MailResidentSession is one resident session that exists right now.
+type MailResidentSession struct {
+	Name      string `json:"name"`
+	Project   string `json:"project,omitempty"`
+	JobID     string `json:"job_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Letters   int    `json:"letters"`
+	Pending   int    `json:"pending"`
+	Status    string `json:"status"`
+	CreatedAt int64  `json:"created_at"`
+	IdleSince int64  `json:"idle_since,omitempty"`
+	LastError string `json:"last_error,omitempty"`
+}
+
+// MailAgents is the `agent:` listing: what may be addressed and what is running.
+type MailAgents struct {
+	MaxResident int                   `json:"agents_max_resident"`
+	Agents      []MailResidentAgent   `json:"agents"`
+	Residents   []MailResidentSession `json:"residents"`
+}
+
+// ListMailAgents lists the configured 收件 agents and their resident sessions.
+func (c *Client) ListMailAgents() (MailAgents, error) {
+	var out MailAgents
+	err := c.doJSON(http.MethodGet, "/v1/mail/agents", nil, &out)
+	return out, err
+}
+
+// EndMailAgent ends the resident session of one `agent:<名字>[@<项目>]` address by hand.
+func (c *Client) EndMailAgent(name, project string) error {
+	path := "/v1/mail/agents/" + url.PathEscape(name) + "/end"
+	if project = strings.TrimSpace(project); project != "" {
+		path += "?project=" + url.QueryEscape(project)
+	}
+	return c.doJSON(http.MethodPost, path, bytes.NewReader([]byte("{}")), nil)
+}
+
 // ReplyMail answers a letter in its thread; the answer goes back to the original sender.
 func (c *Client) ReplyMail(id int64, body string, urgent bool) (MailSent, error) {
 	payload := map[string]any{"body": body}

@@ -31,6 +31,10 @@ const (
 	MailKindSession = "session"
 	MailKindCaller  = "caller"
 	MailKindJob     = "job"
+	// MailKindAgent is a to_kind only (设计 2026-10-22 mail-agent-address「D3」): the letter goes to
+	// the resident session gofer keeps for an `agent:<名字>` address, so it is delivered into
+	// that agent's session job by the deliverer, not by a job credential of its own.
+	MailKindAgent = "agent"
 )
 
 // MailValidKind reports whether k is one of the three letter kinds.
@@ -308,6 +312,10 @@ func validateMailInput(in MailInput) error {
 	case MailKindCaller:
 		// to_caller may be empty: a server without tokens has no caller identity, and
 		// 「the default caller's capture box」 is still a meaningful recipient.
+	case MailKindAgent:
+		if strings.TrimSpace(in.ToID) == "" {
+			return fmt.Errorf("%w: to_id required for an agent recipient", ErrMailInvalid)
+		}
 	default:
 		return fmt.Errorf("%w: unknown to_kind %q", ErrMailInvalid, in.ToKind)
 	}

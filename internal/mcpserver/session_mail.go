@@ -15,9 +15,10 @@ import (
 // agent runs in) or, for a job credential, from the job; all of them need a running server.
 
 type mailSendInput struct {
-	// To is every address of the letter: session:<sid> | job:<id> | topic:<kw> | path:<sub> | caller
-	// ("" = caller); repeat it for several recipients, or use each:topic:<kw> / each:path:<sub> /
-	// each:project:<key> / each:agent:<name> to send to every match (a broadcast).
+	// To is every address of the letter: session:<sid> | job:<id> | agent:<name>[@<project>] |
+	// topic:<kw> | path:<sub> | caller ("" = caller); repeat it for several recipients, or use
+	// each:topic:<kw> / each:path:<sub> / each:project:<key> / each:agent:<name> to send to every
+	// match (a broadcast).
 	To     []string `json:"to,omitempty"`
 	Body   string   `json:"body"`
 	Urgent bool     `json:"urgent,omitempty"`
@@ -48,7 +49,7 @@ type mailReplyInput struct {
 func registerSessionMailTools(s *mcp.Server, b Backend) {
 	addGoferTool(s, &mcp.Tool{
 		Name: "gofer_session_mail_send",
-		Description: "Send a letter to another session, a session job or yourself. to: session:<sid> | job:<id> | topic:<keyword> | path:<sub-path> | caller (your own capture box); give several, or an each:topic:<kw> / each:path:<sub> / each:project:<key> / each:agent:<name> selector, to send one letter to every match. " +
+		Description: "Send a letter to another session, a session job, a gofer mail agent or yourself. to: session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); give several, or an each:topic:<kw> / each:path:<sub> / each:project:<key> / each:agent:<name> selector, to send one letter to every match. " +
 			"Only a unique recipient is delivered to; an ambiguous topic / path address is held in the capture box; an ambiguous or unknown session prefix is an error with its candidates (held=true in the answer — pick one and send again with session:<sid>). " +
 			"A letter arrives in the recipient's next turn wrapped in a <gofer-mail> tag; it is not a user message. urgent=true asks for delivery inside the running turn. Needs a running gofer server.",
 	}, mailSendHandler(b))
