@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // submitRunning submits a long-lived exec job and waits until it is running, so
@@ -21,7 +23,9 @@ func submitRunning(t *testing.T, s *Service) string {
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
-	waitForStatus(t, s, res.ID, StatusRunning, 2*time.Second)
+	// Under a full parallel run the job can sit queued for seconds (G052: give the
+	// success path 5-10s, scaled, and return as soon as it is running).
+	waitForStatus(t, s, res.ID, StatusRunning, wait.Timeout(t, 10*time.Second))
 	t.Cleanup(func() {
 		_ = s.Cancel(res.ID)
 		s.Wait(res.ID)

@@ -107,7 +107,7 @@ func TestACPCancelKillsProcessTree(t *testing.T) {
 	assertChildGone(t, pid)
 }
 
-// TestACPTimeoutKillsProcessTree: 同一个形状下超时也要真的结束 job——2s 的 deadline 过后
+// TestACPTimeoutKillsProcessTree: 同一个形状下超时也要真的结束 job——5s 的 deadline 过后
 // 必须到终态 timeout，孙进程同样不许留下。
 func TestACPTimeoutKillsProcessTree(t *testing.T) {
 	t.Parallel()
@@ -117,17 +117,19 @@ func TestACPTimeoutKillsProcessTree(t *testing.T) {
 
 	res := mustSubmit(t, s, JobRequest{
 		ProjectKey: "self", Agent: "acpbot", Runner: "local",
-		Prompt: acpTestPrompt, Cwd: ".", TimeoutSec: 2,
+		// 5s, not 2s: the deadline must leave the fake agent time to start its child
+		// first, or a loaded run kills the job before there is a tree to check (G052).
+		Prompt: acpTestPrompt, Cwd: ".", TimeoutSec: 5,
 	})
 	pid := waitChildPID(t, s, res.ID, pidFile)
 
-	// The window is measured from SUBMIT and must cover the 2s deadline plus the
+	// The window is measured from SUBMIT and must cover the 5s deadline plus the
 	// cancel/close graces (cancelGrace + waitDelay): the point is that the job ends
 	// shortly after its deadline instead of hanging forever.
-	final := waitStatus(t, s, res.ID, 8*time.Second,
+	final := waitStatus(t, s, res.ID, wait.Timeout(t, 15*time.Second),
 		StatusTimeout, StatusCancelled, StatusFailed, StatusDone)
 	if final.Status != StatusTimeout {
-		t.Fatalf("status = %s (err=%s), want timeout shortly after the 2s deadline", final.Status, final.Error)
+		t.Fatalf("status = %s (err=%s), want timeout shortly after the 5s deadline", final.Status, final.Error)
 	}
 	assertChildGone(t, pid)
 }
