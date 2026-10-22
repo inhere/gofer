@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **整理器每个项目只用一个会话，并会轮换（gofer-ayu0）**：整理器不再每整理一件工作就新开一个 agent 会话——第一次整理用 agent 的 `session_inject` 拿到预分配会话 id（`suga run --session-id` 即「创建或续用」，claude 用 `--session-id`），之后每次续在该会话里（agent 的 `session_resume`，即 `job resume` 那套）；续用时提示开头说明「这是新的一件工作，忽略之前的工作项」，仍只输出 JSON。累计整理 `work.summarizer_session_max_runs`（默认 20）次或会话存在超过 `work.summarizer_session_max_age`（默认 24h）后换新会话；续接失败回退成新会话并记 `work.summarizer_session_reset` 事件，整理不失败。整理器会话是内部会话：`gofer session ls` 与 web 工作台会话列表默认不显示，`--all`（接口 `all=1` / `internal=1`）可见，旧版本产生的整理器会话只要认得出也一并隐藏。
+
 ### 修复
 
 - **只读身份在计划详情 / 工作项 / issue / 信箱页不再看到会 403 的写按钮（gofer-bp9c）**：接续今天页（gofer-darr）的做法，写操作按它真正调用的那条路由声明的权限灰显，悬停说明「只读身份」或缺少哪个权限（判定在 `web/src/utils/pageGate.ts`，与今天页同一套 `permissionGate` / `ceiling` 口径）。覆盖计划详情的标记完成 / 归档 / 重新打开、leader 与结束通知开关、启动链 / 挂起 / 继续 / 解除阻塞、交接说明的新增与保存（他人的 plan 要 `plan.manage.others`，自己的不要）；工作项的整理建议与合并建议采纳 / 忽略、issue 的新建 / 保存 / 评论（这两处路由是 Public，只受只读上限约束）；信箱回信（自己的信不要权限，别人的会话要 `session.reply.others`、别人的 job 要 `job.manage.others`）。纯查看不受影响。

@@ -394,7 +394,7 @@ func (s *Store) listWorkbenchSessions(since int64) ([]AgentSession, error) {
     AND d.kind='relay' AND d.state='OPEN' AND COALESCE(d.acked_at,0)=0)
   THEN 'idle' ELSE state END),`, 1)
 	rows, err := s.db.Query(selectCols+`
-  WHERE last_seen_at >= ? OR state <> ?
+  WHERE (last_seen_at >= ? OR state <> ?) AND `+internalSessionSQL+`
   ORDER BY started_at ASC, session_id ASC`, since, SessionEnded)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list workbench sessions: %w", err)

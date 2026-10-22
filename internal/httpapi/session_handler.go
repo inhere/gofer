@@ -580,6 +580,9 @@ func (s *Server) handleListSessions(c *rux.Context) {
 		return
 	}
 	opts.IncludeEnded = c.Query("all") == "1" || c.Query("all") == "true"
+	// The sessions gofer's own jobs leave behind (the work summarizer's) are internal and
+	// hidden by default; all=1 or internal=1 asks for them too.
+	opts.IncludeInternal = opts.IncludeEnded || c.Query("internal") == "1"
 	if l, err := strconv.Atoi(c.Query("limit")); err == nil {
 		opts.Limit = l
 	}

@@ -935,8 +935,41 @@ type ListSessionsOpts struct {
 	Agent        string
 	Cwd          string
 	IncludeEnded bool
-	Limit        int
+	// IncludeInternal also lists the sessions gofer's own jobs left behind (the work
+	// summarizer's, gofer-ayu0). They are hidden by default; `session ls --all` and the
+	// sessions API's all=1 set it, so the escape hatch stays one flag.
+	IncludeInternal bool
+	Limit           int
 }
+
+// summarizerTagSQL matches the jobs the work summarizer submits (the tag is the
+// stable marker: it is on every run, including the ones from before the session was
+// pinned and the internal_exec column existed).
+const summarizerTagSQL = `j.tags_json LIKE '%"work-summarizer"%'`
+
+// internalSessionSQL hides the sessions a gofer-internal job produced (gofer-ayu0). The
+// work summarizer runs one cli-agent job per tidy-up, and a run leaves an agent session
+// behind that is nobody's conversation. A session counts as internal when
+//
+//   - a work-summarizer job carries its id (runs pin the session, so this is the normal
+//     case), or
+//   - it was registered while such a job of the same agent ran in the same project and the
+//     row is empty (no title, no last message) - that is how the older, unpinned runs left
+//     their sessions behind (an agent that registers itself from inside the job keeps its
+//     own id instead of the one gofer injected). The job's cwd is relative to the project
+//     root while a session's is absolute, so the project key is what they share.
+//
+// agent_sessions must be the table's own name in the query (it is in selectSessionCols).
+const internalSessionSQL = `NOT (
+  EXISTS (SELECT 1 FROM jobs j WHERE j.session_id = agent_sessions.session_id
+    AND j.session_id <> '' AND ` + summarizerTagSQL + `)
+  OR EXISTS (SELECT 1 FROM jobs j WHERE ` + summarizerTagSQL + `
+    AND j.agent = agent_sessions.agent
+    AND COALESCE(j.project_key,'') = COALESCE(agent_sessions.project_key,'')
+    AND COALESCE(agent_sessions.title,'') = '' AND COALESCE(agent_sessions.last_message,'') = ''
+    AND agent_sessions.started_at BETWEEN j.started_at - 10
+      AND COALESCE(NULLIF(j.ended_at,0), j.started_at) + 10)
+)`
 
 // ListAgentSessions lists sessions, waiting_reply / needs_attention first, then
 // most recently seen first.
@@ -970,6 +1003,9 @@ func (s *Store) ListAgentSessions(opts ListSessionsOpts) ([]AgentSession, error)
 	if cwd := strings.TrimRight(strings.TrimSpace(opts.Cwd), "/\\"); cwd != "" {
 		where = append(where, "(COALESCE(cwd,'') <> '' AND (cwd = ? OR ? LIKE cwd || '/%' OR ? LIKE cwd || '\\%'))")
 		args = append(args, cwd, cwd, cwd)
+	}
+	if !opts.IncludeInternal {
+		where = append(where, internalSessionSQL)
 	}
 	q := selectSessionCols
 	if len(where) > 0 {
