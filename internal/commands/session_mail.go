@@ -393,6 +393,29 @@ func formatMail(m client.Mail) string {
 	if m.ReplyTo > 0 {
 		fmt.Fprintf(&b, "   in reply to #%d", m.ReplyTo)
 	}
-	b.WriteString("\n\n" + m.Body + "\n")
+	b.WriteString("\n")
+	if m.Broadcast != nil {
+		fmt.Fprintf(&b, "broadcast b%d: %d recipients, delivered %d, answered %d",
+			m.Broadcast.ID, m.Broadcast.Count, m.Broadcast.Delivered, m.Broadcast.Answered)
+		if m.Broadcast.Expired > 0 {
+			fmt.Fprintf(&b, ", expired %d", m.Broadcast.Expired)
+		}
+		if m.Broadcast.Pending > 0 {
+			fmt.Fprintf(&b, ", pending %d", m.Broadcast.Pending)
+		}
+		b.WriteString("\n")
+		for _, r := range m.Broadcast.Recipients {
+			who := r.ID
+			if who == "" {
+				who = r.Address
+			}
+			state := r.State
+			if r.Skipped {
+				state = "skipped: " + r.Reason
+			}
+			fmt.Fprintf(&b, "  #%d %s %s (%s)\n", r.MailID, r.Kind, who, state)
+		}
+	}
+	b.WriteString("\n" + m.Body + "\n")
 	return b.String()
 }

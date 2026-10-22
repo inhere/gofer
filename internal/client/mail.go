@@ -42,6 +42,21 @@ type Mail struct {
 	ReadAt        int64     `json:"read_at,omitempty"`
 	DeliverBy     int64     `json:"deliver_by,omitempty"`
 	CaptureItemID string    `json:"capture_item_id,omitempty"`
+	// BroadcastID / Broadcast mark a copy of a broadcast and carry the group's addressee table
+	// (设计 2026-10-22「D3」: `session mail read <id>` lists the recipients).
+	BroadcastID int64          `json:"broadcast_id,omitempty"`
+	Broadcast   *MailBroadcast `json:"broadcast,omitempty"`
+}
+
+// MailBroadcast is one broadcast's addressee table: every copy with its own delivery state.
+type MailBroadcast struct {
+	ID         int64                    `json:"id"`
+	Count      int                      `json:"count"`
+	Delivered  int                      `json:"delivered"`
+	Answered   int                      `json:"answered"`
+	Expired    int                      `json:"expired"`
+	Pending    int                      `json:"pending"`
+	Recipients []MailBroadcastRecipient `json:"recipients"`
 }
 
 // MailCandidate is a session an ambiguous address almost named.
