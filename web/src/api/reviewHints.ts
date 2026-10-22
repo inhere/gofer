@@ -7,6 +7,10 @@ export interface DeletionHotspot {
   path: string
   added: number
   deleted: number
+  // net = added - deleted（负数 = 文件变短）。
+  net?: number
+  // deletion_heavy = 删除行数显著多于新增（服务端按删除 ≥ 2×新增 判定）。
+  deletion_heavy?: boolean
 }
 
 export interface RemovedComment {
@@ -15,10 +19,19 @@ export interface RemovedComment {
   text: string
 }
 
+// 汇报里「验证」标题下的代码块：agent 自述的输出，job 没有 verify 步骤时仅作参考。
+export interface ReportVerify {
+  heading: string
+  text: string
+  // source 恒为 'agent'（agent 自述，不是 gofer 跑的 verify 步骤）。
+  source: string
+}
+
 export interface ReviewHints {
   deletion_hotspots?: DeletionHotspot[]
   removed_comments?: RemovedComment[]
   verify_lines?: string[]
+  report_verify?: ReportVerify[]
 }
 
 interface ReviewHintsResponse {

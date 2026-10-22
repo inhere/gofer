@@ -15,6 +15,10 @@
 
 - **含空格 / 非 ASCII 字符路径的未提交改动不再误判是否在 `.gofer/tracker/` 下（gofer-7lp5）**：交付（合并）前的脏检查以前解析 `git status --porcelain` 的普通文本输出，只去掉路径两侧的双引号，没有反解 git 对特殊路径的 C 风格转义（`core.quotePath`，默认开启），于是路径里的中文变成 `\350\257\264` 这类转义，错误信息里列出的路径也不可读；名称里带 ` -> ` 的 tracker 文件还会被当成分支重命名、凭空多出一个 tracker 外的路径而拒绝合并。现在改用 `git status --porcelain -z`（NUL 分隔、路径不转义），重命名按 git 的「新路径、旧路径」两个字段各自判断，错误信息里列出的始终是原样路径。影响 `job worktree merge` / `job merge` 等走交付合并的路径。
 
+### 变更
+
+- **审阅提示补全：删除热点带净变化与「删除显著多于新增」标记，验证页签补 agent 自述输出（gofer-hjj1）**：`deletion_hotspots` 每项新增 `net`（新增-删除）与 `deletion_heavy`（删除 ≥ 2× 新增），CLI 打印 `+4/-30 net -26` 并给后者加 ⚠；改名文件按新路径列，二进制段（`Binary files … differ` / `GIT binary patch`）不计行数。`review_hints` 新增 `report_verify`：从 agent 汇报「验证」/Verification 标题下的 ``` 代码块提取（最多 3 块，长块留尾部），带 `source: "agent"`，`job review` 标「来源: agent 自述」，web 在没有 verify 步骤的「验证」页签里作参考展示；有 verify 时该页签的输出超出 200 行改为留**尾部**（以前留开头，把失败的报错截掉）。
+
 ## [0.182.1] - 2026-10-21
 
 ### 修复

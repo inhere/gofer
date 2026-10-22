@@ -108,6 +108,79 @@ func TestRemovedCommentsCap(t *testing.T) {
 	}
 }
 
+func TestDeletionHotspotsCarriesNetAndHeavyFlag(t *testing.T) {
+	var b strings.Builder
+	// A pure deletion: 30 lost, 0 gained → heavy, net -30.
+	b.WriteString(diffFor("gone/old.go", 30, 0))
+	// A rewrite that added as much as it removed: not heavy, net 0.
+	b.WriteString(diffFor("even/rewrite.go", 20, 20))
+	// Mostly additions: not heavy, net positive.
+	b.WriteString(diffFor("big/new.go", 12, 40))
+
+	got := BuildReviewHints(b.String(), "").DeletionHotspots
+	if len(got) != 3 {
+		t.Fatalf("want 3 hotspots, got %d: %+v", len(got), got)
+	}
+	if got[0].Path != "gone/old.go" || got[0].Net != -30 || !got[0].DeletionHeavy {
+		t.Fatalf("pure deletion is heavy with net -30: %+v", got[0])
+	}
+	if got[1].Path != "even/rewrite.go" || got[1].Net != 0 || got[1].DeletionHeavy {
+		t.Fatalf("balanced rewrite is not heavy: %+v", got[1])
+	}
+	if got[2].Path != "big/new.go" || got[2].Net != 28 || got[2].DeletionHeavy {
+		t.Fatalf("addition-heavy file is not heavy: %+v", got[2])
+	}
+}
+
+// diffFor builds one file section of a diff with the given added/deleted body lines.
+func diffFor(path string, deleted, added int) string {
+	var b strings.Builder
+	b.WriteString("diff --git a/" + path + " b/" + path + "\n--- a/" + path + "\n+++ b/" + path + "\n")
+	b.WriteString("@@ -1,1 +1,1 @@\n")
+	for i := 0; i < deleted; i++ {
+		b.WriteString("-old line\n")
+	}
+	for i := 0; i < added; i++ {
+		b.WriteString("+new line\n")
+	}
+	return b.String()
+}
+
+func TestDeletionHotspotsRenameUsesNewPathAndSkipsBinary(t *testing.T) {
+	// A rename with heavy editing: git prints the old and the new path in the header
+	// and "rename from/to" lines; the hotspot must name the new path.
+	diff := `diff --git a/pkg/old_name.go b/pkg/new_name.go
+similarity index 40%
+rename from pkg/old_name.go
+rename to pkg/new_name.go
+--- a/pkg/old_name.go
++++ b/pkg/new_name.go
+@@ -1,12 +1,2 @@
+` + strings.Repeat("-old body\n", 12) + strings.Repeat("+new body\n", 2) +
+		// A binary file: "Binary files … differ" plus (with --binary) base85 data lines
+		// that start with +/-, none of which is churn.
+		`diff --git a/assets/logo.png b/assets/logo.png
+index 1111111..2222222 100644
+Binary files a/assets/logo.png and b/assets/logo.png differ
+` +
+		`diff --git a/assets/blob.bin b/assets/blob.bin
+index 3333333..4444444 100644
+GIT binary patch
+literal 12
+` + strings.Repeat("-fake base85 body line\n", 40)
+
+	got := BuildReviewHints(diff, "").DeletionHotspots
+	if len(got) != 1 {
+		t.Fatalf("only the renamed text file is a hotspot, got %d: %+v", len(got), got)
+	}
+	if got[0].Path != "pkg/new_name.go" || got[0].Added != 2 || got[0].Deleted != 12 {
+		t.Fatalf("rename keeps the new path: %+v", got[0])
+	}
+	if !got[0].DeletionHeavy {
+		t.Fatalf("12 deleted vs 2 added is heavy: %+v", got[0])
+	}
+}
+
 func TestVerifyLinesShapesOrderAndCap(t *testing.T) {
 	report := `## 验证
 ok  	github.com/inhere/gofer/internal/job	1.2s
@@ -152,9 +225,88 @@ ok  	github.com/inhere/gofer/internal/job	1.2s
 	}
 }
 
+func TestReportVerifyExtractsBlocksUnderVerifyHeading(t *testing.T) {
+	report := `## 验收标准
+- [ ] 测试通过
+
+` + "```bash" + `
+not a verification block: no verify heading above
+` + "```" + `
+
+## 验证
+
+` + "```bash" + `
+go test ./internal/job/
+ok  github.com/owner/repo/internal/job
+` + "```" + `
+
+The step above ran in the repo root.
+
+### Verification details
+` + "```" + `
+tsc=0
+vitest: 12 passed
+` + "```" + `
+
+## 发现但不碰
+` + "```" + `
+job.go:12: stale comment
+` + "```" + `
+`
+
+	got := BuildReviewHints("", report).ReportVerify
+	if len(got) != 2 {
+		t.Fatalf("want 2 report verify blocks, got %d: %+v", len(got), got)
+	}
+	if got[0].Heading != "验证" || got[0].Source != VerifySourceAgent {
+		t.Fatalf("first block keeps its heading and agent source: %+v", got[0])
+	}
+	if !strings.Contains(got[0].Text, "ok  github.com/owner/repo/internal/job") {
+		t.Fatalf("first block body: %q", got[0].Text)
+	}
+	// The non-verify code block and the 发现 block must not be reported as verification.
+	for _, b := range got {
+		if strings.Contains(b.Text, "not a verification block") || strings.Contains(b.Text, "stale comment") {
+			t.Fatalf("only verify-section blocks belong here: %+v", b)
+		}
+	}
+	if got[1].Heading != "Verification details" || !strings.Contains(got[1].Text, "vitest: 12 passed") {
+		t.Fatalf("second block: %+v", got[1])
+	}
+}
+
+func TestReportVerifyCapsBlocksAndKeepsTail(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < reviewReportVerifyLimit+2; i++ {
+		b.WriteString("## 验证 " + string(rune('a'+i)) + "\n")
+		b.WriteString("```\n")
+		for j := 0; j < reviewReportVerifyLineLimit+3; j++ {
+			b.WriteString("line " + string(rune('a'+j)) + "\n")
+		}
+		b.WriteString("verdict\n```\n")
+	}
+	got := BuildReviewHints("", b.String()).ReportVerify
+	if len(got) != reviewReportVerifyLimit {
+		t.Fatalf("cap at %d blocks, got %d", reviewReportVerifyLimit, len(got))
+	}
+	first := got[0].Text
+	if !strings.Contains(first, "前面 4 行已省略") || !strings.HasSuffix(first, "verdict") {
+		t.Fatalf("long block keeps its tail behind a marker: %q", first)
+	}
+}
+
+func TestReportVerifyUnterminatedFenceStillYieldsBlock(t *testing.T) {
+	report := "## 验证\n```\ngo vet ./...\nvet=0\n"
+	got := BuildReviewHints("", report).ReportVerify
+	if len(got) != 1 || !strings.Contains(got[0].Text, "vet=0") {
+		t.Fatalf("a block running to the end of the report is taken: %+v", got)
+	}
+}
+
 func TestBuildReviewHintsEmptyInputs(t *testing.T) {
 	got := BuildReviewHints("", "")
-	if len(got.DeletionHotspots) != 0 || len(got.RemovedComments) != 0 || len(got.VerifyLines) != 0 {
+	if len(got.DeletionHotspots) != 0 || len(got.RemovedComments) != 0 || len(got.VerifyLines) != 0 ||
+		len(got.ReportVerify) != 0 {
 		t.Fatalf("no diff and no report must yield no hints: %+v", got)
 	}
 	// A diff truncated at the size cap ends with a name list, not a patch: no churn.

@@ -14,9 +14,12 @@ export function reviewHintCount(h: ReviewHints | null | undefined): number {
   return (h.deletion_hotspots?.length ?? 0) + (h.removed_comments?.length ?? 0) + (h.verify_lines?.length ?? 0)
 }
 
-// hotspotLine："+12/-30 path"，added 在前、deleted 在后（排序依据是 deleted）。
+// hotspotLine：删除显著多于新增的文件行首带 ⚠；格式 "⚠ +12/-30 net -18  path"
+// （added / deleted 在前，net 是净变化，排序依据是 deleted）。
 export function hotspotLine(d: DeletionHotspot): string {
-  return `+${d.added}/-${d.deleted}  ${d.path}`
+  const mark = d.deletion_heavy ? '⚠ ' : ''
+  const net = d.net == null ? '' : ` net ${d.net > 0 ? '+' : ''}${d.net}`
+  return `${mark}+${d.added}/-${d.deleted}${net}  ${d.path}`
 }
 
 // removedCommentLine：旧文件行号 + 被删的注释原文。
