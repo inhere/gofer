@@ -10,6 +10,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -49,7 +50,7 @@ func TestStartProbeLoopShutsDownClean(t *testing.T) {
 	startProbeLoop(gcli.NewCommand("t", ""), p, time.Hour, stop)
 
 	// The startup probe runs synchronously-then-async; poll until the cache fills.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for len(p.Snapshot()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}

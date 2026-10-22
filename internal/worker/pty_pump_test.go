@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // --- fakes ------------------------------------------------------------------
@@ -148,10 +149,11 @@ func newPumpClient(jobs Jobs) *Client {
 	return New(Config{WorkerID: "w1", URLs: []string{"ws://x/y"}, Token: "tok"}, jobs)
 }
 
-// eventuallyTrue polls cond until it holds or the deadline lapses.
+// eventuallyTrue polls cond until it holds or the deadline lapses (G052: at least
+// 10s, scaled by GOFER_TEST_TIMEOUT_SCALE).
 func eventuallyTrue(t *testing.T, cond func() bool, msg string) {
 	t.Helper()
-	deadline := time.After(2 * time.Second)
+	deadline := time.After(wait.Timeout(t, 10*time.Second))
 	for {
 		if cond() {
 			return
@@ -244,7 +246,7 @@ func TestPumpPtyHelloAndOutput(t *testing.T) {
 		if h.JobID != "remote-9" || h.PtySessionID != "psid-1" || h.RelayNonce != "nonce-1" {
 			t.Fatalf("hello = %+v", h)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
 		t.Fatal("hello never arrived at serve")
 	}
 
@@ -254,7 +256,7 @@ func TestPumpPtyHelloAndOutput(t *testing.T) {
 		if string(b) != "out-bytes" {
 			t.Fatalf("serve binary = %q, want out-bytes", b)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
 		t.Fatal("serve never received pty output binary")
 	}
 
@@ -334,7 +336,7 @@ func TestPumpPtySelfClosingNoCancel(t *testing.T) {
 		if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
 			t.Fatalf("serve close status = %v, want normal closure", websocket.CloseStatus(err))
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
 		t.Fatal("serve never observed the pty ws close")
 	}
 }

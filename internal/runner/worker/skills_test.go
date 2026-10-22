@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -132,7 +133,7 @@ func TestOldWorkerGetsNoManifest(t *testing.T) {
 			},
 		})
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -143,7 +144,7 @@ func TestOldWorkerGetsNoManifest(t *testing.T) {
 	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
 		t.Fatal("Run did not return after Finish")
 	}
 
@@ -212,7 +213,7 @@ func TestWorkerJobSkillsMountedRecordedOnRunning(t *testing.T) {
 			},
 		})
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -223,7 +224,7 @@ func TestWorkerJobSkillsMountedRecordedOnRunning(t *testing.T) {
 	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
 		t.Fatal("Run did not return after Finish")
 	}
 

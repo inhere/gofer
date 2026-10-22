@@ -73,12 +73,15 @@ func TestLockWaitOverridesServerCap(t *testing.T) {
 		jobWait    int
 		want       string
 	}{
-		{"longer", 1, 3, StatusDone},
+		{"longer", 1, 10, StatusDone},
 		{"shorter", 3, 1, StatusFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			s := dirlockService(t, root, []string{"excl-guard", "marker", "2s"}, func(cfg *config.Config) {
+			// The holder keeps the lock for 6s, so the 10s job wait below has 4s of margin on a
+			// loaded machine; the 1s "shorter" budget is still 5s under the holder, so an
+			// override that is ignored still fails (G052, same shape as 9544f92a).
+			s := dirlockService(t, root, []string{"excl-guard", "marker", "6s"}, func(cfg *config.Config) {
 				cfg.Server.DirLockMaxWaitSec = &tc.serverWait
 			})
 			holder := mustSubmit(t, s, JobRequest{ProjectKey: "self", Agent: "agent", Runner: "local", Cwd: ".", Prompt: "holder"})

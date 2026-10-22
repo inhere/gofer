@@ -751,9 +751,15 @@ func TestConcurrencyLimit(t *testing.T) {
 }
 
 // waitForStatus polls until the job reaches want or the deadline elapses.
+// The deadline is a success-path wait (G052): at least 10s and scaled by
+// GOFER_TEST_TIMEOUT_SCALE, because a loaded run spends seconds before a job
+// reaches "running"; a fast pass still returns at once.
 func waitForStatus(t *testing.T, s *Service, id, want string, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	if timeout < 10*time.Second {
+		timeout = 10 * time.Second
+	}
+	deadline := time.Now().Add(wait.Timeout(t, timeout))
 	for time.Now().Before(deadline) {
 		if r, ok := s.Get(id); ok && r.Status == want {
 			return

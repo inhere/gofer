@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 type registrySource struct {
@@ -86,7 +88,7 @@ func assertClosedChan(t *testing.T, ch <-chan struct{}, name string) {
 	t.Helper()
 	select {
 	case <-ch:
-	case <-time.After(time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatalf("Done(%s) not immediately readable, want a pre-closed chan", name)
 	}
 }
@@ -121,7 +123,7 @@ func TestRegistryDoneStates(t *testing.T) {
 	r.Close("open", "test")
 	select {
 	case <-doneCh: // relay.Close closed r.done
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Done(open) did not close after relay Close")
 	}
 	// after Close the entry is detached → missing → pre-closed.
@@ -184,7 +186,7 @@ func TestRegistryCloseLockOutside(t *testing.T) {
 	// Wait until we are inside the slow source.Close (registry lock already released).
 	select {
 	case <-slow.closeEntered:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Close never reached the source Close")
 	}
 
@@ -197,7 +199,7 @@ func TestRegistryCloseLockOutside(t *testing.T) {
 	}()
 	select {
 	case <-opDone:
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
 		t.Fatal("Lookup/MarkAttached blocked behind a slow source Close (HOL not eliminated)")
 	}
 
@@ -206,7 +208,7 @@ func TestRegistryCloseLockOutside(t *testing.T) {
 	close(slow.readBlock)
 	select {
 	case <-closeDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Close did not return after release")
 	}
 }
@@ -236,14 +238,14 @@ func TestRegistryPrepareReplaceLockOutside(t *testing.T) {
 
 	select {
 	case <-slow.closeEntered:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Prepare replacement never reached the old source Close")
 	}
 	opDone := make(chan struct{})
 	go func() { _, _ = r.Lookup("other"); close(opDone) }()
 	select {
 	case <-opDone:
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
 		t.Fatal("Lookup blocked behind a slow replaced-relay Close (HOL)")
 	}
 
@@ -251,7 +253,7 @@ func TestRegistryPrepareReplaceLockOutside(t *testing.T) {
 	close(slow.readBlock)
 	select {
 	case <-replaceDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Prepare replacement did not return after release")
 	}
 }

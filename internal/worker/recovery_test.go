@@ -421,7 +421,7 @@ collect:
 	cancel()
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("streamLocalJob did not return after ctx cancel")
 	}
 }

@@ -15,6 +15,7 @@ import (
 
 	pty "github.com/gookit/gopty"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // recorder captures session events (state transitions + teardown steps) in order.
@@ -249,7 +250,11 @@ func waitForState(t *testing.T, s *PtySession, state string, d time.Duration) {
 
 func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(d)
+	// Success-path wait (G052): at least 10s, scaled, so a loaded run does not fail.
+	if d < 10*time.Second {
+		d = 10 * time.Second
+	}
+	deadline := time.Now().Add(wait.Timeout(t, d))
 	for time.Now().Before(deadline) {
 		if cond() {
 			return

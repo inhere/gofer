@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // liveCount returns the number of entries currently tracked in the in-memory
@@ -153,7 +154,7 @@ func TestWaitAfterEviction(t *testing.T) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatalf("Wait on evicted job blocked instead of returning the terminal snapshot")
 	}
 	if !ok || got.Status != StatusDone || got.ID != final.ID {

@@ -9,6 +9,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -73,7 +74,7 @@ func TestHalfOpenDetection(t *testing.T) {
 		if err == nil || err.Error() != "worker disconnected" {
 			t.Fatalf("OnDisconnect err = %v, want 'worker disconnected'", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("half-open not detected within the read-deadline window")
 	}
 	// The worker must be evicted from the registry.
@@ -114,7 +115,7 @@ func TestRecoverWindowZeroKeepsOldBehaviour(t *testing.T) {
 		if err != errWorkerDisconnected {
 			t.Fatalf("OnDisconnect err = %v, want errWorkerDisconnected", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("in-flight job not failed on worker disconnect")
 	}
 	if got := sink.snapshot(); len(got) != 1 || got[0] != "disconnect:worker disconnected" {
@@ -287,7 +288,7 @@ func TestRestartReplacementFailsInFlightJob(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected a non-nil worker-lost error for the orphaned job")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("restart replacement did not fail the orphaned in-flight job (z8ow regression)")
 	}
 }
@@ -348,7 +349,7 @@ func TestMultiWorkerRouting(t *testing.T) {
 	}
 
 	// w1 must receive the dispatch.
-	rctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
+	rctx, rcancel := context.WithTimeout(ctx, wait.Timeout(t, 5*time.Second))
 	defer rcancel()
 	env, err := readEnvelope(rctx, conn1)
 	if err != nil {

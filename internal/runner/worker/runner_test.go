@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -249,7 +250,7 @@ func TestRunSinkLifecycle(t *testing.T) {
 
 	// Wait for the sink to be registered, then feed a log + result.
 	var sink wshub.JobSink
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) {
 		if sink = h.getSink(); sink != nil {
 			break
@@ -267,7 +268,7 @@ func TestRunSinkLifecycle(t *testing.T) {
 		if res.ExitCode != 0 || res.Err != nil {
 			t.Fatalf("expected done result, got %+v", res)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return after Finish")
 	}
 
@@ -290,7 +291,7 @@ func runToResultWithWorker(t *testing.T, r *Runner, h *fakeHub, f *runner.Forwar
 	go func() {
 		done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: f})
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -301,7 +302,7 @@ func runToResultWithWorker(t *testing.T, r *Runner, h *fakeHub, f *runner.Forwar
 	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return after Finish")
 	}
 	return h.target()
@@ -371,7 +372,7 @@ func TestRunInteractiveIssuesRelayNonceAndPreparesRegistry(t *testing.T) {
 			},
 		})
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -385,7 +386,7 @@ func TestRunInteractiveIssuesRelayNonceAndPreparesRegistry(t *testing.T) {
 		if res.ExitCode != 0 || res.Err != nil {
 			t.Fatalf("result = %+v, want clean done", res)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return after Finish")
 	}
 
@@ -428,7 +429,7 @@ func TestRunInteractiveClosesRelayOnWorkerLostAndCancel(t *testing.T) {
 				JobID: "j1", Forward: &runner.Forward{WorkerID: "w1", Interactive: true},
 			})
 		}()
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 		for time.Now().Before(deadline) && h.getSink() == nil {
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -439,7 +440,7 @@ func TestRunInteractiveClosesRelayOnWorkerLostAndCancel(t *testing.T) {
 		sink.OnDisconnect(errors.New("worker disconnected"))
 		select {
 		case <-done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(wait.Timeout(t, 5*time.Second)):
 			t.Fatal("Run did not return on worker-lost")
 		}
 		if got := relays.closedSnapshot(); len(got) != 1 || got[0] != "j1:worker_lost" {
@@ -461,7 +462,7 @@ func TestRunInteractiveClosesRelayOnWorkerLostAndCancel(t *testing.T) {
 				JobID: "j1", Forward: &runner.Forward{WorkerID: "w1", Interactive: true},
 			})
 		}()
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 		for time.Now().Before(deadline) && h.getSink() == nil {
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -471,7 +472,7 @@ func TestRunInteractiveClosesRelayOnWorkerLostAndCancel(t *testing.T) {
 		cancel()
 		select {
 		case <-done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(wait.Timeout(t, 5*time.Second)):
 			t.Fatal("Run did not return on cancel")
 		}
 		if got := relays.closedSnapshot(); len(got) != 1 || got[0] != "j1:cancelled" {
@@ -499,7 +500,7 @@ func TestRunInteractiveDispatchCarriesPtySessionID(t *testing.T) {
 				Forward: &runner.Forward{WorkerID: "w-selected", Interactive: true},
 			})
 		}()
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 		for time.Now().Before(deadline) && h.getSink() == nil {
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -510,7 +511,7 @@ func TestRunInteractiveDispatchCarriesPtySessionID(t *testing.T) {
 		sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
 		select {
 		case <-done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(wait.Timeout(t, 5*time.Second)):
 			t.Fatal("Run did not return after Finish")
 		}
 
@@ -536,7 +537,7 @@ func TestRunInteractiveDispatchCarriesPtySessionID(t *testing.T) {
 		go func() {
 			done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
 		}()
-		deadline := time.Now().Add(2 * time.Second)
+		deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 		for time.Now().Before(deadline) && h.getSink() == nil {
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -547,7 +548,7 @@ func TestRunInteractiveDispatchCarriesPtySessionID(t *testing.T) {
 		sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
 		select {
 		case <-done:
-		case <-time.After(2 * time.Second):
+		case <-time.After(wait.Timeout(t, 5*time.Second)):
 			t.Fatal("Run did not return after Finish")
 		}
 		if got := h.dispatchedFrame().PtySessionID; got != "" {
@@ -568,7 +569,7 @@ func TestRunNonInteractiveDoesNotIssueRelayNonce(t *testing.T) {
 	go func() {
 		done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -582,7 +583,7 @@ func TestRunNonInteractiveDoesNotIssueRelayNonce(t *testing.T) {
 		if res.ExitCode != 0 || res.Err != nil {
 			t.Fatalf("result = %+v, want clean done", res)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return after Finish")
 	}
 	if got := h.dispatchedFrame().RelayNonce; got != "" {
@@ -619,7 +620,7 @@ func TestRunResultMapping(t *testing.T) {
 				done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
 			}()
 			// Wait for registration then finish.
-			deadline := time.Now().Add(2 * time.Second)
+			deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 			for time.Now().Before(deadline) && h.getSink() == nil {
 				time.Sleep(5 * time.Millisecond)
 			}
@@ -645,7 +646,7 @@ func TestRunOutcomeReturned(t *testing.T) {
 	go func() {
 		done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -684,7 +685,7 @@ func TestRunOutcomeReturned(t *testing.T) {
 		if o.Source != "worker:w1" {
 			t.Fatalf("source = %q, want worker:w1", o.Source)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return after Finish")
 	}
 }
@@ -699,7 +700,7 @@ func TestRunNoOutcomeFrame(t *testing.T) {
 	go func() {
 		done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -717,7 +718,7 @@ func TestRunNoOutcomeFrame(t *testing.T) {
 		if res.ExitCode != 0 || res.Err != nil {
 			t.Fatalf("result = %+v, want clean done", res)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return after Finish")
 	}
 }
@@ -731,7 +732,7 @@ func TestRunCtxCancel(t *testing.T) {
 		done <- r.Run(ctx, runner.Request{JobID: "j1", Forward: &runner.Forward{}})
 	}()
 	// Cancel without ever delivering a result.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -741,7 +742,7 @@ func TestRunCtxCancel(t *testing.T) {
 		if res.Err == nil {
 			t.Fatal("ctx cancel should surface an error")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return on ctx cancel")
 	}
 }
@@ -777,14 +778,14 @@ func TestRunCtxCancelRecordsUndeliveredCancel(t *testing.T) {
 					},
 				})
 			}()
-			deadline := time.Now().Add(2 * time.Second)
+			deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 			for time.Now().Before(deadline) && h.getSink() == nil {
 				time.Sleep(5 * time.Millisecond)
 			}
 			cancel()
 			select {
 			case <-done:
-			case <-time.After(2 * time.Second):
+			case <-time.After(wait.Timeout(t, 5*time.Second)):
 				t.Fatal("Run did not return on ctx cancel")
 			}
 			if len(events) != tc.want {
@@ -825,7 +826,7 @@ func TestRunWorkerLostFailsJob(t *testing.T) {
 		done <- r.Run(ctx, runner.Request{JobID: "j1", Forward: &runner.Forward{}})
 	}()
 	// Wait for the sink to register, then signal worker-lost.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -846,7 +847,7 @@ func TestRunWorkerLostFailsJob(t *testing.T) {
 		if ctx.Err() != nil {
 			t.Fatalf("ctx must stay live so classify maps to failed (got %v)", ctx.Err())
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return on worker-lost")
 	}
 	// No cancel frame should be sent (the worker is gone, not cancelled).
@@ -1040,7 +1041,7 @@ func TestBridgeAnswerRoundTrip(t *testing.T) {
 
 	select {
 	case <-answered:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("answer was never forwarded")
 	}
 	mu.Lock()
@@ -1108,7 +1109,7 @@ func newInteractiveRunner(h dispatcher, relays relayPreparer) *Runner {
 // waitForSink blocks until the runner registered its sink (or fails the test).
 func waitForSink(t *testing.T, h *fakeHub) wshub.JobSink {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -1148,7 +1149,7 @@ func TestRunInteractiveWaitsRelayDoneBeforeResult(t *testing.T) {
 		if res.ExitCode != 0 || res.Err != nil {
 			t.Fatalf("result = %+v, want clean done", res)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return after relay Done closed")
 	}
 }
@@ -1174,7 +1175,7 @@ func TestRunInteractivePendingDoneReturnsImmediately(t *testing.T) {
 		if res.ExitCode != 0 || res.Err != nil {
 			t.Fatalf("result = %+v, want immediate clean done", res)
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
 		t.Fatal("interactive Run with pre-closed Done did not return immediately")
 	}
 }
@@ -1203,7 +1204,7 @@ func TestRunInteractiveGraceFallback(t *testing.T) {
 		if res.ExitCode != 0 || res.Err != nil {
 			t.Fatalf("result = %+v, want clean done after grace", res)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return via grace fallback")
 	}
 }
@@ -1240,7 +1241,7 @@ func TestRunInteractiveCancelWaitsRelayDone(t *testing.T) {
 		if res.Err == nil {
 			t.Fatal("cancel should surface ctx.Err")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return after relay Done closed on cancel")
 	}
 	if got := relays.closedSnapshot(); len(got) != 1 || got[0] != "j1:cancelled" {
@@ -1262,14 +1263,14 @@ func TestRunInteractiveCancelResolvesOnWorkerLost(t *testing.T) {
 	}()
 	sink := waitForSink(t, h)
 	cancel()
-	time.Sleep(50 * time.Millisecond) // let Run enter the 3-way wait
+	time.Sleep(wait.Timeout(t, 50*time.Millisecond)) // let Run enter the 3-way wait
 	sink.OnDisconnect(errors.New("worker disconnected"))
 	select {
 	case res := <-done:
 		if res.Err == nil {
 			t.Fatal("cancel should surface ctx.Err")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not resolve on worker-lost during cancel drain-wait")
 	}
 }
@@ -1292,7 +1293,7 @@ func TestRunNonInteractiveIgnoresRelayDone(t *testing.T) {
 		if res.ExitCode != 0 || res.Err != nil {
 			t.Fatalf("result = %+v, want immediate clean done", res)
 		}
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(wait.Timeout(t, 2*time.Second)):
 		t.Fatal("non-interactive Run waited on relay Done (must return immediately)")
 	}
 }
@@ -1307,14 +1308,14 @@ func TestRunCtxCancelSendsCancelFrame(t *testing.T) {
 	go func() {
 		done <- r.Run(ctx, runner.Request{JobID: "j1", Forward: &runner.Forward{}})
 	}()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
 	for time.Now().Before(deadline) && h.getSink() == nil {
 		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return on ctx cancel")
 	}
 	if h.cancelCount() != 1 {

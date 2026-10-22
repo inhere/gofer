@@ -8,6 +8,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -127,7 +128,7 @@ func TestSameInstanceReconnectResumesJob(t *testing.T) {
 	}
 	select {
 	case <-sink.resumed:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("job not resumed on a same-instance reconnect")
 	}
 	// The sink must now be attached to the NEW connection: a log frame there reaches it.
@@ -193,7 +194,7 @@ func TestNewInstanceFailsRecoveringImmediately(t *testing.T) {
 		if err != errWorkerLost {
 			t.Fatalf("OnDisconnect err = %v, want errWorkerLost", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("new instance did not fail the recovering job immediately")
 	}
 }
@@ -232,7 +233,7 @@ func TestLegacyWorkerFrameResumesWithinWindow(t *testing.T) {
 	}
 	select {
 	case <-sink.resumed:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("a frame within the window did not resume the job")
 	}
 	waitFor(t, func() bool {
@@ -279,7 +280,7 @@ func TestSuspendAttachesSinksToLiveReconnect(t *testing.T) {
 	hub.markLive(live, "j1")
 	select {
 	case <-sink.resumed:
-	case <-time.After(time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("frame on the live reconnect did not resume the job")
 	}
 	hub.recMu.Lock()
@@ -317,9 +318,9 @@ func TestCancelDuringRecoveringDelivered(t *testing.T) {
 
 	// The deferred cancel must arrive on the new connection (frame order vs. the
 	// resume is irrelevant; the hub may interleave a heartbeat ping).
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 3*time.Second))
 	for time.Now().Before(deadline) {
-		rctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
+		rctx, rcancel := context.WithTimeout(ctx, wait.Timeout(t, 5*time.Second))
 		env, err := readEnvelope(rctx, conn)
 		rcancel()
 		if err != nil {
@@ -392,9 +393,9 @@ func TestCancelFrameRetriedWhenWriteFails(t *testing.T) {
 	if len(ack.Resume) != 1 || ack.Resume[0].JobID != "j1" {
 		t.Fatalf("ack.Resume = %+v, want [j1]", ack.Resume)
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(wait.Timeout(t, 3*time.Second))
 	for time.Now().Before(deadline) {
-		rctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
+		rctx, rcancel := context.WithTimeout(ctx, wait.Timeout(t, 5*time.Second))
 		env, err := readEnvelope(rctx, conn2)
 		rcancel()
 		if err != nil {

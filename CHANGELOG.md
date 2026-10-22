@@ -14,6 +14,7 @@
 ### 修复
 
 - **钉钉 / 飞书返回 HTTP 200 + 业务错误码时不再当成送达（gofer-map1）**：两家机器人在拒绝消息时仍回 200，真正结果在响应体的 `errcode` / `code` / `StatusCode` 里。gofer 现在解析它，非 0 即投递失败，并把机器人返回的错误原文写进投递记录的 `last_error`、serve 日志和 web 投递记录（以前一律记 `delivered`，用户没收到也看不出来）。重试口径：关键词不匹配、签名错误、token 失效这类永久错误（钉钉 310000 / 300001，飞书 19001 / 19021 / 19024）**首次即 failed 不重试**，限流（钉钉 130101、飞书 11232）与其他未知错误仍按原退避重试。generic webhook 仍只看 HTTP 状态。
+- **测试里写死的短等待统一改成随负载伸缩的时间窗（G052）**：发版前五路并行验证（主机负载高）暴露的「偶发失败」都是测试自带的固定阈值太紧——`select` 里 1–2s 的 `time.After` 等 goroutine 返回、`waitFor` / `waitForStatus` / `eventuallyTrue` 等 helper 里硬编码 2s、`context.WithTimeout` 的 400–500ms 读窗口、会话 per-turn 预算 3s 只比等待长 200ms。现在这些成功路径的等待都经 `internal/testutil/wait`（随 `GOFER_TEST_TIMEOUT_SCALE` 伸缩），断言「应当超时 / 不该发生」的负向窗口保持短。只改测试，不改生产行为。
 
 ### 新增
 

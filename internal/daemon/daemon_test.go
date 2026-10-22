@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 func TestDaemonized(t *testing.T) {
@@ -158,7 +160,7 @@ func TestTerminateDeliversToSelf(t *testing.T) {
 	}
 	select {
 	case <-ch:
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Terminate(self) delivered nothing to NotifyStop within 2s")
 	}
 }

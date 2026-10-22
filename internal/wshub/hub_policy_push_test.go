@@ -10,6 +10,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -90,7 +91,7 @@ func TestRegisterCatchUpPolicy(t *testing.T) {
 
 	// The catch-up push after Put must deliver N+1 — a bounded read so the falsification
 	// (no catch-up ⇒ no frame) fails instead of hanging.
-	readCtx, readCancel := context.WithTimeout(ctx, 2*time.Second)
+	readCtx, readCancel := context.WithTimeout(ctx, wait.Timeout(t, 5*time.Second))
 	defer readCancel()
 	if got := readNextPolicy(t, readCtx, conn); got.Rev != base+1 {
 		t.Fatalf("catch-up policy rev = %d, want %d (worker never converged past the ack rev)", got.Rev, base+1)
@@ -227,7 +228,7 @@ func TestPolicyRepushWhenNotApplied(t *testing.T) {
 	}
 	// Deliberately drop the ack without sending Applied. The hub must retry the
 	// same current revision while the connection remains online.
-	readCtx, readCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	readCtx, readCancel := context.WithTimeout(ctx, wait.Timeout(t, 2*time.Second))
 	defer readCancel()
 	if got := readNextPolicy(t, readCtx, conn); got.Rev != 9 {
 		t.Fatalf("repushed policy rev = %d, want 9", got.Rev)

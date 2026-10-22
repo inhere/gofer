@@ -38,14 +38,16 @@ func waitSessionStatus(t *testing.T, s *Service, id, status string, timeout time
 
 func TestSessionJobTimeoutAppliesPerTurn(t *testing.T) {
 	s := newACPService(t, t.TempDir(), acptest.Options{})
-	// The per-turn budget must cover a whole turn on a loaded machine (1s did not);
-	// the wait below then outlasts it while the session merely awaits input.
-	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "first", Session: true, TimeoutSec: 3, IdleTimeoutSec: 10})
+	// The per-turn budget must cover a whole turn on a loaded machine (1s did not, 3s
+	// still left only a 200ms margin over the wait below); the scaled wait below then
+	// outlasts it while the session merely awaits input.
+	budget := int(wait.Timeout(t, 6*time.Second) / time.Second)
+	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "first", Session: true, TimeoutSec: budget, IdleTimeoutSec: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitSessionStatus(t, s, first.ID, StatusAwaitingInput, 5*time.Second)
-	time.Sleep(3200 * time.Millisecond)
+	time.Sleep(wait.Timeout(t, 6500*time.Millisecond))
 	current, _ := s.Get(first.ID)
 	if current.Status != StatusAwaitingInput {
 		t.Fatalf("waiting input consumed per-turn timeout: %s error=%s", current.Status, current.Error)

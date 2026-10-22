@@ -27,6 +27,7 @@ import (
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	workerrunner "github.com/inhere/gofer/internal/runner/worker"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/xfer"
@@ -615,7 +616,7 @@ func TestE2EWorkerIDBindingMismatch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Run after cancel returned err: %v", err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
 		t.Fatal("Run did not return after ctx cancel")
 	}
 }
