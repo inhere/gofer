@@ -1,6 +1,6 @@
 # 信箱第三期：`agent:` 地址与主机 agent 收件 设计
 
-> issue: gofer-utyo ｜ 状态：草案 0.1（待批）｜ 2026-10-22
+> issue: gofer-utyo ｜ 状态：0.2 已批准（2026-10-22，按推荐）｜ 2026-10-22
 > 基于：`docs/design/2026-10-16-session-topics-mailbox-and-inbox-design.md`（「分期」第三期）、`docs/design/2026-10-22-mail-broadcast-design.md`
 
 ## 背景
@@ -85,8 +85,8 @@ mail:
 - CLI：`gofer session mail agents`（列出），`gofer session mail send --to agent:suga "…"`。
 - MCP：发信工具的地址说明里加上 `agent:`。
 
-## 待定（请批）
+## 已定（2026-10-22 用户批准，按推荐）
 
-1. **`agent:` 只投递 gofer 管理的常驻会话，不挑用户的终端会话**（推荐）。另一种做法是优先找该 agent 正在运行的终端会话，但用户的终端会话可能正在做别的事，被插进一封信会打断它。
-2. **常驻会话重启时续接上一次的上下文**（推荐，agent 支持时；轮换时开新会话）。另一种做法是每次都开新会话，更干净但丢失前情。
-3. **默认项目取发件方所在的项目**（推荐），需要跨项目时写 `agent:<名字>@<项目>`。
+1. `agent:` 只投递 gofer 管理的常驻会话，不挑用户的终端会话（发给终端会话用 `session:`）。
+2. 常驻会话重启时续接上一次的上下文（agent 支持 `loadSession` 时）；轮换时开新会话。
+3. 默认项目取发件方所在的项目，跨项目写 `agent:<名字>@<项目>`。
