@@ -573,7 +573,9 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by, origin string, all
 	// D4 auto: type only into an input area the agent's rules confirm is EMPTY. A
 	// person halfway through typing, or a question dialog whose Enter would answer for
 	// them, leaves the message in the mailbox for the next hook instead (D5 hold).
-	if a.InjectMode != jobstore.InjectModeForce {
+	// Only when path A is actually about to run: a session with no pane (or no runner)
+	// has nothing to capture and must report no_tmux / no_runner, not hold.
+	if a.InjectMode != jobstore.InjectModeForce && strings.TrimSpace(a.TmuxPane) != "" && strings.TrimSpace(a.Runner) != "" {
 		if rules := s.injectGuardFor(a.Agent); !rules.IsZero() {
 			if verdict, _ := s.probeInjectGuard(ctx, a, origin); verdict != GuardEmpty {
 				return s.holdMessage(a, text, by, guardReason(verdict))

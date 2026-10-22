@@ -49,8 +49,9 @@ func TestWorkbenchRelayTurnWithAttachmentsOnLadder(t *testing.T) {
 	if _, err := os.Stat(matches[0]); err != nil {
 		t.Fatal(err)
 	}
-	// One line: "see [附图 1] <path>" — a newline would be typed as a separate Enter.
-	if len(inj.reqs) != 1 || !strings.Contains(strings.Join(inj.reqs[0].Cmd, " "), "-l -- '[来自 web 回复，default] see [附图 1] "+matches[0]+"'") {
+	// One line: "see [附图 1] <path>" — the whole message is pasted as ONE input, so a
+	// newline inside it would not be submitted separately (design 2026-10-22 D3).
+	if len(inj.reqs) != 1 || !strings.Contains(strings.Join(inj.reqs[0].Cmd, " "), "'[来自 web 回复，default] see [附图 1] "+matches[0]+"'") {
 		t.Fatalf("typed text lacks the one-line image path %q: %+v", matches[0], inj.reqs)
 	}
 	rec, _, _ := f.s.jobs.Meta().GetAttachment(id)
