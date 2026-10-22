@@ -26,31 +26,37 @@ jobs:
       fail-fast: false
       # Every package runs on every leg; the shards only decide which runner runs
       # what, assigned by .github/scripts/ci_shard.py from measured package times
-      # so the shards of one leg cost about the same. Windows needs the most
-      # shards (its runners are the slowest of the three), so it is cut into 6;
-      # ubuntu into 2 (one of them also carries the shuffle guard below); macOS
-      # stays whole in one job per Go version - macOS runners are the scarcest
-      # resource here, so splitting further would only queue longer.
+      # so the shards of one leg cost about the same. The goal is few runners, not
+      # many: each extra leg is another job that can wait for a free runner, and a
+      # run of 18 legs spent ~3 minutes of its wall clock in the queue.
+      #
+      # Ubuntu carries both Go versions (that leg is where a version difference
+      # shows up); Windows and macOS run `stable` only - the released binaries are
+      # built with it, platform differences are independent of the Go version, and
+      # "Windows + older Go" is covered by the local Windows full run before a
+      # release (AGENTS.md G055). Dropping the 1.26 Windows/macOS legs alone halves
+      # the job count.
+      #
+      # Shard counts (10 legs in total): ubuntu 2 per Go version, windows 5, macOS
+      # whole in one job - macOS runners are the scarcest resource here.
+      # `internal/commands` must not share a shard (the script's EXCLUSIVE): it
+      # keeps package-level flag globals and has many timing-sensitive tests, and
+      # every package it shared with made it slower. 5 windows shards is the count
+      # where no other shard's modelled cost exceeds the commands shard (370s):
+      # the other packages need ~1160s, and 3 shards for them (388s each) would
+      # already be longer than that.
       matrix:
         include:
           - { go_version: "1.26", os: ubuntu-latest, shard: 1, shards: 2 }
           - { go_version: "1.26", os: ubuntu-latest, shard: 2, shards: 2 }
           - { go_version: stable, os: ubuntu-latest, shard: 1, shards: 2 }
           - { go_version: stable, os: ubuntu-latest, shard: 2, shards: 2 }
-          - { go_version: "1.26", os: macos-latest, shard: 1, shards: 1 }
           - { go_version: stable, os: macos-latest, shard: 1, shards: 1 }
-          - { go_version: "1.26", os: windows-latest, shard: 1, shards: 6 }
-          - { go_version: "1.26", os: windows-latest, shard: 2, shards: 6 }
-          - { go_version: "1.26", os: windows-latest, shard: 3, shards: 6 }
-          - { go_version: "1.26", os: windows-latest, shard: 4, shards: 6 }
-          - { go_version: "1.26", os: windows-latest, shard: 5, shards: 6 }
-          - { go_version: "1.26", os: windows-latest, shard: 6, shards: 6 }
-          - { go_version: stable, os: windows-latest, shard: 1, shards: 6 }
-          - { go_version: stable, os: windows-latest, shard: 2, shards: 6 }
-          - { go_version: stable, os: windows-latest, shard: 3, shards: 6 }
-          - { go_version: stable, os: windows-latest, shard: 4, shards: 6 }
-          - { go_version: stable, os: windows-latest, shard: 5, shards: 6 }
-          - { go_version: stable, os: windows-latest, shard: 6, shards: 6 }
+          - { go_version: stable, os: windows-latest, shard: 1, shards: 5 }
+          - { go_version: stable, os: windows-latest, shard: 2, shards: 5 }
+          - { go_version: stable, os: windows-latest, shard: 3, shards: 5 }
+          - { go_version: stable, os: windows-latest, shard: 4, shards: 5 }
+          - { go_version: stable, os: windows-latest, shard: 5, shards: 5 }
 
     steps:
       - name: Check out code
@@ -121,7 +127,9 @@ jobs:
 
       # Order guard (gofer-r7am, D class): commands tests share package-level flag
       # structs; a random order exposes any test that leaks state into the next.
-      # One ubuntu shard per Go version carries it, as before.
+      # It runs on the ubuntu shard that holds nothing but `internal/commands`
+      # (EXCLUSIVE in the shard script), so it is never measured next to another
+      # package there - the reason that package is isolated in the first place.
       - name: Run commands tests in shuffled order
         if: ${{ matrix.os == 'ubuntu-latest' && matrix.shard == 1 }}
         run: go test -timeout 20m -shuffle=on ./internal/commands/
