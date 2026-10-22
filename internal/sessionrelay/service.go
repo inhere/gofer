@@ -1237,6 +1237,12 @@ func (s *Service) List(opts jobstore.ListSessionsOpts) ([]jobstore.AgentSession,
 	return s.store.ListAgentSessions(opts)
 }
 
+// InternalSessions reports which of ids are gofer-internal sessions (the ones the list
+// hides): the find path ranks sessions before the list's WHERE could drop them.
+func (s *Service) InternalSessions(ids []string) (map[string]bool, error) {
+	return s.store.InternalAgentSessions(ids)
+}
+
 // Resolve picks the session `gofer session relay on` (run without --session)
 // means: the live sessions whose cwd equals or contains cwd, most recent first.
 // The caller disambiguates when more than one comes back.

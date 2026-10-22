@@ -1023,6 +1023,18 @@ var schemaStmts = []string{
   cause        TEXT NOT NULL DEFAULT '',
   error        TEXT NOT NULL DEFAULT ''
 )`,
+	// summarizer_sessions is the tidy-up's own session book (gofer-ayu0): one row per
+	// project remembers the agent session the summarizer reuses, how many tidy-ups it
+	// has served and when it was opened, so the rotation can be decided without reading
+	// the job table.
+	`CREATE TABLE IF NOT EXISTS summarizer_sessions (
+  project_key  TEXT PRIMARY KEY,
+  session_id   TEXT NOT NULL DEFAULT '',
+  last_job_id  TEXT NOT NULL DEFAULT '',
+  runs         INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL DEFAULT 0,
+  updated_at   INTEGER NOT NULL DEFAULT 0
+)`,
 	// audit_events is the append-only audit trail for destructive actions on things that
 	// stop existing (N1 §A, eb2k): kind (e.g. work.deleted), the target's id, the actor and
 	// the time. It never holds titles or content - the row outlives the thing it describes.

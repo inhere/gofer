@@ -77,7 +77,7 @@ func NewSessionCmd() *gcli.Command {
 					c.StrOpt(&sessionListOpts.project, "project", "p", "", "filter by project key")
 					c.StrOpt(&sessionListOpts.state, "state", "", "", "filter by state: running|idle|waiting_reply|needs_attention|ended|offline")
 					c.StrOpt(&sessionListOpts.agent, "agent", "a", "", "filter by agent: claude|codex|omp|jcode")
-					c.BoolOpt(&sessionListOpts.all, "all", "", false, "include ended sessions and the offline ones silent for more than 5 days (hidden by default)")
+					c.BoolOpt(&sessionListOpts.all, "all", "", false, "include ended sessions, the offline ones silent for more than 5 days, and the internal sessions of gofer's own jobs (hidden by default)")
 					c.BoolOpt(&sessionListOpts.long, "long", "l", false, "show the full session id (default: the shortest prefix, at least 8 chars, that tells the listed sessions apart)")
 					c.IntOpt(&sessionListOpts.limit, "limit", "", 0, "max rows (default 200)")
 				},
@@ -280,7 +280,7 @@ func runSessionList(c *gcli.Command, _ []string) error {
 	}
 	list, err := cli.ListSessions(client.SessionListOpts{
 		Project: sessionListOpts.project, State: sessionListOpts.state, Agent: sessionListOpts.agent,
-		IncludeEnded: sessionListOpts.all, Limit: sessionListOpts.limit,
+		IncludeEnded: sessionListOpts.all, IncludeInternal: sessionListOpts.all, Limit: sessionListOpts.limit,
 	})
 	if err != nil {
 		return err

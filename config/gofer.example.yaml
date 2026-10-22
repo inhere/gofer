@@ -308,6 +308,8 @@ server:
 #   summarizer_agent: claude  # 整理器：必须是已安装、带只读模式的 cli-agent(claude / codex 内置，其他 agent 要配 read_only_args)；不可用时自动整理关闭
 #   summarizer_args: ["--model", "haiku", "--tools", "", "--no-session-persistence"]   # 额外参数；默认值只适用于 claude(便宜模型 + 不带工具)，换 agent 时自己写
 #   summarizer_project: ""    # 整理 job 在哪个项目里跑(须允许该 agent + 本机 runner)；缺省 = 工作项自己的项目，否则用 default 项目(~/.gofer/workspace，配置没声明时 server 内置一个)
+#   summarizer_session_max_runs: 20    # 整理器每个项目只复用同一个 agent 会话；这个会话累计整理这么多次后换新的(负数 = 不按次数轮换)
+#   summarizer_session_max_age: 24h    # 该会话存在超过这么久也换新的
 #   summarize_enabled: true   # false = 只保留手动「整理」，不自动整理
 #   summarize_idle_min: 15    # 会话空闲(idle / waiting_reply)多久后整理；offline / ended 立即整理(有新活动才整理)
 #   summarize_min_interval_min: 30   # 同一会话两次整理的最小间隔

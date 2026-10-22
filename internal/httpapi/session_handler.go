@@ -580,6 +580,9 @@ func (s *Server) handleListSessions(c *rux.Context) {
 		return
 	}
 	opts.IncludeEnded = c.Query("all") == "1" || c.Query("all") == "true"
+	// The sessions gofer's own jobs leave behind (the work summarizer's) are internal and
+	// hidden by default; all=1 or internal=1 asks for them too.
+	opts.IncludeInternal = opts.IncludeEnded || c.Query("internal") == "1"
 	if l, err := strconv.Atoi(c.Query("limit")); err == nil {
 		opts.Limit = l
 	}
@@ -1265,6 +1268,23 @@ func (s *Server) findSessions(c *rux.Context, opts jobstore.ListSessionsOpts, q,
 	if err != nil {
 		writeError(c, relayStatus(err), "find sessions failed", err.Error())
 		return
+	}
+	// The summarizer's sessions are internal too: find ranks before the list's WHERE could
+	// drop them, so they are asked about afterwards (all=1 / internal=1 asks for them).
+	if !opts.IncludeInternal && len(res) > 0 {
+		ids := make([]string, 0, len(res))
+		for _, r := range res {
+			ids = append(ids, r.Session.SessionID)
+		}
+		if hidden, herr := s.relay.InternalSessions(ids); herr == nil && len(hidden) > 0 {
+			kept := res[:0]
+			for _, r := range res {
+				if !hidden[r.Session.SessionID] {
+					kept = append(kept, r)
+				}
+			}
+			res = kept
+		}
 	}
 	out := make([]sessionFindView, 0, len(res))
 	for _, r := range res {

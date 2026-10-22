@@ -80,10 +80,39 @@ type OneShotRequest struct {
 	Origin string
 }
 
+// ResumeRequest continues the agent session of the project's previous summarizer job
+// instead of opening a new one (the same seam `job resume` uses).
+type ResumeRequest struct {
+	// JobID is the earlier summarizer job whose session is continued.
+	JobID      string
+	Prompt     string
+	ProjectKey string
+	Title      string
+	TimeoutSec int
+	Origin     string
+}
+
+// SessionKeeper is the optional second face of a OneShot: whether a finished summarizer
+// job's agent session can be continued (the agent has a session_resume template). Only
+// then does the project keep ONE session instead of opening one per tidy-up; every other
+// agent keeps the old behaviour.
+type SessionKeeper interface {
+	CanContinueSession(agent string) bool
+}
+
+// SessionResumer is the optional third face of a OneShot: continue the agent session of
+// a previous summarizer job (the entry layer adapts job.Service.ResumeJob).
+type SessionResumer interface {
+	Resume(ctx context.Context, r ResumeRequest) (OneShotResult, error)
+}
+
 // OneShotResult is what the job produced.
 type OneShotResult struct {
-	JobID  string
-	Output string
+	JobID string
+	// SessionID is the agent session the job ran in (injected or captured by the job
+	// layer); recorded so the next tidy-up knows what it is continuing.
+	SessionID string
+	Output    string
 }
 
 // OneShot runs the summarizer job (the entry layer adapts job.Service).
@@ -379,35 +408,55 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	material, degraded := s.gatherMaterial(ctx, w, a)
 	res.Degraded = degraded
 	project, _ := s.resolveProject(c, agentName, w.ProjectKey, a.ProjectKey)
-	req := OneShotRequest{
-		Agent: agentName, Args: c.SummarizerArgsOrDefault(), ProjectKey: project,
-		Prompt: s.buildPrompt(w, material, degraded), Title: "work summarizer · " + shortID(w.ID),
-		TimeoutSec: int(summarizeTimeout / time.Second), Origin: o.Origin,
+	// gofer-ayu0: one agent session per project, continued by every tidy-up, rotated by
+	// count / age. An agent whose session cannot be continued keeps the old behaviour.
+	canResume := false
+	if keeper, ok := s.oneShot.(SessionKeeper); ok {
+		canResume = keeper.CanContinueSession(agentName)
 	}
+	session, resumed := s.summarizerSession(project, c, canResume)
+	// One tidy-up at a time in a project: two runs sharing the session would interleave.
+	if !s.claimSession(summarizerProjectKey(project)) {
+		return fail("该项目的整理器会话已有整理在进行")
+	}
+	defer s.releaseSession(summarizerProjectKey(project))
+
+	title := "work summarizer · " + shortID(w.ID)
 	var out SummaryOut
-	var jobID string
+	var last OneShotResult
 	var perr error
-	for attempt := 0; attempt < 2; attempt++ {
-		r, rerr := s.oneShot.Run(ctx, req)
+	for round := 0; round < 2; round++ {
+		r, o2, rerr := s.runSummaryAttempt(ctx, w, material, degraded, agentName, c, project, title, session, resumed, o.Origin)
 		if r.JobID != "" {
-			jobID = r.JobID
+			last.JobID = r.JobID
 		}
-		if rerr != nil {
-			perr = rerr
+		if r.SessionID != "" {
+			last.SessionID = r.SessionID
+		}
+		if rerr == nil {
+			out, perr = o2, nil
 			break
 		}
-		out, perr = ParseSummary(r.Output)
-		if perr == nil {
-			break
+		if resumed && !errors.Is(rerr, errSummaryOutput) {
+			// The session cannot be continued (gone, or the agent refused): start a new
+			// one instead of failing the tidy-up, and record why.
+			s.resetSummarizerSession(project, agentName, rerr)
+			session, resumed = jobstore.SummarizerSession{
+				ProjectKey: project, CreatedAt: s.nowFn().Unix(), UpdatedAt: s.nowFn().Unix(),
+			}, false
+			continue
 		}
-		req.Prompt = s.buildPrompt(w, material, degraded) + "\n\n上一次的输出不是合法的 JSON。这一次只输出一个 JSON 对象，不要任何其它文字。"
+		perr = rerr
+		break
 	}
+	jobID := last.JobID
 	res.JobID = jobID
 	if perr != nil {
 		finish(jobstore.SummaryFailed, jobID, perr.Error())
 		s.journalSteward(w.ID, SummarizerBy(agentName), "整理失败："+perr.Error())
 		return fail("整理失败：" + perr.Error())
 	}
+	s.commitSummarizerSession(session, project, jobID, last.SessionID)
 	applied, suggested, hint := s.applySummary(w.ID, out, SummarizerBy(agentName), jobID)
 	res.Applied, res.Suggested, res.StatusHint, res.Confidence = applied, suggested, hint, out.Confidence
 	finish(jobstore.SummaryOK, jobID, "")
@@ -512,9 +561,13 @@ const summaryFormatSpec = `## 输出格式（固定，不可替换）
 // buildPrompt renders the summarizer prompt: the instruction (the prompt.work.summarizer
 // setting, else defaultSummarizerPrompt), the operator's extra block, the material, and the
 // fixed output format last. The material is data, so it keeps its own headings instead of
-// living in the replaceable instruction.
-func (s *Service) buildPrompt(w jobstore.WorkItem, material string, degraded bool) string {
+// living in the replaceable instruction. resumed says the run continues the project's
+// summarizer session, which opens with a note that the earlier tidy-ups are done with.
+func (s *Service) buildPrompt(w jobstore.WorkItem, material string, degraded, resumed bool) string {
 	var b strings.Builder
+	if resumed {
+		b.WriteString("【这是新的一件工作】忽略本会话之前整理过的其它工作项，只依据下面这一件的内容作答。\n\n")
+	}
 	b.WriteString(strings.TrimRight(s.promptText(settings.KeyPromptWorkSummarizer, settings.KeyPromptWorkSummarizerExtra, defaultSummarizerPrompt), "\n"))
 	b.WriteString("\n\n【工作项当前记录】\n")
 	fmt.Fprintf(&b, "标题：%s\n目标：%s\n状态：%s\n阻塞：%s\n下一步：%s\n摘要：%s\n\n",

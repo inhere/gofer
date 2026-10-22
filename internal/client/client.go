@@ -2735,7 +2735,10 @@ type TurnStatus struct {
 type SessionListOpts struct {
 	Project, State, Agent, Cwd string
 	IncludeEnded               bool
-	Limit                      int
+	// IncludeInternal also lists the sessions gofer's own jobs left behind (the work
+	// summarizer's); they are hidden by default.
+	IncludeInternal bool
+	Limit           int
 }
 
 // RegisterSession upserts an agent session (hook SessionStart / first contact).
@@ -2778,6 +2781,9 @@ func (c *Client) ListSessions(opts SessionListOpts) ([]AgentSession, error) {
 	}
 	if opts.IncludeEnded {
 		q.Set("all", "1")
+	}
+	if opts.IncludeInternal {
+		q.Set("internal", "1")
 	}
 	if opts.Limit > 0 {
 		q.Set("limit", strconv.Itoa(opts.Limit))
