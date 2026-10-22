@@ -470,6 +470,14 @@ func TestMailListFiltersAndPaging(t *testing.T) {
 	if err != nil || len(byTime) != 1 || byTime[0].ID != reply.ID {
 		t.Fatalf("by time err=%v list=%+v", err, byTime)
 	}
+	// BeforeID is the "older than this one" cursor of a paged conversation.
+	byCursor, err := f.store.ListMail(ListMailOpts{BeforeID: other.ID, OldestFirst: true})
+	if err != nil || len(byCursor) != 2 || byCursor[0].ID != first.ID || byCursor[1].ID != reply.ID {
+		t.Fatalf("before cursor err=%v list=%+v", err, byCursor)
+	}
+	if none, err := f.store.ListMail(ListMailOpts{BeforeID: first.ID}); err != nil || len(none) != 0 {
+		t.Fatalf("before the first letter err=%v list=%+v", err, none)
+	}
 	page, err := f.store.ListMail(ListMailOpts{Limit: 1, Offset: 1})
 	if err != nil || len(page) != 1 || page[0].ID != reply.ID {
 		t.Fatalf("page err=%v list=%+v", err, page)

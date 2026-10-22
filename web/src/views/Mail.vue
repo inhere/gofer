@@ -76,8 +76,19 @@ import {
   personaLabel,
   replyTarget,
   sortMailTimeline,
+  type MailTimelineQuery,
 } from '../utils/mailConversations'
 import { buildMinimapMarks, minimapBand, minimapScrollTopForPct, minimapVisible } from '../utils/mailMinimap'
+import {
+  MAIL_TIMELINE_PAGE,
+  oldestMailId,
+  scrollTopAfterPrepend,
+  timelineFirstPage,
+  timelineNearBottom,
+  timelinePage,
+  timelineWithNewest,
+  timelineWithOlder,
+} from '../utils/mailPaging'
 
 const route = useRoute()
 const router = useRouter()
@@ -103,6 +114,12 @@ const mobileDetail = ref(false)
 // 容器 ref 只在有对话时挂上，没挂上就保持 0。
 const timelineEl = ref<HTMLElement | null>(null)
 const timelineScroll = ref({ scrollTop: 0, clientHeight: 0, scrollHeight: 0 })
+// 时间线分页：打开对话只要最新的 MAIL_TIMELINE_PAGE 封，往上翻再取更早的一页。hasOlder 是
+// 服务端说的「还有更早的」；timelineKey 记住已加载的这一页属于哪个对话（刷新同一对话时只补
+// 最新的信，不重载已加载的页）。
+const hasOlder = ref(false)
+const loadingOlder = ref(false)
+const timelineKey = ref('')
 
 const filter = ref<MailFilter>(mailFilterFromQuery(route.query))
 const sessionFilter = ref(queryValue(route.query.session))
@@ -262,26 +279,106 @@ async function loadRows(): Promise<void> {
   rows.value = resp.conversations ?? []
 }
 
-async function loadTimeline(): Promise<void> {
-  const conv = active.value
-  if (!conv) {
-    timeline.value = []
-    return
-  }
-  const q = mailTimelineQuery(conv, filter.value)
-  const addressable = mailTimelineAddressable(q)
-  // 一端的地址没解析到人（topic: / path: 之类的待指派信）时服务端不许用 peer= / with=：
-  // 退回按对话 key 本地过滤。
-  const resp = await listMail({
+// timelineBase 是一个对话时间线的公共取数参数（分页只在它上面加 limit / before / order）。
+function timelineBase(q: MailTimelineQuery, addressable: boolean) {
+  return {
     box: q.box,
     state: q.state,
     peer: addressable ? q.peer : undefined,
     with: addressable ? q.with : undefined,
     session: sessionFilter.value || undefined,
-    limit: 200,
+  }
+}
+
+// loadTimeline 打开一个对话：只取最新的一页（旧在上、新在下），然后停在最底部。
+async function loadTimeline(): Promise<void> {
+  const conv = active.value
+  timelineKey.value = conv?.key ?? ''
+  if (!conv) {
+    timeline.value = []
+    hasOlder.value = false
+    return
+  }
+  const q = mailTimelineQuery(conv, filter.value)
+  const addressable = mailTimelineAddressable(q)
+  // 一端的地址没解析到人（topic: / path: 之类的待指派信）时服务端不许用 peer= / with=：
+  // 退回按对话 key 本地过滤（这种对话不服务端分页，一次取一页上限）。
+  const resp = await listMail({
+    ...timelineBase(q, addressable),
+    ...(addressable ? timelinePage() : { limit: 200 }),
   })
   const all = resp.mail ?? []
-  timeline.value = sortMailTimeline(addressable ? all : all.filter((m) => mailConversationKey(m) === q.key))
+  if (!addressable) {
+    timeline.value = sortMailTimeline(all.filter((m) => mailConversationKey(m) === q.key))
+    hasOlder.value = false
+    return
+  }
+  const pages = timelineFirstPage(all, !!resp.has_more)
+  timeline.value = pages.mails
+  hasOlder.value = pages.hasOlder
+  await scrollTimelineToBottom()
+}
+
+// loadOlder 取「比已加载最旧那封更早」的一页，插到上方；插入前后按 scrollHeight 的差值
+// 修正 scrollTop，正在读的那封信不会跟着往下跳。
+async function loadOlder(): Promise<void> {
+  const conv = active.value
+  if (!conv || loadingOlder.value || !hasOlder.value) return
+  const before = oldestMailId(timeline.value)
+  const q = mailTimelineQuery(conv, filter.value)
+  if (!before || !mailTimelineAddressable(q)) return
+  loadingOlder.value = true
+  const el = timelineEl.value
+  const prevTop = el?.scrollTop ?? 0
+  const prevHeight = el?.scrollHeight ?? 0
+  try {
+    const resp = await listMail({ ...timelineBase(q, true), ...timelinePage(MAIL_TIMELINE_PAGE, before) })
+    const pages = timelineWithOlder(
+      { mails: timeline.value, hasOlder: hasOlder.value },
+      resp.mail ?? [],
+      !!resp.has_more,
+    )
+    timeline.value = pages.mails
+    hasOlder.value = pages.hasOlder
+    await nextTick()
+    if (el) el.scrollTop = scrollTopAfterPrepend(prevTop, prevHeight, el.scrollHeight)
+    syncTimelineScroll()
+    // 翻出来的更早的信也是「打开对话就看得到的」：收到的未读同样算读过。
+    const unreadOlder = (resp.mail ?? []).some((m) => mailUnread(m) && !mailOutgoing(m, me.value))
+    if (unreadOlder) await ackUnread()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loadingOlder.value = false
+  }
+}
+
+// refreshTimeline 是同一对话的刷新 / 新信到达：只补最新的信，已加载的页不重取。
+async function refreshTimeline(): Promise<void> {
+  const conv = active.value
+  if (!conv) return
+  const q = mailTimelineQuery(conv, filter.value)
+  if (!mailTimelineAddressable(q)) {
+    await loadTimeline()
+    return
+  }
+  const el = timelineEl.value
+  const atBottom = el ? timelineNearBottom(el.scrollTop, el.clientHeight, el.scrollHeight) : true
+  const resp = await listMail({ ...timelineBase(q, true), ...timelinePage() })
+  const pages = timelineWithNewest({ mails: timeline.value, hasOlder: hasOlder.value }, resp.mail ?? [])
+  timeline.value = pages.mails
+  hasOlder.value = pages.hasOlder
+  // 正在往上翻历史时不把视图拽到底部；贴底看最新时才跟着走。
+  if (atBottom) await scrollTimelineToBottom()
+  else await refreshTimelineMetrics()
+}
+
+// scrollTimelineToBottom 把时间线滚到最底部（最新的一封）。
+async function scrollTimelineToBottom(): Promise<void> {
+  await nextTick()
+  const el = timelineEl.value
+  if (el) el.scrollTop = el.scrollHeight
+  syncTimelineScroll()
 }
 
 async function load(silent = false): Promise<void> {
@@ -292,11 +389,18 @@ async function load(silent = false): Promise<void> {
     if (!rows.value.some((r) => r.key === activeKey.value)) {
       activeKey.value = rows.value[0]?.key ?? ''
     }
-    await loadTimeline()
+    // 同一个对话的静默刷新只补最新的信；换对话（或首屏）才整段重取。
+    if (silent && timelineKey.value && timelineKey.value === activeKey.value && timeline.value.length) {
+      await refreshTimeline()
+    } else {
+      await loadTimeline()
+    }
     error.value = ''
   } catch (e) {
     rows.value = []
     timeline.value = []
+    hasOlder.value = false
+    timelineKey.value = ''
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
@@ -340,6 +444,8 @@ async function selectConversation(key: string): Promise<void> {
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
     timeline.value = []
+    hasOlder.value = false
+    timelineKey.value = ''
     return
   }
   await ackUnread()
@@ -689,6 +795,20 @@ onUnmounted(() => {
           <!-- 时间线是页面自己的滚动区（整页不滚）：右边缘一条小地图，标记＜3 封时不画。 -->
           <div class="timeline-wrap">
             <div ref="timelineEl" class="timeline" data-test="mail-timeline" @scroll="syncTimelineScroll">
+              <!-- 分页：打开对话只加载最新的一页，更早的信按需往上翻。 -->
+              <div class="older" data-test="mail-older">
+                <button
+                  v-if="hasOlder"
+                  class="act mono"
+                  type="button"
+                  :disabled="loadingOlder"
+                  data-test="mail-older-load"
+                  @click="loadOlder"
+                >
+                  {{ loadingOlder ? '加载中…' : '加载更早的信件（还有更早的）' }}
+                </button>
+                <span v-else class="dim mono" data-test="mail-older-end">已到最早</span>
+              </div>
               <article
                 v-for="m in timeline"
                 :id="`mail-${m.id}`"
@@ -773,6 +893,16 @@ onUnmounted(() => {
                 </div>
               </article>
             </div>
+            <button
+              v-if="hasOlder"
+              class="minimap-more mono"
+              type="button"
+              title="加载更早的信件"
+              data-test="mail-minimap-more"
+              @click="loadOlder"
+            >
+              还有更早的信件未加载
+            </button>
             <MailMinimap
               v-if="minimapMarks.length"
               :marks="minimapMarks"
@@ -1085,6 +1215,37 @@ onUnmounted(() => {
   overflow-y: auto;
   /* 右边留出滚动条与小地图的位置。 */
   padding-right: 4px;
+}
+/* 分页入口：时间线顶端一行（还有更早的就出按钮，到底了说一声）。 */
+.older {
+  display: flex;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.older .act {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+/* 小地图旁的提示：还有更早的信件没加载（点它等同加载更多），贴在轨道顶端。 */
+.minimap-more {
+  position: absolute;
+  right: 20px;
+  top: 2px;
+  z-index: 1;
+  max-width: 40%;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: var(--queue);
+  background: var(--panel);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  opacity: 0.9;
+}
+.minimap-more:hover,
+.minimap-more:focus-visible {
+  opacity: 1;
+  outline: none;
 }
 /* 气泡：自己的一方在右（--right），对方在左；回信用虚线边与左侧细线区分新信。
    宽度取对话区的大部分（max-width 用 ch 限制超宽屏上的行长），手机宽度下满宽。 */

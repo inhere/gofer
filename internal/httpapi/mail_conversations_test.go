@@ -17,8 +17,9 @@ import (
 
 // mailListBody is the answer of GET /v1/mail.
 type mailListBody struct {
-	Mail  []mailView `json:"mail"`
-	Count int        `json:"count"`
+	Mail    []mailView `json:"mail"`
+	Count   int        `json:"count"`
+	HasMore bool       `json:"has_more"`
 }
 
 // convListBody is the answer of GET /v1/mail/conversations.
@@ -303,5 +304,78 @@ func TestMailListUnrestrictedCallerUnchanged(t *testing.T) {
 	mailDecode(t, conv, &list2)
 	if list2.Count != 2 {
 		t.Errorf("unrestricted conversations = %s, want 2", conv)
+	}
+}
+
+// TestMailConversationPaging: a conversation is read newest first with order=desc, before= walks
+// backwards from its oldest loaded letter, and both fill a full page AFTER the permission filter
+// — the letters of that conversation this caller sent are dropped by box=in, so the store pages
+// must not count them.
+func TestMailConversationPaging(t *testing.T) {
+	e := newMailEnv(t)
+	e.grant()
+	path := "/v1/mail?peer=caller:bob&with=session:" + e.sA
+	list := func(p string) mailListBody {
+		t.Helper()
+		status, body := e.req(t, mailTokAlice, "", "GET", p, nil)
+		if status != http.StatusOK {
+			t.Fatalf("GET %s = %d (%s)", p, status, body)
+		}
+		var out mailListBody
+		mailDecode(t, body, &out)
+		return out
+	}
+	// Eight letters bob sent to alice's session, each followed by one of her answers: with box=in
+	// only the first kind is hers to read, and the two kinds alternate in id order.
+	inIDs := make([]int64, 0, 8)
+	for i := 0; i < 8; i++ {
+		inIDs = append(inIDs, e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindCaller, FromCaller: "bob",
+			ToAddress: "session:" + e.sA, ToKind: jobstore.MailKindSession, ToID: e.sA, Body: fmt.Sprintf("in-%d", i)}))
+		e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindSession, FromID: e.sA, FromCaller: "alice",
+			ToAddress: "caller", ToKind: jobstore.MailKindCaller, ToCaller: "bob", Body: fmt.Sprintf("out-%d", i)})
+	}
+	// Another caller's letter sits in the middle of the mailbox and must not fill the page.
+	e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindCaller, FromCaller: "dave",
+		ToAddress: "session:" + e.sB, ToKind: jobstore.MailKindSession, ToID: e.sB, Body: "elsewhere"})
+
+	page := list(path + "&box=in&order=desc&limit=6")
+	if page.Count != 6 || !page.HasMore {
+		t.Fatalf("newest page = count %d has_more %v, want 6 / true", page.Count, page.HasMore)
+	}
+	if page.Mail[0].ID != inIDs[7] || page.Mail[5].ID != inIDs[2] {
+		t.Errorf("newest page ids = %d…%d, want %d…%d (newest first)", page.Mail[0].ID, page.Mail[5].ID, inIDs[7], inIDs[2])
+	}
+	older := list(path + "&box=in&order=desc&limit=6&before=" + fmt.Sprint(page.Mail[5].ID))
+	if older.Count != 2 || older.HasMore {
+		t.Fatalf("older page = count %d has_more %v, want the 2 remaining letters and no more", older.Count, older.HasMore)
+	}
+	if older.Mail[0].ID != inIDs[1] || older.Mail[1].ID != inIDs[0] {
+		t.Errorf("older page ids = %d,%d, want %d,%d", older.Mail[0].ID, older.Mail[1].ID, inIDs[1], inIDs[0])
+	}
+	// A page of exactly what is left says so.
+	if all := list(path + "&box=in&order=desc&limit=8"); all.Count != 8 || all.HasMore {
+		t.Errorf("full page = count %d has_more %v, want 8 / false", all.Count, all.HasMore)
+	}
+	// A conversation still reads from its first letter by default, with the same has_more.
+	asc := list(path + "&box=in&limit=6")
+	if asc.Count != 6 || !asc.HasMore || asc.Mail[0].ID != inIDs[0] {
+		t.Errorf("default page = %+v, want the 6 oldest letters and has_more", asc)
+	}
+	// The plain listing pages after the permission filter too (dave's letter is not alice's).
+	inbox := list("/v1/mail?box=in&limit=6")
+	if inbox.Count != 6 || !inbox.HasMore {
+		t.Errorf("inbox page = count %d has_more %v, want 6 / true", inbox.Count, inbox.HasMore)
+	}
+	for _, v := range inbox.Mail {
+		if v.From.Caller == "dave" {
+			t.Errorf("inbox page shows another caller's letter: %+v", v)
+		}
+	}
+	// Cursor and order are validated.
+	if status, body := e.req(t, mailTokAlice, "", "GET", path+"&before=abc", nil); status != http.StatusBadRequest {
+		t.Errorf("before=abc = %d (%s), want 400", status, body)
+	}
+	if status, body := e.req(t, mailTokAlice, "", "GET", path+"&order=sideways", nil); status != http.StatusBadRequest {
+		t.Errorf("order=sideways = %d (%s), want 400", status, body)
 	}
 }

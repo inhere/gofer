@@ -663,7 +663,10 @@ type ListMailOpts struct {
 	BroadcastID int64
 	// ReplyTo selects the answers to one letter (reply_to = id); 0 does not filter.
 	ReplyTo int64
-	States  []string
+	// BeforeID keeps only letters older than that id (id < BeforeID); 0 does not filter.
+	// It is the "older than this one" cursor of a paged conversation (id grows with time).
+	BeforeID int64
+	States   []string
 	Since   int64
 	Until   int64
 	// OldestFirst orders by id ascending (a thread read from its first letter) instead of
@@ -703,6 +706,10 @@ func (s *Store) ListMail(opts ListMailOpts) ([]Mail, error) {
 	if opts.ReplyTo > 0 {
 		where = append(where, "reply_to=?")
 		args = append(args, opts.ReplyTo)
+	}
+	if opts.BeforeID > 0 {
+		where = append(where, "id<?")
+		args = append(args, opts.BeforeID)
 	}
 	if len(opts.States) > 0 {
 		ph := make([]string, 0, len(opts.States))

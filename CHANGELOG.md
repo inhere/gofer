@@ -20,6 +20,7 @@
 
 - **webhook 新增 `keyword`：自动满足钉钉 / 飞书的「自定义关键词」安全设置**：消息标题与正文都不含该关键词时，gofer 把它加到标题前（钉钉 markdown 的 `title` 与正文标题行都带），已经包含时不重复加。这样机器人侧只开关键词模式也能收到 gofer 的各类通知，不必为每个模板手工塞词。`keyword` 只对 `kind: dingtalk | feishu` 有效，配在 generic 上、写成空串或含换行时 `gofer config validate` 直接报错。
 - **桌面通知通道（gofer-3wce）**：`server.notification.desktop` 让 server 在**自己所在主机**弹系统通知，解决审批 / 等回复的 job 在浏览器里被漏掉的问题（不需要托盘进程，也不要求 HTTPS）。默认订阅 `job.awaiting_approval`、`interaction.created`、`session.awaiting_reply`、`job.needs_review`，可用 `events` / `projects` 过滤；标题与正文复用 IM 通知的渲染，点击打开 `web_base_url` 对应页面。`merge_sec`（默认 10s）把同类事件合成一条（「3 个 job 等待批准」）。平台：Windows 用 `Windows.UI.Notifications` toast（点击可开链接），macOS 用 `osascript`，Linux 用 `notify-send`（没装则跳过）；以服务（Windows session 0）或无桌面会话运行时自动跳过，每种原因只记一条 `notify.desktop_skipped`，不刷屏。整段不写 = 不启用。见 [`docs/runbook/im-notification.md`](docs/runbook/im-notification.md) §10。
+- **信箱对话改为分页加载**：活跃对话动辄几十封信，打开时不再整串取回、渲染。web 信箱打开一个对话只加载**最新 6 封**（按时间顺序显示，旧在上、新在下，打开即滚到最新一封），顶部「加载更早的信件（还有更早的）」每点一次取早 6 封、插到上方并保持当前阅读位置不跳，到底显示「已到最早」；刷新 / 新信到达只补最新的信，已加载的页不重取；右侧小地图只画已加载的信，还有更早未加载时轨道顶端提示「还有更早的信件未加载」（点它等同加载更多）。接口侧 `GET /v1/mail` 新增 `before=<信件 id>`（只要更早的）与 `order=asc|desc`（`order=desc` 取最新 N 封），回答新增 `has_more`；权限 / 收件发件 / 上限过滤仍先于分页，凑不够一页时继续往后扫。不新增路由。
 
 ## [0.185.0] - 2026-10-22
 
