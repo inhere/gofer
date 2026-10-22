@@ -15,7 +15,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
-	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 // API is the hub surface the runner needs; *client.Client satisfies it.
@@ -125,7 +125,7 @@ type Result struct {
 	Reason  string
 	Notice  string
 	// Context is extra context for the agent on SessionStart / UserPromptSubmit
-	// (undelivered "[gofer job 完成]" notices, caught up after a missed Stop) and
+	// (undelivered "[gofer · job 完成]" notices, caught up after a missed Stop) and
 	// on PreToolUse (when.commands-matched memories). The
 	// caller prints it as hookSpecificOutput.additionalContext.
 	Context string
@@ -137,9 +137,13 @@ type Result struct {
 	PreTool *PreToolDecision
 }
 
-// ReplyPrefix marks an injected web reply so the model knows the source is
-// equivalent to terminal input (design D7).
-const ReplyPrefix = "[gofer web 回复] "
+// webReplyLine is the text the Stop hook hands the agent when a person answered
+// its relay turn: the web-reply prefix with the speaker's name. It is built from
+// the ONE table (msgprefix), the same entry the relay's terminal paths use, so a
+// prompt gofer typed into a terminal and one it blocked on can never drift apart.
+func webReplyLine(user, reply string) string {
+	return msgprefix.Format(msgprefix.WebReply, user, reply)
+}
 
 // JobDoneTag opens every watched-job completion notice (formatWatchedJobCompletion).
 // The notice is fed back to the agent as its next input, so the following
@@ -147,13 +151,8 @@ const ReplyPrefix = "[gofer web 回复] "
 //
 // It is the relay's constant, not a copy: the message the SESSION MESSENGER
 // delivers when a job ends (sessionrelay.NotifyJobEnded, gofer-3db4) opens with
-// the same tag, and a session treats both as the same notice. The delivered line
-// itself opens with SystemNoticePrefix — gofer's own prefix, never the web's.
-const JobDoneTag = sessionrelay.JobDoneTag
-
-// SystemNoticePrefix opens a gofer system notice (a job-end line, caught up or
-// blocked). It is the relay's constant, so both delivery paths print one spelling.
-const SystemNoticePrefix = sessionrelay.SystemNoticePrefix
+// the same tag, and a session treats both as the same notice.
+const JobDoneTag = msgprefix.JobDoneOpen
 
 // OffCommand typed as the web reply switches relay off and lets the agent
 // stop normally (the human is back at the keyboard).
@@ -203,8 +202,8 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 	case "UserPromptSubmit":
 		// Only a prompt a HUMAN typed means "back at the keyboard" (auto-off).
 		// Claude Code also raises UserPromptSubmit for harness-generated turns:
-		// our own Stop-hook continuation (ReplyPrefix), a reply path A typed into
-		// the terminal (§9.1 A — it arrives with NO turn behind it), background-task
+		// a gofer system message (a job-end notice, a hint), a reply path A typed
+		// into the terminal (§9.1 A — it arrives with NO turn behind it), background-task
 		// notifications, system reminders... Those are reported as injected so
 		// the server keeps relay on.
 		if isHarnessInput(p) {
@@ -668,8 +667,8 @@ func (r *runner) stop() Result {
 				r.log("answered /off, released")
 				return Result{}
 			}
-			r.log("answered (%d bytes), continuing", len(reply))
-			return Result{Blocked: true, Reason: webReplyContinuation(reply)}
+				r.log("answered (%d bytes), continuing", len(reply))
+				return Result{Blocked: true, Reason: webReplyContinuation(reply, st.Decision.AnsweredBy)}
 		case "relay_off":
 			// The auto rules stopped arming mid-wait (typically: an approved job started
 			// running, which makes the caller "supervising"). Releasing silently would
@@ -753,7 +752,7 @@ func (r *runner) mayBlockForJobs(mode string, a client.AgentSession, idle int64)
 
 // waitJobsOnly is the Stop path of a session that does NOT relay web input but
 // still has pending job watches: block (within the --wait budget) until a watched
-// job reaches a terminal state, then hand its "[gofer job 完成]" notice to the
+// job reaches a terminal state, then hand its "[gofer · job 完成]" notice to the
 // agent as the block reason. No turn is opened, so nothing reaches the web and a
 // web reply is never injected. Released when every watch is gone (delivered or
 // removed) or the budget runs out; a still-pending watch is then caught up by
@@ -865,9 +864,10 @@ func (r *runner) catchUpJobs(res Result, a client.AgentSession) Result {
 }
 
 // TopicReminder is the one line SessionStart adds to additionalContext while the session has no
-// topic of its own. It is context for the agent, not a prompt a person typed.
-const TopicReminder = "[gofer] This session has no topic recorded yet. When you know the task, run: " +
-	"gofer session topic \"<one-sentence topic>\" --scope <sub-path>  (so other sessions and the person can find who works on what)."
+// topic of its own. It is context for the agent, not a prompt a person typed, so it wears the
+// generic hint prefix.
+var TopicReminder = msgprefix.Format(msgprefix.Hint, "", "This session has no topic recorded yet. When you know the task, run: "+
+	"gofer session topic \"<one-sentence topic>\" --scope <sub-path>  (so other sessions and the person can find who works on what).")
 
 // topicReminder appends TopicReminder to the SessionStart context when the register answer
 // shows no topic of its own (empty, or only the server's inferred one). It is appended after
@@ -1008,41 +1008,49 @@ func (r *runner) lastMessage() string {
 }
 
 // webReplyContinuation is what the Stop hands the agent when its relay turn was
-// answered: a person's reply wears ReplyPrefix. A gofer system notice that reached
-// the session as a turn answer (sessionrelay.SendMessage of a job-end notice to a
-// WAITING session goes through Say) keeps its own line instead — it is machine text
-// that must not read as a web reply (gofer-11gk).
-func webReplyContinuation(reply string) string {
-	if strings.HasPrefix(reply, SystemNoticePrefix) {
+// answered: a person's reply wears the web-reply prefix with the speaker's name.
+// A gofer system message that reached the session as a turn answer (a job-end
+// notice sent to a WAITING session goes through Say) keeps its own line instead —
+// it is machine text that must not read as a web reply (gofer-11gk).
+func webReplyContinuation(reply, user string) string {
+	if msgprefix.IsSystem(reply) {
 		return reply
 	}
-	return ReplyPrefix + reply
+	return webReplyLine(user, reply)
 }
 
 // isHarnessInput is the single verdict for "this UserPromptSubmit is not a
-// human typing": the agent flagged it injected (generic hook), or the prompt
-// text looks harness-generated (IsHarnessPrompt).
+// human typing": the agent flagged it injected (generic hook), the prompt text
+// looks harness-generated (IsHarnessPrompt), or it is a person's web reply that
+// GOFER typed into this terminal (path A / the Stop continuation) — a person at
+// the keyboard does not write the web prefix, so relay must stay on.
 func isHarnessInput(p Payload) bool {
-	return p.Injected || IsHarnessPrompt(p.Prompt)
+	return p.Injected || IsHarnessPrompt(p.Prompt) || isDeliveredPersonReply(p.Prompt)
+}
+
+// isDeliveredPersonReply reports whether a prompt is a person's message that
+// gofer delivered into this terminal (it wears a person's prefix). It is NOT part
+// of IsHarnessPrompt: that function answers "did the harness write this text",
+// while this one answers "did gofer type a person's words here".
+func isDeliveredPersonReply(prompt string) bool {
+	kind, person := msgprefix.Classify(prompt)
+	return person && (kind == msgprefix.WebReply || kind == msgprefix.WebMessage)
 }
 
 // IsHarnessPrompt reports whether a UserPromptSubmit prompt was generated by
-// the agent harness rather than typed by a human: empty, our own injected
-// reply (the Stop continuation, or a reply path A typed into the terminal with
-// no turn behind it — §9.1 A), a gofer system notice (SystemNoticePrefix, the
-// job-end lines of the Stop wait and its catch-up), or tagged system content
-// (`<task-notification>`, `<system-reminder>`, anything starting with an
-// XML-ish tag).
+// the agent harness rather than typed by a human: empty, a gofer system message
+// (msgprefix's "[gofer · …]" prefixes — the job-end lines of the Stop wait and
+// its catch-up, a hint), or tagged system content (`<task-notification>`,
+// `<system-reminder>`, anything starting with an XML-ish tag).
+//
+// A person's message ("[来自 web…]") is NOT harness text: see
+// isDeliveredPersonReply for the "gofer typed it here" half.
 func IsHarnessPrompt(prompt string) bool {
 	t := strings.TrimSpace(prompt)
 	switch {
 	case t == "":
 		return true
-	case strings.HasPrefix(t, strings.TrimSpace(ReplyPrefix)):
-		return true
-	case strings.HasPrefix(t, SystemNoticePrefix):
-		return true
-	case strings.HasPrefix(t, JobDoneTag):
+	case msgprefix.IsSystem(t):
 		return true
 	case isMailInjection(t):
 		return true // gofer mailbox injection (<gofer-mail …> / <gofer-mail-wake/>), see mail_tags.go

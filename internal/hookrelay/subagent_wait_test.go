@@ -94,7 +94,7 @@ func TestStopJobWaitDeliversJobNoticeBeforeSubagentRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Blocked || !strings.Contains(res.Reason, "[gofer job 完成] job-both tests status=done") {
+	if !res.Blocked || !strings.Contains(res.Reason, "[gofer · job 完成] job-both tests status=done") {
 		t.Fatalf("result=%+v log=%s", res, log.String())
 	}
 	if len(f.watchRows) != 0 {

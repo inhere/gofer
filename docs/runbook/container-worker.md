@@ -140,7 +140,7 @@ gofer session say <sid> "<文本>" --deliver --takeover   # pane 没了时改走
 # ① exec job 真在容器里跑（Linux 复核的最小闭环）
 gofer job run -p my-tools-dev -a exec --runner w-docker-claude --cwd tools/gofer -- go version
 
-# ② web 会话页对容器会话「送入终端」成功（tmux 路径）→ 会话页看到新消息、pane 里出现 `[gofer web 回复] …`
+# ② web 会话页对容器会话「送入终端」成功（tmux 路径）→ 会话页看到新消息、pane 里出现 `[来自 web 回复，<用户>] …`
 #    （失败原因看 session-relay.md 的表：no_runner / no_tmux / pane_busy …）
 
 # ③ 链末 Linux 复核 todo：挂在计划链最后一项，前一项 done 后自动派发到容器

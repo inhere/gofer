@@ -199,7 +199,7 @@ gofer plan answer <decision-id> --answer "方案A"
 
 - `plan create` 默认把计划绑定到**当前所在的 agent 会话**（主 Agent）：依次取 `SUGA_SESSION_ID`、`GOFER_SESSION_ID`、`CLAUDE_CODE_SESSION_ID`、`CODEX_THREAD_ID` / `CODEX_SESSION_ID`；须是已登记、未结束、属于当前 caller（指定了 `--project` 时项目一致）的会话，否则建成未绑定并打印绑定命令。其它 agent 需自己 `export GOFER_SESSION_ID=<sid>` 或显式传参。`--no-supervisor` 不绑定；`plan set <plan> --supervisor-session-id <sid>` / `--clear-supervisor-session` 改绑。
 - 绑定后：自动派发的 job 与主 Agent 会话同项目、同 runner、同目录、不开 worktree 时以该会话为来源，并登记「job 结束通知主 Agent 会话」；否则照常派发，仍登记通知。
-- `plan create --notify` / `plan set <plan> --notify on|off`（缺省 `off`）把这个通知从「等会话自己停下」改成**主动推送**：该 plan 派发的每个 job 结束时，server 直接用传话人给主 Agent 会话发一条 `[gofer 通知] [gofer job 完成] …` 系统通知（同 `gofer job run --notify`；默认关是因为每条通知要起一次传话人进程）。
+- `plan create --notify` / `plan set <plan> --notify on|off`（缺省 `off`）把这个通知从「等会话自己停下」改成**主动推送**：该 plan 派发的每个 job 结束时，server 直接用传话人给主 Agent 会话发一条 `[gofer · job 完成] …` 系统通知（同 `gofer job run --notify`；默认关是因为每条通知要起一次传话人进程）。
   - 没绑定主 Agent 会话时无人可通知：job 照常派发、不通知任何人，`plan show` / `plan create` 会打一行提示（绑一个即可）。
   - supervisor 会话后来被清理掉也一样：派发照常进行（源会话声明一并归零），该 job 记一条 `job.notify_dropped` 事件说明通知被丢弃，整条链不会因为一条通知卡住。
   - 通知送达会消费该 job 的 watch（Stop hook / 补发不再重发），送达失败保留 watch 由补发兜底；同一个 job 只通知一次。

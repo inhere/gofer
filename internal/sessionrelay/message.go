@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 // Messenger is the narrow seam for a one-shot SendMessage job. The relay owns
@@ -295,7 +296,7 @@ func messengerLine(operator, text string) string {
 	if IsSystemNoticeOperator(operator) {
 		return SystemNoticeLine(text)
 	}
-	return fmt.Sprintf("%s，%s] %s", WebMessagePrefix, operator, text)
+	return msgprefix.Format(msgprefix.WebMessage, operator, text)
 }
 
 func (s *Service) failMessage(m jobstore.SessionMessage, reason string) (jobstore.SessionMessage, error) {

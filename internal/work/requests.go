@@ -10,6 +10,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 // Messenger delivers a request text into a running terminal session (httpapi adapts
@@ -61,16 +62,19 @@ func sessionRunning(state string) bool {
 	return false
 }
 
+// requestText renders the ask a work item sends into a session. The prefix names the
+// TYPE only (the one table, msgprefix); the request id, the item and its title are
+// body text, so the prefix itself is a fixed, recognisable string.
 func requestText(kind, rid, itemID, title, status string) string {
 	if kind == jobstore.WorkRequestHandoff {
-		return fmt.Sprintf("[gofer 工作项交接请求 %s] 工作项 %s「%s」被标为%s，请写一段交接：做到哪了、卡在哪、回来后第一步。运行 "+
+		return msgprefix.Format(msgprefix.WorkHandoff, "", fmt.Sprintf("工作项 %s「%s」被标为%s（请求 %s），请写一段交接：做到哪了、卡在哪、回来后第一步。运行 "+
 			"`gofer work report %s --request %s --summary \"<做到哪了>\" --blocker \"<卡在哪>\" --next \"<回来第一步>\"`"+
-			"（不需要的字段可省略）。", rid, itemID, title, statusLabel(status), itemID, rid)
+			"（不需要的字段可省略）。", itemID, title, statusLabel(status), rid, itemID, rid))
 	}
-	return fmt.Sprintf("[gofer 工作项汇报请求 %s] 请汇报工作项 %s「%s」当前进展：运行 "+
+	return msgprefix.Format(msgprefix.WorkReport, "", fmt.Sprintf("工作项 %s「%s」当前进展（请求 %s）：运行 "+
 		"`gofer work report %s --request %s --goal \"<目标>\" --status <active|needs_me|waiting_resource|needs_onsite|review|parked> "+
 		"--blocker \"<卡在哪>\" --next \"<下一步>\" --summary \"<做到哪了>\"`（不需要的字段可省略；若已不再受阻请用 --status active）。",
-		rid, itemID, title, itemID, rid)
+		itemID, title, rid, itemID, rid))
 }
 
 // shortID renders an id in about 8 chars for a journal line. A job id keeps the

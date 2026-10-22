@@ -527,9 +527,10 @@ type HeartbeatInput struct {
 	State       string
 	LastMessage string
 	Title       string
-	// Injected marks a UserPromptSubmit raised by the relay's own continuation
-	// (the hook recognises its ReplyPrefix): it must NOT auto-off relay — the
-	// human is still on the web, not at the keyboard.
+	// Injected marks a UserPromptSubmit raised by gofer's own delivered text (a
+	// system message, or a person's web reply the relay typed into the terminal):
+	// it must NOT auto-off relay — the human is still on the web, not at the
+	// keyboard.
 	Injected bool
 	// IdleSec is the hook's system input idle reading (SR-A5, -1 = unknown). nil
 	// = this event carried none, so the stored reading stays.

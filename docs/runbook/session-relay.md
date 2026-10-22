@@ -49,7 +49,7 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 
 **忽略 agent 内部会话（gofer-v74l）**：hook 在上报任何事件之前检查载荷 `cwd`，位于忽略目录就**直接退出 0、无输出、不连 server**（不登记、不建工作项）。默认忽略 `~/.codex/memories`（codex 记忆整理 agent 的工作目录）；`GOFER_HOOK_IGNORE_CWDS` 追加（按系统路径分隔符 `:` / Windows `;` 分隔，支持 `~/` 前缀）。按路径前缀（目录边界）匹配，Windows 不区分大小写且 `/` `\` 等价。已存在的这类会话 / 工作项不自动清理（`work rm` 人工处理）。
 
-**中继关闭时仍等 job 事件（Y1）**：Stop 被放行（`off`，或 `auto` 未布防/监督中）并不等于没人等 job——会话只要还有**未投递的 job watch**（PostToolUse 看到 `job X submitted` 自动登记 / `gofer session watch`；`auto`+监督中时 Stop 还会认领名下尚无人 watch 的在跑 job），hook 就**只等 job 事件**：不开 turn、不转发 web 输入，job 到终态即以 block 反馈送入（`[gofer job 完成] …`，与 turn 内一致）；所有 watch 清空或 `--wait` 上限到达才放行。`hook.log`：`relay not waiting (mode=…) but N watched job(s) pending … waiting up to …`。兜底：放行后才完成的 job，下一次 UserPromptSubmit / SessionStart 把未投递的通知作为 additionalContext 补投并标记已投递（只补一次；仅 claude / codex，omp 扩展不接收 hook 输出、jcode 只观察，所以它们不消费 watch）。放行时若仍有监督中 job 但无 watch，日志写明 `supervising N jobs but no watched job to wait for`。
+**中继关闭时仍等 job 事件（Y1）**：Stop 被放行（`off`，或 `auto` 未布防/监督中）并不等于没人等 job——会话只要还有**未投递的 job watch**（PostToolUse 看到 `job X submitted` 自动登记 / `gofer session watch`；`auto`+监督中时 Stop 还会认领名下尚无人 watch 的在跑 job），hook 就**只等 job 事件**：不开 turn、不转发 web 输入，job 到终态即以 block 反馈送入（`[gofer · job 完成] …`，与 turn 内一致）；所有 watch 清空或 `--wait` 上限到达才放行。`hook.log`：`relay not waiting (mode=…) but N watched job(s) pending … waiting up to …`。兜底：放行后才完成的 job，下一次 UserPromptSubmit / SessionStart 把未投递的通知作为 additionalContext 补投并标记已投递（只补一次；仅 claude / codex，omp 扩展不接收 hook 输出、jcode 只观察，所以它们不消费 watch）。放行时若仍有监督中 job 但无 watch，日志写明 `supervising N jobs but no watched job to wait for`。
 
 顺带：会话的 `caller_id` 同时也是**作答权**——`say` / `deliver` / `relay set-mode` 只允许该会话 owner 的 caller（governance `require_answer_capability` 开启时 `can_answer` 也可；`caller_id` 为空的老会话放行），worker token 一律 403（h-aii-esus）。
 
@@ -63,9 +63,9 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 | 监督 job 时不想被挡 | `auto` 已自动让路（见上面「监督中不布防」）：不用手工 `/off`，也不会把 job 完成通知挡在回合后面 |
 | 会话已空闲 | web 会话抽屉的输入框（没有 OPEN turn 时变成「送入终端」）直接送话；CLI `gofer session say <id> "<回复>" --deliver`。前提：会话在 tmux 里 + 登记了执行机（见下表） |
 
-**无 turn 时送话（阶段 2-A，tmux 注入）**：`POST /v1/sessions/{sid}/deliver {text}`。有 OPEN turn 就等价 `say`（作答）；否则 server 在该会话的 runner 上起一个内部 exec job，确认 pane 存活、前台是 agent CLI（白名单 `session.inject_commands`，默认 `claude|codex|omp|node|gemini|opencode`），再逐行 `tmux send-keys -t <pane> -l -- '<行>'` + `Enter`（文本前缀 `[gofer web 回复] `，上限 8KB，单引号转义）。成功后会话置 `running`，审计行 `plan_decisions(kind=relay, detail={"path":"tmux","job_id":…})`。
+**无 turn 时送话（阶段 2-A，tmux 注入）**：`POST /v1/sessions/{sid}/deliver {text}`。有 OPEN turn 就等价 `say`（作答）；否则 server 在该会话的 runner 上起一个内部 exec job，确认 pane 存活、前台是 agent CLI（白名单 `session.inject_commands`，默认 `claude|codex|omp|node|gemini|opencode`），再逐行 `tmux send-keys -t <pane> -l -- '<行>'` + `Enter`（文本前缀 `[来自 web 回复，<用户>] `，上限 8KB，单引号转义）。成功后会话置 `running`，审计行 `plan_decisions(kind=relay, detail={"path":"tmux","job_id":…})`。
 
-**无 turn 时送话（阶段 2-B，`--resume` pty 接管）**：会话没有可用 tmux pane（`no_tmux` / `inject_failed:pane_missing`）或**注入 job 根本没跑起来**（`inject_failed:runner_error`：runner 不可达 / 脚本自己挂了 —— 这两类 A 都没机会看 pane）时，带 `allow_takeover: true` 再发一次即可让 server **起一个新进程接管**：`POST /v1/sessions/{sid}/deliver {text, allow_takeover: true}`（`allow_takeover` 缺省 false —— 接管会把会话从原终端移走，必须显式要）。server 用该会话的 `session_id` 在**同一 runner、同一项目相对目录**起一个交互 pty job（`claude --resume <sid>` / `codex resume <sid>` / `omp --resume <sid>`，argv 来自 agent 的 `SessionResumeInteractive` 模板），把 `[gofer web 回复] <文本>\r` 作为该终端的**首条输入**（pty 首次输出后安静 `session.takeover_input_delay_ms`（默认 1500ms）再写，最多等 10s；多行原样写入），会话随即置 `handed_off`（记 `handed_off_job_id`/`handed_off_at`，审计 `detail={"path":"takeover","job_id":…}`），web 跳到 `/jobs/<id>?attach=1`。前提：agent 有交互 resume 模板（内置 claude/codex/omp）、项目 `allow_interactive: true`、会话 cwd 能换算成执行机上的项目相对路径。
+**无 turn 时送话（阶段 2-B，`--resume` pty 接管）**：会话没有可用 tmux pane（`no_tmux` / `inject_failed:pane_missing`）或**注入 job 根本没跑起来**（`inject_failed:runner_error`：runner 不可达 / 脚本自己挂了 —— 这两类 A 都没机会看 pane）时，带 `allow_takeover: true` 再发一次即可让 server **起一个新进程接管**：`POST /v1/sessions/{sid}/deliver {text, allow_takeover: true}`（`allow_takeover` 缺省 false —— 接管会把会话从原终端移走，必须显式要）。server 用该会话的 `session_id` 在**同一 runner、同一项目相对目录**起一个交互 pty job（`claude --resume <sid>` / `codex resume <sid>` / `omp --resume <sid>`，argv 来自 agent 的 `SessionResumeInteractive` 模板），把 `[来自 web 回复，<用户>] <文本>\r` 作为该终端的**首条输入**（pty 首次输出后安静 `session.takeover_input_delay_ms`（默认 1500ms）再写，最多等 10s；多行原样写入），会话随即置 `handed_off`（记 `handed_off_job_id`/`handed_off_at`，审计 `detail={"path":"takeover","job_id":…}`），web 跳到 `/jobs/<id>?attach=1`。前提：agent 有交互 resume 模板（内置 claude/codex/omp）、项目 `allow_interactive: true`、会话 cwd 能换算成执行机上的项目相对路径。
 
 - **原终端会发生什么**：它的中继**停用**（`wait_reason` 恒空、`OpenTurn` 拒绝），下一次 hook 事件（Stop / 你敲字）在 stderr 打一行 `该会话已于 <时间> 在 web 接管（job <id>），继续请在 web 终端或 --resume；本终端的中继已停用`。原进程仍在跑，但两个进程写同一 CLI 会话会分叉 —— 要继续就在 web 的接管终端里说。
 - **解除接管**：`gofer session release-takeover <sid>`（web 会话抽屉「解除接管」；HTTP `POST /v1/sessions/{sid}/release-takeover`）：先 cancel 接管 job，再把会话置回 `idle` 并清空 `handed_off_*`，原终端恢复中继（cancel 失败会报 502，不假装成功）。会话未接管 → 409（陈旧请求值得知道，不吞掉）。
@@ -98,14 +98,14 @@ Stop hook → gofer hook <agent>
        返回 wait_reason = mode_on | idle_probe | turn_age | ""(不等)
   → 等待: POST /v1/sessions/{sid}/turns → plan_decisions(kind=relay, OPEN)
   → GET /v1/sessions/{sid}/turns/{id}?wait=25 长轮询, 直到 answered / expired / relay_off
-  → answered: stdout {"decision":"block","reason":"[gofer web 回复] <文本>"} → agent 续跑
+  → answered: stdout {"decision":"block","reason":"[来自 web 回复，<用户>] <文本>"} → agent 续跑
       · idle_probe 的等待: 每 ≤5s 补一次 POST …/turns/{id}/release {idle_sec}(人回来即放行)
       · turn_age 的等待: 不探测; 人回来时的事件(UserPromptSubmit/Interrupt)由 server 直接关 turn
 ```
 
 - 会话表 `agent_sessions`：开关是 `relay_mode`（auto|on|off；`relay` 列是 pre-R1 的历史列，自 v0.48 起不读不写，仅 `migrateAgentSessions` 的一次性回填还用），加上 `idle_sec`（键盘空闲读数）、`last_human_at`（判据二的锚点）与 `handed_off_job_id`/`handed_off_at`（阶段 2-B 的接管 job）。turn 复用 `plan_decisions`（additive 列 `session_id`, `kind`, `detail`）。
 - 状态：`running → idle`(Stop, 不等) / `waiting_reply`(Stop, 等) / `needs_attention`(Claude Notification) / `handed_off`(web 起了 `--resume` pty job 接管，原终端不再中继) / `ended`(SessionEnd)。`handed_off` 只由 `release-takeover`（`gofer session release-takeover <id>` / web）或**接管 job 自己到达终态时的自动释放**解除 —— 原终端的任何事件都不会把它改回去。
-- `on` → 人在终端输入（UserPromptSubmit）即降回 `auto`；`auto` 的等待在人回来时直接释放（探得到就探，探不到就靠事件）。harness 产生的同名事件（注入回复带 `[gofer web 回复]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`：不动开关、也不当作"人回来了"；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
+- `on` → 人在终端输入（UserPromptSubmit）即降回 `auto`；`auto` 的等待在人回来时直接释放（探得到就探，探不到就靠事件）。harness 产生的同名事件（注入回复带 `[来自 web 回复，<用户>]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`：不动开关、也不当作"人回来了"；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
 - 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay mode / wait reason。
 
 ## 3.0 Claude 会话名（peer_name）
@@ -185,7 +185,7 @@ web：会话抽屉输入框上方的「催办」区块（列出 / 新建 / 暂�
 4. 第二次停下 → `say /off` → hook 放行，SessionEnd → `ended`。
 5. 关着开关的 Stop 耗时 12ms；server 停机时 hook 直接退出。
 
-6. web 侧（agent-browser）：会话页「AGENT 会话」分组显示等待回复行 + 铃铛 toast；抽屉内输入框发送 → 挂起的 hook 立即输出 `{"decision":"block","reason":"[gofer web 回复] …"}`，会话回到 running。
+6. web 侧（agent-browser）：会话页「AGENT 会话」分组显示等待回复行 + 铃铛 toast；抽屉内输入框发送 → 挂起的 hook 立即输出 `{"decision":"block","reason":"[来自 web 回复，<用户>] …"}`，会话回到 running。
 7. 等待超过 hook 预算（`--wait`）时 turn 过期、hook 放行、会话置 idle，开关保持 on（下一次 Stop 继续中继）。
 
 8. 工作空间根 + 主机 serve 真机：`gofer init hooks` 与 bd 的 SessionStart hook 共存；会话按 cwd 匹配到项目、runner=容器 worker；后台任务通知触发的 UserPromptSubmit 被判为 harness、中继保持；web 抽屉作答注入、`/off` 放行，两轮全通。
@@ -281,7 +281,7 @@ Codex 真机四步已在 2026-10-05 实测通过（见 §7）。
 
 驱动方式：临时 serve 里定义一个 `interactive: true` 的 tty agent（powershell 包装脚本清掉 `GOFER_JOB*`/`CLAUDE*` 变量、设好 `GOFER_CONFIG`/`GOFER_BIN` 后启动 `omp`，主机 omp 18.6.0 TUI，ConPTY），经 `POST /v1/jobs/{id}/attach-ticket` + `/attach` WebSocket 往 pty 里敲键，会话状态用 `/v1/sessions`、`session show` 读取。要让 `auto` 判据在"被 gofer job 监督"时也能布防，临时配置里设了 `session.auto_relay_idle_sec: 30` 与 `auto_relay_skip_when_supervising: false`。
 
-- **TUI 续跑（通过）**：TUI 里敲 prompt → omp 答完 → Stop → 会话 `waiting_reply`、turn 1 `OPEN`（`reason=idle_probe`）→ `session say <sid> "Reply with exactly: step two done"` → TUI 里出现 `[gofer web 回复] Reply with exactly: step two done`，omp 开新一轮回答 `step two done`，turn 1 `ANSWERED`、turn 2 `OPEN`（hook.log：`Stop answered (33 bytes), continuing`）。
+- **TUI 续跑（通过）**：TUI 里敲 prompt → omp 答完 → Stop → 会话 `waiting_reply`、turn 1 `OPEN`（`reason=idle_probe`）→ `session say <sid> "Reply with exactly: step two done"` → TUI 里出现 `[来自 web 回复，<用户>] Reply with exactly: step two done`，omp 开新一轮回答 `step two done`，turn 1 `ANSWERED`、turn 2 `OPEN`（hook.log：`Stop answered (33 bytes), continuing`）。
 - **Interrupt 对比（旧扩展 vs 新扩展）**：同一流程，显式 `relay on`、turn 2 `OPEN` 时在 TUI 里按 Ctrl+D 退出 omp（走 `session_shutdown`，没有 `input` 事件）：
   - 旧扩展：hook.log 只有 `SessionEnd`，会话 `ended` 后 turn 2 仍是 **`[OPEN]`**（Windows 上 `kill()` 硬终止，等待进程来不及上报）。
   - 新扩展：先 `Interrupt state=idle relay=on wait=mode_on`，再 `SessionEnd`，turn 2 为 **`[EXPIRED]`**。两次复测一致。
@@ -311,10 +311,10 @@ echo '{"session_id":"s1","cwd":"/w/repo","transcript_path":"/home/u/.myagent/tra
 
 | `hook_event_name` | 何时发 | 用到的字段 | 输出 |
 |---|---|---|---|
-| `SessionStart` | 会话创建 / 恢复打开 | `session_id` `cwd` `transcript_path` `source` | 可能有 `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}}`（补投上次错过的 `[gofer job 完成]` 通知，**只补一次**），接入方把它作为系统上下文附加到下一轮 |
-| `UserPromptSubmit` | 用户提交输入 | `prompt` `injected`（可选 bool，省略=false） | 同上；`injected:true`（接入方声明这条输入是注入的：web 回复、`[gofer job 完成]` 通知、`[来自 …]` 本地送话）→ 视为 injected，**不算「人回来了」**（不关 relay、不改标题、不刷新人工输入时间）。兜底：`injected` 缺省时，`prompt` 以 `[gofer web 回复]` / `[gofer job 完成]` 开头、为空、或是 `<tag>` 开头的系统内容也判为 injected。其它方言（claude/codex）无此字段，行为不变 |
+| `SessionStart` | 会话创建 / 恢复打开 | `session_id` `cwd` `transcript_path` `source` | 可能有 `{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"…"}}`（补投上次错过的 `[gofer · job 完成]` 通知，**只补一次**），接入方把它作为系统上下文附加到下一轮 |
+| `UserPromptSubmit` | 用户提交输入 | `prompt` `injected`（可选 bool，省略=false） | 同上；`injected:true`（接入方声明这条输入是注入的：web 回复、`[gofer · job 完成]` 通知、`[来自 …]` 本地送话）→ 视为 injected，**不算「人回来了」**（不关 relay、不改标题、不刷新人工输入时间）。兜底：`injected` 缺省时，`prompt` 以 `[来自 web 回复，<用户>]` / `[gofer · job 完成]` 开头、为空、或是 `<tag>` 开头的系统内容也判为 injected。其它方言（claude/codex）无此字段，行为不变 |
 | `PostToolUse` | shell/exec 类工具完成 | `tool_name`（`shell`/`bash`/`exec`/`command`/`run_command`…）`tool_output` | 无；输出里出现 `job <id> submitted` / `gofer job watch <id>` 就登记 job watch |
-| `Stop` | 一轮结束，回到等待输入 | `last_assistant_message`（本轮最终回复，**直接取自载荷，不读 transcript**）`stop_hook_active` | web 有回复时 `{"decision":"block","reason":"[gofer web 回复] <文本>"}`；否则为空（中继没开 / 等待超时 / `/off`）。可能还会因被监视 job 完成而返回 `block`，reason 是 `[gofer job 完成] …` |
+| `Stop` | 一轮结束，回到等待输入 | `last_assistant_message`（本轮最终回复，**直接取自载荷，不读 transcript**）`stop_hook_active` | web 有回复时 `{"decision":"block","reason":"[来自 web 回复，<用户>] <文本>"}`；否则为空（中继没开 / 等待超时 / `/off`）。可能还会因被监视 job 完成而返回 `block`，reason 是 `[gofer · job 完成] …` |
 | `Interrupt` | 用户在等待期间开始输入 / 取消等待 | — | 无；关闭该会话的 OPEN turn（`released_by=interrupted`），会话回 idle |
 | `SessionEnd` | 退出 | — | 无 |
 | `Notification` | 可选 | `notification_type` `message` | 无 |
@@ -371,7 +371,7 @@ user / assistant 转对话轮次，tool 转一行工具进度，`injected=true`�
 ### 9.4 送话与唤醒
 
 - **tmux 注入（A）**：配 `inject_process`；会话要在 tmux 里且登记了执行机。
-- **接管（B）**：`session_resume_interactive` 起新进程 `--resume`，首行写入 `[gofer web 回复] <文本>\r`；`allow_interactive` 与 cwd 条件同其它 agent。**保护**：原进程仍在线时拒绝（`session_alive`，见 §9.5 与 §4）。
+- **接管（B）**：`session_resume_interactive` 起新进程 `--resume`，首行写入 `[来自 web 回复，<用户>] <文本>\r`；`allow_interactive` 与 cwd 条件同其它 agent。**保护**：原进程仍在线时拒绝（`session_alive`，见 §9.5 与 §4）。
 - **唤醒**：`session_resume` 起非交互续接 job（0.118 起沿用源 agent 的 env 与输出投影）。
 
 ### 9.5 在线送话命令（deliver_command，路径 C）
@@ -380,7 +380,7 @@ user / assistant 转对话轮次，tool 转一行工具进度，`injected=true`�
 
 | 配置 | 含义 |
 |---|---|
-| `deliver_command` | argv 模板，**接在 agent 的 `command` 之后**（与 `session_resume` 同规则）；首元素是绝对路径时视为完整 argv。变量 `{{session_id}}`、`{{text}}`（文本已带 `[gofer web 回复] ` 前缀） |
+| `deliver_command` | argv 模板，**接在 agent 的 `command` 之后**（与 `session_resume` 同规则）；首元素是绝对路径时视为完整 argv。变量 `{{session_id}}`、`{{text}}`（文本已带 `[来自 web 回复，<用户>] ` 前缀） |
 | `deliver_stdin: true` | 文本走 stdin，argv 里**不得**含 `{{text}}`（推荐：长文本 / 特殊字符不受 argv 限制）。本机 runner 直接支持；worker 需**协议 ≥ v18**（旧 worker 会明确拒绝，不会空 stdin 执行） |
 
 退出码约定：`0` = 已送达活进程；`3` = 会话进程不在线（not running）；其它 = 失败，stderr 是原因。

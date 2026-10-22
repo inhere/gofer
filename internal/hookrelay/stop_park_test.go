@@ -28,7 +28,7 @@ func TestStopJobParkIsAnnounced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Blocked || !strings.Contains(res.Reason, "[gofer job 完成] job-9") {
+	if !res.Blocked || !strings.Contains(res.Reason, "[gofer · job 完成] job-9") {
 		t.Fatalf("res=%+v, want the job notice as the block reason (log=%s)", res, log.String())
 	}
 

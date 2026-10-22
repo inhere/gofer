@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/testutil/wait"
 )
@@ -233,7 +234,7 @@ func TestWakeLeavesNoWebTraceThroughTheRealRelay(t *testing.T) {
 		t.Fatalf("injection jobs = %d, want 1", len(seen))
 	}
 	script := strings.Join(seen[0].Cmd, " ")
-	if !strings.Contains(script, "gofer-mail-wake") || strings.Contains(script, sessionrelay.InjectPrefix) {
+	if !strings.Contains(script, "gofer-mail-wake") || strings.Contains(script, msgprefix.WebReplyOpen) {
 		t.Fatalf("wake script = %q", script)
 	}
 	if out, _ := f.store.ReadSessionOutbox("sess-real"); len(out) != 0 {

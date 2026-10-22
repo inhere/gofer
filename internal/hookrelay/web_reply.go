@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 // webReplyTail bounds the transcript scan for the web message a SendMessage
@@ -19,7 +19,7 @@ const sendMessageTool = "SendMessage"
 // session answering a web message: a SendMessage whose recipient is the Claude
 // Code address a "[来自 web，…]" message came from (the messenger). Everything
 // else — messages to other sessions, structured (non-text) messages, and an answer
-// to a gofer SYSTEM NOTICE ("[gofer 通知] …", gofer-11gk), which is not a person —
+// to a gofer system message ("[gofer · …]", gofer-11gk), which is not a person —
 // is "".
 func webReplyOf(p Payload) (text, to string) {
 	if p.ToolName != sendMessageTool || strings.TrimSpace(p.TranscriptPath) == "" || len(p.ToolInput) == 0 {
@@ -47,15 +47,11 @@ func webReplyOf(p Payload) (text, to string) {
 }
 
 // webMessageBody reports whether a peer message body is a person's web message: it
-// opens with the web prefix and is not a gofer system notice. The notice has its
-// own prefix (sessionrelay.SystemNoticePrefix), so it must never be read as the
-// person having written — neither here nor in the Stop wait (gofer-11gk).
+// wears a person's prefix and is not a gofer system message. The two halves of the
+// table (msgprefix) decide it, so a notice can never be read as the person having
+// written — neither here nor in the Stop wait (gofer-11gk).
 func webMessageBody(body string) bool {
-	t := strings.TrimSpace(body)
-	if strings.HasPrefix(t, sessionrelay.SystemNoticePrefix) {
-		return false
-	}
-	return strings.HasPrefix(t, sessionrelay.WebMessagePrefix)
+	return msgprefix.IsPerson(body)
 }
 
 // webMessageFrom reports whether the transcript holds a web message delivered
@@ -70,7 +66,7 @@ func webMessageFrom(path, address string) bool {
 		return false
 	}
 	addr := []byte(address)
-	prefix := []byte(sessionrelay.WebMessagePrefix)
+	prefix := []byte(msgprefix.WebMessageOpen)
 	quotedFrom := []byte(`from=\"` + address + `\"`)
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]

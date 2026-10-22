@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -95,7 +96,7 @@ type promptMemoryHit struct {
 	PromptMemory
 	keyword string // the matched when.keywords entry, or when.commands prefix
 	// head is the header line prefix; empty = the prompt form
-	// "[gofer 记忆 · 因“<keyword>”命中]".
+	// "[gofer · 记忆] 因“<keyword>”命中".
 	head string
 }
 
@@ -207,7 +208,7 @@ func renderPromptMemories(hits []promptMemoryHit, budget int) string {
 	for i, h := range hits {
 		prefix := h.head
 		if prefix == "" {
-			prefix = fmt.Sprintf("[gofer 记忆 · 因“%s”命中]", h.keyword)
+			prefix = msgprefix.Format(msgprefix.Memory, "", fmt.Sprintf("因“%s”命中", h.keyword))
 		}
 		head := prefix + " " + h.Memory.Key + h.scopeLabel()
 		if flag := tracker.MemoryFlagPrefix(h.Memory.MemoryMeta); flag != "" {

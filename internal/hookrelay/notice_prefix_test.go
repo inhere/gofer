@@ -14,7 +14,7 @@ import (
 // following UserPromptSubmit carries it and must keep the relay on (no auto-off, no
 // title rewrite). A person's "[来自 web，…]" line stays a human prompt.
 func TestHarnessPromptRecognisesTheSystemNotice(t *testing.T) {
-	notice := SystemNoticePrefix + " " + JobDoneTag + " job-1 t status=done exit=0"
+	notice := JobDoneTag + " job-1 t status=done exit=0"
 	if !IsHarnessPrompt(notice) {
 		t.Fatalf("%q not recognised as a system notice", notice)
 	}
@@ -42,8 +42,8 @@ func TestStopJobWaitNoticeUsesTheSystemNoticePrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Blocked || !strings.HasPrefix(res.Reason, SystemNoticePrefix+" "+JobDoneTag+" job-p1") {
-		t.Fatalf("result=%+v, want the notice under %q", res, SystemNoticePrefix)
+	if !res.Blocked || !strings.HasPrefix(res.Reason, JobDoneTag+" job-p1") {
+		t.Fatalf("result=%+v, want the notice under %q", res, JobDoneTag)
 	}
 	if strings.Contains(res.Reason, sessionrelay.WebMessagePrefix) {
 		t.Fatalf("the notice must not wear the web prefix: %q", res.Reason)
@@ -60,8 +60,8 @@ func TestCatchUpNoticeUsesTheSystemNoticePrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(res.Context, SystemNoticePrefix+" "+JobDoneTag+" job-c1") {
-		t.Fatalf("context=%q, want the notice under %q", res.Context, SystemNoticePrefix)
+	if !strings.HasPrefix(res.Context, JobDoneTag+" job-c1") {
+		t.Fatalf("context=%q, want the notice under %q", res.Context, JobDoneTag)
 	}
 	if strings.Contains(res.Context, sessionrelay.WebMessagePrefix) {
 		t.Fatalf("the caught-up notice must not wear the web prefix: %q", res.Context)
@@ -69,10 +69,10 @@ func TestCatchUpNoticeUsesTheSystemNoticePrefix(t *testing.T) {
 }
 
 // A notice that reached a WAITING session as its relay-turn answer is handed to the
-// agent as the notice itself — not wrapped in "[gofer web 回复]", which marks a
-// person's answer. A person's reply keeps that marker.
+// agent as the notice itself — not wrapped in a person's web-reply prefix, which
+// marks a person's answer. A person's reply keeps that marker.
 func TestStopNoticeAnswerKeepsTheSystemNoticeLine(t *testing.T) {
-	notice := SystemNoticePrefix + " " + JobDoneTag + " job-t1 t status=done exit=0"
+	notice := JobDoneTag + " job-t1 t status=done exit=0"
 	f := newFake()
 	f.sessions["sid-turn-notice"] = client.AgentSession{SessionID: "sid-turn-notice", RelayMode: client.RelayModeOn, WaitReason: client.WaitModeOn}
 	f.answerAfter, f.answer = 2, notice
@@ -101,7 +101,7 @@ func TestStopNoticeAnswerKeepsTheSystemNoticeLine(t *testing.T) {
 // address the notice came from. The same transcript with a person's message is
 // reported, so the regression is pinned too.
 func TestWebReplyIgnoresSystemNoticeAnswer(t *testing.T) {
-	notice := webMessageEntry(t, messengerAddr, SystemNoticePrefix+" "+JobDoneTag+" job-9 t status=done exit=0", false)
+	notice := webMessageEntry(t, messengerAddr, JobDoneTag+" job-9 t status=done exit=0", false)
 	transcript := writeTranscript(t, notice,
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"noted"}]}}`)
 	reply := "收到"

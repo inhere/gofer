@@ -9,6 +9,7 @@ import (
 	"github.com/gookit/goutil/x/assert"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 // The mailbox's raw paths (plan M5): DeliverLetter and Wake carry text verbatim and leave NO
@@ -50,7 +51,7 @@ func TestWakeCommandPathVerbatimNoWebTrace(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, PathCommand, res.Path)
 	assert.Len(t, inj.reqs, 1)
-	assert.Eq(t, "<gofer-mail-wake count=\"2\"/>", inj.reqs[0].Stdin) // no InjectPrefix
+	assert.Eq(t, "<gofer-mail-wake count=\"2\"/>", inj.reqs[0].Stdin) // no person's web prefix
 	assertNoWebTrace(t, s, "sid-wake-cmd", before.State)
 }
 
@@ -69,7 +70,7 @@ func TestWakeTmuxPathNoPrefixNoWebTrace(t *testing.T) {
 	assert.Len(t, inj.reqs, 1)
 	script := strings.Join(inj.reqs[0].Cmd, " ")
 	assert.Contains(t, script, "WAKE-TEXT")
-	assert.False(t, strings.Contains(script, InjectPrefix))
+	assert.False(t, strings.Contains(script, msgprefix.WebReplyOpen))
 	assertNoWebTrace(t, s, "sid-wake-tmux", before.State)
 }
 

@@ -19,7 +19,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 
 const GOFER = process.env.GOFER_BIN || "gofer";
 const STOP_WAIT_SEC = 7140;
-const REPLY_PREFIX = "[gofer web 回复] ";
+const REPLY_PREFIX = "[来自 web 回复，web] ";
 
 function textOf(message: any): string {
   const content = message?.content;
@@ -112,7 +112,9 @@ export default function (pi: any) {
       try { reason = JSON.parse(out.trim().split("\n").pop() || "{}").reason ?? ""; } catch {}
       if (!reason) return;
       try {
-        pi.sendUserMessage(reason.startsWith(REPLY_PREFIX) ? reason : REPLY_PREFIX + reason, { deliverAs: "followUp" });
+        pi.sendUserMessage(reason.startsWith(REPLY_PREFIX) || reason.startsWith("[来自 web") || reason.startsWith("[gofer · ")
+          ? reason
+          : REPLY_PREFIX + reason, { deliverAs: "followUp" });
       } catch {}
     });
   });

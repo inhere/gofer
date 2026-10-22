@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -161,7 +162,7 @@ func matchCommandMemories(cands []PromptMemory, cmd, agent string, now time.Time
 		return tracker.MemoryMatchesCommand(m.MemoryMeta, cmd)
 	})
 	for i := range hits {
-		hits[i].head = fmt.Sprintf("[gofer 记忆 · 执行 “%s” 前]", hits[i].keyword)
+		hits[i].head = msgprefix.Format(msgprefix.Memory, "", fmt.Sprintf("执行 “%s” 前", hits[i].keyword))
 	}
 	return hits
 }

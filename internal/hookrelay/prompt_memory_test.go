@@ -51,8 +51,8 @@ func TestPromptMemoryMatchesKeywordsAndOrders(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := res.Context
-	ri := strings.Index(ctx, "[gofer 记忆 · 因“发版”命中] b-rule（全局记忆）\nrule body")
-	ni := strings.Index(ctx, "[gofer 记忆 · 因“RELEASE”命中] a-note\nnote body")
+	ri := strings.Index(ctx, "[gofer · 记忆] 因“发版”命中 b-rule（全局记忆）\nrule body")
+	ni := strings.Index(ctx, "[gofer · 记忆] 因“RELEASE”命中 a-note\nnote body")
 	if ri < 0 || ni < 0 || ri > ni {
 		t.Fatalf("want rule then note, got %q", ctx)
 	}
@@ -150,7 +150,7 @@ func TestPromptMemoryAppendsToCatchUpContext(t *testing.T) {
 	opts := promptMemOpts(t, []PromptMemory{{Memory: kwMemory("release-flow", "", "step 1", "发版")}}).withDefaults()
 	r := &runner{api: newFake(), p: promptPayload(AgentClaude, "", "pm-merge", "发版"), opts: opts, log: func(string, ...any) {}}
 	res := r.injectPromptMemories(Result{Context: JobDoneTag + " job-1"})
-	if !strings.HasPrefix(res.Context, JobDoneTag+" job-1\n\n"+MemoryInjectHeader+"\n[gofer 记忆 · 因“发版”命中] release-flow") {
+	if !strings.HasPrefix(res.Context, JobDoneTag+" job-1\n\n"+MemoryInjectHeader+"\n[gofer · 记忆] 因“发版”命中 release-flow") {
 		t.Fatalf("memory context must follow the catch-up notice: %q", res.Context)
 	}
 }

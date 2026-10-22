@@ -31,7 +31,7 @@ func goferNotices(t *testing.T, s *Server, sid string) []jobstore.SessionMessage
 // TestJobEndNotifyReachesTheSessionThroughTheMessenger is the gofer-3db4 wiring, end
 // to end: a job submitted with notify + notify_session ends, the assembled hub hands
 // the finished job to the relay, and the session MESSENGER is asked to deliver one
-// [gofer job 完成] notice to that session — while a job that never asked to notify
+// [gofer · job 完成] notice to that session — while a job that never asked to notify
 // stays silent.
 func TestJobEndNotifyReachesTheSessionThroughTheMessenger(t *testing.T) {
 	t.Parallel()
@@ -79,10 +79,10 @@ func TestJobEndNotifyReachesTheSessionThroughTheMessenger(t *testing.T) {
 	// The outbox row is written before the messenger is called, so wait for the
 	// messenger too rather than reading it right after the row appears (G052).
 	wait.Until(t, wait.Timeout(t, 10*time.Second), "the messenger to receive the notice", func() bool {
-		return strings.Contains(msgr.delivered(), "[gofer job 完成]")
+		return strings.Contains(msgr.delivered(), "[gofer · job 完成]")
 	})
 	delivered := msgr.delivered()
-	for _, want := range []string{"[gofer job 完成]", notified.ID, "notify e2e", "status=done", "gofer job show " + notified.ID} {
+	for _, want := range []string{"[gofer · job 完成]", notified.ID, "notify e2e", "status=done", "gofer job show " + notified.ID} {
 		if !strings.Contains(delivered, want) {
 			t.Fatalf("delivered notice %q does not contain %q", delivered, want)
 		}
