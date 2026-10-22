@@ -68,3 +68,16 @@ D6 不变：hook 注入路径（UserPromptSubmit / Stop 等）本来就不打字
 1. 会话投递模式默认 `auto`：只在确认输入区为空时才打字，识别不了时留待。
 2. 重注入覆盖 `compact` 与 `resume`。
 3. claim 没记会话 id 时，按调用方 + 最近活动推断并标「可能」。
+
+## 实施记录（gofer-k23r，2026-10-22）
+
+第二部分（D3–D6）已实施：
+
+- **D3 整段粘贴**：`sessionrelay.injectScript` 改为 `printf '%s' <单引号字面量> | tmux load-buffer -b gofer-inject-<pane> -` + `tmux paste-buffer -p -d -b <buf> -t <pane>` + **一次** `send-keys Enter`；逐行 `send-keys -l` + Enter 全部删除。buffer 名按 pane 派生，两个 pane 并发投递不会互相覆盖，粘贴后 `-d` 清掉。
+- **D4 输入区检查**：`inject_guard.go` 新增 `tmux capture-pane -p -S -30` 探针 job（tag `relay-guard`）+ 服务端判定 `ClassifyInjectGuard`：`selecting`（选择界面优先）→ `empty` → `has_input` → `unknown`（规则写的就是占位符也认作空）。规则来自 `agents.<k>.inject_guard`（`empty` / `has_input` / `selecting` 三组 Go 正则，配置校验时编译），未配时用内置 claude / codex 规则（夹具见 `deliver_guard_test.go`），配置里某一组留空则保留该组内置规则。探针失败 / 超时一律 `unknown`。
+- **D5 投递模式**：`agent_sessions.inject_mode`（additive 列，`auto` 默认）+ `AgentSession.InjectMode` + `Store.SetSessionInjectMode` + `Service.SetInjectMode`（写审计事件 `session.inject_mode_set`）。路由 `POST /v1/sessions/{sid}/inject-mode`（`{"mode": "auto|hold|force"}`）。`auto` 在路径 A 前探针判定，非空即留待；`hold` 在路径 C 之前就留待（连在线送话也不走）；`force` 不探针直接粘贴。路径 B（`--resume` 新进程）天然空输入，不探针。
+  - **留待**实现为会话信箱的一封信（`mail`: `to_kind=session`, `state=pending`, 30 天送达期限），因此 D6 完全不用改：会话下一次 SessionStart / UserPromptSubmit / Stop 的现有 claim → confirm 路径会注入它。每次留待写审计事件 `session.inject_hold`（`{"reason","mail_id"}`，原因 `input_has_content` / `selecting` / `guard_unknown` / `hold_mode`）。
+  - **「现在送」**：`Service.DeliverHeld` + `POST /v1/sessions/{sid}/held/send` —— 取走会话待投递的信件（`ClaimSessionMail`），按普通注入 job **强制**粘贴（不探针、不看模式），确认后 `ConfirmSessionMail` 标记送达；粘贴失败则 `ReleaseSessionMail` 退回 pending，可重试。审计事件 `session.inject_flush`。
+  - CLI：`gofer session inject-mode auto|hold|force [--session <id>]`，`--send-held` 即「现在送」（G033：放在既有 `session` 组内）。
+- **配置**：`agents.<k>.inject_guard`（`empty` / `has_input` / `selecting`），加载时编译校验（`validateAgentIntegration`）。
+- **未实施**：web 会话页的模式选择器与「N 条等待投递 / 现在送」按钮（后端与接口已就绪，`inject_mode` 已在会话视图里，待投递数量沿用会话视图的 `mail_pending`），以及对应的 vitest。第一部分（D1/D2，gofer-o53s）不在本任务范围。

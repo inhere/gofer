@@ -18,6 +18,12 @@
 
 ### 新增
 
+- **终端投递不覆盖人正在输入的内容：投递方式、投递模式与「现在送」（gofer-k23r）**：往会话终端打字前先看输入区，只有确认为空才投递；不确定或非空时消息改为留待，不丢。
+  - 投递改为**整段粘贴**：一条多行消息不再被拆成多次提交（以前每行一次回车，等于逐行喂给 agent）。
+  - 新增**会话投递模式** `inject_mode`：`auto`（默认，只在确认为空的输入框投递）/ `hold`（从不打字，全部留待）/ `force`（不检查直接粘贴，给确定没人在用的终端）。已停在选择界面（AskUserQuestion、权限确认）时一律不投递，避免替人按下回车。CLI `gofer session inject-mode auto|hold|force [--session <id>]`，接口 `POST /v1/sessions/{sid}/inject-mode`。
+  - 留待的消息进会话信箱，由会话下一次 hook 注入；`gofer session inject-mode --send-held` / `POST /v1/sessions/{sid}/held/send`（web「现在送」）可立刻送出。每次留待记审计事件 `session.inject_hold`（带原因）。
+  - 自研 agent 可配 `agents.<k>.inject_guard`（`empty` / `has_input` / `selecting` 三组正则）教 gofer 认识自己的输入框；内置 claude / codex 规则，没有任何规则的 agent 不做 `auto` 检查。
+
 - **webhook 新增 `keyword`：自动满足钉钉 / 飞书的「自定义关键词」安全设置**：消息标题与正文都不含该关键词时，gofer 把它加到标题前（钉钉 markdown 的 `title` 与正文标题行都带），已经包含时不重复加。这样机器人侧只开关键词模式也能收到 gofer 的各类通知，不必为每个模板手工塞词。`keyword` 只对 `kind: dingtalk | feishu` 有效，配在 generic 上、写成空串或含换行时 `gofer config validate` 直接报错。
 
 ## [0.185.0] - 2026-10-22

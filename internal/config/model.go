@@ -2680,6 +2680,12 @@ type AgentConfig struct {
 	// tmux pane may be running for a web message to be typed into it. It unions with
 	// session.inject_commands and applies only to sessions registered as THIS agent.
 	InjectProcess []string `yaml:"inject_process,omitempty"`
+	// InjectGuard is the input-area recognition of the terminal delivery guard (design
+	// 2026-10-22 D4): the last lines of the session's tmux pane are captured and judged,
+	// and a message is typed only into a CONFIRMED-EMPTY input area. Unset keeps the
+	// built-in rules of a known agent (claude / codex); an agent with no rules at all is
+	// never `auto`-guarded (nothing could ever be confirmed empty).
+	InjectGuard *InjectGuardConfig `yaml:"inject_guard,omitempty"`
 	// DeliverCommand is how a web message reaches the LIVE process of one of this
 	// agent's sessions (session relay path C): argv appended to the agent's `command`
 	// (like session_resume), or a full argv when its first element is an absolute

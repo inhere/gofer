@@ -249,6 +249,11 @@ type sessionView struct {
 	// (mode_on / idle_probe / turn_age, empty = does not wait); it is what the
 	// hook keys on and what the pre-R1 `relay` boolean used to summarise.
 	RelayMode string `json:"relay_mode"`
+	// InjectMode is how a message that would be TYPED into the terminal is handled
+	// (design 2026-10-22 D5): auto (only into a confirmed-empty input area) | hold
+	// (never type: the message waits for the session's next hook) | force (type
+	// without looking). The session page's selector writes it.
+	InjectMode string `json:"inject_mode"`
 	// RelayDemotedAt is when an `on` switch fell back to `auto` because the human typed
 	// in the terminal (single-session reads only; 0 = not the current story).
 	RelayDemotedAt int64  `json:"relay_demoted_at,omitempty"`
@@ -378,6 +383,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: s.resolveRunnerName(a.Runner),
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
 		State: a.State, RelayMode: a.RelayMode, WaitReason: reason,
+		InjectMode:       a.InjectMode,
 		WaitReasonDetail: detail, WaitBudgetSec: budget, SubagentCount: subagents, CallerID: a.CallerID,
 		RefusedCallerID: a.RefusedCallerID, RefusedAt: a.RefusedAt,
 		PermissionWaitReason: permReason, PermissionWaitBudgetSec: permBudget,
@@ -1175,6 +1181,72 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 		// waiting for idle no longer makes this look like a failure): the caller renders
 		// 「送达中」 and the outbox says how it ended.
 		"delivering": res.Delivering,
+	})
+}
+
+type sessionInjectModeReq struct {
+	Mode string `json:"mode,omitempty"`
+}
+
+// handleSetSessionInjectMode sets the terminal delivery mode
+// (POST /v1/sessions/{sid}/inject-mode, design 2026-10-22 D5). The same permission as
+// answering the session: it changes what a message from anyone may do to its terminal.
+func (s *Server) handleSetSessionInjectMode(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	var body sessionInjectModeReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	mode := strings.ToLower(strings.TrimSpace(body.Mode))
+	if mode == "" {
+		writeError(c, http.StatusBadRequest, "delivery mode required", `send {"mode":"auto|hold|force"}`)
+		return
+	}
+	a, ok := s.sessionForAccess(c, "set delivery mode")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
+		return
+	}
+	a, err := s.relay.SetInjectMode(c.Param("sid"), mode, callerFromCtx(c))
+	if err != nil {
+		writeError(c, relayStatus(err), "set delivery mode failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, s.toSessionView(a))
+}
+
+// handleSendHeldSession is 「现在送」 (POST /v1/sessions/{sid}/held/send): the session's
+// waiting messages are pasted into its terminal right now, past both the input-area
+// guard and the delivery mode — the person clicking it is the confirmation.
+func (s *Server) handleSendHeldSession(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	a, ok := s.sessionForAccess(c, "send waiting messages")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
+		return
+	}
+	res, err := s.relay.DeliverHeld(c.Req.Context(), c.Param("sid"), callerFromCtx(c), callerFromCtx(c))
+	if err != nil {
+		if reason := sessionrelay.DeliverReason(err); reason != "" {
+			writeError(c, deliverStatus(err), "deliver failed: "+reason, err.Error())
+			return
+		}
+		writeError(c, deliverStatus(err), "send waiting messages failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{
+		"path": res.Path, "job_id": res.JobID, "delivering": res.Delivering,
 	})
 }
 

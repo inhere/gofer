@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
@@ -414,6 +416,42 @@ type Takeoverer interface {
 // nothing and claiming success.
 func (s *Service) SetTakeoverer(t Takeoverer) { s.takeoverer = t }
 
+// SetAgentInjectGuard wires the per-agent input-area recognition rules of the
+// terminal delivery guard (agent config `inject_guard`; the host compiles them and
+// falls back to DefaultInjectGuard for the agents it has built-ins for). nil = no
+// guard: nothing is captured before typing, and a session then behaves as `force`
+// unless its mode says otherwise.
+func (s *Service) SetAgentInjectGuard(fn func(agentKey string) InjectGuardRules) {
+	s.agentGuard = fn
+}
+
+// injectGuardFor is the rules actually applied to a session: the host's, or none.
+func (s *Service) injectGuardFor(agentKey string) InjectGuardRules {
+	if s.agentGuard == nil {
+		return InjectGuardRules{}
+	}
+	return s.agentGuard(agentKey)
+}
+
+// SetInjectMode stores the session's delivery mode (auto | hold | force, D5) and
+// records who set it.
+func (s *Service) SetInjectMode(sid, mode, actor string) (jobstore.AgentSession, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if !jobstore.ValidInjectMode(mode) {
+		return jobstore.AgentSession{}, fmt.Errorf("%w: delivery mode must be auto|hold|force, got %q", ErrInvalidInput, mode)
+	}
+	ok, err := s.store.SetSessionInjectMode(sid, mode)
+	if err != nil {
+		return jobstore.AgentSession{}, err
+	}
+	if !ok {
+		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	_, _ = s.store.AppendAuditEvent(AuditInjectModeSet, sid, actor, fmt.Sprintf(`{"mode":%q}`, mode))
+	a, _, err := s.store.GetAgentSession(sid)
+	return a, err
+}
+
 // SetAgentInjectLookup wires the per-agent extra foreground-process names (agent
 // config `inject_process`). The lookup is consulted per session with that session's
 // registered agent key, so the extras widen the whitelist ONLY for sessions that
@@ -452,6 +490,10 @@ type DeliverResult struct {
 	// (ReconcileDeliveries). JobID is that job; there is no audit row yet, because
 	// nothing is known to have landed.
 	Delivering bool
+	// MailID is the mailbox letter a held delivery (PathHeld) was queued as: the
+	// session's next UserPromptSubmit / Stop hook injects it, and it is what
+	// 「现在送」 takes right away.
+	MailID int64
 }
 
 // Deliver routes a reply to a session (design §9.1 选路): an OPEN turn is
@@ -511,6 +553,12 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by, origin string, all
 	// before tmux because it reaches the process directly (no pane, no foreground
 	// whitelist) — and a delivered or FAILED command ends the ladder (a failure could
 	// still have delivered, so a second path would risk double delivery).
+	//
+	// D5 hold: the message must not reach the terminal at all, so even the live-process
+	// channel stays silent and the message waits for the session's next hook.
+	if a.InjectMode == jobstore.InjectModeHold {
+		return s.holdMessage(a, text, by, ReasonHoldMode)
+	}
 	notRunning := false
 	if res, tried, err := s.deliverCommand(ctx, a, text, by, origin); tried {
 		switch {
@@ -520,6 +568,16 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by, origin string, all
 			notRunning = true
 		default:
 			return DeliverResult{}, err
+		}
+	}
+	// D4 auto: type only into an input area the agent's rules confirm is EMPTY. A
+	// person halfway through typing, or a question dialog whose Enter would answer for
+	// them, leaves the message in the mailbox for the next hook instead (D5 hold).
+	if a.InjectMode != jobstore.InjectModeForce {
+		if rules := s.injectGuardFor(a.Agent); !rules.IsZero() {
+			if verdict, _ := s.probeInjectGuard(ctx, a, origin); verdict != GuardEmpty {
+				return s.holdMessage(a, text, by, guardReason(verdict))
+			}
 		}
 	}
 	res, err := s.deliverTmux(ctx, a, text, by, origin)
@@ -791,6 +849,97 @@ func (s *Service) runTmuxInject(ctx context.Context, a jobstore.AgentSession, pa
 	return res, nil
 }
 
+// holdMessage leaves a message that must not be typed in the session's mailbox and
+// records why (design 2026-10-22 D5). The letter is a normal pending letter to the
+// session, so the EXISTING hook path injects it at the next SessionStart /
+// UserPromptSubmit / Stop — nothing new had to be built on that side (D6).
+func (s *Service) holdMessage(a jobstore.AgentSession, text, by, reason string) (DeliverResult, error) {
+	m, err := s.store.InsertMail(jobstore.MailInput{
+		FromKind:   jobstore.MailKindCaller,
+		FromCaller: by,
+		ToAddress:  "session:" + a.SessionID,
+		ToKind:     jobstore.MailKindSession,
+		ToID:       a.SessionID,
+		Body:       injectText(text, by),
+		DeliverBy:  s.nowFn().Unix() + int64(heldMailDeliverBy/time.Second),
+	})
+	if err != nil {
+		return DeliverResult{}, err
+	}
+	_, _ = s.store.AppendAuditEvent(AuditInjectHold, a.SessionID, by,
+		fmt.Sprintf(`{"reason":%q,"mail_id":%d}`, reason, m.ID))
+	return DeliverResult{Path: PathHeld, MailID: m.ID}, nil
+}
+
+// DeliverHeld is 「现在送」: take the session's waiting letters and paste them into its
+// terminal right now, ignoring both the input-area guard and the session's delivery
+// mode — the person asking for it IS the confirmation the guard would otherwise wait
+// for. A confirmed paste marks the letters delivered; a failed one releases them back
+// to pending, so nothing is lost by trying.
+func (s *Service) DeliverHeld(ctx context.Context, sid, by, origin string) (DeliverResult, error) {
+	a, ok, err := s.store.GetAgentSession(sid)
+	if err != nil {
+		return DeliverResult{}, err
+	}
+	if !ok {
+		return DeliverResult{}, ErrUnknownSession
+	}
+	if _, err := s.ceilingOwner(origin, "a session delivery"); err != nil {
+		return DeliverResult{}, err
+	}
+	taken, _, err := s.store.ClaimSessionMail(sid, jobstore.TakeMailOpts{
+		Limit:    heldFlushLimit,
+		MaxRunes: heldFlushChars,
+		TTL:      jobstore.DefaultMailClaimTTL,
+	})
+	if err != nil {
+		return DeliverResult{}, err
+	}
+	if len(taken) == 0 {
+		return DeliverResult{}, ErrNothingHeld
+	}
+	ids := make([]int64, 0, len(taken))
+	bodies := make([]string, 0, len(taken))
+	for _, m := range taken {
+		ids = append(ids, m.ID)
+		bodies = append(bodies, m.Body)
+	}
+	text := strings.Join(bodies, "\n\n")
+	if len(text) > MaxDeliverText {
+		text = truncateBytes(text, MaxDeliverText)
+	}
+	res, err := s.runTmuxInject(ctx, a, text, by, origin)
+	if err == nil && res.Status != "" {
+		// The paste outlived the wait window: the letters stay in their claim and the
+		// delivery settles at the job's terminal state (the same 「送达中」 rule as a
+		// normal delivery). Releasing them here would paste them twice.
+		return s.pendingDelivery(sid, res.JobID, PathTmux), nil
+	}
+	if err != nil {
+		_ = s.store.ReleaseSessionMail(sid, ids)
+		return DeliverResult{}, err
+	}
+	if _, err := s.store.ConfirmSessionMail(sid, ids); err != nil {
+		return DeliverResult{}, err
+	}
+	_, _ = s.store.AppendAuditEvent(AuditInjectFlush, sid, by, fmt.Sprintf(`{"mails":%d,"job_id":%q}`, len(ids), res.JobID))
+	if _, err := s.store.SetSessionState(sid, jobstore.SessionRunning); err != nil {
+		return DeliverResult{}, err
+	}
+	return DeliverResult{Path: PathTmux, JobID: res.JobID}, nil
+}
+
+// truncateBytes cuts s to at most n bytes without splitting a UTF-8 rune.
+func truncateBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
 // takeoverCheck runs path B's four preconditions and returns what the takeover
 // job needs: the resume plan and the project-relative cwd. Each failure carries its
 // own reason code (design §9.1 v0.5): the session is already taken over, no resume
@@ -1036,18 +1185,23 @@ func sanitizeCommandName(s string) string {
 
 // injectScript builds the ONE POSIX shell script path A runs on the session's
 // execution machine: confirm the pane still exists and is sitting in an agent CLI
-// (the human may have that pane in an editor by now), then type the reply into it
-// line by line with `-l` (literal) plus the Enter that submits each line.
+// (the human may have that pane in an editor by now), then PASTE the whole message in
+// at once and submit it with ONE Enter.
 //
-// Both the pane id and the text go in as single-quoted shell words, so a reply
-// containing quotes, `$` or backticks is typed VERBATIM and can never execute.
-// The pane check reports its reason on stdout and by exit code (3 = gone,
-// 4 = busy), which the caller turns into the failure reason.
+// One paste is the point (design 2026-10-22 D3): `load-buffer -` reads the text from
+// the script's own stdin into a tmux buffer, `paste-buffer -p` hands it to the TUI as
+// a bracketed paste (so a multi-line message stays ONE input instead of being
+// submitted line by line), and a single Enter sends it. The text never appears on a
+// command line: quotes, `$`, backticks and newlines are plain bytes of the buffer.
+//
+// The pane check reports its reason on stdout and by exit code (3 = gone, 4 = busy),
+// which the caller turns into the failure reason.
 func injectScript(pane, text string, allow []string) string {
 	if len(allow) == 0 {
 		allow = defaultInjectCommands
 	}
 	q := shQuote(pane)
+	buf := shQuote(injectBufferName(pane))
 	var b strings.Builder
 	b.WriteString("cur=$(tmux display -p -t " + q + " '#{pane_current_command}' 2>/dev/null) || { echo " + injectPaneMissing + "; exit 3; }\n")
 	b.WriteString(`[ -n "$cur" ] || { echo ` + injectPaneMissing + "; exit 3; }\n")
@@ -1055,21 +1209,25 @@ func injectScript(pane, text string, allow []string) string {
 	b.WriteString(strings.Join(allow, "|") + ") ;;\n")
 	b.WriteString("*) echo \"" + injectPaneBusyPrefix + "$cur\"; exit 4 ;;\n")
 	b.WriteString("esac\n")
-	for _, line := range injectLines(text) {
-		b.WriteString("tmux send-keys -t " + q + " -l -- " + shQuote(line) + " || exit 1\n")
-		b.WriteString("tmux send-keys -t " + q + " Enter || exit 1\n")
-	}
+	b.WriteString("printf '%s' " + shQuote(text) + " | tmux load-buffer -b " + buf + " - || exit 1\n")
+	b.WriteString("tmux paste-buffer -p -d -b " + buf + " -t " + q + " || exit 1\n")
+	b.WriteString("tmux send-keys -t " + q + " Enter || exit 1\n")
 	return b.String()
 }
 
-// injectLines splits a reply into the lines typed one by one. A trailing newline
-// is not an extra empty line: the last line already gets the Enter that sends it.
-func injectLines(text string) []string {
-	lines := strings.Split(text, "\n")
-	if n := len(lines); n > 1 && lines[n-1] == "" {
-		lines = lines[:n-1]
+// injectBufferName is the tmux buffer an injection carries its text in. It is
+// derived from the pane so two deliveries into two panes of one tmux server never
+// overwrite each other's text (the paste deletes the buffer right after).
+func injectBufferName(pane string) string {
+	var b strings.Builder
+	b.WriteString("gofer-inject-")
+	for _, r := range pane {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		}
 	}
-	return lines
+	return b.String()
 }
 
 // shQuote wraps s in single quotes for a POSIX shell: everything inside is

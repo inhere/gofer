@@ -681,6 +681,38 @@ func (s *Server) SetSessionTakeoverAliveSec(sec int) {
 	s.relay.SetTakeoverAliveSec(sec)
 }
 
+// agentInjectGuard answers the input-area recognition rules of an agent (design
+// 2026-10-22 D4): the agent's `inject_guard` block when it has one, else the built-in
+// rules of a known agent. A LIST the config leaves empty keeps its built-in (a config
+// that only teaches gofer a new `selecting` dialog must not lose the `empty` rule and
+// turn `auto` into `hold`).
+func (s *Server) agentInjectGuard(agentKey string) sessionrelay.InjectGuardRules {
+	builtin := sessionrelay.DefaultInjectGuard(agentKey)
+	if s.agents == nil {
+		return builtin
+	}
+	ac, ok := s.agents.Get(agentKey)
+	if !ok || ac.InjectGuard == nil {
+		return builtin
+	}
+	cfg := ac.InjectGuard
+	out := sessionrelay.InjectGuardRules{
+		Empty:     sessionrelay.CompileInjectGuard(cfg.Empty),
+		HasInput:  sessionrelay.CompileInjectGuard(cfg.HasInput),
+		Selecting: sessionrelay.CompileInjectGuard(cfg.Selecting),
+	}
+	if len(out.Empty) == 0 {
+		out.Empty = builtin.Empty
+	}
+	if len(out.HasInput) == 0 {
+		out.HasInput = builtin.HasInput
+	}
+	if len(out.Selecting) == 0 {
+		out.Selecting = builtin.Selecting
+	}
+	return out
+}
+
 // deliverPlan renders an agent's deliver_command for one web message (relay path C):
 // the argv is appended to the agent's `command` (like session_resume) unless its first
 // element is an absolute path, and the text rides argv ({{text}}) or stdin
@@ -786,6 +818,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			}
 			return nil
 		})
+		s.relay.SetAgentInjectGuard(s.agentInjectGuard)
 		// Session-relay auto-arm thresholds. A Server built from a bare ServerConfig
 		// has no `session:` block in hand, so it takes the shipped idle default;
 		// serve, which holds the whole config, overrides both thresholds through
@@ -1586,6 +1619,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/watches/complete", s.handleCompleteWatchedJobs)
 		r.DELETE("/sessions/{sid}/watches/{job_id}", s.handleRemoveSessionWatch)
 		r.POST("/sessions/{sid}/relay", s.handleSetSessionRelay)
+		r.POST("/sessions/{sid}/inject-mode", s.handleSetSessionInjectMode)
+		r.POST("/sessions/{sid}/held/send", s.handleSendHeldSession)
 		r.POST("/sessions/{sid}/turns", s.handleOpenTurn)
 		r.GET("/sessions/{sid}/turns/{id}", s.handleWaitTurn)
 		r.POST("/sessions/{sid}/turns/{id}/ack", s.handleAckTurn)
