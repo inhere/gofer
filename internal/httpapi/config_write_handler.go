@@ -1243,6 +1243,10 @@ type webhookPatch struct {
 	Events       []string `json:"events"`
 	Projects     []string `json:"projects"`
 	Enabled      *bool    `json:"enabled"`
+	// Keyword is the IM bot's 自定义关键词 setting (gofer-map1). It is not a secret, so
+	// the read path echoes it; an omitted member still inherits the matching
+	// configured entry's value so a console that predates it cannot drop it.
+	Keyword *string `json:"keyword"`
 	// SecretEnv names the env var holding the secret — a NAME, never a value (SR403).
 	// Omitted (absent or null) INHERITS the matching configured entry's name; an
 	// explicit "" clears it.
@@ -1341,6 +1345,11 @@ func buildWebhookPatch(w webhookPatch, idx, total int, prev []config.WebhookConf
 	}
 	if w.Kind != nil {
 		out.Kind = *w.Kind
+	}
+	if w.Keyword != nil {
+		out.Keyword = *w.Keyword
+	} else if src := claimSecretSource(w.URL, idx, total, prev, claimed); src >= 0 {
+		out.Keyword = prev[src].Keyword
 	}
 	if w.SecretEnv != nil {
 		out.SecretEnv = *w.SecretEnv

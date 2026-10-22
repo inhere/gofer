@@ -217,14 +217,18 @@ server:
   # kind：出站格式。省略或 generic = 上面的 {event, job} 机器格式 + HMAC 头；
   # dingtalk / feishu = 渲染成对应群机器人的消息 JSON。
   # 钉钉自定义机器人只能进群；只想发给自己，可以建一个多人群再把其他成员移出。
-  # 安全模式二选一：「自定义关键词」(不填 secret_env，最省事)或「加签」(填 secret_env，
-  # 钉钉签名放 query、飞书放 body，gofer 按 kind 自动处理)。
+  # 安全模式三选一：「自定义关键词」(写 keyword，消息不含关键词时自动加到标题前)、
+  # 「加签」(填 secret_env，钉钉签名放 query、飞书放 body，gofer 按 kind 自动处理)、
+  # 「IP 白名单」(gofer 不用配置，在机器人侧填 server 出口 IP)。
+  # 被机器人拒绝(errors≠0：关键词没命中 / 签名错 / token 失效)的投递直接记 failed 不重试，
+  # 限流(钉钉 130101 / 飞书 11232)仍按上面的退避表重试。
   # 会话中继事件 session.waiting 不在默认订阅集合里，必须显式写进 events 才会推送。
   # notification:
   #   allow_hosts: [oapi.dingtalk.com, open.feishu.cn]
   #   webhooks:
   #     - url: https://oapi.dingtalk.com/robot/send?access_token=xxx
   #       kind: dingtalk
+  #       keyword: gofer                      # 机器人开了「自定义关键词」才写，与机器人里填的词一致
   #       secret_env: GOFER_DINGTALK_SECRET   # 加签模式才需要；关键词模式留空
   #       events: [session.waiting, session.attention, job.terminal]
   #     - url: https://open.feishu.cn/open-apis/bot/v2/hook/xxx

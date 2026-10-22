@@ -395,7 +395,7 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
 		limit = w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes())
 	}
-	body, err := notify.RenderMessageWithLimit(w.Kind, msg, limit)
+	body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.Keyword, limit)
 	return body, err == nil
 }
 
@@ -404,6 +404,9 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 // the job may already have moved on). It is the shared body of the IM adapters and the
 // desktop channel (gofer-3wce): the three "a person must act" shapes first, then a
 // plain job headline for everything else an operator subscribed to (job.needs_review …).
+//
+// The renderer's keyword is a per-webhook field (gofer-map1), so it stays with the
+// CALLER (renderImmediateNotification): this function only builds the Message.
 func (s *Service) immediateMessage(result JobResult, eventType, detailJSON string, at int64) (notify.Message, bool) {
 	switch eventType {
 	case EventJobAwaitingApproval:

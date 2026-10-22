@@ -14,6 +14,11 @@
 ### 新增
 
 - **桌面通知通道（gofer-3wce）**：`server.notification.desktop` 让 server 在**自己所在主机**弹系统通知，解决审批 / 等回复的 job 在浏览器里被漏掉的问题（不需要托盘进程，也不要求 HTTPS）。默认订阅 `job.awaiting_approval`、`interaction.created`、`session.awaiting_reply`、`job.needs_review`，可用 `events` / `projects` 过滤；标题与正文复用 IM 通知的渲染，点击打开 `web_base_url` 对应页面。`merge_sec`（默认 10s）把同类事件合成一条（「3 个 job 等待批准」）。平台：Windows 用 `Windows.UI.Notifications` toast（点击可开链接），macOS 用 `osascript`，Linux 用 `notify-send`（没装则跳过）；以服务（Windows session 0）或无桌面会话运行时自动跳过，每种原因只记一条 `notify.desktop_skipped`，不刷屏。整段不写 = 不启用。见 [`docs/runbook/im-notification.md`](docs/runbook/im-notification.md) §10。
+- **webhook 新增 `keyword`：自动满足钉钉 / 飞书的「自定义关键词」安全设置**：消息标题与正文都不含该关键词时，gofer 把它加到标题前（钉钉 markdown 的 `title` 与正文标题行都带），已经包含时不重复加。这样机器人侧只开关键词模式也能收到 gofer 的各类通知，不必为每个模板手工塞词。`keyword` 只对 `kind: dingtalk | feishu` 有效，配在 generic 上、写成空串或含换行时 `gofer config validate` 直接报错。
+
+### 修复
+
+- **钉钉 / 飞书返回 HTTP 200 + 业务错误码时不再当成送达（gofer-map1）**：两家机器人在拒绝消息时仍回 200，真正结果在响应体的 `errcode` / `code` / `StatusCode` 里。gofer 现在解析它，非 0 即投递失败，并把机器人返回的错误原文写进投递记录的 `last_error`、serve 日志和 web 投递记录（以前一律记 `delivered`，用户没收到也看不出来）。重试口径：关键词不匹配、签名错误、token 失效这类永久错误（钉钉 310000 / 300001，飞书 19001 / 19021 / 19024）**首次即 failed 不重试**，限流（钉钉 130101、飞书 11232）与其他未知错误仍按原退避重试。generic webhook 仍只看 HTTP 状态。
 
 ## [0.185.0] - 2026-10-22
 

@@ -20,16 +20,18 @@
 
 飞书允许直接建只有自己的群，省掉第 1、2 步。
 
-## 3. 安全模式二选一
+## 3. 安全模式三选一
 
-添加机器人时必须选一种，两种 gofer 都支持：
+添加机器人时必须选一种，三种 gofer 都支持：
 
 | 模式 | 配置 | 说明 |
 |---|---|---|
-| 自定义关键词 | 不填 `secret_env` | 最省事。关键词填 `gofer` 或 `会话`，消息标题里都带得有 |
-| 加签 | 填 `secret_env` | gofer 按 kind 自动算：钉钉签名进 URL 参数，飞书进请求体 |
+| 自定义关键词 | `keyword: <关键词>` | 最省事。写上和机器人里一样的词（如 `gofer`）；消息标题 / 正文都不含它时 gofer 自动把 `gofer ` 加到标题前（钉钉的 markdown 标题和正文标题行都带） |
+| 加签 | `secret_env: <环境变量名>` | gofer 按 kind 自动算：钉钉签名进 URL 参数，飞书进请求体 |
+| IP 白名单 | 不用配置 | 在机器人侧填 server 机器出口 IP；主机出口 IP 变了就会失效 |
 
-IP 白名单模式也可以用，gofer 不需要额外配置，但主机出口 IP 变了就会失效。
+关键词和加签可以同时开（机器人侧两个都勾时，配置里两行都写）。
+**被机器人拒绝时 gofer 记 failed，不再重试**：`keywords not in content`（钉钉 310000 / 飞书 19024）、`sign not match`（钉钉 310000 / 飞书 19021）、`token is invalid`（钉钉 300001）这类错误重试也过不去，投递记录里直接就是 `failed`，`last_error` 是机器人返回的原文。限流（钉钉 130101 / 飞书 11232）仍按退避重试。
 
 ## 4. 配置
 
@@ -45,6 +47,7 @@ server:
     webhooks:
       - url: https://oapi.dingtalk.com/robot/send?access_token=xxx
         kind: dingtalk
+        keyword: gofer                     # 机器人开了「自定义关键词」才写；三个字的词不区分大小写
         secret_env: GOFER_DINGTALK_SECRET   # 加签模式才要；关键词模式删掉这行
         events: [session.waiting, session.attention]
       - url: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
@@ -118,13 +121,13 @@ server:
 | 现象 | 处理 |
 |---|---|
 | 完全没收到 | 先确认 `events` 里显式写了 `session.waiting`；再看 `allow_hosts` 是否包含目标 host（空列表=全拒） |
-| 机器人回 `keywords not in content` | 关键词模式下关键词没出现在消息里。把关键词设成 `gofer` 或 `会话`，或改用加签 |
-| 机器人回 `sign not match` | 加签密钥不对，或主机时钟偏差过大（两家都要求时间戳在一小时内） |
+| 机器人回 `keywords not in content` | 关键词模式下关键词没出现在消息里。给该 webhook 写 `keyword: <机器人里那个词>`，gofer 会自动加进标题；不改配置就只能改用加签 |
+| 机器人回 `sign not match` | 加签密钥不对，或主机时钟偏差过大（两家都要求时间戳在一小时内）。这类投递直接记 failed，不会重试 |
 | 消息里没有链接 | `server.web_base_url` 没配 |
 | 投递一直重试 | `gofer job` 侧的投递队列会退避重试 30s→2m→5m→15m→60m，到 `max_attempts` 后置 failed；失败原因记在投递记录的 last_error |
 | 想临时静音某项目 | 该项目配 `notify_enabled: false` |
 
-投递记录（含失败原因 `last_error`）可以在 web 的 job 详情页看到。会话 / 工作项通知不挂在 job 上，页面里看不到；serve 日志只在**入队**失败时记 `NotifyEvent: render` / `NotifyEvent: insert delivery` 警告，**发送**失败（如 `sign not match`）不进日志，只写进该投递记录的 `last_error`。排查这类通知时先按上表逐项核对配置；要确认事件确实产生了，可以临时加一个订阅同一事件的事件钩子（见第 8 节）把 stdin 写进文件看。
+投递记录（含失败原因 `last_error`）可以在 web 的 job 详情页看到。会话 / 工作项通知不挂在 job 上，页面里看不到；serve 日志在**入队**失败时记 `NotifyEvent: render` / `NotifyEvent: insert delivery`，在**发送**失败时记 `DeliverDue: delivery failed`（终态，带机器人返回的错误原文）/ `DeliverDue: delivery retry scheduled`（还会重试，带下次重试时间），同时写进该投递记录的 `last_error`。排查这类通知时先按上表逐项核对配置；要确认事件确实产生了，可以临时加一个订阅同一事件的事件钩子（见第 8 节）把 stdin 写进文件看。
 
 ## 8. 事件钩子（server 主机上跑命令）
 

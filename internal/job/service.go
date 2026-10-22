@@ -259,8 +259,10 @@ type Service struct {
 	// postFn is the webhook POST used by the E14 delivery sweeper (deliverOne). It
 	// defaults to notify.PostWebhook (validated + signed real HTTP POST) and is
 	// overridable in tests so the claim→post→mark state machine can be driven
-	// deterministically without network / the loopback SSRF block.
-	postFn func(ctx context.Context, target, eventType string, body []byte, secretValue string, cfg config.NotificationConfig) error
+	// deterministically without network / the loopback SSRF block. kind is the
+	// target webhook's adapter: an IM kind additionally parses the response body for
+	// a provider business error (gofer-map1).
+	postFn func(ctx context.Context, kind, target, eventType string, body []byte, secretValue string, cfg config.NotificationConfig) error
 
 	// metrics is the E16 lifecycle-counter sink (nil = no metrics wired). It is
 	// injected post-construction by SetMetrics (commands.buildCore) so the job

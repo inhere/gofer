@@ -344,6 +344,7 @@ storage:
 - **`/metrics`（Prometheus）**：不在 `/v1` 鉴权组里，带 caller / project / agent / runner 标签的 job 计数。`server.metrics` 整段不写 = 开启且免认证（老配置的行为不变），但 `gofer init server` 生成的配置写了 `enabled: false`。要抓取就设 `server.metrics: {enabled: true, token: "<长随机串>"}`，抓取器带 `Authorization: Bearer <token>`。`gofer config validate` 在「开启 + 没设 token + `server.addr` 不是回环地址（127.0.0.0/8、::1、localhost）」时给 WARN。
 - IM 通知（钉钉 / 飞书 / 通用 webhook）与可订阅事件见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。
 - **桌面通知**（`server.notification.desktop`）：server 在自己所在主机弹系统通知，默认订阅 `job.awaiting_approval` / `interaction.created` / `session.awaiting_reply` / `job.needs_review`，`projects` 过滤项目，`merge_sec`（默认 10s）把同类事件合成一条。整段不写 = 不启用；以服务（Windows session 0）或无桌面会话运行时自动跳过。平台行为见同上文档。
+- 钉钉 / 飞书机器人的三种安全设置对应：**自定义关键词** → webhook 写 `keyword: <机器人里那个词>`（消息标题 / 正文都不含它时 gofer 自动把「<关键词> 」加到标题前，钉钉的 markdown 标题与正文标题行都带）；**加签** → `secret_env: <环境变量名>`（密钥值从 serve 进程环境读）；**IP 白名单** → 不用配置，在机器人侧填 server 出口 IP。被机器人拒绝（关键词没命中、签名错、token 失效）的投递直接记 `failed` 且不重试，`last_error` 是机器人返回的原文；限流仍按退避重试。
 
 ## 待批 job 的审批权限
 

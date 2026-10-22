@@ -175,7 +175,7 @@ func (s *Service) notifyWebhooks(cfg *config.Config, eventType, projectKey strin
 	sink := s.deliveryStore()
 	n := 0
 	for _, w := range targets {
-		body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes()))
+		body, err := notify.RenderMessageWithLimit(w.Kind, msg, w.Keyword, w.EffectiveMaxTextRunes(cfg.Server.Notification.EffectiveMaxTextRunes()))
 		if err != nil {
 			slog.Warn("NotifyEvent: render", "type", eventType, "kind", w.Kind, "err", err)
 			continue
@@ -203,7 +203,7 @@ func (s *Service) notifyEventHooks(cfg *config.Config, eventType, projectKey str
 	if len(hooks) == 0 {
 		return 0
 	}
-	body, err := notify.RenderMessage(notify.KindGeneric, msg)
+	body, err := notify.RenderMessage(notify.KindGeneric, msg, "")
 	if err != nil {
 		slog.Warn("NotifyEvent: render hook body", "type", eventType, "err", err)
 		return 0
