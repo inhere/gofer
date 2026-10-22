@@ -92,7 +92,7 @@ mail:
 - 生效：启动常驻会话时由 `mail.ResidentSpec.Approval` → `JobRequest.SessionApproval` 带进 job，`acpRequest` 用 `Config.EffectiveApprovalWith(项目, agent, override)` 算策略——**替代**项目策略，只有 agent 自己的 `acp.permission_policy` 还能继续收紧。
 - 外部不可设：`session_approval` 是 server 内部字段，HTTP 提交带它直接 400（拒绝而非静默忽略，不然调用方会以为自己的门生效了）；MCP / CLI 没有对应字段。
 - 持久：随 `request_json` 保存，`continuationBase` 继承给续接 job，server 重启恢复与 `job resume` 都仍按它审批；续接出的新常驻会话由 `mail.agents` 配置重新带入。
-- 已知限制（未做，不在本任务范围）：策略解析在**执行该 job 的机器**上做，而 worker dispatch 帧（`wsproto.Dispatch`）还没有这个字段 —— `mail.agents.<名字>.runner` 指到 worker 时，该会话仍按那个 worker 自己项目的策略审批。现在这种情况会在 serve 日志里打一条 warning，不静默降级；真要支持得先改握手协议与帧（另行开单）。
+- 已知限制（未做，不在本任务范围）：策略解析在**执行该 job 的机器**上做，而 worker dispatch 帧（`wsproto.Dispatch`）还没有这个字段 —— `mail.agents.<名字>.runner` 指到 worker 时，该会话仍按那个 worker 自己项目的策略审批。现在这种情况拒绝启动常驻会话（fail closed，记 start_failed 事件）；真要支持得先改握手协议与帧（另行开单）。
 
 ## 已定（2026-10-22 用户批准，按推荐）
 

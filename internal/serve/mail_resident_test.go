@@ -1,9 +1,11 @@
 package serve
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/mail"
 )
 
 // gofer-81b4: `mail.agents.<名字>.approval` reaches the resident session's spec (and from
@@ -32,5 +34,18 @@ func TestMailResidentsCarriesApproval(t *testing.T) {
 	ask.Mode = config.ApprovalStrict
 	if got, _ := rc.Agent("suga"); got.Approval.Mode != config.ApprovalAsk {
 		t.Fatalf("the spec shares the config's block: mode = %q", got.Approval.Mode)
+	}
+}
+
+// TestMailResidentApprovalRefusesWorkerRunner: a resident session with its own approval gate
+// must not start on a worker, which cannot enforce that gate yet (it would answer by the
+// worker's project policy). The check runs before anything is submitted.
+func TestMailResidentApprovalRefusesWorkerRunner(t *testing.T) {
+	ask := &config.ApprovalConfig{Mode: config.ApprovalAsk}
+	_, err := mailResidentHost{}.StartSession(mail.ResidentSpec{
+		Name: "suga", Project: "p", Agent: "suga-acp", Runner: "w-remote", Approval: ask,
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot enforce") {
+		t.Fatalf("StartSession on a worker with an approval gate: err = %v, want a refusal", err)
 	}
 }
