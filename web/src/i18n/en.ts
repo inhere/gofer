@@ -62,6 +62,7 @@ export const en: Dict = {
   'shell.collapse': 'Collapse sidebar',
   'shell.expand': 'Expand sidebar',
   'shell.nodes.summary': '{on}/{total} nodes online',
+  'shell.needsYou': '{n} need you',
   'shell.conn.connected': 'Connected',
   'shell.conn.reconnecting': 'Reconnecting',
   'shell.conn.disconnected': 'Offline (polling)',

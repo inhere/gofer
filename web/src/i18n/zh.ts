@@ -47,6 +47,7 @@ export const zh: Dict = {
   'shell.collapse': '收起侧栏',
   'shell.expand': '展开侧栏',
   'shell.nodes.summary': '节点 {on}/{total} 在线',
+  'shell.needsYou': '{n} 件需要你处理',
   'shell.conn.connected': '已连接',
   'shell.conn.reconnecting': '重连中',
   'shell.conn.disconnected': '已断开（轮询中）',

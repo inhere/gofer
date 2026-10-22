@@ -17,6 +17,7 @@ import Wire from './Wire.vue'
 import LangToggle from './LangToggle.vue'
 import { listRunners } from '../api/client'
 import { liveStatus } from '../api/live'
+import { decisionCount } from '../store/today'
 import { createPoller } from '../utils/poller'
 import { t } from '../i18n'
 import { staleBuild } from '../store/staleBuild'
@@ -180,6 +181,14 @@ onUnmounted(() => {
           >
             <span class="side-glyph" aria-hidden="true">{{ item.glyph }}</span>
             <span v-if="expanded" class="side-label">{{ t(item.key) }}</span>
+            <!-- 黄色徽标只给「需要人」的入口（§6.1）：今天 = 决策队列里要我现在处理的件数。 -->
+            <span
+              v-if="expanded && item.to === '/today' && decisionCount > 0"
+              class="side-count"
+              :title="t('shell.needsYou', { n: decisionCount })"
+              data-testid="today-needs-badge"
+              >{{ decisionCount }}</span
+            >
             <span
               v-if="expanded && item.to === '/work' && shouldShowWorkBadge(workNeedsMeCount)"
               class="side-count"
