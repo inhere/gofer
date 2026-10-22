@@ -167,6 +167,7 @@ gofer session find 登录 --path web/src -p <project> --limit 5
 
 ```bash
 gofer session mail send <地址> [--urgent] [--body-file f | 正文]   # 发信
+gofer session mail send --to <地址> [--to <地址>…] <正文>          # 群发：一封给多个会话
 gofer session mail ls [--in|--out] [--thread <串>] [--state <状态>] # 列信（默认收发都列）
 gofer session mail read <id>        # 读信；读过即视为已送达，之后不会再被注入
 gofer session mail reply <id> <正文>  # 回信：同一对话串，送回发件方（唯一的回复途径）
@@ -181,6 +182,11 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 - **地址**：`session:<sid>`（指定会话）、`job:<id>`（运行中的会话 job）、`topic:<关键词>`（按会话声明的主题找）、`path:<子路径>`（按范围找）、`caller` 或省略（发给自己的收集箱）。只有**唯一命中**才投递；没有命中、有多个候选或收件方不可投递时，信件转为「待指派」进收集箱，发信的回应里会列出候选，再用 `session:<sid>` 发一次即可（或在 web 的收集箱里改投）。
 - **出处**：在 agent 会话里发信（环境里有会话标识）显示为「会话 X（调用方 C）」，其它情况是「调用方 C」，job 的 agent 是「job J」。会话标识只是同一调用方内的归属标注，不是认证。
 - **权限**：发给自己的会话 / job / 收集箱不需要权限；发给别人的终端会话需要 `session.reply.others`，别人的会话 job 需要 `job.manage.others`。job 里的 agent 只能给自己 job 的来源会话、所属 plan 的主会话和它的调用方发信，也只能读写自己 job 的信。受限调用方（`ceiling`）只能给范围内项目的会话 / job 发信，范围外按「不存在」处理。
+- **群发（广播）**：一封信可以发给多个会话，每个收件人各自一封、共用对话串与广播组。两种写法：`--to` 重复（每个都必须是唯一命中），或选择器前缀 `each:` 取全部可投递命中——`each:topic:<关键词>`、`each:path:<子路径>`、`each:project:<项目 key>`（该项目全部会话）、`each:agent:<名字>`（该类 agent 的全部会话）。不带 `each:` 的地址行为不变：匹配到多个仍转「待指派」。
+  - 权限逐个收件人判：**显式列出**的收件人里只要有一个没权限，整封拒绝并说明是哪个；`each:` 选择器按权限过滤，结果里写「匹配 N、投递 M、略过 K」（略过的只报地址与原因，不回报会话 id）。
+  - 限制：不能群发急件；job / steward 凭据不能发广播；0 个收件人报错；单次最多 `mail.broadcast_max_recipients`（默认 20），每个调用方 `mail.broadcast_rate`（默认 5 次 / 10 分钟，一次广播算一次）。超出分别是 400 / 429。
+  - 收件人看到的标签多两个属性：`<gofer-mail … broadcast="b12" recipients="5">`——说明这是群发，不必以为只发给了自己；回信照旧只回发件方（没有「回复全部」）。
+  - 广播副本过期只标 `expired`，不进收集箱；发件人 `session mail read <id>` 看到的是这一封副本，web 信箱里能看到整组收件人状态。
 - **限额**：单封 32 KB；每个发件方每分钟 10 封、每小时 100 封；同一对话串自动往返超过 20 封后，回信转待指派。
 - **地址里的会话 id**：`session:<sid>` 可写完整 id 或前缀，规则同 `--session`：唯一匹配就按完整 id 投递；多个匹配报错并列出候选完整 id（最多 8 个，HTTP 409）；没有匹配报 not found（HTTP 404）；已结束会话的前缀仍能匹配，信转待指派。发信人身份取自环境里的会话变量（见上），suga 子进程里发的信记作 `session:<SUGA_SESSION_ID>`，收件会话回信才送得回来。
 - **秘密扫描与脱敏**：`gofer job secret-scan` 的报告多一段 `mail`（信件 id、所在串、收发双方的显示名、状态、项目、命中位置与计数，不回显原文），普通 caller 只看到自己发或自己会话 / job 收到的信；`gofer session mail redact <id>` 按信件 id 抹掉正文与摘录里的秘密，同时改写收集箱条目里引用这封信的摘要（条目文本的正文摘录、条目日志的回复摘要），信件的 id 引用保留；`job secret-scan --redact --yes` 连同命中的信件一起脱敏，`job redact <job>` 也会处理带该 `job_id` 的信件。权限与 `job redact` 一致：信件收发双方（发件调用方、收件会话 / job 的属主）或持有 `job.delete.others` 的管理员。
@@ -195,8 +201,8 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
   - **suga 会话**：不靠 hook，server 投递器把**正文**经 `suga send`（该 agent 的送话命令）直接送进去，包在同样的 `<gofer-mail id="…">` 标签里；`suga send` 返回 3（会话进程不在线）或失败时信件保持待读（立即还回，约 2 分钟后再试）。server 侧路径是**至少一次**：先占用（租期默认 60 秒）、送出、再确认，送出后确认前出错会重发，所以标签带信件 id，收件方可据此识别重复。
   - **ACP 会话 job**：job 处于 `awaiting_input` 时用 `job say` 送一封（带标签，同样占用 → 送出 → 确认），一次只送一封，等 job 下一次 `awaiting_input` 再送下一封；不在 `awaiting_input` 的 job 信件继续等。**pty（交互）session job 不支持收信**：信件立即转「待指派」进收集箱（原因 `pty session jobs cannot receive mail`）。
   - **收件方不在线 / 送达期限**：不可达或已结束的会话，信件保留到送达期限（默认 24 小时）；同一会话恢复时补送；超过期限仍未送达的信件由投递器转「待指派」进收集箱，由用户改投、新建 job 或丢弃。
-  - 数值可在 server 配置 `mail:` 块调整（`tick_sec` / `wake_idle_sec` / `wake_interval_sec` / `deliver_by_sec` / `claim_lease_sec`，见 server-config.md），热重载生效。
-- MCP：`gofer_session_mail_send`（`to` / `body` / `urgent`）、`gofer_session_mail_list`（`box` / `thread` / `state` / `session` / `limit`）、`gofer_session_mail_read`、`gofer_session_mail_reply`（`id` / `body` / `urgent`）、`gofer_session_mail_cancel`，语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
+  - 数值可在 server 配置 `mail:` 块调整（`tick_sec` / `wake_idle_sec` / `wake_interval_sec` / `deliver_by_sec` / `claim_lease_sec` / `broadcast_max_recipients` / `broadcast_rate`，见 server-config.md），热重载生效。
+- MCP：`gofer_session_mail_send`（`to` 接受地址数组，或 `each:` 选择器 / `body` / `urgent`）、`gofer_session_mail_list`（`box` / `thread` / `state` / `session` / `limit`）、`gofer_session_mail_read`、`gofer_session_mail_reply`（`id` / `body` / `urgent`）、`gofer_session_mail_cancel`，语义同 CLI，需要 gofer server（单机本地模式会报需要 server）。
 
 ## 给不在等回复的会话送话
 

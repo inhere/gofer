@@ -11,6 +11,15 @@
 
 ## [未发布]
 
+### 新增
+
+- **信箱广播（群发，gofer-metc）**：一封信可以发给多个会话，每个收件人各自一封、共用对话串与广播组，送达 / 已读 / 已回复按收件人分开可见。
+  - 地址：`--to` 可重复（每个都必须唯一命中），或用选择器前缀 `each:` 取全部可投递命中——`each:topic:<关键词>`、`each:path:<子路径>`，新增 `each:project:<key>`（该项目下全部会话）与 `each:agent:<名字>`（该类 agent 的全部会话）。不带 `each:` 的地址行为不变（多命中仍转待指派进收集箱）。
+  - 权限逐个收件人按单封规则：显式列出的收件人只要有一个没权限，整封拒绝并说明是哪个；`each:` 按权限过滤，并在结果里写「匹配 N 个、投递 M 个、略过 K 个」（略过的只报地址与原因，不回报会话 id）。job / steward 凭据不能发广播（403），急件不能广播（400），0 个收件人 400。
+  - 限流：每个调用方 `mail.broadcast_rate`（默认 `5/10m`，超出 429）；单次最多 `mail.broadcast_max_recipients`（默认 20）个收件人。两个配置项都可热加载。
+  - 收件人看到的注入标签多两个属性：`<gofer-mail ... broadcast="b12" recipients="5">`；广播副本过期只标 `expired`，不进收集箱。
+  - 接口：`POST /v1/mail` 的 `to` 接受字符串或数组，响应新增 `broadcast_id` / `thread_id` / `matched` / `delivered_count` / `skipped_count` / `recipients[]`；`GET /v1/mail/{id}` 对广播返回 `broadcast` 汇总段；`gofer session mail send --to <地址> [--to …]`；MCP 发信工具的 `to` 接受数组。
+
 ### 修复
 
 - **只读身份在计划详情 / 工作项 / issue / 信箱页不再看到会 403 的写按钮（gofer-bp9c）**：接续今天页（gofer-darr）的做法，写操作按它真正调用的那条路由声明的权限灰显，悬停说明「只读身份」或缺少哪个权限（判定在 `web/src/utils/pageGate.ts`，与今天页同一套 `permissionGate` / `ceiling` 口径）。覆盖计划详情的标记完成 / 归档 / 重新打开、leader 与结束通知开关、启动链 / 挂起 / 继续 / 解除阻塞、交接说明的新增与保存（他人的 plan 要 `plan.manage.others`，自己的不要）；工作项的整理建议与合并建议采纳 / 忽略、issue 的新建 / 保存 / 评论（这两处路由是 Public，只受只读上限约束）；信箱回信（自己的信不要权限，别人的会话要 `session.reply.others`、别人的 job 要 `job.manage.others`）。纯查看不受影响。
