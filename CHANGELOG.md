@@ -13,6 +13,13 @@
 
 ### 变更
 
+- **残留文案抽取（P6-b，gofer-hez1）**：工具层与公共组件里仍硬编码的中文全部抽进 i18n——`utils/statusText.ts`（状态词改走 `status.<值>`，`⚠ / ⏳ / ⏸` 符号前缀留在代码里）、`utils/work.ts`（工作项状态的 hint、工作区 / 到期 / 发言者 / 整理字段 / 请求账本 / 提醒时间预设）、`utils/mail.ts`（地址校验错误、选器与状态文案、收件人标签、发送预览）、`utils/mailMinimap.ts`、`utils/todayLanes.ts`、`utils/sessionState.ts`、`utils/delivery.ts`、`utils/workflowResult.ts`、`utils/dashStats.ts`（区间 / 星期 / 摘要行，**「复制统计」的纯文本也按当前语言出**）、`utils/runnerDisplay.ts`，以及 `components/ExperimentalBadge.vue` 与 `components/CompareColumns.vue`。字典新增 `i18n/pages/shared.ts`（域 `util.`，zh/en 并列）供跨页的工具层共用；模块级常量改用 getter，渲染时才取词。只换文案来源，样式与布局不动。
+
+**测试**
+
+- `i18n/noHardcodedCjk.test.ts`：全站扫描——`web/src` 下除 i18n 字典与测试外的 .ts/.vue 里出现中文即失败（.ts 与 SFC `<script>` 交给 TypeScript 解析，只看字符串 / 模板字面量，注释天然不算）；白名单（如语言开关的「中文」）集中在测试里并写理由；还没抽完的文件列在 `PENDING`，第二个用例守着「抽干净了必须从表里删掉」。
+- 受影响的现有用例随迁移改断言（`utils/dashStats.test.ts` 用 `rangeName()`；`views/uiTextWiring.test.ts`、`components/updateWaitIdle.test.ts` 按新的 getter / 符号映射取断言）。
+
 - **设置区与接入页改版（P5-d，gofer-hez1）**：`/settings` 的二级导航按新稿重做——桌面是竖排导航（当前项高亮），手机（≤760）收成下拉框；各子页统一用 `FormSection`（左说明 / 右字段）分节，有未保存修改时出现吸附在底部的保存条（放弃 / 保存）。本批已迁到新样式的子页：通知（本设备推送 + 订阅列表）、MCP（每个 server 一节，测试探针结果原样保留）、关于（服务端信息、更新状态、一键更新与等空闲 / 取消等待）、工作项（被动整理、请求与交接、每日摘要、等我通知、管家；保存走吸底保存条）、规则库（编辑器改用分节，表头 / 空态 / 校验与删除确认走字典）、权限（页头、四个页签、身份与调用方上限条、新增授权表单与预览提示、授权标签与动作、会话授权、权限目录的搜索与风险档走字典）、扩展（逐键卡片的标签、默认值对比、恢复默认二次确认、逐键保存提示与导入预览弹层走字典）、技能（表格列、行内动作、导入面板、详情块与各类提示 / 确认走字典）、隧道（在线转发 / 预设 / 本机未上传三张表、停止流程、预设编辑弹窗走字典）；这几页的界面文案全部走 zh/en 字典（`web/src/i18n/pages/settings.ts`）。`/access` 换成居中登录卡（品牌、token 输入、主题与语言开关），成功后回原页面的 redirect 与跨标签页 token 交接行为不变（`web/src/i18n/pages/access.ts`）。配置管理页的字段与操作不变，样式与文案迁移留待后续提交。
 - **项目页新增「按项目 / 按执行机」两个视图（gofer-d1kn）**：`/projects` 顶部加视图切换（`?view=runner` 可深链）。按执行机视图每台执行机一组：server 本机（显示为 `server`）与每个 worker 各一组，组内列出 server 声明且 `allowed_runners` 允许它运行的项目、它自己声明的项目（标「worker 自有」，来自 `GET /v1/workers/{id}/projects`）与它的默认工作空间（server 取本机工作空间，worker 取 `GET /v1/workers/{id}` 的 `dirs.workspace`），点项目 chip 回到按项目视图并选中；离线 worker 整卡灰显、标「离线」，心跳上报的项目与目录取不到时写明原因，取数失败也显示原始错误。按项目视图里 worker 自有项目另列一组（带声明它的 worker），内置 / `default` 项目标明「server 本机」。只用现有接口，未改后端。
 

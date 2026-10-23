@@ -433,7 +433,9 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 用英文语义命名，不用中文原文做 key（初稿 D4）。
 - 域：`nav.* page.* col.* status.* act.* empty.* err.* toast.* confirm.* hint.* field.* help.* shell.* palette.*`。新增域必须先改这一节。
   （`shell.*` 是外壳自己的文案：连接状态、侧栏收起、节点摘要；`palette.*` 是命令面板。P1 实施时追加。
-  `composer.*` 是统一输入框 Composer 的通用文案：发送 / 排队 / 打断、附图、急件、说明开关。P4 实施时追加。）
+  `composer.*` 是统一输入框 Composer 的通用文案：发送 / 排队 / 打断、附图、急件、说明开关。P4 实施时追加。
+  `util.*` 是工具层与跨页公共组件的文案（状态词以外的工具函数输出、交期 / 信箱 / 泳道 / 统计 / 对比视图）：
+  这些字符串不专属某一页，所以集中在 `i18n/pages/shared.ts`，P6-b 实施时追加。）
 - 页面专属的 key 用 `<page>.<area>.<name>`，例如 `plans.h.progress`。页面专属的前缀（目前是 `plans.`）同样受域白名单管辖，新增一个先在 `i18n.test.ts` 的 `pageDomains` 里登记。
 - `status.<状态值>` 对应接口里的状态值（`status.needs_review`），`status.family.<族>` 是 7 个族名（`status.family.need`）。状态值不是业务内容，可以翻译；用户写的标题、消息、评论不翻译。
 - 字典是扁平对象，key 里的点号不作嵌套解析；插值只支持 `{name}`（`t('jobs.count', { n })`）。
@@ -1444,3 +1446,32 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
    - 建议：worker 申请并入「待我决策」，作为一种决策卡；信箱的待指派保持独立图标，因为它不是「拍板」类事务。
 5. **JobDetail 改成页签后默认显示哪个页签？**
    - 建议：按状态决定。needs_review 默认显示「验收」，failed 默认显示「日志」，其余默认显示「概览」。用户切换过的页签会记在 URL 里。
+
+### P6-b 残留文案抽取（2026-10-23，issue gofer-hez1）
+
+目标（§11 问题 19、§14 P6 行）：工具层与组件里残留的硬编码中文全部进 i18n，并加一道全站扫描守着。
+
+**本轮已抽出**（工具层与跨页公共组件，文案集中在新增的 `i18n/pages/shared.ts`、域 `util.*`）：
+
+| 文件 | 抽出的文案 |
+|---|---|
+| `utils/statusText.ts` | 状态词改走主字典的 `status.<值>`（`status.in_progress` / `status.closed` / `status.draft` 补在 `shared.ts`）；`⚠ / ⏳ / ⏸` 符号前缀留在代码里（符号是状态信号、不是文案）；筛选选项的「全部」走 `act.all` |
+| `utils/work.ts` | 状态 hint、工作区标签、没有会话时的提示、提醒时间预设、到期文案、发言者标签（我 / 会话 / 整理器 / 管家 / 系统）、整理字段名、请求账本的种类与状态及整行拼接 |
+| `utils/mail.ts` | 地址与收件人校验错误、选器标签与提示、信件状态、收件人标签、（无标题 / 无项目）、发送预览文案、箱筛选标签 |
+| `utils/mailMinimap.ts` | 未知发件方 |
+| `utils/todayLanes.ts` | 健康度、头部摘要、agent 列的等输入、aria 标签的分隔符 |
+| `utils/sessionState.ts` | agent 会话状态与 job 状态词（其余复用 `status.*`） |
+| `utils/delivery.ts` | 交付状态 / 方式、note / error 包裹、PR 链接文字 |
+| `utils/workflowResult.ts` | 步骤 / 重试 / 扇出的位置文案、模板编辑门槛与内置只读说明、覆盖说明、保存 / 删除结果提示 |
+| `utils/dashStats.ts` | 区间名、星期名、周 / 月分秒标签、柱图悬停提示、标题行摘要，以及「复制统计」的纯文本（按当前语言出）、`stats.note.*` 口径说明 |
+| `utils/runnerDisplay.ts` | `（本机）` 与下拉项的 `· 本机` |
+| `components/ExperimentalBadge.vue` | 默认 label / hint 改用 computed + `t()`（不传 prop 时跟随语言） |
+| `components/CompareColumns.vue` | 整个对比视图的模板文案（提示、徽标、按钮、表头、空态、分页 aria） |
+
+写法：模块级常量持有的是 getter（`get label() { return statusText('active') }`），模块加载时不定住语言；纯函数内部直接调 `t()`；`t()` 读的是 `store/locale.ts` 的单例 ref，模板 / computed 里调用仍然响应式。zh 的值与抽取前的字面量逐字一致，所以「只换文案来源」可验证：现有按中文断言的用例逐字保留。
+
+**扫描测试** `i18n/noHardcodedCjk.test.ts`：用 `import.meta.glob(?raw)` 读 `web/src` 下的 .ts / .vue（除 `i18n/` 与 `*.test.ts`），.ts 与 SFC 的 `<script>` 交给 TypeScript 解析、只看字符串 / 模板字面量（注释是 trivia，天然不算；SFC 的 `<template>` 按原文扫、只去 HTML 注释与 `<style>`）。`WHITELIST` 收明确需要的字面量（目前只有语言开关的「中文」），逐条写理由；还没抽完的 128 个文件列在 `PENDING`，第二个用例断言「表里的文件确实还有硬编码中文」，所以抽干净后不删表项会红——这份名单只增不减地变短。
+
+**未完成**：`PENDING` 里的 128 个文件（主要是 `views/*.vue` 的残留、`api/client.ts` / `api/attachments.ts` 的错误文案、`components/SessionDrawer.vue` / `MessengerDrawer.vue` / `Config.vue` 等），按页面分批继续；这批做完才是 §14 P6 行的完整验收（「全站扫描没有硬编码中文」）。
+
+**测试与验证**：`web` 三命令全绿——`npx vue-tsc --noEmit`（退出码 0）、`npx vitest run`（221 文件 / 1502 例，导出末尾：`Tests 1502 passed`）、`npx vite build --outDir ../tmp/web-dist-check`（`✓ built in`）。现有用例随之改了三处断言（`dashStats.test.ts` 用 `rangeName()`；`uiTextWiring.test.ts` 按 getter 形态；`updateWaitIdle.test.ts` 按符号映射）。
