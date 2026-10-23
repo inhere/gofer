@@ -1427,6 +1427,12 @@ export function updateScopedMemory(scope: string, scopeKey: string, key: string,
 export function deleteScopedMemory(scope: string, scopeKey: string, key: string): Promise<unknown> {
   return request(`/v1/memories/${encodeURIComponent(scope)}/${encodeURIComponent(scope === 'global' ? '_' : scopeKey)}/${encodeURIComponent(key)}`, { method: 'DELETE' })
 }
+// flagScopedMemory：“这条已不成立”的标记（记忆抽屉里的“标记失效”）。
+export function flagScopedMemory(scope: string, scopeKey: string, key: string, reason: string): Promise<import('./types').ScopedMemory> {
+  return request(`/v1/memories/${encodeURIComponent(scope)}/${encodeURIComponent(scope === 'global' ? '_' : scopeKey)}/${encodeURIComponent(key)}/flag`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
+  })
+}
 
 export function getPlan(id: string): Promise<PlanDetail> {
   return request<PlanDetail>(`/v1/plans/${encodeURIComponent(id)}`)

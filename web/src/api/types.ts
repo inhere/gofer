@@ -2702,6 +2702,8 @@ export interface TrackerMemoryBody {
   source?: string
   created_at?: string
   doctor_ignore?: string[]
+  // 代理上报的「这条已不成立」（标记失效），最新在前。
+  flags?: Array<{ at: string; by?: string; job?: string; reason: string }>
 }
 // 服务端 doctor 发现（P4；server 没有仓库检出，不含 path-missing / commit-missing）
 export interface MemoryDoctorFinding {
@@ -2715,7 +2717,11 @@ export interface ScopedMemory {
   content: string
   tags?: string[]
   kind?: string
+  title?: string
   summary?: string
+  source?: string
+  expires_at?: string
+  flags?: Array<{ at: string; by?: string; job?: string; reason: string }>
   updated_at: string
   updated_by?: string
   deleted?: boolean
