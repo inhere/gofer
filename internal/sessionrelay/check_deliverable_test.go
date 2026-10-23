@@ -63,8 +63,11 @@ func TestCheckDeliverableMirrorsSendMessage(t *testing.T) {
 		sid := reg(s, RegisterInput{SessionID: "m1", ProjectKey: "self", Runner: "w-c", PeerName: "p", PeerMessaging: true})
 		assert.Eq(t, ReasonNoMessenger, DeliverReason(s.CheckDeliverable(sid)))
 		s.SetMessenger(stubMessenger{})
+		// A session that belongs to NO project is deliverable: its messenger runs in the
+		// execution machine's default workspace (gofer-vin1 — this used to answer no_project,
+		// which reached the user as 「无法派发传话人」).
 		sid = reg(s, RegisterInput{SessionID: "m2", Runner: "w-c", PeerName: "p", PeerMessaging: true})
-		assert.Eq(t, ReasonNoProject, DeliverReason(s.CheckDeliverable(sid)))
+		assert.NoErr(t, s.CheckDeliverable(sid))
 		sid = reg(s, RegisterInput{SessionID: "m3", ProjectKey: "self", PeerName: "p", PeerMessaging: true})
 		assert.Eq(t, ReasonNoRunner, DeliverReason(s.CheckDeliverable(sid)))
 	})

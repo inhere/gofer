@@ -78,7 +78,9 @@ func TestCheckDeliverableForAProjectlessSession(t *testing.T) {
 // resume template (it does; only the project is unknown).
 func TestTakeoverOfAProjectlessSessionSaysWhy(t *testing.T) {
 	s := newSvc(t)
-	to := &fakeTakeoverer{res: TakeoverResult{JobID: "job-takeover-x"}}
+	// The real host answers an EMPTY plan for a project it does not know: it has no root to
+	// convert the session's cwd against (httpapi.sessionInjector.PlanTakeover).
+	to := &fakeTakeoverer{planFn: func() TakeoverPlan { return TakeoverPlan{} }, res: TakeoverResult{JobID: "job-takeover-x"}}
 	s.SetTakeoverer(to)
 	s.SetInjector(&fakeInjector{})
 	_, err := s.Register(RegisterInput{SessionID: "sid-noproj-takeover", Agent: "claude",
@@ -89,6 +91,6 @@ func TestTakeoverOfAProjectlessSessionSaysWhy(t *testing.T) {
 
 	_, err = s.Deliver(context.Background(), "sid-noproj-takeover", "carry on", "alice", "alice", true)
 	assert.Eq(t, ReasonNoProject, DeliverReason(err))
-	assert.Len(t, to.calls, 0) // nothing was planned for an unknown project
-	assert.Len(t, to.reqs, 0)
+	assert.Len(t, to.calls, 1) // the host was asked (and could not plan a project root)
+	assert.Len(t, to.reqs, 0)  // no job was submitted with an empty project key
 }

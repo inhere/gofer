@@ -964,17 +964,17 @@ func (s *Service) takeoverCheck(a jobstore.AgentSession) (TakeoverPlan, CwdChoic
 	}
 	// Path B reopens the conversation with `--resume` IN THE SESSION'S OWN DIRECTORY, so it
 	// needs a project root to express that directory against. A session that belongs to no
-	// project has none, and starting the resumed process anywhere else would silently move
-	// the conversation to another directory — refuse with the reason a person can act on
-	// (start the session inside a project) instead of reporting a missing resume template
-	// (the agent surely has one; only the project is unknown).
-	if strings.TrimSpace(a.ProjectKey) == "" {
-		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonNoProject, fmt.Errorf(
-			"session %s belongs to no configured project (its cwd %q is outside every project): a takeover reopens the conversation with --resume in the session's own directory, so start it inside a project; terminal delivery (deliver_command / tmux) does not need one",
-			shortSessionID(a.SessionID), a.Cwd))
-	}
+	// project has none: the host cannot plan it (no root to convert the cwd against), and
+	// even if it did, the job would carry an empty project key. Report the reason a person
+	// can act on (start the session inside a project) instead of claiming the agent has no
+	// resume template — it surely has one, only the project is unknown (gofer-vin1).
 	plan := s.takeoverer.PlanTakeover(a.Agent, a.ProjectKey, a.Runner, a.SessionID)
 	if len(plan.Argv) == 0 {
+		if strings.TrimSpace(a.ProjectKey) == "" {
+			return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonNoProject, fmt.Errorf(
+				"session %s belongs to no configured project (its cwd %q is outside every project): a takeover reopens the conversation with --resume in the session's own directory, so start it inside a project; terminal delivery (deliver_command / tmux) does not need one",
+				shortSessionID(a.SessionID), a.Cwd))
+		}
 		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonNoResumeTemplate, fmt.Errorf(
 			"agent %q has no interactive resume template, so no new process could continue this session (start it inside tmux for path A)", a.Agent))
 	}
