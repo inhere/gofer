@@ -165,3 +165,12 @@ describe('项目筛选（本地按参与方所属项目收窄）', () => {
     expect(mailConversationInProject(conv({ a: { kind: 'caller', id: 'x' }, b: { kind: 'caller', id: 'y' } }), 'p-one')).toBe(false)
   })
 })
+
+describe('letter recipient', () => {
+  it('links a job recipient to the job page and keeps the full address on hover', () => {
+    expect(pageSrc).toContain('v-if="m.to.kind === \'job\' && m.to.id"')
+    expect(pageSrc).toContain(':to="`/jobs/${m.to.id}`"')
+    expect(pageSrc).toContain('data-test="mail-letter-to-job"')
+    expect(pageSrc).toContain(':title="mailPartyAddress(m.to) || m.to_address"')
+  })
+})

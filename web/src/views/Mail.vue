@@ -906,7 +906,14 @@ onUnmounted(() => {
               >
                 <header class="bubble-head">
                   <MailPersonaChip variant="row" :party="m.from" :now-sec="nowSec" @open-session="openSession" />
-                  <span class="dim mono bubble-to" :title="mailPartyAddress(m.to) || m.to_address">
+                  <RouterLink
+                    v-if="m.to.kind === 'job' && m.to.id"
+                    class="dim mono bubble-to bubble-to--link"
+                    :to="`/jobs/${m.to.id}`"
+                    :title="mailPartyAddress(m.to) || m.to_address"
+                    data-test="mail-letter-to-job"
+                  >{{ t('mail.letter.to', { to: m.to_address || mailPartyLabel(m.to) }) }}</RouterLink>
+                  <span v-else class="dim mono bubble-to" :title="mailPartyAddress(m.to) || m.to_address">
                     {{ t('mail.letter.to', { to: m.to_address || mailPartyLabel(m.to) }) }}
                   </span>
                   <button v-if="replyLabel(m)" class="reply-ref mono" type="button" data-test="mail-reply-ref" @click="jumpToReply(m)">
@@ -1330,8 +1337,15 @@ onUnmounted(() => {
   font-size: var(--fs-xs);
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 24ch;
+  max-width: 40ch;
   white-space: nowrap;
+}
+.bubble-to--link {
+  text-decoration: none;
+}
+.bubble-to--link:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 .reply-ref {
   background: none;
