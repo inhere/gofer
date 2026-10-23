@@ -967,7 +967,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 已实施：
 
-- **统一输入框 `web/src/ui/Composer.vue`**（§8）：发送 / 排队 / 打断后发送（只有调用方声明 `modes` 时才显示对应按钮）；排队按会话持久化（`ui/composer.ts`，键 `gofer.<scope>.queue.<id>`，工作台仍是 `gofer.workbench.queue.<id>`，旧队列刷新后还在）；附图（`attachments` + `attachCapability` 才显示，能力位与提示仍由调用方决定）；急件（`urgentOption` 才显示，v-model:urgent）；快捷键 Ctrl/⌘+Enter 总是发送，工作台另传 `submitOnEnter` 保留回车发送；自适应高度（最多视口 40%，手机 28%）；手机点按目标 ≥40px。抽屉、`ThreadView` 与新建会话共用同一套队列与提交口径。
+- **统一输入框 `web/src/ui/Composer.vue`**（§8）：发送 / 排队 / 打断后发送（只有调用方声明 `modes` 时才显示对应按钮）；排队按会话持久化（`ui/composer.ts`，键 `gofer.<scope>.queue.<id>`，工作台仍是 `gofer.workbench.queue.<id>`，旧队列刷新后还在）；附图（`attachments` + `attachCapability` 才显示，能力位与提示仍由调用方决定）；急件（`urgentOption` 才显示，v-model:urgent）；快捷键 Ctrl/⌘+Enter 总是发送，工作台另传 `submitOnEnter` 保留回车发送；自适应高度（最多视口 40%，手机 28%）；手机点按目标 ≥40px。抽屉与 `ThreadView` 共用同一套队列与提交口径。
 - **已替换的输入框**：`SessionDrawer`（附图、接管确认、「起新进程接管并发送」这类专属动作放 Composer 的 `#actions` 插槽，投递模式 auto/hold/force 与「现在送」保留在抽屉头部不变）；`ThreadView`（工作台对话；send / queue / interrupt 三态收进 Composer，打断只发 `interrupt` 让调用方取消当前 job，队首自动发出）。`JobDetail` / `Mail` / `WorkDrawer` 的输入框按任务书留给各自页面任务。
 - **`/sessions`**：AGENT / ACP / 终端三组改成 `Tabs`（带计数，等待回复的页签带黄色角标，`?tab=` 可深链）；`ProjectFilter` 走 URL `?project=`，`FilterChips` 按页签给一套状态口径（值即接口状态值，带计数）；卡片仍用 `InfoCard` 外壳（P2 没有交付通用 `Card` 组件），状态徽标保留 `.sbadge`（`StatusPill` 的替换留给 P5 统一做），字段与操作逐项保留。
 - **`NewSessionSheet`**（`web/src/ui/NewSessionSheet.vue`）：底部抽屉表单（`Sheet` 外壳），从 `Sessions.vue` 迁入全部字段与校验：类型、项目（上限收窄 + 说明）、agent（上限收窄）、runner（`runnerChoice` 的灰显原因）、模型、工作目录、锁定目录、标题、第一句话、完整配置链接；创建后的跳转（PTY → 终端、ACP → 工作台对话）留在会话页。

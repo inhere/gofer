@@ -189,19 +189,18 @@ function openPicker(): void {
 
 defineExpose({ focus, clearAttachments, readyIDs, openPicker, attachHint, attachBlocked })
 
-let resizeObserver: ResizeObserver | null = null
+// 窗口变宽 / 转屏时重新按内容撑开（不在 textarea 自身上挂 ResizeObserver：改高度会再触发观察）。
+function resize(): void {
+  if (textarea.value) autosizeComposer(textarea.value, window.matchMedia?.('(max-width: 760px)').matches ? 0.28 : 0.4)
+}
+
 onMounted(() => {
   if (props.focusOnMount) void nextTick(() => textarea.value?.focus())
-  if (typeof ResizeObserver !== 'undefined' && textarea.value) {
-    const el = textarea.value
-    resizeObserver = new ResizeObserver(() => autosizeComposer(el, window.matchMedia?.('(max-width: 760px)').matches ? 0.28 : 0.4))
-    resizeObserver.observe(el)
-  }
+  window.addEventListener('resize', resize)
 })
 
 onBeforeUnmount(() => {
-  resizeObserver?.disconnect()
-  resizeObserver = null
+  window.removeEventListener('resize', resize)
 })
 </script>
 
