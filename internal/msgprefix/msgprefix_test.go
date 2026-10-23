@@ -24,6 +24,7 @@ func TestEveryKindRoundTrips(t *testing.T) {
 		{Steward, "", "资源到了", false, "[gofer · 管家带话] 资源到了"},
 		{Memory, "", "因“发版”命中", false, "[gofer · 记忆] 因“发版”命中"},
 		{Hint, "", "本会话还没有话题", false, "[gofer · 提示] 本会话还没有话题"},
+		{Bounce, "", "信件 #12 没有送到", false, "[gofer · 退信] 信件 #12 没有送到"},
 	}
 	for _, c := range cases {
 		got := Format(c.kind, c.user, c.body)

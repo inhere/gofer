@@ -4,6 +4,7 @@
 //	[来自 web，<user>] …         a person's new message from the web
 //	[来自 web 回复，<user>] …    a person answering a session's question
 //	[gofer · job 完成] …         gofer system messages, one prefix per type
+//	[gofer · 退信] …             a letter gofer could not deliver, returned to its sender
 //
 // The split is the point: anything opening with "[来自 web" was written by a
 // person, anything opening with "[gofer · " is machine text gofer generated (a job
@@ -39,6 +40,10 @@ const (
 	// Hint is any other gofer hint for the agent (a topic reminder, a generic
 	// system notice that names no type of its own).
 	Hint = "hint"
+	// Bounce is a letter gofer could not deliver, returned to its sender (内部/mail
+	// 退信): the body of that letter is a gofer notice, so the recipient reads it as
+	// machine text and not as the addressee writing back.
+	Bounce = "bounce"
 )
 
 // A person's prefix opens with these words; the person's name and a closing
@@ -69,6 +74,8 @@ const (
 	MemoryOpen = "[gofer · 记忆]"
 	// HintOpen opens a gofer hint (topic reminder, generic notice).
 	HintOpen = "[gofer · 提示]"
+	// BounceOpen opens a returned letter (退信).
+	BounceOpen = "[gofer · 退信]"
 )
 
 // systemOpen is the head every system prefix shares: it is what makes a message
@@ -88,6 +95,7 @@ var systemPrefixes = map[string]string{
 	Steward:     StewardOpen,
 	Memory:      MemoryOpen,
 	Hint:        HintOpen,
+	Bounce:      BounceOpen,
 }
 
 // kindsByPrefix is the reverse of systemPrefixes (a recogniser reads a prefix).
@@ -99,6 +107,7 @@ var kindsByPrefix = map[string]string{
 	StewardOpen:     Steward,
 	MemoryOpen:      Memory,
 	HintOpen:        Hint,
+	BounceOpen:      Bounce,
 }
 
 // DEPRECATED(v0.185): remove in v0.188 — the prefixes gofer used before the
@@ -119,7 +128,7 @@ const (
 // SystemPrefixes returns the whole prefix of every system kind (documentation,
 // tests and the outward-facing说明 of the table).
 func SystemPrefixes() []string {
-	return []string{JobDoneOpen, WakeupOpen, WorkHandoffOpen, WorkReportOpen, StewardOpen, MemoryOpen, HintOpen}
+	return []string{JobDoneOpen, WakeupOpen, WorkHandoffOpen, WorkReportOpen, StewardOpen, MemoryOpen, HintOpen, BounceOpen}
 }
 
 // Person reports whether kind is a person's message kind (the other kinds are
