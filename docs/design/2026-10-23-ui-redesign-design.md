@@ -724,6 +724,62 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 手机上的筛选走 `FilterDrawer`（底部抽屉），桌面同样是抽屉，没有做「桌面内联展开」的第二套形态。
 - i18n 只覆盖新组件与新的列表头；页面其余中文文案按 P3 起逐页抽取。
 
+### P3 今天页（2026-10-23，issue gofer-hez1）
+
+落地范围即 §14 表格 P3 行的今天页（`/today`）。任务列表 / 详情、计划总览 / 详情、工作台不在本次范围。不涉及 Go 代码，没有新增接口。
+
+**页面结构（`web/src/views/Today.vue`）**
+
+- 两栏：主栏 `minmax(0,1fr)` + 右栏 340px（1279–1100 为 300px，≤1099 叠成一栏）。
+- 主栏自上而下：日期 → 「N 件事在等你」（`today-title`）→ 一行摘要（agent 在跑 / 空闲会话 / 今天完成，带状态字形）→ 「自上次打开」摘要（完成 / 失败 / 新提交，点开是当天工作摘要）→ 类型 chip + 项目 chip → 决策卡队列（前 5 张，其余「还有 N 张」）→ 卡片底部（专注处理 / 含 exec 待验收 / 已稍后 N / 已处理 N）。
+- 右栏：「并行中」（原来的 `TodayLanes`，改成右栏区块）+ 「刚处理过」（新增 `TodayRecentHandled`，最近 5 条，数据同「已处理」抽屉）。
+- 贴底状态条（`TodayStatusBar` 重绘）：在跑 / 今天失败 / 节点在线 / 用量 / 管家 / 版本，`position: sticky` 在内容底部，异常项变色排最前。首屏**不放** KPI 四宫格（§12 D7）。
+- 手机（≤760）：全部单栏，chip 行框内横向滑动，卡片主操作铺满且点按目标 ≥40px。
+
+**数据（不新增接口）**
+
+- 队列 / digest / 状态条仍来自 `GET /v1/today`；泳道仍来自 `GET /v1/today/lanes`，`TodayLanes` 拉取后 `emit('loaded')` 给页面，首屏摘要的「agent 在跑 / 空闲会话」由泳道的 `agents[].state` 折算（`utils/todayFilters.ts` 的 `laneAgentStats`），「今天完成」取 `digest.since_last.jobs_done`。
+- 项目 chip 走 P2 的 `useProjectFilter('/today')`（`?project=` 是唯一真源）；类型 chip 走 `utils/todayFilters.ts` 的 `typeCounts` / `filterByType`（纯函数，单测覆盖）。
+- 状态条的「排队」一项没有数据源（`/v1/today` 不返回排队数），本次不摆，不拿别的数字顶替。
+
+**字段核对（§7.1 → 迁移后）**
+
+| 迁移前的信息 / 操作 | 迁移后 |
+|---|---|
+| 日期 | 主栏头部日期行（新增） |
+| 「N 件事在等你」 | 主栏标题（张数按当前筛选算） |
+| 一行摘要（agent 在跑 / 空闲会话 / 今天完成） | 头部下方一行，带状态字形（新增） |
+| 自上次打开：完成 / 失败 / 新提交 + 当天工作摘要 | 同名 `<details>`（失败数 >0 时变红） |
+| 待我决策：全部卡片种类、分组（会超时 / 卡住别人 / 可稍后）、前 5 张 + 还有 N 张 | 不变（`DecisionQueue` / `DecisionCard` 逻辑未动，仅换皮：黄色左边线、类型 pill、agent） |
+| 卡片：来源 / 项目 / 等待 / 超时 / 卡住 N / 标题 / 一句话 / 操作 / 详情 / 稍后 / 回复框 / 按建议 | 全部保留 |
+| 含 exec 待验收开关 | 卡片底部一行 |
+| 专注处理（页面按钮 + 队列底部） | 两处都在 |
+| 已稍后 N（抽屉、放回队列） / 已处理（近 7 天抽屉） | 保留 |
+| 并行中（进度、agent、id、todo 小点、健康度） | 右栏区块 |
+| 刚处理过 | 右栏新块（今天最近 5 条） |
+| 状态条：runner 在线 / 离线名单、今日用量、管家、版本、异常排序 | 保留并拆成独立项（在跑、今天失败、节点在线、用量、管家、版本），链接目标不变 |
+| 项目筛选 | 项目 chip（§6.4，新增） |
+| 类型筛选 | 六类 chip + 全部（新增） |
+
+**i18n**
+
+- 本页文案全部走 `t()`，只写在 `web/src/i18n/pages/today.ts`（key 前缀 `today.`，已登记进 `i18n.test.ts` 的 `pageDomains`）；zh / en 同名同数。
+- 服务端下发的业务内容（卡片标题、摘要、digest 正文、agent / 项目名、job id）不翻译；`utils/today.ts` 里由数据拼出的短语（如「等了 6 分钟」「卡住 2」「1 分钟后超时」）本次仍在 util 里，未接管（后续页面迁移时一并处理）。
+
+**测试**
+
+- 新增 `utils/todayFilters.test.ts`：卡片种类 → 六个 chip 的映射（含归不进六类的种类）、计数、类型 / 项目筛选（空值 = 全部）、`laneAgentStats`。
+- 改写 `views/today.test.ts`：首屏标题与摘要、digest、前 5 张 + 还有 N 张、状态条顺序与链接、空态与专注处理灰显、类型 / 项目 chip 接线、右栏两块、文案走本页字典、窄屏单栏与 chip 横向滑动。
+- 同步修改：`views/todayActionGate.test.ts`（专注处理的禁用条件改成筛选后的张数）、`components/today/decisionCard.test.ts`（「详情 / 收起」走 i18n）、`components/today/todayLanes.test.ts`（「还有 N 条正常运行中」走 i18n）、`i18n/i18n.test.ts`（页面域加 `today.`）。
+- 全量 `npx vitest run` 195 个文件 / 1312 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build` 通过。
+
+**如实记录的范围边界**
+
+- 状态条的「排队」没有数据源，未摆；「今天失败」只算 digest 窗口内（自上次打开）的失败数，不是服务端统计的自然日失败数。
+- 类型 chip 只覆盖设计稿列的六类；工作项 / 合并建议 / 收集箱等只在「全部」里出现，没有单独 chip。
+- `DecisionCard` 的 `blockShort` / `waitText` / `expiresText` 等 util 文案未走 i18n（见上）。
+- 未在浏览器里对 zh/en × 浅/深四种组合截图核对；视觉按预览源码的 CSS 口径落地（tokens、间距、圆角、断点）。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**
