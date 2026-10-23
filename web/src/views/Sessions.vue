@@ -131,17 +131,44 @@ function matchesStatus(state: string): boolean {
 // 换页签时清掉上一个页签的状态筛选（两套状态值不通用）。
 watch(activeTab, () => { statusFilter.value = '' })
 
+// 组内按状态排（需要人的在前：等回复 > 运行 > 空闲 > 离线 > 已结束），读起来就是按状态分组。
+const AGENT_STATE_ORDER: Record<string, number> = {
+  waiting_reply: 0,
+  running: 1,
+  idle: 2,
+  offline: 3,
+  ended: 4,
+}
+const ACP_STATE_ORDER: Record<string, number> = {
+  awaiting_input: 0,
+  pending_interaction: 0,
+  running: 1,
+  queued: 2,
+}
+function stateRank(order: Record<string, number>, state: string): number {
+  return order[state] ?? 3
+}
+
 const filteredAgent = computed(() =>
   agentSessions.value
     .filter((s) => !project.value || s.project_key === project.value)
-    .filter((s) => matchesStatus(s.state)),
+    .filter((s) => matchesStatus(s.state))
+    .slice()
+    .sort((a, b) => stateRank(AGENT_STATE_ORDER, a.state) - stateRank(AGENT_STATE_ORDER, b.state)),
 )
 const filteredAcp = computed(() =>
   acpSessions.value
     .filter((j) => !project.value || j.project_key === project.value)
-    .filter((j) => matchesStatus(j.status)),
+    .filter((j) => matchesStatus(j.status))
+    .slice()
+    .sort((a, b) => stateRank(ACP_STATE_ORDER, a.status) - stateRank(ACP_STATE_ORDER, b.status)),
 )
-const filteredPty = computed(() => sessions.value.filter((s) => matchesStatus(s.state)))
+const filteredPty = computed(() =>
+  sessions.value
+    .filter((s) => matchesStatus(s.state))
+    .slice()
+    .sort((a, b) => Number(canAttachSession(b)) - Number(canAttachSession(a))),
+)
 
 // ---------------- Agent 会话（会话中继 SESS-01） ----------------
 const agentSessions = ref<AgentSession[]>([])
