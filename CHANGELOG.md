@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **Web 漏译的文案 key（gofer-hez1）**：运行节点页的工作目录折叠区显示原始 key `runners.dirs.title`，会话抽屉的「空闲」状态与「已接管 →」后的 job 链接同样漏 key；三处 zh / en 一并补齐。新增 `web/src/i18n/i18nKeyUsage.test.ts`：扫描 `web/src` 里 `t('字面量')` 的 key，必须同时存在于 zh 与 en 字典（动态拼接的 key 不在范围内），以后再漏 key 直接测试失败。
+
 ## [0.191.0] - 2026-10-23
 
 ### 变更

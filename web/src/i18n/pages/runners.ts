@@ -198,6 +198,7 @@ export const runners: PageDict = {
     'runners.enroll.rejectBtn': '拒绝',
 
     // runner 的工作目录折叠区（components/RunnerDirs.vue）
+    'runners.dirs.title': '工作目录',
     'runners.dirs.problemCount': '{n} 处有问题',
     'runners.dirs.notReported': '未上报',
     'runners.dirs.notReportedHint': '该 runner 没有上报目录（旧版本 worker，或还没有心跳）。升级 worker 后这里会显示。',
@@ -402,6 +403,7 @@ export const runners: PageDict = {
     'runners.enroll.rejectingBtn': 'Rejecting…',
     'runners.enroll.rejectBtn': 'Reject',
 
+    'runners.dirs.title': 'Working directories',
     'runners.dirs.problemCount': '{n} problems',
     'runners.dirs.notReported': 'Not reported',
     'runners.dirs.notReportedHint':
