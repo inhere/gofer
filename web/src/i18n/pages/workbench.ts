@@ -103,6 +103,9 @@ export const workbench: PageDict = {
     'workbench.tabs.rename': '重命名标签页',
     'workbench.tabs.close': '关闭 {title}',
     'workbench.tabs.new': '新标签',
+    'workbench.context.toggle': '会话信息',
+    'workbench.context.show': '显示右侧会话信息',
+    'workbench.context.hide': '收起右侧会话信息',
     'workbench.tabs.saving': '保存中…',
     'workbench.prefix.hint': 'ctrl+b：% 左右 · " 上下 · 方向键焦点 · x 关闭 · z 最大化 · c 新标签 · n/p/1–8 切标签',
 
@@ -246,6 +249,9 @@ export const workbench: PageDict = {
     'workbench.tabs.rename': 'Rename tab',
     'workbench.tabs.close': 'Close {title}',
     'workbench.tabs.new': 'New tab',
+    'workbench.context.toggle': 'Session info',
+    'workbench.context.show': 'Show the session info panel',
+    'workbench.context.hide': 'Hide the session info panel',
     'workbench.tabs.saving': 'saving…',
     'workbench.prefix.hint': 'ctrl+b: % split left/right · " split up/down · arrows move focus · x close · z maximize · c new tab · n/p/1–8 switch tab',
 

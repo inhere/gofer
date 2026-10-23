@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { WorkbenchStatus, WorkbenchThread } from '../../api/types'
 import { t } from '../../i18n'
 import { formatDuration, formatRelative } from '../../utils/format'
@@ -7,7 +7,7 @@ import FilterChips from '../../ui/FilterChips.vue'
 import ProjectFilter from '../../ui/ProjectFilter.vue'
 import StatusGlyph from '../../ui/StatusGlyph.vue'
 import { WORKBENCH_THREAD_DRAG_TYPE } from './layoutTree'
-import { groupThreads, THREAD_GROUP_ORDER, threadGroup, threadGroupLabelKey } from './threadGroups'
+import { groupOfThread, groupThreads, THREAD_GROUP_ORDER, threadGroupLabelKey } from './threadGroups'
 
 const props = defineProps<{
   threads: WorkbenchThread[]
@@ -37,7 +37,12 @@ const emit = defineEmits<{
 const endedOpen = ref(false)
 const searchInput = ref<HTMLInputElement | null>(null)
 
-const grouped = computed(() => groupThreads(props.threads))
+// nowSec 每分钟刷新一次，让「最近活跃」的会话到时自动移到「空闲与离线」。
+const nowSec = ref(Math.floor(Date.now() / 1000))
+let nowTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => { nowTimer = setInterval(() => { nowSec.value = Math.floor(Date.now() / 1000) }, 60_000) })
+onUnmounted(() => { if (nowTimer) clearInterval(nowTimer) })
+const grouped = computed(() => groupThreads(props.threads, nowSec.value))
 
 function rowsOf(group: (typeof THREAD_GROUP_ORDER)[number]): WorkbenchThread[] {
   const rows = grouped.value[group]
@@ -180,7 +185,7 @@ defineExpose({ focusSearch })
             type="button"
             :aria-current="selectedId === thread.id ? 'true' : undefined"
             draggable="true"
-            :data-thread-group="threadGroup(thread.status)"
+            :data-thread-group="groupOfThread(thread, nowSec)"
             @click="emit('select', thread)"
             @dragstart="startDrag($event, thread)"
           >

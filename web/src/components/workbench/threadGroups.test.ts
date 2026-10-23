@@ -80,3 +80,34 @@ describe('workbench orphan waiting', () => {
     expect(orphanWaitingCount([group('a')])).toBe(0)
   })
 })
+
+describe('groupThreads with recency', () => {
+  const now = 1_800_000_000
+  const th = (id: string, status: WorkbenchThread['status'], updated: number, extra: Partial<WorkbenchThread> = {}) =>
+    ({ id, status, updated_at: updated, started_at: updated - 100, ...extra }) as WorkbenchThread
+
+  it('keeps an idle session that was active minutes ago in the active group', () => {
+    const g = groupThreads([th('a', 'idle', now - 5 * 60)], now)
+    expect(g.active.map((t) => t.id)).toEqual(['a'])
+    expect(g.idle).toEqual([])
+  })
+
+  it('moves a long-quiet or offline idle session to idle', () => {
+    const g = groupThreads(
+      [th('old', 'idle', now - 2 * 3600), th('off', 'idle', now - 60, { raw_status: 'offline' })],
+      now,
+    )
+    expect(g.idle.map((t) => t.id).sort()).toEqual(['off', 'old'])
+    expect(g.active).toEqual([])
+  })
+
+  it('uses the newer of updated_at and seen_at', () => {
+    const g = groupThreads([th('s', 'idle', now - 3 * 3600, { seen_at: now - 60 })], now)
+    expect(g.active.map((t) => t.id)).toEqual(['s'])
+  })
+
+  it('sorts each group by the latest activity, newest first', () => {
+    const g = groupThreads([th('x', 'working', now - 300), th('y', 'working', now - 10), th('z', 'working', now - 100)], now)
+    expect(g.active.map((t) => t.id)).toEqual(['y', 'z', 'x'])
+  })
+})

@@ -135,6 +135,17 @@ const prefixHint = ref('')
 const focusedView = ref<'process' | 'changes'>('process')
 const stoppingFocused = ref(false)
 const wideLayout = ref(false)
+// 右侧上下文栏默认收起，点顶部按钮展开（用户 2026-10-23：常开会挤占中间的对话）；状态记在本地。
+const CONTEXT_OPEN_KEY = 'gofer.workbench.contextOpen'
+function readContextOpen(): boolean {
+  try { return localStorage.getItem(CONTEXT_OPEN_KEY) === '1' } catch { return false }
+}
+const contextOpen = ref(readContextOpen())
+function toggleContext() {
+  contextOpen.value = !contextOpen.value
+  try { localStorage.setItem(CONTEXT_OPEN_KEY, contextOpen.value ? '1' : '0') } catch { /* 无本地存储时只在本页生效 */ }
+}
+const showContext = computed(() => wideLayout.value && !mobileLayout.value && contextOpen.value)
 
 // 首次拉取是否已经成功过（onMounted 里 await 过 /v1/workbench/threads）。
 let threadsLoaded = false
@@ -737,7 +748,7 @@ onUnmounted(() => {
     </p>
     <div
       class="workbench-body"
-      :class="[`mobile--${mobilePane}`, { 'workbench-body--wide': wideLayout && !mobileLayout }]"
+      :class="[`mobile--${mobilePane}`, { 'workbench-body--wide': showContext && !!selectedThread }]"
       @touchstart.passive="onTouchStart"
       @touchend.passive="onTouchEnd"
     >
@@ -830,6 +841,14 @@ onUnmounted(() => {
           </div>
           <button class="tab-new" type="button" :title="t('workbench.tabs.new')" @click="createTab">＋</button>
           <span v-if="prefixActive" class="prefix-status mono">{{ prefixHint }}</span>
+          <button
+            v-if="wideLayout && !mobileLayout && selectedThread"
+            class="context-toggle"
+            type="button"
+            :aria-pressed="contextOpen"
+            :title="t(contextOpen ? 'workbench.context.hide' : 'workbench.context.show')"
+            @click="toggleContext"
+          >{{ t('workbench.context.toggle') }}</button>
           <span class="layout-version mono">v{{ layoutVersion }}<template v-if="layoutSaving"> · {{ t('workbench.tabs.saving') }}</template></span>
         </nav>
         </div>
@@ -852,7 +871,7 @@ onUnmounted(() => {
       </main>
       <!-- 右侧上下文栏（≥1280，设计稿 §7）：会话信息、轮数、未提交数、关联任务、改动文件、计划、权限 -->
       <WorkbenchContext
-        v-if="wideLayout && !mobileLayout && selectedThread"
+        v-if="showContext && selectedThread"
         :thread="selectedThread"
         :view="focusedView"
         :can-stop="!!focusedActions"
@@ -900,6 +919,9 @@ onUnmounted(() => {
 .tab-select:hover, .tab-close:hover, .tab-new:hover { color: var(--accent); }
 .tab-select:focus-visible, .tab-close:focus-visible, .tab-new:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; }
 .tab-title-input { width: 130px; margin: 2px; padding: 2px 4px; color: var(--fg); background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r-chip); font: inherit; font-size: var(--fs-sm); }
+.context-toggle { margin-left: auto; align-self: center; padding: 2px 8px; border: 1px solid var(--line, currentColor); border-radius: var(--r-sm, 5px); background: transparent; color: var(--fg-2); font-size: var(--fs-xs); cursor: pointer; }
+.context-toggle[aria-pressed='true'] { color: var(--fg-1); background: var(--bg-2); }
+.context-toggle + .layout-version { margin-left: 8px; }
 .layout-version { margin-left: auto; align-self: center; padding: 0 5px; color: var(--fg-3); font-size: var(--fs-xs); white-space: nowrap; }
 .prefix-status { align-self: center; margin-left: auto; color: var(--run); font-size: var(--fs-xs); white-space: nowrap; }
 .prefix-status + .layout-version { margin-left: 0; }

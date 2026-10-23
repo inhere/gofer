@@ -19,9 +19,33 @@ export function threadGroup(status: WorkbenchStatus): ThreadGroup {
   return GROUP_OF[status] ?? 'idle'
 }
 
-export function groupThreads(threads: readonly WorkbenchThread[]): Record<ThreadGroup, WorkbenchThread[]> {
+// RECENT_ACTIVE_SEC：两轮之间的会话（status=idle）在这段时间内有过活动，仍算「活跃」——
+// 刚说完一轮、等人回话的会话不该和几小时没动静或已离线的会话混在「空闲与离线」里
+// （用户 2026-10-23 反馈）。
+export const RECENT_ACTIVE_SEC = 15 * 60
+
+// lastActivity 是会话最近一次活动的时间（秒）：服务端更新时间与最近一次上报取较新者。
+export function lastActivity(thread: Pick<WorkbenchThread, 'updated_at' | 'seen_at'>): number {
+  return Math.max(thread.updated_at || 0, thread.seen_at || 0)
+}
+
+// groupOfThread 在状态分组之上加时间维度：idle 但最近活跃、且没有离线的会话归「活跃」。
+export function groupOfThread(thread: WorkbenchThread, nowSec: number): ThreadGroup {
+  const group = threadGroup(thread.status)
+  if (group === 'idle' && thread.raw_status !== 'offline' && nowSec - lastActivity(thread) <= RECENT_ACTIVE_SEC) {
+    return 'active'
+  }
+  return group
+}
+
+// groupThreads 分组，并在每组内按最近活动时间倒序（最近的在上）。
+export function groupThreads(
+  threads: readonly WorkbenchThread[],
+  nowSec: number = Math.floor(Date.now() / 1000),
+): Record<ThreadGroup, WorkbenchThread[]> {
   const groups: Record<ThreadGroup, WorkbenchThread[]> = { need: [], active: [], idle: [], ended: [] }
-  for (const thread of threads) groups[threadGroup(thread.status)].push(thread)
+  for (const thread of threads) groups[groupOfThread(thread, nowSec)].push(thread)
+  for (const key of THREAD_GROUP_ORDER) groups[key].sort((a, b) => lastActivity(b) - lastActivity(a))
   return groups
 }
 
