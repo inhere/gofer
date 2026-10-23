@@ -83,7 +83,7 @@ describe('只读上限：写入口消失 + 顶栏标记 + 权限页摘要', () =
   it('plan / workflow / schedule / 会话的创建入口与表单都收起', () => {
     expect(plans).toContain('v-if="!readOnly" class="create-toggle mono"')
     expect(plans).toContain('v-if="!readOnly" class="create-row mono"')
-    expect(workflows).toContain('v-if="!readOnly" to="/workflows/new" class="create-link"')
+    expect(workflows).toContain('v-if="!readOnly" to="/workflows/new" class="btn btn--primary"')
     expect(schedules).toContain('v-if="!readOnly" to="/schedules/new"')
     expect(sessions).toContain('v-if="!readOnly"')
     expect(sessions).toContain('@click="openSheet(\'pty\')"')

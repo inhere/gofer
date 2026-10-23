@@ -24,14 +24,14 @@ const OLD_TITLES = ['PLANS', 'JOBS BOARD', 'WORKFLOWS', 'SESSIONS', 'PROJECTS', 
 describe('页面标题用中文', () => {
   const titled: Array<[string, string]> = [
     ['Plans', "t('plans.list.title')"],
-    ['Workflows', '{{ PAGE.workflows }}'],
+    ['Workflows', "t('workflows.title')"],
     ['Sessions', "t('sessions.title')"],
     ['Projects', '{{ PAGE.projects }}'],
-    ['Schedules', '{{ PAGE.schedules }}'],
+    ['Schedules', "t('schedules.title')"],
     ['Skills', '{{ PAGE.skills }}'],
   ]
 
-  it.each(titled)('%s 从 PAGE 取标题', (name, expr) => {
+  it.each(titled)('%s 的标题走 i18n 或 PAGE', (name, expr) => {
     expect(view(name)).toContain(expr)
   })
 
@@ -57,7 +57,7 @@ describe('页面标题用中文', () => {
   })
 
   it('新建页与设置区标题也是中文', () => {
-    expect(view('NewWorkflow')).toContain('新建工作流')
+    expect(view('NewWorkflow')).toContain("t('workflows.new.title')")
     expect(view('NewJob')).toContain('{{ isRebuild ? \'快速重建\' : fromSession ? \'从会话新开\' : PAGE.newJob }}')
     expect(settingsView('Rules')).toContain('{{ PAGE.rules }}')
     expect(settingsView('SettingsLayout')).toContain('{{ PAGE.settings }}')
@@ -69,10 +69,13 @@ describe('页面标题用中文', () => {
 })
 
 describe('面包屑用中文', () => {
-  it('返回链接取自 BACK', () => {
+  it('返回链接取自 BACK 或 ui/BackLink', () => {
     expect(view('NewJob')).toContain('{{ BACK.board }}')
-    expect(view('NewSchedule')).toContain('{{ BACK.schedules }}')
-    expect(view('NewWorkflow')).toContain('{{ BACK.workflows }}')
+    // 新建调度 / 新建工作流已迁到 ui/BackLink（P5）：回来源列表，文案走 i18n。
+    expect(view('NewSchedule')).toContain('<BackLink list="schedules" to="/schedules"')
+    expect(view('NewWorkflow')).toContain('<BackLink list="workflows" to="/workflows"')
+    expect(view('NewSchedule')).not.toContain('{{ BACK.schedules }}')
+    expect(view('NewWorkflow')).not.toContain('{{ BACK.workflows }}')
     // 任务详情已迁到 ui/BackLink（P3）：回来源列表，文案走 i18n。
     expect(view('JobDetail')).toContain('<BackLink v-if="!embedded" list="jobs" to="/jobs"')
     expect(view('JobDetail')).not.toContain('{{ BACK.board }}')

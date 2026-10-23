@@ -104,7 +104,7 @@ describe('NewSchedule.vue 的参数声明', () => {
   })
 
   it('声明在提交前先按后端同一口径校验，空的声明不发', () => {
-    expect(newSource).toMatch(/参数名 .*GOFER_ 前缀/)
+    expect(newSource).toContain("t('schedules.new.paramReserved'")
     expect(newSource).toMatch(/declaredParams\(\)[\s\S]*?if \(declared.length > 0\) \{[\s\S]*?req\.params = declared/)
   })
 })

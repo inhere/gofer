@@ -33,10 +33,10 @@ describe('experimental badges on the console entries', () => {
   it('workflow 模板 / 工作流：列表页标题与「从模板新建」页标题', () => {
     const list = page('Workflows.vue')
     expect(list).toContain(IMPORT)
-    expectBadgeAfter(list, '{{ PAGE.workflows }}')
+    expectBadgeAfter(list, "t('workflows.title')")
     const create = page('NewWorkflow.vue')
     expect(create).toContain(IMPORT)
-    expectBadgeAfter(create, '新建工作流')
+    expectBadgeAfter(create, "t('workflows.new.title')")
   })
 
   it('信箱：页面标题', () => {

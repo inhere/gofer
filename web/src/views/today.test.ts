@@ -232,7 +232,7 @@ describe('navigation (design §6)', () => {
     expect(shellSrc).toContain('to="/today"')
     expect(appSrc).not.toContain('nav-review-badge')
     expect(shellSrc).not.toContain('to="/schedules/new"')
-    expect(schedulesSrc).toMatch(/<RouterLink[^>]*to="\/schedules\/new" class="new-sched"/)
+    expect(schedulesSrc).toMatch(/<RouterLink[^>]*to="\/schedules\/new" class="btn btn--primary"/)
   })
 
   it('workbench no longer carries its own 等你 list', () => {
