@@ -748,8 +748,9 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 **i18n**
 
-- 新增 `web/src/i18n/pages/plans.ts`（zh/en 同名同数），key 前缀 `plans.`，涵盖总览与详情的头部、页签、任务表、待办工具栏、交接说明。
-- 未迁移（如实记录）：待办派发字段编辑表单里的字段标签与 placeholder、`utils/planControls.ts` 的 `PLAN_CONTROL_HELP` 文案、`PlanSupervisor` / `PlanBoard` / `InteractionCard` 等共享组件内部的文案——它们属于 P4/P5 或共享组件范围。
+- 新增 `web/src/i18n/pages/plans.ts`（zh/en 同名同数），key 前缀 `plans.`，涵盖总览与详情的：页头 / 页签 / 元信息、链控制与 leader /notify 开关状态、blocked 横幅、用量块、任务表、待办工具栏与派发字段编辑表单、看板落点 toast、交接说明全部文案。
+- 待办循环里的变量名是 `t`（Todo），会遮蔽 i18n 的 `t()`，所以循环内用同名别名 `tr`（脚本里 `const tr = t`，注释已写在定义处）。
+- 未迁移（如实记录）：`utils/planControls.ts` 的 `PLAN_CONTROL_HELP` 文案（链控件标签与说明，共享 util，另属 P5 的公共文案），以及 `PlanSupervisor` / `PlanBoard` / `InteractionCard` / `CommentThread` 等共享组件内部的文案。
 
 **测试**（§13）
 
@@ -785,7 +786,6 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 - 没有在浏览器里按 zh/en × 浅/深 × 四种宽度逐页截图（与 P1 同一状态，靠 CSS 口径 + 现有测试）。
 - 计划详情的用量块位置在头部区而非元信息网格内部（视觉上紧接链控制行）。
-- 待办编辑表单的内部字段标签未抽 i18n（见上）。
 
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
