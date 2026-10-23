@@ -472,7 +472,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="board">
+  <div class="board" :class="{ 'board--embedded': embedded }">
     <div class="board-head">
       <div v-if="!embedded">
         <h1 class="title mono">{{ t('jobs.h.title') }}</h1>
@@ -1189,6 +1189,85 @@ onUnmounted(() => {
   .job-tags {
     margin-top: 2px;
   }
+}
+
+/* 并排模式（设计稿 §16）：列表只占左列（520–700px），七列表格会横向溢出，
+   所以和手机一样用两行卡片式行（先标题行 + 状态，再把项目/agent/runner/耗时/时间缩成一行）。 */
+.board--embedded .thead {
+  display: none;
+}
+.board--embedded .table {
+  overflow-x: visible;
+}
+.board--embedded .trow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+  padding: 8px 10px;
+}
+.board--embedded .col-job {
+  order: 1;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1 0 calc(100% - 96px);
+  min-width: 0;
+  overflow: hidden;
+}
+.board--embedded .col-job .job-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board--embedded .col-job .job-id,
+.board--embedded .col-job .job-badges {
+  flex: none;
+  white-space: nowrap;
+}
+.board--embedded .col-job .job-tags {
+  display: none;
+}
+.board--embedded .col-status {
+  order: 2;
+  flex: 0 0 96px;
+  display: flex;
+  justify-content: flex-end;
+}
+.board--embedded .col-proj,
+.board--embedded .col-agent,
+.board--embedded .col-runner,
+.board--embedded .col-signal,
+.board--embedded .col-time {
+  order: 3;
+  flex: none;
+  font-size: 11px;
+  text-align: left;
+}
+.board--embedded .col-proj {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board--embedded .col-agent::before,
+.board--embedded .col-runner::before,
+.board--embedded .col-signal::before,
+.board--embedded .col-time::before {
+  content: ' · ';
+  white-space: pre;
+  color: var(--queue);
+}
+.board--embedded .col-signal,
+.board--embedded .col-runner {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
 }
 
 @media (max-width: 640px) {

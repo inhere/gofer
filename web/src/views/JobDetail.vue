@@ -3148,6 +3148,8 @@ onUnmounted(() => {
 .detail-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: space-between;
   margin-bottom: 12px;
 }
@@ -3161,6 +3163,7 @@ onUnmounted(() => {
 .head-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
 }
 .terminal-open,
