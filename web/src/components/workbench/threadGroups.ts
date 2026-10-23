@@ -1,4 +1,4 @@
-import type { WorkbenchStatus, WorkbenchThread } from '../../api/types'
+import type { WorkbenchProjectGroup, WorkbenchStatus, WorkbenchThread } from '../../api/types'
 
 // 工作台会话的状态分组（设计稿 §7 工作台）：需要你 / 活跃 / 空闲与离线，已结束单独折叠。
 // 放在纯函数里，方便单测穷举（会话状态只有 6 个值）。
@@ -28,4 +28,15 @@ export function groupThreads(threads: readonly WorkbenchThread[]): Record<Thread
 // 分组标题的 i18n key（文案在 i18n/pages/workbench.ts）。
 export function threadGroupLabelKey(group: ThreadGroup): string {
   return group === 'ended' ? 'workbench.list.ended' : `workbench.group.${group}`
+}
+
+// 待处理（orphan）计数：服务端把它们算在项目组的 counts 里，而不是列表中的会话行
+// （受阻计划 / 待决策的计划）。以前在项目分组行上显示，现在项目不再是分组，改成列表头一行提示。
+export function orphanWaitingCount(groups: readonly WorkbenchProjectGroup[]): number {
+  let total = 0
+  for (const group of groups) {
+    total += group.counts?.orphan_blocked ?? 0
+    total += group.counts?.orphan_review ?? 0
+  }
+  return total
 }

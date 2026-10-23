@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { WorkbenchStatus, WorkbenchThread } from '../../api/types'
-import { groupThreads, THREAD_GROUP_ORDER, threadGroup, threadGroupLabelKey } from './threadGroups'
+import type { WorkbenchProjectGroup, WorkbenchStatus, WorkbenchThread } from '../../api/types'
+import { groupThreads, orphanWaitingCount, THREAD_GROUP_ORDER, threadGroup, threadGroupLabelKey } from './threadGroups'
 
 function thread(id: string, status: WorkbenchStatus): WorkbenchThread {
   return {
@@ -51,5 +51,32 @@ describe('workbench thread groups', () => {
     expect(groups.active.map((t) => t.id)).toEqual(['c'])
     expect(groups.idle.map((t) => t.id)).toEqual(['a'])
     expect(groups.ended.map((t) => t.id)).toEqual(['d'])
+  })
+})
+
+function group(key: string, orphanBlocked = 0, orphanReview = 0): WorkbenchProjectGroup {
+  return {
+    project_key: key,
+    status: 'idle',
+    threads: [],
+    counts: {
+      total: 0,
+      blocked: 0,
+      working: 0,
+      review: 0,
+      done: 0,
+      idle: 0,
+      orphan_blocked: orphanBlocked,
+      orphan_review: orphanReview,
+    },
+  }
+}
+
+// 评审意见：项目分组行上的「待处理」计数（受阻计划 / 待决策）不能丢，改成列表头一行提示。
+describe('workbench orphan waiting', () => {
+  it('sums the orphan counts of every project group', () => {
+    expect(orphanWaitingCount([group('a', 1), group('b', 2, 1)])).toBe(4)
+    expect(orphanWaitingCount([])).toBe(0)
+    expect(orphanWaitingCount([group('a')])).toBe(0)
   })
 })

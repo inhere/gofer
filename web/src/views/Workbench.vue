@@ -15,6 +15,7 @@ import WorkbenchCommandPalette from '../components/workbench/WorkbenchCommandPal
 import WorkbenchContext from '../components/workbench/WorkbenchContext.vue'
 import LayoutPane from '../components/workbench/LayoutPane.vue'
 import WorkbenchSidebar from '../components/workbench/WorkbenchSidebar.vue'
+import { orphanWaitingCount } from '../components/workbench/threadGroups'
 import Drawer from '../ui/Drawer.vue'
 import { useProjectFilter } from '../ui/projectFilter'
 import {
@@ -89,6 +90,17 @@ const hiddenExecCount = computed(() => {
   for (const group of filterGroups(true)) total += group.threads.length
   return total - sidebarThreads.value.length
 })
+
+// 服务端 counts.orphan_blocked / orphan_review 汇成一行提示（受阻计划 / 待决策，不在会话行里）。
+const orphanWaiting = computed(() => orphanWaitingCount(response.value.projects))
+
+// 这些项不是会话（是受阻计划 / 待决策），所以点过去到计划列表的「受阻」视图，
+// 带上当前项目筛选。
+function openOrphanWaiting(): void {
+  const query: Record<string, string> = { status: 'blocked' }
+  if (projectFilter.value) query.project = projectFilter.value
+  void router.push({ path: '/plans', query })
+}
 
 function readShowExec(): boolean {
   try { return localStorage.getItem(EXEC_PREF_KEY) === '1' } catch { return false }
@@ -735,6 +747,7 @@ onUnmounted(() => {
         :threads="sidebarThreads"
         :show-exec="showExec"
         :hidden-exec-count="hiddenExecCount"
+        :orphan-waiting="orphanWaiting"
         :selected-id="selectedID"
         :query="query"
         :project-filter="projectFilter"
@@ -746,6 +759,7 @@ onUnmounted(() => {
         @update:status-filter="statusFilter = $event; refreshFilter()"
         @update:show-exec="setShowExec"
         @new="composer?.focusPrompt()"
+        @open-orphans="openOrphanWaiting"
       />
       <!-- 手机：会话列表是左侧抽屉（设计稿 §6.3） -->
       <Drawer
@@ -761,6 +775,7 @@ onUnmounted(() => {
           :threads="sidebarThreads"
           :show-exec="showExec"
           :hidden-exec-count="hiddenExecCount"
+          :orphan-waiting="orphanWaiting"
           :selected-id="selectedID"
           :query="query"
           :project-filter="projectFilter"
@@ -772,6 +787,7 @@ onUnmounted(() => {
           @update:status-filter="statusFilter = $event; refreshFilter()"
           @update:show-exec="setShowExec"
           @new="composer?.focusPrompt()"
+          @open-orphans="openOrphanWaiting"
         />
       </Drawer>
       <main class="workbench-main">

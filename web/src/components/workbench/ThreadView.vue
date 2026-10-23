@@ -14,6 +14,7 @@ import AttachTerminal from '../AttachTerminal.vue'
 import UncommittedBadge from '../UncommittedBadge.vue'
 import ConversationView from './ConversationView.vue'
 import ThreadChangesView from './ThreadChangesView.vue'
+import { clearSendQueue, readSendQueue, writeSendQueue } from './sendQueue'
 import InteractionCard from '../InteractionCard.vue'
 import LogTape from '../LogTape.vue'
 import SessionDrawer from '../SessionDrawer.vue'
@@ -65,6 +66,7 @@ const submittingInteraction = ref<Set<string>>(new Set())
 const draft = ref('')
 const sendMode = ref<SendMode>('send')
 // 排队：等这一轮结束再发（设计稿 §7「排队」）；打断：先取消当前 job 再发。
+// 队列按会话持久化到 localStorage（review）：刷新 / 重开页面后恢复，发出或丢弃后清除。
 const queued = ref<string[]>([])
 const sending = ref(false)
 const stopping = ref(false)
@@ -124,7 +126,8 @@ function resetForThread(): void {
   streamError.value = ''
   actionError.value = ''
   draft.value = ''
-  queued.value = []
+  // 待发队列按会话存在 localStorage 里：切回来（或刷新后重开）还能看到
+  queued.value = current ? readSendQueue(current.id) : []
   // 换会话（或判断出别的线程）时丢掉上一轮的附图：它们的责任线程已经不是当前这个。
   attachBar.value?.clear()
   titleDraft.value = current?.title ?? ''
@@ -259,8 +262,16 @@ watch(canTurn, (ready) => {
   void deliver(next)
 })
 
+// 每次变动写回 storage（空队列则删除该键）：发出 / 丢弃 / 入队都就地落盘。
+watch(queued, (items) => {
+  const id = thread.value?.id
+  if (id) writeSendQueue(id, items)
+})
+
 function clearQueue(): void {
   queued.value = []
+  const id = thread.value?.id
+  if (id) clearSendQueue(id)
 }
 
 function onTurnKeydown(event: KeyboardEvent): void {

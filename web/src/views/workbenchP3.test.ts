@@ -55,6 +55,26 @@ describe('workbench P3 layout', () => {
     expect(threadView).toContain("t('workbench.composer.queued', { n: queued.length })")
   })
 
+  it('persists the pending-send queue per session so a reload keeps it', () => {
+    // 评审意见：队列按会话存 localStorage，重开恢复，发出 / 丢弃后清除。
+    expect(threadView).toContain("import { clearSendQueue, readSendQueue, writeSendQueue } from './sendQueue'")
+    expect(threadView).toContain('queued.value = current ? readSendQueue(current.id) : []')
+    expect(threadView).toContain('writeSendQueue(id, items)')
+    expect(threadView).toContain('clearSendQueue(id)')
+    const queue = raw(import.meta.glob('../components/workbench/sendQueue.ts', { eager: true, query: '?raw', import: 'default' }))
+    expect(queue).toContain('gofer.workbench.queue.')
+  })
+
+  it('shows the orphan waiting count as one header line', () => {
+    // 评审意见：项目分组行上的「待处理」计数（受阻计划 / 待决策）改在列表头显示。
+    expect(sidebar).toContain('data-test="orphan-notice"')
+    expect(sidebar).toContain("t('workbench.orphan.notice', { n: orphanWaiting })")
+    expect(sidebar).toContain("emit('openOrphans')")
+    expect(workbench).toContain('orphanWaitingCount(response.value.projects)')
+    expect(workbench).toContain('@open-orphans="openOrphanWaiting"')
+    expect(workbench).toContain("query: Record<string, string> = { status: 'blocked' }")
+  })
+
   it('shows tool calls collapsed by default and approvals inline in the timeline', () => {
     expect(conversation).toContain("import InteractionCard from '../InteractionCard.vue'")
     expect(conversation).toContain('timelineBlocks(round.events)')

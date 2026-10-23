@@ -18,6 +18,9 @@ const props = defineProps<{
   projectOptions: string[]
   showExec: boolean
   hiddenExecCount: number
+  // 服务端 counts.orphan_blocked / orphan_review：项目组里不在会话列表上的待处理项
+  // （受阻计划 / 待决策）。0 = 不显示提示行。
+  orphanWaiting: number
 }>()
 
 const emit = defineEmits<{
@@ -27,6 +30,7 @@ const emit = defineEmits<{
   (e: 'update:statusFilter', value: WorkbenchStatus | ''): void
   (e: 'update:showExec', value: boolean): void
   (e: 'new'): void
+  (e: 'openOrphans'): void
 }>()
 
 // 已结束分组默认折叠（上百条历史会话不一次进场全建 DOM）。
@@ -133,6 +137,19 @@ defineExpose({ focusSearch })
           {{ t('workbench.list.hiddenExec', { n: hiddenExecCount }) }}
         </span>
       </label>
+      <!-- 审阅意见：项目不再是分组，原来挂项目行上的「待处理」计数（受阱计划 / 待决策）
+           改成列表头一行提示，点一下去看这些项。 -->
+      <button
+        v-if="orphanWaiting > 0"
+        class="orphan-notice"
+        type="button"
+        :title="t('workbench.orphan.open')"
+        data-test="orphan-notice"
+        @click="emit('openOrphans')"
+      >
+        <StatusGlyph family="need" :size="12" />
+        <span>{{ t('workbench.orphan.notice', { n: orphanWaiting }) }}</span>
+      </button>
     </div>
 
     <div class="wb-sessions">
@@ -268,6 +285,29 @@ defineExpose({ focusSearch })
 }
 .exec-hidden {
   color: var(--fg-3);
+}
+.orphan-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  width: 100%;
+  min-height: 28px;
+  padding: 2px var(--s2);
+  background: var(--need-soft);
+  border: 1px solid transparent;
+  border-radius: var(--r-chip);
+  color: var(--need-ink);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.orphan-notice:hover {
+  border-color: var(--need);
+}
+.orphan-notice:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 .wb-sessions {
   flex: 1;
