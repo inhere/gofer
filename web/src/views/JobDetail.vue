@@ -2139,7 +2139,7 @@ onUnmounted(() => {
         <span class="meta-v mono" :title="job.session_id">{{ job.session_id }}</span>
         <span v-if="sessionIDSource" class="meta-v">{{ sessionIDSource }}</span>
         <button v-if="isTerminalView && canResume" class="resume-btn mono" type="button" @click="showResumeForm = !showResumeForm">
-          {{ showResumeForm ? '收起' : '继续会话' }}
+          {{ showResumeForm ? t('jobs.detail.expand') : t('jobs.detail.resumeSession') }}
         </button>
         <button
           v-if="isTerminalView && fromSessionPick.visible && canResume"
@@ -2147,15 +2147,15 @@ onUnmounted(() => {
           type="button"
           data-test="from-session-btn"
           :disabled="fromSessionPick.disabled"
-          :title="fromSessionPick.note || '开一个继承此会话上下文的新会话（源会话不被续接）'"
+          :title="fromSessionPick.note || t('jobs.detail.fromSessionTitle')"
           @click="openFromSession"
         >
-          从此会话新开
+          {{ t('jobs.detail.fromSession') }}
         </button>
         <span v-if="isTerminalView && fromSessionPick.visible && fromSessionPick.note" class="meta-v resume-mode-note" data-test="from-session-note">{{ fromSessionPick.note }}</span>
       </div>
       <div v-if="job.session_id && isTerminalView && showResumeForm && canResume" class="resume-form">
-        <div class="resume-modes" role="radiogroup" aria-label="续接方式">
+        <div class="resume-modes" role="radiogroup" :aria-label="t('jobs.detail.resumeModes')">
           <label
             v-for="c in resumeChoiceList"
             :key="c.value || 'same'"
@@ -2172,15 +2172,15 @@ onUnmounted(() => {
           v-model="resumePrompt"
           class="resume-input mono"
           rows="3"
-          :placeholder="resumeNeedsPrompt ? '续接指令（必填）' : '第一句话（可选）'"
+          :placeholder="resumeNeedsPrompt ? t('jobs.detail.resumePromptRequired') : t('jobs.detail.firstLine')"
         ></textarea>
         <input
           v-model="resumeLockPaths"
           class="resume-input mono"
           type="text"
           :title="DIR_LOCK_HINT"
-          aria-label="锁定目录"
-          placeholder="锁定目录（可选；留空 = 继承源 job 的锁）"
+          :aria-label="t('jobs.detail.lockDir')"
+          :placeholder="t('jobs.detail.lockDirPh')"
         />
         <div class="resume-actions">
           <button
@@ -2189,15 +2189,15 @@ onUnmounted(() => {
             :disabled="resuming || (resumeNeedsPrompt && !resumePrompt.trim())"
             @click="doResume"
           >
-            {{ resuming ? '续投中…' : resumeButtonLabel }}
+            {{ resuming ? t('jobs.detail.resuming') : resumeButtonLabel }}
           </button>
           <span v-if="resumeError" class="resume-err mono">{{ resumeError }}</span>
         </div>
       </div>
       <div v-if="job.session_id && sessionJobs.length > 1" class="meta-item">
-        <span class="meta-k mono">会话内 job</span>
+        <span class="meta-k mono">{{ t('jobs.detail.sessionJobs') }}</span>
         <button class="chain-toggle mono" type="button" @click="sessionJobsOpen = !sessionJobsOpen">
-          共 {{ sessionJobs.length }} 个{{ sessionJobsOpen ? ' ▾' : ' ▸' }}
+          {{ t('jobs.detail.sessionJobsCount', { n: sessionJobs.length }) }}{{ sessionJobsOpen ? ' ▾' : ' ▸' }}
         </button>
       </div>
       <ol v-if="sessionJobsOpen && sessionJobs.length > 1" class="chain-list">
@@ -2207,7 +2207,7 @@ onUnmounted(() => {
             class="chain-link meta-link mono"
             :to="`/jobs/${encodeURIComponent(sj.id)}`"
           >{{ sj.id }}</RouterLink>
-          <span v-else class="chain-self mono">{{ sj.id }}（当前）</span>
+          <span v-else class="chain-self mono">{{ sj.id }}{{ t('jobs.detail.current') }}</span>
           <StatusBadge :status="sj.status" />
         </li>
       </ol>
@@ -2217,7 +2217,7 @@ onUnmounted(() => {
       <!-- 只读 job（bd h-aii-0ql3）：agent 不能写文件；resume 继承该状态，不可升级为可写。 -->
       <div v-if="job.read_only" class="meta-item">
         <span class="meta-k mono">read_only</span>
-        <span class="meta-v mono">只读（agent 不能写文件）</span>
+        <span class="meta-v mono">{{ t('jobs.detail.readonlyNote') }}</span>
       </div>
       <!-- N1 §B：指定模型（空 = agent 自身默认，不显示）。 -->
       <div v-if="job.model" class="meta-item">
@@ -2229,25 +2229,25 @@ onUnmounted(() => {
       <div v-if="job.dir_exclusive || job.waiting_on_job" class="meta-item">
         <span class="meta-k mono">dir</span>
         <span class="meta-v mono">
-          {{ job.dir_exclusive ? '独占（同目录串行）' : '共享' }}
-          <template v-if="job.waiting_on_job">· 等待目录锁：{{ job.lock_paths?.length ? job.lock_paths.join(', ') : job.cwd }}；持有者 {{ job.waiting_on_job }}</template>
+          {{ job.dir_exclusive ? t('jobs.detail.dirExclusive') : t('jobs.detail.dirShared') }}
+          <template v-if="job.waiting_on_job">{{ t('jobs.detail.waitingLock', { path: job.lock_paths?.length ? job.lock_paths.join(', ') : (job.cwd ?? ''), holder: job.waiting_on_job ?? '' }) }}</template>
         </span>
       </div>
       <div v-if="job.session" class="meta-item">
         <span class="meta-k mono">ACP 会话</span>
-        <span class="meta-v mono">第 {{ job.turn_no ?? 0 }} 轮 · {{ job.session_ending ? '结束中' : status === 'awaiting_input' ? '等待输入' : status }}</span>
+        <span class="meta-v mono">{{ t('jobs.detail.turnNo', { n: job.turn_no ?? 0 }) }} · {{ job.session_ending ? t('jobs.detail.ending') : status === 'awaiting_input' ? t('jobs.detail.awaitingInput') : status }}</span>
       </div>
       <div v-if="(status === 'running' || status === 'awaiting_input') && job.held_lock_paths?.length" class="meta-item">
-        <span class="meta-k mono">持有目录锁</span>
+        <span class="meta-k mono">{{ t('jobs.detail.holdsLock') }}</span>
         <span class="meta-v mono">{{ job.held_lock_paths.join(', ') }}</span>
       </div>
       <div v-if="job.session && job.session_end_reason" class="meta-item">
-        <span class="meta-k mono">结束原因</span><span class="meta-v mono">{{ job.session_end_reason }}</span>
+        <span class="meta-k mono">{{ t('jobs.detail.endReason') }}</span><span class="meta-v mono">{{ job.session_end_reason }}</span>
       </div>
       <!-- gofer-gk74：agent 自己撞上限后收尾（status 仍是 done）——把补上来的汇报与做完的
            任务区分开。 -->
       <div v-if="job.wrap_up" class="meta-item">
-        <span class="meta-k mono">收尾原因</span><span class="meta-v mono">{{ wrapUpText(job.wrap_up) }}</span>
+        <span class="meta-k mono">{{ t('jobs.detail.wrapUpReason') }}</span><span class="meta-v mono">{{ wrapUpText(job.wrap_up) }}</span>
       </div>
       <div v-if="job.status === 'waiting_dir'" class="waiting-dir-help mono">
         被目录锁占用；只读任务可加 <code>--read-only</code>，或用 <code>--lock</code> 收窄范围、<code>--shared-dir</code> 放弃独占、<code>--worktree</code> 隔离。
@@ -2269,7 +2269,7 @@ onUnmounted(() => {
       <div v-if="job.acceptance" class="meta-item">
         <span class="meta-k mono">acceptance</span>
         <details class="meta-v mono">
-          <summary>验收标准</summary>
+          <summary>{{ t('jobs.detail.acceptance') }}</summary>
           <pre class="acceptance-pre">{{ job.acceptance }}</pre>
         </details>
       </div>
@@ -2277,7 +2277,7 @@ onUnmounted(() => {
            needs_review 时 reviewed_* 为空，正说明还没人裁。 -->
       <div v-if="job.require_review" class="meta-item">
         <span class="meta-k mono">require_review</span>
-        <span class="meta-v mono">需要人验收</span>
+        <span class="meta-v mono">{{ t('jobs.detail.needsReview') }}</span>
       </div>
       <div v-if="job.reviewed_by" class="meta-item">
         <span class="meta-k mono">reviewed_by</span>
@@ -2330,26 +2330,26 @@ onUnmounted(() => {
           data-test="wt-merge-btn"
           @click="mergeOpen = true"
         >
-          合并到基线
+          {{ t('jobs.detail.mergeToBase') }}
         </button>
-        <span v-else class="meta-v mono wt-blocked" data-test="wt-merge-blocked">只读身份，不能合并</span>
+        <span v-else class="meta-v mono wt-blocked" data-test="wt-merge-blocked">{{ t('jobs.detail.mergeBlocked') }}</span>
       </div>
       <!-- GIT-02：交付状态与 PR 链接；done 的 worktree job 可手动交付 / 重试 -->
       <div v-if="showDelivery" class="meta-item meta-item--merge" data-test="wt-deliver">
         <span class="meta-k mono">delivery</span>
         <span class="meta-v mono" :title="deliveryText(job.delivery)">
-          {{ deliveryText(job.delivery) || (job.delivery_mode && job.delivery_mode !== 'none' ? `将${deliveryModeLabel(job.delivery_mode)}` : '未交付') }}
+          {{ deliveryText(job.delivery) || (job.delivery_mode && job.delivery_mode !== 'none' ? `将${deliveryModeLabel(job.delivery_mode)}` : t('jobs.detail.notDelivered')) }}
           <a v-if="deliveryLink(job.delivery)" :href="deliveryLink(job.delivery)?.href" target="_blank" rel="noopener">{{ deliveryLink(job.delivery)?.label }}</a>
         </span>
         <template v-if="job.status === 'done' && canWriteGit">
           <select v-model="deliverMode" class="mono wt-deliver-mode" :disabled="delivering">
-            <option value="">按项目配置</option>
-            <option value="merge">合并到基线</option>
-            <option value="push">推送分支</option>
-            <option value="pr">推送并开 PR</option>
+            <option value="">{{ t('jobs.detail.deliveryDefault') }}</option>
+            <option value="merge">{{ t('jobs.detail.deliveryMerge') }}</option>
+            <option value="push">{{ t('jobs.detail.deliveryPush') }}</option>
+            <option value="pr">{{ t('jobs.detail.deliveryPr') }}</option>
           </select>
           <button class="wt-merge-btn mono" type="button" :disabled="delivering" data-test="wt-deliver-btn" @click="onDeliver">
-            {{ delivering ? '交付中…' : '交付' }}
+            {{ delivering ? t('jobs.detail.delivering') : t('jobs.detail.deliver') }}
           </button>
         </template>
         <span v-if="deliverError" class="meta-v mono bad">{{ deliverError }}</span>
