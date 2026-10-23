@@ -530,10 +530,10 @@ type planDetail struct {
 	NeedsReview int                     `json:"needs_review"`
 	FailedJobs  int                     `json:"failed_jobs"`
 	Completion  jobstore.PlanCompletion `json:"completion"`
-	Usage      planUsageView           `json:"usage"`
-	Jobs       []job.JobResult         `json:"jobs"`
-	Todos      []todoView              `json:"todos"`
-	Decisions  []decisionView          `json:"decisions"`
+	Usage       planUsageView           `json:"usage"`
+	Jobs        []job.JobResult         `json:"jobs"`
+	Todos       []todoView              `json:"todos"`
+	Decisions   []decisionView          `json:"decisions"`
 	// LeaderRound is the plan's leader-round state (MCP-05 阶段 B): the cap, how many
 	// rounds the plan has spent and the last leader job it started — the "leader 第 N/M
 	// 轮" line the plan page shows, plus the link to the round's job. LEAD-02: present
