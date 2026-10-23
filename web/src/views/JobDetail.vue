@@ -2067,7 +2067,7 @@ onUnmounted(() => {
         <span class="meta-k mono">project</span><span class="meta-v mono">{{ job.project_key }}</span>
       </div>
       <div class="meta-item">
-        <span class="meta-k mono">agent</span><span class="meta-v mono" :title="job.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
+        <span class="meta-k mono">agent</span><span class="meta-v mono" :title="job.resume_agent ? t('jobs.row.resumeTitle') : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
       </div>
       <!-- 绑定的技能（JOB-10）：派发时按 server → agent → project → job 的并集定下，物化在
            <result_dir>/skills/ 且 prompt 头部列了路径。没绑定的 job 没有该字段，整行不渲染。 -->
@@ -2506,7 +2506,7 @@ onUnmounted(() => {
           rows="3"
           :disabled="readOnly || sessionBusy || status !== 'awaiting_input' || !!job?.session_ending"
           :placeholder="t('jobs.detail.firstLine')"
-          aria-label="ACP 会话消息"
+          :aria-label="t('jobs.detail.acpMessageAria')"
           @keydown="onSessionMessageKeydown"
         ></textarea>
         <button
@@ -2795,7 +2795,7 @@ onUnmounted(() => {
         </div>
         <ul class="artifact-list">
           <li v-for="c in commits" :key="c.sha" class="artifact-row">
-            <button class="artifact-dl mono" type="button" :title="`复制 ${c.sha}`" @click="copyCommit(c.sha)">
+            <button class="artifact-dl mono" type="button" :title="t('jobs.detail.copySha', { sha: c.sha })" @click="copyCommit(c.sha)">
               {{ c.sha }}
             </button>
             <span class="artifact-name" :title="c.subject">{{ c.subject }}</span>
@@ -2872,7 +2872,7 @@ onUnmounted(() => {
                 {{ downloadingNames.has(a.name) ? t('jobs.detail.downloading') : t('jobs.detail.download') }}
               </button>
             </template>
-            <span v-else class="artifact-remote mono">留在执行机</span>
+            <span v-else class="artifact-remote mono">{{ t('jobs.detail.remoteKeep') }}</span>
           </li>
         </ul>
         <p v-if="artifactError" class="artifact-err mono">{{ artifactError }}</p>
@@ -2924,7 +2924,7 @@ onUnmounted(() => {
                 :disabled="downloadingNames.has(collectedName(c.name))"
                 @click="onDownload(collectedName(c.name), 'xfer')"
               >
-                {{ downloadingNames.has(collectedName(c.name)) ? '下载中…' : '下载' }}
+                {{ downloadingNames.has(collectedName(c.name)) ? t('jobs.detail.downloading') : t('jobs.detail.download') }}
               </button>
             </li>
           </ul>
@@ -2976,7 +2976,7 @@ onUnmounted(() => {
     <template v-if="active === 'log'">
     <LogTape
       ref="logTape"
-      :stdout-label="job?.interactive ? '终端' : 'stdout'"
+      :stdout-label="job?.interactive ? t('jobs.detail.terminal') : 'stdout'"
       :stdout="stdout"
       :stderr="stderr"
       :stdout-lines="stdoutLines"
@@ -3014,8 +3014,8 @@ onUnmounted(() => {
         <div class="preview-head">
           <span class="preview-name mono" :title="preview.name">{{ preview.name }}</span>
           <div class="preview-actions">
-            <button class="copy-btn mono" type="button" @click="onPreviewDownload">下载</button>
-            <button class="copy-btn mono" type="button" @click="closePreview">关闭</button>
+            <button class="copy-btn mono" type="button" @click="onPreviewDownload">{{ t('jobs.detail.download') }}</button>
+            <button class="copy-btn mono" type="button" @click="closePreview">{{ t('jobs.detail.close') }}</button>
           </div>
         </div>
         <div class="preview-body">
@@ -3034,10 +3034,10 @@ onUnmounted(() => {
       class="drawer-overlay"
       @click.self="closeDiff"
     >
-      <div class="drawer-panel" role="dialog" aria-label="完整 diff">
+      <div class="drawer-panel" role="dialog" :aria-label="t('jobs.detail.fullDiff')">
         <div class="drawer-head">
-          <span class="drawer-title mono">完整 diff · 未提交改动</span>
-          <button class="copy-btn mono" type="button" @click="closeDiff">关闭</button>
+          <span class="drawer-title mono">{{ t('jobs.detail.fullDiff') }}</span>
+          <button class="copy-btn mono" type="button" @click="closeDiff">{{ t('jobs.detail.close') }}</button>
         </div>
         <div class="drawer-body">
           <pre class="drawer-diff mono">{{ fullDiffText }}</pre>
@@ -3054,27 +3054,27 @@ onUnmounted(() => {
       <div
         class="drawer-panel terminal-drawer"
         role="dialog"
-        aria-label="终端"
+        :aria-label="t('jobs.detail.terminal')"
       >
         <div class="drawer-head terminal-drawer-head">
-          <span class="drawer-title mono">终端 · {{ shortId(props.id) }}</span>
-          <div class="term-mode-toggle mono" role="group" aria-label="终端模式">
+          <span class="drawer-title mono">{{ t('jobs.detail.terminal') }} · {{ shortId(props.id) }}</span>
+          <div class="term-mode-toggle mono" role="group" :aria-label="t('jobs.detail.terminalMode')">
             <button
               type="button"
               :class="{ active: termMode === 'write' }"
               @click="termMode = 'write'"
             >
-              写入
+              {{ t('jobs.detail.write') }}
             </button>
             <button
               type="button"
               :class="{ active: termMode === 'read' }"
               @click="termMode = 'read'"
             >
-              只读
+              {{ t('jobs.detail.readonly') }}
             </button>
           </div>
-          <button class="copy-btn mono" type="button" @click="closeTerminal">关闭</button>
+          <button class="copy-btn mono" type="button" @click="closeTerminal">{{ t('jobs.detail.close') }}</button>
         </div>
         <div class="drawer-body terminal-drawer-body">
           <AttachTerminal
