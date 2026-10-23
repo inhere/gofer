@@ -22,6 +22,7 @@ import {
 } from '../utils/dispatch'
 import type { DispatchTo } from '../utils/dispatch'
 import type { AgentSession, Plan, TrackerRepo, WorkDetail } from '../api/types'
+import { t } from '../i18n'
 
 const props = defineProps<{
   item: WorkDetail
@@ -74,21 +75,33 @@ function choose(t: DispatchTo): void {
 }
 
 const submitLabel = computed(() => ({
-  session: '交给会话', job: '去新建 job', todo: '转 todo', issue: '转 issue', archive: '归档', drop: '丢弃',
+  session: t('work.dispatch.to.session'),
+  job: t('work.dispatch.to.job'),
+  todo: t('work.dispatch.to.todo'),
+  issue: t('work.dispatch.to.issue'),
+  archive: t('work.dispatch.to.archive'),
+  drop: t('work.dispatch.to.drop'),
 }[to.value]))
 
-const doneText: Record<DispatchTo, string> = {
-  session: '已交给会话，条目转为进行中',
-  job: '已关联 job',
-  todo: '已转为 todo',
-  issue: '已转为 issue，同步前显示「' + pendingSyncLabel() + '」',
-  archive: '已归档',
-  drop: '已丢弃',
+function doneTextFor(to: DispatchTo): string {
+  switch (to) {
+    case 'session':
+      return t('work.dispatch.done.session')
+    case 'job':
+      return t('work.dispatch.done.job')
+    case 'todo':
+      return t('work.dispatch.done.todo')
+    case 'issue':
+      return t('work.dispatch.done.issue', { label: pendingSyncLabel() })
+    case 'archive':
+      return t('work.dispatch.done.archive')
+    default:
+      return t('work.dispatch.done.drop')
+  }
 }
-
 async function submit(): Promise<void> {
   if (busy.value || to.value === 'job') return
-  if (to.value === 'drop' && !window.confirm('丢弃这条？它会标为已放弃。')) return
+  if (to.value === 'drop' && !window.confirm(t('work.dispatch.confirmDrop'))) return
   const built = buildDispatchRequest(to.value, form)
   if (!built.req) {
     error.value = built.error
@@ -98,7 +111,7 @@ async function submit(): Promise<void> {
   error.value = ''
   try {
     const d = await dispatchWorkItem(props.item.id, built.req)
-    emit('done', d, doneText[to.value])
+    emit('done', d, doneTextFor(to.value))
   } catch (e) {
     const v = dispatchErrorText(to.value, e instanceof ApiError ? e : { message: e instanceof Error ? e.message : String(e) })
     error.value = v.text
@@ -111,13 +124,13 @@ async function submit(): Promise<void> {
 
 <template>
   <div class="dd-mask" @click.self="emit('close')">
-    <div class="dd" role="dialog" aria-label="分派收集箱条目" data-test="dispatch-dlg" @keydown.esc="emit('close')">
+    <div class="dd" role="dialog" :aria-label="t('work.dispatch.aria')" data-test="dispatch-dlg" @keydown.esc="emit('close')">
       <header class="dd-head">
-        <h4 class="dd-title mono">分派</h4>
+        <h4 class="dd-title mono">{{ t('work.dispatch.title') }}</h4>
         <p class="dd-item" :title="item.title">{{ item.title }}</p>
       </header>
 
-      <div class="dd-acts mono" role="radiogroup" aria-label="分派方式">
+      <div class="dd-acts mono" role="radiogroup" :aria-label="t('work.dispatch.way')">
         <button
           v-for="a in actions"
           :key="a.to"
@@ -133,83 +146,83 @@ async function submit(): Promise<void> {
       </div>
 
       <section v-if="to === 'session'" class="dd-body" data-test="dispatch-session">
-        <p v-if="targetsLoading" class="dd-hint mono">正在找合适的会话…</p>
+        <p v-if="targetsLoading" class="dd-hint mono">{{ t('work.dispatch.finding') }}</p>
         <template v-else>
-          <p v-if="rec.length" class="dd-hint mono">按标题和目标匹配会话主题、范围、会话名和项目，推荐 {{ rec.length }} 个：</p>
-          <p v-else class="dd-hint mono" data-test="dispatch-no-rec">没有找到明显匹配的会话，从下面选一个。</p>
+          <p v-if="rec.length" class="dd-hint mono">{{ t('work.dispatch.recommend', { n: rec.length }) }}</p>
+          <p v-else class="dd-hint mono" data-test="dispatch-no-rec">{{ t('work.dispatch.noRec') }}</p>
           <ul v-if="rec.length" class="dd-rec">
-            <li v-for="t in rec" :key="t.sessionId">
-              <label class="dd-card" :class="{ on: form.sessionId === t.sessionId }" data-test="dispatch-target">
-                <input v-model="form.sessionId" type="radio" name="dd-sid" :value="t.sessionId" />
+            <li v-for="target in rec" :key="target.sessionId">
+              <label class="dd-card" :class="{ on: form.sessionId === target.sessionId }" data-test="dispatch-target">
+                <input v-model="form.sessionId" type="radio" name="dd-sid" :value="target.sessionId" />
                 <span class="dd-card-main">
-                  <span class="dd-card-title">{{ t.title }}<span class="dd-agent mono">{{ t.agent }}</span><span v-if="t.project" class="dd-agent mono">{{ t.project }}</span></span>
-                  <span v-if="t.topic" class="dd-topic">{{ t.topic }}<em v-if="t.topicInferred" class="dd-inf mono" data-test="dispatch-topic-inferred">推断</em></span>
+                  <span class="dd-card-title">{{ target.title }}<span class="dd-agent mono">{{ target.agent }}</span><span v-if="target.project" class="dd-agent mono">{{ target.project }}</span></span>
+                  <span v-if="target.topic" class="dd-topic">{{ target.topic }}<em v-if="target.topicInferred" class="dd-inf mono" data-test="dispatch-topic-inferred">{{ t('work.dispatch.inferred') }}</em></span>
                   <span class="dd-hits">
-                    <span v-for="(h, i) in t.hits" :key="i" class="dd-hit mono" :class="{ 'dd-hit--inf': h.inferred }" data-test="dispatch-hit">{{ h.text }}</span>
-                    <span v-if="t.maybeOffline" class="dd-hit dd-hit--off mono" data-test="dispatch-offline">{{ t.offlineLabel }}</span>
+                    <span v-for="(h, i) in target.hits" :key="i" class="dd-hit mono" :class="{ 'dd-hit--inf': h.inferred }" data-test="dispatch-hit">{{ h.text }}</span>
+                    <span v-if="target.maybeOffline" class="dd-hit dd-hit--off mono" data-test="dispatch-offline">{{ target.offlineLabel }}</span>
                   </span>
                 </span>
               </label>
             </li>
           </ul>
-          <p v-if="recHidden" class="dd-hint mono">另有 {{ recHidden }} 个他人的会话，你没有向其传话的权限，已隐藏。</p>
+          <p v-if="recHidden" class="dd-hint mono">{{ t('work.dispatch.hiddenOthers', { n: recHidden }) }}</p>
         </template>
         <label class="dd-field mono">
-          <span>或选择其他会话</span>
+          <span>{{ t('work.dispatch.orOtherSession') }}</span>
           <select v-model="form.sessionId" class="dd-in mono" data-test="dispatch-session-pick">
-            <option value="">选一个会话…</option>
+            <option value="">{{ t('work.dispatch.pickSession') }}</option>
             <option v-for="s in pickable" :key="s.session_id" :value="s.session_id">{{ s.title || s.peer_name || s.session_id.slice(0, 8) }} · {{ s.agent }}<template v-if="s.project_key"> · {{ s.project_key }}</template></option>
           </select>
         </label>
       </section>
 
       <section v-else-if="to === 'job'" class="dd-body" data-test="dispatch-job">
-        <p class="dd-hint mono">打开新建 job 页：标题、目标、项目已预填。提交后 job 自动关联到这条，条目转为进行中。</p>
+        <p class="dd-hint mono">{{ t('work.dispatch.jobHint') }}</p>
       </section>
 
       <section v-else-if="to === 'todo'" class="dd-body" data-test="dispatch-todo">
         <label class="dd-field mono">
-          <span>加到哪个 plan</span>
+          <span>{{ t('work.dispatch.planLabel') }}</span>
           <select v-model="form.planId" class="dd-in mono" data-test="dispatch-plan">
-            <option value="">＋ 新建 plan</option>
+            <option value="">{{ t('work.dispatch.newPlan') }}</option>
             <option v-for="p in planOptions" :key="p.plan_id" :value="p.plan_id">{{ p.title || p.plan_id }}</option>
           </select>
         </label>
         <label v-if="!form.planId" class="dd-field mono">
-          <span>新 plan 标题</span>
+          <span>{{ t('work.dispatch.newPlanTitle') }}</span>
           <input v-model="form.newPlanTitle" class="dd-in mono" type="text" data-test="dispatch-plan-title" />
         </label>
       </section>
 
       <section v-else-if="to === 'issue'" class="dd-body" data-test="dispatch-issue">
         <label class="dd-field mono">
-          <span>仓库</span>
+          <span>{{ t('work.dispatch.repo') }}</span>
           <select v-model="form.trackerId" class="dd-in mono" data-test="dispatch-repo">
-            <option value="">选一个仓库…</option>
+            <option value="">{{ t('work.dispatch.pickRepo') }}</option>
             <option v-for="r in usableRepos" :key="r.tracker_id" :value="r.tracker_id">{{ issueRepoLabel(r) }}</option>
           </select>
         </label>
-        <p v-if="!usableRepos.length" class="dd-hint mono" data-test="dispatch-no-repo">没有可用的仓库。仓库要先在本地执行一次 gofer repo sync，server 才知道它的 id 前缀。</p>
-        <p v-else-if="hiddenRepos" class="dd-hint mono">{{ hiddenRepos }} 个仓库还没有 id 前缀，未列出。</p>
+        <p v-if="!usableRepos.length" class="dd-hint mono" data-test="dispatch-no-repo">{{ t('work.dispatch.noRepo') }}</p>
+        <p v-else-if="hiddenRepos" class="dd-hint mono">{{ t('work.dispatch.hiddenRepos', { n: hiddenRepos }) }}</p>
         <label class="dd-field mono">
-          <span>标题（默认用条目标题）</span>
+          <span>{{ t('work.dispatch.issueTitle') }}</span>
           <input v-model="form.issueTitle" class="dd-in mono" type="text" data-test="dispatch-issue-title" />
         </label>
-        <p class="dd-hint mono">{{ pendingSyncHint() }}。</p>
+        <p class="dd-hint mono">{{ pendingSyncHint() }}{{ t('work.dispatch.end') }}</p>
       </section>
 
       <section v-else-if="to === 'archive'" class="dd-body">
-        <p class="dd-hint mono">不再处理，标为已完成，日志记「归档」。</p>
+        <p class="dd-hint mono">{{ t('work.dispatch.archiveHint') }}</p>
       </section>
       <section v-else class="dd-body">
-        <p class="dd-hint mono">放弃这条，标为已放弃，日志记「丢弃」。</p>
+        <p class="dd-hint mono">{{ t('work.dispatch.dropHint') }}</p>
       </section>
 
       <p v-if="error" class="dd-err mono" role="alert" data-test="dispatch-error">{{ error }}</p>
       <div class="dd-actions">
         <RouterLink v-if="to === 'job'" class="dd-submit mono" :to="newJobLink(item.id)" data-test="dispatch-new-job" @click="emit('close')">{{ submitLabel }}</RouterLink>
-        <button v-else class="dd-submit mono" type="button" :disabled="busy" data-test="dispatch-submit" @click="submit">{{ busy ? '处理中…' : submitLabel }}</button>
-        <button class="dd-cancel mono" type="button" :disabled="busy" @click="emit('close')">取消</button>
+        <button v-else class="dd-submit mono" type="button" :disabled="busy" data-test="dispatch-submit" @click="submit">{{ busy ? t('work.dispatch.working') : submitLabel }}</button>
+        <button class="dd-cancel mono" type="button" :disabled="busy" @click="emit('close')">{{ t('util.action.cancel') }}</button>
       </div>
     </div>
   </div>
