@@ -14,7 +14,7 @@ import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
 import { cardActionBlock } from '../../utils/todayGate'
 import { cardKeyFromEvent } from '../../utils/todayKeys'
-import { CEILING_READ_ONLY_NOTICE } from '../../utils/ceiling'
+import { ceilingReadOnlyNotice } from '../../utils/ceiling'
 import { t } from '../../i18n'
 import { useWhoami } from '../../store/whoami'
 
@@ -133,7 +133,7 @@ function onRerun(note: string, resume: boolean): void {
 
 function suggestionAct(field: string, adopt: boolean): void {
   if (readOnly.value) return
-  emit('act', { id: `${adopt ? 'adopt' : 'dismiss'}:${field}`, label: adopt ? '采纳建议' : '忽略建议' }, '', false)
+  emit('act', { id: `${adopt ? 'adopt' : 'dismiss'}:${field}`, label: adopt ? t('today.suggestion.adopt') : t('today.suggestion.dismiss') }, '', false)
 }
 
 function pickSnooze(opt: SnoozeOption): void {
@@ -382,14 +382,14 @@ function linkFor(a: TodayAction): string {
             class="dc-btn dc-btn--ok"
             type="button"
             :disabled="readOnly"
-            :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
+            :title="readOnly ? ceilingReadOnlyNotice() : undefined"
             @click="suggestionAct(sg.field, true)"
           >{{ t('today.card.adopt') }}</button>
           <button
             class="dc-btn"
             type="button"
             :disabled="readOnly"
-            :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
+            :title="readOnly ? ceilingReadOnlyNotice() : undefined"
             @click="suggestionAct(sg.field, false)"
           >{{ t('today.card.dismiss') }}</button>
         </div>

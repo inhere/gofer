@@ -15,6 +15,7 @@ import {
   touchScrollDelta,
   touchScrollLines,
 } from '../utils/terminalScroll'
+import { t } from '../i18n'
 
 type AttachMode = 'write' | 'read'
 type ConnectionState =
@@ -126,23 +127,23 @@ const filteredRawReplay = computed(() => {
 const statusText = computed(() => {
   switch (connectionState.value) {
     case 'connecting':
-      return '连接中'
+      return t('util.term.connecting')
     case 'connected':
-      return '已连接'
+      return t('util.term.connected')
     case 'read-only':
-      return '只读'
+      return t('util.term.readOnly')
     case 'reconnecting':
-      return `连接断开，重连中… (${reconnectAttempts.value})`
+      return t('util.term.reconnecting', { n: reconnectAttempts.value })
     case 'timeout':
-      return '会话超时(5min)'
+      return t('util.term.timeout')
     case 'failed':
-      return '重连失败'
+      return t('util.term.failed')
     case 'exited':
-      return '进程已退出'
+      return t('util.term.exited')
     case 'closed':
-      return '断开'
+      return t('util.term.closed')
     default:
-      return '断开'
+      return t('util.term.closed')
   }
 })
 
@@ -151,9 +152,18 @@ const readOnlyBanner = computed(() => {
     return ''
   }
   if (attachMode === 'read') {
-    return '只读跟随'
+    return t('util.term.followReadOnly')
   }
-  return '他人正在操作，已只读跟随'
+  return t('util.term.otherOperator')
+})
+
+// 原始输出回看的状态行：加载 / 失败 / 无内容 / 全文 / 无匹配（带「已过滤」）。
+const rawReplayHint = computed(() => {
+  if (rawReplayLoading.value) return t('util.term.loading')
+  if (rawReplayError.value) return t('util.term.loadFailed')
+  if (!rawReplayText.value) return t('util.term.noOutput')
+  const base = filteredRawReplay.value ? t('util.term.readonlyFull') : t('util.term.noMatch')
+  return rawReplayQuery.value ? `${base}${t('util.term.filtered')}` : base
 })
 
 const canClaimWrite = computed(
@@ -321,7 +331,7 @@ async function pasteClipboard(): Promise<void> {
     const text = await navigator.clipboard.readText()
     pasteText(text)
   } catch {
-    emit('error', '读取剪贴板失败')
+    emit('error', t('util.term.clipboardFailed'))
   }
 }
 
@@ -606,7 +616,7 @@ async function connect(): Promise<void> {
   }
 
   socket.onerror = () => {
-    emit('error', 'websocket 错误')
+    emit('error', t('util.term.wsError'))
   }
 
   socket.onclose = () => {
@@ -787,7 +797,7 @@ onUnmounted(() => {
       </span>
       <div class="terminal-tools">
         <details ref="keyMenuEl" class="key-menu">
-          <summary class="terminal-btn key-menu-trigger mono">发送键</summary>
+          <summary class="terminal-btn key-menu-trigger mono">{{ t('util.term.sendKey') }}</summary>
           <div class="key-menu-list" role="menu">
             <button
               v-for="action in keyActions"
@@ -808,7 +818,7 @@ onUnmounted(() => {
           type="button"
           @click="reconnect('write')"
         >
-          抢占写入
+          {{ t('util.term.claimWrite') }}
         </button>
           <button
             v-if="showManualReconnect"
@@ -816,7 +826,7 @@ onUnmounted(() => {
           type="button"
           @click="reconnect()"
         >
-            重连
+            {{ t('util.term.reconnect') }}
           </button>
           <button
             class="terminal-btn mono"
@@ -824,7 +834,7 @@ onUnmounted(() => {
             :aria-pressed="rawReplayOpen"
             @click="rawReplayOpen ? closeRawReplay() : void openRawReplay()"
           >
-            {{ rawReplayOpen ? '返回终端' : '原始输出回看' }}
+            {{ rawReplayOpen ? t('util.term.backToTerminal') : t('util.term.rawReplay') }}
           </button>
         </div>
       </header>
@@ -836,17 +846,17 @@ onUnmounted(() => {
       @keydown.capture="onTerminalHostKey"
         @pointerdown="markTerminalActive"
       />
-      <section v-if="rawReplayOpen" class="raw-replay" aria-label="原始输出回看">
+      <section v-if="rawReplayOpen" class="raw-replay" :aria-label="t('util.term.rawReplay')">
         <div class="raw-replay-toolbar">
           <input
             v-model="rawReplayQuery"
             class="raw-replay-search mono"
             type="search"
-            placeholder="搜索输出…"
-            aria-label="搜索原始输出"
+            :placeholder="t('util.term.searchPlaceholder')"
+            :aria-label="t('util.term.searchLabel')"
           />
           <span class="raw-replay-hint mono">
-            {{ rawReplayLoading ? '加载中…' : rawReplayError ? '加载失败' : !rawReplayText ? '暂无已落盘输出' : `${filteredRawReplay ? '只读全文' : '无匹配'}${rawReplayQuery ? ' · 已过滤' : ''}` }}
+            {{ rawReplayHint }}
           </span>
         </div>
         <p v-if="rawReplayError" class="raw-replay-error mono">{{ rawReplayError }}</p>
@@ -856,7 +866,7 @@ onUnmounted(() => {
     <div v-if="!exited" class="chat-box">
       <button class="chat-toggle mono" type="button" @click="toggleChat">
         <Icon :icon="chatCollapsed ? ChevronRight : ChevronDown" size="sm" />
-        <span>输入框</span>
+        <span>{{ t('util.term.chat') }}</span>
       </button>
       <template v-if="!chatCollapsed">
         <textarea
@@ -864,14 +874,14 @@ onUnmounted(() => {
           class="chat-input mono"
           rows="3"
           :disabled="!writeGranted"
-          :placeholder="writeGranted ? '长文本在这里编辑，Ctrl+Enter 发送；终端里也可直接敲键盘' : '只读跟随中，无法输入'"
+          :placeholder="writeGranted ? t('util.term.inputPlaceholder') : t('util.term.inputReadOnly')"
           @keydown="onChatKeydown"
           @focus="onChatFocus"
         ></textarea>
         <div class="chat-actions">
           <label class="chat-submit-toggle mono">
             <input v-model="chatSubmit" type="checkbox" />
-            发送后回车提交
+            {{ t('util.term.submitAfterEcho') }}
           </label>
           <button
             class="terminal-btn mono"
@@ -879,12 +889,12 @@ onUnmounted(() => {
             :disabled="!writeGranted || !chatText.trim()"
             @click="sendChat"
           >
-            发送
+            {{ t('util.term.send') }}
           </button>
         </div>
       </template>
     </div>
-    <footer v-if="exited" class="terminal-foot mono">进程已退出</footer>
+    <footer v-if="exited" class="terminal-foot mono">{{ t('util.term.exited') }}</footer>
   </section>
 </template>
 

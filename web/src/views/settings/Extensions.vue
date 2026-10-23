@@ -390,11 +390,11 @@ onMounted(() => {
               class="input textarea textarea--prompt mono"
               rows="10"
               :value="draftText(it.key)"
-              :placeholder="PROMPT_EMPTY_HINT"
+              :placeholder="PROMPT_EMPTY_HINT()"
               :disabled="!canWrite"
               @input="setDraft(it.key, textOf($event))"
             />
-            <span class="hint mono">{{ PROMPT_EMPTY_HINT }} · {{ boundsHint(it) }}</span>
+            <span class="hint mono">{{ PROMPT_EMPTY_HINT() }} · {{ boundsHint(it) }}</span>
           </div>
 
           <!-- 普通字符串 -->

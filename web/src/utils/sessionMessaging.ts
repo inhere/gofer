@@ -1,4 +1,5 @@
 import type { AgentSession, Decision, SessionMessage, SessionMessageStatus } from '../api/types'
+import { t } from '../i18n'
 
 export function sessionDisplayName(session: Pick<AgentSession, 'peer_name' | 'title' | 'agent' | 'session_id'>): string {
   return session.peer_name || session.title || `${session.agent} · ${session.session_id.slice(0, 8)}`
@@ -20,9 +21,9 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function peerMessagingLabel(session: Pick<AgentSession, 'peer_name' | 'peer_status' | 'peer_messaging'>): '待上报' | '可接收消息' | '不可接收消息' {
-  if (!session.peer_name && !session.peer_status && !session.peer_messaging) return '待上报'
-  return session.peer_messaging ? '可接收消息' : '不可接收消息'
+export function peerMessagingLabel(session: Pick<AgentSession, 'peer_name' | 'peer_status' | 'peer_messaging'>): string {
+  if (!session.peer_name && !session.peer_status && !session.peer_messaging) return t('util.msg.peerPending')
+  return session.peer_messaging ? t('util.msg.peerOk') : t('util.msg.peerNo')
 }
 
 export function shortAgentSessionId(id: string): string {
@@ -69,15 +70,15 @@ export function sessionMessageStatusText(message: Pick<SessionMessage, 'status' 
   const channel = message.channel ? ` · ${message.channel}` : ''
   switch (message.status) {
     case 'queued':
-      return '排队中'
+      return t('util.msg.queued')
     case 'delivering':
-      return `送达中${channel} · 内部 job 已开始，结果稍后回写`
+      return t('util.msg.delivering', { channel })
     case 'delivered':
-      return `已送达${channel || ' · 通道'}`
+      return `${t('util.msg.delivered')}${channel || t('util.msg.channelNone')}`
     case 'undelivered':
-      return `未送达 · ${message.error || '未知原因'}`
+      return t('util.msg.undelivered', { error: message.error || t('util.msg.unknownReason') })
     default:
-      return `失败 · ${message.error || '未知原因'}（可能已送达，未开放重试）`
+      return t('util.msg.failed', { error: message.error || t('util.msg.unknownReason') })
   }
 }
 
@@ -95,7 +96,7 @@ export function isSessionReply(message: Pick<SessionMessage, 'direction'>): bool
 // sessionMessageAuthorLabel：你发出的消息气泡的署名。答的是 agent 正在等的那一轮（channel=turn，
 // 比如 Stop hook 停下来等回复）就是直接回复；其余路径（传话人 / 在线会话 / 终端）才是「经转达」。
 export function sessionMessageAuthorLabel(message: Pick<SessionMessage, 'channel'>): string {
-  return message.channel === 'turn' ? '你（回复）' : '你（经转达）'
+  return message.channel === 'turn' ? t('util.msg.authorReply') : t('util.msg.authorRelayed')
 }
 
 export function sessionReplyLabel(
@@ -103,5 +104,7 @@ export function sessionReplyLabel(
   session: Pick<AgentSession, 'peer_name' | 'title' | 'agent' | 'session_id'> | null | undefined,
 ): string {
   const name = session ? sessionDisplayName(session) : 'agent'
-  return message.source === 'messenger' ? `${name} · 回复（经传话人收到）` : `${name} · 回复`
+  return message.source === 'messenger'
+    ? t('util.msg.replyVia', { name })
+    : t('util.msg.reply', { name })
 }

@@ -3,6 +3,7 @@
 // 能力来自 /v1/agents 的 from_session（cli-agent 配了 from_session_args）；源 agent 不支持时
 // 在同会话族里找一个支持的，找不到就灰显并写原因（后端对不支持的 agent 同样 400）。
 import type { AgentInfo } from '../api/types'
+import { t } from '../i18n'
 
 export interface FromSessionSource {
   // 源 job 的 agent（续接载体 exec 时传 resume_agent）/ 会话登记的 agent
@@ -40,12 +41,12 @@ export function fromSessionChoice(src: FromSessionSource, agents: AgentInfo[]): 
     : agents
       .filter((a) => a.key !== src.agent && a.session_family === family && a.available && supports(a))
       .sort((a, b) => a.key.localeCompare(b.key))[0]
-  if (alt) return { visible: true, disabled: false, note: `改用 ${alt.key} 新开（同会话族）`, agent: alt.key }
-  const who = self ? `agent ${self.key}` : `agent ${src.agent}（未在配置中）`
+  if (alt) return { visible: true, disabled: false, note: t('util.fromSession.switchNote', { agent: alt.key }), agent: alt.key }
+  const who = self ? `agent ${self.key}` : `agent ${src.agent}${t('util.fromSession.notConfigured')}`
   return {
     visible: true,
     disabled: true,
-    note: `${who} 未配置 from_session_args，同会话族也没有可用的 agent，不能从会话新开`,
+    note: t('util.fromSession.noArgs', { who }),
     agent: '',
   }
 }
@@ -88,8 +89,8 @@ export function fromSessionFormError(
   form: { agentType: string; agentFromSession?: boolean; continuousSession: boolean },
 ): string {
   if (fromSession === '') return ''
-  if (form.continuousSession) return '从会话新开不支持持续 ACP 会话，请取消「持续会话」'
-  if (form.agentType !== '' && form.agentType !== 'cli-agent') return '从会话新开只支持 cli-agent（需配置 from_session_args）'
-  if (form.agentFromSession === false) return '所选 agent 未配置 from_session_args，不能从会话新开'
+  if (form.continuousSession) return t('util.fromSession.continuous')
+  if (form.agentType !== '' && form.agentType !== 'cli-agent') return t('util.fromSession.cliOnly')
+  if (form.agentFromSession === false) return t('util.fromSession.agentNoArgs')
   return ''
 }

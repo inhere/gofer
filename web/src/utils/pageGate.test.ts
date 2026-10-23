@@ -2,7 +2,7 @@
 // 调用的路由声明判权限（Require 的权限 / InHandler 的 *.others 只看别人的资源 / Public 不要权限）；
 // 有权限时返回空串（按钮可点）；whoami 未知时放行，让服务端的 403 说话。
 import { describe, expect, it } from 'vitest'
-import { CEILING_READ_ONLY_NOTICE } from './ceiling'
+import { ceilingReadOnlyNotice } from './ceiling'
 import { missingPermissionText, pageWriteBlock } from './pageGate'
 import type { AuthWhoami } from './permissions'
 
@@ -14,20 +14,20 @@ const readOnlyWho = who({ ceiling: { allow_exec: false, global_memory: false, re
 
 describe('a read-only identity cannot write anything', () => {
   it('grey every kind of write spec with the read-only reason', () => {
-    expect(pageWriteBlock(readOnlyWho, { perms: ['plan.manage.others'] })).toBe(CEILING_READ_ONLY_NOTICE)
+    expect(pageWriteBlock(readOnlyWho, { perms: ['plan.manage.others'] })).toBe(ceilingReadOnlyNotice())
     expect(pageWriteBlock(readOnlyWho, { anyPerms: ['session.reply.others', 'job.manage.others'] })).toBe(
-      CEILING_READ_ONLY_NOTICE,
+      ceilingReadOnlyNotice(),
     )
     // 自己的资源也一样写不了。
     expect(pageWriteBlock(readOnlyWho, { perms: ['plan.manage.others'], ownerId: 'alice' })).toBe(
-      CEILING_READ_ONLY_NOTICE,
+      ceilingReadOnlyNotice(),
     )
     // Public 路由（work item / tracker issue 写）同样灰显。
-    expect(pageWriteBlock(readOnlyWho)).toBe(CEILING_READ_ONLY_NOTICE)
+    expect(pageWriteBlock(readOnlyWho)).toBe(ceilingReadOnlyNotice())
   })
   it('a root administrator with a read-only ceiling is still greyed', () => {
     expect(pageWriteBlock(who({ root: true, ceiling: readOnlyWho.ceiling }), { perms: ['plan.manage.others'] })).toBe(
-      CEILING_READ_ONLY_NOTICE,
+      ceilingReadOnlyNotice(),
     )
   })
 })

@@ -30,8 +30,8 @@ describe('一键更新：空闲时更新（gofer-dzv3）', () => {
   it('弹层说明先等本机 job 结束、新 job 先停住，并给出最长等待选择', async () => {
     const html = await renderDialog()
     expect(html).toContain('等本机运行中的 job 结束后重启')
-    // 有 job 在跑时那句说明（SSR 下 running 还是 null，看源码）与静态的等待说明。
-    expect(dialogSrc).toMatch(/会先等它们结束；期间新提交的 job 先停住/)
+    // 有 job 在跑时那句说明（SSR 下 running 还是 null，看源码的字典 key）与静态的等待说明。
+    expect(dialogSrc).toContain("t('util.update.runningJobs', { n: running })")
     expect(html).toContain('等待期间新 job 会先停住')
     expect(html).toContain('worker 上的 job 不受影响')
     // 旧的「最多约 5 分钟，超时则放弃」说法已被推翻。

@@ -13,6 +13,7 @@ import NdjsonTimeline from './NdjsonTimeline.vue'
 import type { LogStream } from '../api/types'
 import { MAX_DOM_LINES, countLogLines, createIncrementalAnsiRenderer, logLineLimit, planTailBatches, renderAnsiChunk, tailLinesText } from '../utils/logRender'
 import { defaultLogStream } from '../utils/logStream'
+import { t } from '../i18n'
 import { appendRenderedLog } from '../utils/logPlaceholder'
 
 const props = withDefaults(defineProps<{
@@ -100,7 +101,7 @@ function renderStream(stream: 'stdout' | 'stderr', text: string, force = false):
   }
   state.classes = rendered.classes
   state.partialLine = rendered.partialLine
-  if (!text && !pre.innerHTML) pre.textContent = `（无 ${stream} 输出）`
+  if (!text && !pre.innerHTML) pre.textContent = t('util.log.emptyStream', { stream })
   const scroller = stream === 'stdout' ? outEl.value : errEl.value
   if (scroller) scroller.scrollTop = scroller.scrollHeight
   if (plan.earlier.length === 0) return
@@ -399,7 +400,7 @@ onMounted(() => {
   <div class="tape mono">
     <div class="pane">
       <div class="pane-head">
-        <div class="tabs" role="tablist" aria-label="日志流">
+        <div class="tabs" role="tablist" :aria-label="t('util.log.streamLabel')">
           <button
             class="tab"
             :class="{ 'tab--active': activeStream === 'stdout' }"
@@ -429,7 +430,7 @@ onMounted(() => {
       </div>
       <div v-if="showLogActions || showStdoutMarkdown || hasStructuredLines" class="log-actions">
         <span v-if="paged && activeTotal > 0" class="log-scope">
-          已显示 {{ activeDisplayed }} / {{ activeTotal }} 行
+          {{ t('util.log.shown', { shown: activeDisplayed, total: activeTotal }) }}
         </span>
         <div class="log-action-buttons">
           <button
@@ -439,7 +440,7 @@ onMounted(() => {
             :disabled="activeLoading"
             @click="loadEarlier"
           >
-            {{ activeLoading ? '加载中…' : '加载更早' }}
+            {{ activeLoading ? t('util.log.loading') : t('util.log.loadEarlier') }}
           </button>
           <button
             v-if="showLogActions"
@@ -448,7 +449,7 @@ onMounted(() => {
             :disabled="activeLoading"
             @click="loadAll"
           >
-            全部加载
+            {{ t('util.log.loadAll') }}
           </button>
           <button
             v-if="hasStructuredLines"
@@ -456,7 +457,7 @@ onMounted(() => {
             type="button"
             @click="toggleStructured"
           >
-            {{ structuredMode ? '原始视图' : '结构化视图' }}
+            {{ structuredMode ? t('util.log.rawView') : t('util.log.structuredView') }}
           </button>
           <button
             v-if="showStdoutMarkdown"
@@ -464,7 +465,7 @@ onMounted(() => {
             type="button"
             @click="toggleStdoutMarkdown"
           >
-            {{ stdoutMarkdownMode ? '终端查看' : 'Markdown查看' }}
+            {{ stdoutMarkdownMode ? t('util.log.markdownView') : t('util.log.terminalView') }}
           </button>
         </div>
       </div>
@@ -492,7 +493,7 @@ onMounted(() => {
         type="button"
         @click="jumpOut"
       >
-        {{ outNew }} 行新 ↓
+        {{ t('util.log.newLines', { n: outNew }) }} ↓
       </button>
 
       <div
@@ -514,7 +515,7 @@ onMounted(() => {
         type="button"
         @click="jumpErr"
       >
-        {{ errNew }} 行新 ↓
+        {{ t('util.log.newLines', { n: errNew }) }} ↓
       </button>
     </div>
   </div>

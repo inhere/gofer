@@ -1,5 +1,6 @@
 // 时间工具：started_at/ended_at 是 Unix 秒（types 里声明为 string，运行期为秒数字符串/数字）。
 
+import { t } from '../i18n'
 import type { Job } from './types'
 
 // 安全转 Unix 秒数字；空/非法返回 null。
@@ -64,7 +65,7 @@ export function fmtUntil(sec: number | null | undefined, nowSec?: number): strin
     return '—'
   }
   const d = n - (nowSec ?? Math.floor(Date.now() / 1000))
-  return d <= 0 ? '待触发' : `≈${fmtDuration(d)}`
+  return d <= 0 ? t('util.time.pending') : `≈${fmtDuration(d)}`
 }
 
 // 人类可读耗时：12s / 3m20s / 1h05m。
@@ -94,16 +95,16 @@ export function fmtAgo(sec: number | null | undefined, nowSec?: number): string 
   }
   const d = (nowSec ?? Math.floor(Date.now() / 1000)) - n
   if (d < 5) {
-    return '刚刚'
+    return t('util.time.justNow')
   }
   if (d < 60) {
-    return `${d}s前`
+    return t('util.time.secAgo', { n: d })
   }
   if (d < 3600) {
-    return `${Math.floor(d / 60)}m前`
+    return t('util.time.minAgo', { n: Math.floor(d / 60) })
   }
   if (d < 86400) {
-    return `${Math.floor(d / 3600)}h前`
+    return t('util.time.hourAgo', { n: Math.floor(d / 3600) })
   }
-  return `${Math.floor(d / 86400)}d前`
+  return t('util.time.dayAgo', { n: Math.floor(d / 86400) })
 }

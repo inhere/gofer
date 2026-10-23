@@ -6,8 +6,8 @@
 //  - cwd（默认 .）/ title / timeout / sync 勾选
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
 import { runnerOptionText } from '../utils/runnerDisplay'
-import { CEILING_LABEL,
-  CEILING_READ_ONLY_NOTICE,
+import { ceilingLabel,
+  ceilingReadOnlyNotice,
   ceilingAllowsAgent,
   ceilingAllowsExec,
   ceilingAllowsProject,
@@ -461,7 +461,7 @@ const agentEmptyReason = computed<string>(() => {
   }
   // 上限先在池子那一层就挡掉了候选，故它是最根本的一层原因。
   if (agentCeilingBlocked.value > 0) {
-    return `${CEILING_LABEL}：project ${selectedProject.value.key} 下可用的 agent 不在你的范围内`
+    return `${ceilingLabel()}：project ${selectedProject.value.key} 下可用的 agent 不在你的范围内`
   }
   const proj = selectedProject.value
   if (interactive.value) {
@@ -509,7 +509,7 @@ const runnerBlocks = computed<Record<string, BlockNote>>(() => {
   // 上限是最根本的一层（项目让不行、上限管不着都不重要），故覆盖前一层的原因。
   for (const r of runnerOptions.value) {
     if (!ceilingAllowsRunner(ceil.value, r.name)) {
-      out[r.name] = { short: CEILING_LABEL, full: ceilingDeniedText('runner', r.name) }
+      out[r.name] = { short: ceilingLabel(), full: ceilingDeniedText('runner', r.name) }
     }
   }
   return out
@@ -712,7 +712,7 @@ const validationError = computed<string>(() => {
     return ceilingDeniedText('agent', agentKey.value)
   }
   if (isExec.value && !ceilingAllowsExec(ceil.value)) {
-    return `${CEILING_LABEL}：这个上限不允许 exec job`
+    return `${ceilingLabel()}：这个上限不允许 exec job`
   }
   if (!runnerName.value) {
     return '请选择 runner'
@@ -1180,7 +1180,7 @@ watch(interactive, (on) => {
           </select>
           <p v-if="projectOptions.length === 0" class="field-hint">{{ t('newjob.noProject') }}</p>
           <p v-else-if="projectCeilingHidden > 0" class="field-hint field-hint--warn" data-test="nj-project-ceiling">
-            {{ t('newjob.projectCeiling', { n: projectCeilingHidden, label: CEILING_LABEL }) }}
+            {{ t('newjob.projectCeiling', { n: projectCeilingHidden, label: ceilingLabel() }) }}
           </p>
         </div>
 
@@ -1681,7 +1681,7 @@ watch(interactive, (on) => {
       <p v-if="validationError" class="field-hint field-hint--warn">
         {{ validationError }}
       </p>
-      <p v-if="ceilingReadOnly" class="field-hint field-hint--warn" data-test="nj-readonly">{{ CEILING_READ_ONLY_NOTICE }}</p>
+      <p v-if="ceilingReadOnly" class="field-hint field-hint--warn" data-test="nj-readonly">{{ ceilingReadOnlyNotice() }}</p>
       <p v-if="submitError" class="error">{{ submitError }}</p>
       <p v-if="notice" class="notice">{{ notice }}</p>
 

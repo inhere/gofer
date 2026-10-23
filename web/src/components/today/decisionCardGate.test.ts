@@ -8,7 +8,7 @@ import type { TodayCard } from '../../api/today'
 import type { AuthWhoami } from '../../utils/permissions'
 import DecisionCard from './DecisionCard.vue'
 import DecisionQueue from './DecisionQueue.vue'
-import { CEILING_READ_ONLY_NOTICE } from '../../utils/ceiling'
+import { ceilingReadOnlyNotice } from '../../utils/ceiling'
 
 const state = vi.hoisted(() => ({ who: null as AuthWhoami | null }))
 
@@ -75,7 +75,7 @@ describe('read-only identity: the today card actions are disabled', () => {
     for (const label of ['批准', '拒绝']) {
       const tag = buttonTag(html, label)
       expect(tag).toContain('disabled')
-      expect(tag).toContain(CEILING_READ_ONLY_NOTICE)
+      expect(tag).toContain(ceilingReadOnlyNotice())
     }
   })
 

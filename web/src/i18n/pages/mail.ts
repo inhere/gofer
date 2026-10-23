@@ -143,6 +143,13 @@ export const mail: PageDict = {
     'mail.persona.cancelled': '已取消',
     'mail.persona.canceled': '已取消',
     'mail.persona.timeout': '超时',
+    'mail.persona.lastSeen': '最后活动 {ago}',
+    'mail.replyTo': '回复 #{n}',
+    'mail.reply': '回复',
+
+    // 顶栏信箱按钮（components/MailButton.vue）
+    'mail.button.label': '信箱',
+    'mail.button.badgeTitle': '{n} 封信待指派',
   },
   en: {
     // 页头与筛选
@@ -284,5 +291,11 @@ export const mail: PageDict = {
     'mail.persona.cancelled': 'cancelled',
     'mail.persona.canceled': 'cancelled',
     'mail.persona.timeout': 'timeout',
+    'mail.persona.lastSeen': 'last active {ago}',
+    'mail.replyTo': 'Reply #{n}',
+    'mail.reply': 'Reply',
+
+    'mail.button.label': 'Mail',
+    'mail.button.badgeTitle': '{n} letters are waiting for an owner',
   },
 }

@@ -1,4 +1,5 @@
 import type { AttachmentRef } from '../../api/types'
+import { t } from '../../i18n'
 
 export type ACPEventKind =
   | 'prompt'
@@ -141,9 +142,13 @@ export function isACPNotice(value: unknown): value is ACPNotice {
 export function acpNoticeText(notice: ACPNotice): string {
   switch (notice.code) {
     case 'acp_mirror_unsupported':
-      return `worker ${notice.worker_id ?? ''} 的协议 v${notice.worker_protocol ?? '?'} 不支持镜像结构化记录（需 v${notice.min_protocol ?? '?'}+），请升级该 worker；当前可点「查看过程」看日志。`
+      return t('workbench.acp.mirrorUnsupported', {
+        worker: notice.worker_id ?? '',
+        protocol: notice.worker_protocol ?? '?',
+        min: notice.min_protocol ?? '?',
+      })
     case 'acp_mirror_peer':
-      return '该 job 在 peer gofer 上执行，结构化记录留在对端、不在本机显示；可点「查看过程」看日志。'
+      return t('workbench.acp.mirrorPeer')
     default:
       return notice.text
   }
@@ -253,11 +258,11 @@ export function permissionOutcome(event: ACPPermissionEvent): 'allowed' | 'denie
 // emptyRoundNote 是一轮没有任何结构化事件时的说明。流已连上（live）的轮次还在运行，
 // 「暂无记录」会误导：等输入的会话显示就绪，运行中的显示在等第一条输出。
 export function emptyRoundNote(status: string, live: boolean): string {
-  if (live && status === 'awaiting_input') return '会话已就绪，等待输入。'
+  if (live && status === 'awaiting_input') return t('workbench.acp.ready')
   if (live && status !== '' && !['done', 'failed', 'timeout', 'cancelled'].includes(status)) {
-    return 'agent 运行中，等待第一条输出…'
+    return t('workbench.acp.running')
   }
-  return '暂无结构化记录'
+  return t('workbench.acp.empty')
 }
 
 export function visibleRoundIDs(jobIds: readonly string[], count = 3): string[] {

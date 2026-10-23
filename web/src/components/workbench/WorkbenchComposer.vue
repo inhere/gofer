@@ -3,8 +3,8 @@ import { runnerOptionText } from '../../utils/runnerDisplay'
 import { useWhoami } from '../../store/whoami'
 import { t } from '../../i18n'
 import {
-  CEILING_LABEL,
-  CEILING_READ_ONLY_NOTICE,
+  ceilingLabel,
+  ceilingReadOnlyNotice,
   ceilingAllowsAgent,
   ceilingAllowsExec,
   ceilingAllowsProject,
@@ -83,7 +83,7 @@ const runnerBlocks = computed(() => {
   const base = effectiveRunnerBlocks(runnerOptions.value, baseRunnerBlocks.value, meta.value.workers, mode.value === 'continuous')
   for (const r of runnerOptions.value) {
     if (!ceilingAllowsRunner(ceil.value, r.name)) {
-      base[r.name] = { short: CEILING_LABEL, full: ceilingDeniedText('runner', r.name) }
+      base[r.name] = { short: ceilingLabel(), full: ceilingDeniedText('runner', r.name) }
     }
   }
   return base
@@ -307,8 +307,8 @@ onMounted(async () => {
         {{ submitting ? t('workbench.new.submitting') : t('workbench.new.start') }}
       </button>
       </div>
-      <p v-if="projectCeilingHidden > 0" class="hint mono">{{ t('workbench.new.ceilingHidden', { n: projectCeilingHidden, label: CEILING_LABEL }) }}</p>
-      <p v-if="ceilingReadOnly" class="hint mono" data-test="composer-readonly">{{ CEILING_READ_ONLY_NOTICE }}</p>
+      <p v-if="projectCeilingHidden > 0" class="hint mono">{{ t('workbench.new.ceilingHidden', { n: projectCeilingHidden, label: ceilingLabel() }) }}</p>
+      <p v-if="ceilingReadOnly" class="hint mono" data-test="composer-readonly">{{ ceilingReadOnlyNotice() }}</p>
       <p v-if="modeNote" class="hint mono">{{ modeNote }}</p>
       <p v-if="mode === 'continuous' || mode === 'conversation'" class="hint mono">
         {{ t('workbench.new.sessionHint') }}

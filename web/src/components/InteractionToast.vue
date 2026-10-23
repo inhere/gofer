@@ -5,6 +5,7 @@
 // 宽屏不自动收，沿用「等用户点关闭」的行为。
 import { onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { t } from '../i18n'
 import { isMobileWidth, toastDwellMs } from '../utils/mobileLayout'
 
 const props = defineProps<{ title: string; text: string; to?: string }>()
@@ -52,7 +53,7 @@ function goto(): void {
 
 <template>
   <div class="toast" role="status" aria-live="polite">
-    <button class="close" type="button" aria-label="关闭提示" @click="emit('close')">
+    <button class="close" type="button" :aria-label="t('util.toast.close')" @click="emit('close')">
       ×
     </button>
     <button class="body" type="button" @click="goto">

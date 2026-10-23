@@ -7,7 +7,7 @@
 //   - 一条路由声明了几种可选规则时（信箱的 session.reply.others / job.manage.others），
 //     用 anyPerms（任一持有即可）。
 // 纯查看不受影响。whoami 没取到（旧服务端 / 网络）时一律放行，让服务端的 403 说话。
-import { CEILING_READ_ONLY_NOTICE, ceilingReadOnly } from './ceiling'
+import { ceilingReadOnlyNotice, ceilingReadOnly } from './ceiling'
 import { holdsPermission } from './permissionGate'
 import type { AuthWhoami } from './permissions'
 
@@ -28,7 +28,7 @@ export interface WriteSpec {
 // pageWriteBlock：这个写操作能不能点。返回空串 = 可以；否则是灰显原因（挂到 title）。
 export function pageWriteBlock(who: AuthWhoami | null | undefined, spec: WriteSpec = {}): string {
   if (!who) return ''
-  if (ceilingReadOnly(who.ceiling)) return CEILING_READ_ONLY_NOTICE
+  if (ceilingReadOnly(who.ceiling)) return ceilingReadOnlyNotice()
   // 凭据不受权限管辖（worker / job 凭据等）时后端另有闸门，界面不隐藏。
   if (who.kind !== 'user') return ''
   if (spec.ownerId && spec.ownerId === who.caller_id) return ''

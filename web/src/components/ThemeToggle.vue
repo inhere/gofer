@@ -3,11 +3,12 @@
 import { computed } from 'vue'
 import { Moon, Sun } from '@lucide/vue'
 import Icon from '../ui/Icon.vue'
+import { t } from '../i18n'
 import { toggleTheme, useTheme } from '../store/theme'
 
 const { theme } = useTheme()
 const isDark = computed(() => theme.value === 'dark')
-const label = computed(() => (isDark.value ? '切换到浅色模式' : '切换到深色模式'))
+const label = computed(() => (isDark.value ? t('util.theme.toLight') : t('util.theme.toDark')))
 </script>
 
 <template>

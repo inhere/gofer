@@ -10,6 +10,7 @@ import { RouterLink } from 'vue-router'
 import { Mail } from '@lucide/vue'
 import Icon from '../ui/Icon.vue'
 import { listMail } from '../api/client'
+import { t } from '../i18n'
 import { MAIL_PAGE_LINK, mailBadgeLabel, mailHeldQuery } from '../utils/mail'
 import { createPoller } from '../utils/poller'
 
@@ -36,14 +37,14 @@ onUnmounted(() => poller.stop())
   <RouterLink
     :to="MAIL_PAGE_LINK"
     class="mail-btn mono"
-    title="信箱"
-    aria-label="信箱"
+    :title="t('mail.button.label')"
+    :aria-label="t('mail.button.label')"
     data-test="mail-btn"
     data-testid="mail-button"
   >
     <Icon :icon="Mail" size="sm" />
-    <span class="mail-label">信箱</span>
-    <span v-if="count > 0" class="mail-n" :title="`${count} 封信待指派`" data-test="mail-badge">{{ mailBadgeLabel(count) }}</span>
+    <span class="mail-label">{{ t('mail.button.label') }}</span>
+    <span v-if="count > 0" class="mail-n" :title="t('mail.button.badgeTitle', { n: count })" data-test="mail-badge">{{ mailBadgeLabel(count) }}</span>
   </RouterLink>
 </template>
 

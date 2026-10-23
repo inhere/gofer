@@ -5,6 +5,7 @@
 // - stoppable：进程登记时声明了 `stop` 能力，可远程停止（POST .../forwarders/{id}/stop）。
 // - unsupported：旧版 gofer 没有这项能力，只能去那台机器上 Ctrl+C。
 import type { TunnelForwarder } from '../api/types'
+import { t } from '../i18n'
 
 export type ForwarderStopState = 'hosted' | 'stopping' | 'stoppable' | 'unsupported'
 
@@ -19,6 +20,6 @@ export function forwarderStopState(f: TunnelForwarder): ForwarderStopState {
 }
 
 export function forwarderStopUnsupportedHint(f: TunnelForwarder): string {
-  const host = f.host || '该机器'
-  return `该转发进程的 gofer 版本过旧，不支持远程停止；请在 ${host} 上升级 gofer，或直接在 ${host} 上 Ctrl+C`
+  const host = f.host || t('util.forwarderStop.host')
+  return t('util.forwarderStop.tooOld', { host })
 }

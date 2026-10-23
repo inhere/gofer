@@ -148,6 +148,17 @@ export const workbench: PageDict = {
     'workbench.ctx.none': '无',
     'workbench.ctx.stop': '停止会话',
     'workbench.ctx.more': '更多',
+
+    // ACP 过程视图（components/workbench/acpEvents.ts）
+    'workbench.acp.mirrorUnsupported': 'worker {worker} 的协议 v{protocol} 不支持镜像结构化记录（需 v{min}+），请升级该 worker；当前可点「查看过程」看日志。',
+    'workbench.acp.mirrorPeer': '该 job 在 peer gofer 上执行，结构化记录留在对端、不在本机显示；可点「查看过程」看日志。',
+    'workbench.acp.ready': '会话已就绪，等待输入。',
+    'workbench.acp.running': 'agent 运行中，等待第一条输出…',
+    'workbench.acp.empty': '暂无结构化记录',
+
+    // 通知定位（components/workbench/threadAutoFocus.ts）
+    'workbench.focus.waiting': '通知指向的会话尚未出现，正在等待刷新',
+    'workbench.focus.found': '已定位到通知对应的会话',
   },
   en: {
     'workbench.list.title': 'Sessions',
@@ -294,5 +305,14 @@ export const workbench: PageDict = {
     'workbench.ctx.none': 'None',
     'workbench.ctx.stop': 'Stop session',
     'workbench.ctx.more': 'More',
+
+    'workbench.acp.mirrorUnsupported': 'Worker {worker} runs protocol v{protocol}, which cannot mirror structured records (needs v{min}+). Upgrade that worker; for now use "View process" to read the log.',
+    'workbench.acp.mirrorPeer': 'This job runs on a peer gofer, so its structured record stays there and is not shown here; use "View process" to read the log.',
+    'workbench.acp.ready': 'The session is ready and waiting for input.',
+    'workbench.acp.running': 'The agent is running; waiting for the first output…',
+    'workbench.acp.empty': 'No structured records yet',
+
+    'workbench.focus.waiting': 'The session the notification points at has not appeared yet; waiting for a refresh',
+    'workbench.focus.found': 'Jumped to the session in the notification',
   },
 }

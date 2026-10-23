@@ -9,6 +9,7 @@ import Icon from '../ui/Icon.vue'
 import { ApiError } from '../api/client'
 import { renewAuthGrant } from '../api/permissions'
 import { fmtDateTime } from '../api/time'
+import { t } from '../i18n'
 import {
   RENEW_DEFAULT_EXPIRY_SEC,
   RENEW_EXPIRY_OPTIONS,
@@ -25,7 +26,7 @@ const saving = ref(false)
 const error = ref('')
 const nowSec = ref(Math.floor(Date.now() / 1000))
 const remaining = computed(() => grantRemainingText(props.expiresAt, nowSec.value))
-const target = computed(() => props.label || `${props.ids.length} 条授权`)
+const target = computed(() => props.label || t('util.renewDialog.count', { n: props.ids.length }))
 
 function failText(e: unknown): string {
   if (e instanceof ApiError) return renewFailureText(e.status, e.message)
@@ -48,7 +49,7 @@ async function submit(): Promise<void> {
   } catch (e) {
     // 已延成的不回滚：留在弹窗里说清延到哪一条，剩下的可以重试（与授权弹窗同一口径）。
     if (done > 0) emit('renewed')
-    error.value = (done > 0 ? `已续期 ${done} 条，其余失败：` : '') + failText(e)
+    error.value = (done > 0 ? t('util.renewDialog.partial', { done }) : '') + failText(e)
   } finally {
     saving.value = false
   }
@@ -64,28 +65,27 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 
 <template>
   <div class="rg-overlay" @click.self="!saving && emit('close')">
-    <form class="rg-panel" role="dialog" aria-modal="true" aria-label="续期会话授权" data-test="rg-dialog" @submit.prevent="submit">
+    <form class="rg-panel" role="dialog" aria-modal="true" :aria-label="t('util.renewDialog.title')" data-test="rg-dialog" @submit.prevent="submit">
       <header class="rg-head">
         <div>
-          <h2 class="rg-title">续期会话授权</h2>
+          <h2 class="rg-title">{{ t('util.renewDialog.title') }}</h2>
           <p class="rg-sub mono" :title="label || target">{{ target }}</p>
         </div>
-        <button class="rg-x mono" type="button" :disabled="saving" aria-label="关闭" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
+        <button class="rg-x mono" type="button" :disabled="saving" :aria-label="t('util.renewDialog.close')" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
       </header>
 
       <p class="rg-note" data-test="rg-note">
-        <strong>只挪到期时间</strong>
-        模式、展开后的权限、授权人与绑定的会话都不变，续期不会放宽范围也不换会话。已撤销 / 已过期 /
-        会话已结束的授权不能续期，要在 Sessions 页重新授权。
+        <strong>{{ t('util.renewDialog.lead') }}</strong>
+        {{ t('util.renewDialog.note') }}
       </p>
 
       <p class="rg-hint mono" data-test="rg-remaining">
         <span v-if="remaining">{{ remaining }}</span>
-        <span v-if="expiresAt">· 至 {{ fmtDateTime(expiresAt) }}</span>
+        <span v-if="expiresAt">{{ t('util.renewDialog.until', { time: fmtDateTime(expiresAt) }) }}</span>
       </p>
 
       <label class="rg-field">
-        <span class="rg-hint mono">续期后有效期（从「现在」起算）</span>
+        <span class="rg-hint mono">{{ t('util.renewDialog.expiryLabel') }}</span>
         <select v-model.number="expiry" class="mono" data-test="rg-expiry" :disabled="saving">
           <option v-for="o in RENEW_EXPIRY_OPTIONS" :key="o.sec" :value="o.sec">{{ o.label }}</option>
         </select>
@@ -94,9 +94,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
       <p v-if="error" class="rg-msg rg-msg--error mono" role="alert" data-test="rg-error">{{ error }}</p>
 
       <footer class="rg-actions">
-        <button type="button" class="rg-btn" :disabled="saving" @click="emit('close')">取消</button>
+        <button type="button" class="rg-btn" :disabled="saving" @click="emit('close')">{{ t('util.renewDialog.cancel') }}</button>
         <button type="submit" class="rg-btn rg-btn--primary" :disabled="saving || ids.length === 0" data-test="rg-submit">
-          {{ saving ? '续期中…' : '续期' }}
+          {{ saving ? t('util.renewDialog.submitting') : t('util.renewDialog.submit') }}
         </button>
       </footer>
     </form>

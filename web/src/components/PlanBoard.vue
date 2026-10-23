@@ -9,6 +9,7 @@
 //  - doing / needs_review 两列由服务端驱动，不可拖入（拖动时它们显示禁用态）。
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { t } from '../i18n'
 import StatusBadge from './StatusBadge.vue'
 import { usageBadge, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { deliveryStateLabel } from '../utils/delivery'
@@ -38,11 +39,11 @@ const router = useRouter()
 
 // 列头文案用状态名（与列表页/CLI 同一套词），中文解释放 title —— 看板不发明新术语。
 const COLUMN_TITLES: Record<BoardColumn, string> = {
-  pending: '待办：不触发派发，拖到 ready 即派发',
-  ready: '已布防：有 assignee 且无活跃 job 时服务端立刻派发',
-  doing: '进行中（服务端驱动，不能拖入）',
-  needs_review: '待验收：最近一次 job 在等人裁决',
-  done: '完成（skipped 折叠在本列尾，灰色）',
+  get pending() { return t('plans.board.col.pending') },
+  get ready() { return t('plans.board.col.ready') },
+  get doing() { return t('plans.board.col.doing') },
+  get needs_review() { return t('plans.board.col.needsReview') },
+  get done() { return t('plans.board.col.done') },
 }
 
 interface CardJob {
@@ -92,20 +93,21 @@ function cardJob(t: Todo): CardJob | null {
   }
 }
 
-function decorate(t: Todo): BoardCard {
-  const after = t.after ?? []
+// t 是 i18n 取词函数，入参名叫 todo，别用 t 遮蔽（之前踩过）。
+function decorate(todo: Todo): BoardCard {
+  const after = todo.after ?? []
   return {
-    todo: t,
-    job: cardJob(t),
+    todo,
+    job: cardJob(todo),
     deps: after.length,
-    depsOk: depsSatisfied(t, props.todos),
+    depsOk: depsSatisfied(todo, props.todos),
     depsTitle:
       after.length > 0
-        ? `依赖：\n${after.map((id) => props.todos.find((x) => x.todo_id === id)?.title ?? id).join('\n')}`
+        ? t('plans.board.deps', { list: after.map((id) => props.todos.find((x) => x.todo_id === id)?.title ?? id).join('\n') })
         : '',
-    manual: t.auto === false,
-    skipped: t.status === 'skipped',
-    cont: continuationLines(t, props.todos),
+    manual: todo.auto === false,
+    skipped: todo.status === 'skipped',
+    cont: continuationLines(todo, props.todos),
   }
 }
 
@@ -341,22 +343,22 @@ function shortId(id: string): string {
                 <span
                   v-if="card.manual"
                   class="manual mono"
-                  title="auto=0：链不会自动推进它，要人派发"
+                  :title="t('plans.board.manualTitle')"
                 >
-                  手动
+                  {{ t('plans.board.manual') }}
                 </span>
               </span>
             </div>
             <div class="card-meta mono">
               <span class="assignee" :class="{ 'assignee--none': !card.todo.assignee }">
-                {{ card.todo.assignee || '未指派' }}
+                {{ card.todo.assignee || t('plans.board.unassigned') }}
               </span>
               <template v-if="card.job">
                 <StatusBadge :status="card.job.status" />
                 <button
                   class="chip mono"
                   type="button"
-                  :title="`打开 ${card.job.id}`"
+                  :title="t('plans.board.openJob', { id: card.job.id })"
                   @click="openJob(card.job.id)"
                 >
                   {{ shortId(card.job.id) }} &rarr;
@@ -365,7 +367,7 @@ function shortId(id: string): string {
                   v-if="card.job.verify"
                   class="verify mono"
                   :class="card.job.verifyCls"
-                  :title="`验收步骤：${card.job.verify}`"
+                  :title="t('plans.board.verifyTitle', { step: card.job.verify })"
                 >
                   {{ card.job.verify }}
                 </span>
@@ -383,9 +385,9 @@ function shortId(id: string): string {
                 <span
                   v-if="card.job.deliveryState === 'failed'"
                   class="delivery-failed mono"
-                  title="该 job 的交付（合并 / 推送 / 开 PR）失败，打开 job 查看原因"
+                  :title="t('plans.board.deliveryFailedTitle')"
                 >
-                  交付失败
+                  {{ t('plans.board.deliveryFailed') }}
                 </span>
               </template>
             </div>
@@ -402,10 +404,10 @@ function shortId(id: string): string {
               {{ card.job.usage }}
             </div>
             <p v-if="card.todo.dispatch_error" class="card-error mono">
-              派发失败：{{ card.todo.dispatch_error }}
+              {{ t('plans.board.dispatchError', { error: card.todo.dispatch_error }) }}
             </p>
             <RouterLink v-if="c.key === 'needs_review'" class="card-link mono" to="/review">
-              去验收 &rarr;
+              {{ t('plans.board.goReview') }} &rarr;
             </RouterLink>
           </article>
           <div v-if="c.cards.length === 0" class="col-empty mono">—</div>
@@ -416,7 +418,7 @@ function shortId(id: string): string {
     <!-- 没 assignee 的条目拖到 ready：先选 agent，再和 status=ready 一起 PATCH。 -->
     <div v-if="pickerTodo" class="modal-backdrop" @click.self="pickerTodo = null">
       <div class="modal mono">
-        <p class="modal-title">派发「{{ pickerTodo.title }}」——先选 agent</p>
+        <p class="modal-title">{{ t('plans.board.pickTitle', { title: pickerTodo.title }) }}</p>
         <select v-if="agents.length > 0" v-model="pickAgent" class="modal-input mono">
           <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.key }} · {{ a.type }}</option>
         </select>
@@ -424,7 +426,7 @@ function shortId(id: string): string {
           v-else
           v-model="pickAgent"
           class="modal-input mono"
-          placeholder="agent key（如 omp）"
+          :placeholder="t('plans.board.pickPlaceholder')"
         />
         <div class="modal-actions">
           <button
@@ -433,9 +435,9 @@ function shortId(id: string): string {
             :disabled="!pickAgent.trim()"
             @click="confirmPick"
           >
-            确认派发
+            {{ t('plans.board.pickConfirm') }}
           </button>
-          <button class="op-btn mono" type="button" @click="pickerTodo = null">取消</button>
+          <button class="op-btn mono" type="button" @click="pickerTodo = null">{{ t('plans.board.cancel') }}</button>
         </div>
       </div>
     </div>
@@ -444,11 +446,11 @@ function shortId(id: string): string {
     <div v-if="confirmTarget" class="modal-backdrop" @click.self="confirmTarget = null">
       <div class="modal mono">
         <p class="modal-title">
-          把「{{ confirmTarget.todo.title }}」标记为 {{ confirmTarget.status }}？
+          {{ t('plans.board.markTitle', { title: confirmTarget.todo.title, status: confirmTarget.status }) }}
         </p>
         <div class="modal-actions">
-          <button class="op-btn mono" type="button" @click="confirmMark">确认</button>
-          <button class="op-btn mono" type="button" @click="confirmTarget = null">取消</button>
+          <button class="op-btn mono" type="button" @click="confirmMark">{{ t('plans.board.confirm') }}</button>
+          <button class="op-btn mono" type="button" @click="confirmTarget = null">{{ t('plans.board.cancel') }}</button>
         </div>
       </div>
     </div>

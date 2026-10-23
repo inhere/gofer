@@ -5,6 +5,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { listJobs, listRunners } from '../api/client'
 import type { Runner } from '../api/types'
+import { t } from '../i18n'
 
 const props = defineProps<{ current: string; latest: string; submitting: boolean; error: string }>()
 const emit = defineEmits<{
@@ -15,10 +16,10 @@ const emit = defineEmits<{
 // 最长等多久（gofer-dzv3）：server 会等本机运行中的 job 结束才重启，期间新 job 先停住；
 // 到时间还没空闲就放弃本次更新（停住的 job 立即放行）。默认 2 小时。
 const waitOptions: Array<{ sec: number; label: string }> = [
-  { sec: 1800, label: '30 分钟' },
-  { sec: 3600, label: '1 小时' },
-  { sec: 7200, label: '2 小时' },
-  { sec: 14400, label: '4 小时' },
+  { sec: 1800, get label() { return t('util.update.wait.30m') } },
+  { sec: 3600, get label() { return t('util.update.wait.1h') } },
+  { sec: 7200, get label() { return t('util.update.wait.2h') } },
+  { sec: 14400, get label() { return t('util.update.wait.4h') } },
 ]
 const waitIdleSec = ref(7200)
 
@@ -91,26 +92,25 @@ onUnmounted(() => {
 
 <template>
   <div class="ua-overlay" @click.self="!submitting && emit('close')">
-    <div class="ua-panel" role="dialog" aria-modal="true" aria-label="立即更新">
+    <div class="ua-panel" role="dialog" aria-modal="true" :aria-label="t('util.update.title')">
       <div class="ua-head">
-        <span class="ua-title mono">更新到 {{ latest }}</span>
-        <button class="ua-x mono" type="button" :disabled="submitting" @click="emit('close')">关闭</button>
+        <span class="ua-title mono">{{ t('util.update.heading', { version: latest }) }}</span>
+        <button class="ua-x mono" type="button" :disabled="submitting" @click="emit('close')">{{ t('util.update.close') }}</button>
       </div>
 
       <p class="ua-text mono">
-        server 会下载 {{ latest }}（有 sha256 时校验），等本机运行中的 job 结束后重启为新版本（当前 {{ current }}）。
-        重启期间控制台会短暂断开。
+        {{ t('util.update.intro', { version: latest, current }) }}
       </p>
       <p v-if="running != null" class="ua-text mono" :class="{ 'ua-warn': running > 0 }" data-testid="update-running-jobs">
         {{
           running > 0
-            ? `现在有 ${running} 个 job 在运行，会先等它们结束；期间新提交的 job 先停住，更新完成后自动开始（不用重新提交）。`
-            : '现在没有运行中的 job，可以立即重启。'
+            ? t('util.update.runningJobs', { n: running })
+            : t('util.update.noJobs')
         }}
       </p>
 
       <div class="ua-wait">
-        <div class="ua-wait-head mono">最多等多久（到时还没空闲就放弃本次更新）</div>
+        <div class="ua-wait-head mono">{{ t('util.update.waitHead') }}</div>
         <div class="ua-wait-opts">
           <label v-for="o in waitOptions" :key="o.sec" class="ua-radio mono">
             <input
@@ -125,19 +125,19 @@ onUnmounted(() => {
             <span>{{ o.label }}</span>
           </label>
         </div>
-        <p class="ua-dim mono">等待期间新 job 会先停住（不占执行位）；worker 上的 job 不受影响，server 回来后继续接管。</p>
+        <p class="ua-dim mono">{{ t('util.update.waitHint') }}</p>
       </div>
 
       <div class="ua-workers">
         <div class="ua-workers-head mono">
-          <span>重启后一同更新的 worker</span>
+          <span>{{ t('util.update.workersHead') }}</span>
           <button v-if="workers.length" class="ua-link mono" type="button" :disabled="submitting" @click="toggleAll">
-            {{ allPicked ? '全不选' : '全选' }}
+            {{ allPicked ? t('util.update.selectNone') : t('util.update.selectAll') }}
           </button>
         </div>
-        <p v-if="loading" class="ua-dim mono">读取中...</p>
+        <p v-if="loading" class="ua-dim mono">{{ t('util.update.loading') }}</p>
         <p v-else-if="loadError" class="ua-err mono">{{ loadError }}</p>
-        <p v-else-if="!workers.length" class="ua-dim mono">没有登记的 worker。</p>
+        <p v-else-if="!workers.length" class="ua-dim mono">{{ t('util.update.noWorkers') }}</p>
         <label v-for="w in workers" :key="w.id" class="ua-row mono" :class="{ 'ua-row--off': !w.online }">
           <input
             type="checkbox"
@@ -148,15 +148,15 @@ onUnmounted(() => {
           />
           <span class="ua-id">{{ w.id }}</span>
           <span class="ua-dim">{{ w.platform }}</span>
-          <span class="ua-dim">{{ w.online ? w.version : '离线' }}</span>
+          <span class="ua-dim">{{ w.online ? w.version : t('util.update.offline') }}</span>
         </label>
-        <p class="ua-dim mono ua-note">其他平台的 worker 会下载自己平台的发布包。</p>
+        <p class="ua-dim mono ua-note">{{ t('util.update.otherPlatforms') }}</p>
       </div>
 
       <p v-if="error" class="ua-err mono">{{ error }}</p>
 
       <div class="ua-actions">
-        <button class="ua-btn mono" type="button" :disabled="submitting" @click="emit('close')">取消</button>
+        <button class="ua-btn mono" type="button" :disabled="submitting" @click="emit('close')">{{ t('util.update.cancel') }}</button>
         <button
           class="ua-btn ua-btn--go mono"
           type="button"
@@ -164,7 +164,7 @@ onUnmounted(() => {
           data-testid="update-apply-confirm"
           @click="emit('confirm', [...picked], waitIdleSec)"
         >
-          {{ submitting ? '提交中…' : '开始更新' }}
+          {{ submitting ? t('util.update.submitting') : t('util.update.submit') }}
         </button>
       </div>
     </div>

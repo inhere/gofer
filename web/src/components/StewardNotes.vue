@@ -5,6 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ApiError } from '../api/client'
 import { getStewardNotes, getStewardNotesHistory, putStewardNotes, type StewardNotes } from '../api/steward'
 import { byteLength, notesConflictOf, notesSizeLabel, type NotesConflict } from '../utils/steward'
+import { t } from '../i18n'
 import MarkdownBlock from './MarkdownBlock.vue'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'changed'): void }>()
@@ -47,7 +48,7 @@ function startEdit(from?: StewardNotes): void {
   draft.value = (from ?? latest.value).body
   baseVersion.value = latest.value.version
   conflict.value = null
-  notice.value = from && from.version !== latest.value.version ? `以 v${from.version} 为基础编辑，保存后成为新版本。` : ''
+  notice.value = from && from.version !== latest.value.version ? t('today.notes.editFromNotice', { version: from.version }) : ''
   editing.value = true
   viewing.value = null
 }
@@ -66,13 +67,13 @@ async function save(): Promise<void> {
     latest.value = r.notes
     editing.value = false
     conflict.value = null
-    notice.value = `已保存为 v${r.notes.version}。`
+    notice.value = t('today.notes.savedAs', { version: r.notes.version })
     history.value = await getStewardNotesHistory()
     emit('changed')
   } catch (e) {
     const c = notesConflictOf(e, draft.value)
     if (c) conflict.value = c
-    else if (e instanceof ApiError && e.status === 413) error.value = '笔记超过 16KB，请精简后再保存。'
+    else if (e instanceof ApiError && e.status === 413) error.value = t('today.notes.tooLarge')
     else error.value = e instanceof Error ? e.message : String(e)
   } finally {
     saving.value = false
@@ -110,56 +111,56 @@ onMounted(() => void load())
 
 <template>
   <div class="notes-overlay" @click.self="emit('close')">
-    <div class="notes-panel" role="dialog" aria-label="管家笔记" data-test="steward-notes">
+    <div class="notes-panel" role="dialog" :aria-label="t('today.notes.title')" data-test="steward-notes">
       <div class="notes-head">
-        <span class="mono title">管家笔记 <span v-if="latest.version" class="muted">v{{ latest.version }} · {{ notesSizeLabel(byteLength(latest.body)) }}</span></span>
+        <span class="mono title">{{ t('today.notes.title') }} <span v-if="latest.version" class="muted">v{{ latest.version }} · {{ notesSizeLabel(byteLength(latest.body)) }}</span></span>
         <div class="head-actions">
-          <button v-if="!editing" class="btn mono" type="button" data-test="notes-edit" @click="startEdit()">编辑</button>
-          <button class="btn mono" type="button" data-test="notes-close" @click="emit('close')">关闭</button>
+          <button v-if="!editing" class="btn mono" type="button" data-test="notes-edit" @click="startEdit()">{{ t('today.notes.edit') }}</button>
+          <button class="btn mono" type="button" data-test="notes-close" @click="emit('close')">{{ t('today.notes.close') }}</button>
         </div>
       </div>
       <div class="notes-body">
         <p v-if="error" class="msg msg--err mono" data-test="notes-error">{{ error }}</p>
         <p v-if="notice" class="msg msg--ok mono" data-test="notes-notice">{{ notice }}</p>
-        <p v-if="loading" class="muted mono">加载中…</p>
+        <p v-if="loading" class="muted mono">{{ t('today.notes.loading') }}</p>
 
         <section v-if="conflict" class="conflict" data-test="notes-conflict">
-          <p class="msg msg--err mono">笔记在你编辑期间被改过（现在是 v{{ conflict.current.version }}，作者 {{ conflict.current.by || '未知' }}）。</p>
+          <p class="msg msg--err mono">{{ t('today.notes.conflict', { version: conflict.current.version, by: conflict.current.by || t('today.notes.unknown') }) }}</p>
           <div class="cols">
-            <div><h4 class="mono">最新版</h4><pre class="raw">{{ conflict.current.body }}</pre></div>
-            <div><h4 class="mono">我的修改</h4><pre class="raw">{{ conflict.mine }}</pre></div>
+            <div><h4 class="mono">{{ t('today.notes.latest') }}</h4><pre class="raw">{{ conflict.current.body }}</pre></div>
+            <div><h4 class="mono">{{ t('today.notes.mine') }}</h4><pre class="raw">{{ conflict.mine }}</pre></div>
           </div>
           <div class="head-actions">
-            <button class="btn mono" type="button" data-test="notes-use-latest" @click="useLatest">采用最新版再编辑</button>
-            <button class="btn primary mono" type="button" :disabled="saving" data-test="notes-overwrite" @click="overwrite">用我的覆盖保存</button>
+            <button class="btn mono" type="button" data-test="notes-use-latest" @click="useLatest">{{ t('today.notes.useLatest') }}</button>
+            <button class="btn primary mono" type="button" :disabled="saving" data-test="notes-overwrite" @click="overwrite">{{ t('today.notes.overwrite') }}</button>
           </div>
         </section>
 
         <template v-if="editing && !conflict">
-          <textarea v-model="draft" class="editor mono" rows="16" data-test="notes-textarea" placeholder="长期偏好与约定，例如：某地现场一般周三去。"></textarea>
-          <p class="muted mono">基于 v{{ baseVersion }} 保存；超过 8KB 时下次巡检会让管家精简（旧版本都会保留）。</p>
+          <textarea v-model="draft" class="editor mono" rows="16" data-test="notes-textarea" :placeholder="t('today.notes.placeholder')"></textarea>
+          <p class="muted mono">{{ t('today.notes.baseHint', { version: baseVersion }) }}</p>
           <div class="head-actions">
-            <button class="btn primary mono" type="button" :disabled="saving" data-test="notes-save" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
-            <button class="btn mono" type="button" @click="cancelEdit">取消</button>
+            <button class="btn primary mono" type="button" :disabled="saving" data-test="notes-save" @click="save">{{ saving ? t('today.notes.saving') : t('today.notes.save') }}</button>
+            <button class="btn mono" type="button" @click="cancelEdit">{{ t('today.notes.cancel') }}</button>
           </div>
         </template>
 
         <template v-else-if="!editing">
           <p v-if="isHistorical" class="msg mono" data-test="notes-historical">
-            这是历史版本 v{{ shown.version }}（{{ shown.by || '未知' }}，{{ fmtTime(shown.at) }}）。
-            <button class="link mono" type="button" data-test="notes-edit-from" @click="startEdit(shown)">以此为基础编辑</button>
-            <button class="link mono" type="button" @click="viewing = null">回到最新</button>
+            {{ t('today.notes.historical', { version: shown.version, by: shown.by || t('today.notes.unknown'), at: fmtTime(shown.at) }) }}
+            <button class="link mono" type="button" data-test="notes-edit-from" @click="startEdit(shown)">{{ t('today.notes.editFrom') }}</button>
+            <button class="link mono" type="button" @click="viewing = null">{{ t('today.notes.backToLatest') }}</button>
           </p>
           <MarkdownBlock v-if="shown.body.trim()" :text="shown.body" />
-          <p v-else-if="!loading" class="muted mono" data-test="notes-empty">还没有笔记。管家会把长期有效的偏好和约定记在这里，你也可以自己写。</p>
+          <p v-else-if="!loading" class="muted mono" data-test="notes-empty">{{ t('today.notes.empty') }}</p>
         </template>
 
         <section class="history" data-test="notes-history">
-          <h4 class="mono">历史版本（{{ history.length }}）</h4>
+          <h4 class="mono">{{ t('today.notes.history', { n: history.length }) }}</h4>
           <ul>
             <li v-for="h in history" :key="h.version">
               <button class="link mono" type="button" :data-test="`notes-v${h.version}`" @click="openVersion(h.version)">v{{ h.version }}</button>
-              <span class="muted mono">{{ h.by || '未知' }} · {{ fmtTime(h.at) }} · {{ notesSizeLabel(byteLength(h.body)) }}</span>
+              <span class="muted mono">{{ h.by || t('today.notes.unknown') }} · {{ fmtTime(h.at) }} · {{ notesSizeLabel(byteLength(h.body)) }}</span>
             </li>
           </ul>
         </section>

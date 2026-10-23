@@ -35,7 +35,7 @@ import { TOP_N } from '../utils/today'
 import { filterByProject, filterByType, laneAgentStats, typeCounts, TODAY_TYPE_GROUPS } from '../utils/todayFilters'
 import type { TodayLanesResp } from '../api/todayLanes'
 import { formatDate } from '../utils/format'
-import { CEILING_READ_ONLY_NOTICE } from '../utils/ceiling'
+import { ceilingReadOnlyNotice } from '../utils/ceiling'
 import { useWhoami } from '../store/whoami'
 
 // 只读身份（调用方上限 read_only）只能看：专注处理整页都在做写操作，灰显并说明原因（gofer-darr）。
@@ -177,7 +177,7 @@ onUnmounted(() => {
           type="button"
           data-test="open-focus"
           :disabled="!shownCards.length || readOnly"
-          :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
+          :title="readOnly ? ceilingReadOnlyNotice() : undefined"
           @click="openFocus"
         >{{ t('today.focus') }}</button>
         <label class="chk">

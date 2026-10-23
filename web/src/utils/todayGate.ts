@@ -9,7 +9,7 @@
 //   「稍后」是 ReadSafe 的个人偏好写，只读身份服务端照收，所以这里不拦。
 // whoami 没取到（旧服务端 / 网络）时一律放行，让服务端的 403 说话（与 utils/permissionGate 同口径）。
 import type { TodayAction, TodayCard } from '../api/today'
-import { CEILING_READ_ONLY_NOTICE, ceilingReadOnly } from './ceiling'
+import { ceilingReadOnlyNotice, ceilingReadOnly } from './ceiling'
 import { missingPermissionText } from './pageGate'
 import { holdsPermission } from './permissionGate'
 import type { AuthWhoami } from './permissions'
@@ -28,7 +28,7 @@ export function cardActionBlock(
   action: Pick<TodayAction, 'id'> | null | undefined,
 ): string {
   if (!who || !card) return ''
-  if (ceilingReadOnly(who.ceiling)) return CEILING_READ_ONLY_NOTICE
+  if (ceilingReadOnly(who.ceiling)) return ceilingReadOnlyNotice()
   if (who.kind !== 'user') return ''
   switch (card.kind) {
     case 'interaction':

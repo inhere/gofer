@@ -2,7 +2,7 @@
 // 服务端路由上 Require 的那几类（interaction.answer / memory.write / job.review）按权限灰显。
 import { describe, expect, it } from 'vitest'
 import { cardActionBlock, missingPermissionText } from './todayGate'
-import { CEILING_READ_ONLY_NOTICE } from './ceiling'
+import { ceilingReadOnlyNotice } from './ceiling'
 import type { AuthWhoami } from './permissions'
 
 function who(over: Partial<AuthWhoami>): AuthWhoami {
@@ -16,13 +16,13 @@ describe('read-only identity cannot act on today cards', () => {
   it('every write action of every card kind is greyed with the read-only reason', () => {
     for (const kind of kinds) {
       for (const id of ['reply', 'answer', 'ack', 'accept', 'rerun', 'approve', 'reject', 'report', 'park', 'adopt', 'dismiss', 'resume']) {
-        expect(cardActionBlock(readOnlyWho, { kind }, { id })).toBe(CEILING_READ_ONLY_NOTICE)
+        expect(cardActionBlock(readOnlyWho, { kind }, { id })).toBe(ceilingReadOnlyNotice())
       }
     }
   })
   it('a root administrator with a read-only ceiling is still greyed (the ceiling narrows writes)', () => {
     expect(cardActionBlock(who({ root: true, ceiling: readOnlyWho.ceiling }), { kind: 'work' }, { id: 'park' })).toBe(
-      CEILING_READ_ONLY_NOTICE,
+      ceilingReadOnlyNotice(),
     )
   })
 })

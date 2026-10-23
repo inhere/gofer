@@ -26,7 +26,7 @@ import { t } from '../i18n'
 import { staleBuild } from '../store/staleBuild'
 import { updateLatest } from '../store/updateAvailable'
 import { useWhoami } from '../store/whoami'
-import { CEILING_READ_ONLY_NOTICE } from '../utils/ceiling'
+import { ceilingReadOnlyNotice } from '../utils/ceiling'
 import { shouldShowWorkBadge, workBadgeLabel, workNeedsMeCount } from '../store/workNeedsMe'
 import {
   DEFAULT_SHELL_PREFS,
@@ -267,7 +267,7 @@ onUnmounted(() => {
           <span
             v-if="readOnly"
             class="readonly-badge"
-            :title="CEILING_READ_ONLY_NOTICE"
+            :title="ceilingReadOnlyNotice()"
             data-testid="readonly-badge"
             >{{ t('shell.readonly') }}</span
           >

@@ -2,7 +2,7 @@
 // 这份用例就是那条「两边同口径」的契约（同组用例两边各写一份）。
 import { describe, expect, it } from 'vitest'
 import {
-  CEILING_LABEL,
+  ceilingLabel,
   callerCeiling,
   ceilingAllowsAgent,
   ceilingAllowsExec,
@@ -144,7 +144,7 @@ describe('界面文案', () => {
   })
 
   it('统一的原因文案', () => {
-    expect(CEILING_LABEL).toBe('超出你的调用方上限')
+    expect(ceilingLabel()).toBe('超出你的调用方上限')
     expect(ceilingDeniedText('runner', 'local')).toBe('超出你的调用方上限：runner local 不在你的范围内')
   })
 })

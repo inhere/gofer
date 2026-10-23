@@ -25,7 +25,7 @@ describe('今天页：卡片写操作按权限灰显', () => {
   it('建议的采纳 / 忽略在只读身份下也灰显（这两条路由是 Public，只被只读上限拦）', () => {
     expect(card).toContain('if (readOnly.value) return')
     expect(card).toContain(':disabled="readOnly"')
-    expect(card).toContain(':title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"')
+    expect(card).toContain(':title="readOnly ? ceilingReadOnlyNotice() : undefined"')
   })
   it('纯查看的链接（看 diff / 打开 plan）不受影响', () => {
     expect(card).toContain("v-if=\"a.id === 'diff' || a.id === 'open'\"")
@@ -37,11 +37,11 @@ describe('今天页：只读身份下「专注处理」灰显', () => {
     expect(today).toContain('const { readOnly } = useWhoami()')
     // 类型 / 项目 chip 过滤后的张数决定「专注处理」能不能点
     expect(today).toContain(':disabled="!shownCards.length || readOnly"')
-    expect(today).toContain(':title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"')
+    expect(today).toContain(':title="readOnly ? ceilingReadOnlyNotice() : undefined"')
   })
   it('队列底部的「专注处理」同样灰显', () => {
     expect(queue).toContain('const { readOnly } = useWhoami()')
     expect(queue).toContain(':disabled="readOnly"')
-    expect(queue).toContain(':title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"')
+    expect(queue).toContain(':title="readOnly ? ceilingReadOnlyNotice() : undefined"')
   })
 })

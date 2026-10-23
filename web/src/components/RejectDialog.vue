@@ -3,6 +3,7 @@
 // 验收台列表与 job 详情验收面板共用（同一套按钮语义，避免两处各写一遍）。
 // 校验在本地做（note 为空禁用提交）；请求失败由父组件把 error 传回来，弹层保持打开。
 import { onMounted, onUnmounted, ref } from 'vue'
+import { t } from '../i18n'
 
 const props = defineProps<{ submitting: boolean; error: string }>()
 const emit = defineEmits<{
@@ -29,34 +30,34 @@ onUnmounted(() => {
 
 <template>
   <div class="rd-overlay" @click.self="!submitting && emit('close')">
-    <div class="rd-panel" role="dialog" aria-modal="true" aria-label="拒绝验收">
+    <div class="rd-panel" role="dialog" aria-modal="true" :aria-label="t('review.reject.title')">
       <div class="rd-head">
-        <span class="rd-title mono">拒绝验收</span>
+        <span class="rd-title mono">{{ t('review.reject.title') }}</span>
         <button class="rd-x mono" type="button" :disabled="submitting" @click="emit('close')">
-          关闭
+          {{ t('review.reject.close') }}
         </button>
       </div>
 
       <label class="rd-field mono">
-        <span class="rd-label">拒绝理由（必填）</span>
+        <span class="rd-label">{{ t('review.reject.noteLabel') }}</span>
         <textarea
           v-model="note"
           class="rd-note mono"
           rows="4"
-          placeholder="写明哪里不合格；勾选自动续投时它会作为续投 job 的 prompt"
+          :placeholder="t('review.reject.notePlaceholder')"
         ></textarea>
       </label>
 
       <label class="rd-check mono">
         <input v-model="resume" type="checkbox" />
-        <span>拒绝后自动续投（以理由为 prompt 起一个新 job）</span>
+        <span>{{ t('review.reject.autoResume') }}</span>
       </label>
 
       <p v-if="error" class="rd-err mono">{{ error }}</p>
 
       <div class="rd-actions">
         <button class="rd-btn mono" type="button" :disabled="submitting" @click="emit('close')">
-          取消
+          {{ t('review.reject.cancel') }}
         </button>
         <button
           class="rd-btn rd-btn--danger mono"
@@ -64,7 +65,7 @@ onUnmounted(() => {
           :disabled="submitting || !note.trim()"
           @click="emit('confirm', note.trim(), resume)"
         >
-          {{ submitting ? '处理中…' : '确认拒绝' }}
+          {{ submitting ? t('review.reject.submitting') : t('review.reject.confirm') }}
         </button>
       </div>
     </div>

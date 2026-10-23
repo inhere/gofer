@@ -1,4 +1,5 @@
 // Issues 页的分页与多选：纯函数，不碰 DOM，便于单测。
+import { t } from '../i18n'
 import type { TreeEntry } from './issueTree'
 
 export const PAGE_SIZES = [50, 100, 200] as const
@@ -102,11 +103,11 @@ export interface BatchSummary {
 }
 
 export function summarizeBatch(results: BatchItemResult[]): BatchSummary {
-  const failures = results.filter((r) => !r.ok).map((r) => ({ id: r.id, error: r.error || '未知错误' }))
+  const failures = results.filter((r) => !r.ok).map((r) => ({ id: r.id, error: r.error || t('util.issueBatch.unknownError') }))
   const okIds = results.filter((r) => r.ok).map((r) => r.id)
   const text = failures.length === 0
-    ? `已处理 ${okIds.length} 项`
-    : `成功 ${okIds.length} 项，失败 ${failures.length} 项`
+    ? t('util.issueBatch.ok', { n: okIds.length })
+    : t('util.issueBatch.mixed', { ok: okIds.length, failed: failures.length })
   return { total: results.length, ok: okIds.length, failed: failures.length, failures, okIds, text }
 }
 

@@ -38,7 +38,7 @@ describe('新建 job 表单按上限收窄', () => {
   })
   it('runner 灰显 + 写原因（沿用既有 runnerBlocks 机制）', () => {
     expect(newJob).toContain('if (!ceilingAllowsRunner(ceil.value, r.name))')
-    expect(newJob).toContain("out[r.name] = { short: CEILING_LABEL, full: ceilingDeniedText('runner', r.name) }")
+    expect(newJob).toContain("out[r.name] = { short: ceilingLabel(), full: ceilingDeniedText('runner', r.name) }")
   })
   it('agent 收窄并挡住 exec（allow_exec）', () => {
     expect(newJob).toContain('list = list.filter((a) => ceilingAllowsAgent(ceil.value, a.key))')

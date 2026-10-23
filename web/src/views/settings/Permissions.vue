@@ -19,7 +19,7 @@ import GrantRenewDialog from '../../components/GrantRenewDialog.vue'
 import { fmtAgo, fmtDateTime } from '../../api/time'
 import { callerLabel, callerTitle } from '../../utils/callerLabel'
 import { refreshWhoami, useWhoami } from '../../store/whoami'
-import { CEILING_READ_ONLY_NOTICE, ceilingSummary } from '../../utils/ceiling'
+import { ceilingReadOnlyNotice, ceilingSummary } from '../../utils/ceiling'
 import { createPreviewScheduler } from '../../utils/expandPreview'
 import { t } from '../../i18n'
 import { canRenewGrant, grantRemainingText, grantRenewState } from '../../utils/grantRenew'
@@ -66,7 +66,7 @@ const { whoami, mode, callerNames, ceiling, readOnly } = useWhoami()
 // 本人调用方上限（ceiling）摘要：这一页也是「我为什么做不了某件事」的落地点。
 // 上限由配置 server.callers[].ceiling 给定，判定文案与后端 internal/config/ceiling.go 同口径。
 const ceilingRows = computed(() => ceilingSummary(ceiling.value))
-const ceilingNotice = computed(() => (readOnly.value ? CEILING_READ_ONLY_NOTICE : ''))
+const ceilingNotice = computed(() => (readOnly.value ? ceilingReadOnlyNotice() : ''))
 const catalog = ref<PermissionCatalog>({ permissions: [], presets: [] })
 const grants = ref<AuthGrantsResp>({ version: 0, grants: [], derived: [] })
 const audit = ref<AuthAuditEntry[]>([])

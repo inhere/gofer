@@ -8,6 +8,7 @@
 //  - 超阈值/二进制 → 不渲染，提示并回退下载（emit download）。
 // 卸载/blob 变更时 revokeObjectURL，避免 blob URL 泄漏。
 import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { t } from '../i18n'
 import MarkdownBlock from './MarkdownBlock.vue'
 
 const props = defineProps<{ name: string; blob: Blob }>()
@@ -64,7 +65,7 @@ async function process(): Promise<void> {
   // 超阈值：不渲染，回退下载。
   if (blob.size > MAX_PREVIEW_BYTES) {
     kind.value = 'fallback'
-    fallbackReason.value = '文件过大'
+    fallbackReason.value = t('util.filePreview.tooLarge')
     loading.value = false
     return
   }
@@ -92,7 +93,7 @@ async function process(): Promise<void> {
       const text = await blob.text()
       if (looksBinary(text)) {
         kind.value = 'fallback'
-        fallbackReason.value = '二进制文件'
+        fallbackReason.value = t('util.filePreview.binary')
       } else {
         textBody.value = text
         kind.value = 'text'
@@ -101,7 +102,7 @@ async function process(): Promise<void> {
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
     kind.value = 'fallback'
-    fallbackReason.value = '无法预览'
+    fallbackReason.value = t('util.filePreview.noPreview')
   } finally {
     loading.value = false
   }
@@ -122,7 +123,7 @@ onUnmounted(revoke)
 
 <template>
   <div class="fp">
-    <p v-if="loading" class="fp-loading mono">加载中…</p>
+    <p v-if="loading" class="fp-loading mono">{{ t('util.filePreview.loading') }}</p>
     <p v-else-if="error" class="fp-error mono">{{ error }}</p>
     <template v-else>
       <!-- markdown：MarkdownBlock 内部走 marked + DOMPurify sanitize（绝不裸注入不可信内容）。 -->
@@ -137,8 +138,8 @@ onUnmounted(revoke)
       <pre v-else-if="kind === 'text'" class="fp-pre mono">{{ textBody }}</pre>
       <!-- 过大/二进制/无法预览：回退下载。 -->
       <div v-else class="fp-fallback">
-        <p class="fp-fallback-msg mono">{{ fallbackReason }}，无法 inline 预览，请下载查看。</p>
-        <button class="fp-dl mono" type="button" @click="emit('download')">下载</button>
+        <p class="fp-fallback-msg mono">{{ t('util.filePreview.fallback', { reason: fallbackReason }) }}</p>
+        <button class="fp-dl mono" type="button" @click="emit('download')">{{ t('util.filePreview.download') }}</button>
       </div>
     </template>
   </div>
