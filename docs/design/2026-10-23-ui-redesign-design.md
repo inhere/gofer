@@ -1305,6 +1305,28 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 视觉自查：用 vite dev server + 临时预览入口（`web/preview-p5b.html` + `src/preview-p5b.ts`，stub 的 `/v1` 数据，截图完已删）把 `/dashboard`、`/issues`、`/new` 按 zh / en × 浅 / 深（1440×900）各截一屏，另加三页的手机屏（390×844）。据此改了两处：热力图月份标尺 12×56px 把手机页面撑出横向滚动（改为容器内裁切）、统计页说明的拼接符改成随语言（中文全角分号 / 英文「; 」）。最终一版三页在 1440 与 390 下都没有页面级横向滚动（热力图与扩散区在各自容器内滚动），浅 / 深对比度正常，控制台只剩 stub 未提供的接口 403。
 - `DashboardSystem`（「系统」折叠区）的文案与 token 同步迁移；它的手机断点仍是旧的 640 / 700 / 980（本轮没动，与其它页的 760 不统一，留给 P6）。
 
+### P5 设置与接入（2026-10-23，issue gofer-hez1）
+
+**做了什么**
+
+- **设置外壳**（`views/settings/SettingsLayout.vue`）：二级导航按预览稿重做——桌面（≥761）是 210px 竖排导航（当前项 `--surface` 底 + 加粗 + `--shadow-1` 与内描边，命中由 RouterLink 自己的 `aria-current="page"` 提供），平板收窄到 180px，手机（≤760，与 AppShell 同口径）竖排导航隐藏、换成整行的 `<select data-testid="settings-nav-select">`（选中即 `router.push`，深链进来时下拉框回显当前子页）。页头保留「设置 ▸ 当前子页」的面包屑。导航文案走 `settings.nav.*`（十项）：新增子页 = sections 一行 + 子路由 + zh/en 两个 key。
+- **两个基元**（§8 的 `FormSection` / `SaveBar`）：`ui/FormSection.vue` 左边标题 + 一句话说明、右边字段（220px + 内容，≤1099 堆成一行）；`ui/SaveBar.vue` 有未保存修改时 `position: sticky; bottom: 0`，给「放弃修改 / 保存」，没有修改时退回文末（`.save-bar--idle`）且按钮禁用，手机上两个按钮铺满、提示文字隐藏。
+- **已迁移的子页**：通知（本设备推送 + 订阅列表，错误与提示也走字典）、MCP（每个 server 一节 FormSection，测试探针结果走插值）、关于（服务端自述 + 更新状态 + 一键更新与等空闲 / 取消等待，更新阶段与 worker 状态按 `settings.about.phase.*` / `settings.about.worker.*` 取，没登记的取值原样显示）、工作项（被动整理 / 请求与交接 / 每日摘要 / 等我通知 / 管家五节，保存改走吸底 `SaveBar`，原有 `data-test` 钩子全部保留）。
+- **接入页**（`views/Access.vue`）：居中卡片 + 品牌 logo + 标题 / 提示 + token 输入（等宽）+ 连接按钮，右上角主题与语言开关（新增 `LangToggle`）。行为不变：成功后回 `?redirect`（只接受站内路径，默认 `/dashboard`），跨标签页 token 交接仍在 `router.ts` 的公开路由守卫里。
+- **文案**：`i18n/pages/settings.ts`（`settings.*`）与 `i18n/pages/access.ts`（`access.*`），zh/en 并列；`i18n.test.ts` 的 `pageDomains` 登记这两个前缀。
+
+**测试**
+
+- `views/settings/settingsLayout.test.ts`（SSR）：十项导航都在、当前项唯一 `aria-current`、手机下拉框列出同样十项并绑定当前值、en 下导航文案翻译。
+- `ui/saveBar.test.ts`：吸附/退回、按钮禁用、提示与保存文案可由页面覆盖、翻译。
+- `views/settings/settingsPagesI18n.test.ts`：页面用到的 `settings.*` / `access.*` key 两本字典都有、key 集合相等、英文无汉字、迁移页确实用 `FormSection`（工作项页用 `SaveBar`）、通知与接入页模板里没有中文字面量残留。
+- 既有测试随迁移改口径：`settingsLayoutMobile.test.ts` 改成测「手机换下拉框 + 选中跳转」（不再断言横向滚动条样式，§13 问题 16）；`settingsTablesMobile.test.ts` 最后一条改为下拉框形态；`workSettings.test.ts` 的中文断言改成查字典并改测吸底保存条；`extensionSettingsWiring.test.ts` 跟随导航项结构（`key:` 代替 `label:`）；`steward.test.ts` / `updateWaitIdle.test.ts` / `uiTextWiring.test.ts` 跟随文案迁移。
+
+**未完成（后续提交）**
+
+- 配置管理（`Config.vue`）、规则（`Rules.vue`）、隧道（`Tunnels.vue`）、权限（`Permissions.vue`）、扩展（`Extensions.vue`）、技能（`Skills.vue`）仍是旧写法：文案未进字典、分节未换 `FormSection`；导航与路由已统一，页面内容未动。`Config.vue` 里的出站 webhook（含 keyword）与事件订阅矩阵保持原样，等该页迁移时再套分节。
+- 四态截图（zh/en × 浅/深）与 `web/scripts/shots.mjs` 的自动检查本批未跑。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**
