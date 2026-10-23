@@ -30,7 +30,6 @@ const WHITELIST: Record<string, { text: string[]; why: string }[]> = {
 // 还没抽完的文件：本次只覆盖工具层与公共组件，其余页面按批次跟进。
 // 值写理由，便于认领；抽干净后必须从表里删掉（第二个用例守着）。
 const PENDING: Record<string, string> = {
-  'views/Config.vue': 'P6-b 后续批次（尚未抽取）',
   'components/SessionDrawer.vue': 'P6-b 后续批次（尚未抽取）',
   'views/JobDetail.vue': 'P6-b 后续批次（尚未抽取）',
   'views/NewJob.vue': 'P6-b 后续批次（尚未抽取）',
