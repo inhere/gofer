@@ -1551,7 +1551,9 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 **验证**
 
-`npx vue-tsc --noEmit`、`npx vitest run`、`npx vite build` 全绿（见 issue 汇报里的原始输出）。
+`npx vue-tsc --noEmit`、`npx vitest run`（223 个文件 / 1519 个用例）、`npx vite build` 全绿。
+
+截图：本机没有 Playwright 自带的浏览器，但可以用系统 Edge（`playwright` 的 `channel="msedge"`）：`vite preview` 起构建产物（没有后端时页面数据报错，但外壳、导航、顶栏、状态字形都是真实渲染），按 zh/en × 浅/深 × 1440/390 八个组合截了 `AppShell`。核对结果：侧栏 16 项、图标栏、手机 5 个标签、更多宫格、顶栏各按钮、状态字形尺寸与粗细一致，基线对齐；细节上把侧栏收起按钮改成居中（图标比原来的 `⟨` 字符小一圈，原样式把它靠上对齐）。
 
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
