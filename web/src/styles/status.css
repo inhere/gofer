@@ -39,33 +39,12 @@
   --soft: var(--sunken);
 }
 
-/* StatusGlyph：只有形状，颜色跟随族的 --c。 */
+/* StatusGlyph：只有形状，颜色跟随族的 --c；形状本身是 lucide 图标（ui/statusGlyph.ts）。 */
 .glyph {
   display: inline-block;
   flex: none;
   color: var(--c);
   vertical-align: -0.15em;
-}
-
-/* 运行态是唯一常驻动画之一（另一处是信号带流光），reduced-motion 由 base.css 统一关闭。 */
-.glyph-pulse {
-  transform-origin: 50% 50%;
-  animation: glyph-pulse 1.8s var(--ease) infinite;
-}
-
-@keyframes glyph-pulse {
-  0% {
-    opacity: .35;
-    transform: scale(.72);
-  }
-  70% {
-    opacity: 0;
-    transform: scale(1.15);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1.15);
-  }
 }
 
 /* StatusPill：字形 + 文字，文字色保证对比度。 */

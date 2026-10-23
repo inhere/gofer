@@ -1,9 +1,12 @@
 <script setup lang="ts">
-// StatusGlyph：只画状态族的字形，不带文字。设计稿 §5。
-// 替换现有的圆点/小方块表达；P0 只新增，不替换旧徽标。
+// StatusGlyph：只画状态族的图标，不带文字。设计稿 §5（字形）+ issue gofer-h355（改用 lucide）。
+//
+// 族 → 图标在 ui/statusGlyph.ts；颜色跟随族的 --c（styles/status.css）。
+// 运行中（run）常驻旋转，其余静止。
 import { computed } from 'vue'
 import { statusFamily, statusFamilyClass, type StatusFamily } from '../utils/statusFamily'
 import { glyphSpec } from './statusGlyph'
+import Icon from './Icon.vue'
 import { t } from '../i18n'
 
 const props = withDefaults(
@@ -25,91 +28,15 @@ const ariaLabel = computed(() => props.label ?? t(spec.value.labelKey))
 </script>
 
 <template>
-  <svg
+  <Icon
     class="glyph"
     :class="[statusFamilyClass(fam), `glyph-${spec.kind}`]"
-    :width="size"
-    :height="size"
-    viewBox="0 0 16 16"
-    role="img"
-    :aria-label="ariaLabel"
+    :icon="spec.icon"
+    :size="size"
+    :spin="spec.spin"
+    :label="ariaLabel"
     :data-family="fam"
     :data-kind="spec.kind"
     data-testid="status-glyph"
-  >
-    <template v-if="spec.kind === 'dot-pulse'">
-      <circle class="glyph-pulse" cx="8" cy="8" r="6.2" fill="currentColor" opacity=".45" />
-      <circle cx="8" cy="8" r="3.6" fill="currentColor" />
-    </template>
-    <rect
-      v-else-if="spec.kind === 'diamond'"
-      x="4.4"
-      y="4.4"
-      width="7.2"
-      height="7.2"
-      rx="1"
-      transform="rotate(45 8 8)"
-      fill="currentColor"
-    />
-    <template v-else-if="spec.kind === 'check'">
-      <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5" />
-      <path
-        d="M5 8.3l2.1 2.1L11 6.2"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.7"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </template>
-    <template v-else-if="spec.kind === 'cross'">
-      <rect
-        x="2.6"
-        y="2.6"
-        width="10.8"
-        height="10.8"
-        rx="3"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.5"
-      />
-      <path
-        d="M6 6l4 4M10 6l-4 4"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linecap="round"
-      />
-    </template>
-    <template v-else-if="spec.kind === 'clock'">
-      <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.5" />
-      <path
-        d="M8 4.4V8l2.6 1.6"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-    </template>
-    <circle
-      v-else-if="spec.kind === 'ring'"
-      cx="8"
-      cy="8"
-      r="6.2"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-    />
-    <circle
-      v-else
-      cx="8"
-      cy="8"
-      r="6.2"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-      stroke-dasharray="2.4 2.6"
-    />
-  </svg>
+  />
 </template>
