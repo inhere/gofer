@@ -2672,10 +2672,10 @@ onUnmounted(() => {
          这个 job。列表 + 开关 + 新建表单 + 触发历史（来自 job.wakeup_* 事件）。 -->
     <section v-if="active === 'events' && (wakeups.length > 0 || wakeupFormOpen)" class="wakeups">
       <h2 class="wakeups-title mono">
-        唤醒
+        {{ t('jobs.detail.wakeups') }}
         <span v-if="wakeupSummary" class="wakeups-sum mono">{{ wakeupSummary }}</span>
         <button class="wakeups-add mono" type="button" @click="wakeupFormOpen = !wakeupFormOpen">
-          {{ wakeupFormOpen ? '收起' : '新建' }}
+          {{ wakeupFormOpen ? t('jobs.detail.expand') : t('jobs.detail.wakeupNew') }}
         </button>
       </h2>
 
@@ -2684,92 +2684,92 @@ onUnmounted(() => {
           <span class="wakeup-kind mono">{{ w.kind }}</span>
           <span class="wakeup-target mono">{{ wakeupTarget(w) }}</span>
           <span class="wakeup-trigger mono" :title="wakeupTrigger(w)">{{ wakeupTrigger(w) }}</span>
-          <span class="wakeup-instruction mono" :title="w.instruction || ''">{{ w.instruction || '（无指令）' }}</span>
+          <span class="wakeup-instruction mono" :title="w.instruction || ''">{{ w.instruction || t('jobs.detail.wakeupNoInstruction') }}</span>
           <span class="wakeup-count mono" :title="`coalesced ${w.coalesced_count}`">
-            触发 {{ w.fired_count }}<template v-if="w.coalesced_count > 0"> · 合并 {{ w.coalesced_count }}</template>
+            {{ t('jobs.detail.wakeupFired', { n: w.fired_count }) }}<template v-if="w.coalesced_count > 0">{{ t('jobs.detail.wakeupCoalesced', { n: w.coalesced_count }) }}</template>
           </span>
           <RouterLink
             v-if="w.continuation_job_id"
             class="wakeup-cont mono"
             :to="`/jobs/${w.continuation_job_id}`"
-          >最近续投 {{ shortId(w.continuation_job_id) }}</RouterLink>
+          >{{ t('jobs.detail.wakeupLastContinuation', { id: shortId(w.continuation_job_id) }) }}</RouterLink>
           <button
             class="wakeup-btn mono"
             type="button"
             :disabled="wakeupBusyOn(w.id)"
             @click="onToggleWakeup(w)"
-          >{{ w.enabled ? '停用' : '启用' }}</button>
+          >{{ w.enabled ? t('jobs.detail.disable') : t('jobs.detail.enable') }}</button>
           <button
             class="wakeup-btn mono"
             type="button"
             :disabled="wakeupBusyOn(w.id)"
             @click="onDeleteWakeup(w)"
-          >删除</button>
+          >{{ t('jobs.detail.wakeupDelete') }}</button>
         </li>
       </ul>
 
       <form v-if="wakeupFormOpen" class="wakeup-form" @submit.prevent="onCreateWakeup">
         <label class="wakeup-field mono">
-          类型
+          {{ t('jobs.detail.wakeupKind') }}
           <select v-model="wakeupForm.kind" class="mono">
-            <option value="at">at（到点一次）</option>
-            <option value="every">every（每隔一段）</option>
-            <option value="cron">cron（按表达式）</option>
-            <option value="event">event（订阅事件）</option>
+            <option value="at">{{ t('jobs.detail.wakeupKindAt') }}</option>
+            <option value="every">{{ t('jobs.detail.wakeupKindEvery') }}</option>
+            <option value="cron">{{ t('jobs.detail.wakeupKindCron') }}</option>
+            <option value="event">{{ t('jobs.detail.wakeupKindEvent') }}</option>
           </select>
         </label>
         <label v-if="wakeupForm.kind === 'at'" class="wakeup-field mono">
-          多久之后
+          {{ t('jobs.detail.wakeupDelay') }}
           <input v-model="wakeupForm.after" class="mono" placeholder="10m" />
         </label>
         <label v-if="wakeupForm.kind === 'every'" class="wakeup-field mono">
-          间隔
+          {{ t('jobs.detail.wakeupEvery') }}
           <input v-model="wakeupForm.every" class="mono" placeholder="1h" />
         </label>
         <template v-if="wakeupForm.kind === 'cron'">
           <label class="wakeup-field mono">
-            表达式
+            {{ t('jobs.detail.wakeupCron') }}
             <input v-model="wakeupForm.cron" class="mono" placeholder="0 9 * * 1-5" />
           </label>
           <label class="wakeup-field mono">
-            时区
-            <input v-model="wakeupForm.timezone" class="mono" placeholder="Asia/Shanghai（留空=服务器本地）" />
+            {{ t('jobs.detail.wakeupTz') }}
+            <input v-model="wakeupForm.timezone" class="mono" :placeholder="t('jobs.detail.wakeupTzPh')" />
           </label>
         </template>
         <template v-if="wakeupForm.kind === 'event'">
           <label class="wakeup-field mono">
-            事件
+            {{ t('jobs.detail.wakeupEvent') }}
             <input v-model="wakeupForm.event" class="mono" :placeholder="WAKEUP_EVENT_TYPES.join(',')" />
           </label>
           <label class="wakeup-field mono">
-            监听哪个 job
-            <input v-model="wakeupForm.filterJob" class="mono" placeholder="留空 = 本 job" />
+            {{ t('jobs.detail.wakeupWatchJob') }}
+            <input v-model="wakeupForm.filterJob" class="mono" :placeholder="t('jobs.detail.wakeupWatchJobPh')" />
           </label>
           <label class="wakeup-field mono">
-            状态过滤
-            <input v-model="wakeupForm.status" class="mono" placeholder="done,failed（仅 job.terminal）" />
+            {{ t('jobs.detail.wakeupStatus') }}
+            <input v-model="wakeupForm.status" class="mono" :placeholder="t('jobs.detail.wakeupStatusPh')" />
           </label>
         </template>
         <label class="wakeup-field mono">
-          模式
+          {{ t('jobs.detail.wakeupMode') }}
           <select v-model="wakeupForm.mode" class="mono">
-            <option value="">默认（at/event=once，every/cron=continuous）</option>
+            <option value="">{{ t('jobs.detail.wakeupModeDefault') }}</option>
             <option value="once">once</option>
             <option value="continuous">continuous</option>
           </select>
         </label>
         <label class="wakeup-field wakeup-field--wide mono">
-          指令（续投时的提示词）
-          <input v-model="wakeupForm.instruction" class="mono" placeholder="检查 CI 结果并汇报" />
+          {{ t('jobs.detail.wakeupInstruction') }}
+          <input v-model="wakeupForm.instruction" class="mono" :placeholder="t('jobs.detail.wakeupInstructionPh')" />
         </label>
         <button class="wakeup-btn wakeup-btn--primary mono" type="submit" :disabled="wakeupSubmitting">
-          {{ wakeupSubmitting ? '提交中…' : '创建' }}
+          {{ wakeupSubmitting ? t('jobs.detail.submitting') : t('jobs.detail.create') }}
         </button>
         <p v-if="wakeupFormError" class="artifact-err mono">{{ wakeupFormError }}</p>
       </form>
 
       <div v-if="wakeupHistory.length > 0" class="wakeup-history">
-        <p class="diff-note mono">触发历史（{{ wakeupHistory.length }}）</p>
+        <p class="diff-note mono">{{ t('jobs.detail.wakeupHistory', { n: wakeupHistory.length }) }}</p>
         <ul class="timeline-list">
           <li v-for="ev in wakeupHistory" :key="ev.seq" class="timeline-row">
             <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
