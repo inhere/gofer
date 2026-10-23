@@ -7,9 +7,10 @@
 //  - cron 用标准 5 段表达式，也支持 @hourly/@daily/@every 描述符（robfig/cron 标准解析）
 // 提交成功跳 /schedules。
 import { runnerOptionText } from '../utils/runnerDisplay'
-import { BACK, COL } from '../utils/uiText'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { t } from '../i18n'
+import BackLink from '../ui/BackLink.vue'
 import { createSchedule } from '../api/client'
 import { getMetaCached } from '../api/metaCache'
 import type {
@@ -103,14 +104,14 @@ const workerMode = ref<'id' | 'labels'>('id')
 const workerId = ref('')
 const workerLabels = ref('')
 
-// 常用 cron 预设（快速填充）
-const cronPresets: Array<{ expr: string; label: string }> = [
-  { expr: '*/5 * * * *', label: '每 5 分钟' },
-  { expr: '0 * * * *', label: '每小时' },
-  { expr: '0 9 * * *', label: '每天 09:00' },
-  { expr: '0 9 * * 1', label: '每周一 09:00' },
-  { expr: '@daily', label: '每天零点' },
-]
+// 常用 cron 预设（快速填充）；文案走 i18n。
+const cronPresets = computed<Array<{ expr: string; label: string }>>(() => [
+  { expr: '*/5 * * * *', label: t('schedules.new.preset5m') },
+  { expr: '0 * * * *', label: t('schedules.new.presetHourly') },
+  { expr: '0 9 * * *', label: t('schedules.new.presetDaily9') },
+  { expr: '0 9 * * 1', label: t('schedules.new.presetMonday9') },
+  { expr: '@daily', label: t('schedules.new.presetMidnight') },
+])
 
 async function loadMeta() {
   loading.value = true
@@ -285,78 +286,78 @@ function reconvergeToWorker() {
 
 const validationError = computed<string>(() => {
   if (name.value.trim() === '') {
-    return '请填写调度名称 name'
+    return t('schedules.new.needName')
   }
   if (triggerType.value === 'cron' && cron.value.trim() === '') {
-    return '请填写 cron 表达式'
+    return t('schedules.new.needCron')
   }
   if (triggerType.value === 'once') {
     if (cron.value.trim() !== '') {
-      return '一次性调度不能填写 cron'
+      return t('schedules.new.noCronForOnce')
     }
     const now = Math.floor(Date.now() / 1000)
     if (onceMode.value === 'delay') {
       const sec = delaySeconds.value
       if (sec <= 0) {
-        return '请填写大于 0 的延迟时间'
+        return t('schedules.new.needDelay')
       }
       if (now + sec < now + 3) {
-        return '一次性调度至少需要在 3 秒后触发'
+        return t('schedules.new.minDelay')
       }
     } else {
       const sec = runAtSeconds.value
       if (sec <= 0) {
-        return '请选择触发时间'
+        return t('schedules.new.needRunAt')
       }
       if (sec < now + 3) {
-        return '触发时间至少需要在 3 秒后'
+        return t('schedules.new.minRunAt')
       }
     }
   }
   if (!projectKey.value) {
-    return '请选择 project'
+    return t('schedules.new.needProject')
   }
   if (!agentKey.value) {
-    return '请选择 agent'
+    return t('schedules.new.needAgent')
   }
   if (!runnerName.value) {
-    return '请选择 runner'
+    return t('schedules.new.needRunner')
   }
   if (isCliAgent.value && prompt.value.trim() === '') {
-    return 'cli-agent 需填写 prompt'
+    return t('schedules.new.needPrompt')
   }
   if (isExec.value && command.value.trim() === '') {
-    return 'exec 需填写 command'
+    return t('schedules.new.needCommand')
   }
   if (isWorkerRunner.value) {
     if (workerMode.value === 'id' && workerId.value === '') {
-      return 'runner=worker：请指定 worker，或切换为按标签自动'
+      return t('schedules.new.needWorkerId')
     }
     if (workerMode.value === 'labels' && workerLabels.value.trim() === '') {
-      return 'runner=worker：请填写 worker_labels，或切换为指定 worker'
+      return t('schedules.new.needWorkerLabels')
     }
   }
   // 参数声明（与后端声明校验同一口径，先挡在前面给出人话提示）
   const seen = new Set<string>()
   for (const p of declaredParams()) {
     if (!/^[A-Z_][A-Z0-9_]*$/.test(p.name)) {
-      return `参数名 ${p.name} 不合法：只能是环境变量名（^[A-Z_][A-Z0-9_]*$）`
+      return t('schedules.new.paramNameInvalid', { name: p.name })
     }
     if (p.name.startsWith('GOFER_')) {
-      return `参数名 ${p.name} 不能用 GOFER_ 前缀（保留给 gofer 自己）`
+      return t('schedules.new.paramReserved', { name: p.name })
     }
     if (seen.has(p.name)) {
-      return `参数 ${p.name} 重复声明`
+      return t('schedules.new.paramDup', { name: p.name })
     }
     seen.add(p.name)
     if (p.type === 'int' && (p.default ?? '') !== '' && !/^-?\d+$/.test(p.default ?? '')) {
-      return `参数 ${p.name} 的默认值必须是整数`
+      return t('schedules.new.paramInt', { name: p.name })
     }
     if (p.type === 'bool' && !['', '0', '1'].includes(p.default ?? '')) {
-      return `参数 ${p.name} 的默认值只能是 0 或 1`
+      return t('schedules.new.paramBool', { name: p.name })
     }
     if (p.type === 'choice' && (!p.choices || p.choices.length === 0)) {
-      return `参数 ${p.name} 是 choice，请填写可选值（逗号分隔）`
+      return t('schedules.new.paramChoice', { name: p.name })
     }
   }
   return ''
@@ -478,18 +479,18 @@ onMounted(() => {
 <template>
   <div class="newjob">
     <div class="newjob-head">
-      <RouterLink to="/schedules" class="back mono">{{ BACK.schedules }}</RouterLink>
-      <h1 class="title mono">新建调度</h1>
+      <BackLink list="schedules" to="/schedules" :label="t('schedules.title')" />
+      <h1 class="title mono">{{ t('schedules.new.title') }}</h1>
     </div>
 
-    <p v-if="loadError" class="error mono">表单选项加载失败：{{ loadError }}</p>
-    <p v-else-if="loading" class="hint mono">加载选项中…</p>
+    <p v-if="loadError" class="error mono">{{ t('schedules.new.loadFailed', { err: loadError }) }}</p>
+    <p v-else-if="loading" class="hint mono">{{ t('schedules.new.loading') }}</p>
 
     <form v-else class="card" @submit.prevent="onSubmit">
       <!-- name / trigger -->
       <div class="row">
         <div class="field">
-          <label class="label mono" for="ns-name">名称</label>
+          <label class="label mono" for="ns-name">{{ t('schedules.new.name') }}</label>
           <input
             id="ns-name"
             v-model="name"
@@ -499,7 +500,7 @@ onMounted(() => {
           />
         </div>
         <div class="field">
-          <label class="label mono">触发类型</label>
+          <label class="label mono">{{ t('schedules.new.triggerType') }}</label>
           <div class="seg mono">
             <button
               type="button"
@@ -507,7 +508,7 @@ onMounted(() => {
               :class="{ 'seg-btn--on': triggerType === 'cron' }"
               @click="triggerType = 'cron'"
             >
-              cron 定时
+              {{ t('schedules.new.triggerCron') }}
             </button>
             <button
               type="button"
@@ -515,14 +516,14 @@ onMounted(() => {
               :class="{ 'seg-btn--on': triggerType === 'once' }"
               @click="triggerType = 'once'; cron = ''"
             >
-              一次性
+              {{ t('schedules.new.triggerOnce') }}
             </button>
           </div>
         </div>
       </div>
 
       <div v-if="triggerType === 'cron'" class="field">
-          <label class="label mono" for="ns-cron">cron 表达式（5 段）</label>
+          <label class="label mono" for="ns-cron">{{ t('schedules.new.cron') }}</label>
           <input
             id="ns-cron"
             v-model="cron"
@@ -543,7 +544,7 @@ onMounted(() => {
               {{ p.label }}
             </button>
           </div>
-          <p class="field-hint mono">分 时 日 月 周；也支持 @hourly / @daily / @every 1h30m</p>
+          <p class="field-hint mono">{{ t('schedules.new.cronHelp') }}</p>
       </div>
 
       <div v-else class="advanced">
@@ -554,7 +555,7 @@ onMounted(() => {
             :class="{ 'seg-btn--on': onceMode === 'delay' }"
             @click="onceMode = 'delay'"
           >
-            延迟
+            {{ t('schedules.new.delay') }}
           </button>
           <button
             type="button"
@@ -562,13 +563,13 @@ onMounted(() => {
             :class="{ 'seg-btn--on': onceMode === 'at' }"
             @click="onceMode = 'at'"
           >
-            指定时间
+            {{ t('schedules.new.at') }}
           </button>
         </div>
 
         <div v-if="onceMode === 'delay'" class="row once-row">
           <div class="field">
-            <label class="label mono" for="ns-delay">延迟时间</label>
+            <label class="label mono" for="ns-delay">{{ t('schedules.new.delayValue') }}</label>
             <input
               id="ns-delay"
               v-model.number="delayValue"
@@ -579,17 +580,17 @@ onMounted(() => {
             />
           </div>
           <div class="field">
-            <label class="label mono" for="ns-delay-unit">单位</label>
+            <label class="label mono" for="ns-delay-unit">{{ t('schedules.new.delayUnit') }}</label>
             <select id="ns-delay-unit" v-model="delayUnit" class="control mono">
-              <option value="s">秒</option>
-              <option value="m">分钟</option>
-              <option value="h">小时</option>
+              <option value="s">{{ t('schedules.new.unitSecond') }}</option>
+              <option value="m">{{ t('schedules.new.unitMinute') }}</option>
+              <option value="h">{{ t('schedules.new.unitHour') }}</option>
             </select>
           </div>
         </div>
 
         <div v-else class="field once-row">
-          <label class="label mono" for="ns-run-at">触发时间</label>
+          <label class="label mono" for="ns-run-at">{{ t('schedules.new.runAt') }}</label>
           <input
             id="ns-run-at"
             v-model="runAtLocal"
@@ -601,7 +602,7 @@ onMounted(() => {
 
       <!-- project -->
       <div class="field">
-        <label class="label mono" for="ns-project">{{ COL.project }}</label>
+        <label class="label mono" for="ns-project">{{ t('schedules.new.project') }}</label>
         <select
           id="ns-project"
           v-model="projectKey"
@@ -610,24 +611,24 @@ onMounted(() => {
         >
           <option v-for="p in projectOptions" :key="p.key" :value="p.key">{{ p.key }}</option>
         </select>
-        <p v-if="projectOptions.length === 0" class="field-hint mono">无可用 project</p>
+        <p v-if="projectOptions.length === 0" class="field-hint mono">{{ t('schedules.new.noProject') }}</p>
       </div>
 
       <!-- agent / runner 两列 -->
       <div class="row">
         <div class="field">
-          <label class="label mono" for="ns-agent">{{ COL.agent }}</label>
+          <label class="label mono" for="ns-agent">{{ t('schedules.new.agent') }}</label>
           <select id="ns-agent" v-model="agentKey" class="control mono">
             <option v-for="a in agentOptions" :key="a.key" :value="a.key">
               {{ a.key }} · {{ a.type }}
             </option>
           </select>
           <p v-if="agentOptions.length === 0" class="field-hint mono">
-            无可用 agent（调度触发的 job 恒为非交互，交互式 agent 已排除）
+            {{ t('schedules.new.noAgent') }}
           </p>
         </div>
         <div class="field">
-          <label class="label mono" for="ns-runner">{{ COL.runner }}</label>
+          <label class="label mono" for="ns-runner">{{ t('schedules.new.runner') }}</label>
           <select
             id="ns-runner"
             v-model="runnerName"
@@ -642,25 +643,25 @@ onMounted(() => {
       </div>
 
       <p v-if="workerNarrowingPending" class="field-hint mono">
-        runner=worker：请在下方「worker 选机」指定具体 worker，agent / project 将按其上报能力收窄
+        {{ t('schedules.new.workerPending') }}
       </p>
 
       <!-- cli-agent: prompt 文本域 -->
       <div v-if="isCliAgent" class="field">
-        <label class="label mono" for="ns-prompt">Prompt（可贴 markdown）</label>
+        <label class="label mono" for="ns-prompt">{{ t('schedules.new.prompt') }}</label>
         <textarea
           id="ns-prompt"
           v-model="prompt"
           class="control mono area"
           rows="8"
           spellcheck="false"
-          placeholder="描述任务，正文即 prompt..."
+          :placeholder="t('schedules.new.promptPlaceholder')"
         ></textarea>
       </div>
 
       <!-- exec: command 输入 -->
       <div v-else-if="isExec" class="field">
-        <label class="label mono" for="ns-cmd">命令（空格分词为 argv）</label>
+        <label class="label mono" for="ns-cmd">{{ t('schedules.new.command') }}</label>
         <input
           id="ns-cmd"
           v-model="command"
@@ -674,7 +675,7 @@ onMounted(() => {
       <!-- runner=worker 高级项：二选一 -->
       <details v-if="isWorkerRunner" class="advanced" :open="advancedOpen">
         <summary class="mono" @click.prevent="advancedOpen = !advancedOpen">
-          worker 选机（必填二选一）
+          {{ t('schedules.new.workerSection') }}
         </summary>
         <div class="advanced-body">
           <div class="seg mono">
@@ -684,7 +685,7 @@ onMounted(() => {
               :class="{ 'seg-btn--on': workerMode === 'id' }"
               @click="workerMode = 'id'"
             >
-              指定 worker
+              {{ t('schedules.new.workerById') }}
             </button>
             <button
               type="button"
@@ -692,25 +693,25 @@ onMounted(() => {
               :class="{ 'seg-btn--on': workerMode === 'labels' }"
               @click="workerMode = 'labels'"
             >
-              按标签自动
+              {{ t('schedules.new.workerByLabels') }}
             </button>
           </div>
 
           <div v-if="workerMode === 'id'" class="field">
-            <label class="label mono" for="ns-wid">Worker ID（仅 connected）</label>
+            <label class="label mono" for="ns-wid">{{ t('schedules.new.workerId') }}</label>
             <select id="ns-wid" v-model="workerId" class="control mono" @change="reconvergeToWorker">
-              <option value="" disabled>选择一个已连接 worker</option>
+              <option value="" disabled>{{ t('schedules.new.workerPick') }}</option>
               <option v-for="w in connectedWorkers" :key="w.id" :value="w.id">
                 {{ w.id }}<template v-if="w.labels && w.labels.length"> · {{ w.labels.join(',') }}</template>
               </option>
             </select>
             <p v-if="connectedWorkers.length === 0" class="field-hint mono">
-              无已连接 worker，可改用「按标签自动」或先连接 worker
+              {{ t('schedules.new.noWorker') }}
             </p>
           </div>
 
           <div v-else class="field">
-            <label class="label mono" for="ns-labels">Worker 标签（逗号分隔）</label>
+            <label class="label mono" for="ns-labels">{{ t('schedules.new.workerLabels') }}</label>
             <input
               id="ns-labels"
               v-model="workerLabels"
@@ -719,7 +720,7 @@ onMounted(() => {
               autocomplete="off"
               placeholder="gpu, linux"
             />
-            <p class="field-hint mono">worker 须包含全部标签（AND 匹配）</p>
+            <p class="field-hint mono">{{ t('schedules.new.workerLabelsHint') }}</p>
           </div>
         </div>
       </details>
@@ -727,7 +728,7 @@ onMounted(() => {
       <!-- cwd / title -->
       <div class="row">
         <div class="field">
-          <label class="label mono" for="ns-cwd">工作目录</label>
+          <label class="label mono" for="ns-cwd">{{ t('schedules.new.cwd') }}</label>
           <input
             id="ns-cwd"
             v-model="cwd"
@@ -738,20 +739,20 @@ onMounted(() => {
           />
         </div>
         <div class="field">
-          <label class="label mono" for="ns-title">标题（可选）</label>
+          <label class="label mono" for="ns-title">{{ t('schedules.new.titleField') }}</label>
           <input
             id="ns-title"
             v-model="title"
             class="control mono"
             autocomplete="off"
-            placeholder="人类可读任务名"
+            :placeholder="t('schedules.new.titlePlaceholder')"
           />
         </div>
       </div>
 
       <!-- tags -->
       <div class="field">
-        <label class="label mono" for="ns-tags">{{ COL.tags }}（逗号分隔，可选）</label>
+        <label class="label mono" for="ns-tags">{{ t('schedules.new.tags') }}{{ t('schedules.new.tagsHint') }}</label>
         <input
           id="ns-tags"
           v-model="tags"
@@ -765,36 +766,36 @@ onMounted(() => {
       <!-- timeout / catch_up / enabled -->
       <div class="row">
         <div class="field">
-          <label class="label mono" for="ns-timeout">超时（秒，可选）</label>
+          <label class="label mono" for="ns-timeout">{{ t('schedules.new.timeout') }}</label>
           <input
             id="ns-timeout"
             v-model.number="timeoutSec"
             class="control mono"
             type="number"
             min="1"
-            placeholder="默认无超时"
+            :placeholder="t('schedules.new.timeoutPlaceholder')"
           />
         </div>
         <div class="field field--check">
           <label v-if="triggerType === 'cron'" class="check mono">
             <input v-model="catchUp" type="checkbox" />
-            <span>catch_up（错过一次触发后在 grace 窗口内补跑一次）</span>
+            <span>{{ t('schedules.new.catchUp') }}</span>
           </label>
           <label class="check mono">
             <input v-model="enabled" type="checkbox" />
-            <span>enabled（创建后即启用）</span>
+            <span>{{ t('schedules.new.enabled') }}</span>
           </label>
         </div>
       </div>
 
       <!-- 参数声明（设计 2026-10-22 §D1）：值以环境变量传给 job -->
       <div class="field">
-        <span class="label mono">参数（可选，一行一个；值作为环境变量传给 job）</span>
+        <span class="label mono">{{ t('schedules.new.params') }}</span>
         <div v-for="(p, i) in params" :key="i" class="param-row" data-test="new-param-row">
           <input
             class="control mono param-name"
             type="text"
-            placeholder="NAME"
+            :placeholder="t('schedules.new.paramName')"
             :value="p.name"
             @input="setParamField(i, 'name', ($event.target as HTMLInputElement).value)"
           />
@@ -811,7 +812,7 @@ onMounted(() => {
           <input
             class="control mono param-def"
             type="text"
-            placeholder="default"
+            :placeholder="t('schedules.new.paramDefault')"
             :value="p.default"
             @input="setParamField(i, 'default', ($event.target as HTMLInputElement).value)"
           />
@@ -819,21 +820,23 @@ onMounted(() => {
             v-if="p.type === 'choice'"
             class="control mono param-def"
             type="text"
-            placeholder="choices, 逗号分隔"
+            :placeholder="t('schedules.new.paramChoices')"
             :value="(p.choices || []).join(', ')"
             @input="setParamChoices(i, ($event.target as HTMLInputElement).value)"
           />
           <input
             class="control mono param-desc"
             type="text"
-            placeholder="说明（显示在立即执行表单里）"
+            :placeholder="t('schedules.new.paramDesc')"
             :value="p.desc"
             @input="setParamField(i, 'desc', ($event.target as HTMLInputElement).value)"
           />
-          <button class="param-del mono" type="button" title="删除这个参数" @click="removeParamRow(i)">−</button>
+          <button class="param-del mono" type="button" :title="t('schedules.new.removeParam')" @click="removeParamRow(i)">
+            −
+          </button>
         </div>
         <button class="param-add mono" type="button" data-test="new-param-add" @click="addParamRow()">
-          + 添加参数
+          {{ t('schedules.new.addParam') }}
         </button>
       </div>
 
@@ -843,7 +846,7 @@ onMounted(() => {
       <p v-if="submitError" class="error mono">{{ submitError }}</p>
 
       <button class="submit" type="submit" :disabled="!canSubmit">
-        {{ submitting ? '创建中…' : '创建定时调度' }}
+        {{ submitting ? t('schedules.new.submitting') : t('schedules.new.submit') }}
       </button>
     </form>
   </div>

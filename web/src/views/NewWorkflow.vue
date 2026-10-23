@@ -5,7 +5,7 @@
 //  - YAML：inline spec，前端解析成 workflow.Spec JSON 再 POST /v1/workflows。
 import { load as loadYaml } from 'js-yaml'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getMetaCached } from '../api/metaCache'
 import {
   deleteWorkflowTemplate,
@@ -27,7 +27,9 @@ import type {
 } from '../api/types'
 import { computeRunnerBlocks } from '../utils/runnerChoice'
 import { runnerOptionText } from '../utils/runnerDisplay'
-import { BACK } from '../utils/uiText'
+import { t } from '../i18n'
+import Tabs from '../ui/Tabs.vue'
+import BackLink from '../ui/BackLink.vue'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import { useWhoami } from '../store/whoami'
 import { ceilingAllowsAgent, ceilingAllowsExec, ceilingAllowsProject, ceilingAllowsRunner } from '../utils/ceiling'
@@ -56,6 +58,7 @@ import {
 } from '../utils/workflowResult'
 
 const router = useRouter()
+const route = useRoute()
 // 调用方上限（ceiling）：本人 token 的范围上界（utils/ceiling.ts），用于收窄向导里的候选。
 const { ceiling: ceil, whoami, can } = useWhoami()
 
@@ -71,7 +74,12 @@ const runners = ref<MetaRunner[]>([])
 const workers = ref<MetaWorker[]>([])
 
 // ---- 从模板新建 ----
-const mode = ref<'template' | 'yaml'>('template')
+// 页签的当前值以 URL 的 ?tab= 为准（ui/Tabs 负责读写），可深链。
+const mode = computed<'template' | 'yaml'>(() => (route.query.tab === 'yaml' ? 'yaml' : 'template'))
+const modeTabs = computed(() => [
+  { value: 'template', label: t('workflows.new.tabTemplate') },
+  { value: 'yaml', label: t('workflows.new.tabYaml') },
+])
 const tplProject = ref('')
 const templates = ref<WorkflowTemplateInfo[]>([])
 const tplLoading = ref(false)
@@ -272,7 +280,7 @@ async function onSaveTemplate(): Promise<void> {
   const name = editingName.value
   if (!name || saving.value || !gated.value.editable) return
   if (!/^[A-Za-z0-9._-]+$/.test(name)) {
-    saveError.value = '模板名只能包含字母、数字、. _ -'
+    saveError.value = t('workflows.new.templateNameRule')
     return
   }
   saving.value = true
@@ -393,9 +401,9 @@ function yamlErrorMessage(e: unknown): string {
     const line = err.mark.line != null ? err.mark.line + 1 : undefined
     const column = err.mark.column != null ? err.mark.column + 1 : undefined
     if (line != null && column != null) {
-      parts.push(`行 ${line}，列 ${column}`)
+      parts.push(t('workflows.new.yamlLineCol', { line, col: column }))
     } else if (line != null) {
-      parts.push(`行 ${line}`)
+      parts.push(t('workflows.new.yamlLine', { line }))
     }
   }
   return parts.join('；')
@@ -522,15 +530,15 @@ function parseSpec(): WorkflowSpec | null {
   try {
     parsed = loadYaml(yamlText.value)
   } catch (e) {
-    submitError.value = `YAML 解析失败：${yamlErrorMessage(e)}`
+    submitError.value = t('workflows.new.yamlParseFailed', { err: yamlErrorMessage(e) })
     return null
   }
   if (!isRecord(parsed)) {
-    submitError.value = 'YAML 根节点必须是对象，至少包含 steps 数组'
+    submitError.value = t('workflows.new.yamlRootMustBeObject')
     return null
   }
   if (!Array.isArray(parsed.steps) || parsed.steps.length === 0) {
-    submitError.value = 'steps 必须是非空数组'
+    submitError.value = t('workflows.new.yamlStepsRequired')
     return null
   }
   return parsed as unknown as WorkflowSpec
@@ -561,6 +569,19 @@ function resetTemplate() {
   submitError.value = ''
 }
 
+// YAML 编辑器的行号栏：与 textarea 同字号、同滚动位置（设计稿 §7.2「等宽字体加行号」）。
+const yamlArea = ref<HTMLTextAreaElement | null>(null)
+const gutter = ref<HTMLElement | null>(null)
+const lineNumbers = computed(() =>
+  yamlText.value.split('\n').map((_, i) => i + 1).join('\n'),
+)
+
+function syncScroll(): void {
+  if (gutter.value && yamlArea.value) {
+    gutter.value.scrollTop = yamlArea.value.scrollTop
+  }
+}
+
 onMounted(() => {
   void loadMeta()
 })
@@ -569,31 +590,29 @@ onMounted(() => {
 <template>
   <div class="newwf">
     <div class="newwf-head">
-      <RouterLink to="/workflows" class="back mono">{{ BACK.workflows }}</RouterLink>
-      <h1 class="title mono">新建工作流<ExperimentalBadge /></h1>
+      <BackLink list="workflows" to="/workflows" :label="t('workflows.detail.back')" />
+      <h1 class="title mono">{{ t('workflows.new.title') }}<ExperimentalBadge /></h1>
     </div>
 
-    <p v-if="loadError" class="error mono">示例模板未能读取 meta，已使用占位值：{{ loadError }}</p>
-    <p v-else-if="loading" class="hint mono">加载中…</p>
+    <p v-if="loadError" class="error mono">{{ t('workflows.new.metaFailed', { err: loadError }) }}</p>
+    <p v-else-if="loading" class="hint mono">{{ t('workflows.new.loading') }}</p>
 
-    <div v-if="!loading" class="tabs mono" role="tablist">
-      <button class="tab" :class="{ 'tab--on': mode === 'template' }" type="button" role="tab" data-test="tab-template" @click="mode = 'template'">从模板新建</button>
-      <button class="tab" :class="{ 'tab--on': mode === 'yaml' }" type="button" role="tab" data-test="tab-yaml" @click="mode = 'yaml'">YAML</button>
-    </div>
+    <Tabs v-if="!loading" :tabs="modeTabs" :label="t('workflows.new.title')" />
 
     <div v-if="!loading && mode === 'template'" class="card" data-test="template-pane">
       <div class="field">
-        <label class="label mono" for="nw-project">项目（决定可用的 agent / runner 与项目内模板）</label>
+        <label class="label mono" for="nw-project">{{ t('workflows.new.project') }}</label>
         <select id="nw-project" v-model="tplProject" class="control mono" data-test="tpl-project">
           <option v-for="p in projects" :key="p.key" :value="p.key">{{ p.key }}</option>
         </select>
+        <p class="field-hint mono">{{ t('workflows.new.projectHint') }}</p>
       </div>
 
       <div class="field">
-        <span class="label mono">模板</span>
-        <p v-if="tplLoading" class="hint mono">加载模板…</p>
+        <span class="label mono">{{ t('workflows.new.template') }}</span>
+        <p v-if="tplLoading" class="hint mono">{{ t('workflows.new.loadingTemplates') }}</p>
         <p v-else-if="tplError" class="error mono">{{ tplError }}</p>
-        <p v-else-if="templates.length === 0" class="hint mono">没有可用模板</p>
+        <p v-else-if="templates.length === 0" class="hint mono">{{ t('workflows.new.noTemplates') }}</p>
         <ul v-else class="tpl-list" data-test="tpl-list">
           <li v-for="t in templates" :key="t.name">
             <button
@@ -611,7 +630,7 @@ onMounted(() => {
         </ul>
         <div v-if="!tplLoading && templates.length" class="toolbar mono tpl-tools">
           <button v-if="selectedTpl" class="plain-btn" type="button" data-test="tpl-view-source" @click="toggleSource">
-            {{ showSource ? '收起源文件' : '查看源文件' }}
+            {{ showSource ? t('workflows.new.hideSource') : t('workflows.new.viewSource') }}
           </button>
           <button
             v-if="gated.editable"
@@ -630,18 +649,18 @@ onMounted(() => {
 
       <section v-if="showSource" class="src-pane" data-test="tpl-source">
         <div class="src-head mono">
-          <span class="src-name">{{ editingName || '(未命名)' }}</span>
-          <span v-if="creating" class="tpl-src tpl-src--new">新建</span>
+          <span class="src-name">{{ editingName || t('workflows.new.unnamed') }}</span>
+          <span v-if="creating" class="tpl-src tpl-src--new">{{ t('workflows.new.newBadge') }}</span>
           <span v-else-if="src" class="tpl-src" :class="`tpl-src--${src.source}`">{{ sourceLabel(src.source) }}</span>
           <span v-if="src?.path" class="src-path" :title="src.path">{{ src.path }}</span>
         </div>
-        <p v-if="srcLoading" class="hint mono">读取源文件…</p>
+        <p v-if="srcLoading" class="hint mono">{{ t('workflows.new.readingSource') }}</p>
         <p v-if="srcError" class="error mono" data-test="tpl-source-error">{{ srcError }}</p>
         <p v-if="shadowText" class="hint mono" data-test="tpl-shadows">{{ shadowText }}</p>
         <p v-if="readOnlyNote && !editing" class="hint mono" data-test="tpl-builtin-note">{{ readOnlyNote }}</p>
 
         <div v-if="creating" class="field">
-          <label class="label mono" for="tpl-new-name">模板名（字母、数字、. _ -）</label>
+          <label class="label mono" for="tpl-new-name">{{ t('workflows.new.sourceName') }}（{{ t('workflows.new.sourceNameHint') }}）</label>
           <input id="tpl-new-name" v-model="newName" class="control mono" type="text" data-test="tpl-new-name" />
         </div>
 
@@ -655,9 +674,10 @@ onMounted(() => {
         <pre v-else-if="src" class="src-text mono" data-test="tpl-source-text">{{ src.content }}</pre>
 
         <div v-if="editing" class="field">
-          <span class="label mono">保存到哪一层</span>
+          <span class="label mono">{{ t('workflows.new.saveScope') }}</span>
           <label class="radio mono"
-            ><input v-model="saveScope" type="radio" value="global" data-test="tpl-scope-global" /> 全局（server 上所有项目）</label
+            ><input v-model="saveScope" type="radio" value="global" data-test="tpl-scope-global" />
+            {{ t('workflows.new.scopeGlobal') }}</label
           >
           <label class="radio mono" :class="{ 'radio--off': !tplProject }"
             ><input
@@ -676,14 +696,14 @@ onMounted(() => {
 
         <div v-if="editing" class="toolbar mono">
           <button class="plain-btn" type="button" :disabled="saving || !editingName" data-test="tpl-save" @click="onSaveTemplate">
-            {{ saving ? '保存中…' : '保存模板' }}
+            {{ saving ? t('workflows.new.saving') : t('workflows.new.saveTemplate') }}
           </button>
           <button class="plain-btn" type="button" :disabled="saving" data-test="tpl-cancel" @click="cancelEdit">
-            取消
+            {{ t('workflows.new.cancel') }}
           </button>
         </div>
         <div v-else-if="gated.editable && src" class="toolbar mono">
-          <button class="plain-btn" type="button" data-test="tpl-edit" @click="startEdit">编辑</button>
+          <button class="plain-btn" type="button" data-test="tpl-edit" @click="startEdit">{{ t('workflows.new.edit') }}</button>
           <button
             v-if="canDelete"
             class="plain-btn plain-btn--danger"
@@ -692,10 +712,10 @@ onMounted(() => {
             data-test="tpl-delete"
             @click="onDeleteTemplate"
           >
-            {{ confirmingDelete ? '确认删除（不可撤销）' : '删除' }}
+            {{ confirmingDelete ? t('workflows.new.confirmDelete') : t('workflows.new.delete') }}
           </button>
           <button v-if="confirmingDelete" class="plain-btn" type="button" @click="confirmingDelete = false">
-            取消删除
+            {{ t('workflows.new.cancelDelete') }}
           </button>
         </div>
 
@@ -705,7 +725,7 @@ onMounted(() => {
         <div v-if="notice?.command" class="notice-cmd" data-test="tpl-commit-cmd">
           <code class="mono">{{ notice.command }}</code>
           <button class="plain-btn" type="button" data-test="tpl-commit-copy" @click="copyCommitCommand(notice.command)">
-            {{ copiedCommand ? '已复制' : '复制' }}
+            {{ copiedCommand ? t('workflows.new.copied') : t('workflows.new.copy') }}
           </button>
         </div>
         <p v-if="deleteNotice" class="notice mono notice--warn" data-test="tpl-delete-notice">{{ deleteNotice }}</p>
@@ -733,7 +753,7 @@ onMounted(() => {
 
         <div class="toolbar mono">
           <button class="plain-btn" type="button" :disabled="previewing" data-test="tpl-preview" @click="onPreview">
-            {{ previewing ? '渲染中…' : '预览步骤' }}
+            {{ previewing ? t('workflows.new.previewing') : t('workflows.new.preview') }}
           </button>
         </div>
         <p v-if="previewError" class="error mono" data-test="preview-error">{{ previewError }}</p>
@@ -752,33 +772,38 @@ onMounted(() => {
 
         <p v-if="submitError" class="error mono">{{ submitError }}</p>
         <button class="submit" type="button" :disabled="submitting || !tplName" data-test="tpl-submit" @click="onSubmitTemplate">
-          {{ submitting ? '提交中…' : '提交 workflow' }}
+          {{ submitting ? t('workflows.new.submitting') : t('workflows.new.submit') }}
         </button>
       </template>
     </div>
 
     <form v-else-if="!loading && mode === 'yaml'" class="card" @submit.prevent="onSubmit">
       <div class="toolbar mono">
-        <span class="template-note">内联 YAML</span>
+        <span class="template-note">{{ t('workflows.new.inlineYaml') }}</span>
         <button class="plain-btn" type="button" @click="resetTemplate">
-          重置模板
+          {{ t('workflows.new.resetTemplate') }}
         </button>
       </div>
 
       <div class="field">
-        <label class="label mono" for="nw-yaml">工作流 YAML</label>
-        <textarea
-          id="nw-yaml"
-          v-model="yamlText"
-          class="control mono area"
-          spellcheck="false"
-        ></textarea>
+        <label class="label mono" for="nw-yaml">{{ t('workflows.new.yaml') }}</label>
+        <div class="yaml-editor mono">
+          <pre ref="gutter" class="yaml-gutter" aria-hidden="true">{{ lineNumbers }}</pre>
+          <textarea
+            id="nw-yaml"
+            ref="yamlArea"
+            v-model="yamlText"
+            class="control mono area"
+            spellcheck="false"
+            @scroll="syncScroll"
+          ></textarea>
+        </div>
       </div>
 
       <p v-if="submitError" class="error mono">{{ submitError }}</p>
 
       <button class="submit" type="submit" :disabled="submitting">
-        {{ submitting ? '提交中…' : '提交 workflow' }}
+        {{ submitting ? t('workflows.new.submitting') : t('workflows.new.submit') }}
       </button>
     </form>
   </div>
@@ -792,8 +817,37 @@ onMounted(() => {
 .newwf-head {
   display: flex;
   align-items: baseline;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+/* YAML 编辑器：行号栏在左侧，与 textarea 同字号同滚（设计稿 §7.2）。 */
+.yaml-editor {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.yaml-gutter {
+  margin: 0;
+  padding: 8px 6px 8px 8px;
+  min-width: 44px;
+  max-height: 360px;
+  overflow: hidden;
+  text-align: right;
+  color: var(--fg-3);
+  border-right: 1px solid var(--line);
+  user-select: none;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.yaml-editor .area {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  max-height: 360px;
+  line-height: 1.5;
 }
 .back {
   font-size: 13px;

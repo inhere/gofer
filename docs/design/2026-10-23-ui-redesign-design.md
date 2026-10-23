@@ -1183,6 +1183,60 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 视觉与交互自查：用构建产物 + 本机 Edge（Playwright，headless）+ `/v1` 桩数据（`tmp/visual/`，不入库）把 `/work` 按 zh / en × 浅 / 深各截一屏（1440×900），另加手机（390×844）列表 / 详情两屏。据此只改了一处：卡片上去掉一个与「到期」标记重复的到期小标签（它还是工具层中文，英文界面里会中英混排）；其余按设计稿落地后看起来正常（浅 / 深对比度都够、控制台只有桩服务的 WS 报错、手机无横向滚动）。交互冒烟也跑过：计数 chip 点选后出现「筛选结果」、再点取消；项目 chip 写进 `?project=` 后卡片只剩该项目的；`?id=` 打开抽屉后 Esc 关闭、`?id=` 被清掉、body 滚动恢复；手机「更多」→ 工作项能正常列表（6 张卡）。
 - `WorkCard` 的「详情 / 收起」仍由共享的 `InfoCard` 提供（中文），同 P4 会话页的取舍。
 
+### P5 工作流与定时（2026-10-23，issue gofer-hez1）
+
+落地范围即 §14 表格 P5 行的 `/workflows`、`/workflows/new`、`/workflows/:id`、`/schedules`、`/schedules/new`（`views/Workflows.vue`、`views/NewWorkflow.vue`、`views/WorkflowDetail.vue`、`views/Schedules.vue`、`views/NewSchedule.vue`）。不涉及 Go 代码，没有新增或修改接口：数据仍来自 `GET /v1/workflows`（可选 `status`）、`GET /v1/workflows/{id}`、`/events`、`POST /v1/workflows`、`/from-template`、`/rerun`、`/cancel`、`/save-as-template`、模板的 list/source/render/delete、`GET /v1/schedules`（可选 `project`）、`POST /v1/schedules`、`PATCH`、`/enabled`、`/run`、`DELETE`。
+
+**页面结构**
+
+- `/workflows`：页头（标题 + 实验性徽标 + 共 N 个 + 新建按钮 + 轮询指示）+ 带计数的状态 chip（全部 / 各状态，再点一次取消，计数按当前列表）+ 表格。列按 §7.2：状态（`StatusPill`）、工作流标题 / ID、步骤（分段 `ProgressBar` + `当前/总数`）、开始时间、耗时。行整行可点进详情，键盘 Enter 同样进入；列表用 `useListReturn` 记住筛选与滚动位置。
+- `/workflows/new`：`ui/Tabs` 两个页签（从模板新建 / YAML，`?tab=` 可深链），`ui/BackLink` 回列表。模板页签：项目 → 模板列表（内置 / 全局 / 项目徽标）→ 变量表单（agent / runner 下拉按项目 allowed_* 与 ceiling 收窄）→ 预览渲染后的步骤 → 提交；模板源文件的查看 / 编辑 / 新建 / 删除与保存层级、提交命令复制全部保留。YAML 页签：等宽编辑器带行号栏（与 textarea 同滚）、重置模板、提交。
+- `/workflows/:id`：`ui/BackLink`（文案「工作流」，回原筛选）；头部标题 + `StatusPill size=md` + 取消工作流 + id / 步骤 / 耗时 / 错误；结果表一路 fan 一行（步骤名 · fan 名、重试 / fan 徽标、状态、runner、开始时间、退出码、耗时、JOB 跳转、cwd 与 ref、可展开的失败摘录）；步骤链（并行 / 重试分组，扇出步仍用 `CompareColumns` 对比与择优合并，子工作流入口）；事件时间线；操作：只重跑失败的、从此步重跑、另存为模板（`ui/Drawer`）。
+- `/schedules`：页头（标题 + 共 N 个 + 轮询指示 + 新建）+ `ProjectFilter`（值进 URL 的 `?project=`，服务端按项目取数）+ 表格。列：启用开关（`role=switch`）、名称 / id（cron·once 徽标、项目 · agent · runner）、类型 / cron、下次触发（绝对 + 相对，一次性已触发 / 已停用）、上次任务（跳 job）、操作（运行 · 带参数时带「⚙」/ 编辑 / 启停 / 删除）；点行展开被调度的 JobRequest 摘要（id、type、catch_up、cwd、title、timeout、worker_id / labels、tags、参数声明、prompt / cmd 首行）。立即执行参数表单进 `ui/Sheet`（按声明类型生成控件、预填默认、底部预览将设置的环境变量），编辑进 `ui/Drawer`（cron 或触发时间、标题、超时、启停、参数声明增删改；命令 / agent / runner / 项目仍不可改）。删除仍二次确认。
+- `/schedules/new`：字段与校验不变（名称、触发类型 cron / once、cron 预设与帮助、延迟或指定时间、项目 / agent / runner 联动、prompt / command、worker 选机、cwd / 标题 / 标签 / 超时 / catch_up / enabled、参数声明编辑器），返回链接换成 `ui/BackLink`，全部文案走字典。
+
+**i18n（§9）**
+
+- 本页文案全部进 `web/src/i18n/pages/workflows.ts`（前缀 `workflows.`）与 `schedules.ts`（前缀 `schedules.`），zh / en 同名同数，已登记进 `i18n.test.ts` 的 `pageDomains`；不动 `zh.ts` / `en.ts`。
+- 业务内容（工作流标题、模板名与描述、cron 表达式、参数名、命令、日志、项目 / agent / runner 名、id）不翻译。
+
+**不丢信息核对（对照 §7.2 与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 工作流：标题取自 `PAGE.workflows`、实验性徽标、创建链接、轮询指示 | 保留（标题走 `workflows.title`，新建换主按钮） |
+| 工作流：状态下拉筛选 | 带计数的状态 chip（新增「全部」与计数） |
+| 工作流列：状态 / 工作流·标题·ID / 步骤 / 开始时间 / 耗时 | 全部保留（状态 byte pill，步骤加分段进度条） |
+| 工作流：空态与创建入口 | 保留 |
+| 新建工作流：项目选择、模板列表（来源徽标 + 描述）、来源文件查看 / 编辑 / 新建 / 删除、保存层级、提交命令复制、变量表单（agent / runner 下拉、必填 *、说明、校验）、预览步骤、提交 | 全部保留 |
+| 新建工作流：YAML 页签、重置模板、解析错误（行 / 列） | 保留（编辑器加行号栏） |
+| 详情：返回、状态、取消工作流、id / 步骤 / 耗时 / 错误 | 保留（返回链接文案改为「工作流」并复用 `BackLink`） |
+| 详情：结果表（步骤名 · fan 名、重试 / fan 徽标、状态、runner、开始、退出码、耗时、失败摘录、日志跳转、cwd / ref、从此步重跑） | 全部保留（JOB 跳转改按钮，字段名走字典） |
+| 详情：只重跑失败的、另存为模板（模板名 / 层级 / 项目 / 提交命令） | 保留（另存为模板进 `Drawer`） |
+| 详情：步骤链（并行 / 重试、对比与择优合并、子工作流）、事件时间线 | 保留 |
+| 定时：标题、项目过滤（旧：只认 URL）、新建入口、轮询指示、空态 | 保留；项目过滤换成 `ProjectFilter`（读写 `?project=`） |
+| 定时：启用状态、名称 / ID、类型 / cron、下次触发、上次任务、操作 | 保留（启用改开关，另加项目 / agent / runner 副行） |
+| 定时：运行 / 编辑 / 启停 / 删除、删除确认 | 保留 |
+| 定时：展开行（id、type、catch_up、cwd、title、timeout、worker_id / labels、tags、params、prompt / cmd） | 全部保留 |
+| 定时：立即执行参数表单（按类型控件、预填默认、desc、环境变量预览） | 保留（外壳换 `Sheet`） |
+| 定时：编辑（cron / 触发时间、标题、超时、启停、参数声明增删改） | 保留（外壳换 `Drawer`） |
+| 新建定时：全部字段、cron 预设、校验、参数声明 | 保留（返回链接换 `BackLink`，文案走字典） |
+
+**测试（§13）**
+
+- 新增 `views/workflowsSchedulesI18n.test.ts`（3 个用例）：页面里出现的每个 `t('workflows.*' / 'schedules.*')` 在 zh 与 en 都存在、两本页面字典 key 集合相等、英文文案里没有汉字。
+- 同步修改：`views/workflowsMobile.test.ts`（改成测接线与结构：760 断点、`FilterChips` / `StatusPill` / `ProgressBar`、列与字典 key、手机卡片布局）、`views/newWorkflowTemplate.test.ts`（页签换成 `ui/Tabs` 与 `?tab=`、YAML 行号栏）、`views/schedulesParams.test.ts`（参数校验文案改 key）、`views/uiTextWiring.test.ts`（标题走 i18n、返回链接换 `BackLink`）、`views/experimentalBadges.test.ts`（锚点改 i18n key）、`views/ceilingWiring.test.ts`（新建按钮类名）、`views/today.test.ts`（定时新建按钮类名）、`i18n/i18n.test.ts`（页面域加 `workflows.` / `schedules.`）。
+- 全量 `npx vitest run` 211 个文件 / 1450 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
+
+**如实记录的范围边界与差异**
+
+- §7.2 的「`/workflows` 加项目 chip」**没有落地**：工作流列表接口（`Workflow`）没有 `project_key` 字段，加一个不改变结果的 chip 会误导人。等列表接口带项目后再补。
+- 工作流的状态筛选在前端收窄：一次取全部工作流（同上限），chip 的计数因此是真实总数；没有把 `status` 参数改成前端唯一真源以外的语义。
+- 定时列表的项目筛选仍是服务端参数（`GET /v1/schedules?project=`），`ProjectFilter` 只负责把值写进 URL。
+- 预览稿（`tmp/gofer-ui-redesign/preview.html`）没有工作流 / 定时屏，形态按 §7.2 的字段清单 + P2/P4 已合入的基元落地，而非逐像素对齐。
+- 仍留在工具层的中文（P6 统一处理）：`utils/workflowResult.ts` 的模板保存 / 删除提示与 `templateReadOnlyNote`、`utils/statusText.ts` 的状态名回退、`components/ExperimentalBadge.vue` 的标题、`CompareColumns` 的按钮与合并提示、`api/time.ts` 的 `fmtUntil`（本次已把定时列表里的「待触发」换成 `utils/format.ts` 的 `formatRelative`，工具函数本身留给 P6）。
+- 视觉与交互自查：用 vite dev server + 最小路由 + stub 的 `/v1` 响应（自建临时入口，截图完已删）把 `/workflows`、`/workflows/new`、`/workflows/:id`、`/schedules`、`/schedules/new` 按 zh / en × 浅 / 深（1440×900）各截一屏，另加定时列表的手机屏（390×844）。据此改了四处：列表步骤列不再重复显示一次进度（`ProgressBar` 自带分数）、把截断的 id 改为完整 id（避免「ightly-clean」这类只剩尾部的怪样子）、手机上的启用开关不再被最小点按高度拉成胶囊、定时下次触发的「待触发」换成按语言格式化的相对时间（英文界面不再出现中文）。最终一版的截图里没有横向滚动，浅 / 深对比度正常，控制台只有 stub 未提供的 `/v1/ws-ticket` 代理报错。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**
