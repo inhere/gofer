@@ -327,25 +327,25 @@ async function loadRows(): Promise<void> {
 
 // selectConvFromQuery 是 /mail?conv=<id> 的深链：那一个对话可能不在当前列表里（不在当前项目 /
 // 不在第一页），所以直接按 id 找服务端要（GET /v1/mail/conversations?conv=）。找到了就把它放进
-// 列表并选中；服务端说没有（404）就是真的看不到，报错而不是安静地选第一个。
-async function selectConvFromQuery(): Promise<boolean> {
+// 列表并选中；服务端说没有（404）就是真的看不到：返回错误文案（由 load 显示），而不是
+// 安静地选第一个。返回 "" 表示已处理（选中了，或本来就没有 conv 参数）。
+async function selectConvFromQuery(): Promise<string> {
   const id = convQuery.value
-  if (!id) return false
+  if (!id) return ''
   const known = rows.value.find((r) => r.id === id)
   if (known) {
     activeKey.value = known.key
-    return true
+    return ''
   }
   try {
     const resp = await listMailConversations({ conv: id, limit: 1 })
     const conv = (resp.conversations ?? [])[0]
-    if (!conv) return false
+    if (!conv) return t('mail.thread.convMissing', { id })
     rows.value = [conv, ...rows.value.filter((r) => r.key !== conv.key)]
     activeKey.value = conv.key
-    return true
+    return ''
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-    return false
+    return e instanceof Error ? e.message : String(e)
   }
 }
 
@@ -479,7 +479,8 @@ async function load(silent = false): Promise<void> {
   try {
     await loadRows()
     // 深链选定的对话优先；否则在当前筛选的结果里保持 / 重选。
-    if (!(await selectConvFromQuery())) {
+    const convErr = await selectConvFromQuery()
+    if (!convErr) {
       const shown = visibleRows.value
       if (!shown.some((r) => r.key === activeKey.value)) {
         activeKey.value = shown[0]?.key ?? ''
@@ -491,7 +492,7 @@ async function load(silent = false): Promise<void> {
     } else {
       await loadTimeline()
     }
-    error.value = ''
+    error.value = convErr
   } catch (e) {
     rows.value = []
     timeline.value = []

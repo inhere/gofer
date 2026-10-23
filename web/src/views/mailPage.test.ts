@@ -155,6 +155,9 @@ describe('对话 id（可复制的固定手柄）', () => {
     expect(pageSrc).toContain("queryValue(route.query.conv)")
     expect(pageSrc).toContain('async function selectConvFromQuery')
     expect(pageSrc).toContain("listMailConversations({ conv: id, limit: 1 })")
+    // 查不到（404）时把服务端的话显示在错误区（load 末尾统一写 error，不被成功清掉）。
+    expect(pageSrc).toContain("t('mail.thread.convMissing', { id })")
+    expect(pageSrc).toContain('error.value = convErr')
     // 地址栏的 conv 变化也要重新取（外链点两次不同对话）。
     expect(pageSrc).toContain('route.query.session, route.query.conv]')
   })
