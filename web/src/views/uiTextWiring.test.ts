@@ -26,7 +26,7 @@ describe('页面标题用中文', () => {
     ['Plans', "t('plans.list.title')"],
     ['Workflows', "t('workflows.title')"],
     ['Sessions', "t('sessions.title')"],
-    ['Projects', '{{ PAGE.projects }}'],
+    ['Projects', "t('nav.projects')"],
     ['Schedules', "t('schedules.title')"],
     ['Skills', '{{ PAGE.skills }}'],
   ]

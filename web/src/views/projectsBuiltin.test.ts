@@ -12,8 +12,8 @@ describe('Projects page: built-in default project', () => {
 
   it('warns that saving writes the built-in project into the config, and refuses to delete it', () => {
     expect(page).toContain('data-test="project-builtin-hint"')
-    expect(page).toContain('保存后会写入配置，成为声明项目')
+    expect(page).toContain("t('projects.builtinHint')")
     expect(page).toContain('!!detail?.injected')
-    expect(page).toContain('内置项目不能删除')
+    expect(page).toContain("t('projects.deleteBlocked')")
   })
 })

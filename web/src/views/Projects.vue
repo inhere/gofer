@@ -3,7 +3,7 @@
 // P3 增强（E20/E32）：右列再加 git 状态卡 + 子仓库列表 + 关键文件查看（FilePreview）。
 // 刷新策略（D7）：进入项目详情时取 git/repos，git 卡提供手动刷新按钮，不轮询。
 import { runnerLabel } from '../utils/runnerDisplay'
-import { PAGE } from '../utils/uiText'
+import { t } from '../i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWhoami } from '../store/whoami'
@@ -15,6 +15,8 @@ import {
   getProject,
   getProjectFile,
   getProjectGit,
+  listJobs,
+  listPlans,
   listProjects,
   listRepos,
   updateProject,
@@ -50,6 +52,23 @@ const warnings = ref<string[]>([])
 // 项目增删改需要 project.write；没有就不摆新增 / 编辑（只读浏览仍可用）。
 const { can } = useWhoami()
 const mode = ref<'none' | 'create' | 'edit'>('none')
+
+// 设计稿 §6.4-5：项目概览的计数（活跃任务 / 进行中计划），进详情时取一次；失败就整块不显示，
+// 不影响配置与 git 展示。
+const counts = ref<{ jobs: number; plans: number } | null>(null)
+
+async function loadCounts(key: string): Promise<void> {
+  counts.value = null
+  try {
+    const [jobsResp, plansResp] = await Promise.all([
+      listJobs({ project: key, status: 'running', limit: 100 }),
+      listPlans({ project: key, status: 'open', limit: 1 }),
+    ])
+    counts.value = { jobs: jobsResp.jobs?.length ?? 0, plans: plansResp.total ?? 0 }
+  } catch {
+    counts.value = null
+  }
+}
 
 interface ProjectForm {
   key: string
@@ -171,7 +190,8 @@ async function selectKey(key: string, keepMessages = false) {
     notice.value = ''
     warnings.value = []
   }
-  // 切项目：重置 git/repos/关键文件预览状态。
+  // 切项目：重置 git/repos/关键文件/计数状态。
+  counts.value = null
   resetFile()
   try {
     detail.value = await getProject(key)
@@ -181,9 +201,10 @@ async function selectKey(key: string, keepMessages = false) {
   } finally {
     loadingDetail.value = false
   }
-  // 详情拉到后并行取 git + repos（失败各自降级，不影响配置展示）。
+  // 详情拉到后并行取 git + repos + 计数（失败各自降级，不影响配置展示）。
   void loadGit(key)
   void loadRepos(key)
+  void loadCounts(key)
 }
 
 function startCreate(): void {
@@ -196,6 +217,7 @@ function startCreate(): void {
   warnings.value = []
   gitStatus.value = null
   repos.value = []
+  counts.value = null
   resetFile()
   Object.assign(form, {
     key: '',
@@ -286,7 +308,7 @@ async function saveProject(): Promise<void> {
   notice.value = ''
   warnings.value = []
   if (!canSubmit.value) {
-    formError.value = '请填写 key 与 host_path'
+    formError.value = t('projects.err.needFields')
     return
   }
   saving.value = true
@@ -296,7 +318,7 @@ async function saveProject(): Promise<void> {
       mode.value === 'create'
         ? await createProject(req)
         : await updateProject(selected.value, req)
-    await applyWriteSuccess(resp, mode.value === 'create' ? '项目已创建' : '项目已保存')
+    await applyWriteSuccess(resp, mode.value === 'create' ? t('projects.notice.created') : t('projects.notice.saved'))
   } catch (e) {
     formError.value = classifyWriteError(e)
   } finally {
@@ -305,7 +327,7 @@ async function saveProject(): Promise<void> {
 }
 
 async function removeProject(): Promise<void> {
-  if (!selected.value || !window.confirm(`确认删除项目 ${selected.value}？`)) {
+  if (!selected.value || !window.confirm(t('projects.confirmDelete', { key: selected.value }))) {
     return
   }
   formError.value = ''
@@ -314,7 +336,7 @@ async function removeProject(): Promise<void> {
   deleting.value = true
   try {
     await deleteProject(selected.value)
-    notice.value = '项目已删除'
+    notice.value = t('projects.notice.deleted')
     resetForm()
     await loadList('', true)
   } catch (e) {
@@ -336,16 +358,16 @@ async function applyWriteSuccess(resp: ProjectWriteResp, message: string): Promi
 function classifyWriteError(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 403) {
-      return '无 can_admin 权限，当前 caller 不允许编辑配置。'
+      return t('projects.err.noAccess')
     }
     if (e.status === 409) {
-      return '项目已存在，请换一个 key 或选择现有项目编辑。'
+      return t('projects.err.exists')
     }
     if (e.status === 400) {
-      return `项目配置校验失败：${e.detail || e.message}`
+      return t('projects.err.invalid', { detail: e.detail || e.message })
     }
     if (e.status === 404) {
-      return `项目不存在：${e.detail || e.message}`
+      return t('projects.err.notFound', { detail: e.detail || e.message })
     }
   }
   return e instanceof Error ? e.message : String(e)
@@ -444,6 +466,11 @@ function viewOnBoard(key: string) {
   void router.push({ path: '/jobs', query: { project: key } })
 }
 
+// 项目概览的「进行中计划」跳该项目的计划列表（设计稿 §6.4-5）。
+function viewPlans(key: string) {
+  void router.push({ path: '/plans', query: { project: key } })
+}
+
 onMounted(() => {
   void loadList()
   void loadConfigOptions()
@@ -452,24 +479,29 @@ onMounted(() => {
 
 <template>
   <div class="projects">
-    <div class="head">
-      <h1 class="title mono">{{ PAGE.projects }}</h1>
-      <button v-if="can('project.write')" class="submit submit--small" type="button" data-test="project-new" @click="startCreate">新增项目</button>
-    </div>
+    <header class="page-head">
+      <div>
+        <h1 class="title">{{ t('nav.projects') }}</h1>
+        <p class="sub">{{ t('projects.sub') }}</p>
+      </div>
+      <button v-if="can('project.write')" class="submit submit--small" type="button" data-test="project-new" @click="startCreate">
+        {{ t('projects.new') }}
+      </button>
+    </header>
     <p v-if="listError" class="error mono">{{ listError }}</p>
     <p v-if="configError" class="error mono">{{ configError }}</p>
 
     <label class="mobile-project-picker mono">
-      <span>项目</span>
+      <span>{{ t('projects.picker') }}</span>
       <select class="control mono" :value="selected" @change="selectKey(($event.target as HTMLSelectElement).value)">
-        <option value="">选择项目</option>
+        <option value="">{{ t('projects.pickerPlaceholder') }}</option>
         <option v-for="key in keys" :key="key" :value="key">{{ key }}</option>
       </select>
     </label>
 
     <div class="layout">
       <!-- 列表 -->
-      <ul class="list" aria-label="项目列表">
+      <ul class="list" :aria-label="t('projects.listAria')">
         <li v-for="key in keys" :key="key">
           <button
             type="button"
@@ -479,29 +511,39 @@ onMounted(() => {
             @click="selectKey(key)"
           >
             {{ key }}
-            <span v-if="injectedKeys.includes(key)" class="builtin-badge" data-test="project-builtin-badge" title="内置项目：配置里没有声明，server 默认注入（指向默认工作空间）">内置</span>
+            <span v-if="injectedKeys.includes(key)" class="builtin-badge" data-test="project-builtin-badge" :title="t('projects.builtinTitle')">{{ t('projects.builtin') }}</span>
           </button>
         </li>
         <li v-if="keys.length === 0 && !loadingList && !listError" class="list-empty mono">
-          暂无项目
+          {{ t('projects.empty') }}
         </li>
-        <li v-if="loadingList" class="list-empty mono">加载中…</li>
+        <li v-if="loadingList" class="list-empty mono">{{ t('hint.loading') }}</li>
       </ul>
 
       <!-- 详情 -->
-      <section class="detail" aria-label="项目详情">
+      <section class="detail" :aria-label="t('projects.detailAria')">
         <p v-if="detailError" class="error mono">{{ detailError }}</p>
-        <p v-else-if="loadingDetail" class="placeholder mono">加载中…</p>
-        <p v-else-if="!detail && mode !== 'create'" class="placeholder mono">选择左侧项目查看配置，或点击新增项目</p>
+        <p v-else-if="loadingDetail" class="placeholder mono">{{ t('hint.loading') }}</p>
+        <p v-else-if="!detail && mode !== 'create'" class="placeholder mono">{{ t('projects.placeholder') }}</p>
 
         <div v-if="detail" class="detail-body">
           <div class="detail-head">
             <span class="detail-key mono">{{ detail.key }}</span>
-            <span v-if="detail.injected" class="builtin-badge" data-test="project-builtin-detail" title="内置项目：配置里没有声明，server 默认注入（指向默认工作空间）">内置</span>
+            <span v-if="detail.injected" class="builtin-badge" data-test="project-builtin-detail" :title="t('projects.builtinTitle')">{{ t('projects.builtin') }}</span>
             <button class="board-link mono" type="button" @click="viewOnBoard(detail.key)">
-              在看板查看 &#9656;
+              {{ t('projects.boardLink') }} &#9656;
             </button>
           </div>
+
+          <!-- 项目概览（设计稿 §6.4-5）：活跃任务 / 进行中计划，各自跳到该项目的过滤列表。 -->
+          <nav v-if="counts" class="counts" :aria-label="t('projects.counts.title')" data-test="project-counts">
+            <button class="count-link" type="button" :title="t('projects.counts.jobsTitle')" @click="viewOnBoard(detail.key)">
+              {{ t('projects.counts.jobs', { n: counts.jobs }) }}
+            </button>
+            <button class="count-link" type="button" :title="t('projects.counts.plansTitle')" @click="viewPlans(detail.key)">
+              {{ t('projects.counts.plans', { n: counts.plans }) }}
+            </button>
+          </nav>
 
           <dl class="kv">
             <dt class="mono">host_path</dt>
@@ -543,7 +585,7 @@ onMounted(() => {
             <dt class="mono">allow_exec</dt>
             <dd class="mono">
               <span class="flag" :class="detail.allow_exec ? 'flag--yes' : 'flag--no'">
-                {{ detail.allow_exec ? '是' : '否' }}
+                {{ detail.allow_exec ? t('projects.flag.yes') : t('projects.flag.no') }}
               </span>
             </dd>
 
@@ -551,7 +593,7 @@ onMounted(() => {
             <dt class="mono">allow_interactive</dt>
             <dd class="mono">
               <span class="flag" :class="detailAllowInteractive ? 'flag--yes' : 'flag--no'">
-                {{ detailAllowInteractive ? '是' : '否' }}
+                {{ detailAllowInteractive ? t('projects.flag.yes') : t('projects.flag.no') }}
               </span>
             </dd>
 
@@ -560,18 +602,18 @@ onMounted(() => {
           </dl>
         </div>
 
-        <section v-if="mode !== 'none' && can('project.write')" class="block edit-block" aria-label="项目编辑">
+        <section v-if="mode !== 'none' && can('project.write')" class="block edit-block" :aria-label="t('projects.editAria')">
           <div class="block-head">
-            <h2 class="block-title mono">项目编辑</h2>
+            <h2 class="block-title mono">{{ t('projects.edit.title') }}</h2>
           </div>
 
           <p v-if="mode === 'edit' && detail?.injected" class="builtin-hint mono" data-test="project-builtin-hint">
-            这是内置项目：保存后会写入配置，成为声明项目（之后和普通项目一样管理）。内置项目不能直接删除。
+            {{ t('projects.builtinHint') }}
           </p>
           <form class="form" @submit.prevent="saveProject">
             <div class="row">
               <div class="field">
-                <label class="label mono" for="cfg-key">键</label>
+                <label class="label mono" for="cfg-key">{{ t('projects.field.key') }}</label>
                 <input
                   id="cfg-key"
                   v-model="form.key"
@@ -582,7 +624,7 @@ onMounted(() => {
                 />
               </div>
               <div class="field">
-                <label class="label mono" for="cfg-default-agent">默认 Agent</label>
+                <label class="label mono" for="cfg-default-agent">{{ t('projects.field.defaultAgent') }}</label>
                 <select id="cfg-default-agent" v-model="form.default_agent" class="control mono">
                   <option value="">-</option>
                   <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.key }}</option>
@@ -591,7 +633,7 @@ onMounted(() => {
             </div>
 
             <div class="field">
-              <label class="label mono" for="cfg-host">主机路径</label>
+              <label class="label mono" for="cfg-host">{{ t('projects.field.hostPath') }}</label>
               <input
                 id="cfg-host"
                 v-model="form.host_path"
@@ -602,20 +644,20 @@ onMounted(() => {
             </div>
 
             <div class="field">
-              <label class="label mono" for="cfg-container">容器路径</label>
+              <label class="label mono" for="cfg-container">{{ t('projects.field.containerPath') }}</label>
               <input
                 id="cfg-container"
                 v-model="form.container_path"
                 class="control mono"
                 autocomplete="off"
                 spellcheck="false"
-                placeholder="可选"
+                :placeholder="t('projects.field.optional')"
               />
             </div>
 
             <div class="row">
               <fieldset class="pick">
-                <legend class="label mono">允许的 Agents</legend>
+                <legend class="label mono">{{ t('projects.field.allowedAgents') }}</legend>
                 <label v-for="a in agents" :key="a.key" class="check mono">
                   <input
                     type="checkbox"
@@ -624,11 +666,11 @@ onMounted(() => {
                   />
                   <span>{{ a.key }}</span>
                 </label>
-                <p v-if="agents.length === 0" class="field-hint mono">无 agent 选项</p>
+                <p v-if="agents.length === 0" class="field-hint mono">{{ t('projects.field.noAgents') }}</p>
               </fieldset>
 
               <fieldset class="pick">
-                <legend class="label mono">允许的 Runners</legend>
+                <legend class="label mono">{{ t('projects.field.allowedRunners') }}</legend>
                 <label v-for="r in runnerOptions" :key="r" class="check mono">
                   <input
                     type="checkbox"
@@ -650,26 +692,24 @@ onMounted(() => {
               <div class="field field--check">
                 <label class="check mono">
                   <input v-model="form.allow_interactive" type="checkbox" />
-                  <span>允许交互 job（allow_interactive）</span>
+                  <span>{{ t('projects.field.allowInteractive') }}</span>
                 </label>
               </div>
               <div class="field">
-                <label class="label mono" for="cfg-max">最大并发任务数</label>
+                <label class="label mono" for="cfg-max">{{ t('projects.field.maxConcurrent') }}</label>
                 <input
                   id="cfg-max"
                   v-model="form.max_concurrent_jobs"
                   class="control mono"
                   type="number"
                   min="1"
-                  placeholder="不限制"
+                  :placeholder="t('projects.field.maxConcurrentPlaceholder')"
                 />
               </div>
             </div>
 
             <div class="field">
-              <label class="label mono" for="cfg-rules">
-                RULES（每行一个规则名 = 该项目每个 job 都必须遵守的约束）
-              </label>
+              <label class="label mono" for="cfg-rules">{{ t('projects.field.rules') }}</label>
               <textarea
                 id="cfg-rules"
                 v-model="form.rulesText"
@@ -679,16 +719,15 @@ onMounted(() => {
                 placeholder="gofer-repo"
               ></textarea>
               <p class="field-hint mono">
-                规则名来自 <RouterLink to="/settings/rules">规则库（设置 → Rules）</RouterLink>；绑定是叠加的
-                （server → agent → project → job 取并集，项目不能取消 server 的规则），
-                仓库里若有 <code>.gofer/RULES.md</code> 会另加一条 <code>project:&lt;key&gt;</code>。
+                {{ t('projects.field.rulesHint') }}
+                <RouterLink to="/settings/rules">{{ t('nav.settings') }} › Rules</RouterLink>
               </p>
             </div>
 
             <p v-if="formError" class="error mono">{{ formError }}</p>
             <p v-if="notice" class="notice mono">{{ notice }}</p>
             <div v-if="warnings.length" class="warn mono">
-              <strong>保存成功，但有告警：</strong>
+              <strong>{{ t('projects.warn.head') }}</strong>
               <ul>
                 <li v-for="w in warnings" :key="w">{{ w }}</li>
               </ul>
@@ -696,18 +735,18 @@ onMounted(() => {
 
             <div class="actions">
               <button class="submit" type="submit" :disabled="!canSubmit">
-                {{ saving ? '保存中...' : mode === 'create' ? '创建项目' : '保存项目' }}
+                {{ saving ? t('projects.saving') : mode === 'create' ? t('projects.create') : t('projects.save') }}
               </button>
               <button
                 v-if="isEditing"
                 class="danger"
                 type="button"
                 :disabled="deleting || saving || !!detail?.injected"
-                :title="detail?.injected ? '内置项目不能删除；想换掉它，在配置里显式声明同名 default 项目' : ''"
+                :title="detail?.injected ? t('projects.deleteBlocked') : ''"
                 data-test="project-delete"
                 @click="removeProject"
               >
-                {{ deleting ? '删除中...' : '删除项目' }}
+                {{ deleting ? t('projects.deleting') : t('projects.delete') }}
               </button>
             </div>
           </form>
@@ -717,33 +756,33 @@ onMounted(() => {
           <!-- git 状态卡（E20） -->
           <section class="block" aria-label="git 状态">
             <div class="block-head">
-              <h2 class="block-title mono">GIT 状态</h2>
+              <h2 class="block-title mono">{{ t('projects.git.title') }}</h2>
               <button
                 class="mini-btn mono"
                 type="button"
                 :disabled="gitLoading"
                 @click="refreshGit"
               >
-                {{ gitLoading ? '刷新中…' : '刷新' }}
+                {{ gitLoading ? t('hint.loading') : t('act.refresh') }}
               </button>
             </div>
 
             <p v-if="gitError" class="error mono">{{ gitError }}</p>
-            <p v-else-if="gitLoading && !gitStatus" class="placeholder mono">加载中…</p>
+            <p v-else-if="gitLoading && !gitStatus" class="placeholder mono">{{ t('hint.loading') }}</p>
             <p
               v-else-if="gitStatus && !gitStatus.is_git_repo"
               class="placeholder mono"
             >
-              非 git 仓 / 非本地可达
+              {{ t('projects.git.notRepo') }}
             </p>
-            <div v-else-if="gitStatus" class="git-body">
+            <div v-if="gitStatus" class="git-body">
               <div class="git-line mono">
                 <span class="git-branch">{{ gitStatus.branch || '—' }}</span>
                 <span
                   class="flag"
                   :class="gitStatus.dirty ? 'flag--no' : 'flag--yes'"
                 >
-                  {{ gitStatus.dirty ? 'dirty' : 'clean' }}
+                  {{ gitStatus.dirty ? t('projects.git.dirty') : t('projects.git.clean') }}
                 </span>
               </div>
               <ul class="commits" v-if="gitStatus.recent_commits.length">
@@ -757,33 +796,33 @@ onMounted(() => {
                   <span class="commit-meta">{{ c.author }} · {{ fmtTs(c.ts) }}</span>
                 </li>
               </ul>
-              <p v-else class="placeholder mono">无提交记录</p>
+              <p v-else class="placeholder mono">{{ t('projects.git.none') }}</p>
             </div>
           </section>
 
           <!-- 子仓库列表（E32） -->
-          <section class="block" aria-label="子仓库">
+          <section class="block" aria-label="repos">
             <div class="block-head">
-              <h2 class="block-title mono">子仓库</h2>
+              <h2 class="block-title mono">{{ t('projects.repos.title') }}</h2>
             </div>
             <p v-if="reposError" class="error mono">{{ reposError }}</p>
-            <p v-else-if="reposLoading" class="placeholder mono">加载中…</p>
-            <p v-else-if="repos.length === 0" class="placeholder mono">未发现 git 仓</p>
+            <p v-else-if="reposLoading" class="placeholder mono">{{ t('hint.loading') }}</p>
+            <p v-else-if="repos.length === 0" class="placeholder mono">{{ t('projects.repos.none') }}</p>
             <ul v-else class="repos">
               <li v-for="r in repos" :key="r.rel_path" class="repo mono">
                 <span class="repo-path">{{ r.rel_path }}</span>
                 <span class="repo-branch">{{ r.branch || '—' }}</span>
                 <span class="flag" :class="r.dirty ? 'flag--no' : 'flag--yes'">
-                  {{ r.dirty ? 'dirty' : 'clean' }}
+                  {{ r.dirty ? t('projects.git.dirty') : t('projects.git.clean') }}
                 </span>
               </li>
             </ul>
           </section>
 
           <!-- 关键文件（E32） -->
-          <section class="block" aria-label="关键文件">
+          <section class="block" aria-label="files">
             <div class="block-head">
-              <h2 class="block-title mono">关键文件</h2>
+              <h2 class="block-title mono">{{ t('projects.files.title') }}</h2>
             </div>
             <div class="file-tabs">
               <button
@@ -799,11 +838,11 @@ onMounted(() => {
             </div>
 
             <div v-if="activeFile" class="file-view">
-              <p v-if="fileLoading" class="placeholder mono">加载中…</p>
+              <p v-if="fileLoading" class="placeholder mono">{{ t('hint.loading') }}</p>
               <p v-else-if="fileErr" class="error mono">{{ fileErr }}</p>
               <template v-else-if="fileBlob">
                 <p v-if="fileTruncated" class="truncated mono">
-                  文件超过 256KB，已截断显示
+                  {{ t('projects.files.truncated') }}
                 </p>
                 <FilePreview
                   :name="fileName"
@@ -812,7 +851,7 @@ onMounted(() => {
                 />
               </template>
             </div>
-            <p v-else class="placeholder mono">点击上方文件查看内容</p>
+            <p v-else class="placeholder mono">{{ t('projects.files.hint') }}</p>
           </section>
         </div>
       </section>
@@ -827,15 +866,20 @@ onMounted(() => {
 }
 .head {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
 }
 .title {
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  color: var(--paper);
   margin: 0;
+  font-size: var(--fs-lg);
+  color: var(--fg);
+}
+.sub {
+  margin: 2px 0 0;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
 }
 .mobile-project-picker {
   display: none;
@@ -853,8 +897,8 @@ onMounted(() => {
   margin: 0;
   padding: 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -864,9 +908,9 @@ onMounted(() => {
   width: 100%;
   text-align: left;
   background: transparent;
-  color: var(--paper);
+  color: var(--fg);
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 7px 9px;
   font-size: 12px;
   overflow: hidden;
@@ -874,28 +918,28 @@ onMounted(() => {
   white-space: nowrap;
 }
 .list-item:hover {
-  background: var(--ink);
+  background: var(--sunken);
 }
 .list-item--active {
-  color: var(--phosphor);
+  color: var(--accent);
   border-color: var(--line);
-  background: var(--ink);
+  background: var(--sunken);
 }
 .list-empty {
-  color: var(--queue);
+  color: var(--fg-3);
   font-size: 12px;
   padding: 6px 9px;
 }
 
 .detail {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
   padding: 16px 18px;
   min-height: 120px;
 }
 .placeholder {
-  color: var(--queue);
+  color: var(--fg-3);
   font-size: 13px;
   margin: 0;
 }
@@ -911,19 +955,19 @@ onMounted(() => {
 }
 .detail-key {
   font-size: 15px;
-  color: var(--paper);
+  color: var(--fg);
   font-weight: 600;
 }
 .board-link {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 4px 10px;
   font-size: 12px;
 }
 .board-link:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 
 .kv {
@@ -934,28 +978,28 @@ onMounted(() => {
   font-size: 12px;
 }
 .kv dt {
-  color: var(--queue);
+  color: var(--fg-3);
   letter-spacing: 0.04em;
 }
 .kv dd {
   margin: 0;
-  color: var(--paper);
+  color: var(--fg);
   word-break: break-all;
 }
 
 .tag {
   display: inline-block;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 1px 7px;
   margin: 0 6px 4px 0;
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 11px;
 }
 
 .flag {
   display: inline-block;
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 1px 8px;
   font-size: 11px;
   letter-spacing: 0.04em;
@@ -965,7 +1009,7 @@ onMounted(() => {
   border: 1px solid var(--done);
 }
 .flag--no {
-  color: var(--queue);
+  color: var(--fg-3);
   border: 1px solid var(--line);
 }
 
@@ -973,7 +1017,7 @@ onMounted(() => {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 8px 10px;
   margin: 0 0 12px;
   word-break: break-word;
@@ -995,22 +1039,22 @@ onMounted(() => {
 .block-title {
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: var(--queue);
+  color: var(--fg-3);
   margin: 0;
 }
 .mini-btn {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 3px 10px;
   font-size: 11px;
 }
 .mini-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .mini-btn:disabled {
-  color: var(--queue);
+  color: var(--fg-3);
   cursor: default;
 }
 
@@ -1039,21 +1083,21 @@ onMounted(() => {
 .label {
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: var(--queue);
+  color: var(--fg-3);
   margin-bottom: 6px;
 }
 .control {
   width: 100%;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--sunken);
+  color: var(--fg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 9px 10px;
   font-size: 13px;
   outline: none;
 }
 .control:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .control:disabled {
   opacity: 0.65;
@@ -1063,22 +1107,22 @@ onMounted(() => {
   margin: 0;
   padding: 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--ink);
+  border-radius: var(--r-ctl);
+  background: var(--sunken);
 }
 .check {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: var(--paper);
+  color: var(--fg);
   font-size: 12px;
   margin: 6px 0;
 }
 .check input {
-  accent-color: var(--phosphor);
+  accent-color: var(--accent);
 }
 .field-hint {
-  color: var(--queue);
+  color: var(--fg-3);
   font-size: 11px;
   margin: 6px 0 0;
 }
@@ -1090,14 +1134,14 @@ onMounted(() => {
 .submit,
 .danger {
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 9px 14px;
   font-size: 13px;
   font-weight: 600;
 }
 .submit {
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 .submit--small {
   margin-left: auto;
@@ -1118,7 +1162,7 @@ onMounted(() => {
   color: var(--run);
   font-size: 12px;
   border: 1px solid var(--run);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 8px 10px;
   margin: 0;
   word-break: break-word;
@@ -1142,7 +1186,7 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 .git-branch {
-  color: var(--phosphor);
+  color: var(--accent);
   font-weight: 600;
 }
 .commits {
@@ -1160,20 +1204,20 @@ onMounted(() => {
   font-size: 11px;
   padding: 5px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
 }
 .commit-hash {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .commit-subject {
-  color: var(--paper);
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .commit-meta {
   grid-column: 2;
-  color: var(--queue);
+  color: var(--fg-3);
 }
 
 /* 子仓库列表 */
@@ -1192,15 +1236,15 @@ onMounted(() => {
   font-size: 12px;
   padding: 5px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
 }
 .repo-path {
-  color: var(--paper);
+  color: var(--fg);
   flex: 1;
   word-break: break-all;
 }
 .repo-branch {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
 /* 关键文件 */
@@ -1212,28 +1256,28 @@ onMounted(() => {
 }
 .file-tab {
   background: transparent;
-  color: var(--paper);
+  color: var(--fg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 3px 10px;
   font-size: 11px;
 }
 .file-tab:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .file-tab--active {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
-  background: var(--ink);
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--sunken);
 }
 .file-view {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 12px;
-  background: var(--ink);
+  background: var(--sunken);
 }
 .truncated {
-  color: var(--queue);
+  color: var(--fg-3);
   font-size: 11px;
   margin: 0 0 8px;
 }
@@ -1258,7 +1302,7 @@ onMounted(() => {
     align-items: center;
     gap: 8px;
     margin-bottom: 10px;
-    color: var(--queue);
+    color: var(--fg-3);
     font-size: 11px;
   }
   .mobile-project-picker .control {
@@ -1297,13 +1341,37 @@ onMounted(() => {
   margin-left: 6px;
   padding: 0 5px;
   font-size: 10px;
-  color: var(--queue);
+  color: var(--fg-3);
   border: 1px solid currentColor;
   border-radius: 3px;
 }
 .builtin-hint {
   margin: 0 0 8px;
   font-size: 12px;
-  color: var(--run);
+  color: var(--need-ink);
+}
+
+/* 项目概览（设计稿 §6.4-5）：活跃任务 / 进行中计划，各自可点。 */
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0 0 var(--s3);
+}
+.count-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 var(--s2);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  font: inherit;
+  font-size: var(--fs-xs);
+}
+.count-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 </style>

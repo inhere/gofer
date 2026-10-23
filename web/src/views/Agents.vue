@@ -1,11 +1,16 @@
 <script setup lang="ts">
 // Agents：listAgents 展示 detect 状态，getConfig 展开只读 agent 关键配置。
+// UI 重设计 P5：页头 / 检测与健康度改用 StatusGlyph 与 StatusPill，文案走 i18n；
+// 设计稿 §7.4 追加「编辑」链接，跳到 设置 › 配置管理 的 agent 段（查看与编辑不再割裂）。
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
-import { PAGE } from '../utils/uiText'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getConfig, listAgents, probeAgent } from '../api/client'
 import InteractionToast from '../components/InteractionToast.vue'
+import StatusGlyph from '../ui/StatusGlyph.vue'
+import StatusPill from '../ui/StatusPill.vue'
+import { t } from '../i18n'
+import type { StatusFamily } from '../utils/statusFamily'
 import type { AgentInfo, ConfigAgentView } from '../api/types'
 
 const agents = ref<AgentInfo[]>([])
@@ -64,7 +69,7 @@ function toggleExpand(key: string): void {
   expanded.value = next
 }
 
-// healthState / healthTitle 渲染 /v1/agents 的 health 块（SUP-01 P3）：unknown 是
+// healthState 渲染 /v1/agents 的 health 块（SUP-01 P3）：unknown 是
 // "窗口内没有样本"，不是"健康"——一个从没跑过 job 的 agent 不该显示绿点。
 function healthState(a: AgentInfo): string {
   return a.health?.state || 'unknown'
@@ -72,18 +77,35 @@ function healthState(a: AgentInfo): string {
 
 function windowLabel(sec: number): string {
   if (!sec || sec <= 0) {
-    return '窗口'
+    return t('agents.health.window')
   }
   return sec % 3600 === 0 ? `${sec / 3600}h` : `${Math.round(sec / 60)}m`
+}
+
+// 健康度的状态族（设计稿 §5）：正常 = done、降级 = time、无样本 = idle。
+function healthFamily(a: AgentInfo): StatusFamily {
+  const state = healthState(a)
+  if (state === 'healthy') return 'done'
+  if (state === 'degraded') return 'time'
+  return 'idle'
+}
+
+function healthLabel(a: AgentInfo): string {
+  const state = healthState(a)
+  if (state === 'healthy') return t('agents.health.healthy')
+  if (state === 'degraded') return t('agents.health.degraded')
+  return t('agents.health.unknown')
 }
 
 function healthTitle(a: AgentInfo): string {
   const h = a.health
   if (!h || h.state === 'unknown') {
-    return `最近 ${h ? windowLabel(h.window_sec) : '窗口'}内没有该 agent 的 job，无法判断`
+    return t('agents.health.titleUnknown', { window: h ? windowLabel(h.window_sec) : t('agents.health.window') })
   }
-  const base = `最近 ${windowLabel(h.window_sec)} ${h.transient_fail} 次供应商错误（job ${h.jobs} / 成功 ${h.ok}）`
-  return h.state === 'degraded' ? base : `正常：${base}`
+  const params = { window: windowLabel(h.window_sec), fail: h.transient_fail, jobs: h.jobs, ok: h.ok }
+  return h.state === 'degraded'
+    ? t('agents.health.titleDegraded', params)
+    : t('agents.health.titleHealthy', params)
 }
 
 // runProbe 提交一次探针 job：结果提示条给出状态/耗时/首行，并可跳到那个 job；
@@ -98,14 +120,14 @@ async function runProbe(key: string): Promise<void> {
     const secs = (res.duration_ms / 1000).toFixed(1)
     const line = res.first_line ? ` · ${res.first_line}` : ''
     probeToast.value = {
-      title: `探针 ${key}`,
+      title: t('agents.probe.title', { key }),
       text: `${res.status} · exit ${res.exit_code} · ${secs}s${line}`,
       to: `/jobs/${encodeURIComponent(res.job_id)}`,
     }
     await load()
   } catch (e) {
     probeToast.value = {
-      title: `探针 ${key} 失败`,
+      title: t('agents.probe.failTitle', { key }),
       text: e instanceof Error ? e.message : String(e),
     }
   } finally {
@@ -118,7 +140,7 @@ function detailFor(key: string): ConfigAgentView | undefined {
 }
 
 function yesNo(v: boolean): string {
-  return v ? '是' : '否'
+  return v ? t('agents.yes') : t('agents.no')
 }
 
 function textValue(v?: string): string {
@@ -131,48 +153,47 @@ function listValue(v?: string[]): string {
 </script>
 
 <template>
-  <div class="agents">
-    <div class="head">
-      <h1 class="title mono">{{ PAGE.agents }}</h1>
-      <span class="poll-hint mono" :class="{ 'poll-hint--on': loading }">●</span>
-    </div>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1 class="title">{{ t('nav.agents') }}</h1>
+        <p class="sub">{{ t('agents.sub') }}</p>
+      </div>
+      <span class="poll-dot" :class="{ 'poll-dot--on': loading }" aria-hidden="true">●</span>
+    </header>
 
-    <p class="scope-note mono">
-      以下为 <b>serve 主机</b>的 agents 及其可用性（含内置模板自动注入的，标 <b>内置</b>：
-      config.yaml 未声明，但本机装了对应 CLI）；worker 节点各自的 agents 见
-      <RouterLink to="/runners">Runners</RouterLink>。
+    <p class="scope-note">
+      {{ t('agents.scopePrefix') }}
+      <RouterLink to="/runners">{{ t('nav.runners') }}</RouterLink>{{ t('agents.scopeSuffix') }}
     </p>
 
-    <p v-if="error" class="error mono">{{ error }}</p>
+    <p v-if="error" class="error">{{ error }}</p>
 
     <div class="table">
-      <div class="thead mono">
-        <span class="col-detect">检测</span>
-        <span class="col-key">键</span>
-        <span class="col-type">类型</span>
-        <span class="col-health">健康</span>
-        <span class="col-info">版本 / 错误</span>
+      <div class="thead">
+        <span class="col-detect">{{ t('agents.col.detect') }}</span>
+        <span class="col-key">{{ t('agents.col.key') }}</span>
+        <span class="col-type">{{ t('agents.col.type') }}</span>
+        <span class="col-health">{{ t('agents.col.health') }}</span>
+        <span class="col-info">{{ t('agents.col.info') }}</span>
+        <span class="col-edit" aria-hidden="true"></span>
       </div>
 
       <template v-for="a in agents" :key="a.key">
         <div class="trow">
           <span class="col-detect">
-            <span
-              class="detect-dot"
-              :class="a.available ? 'detect-dot--on' : 'detect-dot--off'"
-              :aria-label="a.available ? '可用' : '不可用'"
-            ></span>
-            <span class="detect-text mono" :class="a.available ? 'detect-text--on' : 'detect-text--off'">
-              {{ a.available ? '可用' : '不可用' }}
+            <StatusGlyph :family="a.available ? 'done' : 'idle'" :label="a.available ? t('agents.detect.on') : t('agents.detect.off')" :size="13" />
+            <span class="detect-text" :class="a.available ? 'detect-text--on' : 'detect-text--off'">
+              {{ a.available ? t('agents.detect.on') : t('agents.detect.off') }}
             </span>
           </span>
-          <span class="col-key mono">
+          <span class="col-key">
             <button
-              class="key-btn mono"
+              class="key-btn"
               type="button"
               :aria-expanded="expanded.has(a.key)"
               :aria-controls="`agent-detail-${a.key}`"
-              :title="expanded.has(a.key) ? '收起配置' : '展开配置'"
+              :title="expanded.has(a.key) ? t('agents.detect.collapse') : t('agents.detect.expand')"
               @click="toggleExpand(a.key)"
             >
               <span class="chev" aria-hidden="true">{{ expanded.has(a.key) ? '▾' : '▸' }}</span>
@@ -180,41 +201,40 @@ function listValue(v?: string[]): string {
             </button>
             <!-- 内置模板注入的 agent（config.yaml 里没有它，是本机 PATH 上装了 CLI 后
                  由 agent.Resolve 注入的）。徽标让"我没配过它，它从哪来的"一眼可答。 -->
-            <span
-              v-if="a.injected"
-              class="builtin-badge mono"
-              title="内置模板注入：config.yaml 未声明，本机检测到它的 CLI 后自动加入（展开可见其命令行）"
-              >内置</span
-            >
+            <span v-if="a.injected" class="tag" :title="t('agents.builtinTitle')">{{ t('agents.builtin') }}</span>
             <span
               v-else-if="a.extends"
-              class="builtin-badge mono"
-              :title="`extends: ${a.extends}：以${extendsBase(a.extends)}为底，只覆盖 ${(a.overrides ?? []).join(', ') || '（无）'}`"
+              class="tag"
+              :title="t('agents.extendsTitle', { base: extendsBase(a.extends), over: (a.overrides ?? []).join(', ') || '—' })"
               >{{ extendsLabel(a.extends) }}</span
             >
           </span>
-          <span class="col-type mono">{{ a.type }}<small v-if="a.session_count"> · 会话中 {{ a.session_count }} 个</small></span>
-          <span class="col-health mono">
-            <span class="health-badge" :class="`health-badge--${healthState(a)}`" :title="healthTitle(a)">
-              {{ healthState(a) }}
-            </span>
+          <span class="col-type">
+            {{ a.type }}<small v-if="a.session_count"> · {{ t('agents.sessions', { n: a.session_count }) }}</small>
+          </span>
+          <span class="col-health" :title="healthTitle(a)">
+            <StatusPill :family="healthFamily(a)" :label="healthLabel(a)" :status="healthState(a)" />
             <button
-              class="probe-btn mono"
+              class="btn btn--mini"
               type="button"
               :disabled="probing !== ''"
-              title="提交一次探针 job（只回复一行 OK）"
+              :title="t('agents.probeTitle')"
               @click="runProbe(a.key)"
             >
-              {{ probing === a.key ? '探测中…' : '探针' }}
+              {{ probing === a.key ? t('agents.probing') : t('agents.probe') }}
             </button>
           </span>
-          <span class="col-info mono">
+          <span class="col-info">
             <span v-if="a.available" class="version">{{ a.version || '—' }}</span>
             <span v-else class="err-msg">{{ a.error || 'unavailable' }}</span>
           </span>
+          <span class="col-edit">
+            <!-- 设计稿 §7.4 / §11-17：查看在这里、编辑在配置管理，两处割裂 → 给一个直达编辑的链接。 -->
+            <RouterLink class="edit-link" to="/settings/config" :title="t('agents.editTitle')">{{ t('agents.edit') }}</RouterLink>
+          </span>
         </div>
 
-        <div v-if="expanded.has(a.key)" :id="`agent-detail-${a.key}`" class="detail mono">
+        <div v-if="expanded.has(a.key)" :id="`agent-detail-${a.key}`" class="detail">
           <template v-if="detailFor(a.key)">
             <div class="detail-grid">
               <span class="dk">type</span><span class="dv">{{ detailFor(a.key)?.type || '—' }}</span>
@@ -232,16 +252,12 @@ function listValue(v?: string[]): string {
               <span class="dk">allow_raw_cmd</span><span class="dv">{{ yesNo(detailFor(a.key)?.allow_raw_cmd ?? false) }}</span>
             </div>
           </template>
-          <span v-else class="no-detail">无配置详情</span>
+          <span v-else class="no-detail">{{ t('agents.noDetail') }}</span>
         </div>
       </template>
 
-      <div v-if="agents.length === 0 && !error && !loading" class="empty mono">
-        暂无 agent
-      </div>
-      <div v-if="loading && agents.length === 0" class="empty mono">
-        探测中…
-      </div>
+      <div v-if="agents.length === 0 && !error && !loading" class="empty">{{ t('agents.empty') }}</div>
+      <div v-if="loading && agents.length === 0" class="empty">{{ t('agents.loading') }}</div>
     </div>
 
     <InteractionToast
@@ -256,108 +272,105 @@ function listValue(v?: string[]): string {
 </template>
 
 <style scoped>
-.agents {
+.page {
   max-width: 1160px;
   margin: 0 auto;
 }
-.head {
+.page-head {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
 }
 .title {
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  color: var(--paper);
   margin: 0;
+  font-size: var(--fs-lg);
+  color: var(--fg);
 }
-.poll-hint {
+.sub {
+  margin: 2px 0 0;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+}
+.poll-dot {
   color: var(--line);
   font-size: 10px;
   transition: color 0.2s;
 }
-.poll-hint--on {
-  color: var(--phosphor);
+.poll-dot--on {
+  color: var(--accent);
 }
 .scope-note {
-  color: var(--queue);
-  font-size: 12px;
-  margin: 0 0 12px;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  margin: 0 0 var(--s3);
+  max-width: 76ch;
 }
 .scope-note a {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
 .error {
   color: var(--fail);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  margin: 0 0 12px;
+  border-radius: var(--r-ctl);
+  padding: var(--s2);
+  margin: 0 0 var(--s3);
   word-break: break-word;
 }
 
 .table {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-panel);
   overflow: hidden;
+  background: var(--surface);
 }
 .thead,
 .trow {
   display: grid;
-  grid-template-columns: 150px 160px 120px 210px 1fr;
+  grid-template-columns: 130px 190px 130px 200px minmax(0, 1fr) 64px;
   align-items: center;
-  gap: 12px;
-  padding: 9px 14px;
+  gap: var(--s3);
+  padding: 9px var(--s3);
 }
 .thead {
-  background: var(--panel);
+  background: var(--surface-2);
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.06em;
-  color: var(--queue);
+  color: var(--fg-3);
   text-transform: uppercase;
 }
 .trow {
   border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .trow:hover {
-  background: var(--panel);
+  background: var(--surface-2);
 }
 
 .col-detect {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-}
-.detect-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-}
-.detect-dot--on {
-  background: var(--done);
-}
-.detect-dot--off {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--queue);
+  gap: var(--s1);
 }
 .detect-text {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.04em;
 }
 .detect-text--on {
   color: var(--done);
 }
 .detect-text--off {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 
 .col-key {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
   min-width: 0;
 }
 .key-btn {
@@ -367,9 +380,10 @@ function listValue(v?: string[]): string {
   max-width: 100%;
   background: transparent;
   border: 0;
-  color: var(--phosphor);
+  color: var(--accent);
   cursor: pointer;
-  font-size: 13px;
+  font: inherit;
+  font-size: var(--fs-sm);
   padding: 0;
   overflow: hidden;
 }
@@ -377,15 +391,10 @@ function listValue(v?: string[]): string {
 .key-btn:focus-visible .key-text {
   text-decoration: underline;
 }
-.key-btn:focus-visible {
-  outline: 1px solid var(--phosphor);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
 .chev {
-  color: var(--queue);
+  color: var(--fg-3);
   flex: none;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1;
 }
 .key-text {
@@ -393,131 +402,106 @@ function listValue(v?: string[]): string {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 内置模板徽标：比 key 更弱一档的颜色，说明"这条不是配置里写的"。 */
-.builtin-badge {
+.tag {
   flex: none;
-  margin-left: 6px;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-chip);
   padding: 0 5px;
-  color: var(--queue);
+  color: var(--fg-3);
 }
 .col-type {
-  color: var(--paper);
+  color: var(--fg-2);
+  font-size: var(--fs-xs);
+}
+.col-type small {
+  color: var(--fg-3);
+}
+.col-health {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
 }
 .col-info {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-/* 健康度徽标（SUP-01 P3）：绿=近期正常、橙=窗口内供应商错误达阈值、灰=无样本。 */
-.col-health {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.health-badge {
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 1px 7px;
-  color: var(--queue);
-}
-.health-badge--healthy {
-  color: var(--done);
-  border-color: var(--done);
-}
-/* degraded 用琥珀色：--run 是本主题唯一的橙位，且与同一行的 error 红（--fail）区分开，
-   这样"供应商在挂"和"这个 CLI 没装/配置有错"不会读成同一种红。 */
-.health-badge--degraded {
-  color: var(--run);
-  border-color: var(--run);
-}
-.health-badge--unknown {
-  color: var(--queue);
-}
-.probe-btn {
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--phosphor);
-  cursor: pointer;
-  font-size: 11px;
-  padding: 2px 8px;
-}
-.probe-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
-}
-.probe-btn:disabled {
-  color: var(--queue);
-  cursor: default;
+  font-size: var(--fs-xs);
 }
 .version {
-  color: var(--queue);
-  font-size: 12px;
+  color: var(--fg-3);
 }
 .err-msg {
   color: var(--fail);
-  font-size: 12px;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.col-edit {
+  text-align: right;
+}
+.edit-link {
+  color: var(--accent);
+  font-size: var(--fs-xs);
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn--mini {
+  min-height: 24px;
+  padding: 0 8px;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.btn:disabled {
+  color: var(--fg-3);
+  cursor: default;
 }
 
 .detail {
   border-bottom: 1px solid var(--line);
-  background: var(--ink);
-  padding: 10px 14px 12px 176px;
-  font-size: 12px;
+  border-top: 1px solid var(--line);
+  background: var(--sunken);
+  padding: var(--s3) var(--s3) var(--s3) 152px;
+  font-size: var(--fs-xs);
 }
 .detail-grid {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 4px 12px;
+  gap: 4px var(--s3);
   align-items: baseline;
 }
 .dk {
-  color: var(--queue);
-  font-size: 11px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
 }
 .dv {
-  color: var(--paper);
+  color: var(--fg);
+  font-family: var(--font-mono);
   overflow-wrap: anywhere;
 }
 .no-detail {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 
 .empty {
-  padding: 28px 14px;
+  padding: var(--s5) var(--s3);
   text-align: center;
-  color: var(--queue);
-  font-size: 13px;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
 }
 
-@media (max-width: 768px) {
-  .thead,
-  .trow {
-    grid-template-columns: 120px 1fr;
-    grid-auto-rows: auto;
-    gap: 4px 10px;
-  }
-  .col-type,
-  .col-health,
-  .col-info {
-    grid-column: 1 / -1;
-  }
-  .detail {
-    padding-left: 14px;
-  }
-}
-
-/* 手机档（断点与 utils/mobileLayout.ts 的 MOBILE_MAX_WIDTH = 900 一致）：列头隐藏，一行 agent
-   改成卡片。 */
-@media (max-width: 900px) {
-  .scope-note {
-    font-size: 11px;
-  }
+/* 手机档（设计稿 §4.3：≤760）：列头隐藏，一行 agent 改成卡片 */
+@media (max-width: 760px) {
   .thead {
     display: none;
   }
@@ -528,7 +512,7 @@ function listValue(v?: string[]): string {
       'key detect'
       'type type'
       'health info';
-    gap: 6px 8px;
+    gap: 6px var(--s2);
     padding: 10px;
   }
   .col-key {
@@ -536,7 +520,7 @@ function listValue(v?: string[]): string {
     min-width: 0;
   }
   .key-btn {
-    max-width: calc(100% - 44px);
+    max-width: calc(100% - 52px);
   }
   .col-detect {
     grid-area: detect;
@@ -547,8 +531,6 @@ function listValue(v?: string[]): string {
   }
   .col-type {
     grid-area: type;
-    font-size: 11px;
-    color: var(--queue);
   }
   .col-health {
     grid-area: health;
@@ -557,6 +539,9 @@ function listValue(v?: string[]): string {
     grid-area: info;
     min-width: 0;
     text-align: right;
+  }
+  .col-edit {
+    display: none;
   }
   .detail {
     padding: 10px;

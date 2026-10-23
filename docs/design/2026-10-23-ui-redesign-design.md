@@ -1305,7 +1305,72 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 视觉自查：用 vite dev server + 临时预览入口（`web/preview-p5b.html` + `src/preview-p5b.ts`，stub 的 `/v1` 数据，截图完已删）把 `/dashboard`、`/issues`、`/new` 按 zh / en × 浅 / 深（1440×900）各截一屏，另加三页的手机屏（390×844）。据此改了两处：热力图月份标尺 12×56px 把手机页面撑出横向滚动（改为容器内裁切）、统计页说明的拼接符改成随语言（中文全角分号 / 英文「; 」）。最终一版三页在 1440 与 390 下都没有页面级横向滚动（热力图与扩散区在各自容器内滚动），浅 / 深对比度正常，控制台只剩 stub 未提供的接口 403。
 - `DashboardSystem`（「系统」折叠区）的文案与 token 同步迁移；它的手机断点仍是旧的 640 / 700 / 980（本轮没动，与其它页的 760 不统一，留给 P6）。
 
-## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
+### P5 运行节点、Agents、项目（2026-10-23，issue gofer-hez1）
+
+落地范围即 §14 表格 P5 行的 `/runners`、`/agents`、`/projects`（`views/Runners.vue`、`views/Agents.vue`、`views/Projects.vue`）。不涉及 Go 代码，接口一个没动：数据仍来自 `GET /v1/runners`、`GET /v1/projects`、`GET /v1/project/{key}`（含 `/git`、`/repos`、`/file`）、`PUT/POST/DELETE /v1/project…`、`GET /v1/agents`、`GET /v1/config`、`POST /v1/agents/{key}/probe`、`GET /v1/worker-enrollments` 与申请接受 / 拒绝、`POST /v1/workers`、`/reload`、`/upgrade`；项目概览的计数复用 `GET /v1/jobs?project=&status=running`、`GET /v1/plans?project=&status=open`。
+
+**`/runners`**
+
+- 页头：标题（`nav.runners`）+ 一行摘要（`runners.sub`）+ 轮询指示点；去掉眉标「FLEET」。
+- 待接受申请置顶（§7.4）：标题、待决定数、来源 / 状态 / 倒计时、host / labels / agents / roots、接受… / 拒绝… 两个按钮、已接受行的领取倒计时、理由行、空态与「自助注册已关闭」提示全部保留；`#enrollments` 锚点与「从 Today / 顶栏跳来补一次滚动」的行为不变。
+- 添加 worker（`worker.manage`）与拓扑（可折叠、手机上默认收起、展开状态记本地）保留。
+- Workers：名称、id、心跳年龄、in_flight、hostname / 来源地址 / 平台 / gofer 版本 / 运行时长、标签、外部工具（悬停说明）、传话人入口、重新加载配置、一键升级（不可升级原因作为 title）、排空中提示、升级摘要、升级历史（最近 5 次）全部保留；`Heartbeat` 仍是唯一的张扬元素。
+- Peers（base_url、探活年龄、延迟、错误）与 Server（in-process、传话人、工具、目录）保留。
+- 状态表达全部换成 §5 的字形：worker 在线 = `done`、心跳过期 = `time`（文案带秒数）、离线 = `idle`；申请待决定 = `need`、等领取 = `queue`、已拒绝 / 过期 = `fail`、被取代 / 放弃 = `idle`；peer up = `done`、down = `fail`、未探测 = `idle`。页面里不再有 `.st--*` 静态圆点与自写配色。
+
+**`/agents`**
+
+- 只读健康表保留：检测（可用 / 不可用）、键（可展开）、内置 / extends 徽标、类型与会话数、健康度、版本 / 错误、探针按钮（提交一次探针 job、结果提示条可跳 job）。
+- 健康度与检测改用状态字形 + 文字 pill：可用 = `done`、不可用 = `idle`；健康 = 正常（`done`）、供应商错误达阈值 = 降级（`time`）、窗口内无样本 = 无样本（`idle`）。§5 的表没给 agent 健康度定族，这里按「正常 / 有问题 / 无数据」落 `done` / `time` / `idle`，不用黄色（黄色只给「需要人」）。
+- 新增「编辑」链接（§7.4 / §11-17）跳到 设置 › 配置管理，查看与编辑不再割裂。
+- 展开的配置详情（type、interactive、command、args、session_*、system_inject、env_keys、mcp_server_name、detect.*、allow_raw_cmd）字段与顺序不变，配置键本身不翻译。
+
+**`/projects`**
+
+- 主从布局保留；手机上仍是顶栏项目选择器 + 单栏详情。
+- 详情：key、内置徽标 + 说明、host_path / container_path / default_agent / allowed_agents / allowed_runners / rules / allow_exec / allow_interactive / max_concurrent_jobs、跳任务列表的入口全部保留。
+- 新增项目概览（§6.4-5）：活跃任务（`status=running`）与进行中计划（`status=open` 的 `total`）两个计数，分别跳到 `/jobs?project=` 与 `/plans?project=`；任一次请求失败就整块不显示，不影响配置与 git。
+- 编辑表单（键、默认 agent、主机 / 容器路径、允许的 agents / runners、allow_exec、allow_interactive、最大并发、RULES 逐行编辑器与说明、内置项目保存提示、告警列表、保存 / 删除、删除二次确认、内置项目不可删）与 git 状态卡、子仓库、关键文件查看（含 256KB 截断提示与下载）全部保留，文案走字典。
+
+**i18n（§9）**
+
+- 三页文案全部进 `web/src/i18n/pages/runners.ts`（`runners.`）、`agents.ts`（`agents.`）、`projects.ts`（`projects.`），zh / en 同名同数，已登记进 `i18n.test.ts` 的 `pageDomains`；不动 `zh.ts` / `en.ts`。
+- 业务内容不翻译：worker / peer / agent / 项目名、id、路径、命令、标签、工具名、项目配置键、git 分支与提交、错误原文。
+
+**不丢信息核对（对照 §7.4 与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 运行节点：标题、轮询指示、拉取失败错误条、重载 / 升级提示条 | 保留（标题与摘要走字典） |
+| 运行节点：待接受申请区（锚点、计数、来源、状态、倒计时、host、labels、agents、roots、接受 / 拒绝、接受后的领取倒计时、理由、空态、关闭态提示） | 全部保留（置顶，状态改字形 + 文字） |
+| 运行节点：添加 worker（ID / 标签 / 项目、登记、一次性 token 与命令、错误） | 保留 |
+| 运行节点：拓扑（可折叠、手机默认收起、本地记忆） | 保留 |
+| 运行节点：Workers 卡片（名称 / id / 心跳年龄 / in_flight / hostname / 来源地址 / 平台 / 版本 / 运行时长 / 标签 / 工具 / 传话人 / 重载配置 / 升级 + 原因 / 排空 / 升级摘要 / 升级历史 / 目录 / 空态邀请） | 全部保留 |
+| 运行节点：Peers（地址 / 年龄 / 延迟 / down 错误）、Server（in-process / 传话人 / 工具 / 目录 / 空态） | 全部保留 |
+| 运行节点：传话人抽屉、接受 / 拒绝对话框 | 保留（`MessengerDrawer` / `EnrollAcceptDialog` / `EnrollRejectDialog` 未改） |
+| Agents：作用域说明（serve 主机 / 内置注入 / worker 见 Runners） | 保留（链接文案走字典） |
+| Agents：检测、键（展开配置）、内置 / extends 徽标、类型 + 会话数、健康度 + 悬停口径、探针、版本 / 错误、空态与加载态、探针结果提示条 | 全部保留；新增「编辑」链接 |
+| 项目：标题、新增入口、列表（内置徽标）、手机选择器、详情键值、跳任务列表 | 保留（跳转文案改「在任务列表查看」） |
+| 项目：编辑表单全部字段与校验、内置项目保存提示、告警、保存 / 删除与二次确认、内置项目不可删 | 全部保留 |
+| 项目：git 状态卡（分支 / dirty / 最近提交 / 刷新）、子仓库、关键文件（候选、查看、截断、下载） | 全部保留 |
+
+**测试（§13）**
+
+- 新增 `views/p5cPagesI18n.test.ts`（3 个用例）：页面里引用的每个 `t('runners.*' / 'agents.*' / 'projects.*')` 在 zh 与 en 都存在、三本页面字典的 key 集合相等、英文文案里没有汉字。
+- 新增 `views/p5cPages.test.ts`（3 个用例）：Agents 页 SSR 渲染（页头 + 列头文案取自字典、作用域说明里的 `/runners` 链接、首屏空态）。Runners / Projects 用到 `useRoute` / `useRouter`，不在 SSR 用例里，由源码结构与字典用例覆盖。
+- 同步修改：`views/runnersEnroll.test.ts`（文案改断言字典 key、状态改字形、`decideCountdownText` / `collectCountdownText`）、`views/runnersMobile.test.ts`（断点改 760，加状态字形断言）、`views/agentsMobile.test.ts`（断点 760、编辑链接、状态字形）、`views/projectsBuiltin.test.ts`（内置提示改断言字典 key）、`views/uiTextWiring.test.ts`（Projects 标题改 `t('nav.projects')`）、`i18n/i18n.test.ts`（页面域加 `runners.` / `agents.` / `projects.`）。
+- `npx vue-tsc --noEmit`、`npx vitest run`（215 个文件 / 1464 个用例）、`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 全部通过。
+
+**如实记录的范围边界与差异**
+
+- §6.4-5 的「待处理数」（工作项）**没有落地**：web 侧没有按项目取工作项计数的接口，把全部工作项拉下来再数会把页面拖慢；项目概览只给活跃任务与进行中计划，等 `/v1/projects` 或工作项列表带项目维度计数后再补。
+- `utils/runners.ts` 的 `upgradeSummary` / `upgradeBlockReason` / `workerStatusText` 仍是工具层文案（升级摘要与不可升级原因在页面上照原样显示，中文），与 P5-a 的处理一致，留给 P6 统一；页面自己的 worker 状态文案（已连接 / 未心跳 / 离线）已走字典。
+- `utils/enrollments.ts` 的 `stateLabel` / `decideCountdown` / `collectCountdown` / `disabledHint` 仍被接受 / 拒绝对话框使用；页面侧的同一信息改走字典（`runners.enroll.*`），工具函数本身留给 P6。
+- `/runners` 的 `max-width` 从 760 放宽到 900：worker 卡片的信息密度比原来多（状态 pill + 操作按钮一行）。
+- 本页没有逐像素对齐预览稿（预览稿没有这三屏），形态按 §7.4 的字段清单 + P2/P4/P5 已合入的基元落地。
+- 视觉自查**没有做成**：搭了临时预览入口（`preview-p5c.html` + `src/preview-p5c.ts`，stub 了 `/v1/runners`、`/v1/worker-enrollments`、`/v1/agents`、`/v1/config`、`/v1/projects` 与 `/git`、`/repos`、`/v1/jobs`、`/v1/plans`，vite dev 能起来），但本机 Chrome 在 agent-browser 下启动即退出（`Chrome exited early without writing DevToolsActivePort`，加 `--no-sandbox` 同样失败），拿不到截图。所以 zh / en × 浅 / 深的外观没有经过人眼，只按 CSS 口径（≥1100 完整侧栏、≤760 单栏 + 40px 点按目标）+ 字典完整性用例 + SSR 用例核对。临时入口与 stub 数据已删除。
+
+
 
 1. **品牌色和字体是否跟着换？**
    - 建议：界面换成新色板和 Schibsted Grotesk，logo 和 `docs/brand` 不动。旧色只在品牌物料里使用。
