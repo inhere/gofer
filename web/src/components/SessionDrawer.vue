@@ -47,7 +47,7 @@ import {
   unackSessionTurn,
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
-import { attachHintNote, UNSUPPORTED_OUTSIDE_THREAD_REASON, type AttachmentCapability } from '../utils/attachments'
+import { UNSUPPORTED_OUTSIDE_THREAD_REASON, type AttachmentCapability } from '../utils/attachments'
 import { attachmentBubbleText } from '../utils/attachmentText'
 import Composer from '../ui/Composer.vue'
 import Drawer from '../ui/Drawer.vue'
@@ -323,9 +323,8 @@ const attachCapability = computed<AttachmentCapability>(() => {
   }
   return props.attachmentCapability
 })
-// 附图条随统一的 Composer（P4）：附件与发送门禁都由它管，这里只取提示与就绪 id。
+// 附图条随统一的 Composer（P4）：附件、提示与发送门禁都由它管，这里只取就绪 id。
 const composerRef = ref<InstanceType<typeof Composer> | null>(null)
-const attachHint = computed(() => attachHintNote(composerRef.value?.attachHint ?? '', attachCapability.value.reason))
 // 抽屉外壳换成 ui/Drawer（P2）：宽度沿用会话抽屉的规格；关闭即发 close。
 const drawerOpen = computed({
   get: () => true,
@@ -1107,15 +1106,6 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           >
             {{ deleting ? '移除中…' : '移除登记' }}
           </button>
-          <button
-            v-if="!embedded"
-            class="act mono"
-            type="button"
-            title="只关闭这个面板，不改变会话与中继开关"
-            @click="emit('close')"
-          >
-            关闭面板
-          </button>
         </div>
       </div>
 
@@ -1483,7 +1473,6 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             </button>
           </span>
         </div>
-        <p v-if="attachHint" class="attach-note mono">{{ attachHint }}</p>
         <Composer
           ref="composerRef"
           v-model="draft"

@@ -215,7 +215,6 @@ onBeforeUnmount(() => {
   >
     <div v-if="attachments && attachCapability" class="composer-attach">
       <AttachmentBar ref="attachBar" :capability="attachCapability" @error="emit('attachment-error', $event)" />
-      <p v-if="attachHint" class="composer-note">{{ attachHint }}</p>
     </div>
     <div class="composer-box">
       <textarea
@@ -308,11 +307,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-}
-.composer-note {
-  margin: 0;
-  color: var(--fg-3);
-  font-size: var(--fs-xs);
 }
 .composer-box {
   display: flex;
