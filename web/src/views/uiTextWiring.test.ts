@@ -117,7 +117,8 @@ describe('状态显示集中映射', () => {
   it('工作项状态标签也来自中央映射', () => {
     const work = raw(import.meta.glob('../utils/work.ts', { eager: true, query: '?raw', import: 'default' }))
     expect(work).toContain("import { statusText } from './statusText'")
-    expect(work).toContain("label: statusText('active')")
+    // P6-b：label 改成 getter，读的时候才取词（模块加载时不能定住语言）
+    expect(work).toContain("get label() { return statusText('active') }")
   })
 })
 

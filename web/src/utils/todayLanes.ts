@@ -1,17 +1,18 @@
-// 「并行中」泳道的展示规则（N3 §3.1）：纯函数，组件只负责渲染。
+// 「并行中」泳道的展示规则（N3 §3.1）：纯函数，组件只负责渲染。文案走 i18n（util.lane.*）。
 import type { LaneAgent, LaneAgentState, LanePip, TodayLane, TodayLanesSummary } from '../api/todayLanes'
 import type { WorkHealth } from '../api/types'
+import { t, te } from '../i18n'
 
 // 超过这么多行时，把排在后面的健康泳道折叠成一行「还有 N 条正常运行中」。
 export const LANE_FOLD_LIMIT = 12
 // 一行最多画这么多个 todo 点，其余折成 +N（窄屏不出横向滚动）。
 export const PIP_LIMIT = 12
 
-const HEALTH_LABEL: Record<WorkHealth, string> = { ok: '', at_risk: '有风险', stalled: '停滞', blocked: '阻塞' }
-
 // 健康度文案：正常不显示（空串）。
 export function healthText(h: WorkHealth | string | undefined): string {
-  return (h && HEALTH_LABEL[h as WorkHealth]) || ''
+  if (!h || h === 'ok') return ''
+  const key = `util.lane.health.${h}`
+  return te(key) ? t(key) : ''
 }
 
 export function needsAttention(l: Pick<TodayLane, 'health'>): boolean {
@@ -21,8 +22,8 @@ export function needsAttention(l: Pick<TodayLane, 'health'>): boolean {
 // 头部一行：「8 条 · 5 个 agent 在跑」+ 可选「2 条要留意」。
 export function laneSummaryText(s: TodayLanesSummary): { main: string; attention: string } {
   return {
-    main: `${s.total} 条 · ${s.agents_running} 个 agent 在跑`,
-    attention: s.attention > 0 ? `${s.attention} 条要留意` : '',
+    main: t('util.lane.summary', { total: s.total, agents: s.agents_running }),
+    attention: s.attention > 0 ? t('util.lane.attention', { n: s.attention }) : '',
   }
 }
 
@@ -35,9 +36,8 @@ export function splitLanes(lanes: TodayLane[], limit = LANE_FOLD_LIMIT): { shown
   return { shown: lanes.slice(0, n), folded: lanes.slice(n) }
 }
 
-const STATE_LABEL: Record<LaneAgentState, string> = { running: 'running', awaiting_input: '等输入', idle: 'idle' }
-
 // agent 列：一个时「codex·running」，多个时「codex+claude·running」（状态取最要紧的一个）；没有则「—」。
+// running / idle 本身就是接口值里的英文，直接显示；只有 awaiting_input 另有说法。
 export function agentText(agents: LaneAgent[]): { text: string; state: LaneAgentState | '' } {
   if (!agents.length) return { text: '—', state: '' }
   const state: LaneAgentState = agents.some((a) => a.state === 'running')
@@ -45,8 +45,9 @@ export function agentText(agents: LaneAgent[]): { text: string; state: LaneAgent
     : agents.some((a) => a.state === 'awaiting_input')
       ? 'awaiting_input'
       : 'idle'
+  const stateText = state === 'awaiting_input' ? t('util.lane.state.awaiting_input') : state
   const names = [...new Set(agents.map((a) => a.agent || '?'))]
-  return { text: `${names.join('+')}·${STATE_LABEL[state]}`, state }
+  return { text: `${names.join('+')}·${stateText}`, state }
 }
 
 // 用时：48m / 3h12m / 2d。
@@ -90,5 +91,5 @@ export function laneTarget(l: Pick<TodayLane, 'kind' | 'id'>): { path: string; q
 
 export function laneAriaLabel(l: TodayLane): string {
   const h = healthText(l.health)
-  return [l.title, l.project_key, h].filter(Boolean).join('，')
+  return [l.title, l.project_key, h].filter(Boolean).join(t('util.sep.comma'))
 }

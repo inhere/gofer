@@ -2,6 +2,7 @@
 // "请它汇报"的可用性。组件只负责渲染，规则都在这里（vitest 直接测）。
 import { fmtAgo } from '../api/time'
 import type { WorkItem, WorkRequest, WorkStatus, WorkSuggestion } from '../api/types'
+import { t, te } from '../i18n'
 import { statusText } from './statusText'
 
 export type WorkTone = 'live' | 'hot' | 'warn' | 'ok' | 'idle' | 'off'
@@ -14,16 +15,17 @@ export interface WorkStatusMeta {
 }
 
 // 设计 §5 的 8 个状态；前 6 个是看板的列，done / dropped 只在「显示已完成」时出现。
+// label / hint 用 getter：模块加载时不能定住语言，渲染时读当前 locale（t()）。
 // 文案取 utils/statusText.ts 的中央映射（工作项自己的 tone / hint 留在本地）。
 export const WORK_STATUSES: WorkStatusMeta[] = [
-  { key: 'active', label: statusText('active'), tone: 'live', hint: '会话正在干活' },
-  { key: 'needs_me', label: statusText('needs_me'), tone: 'hot', hint: '需要你回复 / 决策' },
-  { key: 'waiting_resource', label: statusText('waiting_resource'), tone: 'warn', hint: '缺设备、账号、数据或别人的东西' },
-  { key: 'needs_onsite', label: statusText('needs_onsite'), tone: 'warn', hint: '要到现场操作' },
-  { key: 'review', label: statusText('review'), tone: 'hot', hint: '做完了，等你检查' },
-  { key: 'parked', label: statusText('parked'), tone: 'idle', hint: '暂时不做，到点或条件满足再说' },
-  { key: 'done', label: statusText('done'), tone: 'ok', hint: '' },
-  { key: 'dropped', label: statusText('dropped'), tone: 'off', hint: '' },
+  { key: 'active', get label() { return statusText('active') }, tone: 'live', get hint() { return t('util.work.hint.active') } },
+  { key: 'needs_me', get label() { return statusText('needs_me') }, tone: 'hot', get hint() { return t('util.work.hint.needs_me') } },
+  { key: 'waiting_resource', get label() { return statusText('waiting_resource') }, tone: 'warn', get hint() { return t('util.work.hint.waiting_resource') } },
+  { key: 'needs_onsite', get label() { return statusText('needs_onsite') }, tone: 'warn', get hint() { return t('util.work.hint.needs_onsite') } },
+  { key: 'review', get label() { return statusText('review') }, tone: 'hot', get hint() { return t('util.work.hint.review') } },
+  { key: 'parked', get label() { return statusText('parked') }, tone: 'idle', get hint() { return t('util.work.hint.parked') } },
+  { key: 'done', get label() { return statusText('done') }, tone: 'ok', get hint() { return '' } },
+  { key: 'dropped', get label() { return statusText('dropped') }, tone: 'off', get hint() { return '' } },
 ]
 
 export const BOARD_STATUSES: WorkStatus[] = ['active', 'needs_me', 'waiting_resource', 'needs_onsite', 'review', 'parked']
@@ -120,7 +122,7 @@ export interface WorkGroup {
 // 工作区的显示名：目录最后两段；没有工作区的归到「（未指定工作区）」。
 export function workspaceLabel(ws: string | undefined, project?: string): string {
   const w = (ws ?? '').trim()
-  if (!w) return project ? `（${project}）` : '（未指定工作区）'
+  if (!w) return project ? t('util.work.workspaceProject', { project }) : t('util.work.workspaceNone')
   const parts = w.replace(/\\/g, '/').split('/').filter(Boolean)
   return parts.slice(-2).join('/') || w
 }
@@ -172,13 +174,13 @@ export function runningSessionIds(it: WorkItem): string[] {
 // 「请它汇报」：在运行的会话经账本收到请求；不在运行的会话（或送达失败）自动改为整理——
 // 所以只要有当前会话就能点；没有会话时灰显并说明。
 export function reportRequestBlock(it: WorkItem): string {
-  if (!it.sessions.some((s) => s.role === 'current')) return '没有关联会话，无法请它汇报'
+  if (!it.sessions.some((s) => s.role === 'current')) return t('util.work.noReport')
   return ''
 }
 
 // 「整理」按钮：读会话的 transcript 尾部提炼；同样需要一个当前会话。
 export function summarizeBlock(it: WorkItem): string {
-  if (!it.sessions.some((s) => s.role === 'current' && !s.missing)) return '没有可读取的会话，无法整理'
+  if (!it.sessions.some((s) => s.role === 'current' && !s.missing)) return t('util.work.noSummarize')
   return ''
 }
 
@@ -206,13 +208,13 @@ function atHour(base: Date, dayOffset: number, hour: number): number {
 export function whenPresets(now: Date): WhenPreset[] {
   const sec = Math.floor(now.getTime() / 1000)
   const out: WhenPreset[] = [
-    { key: '1h', label: '1 小时后', at: sec + 3600 },
-    { key: '3h', label: '3 小时后', at: sec + 3 * 3600 },
+    { key: '1h', label: t('util.work.when.1h'), at: sec + 3600 },
+    { key: '3h', label: t('util.work.when.3h'), at: sec + 3 * 3600 },
   ]
-  if (now.getHours() < 18) out.push({ key: 'tonight', label: '今晚 18:00', at: atHour(now, 0, 18) })
-  out.push({ key: 'tomorrow', label: '明天 09:00', at: atHour(now, 1, 9) })
+  if (now.getHours() < 18) out.push({ key: 'tonight', label: t('util.work.when.tonight'), at: atHour(now, 0, 18) })
+  out.push({ key: 'tomorrow', label: t('util.work.when.tomorrow'), at: atHour(now, 1, 9) })
   const toMonday = ((8 - now.getDay()) % 7) || 7
-  out.push({ key: 'monday', label: '下周一 09:00', at: atHour(now, toMonday, 9) })
+  out.push({ key: 'monday', label: t('util.work.when.monday'), at: atHour(now, toMonday, 9) })
   return out
 }
 
@@ -232,8 +234,8 @@ export function unixToLocalInput(sec: number): string {
 
 export function dueText(it: WorkItem): string {
   if (!it.due) return ''
-  if (it.status === 'parked' && it.park_until && it.park_until * 1000 <= Date.now()) return '搁置到期'
-  return '提醒到期'
+  if (it.status === 'parked' && it.park_until && it.park_until * 1000 <= Date.now()) return t('util.work.due.parked')
+  return t('util.work.due.normal')
 }
 
 // 关联项小标签：issue / todo / job / plan 计数。
@@ -271,20 +273,20 @@ export function actorLabel(by: string | undefined): string {
   const suffix = agent ? ` (${agent})` : ''
   switch (actorKind(b)) {
     case 'human':
-      return '我'
+      return t('util.work.actor.me')
     case 'session': {
       const rest = b.slice('session:'.length)
       const sid = rest.replace(/\(.*$/, '')
-      return `会话 ${sid.slice(0, 8)}${suffix}`.trim()
+      return `${t('util.work.actor.session', { id: sid.slice(0, 8) })}${suffix}`.trim()
     }
     case 'summarizer':
-      return `整理器${suffix}`
+      return `${t('util.work.actor.summarizer')}${suffix}`
     case 'steward':
-      return `管家${suffix}`
+      return `${t('util.work.actor.steward')}${suffix}`
     case 'job':
       return `job ${b.slice(4, 12)}`
     case 'system':
-      return '系统'
+      return t('util.work.actor.system')
     default:
       return b
   }
@@ -306,17 +308,9 @@ export function fieldSourceKind(it: WorkItem, field: string): ActorKind | '' {
 
 // ---------------- 整理建议 ----------------
 
-const SUGGESTION_LABELS: Record<string, string> = {
-  goal: '目标',
-  blocker: '阻塞',
-  blocker_kind: '阻塞类型',
-  next: '下一步',
-  summary: '摘要',
-  status_hint: '状态',
-}
-
 export function suggestionLabel(field: string): string {
-  return SUGGESTION_LABELS[field] ?? field
+  const key = `util.work.field.${field}`
+  return te(key) ? t(key) : field
 }
 
 // status_hint 的值是状态 key，显示成中文标签。
@@ -331,8 +325,15 @@ export function pendingSuggestions(it: WorkItem): WorkSuggestion[] {
 
 // ---------------- 请求账本 ----------------
 
-const REQUEST_KIND: Record<string, string> = { report: '汇报请求', handoff: '交接请求', summarize: '整理' }
-const REQUEST_STATE: Record<string, string> = { pending: '进行中', sent: '已送达', answered: '已完成', failed: '失败', expired: '超时' }
+function requestKindLabel(kind: string): string {
+  const key = `util.work.req.${kind}`
+  return te(key) ? t(key) : kind
+}
+
+function requestStateLabel(state: string): string {
+  const key = `util.work.reqState.${state}`
+  return te(key) ? t(key) : state
+}
 
 export function requestInFlight(r: WorkRequest): boolean {
   return r.state === 'pending' || r.state === 'sent'
@@ -349,22 +350,25 @@ export function lastFinishedRequest(it: WorkItem): WorkRequest | undefined {
 
 // 一行说明：「汇报请求 · 已送达，等回复（12 分后超时）」/「整理 · 失败：整理器不可用…」
 export function requestLine(r: WorkRequest, nowSec: number = Math.floor(Date.now() / 1000)): string {
-  const kind = REQUEST_KIND[r.kind] ?? r.kind
+  const kind = requestKindLabel(r.kind)
   switch (r.state) {
     case 'pending':
-      return r.kind === 'summarize' ? `${kind} · 进行中…` : `${kind} · 发送中…`
+      return t(r.kind === 'summarize' ? 'util.work.line.progress' : 'util.work.line.sending', { kind })
     case 'sent': {
       const left = r.deadline ? Math.max(0, Math.ceil((r.deadline - nowSec) / 60)) : 0
-      return `${kind} · 已送达，等会话回复${r.deadline ? `（${left} 分钟后超时）` : ''}`
+      const base = t('util.work.line.sent', { kind })
+      return r.deadline ? `${base}${t('util.work.line.sentTimeout', { left })}` : base
     }
     case 'answered':
-      return r.kind === 'summarize' ? `${kind} · 已完成` : `${kind} · 会话已回复`
+      return t(r.kind === 'summarize' ? 'util.work.line.answeredSummarize' : 'util.work.line.answered', { kind })
     case 'expired':
-      return `${kind} · 会话未回应，已改为整理`
+      return t('util.work.line.expired', { kind })
     case 'failed':
-      return `${kind} · 失败${r.error ? '：' + r.error : ''}`
+      return r.error
+        ? t('util.work.line.failedError', { kind, error: r.error })
+        : t('util.work.line.failed', { kind })
     default:
-      return `${kind} · ${REQUEST_STATE[r.state] ?? r.state}`
+      return t('util.work.line.other', { kind, state: requestStateLabel(r.state) })
   }
 }
 

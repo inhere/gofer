@@ -2,99 +2,101 @@
 // JobDetail 的「事件时间线」与 PlanDetail 的 plan 事件流共用这一份 —— 事件类型随功能增补，
 // 两处各写一份必然会漂移。渲染方式（图标 + 标签 + 摘要 + 时间）由各页面自己决定。
 import type { JobEvent } from '../api/types'
+import { t, te } from '../i18n'
 
-// 事件 type -> 图标 + 中文标签（仿 interactions 渲染风格，单行）。
-export const EVENT_META: Record<string, { icon: string; label: string }> = {
-  'job.submitted': { icon: '✓', label: '已提交' },
-  'job.title_changed': { icon: '✎', label: '标题已修改' },
-  'job.dispatched': { icon: '→', label: '已派发' },
-  'job.running': { icon: '▶', label: '开始运行' },
-  'job.turn_started': { icon: '▶', label: '回合开始' },
-  'job.turn_ended': { icon: '■', label: '回合结束' },
-  'job.awaiting_input': { icon: '⌨', label: '等待输入' },
-  'job.terminal': { icon: '■', label: '结束' },
-  'job.uncommitted': { icon: '⚠', label: '未提交改动' },
-  'job.cancelled': { icon: '✕', label: '请求取消' },
-  'job.needs_review': { icon: '⚠', label: '等待验收' },
-  'job.reviewed': { icon: '✓', label: '验收已完成' },
+// 事件 type -> 图标（仿 interactions 渲染风格，单行）；标签走 i18n 的 util.event.<type>。
+export const EVENT_META: Record<string, { icon: string }> = {
+  'job.submitted': { icon: '✓' },
+  'job.title_changed': { icon: '✎' },
+  'job.dispatched': { icon: '→' },
+  'job.running': { icon: '▶' },
+  'job.turn_started': { icon: '▶' },
+  'job.turn_ended': { icon: '■' },
+  'job.awaiting_input': { icon: '⌨' },
+  'job.terminal': { icon: '■' },
+  'job.uncommitted': { icon: '⚠' },
+  'job.cancelled': { icon: '✕' },
+  'job.needs_review': { icon: '⚠' },
+  'job.reviewed': { icon: '✓' },
   // gofer-9b1b 待批 job：提交后等人批准；批准后转 queued 照常执行，拒绝 / 超时转 cancelled。
-  'job.awaiting_approval': { icon: '⏸', label: '等待批准' },
-  'job.hold_approved': { icon: '✓', label: '已批准' },
-  'job.hold_rejected': { icon: '✕', label: '已拒绝（未执行）' },
-  'job.hold_expired': { icon: '⏱', label: '批准超时（未执行）' },
-  'job.verify_started': { icon: '▶', label: '开始验证' },
-  'job.verify_finished': { icon: '✓', label: '验证结束' },
-  'job.upload_failed': { icon: '⚠', label: '上传失败' },
-  'job.files_collected': { icon: '▣', label: '文件已收集' },
-  'job.fell_back': { icon: '↪', label: '切换备用 Agent' },
-  'job.agent_substituted': { icon: '↪', label: 'Agent 已替换' },
-  'job.dir_wait_timeout': { icon: '⏱', label: '目录锁等待超时' },
-  'job.env_allowed': { icon: '✓', label: '环境变量已放行' },
-  'job.auto_resumed': { icon: '↻', label: '自动续接' },
-  'job.retry_scheduled': { icon: '⏱', label: '已安排重试' },
-  'job.retry_started': { icon: '↻', label: '开始重试' },
-  'job.retry_exhausted': { icon: '⚠', label: '重试次数用尽' },
-  'job.wakeup_fired': { icon: '▶', label: '唤醒已触发' },
-  'job.wakeup_coalesced': { icon: '↪', label: '唤醒已合并' },
-  'job.wakeup_expired': { icon: '⏱', label: '唤醒已过期' },
-  'job.wakeup_failed': { icon: '⚠', label: '唤醒失败' },
-  'interaction.created': { icon: '?', label: '发起交互' },
-  'interaction.answered': { icon: '✎', label: '交互已答' },
-  'interaction.punted': { icon: '↪', label: '交互已转交' },
+  'job.awaiting_approval': { icon: '⏸' },
+  'job.hold_approved': { icon: '✓' },
+  'job.hold_rejected': { icon: '✕' },
+  'job.hold_expired': { icon: '⏱' },
+  'job.verify_started': { icon: '▶' },
+  'job.verify_finished': { icon: '✓' },
+  'job.upload_failed': { icon: '⚠' },
+  'job.files_collected': { icon: '▣' },
+  'job.fell_back': { icon: '↪' },
+  'job.agent_substituted': { icon: '↪' },
+  'job.dir_wait_timeout': { icon: '⏱' },
+  'job.env_allowed': { icon: '✓' },
+  'job.auto_resumed': { icon: '↻' },
+  'job.retry_scheduled': { icon: '⏱' },
+  'job.retry_started': { icon: '↻' },
+  'job.retry_exhausted': { icon: '⚠' },
+  'job.wakeup_fired': { icon: '▶' },
+  'job.wakeup_coalesced': { icon: '↪' },
+  'job.wakeup_expired': { icon: '⏱' },
+  'job.wakeup_failed': { icon: '⚠' },
+  'interaction.created': { icon: '?' },
+  'interaction.answered': { icon: '✎' },
+  'interaction.punted': { icon: '↪' },
   // 审批门（GATE-01 S1）+ acp 回合汇总（bd h-aii-rnxk：时间线只留生命周期，
   // 工具调用等执行细节走 stderr 的紧凑事件行，由 NdjsonTimeline 渲染）
-  'job.acp_summary': { icon: '⚙', label: 'ACP 回合' },
-  'job.permission_requested': { icon: '⚠', label: '求批' },
-  'job.permission_answered': { icon: '✎', label: '审批已答' },
-  'job.permission_timed_out': { icon: '⏱', label: '审批超时' },
+  'job.acp_summary': { icon: '⚙' },
+  'job.permission_requested': { icon: '⚠' },
+  'job.permission_answered': { icon: '✎' },
+  'job.permission_timed_out': { icon: '⏱' },
   // JOB-11 / AUTO-05：等目录锁（非终态，等同 queued）与输出停滞（job 已被看门狗杀掉）。
-  'job.waiting_dir': { icon: '⏳', label: '等目录锁' },
-  'job.stalled': { icon: '⚠', label: '输出停滞（已杀）' },
+  'job.waiting_dir': { icon: '⏳' },
+  'job.stalled': { icon: '⚠' },
   // N2 §B：预算熔断——计量器发现越过 max_tokens / max_cost_usd / max_turns，job 已被杀（failure_class=budget）。
-  'job.budget_exceeded': { icon: '⚠', label: '超出预算（已杀）' },
+  'job.budget_exceeded': { icon: '⚠' },
   // gofer-hnqf：agent 用尽自己的软预算并自行收尾（没有被杀，汇报仍在，任务可能未完成）。
-  'job.agent_budget_exhausted': { icon: '⚠', label: '预算耗尽收尾' },
+  'job.agent_budget_exhausted': { icon: '⚠' },
   // GIT-02：worktree 分支的交付（合并 / 推送 / PR）。
-  'job.delivered': { icon: '⇪', label: '已交付' },
-  'job.delivery_failed': { icon: '⚠', label: '交付失败' },
-  'job.delivery_skipped': { icon: '·', label: '未交付' },
-  'job.mcp_injected': { icon: '⚙', label: '注入 MCP' },
+  'job.delivered': { icon: '⇪' },
+  'job.delivery_failed': { icon: '⚠' },
+  'job.delivery_skipped': { icon: '·' },
+  'job.mcp_injected': { icon: '⚙' },
   // 决策 hook：提交 / 交付前由 server 上配置的脚本裁决（放行、否决或收紧）。
-  'job.decision_hook': { icon: '⚖', label: '决策 hook' },
-  'job.mcp_skipped': { icon: '·', label: 'MCP 未下发' },
+  'job.decision_hook': { icon: '⚖' },
+  'job.mcp_skipped': { icon: '·' },
   // AGT-04：事后捕获到 session_id（by=fallback 说明该 agent 还没写自己的正则）。
-  'job.session_captured': { icon: '⚿', label: '捕获会话' },
+  'job.session_captured': { icon: '⚿' },
   // MCP-05 阶段 A（S4 补）：评论本身与它的三种派活结果。job / plan / todo 上的评论各自记在
   // 自己作用域的事件流里（plan / todo 走 plan:<id>），所以在 job 时间线看到的就是挂在
   // 这条 job 上的评论。
-  'comment.created': { icon: '✎', label: '评论' },
-  'comment.triggered': { icon: '→', label: '评论派活' },
-  'comment.trigger_throttled': { icon: '⏱', label: '派活被限流' },
-  'comment.mention_rejected': { icon: '⚠', label: '提及未派活' },
+  'comment.created': { icon: '✎' },
+  'comment.triggered': { icon: '→' },
+  'comment.trigger_throttled': { icon: '⏱' },
+  'comment.mention_rejected': { icon: '⚠' },
   // JOB-10（S4 补）：技能挂载收据——本机直写或 worker 走 uploads 通道；跳过则说明原因
   // （worker_protocol = 老 worker，peer_runner = peer 没有通道）。
-  'job.skills_mounted': { icon: '❖', label: '已挂载技能' },
-  'job.skills_skipped': { icon: '⚠', label: '技能未挂载' },
+  'job.skills_mounted': { icon: '❖' },
+  'job.skills_skipped': { icon: '⚠' },
   // JOB-06①：强制规则已注入 prompt（names = 注入的名字，bytes = 正文总字节）。
   // 跳过只在项目根的 .gofer/RULES.md 读不到时记（reason: project_file_unreachable）。
-  'job.rules_injected': { icon: '§', label: '已注入规则' },
-  'job.rules_skipped': { icon: '⚠', label: '规则未注入' },
+  'job.rules_injected': { icon: '§' },
+  'job.rules_skipped': { icon: '⚠' },
   // gofer-3db4：定时任务 / plan 派发 / 续投等 gofer 自己发起的 job 要求「结束时通知」，
   // 但目标会话已不可寻址（不存在 / 属于别的 caller）——通知被丢弃、job 照常跑。
-  'job.notify_dropped': { icon: '🔕', label: '结束通知已丢弃' },
+  'job.notify_dropped': { icon: '🔕' },
   // MCP-05 阶段 B（S4 补）：leader 回合。它们记在 PLAN 作用域（scope id 为 plan:<id>），
   // 所以只在按 plan 作用域查事件流时出现。
-  'plan.leader_woken': { icon: '◈', label: 'leader 回合开始' },
-  'plan.leader_skipped': { icon: '⏭', label: 'leader 回合跳过' },
-  'plan.leader_cancelled': { icon: '⊘', label: 'leader 回合取消' },
-  'plan.leader_exhausted': { icon: '⚑', label: 'leader 轮次用尽' },
+  'plan.leader_woken': { icon: '◈' },
+  'plan.leader_skipped': { icon: '⏭' },
+  'plan.leader_cancelled': { icon: '⊘' },
+  'plan.leader_exhausted': { icon: '⚑' },
 }
 
 export function eventIcon(type: string): string {
   return EVENT_META[type]?.icon ?? '•'
 }
 export function eventLabel(type: string): string {
-  return EVENT_META[type]?.label ?? type
+  const key = `util.event.${type}`
+  return te(key) ? t(key) : type
 }
 
 // 解析 detail_json，提取每类事件的关键字段拼成一行补充说明（无则空）。
@@ -131,9 +133,9 @@ export function eventDetailText(ev: JobEvent): string {
       const parts: string[] = []
       if (d.reason) parts.push(String(d.reason))
       if (typeof d.expires_at === 'number' && d.expires_at > 0) {
-        parts.push(`${new Date(d.expires_at * 1000).toLocaleString()} 过期`)
+        parts.push(t('util.eventDet.needsApproval', { time: new Date(d.expires_at * 1000).toLocaleString() }))
       }
-      if (d.origin) parts.push(`来自 ${d.origin}`)
+      if (d.origin) parts.push(t('util.eventDet.from', { origin: String(d.origin) }))
       return parts.join(' · ')
     }
     case 'job.hold_approved':
@@ -141,18 +143,18 @@ export function eventDetailText(ev: JobEvent): string {
       return [d.by && `by ${d.by}`, d.note].filter(Boolean).map(String).join(' · ')
     case 'job.hold_expired':
       return typeof d.expires_at === 'number' && d.expires_at > 0
-        ? `${new Date(d.expires_at * 1000).toLocaleString()} 到期`
+        ? t('util.eventDet.expiredAt', { time: new Date(d.expires_at * 1000).toLocaleString() })
         : ''
     case 'job.uncommitted':
-      return `${d.count ?? 0} 个文件`
+      return t('util.eventDet.files', { n: Number(d.count ?? 0) })
     case 'job.budget_exceeded':
-      return `${d.limit ?? ''} 上限 ${d.max ?? ''}（已用 ${d.used ?? ''}）`
+      return t('util.eventDet.budget', { limit: String(d.limit ?? ''), max: String(d.max ?? ''), used: String(d.used ?? '') })
     case 'job.agent_budget_exhausted': {
       const parts: string[] = []
       if (Number(d.limit_tokens ?? 0) > 0) parts.push(`${d.used_tokens ?? 0} / ${d.limit_tokens} tokens`)
       if (Number(d.limit_cost_usd ?? 0) > 0) parts.push(`$${d.used_cost_usd ?? 0} / $${d.limit_cost_usd}`)
       if (d.scope) parts.push(String(d.scope))
-      if (d.estimated) parts.push('估算')
+      if (d.estimated) parts.push(t('util.eventDet.estimated'))
       return parts.join(' · ')
     }
     case 'job.delivered':
@@ -163,9 +165,9 @@ export function eventDetailText(ev: JobEvent): string {
     case 'job.mcp_injected':
       return Array.isArray(d.servers) ? d.servers.join(', ') : ''
     case 'job.decision_hook': {
-      const head = `${d.hook ?? ''} · ${d.point ?? ''} · ${d.decision === 'deny' ? '否决' : '放行'}`
-      const patch = d.patch && typeof d.patch === 'object' ? ` · 收紧 ${Object.keys(d.patch).join(', ')}` : ''
-      const why = d.error ? `（hook 出错：${String(d.error)}）` : d.reason ? `：${String(d.reason)}` : ''
+      const head = `${d.hook ?? ''} · ${d.point ?? ''} · ${t(d.decision === 'deny' ? 'util.eventDet.deny' : 'util.eventDet.allow')}`
+      const patch = d.patch && typeof d.patch === 'object' ? ` · ${t('util.eventDet.tighten', { keys: Object.keys(d.patch).join(', ') })}` : ''
+      const why = d.error ? t('util.eventDet.hookError', { error: String(d.error) }) : d.reason ? t('util.eventDet.reason', { reason: String(d.reason) }) : ''
       return head + patch + why
     }
     case 'interaction.created':
@@ -179,11 +181,11 @@ export function eventDetailText(ev: JobEvent): string {
       // remembered / timeout）。自动裁决不再各占一条 job.permission_answered，所以
       // 时间线上只有这里能看到它们。
       const auto = Number(d.permissions_auto ?? 0)
-      const permissions = `${d.permissions ?? 0} 次求批`
+      const asks = t('util.eventDet.asks', { n: Number(d.permissions ?? 0) })
       const parts = [
-        `${d.tool_calls ?? 0} 次工具调用`,
-        `${d.thoughts ?? 0} 段思考`,
-        auto > 0 ? `${permissions}（自动 ${auto}）` : permissions,
+        t('util.eventDet.toolCalls', { n: Number(d.tool_calls ?? 0) }),
+        t('util.eventDet.thoughts', { n: Number(d.thoughts ?? 0) }),
+        auto > 0 ? t('util.eventDet.asksAuto', { asks, n: auto }) : asks,
       ]
       if (d.stop_reason) {
         parts.push(String(d.stop_reason))
@@ -195,7 +197,7 @@ export function eventDetailText(ev: JobEvent): string {
     case 'job.permission_answered': {
       const parts = [d.kind, d.option_id].filter(Boolean).map(String)
       if (d.auto === true) {
-        parts.push('自动')
+        parts.push(t('util.eventDet.auto'))
       } else if (d.by) {
         parts.push(`by ${d.by}`)
       }
@@ -208,11 +210,11 @@ export function eventDetailText(ev: JobEvent): string {
       return [`holder=${d.holder_job ?? '?'}`, d.dir].filter(Boolean).join(' · ')
     // AUTO-05：静默了多久、窗口多长——解释 job 为什么被判为停滞。
     case 'job.stalled':
-      return [`静默 ${d.silent_sec ?? '?'}s`, `窗口 ${d.stall_timeout_sec ?? '?'}s`].join(' · ')
+      return [t('util.eventDet.silent', { s: String(d.silent_sec ?? '?') }), t('util.eventDet.window', { s: String(d.stall_timeout_sec ?? '?') })].join(' · ')
     // AGT-04：哪个 agent、从哪读到、是内置/显式正则还是通用兜底——by=fallback
     // 就是「该给这个 agent 写条 session_capture」的信号。
     case 'job.session_captured':
-      return [`agent=${d.agent ?? '?'}`, d.source, d.by === 'fallback' ? '兜底' : 'agent 配置']
+      return [`agent=${d.agent ?? '?'}`, d.source, d.by === 'fallback' ? t('util.eventDet.fallback') : t('util.eventDet.agentConfig')]
         .filter(Boolean)
         .join(' · ')
     // MCP-05（S4 补）：谁在什么身份下说了话、@了谁——派活的三行据此区分。
@@ -225,7 +227,7 @@ export function eventDetailText(ev: JobEvent): string {
     case 'comment.triggered':
       return [d.mention && `@${d.mention}`, d.job_id].filter(Boolean).map(String).join(' · ')
     case 'comment.trigger_throttled':
-      return [d.reason, `第 ${d.count ?? '?'} 条`].filter(Boolean).map(String).join(' · ')
+      return [d.reason, t('util.eventDet.commentIndex', { n: String(d.count ?? '?') })].filter(Boolean).map(String).join(' · ')
     case 'comment.mention_rejected':
       return [d.mention && `@${d.mention}`, d.reason, d.error].filter(Boolean).map(String).join(' · ')
     // JOB-10（S4 补）：挂了哪些技能 / 为什么没挂。
@@ -252,13 +254,13 @@ export function eventDetailText(ev: JobEvent): string {
       return [d.target, d.reason].filter(Boolean).join(' · ')
     // MCP-05 阶段 B（S4 补）：leader 回合的关键字段（轮次、接手人、成员 job）。
     case 'plan.leader_woken':
-      return [`第 ${d.round ?? '?'} 轮`, d.agent, d.member_status, d.leader_job].filter(Boolean).map(String).join(' · ')
+      return [t('util.eventDet.round', { n: String(d.round ?? '?') }), d.agent, d.member_status, d.leader_job].filter(Boolean).map(String).join(' · ')
     case 'plan.leader_skipped':
       return [d.reason, d.job, d.error].filter(Boolean).map(String).join(' · ')
     case 'plan.leader_cancelled':
-      return [d.by && `by ${d.by}`, `取消 ${d.cancelled ?? '?'} 轮`].filter(Boolean).map(String).join(' · ')
+      return [d.by && `by ${d.by}`, t('util.eventDet.cancelRounds', { n: String(d.cancelled ?? '?') })].filter(Boolean).map(String).join(' · ')
     case 'plan.leader_exhausted':
-      return [`已用 ${d.rounds ?? '?'} 轮`, d.job].filter(Boolean).map(String).join(' · ')
+      return [t('util.eventDet.usedRounds', { n: String(d.rounds ?? '?') }), d.job].filter(Boolean).map(String).join(' · ')
     default:
       return ''
   }

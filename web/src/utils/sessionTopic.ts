@@ -2,6 +2,7 @@
 // 字段与规则对应 server：PATCH /v1/sessions/{sid}（topic ≤200 字符、scope ≤20 项且是项目根相对路径），
 // GET /v1/sessions?q=&path=（hits / maybe_offline）。服务端仍是唯一权威，这里只是提前给出可读的错误。
 import type { AgentSession, SessionHit } from '../api/types'
+import { t, te } from '../i18n'
 import { holdsPermission } from './permissionGate'
 import type { AuthWhoami } from './permissions'
 
@@ -19,27 +20,26 @@ export interface TopicDisplay {
   title: string
 }
 
-const SOURCE_TAG: Record<string, string> = { inferred: '推断', self: '自述', human: '人工' }
-
-// topicSourceTag：来源的中文小标签；未知来源原样返回。
+// topicSourceTag：来源的小标签；未知来源原样返回。
 export function topicSourceTag(source: string | undefined): string {
   if (!source) return ''
-  return SOURCE_TAG[source] ?? source
+  const key = `util.topic.tag.${source}`
+  return te(key) ? t(key) : source
 }
 
 // topicDisplay：卡片 / 抽屉里主题的显示规则。推断值灰显并标「推断」；self / human 显示来源小标签。
 export function topicDisplay(s: Pick<AgentSession, 'topic' | 'topic_source'>): TopicDisplay {
   const text = (s.topic ?? '').trim()
-  if (!text) return { text: '', inferred: false, tag: '', title: '还没有主题' }
+  if (!text) return { text: '', inferred: false, tag: '', title: t('util.topic.none') }
   const inferred = s.topic_source === 'inferred'
   const tag = topicSourceTag(s.topic_source)
   const title = inferred
-    ? '推断值：由当前目录与会话名拼出，没有人为设置；点编辑写入真正的主题'
+    ? t('util.topic.title.inferred')
     : s.topic_source === 'self'
-      ? '会话自己设置的主题'
+      ? t('util.topic.title.self')
       : s.topic_source === 'human'
-        ? '由人（或其它调用方）设置的主题'
-        : '会话主题'
+        ? t('util.topic.title.human')
+        : t('util.topic.title.plain')
   return { text, inferred, tag, title }
 }
 
@@ -52,11 +52,11 @@ export interface EditGate {
 // canEditTopic：已结束的会话不能改；自己的会话（或没有 owner 的会话）不需要权限；别人的需要 session.manage.others。
 // whoami 未取到时不拦，由服务端的 403 说话。
 export function canEditTopic(who: AuthWhoami | null | undefined, s: Pick<AgentSession, 'state' | 'caller_id'>): EditGate {
-  if (s.state === 'ended') return { ok: false, reason: '会话已结束，不能再修改主题与范围' }
+  if (s.state === 'ended') return { ok: false, reason: t('util.topic.err.ended') }
   const owner = s.caller_id ?? ''
   if (!owner || (who && who.caller_id === owner)) return { ok: true, reason: '' }
   if (holdsPermission(who, MANAGE_OTHERS)) return { ok: true, reason: '' }
-  return { ok: false, reason: `这是别人的会话，修改需要 ${MANAGE_OTHERS} 权限` }
+  return { ok: false, reason: t('util.topic.err.others', { perm: MANAGE_OTHERS }) }
 }
 
 export interface ScopeCheck {
@@ -75,17 +75,17 @@ export function parseScopeInput(text: string): ScopeCheck {
   const out: string[] = []
   const seen = new Set<string>()
   for (const r of raw) {
-    if (isAbsoluteLike(r)) return { items: [], error: `「${r}」是绝对路径，范围要写项目根相对路径（如 internal/job）` }
+    if (isAbsoluteLike(r)) return { items: [], error: t('util.topic.err.absolute', { v: r }) }
     const segs = r.split('/').filter((x) => x !== '' && x !== '.')
-    if (segs.includes('..')) return { items: [], error: `「${r}」含 ..，范围不能跳出项目根` }
-    if (segs.length === 0) return { items: [], error: `「${r}」是项目根本身，请写具体子目录` }
+    if (segs.includes('..')) return { items: [], error: t('util.topic.err.dotdot', { v: r }) }
+    if (segs.length === 0) return { items: [], error: t('util.topic.err.rootDir', { v: r }) }
     const clean = segs.join('/')
     if (!seen.has(clean)) {
       seen.add(clean)
       out.push(clean)
     }
   }
-  if (out.length > SCOPE_MAX) return { items: [], error: `范围最多 ${SCOPE_MAX} 项（现在 ${out.length} 项）` }
+  if (out.length > SCOPE_MAX) return { items: [], error: t('util.topic.err.scopeMax', { max: SCOPE_MAX, n: out.length }) }
   return { items: out, error: '' }
 }
 
@@ -96,10 +96,10 @@ export function scopeToText(scope: string[] | undefined): string {
 
 // validateTopic：≤200 字符、不含控制字符；输入框留空 = 不改主题；要清除已有主题用显式的 buildClearTopicPatch。
 export function validateTopic(topic: string): string {
-  const t = topic.trim()
+  const v = topic.trim()
   // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f]/.test(t)) return '主题不能含换行或控制字符'
-  if ([...t].length > TOPIC_MAX) return `主题最多 ${TOPIC_MAX} 个字符（现在 ${[...t].length}）`
+  if (/[\u0000-\u001f\u007f]/.test(v)) return t('util.topic.err.controlChars')
+  if ([...v].length > TOPIC_MAX) return t('util.topic.err.topicMax', { max: TOPIC_MAX, n: [...v].length })
   return ''
 }
 
@@ -160,30 +160,26 @@ export function buildFindParams(input: string): FindParams | null {
   return { q: t }
 }
 
-const HIT_LABELS: Record<string, string> = {
-  scope: '范围命中',
-  scope_weak: '范围相关',
-  topic: '主题命中',
-  peer_name: '会话名',
-  project: '项目',
-}
-
-// hitLabel：命中原因的中文；主题类命中若来自推断值，加「（推断）」。
+// hitLabel：命中原因；主题类命中若来自推断值，加「（推断）」。
 export function hitLabel(h: SessionHit): string {
-  const base = HIT_LABELS[h.kind] ?? h.kind
+  const key = `util.topic.hit.${h.kind}`
+  const base = te(key) ? t(key) : h.kind
   const inferred = (h.kind === 'topic' || h.kind === 'scope') && h.source === 'inferred'
-  return inferred ? `${base}（推断）` : base
+  return inferred ? t('util.topic.hit.inferred', { base }) : base
 }
 
 // hitReasons：每条命中一行文字，如「范围命中：internal/job」。
 export function hitReasons(hits: SessionHit[] | undefined): string[] {
-  return (hits ?? []).map((h) => (h.match ? `${hitLabel(h)}：${h.match}` : hitLabel(h)))
+  return (hits ?? []).map((h) => (h.match ? t('util.topic.hit.line', { label: hitLabel(h), match: h.match }) : hitLabel(h)))
 }
 
-export const MAYBE_OFFLINE_LABEL = '可能不在线'
+// 「可能不在线」标记：旧 worker 没上报心跳时的提示。
+export function maybeOfflineLabel(): string {
+  return t('util.topic.maybeOffline')
+}
 
 export function findSummary(count: number, input: string): string {
   return count === 0
-    ? `没有找到匹配「${input.trim()}」的在线会话（已结束的会话不参与查找）`
-    : `按相关度排序，共 ${count} 个会话`
+    ? t('util.topic.findNone', { q: input.trim() })
+    : t('util.topic.findCount', { n: count })
 }

@@ -18,5 +18,6 @@ import { jobs } from './jobs'
 import { plans } from './plans'
 import { today } from './today'
 import { workbench } from './workbench'
+import { shared } from './shared'
 
-export const pages: PageDict[] = [today, jobs, plans, workbench, sessions, review, mail, work, workflows, schedules, issues, stats, newjob, runners, agents, projects, settings, access]
+export const pages: PageDict[] = [today, jobs, plans, workbench, sessions, review, mail, work, workflows, schedules, issues, stats, newjob, runners, agents, projects, settings, access, shared]

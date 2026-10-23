@@ -20,6 +20,7 @@ import {
   type FanColumn,
 } from '../utils/compare'
 import { runnerLabel } from '../utils/runnerDisplay'
+import { t } from '../i18n'
 
 const props = defineProps<{
   workflowId: string
@@ -138,7 +139,11 @@ function openDialog(col: FanColumn): void {
 }
 
 function onDialogDone(r: { merged: boolean; picked: boolean }): void {
-  lastResult.value = r.merged ? (r.picked ? '已选择并合并' : '已合并') : r.picked ? '已选择（未合并）' : ''
+  lastResult.value = r.merged
+    ? t(r.picked ? 'util.compare.pickedAndMerged' : 'util.compare.merged')
+    : r.picked
+      ? t('util.compare.pickedOnly')
+      : ''
   emit('changed')
   void refreshPickedWorktree()
 }
@@ -149,22 +154,26 @@ function onDialogClose(): void {
 
 function pickDisabledReason(col: FanColumn): string {
   if (!awaiting.value) return ''
-  if (col.status !== 'done') return '这一路没有成功完成，不能选'
+  if (col.status !== 'done') return t('util.compare.notDone')
   return ''
 }
 
 function mergedBadge(col: FanColumn): string {
   const st = worktrees.value[col.jobId]
   if (!st) return ''
-  return st.merged ? '已合并到基线' : st.exists ? '尚未合并' : '分支已清理'
+  return st.merged
+    ? t('util.compare.mergedToBase')
+    : st.exists
+      ? t('util.compare.notMerged')
+      : t('util.compare.branchGone')
 }
 
 const hint = computed(() => {
   if (!pickStep.value) return ''
-  if (picked.value) return `已选 fan ${picked.value}`
-  if (awaiting.value) return '待择优：选一路并合并，工作流才会继续'
-  if (props.workflowStatus === 'running') return '等待各路结束后择优'
-  return '未择优'
+  if (picked.value) return t('util.compare.pickedFan', { n: picked.value })
+  if (awaiting.value) return t('util.compare.awaitingPick')
+  if (props.workflowStatus === 'running') return t('util.compare.waitingLanes')
+  return t('util.compare.noPick')
 })
 </script>
 
@@ -174,7 +183,7 @@ const hint = computed(() => {
       <span v-if="hint" class="cmp-hint mono" :class="{ 'cmp-hint--attn': awaiting }" data-test="compare-hint">{{ hint }}</span>
       <span v-if="lastResult" class="cmp-hint cmp-hint--ok mono">{{ lastResult }}</span>
       <button class="cmp-link mono" type="button" data-test="compare-diff-all" @click="toggleAll">
-        {{ allOpen ? '收起全部 diff' : '并排展开 diff' }}
+        {{ allOpen ? t('util.compare.collapseAll') : t('util.compare.expandAll') }}
       </button>
     </div>
 
@@ -204,16 +213,16 @@ const hint = computed(() => {
         <header class="col-head">
           <span class="col-agent mono">{{ col.agent || `fan ${col.fanIndex}` }}</span>
           <span class="col-fan mono">f{{ col.fanIndex }}</span>
-          <span v-if="col.picked" class="col-badge mono" data-test="picked-badge">已选</span>
+          <span v-if="col.picked" class="col-badge mono" data-test="picked-badge">{{ t('util.compare.pickedBadge') }}</span>
           <StatusBadge v-if="col.status !== 'pending'" :status="col.status" />
           <span v-else class="col-pending mono">pending</span>
         </header>
 
         <dl class="col-meta mono">
-          <div class="col-row"><dt>耗时</dt><dd>{{ fmtDuration(col.durationSec) }}</dd></div>
+          <div class="col-row"><dt>{{ t('util.compare.duration') }}</dt><dd>{{ fmtDuration(col.durationSec) }}</dd></div>
           <div class="col-row"><dt>runner</dt><dd>{{ runnerLabel(col.runner) || '—' }}</dd></div>
           <div class="col-row">
-            <dt>领先提交</dt>
+            <dt>{{ t('util.compare.ahead') }}</dt>
             <dd>{{ col.commitsAhead == null ? '—' : col.commitsAhead }}<template v-if="col.branch"> · {{ col.branch }}</template></dd>
           </div>
           <div class="col-row">
@@ -223,12 +232,12 @@ const hint = computed(() => {
               <template v-else>—</template>
             </dd>
           </div>
-          <div v-if="col.retries" class="col-row"><dt>重试</dt><dd>{{ col.retries }} 次</dd></div>
-          <div v-if="mergedBadge(col)" class="col-row"><dt>合并</dt><dd data-test="merged-state">{{ mergedBadge(col) }}</dd></div>
+          <div v-if="col.retries" class="col-row"><dt>{{ t('util.compare.retries') }}</dt><dd>{{ t('util.compare.times', { n: col.retries }) }}</dd></div>
+          <div v-if="mergedBadge(col)" class="col-row"><dt>{{ t('util.compare.merge') }}</dt><dd data-test="merged-state">{{ mergedBadge(col) }}</dd></div>
         </dl>
 
         <pre v-if="col.diffSummary" class="col-diffsum mono" data-test="diff-summary">{{ col.diffSummary }}</pre>
-        <p v-else class="col-none mono">没有 diff 摘要</p>
+        <p v-else class="col-none mono">{{ t('util.compare.noDiffSummary') }}</p>
 
         <p v-if="col.error" class="col-error mono">{{ col.error }}</p>
         <pre v-if="col.tail" class="col-tail mono" data-test="tail">{{ col.tail }}</pre>
@@ -239,23 +248,23 @@ const hint = computed(() => {
             class="btn btn--go mono"
             type="button"
             :disabled="!canPickColumn(col, awaiting)"
-            :title="pickDisabledReason(col) || '选这一路'"
+            :title="pickDisabledReason(col) || t('util.compare.pickTitle')"
             data-test="pick-btn"
             @click="openDialog(col)"
           >
-            选这个并合并
+            {{ t('util.compare.pickAndMerge') }}
           </button>
           <button
-            v-else-if="pickStep && col.picked && mergedBadge(col) === '尚未合并' && !columnMergeReason(col)"
+            v-else-if="pickStep && col.picked && mergedBadge(col) === t('util.compare.notMerged') && !columnMergeReason(col)"
             class="btn mono"
             type="button"
             data-test="merge-btn"
             @click="openDialog(col)"
           >
-            合并到基线
+            {{ t('util.compare.mergeToBase') }}
           </button>
           <button class="btn mono" type="button" data-test="diff-toggle" @click="toggleDiff(col)">
-            {{ diffOpen[col.fanIndex] ? '收起 diff' : '展开 diff' }}
+            {{ diffOpen[col.fanIndex] ? t('util.compare.collapseDiff') : t('util.compare.expandDiff') }}
           </button>
           <button v-if="col.jobId" class="btn mono" type="button" :title="col.jobId" @click="emit('open-job', col.jobId)">
             job &rarr;
@@ -264,18 +273,18 @@ const hint = computed(() => {
         <p v-if="pickStep && awaiting && pickDisabledReason(col)" class="col-none mono">{{ pickDisabledReason(col) }}</p>
 
         <div v-if="diffOpen[col.fanIndex]" class="col-diff" data-test="col-diff">
-          <p v-if="diffs[col.fanIndex]?.loading" class="col-none mono">加载 diff…</p>
+          <p v-if="diffs[col.fanIndex]?.loading" class="col-none mono">{{ t('util.compare.loadingDiff') }}</p>
           <p v-else-if="diffs[col.fanIndex]?.error" class="col-error mono">{{ diffs[col.fanIndex]?.error }}</p>
-          <p v-else-if="!diffs[col.fanIndex]?.text" class="col-none mono">没有 diff</p>
+          <p v-else-if="!diffs[col.fanIndex]?.text" class="col-none mono">{{ t('util.compare.noDiff') }}</p>
           <UnifiedDiff v-else :text="diffs[col.fanIndex]!.text" :download-name="`changes-${col.jobId.slice(0, 8)}.diff`" />
         </div>
       </article>
     </div>
 
     <div class="cmp-pager mono">
-      <button class="btn mono" type="button" :disabled="active <= 0" aria-label="上一路" @click="active--">‹</button>
+      <button class="btn mono" type="button" :disabled="active <= 0" :aria-label="t('util.compare.prevLane')" @click="active--">‹</button>
       <span>{{ columns.length ? active + 1 : 0 }} / {{ columns.length }}</span>
-      <button class="btn mono" type="button" :disabled="active >= columns.length - 1" aria-label="下一路" @click="active++">›</button>
+      <button class="btn mono" type="button" :disabled="active >= columns.length - 1" :aria-label="t('util.compare.nextLane')" @click="active++">›</button>
     </div>
 
     <MergeDialog

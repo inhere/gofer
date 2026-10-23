@@ -4,6 +4,7 @@
 // 规则都在这里，便于在 node 环境下单测。
 import { fmtAgo } from '../api/time'
 import type { MailMessage } from '../api/types'
+import { t } from '../i18n'
 import { mailOutgoing, type MailIdentity } from './mail'
 import { mailSummary, mailUnread, personaLabel, sortMailTimeline } from './mailConversations'
 
@@ -50,7 +51,7 @@ export function minimapTone(m: MailMessage, me: MailIdentity = {}): MinimapTone 
 
 // minimapTooltip 是标记的悬停文案：发件方 · 多久以前，换行后是正文首行摘要。
 export function minimapTooltip(m: MailMessage, nowSec = 0): string {
-  const who = personaLabel(m.from) || '未知发件方'
+  const who = personaLabel(m.from) || t('util.mail.unknownSender')
   const when = fmtAgo(m.created_at, nowSec)
   const summary = mailSummary(m.body, 60)
   return [`${who} · ${when}`, summary].filter(Boolean).join('\n')

@@ -25,7 +25,6 @@ import {
   heatGrid,
   hourRows,
   localToday,
-  NOTE_TEXT,
   perJob,
   RANGES,
   summaryLine,
@@ -116,7 +115,7 @@ const topWall = computed(() => topN(ov.value?.projects ?? [], (p) => p.wall_sec)
 const topCommits = computed(() => topN(ov.value?.projects ?? [], (p) => p.commits))
 
 // 口径说明：服务端给的说明 key 走字典，没登记的照原样显示（P6 收尾）。
-const notes = computed(() => (ov.value?.notes ?? []).map((n) => (te(`stats.note.${n}`) ? t(`stats.note.${n}`) : (NOTE_TEXT[n] ?? n))))
+const notes = computed(() => (ov.value?.notes ?? []).map((n) => (te(`stats.note.${n}`) ? t(`stats.note.${n}`) : n)))
 // 说明的拼接符跟随语言：中文用全角分号，英文用「; 」。
 const noteSeparator = computed(() => (locale.value === 'zh-CN' ? '；' : '; '))
 

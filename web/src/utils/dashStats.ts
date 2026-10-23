@@ -1,6 +1,8 @@
 // 统计墙（gofer-yelm）的纯函数：分桶、热力图网格、柱图几何、格式化与「复制统计」文本。
 // 服务端给按日序列（浏览器时区；今日另给按小时序列），周 / 月分桶都在这里算，切分桶不再请求。
+// 文案走 i18n（util.stats.*）：对外复制 / 粘贴的纯文本也按当前语言出。
 import type { Overview, OverviewDay, OverviewHour, OverviewRange } from '../api/overview'
+import { t } from '../i18n'
 
 export type Bucket = 'hour' | 'day' | 'week' | 'month'
 
@@ -8,8 +10,14 @@ export type Bucket = 'hour' | 'day' | 'week' | 'month'
 export const RANGES: OverviewRange[] = ['today', '7d', '30d', 'all']
 export const DEFAULT_RANGE: OverviewRange = '7d'
 
-export const RANGE_LABEL: Record<OverviewRange, string> = { today: '今日', '7d': '近 7 天', '30d': '近 30 天', all: '全部' }
-export const WEEKDAY = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+// 区间名与星期名（下标 = getUTCDay()）：值用 getter / 数组字面量在调用时算，不在模块加载时定住语言。
+export function rangeName(range: OverviewRange): string {
+  return t(`util.stats.range.${range}`)
+}
+
+export function weekdayName(wd: number): string {
+  return t(`util.stats.weekday.${wd}`)
+}
 
 // allowedBuckets：今日只能按小时；7d 只能按日；30d 日 / 周；全部 日 / 周 / 月（design §页面结构）。
 export function allowedBuckets(range: OverviewRange): Bucket[] {
@@ -80,14 +88,14 @@ export function bucketize(daily: OverviewDay[], bucket: Bucket): BucketRow[] {
     if (bucket === 'day') {
       key = d.day
       label = md(d.day)
-      full = `${d.day} ${WEEKDAY[weekdayOf(d.day)]}`
+      full = `${d.day} ${weekdayName(weekdayOf(d.day))}`
     } else if (bucket === 'week') {
       key = mondayOf(d.day)
       label = md(key)
-      full = `${key} 起一周`
+      full = t('util.stats.weekFrom', { day: key })
     } else {
       key = d.day.slice(0, 7)
-      label = `${Number(key.slice(5))}月`
+      label = t('util.stats.month', { n: Number(key.slice(5)) })
       full = key
     }
     let row = idx.get(key)
@@ -118,7 +126,7 @@ export function hourRows(hourly: OverviewHour[], nowHour = -1): BucketRow[] {
   return hourly.map((h) => ({
     key: `h${h.hour}`,
     label: hh(h.hour),
-    full: `今日 ${hh(h.hour)}–${hh(h.hour + 1)}`,
+    full: t('util.stats.hourRange', { from: hh(h.hour), to: hh(h.hour + 1) }),
     done: h.done,
     failed: h.failed,
     days: 1,
@@ -150,7 +158,11 @@ export function barLayout(rows: BucketRow[], width: number, height: number): { b
     const failH = scale(r.failed)
     const doneY = height - doneH
     const failY = doneY - failH - (doneH > 0 && failH > 0 ? 2 : 0)
-    const tip = `${r.full}${r.partial ? '（不完整）' : ''}\n完成 ${r.done} · 失败 ${r.failed}`
+    const tip = t('util.stats.barTip', {
+      full: r.partial ? `${r.full}${t('util.stats.incomplete')}` : r.full,
+      done: r.done,
+      failed: r.failed,
+    })
     return { x: i * (w + gap), w, doneY, doneH, failY, failH, tip }
   })
   return { bars, max }
@@ -247,33 +259,58 @@ export function topN<T>(rows: T[], key: (r: T) => number, n = 3): T[] {
 export function rangeLabel(ov: Pick<Overview, 'range'>): string {
   if (ov.range.key === 'all' && ov.range.first_job_at > 0) {
     const d = new Date(ov.range.first_job_at * 1000)
-    return `全部（${d.getMonth() + 1}/${d.getDate()} 起）`
+    return t('util.stats.range.allSince', { md: `${d.getMonth() + 1}/${d.getDate()}` })
   }
-  return RANGE_LABEL[ov.range.key]
+  return rangeName(ov.range.key)
 }
 
 // summaryLine 是标题行的一句总计。
 export function summaryLine(ov: Overview): string {
-  return `${rangeLabel(ov)} · ${fmtInt(ov.totals.jobs)} jobs · ${fmtInt(ov.totals.sessions)} 会话 · 运行 ${fmtDur(ov.totals.wall_sec)}`
+  return t('util.stats.summary', {
+    range: rangeLabel(ov),
+    jobs: fmtInt(ov.totals.jobs),
+    sessions: fmtInt(ov.totals.sessions),
+    wall: fmtDur(ov.totals.wall_sec),
+  })
 }
 
 // copyText 是「复制统计」的纯文本摘要（不含明细）。未知指标写「—」，不写 0。
+// 剪贴板里的文本也按当前语言：用户粘到哪里都是同一号口径。
 export function copyText(ov: Overview): string {
   const g = ov.git
   const s = ov.signal
   return [
-    `gofer 统计 · ${summaryLine(ov)}`,
-    `Jobs ${fmtInt(ov.jobs.total + ov.jobs.in_progress)}（完成 ${ov.jobs.done} / 失败 ${ov.jobs.failed} / 进行中 ${ov.jobs.in_progress}）· 成功率 ${fmtPct(ov.jobs.success_rate)}`,
-    `运行 ${fmtDur(ov.time.wall_sec)}（活跃 ${fmtDur(ov.time.active_sec)} · 等人 ${fmtDur(ov.time.human_wait_sec)}）`,
-    `Git 提交 ${fmtInt(g.commits)} · 文件 ${fmtInt(g.files)} · +${fmtInt(g.insertions)} −${fmtInt(g.deletions)}`,
-    `轮次 ${fmtInt(s?.turns)} · 工具调用 ${fmtInt(s?.tool_calls)} · 人介入 ${s ? fmtInt(s.human) : DASH}`,
-    `验收通过率 ${fmtPct(ov.review.accept_rate)} · Plan 完成 ${ov.review.plans_done}`,
-    `费用 ${fmtUSD(ov.usage?.cost_usd)}`,
+    t('util.stats.copy.title', { summary: summaryLine(ov) }),
+    t('util.stats.copy.jobs', {
+      total: fmtInt(ov.jobs.total + ov.jobs.in_progress),
+      done: ov.jobs.done,
+      failed: ov.jobs.failed,
+      running: ov.jobs.in_progress,
+      rate: fmtPct(ov.jobs.success_rate),
+    }),
+    t('util.stats.copy.time', {
+      wall: fmtDur(ov.time.wall_sec),
+      active: fmtDur(ov.time.active_sec),
+      human: fmtDur(ov.time.human_wait_sec),
+    }),
+    t('util.stats.copy.git', {
+      commits: fmtInt(g.commits),
+      files: fmtInt(g.files),
+      ins: fmtInt(g.insertions),
+      del: fmtInt(g.deletions),
+    }),
+    t('util.stats.copy.signal', {
+      turns: fmtInt(s?.turns),
+      tools: fmtInt(s?.tool_calls),
+      human: s ? fmtInt(s.human) : DASH,
+    }),
+    t('util.stats.copy.review', { rate: fmtPct(ov.review.accept_rate), plans: ov.review.plans_done }),
+    t('util.stats.copy.cost', { cost: fmtUSD(ov.usage?.cost_usd) }),
   ].join('\n')
 }
 
-// NOTE_TEXT 把接口 notes 的口径代码翻成说明。
-export const NOTE_TEXT: Record<string, string> = {
-  session_usage_utc_day: '终端会话用量按 UTC 日切分，范围边界最多差一天',
-  plans_done_by_updated_at: 'Plan 没有完成时间戳，按最后更新时间近似',
+// NOTE_TEXT 把接口 notes 的口径代码翻成说明：现在都在字典的 stats.note.* 里，
+// 页面用 t(`stats.note.${code}`) 取（未登记的代码原样显示）。
+export function noteText(code: string): string {
+  return t(`stats.note.${code}`)
 }

@@ -2,6 +2,7 @@
 // 模式怎么展开【不在这里】：规则只在服务端 internal/authz 一份，界面调 GET /v1/auth/expand 预览
 // （api/permissions.ts expandGrantPattern），这里只把服务端的回答整理成界面要用的形状。
 
+import { t, te } from '../i18n'
 import { callerLabel } from './callerLabel'
 import type { CallerNames } from './callerLabel'
 
@@ -137,9 +138,9 @@ export function parseSubject(subject: string): { kind: SubjectKind; id: string }
 export function subjectLabel(subject: string, names?: CallerNames): string {
   const p = parseSubject(subject)
   if (!p) return subject
-  if (p.kind === 'users') return '全体用户'
-  if (p.kind === 'caller') return `调用方 ${callerLabel(p.id, names)}`
-  return `会话 ${p.id}`
+  if (p.kind === 'users') return t('util.perm.subject.users')
+  if (p.kind === 'caller') return t('util.perm.subject.caller', { id: callerLabel(p.id, names) })
+  return t('util.perm.subject.session', { id: p.id })
 }
 
 // GET /v1/auth/expand 的回答（服务端 internal/authz.Explain 的视图）。
@@ -237,19 +238,19 @@ export function mergeExpandPreviews(previews: ExpandPreview[]): ExpandResult {
 export function expandProblemText(p: ExpandProblem | string | undefined, message?: string): string {
   switch (p) {
     case 'empty':
-      return '填写授权模式，例如 tunnel.*'
+      return t('util.perm.expand.empty')
     case 'loading':
-      return '正在预览…'
+      return t('util.perm.expand.loading')
     case 'unavailable':
-      return message ? `预览失败：${message}` : '预览失败，稍后再试'
+      return message ? t('util.perm.expand.failedWith', { msg: message }) : t('util.perm.expand.failed')
     case 'no_match':
-      return '这个模式没有匹配任何权限'
+      return t('util.perm.expand.noMatch')
     case 'only_root':
-      return 'auth.manage 只属于根管理员，任何模式都不会授予'
+      return t('util.perm.expand.onlyRoot')
     case 'only_dangerous_wildcard':
-      return '通配符不会授予危险级权限，请写出完整权限名'
+      return t('util.perm.expand.onlyDangerous')
     case 'only_not_session_grantable':
-      return '会话授权只能包含可授予会话的权限'
+      return t('util.perm.expand.onlySession')
     default:
       return ''
   }
@@ -279,11 +280,11 @@ export interface GrantFormState {
 
 // 表单能否提交：模式有效；高级别已确认；危险级有原因。
 export function grantFormBlocker(form: GrantFormState, exp: ExpandResult): string {
-  if (!parseSubject(form.subject)) return '选择授权对象'
+  if (!parseSubject(form.subject)) return t('util.perm.form.pickSubject')
   if (exp.problem) return expandProblemText(exp.problem, exp.message)
   const rules = grantConfirmRules(exp)
-  if (rules.needsReason && !form.note.trim()) return '危险级权限需要填写原因'
-  if (rules.needsConfirm && !form.confirmed) return '确认这些高风险权限'
+  if (rules.needsReason && !form.note.trim()) return t('util.perm.form.needReason')
+  if (rules.needsConfirm && !form.confirmed) return t('util.perm.form.confirmHigh')
   return ''
 }
 
@@ -300,7 +301,7 @@ export interface ManageMode {
 export function manageMode(who: AuthWhoami | null | undefined): ManageMode {
   if (!who) return { canManage: false, readOnly: true, canQueryGrants: false, reason: '' }
   if (who.kind !== 'user') {
-    return { canManage: false, readOnly: true, canQueryGrants: false, reason: '当前凭据不是个人账号，权限由它自己的允许范围决定。' }
+    return { canManage: false, readOnly: true, canQueryGrants: false, reason: t('util.perm.mode.notUser') }
   }
   const holdsManage = who.root || who.permissions.some((p) => p.name === AUTH_MANAGE)
   if (holdsManage) return { canManage: true, readOnly: false, canQueryGrants: true, reason: '' }
@@ -310,14 +311,14 @@ export function manageMode(who: AuthWhoami | null | undefined): ManageMode {
       canManage: false,
       readOnly: true,
       canQueryGrants: false,
-      reason: '这个部署没有根管理员，没人能授权。在配置里给一个调用方写 can_admin: true 后重载。',
+      reason: t('util.perm.mode.noRoot'),
     }
   }
   return {
     canManage: false,
     readOnly: true,
     canQueryGrants: false,
-    reason: `只有根管理员能管理授权：${roots.join('、')}。你可以查看权限目录和自己的权限。`,
+    reason: t('util.perm.mode.rootOnly', { roots: roots.join(t('util.sep.list')) }),
   }
 }
 
@@ -371,24 +372,17 @@ export function sessionGrants(grants: AuthGrant[]): AuthGrant[] {
     .sort((a, b) => Number(b.active) - Number(a.active) || (b.granted_at ?? 0) - (a.granted_at ?? 0))
 }
 
-const STATE_LABELS: Record<string, string> = {
-  active: '生效中',
-  orphaned: '孤儿',
-  revoked: '已撤销',
-  expired: '已过期',
-  unmatched: '模式失效',
-}
-
 export function grantStateLabel(state: string): string {
-  return STATE_LABELS[state] ?? state
+  const key = `util.perm.state.${state}`
+  return te(key) ? t(key) : state
 }
 
 export function grantStateHint(g: Pick<AuthGrant, 'state' | 'subject'>): string {
   switch (g.state) {
     case 'orphaned':
-      return '这个调用方已不在配置里，授权暂停。调用方回来后需确认才恢复。'
+      return t('util.perm.hint.orphaned')
     case 'unmatched':
-      return '模式在当前目录里已没有可授予的权限，不再生效。'
+      return t('util.perm.hint.unmatched')
     default:
       return ''
   }
@@ -403,17 +397,18 @@ export function canRevoke(g: Pick<AuthGrant, 'revocable' | 'read_only' | 'source
   return g.revocable && !g.read_only && g.source === 'db'
 }
 
-export const AUDIT_ACTION_LABELS: Record<string, string> = {
-  'grant.create': '新增授权',
-  'grant.revoke': '撤销授权',
-  'grant.activate': '确认恢复',
-  'request.session_grant': '会话授权被使用',
-  'request.denied': '请求被拒',
-  'request.ceiling_denied': '请求超出调用方上限',
+const AUDIT_ACTION_KEYS: Record<string, string> = {
+  'grant.create': 'util.perm.audit.grantCreate',
+  'grant.revoke': 'util.perm.audit.grantRevoke',
+  'grant.activate': 'util.perm.audit.grantActivate',
+  'request.session_grant': 'util.perm.audit.sessionGrantUsed',
+  'request.denied': 'util.perm.audit.requestDenied',
+  'request.ceiling_denied': 'util.perm.audit.ceilingDenied',
 }
 
 export function auditActionLabel(a: string): string {
-  return AUDIT_ACTION_LABELS[a] ?? a
+  const key = AUDIT_ACTION_KEYS[a]
+  return key ? t(key) : a
 }
 
 export interface AuditFilter {
@@ -482,13 +477,13 @@ export function permissionDeniedMessage(status: number, error: string | undefine
   if (status !== 403) return null
   const miss = missingPermissions(error)
   if (miss.length === 0) return null
-  return `缺少权限：${miss.join('、')}。请根管理员在「设置 → 权限」授予；在那里也能查看你现有的权限。`
+  return t('util.perm.denied', { miss: miss.join(t('util.sep.list')) })
 }
 
 // 授权有效期（新增授权表单）。
 export const EXPIRY_OPTIONS: { label: string; sec: number }[] = [
-  { label: '长期', sec: 0 },
-  { label: '1 天', sec: 86400 },
-  { label: '7 天', sec: 7 * 86400 },
-  { label: '30 天', sec: 30 * 86400 },
+  { get label() { return t('util.perm.expiry.forever') }, sec: 0 },
+  { get label() { return t('util.perm.expiry.1d') }, sec: 86400 },
+  { get label() { return t('util.perm.expiry.7d') }, sec: 7 * 86400 },
+  { get label() { return t('util.perm.expiry.30d') }, sec: 30 * 86400 },
 ]
