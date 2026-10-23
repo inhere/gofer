@@ -66,7 +66,7 @@ func (x sessionInjector) SubmitMessenger(projectKey, runner, cwd string, command
 		timeout = 90 * time.Second
 	}
 	out, err := x.jobs.Submit(job.JobRequest{
-		ProjectKey: projectKey, Agent: agent.ExecAgentKey, Runner: x.runnerKey(runner),
+		ProjectKey: deliveryProject(projectKey), Agent: agent.ExecAgentKey, Runner: x.runnerKey(runner),
 		Cmd: command, Cwd: ".", Title: title, Tags: []string{job.MessengerJobTag},
 		Env: map[string]string{"GOFER_MESSENGER": "1"},
 		// gofer-qzv5: a web message handed to the one-shot messenger is the same
@@ -179,7 +179,7 @@ func (x sessionInjector) jobOutput(jobID string, out job.JobResult) string {
 // plus the stdout tail (the pane check writes its reason code there).
 func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.InjectRequest) (sessionrelay.InjectResult, error) {
 	out, async, err := x.jobs.SubmitSync(job.JobRequest{
-		ProjectKey: req.ProjectKey,
+		ProjectKey: deliveryProject(req.ProjectKey),
 		Agent:      agent.ExecAgentKey,
 		Runner:     x.runnerKey(req.Runner),
 		Cmd:        req.Cmd,
@@ -299,6 +299,24 @@ func unstartedDetail(out job.JobResult) string {
 		return detail + "：" + reason
 	}
 	return detail
+}
+
+// deliveryProject resolves the project a session delivery runs in: the session's own
+// project, or — when the session belongs to none, because its cwd is outside every
+// configured project — the machine's default workspace project (config.DefaultProjectKey,
+// config.DefaultWorkspaceProject).
+//
+// A delivery is a system job: nothing about it depends on the directory it runs in
+// (path A's script only talks to tmux, path C runs the agent's own deliver_command, the
+// messenger is a one-shot CLI), so the default workspace is the right place for it — and
+// it is the only place that exists on every machine. Submitting the session's EMPTY key
+// (gofer-vin1) was refused at admission as `invalid project key ""`, and picking any
+// configured project would have run the job inside somebody else's tree.
+func deliveryProject(projectKey string) string {
+	if strings.TrimSpace(projectKey) == "" {
+		return config.DefaultProjectKey
+	}
+	return projectKey
 }
 
 // runnerKeyForSession maps a registered session's runner label to a job runner

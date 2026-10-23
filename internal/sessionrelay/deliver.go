@@ -962,6 +962,17 @@ func (s *Service) takeoverCheck(a jobstore.AgentSession) (TakeoverPlan, CwdChoic
 	if s.takeoverer == nil {
 		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonNoRunner, errors.New("no takeover executor is wired on this server"))
 	}
+	// Path B reopens the conversation with `--resume` IN THE SESSION'S OWN DIRECTORY, so it
+	// needs a project root to express that directory against. A session that belongs to no
+	// project has none, and starting the resumed process anywhere else would silently move
+	// the conversation to another directory — refuse with the reason a person can act on
+	// (start the session inside a project) instead of reporting a missing resume template
+	// (the agent surely has one; only the project is unknown).
+	if strings.TrimSpace(a.ProjectKey) == "" {
+		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonNoProject, fmt.Errorf(
+			"session %s belongs to no configured project (its cwd %q is outside every project): a takeover reopens the conversation with --resume in the session's own directory, so start it inside a project; terminal delivery (deliver_command / tmux) does not need one",
+			shortSessionID(a.SessionID), a.Cwd))
+	}
 	plan := s.takeoverer.PlanTakeover(a.Agent, a.ProjectKey, a.Runner, a.SessionID)
 	if len(plan.Argv) == 0 {
 		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonNoResumeTemplate, fmt.Errorf(
@@ -1283,9 +1294,10 @@ func (s *Service) CheckDeliverable(sid string) error {
 		return nil
 	}
 	if strings.TrimSpace(a.PeerName) != "" && a.PeerMessaging {
+		// A session that belongs to NO project is still deliverable: its messenger runs in
+		// the execution machine's default workspace (the host resolves the empty project key,
+		// gofer-vin1). Refusing here was the second half of that bug.
 		switch {
-		case strings.TrimSpace(a.ProjectKey) == "":
-			return undeliverable(ReasonNoProject, errors.New("该会话所在目录不属于任何已配置项目，无法派发传话人"))
 		case s.messenger == nil:
 			return undeliverable(ReasonNoMessenger, errors.New("传话人执行器未配置"))
 		case strings.TrimSpace(a.Runner) == "":

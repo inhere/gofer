@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **不属于任何项目的会话不再传不进去话（gofer-vin1）**：会话的 cwd 不在任何已配置项目下时（`session.project` 为空），给它的传话 / 送话一律失败 `deliver_failed: invalid request: invalid project key ""`，web 侧则是「该会话所在目录不属于任何已配置项目，无法派发传话人」。现在这类由 server 发起的投递 job（agent 的 `deliver_command`、tmux 注入、一次性传话人）落在**执行机的默认工作空间项目**（`default`，即该机 `~/.gofer/workspace`，可用 `GOFER_WORKSPACE` 改）里跑：cwd 是该工作空间根，不会跑进任何别的项目目录；为此 gofer 自己的投递 job 在 `default` 项目里放行 runner 准入与 exec 门槛（操作员从未为这个内置项目写过策略，命令也是 gofer 自己的），普通 job 仍照旧受限。远程 worker 也一样——worker 现在也会注入并上报自己的 `default` 项目（`gofer init` 写的那套定义），所以会话在哪台机就在那台机的默认工作空间跑；worker 太旧或没有该项目时会明确报 `project "default" not on worker`，而不是奇怪的 project key 报错。**接管（`--resume`）仍要求会话在项目内**（要在会话自己的目录里重开），无项目时返回 `no_project` 并说明原因。
+
 ### 变更
 
 - **Issues、统计、新建任务三页改版（P5-b，gofer-hez1）**：`/issues` 的仓库下拉换成列表头统一的项目 chip（repo 视作项目），Issues / 记忆两个页签换成统一页签（`?tab=` 可深链），状态筛选换成带计数的 chip，树形 / 平铺切换与记忆作用域都改用分段控件，issue 详情改成统一侧抽屉（关系、备注、评论、保存/评论的只读判断都保留），页头去掉 TRACKER 眉标。`/dashboard` 迁到新 token（状态族配色、数字等宽、面板圆角分级），所有标题、口径提示、图例与单位走 zh/en 字典，手机断点统一到 760px。`/new` 改成两栏（左栏项目 / runner / worker / agent，右栏模板 / 标题 / cwd / 任务说明），其余选项收进可折叠的「高级选项」，返回链接换成统一的「← 任务」，标题随模式变化（新建任务 / 快速重建 / 从会话新开），全部字段与校验不变。三页文案进 `web/src/i18n/pages/issues.ts`、`stats.ts`、`newjob.ts`。

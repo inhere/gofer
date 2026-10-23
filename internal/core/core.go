@@ -116,7 +116,7 @@ type Core struct {
 	// PATH probe on reload).
 	detector agent.Detector
 	// defaultProject: inject the built-in `default` project on Build and every
-	// reload (WithBuiltinDefaultProject; serve / MCP local only, never a worker).
+	// reload (WithBuiltinDefaultProject).
 	defaultProject bool
 }
 
@@ -169,10 +169,14 @@ func WithAgentDetector(d agent.Detector) BuildOption {
 }
 
 // WithBuiltinDefaultProject injects the built-in `default` project (the host's
-// default workspace) when the config declares none. Only the processes that run
-// jobs for the server's own projects opt in (serve, the MCP local backend): a
-// worker builds its Core from worker.yaml and must not advertise a project it was
-// never given. ReloadWith keeps the same choice.
+// default workspace) when the config declares none. Every process that executes jobs
+// opts in (serve, the MCP local backend, a worker): it is where gofer's own delivery
+// jobs run when the session they serve belongs to no project (gofer-vin1), and a worker
+// must therefore be able to run — and advertise — its OWN default workspace. The
+// project is the machine's, so each machine derives it from its own config
+// (WorkspaceDir); a server's `default` is never pushed to a worker (only projects naming
+// a worker runner are). ReloadWith keeps the same choice, which is what re-adds it after
+// a pushed Policy replaces the worker's project set.
 func WithBuiltinDefaultProject() BuildOption {
 	return func(o *buildOptions) { o.defaultProject = true }
 }

@@ -88,7 +88,15 @@ func (s *Service) Wake(ctx context.Context, sid, text, by, origin string) (RawRe
 		return RawResult{}, err
 	}
 	if s.wakeViaMessenger(a.PeerName, a.PeerMessaging, a.ProjectKey, a.Runner) {
-		return s.wakeMessenger(ctx, a.ProjectKey, a.Runner, a.Cwd, a.PeerName, text, by, origin)
+		// The messenger opens in the project root it is submitted with. A session that
+		// belongs to NO project has none to give, and its own cwd is a directory outside
+		// every project: run the messenger in the default workspace root instead of
+		// writing into an unrelated directory (gofer-vin1).
+		cwd := a.Cwd
+		if strings.TrimSpace(a.ProjectKey) == "" {
+			cwd = "."
+		}
+		return s.wakeMessenger(ctx, a.ProjectKey, a.Runner, cwd, a.PeerName, text, by, origin)
 	}
 	inj, err := s.runTmuxInject(ctx, a, text, by, origin)
 	if err != nil {
@@ -98,8 +106,10 @@ func (s *Service) Wake(ctx context.Context, sid, text, by, origin string) (RawRe
 }
 
 func (s *Service) wakeViaMessenger(peerName string, peerMessaging bool, projectKey, runner string) bool {
+	// projectKey may be EMPTY: a session that belongs to no project is reached through the
+	// execution machine's default workspace, which the host resolves (gofer-vin1).
 	return s.messagingEnabled && s.messenger != nil && peerMessaging &&
-		strings.TrimSpace(peerName) != "" && strings.TrimSpace(projectKey) != "" && strings.TrimSpace(runner) != ""
+		strings.TrimSpace(peerName) != "" && strings.TrimSpace(runner) != ""
 }
 
 // wakeMessengerPrompt is the messenger job's prompt for a wake: the forwarded text carries
