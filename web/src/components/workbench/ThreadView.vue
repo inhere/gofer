@@ -7,24 +7,31 @@ import { canCancelJob } from '../../utils/jobCancel'
 import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, WorkbenchThread } from '../../api/types'
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
 import { attachmentCapability } from '../../utils/attachments'
+import { formatNumber, formatRelative } from '../../utils/format'
+import { t } from '../../i18n'
 import AttachmentBar from '../AttachmentBar.vue'
 import AttachTerminal from '../AttachTerminal.vue'
 import UncommittedBadge from '../UncommittedBadge.vue'
 import ConversationView from './ConversationView.vue'
 import ThreadChangesView from './ThreadChangesView.vue'
+import { clearSendQueue, readSendQueue, writeSendQueue } from './sendQueue'
 import InteractionCard from '../InteractionCard.vue'
 import LogTape from '../LogTape.vue'
 import SessionDrawer from '../SessionDrawer.vue'
-import { threadStatusPresentation } from './statusPresentation'
+import StatusPill from '../../ui/StatusPill.vue'
 
 const props = defineProps<{ threadId: string; focused: boolean }>()
 
 // 工作台只看"现在到哪了"：日志从最后 LOG_TAIL_LINES 行开始推，完整日志去 job 详情页。
 const LOG_TAIL_LINES = 200
 
+// 发送模式（设计稿 §7）：直接发送 / 排队等这一轮结束 / 打断当前 job 再发送。
+type SendMode = 'send' | 'queue' | 'interrupt'
+
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
   focusTurn(): void
+  showView(view: 'process' | 'changes'): void
 }
 
 interface WorkbenchViewContext {
@@ -57,6 +64,10 @@ const streamError = ref('')
 const actionError = ref('')
 const submittingInteraction = ref<Set<string>>(new Set())
 const draft = ref('')
+const sendMode = ref<SendMode>('send')
+// 排队：等这一轮结束再发（设计稿 §7「排队」）；打断：先取消当前 job 再发。
+// 队列按会话持久化到 localStorage（review）：刷新 / 重开页面后恢复，发出或丢弃后清除。
+const queued = ref<string[]>([])
 const sending = ref(false)
 const stopping = ref(false)
 const editingTitle = ref(false)
@@ -102,6 +113,7 @@ const attachHint = computed(() => attachBar.value?.hint() ?? '')
 const attachBlocked = computed(() => !!attachBar.value && !attachBar.value.canSend())
 const canSendTurn = computed(() => canTurn.value && !attachBlocked.value)
 const oneShot = computed(() => thread.value?.kind === 'job' && !thread.value.resumable)
+const hasQueued = computed(() => queued.value.length > 0)
 
 function resetForThread(): void {
   streamAbort?.abort()
@@ -114,6 +126,8 @@ function resetForThread(): void {
   streamError.value = ''
   actionError.value = ''
   draft.value = ''
+  // 待发队列按会话存在 localStorage 里：切回来（或刷新后重开）还能看到
+  queued.value = current ? readSendQueue(current.id) : []
   // 换会话（或判断出别的线程）时丢掉上一轮的附图：它们的责任线程已经不是当前这个。
   attachBar.value?.clear()
   titleDraft.value = current?.title ?? ''
@@ -198,17 +212,14 @@ async function punt(item: Interaction): Promise<void> {
   }
 }
 
-async function sendTurn(): Promise<void> {
-  const text = draft.value.trim()
-  if (!text || !canSendTurn.value) return
+async function deliver(text: string): Promise<void> {
+  const current = thread.value
+  if (!current) return
   sending.value = true
   actionError.value = ''
   try {
-    const current = thread.value
-    if (!current) return
     const attachmentIDs = attachBar.value?.readyIDs() ?? []
     const result = await turnWorkbenchThread(current.id, text, attachmentIDs)
-    draft.value = ''
     // 发送成功才清空附件条（失败时图还在，可直接重试）。
     attachBar.value?.clear()
     context.continued(result.job_id)
@@ -219,10 +230,54 @@ async function sendTurn(): Promise<void> {
   }
 }
 
+async function submitTurn(): Promise<void> {
+  const text = draft.value.trim()
+  if (!text) return
+  if (sendMode.value === 'queue' && !canTurn.value) {
+    queued.value = [...queued.value, text]
+    draft.value = ''
+    return
+  }
+  if (sendMode.value === 'interrupt' && !canTurn.value) {
+    // 打断后发送：先取消当前 job，把这条放进队首，等线程空闲时自动发出。
+    if (!canStop.value || stopping.value) {
+      actionError.value = t('workbench.composer.running')
+      return
+    }
+    queued.value = [text, ...queued.value]
+    draft.value = ''
+    await stopCurrent()
+    return
+  }
+  if (!canSendTurn.value) return
+  await deliver(text)
+  if (!actionError.value) draft.value = ''
+}
+
+// 队列只管「现在发不了」的消息：线程一有空就按顺序发出。
+watch(canTurn, (ready) => {
+  if (!ready || sending.value || queued.value.length === 0) return
+  const [next, ...rest] = queued.value
+  queued.value = rest
+  void deliver(next)
+})
+
+// 每次变动写回 storage（空队列则删除该键）：发出 / 丢弃 / 入队都就地落盘。
+watch(queued, (items) => {
+  const id = thread.value?.id
+  if (id) writeSendQueue(id, items)
+})
+
+function clearQueue(): void {
+  queued.value = []
+  const id = thread.value?.id
+  if (id) clearSendQueue(id)
+}
+
 function onTurnKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault()
-    void sendTurn()
+    void submitTurn()
   }
 }
 
@@ -269,7 +324,7 @@ async function togglePin(): Promise<void> {
 
 async function stopCurrent(): Promise<void> {
   if (!latestJobID.value || !canStop.value || stopping.value) return
-  if (!window.confirm(`停止 job ${latestJobID.value}？关闭视图不会停止，只有这个动作会取消执行。`)) return
+  if (!window.confirm(t('workbench.head.stopConfirm', { id: latestJobID.value }))) return
   stopping.value = true
   actionError.value = ''
   try {
@@ -290,6 +345,10 @@ function showChanges(): void {
   if (thread.value?.kind !== 'relay' && latestJobID.value) activeView.value = 'changes'
 }
 
+function showProcess(): void {
+  activeView.value = 'process'
+}
+
 function openDiff(path: string): void {
   showChanges()
   void nextTick(() => changesView.value?.focusFile(path))
@@ -308,7 +367,7 @@ function usageText(): string {
   const total = thread.value?.usage?.total_tokens ?? 0
   const cost = thread.value?.usage?.cost_usd ?? 0
   if (!total && !cost) return '—'
-  return `${total.toLocaleString()} tok${cost ? ` · $${cost.toFixed(4)}` : ''}`
+  return `${formatNumber(total)} tok${cost ? ` · $${cost.toFixed(4)}` : ''}`
 }
 
 function focusTurn(): void {
@@ -343,9 +402,13 @@ function onDocumentVisibility(): void {
   documentVisible.value = document.visibilityState === 'visible'
 }
 
-defineExpose({ stopCurrent, focusTurn })
+defineExpose({ stopCurrent, focusTurn, showView: (view: 'process' | 'changes') => { if (view === 'changes') showChanges(); else showProcess() } })
 
-const exposedActions: FocusedThreadActions = { stopCurrent, focusTurn }
+const exposedActions: FocusedThreadActions = {
+  stopCurrent,
+  focusTurn,
+  showView: (view) => { if (view === 'changes') showChanges(); else showProcess() },
+}
 watch(() => props.focused, (focused) => {
   if (focused) context.focusedActions.value = exposedActions
   else if (context.focusedActions.value === exposedActions) context.focusedActions.value = null
@@ -382,58 +445,99 @@ onUnmounted(() => {
 
 <template>
   <section v-if="thread" ref="root" class="thread-pane" tabindex="-1">
-    <header class="thread-head">
-      <button class="back mono" type="button" @click="context.back()">← 会话</button>
-      <div class="title-wrap">
+    <header class="conv-head">
+      <button class="icon-btn back" type="button" :aria-label="t('workbench.mobile.list')" @click="context.back()">
+        ☰
+      </button>
+      <div class="ttl">
         <input
           v-if="editingTitle"
           v-model="titleDraft"
           class="title-input"
-          aria-label="重命名会话"
+          :aria-label="t('workbench.head.rename')"
           @blur="saveTitle"
           @keydown.enter.prevent="saveTitle"
           @keydown.esc.prevent="editingTitle = false; titleDraft = thread.title"
         />
-        <button v-else class="thread-title" type="button" title="点击重命名" @click="editingTitle = true">{{ thread.title }}</button>
-        <span class="status mono" :class="`status--${threadStatusPresentation(thread.status).tone}`">{{ threadStatusPresentation(thread.status).label }}<template v-if="thread.stalled"> · stalled</template></span>
-        <UncommittedBadge :count="latestJob?.uncommitted_count" :files="latestJob?.uncommitted_files" />
-      </div>
-      <button class="mobile-menu mono" type="button" aria-label="更多会话操作" @click="menuOpen = !menuOpen">⋯</button>
-      <div class="head-actions mono" :class="{ 'head-actions--open': menuOpen }">
-        <button type="button" @click="togglePin">{{ thread.pinned ? '取消置顶' : '置顶' }}</button>
-        <button type="button" :disabled="!canStop || stopping" @click="stopCurrent">{{ stopping ? '停止中…' : '停止' }}</button>
-        <button type="button" :disabled="!latestJobID" @click="openDetails">打开 job 详情</button>
-        <template v-if="thread.kind === 'relay'">
-          <button type="button" @click="refreshEmbeddedSession">刷新</button>
-          <button v-for="mode in embeddedRelayModes" :key="mode" type="button" @click="setEmbeddedRelay(mode)">中继 {{ mode }}</button>
-          <button type="button" @click="removeEmbeddedSession">移除登记</button>
-        </template>
-        <div v-if="menuOpen" class="mobile-meta mono">
-          {{ thread.agent || thread.kind }} · {{ thread.project_key || '未归属' }} · {{ thread.cwd || '—' }} · {{ thread.turns }} turn(s) · {{ usageText() }}
+        <button
+          v-else
+          class="thread-title"
+          type="button"
+          :title="t('workbench.head.renameHint')"
+          @click="editingTitle = true"
+        >{{ thread.title }}</button>
+        <div class="meta-head">
+          <StatusPill :status="thread.status" />
+          <span class="tag">{{ thread.project_key || t('workbench.list.unassigned') }}</span>
+          <span v-if="thread.turns > 1" class="muted">{{ t('workbench.row.turns', { n: thread.turns }) }}</span>
+          <UncommittedBadge :count="latestJob?.uncommitted_count" :files="latestJob?.uncommitted_files" />
+          <span v-if="thread.stalled" class="muted">· {{ t('workbench.stalled') }}</span>
+          <span class="muted mono desk-only">{{ thread.agent || thread.kind }}<template v-if="thread.runner"> · {{ thread.runner }}</template></span>
         </div>
       </div>
-      <div class="thread-meta mono">
-        <span>{{ thread.agent || thread.kind }}</span><span>·</span>
-        <span>{{ thread.project_key || '未归属' }}</span><span>·</span>
-        <span :title="thread.cwd">{{ thread.cwd || '—' }}</span><span>·</span>
-        <span>{{ thread.turns }} turn(s)</span><span>·</span><span>{{ usageText() }}</span>
+      <nav class="seg desk-only" :aria-label="t('workbench.view.label')">
+        <button
+          type="button"
+          :aria-pressed="activeView === 'process'"
+          :class="{ on: activeView === 'process' }"
+          @click="showProcess"
+        >{{ t('workbench.view.process') }}</button>
+        <button
+          type="button"
+          :aria-pressed="activeView === 'changes'"
+          :class="{ on: activeView === 'changes' }"
+          :disabled="thread.kind === 'relay' || !latestJobID"
+          @click="showChanges"
+        >{{ t('workbench.view.changes') }}</button>
+      </nav>
+      <button class="btn sm desk-only" type="button" :disabled="!latestJobID" @click="openDetails">
+        {{ t('workbench.head.detail') }}
+      </button>
+      <button
+        class="icon-btn"
+        type="button"
+        :title="thread.pinned ? t('workbench.head.unpin') : t('workbench.head.pin')"
+        :aria-label="thread.pinned ? t('workbench.head.unpin') : t('workbench.head.pin')"
+        :aria-pressed="!!thread.pinned"
+        @click="togglePin"
+      >⌖</button>
+      <button
+        class="icon-btn stop"
+        type="button"
+        :title="t('workbench.head.stop')"
+        :aria-label="t('workbench.head.stop')"
+        :disabled="!canStop || stopping"
+        @click="stopCurrent"
+      >■</button>
+      <button class="icon-btn mobile-menu" type="button" :aria-label="t('workbench.head.more')" @click="menuOpen = !menuOpen">⋯</button>
+      <div class="head-actions" :class="{ 'head-actions--open': menuOpen }">
+        <button type="button" @click="togglePin">{{ thread.pinned ? t('workbench.head.unpin') : t('workbench.head.pin') }}</button>
+        <button type="button" :disabled="!canStop || stopping" @click="stopCurrent">{{ stopping ? t('workbench.head.stopping') : t('workbench.head.stop') }}</button>
+        <button type="button" :disabled="!latestJobID" @click="openDetails">{{ t('workbench.head.detail') }}</button>
+        <template v-if="thread.kind === 'relay'">
+          <button type="button" @click="refreshEmbeddedSession">{{ t('workbench.relay.refresh') }}</button>
+          <button v-for="mode in embeddedRelayModes" :key="mode" type="button" @click="setEmbeddedRelay(mode)">{{ t(`workbench.relay.${mode}`) }}</button>
+          <button type="button" @click="removeEmbeddedSession">{{ t('workbench.relay.remove') }}</button>
+        </template>
+        <div class="mobile-meta">
+          {{ thread.agent || thread.kind }} · {{ thread.project_key || t('workbench.list.unassigned') }} · {{ thread.cwd || '—' }} · {{ t('workbench.row.turns', { n: thread.turns }) }} · {{ usageText() }}
+        </div>
       </div>
     </header>
 
-    <nav v-if="thread.kind !== 'relay'" class="thread-subviews mono" aria-label="会话子视图">
-      <button type="button" :aria-current="activeView === 'process' ? 'page' : undefined" @click="activeView = 'process'">过程</button>
-      <span>｜</span>
-      <button
-        type="button"
-        :disabled="!latestJobID"
-        :aria-current="activeView === 'changes' ? 'page' : undefined"
-        @click="showChanges"
-      >改动</button>
-    </nav>
+    <div class="meta-row mono">
+      <span :title="thread.cwd">{{ thread.cwd || '—' }}</span>
+      <span>·</span>
+      <span>{{ t('workbench.row.turns', { n: thread.turns }) }}</span>
+      <span>·</span>
+      <span>{{ usageText() }}</span>
+      <span v-if="thread.updated_at">·</span>
+      <span v-if="thread.updated_at">{{ formatRelative(thread.updated_at) }}</span>
+    </div>
 
     <p v-if="actionError" class="error mono">{{ actionError }}</p>
     <p v-if="context.acpCapabilityError.value" class="stream-error mono">
-      ACP 能力读取失败，暂用日志视图：{{ context.acpCapabilityError.value }}
+      {{ t('workbench.acp.capError', { msg: context.acpCapabilityError.value }) }}
     </p>
     <div v-if="!isACPThread" v-show="activeView === 'process'" class="interaction-area">
       <InteractionCard
@@ -457,7 +561,7 @@ onUnmounted(() => {
            embedded
            @changed="context.refresh()"
            @deleted="context.refresh()"
-         />
+        />
         <AttachTerminal
           v-else-if="thread.interactive && latestJobID"
           :job-id="latestJobID"
@@ -487,12 +591,12 @@ onUnmounted(() => {
         <div v-else-if="latestJobID" class="log-wrap">
           <p v-if="streamError" class="stream-error mono">SSE：{{ streamError }}</p>
           <p class="log-tail-note mono">
-            只加载每条流最近 {{ LOG_TAIL_LINES }} 行 ·
-            <button type="button" class="link-btn" @click="openDetails">完整日志见 job 详情</button>
+            {{ t('workbench.log.tail', { n: LOG_TAIL_LINES }) }} ·
+            <button type="button" class="link-btn" @click="openDetails">{{ t('workbench.log.full') }}</button>
           </p>
           <LogTape :stdout="stdout" :stderr="stderr" :live="live" mode="live" :focused="focused && activeView === 'process'" :auto-stderr="false" />
         </div>
-        <p v-else class="empty mono">这个会话没有关联 job。</p>
+        <p v-else class="empty mono">{{ t('workbench.empty.noJob') }}</p>
       </div>
       <ThreadChangesView
         v-if="thread.kind !== 'relay' && latestJobID"
@@ -523,86 +627,408 @@ onUnmounted(() => {
         />
         <p v-if="attachHint" class="turn-hint mono">{{ attachHint }}</p>
       </div>
-      <div class="turn-row">
-      <textarea
-        ref="turnInput"
-        v-model="draft"
-        class="turn-input mono"
-        rows="1"
-        :disabled="!canTurn"
-        :placeholder="oneShot ? '该一次性批处理没有 session，无法续接' : canTurn ? '下一句…（Ctrl/Cmd+Enter）' : live ? '当前 job 仍在运行，结束后可继续会话' : '下一句…（Ctrl/Cmd+Enter）'"
-        @keydown="onTurnKeydown"
-        @input="autoGrowTurn"
-        @paste="attachBar?.addFromPaste($event)"
-      ></textarea>
-      <button class="turn-send mono" type="button" :disabled="!canSendTurn || !draft.trim()" @click="sendTurn">{{ sending ? '发送中…' : '发送' }}</button>
+      <div class="composer-box">
+        <textarea
+          ref="turnInput"
+          v-model="draft"
+          class="turn-input"
+          rows="2"
+          :disabled="oneShot"
+          :placeholder="oneShot ? t('workbench.composer.oneShot') : canTurn ? t('workbench.composer.placeholder') : live ? t('workbench.composer.running') : t('workbench.composer.placeholder')"
+          @keydown="onTurnKeydown"
+          @input="autoGrowTurn"
+          @paste="attachBar?.addFromPaste($event)"
+        ></textarea>
+        <div class="composer-row">
+          <button
+            class="icon-btn"
+            type="button"
+            :title="t('workbench.composer.attach')"
+            :aria-label="t('workbench.composer.attach')"
+            :disabled="!attachCapability.enabled"
+            @click="attachBar?.openPicker()"
+          >📎</button>
+          <div class="seg mode-seg" role="group" :aria-label="t('act.filter')">
+            <button
+              v-for="mode in (['send', 'queue', 'interrupt'] as SendMode[])"
+              :key="mode"
+              type="button"
+              :aria-pressed="sendMode === mode"
+              :class="{ on: sendMode === mode }"
+              :title="t(`workbench.composer.mode.${mode}Title`)"
+              :data-mode="mode"
+              @click="sendMode = mode"
+            >{{ t(`workbench.composer.mode.${mode}`) }}</button>
+          </div>
+          <span v-if="hasQueued" class="queue-chip">
+            {{ t('workbench.composer.queued', { n: queued.length }) }}
+            <button type="button" class="link-btn" @click="clearQueue">{{ t('workbench.composer.clearQueue') }}</button>
+          </span>
+          <span class="grow"></span>
+          <button class="btn primary sm" type="button" :disabled="!draft.trim() || (sendMode === 'send' && !canSendTurn)" @click="submitTurn">
+            {{ sending ? t('workbench.composer.sending') : t('workbench.composer.send') }}
+          </button>
+        </div>
       </div>
     </footer>
   </section>
   <section v-else class="thread-pane missing-thread mono">
-    该会话当前不在工作台列表中；清除筛选或等待下一轮刷新。
+    {{ t('workbench.missing') }}
   </section>
 </template>
 
 <style scoped>
-.thread-pane { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; color: var(--paper); outline: none; }
-.thread-head { flex: none; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px 14px; padding: 10px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.back { display: none; }
-.title-wrap { min-width: 0; display: flex; align-items: center; gap: 9px; }
-.thread-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--paper); background: transparent; border: 0; padding: 0; font-size: 16px; font-weight: 650; text-align: left; }
-.title-input { min-width: 0; flex: 1; color: var(--paper); background: var(--ink); border: 1px solid var(--phosphor); border-radius: var(--radius); padding: 5px 7px; font-size: 15px; }
-.status { flex: none; border: 1px solid var(--line); border-radius: 10px; padding: 2px 7px; color: var(--queue); font-size: 10px; }
-.status--attention { color: var(--fail); border-color: var(--fail); }
-.status--active { color: var(--phosphor); border-color: var(--phosphor); }
-.status--done { color: var(--done); border-color: var(--done); }
-.head-actions { display: flex; gap: 6px; }
-.mobile-menu { display: none; }
-.mobile-meta { display: none; }
-.head-actions button, .back { color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 8px; }
-.head-actions button:disabled { opacity: .4; }
-.thread-meta { grid-column: 1 / -1; display: flex; gap: 7px; min-width: 0; overflow: hidden; color: var(--queue); font-size: 11px; }
-.thread-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.thread-subviews { flex: none; display: flex; align-items: center; gap: 5px; padding: 5px 14px; border-bottom: 1px solid var(--line); background: var(--panel); color: var(--queue); }
-.thread-subviews button { padding: 2px 5px; border: 0; background: transparent; color: var(--queue); }
-.thread-subviews button[aria-current="page"] { color: var(--phosphor); font-weight: 700; }
-.thread-subviews button:disabled { opacity: .35; }
-.error, .stream-error { flex: none; margin: 0; padding: 7px 12px; color: var(--fail); background: rgba(200,70,70,.07); }
-.interaction-area { flex: none; max-height: 40%; overflow-y: auto; padding: 0 12px; }
-.interaction-area:empty { display: none; }
-.thread-content { flex: 1; min-height: 0; overflow: hidden; }
-.thread-content > :deep(*) { height: 100%; }
-.process-view { height: 100%; min-height: 0; }
-.process-view > :deep(*) { height: 100%; }
-.log-wrap { height: 100%; display: flex; flex-direction: column; padding: 10px; }
-.log-wrap :deep(.tape) { flex: 1; min-height: 0; }
-.turn-composer { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--panel); border-top: 1px solid var(--line); }
-.turn-attach { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.turn-hint { margin: 0; color: var(--queue); font-size: 11px; }
-.turn-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
-.turn-input { resize: vertical; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; }
-.turn-input:focus { outline: 1px solid var(--phosphor); border-color: var(--phosphor); }
-.turn-send { color: var(--ink); background: var(--phosphor); border: 1px solid var(--phosphor); border-radius: var(--radius); padding: 0 16px; font-weight: 700; }
-.turn-send:disabled { opacity: .4; }
-.empty { color: var(--queue); padding: 24px; }
-.missing-thread { display: grid; place-items: center; padding: 24px; color: var(--queue); }
-@media (max-width: 640px) {
-  .thread-head { position: relative; display: flex; align-items: center; gap: 6px; padding: 6px 8px; }
-  .back { display: inline-block; flex: none; border: 0; padding: 0 2px; background: transparent; }
-  .title-wrap { flex: 1; min-width: 0; gap: 5px; }
-  .thread-title { font-size: 14px; }
-  .status { padding: 1px 5px; }
-  .thread-meta { display: none; }
-  .mobile-menu { display: inline-block; flex: none; border: 0; background: transparent; color: var(--paper); font-size: 20px; line-height: 1; padding: 0 3px; }
-  .head-actions { display: none; position: absolute; z-index: 5; top: 100%; right: 8px; flex-direction: column; align-items: stretch; min-width: 150px; padding: 6px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 22px rgba(0,0,0,.3); }
-  .head-actions--open { display: flex; }
-  .head-actions button { text-align: left; }
-  .mobile-meta { display: block; padding: 5px 2px; color: var(--queue); white-space: normal; overflow-wrap: anywhere; }
-  .thread-subviews { padding: 4px 8px; }
-  .turn-composer { gap: 5px; padding: 6px 8px; }
-  .turn-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px; }
-  .turn-input { min-height: 34px; max-height: 40vh; padding: 6px; resize: none; }
-  .turn-send { min-height: 34px; padding: 0 10px; }
+.thread-pane {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--fg);
+  background: var(--bg);
+  outline: none;
 }
-.log-tail-note { margin: 0; padding: 4px 10px; font-size: 11px; color: var(--muted, #8a97a3); }
-.link-btn { padding: 0; border: 0; background: none; color: var(--phosphor); cursor: pointer; font: inherit; text-decoration: underline; }
+.conv-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.back {
+  display: none;
+}
+.icon-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  color: var(--fg-2);
+  font: inherit;
+  cursor: pointer;
+}
+.icon-btn:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.icon-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.stop {
+  color: var(--fail);
+}
+.ttl {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.thread-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  text-align: left;
+  cursor: text;
+}
+.thread-title:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.title-input {
+  min-width: 0;
+  flex: 1;
+  padding: 2px var(--s1);
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-md);
+}
+.meta-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s2);
+  min-width: 0;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
+.tag {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+.muted {
+  color: var(--fg-3);
+}
+.meta-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 4px var(--s3);
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+}
+.meta-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seg {
+  flex: none;
+  display: inline-flex;
+  padding: 2px;
+  background: var(--sunken);
+  border-radius: var(--r-ctl);
+}
+.seg button {
+  min-height: 26px;
+  padding: 0 var(--s2);
+  background: none;
+  border: 0;
+  border-radius: var(--r-chip);
+  color: var(--fg-3);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.seg button:hover {
+  color: var(--fg);
+}
+.seg button.on {
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-1);
+}
+.seg button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.seg button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.head-actions {
+  display: none;
+}
+.mobile-menu {
+  display: none;
+}
+.error,
+.stream-error {
+  flex: none;
+  margin: 0;
+  padding: var(--s1) var(--s3);
+  color: var(--fail);
+  background: var(--fail-soft, rgba(182, 56, 47, 0.08));
+  font-size: var(--fs-sm);
+}
+.interaction-area {
+  flex: none;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 0 var(--s3);
+}
+.interaction-area:empty {
+  display: none;
+}
+.thread-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.thread-content > :deep(*) {
+  height: 100%;
+}
+.process-view {
+  height: 100%;
+  min-height: 0;
+}
+.process-view > :deep(*) {
+  height: 100%;
+}
+.log-wrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s2);
+}
+.log-wrap :deep(.tape) {
+  flex: 1;
+  min-height: 0;
+}
+.turn-composer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s2) var(--s3) var(--s3);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.turn-attach {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+.turn-hint {
+  margin: 0;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
+.composer-box {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-panel);
+  background: var(--surface-2);
+  padding: var(--s2);
+}
+.composer-box:focus-within {
+  border-color: var(--accent);
+  outline: 1px solid var(--focus);
+}
+.turn-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 48px;
+  max-height: 40vh;
+  padding: 0;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: var(--fs-sm);
+  outline: none;
+}
+.composer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-top: var(--s1);
+}
+.grow {
+  flex: 1;
+}
+.queue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 0 var(--s1);
+  color: var(--need-ink, var(--need));
+  font-size: var(--fs-xs);
+}
+.empty {
+  color: var(--fg-3);
+  padding: var(--s5);
+}
+.missing-thread {
+  display: grid;
+  place-items: center;
+  padding: var(--s5);
+  color: var(--fg-3);
+}
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+@media (max-width: 1279px) {
+  .desk-only {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .conv-head {
+    gap: var(--s1);
+    padding: var(--s1) var(--s2);
+  }
+  .back {
+    display: grid;
+  }
+  .thread-title {
+    font-size: var(--fs-sm);
+  }
+  .meta-row {
+    display: none;
+  }
+  .mobile-menu {
+    display: grid;
+  }
+  .head-actions {
+    display: none;
+    position: absolute;
+    z-index: 5;
+    top: 48px;
+    right: var(--s2);
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    min-width: 160px;
+    padding: var(--s1);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-panel);
+    box-shadow: var(--shadow-pop);
+  }
+  .head-actions--open {
+    display: flex;
+  }
+  .head-actions button {
+    min-height: 40px;
+    padding: 0 var(--s2);
+    background: none;
+    border: 0;
+    border-radius: var(--r-chip);
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+  }
+  .head-actions button:hover {
+    background: var(--sunken);
+  }
+  .mobile-meta {
+    padding: var(--s1) var(--s2);
+    color: var(--fg-3);
+    font-size: var(--fs-xs);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .turn-composer {
+    padding: var(--s1) var(--s2) var(--s2);
+  }
+  .composer-row .seg button {
+    min-height: 40px;
+  }
+}
 </style>

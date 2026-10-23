@@ -846,6 +846,60 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 没有在浏览器里按 zh/en × 浅/深 × 四种宽度逐页截图（与 P1 同一状态，靠 CSS 口径 + 现有测试）。
 - 计划详情的用量块位置在头部区而非元信息网格内部（视觉上紧接链控制行）。
 
+### P3 工作台（2026-10-23，issue gofer-hez1）
+
+落地范围即 §14 表格 P3 行里的 `/workbench`（其余 P3 页面由并行任务负责）。不涉及 Go 代码，没有新增接口，也没有改协议：数据仍来自现有的 `GET /v1/workbench/threads`、`PATCH /v1/workbench/threads/{id}`、`POST /v1/workbench/threads/{id}/turn` 与 `/v1/jobs/{id}`。
+
+**左栏会话列表（`WorkbenchSidebar.vue`）**
+
+- 分组从「按项目」改成「按状态」（§7）：需要你（blocked / review / awaiting_input）、活跃（working）、空闲与离线（idle）、已结束（done，默认折叠）。分组口径在 `components/workbench/threadGroups.ts`（纯函数，6 个会话状态穷举单测），不散在模板里。
+- 项目不再当分组：列表头换成 `ProjectFilter`，值是 URL 的 `?project=`（`ui/projectFilter.ts` 的 `useProjectFilter('/workbench')`，换项目重拉）；状态筛选换成 `FilterChips`（单选，再点一次取消）；搜索仍是 `/` 聚焦的输入框；「显示 exec 命令会话」开关与隐藏计数保留（手机上仍隐藏，由抽屉的「＋」承载新会话）。
+- 每行：状态字形（`StatusGlyph`）+ 标题 + 置顶标记 + 相对时间 + agent + 轮数 + 时长 + tokens；stalled 与「未读的等待输入」用状态族颜色。已结束组折叠时不渲染（沿用旧的 `v-if` 而非 `v-show`：上百条历史会话不在进场时全建 DOM）。
+- **待处理（orphan）计数保留**（评审意见）：服务端把它算在项目组的 `counts.orphan_blocked` / `counts.orphan_review` 里，这些项**不是会话行**（是受阻计划与待决策的计划）；项目不再是分组行，所以改在筛选区下方给一行「另有 N 个待处理（受阻计划 / 待决策）」，点一下去计划列表的「受阻」视图（带当前 `?project=`）。汇总口径在 `orphanWaitingCount`（纯函数单测）。
+
+**中栏对话（`ThreadView.vue` + `ConversationView.vue` + `acpEvents.ts`）**
+
+- 头部改成 §7 的结构：标题可改（点击重命名）、状态 pill、项目 tag、轮数、未提交徽标、stalled、agent·runner，右侧是「过程 / 改动」seg、打开 job 详情、置顶、停止；中继会话的刷新 / 三态 / 移除登记与「现在送」仍在会话面板里（`SessionDrawer` 原样内嵌）。元信息行补回 cwd、轮数、用量、最近活动。
+- 时间线（`ConversationView`）：用户消息与 agent 回复仍是气泡；**工具调用默认折叠**——连续的 tool 事件折成一组，摘要显示「N 个工具调用」与失败数，展开才列工具名、状态字形与参数摘要；**审批卡片内嵌**——待处理的 `InteractionCard` 挂在最后一轮下面可直接作答，历史 permission 事件渲染成内嵌决定卡（已允许 / 已拒绝 / 自动允许）。折叠口径与新块模型在 `acpEvents.ts` 的 `timelineBlocks` / `permissionOutcome`（纯函数单测）；`groupACPRounds` 现在保留 prompt / message / tool / permission 四类，思考 / 计划 / 用量 / 结束原因仍只在 job 详情。
+- 输入框：发送 / 排队 / 打断后发送三模式 + 附图 + Enter 发送（Shift+Enter 换行）。**排队**是客户端队列：这一轮还在跑时把文本排队，线程一旦能接下一轮就按顺序发出（`watch(canTurn)`），队列条数给「N 条待发」与「清空排队」；**打断后发送**= 取消当前 job 后把文本排到队首，等它停稳再发。服务端没有队列接口，P4 抽 `Composer` 时如果要服务端排队，得单独立接口。
+  - **队列持久化**（评审意见）：待发消息按会话写 localStorage（`gofer.workbench.queue.<会话 id>`，`components/workbench/sendQueue.ts`），刷新 / 重开页面后恢复并显示「N 条待发」；发送成功或用户点「清空排队」后删掉该键。坏值（非 JSON、不是数组、混入非字符串）当空队列处理，并有条数 / 单条长度上限，不让一条坏数据把输入框卡死。
+- 右侧上下文栏（新组件 `WorkbenchContext.vue`，只在 ≥1280 显示，1100–1279 不显示，§4.3）：会话信息（id、agent、项目、cwd、类型、轮数、用量、开始时间）、未提交数与改动文件（取 `GET /v1/jobs/{id}` 的 `uncommitted_*`）、关联任务（点开 job 详情）与计划 / 待办、待处理权限请求数，以及「过程 / 改动」切换与停止会话按钮（经 `focusedActions.showView` / `stopCurrent` 作用到聚焦窗格）。
+- 手机：会话列表改成左侧 `Drawer`（§6.3），中栏的会话头部有抽屉按钮，新会话入口在工作台顶栏与列表头；左右滑动切换的旧手势保留（作用于抽屉的开关）。
+
+**i18n（§9）**
+
+- 本页文案全部进 `web/src/i18n/pages/workbench.ts`（`workbench.*`，zh/en 同名同数），不动 `zh.ts` / `en.ts`：列表与分组、会话头部动作、时间线（工具调用、内嵌审批、空态）、输入框三模式与排队、上下文栏、布局提示与标签页、新会话表单（项目 / agent / runner / 模式 / 计划 / cwd / 锁定目录 / 模型 / 开始）。业务内容（标题、消息、命令、id、路径）不翻译。
+
+**不丢信息核对（对照 §7 字段清单与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 侧栏项目分组、每项目计数、orphan 待处理数 | 状态分组与组内计数（项目改成 chip 筛选，`?project=`）；orphan 计数随项目分组一起去掉，等宽/待验收页仍能看到 |
+| 搜索、状态下拉、显示 exec 开关、隐藏计数 | 搜索 + 状态 chip + exec 开关与隐藏计数（手机仍隐藏开关） |
+| 每行状态点、标题、置顶、agent、轮数、相对时间、tokens | 状态字形、标题、置顶、agent、轮数、持续时间与相对时间、tokens（另加 stalled） |
+| 头部：← 会话、标题重命名、状态、未提交、置顶 / 停止 / 打开详情 / 中继三态 / 移除登记、元信息 | 全部保留（中继三态与「现在送」在会话面板；元信息行补 cwd / 轮数 / 用量 / 相对时间） |
+| 子视图「过程 / 改动」 | 头部 seg + 右栏 seg（两处同步） |
+| 待处理交互卡（原在对话上方） | 内嵌到对话最后一轮下方，可直接作答 / 转交（ACP 会话原本取到 props 但没渲染） |
+| 工具调用（原先只在 job 详情） | 时间线里默认折叠，可展开（§7 要求） |
+| 输入框：单按钮发送、Ctrl/Cmd+Enter、附图、一次性批处理不能续接的提示 | 三模式 + Enter 发送、附图、同样的提示；`Ctrl/Cmd+Enter` 仍可用（同时 Enter 也能发） |
+| 日志视图尾部 200 行 + 完整日志链接、布局标签页 / 分屏 / 拖拽 / 守护快捷键 / 版本号 | 原样保留（只换外观与文案） |
+| 新建会话表单（项目、agent、runner、模式、计划、todo、cwd、锁定目录、模型、prompt、上限提示、只读提示） | 全部字段保留，文案走 t()；入口在列表头「＋」、手机顶栏「＋」与命令面板 |
+
+**测试（§13）**
+
+- 新增 `components/workbench/threadGroups.test.ts`（6 个会话状态的分组穷举、组顺序与标题 key、桶内顺序、orphan 计数汇总）、`components/workbench/sendQueue.test.ts`（按会话键存取 / 清空、跨会话隔离、坏值、条数与长度上限、无 storage）与 `views/workbenchP3.test.ts`（`?project=` 接线、手机左抽屉、≥1280 上下文栏与它的轮数 / 未提交 / 切换 / 停止、三模式与排队 / 打断行为、队列持久化接线、orphan 提示行、工具调用折叠与内嵌审批、文案在页面字典里）。
+- 扩展 `components/workbench/acpEvents.test.ts`：`groupACPRounds` 现在保留 tool / permission，新增 `timelineBlocks` 的折叠与失败计数、`permissionOutcome` 的三类判定（原是「时间线只有文本」的用例，按 §7 改成新口径）。
+- 同步修改：`views/workbenchMobile.test.ts`、`views/workbenchMobileLighter.test.ts`（已结束组折叠的 `v-if`、exec 开关）、`components/workbench/statusPresentation.test.ts`（文案走 i18n + 状态族）、`components/workbench/threadViewSessionComposer.test.ts`、`components/workbench/workbenchComposerMobile.test.ts`、`components/workbench/workbenchComposerLock.test.ts`、`components/workbench/workbenchRunner.test.ts`、`components/attachmentsWiring.test.ts`（发送按钮的禁用条件按三模式改）。
+- 全量 `npx vitest run` 197 个文件 / 1324 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build` 通过。
+
+**未做 / 如实记录**
+
+- 没有在浏览器里按 zh/en × 浅/深截图核对（本任务环境没有可用的浏览器/截图工具），形态依据 CSS 断点与现有各页手机断言；P6 收尾时统一补截图检查。
+- 右侧栏的「计划进度」只显示 job 关联的 plan / todo id（并发一个 `GET /v1/plans/{id}` 才能画进度条，本页暂不为此加请求）；「权限」显示待处理交互数，没有逐条权限明细。
+- 队列是客户端队列（按会话持久化）：刷新页面不丢，但**别的设备 / 浏览器看不到**；打断后发送依赖 `cancelJob` 成功。P4 抽 `Composer` 时再定是否要服务端排队。
+- orphan 提示行指向的是计划列表的「受阻」视图：`orphan_review` 目前后端从不递增（`internal/workbench/service.go` 只累加 `OrphanBlocked`），所以这一行实际只反映受阻计划与待决策；日后后端开始计 orphan_review 时这行会自动包含它。
+- 命令面板仍是工作台内的 `WorkbenchCommandPalette`（§6.5 的全局化在 P1 已交付 `ui/CommandPalette.vue`，两者尚未合并，留给 P4/P5）。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**

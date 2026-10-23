@@ -54,7 +54,8 @@ describe('composer wiring', () => {
     expect(thread).toContain('attachBar.value?.readyIDs()')
     expect(thread).toContain('turnWorkbenchThread(current.id, text, attachmentIDs)')
     expect(thread).toContain('attachBar.value?.clear()')
-    expect(thread).toContain(':disabled="!canSendTurn || !draft.trim()"')
+    // 排队 / 打断模式要在这一轮还在跑时也能提交，所以按钮的禁用只看文本与「直接发送」模式。
+    expect(thread).toContain(":disabled=\"!draft.trim() || (sendMode === 'send' && !canSendTurn)\"")
   })
 
   it('mounts the bar in the session drawer answer box and gates on an open turn', () => {
@@ -84,7 +85,7 @@ describe('composer wiring', () => {
 describe('history thumbnails', () => {
   it('shows the thumbs under both bubbles and opens the original', () => {
     expect(conversation).toContain('<AttachmentThumbs')
-    expect(conversation).toContain('function eventAttachments(event: ACPEvent)')
+    expect(conversation).toContain('function eventAttachments(event: ACPTextEvent)')
     expect(thumbs).toContain('attachmentBlobURL(item.id, true)')
     expect(thumbs).toContain('attachmentBlobURL(item.id, false)')
     expect(thumbs).toContain('图片已过期')

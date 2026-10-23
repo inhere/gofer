@@ -4,7 +4,7 @@ const source = Object.values(import.meta.glob('./WorkbenchComposer.vue', { eager
 
 describe('workbench composer runner selection', () => {
   it('has a visible runner dropdown that greys out blocked runners with a reason', () => {
-    expect(source).toContain('aria-label="Runner"')
+    expect(source).toContain(":aria-label=\"t('workbench.field.runner')\"")
     expect(source).toContain(':disabled="!!runnerBlocks[r.name]"')
     expect(source).toContain('runnerBlocks[r.name].short')
   })

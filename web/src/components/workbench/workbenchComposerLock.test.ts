@@ -6,13 +6,14 @@ const source = Object.values(import.meta.glob('./WorkbenchComposer.vue', { eager
 describe('workbench composer lock field (gofer-jkd2)', () => {
   it('adds a lock input next to the working directory', () => {
     expect(source).toContain('const lockPaths = ref(\'\')')
-    expect(source).toContain('aria-label="锁定目录"')
-    expect(source).toContain('placeholder="锁定目录（留空 = 锁整个 cwd）"')
+    expect(source).toContain(":aria-label=\"t('workbench.new.lock')\"")
+    expect(source).toContain(":placeholder=\"t('workbench.new.lockPlaceholder')\"")
     expect(source).toContain(':title="DIR_LOCK_HINT"')
   })
 
   it('warns that a continuous session holds the lock for the whole session', () => {
-    expect(source).toContain('持续会话整个会话期间持有目录锁并占 agent 名额')
+    // 文案在 i18n/pages/workbench.ts（‘workbench.new.sessionHint’），页面只引用 key。
+    expect(source).toContain("t('workbench.new.sessionHint')")
   })
 
   it('sends lock_paths only when the user declared one', () => {

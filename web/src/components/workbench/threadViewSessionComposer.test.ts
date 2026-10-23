@@ -15,11 +15,11 @@ describe('workbench relay composer', () => {
     expect(drawer).toContain('wasAtBottom')
   })
 
-  it('uses the compact embedded drawer and one-row mobile composer', () => {
+  it('uses the compact embedded drawer and the compact composer box', () => {
     expect(drawer).toContain('v-if="!embedded" class="drawer-head"')
     expect(drawer).toContain('v-if="session && !embedded" class="meta-wrap"')
-    expect(thread).toContain('class="mobile-menu mono"')
-    expect(thread).toContain('rows="1"')
+    expect(thread).toContain('class="icon-btn mobile-menu"')
+    expect(thread).toContain('class="composer-box"')
   })
 
   it('exposes acknowledge controls for an open relay turn', () => {

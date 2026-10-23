@@ -5,7 +5,9 @@ import {
   groupACPRounds,
   isACPEvent,
   isACPNotice,
+  permissionOutcome,
   reduceACPEvents,
+  timelineBlocks,
   visibleRoundIDs,
   type ACPEvent,
 } from './acpEvents'
@@ -67,7 +69,7 @@ describe('acpEvents', () => {
     expect(visibleRoundIDs(ids, 6)).toEqual(ids)
   })
 
-  it('TestWorkbenchContinuousACPProjectsTextOnly', () => {
+  it('TestWorkbenchContinuousACPProjectsTextAndToolCalls', () => {
     const events: ACPEvent[] = [
       { seq: 1, kind: 'prompt', text: '第一轮内容' },
       { seq: 2, kind: 'thought', text: '内部思考' },
@@ -78,10 +80,41 @@ describe('acpEvents', () => {
       { seq: 7, kind: 'message', text: '给用户的回复' },
       { seq: 8, kind: 'stop', stop_reason: 'end_turn' },
     ]
+    // 设计稿 §7：时间线保留用户消息、agent 回复、工具调用（默认折叠）与内嵌的审批卡；
+    // 思考 / 计划 / 用量 / 结束原因仍留在 job 详情。
     expect(groupACPRounds(['same-job'], { 'same-job': events })[0].events).toEqual([
       { seq: 1, kind: 'prompt', text: '第一轮内容' },
+      { seq: 3, kind: 'tool', tool_call_id: 'tool-1', title: 'Read file', status: 'completed' },
+      { seq: 4, kind: 'permission', outcome: 'selected' },
       { seq: 7, kind: 'message', text: '给用户的回复' },
     ])
+  })
+
+  it('folds consecutive tool calls into one collapsed block', () => {
+    const events: ACPEvent[] = [
+      { seq: 1, kind: 'prompt', text: 'go' },
+      { seq: 2, kind: 'tool', tool_call_id: 'a', title: 'Read', status: 'completed' },
+      { seq: 3, kind: 'tool', tool_call_id: 'b', title: 'Bash', status: 'failed' },
+      { seq: 4, kind: 'message', text: 'done' },
+      { seq: 5, kind: 'tool', tool_call_id: 'c', title: 'Bash', status: 'in_progress' },
+    ]
+    const blocks = timelineBlocks(events)
+    expect(blocks.map((block) => block.kind)).toEqual(['text', 'tools', 'text', 'tools'])
+    const tools = blocks[1]
+    expect(tools.kind).toBe('tools')
+    if (tools.kind === 'tools') {
+      expect(tools.events.map((tool) => tool.tool_call_id)).toEqual(['a', 'b'])
+      expect(tools.failed).toBe(1)
+    }
+    const running = blocks[3]
+    if (running.kind === 'tools') expect(running.running).toBe(1)
+  })
+
+  it('classifies permission decisions for the inline approval card', () => {
+    expect(permissionOutcome({ seq: 1, kind: 'permission', outcome: 'selected' })).toBe('allowed')
+    expect(permissionOutcome({ seq: 1, kind: 'permission', outcome: 'rejected' })).toBe('denied')
+    expect(permissionOutcome({ seq: 1, kind: 'permission', outcome: 'cancelled' })).toBe('allowed')
+    expect(permissionOutcome({ seq: 1, kind: 'permission', auto: true, outcome: 'rejected' })).toBe('auto')
   })
 
   it('recognises the mirror notice and explains it instead of loading forever', () => {

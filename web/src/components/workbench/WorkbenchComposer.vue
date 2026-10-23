@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { runnerOptionText } from '../../utils/runnerDisplay'
 import { useWhoami } from '../../store/whoami'
+import { t } from '../../i18n'
 import {
   CEILING_LABEL,
   CEILING_READ_ONLY_NOTICE,
@@ -99,24 +100,26 @@ const sessionRunnerAvailable = computed(() =>
   ),
 )
 const modeOptions = computed<Array<{ value: ComposerMode; label: string }>>(() => {
-  const all: Array<{ value: ComposerMode; label: string }> = [{ value: 'batch', label: '批处理 · 日志' }]
+  const all: Array<{ value: ComposerMode; label: string }> = [{ value: 'batch', label: t('workbench.new.mode.batch') }]
   const project = selectedProject.value
   const projectAgents = meta.value.agents.filter((agent) => (project?.allowed_agents.length ?? 0) === 0 || project?.allowed_agents.includes(agent.key))
-  if (projectAgents.some((agent) => agent.type === 'acp-agent')) all.unshift({ value: 'conversation', label: 'ACP 对话' })
+  if (projectAgents.some((agent) => agent.type === 'acp-agent')) all.unshift({ value: 'conversation', label: t('workbench.new.mode.conversation') })
   if (projectAgents.some((agent) => agent.type === 'acp-agent') && sessionRunnerAvailable.value) {
-    all.unshift({ value: 'continuous', label: 'ACP 持续会话' })
+    all.unshift({ value: 'continuous', label: t('workbench.new.mode.continuous') })
   }
-  if (project?.allow_interactive !== false && projectAgents.some((agent) => agent.interactive)) all.push({ value: 'terminal', label: '交互 PTY' })
+  if (project?.allow_interactive !== false && projectAgents.some((agent) => agent.interactive)) all.push({ value: 'terminal', label: t('workbench.new.mode.terminal') })
   return all
 })
-const promptLabel = computed(() => selectedAgent.value?.type === 'exec' ? 'command' : 'prompt')
+const promptLabel = computed(() => selectedAgent.value?.type === 'exec'
+  ? t('workbench.new.commandLabel')
+  : t('workbench.new.promptLabel'))
 const canSubmit = computed(() => !ceilingReadOnly.value && !!projectKey.value && !!agentKey.value && !!prompt.value.trim() && !submitting.value && !selectedRunnerBlock.value)
 
 function agentCapability(agent: MetaAgent): string {
   const caps: string[] = []
   if (agent.interactive) caps.push('PTY')
   if (agent.type === 'acp-agent') caps.push('ACP')
-  if (agent.batch || (!agent.interactive && agent.type !== 'acp-agent')) caps.push('批处理')
+  if (agent.batch || (!agent.interactive && agent.type !== 'acp-agent')) caps.push(t('workbench.new.capability.batch'))
   return caps.join('/') || agent.type
 }
 
@@ -232,7 +235,7 @@ watch(agentKey, (key) => {
   const agent = meta.value.agents.find((a) => a.key === key)
   if (agent?.type === 'acp-agent' && mode.value === 'batch' && modeOptions.value.some((m) => m.value === 'continuous')) {
     mode.value = 'continuous'
-    modeNote.value = `${key} 是 ACP agent：已默认切到「ACP 持续会话」（可手动改回批处理）`
+    modeNote.value = t('workbench.new.acpNote', { key })
   }
 })
 watch(planID, () => void loadTodos())
@@ -254,42 +257,42 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="composer" aria-label="发起新会话">
-    <button v-if="!open && !sessionOpen" class="mobile-launch mono" type="button" aria-label="发起新会话" @click="focusPrompt">＋</button>
+  <section class="composer" :aria-label="t('workbench.list.new')">
+    <button v-if="!open && !sessionOpen" class="mobile-launch mono" type="button" :aria-label="t('workbench.new.launch')" @click="focusPrompt">＋</button>
     <div v-if="open" class="composer-backdrop" @click.self="close">
-    <div class="composer-panel" role="dialog" aria-modal="true" aria-label="新会话" @keydown="onPanelKeydown">
+    <div class="composer-panel" role="dialog" aria-modal="true" :aria-label="t('workbench.list.new')" @keydown="onPanelKeydown">
       <div class="panel-head mono">
-        <span>新会话</span>
-        <button class="panel-close mono" type="button" aria-label="关闭" @click="close">×</button>
+        <span>{{ t('workbench.list.new') }}</span>
+        <button class="panel-close mono" type="button" :aria-label="t('act.close')" @click="close">×</button>
       </div>
       <div class="composer-selects">
-      <select v-model="projectKey" class="field mono" aria-label="项目" :disabled="loading">
-        <option value="" disabled>项目</option>
+      <select v-model="projectKey" class="field mono" :aria-label="t('field.project')" :disabled="loading">
+        <option value="" disabled>{{ t('field.project') }}</option>
         <option v-for="project in projectOptions" :key="project.key" :value="project.key">{{ project.key }}</option>
       </select>
-      <select v-model="agentKey" class="field mono" aria-label="Agent" :disabled="loading">
+      <select v-model="agentKey" class="field mono" :aria-label="t('field.agent')" :disabled="loading">
         <option value="" disabled>agent</option>
         <option v-for="agent in agentOptions" :key="agent.key" :value="agent.key">{{ agent.key }} · {{ agentCapability(agent) }}</option>
       </select>
-      <select v-model="runnerName" class="field mono" aria-label="Runner" :disabled="loading">
+      <select v-model="runnerName" class="field mono" :aria-label="t('workbench.field.runner')" :disabled="loading">
         <option v-for="r in runnerOptions" :key="r.name" :value="r.name" :disabled="!!runnerBlocks[r.name]">
           {{ runnerOptionText(r) }}<template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
         </option>
       </select>
-      <select v-model="mode" class="field mono" aria-label="模式" @change="modeNote = ''">
+      <select v-model="mode" class="field mono" :aria-label="t('workbench.new.mode')" @change="modeNote = ''">
         <option v-for="item in modeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
       </select>
-      <select v-model="planID" class="field mono" aria-label="计划">
-        <option value="">不关联 plan</option>
+      <select v-model="planID" class="field mono" :aria-label="t('workbench.new.plan')">
+        <option value="">{{ t('workbench.new.noPlan') }}</option>
         <option v-for="plan in plans" :key="plan.plan_id" :value="plan.plan_id">{{ plan.title || plan.plan_id }}</option>
       </select>
-      <select v-model="todoID" class="field mono" aria-label="计划待办" :disabled="!planID">
-        <option value="">不关联 todo</option>
+      <select v-model="todoID" class="field mono" :aria-label="t('workbench.new.todo')" :disabled="!planID">
+        <option value="">{{ t('workbench.new.noTodo') }}</option>
         <option v-for="todo in todos" :key="todo.todo_id" :value="todo.todo_id">{{ todo.title }}</option>
       </select>
-      <input v-model="cwd" class="field cwd mono" aria-label="工作目录" placeholder="cwd" />
-      <input v-model="lockPaths" class="field cwd mono" aria-label="锁定目录" :title="DIR_LOCK_HINT" placeholder="锁定目录（留空 = 锁整个 cwd）" />
-      <input v-if="selectedAgent && selectedAgent.type !== 'exec'" v-model="model" class="field cwd mono" aria-label="模型" placeholder="model（可选）" />
+      <input v-model="cwd" class="field cwd mono" :aria-label="t('workbench.new.cwd')" placeholder="cwd" />
+      <input v-model="lockPaths" class="field cwd mono" :aria-label="t('workbench.new.lock')" :title="DIR_LOCK_HINT" :placeholder="t('workbench.new.lockPlaceholder')" />
+      <input v-if="selectedAgent && selectedAgent.type !== 'exec'" v-model="model" class="field cwd mono" :aria-label="t('workbench.field.model')" :placeholder="t('workbench.new.modelPlaceholder')" />
       </div>
       <div class="prompt-row">
       <textarea
@@ -297,18 +300,18 @@ onMounted(async () => {
         v-model="prompt"
         class="prompt mono"
         rows="2"
-        :placeholder="`${promptLabel}…（Ctrl/Cmd+Enter 提交）`"
+        :placeholder="t('workbench.new.promptPlaceholder', { label: promptLabel })"
         @keydown="onKeydown"
       ></textarea>
       <button class="submit mono" type="button" :disabled="!canSubmit" @click="submit">
-        {{ submitting ? '提交中…' : '开始' }}
+        {{ submitting ? t('workbench.new.submitting') : t('workbench.new.start') }}
       </button>
       </div>
-      <p v-if="projectCeilingHidden > 0" class="hint mono">{{ projectCeilingHidden }} 个 project {{ CEILING_LABEL }}，未列出</p>
+      <p v-if="projectCeilingHidden > 0" class="hint mono">{{ t('workbench.new.ceilingHidden', { n: projectCeilingHidden, label: CEILING_LABEL }) }}</p>
       <p v-if="ceilingReadOnly" class="hint mono" data-test="composer-readonly">{{ CEILING_READ_ONLY_NOTICE }}</p>
       <p v-if="modeNote" class="hint mono">{{ modeNote }}</p>
       <p v-if="mode === 'continuous' || mode === 'conversation'" class="hint mono">
-        持续会话整个会话期间持有目录锁并占 agent 名额：动子目录时在「锁定目录」里写它，免得整个项目根的 job 都在排队。
+        {{ t('workbench.new.sessionHint') }}
       </p>
       <p v-if="selectedRunnerBlock" class="error mono">{{ selectedRunnerBlock }}</p>
       <p v-if="error" class="error mono">{{ error }}</p>
