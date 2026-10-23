@@ -20,6 +20,8 @@ flowchart LR
 
 它面向一个开发者、或互相信任的小团队。它**不是** agent 或大模型本身，不是托管服务，不是 CI/CD 系统或沙箱，也不是多租户平台：访问基于 token，job 以执行它的 gofer 进程的权限运行。
 
+![gofer-workbench](.github/image/gofer-workbench-zh.png)
+
 ## 安装
 
 1. **Release 包（推荐）**——内含 Web 控制台：

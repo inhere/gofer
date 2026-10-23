@@ -20,6 +20,8 @@ flowchart LR
 
 It is built for one developer, or a small team that trusts each other. It is **not** an agent or an LLM itself, not a hosted service, not a CI/CD system or a sandbox, and not a multi-tenant platform: access is token based, and a job runs with the permissions of the gofer process that executes it.
 
+![gofer-workbench](.github/image/gofer-workbench-en.png)
+
 ## Install
 
 1. **Release package (recommended)** — includes the built-in web console:
