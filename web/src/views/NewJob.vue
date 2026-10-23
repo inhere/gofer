@@ -39,6 +39,7 @@ import { useWhoami } from '../store/whoami'
 import { getAgentsCached, getMetaCached } from '../api/metaCache'
 import { fromSessionFormError, readFromSessionQuery, withFromSession } from '../utils/fromSession'
 import { DIR_LOCK_HINT, formatLockPaths, parseLockPaths } from '../utils/lockPaths'
+import { defaultProject, rememberProject } from '../ui/projectFilter'
 import { t } from '../i18n'
 import BackLink from '../ui/BackLink.vue'
 import type {
@@ -586,6 +587,8 @@ function selectProject(key: string) {
 // project select change 必须用最新 allowlist 重算，故包一层
 function onProjectChange() {
   selectProject(projectKey.value)
+  // 记住这次选的项目，下次新建时作为默认值（设计稿 §6.4-3）。
+  rememberProject(projectKey.value)
 }
 
 // T5.2：runner / worker / 交互开关变更后，把 agent 收敛到（被执行侧能力收窄后的）合法候选内，
@@ -1096,6 +1099,12 @@ onMounted(async () => {
   const queryAgent = typeof route.query.agent === 'string' ? route.query.agent : ''
   const queryRunner = typeof route.query.runner === 'string' ? route.query.runner : ''
   if (queryProject && projects.value.some((p) => p.key === queryProject)) selectProject(queryProject)
+  // 设计稿 §6.4-3：没带项目来时默认取上次用过的项目（gofer.lastProject）；重建 / 从条目新开
+  // 随后会由各自的 prefill 重新选定，这里只是给「直接打开 /new」一个有用的默认值。
+  if (!queryProject && !isRebuild.value && !fromItem.value) {
+    const last = defaultProject(route.query)
+    if (last && projects.value.some((p) => p.key === last)) selectProject(last)
+  }
   if (queryRunner && runners.value.some((r) => r.name === queryRunner)) runnerName.value = queryRunner
   if (queryAgent && agents.value.some((a) => a.key === queryAgent)) agentKey.value = queryAgent
   if (typeof route.query.title === 'string') title.value = route.query.title

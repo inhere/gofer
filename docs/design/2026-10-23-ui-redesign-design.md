@@ -1262,6 +1262,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 两栏（§7.1）：左栏项目 / runner / worker 选机 / agent，右栏标题 / 任务书模板（含变量表单与正文预览）/ cwd，任务说明横跨两栏；其余选项全部收进「高级选项」折叠区（模型、agent 参数 / 命令、锁定目录与等锁时长、worktree、交互式、持续会话与其两个上限、只读、预算三项、PTY 行列与录制、tags、超时、上传 / 收集、sync、rebuild 的 env 编辑）。手机上单栏、提交按钮吸底（保留 `env(safe-area-inset-bottom)`）。
 - 返回链接换成 `ui/BackLink`（回任务列表并带原筛选），标题随模式变化：新建任务 / 快速重建 / 从会话新开。
 - 字段、校验、预填（`?from_item`、`?from_session`、`?lock`、rebuild 继承字段）、上限收窄与灰显原因全部照旧；提交与「重试关联」不变。
+- 项目默认值补上 §6.4-3：带 `?project=` 时用它，否则用上次用过的项目（`localStorage gofer.lastProject`，`ui/projectFilter.ts` 的 `defaultProject` / `rememberProject`）；重建与从条目新开随后仍由各自的 prefill 接管。
 
 **i18n（§9）**
 
@@ -1290,8 +1291,9 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 **测试（§13）**
 
+- 新增 `views/p5bPages.test.ts`（3 个用例）：SSR 渲染 Issues 页的页签（`role=tablist` + 两个 `data-value`）、统一项目 chip、去掉的 TRACKER 眉标与 en 文案；新建任务页（标题 / `ui/BackLink`）。统计页在 SSR 下会去解析 `/gofer-mark-256.png` 公共资源、node 下报错，所以这页不放进 SSR 用例，由 `p5bPagesI18n.test.ts` 与 `dashboardView.test.ts` 覆盖。
 - 新增 `views/p5bPagesI18n.test.ts`（3 个用例）：页面里引用的每个 `t('issues.*' / 'stats.*' / 'newjob.*')` 在 zh 与 en 都存在、三本页面字典的 key 集合相等、英文文案里没有汉字（拼出来的 key 跳过，靠 key 集合用例兜住）。
-- 新增页面字典后全量 `npx vitest run` 212 个文件通过；`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
+- 新增页面字典后全量 `npx vitest run` 213 个文件通过；`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
 - 同步修改：`views/dashboardView.test.ts`（范围 / 分桶 / 复制、最佳时段、手机断点改成断言 i18n key 与 760 断点）、`views/dashboardMobile.test.ts`（断点 760）、`views/newJobMobile.test.ts`（高级选项断言 key）、`views/newJobLockPaths.test.ts`（锁定目录 / 等锁时长断言 key）、`views/uiTextWiring.test.ts`（新建任务标签与返回链接改断言 `t('newjob.*')` / `ui/BackLink`）、`i18n/i18n.test.ts`（页面域加上 `issues.` / `stats.` / `newjob.`）。
 
 **如实记录的范围边界与差异**
