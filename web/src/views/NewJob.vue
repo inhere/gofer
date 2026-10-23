@@ -461,33 +461,33 @@ const agentEmptyReason = computed<string>(() => {
   }
   // 上限先在池子那一层就挡掉了候选，故它是最根本的一层原因。
   if (agentCeilingBlocked.value > 0) {
-    return `${CEILING_LABEL}：project ${selectedProject.value.key} 下可用的 agent 不在你的范围内`
+    return t('newjob.empty.ceiling', { label: CEILING_LABEL, project: selectedProject.value.key })
   }
   const proj = selectedProject.value
   if (interactive.value) {
     if (proj.worker_only) {
-      return `project ${proj.key} 是 worker-only：交互 job 由 host 校验准入，暂不支持`
+      return t('newjob.empty.workerOnly', { project: proj.key })
     }
     if (!projectAllowsInteractive(proj)) {
-      return `project ${proj.key} 未开启交互 job（allow_interactive）`
+      return t('newjob.empty.interactiveOff', { project: proj.key })
     }
-    return `project ${proj.key} 没有可用的交互 agent（host 未安装有交互模式的 agent，或当前 runner/worker 上不可达）`
+    return t('newjob.empty.noInteractiveAgent', { project: proj.key })
   }
   // 非交互模式：候选池非空、但全被 interactive-only 闸掉 —— 指路而不是让用户对着空下拉发呆。
   if (agentCandidates.value.length > 0 && agentCandidates.value.every((a) => a.interactive)) {
-    return `project ${proj.key} 当前可选的 agent 全是交互式（interactive-only，非交互提交会被拒）：请打开「交互模式」`
+    return t('newjob.empty.interactiveOnly', { project: proj.key })
   }
   if (workerAgentKeys.value) {
     const where =
       targetWorkers.value.length === 1
-        ? `worker ${targetWorkers.value[0].id}`
-        : `${targetWorkers.value.length} 台候选 worker`
-    return `${where} 上没有 project ${proj.key} 允许的 agent`
+        ? t('newjob.worker.named', { id: targetWorkers.value[0].id })
+        : t('newjob.worker.candidates', { n: targetWorkers.value.length })
+    return t('newjob.empty.workerNoAgent', { where, project: proj.key })
   }
   if (isLocalRunner.value && proj.allow_exec === false) {
-    return `project ${proj.key} 的 allowed_agents 在本机无可用项（allow_exec=false，exec 已排除）`
+    return t('newjob.empty.allowExecOff', { project: proj.key })
   }
-  return `project ${proj.key} 无可用 agent`
+  return t('newjob.empty.none', { project: proj.key })
 })
 
 const runnerOptions = computed<MetaRunner[]>(() =>
@@ -563,12 +563,12 @@ const capabilityHint = computed<string>(() => {
   }
   if (workerMode.value === 'labels') {
     return ws.length === 1
-      ? `标签匹配到 1 台在线 worker（${ws[0].id}）：agent 候选已按其上报能力收窄`
-      : `标签匹配到 ${ws.length} 台在线 worker：agent 候选取其能力并集，实际选机由服务端提交时决定`
+      ? t('newjob.hint.labelsOne', { id: ws[0].id })
+      : t('newjob.hint.labelsMany', { n: ws.length })
   }
   return workerId.value === '' && pinnedWorkerId.value !== ''
-    ? `agent 候选已按 runner 配置 pin 的 worker ${ws[0].id} 上报能力收窄（无需再指定）`
-    : `agent 候选已按 worker ${ws[0].id} 上报能力收窄`
+    ? t('newjob.hint.pinned', { id: ws[0].id })
+    : t('newjob.hint.narrowed', { id: ws[0].id })
 })
 
 function selectProject(key: string) {
@@ -684,7 +684,7 @@ async function stageUploads(): Promise<JobUpload[]> {
       out.push({ xfer_id: staged.id, dest })
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      throw new Error(`暂存「${row.file.name} → ${dest}」失败：${msg}`)
+      throw new Error(t('newjob.stageFailed', { name: row.file.name, dest, err: msg }))
     }
   }
   return out
@@ -702,7 +702,7 @@ function onFilesPicked(e: Event): void {
 // 校验 + 组装请求
 const validationError = computed<string>(() => {
   if (!projectKey.value) {
-    return '请选择 project'
+    return t('newjob.err.project')
   }
   // 上限：预填 / rebuild 绕过了下拉的过滤，这里再拦一道（服务端同口径 httppai 404）。
   if (!ceilingAllowsProject(ceil.value, projectKey.value)) {
@@ -712,10 +712,10 @@ const validationError = computed<string>(() => {
     return ceilingDeniedText('agent', agentKey.value)
   }
   if (isExec.value && !ceilingAllowsExec(ceil.value)) {
-    return `${CEILING_LABEL}：这个上限不允许 exec job`
+    return t('newjob.err.execCeiling', { label: CEILING_LABEL })
   }
   if (!runnerName.value) {
-    return '请选择 runner'
+    return t('newjob.err.runner')
   }
   if (selectedRunnerBlock.value !== '') {
     return selectedRunnerBlock.value // D5：选中的 runner 跑不了这个 project
@@ -723,20 +723,20 @@ const validationError = computed<string>(() => {
   // worker 未定 → 能力未知，先定机器再选 agent（runner 已在 config 里 pin worker 时无需再指定）
   if (isWorkerRunner.value) {
     if (workerMode.value === 'id' && effectiveWorkerId.value === '') {
-      return 'runner=worker：请指定 worker，或切换为按标签自动'
+      return t('newjob.err.workerId')
     }
     if (workerMode.value === 'labels' && workerLabels.value.trim() === '') {
-      return 'runner=worker：请填写 worker_labels，或切换为指定 worker'
+      return t('newjob.err.workerLabels')
     }
     if (workerMode.value === 'labels' && labelCandidates.value.length === 0) {
-      return `无在线 worker 同时具备标签 ${parseLabels(workerLabels.value).join(',')}`
+      return t('newjob.err.noWorkerWithLabels', { labels: parseLabels(workerLabels.value).join(',') })
     }
   }
   if (!agentKey.value) {
-    return agentEmptyReason.value !== '' ? agentEmptyReason.value : '请选择 agent'
+    return agentEmptyReason.value !== '' ? agentEmptyReason.value : t('newjob.err.agent')
   }
   if (continuousSession.value && !canUseContinuousSession.value) {
-    return '持续会话目前仅支持本机 ACP agent'
+    return t('newjob.err.continuousLocalOnly')
   }
   const fsErr = fromSessionFormError(fromSession.value, {
     agentType: agentType.value,
@@ -747,21 +747,21 @@ const validationError = computed<string>(() => {
     return fsErr
   }
   if (isCliAgent.value && !interactive.value && !continuousSession.value && prompt.value.trim() === '' && templateName.value === '') {
-    return 'cli-agent 需填写 prompt（或选一个任务书模板）'
+    return t('newjob.err.cliPrompt')
   }
   if (templateMissing.value.length > 0) {
-    return `模板缺必填变量：${templateMissing.value.join(', ')}`
+    return t('newjob.err.templateMissing', { names: templateMissing.value.join(', ') })
   }
   if (isExec.value && command.value.trim() === '') {
-    return 'exec 需填写 command'
+    return t('newjob.err.execCommand')
   }
   // 文件上传：暂存需要一台确定的执行机（暂存的文件只会被它取走），且每个文件都要有目标路径。
   if (uploadRows.value.length > 0) {
     if (xferRunner.value === '') {
-      return '上传文件需要先指定 worker（按标签自动时落点由服务端决定，无法预先暂存）'
+      return t('newjob.err.uploadNeedsWorker')
     }
     if (uploadRows.value.some((r) => r.dest.trim() === '')) {
-      return '请为每个上传文件填写目标路径（执行机 cwd 相对，如 tmp/in/a.bin）'
+      return t('newjob.err.uploadDest')
     }
   }
   return ''
@@ -790,14 +790,14 @@ async function linkSubmittedJob(): Promise<void> {
 async function prefillFromItem(id: string): Promise<void> {
   try {
     const it = await getWorkItem(id)
-    if ((it.status as string) !== 'captured') itemNote.value = '这条已经不在收集箱了，提交后无法再关联。'
+    if ((it.status as string) !== 'captured') itemNote.value = t('newjob.itemGone')
     const pre = newJobPrefill(it)
     if (typeof route.query.prompt !== 'string' && pre.prompt) prompt.value = pre.prompt
     if (typeof route.query.title !== 'string' && it.title) title.value = it.title.slice(0, 80)
     if (pre.project && projects.value.some((p) => p.key === pre.project)) selectProject(pre.project)
     if (pre.cwd) cwd.value = pre.cwd
   } catch (e) {
-    itemNote.value = `读取收集箱条目失败：${e instanceof Error ? e.message : String(e)}`
+    itemNote.value = t('newjob.itemLoadFailed', { err: e instanceof Error ? e.message : String(e) })
   }
 }
 
@@ -948,12 +948,12 @@ async function onSubmit() {
     const { job, async } = await submitJob(req)
     if (fromItem.value) {
       submittedJobId.value = job.id
-      notice.value = async ? '已提交，仍在后台执行。' : '已提交。'
+      notice.value = async ? t('newjob.notice.submittedAsync') : t('newjob.notice.submitted')
       await linkSubmittedJob()
       return
     }
     if (async) {
-      notice.value = '已提交，仍在后台执行，正在跳转详情…'
+      notice.value = t('newjob.notice.submittedAsyncRedirect')
     }
     void router.push(`/jobs/${job.id}`)
   } catch (e) {
