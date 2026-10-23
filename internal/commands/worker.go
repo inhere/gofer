@@ -710,7 +710,7 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	mode := workerModeOf(wc)
 	cachePath := workerPolicyCachePath(wc.WorkerID)
 	wcfg, initialProjects, initialPolicy := initialWorkerConfig(mode, wc, cachePath)
-	cr, err := core.Build(wcfg, core.WithAgentDetector(det))
+	cr, err := core.Build(wcfg, core.WithAgentDetector(det), core.WithBuiltinDefaultProject())
 	if err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
 	}

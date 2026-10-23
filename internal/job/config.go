@@ -106,10 +106,25 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	// req.Agent, preserving the established behaviour (exec is not exempt).
 	gateAgent := gateAgentOf(req)
 
+	// gofer's own session delivery for a session that belongs to NO project runs in the
+	// execution machine's default workspace project (config.DefaultProjectKey; see
+	// httpapi.deliveryProject). Nobody wrote a project policy for that fallback — it is the
+	// built-in `default` of the machine the session runs on — and the command it carries is
+	// gofer's own, so two project-level gates below would otherwise refuse work the operator
+	// never had a say in (gofer-vin1):
+	//   - the runner: the built-in default lists only the machine that owns it (`local`),
+	//     while a delivery has to run where the SESSION runs (its worker);
+	//   - allow_exec / the exec carrier's agent entry: the argv is gofer's (InternalExec),
+	//     not a caller's, exactly as the ceiling rules already treat internal exec kinds.
+	// Both waivers are keyed on InternalExec, so no HTTP / CLI / MCP submission can reach
+	// them: a caller cannot set InternalExec (it is not a wire field of the submit APIs).
+	systemDelivery := req.InternalExec == InternalExecRelay && req.ProjectKey == config.DefaultProjectKey
+	systemExec := req.InternalExec != "" && req.ProjectKey == config.DefaultProjectKey
+
 	// Agent whitelist. Empty allowed_agents = allow all configured agents (§13,
 	// config-optimize); exec safety is enforced independently by the allow_exec
 	// gate below (default false), so an empty whitelist never opens exec.
-	if len(proj.AllowedAgents) > 0 {
+	if len(proj.AllowedAgents) > 0 && !systemExec {
 		if err := agent.CheckAllowed(cfg, req.ProjectKey, gateAgent); err != nil {
 			return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 		}
@@ -287,7 +302,7 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 				}
 			}
 		}
-		if ac.Type == agent.TypeExec && !proj.AllowExec {
+		if ac.Type == agent.TypeExec && !proj.AllowExec && !systemExec {
 			return config.ProjectConfig{}, fmt.Errorf("%w: exec agent %q not allowed: project %q has allow_exec=false", ErrInvalidRequest, gateAgent, req.ProjectKey)
 		}
 	}
@@ -296,8 +311,10 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	if req.Runner == "" {
 		return config.ProjectConfig{}, fmt.Errorf("%w: runner is required", ErrInvalidRequest)
 	}
-	if err := checkRunnerAllowed(cfg, proj, req.Runner); err != nil {
-		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
+	if !systemDelivery {
+		if err := checkRunnerAllowed(cfg, proj, req.Runner); err != nil {
+			return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
+		}
 	}
 
 	// ws-worker runner: an EXPLICIT worker_id must be a known server.workers entry
