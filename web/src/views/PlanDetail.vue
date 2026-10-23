@@ -265,8 +265,10 @@ const todoSummary = computed(() => {
   const doing = todos.filter((t) => t.status === 'doing').length
   const skipped = todos.filter((t) => t.status === 'skipped').length
   const complete = todos.filter((t) => t.done || t.status === 'skipped').length
-  const base = `完成 ${complete}/${todos.length}${skipped ? `（含跳过 ${skipped}）` : ''}`
-  return doing > 0 ? `${base} · 进行中 ${doing}` : base
+  const base = skipped
+    ? t('plans.detail.todosSummarySkipped', { done: complete, total: todos.length, skipped })
+    : t('plans.detail.todosSummary', { done: complete, total: todos.length })
+  return doing > 0 ? `${base}${t('plans.detail.todosDoing', { n: doing })}` : base
 })
 
 // 生命周期状态推进（Part C §C2）：下拉即改，doing/done 时间戳由服务端自动打。
