@@ -221,6 +221,10 @@ type dispatcher interface {
 	RegisterSink(workerID, jobID string, sk wshub.JobSink) error
 	DeregisterSink(workerID, jobID string)
 	Dispatch(workerID string, d wsproto.Dispatch) error
+	// DispatchWait sends a dispatch, parking in the hub's per-worker capacity queue when
+	// the worker is at its advertised max_concurrent instead of failing the job
+	// (gofer-y05q). onWait (may be nil) reports the parked job's worker capacity once.
+	DispatchWait(ctx context.Context, workerID string, d wsproto.Dispatch, onWait func(inFlight, max int)) error
 	// Answer sends the host-side answer of a worker interaction back over WS so
 	// the worker's local job resumes (P2).
 	Answer(workerID, jobID, interactionID, answer string) error
@@ -252,6 +256,12 @@ type Runner struct {
 	nonceStore    nonceIssuer
 	relayRegistry relayPreparer
 	nowUnix       func() int64
+	// queueMaxWait bounds how long a dispatch may sit in the hub's capacity queue for a
+	// worker at its max_concurrent (gofer-y05q; server.worker_queue_max_wait_sec). 0 = no
+	// cap: queue until a slot frees or the job is cancelled. The wait does NOT count
+	// against the job's own timeout, which a remote job starts at the worker's started
+	// frame (same rule as the hub-side directory lock).
+	queueMaxWait time.Duration
 }
 
 // Option configures a Runner.
@@ -263,6 +273,19 @@ func WithPtyRelay(nonces nonceIssuer, relays relayPreparer) Option {
 	return func(r *Runner) {
 		r.nonceStore = nonces
 		r.relayRegistry = relays
+	}
+}
+
+// WithQueueMaxWait bounds how long a dispatch may wait for a free slot on a worker at
+// its max_concurrent (gofer-y05q). Non-positive means no cap: queue until a slot frees
+// or the job is cancelled.
+func WithQueueMaxWait(d time.Duration) Option {
+	return func(r *Runner) {
+		if d > 0 {
+			r.queueMaxWait = d
+		} else {
+			r.queueMaxWait = 0
+		}
 	}
 }
 
@@ -519,7 +542,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		d.ResumedFrom = f.ResumedFrom
 		d.AutoResumeAttempt = f.AutoResumeAttempt
 	}
-	if err := r.hub.Dispatch(workerID, d); err != nil {
+	if err := r.dispatchWait(ctx, workerID, d, req.OnJobEvent); err != nil {
 		relayCloseReason = "dispatch_failed"
 		return runner.Result{ExitCode: -1, Err: err}
 	}
@@ -1221,4 +1244,43 @@ func mcpCmdFor(cmd []string, proto int, known bool) []string {
 		return cmd
 	}
 	return agent.SpliceMCPArgs(cmd, nil)
+}
+
+// dispatchWait sends the dispatch frame, QUEUEING it when the target worker is at its
+// advertised max_concurrent instead of failing the job (gofer-y05q): the hub parks it in
+// a per-worker FIFO and re-dispatches it, in submission order, the moment a slot frees (a
+// job ends, a job's sink is deregistered, the worker raises its cap or reconnects). While
+// it waits the job stays `queued` and records one job.waiting_worker event carrying the
+// worker id and its in_flight/max, so the timeline says WHY it has not started.
+//
+// The wait is bounded by server.worker_queue_max_wait_sec (0 = no cap). The queue time
+// does NOT count against the job's own timeout: a remote job's deadline starts only at
+// the worker's started frame (internal/job/execute.go), exactly like the directory-lock
+// wait — so a job parked here still gets its full budget once it actually runs.
+func (r *Runner) dispatchWait(ctx context.Context, workerID string, d wsproto.Dispatch, onEvent func(string, map[string]any)) error {
+	qctx := ctx
+	if r.queueMaxWait > 0 {
+		var cancel context.CancelFunc
+		qctx, cancel = context.WithTimeout(ctx, r.queueMaxWait)
+		defer cancel()
+	}
+	onWait := func(inFlight, max int) {
+		if onEvent == nil {
+			return
+		}
+		onEvent(runner.EventWaitingWorker, map[string]any{
+			"worker_id": workerID, "in_flight": inFlight, "max": max,
+		})
+	}
+	err := r.hub.DispatchWait(qctx, workerID, d, onWait)
+	if err == nil {
+		return nil
+	}
+	if r.queueMaxWait > 0 && ctx.Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+		// The QUEUE cap expired, not the job: the job never started, so the error says
+		// exactly that instead of looking like a failed execution.
+		return fmt.Errorf("worker %q stayed at capacity for %ds (queued for a free slot; server.worker_queue_max_wait_sec)",
+			workerID, int(r.queueMaxWait/time.Second))
+	}
+	return err
 }

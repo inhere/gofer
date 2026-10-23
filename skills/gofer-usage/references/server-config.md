@@ -273,6 +273,7 @@ server:
   # job_recover_window_sec: 120        # worker 断线后在途 job 停在 recovering 等重连的窗口; 0 = 断线即 failed
   # dir_lock: true                     # 同目录串行锁(见下); false = 所有 job 共享目录
   # stall_timeout_sec: 900             # 输出停滞窗口(见下); 0 = 全局关
+  # worker_queue_max_wait_sec: 1800    # 远端 worker 满载时 job 的排队上限(见 worker-config.md); 0 = 不限
   # job_env_denylist: [...]            # job 环境里额外剔除的变量
   # tls:                               # 另开一个 HTTPS 监听(同路由同鉴权); 改它需重启
   #   addr: 0.0.0.0:9443

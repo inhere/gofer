@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,6 +44,14 @@ type fakeHub struct {
 	// workerProto is the protocol version WorkerProtocol reports (the fake always
 	// answers ok=true; tests that care about the version check set it).
 	workerProto int
+	// queuePark / queueBlock / queueInFlight / queueMax model the hub's capacity queue in
+	// DispatchWait (gofer-y05q): queuePark means the dispatch meets a worker at its cap, so
+	// it reports the capacity through onWait; queueBlock then parks it until the caller's
+	// ctx expires (the queue cap) instead of dispatching at once.
+	queuePark     bool
+	queueBlock    bool
+	queueInFlight int
+	queueMax      int
 }
 
 func (h *fakeHub) LiveInstance(workerID string) (string, bool) {
@@ -90,6 +99,28 @@ func (h *fakeHub) Dispatch(workerID string, d wsproto.Dispatch) error {
 	h.dispatched = d
 	h.targetWorker = workerID
 	return h.dispatchErr
+}
+
+// DispatchWait models the hub's capacity queue: when the worker is at its cap (queuePark)
+// it reports that capacity through onWait and then either parks until ctx expires
+// (queueBlock: the queue-cap case) or dispatches as soon as a slot frees. Otherwise it is
+// a plain Dispatch. The real hub reports nothing when the dispatch goes out at once, so
+// neither does this fake.
+func (h *fakeHub) DispatchWait(ctx context.Context, workerID string, d wsproto.Dispatch, onWait func(inFlight, max int)) error {
+	h.mu.Lock()
+	park, block, inFlight, max := h.queuePark, h.queueBlock, h.queueInFlight, h.queueMax
+	h.mu.Unlock()
+	if !park {
+		return h.Dispatch(workerID, d)
+	}
+	if onWait != nil {
+		onWait(inFlight, max)
+	}
+	if block {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return h.Dispatch(workerID, d)
 }
 
 func (h *fakeHub) target() string {
@@ -798,9 +829,10 @@ func TestRunCtxCancelRecordsUndeliveredCancel(t *testing.T) {
 	}
 }
 
-// TestRunAtCapacity (WP3 §5.4): a Dispatch rejected with ErrWorkerAtCapacity
-// surfaces as a non-nil Run error so the job service classifies the job failed
-// with a clear "worker at capacity" message (queueing is WP4).
+// TestRunAtCapacity (WP3 §5.4): a dispatch that still comes back as ErrWorkerAtCapacity
+// (the capacity queue refused it, e.g. a hub without queueing) surfaces as a non-nil Run
+// error so the job service classifies the job failed with a clear message. The queued
+// path itself is TestRunQueuesAtCapacityThenDispatches (gofer-y05q).
 func TestRunAtCapacity(t *testing.T) {
 	r := newRunnerWithHub(&fakeHub{dispatchErr: wshub.ErrWorkerAtCapacity})
 	res := r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
@@ -809,6 +841,84 @@ func TestRunAtCapacity(t *testing.T) {
 	}
 	if !errors.Is(res.Err, wshub.ErrWorkerAtCapacity) {
 		t.Fatalf("err = %v, want ErrWorkerAtCapacity", res.Err)
+	}
+}
+
+// TestRunQueuesAtCapacityThenDispatches is the gofer-y05q acceptance case: a job
+// dispatched to a worker at its max_concurrent is QUEUED (not failed), records ONE
+// job.waiting_worker event naming the worker and its in_flight/max, and runs to its result
+// as soon as the hub hands it a slot.
+func TestRunQueuesAtCapacityThenDispatches(t *testing.T) {
+	t.Parallel()
+	h := &fakeHub{instanceID: "inst", workerProto: wsproto.CurrentProtocolVersion, queuePark: true, queueInFlight: 4, queueMax: 4}
+	r := newRunnerWithHub(h)
+	waited := make(chan map[string]any, 1)
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{
+			JobID: "j1", Forward: &runner.Forward{WorkerID: "w1"},
+			OnJobEvent: func(eventType string, detail map[string]any) {
+				if eventType == runner.EventWaitingWorker {
+					waited <- detail
+				}
+			},
+		})
+	}()
+	var detail map[string]any
+	select {
+	case detail = <-waited:
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
+		t.Fatal("the queued dispatch did not record job.waiting_worker")
+	}
+	if detail["worker_id"] != "w1" || detail["in_flight"] != 4 || detail["max"] != 4 {
+		t.Fatalf("waiting detail = %+v, want worker_id=w1 in_flight=4 max=4", detail)
+	}
+	deadline := time.Now().Add(wait.Timeout(t, 5*time.Second))
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("the queued job never dispatched (no sink registered)")
+	}
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case res := <-done:
+		if res.Err != nil || res.ExitCode != 0 {
+			t.Fatalf("queued run result = %+v, want a clean exit", res)
+		}
+	case <-time.After(wait.Timeout(t, 5*time.Second)):
+		t.Fatal("the queued run never returned")
+	}
+	calls := h.snapshotCalls()
+	if len(calls) == 0 || calls[0] != "register" {
+		t.Fatalf("hub calls = %v, want the sink registered before the dispatch", calls)
+	}
+	if !slices.Contains(calls, "dispatch") {
+		t.Fatalf("hub calls = %v, want the queued dispatch to have gone out", calls)
+	}
+}
+
+// TestRunQueueCapExpiresWithReason: the queue has its own cap
+// (server.worker_queue_max_wait_sec). When it expires the job fails with a reason that
+// says it never started, and the job's OWN ctx is untouched (the cap is not the job's
+// timeout).
+func TestRunQueueCapExpiresWithReason(t *testing.T) {
+	t.Parallel()
+	h := &fakeHub{instanceID: "inst", workerProto: wsproto.CurrentProtocolVersion, queuePark: true, queueBlock: true}
+	r := newRunnerWithHub(h)
+	r.queueMaxWait = wait.Timeout(t, 50*time.Millisecond)
+	// A live ctx WITHOUT a deadline: only the queue cap can end this run.
+	ctx := context.Background()
+	res := r.Run(ctx, runner.Request{JobID: "j1", Forward: &runner.Forward{WorkerID: "w1"}})
+	if res.ExitCode != -1 || res.Err == nil {
+		t.Fatalf("result = %+v, want a failed run with a reason", res)
+	}
+	if !strings.Contains(res.Err.Error(), "stayed at capacity") {
+		t.Fatalf("err = %v, want the queue-cap reason (", res.Err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("the queue cap must not cancel the job's own ctx")
 	}
 }
 

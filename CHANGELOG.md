@@ -16,6 +16,11 @@
 - **待验收页与验收面板改版（P4，gofer-hez1）**：`/review` 列表头的项目筛选统一成项目 chip（值是 URL 的 `?project=`，可分享、后退可复原），新增验证结果 chip（通过 / 失败 / 未验证，带计数）；每行仍是标题 / id、项目、agent、计划与待办、验证结果、提交数、用量、等待时长（等最久的在前）与行内通过 / 拒绝，≤760 每行变成一张卡片、两个按钮铺满。验收面板（任务详情的「验收」页签）改用统一的页签组件，`?tab=review&rtab=diff` 可深链到汇报 / 提交 / Diff / 验证 / 用量 / 发现 / 经验，Accept / Reject 操作条贴底固定；审阅提示、验收标准勾选、发现建 issue、Diff 下载原文与大文件降级、verify 输出保留尾部、用量逐项等原有内容与行为不变。两处文案走 zh/en 字典。
 - **会话页与统一输入框（P4）**：`/sessions` 的三组会话改成带计数的页签，新增项目 chip（`?project=`）与按页签切换的状态 chip；新建会话统一收进底部抽屉表单 `NewSessionSheet`（类型 / 项目 / agent / runner 灰显原因 / 模型 / 目录 / 锁定目录 / 标题 / 第一句话 / 完整配置全部保留），会话抽屉的外壳换成统一的 `Drawer`。新增统一输入框 `Composer`（发送 / 排队 / 打断后发送、附图、急件、Ctrl/⌘+Enter、自适应高度、手机友好），会话抽屉与工作台对话的输入框都用它；排队仍按会话持久化到 localStorage。
 
+### 修复
+
+- **`wf rerun --failed` 只重跑一路 fan 时不再被拒（gofer-rx7s）**：`join: all` + 多路 fan 的步骤只有一路失败时，`--failed` 只保留那一路，但 join 还写着，提交被拒（`step 1 sets join="all" but fan_out=0`），整个工作流无法重跑。现在裁剪后某步只剩一路时去掉 join，并把这一路 fan 自己的 `cmd` / `env` / `cwd` / `timeout_sec` / `agent` / `runner` 合并进该步（否则重跑会去跑该步骤自己的命令、而不是失败的那一路）；剩两路及以上时 join 与 fan 列表保持不变。
+- **远端 worker 满载时 job 排队等空位，不再直接判失败（gofer-y05q）**：派发到远程 worker 的 job 数超过它的 `max_concurrent` 时，过去整个 job 以 `worker at capacity` 直接失败（exit -1、一秒也没跑），扇出验证里常有一两路遇上。现在 job 保持 `queued`，时间线上记一条 `job.waiting_worker`（带 worker id 与当时的 `in_flight` / `max`）；worker 空出名额（某个 job 结束 / 注销、调高 `max_concurrent`、重连回来）后按**提交顺序**重新派发，多个排队的 job 不会插队。**排队时间不计入 job 自己的超时**（与等目录锁一致：超时从 worker 报 `started` 才算起）；worker 断线 / 下线时排队的 job 按现有规则立即按 `worker offline` 失败。排队上限是新配置 `server.worker_queue_max_wait_sec`（默认 1800 秒，0 = 不限），超时才失败并在 `error` 里写明「一直满载、从未开始」。
+
 ## [0.188.1] - 2026-10-23
 
 ## [0.188.0] - 2026-10-23

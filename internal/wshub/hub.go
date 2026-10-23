@@ -41,9 +41,9 @@ const (
 var ErrWorkerOffline = errors.New("worker offline")
 
 // ErrWorkerAtCapacity is returned by Dispatch when the target worker is at its
-// advertised max_concurrent (§5.4). Queueing is deferred to WP4; the caller maps
-// this to a failed job with a clear error so the submitter can retry / pick
-// another worker rather than silently block.
+// advertised max_concurrent (§5.4). Dispatch does not wait: its callers either map it to
+// a failed job or use DispatchWait, which parks the dispatch in the worker's capacity
+// queue and re-sends it when a slot frees (gofer-y05q, dispatch_queue.go).
 var ErrWorkerAtCapacity = errors.New("worker at capacity")
 
 // errWorkerDisconnected is the error a worker-lost in-flight job is finished with
@@ -87,6 +87,12 @@ type Hub struct {
 	bindMu   sync.RWMutex
 	nowFn    func() time.Time
 	hb       HeartbeatConfig
+
+	// dqMu guards queues, the per-worker FIFO of dispatches parked on a worker's
+	// max_concurrent (gofer-y05q, see dispatch_queue.go). Each queue has its own leaf
+	// mutex; dqMu only protects the map.
+	dqMu   sync.Mutex
+	queues map[string]*dispatchQueue
 
 	// lostFn, when set, is invoked once per in-flight job_id when a worker's
 	// connection drops (and the connection was NOT superseded by a same-worker_id
@@ -603,6 +609,9 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 		old.gracefulClose("replaced by new registration")
 	}
 	h.notifyPresence(reg.WorkerID, true)
+	// A reconnected worker may have capacity for the dispatches parked while it was away
+	// (gofer-y05q).
+	h.kickDispatch(reg.WorkerID)
 	// RECOV-01: attach the recovering jobs' sinks to the live connection and resume
 	// the ones the worker confirmed it still runs (status back to `running`).
 	h.applyRecovery(wc, plan)
@@ -779,6 +788,8 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 				slog.Debug("worker.result_duplicate", "event", "worker.result_duplicate", "component", "server",
 					"worker_id", wc.workerID, "job_id", env.JobID, "status", rf.Status)
 			}
+			// A freed slot may be exactly what a parked dispatch is waiting for (gofer-y05q).
+			h.kickDispatch(wc.workerID)
 			if sk := wc.sink(env.JobID); sk != nil {
 				if startedAt, ok := sk.(interface{ OnStartedAt(int64) }); ok {
 					startedAt.OnStartedAt(rf.StartedAt)
@@ -828,6 +839,7 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			}
 			if rr.OK && rr.Caps != nil {
 				h.reg.UpdateCaps(wc, *rr.Caps)
+				h.kickDispatch(wc.workerID) // a raised concurrency cap frees slots for parked dispatches
 			}
 			wc.resolveReload(rr) // unknown / already-gone request_id: dropped, never fatal
 		case wsproto.TypeUpgradeResult:
@@ -850,6 +862,7 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 				continue
 			}
 			h.reg.UpdateCaps(wc, cf)
+			h.kickDispatch(wc.workerID) // a raised concurrency cap frees slots for parked dispatches
 		case wsproto.TypeApplied:
 			// P3 policy push: the worker's report of what it applied for a policy rev. Caps
 			// is EMBEDDED and routes through the SAME reg.UpdateCaps path reload/caps use —
@@ -864,6 +877,7 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 				h.reg.UpdateCaps(wc, *a.Caps)
 			}
 			h.reg.MarkPolicyApplied(wc, a.Rev, a.Rejected, a.Degraded)
+			h.kickDispatch(wc.workerID) // a raised concurrency cap frees slots for parked dispatches
 		case wsproto.TypeFileXferResult:
 			// XFER-01: the worker's report for ONE transfer instruction. Demux by
 			// xfer id (the frame carries no job id) to the waiter the dispatch is
@@ -940,6 +954,10 @@ func (h *Hub) onDisconnect(wc *workerConn) {
 		return
 	}
 	jobIDs := wc.inflightJobs()
+	// The worker is gone: the dispatches parked on its capacity can never go out now, so
+	// they fail with the same "worker offline" the next dispatch would report rather than
+	// sitting until their own queue cap expires (gofer-y05q).
+	h.failDispatchQueue(wc.workerID, ErrWorkerOffline)
 	if h.recoverWindow > 0 {
 		h.suspendOnDisconnect(wc, jobIDs)
 		return
@@ -970,6 +988,8 @@ func (h *Hub) DeregisterSink(workerID, jobID string) {
 	if wc, ok := h.reg.Get(workerID); ok {
 		wc.deleteSink(jobID)
 		wc.release(jobID)
+		// A job that ended (or gave up) frees its slot for a parked dispatch (gofer-y05q).
+		h.kickDispatch(workerID)
 	}
 }
 
@@ -1032,9 +1052,9 @@ func (h *Hub) OpenTunnel(workerID, tunnelID, network, target, relayNonce string)
 
 // Dispatch sends a dispatch frame to the target worker. It errors when the
 // worker is offline (ErrWorkerOffline) or already at its advertised
-// max_concurrent (ErrWorkerAtCapacity, §5.4 — queueing is WP4). On success the
-// job is recorded in the worker's in-flight set so a disconnect can fail it
-// (§5.3) and so capacity accounting stays correct.
+// max_concurrent (ErrWorkerAtCapacity, §5.4) — Dispatch never blocks; DispatchWait is
+// the queueing variant. On success the job is recorded in the worker's in-flight set so
+// a disconnect can fail it (§5.3) and so capacity accounting stays correct.
 func (h *Hub) Dispatch(workerID string, d wsproto.Dispatch) error {
 	wc, ok := h.reg.Get(workerID)
 	if !ok {

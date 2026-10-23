@@ -368,6 +368,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	out.AutoResumeMax = clonePtr(sc.AutoResumeMax)
 	out.DirLock = clonePtr(sc.DirLock)
 	out.DirLockMaxWaitSec = clonePtr(sc.DirLockMaxWaitSec)
+	out.WorkerQueueMaxWaitSec = clonePtr(sc.WorkerQueueMaxWaitSec)
 	out.DirLockAllowUnboundedWait = clonePtr(sc.DirLockAllowUnboundedWait)
 	out.StallTimeoutSec = clonePtr(sc.StallTimeoutSec)
 	out.Metrics.Enabled = clonePtr(sc.Metrics.Enabled)
@@ -744,6 +745,16 @@ type ServerConfig struct {
 	// Read per submit (see EffectiveDirLockMaxWaitSec), so a hot edit applies to the
 	// NEXT job.
 	DirLockMaxWaitSec *int `yaml:"dir_lock_max_wait_sec,omitempty"`
+	// WorkerQueueMaxWaitSec bounds how long a job may QUEUE for a free slot on a remote
+	// worker that is at its max_concurrent before it is failed (gofer-y05q). A full
+	// worker no longer fails the dispatch: the job stays `queued` (event
+	// job.waiting_worker) and goes out in submission order once a slot frees. The wait
+	// does not count against the job's own timeout, which starts at the worker's started
+	// frame — so without a cap a wedged worker could park it forever. A POINTER so
+	// "unset" (→ DefaultWorkerQueueMaxWaitSec, 30 minutes) is distinguishable from an
+	// explicit 0, which removes the cap (queue until a slot frees or the job is
+	// cancelled). Read at assemble / runner-reload time.
+	WorkerQueueMaxWaitSec *int `yaml:"worker_queue_max_wait_sec,omitempty"`
 	// DirLockAllowUnboundedWait controls explicit lock_wait_sec: 0 requests.
 	// nil defaults to true, preserving the existing unbounded-wait behavior.
 	DirLockAllowUnboundedWait *bool `yaml:"dir_lock_allow_unbounded_wait,omitempty"`
@@ -1037,6 +1048,27 @@ func (c *Config) EffectiveDirLockMaxWaitSec(requested *int) int {
 		return *c.Server.DirLockMaxWaitSec
 	}
 	return DefaultDirLockMaxWaitSec
+}
+
+// DefaultWorkerQueueMaxWaitSec is how long a job may queue for a free slot on a remote
+// worker at its max_concurrent when nothing says otherwise: 30 minutes — long enough for
+// the busiest verify fan-out to drain, short enough that a wedged worker does not park its
+// queue for a whole day (gofer-y05q).
+const DefaultWorkerQueueMaxWaitSec = 1800
+
+// EffectiveWorkerQueueMaxWaitSec resolves how long a job may wait for a free slot on a
+// remote worker, in seconds, or 0 for "no cap":
+//
+//	server.worker_queue_max_wait_sec → its value, 0 removing the cap
+//	otherwise                        → DefaultWorkerQueueMaxWaitSec
+//
+// It is read when the worker runners are built (assemble / runner reload), since the cap
+// lives on the runner: a hot edit applies to the runners built after it.
+func (c *Config) EffectiveWorkerQueueMaxWaitSec() int {
+	if c != nil && c.Server.WorkerQueueMaxWaitSec != nil {
+		return *c.Server.WorkerQueueMaxWaitSec
+	}
+	return DefaultWorkerQueueMaxWaitSec
 }
 
 // DefaultStallTimeoutSec is the AUTO-05 output-stall window an unset configuration

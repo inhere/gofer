@@ -26,7 +26,7 @@ server_link:
   urls: [ws://<server-host>:8765/v1/workers/connect]   # 连哪个 server(容器里写宿主 IP)
   token_env: GOFER_WORKER_TOKEN           # token 从 env 读, 不写进文件
 labels: [linux, gpu]                      # 展示 / 按标签选 worker
-max_concurrent: 4                         # 本机同时在跑上限
+max_concurrent: 4                         # 本机同时在跑上限（满了 server 侧排队，见下）
 # xfer_timeout_sec: 600                   # 文件传输单次超时
 
 # —— 二选一决定模式 ——
@@ -40,6 +40,8 @@ tunnel: { allow: [...], max_conns: 8 }   # 隧道目标白名单：host:port / C
                                           # 多网段建议按「网段:端口」写，不写「网段:*」；SOCKS 访问网页时 max_conns 调到 32+
 storage: {...}                            # 结果落盘(可选)
 ```
+
+- **满载时排队，不失败**：派发到这台 worker 的 job 数超过 `max_concurrent` 时，server 不会把多出来的 job 判失败：job 保持 `queued`，时间线上记一条 `job.waiting_worker`（带 worker id 与当时的 `in_flight` / `max`），worker 空出名额（某个 job 结束、升了 `max_concurrent`、重连回来）后按**提交顺序**派发。排队时间**不计入 job 自己的超时**（超时从 worker 报 `started` 才算起）。排队上限是 server 侧的 `server.worker_queue_max_wait_sec`（默认 1800 秒，0 = 不限），超时才失败并写明「一直在满载」；worker 断线 / 下线的排队 job 立即按 `worker offline` 失败。`gofer worker show <id>` / Runners 页的 in-flight 数就是这里用的计数。
 
 ## 模式：LEGACY vs POLICY
 
