@@ -6,7 +6,9 @@
 //  - 快捷键：Ctrl/⌘+Enter 总是发送；工作台按回车即发送（submitOnEnter）；
 //  - 自适应高度、手机友好（点按目标 ≥40px）、Esc 不吞（抽屉自己处理）。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Paperclip } from '@lucide/vue'
 import { t } from '../i18n'
+import Icon from './Icon.vue'
 import AttachmentBar from '../components/AttachmentBar.vue'
 import type { AttachmentCapability } from '../utils/attachments'
 import {
@@ -102,7 +104,13 @@ const showModes = computed(() => props.modes.length > 1)
 const mode = ref<ComposerMode>(props.modes.includes('send') ? 'send' : props.modes[0] ?? 'send')
 const queued = ref<string[]>([])
 const attachBlocked = computed(() => !!attachBar.value && !attachBar.value.canSend())
-const attachHint = computed(() => (props.attachments ? attachBar.value?.hint() ?? '' : ''))
+// 附件提示：能力不可用时直接取 capability.reason（此时缩略图条根本不渲染，拿不到子组件的 hint），
+// 其余情况（上传中 / 失败）用附件条的 hint。两边同一来源（utils/attachments 的 composerAttachmentState）。
+const attachHint = computed(() => {
+  if (!props.attachments || !props.attachCapability) return ''
+  if (!props.attachCapability.enabled) return props.attachCapability.reason
+  return attachBar.value?.hint() ?? ''
+})
 const submitDisabled = computed(() => {
   if (props.disabled || props.sending || attachBlocked.value || !draft.value.trim()) return true
   return mode.value === 'send' && !props.canSend
@@ -214,7 +222,12 @@ onBeforeUnmount(() => {
     @drop="attachBar?.handleDrop($event)"
   >
     <div v-if="attachments && attachCapability" class="composer-attach">
-      <AttachmentBar ref="attachBar" :capability="attachCapability" @error="emit('attachment-error', $event)" />
+      <AttachmentBar
+        ref="attachBar"
+        :capability="attachCapability"
+        compact
+        @error="emit('attachment-error', $event)"
+      />
     </div>
     <div class="composer-box">
       <textarea
@@ -240,7 +253,7 @@ onBeforeUnmount(() => {
           :disabled="!attachCapability.enabled"
           data-test="composer-attach"
           @click="openPicker()"
-        >📎</button>
+        ><Icon :icon="Paperclip" size="sm" /></button>
         <div v-if="showModes" class="composer-modes" role="group" :aria-label="t('composer.modeLabel')">
           <button
             v-for="item in modes"
@@ -280,6 +293,11 @@ onBeforeUnmount(() => {
         >{{ sending ? t('composer.sending') : sendLabel || t('composer.send') }}</button>
       </div>
     </div>
+    <!-- 附件提示（不支持附图的原因 / 上传中 / 失败）：附件按钮自己的 title 之外再用一行小字，
+         原来那条旧附件栏删掉后这句提示不丢。 -->
+    <p v-if="attachments && attachHint" class="composer-attach-hint" data-test="composer-attach-hint">
+      {{ attachHint }}
+    </p>
     <div v-if="hint" class="composer-foot">
       <button
         v-if="hintCollapsible"
@@ -307,6 +325,13 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+/* 附件提示一行小字：与输入的说明文字同口径，不抢正文。 */
+.composer-attach-hint {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
 }
 .composer-box {
   display: flex;

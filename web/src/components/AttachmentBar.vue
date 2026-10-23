@@ -23,7 +23,7 @@ import {
 } from '../utils/attachments'
 import { t } from '../i18n'
 
-const props = defineProps<{ capability: AttachmentCapability }>()
+const props = defineProps<{ capability: AttachmentCapability; compact?: boolean }>()
 const emit = defineEmits<{ (e: 'error', message: string): void }>()
 
 const items = ref<AttachmentDraft[]>([])
@@ -309,9 +309,12 @@ defineExpose({
 </script>
 
 <template>
+  <!-- compact：调用方自己有一个 📎（统一 Composer 的附件按钮），这里只画已选附件的缩略图条，
+       不再重复一个 📎 与提示行（P6 截图：工作台输入框上方两个附件入口）。 -->
   <div
+    v-if="!compact || items.length > 0"
     class="attach"
-    :class="{ 'attach--drag': dragActive }"
+    :class="{ 'attach--drag': dragActive, 'attach--compact': compact }"
     @dragenter.prevent="dragActive = true"
     @dragover.prevent="dragActive = true"
     @dragleave="onDragLeave"
@@ -328,6 +331,7 @@ defineExpose({
       @change="onFileInputChange"
     />
     <button
+      v-if="!compact"
       class="attach-add mono"
       type="button"
       :disabled="!capability.enabled"
@@ -363,7 +367,7 @@ defineExpose({
         ><Icon :icon="X" size="sm" /></button>
       </li>
     </ul>
-    <span v-if="hintText" class="attach-hint mono" data-test="attach-hint">{{ hintText }}</span>
+    <span v-if="hintText && !compact" class="attach-hint mono" data-test="attach-hint">{{ hintText }}</span>
   </div>
 </template>
 
@@ -371,6 +375,7 @@ defineExpose({
 .attach { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; padding: 2px 0; border: 1px dashed transparent; border-radius: var(--r-chip); }
 .attach--drag { border-color: var(--accent); background: rgba(120, 220, 160, .06); }
 .attach-file { display: none; }
+.attach--compact { padding: 0; }
 .attach-add { flex: none; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 4px 8px; font-size: 14px; line-height: 1; cursor: pointer; }
 .attach-add:disabled { opacity: .4; cursor: default; }
 .attach-strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; min-width: 0; }
