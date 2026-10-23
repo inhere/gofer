@@ -14,7 +14,7 @@ import ProjectFilter from '../ui/ProjectFilter.vue'
 import { useListReturn } from '../ui/useListReturn'
 import { chipItems, type ChipValue } from '../ui/filterChips'
 import { planStatusOptions } from '../utils/statusText'
-import { COL, PAGE } from '../utils/uiText'
+import { COL } from '../utils/uiText'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useWhoami } from '../store/whoami'
 
@@ -218,14 +218,14 @@ onUnmounted(() => {
 <template>
   <div class="board">
     <div class="board-head">
-      <h1 class="title mono">{{ PAGE.plans }}</h1>
+      <h1 class="title mono">{{ t('plans.list.title') }}</h1>
       <div class="controls mono">
         <ProjectFilter v-model="projectFilter" :options="projectOptions" />
         <FilterChips
           :items="statusChipItems"
           :model-value="statusFilter"
           multiple
-          label="状态筛选"
+          :label="t('plans.list.statusFilter')"
           @update:model-value="onStatusChips"
         />
         <FilterDrawer
@@ -236,11 +236,11 @@ onUnmounted(() => {
         >
           <div class="filter-drawer-body">
             <label class="filter">
-              <span class="filter-label">关键字</span>
+              <span class="filter-label">{{ t('plans.list.keyword') }}</span>
               <input
                 v-model="qInput"
                 class="filter-input mono"
-                placeholder="计划 ID 前缀 / 标题"
+                :placeholder="t('plans.list.keywordPlaceholder')"
                 spellcheck="false"
                 @keydown.enter.prevent="applyQueryInput"
                 @blur="applyQueryInput"
@@ -248,13 +248,13 @@ onUnmounted(() => {
             </label>
             <label class="filter">
               <span class="filter-label">{{ COL.tags }}</span>
-              <input v-model="tagFilter" class="filter-input mono" placeholder="标签，可逗号分隔" spellcheck="false" />
+              <input v-model="tagFilter" class="filter-input mono" :placeholder="t('plans.list.tagPlaceholder')" spellcheck="false" />
             </label>
           </div>
         </FilterDrawer>
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
         <button v-if="!readOnly" class="create-toggle mono" type="button" :aria-expanded="createOpen" @click="createOpen = !createOpen">
-          {{ createOpen ? '收起' : '＋ 新建计划' }}
+          {{ createOpen ? t('plans.list.collapse') : t('plans.list.new') }}
         </button>
       </div>
     </div>
@@ -262,18 +262,18 @@ onUnmounted(() => {
     <form v-if="!readOnly" class="create-row mono" :class="{ 'create-row--open': createOpen }" @submit.prevent="onCreate">
       <label class="create-field">
         <span>{{ COL.title }}</span>
-        <input v-model="newTitle" class="create-input mono" placeholder="计划标题" />
+        <input v-model="newTitle" class="create-input mono" :placeholder="t('plans.list.titlePlaceholder')" />
       </label>
       <label class="create-field create-field--desc">
-        <span>描述</span>
-        <input v-model="newDesc" class="create-input mono" placeholder="描述(可选)" />
+        <span>{{ t('plans.detail.description') }}</span>
+        <input v-model="newDesc" class="create-input mono" :placeholder="t('plans.list.descPlaceholder')" />
       </label>
       <label class="create-field">
         <span>{{ COL.tags }}</span>
-        <input v-model="newTags" class="create-input mono" placeholder="标签，用逗号分隔" />
+        <input v-model="newTags" class="create-input mono" :placeholder="t('plans.list.tagsPlaceholder')" />
       </label>
       <button class="create-btn mono" type="submit" :disabled="!newTitle.trim() || creating">
-        {{ creating ? '创建中…' : '新建计划' }}
+        {{ creating ? t('plans.list.creating') : t('plans.list.createSubmit') }}
       </button>
     </form>
 
@@ -284,7 +284,7 @@ onUnmounted(() => {
     <div class="table">
       <div class="thead mono">
         <span>{{ COL.status }}</span>
-        <span>计划 · 标题 / ID</span>
+        <span>{{ t('plans.list.plan') }}</span>
         <span>{{ COL.progress }}</span>
         <span>{{ t('plans.overview.blockers') }}</span>
         <span>{{ t('plans.overview.supervisor') }}</span>
@@ -294,18 +294,18 @@ onUnmounted(() => {
       <PlanOverviewRow v-for="p in plans" :key="p.plan_id" :plan="p" />
 
       <div v-if="plans.length === 0 && !error" class="empty mono">
-        <p>{{ hasFilters ? '没有匹配的 plan' : '暂无 plan' }}</p>
+        <p>{{ hasFilters ? t('plans.list.emptyFiltered') : t('plans.list.empty') }}</p>
       </div>
     </div>
 
     <!-- F-d 分页：当前页/总条数都由服务端给，上一页/下一页写回 URL（offset）。 -->
     <div v-if="total > 0" class="pager mono">
       <button class="page-btn" type="button" :disabled="!hasPrev || loading" @click="prevPage">
-        ← 上一页
+        {{ t('plans.list.prev') }}
       </button>
-      <span class="page-info">第 {{ pageFrom }}–{{ pageTo }} 条 / 共 {{ total }} 条</span>
+      <span class="page-info">{{ t('plans.list.page', { from: pageFrom, to: pageTo, total }) }}</span>
       <button class="page-btn" type="button" :disabled="!hasNext || loading" @click="nextPage">
-        下一页 →
+        {{ t('plans.list.next') }}
       </button>
     </div>
   </div>

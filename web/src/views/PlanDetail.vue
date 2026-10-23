@@ -11,7 +11,7 @@
 //    失败回滚），链操作走 planRun/planPause/planResume；视图选择记 localStorage。
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import InteractionCard from '../components/InteractionCard.vue'
@@ -20,6 +20,12 @@ import CommentThread from '../components/CommentThread.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import PlanSupervisor from '../components/PlanSupervisor.vue'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
+import BackLink from '../ui/BackLink.vue'
+import ProgressBar from '../ui/ProgressBar.vue'
+import Tabs from '../ui/Tabs.vue'
+import { tabFromQuery, type TabItem } from '../ui/tabs'
+import { planProgressModel } from '../ui/progress'
+import { t } from '../i18n'
 import {
   addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
   setPlanHandoff,
@@ -28,6 +34,7 @@ import {
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { getAgentsCached } from '../api/metaCache'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
+import { formatRelative } from '../utils/format'
 import type {
   AgentInfo, Decision, Interaction, Job, JobEvent, PlanDetail, PlanStatus, Todo, TodoJob, TodoPatch,
   TodoStatus,
@@ -36,7 +43,6 @@ import { deliveryStateLabel } from '../utils/delivery'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { formatTokens } from '../utils/jobOutcome'
 import { boardProgress } from '../utils/planBoard'
-import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
 import { COL } from '../utils/uiText'
 import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
 import { PLAN_CONTROL_HELP, planChainState, planUsageRows } from '../utils/planControls'
@@ -53,6 +59,34 @@ import type { AgentSession } from '../api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
+const route = useRoute()
+
+// 页签（设计稿 §7「/plans/:id 计划详情」）：头部放进度与链控制，下方六个页签把原本纵向
+// 堆叠的区块收起来；值以 URL 的 ?tab= 为准（深链、可后退），默认待办。
+const planTabs = computed<TabItem[]>(() => {
+  const p = plan.value
+  return [
+    { value: 'todos', label: t('plans.detail.tab.todos'), count: p?.todos?.length ?? 0 },
+    { value: 'jobs', label: t('plans.detail.tab.jobs'), count: p?.jobs?.length ?? 0 },
+    {
+      value: 'decisions',
+      label: t('plans.detail.tab.decisions'),
+      count: p?.decisions?.length ?? 0,
+      badge: hasOpenDecision.value,
+    },
+    { value: 'handoff', label: t('plans.detail.tab.handoff'), count: handoffVersions.value.length || undefined },
+    { value: 'comments', label: t('plans.detail.tab.comments') },
+    { value: 'events', label: t('plans.detail.tab.events') },
+  ]
+})
+const activeTab = computed(() => tabFromQuery(route.query, planTabs.value, 'tab', 'todos'))
+// 「需要人」的黄色角标只给还有 OPEN 决策的页签（§5：黄色只代表需要人）。
+const hasOpenDecision = computed(() => (plan.value?.decisions ?? []).some((d) => d.state === 'OPEN'))
+// 头部进度：与计划总览同一套分段口径（needs_review / failed_jobs 由接口直接给）。
+const progress = computed(() => (plan.value ? planProgressModel(plan.value) : null))
+
+// 待办循环里的变量名是 `t`（Todo），会遮蔽 i18n 的 t()：循环内用这个别名。
+const tr = t
 
 // plan 的写操作（改状态 / leader / 挂起 · 继续 · 启动 / 交接说明）在服务端都是
 // PATCH /v1/plans/{id}、POST /v1/plans/{id}/{run,pause,resume}、PUT /v1/plans/{id}/handoff 上的
@@ -231,8 +265,10 @@ const todoSummary = computed(() => {
   const doing = todos.filter((t) => t.status === 'doing').length
   const skipped = todos.filter((t) => t.status === 'skipped').length
   const complete = todos.filter((t) => t.done || t.status === 'skipped').length
-  const base = `完成 ${complete}/${todos.length}${skipped ? `（含跳过 ${skipped}）` : ''}`
-  return doing > 0 ? `${base} · 进行中 ${doing}` : base
+  const base = skipped
+    ? t('plans.detail.todosSummarySkipped', { done: complete, total: todos.length, skipped })
+    : t('plans.detail.todosSummary', { done: complete, total: todos.length })
+  return doing > 0 ? `${base}${t('plans.detail.todosDoing', { n: doing })}` : base
 })
 
 // 生命周期状态推进（Part C §C2）：下拉即改，doing/done 时间戳由服务端自动打。
@@ -500,13 +536,7 @@ function patchTodoLocal(todoId: string, patch: Partial<Todo>): Todo | null {
   return prev
 }
 
-const MOVE_TOAST: Record<TodoStatus, string> = {
-  pending: '已撤回到待办',
-  ready: '已派发',
-  doing: '已置为进行中',
-  done: '已标记完成',
-  skipped: '已跳过',
-}
+const MOVE_TOAST = (status: TodoStatus): string => t(`plans.detail.toast.moved.${status}`)
 
 // 看板落点：PATCH /v1/todos/{id}，status 就是落点；ready + assignee 由服务端当场起 job。
 async function onBoardMove(payload: {
@@ -533,15 +563,15 @@ async function onBoardMove(payload: {
     setMoving(t.todo_id, false)
     await fetchPlan() // 服务端真相：ready 可能当场起 job（条目转 doing 并挂上 job_id）
     const head = payload.assignee
-      ? `${MOVE_TOAST[payload.status]}（${payload.assignee}）`
-      : MOVE_TOAST[payload.status]
+      ? `${MOVE_TOAST(payload.status)}（${payload.assignee}）`
+      : MOVE_TOAST(payload.status)
     setToast(`${head}：${t.title}`)
   } catch (e) {
     if (plan.value && prev) {
       plan.value.todos = plan.value.todos.map((x) => (x.todo_id === prev.todo_id ? prev : x))
     }
     setMoving(t.todo_id, false)
-    setToast(`操作失败，已回滚：${e instanceof Error ? e.message : String(e)}`)
+    setToast(tr('plans.detail.toast.rollback', { err: e instanceof Error ? e.message : String(e) }))
   }
 }
 
@@ -573,7 +603,7 @@ async function onPlanAction(kind: 'run' | 'pause' | 'resume'): Promise<void> {
       blocked_todo: head.blocked_todo ?? '',
     }
     await fetchPlan()
-    setToast(kind === 'run' ? '已启动链' : kind === 'pause' ? '已挂起自动推进' : '已继续推进')
+    setToast(t(`plans.detail.toast.chain${kind === 'run' ? 'Run' : kind === 'pause' ? 'Pause' : 'Resume'}`))
   } catch (e) {
     opError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -593,7 +623,7 @@ async function onReleaseBlocked(status: 'ready' | 'skipped'): Promise<void> {
   try {
     await patchTodo(id, { status })
     await fetchPlan()
-    setToast(status === 'ready' ? '已重派被阻塞的条目' : '已跳过被阻塞的条目')
+    setToast(t(status === 'ready' ? 'plans.detail.toast.blockedRedispatch' : 'plans.detail.toast.blockedSkip'))
   } catch (e) {
     opError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -681,7 +711,7 @@ async function saveHandoff(): Promise<void> {
 		handoffSelectedVersion.value = h.version
 		handoffVersions.value = mergeHandoffs(h, handoffVersions.value)
 	} catch {
-		handoffError.value = '交接说明已被他人更新，请刷新后重试'
+		handoffError.value = t('plans.detail.handoffConflict')
 		const h = await getPlanHandoff(props.id)
 		const history = await listPlanHandoffHistory(props.id)
 		handoffLatest.value = h
@@ -950,9 +980,7 @@ onUnmounted(() => {
 <template>
   <div class="detail" :class="{ 'detail--board': view === 'board' }">
     <div class="detail-head">
-      <button class="back mono" type="button" @click="router.push('/plans')">
-        &larr; plans
-      </button>
+      <BackLink list="plans" to="/plans" :label="t('plans.detail.back')" />
       <div v-if="plan" class="head-status">
         <PlanStatusBadge :status="plan.status" />
         <div class="status-actions mono">
@@ -964,10 +992,10 @@ onUnmounted(() => {
             :title="planWriteBlock() || undefined"
             @click="setStatus('done')"
           >
-            标记完成
+            {{ t('plans.detail.markDone') }}
           </button>
           <details class="more-actions">
-            <summary class="status-action">更多</summary>
+            <summary class="status-action">{{ t('plans.detail.more') }}</summary>
             <div class="more-actions-menu">
               <button
                 v-if="plan.status === 'open' || plan.status === 'done'"
@@ -977,7 +1005,7 @@ onUnmounted(() => {
                 :title="planWriteBlock() || undefined"
                 @click="setStatus('archived')"
               >
-                归档
+                {{ t('plans.detail.archive') }}
               </button>
               <button
                 v-if="plan.status === 'done' || plan.status === 'archived'"
@@ -987,23 +1015,23 @@ onUnmounted(() => {
                 :title="planWriteBlock() || undefined"
                 @click="setStatus('open')"
               >
-                重新打开
+                {{ t('plans.detail.reopen') }}
               </button>
               <button class="board-btn mono" type="button" @click="viewInBoard">
-                在 Board 查看
+                {{ t('plans.detail.viewInJobs') }}
               </button>
             </div>
           </details>
         </div>
-        <!-- WEB-10 视图切换（页面顶部）：列表/看板同一份数据；选择记 localStorage，默认看板。 -->
-        <div class="view-switch mono">
+        <!-- WEB-10 视图切换（待办页签内）：列表/看板同一份数据；选择记 localStorage，默认看板。 -->
+        <div v-if="activeTab === 'todos'" class="view-switch mono">
           <button
             class="view-btn"
             :class="{ 'view-btn--on': view === 'board' }"
             type="button"
             @click="setView('board')"
           >
-            看板
+            {{ t('plans.detail.viewBoard') }}
           </button>
           <button
             class="view-btn"
@@ -1011,7 +1039,7 @@ onUnmounted(() => {
             type="button"
             @click="setView('list')"
           >
-            列表
+            {{ t('plans.detail.viewList') }}
           </button>
         </div>
       </div>
@@ -1024,63 +1052,78 @@ onUnmounted(() => {
 
     <div v-if="plan" class="head-card">
       <h1 class="plan-title">{{ plan.title || plan.plan_id }}</h1>
+      <!-- 头部进度（设计稿 §7）：大号分段进度条 + 图例，旁边是 job 运行数、失败数与最近活动。 -->
+      <div v-if="progress" class="head-progress" data-test="plan-detail-progress">
+        <ProgressBar
+          :parts="progress.parts"
+          :total="progress.total"
+          :done="progress.done"
+          :percent="progress.percent"
+          size="md"
+        />
+        <p class="head-progress-meta mono">
+          <span v-if="plan.counts" class="hp-run">{{ t('plans.detail.running', { n: plan.counts.running }) }}</span>
+          <span v-if="plan.failed_jobs" class="hp-fail">{{ t('plans.detail.failed', { n: plan.failed_jobs }) }}</span>
+          <span class="hp-activity">{{ t('plans.overview.activity') }} {{ formatRelative(plan.updated_at) }}</span>
+        </p>
+        <p v-if="canFinish && plan.status !== 'done'" class="finish-hint">
+          {{ t('plans.detail.canFinish') }}
+        </p>
+      </div>
+      <p v-if="plan.description" class="head-desc">{{ plan.description }}</p>
       <dl class="meta mono">
         <div class="meta-row">
-          <dt>id</dt>
+          <dt>{{ t('plans.detail.id') }}</dt>
           <dd>{{ plan.plan_id }}</dd>
         </div>
         <div class="meta-row">
-          <dt>status</dt>
+          <dt>{{ t('plans.detail.status') }}</dt>
           <dd><PlanStatusBadge :status="plan.status" /></dd>
         </div>
         <div v-if="plan.owner" class="meta-row">
-          <dt>owner</dt>
+          <dt>{{ t('plans.detail.owner') }}</dt>
           <dd>{{ plan.owner }}</dd>
         </div>
         <!-- 绑定的主 Agent 会话：名称 + 跳会话页；完整面板（改绑 / 发消息）在下方。 -->
         <div class="meta-row">
-          <dt>主 Agent 会话</dt>
+          <dt>{{ t('plans.detail.supervisor') }}</dt>
           <dd class="sup-meta">
             <template v-if="plan.supervisor_session_id">
               <router-link
                 class="sup-link"
                 :to="{ path: '/sessions', query: { sid: plan.supervisor_session_id } }"
-                :title="`打开会话 ${plan.supervisor_session_id}`"
+                :title="t('plans.detail.openSession', { id: plan.supervisor_session_id })"
               >{{ supervisorLabel }}</router-link>
               <span v-if="supervisorSession && supervisorSession.session_id === plan.supervisor_session_id" class="sup-state">
                 {{ supervisorSession.state }}
               </span>
             </template>
-            <span v-else class="sup-none">未绑定（见下方「主 agent 会话」面板）</span>
+            <span v-else class="sup-none">{{ t('plans.detail.supervisorUnbound') }}</span>
           </dd>
         </div>
         <!-- PLAN-02 P2：该 plan 的待办派发进哪个 project（待办可自带 project 覆盖）。 -->
         <div v-if="plan.project" class="meta-row">
-          <dt>project</dt>
+          <dt>{{ t('plans.detail.project') }}</dt>
           <dd>{{ plan.project }}</dd>
         </div>
-        <div v-if="plan.description" class="meta-row">
-          <dt>description</dt>
-          <dd>{{ plan.description }}</dd>
-        </div>
         <div class="meta-row meta-row--tags">
-          <dt>tags</dt>
+          <dt>{{ t('plans.detail.tags') }}</dt>
           <dd class="tag-editor">
-            <input v-model="tagsDraft" class="op-input" aria-label="计划标签" placeholder="标签，用逗号分隔" />
-            <button class="op-btn" type="button" :disabled="tagsSaving" @click="saveTags">{{ tagsSaving ? '保存中…' : '保存' }}</button>
+            <input v-model="tagsDraft" class="op-input" :aria-label="t('plans.detail.tagsAria')" :placeholder="t('plans.detail.tagsPlaceholder')" />
+            <button class="op-btn" type="button" :disabled="tagsSaving" @click="saveTags">{{ tagsSaving ? t('plans.detail.saving') : t('plans.detail.save') }}</button>
             <span v-if="plan.tags?.length" class="tag-list"><span v-for="tag in plan.tags" :key="tag" class="plan-tag mono">{{ tag }}</span></span>
           </dd>
         </div>
         <div v-if="plan.progress != null" class="meta-row">
-          <dt>progress</dt>
+          <dt>{{ t('plans.detail.progressField') }}</dt>
           <dd>{{ plan.progress }}</dd>
         </div>
         <div class="meta-row">
-          <dt>created</dt>
+          <dt>{{ t('plans.detail.created') }}</dt>
           <dd>{{ fmtDateTime(plan.created_at) }}</dd>
         </div>
         <div class="meta-row">
-          <dt>updated</dt>
+          <dt>{{ t('plans.detail.updated') }}</dt>
           <dd>{{ fmtDateTime(plan.updated_at) }}</dd>
         </div>
       </dl>
@@ -1095,47 +1138,10 @@ onUnmounted(() => {
       @session="(s: AgentSession | null) => { supervisorSession = s }"
     />
 
-    <section v-if="plan" class="section handoff-card">
-      <div class="section-head handoff-head">
-        <h2 class="section-title mono">交接说明</h2>
-        <div class="handoff-controls">
-          <select v-if="handoffVersions.length > 0" v-model="handoffSelectedVersion" class="op-input handoff-version-select mono" aria-label="交接说明版本">
-            <option v-for="item in handoffVersions" :key="item.version" :value="item.version">
-              v{{ item.version }} · {{ item.by }} · {{ fmtDateTime(item.at) }}
-            </option>
-          </select>
-          <button class="op-btn" type="button" :disabled="!!planWriteBlock()" :title="planWriteBlock() || undefined" @click="startHandoffNew">＋ 新增</button>
-          <button v-if="handoffLatest && !handoffIsHistorical && !handoffEditing" class="op-btn" type="button" :disabled="!!planWriteBlock()" :title="planWriteBlock() || undefined" @click="startHandoffEdit">修改</button>
-        </div>
-      </div>
-      <div class="handoff-body-panel">
-        <p v-if="handoffIsHistorical && handoffSelected" class="handoff-history-note mono">
-          正在查看历史版本 v{{ handoffSelected.version }} · <button class="inline-link mono" type="button" @click="returnToLatestHandoff">回到最新</button>
-        </p>
-        <template v-if="handoffEditing">
-          <div class="handoff-edit-tabs mono">
-            <button class="op-btn" :class="{ 'handoff-tab--active': !handoffPreview }" type="button" @click="handoffPreview = false">编辑</button>
-            <button class="op-btn" :class="{ 'handoff-tab--active': handoffPreview }" type="button" @click="handoffPreview = true">预览</button>
-          </div>
-          <textarea v-if="!handoffPreview" v-model="handoffDraft" class="op-input handoff-editor" rows="12" placeholder="记录当前进度、下一步和未决事项" />
-          <MarkdownBlock v-else :text="handoffDraft" />
-          <p v-if="handoffError" class="error mono">{{ handoffError }}</p>
-          <div class="handoff-actions">
-            <button class="op-btn handoff-save" type="button" :disabled="handoffSaving || !!planWriteBlock()" :title="planWriteBlock() || undefined" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存' }}</button>
-            <button class="op-btn handoff-cancel" type="button" :disabled="handoffSaving" @click="cancelHandoffEdit">取消</button>
-          </div>
-        </template>
-        <template v-else>
-          <MarkdownBlock v-if="handoffSelected" :text="handoffSelected.body" />
-          <p v-else class="empty mono">暂无交接说明，点击「＋ 新增」创建第一份交接说明</p>
-        </template>
-      </div>
-    </section>
-
     <!-- WEB-10 头部操作条：进度（done+skipped/total）+ 用量汇总 + 链操作（PLAN-03）。 -->
     <div v-if="plan" class="ops mono">
-      <div class="ops-progress" :title="`清单进度：已完成（含跳过）${boardPct.done} / 共 ${boardPct.total} 项`">
-        <span class="ops-label">清单进度</span>
+      <div class="ops-progress" :title="t('plans.detail.listProgressTitle', { done: boardPct.done, total: boardPct.total })">
+        <span class="ops-label">{{ t('plans.detail.listProgress') }}</span>
         <span class="cbar" aria-hidden="true">
           <span class="seg seg--done" :style="{ width: `${boardPct.percent ?? 0}%` }"></span>
         </span>
@@ -1149,9 +1155,9 @@ onUnmounted(() => {
 
     <!-- 链控件：链状态一句话 + 控件同一行（leader 开关 / 启动链 / 挂起·继续·解除阻塞），
          各控件的作用说明收在行尾「?」里，点开再看（title 悬浮提示照旧）。 -->
-    <section v-if="plan" class="chain-ctl mono" aria-label="链控制">
+    <section v-if="plan" class="chain-ctl mono" :aria-label="t('plans.detail.chainLabel')">
       <p class="chain-state" :class="`chain-state--${chainState.tone}`">
-        <span class="chain-state-label">链状态</span>{{ chainState.text }}
+        <span class="chain-state-label">{{ t('plans.detail.chainState') }}</span>{{ chainState.text }}
       </p>
       <div class="ctl-row">
         <!-- LEAD-02 C2：本 plan 自己的 leader 回合开关（服务端缺省 off）。 -->
@@ -1162,7 +1168,7 @@ onUnmounted(() => {
             :disabled="leaderSaving || !!planWriteBlock()"
             @change="onToggleLeader"
           />
-          <span>{{ PLAN_CONTROL_HELP.leader.label }}：{{ leaderSaving ? '…' : plan.leader === 'on' ? '开' : '关' }}</span>
+          <span>{{ PLAN_CONTROL_HELP.leader.label }}：{{ leaderSaving ? '…' : plan.leader === 'on' ? t('plans.detail.on') : t('plans.detail.off') }}</span>
         </label>
         <!-- 标注挂在 label 外面：徽标不触发开关。 -->
         <ExperimentalBadge />
@@ -1174,14 +1180,14 @@ onUnmounted(() => {
             :disabled="notifySaving || !!planWriteBlock()"
             @change="onToggleNotify"
           />
-          <span>{{ PLAN_CONTROL_HELP.notify.label }}：{{ notifySaving ? '…' : plan.notify === 'on' ? '开' : '关' }}</span>
+          <span>{{ PLAN_CONTROL_HELP.notify.label }}：{{ notifySaving ? '…' : plan.notify === 'on' ? t('plans.detail.on') : t('plans.detail.off') }}</span>
         </label>
         <!-- run：启动链（先解除 pause/block），二次确认。 -->
         <template v-if="plan.status !== 'archived'">
           <template v-if="confirmRun">
-            <span class="ops-hint">启动链？</span>
-            <button class="status-action" type="button" :disabled="!!acting || !!planWriteBlock()" :title="planWriteBlock() || undefined" @click="onPlanAction('run')">确认启动</button>
-            <button class="status-action" type="button" @click="confirmRun = false">取消</button>
+            <span class="ops-hint">{{ t('plans.detail.runConfirm') }}</span>
+            <button class="status-action" type="button" :disabled="!!acting || !!planWriteBlock()" :title="planWriteBlock() || undefined" @click="onPlanAction('run')">{{ t('plans.detail.runConfirmYes') }}</button>
+            <button class="status-action" type="button" @click="confirmRun = false">{{ t('plans.detail.cancel') }}</button>
           </template>
           <button
             v-else
@@ -1203,7 +1209,7 @@ onUnmounted(() => {
           :disabled="!!acting || !!planWriteBlock()"
           @click="onPlanAction('resume')"
         >
-          {{ acting === 'resume' ? '继续中…' : PLAN_CONTROL_HELP.resume.label }}
+          {{ acting === 'resume' ? t('plans.detail.resuming') : PLAN_CONTROL_HELP.resume.label }}
         </button>
         <button
           v-else-if="plan.status === 'blocked'"
@@ -1213,7 +1219,7 @@ onUnmounted(() => {
           :disabled="!!acting || !!planWriteBlock()"
           @click="onPlanAction('resume')"
         >
-          {{ acting === 'resume' ? '解除中…' : PLAN_CONTROL_HELP.unblock.label }}
+          {{ acting === 'resume' ? t('plans.detail.unblocking') : PLAN_CONTROL_HELP.unblock.label }}
         </button>
         <button
           v-else-if="plan.status !== 'done' && plan.status !== 'archived'"
@@ -1223,14 +1229,14 @@ onUnmounted(() => {
           :disabled="!!acting || !!planWriteBlock()"
           @click="onPlanAction('pause')"
         >
-          {{ acting === 'pause' ? '挂起中…' : PLAN_CONTROL_HELP.pause.label }}
+          {{ acting === 'pause' ? t('plans.detail.pausing') : PLAN_CONTROL_HELP.pause.label }}
         </button>
         <button
           class="ctl-help-toggle mono"
           type="button"
           :aria-expanded="ctlHelpOpen"
-          aria-label="控件说明"
-          title="控件说明"
+          :aria-label="t('plans.detail.ctlHelp')"
+          :title="t('plans.detail.ctlHelp')"
           @click="ctlHelpOpen = !ctlHelpOpen"
         >
           ?
@@ -1245,15 +1251,15 @@ onUnmounted(() => {
     </section>
 
     <!-- 用量：jobs 与绑定的主 Agent 会话分开列（会话只计绑定之后、plan 未结期间上报的用量）。 -->
-    <section v-if="usageRows.length > 0" class="usage-card mono" aria-label="用量">
-      <h2 class="section-title mono">用量</h2>
+    <section v-if="usageRows.length > 0" class="usage-card mono" :aria-label="t('plans.detail.usage')">
+      <h2 class="section-title mono">{{ t('plans.detail.usage') }}</h2>
       <dl class="usage-rows">
         <div v-for="(r, i) in usageRows" :key="i" class="usage-row">
           <dt>{{ r.label }}</dt>
           <dd>{{ r.text }}</dd>
         </div>
       </dl>
-      <p v-if="plan?.usage?.session" class="usage-note">主 Agent 会话用量只计绑定之后上报的部分，绑定前的不回填；同一会话监督多个进行中 plan 时，每笔用量只记到当时最近有动静的那个 plan，跨 plan 相加不重复。</p>
+      <p v-if="plan?.usage?.session" class="usage-note">{{ t('plans.detail.usageNote') }}</p>
     </section>
 
     <!-- LEAD-02 C2：开启 leader 时服务端随 PATCH 带回来的提醒（例如还有在跑的成员 job，
@@ -1262,7 +1268,7 @@ onUnmounted(() => {
       <span class="leader-warn-text">
         <span v-for="(w, i) in leaderWarnings" :key="i" class="leader-warn-line">{{ w }}</span>
       </span>
-      <button class="status-action" type="button" @click="leaderWarnings = []">知道了</button>
+      <button class="status-action" type="button" @click="leaderWarnings = []">{{ t('plans.detail.gotIt') }}</button>
     </div>
 
     <p v-if="notifyError" class="error mono">{{ notifyError }}</p>
@@ -1270,7 +1276,7 @@ onUnmounted(() => {
       <span class="leader-warn-text">
         <span v-for="(w, i) in notifyWarnings" :key="i" class="leader-warn-line">{{ w }}</span>
       </span>
-      <button class="status-action" type="button" @click="notifyWarnings = []">知道了</button>
+      <button class="status-action" type="button" @click="notifyWarnings = []">{{ t('plans.detail.gotIt') }}</button>
     </div>
 
     <!-- LEAD-02 C2 leader 回合：第 N/M 轮 + 最近一次 leader job 链接。服务端只在本 plan 自己的
@@ -1278,11 +1284,10 @@ onUnmounted(() => {
          active=false 是总开关（leader.enabled）关着——开了也不会真起回合。 -->
     <div v-if="plan && plan.leader_round" class="blocked mono">
       <span class="blocked-text">
-        leader 回合已用 {{ plan.leader_round.round }}/{{ plan.leader_round.max_rounds }} 轮——成员 job 结束时唤醒一个
-        leader job 决定下一步；人在评论区说话即接管当轮，轮次用尽会升级给人
+        {{ t('plans.detail.leaderRound', { round: plan.leader_round.round, max: plan.leader_round.max_rounds }) }}
       </span>
       <span v-if="!plan.leader_round.active" class="leader-warn-text">
-        服务端总开关 leader.enabled 未打开——本 plan 已开 leader，但不会真起回合
+        {{ t('plans.detail.leaderInactive') }}
       </span>
       <span class="ops-actions">
         <button
@@ -1291,7 +1296,7 @@ onUnmounted(() => {
           type="button"
           @click="openJob(plan.leader_round.last_job_id)"
         >
-          最近一次 leader job
+          {{ t('plans.detail.lastLeaderJob') }}
         </button>
       </span>
     </div>
@@ -1299,7 +1304,7 @@ onUnmounted(() => {
     <!-- PLAN-03 blocked 横幅：链失败停在哪个条目 + 两个出口（重派 / 跳过都会解除 block 并继续）。 -->
     <div v-if="plan && plan.blocked_todo" class="blocked mono">
       <span class="blocked-text">
-        链停在「{{ blockedTitle }}」（{{ plan.blocked_todo }}）——重派它继续跑，跳过它则往后走
+        {{ t('plans.detail.blockedLine', { title: blockedTitle, id: plan.blocked_todo }) }}
       </span>
       <span class="ops-actions">
         <button
@@ -1308,7 +1313,7 @@ onUnmounted(() => {
           :disabled="!!acting"
           @click="onReleaseBlocked('ready')"
         >
-          重派
+          {{ t('plans.detail.redispatch') }}
         </button>
         <button
           class="status-action"
@@ -1316,396 +1321,407 @@ onUnmounted(() => {
           :disabled="!!acting"
           @click="onReleaseBlocked('skipped')"
         >
-          跳过
+          {{ t('plans.detail.skip') }}
         </button>
       </span>
     </div>
 
-    <section v-if="plan" class="section">
-      <h2 class="section-title mono">{{ COL.progress }}</h2>
-      <div class="counts-card mono">
-        <div class="count-line">
-          <span class="cbar" aria-hidden="true">
-            <span
-              v-for="s in progressSegments(plan)"
-              :key="s.cls"
-              class="seg"
-              :class="s.cls"
-              :style="{ width: `${s.pct}%` }"
-            ></span>
-          </span>
-          <span class="count-frac">{{ progressText(plan) }}</span>
-        </div>
-        <p v-if="canFinish && plan.status !== 'done'" class="finish-hint">
-          job 与待办都已收尾，可标记完成
-        </p>
-        <div v-if="plan.completion?.basis === 'todos'" class="legend">
-          <span><i class="dot dot--done"></i>done / skipped</span>
-          <span><i class="dot dot--run"></i>doing</span>
-        </div>
-        <div v-else class="legend">
-          <span><i class="dot dot--done"></i>done</span>
-          <span><i class="dot dot--run"></i>running</span>
-          <span><i class="dot dot--fail"></i>failed</span>
-          <span><i class="dot dot--queue"></i>queued</span>
-        </div>
-        <p v-if="progressDetail(plan)" class="count-detail">{{ progressDetail(plan) }}</p>
-      </div>
-    </section>
-
-    <section v-if="plan" class="section">
-      <h2 class="section-title mono">任务（{{ plan.jobs.length }}）</h2>
-      <div class="jobs-table">
-        <div class="jobs-head mono">
-          <span>{{ COL.status }}</span>
-          <span>任务 · 标题 / ID</span>
-          <span>{{ COL.agent }}</span>
-          <span>{{ COL.runner }}</span>
-          <span>开始</span>
-          <span>耗时</span>
-        </div>
-        <button
-          v-for="j in plan.jobs"
-          :key="j.id"
-          class="job-row"
-          type="button"
-          @click="openJob(j.id)"
-        >
-          <span class="job-status"><StatusBadge :status="j.status" :holder="j.waiting_on_job" /></span>
-          <span class="job-main" :class="{ 'job-main--titled': j.title }">
-            <span v-if="j.title" class="job-title" :title="j.title">{{ j.title }}</span>
-            <span class="job-id mono" :title="j.id">{{ shortId(j.id) }}</span>
-          </span>
-          <span class="job-dim job-agent mono" :title="j.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ j.resume_agent ? `${j.resume_agent} ↻` : j.agent }}</span>
-          <span class="job-dim job-runner mono">{{ runnerLabel(j.runner) }}</span>
-          <span class="job-dim job-start mono">{{ rowStartTime(j) }}</span>
-          <span class="job-dim job-dur mono">{{ rowDuration(j) }}</span>
-        </button>
-        <div v-if="plan.jobs.length === 0" class="empty mono">该计划暂无任务</div>
-      </div>
-    </section>
-
-    <section v-if="plan && (plan.decisions?.length ?? 0) > 0" class="section">
-      <h2 class="section-title mono">决策（{{ plan.decisions!.length }}）</h2>
-      <InteractionCard
-        v-for="d in plan.decisions"
-        :key="d.id"
-        :interaction="toDecisionInteraction(d)"
-        :is-decision="true"
-        :submitting="submittingDecisions.has(d.id)"
-        @answer="onAnswerDecision(d, $event)"
-      />
-    </section>
-
-    <section v-if="plan" class="section">
-      <div class="section-head">
-        <h2 class="section-title mono">待办（{{ todoSummary }}）</h2>
-      </div>
-      <!-- 看板：拖到 ready 即派发（无 assignee 先选 agent）；done/skipped 落点先确认。 -->
-      <PlanBoard
-        v-if="view === 'board'"
-        :todos="plan.todos"
-        :jobs="plan.jobs"
-        :agents="agents"
-        :busy-ids="moving"
-        @move="onBoardMove"
-        @drag-active="onBoardDrag"
-      />
-      <div v-else class="todos">
-        <div v-for="t in plan.todos" :key="t.todo_id" class="todo-item">
-          <label class="todo-row">
-            <input type="checkbox" :checked="t.done" @change="onToggleTodo(t)" />
-            <span class="todo-main">
-              <span class="todo-title" :class="{ 'todo-title--done': t.done }">{{ t.title }}</span>
-              <!-- PLAN-02 P2：认领这个条目的 agent（空 = 没人认领，故派发要先选 agent）。 -->
-              <span v-if="t.assignee" class="todo-assignee mono" :title="`assignee: ${t.assignee}`">
-                {{ t.assignee }}
+    <!-- 页签（设计稿 §7）：待办 / 任务 / 决策 / 交接说明 / 评论 / 事件；值记在 ?tab=。 -->
+    <Tabs :tabs="planTabs" :label="t('plans.detail.tabsLabel')">
+      <template #default="{ active }">
+        <section v-if="plan && active === 'jobs'" class="section">
+          <h2 class="section-title mono">{{ t('plans.detail.jobsTitle', { n: plan.jobs.length }) }}</h2>
+          <div class="jobs-table">
+            <div class="jobs-head mono">
+              <span>{{ COL.status }}</span>
+              <span>{{ t('plans.detail.colJob') }}</span>
+              <span>{{ COL.agent }}</span>
+              <span>{{ COL.runner }}</span>
+              <span>{{ t('plans.detail.colStart') }}</span>
+              <span>{{ t('plans.detail.colDuration') }}</span>
+            </div>
+            <button
+              v-for="j in plan.jobs"
+              :key="j.id"
+              class="job-row"
+              type="button"
+              @click="openJob(j.id)"
+            >
+              <span class="job-status"><StatusBadge :status="j.status" :holder="j.waiting_on_job" /></span>
+              <span class="job-main" :class="{ 'job-main--titled': j.title }">
+                <span v-if="j.title" class="job-title" :title="j.title">{{ j.title }}</span>
+                <span class="job-id mono" :title="j.id">{{ shortId(j.id) }}</span>
               </span>
-              <span class="todo-actions">
+              <span class="job-dim job-agent mono" :title="j.resume_agent ? t('plans.detail.resumeViaExec') : undefined">{{ j.resume_agent ? `${j.resume_agent} ↻` : j.agent }}</span>
+              <span class="job-dim job-runner mono">{{ runnerLabel(j.runner) }}</span>
+              <span class="job-dim job-start mono">{{ rowStartTime(j) }}</span>
+              <span class="job-dim job-dur mono">{{ rowDuration(j) }}</span>
+            </button>
+            <div v-if="plan.jobs.length === 0" class="empty mono">{{ t('plans.detail.jobsEmpty') }}</div>
+          </div>
+        </section>
+
+        <section v-if="plan && active === 'decisions' && (plan.decisions?.length ?? 0) > 0" class="section">
+          <h2 class="section-title mono">{{ t('plans.detail.decisionsTitle', { n: plan.decisions!.length }) }}</h2>
+          <InteractionCard
+            v-for="d in plan.decisions"
+            :key="d.id"
+            :interaction="toDecisionInteraction(d)"
+            :is-decision="true"
+            :submitting="submittingDecisions.has(d.id)"
+            @answer="onAnswerDecision(d, $event)"
+          />
+        </section>
+
+        <section v-if="plan && active === 'todos'" class="section">
+          <div class="section-head">
+            <h2 class="section-title mono">{{ t('plans.detail.tab.todos') }}（{{ todoSummary }}）</h2>
+          </div>
+          <!-- 看板：拖到 ready 即派发（无 assignee 先选 agent）；done/skipped 落点先确认。 -->
+          <PlanBoard
+            v-if="view === 'board'"
+            :todos="plan.todos"
+            :jobs="plan.jobs"
+            :agents="agents"
+            :busy-ids="moving"
+            @move="onBoardMove"
+            @drag-active="onBoardDrag"
+          />
+          <div v-else class="todos">
+            <div v-for="t in plan.todos" :key="t.todo_id" class="todo-item">
+              <label class="todo-row">
+                <input type="checkbox" :checked="t.done" @change="onToggleTodo(t)" />
+                <span class="todo-main">
+                  <span class="todo-title" :class="{ 'todo-title--done': t.done }">{{ t.title }}</span>
+                  <!-- PLAN-02 P2：认领这个条目的 agent（空 = 没人认领，故派发要先选 agent）。 -->
+                  <span v-if="t.assignee" class="todo-assignee mono" :title="`assignee: ${t.assignee}`">
+                    {{ t.assignee }}
+                  </span>
+                  <span class="todo-actions">
+                    <button
+                      class="todo-dispatch mono"
+                      type="button"
+                      :disabled="dispatching === t.todo_id"
+                      :title="
+                        t.assignee
+                          ? tr('plans.detail.dispatchTitleAssigned', { agent: t.assignee })
+                          : tr('plans.detail.dispatchTitleUnassigned')
+                      "
+                      @click.prevent="onDispatch(t)"
+                    >
+                      {{ dispatching === t.todo_id ? tr('plans.detail.dispatching') : tr('plans.detail.dispatch') }}
+                    </button>
+                    <button
+                      class="todo-edit-btn mono"
+                      :class="{ 'todo-edit-btn--on': editFor === t.todo_id }"
+                      type="button"
+                      :title="tr('plans.detail.editFields')"
+                      @click.prevent="toggleTodoEdit(t)"
+                    >
+                      {{ editFor === t.todo_id ? tr('plans.detail.collapse') : tr('plans.detail.edit') }}
+                    </button>
+                  </span>
+                </span>
+                <select
+                  class="todo-status mono"
+                  :class="`todo-status--${t.status}`"
+                  :value="t.status"
+                  :title="t.started_at ? tr('plans.detail.startedAt', { when: new Date(t.started_at * 1000).toLocaleString() }) : ''"
+                  @change="onTodoStatus(t, ($event.target as HTMLSelectElement).value as TodoStatus)"
+                >
+                  <option v-for="st in TODO_STATUSES" :key="st" :value="st">{{ st }}</option>
+                </select>
+                <span v-if="todoDuration(t)" class="todo-duration mono" :title="t.done_at ? tr('plans.detail.doneAt', { when: new Date(t.done_at * 1000).toLocaleString() }) : tr('plans.detail.inProgress')">
+                  {{ todoDuration(t) }}
+                </span>
+                <span
+                  v-if="t.jobs && t.jobs.length > 1"
+                  class="todo-job-count mono"
+                  :title="todoJobsTitle(t)"
+                >
+                  {{ t.jobs.length }} jobs
+                </span>
                 <button
-                  class="todo-dispatch mono"
+                  v-if="todoJobRef(t)"
+                  class="todo-job mono"
+                  :class="{ 'todo-job--live': todoLiveJob(t) }"
                   type="button"
-                  :disabled="dispatching === t.todo_id"
+                  :title="todoJobRef(t)"
+                  @click.prevent="openJob(todoJobRef(t))"
+                >
+                  job {{ shortId(todoJobRef(t)) }} &rarr;
+                </button>
+                <span v-if="todoDelivery(t)" class="todo-delivery mono">
+                  <a
+                    v-if="todoDelivery(t)?.pr_url"
+                    class="todo-pr mono"
+                    :href="todoDelivery(t)?.pr_url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    :title="`PR · ${deliveryStateLabel(todoDelivery(t)?.delivery_state) || '-'}`"
+                  >
+                    PR &#8599;
+                  </a>
+                  <span
+                    v-if="todoDelivery(t)?.delivery_state === 'failed'"
+                    class="todo-delivery-failed mono"
+                    :title="tr('plans.detail.deliveryFailedTitle')"
+                  >
+                    {{ tr('plans.detail.deliveryFailed') }}
+                  </span>
+                </span>
+              </label>
+              <!-- gofer-rnp3：接续信息（接续自谁 / 为什么没续接 / 谁接走了本项的会话）。 -->
+              <div v-if="contLines(t).length > 0" class="todo-continue mono">
+                <p
+                  v-for="line in contLines(t)"
+                  :key="line.kind"
+                  :class="`todo-continue--${line.kind}`"
+                >
+                  {{ line.text }}
+                </p>
+              </div>
+              <!-- 没人认领的条目：先选 agent，再和 status=ready 一起发（同一次 PATCH）。 -->
+              <div v-if="dispatchFor === t.todo_id" class="todo-dispatch-form mono">
+                <span class="dispatch-label">agent</span>
+                <select v-if="agents.length > 0" v-model="dispatchAgent" class="op-input mono">
+                  <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.key }} · {{ a.type }}</option>
+                </select>
+                <input
+                  v-else
+                  v-model="dispatchAgent"
+                  class="op-input mono"
+                  :placeholder="tr('plans.detail.agentPlaceholder')"
+                />
+                <button
+                  class="op-btn mono"
+                  type="button"
+                  :disabled="!dispatchAgent.trim() || dispatching === t.todo_id"
+                  @click.prevent="onConfirmDispatch(t)"
+                >
+                  {{ tr('plans.detail.dispatchConfirm') }}
+                </button>
+                <button class="op-btn mono" type="button" @click.prevent="dispatchFor = ''">{{ tr('plans.detail.cancel') }}</button>
+              </div>
+              <!-- PLAN-02 P2：最近一次派发没起 job 的原因（服务端写在条目上，成功后清空）。 -->
+              <p v-if="t.dispatch_error" class="todo-dispatch-error mono">
+                {{ tr('plans.detail.dispatchFailed', { err: t.dispatch_error }) }}
+              </p>
+              <p v-if="t.note" class="todo-note mono">{{ t.note }}</p>
+              <!-- 派发字段编辑面板：prefill 自该条目，保存走同一条 PATCH（见 saveTodoEdit）。 -->
+              <div v-if="editFor === t.todo_id" class="todo-edit mono">
+                <label class="edit-field">
+                  <span>assignee</span>
+                  <input v-model="editForm.assignee" class="op-input mono" placeholder="agent key" />
+                </label>
+                <label class="edit-field">
+                  <span>project</span>
+                  <input v-model="editForm.project" class="op-input mono" :placeholder="tr('plans.detail.f.project')" />
+                </label>
+                <label class="edit-field">
+                  <span>template</span>
+                  <input v-model="editForm.template" class="op-input mono" :placeholder="tr('plans.detail.f.template')" />
+                </label>
+                <label class="edit-field">
+                  <span>verify</span>
+                  <input v-model="editForm.verify" class="op-input mono" :placeholder="tr('plans.detail.f.verify')" />
+                </label>
+                <label class="edit-field">
+                  <span>runner</span>
+                  <input v-model="editForm.runner" class="op-input mono" placeholder="local / worker:&lt;id&gt;" />
+                </label>
+                <label class="edit-field">
+                  <span>cwd</span>
+                  <input v-model="editForm.cwd" class="op-input mono" :placeholder="tr('plans.detail.f.cwd')" />
+                </label>
+                <label class="edit-field">
+                  <span>timeout_sec</span>
+                  <input
+                    v-model="editForm.timeoutSec"
+                    class="op-input mono"
+                    inputmode="numeric"
+                    :placeholder="tr('plans.detail.f.timeout')"
+                  />
+                </label>
+                <label class="edit-check">
+                  <input v-model="editForm.review" type="checkbox" />
+                  <span>{{ tr('plans.detail.f.review') }}</span>
+                </label>
+                <!-- gofer-rnp3「接着上一项的会话做」：可选同 plan 的其它条目做前序项；关掉即清除
+                     （保存时空串 = 服务端释放旧的前序占用）。没有别的条目时开关禁用。 -->
+                <label
+                  class="edit-check"
                   :title="
-                    t.assignee
-                      ? `派发：置 ready，服务端立刻用 ${t.assignee} 起一个 job`
-                      : '派发：先选 agent（assignee），再置 ready'
+                    editContinueCandidates(t).length === 0
+                      ? tr('plans.detail.continueNone')
+                      : tr('plans.detail.continueEditHelp')
                   "
-                  @click.prevent="onDispatch(t)"
                 >
-                  {{ dispatching === t.todo_id ? '派发中…' : '派发' }}
-                </button>
-                <button
-                  class="todo-edit-btn mono"
-                  :class="{ 'todo-edit-btn--on': editFor === t.todo_id }"
-                  type="button"
-                  title="编辑派发字段（assignee/template/verify/review/runner/cwd/timeout/project）"
-                  @click.prevent="toggleTodoEdit(t)"
-                >
-                  {{ editFor === t.todo_id ? '收起' : '编辑' }}
-                </button>
-              </span>
-            </span>
-            <select
-              class="todo-status mono"
-              :class="`todo-status--${t.status}`"
-              :value="t.status"
-              :title="t.started_at ? `开始 ${new Date(t.started_at * 1000).toLocaleString()}` : ''"
-              @change="onTodoStatus(t, ($event.target as HTMLSelectElement).value as TodoStatus)"
-            >
-              <option v-for="st in TODO_STATUSES" :key="st" :value="st">{{ st }}</option>
-            </select>
-            <span v-if="todoDuration(t)" class="todo-duration mono" :title="t.done_at ? `完结 ${new Date(t.done_at * 1000).toLocaleString()}` : '进行中'">
-              {{ todoDuration(t) }}
-            </span>
-            <span
-              v-if="t.jobs && t.jobs.length > 1"
-              class="todo-job-count mono"
-              :title="todoJobsTitle(t)"
-            >
-              {{ t.jobs.length }} jobs
-            </span>
-            <button
-              v-if="todoJobRef(t)"
-              class="todo-job mono"
-              :class="{ 'todo-job--live': todoLiveJob(t) }"
-              type="button"
-              :title="todoJobRef(t)"
-              @click.prevent="openJob(todoJobRef(t))"
-            >
-              job {{ shortId(todoJobRef(t)) }} &rarr;
-            </button>
-            <span v-if="todoDelivery(t)" class="todo-delivery mono">
-              <a
-                v-if="todoDelivery(t)?.pr_url"
-                class="todo-pr mono"
-                :href="todoDelivery(t)?.pr_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                :title="`PR · ${deliveryStateLabel(todoDelivery(t)?.delivery_state) || '-'}`"
-              >
-                PR &#8599;
-              </a>
-              <span
-                v-if="todoDelivery(t)?.delivery_state === 'failed'"
-                class="todo-delivery-failed mono"
-                title="最近一次 job 的交付（合并 / 推送 / 开 PR）失败，打开 job 查看原因"
-              >
-                交付失败
-              </span>
-            </span>
-          </label>
-          <!-- gofer-rnp3：接续信息（接续自谁 / 为什么没续接 / 谁接走了本项的会话）。 -->
-          <div v-if="contLines(t).length > 0" class="todo-continue mono">
-            <p
-              v-for="line in contLines(t)"
-              :key="line.kind"
-              :class="`todo-continue--${line.kind}`"
-            >
-              {{ line.text }}
-            </p>
+                  <input
+                    v-model="editForm.continueOn"
+                    type="checkbox"
+                    :disabled="editContinueCandidates(t).length === 0"
+                  />
+                  <span>{{ tr('plans.detail.continueSwitch') }}</span>
+                </label>
+                <label v-if="editForm.continueOn" class="edit-field">
+                  <span>{{ tr('plans.detail.continuePrevious') }}</span>
+                  <select v-model="editForm.continueFrom" class="op-input mono">
+                    <option v-for="c in editContinueCandidates(t)" :key="c.todo_id" :value="c.todo_id">
+                      {{ c.title }}
+                    </option>
+                  </select>
+                </label>
+                <p v-if="editContinueError" class="edit-error mono">{{ editContinueError }}</p>
+                <div class="edit-actions">
+                  <button
+                    class="op-btn mono"
+                    type="button"
+                    :disabled="savingEdit"
+                    @click.prevent="saveTodoEdit(t)"
+                  >
+                    {{ savingEdit ? tr('plans.detail.saving') : tr('plans.detail.save') }}
+                  </button>
+                  <button class="op-btn mono" type="button" @click.prevent="editFor = ''">{{ tr('plans.detail.cancel') }}</button>
+                </div>
+              </div>
+            </div>
+            <div v-if="plan.todos.length === 0" class="empty mono">{{ t('plans.detail.todosEmpty') }}</div>
           </div>
-          <!-- 没人认领的条目：先选 agent，再和 status=ready 一起发（同一次 PATCH）。 -->
-          <div v-if="dispatchFor === t.todo_id" class="todo-dispatch-form mono">
-            <span class="dispatch-label">agent</span>
-            <select v-if="agents.length > 0" v-model="dispatchAgent" class="op-input mono">
-              <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.key }} · {{ a.type }}</option>
-            </select>
-            <input
-              v-else
-              v-model="dispatchAgent"
-              class="op-input mono"
-              placeholder="agent key（如 omp）"
-            />
-            <button
-              class="op-btn mono"
-              type="button"
-              :disabled="!dispatchAgent.trim() || dispatching === t.todo_id"
-              @click.prevent="onConfirmDispatch(t)"
-            >
-              确认派发
-            </button>
-            <button class="op-btn mono" type="button" @click.prevent="dispatchFor = ''">取消</button>
-          </div>
-          <!-- PLAN-02 P2：最近一次派发没起 job 的原因（服务端写在条目上，成功后清空）。 -->
-          <p v-if="t.dispatch_error" class="todo-dispatch-error mono">
-            派发失败：{{ t.dispatch_error }}
-          </p>
-          <p v-if="t.note" class="todo-note mono">{{ t.note }}</p>
-          <!-- 派发字段编辑面板：prefill 自该条目，保存走同一条 PATCH（见 saveTodoEdit）。 -->
-          <div v-if="editFor === t.todo_id" class="todo-edit mono">
-            <label class="edit-field">
-              <span>assignee</span>
-              <input v-model="editForm.assignee" class="op-input mono" placeholder="agent key" />
-            </label>
-            <label class="edit-field">
-              <span>project</span>
-              <input v-model="editForm.project" class="op-input mono" placeholder="覆盖 plan 的 project" />
-            </label>
-            <label class="edit-field">
-              <span>template</span>
-              <input v-model="editForm.template" class="op-input mono" placeholder="任务书模板（空=默认 prompt）" />
-            </label>
-            <label class="edit-field">
-              <span>verify</span>
-              <input v-model="editForm.verify" class="op-input mono" placeholder="验收命令（空格分词为 argv）" />
-            </label>
-            <label class="edit-field">
-              <span>runner</span>
-              <input v-model="editForm.runner" class="op-input mono" placeholder="local / worker:&lt;id&gt;" />
-            </label>
-            <label class="edit-field">
-              <span>cwd</span>
-              <input v-model="editForm.cwd" class="op-input mono" placeholder="项目内相对路径" />
-            </label>
-            <label class="edit-field">
-              <span>timeout_sec</span>
-              <input
-                v-model="editForm.timeoutSec"
-                class="op-input mono"
-                inputmode="numeric"
-                placeholder="秒（空=默认）"
-              />
-            </label>
-            <label class="edit-check">
-              <input v-model="editForm.review" type="checkbox" />
-              <span>review（完成后要人验收）</span>
-            </label>
-            <!-- gofer-rnp3「接着上一项的会话做」：可选同 plan 的其它条目做前序项；关掉即清除
-                 （保存时空串 = 服务端释放旧的前序占用）。没有别的条目时开关禁用。 -->
+          <form class="op-form mono" @submit.prevent="onAddTodo">
+            <input v-model="newTodoTitle" class="op-input mono" :placeholder="t('plans.detail.newTodoTitle')" />
+            <input v-model="newTodoJob" class="op-input mono" :placeholder="t('plans.detail.newTodoJob')" />
+            <!-- gofer-rnp3：新条目默认接着本 plan 的最后一项做（追加在末尾，它就是「上一项」）。 -->
             <label
               class="edit-check"
               :title="
-                editContinueCandidates(t).length === 0
-                  ? '本计划还没有可以接续的其它待办'
-                  : '派发本项时在前面那一项的 agent 会话里继续（条件不满足会自动开新会话，原因写在条目上）'
+                newTodoContinueCandidates.length === 0
+                  ? t('plans.detail.continueNone')
+                  : t('plans.detail.continueNewHelp')
               "
             >
               <input
-                v-model="editForm.continueOn"
                 type="checkbox"
-                :disabled="editContinueCandidates(t).length === 0"
+                :checked="newTodoContinue"
+                :disabled="newTodoContinueCandidates.length === 0"
+                @change="onToggleNewTodoContinue(($event.target as HTMLInputElement).checked)"
               />
-              <span>接着上一项的会话做</span>
+              <span>{{ t('plans.detail.continueSwitch') }}</span>
             </label>
-            <label v-if="editForm.continueOn" class="edit-field">
-              <span>前序项</span>
-              <select v-model="editForm.continueFrom" class="op-input mono">
-                <option v-for="c in editContinueCandidates(t)" :key="c.todo_id" :value="c.todo_id">
-                  {{ c.title }}
-                </option>
-              </select>
-            </label>
-            <p v-if="editContinueError" class="edit-error mono">{{ editContinueError }}</p>
-            <div class="edit-actions">
+            <select
+              v-if="newTodoContinue"
+              v-model="newTodoContinueFrom"
+              class="op-input mono"
+              :title="t('plans.detail.continuePreviousTitle')"
+            >
+              <option v-for="c in newTodoContinueCandidates" :key="c.todo_id" :value="c.todo_id">
+                {{ c.title }}
+              </option>
+            </select>
+            <button class="op-btn mono" type="submit" :disabled="!newTodoTitle.trim() || addingTodo">
+              {{ addingTodo ? t('plans.detail.adding') : t('plans.detail.newTodo') }}
+            </button>
+          </form>
+          <p v-if="newTodoContinueError" class="form-error mono">{{ newTodoContinueError }}</p>
+        </section>
+
+        <section v-if="plan && active === 'jobs'" class="section">
+          <h2 class="section-title mono">{{ t('plans.detail.attachTitle') }}</h2>
+          <form class="op-form mono" @submit.prevent="onAttach">
+            <input v-model="attachJobId" class="op-input mono" :placeholder="t('plans.detail.attachPlaceholder')" />
+            <button class="op-btn mono" type="submit" :disabled="!attachJobId.trim() || attaching">
+              {{ attaching ? t('plans.detail.attaching') : t('plans.detail.attach') }}
+            </button>
+          </form>
+        </section>
+
+        <!-- 评论区（MCP-05 阶段 A）：plan 级线程。user 作者的评论里 @agent/@role 会派一个
+             job；每条待办自己的线程在 /v1/todos/{id}/comments 上（本期 web 只做 plan 级）。 -->
+        <section v-if="plan && active === 'comments'" class="section">
+          <h2 class="section-title mono">{{ t('plans.detail.tab.comments') }}</h2>
+          <CommentThread scope="plan" :id="props.id" :placeholder="t('plans.detail.commentPlaceholder')" />
+        </section>
+
+        <!-- plan 作用域事件流（LEAD-02 C2）：leader 回合、评论派活等记在 plan:<id> 作用域的事件，
+             服务端按 seq 倒序发（最新在前）。默认折叠，展开才拉第一页；不额外轮询——plan 刷新
+             时顺带重取第一页（见 fetchPlan）。 -->
+        <section v-if="plan && active === 'events'" class="section">
+          <details class="events-fold" :open="eventsOpen" @toggle="onEventsToggle">
+            <summary class="section-title mono">
+              {{ t('plans.detail.eventsTitle', { n: planEvents.length, more: eventsHasMore ? '+' : '' }) }}
+            </summary>
+            <div class="events-body">
+              <p v-if="eventsError" class="error mono">{{ eventsError }}</p>
+              <ul v-if="planEvents.length > 0" class="timeline-list">
+                <li
+                  v-for="ev in planEvents"
+                  :key="ev.seq"
+                  class="timeline-row"
+                  :class="'ev-' + ev.type.replace('.', '-')"
+                >
+                  <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
+                  <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
+                  <span v-if="eventDetailText(ev)" class="ev-detail mono" :title="eventDetailText(ev)">
+                    {{ eventDetailText(ev) }}
+                  </span>
+                  <span class="ev-time mono">{{ fmtDateTime(ev.at) }}</span>
+                </li>
+              </ul>
+              <p v-else-if="!eventsLoading" class="empty mono">{{ t('plans.detail.eventsEmpty') }}</p>
               <button
+                v-if="eventsHasMore"
                 class="op-btn mono"
                 type="button"
-                :disabled="savingEdit"
-                @click.prevent="saveTodoEdit(t)"
+                :disabled="eventsLoading"
+                @click="loadMoreEvents"
               >
-                {{ savingEdit ? '保存中…' : '保存' }}
+                {{ eventsLoading ? t('plans.detail.eventsLoading') : t('plans.detail.eventsMore') }}
               </button>
-              <button class="op-btn mono" type="button" @click.prevent="editFor = ''">取消</button>
+            </div>
+          </details>
+        </section>
+
+        <!-- 交接说明页签（原在头部下方，P3 收进页签）：版本选择 + 编辑 / 预览 / 历史只读。 -->
+        <section v-if="plan && active === 'handoff'" class="section handoff-card">
+          <div class="section-head handoff-head">
+            <h2 class="section-title mono">{{ t('plans.detail.tab.handoff') }}</h2>
+            <div class="handoff-controls">
+              <select v-if="handoffVersions.length > 0" v-model="handoffSelectedVersion" class="op-input handoff-version-select mono" :aria-label="t('plans.detail.handoffVersion')">
+                <option v-for="item in handoffVersions" :key="item.version" :value="item.version">
+                  v{{ item.version }} · {{ item.by }} · {{ fmtDateTime(item.at) }}
+                </option>
+              </select>
+              <button class="op-btn" type="button" :disabled="!!planWriteBlock()" :title="planWriteBlock() || undefined" @click="startHandoffNew">{{ t('plans.detail.handoffCreate') }}</button>
+              <button v-if="handoffLatest && !handoffIsHistorical && !handoffEditing" class="op-btn" type="button" :disabled="!!planWriteBlock()" :title="planWriteBlock() || undefined" @click="startHandoffEdit">{{ t('plans.detail.handoffEdit') }}</button>
             </div>
           </div>
-        </div>
-        <div v-if="plan.todos.length === 0" class="empty mono">暂无待办</div>
-      </div>
-      <form class="op-form mono" @submit.prevent="onAddTodo">
-        <input v-model="newTodoTitle" class="op-input mono" placeholder="待办标题" />
-        <input v-model="newTodoJob" class="op-input mono" placeholder="绑定 job id(可选)" />
-        <!-- gofer-rnp3：新条目默认接着本 plan 的最后一项做（追加在末尾，它就是「上一项」）。 -->
-        <label
-          class="edit-check"
-          :title="
-            newTodoContinueCandidates.length === 0
-              ? '本计划还没有可以接续的其它待办'
-              : '派发本项时在选中那一项的 agent 会话里继续；条件不满足会自动开新会话并写明原因'
-          "
-        >
-          <input
-            type="checkbox"
-            :checked="newTodoContinue"
-            :disabled="newTodoContinueCandidates.length === 0"
-            @change="onToggleNewTodoContinue(($event.target as HTMLInputElement).checked)"
-          />
-          <span>接着上一项的会话做</span>
-        </label>
-        <select
-          v-if="newTodoContinue"
-          v-model="newTodoContinueFrom"
-          class="op-input mono"
-          title="前序项：新条目在它结束后的会话里继续"
-        >
-          <option v-for="c in newTodoContinueCandidates" :key="c.todo_id" :value="c.todo_id">
-            {{ c.title }}
-          </option>
-        </select>
-        <button class="op-btn mono" type="submit" :disabled="!newTodoTitle.trim() || addingTodo">
-          {{ addingTodo ? '新增中…' : '新增待办' }}
-        </button>
-      </form>
-      <p v-if="newTodoContinueError" class="form-error mono">{{ newTodoContinueError }}</p>
-    </section>
+          <div class="handoff-body-panel">
+            <p v-if="handoffIsHistorical && handoffSelected" class="handoff-history-note mono">
+              {{ t('plans.detail.handoffHistory', { n: handoffSelected.version }) }} · <button class="inline-link mono" type="button" @click="returnToLatestHandoff">{{ t('plans.detail.handoffLatest') }}</button>
+            </p>
+            <template v-if="handoffEditing">
+              <div class="handoff-edit-tabs mono">
+                <button class="op-btn" :class="{ 'handoff-tab--active': !handoffPreview }" type="button" @click="handoffPreview = false">{{ t('plans.detail.handoffEditMode') }}</button>
+                <button class="op-btn" :class="{ 'handoff-tab--active': handoffPreview }" type="button" @click="handoffPreview = true">{{ t('plans.detail.handoffPreview') }}</button>
+              </div>
+              <textarea v-if="!handoffPreview" v-model="handoffDraft" class="op-input handoff-editor" rows="12" :placeholder="t('plans.detail.handoffPlaceholder')" />
+              <MarkdownBlock v-else :text="handoffDraft" />
+              <p v-if="handoffError" class="error mono">{{ handoffError }}</p>
+              <div class="handoff-actions">
+                <button class="op-btn handoff-save" type="button" :disabled="handoffSaving || !!planWriteBlock()" :title="planWriteBlock() || undefined" @click="saveHandoff">{{ handoffSaving ? t('plans.detail.saving') : t('plans.detail.save') }}</button>
+                <button class="op-btn handoff-cancel" type="button" :disabled="handoffSaving" @click="cancelHandoffEdit">{{ t('plans.detail.cancel') }}</button>
+              </div>
+            </template>
+            <template v-else>
+              <MarkdownBlock v-if="handoffSelected" :text="handoffSelected.body" />
+              <p v-else class="empty mono">{{ t('plans.detail.handoffEmpty') }}</p>
+            </template>
+          </div>
+        </section>
+      </template>
+    </Tabs>
 
-    <section v-if="plan" class="section">
-      <h2 class="section-title mono">附加任务</h2>
-      <form class="op-form mono" @submit.prevent="onAttach">
-        <input v-model="attachJobId" class="op-input mono" placeholder="已有 job id" />
-        <button class="op-btn mono" type="submit" :disabled="!attachJobId.trim() || attaching">
-          {{ attaching ? '挂载中…' : '挂到本计划' }}
-        </button>
-      </form>
-    </section>
-
-    <!-- 评论区（MCP-05 阶段 A）：plan 级线程。user 作者的评论里 @agent/@role 会派一个
-         job；每条待办自己的线程在 /v1/todos/{id}/comments 上（本期 web 只做 plan 级）。 -->
-    <section v-if="plan" class="section">
-      <h2 class="section-title mono">评论</h2>
-      <CommentThread scope="plan" :id="props.id" placeholder="写点什么…  @omp 把这一项补上" />
-    </section>
-
-    <!-- plan 作用域事件流（LEAD-02 C2）：leader 回合、评论派活等记在 plan:<id> 作用域的事件，
-         服务端按 seq 倒序发（最新在前）。默认折叠，展开才拉第一页；不额外轮询——plan 刷新
-         时顺带重取第一页（见 fetchPlan）。 -->
-    <section v-if="plan" class="section">
-      <details class="events-fold" :open="eventsOpen" @toggle="onEventsToggle">
-        <summary class="section-title mono">
-          事件（{{ planEvents.length }}{{ eventsHasMore ? '+' : '' }}）
-        </summary>
-        <div class="events-body">
-          <p v-if="eventsError" class="error mono">{{ eventsError }}</p>
-          <ul v-if="planEvents.length > 0" class="timeline-list">
-            <li
-              v-for="ev in planEvents"
-              :key="ev.seq"
-              class="timeline-row"
-              :class="'ev-' + ev.type.replace('.', '-')"
-            >
-              <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
-              <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
-              <span v-if="eventDetailText(ev)" class="ev-detail mono" :title="eventDetailText(ev)">
-                {{ eventDetailText(ev) }}
-              </span>
-              <span class="ev-time mono">{{ fmtDateTime(ev.at) }}</span>
-            </li>
-          </ul>
-          <p v-else-if="!eventsLoading" class="empty mono">暂无事件</p>
-          <button
-            v-if="eventsHasMore"
-            class="op-btn mono"
-            type="button"
-            :disabled="eventsLoading"
-            @click="loadMoreEvents"
-          >
-            {{ eventsLoading ? '加载中…' : '加载更多' }}
-          </button>
-        </div>
-      </details>
-    </section>
-
-    <p v-else-if="!error" class="loading mono">加载中…</p>
+    <p v-if="!plan && !error" class="loading mono">{{ t('plans.detail.loading') }}</p>
 
     <!-- 看板拖拽/链操作的结果：右下角浮层，点一下关掉，8s 自动消失。 -->
     <div v-if="toast" class="pd-toast mono" role="status" @click="toast = ''">
@@ -1729,17 +1745,29 @@ onUnmounted(() => {
   justify-content: space-between;
   margin-bottom: 14px;
 }
-.back {
-  background: transparent;
-  color: var(--queue);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 12px;
+.head-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
 }
-.back:hover {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+.head-progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s3);
+  margin: 0;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
+.hp-fail {
+  color: var(--fail);
+}
+.head-desc {
+  margin: 0 0 var(--s3);
+  color: var(--fg-2);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .head-status {
   display: inline-flex;

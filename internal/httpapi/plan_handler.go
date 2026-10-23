@@ -63,6 +63,13 @@ type planListItem struct {
 	planView
 	Counts     jobstore.PlanCounts     `json:"counts"`
 	TodoCounts jobstore.PlanTodoCounts `json:"todo_counts"`
+	// NeedsReview counts the plan's jobs waiting for a human verdict (gofer-rj5e): the
+	// plan overview's "待验收" progress segment and blocker column read it, and the
+	// list carries it so the overview does not fetch every plan's detail.
+	NeedsReview int `json:"needs_review"`
+	// FailedJobs is the same figure as counts.failed (failed + timeout + cancelled),
+	// spelled out for the blocker column.
+	FailedJobs int                     `json:"failed_jobs"`
 	Completion jobstore.PlanCompletion `json:"completion"`
 }
 
@@ -407,25 +414,29 @@ func (s *Server) handleListPlans(c *rux.Context) {
 	for i, p := range list {
 		ids[i] = p.PlanID
 	}
-	// One grouped query for every listed plan's todos (no per-plan todo query).
+	// One grouped query for every listed plan's todos and one for its jobs (no per-plan
+	// query): the overview needs the todo roll-up, the job roll-up and the needs-review
+	// / failed figures of each row.
 	todoCounts, err := s.jobs.Meta().PlanTodoCountsByPlan(ids)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "plan todo counts failed", err.Error())
 		return
 	}
+	jobCounts, err := s.jobs.Meta().PlanJobStatusCountsByPlan(ids)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "plan job counts failed", err.Error())
+		return
+	}
 	out := make([]planListItem, 0, len(list))
 	for _, p := range list {
-		raw, cErr := s.jobs.Meta().PlanJobStatusCounts(p.PlanID)
-		if cErr != nil {
-			writeError(c, http.StatusInternalServerError, "plan counts failed", cErr.Error())
-			return
-		}
-		jc, tc := jobstore.RollupPlanCounts(raw), todoCounts[p.PlanID]
+		jc, tc := jobstore.RollupPlanCounts(jobCounts[p.PlanID]), todoCounts[p.PlanID]
 		out = append(out, planListItem{
-			planView:   toPlanView(p),
-			Counts:     jc,
-			TodoCounts: tc,
-			Completion: jobstore.RollupPlanCompletion(jc, tc),
+			planView:    toPlanView(p),
+			Counts:      jc,
+			TodoCounts:  tc,
+			NeedsReview: jobCounts[p.PlanID][job.StatusNeedsReview],
+			FailedJobs:  jc.Failed,
+			Completion:  jobstore.RollupPlanCompletion(jc, tc),
 		})
 	}
 	c.JSON(http.StatusOK, map[string]any{
@@ -514,7 +525,11 @@ type planDetail struct {
 	planView
 	Counts     jobstore.PlanCounts     `json:"counts"`
 	TodoCounts jobstore.PlanTodoCounts `json:"todo_counts"`
-	Completion jobstore.PlanCompletion `json:"completion"`
+	// NeedsReview / FailedJobs mirror the list item's fields (gofer-rj5e), so the plan
+	// page's progress header reads the same figures as the overview.
+	NeedsReview int                     `json:"needs_review"`
+	FailedJobs  int                     `json:"failed_jobs"`
+	Completion  jobstore.PlanCompletion `json:"completion"`
 	Usage      planUsageView           `json:"usage"`
 	Jobs       []job.JobResult         `json:"jobs"`
 	Todos      []todoView              `json:"todos"`
@@ -617,6 +632,8 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		planView:    toPlanView(p),
 		Counts:      jc,
 		TodoCounts:  tc,
+		NeedsReview: raw[job.StatusNeedsReview],
+		FailedJobs:  jc.Failed,
 		Completion:  jobstore.RollupPlanCompletion(jc, tc),
 		Usage:       uv,
 		Jobs:        jobs,

@@ -15,17 +15,21 @@ const router = useRouter()
 
 const progress = computed(() => planProgressModel(props.plan))
 
-// 卡点列：卡在哪个 todo、多少在跑、多少 job 失败。列表接口没有 needs_review 的分状态
-// 计数（只有 counts.failed），「N 待验收」要等计划详情（P3）用完整 job 列表算。
+// 卡点列：卡在哪个 todo、多少待验收、多少在跑、多少 job 失败。列表接口直接给
+// needs_review / failed_jobs（gofer-rj5e），不用逐个拉详情。
 const blockers = computed(() => {
   const plan = props.plan
-  const items: Array<{ key: string; text: string; tone: 'fail' | 'doing' }> = []
+  const items: Array<{ key: string; text: string; tone: 'fail' | 'doing' | 'need' }> = []
   if (plan.blocked_todo) {
     items.push({ key: 'blocked', text: t('plans.overview.blockedAt', { todo: plan.blocked_todo }), tone: 'fail' })
   }
-  const failed = plan.counts?.failed ?? 0
+  const failed = plan.failed_jobs ?? plan.counts?.failed ?? 0
   if (failed > 0) {
     items.push({ key: 'failed', text: t('plans.overview.failed', { n: failed }), tone: 'fail' })
+  }
+  const review = plan.needs_review ?? 0
+  if (review > 0) {
+    items.push({ key: 'review', text: t('plans.overview.review', { n: review }), tone: 'need' })
   }
   const doing = plan.todo_counts?.doing ?? 0
   if (doing > 0) {
@@ -59,6 +63,8 @@ function open(): void {
       <span class="prow-id mono" :title="plan.plan_id" lang="en">{{ plan.plan_id }}</span>
       <span class="prow-tags">
         <span v-if="plan.project" class="prow-chip" lang="en">{{ plan.project }}</span>
+        <span v-if="plan.paused" class="prow-chip prow-chip--paused">{{ t('plans.overview.paused') }}</span>
+        <span v-if="plan.leader === 'on'" class="prow-chip prow-chip--leader">{{ t('plans.overview.leaderOn') }}</span>
         <span v-for="tag in plan.tags ?? []" :key="tag" class="prow-chip">{{ tag }}</span>
       </span>
     </span>
@@ -145,6 +151,15 @@ function open(): void {
   color: var(--fg-3);
   font-size: var(--fs-xs);
 }
+/* 已暂停 = 人选了不再自动推进；自动推进 = leader 开着。两者都是标识不是告警。 */
+.prow-chip--paused {
+  color: var(--time);
+  border-color: var(--time);
+}
+.prow-chip--leader {
+  color: var(--run);
+  border-color: var(--run);
+}
 .prow-blockers {
   display: flex;
   flex-direction: column;
@@ -161,6 +176,9 @@ function open(): void {
 }
 .prow-blocker--doing {
   color: var(--run);
+}
+.prow-blocker--need {
+  color: var(--need);
 }
 .prow-muted {
   color: var(--fg-3);

@@ -2537,6 +2537,11 @@ export interface Plan {
   counts?: PlanCounts
   todo_counts?: PlanTodoCounts
   completion?: PlanCompletion
+  // 等待验收的 job 数（gofer-rj5e）：进度条的「待验收」段与卡点列读它。
+  // 老服务端没有这两个字段 = undefined，渲染做兜底（不是 0）。
+  needs_review?: number
+  // 失败 job 数（含 timeout / cancelled），等于 counts.failed。
+  failed_jobs?: number
 }
 
 // plan 的 leader 回合状态（MCP-05 阶段 B）：round=已用轮次（起过一个 leader job 才算），

@@ -58,6 +58,28 @@ describe('planProgressModel', () => {
     expect(model.percent).toBe(20)
   })
 
+  it('fills the needs-review and blocked segments from the server job figures (gofer-rj5e)', () => {
+    const model = planProgressModel(
+      plan({
+        todo_counts: { total: 6, pending: 1, doing: 2, done: 3, skipped: 0 },
+        counts: { total: 5, queued: 1, running: 1, done: 1, failed: 2 },
+        needs_review: 2,
+        failed_jobs: 2,
+      }),
+    )
+    // 待验收 / 受阻是 job 口径：不再恒为 0，也不再只靠 counts.failed 揣摩。
+    expect(model.parts.find((p) => p.family === 'review')?.count).toBe(2)
+    expect(model.parts.find((p) => p.family === 'blocked')?.count).toBe(2)
+  })
+
+  it('treats a missing needs_review / failed_jobs as zero instead of guessing', () => {
+    const model = planProgressModel(
+      plan({ todo_counts: { total: 2, pending: 2, doing: 0, done: 0, skipped: 0 } }),
+    )
+    expect(model.parts.find((p) => p.family === 'review')?.count).toBe(0)
+    expect(model.parts.find((p) => p.family === 'blocked')?.count).toBe(0)
+  })
+
   it('prefers the server completion figure (single progress authority)', () => {
     const model = planProgressModel(
       plan({

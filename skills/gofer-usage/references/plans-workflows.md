@@ -41,7 +41,7 @@ gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 - `set-todo --status doing` 记开始时间，`done` / `skipped` 记完结时间；裸调用 = done，`--undone` = pending；`--note` 写**结果 / 验收一句话**，过程在 job logs。
 - todo 状态：`pending`（不会自动派发）→ `ready`（可派发）→ `doing` → `done` / `skipped`。server 重启**不补派** ready 的项（派发只发生在写入时）。
 - plan 状态：`open` / `blocked`（链停在某一项等人处理，非终态）/ `done`（全部 done|skipped 自动置）/ `archived`；另有暂停开关 `plan pause` / `plan resume`。
-- web 的 Plans 页有**计划看板**（五列：把卡片拖到 `ready` 即派发、拖到 `done` / `skipped` 即人工标记；`doing` / `needs_review` 由服务端驱动、不可拖入），手机也能看实时进度。
+- web 的 Plans 页有**计划总览**（每行一个计划，带分段进度条与卡点）与**计划详情**；详情页的待办页签就是**计划看板**（五列：把卡片拖到 `ready` 即派发、拖到 `done` / `skipped` 即人工标记；`doing` / `needs_review` 由服务端驱动、不可拖入），任务 / 决策 / 交接说明 / 评论 / 事件是同一个详情页的其他页签（`?tab=`），手机也能看实时进度。
 
 ## todo 的派发字段
 
