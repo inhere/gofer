@@ -7,6 +7,7 @@ import { getStats } from '../api/client'
 import type { JobStatus, Stats } from '../api/types'
 import { createPoller } from '../utils/poller'
 import { statusFamily, statusFamilyClass } from '../utils/statusFamily'
+import { jobStatusText } from '../utils/statusText'
 import { t } from '../i18n'
 
 const REFRESH_MS = 60_000
@@ -27,13 +28,6 @@ const jobStatuses: JobStatus[] = [
   'timeout',
   'rejected',
 ]
-
-// 长状态名在格子里显示缩写，完整状态放 title。
-const SHORT: Partial<Record<JobStatus, string>> = {
-  pending_interaction: 'pending',
-  needs_review: 'review',
-  awaiting_approval: 'approval',
-}
 
 const jobs = ref<Stats['jobs'] | null>(null)
 const error = ref('')
@@ -73,7 +67,8 @@ onUnmounted(() => poller.stop())
         :class="statusFamilyClass(statusFamily(s))"
       >
         <span class="n mono">{{ jobs ? count(s) : '—' }}</span>
-        <span class="l mono" :title="SHORT[s] ? s : undefined">{{ SHORT[s] ?? s }}</span>
+        <!-- 与全站状态名一致（status.<值>），不再用英文缩写：格子给得下完整标签，原始值放 title。 -->
+        <span class="l mono" :title="`${s} · ${jobStatusText(s)}`">{{ jobStatusText(s) }}</span>
       </div>
     </div>
   </div>
@@ -115,7 +110,8 @@ h4 {
 }
 .chips {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(62px, 1fr));
+  /* 最小宽放得下「⚠ 待验收」这类最长标签（6 字 + 内边距）；再窄就换行，不截断 */
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   gap: 4px;
 }
 .chip {
@@ -139,8 +135,8 @@ h4 {
   font-size: var(--fs-xs);
   line-height: 1.2;
   margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 </style>
