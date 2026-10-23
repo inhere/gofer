@@ -35,6 +35,13 @@ export function fmtAge(ms: number | null): string {
   return `${h}h${String(m).padStart(2, '0')}m ago`
 }
 
+// runnerOnline：这个 runner 此刻是否在线。status 的取值按类型分开——local / peer-http 用
+// up，worker 用心跳导出的 connected（见 api/types.ts RunnerStatus）；侧栏的「节点 N/M 在线」
+// 与运行节点页必须同一口径。曾只判 up，于是 5 个节点里 4 个已连接的 worker 都被算成离线。
+export function runnerOnline(status: Runner['status']): boolean {
+  return status === 'up' || status === 'connected'
+}
+
 export function fmtUptime(startedAtSec: number | undefined, nowMs: number): string {
   if (!startedAtSec || startedAtSec <= 0) return ''
   const s = Math.max(0, Math.floor(nowMs / 1000) - startedAtSec)
