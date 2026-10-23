@@ -20,6 +20,7 @@
 ### 修复
 
 - **不属于任何项目的会话不再传不进去话（gofer-vin1）**：会话的 cwd 不在任何已配置项目下时（`session.project` 为空），给它的传话 / 送话一律失败 `deliver_failed: invalid request: invalid project key ""`，web 侧则是「该会话所在目录不属于任何已配置项目，无法派发传话人」。现在这类由 server 发起的投递 job（agent 的 `deliver_command`、tmux 注入、一次性传话人）落在**执行机的默认工作空间项目**（`default`，即该机 `~/.gofer/workspace`，可用 `GOFER_WORKSPACE` 改）里跑：cwd 是该工作空间根，不会跑进任何别的项目目录；为此 gofer 自己的投递 job 在 `default` 项目里放行 runner 准入与 exec 门槛（操作员从未为这个内置项目写过策略，命令也是 gofer 自己的），普通 job 仍照旧受限。远程 worker 也一样——worker 现在也会注入并上报自己的 `default` 项目（`gofer init` 写的那套定义），所以会话在哪台机就在那台机的默认工作空间跑；worker 太旧或没有该项目时会明确报 `project "default" not on worker`，而不是奇怪的 project key 报错。**接管（`--resume`）仍要求会话在项目内**（要在会话自己的目录里重开），无项目时返回 `no_project` 并说明原因。
+- **临时检出的启动清扫也覆盖嵌套仓库（gofer-l0zi）**：`ref:` 临时检出建在 job cwd 所在的**最近 git 顶层**下，所以项目根下另有仓库时（工作区里的子项目），残留落在那个嵌套仓的 `worktree.dir` 目录里；而清扫以前只列项目根的对应目录，v0.189.0 的清扫上线后这些残留依然扫不到（gofer 自己某个嵌套仓的 `.worktrees/` 下仍留着 9 个）。现在清扫按项目 job 记录过的工作目录回放要扫的仓库顶层（不遍历项目树），对每个顶层仍按项目的 `worktree.dir` 模板找 job id 匹配、任务已终态、且 detached 的检出补删；安全规则不变——带分支的不动、运行中任务的检出不动、先解链再删、不跟随链接。升级后重启一次 serve，这些残留会在启动清扫里被清掉（`removed N stale temporary checkout(s)`，每个检出记一条 `job.temp_checkout_swept`）。
 
 ## [0.189.0] - 2026-10-23
 

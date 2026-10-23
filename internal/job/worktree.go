@@ -992,8 +992,8 @@ func worktreeSquashMerged(ctx context.Context, main, branch string) bool {
 //
 // Best-effort by design: it never changes the job's outcome. A removal that still fails is
 // recorded as an event (and logged), and the next sweep — server/worker startup, or the
-// periodic one in serve — finds the directory by its project's worktree dir and removes
-// it (see SweepStaleTempCheckouts).
+// periodic one in serve — finds the checkout by its project's worktree dir template under
+// the repository it was created in and removes it (see SweepStaleTempCheckouts).
 func (s *Service) cleanupTempWorktree(entry *jobEntry) {
 	s.cleanupTempWorktreeWithin(entry, worktreeTimeout)
 }

@@ -316,6 +316,42 @@ func (s *Store) ListWorktrees() ([]WorktreeRecord, error) {
 	return out, rows.Err()
 }
 
+// defaultJobDirLimit bounds ListJobDirs when the caller passes no limit.
+const defaultJobDirLimit = 64
+
+// ListJobDirs returns the DISTINCT working directories a project's job rows record, most
+// recent row first, at most limit of them (limit <= 0 uses defaultJobDirLimit).
+//
+// The stale `ref:` checkout sweep uses it to find the repositories a project's jobs ran
+// in: a checkout is created at the job's nearest git TOPLEVEL, which is not the project
+// root when the project holds other repositories (gofer-l0zi: nine checkouts left inside
+// inhere-tools/gofer/.worktrees, invisible to a scan of the parent project's dir). The
+// directories are the record of where checkouts can be — replaying them keeps the sweep
+// from walking (and stat-ing) a project tree that can be arbitrarily large. The limit is
+// a startup-cost guard, not a filter: the newest rows are the ones that can still have a
+// checkout behind.
+func (s *Store) ListJobDirs(projectKey string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = defaultJobDirLimit
+	}
+	rows, err := s.db.Query(`SELECT cwd FROM jobs
+  WHERE project_key = ? AND COALESCE(cwd,'') <> ''
+  GROUP BY cwd ORDER BY MAX(started_at) DESC LIMIT ?`, projectKey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list job dirs: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var dir string
+		if err := rows.Scan(&dir); err != nil {
+			return nil, fmt.Errorf("jobstore: scan job dir: %w", err)
+		}
+		out = append(out, dir)
+	}
+	return out, rows.Err()
+}
+
 // selectCols is the shared projection for GetJob/ListJobs. COALESCE guards the
 // nullable columns so a NULL (from any future writer) scans into the zero value
 // instead of failing the scan into a plain string/int64.

@@ -136,6 +136,90 @@ func TestSweepStaleTempCheckoutsUsesProjectWorktreeDir(t *testing.T) {
 	}
 }
 
+// TestSweepStaleTempCheckoutsNestedRepo is the gofer-l0zi regression: a `ref:` / `--worktree`
+// checkout is created at the job's NEAREST git toplevel, so in a project that carries other
+// repositories (inhere-tools/gofer inside my-tools-dev) the leftovers sit in the NESTED
+// repository's worktree dir — nine of them survived the gofer-bgkk sweep, which only ever
+// listed the project root's. The repositories to scan are replayed from what the project's
+// job rows recorded as their working directory, and both shapes pin their own resolution:
+// the cwd of a `ref:` job IS its temporary checkout (a linked worktree, which must resolve
+// to the repository it was cut from) and a plain cwd is any directory inside that checkout.
+// The project-root scan keeps working, and a nested checkout a live job owns is never touched.
+func TestSweepStaleTempCheckoutsNestedRepo(t *testing.T) {
+	outer, outerHead := gitRepo(t)
+	// nested returns a git repository inside the project checkout, with one commit.
+	nested := func(name string) (string, string) {
+		t.Helper()
+		dir := filepath.Join(outer, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		gitOutIn(t, dir, "init", "-q", "-b", "main")
+		gitOutIn(t, dir, "config", "user.email", "gofer-test@example.com")
+		gitOutIn(t, dir, "config", "user.name", "gofer-test")
+		writeRepoFile(t, dir, name+".txt", "nested fixture\n")
+		gitOutIn(t, dir, "add", ".")
+		gitOutIn(t, dir, "commit", "-q", "-m", "nested init")
+		return dir, gitOutIn(t, dir, "rev-parse", "HEAD")
+	}
+	// repoA is reached ONLY through `ref:` job cwds (its own checkouts), repoB only through a
+	// plain cwd: a sweep that resolves neither, or only one of them, leaves a leftover behind.
+	repoA, headA := nested("repoA")
+	repoB, headB := nested("repoB")
+
+	s := newWorktreeServiceWithProject(t, outer, t.TempDir(), func(p *config.ProjectConfig) {
+		p.Worktree = &config.ProjectWorktree{Dir: ".worktrees/job-{job_id}"}
+	})
+	upsert := func(id, status, cwd string) {
+		t.Helper()
+		if err := s.meta.UpsertJob(jobstore.JobRecord{
+			ID: id, ProjectKey: "repo", Status: status, Cwd: cwd, ResultDir: filepath.Join(t.TempDir(), id),
+		}); err != nil {
+			t.Fatalf("UpsertJob(%s): %v", id, err)
+		}
+	}
+	checkout := func(repo, id, head string) string {
+		t.Helper()
+		path := filepath.Join(repo, ".worktrees", "job-"+id)
+		gitOutIn(t, repo, "worktree", "add", "--detach", path, head)
+		return path
+	}
+	// A leftover of a dead `ref:` job, recorded through its own checkout — the shape of the
+	// nine gofer-l0zi leftovers.
+	deadA := checkout(repoA, "nesteda", headA)
+	upsert("nesteda", StatusFailed, deadA)
+	// A checkout of the same repository a live job still runs in: kept.
+	liveA := checkout(repoA, "nestedlive", headA)
+	upsert("nestedlive", StatusRunning, liveA)
+	// A nested leftover whose job recorded a plain cwd inside its repository.
+	deadB := checkout(repoB, "nestedb", headB)
+	upsert("nestedb", StatusFailed, repoB)
+	// The project-root case gofer-bgkk fixed: still swept.
+	rootLeftover := filepath.Join(outer, ".worktrees", "job-root1")
+	gitOutIn(t, outer, "worktree", "add", "--detach", rootLeftover, outerHead)
+	upsert("root1", StatusFailed, outer)
+
+	if n := s.SweepStaleTempCheckouts(t.Context()); n != 3 {
+		t.Fatalf("swept %d checkout(s), want 3 (two nested leftovers + the project-root one)", n)
+	}
+	for _, path := range []string{deadA, deadB, rootLeftover} {
+		if isDir(path) {
+			t.Fatalf("stale checkout %s survived the sweep", path)
+		}
+	}
+	if !isDir(liveA) {
+		t.Fatal("the sweep removed a nested checkout a running job owns")
+	}
+	for _, repo := range []string{outer, repoA, repoB} {
+		out := gitOutIn(t, repo, "worktree", "list", "--porcelain")
+		for _, gone := range []string{deadA, deadB, rootLeftover} {
+			if strings.Contains(out, gone) {
+				t.Fatalf("git in %s still lists the swept checkout %s:\n%s", repo, gone, out)
+			}
+		}
+	}
+}
+
 // TestSweepStaleTempCheckoutsDoesNotFollowLinks: the checkout carries a dependency link
 // (the project's node_modules equivalent). Removing the checkout must unlink it, not walk
 // into its target — the external directory and its contents survive.

@@ -86,6 +86,34 @@ func TestReconcileOrphanJobs(t *testing.T) {
 	assert.Eq(t, 0, n2)
 }
 
+// TestListJobDirs pins the recorded-working-directory projection the stale `ref:` checkout
+// sweep uses to find the repositories a project's jobs ran in (gofer-l0zi): one entry per
+// DISTINCT cwd of THIS project, the newest row's dir first, and the caller's limit applied.
+func TestListJobDirs(t *testing.T) {
+	s := openTest(t)
+	add := func(id, project, cwd string, startedAt int64) {
+		rec := sampleJob(id, project, startedAt)
+		rec.Cwd = cwd
+		assert.NoErr(t, s.UpsertJob(rec))
+	}
+	add("a1", "alpha", "/ws/outer", 100)
+	add("a2", "alpha", "/ws/outer/nested", 200)
+	add("a3", "alpha", "/ws/outer", 300) // same dir, newer row: still ONE entry
+	add("b1", "beta", "/ws/other", 400)  // another project: not listed
+	add("a4", "alpha", "", 500)          // no cwd recorded: skipped
+
+	dirs, err := s.ListJobDirs("alpha", 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, 2, len(dirs))
+	assert.Eq(t, "/ws/outer", dirs[0]) // MAX(started_at) 300 beats 200
+	assert.Eq(t, "/ws/outer/nested", dirs[1])
+
+	limited, err := s.ListJobDirs("alpha", 1)
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, len(limited))
+	assert.Eq(t, "/ws/outer", limited[0])
+}
+
 func TestOpenCreatesSchemaIdempotently(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gofer.db")
 	s, err := Open(path)
