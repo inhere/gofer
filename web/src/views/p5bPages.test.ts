@@ -31,8 +31,9 @@ describe('Issues 页（§7.3）', () => {
     expect(html).toContain('role="tablist"')
     expect(html).toContain('data-value="issues"')
     expect(html).toContain('data-value="memories"')
-    // 仓库选择是统一的项目 chip
-    expect(html).toContain('data-test="project-filter"')
+    // 仓库选择是仓库专用下拉（项目 / 目录）与完整路径信息条
+    expect(html).toContain('data-test="tracker-repo-picker"')
+    expect(html).toContain('data-test="tracker-repo-info"')
     expect(html).not.toContain('TRACKER')
     expect(html).toContain('新建 issue')
   })

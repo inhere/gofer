@@ -1885,3 +1885,32 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 - `npx vitest run` → `Test Files 234 passed (234)` / `Tests 1570 passed (1570)`。
 - `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` → `✓ built in 5.51s`。
 - 实机核对（dist 构建 + 本机 Chrome CDP 量 `.page` 的左右边界；截图在 `tmp/`，不入库）：1440 下所有非满宽页面都是 `[236, 1430]`（内容区 1194px），1920 下都是 `[353, 1793]`（内容区 1440px，居中）；工作台 / 信箱 1440 `[236, 1430]`、1920 `[236, 1910]` 铺满。26 个路由 × 2 种宽度逐页打过，两种宽度都没有横向滚动（`scrollWidth` 1430 / 1910）；zh / en × 浅 / 深各看过 Issues、设置、信箱、今天、任务、工作台，左右边界一致、没有溢出。手机（390 / 760，侧栏收起）下页面容器铺满内容区（`[0, 380]` / `[0, 750]`），同样没有横向滚动。
+## 实施记录 P6-tracker（仓库选择器，gofer-hez1）
+
+输入：用户 2026-10-23 反馈（issue gofer-hez1，截图 `tmp/pagecheck/out-01912/issues__zh-CN_dark_1440.png`）——`/issues` 的仓库下拉每项只有 tracker id（`tracker-187c7d1141`），多仓库无法区分；选中后右侧「项目 · 仓库 · 路径」被省略号截断（`D:/work/inh…`），唯一能区分的信息正好被截掉。`/memory` 的仓库作用域用的是同一个 `ProjectFilter`，同一处问题，一起改。
+
+**接口不够用的地方**：`GET /v1/tracker/repos` 只给 `tracker_id` / `project_key` / `rel_path` / `prefix` / `last_sync_at` / `sync_summary`，没有单独的「仓库名」字段。按任务书要求只在前端组合、不改后端：`rel_path` 是 server 记录的仓库根绝对路径，目录名取它的最后一段（Windows 的反斜杠与 `/` 同样处理）。路径末两级也只从 `rel_path` 切出来，所以离线和旧 server 上同样成立。
+
+| 文件 | 改动 |
+|---|---|
+| `utils/trackerView.ts` | 新增 `repoPathSegments` / `repoDirName` / `trackerRepoTitle`（`项目 key / 目录名`）/ `trackerRepoHint`（`tracker id · 路径末两级`）/ `trackerRepoOptions`（按项目、再目录、再 id 排序，无项目 key 的排最后）；`trackerRepoMeta` / `trackerRepoLabel` 拆成两行信息条用（输出逐字不变） |
+| `ui/TrackerRepoPicker.vue`（新） | 仓库专用下拉：chip 显示`项目 / 目录`（`max-width: 32ch` + 省略号 + `title` 全文），菜单每项两行（主文字 + 淡色小字），`role=listbox/option` 与 `aria-selected`、Esc 关闭、点外部关闭；手机贴底成 sheet（与 `ProjectFilter` 同一形态）。菜单用 `v-show` 常驻 DOM，打开不重建 |
+| `ui/TrackerRepoPath.vue`（新） | 选中后的信息条：`项目 · 前缀` 一行 + 完整路径一行（`white-space: normal` + `overflow-wrap: anywhere`，**不省略**），带「复制路径」按钮（走既有 `copyText`；剪贴板不可用时就地提示、路径可手动选中）；没有选中仓库时显示各页自己的占位文案 |
+| `views/Issues.vue`、`views/Memory.vue` | 仓库 `ProjectFilter` 换成上面两个组件（共用，不重复第二份），`.repo-current` 的省略号样式删除，`.repo-row` 加 `flex: 1` 让信息条吃掉中间宽度；Memory 不再需要 `repoIds` |
+| `i18n/pages/shared.ts` | 跨页公共组件文案按 §9.2 的 `util.*` 域：`util.repo.pick` / `copyPath` / `copied` / `copyFailed`（zh / en 并列） |
+
+**信息与操作核对表（迁移前 → 迁移后）**
+
+| 迁移前 | 迁移后 |
+|---|---|
+| 仓库下拉，每项只有 tracker id | 主文字`项目 / 目录`、次要`tracker id · 路径末两级`，按项目排序 |
+| 「全部项目」项（对仓库无意义，点了不生效） | 去掉 |
+| 选中仓库后的 `项目 · 前缀 · 路径`（单行、40ch 后省略号） | `项目 · 前缀` + 完整路径（换行），新增复制按钮，`title` 仍给整行 |
+| 「同步」按钮、上次同步时间、同步摘要、同步 job 链接 | 同（位置随信息条变高自然下移） |
+| 新建 issue 表单里的仓库下拉（`project · 前缀`） | 未改（不在本项范围） |
+
+**测试**（新增 1 个文件、改 2 个）
+- `ui/trackerRepoPicker.test.ts`：chip 显示 `alpha / alpha-web`、`title` 带完整信息；同一项目两个仓库的选项主/次文字都能区分、按项目排序且「未归属」在最后；`aria-selected` 与当前项标记；信息条整条路径在 DOM 里（不靠 `title` 兜底）、路径规则里没有 `ellipsis` 而有 `overflow-wrap`、复制按钮走 `copyText(path.value)`；无仓库时回退占位文案；zh / en。
+- `utils/trackerView.test.ts`：目录名（`/`、`\`、末尾斜杠、空串）、主/次文字、排序、信息条 meta 行。
+- `views/p5bPages.test.ts`、`views/memoryPage.test.ts`：仓库选择断言从 `project-filter` 改成 `tracker-repo-picker` + `tracker-repo-info`。
+- 视觉自查：构建产物 + 桩 `/v1`（合成数据不入库），zh / en × 浅 / 深 × 1440 / 390，Issues 与记忆各一屏，另加下拉展开与手机贴底；无横向溢出、无控制台错误。

@@ -23,12 +23,13 @@ import {
 import { useRepoSync } from '../utils/useRepoSync'
 import { pageWriteBlock } from '../utils/pageGate'
 import { useWhoami } from '../store/whoami'
-import { fmtTrackerTime, trackerIssueMatches, trackerRepoLabel } from '../utils/trackerView'
+import { fmtTrackerTime, trackerIssueMatches } from '../utils/trackerView'
 import { t, te } from '../i18n'
 import Tabs from '../ui/Tabs.vue'
 import FilterChips from '../ui/FilterChips.vue'
-import ProjectFilter from '../ui/ProjectFilter.vue'
 import StatusPill from '../ui/StatusPill.vue'
+import TrackerRepoPath from '../ui/TrackerRepoPath.vue'
+import TrackerRepoPicker from '../ui/TrackerRepoPicker.vue'
 import type { FilterChipItem } from '../ui/filterChips'
 import type { TabItem } from '../ui/tabs'
 
@@ -246,7 +247,7 @@ async function changeRepo(): Promise<void> {
   await load()
 }
 
-// repo 选择换成统一的 ProjectFilter（设计稿 §7.3：repo 视为项目）。
+// repo 选择：仓库视为项目，但下拉要按「项目 / 目录」区分（P6，issue gofer-hez1）。
 function pickRepo(value: string): void {
   if (!value || value === trackerId.value) return
   trackerId.value = value
@@ -353,12 +354,8 @@ onMounted(async () => {
 
     <section class="meta-panel">
       <div class="repo-row">
-        <ProjectFilter
-          :model-value="trackerId"
-          :options="repos.map((item) => item.tracker_id)"
-          @update:model-value="pickRepo"
-        />
-        <span class="repo-current" :title="trackerId">{{ repo ? trackerRepoLabel(repo) : t('issues.repoPlaceholder') }}</span>
+        <TrackerRepoPicker :model-value="trackerId" :repos="repos" @update:model-value="pickRepo" />
+        <TrackerRepoPath :repo="repo" :placeholder="t('issues.repoPlaceholder')" />
         <button class="btn" type="button" data-test="sync-repo" :disabled="syncing || !trackerId" :title="t('issues.repoSyncTitle')" @click="syncRepo">{{ syncing ? t('issues.repoSyncing') : t('issues.repoSync') }}</button>
       </div>
       <div class="sync-summary">
@@ -580,15 +577,7 @@ onMounted(async () => {
   gap: var(--s2);
   min-width: 0;
   flex-wrap: wrap;
-}
-.repo-current {
-  color: var(--ink);
-  font-size: var(--fs-sm);
-  font-family: var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 40ch;
+  flex: 1;
 }
 .sync-summary {
   display: flex;

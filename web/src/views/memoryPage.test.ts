@@ -69,8 +69,9 @@ describe('记忆页骨架', () => {
     expect(html).toContain('data-value="global"')
     expect(html).toContain('aria-pressed="true"')
     expect(html).toContain('随代码存于该仓库 .gofer/tracker')
-    // 仓库选择用统一的项目 chip（?tracker=），旁边是同步按钮
-    expect(html).toContain('data-test="project-filter"')
+    // 仓库选择用仓库专用下拉（项目 / 目录）与完整路径信息条，旁边是同步按钮
+    expect(html).toContain('data-test="tracker-repo-picker"')
+    expect(html).toContain('data-test="tracker-repo-info"')
     expect(html).toContain('data-test="sync-repo"')
   })
 

@@ -1,9 +1,62 @@
 import { describe, expect, it } from 'vitest'
-import { doctorLabel, fmtTrackerTime, memoryAge, memoryKind, memoryKindMatches, memorySummary, syncClientLine, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from './trackerView'
+import {
+  doctorLabel,
+  fmtTrackerTime,
+  memoryAge,
+  memoryKind,
+  memoryKindMatches,
+  memorySummary,
+  repoDirName,
+  syncClientLine,
+  trackerIssueMatches,
+  trackerMemoryMatches,
+  trackerRepoHint,
+  trackerRepoLabel,
+  trackerRepoMeta,
+  trackerRepoOptions,
+  trackerRepoTitle,
+} from './trackerView'
 
 describe('tracker view helpers', () => {
   it('formats repositories with an unassigned marker', () => {
     expect(trackerRepoLabel({ project_key: '', prefix: 'go', rel_path: 'repo' })).toBe('未归属 · go · repo')
+  })
+
+  it('splits the repository directory out of the recorded root path', () => {
+    expect(repoDirName('D:/work/alpha/apps/web')).toBe('web')
+    expect(repoDirName('D:\\work\\alpha\\apps\\web\\')).toBe('web')
+    expect(repoDirName('/srv/repo')).toBe('repo')
+    expect(repoDirName('')).toBe('')
+  })
+
+  it('labels an option with project / directory and id · last two segments', () => {
+    const repo = { tracker_id: 'tracker-a1', project_key: 'alpha', rel_path: 'D:/work/alpha-web', prefix: 'web' }
+    expect(trackerRepoTitle(repo)).toBe('alpha / alpha-web')
+    expect(trackerRepoHint(repo)).toBe('tracker-a1 · work/alpha-web')
+    // 没有项目 key 时主文字标「未归属」；路径末两级缺级时只留有的那级
+    expect(trackerRepoTitle({ tracker_id: 't', project_key: '', rel_path: 'repo', prefix: '' })).toBe('未归属 / repo')
+    expect(trackerRepoHint({ tracker_id: 't', project_key: '', rel_path: '', prefix: '' })).toBe('t')
+  })
+
+  it('sorts options by project (unassigned last) and then by directory', () => {
+    const repos = [
+      { tracker_id: 'tracker-z', project_key: 'zeta', rel_path: '/r/zeta', prefix: '' },
+      { tracker_id: 'tracker-b', project_key: '', rel_path: '/r/loose', prefix: '' },
+      { tracker_id: 'tracker-y2', project_key: 'alpha', rel_path: '/r/alpha-web', prefix: 'web' },
+      { tracker_id: 'tracker-y1', project_key: 'alpha', rel_path: '/r/alpha-api', prefix: 'api' },
+    ]
+    expect(trackerRepoOptions(repos).map((o) => o.value)).toEqual(['tracker-y1', 'tracker-y2', 'tracker-z', 'tracker-b'])
+    expect(trackerRepoOptions(repos)[0]).toEqual({
+      value: 'tracker-y1',
+      title: 'alpha / alpha-api',
+      hint: 'tracker-y1 · r/alpha-api',
+      path: '/r/alpha-api',
+    })
+  })
+
+  it('keeps the repository meta line for the info bar', () => {
+    expect(trackerRepoMeta({ project_key: 'alpha', prefix: 'web' })).toBe('alpha · web')
+    expect(trackerRepoMeta({ project_key: '', prefix: '' })).toBe('未归属 · —')
   })
   it('applies status, type, tag and keyword filters together', () => {
     const issue = { status: 'open', type: 'bug', tags: ['ui'], title: 'drawer polish', description: 'tracker' }
