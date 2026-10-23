@@ -22,7 +22,7 @@ describe('extension settings page wiring', () => {
     expect(page).toContain('groupSettings(items.value)')
     // 恢复默认要二次确认，不能一点就删。
     expect(page).toContain('pendingReset === it.key')
-    expect(page).toContain('确认恢复默认')
+    expect(page).toContain("t('settings.ext.confirmReset')")
     expect(api).toContain('`/v1/settings/${encodeURIComponent(key)}`')
     expect(api).toContain("method: 'DELETE'")
     expect(api).toContain("method: 'PUT'")
@@ -55,6 +55,6 @@ describe('extension settings page wiring', () => {
     expect(page).toContain("controlFor(it) === 'textarea'")
     expect(page).toContain('PROMPT_EMPTY_HINT')
     expect(page).toContain('data-test="setting-default"')
-    expect(page).toContain("it.updated_by || '未知'")
+    expect(page).toContain("it.updated_by || t('settings.ext.unknown')")
   })
 })

@@ -38,15 +38,14 @@ import {
   valueText,
 } from '../../utils/extensionSettings'
 import type { Draft } from '../../utils/extensionSettings'
+import { t } from '../../i18n'
 
 const { readOnly, can } = useWhoami()
 
 // 写的门槛：调用方上限只读，或缺 settings.write（服务端也是这两道）。
 const canWrite = computed(() => can('settings.write'))
 const readOnlyReason = computed(() =>
-  readOnly.value
-    ? '当前凭据的调用方上限是只读：可以查看，不能修改。'
-    : '当前账号没有 settings.write 权限：可以查看，不能修改。授权在「设置 → 权限」。',
+  readOnly.value ? t('settings.ext.readonlyCeiling') : t('settings.ext.readonlyPerm'),
 )
 
 const items = ref<SettingItem[]>([])
@@ -151,7 +150,7 @@ async function save(it: SettingItem): Promise<void> {
     const updated = await updateSetting(it.key, valueOfDraft(it, d))
     items.value = items.value.map((x) => (x.key === it.key ? updated : x))
     drafts.value = { ...drafts.value, [it.key]: draftOf(updated) }
-    notices.value = { ...notices.value, [it.key]: '已保存，立即生效（其他进程 5 秒内可见）。' }
+    notices.value = { ...notices.value, [it.key]: t('settings.ext.saved') }
   } catch (e) {
     fieldErrors.value = { ...fieldErrors.value, [it.key]: errText(e) }
   } finally {
@@ -171,7 +170,7 @@ async function doReset(it: SettingItem): Promise<void> {
     pendingReset.value = ''
     items.value = await listSettings()
     fillDrafts()
-    notices.value = { ...notices.value, [it.key]: '已恢复默认值。' }
+    notices.value = { ...notices.value, [it.key]: t('settings.ext.resetDone') }
   } catch (e) {
     fieldErrors.value = { ...fieldErrors.value, [it.key]: errText(e) }
   } finally {
@@ -188,7 +187,7 @@ async function onExport(): Promise<void> {
   try {
     await exportSettings()
   } catch (e) {
-    pageError.value = `导出失败：${errText(e)}`
+    pageError.value = t('settings.ext.exportFailed', { error: errText(e) })
   }
 }
 
@@ -210,7 +209,7 @@ async function onImportFile(e: Event): Promise<void> {
     const preview = await importSettings(yaml, true)
     importState.value = { name: file.name, yaml, preview }
   } catch (err) {
-    importError.value = `预览失败：${errText(err)}`
+    importError.value = t('settings.ext.previewFailed', { error: errText(err) })
   } finally {
     importing.value = false
   }
@@ -225,11 +224,11 @@ async function confirmImport(): Promise<void> {
     const res = await importSettings(state.yaml, false)
     importState.value = null
     importNotice.value = res.applied
-      ? `导入完成：${importSummary(res.changes)}。`
-      : `导入未完全写入：${importSummary(res.changes)}，被拒的键保持原值。`
+      ? t('settings.ext.importDone', { summary: importSummary(res.changes) })
+      : t('settings.ext.importPartial', { summary: importSummary(res.changes) })
     await load()
   } catch (err) {
-    importError.value = `导入失败：${errText(err)}`
+    importError.value = t('settings.ext.importFailed', { error: errText(err) })
   } finally {
     importing.value = false
   }
@@ -248,13 +247,13 @@ onMounted(() => {
 <template>
   <div class="ext" data-test="extension-settings">
     <div class="head">
-      <h2 class="title mono">扩展设置</h2>
-      <span class="count mono">{{ items.length }} 项 · 改过 {{ modifiedCount }}</span>
+      <h2 class="title mono">{{ t('settings.ext.title') }}</h2>
+      <span class="count mono">{{ t('settings.ext.count', { n: items.length, modified: modifiedCount }) }}</span>
       <span class="spacer" />
       <button class="mini-btn mono" type="button" :disabled="loading" @click="load()">
-        {{ loading ? '刷新中...' : '刷新' }}
+        {{ loading ? t('settings.ext.refreshing') : t('act.refresh') }}
       </button>
-      <button class="mini-btn mono" type="button" :disabled="loading" @click="onExport()">导出 YAML</button>
+      <button class="mini-btn mono" type="button" :disabled="loading" @click="onExport()">{{ t('settings.ext.export') }}</button>
       <button
         v-if="canWrite"
         class="mini-btn mono"
@@ -263,7 +262,7 @@ onMounted(() => {
         data-test="settings-import"
         @click="pickImport()"
       >
-        {{ importing ? '处理中...' : '导入' }}
+        {{ importing ? t('settings.ext.importing') : t('settings.ext.import') }}
       </button>
       <input
         ref="fileInput"
@@ -276,14 +275,14 @@ onMounted(() => {
     </div>
 
     <p class="note mono">
-      存在 server 数据库里的运行时旋钮（降噪阈值与排除名单、提示词覆盖），改了立即生效；影响启动、安全、连通性与权限的设置仍在
-      <code>config.yaml</code>（设置 → 配置管理）。导出只包含改过的键。
+      {{ t('settings.ext.introBefore') }}
+      <code>config.yaml</code>{{ t('settings.ext.introAfter') }}
     </p>
     <p v-if="!canWrite" class="readonly mono" data-test="settings-readonly">{{ readOnlyReason }}</p>
     <p v-if="pageError" class="error mono" :title="pageError">{{ pageError }}</p>
     <p v-if="importNotice" class="ok mono">{{ importNotice }}</p>
     <p v-if="importError" class="error mono">{{ importError }}</p>
-    <p v-else-if="loading && items.length === 0" class="note mono">读取中...</p>
+    <p v-else-if="loading && items.length === 0" class="note mono">{{ t('settings.ext.reading') }}</p>
 
     <section v-for="g in groups" :key="g.group" class="group" :data-test="`settings-group-${g.group}`">
       <h3 class="group-title mono">{{ g.label }} <span class="prefix">{{ g.group }}.*</span></h3>
@@ -292,7 +291,7 @@ onMounted(() => {
         <div class="card-head">
           <span class="key mono">{{ it.key }}</span>
           <span class="tag mono">{{ kindLabel(it.kind) }}</span>
-          <span v-if="it.modified" class="tag tag--mod mono">已改过</span>
+          <span v-if="it.modified" class="tag tag--mod mono">{{ t('settings.ext.modified') }}</span>
           <span class="spacer" />
           <button
             v-if="isPrompt(it) || it.kind === 'strings' || it.kind === 'patterns'"
@@ -300,7 +299,7 @@ onMounted(() => {
             type="button"
             @click="toggleDefault(it.key)"
           >
-            {{ showDefault[it.key] ? '收起默认' : '对比默认' }}
+            {{ showDefault[it.key] ? t('settings.ext.collapseDefault') : t('settings.ext.compareDefault') }}
           </button>
           <template v-if="canWrite">
             <button
@@ -310,7 +309,7 @@ onMounted(() => {
               :disabled="savingKey === it.key"
               @click="doReset(it)"
             >
-              确认恢复默认
+              {{ t('settings.ext.confirmReset') }}
             </button>
             <button
               v-if="pendingReset === it.key"
@@ -318,17 +317,17 @@ onMounted(() => {
               type="button"
               @click="pendingReset = ''"
             >
-              取消
+              {{ t('act.cancel') }}
             </button>
             <button
               v-else
               class="mini-btn mono"
               type="button"
               :disabled="!it.modified || savingKey === it.key"
-              :title="it.modified ? '丢弃存值，回到内置默认' : '当前就是默认值'"
+              :title="it.modified ? t('settings.ext.resetTitle') : t('settings.ext.resetTitleDefault')"
               @click="askReset(it.key)"
             >
-              恢复默认
+              {{ t('settings.ext.reset') }}
             </button>
             <button
               class="mini-btn mini-btn--primary mono"
@@ -336,7 +335,7 @@ onMounted(() => {
               :disabled="!isDirty(it) || savingKey === it.key"
               @click="save(it)"
             >
-              {{ savingKey === it.key ? '保存中...' : '保存' }}
+              {{ savingKey === it.key ? t('settings.ext.saving') : t('act.save') }}
             </button>
           </template>
         </div>
@@ -352,7 +351,7 @@ onMounted(() => {
               :disabled="!canWrite"
               @change="setDraft(it.key, checkedOf($event))"
             />
-            <span class="mono">{{ draft(it.key) === true ? '开' : '关' }}</span>
+            <span class="mono">{{ draft(it.key) === true ? t('settings.ext.on') : t('settings.ext.off') }}</span>
           </label>
 
           <!-- 整数：带上限提示 -->
@@ -375,13 +374,13 @@ onMounted(() => {
               class="input textarea mono"
               rows="4"
               :value="draftText(it.key)"
-              :placeholder="it.kind === 'patterns' ? '一行一个正则，例如 ^试一试' : '一行一个，例如 /work/tmp'"
+              :placeholder="it.kind === 'patterns' ? t('settings.ext.patternPlaceholder') : t('settings.ext.listPlaceholder')"
               :disabled="!canWrite"
               @input="setDraft(it.key, textOf($event))"
             />
             <span class="hint mono">
-              {{ it.kind === 'patterns' ? '一行一个正则，保存时在服务端编译' : '一行一个' }} ·
-              {{ boundsHint(it) || '空行忽略' }}
+              {{ it.kind === 'patterns' ? t('settings.ext.patternHint') : t('settings.ext.listHint') }} ·
+              {{ boundsHint(it) || t('settings.ext.emptyLines') }}
             </span>
           </div>
 
@@ -414,9 +413,9 @@ onMounted(() => {
         <pre v-if="showDefault[it.key]" class="default mono" data-test="setting-default">{{ defaultText(it) }}</pre>
 
         <p class="meta mono">
-          默认：{{ defaultText(it) }}<template v-if="equalsDefault(it)">（当前等于默认）</template>
+          {{ t('settings.ext.defaultLabel', { value: defaultText(it) }) }}<template v-if="equalsDefault(it)">{{ t('settings.ext.equalsDefault') }}</template>
           <template v-if="it.modified">
-            · 最后修改：{{ it.updated_by || '未知' }} {{ fmtDateTime(it.updated_at) }}
+            {{ t('settings.ext.lastModified', { by: it.updated_by || t('settings.ext.unknown'), at: fmtDateTime(it.updated_at) }) }}
           </template>
         </p>
         <p v-if="fieldErrors[it.key]" class="field-error mono" :data-test="`setting-error-${it.key}`">
@@ -432,26 +431,26 @@ onMounted(() => {
     <div v-if="importState" class="modal" data-test="settings-import-preview">
       <div class="modal-card">
         <div class="modal-head">
-          <span class="mono">导入预览 · {{ importState.name }}</span>
+          <span class="mono">{{ t('settings.ext.importPreview', { name: importState.name }) }}</span>
           <span class="spacer" />
-          <button class="mini-btn mono" type="button" @click="closeImport()">关闭</button>
+          <button class="mini-btn mono" type="button" @click="closeImport()">{{ t('act.close') }}</button>
         </div>
         <p class="note mono">
-          {{ importSummary(importState.preview.changes) }}。预览没有写入任何键；被拒的键会保持原值。
+          {{ t('settings.ext.importPreviewNote', { summary: importSummary(importState.preview.changes) }) }}
         </p>
         <table class="diff mono">
           <thead>
             <tr>
-              <th>键</th>
-              <th>动作</th>
-              <th>原值</th>
-              <th>新值</th>
+              <th>{{ t('settings.ext.th.key') }}</th>
+              <th>{{ t('settings.ext.th.action') }}</th>
+              <th>{{ t('settings.ext.th.old') }}</th>
+              <th>{{ t('settings.ext.th.new') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="c in importState.preview.changes" :key="c.key" :class="{ refused: c.error }">
               <td class="brk">{{ c.key }}</td>
-              <td>{{ c.error ? '拒绝' : importActionLabel(c.action) }}</td>
+              <td>{{ c.error ? t('settings.ext.refused') : importActionLabel(c.action) }}</td>
               <td class="brk">{{ c.action === 'unchanged' ? '—' : valueText(c.old) }}</td>
               <td class="brk">{{ c.error || valueText(c.new) }}</td>
             </tr>
@@ -459,7 +458,7 @@ onMounted(() => {
         </table>
         <p v-if="importError" class="error mono">{{ importError }}</p>
         <div class="modal-actions">
-          <button class="mini-btn mono" type="button" @click="closeImport()">取消</button>
+          <button class="mini-btn mono" type="button" @click="closeImport()">{{ t('act.cancel') }}</button>
           <button
             class="mini-btn mini-btn--primary mono"
             type="button"
@@ -467,7 +466,7 @@ onMounted(() => {
             data-test="settings-import-confirm"
             @click="confirmImport()"
           >
-            {{ importing ? '写入中...' : '确认写入' }}
+            {{ importing ? t('settings.ext.writing') : t('settings.ext.confirmWrite') }}
           </button>
         </div>
       </div>
