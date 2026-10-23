@@ -4,6 +4,7 @@
 // 提交成功后弹一条带「去收集箱」链接的提示，几秒后自行消失；Esc / 点遮罩关闭。
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { captureWorkItem, listProjects } from '../api/client'
+import { t } from '../i18n'
 import {
   buildCaptureRequest,
   CAPTURE_BOX_LINK,
@@ -72,23 +73,23 @@ onBeforeUnmount(() => clearTimeout(doneTimer))
 
 <template>
   <div class="qc-wrap">
-    <button class="qc-btn mono" type="button" :aria-expanded="open" title="随手记：把想法、问题、需求丢进收集箱" data-test="quick-capture-btn" @click="open = !open">
-      <span aria-hidden="true">✎</span><span class="qc-label">随手记</span>
+    <button class="qc-btn mono" type="button" :aria-expanded="open" :title="t('common.quickCapture.buttonTitle')" data-test="quick-capture-btn" @click="open = !open">
+      <span aria-hidden="true">✎</span><span class="qc-label">{{ t('common.quickCapture.button') }}</span>
     </button>
 
     <template v-if="open">
       <div class="qc-scrim" aria-hidden="true" @click="close"></div>
-      <form class="qc-panel" role="dialog" aria-label="随手记" data-test="quick-capture-form" @submit.prevent="submit" @keydown="onKey">
+      <form class="qc-panel" role="dialog" :aria-label="t('common.quickCapture.button')" data-test="quick-capture-form" @submit.prevent="submit" @keydown="onKey">
         <textarea
           ref="area"
           v-model="text"
           class="qc-text"
           rows="4"
           :maxlength="CAPTURE_TEXT_MAX"
-          placeholder="想到什么先记下来，之后再整理（Ctrl+Enter 提交）"
+          :placeholder="t('common.quickCapture.placeholder')"
           data-test="quick-capture-text"
         ></textarea>
-        <div class="qc-kinds mono" role="radiogroup" aria-label="类型">
+        <div class="qc-kinds mono" role="radiogroup" :aria-label="t('common.quickCapture.kindLabel')">
           <button
             v-for="k in CAPTURE_KINDS"
             :key="k.key"
@@ -101,20 +102,20 @@ onBeforeUnmount(() => clearTimeout(doneTimer))
             @click="kind = k.key"
           >{{ k.label }}</button>
         </div>
-        <input v-model="project" class="qc-proj mono" type="text" list="qc-projects" placeholder="项目（可选）" data-test="quick-capture-project" />
+        <input v-model="project" class="qc-proj mono" type="text" list="qc-projects" :placeholder="t('common.quickCapture.project')" data-test="quick-capture-project" />
         <datalist id="qc-projects"><option v-for="p in projects" :key="p" :value="p"></option></datalist>
         <p v-if="error" class="qc-error mono" role="alert" data-test="quick-capture-error">{{ error }}</p>
         <div class="qc-actions">
-          <button class="qc-submit mono" type="submit" :disabled="busy" data-test="quick-capture-submit">{{ busy ? '记录中…' : '记下' }}</button>
-          <button class="qc-cancel mono" type="button" :disabled="busy" @click="close">取消</button>
+          <button class="qc-submit mono" type="submit" :disabled="busy" data-test="quick-capture-submit">{{ busy ? t('common.quickCapture.saving') : t('common.quickCapture.submit') }}</button>
+          <button class="qc-cancel mono" type="button" :disabled="busy" @click="close">{{ t('common.quickCapture.cancel') }}</button>
         </div>
       </form>
     </template>
 
     <div v-if="done" class="qc-toast mono" role="status" aria-live="polite" data-test="quick-capture-toast">
-      <span>已记下一条{{ captureKindLabel(done.kind) }}</span>
-      <RouterLink :to="CAPTURE_BOX_LINK" class="qc-toast-link" data-test="quick-capture-link" @click="done = null">去收集箱</RouterLink>
-      <button class="qc-toast-x" type="button" aria-label="关闭提示" @click="done = null">×</button>
+      <span>{{ t('common.quickCapture.done', { kind: captureKindLabel(done.kind) }) }}</span>
+      <RouterLink :to="CAPTURE_BOX_LINK" class="qc-toast-link" data-test="quick-capture-link" @click="done = null">{{ t('common.quickCapture.goto') }}</RouterLink>
+      <button class="qc-toast-x" type="button" :aria-label="t('common.quickCapture.dismiss')" @click="done = null">×</button>
     </div>
   </div>
 </template>

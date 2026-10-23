@@ -3,6 +3,7 @@
 //    agent / runner / project 类用下拉（数据来自 meta），其余是文本；名字只作兜底。
 //  - 提交值：空串不发（让后端用模板默认 / 项目默认）。
 import type { MetaAgent, MetaProject, MetaRunner, WorkflowSpec, WorkflowStepSpec, WorkflowTemplateVar } from '../api/types'
+import { t } from '../i18n'
 import { projectRunnerOptions } from './runnerChoice'
 
 export type VarKind = 'project' | 'agent' | 'runner' | 'text' | 'textarea'
@@ -91,7 +92,7 @@ export function initialValues(fields: VarField[], project = ''): Record<string, 
 export function validateVars(fields: VarField[], values: Record<string, string>): Record<string, string> {
   const errs: Record<string, string> = {}
   for (const f of fields) {
-    if (f.required && !(values[f.name] ?? '').trim()) errs[f.name] = '必填'
+    if (f.required && !(values[f.name] ?? '').trim()) errs[f.name] = t('workflows.wizard.required')
   }
   return errs
 }
@@ -117,7 +118,7 @@ export function agentOptions(project: MetaProject | undefined, agents: MetaAgent
   const allowed = project?.allowed_agents ?? []
   const list = allowed.length === 0 ? agents : agents.filter((a) => allowed.includes(a.key))
   const out: PickOption[] = list.map((a) => ({ value: a.key, label: `${a.key} · ${a.type}` }))
-  if (current && !out.some((o) => o.value === current)) out.unshift({ value: current, label: `${current}（此项目未开放）` })
+  if (current && !out.some((o) => o.value === current)) out.unshift({ value: current, label: t('workflows.wizard.notAllowed', { value: current }) })
   return out
 }
 
@@ -143,7 +144,7 @@ export function adaptAgentVars(
     const pick = pool.find((a) => !used.has(a.key)) ?? pool[0]
     if (!pick) continue
     out[f.name] = pick.key
-    notes.push(`${f.name}：模板默认的 ${cur} 在项目 ${project.key} 未开放，已自动换成 ${pick.key}`)
+    notes.push(t('workflows.wizard.adapted', { field: f.name, from: cur, project: project.key, to: pick.key }))
   }
   return { values: out, notes }
 }
@@ -156,23 +157,23 @@ export function runnerPickOptions(
   current: string,
   label: (r: MetaRunner) => string,
 ): PickOption[] {
-  const out: PickOption[] = [{ value: '', label: '项目默认' }]
+  const out: PickOption[] = [{ value: '', label: t('workflows.wizard.defaultProject') }]
   for (const r of projectRunnerOptions(project, runners)) {
     const block = blocks[r.name]
     out.push({ value: r.name, label: block ? `${label(r)} · ${block.short}` : label(r), disabled: !!block })
   }
-  if (current && !out.some((o) => o.value === current)) out.push({ value: current, label: `${current}（此项目未开放）` })
+  if (current && !out.some((o) => o.value === current)) out.push({ value: current, label: t('workflows.wizard.notAllowed', { value: current }) })
   return out
 }
 
 export function sourceLabel(source: string | undefined): string {
   switch (source) {
     case 'project':
-      return '项目'
+      return t('workflows.wizard.sourceProject')
     case 'global':
-      return '全局'
+      return t('workflows.wizard.sourceGlobal')
     case 'builtin':
-      return '内置'
+      return t('workflows.wizard.sourceBuiltin')
     default:
       return source || '—'
   }
@@ -193,13 +194,13 @@ export function previewSteps(spec: WorkflowSpec): PreviewStep[] {
     const s = st as WorkflowStepSpec & { fan?: FanLike[]; review?: boolean; join?: string; fan_out?: number }
     const agents = s.agents?.length ? s.agents : s.fan?.length ? s.fan.map((f) => f.agent ?? '') : s.agent ? [s.agent] : []
     const badges: string[] = []
-    if (agents.length > 1 || (s.fan_out ?? 0) > 1) badges.push(`并行 ×${agents.length > 1 ? agents.length : s.fan_out}`)
+    if (agents.length > 1 || (s.fan_out ?? 0) > 1) badges.push(t('workflows.wizard.parallel', { n: agents.length > 1 ? agents.length : s.fan_out }))
     if (s.join) badges.push(`join:${s.join}`)
     if (s.worktree) badges.push('worktree')
-    if (s.read_only) badges.push('只读')
-    if (s.review) badges.push('人工验收闸')
+    if (s.read_only) badges.push(t('workflows.wizard.readOnly'))
+    if (s.review) badges.push(t('workflows.wizard.reviewGate'))
     if (s.if === 'always') badges.push('if:always')
-    if (s.type === 'workflow') badges.push('子工作流')
+    if (s.type === 'workflow') badges.push(t('workflows.wizard.subWorkflow'))
     // `run:` 是多行脚本写法（提交时后端转成 cmd），预览里当命令回退显示。
     const command = s.cmd ? s.cmd.join(' ') : (s.run ?? '')
     const text = (s.prompt ?? command).replace(/\s+/g, ' ').trim()

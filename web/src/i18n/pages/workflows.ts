@@ -106,6 +106,19 @@ export const workflows: PageDict = {
     'workflows.detail.templateSaving': '保存中…',
     'workflows.detail.close': '关闭',
     'workflows.detail.needProject': '保存到项目需要选一个项目',
+
+    // 从模板新建向导（utils/workflowTemplate.ts）
+    'workflows.wizard.required': '必填',
+    'workflows.wizard.notAllowed': '{value}（此项目未开放）',
+    'workflows.wizard.adapted': '{field}：模板默认的 {from} 在项目 {project} 未开放，已自动换成 {to}',
+    'workflows.wizard.defaultProject': '项目默认',
+    'workflows.wizard.sourceProject': '项目',
+    'workflows.wizard.sourceGlobal': '全局',
+    'workflows.wizard.sourceBuiltin': '内置',
+    'workflows.wizard.parallel': '并行 ×{n}',
+    'workflows.wizard.readOnly': '只读',
+    'workflows.wizard.reviewGate': '人工验收闸',
+    'workflows.wizard.subWorkflow': '子工作流',
   },
   en: {
     'workflows.title': 'Workflows',
@@ -212,5 +225,18 @@ export const workflows: PageDict = {
     'workflows.detail.templateSaving': 'Saving…',
     'workflows.detail.close': 'Close',
     'workflows.detail.needProject': 'Pick a project to save into',
+
+    'workflows.wizard.required': 'Required',
+    'workflows.wizard.notAllowed': '{value} (not enabled for this project)',
+    'workflows.wizard.adapted':
+      '{field}: the template default {from} is not enabled for project {project}; switched to {to}',
+    'workflows.wizard.defaultProject': 'Project default',
+    'workflows.wizard.sourceProject': 'Project',
+    'workflows.wizard.sourceGlobal': 'Global',
+    'workflows.wizard.sourceBuiltin': 'Built-in',
+    'workflows.wizard.parallel': 'Parallel ×{n}',
+    'workflows.wizard.readOnly': 'Read-only',
+    'workflows.wizard.reviewGate': 'Human review gate',
+    'workflows.wizard.subWorkflow': 'Sub-workflow',
   },
 }

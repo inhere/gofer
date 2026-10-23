@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { UNSUPPORTED_RECIPIENT_REASON, attachHintNote, attachmentCapability, composerAttachmentState } from './attachments'
+import { unsupportedRecipientReason, attachHintNote, attachmentCapability, composerAttachmentState } from './attachments'
 
 describe('attachHintNote', () => {
   it('drops the line when it would only repeat the paperclip title', () => {
@@ -17,7 +17,7 @@ describe('attachHintNote', () => {
   })
 
   it('keeps a failed-upload hint and shows nothing when the bar is clean', () => {
-    const cap = attachmentCapability({ attachments: 'none', attachments_reason: UNSUPPORTED_RECIPIENT_REASON })
+    const cap = attachmentCapability({ attachments: 'none', attachments_reason: unsupportedRecipientReason() })
     const failed = composerAttachmentState([{ key: 'a', name: 'a.png', mime: 'image/png', bytes: 1, status: 'failed' }], cap)
     expect(attachHintNote(failed.hint, cap.reason)).toContain('失败')
     expect(attachHintNote('', cap.reason)).toBe('')

@@ -47,7 +47,7 @@ import {
   unackSessionTurn,
 } from '../api/client'
 import { turnWorkbenchThread } from '../api/workbench'
-import { UNSUPPORTED_OUTSIDE_THREAD_REASON, type AttachmentCapability } from '../utils/attachments'
+import { unsupportedOutsideThreadReason, type AttachmentCapability } from '../utils/attachments'
 import { attachmentBubbleText } from '../utils/attachmentText'
 import Composer from '../ui/Composer.vue'
 import Drawer from '../ui/Drawer.vue'
@@ -83,7 +83,7 @@ const props = withDefaults(defineProps<{
   embedded: false,
   threadId: '',
   expandLastMessage: false,
-  attachmentCapability: () => ({ mode: 'none', enabled: false, reason: UNSUPPORTED_OUTSIDE_THREAD_REASON }),
+  attachmentCapability: () => ({ mode: 'none', enabled: false, reason: unsupportedOutsideThreadReason() }),
 })
 const router = useRouter()
 const emit = defineEmits<{
@@ -319,7 +319,7 @@ const canSend = computed(
 // 工作台 composer 也是这么量的。agent 没在等回复也能收图：后端走 SendMessage / 传话人 / 送达阶梯。
 const attachCapability = computed<AttachmentCapability>(() => {
   if (!props.threadId) {
-    return { mode: 'none', enabled: false, reason: UNSUPPORTED_OUTSIDE_THREAD_REASON }
+    return { mode: 'none', enabled: false, reason: unsupportedOutsideThreadReason() }
   }
   return props.attachmentCapability
 })

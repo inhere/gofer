@@ -6,6 +6,7 @@ import { computed, reactive, ref } from 'vue'
 import { answerSessionPermission } from '../api/client'
 import type { Decision } from '../api/types'
 import { fmtAgo, fmtDateTime } from '../api/time'
+import { t } from '../i18n'
 import {
   denyAnswer,
   permissionAnswerText,
@@ -61,7 +62,7 @@ async function answer(value: string): Promise<void> {
 <template>
   <div class="perm" :class="{ 'perm--open': open }" data-test="session-permission">
     <div class="perm-head mono">
-      <strong>{{ questions.length > 0 ? '等你回答' : '需要授权' }}</strong>
+      <strong>{{ questions.length > 0 ? t('sessions.perm.waiting') : t('sessions.perm.needsGrant') }}</strong>
       <span :title="fmtDateTime(decision.asked_at)">{{ fmtAgo(decision.asked_at, nowSec) }}</span>
     </div>
     <code v-if="questions.length === 0" class="perm-sum" data-test="permission-summary">{{ summary }}</code>
@@ -69,7 +70,7 @@ async function answer(value: string): Promise<void> {
       <fieldset v-for="q in questions" :key="q.question" class="perm-q">
         <legend class="perm-q-title">
           <span v-if="q.header" class="perm-q-head mono">{{ q.header }}</span>{{ q.question }}
-          <small v-if="q.multiSelect" class="mono">（可多选）</small>
+          <small v-if="q.multiSelect" class="mono">{{ t('sessions.perm.multi') }}</small>
         </legend>
         <div class="perm-acts">
           <button
@@ -83,16 +84,16 @@ async function answer(value: string): Promise<void> {
             @click="toggle(q.question, o.label, !!q.multiSelect)"
           >{{ o.label }}</button>
         </div>
-        <input v-model="other[q.question]" class="mono perm-other" placeholder="其他（自由填写，填了以它为准）" />
+        <input v-model="other[q.question]" class="mono perm-other" :placeholder="t('sessions.perm.other')" />
       </fieldset>
       <div class="perm-acts">
-        <button class="perm-btn perm-btn--ok mono" type="submit" :disabled="busy || !questionReply" data-test="question-submit">提交回答</button>
+        <button class="perm-btn perm-btn--ok mono" type="submit" :disabled="busy || !questionReply" data-test="question-submit">{{ t('sessions.perm.submit') }}</button>
       </div>
-      <p class="perm-hint mono">终端在等这些回答；提交后 agent 直接拿到答案继续。</p>
+      <p class="perm-hint mono">{{ t('sessions.perm.questionHint') }}</p>
       <p v-if="error" class="perm-err mono">{{ error }}</p>
     </form>
     <button v-if="decision.permission?.input && questions.length === 0" class="link-btn mono" type="button" @click="inputOpen = !inputOpen">
-      {{ inputOpen ? '收起参数' : '查看参数' }}
+      {{ inputOpen ? t('sessions.perm.hideInput') : t('sessions.perm.showInput') }}
     </button>
     <pre v-if="inputOpen" class="perm-input mono">{{ decision.permission?.input }}</pre>
     <template v-if="open && questions.length === 0">
@@ -108,14 +109,14 @@ async function answer(value: string): Promise<void> {
           @click="answer(c.answer)"
         >{{ c.label }}</button>
         <button class="perm-btn mono" type="button" :disabled="busy" data-test="permission-deny-note" @click="denyOpen = !denyOpen">
-          附原因拒绝
+          {{ t('sessions.perm.denyNote') }}
         </button>
       </div>
       <form v-if="denyOpen" class="perm-deny" @submit.prevent="answer(denyAnswer(reason))">
-        <input v-model="reason" class="mono" placeholder="拒绝原因（会告诉 agent）" data-test="permission-deny-reason" />
-        <button class="perm-btn perm-btn--bad mono" type="submit" :disabled="busy">拒绝</button>
+        <input v-model="reason" class="mono" :placeholder="t('sessions.perm.denyReasonPlaceholder')" data-test="permission-deny-reason" />
+        <button class="perm-btn perm-btn--bad mono" type="submit" :disabled="busy">{{ t('sessions.perm.denyButton') }}</button>
       </form>
-      <p class="perm-hint mono">终端里的授权对话框同时在等；先答的一方生效。</p>
+      <p class="perm-hint mono">{{ t('sessions.perm.hint') }}</p>
       <p v-if="error" class="perm-err mono">{{ error }}</p>
     </template>
     <div v-if="!open" class="perm-done mono" data-test="permission-outcome">
