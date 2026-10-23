@@ -28,7 +28,7 @@ describe('页面标题用中文', () => {
     ['Sessions', "t('sessions.title')"],
     ['Projects', '{{ PAGE.projects }}'],
     ['Schedules', "t('schedules.title')"],
-    ['Skills', '{{ PAGE.skills }}'],
+    ['Skills', "t('settings.skills.title')"],
   ]
 
   it.each(titled)('%s 的标题走 i18n 或 PAGE', (name, expr) => {
