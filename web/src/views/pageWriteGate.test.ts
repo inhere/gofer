@@ -43,7 +43,7 @@ describe('工作项：整理建议 / 合并建议按只读灰显（路由是 Pub
   it('页面算出 writeBlock 并传给卡片', () => {
     expect(work).toContain("import { pageWriteBlock } from '../utils/pageGate'")
     expect(work).toContain('const writeBlock = computed(() => pageWriteBlock(whoami.value))')
-    expect(work.match(/:write-block="writeBlock"/g)?.length).toBe(4)
+    expect(work.match(/:write-block="writeBlock"/g)?.length).toBe(2)
   })
   it('合并建议的采纳 / 忽略灰显并给出原因', () => {
     expect(work).toContain('data-test="merge-accept" :disabled="!!writeBlock" :title="writeBlock || undefined"')

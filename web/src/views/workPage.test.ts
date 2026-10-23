@@ -98,14 +98,51 @@ describe('work page structure', () => {
     expect(head).toBeGreaterThan(-1)
     expect(filters).toBeGreaterThan(head)
     expect(page).toContain("t('work.h.title')")
-    expect(page).toContain("t('work.h.summary', { n: counts.open, needs: counts.needs_me })")
+    expect(page).toContain("t('work.h.summary', { n: summaryCounts.open, needs: summaryCounts.needs_me })")
     expect(page).toContain('<ProjectFilter')
     expect(page).toContain('<FilterChips')
   })
 
-  it('maps the empty chip value to "all" so one click clears the filter', () => {
-    expect(page).toContain("get: () => (filter.value === 'all' ? '' : filter.value)")
-    expect(page).toContain("filter.value = v === '' ? 'all' : (v as WorkFilter)")
+  it('filters by status through ?status= and keeps the old capture deep link working', () => {
+    expect(page).toContain('laneFromQuery(route.query)')
+    expect(page).toContain('laneQuery(route.query, next)')
+    expect(board).toContain("if (tab === 'capture') return CAPTURE_LANE_STATUS")
+    // 同一个空值约定：再点一次已选中的 chip 回到「全部」
+    expect(board).toContain("if (lane) next.status = lane")
+    expect(board).toContain("if (typeof v === 'string' && v && k !== 'status' && k !== 'tab') next[k] = v")
+  })
+
+  it('flattens the status view into one list ordered by lane instead of grouped columns', () => {
+    expect(page).toContain('data-test="status-view"')
+    expect(page).toContain('sortByLane(')
+    expect(page).not.toContain('work-cols')
+    expect(page).not.toContain('groupByStatus')
+    // 状态顺序只在一处定义，页面不另写一份
+    expect(board).toContain('export const WORK_LANES')
+    expect(board).toContain("'needs_me',\n  'review',\n  'active'")
+  })
+
+  it('colours the card left edge by status family and keeps the status text', () => {
+    expect(card).toContain(':class="laneClass(lane)"')
+    expect(card).toContain('border-left-color: var(--c, var(--line))')
+    expect(card).toContain('<StatusPill')
+    expect(board).toContain('return statusFamily(lane)')
+  })
+
+  it('uses the unified button and dropdown primitives instead of native buttons', () => {
+    // 卡片：主操作 primary，其余 secondary / ghost，标状态走统一下拉菜单
+    expect(card).toContain("import Button from '../ui/Button.vue'")
+    expect(card).toContain("import MenuSelect from '../ui/MenuSelect.vue'")
+    expect(card).toContain('variant="primary"')
+    expect(card).toContain('variant="secondary"')
+    expect(card).toContain('variant="ghost"')
+    expect(card).toContain('data-test="status-menu"')
+    expect(card).not.toContain('status-select')
+    expect(card).not.toMatch(/<select[\s>]/)
+    // 页面：刷新 / 新建 / 合并建议 / 清除筛选 也走同一个按钮
+    expect(page).toContain("import Button from '../ui/Button.vue'")
+    expect(page).toContain('data-test="new-toggle"')
+    expect(page).not.toMatch(/class="btn/)
   })
 
   it('leaves room at the bottom so the steward button does not cover the last card', () => {

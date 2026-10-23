@@ -3,17 +3,29 @@ import { describe, expect, it, beforeEach } from 'vitest'
 import type { WorkItem } from '../api/types'
 import { setLocale } from '../store/locale'
 import {
+  CAPTURE_LANE_STATUS,
   dueLabelKey,
+  inLane,
+  isWorkLane,
   itemInProject,
+  laneChipKeys,
+  laneClass,
+  laneCounts,
+  laneFromQuery,
+  laneLabelKey,
+  laneQuery,
   narrowByProject,
   requestKindLabelKey,
   requestStateLabelKey,
+  sortByLane,
   sourceLabelKey,
   stalledDays,
   statusSourceLabelKey,
   suggestionLabelKey,
   workCounts,
+  workLane,
   workRequestLine,
+  WORK_LANES,
 } from './workBoard'
 
 function item(over: Partial<WorkItem> = {}): WorkItem {
@@ -95,6 +107,92 @@ describe('label keys', () => {
     expect(requestKindLabelKey('report')).toBe('work.o.request.report')
     expect(requestStateLabelKey('sent')).toBe('work.o.request.state.sent')
     expect(requestStateLabelKey('weird')).toBe('work.o.request.state.other')
+  })
+})
+
+describe('flat lanes (P6)', () => {
+  it('puts needs-me first, then running, then waiting, draft and the inbox, and closed last', () => {
+    expect(WORK_LANES).toEqual([
+      'needs_me',
+      'review',
+      'active',
+      'needs_onsite',
+      'waiting_resource',
+      'parked',
+      'draft',
+      'captured',
+      'done',
+      'dropped',
+    ])
+  })
+
+  it('maps every item to one lane: captured, open drafts, otherwise its status', () => {
+    expect(workLane(item({ status: 'needs_me' }))).toBe('needs_me')
+    expect(workLane(item({ status: 'review' }))).toBe('review')
+    expect(workLane(item({ unsorted: true, status: 'active' }))).toBe('draft')
+    // closed items are not drafts even when the flag is still set
+    expect(workLane(item({ unsorted: true, status: 'done' }))).toBe('done')
+    expect(workLane(item({ status: CAPTURE_LANE_STATUS as never }))).toBe('captured')
+    expect(isWorkLane('captured')).toBe(true)
+    expect(isWorkLane('nonsense')).toBe(false)
+  })
+
+  it('sorts by lane order, newest activity first inside a lane', () => {
+    const rows = [
+      item({ id: 'done1', status: 'done', last_activity_at: 10 }),
+      item({ id: 'run-old', status: 'active', last_activity_at: 100 }),
+      item({ id: 'run-new', status: 'active', last_activity_at: 200 }),
+      item({ id: 'needs', status: 'needs_me', last_activity_at: 1 }),
+      item({ id: 'draft', unsorted: true, status: 'active', last_activity_at: 300 }),
+      item({ id: 'cap', status: CAPTURE_LANE_STATUS as never, last_activity_at: 0, created_at: 50 }),
+    ]
+    expect(sortByLane(rows).map((r) => r.id)).toEqual(['needs', 'run-new', 'run-old', 'draft', 'cap', 'done1'])
+  })
+
+  it('counts items per lane', () => {
+    const counts = laneCounts([
+      item({ id: 'a', status: 'needs_me' }),
+      item({ id: 'b', status: 'needs_me' }),
+      item({ id: 'c', status: 'active', unsorted: true }),
+      item({ id: 'd', status: CAPTURE_LANE_STATUS as never }),
+    ])
+    expect(counts.needs_me).toBe(2)
+    expect(counts.draft).toBe(1)
+    expect(counts.captured).toBe(1)
+    expect(counts.done).toBe(0)
+  })
+
+  it('keeps the status colour and text mapping in one place', () => {
+    expect(laneClass('needs_me')).toBe('k-need')
+    expect(laneClass('active')).toBe('k-run')
+    expect(laneClass('waiting_resource')).toBe('k-queue')
+    expect(laneClass('parked')).toBe('k-idle')
+    expect(laneClass('done')).toBe('k-done')
+    expect(laneClass('dropped')).toBe('k-idle')
+    expect(laneClass('draft')).toBe('k-queue')
+    expect(laneClass(CAPTURE_LANE_STATUS)).toBe('k-queue')
+    // colour is never the only signal: every lane also has a text label
+    expect(laneLabelKey('needs_me')).toBe('status.needs_me')
+    expect(laneLabelKey('draft')).toBe('work.lane.draft')
+    expect(laneLabelKey(CAPTURE_LANE_STATUS)).toBe('work.lane.captured')
+  })
+
+  it('reads and writes the ?status= filter, and keeps the old ?tab=capture deep link', () => {
+    expect(laneFromQuery({})).toBe('')
+    expect(laneFromQuery({ status: 'review' })).toBe('review')
+    expect(laneFromQuery({ status: 'nonsense' })).toBe('')
+    expect(laneFromQuery({ tab: 'capture' })).toBe(CAPTURE_LANE_STATUS)
+    expect(laneQuery({ id: 'w-1', status: 'review', tab: 'capture' }, 'active')).toEqual({ id: 'w-1', status: 'active' })
+    expect(laneQuery({ project: 'self', status: 'review' }, '')).toEqual({ project: 'self' })
+    expect(inLane(item({ status: 'needs_me' }), 'needs_me')).toBe(true)
+    expect(inLane(item({ status: 'needs_me' }), '')).toBe(true)
+    expect(inLane(item({ status: 'needs_me' }), 'active')).toBe(false)
+  })
+
+  it('offers the closed lanes as chips only when closed items are shown', () => {
+    expect(laneChipKeys(false)).not.toContain('done')
+    expect(laneChipKeys(false)).toContain('draft')
+    expect(laneChipKeys(true).slice(-2)).toEqual(['done', 'dropped'])
   })
 })
 

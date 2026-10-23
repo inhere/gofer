@@ -11,11 +11,11 @@ const src = (n: string): string => {
 }
 
 describe('capture box wiring', () => {
-  it('Work has draft / capture tabs driven by ?tab and loads captured separately', () => {
+  it('Work loads the capture box as its own lane, and the old ?tab=capture link still lands on it', () => {
     const w = src('Work.vue')
-    expect(w).toContain('data-test="tab-drafts"')
-    expect(w).toContain('data-test="tab-capture"')
-    expect(w).toContain('triageTabFromQuery(route.query.tab)')
+    // P6：草稿 / 收集箱不再是两个页签，而是平铺列表里的两条泳道（收集箱的 ?tab=capture 深链仍落到 captured）。
+    expect(w).toContain('laneFromQuery(route.query)')
+    expect(w).toContain('CAPTURE_LANE_STATUS')
     expect(w).toContain('listWorkItems(boardListOpts(showClosed.value))')
     expect(w).toContain('listWorkItems(capturedListOpts())')
     expect(w).toContain('items.value = excludeCaptured(')

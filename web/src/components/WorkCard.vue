@@ -4,7 +4,10 @@
 // 状态改用 P0 的 StatusPill（状态族的字形 + 文字），重启时标 / 停滞标记改用页面字典。
 import { computed } from 'vue'
 import InfoCard from './InfoCard.vue'
+import Button from '../ui/Button.vue'
+import MenuSelect from '../ui/MenuSelect.vue'
 import StatusPill from '../ui/StatusPill.vue'
+import type { MenuOption } from '../ui/menuSelect'
 import { t } from '../i18n'
 import { fmtAgo } from '../api/time'
 import { runnerLabel } from '../utils/runnerDisplay'
@@ -25,7 +28,7 @@ import {
   statusTone,
   workspaceLabel,
 } from '../utils/work'
-import { dueLabelKey, stalledDays, suggestionLabelKey, workRequestLine } from '../utils/workBoard'
+import { dueLabelKey, laneClass, stalledDays, suggestionLabelKey, workLane, workRequestLine } from '../utils/workBoard'
 import type { AgentSession, WorkItem, WorkStatus } from '../api/types'
 
 const props = withDefaults(
@@ -66,7 +69,11 @@ const sessionLine = computed(() => {
   if (s.missing) return t('work.card.missingSession')
   return [s.agent, runnerLabel(s.runner), agentStateLabel(s.state)].filter(Boolean).join(' · ')
 })
-const statusOptions = WORK_STATUSES
+const lane = computed(() => workLane(props.item))
+// 标状态：统一的下拉菜单（ui/MenuSelect）而不是原生 select；当前状态带勾，选当前状态不再发请求。
+const statusMenu = computed<MenuOption[]>(() =>
+  WORK_STATUSES.map((m) => ({ value: m.key, label: t(`status.${m.key}`), disabled: m.key === props.item.status })),
+)
 const suggestions = computed(() => pendingSuggestions(props.item))
 const inflight = computed(() => inflightRequests(props.item))
 const finished = computed(() => lastFinishedRequest(props.item))
@@ -84,10 +91,8 @@ function suggestionField(field: string): string {
   return t(suggestionLabelKey(field))
 }
 
-function onStatusChange(e: Event): void {
-  const v = (e.target as HTMLSelectElement).value as WorkStatus
-  if (v && v !== props.item.status) emit('set-status', v)
-  ;(e.target as HTMLSelectElement).value = ''
+function onStatusPick(v: string): void {
+  if (v && v !== props.item.status) emit('set-status', v as WorkStatus)
 }
 
 function whenText(sec: number | undefined): string {
@@ -98,6 +103,8 @@ function whenText(sec: number | undefined): string {
 
 <template>
   <InfoCard
+    class="work-card"
+    :class="laneClass(lane)"
     :tone="item.due ? 'hot' : statusTone(item.status)"
     :expanded="expanded"
     :active="active"
@@ -133,8 +140,8 @@ function whenText(sec: number | undefined): string {
         <div v-for="sg in suggestions" :key="sg.field" class="suggest-row" :data-field="sg.field">
           <span class="suggest-text"><span class="icard-line--muted">{{ t('work.card.suggestion', { field: suggestionField(sg.field) }) }}</span>{{ suggestionValueText(sg) }}</span>
           <span class="suggest-btns">
-            <button class="btn btn--primary mono" type="button" :disabled="busy || !!writeBlock" :title="writeBlock || undefined" data-test="accept-suggestion" @click.stop="emit('accept-suggestion', sg.field)">{{ t('work.card.accept') }}</button>
-            <button class="btn mono" type="button" :disabled="busy || !!writeBlock" :title="writeBlock || undefined" data-test="dismiss-suggestion" @click.stop="emit('dismiss-suggestion', sg.field)">{{ t('work.card.dismiss') }}</button>
+            <Button variant="primary" size="sm" :disabled="busy || !!writeBlock" :title="writeBlock || undefined" data-test="accept-suggestion" @click.stop="emit('accept-suggestion', sg.field)">{{ t('work.card.accept') }}</Button>
+            <Button variant="secondary" size="sm" :disabled="busy || !!writeBlock" :title="writeBlock || undefined" data-test="dismiss-suggestion" @click.stop="emit('dismiss-suggestion', sg.field)">{{ t('work.card.dismiss') }}</Button>
           </span>
         </div>
       </div>
@@ -147,36 +154,41 @@ function whenText(sec: number | undefined): string {
       </div>
     </template>
     <template #actions>
-      <button
-        class="btn btn--primary mono"
-        type="button"
+      <Button
+        variant="primary"
+        size="sm"
         data-test="open-session"
         :disabled="!primary || primary.missing"
         :title="primary ? '' : t('work.card.noSession')"
         @click="primary && emit('open-session', primary.session_id)"
-      >{{ t('work.card.openSession') }}</button>
-      <button
+      >{{ t('work.card.openSession') }}</Button>
+      <Button
         v-if="canWake && primary"
-        class="btn mono"
-        type="button"
+        variant="secondary"
+        size="sm"
         data-test="wake"
         :disabled="busy"
         :title="wakeTitle"
         @click="emit('wake', primary.session_id)"
-      >{{ resumeLabel(full!) }}</button>
-      <button
-        class="btn mono"
-        type="button"
+      >{{ resumeLabel(full!) }}</Button>
+      <Button
+        variant="secondary"
+        size="sm"
         data-test="summarize"
         :disabled="busy || tidying || !!tidyBlock"
         :title="tidyBlock || t('work.card.summarizeTitle')"
         @click="emit('summarize')"
-      >{{ tidying ? t('work.card.summarizing') : t('work.card.summarize') }}</button>
-      <select class="btn status-select mono" data-test="status-select" :aria-label="t('work.card.statusAria')" :disabled="busy" @change="onStatusChange">
-        <option value="">{{ t('work.card.statusPlaceholder') }}</option>
-        <option v-for="m in statusOptions" :key="m.key" :value="m.key" :disabled="m.key === item.status">{{ t(`status.${m.key}`) }}</option>
-      </select>
-      <button class="btn mono" type="button" data-test="open-detail" @click="emit('open')">{{ t('work.card.edit') }}</button>
+      >{{ tidying ? t('work.card.summarizing') : t('work.card.summarize') }}</Button>
+      <MenuSelect
+        data-test="status-menu"
+        :model-value="''"
+        :options="statusMenu"
+        :label="t('work.card.statusAria')"
+        :placeholder="t('work.card.statusPlaceholder')"
+        :disabled="busy"
+        @select="onStatusPick"
+      />
+      <Button variant="ghost" size="sm" data-test="open-detail" @click="emit('open')">{{ t('work.card.edit') }}</Button>
     </template>
     <template #details>
       <dl class="icard-kv mono">
@@ -198,7 +210,7 @@ function whenText(sec: number | undefined): string {
         <div v-for="s in item.sessions" :key="s.session_id" class="icard-meta mono">
           <span class="icard-chip">{{ s.role === 'current' ? t('work.card.current') : t('work.card.past') }}</span>
           <span>{{ s.agent || '—' }} · {{ runnerLabel(s.runner) || '—' }} · {{ s.missing ? t('work.card.deleted') : agentStateLabel(s.state) }}</span>
-          <button v-if="!s.missing" class="btn mono" type="button" @click="emit('open-session', s.session_id)">{{ t('work.card.open') }}</button>
+          <Button v-if="!s.missing" variant="ghost" size="sm" @click="emit('open-session', s.session_id)">{{ t('work.card.open') }}</Button>
         </div>
       </div>
       <div v-if="workUsageLabel(item.usage)" class="icard-meta mono" data-test="work-usage">{{ workUsageLabel(item.usage) }}</div>
@@ -240,8 +252,9 @@ function whenText(sec: number | undefined): string {
 .req { margin: 0; font-size: var(--fs-xs); color: var(--ink-3); }
 .req--live { color: var(--accent); }
 .req--failed, .req--expired { color: var(--need); }
-.status-select { appearance: auto; max-width: 110px; }
-@media (max-width: 760px) {
-  .status-select, .btn { min-height: 40px; }
+/* 状态用左边框着色（设计稿 §5 状态族）：颜色来自 .k-<族> 给出的 --c，文字 / 字形仍是主要信息。 */
+.work-card {
+  border-left-width: 4px;
+  border-left-color: var(--c, var(--line));
 }
 </style>
