@@ -1234,7 +1234,8 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 工作流的状态筛选在前端收窄：一次取全部工作流（同上限），chip 的计数因此是真实总数；没有把 `status` 参数改成前端唯一真源以外的语义。
 - 定时列表的项目筛选仍是服务端参数（`GET /v1/schedules?project=`），`ProjectFilter` 只负责把值写进 URL。
 - 预览稿（`tmp/gofer-ui-redesign/preview.html`）没有工作流 / 定时屏，形态按 §7.2 的字段清单 + P2/P4 已合入的基元落地，而非逐像素对齐。
-- 仍留在工具层的中文（P6 统一处理）：`utils/workflowResult.ts` 的模板保存 / 删除提示与 `templateReadOnlyNote`、`utils/statusText.ts` 的状态名回退、`components/ExperimentalBadge.vue` 的标题、`CompareColumns` 的按钮与合并提示。
+- 仍留在工具层的中文（P6 统一处理）：`utils/workflowResult.ts` 的模板保存 / 删除提示与 `templateReadOnlyNote`、`utils/statusText.ts` 的状态名回退、`components/ExperimentalBadge.vue` 的标题、`CompareColumns` 的按钮与合并提示、`api/time.ts` 的 `fmtUntil`（本次已把定时列表里的「待触发」换成 `utils/format.ts` 的 `formatRelative`，工具函数本身留给 P6）。
+- 视觉与交互自查：用 vite dev server + 最小路由 + stub 的 `/v1` 响应（自建临时入口，截图完已删）把 `/workflows`、`/workflows/new`、`/workflows/:id`、`/schedules`、`/schedules/new` 按 zh / en × 浅 / 深（1440×900）各截一屏，另加定时列表的手机屏（390×844）。据此改了四处：列表步骤列不再重复显示一次进度（`ProgressBar` 自带分数）、把截断的 id 改为完整 id（避免「ightly-clean」这类只剩尾部的怪样子）、手机上的启用开关不再被最小点按高度拉成胶囊、定时下次触发的「待触发」换成按语言格式化的相对时间（英文界面不再出现中文）。最终一版的截图里没有横向滚动，浅 / 深对比度正常，控制台只有 stub 未提供的 `/v1/ws-ticket` 代理报错。
 
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
