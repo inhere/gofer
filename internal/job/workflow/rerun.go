@@ -7,6 +7,7 @@ import (
 
 	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Rerun modes accepted by `wf rerun` / POST /v1/workflows/{id}/rerun (design §一·7).
@@ -169,7 +170,10 @@ func trimFailedSteps(spec Spec, failed map[int]map[int]bool) Spec {
 // trimFailedFans keeps only the failed fans of a fan-out step (Fan, or the positional
 // Agents list). fanIdx is 1-based, matching the fan_jobs' fan_index. When the filter
 // would leave nothing the step is kept whole: an empty fan list would silently turn the
-// step into a single job on the step's own agent.
+// step into a single job on the step's own agent. A trim that leaves exactly ONE fan
+// folds that fan into the step and drops its join (trimSingleFanJoin): a one-fan step is
+// otherwise degenerate — fanWant()==1 makes the engine start one job with fan_index 0,
+// which would ignore the survivor's own cmd/agent and run the step's command instead.
 func trimFailedFans(st StepSpec, failed map[int]bool) StepSpec {
 	if len(st.Fan) > 0 {
 		kept := make([]FanSpec, 0, len(failed))
@@ -181,7 +185,7 @@ func trimFailedFans(st StepSpec, failed map[int]bool) StepSpec {
 		if len(kept) > 0 {
 			st.Fan = kept
 		}
-		return st
+		return foldSingleFan(trimSingleFanJoin(st))
 	}
 	if len(st.Agents) > 0 {
 		kept := make([]string, 0, len(failed))
@@ -193,6 +197,52 @@ func trimFailedFans(st StepSpec, failed map[int]bool) StepSpec {
 		if len(kept) > 0 {
 			st.Agents = kept
 		}
+	}
+	return trimSingleFanJoin(st)
+}
+
+// foldSingleFan turns a step left with exactly one Fan into a plain single-job step: the
+// survivor's own overrides (cmd / env / cwd / timeout_sec / agent / runner) become the
+// step's, and the fan list is dropped. Without it a rerun would run the step's base
+// command on the step's base agent, i.e. NOT the fan that failed. The fan's `name` is not
+// merged into the step name: the name is what ${steps.<step>.<fan>.…} references resolve
+// against. The stored spec already carries a fan's `run:` as its cmd (normalizeRunScripts
+// runs at the original submit), so only cmd has to be carried.
+func foldSingleFan(st StepSpec) StepSpec {
+	if len(st.Fan) != 1 {
+		return st
+	}
+	f := st.Fan[0]
+	if len(f.Cmd) > 0 {
+		st.Cmd = f.Cmd
+	}
+	if len(f.Env) > 0 {
+		st.Env = util.MergeEnv(st.Env, f.Env)
+	}
+	if f.Cwd != "" {
+		st.Cwd = f.Cwd
+	}
+	if f.TimeoutSec > 0 {
+		st.TimeoutSec = f.TimeoutSec
+	}
+	if f.Agent != "" {
+		st.Agent = f.Agent
+	}
+	if f.Runner != "" {
+		st.Runner = f.Runner
+	}
+	st.Fan = nil
+	st.FanOut = 0
+	return st
+}
+
+// trimSingleFanJoin clears the step's join when the fan trim left it with (at most) one
+// fan. A single job has nothing to aggregate, and validateFanout refuses a join on a
+// step whose fan count is <= 1 — without this a rerun of a join:all step whose only
+// failure was one fan out of N was rejected as a misconfiguration (gofer-rx7s).
+func trimSingleFanJoin(st StepSpec) StepSpec {
+	if fanWant(st) <= 1 {
+		st.Join = ""
 	}
 	return st
 }
