@@ -10,6 +10,8 @@ import '@fontsource/ibm-plex-mono/latin-500.css'
 
 import './styles/tokens.css'
 import './styles/base.css'
+// 页面容器（.page / .page--full）：所有路由页面的统一宽度口径。
+import './ui/page.css'
 import './styles/icons.css'
 import './styles/status.css'
 

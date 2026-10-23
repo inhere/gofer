@@ -244,7 +244,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="rq" data-test="review-page">
+  <div class="rq page" data-test="review-page">
     <div class="rq-head">
       <div class="rq-head-text">
         <h1 class="title">{{ t('review.h.title') }}</h1>
@@ -410,8 +410,7 @@ onUnmounted(() => {
 
 <style scoped>
 .rq {
-  max-width: 1240px;
-  margin: 0 auto;
+  min-width: 0;
 }
 .rq-head {
   display: flex;

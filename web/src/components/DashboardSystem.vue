@@ -220,8 +220,7 @@ onUnmounted(() => {
 
 <style scoped>
 .board {
-  max-width: 1160px;
-  margin: 0 auto;
+  min-width: 0;
 }
 .head {
   display: flex;

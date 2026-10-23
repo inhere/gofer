@@ -216,7 +216,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="board">
+  <div class="board page">
     <div class="board-head">
       <h1 class="title mono">{{ t('plans.list.title') }}</h1>
       <div class="controls mono">
@@ -312,10 +312,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.board {
-  max-width: 1100px;
-  margin: 0 auto;
-}
 .board-head {
   display: flex;
   align-items: center;

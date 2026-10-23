@@ -691,7 +691,9 @@ onUnmounted(() => {
 .content {
   flex: 1;
   min-width: 0;
-  padding: var(--s4);
+  /* 页边距与宽度上限由页面容器 .page（ui/page.css）统一提供，这里不再加内边距；
+     工作台 / 信箱是 .page--full，自己贴边布局。 */
+  padding: 0;
   overflow-x: auto;
 }
 .content--workbench {
@@ -825,7 +827,7 @@ onUnmounted(() => {
     gap: var(--s1);
   }
   .content {
-    padding: var(--s3) var(--s3) var(--s5);
+    padding: 0;
   }
   .conn--compact {
     display: inline-flex;

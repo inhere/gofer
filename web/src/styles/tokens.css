@@ -41,6 +41,13 @@
   --s8: 32px;
   --s10: 40px;
 
+  /* 页面容器（ui/page.css 的 .page）：全站路由页面的内容区只有这一个宽度口径——
+     上限 1440（Issues 这类「比较满」的页面为准）、居中、统一左右页边距；
+     工作台 / 信箱用 .page--full 铺满，不受上限约束。窄屏在文件末尾收窄边距。 */
+  --page-max: 1440px;
+  --page-pad-x: 28px;
+  --page-pad-y: 22px;
+
   /* 图标尺寸（ui/Icon.vue 的三档；组件里要传像素数给 lucide，两处由 icon.test.ts 校验一致）：
      14 行内 / 表格 / pill；16 导航 / 按钮（默认）；20 标签栏 / 宫格 / 大按钮。 */
   --icon-sm: 14px;
@@ -141,4 +148,12 @@
   --scrim: rgba(18, 26, 23, .42);
 
   color-scheme: light;
+}
+
+/* 手机（≤760，与 base.css 记录的断点口径一致）：页边距跟 .content 原来的手机值一致。 */
+@media (max-width: 760px) {
+  :root {
+    --page-pad-x: 14px;
+    --page-pad-y: 16px;
+  }
 }

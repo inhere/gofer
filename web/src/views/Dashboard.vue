@@ -175,7 +175,7 @@ onUnmounted(() => poller.stop())
 </script>
 
 <template>
-  <div class="stats" @pointermove="onPointer" @pointerleave="tip = null">
+  <div class="stats page" @pointermove="onPointer" @pointerleave="tip = null">
     <div class="hd">
       <h1>{{ t('stats.title') }}</h1>
       <span v-if="ov" class="sum mono" data-test="summary">{{ summaryLine(ov) }}</span>
@@ -531,8 +531,6 @@ onUnmounted(() => poller.stop())
 <style scoped>
 /* 统计墙：面板 12px 圆角、无普通阴影，数字一律等宽（设计稿 §4）。 */
 .stats {
-  max-width: 1120px;
-  margin: 0 auto;
   display: grid;
   gap: var(--s5);
   min-width: 0;

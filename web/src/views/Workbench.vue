@@ -741,7 +741,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="workbenchRoot" class="workbench-page" tabindex="-1">
+  <div ref="workbenchRoot" class="workbench-page page page--full" tabindex="-1">
     <WorkbenchComposer ref="composer" :session-open="mobilePane === 'main'" @submitted="submitted" />
     <p v-if="error" class="page-error mono">{{ error }}</p>
     <p v-if="layoutNotice" class="layout-notice mono">

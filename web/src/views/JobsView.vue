@@ -23,7 +23,7 @@ const canSplit = computed(() => !split.value && splitAllowed(width.value))
 <template>
   <div
     ref="el"
-    class="jobs-view"
+    class="jobs-view page"
     :data-layout="split ? 'split' : 'single'"
     :style="split ? { '--detail-min': `${DETAIL_MIN_WIDTH}px` } : undefined"
     data-test="jobs-view"

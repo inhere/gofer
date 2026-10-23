@@ -994,7 +994,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="detail" :class="{ 'detail--board': view === 'board' }">
+  <div class="detail page" :class="{ 'detail--board': view === 'board' }">
     <div class="detail-head">
       <BackLink list="plans" to="/plans" :label="t('plans.detail.back')" />
       <div v-if="plan" class="head-status">
@@ -1751,14 +1751,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.detail {
-  max-width: 980px;
-  margin: 0 auto;
-}
-/* 看板视图放宽容器：五列 × 220px 起，980px 放不下会横向滚动（见 PlanBoard 的 .board）。 */
-.detail--board {
-  max-width: 1400px;
-}
 .detail-head {
   display: flex;
   align-items: center;

@@ -601,7 +601,7 @@ async function init(): Promise<void> {
 </script>
 
 <template>
-  <div class="projects">
+  <div class="projects page">
     <header class="page-head">
       <div>
         <h1 class="title">{{ t('nav.projects') }}</h1>
@@ -1109,10 +1109,6 @@ async function init(): Promise<void> {
 </template>
 
 <style scoped>
-.projects {
-  max-width: 1100px;
-  margin: 0 auto;
-}
 .head {
   display: flex;
   align-items: flex-start;

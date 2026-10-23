@@ -552,10 +552,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.page {
-  max-width: 1180px;
-  margin: 0 auto;
-}
 .detail-head {
   display: flex;
   align-items: center;

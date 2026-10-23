@@ -711,10 +711,6 @@ function beatLabel(r: Runner): string {
 </template>
 
 <style scoped>
-.page {
-  max-width: 900px;
-  margin: 0 auto;
-}
 .page-head {
   display: flex;
   align-items: flex-start;

@@ -1,0 +1,26 @@
+/* 页面容器（设计稿 §4、§10；P6 内容区宽度统一，issue gofer-hez1）。
+ *
+ * 全站唯一的页面级宽度口径：路由页面的根元素一律带 `class="page"`，不再各自写
+ * max-width / margin 居中（页面里原来那些 1080 / 1100 / 1240 / 1480 的上限全部删掉）。
+ *   .page        内容区上限 --page-max(1440px)、居中、统一左右页边距；宽度不足时铺满
+ *   .page--full  工作台（/workbench）与信箱（/mail）：满宽满高的多栏布局，不受上限约束
+ *
+ * 允许的例外只有两类，都不改页面容器：
+ *   - 登录页（/access）是窄卡片，在壳外自己定宽；
+ *   - 表单里的单个输入控件可以自己限宽（如 640px），说明文字 / 表格 / 卡片仍然用满。
+ * 组件内部的局部 max-width（下拉、弹层、气泡、消息行长）也不属于页面宽度，继续留在组件里。
+ */
+.page {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-inline: auto;
+  padding: var(--page-pad-y) var(--page-pad-x);
+  min-width: 0;
+}
+
+/* 满宽变体：工作台与信箱自己就是多栏布局，铺满整个内容区（连页边距也不要）。 */
+.page--full {
+  max-width: none;
+  padding: 0;
+  flex: 1 1 auto;
+}

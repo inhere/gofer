@@ -53,7 +53,7 @@ const selected = computed(() => active.value?.to ?? '')
 </script>
 
 <template>
-  <div class="settings">
+  <div class="settings page">
     <div class="settings-head">
       <h1 class="title">{{ t('nav.settings') }}</h1>
       <span v-if="activeLabel" class="crumb">{{ activeLabel }}</span>
@@ -85,12 +85,6 @@ const selected = computed(() => active.value?.to ?? '')
 </template>
 
 <style scoped>
-.settings {
-  min-width: 0;
-  /* 跟随可用宽度：宽屏上不再给一列 720px 的窄带（P6 截图 1440 / 1920 右侧大片空白）。
-     表单一类的短字段自己限宽，卡片 / 表格 / 说明用满内容区。 */
-  max-width: 1480px;
-}
 .settings-head {
   display: flex;
   align-items: baseline;

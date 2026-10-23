@@ -417,10 +417,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.skills {
-  max-width: 1160px;
-  margin: 0 auto;
-}
 .head {
   display: flex;
   align-items: center;

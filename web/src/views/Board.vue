@@ -472,7 +472,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="board" :class="{ 'board--embedded': embedded }">
+  <div class="board" :class="{ 'board--embedded': embedded, page: !embedded }">
     <div class="board-head">
       <div v-if="!embedded">
         <h1 class="title mono">{{ t('jobs.h.title') }}</h1>
@@ -720,8 +720,7 @@ onUnmounted(() => {
 
 <style scoped>
 .board {
-  max-width: 1100px;
-  margin: 0 auto;
+  min-width: 0;
 }
 .board-head {
   display: flex;

@@ -274,10 +274,6 @@ function listValue(v?: string[]): string {
 </template>
 
 <style scoped>
-.page {
-  max-width: 1160px;
-  margin: 0 auto;
-}
 .page-head {
   display: flex;
   align-items: flex-start;
