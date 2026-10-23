@@ -5,6 +5,7 @@
 import { ref } from 'vue'
 import { acceptMemoryCandidate, rejectMemoryCandidate } from '../api/memoryCandidates'
 import type { MemoryCandidate } from '../api/memoryCandidates'
+import { t } from '../i18n'
 
 const props = defineProps<{ items: MemoryCandidate[] }>()
 const emit = defineEmits<{ (e: 'changed'): void }>()
@@ -20,7 +21,7 @@ async function decide(c: MemoryCandidate, accept: boolean): Promise<void> {
   }
   const key = (keys.value[c.id] ?? '').trim()
   if (accept && key === '') {
-    errors.value = { ...errors.value, [c.id]: '先填 key' }
+    errors.value = { ...errors.value, [c.id]: t('review.memory.needKey') }
     return
   }
   busy.value = c.id
@@ -40,14 +41,16 @@ async function decide(c: MemoryCandidate, accept: boolean): Promise<void> {
 }
 
 function statusLabel(c: MemoryCandidate): string {
-  return c.status === 'accepted' ? `已接受 → ${c.memory_key ?? ''}` : '已拒绝'
+  return c.status === 'accepted'
+    ? t('review.memory.accepted', { key: c.memory_key ?? '' })
+    : t('review.memory.rejected')
 }
 </script>
 
 <template>
   <div>
     <p class="mc-note mono">
-      agent 汇报的跨任务经验；接受后写成本 job 项目的记忆（kind 默认 note），拒绝不留痕。不会自动入库。
+      {{ t('review.memory.note') }}
     </p>
     <ul class="mc-list">
       <li v-for="c in props.items" :key="c.id" class="mc-item">
@@ -66,10 +69,10 @@ function statusLabel(c: MemoryCandidate): string {
             <option value="rule">rule</option>
           </select>
           <button class="mc-btn mono" type="button" :disabled="busy >= 0" @click="decide(c, true)">
-            {{ busy === c.id ? '处理中…' : '接受' }}
+            {{ busy === c.id ? t('review.memory.saving') : t('review.memory.accept') }}
           </button>
           <button class="mc-btn mc-btn--ghost mono" type="button" :disabled="busy >= 0" @click="decide(c, false)">
-            拒绝
+            {{ t('review.memory.reject') }}
           </button>
           <span v-if="errors[c.id]" class="mc-err mono">{{ errors[c.id] }}</span>
         </div>

@@ -109,6 +109,15 @@ export const review: PageDict = {
     'review.reviewed.line': '已验收 · {by} · {at}',
     'review.reviewed.note': '备注：{note}',
     'review.reviewed.noRecord': '该 job 已终态，但没有验收记录（reviewed_by 为空）',
+
+    // 验收面板「经验」页签（components/MemoryCandidatesTab.vue）
+    'review.memory.note': 'agent 汇报的跨任务经验；接受后写成本 job 项目的记忆（kind 默认 note），拒绝不留痕。不会自动入库。',
+    'review.memory.needKey': '先填 key',
+    'review.memory.saving': '处理中…',
+    'review.memory.accept': '接受',
+    'review.memory.reject': '拒绝',
+    'review.memory.accepted': '已接受 → {key}',
+    'review.memory.rejected': '已拒绝',
   },
   en: {
     // 列表头
@@ -215,5 +224,14 @@ export const review: PageDict = {
     'review.reviewed.line': 'Reviewed · {by} · {at}',
     'review.reviewed.note': 'Note: {note}',
     'review.reviewed.noRecord': 'This job is terminal but has no review record (reviewed_by is empty)',
+
+    'review.memory.note':
+      'Cross-task experience reported by the agent; accepting writes it into this job project memory (kind defaults to note), rejecting leaves no trace. Nothing is stored automatically.',
+    'review.memory.needKey': 'Fill in a key first',
+    'review.memory.saving': 'Working…',
+    'review.memory.accept': 'Accept',
+    'review.memory.reject': 'Reject',
+    'review.memory.accepted': 'Accepted → {key}',
+    'review.memory.rejected': 'Rejected',
   },
 }

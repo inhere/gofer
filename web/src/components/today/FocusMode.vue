@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import DecisionCard from './DecisionCard.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
 import { actOnCard, handledOpen, overlayOpen, snoozeCard, snoozedOpen, visibleCards } from '../../store/today'
+import { t } from '../../i18n'
 import { isTypingTarget } from '../../utils/today'
 import { focusCommand, focusProgress, swipeCommand, type FocusCommand } from '../../utils/todayFocus'
 import type { SnoozeOption } from '../../utils/todaySnooze'
@@ -107,15 +108,15 @@ function onKey(ev: KeyboardEvent): void {
 let touchX = 0
 let touchY = 0
 function onTouchStart(ev: TouchEvent): void {
-  const t = ev.changedTouches[0]
-  if (!t) return
-  touchX = t.clientX
-  touchY = t.clientY
+  const touch = ev.changedTouches[0]
+  if (!touch) return
+  touchX = touch.clientX
+  touchY = touch.clientY
 }
 function onTouchEnd(ev: TouchEvent): void {
-  const t = ev.changedTouches[0]
-  if (!t || isTypingTarget(ev.target)) return
-  const cmd = swipeCommand(t.clientX - touchX, t.clientY - touchY)
+  const touch = ev.changedTouches[0]
+  if (!touch || isTypingTarget(ev.target)) return
+  const cmd = swipeCommand(touch.clientX - touchX, touch.clientY - touchY)
   if (cmd) run(cmd)
 }
 
@@ -129,11 +130,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="root" class="fm" role="dialog" aria-modal="true" aria-label="专注处理" tabindex="-1" data-test="focus-mode">
+  <div ref="root" class="fm" role="dialog" aria-modal="true" :aria-label="t('today.focus.title')" tabindex="-1" data-test="focus-mode">
     <header class="fm-head mono">
       <span v-if="current" class="fm-pos" data-test="focus-pos">{{ progress.pos }} / {{ progress.total }}</span>
-      <span v-if="skipped.size" class="fm-skip">跳过 {{ skipped.size }}</span>
-      <button class="fm-x" type="button" data-test="focus-exit" @click="emit('close')">退出 Esc</button>
+      <span v-if="skipped.size" class="fm-skip">{{ t('today.focus.skipped', { n: skipped.size }) }}</span>
+      <button class="fm-x" type="button" data-test="focus-exit" @click="emit('close')">{{ t('today.focus.exit') }}</button>
     </header>
     <div class="fm-bar" aria-hidden="true"><i :style="{ width: `${progress.percent}%` }"></i></div>
     <main class="fm-stage" @touchstart.passive="onTouchStart" @touchend="onTouchEnd">
@@ -148,28 +149,28 @@ onUnmounted(() => {
         @navigate="emit('close')"
       />
       <div v-else class="fm-done" data-test="focus-done">
-        <h3>全部处理完</h3>
-        <p class="mono">本轮处理 {{ doneCount }} 张 · 按建议 {{ adviceCount }} 张</p>
-        <p v-if="leftCount" class="mono">跳过和稍后的卡还在队列里</p>
-        <button class="fm-back" type="button" data-test="focus-back" @click="emit('close')">回到首页</button>
+        <h3>{{ t('today.focus.allDone') }}</h3>
+        <p class="mono">{{ t('today.focus.allDoneStats', { done: doneCount, advice: adviceCount }) }}</p>
+        <p v-if="leftCount" class="mono">{{ t('today.focus.allDoneRemaining') }}</p>
+        <button class="fm-back" type="button" data-test="focus-back" @click="emit('close')">{{ t('today.focus.backHome') }}</button>
       </div>
       <nav v-if="current" class="fm-nav mono">
-        <button type="button" :disabled="index <= 0" @click="run({ kind: 'prev' })">上一张</button>
-        <button type="button" @click="run({ kind: 'skip' })">跳过</button>
-        <button type="button" :disabled="index >= queue.length - 1" @click="run({ kind: 'next' })">下一张</button>
+        <button type="button" :disabled="index <= 0" @click="run({ kind: 'prev' })">{{ t('today.focus.prev') }}</button>
+        <button type="button" @click="run({ kind: 'skip' })">{{ t('today.focus.skip') }}</button>
+        <button type="button" :disabled="index >= queue.length - 1" @click="run({ kind: 'next' })">{{ t('today.focus.next') }}</button>
       </nav>
     </main>
     <footer class="fm-keys mono">
-      <span><kbd>j</kbd>/<kbd>k</kbd> 切换</span>
-      <span><kbd>1-9</kbd> 操作</span>
-      <span><kbd>a</kbd> 通过/采纳</span>
-      <span><kbd>r</kbd> 回复</span>
-      <span><kbd>i</kbd> 详情</span>
-      <span><kbd>h</kbd> 稍后</span>
-      <span><kbd>s</kbd> 跳过</span>
-      <span><kbd>z</kbd> 撤销</span>
+      <span><kbd>j</kbd>/<kbd>k</kbd> {{ t('today.focus.keySwitch') }}</span>
+      <span><kbd>1-9</kbd> {{ t('today.focus.keyAction') }}</span>
+      <span><kbd>a</kbd> {{ t('today.focus.keyApprove') }}</span>
+      <span><kbd>r</kbd> {{ t('today.focus.keyReply') }}</span>
+      <span><kbd>i</kbd> {{ t('today.focus.keyInfo') }}</span>
+      <span><kbd>h</kbd> {{ t('today.focus.keySnooze') }}</span>
+      <span><kbd>s</kbd> {{ t('today.focus.keySkip') }}</span>
+      <span><kbd>z</kbd> {{ t('today.focus.keyUndo') }}</span>
     </footer>
-    <footer class="fm-swipe mono">左右滑切换</footer>
+    <footer class="fm-swipe mono">{{ t('today.focus.swipe') }}</footer>
   </div>
 </template>
 
