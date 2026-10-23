@@ -3,9 +3,12 @@
 // 「重新读取文件」即生效。secret 只显示变量名和 server 本机是否已设置；「测试」在 server
 // 本机启动 / 连接该 MCP server，握手并列出工具（worker 上的 job 读 worker 自己的环境，
 // 到那台机器上用 `gofer agent mcp test <name>` 测）。
+// UI 重设计 P5-d：FormSection 分节 + 文案走 i18n（settings.mcp.*）。
 import { onMounted, ref } from 'vue'
 import { listMCPServers, testMCPServer } from '../../api/client'
 import type { MCPProbeResp, MCPServerView } from '../../api/types'
+import { t } from '../../i18n'
+import FormSection from '../../ui/FormSection.vue'
 import { mcpBoundText, mcpMissingSecrets, mcpTarget } from '../../utils/mcpView'
 
 const servers = ref<MCPServerView[]>([])
@@ -47,60 +50,93 @@ onMounted(() => {
 
 <template>
   <div class="mcp">
-    <div class="head">
-      <h2 class="title mono">MCP 注册表</h2>
-      <button class="mini-btn mono" type="button" :disabled="loading" @click="load()">
-        {{ loading ? '刷新中...' : '刷新' }}
+    <header class="page-head">
+      <div class="grow">
+        <h1>{{ t('settings.mcp.title') }}</h1>
+        <p class="sub">{{ t('settings.mcp.sub') }}</p>
+      </div>
+      <button class="btn" type="button" :disabled="loading" @click="load()">
+        {{ loading ? t('settings.mcp.refreshing') : t('act.refresh') }}
       </button>
-    </div>
-    <p class="note mono">
-      在 server 配置的 <code>mcp_servers</code> 里声明，用 <code>server.mcp</code> / <code>agents.&lt;k&gt;.mcp</code> /
-      <code>projects.&lt;k&gt;.mcp</code> / <code>job run --mcp</code> 绑定。secret 只写环境变量名，值由执行 job 的机器提供。
-    </p>
-    <p v-if="error" class="error mono" :title="error">读取失败：{{ error }}</p>
-    <p v-else-if="loaded && servers.length === 0" class="note mono">还没有声明任何 MCP server。</p>
+    </header>
 
-    <div v-for="s in servers" :key="s.name" class="card">
+    <p class="note">
+      {{ t('settings.mcp.introBefore') }} <code>mcp_servers</code>
+      {{ t('settings.mcp.introMiddle') }} <code>server.mcp</code> / <code>agents.&lt;k&gt;.mcp</code> /
+      <code>projects.&lt;k&gt;.mcp</code> / <code>job run --mcp</code> {{ t('settings.mcp.introAfter') }}
+    </p>
+
+    <p v-if="error" class="msg msg--err" :title="error">
+      {{ t('settings.mcp.loadFailed', { error }) }}
+    </p>
+    <p v-else-if="loaded && servers.length === 0" class="msg" data-testid="mcp-empty">
+      {{ t('settings.mcp.empty') }}
+    </p>
+
+    <FormSection
+      v-for="s in servers"
+      :key="s.name"
+      :title="s.name"
+      :desc="s.spec.desc || undefined"
+    >
       <div class="card-head">
-        <span class="name mono">{{ s.name }}</span>
         <span class="tag mono">{{ s.spec.type || 'stdio' }}</span>
-        <span v-if="!s.enabled" class="tag tag--off mono">已停用</span>
+        <span v-if="!s.enabled" class="tag tag--off">{{ t('settings.mcp.disabled') }}</span>
         <span class="spacer" />
-        <button class="mini-btn mono" type="button" :disabled="probing[s.name]" @click="probe(s.name)">
-          {{ probing[s.name] ? '测试中...' : '测试' }}
+        <button class="btn" type="button" :disabled="probing[s.name]" @click="probe(s.name)">
+          {{ probing[s.name] ? t('settings.mcp.testing') : t('settings.mcp.test') }}
         </button>
       </div>
-      <p v-if="s.spec.desc" class="desc">{{ s.spec.desc }}</p>
-      <dl class="grid mono">
-        <dt>{{ (s.spec.type || 'stdio') === 'http' ? 'URL' : '命令' }}</dt>
-        <dd class="brk">{{ mcpTarget(s) }}</dd>
+
+      <dl class="grid">
+        <dt>{{ (s.spec.type || 'stdio') === 'http' ? 'URL' : t('settings.mcp.command') }}</dt>
+        <dd class="brk mono">{{ mcpTarget(s) }}</dd>
         <template v-if="s.secrets.length > 0">
           <dt>secret</dt>
-          <dd class="secrets">
+          <dd class="secrets mono">
             <span v-for="sec in s.secrets" :key="sec.usage" class="secret" :class="{ missing: !sec.set }">
-              {{ sec.usage }} ← ${{ sec.env }}{{ sec.set ? '' : '（server 未设置）' }}
+              {{ sec.usage }} ← ${{ sec.env }}{{ sec.set ? '' : t('settings.mcp.secretUnset') }}
             </span>
           </dd>
         </template>
         <template v-if="s.spec.tools && s.spec.tools.length > 0">
-          <dt>工具白名单</dt>
-          <dd class="brk">{{ s.spec.tools.join(', ') }}</dd>
+          <dt>{{ t('settings.mcp.tools') }}</dt>
+          <dd class="brk mono">{{ s.spec.tools.join(', ') }}</dd>
         </template>
-        <dt>绑定</dt>
-        <dd class="brk">{{ mcpBoundText(s) || '未绑定（只有 job run --mcp 显式指定时才会用到）' }}</dd>
+        <dt>{{ t('settings.mcp.bound') }}</dt>
+        <dd class="brk mono">{{ mcpBoundText(s) || t('settings.mcp.unbound') }}</dd>
       </dl>
-      <p v-if="mcpMissingSecrets(s).length > 0" class="warn mono">
-        server 本机缺 {{ mcpMissingSecrets(s).join(', ') }}：在本机运行、绑定了它的 job 会被拒绝。
+
+      <p v-if="mcpMissingSecrets(s).length > 0" class="warn">
+        {{ t('settings.mcp.missingSecrets', { names: mcpMissingSecrets(s).join(', ') }) }}
       </p>
-      <div v-if="probes[s.name]" class="probe mono" :class="probes[s.name].ok ? 'probe--ok' : 'probe--fail'">
+
+      <div
+        v-if="probes[s.name]"
+        class="probe mono"
+        :class="probes[s.name].ok ? 'probe--ok' : 'probe--fail'"
+        data-testid="mcp-probe"
+      >
         <template v-if="probes[s.name].ok && probes[s.name].result">
-          连接成功 · {{ probes[s.name].result?.server_name || '—' }} {{ probes[s.name].result?.server_version }}
-          · {{ probes[s.name].result?.elapsed_ms }} ms
-          <div class="brk">工具（{{ probes[s.name].result?.tools.length }}）：{{ probes[s.name].result?.tools.join(', ') || '无' }}</div>
+          {{
+            t('settings.mcp.connected', {
+              name: probes[s.name].result?.server_name || '—',
+              version: probes[s.name].result?.server_version || '',
+              ms: probes[s.name].result?.elapsed_ms ?? 0,
+            })
+          }}
+          <div class="brk">
+            {{
+              t('settings.mcp.toolList', {
+                n: probes[s.name].result?.tools.length ?? 0,
+                tools: probes[s.name].result?.tools.join(', ') || t('settings.mcp.noTools'),
+              })
+            }}
+          </div>
         </template>
-        <template v-else>失败：{{ probes[s.name].error }}</template>
+        <template v-else>{{ t('settings.mcp.failed', { error: probes[s.name].error || '' }) }}</template>
       </div>
-    </div>
+    </FormSection>
   </div>
 </template>
 
@@ -109,46 +145,51 @@ onMounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 10px;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
   gap: 12px;
 }
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.title {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  color: var(--queue);
-  margin: 0;
-}
-.note {
-  font-size: 12px;
-  color: var(--queue);
-  margin: 0;
-}
-.card {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px 14px;
+.page-head .grow {
+  flex: 1;
   min-width: 0;
 }
+.page-head h1 {
+  margin: 0 0 4px;
+  font-size: var(--fs-xl);
+  color: var(--fg);
+}
+.sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--fg-3);
+}
+
+.note {
+  font-size: var(--fs-sm);
+  color: var(--fg-3);
+  margin: 0;
+  line-height: 1.6;
+}
+.note code {
+  color: var(--fg-2);
+}
+
 .card-head {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
 }
-.name {
-  font-size: 13px;
-  color: var(--paper);
-}
 .tag {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 0 6px;
-  color: var(--queue);
+  border-radius: var(--r-chip);
+  padding: 1px 6px;
+  color: var(--fg-2);
 }
 .tag--off {
   color: var(--fail);
@@ -157,24 +198,20 @@ onMounted(() => {
 .spacer {
   flex: 1;
 }
-.desc {
-  margin: 6px 0 0;
-  font-size: 12px;
-  color: var(--paper);
-}
+
 .grid {
   display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
+  grid-template-columns: 110px minmax(0, 1fr);
   gap: 6px 12px;
-  margin: 8px 0 0;
-  font-size: 12px;
+  margin: 10px 0 0;
+  font-size: var(--fs-sm);
 }
 .grid dt {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 .grid dd {
   margin: 0;
-  color: var(--paper);
+  color: var(--fg);
   min-width: 0;
 }
 .secrets {
@@ -188,55 +225,68 @@ onMounted(() => {
 .brk {
   word-break: break-all;
 }
+
 .warn {
-  margin: 8px 0 0;
-  font-size: 12px;
+  margin: 10px 0 0;
+  font-size: var(--fs-sm);
   color: var(--fail);
 }
+
 .probe {
-  margin-top: 8px;
-  font-size: 12px;
-  border-radius: var(--radius);
-  padding: 6px 10px;
+  margin-top: 10px;
+  font-size: var(--fs-sm);
+  border-radius: var(--r-ctl);
+  padding: 8px 10px;
   border: 1px solid var(--line);
 }
 .probe--ok {
-  color: var(--done);
-  border-color: var(--done);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .probe--fail {
   color: var(--fail);
   border-color: var(--fail);
   word-break: break-word;
 }
-.mini-btn {
-  background: transparent;
-  color: var(--phosphor);
+
+.btn {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 11px;
-  cursor: pointer;
+  border-radius: var(--r-ctl);
+  padding: 6px 12px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  background: transparent;
+  color: var(--fg);
 }
-.mini-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
 }
-.mini-btn:disabled {
-  color: var(--queue);
+.btn:disabled {
+  opacity: 0.5;
   cursor: default;
 }
-.error {
-  color: var(--fail);
-  font-size: 12px;
-  border: 1px solid var(--fail);
-  border-radius: var(--radius);
-  padding: 8px 10px;
+
+.msg {
   margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 10px 12px;
+  font-size: var(--fs-sm);
+  color: var(--fg-2);
+}
+.msg--err {
+  color: var(--fail);
+  border-color: var(--fail);
   word-break: break-word;
 }
+
 @media (max-width: 480px) {
   .grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .page-head {
+    flex-direction: column;
   }
 }
 </style>

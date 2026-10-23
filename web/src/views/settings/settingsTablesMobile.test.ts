@@ -27,7 +27,8 @@ describe('设置页表格在手机档的处理', () => {
     expect(block).toMatch(/\.table-wrap \.table \{[^}]*min-width: \d+px/)
   })
 
-  it('设置区的导航条保持横向滚动（不改成换行堆叠）', () => {
-    expect(layout).toMatch(/\.settings-nav \{[^}]*overflow-x: auto/)
+  it('设置区的二级导航在手机上变成下拉框（竖排导航隐藏）', () => {
+    const block = layout.slice(layout.indexOf('@media (max-width: 760px)'))
+    expect(block).toMatch(/\.set-select-wrap \{\s*display: block/)
   })
 })

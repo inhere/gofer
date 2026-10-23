@@ -1,80 +1,83 @@
 <script setup lang="ts">
-// WEB-12：设置区外壳 —— 左侧二级菜单 + <router-view>。
+// 设置区外壳（UI 重设计 P5-d，设计稿 §7.4）：二级导航 + <router-view>。
 //
-// 设置页以后会越来越多（配置管理 / Tunnels / 关于 / …），顶栏只留一个「⚙ 设置」入口，
-// 进来后由这里分栏。加一个设置页 = sections 里加一行 + router.ts 加一个子路由，
-// 不用再动顶栏。
-import { computed, nextTick, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import { NAV, PAGE } from '../../utils/uiText'
+// 桌面（≥761）是左侧竖排导航；手机（≤760）收成下拉框（预览稿 .set-nav/.set-select）。
+// 加一个设置页 = sections 里加一行 + router.routes.ts 加一个子路由，不用再动侧栏。
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { t } from '../../i18n'
 
 interface SettingsSection {
   to: string
-  label: string
+  /** 导航文案的 i18n key（settings.nav.*）。 */
+  key: string
 }
 
 const sections: SettingsSection[] = [
-  { to: '/settings/config', label: '配置管理' },
-  // JOB-06①：强制规则库（与「配置管理」同属"资产"，放在它后面）。
-  { to: '/settings/rules', label: PAGE.rules },
+  { to: '/settings/config', key: 'settings.nav.config' },
+  // JOB-06①：强制规则库（与「配置管理」同属「资产」，放在它后面）。
+  { to: '/settings/rules', key: 'settings.nav.rules' },
   // MCP-06：MCP 注册表，与 Rules / Skills 同属 agent 的「资产」。
-  { to: '/settings/mcp', label: 'MCP' },
-  { to: '/settings/tunnels', label: '隧道' },
-  { to: '/settings/notifications', label: '通知' },
+  { to: '/settings/mcp', key: 'settings.nav.mcp' },
+  { to: '/settings/tunnels', key: 'settings.nav.tunnels' },
+  { to: '/settings/notifications', key: 'settings.nav.notifications' },
   // 权限目录 / 授权 / 会话授权 / 审计（根管理员可写，其余只读）。
-  { to: '/settings/permissions', label: '权限' },
+  { to: '/settings/permissions', key: 'settings.nav.permissions' },
   // W2a：工作项的被动整理 / 请求超时 / 自动交接 / 每日摘要
-  { to: '/settings/work', label: NAV.work },
+  { to: '/settings/work', key: 'settings.nav.work' },
   // K5：扩展设置（数据库里的降噪阈值 / 排除名单 / 提示词覆盖）。
-  { to: '/settings/extensions', label: '扩展设置' },
-  { to: '/settings/skills', label: PAGE.skills },
-  { to: '/settings/about', label: '关于' },
+  { to: '/settings/extensions', key: 'settings.nav.extensions' },
+  { to: '/settings/skills', key: 'settings.nav.skills' },
+  { to: '/settings/about', key: 'settings.nav.about' },
 ]
 
 const route = useRoute()
+const router = useRouter()
 
 // 子路径也算命中（/settings/tunnels 下若将来有详情页，菜单项仍高亮）。
 function isActive(to: string): boolean {
   return route.path === to || route.path.startsWith(to + '/')
 }
 
-const activeLabel = computed(
-  () => sections.find((s) => isActive(s.to))?.label ?? '',
-)
+const active = computed(() => sections.find((s) => isActive(s.to)))
+const activeLabel = computed(() => (active.value ? t(active.value.key) : ''))
 
-async function revealActiveSection(): Promise<void> {
-  await nextTick()
-  document.querySelector<HTMLElement>('.settings-nav .nav-item--active')?.scrollIntoView({
-    block: 'nearest',
-    inline: 'center',
-  })
+// 手机下拉框：选中即跳转（replace 不堆历史，与点导航等价）。
+function onPick(event: Event): void {
+  const to = (event.target as HTMLSelectElement).value
+  if (to && to !== route.path) void router.push(to)
 }
 
-onMounted(() => void revealActiveSection())
-watch(() => route.path, () => void revealActiveSection())
+// 深链进来时把选中项写回下拉框（route.path 不在表里时不动）。
+const selected = computed(() => active.value?.to ?? '')
 </script>
 
 <template>
   <div class="settings">
     <div class="settings-head">
-      <h1 class="title mono">{{ PAGE.settings }}</h1>
-      <span v-if="activeLabel" class="crumb mono">{{ activeLabel }}</span>
+      <h1 class="title">{{ t('nav.settings') }}</h1>
+      <span v-if="activeLabel" class="crumb">{{ activeLabel }}</span>
     </div>
 
     <div class="settings-body">
-      <nav class="settings-nav mono" aria-label="设置分区">
-        <RouterLink
-          v-for="s in sections"
-          :key="s.to"
-          :to="s.to"
-          class="nav-item"
-          :class="{ 'nav-item--active': isActive(s.to) }"
-        >
-          {{ s.label }}
+      <nav class="set-nav" :aria-label="t('settings.navLabel')">
+        <RouterLink v-for="s in sections" :key="s.to" :to="s.to" class="nav-item">
+          {{ t(s.key) }}
         </RouterLink>
       </nav>
 
       <div class="settings-pane">
+        <label class="set-select-wrap">
+          <span class="sr-only">{{ t('settings.navLabel') }}</span>
+          <select
+            class="set-select"
+            :value="selected"
+            data-testid="settings-nav-select"
+            @change="onPick"
+          >
+            <option v-for="s in sections" :key="s.to" :value="s.to">{{ t(s.key) }}</option>
+          </select>
+        </label>
         <RouterView />
       </div>
     </div>
@@ -83,8 +86,7 @@ watch(() => route.path, () => void revealActiveSection())
 
 <style scoped>
 .settings {
-  max-width: 1180px;
-  margin: 0 auto;
+  min-width: 0;
 }
 .settings-head {
   display: flex;
@@ -92,86 +94,95 @@ watch(() => route.path, () => void revealActiveSection())
   gap: 10px;
   margin-bottom: 14px;
 }
+.title {
+  margin: 0;
+  font-size: var(--fs-2xl);
+  color: var(--fg);
+}
 .crumb {
-  color: var(--phosphor);
-  font-size: 12px;
+  color: var(--accent);
+  font-size: var(--fs-sm);
 }
 .crumb::before {
   content: '▸ ';
-  color: var(--queue);
+  color: var(--fg-3);
 }
 
 .settings-body {
-  display: flex;
-  align-items: flex-start;
-  gap: 18px;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 720px);
+  gap: 32px;
+  align-items: start;
 }
-.settings-nav {
-  flex: none;
-  width: 160px;
-  display: flex;
-  flex-direction: column;
+.set-nav {
+  display: grid;
   gap: 2px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 6px;
+  align-content: start;
   position: sticky;
-  top: 12px;
+  top: 0;
 }
 .nav-item {
-  display: block;
-  color: var(--queue);
-  border: 1px solid transparent;
-  border-radius: var(--radius);
+  text-align: left;
   padding: 7px 10px;
-  font-size: 12px;
+  border-radius: var(--r-ctl);
+  color: var(--fg-2);
+  font-size: var(--fs-md);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .nav-item:hover {
-  color: var(--paper);
-  background: var(--panel);
+  background: var(--sunken);
+  color: var(--fg);
   text-decoration: none;
 }
-.nav-item--active {
-  color: var(--phosphor);
-  border-color: var(--line);
-  background: var(--panel);
+.nav-item[aria-current='page'] {
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line);
 }
 
 .settings-pane {
-  flex: 1;
   min-width: 0;
 }
 
-/* 窄屏：二级菜单折叠为顶部横向 tab。 */
-@media (max-width: 768px) {
+/* 手机才有的下拉框；桌面上隐藏（保留在 DOM 里便于读屏器与测试定位）。 */
+.set-select-wrap {
+  display: none;
+}
+.set-select {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-md);
+}
+
+/* 平板：导航收窄，保持竖排。 */
+@media (max-width: 1099px) {
   .settings-body {
-    flex-direction: column;
-    /* 宽屏的 flex-start 是为了让左轨不纵向拉伸；换成 column 后它会把内容宽度
-       收成"最宽的一行"，面板就不再占满——这里改回 stretch。 */
-    align-items: stretch;
-    gap: 12px;
-  }
-  .settings-nav {
-    width: 100%;
-    flex-direction: row;
-    position: static;
-    overflow-x: auto;
-    scrollbar-width: thin;
-    position: relative;
-  }
-  .nav-item {
-    flex: none;
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 24px;
   }
 }
 
-@media (max-width: 640px) {
-  .settings-nav {
-    padding-right: 28px;
-    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+/* 手机：竖排导航换成下拉框。 */
+@media (max-width: 760px) {
+  .settings-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
   }
-  .nav-item {
-    padding-inline: 9px;
+  .set-nav {
+    display: none;
+  }
+  .set-select-wrap {
+    display: block;
+    margin-bottom: 12px;
   }
 }
 </style>

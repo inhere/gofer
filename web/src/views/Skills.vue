@@ -13,7 +13,7 @@ import {
   updateSkill,
 } from '../api/skills'
 import { fmtAgo, fmtDateTime } from '../api/time'
-import { COL, PAGE } from '../utils/uiText'
+import { t } from '../i18n'
 import type { Skill, SkillChange, SkillDetail } from '../api/types'
 
 const skills = ref<Skill[]>([])
@@ -124,7 +124,11 @@ async function runImportZip(): Promise<void> {
   notice.value = ''
   try {
     const resp = await importSkillZip(file)
-    notice.value = `已导入 ${resp.skill.name}（${resp.replaced ? '覆盖同名技能' : '新增'}）· ${file.name}`
+    notice.value = t('settings.skills.imported', {
+      name: resp.skill.name,
+      kind: resp.replaced ? t('settings.skills.replaced') : t('settings.skills.added'),
+      source: file.name,
+    })
     zipFile.value = null
     if (zipInput.value) {
       zipInput.value.value = ''
@@ -132,7 +136,7 @@ async function runImportZip(): Promise<void> {
     await load()
     await openDetail(resp.skill.name)
   } catch (e) {
-    actionError.value = `导入失败：${errorMessage(e)}`
+    actionError.value = t('settings.skills.importFailed', { error: errorMessage(e) })
   } finally {
     busy.value = ''
   }
@@ -148,12 +152,16 @@ async function runImportSource(): Promise<void> {
   notice.value = ''
   try {
     const resp = await importSkillSource(spec)
-    notice.value = `已导入 ${resp.skill.name}（${resp.replaced ? '覆盖同名技能' : '新增'}）· ${spec}`
+    notice.value = t('settings.skills.imported', {
+      name: resp.skill.name,
+      kind: resp.replaced ? t('settings.skills.replaced') : t('settings.skills.added'),
+      source: spec,
+    })
     sourceSpec.value = ''
     await load()
     await openDetail(resp.skill.name)
   } catch (e) {
-    actionError.value = `导入失败：${errorMessage(e)}`
+    actionError.value = t('settings.skills.importFailed', { error: errorMessage(e) })
   } finally {
     busy.value = ''
   }
@@ -176,12 +184,12 @@ async function runUpdate(name: string): Promise<void> {
       (resp.change.added?.length ?? 0) +
       (resp.change.changed?.length ?? 0) +
       (resp.change.removed?.length ?? 0)
-    notice.value = n === 0 ? `${name} 已是最新（来源无变化）` : `${name} 已更新：${n} 个文件变化`
+    notice.value = n === 0 ? t('settings.skills.upToDate', { name }) : t('settings.skills.updated', { name, n })
     await load()
     // 展开这一行：diff 显示在它的详情块里（不展开的话，用户只看到提示条里的一句计数）。
     await openDetail(name)
   } catch (e) {
-    actionError.value = `更新 ${name} 失败：${errorMessage(e)}`
+    actionError.value = t('settings.skills.updateFailed', { name, error: errorMessage(e) })
   } finally {
     busy.value = ''
   }
@@ -191,7 +199,7 @@ async function runDelete(s: Skill): Promise<void> {
   if (busy.value !== '') {
     return
   }
-  if (!window.confirm(`删除技能「${s.name}」？库里的文件会一起删掉，绑定它的 agent/project 将不再挂载它。`)) {
+  if (!window.confirm(t('settings.skills.confirmDelete', { name: s.name }))) {
     return
   }
   busy.value = s.name
@@ -199,7 +207,7 @@ async function runDelete(s: Skill): Promise<void> {
   notice.value = ''
   try {
     await deleteSkill(s.name)
-    notice.value = `技能 ${s.name} 已删除`
+    notice.value = t('settings.skills.deleted', { name: s.name })
     if (changeFor.value === s.name) {
       change.value = null
       changeFor.value = ''
@@ -224,9 +232,9 @@ async function runExport(name: string): Promise<void> {
   notice.value = ''
   try {
     await exportSkill(name)
-    notice.value = `已导出 ${name}.zip`
+    notice.value = t('settings.skills.exported', { name })
   } catch (e) {
-    actionError.value = `导出 ${name} 失败：${errorMessage(e)}`
+    actionError.value = t('settings.skills.exportFailed', { name, error: errorMessage(e) })
   } finally {
     busy.value = ''
   }
@@ -240,17 +248,16 @@ onMounted(() => {
 <template>
   <div class="skills">
     <div class="head">
-      <h1 class="title mono">{{ PAGE.skills }}</h1>
+      <h1 class="title mono">{{ t('settings.skills.title') }}</h1>
       <button class="mini-btn mono" type="button" :disabled="loading" @click="load()">
-        {{ loading ? '刷新中…' : '刷新' }}
+        {{ loading ? t('settings.skills.refreshing') : t('act.refresh') }}
       </button>
       <span class="poll-hint mono" :class="{ 'poll-hint--on': loading }">●</span>
     </div>
 
     <p class="scope-note mono">
-      技能库在 <b>serve 主机</b>的 &lt;config-dir&gt;/skills/ 下：导入即解包落盘，派发时按
-      server → agent → project → job 的并集物化到 job 私有目录（不写进项目工作树）。
-      绑定关系在 <RouterLink to="/settings/config">配置页</RouterLink> 编辑；写操作需要 can_admin。
+      {{ t('settings.skills.scopeBefore') }}
+      <RouterLink to="/settings/config">{{ t('settings.skills.scopeLink') }}</RouterLink>{{ t('settings.skills.scopeAfter') }}
     </p>
 
     <p v-if="loadError" class="error mono">{{ loadError }}</p>
@@ -258,10 +265,10 @@ onMounted(() => {
     <p v-if="notice" class="notice mono">{{ notice }}</p>
 
     <section class="panel import-panel">
-      <h2 class="panel-title mono">导入</h2>
+      <h2 class="panel-title mono">{{ t('settings.skills.import') }}</h2>
       <div class="import-row">
         <label class="field">
-          <span class="field-name">zip 包（multipart part: file）</span>
+          <span class="field-name">{{ t('settings.skills.zipLabel') }}</span>
           <input ref="zipInput" class="input" type="file" accept=".zip" @change="onZipPicked" />
         </label>
         <button
@@ -270,11 +277,11 @@ onMounted(() => {
           :disabled="busy !== '' || zipFile === null"
           @click="runImportZip()"
         >
-          {{ busy === 'import' ? '导入中…' : '导入 zip' }}
+          {{ busy === 'import' ? t('settings.skills.importing') : t('settings.skills.importZip') }}
         </button>
 
         <label class="field field--spec">
-          <span class="field-name">导入源（目录 / zip / URL）</span>
+          <span class="field-name">{{ t('settings.skills.sourceLabel') }}</span>
           <input
             v-model.trim="sourceSpec"
             class="input mono"
@@ -289,23 +296,20 @@ onMounted(() => {
           :disabled="busy !== '' || sourceSpec === ''"
           @click="runImportSource()"
         >
-          {{ busy === 'import' ? '导入中…' : '按 source 导入' }}
+          {{ busy === 'import' ? t('settings.skills.importing') : t('settings.skills.importSource') }}
         </button>
       </div>
-      <p class="hint mono">
-        导入要一个含 SKILL.md 的目录或 zip；http(s)/git 源由 server 侧拉取（不经浏览器），
-        source_ref 会记下原始 spec，供「更新」原样重取。
-      </p>
+      <p class="hint mono">{{ t('settings.skills.importHint') }}</p>
     </section>
 
     <div class="table">
       <div class="thead mono">
-        <span>名称</span>
-        <span>描述</span>
-        <span>版本</span>
-        <span>大小</span>
-        <span>更新时间</span>
-        <span>{{ COL.actions }}</span>
+        <span>{{ t('settings.skills.col.name') }}</span>
+        <span>{{ t('settings.skills.col.desc') }}</span>
+        <span>{{ t('settings.skills.col.version') }}</span>
+        <span>{{ t('settings.skills.col.size') }}</span>
+        <span>{{ t('settings.skills.col.updated') }}</span>
+        <span>{{ t('settings.skills.col.actions') }}</span>
       </div>
 
       <template v-for="s in skills" :key="s.name">
@@ -316,7 +320,7 @@ onMounted(() => {
               type="button"
               :aria-expanded="selectedName === s.name"
               :aria-controls="`skill-detail-${s.name}`"
-              :title="selectedName === s.name ? '收起详情' : '展开详情'"
+              :title="selectedName === s.name ? t('settings.skills.collapseDetail') : t('settings.skills.expandDetail')"
               @click.stop="toggleDetail(s.name)"
             >
               <span class="chev" aria-hidden="true">{{ selectedName === s.name ? '▾' : '▸' }}</span>
@@ -335,19 +339,19 @@ onMounted(() => {
               class="mini-btn mono"
               type="button"
               :disabled="busy !== ''"
-              title="按 source 重新拉取并显示文件差异"
+              :title="t('settings.skills.updateTitle')"
               @click.stop="runUpdate(s.name)"
             >
-              更新
+              {{ t('settings.skills.update') }}
             </button>
             <button
               class="mini-btn mono"
               type="button"
               :disabled="busy !== ''"
-              title="下载技能包 zip"
+              :title="t('settings.skills.exportTitle')"
               @click.stop="runExport(s.name)"
             >
-              导出
+              {{ t('settings.skills.export') }}
             </button>
             <button
               class="mini-btn mini-btn--danger mono"
@@ -355,13 +359,13 @@ onMounted(() => {
               :disabled="busy !== ''"
               @click.stop="runDelete(s)"
             >
-              删除
+              {{ t('settings.skills.delete') }}
             </button>
           </span>
         </div>
 
         <div v-if="selectedName === s.name" :id="`skill-detail-${s.name}`" class="detail mono">
-          <p v-if="detailLoading" class="muted">详情加载中…</p>
+          <p v-if="detailLoading" class="muted">{{ t('settings.skills.detailLoading') }}</p>
           <p v-else-if="detailError" class="error">{{ detailError }}</p>
           <template v-else-if="detail">
             <div class="detail-grid">
@@ -374,7 +378,7 @@ onMounted(() => {
             </div>
 
             <div v-if="changeFor === s.name && change" class="change">
-              <div class="detail-head">本次更新</div>
+              <div class="detail-head">{{ t('settings.skills.thisUpdate') }}</div>
               <div class="change-lines">
                 <span v-for="p in change.added ?? []" :key="`a:${p}`" class="change-line change-line--add">+ {{ p }}</span>
                 <span v-for="p in change.changed ?? []" :key="`c:${p}`" class="change-line change-line--mod">~ {{ p }}</span>
@@ -382,12 +386,12 @@ onMounted(() => {
                 <span
                   v-if="!(change.added?.length ?? 0) && !(change.changed?.length ?? 0) && !(change.removed?.length ?? 0)"
                   class="muted"
-                >来源内容无变化</span>
+                >{{ t('settings.skills.noChange') }}</span>
               </div>
             </div>
 
             <div class="detail-head">
-              文件（{{ detail.files?.length ?? 0 }}）
+              {{ t('settings.skills.files', { n: detail.files?.length ?? 0 }) }}
             </div>
             <div class="files">
               <div v-for="f in detail.files ?? []" :key="f.path" class="file-row">
@@ -395,7 +399,7 @@ onMounted(() => {
                 <span class="file-size">{{ fmtSize(f.size) }}</span>
                 <span class="file-sha" :title="f.sha256">{{ shortHash(f.sha256) }}</span>
               </div>
-              <div v-if="!(detail.files?.length ?? 0)" class="muted">（无附件文件）</div>
+              <div v-if="!(detail.files?.length ?? 0)" class="muted">{{ t('settings.skills.noFiles') }}</div>
             </div>
 
             <div class="detail-head">SKILL.md</div>
@@ -404,8 +408,8 @@ onMounted(() => {
         </div>
       </template>
 
-      <div v-if="!hasSkills && !loadError && !loading" class="empty mono">技能库为空</div>
-      <div v-if="loading && !hasSkills" class="empty mono">加载中…</div>
+      <div v-if="!hasSkills && !loadError && !loading" class="empty mono">{{ t('settings.skills.empty') }}</div>
+      <div v-if="loading && !hasSkills" class="empty mono">{{ t('settings.skills.loading') }}</div>
     </div>
   </div>
 </template>

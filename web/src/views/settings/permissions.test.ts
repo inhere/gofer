@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { settings as settingsDict } from '../../i18n/pages/settings'
+
+const zh = settingsDict.zh
 
 const read = (glob: Record<string, unknown>): string => Object.values(glob)[0] as string
 const page = read(import.meta.glob('./Permissions.vue', { eager: true, query: '?raw', import: 'default' }))
@@ -16,8 +19,11 @@ describe('Permissions settings page wiring', () => {
   })
 
   it('has the four tabs', () => {
-    for (const t of ['grants', 'sessions', 'catalog', 'audit']) expect(page).toContain(`'${t}'`)
-    for (const l of ['授权', '会话授权', '权限目录', '审计']) expect(page).toContain(`label: '${l}'`)
+    for (const k of ['grants', 'sessions', 'catalog', 'audit']) expect(page).toContain(`key: '${k}'`)
+    // 页签文案走字典（settings.perm.tab.*），中文在 zh 字典里
+    for (const l of ['grants', 'sessions', 'catalog', 'audit']) expect(page).toContain(`label: 'settings.perm.tab.${l}'`)
+    const labels: Record<string, string> = { grants: '授权', sessions: '会话授权', catalog: '权限目录', audit: '审计' }
+    for (const [k, label] of Object.entries(labels)) expect(zh[`settings.perm.tab.${k}`]).toBe(label)
   })
 
   it('uses the documented auth endpoints', () => {

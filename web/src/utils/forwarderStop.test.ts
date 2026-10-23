@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TunnelForwarder } from '../api/types'
 import { forwarderStopState, forwarderStopUnsupportedHint } from './forwarderStop'
+import { settings as settingsDict } from '../i18n/pages/settings'
 
 const base: TunnelForwarder = {
   id: 'fw-1',
@@ -47,7 +48,8 @@ describe('Tunnels page stop controls', () => {
     for (const hook of ['fw-stop', 'fw-stop-confirm', 'fw-stop-cancel', 'fw-stopping', 'fw-stop-disabled']) {
       expect(page).toContain(`data-test="${hook}"`)
     }
-    expect(page).toContain('停止中（≤30 秒内退出）')
+    expect(settingsDict.zh['settings.tunnels.stopping']).toBe('停止中（≤30 秒内退出）')
+    expect(page).toContain("t('settings.tunnels.stopping')")
     expect(page).toContain('stopTunnelForwarder(')
     expect(page).not.toContain('window.confirm(`停止')
   })

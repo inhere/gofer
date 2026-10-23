@@ -3,6 +3,8 @@
 // 确认规则等纯逻辑在 utils/permissions.ts（有单测）；展开预览调服务端 GET /v1/auth/expand（防抖），
 // 展开规则只在服务端一份；这里只管取数与渲染。whoami 来自共享的 store/whoami.ts。
 // 管理类接口只有根管理员（auth.manage）能调；其余人与没有根管理员的部署只读，并给出说明。
+// UI 重设计 P5-d：页头 + 四个页签的文案走 i18n（settings.perm.*）；权限名、风险/范围/来源等
+// 来自服务端与 utils/permissions.ts 的标签保持原样。
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import {
   activateAuthGrant,
@@ -19,6 +21,7 @@ import { callerLabel, callerTitle } from '../../utils/callerLabel'
 import { refreshWhoami, useWhoami } from '../../store/whoami'
 import { CEILING_READ_ONLY_NOTICE, ceilingSummary } from '../../utils/ceiling'
 import { createPreviewScheduler } from '../../utils/expandPreview'
+import { t } from '../../i18n'
 import { canRenewGrant, grantRemainingText, grantRenewState } from '../../utils/grantRenew'
 import { grantEffectiveLabel } from '../../utils/sessionGrant'
 import {
@@ -52,10 +55,10 @@ import type {
 
 type Tab = 'grants' | 'sessions' | 'catalog' | 'audit'
 const tabs: { key: Tab; label: string; managed: boolean }[] = [
-  { key: 'grants', label: '授权', managed: true },
-  { key: 'sessions', label: '会话授权', managed: true },
-  { key: 'catalog', label: '权限目录', managed: false },
-  { key: 'audit', label: '审计', managed: true },
+  { key: 'grants', label: 'settings.perm.tab.grants', managed: true },
+  { key: 'sessions', label: 'settings.perm.tab.sessions', managed: true },
+  { key: 'catalog', label: 'settings.perm.tab.catalog', managed: false },
+  { key: 'audit', label: 'settings.perm.tab.audit', managed: true },
 ]
 const tab = ref<Tab>('grants')
 
@@ -127,7 +130,7 @@ async function onRevoke(g: AuthGrant): Promise<void> {
   notice.value = ''
   try {
     await revokeAuthGrant(g.id)
-    notice.value = `已撤销 ${g.pattern ?? g.id}，依赖它的长连接会断开。`
+    notice.value = t('settings.perm.revoked', { pattern: g.pattern ?? g.id })
     await reloadGrants()
   } catch (e) {
     actionError.value = msg(e)
@@ -142,7 +145,7 @@ async function onActivate(g: AuthGrant): Promise<void> {
   notice.value = ''
   try {
     await activateAuthGrant(g.id)
-    notice.value = `已确认恢复 ${g.pattern ?? g.id}。`
+    notice.value = t('settings.perm.activated', { pattern: g.pattern ?? g.id })
     await reloadGrants()
   } catch (e) {
     actionError.value = msg(e)
@@ -205,7 +208,7 @@ async function onCreate(): Promise<void> {
         note: form.note.trim() || undefined,
       })
     }
-    notice.value = `已授权 ${form.pattern}。`
+    notice.value = t('settings.perm.created', { pattern: form.pattern })
     form.pattern = ''
     form.note = ''
     form.confirmed = false
@@ -233,7 +236,7 @@ function remainsOf(g: AuthGrant): string {
 }
 function onRenewed(): void {
   actionError.value = ''
-  notice.value = '已续期：到期时间往后挪了，权限范围不变。'
+  notice.value = t('settings.perm.renewed')
   void reloadGrants()
 }
 
@@ -266,8 +269,10 @@ function auditByGrant(id?: string): void {
 }
 
 function expiryText(g: AuthGrant): string {
-  if (!g.expires_at) return '长期'
-  return g.expires_at * 1000 <= Date.now() ? `已于 ${fmtDateTime(g.expires_at)} 过期` : `至 ${fmtDateTime(g.expires_at)}`
+  if (!g.expires_at) return t('settings.perm.expiryForever')
+  return g.expires_at * 1000 <= Date.now()
+    ? t('settings.perm.expiredAt', { at: fmtDateTime(g.expires_at) })
+    : t('settings.perm.untilAt', { at: fmtDateTime(g.expires_at) })
 }
 
 onMounted(() => {
@@ -278,21 +283,26 @@ onMounted(() => {
 
 <template>
   <section class="perm" data-test="perm-page">
+    <header class="page-head">
+      <h1>{{ t('settings.perm.title') }}</h1>
+      <p class="sub">{{ t('settings.perm.sub') }}</p>
+    </header>
+
     <header class="who" data-test="perm-who">
       <template v-if="whoami">
         <span class="who-id mono" :title="callerTitle(whoami.caller_id, namesOf)">{{ callerLabel(whoami.caller_id, namesOf) }}</span>
         <span class="who-role mono" :class="{ 'who-role--root': whoami.root }">
-          {{ whoami.root ? '根管理员' : mode.canManage ? '权限管理员' : '普通账号' }}
+          {{ whoami.root ? t('settings.perm.role.root') : mode.canManage ? t('settings.perm.role.admin') : t('settings.perm.role.user') }}
         </span>
-        <span class="who-count mono">持有 {{ whoami.permissions.length }} 项权限</span>
+        <span class="who-count mono">{{ t('settings.perm.held', { n: whoami.permissions.length }) }}</span>
       </template>
-      <span v-else class="who-count mono">{{ loading ? '读取中…' : '' }}</span>
+      <span v-else class="who-count mono">{{ loading ? t('settings.perm.reading') : '' }}</span>
     </header>
 
     <div v-if="ceilingRows.length" class="ceiling-box" data-test="perm-ceiling">
       <p class="ceiling-title mono">
-        调用方上限（上限之外的资源与操作一律不可用）
-        <span v-if="readOnly" class="ceiling-ro mono">只读</span>
+        {{ t('settings.perm.ceilingTitle') }}
+        <span v-if="readOnly" class="ceiling-ro mono">{{ t('settings.perm.readonlyTag') }}</span>
       </p>
       <ul class="ceiling-list mono">
         <li v-for="line in ceilingRows" :key="line">{{ line }}</li>
@@ -302,24 +312,24 @@ onMounted(() => {
 
     <p v-if="loadError" class="msg msg--error mono" role="alert">{{ loadError }}</p>
     <p v-if="whoami && mode.readOnly" class="msg msg--warn" data-test="perm-readonly">
-      <strong>只读。</strong>{{ mode.reason || whoami.hint }}
+      <strong>{{ t('settings.perm.readonlyStrong') }}</strong>{{ mode.reason || whoami.hint }}
     </p>
 
-    <nav class="tabs mono" role="tablist" aria-label="权限">
+    <nav class="tabs mono" role="tablist" :aria-label="t('settings.nav.permissions')">
       <button
-        v-for="t in tabs"
-        :key="t.key"
+        v-for="tb in tabs"
+        :key="tb.key"
         type="button"
         role="tab"
         class="tab"
-        :class="{ 'tab--active': tab === t.key }"
-        :aria-selected="tab === t.key"
-        :disabled="t.managed && !mode.canQueryGrants"
-        :data-test="`perm-tab-${t.key}`"
-        @click="tab = t.key"
+        :class="{ 'tab--active': tab === tb.key }"
+        :aria-selected="tab === tb.key"
+        :disabled="tb.managed && !mode.canQueryGrants"
+        :data-test="`perm-tab-${tb.key}`"
+        @click="tab = tb.key"
       >
-        {{ t.label }}
-        <span v-if="t.key === 'grants' && groups.some((g) => g.pending)" class="dot" title="有新权限待确认" />
+        {{ t(tb.label) }}
+        <span v-if="tb.key === 'grants' && groups.some((g) => g.pending)" class="dot" :title="t('settings.perm.pendingTitle')" />
       </button>
     </nav>
 
@@ -330,27 +340,27 @@ onMounted(() => {
     <div v-if="tab === 'grants' && mode.canQueryGrants" class="pane" data-test="perm-grants">
       <div class="bar">
         <button type="button" class="btn btn--primary" data-test="perm-new" @click="formOpen = !formOpen">
-          {{ formOpen ? '收起' : '新增授权' }}
+          {{ formOpen ? t('settings.perm.collapse') : t('settings.perm.newGrant') }}
         </button>
-        <label class="check mono"><input v-model="showInactive" type="checkbox" /> 显示已撤销 / 已过期</label>
+        <label class="check mono"><input v-model="showInactive" type="checkbox" /> {{ t('settings.perm.showInactive') }}</label>
       </div>
 
       <form v-if="formOpen" class="form" data-test="perm-form" @submit.prevent="onCreate">
         <div class="row">
           <label class="field">
-            <span>授权对象</span>
+            <span>{{ t('settings.perm.field.subject') }}</span>
             <select v-model="form.kind" class="mono" data-test="perm-kind">
-              <option value="users">全体用户</option>
-              <option value="caller">指定调用方</option>
+              <option value="users">{{ t('settings.perm.subject.users') }}</option>
+              <option value="caller">{{ t('settings.perm.subject.caller') }}</option>
             </select>
           </label>
           <label v-if="form.kind === 'caller'" class="field">
-            <span>调用方 ID</span>
-            <input v-model="form.callerId" class="mono" list="perm-callers" placeholder="配置里声明的调用方" data-test="perm-caller" />
+            <span>{{ t('settings.perm.field.callerId') }}</span>
+            <input v-model="form.callerId" class="mono" list="perm-callers" :placeholder="t('settings.perm.callerPlaceholder')" data-test="perm-caller" />
             <datalist id="perm-callers"><option v-for="c in callerIds" :key="c" :value="c" /></datalist>
           </label>
           <label class="field">
-            <span>有效期</span>
+            <span>{{ t('settings.perm.field.expiry') }}</span>
             <select v-model.number="form.expiry" class="mono">
               <option v-for="o in EXPIRY_OPTIONS" :key="o.sec" :value="o.sec">{{ o.label }}</option>
             </select>
@@ -358,7 +368,7 @@ onMounted(() => {
         </div>
 
         <div class="presets" data-test="perm-presets">
-          <span class="presets-label mono">常用</span>
+          <span class="presets-label mono">{{ t('settings.perm.presets') }}</span>
           <button
             v-for="p in catalog.presets"
             :key="p.key"
@@ -370,8 +380,8 @@ onMounted(() => {
         </div>
 
         <label class="field">
-          <span>授权模式</span>
-          <input v-model="form.pattern" class="mono" placeholder="tunnel.* 、job.*.others、tunnel.open" data-test="perm-pattern" autocomplete="off" />
+          <span>{{ t('settings.perm.field.pattern') }}</span>
+          <input v-model="form.pattern" class="mono" :placeholder="t('settings.perm.patternPlaceholder')" data-test="perm-pattern" autocomplete="off" />
         </label>
 
         <div class="preview" data-test="perm-preview" aria-live="polite">
@@ -384,52 +394,55 @@ onMounted(() => {
             </li>
           </ul>
           <p v-if="expansion.skippedDangerous.length " class="preview-note mono">
-            通配符不会授予危险级：{{ expansion.skippedDangerous.join('、') }}。需要请写出完整权限名。
+            {{ t('settings.perm.skippedDangerous', { names: expansion.skippedDangerous.join('、') }) }}
           </p>
-          <p v-if="expansion.skippedRoot " class="preview-note mono">auth.manage 不会被任何模式授予。</p>
+          <p v-if="expansion.skippedRoot " class="preview-note mono">{{ t('settings.perm.skippedRoot') }}</p>
         </div>
 
         <div v-if="previewRules.needsConfirm" class="confirm" data-test="perm-confirm">
           <p>
             <template v-if="previewRules.dangerous.length">
-              危险级：<code v-for="n in previewRules.dangerous" :key="n">{{ n }}</code>。
+              {{ t('settings.perm.dangerous') }}<code v-for="n in previewRules.dangerous" :key="n">{{ n }}</code>。
             </template>
             <template v-if="previewRules.high.length">
-              高风险：<code v-for="n in previewRules.high" :key="n">{{ n }}</code>。
+              {{ t('settings.perm.highRisk') }}<code v-for="n in previewRules.high" :key="n">{{ n }}</code>。
             </template>
-            授权后对象立即可用。
+            {{ t('settings.perm.effectiveNow') }}
           </p>
-          <label class="check"><input v-model="form.confirmed" type="checkbox" data-test="perm-confirm-box" /> 我确认要授予以上权限</label>
+          <label class="check"><input v-model="form.confirmed" type="checkbox" data-test="perm-confirm-box" /> {{ t('settings.perm.confirmBox') }}</label>
         </div>
 
         <label class="field">
-          <span>原因<em v-if="previewRules.needsReason" class="req">（危险级必填）</em><em v-else class="opt">（选填）</em></span>
-          <input v-model="form.note" placeholder="为什么要授权" data-test="perm-note" />
+          <span>
+            {{ t('settings.perm.field.note') }}
+            <em v-if="previewRules.needsReason" class="req">{{ t('settings.perm.noteRequired') }}</em><em v-else class="opt">{{ t('settings.perm.noteOptional') }}</em>
+          </span>
+          <input v-model="form.note" :placeholder="t('settings.perm.notePlaceholder')" data-test="perm-note" />
         </label>
 
         <div class="row row--end">
           <span v-if="blocker" class="blocker mono" data-test="perm-blocker">{{ blocker }}</span>
           <button type="submit" class="btn btn--primary" :disabled="!!blocker || saving" data-test="perm-submit">
-            {{ saving ? '提交中…' : '授权' }}
+            {{ saving ? t('settings.perm.submitting') : t('settings.perm.submit') }}
           </button>
         </div>
       </form>
 
-      <p v-if="groups.length === 0" class="empty">还没有授权。新增一条，让调用方拿到配置之外的权限。</p>
+      <p v-if="groups.length === 0" class="empty">{{ t('settings.perm.emptyGrants') }}</p>
 
       <section v-for="g in groups" :key="g.subject" class="group" :data-test="`perm-group-${g.subject}`">
         <h3 class="group-head mono">
           <span>{{ g.label }}</span>
-          <span v-if="g.pending" class="tag tag--warn">有新权限待确认 {{ g.pending }}</span>
-          <span v-if="g.orphaned" class="tag tag--warn">孤儿 {{ g.orphaned }}</span>
+          <span v-if="g.pending" class="tag tag--warn">{{ t('settings.perm.pendingTag', { n: g.pending }) }}</span>
+          <span v-if="g.orphaned" class="tag tag--warn">{{ t('settings.perm.orphanedTag', { n: g.orphaned }) }}</span>
         </h3>
 
         <article v-for="d in g.derived" :key="d.id" class="grant grant--config">
           <div class="grant-main">
-            <span class="tag mono">来自配置</span>
+            <span class="tag mono">{{ t('settings.perm.fromConfig') }}</span>
             <span class="grant-perms mono">{{ d.permissions.join('  ') }}</span>
           </div>
-          <p class="grant-meta mono">只读，随配置变化</p>
+          <p class="grant-meta mono">{{ t('settings.perm.fromConfigMeta') }}</p>
         </article>
 
         <article
@@ -442,24 +455,24 @@ onMounted(() => {
           <div class="grant-main">
             <code class="grant-pattern">{{ gr.pattern }}</code>
             <span class="tag mono" :class="{ 'tag--warn': gr.state === 'orphaned' || gr.state === 'unmatched' }">{{ grantStateLabel(gr.state) }}</span>
-            <span class="tag mono">{{ gr.source === 'config' ? '来自配置' : '手动授权' }}</span>
+            <span class="tag mono">{{ gr.source === 'config' ? t('settings.perm.fromConfig') : t('settings.perm.manual') }}</span>
             <span class="grant-actions">
-              <button v-if="canActivate(gr)" type="button" class="btn" :disabled="busyId === gr.id" data-test="perm-activate" @click="onActivate(gr)">确认恢复</button>
-              <button v-if="canRevoke(gr)" type="button" class="btn btn--danger" :disabled="busyId === gr.id" data-test="perm-revoke" @click="onRevoke(gr)">撤销</button>
+              <button v-if="canActivate(gr)" type="button" class="btn" :disabled="busyId === gr.id" data-test="perm-activate" @click="onActivate(gr)">{{ t('settings.perm.activate') }}</button>
+              <button v-if="canRevoke(gr)" type="button" class="btn btn--danger" :disabled="busyId === gr.id" data-test="perm-revoke" @click="onRevoke(gr)">{{ t('settings.perm.revoke') }}</button>
             </span>
           </div>
           <p v-if="grantStateHint(gr)" class="grant-hint">{{ grantStateHint(gr) }}</p>
           <p v-if="pendingNewPermissions(gr).length" class="grant-hint grant-hint--warn" data-test="perm-pending">
-            有新权限待确认：这个模式如今还包含 <code v-for="n in pendingNewPermissions(gr)" :key="n">{{ n }}</code>，它们现在已经生效；不想放行就撤销后重建更窄的模式。
+            {{ t('settings.perm.pendingHint') }}<code v-for="n in pendingNewPermissions(gr)" :key="n">{{ n }}</code>{{ t('settings.perm.pendingHintTail') }}
           </p>
-          <p class="grant-perms mono">{{ gr.permissions.join('  ') || '无' }}</p>
+          <p class="grant-perms mono">{{ gr.permissions.join('  ') || t('settings.perm.none') }}</p>
           <p class="grant-meta mono">
             {{ expiryText(gr) }}
-            <template v-if="gr.granted_by"> · 授权人 <span :title="callerTitle(gr.granted_by, namesOf)">{{ callerLabel(gr.granted_by, namesOf) }}</span></template>
+            <template v-if="gr.granted_by"> · {{ t('settings.perm.grantedBy') }} <span :title="callerTitle(gr.granted_by, namesOf)">{{ callerLabel(gr.granted_by, namesOf) }}</span></template>
             <template v-if="gr.granted_at"> · {{ fmtAgo(gr.granted_at) }}</template>
-            <template v-if="gr.use_count"> · 用过 {{ gr.use_count }} 次</template>
-            <template v-if="gr.note"> · 原因：{{ gr.note }}</template>
-            · <a href="#" @click.prevent="auditByGrant(gr.id)">审计</a>
+            <template v-if="gr.use_count"> · {{ t('settings.perm.usedTimes', { n: gr.use_count }) }}</template>
+            <template v-if="gr.note"> · {{ t('settings.perm.reason', { note: gr.note }) }}</template>
+            · <a href="#" @click.prevent="auditByGrant(gr.id)">{{ t('settings.perm.audit') }}</a>
           </p>
         </article>
       </section>
@@ -467,8 +480,8 @@ onMounted(() => {
 
     <!-- 会话授权 -->
     <div v-else-if="tab === 'sessions' && mode.canQueryGrants" class="pane" data-test="perm-sessions">
-      <p class="hint">会话授权只对一个终端会话生效，由会话的当前所有者使用，最长 24 小时，会话结束即失效。</p>
-      <p v-if="sessions.length === 0" class="empty">没有会话授权。</p>
+      <p class="hint">{{ t('settings.perm.sessionsHint') }}</p>
+      <p v-if="sessions.length === 0" class="empty">{{ t('settings.perm.emptySessions') }}</p>
       <article v-for="g in sessions" :key="g.id" class="grant" :class="[`grant--${g.state}`]" :data-test="`perm-session-${g.id}`">
         <div class="grant-main">
           <code class="grant-pattern">{{ subjectLabel(g.subject, namesOf) }}</code>
@@ -480,19 +493,19 @@ onMounted(() => {
               v-if="canRenewGrant(mode.canManage, g, nowSec)"
               type="button"
               class="btn"
-              title="只把到期时间从「现在」往后挪，权限范围不变"
+              :title="t('settings.perm.renewTitle')"
               data-test="perm-session-renew"
               @click="renewTarget = g"
-            >续期</button>
-            <button v-if="canRevoke(g)" type="button" class="btn btn--danger" :disabled="busyId === g.id" data-test="perm-revoke" @click="onRevoke(g)">撤销</button>
+            >{{ t('settings.perm.renew') }}</button>
+            <button v-if="canRevoke(g)" type="button" class="btn btn--danger" :disabled="busyId === g.id" data-test="perm-revoke" @click="onRevoke(g)">{{ t('settings.perm.revoke') }}</button>
           </span>
         </div>
-        <p class="grant-perms mono">{{ g.pattern }} → {{ g.permissions.join('  ') || '无' }}</p>
+        <p class="grant-perms mono">{{ g.pattern }} → {{ g.permissions.join('  ') || t('settings.perm.none') }}</p>
         <p class="grant-meta mono">
-          所有者 <span :title="callerTitle(g.session_owner, namesOf)">{{ callerLabel(g.session_owner, namesOf) || '—' }}</span> · {{ expiryText(g) }}
-          <template v-if="g.granted_by"> · 授权人 <span :title="callerTitle(g.granted_by, namesOf)">{{ callerLabel(g.granted_by, namesOf) }}</span></template>
-          <template v-if="g.note"> · 原因：{{ g.note }}</template>
-          · <a href="#" @click.prevent="auditByGrant(g.id)">审计</a>
+          {{ t('settings.perm.owner') }} <span :title="callerTitle(g.session_owner, namesOf)">{{ callerLabel(g.session_owner, namesOf) || '—' }}</span> · {{ expiryText(g) }}
+          <template v-if="g.granted_by"> · {{ t('settings.perm.grantedBy') }} <span :title="callerTitle(g.granted_by, namesOf)">{{ callerLabel(g.granted_by, namesOf) }}</span></template>
+          <template v-if="g.note"> · {{ t('settings.perm.reason', { note: g.note }) }}</template>
+          · <a href="#" @click.prevent="auditByGrant(g.id)">{{ t('settings.perm.audit') }}</a>
         </p>
         <p v-if="!renewStateOf(g).canRenew" class="grant-hint" data-test="perm-session-needs-grant">{{ renewStateOf(g).reason }}。</p>
       </article>
@@ -509,28 +522,28 @@ onMounted(() => {
     <!-- 权限目录 -->
     <div v-else-if="tab === 'catalog'" class="pane" data-test="perm-catalog">
       <div class="bar">
-        <input v-model="catFilter.text" class="mono search" placeholder="搜索权限名或说明" data-test="perm-cat-search" />
+        <input v-model="catFilter.text" class="mono search" :placeholder="t('settings.perm.catSearch')" data-test="perm-cat-search" />
         <select v-model="catFilter.risk" class="mono">
-          <option value="">全部风险</option>
-          <option value="low">低</option>
-          <option value="medium">中</option>
-          <option value="high">高</option>
-          <option value="dangerous">危险</option>
-          <option value="root">根</option>
+          <option value="">{{ t('settings.perm.riskAll') }}</option>
+          <option value="low">{{ t('settings.perm.risk.low') }}</option>
+          <option value="medium">{{ t('settings.perm.risk.medium') }}</option>
+          <option value="high">{{ t('settings.perm.risk.high') }}</option>
+          <option value="dangerous">{{ t('settings.perm.risk.dangerous') }}</option>
+          <option value="root">{{ t('settings.perm.risk.root') }}</option>
         </select>
-        <label class="check mono"><input v-model="catFilter.sessionOnly" type="checkbox" /> 可授予会话</label>
+        <label class="check mono"><input v-model="catFilter.sessionOnly" type="checkbox" /> {{ t('settings.perm.sessionGrantable') }}</label>
       </div>
-      <p v-if="catRows.length === 0" class="empty">没有符合条件的权限。</p>
+      <p v-if="catRows.length === 0" class="empty">{{ t('settings.perm.emptyCatalog') }}</p>
       <div class="cat">
         <div v-for="p in catRows" :key="p.name" class="cat-row" :class="`risk--${riskTone(p.risk)}`">
           <div class="cat-name">
             <code>{{ p.name }}</code>
             <span class="risk-chip mono">{{ p.risk_label }}</span>
-            <span v-if="myPerms.has(p.name)" class="tag tag--ok mono">你已持有</span>
+            <span v-if="myPerms.has(p.name)" class="tag tag--ok mono">{{ t('settings.perm.heldTag') }}</span>
           </div>
           <p class="cat-desc">{{ p.description }}</p>
           <p class="cat-meta mono">
-            {{ p.session_grantable ? '可授予会话' : '不可授予会话' }} · 范围 {{ p.scope_label }} · 来源 {{ p.source_label }}
+            {{ p.session_grantable ? t('settings.perm.sessionGrantable') : t('settings.perm.sessionNotGrantable') }} · {{ t('settings.perm.scope', { value: p.scope_label }) }} · {{ t('settings.perm.source', { value: p.source_label }) }}
           </p>
         </div>
       </div>
@@ -539,12 +552,12 @@ onMounted(() => {
     <!-- 审计 -->
     <div v-else-if="tab === 'audit' && mode.canQueryGrants" class="pane" data-test="perm-audit">
       <form class="bar" @submit.prevent="loadAudit">
-        <input v-model="auditFilter.subject" class="mono" placeholder="对象 users / caller:x" data-test="perm-audit-subject" />
-        <input v-model="auditFilter.permission" class="mono" placeholder="权限" data-test="perm-audit-permission" />
-        <input v-model="auditFilter.grant_id" class="mono" placeholder="授权 id" data-test="perm-audit-grant" />
-        <button type="submit" class="btn" :disabled="auditLoading">{{ auditLoading ? '查询中…' : '查询' }}</button>
+        <input v-model="auditFilter.subject" class="mono" :placeholder="t('settings.perm.auditSubject')" data-test="perm-audit-subject" />
+        <input v-model="auditFilter.permission" class="mono" :placeholder="t('settings.perm.auditPermission')" data-test="perm-audit-permission" />
+        <input v-model="auditFilter.grant_id" class="mono" :placeholder="t('settings.perm.auditGrant')" data-test="perm-audit-grant" />
+        <button type="submit" class="btn" :disabled="auditLoading">{{ auditLoading ? t('settings.perm.querying') : t('settings.perm.query') }}</button>
       </form>
-      <p v-if="!auditLoading && audit.length === 0" class="empty">没有记录。审计保留 90 天。</p>
+      <p v-if="!auditLoading && audit.length === 0" class="empty">{{ t('settings.perm.emptyAudit') }}</p>
       <ol v-else class="audit">
         <li v-for="(a, i) in audit" :key="i" class="audit-row">
           <span class="audit-at mono">{{ fmtDateTime(a.at) }}</span>
@@ -561,6 +574,8 @@ onMounted(() => {
 <style scoped>
 .perm { display: grid; gap: 12px; }
 .mono { font-family: var(--font-mono); }
+.page-head h1 { margin: 0 0 4px; font-size: var(--fs-xl); color: var(--fg); }
+.page-head .sub { margin: 0; font-size: var(--fs-sm); color: var(--fg-3); }
 
 /* 身份条：先说"你是谁"，再说能做什么 */
 .who { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; padding: 10px 14px; border: 1px solid var(--line); border-left: 3px solid var(--queue); border-radius: var(--radius); background: var(--panel); }

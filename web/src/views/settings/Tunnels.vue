@@ -22,6 +22,7 @@ import { fmtDateTime, fmtDuration } from '../../api/time'
 import { fmtBytes } from '../../utils/bytes'
 import { createPoller } from '../../utils/poller'
 import { forwarderStopState, forwarderStopUnsupportedHint } from '../../utils/forwarderStop'
+import { t } from '../../i18n'
 import type { MetaWorker, TunnelForwarder, TunnelForwarderSpec, TunnelPreset } from '../../api/types'
 
 const POLL_MS = 5000
@@ -57,7 +58,7 @@ async function fetchForwarders(): Promise<void> {
 function ruleText(s: TunnelForwarderSpec): string {
   const local = s.bind && s.bind !== '127.0.0.1' ? `${s.bind}:${s.local_port}` : String(s.local_port)
   // socks 规则没有固定目标：每条连接由客户端（浏览器 / curl）给出目标。
-  if (s.network === 'socks') return `socks/${local} → 按连接选目标`
+  if (s.network === 'socks') return t('settings.tunnels.ruleSocks', { local })
   return `${s.network}/${local} → ${s.target}`
 }
 
@@ -74,7 +75,7 @@ function heartbeatText(f: TunnelForwarder): string {
   if (!Number.isFinite(seen)) {
     return ''
   }
-  return `最后心跳 ${fmtDuration(Math.max(0, Math.floor((nowMs.value - seen) / 1000)))} 前`
+  return t('settings.tunnels.heartbeat', { d: fmtDuration(Math.max(0, Math.floor((nowMs.value - seen) / 1000))) })
 }
 
 function trafficText(f: TunnelForwarder): string {
@@ -106,7 +107,7 @@ async function confirmStop(f: TunnelForwarder): Promise<void> {
     const resp = await stopTunnelForwarder(f.id)
     // 本地先翻成「停止中」，不必等下一轮轮询。
     forwarders.value = forwarders.value.map((x) => (x.id === f.id ? { ...x, ...resp.forwarder, stop_requested: true } : x))
-    notice.value = `已请求停止 ${f.host || f.id} 上的转发，进程将在下一次心跳（≤30 秒）时退出`
+    notice.value = t('settings.tunnels.stopRequested', { host: f.host || f.id })
   } catch (e) {
     fwError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -157,7 +158,9 @@ async function startHosted(p: TunnelPreset): Promise<void> {
   presetError.value = ''
   try {
     const resp = await startHostedTunnel(p.name)
-    notice.value = resp.warning ? `已启动 ${p.name}：${resp.warning}` : `已启动托管转发 ${p.name}`
+    notice.value = resp.warning
+      ? t('settings.tunnels.startedWithWarning', { name: p.name, warning: resp.warning })
+      : t('settings.tunnels.started', { name: p.name })
     await fetchForwarders()
   } catch (e) {
     presetError.value = e instanceof Error ? e.message : String(e)
@@ -168,7 +171,7 @@ async function stopHosted(p: TunnelPreset): Promise<void> {
   presetError.value = ''
   try {
     await stopHostedTunnel(p.name)
-    notice.value = `已停止托管转发 ${p.name}`
+    notice.value = t('settings.tunnels.stopped', { name: p.name })
     await fetchForwarders()
   } catch (e) {
     presetError.value = e instanceof Error ? e.message : String(e)
@@ -179,7 +182,7 @@ async function importLocal(p: TunnelPreset): Promise<void> {
   presetError.value = ''
   try {
     await importLocalTunnelPreset(p.name)
-    notice.value = `已导入本机预设 ${p.name}`
+    notice.value = t('settings.tunnels.importedLocal', { name: p.name })
     await fetchPresets()
     await fetchLocalPresets()
   } catch (e) {
@@ -231,7 +234,7 @@ const saving = ref(false)
 const saveError = ref('')
 const specError = ref('')
 
-const editorTitle = computed(() => (editor.value?.mode === 'edit' ? '编辑预设' : '新增预设'))
+const editorTitle = computed(() => (editor.value?.mode === 'edit' ? t('settings.tunnels.editorEdit') : t('settings.tunnels.editorCreate')))
 
 function openCreate(): void {
   editor.value = { mode: 'create', form: { name: '', worker: '', specsText: '', note: '', autostart: false } }
@@ -279,7 +282,7 @@ async function save(): Promise<void> {
       // 编辑即"我知道要覆盖"：服务端没有 force 会以 409 拒绝同名写入。
       force: ed.mode === 'edit',
     })
-    notice.value = `已保存预设 ${name}`
+    notice.value = t('settings.tunnels.saved', { name })
     closeEditor()
     await fetchPresets()
   } catch (e) {
@@ -287,7 +290,7 @@ async function save(): Promise<void> {
     if (e instanceof ApiError && e.status === 400) {
       specError.value = detail
     } else if (e instanceof ApiError && e.status === 409) {
-      saveError.value = `${detail}（改个名字，或在该行的「编辑」里覆盖它）`
+      saveError.value = t('settings.tunnels.nameTaken', { detail })
     } else {
       saveError.value = detail
     }
@@ -297,14 +300,14 @@ async function save(): Promise<void> {
 }
 
 async function removePreset(p: TunnelPreset): Promise<void> {
-  if (!window.confirm(`删除预设「${p.name}」？server 上的这条记录会被移除。`)) {
+  if (!window.confirm(t('settings.tunnels.confirmDelete', { name: p.name }))) {
     return
   }
   notice.value = ''
   presetError.value = ''
   try {
     await deleteTunnelPreset(p.name)
-    notice.value = `已删除预设 ${p.name}`
+    notice.value = t('settings.tunnels.deleted', { name: p.name })
     await fetchPresets()
   } catch (e) {
     presetError.value = e instanceof Error ? e.message : String(e)
@@ -316,10 +319,10 @@ async function copyCommand(p: TunnelPreset): Promise<void> {
   const cmd = `gofer tun forward -n ${p.name}`
   try {
     await navigator.clipboard.writeText(cmd)
-    notice.value = `已复制：${cmd}`
+    notice.value = t('settings.tunnels.copied', { cmd })
   } catch {
     notice.value = ''
-    presetError.value = `复制失败，请手动执行：${cmd}`
+    presetError.value = t('settings.tunnels.copyFailed', { cmd })
   }
 }
 
@@ -333,27 +336,27 @@ function presetRuleText(p: TunnelPreset): string {
     <p v-if="notice" class="notice mono">{{ notice }}</p>
 
     <!-- 上半：在线转发进程 -->
-    <section class="section" aria-label="在线转发">
+    <section class="section" :aria-label="t('settings.tunnels.forwarders')">
       <header class="section-head">
-        <h2 class="section-title mono">在线转发</h2>
-        <span class="section-note mono">{{ forwarders.length }} 个进程</span>
+        <h2 class="section-title mono">{{ t('settings.tunnels.forwarders') }}</h2>
+        <span class="section-note mono">{{ t('settings.tunnels.forwardersCount', { n: forwarders.length }) }}</span>
         <span class="poll mono" :class="{ 'poll--on': loading }">●</span>
       </header>
 
-      <p v-if="fwError" class="error mono" :title="fwError">在线转发读取失败：{{ fwError }}</p>
+      <p v-if="fwError" class="error mono" :title="fwError">{{ t('settings.tunnels.fwLoadFailed', { error: fwError }) }}</p>
 
       <div v-if="forwarders.length" class="table table--forwarders">
         <div class="thead mono">
           <span>worker</span>
-          <span>规则</span>
-          <span>主机 / pid</span>
-          <span>已运行</span>
-          <span>连接</span>
-          <span>流量</span>
-          <span>操作</span>
+          <span>{{ t('settings.tunnels.col.rules') }}</span>
+          <span>{{ t('settings.tunnels.col.hostPid') }}</span>
+          <span>{{ t('settings.tunnels.col.age') }}</span>
+          <span>{{ t('settings.tunnels.col.conn') }}</span>
+          <span>{{ t('settings.tunnels.col.traffic') }}</span>
+          <span>{{ t('settings.tunnels.col.actions') }}</span>
         </div>
         <div v-for="f in forwarders" :key="f.id" class="trow">
-          <span class="cell-worker mono" :title="f.id">{{ f.hosted ? 'server 托管 · ' : '' }}{{ f.worker || '—' }}</span>
+          <span class="cell-worker mono" :title="f.id">{{ f.hosted ? t('settings.tunnels.hostedPrefix') : '' }}{{ f.worker || '—' }}</span>
           <span class="cell-rules">
             <span v-for="(s, i) in f.specs" :key="i" class="rule mono">{{ ruleText(s) }}</span>
           </span>
@@ -367,16 +370,16 @@ function presetRuleText(p: TunnelPreset): string {
           <span class="cell-conn mono">{{ f.connections }}</span>
           <span class="cell-traffic mono">{{ trafficText(f) }}</span>
           <span class="cell-act cell-act--fw mono">
-            <span v-if="forwarderStopState(f) === 'hosted'" class="act-note">在下方预设里停止</span>
+            <span v-if="forwarderStopState(f) === 'hosted'" class="act-note">{{ t('settings.tunnels.stopInPresets') }}</span>
             <span v-else-if="forwarderStopState(f) === 'stopping'" class="state state--stopping" data-test="fw-stopping">
-              停止中（≤30 秒内退出）
+              {{ t('settings.tunnels.stopping') }}
             </span>
             <span
               v-else-if="forwarderStopState(f) === 'stoppable' && !can('tunnel.stopOthers', f.caller_id)"
               class="act-note"
               data-test="fw-stop-forbidden"
-              title="缺少权限：tunnel.manage.others"
-            >只有转发的发起人能停止</span>
+              :title="t('settings.tunnels.stopForbiddenTitle')"
+            >{{ t('settings.tunnels.stopForbidden') }}</span>
             <template v-else-if="forwarderStopState(f) === 'stoppable'">
               <template v-if="confirmStopId === f.id">
                 <button
@@ -386,10 +389,10 @@ function presetRuleText(p: TunnelPreset): string {
                   :disabled="stopBusyId === f.id"
                   @click="confirmStop(f)"
                 >
-                  {{ stopBusyId === f.id ? '请求中...' : '确认停止' }}
+                  {{ stopBusyId === f.id ? t('settings.tunnels.requesting') : t('settings.tunnels.confirmStop') }}
                 </button>
                 <button class="act" type="button" data-test="fw-stop-cancel" :disabled="stopBusyId === f.id" @click="cancelStop()">
-                  取消
+                  {{ t('act.cancel') }}
                 </button>
               </template>
               <button
@@ -397,10 +400,10 @@ function presetRuleText(p: TunnelPreset): string {
                 class="act act--del"
                 type="button"
                 data-test="fw-stop"
-                :title="`让 ${f.host || '该机器'} 上的转发进程退出`"
+                :title="t('settings.tunnels.stopTitle', { host: f.host || t('settings.tunnels.thatMachine') })"
                 @click="askStop(f)"
               >
-                停止
+                {{ t('settings.tunnels.stop') }}
               </button>
             </template>
             <button
@@ -412,36 +415,36 @@ function presetRuleText(p: TunnelPreset): string {
               :title="forwarderStopUnsupportedHint(f)"
               :aria-label="forwarderStopUnsupportedHint(f)"
             >
-              停止
+              {{ t('settings.tunnels.stop') }}
             </button>
           </span>
         </div>
       </div>
 
       <p v-else-if="!fwError" class="empty mono">
-        这里显示正在运行的 <code>gofer tun forward</code> 进程；转发是在要用端口的那台机器上本地监听的，web 不能代为启动。
+        {{ t('settings.tunnels.fwEmptyBefore') }}<code>gofer tun forward</code>{{ t('settings.tunnels.fwEmptyAfter') }}
       </p>
     </section>
 
     <!-- 下半：预设 -->
-    <section class="section" aria-label="转发预设">
+    <section class="section" :aria-label="t('settings.tunnels.presets')">
       <header class="section-head">
-        <h2 class="section-title mono">预设</h2>
-        <span class="section-note mono">{{ presets.length }} 条</span>
-        <button v-if="can('tunnel.hosted')" class="mini-btn mono" type="button" data-test="preset-new" @click="openCreate()">新增预设</button>
+        <h2 class="section-title mono">{{ t('settings.tunnels.presets') }}</h2>
+        <span class="section-note mono">{{ t('settings.tunnels.presetsCount', { n: presets.length }) }}</span>
+        <button v-if="can('tunnel.hosted')" class="mini-btn mono" type="button" data-test="preset-new" @click="openCreate()">{{ t('settings.tunnels.newPreset') }}</button>
       </header>
 
       <p v-if="presetError" class="error mono" :title="presetError">{{ presetError }}</p>
 
       <div v-if="presets.length" class="table table--presets">
         <div class="thead mono">
-          <span>名称</span>
+          <span>{{ t('settings.tunnels.col.name') }}</span>
           <span>worker</span>
-          <span>规则</span>
-          <span>备注</span>
-          <span>状态</span>
-          <span>更新</span>
-          <span>操作</span>
+          <span>{{ t('settings.tunnels.col.rules') }}</span>
+          <span>{{ t('settings.tunnels.col.note') }}</span>
+          <span>{{ t('settings.tunnels.col.state') }}</span>
+          <span>{{ t('settings.tunnels.col.updated') }}</span>
+          <span>{{ t('settings.tunnels.col.actions') }}</span>
         </div>
         <div v-for="p in presets" :key="p.name" class="trow">
           <span class="cell-name mono" :title="p.name">{{ p.name }}</span>
@@ -449,49 +452,49 @@ function presetRuleText(p: TunnelPreset): string {
           <span class="cell-rules mono" :title="presetRuleText(p)">{{ presetRuleText(p) }}</span>
           <span class="cell-note" :title="p.note">{{ p.note || '—' }}</span>
           <span class="cell-state mono">
-            <span v-if="hostedFor(p.name)" class="state state--on">server 托管</span>
-            <span v-else-if="p.autostart" class="state">自启动</span>
+            <span v-if="hostedFor(p.name)" class="state state--on">{{ t('settings.tunnels.hosted') }}</span>
+            <span v-else-if="p.autostart" class="state">{{ t('settings.tunnels.autostart') }}</span>
             <span v-else>—</span>
           </span>
           <span class="cell-updated mono">
             <span class="upd-at">{{ fmtDateTime(Math.floor(Date.parse(p.updated_at) / 1000)) }}</span>
-            <span v-if="p.updated_by" class="upd-by" :title="`最后写入的 caller：${p.updated_by}`">by {{ p.updated_by }}</span>
+            <span v-if="p.updated_by" class="upd-by" :title="t('settings.tunnels.lastWriter', { by: p.updated_by })">by {{ p.updated_by }}</span>
           </span>
           <span class="cell-act mono">
-            <button class="act" type="button" title="复制 `gofer tun forward -n 名字`" @click="copyCommand(p)">
-              复制启动命令
+            <button class="act" type="button" :title="t('settings.tunnels.copyCmdTitle')" @click="copyCommand(p)">
+              {{ t('settings.tunnels.copyCmd') }}
             </button>
             <template v-if="can('tunnel.hosted')">
-              <button v-if="hostedFor(p.name)" class="act" type="button" @click="stopHosted(p)">停止</button>
-              <button v-else class="act" type="button" @click="startHosted(p)">启动</button>
-              <button class="act" type="button" @click="openEdit(p)">编辑</button>
-              <button class="act act--del" type="button" @click="removePreset(p)">删</button>
+              <button v-if="hostedFor(p.name)" class="act" type="button" @click="stopHosted(p)">{{ t('settings.tunnels.stop') }}</button>
+              <button v-else class="act" type="button" @click="startHosted(p)">{{ t('settings.tunnels.start') }}</button>
+              <button class="act" type="button" @click="openEdit(p)">{{ t('settings.tunnels.edit') }}</button>
+              <button class="act act--del" type="button" @click="removePreset(p)">{{ t('settings.tunnels.deleteShort') }}</button>
             </template>
           </span>
         </div>
       </div>
 
       <p v-else-if="!presetError" class="empty mono">
-        还没有预设。预设存在 server 上，任何机器 <code>gofer tun forward -n &lt;名字&gt;</code> 都能直接用。
+        {{ t('settings.tunnels.presetsEmptyBefore') }}<code>gofer tun forward -n &lt;名字&gt;</code>{{ t('settings.tunnels.presetsEmptyAfter') }}
       </p>
     </section>
 
-    <section class="section" aria-label="本机未上传预设">
+    <section class="section" :aria-label="t('settings.tunnels.local')">
       <header class="section-head">
-        <h2 class="section-title mono">本机未上传</h2>
-        <span class="section-note mono">{{ localPresets.length }} 条</span>
+        <h2 class="section-title mono">{{ t('settings.tunnels.local') }}</h2>
+        <span class="section-note mono">{{ t('settings.tunnels.presetsCount', { n: localPresets.length }) }}</span>
       </header>
       <div v-if="localPresets.length" class="table table--presets">
-        <div class="thead mono"><span>名称</span><span>worker</span><span>规则</span><span>状态</span><span>操作</span></div>
+        <div class="thead mono"><span>{{ t('settings.tunnels.col.name') }}</span><span>worker</span><span>{{ t('settings.tunnels.col.rules') }}</span><span>{{ t('settings.tunnels.col.state') }}</span><span>{{ t('settings.tunnels.col.actions') }}</span></div>
         <div v-for="p in localPresets" :key="p.name" class="trow">
           <span class="cell-name mono">{{ p.name }}</span>
           <span class="cell-worker mono">{{ p.worker }}</span>
           <span class="cell-rules mono">{{ presetRuleText(p) }}</span>
-          <span class="cell-state mono">仅本机文件</span>
-          <span class="cell-act mono"><button v-if="can('tunnel.hosted')" class="act" type="button" @click="importLocal(p)">导入</button></span>
+          <span class="cell-state mono">{{ t('settings.tunnels.localOnly') }}</span>
+          <span class="cell-act mono"><button v-if="can('tunnel.hosted')" class="act" type="button" @click="importLocal(p)">{{ t('settings.tunnels.import') }}</button></span>
         </div>
       </div>
-      <p v-else class="empty mono">没有发现尚未上传的本机预设。</p>
+      <p v-else class="empty mono">{{ t('settings.tunnels.localEmpty') }}</p>
     </section>
 
     <!-- 预设编辑弹窗 -->
@@ -499,21 +502,21 @@ function presetRuleText(p: TunnelPreset): string {
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="preset-editor-title">
         <div class="modal-head">
           <h3 id="preset-editor-title" class="modal-title mono">{{ editorTitle }}</h3>
-          <button class="mini-btn mono" type="button" :disabled="saving" @click="closeEditor()">关闭</button>
+          <button class="mini-btn mono" type="button" :disabled="saving" @click="closeEditor()">{{ t('act.close') }}</button>
         </div>
 
         <div class="modal-body">
           <label class="field">
-            <span class="field-name mono">名称<span class="req">*</span></span>
+            <span class="field-name mono">{{ t('settings.tunnels.name') }}<span class="req">*</span></span>
             <input
               v-model="editor.form.name"
               class="input mono"
               type="text"
               :disabled="editor.mode === 'edit'"
-              placeholder="例如 demo（不能含空格或路径分隔符）"
+              :placeholder="t('settings.tunnels.namePlaceholder')"
             />
             <span v-if="editor.mode === 'edit'" class="field-hint mono">
-              名字是主键，不能就地改；要改名就新建一条再删旧的。
+              {{ t('settings.tunnels.nameImmutable') }}
             </span>
           </label>
 
@@ -530,47 +533,46 @@ function presetRuleText(p: TunnelPreset): string {
             />
             <datalist id="tunnel-worker-options">
               <option v-for="w in workers" :key="w.id" :value="w.id">
-                {{ w.connected ? '在线' : '离线' }}
+                {{ w.connected ? t('settings.tunnels.workerOnline') : t('settings.tunnels.workerOffline') }}
               </option>
             </datalist>
             <span class="field-hint mono">
-              候选来自已登记的 worker；离线的也可以先存下来。
+              {{ t('settings.tunnels.workerHint') }}
             </span>
           </label>
 
           <label class="field">
-            <span class="field-name mono">规则<span class="req">*</span></span>
+            <span class="field-name mono">{{ t('settings.tunnels.rules') }}<span class="req">*</span></span>
             <textarea
               v-model="editor.form.specsText"
               class="input input--area mono"
               :class="{ 'input--bad': !!specError }"
               rows="5"
-              placeholder="一行一条，或用逗号分隔：&#10;udp/21845:192.168.0.253:21845&#10;1502:192.168.0.205:502"
+              :placeholder="t('settings.tunnels.rulesPlaceholder')"
             ></textarea>
             <span v-if="specError" class="field-error mono">{{ specError }}</span>
             <span v-else class="field-hint mono">
-              一行一条或逗号分隔都行；`[bind:]本地端口:目标主机:目标端口`，udp 写 `udp/端口`；
-              `=IP:端口` 按原地址监听（需先把该 IP 加到本机环回网卡）；`socks/1080` 是 SOCKS5 / HTTP CONNECT 代理（仅环回）。
+              {{ t('settings.tunnels.rulesHint') }}
             </span>
           </label>
 
           <label class="field">
-            <span class="field-name mono">备注</span>
-            <input v-model="editor.form.note" class="input mono" type="text" placeholder="可选" />
+            <span class="field-name mono">{{ t('settings.tunnels.note') }}</span>
+            <input v-model="editor.form.note" class="input mono" type="text" :placeholder="t('settings.tunnels.optional')" />
           </label>
 
           <label class="field field--check">
             <input v-model="editor.form.autostart" type="checkbox" />
-            <span class="field-name mono">server 启动时自动监听</span>
+            <span class="field-name mono">{{ t('settings.tunnels.autostartToggle') }}</span>
           </label>
 
           <p v-if="saveError" class="error mono" :title="saveError">{{ saveError }}</p>
 
           <div class="modal-actions">
             <button class="mini-btn mono" type="button" :disabled="saving" @click="save()">
-              {{ saving ? '保存中...' : '保存' }}
+              {{ saving ? t('settings.ext.saving') : t('act.save') }}
             </button>
-            <button class="mini-btn mono" type="button" :disabled="saving" @click="closeEditor()">取消</button>
+            <button class="mini-btn mono" type="button" :disabled="saving" @click="closeEditor()">{{ t('act.cancel') }}</button>
           </div>
         </div>
       </div>

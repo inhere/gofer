@@ -8,13 +8,15 @@
 // 绑定关系本身不在这里编辑：它是 server.rules / agents.<key>.rules / projects.<key>.rules 三个配置
 // 位置，配置页与项目页负责写入；本页只从 GET /v1/config 读回来做反查（不新增端点）。
 // 写操作（PUT/DELETE）要 can_admin，服务端的 403/400 原因原样显示在编辑器下方。
+// UI 重设计 P5-d：编辑器改用 FormSection，文案走 i18n（settings.rules.*）；表格结构不动。
 import { computed, onMounted, ref } from 'vue'
 import MarkdownBlock from '../../components/MarkdownBlock.vue'
 import { getConfig } from '../../api/client'
 import { deleteRule, getRule, listRules, putRule } from '../../api/rules'
 import { fmtAgo, fmtDateTime } from '../../api/time'
 import { fmtBytes } from '../../utils/bytes'
-import { COL, PAGE } from '../../utils/uiText'
+import { t } from '../../i18n'
+import FormSection from '../../ui/FormSection.vue'
 import type { ConfigView, Rule } from '../../api/types'
 
 // NEW_RULE_TEMPLATE 是新规则的起始正文：description 决定列表里的"描述"列（库里只索引为首部
@@ -170,7 +172,7 @@ async function save(): Promise<void> {
   }
   const name = editorName.value.trim()
   if (name === '') {
-    saveError.value = '请填写规则名（小写字母/数字/中划线，如 house-rules）'
+    saveError.value = t('settings.rules.errName')
     return
   }
   saving.value = true
@@ -178,7 +180,11 @@ async function save(): Promise<void> {
   notice.value = ''
   try {
     const saved = await putRule(name, editorText.value)
-    notice.value = `已保存规则 ${saved.name}（${fmtBytes(saved.size ?? 0)}${saved.description ? ` · ${saved.description}` : ''}）`
+    notice.value = t('settings.rules.saved', {
+      name: saved.name,
+      size: fmtBytes(saved.size ?? 0),
+      desc: saved.description ? ` · ${saved.description}` : '',
+    })
     creating.value = false
     editorName.value = saved.name
     await load()
@@ -198,10 +204,9 @@ async function removeRule(name: string): Promise<void> {
   const where = boundAt(name)
   const stillBound =
     where.length > 0
-      ? `\n\n它仍被绑定：${where.join('、')}。删除后这些绑定会在**提交时报未知规则**（unknown rule "${name}"）——` +
-        '请在配置页/项目页或 config.yaml 里一并解绑。'
-      : '\n\n库里没有任何绑定指向它。'
-  if (!window.confirm(`删除规则「${name}」？规则文件会一起删掉。${stillBound}`)) {
+      ? '\n\n' + t('settings.rules.stillBound', { where: where.join('、'), name })
+      : '\n\n' + t('settings.rules.notBound')
+  if (!window.confirm(t('settings.rules.confirmDelete', { name, bound: stillBound }))) {
     return
   }
   busy.value = name
@@ -209,14 +214,14 @@ async function removeRule(name: string): Promise<void> {
   notice.value = ''
   try {
     await deleteRule(name)
-    notice.value = `规则 ${name} 已删除`
+    notice.value = t('settings.rules.deleted', { name })
     if (editorName.value === name) {
       closeEditor()
     }
     await load()
     await loadConfigOnly()
   } catch (e) {
-    actionError.value = `删除 ${name} 失败：${errorMessage(e)}`
+    actionError.value = t('settings.rules.deleteFailed', { name, error: errorMessage(e) })
   } finally {
     busy.value = ''
   }
@@ -230,65 +235,76 @@ onMounted(() => {
 
 <template>
   <div class="rules">
-    <div class="head">
-      <h1 class="title mono">{{ PAGE.rules }}</h1>
-      <button class="mini-btn mono" type="button" :disabled="loading" @click="load()">
-        {{ loading ? '刷新中…' : '刷新' }}
-      </button>
-      <button class="mini-btn mono" type="button" @click="openCreate()">新建规则</button>
-      <span class="poll-hint mono" :class="{ 'poll-hint--on': loading }">●</span>
-    </div>
+    <header class="page-head">
+      <div class="grow">
+        <h1>{{ t('settings.rules.title') }}</h1>
+        <p class="sub">{{ t('settings.rules.sub') }}</p>
+      </div>
+      <div class="head-actions">
+        <span class="poll-hint" :class="{ 'poll-hint--on': loading }" aria-hidden="true">●</span>
+        <button class="btn" type="button" :disabled="loading" @click="load()">
+          {{ loading ? t('settings.rules.refreshing') : t('act.refresh') }}
+        </button>
+        <button class="btn btn--primary" type="button" @click="openCreate()">
+          {{ t('settings.rules.new') }}
+        </button>
+      </div>
+    </header>
 
-    <p class="scope-note mono">
-      规则是<b>必须遵守</b>的约束，每个 job 自动注入 prompt 顶部；长篇参考资料请用
-      <RouterLink to="/skills">Skills</RouterLink>。<b>不要在规则里放密钥</b>——
-      规则原文会随 job 落进 request_json。库在 serve 主机的 &lt;config-dir&gt;/rules/ 下，写操作需要 can_admin。
+    <p class="scope-note">
+      {{ t('settings.rules.scopeBefore') }}
+      <RouterLink to="/skills">Skills</RouterLink>{{ t('settings.rules.scopeAfter') }}
     </p>
 
-    <p v-if="loadError" class="error mono">{{ loadError }}</p>
-    <p v-if="actionError" class="error mono">{{ actionError }}</p>
-    <p v-if="notice" class="notice mono">{{ notice }}</p>
-    <p v-if="bindError" class="error mono">绑定反查不可用（读取配置失败）：{{ bindError }}</p>
+    <p v-if="loadError" class="msg msg--err">{{ loadError }}</p>
+    <p v-if="actionError" class="msg msg--err">{{ actionError }}</p>
+    <p v-if="notice" class="msg msg--ok">{{ notice }}</p>
+    <p v-if="bindError" class="msg msg--err">
+      {{ t('settings.rules.bindError', { error: bindError }) }}
+    </p>
 
-    <section v-if="editorOpen" class="panel editor-panel">
-      <h2 class="panel-title mono">
-        {{ creating ? '新建规则' : `编辑 ${editorName}` }}
-      </h2>
+    <FormSection
+      v-if="editorOpen"
+      :title="creating ? t('settings.rules.editorCreate') : t('settings.rules.editorEdit', { name: editorName })"
+      :desc="t('settings.rules.editorDesc')"
+    >
       <label v-if="creating" class="field field--name">
-        <span class="field-name">名称（小写字母/数字/中划线，文件名即 &lt;name&gt;.md）</span>
+        <span class="field-name">{{ t('settings.rules.nameLabel') }}</span>
         <input v-model="editorName" class="input mono" placeholder="house-rules" />
       </label>
       <div class="editor-split">
         <label class="field field--pane">
-          <span class="field-name">正文（markdown；首部 frontmatter 的 description: 是列表里的"描述"）</span>
+          <span class="field-name">{{ t('settings.rules.bodyLabel') }}</span>
           <textarea v-model="editorText" class="input textarea mono" rows="18" spellcheck="false"></textarea>
         </label>
         <div class="field field--pane">
-          <span class="field-name">预览（仅正文，frontmatter 不注入）</span>
+          <span class="field-name">{{ t('settings.rules.previewLabel') }}</span>
           <div class="preview"><MarkdownBlock :text="previewText" /></div>
         </div>
       </div>
-      <p v-if="saveError" class="error mono">{{ saveError }}</p>
+      <p v-if="saveError" class="msg msg--err">{{ saveError }}</p>
       <div class="editor-actions">
-        <button class="mini-btn mono" type="button" :disabled="saving" @click="save()">
-          {{ saving ? '保存中…' : '保存' }}
+        <button class="btn btn--primary" type="button" :disabled="saving" @click="save()">
+          {{ saving ? t('settings.saving') : t('act.save') }}
         </button>
-        <button class="mini-btn mono" type="button" :disabled="saving" @click="closeEditor()">取消</button>
-        <span class="hint mono">保存走 PUT /v1/rules/&lt;name&gt;：整条替换，校验错误原样显示在这里。</span>
+        <button class="btn" type="button" :disabled="saving" @click="closeEditor()">
+          {{ t('act.cancel') }}
+        </button>
+        <span class="hint">{{ t('settings.rules.saveHint') }}</span>
       </div>
-    </section>
+    </FormSection>
 
     <!-- 表格包在可横向滚动的容器里（手机档列多，压缩到不可读不如让它滚）。 -->
     <div class="table-wrap">
       <div class="table">
-        <div class="thead mono">
-          <span>名称</span>
-          <span>描述</span>
-          <span>大小</span>
-          <span>更新时间</span>
-          <span>更新人</span>
-          <span>被谁绑定</span>
-          <span>{{ COL.actions }}</span>
+        <div class="thead">
+          <span>{{ t('settings.rules.col.name') }}</span>
+          <span>{{ t('settings.rules.col.desc') }}</span>
+          <span>{{ t('settings.rules.col.size') }}</span>
+          <span>{{ t('settings.rules.col.updated') }}</span>
+          <span>{{ t('settings.rules.col.by') }}</span>
+          <span>{{ t('settings.rules.col.bound') }}</span>
+          <span>{{ t('settings.rules.col.actions') }}</span>
         </div>
 
       <div v-for="r in rules" :key="r.name" class="trow">
@@ -310,52 +326,63 @@ onMounted(() => {
           <span v-else class="muted mono">—</span>
         </span>
         <span class="cell-act">
-          <button class="mini-btn mono" type="button" :disabled="busy !== ''" @click="openEdit(r.name)">
-            编辑
+          <button class="btn btn--mini" type="button" :disabled="busy !== ''" @click="openEdit(r.name)">
+            {{ t('settings.rules.edit') }}
           </button>
           <button
-            class="mini-btn mini-btn--danger mono"
+            class="btn btn--mini btn--danger"
             type="button"
             :disabled="busy !== ''"
             @click="removeRule(r.name)"
           >
-            {{ busy === r.name ? '…' : '删除' }}
+            {{ busy === r.name ? '…' : t('settings.rules.delete') }}
           </button>
         </span>
       </div>
 
-      <div v-if="!hasRules && !loadError && !loading" class="empty mono">规则库为空</div>
-      <div v-if="loading && !hasRules" class="empty mono">加载中…</div>
+      <div v-if="!hasRules && !loadError && !loading" class="empty" data-testid="rules-empty">
+        {{ t('settings.rules.empty') }}
+      </div>
+      <div v-if="loading && !hasRules" class="empty">{{ t('settings.rules.loading') }}</div>
       </div>
     </div>
 
-    <p class="hint mono">
-      绑定在 <RouterLink to="/settings/config">配置管理</RouterLink>（server / agent 两层）与
-      <RouterLink to="/projects">项目</RouterLink>页编辑；项目仓库里的 <code>.gofer/RULES.md</code>
-      自动成为该项目的一条规则（名为 <code>project:&lt;key&gt;</code>，随仓库版本走，不在这个库里、不需要绑定）。
-      规则总长上限是 server.rules_max_bytes（默认 16KiB），超限的提交被拒。
+    <p class="hint">
+      {{ t('settings.rules.footerBefore') }}
+      <RouterLink to="/settings/config">{{ t('settings.nav.config') }}</RouterLink>
+      {{ t('settings.rules.footerMid') }}
+      <RouterLink to="/projects">{{ t('settings.nav.projects') }}</RouterLink>
+      {{ t('settings.rules.footerAfter') }}
     </p>
   </div>
 </template>
 
 <style scoped>
-.head {
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.page-head .grow {
+  flex: 1;
+  min-width: 0;
+}
+.page-head h1 {
+  margin: 0 0 4px;
+  font-size: var(--fs-xl);
+  color: var(--fg);
+}
+.sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--fg-3);
+}
+.head-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-.title {
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  color: var(--paper);
-  margin: 0;
-}
-.head .mini-btn {
-  margin-left: 0;
-}
-.head .mini-btn:first-of-type {
-  margin-left: auto;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .poll-hint {
   color: var(--line);
@@ -363,61 +390,43 @@ onMounted(() => {
   transition: color 0.2s;
 }
 .poll-hint--on {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .scope-note {
-  color: var(--queue);
-  font-size: 12px;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
   line-height: 1.7;
   margin: 0 0 12px;
 }
 .scope-note a,
 .hint a {
-  color: var(--phosphor);
+  color: var(--accent);
 }
-.scope-note b {
-  color: var(--paper);
-}
-.error,
-.notice {
-  font-size: 12px;
-  border-radius: var(--radius);
+
+.msg {
+  font-size: var(--fs-sm);
+  border-radius: var(--r-ctl);
   padding: 8px 10px;
   margin: 0 0 10px;
   word-break: break-word;
 }
-.error {
+.msg--err {
   color: var(--fail);
   border: 1px solid var(--fail);
 }
-.notice {
-  color: var(--done);
-  border: 1px solid var(--done);
+.msg--ok {
+  color: var(--accent);
+  border: 1px solid var(--accent);
 }
 .muted {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 
-.panel {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-}
-.editor-panel {
-  margin-bottom: 14px;
-}
-.panel-title {
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  color: var(--paper);
-  margin: 0 0 10px;
-}
 .field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 .field--name {
   margin-bottom: 10px;
@@ -431,19 +440,20 @@ onMounted(() => {
   min-width: 0;
 }
 .field-name {
-  color: var(--queue);
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
 }
 .input {
-  background: transparent;
-  color: var(--paper);
+  background: var(--sunken);
+  color: var(--fg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 5px 8px;
+  border-radius: var(--r-ctl);
+  padding: 6px 8px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .input:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .textarea {
   resize: vertical;
@@ -451,32 +461,44 @@ onMounted(() => {
 }
 .preview {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-ctl);
   padding: 8px 10px;
   min-height: 200px;
   max-height: 420px;
   overflow: auto;
+  background: var(--surface);
 }
-.mini-btn {
+
+.btn {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--fg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 11px;
-  cursor: pointer;
+  border-radius: var(--r-ctl);
+  padding: 6px 12px;
+  font: inherit;
+  font-size: var(--fs-sm);
 }
-.mini-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
+.btn:hover:not(:disabled) {
+  border-color: var(--line-strong);
 }
-.mini-btn:disabled {
-  color: var(--queue);
+.btn:disabled {
+  opacity: 0.5;
   cursor: default;
 }
-.mini-btn--danger {
+.btn--primary {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn--mini {
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+}
+.btn--danger {
   color: var(--fail);
 }
-.mini-btn--danger:hover:not(:disabled) {
+.btn--danger:hover:not(:disabled) {
   border-color: var(--fail);
 }
 .editor-actions {
@@ -484,6 +506,7 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   margin-top: 10px;
+  flex-wrap: wrap;
 }
 .editor-actions .hint {
   margin: 0;
@@ -491,7 +514,7 @@ onMounted(() => {
 
 .table {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-panel);
   overflow: hidden;
 }
 .thead,
@@ -503,31 +526,31 @@ onMounted(() => {
   padding: 9px 14px;
 }
 .thead {
-  background: var(--panel);
+  background: var(--surface-2);
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.06em;
-  color: var(--queue);
+  color: var(--fg-3);
   text-transform: uppercase;
 }
 .trow {
   border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 .trow:last-child {
   border-bottom: none;
 }
 .trow:hover {
-  background: var(--panel);
+  background: var(--surface);
 }
 .cell-name {
-  color: var(--phosphor);
+  color: var(--accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .cell-desc {
-  color: var(--paper);
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -535,8 +558,8 @@ onMounted(() => {
 .cell-size,
 .cell-time,
 .cell-by {
-  color: var(--queue);
-  font-size: 12px;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
 }
 .cell-bind {
   display: flex;
@@ -546,14 +569,14 @@ onMounted(() => {
 }
 .tag {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 6px;
-  font-size: 11px;
-  color: var(--queue);
+  font-size: var(--fs-xs);
+  color: var(--fg-2);
 }
 .tag--server {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .cell-act {
   display: flex;
@@ -562,18 +585,18 @@ onMounted(() => {
 }
 .empty {
   padding: 14px;
-  color: var(--queue);
-  font-size: 12px;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
 }
 .hint {
-  font-size: 11px;
-  color: var(--queue);
-  margin: 10px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--fg-3);
+  margin: 12px 0 0;
   line-height: 1.7;
 }
 .hint code {
-  font-family: var(--font-mono, monospace);
-  background: var(--term-bg);
+  font-family: var(--font-mono);
+  background: var(--sunken);
   padding: 1px 5px;
   border-radius: 3px;
 }
@@ -589,6 +612,9 @@ onMounted(() => {
   }
   .table-wrap .table {
     min-width: 860px;
+  }
+  .page-head {
+    flex-direction: column;
   }
 }
 </style>
