@@ -4,7 +4,6 @@ import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import IssueBatchBar from '../components/IssueBatchBar.vue'
 import IssueDrawer from '../components/IssueDrawer.vue'
 import MemoryList from '../components/MemoryList.vue'
-import StatusBadge from '../components/StatusBadge.vue'
 import {
   batchTrackerIssues,
   createTrackerIssue,
@@ -28,11 +27,8 @@ import {
 import type { MemoryDoctorFinding, TrackerBatchSet, TrackerIssue, TrackerIssueView, TrackerMemory, TrackerRepo, TrackerSyncClient } from '../api/types'
 import { buildIssueTree, type IssueNode } from '../utils/issueTree'
 import { ISSUE_STATUS_VALUES, issueStatusText } from '../utils/statusText'
-import { COL, PAGE } from '../utils/uiText'
-import {
-  clampPage, descendantIds, normalizePageSize, PAGE_SIZES, pageCheckState, pageWindow, paginateEntries,
-  summarizeBatch, toggleId, togglePage, toggleWithDescendants, type BatchSummary,
-} from '../utils/issuePaging'
+import { clampPage, descendantIds, normalizePageSize, PAGE_SIZES, pageCheckState, pageWindow, paginateEntries,
+  summarizeBatch, toggleId, togglePage, toggleWithDescendants, type BatchSummary } from '../utils/issuePaging'
 import {
   buildNewIssueRequest, ISSUE_PRIORITIES, ISSUE_TYPES, issueRepoLabel, issueRepos,
 } from '../utils/dispatch'
@@ -40,6 +36,13 @@ import { runTrackerSync } from '../utils/trackerSync'
 import { pageWriteBlock } from '../utils/pageGate'
 import { useWhoami } from '../store/whoami'
 import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, memoryKindMatches, syncClientLine, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
+import { t, te } from '../i18n'
+import Tabs from '../ui/Tabs.vue'
+import FilterChips from '../ui/FilterChips.vue'
+import ProjectFilter from '../ui/ProjectFilter.vue'
+import StatusPill from '../ui/StatusPill.vue'
+import type { FilterChipItem } from '../ui/filterChips'
+import type { TabItem } from '../ui/tabs'
 
 type IssueRow = TrackerIssue & { data: TrackerIssue['body'] }
 type MemoryRow = TrackerMemory & { data: TrackerMemory['body'] }
@@ -65,9 +68,6 @@ const memories = ref<MemoryRow[]>([])
 const memoryDoctor = ref<Record<string, MemoryDoctorFinding[]>>({})
 const memoryKinds = ref<string[]>([])
 const flaggedOnly = ref(false)
-function toggleMemoryKind(kind: string): void {
-  memoryKinds.value = memoryKinds.value.includes(kind) ? memoryKinds.value.filter((k) => k !== kind) : [...memoryKinds.value, kind]
-}
 const selected = ref<TrackerIssueView | null>(null)
 const selectedRow = ref<IssueRow | null>(null)
 const selectedMemory = ref<MemoryRow | null>(null)
@@ -94,6 +94,18 @@ function toggleExpand(id: string, current: boolean): void {
   expandOverrides.value = next
 }
 const saving = ref(false)
+
+// 页签：值以 URL 的 ?tab= 为准（Tabs 组件负责读），本地 ref 供 load() 与监听用。
+const tabItems = computed<TabItem[]>(() => [
+  { value: 'issues', label: t('issues.tab.issues') },
+  { value: 'memories', label: t('issues.tab.memories') },
+])
+function setTab(value: string): void {
+  const next = value === 'memories' ? 'memories' : 'issues'
+  if (next === tab.value) return
+  tab.value = next
+  void load()
+}
 
 // 分页（前端）：列表接口本就整仓返回（过滤/树形也依赖全量），~1000 条下切页成本可忽略。
 const PAGE_SIZE_KEY = 'gofer.issues.pagesize'
@@ -150,7 +162,7 @@ async function submitNewIssue(): Promise<void> {
   newError.value = ''
   try {
     const r = await createTrackerIssue(newForm.value.trackerId, built.req)
-    newMsg.value = `已新建 ${r.issue?.id ?? 'issue'}，待仓库下次同步后拉到本地`
+    newMsg.value = t('issues.newForm.created', { id: r.issue?.id ?? 'issue' })
     newForm.value.title = ''
     newForm.value.description = ''
     if (trackerId.value === newForm.value.trackerId && tab.value === 'issues') await load()
@@ -185,6 +197,31 @@ const visibleIds = computed(() => new Set(filteredIssues.value.map((r) => r.id))
 const selectedList = computed(() => [...selectedIds.value])
 // 筛选/视图/每页条数变化 => 回到第 1 页
 watch([query, typeFilter, tagFilter, statuses, viewMode, trackerId, pageSize], () => { page.value = 1 })
+
+// 状态 chip：值即接口状态值，带计数；多选，空集合表示不按状态过滤。
+const statusItems = computed<FilterChipItem[]>(() => {
+  const counts = new Map<string, number>()
+  for (const row of issues.value) {
+    const status = row.data.status || 'open'
+    counts.set(status, (counts.get(status) ?? 0) + 1)
+  }
+  return ISSUE_STATUS_VALUES.map((status) => ({
+    value: status,
+    label: te(`status.${status}`) ? t(`status.${status}`) : issueStatusText(status),
+    count: counts.get(status) ?? 0,
+  }))
+})
+
+// 记忆作用域：单选 chip（原来的三段按钮）。
+const scopeItems = computed<FilterChipItem[]>(() => [
+  { value: 'repo', label: t('issues.scope.repo') },
+  { value: 'project', label: t('issues.scope.project') },
+  { value: 'global', label: t('issues.scope.global') },
+])
+const scopeHelp = computed(() => t(`issues.scope.${memoryScope.value}Help`))
+function pickScope(value: string): void {
+  selectMemoryScope(value)
+}
 
 function onCheck(id: string, ev: MouseEvent): void {
   if (ev.shiftKey) selectFamily(id)
@@ -275,8 +312,8 @@ async function loadSyncClients(): Promise<void> {
   }
 }
 // load() 在 Issues 页签且没选仓库时会提前返回：切到「记忆 · 全局」时补拉一次。
-watch(tab, (t) => {
-  if (t === 'memories' && memoryScope.value === 'global' && !syncClientsLoaded.value) void loadSyncClients()
+watch(tab, (t2) => {
+  if (t2 === 'memories' && memoryScope.value === 'global' && !syncClientsLoaded.value) void loadSyncClients()
 })
 
 // TRK-05：服务端派发 `gofer repo sync`，轮询其 job，结束后刷新仓库与列表。
@@ -297,12 +334,12 @@ async function syncRepo(): Promise<void> {
     if (out.state === 'ok') {
       await loadRepos()
       await load()
-      syncMsg.value = { ok: true, text: `同步完成 · ${fmtTrackerTime(repo.value?.last_sync_at)}`, jobId: out.jobId }
+      syncMsg.value = { ok: true, text: t('issues.syncDone', { time: fmtTrackerTime(repo.value?.last_sync_at) }), jobId: out.jobId }
     } else {
-      syncMsg.value = { ok: false, text: `同步失败：${out.message}`, jobId: out.jobId }
+      syncMsg.value = { ok: false, text: t('issues.syncFailed', { err: out.message }), jobId: out.jobId }
     }
   } catch (e) {
-    syncMsg.value = { ok: false, text: `同步失败：${e instanceof Error ? e.message : String(e)}`, jobId: '' }
+    syncMsg.value = { ok: false, text: t('issues.syncFailed', { err: e instanceof Error ? e.message : String(e) }), jobId: '' }
   } finally {
     syncing.value = false
   }
@@ -315,6 +352,13 @@ async function changeRepo(): Promise<void> {
   selected.value = null
   selectedMemory.value = null
   await load()
+}
+
+// repo 选择换成统一的 ProjectFilter（设计稿 §7.3：repo 视为项目）。
+function pickRepo(value: string): void {
+  if (!value || value === trackerId.value) return
+  trackerId.value = value
+  void changeRepo()
 }
 
 async function changeMemoryScope(): Promise<void> {
@@ -402,12 +446,6 @@ async function removeMemory(row: MemoryRow): Promise<void> {
   }
 }
 
-function toggleStatus(status: string): void {
-  statuses.value = statuses.value.includes(status)
-    ? statuses.value.filter((item) => item !== status)
-    : [...statuses.value, status]
-}
-
 onMounted(async () => {
   try {
     const requestedScope = queryValue(route.query.memory_scope)
@@ -433,78 +471,151 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="tracker-page">
+  <main class="page" data-test="issues-page">
     <header class="page-head">
-      <div><p class="eyebrow mono">TRACKER</p><h1 class="title mono">{{ PAGE.issues }}</h1></div>
-      <div class="head-btns"><button class="secondary-btn mono" type="button" data-test="new-issue-toggle" :aria-expanded="newOpen" @click="openNewIssue">新建 issue</button><button class="primary-btn mono" type="button" :disabled="loading || (tab === 'issues' ? !trackerId : (memoryScope === 'repo' ? !trackerId : memoryScope === 'project' && !projectKey))" @click="load">刷新</button></div>
+      <div class="head-main">
+        <h1 class="title">{{ t('issues.title') }}</h1>
+        <p class="sub">
+          {{ tab === 'issues' ? t('issues.subtitle', { n: filteredIssues.length }) : t('issues.subtitle', { n: filteredMemories.length }) }}
+        </p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" type="button" data-test="new-issue-toggle" :aria-expanded="newOpen" @click="openNewIssue">
+          {{ t('issues.new') }}
+        </button>
+        <button
+          class="btn btn--primary"
+          type="button"
+          :disabled="loading || (tab === 'issues' ? !trackerId : (memoryScope === 'repo' ? !trackerId : memoryScope === 'project' && !projectKey))"
+          @click="load"
+        >
+          {{ t('issues.refresh') }}
+        </button>
+      </div>
     </header>
+
     <form v-if="newOpen" class="new-issue" data-test="new-issue-form" @submit.prevent="submitNewIssue">
-      <label class="ni-field mono"><span>仓库</span>
-        <select v-model="newForm.trackerId" class="filter-select" data-test="new-issue-repo"><option value="">选一个仓库…</option><option v-for="r in createRepos" :key="r.tracker_id" :value="r.tracker_id">{{ issueRepoLabel(r) }}</option></select>
+      <p class="new-title">{{ t('issues.newForm.title') }}</p>
+      <label class="field"><span>{{ t('issues.newForm.repo') }}</span>
+        <select v-model="newForm.trackerId" class="in" data-test="new-issue-repo"><option value="">{{ t('issues.newForm.repoPlaceholder') }}</option><option v-for="r in createRepos" :key="r.tracker_id" :value="r.tracker_id">{{ issueRepoLabel(r) }}</option></select>
       </label>
-      <p v-if="!createRepos.length" class="ni-hint mono" data-test="new-issue-no-repo">没有可用的仓库：仓库要先在本地执行一次 gofer repo sync，server 才知道它的 id 前缀。</p>
-      <label class="ni-field mono"><span>标题</span><input v-model="newForm.title" class="ni-in" type="text" maxlength="300" data-test="new-issue-title" /></label>
-      <label class="ni-field mono"><span>描述（可选）</span><textarea v-model="newForm.description" class="ni-in" rows="4" data-test="new-issue-desc"></textarea></label>
-      <div class="ni-row">
-        <label class="ni-field mono"><span>优先级</span><select v-model="newForm.priority" class="filter-select" data-test="new-issue-priority"><option v-for="p in ISSUE_PRIORITIES" :key="p.value" :value="String(p.value)">{{ p.label }}</option></select></label>
-        <label class="ni-field mono"><span>类型</span><select v-model="newForm.type" class="filter-select" data-test="new-issue-type"><option v-for="t in ISSUE_TYPES" :key="t" :value="t">{{ t }}</option></select></label>
+      <p v-if="!createRepos.length" class="hint-line" data-test="new-issue-no-repo">{{ t('issues.newForm.noRepo') }}</p>
+      <label class="field"><span>{{ t('issues.newForm.titleField') }}</span><input v-model="newForm.title" class="in" type="text" maxlength="300" data-test="new-issue-title" /></label>
+      <label class="field"><span>{{ t('issues.newForm.desc') }}</span><textarea v-model="newForm.description" class="in" rows="4" data-test="new-issue-desc"></textarea></label>
+      <div class="field-row">
+        <label class="field"><span>{{ t('issues.newForm.priority') }}</span><select v-model="newForm.priority" class="in" data-test="new-issue-priority"><option v-for="p in ISSUE_PRIORITIES" :key="p.value" :value="String(p.value)">{{ p.label }}</option></select></label>
+        <label class="field"><span>{{ t('issues.newForm.type') }}</span><select v-model="newForm.type" class="in" data-test="new-issue-type"><option v-for="tp in ISSUE_TYPES" :key="tp" :value="tp">{{ tp }}</option></select></label>
       </div>
-      <p v-if="newError" class="ni-err mono" role="alert" data-test="new-issue-error">{{ newError }}</p>
-      <p v-if="newMsg" class="ni-ok mono" role="status" data-test="new-issue-ok">{{ newMsg }}</p>
-      <div class="ni-actions"><button class="primary-btn mono" type="submit" :disabled="newBusy || !!writeBlock" :title="writeBlock || undefined" data-test="new-issue-submit">{{ newBusy ? '创建中…' : '创建 issue' }}</button><button class="secondary-btn mono" type="button" @click="newOpen = false">收起</button></div>
+      <p v-if="newError" class="err" role="alert" data-test="new-issue-error">{{ newError }}</p>
+      <p v-if="newMsg" class="ok" role="status" data-test="new-issue-ok">{{ newMsg }}</p>
+      <div class="actions">
+        <button class="btn btn--primary" type="submit" :disabled="newBusy || !!writeBlock" :title="writeBlock || undefined" data-test="new-issue-submit">{{ newBusy ? t('issues.newForm.submitting') : t('issues.newForm.submit') }}</button>
+        <button class="btn" type="button" @click="newOpen = false">{{ t('issues.newForm.collapse') }}</button>
+      </div>
     </form>
-    <!-- The top panel has the SAME structure on both tabs (one select slot + one sync slot, each with
-         a reserved height) so switching Issues / Memories never moves it or the tabs below it. The
-         memory scope switch lives under the tabs, where growing the page only pushes content down. -->
+
+    <!-- 上个面板在两个页签下结构一致（一个选择槽 + 一个同步槽，各留固定高度），
+         切换 Issues / 记忆 时面板与页签都不跳动。记忆作用域放在页签下方，撑高页面只把内容往下推。 -->
     <section class="meta-panel">
-      <label v-if="tab === 'issues' || memoryScope === 'repo'" class="repo-field mono"><span>仓库</span><select v-model="trackerId" class="filter-select" @change="changeRepo"><option value="">请选择已登记仓库</option><option v-for="item in repos" :key="item.tracker_id" :value="item.tracker_id">{{ trackerRepoLabel(item) }}</option></select><button v-if="tab === 'issues' || memoryScope === 'repo'" class="secondary-btn mono" type="button" data-test="sync-repo" :disabled="syncing || !trackerId" title="让 server 在该仓库目录执行 gofer repo sync" @click="syncRepo">{{ syncing ? '同步中…' : '同步' }}</button></label>
-      <label v-else-if="memoryScope === 'project'" class="repo-field mono"><span>项目</span><select v-model="projectKey" class="filter-select" @change="changeMemoryProject"><option value="">请选择项目</option><option v-for="item in projectKeys" :key="item" :value="item">{{ item }}</option></select></label>
-      <div v-else class="repo-field mono"><span>仓库</span><div class="repo-note">全局记忆存于 server，无需选择仓库</div></div>
-      <div class="sync-summary mono"><template v-if="repo && (tab === 'issues' || memoryScope === 'repo')"><span>上次同步 {{ fmtTrackerTime(repo.last_sync_at) }}</span><span :title="repo.sync_summary || ''">{{ repo.sync_summary || '暂无同步冲突摘要' }}</span><span v-if="syncMsg" data-test="sync-msg" :class="syncMsg.ok ? 'sync-ok' : 'sync-fail'" :title="syncMsg.text">{{ syncMsg.text }}<router-link v-if="syncMsg.jobId" :to="`/jobs/${syncMsg.jobId}`"> · job {{ syncMsg.jobId.slice(0, 8) }}</router-link></span></template></div>
-    </section>
-    <!-- The tabs stay visible without any registered repository: global and project
-         memories live on the server and do not need one. -->
-    <nav class="tabs mono"><button type="button" :class="{ active: tab === 'issues' }" @click="tab = 'issues'">Issues</button><button type="button" :class="{ active: tab === 'memories' }" @click="tab = 'memories'">Memories</button></nav>
-    <div v-if="tab === 'memories'" class="scope-row mono">
-      <span>记忆作用域</span>
-      <div class="scope-switch" role="radiogroup" aria-label="记忆作用域">
-        <button v-for="item in [{ value: 'repo', label: '仓库' }, { value: 'project', label: '项目' }, { value: 'global', label: '全局' }]" :key="item.value" type="button" class="scope-btn" :class="{ active: memoryScope === item.value }" :aria-checked="memoryScope === item.value" role="radio" @click="selectMemoryScope(item.value)">{{ item.label }}</button>
+      <div v-if="tab === 'issues' || memoryScope === 'repo'" class="repo-row">
+        <ProjectFilter
+          :model-value="trackerId"
+          :options="repos.map((item) => item.tracker_id)"
+          @update:model-value="pickRepo"
+        />
+        <span class="repo-current" :title="trackerId">{{ repo ? trackerRepoLabel(repo) : t('issues.repoPlaceholder') }}</span>
+        <button class="btn" type="button" data-test="sync-repo" :disabled="syncing || !trackerId" :title="t('issues.repoSyncTitle')" @click="syncRepo">{{ syncing ? t('issues.repoSyncing') : t('issues.repoSync') }}</button>
       </div>
-      <small class="scope-help">{{ memoryScope === 'repo' ? '随代码存于该仓库 .gofer/tracker' : memoryScope === 'project' ? '存于 server，整个 gofer 项目共享' : '存于 server，所有项目共享' }}</small>
+      <div v-else-if="memoryScope === 'project'" class="repo-row">
+        <span class="field-label">{{ t('issues.project') }}</span>
+        <select v-model="projectKey" class="in" @change="changeMemoryProject"><option value="">{{ t('issues.projectPlaceholder') }}</option><option v-for="item in projectKeys" :key="item" :value="item">{{ item }}</option></select>
+      </div>
+      <div v-else class="repo-row">
+        <span class="field-label">{{ t('issues.repo') }}</span>
+        <span class="dim">{{ t('issues.globalNote') }}</span>
+      </div>
+      <div class="sync-summary">
+        <template v-if="repo && (tab === 'issues' || memoryScope === 'repo')">
+          <span>{{ t('issues.lastSync', { time: fmtTrackerTime(repo.last_sync_at) }) }}</span>
+          <span :title="repo.sync_summary || ''">{{ repo.sync_summary || t('issues.noSyncSummary') }}</span>
+          <span v-if="syncMsg" data-test="sync-msg" :class="syncMsg.ok ? 'ok' : 'err'" :title="syncMsg.text">{{ syncMsg.text }}<router-link v-if="syncMsg.jobId" :to="`/jobs/${syncMsg.jobId}`"> · {{ t('issues.syncJob', { id: syncMsg.jobId.slice(0, 8) }) }}</router-link></span>
+        </template>
+      </div>
+    </section>
+
+    <!-- 页签在没有已登记仓库时也在（全局 / 项目记忆存于 server，不需要仓库）。 -->
+    <Tabs :tabs="tabItems" @change="setTab" />
+
+    <div v-if="tab === 'memories'" class="scope-row">
+      <span class="field-label">{{ t('issues.scope.label') }}</span>
+      <FilterChips :model-value="memoryScope" :items="scopeItems" :label="t('issues.scope.label')" @update:model-value="pickScope(String($event))" />
+      <small class="scope-help">{{ scopeHelp }}</small>
     </div>
+
     <!-- 全局记忆：各机器本地副本最近一次与 server 同步的情况（可折叠，默认收起，摘要行给出最近一台）。 -->
-    <details v-if="tab === 'memories' && memoryScope === 'global'" class="sync-clients mono" data-test="sync-clients">
-      <summary>同步状态<template v-if="syncClients.length"> · {{ syncClients.length }} 台机器 · 最近 {{ syncClients[0].client_host }}</template></summary>
-      <p v-if="syncClientsError" class="sync-fail">{{ syncClientsError }}</p>
-      <p v-else-if="syncClientsLoaded && syncClients.length === 0" class="sync-clients-empty">还没有机器同步过全局记忆（在任一机器运行 <code>gofer memory sync --global</code>）</p>
+    <details v-if="tab === 'memories' && memoryScope === 'global'" class="sync-clients" data-test="sync-clients">
+      <summary>{{ t('issues.syncClients.title') }}<template v-if="syncClients.length"> · {{ t('issues.syncClients.summary', { n: syncClients.length, host: syncClients[0].client_host }) }}</template></summary>
+      <p v-if="syncClientsError" class="err">{{ syncClientsError }}</p>
+      <p v-else-if="syncClientsLoaded && syncClients.length === 0" class="sync-clients-empty">{{ t('issues.syncClients.empty') }}</p>
       <ul v-else class="sync-clients-list">
-        <li v-for="c in syncClients" :key="`${c.client_host}|${c.caller}`" :title="`上次同步 ${fmtTrackerTime(c.last_sync_at)}`">{{ syncClientLine(c) }}</li>
+        <li v-for="c in syncClients" :key="`${c.client_host}|${c.caller}`" :title="t('issues.syncClients.lastSync', { time: fmtTrackerTime(c.last_sync_at) })">{{ syncClientLine(c) }}</li>
       </ul>
     </details>
-    <section v-if="repos.length === 0 && (tab === 'issues' || memoryScope === 'repo')" class="empty-panel mono"><span>暂无已登记仓库</span><code>gofer repo init</code><code>gofer repo sync</code></section>
+
+    <section v-if="repos.length === 0 && (tab === 'issues' || memoryScope === 'repo')" class="empty-panel">
+      <span>{{ t('issues.empty.noRepos') }}</span>
+      <code>gofer repo init</code>
+      <code>gofer repo sync</code>
+    </section>
+
     <template v-else>
       <section class="filter-panel">
-        <div v-if="tab === 'issues'" class="view-switch mono" role="radiogroup" aria-label="列表视图"><button type="button" class="scope-btn" :class="{ active: viewMode === 'tree' }" data-test="view-tree" @click="setViewMode('tree')">树形</button><button type="button" class="scope-btn" :class="{ active: viewMode === 'flat' }" data-test="view-flat" @click="setViewMode('flat')">平铺</button></div>
-        <div v-if="tab === 'issues'" class="chips mono"><button v-for="status in ISSUE_STATUS_VALUES" :key="status" type="button" class="chip" :class="[`chip--${status}`, { selected: statuses.includes(status) }]" @click="toggleStatus(status)">{{ issueStatusText(status) }}</button></div>
-        <label v-if="tab === 'issues'" class="filter-field">类型<input v-model="typeFilter" class="filter-input mono" placeholder="全部" /></label>
-        <label v-if="tab === 'issues'" class="filter-field">标签<input v-model="tagFilter" class="filter-input mono" placeholder="标签" /></label>
-        <div v-if="tab === 'memories'" class="chips mono" data-test="memory-kind-filter"><button v-for="kind in MEMORY_KINDS" :key="kind" type="button" class="chip" :class="{ selected: memoryKinds.length === 0 || memoryKinds.includes(kind) }" :aria-pressed="memoryKinds.includes(kind)" :data-kind="kind" @click="toggleMemoryKind(kind)">{{ MEMORY_KIND_LABEL[kind] }}</button><button v-if="memoryScope === 'repo'" type="button" class="chip" :class="{ selected: flaggedOnly }" :aria-pressed="flaggedOnly" data-test="memory-flagged" title="只看服务端 doctor 标记的记忆" @click="flaggedOnly = !flaggedOnly">⚠ 有标记</button></div>
-        <label class="filter-field query-field">关键字<input v-model="query" class="filter-input mono" :placeholder="tab === 'memories' ? 'key 或内容' : 'ID、标题或内容'" /></label>
+        <div v-if="tab === 'issues'" class="seg" role="group" :aria-label="t('issues.view.label')">
+          <button type="button" class="seg-btn" :class="{ 'seg-btn--on': viewMode === 'tree' }" :aria-pressed="viewMode === 'tree'" data-test="view-tree" @click="setViewMode('tree')">{{ t('issues.view.tree') }}</button>
+          <button type="button" class="seg-btn" :class="{ 'seg-btn--on': viewMode === 'flat' }" :aria-pressed="viewMode === 'flat'" data-test="view-flat" @click="setViewMode('flat')">{{ t('issues.view.flat') }}</button>
+        </div>
+        <FilterChips v-if="tab === 'issues'" v-model="statuses" multiple :items="statusItems" :label="t('issues.col.status')" />
+        <label v-if="tab === 'issues'" class="field field--inline">{{ t('issues.filter.type') }}<input v-model="typeFilter" class="in" :placeholder="t('issues.filter.typePlaceholder')" /></label>
+        <label v-if="tab === 'issues'" class="field field--inline">{{ t('issues.filter.tag') }}<input v-model="tagFilter" class="in" :placeholder="t('issues.filter.tagPlaceholder')" /></label>
+        <div v-if="tab === 'memories'" class="kind-chips" data-test="memory-kind-filter">
+          <FilterChips v-model="memoryKinds" multiple :items="MEMORY_KINDS.map((kind) => ({ value: kind, label: MEMORY_KIND_LABEL[kind] }))" :label="t('issues.filter.type')" />
+          <button v-if="memoryScope === 'repo'" type="button" class="chip" :class="{ 'chip--on': flaggedOnly }" :aria-pressed="flaggedOnly" data-test="memory-flagged" :title="t('issues.filter.flaggedTitle')" @click="flaggedOnly = !flaggedOnly">{{ t('issues.filter.flagged') }}</button>
+        </div>
+        <label class="field field--inline query-field">{{ t('issues.filter.query') }}<input v-model="query" class="in" :placeholder="tab === 'memories' ? t('issues.filter.queryMemories') : t('issues.filter.queryIssues')" /></label>
       </section>
-      <p v-if="tab === 'issues'" class="select-hint mono" data-test="select-hint">勾选父项不会自动勾选子项；按住 Shift 点击复选框，或点父项上的「连同子项」，可一并选中其子项。选中会跨页保留。</p>
+      <p v-if="tab === 'issues'" class="hint-line" data-test="select-hint">{{ t('issues.selectHint') }}</p>
       <IssueBatchBar v-if="tab === 'issues' && selectedIds.size > 0" :count="selectedIds.size" :sample-ids="selectedList.slice(0, 8)" :running="batchRunning" @clear="clearSelection" @run="runBatch" />
-      <div v-if="tab === 'issues' && batchResult" class="batch-result mono" :class="{ bad: batchResult.failed > 0 }" data-test="batch-result">
-        <div class="batch-result-head"><strong>{{ batchResult.text }}</strong><button type="button" class="batch-dismiss" @click="batchResult = null">收起</button></div>
+      <div v-if="tab === 'issues' && batchResult" class="batch-result" :class="{ bad: batchResult.failed > 0 }" data-test="batch-result">
+        <div class="batch-result-head"><strong>{{ batchResult.text }}</strong><button type="button" class="link-btn" @click="batchResult = null">{{ t('issues.batch.dismiss') }}</button></div>
         <ul v-if="batchResult.failures.length" class="batch-failures"><li v-for="f in batchResult.failures" :key="f.id"><code>{{ f.id }}</code> {{ f.error }}</li></ul>
       </div>
-      <p v-if="error" class="error-panel mono">{{ error }}</p><p v-else-if="loading" class="loading mono">加载中…</p>
-      <p v-if="tab === 'issues' && !loading" class="page-summary mono" data-test="page-summary">共 {{ filteredIssues.length }} 条<template v-if="viewMode === 'tree'">（本页按「根」分组，父子同页）</template> · 第 {{ currentPage }}/{{ pageCount }} 页</p>
-      <section v-if="tab === 'issues' && !loading" ref="tableEl" class="table"><div class="thead mono"><span class="check-col"><input type="checkbox" aria-label="全选本页" data-test="check-page" :checked="headState === 'all'" :indeterminate="headState === 'some'" :disabled="pageIds.length === 0" @change="selectedIds = togglePage(selectedIds, pageIds)" /></span><span>ID</span><span>{{ COL.title }}</span><span>{{ COL.status }}</span><span>优先级</span><span>类型</span><span>{{ COL.tags }}</span><span class="updated-col">{{ COL.updated }}</span></div><div v-for="{ e, row } in pageRows" :key="row.id" class="trow" :class="{ picked: selectedIds.has(row.id) }" role="button" tabindex="0" data-test="issue-row" :data-depth="e.depth" @click="openIssue(row)" @keydown.enter.self="openIssue(row)"><span class="check-col" @click.stop><input type="checkbox" :aria-label="`选择 ${row.id}`" data-test="check-row" :checked="selectedIds.has(row.id)" @click.stop="onCheck(row.id, $event)" /></span><span class="mono idcell" :style="{ paddingLeft: `${e.depth * 16}px` }"><button v-if="viewMode === 'tree' && e.visibleChildren > 0" type="button" class="caret" :class="{ open: e.expanded }" :aria-label="e.expanded ? '折叠' : '展开'" data-test="caret" @click.stop="toggleExpand(e.id, e.expanded)"></button><span v-else-if="viewMode === 'tree'" class="caret-gap"></span>{{ row.id }}</span><strong class="titlecell"><span>{{ row.data.title || '—' }}</span><small v-if="e.childTotal > 0" class="progress mono" data-test="progress">{{ e.childClosed }}/{{ e.childTotal }} 已关闭</small><button v-if="viewMode === 'tree' && e.childTotal > 0" type="button" class="family-btn mono" data-test="family" title="选中该项及其全部子项（当前筛选可见的）" @click.stop="selectFamily(row.id)">连同子项</button><small v-if="e.orphanParent" class="orphan mono" data-test="orphan"><a href="#" @click.stop.prevent="openById(e.orphanParent!)">父：{{ parentLabel(e.orphanParent) }}</a></small></strong><span><StatusBadge :status="(row.data.status || 'open') as any" /></span><span>{{ row.data.priority ?? 0 }}</span><span>{{ row.data.type || '—' }}</span><span class="muted">{{ (row.data.tags ?? []).join(' · ') || '—' }}</span><span class="mono updated-col">{{ fmtTrackerTime(row.data.updated_at || row.updated_at) }}</span></div><div v-if="filteredIssues.length === 0" class="table-empty mono">暂无匹配 issue</div></section>
-      <nav v-if="tab === 'issues' && !loading && filteredIssues.length > 0" class="pager mono" data-test="pager" aria-label="分页">
-        <label class="pager-size">每页<select :value="pageSize" class="filter-select" data-test="page-size" @change="setPageSize(($event.target as HTMLSelectElement).value)"><option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }}</option></select></label>
-        <button type="button" class="pager-btn" :disabled="currentPage <= 1" data-test="page-prev" @click="gotoPage(currentPage - 1)">上一页</button>
-        <template v-for="(p, i) in pageWindow(currentPage, pageCount)" :key="i"><span v-if="p === null" class="pager-gap">…</span><button v-else type="button" class="pager-btn" :class="{ active: p === currentPage }" :data-test="`page-${p}`" @click="gotoPage(p)">{{ p }}</button></template>
-        <button type="button" class="pager-btn" :disabled="currentPage >= pageCount" data-test="page-next" @click="gotoPage(currentPage + 1)">下一页</button>
+      <p v-if="error" class="err panel-err">{{ error }}</p>
+      <p v-else-if="loading" class="dim">{{ t('issues.loading') }}</p>
+      <p v-if="tab === 'issues' && !loading" class="page-summary" data-test="page-summary">
+        {{ t('issues.summary', { n: filteredIssues.length }) }}<template v-if="viewMode === 'tree'">{{ t('issues.summaryTree') }}</template> · {{ t('issues.summaryPage', { page: currentPage, pages: pageCount }) }}
+      </p>
+      <section v-if="tab === 'issues' && !loading" ref="tableEl" class="table" role="table">
+        <div class="thead" role="row">
+          <span class="check-col"><input type="checkbox" :aria-label="t('issues.table.checkPage')" data-test="check-page" :checked="headState === 'all'" :indeterminate="headState === 'some'" :disabled="pageIds.length === 0" @change="selectedIds = togglePage(selectedIds, pageIds)" /></span>
+          <span>{{ t('issues.col.id') }}</span><span>{{ t('issues.col.title') }}</span><span>{{ t('issues.col.status') }}</span><span>{{ t('issues.col.priority') }}</span><span>{{ t('issues.col.type') }}</span><span>{{ t('issues.col.tags') }}</span><span class="updated-col">{{ t('issues.col.updated') }}</span>
+        </div>
+        <div v-for="{ e, row } in pageRows" :key="row.id" class="trow" :class="{ picked: selectedIds.has(row.id) }" role="button" tabindex="0" data-test="issue-row" :data-depth="e.depth" @click="openIssue(row)" @keydown.enter.self="openIssue(row)">
+          <span class="check-col" @click.stop><input type="checkbox" :aria-label="t('issues.table.checkRow', { id: row.id })" data-test="check-row" :checked="selectedIds.has(row.id)" @click.stop="onCheck(row.id, $event)" /></span>
+          <span class="idcell mono" :style="{ paddingLeft: `${e.depth * 16}px` }"><button v-if="viewMode === 'tree' && e.visibleChildren > 0" type="button" class="caret" :class="{ open: e.expanded }" :aria-label="e.expanded ? t('issues.caret.collapse') : t('issues.caret.expand')" data-test="caret" @click.stop="toggleExpand(e.id, e.expanded)"></button><span v-else-if="viewMode === 'tree'" class="caret-gap"></span>{{ row.id }}</span>
+          <strong class="titlecell"><span>{{ row.data.title || '—' }}</span><small v-if="e.childTotal > 0" class="progress" data-test="progress">{{ t('issues.progress', { closed: e.childClosed, total: e.childTotal }) }}</small><button v-if="viewMode === 'tree' && e.childTotal > 0" type="button" class="family-btn" data-test="family" :title="t('issues.familyTitle')" @click.stop="selectFamily(row.id)">{{ t('issues.family') }}</button><small v-if="e.orphanParent" class="orphan" data-test="orphan"><a href="#" @click.stop.prevent="openById(e.orphanParent!)">{{ t('issues.orphan', { label: parentLabel(e.orphanParent) }) }}</a></small></strong>
+          <span><StatusPill :status="(row.data.status || 'open') as any" /></span>
+          <span class="mono">{{ row.data.priority ?? 0 }}</span>
+          <span>{{ row.data.type || '—' }}</span>
+          <span class="dim">{{ (row.data.tags ?? []).join(' · ') || '—' }}</span>
+          <span class="mono updated-col">{{ fmtTrackerTime(row.data.updated_at || row.updated_at) }}</span>
+        </div>
+        <div v-if="filteredIssues.length === 0" class="empty-line">{{ t('issues.table.empty') }}</div>
+      </section>
+      <nav v-if="tab === 'issues' && !loading && filteredIssues.length > 0" class="pager" data-test="pager" :aria-label="t('issues.pager.label')">
+        <label class="pager-size">{{ t('issues.pager.perPage') }}<select :value="pageSize" class="in" data-test="page-size" @change="setPageSize(($event.target as HTMLSelectElement).value)"><option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }}</option></select></label>
+        <button type="button" class="page-btn" :disabled="currentPage <= 1" data-test="page-prev" @click="gotoPage(currentPage - 1)">{{ t('issues.pager.prev') }}</button>
+        <template v-for="(p, i) in pageWindow(currentPage, pageCount)" :key="i"><span v-if="p === null" class="pager-gap">…</span><button v-else type="button" class="page-btn" :class="{ 'page-btn--on': p === currentPage }" :data-test="`page-${p}`" :aria-label="t('issues.pager.page', { page: p })" @click="gotoPage(p)">{{ p }}</button></template>
+        <button type="button" class="page-btn" :disabled="currentPage >= pageCount" data-test="page-next" @click="gotoPage(currentPage + 1)">{{ t('issues.pager.next') }}</button>
       </nav>
       <MemoryList v-if="tab === 'memories' && !loading" :doctor="memoryScope === 'repo' ? memoryDoctor : {}" :rows="filteredMemories" :selected="selectedMemory" :draft="memoryDraft" @open="openMemory" @update:draft="memoryDraft = $event" @save="saveMemory" @remove="removeMemory" />
     </template>
@@ -513,26 +624,559 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.head-btns { display: flex; gap: 8px; align-items: center; }
-.new-issue { display: flex; flex-direction: column; gap: 10px; max-width: 640px; margin-bottom: 14px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--phosphor); border-radius: var(--radius); }
-.ni-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--queue); min-width: 0; flex: 1; }
-.ni-in { width: 100%; box-sizing: border-box; padding: 7px 9px; color: var(--paper); background: var(--term-bg); border: 1px solid var(--line); border-radius: var(--radius); font: inherit; font-size: 13px; resize: vertical; }
-.ni-in:focus { outline: none; border-color: var(--phosphor); }
-.ni-row { display: flex; gap: 10px; flex-wrap: wrap; }
-.ni-hint, .ni-ok, .ni-err { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
-.ni-hint { color: var(--queue); }
-.ni-ok { color: var(--done); }
-.ni-err { color: var(--fail); }
-.ni-actions { display: flex; gap: 8px; }
-@media (max-width: 768px) { .ni-in { font-size: 16px; } }
-.tracker-page{max-width:1240px;margin:0 auto}.page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.eyebrow{color:var(--queue);font-size:10px;letter-spacing:.18em;margin:0}.title{color:var(--paper);font-size:18px;margin:0}.meta-panel,.filter-panel,.empty-panel{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:12px 14px}.meta-panel{display:flex;align-items:flex-start;gap:18px;margin-bottom:14px;min-height:78px}.repo-field,.filter-field{display:flex;flex-direction:column;gap:5px;color:var(--queue);font-size:11px}.repo-field{min-width:360px}.repo-note{display:flex;align-items:center;min-height:30px;color:var(--queue);font-size:12px}.scope-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;color:var(--queue);font-size:11px}.scope-switch{display:flex;gap:0}.scope-btn{border:1px solid var(--line);border-right:0;padding:4px 10px;background:transparent;color:var(--queue);font-family:var(--font-mono);font-size:11px;line-height:1.4}.scope-btn:first-child{border-radius:var(--radius) 0 0 var(--radius)}.scope-btn:last-child{border-right:1px solid var(--line);border-radius:0 var(--radius) var(--radius) 0}.scope-btn.active{background:var(--phosphor);border-color:var(--phosphor);color:var(--ink);font-weight:600}.scope-help{color:var(--queue);opacity:.8}.sync-summary{display:flex;flex-direction:column;gap:4px;color:var(--queue);font-size:11px;min-width:0;flex:1;align-self:flex-end;min-height:34px;justify-content:flex-end}.sync-ok{color:var(--done)}.sync-fail{color:var(--fail)}.sync-summary>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.filter-select,.filter-input{background:var(--panel);color:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:6px 8px;font-size:12px}.filter-select:focus,.filter-input:focus{border-color:var(--phosphor);outline:none}.primary-btn,.secondary-btn{border-radius:var(--radius);padding:3px 10px;font-size:11px;font-family:var(--font-mono)}.primary-btn{background:var(--phosphor);color:var(--ink);border:1px solid var(--phosphor);font-weight:600}.secondary-btn{background:transparent;color:var(--phosphor);border:1px solid var(--line)}.tabs{display:flex;gap:18px;border-bottom:1px solid var(--line);margin-bottom:12px}.tabs button{color:var(--queue);background:transparent;border:0;border-bottom:2px solid transparent;padding:7px 3px}.tabs button.active{color:var(--phosphor);border-bottom-color:var(--phosphor)}.filter-panel{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px}.query-field{flex:1 1 220px}.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:transparent;color:var(--queue);font-family:var(--font-mono);font-size:11px;line-height:1.4;opacity:.55}.chip.selected{opacity:1}.chip--open.selected{color:var(--done);border-color:var(--done)}.chip--in_progress.selected{color:var(--run);border-color:var(--run)}.chip--blocked.selected{color:var(--fail);border-color:var(--fail)}.table{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}.thead,.trow{display:grid;grid-template-columns:28px 170px minmax(180px,1.4fr) 120px 70px 100px minmax(120px,1fr) 150px;gap:10px;align-items:center;padding:9px 12px}.thead{background:var(--panel);color:var(--queue);font-size:11px;letter-spacing:.06em}.trow{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--line);color:var(--paper);font-size:12px}.trow:hover{background:var(--panel)}.muted,.loading,.table-empty{color:var(--queue)}.table-empty{text-align:center;padding:28px}.empty-panel{display:flex;justify-content:center;align-items:center;gap:10px;min-height:150px;color:var(--queue)}.empty-panel code{color:var(--phosphor);background:var(--term-bg);border:1px solid var(--line);padding:5px 8px;border-radius:var(--radius)}.error-panel{color:var(--fail);border:1px solid var(--fail);padding:8px}
-@media (max-width:639px){.meta-panel{flex-direction:column;align-items:stretch;min-height:0}.repo-field{min-width:0}.sync-summary{flex:none;align-self:stretch}.thead,.trow{grid-template-columns:24px minmax(70px,.8fr) minmax(0,1.6fr) 84px;gap:6px;padding:9px 8px}.thead>span:nth-child(n+5),.trow>span:nth-child(n+5){display:none}.table{max-width:100%}}
-.view-switch{display:flex}.caret{background:transparent;border:0;width:18px;height:18px;padding:0;cursor:pointer;flex:none;position:relative}.caret::before{content:'';position:absolute;left:6px;top:4px;border-style:solid;border-width:5px 0 5px 7px;border-color:transparent transparent transparent var(--phosphor)}.caret.open::before{left:4px;top:6px;border-width:7px 5px 0 5px;border-color:var(--phosphor) transparent transparent transparent}.caret-gap{display:inline-block;width:18px;flex:none}.idcell{display:flex;align-items:center;min-width:0;overflow-wrap:anywhere}.titlecell{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}.progress,.orphan{color:var(--queue);font-weight:400}.orphan a{color:var(--phosphor)}
-@media (max-width:639px){.tracker-page{overflow-x:hidden}.idcell{font-size:11px}}
-.check-col{display:flex;align-items:center;justify-content:center}.check-col input{width:16px;height:16px;accent-color:var(--phosphor);cursor:pointer}.trow.picked{background:color-mix(in srgb,var(--phosphor) 10%,transparent)}
-.select-hint,.page-summary{color:var(--queue);font-size:11px;margin:0 0 8px;overflow-wrap:anywhere}
-.family-btn{align-self:flex-start;background:transparent;border:1px solid var(--line);border-radius:var(--radius);color:var(--phosphor);font-size:10px;padding:1px 6px;cursor:pointer}
-.batch-result{border:1px solid var(--done);border-radius:var(--radius);padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--paper)}.batch-result.bad{border-color:var(--fail)}.batch-result-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.batch-dismiss{background:transparent;border:0;color:var(--queue);text-decoration:underline;font-family:var(--font-mono);font-size:11px;cursor:pointer}.batch-failures{margin:6px 0 0;padding-left:18px;color:var(--fail);overflow-wrap:anywhere}
-.sync-clients{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:8px 12px;margin-bottom:12px;font-size:11px;color:var(--queue);max-width:100%}.sync-clients summary{cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sync-clients-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:4px;color:var(--paper)}.sync-clients-list li,.sync-clients-empty{overflow-wrap:anywhere}.sync-clients-empty{margin:8px 0 0}.sync-clients-empty code{color:var(--phosphor)}.sync-clients .sync-fail{margin:8px 0 0;overflow-wrap:anywhere}
-.pager{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:12px;font-size:12px}.pager-size{display:flex;align-items:center;gap:6px;color:var(--queue);margin-right:8px}.pager-btn{border:1px solid var(--line);border-radius:var(--radius);background:transparent;color:var(--paper);padding:3px 9px;font-family:var(--font-mono);font-size:11px;cursor:pointer;min-width:30px}.pager-btn.active{background:var(--phosphor);border-color:var(--phosphor);color:var(--ink);font-weight:600}.pager-btn:disabled{opacity:.4;cursor:not-allowed}.pager-gap{color:var(--queue)}
+.page {
+  max-width: 1240px;
+  margin: 0 auto;
+}
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+.title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  color: var(--fg);
+}
+.sub {
+  margin: 2px 0 0;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+}
+.head-actions {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--s3);
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.btn:hover {
+  border-color: var(--accent);
+}
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.btn--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.in {
+  min-height: 32px;
+  padding: 4px var(--s2);
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
+  min-width: 0;
+}
+.in:focus-visible {
+  border-color: var(--accent);
+}
+.new-issue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  max-width: 640px;
+  margin-bottom: var(--s3);
+  padding: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-panel);
+}
+.new-title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--fg);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  min-width: 0;
+  flex: 1;
+}
+.field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s1);
+  flex: 0 1 200px;
+}
+.field-row {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.field-label {
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.hint-line {
+  margin: 0 0 var(--s2);
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+.err {
+  color: var(--fail);
+  font-size: var(--fs-sm);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ok {
+  color: var(--done);
+  font-size: var(--fs-sm);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.panel-err {
+  border: 1px solid var(--fail);
+  border-radius: var(--r-ctl);
+  padding: var(--s2);
+  margin: 0 0 var(--s3);
+}
+.actions {
+  display: flex;
+  gap: var(--s2);
+}
+.meta-panel {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s4);
+  margin-bottom: var(--s3);
+  min-height: 62px;
+  padding: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  min-width: 0;
+}
+.repo-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.repo-current {
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40ch;
+}
+.sync-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  min-width: 0;
+  flex: 1;
+  align-self: flex-end;
+}
+.sync-summary > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.scope-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin: var(--s3) 0 var(--s2);
+  font-size: var(--fs-xs);
+}
+.scope-help {
+  color: var(--fg-3);
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  overflow: hidden;
+}
+.seg-btn {
+  min-height: 30px;
+  padding: 0 var(--s2);
+  background: transparent;
+  color: var(--fg-3);
+  border: 0;
+  border-right: 1px solid var(--line);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.seg-btn:last-child {
+  border-right: 0;
+}
+.seg-btn--on {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.filter-panel {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin: var(--s3) 0 var(--s2);
+  min-width: 0;
+}
+.query-field {
+  flex: 1 1 220px;
+}
+.kind-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 2px var(--s2);
+  background: transparent;
+  color: var(--fg-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.chip--on {
+  color: var(--need-ink);
+  border-color: var(--need);
+  background: var(--need-soft);
+}
+.table {
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  overflow: hidden;
+  background: var(--surface);
+}
+.thead,
+.trow {
+  display: grid;
+  grid-template-columns: 28px minmax(120px, 160px) minmax(180px, 1.4fr) 120px 70px 90px minmax(100px, 1fr) 140px;
+  gap: var(--s2);
+  align-items: center;
+  padding: 9px var(--s3);
+}
+.thead {
+  background: var(--surface-2);
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.trow {
+  border-top: 1px solid var(--line);
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  outline: none;
+}
+.trow:hover {
+  background: var(--surface-2);
+}
+.trow:focus-visible {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.trow.picked {
+  background: var(--accent-soft);
+}
+.dim {
+  color: var(--fg-3);
+}
+.empty-line {
+  color: var(--fg-3);
+  text-align: center;
+  padding: var(--s6) var(--s3);
+  font-size: var(--fs-sm);
+}
+.empty-panel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 150px;
+  padding: var(--s4);
+  color: var(--fg-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  font-size: var(--fs-sm);
+}
+.empty-panel code {
+  color: var(--accent);
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  padding: 4px var(--s2);
+  border-radius: var(--r-chip);
+}
+.check-col {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.check-col input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.caret {
+  background: transparent;
+  border: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  flex: none;
+  position: relative;
+}
+.caret::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  border-style: solid;
+  border-width: 5px 0 5px 7px;
+  border-color: transparent transparent transparent var(--fg-3);
+}
+.caret.open::before {
+  left: 4px;
+  top: 6px;
+  border-width: 7px 5px 0 5px;
+  border-color: var(--fg-3) transparent transparent transparent;
+}
+.caret-gap {
+  display: inline-block;
+  width: 18px;
+  flex: none;
+}
+.idcell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--accent);
+}
+.titlecell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.progress,
+.orphan {
+  color: var(--fg-3);
+  font-weight: 400;
+  font-size: var(--fs-xs);
+}
+.orphan a {
+  color: var(--accent);
+}
+.family-btn {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-xs);
+  padding: 1px 6px;
+}
+.page-summary {
+  margin: 0 0 var(--s2);
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
+.batch-result {
+  border: 1px solid var(--done);
+  border-radius: var(--r-panel);
+  padding: var(--s2) var(--s3);
+  margin-bottom: var(--s3);
+  font-size: var(--fs-sm);
+  color: var(--fg);
+}
+.batch-result.bad {
+  border-color: var(--fail);
+}
+.batch-result-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+  align-items: center;
+}
+.link-btn {
+  background: none;
+  border: 0;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+}
+.batch-failures {
+  margin: var(--s1) 0 0;
+  padding-left: 18px;
+  color: var(--fail);
+  overflow-wrap: anywhere;
+}
+.sync-clients {
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  padding: var(--s2) var(--s3);
+  margin-bottom: var(--s3);
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
+  max-width: 100%;
+}
+.sync-clients summary {
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sync-clients-list {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--fg);
+}
+.sync-clients-list li,
+.sync-clients-empty {
+  overflow-wrap: anywhere;
+}
+.sync-clients-empty {
+  margin: var(--s2) 0 0;
+}
+.pager {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin-top: var(--s3);
+  font-size: var(--fs-sm);
+}
+.pager-size {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--fg-3);
+  margin-right: var(--s2);
+  font-size: var(--fs-xs);
+}
+.page-btn {
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--fg);
+  padding: 3px 9px;
+  font: inherit;
+  font-size: var(--fs-xs);
+  min-width: 30px;
+  min-height: 30px;
+}
+.page-btn--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pager-gap {
+  color: var(--fg-3);
+}
+
+/* 手机（≤760）：面板与筛选纵向排列，表格每行压成卡片，只留 id / 标题 / 状态。 */
+@media (max-width: 760px) {
+  .page-head {
+    flex-direction: column;
+    gap: var(--s2);
+  }
+  .btn,
+  .page-btn,
+  .seg-btn {
+    min-height: 40px;
+  }
+  .meta-panel {
+    flex-direction: column;
+    align-items: stretch;
+    min-height: 0;
+  }
+  .sync-summary {
+    align-self: stretch;
+  }
+  .thead {
+    display: none;
+  }
+  .trow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px var(--s2);
+    padding: var(--s2) var(--s3);
+  }
+  .trow > .check-col {
+    order: 0;
+    flex: none;
+  }
+  .trow > .idcell {
+    order: 1;
+    flex: 1 0 100px;
+    font-size: var(--fs-xs);
+  }
+  .trow > .titlecell {
+    order: 3;
+    flex: 1 0 100%;
+  }
+  .trow > span:nth-child(4) {
+    order: 2;
+    margin-left: auto;
+  }
+  .trow > span:nth-child(n + 5) {
+    display: none;
+  }
+  .field--inline {
+    flex: 1 0 100%;
+  }
+}
 </style>

@@ -7,7 +7,7 @@ import { getStats } from '../api/client'
 import type { AgentSessionRelayMode, AgentSessionState, Stats } from '../api/types'
 import { fmtBytes } from '../utils/bytes'
 import { createLiveTopic } from '../utils/useLiveTopic'
-
+import { t } from '../i18n'
 
 const stats = ref<Stats | null>(null)
 const loading = ref(false)
@@ -52,16 +52,6 @@ const SESSION_STATES: AgentSessionState[] = [
   'ended',
   'offline',
 ]
-
-const SESSION_STATE_LABELS: Record<AgentSessionState, string> = {
-  running: '执行中',
-  waiting_reply: '等待回复',
-  needs_attention: '需注意',
-  handed_off: '已接管',
-  idle: '空闲',
-  ended: '已结束',
-  offline: '离线',
-}
 
 const RELAY_MODES: AgentSessionRelayMode[] = ['auto', 'on', 'off']
 
@@ -122,7 +112,7 @@ onUnmounted(() => {
 <template>
   <div class="board" data-test="dashboard-system">
     <p v-if="error" class="error mono">{{ error }}</p>
-    <div v-if="loading && !hasStats" class="empty mono">正在加载系统状态...</div>
+    <div v-if="loading && !hasStats" class="empty mono">{{ t('stats.sys.loading') }}</div>
 
     <div v-if="hasStats" class="grid">
       <div class="card service-card">
@@ -131,11 +121,11 @@ onUnmounted(() => {
           href="https://github.com/inhere/gofer"
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="在 GitHub 查看 Gofer 仓库"
+          :aria-label="t('stats.sys.githubAria')"
         >
           <img class="service-logo" src="/gofer-mark-256.png" alt="Gofer" />
         </a>
-        <h3>服务</h3>
+        <h3>{{ t('stats.sys.service') }}</h3>
         <div class="health">
           <span class="dot" :class="online ? 'dot--on' : 'dot--off'"></span>
           <span class="big service-state">{{ online ? 'LIVE' : 'OFFLINE' }}</span>
@@ -154,20 +144,20 @@ onUnmounted(() => {
       </div>
 
       <div class="card">
-        <h3>需人工介入</h3>
+        <h3>{{ t('stats.sys.human') }}</h3>
         <div
           class="big mono"
           :class="{ 'big--fail': (stats?.escalations_pending ?? 0) > 0 }"
         >
           {{ stats?.escalations_pending ?? 0 }}
         </div>
-        <div class="unit mono">needs_human（pending 子集）</div>
+        <div class="unit mono">{{ t('stats.sys.humanHint') }}</div>
       </div>
 
       <div class="card">
         <h3>Schedules</h3>
         <div class="big mono">
-          {{ stats?.schedules.total ?? 0 }}<span class="unit"> 条</span>
+          {{ stats?.schedules.total ?? 0 }}<span class="unit"> {{ t('stats.sys.rows') }}</span>
         </div>
         <div class="unit mono">enabled {{ stats?.schedules.enabled ?? 0 }}</div>
       </div>
@@ -175,7 +165,7 @@ onUnmounted(() => {
       <div class="card">
         <h3>Projects</h3>
         <div class="big mono">{{ stats?.projects ?? 0 }}</div>
-        <div class="unit mono">已登记</div>
+        <div class="unit mono">{{ t('stats.sys.registered') }}</div>
       </div>
 
       <!-- Server DB：受限调用方（带 ceiling 的 token）拿不到 db 块，整张卡不渲染。 -->
@@ -187,7 +177,7 @@ onUnmounted(() => {
         </div>
         <div class="unit mono">
           page {{ stats?.db?.page_size ?? 0 }} × {{ stats?.db?.page_count ?? 0 }}
-          <span v-if="stats?.db?.partial" class="partial">行数超预算，仅部分</span>
+          <span v-if="stats?.db?.partial" class="partial">{{ t('stats.sys.partial') }}</span>
         </div>
         <div class="dbtables">
           <div v-for="[name, rows] in dbTables" :key="name" class="dbtable">
@@ -202,8 +192,8 @@ onUnmounted(() => {
         <h3>Sessions</h3>
         <div class="big mono">{{ stats.sessions.total }}</div>
         <div class="unit mono">
-          等待回复 <b>{{ stats.sessions.waiting_turns }}</b> · 近 1h 活跃
-          {{ stats.sessions.seen_within_1h }}
+          {{ t('stats.sys.sessionsWaiting', { n: stats.sessions.waiting_turns }) }} ·
+          {{ t('stats.sys.sessionsSeen', { n: stats.sessions.seen_within_1h }) }}
         </div>
         <div class="states">
           <span
@@ -212,7 +202,7 @@ onUnmounted(() => {
             class="state mono"
             :class="`state--${state}`"
           >
-            {{ SESSION_STATE_LABELS[state] }} {{ sessionCount(state) }}
+            {{ t(`stats.sys.state.${state}`) }} {{ sessionCount(state) }}
           </span>
         </div>
         <div class="unit mono relay">
@@ -224,7 +214,7 @@ onUnmounted(() => {
       </RouterLink>
     </div>
 
-    <div v-if="!loading && !error && !hasStats" class="empty mono">暂无 stats 数据</div>
+    <div v-if="!loading && !error && !hasStats" class="empty mono">{{ t('stats.sys.empty') }}</div>
   </div>
 </template>
 
@@ -243,14 +233,14 @@ onUnmounted(() => {
 .title {
   font-size: 16px;
   letter-spacing: 0.08em;
-  color: var(--paper);
+  color: var(--fg);
   margin: 0;
 }
 .ctrls {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--queue);
+  color: var(--fg-3);
   font-size: 12px;
 }
 .poll {
@@ -259,13 +249,13 @@ onUnmounted(() => {
   transition: color 0.2s;
 }
 .poll--on {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .error {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-panel);
   padding: 8px 10px;
   margin: 0 0 12px;
   word-break: break-word;
@@ -278,8 +268,8 @@ onUnmounted(() => {
 .card {
   min-height: 132px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-panel);
+  background: var(--surface);
   padding: 14px;
 }
 .service-card {
@@ -302,7 +292,7 @@ onUnmounted(() => {
   height: 44px;
 }
 .card h3 {
-  color: var(--queue);
+  color: var(--fg-3);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -331,7 +321,7 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--fail) 18%, transparent);
 }
 .big {
-  color: var(--paper);
+  color: var(--fg);
   font-size: 34px;
   font-weight: 700;
   line-height: 1.05;
@@ -345,12 +335,12 @@ onUnmounted(() => {
   color: var(--fail);
 }
 .unit {
-  color: var(--queue);
+  color: var(--fg-3);
   font-size: 12px;
   font-weight: 400;
 }
 .unit b {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .card > .unit,
 .big + .unit,
@@ -359,8 +349,8 @@ onUnmounted(() => {
 }
 .empty {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--queue);
+  border-radius: var(--r-panel);
+  color: var(--fg-3);
   font-size: 13px;
   padding: 28px 14px;
   text-align: center;
@@ -386,13 +376,13 @@ onUnmounted(() => {
   overflow: hidden;
 }
 .dt-n {
-  color: var(--paper);
+  color: var(--fg);
   font-weight: 700;
   text-align: right;
   min-width: 42px;
 }
 .dt-k {
-  color: var(--queue);
+  color: var(--fg-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -404,11 +394,11 @@ onUnmounted(() => {
   color: inherit;
 }
 .card--link:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
   text-decoration: none;
 }
 .card--link:focus-visible {
-  outline: 1px solid var(--phosphor);
+  outline: 1px solid var(--accent);
   outline-offset: 2px;
 }
 .card--link h3 {
@@ -423,14 +413,14 @@ onUnmounted(() => {
 .state {
   border: 1px solid var(--line);
   border-radius: 9px;
-  color: var(--queue);
+  color: var(--fg-3);
   font-size: 11px;
   padding: 1px 7px;
   white-space: nowrap;
 }
 .state--running {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .state--waiting_reply {
   color: var(--run);
@@ -446,7 +436,7 @@ onUnmounted(() => {
   gap: 8px;
 }
 .relay-mode {
-  color: var(--paper);
+  color: var(--fg);
 }
 
 @media (max-width: 980px) {

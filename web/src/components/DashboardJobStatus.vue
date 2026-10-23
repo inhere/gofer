@@ -6,6 +6,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { getStats, statusColor } from '../api/client'
 import type { JobStatus, Stats } from '../api/types'
 import { createPoller } from '../utils/poller'
+import { t } from '../i18n'
 
 const REFRESH_MS = 60_000
 
@@ -58,8 +59,8 @@ onUnmounted(() => poller.stop())
 <template>
   <div class="js" data-test="job-status">
     <h4>
-      任务状态分布
-      <span class="tag" data-tip="全部 job 的当前状态（来自 /v1/stats），不随上方时间区间变化">全部 job · 不随区间</span>
+      {{ t('stats.jobStatus.heading') }}
+      <span class="tag" :data-tip="t('stats.jobStatus.tagTip')">{{ t('stats.jobStatus.title') }}</span>
       <span class="tot mono">{{ jobs ? jobs.total : '—' }}</span>
     </h4>
     <p v-if="error && !jobs" class="err mono">{{ error }}</p>
@@ -81,24 +82,24 @@ onUnmounted(() => poller.stop())
 }
 h4 {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 500;
-  color: var(--queue);
+  color: var(--fg-3);
   display: flex;
   gap: 6px;
   align-items: baseline;
   flex-wrap: wrap;
 }
 .tag {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--r-chip);
   padding: 0 6px;
 }
 .tot {
   margin-left: auto;
-  color: var(--paper);
-  font-size: 13px;
+  color: var(--fg);
+  font-size: var(--fs-sm);
 }
 .err {
   margin: 0;
@@ -114,8 +115,8 @@ h4 {
 .chip {
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--ink);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
   padding: 4px 6px;
 }
 .n {
@@ -127,8 +128,8 @@ h4 {
 }
 .l {
   display: block;
-  color: var(--queue);
-  font-size: 10px;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
   line-height: 1.2;
   margin-top: 2px;
   overflow: hidden;

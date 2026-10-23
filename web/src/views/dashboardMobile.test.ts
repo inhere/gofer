@@ -9,7 +9,7 @@ const system = Object.values(
 
 describe('Dashboard mobile layout', () => {
   it('collapses the statistics wall to one column at phone width', () => {
-    expect(source).toContain('@media (max-width: 640px)')
+    expect(source).toContain('@media (max-width: 760px)')
     expect(source).toContain('@media (max-width: 520px)')
     // 主卡单列、小指标块两列（design: 380px 宽单列、无横向滚动）
     expect(source).toMatch(/\.grid4 \{\s*grid-template-columns: minmax\(0, 1fr\);/)
