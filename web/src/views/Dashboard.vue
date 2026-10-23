@@ -98,7 +98,7 @@ const heatMonths = computed(() =>
   heat.value.map((col, i) => {
     const first = col[0]
     const d = Number(first.day.slice(8))
-    return i === 0 || d <= 7 ? `${Number(first.day.slice(5, 7))}月` : ''
+    return i === 0 || d <= 7 ? t('stats.heat.month', { m: Number(first.day.slice(5, 7)) }) : ''
   }),
 )
 // 热力图的星期标尺：一 / 三 / 五 / 日（按语言取短名）。

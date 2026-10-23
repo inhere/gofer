@@ -9,6 +9,7 @@
 // 上限（决策 1）：原文 > 1MB 或 > 5000 行只渲染前 5000 行，底部给「下载完整 diff」；
 // 二进制文件只渲染一行（内容不可读，base85 段整块跳过）。
 import { computed, nextTick, ref } from 'vue'
+import { t } from '../i18n'
 
 interface DiffReviewComment {
   id: string
@@ -185,14 +186,14 @@ function parseDiff(text: string): DiffGroup[] {
         file.binary = true
       }
       if (line.startsWith('new file mode')) {
-        file.note = '新增'
+        file.note = t('util.diff.note.added')
       }
       if (line.startsWith('deleted file mode')) {
-        file.note = '删除'
+        file.note = t('util.diff.note.deleted')
       }
       if (line.startsWith('rename from ')) {
         renameFrom = line.slice('rename from '.length)
-        file.note = '重命名'
+        file.note = t('util.diff.note.renamed')
       }
       if (line.startsWith('rename to ')) {
         file.path = renameFrom ? `${renameFrom} → ${line.slice('rename to '.length)}` : file.path
@@ -301,7 +302,7 @@ defineExpose({ focusFile })
 
 <template>
   <div ref="root" class="ud">
-    <p v-if="groups.length === 0" class="ud-empty mono">（无 diff 内容）</p>
+    <p v-if="groups.length === 0" class="ud-empty mono">{{ t('util.diff.empty') }}</p>
 
     <section v-for="(g, gi) in groups" :key="gi" class="ud-group">
       <h3 v-if="g.title" class="ud-group-title mono">{{ g.title }}</h3>
@@ -322,7 +323,7 @@ defineExpose({ focusFile })
           <span class="ud-caret">{{ collapsed.has(`${gi}:${fi}`) ? '▸' : '▾' }}</span>
           <span class="ud-path" :title="f.path">{{ f.path }}</span>
           <span v-if="f.note" class="ud-note">{{ f.note }}</span>
-          <span v-if="isFlagged(f.path)" class="ud-flag">范围外</span>
+          <span v-if="isFlagged(f.path)" class="ud-flag">{{ t('util.diff.outOfScope') }}</span>
           <span class="ud-counts">
             <span class="ud-add">+{{ f.additions }}</span>
             <span class="ud-del">−{{ f.deletions }}</span>
@@ -331,7 +332,7 @@ defineExpose({ focusFile })
 
         <template v-if="!collapsed.has(`${gi}:${fi}`)">
           <!-- 二进制：只一行说明（内容不可读，不渲染 base85 段）。 -->
-          <p v-if="f.binary" class="ud-binary mono">二进制文件 · 不显示内容</p>
+          <p v-if="f.binary" class="ud-binary mono">{{ t('util.diff.binary') }}</p>
           <template v-else>
             <pre v-if="f.meta.length" class="ud-meta mono">{{ f.meta.join('\n') }}</pre>
             <div
@@ -352,7 +353,7 @@ defineExpose({ focusFile })
                     <button
                       v-if="reviewable && l.oldLine != null"
                       type="button"
-                      :aria-label="`在 ${f.path} old ${l.oldLine} 添加评论`"
+                      :aria-label="t('util.diff.addCommentOld', { path: f.path, line: l.oldLine })"
                       @click="emit('add-comment', { path: f.path, line: l.oldLine, side: 'old' })"
                     >＋</button>
                     <span>{{ l.oldLine ?? '' }}</span>
@@ -361,7 +362,7 @@ defineExpose({ focusFile })
                     <button
                       v-if="reviewable && l.newLine != null"
                       type="button"
-                      :aria-label="`在 ${f.path} new ${l.newLine} 添加评论`"
+                      :aria-label="t('util.diff.addCommentNew', { path: f.path, line: l.newLine })"
                       @click="emit('add-comment', { path: f.path, line: l.newLine, side: 'new' })"
                     >＋</button>
                     <span>{{ l.newLine ?? '' }}</span>
@@ -379,10 +380,10 @@ defineExpose({ focusFile })
                     :value="comment.text"
                     maxlength="4000"
                     rows="2"
-                    aria-label="评审评论"
+                    :aria-label="t('util.diff.commentLabel')"
                     @input="emit('update-comment', comment.id, commentInput($event))"
                   ></textarea>
-                  <button type="button" class="ud-comment-remove" @click="emit('remove-comment', comment.id)">删除</button>
+                  <button type="button" class="ud-comment-remove" @click="emit('remove-comment', comment.id)">{{ t('util.diff.remove') }}</button>
                 </span>
               </template>
             </div>
@@ -393,9 +394,9 @@ defineExpose({ focusFile })
 
     <div v-if="truncated" class="ud-truncated">
       <span class="mono">
-        已截断：仅渲染前 {{ MAX_LINES }} 行（全文 {{ lineCount }} 行 / {{ sizeText }}）
+        {{ t('util.diff.truncated', { max: MAX_LINES, lines: lineCount, size: sizeText }) }}
       </span>
-      <button class="ud-dl mono" type="button" @click="downloadFull">下载完整 diff</button>
+      <button class="ud-dl mono" type="button" @click="downloadFull">{{ t('util.diff.download') }}</button>
     </div>
   </div>
 </template>

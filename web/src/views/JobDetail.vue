@@ -206,12 +206,12 @@ const sessionIDSource = computed(() => {
     if (captured.type !== 'job.session_captured' || !captured.detail) continue
     try {
       const source = (JSON.parse(captured.detail) as { source?: string }).source
-      if (source === 'pty') return '退出横幅'
+      if (source === 'pty') return t('jobs.detail.sessionSource.pty')
       if (source === 'store') fromStore = true
     } catch { /* older or malformed event detail */ }
   }
-  if (fromStore) return '存储扫描'
-  return job.value.resumed_from ? '续接已有会话' : '预分配'
+  if (fromStore) return t('jobs.detail.sessionSource.store')
+  return job.value.resumed_from ? t('jobs.detail.sessionSource.resumed') : t('jobs.detail.sessionSource.prealloc')
 })
 
 function addTimelineEvent(ev: JobEvent): void {
@@ -715,10 +715,10 @@ const resumeNeedsPrompt = computed(() => resumePromptNeedKind.value === 'require
 const resumeHidesPrompt = computed(() => resumePromptNeedKind.value === 'none')
 const resumeButtonLabel = computed(() => {
   switch (resumeMode.value) {
-    case 'session': return '继续会话'
-    case 'interactive': return '续接终端'
-    case 'batch': return '续投新 job'
-    default: return job.value?.interactive ? '续接终端' : (resumeIsAcp.value ? '继续会话' : '续投新 job')
+    case 'session': return t('jobs.detail.resume.session')
+    case 'interactive': return t('jobs.detail.resume.interactive')
+    case 'batch': return t('jobs.detail.resume.batch')
+    default: return job.value?.interactive ? t('jobs.detail.resume.interactive') : (resumeIsAcp.value ? t('jobs.detail.resume.session') : t('jobs.detail.resume.batch'))
   }
 })
 
@@ -756,7 +756,7 @@ const sessionJobsOpen = ref(false)
 const messages = ref<JobMessage[]>([])
 
 function messageRoleLabel(role: JobMessage['role']): string {
-  return role === 'agent' ? 'agent 回复' : '发给 agent'
+  return role === 'agent' ? t('jobs.detail.msg.agent') : t('jobs.detail.msg.toAgent')
 }
 
 async function loadSessionJobs(): Promise<void> {
@@ -833,7 +833,7 @@ async function doCancel(): Promise<void> {
 
 async function doDelete(): Promise<void> {
   if (!job.value || !isTerminalView.value || deleting.value) return
-  if (!window.confirm('删除这个 job 的记录、日志和结果目录？删除后只保留一条审计记录。')) return
+  if (!window.confirm(t('jobs.detail.deleteConfirm'))) return
   deleting.value = true
   try {
     await deleteJob(props.id)
@@ -920,9 +920,9 @@ const wtMergeText = computed<string>(() => {
   if (!wtMergeInfo.value.ok) return wtMergeInfo.value.reason
   const st = wtStatus.value
   if (!st) return ''
-  if (st.merged) return '已合并到基线'
-  if (!st.exists) return 'worktree 目录已不存在'
-  return st.commits_ahead > 0 ? `${st.commits_ahead} 个提交尚未合并` : '没有可合并的提交'
+  if (st.merged) return t('jobs.detail.wt.merged')
+  if (!st.exists) return t('jobs.detail.wt.gone')
+  return st.commits_ahead > 0 ? t('jobs.detail.wt.ahead', { n: st.commits_ahead }) : t('jobs.detail.wt.nothing')
 })
 // 合并与交付都是写操作：只读身份只留状态文字，不给按钮。
 const canWriteGit = computed(() => !readOnly.value)
@@ -1228,7 +1228,7 @@ const terminalExitText = computed(() => {
     return ''
   }
   const code = isTerminalView.value ? job.value?.exit_code : termExitCode.value
-  return code == null ? '进程已退出' : `进程已退出 · exit ${code}`
+  return code == null ? t('jobs.detail.termExited') : t('jobs.detail.termExitedCode', { code })
 })
 
 // ── 产出与审计（job-outcomes-audit）──────────────────────────────
@@ -1359,7 +1359,7 @@ function ptySessionDuration(s: PtySession): string {
 }
 
 function ptySessionBytes(s: PtySession): string {
-  return `输入 ${s.bytes_in} / 输出 ${s.bytes_out} 字节`
+  return t('jobs.detail.ptyBytes', { in: s.bytes_in, out: s.bytes_out })
 }
 
 async function onDownloadRecording(sessionID: string): Promise<void> {
@@ -1441,7 +1441,7 @@ const wakeupSummary = computed<string>(() => {
     return ''
   }
   if (on.length === 0) {
-    return `0 条生效（${wakeups.value.length} 条已停用）`
+    return t('jobs.detail.wakeup.none', { n: wakeups.value.length })
   }
   const counts = new Map<string, number>()
   for (const w of on) {
@@ -1450,7 +1450,7 @@ const wakeupSummary = computed<string>(() => {
   const parts = ['at', 'every', 'cron', 'event']
     .filter((k) => counts.has(k))
     .map((k) => `${counts.get(k)} ${k}`)
-  return `${on.length} 条生效（${parts.join('、')}）`
+  return t('jobs.detail.wakeup.count', { n: on.length, parts: parts.join(t('util.sep.list')) })
 })
 
 // wakeupTrigger 是「它在等什么」：定时器的下次时刻，或订阅的事件（含状态过滤）。
@@ -1459,27 +1459,30 @@ function wakeupTrigger(w: Wakeup): string {
     case 'event': {
       const types = (w.event_types ?? []).join(', ')
       const st = (w.filter_status ?? []).length > 0 ? `[${(w.filter_status ?? []).join(',')}]` : ''
-      return `监听 ${types}${st}`
+      return t('jobs.detail.wakeup.listen', { types, status: st })
     }
     case 'every':
-      return `每 ${fmtDuration(w.every_sec ?? 0)}`
+      return t('jobs.detail.wakeup.every', { every: fmtDuration(w.every_sec ?? 0) })
     case 'cron':
-      return `cron ${w.cron ?? ''}${w.timezone ? `（${w.timezone}）` : ''}`
+      return t('jobs.detail.wakeup.cron', {
+        cron: w.cron ?? '',
+        tz: w.timezone ? t('jobs.detail.wakeup.tz', { tz: w.timezone }) : '',
+      })
     default:
-      return `到点 ${fmtTime(w.next_run_at || w.at)}`
+      return t('jobs.detail.wakeup.at', { time: fmtTime(w.next_run_at || w.at) })
   }
 }
 
 // wakeupTarget 说明这条唤醒是谁在等谁：事件订阅可指向另一个 job（--job-id）。
 function wakeupTarget(w: Wakeup): string {
   if (w.kind !== 'event') {
-    return w.job_id === props.id ? '本 job' : shortId(w.job_id)
+    return w.job_id === props.id ? t('jobs.detail.wakeup.thisJob') : shortId(w.job_id)
   }
   const src = w.filter_job_id ?? ''
   if (!src || src === props.id) {
-    return '本 job 的事件'
+    return t('jobs.detail.wakeup.thisJobEvents')
   }
-  return `job ${shortId(src)} 的事件`
+  return t('jobs.detail.wakeup.jobEvents', { id: shortId(src) })
 }
 
 function wakeupBusyOn(id: string): boolean {
@@ -1546,7 +1549,7 @@ async function onCreateWakeup(): Promise<void> {
     case 'at': {
       const sec = parseDuration(f.after)
       if (sec == null) {
-        wakeupFormError.value = '--after 需要 <数字><s|m|h>，例如 10m / 2h'
+        wakeupFormError.value = t('jobs.detail.wakeup.errAfter')
         return
       }
       spec.at = Math.floor(Date.now() / 1000) + sec
@@ -1555,7 +1558,7 @@ async function onCreateWakeup(): Promise<void> {
     case 'every': {
       const sec = parseDuration(f.every)
       if (sec == null || sec < 60) {
-        wakeupFormError.value = '--every 需要 <数字><s|m|h> 且不小于 60s，例如 1h'
+        wakeupFormError.value = t('jobs.detail.wakeup.errEvery')
         return
       }
       spec.every_sec = sec
@@ -1563,7 +1566,7 @@ async function onCreateWakeup(): Promise<void> {
     }
     case 'cron': {
       if (!f.cron.trim()) {
-        wakeupFormError.value = 'cron 表达式不能为空'
+        wakeupFormError.value = t('jobs.detail.wakeup.errCron')
         return
       }
       spec.cron = f.cron.trim()
@@ -1575,7 +1578,7 @@ async function onCreateWakeup(): Promise<void> {
     default: {
       const types = f.event.split(',').map((x) => x.trim()).filter(Boolean)
       if (types.length === 0) {
-        wakeupFormError.value = '事件类型不能为空'
+        wakeupFormError.value = t('jobs.detail.wakeup.errEvent')
         return
       }
       spec.event_types = types
@@ -1642,8 +1645,9 @@ const retryHint = computed<{ text: string; rest: number } | null>(() => {
   }
   const first = pending[0]
   // max_attempts 为 0/缺失 = 这一行没带策略上限，只报"第几次"，别编造分母。
-  const head = `重试 ${first.attempt}${first.max_attempts ? `/${first.max_attempts}` : ''}`
-  const text = first.next_run_at > 0 ? `${head} · 下次 ${fmtRetryClock(first.next_run_at)}` : head
+  const head = t('jobs.detail.retry.head', { attempt: first.attempt })
+    + (first.max_attempts ? `/${first.max_attempts}` : '')
+  const text = first.next_run_at > 0 ? t('jobs.detail.retry.next', { head, time: fmtRetryClock(first.next_run_at) }) : head
   return { text, rest: pending.length - 1 }
 })
 
@@ -1651,11 +1655,11 @@ const retryHint = computed<{ text: string; rest: number } | null>(() => {
 function deliveryLabel(d: Delivery): string {
   switch (d.status) {
     case 'delivered':
-      return '已送达'
+      return t('jobs.detail.delivery.delivered')
     case 'failed':
-      return '失败'
+      return t('jobs.detail.delivery.failed')
     case 'pending':
-      return d.attempts > 0 ? `重试中（第 ${d.attempts} 次）` : '待投递'
+      return d.attempts > 0 ? t('jobs.detail.delivery.retrying', { n: d.attempts }) : t('jobs.detail.delivery.pending')
     default:
       return d.status
   }
@@ -1794,10 +1798,10 @@ const isRemoteSource = computed<boolean>(() => sourceKind.value !== 'local')
 const sourceLabel = computed<string>(() => {
   const s = job.value?.source ?? ''
   if (sourceKind.value === 'worker') {
-    return `在 worker ${s.slice('worker:'.length)} 执行`
+    return t('jobs.detail.source.worker', { id: s.slice('worker:'.length) })
   }
   if (sourceKind.value === 'peer') {
-    return `在 peer ${s.slice('peer:'.length)} 执行`
+    return t('jobs.detail.source.peer', { id: s.slice('peer:'.length) })
   }
   return ''
 })
@@ -1837,7 +1841,7 @@ const usageText = computed<string>(() => {
   const line = usageLine(usage.value)
   // gofer-2ldy：agent 没自报费用、配置了价格表时，服务端给出估算。
   const est = job.value?.cost_estimate_usd ?? 0
-  return est > 0 && line ? `${line} / ≈ $${est.toFixed(4)}（估算）` : line
+  return est > 0 && line ? t('jobs.detail.usage.estimated', { line, cost: est.toFixed(4) }) : line
 })
 // N2 §B：预算上限与已用（没设预算为 ""）。
 const budgetText = computed<string>(() => budgetLine(job.value?.budget, usage.value))
@@ -2250,7 +2254,7 @@ onUnmounted(() => {
         <span class="meta-k mono">{{ t('jobs.detail.wrapUpReason') }}</span><span class="meta-v mono">{{ wrapUpText(job.wrap_up) }}</span>
       </div>
       <div v-if="job.status === 'waiting_dir'" class="waiting-dir-help mono">
-        被目录锁占用；只读任务可加 <code>--read-only</code>，或用 <code>--lock</code> 收窄范围、<code>--shared-dir</code> 放弃独占、<code>--worktree</code> 隔离。
+        {{ t('jobs.detail.waitingDirHelp.before') }}<code>--read-only</code>{{ t('jobs.detail.waitingDirHelp.or') }}<code>--lock</code>{{ t('jobs.detail.waitingDirHelp.narrow') }}<code>--shared-dir</code>{{ t('jobs.detail.waitingDirHelp.noExclusive') }}<code>--worktree</code>{{ t('jobs.detail.waitingDirHelp.after') }}
       </div>
       <!-- 可靠重试（AUTO-03）：这个 job 失败后服务端还排着重试，点出第几次/上限与下次时刻；
            多条待发只报最先那条，(+N) 表示后面还排着几条。没有待发重试则整条不渲染。 -->
@@ -2338,7 +2342,7 @@ onUnmounted(() => {
       <div v-if="showDelivery" class="meta-item meta-item--merge" data-test="wt-deliver">
         <span class="meta-k mono">delivery</span>
         <span class="meta-v mono" :title="deliveryText(job.delivery)">
-          {{ deliveryText(job.delivery) || (job.delivery_mode && job.delivery_mode !== 'none' ? `将${deliveryModeLabel(job.delivery_mode)}` : t('jobs.detail.notDelivered')) }}
+          {{ deliveryText(job.delivery) || (job.delivery_mode && job.delivery_mode !== 'none' ? t('jobs.detail.willDeliver', { label: deliveryModeLabel(job.delivery_mode) }) : t('jobs.detail.notDelivered')) }}
           <a v-if="deliveryLink(job.delivery)" :href="deliveryLink(job.delivery)?.href" target="_blank" rel="noopener">{{ deliveryLink(job.delivery)?.label }}</a>
         </span>
         <template v-if="job.status === 'done' && canWriteGit">

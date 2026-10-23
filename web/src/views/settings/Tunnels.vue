@@ -475,7 +475,7 @@ function presetRuleText(p: TunnelPreset): string {
       </div>
 
       <p v-else-if="!presetError" class="empty mono">
-        {{ t('settings.tunnels.presetsEmptyBefore') }}<code>gofer tun forward -n &lt;名字&gt;</code>{{ t('settings.tunnels.presetsEmptyAfter') }}
+        {{ t('settings.tunnels.presetsEmptyBefore') }}<code>{{ t('settings.tunnels.presetsEmptyCmd') }}</code>{{ t('settings.tunnels.presetsEmptyAfter') }}
       </p>
     </section>
 

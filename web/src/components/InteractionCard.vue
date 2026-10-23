@@ -10,6 +10,7 @@
 // 一次性滑入动画，prefers-reduced-motion 下关闭。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { Interaction } from '../api/types'
+import { t } from '../i18n'
 
 const props = defineProps<{
   interaction: Interaction
@@ -43,10 +44,10 @@ const text = ref('')
 const confirmYes = computed(() => props.interaction.options?.[0]?.value ?? 'yes')
 const confirmNo = computed(() => props.interaction.options?.[1]?.value ?? 'no')
 const confirmYesLabel = computed(
-  () => props.interaction.options?.[0]?.label ?? '确认',
+  () => props.interaction.options?.[0]?.label ?? t('util.icard.yes'),
 )
 const confirmNoLabel = computed(
-  () => props.interaction.options?.[1]?.label ?? '取消',
+  () => props.interaction.options?.[1]?.label ?? t('util.icard.no'),
 )
 
 function submitText(): void {
@@ -171,7 +172,7 @@ function fmtTime(v: number | undefined): string {
     <!-- answered：只读回显 -->
     <template v-if="answered">
       <p class="icard-done mono">
-        已提交：<span class="icard-answer">{{ interaction.answer }}</span>
+        {{ t('util.icard.submitted') }}<span class="icard-answer">{{ interaction.answer }}</span>
       </p>
       <p class="icard-meta mono">
         <span>answered_by {{ answeredBy }}</span>
@@ -182,7 +183,7 @@ function fmtTime(v: number | undefined): string {
 
     <!-- expired（decision 投影）：只读，无按钮、无假回显 -->
     <template v-else-if="expired">
-      <p class="icard-done mono">已过期 · 未在限时内作答</p>
+      <p class="icard-done mono">{{ t('util.icard.expired') }}</p>
       <p class="icard-meta mono">
         <span v-if="fmtTime(interaction.created_at)">asked {{ fmtTime(interaction.created_at) }}</span>
       </p>
@@ -191,7 +192,7 @@ function fmtTime(v: number | undefined): string {
     <!-- 非 pending（cancelled 等）：只读，不渲染任何可点按钮 -->
 
     <!-- 只读身份：只展示问题，不摆任何作答入口 -->
-    <p v-if="pending && readonly" class="icard-meta mono" data-test="icard-readonly">只读身份，不能作答。</p>
+    <p v-if="pending && readonly" class="icard-meta mono" data-test="icard-readonly">{{ t('util.icard.readonly') }}</p>
 
     <!-- permission：审批卡（GATE-01 §1）——工具调用摘要 + 按 ACP kind 分组的选项按钮 -->
     <div v-if="pending && isPermission && !readonly" class="icard-body icard-approve">
@@ -207,7 +208,7 @@ function fmtTime(v: number | undefined): string {
       }}</pre>
       <p v-if="interaction.policy_hint" class="icard-meta mono">
         <span>{{ interaction.policy_hint }}</span>
-        <span v-if="leftSec >= 0">倒计时 {{ fmtLeft(leftSec) }}</span>
+        <span v-if="leftSec >= 0">{{ t('util.icard.countdown', { left: fmtLeft(leftSec) }) }}</span>
       </p>
       <div class="icard-choices">
         <button
@@ -248,7 +249,7 @@ function fmtTime(v: number | undefined): string {
 
     <!-- question：文本输入 + 提交 -->
     <div v-else-if="pending && interaction.type === 'question' && !readonly" class="icard-body">
-      <label class="icard-label" :for="`ia-${interaction.id}`">回答</label>
+      <label class="icard-label" :for="`ia-${interaction.id}`">{{ t('util.icard.answerLabel') }}</label>
       <div class="icard-row">
         <input
           :id="`ia-${interaction.id}`"
@@ -265,7 +266,7 @@ function fmtTime(v: number | undefined): string {
           :disabled="disabled"
           @click="submitText"
         >
-          提交
+          {{ t('util.icard.submit') }}
         </button>
       </div>
     </div>
@@ -314,7 +315,7 @@ function fmtTime(v: number | undefined): string {
         :disabled="disabled"
         @click="punt"
       >
-        {{ submitting ? '提交中' : 'punt' }}
+        {{ submitting ? t('util.icard.punting') : 'punt' }}
       </button>
     </div>
   </div>

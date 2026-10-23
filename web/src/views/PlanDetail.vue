@@ -227,9 +227,9 @@ const planUsageText = computed<string>(() => {
     const est = u.overall.estimated_cost_usd ?? 0
     const cost =
       u.overall.cost_usd > 0
-        ? ` / $${u.overall.cost_usd.toFixed(4)}${est > 0 ? `（其中估算 $${est.toFixed(4)}）` : ''}`
+        ? ` / $${u.overall.cost_usd.toFixed(4)}${est > 0 ? t('plans.detail.usageEstimated', { cost: est.toFixed(4) }) : ''}`
         : ''
-    return `合计 ${formatTokens(u.overall.total_tokens)} tokens${cost}`
+    return t('plans.detail.usageTotal', { tokens: formatTokens(u.overall.total_tokens), cost })
   }
   const parts: string[] = []
   if (u.total_tokens > 0) {

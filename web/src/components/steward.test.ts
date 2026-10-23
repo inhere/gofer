@@ -54,8 +54,8 @@ describe('Steward notes drawer', () => {
     expect(notes).toContain('putStewardNotes(draft.value, baseVersion.value)')
     expect(notes).toContain('notesConflictOf(e, draft.value)')
     expect(notes).toContain('MarkdownBlock')
-    expect(notes).toContain('以此为基础编辑')
-    expect(notes).toContain('超过 16KB')
+    expect(notes).toContain("t('today.notes.editFrom')")
+    expect(notes).toContain("t('today.notes.tooLarge')")
   })
 })
 

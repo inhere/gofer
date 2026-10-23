@@ -133,7 +133,7 @@ function onRerun(note: string, resume: boolean): void {
 
 function suggestionAct(field: string, adopt: boolean): void {
   if (readOnly.value) return
-  emit('act', { id: `${adopt ? 'adopt' : 'dismiss'}:${field}`, label: adopt ? '采纳建议' : '忽略建议' }, '', false)
+  emit('act', { id: `${adopt ? 'adopt' : 'dismiss'}:${field}`, label: adopt ? t('today.suggestion.adopt') : t('today.suggestion.dismiss') }, '', false)
 }
 
 function pickSnooze(opt: SnoozeOption): void {
