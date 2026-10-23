@@ -1746,7 +1746,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   cursor: pointer;
 }
 .meta-toggle:hover {
-  background: var(--hover, rgba(127, 127, 127, 0.08));
+  background: var(--surface-2);
 }
 .meta-toggle .caret {
   flex: none;
@@ -2047,7 +2047,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   font-size: 11px;
   padding: 1px 4px;
   border-radius: 3px;
-  background: var(--hover, rgba(127, 127, 127, 0.14));
+  background: var(--surface-2);
 }
 .bubble-md pre {
   margin: 0 0 8px;
@@ -2055,7 +2055,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  background: var(--hover, rgba(127, 127, 127, 0.08));
+  background: var(--surface-2);
 }
 .bubble-md pre code {
   padding: 0;

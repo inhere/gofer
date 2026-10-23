@@ -184,7 +184,7 @@ onMounted(() => {
   gap: 8px;
 }
 .dim {
-  color: var(--dim, var(--ink));
+  color: var(--ink-3);
   opacity: 0.7;
 }
 .nudge-list {
@@ -204,7 +204,7 @@ onMounted(() => {
   gap: 3px;
 }
 .nudge-row--paused .nudge-state {
-  color: var(--warn, var(--run));
+  color: var(--need);
 }
 .nudge-row--ended {
   opacity: 0.55;

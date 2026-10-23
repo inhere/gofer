@@ -184,13 +184,13 @@ watch(() => props.sid, loadSession)
 .ps-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--surface); }
 .ps-name { color: var(--ink); }
 .ps-beat { color: var(--ink-3); font-size: 11px; }
-.ps-gone { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--warn, #d9822b); border-radius: var(--r-chip); font-size: 12px; color: var(--warn, #d9822b); }
+.ps-gone { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--need); border-radius: var(--r-chip); font-size: 12px; color: var(--need-ink); }
 .ps-hint { color: var(--ink-3); }
 .ps-actions, .ps-edit, .ps-send-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ps-card { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .ps-sid { opacity: 0.6; font-size: 11px; }
 .ps-state { font-size: 11px; padding: 1px 6px; border: 1px solid var(--line, #8884); border-radius: 4px; }
-.ps-state--waiting_reply, .ps-state--needs_attention { color: var(--warn, #d9822b); }
+.ps-state--waiting_reply, .ps-state--needs_attention { color: var(--need-ink); }
 .ps-state--offline, .ps-state--ended { opacity: 0.6; }
 .ps-edit, .ps-send { margin-top: 10px; }
 .ps-select { min-width: 220px; max-width: 100%; }

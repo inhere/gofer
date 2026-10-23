@@ -989,8 +989,8 @@ onUnmounted(() => {
   color: var(--ink);
 }
 .job-badge--ro {
-  color: var(--warn, var(--accent));
-  border-color: var(--warn, var(--accent));
+  color: var(--need-ink);
+  border-color: var(--need);
 }
 /* 验证失败徽标（SUP-01 P2）：一行 failed 里最容易被忽略的失败原因——agent 干完了但验收没过。 */
 .job-badge--verify {
