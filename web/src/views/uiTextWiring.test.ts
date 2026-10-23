@@ -25,7 +25,7 @@ describe('页面标题用中文', () => {
   const titled: Array<[string, string]> = [
     ['Plans', "t('plans.list.title')"],
     ['Workflows', '{{ PAGE.workflows }}'],
-    ['Sessions', '{{ PAGE.sessions }}'],
+    ['Sessions', "t('sessions.title')"],
     ['Projects', '{{ PAGE.projects }}'],
     ['Schedules', '{{ PAGE.schedules }}'],
     ['ReviewQueue', '{{ PAGE.review }}'],

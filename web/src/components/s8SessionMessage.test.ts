@@ -21,7 +21,7 @@ describe('session last-message placement', () => {
     const timelineClose = drawer.indexOf('</template>', drawer.indexOf('class="timeline"'))
     expect(timelineClose).toBeLessThan(drawer.indexOf('class="last-message-fixed"'))
     expect(drawer).toMatch(/\.last-message-head \{[^}]*flex-wrap: nowrap/)
-    expect(sessions).toContain('查看全文')
+    expect(sessions).toContain("t('sessions.card.viewFull')")
     expect(sessions).toContain('openDrawer(s.session_id, true)')
   })
 

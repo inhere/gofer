@@ -65,11 +65,11 @@ describe('Sessions page cards', () => {
   })
 
   it('shows the ACP and terminal cards with their own key info and actions', () => {
-    expect(source).toContain('查看过程')
-    expect(source).toContain('打开终端')
-    expect(source).toContain('下载录制')
+    expect(source).toContain("t('sessions.acp.openJob')")
+    expect(source).toContain("t('sessions.card.openTerminal')")
+    expect(source).toContain("t('sessions.card.downloadRecording')")
     expect(source).toContain('onDownloadRecording(s)')
-    expect(source).toContain('第 {{ item.turn_no ?? 0 }} 轮')
+    expect(source).toContain("t('sessions.card.turns')")
   })
 
   it('lays out one column on a phone and several on a desktop through the shared grid', () => {
