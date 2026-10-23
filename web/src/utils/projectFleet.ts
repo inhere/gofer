@@ -160,7 +160,9 @@ export function buildFleet(input: FleetInput): FleetGroup[] {
     const dirs = view?.worker?.dirs ?? rows[0]?.dirs
     const ws = workspaceOf(dirs)
     const own = ownProjectsOf(declared, input.workerProjects[id], dirs)
-    const haveProjects = input.workerProjects[id] !== undefined
+    // GET /v1/workers/{id}/projects 对「已登记但离线」的 worker 也回 200 + 空列表（注册表里没有
+    // 它的快照），那不代表它没有项目 —— 必须再看 connected，否则会把「取不到」说成「没有」。
+    const haveProjects = input.workerProjects[id] !== undefined && online
     groups.push({
       id,
       kind: 'worker',

@@ -1384,7 +1384,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - server 本机一组 + 每台 worker 一组（同一 worker 上有多个 runner 名时合成一组；`/v1/runners` 里 type=worker 的行才是 worker）。
 - 准入口径与后端一致，不在前端自创：`allowed_runners` 为空只放行本机（`internal/project.AllowsLocalRunner`、`internal/core/policy.go` Q8「空 allowlist 不推给任何 worker」），`server` 与 `local` 视为同一个（G043）。
 - 组内三行：默认工作空间（server 取本机 `dirs.workspace`，worker 取 `GET /v1/workers/{id}` 的 `dirs.workspace`，目录不存在标「目录不存在」）、可用项目（server 声明且允许它运行）、worker 自有（`GET /v1/workers/{id}/projects` 里 server 没声明的 key，虚线 chip，悬停显示该 worker 上报的解析路径）。
-- 离线 worker：整卡灰显（`opacity: .6`）+ `StatusPill`「离线」；心跳上报的项目与目录取不到时按原因写文案（离线 / 在线但未上报），接口失败另起一行显示原始错误。
+- 离线 worker：整卡灰显（`opacity: .6`）+ `StatusPill`「离线」；心跳上报的项目与目录取不到时按原因写文案（离线 / 在线但未上报），接口失败另起一行显示原始错误。注意 `GET /v1/workers/{id}/projects` 对「已登记但离线」的 worker 也回 200 + 空列表（注册表里没有它的快照），所以**在线与否先看 `connected`**，不能把那个空列表读成「没有自有项目」。
 
 **按项目**
 
@@ -1398,9 +1398,9 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 **测试**
 
-- 新增 `web/src/utils/projectFleet.test.ts`（11 个用例）：空 allowlist 只放行本机、`server` 别名、按 runner 名匹配、server 组与它的默认工作空间、worker 自有排除 server 已声明的 key、离线 worker（原因 + 错误原文）、在线未上报、`/v1/runners` 为空时仍有 server 组、`workerOwnProjects` 跨 worker 合并、`allowed_runners` 的 config 预填。
+- 新增 `web/src/utils/projectFleet.test.ts`（12 个用例）：空 allowlist 只放行本机、`server` 别名、按 runner 名匹配、server 组与它的默认工作空间、worker 自有排除 server 已声明的 key、离线 worker（原因 + 错误原文）、离线 worker 的空项目列表不当作「没有」、在线未上报、`/v1/runners` 为空时仍有 server 组、`workerOwnProjects` 跨 worker 合并、`allowed_runners` 的 config 预填。
 - 新增 `web/src/views/projectsFleet.test.ts`（8 个用例）：SSR 渲染两种视图与字典文案、`?view=runner` 深链、默认视图不渲染执行机视图、worker 自有接线、`default` 的本机标记、离线灰显与原因、只用现有接口、手机断点。
-- `npx vue-tsc --noEmit`、`npx vitest run`（217 文件 / 1483 用例）、`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 全过。
+- `npx vue-tsc --noEmit`、`npx vitest run`（217 文件 / 1484 用例）、`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 全过。
 
 **如实记录的范围边界**
 

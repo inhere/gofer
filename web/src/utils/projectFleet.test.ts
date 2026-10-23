@@ -142,6 +142,18 @@ describe('buildFleet', () => {
     expect(g.error).toBe('worker w-off is offline')
   })
 
+  it('does not read an empty project list of an offline worker as “no worker-owned projects”', () => {
+    // GET /v1/workers/{id}/projects 对已登记但离线的 worker 也回 200 + 空列表。
+    const groups = buildFleet(
+      input({
+        runners: [localRunner(), workerRunner('w-off', 'w-off', 'disconnected')],
+        workerViews: { 'w-off': workerView('w-off', false) },
+        workerProjects: { 'w-off': [] },
+      }),
+    )
+    expect(groups.find((x) => x.id === 'w-off')?.ownNote).toBe('offline')
+  })
+
   it('reports a missing default workspace for a connected worker that never reported one', () => {
     const groups = buildFleet(
       input({
