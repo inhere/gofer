@@ -4,67 +4,72 @@
 // 不改的东西：命令文本（`gofer job run`）、配置键、接口字段名、日志原文、agent 输出——
 // 那些是"值"不是"界面文字"，照旧英文。Issues / Agents / Runners / Agent / Runner / Prompt
 // 是专有名词，保留英文（见 NAV / PAGE 里的同名项）。
+//
+// P6-b3：文案走 i18n（字典 ui.nav.* / ui.page.* / ui.col.* / ui.back.*）。属性都写成 getter，
+// 模板 / computed 里读取时才取当前语言，切换语言即时生效。
+import { t } from '../i18n'
+
 export const NAV = {
-  today: '今天',
-  workbench: '工作台',
-  work: '工作项',
-  plans: '计划',
-  jobs: '任务',
-  sessions: '会话',
-  dashboard: '统计',
-  projects: '项目',
-  workflows: '工作流',
-  schedules: '定时',
-  issues: 'Issues',
-  agents: 'Agents',
-  runners: 'Runners',
-  mail: '信箱',
-} as const
+  get today() { return t('ui.nav.today') },
+  get workbench() { return t('ui.nav.workbench') },
+  get work() { return t('ui.nav.work') },
+  get plans() { return t('ui.nav.plans') },
+  get jobs() { return t('ui.nav.jobs') },
+  get sessions() { return t('ui.nav.sessions') },
+  get dashboard() { return t('ui.nav.dashboard') },
+  get projects() { return t('ui.nav.projects') },
+  get workflows() { return t('ui.nav.workflows') },
+  get schedules() { return t('ui.nav.schedules') },
+  get issues() { return 'Issues' },
+  get agents() { return 'Agents' },
+  get runners() { return 'Runners' },
+  get mail() { return t('ui.nav.mail') },
+}
 
 // PAGE：页面标题（h1）。与导航同名的地方直接取 NAV，只有确实不同的才单列
 // （任务列表页标题是「任务看板」，导航项是「任务」）。
 export const PAGE = {
-  today: NAV.today,
-  workbench: NAV.workbench,
-  work: NAV.work,
-  plans: NAV.plans,
-  board: '任务看板',
-  sessions: NAV.sessions,
-  dashboard: NAV.dashboard,
-  projects: NAV.projects,
-  workflows: NAV.workflows,
-  schedules: NAV.schedules,
-  issues: NAV.issues,
-  agents: NAV.agents,
-  runners: NAV.runners,
-  review: '待验收',
-  skills: '技能',
-  rules: '规则',
-  settings: '设置',
-  newJob: '新建任务',
-} as const
+  get today() { return NAV.today },
+  get workbench() { return NAV.workbench },
+  get work() { return NAV.work },
+  get plans() { return NAV.plans },
+  get board() { return t('ui.page.board') },
+  get sessions() { return NAV.sessions },
+  get dashboard() { return NAV.dashboard },
+  get projects() { return NAV.projects },
+  get workflows() { return NAV.workflows },
+  get schedules() { return NAV.schedules },
+  get issues() { return NAV.issues },
+  get agents() { return NAV.agents },
+  get runners() { return NAV.runners },
+  get review() { return t('ui.page.review') },
+  get skills() { return t('ui.page.skills') },
+  get rules() { return t('ui.page.rules') },
+  get settings() { return t('ui.page.settings') },
+  get newJob() { return t('ui.page.newJob') },
+}
 
 // 返回链接（面包屑）文案：`← 任务看板`。
 export const BACK = {
-  board: `← ${PAGE.board}`,
-  schedules: `← ${PAGE.schedules}`,
-  workflows: `← ${PAGE.workflows}`,
-  plans: `← ${PAGE.plans}`,
-} as const
+  get board() { return t('ui.back.board', { page: PAGE.board }) },
+  get schedules() { return t('ui.back.schedules', { page: PAGE.schedules }) },
+  get workflows() { return t('ui.back.workflows', { page: PAGE.workflows }) },
+  get plans() { return t('ui.back.plans', { page: PAGE.plans }) },
+}
 
 // 列表表头里反复出现的列名。各页在自己的 thead 里组合（`任务 · 标题 / ID` 这类拼接
 // 仍写在页面里，因为它表达的是该页这一列的语义）。
 export const COL = {
-  status: '状态',
-  project: '项目',
+  get status() { return t('ui.col.status') },
+  get project() { return t('ui.col.project') },
   agent: 'Agent',
   runner: 'Runner',
-  title: '标题',
-  tags: '标签',
-  progress: '进度',
-  updated: '更新',
-  actions: '操作',
-  time: '时间',
-  plan: '计划',
-  name: '名称',
-} as const
+  get title() { return t('ui.col.title') },
+  get tags() { return t('ui.col.tags') },
+  get progress() { return t('ui.col.progress') },
+  get updated() { return t('ui.col.updated') },
+  get actions() { return t('ui.col.actions') },
+  get time() { return t('ui.col.time') },
+  get plan() { return t('ui.col.plan') },
+  get name() { return t('ui.col.name') },
+}

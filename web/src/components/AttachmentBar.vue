@@ -21,6 +21,7 @@ import {
   type AttachmentDraft,
   type CompressionPlan,
 } from '../utils/attachments'
+import { t } from '../i18n'
 
 const props = defineProps<{ capability: AttachmentCapability }>()
 const emit = defineEmits<{ (e: 'error', message: string): void }>()
@@ -59,17 +60,17 @@ function addFiles(files: readonly File[]): void {
   for (const file of files) {
     const typeError = attachmentTypeError(file.type)
     if (typeError) {
-      fail(`${file.name || '这张图'}：${typeError}`)
+      fail(t('util.attachBar.fileType', { name: file.name || t('util.attachBar.thisImage'), err: typeError }))
       continue
     }
     const sizeError = attachmentSizeError(file.size)
     if (sizeError) {
-      fail(`${file.name || '这张图'}：${sizeError}`)
+      fail(t('util.attachBar.fileSize', { name: file.name || t('util.attachBar.thisImage'), err: sizeError }))
       continue
     }
     const countError = attachmentCountError(items.value.length, 1)
     if (countError) {
-      fail(`${countError}（多的这张「${file.name || '未命名'}」没有上传）`)
+      fail(t('util.attachBar.countExtra', { err: countError, name: file.name || t('util.attachBar.unnamed') }))
       continue
     }
     const draft: AttachmentDraft = {
@@ -223,9 +224,11 @@ function progressWidth(item: AttachmentDraft): string {
 function statusText(item: AttachmentDraft): string {
   switch (item.status) {
     case 'uploading':
-      return item.progress != null && item.progress > 0 ? `上传 ${Math.round(item.progress * 100)}%` : '上传中'
+      return item.progress != null && item.progress > 0
+        ? t('util.attachBar.uploadingPct', { pct: Math.round(item.progress * 100) })
+        : t('util.attachBar.uploading')
     case 'failed':
-      return item.error ? `失败：${item.error}` : '上传失败'
+      return item.error ? t('util.attachBar.failedWith', { err: item.error }) : t('util.attachBar.uploadFailed')
     default:
       return formatBytes(item.bytes)
   }
@@ -260,7 +263,7 @@ function loadImage(blob: Blob): Promise<HTMLImageElement> {
     }
     image.onerror = () => {
       URL.revokeObjectURL(url)
-      reject(new Error('读取图片失败'))
+      reject(new Error(t('util.attachBar.readImageFailed')))
     }
     image.src = url
   })
@@ -328,12 +331,12 @@ defineExpose({
       class="attach-add mono"
       type="button"
       :disabled="!capability.enabled"
-      :title="capability.enabled ? '添加图片：可粘贴、拖放或选文件；手机可拍照 / 相册' : capability.reason"
-      :aria-label="capability.enabled ? '添加图片' : `不能附图：${capability.reason}`"
+      :title="capability.enabled ? t('util.attachBar.addTitle') : capability.reason"
+      :aria-label="capability.enabled ? t('util.attachBar.add') : t('util.attachBar.cannotAdd', { reason: capability.reason })"
       data-test="attach-button"
       @click="openPicker"
     >📎</button>
-    <ul v-if="items.length > 0" class="attach-strip" aria-label="待发送的图片">
+    <ul v-if="items.length > 0" class="attach-strip" :aria-label="t('util.attachBar.pendingAria')">
       <li
         v-for="item in items"
         :key="item.key"
@@ -348,14 +351,14 @@ defineExpose({
           v-if="item.status === 'failed'"
           class="attach-retry mono"
           type="button"
-          title="重试上传"
+          :title="t('util.attachBar.retryTitle')"
           @click="retry(item)"
-        >重试</button>
+        >{{ t('util.attachBar.retry') }}</button>
         <button
           class="attach-remove mono"
           type="button"
-          :aria-label="`删除 ${item.name}`"
-          title="删除这张图"
+          :aria-label="t('util.attachBar.removeAria', { name: item.name })"
+          :title="t('util.attachBar.removeTitle')"
           @click="remove(item)"
         ><Icon :icon="X" size="sm" /></button>
       </li>

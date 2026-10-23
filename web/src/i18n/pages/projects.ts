@@ -90,6 +90,7 @@ export const projects: PageDict = {
     'projects.files.hint': '点击上方文件查看内容',
     'projects.files.truncated': '文件超过 256KB，已截断显示',
     'projects.deleteBlocked': '内置项目不能删除；想换掉它，在配置里显式声明同名 default 项目',
+    'projects.gitAria': 'git 状态',
   },
   en: {
     'projects.sub': 'Project mappings, admission and git state',
@@ -178,5 +179,6 @@ export const projects: PageDict = {
     'projects.files.hint': 'Pick a file above to view it',
     'projects.files.truncated': 'The file is over 256KB and is shown truncated',
     'projects.deleteBlocked': 'A built-in project cannot be deleted; declare a default project with the same key in the config to replace it',
+    'projects.gitAria': 'git status',
   },
 }

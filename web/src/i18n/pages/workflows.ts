@@ -119,6 +119,12 @@ export const workflows: PageDict = {
     'workflows.wizard.readOnly': '只读',
     'workflows.wizard.reviewGate': '人工验收闸',
     'workflows.wizard.subWorkflow': '子工作流',
+    // 新建模板（views/NewWorkflow.vue）：模板正文默认值与两处标签
+    'workflows.newTemplate.comment': '# 新模板：变量用 ${vars.name}，提交 workflow 时填写。',
+    'workflows.newTemplate.title': 'title: 新模板 ${vars.project}',
+    'workflows.newTemplate.stepBody': '说明当前步骤要完成的工作。',
+    'workflows.newTemplate.create': '新建模板',
+    'workflows.newTemplate.scopeProject': '当前项目',
   },
   en: {
     'workflows.title': 'Workflows',
@@ -238,5 +244,10 @@ export const workflows: PageDict = {
     'workflows.wizard.readOnly': 'Read-only',
     'workflows.wizard.reviewGate': 'Human review gate',
     'workflows.wizard.subWorkflow': 'Sub-workflow',
+    'workflows.newTemplate.comment': '# New template: fill in the ${vars.name} variables when submitting',
+    'workflows.newTemplate.title': 'title: New template ${vars.project}',
+    'workflows.newTemplate.stepBody': 'Describe what this step has to accomplish.',
+    'workflows.newTemplate.create': 'New template',
+    'workflows.newTemplate.scopeProject': 'This project',
   },
 }

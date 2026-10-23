@@ -5,6 +5,7 @@
 //  - 本组件不依赖 router，也不拿业务数据，方便单测（SSR 渲染）。
 //  - 末尾的非 scoped <style> 是卡片 / 徽标 / 网格的公共样式（.icard* / .sbadge* / .icard-grid），
 //    谁用到 InfoCard 谁就带上，页面里不要再复制一份。
+import { t } from '../i18n'
 withDefaults(
   defineProps<{
     // 左侧色条：live 进行中 / hot 要你处理 / warn 受阻 / fail 异常 / ok 完成 / idle·off 平静或离线
@@ -59,7 +60,7 @@ const emit = defineEmits<{
         data-test="card-toggle"
         :aria-expanded="expanded"
         @click.stop="emit('toggle')"
-      >{{ expanded ? '收起' : '详情' }}<span class="icard-caret" :class="{ 'icard-caret--up': expanded }" aria-hidden="true"></span></button>
+      >{{ expanded ? t('util.action.collapse') : t('util.action.expand') }}<span class="icard-caret" :class="{ 'icard-caret--up': expanded }" aria-hidden="true"></span></button>
     </div>
     <div v-if="expanded && $slots.details" class="icard-details" data-test="card-details"><slot name="details" /></div>
   </article>

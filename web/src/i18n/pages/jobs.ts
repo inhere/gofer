@@ -316,6 +316,12 @@ export const jobs: PageDict = {
     'jobs.approval.extraReadOnly': '只读（agent 不能写文件）',
     'jobs.approval.extraTimeout': 'job {d}',
     'jobs.approval.extraTimeoutDefault': 'job 超时按项目 / agent 默认',
+    // utils/wrapUpDisplay.ts：agent 自己收尾的原因
+    'jobs.wrapUp.maxSteps': '步数上限（agent 自己收尾，任务可能未完成）',
+    'jobs.wrapUp.maxTokens': '用量上限（agent 自己收尾，任务可能未完成）',
+    'jobs.wrapUp.timeout': '时限（agent 自己收尾，任务可能未完成）',
+    'jobs.wrapUp.budget': '预算耗尽收尾（agent 自己收尾，任务可能未完成）',
+    'jobs.wrapUp.unknown': '{reason}（agent 自己收尾，任务可能未完成）',
   },
   en: {
     'jobs.h.title': 'Jobs',
@@ -615,5 +621,10 @@ export const jobs: PageDict = {
     'jobs.approval.extraReadOnly': 'Read-only (the agent cannot write files)',
     'jobs.approval.extraTimeout': 'job {d}',
     'jobs.approval.extraTimeoutDefault': 'job timeout follows the project / agent default',
+    'jobs.wrapUp.maxSteps': 'Hit the step limit (the agent wrapped up on its own; the task may be unfinished)',
+    'jobs.wrapUp.maxTokens': 'Hit the token limit (the agent wrapped up on its own; the task may be unfinished)',
+    'jobs.wrapUp.timeout': 'Hit the time limit (the agent wrapped up on its own; the task may be unfinished)',
+    'jobs.wrapUp.budget': 'Budget exhausted (the agent wrapped up on its own; the task may be unfinished)',
+    'jobs.wrapUp.unknown': '{reason} (the agent wrapped up on its own; the task may be unfinished)',
   },
 }

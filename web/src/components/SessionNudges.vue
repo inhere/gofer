@@ -21,6 +21,7 @@ import {
   nudgeStatusText,
   nudgeUntilToUnix,
 } from '../utils/sessionNudge'
+import { t } from '../i18n'
 
 const props = defineProps<{ sid: string; state?: string }>()
 
@@ -65,15 +66,15 @@ async function add(): Promise<void> {
   const sec = nudgeMinutesToSec(minutes.value)
   const untilAt = nudgeUntilToUnix(until.value)
   if (sec == null) {
-    actionError.value = '间隔至少 1 分钟'
+    actionError.value = t('sessions.nudge.errInterval')
     return
   }
   if (untilAt == null) {
-    actionError.value = '截止时间无法解析'
+    actionError.value = t('sessions.nudge.errUntil')
     return
   }
   if (!text.value.trim()) {
-    actionError.value = '请填写催办内容'
+    actionError.value = t('sessions.nudge.errText')
     return
   }
   await act(async () => {
@@ -101,9 +102,9 @@ onMounted(() => {
 <template>
   <section class="nudges mono" data-test="session-nudges">
     <button type="button" class="nudges-head" data-test="nudges-toggle" @click="open = !open">
-      <strong>催办</strong>
-      <span class="dim">{{ liveCount > 0 ? `${liveCount} 条` : '无' }}</span>
-      <span class="dim caret">{{ open ? '收起' : '展开' }}</span>
+      <strong>{{ t('sessions.nudge.title') }}</strong>
+      <span class="dim">{{ liveCount > 0 ? t('sessions.nudge.count', { n: liveCount }) : t('sessions.nudge.none') }}</span>
+      <span class="dim caret">{{ open ? t('util.action.collapse') : t('sessions.nudge.expand') }}</span>
     </button>
     <div v-if="open" class="nudges-body">
       <p v-if="loadError" class="nudge-err">{{ loadError }}</p>
@@ -115,39 +116,39 @@ onMounted(() => {
           </div>
           <div class="nudge-text" :title="n.text">{{ n.text }}</div>
           <div class="nudge-meta dim">
-            已发 {{ n.fire_count }} 次<template v-if="n.last_fired_at"> · 上次 {{ fmtAgo(n.last_fired_at) }} 前</template>
+            {{ t('sessions.nudge.fired', { n: n.fire_count }) }}<template v-if="n.last_fired_at"> · {{ t('sessions.nudge.lastFired', { ago: fmtAgo(n.last_fired_at) }) }}</template>
             <template v-if="n.last_error"> · {{ n.last_error }}</template>
           </div>
           <div v-if="n.state !== 'ended'" class="nudge-acts">
             <button v-if="n.state === 'active'" type="button" class="act" :disabled="busy" data-test="nudge-pause"
-              @click="act(() => setSessionNudgeState(n.id, 'paused'))">暂停</button>
+              @click="act(() => setSessionNudgeState(n.id, 'paused'))">{{ t('sessions.nudge.pause') }}</button>
             <button v-else type="button" class="act" :disabled="busy || !canCreate" data-test="nudge-resume"
-              @click="act(() => setSessionNudgeState(n.id, 'active'))">恢复</button>
+              @click="act(() => setSessionNudgeState(n.id, 'active'))">{{ t('sessions.nudge.resume') }}</button>
             <button type="button" class="act act--warn" :disabled="busy" data-test="nudge-delete"
-              @click="act(() => deleteSessionNudge(n.id))">删除</button>
+              @click="act(() => deleteSessionNudge(n.id))">{{ t('util.action.delete') }}</button>
           </div>
         </li>
       </ul>
-      <p v-else class="dim nudge-empty">还没有催办。</p>
+      <p v-else class="dim nudge-empty">{{ t('sessions.nudge.empty') }}</p>
 
       <form v-if="canCreate" class="nudge-form" data-test="nudge-form" @submit.prevent="add">
         <div class="nudge-form-row">
           <select v-model="kind" class="nudge-input" data-test="nudge-kind">
-            <option value="stalled">停滞超过</option>
-            <option value="every">每隔</option>
+            <option value="stalled">{{ t('sessions.nudge.kindStalled') }}</option>
+            <option value="every">{{ t('sessions.nudge.kindEvery') }}</option>
           </select>
           <input v-model="minutes" class="nudge-input nudge-minutes" type="number" min="1" step="1" data-test="nudge-minutes" />
-          <span class="dim">分钟</span>
+          <span class="dim">{{ t('sessions.nudge.minutes') }}</span>
         </div>
-        <input v-model="text" class="nudge-input nudge-textbox" type="text" maxlength="2000" placeholder="催办内容，如：进展如何？卡住了吗？" data-test="nudge-text" />
+        <input v-model="text" class="nudge-input nudge-textbox" type="text" maxlength="2000" :placeholder="t('sessions.nudge.textPlaceholder')" data-test="nudge-text" />
         <div class="nudge-form-row">
-          <label class="dim">截止（可选）<input v-model="until" class="nudge-input" type="datetime-local" data-test="nudge-until" /></label>
-          <button type="submit" class="act act--primary" :disabled="busy" data-test="nudge-add">添加催办</button>
+          <label class="dim">{{ t('sessions.nudge.until') }}<input v-model="until" class="nudge-input" type="datetime-local" data-test="nudge-until" /></label>
+          <button type="submit" class="act act--primary" :disabled="busy" data-test="nudge-add">{{ t('sessions.nudge.add') }}</button>
         </div>
       </form>
-      <p v-else class="dim nudge-empty">会话已结束或已被接管，不能新建催办。</p>
+      <p v-else class="dim nudge-empty">{{ t('sessions.nudge.cannotCreate') }}</p>
       <p v-if="actionError" class="nudge-err" data-test="nudge-error">{{ actionError }}</p>
-      <p class="dim nudge-hint">到点走「发消息给会话」同一条送达路径；连续送达失败 3 次自动暂停。「停滞」＝运行中（或已停下但工作项未结）且超过该时长没有进展。</p>
+      <p class="dim nudge-hint">{{ t('sessions.nudge.hint') }}</p>
     </div>
   </section>
 </template>

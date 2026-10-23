@@ -5,6 +5,7 @@ import { listTodaySnoozed, type TodaySnoozed } from '../../api/today'
 import { fmtDateTime } from '../../api/time'
 import { includeExec, snoozedOpen, unsnoozeCard } from '../../store/today'
 import { snoozedUntilText } from '../../utils/todaySnooze'
+import { t } from '../../i18n'
 
 const rows = ref<TodaySnoozed[]>([])
 const error = ref('')
@@ -47,27 +48,27 @@ function close(): void {
 
 <template>
   <div v-if="snoozedOpen" class="sd-scrim" aria-hidden="true" @click="close"></div>
-  <aside v-if="snoozedOpen" class="sd" role="dialog" aria-label="已稍后" data-test="snoozed-drawer">
+  <aside v-if="snoozedOpen" class="sd" role="dialog" :aria-label="t('today.snoozed.aria')" data-test="snoozed-drawer">
     <header class="sd-head">
-      <span class="sd-title">稍后再看</span>
-      <button class="sd-x mono" type="button" @click="close">关闭</button>
+      <span class="sd-title">{{ t('today.snoozed.title') }}</span>
+      <button class="sd-x mono" type="button" @click="close">{{ t('util.action.close') }}</button>
     </header>
     <p v-if="error" class="sd-err mono">{{ error }}</p>
-    <p v-else-if="!loading && rows.length === 0" class="sd-empty mono">没有稍后的卡</p>
+    <p v-else-if="!loading && rows.length === 0" class="sd-empty mono">{{ t('today.snoozed.empty') }}</p>
     <ul class="sd-list">
       <li v-for="r in rows" :key="r.card_key">
         <span class="sd-card">{{ r.title || r.card_key }}</span>
         <span class="sd-meta mono">
           <span v-if="r.tag">{{ r.tag }}</span>
-          <span>{{ snoozedUntilText(r, fmtDateTime) }} · 有新动静会提前回来</span>
-          <span v-if="r.expires_at" class="sd-bad">{{ fmtDateTime(r.expires_at) }} 仍按原规则兜底</span>
+          <span>{{ snoozedUntilText(r, fmtDateTime) }} · {{ t('today.snooze.hintReturn') }}</span>
+          <span v-if="r.expires_at" class="sd-bad">{{ t('today.snoozed.stillFallback', { time: fmtDateTime(r.expires_at) }) }}</span>
           <button
             class="sd-back"
             type="button"
             data-test="unsnooze"
             :disabled="busy === r.card_key"
             @click="putBack(r.card_key)"
-          >放回队列</button>
+          >{{ t('today.snoozed.back') }}</button>
         </span>
       </li>
     </ul>

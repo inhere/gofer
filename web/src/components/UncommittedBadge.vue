@@ -1,16 +1,17 @@
 <script setup lang="ts">
+import { t } from '../i18n'
 defineProps<{ count?: number; files?: string[] }>()
 </script>
 
 <template>
   <details v-if="count && count > 0" class="uncommitted-badge" @click.stop @keydown.stop>
-    <summary class="mono">未提交 {{ count }}</summary>
+    <summary class="mono">{{ t('util.badge.uncommitted', { count: count ?? 0 }) }}</summary>
     <div class="uncommitted-popover mono">
       <ul v-if="files && files.length">
         <li v-for="file in files" :key="file">{{ file }}</li>
       </ul>
-      <span v-else>文件列表不可用</span>
-      <p v-if="files && count > files.length">仅显示前 {{ files.length }} 个，共 {{ count }} 个。</p>
+      <span v-else>{{ t('util.badge.noFiles') }}</span>
+      <p v-if="files && count > files.length">{{ t('util.badge.truncated', { shown: files.length, total: count }) }}</p>
     </div>
   </details>
 </template>

@@ -2,18 +2,21 @@
 // 面板订阅切换。组件只负责渲染与调用，这里的函数可以脱离 DOM 直接测试。
 import type { AgentInfo } from '../api/types'
 import type { MergeSuggestion, StewardNotes, StewardSettings, StewardState, StewardStatus } from '../api/steward'
+import { t } from '../i18n'
 
-export const QUICK_QUESTIONS = ['我手上还有什么没完成？', '今天去现场要做什么？', '把等资源的整理成清单'] as const
+export function quickQuestions(): string[] {
+  return [t('util.steward.quick.pending'), t('util.steward.quick.onsite'), t('util.steward.quick.resources')]
+}
 
 export function stateLabel(s: StewardState | string, enabled = true): string {
-  if (!enabled) return '未启用'
+  if (!enabled) return t('util.steward.state.disabled')
   switch (s) {
     case 'running':
-      return '运行中'
+      return t('util.steward.state.running')
     case 'idle':
-      return '空闲'
+      return t('util.steward.state.idle')
     default:
-      return '未启动'
+      return t('util.steward.state.notStarted')
   }
 }
 
@@ -28,12 +31,16 @@ export interface AgentOption {
 export function acpAgentOptions(agents: AgentInfo[], current: string): AgentOption[] {
   const out: AgentOption[] = agents
     .filter((a) => a.type === 'acp-agent' && a.available)
-    .map((a) => ({ key: a.key, label: a.version ? `${a.key}（${a.version}）` : a.key }))
+    .map((a) => ({ key: a.key, label: a.version ? t('util.steward.agent.withVersion', { key: a.key, version: a.version }) : a.key }))
     .sort((a, b) => a.key.localeCompare(b.key))
   if (current && !out.some((o) => o.key === current)) {
     const known = agents.find((a) => a.key === current)
-    const why = !known ? '未找到' : known.type !== 'acp-agent' ? '不是 acp-agent' : '本机不可用'
-    out.unshift({ key: current, label: `${current}（${why}）`, missing: true })
+    const why = !known
+      ? t('util.steward.agent.notFound')
+      : known.type !== 'acp-agent'
+        ? t('util.steward.agent.notAcp')
+        : t('util.steward.agent.unavailable')
+    out.unshift({ key: current, label: t('util.steward.agent.withReason', { key: current, why }), missing: true })
   }
   return out
 }
@@ -60,7 +67,7 @@ export function settingsDiff(
 export function agentSwitchWarning(status: StewardStatus | null, newAgent: string): string {
   if (!status || status.state === 'not_started') return ''
   if (newAgent.trim() === (status.job_agent || status.agent)) return ''
-  return '当前管家会话会结束，下次需要时用新 agent 重建。'
+  return t('util.steward.switchWarning')
 }
 
 // 服务端按 UTF-8 字节数算笔记大小（8KB 软上限、16KB 硬上限），这里同口径。
@@ -101,14 +108,17 @@ export function nextSubscription(current: string, reported: string | undefined):
 }
 
 export function mergeSuggestionText(sg: MergeSuggestion, titleOf: (id: string) => string): string {
-  const base = `管家建议把「${titleOf(sg.source_id)}」并入「${titleOf(sg.target_id)}」`
-  return sg.reason ? `${base}：${sg.reason}` : base
+  const base = t('util.steward.mergeSuggestion', { source: titleOf(sg.source_id), target: titleOf(sg.target_id) })
+  return sg.reason ? t('util.steward.mergeSuggestionReason', { base, reason: sg.reason }) : base
 }
 
-export const BUSY_TEXT = '管家正忙，稍后再问'
+export function stewardBusyText(): string {
+  return t('util.steward.busy')
+}
 
 // 管家会话里的 prompt 对用户不友好：首轮是 24KB 的 prime（角色说明 + 笔记 + 工作项清单）+ 问题，
 // 巡检是系统指令。面板只显示用户真正说的话；系统发的折成一行说明。
+// PRIME_HEAD / PRIME_SEP / READY_LINE_HEAD 与巡检标题是服务端 prompt 的原文，用来识别，不是界面文案。
 const PRIME_HEAD = '# 你是工作管家'
 const PRIME_SEP = '\n\n---\n\n'
 const READY_LINE_HEAD = '读完以上内容后'
@@ -117,13 +127,13 @@ export function displayPrompt(text: string): string {
   if (text.startsWith(PRIME_HEAD)) {
     const i = text.lastIndexOf(PRIME_SEP)
     const rest = i >= 0 ? text.slice(i + PRIME_SEP.length) : ''
-    const started = '（管家已启动：已注入角色说明、笔记和工作项清单）'
+    const started = t('util.steward.promptStarted')
     if (!rest || rest.startsWith(READY_LINE_HEAD)) return started
     return `${started}\n${displayPrompt(rest)}`
   }
   const ask = /^## 来自 [^\n]* 的提问\n\n([\s\S]*?)\n\n（先用 gofer_work_list/.exec(text)
   if (ask) return ask[1]
   const sys = /^## (每日巡检|手动巡检|事件整理)[^\n]*/.exec(text)
-  if (sys) return `（系统）${sys[0].replace(/^## /, '')}`
+  if (sys) return `${t('util.steward.promptSystem')}${sys[0].replace(/^## /, '')}`
   return text
 }

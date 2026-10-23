@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentInfo } from '../api/types'
 import type { StewardSettings, StewardStatus } from '../api/steward'
 import {
-  QUICK_QUESTIONS,
+  quickQuestions,
   acpAgentOptions,
   displayPrompt,
   agentSwitchWarning,
@@ -64,7 +64,7 @@ describe('steward helpers', () => {
   })
 
   it('has the three quick questions', () => {
-    expect(QUICK_QUESTIONS).toEqual(['我手上还有什么没完成？', '今天去现场要做什么？', '把等资源的整理成清单'])
+    expect(quickQuestions()).toEqual(['我手上还有什么没完成？', '今天去现场要做什么？', '把等资源的整理成清单'])
   })
 
   it('decides when the panel must resubscribe and whether the steward was rebuilt', () => {

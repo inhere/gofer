@@ -8,6 +8,7 @@ import { RouterLink } from 'vue-router'
 import { listComments, postComment } from '../api/client'
 import { fmtDateTime } from '../api/time'
 import type { Comment, CommentDispatch, CommentScope } from '../api/types'
+import { t } from '../i18n'
 
 const props = defineProps<{
   scope: CommentScope
@@ -126,31 +127,31 @@ watch(
         </div>
         <div v-if="dispatches(cm).length > 0" class="cm-dispatched mono">
           <span v-for="d in dispatches(cm)" :key="d.job_id" class="cm-dispatch">
-            → 已派发 job
+            {{ t('util.comment.dispatched') }}
             <RouterLink class="cm-joblink" :to="'/jobs/' + d.job_id">{{ d.job_id }}</RouterLink>
             <span v-if="d.mention" class="cm-dispatch-meta">（@{{ d.mention }}，{{ d.kind }}）</span>
           </span>
         </div>
       </li>
     </ul>
-    <p v-else-if="!loading" class="cm-empty mono">还没有评论。评论里 @agent 或 @role 会派一个 job（人发的评论才会派）。</p>
+    <p v-else-if="!loading" class="cm-empty mono">{{ t('util.comment.empty') }}</p>
 
     <form v-if="!readonly" class="cm-form" @submit.prevent="submit">
       <textarea
         v-model="draft"
         class="cm-input mono"
         rows="3"
-        :placeholder="placeholder ?? '写点什么…  @omp 补上测试'"
+        :placeholder="placeholder ?? t('util.comment.placeholder')"
         @keydown.ctrl.enter.prevent="submit"
       ></textarea>
       <div class="cm-form-foot">
-        <span class="cm-hint mono">Ctrl+Enter 发送</span>
+        <span class="cm-hint mono">{{ t('util.comment.hint') }}</span>
         <button class="cm-send mono" type="submit" :disabled="posting || draft.trim() === ''">
-          {{ posting ? '发送中…' : '发送' }}
+          {{ posting ? t('util.comment.sending') : t('util.comment.send') }}
         </button>
       </div>
     </form>
-    <p v-if="readonly" class="cm-readonly mono" data-test="cm-readonly">只读身份，不能发表评论（评论列表照常显示）。</p>
+    <p v-if="readonly" class="cm-readonly mono" data-test="cm-readonly">{{ t('util.comment.readonly') }}</p>
     <p v-if="error" class="cm-error mono">{{ error }}</p>
   </div>
 </template>

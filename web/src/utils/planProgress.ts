@@ -4,6 +4,7 @@
 // (undefined means "not supported", NOT "zero progress"): then the legacy job-count
 // display is used unchanged.
 import type { Plan, PlanCounts } from '../api/types'
+import { t } from '../i18n'
 
 export interface ProgressSegment {
   cls: string
@@ -80,15 +81,16 @@ export function progressDetail(p: Plan): string {
   }
   const jobs = jobSummary(p.counts)
   if (c.basis === 'todos') {
-    const t = p.todo_counts
-    let todo = `待办 ${c.done}/${c.total}`
-    if (t?.skipped) {
-      todo += `（含跳过 ${t.skipped}）`
+    const tc = p.todo_counts
+    const todo = t('plans.progress.todos', { done: c.done, total: c.total })
+    let line = todo
+    if (tc?.skipped) {
+      line += t('plans.progress.todosSkipped', { n: tc.skipped })
     }
-    if (t?.doing) {
-      todo += ` · 进行中 ${t.doing}`
+    if (tc?.doing) {
+      line += t('plans.progress.todosDoing', { n: tc.doing })
     }
-    return jobs ? `${todo} · ${jobs}` : todo
+    return jobs ? `${line} · ${jobs}` : line
   }
   return jobs
 }

@@ -4,6 +4,7 @@
 import { computed } from 'vue'
 import type { TodayLane } from '../../api/todayLanes'
 import { agentText, dotTone, elapsedText, healthText, laneAriaLabel, pipsView } from '../../utils/todayLanes'
+import { t } from '../../i18n'
 
 const props = defineProps<{ lane: TodayLane }>()
 const emit = defineEmits<{ (e: 'open', lane: TodayLane): void }>()
@@ -41,7 +42,7 @@ function open(): void {
       <span class="cur" :title="lane.progress?.current">{{ lane.progress?.current || '—' }}</span>
     </span>
     <span class="hl mono" :class="`hl--${lane.health}`" :title="lane.health_reason" data-test="lane-health">{{ health }}</span>
-    <span class="num mono" :title="`开始于 ${new Date(lane.started_at * 1000).toLocaleString()}`">{{ elapsedText(lane.elapsed_sec) }}</span>
+    <span class="num mono" :title="t('today.lane.startedAt', { time: new Date(lane.started_at * 1000).toLocaleString() })">{{ elapsedText(lane.elapsed_sec) }}</span>
   </div>
 </template>
 

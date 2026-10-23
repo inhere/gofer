@@ -5,6 +5,7 @@
 //  - mergeAvailability / parseMergeError：合并按钮的可用性与 409 解析。
 import type { Job, JobStatus, WorkflowStatus, WorkflowStep } from '../api/types'
 import { isLocalRunnerName } from './runnerDisplay'
+import { t } from '../i18n'
 
 const TERMINAL: ReadonlySet<string> = new Set(['done', 'failed', 'cancelled', 'timeout', 'rejected'])
 
@@ -61,7 +62,14 @@ export function tailPreview(text: string | undefined, maxLines = 8, maxChars = 7
 function verifyBrief(job?: Job): FanColumn['verify'] {
   const v = job?.verify
   if (!v) return null
-  const text = v.status === 'passed' ? '通过' : v.status === 'failed' ? '失败' : v.status === 'timeout' ? '超时' : '跳过'
+  const text =
+    v.status === 'passed'
+      ? t('util.compare.verify.passed')
+      : v.status === 'failed'
+        ? t('util.compare.verify.failed')
+        : v.status === 'timeout'
+          ? t('util.compare.verify.timeout')
+          : t('util.compare.verify.skipped')
   return { status: v.status, text }
 }
 
@@ -142,15 +150,15 @@ export function canPickColumn(col: FanColumn, awaiting: boolean): boolean {
 export function mergeAvailability(
   job: Pick<Job, 'runner' | 'source' | 'worktree_path'> | undefined,
 ): { ok: boolean; reason: string } {
-  if (!job || !job.worktree_path) return { ok: false, reason: '该 job 没有受管 worktree' }
-  if (isRemoteJob(job)) return { ok: false, reason: '仅支持本机 runner（server）；远程 runner 的分支请在执行机上手动合并' }
+  if (!job || !job.worktree_path) return { ok: false, reason: t('util.compare.noWorktree') }
+  if (isRemoteJob(job)) return { ok: false, reason: t('util.compare.remoteNoMerge') }
   return { ok: true, reason: '' }
 }
 
 // 对比视图某一列能否合并：远程 runner 不行（原因给用户）；没有分支也不行。
 export function columnMergeReason(col: Pick<FanColumn, 'remote' | 'branch'>): string {
   if (col.remote) return mergeAvailability({ runner: 'remote', source: 'worker:', worktree_path: col.branch || 'x' }).reason
-  if (!col.branch) return '该 job 没有受管 worktree'
+  if (!col.branch) return t('util.compare.noWorktree')
   return ''
 }
 
@@ -185,15 +193,15 @@ export function parseMergeError(status: number | undefined, message: string): Me
 export function mergeErrorText(info: MergeErrorInfo): string {
   switch (info.kind) {
     case 'conflict':
-      return '合并有冲突，已自动放弃，仓库已复原到合并前（没有留下半合并状态）。可改选另一路，或手动解决冲突后再合并。'
+      return t('util.compare.err.conflict')
     case 'main-not-ready':
-      return '主工作目录有未提交的已跟踪改动，或不在具名分支上，无法合并。请先提交或还原这些改动再试（未跟踪文件不影响）。'
+      return t('util.compare.err.mainNotReady')
     case 'unsupported':
-      return '仅支持本机 runner 的 worktree 合并。'
+      return t('util.compare.err.unsupported')
     case 'gone':
-      return 'worktree 目录已不存在（可能已被清理），无法合并。'
+      return t('util.compare.err.gone')
     case 'dirty':
-      return 'worktree 里还有未提交的改动。'
+      return t('util.compare.err.dirty')
     default:
       return info.message
   }
@@ -211,7 +219,7 @@ export function mergeRequestBody(opts: MergeOptionsForm, canCleanup: boolean): {
 
 // 合并成功后的一句话说明。
 export function mergeResultText(squash: boolean, cleaned: string[] | undefined): string {
-  const how = squash ? '已以 squash 合并到基线分支' : '已以 merge 提交合并到基线分支'
+  const how = squash ? t('util.compare.mergedSquash') : t('util.compare.mergedMerge')
   const n = cleaned?.length ?? 0
-  return n > 0 ? `${how}，并清理了其余 ${n} 路的 worktree 与分支。` : `${how}。`
+  return n > 0 ? how + t('util.compare.cleanedTail', { n }) : how + t('util.compare.done')
 }

@@ -1679,3 +1679,43 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 
 **未完成**：无（本批 40 个文件全部完成，包括 `views/Config.vue`）。
 （`npx vite build`：`✓ built in 4.46s`。）
+### P6-b3 残留文案抽取第 3 批（2026-10-23，issue gofer-hez1）
+
+接续 §14 P6 行与上面的「P6-b 残留文案抽取」。三批并行（P6-b1 / b2 / b3），本分支只动任务书列出的 41 个文件，`PENDING` 里也只删这 41 条。
+
+| 文件 | 归属字典 | 抽出的文案 |
+|---|---|---|
+| `components/SessionDrawer.vue` | `sessions.ts`（`sessions.drawer.*`） | 状态表改 getter 复用 `util.session.state.*`；中继三态与投递模式的标题/说明、`relaySummary` 与 demote 提示、输入框占位与 hint（含送不进终端的两种原因）、唤醒 / 接管 / 解除接管的回执与 9 条失败原因、turn 时间线（等待 / 已读 / 展开全文 / 无消息）、元数据区、移出登记与授权 / 续期按钮、历史消息与「最后一条消息」区 |
+| `components/SessionNudges.vue` | `sessions.ts`（`sessions.nudge.*`） | 催办列表、三种校验错误、表单与说明 |
+| `components/PlanSupervisor.vue` | `plans.ts`（`plans.supervisor.*`） | 主 agent 会话：绑定/修改/清除、失联提示与改绑、选择器、发送区 |
+| `views/NewJob.vue` | `newjob.ts` | 空候选的 7 种原因、worker 收窄的 4 种说法、16 条校验错误、暂存失败、收集箱条目提示与提交回执 |
+| `components/WorkDispatchDialog.vue` | `work.ts`（`work.dispatch.*`） | 分派动作的提交标签与完成回执、六个 panel 的字段与说明；每路候选的循环变量改名 `target`（原来复用 `t` 会遮住 `t()`） |
+| `components/MergeDialog.vue` | `shared.ts`（`util.merge.*`） | 标题、确认按钮、摘要拼装、两种合并方式、清理选项、冲突文件、结果与警告 |
+| `components/IssueBatchBar.vue` | `issues.ts`（`issues.batch.*`） | 计数、三个动作与确认框、关闭原因、执行说明 |
+| `components/EnrollAcceptDialog.vue` / `EnrollRejectDialog.vue` | `runners.ts`（`runners.enroll.*`） | 配对码说明、字段标签、屏蔽来源、接受/拒绝按钮 |
+| `components/RunnerDirs.vue` | `runners.ts`（`runners.dirs.*`） | 四项分组标题与各种「不存在 / 未上报」说明 |
+| `components/AttachmentBar.vue` | `shared.ts`（`util.attachBar.*`） | 上传状态、类型/体积/数量错误、按钮 aria 与提示 |
+| `components/CommentThread.vue` | `shared.ts`（`util.comment.*`） | 派发标记、空态、占位、只读说明 |
+| `components/StewardPanel.vue` | `shared.ts`（`util.steward.panel.*`） | 面板外壳、未启用、重建提示、输入框与发送 |
+| `components/MemoryList.vue` | `issues.ts`（`issues.memory.*`） | 无标签、保存 / 删除、空态 |
+| `components/UncommittedBadge.vue` / `InfoCard.vue` | `shared.ts`（`util.badge.*` / `util.action.*`） | 未提交计数、截断说明、详情/收起 |
+| `views/NewWorkflow.vue` | `workflows.ts`（`workflows.newTemplate.*`） | 新模板正文默认值与两处标签；内置示例 spec 的注释正文进 WHITELIST（用户会复制自己改的内容） |
+| `views/Projects.vue` / `views/Skills.vue` | `projects.ts` / `shared.ts` | git 状态卡 aria、删除失败的模板 |
+| `components/today/SnoozedDrawer.vue` / `DecisionOverlay.vue` / `TodayLaneRow.vue` / `TodayStatusBar.vue` | `today.ts` | 稍后抽屉、待我决策浮层、并行行「开始于」；状态条里 `startsWith('管家')` 是服务端 wire 告警前缀，进 WHITELIST |
+| `utils/compare.ts` / `trackerView.ts` / `steward.ts` / `capture.ts` / `todaySnooze.ts` / `injectMode.ts` / `todoContinue.ts` / `planProgress.ts` / `wrapUpDisplay.ts` / `pageGate.ts` / `permissionGate.ts` / `mcpView.ts` / `mobileLayout.ts` | 各页字典 + `shared.ts` | 合并错误与结果、记忆类型 / 年龄 / doctor 标记、管家状态与快捷问题、收集箱、稍后菜单与标记、投递模式、待办接续、进度摘要、收尾原因、缺权限文案、权限动作名、MCP 绑定位置、手机头部占位 |
+| `utils/uiText.ts` | `shared.ts`（`ui.nav.*` / `ui.page.*` / `ui.col.*` / `ui.back.*`） | 导航、页面标题、表头、返回链接改成 getter（`PAGE.board` 在模板里读仍是响应式） |
+| `api/attachments.ts` | `shared.ts`（`util.attach.*`） | 上传 / 取图的错误文案 |
+| `main.ts` | `shared.ts`（`util.app.*`） | 启动期三条控制台告警 |
+| `utils/findings.ts` | WHITELIST | 汇报里固定小节标题的解析关键字（与 Go 侧对齐），不是界面文案 |
+| `utils/steward.ts` | WHITELIST | 服务端管家 prompt 原文（prime 头、巡检标题），用来识别首轮与系统消息 |
+| `ui/LangToggle.vue` | `shared.ts` + WHITELIST | 悬停说明走 `util.lang.*`；按钮上的「中」按语言写自身名，进白名单 |
+
+写法同前两批：模块级常量 / 选项数组改成 getter（`get accept() { return t('runners.enroll.accept') }`），纯函数内部直接调 `t()`；`utils/mobileLayout.ts` 的占位从常量改成 `mobileHeaderFallback()` 函数，否则语言切换后定住。
+
+**与 P6-c 的关系**：本批只碰文案；不做图标替换（`📎` / `×` / `↗` 等保持原样），避免与并行的图标迁移冲突。
+
+**不丢信息核对**（§7 本页字段清单）：逐文件对照迁移前页面，文案之外的结构、`data-test` 钩子、按钮数量与位置、可选字段的显示条件都未变；`STATE_LABELS` 与 `CAPTURE_KINDS` 这类表只换取值来源。两处循环变量改名（`WorkDispatchDialog` 的 `t` → `target`）是模板局部作用域，渲染结果不变。
+
+**测试与验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`（222 文件 / 1505 例，导出末尾 `Tests 1505 passed`）；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`（`✓ built in 3.81s`）。现有用例里 9 处按中文断言改为按 key 断言（`steward.test.ts`、`messengerSessionWake.test.ts`、`drawerAttachPolish.test.ts`、`sessionDrawerRelay.test.ts`、`s8SessionMessage.test.ts`、`views/sessionsRefusedOwner.test.ts`、`workbench/threadViewSessionComposer.test.ts`、`mobileLayout.test.ts`、`utils/steward.test.ts`）。
+
+本批后 `PENDING` 从 122 个文件降到 **81 个**。

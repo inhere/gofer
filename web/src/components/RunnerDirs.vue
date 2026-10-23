@@ -4,6 +4,7 @@
 // 旧版 worker 没有上报目录时只显示一行“未上报”，不猜。
 import { computed } from 'vue'
 import type { Runner } from '../api/types'
+import { t } from '../i18n'
 
 const props = defineProps<{ runner: Runner }>()
 
@@ -23,38 +24,38 @@ const missingCount = computed(() => {
 <template>
   <details class="rdirs" data-test="runner-dirs">
     <summary class="rdirs-sum mono">
-      工作目录
-      <span v-if="missingCount > 0" class="rdirs-bad" data-test="dirs-problem">{{ missingCount }} 处有问题</span>
-      <span v-else-if="!reported" class="rdirs-dim">未上报</span>
+      {{ t('runners.dirs.title') }}
+      <span v-if="missingCount > 0" class="rdirs-bad" data-test="dirs-problem">{{ t('runners.dirs.problemCount', { n: missingCount }) }}</span>
+      <span v-else-if="!reported" class="rdirs-dim">{{ t('runners.dirs.notReported') }}</span>
     </summary>
-    <p v-if="!reported" class="rdirs-note mono">该 runner 没有上报目录（旧版本 worker，或还没有心跳）。升级 worker 后这里会显示。</p>
+    <p v-if="!reported" class="rdirs-note mono">{{ t('runners.dirs.notReportedHint') }}</p>
     <template v-else>
       <div v-if="dirs?.workspace" class="rdirs-line mono" data-test="dirs-workspace">
-        <span class="rdirs-k">默认工作空间</span>
+        <span class="rdirs-k">{{ t('runners.dirs.workspace') }}</span>
         <code :class="{ 'rdirs-missing': !dirs.workspace.exists }">{{ dirs.workspace.path }}</code>
-        <span v-if="!dirs.workspace.exists" class="rdirs-bad">不存在：可 mkdir 创建，或用 GOFER_WORKSPACE 指向别的目录</span>
+        <span v-if="!dirs.workspace.exists" class="rdirs-bad">{{ t('runners.dirs.workspaceMissing') }}</span>
       </div>
       <div v-if="dirs?.roots?.length" class="rdirs-block">
-        <div class="rdirs-k mono">roots 映射（server 路径 → 本机路径）</div>
+        <div class="rdirs-k mono">{{ t('runners.dirs.roots') }}</div>
         <div v-for="r in dirs.roots" :key="r.from" class="rdirs-line mono">
           <code>{{ r.from }}</code><span class="rdirs-arrow">→</span>
           <code :class="{ 'rdirs-missing': !r.exists }">{{ r.to }}</code>
-          <span v-if="!r.exists" class="rdirs-bad">目录不存在</span>
+          <span v-if="!r.exists" class="rdirs-bad">{{ t('runners.dirs.missing') }}</span>
         </div>
       </div>
       <div v-if="dirs?.projects?.length || rejected.length || dirs?.other_projects" class="rdirs-block">
-        <div class="rdirs-k mono">项目解析路径</div>
+        <div class="rdirs-k mono">{{ t('runners.dirs.projects') }}</div>
         <div v-for="p in dirs?.projects ?? []" :key="p.key" class="rdirs-line mono">
           <span class="rdirs-key">{{ p.key }}</span>
           <code :class="{ 'rdirs-missing': !p.exists }">{{ p.path }}</code>
-          <span v-if="!p.exists" class="rdirs-bad">目录不存在</span>
+          <span v-if="!p.exists" class="rdirs-bad">{{ t('runners.dirs.missing') }}</span>
         </div>
         <div v-if="dirs?.other_projects" class="rdirs-line rdirs-dim mono" data-test="dirs-other">
-          另有 {{ dirs.other_projects }} 个项目仅在其他 worker 运行（路径不在本机，不检查）
+          {{ t('runners.dirs.otherProjects', { n: dirs.other_projects }) }}
         </div>
         <div v-for="x in rejected" :key="x.key" class="rdirs-line mono" data-test="dirs-rejected">
           <span class="rdirs-key">{{ x.key }}</span>
-          <span class="rdirs-bad">无法解析：{{ x.reason }}</span>
+          <span class="rdirs-bad">{{ t('runners.dirs.unresolved', { reason: x.reason }) }}</span>
         </div>
       </div>
     </template>

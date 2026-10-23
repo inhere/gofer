@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   isMobileWidth,
-  MOBILE_HEADER_FALLBACK,
   MOBILE_MAX_WIDTH,
   MOBILE_TOAST_DWELL_MS,
+  mobileHeaderFallback,
   sessionHeaderSummary,
   toastDwellMs,
 } from './mobileLayout'
@@ -29,7 +29,7 @@ describe('mobile layout helpers', () => {
     expect(sessionHeaderSummary('修手机版工作台', ['web/src', 'internal/job'])).toBe('修手机版工作台 · web/src internal/job')
     expect(sessionHeaderSummary('  只有主题  ', [])).toBe('只有主题')
     expect(sessionHeaderSummary('', ['web/src'])).toBe('web/src')
-    expect(sessionHeaderSummary('', [])).toBe(MOBILE_HEADER_FALLBACK)
-    expect(sessionHeaderSummary('   ', ['  '])).toBe(MOBILE_HEADER_FALLBACK)
+    expect(sessionHeaderSummary('', [])).toBe(mobileHeaderFallback())
+    expect(sessionHeaderSummary('   ', ['  '])).toBe(mobileHeaderFallback())
   })
 })

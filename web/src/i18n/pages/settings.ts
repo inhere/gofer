@@ -669,6 +669,8 @@ export const settings: PageDict = {
     'settings.config.hintRestartHead': '它们要改请编辑 config.yaml 后在主机执行',
     'settings.config.hintRestartMid': '；改完想立刻生效的文件改动也可以点顶部「重新读取文件」',
     'settings.config.hintRestartTail': '（仅对可热重载项有效）。',
+    // utils/mcpView.ts：绑定位置的「server」项
+    'settings.mcp.boundServer': 'server（所有 job）',
   },
   en: {
     'settings.navLabel': 'Settings sections',
@@ -1338,5 +1340,6 @@ export const settings: PageDict = {
     'settings.config.hintRestartHead': 'To change them, edit config.yaml and run on the host',
     'settings.config.hintRestartMid': '. For file changes you want applied right away, use “re-read the file” at the top',
     'settings.config.hintRestartTail': ' (only hot-reloadable items take effect).',
+    'settings.mcp.boundServer': 'server (all jobs)',
   },
 }

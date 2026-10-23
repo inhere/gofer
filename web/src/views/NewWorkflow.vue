@@ -239,8 +239,8 @@ function startEdit(): void {
 function newTemplateText(): string {
   const project = tplProject.value || 'your-project'
   return [
-    '# 新模板：变量用 ${vars.name}，提交 workflow 时填写。',
-    'title: 新模板 ${vars.project}',
+    t('workflows.newTemplate.comment'),
+    t('workflows.newTemplate.title'),
     'vars:',
     '  project: {default: ' + project + '}',
     'steps:',
@@ -440,7 +440,7 @@ function stepBody(agent?: MetaAgent): string {
     return `    cmd: ["echo", "step output"]`
   }
   return `    prompt: |
-      说明当前步骤要完成的工作。`
+      ${t('workflows.newTemplate.stepBody')}`
 }
 
 function exampleTemplate(): string {
@@ -639,7 +639,7 @@ onMounted(() => {
             data-test="tpl-new"
             @click="startCreate"
           >
-            新建模板
+            {{ t('workflows.newTemplate.create') }}
           </button>
         </div>
         <p v-if="!gated.editable && templates.length" class="hint mono" data-test="tpl-readonly-reason">
@@ -687,7 +687,7 @@ onMounted(() => {
               :disabled="!tplProject"
               data-test="tpl-scope-project"
             />
-            当前项目{{ tplProject ? `（${tplProject}）` : '' }}</label
+            {{ t('workflows.newTemplate.scopeProject') }}<template v-if="tplProject">（{{ tplProject }}）</template></label
           >
           <p v-if="overrideNote" class="hint mono" data-test="tpl-override-note">{{ overrideNote }}</p>
         </div>

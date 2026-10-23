@@ -25,6 +25,7 @@ describe('refused session owner', () => {
     expect(sessions).toContain("t('sessions.card.ownerFailed', { err: ownerErrors.get(s.session_id) ?? '' })")
     expect(sessions).toContain('transferFailText(e)')
     expect(drawer).toContain('data-test="refused-owner-error"')
+    expect(drawer).toContain("t('sessions.drawer.transferFailed', { err: ownerError })")
   })
 
   it('posts the transfer through the shared util (one copy of the wording)', () => {

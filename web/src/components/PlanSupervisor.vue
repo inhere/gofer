@@ -10,6 +10,7 @@ import { getAgentSession, listAgentSessions, sendSessionMessage, setPlanSupervis
 import { fmtAgo, fmtDateTime } from '../api/time'
 import type { AgentSession } from '../api/types'
 import { HANDOFF_QUICK_PHRASE, canMessageSession, messageOutcomeText, sessionLabel } from '../utils/planSupervisor'
+import { t } from '../i18n'
 
 const props = defineProps<{ planId: string; sid: string; project?: string }>()
 const emit = defineEmits<{ (e: 'changed', sid: string): void; (e: 'session', s: AgentSession | null): void }>()
@@ -80,7 +81,7 @@ async function send() {
     if (!sendFailed.value) draft.value = ''
   } catch (e) {
     sendFailed.value = true
-    sendResult.value = `发送失败：${e instanceof Error ? e.message : String(e)}`
+    sendResult.value = t('plans.supervisor.sendFailed', { err: e instanceof Error ? e.message : String(e) })
   } finally {
     sending.value = false
   }
@@ -99,7 +100,7 @@ async function rebindLatest() {
     const list = (await listAgentSessions({ project: props.project || undefined, limit: 100 })).sessions ?? []
     const next = list.find((s) => s.session_id !== props.sid && !GONE_STATES.has(s.state))
     if (!next) {
-      rebindHint.value = '本项目没有活跃会话，请先在终端开一个会话或手动选择'
+      rebindHint.value = t('plans.supervisor.noActiveSession')
       return
     }
     await bind(next.session_id)
@@ -117,48 +118,48 @@ watch(() => props.sid, loadSession)
 <template>
   <section class="section plan-supervisor">
     <div class="section-head">
-      <h2 class="section-title mono">主 agent 会话</h2>
+      <h2 class="section-title mono">{{ t('plans.supervisor.title') }}</h2>
       <div class="ps-actions">
-        <button class="op-btn ps-change" type="button" @click="startEdit">{{ sid ? '修改' : '绑定' }}</button>
-        <button v-if="sid" class="op-btn ps-clear" type="button" :disabled="bindBusy" @click="bind('')">清除</button>
+        <button class="op-btn ps-change" type="button" @click="startEdit">{{ sid ? t('plans.supervisor.change') : t('plans.supervisor.bind') }}</button>
+        <button v-if="sid" class="op-btn ps-clear" type="button" :disabled="bindBusy" @click="bind('')">{{ t('plans.supervisor.clear') }}</button>
       </div>
     </div>
 
-    <p v-if="!sid" class="empty mono">未绑定主 agent 会话（plan 自动派发与通知需要它）</p>
+    <p v-if="!sid" class="empty mono">{{ t('plans.supervisor.unbound') }}</p>
     <div v-else class="ps-card">
       <template v-if="session">
         <b class="ps-name">{{ session.title || session.agent }}</b>
         <span class="ps-state mono" :class="`ps-state--${session.state}`">{{ session.state }}</span>
-        <span class="ps-beat mono" :title="fmtDateTime(session.last_seen_at)">最后心跳 {{ fmtAgo(session.last_seen_at) }}</span>
+        <span class="ps-beat mono" :title="fmtDateTime(session.last_seen_at)">{{ t('plans.supervisor.lastBeat', { ago: fmtAgo(session.last_seen_at) }) }}</span>
       </template>
-      <span v-else-if="loadError" class="error mono">会话 {{ sid }} 读取失败：{{ loadError }}</span>
-      <span v-else class="mono">加载中…</span>
+      <span v-else-if="loadError" class="error mono">{{ t('plans.supervisor.loadFailed', { sid, err: loadError }) }}</span>
+      <span v-else class="mono">{{ t('plans.supervisor.loading') }}</span>
       <code class="ps-sid mono">{{ sid }}</code>
-      <button class="op-btn ps-open" type="button" @click="drawerOpen = true">打开会话</button>
+      <button class="op-btn ps-open" type="button" @click="drawerOpen = true">{{ t('plans.supervisor.open') }}</button>
     </div>
 
     <div v-if="sessionGone && !editing" class="ps-gone">
-      <span class="mono">该会话已{{ session?.state === 'handed_off' ? '被接管' : '结束或离线' }}，plan 的派发与通知不会再送到它。</span>
-      <button class="op-btn ps-rebind" type="button" :disabled="bindBusy" @click="rebindLatest">改绑到最近活跃会话</button>
-      <button class="op-btn" type="button" :disabled="bindBusy" @click="startEdit">手动选择</button>
+      <span class="mono">{{ session?.state === 'handed_off' ? t('plans.supervisor.goneHandedOff') : t('plans.supervisor.goneEnded') }}</span>
+      <button class="op-btn ps-rebind" type="button" :disabled="bindBusy" @click="rebindLatest">{{ t('plans.supervisor.rebindLatest') }}</button>
+      <button class="op-btn" type="button" :disabled="bindBusy" @click="startEdit">{{ t('plans.supervisor.pickManual') }}</button>
       <span v-if="rebindHint" class="mono ps-hint">{{ rebindHint }}</span>
     </div>
     <div v-if="editing" class="ps-edit">
-      <select v-model="pick" class="op-input ps-select mono" aria-label="选择主 agent 会话">
-        <option value="">（请选择会话）</option>
-        <option v-if="sid && !candidates.some((s) => s.session_id === sid)" :value="sid">{{ sid }}（当前）</option>
+      <select v-model="pick" class="op-input ps-select mono" :aria-label="t('plans.supervisor.pickAria')">
+        <option value="">{{ t('plans.supervisor.pickPlaceholder') }}</option>
+        <option v-if="sid && !candidates.some((s) => s.session_id === sid)" :value="sid">{{ t('plans.supervisor.current', { sid }) }}</option>
         <option v-for="s in candidates" :key="s.session_id" :value="s.session_id">{{ sessionLabel(s) }}</option>
       </select>
-      <button class="op-btn ps-save" type="button" :disabled="bindBusy || !pick || pick === sid" @click="bind(pick)">保存</button>
-      <button class="op-btn" type="button" :disabled="bindBusy" @click="editing = false">取消</button>
+      <button class="op-btn ps-save" type="button" :disabled="bindBusy || !pick || pick === sid" @click="bind(pick)">{{ t('util.action.save') }}</button>
+      <button class="op-btn" type="button" :disabled="bindBusy" @click="editing = false">{{ t('util.action.cancel') }}</button>
     </div>
     <p v-if="bindError" class="error mono ps-bind-error">{{ bindError }}</p>
 
     <div v-if="sid" class="ps-send">
-      <textarea v-model="draft" class="op-input ps-input" rows="2" placeholder="发给主 agent 的消息" />
+      <textarea v-model="draft" class="op-input ps-input" rows="2" :placeholder="t('plans.supervisor.sendPlaceholder')" />
       <div class="ps-send-row">
         <button class="op-btn ps-quick" type="button" @click="draft = HANDOFF_QUICK_PHRASE">{{ HANDOFF_QUICK_PHRASE }}</button>
-        <button class="op-btn ps-send-btn" type="button" :disabled="!canSend" @click="send">{{ sending ? '发送中…' : '发给主 agent' }}</button>
+        <button class="op-btn ps-send-btn" type="button" :disabled="!canSend" @click="send">{{ sending ? t('plans.supervisor.sending') : t('plans.supervisor.send') }}</button>
       </div>
       <p v-if="sendResult" class="mono ps-result" :class="{ error: sendFailed }">{{ sendResult }}</p>
     </div>

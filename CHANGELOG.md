@@ -26,6 +26,9 @@
 - **残留文案抽取第 2 批（P6-b2，gofer-hez1）**：又 39 个文件的界面文案进 i18n（`web/src` 下剩余硬编码中文约 1160 处，`Config` 页留待后续）——会话列表的中继说明与卡片标题、会话主题与临时授权弹窗、终端工具授权请求（允许 / 总是允许 / 拒绝与作答结局）、待批面板与批准 / 拒绝的错误文案、传话人抽屉与集群拓扑节点面板、工作台命令面板与会话改动视图（评审摘要 / 评论 / 发送评审）、今天页「专注处理」与「已处理」抽屉、验收面板的经验页签与参考输出截断行、附图缩略图与附图校验提示、催办间隔与状态、会话用量与工作进程推送不可用原因、工作台多窗格标签与布局提示、附图片段识别（协议文本，白名单保留）。文字与行为不变，只换来源。
 
 **测试**
+- **残留文案抽取第 2、3 批（P6-b，gofer-hez1）**：会话抽屉、任务详情、新建任务与各弹层里仍硬编码的中文继续抽进 i18n——`components/SessionDrawer.vue`（中继状态与投递模式的说明、「现在送」回执、唤醒 / 接管 / 解除接管的全套提示与二次确认、turn 时间线与元数据区、移出登记与授权按钮）、`components/SessionNudges.vue`（催办）、`components/PlanSupervisor.vue`（主 agent 会话）、`views/NewJob.vue`（空候选的原因、收窄说明、全部校验错误与提交回执）、`components/WorkDispatchDialog.vue`（收集箱分派）、`components/MergeDialog.vue`（扇出合并确认）、`components/IssueBatchBar.vue`、`components/EnrollAcceptDialog.vue` / `EnrollRejectDialog.vue`、`components/RunnerDirs.vue`、`components/AttachmentBar.vue`、`components/CommentThread.vue`、`components/MemoryList.vue`、`components/UncommittedBadge.vue`、`components/InfoCard.vue`、`components/StewardPanel.vue`、`views/NewWorkflow.vue`、`views/Projects.vue`、`views/Skills.vue`，今天页的稍后 / 决策浮层 / 并行行，以及工具层的 `utils/compare.ts`、`utils/trackerView.ts`、`utils/steward.ts`、`utils/capture.ts`、`utils/todaySnooze.ts`、`utils/injectMode.ts`、`utils/todoContinue.ts`、`utils/planProgress.ts`、`utils/wrapUpDisplay.ts`、`utils/pageGate.ts`、`utils/permissionGate.ts`、`utils/mcpView.ts`、`utils/mobileLayout.ts`、`utils/uiText.ts`（导航 / 页面标题 / 表头改成 getter）、`api/attachments.ts` 与启动期控制台告警。字典按页面落在 `i18n/pages/`（`sessions` / `newjob` / `work` / `plans` / `issues` / `runners` / `today` / `workflows` / `jobs` / `projects` / `settings`），跨页共用的进 `shared.ts`。选项数组与状态表同样改成 getter，渲染时才取词；扫描白名单里补了「服务端 prompt / wire 告警的解析关键字」与「内置示例 workflow 正文」两条并写明理由。
+
+**测试**
 
 ## [0.190.0] - 2026-10-23
 

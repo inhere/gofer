@@ -10,10 +10,11 @@
 import { ceilingReadOnlyNotice, ceilingReadOnly } from './ceiling'
 import { holdsPermission } from './permissionGate'
 import type { AuthWhoami } from './permissions'
+import { t } from '../i18n'
 
 // 缺权限时按钮 title 的统一说法（灰显原因）。
 export function missingPermissionText(perm: string): string {
-  return `缺少权限：${perm}`
+  return t('util.perm.missing', { perm })
 }
 
 export interface WriteSpec {
@@ -37,7 +38,7 @@ export function pageWriteBlock(who: AuthWhoami | null | undefined, spec: WriteSp
   if (missing.length > 0) return missingPermissionText(missing[0])
   const any = spec.anyPerms ?? []
   if (any.length > 0 && !any.some((p) => holdsPermission(who, p))) {
-    return missingPermissionText(any.join(' 或 '))
+    return missingPermissionText(any.join(t('util.perm.orJoin')))
   }
   return ''
 }

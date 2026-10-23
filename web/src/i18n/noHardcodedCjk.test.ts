@@ -18,11 +18,33 @@ const CJK = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/
 
 // 允许保留中文的字面量：按仓库相对路径（/ 分隔）给「允许出现的片段」+ 理由。
 const WHITELIST: Record<string, { text: string[]; why: string }[]> = {
-  'ui/LangToggle.vue': [{ text: ['中文'], why: '语言开关按各自语言写自身名（English / 中文），不翻译' }],
+  'ui/LangToggle.vue': [{ text: ['中文', '中'], why: '语言开关按各自语言写自身名（English / 中文 / 中），不翻译' }],
   'utils/attachmentText.ts': [
     {
       text: ['附图', '相对于项目', '根目录'],
       why: '识别 worker 写进正文的附图痕迹（`[附图 n] <路径>`），是协议文本而非界面文案；改了就不认老消息',
+    },
+  ],
+  'utils/findings.ts': [
+    { text: ['发现但不碰'], why: '汇报里固定小节标题的解析关键字（与 Go 侧 internal/job/findings.go 对齐），不翻译' },
+  ],
+  'components/today/TodayStatusBar.vue': [
+    { text: ['管家'], why: '服务端 status.alerts 里的告警前缀（wire 原文，中文），用 startsWith 判断，不是界面文案' },
+  ],
+  'views/NewWorkflow.vue': [
+    {
+      text: [
+        '纯', '字段名使用后端', '工作流标题', '可选', '必填', '非空数组', '每一步都会按', '准入校验', '步骤名', '和单个',
+        '提交一致', '类', '的输入正文', '通常改用', '命令', '数组', '例如', '多行脚本', '与', '互斥', '默认',
+        '表示前面步骤失败后这一步仍然执行', '不改变最终结论', '相对项目执行目录', '默认由后端处理', '由后端处理', '需要',
+      ],
+      why: '内置示例 workflow YAML 的正文 / 注释（用户复制后自己改的内容），不是界面文案',
+    },
+  ],
+  'utils/steward.ts': [
+    {
+      text: ['# 你是工作管家', '读完以上内容后', '## 来自', '的提问', '每日巡检', '手动巡检', '事件整理'],
+      why: '服务端管家的 prompt 原文，用来识别首轮 prime 与巡检指令，不是界面文案',
     },
   ],
 }
@@ -30,47 +52,6 @@ const WHITELIST: Record<string, { text: string[]; why: string }[]> = {
 // 还没抽完的文件：本次只覆盖工具层与公共组件，其余页面按批次跟进。
 // 值写理由，便于认领；抽干净后必须从表里删掉（第二个用例守着）。
 const PENDING: Record<string, string> = {
-  'components/SessionDrawer.vue': 'P6-b 后续批次（尚未抽取）',
-  'views/NewJob.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/WorkDispatchDialog.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/MergeDialog.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/uiText.ts': 'P6-b 后续批次（尚未抽取）',
-  'components/IssueBatchBar.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/PlanSupervisor.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/SessionNudges.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/steward.ts': 'P6-b 后续批次（尚未抽取）',
-  'components/AttachmentBar.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/EnrollAcceptDialog.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/compare.ts': 'P6-b 后续批次（尚未抽取）',
-  'utils/todaySnooze.ts': 'P6-b 后续批次（尚未抽取）',
-  'utils/trackerView.ts': 'P6-b 后续批次（尚未抽取）',
-  'components/RunnerDirs.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/StewardPanel.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/EnrollRejectDialog.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/capture.ts': 'P6-b 后续批次（尚未抽取）',
-  'utils/permissionGate.ts': 'P6-b 后续批次（尚未抽取）',
-  'api/attachments.ts': 'P6-b 后续批次（尚未抽取）',
-  'components/today/SnoozedDrawer.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/injectMode.ts': 'P6-b 后续批次（尚未抽取）',
-  'components/CommentThread.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/today/DecisionOverlay.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/todoContinue.ts': 'P6-b 后续批次（尚未抽取）',
-  'views/NewWorkflow.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/wrapUpDisplay.ts': 'P6-b 后续批次（尚未抽取）',
-  'components/MemoryList.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/UncommittedBadge.vue': 'P6-b 后续批次（尚未抽取）',
-  'main.ts': 'P6-b 后续批次（尚未抽取）',
-  'utils/planProgress.ts': 'P6-b 后续批次（尚未抽取）',
-  'ui/LangToggle.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/pageGate.ts': 'P6-b 后续批次（尚未抽取）',
-  'views/Skills.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/InfoCard.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/today/TodayLaneRow.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/today/TodayStatusBar.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/findings.ts': 'P6-b 后续批次（尚未抽取）',
-  'utils/mcpView.ts': 'P6-b 后续批次（尚未抽取）',
-  'utils/mobileLayout.ts': 'P6-b 后续批次（尚未抽取）',
-  'views/Projects.vue': 'P6-b 后续批次（尚未抽取）',
 }
 
 interface Hit {

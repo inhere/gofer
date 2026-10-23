@@ -981,7 +981,7 @@ async function init(): Promise<void> {
 
         <div v-if="detail" class="detail-body">
           <!-- git 状态卡（E20） -->
-          <section class="block" aria-label="git 状态">
+          <section class="block" :aria-label="t('projects.gitAria')">
             <div class="block-head">
               <h2 class="block-title mono">{{ t('projects.git.title') }}</h2>
               <button

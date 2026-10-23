@@ -9,7 +9,8 @@ import { streamACPJob } from '../api/sse'
 import { askSteward, getSteward, restartSteward, type StewardStatus } from '../api/steward'
 import type { SSEEvent } from '../api/types'
 import { isACPEvent, reduceACPEvents, type ACPEvent } from './workbench/acpEvents'
-import { BUSY_TEXT, QUICK_QUESTIONS, displayPrompt, nextSubscription, stateLabel } from '../utils/steward'
+import { displayPrompt, nextSubscription, quickQuestions, stateLabel, stewardBusyText } from '../utils/steward'
+import { t } from '../i18n'
 import MarkdownBlock from './MarkdownBlock.vue'
 import StewardNotes from './StewardNotes.vue'
 
@@ -120,7 +121,7 @@ async function send(text?: string): Promise<void> {
     await refresh()
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
-      error.value = /busy/i.test(`${e.detail ?? ''} ${e.message}`) ? BUSY_TEXT : e.detail || e.message
+      error.value = /busy/i.test(`${e.detail ?? ''} ${e.message}`) ? stewardBusyText() : e.detail || e.message
     } else {
       error.value = e instanceof Error ? e.message : String(e)
     }
@@ -137,7 +138,7 @@ function onKey(ev: KeyboardEvent): void {
 }
 
 async function restart(): Promise<void> {
-  if (!window.confirm('重启管家？当前会话会结束，并用最新的工作项数据重建。')) return
+  if (!window.confirm(t('util.steward.panel.restartConfirm'))) return
   error.value = ''
   try {
     const r = await restartSteward()
@@ -158,31 +159,31 @@ defineExpose({ open })
 
 <template>
   <div class="steward">
-    <button v-if="!open" class="fab mono" type="button" data-test="steward-fab" @click="open = true">问管家</button>
+    <button v-if="!open" class="fab mono" type="button" data-test="steward-fab" @click="open = true">{{ t('util.steward.panel.fab') }}</button>
 
-    <section v-if="open" class="panel" role="dialog" aria-label="问管家" data-test="steward-panel">
+    <section v-if="open" class="panel" role="dialog" :aria-label="t('util.steward.panel.fab')" data-test="steward-panel">
       <header class="head">
         <div class="head-main mono">
-          <strong>管家</strong>
+          <strong>{{ t('util.steward.panel.title') }}</strong>
           <span v-if="status?.agent" class="muted" data-test="steward-agent">{{ status.agent }}</span>
           <span class="state" :class="`state--${enabled ? status?.state ?? 'not_started' : 'off'}`" data-test="steward-state">{{ label }}</span>
         </div>
         <div class="head-actions">
-          <button v-if="enabled" class="mini mono" type="button" data-test="steward-notes-btn" @click="notesOpen = true">笔记</button>
-          <button v-if="enabled" class="mini mono" type="button" data-test="steward-restart" @click="restart">重启</button>
-          <button class="mini mono" type="button" data-test="steward-close" @click="open = false">收起</button>
+          <button v-if="enabled" class="mini mono" type="button" data-test="steward-notes-btn" @click="notesOpen = true">{{ t('util.steward.panel.notes') }}</button>
+          <button v-if="enabled" class="mini mono" type="button" data-test="steward-restart" @click="restart">{{ t('util.steward.panel.restart') }}</button>
+          <button class="mini mono" type="button" data-test="steward-close" @click="open = false">{{ t('util.action.collapse') }}</button>
         </div>
       </header>
 
       <div v-if="!enabled" class="disabled mono" data-test="steward-disabled">
-        管家未启用，<RouterLink to="/settings/work">去设置页开启</RouterLink>
+        {{ t('util.steward.panel.disabled') }}<RouterLink to="/settings/work">{{ t('util.steward.panel.openSettings') }}</RouterLink>
       </div>
 
       <template v-else>
         <div ref="bodyEl" class="body" data-test="steward-body">
           <p v-if="status?.agent_error" class="err mono">{{ status.agent_error }}</p>
-          <p v-if="rebuilt" class="note mono" data-test="steward-rebuilt">管家已重建（会话结束后按最新数据重新启动）。</p>
-          <p v-if="!messages.length && status?.state === 'not_started'" class="note mono" data-test="steward-hint">发第一条消息会自动启动管家。</p>
+          <p v-if="rebuilt" class="note mono" data-test="steward-rebuilt">{{ t('util.steward.panel.rebuilt') }}</p>
+          <p v-if="!messages.length && status?.state === 'not_started'" class="note mono" data-test="steward-hint">{{ t('util.steward.panel.hint') }}</p>
           <div v-for="m in messages" :key="`${m.kind}-${m.seq}`" class="bubble" :class="m.kind === 'prompt' ? 'bubble--user' : 'bubble--bot'" data-test="steward-msg">
             <div class="role mono">{{ m.kind === 'prompt' ? 'YOU' : 'STEWARD' }}</div>
             <div v-if="m.kind === 'prompt'" class="plain">{{ displayPrompt(textOf(m)) }}</div>
@@ -192,11 +193,11 @@ defineExpose({ open })
 
         <p v-if="error" class="err mono" data-test="steward-error">{{ error }}</p>
         <div class="quick" data-test="steward-quick">
-          <button v-for="q in QUICK_QUESTIONS" :key="q" class="chip mono" type="button" :disabled="sending" @click="send(q)">{{ q }}</button>
+          <button v-for="q in quickQuestions()" :key="q" class="chip mono" type="button" :disabled="sending" @click="send(q)">{{ q }}</button>
         </div>
         <div class="compose">
-          <textarea v-model="draft" rows="2" class="mono" placeholder="问管家…（Enter 发送，Shift+Enter 换行）" :disabled="sending" data-test="steward-input" @keydown="onKey"></textarea>
-          <button class="send mono" type="button" :disabled="sending || !draft.trim()" data-test="steward-send" @click="send()">{{ sending ? '发送中' : '发送' }}</button>
+          <textarea v-model="draft" rows="2" class="mono" :placeholder="t('util.steward.panel.placeholder')" :disabled="sending" data-test="steward-input" @keydown="onKey"></textarea>
+          <button class="send mono" type="button" :disabled="sending || !draft.trim()" data-test="steward-send" @click="send()">{{ sending ? t('util.steward.panel.sending') : t('util.steward.panel.send') }}</button>
         </div>
       </template>
     </section>

@@ -19,6 +19,7 @@ import { setUnauthorizedHandler, startTokenSharing } from './store/auth'
 import { markStaleBuild } from './store/staleBuild'
 import { initTheme } from './store/theme'
 import { initLocale } from './store/locale'
+import { t } from './i18n'
 
 // 挂载前应用主题（持久化偏好或跟随系统 prefers-color-scheme）与界面语言（写 <html lang>），
 // 尽量减少首屏闪烁
@@ -32,7 +33,7 @@ if ('serviceWorker' in navigator) {
     'load',
     () => {
       void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((err: unknown) => {
-        console.warn('[gofer] service worker 注册失败，Web Push 不可用：', err)
+        console.warn(t('util.app.swFailed'), err)
       })
     },
     { once: true },
@@ -89,14 +90,12 @@ function reloadOnce(): void {
   } catch {
     // sessionStorage 不可用（隐私模式等）：记不住跨文档冷却，自动重载会退化成无限
     // 刷新——宁可不自动重载，只提示手动刷新。
-    console.warn('[gofer] chunk 加载失败，但浏览器不允许记录重载标记；请手动刷新页面。')
+    console.warn(t('util.app.chunkReloadBlocked'))
     markStaleBuild()
     return
   }
   if (now - last < RELOAD_COOLDOWN_MS) {
-    console.warn(
-      '[gofer] 旧版本 chunk 加载失败，但 60s 内已自动重载过一次，不再重试；请手动刷新页面。',
-    )
+    console.warn(t('util.app.chunkReloadOnce'))
     markStaleBuild()
     return
   }

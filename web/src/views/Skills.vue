@@ -219,7 +219,7 @@ async function runDelete(s: Skill): Promise<void> {
     }
     await load()
   } catch (e) {
-    actionError.value = `删除 ${s.name} 失败：${errorMessage(e)}`
+    actionError.value = t('util.action.deleteFailed', { name: s.name, err: errorMessage(e) })
   } finally {
     busy.value = ''
   }

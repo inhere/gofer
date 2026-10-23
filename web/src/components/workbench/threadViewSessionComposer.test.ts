@@ -25,8 +25,8 @@ describe('workbench relay composer', () => {
   })
 
   it('exposes acknowledge controls for an open relay turn', () => {
-    expect(drawer).toContain('无需回复')
-    expect(drawer).toContain('已读 · 无需回复（仍可回复）')
+    expect(drawer).toContain("t('sessions.drawer.turn.noReplyNeeded')")
+    expect(drawer).toContain("t('sessions.drawer.turn.acked')")
     expect(thread).toContain('无需回复')
   })
 })

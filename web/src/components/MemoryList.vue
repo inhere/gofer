@@ -3,6 +3,7 @@
 import MarkdownBlock from './MarkdownBlock.vue'
 import type { MemoryDoctorFinding, TrackerMemory } from '../api/types'
 import { doctorLabel, fmtTrackerTime, MEMORY_KIND_LABEL, memoryAge, memoryKind, memorySummary } from '../utils/trackerView'
+import { t } from '../i18n'
 
 type Row = TrackerMemory & { data: TrackerMemory['body'] }
 const props = defineProps<{ rows: Row[]; selected: Row | null; draft: string; doctor?: Record<string, MemoryDoctorFinding[]> }>()
@@ -30,17 +31,17 @@ function findings(row: Row): MemoryDoctorFinding[] {
             <span v-for="f in findings(row)" :key="f.slug" class="memory-flag mono" data-test="memory-flag" :title="f.detail || ''">⚠ {{ doctorLabel(f.slug) }}</span>
           </span>
         </span>
-        <span class="memory-tags">{{ (row.data.tags ?? []).join(' · ') || '无标签' }}</span>
+        <span class="memory-tags">{{ (row.data.tags ?? []).join(' · ') || t('issues.memory.tagsNone') }}</span>
         <span class="mono memory-time" :title="fmtTrackerTime(row.data.updated_at || row.updated_at)"><span data-test="memory-age">{{ memoryAge(row.data.updated_at || row.updated_at) }}</span> · {{ row.data.by || '—' }}</span>
       </button>
       <div v-if="selected?.id === row.id" class="memory-expanded">
         <p v-for="f in findings(row)" :key="f.slug" class="memory-finding mono">⚠ {{ doctorLabel(f.slug) }}<template v-if="f.detail">：{{ f.detail }}</template></p>
         <MarkdownBlock :text="String(row.data.content ?? '')" />
         <textarea :value="draft" class="editor-input" rows="6" @input="emit('update:draft', ($event.target as HTMLTextAreaElement).value)" />
-        <div class="actions"><button class="primary-btn" type="button" @click="emit('save')">保存</button><button class="secondary-btn" type="button" @click="emit('remove', row)">删除</button></div>
+        <div class="actions"><button class="primary-btn" type="button" @click="emit('save')">{{ t('issues.memory.save') }}</button><button class="secondary-btn" type="button" @click="emit('remove', row)">{{ t('issues.memory.delete') }}</button></div>
       </div>
     </article>
-    <div v-if="rows.length === 0" class="empty-panel mono">暂无 memory</div>
+    <div v-if="rows.length === 0" class="empty-panel mono">{{ t('issues.memory.empty') }}</div>
   </section>
 </template>
 

@@ -8,6 +8,7 @@ import Icon from '../ui/Icon.vue'
 import { rejectEnrollment } from '../api/client'
 import type { WorkerEnrollment } from '../api/types'
 import { hostLine, rejectErrorText } from '../utils/enrollments'
+import { t } from '../i18n'
 
 const props = defineProps<{ item: WorkerEnrollment }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'rejected'): void }>()
@@ -49,31 +50,31 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 
 <template>
   <div class="er-overlay" @click.self="!busy && emit('close')">
-    <form class="er-panel" role="dialog" aria-modal="true" aria-label="拒绝注册申请" data-test="enroll-reject-dialog" @submit.prevent="submit">
+    <form class="er-panel" role="dialog" aria-modal="true" :aria-label="t('runners.enroll.rejectAria')" data-test="enroll-reject-dialog" @submit.prevent="submit">
       <header class="er-head">
         <div class="er-head-main">
-          <h2 class="er-title">拒绝注册申请</h2>
-          <p class="er-sub mono">{{ item.source || '来源未知' }}<template v-if="host"> · {{ host }}</template></p>
+          <h2 class="er-title">{{ t('runners.enroll.rejectTitle') }}</h2>
+          <p class="er-sub mono">{{ item.source || t('runners.enroll.sourceUnknownLabel') }}<template v-if="host"> · {{ host }}</template></p>
         </div>
-        <button class="er-x mono" type="button" :disabled="busy" aria-label="关闭" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
+        <button class="er-x mono" type="button" :disabled="busy" :aria-label="t('util.action.close')" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
       </header>
 
       <div class="er-field">
-        <span class="er-hint mono">理由（可选）</span>
-        <input v-model="reason" class="er-input mono" maxlength="200" placeholder="为什么拒绝（可选）" data-test="enroll-reject-reason" />
+        <span class="er-hint mono">{{ t('runners.enroll.reasonOptional') }}</span>
+        <input v-model="reason" class="er-input mono" maxlength="200" :placeholder="t('runners.enroll.reasonPlaceholder')" data-test="enroll-reject-reason" />
       </div>
 
       <label class="er-check">
         <input v-model="block" type="checkbox" data-test="enroll-reject-block" />
-        屏蔽该来源 {{ BLOCK_SOURCE_MIN }} 分钟
-        <span class="er-hint mono">期间该来源再发起申请会直接被拒（429）</span>
+        {{ t('runners.enroll.blockFor', { min: BLOCK_SOURCE_MIN }) }}
+        <span class="er-hint mono">{{ t('runners.enroll.blockHint') }}</span>
       </label>
 
       <p v-if="error" class="er-msg mono" role="alert" data-test="enroll-reject-error">{{ error }}</p>
 
       <footer class="er-actions">
-        <button type="button" class="er-btn" :disabled="busy" @click="emit('close')">取消</button>
-        <button type="submit" class="er-btn er-btn--bad" :disabled="busy" data-test="enroll-reject-submit">{{ busy ? '拒绝中…' : '拒绝' }}</button>
+        <button type="button" class="er-btn" :disabled="busy" @click="emit('close')">{{ t('util.action.cancel') }}</button>
+        <button type="submit" class="er-btn er-btn--bad" :disabled="busy" data-test="enroll-reject-submit">{{ busy ? t('runners.enroll.rejectingBtn') : t('runners.enroll.rejectBtn') }}</button>
       </footer>
     </form>
   </div>

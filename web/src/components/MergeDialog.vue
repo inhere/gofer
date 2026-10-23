@@ -15,6 +15,7 @@ import {
   parseMergeError,
   type MergeErrorInfo,
 } from '../utils/compare'
+import { t } from '../i18n'
 
 const props = defineProps<{
   jobId: string
@@ -41,23 +42,23 @@ const warnText = ref('')
 const finished = ref(false)
 
 const canMerge = computed(() => props.remoteReason === '')
-const title = computed(() => (props.pick ? '选这个并合并' : '合并到基线'))
+const title = computed(() => (props.pick ? t('util.merge.pickAndMerge') : t('util.merge.toBase')))
 const confirmText = computed(() => {
-  if (busy.value) return '处理中…'
-  if (props.pick && !doMerge.value) return '确认选择'
-  return props.pick ? '确认选择并合并' : '确认合并'
+  if (busy.value) return t('util.merge.working')
+  if (props.pick && !doMerge.value) return t('util.merge.confirmPick')
+  return props.pick ? t('util.merge.confirmPickAndMerge') : t('util.merge.confirmMerge')
 })
 const summary = computed(() => {
-  const br = props.branch ? `分支 ${props.branch}` : '该分支'
-  const how = squash.value ? 'squash（压成一个提交）' : 'merge（保留合并提交）'
+  const br = props.branch ? t('util.merge.branch', { branch: props.branch }) : t('util.merge.thisBranch')
+  const how = squash.value ? t('util.merge.howSquash') : t('util.merge.howMerge')
   const parts: string[] = []
-  if (doMerge.value) parts.push(`把${br} 以 ${how} 方式合并到项目主目录当前所在的基线分支（本地合并，不会 push）`)
+  if (doMerge.value) parts.push(t('util.merge.summaryMerge', { br, how }))
   if (props.pick) {
-    const who = props.pick.agent ? `${props.pick.agent}（fan ${props.pick.fan}）` : `fan ${props.pick.fan}`
-    parts.push(`记录选中 ${who}，工作流继续往下走`)
+    const who = props.pick.agent ? t('util.merge.whoAgent', { agent: props.pick.agent, fan: props.pick.fan }) : t('util.merge.whoFan', { fan: props.pick.fan })
+    parts.push(t('util.merge.summaryPick', { who }))
   }
-  if (doMerge.value && props.canCleanup && cleanupOthers.value) parts.push('强制清理其余各路的 worktree 与分支（含其未合并的提交，不可恢复）')
-  return parts.join('；') + '。'
+  if (doMerge.value && props.canCleanup && cleanupOthers.value) parts.push(t('util.merge.summaryCleanup'))
+  return parts.join(t('util.merge.sep')) + t('util.merge.end')
 })
 
 async function run(): Promise<void> {
@@ -89,8 +90,7 @@ async function run(): Promise<void> {
         await pickWorkflowFan(props.pick.workflowId, props.pick.step, props.pick.fan)
         picked = true
       } catch (e) {
-        warnText.value =
-          (merged ? '已合并，但' : '') + `记录选择失败：${e instanceof Error ? e.message : String(e)}。可在 CLI 用 gofer wf pick 重试。`
+        warnText.value = (merged ? t('util.merge.warnMergedPrefix') : '') + t('util.merge.warnPickFailed', { err: e instanceof Error ? e.message : String(e) })
         emit('done', { merged, picked: false, status })
         finished.value = true
         resultText.value = merged ? mergeResultText(squash.value, status?.cleaned) : ''
@@ -98,9 +98,9 @@ async function run(): Promise<void> {
       }
     }
     resultText.value = merged
-      ? mergeResultText(squash.value, status?.cleaned) + (picked ? '已记录选择，工作流继续推进。' : '')
+      ? mergeResultText(squash.value, status?.cleaned) + (picked ? t('util.merge.pickedContinues') : '')
       : picked
-        ? '已记录选择（未合并），工作流继续推进。'
+        ? t('util.merge.pickedOnlyContinues')
         : ''
     finished.value = true
     emit('done', { merged, picked, status })
@@ -121,7 +121,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
     <div class="md-panel" role="dialog" aria-modal="true" :aria-label="title" data-test="merge-dialog">
       <div class="md-head">
         <span class="md-title mono">{{ title }}</span>
-        <button class="md-x mono" type="button" :disabled="busy" @click="emit('close')">关闭</button>
+        <button class="md-x mono" type="button" :disabled="busy" @click="emit('close')">{{ t('util.action.close') }}</button>
       </div>
 
       <template v-if="!finished">
@@ -129,31 +129,31 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
         <label v-if="pick" class="md-check mono">
           <input v-model="doMerge" type="checkbox" :disabled="!canMerge || busy" data-test="merge-do" />
-          <span>同时合并到基线分支</span>
+          <span>{{ t('util.merge.alsoMerge') }}</span>
         </label>
         <p v-if="remoteReason" class="md-note mono" data-test="merge-remote-note">{{ remoteReason }}</p>
 
         <fieldset v-if="doMerge" class="md-group">
-          <legend class="md-label mono">合并方式</legend>
+          <legend class="md-label mono">{{ t('util.merge.how') }}</legend>
           <label class="md-check mono">
             <input v-model="squash" type="radio" :value="false" :disabled="busy" name="md-how" data-test="merge-how-merge" />
-            <span>merge：保留分支历史，生成合并提交</span>
+            <span>{{ t('util.merge.howMergeOption') }}</span>
           </label>
           <label class="md-check mono">
             <input v-model="squash" type="radio" :value="true" :disabled="busy" name="md-how" data-test="merge-how-squash" />
-            <span>squash：压成一个提交</span>
+            <span>{{ t('util.merge.howSquashOption') }}</span>
           </label>
         </fieldset>
 
         <label v-if="doMerge && canCleanup" class="md-check mono">
           <input v-model="cleanupOthers" type="checkbox" :disabled="busy" data-test="merge-cleanup" />
-          <span>合并后清理其余分支（强制删除其余各路的 worktree 与分支）</span>
+          <span>{{ t('util.merge.cleanupOption') }}</span>
         </label>
 
         <div v-if="failure" class="md-fail" data-test="merge-failure">
           <p class="md-err mono">{{ mergeErrorText(failure) }}</p>
           <template v-if="failure.kind === 'conflict'">
-            <p v-if="failure.files.length" class="md-label mono">冲突文件（{{ failure.files.length }}）</p>
+            <p v-if="failure.files.length" class="md-label mono">{{ t('util.merge.conflictFiles', { n: failure.files.length }) }}</p>
             <ul v-if="failure.files.length" class="md-files mono">
               <li v-for="f in failure.files" :key="f">{{ f }}</li>
             </ul>
@@ -162,7 +162,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         </div>
 
         <div class="md-actions">
-          <button class="md-btn mono" type="button" :disabled="busy" @click="emit('close')">取消</button>
+          <button class="md-btn mono" type="button" :disabled="busy" @click="emit('close')">{{ t('util.action.cancel') }}</button>
           <button class="md-btn md-btn--go mono" type="button" :disabled="busy" data-test="merge-confirm" @click="run">
             {{ confirmText }}
           </button>
@@ -170,10 +170,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
       </template>
 
       <template v-else>
-        <p class="md-ok mono" data-test="merge-result">{{ resultText || '完成。' }}</p>
+        <p class="md-ok mono" data-test="merge-result">{{ resultText || t('util.merge.finished') }}</p>
         <p v-if="warnText" class="md-err mono">{{ warnText }}</p>
         <div class="md-actions">
-          <button class="md-btn md-btn--go mono" type="button" @click="emit('close')">关闭</button>
+          <button class="md-btn md-btn--go mono" type="button" @click="emit('close')">{{ t('util.action.close') }}</button>
         </div>
       </template>
     </div>

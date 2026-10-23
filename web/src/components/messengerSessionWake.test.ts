@@ -37,10 +37,10 @@ describe('MessengerDrawer', () => {
 describe('RunnerDirs', () => {
   const dirs = src('RunnerDirs.vue')
   it('lists the workspace first, then roots and project paths, flagging missing ones', () => {
-    expect(dirs.indexOf('data-test="dirs-workspace"')).toBeLessThan(dirs.indexOf('roots 映射（server'))
-    expect(dirs.indexOf('roots 映射（server')).toBeLessThan(dirs.indexOf('>项目解析路径<'))
+    expect(dirs.indexOf('data-test="dirs-workspace"')).toBeLessThan(dirs.indexOf("runners.dirs.roots"))
+    expect(dirs.indexOf("runners.dirs.roots")).toBeLessThan(dirs.indexOf("runners.dirs.projects"))
     expect(dirs).toContain('rdirs-missing')
-    expect(dirs).toContain('GOFER_WORKSPACE')
+    expect(dirs).toContain('runners.dirs.workspaceMissing')
     expect(dirs).toContain('data-test="dirs-rejected"')
   })
 })
@@ -68,6 +68,6 @@ describe('session wake-up entry points', () => {
     expect(drawer).toContain('const showWake = computed(() => !!session.value && session.value.state !== \'handed_off\')')
     expect(drawer).toContain('getSessionTakeoverPlan(props.sid)')
     expect(drawer).toContain('resumeSession(props.sid')
-    expect(drawer).toContain('点上方「唤醒」')
+    expect(drawer).toContain("t('sessions.drawer.ph.ended')")
   })
 })
