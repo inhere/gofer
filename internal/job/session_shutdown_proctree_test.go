@@ -64,7 +64,10 @@ func TestSessionJobTerminalPathsKillAgentProcessTree(t *testing.T) {
 				request.IdleTimeoutSec = 1
 			}
 			if path == "max_session" {
-				request.MaxSessionSec = 1
+				// Not 1s: under a loaded host the whole-session limit ran out before turn 1
+				// finished (the agent process starts slowly), so the turn-1 wait below failed.
+				// The limit only has to outlast that first turn (G052).
+				request.MaxSessionSec = 3
 			}
 			created, err := s.Submit(request)
 			if err != nil {
