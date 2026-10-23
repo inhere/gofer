@@ -1,5 +1,15 @@
 // 按页面拆分的文案在这里合并进主字典（index.ts）。新增页面文件时在 pages 里加一行。
 import type { PageDict } from './types'
+import { access } from './access'
+import { settings } from './settings'
+import { projects } from './projects'
+import { agents } from './agents'
+import { runners } from './runners'
+import { newjob } from './newjob'
+import { stats } from './stats'
+import { issues } from './issues'
+import { schedules } from './schedules'
+import { workflows } from './workflows'
 import { work } from './work'
 import { sessions } from './sessions'
 import { review } from './review'
@@ -9,4 +19,4 @@ import { plans } from './plans'
 import { today } from './today'
 import { workbench } from './workbench'
 
-export const pages: PageDict[] = [today, jobs, plans, workbench, sessions, review, mail, work]
+export const pages: PageDict[] = [today, jobs, plans, workbench, sessions, review, mail, work, workflows, schedules, issues, stats, newjob, runners, agents, projects, settings, access]
