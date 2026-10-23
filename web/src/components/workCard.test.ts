@@ -19,6 +19,13 @@ async function render(props: Record<string, unknown>): Promise<string> {
 }
 
 describe('WorkCard', () => {
+  it('puts the badges on their own line so several status chips cannot squeeze the title', async () => {
+    // 截图检查 P6-2：状态 / 未整理 / 会话离线三个 chip 在右侧时，标题被挤成一窄列换四五行。
+    const html = await render({ item: item(), nowSec: 1060 })
+    expect(html).toContain('icard-head--stacked')
+    // 标题与徽标区仍在同一个 header 里（CSS 把 header 改成列方向：标题整行，徽标在下）。
+    expect(html).toMatch(/class="icard-head--stacked icard-head"[\s\S]*class="icard-title[^"]*"[\s\S]*class="icard-badges"/)
+  })
   it('collapsed: key info only — title, status, goal, blocker, next step, session line, link tags', async () => {
     const html = await render({ item: item(), nowSec: 1060 })
     for (const s of ['订单导出', '需现场', '给订单页加 xlsx 导出', '要去现场换设备', '周三到现场', 'claude · server · 执行中', 'shop/app', '1m前', 'issue']) {

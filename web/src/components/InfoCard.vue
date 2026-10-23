@@ -19,8 +19,11 @@ withDefaults(
     // 当前被打开（抽屉对应的那张）
     active?: boolean
     cardId?: string
+    // 徽标换行到标题下方（工作项卡片：三四个状态 chip 挤在右侧会把标题压成一窄列）；
+    // 默认 false = 原来标题在左、徽标在右（会话页等沿用）。
+    stacked?: boolean
   }>(),
-  { tone: '', expanded: false, expandable: true, openable: false, dim: false, active: false, cardId: '' },
+  { tone: '', expanded: false, expandable: true, openable: false, dim: false, active: false, cardId: '', stacked: false },
 )
 
 const emit = defineEmits<{
@@ -35,7 +38,7 @@ const emit = defineEmits<{
     :class="[tone ? `icard--${tone}` : '', { 'icard--dim': dim, 'icard--active': active, 'icard--expanded': expanded }]"
     :data-card-id="cardId || undefined"
   >
-    <header class="icard-head">
+    <header class="icard-head" :class="{ 'icard-head--stacked': stacked }">
       <h3
         class="icard-title"
         :class="{ 'icard-title--open': openable }"
@@ -116,6 +119,15 @@ const emit = defineEmits<{
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
+}
+/* 标题占整行，徽标在标题下方一行（工作项卡片：状态 chip 多时不挤标题）。 */
+.icard-head--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.icard-head--stacked .icard-badges {
+  justify-content: flex-start;
 }
 .icard-title {
   flex: 1;

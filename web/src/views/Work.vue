@@ -541,7 +541,12 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.work-page { max-width: 1480px; margin: 0 auto; }
+.work-page {
+  max-width: 1480px;
+  margin: 0 auto;
+  /* 右下角「问管家」浮层按钮（fixed，约 40px 高 + 16px 底距）不盖住最后一张卡的操作按钮。 */
+  padding-bottom: 64px;
+}
 .page-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--s2); margin-bottom: var(--s3); }
 .head-text { min-width: 0; }
 .page-title { margin: 0; font-size: var(--fs-xl); font-weight: 600; color: var(--ink); }
