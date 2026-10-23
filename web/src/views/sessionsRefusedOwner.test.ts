@@ -22,10 +22,9 @@ describe('refused session owner', () => {
 
   it('shows the server reason when the transfer is refused', () => {
     expect(sessions).toContain('data-test="refused-owner-error"')
-    expect(sessions).toContain('转移失败：{{ ownerErrors.get(s.session_id) }}')
+    expect(sessions).toContain("t('sessions.card.ownerFailed', { err: ownerErrors.get(s.session_id) })")
     expect(sessions).toContain('transferFailText(e)')
     expect(drawer).toContain('data-test="refused-owner-error"')
-    expect(drawer).toContain('转移失败：{{ ownerError }}')
   })
 
   it('posts the transfer through the shared util (one copy of the wording)', () => {

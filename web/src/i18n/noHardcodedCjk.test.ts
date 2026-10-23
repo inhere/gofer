@@ -41,7 +41,6 @@ const PENDING: Record<string, string> = {
   'utils/today.ts': 'P6-b 后续批次（尚未抽取）',
   'utils/uiText.ts': 'P6-b 后续批次（尚未抽取）',
   'components/AttachTerminal.vue': 'P6-b 后续批次（尚未抽取）',
-  'views/Sessions.vue': 'P6-b 后续批次（尚未抽取）',
   'components/StewardNotes.vue': 'P6-b 后续批次（尚未抽取）',
   'components/IssueBatchBar.vue': 'P6-b 后续批次（尚未抽取）',
   'components/PlanBoard.vue': 'P6-b 后续批次（尚未抽取）',
