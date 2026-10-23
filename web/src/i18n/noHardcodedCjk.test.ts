@@ -26,10 +26,8 @@ const WHITELIST: Record<string, { text: string[]; why: string }[]> = {
 const PENDING: Record<string, string> = {
   'views/Config.vue': 'P6-b 后续批次（尚未抽取）',
   'components/SessionDrawer.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/eventMeta.ts': 'P6-b 后续批次（尚未抽取）',
   'views/JobDetail.vue': 'P6-b 后续批次（尚未抽取）',
   'views/NewJob.vue': 'P6-b 后续批次（尚未抽取）',
-  'utils/permissions.ts': 'P6-b 后续批次（尚未抽取）',
   'components/MessengerDrawer.vue': 'P6-b 后续批次（尚未抽取）',
   'components/WorkDispatchDialog.vue': 'P6-b 后续批次（尚未抽取）',
   'utils/extensionSettings.ts': 'P6-b 后续批次（尚未抽取）',
