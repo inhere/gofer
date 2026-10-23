@@ -1555,7 +1555,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 ### P6-b4 残留文案抽取（第三批，2026-10-23，issue gofer-hez1）
 
-本批处理清单里的 41 个文件，实际抽干并移出 `PENDING` 的是 **25 个**（下表）；剩下 16 个（`views/JobDetail.vue`、`views/PlanDetail.vue`、`views/Dashboard.vue`、`views/settings/Tunnels.vue`、`components/PlanBoard.vue`、`components/AttachTerminal.vue`、`components/StewardNotes.vue`、`components/UpdateApplyDialog.vue`、`components/UnifiedDiff.vue`、`components/FilePreview.vue`、`components/InteractionCard.vue`、`components/GrantRenewDialog.vue`、`components/LogTape.vue`、`components/RejectDialog.vue`、`components/MailButton.vue`、`components/today/DecisionCard.vue`）仍在 `PENDING` 里等下一批——两批并行占用了本轮约三分之二的窗口，SFC 模板量大的这几个只够时间读没够时间改。`PENDING` 里只删了本批抽完的条目，别批的行未动。
+本批清单里的 **41 个文件全部抽干并移出 `PENDING`**，分两次提交（工具层与小组件 25 个；页面与弹层 16 个）。`PENDING` 里只删了本批抽完的条目，别批的行未动。
 
 | 文件 | 抽出的文案 |
 |---|---|
@@ -1578,4 +1578,4 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 **一处接口变化**：`utils/ceiling.ts` 的 `CEILING_LABEL` / `CEILING_READ_ONLY_NOTICE` 由导出常量改成 `ceilingLabel()` / `ceilingReadOnlyNotice()`——模块级常量在加载时就把语言定死，切成英文后这几处不会跟着变。连带改了 9 个调用方（`NewJob`、`AppShell`、`NewSessionSheet`、`WorkbenchComposer`、`DecisionCard`、`DecisionQueue`、`Today`、`Permissions`、`pageGate` / `todayGate`）与 4 个按源码文本断言的 wiring 测试，全部只改取词方式；同理 `PROMPT_EMPTY_HINT` 也改成函数（`settings/Extensions.vue` 三处调用）。其余模块级 Record / 常量（`TIER_LABEL`、`MEMORY_ACTION_LABEL`、`PERSONA_STATE_LABEL`、`GROUP_LABELS`）按 P6-b 的既有写法改成 getter。
 
-**测试**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`（改动前基线 222 文件 / 1505 例）——本批结束后单跑 `src/i18n`、`src/utils`、`src/views` 相关用例全绿，全量在提交前也跑过一遍（两处断言随迁移改：`interactionToastMobile.test.ts` 改断言 `t('util.toast.close')`、`extensionSettings.test.ts` 用 `PROMPT_EMPTY_HINT()`）。`npx vite build` 未在本批跑（时间用尽）。
+**测试**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run` **222 文件 / 1505 例全绿**（扫描测试两个用例都过，`PENDING` 里已无本批文件）；`npx vite build --outDir ../tmp/web-dist-check` 通过（`built in 4.40s`）。随迁移改了四处按源码文本断言的用例：`interactionToastMobile.test.ts`（改断言 toast 关闭的 key）、`extensionSettings.test.ts`（`PROMPT_EMPTY_HINT()`）、`steward.test.ts`（改断言 `today.notes.*`）、`updateWaitIdle.test.ts`（改断言 `util.update.runningJobs`）。
