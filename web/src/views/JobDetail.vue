@@ -2020,18 +2020,18 @@ onUnmounted(() => {
           class="job-title-input"
           type="text"
           maxlength="200"
-          aria-label="job 标题"
+          :aria-label="t('jobs.detail.jobTitleAria')"
           autofocus
           @keydown.enter.prevent="saveTitle"
           @keydown.esc.prevent="cancelTitleEdit"
         />
-        <button class="title-action mono" type="button" :disabled="savingTitle" @click="saveTitle">保存</button>
-        <button class="title-action mono" type="button" :disabled="savingTitle" @click="cancelTitleEdit">取消</button>
+        <button class="title-action mono" type="button" :disabled="savingTitle" @click="saveTitle">{{ t('jobs.detail.save') }}</button>
+        <button class="title-action mono" type="button" :disabled="savingTitle" @click="cancelTitleEdit">{{ t('jobs.detail.cancel') }}</button>
       </div>
       <template v-else>
         <h1 v-if="job.title" class="job-name" :title="job.title">{{ job.title }}</h1>
         <h1 v-else class="job-name job-name--id mono" :title="job.id">{{ job.id }}</h1>
-        <button class="title-action title-edit mono" type="button" title="编辑标题" @click="beginTitleEdit">编辑</button>
+        <button class="title-action title-edit mono" type="button" :title="t('jobs.detail.editTitle')" @click="beginTitleEdit">{{ t('jobs.detail.edit') }}</button>
       </template>
       <span v-if="job.title" class="job-subid mono" :title="job.id">{{ shortId(job.id) }}</span>
     </header>
@@ -2120,13 +2120,13 @@ onUnmounted(() => {
       <div v-if="isLeaderJob" class="meta-item">
         <span class="meta-k mono">leader</span>
         <span class="meta-v mono">
-          leader · {{ leaderRound != null ? `第 ${leaderRound} 轮` : '轮次未知' }} ·
+          leader · {{ leaderRound != null ? t('jobs.detail.leaderRound', { n: leaderRound }) : t('jobs.detail.leaderRoundUnknown') }} ·
           <template v-if="job.plan_id">plan {{ job.plan_id }}</template>
           <template v-else>plan -</template>
         </span>
       </div>
       <div v-if="job.source_job_id" class="meta-item">
-        <span class="meta-k mono">派生自</span>
+        <span class="meta-k mono">{{ t('jobs.detail.derivedFrom') }}</span>
         <RouterLink class="meta-v meta-link mono" :to="`/jobs/${encodeURIComponent(job.source_job_id)}`">
           {{ job.source_job_id }}
         </RouterLink>
@@ -2234,7 +2234,7 @@ onUnmounted(() => {
         </span>
       </div>
       <div v-if="job.session" class="meta-item">
-        <span class="meta-k mono">ACP 会话</span>
+        <span class="meta-k mono">{{ t('jobs.detail.acpSession') }}</span>
         <span class="meta-v mono">{{ t('jobs.detail.turnNo', { n: job.turn_no ?? 0 }) }} · {{ job.session_ending ? t('jobs.detail.ending') : status === 'awaiting_input' ? t('jobs.detail.awaitingInput') : status }}</span>
       </div>
       <div v-if="(status === 'running' || status === 'awaiting_input') && job.held_lock_paths?.length" class="meta-item">
@@ -2326,7 +2326,7 @@ onUnmounted(() => {
           class="wt-merge-btn mono"
           type="button"
           :disabled="!wtMergeInfo.ok || wtStatus?.merged === true || (wtStatus != null && !wtStatus.exists)"
-          :title="wtMergeInfo.reason || '把该分支合并到项目主目录当前分支'"
+          :title="wtMergeInfo.reason || t('jobs.detail.mergeBranchTitle')"
           data-test="wt-merge-btn"
           @click="mergeOpen = true"
         >
@@ -2418,7 +2418,7 @@ onUnmounted(() => {
               {{ commandMarkdownMode ? t('jobs.detail.viewSource') : t('jobs.detail.viewMarkdown') }}
             </button>
             <button class="copy-btn mono" type="button" @click="copyCommand">
-              {{ copied ? '已复制' : '复制' }}
+              {{ copied ? t('jobs.detail.copied') : t('jobs.detail.copy') }}
             </button>
           </span>
         </div>
@@ -2436,7 +2436,7 @@ onUnmounted(() => {
           class="env-fold"
         >
           <summary class="mono">
-            env keys（{{ (renderedCommand.env_keys ?? []).length }}，仅键名）
+            {{ t('jobs.detail.envKeys', { n: (renderedCommand.env_keys ?? []).length }) }}
           </summary>
           <ul class="env-list mono">
             <li v-for="k in renderedCommand.env_keys ?? []" :key="k">{{ k }}</li>
@@ -2642,7 +2642,7 @@ onUnmounted(() => {
 
     <!-- 终端会话：pty relay 元数据与录制下载入口。 -->
     <section v-if="active === 'events' && ptySessions.length > 0" class="pty-sessions">
-      <h2 class="pty-sessions-title mono">终端会话</h2>
+      <h2 class="pty-sessions-title mono">{{ t('jobs.detail.ptySessions') }}</h2>
       <ul class="pty-sessions-list">
         <li
           v-for="s in ptySessions"
@@ -2652,7 +2652,7 @@ onUnmounted(() => {
           <span class="pty-size mono">{{ s.cols }}×{{ s.rows }}</span>
           <span class="pty-bytes mono">{{ ptySessionBytes(s) }}</span>
           <span class="pty-duration mono">{{ ptySessionDuration(s) }}</span>
-          <span v-if="s.encrypted" class="pty-encrypted mono">加密</span>
+          <span v-if="s.encrypted" class="pty-encrypted mono">{{ t('jobs.detail.encrypted') }}</span>
           <span class="pty-state mono">{{ s.state }}</span>
           <button
             v-if="s.has_recording"
@@ -2661,7 +2661,7 @@ onUnmounted(() => {
             :disabled="downloadingRecordingIds.has(s.pty_session_id)"
             @click="onDownloadRecording(s.pty_session_id)"
           >
-            {{ downloadingRecordingIds.has(s.pty_session_id) ? '下载中…' : '下载录制' }}
+            {{ downloadingRecordingIds.has(s.pty_session_id) ? t('jobs.detail.downloading') : t('jobs.detail.downloadRecording') }}
           </button>
         </li>
       </ul>
