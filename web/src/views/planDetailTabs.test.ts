@@ -41,6 +41,19 @@ describe('plan detail tabs', () => {
     expect(detail).toContain('data-test="plan-detail-progress"')
     expect(detail).toContain('plan.failed_jobs')
   })
+
+  it('lays the checklist progress out like the shared ProgressBar (gofer-hez1)', () => {
+    // 原来自画 `cbar` + `ops-frac`：条被挤成 56px、「4/6」掉到条下面、与合计 tokens 错位。
+    expect(detail).not.toContain('class="cbar"')
+    expect(detail).not.toContain('ops-frac')
+    const ops = detail.slice(detail.indexOf('class="ops-progress"'), detail.indexOf('class="chain-ctl mono"'))
+    expect(ops).toContain('<ProgressBar')
+    expect(ops).toContain(':legend="false"')
+    expect(ops).toContain('size="sm"')
+    // 条可伸缩（与页头同一排版），不写死窄宽度
+    expect(detail).toMatch(/\.ops-progress \.ops-bar \{[^}]*flex: 1 1 160px/)
+    expect(detail).toContain('const boardModel = computed<ProgressModel>')
+  })
 })
 
 describe('?tab= deep link', () => {

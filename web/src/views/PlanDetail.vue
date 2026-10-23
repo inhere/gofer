@@ -25,7 +25,7 @@ import BackLink from '../ui/BackLink.vue'
 import ProgressBar from '../ui/ProgressBar.vue'
 import Tabs from '../ui/Tabs.vue'
 import { tabFromQuery, type TabItem } from '../ui/tabs'
-import { planProgressModel } from '../ui/progress'
+import { planProgressModel, type ProgressModel } from '../ui/progress'
 import { t } from '../i18n'
 import {
   addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
@@ -513,6 +513,21 @@ function setView(next: 'board' | 'list'): void {
 
 // 头部进度条（done + skipped / total）：与看板列头同源，planProgress 的 job 口径不动。
 const boardPct = computed(() => boardProgress(plan.value?.todos ?? []))
+
+// 操作条的「清单进度」用同一个 ProgressBar（条 + 右侧分数同一行，gofer-hez1）：
+// 只分完成 / 未完成两段（清单只看 todo 的 done+skipped），total 与 percent 沿用 boardPct。
+const boardModel = computed<ProgressModel>(() => {
+  const { done, total, percent } = boardPct.value
+  return {
+    parts: [
+      { family: 'done', count: done },
+      { family: 'todo', count: Math.max(0, total - done) },
+    ],
+    total,
+    done,
+    percent,
+  }
+})
 
 // 拖拽/写入进行中：暂停轮询写回（重渲染会打断拖拽，也会把乐观更新打回旧值）。
 const boardDragging = ref(false)
@@ -1143,12 +1158,16 @@ onUnmounted(() => {
     <div v-if="plan" class="ops mono">
       <div class="ops-progress" :title="t('plans.detail.listProgressTitle', { done: boardPct.done, total: boardPct.total })">
         <span class="ops-label">{{ t('plans.detail.listProgress') }}</span>
-        <span class="cbar" aria-hidden="true">
-          <span class="seg seg--done" :style="{ width: `${boardPct.percent ?? 0}%` }"></span>
-        </span>
-        <span class="ops-frac">
-          {{ boardPct.total === 0 ? '—' : `${boardPct.done}/${boardPct.total}` }}
-        </span>
+        <!-- 与页头同一个 ProgressBar 排版（gofer-hez1）：条 + 右侧数字同一行，不再自画一条窄条把分数挤到下面 -->
+        <ProgressBar
+          class="ops-bar"
+          :parts="boardModel.parts"
+          :total="boardModel.total"
+          :done="boardModel.done"
+          :percent="boardModel.percent"
+          size="sm"
+          :legend="false"
+        />
       </div>
       <!-- PLAN-02 P2：plan 级用量汇总（挂接 job 的 token/成本 + 各 agent 的 job 数）。 -->
       <span v-if="planUsageText" class="ops-usage">{{ planUsageText }}</span>
@@ -1890,15 +1909,15 @@ onUnmounted(() => {
   border-radius: var(--r-chip);
 }
 .ops-progress {
-  display: grid;
-  grid-template-columns: minmax(120px, 220px) 56px;
+  display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1 1 320px;
+  min-width: 220px;
 }
-.ops-frac {
-  color: var(--ink);
-  font-size: 12px;
-  text-align: right;
+.ops-progress .ops-bar {
+  flex: 1 1 160px;
+  min-width: 0;
 }
 .ops-usage {
   color: var(--ink-3);
@@ -2672,15 +2691,6 @@ onUnmounted(() => {
 }
 .seg--done {
   background: var(--done);
-}
-.seg--run {
-  background: var(--run);
-}
-.seg--fail {
-  background: var(--fail);
-}
-.seg--queue {
-  background: var(--ink-3);
 }
 
 @media (max-width: 780px) {
