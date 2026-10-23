@@ -1756,7 +1756,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: var(--s1) var(--s3);
   margin: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .hp-fail {
@@ -1764,7 +1764,7 @@ onUnmounted(() => {
 }
 .head-desc {
   margin: 0 0 var(--s3);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
   white-space: pre-wrap;
   word-break: break-word;
@@ -1794,15 +1794,15 @@ onUnmounted(() => {
 }
 .status-action {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 8px;
   font-size: 12px;
 }
 .status-action:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .status-action:disabled {
   opacity: 0.55;
@@ -1811,15 +1811,15 @@ onUnmounted(() => {
 .board-btn,
 .op-btn {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 12px;
 }
 .board-btn:hover,
 .op-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .op-btn:disabled {
   opacity: 0.55;
@@ -1830,7 +1830,7 @@ onUnmounted(() => {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 12px;
   word-break: break-word;
@@ -1838,14 +1838,14 @@ onUnmounted(() => {
 
 .head-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 16px;
   margin-bottom: 18px;
-  background: var(--panel);
+  background: var(--surface);
 }
 .plan-title {
   font-size: 18px;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0 0 12px;
   word-break: break-word;
 }
@@ -1862,18 +1862,18 @@ onUnmounted(() => {
   gap: 10px;
 }
 .meta-row dt {
-  color: var(--queue);
+  color: var(--ink-3);
   letter-spacing: 0.04em;
 }
 .meta-row dd {
   margin: 0;
-  color: var(--paper);
+  color: var(--ink);
   word-break: break-all;
 }
 .tag-editor { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .tag-editor .op-input { flex: 1 1 220px; min-width: 160px; }
 .tag-list { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-.plan-tag { color: var(--phosphor); border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; font-size: 11px; }
+.plan-tag { color: var(--accent); border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; font-size: 11px; }
 
 .section {
   margin-top: 18px;
@@ -1886,7 +1886,7 @@ onUnmounted(() => {
   gap: 12px;
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .ops-progress {
   display: grid;
@@ -1895,12 +1895,12 @@ onUnmounted(() => {
   gap: 10px;
 }
 .ops-frac {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
   text-align: right;
 }
 .ops-usage {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   word-break: break-word;
 }
@@ -1924,7 +1924,7 @@ onUnmounted(() => {
   margin-top: 10px;
   padding: 10px 14px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   font-size: 12px;
 }
 .blocked-text {
@@ -1936,7 +1936,7 @@ onUnmounted(() => {
   margin-top: 10px;
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1948,13 +1948,13 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 .chain-state-label {
-  color: var(--queue);
+  color: var(--ink-3);
   margin-right: 8px;
 }
 .chain-state--running { color: var(--done); }
 .chain-state--paused { color: var(--run); }
 .chain-state--blocked { color: var(--fail); }
-.chain-state--idle { color: var(--queue); }
+.chain-state--idle { color: var(--ink-3); }
 .ctl-row {
   display: flex;
   align-items: center;
@@ -1969,15 +1969,15 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   border-radius: 50%;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
 }
 .ctl-help-toggle[aria-expanded='true'],
 .ctl-help-toggle:hover {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .ctl-help-list {
   margin: 8px 0 0;
@@ -1985,10 +1985,10 @@ onUnmounted(() => {
   grid-template-columns: auto 1fr;
   gap: 4px 12px;
   font-size: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .ctl-help-list dt {
-  color: var(--paper);
+  color: var(--ink);
   white-space: nowrap;
 }
 .ctl-help-list dd {
@@ -1997,7 +1997,7 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 .ops-label {
-  color: var(--queue);
+  color: var(--ink-3);
   margin-right: 6px;
 }
 /* 用量块：标签 / 数值两列，窄屏下折成上下两行。 */
@@ -2005,7 +2005,7 @@ onUnmounted(() => {
   margin-top: 10px;
   padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   font-size: 12px;
 }
 .usage-rows {
@@ -2018,12 +2018,12 @@ onUnmounted(() => {
   grid-template-columns: minmax(0, 11em) minmax(0, 1fr);
   gap: 10px;
 }
-.usage-row dt { color: var(--queue); overflow-wrap: anywhere; }
-.usage-row dd { margin: 0; color: var(--paper); overflow-wrap: anywhere; }
-.usage-note { margin: 6px 0 0; color: var(--queue); }
+.usage-row dt { color: var(--ink-3); overflow-wrap: anywhere; }
+.usage-row dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.usage-note { margin: 6px 0 0; color: var(--ink-3); }
 .sup-meta { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
-.sup-link { color: var(--phosphor); overflow-wrap: anywhere; }
-.sup-state, .sup-none { color: var(--queue); }
+.sup-link { color: var(--accent); overflow-wrap: anywhere; }
+.sup-state, .sup-none { color: var(--ink-3); }
 @media (max-width: 640px) {
   .usage-row { grid-template-columns: 1fr; gap: 0; }
 }
@@ -2033,14 +2033,14 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 3px 10px;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   font-size: 12px;
   cursor: pointer;
 }
 .leader-switch:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 /* 提示框（LEAD-02 C2）：leader 开关的 warnings 与「总开关未开」提示，与 blocked 横幅同形，
    但用提示色而非错误色——这两句是提醒，不是失败。 */
@@ -2052,7 +2052,7 @@ onUnmounted(() => {
   margin-top: 10px;
   padding: 10px 14px;
   border: 1px solid var(--run);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   font-size: 12px;
 }
 .leader-warn-text {
@@ -2071,7 +2071,7 @@ onUnmounted(() => {
   list-style: revert;
 }
 .events-fold > summary:hover {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .events-body {
   margin-top: 10px;
@@ -2080,9 +2080,9 @@ onUnmounted(() => {
   margin: 0 0 10px;
   padding: 0;
   list-style: none;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .timeline-row {
   display: flex;
@@ -2099,29 +2099,29 @@ onUnmounted(() => {
   flex: 0 0 auto;
   width: 14px;
   text-align: center;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .ev-label {
   flex: 0 0 auto;
-  color: var(--paper);
+  color: var(--ink);
 }
 .ev-detail {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--queue);
+  color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ev-time {
   flex: 0 0 auto;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 /* 关键转换点用 phosphor 凸显图标（同 job 详情的时间线）。 */
 .ev-job-running .ev-icon,
 .ev-job-terminal .ev-icon {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .ev-job-cancelled .ev-icon {
   color: var(--fail);
@@ -2134,16 +2134,16 @@ onUnmounted(() => {
 }
 .view-btn {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 10px;
   font-size: 12px;
 }
 .view-btn:hover,
 .view-btn--on {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 /* 操作结果浮层：右下角，点一下关掉，8s 自动消失（与验收台同形）。 */
 .pd-toast {
@@ -2153,10 +2153,10 @@ onUnmounted(() => {
   z-index: 50;
   max-width: 460px;
   padding: 8px 12px;
-  background: var(--panel);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
-  color: var(--paper);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
+  color: var(--ink);
   font-size: 12px;
   cursor: pointer;
   word-break: break-word;
@@ -2177,8 +2177,8 @@ onUnmounted(() => {
   margin-top: 2px;
   padding: 12px 14px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-chip);
+  background: var(--surface);
 }
 .handoff-body-panel :deep(.md) {
   font-size: 13px;
@@ -2211,14 +2211,14 @@ onUnmounted(() => {
   padding-bottom: 4px;
 }
 .handoff-history-note {
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 0 0 10px;
 }
 .inline-link {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   cursor: pointer;
 }
 .handoff-editor {
@@ -2232,21 +2232,21 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 .handoff-tab--active {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .handoff-save {
-  background: var(--phosphor);
-  border-color: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
   font-weight: 600;
 }
 .handoff-save:hover:not(:disabled) {
-  color: var(--ink);
+  color: var(--bg);
   opacity: 0.9;
 }
 .handoff-cancel {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .handoff-actions {
   margin-top: 10px;
@@ -2254,14 +2254,14 @@ onUnmounted(() => {
 .section-title {
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
   margin: 0 0 10px;
 }
 
 .counts-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 12px 14px;
 }
 .count-line {
@@ -2271,17 +2271,17 @@ onUnmounted(() => {
   gap: 12px;
 }
 .count-frac {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 13px;
   text-align: right;
 }
 .count-detail {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   margin: 8px 0 0;
 }
 .finish-hint {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   margin: 8px 0 0;
 }
@@ -2291,7 +2291,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 8px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .legend span {
@@ -2314,13 +2314,13 @@ onUnmounted(() => {
   background: var(--fail);
 }
 .dot--queue {
-  background: var(--queue);
+  background: var(--ink-3);
 }
 
 .jobs-table,
 .todos {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: hidden;
 }
 .jobs-head,
@@ -2332,9 +2332,9 @@ onUnmounted(() => {
   padding: 9px 14px;
 }
 .jobs-head {
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2342,7 +2342,7 @@ onUnmounted(() => {
 .job-row {
   width: 100%;
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 0;
   border-bottom: 1px solid var(--line);
   text-align: left;
@@ -2353,7 +2353,7 @@ onUnmounted(() => {
 }
 .job-row:hover,
 .job-row:focus-visible {
-  background: var(--panel);
+  background: var(--surface);
 }
 .job-main {
   display: flex;
@@ -2361,14 +2361,14 @@ onUnmounted(() => {
   min-width: 0;
 }
 .job-title {
-  color: var(--paper);
+  color: var(--ink);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .job-id {
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2378,7 +2378,7 @@ onUnmounted(() => {
   font-size: 13px;
 }
 .job-dim {
-  color: var(--queue);
+  color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2407,9 +2407,9 @@ onUnmounted(() => {
 }
 .todo-assignee {
   flex: none;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 6px;
   font-size: 11px;
 }
@@ -2423,17 +2423,17 @@ onUnmounted(() => {
 .todo-dispatch,
 .todo-edit-btn {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: 12px;
 }
 .todo-dispatch:hover:not(:disabled),
 .todo-edit-btn:hover,
 .todo-edit-btn--on {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .todo-dispatch:disabled {
   opacity: 0.55;
@@ -2450,7 +2450,7 @@ onUnmounted(() => {
   flex: 0 1 220px;
 }
 .dispatch-label {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.04em;
 }
@@ -2473,7 +2473,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.04em;
 }
@@ -2481,11 +2481,11 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .edit-check input {
-  accent-color: var(--phosphor);
+  accent-color: var(--accent);
 }
 .edit-actions {
   display: inline-flex;
@@ -2494,10 +2494,10 @@ onUnmounted(() => {
 }
 /* 状态下拉：安静的行内控件，按态着色（doing=run/done=done/skipped=queue） */
 .todo-status {
-  background: var(--term-bg);
-  color: var(--queue);
+  background: var(--log-bg);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 6px;
   font-size: 11px;
 }
@@ -2507,23 +2507,23 @@ onUnmounted(() => {
 }
 /* ready = 已布防（有 assignee，等一次派发）：与 pending 的静默区分开。 */
 .todo-status--ready {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .todo-status--done {
   color: var(--done);
 }
 .todo-status--skipped {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .todo-duration {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 11px;
 }
 .todo-note {
   margin: 0;
   padding: 0 14px 9px 46px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   word-break: break-word;
   white-space: pre-line;
@@ -2532,7 +2532,7 @@ onUnmounted(() => {
 .todo-continue {
   margin: 0;
   padding: 0 14px 9px 46px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   word-break: break-word;
 }
@@ -2556,26 +2556,26 @@ onUnmounted(() => {
   word-break: break-word;
 }
 .todo-row input {
-  accent-color: var(--phosphor);
+  accent-color: var(--accent);
 }
 .todo-title {
-  color: var(--paper);
+  color: var(--ink);
   word-break: break-word;
 }
 .todo-title--done {
-  color: var(--queue);
+  color: var(--ink-3);
   text-decoration: line-through;
 }
 .todo-job {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: 12px;
 }
 .todo-job:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 /* 最近一次 job 的交付：PR 链接（新标签页）与「交付失败」醒目提示。 */
 .todo-delivery {
@@ -2585,21 +2585,21 @@ onUnmounted(() => {
   gap: 6px;
 }
 .todo-pr {
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: 12px;
   text-decoration: none;
   white-space: nowrap;
 }
 .todo-pr:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .todo-delivery-failed {
   color: var(--fail);
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: 12px;
   white-space: nowrap;
@@ -2633,25 +2633,25 @@ onUnmounted(() => {
 .op-input {
   min-width: 0;
   flex: 1;
-  background: var(--panel);
-  color: var(--paper);
+  background: var(--surface);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 8px;
   font-size: 12px;
   outline: none;
 }
 .op-input:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .empty {
   padding: 18px 14px;
   text-align: center;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .loading {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 13px;
   padding: 18px 0;
 }
@@ -2662,8 +2662,8 @@ onUnmounted(() => {
   height: 10px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--term-bg);
+  border-radius: var(--r-chip);
+  background: var(--log-bg);
 }
 .seg {
   height: 100%;
@@ -2679,7 +2679,7 @@ onUnmounted(() => {
   background: var(--fail);
 }
 .seg--queue {
-  background: var(--queue);
+  background: var(--ink-3);
 }
 
 @media (max-width: 780px) {
@@ -2798,9 +2798,9 @@ onUnmounted(() => {
     right: 0;
     min-width: 132px;
     padding: 6px;
-    background: var(--panel);
+    background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: var(--r-chip);
     box-shadow: 0 8px 20px rgba(0,0,0,.3);
   }
   .more-actions[open] .more-actions-menu {

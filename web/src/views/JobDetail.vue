@@ -3109,7 +3109,7 @@ onUnmounted(() => {
   border: 1px solid var(--need);
   border-left-width: 3px;
   border-radius: var(--r-ctl);
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
 }
 .review-banner-btn {
@@ -3118,7 +3118,7 @@ onUnmounted(() => {
   background: none;
   border: 1px solid var(--need);
   border-radius: var(--r-ctl);
-  color: var(--fg);
+  color: var(--ink);
   font: inherit;
   cursor: pointer;
 }
@@ -3130,7 +3130,7 @@ onUnmounted(() => {
   outline-offset: 1px;
 }
 .changes-empty {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 /* 概览里的最近日志：只看末 6 行，完整日志在「日志」页签。 */
@@ -3155,10 +3155,10 @@ onUnmounted(() => {
 }
 .back {
   font-size: 13px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .back:hover {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .head-right {
   display: flex;
@@ -3169,19 +3169,19 @@ onUnmounted(() => {
 .terminal-open,
 .rebuild-btn {
   background: transparent;
-  color: var(--phosphor);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
   padding: 4px 12px;
   font-size: 12px;
 }
 .terminal-open:hover:not(:disabled),
 .rebuild-btn:hover {
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--bg);
 }
 .terminal-open:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
   border-color: var(--line);
   cursor: default;
   opacity: 0.65;
@@ -3190,13 +3190,13 @@ onUnmounted(() => {
   background: transparent;
   color: var(--fail);
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 12px;
   font-size: 12px;
 }
 .cancel:hover {
   background: var(--fail);
-  color: var(--ink);
+  color: var(--bg);
 }
 .cancelling {
   color: var(--run);
@@ -3215,7 +3215,7 @@ onUnmounted(() => {
 .job-name {
   font-size: 18px;
   font-weight: 600;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3232,23 +3232,23 @@ onUnmounted(() => {
 .job-title-input {
   min-width: 0;
   width: min(560px, 100%);
-  color: var(--paper);
-  background: var(--panel);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
   padding: 6px 8px;
   font: inherit;
 }
 .title-action {
-  color: var(--phosphor);
+  color: var(--accent);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 7px;
   cursor: pointer;
   flex: none;
 }
-.title-action:hover:not(:disabled) { border-color: var(--phosphor); }
+.title-action:hover:not(:disabled) { border-color: var(--accent); }
 .title-action:disabled { opacity: .55; cursor: wait; }
 @media (max-width: 640px) {
   .job-header { align-items: flex-start; flex-wrap: wrap; }
@@ -3265,11 +3265,11 @@ onUnmounted(() => {
 }
 .job-name--id {
   font-size: 15px;
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .job-subid {
   font-size: 12px;
-  color: var(--phosphor);
+  color: var(--accent);
   flex: none;
 }
 
@@ -3277,9 +3277,9 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px 24px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 12px 16px;
   margin-bottom: 14px;
 }
@@ -3290,7 +3290,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 .meta-k {
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   width: 78px;
@@ -3304,27 +3304,27 @@ onUnmounted(() => {
   margin-left: 6px;
 }
 .wt-blocked {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   opacity: 0.8;
 }
 .wt-merge-btn {
   flex: none;
   background: transparent;
-  color: var(--phosphor);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
   padding: 2px 8px;
   font-size: 12px;
 }
 .wt-merge-btn:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
   border-color: var(--line);
   cursor: default;
   opacity: 0.7;
 }
 .meta-v {
-  color: var(--paper);
+  color: var(--ink);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3333,18 +3333,18 @@ onUnmounted(() => {
 .session-input {
   min-width: 180px;
   flex: 1;
-  color: var(--paper);
+  color: var(--ink);
   background: transparent;
-  border: 1px solid var(--queue);
+  border: 1px solid var(--ink-3);
   border-radius: 4px;
   padding: 6px 8px;
 }
 .session-composer-card {
   margin: 0 0 14px;
   padding: 10px 12px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .session-composer-head,
 .session-composer-row {
@@ -3361,13 +3361,13 @@ onUnmounted(() => {
 }
 .session-composer-state,
 .session-composer-help {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .session-input-multiline {
   min-height: 72px;
   resize: vertical;
-  background: var(--term-bg);
+  background: var(--log-bg);
 }
 .session-composer-row .title-action {
   align-self: stretch;
@@ -3378,9 +3378,9 @@ onUnmounted(() => {
 .job-messages {
   margin: 0 0 14px;
   padding: 10px 12px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .job-messages .outcomes-title {
   margin: 0 0 8px;
@@ -3396,32 +3396,32 @@ onUnmounted(() => {
 .job-message {
   border: 1px solid var(--line);
   border-left-width: 2px;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 7px 10px;
-  background: var(--ink);
+  background: var(--bg);
 }
 .job-message--user {
-  border-left-color: var(--phosphor);
+  border-left-color: var(--accent);
 }
 .job-message--agent {
-  border-left-color: var(--queue);
+  border-left-color: var(--ink-3);
 }
 .job-message-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 10px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 10px;
 }
 .job-message--user .job-message-role {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .job-message-gap {
   color: var(--run);
 }
 .job-message-job {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .job-message-job:hover {
   text-decoration: underline;
@@ -3430,11 +3430,11 @@ onUnmounted(() => {
   margin: 6px 0 0;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--paper);
+  color: var(--ink);
   font-family: inherit;
 }
 .job-message--agent .job-message-text {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .job-message-truncated {
   display: inline-block;
@@ -3447,7 +3447,7 @@ onUnmounted(() => {
 }
 .job-message-injected summary {
   cursor: pointer;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 10px;
 }
 .job-message-injected pre {
@@ -3456,7 +3456,7 @@ onUnmounted(() => {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 @media (max-width: 640px) {
   .session-composer-row {
@@ -3468,7 +3468,7 @@ onUnmounted(() => {
   }
 }
 .meta-link {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .meta-link:hover {
   text-decoration: underline;
@@ -3479,14 +3479,14 @@ onUnmounted(() => {
   gap: 0.5em;
 }
 .duration-timeout {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .meta-v.id {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 /* 远端执行（peer-http / worker）：runner / worker_id 用 phosphor 凸显「在哪执行」。 */
 .meta-v.remote {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .meta-v.bad {
   color: var(--fail);
@@ -3509,16 +3509,16 @@ onUnmounted(() => {
 .chain-toggle {
   flex: none;
   background: transparent;
-  color: var(--phosphor);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
   padding: 2px 9px;
   font-size: 11px;
 }
 .resume-btn:hover,
 .chain-toggle:hover {
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--bg);
 }
 /* 验收面板（REV-01）自带样式；这里只留 resume 系列输入框给 resume 表单复用。 */
 .resume-form {
@@ -3539,35 +3539,35 @@ onUnmounted(() => {
   align-items: baseline;
   gap: 4px 8px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .resume-mode--off {
-  color: var(--queue);
+  color: var(--ink-3);
   opacity: 0.7;
 }
 .resume-mode-note {
   flex-basis: 100%;
   padding-left: 22px;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .resume-input {
   min-height: 70px;
   resize: vertical;
-  background: var(--term-bg);
-  color: var(--paper);
+  background: var(--log-bg);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.45;
   outline: none;
 }
 .resume-input:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .resume-input::placeholder {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .resume-actions {
   display: flex;
@@ -3575,10 +3575,10 @@ onUnmounted(() => {
   gap: 10px;
 }
 .resume-go {
-  background: var(--phosphor);
-  color: var(--ink);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
   padding: 4px 12px;
   font-size: 12px;
   font-weight: 600;
@@ -3588,7 +3588,7 @@ onUnmounted(() => {
 }
 .resume-go:disabled {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border-color: var(--line);
   cursor: default;
   opacity: 0.65;
@@ -3622,10 +3622,10 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .chain-link {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .chain-self {
-  color: var(--queue);
+  color: var(--ink-3);
   opacity: 0.75;
 }
 
@@ -3633,7 +3633,7 @@ onUnmounted(() => {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 12px;
   word-break: break-word;
@@ -3646,9 +3646,9 @@ onUnmounted(() => {
 .reconnect {
   margin-left: 10px;
   background: var(--run);
-  color: var(--ink);
+  color: var(--bg);
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 600;
@@ -3660,7 +3660,7 @@ onUnmounted(() => {
   margin: 0 0 14px;
 }
 .messenger-channel {
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 11px;
 }
 .messenger-fields {
@@ -3671,12 +3671,12 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .messenger-fields dt {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .messenger-fields dd {
   min-width: 0;
   margin: 0;
-  color: var(--paper);
+  color: var(--ink);
 }
 .messenger-fields pre {
   max-height: 180px;
@@ -3696,17 +3696,17 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 12px;
   letter-spacing: 0.06em;
-  color: var(--phosphor);
+  color: var(--accent);
   text-transform: uppercase;
   margin: 0 0 10px;
 }
 .interactions-title .warn {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .interactions-title .count {
-  background: var(--phosphor);
-  color: var(--ink);
-  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: var(--r-chip);
   padding: 0 6px;
   font-size: 11px;
   font-weight: 600;
@@ -3724,14 +3724,14 @@ onUnmounted(() => {
 }
 .answered-fold > summary {
   cursor: pointer;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.06em;
   padding: 4px 0;
   list-style: revert;
 }
 .answered-fold > summary:hover {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
 /* 事件时间线面板（E13）：每事件一行，等宽、紧凑，仿 interactions 风格。 */
@@ -3741,7 +3741,7 @@ onUnmounted(() => {
 .timeline-title {
   font-size: 12px;
   letter-spacing: 0.06em;
-  color: var(--phosphor);
+  color: var(--accent);
   text-transform: uppercase;
   margin: 0 0 10px;
 }
@@ -3749,9 +3749,9 @@ onUnmounted(() => {
   margin: 0;
   padding: 0;
   list-style: none;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .timeline-row {
   display: flex;
@@ -3768,29 +3768,29 @@ onUnmounted(() => {
   flex: 0 0 auto;
   width: 14px;
   text-align: center;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .ev-label {
   flex: 0 0 auto;
-  color: var(--paper);
+  color: var(--ink);
 }
 .ev-detail {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--queue);
+  color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ev-time {
   flex: 0 0 auto;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 /* 关键转换点用 phosphor 凸显图标。 */
 .ev-job-running .ev-icon,
 .ev-job-terminal .ev-icon {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .ev-job-cancelled .ev-icon {
   color: var(--fail);
@@ -3803,7 +3803,7 @@ onUnmounted(() => {
 .deliveries-title {
   font-size: 12px;
   letter-spacing: 0.06em;
-  color: var(--phosphor);
+  color: var(--accent);
   text-transform: uppercase;
   margin: 0 0 10px;
 }
@@ -3811,9 +3811,9 @@ onUnmounted(() => {
   margin: 0;
   padding: 0;
   list-style: none;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .delivery-row {
   display: flex;
@@ -3831,8 +3831,8 @@ onUnmounted(() => {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 3px;
-  border: 1px solid var(--queue);
-  color: var(--queue);
+  border: 1px solid var(--ink-3);
+  color: var(--ink-3);
 }
 .dl-badge.dl-delivered {
   color: var(--done);
@@ -3849,7 +3849,7 @@ onUnmounted(() => {
 .dl-target {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--paper);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3864,7 +3864,7 @@ onUnmounted(() => {
 }
 .dl-time {
   flex: 0 0 auto;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 
@@ -3875,7 +3875,7 @@ onUnmounted(() => {
 .pty-sessions-title {
   font-size: 12px;
   letter-spacing: 0.06em;
-  color: var(--phosphor);
+  color: var(--accent);
   text-transform: uppercase;
   margin: 0 0 10px;
 }
@@ -3883,9 +3883,9 @@ onUnmounted(() => {
   margin: 0;
   padding: 0;
   list-style: none;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .pty-session-row {
   display: flex;
@@ -3900,12 +3900,12 @@ onUnmounted(() => {
 }
 .pty-size {
   flex: 0 0 auto;
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .pty-bytes {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--paper);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3913,7 +3913,7 @@ onUnmounted(() => {
 .pty-duration,
 .pty-state {
   flex: 0 0 auto;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .pty-encrypted {
   flex: 0 0 auto;
@@ -3926,15 +3926,15 @@ onUnmounted(() => {
 .pty-download {
   flex: 0 0 auto;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 10px;
   font-size: 11px;
 }
 .pty-download:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .pty-download:disabled {
   cursor: default;
@@ -3948,7 +3948,7 @@ onUnmounted(() => {
 .outcomes-title {
   font-size: 12px;
   letter-spacing: 0.06em;
-  color: var(--phosphor);
+  color: var(--accent);
   text-transform: uppercase;
   margin: 0 0 10px;
 }
@@ -3961,26 +3961,26 @@ onUnmounted(() => {
   letter-spacing: 0.04em;
   text-transform: none;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--queue);
+  border-radius: var(--r-chip);
+  color: var(--ink-3);
 }
 .source-badge.source-worker {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .source-badge.source-peer {
-  color: var(--queue);
-  border-color: var(--queue);
+  color: var(--ink-3);
+  border-color: var(--ink-3);
 }
 .artifact-remote {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   opacity: 0.75;
 }
 .outcome-block {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px 12px;
   margin-bottom: 10px;
 }
@@ -3992,22 +3992,22 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 .outcome-k {
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-size: 11px;
 }
 .copy-btn {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 10px;
   font-size: 11px;
 }
 .copy-btn:hover {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .outcome-actions {
   display: inline-flex;
@@ -4019,7 +4019,7 @@ onUnmounted(() => {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--paper);
+  color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
   overflow-x: auto;
@@ -4029,7 +4029,7 @@ onUnmounted(() => {
   overflow: auto;
 }
 .outcome-pre .cmd-bin {
-  color: var(--phosphor);
+  color: var(--accent);
   font-weight: 600;
 }
 /* 验证步骤（SUP-01 P2）：块边框随结论变色，右上角状态文字同色——一眼看出"验收过没过"。 */
@@ -4049,7 +4049,7 @@ onUnmounted(() => {
   color: var(--fail);
 }
 .verify-status.verify--skip {
-  color: var(--queue);
+  color: var(--ink-3);
   opacity: 0.85;
 }
 /* 预算耗尽收尾徽标（gofer-hnqf）：agent 自己收尾、汇报仍在但任务可能没做完——用 --run 的琥珀色，
@@ -4058,13 +4058,13 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--run);
   border: 1px solid var(--run);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 6px;
 }
 .verify-cmd {
   max-height: 160px;
   overflow: auto;
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .outcome-md {
   white-space: normal;
@@ -4073,7 +4073,7 @@ onUnmounted(() => {
 .outcome-md :deep(h2),
 .outcome-md :deep(h3),
 .outcome-md :deep(h4) {
-  color: var(--paper);
+  color: var(--ink);
   line-height: 1.3;
   margin: 1em 0 0.5em;
 }
@@ -4083,11 +4083,11 @@ onUnmounted(() => {
   margin: 0.5em 0;
 }
 .outcome-md :deep(a) {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 /* inline code：加发丝边框 + 暖色前景，确保在 --panel 容器上（两种主题）都清晰可辨。 */
 .outcome-md :deep(code) {
-  background: var(--term-bg);
+  background: var(--log-bg);
   border: 1px solid var(--line);
   border-radius: 3px;
   color: var(--run);
@@ -4096,9 +4096,9 @@ onUnmounted(() => {
   padding: 0 5px;
 }
 .outcome-md :deep(pre) {
-  background: var(--term-bg);
+  background: var(--log-bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: auto;
   padding: 10px 12px;
 }
@@ -4123,27 +4123,27 @@ onUnmounted(() => {
 .diff-note {
   margin: 0 0 6px;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .env-fold {
   margin-top: 8px;
 }
 .env-fold > summary {
   cursor: pointer;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.06em;
   padding: 4px 0;
   list-style: revert;
 }
 .env-fold > summary:hover {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .env-list {
   margin: 6px 0 0;
   padding-left: 18px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .env-list li {
   padding: 1px 0;
@@ -4168,7 +4168,7 @@ onUnmounted(() => {
 .artifact-name {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4176,21 +4176,21 @@ onUnmounted(() => {
 }
 .artifact-size {
   flex: 0 0 auto;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .artifact-dl {
   flex: 0 0 auto;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 10px;
   font-size: 11px;
 }
 .artifact-dl:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .artifact-dl:disabled {
   opacity: 0.5;
@@ -4211,15 +4211,15 @@ onUnmounted(() => {
   margin: 4px 0 10px;
   padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--queue);
-  background: var(--panel);
+  border-radius: var(--r-chip);
+  color: var(--ink-3);
+  background: var(--surface);
 }
 .waiting-dir-help code {
-  color: var(--phosphor);
-  background: var(--term-bg);
+  color: var(--accent);
+  background: var(--log-bg);
   padding: 1px 4px;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 
 /* 文件传输（XFER-01 X2）：一块里三段（上传/收集/跳过），段间留白，段内复用产物行样式。 */
@@ -4235,11 +4235,11 @@ onUnmounted(() => {
   border: none;
   text-align: left;
   font: inherit;
-  color: var(--paper);
+  color: var(--ink);
   cursor: pointer;
 }
 .xfer-name-btn:hover:not(:disabled) {
-  color: var(--phosphor);
+  color: var(--accent);
   text-decoration: underline;
 }
 .xfer-name-btn:disabled {
@@ -4250,10 +4250,10 @@ onUnmounted(() => {
 .xfer-chip {
   flex: 0 0 auto;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 7px;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .xfer-chip--ok {
   color: var(--done);
@@ -4290,9 +4290,9 @@ onUnmounted(() => {
   flex-direction: column;
   width: min(960px, 100%);
   max-height: 86vh;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: hidden;
 }
 .preview-head {
@@ -4307,7 +4307,7 @@ onUnmounted(() => {
 .preview-name {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4339,7 +4339,7 @@ onUnmounted(() => {
   flex-direction: column;
   width: min(880px, 92vw);
   height: 100%;
-  background: var(--panel);
+  background: var(--surface);
   border-left: 1px solid var(--line);
   overflow: hidden;
 }
@@ -4355,7 +4355,7 @@ onUnmounted(() => {
 .drawer-title {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
   letter-spacing: 0.04em;
   overflow: hidden;
@@ -4372,7 +4372,7 @@ onUnmounted(() => {
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--paper);
+  color: var(--ink);
   white-space: pre;
 }
 .terminal-drawer {
@@ -4385,12 +4385,12 @@ onUnmounted(() => {
   display: inline-flex;
   flex: none;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: hidden;
 }
 .term-mode-toggle button {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 0;
   border-right: 1px solid var(--line);
   padding: 3px 10px;
@@ -4400,8 +4400,8 @@ onUnmounted(() => {
   border-right: 0;
 }
 .term-mode-toggle button.active {
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--bg);
 }
 .terminal-drawer-body {
   display: flex;
@@ -4420,7 +4420,7 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .term-exit {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .term-error {
   color: var(--fail);
@@ -4549,7 +4549,7 @@ onUnmounted(() => {
 .comments-title {
   font-size: 12px;
   letter-spacing: 0.06em;
-  color: var(--phosphor);
+  color: var(--accent);
   text-transform: uppercase;
   margin: 0 0 10px;
 }

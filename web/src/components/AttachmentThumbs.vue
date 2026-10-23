@@ -85,9 +85,9 @@ onBeforeUnmount(releaseAll)
 
 <style scoped>
 .thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
-.thumb { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--ink); }
+.thumb { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: var(--r-chip); overflow: hidden; background: var(--bg); }
 .thumb-button { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
 .thumb-button img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.thumb-loading, .thumb-expired { display: grid; place-items: center; height: 100%; padding: 2px; color: var(--queue); font-size: 10px; text-align: center; }
-.thumb-expired { color: var(--run, var(--queue)); }
+.thumb-loading, .thumb-expired { display: grid; place-items: center; height: 100%; padding: 2px; color: var(--ink-3); font-size: 10px; text-align: center; }
+.thumb-expired { color: var(--run, var(--ink-3)); }
 </style>

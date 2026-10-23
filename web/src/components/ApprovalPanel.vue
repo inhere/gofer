@@ -147,9 +147,9 @@ function fmtTime(sec: number | undefined): string {
 <style scoped>
 .ap {
   margin: 12px 0;
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
+  background: var(--surface);
   min-width: 0;
 }
 .ap-head {
@@ -161,12 +161,12 @@ function fmtTime(sec: number | undefined): string {
   border-bottom: 1px solid var(--line);
 }
 .ap-title {
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 13px;
   letter-spacing: 0.06em;
 }
 .ap-count {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .ap-count--bad {
@@ -175,7 +175,7 @@ function fmtTime(sec: number | undefined): string {
 .ap-reason {
   margin: 0;
   padding: 10px 12px 4px;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 16px;
   font-weight: 600;
   line-height: 1.45;
@@ -187,7 +187,7 @@ function fmtTime(sec: number | undefined): string {
   min-width: 0;
 }
 .ap-k {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.04em;
   margin-bottom: 4px;
@@ -200,10 +200,10 @@ summary.ap-k {
 .ap-cmd {
   margin: 0;
   padding: 8px 10px;
-  color: var(--paper);
-  background: var(--term-bg);
+  color: var(--ink);
+  background: var(--log-bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -218,11 +218,11 @@ summary.ap-k {
   font-size: 12px;
 }
 .ap-facts dt {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .ap-facts dd {
   margin: 0;
-  color: var(--paper);
+  color: var(--ink);
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -233,10 +233,10 @@ summary.ap-k {
   box-sizing: border-box;
   width: 100%;
   padding: 6px 8px;
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--ink);
+  background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   font-size: 13px;
   resize: vertical;
 }
@@ -248,7 +248,7 @@ summary.ap-k {
 }
 /* 不能裁决时（只读身份 / 无审阅权限 / 受限身份审自己的 job）：按钮条位置换一行解释。 */
 .ap-blocked {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   padding: 4px 0;
 }
@@ -257,22 +257,22 @@ summary.ap-k {
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--surface);
 }
 .ap-btn {
   min-height: 32px;
   padding: 4px 18px;
-  color: var(--paper);
+  color: var(--ink);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   font-size: 13px;
 }
 .ap-btn:disabled {
   opacity: 0.55;
 }
 .ap-btn--ok {
-  color: var(--ink);
+  color: var(--bg);
   background: var(--done);
   border-color: var(--done);
   font-weight: 600;

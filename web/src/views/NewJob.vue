@@ -1717,12 +1717,12 @@ watch(interactive, (on) => {
 .title {
   margin: 0;
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
 }
 .hint,
 .field-hint {
   margin: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
@@ -1768,7 +1768,7 @@ watch(interactive, (on) => {
   min-width: 0;
 }
 .label {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .control {
@@ -1776,7 +1776,7 @@ watch(interactive, (on) => {
   width: 100%;
   padding: 6px var(--s2);
   background: var(--surface-2);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -1806,7 +1806,7 @@ watch(interactive, (on) => {
   display: flex;
   align-items: flex-start;
   gap: var(--s2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
   line-height: 1.4;
 }
@@ -1825,7 +1825,7 @@ watch(interactive, (on) => {
 .advanced summary,
 .mobile-advanced summary {
   cursor: pointer;
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
   min-height: 32px;
   display: flex;
@@ -1852,7 +1852,7 @@ watch(interactive, (on) => {
   min-height: 30px;
   padding: 0 var(--s3);
   background: transparent;
-  color: var(--fg-3);
+  color: var(--ink-3);
   border: 0;
   border-right: 1px solid var(--line);
   font: inherit;
@@ -1883,7 +1883,7 @@ watch(interactive, (on) => {
   overflow: auto;
   padding: var(--s2);
   background: var(--sunken);
-  color: var(--fg-2);
+  color: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   font-family: var(--font-mono);
@@ -1905,7 +1905,7 @@ watch(interactive, (on) => {
   white-space: nowrap;
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .upload-dest {
   flex: 1;
@@ -1922,7 +1922,7 @@ watch(interactive, (on) => {
 }
 .env-key {
   min-width: 8ch;
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
@@ -1934,7 +1934,7 @@ watch(interactive, (on) => {
 }
 .env-val {
   flex: 1;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .env-val.struck {
@@ -1977,7 +1977,7 @@ watch(interactive, (on) => {
 }
 .from-item-note {
   display: block;
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
 }
 .link-result {

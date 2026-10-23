@@ -355,7 +355,7 @@ onUnmounted(() => {
   display: flex;
   min-height: 100vh;
   background: var(--bg);
-  color: var(--fg);
+  color: var(--ink);
 }
 .shell--fill {
   height: 100vh;
@@ -405,7 +405,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--s2);
-  color: var(--fg);
+  color: var(--ink);
   font-weight: 600;
   font-size: var(--fs-md);
   text-decoration: none;
@@ -428,7 +428,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   white-space: nowrap;
   overflow: hidden;
@@ -468,7 +468,7 @@ onUnmounted(() => {
 .side-group-title {
   margin: 0 0 var(--s1);
   padding: 0 var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -480,7 +480,7 @@ onUnmounted(() => {
   min-height: 32px;
   padding: 0 var(--s2);
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
   text-decoration: none;
   white-space: nowrap;
@@ -491,7 +491,7 @@ onUnmounted(() => {
 }
 .side-link:hover {
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
 }
 .side-link--active {
   background: var(--accent-soft);
@@ -529,7 +529,7 @@ onUnmounted(() => {
   gap: var(--s2);
   background: transparent;
   border: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   padding: 4px 2px;
   text-align: left;
@@ -537,7 +537,7 @@ onUnmounted(() => {
   overflow: hidden;
 }
 .nodes-summary:hover {
-  color: var(--fg);
+  color: var(--ink);
 }
 .nodes-dot {
   width: 7px;
@@ -561,7 +561,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: var(--fs-xs);
-  color: var(--fg-2);
+  color: var(--ink-2);
   padding: 2px 0;
 }
 .node-dot {
@@ -585,12 +585,12 @@ onUnmounted(() => {
   background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   padding: 2px 6px;
 }
 .collapse-btn:hover {
-  color: var(--fg);
+  color: var(--ink);
   border-color: var(--accent);
 }
 
@@ -622,12 +622,12 @@ onUnmounted(() => {
   background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .search:hover {
   border-color: var(--line-strong);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .search-kbd {
   margin-left: auto;
@@ -721,7 +721,7 @@ onUnmounted(() => {
   padding: 7px 2px;
   background: transparent;
   border: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   text-decoration: none;
 }
@@ -764,7 +764,7 @@ onUnmounted(() => {
   padding: var(--s3) 4px;
   border-radius: var(--r-panel);
   background: var(--surface-2);
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
   text-decoration: none;
 }
@@ -790,7 +790,7 @@ onUnmounted(() => {
   background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   padding: 5px 10px;
   font-size: var(--fs-sm);
 }

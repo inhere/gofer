@@ -69,9 +69,9 @@ function goto(): void {
   bottom: 18px;
   z-index: 70;
   width: min(340px, calc(100vw - 36px));
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   padding: 12px 14px;
 }
@@ -83,12 +83,12 @@ function goto(): void {
   text-align: left;
   background: transparent;
   border: none;
-  color: var(--paper);
+  color: var(--ink);
   padding: 0 18px 0 0;
 }
 
 .body:hover .tx {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
 .t1 {
@@ -103,7 +103,7 @@ function goto(): void {
 .tx {
   display: block;
   margin-top: 6px;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 13px;
   line-height: 1.45;
   overflow: hidden;
@@ -118,14 +118,14 @@ function goto(): void {
   z-index: 1;
   background: transparent;
   border: none;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 16px;
   line-height: 1;
   padding: 2px;
 }
 
 .close:hover {
-  color: var(--paper);
+  color: var(--ink);
 }
 
 @media (max-width: 640px) {

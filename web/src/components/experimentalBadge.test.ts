@@ -30,7 +30,7 @@ describe('ExperimentalBadge', () => {
 
   it('takes its colors from tokens.css and stays one line on a phone', () => {
     expect(css).toContain('var(--run)')
-    expect(css).toContain('var(--radius)')
+    expect(css).toContain('var(--r-chip)')
     expect(css).toContain('white-space: nowrap')
     expect(css).toContain('@media (max-width: 640px)')
     // 不写死色值（浅色主题由 tokens.css 覆盖同名变量）。

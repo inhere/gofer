@@ -2,7 +2,7 @@
 //
 // 界面只认族：形状 + 颜色一起编码（StatusGlyph 给形状，StatusPill 给形状 + 文字），
 // 色弱和灰度显示也能分辨。族 → 颜色在 tokens.css：run / need / done / fail / time / idle
-// 各有 --<族> 与 --<族>-soft；queue 用中性色 --fg-3（设计稿明确 queue 不带自己的颜色）。
+// 各有 --<族> 与 --<族>-soft；queue 用中性色 --ink-3（设计稿明确 queue 不带自己的颜色）。
 //
 // 新增状态值时在这里登记，并补 statusFamily.test.ts 的穷举用例——不要在各页面写 switch。
 import type { JobStatus, PlanStatus, TodoStatus, WorkStatus, WorkflowStatus } from '../api/types'

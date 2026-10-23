@@ -210,19 +210,19 @@ function whenText(sec: number | undefined): string {
 
 <style scoped>
 .card-status { display: inline-flex; align-items: center; gap: 4px; }
-.manual { font-size: var(--fs-xs); color: var(--fg-3); }
+.manual { font-size: var(--fs-xs); color: var(--ink-3); }
 /* 卡片上的标记：到期 / 停滞 / 未整理 / 会话离线。颜色只表达「需要人 / 停滞 / 中性」。 */
-.mark { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; font-size: var(--fs-xs); color: var(--fg-3); white-space: nowrap; }
+.mark { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
 .mark--need { color: var(--need); border-color: var(--need); }
 .mark--time { color: var(--time); border-color: var(--time); }
-.mark--idle { color: var(--fg-3); }
+.mark--idle { color: var(--ink-3); }
 .src {
   display: inline-block;
   margin-left: 8px;
   padding: 0 6px;
   font-size: 10px;
   line-height: 16px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   border: 1px solid var(--line);
   border-radius: 999px;
   white-space: nowrap;
@@ -236,7 +236,7 @@ function whenText(sec: number | undefined): string {
 .suggest-text { min-width: 0; flex: 1 1 160px; overflow-wrap: anywhere; }
 .suggest-btns { display: flex; gap: 6px; flex: none; }
 .reqs { margin: 2px 0; }
-.req { margin: 0; font-size: var(--fs-xs); color: var(--fg-3); }
+.req { margin: 0; font-size: var(--fs-xs); color: var(--ink-3); }
 .req--live { color: var(--accent); }
 .req--failed, .req--expired { color: var(--need); }
 .status-select { appearance: auto; max-width: 110px; }

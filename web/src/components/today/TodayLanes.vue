@@ -97,8 +97,8 @@ defineExpose({ reload: load })
 <style scoped>
 .today-lanes { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; margin-bottom: var(--s5); }
 .today-lanes h2 { display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s1); font-size: var(--fs-md); font-weight: 600; }
-.today-lanes h2 .muted { margin-left: auto; color: var(--fg-3); font-size: var(--fs-sm); font-weight: 400; }
-.meta { font-size: var(--fs-sm); color: var(--fg-3); }
+.today-lanes h2 .muted { margin-left: auto; color: var(--ink-3); font-size: var(--fs-sm); font-weight: 400; }
+.meta { font-size: var(--fs-sm); color: var(--ink-3); }
 .bad { color: var(--fail); }
 .lanes { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); overflow: hidden; min-width: 0; }
 .fold {
@@ -109,7 +109,7 @@ defineExpose({ reload: load })
   border: 0;
   border-top: 1px solid var(--line);
   background: transparent;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font: inherit;
   font-size: var(--fs-sm);
   text-align: left;
@@ -120,7 +120,7 @@ defineExpose({ reload: load })
   margin: 0;
   padding: var(--s3) var(--s3);
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-panel);

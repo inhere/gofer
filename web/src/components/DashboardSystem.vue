@@ -233,14 +233,14 @@ onUnmounted(() => {
 .title {
   font-size: 16px;
   letter-spacing: 0.08em;
-  color: var(--fg);
+  color: var(--ink);
   margin: 0;
 }
 .ctrls {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .poll {
@@ -292,7 +292,7 @@ onUnmounted(() => {
   height: 44px;
 }
 .card h3 {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -321,7 +321,7 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--fail) 18%, transparent);
 }
 .big {
-  color: var(--fg);
+  color: var(--ink);
   font-size: 34px;
   font-weight: 700;
   line-height: 1.05;
@@ -335,7 +335,7 @@ onUnmounted(() => {
   color: var(--fail);
 }
 .unit {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 12px;
   font-weight: 400;
 }
@@ -350,7 +350,7 @@ onUnmounted(() => {
 .empty {
   border: 1px solid var(--line);
   border-radius: var(--r-panel);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 13px;
   padding: 28px 14px;
   text-align: center;
@@ -376,13 +376,13 @@ onUnmounted(() => {
   overflow: hidden;
 }
 .dt-n {
-  color: var(--fg);
+  color: var(--ink);
   font-weight: 700;
   text-align: right;
   min-width: 42px;
 }
 .dt-k {
-  color: var(--fg-3);
+  color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -413,7 +413,7 @@ onUnmounted(() => {
 .state {
   border: 1px solid var(--line);
   border-radius: 9px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 11px;
   padding: 1px 7px;
   white-space: nowrap;
@@ -436,7 +436,7 @@ onUnmounted(() => {
   gap: 8px;
 }
 .relay-mode {
-  color: var(--fg);
+  color: var(--ink);
 }
 
 @media (max-width: 980px) {

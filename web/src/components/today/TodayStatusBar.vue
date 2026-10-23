@@ -100,18 +100,18 @@ const items = computed<Item[]>(() => {
   background: var(--surface-2);
   border-top: 1px solid var(--line);
   font-size: var(--fs-sm);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .item {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
   min-width: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   overflow-wrap: anywhere;
 }
 .item:hover {
-  color: var(--fg);
+  color: var(--ink);
   text-decoration: none;
 }
 .item:focus-visible {

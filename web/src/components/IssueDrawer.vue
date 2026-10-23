@@ -74,7 +74,7 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
   display: flex;
   flex-direction: column;
   gap: 5px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   margin-bottom: var(--s3);
 }
@@ -88,14 +88,14 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
   min-height: 32px;
   padding: 4px var(--s2);
   background: var(--surface-2);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
   font-size: var(--fs-sm);
 }
 .drawer-body h3 {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -107,7 +107,7 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
   min-height: 32px;
   padding: 0 var(--s3);
   background: var(--surface-2);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -143,12 +143,12 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
   min-width: 0;
 }
 .issue-meta dt {
-  color: var(--fg-3);
+  color: var(--ink-3);
   white-space: nowrap;
 }
 .issue-meta dd {
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .thread {
@@ -160,15 +160,15 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
   margin: var(--s2) 0;
 }
 .thread .meta {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .thread p {
   margin: 3px 0;
-  color: var(--fg);
+  color: var(--ink);
 }
 .empty-line {
-  color: var(--fg-3);
+  color: var(--ink-3);
   margin: var(--s1) 0 var(--s3);
   font-size: var(--fs-sm);
 }
@@ -202,7 +202,7 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
 }
 .rel-label {
   flex: 0 0 100%;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   margin-bottom: 3px;
 }
@@ -233,7 +233,7 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
   font-size: var(--fs-xs);
 }
 .rel-type {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 @media (max-width: 760px) {

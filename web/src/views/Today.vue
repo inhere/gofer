@@ -232,7 +232,7 @@ onUnmounted(() => {
 .today-hero .date {
   width: 100%;
   margin: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .today-hero h1 {
@@ -248,7 +248,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: var(--s1) var(--s3);
   margin: var(--s2) 0 var(--s4);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
 }
 .today-summary span {
@@ -258,7 +258,7 @@ onUnmounted(() => {
 }
 .digest {
   margin: 0 0 var(--s3);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
 }
 .digest summary {
@@ -276,7 +276,7 @@ onUnmounted(() => {
   content: '';
   width: 0;
   height: 0;
-  border-left: 5px solid var(--fg-3);
+  border-left: 5px solid var(--ink-3);
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
   transition: transform 0.2s var(--ease);
@@ -285,7 +285,7 @@ onUnmounted(() => {
   transform: rotate(90deg);
 }
 .digest .dg-n b {
-  color: var(--fg);
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 .digest .dg-n.k-fail b {
@@ -297,7 +297,7 @@ onUnmounted(() => {
 }
 .digest-title {
   margin: 0 0 var(--s1);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .digest-text {
@@ -326,7 +326,7 @@ onUnmounted(() => {
   gap: var(--s1);
   min-height: 32px;
   padding: 0 var(--s3);
-  color: var(--fg);
+  color: var(--ink);
   background: var(--accent-soft);
   border: 1px solid var(--accent);
   border-radius: var(--r-ctl);
@@ -340,7 +340,7 @@ onUnmounted(() => {
   color: var(--bg);
 }
 .btn-focus:disabled {
-  color: var(--fg-3);
+  color: var(--ink-3);
   background: transparent;
   border-color: var(--line);
   cursor: default;
@@ -353,19 +353,19 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .grow {
   flex: 1;
 }
 .keys {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .foot-link {
   padding: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   background: transparent;
   border: 0;
   font: inherit;

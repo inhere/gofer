@@ -126,14 +126,14 @@ function open(): void {
   min-width: 0;
 }
 .prow-title {
-  color: var(--fg);
+  color: var(--ink);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .prow-id {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -148,7 +148,7 @@ function open(): void {
   padding: 0 var(--s1);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 /* 已暂停 = 人选了不再自动推进；自动推进 = leader 开着。两者都是标识不是告警。 */
@@ -181,17 +181,17 @@ function open(): void {
   color: var(--need);
 }
 .prow-muted {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .prow-supervisor {
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .prow-activity {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   text-align: right;
   white-space: nowrap;

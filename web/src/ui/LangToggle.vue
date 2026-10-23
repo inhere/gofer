@@ -28,7 +28,7 @@ const label = computed(() => (locale.value === 'zh-CN' ? 'Switch to English' : '
   justify-content: center;
   min-width: 30px;
   background: transparent;
-  color: var(--fg-2);
+  color: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   padding: 4px 7px;
@@ -38,6 +38,6 @@ const label = computed(() => (locale.value === 'zh-CN' ? 'Switch to English' : '
 }
 .lang-toggle:hover {
   border-color: var(--accent);
-  color: var(--fg);
+  color: var(--ink);
 }
 </style>

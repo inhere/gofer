@@ -23,14 +23,14 @@ const html = computed(() => DOMPurify.sanitize(marked.parse(props.text, { async:
 .md {
   font-size: 13px;
   line-height: 1.6;
-  color: var(--paper);
+  color: var(--ink);
   word-break: break-word;
 }
 .md :deep(h1),
 .md :deep(h2),
 .md :deep(h3),
 .md :deep(h4) {
-  color: var(--paper);
+  color: var(--ink);
   margin: 1em 0 0.5em;
   line-height: 1.3;
 }
@@ -44,7 +44,7 @@ const html = computed(() => DOMPurify.sanitize(marked.parse(props.text, { async:
   font-size: 1.15em;
 }
 .md :deep(a) {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .md :deep(p),
 .md :deep(ul),
@@ -54,14 +54,14 @@ const html = computed(() => DOMPurify.sanitize(marked.parse(props.text, { async:
 .md :deep(code) {
   font-family: var(--font-mono, monospace);
   font-size: 0.92em;
-  background: var(--term-bg);
+  background: var(--log-bg);
   padding: 1px 5px;
   border-radius: 3px;
 }
 .md :deep(pre) {
-  background: var(--term-bg);
+  background: var(--log-bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px 12px;
   overflow: auto;
 }
@@ -73,7 +73,7 @@ const html = computed(() => DOMPurify.sanitize(marked.parse(props.text, { async:
   margin: 0.5em 0;
   padding-left: 12px;
   border-left: 2px solid var(--line);
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .md :deep(table) {
   border-collapse: collapse;

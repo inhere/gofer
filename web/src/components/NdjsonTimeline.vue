@@ -456,22 +456,22 @@ function hiddenLineCount(item: TimelineItem): number {
   flex-direction: column;
   gap: 8px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .empty,
 .hint {
   margin: 0;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .event {
   border: 1px solid var(--line);
   border-left: 3px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-chip);
+  background: var(--surface);
   padding: 6px 8px;
 }
 .event--session {
-  border-left-color: var(--phosphor);
+  border-left-color: var(--accent);
 }
 .event--tool-start {
   border-left-color: #7ab7ff;
@@ -483,7 +483,7 @@ function hiddenLineCount(item: TimelineItem): number {
   border-left-color: var(--run);
 }
 .event--turn {
-  border-left-color: var(--queue);
+  border-left-color: var(--ink-3);
 }
 .event-head {
   display: flex;
@@ -494,7 +494,7 @@ function hiddenLineCount(item: TimelineItem): number {
 }
 .event-tag {
   flex: 0 0 auto;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -503,12 +503,12 @@ function hiddenLineCount(item: TimelineItem): number {
 .event-title {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--phosphor);
+  color: var(--accent);
   word-break: break-word;
 }
 .event-meta {
   flex: 0 0 auto;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .event-body {
@@ -520,19 +520,19 @@ function hiddenLineCount(item: TimelineItem): number {
   line-height: 1.45;
 }
 .event-body--raw {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .fold {
   margin-top: 6px;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 8px;
   font-size: 11px;
 }
 .fold:hover {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 </style>

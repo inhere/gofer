@@ -172,7 +172,7 @@ function toggleOpen(): void {
   gap: 6px;
   background: transparent;
   border: 1px solid var(--line);
-  color: var(--fg-3);
+  color: var(--ink-3);
   border-radius: var(--r-ctl);
   padding: 4px 9px;
   font-size: 12.5px;
@@ -181,7 +181,7 @@ function toggleOpen(): void {
 }
 .nm:hover {
   border-color: var(--accent);
-  color: var(--fg);
+  color: var(--ink);
 }
 .nm-n {
   min-width: 16px;

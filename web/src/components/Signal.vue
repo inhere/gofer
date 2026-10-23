@@ -140,7 +140,7 @@ const durationText = computed(() => fmtDuration(props.durationSec ?? null))
 }
 .ended .dur {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 
 /* reduced-motion：冻结波形为静态条 */

@@ -217,41 +217,41 @@ async function submit(): Promise<void> {
 
 <style scoped>
 .dd-mask { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 16px; }
-.dd { width: min(520px, 100%); max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--phosphor); border-radius: var(--radius); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+.dd { width: min(520px, 100%); max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; background: var(--surface); border: 1px solid var(--line); border-top: 2px solid var(--accent); border-radius: var(--r-chip); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
 .dd-head { display: flex; flex-direction: column; gap: 4px; }
-.dd-title { margin: 0; font-size: 12px; color: var(--phosphor); }
-.dd-item { margin: 0; font-size: 13px; line-height: 1.5; color: var(--paper); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.dd-acts { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.dd-act { flex: 1 1 auto; padding: 7px 8px; font-size: 12px; color: var(--queue); background: transparent; border: 0; border-right: 1px solid var(--line); cursor: pointer; white-space: nowrap; }
+.dd-title { margin: 0; font-size: 12px; color: var(--accent); }
+.dd-item { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ink); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dd-acts { display: flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: var(--r-chip); overflow: hidden; }
+.dd-act { flex: 1 1 auto; padding: 7px 8px; font-size: 12px; color: var(--ink-3); background: transparent; border: 0; border-right: 1px solid var(--line); cursor: pointer; white-space: nowrap; }
 .dd-act:last-child { border-right: 0; }
-.dd-act.on { color: var(--paper); background: color-mix(in srgb, var(--phosphor) 18%, transparent); }
-.dd-act:focus-visible, .dd-submit:focus-visible { outline: 2px solid var(--phosphor); outline-offset: -2px; }
+.dd-act.on { color: var(--ink); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.dd-act:focus-visible, .dd-submit:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .dd-body { display: flex; flex-direction: column; gap: 10px; }
-.dd-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--queue); }
+.dd-hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--ink-3); }
 .dd-rec { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.dd-card { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--queue); border-radius: var(--radius); cursor: pointer; }
-.dd-card.on, .dd-card:hover { border-color: var(--phosphor); }
+.dd-card { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--ink-3); border-radius: var(--r-chip); cursor: pointer; }
+.dd-card.on, .dd-card:hover { border-color: var(--accent); }
 .dd-card input { margin-top: 3px; }
 .dd-card-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.dd-card-title { font-size: 13px; color: var(--paper); overflow-wrap: anywhere; }
-.dd-agent { margin-left: 8px; font-size: 11px; color: var(--queue); }
-.dd-topic { font-size: 12px; color: var(--paper); opacity: 0.85; overflow-wrap: anywhere; }
+.dd-card-title { font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.dd-agent { margin-left: 8px; font-size: 11px; color: var(--ink-3); }
+.dd-topic { font-size: 12px; color: var(--ink); opacity: 0.85; overflow-wrap: anywhere; }
 .dd-inf { margin-left: 6px; font-style: normal; font-size: 10px; padding: 0 5px; color: var(--run); border: 1px dashed var(--run); border-radius: 8px; }
 .dd-hits { display: flex; flex-wrap: wrap; gap: 4px; }
-.dd-hit { font-size: 11px; padding: 0 7px; color: var(--phosphor); border: 1px solid var(--line); border-radius: 9px; overflow-wrap: anywhere; }
+.dd-hit { font-size: 11px; padding: 0 7px; color: var(--accent); border: 1px solid var(--line); border-radius: 9px; overflow-wrap: anywhere; }
 .dd-hit--inf { color: var(--run); border-style: dashed; border-color: var(--run); }
-.dd-hit--off { color: var(--queue); }
-.dd-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--queue); }
-.dd-in { width: 100%; box-sizing: border-box; padding: 6px 8px; color: var(--paper); background: var(--term-bg); border: 1px solid var(--line); border-radius: var(--radius); font: inherit; font-size: 13px; }
-.dd-in:focus { outline: none; border-color: var(--phosphor); }
-.dd-err { margin: 0; padding: 6px 10px; font-size: 12px; color: var(--fail); border: 1px solid var(--fail); border-radius: var(--radius); overflow-wrap: anywhere; }
+.dd-hit--off { color: var(--ink-3); }
+.dd-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--ink-3); }
+.dd-in { width: 100%; box-sizing: border-box; padding: 6px 8px; color: var(--ink); background: var(--log-bg); border: 1px solid var(--line); border-radius: var(--r-chip); font: inherit; font-size: 13px; }
+.dd-in:focus { outline: none; border-color: var(--accent); }
+.dd-err { margin: 0; padding: 6px 10px; font-size: 12px; color: var(--fail); border: 1px solid var(--fail); border-radius: var(--r-chip); overflow-wrap: anywhere; }
 .dd-actions { display: flex; gap: 8px; }
-.dd-submit, .dd-cancel { padding: 6px 16px; font-size: 12px; color: var(--paper); background: transparent; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; text-decoration: none; }
-.dd-submit { border-color: var(--phosphor); color: var(--phosphor); font-weight: 600; }
+.dd-submit, .dd-cancel { padding: 6px 16px; font-size: 12px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); cursor: pointer; text-decoration: none; }
+.dd-submit { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .dd-submit:disabled, .dd-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 768px) {
   .dd-mask { align-items: flex-end; padding: 0; }
-  .dd { width: 100%; border-radius: var(--radius) var(--radius) 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .dd { width: 100%; border-radius: var(--r-chip) var(--r-chip) 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
   .dd-act { padding: 10px 8px; font-size: 13px; }
   .dd-in { font-size: 16px; }
   .dd-submit, .dd-cancel { padding: 10px 18px; font-size: 14px; }

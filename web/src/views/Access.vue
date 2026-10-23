@@ -144,12 +144,12 @@ async function connect(): Promise<void> {
 .title {
   margin: 0 0 6px;
   font-size: var(--fs-xl);
-  color: var(--fg);
+  color: var(--ink);
   text-align: center;
 }
 
 .hint {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   margin: 0 0 20px;
   text-align: center;
@@ -159,14 +159,14 @@ async function connect(): Promise<void> {
   display: block;
   font-size: var(--fs-xs);
   font-weight: 500;
-  color: var(--fg-2);
+  color: var(--ink-2);
   margin-bottom: 6px;
 }
 
 .token-input {
   width: 100%;
   background: var(--sunken);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   padding: 10px 12px;

@@ -170,24 +170,24 @@ onMounted(() => void load())
 
 <style scoped>
 .notes-overlay { position: fixed; inset: 0; z-index: 90; display: flex; justify-content: flex-end; background: rgba(0, 0, 0, 0.6); }
-.notes-panel { display: flex; flex-direction: column; width: min(680px, 100vw); height: 100%; background: var(--panel); border-left: 1px solid var(--line); overflow: hidden; }
+.notes-panel { display: flex; flex-direction: column; width: min(680px, 100vw); height: 100%; background: var(--surface); border-left: 1px solid var(--line); overflow: hidden; }
 .notes-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex: none; }
-.title { font-size: 13px; color: var(--paper); }
+.title { font-size: 13px; color: var(--ink); }
 .head-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .notes-body { flex: 1; overflow-y: auto; padding: 12px 14px 40px; display: flex; flex-direction: column; gap: 12px; }
-.editor { width: 100%; box-sizing: border-box; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; font-size: 12px; }
-.raw { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 11px; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; max-height: 240px; overflow: auto; }
+.editor { width: 100%; box-sizing: border-box; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 8px; font-size: 12px; }
+.raw { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 11px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 8px; max-height: 240px; overflow: auto; }
 .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-h4 { margin: 0 0 6px; font-size: 11px; color: var(--queue); }
+h4 { margin: 0 0 6px; font-size: 11px; color: var(--ink-3); }
 .history ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .history li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.muted { margin: 0; font-size: 11px; color: var(--queue); }
-.msg { margin: 0; padding: 6px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--paper); }
+.muted { margin: 0; font-size: 11px; color: var(--ink-3); }
+.msg { margin: 0; padding: 6px 10px; font-size: 12px; border: 1px solid var(--line); border-radius: var(--r-chip); color: var(--ink); }
 .msg--err { color: var(--fail); border-color: var(--fail); }
 .msg--ok { color: var(--done); border-color: var(--done); }
-.btn { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 12px; cursor: pointer; color: var(--paper); background: transparent; font-size: 12px; }
-.btn.primary { color: var(--ink); background: var(--phosphor); }
+.btn { border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 12px; cursor: pointer; color: var(--ink); background: transparent; font-size: 12px; }
+.btn.primary { color: var(--bg); background: var(--accent); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.link { background: none; border: 0; padding: 0 4px; font-size: 11px; color: var(--phosphor); cursor: pointer; text-decoration: underline; }
+.link { background: none; border: 0; padding: 0 4px; font-size: 11px; color: var(--accent); cursor: pointer; text-decoration: underline; }
 @media (max-width: 640px) { .cols { grid-template-columns: minmax(0, 1fr); } }
 </style>

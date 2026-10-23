@@ -638,11 +638,11 @@ onMounted(async () => {
 .title {
   margin: 0;
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 2px 0 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .head-actions {
@@ -656,7 +656,7 @@ onMounted(async () => {
   min-height: 32px;
   padding: 0 var(--s3);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -684,7 +684,7 @@ onMounted(async () => {
   min-height: 32px;
   padding: 4px var(--s2);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -710,13 +710,13 @@ onMounted(async () => {
   margin: 0;
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--fg);
+  color: var(--ink);
 }
 .field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   min-width: 0;
   flex: 1;
@@ -733,13 +733,13 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .field-label {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   white-space: nowrap;
 }
 .hint-line {
   margin: 0 0 var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
@@ -785,7 +785,7 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .repo-current {
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
   font-family: var(--font-mono);
   overflow: hidden;
@@ -797,7 +797,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   min-width: 0;
   flex: 1;
@@ -817,7 +817,7 @@ onMounted(async () => {
   font-size: var(--fs-xs);
 }
 .scope-help {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .seg {
   display: inline-flex;
@@ -829,7 +829,7 @@ onMounted(async () => {
   min-height: 30px;
   padding: 0 var(--s2);
   background: transparent;
-  color: var(--fg-3);
+  color: var(--ink-3);
   border: 0;
   border-right: 1px solid var(--line);
   font: inherit;
@@ -867,7 +867,7 @@ onMounted(async () => {
   min-height: 28px;
   padding: 2px var(--s2);
   background: transparent;
-  color: var(--fg-3);
+  color: var(--ink-3);
   border: 1px solid var(--line);
   border-radius: 999px;
   font: inherit;
@@ -895,14 +895,14 @@ onMounted(async () => {
 }
 .thead {
   background: var(--surface-2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .trow {
   border-top: 1px solid var(--line);
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
   cursor: pointer;
   outline: none;
@@ -917,10 +917,10 @@ onMounted(async () => {
   background: var(--accent-soft);
 }
 .dim {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .empty-line {
-  color: var(--fg-3);
+  color: var(--ink-3);
   text-align: center;
   padding: var(--s6) var(--s3);
   font-size: var(--fs-sm);
@@ -932,7 +932,7 @@ onMounted(async () => {
   gap: var(--s2);
   min-height: 150px;
   padding: var(--s4);
-  color: var(--fg-3);
+  color: var(--ink-3);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-panel);
@@ -972,13 +972,13 @@ onMounted(async () => {
   top: 4px;
   border-style: solid;
   border-width: 5px 0 5px 7px;
-  border-color: transparent transparent transparent var(--fg-3);
+  border-color: transparent transparent transparent var(--ink-3);
 }
 .caret.open::before {
   left: 4px;
   top: 6px;
   border-width: 7px 5px 0 5px;
-  border-color: var(--fg-3) transparent transparent transparent;
+  border-color: var(--ink-3) transparent transparent transparent;
 }
 .caret-gap {
   display: inline-block;
@@ -1001,7 +1001,7 @@ onMounted(async () => {
 }
 .progress,
 .orphan {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-weight: 400;
   font-size: var(--fs-xs);
 }
@@ -1020,7 +1020,7 @@ onMounted(async () => {
 }
 .page-summary {
   margin: 0 0 var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .batch-result {
@@ -1029,7 +1029,7 @@ onMounted(async () => {
   padding: var(--s2) var(--s3);
   margin-bottom: var(--s3);
   font-size: var(--fs-sm);
-  color: var(--fg);
+  color: var(--ink);
 }
 .batch-result.bad {
   border-color: var(--fail);
@@ -1043,7 +1043,7 @@ onMounted(async () => {
 .link-btn {
   background: none;
   border: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font: inherit;
   font-size: var(--fs-sm);
   text-decoration: underline;
@@ -1061,7 +1061,7 @@ onMounted(async () => {
   padding: var(--s2) var(--s3);
   margin-bottom: var(--s3);
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
   max-width: 100%;
 }
 .sync-clients summary {
@@ -1077,7 +1077,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: var(--fg);
+  color: var(--ink);
 }
 .sync-clients-list li,
 .sync-clients-empty {
@@ -1098,7 +1098,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: var(--s1);
-  color: var(--fg-3);
+  color: var(--ink-3);
   margin-right: var(--s2);
   font-size: var(--fs-xs);
 }
@@ -1106,7 +1106,7 @@ onMounted(async () => {
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
   padding: 3px 9px;
   font: inherit;
   font-size: var(--fs-xs);
@@ -1124,7 +1124,7 @@ onMounted(async () => {
   cursor: not-allowed;
 }
 .pager-gap {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 /* 手机（≤760）：面板与筛选纵向排列，表格每行压成卡片，只留 id / 标题 / 状态。 */

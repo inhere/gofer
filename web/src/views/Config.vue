@@ -1350,7 +1350,7 @@ onUnmounted(() => {
   font-size: 10px;
 }
 .poll--on {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .section {
   margin-bottom: 20px;
@@ -1361,7 +1361,7 @@ onUnmounted(() => {
   gap: 4px 12px;
   margin: 0 0 12px;
   font-size: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 
 .section-title,
@@ -1370,24 +1370,24 @@ onUnmounted(() => {
 .modal-title {
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 0;
 }
 .section-title {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 14px;
 }
 .mini-btn {
   margin-left: auto;
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 11px;
 }
 .mini-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .inline-btn {
   float: right;
@@ -1404,9 +1404,9 @@ onUnmounted(() => {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .panel {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 14px;
 }
 .kv {
@@ -1417,10 +1417,10 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .kv dt {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .kv dd {
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
   word-break: break-all;
 }
@@ -1428,7 +1428,7 @@ onUnmounted(() => {
 .tag {
   display: inline-block;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 7px;
   font-size: 11px;
 }
@@ -1437,18 +1437,18 @@ onUnmounted(() => {
   border-color: var(--done);
 }
 .flag--no {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .flag--warn {
   color: var(--run);
   border-color: var(--run);
 }
 .tag {
-  color: var(--phosphor);
+  color: var(--accent);
   margin: 4px 4px 0 0;
 }
 .tag--builtin {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 /* 技能绑定与 env_keys 同为"附加到这条定义上的东西"，用 done 色区分来源。 */
 .tag--skill {
@@ -1458,8 +1458,8 @@ onUnmounted(() => {
   margin-top: 12px;
   padding: 14px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-chip);
+  background: var(--surface);
 }
 .table-wrap {
   overflow-x: auto;
@@ -1477,11 +1477,11 @@ onUnmounted(() => {
   text-align: left;
 }
 .table th {
-  color: var(--queue);
+  color: var(--ink-3);
   font-weight: 400;
 }
 .table td {
-  color: var(--paper);
+  color: var(--ink);
 }
 .mini-list {
   list-style: none;
@@ -1497,7 +1497,7 @@ onUnmounted(() => {
   border-top: none;
 }
 .item-main {
-  color: var(--paper);
+  color: var(--ink);
   display: block;
   margin-bottom: 3px;
 }
@@ -1512,7 +1512,7 @@ onUnmounted(() => {
 .muted,
 .empty,
 .placeholder {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .empty,
 .placeholder {
@@ -1521,7 +1521,7 @@ onUnmounted(() => {
 .error,
 .notice {
   font-size: 12px;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 10px;
   word-break: break-word;
@@ -1539,15 +1539,15 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 10px;
-  color: var(--paper);
-  border: 1px solid var(--queue);
+  color: var(--ink);
+  border: 1px solid var(--ink-3);
   word-break: break-word;
 }
 .warn-line {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 
 /* 编辑弹窗 */
@@ -1564,9 +1564,9 @@ onUnmounted(() => {
 }
 .modal {
   width: min(1080px, 100%);
-  background: var(--bg, var(--panel));
+  background: var(--bg, var(--surface));
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .modal-head {
   display: flex;
@@ -1598,22 +1598,22 @@ onUnmounted(() => {
   gap: 8px;
 }
 .field-name {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .req {
   color: var(--fail);
 }
 .input {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 5px 8px;
   font-family: inherit;
   font-size: 12px;
 }
 .input:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .input--bad {
   border-color: var(--fail);
@@ -1624,7 +1624,7 @@ onUnmounted(() => {
 .hint,
 .impact {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 2px 0 0;
   line-height: 1.6;
 }
@@ -1633,7 +1633,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px;
 }
 .hook-row__head {
@@ -1649,7 +1649,7 @@ onUnmounted(() => {
 }
 .badge {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 6px;
   font-size: 10px;
   color: var(--run);
@@ -1666,18 +1666,18 @@ onUnmounted(() => {
 }
 .preview {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px;
   min-height: 240px;
 }
 .preview-head {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
   margin-bottom: 8px;
 }
 .preview-body {
   font-size: 11px;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;

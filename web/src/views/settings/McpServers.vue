@@ -160,22 +160,22 @@ onMounted(() => {
 .page-head h1 {
   margin: 0 0 4px;
   font-size: var(--fs-xl);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 0;
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .note {
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
   margin: 0;
   line-height: 1.6;
 }
 .note code {
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 
 .card-head {
@@ -189,7 +189,7 @@ onMounted(() => {
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   padding: 1px 6px;
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .tag--off {
   color: var(--fail);
@@ -207,11 +207,11 @@ onMounted(() => {
   font-size: var(--fs-sm);
 }
 .grid dt {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .grid dd {
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
   min-width: 0;
 }
 .secrets {
@@ -256,7 +256,7 @@ onMounted(() => {
   font: inherit;
   font-size: var(--fs-sm);
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
 }
 .btn:hover:not(:disabled) {
   border-color: var(--accent);
@@ -273,7 +273,7 @@ onMounted(() => {
   border-radius: var(--r-ctl);
   padding: 10px 12px;
   font-size: var(--fs-sm);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .msg--err {
   color: var(--fail);

@@ -79,24 +79,24 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 
 <style scoped>
 .er-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; padding: 20px; }
-.er-panel { width: 100%; max-width: 460px; max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.er-panel { width: 100%; max-width: 460px; max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-chip); }
 .er-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .er-head-main { min-width: 0; }
-.er-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--paper); }
-.er-sub { margin: 2px 0 0; font-size: 12px; color: var(--queue); overflow-wrap: anywhere; }
-.er-x { font-size: 18px; line-height: 1; padding: 2px 8px; color: var(--queue); background: transparent; border: 1px solid var(--line); border-radius: var(--radius); }
+.er-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--ink); }
+.er-sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.er-x { font-size: 18px; line-height: 1; padding: 2px 8px; color: var(--ink-3); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); }
 .er-field { display: grid; gap: 5px; min-width: 0; }
-.er-hint { font-size: 12px; color: var(--queue); letter-spacing: 0.04em; }
-.er-input { background: var(--term-bg); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 9px; font-size: 13px; min-width: 0; }
-.er-check { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--paper); }
-.er-msg { margin: 0; padding: 8px 12px; border: 1px solid var(--fail); border-radius: var(--radius); color: var(--fail); font-size: 13px; overflow-wrap: anywhere; }
+.er-hint { font-size: 12px; color: var(--ink-3); letter-spacing: 0.04em; }
+.er-input { background: var(--log-bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 7px 9px; font-size: 13px; min-width: 0; }
+.er-check { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--ink); }
+.er-msg { margin: 0; padding: 8px 12px; border: 1px solid var(--fail); border-radius: var(--r-chip); color: var(--fail); font-size: 13px; overflow-wrap: anywhere; }
 .er-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.er-btn { font: inherit; font-size: 12px; padding: 6px 14px; color: var(--paper); background: transparent; border: 1px solid var(--line); border-radius: var(--radius); }
-.er-btn:hover:not(:disabled) { border-color: var(--phosphor); }
+.er-btn { font: inherit; font-size: 12px; padding: 6px 14px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); }
+.er-btn:hover:not(:disabled) { border-color: var(--accent); }
 .er-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .er-btn--bad { color: var(--fail); border-color: var(--fail); }
 @media (max-width: 640px) {
   .er-overlay { padding: 0; align-items: flex-end; }
-  .er-panel { max-width: none; max-height: 92vh; border-radius: var(--radius) var(--radius) 0 0; }
+  .er-panel { max-width: none; max-height: 92vh; border-radius: var(--r-chip) var(--r-chip) 0 0; }
 }
 </style>

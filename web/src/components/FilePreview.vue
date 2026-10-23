@@ -147,10 +147,10 @@ onUnmounted(revoke)
 <style scoped>
 .fp {
   font-size: 13px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .fp-loading {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .fp-error {
@@ -164,7 +164,7 @@ onUnmounted(revoke)
   margin: 0;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--paper);
+  color: var(--ink);
   white-space: pre;
   overflow: auto;
   max-height: 70vh;
@@ -176,7 +176,7 @@ onUnmounted(revoke)
   max-width: 100%;
   max-height: 70vh;
   margin: 0 auto;
-  background: var(--term-bg);
+  background: var(--log-bg);
 }
 
 /* 回退下载块。 */
@@ -190,19 +190,19 @@ onUnmounted(revoke)
 .fp-fallback-msg {
   margin: 0;
   font-size: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .fp-dl {
   background: transparent;
-  color: var(--phosphor);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
   padding: 4px 14px;
   font-size: 12px;
 }
 .fp-dl:hover {
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--bg);
 }
 
 /* markdown：仅作滚动容器；元素排版在 MarkdownBlock（scoped 样式穿不透 v-html）。 */

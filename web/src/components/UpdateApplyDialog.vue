@@ -187,9 +187,9 @@ onUnmounted(() => {
   max-width: 520px;
   max-height: calc(100vh - 40px);
   overflow-y: auto;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -202,47 +202,47 @@ onUnmounted(() => {
   gap: 12px;
 }
 .ua-title {
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 13px;
   letter-spacing: 0.06em;
 }
 .ua-x,
 .ua-btn {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 12px;
   font-size: 12px;
 }
 .ua-x {
-  color: var(--queue);
+  color: var(--ink-3);
   padding: 2px 8px;
 }
 .ua-x:hover:not(:disabled),
 .ua-btn:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .ua-btn:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .ua-btn--go {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .ua-text {
   margin: 0;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--paper);
+  color: var(--ink);
 }
 .ua-warn {
   color: var(--run);
 }
 .ua-wait {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
@@ -250,7 +250,7 @@ onUnmounted(() => {
 }
 .ua-wait-head {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .ua-wait-opts {
   display: flex;
@@ -262,12 +262,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
   cursor: pointer;
 }
 .ua-workers {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
@@ -278,12 +278,12 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .ua-link {
   background: transparent;
   border: none;
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 11px;
   padding: 0;
 }
@@ -293,16 +293,16 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .ua-row--off {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .ua-id {
   word-break: break-all;
 }
 .ua-dim {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   margin: 0;
 }

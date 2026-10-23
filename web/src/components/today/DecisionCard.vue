@@ -406,7 +406,7 @@ function linkFor(a: TodayAction): string {
 .dc-mem-body {
   max-height: 10em;
   overflow: auto;
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 /* 卡片（设计稿 §7.1）：黄色左边线标「需要人」，面板圆角，不加阴影。 */
 .dc {
@@ -448,17 +448,17 @@ function linkFor(a: TodayAction): string {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s1) var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .dc-kind {
   font-family: var(--font-ui);
 }
 .dc-tag {
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .dc-agent {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .dc-exp {
   color: var(--fail);
@@ -498,7 +498,7 @@ function linkFor(a: TodayAction): string {
   align-items: center;
   min-height: 32px;
   padding: var(--s1) var(--s2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   background: transparent;
   border: 0;
   border-radius: var(--r-chip);
@@ -510,15 +510,15 @@ function linkFor(a: TodayAction): string {
 .dc-menu-item:hover,
 .dc-menu-item:focus-visible {
   background: var(--sunken);
-  color: var(--fg);
+  color: var(--ink);
 }
 .dc-menu-n {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .dc-menu-hint {
   margin: var(--s1) var(--s2) 2px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
@@ -534,7 +534,7 @@ function linkFor(a: TodayAction): string {
   overflow-wrap: anywhere;
 }
 .dc-title a {
-  color: var(--fg);
+  color: var(--ink);
 }
 .dc-title a:hover {
   color: var(--accent);
@@ -542,7 +542,7 @@ function linkFor(a: TodayAction): string {
 }
 .dc-sum {
   margin: 0 0 var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -563,7 +563,7 @@ function linkFor(a: TodayAction): string {
   justify-content: center;
   min-height: 30px;
   padding: 0 var(--s3);
-  color: var(--fg);
+  color: var(--ink);
   background: var(--surface-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
@@ -608,7 +608,7 @@ function linkFor(a: TodayAction): string {
   border-color: transparent;
 }
 .dc-btn--dim {
-  color: var(--fg-3);
+  color: var(--ink-3);
   background: transparent;
   border-color: transparent;
 }
@@ -622,7 +622,7 @@ function linkFor(a: TodayAction): string {
   min-width: 0;
   min-height: 32px;
   padding: 0 var(--s2);
-  color: var(--fg);
+  color: var(--ink);
   background: var(--surface-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
@@ -633,7 +633,7 @@ function linkFor(a: TodayAction): string {
   padding-top: var(--s2);
   border-top: 1px dashed var(--line);
   font-size: var(--fs-sm);
-  color: var(--fg);
+  color: var(--ink);
 }
 .dc-info p {
   margin: 0 0 var(--s1);
@@ -643,7 +643,7 @@ function linkFor(a: TodayAction): string {
   display: inline-block;
   min-width: 3em;
   margin-right: var(--s1);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-weight: 500;
 }
 .dc-digest {

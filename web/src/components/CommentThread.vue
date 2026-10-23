@@ -178,13 +178,13 @@ watch(
   gap: 4px;
 }
 .cm-row.cm-author--user {
-  border-left-color: var(--phosphor);
+  border-left-color: var(--accent);
 }
 .cm-row.cm-author--agent {
   border-left-color: var(--run);
 }
 .cm-row.cm-author--system {
-  border-left-color: var(--queue);
+  border-left-color: var(--ink-3);
   opacity: 0.85;
 }
 .cm-head {
@@ -195,7 +195,7 @@ watch(
   color: var(--muted, #888);
 }
 .cm-author {
-  color: var(--paper);
+  color: var(--ink);
 }
 .cm-kind {
   font-size: 11px;
@@ -212,7 +212,7 @@ watch(
   line-height: 1.5;
 }
 .cm-mention {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .cm-dispatched {
   display: flex;
@@ -221,9 +221,9 @@ watch(
   font-size: 12px;
 }
 .cm-joblink {
-  color: var(--phosphor);
+  color: var(--accent);
   text-decoration: none;
-  border-bottom: 1px dotted var(--phosphor);
+  border-bottom: 1px dotted var(--accent);
 }
 .cm-dispatch-meta {
   opacity: 0.7;
@@ -241,7 +241,7 @@ watch(
 .cm-input {
   width: 100%;
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
   padding: 8px;
   font-size: 13px;
@@ -249,7 +249,7 @@ watch(
 }
 .cm-input:focus {
   outline: none;
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .cm-form-foot {
   display: flex;
@@ -262,8 +262,8 @@ watch(
 }
 .cm-send {
   background: transparent;
-  color: var(--phosphor);
-  border: 1px solid var(--phosphor);
+  color: var(--accent);
+  border: 1px solid var(--accent);
   padding: 4px 12px;
   cursor: pointer;
   font-size: 12px;
@@ -274,7 +274,7 @@ watch(
 }
 /* 只读身份：评论输入框换成一行说明（列表照常展示）。 */
 .cm-readonly {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   margin: 0;
 }

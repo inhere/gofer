@@ -26,16 +26,16 @@ const label = computed(() => (isDark.value ? '切换到浅色模式' : '切换�
   align-items: center;
   justify-content: center;
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 9px;
   font-size: 13px;
   line-height: 1;
 }
 .theme-toggle:hover {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .theme-glyph {
   display: block;

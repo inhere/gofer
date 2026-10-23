@@ -363,19 +363,19 @@ defineExpose({
 </template>
 
 <style scoped>
-.attach { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; padding: 2px 0; border: 1px dashed transparent; border-radius: var(--radius); }
-.attach--drag { border-color: var(--phosphor); background: rgba(120, 220, 160, .06); }
+.attach { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; padding: 2px 0; border: 1px dashed transparent; border-radius: var(--r-chip); }
+.attach--drag { border-color: var(--accent); background: rgba(120, 220, 160, .06); }
 .attach-file { display: none; }
-.attach-add { flex: none; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; font-size: 14px; line-height: 1; cursor: pointer; }
+.attach-add { flex: none; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 4px 8px; font-size: 14px; line-height: 1; cursor: pointer; }
 .attach-add:disabled { opacity: .4; cursor: default; }
 .attach-strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; min-width: 0; }
-.attach-item { position: relative; width: 54px; height: 54px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--ink); }
+.attach-item { position: relative; width: 54px; height: 54px; border: 1px solid var(--line); border-radius: var(--r-chip); overflow: hidden; background: var(--bg); }
 .attach-item--failed { border-color: var(--fail); }
 .attach-item--done { border-color: var(--done); }
 .attach-thumb { display: block; width: 100%; height: 100%; object-fit: cover; }
-.attach-thumb--empty { display: grid; place-items: center; color: var(--queue); font-size: 10px; }
-.attach-progress { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--phosphor); transition: width .15s linear; }
-.attach-retry { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 0; color: var(--ink); background: var(--fail); border: 0; font-size: 10px; cursor: pointer; }
-.attach-remove { position: absolute; top: 0; right: 0; width: 18px; height: 18px; padding: 0; color: var(--paper); background: rgba(0, 0, 0, .6); border: 0; border-bottom-left-radius: var(--radius); font-size: 12px; line-height: 1; cursor: pointer; }
-.attach-hint { color: var(--queue); font-size: 11px; }
+.attach-thumb--empty { display: grid; place-items: center; color: var(--ink-3); font-size: 10px; }
+.attach-progress { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--accent); transition: width .15s linear; }
+.attach-retry { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 0; color: var(--bg); background: var(--fail); border: 0; font-size: 10px; cursor: pointer; }
+.attach-remove { position: absolute; top: 0; right: 0; width: 18px; height: 18px; padding: 0; color: var(--ink); background: rgba(0, 0, 0, .6); border: 0; border-bottom-left-radius: var(--r-chip); font-size: 12px; line-height: 1; cursor: pointer; }
+.attach-hint { color: var(--ink-3); font-size: 11px; }
 </style>

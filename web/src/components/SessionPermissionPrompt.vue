@@ -144,7 +144,7 @@ async function answer(value: string): Promise<void> {
   display: flex;
   gap: 8px;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .perm--open .perm-head strong {
   color: var(--run);
@@ -157,9 +157,9 @@ async function answer(value: string): Promise<void> {
   max-height: 240px;
   overflow: auto;
   font-size: 11px;
-  background: var(--term-bg);
+  background: var(--log-bg);
   padding: 6px;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   margin: 0;
 }
 .perm-acts,
@@ -176,7 +176,7 @@ async function answer(value: string): Promise<void> {
   font-size: 12px;
   padding: 3px 9px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -192,7 +192,7 @@ async function answer(value: string): Promise<void> {
 .perm-hint,
 .perm-done {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 0;
 }
 .perm-qs {
@@ -215,7 +215,7 @@ async function answer(value: string): Promise<void> {
 }
 .perm-q-head {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
   margin-right: 6px;
 }
 .perm-other {

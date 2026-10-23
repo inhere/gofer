@@ -325,7 +325,7 @@ onUnmounted(() => {
 .title {
   font-size: 16px;
   letter-spacing: 0.08em;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
 }
 .controls {
@@ -338,7 +338,7 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .filter-label {
   font-size: 11px;
@@ -347,10 +347,10 @@ onUnmounted(() => {
 .filter-select,
 .filter-input,
 .create-input {
-  background: var(--panel);
-  color: var(--paper);
+  background: var(--surface);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 8px;
   font-size: 12px;
   outline: none;
@@ -362,7 +362,7 @@ onUnmounted(() => {
 .filter-select:focus,
 .filter-input:focus,
 .create-input:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .poll-hint {
   color: var(--line);
@@ -370,7 +370,7 @@ onUnmounted(() => {
   transition: color 0.2s;
 }
 .poll-hint--on {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
 .create-row {
@@ -378,17 +378,17 @@ onUnmounted(() => {
   align-items: flex-end;
   gap: 10px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px;
   margin-bottom: 12px;
-  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
 }
 .create-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 180px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.04em;
 }
@@ -401,10 +401,10 @@ onUnmounted(() => {
   min-height: 28px;
 }
 .create-btn {
-  background: var(--phosphor);
-  color: var(--ink);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
   padding: 5px 10px;
   font-size: 12px;
   font-weight: 600;
@@ -422,7 +422,7 @@ onUnmounted(() => {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 12px;
   word-break: break-word;
@@ -430,7 +430,7 @@ onUnmounted(() => {
 
 .table {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: hidden;
 }
 .thead {
@@ -439,17 +439,17 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
   font-size: 11px;
   letter-spacing: 0.06em;
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
 }
 .empty {
   padding: 28px 14px;
   text-align: center;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 13px;
 }
 .empty p {
@@ -464,19 +464,19 @@ onUnmounted(() => {
   gap: 14px;
   margin-top: 10px;
   font-size: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .page-btn {
-  background: var(--panel);
-  color: var(--paper);
+  background: var(--surface);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 12px;
 }
 .page-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .page-btn:disabled {
   opacity: 0.45;
@@ -495,10 +495,10 @@ onUnmounted(() => {
 .create-toggle {
   display: none;
   padding: 4px 10px;
-  color: var(--paper);
+  color: var(--ink);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   cursor: pointer;
 }
 
@@ -547,9 +547,9 @@ onUnmounted(() => {
     align-items: center;
     min-height: 28px;
     padding: 4px 10px;
-    color: var(--paper);
+    color: var(--ink);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: var(--r-chip);
     cursor: pointer;
     list-style: none;
   }
@@ -566,9 +566,9 @@ onUnmounted(() => {
     padding: 10px;
     flex-direction: column;
     gap: 8px;
-    background: var(--panel);
+    background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: var(--r-chip);
     box-shadow: 0 8px 24px rgba(0,0,0,.25);
   }
   .filter-drawer[open] .filter-drawer-body {

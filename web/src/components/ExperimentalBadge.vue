@@ -28,7 +28,7 @@ withDefaults(defineProps<{ label?: string; hint?: string }>(), {
   white-space: nowrap;
   color: var(--run);
   border: 1px dashed var(--run);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   cursor: help;
   user-select: none;
 }

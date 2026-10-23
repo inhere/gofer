@@ -143,13 +143,13 @@ const summary = computed(() => {
   display: inline-flex;
   align-items: baseline;
   gap: var(--s1);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .frac {
-  color: var(--fg);
+  color: var(--ink);
 }
 .legend {
   display: flex;
@@ -161,7 +161,7 @@ const summary = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .swatch {
@@ -170,7 +170,7 @@ const summary = computed(() => {
   border-radius: 2px;
 }
 .legend-count {
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-variant-numeric: tabular-nums;
 }
 @media (max-width: 760px) {

@@ -86,7 +86,7 @@ function openHandled(): void {
   display: flex;
   flex-direction: column;
   width: min(max(480px, 40vw), 760px, 100vw);
-  background: var(--ink);
+  background: var(--bg);
   border-left: 1px solid var(--line);
   box-shadow: -12px 0 30px rgba(0, 0, 0, 0.35);
 }
@@ -96,7 +96,7 @@ function openHandled(): void {
   gap: 10px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--surface);
 }
 .ov-title {
   font-weight: 600;
@@ -106,15 +106,15 @@ function openHandled(): void {
 }
 .ov-hint {
   flex: 1;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .ov-x,
 .ov-link {
-  color: var(--queue);
+  color: var(--ink-3);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: 12px;
 }
@@ -124,7 +124,7 @@ function openHandled(): void {
   justify-content: space-between;
   gap: 10px;
   padding: 8px 14px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .ov-toggle {

@@ -97,7 +97,7 @@ const selected = computed(() => active.value?.to ?? '')
 .title {
   margin: 0;
   font-size: var(--fs-2xl);
-  color: var(--fg);
+  color: var(--ink);
 }
 .crumb {
   color: var(--accent);
@@ -105,7 +105,7 @@ const selected = computed(() => active.value?.to ?? '')
 }
 .crumb::before {
   content: '▸ ';
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .settings-body {
@@ -125,7 +125,7 @@ const selected = computed(() => active.value?.to ?? '')
   text-align: left;
   padding: 7px 10px;
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-md);
   white-space: nowrap;
   overflow: hidden;
@@ -133,12 +133,12 @@ const selected = computed(() => active.value?.to ?? '')
 }
 .nav-item:hover {
   background: var(--sunken);
-  color: var(--fg);
+  color: var(--ink);
   text-decoration: none;
 }
 .nav-item[aria-current='page'] {
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   font-weight: 600;
   box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line);
 }
@@ -155,7 +155,7 @@ const selected = computed(() => active.value?.to ?? '')
   width: 100%;
   min-height: 40px;
   padding: 8px 10px;
-  color: var(--fg);
+  color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);

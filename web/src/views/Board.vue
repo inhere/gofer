@@ -733,11 +733,11 @@ onUnmounted(() => {
 .title {
   font-size: 16px;
   letter-spacing: 0.08em;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
 }
 .subtitle {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   margin: 6px 0 0;
 }
@@ -749,22 +749,22 @@ onUnmounted(() => {
   flex: none;
 }
 .last-refresh {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .head-btn {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 12px;
 }
 .head-btn:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .head-btn:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
   cursor: default;
   opacity: 0.65;
 }
@@ -783,54 +783,54 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .proj-chip {
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 8px;
 }
 .filter {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .filter-check {
   min-height: 28px;
 }
 .filter-checkbox {
-  accent-color: var(--phosphor);
+  accent-color: var(--accent);
 }
 .filter-label {
   font-size: 11px;
   letter-spacing: 0.06em;
 }
 .filter-select {
-  background: var(--panel);
-  color: var(--paper);
+  background: var(--surface);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 8px;
   font-size: 12px;
   outline: none;
 }
 .filter-select:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .filter-input {
-  background: var(--panel);
-  color: var(--paper);
+  background: var(--surface);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 8px;
   font-size: 12px;
   outline: none;
   width: 92px;
 }
 .filter-input:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .filter-input::placeholder {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 /* plan 过滤输入框（F-b）：plan id 比 tag/agent 长得多，给宽一点。 */
 .filter-input--plan {
@@ -845,19 +845,19 @@ onUnmounted(() => {
   font-size: 11px;
 }
 .recent-label {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .recent-plan {
   background: none;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--phosphor);
+  border-radius: var(--r-chip);
+  color: var(--accent);
   font-family: inherit;
   font-size: 11px;
   padding: 1px 6px;
 }
 .recent-plan:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .poll-hint {
   color: var(--line);
@@ -865,14 +865,14 @@ onUnmounted(() => {
   transition: color 0.2s;
 }
 .poll-hint--on {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
 .error {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 12px;
   word-break: break-word;
@@ -880,7 +880,7 @@ onUnmounted(() => {
 
 .table {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: visible;
 }
 .thead,
@@ -892,11 +892,11 @@ onUnmounted(() => {
   padding: 9px 14px;
 }
 .thead {
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
   font-size: 11px;
   letter-spacing: 0.06em;
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
 }
 .trow {
@@ -908,7 +908,7 @@ onUnmounted(() => {
   border-bottom: none;
 }
 .trow:hover {
-  background: var(--panel);
+  background: var(--surface);
 }
 /* job cell: title (primary) stacked over short-id (secondary). When a job has no
    title only the short-id shows, so the row reads the same as before. */
@@ -923,22 +923,22 @@ onUnmounted(() => {
 }
 .col-job:hover .job-title,
 .col-job:hover .job-id {
-  color: var(--phosphor);
+  color: var(--accent);
   text-decoration: underline;
 }
 .col-job:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--phosphor) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
   outline: none;
 }
 .job-title {
-  color: var(--paper);
+  color: var(--ink);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .job-id {
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -963,9 +963,9 @@ onUnmounted(() => {
 }
 .tag-chip {
   font-size: 10px;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 5px;
   line-height: 15px;
   max-width: 100%;
@@ -975,9 +975,9 @@ onUnmounted(() => {
 }
 .job-badge {
   font-size: 10px;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 5px;
   line-height: 15px;
   max-width: 100%;
@@ -986,11 +986,11 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .job-badge--chan {
-  color: var(--paper);
+  color: var(--ink);
 }
 .job-badge--ro {
-  color: var(--warn, var(--phosphor));
-  border-color: var(--warn, var(--phosphor));
+  color: var(--warn, var(--accent));
+  border-color: var(--warn, var(--accent));
 }
 /* 验证失败徽标（SUP-01 P2）：一行 failed 里最容易被忽略的失败原因——agent 干完了但验收没过。 */
 .job-badge--verify {
@@ -998,21 +998,21 @@ onUnmounted(() => {
   border-color: var(--fail);
 }
 .job-badge--xfer {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .job-badge--waiting {
   color: var(--run);
   border-color: var(--run);
 }
 .col-proj {
-  color: var(--paper);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .col-agent {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 /* runner cell: runner name (primary) stacked over worker_id (secondary) when a
    runner=worker job ran on a specific worker, so "where it ran" is visible. */
@@ -1021,7 +1021,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 1px;
   min-width: 0;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .runner-name,
 .runner-worker {
@@ -1031,11 +1031,11 @@ onUnmounted(() => {
 }
 .runner-worker {
   font-size: 10px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 /* Remote runners (peer-http / worker) stand out so "where it ran" is visible. */
 .col-runner.remote .runner-name {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .col-signal {
   display: inline-flex;
@@ -1047,14 +1047,14 @@ onUnmounted(() => {
   color: var(--run);
 }
 .col-time {
-  color: var(--queue);
+  color: var(--ink-3);
   text-align: right;
   white-space: nowrap;
 }
 .empty {
   padding: 28px 14px;
   text-align: center;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 13px;
 }
 .pager {
@@ -1064,22 +1064,22 @@ onUnmounted(() => {
   gap: 10px;
   margin-top: 10px;
   font-size: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .pager-btn {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 12px;
 }
 .pager-btn:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .pager-btn:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
   cursor: default;
   opacity: 0.65;
 }
@@ -1177,7 +1177,7 @@ onUnmounted(() => {
   .col-time::before {
     content: ' · ';
     white-space: pre;
-    color: var(--queue);
+    color: var(--ink-3);
   }
   .col-signal,
   .col-runner {
@@ -1260,7 +1260,7 @@ onUnmounted(() => {
 .board--embedded .col-time::before {
   content: ' · ';
   white-space: pre;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .board--embedded .col-signal,
 .board--embedded .col-runner {

@@ -245,12 +245,12 @@ onMounted(() => {
 .page-head h1 {
   margin: 0 0 4px;
   font-size: var(--fs-xl);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 0;
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .toggle-row,
@@ -270,7 +270,7 @@ onMounted(() => {
 }
 .list-head strong {
   font-size: var(--fs-sm);
-  color: var(--fg);
+  color: var(--ink);
 }
 
 .toggle-row {
@@ -291,7 +291,7 @@ onMounted(() => {
 }
 .toggle-row .tx span {
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .pill {
@@ -300,7 +300,7 @@ onMounted(() => {
   border-radius: 999px;
   padding: 2px 10px;
   border: 1px solid var(--line);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .pill--ok {
   color: var(--accent);
@@ -308,7 +308,7 @@ onMounted(() => {
   background: var(--accent-soft);
 }
 .pill--idle {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .actions {
@@ -323,7 +323,7 @@ onMounted(() => {
   font: inherit;
   font-size: var(--fs-sm);
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
 }
 .btn:hover:not(:disabled) {
   border-color: var(--line-strong);
@@ -362,7 +362,7 @@ onMounted(() => {
 }
 
 .muted {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 
@@ -380,7 +380,7 @@ onMounted(() => {
   padding: 12px;
 }
 .endpoint {
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
   overflow-wrap: anywhere;
 }
@@ -392,7 +392,7 @@ onMounted(() => {
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 8px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 

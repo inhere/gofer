@@ -196,9 +196,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   max-width: 520px;
   max-height: 90vh;
   overflow: auto;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -211,23 +211,23 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   gap: 12px;
 }
 .md-title {
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 13px;
   letter-spacing: 0.06em;
 }
 .md-x,
 .md-btn {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 12px;
   font-size: 12px;
 }
 .md-x:hover:not(:disabled),
 .md-btn:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .md-x:disabled,
 .md-btn:disabled {
@@ -235,19 +235,19 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   cursor: default;
 }
 .md-btn--go {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .md-summary {
   margin: 0;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
   line-height: 1.6;
   word-break: break-word;
 }
 .md-group {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0;
   display: flex;
@@ -255,7 +255,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   gap: 6px;
 }
 .md-label {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   margin: 0;
 }
@@ -263,18 +263,18 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
 }
 .md-note {
   margin: 0;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   line-height: 1.5;
 }
 .md-fail {
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
 }
 .md-err {
@@ -288,12 +288,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   margin: 0;
   padding-left: 18px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
   word-break: break-all;
 }
 .md-raw {
   margin: 0;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   word-break: break-word;
 }

@@ -323,16 +323,16 @@ function fmtTime(v: number | undefined): string {
 <style scoped>
 .icard {
   border: 1px solid var(--line);
-  border-left: 2px solid var(--phosphor);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-chip);
+  background: var(--surface);
   padding: 12px 14px;
   margin-bottom: 10px;
   animation: icard-slide 0.22s ease-out;
 }
 .icard--answered {
   opacity: 0.6;
-  border-left-color: var(--queue);
+  border-left-color: var(--ink-3);
 }
 
 .icard-head {
@@ -344,11 +344,11 @@ function fmtTime(v: number | undefined): string {
   margin-bottom: 6px;
 }
 .icard-type {
-  color: var(--phosphor);
+  color: var(--accent);
   text-transform: uppercase;
 }
 .icard-id {
-  color: var(--queue);
+  color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -356,7 +356,7 @@ function fmtTime(v: number | undefined): string {
 
 .icard-prompt {
   margin: 0 0 10px;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 13px;
   line-height: 1.5;
   word-break: break-word;
@@ -365,17 +365,17 @@ function fmtTime(v: number | undefined): string {
 .icard-done {
   margin: 0;
   font-size: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .icard-answer {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .icard-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin: 6px 0 0;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .icard-mark {
@@ -403,20 +403,20 @@ function fmtTime(v: number | undefined): string {
   font-size: 12px;
 }
 .icard-kind {
-  border: 1px solid var(--phosphor);
+  border: 1px solid var(--accent);
   border-radius: 9px;
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 10px;
   letter-spacing: 0.06em;
   padding: 0 6px;
   text-transform: uppercase;
 }
 .icard-tool-title {
-  color: var(--paper);
+  color: var(--ink);
   word-break: break-word;
 }
 .icard-tool-path {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   word-break: break-all;
 }
@@ -427,8 +427,8 @@ function fmtTime(v: number | undefined): string {
   overflow: auto;
   background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--queue);
+  border-radius: var(--r-chip);
+  color: var(--ink-3);
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-all;
@@ -436,7 +436,7 @@ function fmtTime(v: number | undefined): string {
 .icard-label {
   font-size: 11px;
   letter-spacing: 0.06em;
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
 }
 .icard-row {
@@ -447,15 +447,15 @@ function fmtTime(v: number | undefined): string {
 .icard-input {
   flex: 1;
   min-width: 0;
-  background: var(--term-bg);
-  color: var(--paper);
+  background: var(--log-bg);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 10px;
   font-size: 12px;
 }
 .icard-input:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .icard-input:disabled {
   opacity: 0.5;
@@ -471,32 +471,32 @@ function fmtTime(v: number | undefined): string {
 
 .icard-btn {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 5px 14px;
   font-size: 12px;
   flex: none;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .icard-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .icard-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 .icard-btn--primary {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .icard-btn--primary:hover:not(:disabled) {
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--bg);
 }
 .icard-btn--ghost {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .icard-footer {
   display: flex;
@@ -506,7 +506,7 @@ function fmtTime(v: number | undefined): string {
 .icard-punt {
   background: transparent;
   border: none;
-  color: var(--queue);
+  color: var(--ink-3);
   padding: 0;
   font-size: 11px;
 }

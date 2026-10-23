@@ -530,8 +530,8 @@ onMounted(() => {
   flex-direction: column;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--term-bg);
+  border-radius: var(--r-chip);
+  background: var(--log-bg);
   overflow: hidden;
 }
 .pane-head {
@@ -540,7 +540,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 6px 8px;
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -556,9 +556,9 @@ onMounted(() => {
   align-items: center;
   gap: 6px;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: 11px;
   font-weight: 700;
@@ -567,31 +567,31 @@ onMounted(() => {
   text-transform: uppercase;
 }
 .tab:hover {
-  color: var(--paper);
+  color: var(--ink);
   border-color: var(--line);
 }
 .tab--active {
-  color: var(--phosphor);
+  color: var(--accent);
   border-color: var(--line);
-  background: var(--ink);
+  background: var(--bg);
 }
 .tab--stderr.tab--active {
   color: var(--fail);
 }
 .tab-count {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 10px;
   min-width: 14px;
   text-align: center;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 4px;
   line-height: 14px;
 }
 .tab-new {
   background: var(--run);
-  color: var(--ink);
-  border-radius: var(--radius);
+  color: var(--bg);
+  border-radius: var(--r-chip);
   padding: 0 5px;
   line-height: 14px;
   font-size: 10px;
@@ -608,14 +608,14 @@ onMounted(() => {
   justify-content: space-between;
   gap: 10px;
   padding: 6px 8px;
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
   font-size: 11px;
 }
 .log-scope {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .log-action-buttons {
   display: inline-flex;
@@ -626,15 +626,15 @@ onMounted(() => {
 }
 .log-action {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 10px;
   font-size: 11px;
 }
 .log-action:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .log-action:disabled {
   opacity: 0.5;
@@ -666,7 +666,7 @@ onMounted(() => {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.45;
-  color: var(--paper);
+  color: var(--ink);
 }
 .log-text :deep(.log-line) {
   display: block;
@@ -675,7 +675,7 @@ onMounted(() => {
   font-weight: 700;
 }
 .log-text :deep(.ansi-fg-gray) {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .log-text :deep(.ansi-fg-red) {
   color: var(--fail);
@@ -696,11 +696,11 @@ onMounted(() => {
   color: #62d9d3;
 }
 .log-text :deep(.ansi-fg-white) {
-  color: var(--paper);
+  color: var(--ink);
 }
 .log-md {
-  color: var(--paper);
-  font-family: var(--font-sans, system-ui, sans-serif);
+  color: var(--ink);
+  font-family: var(--font-ui, system-ui, sans-serif);
   font-size: 13px;
   line-height: 1.55;
   white-space: normal;
@@ -709,7 +709,7 @@ onMounted(() => {
 .log-md :deep(h2),
 .log-md :deep(h3),
 .log-md :deep(h4) {
-  color: var(--paper);
+  color: var(--ink);
   line-height: 1.3;
   margin: 1em 0 0.5em;
 }
@@ -719,11 +719,11 @@ onMounted(() => {
   margin: 0.5em 0;
 }
 .log-md :deep(a) {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 /* inline code：加发丝边框 + 暖色前景，确保在 --term-bg 终端底（两种主题）都清晰可辨。 */
 .log-md :deep(code) {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 3px;
   color: var(--run);
@@ -732,9 +732,9 @@ onMounted(() => {
   padding: 0 5px;
 }
 .log-md :deep(pre) {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: auto;
   padding: 10px 12px;
 }
@@ -749,9 +749,9 @@ onMounted(() => {
   bottom: 12px;
   right: 12px;
   background: var(--run);
-  color: var(--ink);
+  color: var(--bg);
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 11px;
   font-weight: 600;

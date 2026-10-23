@@ -21,7 +21,7 @@ const isBeating = computed(() => props.beat === 'connected' || props.beat === 's
 // 心跳态 -> 颜色 token：connected=phosphor，stale=amber(run)，flatline=fail。
 const color = computed(() => {
   if (props.beat === 'connected') {
-    return 'var(--phosphor)'
+    return 'var(--accent)'
   }
   if (props.beat === 'stale') {
     return 'var(--run)'

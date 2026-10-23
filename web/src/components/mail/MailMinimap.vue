@@ -71,7 +71,7 @@ function label(mk: MailMinimapMark): string {
   padding: 0;
   border: 0;
   border-radius: 2px;
-  background: var(--fg-3);
+  background: var(--ink-3);
   cursor: pointer;
   opacity: 0.85;
 }
@@ -82,7 +82,7 @@ function label(mk: MailMinimapMark): string {
   outline: none;
 }
 .minimap-mark--in {
-  background: var(--fg-3);
+  background: var(--ink-3);
 }
 .minimap-mark--out {
   background: var(--run);

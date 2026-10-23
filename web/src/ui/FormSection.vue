@@ -36,12 +36,12 @@ defineProps<{
 .lead h2 {
   font-size: var(--fs-md);
   margin: 0 0 4px;
-  color: var(--fg);
+  color: var(--ink);
 }
 .lead p {
   margin: 0;
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .body {
   min-width: 0;

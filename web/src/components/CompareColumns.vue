@@ -304,10 +304,10 @@ const hint = computed(() => {
 }
 .cmp-hint {
   font-size: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .cmp-hint--attn {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .cmp-hint--ok {
   color: var(--done);
@@ -315,14 +315,14 @@ const hint = computed(() => {
 .cmp-link {
   margin-left: auto;
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: 12px;
 }
 .cmp-link:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .cmp-tabs,
 .cmp-pager {
@@ -336,8 +336,8 @@ const hint = computed(() => {
 }
 .col {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-chip);
+  background: var(--surface);
   padding: 10px;
   min-width: 0;
   display: flex;
@@ -357,20 +357,20 @@ const hint = computed(() => {
   flex-wrap: wrap;
 }
 .col-agent {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 14px;
   font-weight: 600;
 }
 .col-fan,
 .col-pending {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .col-badge {
   font-size: 11px;
-  color: var(--ink);
+  color: var(--bg);
   background: var(--done);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 6px;
 }
 .col-meta {
@@ -386,11 +386,11 @@ const hint = computed(() => {
   gap: 8px;
 }
 .col-row dt {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .col-row dd {
   margin: 0;
-  color: var(--paper);
+  color: var(--ink);
   word-break: break-all;
 }
 .vr--passed {
@@ -403,24 +403,24 @@ const hint = computed(() => {
 .col-diffsum,
 .col-tail {
   margin: 0;
-  background: var(--term-bg);
+  background: var(--log-bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 8px;
   font-size: 11px;
-  color: var(--paper);
+  color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 150px;
   overflow: auto;
 }
 .col-tail {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .col-none {
   margin: 0;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .col-error {
   margin: 0;
@@ -435,23 +435,23 @@ const hint = computed(() => {
 }
 .btn {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 12px;
 }
 .btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
 .btn--go {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .col-diff {
   min-width: 0;
@@ -472,15 +472,15 @@ const hint = computed(() => {
   .cmp-tab {
     flex: 0 0 auto;
     background: transparent;
-    color: var(--queue);
+    color: var(--ink-3);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
+    border-radius: var(--r-chip);
     padding: 4px 10px;
     font-size: 12px;
   }
   .cmp-tab--on {
-    color: var(--phosphor);
-    border-color: var(--phosphor);
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .cmp-grid {
     display: block;
@@ -495,7 +495,7 @@ const hint = computed(() => {
     gap: 14px;
     margin-top: 8px;
     font-size: 12px;
-    color: var(--queue);
+    color: var(--ink-3);
   }
 }
 </style>

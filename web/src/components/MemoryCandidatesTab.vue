@@ -81,7 +81,7 @@ function statusLabel(c: MemoryCandidate): string {
 
 <style scoped>
 .mc-note {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   margin: 0 0 8px;
 }
@@ -116,15 +116,15 @@ function statusLabel(c: MemoryCandidate): string {
 .mc-btn {
   font-size: 11px;
   padding: 2px 8px;
-  border: 1px solid var(--phosphor);
+  border: 1px solid var(--accent);
   background: transparent;
-  color: var(--phosphor);
-  border-radius: var(--radius);
+  color: var(--accent);
+  border-radius: var(--r-chip);
   cursor: pointer;
 }
 .mc-btn--ghost {
   border-color: var(--line);
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .mc-btn:disabled {
   opacity: 0.5;
@@ -135,7 +135,7 @@ function statusLabel(c: MemoryCandidate): string {
   font-size: 11px;
 }
 .mc-done {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 </style>

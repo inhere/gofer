@@ -16,7 +16,7 @@ body {
 
 body {
   background: var(--bg);
-  color: var(--fg);
+  color: var(--ink);
   font-family: var(--font-ui);
   font-size: var(--fs-md);
   line-height: 1.5;
@@ -58,13 +58,13 @@ html {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--fg-3);
+  background: var(--ink-3);
   background-clip: content-box;
 }
 
 ::selection {
   background: var(--accent-soft);
-  color: var(--fg);
+  color: var(--ink);
 }
 
 code,

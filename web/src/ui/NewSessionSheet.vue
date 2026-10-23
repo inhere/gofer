@@ -236,7 +236,7 @@ if (open.value) void loadMeta()
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .ns-field--wide {
@@ -248,7 +248,7 @@ if (open.value) void loadMeta()
   min-width: 0;
   padding: 6px 7px;
   background: var(--surface-2);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -308,7 +308,7 @@ if (open.value) void loadMeta()
 }
 .ns-cancel {
   background: transparent;
-  color: var(--fg-2);
+  color: var(--ink-2);
   border: 1px solid var(--line);
 }
 .ns-submit {

@@ -90,7 +90,7 @@ h4 {
   margin: 0;
   font-size: var(--fs-xs);
   font-weight: 500;
-  color: var(--fg-3);
+  color: var(--ink-3);
   display: flex;
   gap: 6px;
   align-items: baseline;
@@ -104,7 +104,7 @@ h4 {
 }
 .tot {
   margin-left: auto;
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
 }
 .err {
@@ -135,7 +135,7 @@ h4 {
 }
 .l {
   display: block;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   line-height: 1.2;
   margin-top: 2px;

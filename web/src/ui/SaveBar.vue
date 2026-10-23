@@ -69,7 +69,7 @@ const unsaved = computed(() => props.unsavedText || t('settings.unsaved'))
 .save-bar .muted {
   margin-right: auto;
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .btn {
   border: 1px solid var(--line);
@@ -78,7 +78,7 @@ const unsaved = computed(() => props.unsavedText || t('settings.unsaved'))
   font: inherit;
   font-size: var(--fs-sm);
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
 }
 .btn:hover:not(:disabled) {
   border-color: var(--line-strong);

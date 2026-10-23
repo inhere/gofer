@@ -123,42 +123,42 @@ onBeforeUnmount(() => clearTimeout(doneTimer))
 .qc-wrap { position: relative; display: inline-flex; align-items: center; }
 .qc-btn {
   display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; font-size: 12px; line-height: 1.2;
-  background: transparent; border: 1px solid var(--line); border-radius: var(--radius); color: var(--queue); white-space: nowrap; cursor: pointer;
+  background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); color: var(--ink-3); white-space: nowrap; cursor: pointer;
 }
-.qc-btn:hover, .qc-btn[aria-expanded='true'] { border-color: var(--phosphor); color: var(--paper); }
-.qc-btn:focus-visible, .qc-kind:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+.qc-btn:hover, .qc-btn[aria-expanded='true'] { border-color: var(--accent); color: var(--ink); }
+.qc-btn:focus-visible, .qc-kind:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .qc-scrim { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.25); }
 .qc-panel {
   position: fixed; z-index: 61; top: 48px; right: 14px; width: min(380px, calc(100vw - 28px));
   display: flex; flex-direction: column; gap: 10px; padding: 12px;
-  background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--phosphor);
-  border-radius: var(--radius); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  background: var(--surface); border: 1px solid var(--line); border-top: 2px solid var(--accent);
+  border-radius: var(--r-chip); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 .qc-text, .qc-proj {
-  width: 100%; box-sizing: border-box; padding: 7px 9px; color: var(--paper); background: var(--term-bg);
-  border: 1px solid var(--line); border-radius: var(--radius); font: inherit; font-size: 13px; line-height: 1.5; resize: vertical;
+  width: 100%; box-sizing: border-box; padding: 7px 9px; color: var(--ink); background: var(--log-bg);
+  border: 1px solid var(--line); border-radius: var(--r-chip); font: inherit; font-size: 13px; line-height: 1.5; resize: vertical;
 }
-.qc-text:focus, .qc-proj:focus { outline: none; border-color: var(--phosphor); }
-.qc-kinds { display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.qc-kind { flex: 1; padding: 6px 4px; font-size: 12px; color: var(--queue); background: transparent; border: 0; border-right: 1px solid var(--line); cursor: pointer; }
+.qc-text:focus, .qc-proj:focus { outline: none; border-color: var(--accent); }
+.qc-kinds { display: flex; border: 1px solid var(--line); border-radius: var(--r-chip); overflow: hidden; }
+.qc-kind { flex: 1; padding: 6px 4px; font-size: 12px; color: var(--ink-3); background: transparent; border: 0; border-right: 1px solid var(--line); cursor: pointer; }
 .qc-kind:last-child { border-right: 0; }
-.qc-kind.on { color: var(--paper); background: color-mix(in srgb, var(--phosphor) 18%, transparent); }
+.qc-kind.on { color: var(--ink); background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .qc-error { margin: 0; font-size: 12px; color: var(--fail); overflow-wrap: anywhere; }
 .qc-actions { display: flex; gap: 8px; }
-.qc-submit, .qc-cancel { padding: 5px 14px; font-size: 12px; color: var(--paper); background: transparent; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }
-.qc-submit { border-color: var(--phosphor); color: var(--phosphor); font-weight: 600; }
+.qc-submit, .qc-cancel { padding: 5px 14px; font-size: 12px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); cursor: pointer; }
+.qc-submit { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .qc-submit:disabled, .qc-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
 .qc-toast {
   position: fixed; z-index: 70; right: 18px; bottom: 18px; display: flex; align-items: center; gap: 12px;
-  padding: 10px 14px; font-size: 12px; color: var(--paper); background: var(--panel);
-  border: 1px solid var(--done); border-radius: var(--radius); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  padding: 10px 14px; font-size: 12px; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--done); border-radius: var(--r-chip); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
-.qc-toast-link { color: var(--phosphor); text-decoration: underline; }
-.qc-toast-x { background: none; border: 0; color: var(--queue); cursor: pointer; font-size: 14px; }
+.qc-toast-link { color: var(--accent); text-decoration: underline; }
+.qc-toast-x { background: none; border: 0; color: var(--ink-3); cursor: pointer; font-size: 14px; }
 @media (max-width: 768px) {
   .qc-label { display: none; }
   .qc-btn { padding: 4px 10px; font-size: 14px; }
-  .qc-panel { top: auto; right: 0; bottom: 0; left: 0; width: auto; border-radius: var(--radius) var(--radius) 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .qc-panel { top: auto; right: 0; bottom: 0; left: 0; width: auto; border-radius: var(--r-chip) var(--r-chip) 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
   .qc-text, .qc-proj { font-size: 16px; }
   .qc-kind { padding: 10px 4px; font-size: 14px; }
   .qc-submit, .qc-cancel { padding: 10px 18px; font-size: 14px; }

@@ -468,12 +468,12 @@ onMounted(() => {
 .page-head h1 {
   margin: 0 0 4px;
   font-size: var(--fs-xl);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 0;
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .grid {
@@ -496,12 +496,12 @@ onMounted(() => {
 }
 .field .lab {
   font-weight: 500;
-  color: var(--fg);
+  color: var(--ink);
 }
 .field input,
 .field select {
   min-width: 0;
-  color: var(--fg);
+  color: var(--ink);
   background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
@@ -514,7 +514,7 @@ onMounted(() => {
   align-items: flex-start;
   gap: 8px;
   font-size: var(--fs-sm);
-  color: var(--fg);
+  color: var(--ink);
   margin-bottom: 10px;
 }
 .check input {
@@ -524,7 +524,7 @@ onMounted(() => {
 .muted {
   margin: 0 0 10px;
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
   line-height: 1.6;
 }
 .ok {
@@ -540,7 +540,7 @@ onMounted(() => {
 .status-line {
   margin: 0 0 10px;
   font-size: var(--fs-sm);
-  color: var(--fg);
+  color: var(--ink);
 }
 .msg {
   margin: 0 0 8px;
@@ -569,7 +569,7 @@ onMounted(() => {
   padding: 7px 12px;
   font: inherit;
   font-size: var(--fs-sm);
-  color: var(--fg);
+  color: var(--ink);
   background: transparent;
 }
 .btn--primary {

@@ -146,7 +146,7 @@ const todoID = computed(() => job.value?.todo_id ?? '')
 }
 .ctx-sec h3 {
   margin: 0 0 var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -160,11 +160,11 @@ const todoID = computed(() => job.value?.todo_id ?? '')
   font-size: var(--fs-sm);
 }
 .kv dt {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .kv dd {
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
   min-width: 0;
 }
 .num {
@@ -208,14 +208,14 @@ const todoID = computed(() => job.value?.todo_id ?? '')
   background: none;
   border: 0;
   border-radius: var(--r-chip);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font: inherit;
   font-size: var(--fs-sm);
   cursor: pointer;
 }
 .seg button.on {
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   box-shadow: var(--shadow-1);
 }
 .seg button:focus-visible {
@@ -243,7 +243,7 @@ const todoID = computed(() => job.value?.todo_id ?? '')
 .job-status {
   flex: none;
   margin-left: auto;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .files {
@@ -254,28 +254,28 @@ const todoID = computed(() => job.value?.todo_id ?? '')
   flex-direction: column;
   gap: 3px;
   font-size: var(--fs-xs);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .ctx-empty {
   margin: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .ctx-note {
   margin: var(--s1) 0 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .ctx-line {
   margin: var(--s1) 0 0;
   font-size: var(--fs-sm);
-  color: var(--fg-2);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ctx-key {
-  color: var(--fg-3);
+  color: var(--ink-3);
   margin-right: var(--s1);
 }
 </style>

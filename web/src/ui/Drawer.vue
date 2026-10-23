@@ -111,7 +111,7 @@ const onKeydown = useOverlayBehavior(open, { panel })
 .dw-title {
   margin: 0;
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -123,12 +123,12 @@ const onKeydown = useOverlayBehavior(open, { panel })
   background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font: inherit;
   cursor: pointer;
 }
 .dw-close:hover {
-  color: var(--fg);
+  color: var(--ink);
   border-color: var(--line-strong);
 }
 .dw-close:focus-visible {
