@@ -116,13 +116,20 @@ describe('TodayLanes component', () => {
     expect(lanesVue).toContain('router.push(laneTarget(l))')
   })
 
-  it('stacks into three lines on a phone without horizontal scroll', () => {
-    expect(rowVue).toContain('@media (max-width: 760px)')
-    expect(rowVue).toContain("grid-template-areas: 'd t n' '. p p' '. a h'")
-    expect(rowVue).toContain('grid-template-columns: 10px minmax(0, 1fr) auto')
+  it('puts the title on its own line and the status marks on a second one (gofer-hez1)', () => {
+    // 两行：第一行「点 + 标题/项目」，第二行「agent / 点阵 / 当前步骤 / 健康度 / 用时」。
+    // 原来 6 列挤在一行，右栏只有 ~340px，标题只剩 4–5 个字，红色「停滞」还压在点阵上。
+    expect(rowVue).toContain("'d t'")
+    expect(rowVue).toContain("'s s'")
+    expect(rowVue).toContain('grid-template-columns: 10px minmax(0, 1fr)')
+    // 点阵与健康度各自固定宽度、不重叠
+    expect(rowVue).toMatch(/\.pips \{[^}]*flex: 0 0 auto/)
+    expect(rowVue).toMatch(/\.hl \{[^}]*flex: 0 0 auto/)
+    // 标题全文放 title，截断后可以悬停看
+    expect(rowVue).toContain(':title="lane.title"')
     // every text cell can shrink and ellipsize instead of widening the row
-    for (const sel of ['.t b', '.ag', '.cur']) {
-      expect(rowVue).toMatch(new RegExp(`${sel.replace('.', '\\.')} \\{[^}]*text-overflow: ellipsis`))
+    for (const sel of ['.t b', '.t .proj', '.ag', '.cur']) {
+      expect(rowVue).toMatch(new RegExp(`${sel.replace(/\./g, '\\.')} \\{[^}]*text-overflow: ellipsis`))
     }
   })
 })

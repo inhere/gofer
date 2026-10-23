@@ -13,6 +13,7 @@
 
 ### 修复
 
+- **今天页右栏「并行中」的行排版（gofer-hez1）**：右栏只有 ~340px，原来 6 列挤在一行，标题只剩 4–5 个字、红色「停滞」压在进度点阵上。改成两行：第一行状态点 + 标题与项目（独占整行，超出省略号，悬停给全文），第二行 agent / 点阵 / 当前步骤 / 健康度 / 用时；点阵与健康度固定宽度，不再重叠。桌面与手机宽度相同结构。
 - **侧栏「节点 N/M 在线」把已连接的 worker 算成离线（gofer-hez1）**：worker 的在线值是 `connected`（local / peer-http 才是 `up`），侧栏摘要只判 `up`，于是 4 个已连接 worker + server 本机显示成 1/5。在线口径统一到 `utils/runners.runnerOnline`，侧栏摘要与一键更新弹层都用它，与运行节点页一致。
 - **Web 漏译的文案 key（gofer-hez1）**：运行节点页的工作目录折叠区显示原始 key `runners.dirs.title`，会话抽屉的「空闲」状态与「已接管 →」后的 job 链接同样漏 key；三处 zh / en 一并补齐。新增 `web/src/i18n/i18nKeyUsage.test.ts`：扫描 `web/src` 里 `t('字面量')` 的 key，必须同时存在于 zh 与 en 字典（动态拼接的 key 不在范围内），以后再漏 key 直接测试失败。
 
