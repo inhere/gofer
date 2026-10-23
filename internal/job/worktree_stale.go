@@ -152,7 +152,7 @@ func (s *Service) sweepProjectTempCheckouts(ctx context.Context, projectKey, top
 			continue
 		}
 		id, ok := tempCheckoutJobID(nameRe, ent.Name())
-		if !ok || s.jobActive(id) {
+		if !ok || !s.sweepableCheckoutOwner(id) {
 			continue
 		}
 		path := filepath.Join(root, ent.Name())
@@ -298,6 +298,27 @@ func checkoutBranch(ctx context.Context, path string) (string, bool) {
 // jobActive reports whether id names a job that may still be using a checkout: an
 // in-process entry that has not finished, or a stored row in a non-terminal state. A
 // stored row in `recovering` counts as active too — its worker may still be running it.
+// generatedJobIDRe is the shape of an id gofer generates itself (job-<date>-<time>-<hex>).
+var generatedJobIDRe = regexp.MustCompile(`^job-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$`)
+
+// sweepableCheckoutOwner reports whether the directory named after id may be swept: only a
+// checkout that provably belongs to a FINISHED job. A `{name}` template matches every
+// directory name, so a name that is not a job of ours (a release build's own
+// `.worktrees/rel-vX` checkout, a hand-made detached worktree) must never be read as one:
+// with no job row, only an id gofer itself generates counts (its row may have been pruned
+// while the directory survived); anything else is somebody else's checkout and is kept.
+func (s *Service) sweepableCheckoutOwner(id string) bool {
+	if entry := s.entry(id); entry != nil {
+		return IsFinished(entry.snapshot().Status)
+	}
+	if rec, ok, err := s.meta.GetJob(id); err == nil && ok {
+		return IsFinished(rec.Status)
+	} else if err != nil {
+		return false
+	}
+	return generatedJobIDRe.MatchString(id)
+}
+
 func (s *Service) jobActive(id string) bool {
 	if entry := s.entry(id); entry != nil {
 		return !IsFinished(entry.snapshot().Status)

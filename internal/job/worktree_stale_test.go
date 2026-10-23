@@ -23,9 +23,10 @@ func TestSweepStaleTempCheckouts(t *testing.T) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// One real (registered) temporary checkout and one plain stale directory.
-	gitOutIn(t, repo, "worktree", "add", "--detach", filepath.Join(root, "job-stale"), head)
-	if err := os.MkdirAll(filepath.Join(root, "job-plain"), 0o755); err != nil {
+	// One real (registered) temporary checkout and one plain stale directory, both named
+	// after gofer-generated job ids whose rows are gone (pruned): leftovers of ours.
+	gitOutIn(t, repo, "worktree", "add", "--detach", filepath.Join(root, "job-20261022-100000-0000aaaa"), head)
+	if err := os.MkdirAll(filepath.Join(root, "job-20261022-100000-0000bbbb"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// A live job owns this one: its row is still running, so it must survive.
@@ -42,14 +43,14 @@ func TestSweepStaleTempCheckouts(t *testing.T) {
 	if n := s.SweepStaleTempCheckouts(t.Context()); n != 2 {
 		t.Fatalf("swept %d checkout(s), want 2 (the stale ones only)", n)
 	}
-	if isDir(filepath.Join(root, "job-stale")) || isDir(filepath.Join(root, "job-plain")) {
+	if isDir(filepath.Join(root, "job-20261022-100000-0000aaaa")) || isDir(filepath.Join(root, "job-20261022-100000-0000bbbb")) {
 		t.Fatal("a stale checkout survived the sweep")
 	}
 	if !isDir(live) {
 		t.Fatal("the sweep removed a running job's checkout")
 	}
 	// The worked-up repo must not still list the removed checkout.
-	if out := gitOutIn(t, repo, "worktree", "list", "--porcelain"); strings.Contains(out, filepath.Join(root, "job-stale")) {
+	if out := gitOutIn(t, repo, "worktree", "list", "--porcelain"); strings.Contains(out, filepath.Join(root, "job-20261022-100000-0000aaaa")) {
 		t.Fatalf("worktree list still names the swept checkout:\n%s", out)
 	}
 	// Once the job's row is terminal, its checkout is stale too.
@@ -235,6 +236,12 @@ func TestSweepStaleTempCheckoutsDoesNotFollowLinks(t *testing.T) {
 
 	path := filepath.Join(root, "job-linked")
 	gitOutIn(t, repo, "worktree", "add", "--detach", path, head)
+	// The checkout belongs to a finished job (the sweep only touches a job of ours).
+	if err := s.meta.UpsertJob(jobstore.JobRecord{
+		ID: "job-linked", Status: StatusFailed, Cwd: ".", ResultDir: filepath.Join(t.TempDir(), "l1"),
+	}); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
 	if err := createDirLink(outside, filepath.Join(path, "node_modules")); err != nil {
 		t.Fatalf("create dependency link: %v", err)
 	}
@@ -271,5 +278,38 @@ func TestCleanupTempWorktreeRetriesLockedDirectory(t *testing.T) {
 
 	if entry.wt != nil || entry.result.WorktreePath != "" {
 		t.Fatalf("the entry still advertises a checkout: wt=%v path=%q", entry.wt, entry.result.WorktreePath)
+	}
+}
+
+// TestSweepStaleTempCheckoutsKeepsForeignNames: with a `{name}` template every directory
+// name matches, so the sweep must not read an arbitrary name as a dead job. A release
+// build's detached `.worktrees/rel-v0.191.1` checkout was deleted mid-build that way
+// (2026-10-23). Only a finished job's row, or — row pruned — a gofer-generated job id,
+// makes a detached checkout sweepable.
+func TestSweepStaleTempCheckoutsKeepsForeignNames(t *testing.T) {
+	repo, head := gitRepo(t)
+	s := newWorktreeServiceWithProject(t, repo, t.TempDir(), func(p *config.ProjectConfig) {
+		p.Worktree = &config.ProjectWorktree{Dir: ".worktrees/{name}"}
+	})
+	root := filepath.Join(repo, ".worktrees")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	release := filepath.Join(root, "rel-v0.191.1")
+	gitOutIn(t, repo, "worktree", "add", "--detach", release, head)
+	manual := filepath.Join(root, "manual-check")
+	gitOutIn(t, repo, "worktree", "add", "--detach", manual, head)
+	// A gofer job id whose row was pruned: still a leftover of ours.
+	pruned := filepath.Join(root, "job-20261022-164100-0123abcd")
+	gitOutIn(t, repo, "worktree", "add", "--detach", pruned, head)
+
+	if n := s.SweepStaleTempCheckouts(t.Context()); n != 1 {
+		t.Fatalf("swept %d checkout(s), want 1 (the pruned job's leftover)", n)
+	}
+	if !isDir(release) || !isDir(manual) {
+		t.Fatalf("sweep removed a checkout gofer does not own (release=%v manual=%v)", isDir(release), isDir(manual))
+	}
+	if isDir(pruned) {
+		t.Fatalf("leftover of a pruned job %s survived the sweep", pruned)
 	}
 }
