@@ -605,6 +605,25 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 
 	tm.mark("worktree")
 
+	// `ref:` temp checkout: from here until the job's ENTRY owns it, every early return
+	// below must not leave it behind — the entry hands it to cleanupTempWorktree when the
+	// job ends, and a submit that stops before launching has no such owner (gofer-bgkk:
+	// those checkouts used to wait for the next startup sweep instead).
+	checkoutOwned := false
+	if wt != nil && wt.Temp {
+		defer func() {
+			if checkoutOwned {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+			defer cancel()
+			if rerr := removeTempCheckout(ctx, wt); rerr != nil {
+				slog.Warn("job.temp_checkout_left", "event", EventJobTempCheckoutLeft, "component", "job",
+					"job_id", jobID, "path", wt.Path, "err", rerr)
+			}
+		}()
+	}
+
 	// Marshal the original request for audit / re-submit. It rides along on the
 	// entry's result so every persist (queued/running/terminal) carries it into the
 	// jobs.request_json column (SP5: replaces the on-disk request.json file).
@@ -1352,6 +1371,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		stall:     stallSec,
 		dirWait:   dirWaitSec,
 	}, runReq, timeout)
+	// The entry owns the temporary checkout from now on: its finish path removes it.
+	checkoutOwned = true
 	tm.mark("dispatch")
 
 	snapshot := entry.snapshot()

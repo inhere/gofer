@@ -260,13 +260,15 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: reconciled %d orphan non-terminal job(s) left by a prior serve/worker\n", n)
 	}
 
-	// Temporary `ref:` checkouts are removed when their job ends; a crash or restart can
-	// leave one behind (design 2026-10-21 §一·3). Run the same cleanup here for anything no
-	// live job owns, after the orphan reconcile so a job that is about to be failed is
-	// already terminal (and its checkout therefore not skipped).
-	if n := cr.Jobs.SweepStaleTempCheckouts(context.Background()); n > 0 {
-		c.Printf("gofer: removed %d stale temporary checkout(s) left by a prior serve\n", n)
-	}
+	// Temporary `ref:` checkouts are removed when their job ends; a crash, a kill or a
+	// directory a process still held (Windows) can leave one behind (design 2026-10-21
+	// §一·3, gofer-bgkk). Run the same cleanup here for anything no live job owns, after the
+	// orphan reconcile so a job that is about to be failed is already terminal (and its
+	// checkout therefore not skipped) — then keep sweeping, so a removal that only failed
+	// because of a transient lock completes without waiting for the next restart.
+	stopTempSweep := make(chan struct{})
+	defer close(stopTempSweep)
+	startTempCheckoutSweepLoop(c, cr.Jobs, stopTempSweep)
 
 	// gofer-9b1b hold expiry: cancel the held jobs whose deadline passed — once now
 	// (holds that expired while serve was down end on boot), then every 30s. Started
@@ -623,6 +625,36 @@ func shutdownResidentSessions(jobs *job.Service) {
 // enough to keep an abandoned 256MB payload from sitting for a day, and cheap enough
 // (one indexed SELECT + one directory walk) to be irrelevant to the process.
 const xferPruneInterval = 10 * time.Minute
+
+// tempCheckoutSweepInterval is how often the stale `ref:` checkout sweeper runs. The
+// finish path removes a job's own temporary checkout; this loop only catches what a
+// crash, a kill or a locked directory left behind, so it is cheap and can be slow.
+const tempCheckoutSweepInterval = 10 * time.Minute
+
+// startTempCheckoutSweepLoop removes the leftover `ref:` temporary checkouts no live job
+// owns (gofer-bgkk): once now — a restart can leave one behind (design 2026-10-21 §一·3)
+// — and then on every tick, so a removal that failed only because a process still held the
+// directory is retried while this server keeps running. stop is closed when serve returns.
+func startTempCheckoutSweepLoop(c *gcli.Command, jobs *job.Service, stop <-chan struct{}) {
+	sweep := func() {
+		if n := jobs.SweepStaleTempCheckouts(context.Background()); n > 0 {
+			c.Printf("gofer: removed %d stale temporary checkout(s) left by a prior serve\n", n)
+		}
+	}
+	sweep()
+	go func() {
+		ticker := time.NewTicker(tempCheckoutSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				sweep()
+			}
+		}
+	}()
+}
 
 // startXferPruneLoop launches the transfer staging-area sweeper: it expires the
 // journal rows past their TTL, drops their staging directories and sweeps the orphan

@@ -1262,6 +1262,15 @@ const (
 	// path to the reason it was left alone (source missing, path already present, link
 	// refused). The job runs either way — this is the receipt, not a gate.
 	EventJobWorktreeLinks = "job.worktree_links"
+	// EventJobTempCheckoutLeft reports a `ref:` temporary checkout that survived its job
+	// (gofer-bgkk): {path, ref, error}. The finish path retried the removal and could not
+	// complete it (typically a Windows directory a process still holds), so the directory
+	// is left for the startup / periodic sweep (SweepStaleTempCheckouts).
+	EventJobTempCheckoutLeft = "job.temp_checkout_left"
+	// EventJobTempCheckoutSwept reports that the stale sweep removed the leftover
+	// temporary checkout of a finished job: {path, project} — the completion of an
+	// EventJobTempCheckoutLeft this machine could not finish when the job ended.
+	EventJobTempCheckoutSwept = "job.temp_checkout_swept"
 	// EventNotifyDropped is an end-notification gofer DROPPED instead of refusing the
 	// submit (gofer-3db4): {reason, target}. Only an internal producer may degrade —
 	// a scheduled run, a plan dispatch, a workflow step, a wakeup / auto-resume / rerun

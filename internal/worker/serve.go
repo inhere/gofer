@@ -79,6 +79,19 @@ func Serve(cl *Client, wc *config.WorkerConfig) error {
 		}
 	}()
 
+	// A `ref:` temporary checkout is removed when its job ends; a crash, a kill or a
+	// directory a process still held (Windows) can leave one behind, and only THIS machine
+	// can see and delete it (gofer-bgkk). The worker runs its own job service, so the stale
+	// sweep has to run here as well — the hub's sweep sees the hub's filesystem.
+	if sw, ok := cl.jobs.(interface {
+		SweepStaleTempCheckouts(context.Context) int
+	}); ok {
+		if n := sw.SweepStaleTempCheckouts(context.Background()); n > 0 {
+			slog.Info("worker.temp_checkout_swept", "event", "worker.temp_checkout_swept", "component", "worker",
+				"worker_id", wc.WorkerID, "count", n)
+		}
+	}
+
 	slog.Info("worker.starting", "event", "worker.starting", "component", "worker", "worker_id", wc.WorkerID, "urls", wc.ServerLink.URLs,
 		"labels", wc.Labels, "max_concurrent", wc.MaxConcurrent)
 	err := cl.Run(ctx)

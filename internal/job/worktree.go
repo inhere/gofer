@@ -40,6 +40,14 @@ const (
 	worktreeTimeout = 60 * time.Second
 	// worktreeDefaultRef 是请求未给 --worktree-base 时的基线 ref：当前 HEAD。
 	worktreeDefaultRef = "HEAD"
+	// tempCheckoutAttempts / tempCheckoutRetryDelay 是 `ref:` 临时检出的删除重试：
+	// Windows 在作业进程退出后仍可能短暂持有目录里的句柄，第一次 `worktree remove`
+	// 失败往往几百毫秒后就能成功（曾因此把目录连同 git 登记一起留给了下次清扫）。
+	tempCheckoutAttempts   = 3
+	tempCheckoutRetryDelay = 300 * time.Millisecond
+	// tempCheckoutShutdownTimeout 是停机期间删临时检出的预算：进程要尽快退出，删不掉的
+	// 留给下次启动的清扫，绝不为了它拖住 shutdown。
+	tempCheckoutShutdownTimeout = 15 * time.Second
 )
 
 // 导出给 worktree job 的环境变量（值见 worktreeRef）。agent 侧据此知道"我在受管
@@ -976,13 +984,24 @@ func worktreeSquashMerged(ctx context.Context, main, branch string) bool {
 
 // cleanupTempWorktree removes a `ref:` job's temporary checkout (design 一·3). finish()
 // calls it for every terminal path, so a job that failed, was cancelled or timed out
-// leaves no checkout behind either. The removal is the managed-worktree one — unlink the
+// leaves no checkout behind either — and so does the shutdown path (a checkout must never
+// outlive the job that owned it). The removal is the managed-worktree one — unlink the
 // recorded dependency links, sweep any link the list missed, then `git worktree remove
-// --force` — with no branch to delete (a temp checkout has none).
+// --force` — with no branch to delete (a temp checkout has none), retried a few times
+// because a process may still hold the directory for a moment on Windows.
 //
-// Best-effort by design: a failure only leaves a directory behind (that machine's `git
-// worktree prune` reclaims it) and is logged; it never changes the job's outcome.
+// Best-effort by design: it never changes the job's outcome. A removal that still fails is
+// recorded as an event (and logged), and the next sweep — server/worker startup, or the
+// periodic one in serve — finds the directory by its project's worktree dir and removes
+// it (see SweepStaleTempCheckouts).
 func (s *Service) cleanupTempWorktree(entry *jobEntry) {
+	s.cleanupTempWorktreeWithin(entry, worktreeTimeout)
+}
+
+// cleanupTempWorktreeWithin is cleanupTempWorktree with a caller-chosen budget: the
+// shutdown path uses a shorter one so a directory a process still holds cannot stall the
+// process exit (the next startup's sweep finishes the job).
+func (s *Service) cleanupTempWorktreeWithin(entry *jobEntry, budget time.Duration) {
 	entry.mu.Lock()
 	wt := entry.wt
 	if wt == nil || !wt.Temp {
@@ -996,15 +1015,66 @@ func (s *Service) cleanupTempWorktree(entry *jobEntry) {
 	jobID := entry.result.ID
 	entry.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
-	if err := removeWorktree(ctx, wt, true, false); err != nil {
+	if err := removeTempCheckout(ctx, wt); err != nil {
 		slog.Warn("job.worktree_removed_failed", "event", "job.worktree_removed_failed", "component", "job",
 			"job_id", jobID, "path", wt.Path, "err", err)
+		s.recordEvent(jobID, EventJobTempCheckoutLeft, map[string]any{
+			"path": wt.Path, "ref": wt.BaseSHA, "error": err.Error(),
+		})
 		return
 	}
 	slog.Info("job.worktree_removed", "event", "job.worktree_removed", "component", "job",
 		"job_id", jobID, "path", wt.Path, "ref", wt.BaseSHA, "reason", "temporary ref checkout")
+}
+
+// removeTempCheckout removes one temporary `ref:` checkout, retrying a locked directory
+// (Windows releases file handles asynchronously after the job's process tree ended) and
+// falling back to deleting what git left behind. Both the finish path and the stale sweep
+// go through here so a checkout is only ever removed the safe way round: the dependency
+// links first (the link itself, never its target), then the checkout, then the git
+// registration.
+func removeTempCheckout(ctx context.Context, wt *worktreeRef) error {
+	// Links first and once: unlinking is idempotent and must never be part of a retry that
+	// could race a still-live junction walk.
+	removeWorktreeLinks(wt.Path, wt.Links)
+	sweepWorktreeLinks(wt.Path, wt.Links)
+	var lastErr error
+	for attempt := 1; attempt <= tempCheckoutAttempts; attempt++ {
+		if attempt > 1 {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("%w: %s (attempt %d/%d, last error: %v)", ErrWorktreeBusy, wt.Path, attempt, tempCheckoutAttempts, lastErr)
+			case <-time.After(tempCheckoutRetryDelay * time.Duration(attempt-1)):
+			}
+		}
+		warnings, err := removeWorktreeWithWarnings(ctx, wt, true, false)
+		if err == nil && len(warnings) == 0 && !isDir(wt.Path) {
+			return nil
+		}
+		if isDir(wt.Path) {
+			// git could not finish the directory (a half-created checkout git never registered,
+			// or a file a process still holds). The links are already unlinked above, so this
+			// delete can never walk into the main checkout through one.
+			sweepWorktreeLinks(wt.Path, wt.Links)
+			if rerr := os.RemoveAll(wt.Path); rerr == nil && !isDir(wt.Path) {
+				if wt.Top != "" {
+					_, _ = gitOut(ctx, wt.Top, "worktree", "prune")
+				}
+				return nil
+			} else if rerr != nil {
+				err = rerr
+			} else {
+				err = fmt.Errorf("%w: %s", ErrWorktreeBusy, wt.Path)
+			}
+		}
+		if err == nil {
+			err = fmt.Errorf("%w: %s", ErrWorktreeBusy, wt.Path)
+		}
+		lastErr = err
+	}
+	return lastErr
 }
 
 // isDir reports whether p exists and is a directory.
