@@ -13,6 +13,7 @@ const sources = {
     raw(import.meta.glob('./About.vue', { eager: true, query: '?raw', import: 'default' })),
     raw(import.meta.glob('./WorkSettings.vue', { eager: true, query: '?raw', import: 'default' })),
     raw(import.meta.glob('./Rules.vue', { eager: true, query: '?raw', import: 'default' })),
+    raw(import.meta.glob('./Permissions.vue', { eager: true, query: '?raw', import: 'default' })),
   ],
   'access.': [raw(import.meta.glob('../Access.vue', { eager: true, query: '?raw', import: 'default' }))],
 }
