@@ -23,6 +23,7 @@ import { ENROLLMENTS_LINK } from './enrollments'
 import { MAIL_HELD_LINK } from './mail'
 import { adoptMemorySuggestion, dismissMemorySuggestion } from '../api/today'
 import type { MemoryAction, TodayAction, TodayCard } from '../api/today'
+import { t } from '../i18n'
 
 export const TOP_N = 5
 // 撤销窗口（design §2.3）：5 秒后才真正调用写接口；会在 30 秒内超时的卡立即发送。
@@ -31,7 +32,11 @@ export const SEND_NOW_WITHIN_SEC = 30
 
 export type Tier = 'now' | 'block' | 'normal'
 
-export const TIER_LABEL: Record<Tier, string> = { now: '会超时', block: '卡住别人', normal: '可稍后' }
+export const TIER_LABEL: Record<Tier, string> = {
+  get now() { return t('today.tier.now') },
+  get block() { return t('today.tier.block') },
+  get normal() { return t('today.tier.normal') },
+}
 
 export function tierOf(card: TodayCard): Tier {
   if (card.urgency === 'now') return 'now'
@@ -40,25 +45,25 @@ export function tierOf(card: TodayCard): Tier {
 
 // 「卡住 N」短标记：阻塞项数；没有阻塞时不显示。
 export function blockShort(card: TodayCard): string {
-  return card.blocks.items > 0 ? `卡住 ${card.blocks.items}` : ''
+  return card.blocks.items > 0 ? t('today.blockShort', { n: card.blocks.items }) : ''
 }
 
 export function minutesText(sec: number): string {
   const s = Math.max(0, Math.floor(sec))
-  if (s < 60) return '不到 1 分钟'
-  if (s < 3600) return `${Math.floor(s / 60)} 分钟`
-  if (s < 86400) return `${Math.floor(s / 3600)} 小时`
-  return `${Math.floor(s / 86400)} 天`
+  if (s < 60) return t('today.minutes.under1')
+  if (s < 3600) return t('today.minutes.m', { n: Math.floor(s / 60) })
+  if (s < 86400) return t('today.minutes.h', { n: Math.floor(s / 3600) })
+  return t('today.minutes.d', { n: Math.floor(s / 86400) })
 }
 
 export function waitText(card: TodayCard, nowSec: number): string {
-  return card.waiting_since > 0 ? `等了 ${minutesText(nowSec - card.waiting_since)}` : ''
+  return card.waiting_since > 0 ? t('today.wait', { d: minutesText(nowSec - card.waiting_since) }) : ''
 }
 
 export function expiresText(card: TodayCard, nowSec: number): string {
   if (!card.expires_at) return ''
   const left = card.expires_at - nowSec
-  return left <= 0 ? '已到超时' : `${minutesText(left)}后超时`
+  return left <= 0 ? t('today.expires.overdue') : t('today.expires.left', { d: minutesText(left) })
 }
 
 export interface TierGroup {
@@ -150,13 +155,13 @@ export function actionLink(card: TodayCard, a: TodayAction): string {
 export function doneLabel(a: TodayAction, viaAdvice = false): string {
   switch (a.id) {
     case 'reply':
-      return '已回复'
+      return t('today.done.reply')
     case 'rerun':
-      return '已退回并重跑'
+      return t('today.done.rerun')
     case 'ack':
-      return '已标已读'
+      return t('today.done.ack')
   }
-  return `${viaAdvice ? '已按建议' : '已'}${a.label}`
+  return viaAdvice ? t('today.done.viaAdvice', { label: a.label }) : t('today.done.plain', { label: a.label })
 }
 
 // 明早 9:00（本地时区）——「搁置」不另弹输入，默认搁置到明早。
@@ -292,11 +297,11 @@ export function fmtTokens(n: number): string {
 
 // memory 卡「详情」里的提议文案（P4）。
 export const MEMORY_ACTION_LABEL: Record<MemoryAction, string> = {
-  archive: '归档',
-  merge: '合并',
-  kind: '改类型',
-  summary: '补摘要',
-  when: '补触发词',
+  get archive() { return t('today.memory.archive') },
+  get merge() { return t('today.memory.merge') },
+  get kind() { return t('today.memory.kind') },
+  get summary() { return t('today.memory.summary') },
+  get when() { return t('today.memory.when') },
 }
 
 export function memoryProposalText(card: TodayCard): string {
@@ -305,15 +310,19 @@ export function memoryProposalText(card: TodayCard): string {
   const p = m.payload ?? {}
   switch (m.action) {
     case 'archive':
-      return `归档「${m.key}」：从 prime 移出，各仓库同步后移入 memories-archive.jsonl`
+      return t('today.memoryText.archive', { key: m.key })
     case 'merge':
-      return `把「${m.key}」并入「${p.into ?? ''}」${p.content ? '（用提议的合并正文）' : '（正文追加到目标末尾）'}，然后删除「${m.key}」`
+      return t('today.memoryText.merge', {
+        key: m.key,
+        into: p.into ?? '',
+        how: p.content ? t('today.memoryText.mergeWithContent') : t('today.memoryText.mergeAppend'),
+      })
     case 'kind':
-      return `类型 ${m.current_kind ?? '—'} → ${p.kind ?? ''}`
+      return t('today.memoryText.kind', { from: m.current_kind ?? '—', to: p.kind ?? '' })
     case 'summary':
-      return `摘要：${p.summary ?? ''}`
+      return t('today.memoryText.summary', { summary: p.summary ?? '' })
     case 'when':
-      return `触发词 + ${(p.keywords ?? []).join(', ')}`
+      return t('today.memoryText.when', { keywords: (p.keywords ?? []).join(', ') })
   }
   return ''
 }

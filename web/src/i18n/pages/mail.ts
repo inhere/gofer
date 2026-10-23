@@ -143,6 +143,9 @@ export const mail: PageDict = {
     'mail.persona.cancelled': '已取消',
     'mail.persona.canceled': '已取消',
     'mail.persona.timeout': '超时',
+    'mail.persona.lastSeen': '最后活动 {ago}',
+    'mail.replyTo': '回复 #{n}',
+    'mail.reply': '回复',
   },
   en: {
     // 页头与筛选
@@ -284,5 +287,8 @@ export const mail: PageDict = {
     'mail.persona.cancelled': 'cancelled',
     'mail.persona.canceled': 'cancelled',
     'mail.persona.timeout': 'timeout',
+    'mail.persona.lastSeen': 'last active {ago}',
+    'mail.replyTo': 'Reply #{n}',
+    'mail.reply': 'Reply',
   },
 }

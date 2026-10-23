@@ -2,6 +2,7 @@
 // 非 2xx 解析 {error, detail} 抛出可读错误；text 端点返回字符串。
 
 import { getToken, triggerUnauthorized } from '../store/auth'
+import { t } from '../i18n'
 import { setServerTZOffset } from './time'
 import { permissionDeniedMessage } from '../utils/permissions'
 import { streamJob } from './sse'
@@ -161,7 +162,7 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
 }
 
 async function raiseForStatus(res: Response): Promise<never> {
-  let msg = `请求失败：HTTP ${res.status}`
+  let msg = t('util.err.requestFailed', { status: res.status })
   let detail = ''
   let code = ''
   let fields: string[] | undefined
@@ -209,7 +210,7 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
+    throw new Error(t('util.err.unauthorized'))
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -289,7 +290,7 @@ export async function validateConfig(req: ConfigValidateReq): Promise<ConfigVali
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
+    throw new Error(t('util.err.unauthorized'))
   }
   if (res.status >= 500) {
     return raiseForStatus(res)
@@ -577,7 +578,7 @@ export async function submitJob(req: SubmitJobReq): Promise<SubmitJobResult> {
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
+    throw new Error(t('util.err.unauthorized'))
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -659,7 +660,7 @@ export async function getJobRequest(
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
+    throw new Error(t('util.err.unauthorized'))
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -1015,7 +1016,7 @@ export async function fetchJobLog(
   )
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
+    throw new Error(t('util.err.unauthorized'))
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -1101,7 +1102,7 @@ export async function fetchArtifactBlob(id: string, name: string): Promise<Blob>
   const res = await fetch(url, { headers: authHeaders() })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
+    throw new Error(t('util.err.unauthorized'))
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -1116,7 +1117,7 @@ export async function fetchDiffText(id: string): Promise<string> {
   const res = await fetch(url, { headers: authHeaders() })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
+    throw new Error(t('util.err.unauthorized'))
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -1636,7 +1637,7 @@ export async function exportWorkflow(
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
+    throw new Error(t('util.err.unauthorized'))
   }
   if (!res.ok) {
     return raiseForStatus(res)

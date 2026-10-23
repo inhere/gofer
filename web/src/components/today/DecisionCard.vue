@@ -14,7 +14,7 @@ import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
 import { cardActionBlock } from '../../utils/todayGate'
 import { cardKeyFromEvent } from '../../utils/todayKeys'
-import { CEILING_READ_ONLY_NOTICE } from '../../utils/ceiling'
+import { ceilingReadOnlyNotice } from '../../utils/ceiling'
 import { t } from '../../i18n'
 import { useWhoami } from '../../store/whoami'
 
@@ -382,14 +382,14 @@ function linkFor(a: TodayAction): string {
             class="dc-btn dc-btn--ok"
             type="button"
             :disabled="readOnly"
-            :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
+            :title="readOnly ? ceilingReadOnlyNotice() : undefined"
             @click="suggestionAct(sg.field, true)"
           >{{ t('today.card.adopt') }}</button>
           <button
             class="dc-btn"
             type="button"
             :disabled="readOnly"
-            :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
+            :title="readOnly ? ceilingReadOnlyNotice() : undefined"
             @click="suggestionAct(sg.field, false)"
           >{{ t('today.card.dismiss') }}</button>
         </div>

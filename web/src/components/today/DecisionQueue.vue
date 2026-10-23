@@ -7,7 +7,7 @@ import type { TodayAction, TodayCard } from '../../api/today'
 import type { SnoozeOption } from '../../utils/todaySnooze'
 import { groupByTier } from '../../utils/today'
 import { t } from '../../i18n'
-import { CEILING_READ_ONLY_NOTICE } from '../../utils/ceiling'
+import { ceilingReadOnlyNotice } from '../../utils/ceiling'
 import { useWhoami } from '../../store/whoami'
 
 const props = defineProps<{ cards: TodayCard[]; nowSec: number; limit?: number; emptyText?: string }>()
@@ -45,7 +45,7 @@ const { readOnly } = useWhoami()
       <button class="dq-more" type="button" data-test="dq-more" @click="emit('more')">
         {{ t('today.queue.rest', { n: rest }) }}
       </button>
-      <button class="dq-focus" type="button" data-test="dq-focus" :disabled="readOnly" :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined" @click="emit('focus')">
+      <button class="dq-focus" type="button" data-test="dq-focus" :disabled="readOnly" :title="readOnly ? ceilingReadOnlyNotice() : undefined" @click="emit('focus')">
         {{ t('today.focus') }}
       </button>
     </div>

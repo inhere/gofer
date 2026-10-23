@@ -5,12 +5,13 @@
 // 数组、保存前的基本校验。**服务端仍是唯一权威**——前端校验只是为了少跑一趟 400，
 // 服务端拒绝的原因原样显示。
 import type { SettingItem, SettingKind, SettingValue } from '../api/types'
+import { t } from '../i18n'
 
 // 组的显示名（键前缀就是组名：work.* / prompt.*）。未知组用组名本身，新注册的组不会
 // 因为前端没跟上而空白。
 export const GROUP_LABELS: Record<string, string> = {
-  work: '工作项降噪',
-  prompt: '提示词',
+  get work() { return t('settings.ext.group.work') },
+  get prompt() { return t('settings.ext.group.prompt') },
 }
 
 export interface SettingGroup {
@@ -58,15 +59,15 @@ export function controlFor(item: Pick<SettingItem, 'kind' | 'multiline'>): Contr
 export function kindLabel(kind: SettingKind): string {
   switch (kind) {
     case 'int':
-      return '整数'
+      return t('settings.ext.kind.int')
     case 'bool':
-      return '开关'
+      return t('settings.ext.kind.bool')
     case 'strings':
-      return '字符串列表'
+      return t('settings.ext.kind.strings')
     case 'patterns':
-      return '正则列表'
+      return t('settings.ext.kind.patterns')
     default:
-      return '字符串'
+      return t('settings.ext.kind.string')
   }
 }
 
@@ -87,11 +88,11 @@ export function parseList(text: string): string[] {
 
 // valueText 是人读的取值：空列表「（空）」、空字符串「（空）」、开关「开 / 关」。
 export function valueText(v: SettingValue | null | undefined): string {
-  if (v === null || v === undefined) return '（空）'
-  if (Array.isArray(v)) return v.length === 0 ? '（空）' : v.join('，')
-  if (typeof v === 'boolean') return v ? '开' : '关'
+  if (v === null || v === undefined) return t('settings.ext.empty')
+  if (Array.isArray(v)) return v.length === 0 ? t('settings.ext.empty') : v.join(t('util.sep.comma'))
+  if (typeof v === 'boolean') return v ? t('settings.ext.on') : t('settings.ext.off')
   const s = String(v)
-  return s === '' ? '（空）' : s
+  return s === '' ? t('settings.ext.empty') : s
 }
 
 // boundsHint 是输入框旁的取值提示：int 给闭区间，string 给字节上限。
@@ -99,13 +100,13 @@ export function boundsHint(item: Pick<SettingItem, 'kind' | 'min' | 'max' | 'max
   if (item.kind === 'int') {
     const lo = item.min ?? null
     const hi = item.max ?? null
-    if (lo !== null && hi !== null) return `范围 ${lo}–${hi}`
+    if (lo !== null && hi !== null) return t('settings.ext.bounds.range', { lo, hi })
     if (lo !== null) return `≥ ${lo}`
     if (hi !== null) return `≤ ${hi}`
-    return '整数'
+    return t('settings.ext.bounds.int')
   }
   if (item.max_len && item.max_len > 0) {
-    return `最多 ${item.max_len} 字节`
+    return t('settings.ext.bounds.maxLen', { n: item.max_len })
   }
   return ''
 }
@@ -175,31 +176,31 @@ export function validateDraft(item: SettingItem, draft: Draft): string {
   if (kind === 'bool') return ''
   const text = typeof draft === 'string' ? draft : ''
   if (kind === 'int') {
-    const t = text.trim()
-    if (t === '' || !/^[-+]?\d+$/.test(t)) return '要填整数。'
-    const n = Number.parseInt(t, 10)
-    if (item.min !== undefined && n < item.min) return `不能小于 ${item.min}。`
-    if (item.max !== undefined && n > item.max) return `不能大于 ${item.max}。`
+    const raw = text.trim()
+    if (raw === '' || !/^[-+]?\d+$/.test(raw)) return t('settings.ext.err.int')
+    const n = Number.parseInt(raw, 10)
+    if (item.min !== undefined && n < item.min) return t('settings.ext.err.min', { min: item.min })
+    if (item.max !== undefined && n > item.max) return t('settings.ext.err.max', { max: item.max })
     return ''
   }
   if (kind === 'list') {
     const lines = parseList(text)
     if (item.kind === 'patterns') {
       for (const line of lines) {
-        if (!validRegex(line)) return `正则「${line}」无法编译。`
+        if (!validRegex(line)) return t('settings.ext.err.regex', { pattern: line })
       }
     }
     return ''
   }
   if (item.max_len && item.max_len > 0 && utf8Len(text) > item.max_len) {
-    return `太长：${utf8Len(text)} 字节，上限 ${item.max_len} 字节。`
+    return t('settings.ext.err.tooLong', { len: utf8Len(text), max: item.max_len })
   }
   return ''
 }
 
 // promptHint 是提示词键在空值时该显示的说明。提示词的「代码里的默认全文」不在接口里
 // （注册表里 prompt.* 的 default 是空串，含义就是「用内置默认」），所以界面只说这一句。
-export const PROMPT_EMPTY_HINT = '留空 = 使用内置默认（内置提示词全文在代码里，接口不返回）'
+export const PROMPT_EMPTY_HINT = (): string => t('settings.ext.promptEmpty')
 
 // isPrompt 判断一个键是不是提示词覆盖（空 = 用内置默认）。
 export function isPrompt(item: Pick<SettingItem, 'key' | 'kind' | 'multiline'>): boolean {
@@ -209,7 +210,7 @@ export function isPrompt(item: Pick<SettingItem, 'key' | 'kind' | 'multiline'>):
 // defaultText 是「对比默认」里显示的内容：提示词的默认是空串时给出上面那句说明。
 export function defaultText(item: SettingItem): string {
   if (isPrompt(item) && (item.default === '' || item.default === null || item.default === undefined)) {
-    return PROMPT_EMPTY_HINT
+    return PROMPT_EMPTY_HINT()
   }
   return valueText(item.default)
 }
@@ -218,11 +219,11 @@ export function defaultText(item: SettingItem): string {
 export function importActionLabel(action: string): string {
   switch (action) {
     case 'set':
-      return '改为'
+      return t('settings.ext.import.set')
     case 'reset':
-      return '恢复默认'
+      return t('settings.ext.import.reset')
     default:
-      return '不变'
+      return t('settings.ext.import.keep')
   }
 }
 
@@ -241,7 +242,11 @@ export function importSummary(changes: { action: string; error?: string }[]): st
     else if (c.action === 'reset') reset++
     else unchanged++
   }
-  const parts = [`修改 ${set}`, `恢复默认 ${reset}`, `不变 ${unchanged}`]
-  if (refused > 0) parts.push(`拒绝 ${refused}`)
+  const parts = [
+    t('settings.ext.importSummary.set', { n: set }),
+    t('settings.ext.importSummary.reset', { n: reset }),
+    t('settings.ext.importSummary.keep', { n: unchanged }),
+  ]
+  if (refused > 0) parts.push(t('settings.ext.importSummary.refused', { n: refused }))
   return parts.join(' · ')
 }

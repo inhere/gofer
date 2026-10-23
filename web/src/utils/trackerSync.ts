@@ -1,4 +1,5 @@
 import type { Job } from '../api/types'
+import { t } from '../i18n'
 
 // TRK-05: the server dispatches `gofer repo sync` as a hidden exec job; the Issues page
 // polls that job until it ends and reports the outcome.
@@ -42,5 +43,5 @@ export async function runTrackerSync(deps: TrackerSyncDeps, onJob?: (id: string)
     }
     await deps.sleep(interval)
   }
-  return { state: 'timeout', jobId, message: '同步仍在进行，稍后刷新查看' }
+  return { state: 'timeout', jobId, message: t('util.trackerSync.running') }
 }

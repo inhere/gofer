@@ -1,6 +1,7 @@
 // job 详情「继续会话」的续接方式：按后端 /v1/agents 报告的续接能力预判，
 // 不可用的方式灰显并写原因（后端对不支持的组合同样会返回 400）。
 import type { AgentInfo } from '../api/types'
+import { t } from '../i18n'
 
 export type ResumeMode = '' | 'session' | 'interactive' | 'batch'
 
@@ -45,7 +46,7 @@ function pickTarget(src: AgentInfo | undefined, agents: AgentInfo[], pred: (a: A
 export function resumeChoices(source: ResumeSource, agents: AgentInfo[], ctx: ResumeContext = {}): ResumeChoice[] {
   const src = agents.find((a) => a.key === source.agent)
   const out: ResumeChoice[] = [
-    { value: '', label: '按原样', disabled: false, note: '沿用源 job 的形态', agent: '' },
+    { value: '', label: t('util.resumeChoice.asIs'), disabled: false, note: t('util.resumeChoice.asIsNote'), agent: '' },
   ]
   const acp = pickTarget(src, agents, (a) => a.type === 'acp-agent' && a.acp_load_session !== false)
   const pty = pickTarget(src, agents, (a) => a.type !== 'acp-agent' && a.type !== 'exec' && a.session_resume_interactive === true)
@@ -59,15 +60,15 @@ export function resumeChoices(source: ResumeSource, agents: AgentInfo[], ctx: Re
       value,
       label,
       disabled: extra !== undefined && extra !== '',
-      note: extra || (switched ? `改用 ${target.key} 续接（同会话存储）` : ''),
+      note: extra || (switched ? t('util.resumeChoice.switchNote', { agent: target.key }) : ''),
       agent: switched ? target.key : '',
     }
   }
-  out.push(mk('session', '持续交互 ACP', acp, '没有可用的 ACP agent（需同会话族且支持 load_session）',
-    ctx.runnerSessionOk === false ? '持续会话仅支持 local 与协议 v13+ 的 worker' : ''))
-  out.push(mk('interactive', 'PTY 终端', pty, '没有带交互续接模板的 CLI agent（ACP 会话需同族 CLI，如 claude）',
-    ctx.projectAllowsInteractive === false ? '项目未开启交互 job（allow_interactive）' : ''))
-  out.push(mk('batch', '批处理续投', batch, '没有带批处理续接模板的 CLI agent（ACP 会话需同族 CLI，如 claude）'))
+  out.push(mk('session', t('util.resumeChoice.acp'), acp, t('util.resumeChoice.acpMissing'),
+    ctx.runnerSessionOk === false ? t('util.resumeChoice.acpRunner') : ''))
+  out.push(mk('interactive', t('util.resumeChoice.pty'), pty, t('util.resumeChoice.ptyMissing'),
+    ctx.projectAllowsInteractive === false ? t('util.resumeChoice.ptyProject') : ''))
+  out.push(mk('batch', t('util.resumeChoice.batch'), batch, t('util.resumeChoice.batchMissing')))
   return out
 }
 

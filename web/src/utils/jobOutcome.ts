@@ -2,6 +2,7 @@
 // （/review）与验收面板（ReviewPanel）共用这一份格式化，避免同一个数字在多处各写一遍。
 // 文本格式与后端 `job show` / job.FormatUsage 对齐。
 import type { JobBudget, JobUsage, JobVerify } from '../api/types'
+import { t } from '../i18n'
 
 // formatTokens 与后端 job.formatTokens 同规则：<1000 原样，其余带 k/M 且保留 3 位有效数字。
 export function formatTokens(n: number): string {
@@ -76,8 +77,8 @@ export function budgetLine(b: JobBudget | null | undefined, u: JobUsage | null |
   if (limit.length === 0) {
     return ''
   }
-  const line = `上限 ${limit.join(' / ')}`
-  return used.length > 0 ? `${line}（已用 ${used.join(' / ')}）` : line
+  const line = t('util.outcome.limit', { limits: limit.join(' / ') })
+  return used.length > 0 ? `${line}${t('util.outcome.used', { used: used.join(' / ') })}` : line
 }
 
 // agentBudgetLine：agent 自己报告的软预算「已用 / 上限」（gofer-hnqf）。只列设了上限的维度，
@@ -98,7 +99,7 @@ export function agentBudgetLine(u: JobUsage | null | undefined): string {
     return ''
   }
   const scope = b.scope ? `（${b.scope}）` : ''
-  return `${parts.join(' / ')}${scope}${b.estimated ? '（估算）' : ''}`
+  return `${parts.join(' / ')}${scope}${b.estimated ? t('util.outcome.estimated') : ''}`
 }
 
 // agentBudgetExhausted：agent 用尽软预算并自己收尾（不是被 gofer 杀的）。以 agent 的快照为准，

@@ -1,4 +1,5 @@
 import type { WorkbenchThread } from '../../api/types'
+import { t } from '../../i18n'
 
 // 工作台的「自动定位」：除了用户自己点选会话，界面只在两种场景下替用户挪焦点——
 //  - 从发起栏新建会话后，等新 job 出现在线程列表里就定位到它；
@@ -82,14 +83,14 @@ export function createThreadAutoFocus(host: ThreadAutoFocusHost): ThreadAutoFocu
     if (!thread) {
       if (announce) {
         pendingRequest = { target: id, base: host.focusedThreadID() }
-        host.notice('通知指向的会话尚未出现，正在等待刷新')
+        host.notice(t('workbench.focus.waiting'))
       }
       return false
     }
     const changed = host.focusedThreadID() !== id
     host.selectThread(thread)
     consumeRequest(id)
-    if (announce && changed) host.notice('已定位到通知对应的会话')
+    if (announce && changed) host.notice(t('workbench.focus.found'))
     return true
   }
 

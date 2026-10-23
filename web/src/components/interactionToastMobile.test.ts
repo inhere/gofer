@@ -7,6 +7,6 @@ describe('interaction toast mobile placement', () => {
     expect(source).toContain('@media (max-width: 760px)')
     expect(source).toMatch(/@media \(max-width: 760px\) \{[\s\S]*\.toast[\s\S]*top:/)
     expect(source).toMatch(/@media \(max-width: 760px\) \{[\s\S]*\.toast[\s\S]*bottom:\s*auto/)
-    expect(source).toContain('aria-label="关闭提示"')
+    expect(source).toContain("t('util.toast.close')")
   })
 })

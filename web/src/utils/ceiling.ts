@@ -8,15 +8,19 @@
 //   allow_exec / read_only：whoami 给的是**已生效**的布尔值（缺 key 的严格默认已在服务端套上：
 //            allow_exec 为 false，read_only 为 false）。
 // 这里全是纯函数：不认识 whoami、不发请求，界面只是拿它决定"给不给这个选项"。
+import { t } from '../i18n'
 import { LOCAL_RUNNER, LOCAL_RUNNER_DISPLAY } from './runnerDisplay'
 import type { AuthCeiling, AuthWhoami } from './permissions'
 
-// 选项被上限挡下时的统一说明（灰显原因 / 提交前的校验文案）。
-export const CEILING_LABEL = '超出你的调用方上限'
+// 选项被上限挡下时的统一说明（灰显原因 / 提交前的校验文案）。做成函数而非常量：常量会在
+// 模块加载时把语言定住，切语言后不跟着变。
+export function ceilingLabel(): string {
+  return t('util.ceiling.denied')
+}
 
 // 上限挡下的具体原因（谁、被哪个维度挡的）。
 export function ceilingDeniedText(kind: string, value: string): string {
-  return `${CEILING_LABEL}：${kind} ${value} 不在你的范围内`
+  return `${ceilingLabel()}：${t('util.ceiling.notInRange', { kind, value })}`
 }
 
 // callerCeiling：请求方的上限，没有上限（旧服务端 / 未配置 / worker 与 job 凭据）返回 null。
@@ -181,11 +185,9 @@ export function ceilingLimitsProjects(ceil: AuthCeiling | null | undefined): boo
 
 // ---- 界面文案 ----
 
-const ANY = '不限'
-
 function listText(patterns: readonly string[] | undefined): string {
   const list = (patterns ?? []).filter((p) => p.trim() !== '')
-  return list.length === 0 ? ANY : list.join('、')
+  return list.length === 0 ? t('util.ceiling.any') : list.join(t('util.sep.list'))
 }
 
 // ceilingSummary：设置 → 权限页上的本人上限摘要，一行一维（顺序稳定）。
@@ -193,17 +195,22 @@ export function ceilingSummary(ceil: AuthCeiling | null | undefined): string[] {
   if (!ceil) return []
   const runners = (ceil.runners ?? []).filter((p) => p.trim() !== '')
   return [
-    `project：${listText(ceil.projects)}`,
+    t('util.ceiling.summary.projects', { list: listText(ceil.projects) }),
     // 空列表不是"不限"：它只放远程 worker 通过，本机 server 被排除在外。
-    `runner：${runners.length === 0 ? `仅远程 worker（不含本机 ${LOCAL_RUNNER_DISPLAY}）` : runners.join('、')}`,
-    `worker：${listText(ceil.workers)}`,
-    `agent：${listText(ceil.agents)}`,
-    `exec job：${ceil.allow_exec === true ? '允许' : '不允许'}`,
-    `全局记忆写入：${ceil.global_memory === true ? '允许' : '不允许'}`,
-    `只读（不能写）：${ceil.read_only === true ? '是' : '否'}`,
+    t('util.ceiling.summary.runners', {
+      list: runners.length === 0
+        ? t('util.ceiling.summary.remoteOnly', { local: LOCAL_RUNNER_DISPLAY })
+        : runners.join(t('util.sep.list')),
+    }),
+    t('util.ceiling.summary.workers', { list: listText(ceil.workers) }),
+    t('util.ceiling.summary.agents', { list: listText(ceil.agents) }),
+    t('util.ceiling.summary.exec', { value: ceil.allow_exec === true ? t('util.ceiling.allow') : t('util.ceiling.deny') }),
+    t('util.ceiling.summary.memory', { value: ceil.global_memory === true ? t('util.ceiling.allow') : t('util.ceiling.deny') }),
+    t('util.ceiling.summary.readOnly', { value: ceil.read_only === true ? t('util.ceiling.yes') : t('util.ceiling.no') }),
   ]
 }
 
 // 只读标记 / 说明用的短句（顶栏徽标、设置页、写入口的悬停说明共用一句）。
-export const CEILING_READ_ONLY_NOTICE =
-  '这个 token 的调用方上限是只读（read_only: true）：写操作不可用，只能查看。'
+export function ceilingReadOnlyNotice(): string {
+  return t('util.ceiling.readOnly')
+}

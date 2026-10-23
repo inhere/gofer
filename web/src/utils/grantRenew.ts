@@ -5,6 +5,7 @@
 // 不能续期（服务端 409），要重新授权。界面接线见 views/settings/Permissions.vue 的
 // 会话授权行与会话抽屉的「已授权」条，两处共用 components/GrantRenewDialog.vue。
 
+import { t } from '../i18n'
 import { parseSubject } from './permissions'
 import type { AuthGrant } from './permissions'
 import { SESSION_GRANT_EXPIRY_OPTIONS, grantEffectiveLabel } from './sessionGrant'
@@ -28,27 +29,27 @@ export function grantRemainingSec(expiresAt: number | undefined, nowSec: number)
 export function grantRemainingText(expiresAt: number | undefined, nowSec: number): string {
   if (!expiresAt || expiresAt <= 0) return ''
   const s = grantRemainingSec(expiresAt, nowSec)
-  if (s <= 0) return '已到期'
-  if (s < 60) return `剩余 ${s} 秒`
-  if (s < 3600) return `剩余 ${Math.floor(s / 60)} 分钟`
+  if (s <= 0) return t('util.renew.expired')
+  if (s < 60) return t('util.renew.remainingSec', { n: s })
+  if (s < 3600) return t('util.renew.remainingMin', { n: Math.floor(s / 60) })
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
-  return m > 0 ? `剩余 ${h} 小时 ${m} 分钟` : `剩余 ${h} 小时`
+  return m > 0 ? t('util.renew.remainingHM', { h, m }) : t('util.renew.remainingH', { h })
 }
 
 // 未生效的原因：与服务端 409 的理由对齐（会话那半边 web 看不全，归成一句）。
 export function renewBlockedReason(g: Pick<AuthGrant, 'state'>): string {
   switch (g.state) {
     case 'revoked':
-      return '已撤销'
+      return t('util.perm.state.revoked')
     case 'expired':
-      return '已过期'
+      return t('util.perm.state.expired')
     case 'unmatched':
-      return '模式在当前目录里已没有可授予的权限'
+      return t('util.perm.hint.unmatched')
     case 'orphaned':
-      return '调用方已不在配置里，授权暂停'
+      return t('util.renew.blockedOrphaned')
     default:
-      return '会话已结束、换了所有者或换了化身'
+      return t('util.renew.blockedGone')
   }
 }
 
@@ -67,10 +68,10 @@ export function grantRenewState(g: AuthGrant, nowSec: number): GrantRenewState {
   const remainingSec = grantRemainingSec(g.expires_at, nowSec)
   const soon = remainingSec > 0 && remainingSec < RENEW_SOON_SEC
   if (parseSubject(g.subject)?.kind !== 'session') {
-    return { canRenew: false, remainingSec, soon: false, reason: '只有会话授权有到期时间可以延长' }
+    return { canRenew: false, remainingSec, soon: false, reason: t('util.renew.onlySession') }
   }
   if (!grantEffectiveLabel(g, nowSec).effective) {
-    return { canRenew: false, remainingSec, soon, reason: `${renewBlockedReason(g)}，不能续期，要重新授权` }
+    return { canRenew: false, remainingSec, soon, reason: t('util.renew.cannot', { reason: renewBlockedReason(g) }) }
   }
   return { canRenew: true, remainingSec, soon, reason: '' }
 }
@@ -100,8 +101,8 @@ export function buildGrantRenewRequest(id: string, expiresSec: number): { id: st
 // 不满足（如 session s1 has ended: grant it again instead），原样带出来给操作员看。
 export function renewFailureText(status: number, message: string): string {
   const m = message.trim()
-  if (status === 403) return `没有续期权限（需要根管理员的 auth.manage）：${m}`
-  if (status === 409) return `不能续期，要重新授权：${m}`
-  if (status === 400 || status === 404) return `续期被拒：${m}`
+  if (status === 403) return t('util.renew.errNoPerm', { msg: m })
+  if (status === 409) return t('util.renew.errConflict', { msg: m })
+  if (status === 400 || status === 404) return t('util.renew.errRejected', { msg: m })
   return m
 }

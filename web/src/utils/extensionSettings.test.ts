@@ -160,7 +160,7 @@ describe('value and default rendering', () => {
   it('spells out that a blank prompt means the built-in default', () => {
     expect(isPrompt(promptExtra)).toBe(true)
     expect(isPrompt(minPrompts)).toBe(false)
-    expect(defaultText(promptExtra)).toBe(PROMPT_EMPTY_HINT)
+    expect(defaultText(promptExtra)).toBe(PROMPT_EMPTY_HINT())
     expect(defaultText(minPrompts)).toBe('2')
     expect(defaultText(item({ key: 'prompt.steward.review', kind: 'string', default: '全文' }))).toBe('全文')
   })

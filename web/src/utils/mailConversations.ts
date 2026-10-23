@@ -2,6 +2,7 @@
 // 对话 key（参与方对、方向无关）、气泡方向、人物卡的取色 / 名字 / 副行 / 状态、摘要去
 // markdown、回信标号。组件只负责渲染，规则都在这里，便于在 node 环境下单测。
 import { fmtAgo } from '../api/time'
+import { t } from '../i18n'
 import type { MailConversation, MailMessage, MailParty } from '../api/types'
 import { mailExcerpt, mailOutgoing, mailPartyLabel, type MailFilter, type MailIdentity } from './mail'
 
@@ -166,7 +167,7 @@ export function mailConversationSeq(mails: MailMessage[]): Map<number, number> {
 export function mailReplyLabel(m: MailMessage, seq: Map<number, number>): string {
   if (!m.reply_to) return ''
   const n = seq.get(m.reply_to)
-  return n ? `回复 #${n}` : '回复'
+  return n ? t('mail.replyTo', { n }) : t('mail.reply')
 }
 
 // replyTarget 是这个对话的回复对象：最新一封不是自己发的信；都是自己发的就用最新一封
@@ -232,19 +233,19 @@ export function personaSubline(p: MailParty | undefined): string {
 
 // 人物状态文案：会话是会话状态，job 是 job 状态，两者共用这张表（缺的照原样显示）。
 export const PERSONA_STATE_LABEL: Record<string, string> = {
-  running: '在线',
-  idle: '空闲',
-  awaiting_input: '等回复',
-  offline: '离线',
-  ended: '已结束',
-  pending: '排队',
-  queued: '排队',
-  succeeded: '已完成',
-  done: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-  canceled: '已取消',
-  timeout: '超时',
+  get running() { return t('mail.persona.running') },
+  get idle() { return t('mail.persona.idle') },
+  get awaiting_input() { return t('mail.persona.awaiting_input') },
+  get offline() { return t('mail.persona.offline') },
+  get ended() { return t('mail.persona.ended') },
+  get pending() { return t('mail.persona.queued') },
+  get queued() { return t('mail.persona.queued') },
+  get succeeded() { return t('mail.persona.done') },
+  get done() { return t('mail.persona.done') },
+  get failed() { return t('mail.persona.failed') },
+  get cancelled() { return t('mail.persona.cancelled') },
+  get canceled() { return t('mail.persona.cancelled') },
+  get timeout() { return t('mail.persona.timeout') },
 }
 
 export function personaStateLabel(state: string): string {
@@ -278,7 +279,7 @@ export function personaTooltip(p: MailParty | undefined, nowSec = 0): string {
   const lines = [mailPartyAddress(p)]
   const persona = p.persona
   if (persona?.cwd) lines.push(persona.cwd)
-  if (persona?.last_seen_at) lines.push(`最后活动 ${fmtAgo(persona.last_seen_at, nowSec)}`)
+  if (persona?.last_seen_at) lines.push(t('mail.persona.lastSeen', { ago: fmtAgo(persona.last_seen_at, nowSec) }))
   return lines.filter(Boolean).join('\n')
 }
 

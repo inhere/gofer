@@ -1,4 +1,5 @@
 import type { Runner, RunnersServerInfo, RunnerTool, WorkerUpgradeRecord } from '../api/types'
+import { t } from '../i18n'
 
 // server pings each worker every 15s (wshub.DefaultPingInterval) and the worker's reply refreshes
 // last_heartbeat; two missed beats (2x) mean "no heartbeat". The age is recomputed from the local
@@ -51,12 +52,18 @@ export const UPGRADE_MIN_PROTOCOL = 15
 // 不同平台的 worker 用 CLI 传二进制：gofer worker upgrade <id> --file <二进制>。
 export function upgradeBlockReason(r: Runner, server?: RunnersServerInfo): string {
   const w = r.worker
-  if (r.status !== 'connected' || !w) return 'worker 离线，无法升级'
-  if (r.upgrade?.state === 'pending') return '升级进行中'
-  if ((w.protocol_version ?? 0) < UPGRADE_MIN_PROTOCOL) return '该 worker 版本过旧，需要手动升级一次'
-  if (!server) return 'server 版本不支持远程升级'
+  if (r.status !== 'connected' || !w) return t('util.upgrade.offline')
+  if (r.upgrade?.state === 'pending') return t('util.upgrade.inProgress')
+  if ((w.protocol_version ?? 0) < UPGRADE_MIN_PROTOCOL) return t('util.upgrade.tooOld')
+  if (!server) return t('util.upgrade.noServer')
   if (w.os !== server.os || w.arch !== server.arch) {
-    return `worker 是 ${w.os || '?'}/${w.arch || '?'}，与 server（${server.os}/${server.arch}）不同；请用 CLI：gofer worker upgrade ${r.worker_id || r.name} --file <worker 二进制>`
+    return t('util.upgrade.platform', {
+      os: w.os || '?',
+      arch: w.arch || '?',
+      serverOs: server.os,
+      serverArch: server.arch,
+      id: r.worker_id || r.name,
+    })
   }
   return ''
 }
@@ -71,16 +78,17 @@ function fmtDuration(ms?: number): string {
 // 升级记录的一行中文摘要（与 CLI `gofer worker show` 同口径）。
 export function upgradeSummary(u: WorkerUpgradeRecord | undefined): string {
   if (!u) return ''
-  const took = fmtDuration(u.duration_ms)
+  const dur = fmtDuration(u.duration_ms)
+  const took = dur ? t('util.upgrade.took', { took: dur }) : ''
   switch (u.state) {
     case 'pending':
-      return `升级进行中：${u.from_version || '?'} → ${u.target_version || '?'}（等待在途任务结束并切换）`
+      return t('util.upgrade.summary.pending', { from: u.from_version || '?', to: u.target_version || '?' })
     case 'succeeded':
-      return `已升级到 ${u.target_version || '?'}${took ? `（耗时 ${took}）` : ''}`
+      return t('util.upgrade.summary.ok', { to: u.target_version || '?', took })
     case 'rolled_back':
-      return `已回滚：${u.error || '新进程未能注册'}${took ? `（耗时 ${took}）` : ''}`
+      return t('util.upgrade.summary.rolledBack', { error: u.error || t('util.upgrade.notRegistered'), took })
     default:
-      return `升级失败：${u.error || '未知原因'}${took ? `（耗时 ${took}）` : ''}`
+      return t('util.upgrade.summary.failed', { error: u.error || t('util.upgrade.unknownReason'), took })
   }
 }
 

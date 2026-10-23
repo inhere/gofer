@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 撤销窗口 toast（design §2.3）：「已批准 · 撤销 5s」，按 z 或点按钮撤销；操作失败时显示原因。
 import { actionError, undoQueue } from '../../store/today'
+import { t } from '../../i18n'
 
 const current = undoQueue.current
 
@@ -14,11 +15,11 @@ function clearError(): void {
     <template v-if="current">
       <span class="ut-label">{{ current.label }}</span>
       <span class="ut-cd">{{ current.left }}s</span>
-      <button class="ut-btn" type="button" @click="undoQueue.undo()">撤销 z</button>
+      <button class="ut-btn" type="button" @click="undoQueue.undo()">{{ t('today.undo.action') }}</button>
     </template>
     <template v-else>
-      <span class="ut-err">操作失败：{{ actionError }}</span>
-      <button class="ut-btn" type="button" @click="clearError">知道了</button>
+      <span class="ut-err">{{ t('today.undo.failed', { err: actionError }) }}</span>
+      <button class="ut-btn" type="button" @click="clearError">{{ t('today.undo.dismiss') }}</button>
     </template>
   </div>
 </template>

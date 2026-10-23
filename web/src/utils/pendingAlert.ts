@@ -6,6 +6,7 @@
 // 已作答）对应记录就被去掉：快照代表「现在等我处理」，决定过的 hold 不该让后面新来的那条
 // 被当成重复；已批准 / 拒绝的 job 也不再有任何提示条。
 import type { Decision, Interaction, Job, PendingApproval } from '../api/types'
+import { t } from '../i18n'
 import { commandLine } from './approval'
 
 // PENDING_APPROVAL_LIMIT：断线兜底轮询时一次最多取多少个待批 job（服务端快照同样有上限）。
@@ -120,8 +121,8 @@ export function pendingAlert(
       seen: next,
       toast: {
         key: freshNeedsHuman.key,
-        title: '⚠ 新的人工介入请求 · needs_human',
-        text: `job ${shortId(i.job_id)} — ${truncLine(i.prompt, 96) || '等待人工介入'}`,
+        title: t('util.alert.needsHumanTitle'),
+        text: `job ${shortId(i.job_id)} — ${truncLine(i.prompt, 96) || t('util.alert.needsHumanText')}`,
         to: `/jobs/${encodeURIComponent(i.job_id)}`,
       },
     }
@@ -160,7 +161,7 @@ function approvalToast(a: PendingApproval): PendingToast {
   const cmd = truncLine(commandLine(a.hold_cmd), 96)
   return {
     key: approvalKey(a.id),
-    title: `⏸ job 等你批准${a.project_key ? ` · ${a.project_key}` : ''}`,
+    title: `${t('util.alert.approvalTitle')}${a.project_key ? ` · ${a.project_key}` : ''}`,
     text: `${a.title || shortId(a.id)}${cmd ? ` — ${cmd}` : ''}`,
     to: `/jobs/${encodeURIComponent(a.id)}`,
   }
@@ -175,24 +176,24 @@ function decisionToast(d: Decision): PendingToast {
     return {
       key,
       title: d.permission?.questions?.length
-        ? `会话在等你回答 · ${d.title || shortSid(d.session_id)}`
-        : `会话需要授权 · ${d.title || shortSid(d.session_id)}`,
-      text: truncLine(d.permission?.questions?.[0]?.question || d.permission?.summary || d.question, 96) || '终端在等待工具授权',
+        ? t('util.alert.permQuestionTitle', { name: d.title || shortSid(d.session_id) })
+        : t('util.alert.permGrantTitle', { name: d.title || shortSid(d.session_id) }),
+      text: truncLine(d.permission?.questions?.[0]?.question || d.permission?.summary || d.question, 96) || t('util.alert.permText'),
       to: `/workbench?thread=${encodeURIComponent(`r:${d.session_id ?? ''}`)}`,
     }
   }
   if (relay) {
     return {
       key,
-      title: `会话等待回复 · ${d.title || shortSid(d.session_id)}`,
-      text: truncLine(d.question, 96) || '会话停下等你回复',
+      title: t('util.alert.relayTitle', { name: d.title || shortSid(d.session_id) }),
+      text: truncLine(d.question, 96) || t('util.alert.relayText'),
       to: `/workbench?thread=${encodeURIComponent(`r:${d.session_id ?? ''}`)}`,
     }
   }
   return {
     key,
-    title: `新的决策请求 · ${d.title || d.id}`,
-    text: truncLine(d.question, 96) || '等待人工作答',
+    title: t('util.alert.decisionTitle', { name: d.title || d.id }),
+    text: truncLine(d.question, 96) || t('util.alert.decisionText'),
     to: d.plan_id ? `/plans/${encodeURIComponent(d.plan_id)}` : undefined,
   }
 }

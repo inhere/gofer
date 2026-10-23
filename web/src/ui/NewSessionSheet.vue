@@ -6,7 +6,7 @@ import { computed, ref, watch } from 'vue'
 import { t } from '../i18n'
 import { runnerLabel } from '../utils/runnerDisplay'
 import {
-  CEILING_LABEL,
+  ceilingLabel,
   ceilingAllowsAgent,
   ceilingAllowsProject,
   ceilingAllowsRunner,
@@ -71,7 +71,7 @@ const runnerBlocks = computed(() => {
   const base = computeRunnerBlocks(selectedProject.value, runners.value, meta.value.workers)
   for (const runner of runners.value) {
     if (!ceilingAllowsRunner(ceil.value, runner.name)) {
-      base[runner.name] = { short: CEILING_LABEL, full: ceilingDeniedText('runner', runner.name) }
+      base[runner.name] = { short: ceilingLabel(), full: ceilingDeniedText('runner', runner.name) }
     }
   }
   return effectiveRunnerBlocks(runners.value, base, meta.value.workers, type.value === 'acp')
@@ -169,7 +169,7 @@ if (open.value) void loadMeta()
           <option v-for="project in projects" :key="project.key" :value="project.key">{{ project.key }}</option>
         </select>
         <span v-if="projectCeilingHidden > 0" class="ns-hint">
-          {{ t('sessions.new.ceilingHidden', { n: projectCeilingHidden, label: CEILING_LABEL }) }}
+          {{ t('sessions.new.ceilingHidden', { n: projectCeilingHidden, label: ceilingLabel() }) }}
         </span>
       </label>
       <label class="ns-field">
