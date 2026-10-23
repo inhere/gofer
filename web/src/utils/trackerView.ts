@@ -21,11 +21,11 @@ export function trackerMemoryMatches(data: { key?: string; content?: string; sum
 
 export type MemoryKind = 'rule' | 'note' | 'handoff'
 export const MEMORY_KINDS: MemoryKind[] = ['rule', 'note', 'handoff']
-// getter：文案随当前语言取（i18n 字典 issues.memory.kind.*）。
+// getter：文案随当前语言取（i18n 字典 memory.kind.*）。
 export const MEMORY_KIND_LABEL: Record<MemoryKind, string> = {
-  get rule() { return t('issues.memory.kind.rule') },
-  get note() { return t('issues.memory.kind.note') },
-  get handoff() { return t('issues.memory.kind.handoff') },
+  get rule() { return t('memory.kind.rule') },
+  get note() { return t('memory.kind.note') },
+  get handoff() { return t('memory.kind.handoff') },
 }
 
 // 与 tracker.EffectiveMemoryKind 一致：存的 kind，否则旧 `prime` 标签算 rule，否则 note。
@@ -53,16 +53,16 @@ export function memoryAge(updatedAt: string | undefined, nowMs = Date.now()): st
   const parsed = updatedAt ? Date.parse(updatedAt) : NaN
   if (Number.isNaN(parsed)) return ''
   const days = Math.floor((nowMs - parsed) / 86_400_000)
-  return days <= 0 ? t('issues.memory.age.today') : t('issues.memory.age.days', { n: days })
+  return days <= 0 ? t('memory.age.today') : t('memory.age.days', { n: days })
 }
 
 const DOCTOR_LABEL: Record<string, string> = {
-  'handoff-expired': 'issues.memory.doctor.handoffExpired',
-  'note-stale': 'issues.memory.doctor.noteStale',
-  'summary-missing': 'issues.memory.doctor.summaryMissing',
-  duplicate: 'issues.memory.doctor.duplicate',
-  'path-missing': 'issues.memory.doctor.pathMissing',
-  'commit-missing': 'issues.memory.doctor.commitMissing',
+  'handoff-expired': 'memory.doctor.handoffExpired',
+  'note-stale': 'memory.doctor.noteStale',
+  'summary-missing': 'memory.doctor.summaryMissing',
+  duplicate: 'memory.doctor.duplicate',
+  'path-missing': 'memory.doctor.pathMissing',
+  'commit-missing': 'memory.doctor.commitMissing',
 }
 
 export function doctorLabel(slug: string): string {
@@ -88,6 +88,6 @@ export function syncClientLine(
   c: { client_host: string; caller: string; last_sync_at: number; summary: string },
   nowSec?: number,
 ): string {
-  const ago = c.last_sync_at > 0 ? t('issues.tracker.sync.ago', { ago: fmtAgo(c.last_sync_at, nowSec) }) : '—'
+  const ago = c.last_sync_at > 0 ? t('memory.sync.ago', { ago: fmtAgo(c.last_sync_at, nowSec) }) : '—'
   return [c.client_host || 'unknown', c.caller || '—', ago, c.summary || '—'].join(' · ')
 }

@@ -1,5 +1,5 @@
 // issues 页的文案（UI 重设计 P5）。每个页面一个文件、zh 与 en 并列；key 前缀 `issues.`，
-// 命名规范见设计稿 §9.2。覆盖 /issues 的两页签（Issues / 记忆）与 IssueDrawer。
+// 命名规范见设计稿 §9.2。覆盖 /issues 与 IssueDrawer；记忆页签已独立成 /memory（pages/memory.ts）。
 import type { PageDict } from './types'
 
 export const issues: PageDict = {
@@ -23,14 +23,10 @@ export const issues: PageDict = {
     'issues.newForm.collapse': '收起',
     'issues.newForm.created': '已新建 {id}，待仓库下次同步后拉到本地',
 
-    'issues.repo': '仓库',
     'issues.repoPlaceholder': '请选择已登记仓库',
     'issues.repoSync': '同步',
     'issues.repoSyncing': '同步中…',
     'issues.repoSyncTitle': '让 server 在该仓库目录执行 gofer repo sync',
-    'issues.project': '项目',
-    'issues.projectPlaceholder': '请选择项目',
-    'issues.globalNote': '全局记忆存于 server，无需选择仓库',
     'issues.lastSync': '上次同步 {time}',
     'issues.noSyncSummary': '暂无同步冲突摘要',
     'issues.syncDone': '同步完成 · {time}',
@@ -39,17 +35,6 @@ export const issues: PageDict = {
 
     'issues.tab.issues': 'Issues',
     'issues.tab.memories': '记忆',
-    'issues.scope.label': '记忆作用域',
-    'issues.scope.repo': '仓库',
-    'issues.scope.project': '项目',
-    'issues.scope.global': '全局',
-    'issues.scope.repoHelp': '随代码存于该仓库 .gofer/tracker',
-    'issues.scope.projectHelp': '存于 server，整个 gofer 项目共享',
-    'issues.scope.globalHelp': '存于 server，所有项目共享',
-    'issues.syncClients.title': '同步状态',
-    'issues.syncClients.summary': '{n} 台机器 · 最近 {host}',
-    'issues.syncClients.empty': '还没有机器同步过全局记忆（在任一机器运行 gofer memory sync --global）',
-    'issues.syncClients.lastSync': '上次同步 {time}',
 
     'issues.empty.noRepos': '暂无已登记仓库',
     'issues.view.label': '列表视图',
@@ -61,9 +46,6 @@ export const issues: PageDict = {
     'issues.filter.tagPlaceholder': '标签',
     'issues.filter.query': '关键字',
     'issues.filter.queryIssues': 'ID、标题或内容',
-    'issues.filter.queryMemories': 'key 或内容',
-    'issues.filter.flagged': '⚠ 有标记',
-    'issues.filter.flaggedTitle': '只看服务端 doctor 标记的记忆',
     'issues.selectHint': '勾选父项不会自动勾选子项；按住 Shift 点击复选框，或点父项上的「连同子项」，可一并选中其子项。选中会跨页保留。',
     'issues.batch.dismiss': '收起',
 
@@ -116,24 +98,8 @@ export const issues: PageDict = {
     'issues.drawer.comment': '评论',
     'issues.drawer.commentPlaceholder': '发表评论',
 
-    // utils/trackerView.ts：仓库行、记忆类型 / 年龄 / doctor 标记、同步面板
+    // utils/trackerView.ts：仓库行
     'issues.tracker.repo.unassigned': '未归属',
-    'issues.tracker.sync.ago': '{ago}同步',
-    'issues.memory.kind.rule': '规则',
-    'issues.memory.kind.note': '笔记',
-    'issues.memory.kind.handoff': '交接',
-    'issues.memory.age.today': '今天',
-    'issues.memory.age.days': '{n} 天前',
-    'issues.memory.doctor.handoffExpired': '交接已过期',
-    'issues.memory.doctor.noteStale': '久未更新',
-    'issues.memory.doctor.summaryMissing': '缺摘要',
-    'issues.memory.doctor.duplicate': '疑似重复',
-    'issues.memory.doctor.pathMissing': '路径不存在',
-    'issues.memory.doctor.commitMissing': '提交不存在',
-    'issues.memory.tagsNone': '无标签',
-    'issues.memory.save': '保存',
-    'issues.memory.delete': '删除',
-    'issues.memory.empty': '暂无 memory',
 
     // 批量操作栏（components/IssueBatchBar.vue）
     'issues.batch.selected': '已选 {n} 项',
@@ -176,14 +142,10 @@ export const issues: PageDict = {
     'issues.newForm.collapse': 'Collapse',
     'issues.newForm.created': 'Created {id}; it appears after the repository syncs next time',
 
-    'issues.repo': 'Repository',
     'issues.repoPlaceholder': 'Pick a registered repository',
     'issues.repoSync': 'Sync',
     'issues.repoSyncing': 'Syncing…',
     'issues.repoSyncTitle': 'Ask the server to run gofer repo sync in this repository',
-    'issues.project': 'Project',
-    'issues.projectPlaceholder': 'Pick a project',
-    'issues.globalNote': 'Global memories live on the server; no repository needed',
     'issues.lastSync': 'Last sync {time}',
     'issues.noSyncSummary': 'No sync conflicts recorded',
     'issues.syncDone': 'Sync finished · {time}',
@@ -192,18 +154,6 @@ export const issues: PageDict = {
 
     'issues.tab.issues': 'Issues',
     'issues.tab.memories': 'Memories',
-    'issues.scope.label': 'Memory scope',
-    'issues.scope.repo': 'Repository',
-    'issues.scope.project': 'Project',
-    'issues.scope.global': 'Global',
-    'issues.scope.repoHelp': 'Stored with the code in this repository’s .gofer/tracker',
-    'issues.scope.projectHelp': 'Stored on the server, shared by this gofer project',
-    'issues.scope.globalHelp': 'Stored on the server, shared by every project',
-    'issues.syncClients.title': 'Sync status',
-    'issues.syncClients.summary': '{n} machines · latest {host}',
-    'issues.syncClients.empty':
-      'No machine has synced global memories yet (run gofer memory sync --global on one machine)',
-    'issues.syncClients.lastSync': 'Last sync {time}',
 
     'issues.empty.noRepos': 'No registered repository yet',
     'issues.view.label': 'List view',
@@ -215,9 +165,6 @@ export const issues: PageDict = {
     'issues.filter.tagPlaceholder': 'Tag',
     'issues.filter.query': 'Keyword',
     'issues.filter.queryIssues': 'ID, title or body',
-    'issues.filter.queryMemories': 'key or content',
-    'issues.filter.flagged': '⚠ Flagged',
-    'issues.filter.flaggedTitle': 'Only memories flagged by the server doctor',
     'issues.selectHint':
       'Checking a parent does not check its children; hold Shift while clicking the checkbox, or use “with children” on a parent, to select them together. Selection survives paging.',
     'issues.batch.dismiss': 'Dismiss',
@@ -272,22 +219,6 @@ export const issues: PageDict = {
     'issues.drawer.commentPlaceholder': 'Write a comment',
 
     'issues.tracker.repo.unassigned': 'Unassigned',
-    'issues.tracker.sync.ago': 'synced {ago}',
-    'issues.memory.kind.rule': 'Rule',
-    'issues.memory.kind.note': 'Note',
-    'issues.memory.kind.handoff': 'Handoff',
-    'issues.memory.age.today': 'Today',
-    'issues.memory.age.days': '{n} days ago',
-    'issues.memory.doctor.handoffExpired': 'Handoff expired',
-    'issues.memory.doctor.noteStale': 'Not updated for long',
-    'issues.memory.doctor.summaryMissing': 'Missing summary',
-    'issues.memory.doctor.duplicate': 'Possible duplicate',
-    'issues.memory.doctor.pathMissing': 'Path missing',
-    'issues.memory.doctor.commitMissing': 'Commit missing',
-    'issues.memory.tagsNone': 'No tags',
-    'issues.memory.save': 'Save',
-    'issues.memory.delete': 'Delete',
-    'issues.memory.empty': 'No memory yet',
 
     'issues.batch.selected': '{n} selected',
     'issues.batch.clear': 'Clear',

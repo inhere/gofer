@@ -28,6 +28,12 @@ const active = computed(() => tabFromQuery(route.query, props.tabs, props.param,
 
 function select(value: string): void {
   if (!value) return
+  // 链接式页签（tab.to）：目标内容已独立成别的路由，跳过去而不是写 ?tab=（本页没有这个面板）。
+  const target = props.tabs.find((tab) => tab.value === value)?.to
+  if (target) {
+    void router.push(target)
+    return
+  }
   emit('change', value)
   void router.replace({ path: route.path, query: queryWithTab(route.query, value, props.tabs, props.param, props.fallback) })
 }

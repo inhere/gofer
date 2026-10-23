@@ -9,6 +9,7 @@
 // 导航用语义化名字（NavIcon）而不是 lucide 图标名：换图标只改这张表，
 // utils/shell.ts 与外壳组件都不动。
 import {
+  BookMarked,
   Bot,
   CalendarClock,
   ChartColumn,
@@ -53,6 +54,7 @@ export type NavIcon =
   | 'mail'
   | 'review'
   | 'issues'
+  | 'memory'
   | 'dashboard'
   | 'workflows'
   | 'schedules'
@@ -72,6 +74,7 @@ export const NAV_ICONS: Record<NavIcon, LucideIcon> = {
   mail: Mail, // 信箱
   review: ClipboardCheck, // 待验收
   issues: CircleDot, // Issues：议题圆点
+  memory: BookMarked, // 记忆：书签
   dashboard: ChartColumn, // 统计
   workflows: Workflow, // 工作流
   schedules: CalendarClock, // 定时
