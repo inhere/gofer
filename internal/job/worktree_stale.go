@@ -298,8 +298,10 @@ func checkoutBranch(ctx context.Context, path string) (string, bool) {
 // jobActive reports whether id names a job that may still be using a checkout: an
 // in-process entry that has not finished, or a stored row in a non-terminal state. A
 // stored row in `recovering` counts as active too — its worker may still be running it.
-// generatedJobIDRe is the shape of an id gofer generates itself (job-<date>-<time>-<hex>).
-var generatedJobIDRe = regexp.MustCompile(`^job-[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$`)
+// generatedJobIDRe is the shape of an id gofer generates itself: job-<date>-<time>-<hex>,
+// or the same without the prefix for ids minted before JobIDPrefix (still valid, never
+// migrated — see JobIDPrefix).
+var generatedJobIDRe = regexp.MustCompile(`^(job-)?[0-9]{8}-[0-9]{6}-[0-9a-f]{8}$`)
 
 // sweepableCheckoutOwner reports whether the directory named after id may be swept: only a
 // checkout that provably belongs to a FINISHED job. A `{name}` template matches every
