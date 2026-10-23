@@ -29,6 +29,8 @@ describe('WorkCard', () => {
     // 截图检查 P6-2：状态 / 未整理 / 会话离线三个 chip 在右侧时，标题被挤成一窄列换四五行。
     const html = await render({ item: item(), nowSec: 1060 })
     expect(html).toContain('icard-head--stacked')
+    // 左边框颜色来自状态族（needs_onsite → need），状态文字仍在卡片上
+    expect(html).toContain('work-card k-need')
     // 标题与徽标区仍在同一个 header 里（CSS 把 header 改成列方向：标题整行，徽标在下）。
     expect(html).toMatch(/class="icard-head--stacked icard-head"[\s\S]*class="icard-title[^"]*"[\s\S]*class="icard-badges"/)
   })
