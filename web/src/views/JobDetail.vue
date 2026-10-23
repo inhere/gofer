@@ -3367,7 +3367,7 @@ onUnmounted(() => {
 .session-input-multiline {
   min-height: 72px;
   resize: vertical;
-  background: var(--log-bg);
+  background: var(--sunken);
 }
 .session-composer-row .title-action {
   align-self: stretch;
@@ -3554,7 +3554,7 @@ onUnmounted(() => {
 .resume-input {
   min-height: 70px;
   resize: vertical;
-  background: var(--log-bg);
+  background: var(--sunken);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
@@ -4087,7 +4087,7 @@ onUnmounted(() => {
 }
 /* inline code：加发丝边框 + 暖色前景，确保在 --panel 容器上（两种主题）都清晰可辨。 */
 .outcome-md :deep(code) {
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: 3px;
   color: var(--run);
@@ -4096,7 +4096,7 @@ onUnmounted(() => {
   padding: 0 5px;
 }
 .outcome-md :deep(pre) {
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   overflow: auto;
@@ -4217,7 +4217,7 @@ onUnmounted(() => {
 }
 .waiting-dir-help code {
   color: var(--accent);
-  background: var(--log-bg);
+  background: var(--sunken);
   padding: 1px 4px;
   border-radius: var(--r-chip);
 }

@@ -416,7 +416,7 @@ defineExpose({ focusFile })
 .ud-group-title {
   margin: 0 0 6px;
   padding: 3px 8px;
-  background: var(--log-bg);
+  background: var(--sunken);
   border-left: 2px solid var(--accent);
   color: var(--accent);
   font-size: 12px;
@@ -505,7 +505,7 @@ defineExpose({ focusFile })
 .ud-hunk {
   margin: 0;
   padding: 0;
-  background: var(--log-bg);
+  background: var(--sunken);
   white-space: pre;
   overflow-x: auto;
   font-size: 12px;

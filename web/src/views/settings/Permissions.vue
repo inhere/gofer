@@ -609,7 +609,7 @@ onMounted(() => {
 .hint, .empty { margin: 0; color: var(--ink-3); font-size: 13px; }
 .empty { padding: 18px 0; }
 
-input, select { background: var(--log-bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 13px; min-width: 0; }
+input, select { background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 13px; min-width: 0; }
 input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .search { flex: 1 1 200px; }
 .btn { font: inherit; font-size: 12px; padding: 6px 12px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); cursor: pointer; }
@@ -633,7 +633,7 @@ input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); ou
 .blocker { font-size: 12px; color: var(--run); }
 
 /* 展开预览：每行左侧的色条就是风险档，一眼扫出这条授权里有没有重的 */
-.preview { min-height: 40px; padding: 8px; border: 1px dashed var(--line); border-radius: var(--r-chip); background: var(--log-bg); }
+.preview { min-height: 40px; padding: 8px; border: 1px dashed var(--line); border-radius: var(--r-chip); background: var(--sunken); }
 .preview-hint { margin: 0; font-size: 12px; color: var(--ink-3); }
 .preview-note { margin: 6px 0 0; font-size: 12px; color: var(--run); }
 .manifest { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; max-height: 260px; overflow: auto; }

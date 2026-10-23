@@ -447,7 +447,7 @@ function fmtTime(v: number | undefined): string {
 .icard-input {
   flex: 1;
   min-width: 0;
-  background: var(--log-bg);
+  background: var(--sunken);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);

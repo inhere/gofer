@@ -222,7 +222,7 @@ onUnmounted(() => {
 .ea-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--ink); }
 .ea-sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
 .ea-x { font-size: 18px; line-height: 1; padding: 2px 8px; color: var(--ink-3); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); }
-.ea-note { margin: 0; padding: 9px 12px; font-size: 13px; line-height: 1.55; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r-chip); background: var(--log-bg); }
+.ea-note { margin: 0; padding: 9px 12px; font-size: 13px; line-height: 1.55; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r-chip); background: var(--sunken); }
 .ea-note strong { display: block; color: var(--accent); font-weight: 600; margin-bottom: 2px; }
 .ea-field { display: grid; gap: 5px; min-width: 0; }
 .ea-hint { margin: 0; font-size: 12px; color: var(--ink-3); letter-spacing: 0.04em; }
@@ -230,10 +230,10 @@ onUnmounted(() => {
 .ea-code { display: flex; align-items: center; gap: 8px; }
 .ea-code-in { width: 6.5em; letter-spacing: 0.22em; text-align: center; text-transform: uppercase; font-size: 18px; }
 .ea-dash { color: var(--ink-3); }
-.ea-input, .ea-code-in { background: var(--log-bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 7px 9px; font-size: 13px; min-width: 0; }
+.ea-input, .ea-code-in { background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 7px 9px; font-size: 13px; min-width: 0; }
 .ea-projects { display: grid; gap: 2px; max-height: 180px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-chip); padding: 4px; }
 .ea-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; cursor: pointer; }
-.ea-row:hover { background: var(--log-bg); }
+.ea-row:hover { background: var(--sunken); }
 .ea-row code { font-size: 12.5px; }
 .ea-facts { display: grid; gap: 2px; font-size: 12px; color: var(--ink-3); }
 .ea-facts p { margin: 0; overflow-wrap: anywhere; }

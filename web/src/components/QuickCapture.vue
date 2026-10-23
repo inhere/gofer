@@ -135,7 +135,7 @@ onBeforeUnmount(() => clearTimeout(doneTimer))
   border-radius: var(--r-chip); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 .qc-text, .qc-proj {
-  width: 100%; box-sizing: border-box; padding: 7px 9px; color: var(--ink); background: var(--log-bg);
+  width: 100%; box-sizing: border-box; padding: 7px 9px; color: var(--ink); background: var(--sunken);
   border: 1px solid var(--line); border-radius: var(--r-chip); font: inherit; font-size: 13px; line-height: 1.5; resize: vertical;
 }
 .qc-text:focus, .qc-proj:focus { outline: none; border-color: var(--accent); }

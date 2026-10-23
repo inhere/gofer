@@ -967,7 +967,7 @@ onMounted(() => {
   margin: 0;
   max-height: 420px;
   overflow: auto;
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   padding: 10px;

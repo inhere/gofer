@@ -54,12 +54,12 @@ const html = computed(() => DOMPurify.sanitize(marked.parse(props.text, { async:
 .md :deep(code) {
   font-family: var(--font-mono, monospace);
   font-size: 0.92em;
-  background: var(--log-bg);
+  background: var(--sunken);
   padding: 1px 5px;
   border-radius: 3px;
 }
 .md :deep(pre) {
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   padding: 10px 12px;

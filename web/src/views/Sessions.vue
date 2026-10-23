@@ -1085,7 +1085,7 @@ onUnmounted(() => {
 .find-box { display: flex; gap: 8px; margin: 0 0 10px; }
 .find-input {
   flex: 1; min-width: 0; padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--r-chip);
-  background: var(--log-bg); color: var(--ink); font-size: 12px;
+  background: var(--sunken); color: var(--ink); font-size: 12px;
 }
 .find-input:focus { outline: none; border-color: var(--accent); }
 .find-note { margin: 0 0 10px; color: var(--ink-3); font-size: 12px; }

@@ -2494,7 +2494,7 @@ onUnmounted(() => {
 }
 /* 状态下拉：安静的行内控件，按态着色（doing=run/done=done/skipped=queue） */
 .todo-status {
-  background: var(--log-bg);
+  background: var(--sunken);
   color: var(--ink-3);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
@@ -2663,7 +2663,7 @@ onUnmounted(() => {
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  background: var(--log-bg);
+  background: var(--sunken);
 }
 .seg {
   height: 100%;

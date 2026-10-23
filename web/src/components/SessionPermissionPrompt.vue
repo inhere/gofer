@@ -157,7 +157,7 @@ async function answer(value: string): Promise<void> {
   max-height: 240px;
   overflow: auto;
   font-size: 11px;
-  background: var(--log-bg);
+  background: var(--sunken);
   padding: 6px;
   border-radius: var(--r-chip);
   margin: 0;

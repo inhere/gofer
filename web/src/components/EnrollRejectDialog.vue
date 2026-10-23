@@ -87,7 +87,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 .er-x { font-size: 18px; line-height: 1; padding: 2px 8px; color: var(--ink-3); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); }
 .er-field { display: grid; gap: 5px; min-width: 0; }
 .er-hint { font-size: 12px; color: var(--ink-3); letter-spacing: 0.04em; }
-.er-input { background: var(--log-bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 7px 9px; font-size: 13px; min-width: 0; }
+.er-input { background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 7px 9px; font-size: 13px; min-width: 0; }
 .er-check { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; color: var(--ink); }
 .er-msg { margin: 0; padding: 8px 12px; border: 1px solid var(--fail); border-radius: var(--r-chip); color: var(--fail); font-size: 13px; overflow-wrap: anywhere; }
 .er-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }

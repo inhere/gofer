@@ -892,7 +892,7 @@ onUnmounted(() => {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   color: var(--ink);
 }
@@ -963,7 +963,7 @@ onUnmounted(() => {
   padding: 4px 8px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  background: var(--log-bg);
+  background: var(--sunken);
   color: var(--accent);
   font-size: 12px;
 }
@@ -1023,7 +1023,7 @@ onUnmounted(() => {
   padding: 4px 8px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  background: var(--log-bg);
+  background: var(--sunken);
   color: var(--ink);
   font-size: 11px;
 }
@@ -1048,7 +1048,7 @@ onUnmounted(() => {
   /* 只读端跟随服务端尺寸时可能超出容器宽度，横向滚动兜底（tools-3xy） */
   overflow: auto;
   overscroll-behavior: contain;
-  background: var(--log-bg);
+  background: var(--sunken);
 }
 
 .raw-replay {
@@ -1056,7 +1056,7 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--log-bg);
+  background: var(--sunken);
 }
 .raw-replay-toolbar {
   flex: none;
@@ -1073,7 +1073,7 @@ onUnmounted(() => {
   padding: 5px 7px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  background: var(--log-bg);
+  background: var(--sunken);
   color: var(--ink);
   font-size: 12px;
 }
@@ -1133,7 +1133,7 @@ onUnmounted(() => {
   padding: 7px 9px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  background: var(--log-bg);
+  background: var(--sunken);
   color: var(--ink);
   font-size: 12px;
   line-height: 1.45;
@@ -1169,7 +1169,7 @@ onUnmounted(() => {
 
 .terminal-host :deep(.xterm-viewport),
 .terminal-host :deep(.xterm-screen) {
-  background: var(--log-bg) !important;
+  background: var(--sunken) !important;
 }
 
 .terminal-foot {

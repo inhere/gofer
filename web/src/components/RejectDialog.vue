@@ -128,7 +128,7 @@ onUnmounted(() => {
 .rd-note {
   width: 100%;
   box-sizing: border-box;
-  background: var(--log-bg);
+  background: var(--sunken);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);

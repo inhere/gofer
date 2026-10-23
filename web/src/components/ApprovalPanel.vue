@@ -201,7 +201,7 @@ summary.ap-k {
   margin: 0;
   padding: 8px 10px;
   color: var(--ink);
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   font-size: 13px;

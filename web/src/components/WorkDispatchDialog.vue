@@ -242,7 +242,7 @@ async function submit(): Promise<void> {
 .dd-hit--inf { color: var(--run); border-style: dashed; border-color: var(--run); }
 .dd-hit--off { color: var(--ink-3); }
 .dd-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--ink-3); }
-.dd-in { width: 100%; box-sizing: border-box; padding: 6px 8px; color: var(--ink); background: var(--log-bg); border: 1px solid var(--line); border-radius: var(--r-chip); font: inherit; font-size: 13px; }
+.dd-in { width: 100%; box-sizing: border-box; padding: 6px 8px; color: var(--ink); background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r-chip); font: inherit; font-size: 13px; }
 .dd-in:focus { outline: none; border-color: var(--accent); }
 .dd-err { margin: 0; padding: 6px 10px; font-size: 12px; color: var(--fail); border: 1px solid var(--fail); border-radius: var(--r-chip); overflow-wrap: anywhere; }
 .dd-actions { display: flex; gap: 8px; }

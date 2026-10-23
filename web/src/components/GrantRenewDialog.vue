@@ -110,11 +110,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 .rg-sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
 .rg-x { font-size: 18px; line-height: 1; padding: 2px 8px; color: var(--ink-3); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); cursor: pointer; }
 /* 说明：左侧色条用「运行中」色，先讲清续期只改一件事 */
-.rg-note { margin: 0; padding: 9px 12px; font-size: 13px; line-height: 1.55; border: 1px solid var(--line); border-left: 3px solid var(--run); border-radius: var(--r-chip); background: var(--log-bg); }
+.rg-note { margin: 0; padding: 9px 12px; font-size: 13px; line-height: 1.55; border: 1px solid var(--line); border-left: 3px solid var(--run); border-radius: var(--r-chip); background: var(--sunken); }
 .rg-note strong { display: block; color: var(--run); font-weight: 600; margin-bottom: 2px; }
 .rg-hint { margin: 0; font-size: 12px; color: var(--ink-3); line-height: 1.5; display: flex; flex-wrap: wrap; gap: 6px; }
 .rg-field { display: grid; gap: 4px; min-width: 0; }
-select { background: var(--log-bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 13px; min-width: 0; }
+select { background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 13px; min-width: 0; }
 select:focus-visible, .rg-btn:focus-visible, .rg-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rg-msg { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-chip); font-size: 13px; overflow-wrap: anywhere; }
 .rg-msg--error { color: var(--fail); border-color: var(--fail); }

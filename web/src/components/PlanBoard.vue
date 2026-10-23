@@ -579,7 +579,7 @@ function shortId(id: string): string {
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   cursor: grab;
@@ -734,7 +734,7 @@ a.chip {
   word-break: break-word;
 }
 .modal-input {
-  background: var(--log-bg);
+  background: var(--sunken);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);

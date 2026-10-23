@@ -302,7 +302,7 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
   overflow: auto;
   font-size: 11px;
   color: var(--ink);
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   white-space: pre-wrap;

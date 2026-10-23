@@ -176,7 +176,7 @@ onUnmounted(revoke)
   max-width: 100%;
   max-height: 70vh;
   margin: 0 auto;
-  background: var(--log-bg);
+  background: var(--sunken);
 }
 
 /* 回退下载块。 */

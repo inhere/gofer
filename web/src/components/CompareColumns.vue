@@ -403,7 +403,7 @@ const hint = computed(() => {
 .col-diffsum,
 .col-tail {
   margin: 0;
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   padding: 6px 8px;

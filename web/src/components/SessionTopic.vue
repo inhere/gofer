@@ -143,7 +143,7 @@ async function save(): Promise<void> {
 .stopic-scope { display: inline-flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .stopic-chip {
   padding: 0 6px; border: 1px solid var(--line); border-radius: var(--r-chip);
-  background: var(--log-bg); color: var(--ink); font-size: 11px; overflow-wrap: anywhere;
+  background: var(--sunken); color: var(--ink); font-size: 11px; overflow-wrap: anywhere;
 }
 .stopic-edit, .stopic-btn {
   margin-left: auto; padding: 1px 8px; border: 1px solid var(--line); border-radius: var(--r-chip);
@@ -156,7 +156,7 @@ async function save(): Promise<void> {
 .stopic-field { display: flex; flex-direction: column; gap: 4px; color: var(--ink-3); }
 .stopic-field input, .stopic-field textarea {
   width: 100%; box-sizing: border-box; padding: 5px 8px; border: 1px solid var(--line);
-  border-radius: var(--r-chip); background: var(--log-bg); color: var(--ink);
+  border-radius: var(--r-chip); background: var(--sunken); color: var(--ink);
   font: inherit; font-size: 12px;
 }
 .stopic-field input:focus, .stopic-field textarea:focus { outline: none; border-color: var(--accent); }

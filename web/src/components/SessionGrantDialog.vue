@@ -186,7 +186,7 @@ onUnmounted(() => {
 .sg-sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
 .sg-x { font-size: 18px; line-height: 1; padding: 2px 8px; color: var(--ink-3); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); cursor: pointer; }
 /* 威胁说明：左侧色条用「高风险」色，先读它再选权限 */
-.sg-threat { margin: 0; padding: 9px 12px; font-size: 13px; line-height: 1.55; border: 1px solid var(--line); border-left: 3px solid var(--run); border-radius: var(--r-chip); background: var(--log-bg); }
+.sg-threat { margin: 0; padding: 9px 12px; font-size: 13px; line-height: 1.55; border: 1px solid var(--line); border-left: 3px solid var(--run); border-radius: var(--r-chip); background: var(--sunken); }
 .sg-threat strong { display: block; color: var(--run); font-weight: 600; margin-bottom: 2px; }
 .sg-hint { margin: 0; font-size: 12px; color: var(--ink-3); line-height: 1.5; }
 .sg-presets { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
@@ -195,7 +195,7 @@ onUnmounted(() => {
 .sg-list { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 2px; max-height: 240px; overflow: auto; }
 .sg-list legend { padding: 0 0 4px; }
 .sg-row { --risk: var(--ink-3); display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 5px 8px; border-left: 3px solid var(--risk); cursor: pointer; }
-.sg-row:hover { background: var(--log-bg); }
+.sg-row:hover { background: var(--sunken); }
 .sg-row input { align-self: center; }
 .sg-desc { color: var(--ink-3); font-size: 12px; flex: 1 1 200px; min-width: 0; }
 .risk--low { --risk: var(--ink-3); }
@@ -204,7 +204,7 @@ onUnmounted(() => {
 .risk--danger { --risk: var(--fail); }
 .sg-risk { font-size: 11px; color: var(--risk); border: 1px solid var(--risk); border-radius: 3px; padding: 0 5px; }
 code { font-family: var(--font-mono); font-size: 12.5px; }
-.sg-preview { min-height: 40px; padding: 8px; border: 1px dashed var(--line); border-radius: var(--r-chip); background: var(--log-bg); }
+.sg-preview { min-height: 40px; padding: 8px; border: 1px dashed var(--line); border-radius: var(--r-chip); background: var(--sunken); }
 .sg-manifest { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .sg-manifest li { --risk: var(--ink-3); border-left: 3px solid var(--risk); padding: 2px 8px; }
 .sg-confirm { padding: 10px 12px; border: 1px solid var(--run); border-radius: var(--r-chip); display: grid; gap: 8px; font-size: 13px; }
@@ -214,7 +214,7 @@ code { font-family: var(--font-mono); font-size: 12.5px; }
 .sg-row2 { display: flex; flex-wrap: wrap; gap: 12px; }
 .sg-field { display: grid; gap: 4px; min-width: 0; }
 .sg-field--grow { flex: 1 1 200px; }
-input:not([type='checkbox']), select { background: var(--log-bg); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 13px; min-width: 0; }
+input:not([type='checkbox']), select { background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 13px; min-width: 0; }
 input:focus-visible, select:focus-visible, .sg-btn:focus-visible, .sg-chip:focus-visible, .sg-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sg-msg { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-chip); font-size: 13px; overflow-wrap: anywhere; }
 .sg-msg--error { color: var(--fail); border-color: var(--fail); }

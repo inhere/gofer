@@ -755,7 +755,7 @@ onUnmounted(() => {
 }
 .res-excerpt {
   margin: var(--s2) 0 0;
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   padding: var(--s2);

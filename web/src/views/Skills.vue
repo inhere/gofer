@@ -714,7 +714,7 @@ onMounted(() => {
 .skill-md {
   margin: 0;
   padding: 10px 12px;
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   color: var(--ink);
