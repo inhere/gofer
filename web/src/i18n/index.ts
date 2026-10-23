@@ -9,6 +9,7 @@
 import { locale, type Locale } from '../store/locale'
 import { en } from './en'
 import { zh } from './zh'
+import { pages } from './pages'
 
 export type Dict = Record<string, string>
 export type Dicts = Record<Locale, Dict>
@@ -16,9 +17,11 @@ export type Dicts = Record<Locale, Dict>
 // 回退语言：缺 key 时用中文（中文是作者维护的主字典）。
 export const FALLBACK_LOCALE: Locale = 'zh-CN'
 
+// 主字典加上按页面拆分的文案（pages/，见 pages/index.ts）。页面 key 带页面前缀，
+// 与主字典不重名；重名时页面文件优先（迁移期允许页面覆盖通用文案）。
 export const dicts: Dicts = {
-  'zh-CN': zh,
-  'en-US': en,
+  'zh-CN': Object.assign({}, zh, ...pages.map((p) => p.zh)),
+  'en-US': Object.assign({}, en, ...pages.map((p) => p.en)),
 }
 
 const warned = new Set<string>()
