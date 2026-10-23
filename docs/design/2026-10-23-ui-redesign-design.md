@@ -1431,6 +1431,73 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 配置管理（`Config.vue`，1696 行）仍是旧写法：文案未进字典、分节未换 `FormSection`；导航与路由已统一，页面内容未动。`Config.vue` 里的出站 webhook（含 keyword）与事件订阅矩阵保持原样，等该页迁移时再套分节。
 - 四态截图（zh/en × 浅/深）与 `web/scripts/shots.mjs` 的自动检查本批未跑。
 
+### P6-a 样式收尾：删别名、断点统一、状态取色收敛（2026-10-23，issue gofer-hez1）
+
+落地范围是 §11 P6 行的三项，不动文案、不动布局结构、不动 Go 代码。
+
+**1）删除旧 token 别名**
+
+`tokens.css` 的「迁移期别名」整块删除，仍在用旧名的 128 个文件改成新 token（`--fg` 改回 §4 命名修正里的 `--ink`，`--ink` 当底色用完换成 `--bg`）：
+
+| 旧名 | 新 token | 迁移前用到的处数 |
+|---|---|---|
+| `--ink`（页面底） | `--bg` | 74 |
+| `--panel` | `--surface` | 104 |
+| `--paper`（正文） | `--ink` | 261 |
+| `--phosphor`（强调/链接） | `--accent` | 432 |
+| `--queue`（灰字/待排队） | `--ink-3` | 430 |
+| `--radius`（4px） | `--r-chip`（5px） | 345 |
+| `--term-bg` | `--log-bg` | 48 |
+| `--font-sans` | `--font-ui` | 2（含带 fallback 的一处） |
+
+两处取值需要说明：
+
+- **`--radius` 落到 `--r-chip`（4 → 5px）**：四档圆角里没有 4px 这一档，5px 是视觉差最小的一档；控件/面板按 §4.3 升到 8/12px 属于各页迁移时的层次调整，不在「删别名」里顺手改。
+- **`--term-bg` 落到 `--log-bg`**：旧别名是分主题的终端底（浅色下是浅底），新设计里日志/终端两种主题都是深底（§4.1）。浅色主题下这几处（日志条、终端、diff、代码块、输入框下方的预览区）会跟着变深，属于设计稿既定口径。
+- `StatusBadge` 的 need 族文字用 `--need-ink`（浅色主题下万寿菊直接做正文色对比不足），状态点/字形仍是 `--need`。
+
+顺带修掉 `Workbench.vue` 里 `--fg-1` / `--bg-2` / `--r-sm` 三个**从未定义过**的旧变量（`context-toggle` 的按下态因此一直是空声明）：按下态改成「选中 = 松绿」的 `--accent` / `--accent-soft`。
+
+**2）手机断点统一 760**
+
+迁移期的手机断点有 620 / 639 / 640 / 700 / 720 / 767 / 768 / 980 八种，同一个「手机」在不同页面生效宽度不同：
+
+- 620 / 639 / 640 / 700 / 720 / 767 / 768 → **760**（含 `LogTape` / `Workbench` 的 `matchMedia` 与 9 个测试文件里的断言）。
+- `DashboardSystem` 的 980 → **900**（与顶栏抽屉同一个中间断点），700 的「单列」与 640 的「两列」两层合并成一个 760 块：手机上头部竖排 + 卡片两列（原先 700–640 之间会先单列再跳回两列）。
+- 内容宽度（`.col { max-width: 640px }`、`FocusMode` 的 720px 阅读宽度）不是断点，不动。
+
+统一后剩下的手机断点分布：760 ×117，460 / 480 / 520 / 560 各 1–2 处（都是小屏的二次收敛：Dashboard 的格子、Sessions 的工具条、NewSchedule 的字段、MCP 的表格）。
+
+**确实保留的中间断点**（不属于「手机」，写在这里备查）：
+
+| 值 | 处数 | 用途 |
+|---|---|---|
+| 900 | 10 | 顶栏抽屉、各页「两栏 → 单栏」的密度切换（与 `utils/mobileLayout.ts` 的 `MOBILE_MAX_WIDTH` 同一档） |
+| 1099 | 4 | §4.3 图标栏上界（AppShell、FormSection、SettingsLayout、Today） |
+| 1279 | 2 | §4.3 完整三栏的下界（ThreadView、Today） |
+| 940 | 2 | diff 双栏（UnifiedDiff）与技能表（Skills）的宽度切换 |
+| 1024 | 1 | Dashboard 图表区宽高比 |
+| 780 | 1 | PlanDetail 详情头部的动作行换行 |
+
+**3）状态取色收敛到 statusFamily**
+
+`api/client` 的 `STATUS_COLOR` / `statusColor`（17 个状态的独立颜色表）整表删除：统计页「任务状态分布」（`DashboardJobStatus`）、`Signal`、`StatusBadge` 改用 `utils/statusFamily` 的族 + `styles/status.css` 的 `.k-<族>`（`--c` / `--soft`）。色值从此只有一处。
+
+口径变化（设计稿 §5 的族表说了算）：`timeout` 从失败色改回超时族（`--time`）、待应答 / 待验收 / 待批准从强调松绿改成「需要人」的万寿菊、`waiting_dir` / `paused_for_update` 归 queue 灰。
+
+**测试**
+
+- `styles/breakpoints.test.ts`（新）：扫全部 `.vue` / `.css`，断言没有任何 `@media (max-width: 760|900 之外)` 的迁移期手机断点（620/639/640/700/720/767/768/980），并断言 760 至少出现在 20 个文件里（防止用例空转）。
+- `views/dashboardView.test.ts`：新增「状态数走 statusFamily、模板里没有 statusColor」。
+- `components/updateWaitIdle.test.ts`：`paused_for_update` 的颜色断言从 `api/client` 的色表改成 `utils/statusFamily` 里的族。
+- 既有手机断点断言（approvalPanel / infoCard / interactionToast / focusMode / jobDetailMobile / planDetailMobile / projectsFleet / sessionsCards / workbenchMobileLighter / steward / dashboardMobile 等）随断点改成 760；`dashboardMobile.test.ts` 另加一条钉住 DashboardSystem 的中间断点是 900。
+
+**没做**
+
+- `utils/mobileLayout.ts` 的 `MOBILE_MAX_WIDTH = 900` 保持 900：它管的是 JS 侧「提示条自动收起 / 会话头部折叠」，与顶栏抽屉同一档，改成 760 会连带改 761–900 的交互（属于该模块而不是本项的取色与断点清理）。
+- `docs/design/2026-10-21-ui-restyle-preview.html`、`docs/design/web-v3-preview.html` 与旧 plan 里还写着旧变量名：那是历史快照，不回填。
+- 四态截图（zh/en × 浅/深）仍未在本机跑（无可用浏览器/截图工具），`web/scripts/shots.mjs` 的自动检查留给发版前。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**
