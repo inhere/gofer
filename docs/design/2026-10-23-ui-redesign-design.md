@@ -1552,3 +1552,30 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 **未完成**：`PENDING` 里剩下的 122 个文件（约 1575 处），集中在 `views/*.vue`（`Config` / `JobDetail` / `NewJob` / `PlanDetail` / `Mail` …）、`components/*.vue`（`SessionDrawer` / `MessengerDrawer` / `WorkDispatchDialog` / `MergeDialog` …）、`api/client.ts` 与 `api/attachments.ts` 的错误文案，以及 `utils/` 里剩下的 50 个小模块（`today` / `approval` / `planControls` / `extensionSettings` …）。`npx node tmp/gen-pending.mjs`（仓库根）可以重算名单；抽完删表项即可。
 
 **测试与验证**：`web` 三命令全绿——`npx vue-tsc --noEmit`（退出码 0）、`npx vitest run`（221 文件 / 1502 例，导出末尾：`Tests 1502 passed`）、`npx vite build --outDir ../tmp/web-dist-check`（`✓ built in`）。现有用例随之改了三处断言（`dashStats.test.ts` 用 `rangeName()`；`uiTextWiring.test.ts` 按 getter 形态；`updateWaitIdle.test.ts` 按符号映射）。
+
+### P6-b4 残留文案抽取（第三批，2026-10-23，issue gofer-hez1）
+
+本批处理清单里的 41 个文件，实际抽干并移出 `PENDING` 的是 **25 个**（下表）；剩下 16 个（`views/JobDetail.vue`、`views/PlanDetail.vue`、`views/Dashboard.vue`、`views/settings/Tunnels.vue`、`components/PlanBoard.vue`、`components/AttachTerminal.vue`、`components/StewardNotes.vue`、`components/UpdateApplyDialog.vue`、`components/UnifiedDiff.vue`、`components/FilePreview.vue`、`components/InteractionCard.vue`、`components/GrantRenewDialog.vue`、`components/LogTape.vue`、`components/RejectDialog.vue`、`components/MailButton.vue`、`components/today/DecisionCard.vue`）仍在 `PENDING` 里等下一批——两批并行占用了本轮约三分之二的窗口，SFC 模板量大的这几个只够时间读没够时间改。`PENDING` 里只删了本批抽完的条目，别批的行未动。
+
+| 文件 | 抽出的文案 |
+|---|---|
+| `api/client.ts` | 请求失败（HTTP 状态）、401 token 无效（8 处同一句收成一个 key） |
+| `api/time.ts` | 待触发、刚刚、`{n}s/m/h/d 前` |
+| `utils/sessionOwner.ts` | 会话归属被拒的提示与悬停说明、转给 X |
+| `utils/runners.ts` | 远程升级的四种挡下原因、平台不一致（含 CLI 提示）、升级记录四态与耗时 |
+| `utils/resumeChoice.ts` | 续接形态的标签、切换说明、各形态缺失原因 |
+| `utils/fromSession.ts` | 从会话新开的切换说明、缺 `from_session_args` 的三条原因 |
+| `utils/jobOutcome.ts` | 预算行（上限 / 已用 / 估算） |
+| `utils/sessionMessaging.ts` | 对端状态三词、outbox 五种状态、署名与回信抬头 |
+| `utils/pendingAlert.ts` | 待办提示条的标题与正文（人工介入 / 待批准 / 权限 / 等回复 / 决策） |
+| `utils/grantRenew.ts` | 剩余时间四档、不可续期原因（复用权限状态词）、续期失败文案 |
+| `utils/ceiling.ts` | 上限说明与摘要七行；两个导出常量改函数（见下） |
+| `utils/extensionSettings.ts` | 组名、五种类型名、取值（空 / 开 / 关）、取值提示、五条校验错误、提示词空值说明、导入动作与摘要 |
+| `utils/today.ts` | 分档词（复用已有 `today.tier.*`）、卡住 N、等待 / 剩余时长四档、已办提示、memory 提议五行；两个模块级 Record 改 getter |
+| `utils/mailConversations.ts` | 回信标号（复用 `mail.persona.*`）、最后活动；`PERSONA_STATE_LABEL` 改 getter |
+| `utils/agentExtends.ts`、`sessionResume.ts`、`issuePaging.ts`、`forwarderStop.ts`、`trackerSync.ts`、`logPlaceholder.ts` | 继承来源徽标、唤醒 / 接管与确认文案、批量结果摘要、停止不支持说明、同步仍在进行、日志空态 |
+| `components/ThemeToggle.vue`、`InteractionToast.vue`、`today/UndoToast.vue`、`workbench/acpEvents.ts`、`workbench/threadAutoFocus.ts` | 主题切换的 aria、提示条关闭的 aria、撤销 toast、ACP 提示与空轮说明、通知定位两句 |
+
+**一处接口变化**：`utils/ceiling.ts` 的 `CEILING_LABEL` / `CEILING_READ_ONLY_NOTICE` 由导出常量改成 `ceilingLabel()` / `ceilingReadOnlyNotice()`——模块级常量在加载时就把语言定死，切成英文后这几处不会跟着变。连带改了 9 个调用方（`NewJob`、`AppShell`、`NewSessionSheet`、`WorkbenchComposer`、`DecisionCard`、`DecisionQueue`、`Today`、`Permissions`、`pageGate` / `todayGate`）与 4 个按源码文本断言的 wiring 测试，全部只改取词方式；同理 `PROMPT_EMPTY_HINT` 也改成函数（`settings/Extensions.vue` 三处调用）。其余模块级 Record / 常量（`TIER_LABEL`、`MEMORY_ACTION_LABEL`、`PERSONA_STATE_LABEL`、`GROUP_LABELS`）按 P6-b 的既有写法改成 getter。
+
+**测试**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`（改动前基线 222 文件 / 1505 例）——本批结束后单跑 `src/i18n`、`src/utils`、`src/views` 相关用例全绿，全量在提交前也跑过一遍（两处断言随迁移改：`interactionToastMobile.test.ts` 改断言 `t('util.toast.close')`、`extensionSettings.test.ts` 用 `PROMPT_EMPTY_HINT()`）。`npx vite build` 未在本批跑（时间用尽）。
