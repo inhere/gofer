@@ -1,18 +1,20 @@
+import { t } from '../i18n'
+
 export function webPushUnavailableReason(): string {
   if (!window.isSecureContext) {
-    return '推送需要 HTTPS 或 localhost，当前页面不是安全上下文。'
+    return t('util.webPush.insecure')
   }
   if (!('serviceWorker' in navigator)) {
-    return '当前浏览器不支持 Service Worker。'
+    return t('util.webPush.noServiceWorker')
   }
   if (!('Notification' in window)) {
-    return '当前浏览器不支持系统通知。'
+    return t('util.webPush.noNotification')
   }
   if (!('PushManager' in window)) {
-    return '当前浏览器不支持 Web Push。'
+    return t('util.webPush.noPush')
   }
   if (Notification.permission === 'denied') {
-    return '系统通知权限已被拒绝，请在浏览器站点设置中重新允许。'
+    return t('util.webPush.denied')
   }
   return ''
 }

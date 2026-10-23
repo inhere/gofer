@@ -8,6 +8,7 @@ import {
   reviewWorkbenchThread,
 } from '../../api/workbench'
 import UnifiedDiff from '../UnifiedDiff.vue'
+import { t } from '../../i18n'
 import {
   REVIEW_DRAFT_STORAGE_KEY,
   addReviewComment,
@@ -95,7 +96,7 @@ function setSummary(value: string): void {
 
 function addComment(location: { path: string; line: number; side: ReviewDraftSide }): void {
   if (draft.value.comments.length >= 50) {
-    locationNotice.value = '单次评审最多 50 条评论'
+    locationNotice.value = t('workbench.changes.commentLimit')
     return
   }
   commentSequence++
@@ -124,7 +125,7 @@ async function performRefresh(): Promise<void> {
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause)
       error.value = message
-      emit('error', `改动：${message}`)
+      emit('error', t('workbench.changes.loadFailed', { err: message }))
     } finally {
       loading.value = false
     }
@@ -143,7 +144,7 @@ function refresh(): Promise<void> {
 async function scrollToFile(path: string): Promise<boolean> {
   await nextTick()
   const focused = await diffRenderer.value?.focusFile(path)
-  if (!focused) locationNotice.value = '该文件无改动'
+  if (!focused) locationNotice.value = t('workbench.changes.noChange')
   else locationNotice.value = ''
   return focused ?? false
 }
@@ -157,7 +158,7 @@ async function focusFile(path: string): Promise<boolean> {
   const target = exact?.path ?? (suffixMatches.length === 1 ? suffixMatches[0].path : '')
   selectedPath.value = target || path
   if (!target) {
-    locationNotice.value = '该文件无改动'
+    locationNotice.value = t('workbench.changes.noChange')
     return false
   }
   return scrollToFile(target)
@@ -166,7 +167,7 @@ async function focusFile(path: string): Promise<boolean> {
 async function sendReview(): Promise<void> {
   if (!props.canReview || !reviewValid.value || sending.value) return
   const count = reviewBody.value.comments.length
-  if (!window.confirm(`发送评审（${count}）并续接同一会话？`)) return
+  if (!window.confirm(t('workbench.changes.sendConfirm', { n: count }))) return
   sending.value = true
   error.value = ''
   try {
@@ -176,7 +177,7 @@ async function sendReview(): Promise<void> {
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause)
     error.value = message
-    emit('error', `发送评审：${message}`)
+    emit('error', t('workbench.changes.sendFailed', { err: message }))
   } finally {
     sending.value = false
   }
@@ -196,7 +197,7 @@ async function acceptChanges(): Promise<void> {
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause)
     error.value = message
-    emit('error', `接受改动：${message}`)
+    emit('error', t('workbench.changes.acceptFailed', { err: message }))
   } finally {
     accepting.value = false
   }
@@ -241,11 +242,11 @@ defineExpose({ refresh, focusFile })
   <div class="changes-view">
     <aside class="changes-files">
       <div class="changes-files-head mono">
-        <span>文件 {{ diff?.files.length ?? 0 }}</span>
-        <button type="button" :disabled="loading" @click="refresh">{{ loading ? '刷新中…' : '刷新' }}</button>
+        <span>{{ t('workbench.changes.fileCount', { n: diff?.files.length ?? 0 }) }}</span>
+        <button type="button" :disabled="loading" @click="refresh">{{ loading ? t('workbench.changes.refreshing') : t('workbench.changes.refresh') }}</button>
       </div>
-      <p v-if="diff?.source === 'captured'" class="captured-note mono">{{ diff.notice || '只含最新一轮采集结果' }}</p>
-      <p v-if="diff?.truncated" class="captured-note mono">内容已截断：patch 超过 2 MiB，或未跟踪文件超过 200 个（只列前 200 个；检查 .gitignore）</p>
+      <p v-if="diff?.source === 'captured'" class="captured-note mono">{{ diff.notice || t('workbench.changes.capturedOnly') }}</p>
+      <p v-if="diff?.truncated" class="captured-note mono">{{ t('workbench.changes.truncated') }}</p>
       <button
         v-for="file in diff?.files ?? []"
         :key="file.path"
@@ -258,7 +259,7 @@ defineExpose({ refresh, focusFile })
         <span class="file-path" :title="file.path">{{ file.path }}</span>
         <span class="file-count"><b>+{{ file.additions }}</b><i>−{{ file.deletions }}</i></span>
       </button>
-      <p v-if="!loading && diff && diff.files.length === 0" class="empty mono">暂无改动</p>
+      <p v-if="!loading && diff && diff.files.length === 0" class="empty mono">{{ t('workbench.changes.noChanges') }}</p>
     </aside>
 
     <main class="changes-main">
@@ -269,20 +270,20 @@ defineExpose({ refresh, focusFile })
           class="review-summary mono"
           rows="2"
           :value="draft.summary"
-          placeholder="评审摘要（可选）"
+          :placeholder="t('workbench.changes.summaryPlaceholder')"
           @input="setSummary(($event.target as HTMLTextAreaElement).value)"
         ></textarea>
         <div class="review-actions mono">
-          <span>{{ draft.comments.length }} 条评论</span>
+          <span>{{ t('workbench.changes.commentCount', { n: draft.comments.length }) }}</span>
           <button type="button" :disabled="accepting" @click="acceptChanges">
-            {{ accepting ? '处理中…' : '接受' }}
+            {{ accepting ? t('workbench.changes.processing') : t('workbench.changes.accept') }}
           </button>
           <button
             class="review-send"
             type="button"
             :disabled="!canReview || !reviewValid || sending"
             @click="sendReview"
-          >{{ sending ? '发送中…' : `发送评审（${draft.comments.length}）` }}</button>
+          >{{ sending ? t('workbench.changes.sending') : t('workbench.changes.sendReview', { n: draft.comments.length }) }}</button>
         </div>
       </div>
       <div class="diff-scroll">
@@ -297,7 +298,7 @@ defineExpose({ refresh, focusFile })
           @update-comment="updateComment"
           @remove-comment="removeComment"
         />
-        <p v-else-if="loading" class="empty mono">加载会话改动…</p>
+        <p v-else-if="loading" class="empty mono">{{ t('workbench.changes.loading') }}</p>
       </div>
     </main>
   </div>

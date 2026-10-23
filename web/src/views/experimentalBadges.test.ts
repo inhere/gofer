@@ -60,7 +60,7 @@ describe('experimental badges on the console entries', () => {
   it('决策 hook：设置页 decision_hooks 字段标签', () => {
     const config = page('Config.vue')
     expect(config).toContain(IMPORT)
-    expectBadgeAfter(config, 'decision_hooks（决策 hook')
+    expectBadgeAfter(config, "settings.config.f.decisionHooks")
   })
 })
 

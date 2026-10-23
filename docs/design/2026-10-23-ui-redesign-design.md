@@ -1634,3 +1634,48 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 **一处接口变化**：`utils/ceiling.ts` 的 `CEILING_LABEL` / `CEILING_READ_ONLY_NOTICE` 由导出常量改成 `ceilingLabel()` / `ceilingReadOnlyNotice()`——模块级常量在加载时就把语言定死，切成英文后这几处不会跟着变。连带改了 9 个调用方（`NewJob`、`AppShell`、`NewSessionSheet`、`WorkbenchComposer`、`DecisionCard`、`DecisionQueue`、`Today`、`Permissions`、`pageGate` / `todayGate`）与 4 个按源码文本断言的 wiring 测试，全部只改取词方式；同理 `PROMPT_EMPTY_HINT` 也改成函数（`settings/Extensions.vue` 三处调用）。其余模块级 Record / 常量（`TIER_LABEL`、`MEMORY_ACTION_LABEL`、`PERSONA_STATE_LABEL`、`GROUP_LABELS`）按 P6-b 的既有写法改成 getter。
 
 **测试**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run` **222 文件 / 1505 例全绿**（扫描测试两个用例都过，`PENDING` 里已无本批文件）；`npx vite build --outDir ../tmp/web-dist-check` 通过（`built in 4.40s`）。随迁移改了四处按源码文本断言的用例：`interactionToastMobile.test.ts`（改断言 toast 关闭的 key）、`extensionSettings.test.ts`（`PROMPT_EMPTY_HINT()`）、`steward.test.ts`（改断言 `today.notes.*`）、`updateWaitIdle.test.ts`（改断言 `util.update.runningJobs`）。
+### P6-b2 残留文案抽取第 2 批（2026-10-23，issue gofer-hez1）
+
+P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具层 + 组件 + 配置页），**全部抽干净并从 `PENDING` 删除**（`PENDING` 从 129 项降到 88 项），
+只换文案来源，不改样式、布局与行为；`zh` 的值与抽取前的字面量逐字一致，
+所以现有按中文断言的用例大多**原样保留**（少数改为按 key 或 zh 断言）。
+
+**抽到的文件**（→ 所属页面字典）：
+
+- `utils/`：`approval` → `pages/shared.ts`；`planControls` → `pages/plans.ts`；`sessionNudge` / `sessionUsage` /
+  `planSupervisor` / `webPush` / `sessionGrant` / `sessionPermission` / `attachments` / `workflowTemplate` /
+  `runnerChoice` / `reviewGate` / `jobTimeout` / `issueTree` / `configLeader` / `lockPaths` / `attachmentText` →
+  `pages/shared.ts`（`util.*`；`workflowTemplate` → `pages/workflows.ts`）
+- `api/sse.ts` → `pages/shared.ts`
+- `components/`：`SessionTopic` / `SessionGrantDialog` / `SessionPermissionPrompt` → `pages/sessions.ts`；
+  `StatusBadge` / `AttachmentThumbs` / `QuickCapture` / `NdjsonTimeline` → `pages/shared.ts`（`util.*` /
+  `common.*`）；`ClusterTopology` / `MessengerDrawer` → `pages/runners.ts`；`ApprovalPanel` → `pages/jobs.ts`；
+  `ReviewPanel` / `MemoryCandidatesTab` → `pages/review.ts`；`today/FocusMode` / `today/HandledDrawer` →
+  `pages/today.ts`；`workbench/LayoutPane` / `workbench/WorkbenchCommandPalette` / `workbench/ThreadChangesView` /
+  `workbench/layoutTree.ts` → `pages/workbench.ts`
+- `views/`：`Sessions`（列表里的中继说明与卡片标题）→ `pages/sessions.ts`；`Runners`（只有一处命令占位，改成
+  `<server-address>`）→ `pages/runners.ts`；`Mail`（预览占位正文）→ `pages/mail.ts`
+
+**保留的字面量**（`WHITELIST`）：`utils/attachmentText.ts` 里识别 worker 写进正文的 `[附图 n] <路径>` 片段——
+那是协议文本，不是界面文案，改了就不认老消息。
+
+**文案常量的写法**（本批统一了三类，原因都写在代码注释里）：
+
+- 引用处**全在模板**的导出常量 → `computed`（`DIR_LOCK_HINT`、`HANDOFF_QUICK_PHRASE`）。`<script setup>` 的
+  导入绑定在模板里会自动 `unref`，所以名字与模板写法都不用变，语言切换即时生效。
+- 被**按下标取字段**、或需要保持数组 / 对象身份的导出常量 → 成员用 getter
+  （`SESSION_GRANT_EXPIRY_OPTIONS[].label`、`PLAN_CONTROL_HELP.*.label/help`）：字段仍是字符串，
+  `.sec` 取值、`RENEW_EXPIRY_OPTIONS` 的同一性断言、模板 `{{ o.label }}` 都不受影响。
+- 不可用原因的导出常量（`UNSUPPORTED_*_REASON`）→ 导出函数（`unsupportedServerReason()` 等），调用点只有
+  `SessionDrawer.vue` 两处。
+
+**行为上唯一的变化**：`views/Sessions.vue` 的 `peer_messaging` 徽标原先用「文案 == '待上报'」判 pending，
+现在改用同一谓词的函数 `peerMessagingPending()`（`!peer_name && !peer_status && !peer_messaging`）——
+文案已随语言变，不能再拿来比较；`ApprovalPanel` 的「已过期」也改成按 `expires_at <= nowSec` 判断。
+
+**验证**：`web` 三命令全绿——`npx vue-tsc --noEmit`（退出码 0）、`npx vitest run`（222 文件 / 1505 例，
+`Tests 1505 passed`）、`npx vite build --outDir ../tmp/web-dist-check`（`✓ built in 3.80s`）。扫描测试两例通过，
+`PENDING` 从 129 项降到 88 项。
+
+**未完成**：无（本批 40 个文件全部完成，包括 `views/Config.vue`）。
+（`npx vite build`：`✓ built in 4.46s`。）

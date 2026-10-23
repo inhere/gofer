@@ -194,7 +194,7 @@ async function refreshComposePreview(): Promise<void> {
   if (composeAddresses.value.addresses.length === 1 && composeAddresses.value.addresses[0] === 'caller') return
   try {
     // 预览也要过正文校验（服务端拒绝空正文）：还没写正文时先带个占位。
-    const resp = await previewMail({ to: composeAddresses.value.addresses, body: compose.value.body.trim() || '预览' })
+    const resp = await previewMail({ to: composeAddresses.value.addresses, body: compose.value.body.trim() || t('mail.compose.previewBody') })
     composePreview.value = { delivered: resp.delivered_count, skipped: resp.skipped_count, matched: resp.matched }
   } catch (e) {
     composePreviewError.value = e instanceof Error ? e.message : String(e)

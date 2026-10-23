@@ -12,6 +12,7 @@ import { X } from '@lucide/vue'
 import Icon from '../ui/Icon.vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import type { Runner } from '../api/types'
+import { t } from '../i18n'
 import { beatOf, fmtAge, fmtUptime, workerAgeMs, workerStatusText } from '../utils/runners'
 
 const props = defineProps<{ runners: Runner[]; projects: string[]; nowMs: number }>()
@@ -216,7 +217,7 @@ function isActive(r: Runner): boolean {
       </button>
 
       <div v-if="loaded && topoNodes.length === 0" class="stage-empty mono">
-        无运行器：仅 server hub 在线。
+        {{ t('runners.topo.empty') }}
       </div>
     </div>
 
@@ -230,19 +231,19 @@ function isActive(r: Runner): boolean {
 
     <!-- 节点面板（右侧抽屉） -->
     <div v-if="selected" class="panel-scrim" aria-hidden="true" @click="closePanel"></div>
-    <aside v-if="selected" class="panel" aria-label="节点详情">
+    <aside v-if="selected" class="panel" :aria-label="t('runners.topo.detail')">
       <header class="panel-head">
         <h2 class="panel-title mono">
           {{ isHubSelected ? 'server' : runnerLabelNote(selectedRunner?.name) }}
         </h2>
-        <button type="button" class="panel-close" aria-label="关闭" @click="closePanel"><Icon :icon="X" size="sm" /></button>
+        <button type="button" class="panel-close" :aria-label="t('runners.topo.close')" @click="closePanel"><Icon :icon="X" size="sm" /></button>
       </header>
 
       <!-- hub / server -->
       <div v-if="isHubSelected" class="panel-body">
         <span class="kind mono kind--hub">SERVER · HUB</span>
         <dl class="kv mono">
-          <dt>in-flight 合计</dt><dd>{{ inFlightTotal }}</dd>
+          <dt>{{ t('runners.topo.inFlightTotal') }}</dt><dd>{{ inFlightTotal }}</dd>
           <dt>workers</dt><dd>{{ workerCount }}</dd>
           <dt>peers</dt><dd>{{ peerCount }}</dd>
           <dt>local</dt><dd>{{ localCount }}</dd>
@@ -255,43 +256,43 @@ function isActive(r: Runner): boolean {
         <span class="kind mono kind--worker">WORKER</span>
         <dl class="kv mono">
           <dt>worker id</dt><dd class="brk">{{ selectedRunner.worker_id || '—' }}</dd>
-          <dt>状态</dt>
+          <dt>{{ t('runners.topo.status') }}</dt>
           <dd :style="{ color: nodeColorVar(selectedRunner) }">{{ workerStatusText(selectedRunner, nowMs) }}</dd>
-          <dt>心跳</dt>
+          <dt>{{ t('runners.topo.heartbeat') }}</dt>
           <dd>{{ selectedRunner.status === 'connected' ? fmtAge(workerAgeMs(selectedRunner, nowMs)) : 'offline' }}</dd>
           <dt>in-flight</dt><dd>{{ selectedRunner.worker?.in_flight ?? 0 }}</dd>
           <template v-if="selectedRunner.worker?.hostname">
-            <dt>主机</dt><dd class="brk">{{ selectedRunner.worker.hostname }}</dd>
+            <dt>{{ t('runners.topo.host') }}</dt><dd class="brk">{{ selectedRunner.worker.hostname }}</dd>
           </template>
           <template v-if="selectedRunner.worker?.remote_addr">
-            <dt>来源地址</dt><dd class="brk">{{ selectedRunner.worker.remote_addr }}</dd>
+            <dt>{{ t('runners.topo.remoteAddr') }}</dt><dd class="brk">{{ selectedRunner.worker.remote_addr }}</dd>
           </template>
           <template v-if="selectedRunner.worker?.os">
-            <dt>系统</dt><dd>{{ selectedRunner.worker.os }}/{{ selectedRunner.worker.arch || '?' }}</dd>
+            <dt>{{ t('runners.topo.os') }}</dt><dd>{{ selectedRunner.worker.os }}/{{ selectedRunner.worker.arch || '?' }}</dd>
           </template>
           <template v-if="selectedRunner.worker?.gofer_version">
-            <dt>版本</dt><dd class="brk">{{ selectedRunner.worker.gofer_version }}</dd>
+            <dt>{{ t('runners.topo.version') }}</dt><dd class="brk">{{ selectedRunner.worker.gofer_version }}</dd>
           </template>
           <template v-if="selectedRunner.worker?.started_at">
-            <dt>运行时长</dt><dd>{{ fmtUptime(selectedRunner.worker.started_at, nowMs) }}</dd>
+            <dt>{{ t('runners.topo.uptime') }}</dt><dd>{{ fmtUptime(selectedRunner.worker.started_at, nowMs) }}</dd>
           </template>
           <template v-if="selectedRunner.worker?.protocol_version">
-            <dt>协议版本</dt><dd>{{ selectedRunner.worker.protocol_version }}</dd>
+            <dt>{{ t('runners.topo.protocol') }}</dt><dd>{{ selectedRunner.worker.protocol_version }}</dd>
           </template>
           <template v-if="selectedRunner.worker?.policy_rev || selectedRunner.worker?.applied_rev">
-            <dt>策略</dt><dd>rev {{ selectedRunner.worker.policy_rev ?? 0 }} · applied {{ selectedRunner.worker.applied_rev ?? 0 }}<span v-if="selectedRunner.worker.policy_pending"> · 待应用</span></dd>
+            <dt>{{ t('runners.topo.policy') }}</dt><dd>rev {{ selectedRunner.worker.policy_rev ?? 0 }} · applied {{ selectedRunner.worker.applied_rev ?? 0 }}<span v-if="selectedRunner.worker.policy_pending"> · {{ t('runners.topo.policyPending') }}</span></dd>
           </template>
         </dl>
         <div v-if="selectedRunner.worker?.policy_rejected?.length || selectedRunner.worker?.policy_degraded?.length || selectedRunner.worker?.policy_pending" class="policy-alert mono">
-          <strong>策略状态异常</strong>
-          <span v-if="selectedRunner.worker?.policy_pending">等待 worker 应用最新策略。</span>
-          <span v-for="item in selectedRunner.worker?.policy_rejected ?? []" :key="`reject-${item.key}-${item.reason}`">{{ item.key }}：拒绝（{{ item.reason }}）</span>
-          <span v-for="item in selectedRunner.worker?.policy_degraded ?? []" :key="`degrade-${item.key}-${item.gate}`">{{ item.key }}：降级（{{ item.gate }}）</span>
+          <strong>{{ t('runners.topo.policyAlert') }}</strong>
+          <span v-if="selectedRunner.worker?.policy_pending">{{ t('runners.topo.policyPendingNote') }}</span>
+          <span v-for="item in selectedRunner.worker?.policy_rejected ?? []" :key="`reject-${item.key}-${item.reason}`">{{ t('runners.topo.policyRejected', { key: item.key, reason: item.reason }) }}</span>
+          <span v-for="item in selectedRunner.worker?.policy_degraded ?? []" :key="`degrade-${item.key}-${item.gate}`">{{ t('runners.topo.policyDegraded', { key: item.key, gate: item.gate }) }}</span>
         </div>
         <div v-if="selectedRunner.worker?.labels && selectedRunner.worker.labels.length" class="chips">
           <span v-for="l in selectedRunner.worker.labels" :key="l" class="chip mono">{{ l }}</span>
         </div>
-        <p v-else class="muted mono">无 labels</p>
+        <p v-else class="muted mono">{{ t('runners.topo.noLabels') }}</p>
         <h3 v-if="selectedRunner.worker?.projects?.length" class="sub mono">projects</h3>
         <div v-if="selectedRunner.worker?.projects?.length" class="chips">
           <span v-for="p in selectedRunner.worker.projects" :key="p" class="chip mono">{{ p }}</span>
@@ -307,11 +308,11 @@ function isActive(r: Runner): boolean {
         <span class="kind mono kind--peer">PEER</span>
         <dl class="kv mono">
           <dt>base url</dt><dd class="brk">{{ selectedRunner.base_url || '—' }}</dd>
-          <dt>状态</dt>
+          <dt>{{ t('runners.topo.status') }}</dt>
           <dd :style="{ color: nodeColorVar(selectedRunner) }">{{ peerStatusText(selectedRunner) }}</dd>
           <template v-if="selectedRunner.probe && selectedRunner.probe.checked_at > 0">
             <dt>latency</dt><dd>{{ selectedRunner.probe.latency_ms }}ms</dd>
-            <dt>探活</dt><dd>{{ fmtAge(probeAgeMs(selectedRunner)) }}</dd>
+            <dt>{{ t('runners.topo.probe') }}</dt><dd>{{ fmtAge(probeAgeMs(selectedRunner)) }}</dd>
           </template>
         </dl>
         <p v-if="selectedRunner.status === 'down' && selectedRunner.probe?.error" class="probe-err mono">
@@ -321,16 +322,16 @@ function isActive(r: Runner): boolean {
 
       <!-- local -->
       <div v-else-if="selectedRunner?.type === 'local'" class="panel-body">
-        <span class="kind mono kind--local">SERVER · 本机</span>
+        <span class="kind mono kind--local">SERVER · {{ t('runners.topo.local') }}</span>
         <dl class="kv mono">
-          <dt>执行</dt><dd>本机 in-process</dd>
-          <dt>状态</dt><dd style="color: var(--done)">up</dd>
+          <dt>{{ t('runners.topo.runOn') }}</dt><dd>{{ t('runners.topo.runInProcess') }}</dd>
+          <dt>{{ t('runners.topo.status') }}</dt><dd style="color: var(--done)">up</dd>
         </dl>
         <h3 class="sub mono">server projects（{{ projects.length }}）</h3>
         <ul v-if="projects.length" class="proj-list mono">
           <li v-for="p in projects" :key="p" :title="p">{{ p }}</li>
         </ul>
-        <p v-else class="muted mono">无项目</p>
+        <p v-else class="muted mono">{{ t('runners.topo.noProjects') }}</p>
       </div>
     </aside>
   </div>

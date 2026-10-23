@@ -23,6 +23,9 @@
 - **残留文案抽取第三批（P6-b4，gofer-hez1）**：继续抽取工具层与小组件里的硬编码中文——`api/client.ts`（请求失败 / 401 文案）、`api/time.ts`（刚刚 / Ns前 / 待触发）、以及 `utils/` 的 `sessionOwner`、`runners`（远程升级门槛与升级记录）、`resumeChoice`、`fromSession`、`jobOutcome`（预算行）、`sessionMessaging`（outbox 状态）、`pendingAlert`（待办提示条）、`grantRenew`（授权续期）、`ceiling`（调用方上限摘要）、`extensionSettings`（扩展设置的类型 / 校验）、`today`、`mailConversations`、`agentExtends`、`sessionResume`、`issuePaging`、`forwarderStop`、`trackerSync`、`logPlaceholder`，加上 `ThemeToggle`、`InteractionToast`、`today/UndoToast`、`workbench/acpEvents`、`workbench/threadAutoFocus` 五个组件；后半批接着抽了 `views/JobDetail`（会话来源 / 续接 / 唤醒 / 投递 / worktree / 终端退出）、`PlanDetail`、`Dashboard`（热力图月份）、`settings/Tunnels`，以及 `PlanBoard`、`AttachTerminal`（连接状态与终端工具栏）、`UpdateApplyDialog`、`StewardNotes`、`UnifiedDiff`、`LogTape`、`FilePreview`、`InteractionCard`、`GrantRenewDialog`、`RejectDialog`、`MailButton`、`today/DecisionCard` 组件——清单上的 41 个文件全部抽完。`utils/ceiling.ts` 的两个导出常量（上限说明 / 只读说明）改成函数，避免模块加载时把语言定死。
 
 **测试**
+- **残留文案抽取第 2 批（P6-b2，gofer-hez1）**：又 39 个文件的界面文案进 i18n（`web/src` 下剩余硬编码中文约 1160 处，`Config` 页留待后续）——会话列表的中继说明与卡片标题、会话主题与临时授权弹窗、终端工具授权请求（允许 / 总是允许 / 拒绝与作答结局）、待批面板与批准 / 拒绝的错误文案、传话人抽屉与集群拓扑节点面板、工作台命令面板与会话改动视图（评审摘要 / 评论 / 发送评审）、今天页「专注处理」与「已处理」抽屉、验收面板的经验页签与参考输出截断行、附图缩略图与附图校验提示、催办间隔与状态、会话用量与工作进程推送不可用原因、工作台多窗格标签与布局提示、附图片段识别（协议文本，白名单保留）。文字与行为不变，只换来源。
+
+**测试**
 
 ## [0.190.0] - 2026-10-23
 

@@ -134,10 +134,10 @@ describe('ApprovalPanel', () => {
   })
 
   it('maps error codes to Chinese hints and keeps the panel usable', async () => {
-    expect(approvalErrorText(new ApiError(409, 'approve failed', 'job is not awaiting approval'), '批准')).toContain('已被处理，或请求在等待期间变了')
-    expect(approvalErrorText(new ApiError(503, 'approve failed'), '批准')).toContain('服务升级中，请稍后再批')
-    expect(approvalErrorText(new ApiError(403, 'approve not permitted'), '拒绝')).toContain('无权限')
-    expect(approvalErrorText(new Error('network down'), '批准')).toBe('批准失败：network down')
+    expect(approvalErrorText(new ApiError(409, 'approve failed', 'job is not awaiting approval'), 'approve')).toContain('已被处理，或请求在等待期间变了')
+    expect(approvalErrorText(new ApiError(503, 'approve failed'), 'approve')).toContain('服务升级中，请稍后再批')
+    expect(approvalErrorText(new ApiError(403, 'approve not permitted'), 'reject')).toContain('无权限')
+    expect(approvalErrorText(new Error('network down'), 'approve')).toBe('批准失败：network down')
 
     const ctl = createApprovalActions(
       () => 'j3',

@@ -467,7 +467,7 @@ function beatLabel(r: Runner): string {
 
       <!-- 功能关闭时不提“去跑 join”：提示已经告诉操作员怎么开启 -->
       <div v-else-if="enrollLoaded && enrollEnabled" class="empty" data-test="enroll-empty">
-        {{ t('runners.enroll.empty', { cmd: 'gofer worker join --server <server 地址>' }) }}
+        {{ t('runners.enroll.empty', { cmd: 'gofer worker join --server <server-address>' }) }}
       </div>
     </section>
 

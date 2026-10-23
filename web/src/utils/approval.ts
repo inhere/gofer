@@ -4,6 +4,7 @@
 import { ref } from 'vue'
 import { ApiError } from '../api/client'
 import type { Job, JobHold } from '../api/types'
+import { t, te } from '../i18n'
 
 // shellQuote：按 POSIX shell 规则给单个参数加引号——安全字符原样，其余用单引号包住，
 // 内部的单引号写成 '\''。只用于展示（让人看清每个参数的边界），不拿去执行。
@@ -21,8 +22,8 @@ export function commandLine(argv: readonly string[] | undefined): string {
 // originText：hold.origin 的人话——job:<id> / agent-session:<id> / 提交渠道。
 export function originText(origin: string | undefined): string {
   if (!origin) return ''
-  if (origin.startsWith('job:')) return `job ${origin.slice(4)}（job 凭据）`
-  if (origin.startsWith('agent-session:')) return `agent 会话 ${origin.slice('agent-session:'.length)}`
+  if (origin.startsWith('job:')) return t('util.approval.originJob', { id: origin.slice(4) })
+  if (origin.startsWith('agent-session:')) return t('util.approval.originSession', { id: origin.slice('agent-session:'.length) })
   return origin
 }
 
@@ -33,7 +34,7 @@ export function submitterText(job: Pick<Job, 'hold' | 'caller_id' | 'channel' | 
   const o = originText(origin)
   if (o) parts.push(o)
   if (job.caller_id) parts.push(`caller ${job.caller_id}`)
-  if (job.channel && job.channel !== origin) parts.push(`经 ${job.channel}`)
+  if (job.channel && job.channel !== origin) parts.push(t('util.approval.viaChannel', { channel: job.channel }))
   if (job.client) parts.push(job.client)
   return parts.join(' · ')
 }
@@ -42,47 +43,50 @@ export function submitterText(job: Pick<Job, 'hold' | 'caller_id' | 'channel' | 
 export function countdownText(expiresAt: number | undefined, nowSec: number): string {
   if (!expiresAt) return ''
   const left = Math.floor(expiresAt - nowSec)
-  if (left <= 0) return '已过期'
+  if (left <= 0) return t('util.approval.expired')
   const d = Math.floor(left / 86400)
   const h = Math.floor((left % 86400) / 3600)
   const m = Math.floor((left % 3600) / 60)
-  if (d > 0) return `还剩 ${d} 天 ${h} 小时`
-  if (h > 0) return `还剩 ${h} 小时 ${m} 分`
-  if (m > 0) return `还剩 ${m} 分钟`
-  return `还剩 ${left} 秒`
+  if (d > 0) return t('util.approval.leftDays', { d, h })
+  if (h > 0) return t('util.approval.leftHours', { h, m })
+  if (m > 0) return t('util.approval.leftMinutes', { m })
+  return t('util.approval.leftSeconds', { s: left })
 }
 
-// 已经有结论的 hold 在 meta 区回显：决定 → 中文。
-const DECISION_LABEL: Record<string, string> = {
-  approved: '已批准',
-  rejected: '已拒绝',
-  expired: '超时未批',
-  cancelled: '提交者撤回',
-}
-
+// 已经有结论的 hold 在 meta 区回显：决定 → 人话（认不得的原样返回）。
 export function decisionText(hold: JobHold | undefined): string {
   const d = hold?.decision
-  return d ? (DECISION_LABEL[d] ?? d) : ''
+  if (!d) return ''
+  const key = `util.approval.decision.${d}`
+  return te(key) ? t(key) : d
 }
 
-// approvalErrorText：批准 / 拒绝失败按状态码给中文提示（原始信息附在后面便于排查）。
-export function approvalErrorText(e: unknown, action: '批准' | '拒绝'): string {
+// approvalErrorText：批准 / 拒绝失败按状态码给一句提示（原始信息附在后面便于排查）。
+export function approvalErrorText(e: unknown, action: 'approve' | 'reject'): string {
   if (e instanceof ApiError) {
     const raw = e.detail || e.message
     switch (e.status) {
       case 409:
-        return `${action}失败：这个 job 已被处理，或请求在等待期间变了——请刷新看最新状态（${raw}）`
+        return t('util.approval.err.conflict', { action: actionText(action), raw })
       case 503:
-        return `${action}失败：服务升级中，请稍后再批`
+        return t('util.approval.err.upgrading', { action: actionText(action) })
       case 403:
-        return `${action}失败：无权限——只有人用自己的 token 才能${action}（agent / worker / job 凭据不行）`
+        return t('util.approval.err.forbidden', { action: actionText(action) })
       case 404:
-        return `${action}失败：job 不存在（可能已被删除）`
+        return t('util.approval.err.gone', { action: actionText(action) })
       case 400:
-        return `${action}失败：${raw}`
+        return t('util.approval.err.badRequest', { action: actionText(action), raw })
     }
   }
-  return `${action}失败：${e instanceof Error ? e.message : String(e)}`
+  return t('util.approval.err.generic', {
+    action: actionText(action),
+    err: e instanceof Error ? e.message : String(e),
+  })
+}
+
+// actionText：错误文案里的动词（批准 / 拒绝），跟当前语言。
+function actionText(action: 'approve' | 'reject'): string {
+  return action === 'approve' ? t('util.approval.action.approve') : t('util.approval.action.reject')
 }
 
 export interface ApprovalApi {
@@ -105,7 +109,7 @@ export function createApprovalActions(id: () => string, api: ApprovalApi, onDone
     try {
       onDone(await api.approve(id()))
     } catch (e) {
-      error.value = approvalErrorText(e, '批准')
+      error.value = approvalErrorText(e, 'approve')
     } finally {
       busy.value = ''
     }
@@ -131,7 +135,7 @@ export function createApprovalActions(id: () => string, api: ApprovalApi, onDone
       rejectOpen.value = false
       rejectNote.value = ''
     } catch (e) {
-      error.value = approvalErrorText(e, '拒绝')
+      error.value = approvalErrorText(e, 'reject')
     } finally {
       busy.value = ''
     }

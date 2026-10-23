@@ -4,8 +4,8 @@ import {
   MAX_ATTACHMENT_BYTES,
   MOBILE_JPEG_QUALITY,
   MOBILE_MAX_SIDE,
-  UNSUPPORTED_RECIPIENT_REASON,
-  UNSUPPORTED_SERVER_REASON,
+  unsupportedRecipientReason,
+  unsupportedServerReason,
   attachmentCapability,
   attachmentCountError,
   attachmentSizeError,
@@ -91,8 +91,8 @@ describe('thread capability to composer state', () => {
     const cap = attachmentCapability({})
     expect(cap.mode).toBe('none')
     expect(cap.enabled).toBe(false)
-    expect(cap.reason).toBe(UNSUPPORTED_SERVER_REASON)
-    expect(attachmentCapability(null).reason).toBe(UNSUPPORTED_SERVER_REASON)
+    expect(cap.reason).toBe(unsupportedServerReason())
+    expect(attachmentCapability(null).reason).toBe(unsupportedServerReason())
   })
 
   it('enables the paperclip for both delivery modes', () => {
@@ -104,7 +104,7 @@ describe('thread capability to composer state', () => {
 
   it('greys the paperclip out and uses the server reason for none', () => {
     expect(attachmentCapability({ attachments: 'none', attachments_reason: 'pty 任务收不到图片' }).reason).toBe('pty 任务收不到图片')
-    expect(attachmentCapability({ attachments: 'none' }).reason).toBe(UNSUPPORTED_RECIPIENT_REASON)
+    expect(attachmentCapability({ attachments: 'none' }).reason).toBe(unsupportedRecipientReason())
   })
 
   it('ignores a capability value it does not know', () => {

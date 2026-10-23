@@ -88,7 +88,7 @@ describe('history thumbnails', () => {
     expect(conversation).toContain('function eventAttachments(event: ACPTextEvent)')
     expect(thumbs).toContain('attachmentBlobURL(item.id, true)')
     expect(thumbs).toContain('attachmentBlobURL(item.id, false)')
-    expect(thumbs).toContain('图片已过期')
+    expect(thumbs).toContain("t('common.attachments.expired')")
     expect(thumbs).toContain('onBeforeUnmount(releaseAll)')
   })
 })

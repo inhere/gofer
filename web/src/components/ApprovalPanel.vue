@@ -7,6 +7,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { approveJob, getJobRequest, rejectJob } from '../api/client'
 import type { Job } from '../api/types'
+import { t } from '../i18n'
 import { commandLine, countdownText, createApprovalActions, submitterText } from '../utils/approval'
 import { fmtJobTimeout } from '../utils/jobTimeout'
 import { runnerLabel } from '../utils/runnerDisplay'
@@ -20,17 +21,17 @@ const cmdText = computed(() => commandLine(hold.value?.command))
 const prompt = computed(() => hold.value?.prompt_preview ?? '')
 const submitter = computed(() => submitterText(props.job))
 const countdown = computed(() => countdownText(hold.value?.expires_at, props.nowSec))
-const expired = computed(() => countdown.value === '已过期')
+const expired = computed(() => !!hold.value?.expires_at && hold.value.expires_at <= props.nowSec)
 
 // 附带属性：执行后验收、受管 worktree（只记在原始请求里，按需取一次）、只读、job 超时。
 const wantsWorktree = ref(false)
 const extras = computed(() => {
   const out: string[] = []
-  if (props.job.require_review) out.push('执行后要人验收（--review）')
-  if (wantsWorktree.value) out.push('在受管 worktree 里执行（--worktree）')
-  if (props.job.read_only) out.push('只读（agent 不能写文件）')
-  const t = props.job.requested_timeout_sec
-  out.push(t ? `job ${fmtJobTimeout(t)}` : 'job 超时按项目 / agent 默认')
+  if (props.job.require_review) out.push(t('jobs.approval.extraReview'))
+  if (wantsWorktree.value) out.push(t('jobs.approval.extraWorktree'))
+  if (props.job.read_only) out.push(t('jobs.approval.extraReadOnly'))
+  const timeout = props.job.requested_timeout_sec
+  out.push(timeout ? t('jobs.approval.extraTimeout', { d: fmtJobTimeout(timeout) }) : t('jobs.approval.extraTimeoutDefault'))
   return out
 })
 
@@ -64,27 +65,27 @@ function fmtTime(sec: number | undefined): string {
 </script>
 
 <template>
-  <section class="ap" data-test="approval-panel" aria-label="待批准">
+  <section class="ap" data-test="approval-panel" :aria-label="t('jobs.approval.label')">
     <div class="ap-head">
-      <span class="ap-title mono">⏸ 等你批准</span>
+      <span class="ap-title mono">{{ t('jobs.approval.title') }}</span>
       <span class="ap-count mono" :class="{ 'ap-count--bad': expired }" data-test="ap-countdown">
-        {{ countdown || '—' }}<template v-if="hold?.expires_at"> · {{ fmtTime(hold.expires_at) }} 过期</template>
+        {{ countdown || '—' }}<template v-if="hold?.expires_at"> · {{ t('jobs.approval.expiresAt', { time: fmtTime(hold.expires_at) }) }}</template>
       </span>
     </div>
 
-    <p class="ap-reason" data-test="ap-reason">{{ hold?.reason || '（提交者没写理由）' }}</p>
+    <p class="ap-reason" data-test="ap-reason">{{ hold?.reason || t('jobs.approval.noReason') }}</p>
 
     <div v-if="isExec" class="ap-block">
-      <div class="ap-k mono">批准后执行</div>
+      <div class="ap-k mono">{{ t('jobs.approval.runsWhat') }}</div>
       <pre class="ap-cmd mono" data-test="ap-command">{{ cmdText }}</pre>
     </div>
     <details v-else-if="prompt" class="ap-block" open>
-      <summary class="ap-k mono">agent 任务（prompt 开头）</summary>
+      <summary class="ap-k mono">{{ t('jobs.approval.promptHead') }}</summary>
       <pre class="ap-cmd mono" data-test="ap-prompt">{{ prompt }}</pre>
     </details>
 
     <dl class="ap-facts">
-      <dt class="mono">项目</dt>
+      <dt class="mono">{{ t('jobs.approval.project') }}</dt>
       <dd class="mono">{{ job.project_key }}</dd>
       <dt class="mono">cwd</dt>
       <dd class="mono">{{ job.cwd || '—' }}</dd>
@@ -92,11 +93,11 @@ function fmtTime(sec: number | undefined): string {
       <dd class="mono">{{ runnerLabel(job.runner) }}<template v-if="job.worker_id"> · {{ job.worker_id }}</template></dd>
       <dt class="mono">agent</dt>
       <dd class="mono">{{ job.agent }}<template v-if="job.model"> · {{ job.model }}</template></dd>
-      <dt class="mono">提交者</dt>
+      <dt class="mono">{{ t('jobs.approval.submitter') }}</dt>
       <dd class="mono" data-test="ap-submitter">{{ submitter || '—' }}</dd>
-      <dt class="mono">提交时间</dt>
+      <dt class="mono">{{ t('jobs.approval.submittedAt') }}</dt>
       <dd class="mono">{{ fmtTime(job.started_at) }}</dd>
-      <dt class="mono">附带</dt>
+      <dt class="mono">{{ t('jobs.approval.extras') }}</dt>
       <dd class="mono" data-test="ap-extras">{{ extras.join(' · ') }}</dd>
     </dl>
 
@@ -105,8 +106,8 @@ function fmtTime(sec: number | undefined): string {
         v-model="rejectNote"
         class="ap-note mono"
         rows="3"
-        placeholder="拒绝理由（可不填）：会写进 job 的错误信息，提交者能看到"
-        aria-label="拒绝理由（可不填）"
+        :placeholder="t('jobs.approval.rejectPlaceholder')"
+        :aria-label="t('jobs.approval.rejectLabel')"
       ></textarea>
     </div>
 
@@ -121,14 +122,14 @@ function fmtTime(sec: number | undefined): string {
           data-test="ap-approve"
           :disabled="!!busy"
           @click="actions.approve"
-        >{{ busy === 'approve' ? '批准中…' : '批准' }}</button>
+        >{{ busy === 'approve' ? t('jobs.approval.approving') : t('jobs.approval.approve') }}</button>
         <button
           class="ap-btn ap-btn--bad mono"
           type="button"
           data-test="ap-reject"
           :disabled="!!busy"
           @click="actions.openReject"
-        >拒绝</button>
+        >{{ t('jobs.approval.reject') }}</button>
       </template>
       <template v-else>
         <button
@@ -137,8 +138,8 @@ function fmtTime(sec: number | undefined): string {
           data-test="ap-reject-confirm"
           :disabled="!!busy"
           @click="actions.reject"
-        >{{ busy === 'reject' ? '拒绝中…' : '确认拒绝' }}</button>
-        <button class="ap-btn mono" type="button" :disabled="!!busy" @click="actions.cancelReject">返回</button>
+        >{{ busy === 'reject' ? t('jobs.approval.rejecting') : t('jobs.approval.confirmReject') }}</button>
+        <button class="ap-btn mono" type="button" :disabled="!!busy" @click="actions.cancelReject">{{ t('jobs.approval.back') }}</button>
       </template>
     </div>
   </section>

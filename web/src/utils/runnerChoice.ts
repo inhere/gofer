@@ -1,6 +1,7 @@
 // 新建任务 / 新建会话表单共用的 runner 选项收敛逻辑（NewJob、工作台 Composer、Sessions 页）。
 // 原则：不可用的 runner 灰显并写原因，不静默移除；信息缺失 ≠ 不支持（worker 离线 / 未上报时放行，由后端拒）。
 import type { MetaProject, MetaRunner, MetaWorker } from '../api/types'
+import { t } from '../i18n'
 
 export interface BlockNote {
   short: string
@@ -31,8 +32,8 @@ export function computeRunnerBlocks(
     if (r.type !== 'worker') {
       if (project.worker_only) {
         out[r.name] = {
-          short: '仅 worker runner 可执行',
-          full: `${project.key} 是 worker-only project（只在某台 worker 上定义）：只能经 worker runner 执行`,
+          short: t('util.runnerChoice.workerOnly.short'),
+          full: t('util.runnerChoice.workerOnly.full', { key: project.key }),
         }
       }
       continue
@@ -42,15 +43,18 @@ export function computeRunnerBlocks(
       const w = workers.find((x) => x.id === pinned)
       if (!w || !w.connected || (w.projects ?? []).length === 0) continue
       if (!(w.projects ?? []).includes(project.key)) {
-        out[r.name] = { short: `${pinned} 上无此 project`, full: `worker ${pinned} 上没有 project ${project.key}` }
+        out[r.name] = {
+          short: t('util.runnerChoice.noProjectOnWorker.short', { worker: pinned }),
+          full: t('util.runnerChoice.noProjectOnWorker.full', { worker: pinned, key: project.key }),
+        }
       }
       continue
     }
     if (!anyReporting) continue
     if (!workers.some((w) => w.connected && (w.projects ?? []).includes(project.key))) {
       out[r.name] = {
-        short: '无在线 worker 具备此 project',
-        full: `当前没有在线 worker 具备 project ${project.key}`,
+        short: t('util.runnerChoice.noOnlineWorker.short'),
+        full: t('util.runnerChoice.noOnlineWorker.full', { key: project.key }),
       }
     }
   }
@@ -62,17 +66,20 @@ export function computeRunnerBlocks(
 export function sessionRunnerBlock(runner: MetaRunner, workers: MetaWorker[]): BlockNote | null {
   if (runner.type === 'local') return null
   if (runner.type !== 'worker') {
-    return { short: '不支持持续会话', full: `runner ${runner.name}（${runner.type}）不支持持续 ACP 会话，仅 local 与 worker(协议 v13+) 可用` }
+    return {
+      short: t('util.runnerChoice.noSession.short'),
+      full: t('util.runnerChoice.noSession.full', { name: runner.name, type: runner.type }),
+    }
   }
   const pinned = runner.worker_id ?? ''
   const candidates = pinned !== '' ? workers.filter((w) => w.id === pinned) : workers
   const known = candidates.filter((w) => w.connected && (w.protocol_version ?? 0) > 0)
   if (known.length === 0) return null
   if (known.some((w) => (w.protocol_version ?? 0) >= SESSION_MIN_PROTOCOL)) return null
-  const v = known[0].protocol_version
+  const v = known[0].protocol_version ?? 0
   return {
-    short: `worker 协议 v${v} < v${SESSION_MIN_PROTOCOL}`,
-    full: `worker ${known[0].id} 协议 v${v} 不支持持续会话（需 v${SESSION_MIN_PROTOCOL}+），请升级`,
+    short: t('util.runnerChoice.protocolOld.short', { v, min: SESSION_MIN_PROTOCOL }),
+    full: t('util.runnerChoice.protocolOld.full', { id: known[0].id, v, min: SESSION_MIN_PROTOCOL }),
   }
 }
 

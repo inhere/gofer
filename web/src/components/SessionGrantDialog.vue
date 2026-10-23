@@ -7,14 +7,13 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { X } from '@lucide/vue'
 import Icon from '../ui/Icon.vue'
 import { createAuthGrant, expandGrantPattern, getPermissionCatalog } from '../api/permissions'
+import { t } from '../i18n'
 import { createPreviewScheduler } from '../utils/expandPreview'
 import { emptyExpandResult, expandProblemText, grantConfirmRules, grantFormBlocker, riskTone } from '../utils/permissions'
 import type { ExpandResult, PermissionCatalog } from '../utils/permissions'
 import {
   SESSION_GRANT_DEFAULT_EXPIRY_SEC,
-  SESSION_GRANT_ENDS_NOTE,
   SESSION_GRANT_EXPIRY_OPTIONS,
-  SESSION_GRANT_THREAT_NOTE,
   buildSessionGrantRequests,
   orderedSelection,
   selectionPatternText,
@@ -46,7 +45,7 @@ watch(patternText, (t) => {
 
 const rules = computed(() => grantConfirmRules(expansion.value))
 const blocker = computed(() => {
-  if (names.value.length === 0) return '至少选一项权限'
+  if (names.value.length === 0) return t('sessions.grant.pickOne')
   return grantFormBlocker({ subject: sessionSubject(props.sid), pattern: patternText.value, note: form.note, confirmed: form.confirmed }, expansion.value)
 })
 const saving = ref(false)
@@ -76,7 +75,7 @@ async function submit(): Promise<void> {
     // 已建成的不回滚：留在弹窗里，说明哪些已授权，剩下的可以重试。
     selected.value = selected.value.filter((n) => !done.includes(n))
     if (done.length) emit('granted')
-    error.value = (done.length ? `已授权 ${done.join('、')}，其余失败：` : '') + (e instanceof Error ? e.message : String(e))
+    error.value = (done.length ? t('sessions.grant.partial', { names: done.join(t('util.sep.list')) }) : '') + (e instanceof Error ? e.message : String(e))
   } finally {
     saving.value = false
   }
@@ -104,31 +103,31 @@ onUnmounted(() => {
 
 <template>
   <div class="sg-overlay" @click.self="!saving && emit('close')">
-    <form class="sg-panel" role="dialog" aria-modal="true" aria-label="授权这个会话" data-test="sg-dialog" @submit.prevent="submit">
+    <form class="sg-panel" role="dialog" aria-modal="true" :aria-label="t('sessions.grant.title')" data-test="sg-dialog" @submit.prevent="submit">
       <header class="sg-head">
         <div>
-          <h2 class="sg-title">授权这个会话</h2>
+          <h2 class="sg-title">{{ t('sessions.grant.title') }}</h2>
           <p class="sg-sub mono" :title="sid">{{ label || sid }}</p>
         </div>
-        <button class="sg-x mono" type="button" :disabled="saving" aria-label="关闭" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
+        <button class="sg-x mono" type="button" :disabled="saving" :aria-label="t('sessions.grant.close')" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
       </header>
 
       <p class="sg-threat" data-test="sg-threat">
-        <strong>谁会得到这些权限</strong>
-        {{ SESSION_GRANT_THREAT_NOTE }}
+        <strong>{{ t('sessions.grant.threatTitle') }}</strong>
+        {{ t('util.sessionGrant.threat') }}
       </p>
 
       <p v-if="loadError" class="sg-msg sg-msg--error mono" role="alert">{{ loadError }}</p>
-      <p v-else-if="loading" class="sg-hint mono">读取权限目录…</p>
+      <p v-else-if="loading" class="sg-hint mono">{{ t('sessions.grant.loading') }}</p>
 
       <template v-else>
         <div v-if="presets.length" class="sg-presets" data-test="sg-presets">
-          <span class="sg-hint mono">常用</span>
+          <span class="sg-hint mono">{{ t('sessions.grant.presets') }}</span>
           <button v-for="p in presets" :key="p.key" type="button" class="sg-chip" @click="applyPreset(p.permissions)">{{ p.label }}</button>
         </div>
 
         <fieldset class="sg-list" data-test="sg-list">
-          <legend class="sg-hint mono">可授予会话的权限（{{ grantable.length }}）</legend>
+          <legend class="sg-hint mono">{{ t('sessions.grant.listTitle', { n: grantable.length }) }}</legend>
           <label v-for="p in grantable" :key="p.name" class="sg-row" :class="`risk--${riskTone(p.risk)}`">
             <input type="checkbox" :checked="selected.includes(p.name)" :data-test="`sg-perm-${p.name}`" @change="toggle(p.name)" />
             <code>{{ p.name }}</code>
@@ -142,38 +141,38 @@ onUnmounted(() => {
           <ul v-if="expansion.permissions.length" class="sg-manifest">
             <li v-for="p in expansion.permissions" :key="p.name" :class="`risk--${riskTone(p.risk)}`"><code>{{ p.name }}</code> <span class="sg-risk mono">{{ p.risk_label }}</span></li>
           </ul>
-          <p v-else-if="!patternText" class="sg-hint mono">勾选后在这里预览服务端会授予的权限。</p>
+          <p v-else-if="!patternText" class="sg-hint mono">{{ t('sessions.grant.previewHint') }}</p>
         </div>
 
         <div v-if="rules.needsConfirm" class="sg-confirm" data-test="sg-confirm">
           <p>
-            <template v-if="rules.high.length">高风险：<code v-for="n in rules.high" :key="n">{{ n }}</code>。</template>
-            授权后，这个会话里的命令立即可以使用。
+            <template v-if="rules.high.length">{{ t('sessions.grant.highRisk') }}<code v-for="n in rules.high" :key="n">{{ n }}</code>。</template>
+            {{ t('sessions.grant.immediate') }}
           </p>
-          <label class="sg-check"><input v-model="form.confirmed" type="checkbox" data-test="sg-confirm-box" /> 我确认要授予以上权限</label>
+          <label class="sg-check"><input v-model="form.confirmed" type="checkbox" data-test="sg-confirm-box" /> {{ t('sessions.grant.confirm') }}</label>
         </div>
 
         <div class="sg-row2">
           <label class="sg-field">
-            <span class="sg-hint mono">有效期</span>
+            <span class="sg-hint mono">{{ t('sessions.grant.expiry') }}</span>
             <select v-model.number="form.expiry" class="mono" data-test="sg-expiry">
               <option v-for="o in SESSION_GRANT_EXPIRY_OPTIONS" :key="o.sec" :value="o.sec">{{ o.label }}</option>
             </select>
           </label>
           <label class="sg-field sg-field--grow">
-            <span class="sg-hint mono">原因（选填）</span>
-            <input v-model="form.note" placeholder="为什么要授权" data-test="sg-note" />
+            <span class="sg-hint mono">{{ t('sessions.grant.note') }}</span>
+            <input v-model="form.note" :placeholder="t('sessions.grant.notePlaceholder')" data-test="sg-note" />
           </label>
         </div>
-        <p class="sg-hint" data-test="sg-ends">{{ SESSION_GRANT_ENDS_NOTE }}</p>
+        <p class="sg-hint" data-test="sg-ends">{{ t('util.sessionGrant.ends') }}</p>
       </template>
 
       <p v-if="error" class="sg-msg sg-msg--error mono" role="alert" data-test="sg-error">{{ error }}</p>
 
       <footer class="sg-actions">
         <span v-if="blocker && !loading" class="sg-blocker mono" data-test="sg-blocker">{{ blocker }}</span>
-        <button type="button" class="sg-btn" :disabled="saving" @click="emit('close')">取消</button>
-        <button type="submit" class="sg-btn sg-btn--primary" :disabled="!!blocker || saving || loading" data-test="sg-submit">{{ saving ? '授权中…' : '授权' }}</button>
+        <button type="button" class="sg-btn" :disabled="saving" @click="emit('close')">{{ t('sessions.grant.cancel') }}</button>
+        <button type="submit" class="sg-btn sg-btn--primary" :disabled="!!blocker || saving || loading" data-test="sg-submit">{{ saving ? t('sessions.grant.saving') : t('sessions.grant.submit') }}</button>
       </footer>
     </form>
   </div>

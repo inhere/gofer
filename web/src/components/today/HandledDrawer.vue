@@ -4,6 +4,7 @@
 import { ref, watch } from 'vue'
 import { listTodayHandled, type TodayHandled } from '../../api/today'
 import { fmtDateTime } from '../../api/time'
+import { t } from '../../i18n'
 import { handledOpen } from '../../store/today'
 
 const rows = ref<TodayHandled[]>([])
@@ -35,21 +36,21 @@ function close(): void {
 
 <template>
   <div v-if="handledOpen" class="hd-scrim" aria-hidden="true" @click="close"></div>
-  <aside v-if="handledOpen" class="hd" role="dialog" aria-label="已处理" data-test="handled-drawer">
+  <aside v-if="handledOpen" class="hd" role="dialog" :aria-label="t('today.handled.title')" data-test="handled-drawer">
     <header class="hd-head">
-      <span class="hd-title">已处理 · 近 7 天</span>
-      <button class="hd-x mono" type="button" @click="close">关闭</button>
+      <span class="hd-title">{{ t('today.handled.heading') }}</span>
+      <button class="hd-x mono" type="button" @click="close">{{ t('today.handled.close') }}</button>
     </header>
     <p v-if="error" class="hd-err mono">{{ error }}</p>
-    <p v-else-if="!loading && rows.length === 0" class="hd-empty mono">近 7 天没有在首页处理过卡片</p>
+    <p v-else-if="!loading && rows.length === 0" class="hd-empty mono">{{ t('today.handled.empty') }}</p>
     <ul class="hd-list">
       <li v-for="h in rows" :key="`${h.at}:${h.card_key}:${h.action_id}`">
         <span class="hd-card">{{ h.title || h.card_key }}</span>
         <span class="hd-meta mono">
           <span>{{ fmtDateTime(h.at) }}</span>
-          <span>你：{{ h.label || h.action_id }}</span>
-          <span v-if="h.via_advice" class="hd-via">按建议</span>
-          <span v-else-if="adviceOf(h)" :title="h.advice_text">管家建议：{{ adviceOf(h) }}</span>
+          <span>{{ t('today.handled.you', { label: h.label || h.action_id }) }}</span>
+          <span v-if="h.via_advice" class="hd-via">{{ t('today.handled.viaAdvice') }}</span>
+          <span v-else-if="adviceOf(h)" :title="h.advice_text">{{ t('today.handled.advice', { advice: adviceOf(h) }) }}</span>
         </span>
       </li>
     </ul>

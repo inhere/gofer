@@ -2,6 +2,7 @@
 // 输入框状态的映射。全部是不碰 DOM 的纯函数，便于 vitest 直接测；canvas 压缩与上传在
 // components/AttachmentBar.vue 里按这里的参数执行。
 
+import { t } from '../i18n'
 import { isMobileWidth } from './mobileLayout'
 
 // 一条消息最多几张：与服务端 server.attachments.max_per_message 的默认值一致。
@@ -37,9 +38,16 @@ export interface AttachmentCapabilitySource {
   attachments_reason?: string
 }
 
-export const UNSUPPORTED_SERVER_REASON = '服务端版本不支持附图'
-export const UNSUPPORTED_RECIPIENT_REASON = '该会话不支持附图'
-export const UNSUPPORTED_OUTSIDE_THREAD_REASON = '只有工作台里的会话回合支持附图'
+// 附件不可用的原因：导出函数（文案跟当前语言）。
+export function unsupportedServerReason(): string {
+  return t('util.attachments.unsupportedServer')
+}
+export function unsupportedRecipientReason(): string {
+  return t('util.attachments.unsupportedRecipient')
+}
+export function unsupportedOutsideThreadReason(): string {
+  return t('util.attachments.unsupportedOutsideThread')
+}
 
 // 附件条里的每一项：选中即上传，上传成功后才有 id；失败项可重试或删除。
 export type AttachmentStatus = 'uploading' | 'done' | 'failed'
@@ -87,19 +95,19 @@ export function isSupportedAttachmentMime(mime: string): boolean {
 // attachmentTypeError：返回空串表示可以上传；否则是给用户看的一句话。
 export function attachmentTypeError(mime: string): string {
   if (isSupportedAttachmentMime(mime)) return ''
-  return '只支持 PNG / JPEG / GIF / WebP 图片'
+  return t('util.attachments.typeError')
 }
 
 export function attachmentSizeError(bytes: number, limit = MAX_ATTACHMENT_BYTES): string {
   if (bytes <= limit) return ''
-  return `单张最大 ${formatBytes(limit)}，这张 ${formatBytes(bytes)}`
+  return t('util.attachments.sizeError', { max: formatBytes(limit), size: formatBytes(bytes) })
 }
 
 // attachmentCountError：current 是已选张数（含正在上传的），incoming 是这次还要加几张。
 export function attachmentCountError(current: number, incoming = 1): string {
   const next = current + Math.max(1, incoming)
   if (current < MAX_ATTACHMENTS_PER_MESSAGE && next <= MAX_ATTACHMENTS_PER_MESSAGE) return ''
-  return `一条消息最多 ${MAX_ATTACHMENTS_PER_MESSAGE} 张图片`
+  return t('util.attachments.countError', { max: MAX_ATTACHMENTS_PER_MESSAGE })
 }
 
 export function formatBytes(bytes: number): string {
@@ -134,9 +142,9 @@ export function attachmentCapability(thread?: AttachmentCapabilitySource | null)
     return { mode, enabled: true, reason: '' }
   }
   if (mode === 'none') {
-    return { mode, enabled: false, reason: thread?.attachments_reason?.trim() || UNSUPPORTED_RECIPIENT_REASON }
+    return { mode, enabled: false, reason: thread?.attachments_reason?.trim() || unsupportedRecipientReason() }
   }
-  return { mode: 'none', enabled: false, reason: UNSUPPORTED_SERVER_REASON }
+  return { mode: 'none', enabled: false, reason: unsupportedServerReason() }
 }
 
 export interface ComposerAttachmentState {
@@ -163,15 +171,15 @@ export function composerAttachmentState(
   const readyIDs = items.filter((item) => item.status === 'done' && !!item.id).map((item) => item.id as string)
   let hint = ''
   if (uploading) {
-    hint = '图片上传中…上传完成后才能发送'
+    hint = t('util.attachments.uploading')
   } else if (failedCount > 0) {
-    hint = `${failedCount} 张上传失败，可点缩略图重试或删除`
+    hint = t('util.attachments.failedCount', { n: failedCount })
   } else if (!capability.enabled) {
     hint = capability.reason
   }
   return {
     attachEnabled: capability.enabled,
-    attachTitle: capability.enabled ? '添加图片（可粘贴、拖放或选择文件；手机可拍照 / 相册）' : capability.reason,
+    attachTitle: capability.enabled ? t('util.attachments.attachTitle') : capability.reason,
     uploading,
     failedCount,
     readyIDs,

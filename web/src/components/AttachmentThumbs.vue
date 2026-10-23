@@ -5,6 +5,7 @@
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { attachmentBlobURL } from '../api/attachments'
 import type { AttachmentRef } from '../api/types'
+import { t } from '../i18n'
 
 const props = defineProps<{ items: AttachmentRef[] }>()
 
@@ -65,19 +66,19 @@ onBeforeUnmount(releaseAll)
 </script>
 
 <template>
-  <ul v-if="items.length > 0" class="thumbs" aria-label="图片附件">
+  <ul v-if="items.length > 0" class="thumbs" :aria-label="t('common.attachments.label')">
     <li v-for="item in items" :key="item.id" class="thumb">
-      <span v-if="item.expired" class="thumb-expired mono" title="server 已按保存期删除原图">图片已过期</span>
+      <span v-if="item.expired" class="thumb-expired mono" :title="t('common.attachments.expiredTitle')">{{ t('common.attachments.expired') }}</span>
       <button
         v-else
         class="thumb-button"
         type="button"
-        :title="`查看原图${sizeText(item) ? `（${sizeText(item)}）` : ''}`"
-        :aria-label="`查看原图 ${item.id}`"
+        :title="sizeText(item) ? t('common.attachments.openWithSize', { size: sizeText(item) }) : t('common.attachments.open')"
+        :aria-label="t('common.attachments.openLabel', { id: item.id })"
         @click="openOriginal(item)"
       >
-        <img v-if="thumbs[item.id]" :src="thumbs[item.id]" alt="图片附件" />
-        <span v-else class="thumb-loading mono">{{ broken[item.id] ? '读取失败' : '加载中' }}</span>
+        <img v-if="thumbs[item.id]" :src="thumbs[item.id]" :alt="t('common.attachments.label')" />
+        <span v-else class="thumb-loading mono">{{ broken[item.id] ? t('common.attachments.failed') : t('common.attachments.loading') }}</span>
       </button>
     </li>
   </ul>

@@ -6,6 +6,7 @@
 import { computed, ref } from 'vue'
 import { patchSessionTopic } from '../api/client'
 import type { AgentSession } from '../api/types'
+import { t } from '../i18n'
 import { useWhoami } from '../store/whoami'
 import { buildClearTopicPatch, buildTopicPatch, canEditTopic, hasStoredTopic, SCOPE_MAX, scopeToText, topicDisplay, TOPIC_MAX } from '../utils/sessionTopic'
 
@@ -81,48 +82,48 @@ async function save(): Promise<void> {
   <div class="stopic mono" data-test="session-topic" @click.stop>
     <template v-if="!editing">
       <div class="stopic-row">
-        <span class="stopic-label">主题</span>
+        <span class="stopic-label">{{ t('sessions.topic.label') }}</span>
         <span v-if="shown.text" class="stopic-text" :class="{ 'stopic-text--inferred': shown.inferred }" :title="shown.title" data-test="topic-text">{{ shown.text }}</span>
-        <span v-else class="stopic-text stopic-text--empty" data-test="topic-empty">未设置</span>
+        <span v-else class="stopic-text stopic-text--empty" data-test="topic-empty">{{ t('sessions.topic.none') }}</span>
         <span v-if="shown.tag" class="stopic-tag" :class="{ 'stopic-tag--inferred': shown.inferred }" :title="shown.title" data-test="topic-tag">{{ shown.tag }}</span>
         <button
           class="stopic-edit mono"
           type="button"
           data-test="topic-edit"
           :disabled="!gate.ok"
-          :title="gate.ok ? '修改主题与范围' : gate.reason"
+          :title="gate.ok ? t('sessions.topic.editTitle') : gate.reason"
           @click="startEdit"
-        >编辑</button>
+        >{{ t('sessions.topic.edit') }}</button>
       </div>
       <div class="stopic-row">
-        <span class="stopic-label">范围</span>
+        <span class="stopic-label">{{ t('sessions.topic.scopeLabel') }}</span>
         <span v-if="scope.length" class="stopic-scope" data-test="topic-scope">
           <code v-for="p in scope" :key="p" class="stopic-chip">{{ p }}</code>
         </span>
-        <span v-else class="stopic-text stopic-text--empty" data-test="scope-empty">未设置</span>
+        <span v-else class="stopic-text stopic-text--empty" data-test="scope-empty">{{ t('sessions.topic.none') }}</span>
       </div>
       <p v-if="!gate.ok" class="stopic-why" data-test="topic-why">{{ gate.reason }}</p>
     </template>
     <form v-else class="stopic-form" data-test="topic-form" @submit.prevent="save">
-      <label class="stopic-field">主题（一句话，最多 {{ TOPIC_MAX }} 字）
-        <input v-model="topicInput" type="text" :maxlength="TOPIC_MAX" placeholder="这个会话在做什么" data-test="topic-input" />
+      <label class="stopic-field">{{ t('sessions.topic.formTopic', { max: TOPIC_MAX }) }}
+        <input v-model="topicInput" type="text" :maxlength="TOPIC_MAX" :placeholder="t('sessions.topic.topicPlaceholder')" data-test="topic-input" />
       </label>
-      <label class="stopic-field">范围（项目根相对路径，每行一个，最多 {{ SCOPE_MAX }} 项；清空 = 不限定）
+      <label class="stopic-field">{{ t('sessions.topic.formScope', { max: SCOPE_MAX }) }}
         <textarea v-model="scopeInput" rows="3" placeholder="internal/job&#10;web/src" data-test="scope-input"></textarea>
       </label>
       <p v-if="error" class="stopic-error" role="alert" data-test="topic-error">{{ error }}</p>
       <div class="stopic-actions">
-        <button class="stopic-btn stopic-btn--primary mono" type="submit" :disabled="busy" data-test="topic-save">{{ busy ? '保存中…' : '保存' }}</button>
-        <button class="stopic-btn mono" type="button" :disabled="busy" @click="cancel">取消</button>
+        <button class="stopic-btn stopic-btn--primary mono" type="submit" :disabled="busy" data-test="topic-save">{{ busy ? t('sessions.topic.saving') : t('sessions.topic.save') }}</button>
+        <button class="stopic-btn mono" type="button" :disabled="busy" @click="cancel">{{ t('sessions.topic.cancel') }}</button>
         <button
           v-if="hasStoredTopic(session)"
           class="stopic-btn stopic-btn--danger mono"
           type="button"
           :disabled="busy"
-          title="清除已设置的主题（范围不变）；之后显示推断值"
+          :title="t('sessions.topic.clearTitle')"
           data-test="topic-clear"
           @click="clearTopic"
-        >清除主题</button>
+        >{{ t('sessions.topic.clear') }}</button>
       </div>
     </form>
   </div>

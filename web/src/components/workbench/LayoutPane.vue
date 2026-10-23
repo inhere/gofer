@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue'
+import { t } from '../../i18n'
 import { WORKBENCH_THREAD_DRAG_TYPE, type LayoutNode } from './layoutTree'
 import ThreadView from './ThreadView.vue'
 
@@ -129,7 +130,7 @@ onUnmounted(() => stopPointerTracking?.())
       :focused="focusedPath === path && contentActive !== false"
     />
     <button v-else class="empty-pane mono" type="button" @click="emit('focus', path)">
-      空窗格<br /><small>从左侧选择一个会话</small>
+      {{ t('workbench.layout.emptyPane') }}<br /><small>{{ t('workbench.layout.emptyPaneHint') }}</small>
     </button>
   </section>
   <section
@@ -160,7 +161,7 @@ onUnmounted(() => stopPointerTracking?.())
       class="splitter"
       v-show="!soloEnabled()"
       type="button"
-      :aria-label="node.dir === 'h' ? '调整左右分屏比例' : '调整上下分屏比例'"
+      :aria-label="t(node.dir === 'h' ? 'workbench.layout.resizeH' : 'workbench.layout.resizeV')"
       @pointerdown="startResize"
     ></button>
     <div

@@ -150,6 +150,9 @@ export const mail: PageDict = {
     // 顶栏信箱按钮（components/MailButton.vue）
     'mail.button.label': '信箱',
     'mail.button.badgeTitle': '{n} 封信待指派',
+
+    // 写信预览的占位正文（还没写正文时先带一个，过服务端的非空校验）
+    'mail.compose.previewBody': '预览',
   },
   en: {
     // 页头与筛选
@@ -297,5 +300,6 @@ export const mail: PageDict = {
 
     'mail.button.label': 'Mail',
     'mail.button.badgeTitle': '{n} letters are waiting for an owner',
+    'mail.compose.previewBody': 'Preview',
   },
 }

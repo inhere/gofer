@@ -9,6 +9,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { listAgentSessions, listMessengerAgents } from '../api/client'
 import { fmtAgo, fmtDateTime } from '../api/time'
+import { t } from '../i18n'
 import type { AgentSession, MessengerAgentsResp, Runner } from '../api/types'
 import {
   crossReference,
@@ -77,40 +78,40 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
 
 <template>
   <div class="mdrawer-overlay" @click.self="emit('close')">
-    <div class="mdrawer-panel" role="dialog" aria-label="传话人" data-test="messenger-drawer">
+    <div class="mdrawer-panel" role="dialog" :aria-label="t('runners.messenger.title')" data-test="messenger-drawer">
       <header class="mdrawer-head">
         <div class="mdrawer-title mono">
-          传话人 · {{ runnerLabel(runner.name) }}
+          {{ t('runners.messenger.heading', { name: runnerLabel(runner.name) }) }}
           <span class="mstatus mono" :class="`mtone--${display.tone}`" data-test="drawer-status">{{ display.text }}</span>
         </div>
-        <button class="act mono" type="button" @click="emit('close')">关闭</button>
+        <button class="act mono" type="button" @click="emit('close')">{{ t('runners.messenger.close') }}</button>
       </header>
 
       <div class="mdrawer-body">
         <section class="msec">
-          <h3 class="msec-title mono">状态</h3>
+          <h3 class="msec-title mono">{{ t('runners.messenger.status') }}</h3>
           <p v-if="!display.known && isWorker && runner.status === 'connected'" class="mnote mono">
-            这台 worker 还没有上报传话人状态（旧版本，或刚连上还没有心跳）。升级 worker 后这里会显示实时状态。
+            {{ t('runners.messenger.notReported') }}
           </p>
           <dl v-else-if="snap" class="mdl mono">
-            <dt>状态</dt><dd>{{ display.text }}<span v-if="idleLeftText(snap, nowSec)" class="dim"> · {{ idleLeftText(snap, nowSec) }}</span></dd>
-            <dt>进程启动</dt><dd>{{ snap.started_at ? `${fmtDateTime(snap.started_at)}（${fmtAgo(snap.started_at, nowSec)}）` : '未启动' }}</dd>
-            <dt>最近使用</dt><dd>{{ snap.last_used_at ? `${fmtDateTime(snap.last_used_at)}（${fmtAgo(snap.last_used_at, nowSec)}）` : '还没用过' }}</dd>
-            <dt>已处理</dt>
+            <dt>{{ t('runners.messenger.status') }}</dt><dd>{{ display.text }}<span v-if="idleLeftText(snap, nowSec)" class="dim"> · {{ idleLeftText(snap, nowSec) }}</span></dd>
+            <dt>{{ t('runners.messenger.startedAt') }}</dt><dd>{{ snap.started_at ? t('runners.messenger.atAgo', { at: fmtDateTime(snap.started_at), ago: fmtAgo(snap.started_at, nowSec) }) : t('runners.messenger.notStarted') }}</dd>
+            <dt>{{ t('runners.messenger.lastUsed') }}</dt><dd>{{ snap.last_used_at ? t('runners.messenger.atAgo', { at: fmtDateTime(snap.last_used_at), ago: fmtAgo(snap.last_used_at, nowSec) }) : t('runners.messenger.neverUsed') }}</dd>
+            <dt>{{ t('runners.messenger.handled') }}</dt>
             <dd data-test="messenger-counters">
-              {{ snap.messages ?? 0 }} 条<template v-if="ageText"> · 已存活 {{ ageText }}</template>
+              {{ t('runners.messenger.messageCount', { n: snap.messages ?? 0 }) }}<template v-if="ageText"> · {{ t('runners.messenger.aliveFor', { age: ageText }) }}</template>
               <span class="dim"> · {{ rotationLimitText(snap) }}</span>
             </dd>
-            <dt>用量</dt>
-            <dd data-test="messenger-usage">{{ usageText(snap.usage) || '还没上报（旧版进程或没有 result 用量）' }}</dd>
+            <dt>{{ t('runners.messenger.usage') }}</dt>
+            <dd data-test="messenger-usage">{{ usageText(snap.usage) || t('runners.messenger.usageMissing') }}</dd>
           </dl>
-          <p v-else class="mnote mono">server 没有启用会话传话。</p>
+          <p v-else class="mnote mono">{{ t('runners.messenger.disabled') }}</p>
         </section>
 
         <section class="msec">
           <h3 class="msec-title mono">
-            可见会话
-            <span class="dim">（传话人能 SendMessage 的会话）</span>
+            {{ t('runners.messenger.visibleSessions') }}
+            <span class="dim">{{ t('runners.messenger.visibleSessionsHint') }}</span>
           </h3>
           <div class="mactions">
             <button
@@ -118,87 +119,87 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
               type="button"
               data-test="list-agents"
               :disabled="!!listBlock || listLoading"
-              :title="listBlock || '让传话人跑一次 ListAgents（会调用一次模型，约几秒）'"
+              :title="listBlock || t('runners.messenger.listTitle')"
               @click="loadAgents(false)"
-            >{{ listLoading ? '查询中…' : '列出可见会话' }}</button>
+            >{{ listLoading ? t('runners.messenger.listing') : t('runners.messenger.list') }}</button>
             <button
               v-if="listing"
               class="act mono"
               type="button"
               :disabled="listLoading"
-              title="忽略 30 秒缓存，重新问一次"
+              :title="t('runners.messenger.refreshTitle')"
               @click="loadAgents(true)"
-            >刷新</button>
+            >{{ t('runners.messenger.refresh') }}</button>
             <span v-if="listBlock" class="mnote mono" data-test="list-block">{{ listBlock }}</span>
           </div>
           <p v-if="listError" class="merr mono" data-test="list-error">{{ listError }}</p>
           <template v-if="listing">
             <p class="mnote mono">
-              {{ listing.agents.length }} 个会话 · {{ listing.cached ? '缓存结果' : '刚刚查询' }}（{{ fmtAgo(Math.floor(listing.fetched_at / 1000), nowSec) }}）
-              <span v-if="listing.self"> · 传话人自己：{{ listing.self }}</span>
+              {{ t('runners.messenger.listSummary', { n: listing.agents.length, mode: listing.cached ? t('runners.messenger.cached') : t('runners.messenger.fresh'), ago: fmtAgo(Math.floor(listing.fetched_at / 1000), nowSec) }) }}
+              <span v-if="listing.self"> · {{ t('runners.messenger.self', { name: listing.self }) }}</span>
             </p>
             <div v-if="rows.length" class="mtable mono" data-test="agents-table">
               <div class="mtr mthead">
-                <span>名称</span><span>状态</span><span>目录</span><span>启动</span><span>gofer</span><span></span>
+                <span>{{ t('runners.messenger.col.name') }}</span><span>{{ t('runners.messenger.col.status') }}</span><span>{{ t('runners.messenger.col.cwd') }}</span><span>{{ t('runners.messenger.col.started') }}</span><span>gofer</span><span></span>
               </div>
               <div v-for="row in rows" :key="row.agent.short_id || row.agent.name" class="mtr">
                 <span class="mname" :title="`${row.agent.name} [${row.agent.short_id ?? ''}]`">{{ row.agent.name }}<small v-if="row.agent.short_id" class="dim"> [{{ row.agent.short_id }}]</small></span>
                 <span>{{ row.agent.status || '—' }}</span>
-                <span class="mpath" :title="row.session?.cwd || row.agent.cwd || 'ListAgents 不提供目录；已登记的会话取 gofer 记录的目录'">{{ row.session?.cwd || row.agent.cwd || '—' }}</span>
+                <span class="mpath" :title="row.session?.cwd || row.agent.cwd || t('runners.messenger.cwdTitle')">{{ row.session?.cwd || row.agent.cwd || '—' }}</span>
                 <span>{{ row.agent.started || row.agent.last_activity || '—' }}</span>
-                <span :class="row.session ? 'tone-ok' : 'dim'" :data-test="row.session ? 'reg-yes' : 'reg-no'">{{ row.session ? '已登记' : '未登记' }}</span>
+                <span :class="row.session ? 'tone-ok' : 'dim'" :data-test="row.session ? 'reg-yes' : 'reg-no'">{{ row.session ? t('runners.messenger.registered') : t('runners.messenger.unregistered') }}</span>
                 <span>
                   <button
                     class="act mono"
                     type="button"
                     data-test="talk-to"
                     :disabled="!!messageBlockReason(row)"
-                    :title="messageBlockReason(row) || '打开这个会话，给它传话'"
+                    :title="messageBlockReason(row) || t('runners.messenger.talkTitle')"
                     @click="row.session && talkTo(row.session.session_id)"
-                  >给它传话</button>
+                  >{{ t('runners.messenger.talk') }}</button>
                 </span>
               </div>
             </div>
-            <p v-else class="mnote mono">传话人当前看不到别的会话。</p>
-            <button class="link-btn mono" type="button" @click="rawOpen = !rawOpen">{{ rawOpen ? '收起原始输出' : '原始输出' }}</button>
+            <p v-else class="mnote mono">{{ t('runners.messenger.noOtherSessions') }}</p>
+            <button class="link-btn mono" type="button" @click="rawOpen = !rawOpen">{{ rawOpen ? t('runners.messenger.hideRaw') : t('runners.messenger.raw') }}</button>
             <pre v-if="rawOpen" class="mpre mono">{{ listing.raw_output }}</pre>
           </template>
         </section>
 
         <section class="msec">
-          <h3 class="msec-title mono">最近重建 <span class="dim">（最多 10 条，新的在上；进程在两条消息之间重建）</span></h3>
+          <h3 class="msec-title mono">{{ t('runners.messenger.rotations') }} <span class="dim">{{ t('runners.messenger.rotationsHint') }}</span></h3>
           <ul v-if="rotations.length" class="mdeliv mono" data-test="messenger-rotations">
             <li v-for="(r, i) in rotations" :key="`${r.at}-${i}`">
               <span class="dtime" :title="fmtDateTime(r.at)">{{ fmtAgo(r.at, nowSec) }}</span>
               <span class="dop">{{ rotationReasonLabel(r.reason) }}</span>
               <span class="dres">
-                处理 {{ r.messages ?? 0 }} 条<template v-if="formatAge(r.age_sec)"> · 存活 {{ formatAge(r.age_sec) }}</template>
+                {{ t('runners.messenger.handledCount', { n: r.messages ?? 0 }) }}<template v-if="formatAge(r.age_sec)"> · {{ t('runners.messenger.aliveFor', { age: formatAge(r.age_sec) }) }}</template>
               </span>
               <span v-if="usageText(r.usage)" class="dmsg">{{ usageText(r.usage) }}</span>
             </li>
           </ul>
-          <p v-else class="mnote mono">还没有重建记录。</p>
+          <p v-else class="mnote mono">{{ t('runners.messenger.noRotations') }}</p>
         </section>
 
         <section class="msec">
-          <h3 class="msec-title mono">最近投递 <span class="dim">（最多 20 条，新的在上；消息只留 200 字摘要）</span></h3>
+          <h3 class="msec-title mono">{{ t('runners.messenger.deliveries') }} <span class="dim">{{ t('runners.messenger.deliveriesHint') }}</span></h3>
           <ul v-if="deliveries.length" class="mdeliv mono" data-test="deliveries">
             <li v-for="(d, i) in deliveries" :key="`${d.at}-${i}`" :class="d.ok ? 'dok' : 'dfail'">
               <span class="dtime" :title="fmtDateTime(d.at)">{{ fmtAgo(d.at, nowSec) }}</span>
               <span class="dop">{{ opLabel(d.op) }}</span>
               <span v-if="d.target" class="dtarget">→ {{ d.target }}</span>
-              <span class="dres">{{ d.ok ? '成功' : '失败' }}<template v-if="d.duration_ms"> · {{ (d.duration_ms / 1000).toFixed(1) }}s</template></span>
+              <span class="dres">{{ d.ok ? t('runners.messenger.ok') : t('runners.messenger.fail') }}<template v-if="d.duration_ms"> · {{ (d.duration_ms / 1000).toFixed(1) }}s</template></span>
               <span v-if="d.error" class="derr">{{ d.error }}</span>
               <span v-else-if="d.message" class="dmsg">{{ d.message }}</span>
             </li>
           </ul>
-          <p v-else class="mnote mono">还没有投递记录。</p>
+          <p v-else class="mnote mono">{{ t('runners.messenger.noDeliveries') }}</p>
         </section>
 
         <section class="msec">
-          <h3 class="msec-title mono">stderr 尾部 <span class="dim">（4KB）</span></h3>
+          <h3 class="msec-title mono">{{ t('runners.messenger.stderr') }} <span class="dim">{{ t('runners.messenger.stderrHint') }}</span></h3>
           <pre v-if="snap?.stderr_tail" class="mpre mono" data-test="stderr">{{ snap.stderr_tail }}</pre>
-          <p v-else class="mnote mono">没有 stderr 输出。</p>
+          <p v-else class="mnote mono">{{ t('runners.messenger.noStderr') }}</p>
         </section>
       </div>
     </div>

@@ -1,26 +1,21 @@
 // Sessions 页「授权」：给一个终端会话临时授权的纯逻辑——可选权限、有效期、请求体、
 // 「已授权」徽标的判定与威胁说明。展开规则不在这里（预览调 GET /v1/auth/expand）。
+import { t } from '../i18n'
 import { parseSubject } from './permissions'
 import type { AuthGrant, CatalogPermission } from './permissions'
 import type { CreateGrantReq } from '../api/permissions'
 
 // 会话授权的有效期选项。服务端要求会话授权必带 expires_sec，上限 86400（24 小时）；
 // 会话结束时授权本来就失效，所以没有单独的「会话结束」选项，写在说明里。
+// label 用 getter：数组本身是模块级常量（多处按下标取 sec、续期选项直接复用这一组），
+// 但文案要跟当前语言，所以渲染时才取。
 export const SESSION_GRANT_EXPIRY_OPTIONS: { label: string; sec: number }[] = [
-  { label: '1 小时', sec: 3600 },
-  { label: '4 小时', sec: 14400 },
-  { label: '24 小时', sec: 86400 },
+  { get label() { return t('util.sessionGrant.expiry.hour1') }, sec: 3600 },
+  { get label() { return t('util.sessionGrant.expiry.hour4') }, sec: 14400 },
+  { get label() { return t('util.sessionGrant.expiry.hour24') }, sec: 86400 },
 ]
 export const SESSION_GRANT_DEFAULT_EXPIRY_SEC = 3600
 export const SESSION_GRANT_MAX_SEC = 86400
-
-// 威胁模型（设计「四、会话授权」）：授权跟着终端会话，而不是跟着人。
-export const SESSION_GRANT_THREAT_NOTE =
-  '这条授权属于「终端会话」，不属于某个人：只要能在这个终端会话里运行命令——你自己、会话里的 agent、' +
-  '它启动的任何进程——在授权有效期内都拥有下面这些权限。只勾这次确实要用的。'
-
-export const SESSION_GRANT_ENDS_NOTE =
-  '会话结束、被唤醒复活、被接管或转给别人后，授权立即失效，不会带到新的会话；最长 24 小时，到期自动失效；随时可以在会话抽屉里撤销。'
 
 export function sessionSubject(sid: string): string {
   return `session:${sid}`
@@ -96,7 +91,7 @@ export function grantEffectiveLabel(g: AuthGrant, nowSec: number): { text: strin
     typeof g.effective === 'boolean'
       ? g.effective
       : g.active && g.state === 'active' && !(g.expires_at && g.expires_at <= nowSec)
-  return { text: eff ? '生效中' : '未生效', effective: eff }
+  return { text: eff ? t('util.sessionGrant.effective.on') : t('util.sessionGrant.effective.off'), effective: eff }
 }
 
 export function sessionGrantBadge(grants: AuthGrant[], s: SessionGrantTarget, nowSec: number): SessionGrantBadge {
@@ -114,6 +109,9 @@ export function canGrantSession(isManager: boolean, s: Pick<SessionGrantTarget, 
 
 export function badgeTitle(b: SessionGrantBadge, fmt: (sec: number) => string): string {
   if (!b.granted) return ''
-  const tail = b.expiresAt ? `；最早 ${fmt(b.expiresAt)} 到期` : ''
-  return `这个会话持有授权：${b.permissions.join('、') || '—'}${tail}。会话结束即失效。`
+  const tail = b.expiresAt ? t('util.sessionGrant.badge.earliest', { at: fmt(b.expiresAt) }) : ''
+  return t('util.sessionGrant.badge.title', {
+    perms: b.permissions.join(t('util.sep.list')) || '—',
+    tail,
+  })
 }

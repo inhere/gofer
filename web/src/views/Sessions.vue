@@ -358,7 +358,11 @@ function relayEvidence(s: AgentSession): string {
   }
   if (!s.wait_reason) {
     const supervising = s.wait_reason_detail?.match(/^supervising (\d+) jobs$/)
-    return supervising ? `已放行：正在监督 ${supervising[1]} 个 job` : s.wait_reason_detail ? `未布防：${s.wait_reason_detail}` : ''
+    return supervising
+      ? t('sessions.relay.supervising', { n: supervising[1] })
+      : s.wait_reason_detail
+        ? t('sessions.relay.notArmed', { detail: s.wait_reason_detail })
+        : ''
   }
   if (s.wait_reason === 'idle_probe') {
     return `auto (idle ${idleText(s.idle_sec)})`
@@ -369,28 +373,33 @@ function relayEvidence(s: AgentSession): string {
   return ''
 }
 
+// peerMessagingPending：「待上报」状态用稳定谓词判定，不跟界面文案比较（文案随语言变）。
+function peerMessagingPending(s: AgentSession): boolean {
+  return !s.peer_name && !s.peer_status && !s.peer_messaging
+}
+
 function relayTitle(s: AgentSession): string {
   const err = relayErrors.value.get(s.session_id)
   if (err) {
-    return `切换失败：${err}`
+    return t('sessions.relay.switchFailed', { err })
   }
   const reason =
     s.wait_reason === 'mode_on'
-      ? '显式开关：每次停下都在 web 等你回复'
+      ? t('sessions.relay.reason.modeOn')
       : s.wait_reason === 'idle_probe'
-        ? `键盘空闲 ${idleText(s.idle_sec)} ≥ session.auto_relay_idle_sec，本次停下会在 web 等回复`
+        ? t('sessions.relay.reason.idle', { d: idleText(s.idle_sec) })
         : s.wait_reason === 'turn_age'
-          ? `探测不到键盘，距上次人工输入 ${idleText(humanSilence(s))} ≥ session.auto_relay_turn_sec，本次停下会在 web 等回复`
+          ? t('sessions.relay.reason.turnAge', { d: idleText(humanSilence(s)) })
           : s.wait_reason_detail
-            ? `${s.wait_reason_detail}：你在监督在跑的 job，本次不停下等回复（session.auto_relay_skip_when_supervising；job 结束即恢复自动判定）`
-            : '当前不等：没有判据成立，下一次停下直接放行'
+            ? t('sessions.relay.reason.skipSupervising', { detail: s.wait_reason_detail })
+            : t('sessions.relay.reason.none')
   switch (s.relay_mode) {
     case 'on':
-      return `中继 on（显式开关）：${reason}；终端输入或 web /off 才会关掉`
+      return t('sessions.relay.on', { reason })
     case 'off':
-      return '中继 off：这个会话从不等 web 回复，已打开的 turn 会被释放'
+      return t('sessions.relay.off')
     default:
-      return `中继 auto：server 判定——${reason}；人回来（键盘 / 直接输入 / Esc）即放行`
+      return t('sessions.relay.auto', { reason })
   }
 }
 
@@ -747,7 +756,7 @@ onUnmounted(() => {
             <span
               class="sbadge mono"
               :class="`sbadge--${agentStateTone(s.state)}`"
-              :title="s.state === 'offline' ? `长时间没有心跳（最后心跳 ${fmtTime(s.last_seen_at)}），进程可能已退出；仍可唤醒` : undefined"
+              :title="s.state === 'offline' ? t('sessions.card.offlineTitle', { time: fmtTime(s.last_seen_at) }) : undefined"
             >{{ stateText(s.state) }}</span>
             <span
               v-if="whoMode.canManage && grantBadgeOf(s).granted"
@@ -768,7 +777,7 @@ onUnmounted(() => {
               class="a-peername mono"
               type="button"
               data-test="peer-name"
-              :title="`Claude 会话名 ${peerNameLabel(s)}，点击复制（其它会话用它作 SendMessage 地址）`"
+              :title="t('sessions.card.peerNameTitle', { name: peerNameLabel(s) })"
               @click.stop="copySessionID(`name:${s.session_id}`, s.peer_name!)"
             >{{ s.peer_name }}<span class="a-peername-copy">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? t('sessions.card.copied') : '' }}</span></button>
             <span class="a-agent mono">{{ s.agent }}</span>
@@ -808,7 +817,7 @@ onUnmounted(() => {
               :title="refusedOwnerHelp(s)"
               @click="onTransferOwner(s)"
             >{{ ownerBusyIds.has(s.session_id) ? '…' : transferOwnerLabel(s) }}</button>
-            <span v-if="ownerErrors.get(s.session_id)" class="relay-err mono" data-test="refused-owner-error">转移失败：{{ ownerErrors.get(s.session_id) }}</span>
+            <span v-if="ownerErrors.get(s.session_id)" class="relay-err mono" data-test="refused-owner-error">{{ t('sessions.card.ownerFailed', { err: ownerErrors.get(s.session_id) ?? '' }) }}</span>
             <button class="icard-btn icard-btn--primary mono" type="button" data-test="row-open" @click="openDrawer(s.session_id)">{{ t('sessions.card.open') }}</button>
             <button
               v-if="canGrantSession(whoMode.canManage, s)"
@@ -823,7 +832,7 @@ onUnmounted(() => {
                 v-if="s.state === 'handed_off' && s.handed_off_job_id"
                 class="icard-btn wake-link mono"
                 :to="`/jobs/${encodeURIComponent(s.handed_off_job_id)}?attach=1`"
-                title="这个会话已被一个终端 job 接管，点开继续对话"
+                :title="t('sessions.card.handedOffTitle')"
               >{{ t('sessions.card.handedOff') }}</RouterLink>
               <button
                 v-else
@@ -831,7 +840,7 @@ onUnmounted(() => {
                 type="button"
                 data-test="row-wake"
                 :disabled="!s.can_resume || wakingIds.has(s.session_id)"
-                :title="wakeErrors.get(s.session_id) ? `唤醒失败：${wakeErrors.get(s.session_id)}` : resumeTitle(s)"
+                :title="wakeErrors.get(s.session_id) ? t('sessions.card.wakeFailed', { err: wakeErrors.get(s.session_id) ?? '' }) : resumeTitle(s)"
                 @click="onWake(s)"
               >{{ wakeLabel(s) }}</button>
               <span v-if="wakeErrors.get(s.session_id)" class="relay-err mono" :title="wakeErrors.get(s.session_id)">!</span>
@@ -840,11 +849,11 @@ onUnmounted(() => {
           <template #details>
             <dl class="icard-kv mono">
               <template v-if="s.peer_name">
-                <dt>名称</dt>
+                <dt>{{ t('sessions.card.name') }}</dt>
                 <dd>
                   <span class="a-session-id" data-test="peer-name-detail">{{ s.peer_name }}</span>
                   <span v-if="s.peer_name_source" class="a-peer-status">（{{ s.peer_name_source }}）</span>
-                  <button class="copy-btn mono" type="button" @click="copySessionID(`name:${s.session_id}`, s.peer_name!)">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? '已复制' : '复制' }}</button>
+                  <button class="copy-btn mono" type="button" @click="copySessionID(`name:${s.session_id}`, s.peer_name!)">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? t('sessions.card.copied') : t('sessions.card.copy') }}</button>
                 </dd>
               </template>
               <dt>{{ t('sessions.card.topic') }}</dt>
@@ -865,10 +874,10 @@ onUnmounted(() => {
                 <dt>{{ t('sessions.card.peer') }}</dt>
                 <dd>
                   <span v-if="s.peer_status" class="a-peer-status">peer {{ s.peer_status }}</span>
-                  <span class="a-peer-messaging" :class="{ ready: s.peer_messaging, pending: peerMessagingLabel(s) === '待上报' }">{{ peerMessagingLabel(s) }}</span>
+                  <span class="a-peer-messaging" :class="{ ready: s.peer_messaging, pending: peerMessagingPending(s) }">{{ peerMessagingLabel(s) }}</span>
                 </dd>
               </template>
-              <template v-else><dt>{{ t('sessions.card.peer') }}</dt><dd><span class="a-peer-messaging" :class="{ ready: s.peer_messaging, pending: peerMessagingLabel(s) === '待上报' }">{{ peerMessagingLabel(s) }}</span></dd></template>
+              <template v-else><dt>{{ t('sessions.card.peer') }}</dt><dd><span class="a-peer-messaging" :class="{ ready: s.peer_messaging, pending: peerMessagingPending(s) }">{{ peerMessagingLabel(s) }}</span></dd></template>
               <template v-if="s.issue_id"><dt>{{ t('sessions.card.issue') }}</dt><dd><RouterLink :to="`/issues?issue=${encodeURIComponent(s.issue_id)}`">issue {{ s.issue_id }}</RouterLink></dd></template>
               <template v-if="s.transcript"><dt>{{ t('sessions.card.transcript') }}</dt><dd>{{ s.transcript }}</dd></template>
             </dl>
@@ -891,7 +900,7 @@ onUnmounted(() => {
               <span v-if="relayErrors.get(s.session_id)" class="relay-err mono">!</span>
             </div>
             <details v-if="s.state === 'running' && s.progress_text" class="a-progress mono">
-              <summary>进行中 · {{ fmtAgo(s.progress_at || s.last_seen_at, nowSec) }}：{{ s.progress_text }}</summary>
+              <summary>{{ t('sessions.card.progressAt', { time: fmtAgo(s.progress_at || s.last_seen_at, nowSec), text: s.progress_text }) }}</summary>
               <p>{{ s.progress_text }}</p>
             </details>
             <div v-if="s.last_message" class="a-lastbox">

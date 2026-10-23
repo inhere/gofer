@@ -4,6 +4,7 @@
 // 文案取 utils/statusText.ts 的中央映射（各页面、筛选芯片同一份，见该文件头注释）。
 import { computed } from 'vue'
 import type { JobStatus } from '../api/types'
+import { t } from '../i18n'
 import { statusFamily, statusFamilyClass } from '../utils/statusFamily'
 import { statusText } from '../utils/statusText'
 
@@ -27,7 +28,7 @@ const attention = computed(
 )
 // waiting_dir 的悬停提示点名持有目录锁的 job：芯片只有两三个字，说不清"在等谁"。
 const title = computed(() =>
-  props.status === 'waiting_dir' && props.holder ? `等待目录锁，持有者 ${props.holder}` : undefined,
+  props.status === 'waiting_dir' && props.holder ? t('util.statusBadge.holder', { holder: props.holder }) : undefined,
 )
 </script>
 

@@ -3,6 +3,7 @@
 // 只展示后端 bool 化后的 secret 状态，不接收、不缓存、不渲染任何 secret 值；
 // 写请求体里也永远没有 secret 字段（服务端会以 `secret value not accepted` 拒绝字面值）。
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { t } from '../i18n'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { refreshWhoami, useWhoami } from '../store/whoami'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
@@ -69,11 +70,11 @@ function errorMessage(e: unknown): string {
 }
 
 function yesNo(v: boolean): string {
-  return v ? '是' : '否'
+  return v ? t('settings.config.yes') : t('settings.config.no')
 }
 
 function setText(v: boolean): string {
-  return v ? '已配置' : '未配置'
+  return v ? t('settings.config.set') : t('settings.config.unset')
 }
 
 function joinOrDash(items?: string[]): string {
@@ -267,7 +268,9 @@ const restartOnly = computed(() =>
 )
 const isEdit = computed(() => editor.value !== null)
 const isServer = computed(() => editor.value === 'server')
-const agentTitle = computed(() => (editor.value === 'agent-create' ? '新增 agent' : `编辑 agent · ${agentForm.key}`))
+const agentTitle = computed(() => (editor.value === 'agent-create'
+  ? t('settings.config.agentCreateTitle')
+  : t('settings.config.agentEditTitle', { key: agentForm.key })))
 
 // lines 把多行文本折成 argv/列表；空文本 = 空列表（不是 null）。
 function lines(text: string): string[] {
@@ -573,15 +576,22 @@ async function saveEditor(): Promise<void> {
   try {
     if (isServer.value) {
       const resp = await putConfigServer(buildServerWrite())
-      notice.value = `server 配置已保存（${resp.fields.join(', ') || '无字段'}）· 已重载${warningsSuffix(resp.warnings)}`
+      notice.value = t('settings.config.serverSaved', {
+        fields: resp.fields.join(', ') || t('settings.config.noFields'),
+        suffix: warningsSuffix(resp.warnings),
+      })
     } else {
       const key = agentForm.key.trim()
       if (key === '') {
-        formError.value = '请填写 agent key'
+        formError.value = t('settings.config.needKey')
         return
       }
       const resp = await putConfigAgent(key, buildAgentWrite())
-      notice.value = `agent ${key} 已保存（${resp.created ? '新增' : '更新'}）· 已重载${warningsSuffix(resp.warnings)}`
+      notice.value = t('settings.config.agentSaved', {
+        key,
+        action: resp.created ? t('settings.config.created') : t('settings.config.updated'),
+        suffix: warningsSuffix(resp.warnings),
+      })
     }
     closeEditor()
     await loadConfig(true)
@@ -600,8 +610,8 @@ async function saveEditor(): Promise<void> {
 async function removeAgent(a: ConfigAgentView): Promise<void> {
   const fallback = a.injected || agentLevelHint(a.key)
   const msg = fallback
-    ? `删除 agent「${a.key}」？该 key 对应内置/运行时注入定义，删除后**回落到内置定义**（能力仍在），不是彻底移除。`
-    : `删除 agent「${a.key}」？该定义将从 config.yaml 中移除。`
+    ? t('settings.config.removeAgentFallback', { key: a.key })
+    : t('settings.config.removeAgent', { key: a.key })
   if (!window.confirm(msg)) {
     return
   }
@@ -610,8 +620,8 @@ async function removeAgent(a: ConfigAgentView): Promise<void> {
   try {
     const resp = await deleteConfigAgent(a.key)
     notice.value = resp.fell_back_to_builtin
-      ? `agent ${a.key} 已删除 · 回落到内置定义 · 已重载`
-      : `agent ${a.key} 已删除 · 已重载`
+      ? t('settings.config.agentRemovedFallback', { key: a.key })
+      : t('settings.config.agentRemoved', { key: a.key })
     if (editing.value?.key === a.key) {
       closeEditor()
     }
@@ -634,9 +644,13 @@ async function reloadNow(): Promise<void> {
   try {
     const result = await reloadConfig()
     const restart = result.restart_required?.length
-      ? `；需重启才生效：${result.restart_required.join('、')}`
+      ? t('settings.config.reloadRestart', { list: result.restart_required.join(t('util.sep.list')) })
       : ''
-    notice.value = `已重新读取配置（rev ${result.rev}，已生效：${(result.changed || []).join('、') || '无变化'}${restart}）`
+    notice.value = t('settings.config.reloaded', {
+      rev: result.rev,
+      changed: (result.changed || []).join(t('util.sep.list')) || t('settings.config.noChange'),
+      restart,
+    })
     // 配置推出的权限可能变了：重取 whoami，界面据此显隐操作。
     void refreshWhoami()
     await loadConfig(true)
@@ -648,16 +662,16 @@ async function reloadNow(): Promise<void> {
 function classifyWriteError(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 403) {
-      return '无 can_admin 权限，当前 caller 不允许编辑配置。'
+      return t('settings.config.errForbidden')
     }
     if (e.status === 400) {
-      return `配置校验失败：${e.detail || e.message}`
+      return t('settings.config.errInvalid', { err: e.detail || e.message })
     }
     if (e.status === 404) {
-      return `目标不存在：${e.detail || e.message}`
+      return t('settings.config.errMissing', { err: e.detail || e.message })
     }
     if (e.status === 503) {
-      return `服务端未启用配置写：${e.detail || e.message}`
+      return t('settings.config.errDisabled', { err: e.detail || e.message })
     }
   }
   return e instanceof Error ? e.message : String(e)
@@ -688,38 +702,38 @@ onUnmounted(() => {
          ——「重新读取文件」让 server 重新读盘上的 config.yaml，与下面「刷新」只重读视图不同。 -->
     <div class="toolbar">
       <button v-if="can('config.write')" class="mini-btn mono" type="button" :disabled="loading" data-test="cfg-reload" @click="reloadNow()">
-        重新读取文件
+        {{ t('settings.config.reloadFile') }}
       </button>
       <span class="poll mono" :class="{ 'poll--on': loading }">●</span>
     </div>
 
     <p v-if="loadError" class="error mono">{{ loadError }}</p>
-    <p v-else-if="loading && !loaded" class="placeholder mono">加载配置中...</p>
+    <p v-else-if="loading && !loaded" class="placeholder mono">{{ t('settings.config.loadingConfig') }}</p>
     <div v-if="config?.warnings?.length" class="warn-banner mono" role="alert">
-      <strong>配置警告</strong>
+      <strong>{{ t('settings.config.warnings') }}</strong>
       <span v-for="(w, i) in config.warnings" :key="i" class="warn-line">{{ w }}</span>
     </div>
     <p v-if="notice" class="notice mono">{{ notice }}</p>
     <p v-if="writeError" class="error mono">{{ writeError }}</p>
 
     <template v-if="config">
-      <section class="section" aria-label="脱敏配置总览">
+      <section class="section" :aria-label="t('settings.config.overviewTitle')">
         <div class="section-head">
-          <h2 class="section-title mono">脱敏配置总览</h2>
+          <h2 class="section-title mono">{{ t('settings.config.overviewTitle') }}</h2>
           <button class="mini-btn mono" type="button" :disabled="loading" @click="loadConfig()">
-            {{ loading ? '刷新中...' : '刷新' }}
+            {{ loading ? t('settings.config.refreshing') : t('settings.config.refresh') }}
           </button>
         </div>
         <p v-if="sourceGroups.length" class="sources mono">
-          配置文件：
-          <span v-for="g in sourceGroups" :key="g.file" class="source">{{ g.file }}（{{ g.sections.join('、') }}）</span>
+          {{ t('settings.config.sources') }}
+          <span v-for="g in sourceGroups" :key="g.file" class="source">{{ g.file }}（{{ g.sections.join(t('util.sep.list')) }}）</span>
         </p>
 
         <div class="overview-grid">
           <article class="panel">
             <h3 class="panel-title mono">
-              服务端
-              <button v-if="can('config.write')" class="mini-btn mono inline-btn" type="button" @click="openServerEditor()">编辑</button>
+              {{ t('settings.config.server') }}
+              <button v-if="can('config.write')" class="mini-btn mono inline-btn" type="button" @click="openServerEditor()">{{ t('settings.config.edit') }}</button>
             </h3>
             <dl class="kv mono">
               <dt>addr</dt><dd>{{ config.server.addr || '-' }}</dd>
@@ -728,14 +742,14 @@ onUnmounted(() => {
               <dt>server token</dt><dd><span class="flag" :class="config.server.token_set ? 'flag--yes' : 'flag--no'">{{ setText(config.server.token_set) }}</span></dd>
               <dt>allow_empty_token</dt><dd><span class="flag" :class="config.server.allow_empty_token ? 'flag--warn' : 'flag--no'">{{ yesNo(config.server.allow_empty_token) }}</span></dd>
               <dt>max_job_timeout_sec</dt><dd>{{ config.server.max_job_timeout_sec || '-' }}</dd>
-              <dt>stall_timeout_sec</dt><dd>{{ config.server.stall_timeout_sec ?? '默认' }}</dd>
-              <dt>auto_resume_max</dt><dd>{{ config.server.auto_resume_max ?? '默认' }}</dd>
+              <dt>stall_timeout_sec</dt><dd>{{ config.server.stall_timeout_sec ?? t('settings.config.default') }}</dd>
+              <dt>auto_resume_max</dt><dd>{{ config.server.auto_resume_max ?? t('settings.config.default') }}</dd>
               <dt>skills</dt><dd>{{ joinOrDash(config.server.skills) }}</dd>
             </dl>
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">治理 / 指标</h3>
+            <h3 class="panel-title mono">{{ t('settings.config.governance') }}</h3>
             <dl class="kv mono">
               <dt>require_answer</dt><dd><span class="flag" :class="config.server.governance.require_answer_capability ? 'flag--yes' : 'flag--no'">{{ yesNo(config.server.governance.require_answer_capability) }}</span></dd>
               <dt>require_admin</dt><dd><span class="flag" :class="config.server.governance.require_admin_capability ? 'flag--yes' : 'flag--no'">{{ yesNo(config.server.governance.require_admin_capability) }}</span></dd>
@@ -747,7 +761,7 @@ onUnmounted(() => {
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">存储</h3>
+            <h3 class="panel-title mono">{{ t('settings.config.storage') }}</h3>
             <dl class="kv mono">
               <dt>root</dt><dd>{{ config.storage.root || '-' }}</dd>
               <dt>db_path</dt><dd>{{ config.storage.db_path || '-' }}</dd>
@@ -758,19 +772,19 @@ onUnmounted(() => {
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">主节点</h3>
+            <h3 class="panel-title mono">{{ t('settings.config.leader') }}</h3>
             <dl class="kv mono">
               <template v-if="leaderRows(config.leader)">
                 <template v-for="[k, v] in leaderRows(config.leader)!" :key="k">
                   <dt>{{ k }}</dt><dd>{{ v }}</dd>
                 </template>
               </template>
-              <template v-else><dt>leader</dt><dd>未配置</dd></template>
+              <template v-else><dt>leader</dt><dd>{{ t('settings.config.leaderUnset') }}</dd></template>
             </dl>
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">定时 / 探针</h3>
+            <h3 class="panel-title mono">{{ t('settings.config.schedule') }}</h3>
             <dl class="kv mono">
               <dt>schedule sweep</dt><dd>{{ config.schedule.sweep_interval_sec }}s</dd>
               <dt>runner probe</dt><dd>{{ config.server.runner_probe.interval_seconds }}s / {{ config.server.runner_probe.timeout_seconds }}s</dd>
@@ -779,17 +793,17 @@ onUnmounted(() => {
         </div>
 
         <div class="block">
-          <h3 class="block-title mono">调用方</h3>
+          <h3 class="block-title mono">{{ t('settings.config.callers') }}</h3>
           <div class="table-wrap">
             <table class="table mono">
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>名称</th>
+                  <th>{{ t('settings.config.col.name') }}</th>
                   <th>token</th>
-                  <th>可应答</th>
-                  <th>可管理</th>
-                  <th>配额</th>
+                  <th>{{ t('settings.config.col.canAnswer') }}</th>
+                  <th>{{ t('settings.config.col.canAdmin') }}</th>
+                  <th>{{ t('settings.config.col.quota') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -801,7 +815,7 @@ onUnmounted(() => {
                   <td><span class="flag" :class="c.can_admin ? 'flag--yes' : 'flag--no'">{{ yesNo(c.can_admin) }}</span></td>
                   <td>{{ c.max_concurrent_jobs || '-' }} / {{ c.rate_limit || '-' }} / {{ c.rate_burst || '-' }}</td>
                 </tr>
-                <tr v-if="callers.length === 0"><td colspan="6">无 caller</td></tr>
+                <tr v-if="callers.length === 0"><td colspan="6">{{ t('settings.config.noCallers') }}</td></tr>
               </tbody>
             </table>
           </div>
@@ -811,28 +825,28 @@ onUnmounted(() => {
           <article class="panel">
             <h3 class="panel-title mono">
               {{ PAGE.agents }}
-              <button v-if="can('config.write')" class="mini-btn mono inline-btn" type="button" @click="openAgentEditor(null)">新增 agent</button>
+              <button v-if="can('config.write')" class="mini-btn mono inline-btn" type="button" @click="openAgentEditor(null)">{{ t('settings.config.addAgent') }}</button>
             </h3>
             <ul class="mini-list">
               <li v-for="a in agents" :key="a.key" class="mini-row mono">
                 <span class="item-main">{{ a.key }} · {{ a.type }}</span>
                 <span v-if="a.command" class="muted">{{ a.command }}</span>
-                <span v-if="a.injected" class="tag tag--builtin">内置</span>
+                <span v-if="a.injected" class="tag tag--builtin">{{ t('settings.config.builtin') }}</span>
                 <span
                   v-else-if="a.extends"
                   class="tag tag--builtin"
-                  :title="`以${extendsBase(a.extends)}为底，只覆盖 ${(a.overrides ?? []).join(', ') || '（无）'}`"
+                  :title="t('settings.config.extendsTitle', { base: extendsBase(a.extends), list: (a.overrides ?? []).join(', ') || t('settings.config.none') })"
                   >{{ extendsLabel(a.extends) }}</span
                 >
                 <span v-for="k in a.env_keys" :key="`${a.key}:${k}`" class="tag">{{ k }}</span>
-                <span v-for="s in a.skills" :key="`${a.key}:skill:${s}`" class="tag tag--skill" title="该 agent 的技能绑定">{{ s }}</span>
-                <span v-for="m in a.mcp ?? []" :key="`${a.key}:mcp:${m}`" class="tag tag--skill" title="该 agent 绑定的 MCP server（设置 → MCP）">mcp:{{ m }}</span>
+                <span v-for="s in a.skills" :key="`${a.key}:skill:${s}`" class="tag tag--skill" :title="t('settings.config.skillTagTitle')">{{ s }}</span>
+                <span v-for="m in a.mcp ?? []" :key="`${a.key}:mcp:${m}`" class="tag tag--skill" :title="t('settings.config.mcpTagTitle')">mcp:{{ m }}</span>
                 <span class="row-actions">
-                  <button v-if="can('config.write')" class="mini-btn mono" type="button" @click="openAgentEditor(a)">编辑</button>
-                  <button v-if="can('config.write')" class="mini-btn mono" type="button" @click="removeAgent(a)">删除</button>
+                  <button v-if="can('config.write')" class="mini-btn mono" type="button" @click="openAgentEditor(a)">{{ t('settings.config.edit') }}</button>
+                  <button v-if="can('config.write')" class="mini-btn mono" type="button" @click="removeAgent(a)">{{ t('settings.config.delete') }}</button>
                 </span>
               </li>
-              <li v-if="agents.length === 0" class="empty mono">无 agent</li>
+              <li v-if="agents.length === 0" class="empty mono">{{ t('settings.config.noAgents') }}</li>
             </ul>
           </article>
 
@@ -844,12 +858,12 @@ onUnmounted(() => {
                 <span v-if="r.base_url" class="muted">{{ r.base_url }}</span>
                 <span class="flag" :class="r.token_set ? 'flag--yes' : 'flag--no'">{{ setText(r.token_set) }}</span>
               </li>
-              <li v-if="runners.length === 0" class="empty mono">无 runner</li>
+              <li v-if="runners.length === 0" class="empty mono">{{ t('settings.config.noRunners') }}</li>
             </ul>
           </article>
 
           <article class="panel">
-            <h3 class="panel-title mono">角色 / Workers</h3>
+            <h3 class="panel-title mono">{{ t('settings.config.rolesWorkers') }}</h3>
             <ul class="mini-list">
               <li v-for="r in roles" :key="r.key" class="mini-row mono">
                 <span class="item-main">{{ r.key }} · {{ r.agent }}</span>
@@ -860,7 +874,7 @@ onUnmounted(() => {
                 <span class="flag" :class="w.token_set ? 'flag--yes' : 'flag--no'">{{ setText(w.token_set) }}</span>
                 <span class="muted">{{ joinOrDash(w.labels) }}</span>
               </li>
-              <li v-if="roles.length === 0 && workers.length === 0" class="empty mono">无 role / worker</li>
+              <li v-if="roles.length === 0 && workers.length === 0" class="empty mono">{{ t('settings.config.noRoles') }}</li>
             </ul>
           </article>
         </div>
@@ -870,9 +884,9 @@ onUnmounted(() => {
     <div v-if="isEdit" class="scrim" @click.self="closeEditor()">
       <div class="modal" role="dialog" aria-modal="true">
         <div class="modal-head">
-          <h2 class="modal-title mono">{{ isServer ? '编辑 server 配置' : agentTitle }}</h2>
-          <span v-if="validating" class="muted mono">校验中...</span>
-          <button class="mini-btn mono" type="button" @click="closeEditor()">关闭</button>
+          <h2 class="modal-title mono">{{ isServer ? t('settings.config.serverEditorTitle') : agentTitle }}</h2>
+          <span v-if="validating" class="muted mono">{{ t('settings.config.validating') }}</span>
+          <button class="mini-btn mono" type="button" @click="closeEditor()">{{ t('settings.config.close') }}</button>
         </div>
 
         <div class="modal-body">
@@ -907,7 +921,7 @@ onUnmounted(() => {
                 />
               </label>
               <label class="field">
-                <span class="field-name">args（每行一个，批处理 argv）</span>
+                <span class="field-name">{{ t('settings.config.f.args') }}</span>
                 <textarea
                   v-model="agentForm.argsText"
                   class="input textarea"
@@ -918,10 +932,10 @@ onUnmounted(() => {
               </label>
               <label class="field field--check">
                 <input v-model="agentForm.interactiveMode" type="checkbox" @change="refreshPreview()" />
-                <span class="field-name">交互模式（pty/TUI）</span>
+                <span class="field-name">{{ t('settings.config.f.interactive') }}</span>
               </label>
               <label v-if="agentForm.interactiveMode" class="field">
-                <span class="field-name">interactive_args（每行一个，留空 = 无额外 argv）</span>
+                <span class="field-name">{{ t('settings.config.f.interactiveArgs') }}</span>
                 <textarea
                   v-model="agentForm.interactiveArgsText"
                   class="input textarea"
@@ -931,7 +945,7 @@ onUnmounted(() => {
                 ></textarea>
               </label>
               <label class="field">
-                <span class="field-name">session_capture（正则，第一个非空捕获组 = session id）</span>
+                <span class="field-name">{{ t('settings.config.f.sessionCapture') }}</span>
                 <input
                   v-model="agentForm.sessionCapture"
                   class="input"
@@ -940,39 +954,39 @@ onUnmounted(() => {
                 />
               </label>
               <label class="field">
-                <span class="field-name">session_inject（每行一个，&#123;&#123;session_id&#125;&#125; 占位）</span>
+                <span class="field-name">{{ t('settings.config.f.sessionInject') }}</span>
                 <textarea v-model="agentForm.sessionInjectText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
               </label>
               <label v-if="agentForm.interactiveMode" class="field">
-                <span class="field-name">exit_keys（每行一个退出输入）</span>
+                <span class="field-name">{{ t('settings.config.f.exitKeys') }}</span>
                 <textarea v-model="agentForm.exitKeysText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
               </label>
               <label v-if="agentForm.interactiveMode" class="field">
-                <span class="field-name">exit_grace_sec（留空 = 8 秒）</span>
+                <span class="field-name">{{ t('settings.config.f.exitGrace') }}</span>
                 <input v-model="agentForm.exitGraceSec" class="input" :class="{ 'input--bad': fieldBad('exit_grace_sec') }" @change="refreshPreview()" />
               </label>
               <label v-if="agentForm.interactiveMode" class="field">
-                <span class="field-name">session_store_glob（支持 &#123;&#123;home&#125;&#125;、&#123;&#123;cwd&#125;&#125;）</span>
+                <span class="field-name">{{ t('settings.config.f.sessionStoreGlob') }}</span>
                 <input v-model="agentForm.sessionStoreGlob" class="input" @change="refreshPreview()" />
               </label>
               <label v-if="agentForm.interactiveMode" class="field">
-                <span class="field-name">session_store_id_regex（第一个捕获组为 id）</span>
+                <span class="field-name">{{ t('settings.config.f.sessionStoreId') }}</span>
                 <input v-model="agentForm.sessionStoreIDRegex" class="input" :class="{ 'input--bad': fieldBad('session_store_id_regex') }" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">session_resume（每行一个，续接 argv）</span>
+                <span class="field-name">{{ t('settings.config.f.sessionResume') }}</span>
                 <textarea v-model="agentForm.sessionResumeText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
               </label>
               <label class="field">
-                <span class="field-name">max_concurrent（0 = 不限）</span>
+                <span class="field-name">{{ t('settings.config.f.maxConcurrent') }}</span>
                 <input v-model="agentForm.maxConcurrent" class="input" :class="{ 'input--bad': fieldBad('max_concurrent') }" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">stall_timeout_sec（留空 = 继承 server）</span>
+                <span class="field-name">{{ t('settings.config.f.stallInherit') }}</span>
                 <input v-model="agentForm.stallTimeoutSec" class="input" :class="{ 'input--bad': fieldBad('stall_timeout_sec') }" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">fallback_agents（每行一个）</span>
+                <span class="field-name">{{ t('settings.config.f.fallbackAgents') }}</span>
                 <textarea v-model="agentForm.fallbackAgentsText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
               </label>
               <label class="field">
@@ -980,7 +994,7 @@ onUnmounted(() => {
                 <input v-model="agentForm.outputFormat" class="input" :class="{ 'input--bad': fieldBad('output_format') }" placeholder="text / ndjson" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">ndjson_usage_path（结果行里用量对象的点路径，如 usage）</span>
+                <span class="field-name">{{ t('settings.config.f.ndjsonUsagePath') }}</span>
                 <input v-model="agentForm.ndjsonUsagePath" class="input" :class="{ 'input--bad': fieldBad('ndjson_usage_path') }" @change="refreshPreview()" />
               </label>
               <label class="field">
@@ -988,31 +1002,31 @@ onUnmounted(() => {
                 <input v-model="agentForm.transcriptDialect" class="input" :class="{ 'input--bad': fieldBad('transcript_dialect') }" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">inject_process（tmux 送话的前台进程名，每行一个）</span>
+                <span class="field-name">{{ t('settings.config.f.injectProcess') }}</span>
                 <textarea v-model="agentForm.injectProcessText" class="input textarea" rows="2" :class="{ 'input--bad': fieldBad('inject_process') }" @change="refreshPreview()"></textarea>
               </label>
               <label class="field">
-                <span class="field-name">session_family（同族 agent 可互相续接）</span>
+                <span class="field-name">{{ t('settings.config.f.sessionFamily') }}</span>
                 <input v-model="agentForm.sessionFamily" class="input" :class="{ 'input--bad': fieldBad('session_family') }" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">deliver_command（在线送话命令，每行一个参数；占位符 session_id 与 text 用双花括号包裹）</span>
+                <span class="field-name">{{ t('settings.config.f.deliverCommand') }}</span>
                 <textarea v-model="agentForm.deliverCommandText" class="input textarea" rows="2" :class="{ 'input--bad': fieldBad('deliver_command') }" @change="refreshPreview()"></textarea>
               </label>
               <label class="field field--check">
                 <input v-model="agentForm.deliverStdin" type="checkbox" @change="refreshPreview()" />
-                <span class="field-name">deliver_stdin（文本走 stdin，不放 argv）</span>
+                <span class="field-name">{{ t('settings.config.f.deliverStdin') }}</span>
               </label>
               <label class="field">
-                <span class="field-name">deliver_offline_match（正则；送话命令非 0 退出且输出匹配时按「会话不在线」继续送话阶梯）</span>
+                <span class="field-name">{{ t('settings.config.f.deliverOfflineMatch') }}</span>
                 <input v-model="agentForm.deliverOfflineMatch" class="input" :class="{ 'input--bad': fieldBad('deliver_offline_match') }" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">retry.max_attempts（留空 = 不重试）</span>
+                <span class="field-name">{{ t('settings.config.f.retryMax') }}</span>
                 <input v-model="agentForm.retryMaxAttempts" class="input" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">retry.backoff_sec（每行一个秒数）</span>
+                <span class="field-name">{{ t('settings.config.f.retryBackoff') }}</span>
                 <textarea v-model="agentForm.retryBackoffText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
               </label>
               <label v-if="agentForm.type === 'acp-agent'" class="field">
@@ -1020,7 +1034,7 @@ onUnmounted(() => {
                 <input v-model="agentForm.acpPermissionPolicy" class="input" :class="{ 'input--bad': fieldBad('acp') }" placeholder="auto_allow / ask / strict" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">skills（每行一个技能名，留空 = 该 agent 不加自己的绑定）</span>
+                <span class="field-name">{{ t('settings.config.f.skillsAgent') }}</span>
                 <textarea
                   v-model="agentForm.skillsText"
                   class="input textarea"
@@ -1031,13 +1045,12 @@ onUnmounted(() => {
                 ></textarea>
               </label>
               <p class="hint mono">
-                技能名来自
-                <RouterLink to="/skills">技能库</RouterLink>；派发时与 server/project 的清单取并集，
-                exec agent 不挂技能（它执行命令，没有"读文档"的概念）。
+                {{ t('settings.config.hintSkillsAgent') }}
+                <RouterLink to="/skills">{{ t('settings.config.skillsLibrary') }}</RouterLink>{{ t('settings.config.hintSkillsAgentTail') }}
               </p>
 
               <label v-if="agentPolicy['rules']?.editable" class="field">
-                <span class="field-name">rules（每行一个规则名 = 该 agent 每个 job 都必须遵守的约束）</span>
+                <span class="field-name">{{ t('settings.config.f.rulesAgent') }}</span>
                 <textarea
                   v-model="agentForm.rulesText"
                   class="input textarea"
@@ -1048,13 +1061,13 @@ onUnmounted(() => {
                 ></textarea>
               </label>
               <p v-if="agentPolicy['rules']?.editable" class="hint mono">
-                规则是<b>必须遵守</b>的约束（与 skills 的"按需阅读"不同），提交时注入 prompt 顶部；
-                规则名来自 <RouterLink to="/settings/rules">规则库</RouterLink>，四级绑定取并集。
+                {{ t('settings.config.hintRulesAgentHead') }}<b>{{ t('settings.config.hintRulesAgentStrong') }}</b>{{ t('settings.config.hintRulesAgentTail') }}
+                <RouterLink to="/settings/rules">{{ t('settings.config.rulesLibrary') }}</RouterLink>{{ t('settings.config.hintRulesAgentEnd') }}
               </p>
 
               <template v-if="agentPolicy['mcp']?.editable">
                 <label class="field">
-                  <span class="field-name">mcp（每行一个注册表 MCP server 名 = 该 agent 的每个 job 都带上）</span>
+                  <span class="field-name">{{ t('settings.config.f.mcpAgent') }}</span>
                   <textarea
                     v-model="agentForm.mcpText"
                     class="input textarea"
@@ -1065,16 +1078,16 @@ onUnmounted(() => {
                   ></textarea>
                 </label>
                 <label class="field">
-                  <span class="field-name">mcp_format（MCP 注入方式；内置 claude / codex 留空即用默认）</span>
+                  <span class="field-name">{{ t('settings.config.f.mcpFormat') }}</span>
                   <select v-model="agentForm.mcpFormat" class="input" :class="{ 'input--bad': fieldBad('mcp_format') }" @change="refreshPreview()">
-                    <option value="">（默认 / 不支持）</option>
-                    <option value="claude-json">claude-json（--mcp-config 文件）</option>
-                    <option value="codex-config">codex-config（-c mcp_servers.*）</option>
-                    <option value="acp">acp（acp-agent 自动）</option>
+                    <option value="">{{ t('settings.config.mcpFormat.none') }}</option>
+                    <option value="claude-json">{{ t('settings.config.mcpFormat.claudeJson') }}</option>
+                    <option value="codex-config">{{ t('settings.config.mcpFormat.codexConfig') }}</option>
+                    <option value="acp">{{ t('settings.config.mcpFormat.acp') }}</option>
                   </select>
                 </label>
                 <label class="field">
-                  <span class="field-name">mcp_args（claude-json 时把配置文件交给 CLI 的参数，每行一个；含 {{ '{' }}{mcp_config_file}{{ '}' }}）</span>
+                  <span class="field-name">{{ t('settings.config.f.mcpArgs') }}</span>
                   <textarea
                     v-model="agentForm.mcpArgsText"
                     class="input textarea"
@@ -1084,31 +1097,30 @@ onUnmounted(() => {
                     @change="refreshPreview()"
                   ></textarea>
                 </label>
-                <p class="hint mono">MCP server 在 <RouterLink to="/settings/mcp">设置 → MCP</RouterLink> 查看与测试；声明在配置文件的 mcp_servers 里。</p>
+                <p class="hint mono">{{ t('settings.config.hintMcpHead') }}<RouterLink to="/settings/mcp">{{ t('settings.config.mcpLink') }}</RouterLink>{{ t('settings.config.hintMcpTail') }}</p>
               </template>
 
               <p v-if="editing" class="hint mono">
-                不在本表单内的字段由服务端原样保留：env_keys {{ joinOrDash(editing.env_keys) }} ·
-                detect {{ editing.detect.command || '-' }} · mcp_server_name {{ editing.mcp_server_name || '-' }}
-                （含 secret 的 env / acp.mcp_servers 值不进控制台，也不会被改写）
+                {{ t('settings.config.hintPreserved', { env: joinOrDash(editing.env_keys), detect: editing.detect.command || '-', mcp: editing.mcp_server_name || '-' }) }}
+                {{ t('settings.config.hintPreservedSecret') }}
               </p>
               <p v-else class="hint mono">
-                新增 agent：只需 command（交互模式再加 interactive_args）。会话捕获/续接有内置与兜底默认，
-                不写也能用。
+                {{ t('settings.config.hintNewAgent') }}
+                {{ t('settings.config.hintNewAgentTail') }}
               </p>
             </template>
 
             <template v-else>
               <label class="field">
-                <span class="field-name">max_job_timeout_sec（job 超时上限，0 = 默认 1h）</span>
+                <span class="field-name">{{ t('settings.config.f.maxJobTimeout') }}</span>
                 <input v-model="serverForm.maxJobTimeoutSec" class="input" :class="{ 'input--bad': fieldBad('max_job_timeout_sec') }" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">stall_timeout_sec（无输出看门狗，留空 = 默认 900s）</span>
+                <span class="field-name">{{ t('settings.config.f.stallServer') }}</span>
                 <input v-model="serverForm.stallTimeoutSec" class="input" :class="{ 'input--bad': fieldBad('stall_timeout_sec') }" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">auto_resume_max（留空 = 默认 1）</span>
+                <span class="field-name">{{ t('settings.config.f.autoResume') }}</span>
                 <input v-model="serverForm.autoResumeMax" class="input" @change="refreshPreview()" />
               </label>
               <label class="field">
@@ -1120,15 +1132,15 @@ onUnmounted(() => {
                 <input v-model="serverForm.probeTimeoutSec" class="input" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">retry.max_attempts（留空 = 全站不重试）</span>
+                <span class="field-name">retry.max_attempts{{ t('settings.config.f.retryMaxServer') }}</span>
                 <input v-model="serverForm.retryMaxAttempts" class="input" @change="refreshPreview()" />
               </label>
               <label class="field">
-                <span class="field-name">retry.backoff_sec（每行一个秒数）</span>
+                <span class="field-name">{{ t('settings.config.f.retryBackoff') }}</span>
                 <textarea v-model="serverForm.retryBackoffText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
               </label>
               <label class="field">
-                <span class="field-name">skills（每行一个技能名 = 每个 job 都挂的全局默认）</span>
+                <span class="field-name">{{ t('settings.config.f.skillsServer') }}</span>
                 <textarea
                   v-model="serverForm.skillsText"
                   class="input textarea"
@@ -1139,12 +1151,12 @@ onUnmounted(() => {
                 ></textarea>
               </label>
               <p class="hint mono">
-                技能名来自 <RouterLink to="/skills">技能库</RouterLink>；绑定是叠加的
-                （server → agent → project → job 取并集），清空这里只是取消全局默认。
+                {{ t('settings.config.hintSkillsServerHead') }}<RouterLink to="/skills">{{ t('settings.config.skillsLibrary') }}</RouterLink>{{ t('settings.config.hintSkillsServerTail') }}
+                {{ t('settings.config.hintSkillsServerEnd') }}
               </p>
 
               <label v-if="serverPolicy['rules']?.editable" class="field">
-                <span class="field-name">rules（每行一个规则名 = 全站每个 job 都必须遵守的约束）</span>
+                <span class="field-name">{{ t('settings.config.f.rulesServer') }}</span>
                 <textarea
                   v-model="serverForm.rulesText"
                   class="input textarea"
@@ -1155,34 +1167,33 @@ onUnmounted(() => {
                 ></textarea>
               </label>
               <p v-if="serverPolicy['rules']?.editable" class="hint mono">
-                规则名来自 <RouterLink to="/settings/rules">规则库</RouterLink>；这些规则注入每个 job 的
-                prompt 顶部，<b>不要在规则里放密钥</b>（原文随 job 落库）。总长上限由
-                server.rules_max_bytes 控制（默认 16KiB），超限的提交被拒。
+                {{ t('settings.config.hintRulesServerHead') }}<RouterLink to="/settings/rules">{{ t('settings.config.rulesLibrary') }}</RouterLink>{{ t('settings.config.hintRulesServerTail') }}
+                <b>{{ t('settings.config.hintRulesServerStrong') }}</b>{{ t('settings.config.hintRulesServerSecret') }}
               </p>
               <div class="field">
-                <span class="field-name">notification（出站通知：webhook 目标 + 限速）</span>
+                <span class="field-name">{{ t('settings.config.f.notification') }}</span>
                 <label class="field field--check">
                   <input v-model="serverForm.notification.enabled" type="checkbox" @change="refreshPreview()" />
-                  <span class="field-name">开启出站通知（关掉只停止入队新投递，已入队的仍会发完）</span>
+                  <span class="field-name">{{ t('settings.config.f.notificationEnabled') }}</span>
                 </label>
                 <label class="field field--check">
                   <input v-model="serverForm.notification.allowHTTP" type="checkbox" @change="refreshPreview()" />
-                  <span class="field-name">允许 http（仅本地测试用；默认只发 https）</span>
+                  <span class="field-name">{{ t('settings.config.f.allowHttp') }}</span>
                 </label>
                 <label class="field">
-                  <span class="field-name">max_attempts（留空 = 默认 6）</span>
+                  <span class="field-name">{{ t('settings.config.f.hookMaxAttempts') }}</span>
                   <input v-model="serverForm.notification.maxAttempts" class="input" @change="refreshPreview()" />
                 </label>
                 <label class="field">
-                  <span class="field-name">max_text_runes（全局默认 3000；<=0 = 默认）</span>
+                  <span class="field-name">{{ t('settings.config.f.maxTextRunes') }}</span>
                   <input v-model="serverForm.notification.maxTextRunes" class="input" @change="refreshPreview()" />
                 </label>
                 <label class="field">
-                  <span class="field-name">session_reply_delay_sec（秒；120 默认，0 关闭）</span>
+                  <span class="field-name">{{ t('settings.config.f.sessionReplyDelay') }}</span>
                   <input v-model="serverForm.notification.sessionReplyDelaySec" class="input" @change="refreshPreview()" />
                 </label>
                 <label class="field">
-                  <span class="field-name">allow_hosts（每行一个 host；webhook 的 host 必须在这里）</span>
+                  <span class="field-name">{{ t('settings.config.f.allowHosts') }}</span>
                   <textarea
                     v-model="serverForm.notification.allowHostsText"
                     class="input textarea"
@@ -1194,7 +1205,7 @@ onUnmounted(() => {
               <div v-for="(w, i) in serverForm.notification.webhooks" :key="i" class="hook-row">
                 <div class="hook-row__head">
                   <span class="field-name mono">webhook #{{ i + 1 }}</span>
-                  <button class="mini-btn mono" type="button" @click="removeWebhook(i)">删除</button>
+                  <button class="mini-btn mono" type="button" @click="removeWebhook(i)">{{ t('settings.config.delete') }}</button>
                 </div>
                 <label class="field">
                   <span class="field-name">url</span>
@@ -1206,15 +1217,15 @@ onUnmounted(() => {
                   />
                 </label>
                 <label class="field">
-                  <span class="field-name">kind（出站适配器）</span>
+                  <span class="field-name">{{ t('settings.config.f.webhookKind') }}</span>
                   <select v-model="w.kind" class="input" @change="refreshPreview()">
-                    <option value="">generic（{event, job} JSON）</option>
-                    <option value="dingtalk">dingtalk（钉钉机器人）</option>
-                    <option value="feishu">feishu（飞书机器人）</option>
+                    <option value="">{{ t('settings.config.webhookKind.generic') }}</option>
+                    <option value="dingtalk">{{ t('settings.config.webhookKind.dingtalk') }}</option>
+                    <option value="feishu">{{ t('settings.config.webhookKind.feishu') }}</option>
                   </select>
                 </label>
                 <label class="field">
-                  <span class="field-name">keyword（钉钉/飞书「自定义关键词」；消息不含它时自动加到标题前）</span>
+                  <span class="field-name">{{ t('settings.config.f.webhookKeyword') }}</span>
                   <input
                     v-model="w.keyword"
                     class="input"
@@ -1223,21 +1234,20 @@ onUnmounted(() => {
                   />
                 </label>
                 <label class="field">
-                  <span class="field-name">max_text_runes（留空/0 = 继承全局）</span>
+                  <span class="field-name">{{ t('settings.config.f.webhookMaxTextRunes') }}</span>
                   <input v-model="w.maxTextRunes" class="input" @change="refreshPreview()" />
                 </label>
                 <label class="field">
-                  <span class="field-name">events（每行一个；留空 = 默认集）</span>
+                  <span class="field-name">{{ t('settings.config.f.webhookEvents') }}</span>
                   <textarea v-model="w.eventsText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
                 </label>
                 <label class="field">
-                  <span class="field-name">projects（每行一个项目键；留空 = 全部项目）</span>
+                  <span class="field-name">{{ t('settings.config.f.webhookProjects') }}</span>
                   <textarea v-model="w.projectsText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
                 </label>
                 <label class="field">
                   <span class="field-name">
-                    secret_env（密钥的 env 名，不是密钥本身；留空 =
-                    {{ w.secretSet ? '保留已配置的名字' : '不设置' }}）
+                    {{ t('settings.config.f.webhookSecret', { kept: w.secretSet ? t('settings.config.keepSecret') : t('settings.config.noSecret') }) }}
                   </span>
                   <input
                     v-model="w.secretEnv"
@@ -1248,79 +1258,79 @@ onUnmounted(() => {
                 </label>
                 <label v-if="w.secretSet" class="field field--check">
                   <input v-model="w.clearSecret" type="checkbox" @change="refreshPreview()" />
-                  <span class="field-name">清除已配置的 secret_env</span>
+                  <span class="field-name">{{ t('settings.config.f.clearSecret') }}</span>
                 </label>
                 <label class="field field--check">
                   <input v-model="w.enabled" type="checkbox" @change="refreshPreview()" />
-                  <span class="field-name">启用这个目标（暂停不会删除配置）</span>
+                  <span class="field-name">{{ t('settings.config.f.hookEnabled') }}</span>
                 </label>
               </div>
-              <button class="mini-btn mono" type="button" @click="addWebhook">+ 添加 webhook</button>
+              <button class="mini-btn mono" type="button" @click="addWebhook">{{ t('settings.config.addWebhook') }}</button>
               <div class="field">
-                <span class="field-name">event_hooks（事件钩子：事件发生时在 server 主机上运行命令，只读）</span>
+                <span class="field-name">{{ t('settings.config.f.eventHooks') }}</span>
                 <ul class="mini-list">
                   <li v-for="h in eventHooks" :key="h.name" class="mini-row mono">
                     <span class="item-main">{{ h.name }}</span>
                     <span class="muted">{{ h.command.join(' ') }}</span>
-                    <span class="flag" :class="h.enabled ? 'flag--yes' : 'flag--no'">{{ h.enabled ? '启用' : '已停用' }}</span>
-                    <span class="muted">events {{ h.events.length ? h.events.join(', ') : '默认集' }} · projects {{ h.projects.length ? h.projects.join(', ') : '全部' }}</span>
-                    <span class="muted">timeout {{ h.timeout_sec }}s · 最多 {{ h.max_attempts }} 次{{ h.dir ? ' · dir ' + h.dir : '' }}</span>
+                    <span class="flag" :class="h.enabled ? 'flag--yes' : 'flag--no'">{{ h.enabled ? t('settings.config.hookOn') : t('settings.config.hookOff') }}</span>
+                    <span class="muted">events {{ h.events.length ? h.events.join(', ') : t('settings.config.defaultSet') }} · projects {{ h.projects.length ? h.projects.join(', ') : t('settings.config.allProjects') }}</span>
+                    <span class="muted">{{ t('settings.config.hookTimeout', { sec: h.timeout_sec, n: h.max_attempts }) }}{{ h.dir ? ' · dir ' + h.dir : '' }}</span>
                     <span v-for="k in h.env_keys" :key="`${h.name}:${k}`" class="tag">{{ k }}</span>
                   </li>
-                  <li v-if="eventHooks.length === 0" class="empty mono">未配置事件钩子</li>
+                  <li v-if="eventHooks.length === 0" class="empty mono">{{ t('settings.config.noEventHooks') }}</li>
                 </ul>
               </div>
               <div class="field">
-                <span class="field-name">decision_hooks（决策 hook：提交 / 交付前在 server 主机上运行命令，可否决或收紧，只读）<ExperimentalBadge /></span>
+                <span class="field-name">{{ t('settings.config.f.decisionHooks') }}<ExperimentalBadge /></span>
                 <ul class="mini-list">
                   <li v-for="h in decisionHooks" :key="h.name" class="mini-row mono">
                     <span class="item-main">{{ h.name }}</span>
                     <span class="muted">{{ h.command.join(' ') }}</span>
-                    <span class="flag" :class="h.enabled ? 'flag--yes' : 'flag--no'">{{ h.enabled ? '启用' : '已停用' }}</span>
-                    <span class="muted">points {{ h.points.join(', ') }} · projects {{ h.projects.length ? h.projects.join(', ') : '全部' }}</span>
-                    <span class="muted">timeout {{ h.timeout_sec }}s · 出错时 {{ h.on_error === 'allow' ? '放行' : '拒绝' }}{{ h.include_internal ? ' · 含内部 job' : '' }}{{ h.dir ? ' · dir ' + h.dir : '' }}</span>
+                    <span class="flag" :class="h.enabled ? 'flag--yes' : 'flag--no'">{{ h.enabled ? t('settings.config.hookOn') : t('settings.config.hookOff') }}</span>
+                    <span class="muted">points {{ h.points.join(', ') }} · projects {{ h.projects.length ? h.projects.join(', ') : t('settings.config.allProjects') }}</span>
+                    <span class="muted">{{ t('settings.config.hookDecisionTimeout', { sec: h.timeout_sec, onError: h.on_error === 'allow' ? t('settings.config.hookAllow') : t('settings.config.hookDeny') }) }}{{ h.include_internal ? t('settings.config.hookIncludesInternal') : '' }}{{ h.dir ? ' · dir ' + h.dir : '' }}</span>
                     <span v-for="k in h.env_keys" :key="`${h.name}:${k}`" class="tag">{{ k }}</span>
                   </li>
-                  <li v-if="decisionHooks.length === 0" class="empty mono">未配置决策 hook</li>
+                  <li v-if="decisionHooks.length === 0" class="empty mono">{{ t('settings.config.noDecisionHooks') }}</li>
                 </ul>
               </div>
               <p class="hint mono">
-                事件钩子与决策 hook 只能在配置文件（server.event_hooks / server.decision_hooks）中修改，改完执行 <code>gofer serve reload</code> 生效；
-                控制台与配置写接口不能编辑它们（钩子等于在 server 主机上执行命令）。env 只显示键名。
+                {{ t('settings.config.hintHooksHead') }} <code>gofer serve reload</code> {{ t('settings.config.hintHooksMid') }}
+                {{ t('settings.config.hintHooksTail') }}
               </p>
               <p class="hint mono">
-                保存是**补丁式**：表单没提到的成员保留原值；secret_env 留空即保留服务端已有的名字
-                （控制台只读得到「已设置」，读不到名字——它可能指向一个密钥）。
+                {{ t('settings.config.hintPatchHead') }}
+                {{ t('settings.config.hintPatchTail') }}
               </p>
               <div v-if="restartOnly.length > 0" class="field">
-                <span class="field-name">以下字段只在启动时读取，控制台不可编辑（需重启）</span>
+                <span class="field-name">{{ t('settings.config.f.restartOnly') }}</span>
                 <div class="badges">
-                  <span v-for="name in restartOnly" :key="name" class="badge mono">{{ name }} · 需重启</span>
+                  <span v-for="name in restartOnly" :key="name" class="badge mono">{{ t('settings.config.restartBadge', { name }) }}</span>
                 </div>
               </div>
               <p class="hint mono">
-                它们要改请编辑 config.yaml 后在主机执行 <code>gofer serve restart</code>；
-                改完想立刻生效的文件改动也可以点顶部「重新读取文件」（仅对可热重载项有效）。
+                {{ t('settings.config.hintRestartHead') }} <code>gofer serve restart</code>{{ t('settings.config.hintRestartMid') }}
+                {{ t('settings.config.hintRestartTail') }}
               </p>
             </template>
 
             <div class="form-actions">
               <button class="mini-btn mono" type="submit" :disabled="saving">
-                {{ saving ? '保存中...' : '保存' }}
+                {{ saving ? t('settings.config.saving') : t('settings.config.save') }}
               </button>
               <span v-if="previewRestart.length > 0" class="impact mono">
-                保存后立即生效；以下项仍需改文件 + 重启：{{ previewRestart.join(', ') }}
+                {{ t('settings.config.impactRestart', { list: previewRestart.join(', ') }) }}
               </span>
-              <span v-else class="impact mono">保存后立即生效（写事务内含热重载）</span>
+              <span v-else class="impact mono">{{ t('settings.config.impactImmediate') }}</span>
             </div>
             <p v-if="formError" class="error mono">{{ formError }}</p>
           </form>
 
           <div class="preview">
             <div class="preview-head mono">
-              <span>YAML 预览（来自服务端干跑校验）</span>
+              <span>{{ t('settings.config.yamlPreview') }}</span>
             </div>
-            <pre class="preview-body mono">{{ preview || '（校验通过后显示）' }}</pre>
+            <pre class="preview-body mono">{{ preview || t('settings.config.yamlPreviewEmpty') }}</pre>
           </div>
         </div>
       </div>
