@@ -2635,7 +2635,7 @@ onUnmounted(() => {
           <span
             v-if="d.status === 'pending' && d.next_retry_at > 0 && d.attempts > 0"
             class="dl-time mono"
-          >下次 {{ fmtTime(d.next_retry_at) }}</span>
+          >{{ t('jobs.detail.nextRetry', { time: fmtTime(d.next_retry_at) }) }}</span>
         </li>
       </ul>
     </section>
