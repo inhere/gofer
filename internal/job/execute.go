@@ -620,8 +620,12 @@ func (s *Service) enterWaitingDir(entry *jobEntry, jobID, holder, dir string) {
 // fall back to the metadata store (see Wait/Get/Cancel).
 func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, err error) {
 	// Shutdown cancelled this job: its row stays as an exiting process would leave it
-	// (the next serve's reconcile settles it), so nothing below runs (shutdown.go).
+	// (the next serve's reconcile settles it), so nothing below runs (shutdown.go). Its
+	// temporary `ref:` checkout is NOT part of that row's fate: the checkout is a scratch
+	// copy with no deliverable, and leaving it for the next startup's sweep is exactly how
+	// checkouts piled up before (gofer-bgkk). Remove it here too.
 	if entry.skipFinishForShutdown() {
+		s.cleanupTempWorktreeWithin(entry, tempCheckoutShutdownTimeout)
 		return
 	}
 	// `ref:` (design 一·3): a temporary checkout lives only for the duration of its job, so

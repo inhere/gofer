@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // `ref:` 临时检出（design 一·3）的测试：临时仓库、不含真实 server 与 PATH 上的 gofer。
@@ -152,6 +156,33 @@ func TestRefAndWorktreeAreMutuallyExclusive(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("Submit(ref+worktree) = %v, want a mutual-exclusion refusal", err)
 	}
+}
+
+// TestRefJobCancelStillCleansUp: a CANCELLED job leaves no checkout behind either — the
+// terminal path is the same finish(), and shutdown/cancel must not be the one branch that
+// skips it (gofer-bgkk: those leftovers were never reclaimed).
+func TestRefJobCancelStillCleansUp(t *testing.T) {
+	repo, head := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	res, err := s.Submit(JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "sleep", "60s"), Cwd: ".", TimeoutSec: 120, Ref: head,
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitStatus(t, s, res.ID, wait.Timeout(t, 20*time.Second), StatusRunning)
+	if err := s.Cancel(res.ID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	final, ok := s.Wait(res.ID)
+	if !ok {
+		t.Fatalf("Wait: job %s not found", res.ID)
+	}
+	if final.Status != StatusCancelled {
+		t.Fatalf("status = %s (err=%s), want cancelled", final.Status, final.Error)
+	}
+	assertTempCheckoutGone(t, repo)
 }
 
 // assertTempCheckoutGone checks that no temporary checkout of the repository survived: the
