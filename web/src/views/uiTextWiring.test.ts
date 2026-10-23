@@ -28,7 +28,6 @@ describe('页面标题用中文', () => {
     ['Sessions', '{{ PAGE.sessions }}'],
     ['Projects', '{{ PAGE.projects }}'],
     ['Schedules', '{{ PAGE.schedules }}'],
-    ['ReviewQueue', '{{ PAGE.review }}'],
     ['Skills', '{{ PAGE.skills }}'],
   ]
 
@@ -40,6 +39,12 @@ describe('页面标题用中文', () => {
   it('任务列表标题已迁到 i18n', () => {
     expect(view('Board')).toContain("t('jobs.h.title')")
     expect(view('Board')).not.toContain('{{ PAGE.board }}')
+  })
+
+  // P4 迁移：待验收页的标题与全部文案同样走 i18n（i18n/pages/review.ts）。
+  it('待验收页标题已迁到 i18n', () => {
+    expect(view('ReviewQueue')).toContain("t('review.h.title')")
+    expect(view('ReviewQueue')).not.toContain('{{ PAGE.review }}')
   })
 
   it('不再有大写英文页面标题', () => {

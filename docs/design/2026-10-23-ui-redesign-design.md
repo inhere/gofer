@@ -962,6 +962,70 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 页签切换会让被隐藏的区块卸载（LogTape、ReviewPanel 的滚动与展开状态不保留），数据在父组件里，切回来重新渲染。
 - `LogTape` 在 setup 里读 `window`，node SSR 下不能挂载，所以 SSR 测试只用不渲染日志页签的 `?tab=` 值（该组件本身未改）。
 
+### P4 待验收页与验收面板（2026-10-23，issue gofer-hez1）
+
+落地范围即 §7.1 的 `/review` 待验收页，以及 §7.1 `/jobs/:id` 的「验收」页签里的 `ReviewPanel`（P3 已把面板挂进页签，本轮只改面板自身）。不涉及 Go 代码、没有新增接口：数据仍来自 `GET /v1/jobs?status=needs_review`、`POST /v1/jobs/{id}/accept|reject`、`/logs`、`/diff`、`/review-hints` 与 `memory-candidates`。
+
+**待验收列表（`views/ReviewQueue.vue`）**
+
+- 页头：标题「待验收」+ 一行摘要（`N 个待验收任务 · 等得最久的排最前`，筛选生效时写成 `筛选后/总数`）+ 刷新按钮；「待批准 N →」入口保留，按 §3.1 改成万寿菊黄的 chip（黄色只代表「需要人」）。
+- 筛选（§6.4）：项目 chip 用 `ui/ProjectFilter` + `useProjectFilter('/review')`，值进 URL 的 `?project=`（唯一真源，可分享、后退可复原），换值即带 `project` 参数重拉（`listJobs({ status: 'needs_review', project, limit })`）；验证结果 chip 用 `ui/FilterChips`（全部 / 通过 / 失败 / 未验证，带计数），是**纯前端**维度——一次最多取 100 条待验收，不再多打一次接口。
+- 每行（桌面九列）：标题 / id、项目、agent、计划 · 待办、验证结果、提交数、用量、等待时长（`ended_at` 起算，1s 一跳）、行内通过 / 拒绝。排序仍是「等得最久的在前」。裁决成功后该行淡出再移除，轮询不会把它塞回来；失败与「已拒绝 / 已续投」用右下角浮层提示（8s 自动消失）。
+- 拒绝仍走 `RejectDialog`：理由必填、可勾「拒绝后自动续投」。
+- 手机（≤760）：列头隐藏，每行变成一张卡片（标题 + 等待时长一行，项目 / agent / 计划 / 验证 / 提交 / 用量折行），通过 / 拒绝两个按钮等宽铺满。
+- 空态区分「现在没有待验收的任务」（附 `--review` / `require_review` / `gofer job review` 三种入手方式）与「当前筛选下没有待验收的任务」。
+
+**验收面板（`components/ReviewPanel.vue`）**
+
+- 页签换成 P2 的 `ui/Tabs`：`role=tablist/tabpanel`、← → Home End、值在 URL。**参数名是 `rtab` 而不是 `tab`**——`?tab=` 已被任务详情自己的七个页签占用，同一 URL 不能放两个页签维度；深链形态 `?tab=review&rtab=diff`，默认（汇报）不写进 URL，认不出的值回落「汇报」。
+- 页签保持原有七类：汇报、发现（有 `## 发现但不碰` 才出现）、经验（有候选才出现）、提交（带提交数）、Diff、验证、用量；发现与经验仍夹在汇报与提交之间。各页按需加载（stdout 尾部 64KB / diff / stderr 尾部 64KB / review-hints），但**汇报总是先拉**——它是首页签，也是「发现 / 经验」页签与审阅提示的数据来源，深链到 Diff / 验证时如果只按当前页签加载，那两个页签会一直不出现。
+- 面板头：标题、`StatusPill`（替换旧的 `StatusBadge`）、一行说明（可裁决 / 无裁决权 / 已裁决）。
+- 内容全部保留：验收标准勾选清单（仅本页有效）、审阅提示折叠卡（删除热点 / 被删注释 / 验证结果行）、发现逐条「建 issue」与复制命令、提交 sha 点击复制、Diff 用 `UnifiedDiff`（下载原文、大文件降级、范围外文件标记）、verify 输出保留尾部 200 行并在没有 verify 时展示汇报「验证」小节（标明 agent 自述）、用量逐项。
+- 底部裁决条改成 `position: sticky; bottom: 0`（§7.1「底部固定操作条」）：长汇报不会再把它推走；Accept 文案仍按交付方式（`Accept 通过` / `Accept 通过并<交付方式>`）并提供「本次不交付」，Reject 仍必写理由、可勾自动续投；已验收显示验收人 / 时间 / 备注，无裁决权显示原因（`data-test="rp-blocked"`）。
+- 手机（≤760）：两个裁决按钮等宽铺满；汇报与输出块限高改小，给操作条留位置。
+
+**i18n（§9）**
+
+- 两处文案全部进 `web/src/i18n/pages/review.ts`（`review.*`，zh/en 同名同数），不动 `zh.ts` / `en.ts`：列表头与列、筛选 chip、行内动作与提示、空态、面板头 / 页签 / 审阅提示 / 发现 / 提交 / Diff / 验证 / 用量 / 裁决条。业务内容（任务标题、汇报正文、提交标题、文件名、命令）不翻译；`utils/reviewGate.ts` 给的「没有审阅权限」等原因是工具层中文，留给 P6。
+
+**不丢信息核对（对照 §7.1 本页规格与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 页头：标题、`N 个待验收任务 · 等得最久的排最前`、刷新中、刷新按钮 | 同左，另加筛选生效时的 `筛选后/总数` |
+| 「待批准 N →」入口（N>0） | 保留，改成黄色 chip |
+| 列：任务 · 标题 / ID、项目、agent、计划 · 待办、验收、提交、用量、等待、裁决 | 九列全保留（表头文案走 i18n） |
+| 行：标题 / 短 id、项目、agent、计划链接（`@click.stop`）、verify 徽标配色、提交数、用量徽标 + title、等待时长 + 结束时间 title | 全部保留 |
+| 行内通过 / 拒绝、无权限时一行灰字原因（`rq-blocked`） | 保留 |
+| 裁决淡出、失败 / 已拒绝 / 已续投浮层（带新 job 链接） | 保留 |
+| 拒绝弹层：理由必填、自动续投、Esc / 点遮罩关闭 | 保留（`RejectDialog` 未改） |
+| 空态四种入手方式 | 保留（文案走 i18n），另加「当前筛选下没有」 |
+| 面板：五个固定页签 + 有内容时的发现 / 经验、按需加载 | 同左，改用 `ui/Tabs`，深链 `?rtab=` |
+| 面板头：标题、状态、说明三态 | 保留（状态改 `StatusPill`） |
+| 验收标准勾选清单（N/M 计数、仅本页有效） | 保留 |
+| 审阅提示折叠卡（三段） | 保留 |
+| 发现：逐条文本、建 issue、已建 / 创建中 / 失败、复制命令、剪贴板不可用时展开命令 | 保留 |
+| 经验：`MemoryCandidatesTab`（接受 / 拒绝候选） | 保留 |
+| 提交：基线 → HEAD、sha 点击复制、已复制、无提交说明 | 保留 |
+| Diff：加载中 / 失败 + 重试 + 无 diff 说明、声明范围与越界文件、下载原文、大文件降级 | 保留（`UnifiedDiff` 未改） |
+| 验证：状态 / exit / 耗时、命令、skipped 原因、输出尾部 200 行、无 verify 时展示汇报「验证」小节 | 保留 |
+| 用量：八项逐项（缺项 `—`）+ 一行摘要 | 保留 |
+| 底部裁决条：Accept（含交付方式与「本次不交付」）、Reject、已验收信息与备注、无权限原因、无验收记录说明 | 全部保留，改成贴底固定 |
+
+**测试（§13）**
+
+- 新增 `views/reviewPage.test.ts`（14 个用例）：SSR 渲染页头 / 摘要 / 空态（含 `?project=` 时的筛选空态）、面板骨架（标题、说明、五个固定页签、`role=tablist`、冲突按钮）、`?rtab=diff` 深链选中、`?rtab=verify` 时的验证状态 / 退出码 / 耗时；源码断言项目 / 验证 chip 的接线、行内裁决与拒绝弹层、淡出与排序、手机卡片断点、面板用 `ui/Tabs` 且参数是 `rtab`、贴底裁决条、以及原有内容（验收标准、发现建 issue、diff 下载、verify 截尾 200 行、用量逐项、换 job 重置）都还在。
+- 同步修改：`views/uiTextWiring.test.ts`（`ReviewQueue` 标题从 `PAGE.review` 改成 `t('review.h.title')`，与 Board 同一条口子）、`components/reviewHintsWiring.test.ts`（「审阅提示」「来源：agent 自述」改为断言 i18n key + 字典译文）。`views/readOnlyAndReviewGate.test.ts` 的断言（`reviewGate(job).allowed`、`blockedReason?: string`、两个 `data-test`）本轮刻意一字未改，作为「面板契约没变」的背书。
+- 全量 `npx vitest run` 204 个文件 / 1386 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
+
+**如实记录的范围边界与差异**
+
+- 设计稿 §7.1 写的是「`?tab=` 深链」，实施里面板用 `?rtab=`：`tab` 已被任务详情的页签占用，一个 URL 只能有一个 `tab` 维度（详见上文）。
+- 预览稿（`tmp/gofer-ui-redesign/preview.html`）**没有** `/review` 列表页，也没有完整验收面板（侧栏有入口但点不进）。所以本页形态按 §7.1 的字段清单 + 预览里最近的形态（任务列表的 `.jrow` 行、Today 的 `.dcard` 验收卡、详情页的 `.review-bar` 与 `.save-bar`）实现，而非逐像素对齐。
+- 视觉自查用开发服务器 + playwright，把 `/v1` 请求 mock 成固定数据，按 zh/en × 浅/深各截一屏，另加手机两屏（列表、面板）；截图是本机临时产物，未进仓库。
+- 新增的「验证结果」chip 是**前端**筛选（一次取 100 条），不是服务端参数；列表本身仍是单页最多 100 条。
+- 手机断点用 §4.3 冻结的 760（与 Board 的 900 不同：Board 那条断点是并排布局的口径，本页没有并排形态）。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**

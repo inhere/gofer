@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { review as reviewDict } from '../i18n/pages/review'
 
 // 接线断言：验收面板「汇报」页签顶部挂着折叠的「审阅提示」卡片，数据来自
 // /v1/jobs/{id}/review-hints（服务端现算，CLI job review 同源）。用 ?raw 读源文件，
-// 不渲染组件。
+// 不渲染组件。P4 起文案走 i18n（i18n/pages/review.ts），所以这里同时断言 key 与译文。
 function raw(modules: Record<string, unknown>): string {
   return Object.values(modules)[0] as string
 }
@@ -23,7 +24,8 @@ describe('review hints wiring', () => {
     expect(panel).toContain('hints?.deletion_hotspots?.length')
     expect(panel).toContain('hints?.removed_comments?.length')
     expect(panel).toContain('hints?.verify_lines?.length')
-    expect(panel).toContain('审阅提示')
+    expect(panel).toContain("t('review.hints.summary'")
+    expect(reviewDict.zh['review.hints.summary']).toContain('审阅提示')
   })
 
   it('loads the hints together with the report, and never blocks it', () => {
@@ -34,7 +36,8 @@ describe('review hints wiring', () => {
   it('shows the report blocks as agent self-report in the verify tab of a job with no verify step', () => {
     expect(panel).toContain('hints.value?.report_verify')
     expect(panel).toContain('reportVerify.length > 0')
-    expect(panel).toContain('来源：agent 自述')
+    expect(panel).toContain("t('review.verify.reportHint'")
+    expect(reviewDict.zh['review.verify.reportSource']).toBe('来源：agent 自述')
     // 有 verify 步骤时输出留尾部（失败信息在末尾），不再留开头。
     expect(panel).toContain('block.slice(kept)')
   })
