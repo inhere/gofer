@@ -12,6 +12,8 @@
 // 规则（地址解析校验、对话 key、气泡方向、人物卡取色、摘要去 markdown、查询参数）都在
 // utils/mail.ts 与 utils/mailConversations.ts，这里只管渲染与请求。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ackMail,
@@ -801,7 +803,7 @@ onUnmounted(() => {
             />
             <span v-if="sessionFilter" class="filter-chip mono" data-test="mail-session-filter">
               {{ t('mail.h.session', { sid: sessionFilter }) }}
-              <button class="chip-x" type="button" :title="t('mail.h.clearSession')" @click="clearSession">×</button>
+              <button class="chip-x" type="button" :title="t('mail.h.clearSession')" @click="clearSession"><Icon :icon="X" size="sm" /></button>
             </span>
           </div>
         </header>
@@ -1032,7 +1034,7 @@ onUnmounted(() => {
         <div class="compose-tags" data-test="mail-to-tags">
           <span v-for="a in composeTags" :key="a" class="tag-chip mono" data-test="mail-to-tag">
             {{ addressLabel(a) }}
-            <button class="chip-x" type="button" :title="t('mail.compose.remove', { address: a })" data-test="mail-to-tag-x" @click="removeComposeAddress(a)">×</button>
+            <button class="chip-x" type="button" :title="t('mail.compose.remove', { address: a })" data-test="mail-to-tag-x" @click="removeComposeAddress(a)"><Icon :icon="X" size="sm" /></button>
           </span>
           <span v-if="!composeTags.length" class="dim mono">{{ t('mail.compose.none') }}</span>
         </div>

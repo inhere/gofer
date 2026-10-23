@@ -3,6 +3,8 @@
 // 行为：Esc 关闭、点遮罩关闭、焦点锁在面板内并在关闭时回到打开者、body 不跟着滚、
 // 抓手上滑（swipe down）关闭，手机上按拇指点按目标 ≥40px。
 import { ref } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from './Icon.vue'
 import { t } from '../i18n'
 import { useOverlayBehavior } from './overlay'
 
@@ -65,7 +67,7 @@ const title = props.label || t('act.filter')
             data-test="sheet-close"
             @click="open = false"
           >
-            ✕
+            <Icon :icon="X" size="sm" />
           </button>
         </div>
         <div class="ovl-body">

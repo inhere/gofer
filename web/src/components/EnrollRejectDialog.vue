@@ -3,6 +3,8 @@
 // 屏蔽用于应对重复骚扰申请（block_source_min=10；期间该来源再申请会 429）。
 // 纯逻辑（错误文案、来源文案）在 utils/enrollments.ts。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { rejectEnrollment } from '../api/client'
 import type { WorkerEnrollment } from '../api/types'
 import { hostLine, rejectErrorText } from '../utils/enrollments'
@@ -53,7 +55,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
           <h2 class="er-title">拒绝注册申请</h2>
           <p class="er-sub mono">{{ item.source || '来源未知' }}<template v-if="host"> · {{ host }}</template></p>
         </div>
-        <button class="er-x mono" type="button" :disabled="busy" aria-label="关闭" @click="emit('close')">×</button>
+        <button class="er-x mono" type="button" :disabled="busy" aria-label="关闭" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
       </header>
 
       <div class="er-field">

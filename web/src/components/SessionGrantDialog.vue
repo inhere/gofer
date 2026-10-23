@@ -4,6 +4,8 @@
 // 规则只在服务端一份；有效期 1 / 4 / 24 小时，POST /v1/auth/grants 的 subject 为 session:<sid>。
 // 纯逻辑在 utils/sessionGrant.ts 与 utils/expandPreview.ts。
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { createAuthGrant, expandGrantPattern, getPermissionCatalog } from '../api/permissions'
 import { createPreviewScheduler } from '../utils/expandPreview'
 import { emptyExpandResult, expandProblemText, grantConfirmRules, grantFormBlocker, riskTone } from '../utils/permissions'
@@ -108,7 +110,7 @@ onUnmounted(() => {
           <h2 class="sg-title">授权这个会话</h2>
           <p class="sg-sub mono" :title="sid">{{ label || sid }}</p>
         </div>
-        <button class="sg-x mono" type="button" :disabled="saving" aria-label="关闭" @click="emit('close')">×</button>
+        <button class="sg-x mono" type="button" :disabled="saving" aria-label="关闭" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
       </header>
 
       <p class="sg-threat" data-test="sg-threat">

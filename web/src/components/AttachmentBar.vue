@@ -7,6 +7,8 @@
 //  - 压缩参数由 utils/attachments.ts 的 planCompression 决定，这里只用 canvas 执行。
 // 状态自己持有（父组件通过模板 ref 取 readyIDs() / canSend() / hint()，发送成功后调 clear()）。
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { deleteAttachment, uploadAttachment } from '../api/attachments'
 import {
   attachmentCountError,
@@ -355,7 +357,7 @@ defineExpose({
           :aria-label="`删除 ${item.name}`"
           title="删除这张图"
           @click="remove(item)"
-        >×</button>
+        ><Icon :icon="X" size="sm" /></button>
       </li>
     </ul>
     <span v-if="hintText" class="attach-hint mono" data-test="attach-hint">{{ hintText }}</span>

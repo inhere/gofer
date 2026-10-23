@@ -3,6 +3,8 @@
 // 读是任何 caller 都能做的；导入/更新/删除要 can_admin，服务端 403 的原因直接显示在
 // 页内提示条（不吞错）。绑定关系（server / agent / project 三层）在配置页编辑。
 import { computed, onMounted, ref } from 'vue'
+import { ChevronDown, ChevronRight } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import {
   deleteSkill,
   exportSkill,
@@ -323,7 +325,7 @@ onMounted(() => {
               :title="selectedName === s.name ? t('settings.skills.collapseDetail') : t('settings.skills.expandDetail')"
               @click.stop="toggleDetail(s.name)"
             >
-              <span class="chev" aria-hidden="true">{{ selectedName === s.name ? '▾' : '▸' }}</span>
+              <Icon class="chev" :icon="selectedName === s.name ? ChevronDown : ChevronRight" size="sm" />
               <span class="name-text">{{ s.name }}</span>
             </button>
           </span>

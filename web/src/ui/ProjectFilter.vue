@@ -2,6 +2,8 @@
 // 列表头的项目筛选（设计稿 §6.4）：一个 chip 显示当前项目，点开是项目列表。
 // 受控组件：值进 URL 由 useProjectFilter（ui/projectFilter.ts）负责，这里只发意图。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { ChevronDown, ChevronUp } from '@lucide/vue'
+import Icon from './Icon.vue'
 import { t } from '../i18n'
 
 const props = defineProps<{
@@ -60,7 +62,7 @@ onBeforeUnmount(() => {
       @click="open = !open"
     >
       <span class="pf-label">{{ label }}</span>
-      <span class="pf-caret" aria-hidden="true">{{ open ? '▴' : '▾' }}</span>
+      <Icon class="pf-caret" :icon="open ? ChevronUp : ChevronDown" size="sm" />
     </button>
     <div v-if="open" :id="menuId" class="pf-menu" role="listbox" :aria-label="t('field.project')">
       <button
