@@ -24,8 +24,9 @@ const menuId = `tracker-repo-${Math.random().toString(36).slice(2, 9)}`
 const options = computed(() => trackerRepoOptions(props.repos))
 const current = computed(() => props.repos.find((repo) => repo.tracker_id === props.modelValue) ?? null)
 // chip 上只放主文字（项目 / 目录），完整路径在信息条与 title 里。
-const label = computed(() => (current.value ? trackerRepoTitle(current.value) : t('util.repo.pick')))
-const title = computed(() => (current.value ? trackerRepoLabel(current.value) : t('util.repo.pick')))
+// 仓库列表还没拿到（或 ?tracker= 指向已删除的仓库）时退回 tracker id 本身，不丢信息。
+const label = computed(() => (current.value ? trackerRepoTitle(current.value) : props.modelValue || t('util.repo.pick')))
+const title = computed(() => (current.value ? trackerRepoLabel(current.value) : label.value))
 
 function pick(value: string): void {
   open.value = false

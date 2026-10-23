@@ -64,6 +64,12 @@ describe('仓库下拉（TrackerRepoPicker）', () => {
     expect(html).toContain('Pick a repository')
     expect(html).not.toContain('请选择仓库')
   })
+
+  it('keeps the raw tracker id when the list has not arrived yet', async () => {
+    setLocale('zh-CN')
+    const html = await render(TrackerRepoPicker, { modelValue: 'tracker-from-url', repos: [] })
+    expect(html).toContain('>tracker-from-url</span>')
+  })
 })
 
 describe('仓库信息条（TrackerRepoPath）', () => {
