@@ -126,6 +126,8 @@ describe('work page structure', () => {
     expect(card).toContain(':class="laneClass(lane)"')
     expect(card).toContain('border-left-color: var(--c, var(--line))')
     expect(card).toContain('<StatusPill')
+    // 收集箱卡片没有状态 pill，但也要有状态文字（颜色不是唯一信息）
+    expect(page).toContain('data-test="capture-lane"')
     expect(board).toContain('return statusFamily(lane)')
   })
 

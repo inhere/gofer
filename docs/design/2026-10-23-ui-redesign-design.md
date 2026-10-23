@@ -1829,7 +1829,8 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 - 同步修改：`views/workPage.test.ts`（chip 的 URL 口径、平铺断言、左边框 / 状态文字、统一按钮与下拉、不再有原生 select）、`views/work.test.ts`（状态 chip 一排、平铺单列断点、卡片事件两处）、`views/captureBoxWiring.test.ts`（收集箱改泳道）、`views/pageWriteGate.test.ts`（`write-block` 传到两处卡片）、`components/workCard.test.ts`（按钮标签断言不依赖属性顺序、标状态改菜单）。
 - `npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 231 passed (231)` / `Tests 1570 passed (1570)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 8.31s`。
 
-**未完成 / 未做**
+**视觉自查与取舍**
 
-- 视觉自查没做成：本 job 环境里 `agent-browser` 起不了 Chromium（`Chrome exited early … without writing DevToolsActivePort`，加 `--no-sandbox` 同样失败），Edge headless 也无法在截图前注入登录态与桩 `/v1` 数据。zh / en 的文案与结构改用 SSR 渲染断言覆盖（`views/workPage.test.ts` 的 English 用例、`WorkCard` 的 SSR 用例），浅 / 深主题只核对了 token 用法（无写死颜色），没有截图证据。
-- `utils/work.ts` 的 `groupByStatus` / `sortCards` / `visibleItems` 三个旧口径页面已不再调用。保留是因为 `groupByStatus` 仍有自己的单测、`sortCards` 仍被 `Work.vue` 的工作区视图使用，删除留给样式收尾那一批统一处理。
+- 视觉自查：`agent-browser` 在本环境起不了 Chromium（`Chrome exited early … without writing DevToolsActivePort`，加 `--no-sandbox` 同样失败），改用 Edge headless + 同源引导页（临时文件，先写登录态 / 主题 / 语言再跳 `/work`）+ 本地桩 `/v1` 服务（合成数据，均不入库）：看了 zh × 深 × 1440、en × 浅 × 1440、zh × 深 × 756（Edge headless 最小窗宽，已落在 ≤760 断点）、en × 浅 × 375 四张。确认：平铺网格三列等宽、卡片左边框颜色按泳道（黄 = 等我 / 待验收 / 需现场，蓝 = 进行中，灰 = 等资源 / 草稿 / 收集箱，深浅主题随 token 自动变）、按钮统一（打开会话松绿主按钮，整理 / 标状态次要，详情文字按钮第二行右对齐）、状态 chip 一排带计数、收集箱卡片带「记录 / 想法 + 收集箱」文字、手机单列且 chip 在框内横向滑动、无页面级横向滚动。
+- 卡片动作行在 330px 宽的列里是两行（动作一行、详情右对齐一行）：五个按钮排不进一行，两行且第二行统一右对齐，不随卡片内容跳到不同位置。
+- `utils/work.ts` 的 `groupByStatus` / `visibleItems` 两个旧口径页面已不再调用。保留是因为 `groupByStatus` 仍有自己的单测、`sortCards` 仍被 `Work.vue` 的工作区视图使用，删除留给样式收尾那一批统一处理。

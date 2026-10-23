@@ -430,7 +430,10 @@ onUnmounted(() => {
           data-test="capture-row"
           @click="openItem(it.id)"
         >
-          <span class="capture-kind" :data-kind="it.kind || 'note'" data-test="capture-kind">{{ captureKindLabel(it.kind) }}</span>
+          <span class="capture-badges">
+            <span class="capture-kind" :data-kind="it.kind || 'note'" data-test="capture-kind">{{ captureKindLabel(it.kind) }}</span>
+            <span class="capture-lane" data-test="capture-lane">{{ t(laneLabelKey(CAPTURE_LANE_STATUS)) }}</span>
+          </span>
           <span class="capture-text">{{ it.title || it.goal }}</span>
           <span class="capture-meta">
             <span v-if="it.project_key" class="capture-proj">{{ it.project_key }}</span>
@@ -561,6 +564,9 @@ onUnmounted(() => {
 .capture-card:hover, .capture-card--active { border-color: var(--accent); border-left-color: var(--c, var(--accent)); }
 .capture-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .capture-kind { font-size: var(--fs-xs); color: var(--accent); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; white-space: nowrap; }
+/* 收集箱卡片也要看得到状态文字：左边框颜色之外再给一条文字（颜色不是唯一信息）。 */
+.capture-badges { display: inline-flex; align-items: center; gap: 6px; }
+.capture-lane { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
 .capture-kind[data-kind='issue'] { color: var(--fail); }
 .capture-kind[data-kind='request'] { color: var(--run); }
 .capture-kind[data-kind='note'] { color: var(--ink-3); }
