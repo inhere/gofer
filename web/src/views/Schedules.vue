@@ -15,7 +15,8 @@ import {
   runSchedule,
   setScheduleEnabled,
 } from '../api/client'
-import { fmtDateTime, fmtUntil } from '../api/time'
+import { fmtDateTime } from '../api/time'
+import { formatRelative } from '../utils/format'
 import { boolValue, envPreview, hasParams, paramControl, paramDefaults } from '../utils/scheduleParams'
 import { t } from '../i18n'
 import ProjectFilter from '../ui/ProjectFilter.vue'
@@ -362,7 +363,7 @@ onUnmounted(() => {
               <span class="sch-name" :title="s.name">{{ s.name }}</span>
             </span>
             <span class="sch-sub">
-              <span class="sch-id mono" :title="s.id">{{ shortId(s.id) }}</span>
+              <span class="sch-id mono" :title="s.id">{{ s.id }}</span>
               <span class="sch-pr">{{ s.project_key }} · {{ s.request.agent }} · {{ runnerLabel(s.request.runner) }}</span>
             </span>
           </span>
@@ -376,7 +377,7 @@ onUnmounted(() => {
             </template>
             <template v-else-if="s.enabled">
               <span class="next-abs">{{ fmtDateTime(s.next_run_at) }}</span>
-              <span class="next-rel">{{ fmtUntil(s.next_run_at) }}</span>
+              <span class="next-rel">{{ formatRelative(s.next_run_at) }}</span>
             </template>
             <span v-else class="next-off">{{ t('schedules.disabled') }}</span>
           </span>
@@ -1099,9 +1100,15 @@ onUnmounted(() => {
   }
   .btn,
   .act,
-  .switch,
   .last-link {
     min-height: 40px;
+  }
+  /* 开关保持轨道高度（拉成 40px 会变成胶囊），用两侧的内边距凑点按区域。 */
+  .switch {
+    min-height: 20px;
+  }
+  .col-en {
+    padding: 10px 0;
   }
   .thead {
     display: none;

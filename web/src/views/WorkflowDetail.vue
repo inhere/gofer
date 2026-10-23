@@ -400,7 +400,7 @@ onUnmounted(() => {
           </dl>
           <!-- 工作目录：ref: 步跑在临时检出目录里，光看路径说不出是哪棵树，所以并排显示 ref。 -->
           <p v-if="row.cwd" class="res-cwd mono" data-test="res-cwd">
-            <em>{{ t('schedules.detailCwd') }}</em>{{ row.cwd
+            <em>{{ t('workflows.detail.cwd') }}</em>{{ row.cwd
             }}<span v-if="row.ref" class="res-cwd-ref"> (ref {{ row.ref.slice(0, 12) }})</span>
           </p>
           <div class="res-acts">

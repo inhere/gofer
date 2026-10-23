@@ -8,8 +8,7 @@ import { useRouter } from 'vue-router'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import { listWorkflows } from '../api/client'
 import { fmtDateTime, fmtDuration } from '../api/time'
-import { workflowStatusOptions } from '../utils/statusText'
-import { statusText } from '../utils/statusText'
+import { workflowStatusOptions, statusText } from '../utils/statusText'
 import { t, te } from '../i18n'
 import FilterChips from '../ui/FilterChips.vue'
 import StatusPill from '../ui/StatusPill.vue'
@@ -78,10 +77,6 @@ async function fetchWorkflows(): Promise<void> {
 watch(statusFilter, () => {
   void fetchWorkflows()
 })
-
-function shortId(id: string): string {
-  return id.length > 10 ? id.slice(-10) : id
-}
 
 // 工作流耗时：created_at -> updated_at（运行中按 now）。
 function rowDuration(wf: Workflow): string {
@@ -170,7 +165,7 @@ onUnmounted(() => {
         <span class="col-status"><StatusPill :status="wf.status" /></span>
         <span class="col-wf" :class="{ 'col-wf--titled': wf.title }">
           <span v-if="wf.title" class="wf-title" :title="wf.title">{{ wf.title }}</span>
-          <span class="wf-id mono" :title="wf.id">{{ shortId(wf.id) }}</span>
+          <span class="wf-id mono" :title="wf.id">{{ wf.id }}</span>
         </span>
         <span class="col-step">
           <template v-if="wf.total_steps > 0">
@@ -182,7 +177,6 @@ onUnmounted(() => {
               :legend="false"
               size="sm"
             />
-            <span class="step-text mono">{{ stepsText(wf) }}</span>
           </template>
           <span v-else class="dim">{{ stepsText(wf) }}</span>
         </span>
@@ -370,11 +364,6 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--s2);
   min-width: 0;
-}
-.step-text {
-  color: var(--fg-3);
-  font-size: var(--fs-xs);
-  white-space: nowrap;
 }
 .dim {
   color: var(--fg-3);
