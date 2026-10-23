@@ -95,3 +95,15 @@ describe('plan overview review / failure figures', () => {
     expect(overview).toContain('<PlanOverviewRow')
   })
 })
+
+describe('plan board on a phone', () => {
+  const board = raw(import.meta.glob('../components/PlanBoard.vue', { eager: true, query: '?raw', import: 'default' }))
+
+  it('shows one column at a time with a column switcher', () => {
+    expect(board).toContain('class="col-tabs mono"')
+    expect(board).toContain("'col--active': mobileCol === c.key")
+    // 桌面仍是五列并排：切列标签只在 ≤760 出现，其它列在手机上隐藏。
+    expect(board).toMatch(/@media \(max-width: 760px\) \{[\s\S]*?\.col \{\n    display: none;/)
+    expect(board).toMatch(/\.col--active \{\n    display: flex;/)
+  })
+})

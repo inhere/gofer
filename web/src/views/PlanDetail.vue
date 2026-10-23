@@ -1743,18 +1743,6 @@ onUnmounted(() => {
   justify-content: space-between;
   margin-bottom: 14px;
 }
-.back {
-  background: transparent;
-  color: var(--queue);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 12px;
-}
-.back:hover {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
-}
 .head-progress {
   display: flex;
   flex-direction: column;

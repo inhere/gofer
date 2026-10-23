@@ -117,6 +117,10 @@ const columns = computed(() =>
   })),
 )
 
+// 手机上列放不下五列：一次只显示一列，用列头下面的标签切换（设计稿 §7「计划详情」）。
+// 桌面不用这个状态（列头标签 ≤760 才显示）；选中列默认 doing——那是最常看的一列。
+const mobileCol = ref<BoardColumn>('doing')
+
 // —— 拖拽 ——
 const dragging = ref('')
 const dragFrom = ref<BoardColumn>('pending')
@@ -255,12 +259,30 @@ function shortId(id: string): string {
 
 <template>
   <div class="board-wrap">
+    <!-- 手机（≤760）：一次一列，列头上面是切列的标签（带卡片数）。桌面隐藏。 -->
+    <div class="col-tabs mono" role="tablist">
+      <button
+        v-for="c in columns"
+        :key="c.key"
+        class="col-tab"
+        :class="{ 'col-tab--on': mobileCol === c.key }"
+        type="button"
+        role="tab"
+        :aria-selected="mobileCol === c.key"
+        :data-col="c.key"
+        @click="mobileCol = c.key"
+      >
+        <span class="col-tab-name">{{ c.key }}</span>
+        <span class="col-tab-count">{{ c.cards.length }}</span>
+      </button>
+    </div>
     <div class="board">
       <section
         v-for="c in columns"
         :key="c.key"
         class="col"
         :class="{
+          'col--active': mobileCol === c.key,
           'col--disabled': dragging !== '' && !columnAllowed(c.key),
           'col--over':
             overCol === c.key ||
@@ -434,6 +456,10 @@ function shortId(id: string): string {
 </template>
 
 <style scoped>
+/* 手机切列标签：>760 不显示，桌面五列并排。 */
+.col-tabs {
+  display: none;
+}
 /* ≤940px 横向滚动：列有 220px 最小宽，容器放不下就滚（不压缩卡片）。 */
 .board {
   display: grid;
@@ -457,6 +483,52 @@ function shortId(id: string): string {
 .col--over {
   border-color: var(--phosphor);
   box-shadow: inset 0 0 0 1px var(--phosphor);
+}
+/* 手机：一次一列（列头标签切换），不再横向滚动五列。 */
+@media (max-width: 760px) {
+  .col-tabs {
+    display: flex;
+    gap: var(--s1);
+    margin-bottom: var(--s2);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .col-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .col-tab {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--s1);
+    min-height: 40px;
+    padding: 0 var(--s3);
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: var(--r-chip, 999px);
+    color: var(--fg-3);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .col-tab--on {
+    color: var(--fg);
+    border-color: var(--accent);
+  }
+  .col-tab-count {
+    color: var(--fg-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .board {
+    display: block;
+    overflow-x: visible;
+  }
+  .col {
+    display: none;
+  }
+  .col--active {
+    display: flex;
+  }
 }
 .col-head {
   display: flex;
