@@ -432,7 +432,8 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 - 用英文语义命名，不用中文原文做 key（初稿 D4）。
 - 域：`nav.* page.* col.* status.* act.* empty.* err.* toast.* confirm.* hint.* field.* help.* shell.* palette.*`。新增域必须先改这一节。
-  （`shell.*` 是外壳自己的文案：连接状态、侧栏收起、节点摘要；`palette.*` 是命令面板。P1 实施时追加。）
+  （`shell.*` 是外壳自己的文案：连接状态、侧栏收起、节点摘要；`palette.*` 是命令面板。P1 实施时追加。
+  `composer.*` 是统一输入框 Composer 的通用文案：发送 / 排队 / 打断、附图、急件、说明开关。P4 实施时追加。）
 - 页面专属的 key 用 `<page>.<area>.<name>`，例如 `plans.h.progress`。页面专属的前缀（目前是 `plans.`）同样受域白名单管辖，新增一个先在 `i18n.test.ts` 的 `pageDomains` 里登记。
 - `status.<状态值>` 对应接口里的状态值（`status.needs_review`），`status.family.<族>` 是 7 个族名（`status.family.need`）。状态值不是业务内容，可以翻译；用户写的标题、消息、评论不翻译。
 - 字典是扁平对象，key 里的点号不作嵌套解析；插值只支持 `{name}`（`t('jobs.count', { n })`）。
@@ -962,7 +963,26 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 页签切换会让被隐藏的区块卸载（LogTape、ReviewPanel 的滚动与展开状态不保留），数据在父组件里，切回来重新渲染。
 - `LogTape` 在 setup 里读 `window`，node SSR 下不能挂载，所以 SSR 测试只用不渲染日志页签的 `?tab=` 值（该组件本身未改）。
 
-## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
+### P4 会话页（2026-10-23，issue gofer-hez1）
+
+已实施：
+
+- **统一输入框 `web/src/ui/Composer.vue`**（§8）：发送 / 排队 / 打断后发送（只有调用方声明 `modes` 时才显示对应按钮）；排队按会话持久化（`ui/composer.ts`，键 `gofer.<scope>.queue.<id>`，工作台仍是 `gofer.workbench.queue.<id>`，旧队列刷新后还在）；附图（`attachments` + `attachCapability` 才显示，能力位与提示仍由调用方决定）；急件（`urgentOption` 才显示，v-model:urgent）；快捷键 Ctrl/⌘+Enter 总是发送，工作台另传 `submitOnEnter` 保留回车发送；自适应高度（最多视口 40%，手机 28%）；手机点按目标 ≥40px。抽屉、`ThreadView` 与新建会话共用同一套队列与提交口径。
+- **已替换的输入框**：`SessionDrawer`（附图、接管确认、「起新进程接管并发送」这类专属动作放 Composer 的 `#actions` 插槽，投递模式 auto/hold/force 与「现在送」保留在抽屉头部不变）；`ThreadView`（工作台对话；send / queue / interrupt 三态收进 Composer，打断只发 `interrupt` 让调用方取消当前 job，队首自动发出）。`JobDetail` / `Mail` / `WorkDrawer` 的输入框按任务书留给各自页面任务。
+- **`/sessions`**：AGENT / ACP / 终端三组改成 `Tabs`（带计数，等待回复的页签带黄色角标，`?tab=` 可深链）；`ProjectFilter` 走 URL `?project=`，`FilterChips` 按页签给一套状态口径（值即接口状态值，带计数）；卡片仍用 `InfoCard` 外壳（P2 没有交付通用 `Card` 组件），状态徽标保留 `.sbadge`（`StatusPill` 的替换留给 P5 统一做），字段与操作逐项保留。
+- **`NewSessionSheet`**（`web/src/ui/NewSessionSheet.vue`）：底部抽屉表单（`Sheet` 外壳），从 `Sessions.vue` 迁入全部字段与校验：类型、项目（上限收窄 + 说明）、agent（上限收窄）、runner（`runnerChoice` 的灰显原因）、模型、工作目录、锁定目录、标题、第一句话、完整配置链接；创建后的跳转（PTY → 终端、ACP → 工作台对话）留在会话页。
+- **会话抽屉外壳**：`SessionDrawer` 的内容不动，外壳换成 `ui/Drawer`（新增向后兼容的 `embedded` / `flush` 两个可选属性：内联渲染、给时间线自己管滚动）；标题与关闭按钮由 Drawer 提供，状态徽标与工具栏留在内容顶部。
+- **i18n**：页面文案进 `i18n/pages/sessions.ts`（zh / en 并列），Composer 的通用文案进 `zh.ts` / `en.ts` 的 `composer.*`（§9.2 已登记该域）。
+- **测试**：新增 `ui/composer.test.ts`（队列存储、快捷键、按声明渲染模式 / 急件 / 附图）与 `views/sessionsP4.test.ts`（页签、项目 / 状态筛选、NewSessionSheet、Drawer 外壳、Composer 接线）；同步改了断言旧结构 / 旧文案的 `sessionsComposer`、`sessionsLockPaths`、`sessionsCards`、`sessionsAcpList`、`s8SessionMessage`、`attachmentsWiring`、`drawerAttachPolish`、`ceilingWiring`、`uiTextWiring`、`workbenchMobileLighter`、`threadViewSessionComposer`、`workbenchP3`。
+
+与规格的差异 / 未做：
+
+- §7.1 说 InfoCard 换成「统一的 Card 加 StatusPill」：P2 只交付了 `StatusGlyph` / `StatusPill`，没有通用 `Card`，本页继续用 `InfoCard`（字段不变），等 P5 统一替换。
+- `WorkbenchComposer`（工作台的「＋」新建会话表单）本轮没有换成 `NewSessionSheet`：任务书只要求替换会话页、SessionDrawer 与 ThreadView 的输入框，工作台的新建入口留给工作台任务。
+- 会话抽屉内侧的内容（消息时间线、元信息、接管 / 唤醒说明等）仍是中文：它在 P4 之前就是共享组件（工作台也用它），文案量大，留给 P5 的文案抽取统一做；本次新增 / 改动的抽屉外壳文案与 Composer 文案已进字典。
+- 主题在浅 / 深两边都用了现有 token，但没有截图逐页审阅（本 job 无浏览器工具）。
+
+
 
 1. **品牌色和字体是否跟着换？**
    - 建议：界面换成新色板和 Schibsted Grotesk，logo 和 `docs/brand` 不动。旧色只在品牌物料里使用。
