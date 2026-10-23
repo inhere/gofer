@@ -34,7 +34,7 @@ describe('Sessions page cards', () => {
     expect(detailsAt).toBeGreaterThan(actionsAt)
     const head = agent.slice(0, detailsAt)
     // key info: title, state badge, agent / project / workspace / last activity, work item, main actions
-    for (const keep of ['sessionDisplayName(s)', 'agentStateLabel(s.state)', '{{ s.agent }}', 's.project_key', 'workspaceLabel(s.cwd)', 'fmtAgo(s.last_seen_at, nowSec)', 'data-test="work-link"', 'data-test="row-open"', 'data-test="row-wake"']) {
+    for (const keep of ['sessionDisplayName(s)', 'stateText(s.state)', '{{ s.agent }}', 's.project_key', 'workspaceLabel(s.cwd)', 'fmtAgo(s.last_seen_at, nowSec)', 'data-test="work-link"', 'data-test="row-open"', 'data-test="row-wake"']) {
       expect(head).toContain(keep)
     }
     // the noisy columns of the old table only appear in the expanded part
@@ -61,7 +61,7 @@ describe('Sessions page cards', () => {
     expect(source).toContain('@click="load()"')
     expect(source).toContain('@open="openDrawer(s.session_id)"')
     expect(source).toContain('<SessionDrawer')
-    expect(source).toContain('已接管 →')
+    expect(source).toContain("t('sessions.card.handedOff')")
   })
 
   it('shows the ACP and terminal cards with their own key info and actions', () => {

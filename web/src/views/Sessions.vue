@@ -27,9 +27,9 @@ import { useWhoami } from '../store/whoami'
 import { badgeTitle, canGrantSession, sessionGrantBadge } from '../utils/sessionGrant'
 import { runnerLabel } from '../utils/runnerDisplay'
 import { copyText, peerMessagingLabel, peerNameLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
-import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
+import { resumeConfirmText, resumeFailText, resumeTitle } from '../utils/sessionResume'
 import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
-import { buildFindParams, findSummary, hitReasons, MAYBE_OFFLINE_LABEL, topicDisplay } from '../utils/sessionTopic'
+import { buildFindParams, findSummary, hitReasons, topicDisplay } from '../utils/sessionTopic'
 import { t } from '../i18n'
 import Tabs from '../ui/Tabs.vue'
 import ProjectFilter from '../ui/ProjectFilter.vue'
@@ -129,7 +129,8 @@ function matchesStatus(state: string): boolean {
 }
 
 // 换页签时清掉上一个页签的状态筛选（两套状态值不通用）。
-watch(activeTab, () => { statusFilter.value = '' })
+// 注意：这个 watch 会立即求值一次 activeTab → tabItems → 三个列表 ref，所以必须放在
+// agentSessions / acpSessions / sessions 声明之后（放在这里会触发 TDZ，页面白屏）。
 
 // 组内按状态排（需要人的在前：等回复 > 运行 > 空闲 > 离线 > 已结束），读起来就是按状态分组。
 const AGENT_STATE_ORDER: Record<string, number> = {
@@ -285,6 +286,25 @@ async function loadWorkItems(): Promise<void> {
 const waitingCount = computed(
   () => agentSessions.value.filter((s) => s.state === 'waiting_reply').length,
 )
+
+// 会话状态文案（页面字典）：接口值 → i18n key，未知值（新状态）回落到共用映射。
+const STATE_KEYS: Record<string, string> = {
+  running: 'sessions.state.running',
+  idle: 'sessions.state.idle',
+  waiting_reply: 'sessions.state.waiting',
+  needs_attention: 'sessions.state.attention',
+  handed_off: 'sessions.state.handedOff',
+  ended: 'sessions.state.ended',
+  offline: 'sessions.state.offline',
+}
+function stateText(state: string): string {
+  const key = STATE_KEYS[state]
+  return key ? t(key) : agentStateLabel(state)
+}
+function wakeLabel(s: AgentSession): string {
+  if (wakingIds.value.has(s.session_id)) return '…'
+  return s.state === 'ended' ? t('sessions.card.wake') : t('sessions.card.takeover')
+}
   function sessionDisplayName(s: AgentSession): string {
     return formatSessionDisplayName(s)
   }
@@ -514,7 +534,6 @@ const hasSessions = computed(() => sessions.value.length > 0)
 const acpSessions = ref<Job[]>([])
 const acpLoading = ref(false)
 const acpError = ref('')
-const hasAcpSessions = computed(() => acpSessions.value.length > 0)
 
 function acpStatusLabel(job: Job): string {
   if (job.session_ending) return t('sessions.acp.ending')
@@ -611,6 +630,10 @@ async function load(): Promise<void> {
   }
 }
 
+// 换页签时清掉上一个页签的状态筛选（两套状态值不通用）。
+// 放在这里：watch 会立即求值一次 activeTab → tabItems → 三个列表 ref，必须等它们都初始化。
+watch(activeTab, () => { statusFilter.value = '' })
+
 onMounted(() => {
   void loadProjectOptions()
   void load()
@@ -666,12 +689,10 @@ onUnmounted(() => {
     <!-- Agent 会话（会话中继 SESS-01）：hook 登记的 claude/codex 会话，点击行开详情抽屉 -->
     <section v-if="active === 'agent'" class="group">
       <header class="group-head">
-        <h2 class="group-title">
-          {{ t('sessions.tab.agent') }}
+        <div class="group-tools">
           <button class="relay-help-btn" type="button" :aria-expanded="relayHelpOpen" :title="t('sessions.relay.helpTitle')" @click="relayHelpOpen = !relayHelpOpen">?</button>
           <span v-if="waitingCount > 0" class="group-count group-count--hot">{{ t('sessions.waiting', { n: waitingCount }) }}</span>
-          <span v-else-if="filteredAgent.length" class="group-count">{{ filteredAgent.length }}</span>
-        </h2>
+        </div>
         <div class="controls">
           <label class="check">
             <input v-model="showEnded" type="checkbox" />
@@ -727,7 +748,7 @@ onUnmounted(() => {
               class="sbadge mono"
               :class="`sbadge--${agentStateTone(s.state)}`"
               :title="s.state === 'offline' ? `长时间没有心跳（最后心跳 ${fmtTime(s.last_seen_at)}），进程可能已退出；仍可唤醒` : undefined"
-            >{{ agentStateLabel(s.state) }}</span>
+            >{{ stateText(s.state) }}</span>
             <span
               v-if="whoMode.canManage && grantBadgeOf(s).granted"
               class="sbadge mono sbadge--granted"
@@ -765,7 +786,7 @@ onUnmounted(() => {
               data-test="card-topic"
               :title="topicDisplay(s).title || t('sessions.card.inferredTitle')"
             >{{ topicDisplay(s).text }}<em v-if="topicDisplay(s).inferred" class="a-topic-tag">{{ t('sessions.card.inferred') }}</em></span>
-            <span v-if="s.maybe_offline" class="sbadge mono sbadge--off" data-test="maybe-offline">{{ MAYBE_OFFLINE_LABEL }}</span>
+            <span v-if="s.maybe_offline" class="sbadge mono sbadge--off" data-test="maybe-offline">{{ t('sessions.card.maybeOffline') }}</span>
             <span v-for="(r, i) in hitReasons(s.hits)" :key="i" class="icard-chip mono" data-test="hit-reason">{{ r }}</span>
             <span v-if="s.cwd" class="mono" :title="s.cwd">{{ workspaceLabel(s.cwd) }}</span>
             <span class="a-seen mono" :title="fmtTime(s.last_seen_at)">{{ fmtAgo(s.last_seen_at, nowSec) }}</span>
@@ -803,7 +824,7 @@ onUnmounted(() => {
                 class="icard-btn wake-link mono"
                 :to="`/jobs/${encodeURIComponent(s.handed_off_job_id)}?attach=1`"
                 title="这个会话已被一个终端 job 接管，点开继续对话"
-              >已接管 →</RouterLink>
+              >{{ t('sessions.card.handedOff') }}</RouterLink>
               <button
                 v-else
                 class="icard-btn wake-btn mono"
@@ -812,7 +833,7 @@ onUnmounted(() => {
                 :disabled="!s.can_resume || wakingIds.has(s.session_id)"
                 :title="wakeErrors.get(s.session_id) ? `唤醒失败：${wakeErrors.get(s.session_id)}` : resumeTitle(s)"
                 @click="onWake(s)"
-              >{{ wakingIds.has(s.session_id) ? '…' : resumeLabel(s) }}</button>
+              >{{ wakeLabel(s) }}</button>
               <span v-if="wakeErrors.get(s.session_id)" class="relay-err mono" :title="wakeErrors.get(s.session_id)">!</span>
             </span>
           </template>
@@ -899,8 +920,9 @@ onUnmounted(() => {
 
     <section v-else-if="active === 'acp'" class="group">
       <header class="group-head">
-        <h2 class="group-title">{{ t('sessions.tab.acp') }} <span v-if="hasAcpSessions" class="group-count">{{ acpSessions.length }}</span></h2>
-        <button class="act mono" type="button" :disabled="acpLoading" @click="loadAcpSessions()">{{ acpLoading ? t('sessions.refreshing') : t('sessions.refresh') }}</button>
+        <span v-if="filteredAcp.length" class="group-count">{{ filteredAcp.length }}</span>
+        <span class="grow"></span>
+        <button class="act" type="button" :disabled="acpLoading" @click="loadAcpSessions()">{{ acpLoading ? t('sessions.refreshing') : t('sessions.refresh') }}</button>
       </header>
       <p v-if="acpError" class="error mono">{{ acpError }}</p>
       <p v-if="linkError" class="error mono" data-test="link-error">{{ linkError }}</p>
@@ -954,15 +976,13 @@ onUnmounted(() => {
 
     <section v-else class="group">
       <header class="group-head">
-        <h2 class="group-title">
-          {{ t('sessions.tab.pty') }}
-          <span v-if="hasSessions" class="group-count">{{ sessions.length }}</span>
-        </h2>
+        <span v-if="filteredPty.length" class="group-count">{{ filteredPty.length }}</span>
+        <span class="grow"></span>
         <div class="controls">
           <button v-if="!readOnly" class="act act--primary" type="button" data-test="new-terminal-session" @click="openSheet('pty')">
             {{ t('sessions.new.title') }}
           </button>
-          <button class="act mono" type="button" :disabled="loading" @click="load()">
+          <button class="act" type="button" :disabled="loading" @click="load()">
             {{ loading ? t('sessions.refreshing') : t('sessions.refresh') }}
           </button>
         </div>
@@ -1156,6 +1176,23 @@ onUnmounted(() => {
   gap: 14px;
   margin-bottom: 14px;
 }
+.head-main {
+  min-width: 0;
+}
+.head-summary {
+  margin: 2px 0 0;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+}
+.head-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.status-row {
+  margin: 4px 0 var(--s2);
+}
 .title {
   font-size: 16px;
   letter-spacing: 0.08em;
@@ -1215,6 +1252,14 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 14px;
   margin-bottom: 10px;
+}
+.group-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.grow {
+  flex: 1;
 }
 .group-title {
   display: flex;
@@ -1463,6 +1508,21 @@ onUnmounted(() => {
   font-size: 13px;
   padding: 28px 14px;
   text-align: center;
+}
+
+@media (max-width: 760px) {
+  .board-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--s2);
+    margin-bottom: var(--s3);
+  }
+  .head-filters {
+    justify-content: space-between;
+  }
+  .head-filters .act {
+    min-height: 40px;
+  }
 }
 
 @media (max-width: 900px) {
