@@ -1299,7 +1299,8 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - `utils/dashStats.ts` 的 `summaryLine` / `copyText` / `NOTE_TEXT` 文案仍是中文（摘要行与「复制统计」的纯文本）：它们是共享 util，且 `copyText` 的产出要能被粘贴到别处，留给 P6 统一处理。同理 `utils/lockPaths.ts` 的 `DIR_LOCK_HINT`、`utils/ceiling.ts` 的上限文案、`NewJob` 里 `agentEmptyReason` / `validationError` / `itemNote` 这类逻辑层拼出来的提示仍是中文。
 - 统计页的「任务状态分布」仍用 `api/client` 的 `statusColor` 取色（沿用接口口径），没有改成 `utils/statusFamily`：两者现在取的是同一套状态色，等 P6 删旧颜色表时一起收敛。
 - 本页没有逐像素对齐预览稿（预览稿里没有这三屏）：形态按 §7 的字段清单 + P2/P4/P5-a 已合入的基元落地。
-- 视觉自查：`npx vue-tsc --noEmit`、`npx vitest run`、`npx vite build` 全绿；zh / en × 浅 / 深 的截图检查未做（本轮时间用完），只按字典与 CSS 复核了文案长度与对比度（全部用 token，没有新增颜色）。
+- 视觉自查：用 vite dev server + 临时预览入口（`web/preview-p5b.html` + `src/preview-p5b.ts`，stub 的 `/v1` 数据，截图完已删）把 `/dashboard`、`/issues`、`/new` 按 zh / en × 浅 / 深（1440×900）各截一屏，另加三页的手机屏（390×844）。据此改了两处：热力图月份标尺 12×56px 把手机页面撑出横向滚动（改为容器内裁切）、统计页说明的拼接符改成随语言（中文全角分号 / 英文「; 」）。最终一版三页在 1440 与 390 下都没有页面级横向滚动（热力图与扩散区在各自容器内滚动），浅 / 深对比度正常，控制台只剩 stub 未提供的接口 403。
+- `DashboardSystem`（「系统」折叠区）的文案与 token 同步迁移；它的手机断点仍是旧的 640 / 700 / 980（本轮没动，与其它页的 760 不统一，留给 P6）。
 
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 

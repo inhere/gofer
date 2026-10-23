@@ -833,6 +833,8 @@ onUnmounted(() => poller.stop())
 }
 .heat {
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 .heat .days {
   display: grid;
@@ -880,8 +882,10 @@ onUnmounted(() => poller.stop())
   color: var(--fg-3);
   margin-top: 4px;
   padding-left: 16px;
+  overflow: hidden;
 }
 .heat .months span {
+  flex: none;
   width: 56px;
   overflow: hidden;
   white-space: nowrap;
