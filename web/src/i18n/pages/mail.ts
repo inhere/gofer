@@ -30,6 +30,9 @@ export const mail: PageDict = {
     'mail.thread.label': '对话时间线',
     'mail.thread.back': '列表',
     'mail.thread.count': '{n} 封',
+    'mail.thread.convId': '对话 {id}',
+    'mail.thread.copyId': '复制对话 id',
+    'mail.thread.convMissing': '没有 {id} 这个对话（它可能不属于你）。',
     'mail.thread.loading': '加载中…',
     'mail.thread.select': '左边选一个对话；要发新信件点右上角「写信」。',
     'mail.thread.minimapMore': '还有更早的信件未加载',
@@ -43,6 +46,7 @@ export const mail: PageDict = {
     'mail.letter.urgent': '急件',
     'mail.letter.id': '#{id} · {ago}',
     'mail.letter.fold': '展开全文（{n} 字）',
+    'mail.letter.copyThread': '复制 thread id {id}',
     'mail.letter.unfold': '收起',
     // 信件状态（服务端状态值）
     'mail.state.pending': '待送达',
@@ -112,6 +116,7 @@ export const mail: PageDict = {
     'mail.notice.heldCandidates': '地址没有唯一命中，信件 #{id} 已转「待指派」，候选 {n} 个。',
     'mail.notice.sent': '已发出 #{id}（{state}）。',
     'mail.notice.cancelled': '已撤回 #{id}。',
+    'mail.notice.copied': '已复制 {id}。',
     // 小地图
     'mail.minimap.label': '对话小地图',
     'mail.minimap.mark': '第 {n} 封：{name}',
@@ -181,6 +186,9 @@ export const mail: PageDict = {
     'mail.thread.label': 'Conversation timeline',
     'mail.thread.back': 'List',
     'mail.thread.count': '{n} letters',
+    'mail.thread.convId': 'Conversation {id}',
+    'mail.thread.copyId': 'Copy conversation id',
+    'mail.thread.convMissing': 'No conversation {id} you can read.',
     'mail.thread.loading': 'Loading…',
     'mail.thread.select': 'Pick a conversation on the left; press "Write" to start a new letter.',
     'mail.thread.minimapMore': 'Older letters are not loaded yet',
@@ -194,6 +202,7 @@ export const mail: PageDict = {
     'mail.letter.urgent': 'Urgent',
     'mail.letter.id': '#{id} · {ago}',
     'mail.letter.fold': 'Show all ({n} chars)',
+    'mail.letter.copyThread': 'Copy thread id {id}',
     'mail.letter.unfold': 'Collapse',
     // 信件状态（服务端状态值）
     'mail.state.pending': 'Pending',
@@ -263,6 +272,7 @@ export const mail: PageDict = {
     'mail.notice.heldCandidates': 'The address did not match exactly; letter #{id} is held with {n} candidates.',
     'mail.notice.sent': 'Sent #{id} ({state}).',
     'mail.notice.cancelled': 'Withdrew #{id}.',
+    'mail.notice.copied': 'Copied {id}.',
     // 小地图
     'mail.minimap.label': 'Conversation minimap',
     'mail.minimap.mark': 'Letter {n}: {name}',

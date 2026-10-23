@@ -28,6 +28,13 @@ func mailServer(t *testing.T, calls *[]mailCall) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/mail":
 			_ = json.NewEncoder(w).Encode(map[string]any{"mail": []any{letter(7, "pending")}, "count": 1})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/mail/conversations":
+			_ = json.NewEncoder(w).Encode(map[string]any{"conversations": []any{map[string]any{
+				"id": "cv-0123456789", "key": "session:sess-a|session:sess-b",
+				"a":         map[string]any{"kind": "session", "id": "sess-a"},
+				"b":         map[string]any{"kind": "session", "id": "sess-b"},
+				"last_mail": letter(7, "pending"), "count": 2, "unread": 1, "urgent": 0, "activity_at": 1760000000,
+			}}, "count": 1})
 		case r.Method == http.MethodGet:
 			_ = json.NewEncoder(w).Encode(letter(7, "pending"))
 		case strings.HasSuffix(r.URL.Path, "/ack"):
@@ -165,6 +172,36 @@ func TestFormatMailBroadcastRecipients(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("out = %q, missing %q", out, want)
 		}
+	}
+}
+
+func TestSessionMailConvCLI(t *testing.T) {
+	var calls []mailCall
+	mailServer(t, &calls)
+	resetMailOpts(t)
+	c := bindCmd(findSub(t, findSub(t, NewSessionCmd(), "mail"), "conv"))
+	c.Arg("id").Set("cv-0123456789")
+	out := captureOutput(t, func() {
+		if err := runSessionMailConv(c, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	// The conversation is read by id and then its letters, still by id (no peer/with needed).
+	if len(calls) != 2 || calls[0].uri != "/v1/mail/conversations?box=all&conv=cv-0123456789" ||
+		calls[1].uri != "/v1/mail?box=all&conv=cv-0123456789" {
+		t.Fatalf("conv calls = %+v, want the conversation then its letters by id", calls)
+	}
+	for _, want := range []string{"conversation cv-0123456789", "2 letters, 1 unread, 0 urgent", "a: session:sess-a", "b: session:sess-b", "#7"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("conv out = %q, missing %q", out, want)
+		}
+	}
+	// An empty id is refused before any request.
+	calls = nil
+	c = bindCmd(findSub(t, findSub(t, NewSessionCmd(), "mail"), "conv"))
+	c.Arg("id").Set("")
+	if err := runSessionMailConv(c, nil); err == nil {
+		t.Fatal("an empty conversation id must be refused")
 	}
 }
 

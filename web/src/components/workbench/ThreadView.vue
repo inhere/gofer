@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { Ellipsis, Square } from '@lucide/vue'
+import { Ellipsis, Pin, Square } from '@lucide/vue'
 import Icon from '../../ui/Icon.vue'
 import { useRouter } from 'vue-router'
 import { answerInteraction, cancelJob, getJob, puntInteraction } from '../../api/client'
@@ -442,13 +442,17 @@ onUnmounted(() => {
         {{ t('workbench.head.detail') }}
       </button>
       <button
-        class="icon-btn"
+        class="btn sm pin-btn"
+        :class="{ on: !!thread.pinned }"
         type="button"
         :title="thread.pinned ? t('workbench.head.unpin') : t('workbench.head.pin')"
         :aria-label="thread.pinned ? t('workbench.head.unpin') : t('workbench.head.pin')"
         :aria-pressed="!!thread.pinned"
         @click="togglePin"
-      >⌖</button>
+      >
+        <Icon :icon="Pin" size="sm" />
+        <span class="pin-text">{{ thread.pinned ? t('workbench.head.unpin') : t('workbench.head.pin') }}</span>
+      </button>
       <button
         class="icon-btn stop"
         type="button"
@@ -641,6 +645,31 @@ onUnmounted(() => {
 }
 .stop {
   color: var(--fail);
+}
+/* 置顶：桌面带文字、手机只留图标（aria-label 不变）；已置顶用强调色边框 + 淡底，
+   不用悬停也能看出状态。 */
+.pin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-2);
+}
+.pin-btn.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+@media (max-width: 760px) {
+  .pin-btn {
+    padding: 0;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    justify-content: center;
+  }
+  .pin-btn .pin-text {
+    display: none;
+  }
 }
 .ttl {
   flex: 1;

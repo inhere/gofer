@@ -107,6 +107,24 @@ describe('composer rendering', () => {
     expect(html).toContain('data-test="composer-attach"')
   })
 
+  // P6-2：输入框上方那条旧附件栏（第二个 📎 + 一行提示）去掉后只剩 Composer 自己的这一个 📎，
+  // 它的不可用原因（如「该会话不支持附图」）改由按钮 title + 下方一行小字承载。
+  it('keeps one attachment entry and carries the reason as title and hint', async () => {
+    const html = await render({
+      attachments: true,
+      attachCapability: { mode: 'inline', enabled: false, reason: '该会话不支持附图' },
+    })
+    expect(html).toContain('data-test="composer-attach"')
+    // 旧附件栏的 📎 与提示行不再渲染（只保留已选附件的缩略图条）。
+    expect(html).not.toContain('data-test="attach-button"')
+    expect(html).not.toContain('data-test="attach-hint"')
+    expect(html).toContain('data-test="composer-attach-hint"')
+    expect(html).toContain('该会话不支持附图')
+    expect(html).toContain('title="该会话不支持附图"')
+    // 选文件的地方还在：隐藏的 file input 一直挂在附件条里（否则 📎 无事可做）。
+    expect(html).toContain('data-test="attach-input"')
+  })
+
   it('disables the input and send button when the caller is not ready', async () => {
     const html = await render({ disabled: true, canSend: false })
     expect(html).toContain('disabled')

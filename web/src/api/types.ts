@@ -3596,6 +3596,8 @@ export interface MailListResp {
 // a / b 是对话里最早那封信的两端（a 先发），last_mail 是最新一封，count / unread / urgent
 // 数它的信件，activity_at 是最新一封的时间。
 export interface MailConversation {
+  // id 是服务端给的稳定短 id（cv- + key 的 sha256 前 10 位 hex）：可复制、可按 id 直接取对话。
+  id: string
   key: string
   a: MailParty
   b: MailParty

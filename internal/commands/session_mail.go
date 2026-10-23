@@ -53,7 +53,7 @@ func newSessionMailCmd() *gcli.Command {
 	}
 	return &gcli.Command{
 		Name: "mail",
-		Desc: "Letters between sessions, jobs and callers: send <address> <text> | ls | read <id> | reply <id> <text> | cancel <id> | agents | redact <id>",
+		Desc: "Letters between sessions, jobs and callers: send <address> <text> | ls | read <id> | reply <id> <text> | cancel <id> | conv <cv-id> | agents | redact <id>",
 		Subs: []*gcli.Command{
 			{
 				Name: "send",
@@ -82,6 +82,19 @@ func newSessionMailCmd() *gcli.Command {
 					c.IntOpt(&sessionMailOpts.limit, "limit", "", 0, "max rows (default 50)")
 				},
 				Func: runSessionMailList,
+			},
+			{
+				Name:    "conv",
+				Aliases: []string{"conversation"},
+				Desc:    "Show one conversation by its id (cv-…): who the two people are and the letters, oldest first",
+				Config: func(c *gcli.Command) {
+					common(c)
+					c.AddArg("id", "conversation id (cv-…)", true)
+					c.BoolOpt(&sessionMailOpts.in, "in", "", false, "only the letters you received")
+					c.BoolOpt(&sessionMailOpts.out, "out", "", false, "only the letters you sent")
+					c.IntOpt(&sessionMailOpts.limit, "limit", "", 0, "max letters (default: the whole conversation)")
+				},
+				Func: runSessionMailConv,
 			},
 			{Name: "read", Desc: "Read a letter (this marks it read: it is not injected again)", Config: idArg, Func: runSessionMailRead},
 			{
@@ -250,6 +263,67 @@ func runSessionMailList(c *gcli.Command, _ []string) error {
 	}
 	c.Print(formatMailList(list))
 	return nil
+}
+
+// runSessionMailConv reads one conversation by its short id (`session mail conv cv-…`): the id
+// is the copyable handle of a conversation, so a person can quote it without naming both ends.
+func runSessionMailConv(c *gcli.Command, _ []string) error {
+	if sessionMailOpts.in && sessionMailOpts.out {
+		return fmt.Errorf("--in and --out are exclusive")
+	}
+	box := "all"
+	if sessionMailOpts.in {
+		box = "in"
+	} else if sessionMailOpts.out {
+		box = "out"
+	}
+	id := strings.TrimSpace(c.Arg("id").String())
+	if id == "" {
+		return fmt.Errorf("give the conversation id (cv-…)")
+	}
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	conv, err := cli.GetMailConversation(id, box)
+	if err != nil {
+		return err
+	}
+	list, err := cli.ListMail(client.MailListOpts{Box: box, Conv: conv.ID, Limit: sessionMailOpts.limit})
+	if err != nil {
+		return err
+	}
+	c.Print(formatMailConversation(conv, list))
+	return nil
+}
+
+// formatMailConversation renders `session mail conv`: the conversation's id and the two people,
+// then its letters oldest first (the order the server reads a conversation in).
+func formatMailConversation(conv client.MailConversation, list []client.Mail) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "conversation %s\n", conv.ID)
+	fmt.Fprintf(&b, "a: %s  [%s]\n", mailParty(conv.A, ""), mailAddress(conv.A))
+	fmt.Fprintf(&b, "b: %s  [%s]\n", mailParty(conv.B, ""), mailAddress(conv.B))
+	fmt.Fprintf(&b, "%d letters, %d unread, %d urgent, last %s\n", conv.Count, conv.Unread, conv.Urgent, mailTime(conv.ActivityAt))
+	if len(list) == 0 {
+		b.WriteString("no letters\n")
+		return b.String()
+	}
+	b.WriteString(formatMailList(list))
+	return b.String()
+}
+
+// mailAddress is the wire address of one end of a letter (session:<sid> / job:<id> / caller:<id>).
+func mailAddress(p client.MailParty) string {
+	switch {
+	case p.Kind == "" && p.Display != "":
+		return p.Display
+	case p.ID != "":
+		return p.Kind + ":" + p.ID
+	case p.Kind != "":
+		return p.Kind + ":" + p.Caller
+	}
+	return "-"
 }
 
 func runSessionMailRead(c *gcli.Command, _ []string) error {

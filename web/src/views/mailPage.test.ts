@@ -137,6 +137,32 @@ describe('页面接线（源码断言）', () => {
   })
 })
 
+describe('对话 id（可复制的固定手柄）', () => {
+  it('头部显示对话 id 与复制按钮，每封信都给 thread id 的复制入口', () => {
+    expect(pageSrc).toContain("t('mail.thread.convId', { id: activeConvId })")
+    expect(pageSrc).toContain('data-test="mail-conv-id-copy"')
+    expect(pageSrc).toContain("t('mail.letter.copyThread', { id: m.thread_id })")
+    expect(pageSrc).toContain('data-test="mail-thread-copy"')
+    // 复制走统一剪贴板 helper（不可用时安静地失败）。
+    expect(pageSrc).toContain("import { copyText } from '../utils/sessionMessaging'")
+    expect(pageSrc).toContain('function copyConvId')
+    expect(pageSrc).toContain('function copyThread')
+    // 本地分组的「待指派」对话没有服务端 id：不显示空壳。
+    expect(pageSrc).toContain('v-if="activeConvId"')
+  })
+
+  it('/mail?conv=<id> 深链按 id 要那一个对话（服务端可见范围内反查）', () => {
+    expect(pageSrc).toContain("queryValue(route.query.conv)")
+    expect(pageSrc).toContain('async function selectConvFromQuery')
+    expect(pageSrc).toContain("listMailConversations({ conv: id, limit: 1 })")
+    // 查不到（404）时把服务端的话显示在错误区（load 末尾统一写 error，不被成功清掉）。
+    expect(pageSrc).toContain("t('mail.thread.convMissing', { id })")
+    expect(pageSrc).toContain('error.value = convErr')
+    // 地址栏的 conv 变化也要重新取（外链点两次不同对话）。
+    expect(pageSrc).toContain('route.query.session, route.query.conv]')
+  })
+})
+
 describe('英文界面', () => {
   it('切到 en 后页头、筛选与空态没有残留中文', async () => {
     const { setLocale, locale } = await import('../store/locale')

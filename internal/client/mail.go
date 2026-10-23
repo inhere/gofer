@@ -98,10 +98,25 @@ type MailBroadcastRecipient struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
-// MailListOpts filters a listing (GET /v1/mail): Box is in | out | all ("" = all).
+// MailListOpts filters a listing (GET /v1/mail): Box is in | out | all ("" = all). Conv is a
+// conversation's short id (cv-…): it reads that one conversation without naming its two ends.
 type MailListOpts struct {
-	Box, Thread, State, Session string
-	Limit, Offset               int
+	Box, Thread, State, Session, Conv string
+	Limit, Offset                     int
+}
+
+// MailConversation is one conversation: the pair of people who exchanged the letters, the newest
+// letter and the counts. ID is the stable short handle (cv-…) a person copies to ask about it.
+type MailConversation struct {
+	ID         string    `json:"id"`
+	Key        string    `json:"key"`
+	A          MailParty `json:"a"`
+	B          MailParty `json:"b"`
+	Last       Mail      `json:"last_mail"`
+	Count      int       `json:"count"`
+	Unread     int       `json:"unread"`
+	Urgent     int       `json:"urgent"`
+	ActivityAt int64     `json:"activity_at"`
 }
 
 // SendMail sends one letter. to "" or "caller" is the caller's own capture box. The wire keeps
@@ -136,6 +151,7 @@ func (c *Client) ListMail(o MailListOpts) ([]Mail, error) {
 	set("thread", o.Thread)
 	set("state", o.State)
 	set("session", o.Session)
+	set("conv", o.Conv)
 	if o.Limit > 0 {
 		q.Set("limit", strconv.Itoa(o.Limit))
 	}
@@ -151,6 +167,26 @@ func (c *Client) ListMail(o MailListOpts) ([]Mail, error) {
 	}
 	err := c.doJSON(http.MethodGet, path, nil, &out)
 	return out.Mail, err
+}
+
+// GetMailConversation reads ONE conversation by its short id (cv-…). The server resolves it
+// inside what this caller may see, so an id of somebody else's conversation is a 404.
+func (c *Client) GetMailConversation(id, box string) (MailConversation, error) {
+	q := url.Values{}
+	if box = strings.TrimSpace(box); box != "" {
+		q.Set("box", box)
+	}
+	q.Set("conv", strings.TrimSpace(id))
+	var out struct {
+		Conversations []MailConversation `json:"conversations"`
+	}
+	if err := c.doJSON(http.MethodGet, "/v1/mail/conversations?"+q.Encode(), nil, &out); err != nil {
+		return MailConversation{}, err
+	}
+	if len(out.Conversations) == 0 {
+		return MailConversation{}, fmt.Errorf("conversation %s not found", id)
+	}
+	return out.Conversations[0], nil
 }
 
 // GetMail reads one letter without changing it.

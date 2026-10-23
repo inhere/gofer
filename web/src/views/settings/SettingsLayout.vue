@@ -87,6 +87,9 @@ const selected = computed(() => active.value?.to ?? '')
 <style scoped>
 .settings {
   min-width: 0;
+  /* 跟随可用宽度：宽屏上不再给一列 720px 的窄带（P6 截图 1440 / 1920 右侧大片空白）。
+     表单一类的短字段自己限宽，卡片 / 表格 / 说明用满内容区。 */
+  max-width: 1480px;
 }
 .settings-head {
   display: flex;
@@ -111,7 +114,7 @@ const selected = computed(() => active.value?.to ?? '')
 
 .settings-body {
   display: grid;
-  grid-template-columns: 210px minmax(0, 720px);
+  grid-template-columns: 210px minmax(0, 1fr);
   gap: 32px;
   align-items: start;
 }

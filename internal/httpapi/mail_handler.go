@@ -144,6 +144,22 @@ func toMailView(m jobstore.Mail) mailView {
 	}
 }
 
+// mailConversationRef names the one conversation a listing was narrowed to: its short id (the
+// stable, copyable handle of the pair) and its direction-free key.
+type mailConversationRef struct {
+	ID  string `json:"id"`
+	Key string `json:"key"`
+}
+
+// mailListAnswer is the answer of GET /v1/mail. Conversation is additive and nil unless the
+// listing was narrowed to one conversation (peer/with or conv=<id>).
+type mailListAnswer struct {
+	Mail         []mailView           `json:"mail"`
+	Count        int                  `json:"count"`
+	HasMore      bool                 `json:"has_more"`
+	Conversation *mailConversationRef `json:"conversation,omitempty"`
+}
+
 type mailCandidateView struct {
 	Kind    string   `json:"kind"`
 	ID      string   `json:"id"`
@@ -921,7 +937,7 @@ func (s *Server) handleMailList(c *rux.Context) {
 	if !ok {
 		return
 	}
-	convKey, ok := s.mailConversationQuery(c)
+	convKey, ok := s.mailConversationQuery(c, box)
 	if !ok {
 		return
 	}
@@ -1015,7 +1031,17 @@ func (s *Server) handleMailList(c *rux.Context) {
 		}
 		result = append(result, v)
 	}
-	c.JSON(http.StatusOK, map[string]any{"mail": result, "count": len(result), "has_more": hasMore})
+	c.JSON(http.StatusOK, mailListAnswer{result, len(result), hasMore, conversationRef(convKey)})
+}
+
+// mailListAnswer is the answer of GET /v1/mail. Conversation is additive: it names the one
+// conversation the listing was narrowed to (by peer/with or by conv=<id>), nil otherwise, so a
+// caller that addresses a conversation also knows its short id without a second request.
+func conversationRef(key string) *mailConversationRef {
+	if key == "" {
+		return nil
+	}
+	return &mailConversationRef{ID: mailConversationID(key), Key: key}
 }
 
 // mailBeforeQuery reads ?before= — the id-only cursor of a paged conversation (0 = no cursor);

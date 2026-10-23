@@ -170,6 +170,7 @@ gofer session find 登录 --path web/src -p <project> --limit 5
 gofer session mail send <地址> [--urgent] [--body-file f | 正文]   # 发信
 gofer session mail send --to <地址> [--to <地址>…] <正文>          # 群发：一封给多个会话
 gofer session mail ls [--in|--out] [--thread <串>] [--state <状态>] # 列信（默认收发都列）
+gofer session mail conv <cv-id>     # 按对话 id 看一个对话（双方 + 全部信件，最早在前）
 gofer session mail read <id>        # 读信；读过即视为已送达，之后不会再被注入
 gofer session mail reply <id> <正文>  # 回信：同一对话串，送回发件方（唯一的回复途径）
 gofer session mail cancel <id>      # 撤回还没送达的信（待指派的信被撤回时，它在收集箱里的条目一并丢弃）
@@ -180,6 +181,7 @@ gofer session mail cancel <id>      # 撤回还没送达的信（待指派的信
 gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 ```
 
+- **对话 id**：一组对话（同一对人之间、不分方向的全部信件）有一个稳定短 id `cv-` + 10 位十六进制，由两端地址算出，换个方向、换条对话串都不变。web 信箱右栏头部显示并可以复制它，每封信也能复制自己的 thread id；把它发给人就能定位问题：`gofer session mail conv cv-0123456789` 看这个对话，web 打开 `/mail?conv=cv-0123456789` 直接进这个对话。按 id 取对话只在本调用方可见的范围内找，别人的对话一律 404（与看不到那封信一样）。
 - **地址**：`session:<sid>`（指定会话）、`job:<id>`（运行中的 **ACP 会话 job**：`--session` 起的那个）、`topic:<关键词>`（按会话声明的主题找）、`path:<子路径>`（按范围找）、`caller` 或省略（发给自己的收集箱）。只有**唯一命中**才投递；没有命中、有多个候选或收件方不可投递时，信件转为「待指派」进收集箱，发信的回应里会列出候选，再用 `session:<sid>` 发一次即可（或在 web 的收集箱里改投）。
 - **`job:` 地址**：job 收信只有一个前提——它是 ACP 会话 job（`session: true`），会在 `awaiting_input` 等下一轮输入。**一次性作业（没有 ACP 会话）与已结束的 job 永远收不到信**，所以这种地址在发信时**直接拒绝**（HTTP 409，`job cannot receive mail`），并给出替代做法：发给它背后的会话（`session:<sid>`）、等它结束再读汇报（`gofer job show <id>`）、或给它留评论（`gofer job comment <id> …`）；`job:<id>` 不存在时报 404（`gofer job ls` 看 id）。
 - **出处**：在 agent 会话里发信（环境里有会话标识）显示为「会话 X（调用方 C）」，其它情况是「调用方 C」，job 的 agent 是「job J」。会话标识只是同一调用方内的归属标注，不是认证。

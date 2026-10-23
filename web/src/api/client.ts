@@ -2019,6 +2019,8 @@ export interface ListMailOpts {
   // peer + with（要一起给）：只看这两个参与方之间的一个对话，方向无关、最旧在前。
   peer?: string
   with?: string
+  // conv（对话短 id，cv-…）：只给 id 就能取那一个对话，与 peer/with 互斥。
+  conv?: string
   limit?: number
   offset?: number
   // before：只要 id 更小的信（对话页往上翻的游标）。
@@ -2035,6 +2037,7 @@ export function listMail(opts: ListMailOpts = {}): Promise<MailListResp> {
   if (opts.session) params.set('session', opts.session)
   if (opts.peer) params.set('peer', opts.peer)
   if (opts.with) params.set('with', opts.with)
+  if (opts.conv) params.set('conv', opts.conv)
   if (opts.limit) params.set('limit', String(opts.limit))
   if (opts.offset) params.set('offset', String(opts.offset))
   if (opts.before) params.set('before', String(opts.before))
@@ -2048,6 +2051,8 @@ export interface ListMailConversationsOpts {
   box?: 'in' | 'out' | 'all'
   limit?: number
   offset?: number
+  // conv（对话短 id，cv-…）：按 id 取那一个对话（越权 / 不存在都是 404）。
+  conv?: string
 }
 
 export function listMailConversations(opts: ListMailConversationsOpts = {}): Promise<MailConversationsResp> {
@@ -2055,6 +2060,7 @@ export function listMailConversations(opts: ListMailConversationsOpts = {}): Pro
   if (opts.box) params.set('box', opts.box)
   if (opts.limit) params.set('limit', String(opts.limit))
   if (opts.offset) params.set('offset', String(opts.offset))
+  if (opts.conv) params.set('conv', opts.conv)
   const qs = params.toString()
   return request<MailConversationsResp>(`/v1/mail/conversations${qs ? `?${qs}` : ''}`)
 }
