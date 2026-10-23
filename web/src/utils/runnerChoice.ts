@@ -76,7 +76,7 @@ export function sessionRunnerBlock(runner: MetaRunner, workers: MetaWorker[]): B
   const known = candidates.filter((w) => w.connected && (w.protocol_version ?? 0) > 0)
   if (known.length === 0) return null
   if (known.some((w) => (w.protocol_version ?? 0) >= SESSION_MIN_PROTOCOL)) return null
-  const v = known[0].protocol_version
+  const v = known[0].protocol_version ?? 0
   return {
     short: t('util.runnerChoice.protocolOld.short', { v, min: SESSION_MIN_PROTOCOL }),
     full: t('util.runnerChoice.protocolOld.full', { id: known[0].id, v, min: SESSION_MIN_PROTOCOL }),

@@ -24,7 +24,7 @@ describe('Runners page shows the messenger on both local and worker cards', () =
 describe('MessengerDrawer', () => {
   const drawer = src('MessengerDrawer.vue')
   it('shows status, recent deliveries, stderr and the session list with registration', () => {
-    for (const part of ['data-test="drawer-status"', 'data-test="deliveries"', 'data-test="stderr"', 'data-test="list-agents"', 'data-test="agents-table"', 'data-test="talk-to"', '已登记', '未登记']) {
+    for (const part of ['data-test="drawer-status"', 'data-test="deliveries"', 'data-test="stderr"', 'data-test="list-agents"', 'data-test="agents-table"', 'data-test="talk-to"', "t('runners.messenger.registered')", "t('runners.messenger.unregistered')"]) {
       expect(drawer).toContain(part)
     }
   })

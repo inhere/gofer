@@ -817,7 +817,7 @@ onUnmounted(() => {
               :title="refusedOwnerHelp(s)"
               @click="onTransferOwner(s)"
             >{{ ownerBusyIds.has(s.session_id) ? '…' : transferOwnerLabel(s) }}</button>
-            <span v-if="ownerErrors.get(s.session_id)" class="relay-err mono" data-test="refused-owner-error">{{ t('sessions.card.ownerFailed', { err: ownerErrors.get(s.session_id) }) }}</span>
+            <span v-if="ownerErrors.get(s.session_id)" class="relay-err mono" data-test="refused-owner-error">{{ t('sessions.card.ownerFailed', { err: ownerErrors.get(s.session_id) ?? '' }) }}</span>
             <button class="icard-btn icard-btn--primary mono" type="button" data-test="row-open" @click="openDrawer(s.session_id)">{{ t('sessions.card.open') }}</button>
             <button
               v-if="canGrantSession(whoMode.canManage, s)"
@@ -840,7 +840,7 @@ onUnmounted(() => {
                 type="button"
                 data-test="row-wake"
                 :disabled="!s.can_resume || wakingIds.has(s.session_id)"
-                :title="wakeErrors.get(s.session_id) ? t('sessions.card.wakeFailed', { err: wakeErrors.get(s.session_id) }) : resumeTitle(s)"
+                :title="wakeErrors.get(s.session_id) ? t('sessions.card.wakeFailed', { err: wakeErrors.get(s.session_id) ?? '' }) : resumeTitle(s)"
                 @click="onWake(s)"
               >{{ wakeLabel(s) }}</button>
               <span v-if="wakeErrors.get(s.session_id)" class="relay-err mono" :title="wakeErrors.get(s.session_id)">!</span>

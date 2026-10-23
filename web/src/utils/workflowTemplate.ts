@@ -194,7 +194,7 @@ export function previewSteps(spec: WorkflowSpec): PreviewStep[] {
     const s = st as WorkflowStepSpec & { fan?: FanLike[]; review?: boolean; join?: string; fan_out?: number }
     const agents = s.agents?.length ? s.agents : s.fan?.length ? s.fan.map((f) => f.agent ?? '') : s.agent ? [s.agent] : []
     const badges: string[] = []
-    if (agents.length > 1 || (s.fan_out ?? 0) > 1) badges.push(t('workflows.wizard.parallel', { n: agents.length > 1 ? agents.length : s.fan_out }))
+    if (agents.length > 1 || (s.fan_out ?? 0) > 1) badges.push(t('workflows.wizard.parallel', { n: agents.length > 1 ? agents.length : (s.fan_out ?? 0) }))
     if (s.join) badges.push(`join:${s.join}`)
     if (s.worktree) badges.push('worktree')
     if (s.read_only) badges.push(t('workflows.wizard.readOnly'))
