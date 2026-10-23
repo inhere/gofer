@@ -45,11 +45,12 @@ describe('mobile workbench first paint', () => {
     expect(workbench).toContain('if (fullRefetchTimer != null) window.clearTimeout(fullRefetchTimer)')
   })
 
-  it('does not render the collapsed 已结束 rows at all', () => {
-    expect(sidebar).toContain('<template v-if="collapsedEnded.has(endedKey(project.project_key))">')
-    expect(sidebar).toContain('v-for="thread in endedThreads(project)"')
+  it('does not render the collapsed ended rows at all', () => {
+    // 已结束分组默认折叠（endedOpen = false）：折叠时整组不进 DOM。
+    expect(sidebar).toContain('<template v-if="group !== \'ended\' || endedOpen">')
+    expect(sidebar).toContain(':aria-expanded="endedOpen"')
     // 曾经是 v-show：折叠时照样建 DOM，上百条历史会话一次进场就全渲染。
-    expect(sidebar).not.toContain('v-show="collapsedEnded.has(')
+    expect(sidebar).not.toContain('v-show="endedOpen')
   })
 })
 

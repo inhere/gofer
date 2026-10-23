@@ -1,12 +1,9 @@
 import type { WorkbenchStatus } from '../../api/types'
+import { t } from '../../i18n'
+import { statusFamily, type StatusFamily } from '../../utils/statusFamily'
 
-export function threadStatusPresentation(status: WorkbenchStatus): { label: string; tone: string } {
-  switch (status) {
-    case 'awaiting_input': return { label: '等待输入', tone: 'neutral' }
-    case 'blocked': return { label: 'blocked', tone: 'attention' }
-    case 'review': return { label: 'review', tone: 'attention' }
-    case 'working': return { label: 'working', tone: 'active' }
-    case 'done': return { label: 'done', tone: 'done' }
-    case 'idle': return { label: 'idle', tone: 'neutral' }
-  }
+// 会话状态展示：文字走 i18n（status.<值>），形状与颜色走状态族（设计稿 §5），
+// 替换原来的中文 label + tone 圆点两套表达。
+export function threadStatusPresentation(status: WorkbenchStatus): { label: string; family: StatusFamily } {
+  return { label: t(`status.${status}`), family: statusFamily(status) }
 }

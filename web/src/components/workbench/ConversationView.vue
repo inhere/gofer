@@ -3,16 +3,22 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { streamACPJob } from '../../api/sse'
 import type { AttachmentRef, Interaction, SSEEvent, WorkbenchJobTurn } from '../../api/types'
 import { shouldFollowBottom } from '../../utils/sessionPagination'
+import { formatTime } from '../../utils/format'
+import { t } from '../../i18n'
 import MarkdownBlock from '../MarkdownBlock.vue'
 import AttachmentThumbs from '../AttachmentThumbs.vue'
+import InteractionCard from '../InteractionCard.vue'
+import StatusGlyph from '../../ui/StatusGlyph.vue'
 import {
   acpNoticeText,
-  emptyRoundNote,
-  groupACPRounds,
   isACPEvent,
   isACPNotice,
+  permissionOutcome,
+  timelineBlocks,
   visibleRoundIDs,
   type ACPEvent,
+  type ACPTextEvent,
+  type ACPToolEvent,
 } from './acpEvents'
 
 const props = defineProps<{
@@ -49,15 +55,22 @@ const loadedJobs = new Set<string>()
 const controllers = new Map<string, AbortController>()
 const toolKinds = new Map<string, string>()
 const conversationEl = ref<HTMLElement | null>(null)
+// 工具调用默认折叠（设计稿 §7）：展开状态按轮次记，默认空 = 全部折叠。
+const openToolGroups = ref<Set<string>>(new Set())
 let firstRender = true
 let loadedThreadId = ''
 
 const visibleIds = computed(() => visibleRoundIDs(props.jobIds, visibleCount.value))
-const rounds = computed(() => groupACPRounds(visibleIds.value, eventsByJob.value))
+const rounds = computed(() => visibleIds.value.map((jobId) => ({ jobId, events: eventsByJob.value[jobId] ?? [] })))
 const hiddenRounds = computed(() => Math.max(0, props.jobIds.length - visibleIds.value.length))
 const statusSignature = computed(() => props.jobs.map((job) => `${job.job_id}:${job.status}`).join('|'))
 const runningStatuses = new Set(['queued', 'running', 'awaiting_input', 'waiting_dir', 'recovering', 'pending_interaction'])
 const editingToolKinds = new Set(['edit', 'delete', 'move'])
+// 内嵌的审批卡片只挂在最后一轮（当前这一轮）下面：历史轮次的待办交互没有处理入口。
+const inlineInteractions = computed(() => {
+  const latest = visibleIds.value[visibleIds.value.length - 1]
+  return latest ? props.pendingInteractions : []
+})
 
 function abortAll(): void {
   for (const controller of controllers.values()) controller.abort()
@@ -73,6 +86,7 @@ function resetThread(): void {
   noticesByJob.value = {}
   loadingJobs.value = new Set()
   openJobs.value = new Set()
+  openToolGroups.value = new Set()
   visibleCount.value = 3
   firstRender = true
 }
@@ -133,7 +147,7 @@ async function loadJob(jobId: string): Promise<void> {
   if (loadedJobs.has(jobId) || controllers.has(jobId)) return
   const isLatest = jobId === props.latestJobId
   if (!isLatest && runningStatuses.has(jobStatus(jobId))) {
-    errorsByJob.value = { ...errorsByJob.value, [jobId]: '历史轮次仍在运行，结束后再加载。' }
+    errorsByJob.value = { ...errorsByJob.value, [jobId]: t('workbench.conv.emptyRunning') }
     return
   }
 
@@ -198,11 +212,50 @@ function roundNumber(jobId: string): number {
   return props.jobIds.indexOf(jobId) + 1
 }
 
-// eventAttachments 取下一条消息的附图（gofer-ha0x）：只用在用户消息（prompt）与 agent
-// 回复（message）上；没有这个字段的老服务端会得到空数组，不渲染缩略图区。
-function eventAttachments(event: ACPEvent): AttachmentRef[] {
+function toolsKey(jobId: string, index: number): string {
+  return `${jobId}:${index}`
+}
+
+function isToolsOpen(jobId: string, index: number): boolean {
+  return openToolGroups.value.has(toolsKey(jobId, index))
+}
+
+function toggleTools(jobId: string, index: number): void {
+  const key = toolsKey(jobId, index)
+  const next = new Set(openToolGroups.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  openToolGroups.value = next
+}
+
+function toolTitle(tool: ACPToolEvent): string {
+  return tool.title || tool.tool_kind || 'tool'
+}
+
+function toolSummary(tool: ACPToolEvent): string {
+  const first = tool.locations?.[0]?.path
+  if (first) return first
+  return tool.raw_input ? tool.raw_input.slice(0, 80) : ''
+}
+
+// 历史气泡的附图缩略图：只取 prompt / message 两类文本事件的附图。
+function eventAttachments(event: ACPTextEvent): AttachmentRef[] {
   if (event.kind !== 'prompt' && event.kind !== 'message') return []
   return event.attachments ?? []
+}
+
+function eventTime(event: { seq: number }): string {
+  // 结构化记录没有逐条时间戳：只在该轮有开始时间时给「HH:mm」，否则留空。
+  const job = props.jobs.find((item) => item.job_id === visibleIds.value[0])
+  return job?.started_at && event.seq === 0 ? formatTime(job.started_at) : ''
+}
+
+function emptyNote(status: string, live: boolean): string {
+  if (live && status === 'awaiting_input') return t('workbench.conv.emptyReady')
+  if (live && status !== '' && !['done', 'failed', 'timeout', 'cancelled'].includes(status)) {
+    return t('workbench.conv.emptyRunning')
+  }
+  return t('workbench.conv.emptyNone')
 }
 
 watch(
@@ -225,90 +278,314 @@ onUnmounted(abortAll)
 </script>
 
 <template>
-  <div ref="conversationEl" class="conversation" :class="{ focused }">
+  <div ref="conversationEl" class="conversation" :class="{ focused }" data-test="wb-timeline">
     <div v-if="hiddenRounds > 0" class="load-earlier">
-      <button class="mono" type="button" @click="loadEarlier">
-        加载更早的轮次（还有 {{ hiddenRounds }} 轮）
+      <button class="btn sm" type="button" @click="loadEarlier">
+        {{ t('workbench.conv.loadEarlier', { n: hiddenRounds }) }}
       </button>
     </div>
 
-    <section v-for="round in rounds" :key="round.jobId" class="round">
-      <header class="round-head mono">
-        <span>{{ continuousSession ? '持续会话' : `第 ${roundNumber(round.jobId)} 轮` }}</span>
-        <span>{{ round.jobId }}</span>
-        <span>{{ jobStatus(round.jobId) || 'unknown' }}</span>
-        <RouterLink :to="`/jobs/${encodeURIComponent(round.jobId)}`">查看过程</RouterLink>
+    <section v-for="round in rounds" :key="round.jobId" class="round" :data-job="round.jobId">
+      <header class="round-head">
+        <span>{{ continuousSession ? t('workbench.conv.continuous') : t('workbench.conv.round', { n: roundNumber(round.jobId) }) }}</span>
+        <span class="mono round-id">{{ round.jobId }}</span>
+        <span class="round-status">
+          <StatusGlyph :status="jobStatus(round.jobId)" :size="12" />
+          <span>{{ jobStatus(round.jobId) || 'unknown' }}</span>
+        </span>
+        <RouterLink class="round-link" :to="`/jobs/${encodeURIComponent(round.jobId)}`">{{ t('workbench.conv.viewProcess') }}</RouterLink>
       </header>
 
-      <p v-if="noticesByJob[round.jobId]" class="round-note mono">{{ noticesByJob[round.jobId] }}</p>
-      <p v-else-if="loadingJobs.has(round.jobId) && round.events.length === 0" class="round-note mono">加载结构化记录…</p>
-      <p v-if="errorsByJob[round.jobId]" class="round-error mono">
+      <p v-if="noticesByJob[round.jobId]" class="round-note">{{ noticesByJob[round.jobId] }}</p>
+      <p v-else-if="loadingJobs.has(round.jobId) && round.events.length === 0" class="round-note">{{ t('workbench.conv.loading') }}</p>
+      <p v-if="errorsByJob[round.jobId]" class="round-error">
         {{ errorsByJob[round.jobId] }}
-        <button type="button" @click="retry(round.jobId)">重试</button>
+        <button class="btn sm" type="button" @click="retry(round.jobId)">{{ t('workbench.conv.retry') }}</button>
       </p>
 
-      <div class="events">
-        <template v-for="(event, index) in round.events" :key="`${event.kind}-${event.seq}-${index}`">
-          <div v-if="event.kind === 'prompt'" class="bubble bubble--user">
-            <div class="role mono">YOU</div>
-            <div class="plain-text">{{ event.text }}</div>
-            <AttachmentThumbs v-if="eventAttachments(event).length > 0" :items="eventAttachments(event)" />
-            <span v-if="event.truncated" class="truncated mono">已截断</span>
+      <div class="tl">
+        <template v-for="(block, index) in timelineBlocks(round.events)" :key="`${block.kind}-${index}`">
+          <div v-if="block.kind === 'text' && block.event.kind === 'prompt'" class="msg msg--me">
+            <div class="who">{{ t('workbench.conv.you') }}<span class="muted">{{ eventTime(block.event) }}</span></div>
+            <div class="bubble bubble--user">
+              <div class="plain-text" lang="en">{{ block.event.text }}</div>
+              <AttachmentThumbs v-if="eventAttachments(block.event).length > 0" :items="eventAttachments(block.event)" />
+              <span v-if="block.event.truncated" class="truncated">{{ t('workbench.conv.truncated') }}</span>
+            </div>
           </div>
 
-          <div v-else-if="event.kind === 'message'" class="bubble bubble--assistant">
-            <div class="role mono">ASSISTANT</div>
-            <MarkdownBlock :text="event.text" />
-            <AttachmentThumbs v-if="eventAttachments(event).length > 0" :items="eventAttachments(event)" />
-            <span v-if="event.truncated" class="truncated mono">已截断</span>
+          <div v-else-if="block.kind === 'text'" class="msg">
+            <div class="who">{{ t('workbench.conv.assistant') }}<span class="muted">{{ eventTime(block.event) }}</span></div>
+            <div class="txt">
+              <MarkdownBlock :text="block.event.text" />
+              <AttachmentThumbs v-if="eventAttachments(block.event).length > 0" :items="eventAttachments(block.event)" />
+              <span v-if="block.event.truncated" class="truncated">{{ t('workbench.conv.truncated') }}</span>
+            </div>
           </div>
 
+          <div v-else-if="block.kind === 'permission'" class="inline-approval" :class="{ done: true }" data-test="inline-permission">
+            <div class="ia-head">
+              <StatusGlyph
+                :family="permissionOutcome(block.event) === 'denied' ? 'fail' : 'done'"
+                :size="13"
+              />
+              <span>{{ t(`workbench.conv.permission.${permissionOutcome(block.event)}`) }}</span>
+              <span v-if="block.event.title" class="ia-title">{{ block.event.title }}</span>
+            </div>
+            <div v-if="block.event.reason" class="ia-reason">{{ block.event.reason }}</div>
+          </div>
+
+          <div v-else class="tools" :data-open="isToolsOpen(round.jobId, index)">
+            <button
+              class="tools-sum"
+              type="button"
+              :aria-expanded="isToolsOpen(round.jobId, index)"
+              data-test="tools-toggle"
+              @click="toggleTools(round.jobId, index)"
+            >
+              <span class="caret" aria-hidden="true">{{ isToolsOpen(round.jobId, index) ? '▾' : '▸' }}</span>
+              <span>{{ t('workbench.conv.tools', { n: block.events.length }) }}</span>
+              <span v-if="block.failed > 0" class="tools-fail">{{ t('workbench.conv.toolsFail', { n: block.failed }) }}</span>
+            </button>
+            <div v-if="isToolsOpen(round.jobId, index)" class="tool-list">
+              <div v-for="tool in block.events" :key="tool.tool_call_id" class="tool">
+                <StatusGlyph :status="tool.status" :size="12" />
+                <span class="tool-kind">{{ toolTitle(tool) }}</span>
+                <span class="tool-arg" :title="toolSummary(tool)">{{ toolSummary(tool) }}</span>
+              </div>
+            </div>
+          </div>
         </template>
       </div>
 
-      <p v-if="!loadingJobs.has(round.jobId) && round.events.length === 0 && !errorsByJob[round.jobId] && !noticesByJob[round.jobId]" class="round-note mono">
-        {{ emptyRoundNote(jobStatus(round.jobId), openJobs.has(round.jobId)) }}
+      <p
+        v-if="!loadingJobs.has(round.jobId) && round.events.length === 0 && !errorsByJob[round.jobId] && !noticesByJob[round.jobId]"
+        class="round-note"
+      >
+        {{ emptyNote(jobStatus(round.jobId), openJobs.has(round.jobId)) }}
       </p>
 
+      <!-- 审批卡片内嵌在对话里，可直接处理（设计稿 §7）。 -->
+      <div v-if="round.jobId === visibleIds[visibleIds.length - 1] && inlineInteractions.length > 0" class="conversation-interactions">
+        <InteractionCard
+          v-for="item in inlineInteractions"
+          :key="item.id"
+          :interaction="item"
+          :submitting="submittingInteraction.has(item.id)"
+          @answer="emit('answer', item, $event)"
+          @punt="emit('punt', item)"
+        />
+      </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-.conversation { height: 100%; overflow-y: auto; padding: 12px 14px 28px; background: var(--bg); }
-.load-earlier { display: flex; justify-content: center; margin-bottom: 12px; }
-.load-earlier button, .round-error button { color: var(--phosphor); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px; }
-.round { max-width: 920px; margin: 0 auto 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
-.round-head { display: flex; flex-wrap: wrap; gap: 8px 14px; padding: 7px 10px; border-bottom: 1px solid var(--line); color: var(--queue); font-size: 10px; }
-.events { display: flex; flex-direction: column; gap: 9px; padding: 12px; }
-.bubble { max-width: min(84%, 760px); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
-.bubble--user { align-self: flex-end; background: rgba(100, 170, 255, .09); }
-.bubble--assistant { align-self: flex-start; background: var(--ink); }
-.role { margin-bottom: 5px; color: var(--queue); font-size: 9px; letter-spacing: .08em; }
-.plain-text { white-space: pre-wrap; word-break: break-word; }
-.thought, .tool-card, .plan-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--ink); padding: 8px 10px; }
-.thought summary, .tool-card summary { cursor: pointer; color: var(--queue); }
-.thought pre, .raw { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; color: var(--paper); }
-.tool-dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--queue); }
-.tool-dot--pending, .tool-dot--in_progress { background: var(--run); }
-.tool-dot--completed { background: var(--done); }
-.tool-dot--failed { background: var(--fail); }
-.tool-status { margin-left: 8px; color: var(--queue); font-size: 10px; }
-.locations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.locations button { border: 1px solid var(--line); border-radius: 9px; padding: 1px 7px; background: transparent; color: var(--queue); }
-.locations button:hover, .locations button:focus-visible { border-color: var(--phosphor); color: var(--phosphor); }
-.event-line, .turn-end, .gap, .round-note, .round-error { margin: 0; padding: 7px 10px; color: var(--queue); font-size: 11px; }
-.permission { border-left: 2px solid var(--run); background: rgba(255, 190, 80, .06); }
-.turn-end { border-top: 1px dashed var(--line); text-align: center; }
-.gap { text-align: center; font-style: italic; }
-.plan-card ul { margin: 0; padding-left: 20px; }
-.plan-card li { display: flex; justify-content: space-between; gap: 12px; margin: 4px 0; }
-.truncated { display: inline-block; margin-top: 5px; color: var(--run); font-size: 10px; }
-.round-error { color: var(--fail); }
-.round-error button { margin-left: 8px; }
-.conversation-interactions { padding: 0 12px 12px; }
-@media (max-width: 767px) {
-  .conversation { padding: 8px 8px 20px; }
-  .bubble { max-width: 94%; }
+.conversation {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--s3) var(--s4) var(--s8);
+  background: var(--bg);
+}
+.load-earlier {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--s3);
+}
+.round {
+  max-width: 920px;
+  margin: 0 auto var(--s4);
+}
+.round-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s3);
+  padding: var(--s1) 0 var(--s2);
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  border-bottom: 1px solid var(--line);
+}
+.round-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.round-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.round-link {
+  margin-left: auto;
+  color: var(--accent);
+}
+.tl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s3) 0 0;
+}
+.msg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  max-width: min(88%, 760px);
+}
+.msg--me {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.who {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--fg-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.muted {
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+}
+.bubble,
+.txt {
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  padding: var(--s2) var(--s3);
+  background: var(--surface);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.bubble--user {
+  background: var(--accent-soft);
+  border-color: var(--line);
+}
+.plain-text {
+  white-space: pre-wrap;
+}
+.truncated {
+  display: inline-block;
+  margin-top: 5px;
+  color: var(--time);
+  font-size: var(--fs-xs);
+}
+.tools {
+  align-self: flex-start;
+  max-width: min(88%, 760px);
+}
+.tools-sum {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.tools-sum:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+}
+.tools-sum:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.tools-fail {
+  color: var(--fail);
+}
+.tool-list {
+  margin-top: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--sunken);
+  overflow: hidden;
+}
+.tool {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: var(--s2);
+  align-items: center;
+  padding: 5px var(--s2);
+  color: var(--fg-2);
+  font-size: var(--fs-sm);
+}
+.tool + .tool {
+  border-top: 1px solid var(--line);
+}
+.tool-kind {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.tool-arg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.inline-approval {
+  align-self: flex-start;
+  max-width: min(88%, 760px);
+  padding: var(--s2) var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--need);
+  border-radius: var(--r-panel);
+}
+.inline-approval.done {
+  border-left-color: var(--done);
+}
+.ia-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.ia-title {
+  color: var(--fg-3);
+  font-weight: 400;
+}
+.ia-reason {
+  margin-top: var(--s1);
+  color: var(--fg-2);
+  font-size: var(--fs-sm);
+}
+.round-note,
+.round-error {
+  margin: 0;
+  padding: var(--s2) 0;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+}
+.round-error {
+  color: var(--fail);
+}
+.round-error .btn {
+  margin-left: var(--s2);
+}
+.conversation-interactions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+@media (max-width: 760px) {
+  .conversation {
+    padding: var(--s2) var(--s2) var(--s6);
+  }
+  .msg,
+  .tools,
+  .inline-approval {
+    max-width: 100%;
+  }
 }
 </style>

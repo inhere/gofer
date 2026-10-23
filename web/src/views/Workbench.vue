@@ -9,10 +9,14 @@ import {
   putWorkbenchLayout,
 } from '../api/workbench'
 import type { WorkbenchStatus, WorkbenchThread, WorkbenchThreadsResp } from '../api/types'
+import { t } from '../i18n'
 import WorkbenchComposer from '../components/workbench/WorkbenchComposer.vue'
 import WorkbenchCommandPalette from '../components/workbench/WorkbenchCommandPalette.vue'
+import WorkbenchContext from '../components/workbench/WorkbenchContext.vue'
 import LayoutPane from '../components/workbench/LayoutPane.vue'
 import WorkbenchSidebar from '../components/workbench/WorkbenchSidebar.vue'
+import Drawer from '../ui/Drawer.vue'
+import { useProjectFilter } from '../ui/projectFilter'
 import {
   activateTab,
   activeTab,
@@ -42,6 +46,7 @@ import { createThreadAutoFocus } from '../components/workbench/threadAutoFocus'
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
   focusTurn(): void
+  showView(view: 'process' | 'changes'): void
 }
 
 const response = ref<WorkbenchThreadsResp>({ projects: [], attention: [], total: 0, since: 0 })
@@ -49,9 +54,13 @@ const route = useRoute()
 const router = useRouter()
 const selectedID = ref('')
 const query = ref('')
-const projectFilter = ref('')
+// 项目筛选写进 URL 的 ?project=（设计稿 §6.4）：唯一真源，可分享、可回退。
+const {
+  project: projectFilter,
+  setProject,
+  options: projectOptions,
+} = useProjectFilter('/workbench')
 const statusFilter = ref<WorkbenchStatus | ''>('')
-const projectOptions = ref<string[]>([])
 // exec threads are mostly one-shot build/verify commands; keep them out of the
 // sidebar unless asked for (or still running/blocked, or the open thread).
 const EXEC_PREF_KEY = 'gofer.workbench.showExec'
@@ -71,13 +80,14 @@ function filterGroups(withExec: boolean) {
     .map((group) => ({ ...group, threads: group.threads.filter((thread) => isVisibleThread(thread, now, withExec)) }))
     .filter((group) => group.threads.length > 0)
 }
-const sidebarProjects = computed(() => filterGroups(showExec.value))
+// 侧栏按状态分组（需要你 / 活跃 / 空闲与离线 / 已结束，设计稿 §7），不再按项目分组；
+// 项目是筛选条件（ProjectFilter + ?project=，§6.4）。
+const sidebarThreads = computed(() => filterGroups(showExec.value).flatMap((group) => group.threads))
 const hiddenExecCount = computed(() => {
   if (showExec.value) return 0
   let total = 0
   for (const group of filterGroups(true)) total += group.threads.length
-  for (const group of sidebarProjects.value) total -= group.threads.length
-  return total
+  return total - sidebarThreads.value.length
 })
 
 function readShowExec(): boolean {
@@ -110,6 +120,9 @@ const acpCapabilityError = ref('')
 const maximizedPath = ref('')
 const prefixActive = ref(false)
 const prefixHint = ref('')
+const focusedView = ref<'process' | 'changes'>('process')
+const stoppingFocused = ref(false)
+const wideLayout = ref(false)
 
 // 首次拉取是否已经成功过（onMounted 里 await 过 /v1/workbench/threads）。
 let threadsLoaded = false
@@ -119,6 +132,7 @@ let layoutSaveTimer: number | null = null
 let layoutSaveInFlight = false
 let prefixTimer: number | null = null
 let mobileQuery: MediaQueryList | null = null
+let wideQuery: MediaQueryList | null = null
 let touchStart: { x: number; y: number } | null = null
 
 const threads = computed(() => response.value.projects.flatMap((project) => project.threads))
@@ -184,6 +198,9 @@ async function loadThreads(): Promise<void> {
     loading.value = false
   }
 }
+
+// 项目 chip 只改 URL，取数由下面的 watch 统一触发（换项目也要重拉）。
+watch(projectFilter, () => { void loadThreads() })
 
 // Q3：线程列表由 job（`jobs`）与会话 / 中继决策（`sessions`）汇成；任一失效就重拉，WS 断开
 // 超过 15s 才由 30s 一次的兜底轮询接手（恢复后自动停）。
@@ -272,7 +289,7 @@ async function flushLayoutSave(): Promise<void> {
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
       try {
-        await adoptServerLayout('布局已在别处更新')
+        await adoptServerLayout(t('workbench.notice.moved'))
       } catch (refreshError) {
         error.value = refreshError instanceof Error ? refreshError.message : String(refreshError)
       }
@@ -288,7 +305,7 @@ async function flushLayoutSave(): Promise<void> {
 
 function applyDocument(result: DocumentMutation): void {
   if (result.reason) {
-    layoutNotice.value = result.reason === 'tab_limit' ? '最多只能打开 8 个标签页' : '布局操作未生效'
+    layoutNotice.value = result.reason === 'tab_limit' ? t('workbench.notice.tabLimit') : t('workbench.notice.rejected')
     return
   }
   if (result.document === layoutDocument.value) return
@@ -302,9 +319,9 @@ function updateCurrentTab(root = currentTab.value.root, focused = currentTab.val
 }
 
 function layoutRejectMessage(reason: string): string {
-  if (reason === 'pane_limit') return '每个标签页最多只能有 4 个窗格'
-  if (reason === 'tab_limit') return '最多只能打开 8 个标签页'
-  return '布局操作未生效'
+  if (reason === 'pane_limit') return t('workbench.notice.paneLimit')
+  if (reason === 'tab_limit') return t('workbench.notice.tabLimit')
+  return t('workbench.notice.rejected')
 }
 
 function applyTreeMutation(result: TreeMutation): void {
@@ -348,7 +365,7 @@ function toggleMaximize(): void {
 function dropThread(path: string, threadID: string, edge: 'center' | 'left' | 'right' | 'top' | 'bottom'): void {
   const thread = threadsByID.value.get(threadID)
   if (!thread) {
-    layoutNotice.value = '拖入的会话已不在当前列表中'
+    layoutNotice.value = t('workbench.notice.dropMissing')
     return
   }
   if (edge === 'center') {
@@ -509,7 +526,7 @@ function clearPrefix(): void {
 function startPrefix(): void {
   clearPrefix()
   prefixActive.value = true
-  prefixHint.value = 'ctrl+b：% 左右 · " 上下 · 方向键焦点 · x 关闭 · z 最大化 · c 新标签 · n/p/1–8 切标签'
+  prefixHint.value = t('workbench.prefix.hint')
   prefixTimer = window.setTimeout(clearPrefix, 1500)
 }
 
@@ -540,7 +557,7 @@ function handlePrefixKey(event: KeyboardEvent): void {
   else if (key.toLowerCase() === 'n') cycleTab(1)
   else if (key.toLowerCase() === 'p') cycleTab(-1)
   else if (/^[1-8]$/.test(key)) jumpTab(Number(key) - 1)
-  else if (key !== 'Escape') layoutNotice.value = `未知布局快捷键：${key}`
+  else if (key !== 'Escape') layoutNotice.value = t('workbench.notice.unknownKey', { key })
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -592,8 +609,7 @@ function cycleMRU(step: number): void {
 }
 
 function switchProject(project: string): void {
-  projectFilter.value = project
-  void loadThreads()
+  setProject(project)
 }
 
 function paletteAction(action: 'stop' | 'continue' | 'detail' | 'split-h' | 'split-v' | 'close-pane' | 'maximize' | 'new-tab'): void {
@@ -622,11 +638,34 @@ watch(
 )
 
 
+function onWideQuery(event: MediaQueryListEvent | MediaQueryList): void {
+  wideLayout.value = event.matches
+}
+
+// 右侧上下文栏只在 ≥1280 显示（设计稿 §4.3：1100–1279 不显示右栏）。
+function stopFocused(): void {
+  if (!focusedActions.value) return
+  stoppingFocused.value = true
+  void focusedActions.value.stopCurrent().finally(() => { stoppingFocused.value = false })
+}
+
+function showFocusedView(view: 'process' | 'changes'): void {
+  focusedView.value = view
+  focusedActions.value?.showView(view)
+}
+
+function openJobDetail(id: string): void {
+  void router.push(`/jobs/${encodeURIComponent(id)}`)
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown, true)
   mobileQuery = window.matchMedia('(max-width: 767px)')
   onMobileQuery(mobileQuery)
   mobileQuery.addEventListener('change', onMobileQuery)
+  wideQuery = window.matchMedia('(min-width: 1280px)')
+  onWideQuery(wideQuery)
+  wideQuery.addEventListener('change', onWideQuery)
   const layoutPromise = getWorkbenchLayout().catch((e) => {
     error.value = e instanceof Error ? e.message : String(e)
     return null
@@ -669,6 +708,8 @@ onUnmounted(() => {
   clearPrefix()
   mobileQuery?.removeEventListener('change', onMobileQuery)
   mobileQuery = null
+  wideQuery?.removeEventListener('change', onWideQuery)
+  wideQuery = null
   window.removeEventListener('keydown', onKeydown, true)
   document.title = 'gofer'
 })
@@ -680,17 +721,18 @@ onUnmounted(() => {
     <p v-if="error" class="page-error mono">{{ error }}</p>
     <p v-if="layoutNotice" class="layout-notice mono">
       {{ layoutNotice }}
-      <button type="button" aria-label="关闭布局提示" @click="layoutNotice = ''">×</button>
+      <button type="button" :aria-label="t('workbench.error.dismiss')" @click="layoutNotice = ''">×</button>
     </p>
     <div
       class="workbench-body"
-      :class="[`mobile--${mobilePane}`]"
+      :class="[`mobile--${mobilePane}`, { 'workbench-body--wide': wideLayout && !mobileLayout }]"
       @touchstart.passive="onTouchStart"
       @touchend.passive="onTouchEnd"
     >
       <WorkbenchSidebar
+        v-if="!mobileLayout"
         ref="sidebar"
-        :projects="sidebarProjects"
+        :threads="sidebarThreads"
         :show-exec="showExec"
         :hidden-exec-count="hiddenExecCount"
         :selected-id="selectedID"
@@ -700,21 +742,49 @@ onUnmounted(() => {
         :project-options="projectOptions"
         @select="selectThread"
         @update:query="query = $event; refreshFilter()"
-        @update:project-filter="projectFilter = $event; refreshFilter()"
+        @update:project-filter="setProject"
         @update:status-filter="statusFilter = $event; refreshFilter()"
         @update:show-exec="setShowExec"
         @new="composer?.focusPrompt()"
       />
+      <!-- 手机：会话列表是左侧抽屉（设计稿 §6.3） -->
+      <Drawer
+        v-else
+        :model-value="mobilePane === 'sidebar'"
+        side="left"
+        width="320px"
+        :label="t('workbench.mobile.list')"
+        @update:model-value="mobilePane = $event ? 'sidebar' : 'main'"
+      >
+        <WorkbenchSidebar
+          ref="sidebar"
+          :threads="sidebarThreads"
+          :show-exec="showExec"
+          :hidden-exec-count="hiddenExecCount"
+          :selected-id="selectedID"
+          :query="query"
+          :project-filter="projectFilter"
+          :status-filter="statusFilter"
+          :project-options="projectOptions"
+          @select="selectThread"
+          @update:query="query = $event; refreshFilter()"
+          @update:project-filter="setProject"
+          @update:status-filter="statusFilter = $event; refreshFilter()"
+          @update:show-exec="setShowExec"
+          @new="composer?.focusPrompt()"
+        />
+      </Drawer>
       <main class="workbench-main">
         <div class="tabs-row">
         <button
           v-if="mobilePane === 'main'"
-          class="session-new mono"
+          class="session-new"
           type="button"
-          aria-label="发起新会话"
+          :aria-label="t('workbench.new.launch')"
+          data-test="mobile-new-session"
           @click="composer?.focusPrompt()"
         >＋</button>
-        <nav class="layout-tabs" aria-label="工作台标签页">
+        <nav class="layout-tabs" :aria-label="t('workbench.tabs.label')">
           <div
             v-for="tab in layoutDocument.tabs"
             :key="tab.id"
@@ -724,15 +794,15 @@ onUnmounted(() => {
             <input
               v-if="editingTabID === tab.id"
               v-model="tabTitleDraft"
-              class="tab-title-input mono"
-              aria-label="重命名标签页"
+              class="tab-title-input"
+              :aria-label="t('workbench.tabs.rename')"
               @blur="finishRenameTab"
               @keydown.enter.prevent="finishRenameTab"
               @keydown.esc.prevent="editingTabID = ''"
             />
             <button
               v-else
-              class="tab-select mono"
+              class="tab-select"
               type="button"
               :aria-current="tab.id === layoutDocument.active_tab_id ? 'page' : undefined"
               @click="selectTab(tab.id)"
@@ -740,11 +810,11 @@ onUnmounted(() => {
             >
               {{ tab.title }}
             </button>
-            <button class="tab-close mono" type="button" :aria-label="`关闭 ${tab.title}`" @click="removeTab(tab.id)">×</button>
+            <button class="tab-close" type="button" :aria-label="t('workbench.tabs.close', { title: tab.title })" @click="removeTab(tab.id)">×</button>
           </div>
-          <button class="tab-new mono" type="button" title="新标签" @click="createTab">＋</button>
+          <button class="tab-new" type="button" :title="t('workbench.tabs.new')" @click="createTab">＋</button>
           <span v-if="prefixActive" class="prefix-status mono">{{ prefixHint }}</span>
-          <span class="layout-version mono">v{{ layoutVersion }}<template v-if="layoutSaving"> · 保存中…</template></span>
+          <span class="layout-version mono">v{{ layoutVersion }}<template v-if="layoutSaving"> · {{ t('workbench.tabs.saving') }}</template></span>
         </nav>
         </div>
         <div class="layout-surface">
@@ -761,9 +831,20 @@ onUnmounted(() => {
             @ratio="resizeSplit"
             @drop-thread="dropThread"
           />
-          <div v-else class="empty-main mono">{{ loading ? '加载会话与布局…' : '点左侧「＋ 新会话」开始，或从左侧选择一个会话。' }}</div>
+          <div v-else class="empty-main">{{ loading ? t('workbench.loading') : t('workbench.empty.start') }}</div>
         </div>
       </main>
+      <!-- 右侧上下文栏（≥1280，设计稿 §7）：会话信息、轮数、未提交数、关联任务、改动文件、计划、权限 -->
+      <WorkbenchContext
+        v-if="wideLayout && !mobileLayout && selectedThread"
+        :thread="selectedThread"
+        :view="focusedView"
+        :can-stop="!!focusedActions"
+        :stopping="stoppingFocused"
+        @show-view="showFocusedView"
+        @stop="stopFocused"
+        @open-job="openJobDetail"
+      />
     </div>
     <WorkbenchCommandPalette
       :open="paletteOpen"
@@ -780,37 +861,40 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.workbench-page { height: calc(100vh - 57px); min-height: 520px; display: flex; flex-direction: column; overflow: hidden; background: var(--ink); }
-.tabs-row { flex: none; display: flex; align-items: center; gap: 8px; padding-right: 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.workbench-page { height: calc(100vh - 57px); min-height: 520px; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+.tabs-row { flex: none; display: flex; align-items: center; gap: var(--s1); padding-right: var(--s1); background: var(--surface-2); border-bottom: 1px solid var(--line); }
 .tabs-row .layout-tabs { flex: 1 1 auto; border-bottom: 0; }
 .session-new { display: none; }
-.page-error { flex: none; margin: 0; padding: 7px 12px; color: var(--fail); background: rgba(200,70,70,.08); border-bottom: 1px solid var(--line); }
-.layout-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 7px 12px; color: var(--run); background: rgba(255,185,80,.08); border-bottom: 1px solid var(--line); }
-.layout-notice button { color: inherit; background: transparent; border: 0; font-size: 16px; }
+.page-error { flex: none; margin: 0; padding: 6px var(--s3); color: var(--fail); background: var(--fail-soft, rgba(182,56,47,.08)); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.layout-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin: 0; padding: 6px var(--s3); color: var(--run); background: var(--surface); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.layout-notice button { color: inherit; background: transparent; border: 0; font-size: 16px; cursor: pointer; }
 .workbench-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 24vw) minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
+/* ≥1280 多一列上下文栏（设计稿 §4.3；1100–1279 不显示） */
+.workbench-body--wide { grid-template-columns: minmax(240px, 20vw) minmax(0,1fr) minmax(260px, 20vw); }
 .workbench-main { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-.layout-tabs { flex: none; min-width: 0; display: flex; align-items: stretch; gap: 2px; padding: 5px 7px 0; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; }
-.layout-tab { flex: none; display: flex; align-items: center; max-width: 220px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; }
-.layout-tab.active { background: var(--ink); border-color: var(--line); }
-.tab-select, .tab-close, .tab-new { color: var(--queue); background: transparent; border: 0; }
-.tab-select { min-width: 70px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 7px 5px 7px 9px; }
-.layout-tab.active .tab-select { color: var(--paper); }
-.tab-close { padding: 7px 7px 7px 3px; }
-.tab-new { padding: 5px 10px; font-size: 16px; }
-.tab-select:hover, .tab-close:hover, .tab-new:hover { color: var(--phosphor); }
-.tab-title-input { width: 130px; margin: 3px; padding: 3px 5px; color: var(--paper); background: var(--ink); border: 1px solid var(--phosphor); }
-.layout-version { margin-left: auto; align-self: center; padding: 0 5px; color: var(--queue); font-size: 10px; white-space: nowrap; }
-.prefix-status { align-self: center; margin-left: auto; color: var(--run); font-size: 10px; white-space: nowrap; }
+.layout-tabs { flex: none; min-width: 0; display: flex; align-items: stretch; gap: 2px; padding: 4px var(--s1) 0; background: var(--surface-2); border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.layout-tabs::-webkit-scrollbar { display: none; }
+.layout-tab { flex: none; display: flex; align-items: center; max-width: 220px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
+.layout-tab.active { background: var(--bg); border-color: var(--line); }
+.tab-select, .tab-close, .tab-new { color: var(--fg-3); background: transparent; border: 0; font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.tab-select { min-width: 70px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 4px 6px var(--s2); }
+.layout-tab.active .tab-select { color: var(--fg); }
+.tab-close { padding: 6px 6px 6px 2px; }
+.tab-new { padding: 4px var(--s2); font-size: 16px; }
+.tab-select:hover, .tab-close:hover, .tab-new:hover { color: var(--accent); }
+.tab-select:focus-visible, .tab-close:focus-visible, .tab-new:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; }
+.tab-title-input { width: 130px; margin: 2px; padding: 2px 4px; color: var(--fg); background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r-chip); font: inherit; font-size: var(--fs-sm); }
+.layout-version { margin-left: auto; align-self: center; padding: 0 5px; color: var(--fg-3); font-size: var(--fs-xs); white-space: nowrap; }
+.prefix-status { align-self: center; margin-left: auto; color: var(--run); font-size: var(--fs-xs); white-space: nowrap; }
 .prefix-status + .layout-version { margin-left: 0; }
 .layout-surface { flex: 1; min-width: 0; min-height: 0; position: relative; }
-.empty-main { color: var(--queue); }
-@media (max-width: 767px) {
+.empty-main { color: var(--fg-3); padding: var(--s4); }
+@media (max-width: 760px) {
   .workbench-page { height: calc(100vh - 53px); }
-  .workbench-body { grid-template-columns: 1fr; }
+  .workbench-body, .workbench-body--wide { grid-template-columns: 1fr; }
   .workbench-body.mobile--sidebar .workbench-main { display: none; }
-  .workbench-body.mobile--main :deep(.wb-sidebar) { display: none; }
   .layout-tabs { padding-right: 48px; }
-  .session-new { display: grid; place-items: center; flex: none; width: 34px; height: 34px; color: var(--ink); background: var(--phosphor); border: 0; border-radius: var(--radius); font-size: 20px; }
+  .session-new { display: grid; place-items: center; flex: none; width: 34px; height: 34px; color: var(--bg); background: var(--accent); border: 0; border-radius: var(--r-ctl); font-size: 20px; cursor: pointer; }
   .layout-version, .prefix-status { display: none; }
 }
 </style>

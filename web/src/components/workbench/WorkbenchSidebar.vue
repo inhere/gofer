@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import type { WorkbenchProjectGroup, WorkbenchStatus, WorkbenchThread } from '../../api/types'
+import { computed, ref } from 'vue'
+import type { WorkbenchStatus, WorkbenchThread } from '../../api/types'
+import { t } from '../../i18n'
+import { formatDuration, formatRelative } from '../../utils/format'
+import FilterChips from '../../ui/FilterChips.vue'
+import ProjectFilter from '../../ui/ProjectFilter.vue'
+import StatusGlyph from '../../ui/StatusGlyph.vue'
 import { WORKBENCH_THREAD_DRAG_TYPE } from './layoutTree'
-import { threadStatusPresentation } from './statusPresentation'
+import { groupThreads, THREAD_GROUP_ORDER, threadGroup, threadGroupLabelKey } from './threadGroups'
 
-defineProps<{
-  projects: WorkbenchProjectGroup[]
+const props = defineProps<{
+  threads: WorkbenchThread[]
   selectedId: string
   query: string
   projectFilter: string
@@ -24,61 +29,46 @@ const emit = defineEmits<{
   (e: 'new'): void
 }>()
 
-const collapsed = ref<Set<string>>(new Set())
-const collapsedEnded = ref<Set<string>>(new Set())
+// 已结束分组默认折叠（上百条历史会话不一次进场全建 DOM）。
+const endedOpen = ref(false)
 const searchInput = ref<HTMLInputElement | null>(null)
 
-function toggleProject(key: string): void {
-  const next = new Set(collapsed.value)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  collapsed.value = next
+const grouped = computed(() => groupThreads(props.threads))
+
+function rowsOf(group: (typeof THREAD_GROUP_ORDER)[number]): WorkbenchThread[] {
+  const rows = grouped.value[group]
+  return group === 'ended' && !endedOpen.value ? [] : rows
 }
 
-function endedKey(projectKey: string): string {
-  return `${projectKey}:ended`
+const statusItems = computed(() => [
+  { value: '', label: t('workbench.status.all') },
+  { value: 'blocked', label: t('status.blocked') },
+  { value: 'review', label: t('status.review') },
+  { value: 'awaiting_input', label: t('status.awaiting_input') },
+  { value: 'working', label: t('status.working') },
+  { value: 'idle', label: t('status.idle') },
+  { value: 'done', label: t('status.done') },
+])
+
+function turnsText(thread: WorkbenchThread): string {
+  return thread.turns > 1 ? t('workbench.row.turns', { n: thread.turns }) : ''
 }
 
-function liveThreads(project: WorkbenchProjectGroup): WorkbenchThread[] {
-  return project.threads.filter((thread) => thread.status !== 'done')
-}
-
-function endedThreads(project: WorkbenchProjectGroup): WorkbenchThread[] {
-  return project.threads.filter((thread) => thread.status === 'done')
-}
-
-function toggleEnded(projectKey: string): void {
-  const key = endedKey(projectKey)
-  const next = new Set(collapsedEnded.value)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  collapsedEnded.value = next
-}
-
-function onQuery(event: Event): void {
-  emit('update:query', (event.target as HTMLInputElement).value)
-}
-
-function onProject(event: Event): void {
-  emit('update:projectFilter', (event.target as HTMLSelectElement).value)
-}
-
-function onStatus(event: Event): void {
-  emit('update:statusFilter', (event.target as HTMLSelectElement).value as WorkbenchStatus | '')
-}
-
-function ago(ts: number): string {
-  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - ts)
-  if (seconds < 60) return `${seconds}s`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
-  return `${Math.floor(seconds / 86400)}d`
-}
-
-function usage(thread: WorkbenchThread): string {
+function usageText(thread: WorkbenchThread): string {
   const tokens = thread.usage?.total_tokens ?? 0
   if (tokens <= 0) return ''
-  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens)
+  return t('workbench.row.tokens', { n: formatNumber(tokens) })
+}
+
+function formatNumber(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+}
+
+function durationText(thread: WorkbenchThread): string {
+  const started = thread.started_at
+  const ended = thread.status === 'done' ? thread.updated_at : Math.floor(Date.now() / 1000)
+  if (!started || ended < started) return ''
+  return formatDuration((ended - started) * 1000)
 }
 
 function focusSearch(): void {
@@ -96,147 +86,318 @@ defineExpose({ focusSearch })
 </script>
 
 <template>
-  <aside class="wb-sidebar" aria-label="工作台会话列表">
-    <div class="sidebar-filters">
-      <button class="new-thread mono" type="button" title="发起新会话（Ctrl/Cmd+K → 新会话）" @click="emit('new')">＋ 新会话</button>
+  <aside class="wb-sidebar" :aria-label="t('workbench.list.label')">
+    <div class="wb-list-head">
+      <h2 class="wb-title">{{ t('workbench.list.title') }}</h2>
+      <ProjectFilter
+        :model-value="projectFilter"
+        :options="projectOptions"
+        @update:model-value="emit('update:projectFilter', $event)"
+      />
+      <button
+        class="icon-btn new-thread"
+        type="button"
+        :title="t('workbench.list.newTitle')"
+        :aria-label="t('workbench.list.new')"
+        data-test="workbench-new"
+        @click="emit('new')"
+      >
+        ＋
+      </button>
+    </div>
+
+    <div class="wb-filters">
       <input
         ref="searchInput"
-        class="filter-input mono"
+        class="input wb-search"
         type="search"
         :value="query"
-        placeholder="/ 搜索会话"
-        aria-label="搜索会话"
-        @input="onQuery"
+        :placeholder="t('workbench.list.searchPlaceholder')"
+        :aria-label="t('workbench.list.search')"
+        @input="emit('update:query', ($event.target as HTMLInputElement).value)"
       />
-      <div class="filter-row">
-        <select class="filter-select mono" :value="projectFilter" aria-label="筛选项目" @change="onProject">
-          <option value="">全部项目</option>
-          <option v-for="key in projectOptions" :key="key" :value="key">{{ key || '未归属' }}</option>
-        </select>
-        <select class="filter-select mono" :value="statusFilter" aria-label="筛选状态" @change="onStatus">
-          <option value="">全部状态</option>
-          <option value="blocked">blocked</option>
-          <option value="working">working</option>
-          <option value="awaiting_input">等待输入</option>
-          <option value="review">review</option>
-          <option value="done">done</option>
-          <option value="idle">idle</option>
-        </select>
-      </div>
-      <label class="exec-toggle mono">
-        <input type="checkbox" :checked="showExec" @change="emit('update:showExec', ($event.target as HTMLInputElement).checked)" />
-        显示 exec 命令会话<span v-if="!showExec && hiddenExecCount > 0">（已隐藏 {{ hiddenExecCount }}）</span>
+      <FilterChips
+        :items="statusItems"
+        :model-value="statusFilter"
+        :label="t('act.filter')"
+        @update:model-value="emit('update:statusFilter', ($event as WorkbenchStatus | '') ?? '')"
+      />
+      <label class="exec-toggle">
+        <input
+          type="checkbox"
+          :checked="showExec"
+          @change="emit('update:showExec', ($event.target as HTMLInputElement).checked)"
+        />
+        {{ t('workbench.list.showExec') }}
+        <span v-if="!showExec && hiddenExecCount > 0" class="exec-hidden">
+          {{ t('workbench.list.hiddenExec', { n: hiddenExecCount }) }}
+        </span>
       </label>
     </div>
 
-    <div class="project-list">
-      <section v-for="project in projects" :key="project.project_key" class="project-group">
-        <button class="project-row mono" type="button" @click="toggleProject(project.project_key)">
-          <span class="caret">{{ collapsed.has(project.project_key) ? '▸' : '▾' }}</span>
-          <span class="status-dot" :class="`status--${project.status}`"></span>
-          <span class="project-name">{{ project.project_key || '未归属' }}</span>
-          <span class="project-count">{{ project.counts.total }}</span>
-          <span v-if="project.counts.orphan_blocked" class="orphan-count">+{{ project.counts.orphan_blocked }} 待处理</span>
-        </button>
-        <div v-if="!collapsed.has(project.project_key)" class="thread-list">
+    <div class="wb-sessions">
+      <section v-for="group in THREAD_GROUP_ORDER" :key="group" class="sess-group" :data-group="group">
+        <template v-if="group === 'ended'">
           <button
-            v-for="thread in liveThreads(project)"
-            :key="thread.id"
-            class="thread-row"
-            :class="{ selected: selectedId === thread.id }"
+            v-if="grouped.ended.length"
+            class="group-head ended-toggle"
             type="button"
+            :aria-expanded="endedOpen"
+            @click="endedOpen = !endedOpen"
+          >
+            <span class="caret" aria-hidden="true">{{ endedOpen ? '▾' : '▸' }}</span>
+            <span class="group-name">{{ t(threadGroupLabelKey(group)) }}</span>
+            <span class="group-count">{{ grouped.ended.length }}</span>
+          </button>
+        </template>
+        <button v-else-if="grouped[group].length" class="group-head" type="button" disabled>
+          <span class="group-name">{{ t(threadGroupLabelKey(group)) }}</span>
+          <span class="group-count">{{ grouped[group].length }}</span>
+        </button>
+        <template v-if="group !== 'ended' || endedOpen">
+          <button
+            v-for="thread in rowsOf(group)"
+            :key="thread.id"
+            class="sess"
+            :class="{ selected: selectedId === thread.id, 'sess--ended': group === 'ended' }"
+            type="button"
+            :aria-current="selectedId === thread.id ? 'true' : undefined"
             draggable="true"
+            :data-thread-group="threadGroup(thread.status)"
             @click="emit('select', thread)"
             @dragstart="startDrag($event, thread)"
           >
-            <span class="status-dot" :class="[`status--${threadStatusPresentation(thread.status).tone}`, { stalled: thread.stalled }]" :title="thread.stalled ? '疑似卡住' : threadStatusPresentation(thread.status).label"></span>
-            <span class="thread-main">
-              <span class="thread-title" :title="thread.title">{{ thread.pinned ? '⌖ ' : '' }}{{ thread.title }}</span>
-              <span class="thread-meta mono">
-                {{ thread.agent || thread.kind }}
-                <template v-if="thread.turns > 1"> · {{ thread.turns }} turns</template>
-              </span>
+            <StatusGlyph :status="thread.status" :label="t(`status.${thread.status}`)" :size="13" />
+            <span class="nm" :title="thread.title">
+              <span v-if="thread.pinned" class="pinned" aria-hidden="true">⌖</span>{{ thread.title }}
             </span>
-            <span class="thread-side mono">
-              <span>{{ ago(thread.updated_at) }}</span>
-              <span v-if="usage(thread)">{{ usage(thread) }} tok</span>
+            <span class="tm">{{ formatRelative(thread.updated_at) }}</span>
+            <span class="ln">
+              <span class="ln-agent">{{ thread.agent || thread.kind }}</span>
+              <span v-if="turnsText(thread)" class="ln-meta">{{ turnsText(thread) }}</span>
+              <span v-if="durationText(thread)" class="ln-meta">{{ durationText(thread) }}</span>
+              <span v-if="usageText(thread)" class="ln-meta">{{ usageText(thread) }}</span>
+              <span v-if="thread.stalled" class="ln-stalled" :title="t('workbench.stalled')">stalled</span>
+              <span v-if="thread.status === 'awaiting_input' && !thread.seen_at" class="ln-new" aria-hidden="true">●</span>
             </span>
           </button>
-          <button
-            v-if="endedThreads(project).length"
-            class="ended-toggle mono"
-            type="button"
-            @click="toggleEnded(project.project_key)"
-          >
-            {{ collapsedEnded.has(endedKey(project.project_key)) ? '▾' : '▸' }} 已结束 ({{ endedThreads(project).length }})
-          </button>
-          <!-- 默认折叠的「已结束」分组不进 DOM（v-if）：只有展开时才渲染这些行，
-               否则一次进场就要为上百条历史会话建节点（手机版反馈的列表卡顿）。 -->
-          <template v-if="collapsedEnded.has(endedKey(project.project_key))">
-            <button
-              v-for="thread in endedThreads(project)"
-              :key="`ended-${thread.id}`"
-              class="thread-row thread-row--ended"
-              :class="{ selected: selectedId === thread.id }"
-              type="button"
-              draggable="true"
-              @click="emit('select', thread)"
-              @dragstart="startDrag($event, thread)"
-            >
-              <span class="status-dot status--done"></span>
-              <span class="thread-main">
-                <span class="thread-title" :title="thread.title">{{ thread.pinned ? '⌖ ' : '' }}{{ thread.title }}</span>
-                <span class="thread-meta mono">{{ thread.agent || thread.kind }}</span>
-              </span>
-              <span class="thread-side mono"><span>{{ ago(thread.updated_at) }}</span></span>
-            </button>
-          </template>
-          <p v-if="project.threads.length === 0" class="empty mono">无匹配会话</p>
-        </div>
+        </template>
       </section>
-      <p v-if="projects.length === 0" class="empty mono">暂无匹配会话</p>
+      <p v-if="threads.length === 0" class="empty">{{ t('workbench.list.empty') }}</p>
     </div>
   </aside>
 </template>
 
 <style scoped>
-.wb-sidebar { min-width: 0; height: 100%; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
-.sidebar-filters { padding: 10px; border-bottom: 1px solid var(--line); }
-.new-thread { width: 100%; margin-bottom: 8px; padding: 7px 8px; color: var(--ink); background: var(--phosphor); border: 1px solid var(--phosphor); border-radius: var(--radius); font-weight: 700; cursor: pointer; }
-.new-thread:hover { opacity: .9; }
-.filter-input, .filter-select { width: 100%; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 8px; }
-.filter-input:focus, .filter-select:focus { outline: 1px solid var(--phosphor); border-color: var(--phosphor); }
-.filter-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }
-.filter-select { min-width: 0; font-size: 11px; }
-.exec-toggle { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 11px; color: var(--muted, #8a97a3); cursor: pointer; }
-.project-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.project-group { border-bottom: 1px solid var(--line); }
-.project-row { width: 100%; display: flex; align-items: center; gap: 7px; padding: 8px 10px; color: var(--paper); background: transparent; border: 0; text-align: left; }
-.project-row:hover { background: rgba(255,255,255,.035); }
-.caret { color: var(--queue); width: 10px; }
-.project-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-count { color: var(--queue); }
-.orphan-count { color: var(--run); font-size: 10px; }
-.thread-row { width: 100%; display: grid; grid-template-columns: 10px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 8px 10px 8px 24px; color: var(--paper); background: transparent; border: 0; border-top: 1px solid rgba(255,255,255,.025); text-align: left; }
-.thread-row:hover { background: rgba(255,255,255,.045); }
-.thread-row.selected { background: color-mix(in srgb, var(--phosphor) 12%, transparent); box-shadow: inset 2px 0 var(--phosphor); }
-.thread-row--ended { opacity: .78; }
-.ended-toggle { width: 100%; padding: 7px 10px 7px 24px; color: var(--queue); background: transparent; border: 0; text-align: left; font-size: 11px; }
-.ended-toggle:hover { color: var(--paper); background: rgba(255,255,255,.035); }
-.thread-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.thread-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.thread-meta, .thread-side { color: var(--queue); font-size: 10px; }
-.thread-side { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
-.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--queue); flex: none; }
-.status--attention { background: var(--fail); }
-.status--active { background: var(--phosphor); }
-.status--done { background: var(--done); }
-.status--neutral { background: var(--queue); }
-.status-dot.stalled { box-shadow: 0 0 0 2px var(--run); }
-.empty { color: var(--queue); padding: 14px; margin: 0; font-size: 11px; }
-@media (max-width: 640px) {
-  .exec-toggle { display: none; }
-  .sidebar-filters { padding: 8px; }
-  .new-thread { margin-bottom: 6px; }
+.wb-sidebar {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border-right: 1px solid var(--line);
+}
+.wb-list-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s3) var(--s2);
+}
+.wb-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.icon-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.icon-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.icon-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.wb-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: 0 var(--s3) var(--s2);
+  border-bottom: 1px solid var(--line);
+}
+.wb-search {
+  width: 100%;
+  min-height: 32px;
+  padding: 2px var(--s2);
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.wb-search:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.exec-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.exec-hidden {
+  color: var(--fg-3);
+}
+.wb-sessions {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--s2) var(--s3);
+}
+.sess-group + .sess-group {
+  margin-top: var(--s2);
+}
+.group-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s1) var(--s2);
+  background: none;
+  border: 0;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+}
+.group-name {
+  flex: 1;
+}
+.group-count {
+  font-variant-numeric: tabular-nums;
+}
+.ended-toggle {
+  cursor: pointer;
+}
+.ended-toggle:hover {
+  color: var(--fg);
+}
+.caret {
+  width: 10px;
+}
+.sess {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px var(--s2);
+  align-items: center;
+  padding: var(--s2);
+  background: none;
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sess:hover {
+  background: var(--sunken);
+}
+.sess:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.sess.selected {
+  background: var(--surface);
+  box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line);
+}
+.sess--ended {
+  opacity: 0.78;
+}
+.nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.pinned {
+  margin-right: 3px;
+  color: var(--accent);
+}
+.tm {
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.ln {
+  grid-column: 2 / 4;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  min-width: 0;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
+.ln-agent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ln-meta {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.ln-stalled {
+  flex: none;
+  color: var(--need);
+}
+.ln-new {
+  flex: none;
+  color: var(--need);
+  font-size: 8px;
+}
+.empty {
+  margin: 0;
+  padding: var(--s3);
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+}
+/* 手机：exec 开关收进抽屉的筛选区之外会挤，保持隐藏（旧行为）。 */
+@media (max-width: 760px) {
+  .exec-toggle {
+    display: none;
+  }
+  .wb-list-head {
+    padding: var(--s2);
+  }
+  .sess {
+    min-height: 44px;
+  }
 }
 </style>

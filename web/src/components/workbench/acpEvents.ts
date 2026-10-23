@@ -199,12 +199,55 @@ export function groupACPRounds(
 ): ACPRound[] {
   return jobIds.map((jobId) => ({
     jobId,
-    // The workbench conversation is only the user's words and the agent's
-    // reply. Tool calls, thoughts, approvals and usage stay in job detail.
+    // The workbench timeline keeps the user's words, the agent's reply, the tool
+    // calls (collapsed by default, design §7) and the permission decisions that
+    // are shown inline as approval cards. Thoughts / plans / usage / stop stay in
+    // the job detail.
     events: reduceACPEvents(eventsByJob[jobId] ?? []).filter(
-      (event) => event.kind === 'prompt' || event.kind === 'message',
+      (event) => event.kind === 'prompt'
+        || event.kind === 'message'
+        || event.kind === 'tool'
+        || event.kind === 'permission',
     ),
   }))
+}
+
+// Timeline blocks：文本气泡与「工具调用」分组交替出现，工具调用默认折叠（设计稿 §7）。
+// 连续的工具调用合成一组，权限决策单独成卡（内嵌在对话里）。
+export type ACPTimelineBlock =
+  | { kind: 'text'; event: ACPTextEvent }
+  | { kind: 'permission'; event: ACPPermissionEvent }
+  | { kind: 'tools'; events: ACPToolEvent[]; failed: number; running: number }
+
+export function timelineBlocks(events: readonly ACPEvent[]): ACPTimelineBlock[] {
+  const blocks: ACPTimelineBlock[] = []
+  let tools: ACPToolEvent[] = []
+  const flush = (): void => {
+    if (tools.length === 0) return
+    const failed = tools.filter((tool) => tool.status === 'failed').length
+    const running = tools.filter((tool) => tool.status === 'pending' || tool.status === 'in_progress').length
+    blocks.push({ kind: 'tools', events: tools, failed, running })
+    tools = []
+  }
+  for (const event of events) {
+    if (event.kind === 'tool') {
+      tools = [...tools, event]
+      continue
+    }
+    flush()
+    if (event.kind === 'prompt' || event.kind === 'message') blocks.push({ kind: 'text', event })
+    else if (event.kind === 'permission') blocks.push({ kind: 'permission', event })
+  }
+  flush()
+  return blocks
+}
+
+// permissionOutcome 把 ACP 权限事件归成三类展示口径：批准 / 拒绝 / 自动批准。
+export function permissionOutcome(event: ACPPermissionEvent): 'allowed' | 'denied' | 'auto' {
+  if (event.auto) return 'auto'
+  const outcome = (event.outcome ?? '').toLowerCase()
+  if (outcome.includes('reject') || outcome.includes('deny') || outcome.includes('denied')) return 'denied'
+  return 'allowed'
 }
 
 // emptyRoundNote 是一轮没有任何结构化事件时的说明。流已连上（live）的轮次还在运行，
