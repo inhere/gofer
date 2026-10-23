@@ -584,7 +584,7 @@ function beatLabel(r: Runner): string {
               </button>
             </div>
             <RunnerDirs v-if="w.status === 'connected'" :runner="w" />
-            <p v-if="w.worker?.draining" class="upgrade-line k-need">{{ t('runners.worker.draining') }}</p>
+            <p v-if="w.worker?.draining" class="upgrade-line upgrade-line--warn">{{ t('runners.worker.draining') }}</p>
             <p v-if="w.upgrade" class="upgrade-line" :class="upgradeStateClass(w.upgrade)">{{ upgradeSummary(w.upgrade) }}</p>
             <p v-if="upgradeBlockReason(w, serverInfo) && w.upgrade?.state !== 'pending'" class="upgrade-hint">{{ upgradeBlockReason(w, serverInfo) }}</p>
             <details v-if="w.upgrade_history?.length" class="upgrade-history">
@@ -1028,6 +1028,9 @@ function beatLabel(r: Runner): string {
   margin: 0;
   font-size: var(--fs-xs);
   color: var(--fg-2);
+}
+.upgrade-line--warn {
+  color: var(--need-ink);
 }
 .upgrade-hint {
   margin: 0;
