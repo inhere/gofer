@@ -4,7 +4,7 @@ const source = Object.values(import.meta.glob('./SessionDrawer.vue', { eager: tr
 
 describe('SessionDrawer relay switch hints', () => {
   it('says that typing in the terminal turns on back into auto', () => {
-    expect(source).toContain('在终端输入一条后自动回到 auto')
+    expect(source).toContain("t('sessions.drawer.relayTitle')")
   })
 
   it('explains an automatic on → auto fall-back only while the mode is still auto', () => {

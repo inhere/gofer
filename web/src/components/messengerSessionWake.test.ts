@@ -68,6 +68,6 @@ describe('session wake-up entry points', () => {
     expect(drawer).toContain('const showWake = computed(() => !!session.value && session.value.state !== \'handed_off\')')
     expect(drawer).toContain('getSessionTakeoverPlan(props.sid)')
     expect(drawer).toContain('resumeSession(props.sid')
-    expect(drawer).toContain('点上方「唤醒」')
+    expect(drawer).toContain("t('sessions.drawer.ph.ended')")
   })
 })

@@ -25,7 +25,7 @@ describe('no success receipt above the composer', () => {
   })
 
   it('keeps the send failure error line', () => {
-    expect(drawer).toContain('发送失败：')
+    expect(drawer).toContain("t('sessions.drawer.sendFailed'")
     expect(drawer).toContain('class="error mono"')
   })
 })

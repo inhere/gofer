@@ -53,6 +53,7 @@ import Composer from '../ui/Composer.vue'
 import Drawer from '../ui/Drawer.vue'
 import AttachmentThumbs from './AttachmentThumbs.vue'
 import { topicDisplay } from '../utils/sessionTopic'
+import { t } from '../i18n'
 import { mobileHeaderFallback, sessionHeaderSummary } from '../utils/mobileLayout'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { canRetrySessionMessage, copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionMessageAuthorLabel, sessionMessageStatusText, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
@@ -126,7 +127,7 @@ async function transferSessionOwnerToRefused(): Promise<void> {
   try {
     const updated = await transferSessionOwner(current.session_id, target)
     session.value = updated
-    actionInfo.value = `已把会话转给 caller ${updated.caller_id}，它的 hook 上报会重新落下`
+    actionInfo.value = t('sessions.drawer.transferred', { id: updated.caller_id ?? '' })
     actionError.value = ''
     emit('changed')
   } catch (e) {
@@ -136,7 +137,7 @@ async function transferSessionOwnerToRefused(): Promise<void> {
   }
 }
 // takeover* 是路径 B 的二次确认（§9.1 B）：deliver 报 no_tmux / pane_missing 后，
-// 输入框旁出现"起新进程接管并发送"，点一次进入确认态，确认后才真的起进程。
+// 输入框旁出现"{{ t('sessions.drawer.takeoverAndSend') }}"，点一次进入确认态，确认后才真的起进程。
 const takeoverOffered = ref(false)
 const takeoverConfirm = ref(false)
 const releasing = ref(false)
@@ -220,13 +221,13 @@ watch(() => props.expandLastMessage, (open) => {
 let clock: number | null = null
 
 const STATE_LABELS: Record<AgentSessionState, string> = {
-  running: '执行中',
-  idle: '空闲',
-  waiting_reply: '等待回复',
-  needs_attention: '需注意',
-  handed_off: '已接管',
-  ended: '已结束',
-  offline: '离线',
+  get running() { return t('util.session.state.running') },
+  get idle() { return t('util.session.state.idle') },
+  get waiting_reply() { return t('util.session.state.waiting_reply') },
+  get needs_attention() { return t('util.session.state.needs_attention') },
+  get handed_off() { return t('util.session.state.handed_off') },
+  get ended() { return t('util.session.state.ended') },
+  get offline() { return t('util.session.state.offline') },
 }
 
 function stateLabel(s: AgentSessionState): string {
@@ -369,7 +370,7 @@ async function openWake(): Promise<void> {
   } catch (e) {
     wakePlan.value = null
     wakeOpen.value = false
-    actionError.value = `查询唤醒方案失败：${resumeFailText(e)}`
+    actionError.value = t('sessions.drawer.wakePlanFailed', { err: resumeFailText(e) })
   } finally {
     wakePlanLoading.value = false
   }
@@ -386,12 +387,12 @@ async function confirmWake(): Promise<void> {
     const res = await resumeSession(props.sid, draft.value.trim())
     draft.value = ''
     wakeOpen.value = false
-    actionInfo.value = `已起新进程（job ${res.job_id}）✓`
+    actionInfo.value = t('sessions.drawer.wakeStarted', { id: res.job_id ?? '' })
     await load({ silent: true })
     emit('changed')
     if (res.job_id) await router.push(`/jobs/${encodeURIComponent(res.job_id)}?attach=1`)
   } catch (e) {
-    actionError.value = `唤醒失败：${resumeFailText(e)}`
+    actionError.value = t('sessions.drawer.wakeFailed', { err: resumeFailText(e) })
     await load({ silent: true })
   } finally {
     waking.value = false
@@ -404,31 +405,31 @@ const toTerminal = computed(() => !openTurn.value)
 // 统一的输入框（P4 Composer）：占位文字与说明跟会话状态走。
 const composerPlaceholder = computed(() =>
   session.value?.state === 'ended'
-    ? '会话已结束：点上方「唤醒」在新终端里继续'
+    ? t('sessions.drawer.ph.ended')
     : session.value?.state === 'handed_off'
-      ? '会话已被 web 接管：到接管终端里继续，或先解除接管'
+      ? t('sessions.drawer.ph.handedOff')
       : openTurn.value
-        ? '回复 agent…（Ctrl/Cmd+Enter 发送；输入 /off 关闭中继，让会话正常停下）'
+        ? t('sessions.drawer.ph.reply')
         : session.value
-          ? '下一条消息'
-          : '发送给会话…（Ctrl/Cmd+Enter 发送；忙或空闲时经会话间消息转达）',
+          ? t('sessions.drawer.ph.next')
+          : t('sessions.drawer.ph.send'),
 )
 const composerHint = computed(() => {
-  if (openTurn.value) return '回复将原样进入 agent 上下文；输入 /off 关闭中继并让会话正常停下。'
-  if (session.value?.state === 'ended') return '会话已结束，不能再发消息；点上方「唤醒」可以在新终端里继续它。'
-  if (session.value?.state === 'handed_off') return '本会话已被 web 用 --resume 起的新进程接管；原终端不再中继，要恢复请解除接管。'
+  if (openTurn.value) return t('sessions.drawer.hint.reply')
+  if (session.value?.state === 'ended') return t('sessions.drawer.hint.ended')
+  if (session.value?.state === 'handed_off') return t('sessions.drawer.hint.handedOff')
   if (takeoverOffered.value) {
-    return `送不进终端（${session.value?.tmux_pane ? 'pane 已失效' : '未登记 tmux pane'}），可起新进程接管。`
+    return t('sessions.drawer.hint.cannotDeliver', { why: session.value?.tmux_pane ? t('sessions.drawer.hint.paneGone') : t('sessions.drawer.hint.noPane') })
   }
-  if (toTerminal.value) return '会话没有在等回复：消息由一次性传话人经会话间消息原样转达；对方不会把它当作你的审批。'
-  return '会话未在等待回复。'
+  if (toTerminal.value) return t('sessions.drawer.hint.notWaitingTerminal')
+  return t('sessions.drawer.hint.notWaiting')
 })
 // handedOffJob：会话当前被哪个 pty job 接管（§9.1 B），空 = 没被接管。
 const handedOffJob = computed(() => session.value?.handed_off_job_id ?? '')
 // takeoverHint 是二次确认的文案（设计 §9.1 B 的原话）：说明要起什么进程、原终端会怎样。
 const takeoverHint = computed(
   () =>
-    `将用 \`${session.value?.agent ?? 'agent'} --resume\` 起一个新进程接管该会话，原终端将不能继续。是否继续？`,
+    t('sessions.drawer.takeoverConfirm', { agent: session.value?.agent ?? 'agent' }),
 )
 
 const titleText = computed(() => {
@@ -473,7 +474,7 @@ const relayDemotedText = computed(() => {
     return ''
   }
   const hhmm = new Date(at * 1000).toTimeString().slice(0, 5)
-  return `中继已于 ${hhmm} 自动从 on 回到 auto：终端有人工输入（视为你回来了）。要继续在这里等回复，重新拨到 on。`
+  return t('sessions.drawer.relayDemoted', { time: hhmm })
 })
 
 // RELAY_MODES 是三态开关的展示顺序（R1）。
@@ -503,17 +504,17 @@ function relaySummary(s: AgentSession | null): string {
   if (!s.wait_reason) {
     // SUP-01 D: not waiting because the caller is supervising live jobs — say so
     // instead of leaving the human guessing why nothing armed.
-    return s.wait_reason_detail ? `${mode}：当前不等（${s.wait_reason_detail}）` : `${mode}：当前不等`
+    return s.wait_reason_detail ? t('sessions.drawer.relay.notWaitingWith', { mode, why: s.wait_reason_detail }) : t('sessions.drawer.relay.notWaiting', { mode })
   }
   switch (s.wait_reason) {
     case 'mode_on':
-      return 'on：显式开关，本次停下在等你回复'
+      return t('sessions.drawer.relay.on')
     case 'idle_probe':
-      return `auto：键盘空闲 ${idleText(s.idle_sec)}，本次停下在等你回复`
+      return t('sessions.drawer.relay.idle', { idle: idleText(s.idle_sec) })
     case 'turn_age':
-      return `auto：探测不到键盘，距上次人工输入 ${idleText(humanSilence(s))}`
+      return t('sessions.drawer.relay.noProbe', { silence: idleText(humanSilence(s)) })
     default:
-      return `${mode}：本次停下在等你回复`
+      return t('sessions.drawer.relay.waiting', { mode })
   }
 }
 
@@ -547,10 +548,10 @@ async function retryMessage(message: SessionMessage): Promise<void> {
   try {
     const next = await sendSessionMessage(props.sid, message.text)
     messages.value = upsertSessionMessage(messages.value, next)
-    actionInfo.value = '已重新排队 ✓'
+    actionInfo.value = t('sessions.drawer.requeued')
     await load({ silent: true })
   } catch (e) {
-    actionError.value = `重试失败：${errorMessage(e)}`
+    actionError.value = t('sessions.drawer.retryFailed', { err: errorMessage(e) })
   } finally {
     retryingMessage.value = null
   }
@@ -688,7 +689,7 @@ async function openMessageHistory(): Promise<void> {
   // Open synchronously from the click so popup blockers permit the new tab.
   const tab = window.open('', '_blank')
   if (!tab) {
-    error.value = '浏览器阻止了新标签页，请允许弹出窗口后重试'
+    error.value = t('sessions.drawer.popupBlocked')
     return
   }
   tab.opener = null
@@ -722,7 +723,7 @@ async function setRelayMode(mode: AgentSessionRelayMode): Promise<void> {
     if (session.value) {
       session.value.relay_mode = prev
     }
-    actionError.value = `切换中继失败：${errorMessage(e)}`
+    actionError.value = t('sessions.drawer.relaySwitchFailed', { err: errorMessage(e) })
   } finally {
     relayBusy.value = false
   }
@@ -746,7 +747,7 @@ async function setInjectMode(mode: AgentSessionInjectMode): Promise<void> {
     if (session.value) {
       session.value.inject_mode = prev
     }
-    actionError.value = `切换投递模式失败：${errorMessage(e)}`
+    actionError.value = t('sessions.drawer.injectSwitchFailed', { err: errorMessage(e) })
   } finally {
     injectBusy.value = false
   }
@@ -763,11 +764,11 @@ async function sendHeldNow(): Promise<void> {
   actionInfo.value = ''
   try {
     await sendHeldSessionMessages(s.session_id)
-    actionInfo.value = '已把等待中的消息送进终端'
+    actionInfo.value = t('sessions.drawer.heldSent')
     await load()
     emit('changed')
   } catch (e) {
-    actionError.value = `现在送失败：${errorMessage(e)}`
+    actionError.value = t('sessions.drawer.sendNowFailed', { err: errorMessage(e) })
   } finally {
     injectBusy.value = false
   }
@@ -781,7 +782,7 @@ async function send(): Promise<void> {
   const attachmentIDs = composerRef.value?.readyIDs() ?? []
   if (attachmentIDs.length > 0 && !props.threadId) {
     // 送入终端 / 纯会话窗口没有附件字段：不静默丢图。
-    actionError.value = '这个位置不能带附图：请在带会话抽屉的工作台里发送'
+    actionError.value = t('sessions.drawer.attachUnsupported')
     return
   }
   sending.value = true
@@ -810,11 +811,11 @@ async function send(): Promise<void> {
     emit('changed')
   } catch (e) {
     if (toTerminal.value && !props.threadId) {
-      actionError.value = `发送到终端失败：${deliverErrorMessage(e)}`
+      actionError.value = t('sessions.drawer.deliverFailed', { err: deliverErrorMessage(e) })
       // 消息还在草稿里：A 送不进去时会提示接管（§9.1 B），由用户二次确认后再发。
       takeoverOffered.value = takeoverAvailable(e)
     } else {
-      actionError.value = `发送失败：${errorMessage(e)}`
+      actionError.value = t('sessions.drawer.sendFailed', { err: errorMessage(e) })
     }
   } finally {
     sending.value = false
@@ -836,7 +837,7 @@ async function toggleAck(turn: Decision): Promise<void> {
     turns.value = turns.value.map((candidate) => candidate.id === turn.id ? updated : candidate)
     emit('changed')
   } catch (e) {
-    actionError.value = `标记等待失败：${errorMessage(e)}`
+    actionError.value = t('sessions.drawer.markWaitingFailed', { err: errorMessage(e) })
   } finally {
     ackBusy.value = null
   }
@@ -870,12 +871,12 @@ async function takeOver(): Promise<void> {
       return
     }
     draft.value = ''
-    actionInfo.value = `已起新进程接管（job ${res.job_id}）✓`
+    actionInfo.value = t('sessions.drawer.takeoverStarted', { id: res.job_id })
     await load({ silent: true })
     emit('changed')
     await router.push(`/jobs/${encodeURIComponent(res.job_id)}?attach=1`)
   } catch (e) {
-    actionError.value = `接管失败：${deliverErrorMessage(e)}`
+    actionError.value = t('sessions.drawer.takeoverFailed', { err: deliverErrorMessage(e) })
   } finally {
     sending.value = false
     takeoverOffered.value = false
@@ -890,11 +891,11 @@ async function releaseTakeover(): Promise<void> {
   actionInfo.value = ''
   try {
     session.value = await releaseSessionTakeover(props.sid)
-    actionInfo.value = '已解除接管，原终端恢复中继 ✓'
+    actionInfo.value = t('sessions.drawer.released')
     await load({ silent: true })
     emit('changed')
   } catch (e) {
-    actionError.value = `解除接管失败：${errorMessage(e)}`
+    actionError.value = t('sessions.drawer.releaseFailed', { err: errorMessage(e) })
   } finally {
     releasing.value = false
   }
@@ -905,34 +906,34 @@ async function releaseTakeover(): Promise<void> {
 function deliverErrorMessage(e: unknown): string {
   const code = e instanceof ApiError ? `${e.code ?? ''} ${e.detail ?? ''}` : String(e)
   if (code.includes('session_alive')) {
-    return '会话进程仍在线（刚刚还有心跳），为避免两个进程同时写同一会话，已拒绝接管；请在原终端继续，或用在线送话'
+    return t('sessions.drawer.takeoverReason.stillOnline')
   }
   if (code.includes('deliver_failed')) {
-    return `agent 的送话命令失败：${e instanceof ApiError ? (e.detail ?? e.code ?? '') : String(e)}`
+    return t('sessions.drawer.takeoverReason.agentFailed', { err: e instanceof ApiError ? (e.detail ?? e.code ?? '') : String(e) })
   }
   if (code.includes('not_running')) {
-    return '会话进程已不在运行；可用「起新进程接管并发送」继续'
+    return t('sessions.drawer.takeoverReason.notRunning')
   }
   if (code.includes('no_tmux')) {
-    return '该会话不在 tmux 中；可在 tmux 里启动会话，或用「起新进程接管并发送」'
+    return t('sessions.drawer.takeoverReason.notTmux')
   }
   if (code.includes('no_runner')) {
-    return '该会话未登记执行机：容器内需起一个 gofer worker，并把 GOFER_HOOK_RUNNER 指向它'
+    return t('sessions.drawer.takeoverReason.noRunner')
   }
   if (code.includes('handed_off')) {
-    return '该会话已被接管：请先「解除接管」，或到接管的终端里继续'
+    return t('sessions.drawer.takeoverReason.alreadyHandedOff')
   }
   if (code.includes('no_resume_template')) {
-    return '该 agent 没有交互式 resume 模板（claude/codex/omp 内置支持），无法起新进程接管'
+    return t('sessions.drawer.takeoverReason.noResumeTemplate')
   }
   if (code.includes('interactive_not_allowed')) {
-    return '该项目未开启 allow_interactive，无法起新进程接管'
+    return t('sessions.drawer.takeoverReason.noInteractive')
   }
   if (code.includes('cwd_outside_project')) {
-    return '会话目录无法换算成执行机上的项目相对路径，无法起新进程接管'
+    return t('sessions.drawer.takeoverReason.noRelPath')
   }
   if (code.includes('ended')) {
-    return '会话已结束'
+    return t('sessions.drawer.takeoverReason.ended')
   }
   return errorMessage(e)
 }
@@ -941,7 +942,7 @@ async function remove(): Promise<void> {
   if (deleting.value) {
     return
   }
-  if (!window.confirm(`移除会话登记 ${shortSid(props.sid)}？只删除 gofer 侧登记，不影响终端里的 agent 进程。`)) {
+  if (!window.confirm(t('sessions.drawer.removeConfirm', { id: shortSid(props.sid) }))) {
     return
   }
   deleting.value = true
@@ -951,7 +952,7 @@ async function remove(): Promise<void> {
     emit('deleted', props.sid)
     emit('close')
   } catch (e) {
-    actionError.value = `移除失败：${errorMessage(e)}`
+    actionError.value = t('sessions.drawer.removeFailed', { err: errorMessage(e) })
   } finally {
     deleting.value = false
   }
@@ -1023,7 +1024,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
       class="drawer-panel"
       :class="{ 'drawer-panel--head-open': headerOpen, 'drawer-panel--hint-open': hintOpen, 'drawer-panel--embedded': embedded }"
       :role="embedded ? 'region' : undefined"
-      aria-label="会话详情"
+      :aria-label="t('sessions.drawer.aria')"
     >
       <div v-if="!embedded" class="drawer-head">
         <div v-if="session" class="head-main">
@@ -1039,7 +1040,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             v-if="session"
             class="relay-modes mono"
             :class="{ busy: relayBusy }"
-            title="中继开关（三态）：on = 每次停下都在这里等你回复（在终端输入一条后自动回到 auto）；off = 从不等；auto = server 按键盘空闲 / 距上次人工输入的时长决定"
+            :title="t('sessions.drawer.relayTitle')"
           >
             <button
               v-for="m in RELAY_MODES"
@@ -1057,7 +1058,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             v-if="session"
             class="relay-modes mono"
             :class="{ busy: injectBusy }"
-            title="投递模式：auto = 只在输入框确认为空时打字（有人在打字或停在选择界面时消息留待）；hold = 从不打字，消息留待；force = 不检查直接粘贴"
+            :title="t('sessions.drawer.injectTitle')"
           >
             <button
               v-for="m in INJECT_MODES"
@@ -1078,7 +1079,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             type="button"
             data-test="drawer-send-held"
             :disabled="injectBusy || session.state === 'ended'"
-            :title="'把这个会话里等待投递的消息立刻粘贴进终端（跳过输入框检查）'"
+            :title="t('sessions.drawer.sendNowTitle')"
             @click="sendHeldNow()"
           >
             {{ heldLabel(heldPending) }}
@@ -1088,23 +1089,23 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             class="act mono"
             type="button"
             data-test="drawer-grant"
-            title="给这个终端会话临时授权（仅根管理员）"
+            :title="t('sessions.drawer.grantTitle')"
             @click="grantOpen = true"
           >
-            授权
+            {{ t('sessions.drawer.grant') }}
           </button>
           <button class="act mono" type="button" :disabled="loading" @click="load()">
-            {{ loading ? '刷新中…' : '刷新' }}
+            {{ loading ? t('sessions.drawer.refreshing') : t('sessions.drawer.refresh') }}
           </button>
           <button
             v-if="!embedded"
             class="act act--warn mono"
             type="button"
             :disabled="deleting"
-            title="把这个会话从 gofer 的登记表里删掉（列表中不再出现）。终端里的 agent 进程不受影响，它下次触发 hook 时会自动重新登记。"
+            :title="t('sessions.drawer.removeTitle')"
             @click="remove"
           >
-            {{ deleting ? '移除中…' : '移除登记' }}
+            {{ deleting ? t('sessions.drawer.removing') : t('sessions.drawer.remove') }}
           </button>
         </div>
       </div>
@@ -1112,20 +1113,20 @@ defineExpose({ load, loadMore, setRelayMode, remove })
       <p v-if="error" class="error mono">{{ error }}</p>
       <p v-if="relayDemotedText" class="relay-demoted mono head-collapsible" data-test="relay-demoted">{{ relayDemotedText }}</p>
       <div v-if="whoMode.canManage && grantBadge.granted" class="session-grant mono" data-test="session-grant-strip">
-        <span class="session-grant-badge" data-test="session-granted-badge" :title="badgeTitle(grantBadge, fmtDateTime)">已授权</span>
+        <span class="session-grant-badge" data-test="session-granted-badge" :title="badgeTitle(grantBadge, fmtDateTime)">{{ t('sessions.drawer.granted') }}</span>
         <span class="session-grant-perms">{{ grantBadge.permissions.join('  ') }}</span>
-        <span v-if="grantBadge.expiresAt" class="dim">至 {{ fmtDateTime(grantBadge.expiresAt) }}</span>
+        <span v-if="grantBadge.expiresAt" class="dim">{{ t('sessions.drawer.grantedUntil', { time: fmtDateTime(grantBadge.expiresAt) }) }}</span>
         <span v-if="canRenewBadge(whoMode.canManage, grantBadge, nowSec)" class="session-grant-remaining" data-test="session-grant-remaining">{{ grantRemainingText(grantBadge.expiresAt, nowSec) }}</span>
         <button
           v-if="canRenewBadge(whoMode.canManage, grantBadge, nowSec)"
           class="act mono"
           type="button"
           data-test="session-grant-renew"
-          title="只把这些授权的到期时间从「现在」往后挪，权限范围不变；已过期 / 会话结束的要重新授权"
+          :title="t('sessions.drawer.renewTitle')"
           @click="grantRenewOpen = true"
-        >续期</button>
+        >{{ t('sessions.drawer.renew') }}</button>
         <button class="act act--warn mono" type="button" data-test="session-grant-revoke" :disabled="grantRevoking" @click="revokeSessionGrants">
-          {{ grantRevoking ? '撤销中…' : '撤销授权' }}
+          {{ grantRevoking ? t('sessions.drawer.revoking') : t('sessions.drawer.revoke') }}
         </button>
         <span v-if="grantError" class="owner-refused-err" role="alert">{{ grantError }}</span>
       </div>
@@ -1147,8 +1148,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           :disabled="ownerBusy"
           :title="refusedOwnerHelp(session)"
           @click="transferSessionOwnerToRefused"
-        >{{ ownerBusy ? '转移中…' : transferOwnerLabel(session) }}</button>
-        <span v-if="ownerError" class="owner-refused-err" data-test="refused-owner-error">转移失败：{{ ownerError }}</span>
+        >{{ ownerBusy ? t('sessions.drawer.transferring') : transferOwnerLabel(session) }}</button>
+        <span v-if="ownerError" class="owner-refused-err" data-test="refused-owner-error">{{ t('sessions.drawer.transferFailed', { err: ownerError }) }}</span>
       </div>
 
       <!-- 手机档（≤900px）：主题 / 范围 / 中继状态说明这几块收成一行「主题 · 范围 ▸」，
@@ -1194,21 +1195,21 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             <span class="dim">·</span>
             <span :title="fmtDateTime(session.last_seen_at)">{{ fmtAgo(session.last_seen_at, nowSec) }}</span>
           </span>
-          <span class="meta-hint">{{ metaOpen ? '收起' : '详情' }}</span>
+          <span class="meta-hint">{{ metaOpen ? t('util.action.collapse') : t('util.action.expand') }}</span>
         </button>
       <dl v-show="metaOpen" class="meta mono">
         <dt>sid</dt>
         <dd class="meta-sid">
           <span :title="session.session_id">{{ session.session_id }}</span>
           <button class="copy-btn mono" type="button" @click="copySid">
-            {{ copied ? '已复制' : '复制' }}
+            {{ copied ? t('util.action.copied') : t('util.action.copy') }}
           </button>
         </dd>
-        <dt v-if="session.peer_name">名称</dt>
+        <dt v-if="session.peer_name">{{ t('sessions.drawer.meta.name') }}</dt>
         <dd v-if="session.peer_name" class="meta-sid">
           <span data-test="peer-name-detail" :title="peerNameLabel(session)">{{ session.peer_name }}</span>
           <span v-if="session.peer_name_source" class="dim">（{{ session.peer_name_source }}）</span>
-          <button class="copy-btn mono" type="button" @click="copyName">{{ copiedName ? '已复制' : '复制' }}</button>
+          <button class="copy-btn mono" type="button" @click="copyName">{{ copiedName ? t('util.action.copied') : t('util.action.copy') }}</button>
         </dd>
         <dt>agent</dt>
         <dd>{{ session.agent }}</dd>
@@ -1218,10 +1219,10 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <dd>{{ runnerLabel(session.runner) || '—' }}</dd>
         <dt>cwd</dt>
         <dd class="meta-path" :title="session.cwd">{{ session.cwd || '—' }}</dd>
-        <dt v-if="session.last_cwd">当前目录</dt>
+        <dt v-if="session.last_cwd">{{ t('sessions.drawer.meta.cwd') }}</dt>
         <dd v-if="session.last_cwd" class="meta-path" :title="session.last_cwd">{{ session.last_cwd }}</dd>
         <template v-for="u in sessionUsageRows(session.usage)" :key="u.label">
-          <dt>{{ u.label }}用量</dt>
+          <dt>{{ u.label }}{{ t('sessions.drawer.meta.usage') }}</dt>
           <dd data-test="session-usage">{{ u.text }}</dd>
         </template>
         <dt>transcript</dt>
@@ -1232,8 +1233,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <dd>
           {{ relaySummary(session) }}
           <span class="dim">· mode {{ session.relay_mode || '—' }}</span>
-          <span v-if="session.idle_sec >= 0" class="dim">· 终端侧空闲 {{ idleText(session.idle_sec) }}</span>
-          <span v-if="session.last_human_at" class="dim">· 上次人工输入 {{ fmtAgo(session.last_human_at, nowSec) }} 前</span>
+          <span v-if="session.idle_sec >= 0" class="dim">{{ t('sessions.drawer.meta.idle', { idle: idleText(session.idle_sec) }) }}</span>
+          <span v-if="session.last_human_at" class="dim">{{ t('sessions.drawer.meta.lastHuman', { ago: fmtAgo(session.last_human_at, nowSec) }) }}</span>
         </dd>
         <dt>started</dt>
         <dd>{{ fmtDateTime(session.started_at) }}</dd>
@@ -1246,10 +1247,10 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <dd v-if="session.ended_at">{{ fmtDateTime(session.ended_at) }}</dd>
         <dt>turns</dt>
         <dd>{{ session.turn_no }}</dd>
-        <dt>信件</dt>
+        <dt>{{ t('sessions.drawer.meta.mail') }}</dt>
         <dd data-test="session-mail">
-          <span v-if="mailCount">{{ mailCount }} 封</span><span v-else class="dim">无</span>
-          <RouterLink class="mail-link" :to="`/mail?session=${encodeURIComponent(session.session_id)}`">去信箱</RouterLink>
+          <span v-if="mailCount">{{ t('sessions.drawer.meta.mailCount', { n: mailCount }) }}</span><span v-else class="dim">{{ t('sessions.drawer.meta.none') }}</span>
+          <RouterLink class="mail-link" :to="`/mail?session=${encodeURIComponent(session.session_id)}`">{{ t('sessions.drawer.meta.toMail') }}</RouterLink>
         </dd>
       </dl>
       </div>
@@ -1257,7 +1258,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
       <!-- 唤醒/接管：常驻，不依赖发送失败；已结束的会话也能唤醒。Workbench 嵌入同样显示。
            手机档这组主操作（唤醒 / 接管 / 从此会话新开）也不进折叠区 —— 它是手机上最常用的。 -->
       <div v-if="showWake" class="wake-bar mono" data-test="wake-bar">
-        <span class="wake-text">{{ session?.state === 'ended' ? '会话已结束（终端已关闭）。' : session?.state === 'offline' ? '会话长时间没有心跳，已标记为离线（原进程可能已退出）。' : '想在 web 里继续这个会话？' }}</span>
+        <span class="wake-text">{{ session?.state === 'ended' ? t('sessions.drawer.wake.ended') : session?.state === 'offline' ? t('sessions.drawer.wake.offline') : t('sessions.drawer.wake.prompt') }}</span>
         <button
           class="act act--primary mono"
           type="button"
@@ -1265,16 +1266,16 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           :disabled="!session?.can_resume || waking || wakePlanLoading"
           :title="session ? resumeTitle(session) : ''"
           @click="openWake"
-        >{{ wakePlanLoading ? '查询中…' : resumeLabel(session!) }}</button>
+        >{{ wakePlanLoading ? t('sessions.drawer.querying') : resumeLabel(session!) }}</button>
         <button
           v-if="fromSessionPick.visible"
           class="act mono"
           type="button"
           data-test="from-session-btn"
           :disabled="fromSessionPick.disabled"
-          :title="fromSessionPick.note || '开一个继承此会话上下文的新会话（源会话不被续接）'"
+          :title="fromSessionPick.note || t('sessions.drawer.fromSessionTitle')"
           @click="openFromSession"
-        >从此会话新开</button>
+        >{{ t('sessions.drawer.fromSession') }}</button>
         <span v-if="fromSessionPick.visible && fromSessionPick.note" class="wake-why" data-test="from-session-note">{{ fromSessionPick.note }}</span>
         <span v-if="session && !session.can_resume" class="wake-why" data-test="wake-why">{{ session.resume_message }}</span>
       </div>
@@ -1282,25 +1283,25 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <span class="takeover-text">
           {{ session ? resumeConfirmText(session, wakePlan) : '' }}
           <code v-if="wakePlan.command?.length" class="wake-cmd">{{ wakePlan.command.join(' ') }}</code>
-          <template v-if="draft.trim()"><br />输入框里的内容将作为新终端的首条消息。</template>
+          <template v-if="draft.trim()"><br />{{ t('sessions.drawer.fromSessionDraft') }}</template>
         </span>
         <span class="takeover-acts">
           <button class="act act--primary mono" type="button" :disabled="waking" @click="confirmWake">
-            {{ waking ? '起进程中…' : `确认${session ? resumeLabel(session) : '唤醒'}` }}
+            {{ waking ? t('sessions.drawer.starting') : t('sessions.drawer.confirmWake', { label: session ? resumeLabel(session) : t('sessions.drawer.wake') }) }}
           </button>
-          <button class="act mono" type="button" :disabled="waking" @click="wakeOpen = false">取消</button>
+          <button class="act mono" type="button" :disabled="waking" @click="wakeOpen = false">{{ t('util.action.cancel') }}</button>
         </span>
       </div>
 
       <div ref="timelineEl" class="timeline" @scroll="onTimelineScroll">
         <div v-if="conversationTimeline.length > 0" class="older-page mono">
           <button v-if="hasMore || messagesHasMore" type="button" class="link-btn" :disabled="loadingMore" @click="loadMore">
-            {{ loadingMore ? '加载更早…' : '加载更早的 10 轮' }}
+            {{ loadingMore ? t('sessions.drawer.loadingMore') : t('sessions.drawer.loadMore') }}
           </button>
-          <span v-else>已到最早</span>
+          <span v-else>{{ t('sessions.drawer.noMore') }}</span>
         </div>
         <div v-if="!loading && conversationTimeline.length === 0" class="empty mono">
-          暂无 turn。打开中继后，会话下一次停下时消息会出现在这里。
+          {{ t('sessions.drawer.noTurns') }}
         </div>
         <template v-for="entry in conversationTimeline" :key="entry.kind === 'turn' ? entry.turn.id : entry.message.id">
           <div v-if="entry.kind === 'message' && isSessionReply(entry.message)" class="turn">
@@ -1320,7 +1321,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
                 type="button"
                 @click="toggleExpand(entry.message.id)"
               >
-                {{ expanded.has(entry.message.id) ? '收起' : `展开全文（${entry.message.text.length} 字）` }}
+                {{ expanded.has(entry.message.id) ? t('util.action.collapse') : t('sessions.drawer.expandFull', { n: entry.message.text.length }) }}
               </button>
             </div>
           </div>
@@ -1343,7 +1344,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
                   type="button"
                   :disabled="retryingMessage === entry.message.id"
                   @click="retryMessage(entry.message)"
-                >{{ retryingMessage === entry.message.id ? '重试中…' : '重试' }}</button>
+                >{{ retryingMessage === entry.message.id ? t('sessions.drawer.retrying') : t('sessions.drawer.retry') }}</button>
               </div>
             </div>
           </div>
@@ -1362,14 +1363,14 @@ defineExpose({ load, loadMore, setRelayMode, remove })
                 :class="{ clamped: isLong(entry.turn.question) && !expanded.has(entry.turn.id) }"
                 v-html="renderMd(entry.turn.question)"
               ></div>
-              <pre v-else class="bubble-text">（无消息）</pre>
+              <pre v-else class="bubble-text">{{ t('sessions.drawer.noMessage') }}</pre>
               <button
                 v-if="isLong(entry.turn.question)"
                 class="link-btn mono"
                 type="button"
                 @click="toggleExpand(entry.turn.id)"
               >
-                {{ expanded.has(entry.turn.id) ? '收起' : `展开全文（${entry.turn.question.length} 字）` }}
+                {{ expanded.has(entry.turn.id) ? t('util.action.collapse') : t('sessions.drawer.expandFull', { n: entry.turn.question.length }) }}
               </button>
             </div>
             <div v-if="entry.turn.state === 'ANSWERED' && !entry.relayed" class="bubble bubble--human">
@@ -1385,18 +1386,18 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             </div>
             <template v-else-if="entry.turn.state !== 'ANSWERED'">
               <div v-if="entry.turn.state === 'EXPIRED'" class="bubble bubble--expired mono">
-                {{ entry.turn.released_by === 'user_returned' ? '人回到键盘，等待已自动放行' : '已过期 / 未回复' }}
+                {{ entry.turn.released_by === 'user_returned' ? t('sessions.drawer.turn.releasedUser') : t('sessions.drawer.turn.releasedExpired') }}
               </div>
               <div v-else-if="entry.turn.acked_at" class="bubble bubble--acked mono">
-                <span>已读 · 无需回复（仍可回复）</span>
+                <span>{{ t('sessions.drawer.turn.acked') }}</span>
                 <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
-                  {{ ackBusy === entry.turn.id ? '处理中…' : '撤销' }}
+                  {{ ackBusy === entry.turn.id ? t('sessions.drawer.working') : t('sessions.drawer.undo') }}
                 </button>
               </div>
               <div v-else class="bubble bubble--pending mono">
-                <span>等待回复…</span>
+                <span>{{ t('sessions.drawer.turn.waiting') }}</span>
                 <button class="link-btn ack-btn mono" type="button" :disabled="ackBusy === entry.turn.id" @click="toggleAck(entry.turn)">
-                  {{ ackBusy === entry.turn.id ? '处理中…' : '无需回复' }}
+                  {{ ackBusy === entry.turn.id ? t('sessions.drawer.working') : t('sessions.drawer.turn.noReplyNeeded') }}
                 </button>
               </div>
             </template>
@@ -1404,18 +1405,18 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         </template>
         <section v-if="session?.last_message && showLastMessage" class="last-message-fixed">
           <div class="last-message-head mono">
-            <strong>最后一条消息</strong>
-            <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)" class="last-message-released" :title="'已放行：正在监督 ' + session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] + ' 个 job'">
-              已放行：正在监督 {{ session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] }} 个 job
+            <strong>{{ t('sessions.drawer.lastMessage') }}</strong>
+            <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)" class="last-message-released" :title="t('sessions.drawer.releasedSupervising', { n: session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] ?? 0 })">
+              {{ t('sessions.drawer.releasedSupervising', { n: session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] ?? 0 }) }}
             </span>
             <span class="last-message-preview mono" :title="session.last_message">{{ session.last_message }}</span>
             <button class="link-btn mono" type="button" @click="lastMessageOpen = !lastMessageOpen">
-              {{ lastMessageOpen ? '收起' : '展开' }}
+              {{ lastMessageOpen ? t('util.action.collapse') : t('sessions.drawer.expand') }}
             </button>
             <button v-if="lastMessageOpen" class="link-btn mono" type="button" @click="copyLastMessage">
-              {{ copiedLast ? '已复制' : '复制全文' }}
+              {{ copiedLast ? t('util.action.copied') : t('sessions.drawer.copyFull') }}
             </button>
-            <button class="link-btn mono" type="button" @click="openMessageHistory">历史消息 ↗</button>
+            <button class="link-btn mono" type="button" @click="openMessageHistory">{{ t('sessions.drawer.history') }}</button>
           </div>
           <div
             v-if="lastMessageOpen"
@@ -1427,10 +1428,10 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 
       <section v-if="session?.state === 'running' && session.progress_text" class="session-progress">
         <div class="session-progress-head mono">
-          <strong>进行中</strong>
+          <strong>{{ t('sessions.drawer.inProgress') }}</strong>
           <span>· {{ fmtAgo(session.progress_at || session.last_seen_at, nowSec) }}</span>
           <button class="link-btn mono" type="button" @click="progressOpen = !progressOpen">
-            {{ progressOpen ? '收起' : '展开' }}
+            {{ progressOpen ? t('util.action.collapse') : t('sessions.drawer.expand') }}
           </button>
         </div>
         <p class="session-progress-preview mono" :title="session.progress_text">{{ session.progress_text }}</p>
@@ -1444,21 +1445,21 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <p v-else-if="actionInfo" class="receipt mono">{{ actionInfo }}</p>
         <!-- 已接管（§9.1 B）：对话在 pty job 里继续，这里只提供跳转与解除。 -->
         <div v-if="handedOffJob" class="takeover-bar mono">
-          <span class="takeover-text">已接管 → </span>
+          <span class="takeover-text">{{ t('sessions.drawer.handedOffTo') }}</span>
           <RouterLink
             class="takeover-link"
             :to="`/jobs/${encodeURIComponent(handedOffJob)}?attach=1`"
           >
-            job {{ handedOffJob }}（打开终端）
+            {{ t('sessions.drawer.handedOffJob', { id: handedOffJob }) }}
           </RouterLink>
           <button
             class="act mono"
             type="button"
             :disabled="releasing"
-            title="cancel 接管 job，把会话交还原终端"
+            :title="t('sessions.drawer.releaseTitle')"
             @click="releaseTakeover"
           >
-            {{ releasing ? '解除中…' : '解除接管' }}
+            {{ releasing ? t('sessions.drawer.releasing') : t('sessions.drawer.release') }}
           </button>
         </div>
         <!-- 二次确认（§9.1 B）：起新进程会把会话从原终端移走，必须先说清楚。 -->
@@ -1466,10 +1467,10 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           <span class="takeover-text">{{ takeoverHint }}</span>
           <span class="takeover-acts">
             <button class="act act--primary mono" type="button" :disabled="sending" @click="takeOver">
-              {{ sending ? '接管中…' : '确认接管并发送' }}
+              {{ sending ? t('sessions.drawer.takingOver') : t('sessions.drawer.confirmTakeover') }}
             </button>
             <button class="act mono" type="button" :disabled="sending" @click="takeoverConfirm = false">
-              取消
+              {{ t('util.action.cancel') }}
             </button>
           </span>
         </div>
@@ -1480,7 +1481,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           :disabled="!canSend"
           :sending="sending"
           :can-send="canSend && !takeoverConfirm"
-          :send-label="toTerminal ? '送到会话' : '发送'"
+          :send-label="toTerminal ? t('sessions.drawer.sendToSession') : t('sessions.drawer.send')"
           attachments
           :attach-capability="attachCapability"
           :hint="composerHint"
@@ -1494,10 +1495,10 @@ defineExpose({ load, loadMore, setRelayMode, remove })
               class="act mono"
               type="button"
               :disabled="!draft.trim() || sending"
-              title="用 --resume 起一个新进程接管该会话，把这条消息作为它的首条输入"
+              :title="t('sessions.drawer.takeoverAndSendTitle')"
               @click="takeoverConfirm = true"
             >
-              起新进程接管并发送
+              {{ t('sessions.drawer.takeoverAndSend') }}
             </button>
           </template>
         </Composer>

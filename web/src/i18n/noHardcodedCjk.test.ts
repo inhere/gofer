@@ -47,7 +47,6 @@ const WHITELIST: Record<string, { text: string[]; why: string }[]> = {
 // 值写理由，便于认领；抽干净后必须从表里删掉（第二个用例守着）。
 const PENDING: Record<string, string> = {
   'views/Config.vue': 'P6-b 后续批次（尚未抽取）',
-  'components/SessionDrawer.vue': 'P6-b 后续批次（尚未抽取）',
   'views/JobDetail.vue': 'P6-b 后续批次（尚未抽取）',
   'components/MessengerDrawer.vue': 'P6-b 后续批次（尚未抽取）',
   'utils/extensionSettings.ts': 'P6-b 后续批次（尚未抽取）',
