@@ -1719,3 +1719,47 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **测试与验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`（222 文件 / 1505 例，导出末尾 `Tests 1505 passed`）；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`（`✓ built in 3.81s`）。现有用例里 9 处按中文断言改为按 key 断言（`steward.test.ts`、`messengerSessionWake.test.ts`、`drawerAttachPolish.test.ts`、`sessionDrawerRelay.test.ts`、`s8SessionMessage.test.ts`、`views/sessionsRefusedOwner.test.ts`、`workbench/threadViewSessionComposer.test.ts`、`mobileLayout.test.ts`、`utils/steward.test.ts`）。
 
 本批后 `PENDING` 从 122 个文件降到 **81 个**。
+
+### P6-fix1 截图检查第一批（2026-10-23，issue gofer-hez1）
+
+来源：全页面截图检查（v0.191 构建，zh / en × 浅 / 深 × 1440 / 390）报的第一组 6 个问题。逐项一个提交，各带测试。
+
+**1. 今天页右栏「并行中」的行排版**（`components/today/TodayLaneRow.vue`）
+
+- 现象：右栏 1440 下只有 340px，原来 6 列（点 / 标题+项目 / agent / 进度 / 健康度 / 用时）挤在一行，标题只剩 4–5 个字，红色「停滞」压在进度点阵上。
+- 改法：按 `preview.html` 的两行结构——第一行「状态点 + 标题与项目」，第二行「agent · 点阵 · 当前步骤 · 健康度 · 用时」。标题独占整行（实测 290px，约 22 个汉字），超出省略号 + `title` 悬停全文；点阵与健康度都 `flex: 0 0 auto`，不再叠字；第二行允许换行，手机上不会横向滚动。
+- 测试：`components/today/todayLanes.test.ts` 的「three lines」用例改成两行结构断言（areas `'d t'` / `'s s'`、点阵与健康度固定宽、标题 `title`、四处 ellipsis）。
+
+**2. 侧栏「节点 N/M 在线」口径**（`ui/AppShell.vue`、`utils/runners.ts`）
+
+- 根因：`GET /v1/runners` 的 `status` 按类型分口径——local / peer-http 是 `up`，worker 是心跳导出的 `connected`；侧栏摘要只判 `up`，于是 4 个已连接 worker + server 本机显示成 1/5。
+- 改法：新增 `utils/runners.runnerOnline(status)`（`up` 或 `connected`），侧栏摘要与一键更新弹层（原来自己写了一遍同样判断）共用，与运行节点页同源同口径。
+- 测试：新增 `utils/runnersOnline.test.ts`（connected / up 算在线，down / disconnected / unknown 算离线）；`ui/appShell.test.ts` 加一条接线断言（用 `runnerOnline(r.status)`，不再出现 `r.status === 'up'`）。
+
+**3. 漏译的 key + 全站 key 扫描**（`i18n/pages/runners.ts`、`sessions.ts`、`shared.ts`、新增 `i18n/i18nKeyUsage.test.ts`）
+
+- 缺的三个 key：`runners.dirs.title`（运行节点页工作目录折叠区显示原始 key）、`util.session.state.idle`（会话抽屉「空闲」）、`sessions.drawer.handedOffJob`（「已接管 →」后的 job 链接）。zh / en 一并补齐。
+- 新增测试：扫 `web/src` 里 `t('字面量')` / `te(...)` / `translate(...)` 的 key（后面紧跟 `,` 或 `)` 才算，`'status.' + x` 这类拼接不算），每个 key 必须在 zh-CN 与 en-US 字典里都存在；第二个用例守住扫描本身（文件数 > 80、key 数 > 600），走 Vite 的 `?raw` 读源码，不给测试引 `@types/node`。
+
+**4. 统计页「任务状态分布」小格**（`components/DashboardJobStatus.vue`）
+
+- 现象：格子里是英文缩写还被裁成 `runni…` / `recov…` / `appro…`。
+- 改法：改用全站统一的状态名（`utils/statusText.jobStatusText`，即 `status.<值>`，与 job 列表、筛选、徽标同一个映射）；格子最小宽 62 → 84px 放得下「⚠ 待验收」，`.l` 不再 ellipsis（窄了换行），原始状态值留在 `title` 里。`SHORT` 缩写表删除。
+- 测试：新增 `components/dashboardJobStatus.test.ts`（SSR 渲染断言 11 个状态名都是中文文案、可见文本里不再出现原始值、title 形如 `running · 运行中`；样式断言不截断 + `minmax(84px, 1fr)`）。
+
+**5. 运行节点拓扑两个 server**（`components/ClusterTopology.vue`）
+
+- 现象：中心 hub 是「server」，本机 in-process runner 又画成一个「server (本机)」辐射节点，像两个 server。
+- 改法：`local` 不再进辐射节点（`orderedRunners` 只收 worker 与 peer），它的信息并进中心节点面板：hub 面板新增「本机 runner（server 进程内）」一节（执行方式、状态、server 项目列表）；hub 面板同时收掉了原来的 `local` 计数行。信息不丢，只是换了位置。
+- 测试：新增 `components/clusterTopology.test.ts`（1 个 local + 2 个 worker 时只有一个 hub 节点、辐射节点只有 2 个、不再出现「server (本机)」；peer 照旧画节点；hub 面板保留本机 runner 一节）。
+
+**6. 计划详情「清单进度」卡片**（`views/PlanDetail.vue`）
+
+- 现象：自画进度条 `.cbar` 与 `.ops-frac` 在同一 grid 里少算了一列（`清单进度` 标签占了第一列），条被挤成 56px、「4/6」掉到条下面，与「合计 tokens」错位。
+- 改法：换成全站统一的 `ProgressBar`（`size="sm"`、`:legend="false"`、条 `flex: 1 1 160px`），条与右侧 `4/6 67%` 同一行，用量文本跟在后面；`boardModel` 用 `boardPct`（todo 的 done+skipped / total，清单口径不变）折成 done + todo 两段。旧的 `.cbar` / `.seg*` / `.ops-frac` 样式随替换删除。
+- 测试：`views/planDetailTabs.test.ts` 新增用例（不再有 `.cbar` / `ops-frac`，操作条里是 `<ProgressBar>` + `:legend="false"` + `size="sm"`，`.ops-bar` 可伸缩）。
+
+**验证**
+
+- `npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 228 passed (228)` / `Tests 1533 passed (1533)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.35s`。
+- 视觉自查：用构建产物 + 桩 `/v1` 数据（fixture 是合成的，不进仓库）在 Edge 里跑 `/today`、`/runners`、`/dashboard`、`/plans/<id>` × zh / en × 浅 / 深 × 1440 / 390，并程序化量了关键尺寸：右栏标题 290px 且点阵与健康度不重叠、侧栏「节点 4/5 在线」、拓扑里只有一个 `server` 节点名、状态分布 11 个格子的标签无裁切、清单进度条 829px 且 `4/6` 与条同一行（手机 201px 同样同一行）。
