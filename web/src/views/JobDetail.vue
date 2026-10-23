@@ -2591,7 +2591,7 @@ onUnmounted(() => {
           class="timeline-row"
           :class="'ev-' + ev.type.replace('.', '-')"
         >
-          <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
+          <Icon class="ev-icon" :icon="eventIcon(ev.type)" size="sm" />
           <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
           <span v-if="eventDetailText(ev)" class="ev-detail mono" :title="eventDetailText(ev)">
             {{ eventDetailText(ev) }}
@@ -2774,7 +2774,7 @@ onUnmounted(() => {
         <p class="diff-note mono">{{ t('jobs.detail.wakeupHistory', { n: wakeupHistory.length }) }}</p>
         <ul class="timeline-list">
           <li v-for="ev in wakeupHistory" :key="ev.seq" class="timeline-row">
-            <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
+            <Icon class="ev-icon" :icon="eventIcon(ev.type)" size="sm" />
             <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
             <span class="ev-detail mono" :title="wakeupHistoryText(ev)">{{ wakeupHistoryText(ev) }}</span>
             <span class="ev-time mono">{{ fmtTime(ev.at) }}</span>

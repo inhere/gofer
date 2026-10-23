@@ -1,97 +1,129 @@
 // 事件时间线的词汇表（E13 起逐步补全）：type -> 图标/中文标签，以及 detail_json 的一行摘要。
 // JobDetail 的「事件时间线」与 PlanDetail 的 plan 事件流共用这一份 —— 事件类型随功能增补，
 // 两处各写一份必然会漂移。渲染方式（图标 + 标签 + 摘要 + 时间）由各页面自己决定。
+// 图标是 lucide 组件（issue gofer-h355）：曾经是 Unicode 字形，字体里没有那些符号时
+// 大小与粗细会随机器变。时间线只取形状，颜色由 .ev-icon 决定。
+import {
+  ArrowRight,
+  ArrowUpToLine,
+  Ban,
+  BellOff,
+  Boxes,
+  Check,
+  Circle,
+  CircleDot,
+  Cog,
+  CornerUpRight,
+  Flag,
+  Hourglass,
+  Keyboard,
+  KeyRound,
+  MessageSquare,
+  PackageCheck,
+  Pause,
+  Pencil,
+  Play,
+  RotateCw,
+  Scale,
+  ScrollText,
+  SkipForward,
+  Square,
+  Timer,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from '@lucide/vue'
 import type { JobEvent } from '../api/types'
 
 // 事件 type -> 图标 + 中文标签（仿 interactions 渲染风格，单行）。
-export const EVENT_META: Record<string, { icon: string; label: string }> = {
-  'job.submitted': { icon: '✓', label: '已提交' },
-  'job.title_changed': { icon: '✎', label: '标题已修改' },
-  'job.dispatched': { icon: '→', label: '已派发' },
-  'job.running': { icon: '▶', label: '开始运行' },
-  'job.turn_started': { icon: '▶', label: '回合开始' },
-  'job.turn_ended': { icon: '■', label: '回合结束' },
-  'job.awaiting_input': { icon: '⌨', label: '等待输入' },
-  'job.terminal': { icon: '■', label: '结束' },
-  'job.uncommitted': { icon: '⚠', label: '未提交改动' },
-  'job.cancelled': { icon: '✕', label: '请求取消' },
-  'job.needs_review': { icon: '⚠', label: '等待验收' },
-  'job.reviewed': { icon: '✓', label: '验收已完成' },
+export const EVENT_META: Record<string, { icon: LucideIcon; label: string }> = {
+  'job.submitted': { icon: Check, label: '已提交' },
+  'job.title_changed': { icon: Pencil, label: '标题已修改' },
+  'job.dispatched': { icon: ArrowRight, label: '已派发' },
+  'job.running': { icon: Play, label: '开始运行' },
+  'job.turn_started': { icon: Play, label: '回合开始' },
+  'job.turn_ended': { icon: Square, label: '回合结束' },
+  'job.awaiting_input': { icon: Keyboard, label: '等待输入' },
+  'job.terminal': { icon: Square, label: '结束' },
+  'job.uncommitted': { icon: TriangleAlert, label: '未提交改动' },
+  'job.cancelled': { icon: X, label: '请求取消' },
+  'job.needs_review': { icon: TriangleAlert, label: '等待验收' },
+  'job.reviewed': { icon: Check, label: '验收已完成' },
   // gofer-9b1b 待批 job：提交后等人批准；批准后转 queued 照常执行，拒绝 / 超时转 cancelled。
-  'job.awaiting_approval': { icon: '⏸', label: '等待批准' },
-  'job.hold_approved': { icon: '✓', label: '已批准' },
-  'job.hold_rejected': { icon: '✕', label: '已拒绝（未执行）' },
-  'job.hold_expired': { icon: '⏱', label: '批准超时（未执行）' },
-  'job.verify_started': { icon: '▶', label: '开始验证' },
-  'job.verify_finished': { icon: '✓', label: '验证结束' },
-  'job.upload_failed': { icon: '⚠', label: '上传失败' },
-  'job.files_collected': { icon: '▣', label: '文件已收集' },
-  'job.fell_back': { icon: '↪', label: '切换备用 Agent' },
-  'job.agent_substituted': { icon: '↪', label: 'Agent 已替换' },
-  'job.dir_wait_timeout': { icon: '⏱', label: '目录锁等待超时' },
-  'job.env_allowed': { icon: '✓', label: '环境变量已放行' },
-  'job.auto_resumed': { icon: '↻', label: '自动续接' },
-  'job.retry_scheduled': { icon: '⏱', label: '已安排重试' },
-  'job.retry_started': { icon: '↻', label: '开始重试' },
-  'job.retry_exhausted': { icon: '⚠', label: '重试次数用尽' },
-  'job.wakeup_fired': { icon: '▶', label: '唤醒已触发' },
-  'job.wakeup_coalesced': { icon: '↪', label: '唤醒已合并' },
-  'job.wakeup_expired': { icon: '⏱', label: '唤醒已过期' },
-  'job.wakeup_failed': { icon: '⚠', label: '唤醒失败' },
-  'interaction.created': { icon: '?', label: '发起交互' },
-  'interaction.answered': { icon: '✎', label: '交互已答' },
-  'interaction.punted': { icon: '↪', label: '交互已转交' },
+  'job.awaiting_approval': { icon: Pause, label: '等待批准' },
+  'job.hold_approved': { icon: Check, label: '已批准' },
+  'job.hold_rejected': { icon: X, label: '已拒绝（未执行）' },
+  'job.hold_expired': { icon: Timer, label: '批准超时（未执行）' },
+  'job.verify_started': { icon: Play, label: '开始验证' },
+  'job.verify_finished': { icon: Check, label: '验证结束' },
+  'job.upload_failed': { icon: TriangleAlert, label: '上传失败' },
+  'job.files_collected': { icon: PackageCheck, label: '文件已收集' },
+  'job.fell_back': { icon: CornerUpRight, label: '切换备用 Agent' },
+  'job.agent_substituted': { icon: CornerUpRight, label: 'Agent 已替换' },
+  'job.dir_wait_timeout': { icon: Timer, label: '目录锁等待超时' },
+  'job.env_allowed': { icon: Check, label: '环境变量已放行' },
+  'job.auto_resumed': { icon: RotateCw, label: '自动续接' },
+  'job.retry_scheduled': { icon: Timer, label: '已安排重试' },
+  'job.retry_started': { icon: RotateCw, label: '开始重试' },
+  'job.retry_exhausted': { icon: TriangleAlert, label: '重试次数用尽' },
+  'job.wakeup_fired': { icon: Play, label: '唤醒已触发' },
+  'job.wakeup_coalesced': { icon: CornerUpRight, label: '唤醒已合并' },
+  'job.wakeup_expired': { icon: Timer, label: '唤醒已过期' },
+  'job.wakeup_failed': { icon: TriangleAlert, label: '唤醒失败' },
+  'interaction.created': { icon: MessageSquare, label: '发起交互' },
+  'interaction.answered': { icon: Pencil, label: '交互已答' },
+  'interaction.punted': { icon: CornerUpRight, label: '交互已转交' },
   // 审批门（GATE-01 S1）+ acp 回合汇总（bd h-aii-rnxk：时间线只留生命周期，
   // 工具调用等执行细节走 stderr 的紧凑事件行，由 NdjsonTimeline 渲染）
-  'job.acp_summary': { icon: '⚙', label: 'ACP 回合' },
-  'job.permission_requested': { icon: '⚠', label: '求批' },
-  'job.permission_answered': { icon: '✎', label: '审批已答' },
-  'job.permission_timed_out': { icon: '⏱', label: '审批超时' },
+  'job.acp_summary': { icon: Cog, label: 'ACP 回合' },
+  'job.permission_requested': { icon: TriangleAlert, label: '求批' },
+  'job.permission_answered': { icon: Pencil, label: '审批已答' },
+  'job.permission_timed_out': { icon: Timer, label: '审批超时' },
   // JOB-11 / AUTO-05：等目录锁（非终态，等同 queued）与输出停滞（job 已被看门狗杀掉）。
-  'job.waiting_dir': { icon: '⏳', label: '等目录锁' },
-  'job.stalled': { icon: '⚠', label: '输出停滞（已杀）' },
+  'job.waiting_dir': { icon: Hourglass, label: '等目录锁' },
+  'job.stalled': { icon: TriangleAlert, label: '输出停滞（已杀）' },
   // N2 §B：预算熔断——计量器发现越过 max_tokens / max_cost_usd / max_turns，job 已被杀（failure_class=budget）。
-  'job.budget_exceeded': { icon: '⚠', label: '超出预算（已杀）' },
+  'job.budget_exceeded': { icon: TriangleAlert, label: '超出预算（已杀）' },
   // gofer-hnqf：agent 用尽自己的软预算并自行收尾（没有被杀，汇报仍在，任务可能未完成）。
-  'job.agent_budget_exhausted': { icon: '⚠', label: '预算耗尽收尾' },
+  'job.agent_budget_exhausted': { icon: TriangleAlert, label: '预算耗尽收尾' },
   // GIT-02：worktree 分支的交付（合并 / 推送 / PR）。
-  'job.delivered': { icon: '⇪', label: '已交付' },
-  'job.delivery_failed': { icon: '⚠', label: '交付失败' },
-  'job.delivery_skipped': { icon: '·', label: '未交付' },
-  'job.mcp_injected': { icon: '⚙', label: '注入 MCP' },
+  'job.delivered': { icon: ArrowUpToLine, label: '已交付' },
+  'job.delivery_failed': { icon: TriangleAlert, label: '交付失败' },
+  'job.delivery_skipped': { icon: Circle, label: '未交付' },
+  'job.mcp_injected': { icon: Cog, label: '注入 MCP' },
   // 决策 hook：提交 / 交付前由 server 上配置的脚本裁决（放行、否决或收紧）。
-  'job.decision_hook': { icon: '⚖', label: '决策 hook' },
-  'job.mcp_skipped': { icon: '·', label: 'MCP 未下发' },
+  'job.decision_hook': { icon: Scale, label: '决策 hook' },
+  'job.mcp_skipped': { icon: Circle, label: 'MCP 未下发' },
   // AGT-04：事后捕获到 session_id（by=fallback 说明该 agent 还没写自己的正则）。
-  'job.session_captured': { icon: '⚿', label: '捕获会话' },
+  'job.session_captured': { icon: KeyRound, label: '捕获会话' },
   // MCP-05 阶段 A（S4 补）：评论本身与它的三种派活结果。job / plan / todo 上的评论各自记在
   // 自己作用域的事件流里（plan / todo 走 plan:<id>），所以在 job 时间线看到的就是挂在
   // 这条 job 上的评论。
-  'comment.created': { icon: '✎', label: '评论' },
-  'comment.triggered': { icon: '→', label: '评论派活' },
-  'comment.trigger_throttled': { icon: '⏱', label: '派活被限流' },
-  'comment.mention_rejected': { icon: '⚠', label: '提及未派活' },
+  'comment.created': { icon: Pencil, label: '评论' },
+  'comment.triggered': { icon: ArrowRight, label: '评论派活' },
+  'comment.trigger_throttled': { icon: Timer, label: '派活被限流' },
+  'comment.mention_rejected': { icon: TriangleAlert, label: '提及未派活' },
   // JOB-10（S4 补）：技能挂载收据——本机直写或 worker 走 uploads 通道；跳过则说明原因
   // （worker_protocol = 老 worker，peer_runner = peer 没有通道）。
-  'job.skills_mounted': { icon: '❖', label: '已挂载技能' },
-  'job.skills_skipped': { icon: '⚠', label: '技能未挂载' },
+  'job.skills_mounted': { icon: Boxes, label: '已挂载技能' },
+  'job.skills_skipped': { icon: TriangleAlert, label: '技能未挂载' },
   // JOB-06①：强制规则已注入 prompt（names = 注入的名字，bytes = 正文总字节）。
   // 跳过只在项目根的 .gofer/RULES.md 读不到时记（reason: project_file_unreachable）。
-  'job.rules_injected': { icon: '§', label: '已注入规则' },
-  'job.rules_skipped': { icon: '⚠', label: '规则未注入' },
+  'job.rules_injected': { icon: ScrollText, label: '已注入规则' },
+  'job.rules_skipped': { icon: TriangleAlert, label: '规则未注入' },
   // gofer-3db4：定时任务 / plan 派发 / 续投等 gofer 自己发起的 job 要求「结束时通知」，
   // 但目标会话已不可寻址（不存在 / 属于别的 caller）——通知被丢弃、job 照常跑。
-  'job.notify_dropped': { icon: '🔕', label: '结束通知已丢弃' },
+  'job.notify_dropped': { icon: BellOff, label: '结束通知已丢弃' },
   // MCP-05 阶段 B（S4 补）：leader 回合。它们记在 PLAN 作用域（scope id 为 plan:<id>），
   // 所以只在按 plan 作用域查事件流时出现。
-  'plan.leader_woken': { icon: '◈', label: 'leader 回合开始' },
-  'plan.leader_skipped': { icon: '⏭', label: 'leader 回合跳过' },
-  'plan.leader_cancelled': { icon: '⊘', label: 'leader 回合取消' },
-  'plan.leader_exhausted': { icon: '⚑', label: 'leader 轮次用尽' },
+  'plan.leader_woken': { icon: CircleDot, label: 'leader 回合开始' },
+  'plan.leader_skipped': { icon: SkipForward, label: 'leader 回合跳过' },
+  'plan.leader_cancelled': { icon: Ban, label: 'leader 回合取消' },
+  'plan.leader_exhausted': { icon: Flag, label: 'leader 轮次用尽' },
 }
 
-export function eventIcon(type: string): string {
-  return EVENT_META[type]?.icon ?? '•'
+export function eventIcon(type: string): LucideIcon {
+  return EVENT_META[type]?.icon ?? Circle
 }
 export function eventLabel(type: string): string {
   return EVENT_META[type]?.label ?? type

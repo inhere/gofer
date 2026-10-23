@@ -1532,16 +1532,19 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 展开 / 收起：Skills、Agents、WorkbenchSidebar、ConversationView、UnifiedDiff、SessionDrawer（两处）、ProjectFilter、JobDetail 的会话任务链、AttachTerminal 的输入框开关 → ChevronRight / ChevronDown（ProjectFilter 向上为 ChevronUp）。
 - `views/settings/SettingsLayout.vue` 的面包屑分隔符 `content: '▸ '` 改成普通标点 `/`（CSS 伪元素放不了图标组件，而分隔符本身不需要图标语义）。
 
+**事件时间线**
+
+`utils/eventMeta.ts` 的 `EVENT_META.icon` 从字形字符串改成 lucide 组件（`eventIcon()` 返回 `LucideIcon`，未登记的 type 落到空心圆）：已提交 Check / 标题修改与评论 Pencil / 派发 ArrowRight / 运行与验证 Play / 回合结束 Square / 等输入 Keyboard / 各类警告 TriangleAlert / 取消与拒绝 X / 等待批准 Pause / 超时 Timer / 文件收集 PackageCheck / 转交与备用 CornerUpRight / 重试 RotateCw / 等目录锁 Hourglass / 已交付 ArrowUpToLine / 未交付圆点 Circle / ACP 与 MCP Cog / 决策 hook Scale / 捕获会话 KeyRound / 通知丢弃 BellOff / leader 回合（CircleDot / SkipForward / Ban / Flag）/ 交互 MessageSquare / 技能 Boxes / 规则 ScrollText。JobDetail 两处与 PlanDetail 一处的时间线渲染改成 `<Icon class="ev-icon">`，`.ev-icon` 的宽度与取色不变。
+
 **没动（有意留下）**
 
-- `utils/eventMeta.ts` 的事件图标表（✓ ✎ ▶ ■ ⌨ → ⌛ ⏸ …，25 个）在事件时间线里当类型标记用，替换要连带改 `eventIcon()` 的返回类型与 JobDetail / PlanDetail 三处渲染，另立 issue。
-- 表格里的 `●`（Tabs 活跃点、各页状态点）、文案里的 `✓` / `×`（乘号、删除文案）、`exportMeta` 的 `⏸` / `↻` 等：这些是文字或状态点，不是图标按钮，本次不动。
+- 表格里的 `●`（Tabs 活跃点、各页状态点）、文案里的 `✓` / `×`（乘号、删除文案）、`utils/statusText.ts` 的 `⏳` / `⏸` 前缀：这些是文字或状态点，不是图标按钮，本次不动。
 - `↻` 在 Board / JobDetail / PlanDetail 的 `agent ↻` 是「经 exec 恢复」的文字后缀（拼在模板字符串里），不是按钮。
 
 **测试**
 
 - `ui/icon.test.ts`（新）：尺寸档位与 `tokens.css` 一致；16+ 个导航项都有可解析的图标且 zh/en 都有可访问名；`Icon` 的 SSR 行为（装饰性 `aria-hidden`、有 `label` 才 `role="img"`、`size="lg"` → width 20、线宽 1.75、`spin`）。
-- `ui/iconScan.test.ts`（新）：扫 `web/src` 下全部 `.vue` / `.ts`（排除测试、`i18n/` 字典、注释），不允许再出现 21 个当图标用的字形（◉ ▤ ▥ ◇ ⧉ ⌁ ✉ ▦ ⇉ ◷ ⬡ ⌂ ⟨ ⟩ ☀ ☾ ◔ ↯ ▸ ▾ ▴）；白名单 `WHITELIST` 必须写理由。
+- `ui/iconScan.test.ts`（新）：扫 `web/src` 下全部 `.vue` / `.ts`（排除测试、`i18n/` 字典、注释），不允许再出现 21 个「已彻底清掉」的图标字形（◉ ▤ ▥ ◇ ⧉ ⌁ ✉ ▦ ⇉ ◷ ⬡ ⌂ ⟨ ⟩ ☀ ☾ ◔ ↯ ▸ ▾ ▴ 表里逐字符写了理由）；白名单 `WHITELIST` 必须写理由。不在清单里的 `●` / `×` / `✓` / `§` 等是因为它们仍作为文字或状态点合法出现（详见上面「没动」）。
 - `ui/statusGlyph.test.ts`：新增「每个族渲染对应 lucide 图标（`lucide-<kind>` + 线宽 1.75）」与「只有 run 旋转」。
 - `views/work.test.ts`、`views/mailWiring.test.ts`：导航项断言从 `glyph: '▥'` / `glyph: '✉'` 改成 `icon: 'work'` / `icon: 'mail'`。
 
