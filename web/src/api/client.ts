@@ -32,7 +32,6 @@ import type {
   JobEventsResp,
   JobInclude,
   JobsResp,
-  JobStatus,
   ListJobsOpts,
   LogStream,
   MailAgentsResp,
@@ -1762,38 +1761,6 @@ export function patchSchedule(id: string, req: PatchScheduleReq): Promise<Schedu
 // SSE 流（转发到 api/sse.ts）
 export function streamJobLogs(id: string, opts: StreamJobOpts): Promise<void> {
   return streamJob(id, opts)
-}
-
-// 状态 -> 视觉 token 颜色（供 Board/JobDetail 等复用）
-const STATUS_COLOR: Record<JobStatus, string> = {
-  running: 'var(--run)',
-  awaiting_input: 'var(--phosphor)',
-  pending_interaction: 'var(--phosphor)',
-  done: 'var(--done)',
-  failed: 'var(--fail)',
-  timeout: 'var(--fail)',
-  queued: 'var(--queue)',
-  cancelled: 'var(--queue)',
-  // RECOV-01 recovering：黄色（设计要求的「recovering 黄」）。复用 --run 的琥珀色而不新增
-  // token：--run 就是"job 仍由 worker 持有、还没结束"的活信号色，两个几乎一样的黄只会让
-  // 调度板上多一个看不出区别的色值；区分靠徽标文案与信号形态（见 StatusBadge/Signal）。
-  recovering: 'var(--run)',
-  // GATE-01 S3：needs_review = "等人裁决"（与待应答同族的琥珀色，醒目但不同于 running 的
-  // 活信号）；rejected = 终态失败族（人明确拒绝，用它自己的红）。
-  needs_review: 'var(--phosphor)',
-  rejected: 'var(--fail)',
-  // JOB-11 waiting_dir：等在同一个目录锁上——"排队中"的灰蓝，与 queued 同族（它就是
-  // queued 的一种），不新增 token：徽标文案与 title 里的持有者已经把它讲清楚了。
-  waiting_dir: 'var(--queue)',
-  // gofer-9b1b awaiting_approval：等人批准才执行——与 needs_review / 待应答同族的琥珀色（"轮到人"）。
-  awaiting_approval: 'var(--phosphor)',
-  // gofer-dzv3 paused_for_update：一键更新等机器空闲时把新 job 停住——不用人管，与 queued 同族的
-  // 灰蓝（它就是"排队中"，只是排队的原因是更新要重启，顶上文案会说清楚）。
-  paused_for_update: 'var(--queue)',
-}
-
-export function statusColor(status: JobStatus): string {
-  return STATUS_COLOR[status] ?? 'var(--queue)'
 }
 
 // --- 评论（MCP-05 阶段 A） ------------------------------------------------------

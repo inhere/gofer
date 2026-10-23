@@ -89,6 +89,8 @@ export function statusFamily(status: string | undefined | null): StatusFamily {
 }
 
 // 状态族的单元格类名（.k-run …）：CSS 里由它给出 --c（主色）与 --soft（底色）。
+// 需要上色的地方都用这个类名 + var(--c)，不要再另建一份「状态 → 颜色」表：
+// 颜色的唯一来源是 styles/status.css（旧 api/client 的 statusColor 已在 P6 删除）。
 export function statusFamilyClass(family: StatusFamily): string {
   return `k-${family}`
 }

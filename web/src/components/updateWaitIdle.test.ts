@@ -15,6 +15,7 @@ const badgeSrc = raw(import.meta.glob('./StatusBadge.vue', { eager: true, query:
 const aboutSrc = raw(import.meta.glob('../views/settings/About.vue', { eager: true, query: '?raw', import: 'default' }))
 const boardSrc = raw(import.meta.glob('../views/Board.vue', { eager: true, query: '?raw', import: 'default' }))
 const statusSrc = raw(import.meta.glob('../utils/statusText.ts', { eager: true, query: '?raw', import: 'default' }))
+const familySrc = raw(import.meta.glob('../utils/statusFamily.ts', { eager: true, query: '?raw', import: 'default' }))
 const clientSrc = raw(import.meta.glob('../api/client.ts', { eager: true, query: '?raw', import: 'default' }))
 const typesSrc = raw(import.meta.glob('../api/types.ts', { eager: true, query: '?raw', import: 'default' }))
 
@@ -75,7 +76,8 @@ describe('一键更新：空闲时更新（gofer-dzv3）', () => {
     // 状态文案的唯一出处（徽标 / 筛选芯片 / 各页共用一张表）。
     expect(statusSrc).toMatch(/paused_for_update: '⏳ 等更新'/)
     expect(badgeSrc).toMatch(/statusText\(props\.status\)/)
-    expect(clientSrc).toMatch(/paused_for_update: 'var\(--queue\)'/)
+    // 颜色走状态族（唯一一份映射在 utils/statusFamily.ts，绘制在 styles/status.css）。
+    expect(familySrc).toMatch(/paused_for_update: 'idle'/)
     expect(statusSrc).toMatch(/'paused_for_update',/)
     expect(boardSrc).toMatch(/jobStatusOptions\(\)/)
     expect(boardSrc).toMatch(/paused_for_update: 0/)

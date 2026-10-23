@@ -3,9 +3,10 @@
 // GET /v1/stats 的 jobs.by_status：全部 job 的当前状态，不随页面的时间区间变化。
 // 统计页不订阅 2s 一推的 stats 主题，这里随页面同频（60s，页面可见时）轮询一次。
 import { onMounted, onUnmounted, ref } from 'vue'
-import { getStats, statusColor } from '../api/client'
+import { getStats } from '../api/client'
 import type { JobStatus, Stats } from '../api/types'
 import { createPoller } from '../utils/poller'
+import { statusFamily, statusFamilyClass } from '../utils/statusFamily'
 import { t } from '../i18n'
 
 const REFRESH_MS = 60_000
@@ -65,8 +66,13 @@ onUnmounted(() => poller.stop())
     </h4>
     <p v-if="error && !jobs" class="err mono">{{ error }}</p>
     <div class="chips">
-      <div v-for="s in jobStatuses" :key="s" class="chip">
-        <span class="n mono" :style="{ color: statusColor(s) }">{{ jobs ? count(s) : '—' }}</span>
+      <div
+        v-for="s in jobStatuses"
+        :key="s"
+        class="chip"
+        :class="statusFamilyClass(statusFamily(s))"
+      >
+        <span class="n mono">{{ jobs ? count(s) : '—' }}</span>
         <span class="l mono" :title="SHORT[s] ? s : undefined">{{ SHORT[s] ?? s }}</span>
       </div>
     </div>
@@ -121,6 +127,7 @@ h4 {
 }
 .n {
   display: block;
+  color: var(--c);
   font-size: 15px;
   font-weight: 700;
   line-height: 1.1;

@@ -1,15 +1,16 @@
 <script setup lang="ts">
-// 状态徽标：状态点(statusColor) + 状态文案(mono)。
+// 状态徽标：状态点 + 状态文案(mono)。颜色走状态族：类名 .k-<族> 给出 --c（见 styles/status.css），
+// 本组件不再自带「状态 → 颜色」表。
 // 文案取 utils/statusText.ts 的中央映射（各页面、筛选芯片同一份，见该文件头注释）。
 import { computed } from 'vue'
-import { statusColor } from '../api/client'
 import type { JobStatus } from '../api/types'
+import { statusFamily, statusFamilyClass } from '../utils/statusFamily'
 import { statusText } from '../utils/statusText'
 
 const props = defineProps<{ status: JobStatus; holder?: string }>()
 
-const dotColor = computed(() => statusColor(props.status))
-// queued/cancelled 共用 --queue，cancelled 视觉上压暗以区分（rejected 也压暗：
+const familyClass = computed(() => statusFamilyClass(statusFamily(props.status)))
+// queued/cancelled 同为「没在跑」的灰色族，cancelled 视觉上压暗以区分（rejected 也压暗：
 // 与 cancelled 一样是"没交付"的终态，不该和 done/failed 抢注意力）。
 const dim = computed(() => props.status === 'cancelled' || props.status === 'rejected')
 
@@ -31,9 +32,13 @@ const title = computed(() =>
 </script>
 
 <template>
-  <span class="badge mono" :class="{ 'badge--dim': dim, 'badge--attn': attention }" :title="title">
-    <span class="badge-dot" :style="{ background: dotColor }"></span>
-    <span class="badge-text" :style="{ color: dotColor }">{{ label }}</span>
+  <span
+    class="badge mono"
+    :class="[familyClass, { 'badge--dim': dim, 'badge--attn': attention }]"
+    :title="title"
+  >
+    <span class="badge-dot"></span>
+    <span class="badge-text">{{ label }}</span>
   </span>
 </template>
 
@@ -50,6 +55,14 @@ const title = computed(() =>
   height: 8px;
   border-radius: 50%;
   flex: none;
+  background: var(--c);
+}
+.badge-text {
+  color: var(--c);
+}
+/* need 族在浅色主题下万寿菊做正文色对比不足，文字用 --need-ink（形状/点仍是 --need）。 */
+.badge.k-need .badge-text {
+  color: var(--need-ink);
 }
 .badge--dim {
   opacity: 0.6;
