@@ -59,8 +59,9 @@ describe('记忆页骨架', () => {
     setLocale('zh-CN')
     const html = await render(Memory, '/memory')
     expect(html).toContain('data-test="memory-page"')
-    // 页头标题「记忆 / Memory」与刷新
-    expect(html).toContain('记忆 / Memory')
+    // 页头标题（中文界面只写中文）与刷新
+    expect(html).toContain('>记忆<')
+    expect(html).not.toContain('记忆 / Memory')
     expect(html).toContain('data-test="memory-refresh"')
     // 三档作用域是统一 chip，默认仓库
     expect(html).toContain('data-test="filter-chips"')
@@ -124,7 +125,8 @@ describe('记忆页骨架', () => {
     expect(html).toContain('Memory')
     expect(html).toContain('Refresh')
     expect(html).toContain('Repository')
-    expect(html).not.toContain('记忆 / Memory')
+    // 模板注释在 SSR 输出里保留，但不显示：先去掉再查
+    expect(html.replace(/<!--[\s\S]*?-->/g, '')).not.toContain('记忆')
     expect(html).not.toContain('刷新')
   })
 })

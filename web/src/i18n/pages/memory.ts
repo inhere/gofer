@@ -9,7 +9,7 @@ export const memory: PageDict = {
     'ui.nav.memory': '记忆',
     'ui.page.memory': '记忆',
 
-    'memory.title': '记忆 / Memory',
+    'memory.title': '记忆',
     'memory.subtitle': '共 {n} 条',
     'memory.refresh': '刷新',
     'memory.loading': '加载中…',
