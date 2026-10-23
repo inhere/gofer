@@ -165,7 +165,8 @@ describe('job detail hosts the approval panel', () => {
     expect(detailSrc).toMatch(/showApprovalPanel = computed<boolean>\(\(\) => job\.value\?\.status === 'awaiting_approval'\)/)
     const header = detailSrc.indexOf('</header>')
     const panel = detailSrc.indexOf('<ApprovalPanel')
-    const meta = detailSrc.indexOf('<div v-if="job" class="meta">')
+    // P3 起待批面板与元信息网格都在「概览」页签里（设计稿 §7.1）。
+    const meta = detailSrc.indexOf('<div v-if="active === \'overview\' && job" class="meta">')
     expect(header).toBeGreaterThan(0)
     expect(panel).toBeGreaterThan(header)
     expect(meta).toBeGreaterThan(panel)

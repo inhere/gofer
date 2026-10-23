@@ -3,11 +3,10 @@
 //  - SSE from 仅用于断线重连（已收 stdout 字节数）。
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；非终态（可取消的）显示 cancel。
 import { runnerLabel } from '../utils/runnerDisplay'
-import { BACK } from '../utils/uiText'
 import { canCancelJob } from '../utils/jobCancel'
 import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { deliveryLink, deliveryModeLabel, deliveryText } from '../utils/delivery'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -16,6 +15,11 @@ import { useWhoami } from '../store/whoami'
 import Signal from '../components/Signal.vue'
 import UncommittedBadge from '../components/UncommittedBadge.vue'
 import LogTape from '../components/LogTape.vue'
+import Tabs from '../ui/Tabs.vue'
+import BackLink from '../ui/BackLink.vue'
+import { queryWithTab, type TabItem } from '../ui/tabs'
+import { JOB_TAB, jobTabForStatus } from '../utils/jobsLayout'
+import { t } from '../i18n'
 import InteractionCard from '../components/InteractionCard.vue'
 import CommentThread from '../components/CommentThread.vue'
 import FilePreview from '../components/FilePreview.vue'
@@ -104,7 +108,9 @@ import type {
   WakeupKind,
 } from '../api/types'
 
-const props = defineProps<{ id: string }>()
+// embedded：被任务详情宿主页（JobsView）并排嵌入时为 true——此时不显示返回列表的链接
+// （列表就在左边），页头只保留任务自身的操作。
+const props = defineProps<{ id: string; embedded?: boolean }>()
 const route = useRoute()
 // 删除他人的 job 记录需要 job.delete.others（自己的不需要）；没有就不摆「删除记录」。
 // 只读身份（调用方上限 read_only）时写入口一律不摆；审阅按钮另按 canReviewJob 判（见 utils/reviewGate）。
@@ -1842,7 +1848,9 @@ const agentBudgetDone = computed<boolean>(() => agentBudgetExhausted(usage.value
 // scrollToVerifyOutput：把读者带到验证输出（stderr 末尾）。
 const logTape = ref<InstanceType<typeof LogTape> | null>(null)
 function scrollToVerifyOutput(): void {
-  logTape.value?.focusStderr()
+  // 验证输出在「日志」页签：先切过去再聚焦 stderr 末尾（页签没挂载时 logTape 为空）。
+  goTab(JOB_TAB.log)
+  void nextTick(() => logTape.value?.focusStderr())
 }
 
 function copyCommit(sha: string): void {
@@ -1901,6 +1909,32 @@ function startJobLive(): void {
   jobLive.start()
 }
 
+// 页签（设计稿 §7.1、§16-5）：值以 URL 的 ?tab= 为准（可深链、可前进后退）；
+// 默认页签按状态——needs_review 进「验收」、failed 进「日志」、其余「概览」。
+const tabItems = computed<TabItem[]>(() => [
+  { value: JOB_TAB.overview, label: t('jobs.tab.overview') },
+  { value: JOB_TAB.review, label: t('jobs.tab.review'), badge: status.value === 'needs_review' },
+  { value: JOB_TAB.log, label: t('jobs.tab.log') },
+  { value: JOB_TAB.changes, label: t('jobs.tab.changes'), count: commits.value.length || undefined },
+  { value: JOB_TAB.messages, label: t('jobs.tab.messages'), count: messages.value.length || undefined },
+  { value: JOB_TAB.artifacts, label: t('jobs.tab.artifacts'), count: artifacts.value.length || undefined },
+  {
+    value: JOB_TAB.events,
+    label: t('jobs.tab.events'),
+    count: timelineEvents.value.length + pendingInteractions.value.length + answeredInteractions.value.length || undefined,
+  },
+])
+
+const defaultTab = computed(() => jobTabForStatus(status.value))
+
+// 概览里的「去验收」条：与点页签同一条路径（写 ?tab=review）。
+function goTab(value: string): void {
+  void router.replace({
+    path: route.path,
+    query: queryWithTab(route.query, value, tabItems.value, 'tab', defaultTab.value),
+  })
+}
+
 onMounted(() => {
   clock.start()
   void loadCurrentJob()
@@ -1925,7 +1959,7 @@ onUnmounted(() => {
 <template>
   <div class="detail">
     <div class="detail-head">
-      <RouterLink to="/jobs" class="back mono">{{ BACK.board }}</RouterLink>
+      <BackLink v-if="!embedded" list="jobs" to="/jobs" :label="t('jobs.detail.back')" />
       <div class="head-right">
         <StatusBadge v-if="job" :status="status" :holder="job.waiting_on_job" />
         <UncommittedBadge v-if="job" :count="job.uncommitted_count" :files="job.uncommitted_files" />
@@ -1996,17 +2030,28 @@ onUnmounted(() => {
 
     <p v-if="headError" class="error mono">{{ headError }}</p>
 
+    <!-- 详情页签（设计稿 §7.1）：概览 / 验收 / 日志 / 变更 / 消息 / 产物 / 事件；
+         ?tab= 深链，默认页签按状态（needs_review → 验收，failed → 日志，其余 → 概览）。 -->
+    <Tabs :tabs="tabItems" :fallback="defaultTab" :label="t('jobs.detail.tabs')">
+      <template #default="{ active }">
+    <!-- 需要验收时在概览里先给一条指路的横幅，免得「验收」页签被漏看。 -->
+    <p v-if="active === 'overview' && job && status === 'needs_review'" class="review-banner mono" data-test="review-banner">
+      {{ t('jobs.detail.reviewBanner') }}
+      <button class="review-banner-btn mono" type="button" @click="goTab(JOB_TAB.review)">
+        {{ t('jobs.detail.toReview') }}
+      </button>
+    </p>
     <!-- 待批面板（gofer-9b1b）：理由 / 完整命令 / 在哪跑 / 谁提交 / 倒计时 + 批准 / 拒绝。
          只读身份、没审阅权限、受限身份审自己的 job 时只留面板与一行灰字原因（buttons 收起）。 -->
     <ApprovalPanel
-      v-if="job && showApprovalPanel"
+      v-if="active === 'overview' && job && showApprovalPanel"
       :job="job"
       :now-sec="nowSec"
       :blocked-reason="reviewBlockedReason"
       @decided="onHoldDecided"
     />
 
-    <div v-if="job" class="meta">
+    <div v-if="active === 'overview' && job" class="meta">
       <div class="meta-item">
         <span class="meta-k mono">id</span><span class="meta-v mono id">{{ job.id }}</span>
       </div>
@@ -2343,7 +2388,7 @@ onUnmounted(() => {
       @done="onMergeDone"
     />
     <ReviewPanel
-      v-if="job && showReviewPanel"
+      v-if="active === 'review' && job && showReviewPanel"
       :job="job"
       :blocked-reason="reviewBlockedReason"
       @updated="applyStatus"
@@ -2351,7 +2396,7 @@ onUnmounted(() => {
     />
 
     <!-- 渲染命令：独立于「产出与审计」，running 态只要后端给出 rendered_command 即展示。 -->
-    <section v-if="renderedCommand" class="rendered-command">
+    <section v-if="active === 'overview' && renderedCommand" class="rendered-command">
       <div class="outcome-block">
         <div class="outcome-head">
           <span class="outcome-k mono">渲染命令</span>
@@ -2392,7 +2437,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="job?.messenger" class="messenger-meta">
+    <section v-if="active === 'messages' && job?.messenger" class="messenger-meta">
       <div class="outcome-block">
         <div class="outcome-head">
           <span class="outcome-k mono">传话消息</span>
@@ -2409,7 +2454,7 @@ onUnmounted(() => {
 
     <!-- 「消息」区（gofer-chd9）：发给 agent 的消息（首条 prompt + 会话每轮 say）与 agent
          回复摘要，按时间升序。首条消息可展开看被剥掉的完整注入内容（rules 段）。 -->
-    <section v-if="showJobMessages(job) && messages.length > 0" class="job-messages" data-test="job-messages">
+    <section v-if="active === 'messages' && showJobMessages(job) && messages.length > 0" class="job-messages" data-test="job-messages">
       <h2 class="outcomes-title mono">消息</h2>
       <ol class="job-messages-list">
         <li
@@ -2438,7 +2483,7 @@ onUnmounted(() => {
       </ol>
     </section>
 
-    <section v-if="job?.session" class="session-composer-card">
+    <section v-if="active === 'messages' && job?.session" class="session-composer-card">
       <div class="session-composer-head">
         <h2 class="outcomes-title mono">ACP 会话消息</h2>
         <span class="session-composer-state mono">
@@ -2473,7 +2518,7 @@ onUnmounted(() => {
 
     <!-- 运行中交互区：待应答卡片（排队作答）+ 已应答折叠 -->
     <section
-      v-if="pendingInteractions.length > 0 || answeredInteractions.length > 0"
+      v-if="active === 'events' && (pendingInteractions.length > 0 || answeredInteractions.length > 0)"
       class="interactions"
     >
       <h2 class="interactions-title mono">
@@ -2510,7 +2555,7 @@ onUnmounted(() => {
 
     <!-- 事件时间线（E13）：append-only 生命周期事件，每事件一行（图标 + 标签 +
          关键 detail + 相对时间）。仿 interactions 渲染风格，仅在有事件时展示。 -->
-    <section v-if="timelineEvents.length > 0" class="timeline">
+    <section v-if="active === 'events' && timelineEvents.length > 0" class="timeline">
       <h2 class="timeline-title mono">事件时间线</h2>
       <button
         v-if="eventsTruncated"
@@ -2540,7 +2585,7 @@ onUnmounted(() => {
 
     <!-- 评论区（MCP-05 阶段 A）：job 上的评论线程。user 作者的评论里 @agent/@role
          会经服务端同一个 Submit 入口派一个 job，行上显示回链。 -->
-    <section class="comments">
+    <section v-if="active === 'events'" class="comments">
       <h2 class="comments-title mono">评论</h2>
       <CommentThread
         v-if="job"
@@ -2556,7 +2601,7 @@ onUnmounted(() => {
 
     <!-- webhook 投递（E14）：只读，每条投递一行（状态徽标 + 目标 + 关键信息）。
          无通知配置时 deliveries 为空，整节不展示。 -->
-    <section v-if="deliveries.length > 0" class="deliveries">
+    <section v-if="active === 'events' && deliveries.length > 0" class="deliveries">
       <h2 class="deliveries-title mono">通知投递</h2>
       <ul class="deliveries-list">
         <li
@@ -2580,7 +2625,7 @@ onUnmounted(() => {
     </section>
 
     <!-- 终端会话：pty relay 元数据与录制下载入口。 -->
-    <section v-if="ptySessions.length > 0" class="pty-sessions">
+    <section v-if="active === 'events' && ptySessions.length > 0" class="pty-sessions">
       <h2 class="pty-sessions-title mono">终端会话</h2>
       <ul class="pty-sessions-list">
         <li
@@ -2609,7 +2654,7 @@ onUnmounted(() => {
 
     <!-- 唤醒（JOB-09）：登记在 job 上的事件订阅/定时器 —— 条件到达时 gofer 自动续投
          这个 job。列表 + 开关 + 新建表单 + 触发历史（来自 job.wakeup_* 事件）。 -->
-    <section v-if="wakeups.length > 0 || wakeupFormOpen" class="wakeups">
+    <section v-if="active === 'events' && (wakeups.length > 0 || wakeupFormOpen)" class="wakeups">
       <h2 class="wakeups-title mono">
         唤醒
         <span v-if="wakeupSummary" class="wakeups-sum mono">{{ wakeupSummary }}</span>
@@ -2722,8 +2767,51 @@ onUnmounted(() => {
       <p v-if="wakeupError" class="artifact-err mono">{{ wakeupError }}</p>
     </section>
 
+    <!-- 变更（§7.1）：提交（sha 可复制）与未提交 diff 从「产物」里拆出来，单独一页签。 -->
+    <section v-if="active === 'changes'" class="outcomes" data-test="job-changes">
+      <h2 class="outcomes-title mono">{{ t('jobs.tab.changes') }}</h2>
+      <!-- 提交列表（SUP-01 C）：本 job 产出的提交（base..HEAD，新→旧）。worktree job
+           的交付物就在这些提交里；点 sha 复制，便于合回主干或核对。 -->
+      <div v-if="commits.length > 0" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">提交（{{ commits.length }}）</span>
+          <span v-if="job?.base_sha" class="diff-note mono" :title="job.base_sha">基线 {{ shortSha(job.base_sha) }}</span>
+        </div>
+        <ul class="artifact-list">
+          <li v-for="c in commits" :key="c.sha" class="artifact-row">
+            <button class="artifact-dl mono" type="button" :title="`复制 ${c.sha}`" @click="copyCommit(c.sha)">
+              {{ c.sha }}
+            </button>
+            <span class="artifact-name" :title="c.subject">{{ c.subject }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->
+      <div v-if="diffSummary" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">改了什么</span>
+          <button
+            class="copy-btn mono"
+            type="button"
+            :disabled="diffLoading"
+            @click="onViewDiff"
+          >
+            {{ diffLoading ? '加载中…' : '查看完整 diff' }}
+          </button>
+        </div>
+        <p class="diff-note mono">未提交改动（uncommitted changes，tracked vs HEAD）</p>
+        <pre class="outcome-pre diff-stat mono">{{ diffSummary }}</pre>
+        <p v-if="diffError" class="artifact-err mono">{{ diffError }}</p>
+      </div>
+
+      <p v-if="commits.length === 0 && !diffSummary" class="changes-empty mono">
+        {{ t('jobs.changes.empty') }}
+      </p>
+    </section>
+
     <!-- 产出与审计：结构化结果(E6) + 产物 + diff。仅在有内容时展示。 -->
-    <section v-if="hasOutcomes" class="outcomes">
+    <section v-if="active === 'artifacts' && hasOutcomes" class="outcomes">
       <h2 class="outcomes-title mono">
         产出与审计
         <span v-if="isRemoteSource" class="source-badge mono" :class="'source-' + sourceKind">{{ sourceLabel }}</span>
@@ -2841,23 +2929,6 @@ onUnmounted(() => {
         <p v-if="xferFileError" class="artifact-err mono">{{ xferFileError }}</p>
       </div>
 
-      <!-- 提交列表（SUP-01 C）：本 job 产出的提交（base..HEAD，新→旧）。worktree job
-           的交付物就在这些提交里；点 sha 复制，便于合回主干或核对。 -->
-      <div v-if="commits.length > 0" class="outcome-block">
-        <div class="outcome-head">
-          <span class="outcome-k mono">提交（{{ commits.length }}）</span>
-          <span v-if="job?.base_sha" class="diff-note mono" :title="job.base_sha">基线 {{ shortSha(job.base_sha) }}</span>
-        </div>
-        <ul class="artifact-list">
-          <li v-for="c in commits" :key="c.sha" class="artifact-row">
-            <button class="artifact-dl mono" type="button" :title="`复制 ${c.sha}`" @click="copyCommit(c.sha)">
-              {{ c.sha }}
-            </button>
-            <span class="artifact-name" :title="c.subject">{{ c.subject }}</span>
-          </li>
-        </ul>
-      </div>
-
       <!-- 验证步骤（SUP-01 P2）：agent 正常结束后在执行机同 cwd/env 跑的验收命令。
            failed/timeout 就是该 job 失败的原因；点「查看输出」跳到 stderr 末尾看命令的原始输出。 -->
       <div v-if="verify" class="outcome-block" :class="verifyTone">
@@ -2884,26 +2955,9 @@ onUnmounted(() => {
         <!-- gofer-hnqf：agent 自报的软预算（agent_tokens / agent_cost_usd）已用 / 上限。 -->
         <pre v-if="agentBudgetText" class="outcome-pre verify-cmd mono" data-test="agent-budget-line">预算 {{ agentBudgetText }}</pre>
       </div>
-
-      <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->
-      <div v-if="diffSummary" class="outcome-block">
-        <div class="outcome-head">
-          <span class="outcome-k mono">改了什么</span>
-          <button
-            class="copy-btn mono"
-            type="button"
-            :disabled="diffLoading"
-            @click="onViewDiff"
-          >
-            {{ diffLoading ? '加载中…' : '查看完整 diff' }}
-          </button>
-        </div>
-        <p class="diff-note mono">未提交改动（uncommitted changes，tracked vs HEAD）</p>
-        <pre class="outcome-pre diff-stat mono">{{ diffSummary }}</pre>
-        <p v-if="diffError" class="artifact-err mono">{{ diffError }}</p>
-      </div>
     </section>
 
+    <template v-if="active === 'log'">
     <LogTape
       ref="logTape"
       :stdout-label="job?.interactive ? '终端' : 'stdout'"
@@ -2927,6 +2981,11 @@ onUnmounted(() => {
       @load-earlier="onLoadEarlier"
       @load-all="onLoadAll"
     />
+    </template>
+
+    <!-- 页签内容结束：上面各区块用默认插槽的作用域变量 active 决定所在页签。 -->
+      </template>
+    </Tabs>
 
     <!-- 产物预览弹层（E19a）：点击产物「预览」打开；md/图/json/文本经 FilePreview
          渲染（md 走 marked + DOMPurify sanitize）。点遮罩或「关闭」收起。 -->
@@ -3022,6 +3081,41 @@ onUnmounted(() => {
 .detail {
   max-width: 1200px;
   margin: 0 auto;
+}
+/* 概览里的「去验收」横幅（§7.1）：黄色只代表「需要人」（§5）。 */
+.review-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0 0 var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--need);
+  border-left-width: 3px;
+  border-radius: var(--r-ctl);
+  color: var(--fg);
+  font-size: var(--fs-sm);
+}
+.review-banner-btn {
+  min-height: 28px;
+  padding: 0 var(--s2);
+  background: none;
+  border: 1px solid var(--need);
+  border-radius: var(--r-ctl);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.review-banner-btn:hover {
+  background: var(--surface-2);
+}
+.review-banner-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.changes-empty {
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
 }
 .detail-head {
   display: flex;

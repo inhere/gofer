@@ -26,10 +26,11 @@ export const routes: RouteRecordRaw[] = [
   // W1：工作项总览（一张卡 = 一件事，跨会话；按状态 / 工作区看）。
   { path: '/work', name: 'work', component: () => import('./views/Work.vue') },
   { path: '/new', name: 'new-job', component: () => import('./views/NewJob.vue') },
+  // 任务详情：够宽时左边列表 + 右边详情并排（宿主页按宽度决定，设计稿 §7.1 / §16）。
   {
     path: '/jobs/:id',
     name: 'job-detail',
-    component: () => import('./views/JobDetail.vue'),
+    component: () => import('./views/JobsView.vue'),
     props: true,
   },
   { path: '/workflows', name: 'workflows', component: () => import('./views/Workflows.vue') },

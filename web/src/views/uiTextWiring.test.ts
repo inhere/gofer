@@ -24,7 +24,6 @@ const OLD_TITLES = ['PLANS', 'JOBS BOARD', 'WORKFLOWS', 'SESSIONS', 'PROJECTS', 
 describe('页面标题用中文', () => {
   const titled: Array<[string, string]> = [
     ['Plans', '{{ PAGE.plans }}'],
-    ['Board', '{{ PAGE.board }}'],
     ['Workflows', '{{ PAGE.workflows }}'],
     ['Sessions', '{{ PAGE.sessions }}'],
     ['Projects', '{{ PAGE.projects }}'],
@@ -35,6 +34,12 @@ describe('页面标题用中文', () => {
 
   it.each(titled)('%s 从 PAGE 取标题', (name, expr) => {
     expect(view(name)).toContain(expr)
+  })
+
+  // P3 迁移：任务列表的标题改从 i18n 取（页面专属 key 在 i18n/pages/jobs.ts）。
+  it('任务列表标题已迁到 i18n', () => {
+    expect(view('Board')).toContain("t('jobs.h.title')")
+    expect(view('Board')).not.toContain('{{ PAGE.board }}')
   })
 
   it('不再有大写英文页面标题', () => {
@@ -61,9 +66,11 @@ describe('页面标题用中文', () => {
 describe('面包屑用中文', () => {
   it('返回链接取自 BACK', () => {
     expect(view('NewJob')).toContain('{{ BACK.board }}')
-    expect(view('JobDetail')).toContain('{{ BACK.board }}')
     expect(view('NewSchedule')).toContain('{{ BACK.schedules }}')
     expect(view('NewWorkflow')).toContain('{{ BACK.workflows }}')
+    // 任务详情已迁到 ui/BackLink（P3）：回来源列表，文案走 i18n。
+    expect(view('JobDetail')).toContain('<BackLink v-if="!embedded" list="jobs" to="/jobs"')
+    expect(view('JobDetail')).not.toContain('{{ BACK.board }}')
     for (const name of ['NewJob', 'JobDetail', 'NewSchedule', 'NewWorkflow']) {
       expect(view(name)).not.toContain('← board')
       expect(view(name)).not.toMatch(/← (schedules|workflows|plans)</)
