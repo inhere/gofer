@@ -133,8 +133,8 @@ describe('WorkDrawer journal level and health', () => {
     expect(drawer).toContain("e.level === 'milestone'")
     expect(drawer).toContain('data-test="journal-milestones"')
     expect(drawer).toContain('data-test="journal-all"')
-    expect(drawer).toContain('只看里程碑')
-    expect(drawer).toContain('>全部</button>')
+    expect(drawer).toContain("t('work.d.journalMilestones')")
+    expect(drawer).toContain("t('work.d.journalAll')")
   })
 
   it('shows health and its reason in the header only when not ok', () => {

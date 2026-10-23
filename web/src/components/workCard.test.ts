@@ -25,7 +25,8 @@ describe('WorkCard', () => {
       expect(html).toContain(s)
     }
     // the human-set marker
-    expect(html).toMatch(/需现场(<!--\[-->)? · 手动/)
+    expect(html).toContain('data-test="status-manual"')
+    expect(html).toContain('· 手动')
     // nothing from the details block
     expect(html).not.toContain('data-test="card-details"')
     expect(html).not.toContain('会话首次提问自动创建')
