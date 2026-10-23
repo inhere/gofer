@@ -738,6 +738,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 - 进度条改用 `needs_review` / `failed_jobs`：「待验收」段不再恒为 0，「受阻」段优先取 `failed_jobs`（老服务端回落 `counts.failed`）。分段口径仍在 `ui/progress.ts`，列表与详情共用。
 - 卡点列顺序：卡在哪个待办（fail）→ N 个 job 失败（fail）→ N 待验收（黄，`--need`）→ N 进行中（run）。
+- tags 行补了两个标识 chip（§7 要求的信息）：已暂停（`paused`，`--time`）与自动推进（`leader === 'on'`，`--run`）。
 - 页头标题、状态 chip 标签、关键字 / tag 抽屉、空态、分页条全部走 `t()`，key 在 `i18n/pages/plans.ts`；`plans.*` 从 `zh.ts` / `en.ts` 移到该文件（同一页自己的 key，避免与其他页面并行迁移冲突）。
 
 **计划详情（`/plans/:id`）**
@@ -754,9 +755,9 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 **测试**（§13）
 
-- 新增 `views/planDetailTabs.test.ts`：六个页签声明与 `active ===` 门控、默认 `todos`、链控制在页签之外、`BackLink` 回总览、头部 `planProgressModel` + `failed_jobs`、`?tab=` 的读写（默认页签不写 URL）、总览的待验收段 / 卡点行。
+- 新增 `views/planDetailTabs.test.ts`：六个页签声明与 `active ===` 门控、默认 `todos`、链控制在页签之外、`BackLink` 回总览、头部 `planProgressModel` + `failed_jobs`、`?tab=` 的读写（默认页签不写 URL）、总览的待验收段 / 卡点行 / 已暂停·自动推进标记、手机看板一次一列。
 - 同步修改：`ui/progress.test.ts`（新增 `needs_review` / `failed_jobs` 两段与缺字段按 0 的口径）、`utils/planControls.test.ts`（`ops-label` 与主会话标签改成断言 i18n key）、`views/uiTextWiring.test.ts`（Plans 标题从 `PAGE.plans` 改为 `t('plans.list.title')`）。
-- `npx vue-tsc --noEmit`、`npx vitest run`、`npx vite build` 三命令全绿（195 个文件 / 1315 个用例）。
+- `npx vue-tsc --noEmit`、`npx vitest run`（195 个文件 / 1317 个用例）、`npx vite build` 三命令全绿。
 
 **对照 §7 字段清单的核对**
 

@@ -18,6 +18,8 @@ export const plans: PageDict = {
     'plans.overview.review': '{n} 待验收',
     'plans.overview.failed': '{n} 个 job 失败',
     'plans.overview.clear': '无卡点',
+    'plans.overview.paused': '已暂停',
+    'plans.overview.leaderOn': '自动推进',
     // 计划总览页
     'plans.list.title': '计划',
     'plans.list.plan': '计划 · 标题 / ID',
@@ -191,6 +193,8 @@ export const plans: PageDict = {
     'plans.overview.review': '{n} need review',
     'plans.overview.failed': '{n} jobs failed',
     'plans.overview.clear': 'Nothing blocked',
+    'plans.overview.paused': 'Paused',
+    'plans.overview.leaderOn': 'Auto-advance',
     'plans.list.title': 'Plans',
     'plans.list.plan': 'Plan · title / ID',
     'plans.list.keyword': 'Keyword',

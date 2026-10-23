@@ -89,6 +89,11 @@ describe('plan overview review / failure figures', () => {
     expect(row).toContain("t('plans.overview.doing', { n: doing })")
   })
 
+  it('marks a paused plan and one that auto-advances', () => {
+    expect(row).toContain("t('plans.overview.paused')")
+    expect(row).toContain("t('plans.overview.leaderOn')")
+  })
+
   it('keeps the overview filters and paging in the URL', () => {
     expect(overview).toContain('useListReturn(\'plans\', \'/plans\')')
     expect(overview).toContain("t('plans.list.page'")

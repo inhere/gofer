@@ -63,6 +63,8 @@ function open(): void {
       <span class="prow-id mono" :title="plan.plan_id" lang="en">{{ plan.plan_id }}</span>
       <span class="prow-tags">
         <span v-if="plan.project" class="prow-chip" lang="en">{{ plan.project }}</span>
+        <span v-if="plan.paused" class="prow-chip prow-chip--paused">{{ t('plans.overview.paused') }}</span>
+        <span v-if="plan.leader === 'on'" class="prow-chip prow-chip--leader">{{ t('plans.overview.leaderOn') }}</span>
         <span v-for="tag in plan.tags ?? []" :key="tag" class="prow-chip">{{ tag }}</span>
       </span>
     </span>
@@ -148,6 +150,15 @@ function open(): void {
   border-radius: var(--r-chip);
   color: var(--fg-3);
   font-size: var(--fs-xs);
+}
+/* 已暂停 = 人选了不再自动推进；自动推进 = leader 开着。两者都是标识不是告警。 */
+.prow-chip--paused {
+  color: var(--time);
+  border-color: var(--time);
+}
+.prow-chip--leader {
+  color: var(--run);
+  border-color: var(--run);
 }
 .prow-blockers {
   display: flex;
