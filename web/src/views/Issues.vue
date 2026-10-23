@@ -1175,12 +1175,6 @@ onMounted(async () => {
   .trow > span:nth-child(n + 5) {
     display: none;
   }
-  .trow > .updated-col {
-    display: block;
-    order: 4;
-    font-size: var(--fs-xs);
-    color: var(--fg-3);
-  }
   .field--inline {
     flex: 1 0 100%;
   }

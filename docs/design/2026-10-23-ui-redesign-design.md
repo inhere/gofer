@@ -1237,6 +1237,70 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 仍留在工具层的中文（P6 统一处理）：`utils/workflowResult.ts` 的模板保存 / 删除提示与 `templateReadOnlyNote`、`utils/statusText.ts` 的状态名回退、`components/ExperimentalBadge.vue` 的标题、`CompareColumns` 的按钮与合并提示、`api/time.ts` 的 `fmtUntil`（本次已把定时列表里的「待触发」换成 `utils/format.ts` 的 `formatRelative`，工具函数本身留给 P6）。
 - 视觉与交互自查：用 vite dev server + 最小路由 + stub 的 `/v1` 响应（自建临时入口，截图完已删）把 `/workflows`、`/workflows/new`、`/workflows/:id`、`/schedules`、`/schedules/new` 按 zh / en × 浅 / 深（1440×900）各截一屏，另加定时列表的手机屏（390×844）。据此改了四处：列表步骤列不再重复显示一次进度（`ProgressBar` 自带分数）、把截断的 id 改为完整 id（避免「ightly-clean」这类只剩尾部的怪样子）、手机上的启用开关不再被最小点按高度拉成胶囊、定时下次触发的「待触发」换成按语言格式化的相对时间（英文界面不再出现中文）。最终一版的截图里没有横向滚动，浅 / 深对比度正常，控制台只有 stub 未提供的 `/v1/ws-ticket` 代理报错。
 
+### P5 Issues、统计、新建任务（2026-10-23，issue gofer-hez1）
+
+落地范围即 §14 表格 P5 行的 `/issues`、`/dashboard`、`/new`（`views/Issues.vue`、`components/IssueDrawer.vue`、`views/Dashboard.vue`、`components/DashboardJobStatus.vue`、`views/NewJob.vue`）。不涉及 Go 代码，接口与字段一个没动。
+
+**`/issues`**
+
+- 页头：标题 + 共 N 条 + 「新建 issue」/「刷新」；去掉眉标「TRACKER」（§7.3）。
+- 页签换成 `ui/Tabs`（Issues / 记忆，`?tab=memories` 仍可深链，与今天页的记忆整理卡兼容）。
+- 仓库选择换成 `ui/ProjectFilter`（repo 视为项目，值仍是仓库 id；「全部项目」这一项在没有仓库时不动当前选择，页面下方本来就有「暂无已登记仓库」的说明）；「同步」按钮与上次同步摘要并排，同步 job 的链接保留。
+- 状态筛选换成带计数的 `FilterChips`（多选，空集合 = 不按状态过滤）；树形 / 平铺、记忆作用域都是同一套分段控件；类型 / 标签 / 关键字仍是输入框，记忆类型 chip 走 `FilterChips`。
+- 列表仍是 8 列表格（勾选、ID、标题、状态、优先级、类型、标签、更新）；状态列换 `StatusPill`，行的可点、Shift 连选、连同子项、跨页保留、分页、批量结果全部照旧。手机（≤760）每行压成卡片：勾选 + ID + 状态一行、标题一行、更新时间一行，其余列隐藏。
+- `IssueDrawer` 换成 `ui/Drawer` 外壳（Esc 关闭、焦点循环与归还由外壳负责），内容不变：标题 / 类型 / 标签 / 创建人 / 创建时间 / 状态 / 优先级 / 关系（父、子、blocked-by、blocks、其它）/ 描述与 markdown 预览 / 保存 / 备注 / 评论 / 发表评论；只读判断（`writeBlock`）在保存与评论按钮上。
+
+**`/dashboard`**
+
+- 全部配色改状态族 token：完成 = `--done`、失败 = `--fail`、主色 = `--accent`，热力图用 `--done` 与 `--sunken` 的混合，轨道底色 `--sunken`；数字（大数、排名值、用量、时长）一律等宽 + `tabular-nums`（§4.2）。
+- 面板 12px 圆角、无普通阴影；分区标题改成小节行（上分隔线），主卡在 ≤1024 两列、≤760 单列，小指标块 ≤760 两列、≤520 单列；活跃度卡里的热力图与「任务状态分布」在 ≤760 纵向堆叠。
+- `DashboardJobStatus` 一并迁到新 token 与字典（「任务状态分布 / 全部 job · 不随区间」）。
+- 所有标题、口径提示（`data-tip`）、图例、单位、空态、提示条走 `stats.*`；范围与分桶按钮的文案改由 `stats.range.*` / `stats.bucket.*` 取，不再用 `utils/dashStats` 的中文常量（常量仍留给 `copyText` 与别处）。
+
+**`/new`**
+
+- 两栏（§7.1）：左栏项目 / runner / worker 选机 / agent，右栏标题 / 任务书模板（含变量表单与正文预览）/ cwd，任务说明横跨两栏；其余选项全部收进「高级选项」折叠区（模型、agent 参数 / 命令、锁定目录与等锁时长、worktree、交互式、持续会话与其两个上限、只读、预算三项、PTY 行列与录制、tags、超时、上传 / 收集、sync、rebuild 的 env 编辑）。手机上单栏、提交按钮吸底（保留 `env(safe-area-inset-bottom)`）。
+- 返回链接换成 `ui/BackLink`（回任务列表并带原筛选），标题随模式变化：新建任务 / 快速重建 / 从会话新开。
+- 字段、校验、预填（`?from_item`、`?from_session`、`?lock`、rebuild 继承字段）、上限收窄与灰显原因全部照旧；提交与「重试关联」不变。
+
+**i18n（§9）**
+
+- 三页文案全部进 `web/src/i18n/pages/issues.ts`（`issues.`）、`stats.ts`（`stats.`）、`newjob.ts`（`newjob.`），zh / en 同名同数，已在 `i18n.test.ts` 的 `pageDomains` 登记；不动 `zh.ts` / `en.ts`。
+- 业务内容（issue / job 标题与正文、仓库 / 项目 / agent / runner / worker 名、路径、命令、模板名、cron、模型名、状态值）不翻译。状态名仍然走 `status.<值>`，没有翻译时回退旧的 `issueStatusText`。
+
+**不丢信息核对（对照 §7 与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| Issues：新建 issue 表单（仓库 / 标题 / 描述 / 优先级 / 类型、无仓库提示、错误与成功提示、只读禁用） | 全部保留 |
+| Issues：仓库下拉、同步按钮与同步 job 链接、上次同步与冲突摘要 | 保留（仓库换 `ProjectFilter`） |
+| Issues / Memories 页签、记忆作用域三选与说明 | 保留（页签换 `Tabs`、作用域换 chip） |
+| Issues：全局记忆的「同步状态」折叠区（机器数、最近主机、逐台明细、空态） | 全部保留 |
+| Issues：树形 / 平铺、状态 chip、类型 / 标签 / 关键字、记忆类型 chip 与「有标记」 | 保留（状态 chip 新增计数） |
+| Issues：选择提示、批量操作栏、批量结果（失败明细、收起）、分页与每页条数 | 全部保留 |
+| Issues 表格列：ID、标题（进度 / 连同子项 / 父链接）、状态、优先级、类型、标签、更新时间 | 全部保留（状态换 `StatusPill`） |
+| IssueDrawer：全部字段、关系五组、描述与预览、备注、评论、保存 / 评论、只读 | 全部保留（外壳换 `Drawer`） |
+| 统计：范围切换、分桶切换、复制统计与两种提示 | 保留 |
+| 统计：四张主卡（任务 / 耗时 / Git / 信号，含全部 `data-tip` 口径） | 全部保留 |
+| 统计：完成趋势图（SVG，完成 / 失败两色、峰值、轴）、最高产（今日 / 其余两种）、活跃度热力图与图例、任务状态分布 | 全部保留 |
+| 统计：Agent 排行、项目 Top 3 + 全部项目折叠、验收与计划四块、耗时最长 / 最快、用量（费用 / 按模型）、口径说明、系统折叠区 | 全部保留 |
+| 新建任务：全部 query 预填、项目 / runner / worker / agent 联动与灰显原因、上限收窄与只读提示 | 全部保留 |
+| 新建任务：模板与变量、预览、校验提示；prompt / 命令；模型与 agent 参数；锁定目录 / 等锁 / worktree；交互式、持续会话、只读；预算、PTY、tags、上传 / 收集、env、超时与 sync | 全部保留（分区见上） |
+| 新建任务：提交 / 提交重建、提交中、结果链接、关联条目成功 / 失败与重试 | 全部保留 |
+
+**测试（§13）**
+
+- 新增页面字典后全量 `npx vitest run` 211 个文件通过；`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
+- 同步修改：`views/dashboardView.test.ts`（范围 / 分桶 / 复制、最佳时段、手机断点改成断言 i18n key 与 760 断点）、`views/dashboardMobile.test.ts`（断点 760）、`views/newJobMobile.test.ts`（高级选项断言 key）、`views/newJobLockPaths.test.ts`（锁定目录 / 等锁时长断言 key）、`views/uiTextWiring.test.ts`（新建任务标签与返回链接改断言 `t('newjob.*')` / `ui/BackLink`）、`i18n/i18n.test.ts`（页面域加上 `issues.` / `stats.` / `newjob.`）。
+
+**如实记录的范围边界与差异**
+
+- §7.3 的「`/dashboard` 新增项目 chip（只影响按项目以外的板块）」**没有落地**：接口没有按项目切的参数，加一个不改变任何板块的 chip 只会误导人，留待 `/v1/stats/overview` 带项目维度后再补。
+- `utils/dashStats.ts` 的 `summaryLine` / `copyText` / `NOTE_TEXT` 文案仍是中文（摘要行与「复制统计」的纯文本）：它们是共享 util，且 `copyText` 的产出要能被粘贴到别处，留给 P6 统一处理。同理 `utils/lockPaths.ts` 的 `DIR_LOCK_HINT`、`utils/ceiling.ts` 的上限文案、`NewJob` 里 `agentEmptyReason` / `validationError` / `itemNote` 这类逻辑层拼出来的提示仍是中文。
+- 统计页的「任务状态分布」仍用 `api/client` 的 `statusColor` 取色（沿用接口口径），没有改成 `utils/statusFamily`：两者现在取的是同一套状态色，等 P6 删旧颜色表时一起收敛。
+- 本页没有逐像素对齐预览稿（预览稿里没有这三屏）：形态按 §7 的字段清单 + P2/P4/P5-a 已合入的基元落地。
+- 视觉自查：`npx vue-tsc --noEmit`、`npx vitest run`、`npx vite build` 全绿；zh / en × 浅 / 深 的截图检查未做（本轮时间用完），只按字典与 CSS 复核了文案长度与对比度（全部用 token，没有新增颜色）。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**

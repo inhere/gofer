@@ -34,6 +34,7 @@ import {
 } from '../utils/dashStats'
 import { createPoller } from '../utils/poller'
 import { t, te } from '../i18n'
+import { locale } from '../store/locale'
 
 // 每 60s 刷新（页面可见时）；服务端同样按 60s / 5min 缓存。
 const REFRESH_MS = 60_000
@@ -116,6 +117,8 @@ const topCommits = computed(() => topN(ov.value?.projects ?? [], (p) => p.commit
 
 // 口径说明：服务端给的说明 key 走字典，没登记的照原样显示（P6 收尾）。
 const notes = computed(() => (ov.value?.notes ?? []).map((n) => (te(`stats.note.${n}`) ? t(`stats.note.${n}`) : (NOTE_TEXT[n] ?? n))))
+// 说明的拼接符跟随语言：中文用全角分号，英文用「; 」。
+const noteSeparator = computed(() => (locale.value === 'zh-CN' ? '；' : '; '))
 
 function projectTail(p: string): string {
   return p.split('/').filter(Boolean).pop() || p || DASH
@@ -512,7 +515,7 @@ onUnmounted(() => poller.stop())
         <div v-else class="skip">{{ t('stats.usage.empty', { dash: DASH }) }}</div>
       </section>
 
-      <p v-if="notes.length" class="note mono">{{ t('stats.note', { notes: notes.join('；') }) }}</p>
+      <p v-if="notes.length" class="note mono">{{ t('stats.note', { notes: notes.join(noteSeparator) }) }}</p>
     </template>
 
     <!-- ⑦ 系统（原 Dashboard 卡片，默认收起；展开才订阅实时 stats） -->
@@ -879,7 +882,7 @@ onUnmounted(() => poller.stop())
   padding-left: 16px;
 }
 .heat .months span {
-  width: calc(22px * 4);
+  width: 56px;
   overflow: hidden;
   white-space: nowrap;
 }
