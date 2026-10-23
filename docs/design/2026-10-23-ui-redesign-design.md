@@ -1290,7 +1290,8 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 **测试（§13）**
 
-- 新增页面字典后全量 `npx vitest run` 211 个文件通过；`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
+- 新增 `views/p5bPagesI18n.test.ts`（3 个用例）：页面里引用的每个 `t('issues.*' / 'stats.*' / 'newjob.*')` 在 zh 与 en 都存在、三本页面字典的 key 集合相等、英文文案里没有汉字（拼出来的 key 跳过，靠 key 集合用例兜住）。
+- 新增页面字典后全量 `npx vitest run` 212 个文件通过；`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
 - 同步修改：`views/dashboardView.test.ts`（范围 / 分桶 / 复制、最佳时段、手机断点改成断言 i18n key 与 760 断点）、`views/dashboardMobile.test.ts`（断点 760）、`views/newJobMobile.test.ts`（高级选项断言 key）、`views/newJobLockPaths.test.ts`（锁定目录 / 等锁时长断言 key）、`views/uiTextWiring.test.ts`（新建任务标签与返回链接改断言 `t('newjob.*')` / `ui/BackLink`）、`i18n/i18n.test.ts`（页面域加上 `issues.` / `stats.` / `newjob.`）。
 
 **如实记录的范围边界与差异**
