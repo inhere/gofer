@@ -12,8 +12,9 @@ describe('job detail agent budget wiring', () => {
 
   it('shows the usage block for an agent budget alone and renders line + badge', () => {
     expect(jobDetail).toMatch(/v-if="usageText \|\| budgetText \|\| agentBudgetText"/)
-    expect(jobDetail).toMatch(/v-if="agentBudgetDone" class="budget-done-badge mono"[^>]*>预算耗尽收尾</)
-    expect(jobDetail).toMatch(/v-if="agentBudgetText"[^>]*>预算 \{\{ agentBudgetText \}\}</)
+    // P3 起文案走 i18n（i18n/pages/jobs.ts 的 jobs.detail.*）。
+    expect(jobDetail).toContain("t('jobs.detail.budgetExhausted')")
+    expect(jobDetail).toContain("t('jobs.detail.budget', { value: agentBudgetText })")
   })
 
   it('colours the badge through the theme token, not a literal', () => {

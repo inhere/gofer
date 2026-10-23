@@ -13,9 +13,10 @@ describe('job detail 消息 section', () => {
     expect(source).toContain('data-test="job-messages"')
     expect(source).toContain('发给 agent')
     expect(source).toContain('agent 回复')
-    expect(source).toContain('查看完整注入内容（rules）')
-    expect(source).toContain('已截断')
-    expect(source).toContain('…更早的轮次未读取')
+    // P3 起文案走 i18n（i18n/pages/jobs.ts 的 jobs.detail.*）。
+    expect(source).toContain("t('jobs.detail.viewInjected')")
+    expect(source).toContain("t('jobs.detail.truncated')")
+    expect(source).toContain("t('jobs.detail.earlierOmitted')")
     // 消息按服务端给的时间升序原样渲染：前端不重排（首条 prompt 必须在最前）。
     expect(source).toContain('v-for="(m, i) in messages"')
     // 消息区在会话输入框之前：先看对话，再发下一句。

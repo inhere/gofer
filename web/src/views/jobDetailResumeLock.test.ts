@@ -7,8 +7,8 @@ const source = Object.values(import.meta.glob('./JobDetail.vue', { eager: true, 
 describe('job detail resume lock field (gofer-jkd2)', () => {
   it('adds a lock input to the resume form', () => {
     expect(source).toContain('const resumeLockPaths = ref(\'\')')
-    expect(source).toContain('aria-label="锁定目录"')
-    expect(source).toContain('placeholder="锁定目录（可选；留空 = 继承源 job 的锁）"')
+    expect(source).toContain(":aria-label=\"t('jobs.detail.lockDir')\"")
+    expect(source).toContain(":placeholder=\"t('jobs.detail.lockDirPh')\"")
   })
 
   it('carries the lock into the resume request', () => {

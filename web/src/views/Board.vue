@@ -1,17 +1,19 @@
 <script setup lang="ts">
 // Jobs Board：轮询 listJobs（2.5s），Page Visibility 暂停/恢复，status 过滤，行点击进详情。
+// P3：列表可以被任务详情宿主（JobsView）并排嵌入（embedded），此时隐藏页面标题、只留筛选与行。
 import { runnerLabel } from '../utils/runnerDisplay'
 import { jobStatusOptions } from '../utils/statusText'
-import { COL, PAGE } from '../utils/uiText'
+import { t, te } from '../i18n'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
 import UncommittedBadge from '../components/UncommittedBadge.vue'
 import FilterChips from '../ui/FilterChips.vue'
 import FilterDrawer from '../ui/FilterDrawer.vue'
 import ProjectFilter from '../ui/ProjectFilter.vue'
+import StatusPill from '../ui/StatusPill.vue'
 import { chipItems } from '../ui/filterChips'
+import { setJobsSplitPreference } from '../store/jobsSplit'
 import { useListReturn } from '../ui/useListReturn'
 import { listJobs, listPlans, listProjects } from '../api/client'
 import { createLiveTopic } from '../utils/useLiveTopic'
@@ -21,6 +23,15 @@ import { isCountedStatus, statusCountSince, STATUS_COUNT_LIMIT } from '../utils/
 
 const route = useRoute()
 const router = useRouter()
+
+// 并排模式：由详情宿主页（JobsView）传入，列表只占左列。
+const props = withDefaults(defineProps<{ embedded?: boolean }>(), { embedded: false })
+const embedded = computed(() => props.embedded)
+
+// 筛选写回哪个路径：并排时留在当前详情路由（右侧详情不丢），否则回列表路由。
+function listPath(): string {
+  return embedded.value ? route.path : '/jobs'
+}
 
 const PAGE_SIZE = 50
 
@@ -50,6 +61,14 @@ const projectLoadError = ref('')
 
 const statusOptions: Array<{ value: '' | JobStatus; label: string }> = jobStatusOptions()
 
+// 状态 chip / pill 的文案：i18n 有 status.<值> 就用它（与 StatusPill 同一口径），
+// 否则退回 statusText 的中文旧表（P5 删旧表后只剩 i18n）。
+function statusLabel(value: '' | JobStatus, fallback: string): string {
+  if (!value) return t('jobs.filter.all')
+  const key = `status.${value}`
+  return te(key) ? t(key) : fallback
+}
+
 // 初值可由 ?status= 带入（如 /review 页头的「待批准 N →」链接）；只认过滤栏里有的状态。
 // 在首次 fetch（onMounted）之前定下，不触发额外的 watch 重拉。
 {
@@ -64,10 +83,10 @@ const SINCE_OFFSET_SEC: Record<'1h' | '24h' | '7d', number> = {
   '7d': 604800,
 }
 const sinceOptions: Array<{ value: '' | '1h' | '24h' | '7d'; label: string }> = [
-  { value: '', label: '全部时间' },
-  { value: '1h', label: '近 1h' },
-  { value: '24h', label: '近 24h' },
-  { value: '7d', label: '近 7d' },
+  { value: '', label: t('jobs.since.all') },
+  { value: '1h', label: t('jobs.since.1h') },
+  { value: '24h', label: t('jobs.since.24h') },
+  { value: '7d', label: t('jobs.since.7d') },
 ]
 
 // 窄屏时筛选面板默认收起（它一个就占满一屏），桌面宽度下从「更多筛选」抽屉打开。
@@ -111,7 +130,10 @@ const statusChipItems = computed(() => {
   for (const opt of statusOptions) {
     if (isCountedStatus(opt.value)) counts[opt.value] = statusCounts.value[opt.value]
   }
-  return chipItems(statusOptions, counts)
+  return chipItems(
+    statusOptions.map((opt) => ({ value: opt.value, label: statusLabel(opt.value, opt.label) })),
+    counts,
+  )
 })
 
 const statusCounts = computed<Record<JobStatus, number>>(() => {
@@ -170,9 +192,9 @@ const canNextPage = computed(() => jobs.value.length === PAGE_SIZE)
 
 const lastRefreshedText = computed(() => {
   if (lastRefreshedAt.value == null) {
-    return '尚未刷新'
+    return t('jobs.h.never')
   }
-  return new Date(lastRefreshedAt.value).toLocaleTimeString()
+  return t('jobs.h.lastRefresh', { time: new Date(lastRefreshedAt.value).toLocaleTimeString() })
 })
 
 // 把相对 since 预设换算为绝对 unix 秒；空表示不过滤。
@@ -213,7 +235,7 @@ function applyWfInput(): void {
   const nextQuery = { ...route.query }
   if (value) nextQuery.wf = value
   else delete nextQuery.wf
-  void router.push({ path: '/jobs', query: nextQuery })
+  void router.push({ path: listPath(), query: nextQuery })
 }
 
 const projectSelectValue = computed({
@@ -225,7 +247,7 @@ const projectSelectValue = computed({
     } else {
       delete nextQuery.project
     }
-    void router.push({ path: '/jobs', query: nextQuery })
+    void router.push({ path: listPath(), query: nextQuery })
   },
 })
 
@@ -243,7 +265,7 @@ function applyPlanInput(): void {
   const nextQuery = { ...route.query }
   if (value) nextQuery.plan = value
   else delete nextQuery.plan
-  void router.push({ path: '/jobs', query: nextQuery })
+  void router.push({ path: listPath(), query: nextQuery })
 }
 
 function pickRecentPlan(id: string): void {
@@ -377,6 +399,11 @@ function rowDuration(job: Job): string {
   return fmtDuration(jobDurationSec(job))
 }
 
+// 目录锁徽标的路径：优先 lock_paths（多路径），否则 cwd。
+function lockPathOf(job: Job): string {
+  return job.lock_paths?.length ? job.lock_paths.join(', ') : (job.cwd ?? '')
+}
+
 function rowTime(job: Job): string {
   const ts = job.started_at || job.ended_at
   if (!ts) {
@@ -391,7 +418,8 @@ function rowTime(job: Job): string {
 }
 
 function openJob(job: Job): void {
-  void router.push(`/jobs/${encodeURIComponent(job.id)}`)
+  // 带上当前筛选：并排时列表还在，单栏时详情页的返回链接也能回到同一个筛选。
+  void router.push({ path: `/jobs/${encodeURIComponent(job.id)}`, query: { ...route.query } })
 }
 
 function refreshNow(): void {
@@ -424,7 +452,7 @@ function clearFilters(): void {
   hasUploadFilter.value = false
   showMessengerJobs.value = false
   if (projectFilter.value || planFilter.value) {
-    void router.push({ path: '/jobs' })
+    void router.push({ path: listPath() })
   }
 }
 
@@ -444,20 +472,37 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="board">
+  <div class="board" :class="{ 'board--embedded': embedded }">
     <div class="board-head">
-      <div>
-        <h1 class="title mono">{{ PAGE.board }}</h1>
+      <div v-if="!embedded">
+        <h1 class="title mono">{{ t('jobs.h.title') }}</h1>
         <p class="subtitle mono">
-          {{ jobs.length }} 个任务 · {{ runningCount }} 运行中 · {{ problemCount }} 有问题
-          <span v-if="activeFilterCount"> · {{ activeFilterCount }} 项筛选</span>
+          {{ t('jobs.h.summary', { n: jobs.length, running: runningCount, problems: problemCount }) }}<span
+            v-if="activeFilterCount"
+          >{{ t('jobs.h.summaryFilters', { n: activeFilterCount }) }}</span>
         </p>
       </div>
+      <!-- 并排时页面标题已由详情页头担任，列表只留一行计数。 -->
+      <p v-else class="subtitle mono" data-test="jobs-pane-summary">
+        {{ t('jobs.h.summary', { n: jobs.length, running: runningCount, problems: problemCount }) }}<span
+          v-if="activeFilterCount"
+        >{{ t('jobs.h.summaryFilters', { n: activeFilterCount }) }}</span>
+      </p>
       <div class="head-actions mono">
-        <span class="last-refresh">刷新 {{ lastRefreshedText }}</span>
+        <button
+          v-if="embedded"
+          class="head-btn"
+          type="button"
+          data-test="jobs-split-toggle"
+          :title="t('jobs.h.singleTitle')"
+          @click="setJobsSplitPreference('single')"
+        >
+          {{ t('jobs.h.single') }}
+        </button>
+        <span class="last-refresh">{{ lastRefreshedText }}</span>
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
         <button class="head-btn" type="button" :disabled="loading" @click="refreshNow">
-          {{ loading ? '刷新中' : '刷新' }}
+          {{ loading ? t('jobs.h.refreshing') : t('jobs.h.refresh') }}
         </button>
         <button
           class="head-btn"
@@ -465,7 +510,7 @@ onUnmounted(() => {
           :disabled="activeFilterCount === 0"
           @click="clearFilters"
         >
-          清空过滤
+          {{ t('jobs.h.clear') }}
         </button>
       </div>
     </div>
@@ -481,7 +526,7 @@ onUnmounted(() => {
       <FilterChips
         :items="statusChipItems"
         :model-value="statusFilter"
-        label="状态过滤"
+        :label="t('jobs.filter.status')"
         @update:model-value="(v) => (statusFilter = v as '' | JobStatus)"
       />
       <FilterDrawer
@@ -491,15 +536,15 @@ onUnmounted(() => {
         @clear="clearFilters"
       >
         <div class="controls">
-        <span v-if="planFilter" class="proj-chip">计划：{{ planFilter }}</span>
-        <label class="filter filter-check"><input v-model="hasUploadFilter" type="checkbox" class="filter-checkbox" /><span class="filter-label">含上传</span></label>
-        <label class="filter filter-check"><input v-model="showMessengerJobs" type="checkbox" class="filter-checkbox" /><span class="filter-label">显示传话 job</span></label>
+        <span v-if="planFilter" class="proj-chip">{{ t('jobs.filter.planChip', { id: planFilter }) }}</span>
+        <label class="filter filter-check"><input v-model="hasUploadFilter" type="checkbox" class="filter-checkbox" /><span class="filter-label">{{ t('jobs.filter.uploads') }}</span></label>
+        <label class="filter filter-check"><input v-model="showMessengerJobs" type="checkbox" class="filter-checkbox" /><span class="filter-label">{{ t('jobs.filter.messenger') }}</span></label>
         <label class="filter">
-          <span class="filter-label">{{ COL.plan }}</span>
+          <span class="filter-label">{{ t('jobs.filter.plan') }}</span>
           <input
             v-model="planInput"
             class="filter-input filter-input--plan mono"
-            placeholder="计划 ID"
+            :placeholder="t('jobs.filter.planPh')"
             spellcheck="false"
             @focus="loadRecentPlans"
             @keydown.enter.prevent="applyPlanInput"
@@ -507,11 +552,11 @@ onUnmounted(() => {
           />
         </label>
         <label class="filter">
-          <span class="filter-label">工作流</span>
+          <span class="filter-label">{{ t('jobs.filter.wf') }}</span>
           <input
             v-model="wfInput"
             class="filter-input filter-input--plan mono"
-            placeholder="工作流 ID"
+            :placeholder="t('jobs.filter.wfPh')"
             spellcheck="false"
             data-test="wf-filter"
             @keydown.enter.prevent="applyWfInput"
@@ -519,43 +564,43 @@ onUnmounted(() => {
           />
         </label>
         <label class="filter">
-          <span class="filter-label">{{ COL.tags }}</span>
+          <span class="filter-label">{{ t('jobs.filter.tags') }}</span>
           <input
             v-model="tagFilter"
             class="filter-input mono"
-            placeholder="标签"
+            :placeholder="t('jobs.filter.tagsPh')"
             spellcheck="false"
           />
         </label>
         <label class="filter">
-          <span class="filter-label">{{ COL.agent }}</span>
+          <span class="filter-label">{{ t('jobs.filter.agent') }}</span>
           <input
             v-model="agentFilter"
             class="filter-input mono"
-            placeholder="Agent"
+            :placeholder="t('jobs.filter.agent')"
             spellcheck="false"
           />
         </label>
         <label class="filter">
-          <span class="filter-label">{{ COL.runner }}</span>
+          <span class="filter-label">{{ t('jobs.filter.runner') }}</span>
           <input
             v-model="runnerFilter"
             class="filter-input mono"
-            placeholder="Runner"
+            :placeholder="t('jobs.filter.runner')"
             spellcheck="false"
           />
         </label>
         <label class="filter">
-          <span class="filter-label">调用方</span>
+          <span class="filter-label">{{ t('jobs.filter.caller') }}</span>
           <input
             v-model="callerFilter"
             class="filter-input mono"
-            placeholder="调用方"
+            :placeholder="t('jobs.filter.callerPh')"
             spellcheck="false"
           />
         </label>
         <label class="filter">
-          <span class="filter-label">时间范围</span>
+          <span class="filter-label">{{ t('jobs.filter.since') }}</span>
           <select v-model="sinceFilter" class="filter-select mono">
             <option v-for="opt in sinceOptions" :key="opt.value" :value="opt.value">
               {{ opt.label }}
@@ -566,7 +611,7 @@ onUnmounted(() => {
 
         <!-- F-b：plan 输入框下方的轻量提示（最近 5 个 open plan，点一下填入），不是下拉。 -->
         <div v-if="recentPlans.length" class="recent-plans mono">
-          <span class="recent-label">最近：</span>
+          <span class="recent-label">{{ t('jobs.filter.recent') }}</span>
           <button
             v-for="p in recentPlans"
             :key="p.id"
@@ -585,13 +630,13 @@ onUnmounted(() => {
 
     <div class="table">
       <div class="thead mono">
-        <span class="col-status">{{ COL.status }}</span>
-        <span class="col-job">任务 · 标题 / ID</span>
-        <span class="col-proj">{{ COL.project }}</span>
-        <span class="col-agent">{{ COL.agent }}</span>
-        <span class="col-runner">{{ COL.runner }}</span>
-        <span class="col-signal">信号 / 耗时</span>
-        <span class="col-time">{{ COL.time }}</span>
+        <span class="col-status">{{ t('jobs.col.status') }}</span>
+        <span class="col-job">{{ t('jobs.col.job') }}</span>
+        <span class="col-proj">{{ t('jobs.col.project') }}</span>
+        <span class="col-agent">{{ t('jobs.col.agent') }}</span>
+        <span class="col-runner">{{ t('jobs.col.runner') }}</span>
+        <span class="col-signal">{{ t('jobs.col.signal') }}</span>
+        <span class="col-time">{{ t('jobs.col.time') }}</span>
       </div>
 
       <div
@@ -599,13 +644,15 @@ onUnmounted(() => {
         :key="job.id"
         class="trow"
       >
-        <span class="col-status"><StatusBadge :status="job.status" :holder="job.waiting_on_job" /></span>
+        <span class="col-status"><StatusPill :status="job.status" /></span>
         <span
           class="col-job"
           :class="{ 'col-job--titled': job.title }"
           role="button"
           tabindex="0"
+          :aria-label="t('jobs.row.open', { id: job.id })"
           :title="job.title || job.id"
+          data-test="jobs-row"
           @click="openJob(job)"
           @keydown.enter="openJob(job)"
           @keydown.space.prevent="openJob(job)"
@@ -613,59 +660,59 @@ onUnmounted(() => {
           <span v-if="job.title" class="job-title">{{ job.title }}</span>
           <span class="job-id mono">{{ shortId(job.id) }}</span>
           <span v-if="job.tags && job.tags.length" class="job-tags">
-            <span v-for="t in job.tags" :key="t" class="tag-chip mono" :title="t">{{ t }}</span>
+            <span v-for="tag in job.tags" :key="tag" class="tag-chip mono" :title="tag">{{ tag }}</span>
           </span>
           <span v-if="job.role || job.channel || job.read_only || job.verify?.status === 'failed' || job.uncommitted_count" class="job-badges">
             <UncommittedBadge :count="job.uncommitted_count" :files="job.uncommitted_files" />
             <span
               v-if="job.verify?.status === 'failed'"
               class="job-badge job-badge--verify mono"
-              :title="`验证步骤失败：${(job.verify.command ?? []).join(' ')} (exit ${job.verify.exit_code})`"
-            >verify</span>
+              :title="t('jobs.row.badgeVerifyTitle', { cmd: (job.verify.command ?? []).join(' '), code: job.verify.exit_code })"
+            >{{ t('jobs.row.badgeVerify') }}</span>
             <span
               v-if="job.read_only"
               class="job-badge job-badge--ro mono"
-              title="只读 job：agent 不能写文件"
-            >只读</span>
+              :title="t('jobs.row.badgeReadOnlyTitle')"
+            >{{ t('jobs.row.badgeReadOnly') }}</span>
             <span
               v-if="job.role"
               class="job-badge mono"
-              :title="`role: ${job.role}`"
+              :title="t('jobs.row.badgeRoleTitle', { role: job.role })"
             >{{ job.role }}</span>
             <span
               v-if="job.channel"
               class="job-badge job-badge--chan mono"
-              :title="`channel: ${job.channel}`"
+              :title="t('jobs.row.badgeChannelTitle', { channel: job.channel })"
             >{{ job.channel }}</span>
           </span>
-          <span v-if="job.xfer?.uploads?.length" class="job-badge job-badge--xfer mono" title="随 job 上传的文件">附件 {{ job.xfer.uploads.length }}</span>
-          <span v-if="job.status === 'waiting_dir'" class="job-badge job-badge--waiting mono" :title="`路径 ${job.lock_paths?.length ? job.lock_paths.join(', ') : job.cwd}；被 ${job.waiting_on_job || '其他 job'} 占用；可用 --read-only / --shared-dir / --worktree`">目录锁：{{ job.lock_paths?.length ? job.lock_paths.join(', ') : job.cwd }} · {{ job.waiting_on_job || '占用中' }}</span>
+          <span v-if="job.xfer?.uploads?.length" class="job-badge job-badge--xfer mono" :title="t('jobs.row.badgeAttachmentsTitle')">{{ t('jobs.row.badgeAttachments', { n: job.xfer.uploads.length }) }}</span>
+          <span v-if="job.status === 'waiting_dir'" class="job-badge job-badge--waiting mono" :title="t('jobs.row.badgeLockTitle', { path: lockPathOf(job), holder: job.waiting_on_job || t('jobs.row.badgeLockHolder') })">{{ t('jobs.row.badgeLock', { path: lockPathOf(job), holder: job.waiting_on_job || t('jobs.row.badgeLockHolder') }) }}</span>
         </span>
         <span class="col-proj mono">{{ job.project_key }}</span>
-        <span class="col-agent mono" :title="job.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
+        <span class="col-agent mono" :title="job.resume_agent ? t('jobs.row.resumeTitle') : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
         <span class="col-runner mono" :class="{ remote: job.runner !== 'local' }">
           <span class="runner-name" :title="job.runner">{{ runnerLabel(job.runner) }}</span>
-          <span v-if="job.worker_id" class="runner-worker" :title="`worker_id: ${job.worker_id}`">{{ job.worker_id }}</span>
+          <span v-if="job.worker_id" class="runner-worker" :title="t('jobs.row.workerTitle', { id: job.worker_id })">{{ job.worker_id }}</span>
         </span>
         <span class="col-signal">
           <Signal :status="job.status" :duration-sec="jobDurationSec(job)" />
-          <span v-if="job.status === 'running'" class="run-dur mono">{{ rowDuration(job) }}</span>
+          <span class="run-dur mono">{{ rowDuration(job) }}</span>
         </span>
         <span class="col-time mono">{{ rowTime(job) }}</span>
       </div>
 
       <div v-if="jobs.length === 0 && !error" class="empty mono">
-        暂无 job
+        {{ t('jobs.empty') }}
       </div>
     </div>
 
     <div class="pager mono">
       <button class="pager-btn" type="button" :disabled="!canPrevPage || loading" @click="prevPage">
-        上一页
+        {{ t('jobs.page.prev') }}
       </button>
-      <span class="pager-page">第 {{ pageNumber }} 页</span>
+      <span class="pager-page">{{ t('jobs.page.at', { n: pageNumber }) }}</span>
       <button class="pager-btn" type="button" :disabled="!canNextPage || loading" @click="nextPage">
-        下一页
+        {{ t('jobs.page.next') }}
       </button>
     </div>
   </div>
@@ -1142,6 +1189,85 @@ onUnmounted(() => {
   .job-tags {
     margin-top: 2px;
   }
+}
+
+/* 并排模式（设计稿 §16）：列表只占左列（520–700px），七列表格会横向溢出，
+   所以和手机一样用两行卡片式行（先标题行 + 状态，再把项目/agent/runner/耗时/时间缩成一行）。 */
+.board--embedded .thead {
+  display: none;
+}
+.board--embedded .table {
+  overflow-x: visible;
+}
+.board--embedded .trow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+  padding: 8px 10px;
+}
+.board--embedded .col-job {
+  order: 1;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1 0 calc(100% - 96px);
+  min-width: 0;
+  overflow: hidden;
+}
+.board--embedded .col-job .job-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board--embedded .col-job .job-id,
+.board--embedded .col-job .job-badges {
+  flex: none;
+  white-space: nowrap;
+}
+.board--embedded .col-job .job-tags {
+  display: none;
+}
+.board--embedded .col-status {
+  order: 2;
+  flex: 0 0 96px;
+  display: flex;
+  justify-content: flex-end;
+}
+.board--embedded .col-proj,
+.board--embedded .col-agent,
+.board--embedded .col-runner,
+.board--embedded .col-signal,
+.board--embedded .col-time {
+  order: 3;
+  flex: none;
+  font-size: 11px;
+  text-align: left;
+}
+.board--embedded .col-proj {
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board--embedded .col-agent::before,
+.board--embedded .col-runner::before,
+.board--embedded .col-signal::before,
+.board--embedded .col-time::before {
+  content: ' · ';
+  white-space: pre;
+  color: var(--queue);
+}
+.board--embedded .col-signal,
+.board--embedded .col-runner {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
 }
 
 @media (max-width: 640px) {

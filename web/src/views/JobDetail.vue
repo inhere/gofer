@@ -3,11 +3,10 @@
 //  - SSE from 仅用于断线重连（已收 stdout 字节数）。
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；非终态（可取消的）显示 cancel。
 import { runnerLabel } from '../utils/runnerDisplay'
-import { BACK } from '../utils/uiText'
 import { canCancelJob } from '../utils/jobCancel'
 import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { deliveryLink, deliveryModeLabel, deliveryText } from '../utils/delivery'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -16,6 +15,11 @@ import { useWhoami } from '../store/whoami'
 import Signal from '../components/Signal.vue'
 import UncommittedBadge from '../components/UncommittedBadge.vue'
 import LogTape from '../components/LogTape.vue'
+import Tabs from '../ui/Tabs.vue'
+import BackLink from '../ui/BackLink.vue'
+import { queryWithTab, type TabItem } from '../ui/tabs'
+import { JOB_TAB, jobTabForStatus } from '../utils/jobsLayout'
+import { t } from '../i18n'
 import InteractionCard from '../components/InteractionCard.vue'
 import CommentThread from '../components/CommentThread.vue'
 import FilePreview from '../components/FilePreview.vue'
@@ -104,7 +108,9 @@ import type {
   WakeupKind,
 } from '../api/types'
 
-const props = defineProps<{ id: string }>()
+// embedded：被任务详情宿主页（JobsView）并排嵌入时为 true——此时不显示返回列表的链接
+// （列表就在左边），页头只保留任务自身的操作。
+const props = defineProps<{ id: string; embedded?: boolean }>()
 const route = useRoute()
 // 删除他人的 job 记录需要 job.delete.others（自己的不需要）；没有就不摆「删除记录」。
 // 只读身份（调用方上限 read_only）时写入口一律不摆；审阅按钮另按 canReviewJob 判（见 utils/reviewGate）。
@@ -1842,7 +1848,9 @@ const agentBudgetDone = computed<boolean>(() => agentBudgetExhausted(usage.value
 // scrollToVerifyOutput：把读者带到验证输出（stderr 末尾）。
 const logTape = ref<InstanceType<typeof LogTape> | null>(null)
 function scrollToVerifyOutput(): void {
-  logTape.value?.focusStderr()
+  // 验证输出在「日志」页签：先切过去再聚焦 stderr 末尾（页签没挂载时 logTape 为空）。
+  goTab(JOB_TAB.log)
+  void nextTick(() => logTape.value?.focusStderr())
 }
 
 function copyCommit(sha: string): void {
@@ -1901,6 +1909,40 @@ function startJobLive(): void {
   jobLive.start()
 }
 
+// 概览里的「最近日志」：取 stdout（没有就 stderr）最后 6 行，完整日志在「日志」页签。
+const logTail = computed<string[]>(() => {
+  const text = stdout.value.length > 0 ? stdout.value : stderr.value
+  if (!text) return []
+  const lines = text.split('\n').filter((line) => line.trim() !== '')
+  return lines.slice(-6)
+})
+
+// 页签（设计稿 §7.1、§16-5）：值以 URL 的 ?tab= 为准（可深链、可前进后退）；
+// 默认页签按状态——needs_review 进「验收」、failed 进「日志」、其余「概览」。
+const tabItems = computed<TabItem[]>(() => [
+  { value: JOB_TAB.overview, label: t('jobs.tab.overview') },
+  { value: JOB_TAB.review, label: t('jobs.tab.review'), badge: status.value === 'needs_review' },
+  { value: JOB_TAB.log, label: t('jobs.tab.log') },
+  { value: JOB_TAB.changes, label: t('jobs.tab.changes'), count: commits.value.length || undefined },
+  { value: JOB_TAB.messages, label: t('jobs.tab.messages'), count: messages.value.length || undefined },
+  { value: JOB_TAB.artifacts, label: t('jobs.tab.artifacts'), count: artifacts.value.length || undefined },
+  {
+    value: JOB_TAB.events,
+    label: t('jobs.tab.events'),
+    count: timelineEvents.value.length + pendingInteractions.value.length + answeredInteractions.value.length || undefined,
+  },
+])
+
+const defaultTab = computed(() => jobTabForStatus(status.value))
+
+// 概览里的「去验收」条：与点页签同一条路径（写 ?tab=review）。
+function goTab(value: string): void {
+  void router.replace({
+    path: route.path,
+    query: queryWithTab(route.query, value, tabItems.value, 'tab', defaultTab.value),
+  })
+}
+
 onMounted(() => {
   clock.start()
   void loadCurrentJob()
@@ -1925,7 +1967,7 @@ onUnmounted(() => {
 <template>
   <div class="detail">
     <div class="detail-head">
-      <RouterLink to="/jobs" class="back mono">{{ BACK.board }}</RouterLink>
+      <BackLink v-if="!embedded" list="jobs" to="/jobs" :label="t('jobs.detail.back')" />
       <div class="head-right">
         <StatusBadge v-if="job" :status="status" :holder="job.waiting_on_job" />
         <UncommittedBadge v-if="job" :count="job.uncommitted_count" :files="job.uncommitted_files" />
@@ -1934,19 +1976,19 @@ onUnmounted(() => {
           v-if="job && isTerminalView && job.can_delete && !readOnly"
           class="rebuild-btn mono"
           :to="`/new?from=${encodeURIComponent(job.id)}`"
-          title="用本 job 的参数预填新建表单，提交为一个新 job（env 保留在服务端）"
+          :title="t('jobs.detail.rebuildTitle')"
         >
-          快速重建
+          {{ t('jobs.detail.rebuild') }}
         </RouterLink>
         <button
           v-if="showTerminalButton"
           class="terminal-open mono"
           type="button"
           :disabled="!canOpenTerminal"
-          :title="canOpenTerminal ? '打开终端' : '终端未就绪，稍后重试'"
+          :title="canOpenTerminal ? t('jobs.detail.openTerminal') : t('jobs.detail.terminalPending')"
           @click="openTerminal"
         >
-          打开终端
+          {{ t('jobs.detail.openTerminal') }}
         </button>
         <button
           v-if="showCancel"
@@ -1954,7 +1996,7 @@ onUnmounted(() => {
           type="button"
           @click="doCancel"
         >
-          取消
+          {{ t('jobs.detail.cancel') }}
         </button>
         <button
           v-if="job && isTerminalView && can('job.delete', job.caller_id) && !readOnly"
@@ -1963,11 +2005,11 @@ onUnmounted(() => {
           data-test="job-delete"
           :disabled="deleting"
           @click="doDelete"
-        >{{ deleting ? '删除中…' : '删除记录' }}</button>
+        >{{ deleting ? t('jobs.detail.deleting') : t('jobs.detail.delete') }}</button>
         <button v-if="sessionAlive && !readOnly" class="cancel mono" type="button" :disabled="sessionBusy || job?.session_ending" @click="doSessionEnd">
-          {{ job?.session_ending ? '结束中…' : '释放锁并结束' }}
+          {{ job?.session_ending ? t('jobs.detail.ending') : t('jobs.detail.endSession') }}
         </button>
-        <span v-else-if="cancelling && canCancel" class="cancelling mono">取消中…</span>
+        <span v-else-if="cancelling && canCancel" class="cancelling mono">{{ t('jobs.detail.cancelling') }}</span>
       </div>
     </div>
 
@@ -1978,35 +2020,46 @@ onUnmounted(() => {
           class="job-title-input"
           type="text"
           maxlength="200"
-          aria-label="job 标题"
+          :aria-label="t('jobs.detail.jobTitleAria')"
           autofocus
           @keydown.enter.prevent="saveTitle"
           @keydown.esc.prevent="cancelTitleEdit"
         />
-        <button class="title-action mono" type="button" :disabled="savingTitle" @click="saveTitle">保存</button>
-        <button class="title-action mono" type="button" :disabled="savingTitle" @click="cancelTitleEdit">取消</button>
+        <button class="title-action mono" type="button" :disabled="savingTitle" @click="saveTitle">{{ t('jobs.detail.save') }}</button>
+        <button class="title-action mono" type="button" :disabled="savingTitle" @click="cancelTitleEdit">{{ t('jobs.detail.cancel') }}</button>
       </div>
       <template v-else>
         <h1 v-if="job.title" class="job-name" :title="job.title">{{ job.title }}</h1>
         <h1 v-else class="job-name job-name--id mono" :title="job.id">{{ job.id }}</h1>
-        <button class="title-action title-edit mono" type="button" title="编辑标题" @click="beginTitleEdit">编辑</button>
+        <button class="title-action title-edit mono" type="button" :title="t('jobs.detail.editTitle')" @click="beginTitleEdit">{{ t('jobs.detail.edit') }}</button>
       </template>
       <span v-if="job.title" class="job-subid mono" :title="job.id">{{ shortId(job.id) }}</span>
     </header>
 
     <p v-if="headError" class="error mono">{{ headError }}</p>
 
+    <!-- 详情页签（设计稿 §7.1）：概览 / 验收 / 日志 / 变更 / 消息 / 产物 / 事件；
+         ?tab= 深链，默认页签按状态（needs_review → 验收，failed → 日志，其余 → 概览）。 -->
+    <Tabs :tabs="tabItems" :fallback="defaultTab" :label="t('jobs.detail.tabs')">
+      <template #default="{ active }">
+    <!-- 需要验收时在概览里先给一条指路的横幅，免得「验收」页签被漏看。 -->
+    <p v-if="active === 'overview' && job && status === 'needs_review'" class="review-banner mono" data-test="review-banner">
+      {{ t('jobs.detail.reviewBanner') }}
+      <button class="review-banner-btn mono" type="button" @click="goTab(JOB_TAB.review)">
+        {{ t('jobs.detail.toReview') }}
+      </button>
+    </p>
     <!-- 待批面板（gofer-9b1b）：理由 / 完整命令 / 在哪跑 / 谁提交 / 倒计时 + 批准 / 拒绝。
          只读身份、没审阅权限、受限身份审自己的 job 时只留面板与一行灰字原因（buttons 收起）。 -->
     <ApprovalPanel
-      v-if="job && showApprovalPanel"
+      v-if="active === 'overview' && job && showApprovalPanel"
       :job="job"
       :now-sec="nowSec"
       :blocked-reason="reviewBlockedReason"
       @decided="onHoldDecided"
     />
 
-    <div v-if="job" class="meta">
+    <div v-if="active === 'overview' && job" class="meta">
       <div class="meta-item">
         <span class="meta-k mono">id</span><span class="meta-v mono id">{{ job.id }}</span>
       </div>
@@ -2014,7 +2067,7 @@ onUnmounted(() => {
         <span class="meta-k mono">project</span><span class="meta-v mono">{{ job.project_key }}</span>
       </div>
       <div class="meta-item">
-        <span class="meta-k mono">agent</span><span class="meta-v mono" :title="job.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
+        <span class="meta-k mono">agent</span><span class="meta-v mono" :title="job.resume_agent ? t('jobs.row.resumeTitle') : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
       </div>
       <!-- 绑定的技能（JOB-10）：派发时按 server → agent → project → job 的并集定下，物化在
            <result_dir>/skills/ 且 prompt 头部列了路径。没绑定的 job 没有该字段，整行不渲染。 -->
@@ -2067,13 +2120,13 @@ onUnmounted(() => {
       <div v-if="isLeaderJob" class="meta-item">
         <span class="meta-k mono">leader</span>
         <span class="meta-v mono">
-          leader · {{ leaderRound != null ? `第 ${leaderRound} 轮` : '轮次未知' }} ·
+          leader · {{ leaderRound != null ? t('jobs.detail.leaderRound', { n: leaderRound }) : t('jobs.detail.leaderRoundUnknown') }} ·
           <template v-if="job.plan_id">plan {{ job.plan_id }}</template>
           <template v-else>plan -</template>
         </span>
       </div>
       <div v-if="job.source_job_id" class="meta-item">
-        <span class="meta-k mono">派生自</span>
+        <span class="meta-k mono">{{ t('jobs.detail.derivedFrom') }}</span>
         <RouterLink class="meta-v meta-link mono" :to="`/jobs/${encodeURIComponent(job.source_job_id)}`">
           {{ job.source_job_id }}
         </RouterLink>
@@ -2086,7 +2139,7 @@ onUnmounted(() => {
         <span class="meta-v mono" :title="job.session_id">{{ job.session_id }}</span>
         <span v-if="sessionIDSource" class="meta-v">{{ sessionIDSource }}</span>
         <button v-if="isTerminalView && canResume" class="resume-btn mono" type="button" @click="showResumeForm = !showResumeForm">
-          {{ showResumeForm ? '收起' : '继续会话' }}
+          {{ showResumeForm ? t('jobs.detail.expand') : t('jobs.detail.resumeSession') }}
         </button>
         <button
           v-if="isTerminalView && fromSessionPick.visible && canResume"
@@ -2094,15 +2147,15 @@ onUnmounted(() => {
           type="button"
           data-test="from-session-btn"
           :disabled="fromSessionPick.disabled"
-          :title="fromSessionPick.note || '开一个继承此会话上下文的新会话（源会话不被续接）'"
+          :title="fromSessionPick.note || t('jobs.detail.fromSessionTitle')"
           @click="openFromSession"
         >
-          从此会话新开
+          {{ t('jobs.detail.fromSession') }}
         </button>
         <span v-if="isTerminalView && fromSessionPick.visible && fromSessionPick.note" class="meta-v resume-mode-note" data-test="from-session-note">{{ fromSessionPick.note }}</span>
       </div>
       <div v-if="job.session_id && isTerminalView && showResumeForm && canResume" class="resume-form">
-        <div class="resume-modes" role="radiogroup" aria-label="续接方式">
+        <div class="resume-modes" role="radiogroup" :aria-label="t('jobs.detail.resumeModes')">
           <label
             v-for="c in resumeChoiceList"
             :key="c.value || 'same'"
@@ -2119,15 +2172,15 @@ onUnmounted(() => {
           v-model="resumePrompt"
           class="resume-input mono"
           rows="3"
-          :placeholder="resumeNeedsPrompt ? '续接指令（必填）' : '第一句话（可选）'"
+          :placeholder="resumeNeedsPrompt ? t('jobs.detail.resumePromptRequired') : t('jobs.detail.firstLine')"
         ></textarea>
         <input
           v-model="resumeLockPaths"
           class="resume-input mono"
           type="text"
           :title="DIR_LOCK_HINT"
-          aria-label="锁定目录"
-          placeholder="锁定目录（可选；留空 = 继承源 job 的锁）"
+          :aria-label="t('jobs.detail.lockDir')"
+          :placeholder="t('jobs.detail.lockDirPh')"
         />
         <div class="resume-actions">
           <button
@@ -2136,15 +2189,15 @@ onUnmounted(() => {
             :disabled="resuming || (resumeNeedsPrompt && !resumePrompt.trim())"
             @click="doResume"
           >
-            {{ resuming ? '续投中…' : resumeButtonLabel }}
+            {{ resuming ? t('jobs.detail.resuming') : resumeButtonLabel }}
           </button>
           <span v-if="resumeError" class="resume-err mono">{{ resumeError }}</span>
         </div>
       </div>
       <div v-if="job.session_id && sessionJobs.length > 1" class="meta-item">
-        <span class="meta-k mono">会话内 job</span>
+        <span class="meta-k mono">{{ t('jobs.detail.sessionJobs') }}</span>
         <button class="chain-toggle mono" type="button" @click="sessionJobsOpen = !sessionJobsOpen">
-          共 {{ sessionJobs.length }} 个{{ sessionJobsOpen ? ' ▾' : ' ▸' }}
+          {{ t('jobs.detail.sessionJobsCount', { n: sessionJobs.length }) }}{{ sessionJobsOpen ? ' ▾' : ' ▸' }}
         </button>
       </div>
       <ol v-if="sessionJobsOpen && sessionJobs.length > 1" class="chain-list">
@@ -2154,7 +2207,7 @@ onUnmounted(() => {
             class="chain-link meta-link mono"
             :to="`/jobs/${encodeURIComponent(sj.id)}`"
           >{{ sj.id }}</RouterLink>
-          <span v-else class="chain-self mono">{{ sj.id }}（当前）</span>
+          <span v-else class="chain-self mono">{{ sj.id }}{{ t('jobs.detail.current') }}</span>
           <StatusBadge :status="sj.status" />
         </li>
       </ol>
@@ -2164,7 +2217,7 @@ onUnmounted(() => {
       <!-- 只读 job（bd h-aii-0ql3）：agent 不能写文件；resume 继承该状态，不可升级为可写。 -->
       <div v-if="job.read_only" class="meta-item">
         <span class="meta-k mono">read_only</span>
-        <span class="meta-v mono">只读（agent 不能写文件）</span>
+        <span class="meta-v mono">{{ t('jobs.detail.readonlyNote') }}</span>
       </div>
       <!-- N1 §B：指定模型（空 = agent 自身默认，不显示）。 -->
       <div v-if="job.model" class="meta-item">
@@ -2176,25 +2229,25 @@ onUnmounted(() => {
       <div v-if="job.dir_exclusive || job.waiting_on_job" class="meta-item">
         <span class="meta-k mono">dir</span>
         <span class="meta-v mono">
-          {{ job.dir_exclusive ? '独占（同目录串行）' : '共享' }}
-          <template v-if="job.waiting_on_job">· 等待目录锁：{{ job.lock_paths?.length ? job.lock_paths.join(', ') : job.cwd }}；持有者 {{ job.waiting_on_job }}</template>
+          {{ job.dir_exclusive ? t('jobs.detail.dirExclusive') : t('jobs.detail.dirShared') }}
+          <template v-if="job.waiting_on_job">{{ t('jobs.detail.waitingLock', { path: job.lock_paths?.length ? job.lock_paths.join(', ') : (job.cwd ?? ''), holder: job.waiting_on_job ?? '' }) }}</template>
         </span>
       </div>
       <div v-if="job.session" class="meta-item">
-        <span class="meta-k mono">ACP 会话</span>
-        <span class="meta-v mono">第 {{ job.turn_no ?? 0 }} 轮 · {{ job.session_ending ? '结束中' : status === 'awaiting_input' ? '等待输入' : status }}</span>
+        <span class="meta-k mono">{{ t('jobs.detail.acpSession') }}</span>
+        <span class="meta-v mono">{{ t('jobs.detail.turnNo', { n: job.turn_no ?? 0 }) }} · {{ job.session_ending ? t('jobs.detail.ending') : status === 'awaiting_input' ? t('jobs.detail.awaitingInput') : status }}</span>
       </div>
       <div v-if="(status === 'running' || status === 'awaiting_input') && job.held_lock_paths?.length" class="meta-item">
-        <span class="meta-k mono">持有目录锁</span>
+        <span class="meta-k mono">{{ t('jobs.detail.holdsLock') }}</span>
         <span class="meta-v mono">{{ job.held_lock_paths.join(', ') }}</span>
       </div>
       <div v-if="job.session && job.session_end_reason" class="meta-item">
-        <span class="meta-k mono">结束原因</span><span class="meta-v mono">{{ job.session_end_reason }}</span>
+        <span class="meta-k mono">{{ t('jobs.detail.endReason') }}</span><span class="meta-v mono">{{ job.session_end_reason }}</span>
       </div>
       <!-- gofer-gk74：agent 自己撞上限后收尾（status 仍是 done）——把补上来的汇报与做完的
            任务区分开。 -->
       <div v-if="job.wrap_up" class="meta-item">
-        <span class="meta-k mono">收尾原因</span><span class="meta-v mono">{{ wrapUpText(job.wrap_up) }}</span>
+        <span class="meta-k mono">{{ t('jobs.detail.wrapUpReason') }}</span><span class="meta-v mono">{{ wrapUpText(job.wrap_up) }}</span>
       </div>
       <div v-if="job.status === 'waiting_dir'" class="waiting-dir-help mono">
         被目录锁占用；只读任务可加 <code>--read-only</code>，或用 <code>--lock</code> 收窄范围、<code>--shared-dir</code> 放弃独占、<code>--worktree</code> 隔离。
@@ -2216,7 +2269,7 @@ onUnmounted(() => {
       <div v-if="job.acceptance" class="meta-item">
         <span class="meta-k mono">acceptance</span>
         <details class="meta-v mono">
-          <summary>验收标准</summary>
+          <summary>{{ t('jobs.detail.acceptance') }}</summary>
           <pre class="acceptance-pre">{{ job.acceptance }}</pre>
         </details>
       </div>
@@ -2224,7 +2277,7 @@ onUnmounted(() => {
            needs_review 时 reviewed_* 为空，正说明还没人裁。 -->
       <div v-if="job.require_review" class="meta-item">
         <span class="meta-k mono">require_review</span>
-        <span class="meta-v mono">需要人验收</span>
+        <span class="meta-v mono">{{ t('jobs.detail.needsReview') }}</span>
       </div>
       <div v-if="job.reviewed_by" class="meta-item">
         <span class="meta-k mono">reviewed_by</span>
@@ -2273,30 +2326,30 @@ onUnmounted(() => {
           class="wt-merge-btn mono"
           type="button"
           :disabled="!wtMergeInfo.ok || wtStatus?.merged === true || (wtStatus != null && !wtStatus.exists)"
-          :title="wtMergeInfo.reason || '把该分支合并到项目主目录当前分支'"
+          :title="wtMergeInfo.reason || t('jobs.detail.mergeBranchTitle')"
           data-test="wt-merge-btn"
           @click="mergeOpen = true"
         >
-          合并到基线
+          {{ t('jobs.detail.mergeToBase') }}
         </button>
-        <span v-else class="meta-v mono wt-blocked" data-test="wt-merge-blocked">只读身份，不能合并</span>
+        <span v-else class="meta-v mono wt-blocked" data-test="wt-merge-blocked">{{ t('jobs.detail.mergeBlocked') }}</span>
       </div>
       <!-- GIT-02：交付状态与 PR 链接；done 的 worktree job 可手动交付 / 重试 -->
       <div v-if="showDelivery" class="meta-item meta-item--merge" data-test="wt-deliver">
         <span class="meta-k mono">delivery</span>
         <span class="meta-v mono" :title="deliveryText(job.delivery)">
-          {{ deliveryText(job.delivery) || (job.delivery_mode && job.delivery_mode !== 'none' ? `将${deliveryModeLabel(job.delivery_mode)}` : '未交付') }}
+          {{ deliveryText(job.delivery) || (job.delivery_mode && job.delivery_mode !== 'none' ? `将${deliveryModeLabel(job.delivery_mode)}` : t('jobs.detail.notDelivered')) }}
           <a v-if="deliveryLink(job.delivery)" :href="deliveryLink(job.delivery)?.href" target="_blank" rel="noopener">{{ deliveryLink(job.delivery)?.label }}</a>
         </span>
         <template v-if="job.status === 'done' && canWriteGit">
           <select v-model="deliverMode" class="mono wt-deliver-mode" :disabled="delivering">
-            <option value="">按项目配置</option>
-            <option value="merge">合并到基线</option>
-            <option value="push">推送分支</option>
-            <option value="pr">推送并开 PR</option>
+            <option value="">{{ t('jobs.detail.deliveryDefault') }}</option>
+            <option value="merge">{{ t('jobs.detail.deliveryMerge') }}</option>
+            <option value="push">{{ t('jobs.detail.deliveryPush') }}</option>
+            <option value="pr">{{ t('jobs.detail.deliveryPr') }}</option>
           </select>
           <button class="wt-merge-btn mono" type="button" :disabled="delivering" data-test="wt-deliver-btn" @click="onDeliver">
-            {{ delivering ? '交付中…' : '交付' }}
+            {{ delivering ? t('jobs.detail.delivering') : t('jobs.detail.deliver') }}
           </button>
         </template>
         <span v-if="deliverError" class="meta-v mono bad">{{ deliverError }}</span>
@@ -2327,8 +2380,8 @@ onUnmounted(() => {
     <p v-if="job?.error" class="error mono">{{ job.error }}</p>
 
     <p v-if="streamError" class="stream-err mono">
-      连接断开：{{ streamError }}
-      <button class="reconnect" type="button" @click="manualReconnect">点击重连</button>
+      {{ t('jobs.detail.disconnected', { msg: streamError }) }}
+      <button class="reconnect" type="button" @click="manualReconnect">{{ t('jobs.detail.reconnect') }}</button>
     </p>
 
     <!-- 验收面板（REV-01）：汇报 / 提交 / Diff / 验证 / 用量五页签 + 底部 Accept/Reject
@@ -2343,7 +2396,7 @@ onUnmounted(() => {
       @done="onMergeDone"
     />
     <ReviewPanel
-      v-if="job && showReviewPanel"
+      v-if="active === 'review' && job && showReviewPanel"
       :job="job"
       :blocked-reason="reviewBlockedReason"
       @updated="applyStatus"
@@ -2351,10 +2404,10 @@ onUnmounted(() => {
     />
 
     <!-- 渲染命令：独立于「产出与审计」，running 态只要后端给出 rendered_command 即展示。 -->
-    <section v-if="renderedCommand" class="rendered-command">
+    <section v-if="active === 'overview' && renderedCommand" class="rendered-command">
       <div class="outcome-block">
         <div class="outcome-head">
-          <span class="outcome-k mono">渲染命令</span>
+          <span class="outcome-k mono">{{ t('jobs.detail.renderedCommand') }}</span>
           <span class="outcome-actions">
             <button
               v-if="canViewCommandMarkdown"
@@ -2362,10 +2415,10 @@ onUnmounted(() => {
               type="button"
               @click="commandMarkdownMode = !commandMarkdownMode"
             >
-              {{ commandMarkdownMode ? '查看原文' : 'Markdown查看' }}
+              {{ commandMarkdownMode ? t('jobs.detail.viewSource') : t('jobs.detail.viewMarkdown') }}
             </button>
             <button class="copy-btn mono" type="button" @click="copyCommand">
-              {{ copied ? '已复制' : '复制' }}
+              {{ copied ? t('jobs.detail.copied') : t('jobs.detail.copy') }}
             </button>
           </span>
         </div>
@@ -2383,7 +2436,7 @@ onUnmounted(() => {
           class="env-fold"
         >
           <summary class="mono">
-            env keys（{{ (renderedCommand.env_keys ?? []).length }}，仅键名）
+            {{ t('jobs.detail.envKeys', { n: (renderedCommand.env_keys ?? []).length }) }}
           </summary>
           <ul class="env-list mono">
             <li v-for="k in renderedCommand.env_keys ?? []" :key="k">{{ k }}</li>
@@ -2392,16 +2445,16 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-if="job?.messenger" class="messenger-meta">
+    <section v-if="active === 'messages' && job?.messenger" class="messenger-meta">
       <div class="outcome-block">
         <div class="outcome-head">
-          <span class="outcome-k mono">传话消息</span>
-          <span class="messenger-channel mono">传话通道：{{ job.messenger.channel === 'resident' ? '常驻' : '一次性' }}</span>
+          <span class="outcome-k mono">{{ t('jobs.detail.messengerMessage') }}</span>
+          <span class="messenger-channel mono">{{ t('jobs.detail.messengerChannel', { kind: job.messenger.channel === 'resident' ? t('jobs.detail.messengerResident') : t('jobs.detail.messengerOneShot') }) }}</span>
         </div>
         <dl class="messenger-fields mono">
-          <dt>目标会话</dt>
+          <dt>{{ t('jobs.detail.targetSession') }}</dt>
           <dd>{{ job.messenger.target_session || '—' }}</dd>
-          <dt>消息原文</dt>
+          <dt>{{ t('jobs.detail.messageBody') }}</dt>
           <dd><pre>{{ job.messenger.message || '—' }}</pre></dd>
         </dl>
       </div>
@@ -2409,8 +2462,8 @@ onUnmounted(() => {
 
     <!-- 「消息」区（gofer-chd9）：发给 agent 的消息（首条 prompt + 会话每轮 say）与 agent
          回复摘要，按时间升序。首条消息可展开看被剥掉的完整注入内容（rules 段）。 -->
-    <section v-if="showJobMessages(job) && messages.length > 0" class="job-messages" data-test="job-messages">
-      <h2 class="outcomes-title mono">消息</h2>
+    <section v-if="active === 'messages' && showJobMessages(job) && messages.length > 0" class="job-messages" data-test="job-messages">
+      <h2 class="outcomes-title mono">{{ t('jobs.detail.messages') }}</h2>
       <ol class="job-messages-list">
         <li
           v-for="(m, i) in messages"
@@ -2420,7 +2473,7 @@ onUnmounted(() => {
         >
           <div class="job-message-head mono">
             <span class="job-message-role">{{ messageRoleLabel(m.role) }}</span>
-            <span v-if="m.omitted" class="job-message-gap">…更早的轮次未读取</span>
+            <span v-if="m.omitted" class="job-message-gap">{{ t('jobs.detail.earlierOmitted') }}</span>
             <span class="job-message-at">{{ fmtTime(m.at) }}</span>
             <RouterLink
               v-if="m.job_id && m.job_id !== job?.id"
@@ -2429,21 +2482,21 @@ onUnmounted(() => {
             >{{ shortId(m.job_id) }}</RouterLink>
           </div>
           <pre class="job-message-text">{{ m.text }}</pre>
-          <span v-if="m.truncated" class="job-message-truncated mono">已截断</span>
+          <span v-if="m.truncated" class="job-message-truncated mono">{{ t('jobs.detail.truncated') }}</span>
           <details v-if="m.injected" class="job-message-injected">
-            <summary class="mono">查看完整注入内容（rules）</summary>
+            <summary class="mono">{{ t('jobs.detail.viewInjected') }}</summary>
             <pre>{{ m.injected }}</pre>
           </details>
         </li>
       </ol>
     </section>
 
-    <section v-if="job?.session" class="session-composer-card">
+    <section v-if="active === 'messages' && job?.session" class="session-composer-card">
       <div class="session-composer-head">
-        <h2 class="outcomes-title mono">ACP 会话消息</h2>
+        <h2 class="outcomes-title mono">{{ t('jobs.detail.acpMessages') }}</h2>
         <span class="session-composer-state mono">
-          <template v-if="status === 'awaiting_input' && !job?.session_ending">等待输入</template>
-          <template v-else>运行中 / 结束中 / 已结束</template>
+          <template v-if="status === 'awaiting_input' && !job?.session_ending">{{ t('jobs.detail.awaitingInput') }}</template>
+          <template v-else>{{ t('jobs.detail.sessionStates') }}</template>
         </span>
       </div>
       <div class="session-composer-row">
@@ -2452,8 +2505,8 @@ onUnmounted(() => {
           class="session-input session-input-multiline mono"
           rows="3"
           :disabled="readOnly || sessionBusy || status !== 'awaiting_input' || !!job?.session_ending"
-          placeholder="第一句话（可选）"
-          aria-label="ACP 会话消息"
+          :placeholder="t('jobs.detail.firstLine')"
+          :aria-label="t('jobs.detail.acpMessageAria')"
           @keydown="onSessionMessageKeydown"
         ></textarea>
         <button
@@ -2462,22 +2515,22 @@ onUnmounted(() => {
           type="button"
           :disabled="sessionBusy || status !== 'awaiting_input' || !!job?.session_ending || !sessionMessage.trim()"
           @click="doSessionSay"
-        >{{ sessionBusy ? '发送中…' : '发送' }}</button>
+        >{{ sessionBusy ? t('jobs.detail.sending') : t('jobs.detail.send') }}</button>
       </div>
-      <p v-if="readOnly" class="session-composer-help mono" data-test="session-readonly">只读身份，不能发送消息。</p>
+      <p v-if="readOnly" class="session-composer-help mono" data-test="session-readonly">{{ t('jobs.detail.readonlySend') }}</p>
       <p v-if="status !== 'awaiting_input' || job?.session_ending" class="session-composer-help mono">
-        会话当前不可输入，状态为{{ job?.session_ending ? '结束中' : status }}。
+        {{ t('jobs.detail.notInputtable', { state: job?.session_ending ? t('jobs.detail.ending') : status }) }}
       </p>
       <p v-if="sessionError" class="error mono">{{ sessionError }}</p>
     </section>
 
     <!-- 运行中交互区：待应答卡片（排队作答）+ 已应答折叠 -->
     <section
-      v-if="pendingInteractions.length > 0 || answeredInteractions.length > 0"
+      v-if="active === 'events' && (pendingInteractions.length > 0 || answeredInteractions.length > 0)"
       class="interactions"
     >
       <h2 class="interactions-title mono">
-        <span class="warn">⚠</span> 待应答交互
+        <span class="warn">⚠</span> {{ t('jobs.detail.interactions') }}
         <span v-if="pendingInteractions.length > 0" class="count mono"
           >{{ pendingInteractions.length }}</span
         >
@@ -2492,13 +2545,13 @@ onUnmounted(() => {
           @punt="onPunt(it.id)"
         />
         <p v-if="interactionErrors.get(it.id)" class="icard-err mono">
-          操作失败：{{ interactionErrors.get(it.id) }}
+          {{ t('jobs.detail.interactionFailed', { msg: String(interactionErrors.get(it.id) ?? '') }) }}
         </p>
       </div>
 
       <details v-if="answeredInteractions.length > 0" class="answered-fold">
         <summary class="mono">
-          已应答 {{ answeredInteractions.length }} 条
+          {{ t('jobs.detail.answeredCount', { n: answeredInteractions.length }) }}
         </summary>
         <InteractionCard
           v-for="it in answeredInteractions"
@@ -2508,10 +2561,18 @@ onUnmounted(() => {
       </details>
     </section>
 
+    <section v-if="active === 'overview' && logTail.length > 0" class="log-tail" data-test="log-tail">
+      <h2 class="outcomes-title mono">{{ t('jobs.detail.recentLog') }}</h2>
+      <pre class="log-tail-pre mono">{{ logTail.join('\n') }}</pre>
+      <button class="review-banner-btn mono" type="button" @click="goTab(JOB_TAB.log)">
+        {{ t('jobs.tab.log') }}
+      </button>
+    </section>
+
     <!-- 事件时间线（E13）：append-only 生命周期事件，每事件一行（图标 + 标签 +
          关键 detail + 相对时间）。仿 interactions 渲染风格，仅在有事件时展示。 -->
-    <section v-if="timelineEvents.length > 0" class="timeline">
-      <h2 class="timeline-title mono">事件时间线</h2>
+    <section v-if="active === 'events' && timelineEvents.length > 0" class="timeline">
+      <h2 class="timeline-title mono">{{ t('jobs.detail.timeline') }}</h2>
       <button
         v-if="eventsTruncated"
         type="button"
@@ -2519,7 +2580,7 @@ onUnmounted(() => {
         :disabled="eventsLoadingEarlier"
         @click="loadEarlierEvents"
       >
-        {{ eventsLoadingEarlier ? '加载中…' : '仅显示最近一批，加载更早' }}
+        {{ eventsLoadingEarlier ? t('jobs.detail.loading') : t('jobs.detail.timelineEarlier') }}
       </button>
       <ul class="timeline-list">
         <li
@@ -2540,8 +2601,8 @@ onUnmounted(() => {
 
     <!-- 评论区（MCP-05 阶段 A）：job 上的评论线程。user 作者的评论里 @agent/@role
          会经服务端同一个 Submit 入口派一个 job，行上显示回链。 -->
-    <section class="comments">
-      <h2 class="comments-title mono">评论</h2>
+    <section v-if="active === 'events'" class="comments">
+      <h2 class="comments-title mono">{{ t('jobs.detail.comments') }}</h2>
       <CommentThread
         v-if="job"
         :key="props.id"
@@ -2550,14 +2611,14 @@ onUnmounted(() => {
         :initial="commentsInit"
         :reload-key="commentsReloadKey"
         :readonly="readOnly"
-        placeholder="写点什么…  @omp 补上测试"
+        :placeholder="t('jobs.detail.commentPlaceholder')"
       />
     </section>
 
     <!-- webhook 投递（E14）：只读，每条投递一行（状态徽标 + 目标 + 关键信息）。
          无通知配置时 deliveries 为空，整节不展示。 -->
-    <section v-if="deliveries.length > 0" class="deliveries">
-      <h2 class="deliveries-title mono">通知投递</h2>
+    <section v-if="active === 'events' && deliveries.length > 0" class="deliveries">
+      <h2 class="deliveries-title mono">{{ t('jobs.detail.deliveries') }}</h2>
       <ul class="deliveries-list">
         <li
           v-for="d in deliveries"
@@ -2574,14 +2635,14 @@ onUnmounted(() => {
           <span
             v-if="d.status === 'pending' && d.next_retry_at > 0 && d.attempts > 0"
             class="dl-time mono"
-          >下次 {{ fmtTime(d.next_retry_at) }}</span>
+          >{{ t('jobs.detail.nextRetry', { time: fmtTime(d.next_retry_at) }) }}</span>
         </li>
       </ul>
     </section>
 
     <!-- 终端会话：pty relay 元数据与录制下载入口。 -->
-    <section v-if="ptySessions.length > 0" class="pty-sessions">
-      <h2 class="pty-sessions-title mono">终端会话</h2>
+    <section v-if="active === 'events' && ptySessions.length > 0" class="pty-sessions">
+      <h2 class="pty-sessions-title mono">{{ t('jobs.detail.ptySessions') }}</h2>
       <ul class="pty-sessions-list">
         <li
           v-for="s in ptySessions"
@@ -2591,7 +2652,7 @@ onUnmounted(() => {
           <span class="pty-size mono">{{ s.cols }}×{{ s.rows }}</span>
           <span class="pty-bytes mono">{{ ptySessionBytes(s) }}</span>
           <span class="pty-duration mono">{{ ptySessionDuration(s) }}</span>
-          <span v-if="s.encrypted" class="pty-encrypted mono">加密</span>
+          <span v-if="s.encrypted" class="pty-encrypted mono">{{ t('jobs.detail.encrypted') }}</span>
           <span class="pty-state mono">{{ s.state }}</span>
           <button
             v-if="s.has_recording"
@@ -2600,7 +2661,7 @@ onUnmounted(() => {
             :disabled="downloadingRecordingIds.has(s.pty_session_id)"
             @click="onDownloadRecording(s.pty_session_id)"
           >
-            {{ downloadingRecordingIds.has(s.pty_session_id) ? '下载中…' : '下载录制' }}
+            {{ downloadingRecordingIds.has(s.pty_session_id) ? t('jobs.detail.downloading') : t('jobs.detail.downloadRecording') }}
           </button>
         </li>
       </ul>
@@ -2609,12 +2670,12 @@ onUnmounted(() => {
 
     <!-- 唤醒（JOB-09）：登记在 job 上的事件订阅/定时器 —— 条件到达时 gofer 自动续投
          这个 job。列表 + 开关 + 新建表单 + 触发历史（来自 job.wakeup_* 事件）。 -->
-    <section v-if="wakeups.length > 0 || wakeupFormOpen" class="wakeups">
+    <section v-if="active === 'events' && (wakeups.length > 0 || wakeupFormOpen)" class="wakeups">
       <h2 class="wakeups-title mono">
-        唤醒
+        {{ t('jobs.detail.wakeups') }}
         <span v-if="wakeupSummary" class="wakeups-sum mono">{{ wakeupSummary }}</span>
         <button class="wakeups-add mono" type="button" @click="wakeupFormOpen = !wakeupFormOpen">
-          {{ wakeupFormOpen ? '收起' : '新建' }}
+          {{ wakeupFormOpen ? t('jobs.detail.expand') : t('jobs.detail.wakeupNew') }}
         </button>
       </h2>
 
@@ -2623,92 +2684,92 @@ onUnmounted(() => {
           <span class="wakeup-kind mono">{{ w.kind }}</span>
           <span class="wakeup-target mono">{{ wakeupTarget(w) }}</span>
           <span class="wakeup-trigger mono" :title="wakeupTrigger(w)">{{ wakeupTrigger(w) }}</span>
-          <span class="wakeup-instruction mono" :title="w.instruction || ''">{{ w.instruction || '（无指令）' }}</span>
+          <span class="wakeup-instruction mono" :title="w.instruction || ''">{{ w.instruction || t('jobs.detail.wakeupNoInstruction') }}</span>
           <span class="wakeup-count mono" :title="`coalesced ${w.coalesced_count}`">
-            触发 {{ w.fired_count }}<template v-if="w.coalesced_count > 0"> · 合并 {{ w.coalesced_count }}</template>
+            {{ t('jobs.detail.wakeupFired', { n: w.fired_count }) }}<template v-if="w.coalesced_count > 0">{{ t('jobs.detail.wakeupCoalesced', { n: w.coalesced_count }) }}</template>
           </span>
           <RouterLink
             v-if="w.continuation_job_id"
             class="wakeup-cont mono"
             :to="`/jobs/${w.continuation_job_id}`"
-          >最近续投 {{ shortId(w.continuation_job_id) }}</RouterLink>
+          >{{ t('jobs.detail.wakeupLastContinuation', { id: shortId(w.continuation_job_id) }) }}</RouterLink>
           <button
             class="wakeup-btn mono"
             type="button"
             :disabled="wakeupBusyOn(w.id)"
             @click="onToggleWakeup(w)"
-          >{{ w.enabled ? '停用' : '启用' }}</button>
+          >{{ w.enabled ? t('jobs.detail.disable') : t('jobs.detail.enable') }}</button>
           <button
             class="wakeup-btn mono"
             type="button"
             :disabled="wakeupBusyOn(w.id)"
             @click="onDeleteWakeup(w)"
-          >删除</button>
+          >{{ t('jobs.detail.wakeupDelete') }}</button>
         </li>
       </ul>
 
       <form v-if="wakeupFormOpen" class="wakeup-form" @submit.prevent="onCreateWakeup">
         <label class="wakeup-field mono">
-          类型
+          {{ t('jobs.detail.wakeupKind') }}
           <select v-model="wakeupForm.kind" class="mono">
-            <option value="at">at（到点一次）</option>
-            <option value="every">every（每隔一段）</option>
-            <option value="cron">cron（按表达式）</option>
-            <option value="event">event（订阅事件）</option>
+            <option value="at">{{ t('jobs.detail.wakeupKindAt') }}</option>
+            <option value="every">{{ t('jobs.detail.wakeupKindEvery') }}</option>
+            <option value="cron">{{ t('jobs.detail.wakeupKindCron') }}</option>
+            <option value="event">{{ t('jobs.detail.wakeupKindEvent') }}</option>
           </select>
         </label>
         <label v-if="wakeupForm.kind === 'at'" class="wakeup-field mono">
-          多久之后
+          {{ t('jobs.detail.wakeupDelay') }}
           <input v-model="wakeupForm.after" class="mono" placeholder="10m" />
         </label>
         <label v-if="wakeupForm.kind === 'every'" class="wakeup-field mono">
-          间隔
+          {{ t('jobs.detail.wakeupEvery') }}
           <input v-model="wakeupForm.every" class="mono" placeholder="1h" />
         </label>
         <template v-if="wakeupForm.kind === 'cron'">
           <label class="wakeup-field mono">
-            表达式
+            {{ t('jobs.detail.wakeupCron') }}
             <input v-model="wakeupForm.cron" class="mono" placeholder="0 9 * * 1-5" />
           </label>
           <label class="wakeup-field mono">
-            时区
-            <input v-model="wakeupForm.timezone" class="mono" placeholder="Asia/Shanghai（留空=服务器本地）" />
+            {{ t('jobs.detail.wakeupTz') }}
+            <input v-model="wakeupForm.timezone" class="mono" :placeholder="t('jobs.detail.wakeupTzPh')" />
           </label>
         </template>
         <template v-if="wakeupForm.kind === 'event'">
           <label class="wakeup-field mono">
-            事件
+            {{ t('jobs.detail.wakeupEvent') }}
             <input v-model="wakeupForm.event" class="mono" :placeholder="WAKEUP_EVENT_TYPES.join(',')" />
           </label>
           <label class="wakeup-field mono">
-            监听哪个 job
-            <input v-model="wakeupForm.filterJob" class="mono" placeholder="留空 = 本 job" />
+            {{ t('jobs.detail.wakeupWatchJob') }}
+            <input v-model="wakeupForm.filterJob" class="mono" :placeholder="t('jobs.detail.wakeupWatchJobPh')" />
           </label>
           <label class="wakeup-field mono">
-            状态过滤
-            <input v-model="wakeupForm.status" class="mono" placeholder="done,failed（仅 job.terminal）" />
+            {{ t('jobs.detail.wakeupStatus') }}
+            <input v-model="wakeupForm.status" class="mono" :placeholder="t('jobs.detail.wakeupStatusPh')" />
           </label>
         </template>
         <label class="wakeup-field mono">
-          模式
+          {{ t('jobs.detail.wakeupMode') }}
           <select v-model="wakeupForm.mode" class="mono">
-            <option value="">默认（at/event=once，every/cron=continuous）</option>
+            <option value="">{{ t('jobs.detail.wakeupModeDefault') }}</option>
             <option value="once">once</option>
             <option value="continuous">continuous</option>
           </select>
         </label>
         <label class="wakeup-field wakeup-field--wide mono">
-          指令（续投时的提示词）
-          <input v-model="wakeupForm.instruction" class="mono" placeholder="检查 CI 结果并汇报" />
+          {{ t('jobs.detail.wakeupInstruction') }}
+          <input v-model="wakeupForm.instruction" class="mono" :placeholder="t('jobs.detail.wakeupInstructionPh')" />
         </label>
         <button class="wakeup-btn wakeup-btn--primary mono" type="submit" :disabled="wakeupSubmitting">
-          {{ wakeupSubmitting ? '提交中…' : '创建' }}
+          {{ wakeupSubmitting ? t('jobs.detail.submitting') : t('jobs.detail.create') }}
         </button>
         <p v-if="wakeupFormError" class="artifact-err mono">{{ wakeupFormError }}</p>
       </form>
 
       <div v-if="wakeupHistory.length > 0" class="wakeup-history">
-        <p class="diff-note mono">触发历史（{{ wakeupHistory.length }}）</p>
+        <p class="diff-note mono">{{ t('jobs.detail.wakeupHistory', { n: wakeupHistory.length }) }}</p>
         <ul class="timeline-list">
           <li v-for="ev in wakeupHistory" :key="ev.seq" class="timeline-row">
             <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
@@ -2722,17 +2783,60 @@ onUnmounted(() => {
       <p v-if="wakeupError" class="artifact-err mono">{{ wakeupError }}</p>
     </section>
 
+    <!-- 变更（§7.1）：提交（sha 可复制）与未提交 diff 从「产物」里拆出来，单独一页签。 -->
+    <section v-if="active === 'changes'" class="outcomes" data-test="job-changes">
+      <h2 class="outcomes-title mono">{{ t('jobs.tab.changes') }}</h2>
+      <!-- 提交列表（SUP-01 C）：本 job 产出的提交（base..HEAD，新→旧）。worktree job
+           的交付物就在这些提交里；点 sha 复制，便于合回主干或核对。 -->
+      <div v-if="commits.length > 0" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">{{ t('jobs.detail.commitsCount', { n: commits.length }) }}</span>
+          <span v-if="job?.base_sha" class="diff-note mono" :title="job.base_sha">{{ t('jobs.detail.baseline', { sha: shortSha(job.base_sha) }) }}</span>
+        </div>
+        <ul class="artifact-list">
+          <li v-for="c in commits" :key="c.sha" class="artifact-row">
+            <button class="artifact-dl mono" type="button" :title="t('jobs.detail.copySha', { sha: c.sha })" @click="copyCommit(c.sha)">
+              {{ c.sha }}
+            </button>
+            <span class="artifact-name" :title="c.subject">{{ c.subject }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->
+      <div v-if="diffSummary" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">{{ t('jobs.detail.changed') }}</span>
+          <button
+            class="copy-btn mono"
+            type="button"
+            :disabled="diffLoading"
+            @click="onViewDiff"
+          >
+            {{ diffLoading ? t('jobs.detail.loading') : t('jobs.detail.viewFullDiff') }}
+          </button>
+        </div>
+        <p class="diff-note mono">{{ t('jobs.detail.uncommittedNote') }}</p>
+        <pre class="outcome-pre diff-stat mono">{{ diffSummary }}</pre>
+        <p v-if="diffError" class="artifact-err mono">{{ diffError }}</p>
+      </div>
+
+      <p v-if="commits.length === 0 && !diffSummary" class="changes-empty mono">
+        {{ t('jobs.changes.empty') }}
+      </p>
+    </section>
+
     <!-- 产出与审计：结构化结果(E6) + 产物 + diff。仅在有内容时展示。 -->
-    <section v-if="hasOutcomes" class="outcomes">
+    <section v-if="active === 'artifacts' && hasOutcomes" class="outcomes">
       <h2 class="outcomes-title mono">
-        产出与审计
+        {{ t('jobs.detail.outcomes') }}
         <span v-if="isRemoteSource" class="source-badge mono" :class="'source-' + sourceKind">{{ sourceLabel }}</span>
       </h2>
 
       <!-- 结构化结果：<result_dir>/result.json pretty-print。 -->
       <div v-if="resultJsonPretty" class="outcome-block">
         <div class="outcome-head">
-          <span class="outcome-k mono">结构化结果</span>
+          <span class="outcome-k mono">{{ t('jobs.detail.structured') }}</span>
         </div>
         <pre class="outcome-pre result-json mono">{{ resultJsonPretty }}</pre>
       </div>
@@ -2741,10 +2845,10 @@ onUnmounted(() => {
            远端执行(P4)：仅回清单元数据，文件留执行机 → 不提供下载，标注来源。 -->
       <div v-if="artifacts.length > 0" class="outcome-block">
         <div class="outcome-head">
-          <span class="outcome-k mono">产物文件（{{ artifacts.length }}）</span>
+          <span class="outcome-k mono">{{ t('jobs.detail.artifactsCount', { n: artifacts.length }) }}</span>
         </div>
         <p v-if="isRemoteSource" class="diff-note mono">
-          清单来自{{ sourceLabel }}；文件留在执行机（worker / 共享盘 / peer 侧），本机不提供下载
+          {{ t('jobs.detail.remoteNote', { source: sourceLabel }) }}
         </p>
         <ul class="artifact-list">
           <li v-for="a in artifacts" :key="a.name" class="artifact-row">
@@ -2757,7 +2861,7 @@ onUnmounted(() => {
                 :disabled="previewingNames.has(a.name)"
                 @click="onPreview(a.name)"
               >
-                {{ previewingNames.has(a.name) ? '打开中…' : '预览' }}
+                {{ previewingNames.has(a.name) ? t('jobs.detail.opening') : t('jobs.detail.preview') }}
               </button>
               <button
                 class="artifact-dl mono"
@@ -2765,10 +2869,10 @@ onUnmounted(() => {
                 :disabled="downloadingNames.has(a.name)"
                 @click="onDownload(a.name)"
               >
-                {{ downloadingNames.has(a.name) ? '下载中…' : '下载' }}
+                {{ downloadingNames.has(a.name) ? t('jobs.detail.downloading') : t('jobs.detail.download') }}
               </button>
             </template>
-            <span v-else class="artifact-remote mono">留在执行机</span>
+            <span v-else class="artifact-remote mono">{{ t('jobs.detail.remoteKeep') }}</span>
           </li>
         </ul>
         <p v-if="artifactError" class="artifact-err mono">{{ artifactError }}</p>
@@ -2780,19 +2884,19 @@ onUnmounted(() => {
            远端执行也已在 hub 上），故点击直接复用产物预览/下载通道。 -->
       <div v-if="xfer && hasXferDetail" class="outcome-block">
         <div class="outcome-head">
-          <span class="outcome-k mono">文件</span>
+          <span class="outcome-k mono">{{ t('jobs.detail.files') }}</span>
         </div>
 
         <!-- 上传：执行机在 agent 起跑前放进 dest（cwd 相对）的文件；失败的会说明原因
              （此时 agent 没跑、job 已 failed）。 -->
         <div v-if="xferUploads.length > 0" class="xfer-part">
-          <p class="diff-note mono">随 job 上传的文件（{{ xferUploads.length }}）· 起跑前放进执行机</p>
+          <p class="diff-note mono">{{ t('jobs.detail.uploadsNote', { n: xferUploads.length }) }}</p>
           <ul class="artifact-list">
             <li v-for="(u, i) in xferUploads" :key="`up-${i}-${u.dest}`" class="artifact-row">
               <span class="artifact-name mono" :title="u.dest">{{ u.dest }}</span>
               <span class="artifact-size mono">{{ fmtSize(u.size) }}</span>
               <span class="xfer-chip mono" :class="u.ok ? 'xfer-chip--ok' : 'xfer-chip--bad'">
-                {{ u.ok ? '已就位' : '失败' }}
+                {{ u.ok ? t('jobs.detail.xferOk') : t('jobs.detail.xferFailed') }}
               </span>
               <span v-if="!u.ok && u.error" class="xfer-note mono" :title="u.error">{{ u.error }}</span>
             </li>
@@ -2801,13 +2905,13 @@ onUnmounted(() => {
 
         <!-- 收集：job 结束后按 cwd 匹配到的文件，本体落在本 job 产物的 collected/ 下。 -->
         <div v-if="xferCollected.length > 0" class="xfer-part">
-          <p class="diff-note mono">收集（{{ xferCollected.length }}）· 点名字预览</p>
+          <p class="diff-note mono">{{ t('jobs.detail.collectedNote', { n: xferCollected.length }) }}</p>
           <ul class="artifact-list">
             <li v-for="c in xferCollected" :key="`col-${c.name}`" class="artifact-row">
               <button
                 class="artifact-name xfer-name-btn mono"
                 type="button"
-                :title="`预览 ${collectedName(c.name)}`"
+                :title="t('jobs.detail.previewTitle', { name: collectedName(c.name) })"
                 :disabled="previewingNames.has(collectedName(c.name))"
                 @click="onPreview(collectedName(c.name), 'xfer')"
               >
@@ -2820,7 +2924,7 @@ onUnmounted(() => {
                 :disabled="downloadingNames.has(collectedName(c.name))"
                 @click="onDownload(collectedName(c.name), 'xfer')"
               >
-                {{ downloadingNames.has(collectedName(c.name)) ? '下载中…' : '下载' }}
+                {{ downloadingNames.has(collectedName(c.name)) ? t('jobs.detail.downloading') : t('jobs.detail.download') }}
               </button>
             </li>
           </ul>
@@ -2828,10 +2932,10 @@ onUnmounted(() => {
 
         <!-- 跳过：匹配到但没传回的文件（超单文件/总量上限等），连同原因列出。 -->
         <div v-if="xferSkipped.length > 0" class="xfer-part">
-          <p class="diff-note mono">跳过（{{ xferSkipped.length }}）· 匹配到但没传回</p>
+          <p class="diff-note mono">{{ t('jobs.detail.skippedNote', { n: xferSkipped.length }) }}</p>
           <ul class="artifact-list">
             <li v-for="(sk, i) in xferSkipped" :key="`skip-${i}-${sk.name || sk.pattern || ''}`" class="artifact-row">
-              <span class="artifact-name mono" :title="sk.name || sk.pattern || ''">{{ sk.name || sk.pattern || '（未命名）' }}</span>
+              <span class="artifact-name mono" :title="sk.name || sk.pattern || ''">{{ sk.name || sk.pattern || t('jobs.detail.unnamed') }}</span>
               <span v-if="sk.pattern && sk.name" class="artifact-size mono" :title="`pattern ${sk.pattern}`">{{ sk.pattern }}</span>
               <span class="xfer-note mono" :title="sk.reason">{{ sk.reason }}</span>
             </li>
@@ -2841,31 +2945,14 @@ onUnmounted(() => {
         <p v-if="xferFileError" class="artifact-err mono">{{ xferFileError }}</p>
       </div>
 
-      <!-- 提交列表（SUP-01 C）：本 job 产出的提交（base..HEAD，新→旧）。worktree job
-           的交付物就在这些提交里；点 sha 复制，便于合回主干或核对。 -->
-      <div v-if="commits.length > 0" class="outcome-block">
-        <div class="outcome-head">
-          <span class="outcome-k mono">提交（{{ commits.length }}）</span>
-          <span v-if="job?.base_sha" class="diff-note mono" :title="job.base_sha">基线 {{ shortSha(job.base_sha) }}</span>
-        </div>
-        <ul class="artifact-list">
-          <li v-for="c in commits" :key="c.sha" class="artifact-row">
-            <button class="artifact-dl mono" type="button" :title="`复制 ${c.sha}`" @click="copyCommit(c.sha)">
-              {{ c.sha }}
-            </button>
-            <span class="artifact-name" :title="c.subject">{{ c.subject }}</span>
-          </li>
-        </ul>
-      </div>
-
       <!-- 验证步骤（SUP-01 P2）：agent 正常结束后在执行机同 cwd/env 跑的验收命令。
            failed/timeout 就是该 job 失败的原因；点「查看输出」跳到 stderr 末尾看命令的原始输出。 -->
       <div v-if="verify" class="outcome-block" :class="verifyTone">
         <div class="outcome-head">
-          <span class="outcome-k mono">验证</span>
+          <span class="outcome-k mono">{{ t('jobs.detail.verify') }}</span>
           <span class="verify-status mono" :class="verifyTone">{{ verifyText }}</span>
           <button class="copy-btn mono" type="button" @click="scrollToVerifyOutput">
-            查看输出
+            {{ t('jobs.detail.verifyOutput') }}
           </button>
         </div>
         <pre class="outcome-pre verify-cmd mono">{{ verifyCommand }}</pre>
@@ -2875,38 +2962,21 @@ onUnmounted(() => {
            行尾括号是来源；远端 job 的数字由执行机采集后随 Outcome 回传。 -->
       <div v-if="usageText || budgetText || agentBudgetText" class="outcome-block">
         <div class="outcome-head">
-          <span class="outcome-k mono">用量</span>
-          <span v-if="agentBudgetDone" class="budget-done-badge mono" data-test="agent-budget-exhausted">预算耗尽收尾</span>
+          <span class="outcome-k mono">{{ t('jobs.detail.usage') }}</span>
+          <span v-if="agentBudgetDone" class="budget-done-badge mono" data-test="agent-budget-exhausted">{{ t('jobs.detail.budgetExhausted') }}</span>
         </div>
         <pre v-if="usageText" class="outcome-pre verify-cmd mono">{{ usageText }}</pre>
         <!-- N2 §B：预算上限（已合并 agent / 项目默认）与已用；越线的 job failure_class=budget。 -->
-        <pre v-if="budgetText" class="outcome-pre verify-cmd mono">预算 {{ budgetText }}</pre>
+        <pre v-if="budgetText" class="outcome-pre verify-cmd mono">{{ t('jobs.detail.budget', { value: budgetText }) }}</pre>
         <!-- gofer-hnqf：agent 自报的软预算（agent_tokens / agent_cost_usd）已用 / 上限。 -->
-        <pre v-if="agentBudgetText" class="outcome-pre verify-cmd mono" data-test="agent-budget-line">预算 {{ agentBudgetText }}</pre>
-      </div>
-
-      <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->
-      <div v-if="diffSummary" class="outcome-block">
-        <div class="outcome-head">
-          <span class="outcome-k mono">改了什么</span>
-          <button
-            class="copy-btn mono"
-            type="button"
-            :disabled="diffLoading"
-            @click="onViewDiff"
-          >
-            {{ diffLoading ? '加载中…' : '查看完整 diff' }}
-          </button>
-        </div>
-        <p class="diff-note mono">未提交改动（uncommitted changes，tracked vs HEAD）</p>
-        <pre class="outcome-pre diff-stat mono">{{ diffSummary }}</pre>
-        <p v-if="diffError" class="artifact-err mono">{{ diffError }}</p>
+        <pre v-if="agentBudgetText" class="outcome-pre verify-cmd mono" data-test="agent-budget-line">{{ t('jobs.detail.budget', { value: agentBudgetText }) }}</pre>
       </div>
     </section>
 
+    <template v-if="active === 'log'">
     <LogTape
       ref="logTape"
-      :stdout-label="job?.interactive ? '终端' : 'stdout'"
+      :stdout-label="job?.interactive ? t('jobs.detail.terminal') : 'stdout'"
       :stdout="stdout"
       :stderr="stderr"
       :stdout-lines="stdoutLines"
@@ -2927,6 +2997,11 @@ onUnmounted(() => {
       @load-earlier="onLoadEarlier"
       @load-all="onLoadAll"
     />
+    </template>
+
+    <!-- 页签内容结束：上面各区块用默认插槽的作用域变量 active 决定所在页签。 -->
+      </template>
+    </Tabs>
 
     <!-- 产物预览弹层（E19a）：点击产物「预览」打开；md/图/json/文本经 FilePreview
          渲染（md 走 marked + DOMPurify sanitize）。点遮罩或「关闭」收起。 -->
@@ -2939,8 +3014,8 @@ onUnmounted(() => {
         <div class="preview-head">
           <span class="preview-name mono" :title="preview.name">{{ preview.name }}</span>
           <div class="preview-actions">
-            <button class="copy-btn mono" type="button" @click="onPreviewDownload">下载</button>
-            <button class="copy-btn mono" type="button" @click="closePreview">关闭</button>
+            <button class="copy-btn mono" type="button" @click="onPreviewDownload">{{ t('jobs.detail.download') }}</button>
+            <button class="copy-btn mono" type="button" @click="closePreview">{{ t('jobs.detail.close') }}</button>
           </div>
         </div>
         <div class="preview-body">
@@ -2959,10 +3034,10 @@ onUnmounted(() => {
       class="drawer-overlay"
       @click.self="closeDiff"
     >
-      <div class="drawer-panel" role="dialog" aria-label="完整 diff">
+      <div class="drawer-panel" role="dialog" :aria-label="t('jobs.detail.fullDiff')">
         <div class="drawer-head">
-          <span class="drawer-title mono">完整 diff · 未提交改动</span>
-          <button class="copy-btn mono" type="button" @click="closeDiff">关闭</button>
+          <span class="drawer-title mono">{{ t('jobs.detail.fullDiff') }}</span>
+          <button class="copy-btn mono" type="button" @click="closeDiff">{{ t('jobs.detail.close') }}</button>
         </div>
         <div class="drawer-body">
           <pre class="drawer-diff mono">{{ fullDiffText }}</pre>
@@ -2979,27 +3054,27 @@ onUnmounted(() => {
       <div
         class="drawer-panel terminal-drawer"
         role="dialog"
-        aria-label="终端"
+        :aria-label="t('jobs.detail.terminal')"
       >
         <div class="drawer-head terminal-drawer-head">
-          <span class="drawer-title mono">终端 · {{ shortId(props.id) }}</span>
-          <div class="term-mode-toggle mono" role="group" aria-label="终端模式">
+          <span class="drawer-title mono">{{ t('jobs.detail.terminal') }} · {{ shortId(props.id) }}</span>
+          <div class="term-mode-toggle mono" role="group" :aria-label="t('jobs.detail.terminalMode')">
             <button
               type="button"
               :class="{ active: termMode === 'write' }"
               @click="termMode = 'write'"
             >
-              写入
+              {{ t('jobs.detail.write') }}
             </button>
             <button
               type="button"
               :class="{ active: termMode === 'read' }"
               @click="termMode = 'read'"
             >
-              只读
+              {{ t('jobs.detail.readonly') }}
             </button>
           </div>
-          <button class="copy-btn mono" type="button" @click="closeTerminal">关闭</button>
+          <button class="copy-btn mono" type="button" @click="closeTerminal">{{ t('jobs.detail.close') }}</button>
         </div>
         <div class="drawer-body terminal-drawer-body">
           <AttachTerminal
@@ -3023,9 +3098,58 @@ onUnmounted(() => {
   max-width: 1200px;
   margin: 0 auto;
 }
+/* 概览里的「去验收」横幅（§7.1）：黄色只代表「需要人」（§5）。 */
+.review-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0 0 var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--need);
+  border-left-width: 3px;
+  border-radius: var(--r-ctl);
+  color: var(--fg);
+  font-size: var(--fs-sm);
+}
+.review-banner-btn {
+  min-height: 28px;
+  padding: 0 var(--s2);
+  background: none;
+  border: 1px solid var(--need);
+  border-radius: var(--r-ctl);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.review-banner-btn:hover {
+  background: var(--surface-2);
+}
+.review-banner-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.changes-empty {
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+}
+/* 概览里的最近日志：只看末 6 行，完整日志在「日志」页签。 */
+.log-tail-pre {
+  margin: 0 0 var(--s2);
+  padding: var(--s2);
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 .detail-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: space-between;
   margin-bottom: 12px;
 }
@@ -3039,6 +3163,7 @@ onUnmounted(() => {
 .head-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
 }
 .terminal-open,
