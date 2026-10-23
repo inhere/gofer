@@ -12,6 +12,7 @@ const sources = {
     raw(import.meta.glob('./McpServers.vue', { eager: true, query: '?raw', import: 'default' })),
     raw(import.meta.glob('./About.vue', { eager: true, query: '?raw', import: 'default' })),
     raw(import.meta.glob('./WorkSettings.vue', { eager: true, query: '?raw', import: 'default' })),
+    raw(import.meta.glob('./Rules.vue', { eager: true, query: '?raw', import: 'default' })),
   ],
   'access.': [raw(import.meta.glob('../Access.vue', { eager: true, query: '?raw', import: 'default' }))],
 }
@@ -57,7 +58,8 @@ describe('P5-d page dictionaries', () => {
     const mcp = sources['settings.'][2]
     const about = sources['settings.'][3]
     const work = sources['settings.'][4]
-    for (const src of [notifications, mcp, about, work]) {
+    const rules = sources['settings.'][5]
+    for (const src of [notifications, mcp, about, work, rules]) {
       expect(src).toContain("import FormSection from '../../ui/FormSection.vue'")
       expect(src).toContain('<FormSection')
     }

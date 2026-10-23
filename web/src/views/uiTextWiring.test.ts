@@ -59,7 +59,7 @@ describe('页面标题用中文', () => {
   it('新建页与设置区标题也是中文', () => {
     expect(view('NewWorkflow')).toContain("t('workflows.new.title')")
     expect(view('NewJob')).toContain("{{ pageTitle }}")
-    expect(settingsView('Rules')).toContain('{{ PAGE.rules }}')
+    expect(settingsView('Rules')).toContain("t('settings.rules.title')")
     expect(settingsView('SettingsLayout')).toContain("t('nav.settings')")
     expect(settingsView('SettingsLayout')).not.toContain('>SETTINGS<')
     expect(settingsView('McpServers')).not.toContain('MCP SERVERS')
