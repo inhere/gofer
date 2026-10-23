@@ -23,7 +23,7 @@ export const projects: PageDict = {
     'projects.fleet.hint':
       '每台执行机一组：组内是 server 声明且允许它运行的项目、它自己声明的项目，以及它的默认工作空间。',
     'projects.fleet.aria': '按执行机分组的项目',
-    'projects.fleet.local': 'server 本机',
+    'projects.fleet.local': '本机',
     'projects.fleet.worker': 'worker',
     'projects.fleet.online': '在线',
     'projects.fleet.offline': '离线',
@@ -111,7 +111,7 @@ export const projects: PageDict = {
     'projects.fleet.hint':
       'One card per runner: the projects the server declares and lets it run, the projects it declares itself, and its default workspace.',
     'projects.fleet.aria': 'Projects grouped by runner',
-    'projects.fleet.local': 'server host',
+    'projects.fleet.local': 'host',
     'projects.fleet.worker': 'worker',
     'projects.fleet.online': 'Online',
     'projects.fleet.offline': 'Offline',
