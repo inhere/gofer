@@ -99,7 +99,7 @@ function nodeColorVar(r: Runner): string {
     if (r.status === 'up') {
       return 'var(--done)'
     }
-    return r.status === 'down' ? 'var(--fail)' : 'var(--queue)'
+    return r.status === 'down' ? 'var(--fail)' : 'var(--ink-3)'
   }
   return 'var(--done)'
 }
@@ -223,7 +223,7 @@ function isActive(r: Runner): boolean {
       <span class="lg"><i class="sw" style="background: var(--done)"></i>up / connected</span>
       <span class="lg"><i class="sw" style="background: var(--run)"></i>stale</span>
       <span class="lg"><i class="sw" style="background: var(--fail)"></i>down / offline</span>
-      <span class="lg"><i class="sw" style="background: var(--queue)"></i>unknown</span>
+      <span class="lg"><i class="sw" style="background: var(--ink-3)"></i>unknown</span>
     </div>
 
     <!-- 节点面板（右侧抽屉） -->
@@ -345,7 +345,7 @@ function isActive(r: Runner): boolean {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 14px;
   word-break: break-word;
@@ -357,7 +357,7 @@ function isActive(r: Runner): boolean {
   padding: 8px 10px;
   color: var(--fail);
   border: 1px solid color-mix(in srgb, var(--fail) 55%, var(--line));
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .policy-alert strong { color: var(--fail); }
 
@@ -367,8 +367,8 @@ function isActive(r: Runner): boolean {
   width: 100%;
   aspect-ratio: 1.3 / 1;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-chip);
+  background: var(--surface);
   overflow: hidden;
 }
 
@@ -396,38 +396,38 @@ function isActive(r: Runner): boolean {
   gap: 3px;
   width: 118px;
   padding: 8px 6px;
-  background: var(--ink);
+  background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   cursor: pointer;
   text-align: center;
 }
 .node:hover {
-  border-color: var(--node-color, var(--phosphor));
+  border-color: var(--node-color, var(--accent));
 }
 .node--sel {
-  border-color: var(--node-color, var(--phosphor));
-  box-shadow: 0 0 0 1px var(--node-color, var(--phosphor));
+  border-color: var(--node-color, var(--accent));
+  box-shadow: 0 0 0 1px var(--node-color, var(--accent));
 }
 
 .node--hub {
   width: 132px;
-  background: var(--panel);
-  border-color: var(--phosphor);
+  background: var(--surface);
+  border-color: var(--accent);
 }
 .node--hub:hover,
 .node--hub.node--sel {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .node--hub.node--sel {
-  box-shadow: 0 0 0 1px var(--phosphor);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .hub-core {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--phosphor);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--phosphor) 22%, transparent);
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .node-ind {
@@ -450,12 +450,12 @@ function isActive(r: Runner): boolean {
 }
 .static-dot.st--unknown {
   background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--queue);
+  box-shadow: inset 0 0 0 1.5px var(--ink-3);
 }
 
 .node-name {
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
   font-weight: 600;
   max-width: 104px;
   overflow: hidden;
@@ -464,7 +464,7 @@ function isActive(r: Runner): boolean {
 }
 .node-meta {
   font-size: 10px;
-  color: var(--queue);
+  color: var(--ink-3);
   max-width: 104px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -476,7 +476,7 @@ function isActive(r: Runner): boolean {
   left: 50%;
   bottom: 16px;
   transform: translateX(-50%);
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 
@@ -487,7 +487,7 @@ function isActive(r: Runner): boolean {
   gap: 16px;
   margin-top: 12px;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .lg {
   display: inline-flex;
@@ -516,7 +516,7 @@ function isActive(r: Runner): boolean {
   z-index: 30;
   width: 320px;
   max-width: 88vw;
-  background: var(--panel);
+  background: var(--surface);
   border-left: 1px solid var(--line);
   padding: 16px;
   overflow-y: auto;
@@ -531,7 +531,7 @@ function isActive(r: Runner): boolean {
 }
 .panel-title {
   font-size: 14px;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
   flex: 1;
   overflow: hidden;
@@ -541,9 +541,9 @@ function isActive(r: Runner): boolean {
 .panel-close {
   flex: none;
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   width: 26px;
   height: 26px;
   font-size: 16px;
@@ -551,8 +551,8 @@ function isActive(r: Runner): boolean {
   cursor: pointer;
 }
 .panel-close:hover {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .kind {
@@ -560,21 +560,21 @@ function isActive(r: Runner): boolean {
   font-size: 10px;
   letter-spacing: 0.1em;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 7px;
   margin-bottom: 12px;
 }
 .kind--hub {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .kind--worker {
   color: var(--done);
 }
 .kind--peer {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .kind--local {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 
 .kv {
@@ -585,10 +585,10 @@ function isActive(r: Runner): boolean {
   font-size: 12px;
 }
 .kv dt {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .kv dd {
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
 }
 .kv dd.brk {
@@ -603,16 +603,16 @@ function isActive(r: Runner): boolean {
 .chip {
   display: inline-block;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 7px;
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 10px;
 }
 
 .sub {
   font-size: 11px;
   letter-spacing: 0.06em;
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
   margin: 4px 0 8px;
 }
@@ -626,18 +626,18 @@ function isActive(r: Runner): boolean {
 }
 .proj-list li {
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
   padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--ink);
+  border-radius: var(--r-chip);
+  background: var(--bg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .muted {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .probe-err {
@@ -647,7 +647,7 @@ function isActive(r: Runner): boolean {
   word-break: break-word;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .node {
     width: 100px;
   }

@@ -473,16 +473,16 @@ function shortId(id: string): string {
   flex-direction: column;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-chip);
+  background: var(--surface);
 }
 /* 拖动时不允许落下的列（doing/needs_review，或规则不允许的转移）：压暗 + 禁放光标。 */
 .col--disabled {
   opacity: 0.5;
 }
 .col--over {
-  border-color: var(--phosphor);
-  box-shadow: inset 0 0 0 1px var(--phosphor);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 /* 手机：一次一列（列头标签切换），不再横向滚动五列。 */
 @media (max-width: 760px) {
@@ -506,17 +506,17 @@ function shortId(id: string): string {
     background: none;
     border: 1px solid var(--line);
     border-radius: var(--r-chip, 999px);
-    color: var(--fg-3);
+    color: var(--ink-3);
     font: inherit;
     font-size: var(--fs-sm);
     cursor: pointer;
   }
   .col-tab--on {
-    color: var(--fg);
+    color: var(--ink);
     border-color: var(--accent);
   }
   .col-tab-count {
-    color: var(--fg-2);
+    color: var(--ink-2);
     font-variant-numeric: tabular-nums;
   }
   .board {
@@ -536,12 +536,12 @@ function shortId(id: string): string {
   justify-content: space-between;
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.06em;
 }
 .col-count {
-  color: var(--paper);
+  color: var(--ink);
 }
 .col-body {
   display: flex;
@@ -552,7 +552,7 @@ function shortId(id: string): string {
   min-height: 60px;
 }
 .col-empty {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   text-align: center;
   padding: 6px 0;
@@ -564,24 +564,24 @@ function shortId(id: string): string {
 }
 .zone {
   border: 1px dashed var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 0;
   text-align: center;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .zone--over {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .card {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  background: var(--term-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   cursor: grab;
 }
 .card--dragging {
@@ -600,7 +600,7 @@ function shortId(id: string): string {
   gap: 6px;
 }
 .card-title {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 13px;
   word-break: break-word;
   flex: 1;
@@ -613,9 +613,9 @@ function shortId(id: string): string {
   flex: none;
 }
 .dep {
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 5px;
   font-size: 11px;
 }
@@ -625,9 +625,9 @@ function shortId(id: string): string {
   border-color: var(--done);
 }
 .manual {
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 5px;
   font-size: 11px;
 }
@@ -639,24 +639,24 @@ function shortId(id: string): string {
   font-size: 11px;
 }
 .assignee {
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 6px;
 }
 .assignee--none {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .chip {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 6px;
   font-size: 11px;
 }
 .chip:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .verify {
   font-size: 11px;
@@ -668,7 +668,7 @@ function shortId(id: string): string {
   color: var(--fail);
 }
 .verify--skip {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 a.chip {
   text-decoration: none;
@@ -676,18 +676,18 @@ a.chip {
 .delivery-failed {
   color: var(--fail);
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 1px 6px;
   font-size: 11px;
   white-space: nowrap;
 }
 .card-usage {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 11px;
 }
 /* 接续信息（gofer-rnp3）：卡片底部一小段；「未接续」是退回新会话的提醒，用 run 色。 */
 .card-cont {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   word-break: break-word;
 }
@@ -704,7 +704,7 @@ a.chip {
   word-break: break-word;
 }
 .card-link {
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 11px;
 }
 .modal-backdrop {
@@ -723,27 +723,27 @@ a.chip {
   min-width: 320px;
   max-width: 90vw;
   padding: 14px;
-  background: var(--panel);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
 }
 .modal-title {
   margin: 0;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 13px;
   word-break: break-word;
 }
 .modal-input {
-  background: var(--term-bg);
-  color: var(--paper);
+  background: var(--sunken);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 8px;
   font-size: 12px;
   outline: none;
 }
 .modal-input:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .modal-actions {
   display: inline-flex;
@@ -752,14 +752,14 @@ a.chip {
 }
 .op-btn {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 12px;
 }
 .op-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .op-btn:disabled {
   opacity: 0.55;

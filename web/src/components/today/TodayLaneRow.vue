@@ -58,32 +58,32 @@ function open(): void {
   min-width: 0;
 }
 .lane:first-child { border-top: 0; }
-.lane:hover, .lane:focus-visible { background: var(--ink); outline: none; }
-.lane:focus-visible { box-shadow: inset 2px 0 0 var(--phosphor); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--queue); }
-.dot--active { background: var(--phosphor); }
+.lane:hover, .lane:focus-visible { background: var(--bg); outline: none; }
+.lane:focus-visible { box-shadow: inset 2px 0 0 var(--accent); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+.dot--active { background: var(--accent); }
 .dot--needs_me { background: var(--run); }
 .dot--review { background: var(--done); }
 .dot--blocked { background: var(--fail); }
 .t { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.t b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--paper); }
-.t span { font-size: 11px; color: var(--queue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag { font-size: 12px; color: var(--queue); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag--running { color: var(--phosphor); }
+.t b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.t span { font-size: 11px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag { font-size: 12px; color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag--running { color: var(--accent); }
 .ag--awaiting_input { color: var(--run); }
 .pg { min-width: 0; display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
-.cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.86; color: var(--paper); }
+.cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.86; color: var(--ink); }
 .pips { display: inline-flex; gap: 3px; flex: 0 0 auto; align-items: center; }
 .pips i { width: 8px; height: 8px; border-radius: 2px; border: 1px solid var(--line); display: inline-block; }
-.pips em { font-style: normal; font-size: 10px; color: var(--queue); }
+.pips em { font-style: normal; font-size: 10px; color: var(--ink-3); }
 .pips i.pip--done { background: var(--done); border-color: var(--done); }
-.pips i.pip--running { background: var(--phosphor); border-color: var(--phosphor); }
+.pips i.pip--running { background: var(--accent); border-color: var(--accent); }
 .pips i.pip--needs_review { background: var(--run); border-color: var(--run); }
 .pips i.pip--failed { background: var(--fail); border-color: var(--fail); }
 .hl { font-size: 11.5px; white-space: nowrap; }
 .hl--blocked, .hl--stalled { color: var(--fail); }
 .hl--at_risk { color: var(--run); }
-.num { font-size: 12px; color: var(--queue); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.num { font-size: 12px; color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* 手机：叠成 3 行——标题+用时 / 进度 / agent+健康度；不出横向滚动 */
 @media (max-width: 760px) {

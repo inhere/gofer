@@ -74,13 +74,13 @@ const canSplit = computed(() => !split.value && splitAllowed(width.value))
   background: none;
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font: inherit;
   font-size: var(--fs-sm);
   cursor: pointer;
 }
 .jobs-view-switch-btn:hover {
-  color: var(--fg);
+  color: var(--ink);
   border-color: var(--accent);
 }
 .jobs-view-switch-btn:focus-visible {

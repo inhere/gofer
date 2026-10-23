@@ -323,21 +323,21 @@ onMounted(async () => {
 <style scoped>
 .composer { min-width: 0; }
 .composer-backdrop { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; background: rgba(0,0,0,.45); }
-.composer-panel { width: min(880px, 94vw); max-height: 80vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.55); }
-.panel-head { display: flex; align-items: center; justify-content: space-between; color: var(--paper); font-size: 13px; font-weight: 600; }
-.panel-close { color: var(--paper); background: transparent; border: 0; font-size: 20px; line-height: 1; cursor: pointer; }
+.composer-panel { width: min(880px, 94vw); max-height: 80vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.55); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; color: var(--ink); font-size: 13px; font-weight: 600; }
+.panel-close { color: var(--ink); background: transparent; border: 0; font-size: 20px; line-height: 1; cursor: pointer; }
 .mobile-launch { display: none; }
 .composer-selects { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; }
-.field, .prompt { min-width: 0; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 7px; font-size: 12px; }
-.field:focus, .prompt:focus { outline: 1px solid var(--phosphor); border-color: var(--phosphor); }
+.field, .prompt { min-width: 0; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 7px; font-size: 12px; }
+.field:focus, .prompt:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 .prompt-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; }
 .prompt { resize: vertical; min-height: 110px; max-height: 50vh; }
-.submit { align-self: stretch; color: var(--ink); background: var(--phosphor); border: 1px solid var(--phosphor); border-radius: var(--radius); padding: 0 16px; font-weight: 700; }
+.submit { align-self: stretch; color: var(--bg); background: var(--accent); border: 1px solid var(--accent); border-radius: var(--r-chip); padding: 0 16px; font-weight: 700; }
 .submit:disabled { opacity: .45; cursor: default; }
 .error { color: var(--fail); margin: 0; font-size: 11px; }
-.hint { color: var(--muted, var(--paper)); margin: 0; font-size: 11px; }
-@media (max-width: 620px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
-@media (max-width: 767px) {
+.hint { color: var(--muted, var(--ink)); margin: 0; font-size: 11px; }
+@media (max-width: 760px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
+@media (max-width: 760px) {
   /* 手机：会话打开时由工作台顶栏提供 ＋，表单从底部弹出 */
   .mobile-launch { display: none; }
   .composer-backdrop { align-items: flex-end; padding: 8px; }

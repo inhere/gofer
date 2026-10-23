@@ -596,11 +596,11 @@ function presetRuleText(p: TunnelPreset): string {
 .section-title {
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 0;
 }
 .section-note {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .poll {
@@ -609,14 +609,14 @@ function presetRuleText(p: TunnelPreset): string {
   font-size: 10px;
 }
 .poll--on {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
 .error {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 12px;
   word-break: break-word;
@@ -627,20 +627,20 @@ function presetRuleText(p: TunnelPreset): string {
   margin: 0 0 12px;
 }
 .empty {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   border: 1px dashed var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px 12px;
   margin: 0;
 }
 .empty code {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
 .table {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: hidden;
 }
 .thead,
@@ -659,11 +659,11 @@ function presetRuleText(p: TunnelPreset): string {
   grid-template-columns: 140px 130px minmax(200px, 1fr) 150px 150px 260px;
 }
 .thead {
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
   font-size: 11px;
   letter-spacing: 0.06em;
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
 }
 .trow {
@@ -674,11 +674,11 @@ function presetRuleText(p: TunnelPreset): string {
   border-bottom: none;
 }
 .trow:hover {
-  background: var(--panel);
+  background: var(--surface);
 }
 .cell-worker,
 .cell-name {
-  color: var(--paper);
+  color: var(--ink);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -691,7 +691,7 @@ function presetRuleText(p: TunnelPreset): string {
   min-width: 0;
 }
 .rule {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -699,7 +699,7 @@ function presetRuleText(p: TunnelPreset): string {
 }
 .table--presets .cell-rules {
   display: block;
-  color: var(--paper);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -716,14 +716,14 @@ function presetRuleText(p: TunnelPreset): string {
   white-space: nowrap;
 }
 .host-pid {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .cell-age,
 .cell-conn,
 .cell-traffic,
 .cell-updated {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .cell-updated {
   display: flex;
@@ -744,7 +744,7 @@ function presetRuleText(p: TunnelPreset): string {
   white-space: nowrap;
 }
 .cell-note {
-  color: var(--queue);
+  color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -755,17 +755,17 @@ function presetRuleText(p: TunnelPreset): string {
 }
 .act {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 8px;
   font-size: 11px;
   font-family: var(--font-mono);
   white-space: nowrap;
 }
 .act:hover {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .act--del:hover:not(:disabled) {
   color: var(--fail);
@@ -776,7 +776,7 @@ function presetRuleText(p: TunnelPreset): string {
   cursor: not-allowed;
 }
 .act:disabled:hover {
-  color: var(--queue);
+  color: var(--ink-3);
   border-color: var(--line);
 }
 .cell-act--fw {
@@ -789,20 +789,20 @@ function presetRuleText(p: TunnelPreset): string {
   font-size: 11px;
 }
 .act-note {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .mini-btn {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 10px;
   font-size: 11px;
 }
 .mini-btn:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .mini-btn:disabled {
   opacity: 0.5;
@@ -822,9 +822,9 @@ function presetRuleText(p: TunnelPreset): string {
 }
 .modal {
   width: min(560px, 100%);
-  background: var(--bg, var(--panel));
+  background: var(--bg, var(--surface));
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .modal-head {
   display: flex;
@@ -836,7 +836,7 @@ function presetRuleText(p: TunnelPreset): string {
 .modal-title {
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 0;
 }
 .modal-head .mini-btn {
@@ -860,13 +860,13 @@ function presetRuleText(p: TunnelPreset): string {
   font-size: 11px;
 }
 .field-name {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .req {
   color: var(--fail);
 }
 .field-hint {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 10px;
   opacity: 0.8;
 }
@@ -877,19 +877,19 @@ function presetRuleText(p: TunnelPreset): string {
 }
 .input {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 5px 8px;
   font-size: 12px;
   font-family: var(--font-mono);
 }
 .input:focus {
   outline: none;
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .input:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
   opacity: 0.7;
 }
 /* 规则校验失败（400 spec #N）时把文本框本身标红——错误文案就在它下面。 */

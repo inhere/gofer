@@ -892,9 +892,9 @@ onUnmounted(() => {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--term-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
-  color: var(--paper);
+  color: var(--ink);
 }
 
 .terminal-bar {
@@ -905,7 +905,7 @@ onUnmounted(() => {
   min-height: 38px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--surface);
 }
 
 .status-dot {
@@ -913,7 +913,7 @@ onUnmounted(() => {
   height: 8px;
   flex: none;
   border-radius: 50%;
-  background: var(--queue);
+  background: var(--ink-3);
 }
 
 .status-dot.connected {
@@ -922,7 +922,7 @@ onUnmounted(() => {
 
 .status-dot.read-only,
 .status-dot.reconnecting {
-  background: var(--phosphor);
+  background: var(--accent);
 }
 
 .status-dot.failed,
@@ -937,13 +937,13 @@ onUnmounted(() => {
 
 .status-text {
   flex: none;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
 }
 
 .readonly-banner {
   min-width: 0;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -962,14 +962,14 @@ onUnmounted(() => {
   flex: none;
   padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--term-bg);
-  color: var(--phosphor);
+  border-radius: var(--r-chip);
+  background: var(--sunken);
+  color: var(--accent);
   font-size: 12px;
 }
 
 .terminal-btn:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 
 .key-menu {
@@ -999,7 +999,7 @@ onUnmounted(() => {
 }
 
 .key-menu[open] .key-menu-trigger {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 
 .key-menu-list {
@@ -1013,8 +1013,8 @@ onUnmounted(() => {
   min-width: 210px;
   padding: 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
+  border-radius: var(--r-chip);
+  background: var(--surface);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
 }
 
@@ -1022,21 +1022,21 @@ onUnmounted(() => {
   min-height: 26px;
   padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--term-bg);
-  color: var(--paper);
+  border-radius: var(--r-chip);
+  background: var(--sunken);
+  color: var(--ink);
   font-size: 11px;
 }
 
 .key-menu-item:hover:not(:disabled),
 .key-menu-item:focus-visible {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
   outline: none;
 }
 
 .key-menu-item:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
   cursor: default;
   opacity: 0.45;
 }
@@ -1048,7 +1048,7 @@ onUnmounted(() => {
   /* 只读端跟随服务端尺寸时可能超出容器宽度，横向滚动兜底（tools-3xy） */
   overflow: auto;
   overscroll-behavior: contain;
-  background: var(--term-bg);
+  background: var(--sunken);
 }
 
 .raw-replay {
@@ -1056,7 +1056,7 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--term-bg);
+  background: var(--sunken);
 }
 .raw-replay-toolbar {
   flex: none;
@@ -1065,25 +1065,25 @@ onUnmounted(() => {
   gap: 8px;
   padding: 8px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--surface);
 }
 .raw-replay-search {
   min-width: 0;
   flex: 1 1 auto;
   padding: 5px 7px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--term-bg);
-  color: var(--paper);
+  border-radius: var(--r-chip);
+  background: var(--sunken);
+  color: var(--ink);
   font-size: 12px;
 }
 .raw-replay-search:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
   outline: none;
 }
 .raw-replay-hint {
   flex: none;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .raw-replay-text {
@@ -1092,7 +1092,7 @@ onUnmounted(() => {
   margin: 0;
   padding: 10px;
   overflow: auto;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
   line-height: 1.45;
   white-space: pre;
@@ -1111,19 +1111,19 @@ onUnmounted(() => {
   gap: 6px;
   padding: 6px 10px 8px;
   border-top: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--surface);
 }
 .chat-toggle {
   align-self: flex-start;
   padding: 2px 6px;
   border: none;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   cursor: pointer;
 }
 .chat-toggle:hover {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .chat-input {
   width: 100%;
@@ -1132,14 +1132,14 @@ onUnmounted(() => {
   max-height: 200px;
   padding: 7px 9px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--term-bg);
-  color: var(--paper);
+  border-radius: var(--r-chip);
+  background: var(--sunken);
+  color: var(--ink);
   font-size: 12px;
   line-height: 1.45;
 }
 .chat-input:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
   outline: none;
 }
 .chat-input:disabled {
@@ -1155,12 +1155,12 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   cursor: pointer;
 }
 .chat-submit-toggle input {
-  accent-color: var(--phosphor);
+  accent-color: var(--accent);
 }
 
 .terminal-host :deep(.xterm) {
@@ -1169,15 +1169,15 @@ onUnmounted(() => {
 
 .terminal-host :deep(.xterm-viewport),
 .terminal-host :deep(.xterm-screen) {
-  background: var(--term-bg) !important;
+  background: var(--sunken) !important;
 }
 
 .terminal-foot {
   flex: none;
   padding: 7px 10px;
   border-top: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--queue);
+  background: var(--surface);
+  color: var(--ink-3);
   font-size: 12px;
 }
 </style>

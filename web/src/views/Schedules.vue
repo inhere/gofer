@@ -652,11 +652,11 @@ onUnmounted(() => {
 .title {
   margin: 0;
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 2px 0 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .head-actions {
@@ -678,7 +678,7 @@ onUnmounted(() => {
   min-height: 32px;
   padding: 0 var(--s3);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -744,7 +744,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--line);
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
-  color: var(--fg-3);
+  color: var(--ink-3);
   text-transform: uppercase;
 }
 .trow {
@@ -782,7 +782,7 @@ onUnmounted(() => {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--fg-3);
+  background: var(--ink-3);
   transition: transform var(--dur-fast) var(--ease);
 }
 .switch--on {
@@ -831,7 +831,7 @@ onUnmounted(() => {
   border-color: var(--run);
 }
 .sch-name {
-  color: var(--fg);
+  color: var(--ink);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -848,13 +848,13 @@ onUnmounted(() => {
   flex: none;
 }
 .sch-pr {
-  color: var(--fg-3);
+  color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .col-cron {
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -868,16 +868,16 @@ onUnmounted(() => {
 }
 .next-abs,
 .last-link {
-  color: var(--fg);
+  color: var(--ink);
 }
 .next-rel,
 .last-abs {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .next-off,
 .last-none {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .last-link {
   color: var(--accent);
@@ -893,7 +893,7 @@ onUnmounted(() => {
 }
 .act {
   background: transparent;
-  color: var(--fg-2);
+  color: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   padding: 4px 8px;
@@ -935,11 +935,11 @@ onUnmounted(() => {
   align-items: baseline;
 }
 .dk {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .dv {
-  color: var(--fg);
+  color: var(--ink);
   word-break: break-word;
 }
 .dv--id {
@@ -952,7 +952,7 @@ onUnmounted(() => {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  color: var(--fg);
+  color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
   font-size: var(--fs-sm);
@@ -960,14 +960,14 @@ onUnmounted(() => {
 .empty {
   padding: var(--s6) var(--s3);
   text-align: center;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .empty p {
   margin: 0 0 var(--s2);
 }
 .empty-hint {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .gear {
   margin-left: 4px;
@@ -981,7 +981,7 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   font-size: var(--fs-xs);
-  color: var(--fg);
+  color: var(--ink);
 }
 .param-chip q {
   color: var(--accent);
@@ -990,7 +990,7 @@ onUnmounted(() => {
 /* 立即执行参数表单 / 编辑表单的内容（外壳是 Sheet / Drawer） */
 .modal-hint {
   margin: 0 0 var(--s3);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   line-height: 1.6;
 }
@@ -1004,12 +1004,12 @@ onUnmounted(() => {
 }
 .pname {
   flex: 1 1 45%;
-  color: var(--fg);
+  color: var(--ink);
   word-break: break-all;
 }
 .ptype {
   margin-left: 6px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .prow input[type='text'],
@@ -1022,7 +1022,7 @@ onUnmounted(() => {
   flex: 1 1 auto;
   min-width: 0;
   background: var(--surface-2);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   padding: 5px 7px;
@@ -1031,7 +1031,7 @@ onUnmounted(() => {
 }
 .pdesc {
   margin: 3px 0 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .preview {
@@ -1042,12 +1042,12 @@ onUnmounted(() => {
   border-radius: var(--r-ctl);
 }
 .preview-head {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   margin-bottom: 4px;
 }
 .preview-row {
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-xs);
   word-break: break-all;
 }
@@ -1065,7 +1065,7 @@ onUnmounted(() => {
 }
 .ekey {
   flex: 0 0 80px;
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .params-editor {
   margin-top: var(--s3);

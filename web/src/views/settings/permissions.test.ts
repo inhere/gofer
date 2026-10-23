@@ -44,7 +44,7 @@ describe('Permissions settings page wiring', () => {
   })
 
   it('collapses to one column on narrow screens', () => {
-    expect(page).toContain('@media (max-width: 640px)')
+    expect(page).toContain('@media (max-width: 760px)')
     expect(page).toContain('overflow-x: auto')
   })
 })

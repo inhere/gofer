@@ -127,7 +127,7 @@ const title = props.label || t('act.filter')
 .ovl-title {
   margin: 0;
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
 }
 .ovl-close {
   margin-left: auto;
@@ -136,12 +136,12 @@ const title = props.label || t('act.filter')
   background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font: inherit;
   cursor: pointer;
 }
 .ovl-close:hover {
-  color: var(--fg);
+  color: var(--ink);
   border-color: var(--line-strong);
 }
 .ovl-close:focus-visible {

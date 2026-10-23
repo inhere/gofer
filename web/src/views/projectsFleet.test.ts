@@ -89,7 +89,7 @@ describe('projects page views', () => {
   it('stacks the runner groups and lifts the worker-owned block on phones', () => {
     expect(source).toContain('grid-template-columns: repeat(auto-fill, minmax(320px, 1fr))')
     expect(source).toMatch(/@media \(max-width: 760px\) \{\n {2}\.groups \{\n {4}grid-template-columns: 1fr;/)
-    expect(source).toMatch(/@media \(max-width: 640px\) \{\n {2}\.worker-own \{\n {4}order: -1;/)
+    expect(source).toMatch(/@media \(max-width: 760px\) \{\n {2}\.worker-own \{\n {4}order: -1;/)
     expect(source).toContain('.group-kv {\n    grid-template-columns: 1fr;')
   })
 })

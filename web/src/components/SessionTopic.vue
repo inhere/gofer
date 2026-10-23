@@ -131,42 +131,42 @@ async function save(): Promise<void> {
 <style scoped>
 .stopic { display: flex; flex-direction: column; gap: 6px; font-size: 12px; min-width: 0; }
 .stopic-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.stopic-label { color: var(--queue); letter-spacing: 0.06em; flex: 0 0 auto; }
-.stopic-text { color: var(--paper); overflow-wrap: anywhere; min-width: 0; }
-.stopic-text--inferred { color: var(--queue); font-style: italic; }
-.stopic-text--empty { color: var(--queue); opacity: 0.7; }
+.stopic-label { color: var(--ink-3); letter-spacing: 0.06em; flex: 0 0 auto; }
+.stopic-text { color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
+.stopic-text--inferred { color: var(--ink-3); font-style: italic; }
+.stopic-text--empty { color: var(--ink-3); opacity: 0.7; }
 .stopic-tag {
   padding: 0 6px; border: 1px solid var(--line); border-radius: 999px;
-  color: var(--phosphor); font-size: 11px; line-height: 16px;
+  color: var(--accent); font-size: 11px; line-height: 16px;
 }
-.stopic-tag--inferred { color: var(--queue); border-style: dashed; }
+.stopic-tag--inferred { color: var(--ink-3); border-style: dashed; }
 .stopic-scope { display: inline-flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .stopic-chip {
-  padding: 0 6px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--term-bg); color: var(--paper); font-size: 11px; overflow-wrap: anywhere;
+  padding: 0 6px; border: 1px solid var(--line); border-radius: var(--r-chip);
+  background: var(--sunken); color: var(--ink); font-size: 11px; overflow-wrap: anywhere;
 }
 .stopic-edit, .stopic-btn {
-  margin-left: auto; padding: 1px 8px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: transparent; color: var(--paper); font-size: 11px; cursor: pointer;
+  margin-left: auto; padding: 1px 8px; border: 1px solid var(--line); border-radius: var(--r-chip);
+  background: transparent; color: var(--ink); font-size: 11px; cursor: pointer;
 }
-.stopic-edit:hover:not(:disabled), .stopic-btn:hover:not(:disabled) { border-color: var(--phosphor); color: var(--phosphor); }
+.stopic-edit:hover:not(:disabled), .stopic-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .stopic-edit:disabled, .stopic-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.stopic-why { margin: 0; color: var(--queue); font-size: 11px; }
+.stopic-why { margin: 0; color: var(--ink-3); font-size: 11px; }
 .stopic-form { display: flex; flex-direction: column; gap: 8px; }
-.stopic-field { display: flex; flex-direction: column; gap: 4px; color: var(--queue); }
+.stopic-field { display: flex; flex-direction: column; gap: 4px; color: var(--ink-3); }
 .stopic-field input, .stopic-field textarea {
   width: 100%; box-sizing: border-box; padding: 5px 8px; border: 1px solid var(--line);
-  border-radius: var(--radius); background: var(--term-bg); color: var(--paper);
+  border-radius: var(--r-chip); background: var(--sunken); color: var(--ink);
   font: inherit; font-size: 12px;
 }
-.stopic-field input:focus, .stopic-field textarea:focus { outline: none; border-color: var(--phosphor); }
+.stopic-field input:focus, .stopic-field textarea:focus { outline: none; border-color: var(--accent); }
 .stopic-error { margin: 0; color: var(--fail); overflow-wrap: anywhere; }
 .stopic-actions { display: flex; gap: 8px; }
 .stopic-actions .stopic-btn { margin-left: 0; }
 .stopic-actions .stopic-btn--danger { margin-left: auto; }
 .stopic-btn--danger:hover:not(:disabled) { border-color: var(--fail); color: var(--fail); }
-.stopic-btn--primary { border-color: var(--phosphor); color: var(--phosphor); }
-@media (max-width: 640px) {
+.stopic-btn--primary { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 760px) {
   .stopic-edit { padding: 4px 12px; font-size: 12px; }
   .stopic-field input, .stopic-field textarea { font-size: 16px; }
 }

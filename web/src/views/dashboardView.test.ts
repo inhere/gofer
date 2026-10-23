@@ -87,6 +87,13 @@ describe('Dashboard statistics wall structure', () => {
     expect(system).not.toContain('jobStatuses')
   })
 
+  it('colors job status through the status family, not a local color table', () => {
+    // 色值的唯一来源：utils/statusFamily.ts 的族 + styles/status.css 的 .k-<族>（--c）。
+    expect(jobStatus).toContain('statusFamilyClass(statusFamily(s))')
+    expect(jobStatus).toContain('color: var(--c)')
+    expect(jobStatus).not.toContain('statusColor')
+  })
+
   it('draws charts with inline SVG, no chart library', () => {
     expect(source).toContain('<svg')
     expect(source).not.toMatch(/from ['"](chart\.js|echarts|d3|apexcharts|recharts)/)

@@ -76,7 +76,7 @@ const emit = defineEmits<{
   gap: 10px;
   align-items: start;
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .icard-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -89,19 +89,19 @@ const emit = defineEmits<{
   gap: 6px;
   min-width: 0;
   padding: 10px 12px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-left-width: 3px;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
-.icard--live { border-left-color: var(--phosphor); }
+.icard--live { border-left-color: var(--accent); }
 .icard--hot { border-left-color: var(--run); }
 .icard--fail { border-left-color: var(--fail); }
 .icard--warn { border-left-color: var(--run); }
 .icard--ok { border-left-color: var(--done); }
 .icard--idle,
-.icard--off { border-left-color: var(--queue); }
-.icard--active { border-color: var(--phosphor); }
+.icard--off { border-left-color: var(--ink-3); }
+.icard--active { border-color: var(--accent); }
 /* 暗淡：已结束 / 离线。操作区保持清晰可点。 */
 .icard--dim > .icard-head,
 .icard--dim > .icard-meta,
@@ -123,7 +123,7 @@ const emit = defineEmits<{
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
-  color: var(--paper);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .icard-title--open {
@@ -131,7 +131,7 @@ const emit = defineEmits<{
 }
 .icard-title--open:hover,
 .icard-title--open:focus-visible {
-  color: var(--phosphor);
+  color: var(--accent);
   outline: none;
 }
 .icard-badges {
@@ -149,7 +149,7 @@ const emit = defineEmits<{
   gap: 4px 10px;
   min-width: 0;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .icard-meta > * {
   min-width: 0;
@@ -157,11 +157,11 @@ const emit = defineEmits<{
 .icard-line {
   margin: 0;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .icard-line--muted {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .icard-line--clamp {
   display: -webkit-box;
@@ -202,16 +202,16 @@ const emit = defineEmits<{
   min-height: 28px;
   padding: 3px 10px;
   font-size: 11px;
-  color: var(--paper);
+  color: var(--ink);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   text-decoration: none;
   cursor: pointer;
 }
 .icard-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
   text-decoration: none;
 }
 .icard-btn:disabled {
@@ -219,9 +219,9 @@ const emit = defineEmits<{
   cursor: default;
 }
 .icard-btn--primary {
-  color: var(--phosphor);
+  color: var(--accent);
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .icard-btn {
     min-height: 34px;
     padding: 4px 12px;
@@ -246,13 +246,13 @@ const emit = defineEmits<{
   font-size: 11px;
 }
 .icard-kv dt {
-  color: var(--queue);
+  color: var(--ink-3);
   white-space: nowrap;
 }
 .icard-kv dd {
   margin: 0;
   min-width: 0;
-  color: var(--paper);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .icard-block {
@@ -260,10 +260,10 @@ const emit = defineEmits<{
   padding: 6px 8px;
   font-size: 11px;
   line-height: 1.5;
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--ink);
+  background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 180px;
@@ -278,17 +278,17 @@ const emit = defineEmits<{
   padding: 1px 7px;
   font-size: 10px;
   line-height: 1.5;
-  color: var(--queue);
+  color: var(--ink-3);
   white-space: nowrap;
 }
-.sbadge--live { color: var(--phosphor); border-color: var(--phosphor); }
-.sbadge--granted { color: var(--phosphor); border-color: var(--phosphor); border-style: dashed; }
+.sbadge--live { color: var(--accent); border-color: var(--accent); }
+.sbadge--granted { color: var(--accent); border-color: var(--accent); border-style: dashed; }
 .sbadge--hot,
 .sbadge--warn { color: var(--run); border-color: var(--run); }
 .sbadge--fail { color: var(--fail); border-color: var(--fail); }
 .sbadge--ok { color: var(--done); border-color: var(--done); }
 .sbadge--idle,
-.sbadge--off { color: var(--queue); border-color: var(--queue); }
+.sbadge--off { color: var(--ink-3); border-color: var(--ink-3); }
 
 .icard-chip {
   display: inline-block;
@@ -296,7 +296,7 @@ const emit = defineEmits<{
   padding: 0 6px;
   font-size: 10px;
   line-height: 1.6;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
   border-radius: 3px;
   overflow: hidden;
@@ -304,6 +304,6 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 a.icard-chip {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 </style>

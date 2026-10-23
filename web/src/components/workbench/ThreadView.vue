@@ -596,7 +596,7 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  color: var(--fg);
+  color: var(--ink);
   background: var(--bg);
   outline: none;
 }
@@ -621,12 +621,12 @@ onUnmounted(() => {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font: inherit;
   cursor: pointer;
 }
 .icon-btn:hover {
-  color: var(--fg);
+  color: var(--ink);
   border-color: var(--line-strong);
 }
 .icon-btn:disabled {
@@ -655,7 +655,7 @@ onUnmounted(() => {
   padding: 0;
   background: none;
   border: 0;
-  color: var(--fg);
+  color: var(--ink);
   font: inherit;
   font-size: var(--fs-md);
   font-weight: 600;
@@ -670,7 +670,7 @@ onUnmounted(() => {
   min-width: 0;
   flex: 1;
   padding: 2px var(--s1);
-  color: var(--fg);
+  color: var(--ink);
   background: var(--surface-2);
   border: 1px solid var(--accent);
   border-radius: var(--r-ctl);
@@ -683,18 +683,18 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: var(--s1) var(--s2);
   min-width: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .tag {
   padding: 0 5px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  color: var(--fg-2);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 .muted {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .meta-row {
   flex: none;
@@ -702,7 +702,7 @@ onUnmounted(() => {
   align-items: center;
   gap: var(--s1);
   padding: 4px var(--s3);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   overflow: hidden;
   border-bottom: 1px solid var(--line);
@@ -725,18 +725,18 @@ onUnmounted(() => {
   background: none;
   border: 0;
   border-radius: var(--r-chip);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font: inherit;
   font-size: var(--fs-sm);
   cursor: pointer;
   white-space: nowrap;
 }
 .seg button:hover {
-  color: var(--fg);
+  color: var(--ink);
 }
 .seg button.on {
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   box-shadow: var(--shadow-1);
 }
 .seg button:disabled {
@@ -813,7 +813,7 @@ onUnmounted(() => {
 }
 .turn-hint {
   margin: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .composer-box {
@@ -832,7 +832,7 @@ onUnmounted(() => {
   min-height: 48px;
   max-height: 40vh;
   padding: 0;
-  color: var(--fg);
+  color: var(--ink);
   background: transparent;
   border: 0;
   font: inherit;
@@ -857,14 +857,14 @@ onUnmounted(() => {
   font-size: var(--fs-xs);
 }
 .empty {
-  color: var(--fg-3);
+  color: var(--ink-3);
   padding: var(--s5);
 }
 .missing-thread {
   display: grid;
   place-items: center;
   padding: var(--s5);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .link-btn {
   padding: 0;
@@ -922,7 +922,7 @@ onUnmounted(() => {
     background: none;
     border: 0;
     border-radius: var(--r-chip);
-    color: var(--fg);
+    color: var(--ink);
     font: inherit;
     text-align: left;
   }
@@ -931,7 +931,7 @@ onUnmounted(() => {
   }
   .mobile-meta {
     padding: var(--s1) var(--s2);
-    color: var(--fg-3);
+    color: var(--ink-3);
     font-size: var(--fs-xs);
     white-space: normal;
     overflow-wrap: anywhere;

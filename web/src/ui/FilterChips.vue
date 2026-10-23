@@ -59,7 +59,7 @@ function pick(value: string): void {
   min-height: 28px;
   padding: 2px var(--s2);
   background: transparent;
-  color: var(--fg-3);
+  color: var(--ink-3);
   border: 1px solid var(--line);
   border-radius: 999px;
   font: inherit;
@@ -67,7 +67,7 @@ function pick(value: string): void {
   cursor: pointer;
 }
 .chip:hover {
-  color: var(--fg);
+  color: var(--ink);
   border-color: var(--line-strong);
 }
 .chip:focus-visible {
@@ -87,13 +87,13 @@ function pick(value: string): void {
   padding: 0 4px;
   border-radius: 999px;
   background: var(--surface-2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
 .chip--on .chip-count {
-  color: var(--fg);
+  color: var(--ink);
 }
 /* 手机：一行装不下时在框内横向滑动（不换行，不撑宽页面），点按目标 ≥40px。 */
 @media (max-width: 760px) {

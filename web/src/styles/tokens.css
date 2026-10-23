@@ -57,9 +57,9 @@
   --sunken: #0B110F;
   --line: #25302B;
   --line-strong: #35433D;
-  --fg: #E3EBE7;
-  --fg-2: #A7B4AE;
-  --fg-3: #7C8A84;
+  --ink: #E3EBE7;
+  --ink-2: #A7B4AE;
+  --ink-3: #7C8A84;
   --accent: #5BC39F;
   --accent-hover: #73D3B1;
   --accent-ink: #08170F;
@@ -90,30 +90,6 @@
   --scrim: rgba(0, 0, 0, .55);
 
   color-scheme: dark;
-
-  /* ---------------------------------------------------------------- 迁移期别名
-   * 旧页面用的是迁移前的变量名。这里按「角色」把它们指到新 token，旧页面因此自动
-   * 拿到新色板，而排版、间距、圆角、布局都不变（=外观基本不变）。
-   * P6 删除整块时，把组件里的旧名一起换成新名。
-   *
-   * 角色对应：旧 --ink(页面底) → --bg；旧 --panel → --surface；旧 --paper(正文) → --fg；
-   * 旧 --phosphor(强调/链接) → --accent；旧 --queue(灰字/待排队) → --fg-3。
-   *
-   * 两个名字有角色冲突，因此新 token 改了名（P6 再统一）：
-   * - 旧 --ink 是「页面底色」，新 token 的正文色按设计稿叫 --ink；旧页面有 118 处
-   *   var(--ink) 当底色用，让位给迁移期，新正文色取名 --fg。
-   * - 旧 --term-bg 是主题相关的终端底（浅色主题下是浅底），新设计里日志查看器两种主题
-   *   都是深底；新 token 取名 --log-bg / --log-ink / --log-dim，--term-bg 保留旧语义。
-   */
-  --ink: var(--bg);
-  --panel: var(--surface);
-  --paper: var(--fg);
-  --phosphor: var(--accent);
-  --queue: var(--fg-3);
-  --font-sans: var(--font-ui);
-  --radius: 4px;
-  --term-bg: #08121A;
-  --term-ink: var(--log-ink);
 }
 
 /* 浅色模式：浅色和深色是同等完成度的一套色板，正文/次要文本都 ≥4.5:1。 */
@@ -124,9 +100,9 @@
   --sunken: #E9EDEB;
   --line: #DCE2DF;
   --line-strong: #C3CCC7;
-  --fg: #16201C;
-  --fg-2: #47544E;
-  --fg-3: #6F7C76;
+  --ink: #16201C;
+  --ink-2: #47544E;
+  --ink-3: #6F7C76;
   --accent: #1E6B57;
   --accent-hover: #175746;
   --accent-ink: #FFFFFF;
@@ -155,9 +131,6 @@
   --shadow-1: 0 1px 0 rgba(22, 32, 28, .04), 0 1px 2px rgba(22, 32, 28, .06);
   --shadow-pop: 0 18px 50px -12px rgba(16, 30, 24, .35), 0 2px 6px rgba(16, 30, 24, .08);
   --scrim: rgba(18, 26, 23, .42);
-
-  /* 迁移期别名里唯一需要分主题的是终端底：旧日志/终端组件在浅色主题下是浅底。 */
-  --term-bg: #ECEFEE;
 
   color-scheme: light;
 }

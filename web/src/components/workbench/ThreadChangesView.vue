@@ -305,27 +305,27 @@ defineExpose({ refresh, focusFile })
 
 <style scoped>
 .changes-view { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(190px, 26%) minmax(0, 1fr); background: var(--bg); }
-.changes-files { min-height: 0; overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); }
-.changes-files-head { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; padding: 8px 9px; border-bottom: 1px solid var(--line); background: var(--panel); color: var(--queue); }
-.changes-files-head button, .review-actions button { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--ink); color: var(--paper); }
-.file-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 6px; align-items: center; width: 100%; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--paper); text-align: left; }
-.file-row:hover, .file-row--active { background: var(--ink); color: var(--phosphor); }
-.file-status { color: var(--queue); }
+.changes-files { min-height: 0; overflow-y: auto; border-right: 1px solid var(--line); background: var(--surface); }
+.changes-files-head { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; padding: 8px 9px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--ink-3); }
+.changes-files-head button, .review-actions button { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--bg); color: var(--ink); }
+.file-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 6px; align-items: center; width: 100%; padding: 6px 8px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; }
+.file-row:hover, .file-row--active { background: var(--bg); color: var(--accent); }
+.file-status { color: var(--ink-3); }
 .file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-count { display: inline-flex; gap: 5px; font-size: 10px; }
 .file-count b { color: var(--done); font-weight: 400; }
 .file-count i { color: var(--fail); font-style: normal; }
-.captured-note, .changes-notice, .changes-error, .empty { margin: 0; padding: 7px 9px; color: var(--queue); font-size: 11px; }
+.captured-note, .changes-notice, .changes-error, .empty { margin: 0; padding: 7px 9px; color: var(--ink-3); font-size: 11px; }
 .changes-notice { color: var(--run); background: rgba(255, 190, 80, .07); }
 .changes-error { color: var(--fail); background: rgba(200, 70, 70, .07); }
 .changes-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.review-toolbar { flex: none; display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
-.review-summary { resize: vertical; min-height: 38px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--ink); color: var(--paper); }
-.review-actions { display: flex; align-items: center; gap: 7px; color: var(--queue); }
-.review-actions .review-send { border-color: var(--phosphor); background: var(--phosphor); color: var(--ink); font-weight: 700; }
+.review-toolbar { flex: none; display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.review-summary { resize: vertical; min-height: 38px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--bg); color: var(--ink); }
+.review-actions { display: flex; align-items: center; gap: 7px; color: var(--ink-3); }
+.review-actions .review-send { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 700; }
 .review-actions button:disabled, .changes-files-head button:disabled { opacity: .4; }
 .diff-scroll { flex: 1; min-height: 0; overflow: auto; padding: 10px; }
-@media (max-width: 767px) {
+@media (max-width: 760px) {
   .changes-view { grid-template-columns: 1fr; grid-template-rows: minmax(110px, 28%) minmax(0, 1fr); }
   .changes-files { border-right: 0; border-bottom: 1px solid var(--line); }
   .review-toolbar { grid-template-columns: 1fr; }

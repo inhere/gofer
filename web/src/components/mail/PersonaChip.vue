@@ -98,8 +98,8 @@ function onKey(e: KeyboardEvent): void {
   background: none;
   border: 0;
   padding: 0;
-  color: var(--fg);
-  font-family: var(--font-sans);
+  color: var(--ink);
+  font-family: var(--font-ui);
   font-size: 12px;
   text-align: left;
 }
@@ -172,9 +172,9 @@ function onKey(e: KeyboardEvent): void {
   color: var(--fail);
 }
 .tone--queue {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .dim {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 </style>

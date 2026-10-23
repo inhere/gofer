@@ -211,11 +211,11 @@ onUnmounted(() => {
   gap: var(--s2);
   margin: 0;
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 2px 0 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .head-actions {
@@ -237,7 +237,7 @@ onUnmounted(() => {
   min-height: 32px;
   padding: 0 var(--s3);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -267,14 +267,14 @@ onUnmounted(() => {
   background: none;
   border: 0;
   padding: 0 2px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font: inherit;
   font-size: var(--fs-sm);
   text-decoration: underline;
   cursor: pointer;
 }
 .link-btn:hover {
-  color: var(--fg);
+  color: var(--ink);
 }
 .error {
   color: var(--fail);
@@ -311,7 +311,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--line);
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
-  color: var(--fg-3);
+  color: var(--ink-3);
   text-transform: uppercase;
 }
 .trow {
@@ -336,7 +336,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 .wf-title {
-  color: var(--fg);
+  color: var(--ink);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -353,11 +353,11 @@ onUnmounted(() => {
   font-size: var(--fs-sm);
 }
 .col-started {
-  color: var(--fg-3);
+  color: var(--ink-3);
   white-space: nowrap;
 }
 .col-dur {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .col-step {
   display: flex;
@@ -366,19 +366,19 @@ onUnmounted(() => {
   min-width: 0;
 }
 .dim {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .empty {
   padding: var(--s6) var(--s3);
   text-align: center;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .empty p {
   margin: 0 0 var(--s2);
 }
 .empty-hint {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .empty .btn {
   margin-top: var(--s1);

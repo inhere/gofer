@@ -120,10 +120,10 @@ defineExpose({ load })
 .resident-title {
   font-size: var(--fs-sm);
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
 }
 .dim {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .err {
@@ -163,7 +163,7 @@ defineExpose({ load })
   font-size: var(--fs-xs);
 }
 .row-top .name {
-  color: var(--fg);
+  color: var(--ink);
   font-weight: 600;
 }
 .row-top .tiny {
@@ -191,7 +191,7 @@ defineExpose({ load })
   border: 1px solid var(--line-strong);
   border-radius: var(--r-chip);
   padding: 1px 6px;
-  color: var(--fg);
+  color: var(--ink);
   cursor: pointer;
 }
 .tiny:disabled {

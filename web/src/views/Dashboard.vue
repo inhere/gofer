@@ -557,7 +557,7 @@ onUnmounted(() => poller.stop())
 .skip,
 .axis,
 .note {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .small {
   font-size: var(--fs-xs);
@@ -572,11 +572,11 @@ onUnmounted(() => poller.stop())
   margin: 0;
   font-size: var(--fs-lg);
   font-weight: 600;
-  color: var(--fg);
+  color: var(--ink);
 }
 .sum {
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .right {
   margin-left: auto;
@@ -595,7 +595,7 @@ onUnmounted(() => poller.stop())
   min-height: 30px;
   padding: 0 var(--s2);
   background: transparent;
-  color: var(--fg-3);
+  color: var(--ink-3);
   border: 0;
   border-right: 1px solid var(--line);
   font: inherit;
@@ -606,7 +606,7 @@ onUnmounted(() => poller.stop())
   border-right: 0;
 }
 .seg button:hover:not(:disabled) {
-  color: var(--fg);
+  color: var(--ink);
 }
 .seg button[disabled] {
   opacity: 0.4;
@@ -624,7 +624,7 @@ onUnmounted(() => poller.stop())
   min-height: 30px;
   padding: 0 var(--s2);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -648,7 +648,7 @@ onUnmounted(() => poller.stop())
   overflow-wrap: anywhere;
 }
 .empty {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .panel {
@@ -662,7 +662,7 @@ onUnmounted(() => poller.stop())
   margin: 0 0 var(--s2);
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--fg);
+  color: var(--ink);
   display: flex;
   align-items: baseline;
   gap: var(--s2);
@@ -696,7 +696,7 @@ onUnmounted(() => poller.stop())
   align-items: center;
   gap: var(--s2);
   margin: var(--s2) 0 calc(-1 * var(--s2));
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -710,16 +710,16 @@ onUnmounted(() => poller.stop())
 .big {
   font-size: var(--fs-2xl);
   font-weight: 600;
-  color: var(--fg);
+  color: var(--ink);
   line-height: 1.2;
 }
 .line {
   margin-top: 2px;
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
 }
 .line b {
-  color: var(--fg);
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 .rate {
@@ -730,10 +730,10 @@ onUnmounted(() => poller.stop())
   justify-content: space-between;
   gap: var(--s2);
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .rate .row b {
-  color: var(--fg);
+  color: var(--ink);
 }
 .track {
   display: flex;
@@ -757,10 +757,10 @@ onUnmounted(() => poller.stop())
 .cells > div {
   display: flex;
   gap: 4px;
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .cells > div b {
-  color: var(--fg);
+  color: var(--ink);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
@@ -786,7 +786,7 @@ onUnmounted(() => poller.stop())
   margin-bottom: var(--s2);
 }
 .ctl .lab {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .ctl .max {
@@ -813,7 +813,7 @@ onUnmounted(() => poller.stop())
   justify-content: space-between;
   gap: var(--s2);
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
   padding-bottom: 2px;
   border-bottom: 1px dashed var(--line);
 }
@@ -821,7 +821,7 @@ onUnmounted(() => poller.stop())
   border-bottom: 0;
 }
 .kv b {
-  color: var(--fg);
+  color: var(--ink);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
@@ -841,7 +841,7 @@ onUnmounted(() => poller.stop())
   grid-template-rows: repeat(7, 1fr);
   gap: 2px;
   font-size: 9px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   float: left;
   margin-right: 4px;
 }
@@ -879,7 +879,7 @@ onUnmounted(() => poller.stop())
   display: flex;
   gap: 2px;
   font-size: 9px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   margin-top: 4px;
   padding-left: 16px;
   overflow: hidden;
@@ -896,7 +896,7 @@ onUnmounted(() => poller.stop())
   gap: 3px;
   margin-top: var(--s1);
   font-size: 9px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   justify-content: flex-end;
 }
 .heat .lg i {
@@ -934,17 +934,17 @@ onUnmounted(() => poller.stop())
   min-width: 0;
 }
 .bar .nm {
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .bar .n {
-  color: var(--fg-3);
+  color: var(--ink-3);
   white-space: nowrap;
 }
 .bar .n b {
-  color: var(--fg);
+  color: var(--ink);
 }
 .tk {
   height: 6px;
@@ -970,11 +970,11 @@ onUnmounted(() => poller.stop())
   align-items: baseline;
   gap: var(--s1);
   font-size: var(--fs-xs);
-  color: var(--fg-2);
+  color: var(--ink-2);
   min-width: 0;
 }
 .top3 .i {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-family: var(--font-mono);
   min-width: 16px;
 }
@@ -985,7 +985,7 @@ onUnmounted(() => poller.stop())
   flex: 1;
 }
 .top3 .v {
-  color: var(--fg);
+  color: var(--ink);
 }
 .more {
   margin-top: var(--s3);
@@ -994,19 +994,19 @@ onUnmounted(() => poller.stop())
 }
 .more summary {
   cursor: pointer;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .more .bars {
   margin-top: var(--s2);
 }
 .tiles .tile .lbl {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .tile .sub {
   margin-top: 2px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .wl ol {
@@ -1025,7 +1025,7 @@ onUnmounted(() => poller.stop())
   min-width: 0;
 }
 .wl .i {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-family: var(--font-mono);
 }
 .wl .t {
@@ -1036,11 +1036,11 @@ onUnmounted(() => poller.stop())
   flex: 1 1 60%;
 }
 .wl .d {
-  color: var(--fg);
+  color: var(--ink);
 }
 .wl .m,
 .wl .s {
-  color: var(--fg-3);
+  color: var(--ink-3);
   flex: 0 0 100%;
 }
 .cost {
@@ -1052,7 +1052,7 @@ onUnmounted(() => poller.stop())
   margin-top: var(--s2);
 }
 .per {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   font-family: var(--font-mono);
 }
@@ -1068,7 +1068,7 @@ onUnmounted(() => poller.stop())
   min-width: 0;
 }
 .model .nm {
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1078,18 +1078,18 @@ onUnmounted(() => poller.stop())
   padding: 0 5px;
   border-radius: var(--r-chip);
   background: var(--sunken);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 9px;
 }
 .model .c {
-  color: var(--fg);
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 .tk3 {
   grid-column: 1 / -1;
   display: flex;
   gap: var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-family: var(--font-mono);
 }
 .note {
@@ -1104,7 +1104,7 @@ onUnmounted(() => poller.stop())
   align-items: baseline;
   flex-wrap: wrap;
   font-size: var(--fs-sm);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sys summary .mut {
   font-size: var(--fs-xs);
@@ -1115,7 +1115,7 @@ onUnmounted(() => poller.stop())
   max-width: 320px;
   padding: 4px var(--s2);
   background: var(--surface-2);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   box-shadow: var(--shadow-pop);
@@ -1135,7 +1135,7 @@ onUnmounted(() => poller.stop())
   border-radius: var(--r-ctl);
   box-shadow: var(--shadow-pop);
   font-size: var(--fs-sm);
-  color: var(--fg);
+  color: var(--ink);
   z-index: 95;
 }
 @media (max-width: 1024px) {

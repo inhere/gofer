@@ -101,21 +101,21 @@ function onKeydown(event: KeyboardEvent, index: number): void {
   background: none;
   border: 0;
   border-bottom: 2px solid transparent;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font: inherit;
   font-size: var(--fs-sm);
   white-space: nowrap;
   cursor: pointer;
 }
 .tab:hover {
-  color: var(--fg);
+  color: var(--ink);
 }
 .tab:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
 .tab--on {
-  color: var(--fg);
+  color: var(--ink);
   border-bottom-color: var(--accent);
 }
 .tab-count {
@@ -123,7 +123,7 @@ function onKeydown(event: KeyboardEvent, index: number): void {
   padding: 0 4px;
   border-radius: 999px;
   background: var(--surface-2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   text-align: center;

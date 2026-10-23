@@ -402,7 +402,7 @@ onUnmounted(abortAll)
   align-items: center;
   gap: var(--s1) var(--s3);
   padding: var(--s1) 0 var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   border-bottom: 1px solid var(--line);
 }
@@ -439,12 +439,12 @@ onUnmounted(abortAll)
   display: flex;
   align-items: center;
   gap: var(--s2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
   font-weight: 500;
 }
 .muted {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   font-weight: 400;
 }
@@ -454,7 +454,7 @@ onUnmounted(abortAll)
   border-radius: var(--r-panel);
   padding: var(--s2) var(--s3);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .bubble--user {
@@ -482,13 +482,13 @@ onUnmounted(abortAll)
   background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font: inherit;
   font-size: var(--fs-sm);
   cursor: pointer;
 }
 .tools-sum:hover {
-  color: var(--fg);
+  color: var(--ink);
   border-color: var(--line-strong);
 }
 .tools-sum:focus-visible {
@@ -511,7 +511,7 @@ onUnmounted(abortAll)
   gap: var(--s2);
   align-items: center;
   padding: 5px var(--s2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
 }
 .tool + .tool {
@@ -526,7 +526,7 @@ onUnmounted(abortAll)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
@@ -546,24 +546,24 @@ onUnmounted(abortAll)
   display: flex;
   align-items: center;
   gap: var(--s1);
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
   font-weight: 500;
 }
 .ia-title {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-weight: 400;
 }
 .ia-reason {
   margin-top: var(--s1);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
 }
 .round-note,
 .round-error {
   margin: 0;
   padding: var(--s2) 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .round-error {

@@ -186,8 +186,8 @@ onUnmounted(() => stopPointerTracking?.())
 
 <style scoped>
 .layout-pane, .layout-split, .split-branch { min-width: 0; min-height: 0; width: 100%; height: 100%; }
-.layout-pane { position: relative; overflow: hidden; border: 1px solid transparent; background: var(--ink); }
-.layout-pane.focused { border-color: var(--phosphor); }
+.layout-pane { position: relative; overflow: hidden; border: 1px solid transparent; background: var(--bg); }
+.layout-pane.focused { border-color: var(--accent); }
 .layout-split { display: flex; }
 .split--h { flex-direction: row; }
 .split--v { flex-direction: column; }
@@ -195,15 +195,15 @@ onUnmounted(() => stopPointerTracking?.())
 .split-branch.branch--hidden { display: none; }
 .split-branch.branch--hidden ~ .split-branch { flex-grow: 1 !important; }
 .splitter { flex: none; position: relative; z-index: 3; padding: 0; border: 0; background: var(--line); }
-.splitter:hover, .splitter:focus-visible { background: var(--phosphor); outline: none; }
+.splitter:hover, .splitter:focus-visible { background: var(--accent); outline: none; }
 .split--h > .splitter { width: 5px; cursor: col-resize; }
 .split--v > .splitter { height: 5px; cursor: row-resize; }
-.empty-pane { width: 100%; height: 100%; border: 0; color: var(--queue); background: rgba(255,255,255,.015); }
-.empty-pane:hover { color: var(--paper); background: rgba(255,255,255,.035); }
+.empty-pane { width: 100%; height: 100%; border: 0; color: var(--ink-3); background: rgba(255,255,255,.015); }
+.empty-pane:hover { color: var(--ink); background: rgba(255,255,255,.035); }
 .empty-pane small { font-size: 10px; }
-.layout-pane.drop--center { box-shadow: inset 0 0 0 3px var(--phosphor); }
-.layout-pane.drop--left { box-shadow: inset 18px 0 0 color-mix(in srgb, var(--phosphor) 35%, transparent); }
-.layout-pane.drop--right { box-shadow: inset -18px 0 0 color-mix(in srgb, var(--phosphor) 35%, transparent); }
-.layout-pane.drop--top { box-shadow: inset 0 18px 0 color-mix(in srgb, var(--phosphor) 35%, transparent); }
-.layout-pane.drop--bottom { box-shadow: inset 0 -18px 0 color-mix(in srgb, var(--phosphor) 35%, transparent); }
+.layout-pane.drop--center { box-shadow: inset 0 0 0 3px var(--accent); }
+.layout-pane.drop--left { box-shadow: inset 18px 0 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+.layout-pane.drop--right { box-shadow: inset -18px 0 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+.layout-pane.drop--top { box-shadow: inset 0 18px 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+.layout-pane.drop--bottom { box-shadow: inset 0 -18px 0 color-mix(in srgb, var(--accent) 35%, transparent); }
 </style>

@@ -83,7 +83,7 @@ watch(handledTodayCount, () => {
 }
 .recent h2 .muted {
   margin-left: auto;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   font-weight: 400;
 }
@@ -97,7 +97,7 @@ watch(handledTodayCount, () => {
   align-items: center;
   gap: var(--s2);
   padding: var(--s1) 0;
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
   border-bottom: 1px dashed var(--line);
 }
@@ -109,7 +109,7 @@ watch(handledTodayCount, () => {
   white-space: nowrap;
 }
 .when {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   white-space: nowrap;
 }
@@ -117,7 +117,7 @@ watch(handledTodayCount, () => {
 .msg {
   margin: 0;
   padding: var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-panel);

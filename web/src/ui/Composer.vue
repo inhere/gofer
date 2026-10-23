@@ -326,7 +326,7 @@ onBeforeUnmount(() => {
   max-height: 40vh;
   padding: 2px;
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
   border: 0;
   outline: none;
   font: inherit;
@@ -336,7 +336,7 @@ onBeforeUnmount(() => {
   overflow-y: auto;
 }
 .composer-input::placeholder {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .composer-input:disabled {
   opacity: 0.55;
@@ -356,13 +356,13 @@ onBeforeUnmount(() => {
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font: inherit;
   cursor: pointer;
 }
 .composer-icon:hover:not(:disabled) {
   border-color: var(--line-strong);
-  color: var(--fg);
+  color: var(--ink);
 }
 .composer-icon:disabled {
   opacity: 0.4;
@@ -387,7 +387,7 @@ onBeforeUnmount(() => {
   background: transparent;
   border: 0;
   border-right: 1px solid var(--line);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font: inherit;
   font-size: var(--fs-xs);
   cursor: pointer;
@@ -403,7 +403,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
   cursor: pointer;
   user-select: none;
@@ -419,7 +419,7 @@ onBeforeUnmount(() => {
   padding: 2px var(--s2);
   border: 1px solid var(--line);
   border-radius: 999px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
@@ -458,7 +458,7 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .composer-hint {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   line-height: 1.4;
 }
@@ -470,7 +470,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--line);
   border-radius: 50%;
   background: transparent;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 11px;
   line-height: 16px;
   cursor: pointer;

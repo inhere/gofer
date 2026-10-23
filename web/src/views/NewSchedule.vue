@@ -865,26 +865,26 @@ onMounted(() => {
 }
 .back {
   font-size: 13px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .back:hover {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .title {
   font-size: 16px;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
 }
 
 .hint {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 13px;
 }
 
 .card {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -913,22 +913,22 @@ onMounted(() => {
 .label {
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: var(--queue);
+  color: var(--ink-3);
   margin-bottom: 6px;
 }
 
 .control {
   width: 100%;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--bg);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 9px 10px;
   font-size: 13px;
   outline: none;
 }
 .control:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .area {
   resize: vertical;
@@ -946,20 +946,20 @@ select.control {
 }
 .preset {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: 11px;
   cursor: pointer;
 }
 .preset:hover {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .field-hint {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   margin: 6px 0 0;
 }
@@ -989,9 +989,9 @@ select.control {
 .param-del,
 .param-add {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 8px;
   font-size: 11px;
   cursor: pointer;
@@ -1001,22 +1001,22 @@ select.control {
 }
 .param-del:hover,
 .param-add:hover {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .field-hint--warn {
   color: var(--run);
 }
 
 .advanced {
-  background: var(--ink);
+  background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px 12px;
 }
 .advanced > summary {
   cursor: pointer;
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 12px;
   letter-spacing: 0.04em;
   list-style: revert;
@@ -1031,23 +1031,23 @@ select.control {
 .seg {
   display: inline-flex;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: hidden;
   width: fit-content;
 }
 .seg-btn {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: none;
   padding: 6px 14px;
   font-size: 12px;
 }
 .seg-btn:hover {
-  color: var(--paper);
+  color: var(--ink);
 }
 .seg-btn--on {
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--bg);
 }
 
 .check {
@@ -1055,18 +1055,18 @@ select.control {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
   cursor: pointer;
 }
 .check input {
-  accent-color: var(--phosphor);
+  accent-color: var(--accent);
 }
 
 .error {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0;
   word-break: break-word;
@@ -1074,10 +1074,10 @@ select.control {
 
 .submit {
   margin-top: 4px;
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--bg);
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px 16px;
   font-size: 14px;
   font-weight: 600;

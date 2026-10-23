@@ -286,11 +286,11 @@ function listValue(v?: string[]): string {
 .title {
   margin: 0;
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 2px 0 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .poll-dot {
@@ -302,7 +302,7 @@ function listValue(v?: string[]): string {
   color: var(--accent);
 }
 .scope-note {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   margin: 0 0 var(--s3);
   max-width: 76ch;
@@ -340,7 +340,7 @@ function listValue(v?: string[]): string {
   border-bottom: 1px solid var(--line);
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
-  color: var(--fg-3);
+  color: var(--ink-3);
   text-transform: uppercase;
 }
 .trow {
@@ -364,7 +364,7 @@ function listValue(v?: string[]): string {
   color: var(--done);
 }
 .detect-text--off {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .col-key {
@@ -392,7 +392,7 @@ function listValue(v?: string[]): string {
   text-decoration: underline;
 }
 .chev {
-  color: var(--fg-3);
+  color: var(--ink-3);
   flex: none;
   font-size: 11px;
   line-height: 1;
@@ -409,14 +409,14 @@ function listValue(v?: string[]): string {
   border: 1px solid var(--line-strong);
   border-radius: var(--r-chip);
   padding: 0 5px;
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .col-type {
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
 }
 .col-type small {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .col-health {
   display: inline-flex;
@@ -429,7 +429,7 @@ function listValue(v?: string[]): string {
   font-size: var(--fs-xs);
 }
 .version {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .err-msg {
   color: var(--fail);
@@ -447,7 +447,7 @@ function listValue(v?: string[]): string {
   align-items: center;
   justify-content: center;
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -463,7 +463,7 @@ function listValue(v?: string[]): string {
   border-color: var(--accent);
 }
 .btn:disabled {
-  color: var(--fg-3);
+  color: var(--ink-3);
   cursor: default;
 }
 
@@ -481,22 +481,22 @@ function listValue(v?: string[]): string {
   align-items: baseline;
 }
 .dk {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-family: var(--font-mono);
 }
 .dv {
-  color: var(--fg);
+  color: var(--ink);
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
 }
 .no-detail {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .empty {
   padding: var(--s5) var(--s3);
   text-align: center;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 

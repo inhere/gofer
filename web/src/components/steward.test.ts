@@ -41,7 +41,7 @@ describe('Steward panel (问管家)', () => {
   })
 
   it('is a full-screen drawer on phones', () => {
-    expect(panel).toContain('@media (max-width: 767px)')
+    expect(panel).toContain('@media (max-width: 760px)')
     expect(panel).toContain('height: 100dvh')
   })
 })

@@ -574,7 +574,7 @@ onUnmounted(() => {
   min-height: 32px;
   padding: 0 var(--s3);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -625,7 +625,7 @@ onUnmounted(() => {
 }
 .wf-title {
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
   margin: 0 0 var(--s3);
   word-break: break-word;
 }
@@ -642,12 +642,12 @@ onUnmounted(() => {
   gap: var(--s3);
 }
 .meta-row dt {
-  color: var(--fg-3);
+  color: var(--ink-3);
   letter-spacing: 0.04em;
 }
 .meta-row dd {
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
   word-break: break-all;
 }
 .meta-row--err dd {
@@ -656,7 +656,7 @@ onUnmounted(() => {
 .section-title {
   font-size: var(--fs-xs);
   letter-spacing: 0.08em;
-  color: var(--fg-3);
+  color: var(--ink-3);
   text-transform: uppercase;
   margin: 0 0 var(--s2);
 }
@@ -706,7 +706,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 .res-step {
-  color: var(--fg);
+  color: var(--ink);
   font-weight: 600;
   font-size: var(--fs-sm);
   overflow: hidden;
@@ -714,7 +714,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .res-tag {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .res-badge {
@@ -737,12 +737,12 @@ onUnmounted(() => {
   min-width: 0;
 }
 .res-cell dt {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .res-cell dd {
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -755,7 +755,7 @@ onUnmounted(() => {
 }
 .res-excerpt {
   margin: var(--s2) 0 0;
-  background: var(--log-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   padding: var(--s2);
@@ -769,12 +769,12 @@ onUnmounted(() => {
 .res-cwd {
   margin: 6px 0 0;
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
   word-break: break-all;
 }
 .res-cwd em {
   font-style: normal;
-  color: var(--fg-3);
+  color: var(--ink-3);
   opacity: 0.7;
   margin-right: 6px;
 }
@@ -811,7 +811,7 @@ onUnmounted(() => {
   font-size: var(--fs-sm);
 }
 .step-name {
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -829,18 +829,18 @@ onUnmounted(() => {
   border-color: var(--accent);
 }
 .dim-tag--retry {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .sub-link {
   margin-left: auto;
 }
 .step-pending {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   opacity: 0.8;
 }
 .step-nojob {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   text-align: center;
   opacity: 0.6;
@@ -860,7 +860,7 @@ onUnmounted(() => {
   gap: var(--s3);
 }
 .row-tag {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .row-tag--none {
@@ -873,11 +873,11 @@ onUnmounted(() => {
 .empty-line {
   padding: var(--s5) var(--s3);
   text-align: center;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .loading {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   padding: var(--s5) 0;
 }
@@ -906,13 +906,13 @@ onUnmounted(() => {
   border-bottom: none;
 }
 .ev-time {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .ev-type {
   color: var(--accent);
 }
 .ev-detail {
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -927,12 +927,12 @@ onUnmounted(() => {
 .label {
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .control {
   width: 100%;
   background: var(--surface-2);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   padding: 8px;
@@ -940,7 +940,7 @@ onUnmounted(() => {
   font-size: var(--fs-sm);
 }
 .hint {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .radio {
@@ -948,7 +948,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: var(--fs-sm);
-  color: var(--fg);
+  color: var(--ink);
 }
 .notice {
   margin: 0 0 var(--s2);
@@ -969,7 +969,7 @@ onUnmounted(() => {
 .sat-cmd {
   display: block;
   font-size: var(--fs-xs);
-  color: var(--fg);
+  color: var(--ink);
   word-break: break-all;
 }
 .modal-act {

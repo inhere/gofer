@@ -105,7 +105,7 @@ onBeforeUnmount(() => {
   min-height: 32px;
   padding: 2px var(--s2);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-chip);
   font: inherit;
@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .pf-caret {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .pf-menu {
@@ -150,7 +150,7 @@ onBeforeUnmount(() => {
   background: none;
   border: 0;
   border-radius: var(--r-chip);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font: inherit;
   font-size: var(--fs-sm);
   text-align: left;
@@ -162,7 +162,7 @@ onBeforeUnmount(() => {
 .pf-item:hover,
 .pf-item:focus-visible {
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   outline: 1px solid var(--focus);
 }
 .pf-item--active {
@@ -170,7 +170,7 @@ onBeforeUnmount(() => {
 }
 .pf-empty {
   margin: var(--s1) var(--s2);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 /* 手机：菜单贴在底部，拇指够得到（与 Sheet 同一形态） */

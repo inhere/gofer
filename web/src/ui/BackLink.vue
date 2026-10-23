@@ -49,13 +49,13 @@ function go(): void {
   background: none;
   border: 1px solid transparent;
   border-radius: var(--r-ctl);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font: inherit;
   font-size: var(--fs-sm);
   cursor: pointer;
 }
 .back-link:hover {
-  color: var(--fg);
+  color: var(--ink);
   border-color: var(--line);
 }
 .back-link:focus-visible {

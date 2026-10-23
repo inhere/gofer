@@ -683,7 +683,7 @@ function openJobDetail(id: string): void {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown, true)
-  mobileQuery = window.matchMedia('(max-width: 767px)')
+  mobileQuery = window.matchMedia('(max-width: 760px)')
   onMobileQuery(mobileQuery)
   mobileQuery.addEventListener('change', onMobileQuery)
   wideQuery = window.matchMedia('(min-width: 1280px)')
@@ -911,22 +911,22 @@ onUnmounted(() => {
 .layout-tabs::-webkit-scrollbar { display: none; }
 .layout-tab { flex: none; display: flex; align-items: center; max-width: 220px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--r-ctl) var(--r-ctl) 0 0; }
 .layout-tab.active { background: var(--bg); border-color: var(--line); }
-.tab-select, .tab-close, .tab-new { color: var(--fg-3); background: transparent; border: 0; font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+.tab-select, .tab-close, .tab-new { color: var(--ink-3); background: transparent; border: 0; font: inherit; font-size: var(--fs-sm); cursor: pointer; }
 .tab-select { min-width: 70px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 4px 6px var(--s2); }
-.layout-tab.active .tab-select { color: var(--fg); }
+.layout-tab.active .tab-select { color: var(--ink); }
 .tab-close { padding: 6px 6px 6px 2px; }
 .tab-new { padding: 4px var(--s2); font-size: 16px; }
 .tab-select:hover, .tab-close:hover, .tab-new:hover { color: var(--accent); }
 .tab-select:focus-visible, .tab-close:focus-visible, .tab-new:focus-visible { outline: 2px solid var(--focus); outline-offset: -1px; }
-.tab-title-input { width: 130px; margin: 2px; padding: 2px 4px; color: var(--fg); background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r-chip); font: inherit; font-size: var(--fs-sm); }
-.context-toggle { margin-left: auto; align-self: center; padding: 2px 8px; border: 1px solid var(--line, currentColor); border-radius: var(--r-sm, 5px); background: transparent; color: var(--fg-2); font-size: var(--fs-xs); cursor: pointer; }
-.context-toggle[aria-pressed='true'] { color: var(--fg-1); background: var(--bg-2); }
+.tab-title-input { width: 130px; margin: 2px; padding: 2px 4px; color: var(--ink); background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r-chip); font: inherit; font-size: var(--fs-sm); }
+.context-toggle { margin-left: auto; align-self: center; padding: 2px 8px; border: 1px solid var(--line, currentColor); border-radius: var(--r-chip); background: transparent; color: var(--ink-2); font-size: var(--fs-xs); cursor: pointer; }
+.context-toggle[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); }
 .context-toggle + .layout-version { margin-left: 8px; }
-.layout-version { margin-left: auto; align-self: center; padding: 0 5px; color: var(--fg-3); font-size: var(--fs-xs); white-space: nowrap; }
+.layout-version { margin-left: auto; align-self: center; padding: 0 5px; color: var(--ink-3); font-size: var(--fs-xs); white-space: nowrap; }
 .prefix-status { align-self: center; margin-left: auto; color: var(--run); font-size: var(--fs-xs); white-space: nowrap; }
 .prefix-status + .layout-version { margin-left: 0; }
 .layout-surface { flex: 1; min-width: 0; min-height: 0; position: relative; }
-.empty-main { color: var(--fg-3); padding: var(--s4); }
+.empty-main { color: var(--ink-3); padding: var(--s4); }
 @media (max-width: 760px) {
   .workbench-page { height: calc(100vh - 53px); }
   .workbench-body, .workbench-body--wide { grid-template-columns: 1fr; }

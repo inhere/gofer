@@ -23,7 +23,7 @@ const label = computed(() => planStatusText(props.status))
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
   letter-spacing: 0.04em;
 }
@@ -32,7 +32,7 @@ const label = computed(() => planStatusText(props.status))
   height: 8px;
   border-radius: 50%;
   flex: none;
-  background: var(--queue);
+  background: var(--ink-3);
 }
 .badge-dot--open {
   background: var(--run);
@@ -45,7 +45,7 @@ const label = computed(() => planStatusText(props.status))
   background: var(--fail);
 }
 .badge-dot--archived {
-  background: var(--queue);
+  background: var(--ink-3);
 }
 .badge--dim {
   opacity: 0.6;

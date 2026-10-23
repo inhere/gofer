@@ -172,19 +172,19 @@ watch(() => props.sid, loadSession)
    child component, so the shared classes are repeated here. */
 .section { margin-top: 18px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.section-title { font-size: 12px; letter-spacing: 0.08em; color: var(--queue); text-transform: uppercase; margin: 0 0 10px; }
-.op-btn { background: transparent; color: var(--phosphor); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 10px; font-size: 12px; cursor: pointer; }
-.op-btn:hover:not(:disabled) { border-color: var(--phosphor); }
+.section-title { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-3); text-transform: uppercase; margin: 0 0 10px; }
+.op-btn { background: transparent; color: var(--accent); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.op-btn:hover:not(:disabled) { border-color: var(--accent); }
 .op-btn:disabled { opacity: 0.55; cursor: default; }
-.op-input { min-width: 0; background: var(--panel); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; font-size: 12px; outline: none; }
-.op-input:focus { border-color: var(--phosphor); }
-.empty { padding: 12px 14px; text-align: center; color: var(--queue); font-size: 12px; border: 1px dashed var(--line); border-radius: var(--radius); }
+.op-input { min-width: 0; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 12px; outline: none; }
+.op-input:focus { border-color: var(--accent); }
+.empty { padding: 12px 14px; text-align: center; color: var(--ink-3); font-size: 12px; border: 1px dashed var(--line); border-radius: var(--r-chip); }
 .error { color: var(--fail); font-size: 12px; word-break: break-word; }
-.ps-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
-.ps-name { color: var(--paper); }
-.ps-beat { color: var(--queue); font-size: 11px; }
-.ps-gone { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--warn, #d9822b); border-radius: var(--radius); font-size: 12px; color: var(--warn, #d9822b); }
-.ps-hint { color: var(--queue); }
+.ps-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--surface); }
+.ps-name { color: var(--ink); }
+.ps-beat { color: var(--ink-3); font-size: 11px; }
+.ps-gone { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--warn, #d9822b); border-radius: var(--r-chip); font-size: 12px; color: var(--warn, #d9822b); }
+.ps-hint { color: var(--ink-3); }
 .ps-actions, .ps-edit, .ps-send-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ps-card { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
 .ps-sid { opacity: 0.6; font-size: 11px; }

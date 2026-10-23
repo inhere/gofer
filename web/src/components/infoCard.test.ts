@@ -64,7 +64,7 @@ describe('InfoCard source contract', () => {
   })
   it('lays cards out in one column on a phone and several on a desktop', () => {
     expect(css).toContain('repeat(auto-fill, minmax(330px, 1fr))')
-    expect(css).toMatch(/@media \(max-width: 640px\) \{\s*\.icard-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/)
+    expect(css).toMatch(/@media \(max-width: 760px\) \{\s*\.icard-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/)
   })
   it('keeps the actions undimmed on a dimmed card', () => {
     expect(css).toContain('.icard--dim > .icard-head')

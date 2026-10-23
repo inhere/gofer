@@ -71,7 +71,7 @@ function close(): void {
   z-index: 66;
   width: min(440px, 100vw);
   overflow-y: auto;
-  background: var(--ink);
+  background: var(--bg);
   border-left: 1px solid var(--line);
 }
 .hd-head {
@@ -79,24 +79,24 @@ function close(): void {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
 .hd-title {
   font-weight: 600;
 }
 .hd-x {
-  color: var(--queue);
+  color: var(--ink-3);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: 12px;
 }
 .hd-err,
 .hd-empty {
   padding: 14px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .hd-err {
@@ -118,13 +118,13 @@ function close(): void {
   overflow-wrap: anywhere;
 }
 .hd-via {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .hd-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 </style>

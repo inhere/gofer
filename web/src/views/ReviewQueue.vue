@@ -424,11 +424,11 @@ onUnmounted(() => {
 .title {
   font-size: var(--fs-xl);
   letter-spacing: -0.015em;
-  color: var(--fg);
+  color: var(--ink);
   margin: 0;
 }
 .subtitle {
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
   margin: var(--s1) 0 0;
 }
@@ -457,7 +457,7 @@ onUnmounted(() => {
   min-height: 32px;
   padding: 0 var(--s3);
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -473,7 +473,7 @@ onUnmounted(() => {
   outline-offset: 1px;
 }
 .head-btn:disabled {
-  color: var(--fg-3);
+  color: var(--ink-3);
   cursor: default;
   opacity: 0.65;
 }
@@ -508,7 +508,7 @@ onUnmounted(() => {
   min-width: 980px;
 }
 .thead {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   border-bottom: 1px solid var(--line);
 }
@@ -543,7 +543,7 @@ onUnmounted(() => {
 .job-title {
   flex: 1 1 auto;
   min-width: 0;
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -552,7 +552,7 @@ onUnmounted(() => {
   flex: none;
 }
 .job-id {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .c-proj,
@@ -560,13 +560,13 @@ onUnmounted(() => {
 .c-plan,
 .c-commits,
 .c-wait {
-  color: var(--fg-3);
+  color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .c-usage {
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -596,7 +596,7 @@ onUnmounted(() => {
 }
 /* 不能裁决时（只读身份 / 无审阅权限 / 受限身份审自己的 job）：按钮位置换一行灰字解释。 */
 .rq-blocked {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
@@ -608,7 +608,7 @@ onUnmounted(() => {
   font-size: var(--fs-xs);
   border: 1px solid var(--line-strong);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   cursor: pointer;
 }
 .rq-btn--go {
@@ -634,7 +634,7 @@ onUnmounted(() => {
 
 .empty {
   padding: var(--s6) var(--s4);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   min-width: 480px;
 }
@@ -664,7 +664,7 @@ onUnmounted(() => {
   border: 1px solid var(--accent);
   border-radius: var(--r-panel);
   box-shadow: var(--shadow-pop);
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
   cursor: pointer;
 }

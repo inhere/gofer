@@ -61,7 +61,7 @@ const { readOnly } = useWhoami()
 }
 .dq-tier {
   margin-top: var(--s1);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
 }
@@ -74,7 +74,7 @@ const { readOnly } = useWhoami()
 .dq-empty {
   margin: 0;
   padding: var(--s5) var(--s4);
-  color: var(--fg-3);
+  color: var(--ink-3);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-panel);
@@ -98,7 +98,7 @@ const { readOnly } = useWhoami()
   cursor: pointer;
 }
 .dq-focus:disabled {
-  color: var(--fg-3);
+  color: var(--ink-3);
   background: transparent;
   border-color: var(--line);
   cursor: default;

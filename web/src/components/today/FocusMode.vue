@@ -183,7 +183,7 @@ onUnmounted(() => {
   padding-inline: 16px;
   overflow-x: hidden;
   overflow-y: auto;
-  background: var(--ink);
+  background: var(--bg);
   outline: none;
 }
 .fm-head,
@@ -198,19 +198,19 @@ onUnmounted(() => {
   min-width: 0;
   margin: 0 auto;
   padding-block: 14px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .fm-pos {
-  color: var(--paper);
+  color: var(--ink);
 }
 .fm-x {
   margin-left: auto;
   padding: 3px 8px;
-  color: var(--queue);
+  color: var(--ink-3);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   font-size: 12px;
 }
 .fm-bar {
@@ -223,7 +223,7 @@ onUnmounted(() => {
 .fm-bar i {
   display: block;
   height: 100%;
-  background: var(--phosphor);
+  background: var(--accent);
   transition: width 0.2s;
 }
 .fm-stage {
@@ -251,10 +251,10 @@ onUnmounted(() => {
 }
 .fm-nav button {
   padding: 4px 10px;
-  color: var(--queue);
+  color: var(--ink-3);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .fm-nav button:disabled {
   opacity: 0.4;
@@ -271,20 +271,20 @@ onUnmounted(() => {
 }
 .fm-done p {
   margin: 0;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 13px;
 }
 .fm-back {
   padding: 6px 14px;
-  color: var(--ink);
-  background: var(--phosphor);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  color: var(--bg);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
   font-weight: 600;
 }
 kbd {
   padding: 0 5px;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: 2px;
   font-family: inherit;
@@ -292,7 +292,7 @@ kbd {
 .fm-swipe {
   display: none;
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .fm-keys {
     display: none;
   }

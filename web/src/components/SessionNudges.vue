@@ -156,8 +156,8 @@ onMounted(() => {
 .nudges {
   flex: none;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--paper);
+  border-radius: var(--r-chip);
+  color: var(--ink);
   font-size: 11px;
 }
 .nudges-head {
@@ -183,7 +183,7 @@ onMounted(() => {
   gap: 8px;
 }
 .dim {
-  color: var(--dim, var(--paper));
+  color: var(--dim, var(--ink));
   opacity: 0.7;
 }
 .nudge-list {
@@ -196,7 +196,7 @@ onMounted(() => {
 }
 .nudge-row {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 8px;
   display: flex;
   flex-direction: column;
@@ -215,7 +215,7 @@ onMounted(() => {
   align-items: baseline;
 }
 .nudge-rule {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .nudge-text {
   overflow: hidden;
@@ -239,9 +239,9 @@ onMounted(() => {
 }
 .nudge-input {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 6px;
   font: inherit;
 }
@@ -263,24 +263,24 @@ onMounted(() => {
 }
 .act {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 11px;
   cursor: pointer;
 }
 .act:hover:not(:disabled) {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .act:disabled {
   opacity: 0.45;
   cursor: default;
 }
 .act--primary {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .act--warn:hover:not(:disabled) {
   border-color: var(--fail);

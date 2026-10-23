@@ -85,9 +85,9 @@ onUnmounted(() => {
 .rd-panel {
   width: 100%;
   max-width: 460px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -106,15 +106,15 @@ onUnmounted(() => {
 }
 .rd-x {
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 8px;
   font-size: 12px;
 }
 .rd-x:hover:not(:disabled) {
-  color: var(--paper);
-  border-color: var(--paper);
+  color: var(--ink);
+  border-color: var(--ink);
 }
 .rd-field {
   display: flex;
@@ -122,16 +122,16 @@ onUnmounted(() => {
   gap: 4px;
 }
 .rd-label {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .rd-note {
   width: 100%;
   box-sizing: border-box;
-  background: var(--term-bg);
-  color: var(--paper);
+  background: var(--sunken);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 8px;
   font-size: 12px;
   resize: vertical;
@@ -140,7 +140,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .rd-err {
@@ -156,18 +156,18 @@ onUnmounted(() => {
 }
 .rd-btn {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 12px;
   font-size: 12px;
 }
 .rd-btn:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .rd-btn:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
   cursor: default;
   opacity: 0.65;
 }
@@ -177,6 +177,6 @@ onUnmounted(() => {
 }
 .rd-btn--danger:hover:not(:disabled) {
   background: var(--fail);
-  color: var(--ink);
+  color: var(--bg);
 }
 </style>

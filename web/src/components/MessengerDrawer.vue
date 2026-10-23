@@ -219,7 +219,7 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
   flex-direction: column;
   width: min(640px, 94vw);
   height: 100%;
-  background: var(--panel);
+  background: var(--surface);
   border-left: 1px solid var(--line);
   overflow: hidden;
 }
@@ -232,7 +232,7 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
   border-bottom: 1px solid var(--line);
 }
 .mdrawer-title {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 13px;
   display: flex;
   align-items: center;
@@ -249,40 +249,40 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
   margin: 0 0 8px;
   font-size: 12px;
   letter-spacing: 0.04em;
-  color: var(--paper);
+  color: var(--ink);
 }
-.dim { color: var(--queue); font-weight: 400; }
-.mnote { margin: 6px 0; font-size: 11px; color: var(--queue); word-break: break-word; }
-.merr { margin: 6px 0; font-size: 12px; color: var(--fail); border: 1px solid var(--fail); border-radius: var(--radius); padding: 6px 8px; word-break: break-word; }
-.mdl { display: grid; grid-template-columns: 84px 1fr; gap: 4px 10px; margin: 0; font-size: 12px; color: var(--paper); }
-.mdl dt { color: var(--queue); }
+.dim { color: var(--ink-3); font-weight: 400; }
+.mnote { margin: 6px 0; font-size: 11px; color: var(--ink-3); word-break: break-word; }
+.merr { margin: 6px 0; font-size: 12px; color: var(--fail); border: 1px solid var(--fail); border-radius: var(--r-chip); padding: 6px 8px; word-break: break-word; }
+.mdl { display: grid; grid-template-columns: 84px 1fr; gap: 4px 10px; margin: 0; font-size: 12px; color: var(--ink); }
+.mdl dt { color: var(--ink-3); }
 .mdl dd { margin: 0; word-break: break-word; }
 .mstatus {
   font-size: 11px;
   border: 1px solid currentColor;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 7px;
   line-height: 1.6;
 }
 .mtone--idle { color: var(--done); }
 .mtone--busy { color: var(--run); }
-.mtone--stopped { color: var(--queue); }
-.mtone--unknown { color: var(--queue); border-style: dashed; }
+.mtone--stopped { color: var(--ink-3); }
+.mtone--unknown { color: var(--ink-3); border-style: dashed; }
 .mactions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .act {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   padding: 4px 8px;
   font-size: 11px;
   cursor: pointer;
 }
-.act:hover:not(:disabled) { color: var(--paper); border-color: var(--paper); }
+.act:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
 .act:disabled { cursor: not-allowed; opacity: 0.5; }
-.act--primary { color: var(--phosphor); border-color: var(--phosphor); }
-.link-btn { background: none; border: 0; color: var(--phosphor); font-size: 11px; cursor: pointer; padding: 4px 0; }
-.mtable { margin-top: 6px; font-size: 11px; color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
+.act--primary { color: var(--accent); border-color: var(--accent); }
+.link-btn { background: none; border: 0; color: var(--accent); font-size: 11px; cursor: pointer; padding: 4px 0; }
+.mtable { margin-top: 6px; font-size: 11px; color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); overflow-x: auto; }
 .mtr {
   display: grid;
   grid-template-columns: minmax(120px, 1.6fr) 56px minmax(100px, 1.4fr) 70px 58px 86px;
@@ -292,7 +292,7 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
   border-top: 1px solid var(--line);
   min-width: 560px;
 }
-.mthead { color: var(--queue); border-top: 0; }
+.mthead { color: var(--ink-3); border-top: 0; }
 .mname, .mpath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tone-ok { color: var(--done); }
 .mpre {
@@ -301,23 +301,23 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
   max-height: 220px;
   overflow: auto;
   font-size: 11px;
-  color: var(--paper);
-  background: var(--term-bg);
+  color: var(--ink);
+  background: var(--sunken);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   white-space: pre-wrap;
   word-break: break-all;
 }
 .mdeliv { list-style: none; margin: 0; padding: 0; font-size: 11px; }
-.mdeliv li { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 0; border-top: 1px solid var(--line); color: var(--paper); }
+.mdeliv li { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 0; border-top: 1px solid var(--line); color: var(--ink); }
 .mdeliv li:first-child { border-top: 0; }
-.dtime { color: var(--queue); }
-.dop { color: var(--phosphor); }
+.dtime { color: var(--ink-3); }
+.dop { color: var(--accent); }
 .dok .dres { color: var(--done); }
 .dfail .dres, .derr { color: var(--fail); }
-.dmsg { color: var(--queue); flex-basis: 100%; word-break: break-word; }
+.dmsg { color: var(--ink-3); flex-basis: 100%; word-break: break-word; }
 .derr { flex-basis: 100%; word-break: break-word; }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .mdrawer-panel { width: 100vw; }
   .mdl { grid-template-columns: 72px 1fr; }
   /* 手机：会话表改成每行一张小卡片，“给它传话”不再被挤到横向滚动之外 */

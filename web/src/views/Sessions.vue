@@ -1084,18 +1084,18 @@ onUnmounted(() => {
 <style scoped>
 .find-box { display: flex; gap: 8px; margin: 0 0 10px; }
 .find-input {
-  flex: 1; min-width: 0; padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--radius);
-  background: var(--term-bg); color: var(--paper); font-size: 12px;
+  flex: 1; min-width: 0; padding: 5px 10px; border: 1px solid var(--line); border-radius: var(--r-chip);
+  background: var(--sunken); color: var(--ink); font-size: 12px;
 }
-.find-input:focus { outline: none; border-color: var(--phosphor); }
-.find-note { margin: 0 0 10px; color: var(--queue); font-size: 12px; }
-.a-topic { color: var(--paper); max-width: 100%; overflow-wrap: anywhere; }
-.a-topic--inferred { color: var(--queue); font-style: italic; }
+.find-input:focus { outline: none; border-color: var(--accent); }
+.find-note { margin: 0 0 10px; color: var(--ink-3); font-size: 12px; }
+.a-topic { color: var(--ink); max-width: 100%; overflow-wrap: anywhere; }
+.a-topic--inferred { color: var(--ink-3); font-style: italic; }
 .a-topic-tag {
   margin-left: 6px; padding: 0 5px; border: 1px dashed var(--line); border-radius: 999px;
   font-size: 10px; font-style: normal;
 }
-@media (max-width: 640px) { .find-input { font-size: 16px; } }
+@media (max-width: 760px) { .find-input { font-size: 16px; } }
 .link-pick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .link-pick select { max-width: 100%; min-width: 0; }
 .board {
@@ -1105,9 +1105,9 @@ onUnmounted(() => {
 .session-create {
   margin: 0 0 20px;
   padding: 12px 14px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .session-create-head {
   display: flex;
@@ -1123,7 +1123,7 @@ onUnmounted(() => {
   border: 1px solid var(--line);
   border-radius: 50%;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   line-height: 16px;
   cursor: pointer;
@@ -1142,17 +1142,17 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .session-field input,
 .session-field select,
 .session-field textarea {
   min-width: 0;
-  color: var(--paper);
-  background: var(--ink);
+  color: var(--ink);
+  background: var(--bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 7px;
   font: inherit;
 }
@@ -1181,7 +1181,7 @@ onUnmounted(() => {
 }
 .head-summary {
   margin: 2px 0 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .head-filters {
@@ -1196,49 +1196,49 @@ onUnmounted(() => {
 .title {
   font-size: 16px;
   letter-spacing: 0.08em;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
 }
 .controls {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .error {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 12px;
   word-break: break-word;
 }
 .act {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 11px;
   text-decoration: none;
   cursor: pointer;
 }
 .act:hover:not(:disabled) {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .act:disabled {
   opacity: 0.45;
   cursor: default;
 }
 .act--primary {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .sessions-note {
   margin: 10px 0 0;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 
@@ -1268,7 +1268,7 @@ onUnmounted(() => {
   margin: 0;
   font-size: 13px;
   letter-spacing: 0.08em;
-  color: var(--paper);
+  color: var(--ink);
   text-transform: uppercase;
 }
 .group-count {
@@ -1276,7 +1276,7 @@ onUnmounted(() => {
   border-radius: 9px;
   padding: 0 7px;
   font-size: 10px;
-  color: var(--queue);
+  color: var(--ink-3);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -1290,11 +1290,11 @@ onUnmounted(() => {
   gap: 5px;
   cursor: pointer;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
   user-select: none;
 }
 .check input {
-  accent-color: var(--phosphor);
+  accent-color: var(--accent);
   margin: 0;
 }
 .empty code {
@@ -1306,15 +1306,15 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .wake-btn:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .wake-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 .wake-link {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .a-wake {
   display: inline-flex;
@@ -1322,23 +1322,23 @@ onUnmounted(() => {
   gap: 4px;
 }
 .a-session-id {
-  color: var(--paper);
+  color: var(--ink);
 }
 .a-peername {
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 0 5px;
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: inherit;
   cursor: pointer;
 }
 .a-peername:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .a-peer-status,
 .a-peer-messaging {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .a-peer-messaging.ready {
   color: var(--done);
@@ -1349,7 +1349,7 @@ onUnmounted(() => {
 .copy-btn {
   margin-left: 6px;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 0 5px;
@@ -1357,8 +1357,8 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .copy-btn:hover {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .a-lastbox {
   display: flex;
@@ -1367,7 +1367,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 .a-last {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -1378,7 +1378,7 @@ onUnmounted(() => {
 .last-message-open {
   align-self: flex-start;
   padding: 0;
-  color: var(--phosphor);
+  color: var(--accent);
   background: transparent;
   border: 0;
   font-size: 11px;
@@ -1400,7 +1400,7 @@ onUnmounted(() => {
   margin: 4px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--paper);
+  color: var(--ink);
 }
 .session-watches {
   display: flex;
@@ -1423,7 +1423,7 @@ onUnmounted(() => {
 }
 .relay-label {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .relay-err {
   color: var(--fail);
@@ -1446,7 +1446,7 @@ onUnmounted(() => {
   margin: 0;
   padding: 6px 14px;
   margin-bottom: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 10px;
   line-height: 1.5;
 }
@@ -1458,7 +1458,7 @@ onUnmounted(() => {
 .relay-modes {
   display: inline-flex;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: hidden;
 }
 .relay-mode {
@@ -1466,7 +1466,7 @@ onUnmounted(() => {
   padding: 3px 9px;
   font-size: 11px;
   line-height: 16px;
-  color: var(--queue);
+  color: var(--ink-3);
   cursor: pointer;
   border-right: 1px solid var(--line);
 }
@@ -1478,15 +1478,15 @@ onUnmounted(() => {
 }
 .relay-mode.active {
   background: rgba(255, 255, 255, 0.1);
-  color: var(--paper);
+  color: var(--ink);
 }
 .relay-mode.active.auto {
-  background: color-mix(in srgb, var(--phosphor) 18%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--run);
 }
 .relay-mode.active.on {
-  background: color-mix(in srgb, var(--phosphor) 18%, transparent);
-  color: var(--phosphor);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
 }
 .relay-mode:disabled {
   opacity: 0.5;
@@ -1503,8 +1503,8 @@ onUnmounted(() => {
 }
 .empty {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--queue);
+  border-radius: var(--r-chip);
+  color: var(--ink-3);
   font-size: 13px;
   padding: 28px 14px;
   text-align: center;

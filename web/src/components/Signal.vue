@@ -4,9 +4,9 @@
 //  - 终态：静态横线 + 耗时文案。
 //  - prefers-reduced-motion: reduce -> 冻结波形为静态条。
 import { computed } from 'vue'
-import { statusColor } from '../api/client'
 import { fmtDuration } from '../api/time'
 import type { JobStatus } from '../api/types'
+import { statusFamily, statusFamilyClass } from '../utils/statusFamily'
 
 const props = defineProps<{
   status: JobStatus
@@ -28,7 +28,7 @@ const isWaiting = computed(
 // 不并入 waiting 分支就会落到终态横线 + 时长的渲染，让一个还在跑的 job 看起来已经结束。
 const isRecovering = computed(() => props.status === 'recovering')
 
-const color = computed(() => statusColor(props.status))
+const familyClass = computed(() => statusFamilyClass(statusFamily(props.status)))
 
 // 速率 -> 动画时长（行/秒越高，竖条跳动越快）。无 rate 时用通用轻动画速度。
 const animDuration = computed(() => {
@@ -50,7 +50,7 @@ const durationText = computed(() => fmtDuration(props.durationSec ?? null))
 </script>
 
 <template>
-  <span class="signal" :style="{ '--sig-color': color, '--sig-dur': animDuration }">
+  <span class="signal" :class="familyClass" :style="{ '--sig-dur': animDuration }">
     <!-- running：跳动波形 -->
     <span v-if="isRunning" class="wave" aria-label="running">
       <span
@@ -94,7 +94,7 @@ const durationText = computed(() => fmtDuration(props.durationSec ?? null))
 .bar {
   width: 2px;
   height: 4px;
-  background: var(--sig-color);
+  background: var(--c);
   border-radius: 1px;
   transform-origin: bottom;
   animation: sig-bounce var(--sig-dur) ease-in-out infinite;
@@ -121,7 +121,7 @@ const durationText = computed(() => fmtDuration(props.durationSec ?? null))
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: var(--sig-color);
+  background: var(--c);
   opacity: 0.7;
 }
 
@@ -134,13 +134,13 @@ const durationText = computed(() => fmtDuration(props.durationSec ?? null))
 .ended .line {
   width: 22px;
   height: 2px;
-  background: var(--sig-color);
+  background: var(--c);
   opacity: 0.8;
   border-radius: 1px;
 }
 .ended .dur {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 
 /* reduced-motion：冻结波形为静态条 */

@@ -405,7 +405,7 @@ defineExpose({ focusFile })
   font-size: 12px;
 }
 .ud-empty {
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 0;
 }
 
@@ -416,16 +416,16 @@ defineExpose({ focusFile })
 .ud-group-title {
   margin: 0 0 6px;
   padding: 3px 8px;
-  background: var(--term-bg);
-  border-left: 2px solid var(--phosphor);
-  color: var(--phosphor);
+  background: var(--sunken);
+  border-left: 2px solid var(--accent);
+  color: var(--accent);
   font-size: 12px;
   font-weight: 600;
 }
 
 .ud-file {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   margin-bottom: 8px;
   overflow: hidden;
 }
@@ -434,18 +434,18 @@ defineExpose({ focusFile })
   align-items: center;
   gap: 8px;
   width: 100%;
-  background: var(--panel);
-  color: var(--paper);
+  background: var(--surface);
+  color: var(--ink);
   border: none;
   padding: 6px 8px;
   font-size: 12px;
   text-align: left;
 }
 .ud-file-head:hover {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .ud-caret {
-  color: var(--queue);
+  color: var(--ink-3);
   flex: none;
 }
 .ud-path {
@@ -457,9 +457,9 @@ defineExpose({ focusFile })
 }
 .ud-note {
   flex: none;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 5px;
   font-size: 11px;
 }
@@ -467,7 +467,7 @@ defineExpose({ focusFile })
   flex: none;
   color: var(--run);
   border: 1px solid var(--run);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 5px;
   font-size: 11px;
 }
@@ -488,7 +488,7 @@ defineExpose({ focusFile })
 .ud-meta {
   margin: 0;
   padding: 4px 8px;
-  color: var(--queue);
+  color: var(--ink-3);
   border-bottom: 1px solid var(--line);
   white-space: pre-wrap;
   word-break: break-all;
@@ -497,7 +497,7 @@ defineExpose({ focusFile })
 .ud-binary {
   margin: 0;
   padding: 6px 8px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 
@@ -505,7 +505,7 @@ defineExpose({ focusFile })
 .ud-hunk {
   margin: 0;
   padding: 0;
-  background: var(--term-bg);
+  background: var(--sunken);
   white-space: pre;
   overflow-x: auto;
   font-size: 12px;
@@ -517,13 +517,13 @@ defineExpose({ focusFile })
 .ud-hunk-head {
   display: block;
   padding: 2px 8px;
-  color: var(--phosphor);
-  background: var(--panel);
+  color: var(--accent);
+  background: var(--surface);
 }
 .ud-line {
   display: block;
   padding: 0 8px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .ud-line--reviewable {
   display: grid;
@@ -538,7 +538,7 @@ defineExpose({ focusFile })
   min-height: 18px;
   padding: 0 5px;
   border-right: 1px solid var(--line);
-  color: var(--queue);
+  color: var(--ink-3);
   text-align: right;
   user-select: none;
 }
@@ -549,7 +549,7 @@ defineExpose({ focusFile })
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   line-height: 1;
 }
 .ud-line--reviewable:hover .ud-gutter button,
@@ -575,12 +575,12 @@ defineExpose({ focusFile })
   padding: 7px 8px 8px 154px;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--surface);
   white-space: normal;
 }
 .ud-comment-label {
   padding-top: 5px;
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 10px;
 }
 .ud-comment-input {
@@ -589,18 +589,18 @@ defineExpose({ focusFile })
   box-sizing: border-box;
   padding: 5px 7px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--ink);
-  color: var(--paper);
+  border-radius: var(--r-chip);
+  background: var(--bg);
+  color: var(--ink);
 }
 .ud-comment-input:focus {
-  outline: 1px solid var(--phosphor);
-  border-color: var(--phosphor);
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
 }
 .ud-comment-remove {
   padding: 5px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   background: transparent;
   color: var(--fail);
 }
@@ -612,22 +612,22 @@ defineExpose({ focusFile })
   flex-wrap: wrap;
   padding: 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--queue);
+  border-radius: var(--r-chip);
+  background: var(--surface);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .ud-dl {
   background: transparent;
-  color: var(--phosphor);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-chip);
   padding: 3px 10px;
   font-size: 12px;
 }
 .ud-dl:hover {
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--bg);
 }
 
 /* 窄屏（940px 以下）：文件头挤压时先丢计数列的字号优势，路径仍可省略号截断。 */

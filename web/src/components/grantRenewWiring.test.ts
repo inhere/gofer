@@ -26,7 +26,7 @@ describe('renewal dialog', () => {
     expect(dialog).toContain('data-test="rg-submit"')
   })
   it('is mobile friendly and colours through the theme tokens', () => {
-    expect(dialog).toContain('@media (max-width: 640px)')
+    expect(dialog).toContain('@media (max-width: 760px)')
     expect(dialog).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
   })
 })

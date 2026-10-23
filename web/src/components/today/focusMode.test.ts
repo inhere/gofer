@@ -76,7 +76,7 @@ describe('FocusMode', () => {
     expect(focus).toMatch(/\.fm-stage \{[^}]*min-width: 0/)
     expect(focus).toContain('touch-action: pan-y')
     // 手机上不显示键位行，改为「左右滑切换」
-    expect(focus).toMatch(/@media \(max-width: 640px\) \{\s*\.fm-keys \{\s*display: none/)
+    expect(focus).toMatch(/@media \(max-width: 760px\) \{\s*\.fm-keys \{\s*display: none/)
     const dc = raw['./DecisionCard.vue']
     expect(dc).toContain('max-width: min(260px, calc(100vw - 32px))')
     expect(raw['./SnoozedDrawer.vue']).toContain('width: min(440px, 100vw)')

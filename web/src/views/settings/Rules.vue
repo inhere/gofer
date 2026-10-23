@@ -371,12 +371,12 @@ onMounted(() => {
 .page-head h1 {
   margin: 0 0 4px;
   font-size: var(--fs-xl);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 0;
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .head-actions {
   display: flex;
@@ -393,7 +393,7 @@ onMounted(() => {
   color: var(--accent);
 }
 .scope-note {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   line-height: 1.7;
   margin: 0 0 12px;
@@ -419,7 +419,7 @@ onMounted(() => {
   border: 1px solid var(--accent);
 }
 .muted {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .field {
@@ -440,12 +440,12 @@ onMounted(() => {
   min-width: 0;
 }
 .field-name {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .input {
   background: var(--sunken);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   padding: 6px 8px;
@@ -471,7 +471,7 @@ onMounted(() => {
 
 .btn {
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   padding: 6px 12px;
@@ -530,7 +530,7 @@ onMounted(() => {
   border-bottom: 1px solid var(--line);
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
-  color: var(--fg-3);
+  color: var(--ink-3);
   text-transform: uppercase;
 }
 .trow {
@@ -550,7 +550,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 .cell-desc {
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -558,7 +558,7 @@ onMounted(() => {
 .cell-size,
 .cell-time,
 .cell-by {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .cell-bind {
@@ -572,7 +572,7 @@ onMounted(() => {
   border-radius: var(--r-chip);
   padding: 1px 6px;
   font-size: var(--fs-xs);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .tag--server {
   color: var(--accent);
@@ -585,12 +585,12 @@ onMounted(() => {
 }
 .empty {
   padding: 14px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .hint {
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
   margin: 12px 0 0;
   line-height: 1.7;
 }

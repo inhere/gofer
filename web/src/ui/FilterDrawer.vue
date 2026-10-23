@@ -55,7 +55,7 @@ const buttonLabel = computed(() => {
   min-height: 28px;
   padding: 2px var(--s2);
   background: transparent;
-  color: var(--fg-2);
+  color: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   font: inherit;
@@ -63,7 +63,7 @@ const buttonLabel = computed(() => {
   cursor: pointer;
 }
 .fd-trigger:hover {
-  color: var(--fg);
+  color: var(--ink);
   border-color: var(--line-strong);
 }
 .fd-trigger:focus-visible {
@@ -92,7 +92,7 @@ const buttonLabel = computed(() => {
 }
 .fd-clear {
   background: transparent;
-  color: var(--fg-2);
+  color: var(--ink-2);
   border: 1px solid var(--line-strong);
 }
 .fd-done {

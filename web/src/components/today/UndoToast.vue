@@ -35,10 +35,10 @@ function clearError(): void {
   max-width: calc(100vw - 24px);
   padding: 8px 12px;
   transform: translateX(-50%);
-  color: var(--paper);
-  background: var(--panel);
+  color: var(--ink);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   font-size: 12px;
 }
@@ -52,10 +52,10 @@ function clearError(): void {
 }
 .ut-btn {
   flex: none;
-  color: var(--phosphor);
+  color: var(--accent);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 8px;
   font-size: 12px;
 }

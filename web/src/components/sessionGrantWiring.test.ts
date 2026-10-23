@@ -23,7 +23,7 @@ describe('session grant dialog wiring', () => {
     expect(dialog).toContain('createAuthGrant(')
   })
   it('is mobile friendly', () => {
-    expect(dialog).toContain('@media (max-width: 640px)')
+    expect(dialog).toContain('@media (max-width: 760px)')
   })
   it('is offered on session rows and in the drawer, to managers only, with a granted badge and revoke', () => {
     expect(sessions).toContain('data-test="row-grant"')

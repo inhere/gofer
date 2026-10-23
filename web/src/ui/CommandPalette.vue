@@ -153,7 +153,7 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKey))
   border: 0;
   border-bottom: 1px solid var(--line);
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
   padding: 14px 16px;
   font-size: 15px;
 }
@@ -163,7 +163,7 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKey))
 .cp-hint {
   margin: 0;
   padding: 8px 16px 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .cp-list {
@@ -182,7 +182,7 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKey))
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--r-ctl);
-  color: var(--fg);
+  color: var(--ink);
   padding: 8px 10px;
   font-size: 14px;
 }
@@ -192,13 +192,13 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKey))
 }
 .cp-path {
   margin-left: auto;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-family: var(--font-mono);
   font-size: 11.5px;
 }
 .cp-empty {
   padding: 10px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 13px;
 }
 </style>

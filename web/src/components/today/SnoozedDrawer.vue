@@ -90,7 +90,7 @@ function close(): void {
   width: min(440px, 100vw);
   overflow-x: hidden;
   overflow-y: auto;
-  background: var(--ink);
+  background: var(--bg);
   border-left: 1px solid var(--line);
 }
 .sd-head {
@@ -98,7 +98,7 @@ function close(): void {
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
 .sd-title {
@@ -107,20 +107,20 @@ function close(): void {
 .sd-x,
 .sd-back {
   padding: 3px 8px;
-  color: var(--queue);
+  color: var(--ink-3);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   font-size: 12px;
 }
 .sd-back:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .sd-err,
 .sd-empty {
   padding: 14px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
 }
 .sd-err,
@@ -147,7 +147,7 @@ function close(): void {
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 10px;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 </style>

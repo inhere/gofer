@@ -56,22 +56,22 @@ onUnmounted(() => poller.stop())
   padding: 4px 9px;
   font-size: 12px;
   line-height: 1.2;
-  color: var(--queue);
+  color: var(--ink-3);
   background: transparent;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   white-space: nowrap;
 }
 .mail-btn:hover {
-  border-color: var(--phosphor);
-  color: var(--paper);
+  border-color: var(--accent);
+  color: var(--ink);
   text-decoration: none;
 }
 .mail-label {
   white-space: nowrap;
 }
 /* 与「随手记」的 .qc-label 同断点：窄屏只留图标。 */
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .mail-label {
     display: none;
   }
@@ -85,7 +85,7 @@ onUnmounted(() => poller.stop())
   padding: 0 4px;
   border-radius: 999px;
   background: var(--run);
-  color: var(--ink);
+  color: var(--bg);
   font-size: 10px;
   line-height: 14px;
   font-weight: 600;

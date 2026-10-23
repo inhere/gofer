@@ -373,12 +373,12 @@ onUnmounted(() => {
 .page-head h1 {
   margin: 0 0 4px;
   font-size: var(--fs-xl);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 0;
   font-size: var(--fs-sm);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .facts-grid {
@@ -389,11 +389,11 @@ onUnmounted(() => {
   font-size: var(--fs-sm);
 }
 .facts-grid dt {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .facts-grid dd {
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
 }
 .brk {
   word-break: break-all;
@@ -412,7 +412,7 @@ onUnmounted(() => {
   font: inherit;
   font-size: var(--fs-sm);
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
 }
 .btn:hover:not(:disabled) {
   border-color: var(--accent);
@@ -435,7 +435,7 @@ onUnmounted(() => {
   padding: 0 6px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .badge--new {
@@ -451,7 +451,7 @@ onUnmounted(() => {
   color: var(--accent);
 }
 .dim {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .apply-entry {
@@ -472,7 +472,7 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  color: var(--fg);
+  color: var(--ink);
 }
 .apply-err {
   margin: 0;
@@ -481,7 +481,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 4px 12px;
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-sm);
 }
 .apply-werr {
@@ -509,7 +509,7 @@ onUnmounted(() => {
 }
 
 .hint {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   margin: 12px 0 0;
   line-height: 1.6;
@@ -529,7 +529,7 @@ onUnmounted(() => {
 }
 
 .placeholder {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   margin: 10px 0 0;
 }

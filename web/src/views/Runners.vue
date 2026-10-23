@@ -725,11 +725,11 @@ function beatLabel(r: Runner): string {
 .title {
   margin: 0;
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 2px 0 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .poll-dot {
@@ -756,7 +756,7 @@ function beatLabel(r: Runner): string {
   margin: 0 0 var(--s2);
 }
 .hint {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   margin: 0 0 var(--s2);
 }
@@ -775,14 +775,14 @@ function beatLabel(r: Runner): string {
   font-size: var(--fs-sm);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .group-count {
   min-width: 18px;
   padding: 0 5px;
   border-radius: 999px;
   background: var(--surface-2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
   text-align: center;
 }
@@ -790,7 +790,7 @@ function beatLabel(r: Runner): string {
   cursor: pointer;
 }
 .topology-group details[open] .topology-toggle {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .topology-toggle {
   margin-left: auto;
@@ -805,7 +805,7 @@ function beatLabel(r: Runner): string {
   min-height: 30px;
   padding: 0 var(--s3);
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -817,7 +817,7 @@ function beatLabel(r: Runner): string {
   border-color: var(--accent);
 }
 .btn:disabled {
-  color: var(--fg-3);
+  color: var(--ink-3);
   cursor: default;
 }
 .btn--primary {
@@ -852,13 +852,13 @@ function beatLabel(r: Runner): string {
 .label {
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
-  color: var(--fg-3);
+  color: var(--ink-3);
   margin-bottom: var(--s1);
 }
 .control {
   width: 100%;
   background: var(--sunken);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   padding: 8px 10px;
@@ -925,7 +925,7 @@ function beatLabel(r: Runner): string {
   width: 100%;
 }
 .card-name {
-  color: var(--fg);
+  color: var(--ink);
   font-size: var(--fs-md);
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -934,7 +934,7 @@ function beatLabel(r: Runner): string {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   min-width: 0;
 }
@@ -945,19 +945,19 @@ function beatLabel(r: Runner): string {
   color: var(--line-strong);
 }
 .age--down {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .node-line {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
 }
 .node-host {
-  color: var(--fg);
+  color: var(--ink);
 }
 .probe-err {
   margin: 0;
@@ -973,13 +973,13 @@ function beatLabel(r: Runner): string {
   font-size: var(--fs-xs);
 }
 .chips-label {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .chip {
   padding: 0 6px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-xs);
   font-family: var(--font-mono);
 }
@@ -994,7 +994,7 @@ function beatLabel(r: Runner): string {
   gap: var(--s1);
   padding: 1px 8px;
   background: transparent;
-  color: var(--fg-2);
+  color: var(--ink-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-chip);
   font: inherit;
@@ -1011,10 +1011,10 @@ function beatLabel(r: Runner): string {
   color: var(--run);
 }
 .mtone--stopped {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .mtone--unknown {
-  color: var(--fg-3);
+  color: var(--ink-3);
   border-style: dashed;
 }
 .mtone--need {
@@ -1027,7 +1027,7 @@ function beatLabel(r: Runner): string {
 .upgrade-line {
   margin: 0;
   font-size: var(--fs-xs);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .upgrade-line--warn {
   color: var(--need-ink);
@@ -1035,7 +1035,7 @@ function beatLabel(r: Runner): string {
 .upgrade-hint {
   margin: 0;
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .upgrade-history summary {
   cursor: pointer;
@@ -1052,10 +1052,10 @@ function beatLabel(r: Runner): string {
 .upgrade-history-list li {
   display: flex;
   gap: var(--s2);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .upgrade-time {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 .st--ok {
@@ -1070,7 +1070,7 @@ function beatLabel(r: Runner): string {
 
 .enroll-line {
   margin: 0;
-  color: var(--fg-2);
+  color: var(--ink-2);
   font-size: var(--fs-sm);
 }
 .enroll-left {
@@ -1080,14 +1080,14 @@ function beatLabel(r: Runner): string {
 .empty {
   padding: var(--s5) var(--s3);
   text-align: center;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   border: 1px dashed var(--line-strong);
   border-radius: var(--r-panel);
 }
 .empty-line {
   margin: 0 0 var(--s1);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .empty-hint {
   margin: 0 0 var(--s2);

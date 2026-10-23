@@ -1524,7 +1524,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   /* PC 上随屏宽放大（对话里的长消息 / 授权参数不再被省略），手机仍贴满。 */
   width: min(max(760px, 62vw), 1200px, 94vw);
   height: 100%;
-  background: var(--panel);
+  background: var(--surface);
   border-left: 1px solid var(--line);
   overflow: hidden;
 }
@@ -1559,7 +1559,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .drawer-title {
   min-width: 0;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
   letter-spacing: 0.04em;
   overflow: hidden;
@@ -1578,11 +1578,11 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   border-radius: 9px;
   padding: 1px 7px;
   font-size: 10px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .state--running {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .state--waiting_reply {
   color: var(--run);
@@ -1597,8 +1597,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 /* 离线：长时间没有心跳，进程可能已被杀掉（不是正常结束）——灰色 */
 .state--offline {
-  color: var(--queue);
-  border-color: var(--queue);
+  color: var(--ink-3);
+  border-color: var(--ink-3);
   opacity: 0.8;
 }
 
@@ -1620,12 +1620,12 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   margin: 0 0 8px;
   padding: 6px 10px;
   font-size: 12px;
-  border: 1px dashed var(--phosphor);
-  border-radius: var(--radius);
+  border: 1px dashed var(--accent);
+  border-radius: var(--r-chip);
 }
-.session-grant-badge { color: var(--phosphor); border: 1px dashed var(--phosphor); border-radius: 3px; padding: 0 6px; }
+.session-grant-badge { color: var(--accent); border: 1px dashed var(--accent); border-radius: 3px; padding: 0 6px; }
 .session-grant-remaining { color: var(--run); }
-.session-grant-perms { color: var(--paper); overflow-wrap: anywhere; min-width: 0; }
+.session-grant-perms { color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
 .owner-refused {
   display: flex;
   align-items: center;
@@ -1646,7 +1646,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: hidden;
 }
 .relay-mode {
@@ -1654,7 +1654,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   padding: 2px 8px;
   font-size: 11px;
   line-height: 16px;
-  color: var(--queue);
+  color: var(--ink-3);
   cursor: pointer;
   border-right: 1px solid var(--line);
 }
@@ -1666,15 +1666,15 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .relay-mode.active {
   background: rgba(255, 255, 255, 0.1);
-  color: var(--paper);
+  color: var(--ink);
 }
 .relay-mode.active:first-child {
   background: rgba(224, 162, 74, 0.18);
   color: var(--run);
 }
 .relay-mode.active:nth-child(2) {
-  background: color-mix(in srgb, var(--phosphor) 18%, transparent);
-  color: var(--phosphor);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
 }
 .relay-mode:disabled {
   opacity: 0.5;
@@ -1687,28 +1687,28 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 
 .act {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 11px;
   cursor: pointer;
 }
 .act:hover:not(:disabled) {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .act:disabled {
   opacity: 0.45;
   cursor: default;
 }
 .act--primary {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .act--primary:hover:not(:disabled) {
-  background: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  color: var(--bg);
 }
 .act--warn:hover:not(:disabled) {
   border-color: var(--fail);
@@ -1719,7 +1719,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 10px;
   margin: 10px 14px 0;
   word-break: break-word;
@@ -1737,7 +1737,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   padding: 7px 14px;
   background: transparent;
   border: none;
-  color: var(--paper);
+  color: var(--ink);
   font-size: 11px;
   text-align: left;
   cursor: pointer;
@@ -1747,7 +1747,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .meta-toggle .caret {
   flex: none;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .meta-summary {
   display: flex;
@@ -1759,12 +1759,12 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   text-overflow: ellipsis;
 }
 .meta-summary .dim {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .meta-hint {
   flex: none;
   margin-left: auto;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .meta {
   flex: none;
@@ -1776,13 +1776,13 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   font-size: 11px;
 }
 .meta dt {
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .meta dd {
   margin: 0;
-  color: var(--paper);
+  color: var(--ink);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1804,7 +1804,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .copy-btn {
   flex: none;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 0 6px;
@@ -1812,17 +1812,17 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   cursor: pointer;
 }
 .copy-btn:hover {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .dim {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 
 /* 信件入口：meta 里的一行小链接（/mail?session=<sid>）。 */
 .mail-link {
   margin-left: 8px;
-  color: var(--phosphor);
+  color: var(--accent);
   font-size: 11px;
 }
 
@@ -1838,7 +1838,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .older-page {
   flex: none;
   text-align: center;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   min-height: 18px;
 }
@@ -1846,9 +1846,9 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .last-message-fixed {
   flex: none;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .last-message-preview {
   min-width: 0;
@@ -1856,7 +1856,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .last-message-head {
   display: flex;
@@ -1870,11 +1870,11 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .last-message-head .link-btn,
 .last-message-released { flex: none; white-space: nowrap; }
 .last-message-head .link-btn { padding: 0; }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .last-message-head { gap: 8px; }
   /* 手机：放行说明缩成标记，完整说明在 title 里 */
   .last-message-released { font-size: 0; }
-  .last-message-released::before { content: '已放行'; font-size: 11px; color: var(--queue); }
+  .last-message-released::before { content: '已放行'; font-size: 11px; color: var(--ink-3); }
 }
 .last-message-text {
   max-height: 45vh;
@@ -1889,9 +1889,9 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .session-progress {
   flex: none;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .session-progress-head {
   display: flex;
@@ -1909,7 +1909,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .session-progress-full {
   max-height: 35vh;
@@ -1921,7 +1921,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .outbox-panel {
   flex: none;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px;
 }
 .outbox-row {
@@ -1951,22 +1951,22 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .bubble--agent {
   align-self: flex-start;
-  background: var(--ink);
+  background: var(--bg);
   border: 1px solid var(--line);
-  color: var(--paper);
+  color: var(--ink);
 }
 .bubble--human {
   align-self: flex-end;
-  background: color-mix(in srgb, var(--phosphor) 16%, transparent);
-  border: 1px solid var(--phosphor);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid var(--accent);
+  color: var(--ink);
 }
 .bubble--expired,
 .bubble--pending,
 .bubble--acked {
   align-self: flex-end;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px dashed var(--line);
 }
 .bubble--pending,
@@ -1976,7 +1976,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   gap: 8px;
 }
 .bubble--acked {
-  color: var(--queue);
+  color: var(--ink-3);
   border-style: solid;
 }
 .bubble--pending {
@@ -1988,7 +1988,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   justify-content: space-between;
   gap: 12px;
   font-size: 10px;
-  color: var(--queue);
+  color: var(--ink-3);
   margin-bottom: 4px;
 }
 .bubble-text {
@@ -2051,7 +2051,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   padding: 8px 10px;
   overflow-x: auto;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   background: var(--hover, rgba(127, 127, 127, 0.08));
 }
 .bubble-md pre code {
@@ -2061,10 +2061,10 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .bubble-md blockquote {
   padding-left: 10px;
   border-left: 2px solid var(--line);
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .bubble-md a {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .bubble-md table {
   border-collapse: collapse;
@@ -2088,7 +2088,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .link-btn {
   background: transparent;
   border: none;
-  color: var(--phosphor);
+  color: var(--accent);
   padding: 4px 0 0;
   font-size: 11px;
   cursor: pointer;
@@ -2097,7 +2097,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   text-decoration: underline;
 }
 .empty {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   text-align: center;
   padding: 28px 10px;
@@ -2117,7 +2117,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 /* 附图条的说明（上传中 / 置灰原因）：跟错误同一行位置，字号更小 */
 .composer .attach-note {
   margin: 0;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 /* 成功回执（已送入终端 ✓）：绿色一边，和错误同位置同尺寸，避免布局跳动 */
@@ -2125,7 +2125,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   color: var(--done);
   font-size: 12px;
   border: 1px solid currentcolor;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 10px;
   margin: 0;
   word-break: break-word;
@@ -2136,10 +2136,10 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   resize: none;
   min-height: 34px;
   max-height: 40vh;
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--bg);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.5;
@@ -2155,7 +2155,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   color: var(--run);
 }
 .takeover-bar .takeover-link {
-  color: var(--phosphor);
+  color: var(--accent);
   text-decoration: none;
   border-bottom: 1px dotted currentcolor;
 }
@@ -2168,11 +2168,11 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   padding: 6px 14px;
   font-size: 11px;
   border-bottom: 1px solid var(--line);
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .wake-confirm { margin: 6px 14px; }
 .wake-why { color: var(--run); flex-basis: 100%; word-break: break-word; }
-.wake-cmd { display: block; margin-top: 4px; color: var(--phosphor); word-break: break-all; }
+.wake-cmd { display: block; margin-top: 4px; color: var(--accent); word-break: break-all; }
 .takeover-confirm {
   display: flex;
   align-items: center;
@@ -2182,7 +2182,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   font-size: 12px;
   color: var(--run);
   border: 1px solid currentcolor;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 10px;
 }
 .takeover-confirm .takeover-acts {
@@ -2191,7 +2191,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .composer-input:focus {
   outline: none;
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .composer-input:disabled {
   opacity: 0.55;
@@ -2204,15 +2204,15 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   gap: 12px;
 }
 .hint {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   line-height: 1.4;
 }
 .hint code {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .drawer-overlay--embedded .composer { padding: 6px 8px 8px; gap: 4px; }
   .drawer-overlay--embedded .composer-input { min-height: 34px; padding: 6px 8px; }
   .drawer-overlay--embedded .composer-foot { gap: 6px; }
@@ -2234,13 +2234,13 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   margin-left: 8px;
   padding: 2px 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--phosphor);
+  border-radius: var(--r-chip);
+  background: var(--surface);
+  color: var(--accent);
   font-size: 11px;
   line-height: 1.6;
 }
-.ack-btn:hover:not(:disabled) { border-color: var(--phosphor); }
+.ack-btn:hover:not(:disabled) { border-color: var(--accent); }
 
 /* 手机会话头部折叠条：默认不显示（宽屏头部照旧全展开，见 .head-collapsible 的 900px 规则）。 */
 .head-summary {
@@ -2249,7 +2249,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   gap: 6px;
   width: 100%;
   padding: 6px 12px;
-  color: var(--queue);
+  color: var(--ink-3);
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--line);
@@ -2257,7 +2257,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   font-size: 11px;
   cursor: pointer;
 }
-.head-summary:hover { color: var(--paper); }
+.head-summary:hover { color: var(--ink); }
 .head-summary .caret { flex: none; }
 .head-summary-text {
   flex: 1;
@@ -2276,12 +2276,12 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   border: 1px solid var(--line);
   border-radius: 50%;
   background: transparent;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   line-height: 1;
   cursor: pointer;
 }
-.hint-toggle:hover { border-color: var(--phosphor); color: var(--phosphor); }
+.hint-toggle:hover { border-color: var(--accent); color: var(--accent); }
 
 /* 手机档（≤900px）：主题 / 范围 / 中继说明收成一行（接管那组按钮不进折叠区，始终可见）、
    输入框说明收起——把纵向空间留给消息。宽屏一并不受影响：折叠条 / 「?」 始终 display: none，

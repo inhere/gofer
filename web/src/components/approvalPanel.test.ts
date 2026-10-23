@@ -76,8 +76,8 @@ describe('ApprovalPanel', () => {
     expect(panelSrc).toMatch(/\.ap-cmd \{[^}]*white-space: pre-wrap;[^}]*word-break: break-all;[^}]*overflow-x: hidden;/)
     expect(panelSrc).not.toMatch(/\.ap-cmd \{[^}]*overflow-x: auto/)
     // ≤640px：按钮条贴底，触控高度 ≥44px
-    expect(panelSrc).toMatch(/@media \(max-width: 640px\) \{[\s\S]*?\.ap-actions \{[^}]*position: sticky;[^}]*bottom: 0;/)
-    expect(panelSrc).toMatch(/@media \(max-width: 640px\) \{[\s\S]*?\.ap-btn \{[^}]*min-height: 44px;/)
+    expect(panelSrc).toMatch(/@media \(max-width: 760px\) \{[\s\S]*?\.ap-actions \{[^}]*position: sticky;[^}]*bottom: 0;/)
+    expect(panelSrc).toMatch(/@media \(max-width: 760px\) \{[\s\S]*?\.ap-btn \{[^}]*min-height: 44px;/)
     // 拒绝理由框默认收起
     expect(html).not.toContain('data-test="ap-reject-form"')
   })

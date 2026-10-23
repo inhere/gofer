@@ -231,7 +231,7 @@ defineExpose({ focusSearch })
   margin: 0;
   font-size: var(--fs-md);
   font-weight: 600;
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -243,7 +243,7 @@ defineExpose({ focusSearch })
   width: 32px;
   height: 32px;
   background: var(--surface);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -269,7 +269,7 @@ defineExpose({ focusSearch })
   width: 100%;
   min-height: 32px;
   padding: 2px var(--s2);
-  color: var(--fg);
+  color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
@@ -284,12 +284,12 @@ defineExpose({ focusSearch })
   display: flex;
   align-items: center;
   gap: var(--s1);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
   cursor: pointer;
 }
 .exec-hidden {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .orphan-notice {
   display: flex;
@@ -332,7 +332,7 @@ defineExpose({ focusSearch })
   padding: var(--s1) var(--s2);
   background: none;
   border: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font: inherit;
   font-size: var(--fs-xs);
   letter-spacing: 0.06em;
@@ -349,7 +349,7 @@ defineExpose({ focusSearch })
   cursor: pointer;
 }
 .ended-toggle:hover {
-  color: var(--fg);
+  color: var(--ink);
 }
 .caret {
   width: 10px;
@@ -364,7 +364,7 @@ defineExpose({ focusSearch })
   background: none;
   border: 0;
   border-radius: var(--r-ctl);
-  color: var(--fg);
+  color: var(--ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -396,7 +396,7 @@ defineExpose({ focusSearch })
   color: var(--accent);
 }
 .tm {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   white-space: nowrap;
 }
@@ -406,7 +406,7 @@ defineExpose({ focusSearch })
   align-items: center;
   gap: var(--s1);
   min-width: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 .ln-agent {
@@ -430,7 +430,7 @@ defineExpose({ focusSearch })
 .empty {
   margin: 0;
   padding: var(--s3);
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 /* 手机：exec 开关收进抽屉的筛选区之外会挤，保持隐藏（旧行为）。 */

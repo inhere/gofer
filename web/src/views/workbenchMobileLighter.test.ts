@@ -95,6 +95,6 @@ describe('mobile interaction toast', () => {
     expect(toast).toContain('isMobileWidth(window.innerWidth)')
     expect(toast).toContain('toastDwellMs(mobile)')
     expect(toast).toContain("emit('close')")
-    expect(toast).toMatch(/@media \(max-width: 640px\) \{[\s\S]*\.tx \{[\s\S]*font-size: 11px/)
+    expect(toast).toMatch(/@media \(max-width: 760px\) \{[\s\S]*\.tx \{[\s\S]*font-size: 11px/)
   })
 })

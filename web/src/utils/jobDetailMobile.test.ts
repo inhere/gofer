@@ -4,8 +4,8 @@ import { eventLabel } from './eventMeta'
 
 describe('job detail on narrow screens', () => {
   it('uses one metadata column and wraps long values at the existing breakpoint', () => {
-    expect(source).toMatch(/@media \(max-width: 640px\) \{[\s\S]*?\.meta \{\s*grid-template-columns: minmax\(0, 1fr\)/)
-    expect(source).toMatch(/@media \(max-width: 640px\) \{[\s\S]*?\.meta-v \{[^}]*overflow-wrap: anywhere/)
+    expect(source).toMatch(/@media \(max-width: 760px\) \{[\s\S]*?\.meta \{\s*grid-template-columns: minmax\(0, 1fr\)/)
+    expect(source).toMatch(/@media \(max-width: 760px\) \{[\s\S]*?\.meta-v \{[^}]*overflow-wrap: anywhere/)
   })
 
   it('shows Chinese labels for job timeline events', () => {

@@ -1123,11 +1123,11 @@ async function init(): Promise<void> {
 .title {
   margin: 0;
   font-size: var(--fs-lg);
-  color: var(--fg);
+  color: var(--ink);
 }
 .sub {
   margin: 2px 0 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .mobile-project-picker {
@@ -1157,7 +1157,7 @@ async function init(): Promise<void> {
   width: 100%;
   text-align: left;
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid transparent;
   border-radius: var(--r-ctl);
   padding: 7px 9px;
@@ -1175,7 +1175,7 @@ async function init(): Promise<void> {
   background: var(--sunken);
 }
 .list-empty {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 12px;
   padding: 6px 9px;
 }
@@ -1188,7 +1188,7 @@ async function init(): Promise<void> {
   min-height: 120px;
 }
 .placeholder {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 13px;
   margin: 0;
 }
@@ -1204,7 +1204,7 @@ async function init(): Promise<void> {
 }
 .detail-key {
   font-size: 15px;
-  color: var(--fg);
+  color: var(--ink);
   font-weight: 600;
 }
 .board-link {
@@ -1227,12 +1227,12 @@ async function init(): Promise<void> {
   font-size: 12px;
 }
 .kv dt {
-  color: var(--fg-3);
+  color: var(--ink-3);
   letter-spacing: 0.04em;
 }
 .kv dd {
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
   word-break: break-all;
 }
 
@@ -1258,7 +1258,7 @@ async function init(): Promise<void> {
   border: 1px solid var(--done);
 }
 .flag--no {
-  color: var(--fg-3);
+  color: var(--ink-3);
   border: 1px solid var(--line);
 }
 
@@ -1288,7 +1288,7 @@ async function init(): Promise<void> {
 .block-title {
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: var(--fg-3);
+  color: var(--ink-3);
   margin: 0;
 }
 .mini-btn {
@@ -1303,7 +1303,7 @@ async function init(): Promise<void> {
   border-color: var(--accent);
 }
 .mini-btn:disabled {
-  color: var(--fg-3);
+  color: var(--ink-3);
   cursor: default;
 }
 
@@ -1332,13 +1332,13 @@ async function init(): Promise<void> {
 .label {
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: var(--fg-3);
+  color: var(--ink-3);
   margin-bottom: 6px;
 }
 .control {
   width: 100%;
   background: var(--sunken);
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   padding: 9px 10px;
@@ -1363,7 +1363,7 @@ async function init(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: var(--fg);
+  color: var(--ink);
   font-size: 12px;
   margin: 6px 0;
 }
@@ -1371,7 +1371,7 @@ async function init(): Promise<void> {
   accent-color: var(--accent);
 }
 .field-hint {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 11px;
   margin: 6px 0 0;
 }
@@ -1459,14 +1459,14 @@ async function init(): Promise<void> {
   color: var(--accent);
 }
 .commit-subject {
-  color: var(--fg);
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .commit-meta {
   grid-column: 2;
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 
 /* 子仓库列表 */
@@ -1488,7 +1488,7 @@ async function init(): Promise<void> {
   border-radius: var(--r-ctl);
 }
 .repo-path {
-  color: var(--fg);
+  color: var(--ink);
   flex: 1;
   word-break: break-all;
 }
@@ -1505,7 +1505,7 @@ async function init(): Promise<void> {
 }
 .file-tab {
   background: transparent;
-  color: var(--fg);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   padding: 3px 10px;
@@ -1526,12 +1526,12 @@ async function init(): Promise<void> {
   background: var(--sunken);
 }
 .truncated {
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: 11px;
   margin: 0 0 8px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .layout {
     grid-template-columns: 1fr;
   }
@@ -1541,7 +1541,7 @@ async function init(): Promise<void> {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .head {
     align-items: center;
     justify-content: space-between;
@@ -1551,7 +1551,7 @@ async function init(): Promise<void> {
     align-items: center;
     gap: 8px;
     margin-bottom: 10px;
-    color: var(--fg-3);
+    color: var(--ink-3);
     font-size: 11px;
   }
   .mobile-project-picker .control {
@@ -1590,7 +1590,7 @@ async function init(): Promise<void> {
   margin-left: 6px;
   padding: 0 5px;
   font-size: 10px;
-  color: var(--fg-3);
+  color: var(--ink-3);
   border: 1px solid currentColor;
   border-radius: 3px;
 }
@@ -1613,7 +1613,7 @@ async function init(): Promise<void> {
   min-height: 28px;
   padding: 0 var(--s2);
   background: var(--surface-2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   font: inherit;
@@ -1634,7 +1634,7 @@ async function init(): Promise<void> {
 .fleet-hint {
   margin: 0;
   flex: 1;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-sm);
 }
 .groups {
@@ -1670,7 +1670,7 @@ async function init(): Promise<void> {
 .group-name {
   font-size: var(--fs-md);
   font-weight: 600;
-  color: var(--fg);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .group-kv {
@@ -1681,7 +1681,7 @@ async function init(): Promise<void> {
   font-size: var(--fs-xs);
 }
 .group-kv dt {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .group-kv dd {
   display: flex;
@@ -1690,14 +1690,14 @@ async function init(): Promise<void> {
   gap: var(--s1);
   min-width: 0;
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
 }
 .group-kv .path {
-  color: var(--fg);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .group-kv .dim {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .proj-chip {
   display: inline-flex;
@@ -1706,7 +1706,7 @@ async function init(): Promise<void> {
   min-height: 26px;
   padding: 0 var(--s2);
   background: var(--surface-2);
-  color: var(--fg-2);
+  color: var(--ink-2);
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   font: inherit;
@@ -1724,7 +1724,7 @@ button.proj-chip:hover {
 }
 .group-error {
   margin: 0;
-  color: var(--fg-3);
+  color: var(--ink-3);
   font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
@@ -1753,7 +1753,7 @@ button.proj-chip:hover {
   font-size: var(--fs-xs);
 }
 .own-key {
-  color: var(--fg);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
@@ -1772,7 +1772,7 @@ button.proj-chip:hover {
     min-height: 36px;
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .worker-own {
     order: -1;
   }

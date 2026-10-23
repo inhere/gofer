@@ -428,7 +428,7 @@ onMounted(() => {
 .title {
   font-size: 16px;
   letter-spacing: 0.08em;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0;
 }
 .head .mini-btn {
@@ -440,21 +440,21 @@ onMounted(() => {
   transition: color 0.2s;
 }
 .poll-hint--on {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .scope-note {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 12px;
   margin: 0 0 12px;
 }
 .scope-note a {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 
 .error,
 .notice {
   font-size: 12px;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0 0 10px;
   word-break: break-word;
@@ -468,13 +468,13 @@ onMounted(() => {
   border: 1px solid var(--done);
 }
 .muted {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 
 .panel {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 12px 14px;
 }
 .import-panel {
@@ -483,7 +483,7 @@ onMounted(() => {
 .panel-title {
   font-size: 13px;
   letter-spacing: 0.04em;
-  color: var(--paper);
+  color: var(--ink);
   margin: 0 0 10px;
 }
 .import-row {
@@ -503,40 +503,40 @@ onMounted(() => {
   min-width: 260px;
 }
 .field-name {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .input {
   background: transparent;
-  color: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 5px 8px;
   font-family: inherit;
   font-size: 12px;
 }
 .input:focus {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .hint {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 8px 0 0;
   line-height: 1.6;
 }
 .mini-btn {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 11px;
   cursor: pointer;
 }
 .mini-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .mini-btn:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
   cursor: default;
 }
 .mini-btn--danger {
@@ -548,7 +548,7 @@ onMounted(() => {
 
 .table {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   overflow: hidden;
 }
 .thead,
@@ -560,11 +560,11 @@ onMounted(() => {
   padding: 9px 14px;
 }
 .thead {
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
   font-size: 11px;
   letter-spacing: 0.06em;
-  color: var(--queue);
+  color: var(--ink-3);
   text-transform: uppercase;
 }
 .trow {
@@ -574,7 +574,7 @@ onMounted(() => {
   outline: none;
 }
 .trow:hover {
-  background: var(--panel);
+  background: var(--surface);
 }
 .col-name {
   display: inline-flex;
@@ -588,7 +588,7 @@ onMounted(() => {
   max-width: 100%;
   background: transparent;
   border: 0;
-  color: var(--phosphor);
+  color: var(--accent);
   cursor: pointer;
   font-size: 13px;
   padding: 0;
@@ -599,12 +599,12 @@ onMounted(() => {
   text-decoration: underline;
 }
 .name-btn:focus-visible {
-  outline: 1px solid var(--phosphor);
+  outline: 1px solid var(--accent);
   outline-offset: 2px;
   border-radius: 2px;
 }
 .chev {
-  color: var(--queue);
+  color: var(--ink-3);
   flex: none;
   font-size: 12px;
   line-height: 1;
@@ -615,14 +615,14 @@ onMounted(() => {
   white-space: nowrap;
 }
 .col-desc {
-  color: var(--queue);
+  color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .col-version,
 .col-size {
-  color: var(--paper);
+  color: var(--ink);
   font-size: 12px;
 }
 .col-updated {
@@ -630,10 +630,10 @@ onMounted(() => {
   flex-direction: column;
   gap: 1px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .col-updated small {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .col-actions {
@@ -643,7 +643,7 @@ onMounted(() => {
 
 .detail {
   border-bottom: 1px solid var(--line);
-  background: var(--ink);
+  background: var(--bg);
   padding: 12px 14px 14px 40px;
   font-size: 12px;
 }
@@ -655,22 +655,22 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 .dk {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .dv {
-  color: var(--paper);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .detail-head {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.06em;
   margin: 12px 0 6px;
 }
 .change {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
 }
 .change-lines {
@@ -690,7 +690,7 @@ onMounted(() => {
 }
 .files {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
 }
 .file-row {
   display: grid;
@@ -704,20 +704,20 @@ onMounted(() => {
   border-top: none;
 }
 .file-path {
-  color: var(--paper);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 .file-size,
 .file-sha {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .skill-md {
   margin: 0;
   padding: 10px 12px;
-  background: var(--term-bg);
+  background: var(--sunken);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--paper);
+  border-radius: var(--r-chip);
+  color: var(--ink);
   font-size: 12px;
   line-height: 1.6;
   max-height: 520px;
@@ -729,7 +729,7 @@ onMounted(() => {
 .empty {
   padding: 28px 14px;
   text-align: center;
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 13px;
 }
 

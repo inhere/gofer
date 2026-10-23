@@ -63,18 +63,18 @@ const missingCount = computed(() => {
 
 <style scoped>
 .rdirs { margin-top: 8px; font-size: 11px; }
-.rdirs-sum { cursor: pointer; color: var(--queue); }
-.rdirs-sum:hover { color: var(--paper); }
+.rdirs-sum { cursor: pointer; color: var(--ink-3); }
+.rdirs-sum:hover { color: var(--ink); }
 .rdirs-bad { color: var(--fail); margin-left: 8px; }
-.rdirs-dim { color: var(--queue); margin-left: 8px; opacity: 0.7; }
-.rdirs-line.rdirs-dim { color: var(--queue); opacity: 0.7; }
-.rdirs-note { margin: 6px 0 0; color: var(--queue); }
+.rdirs-dim { color: var(--ink-3); margin-left: 8px; opacity: 0.7; }
+.rdirs-line.rdirs-dim { color: var(--ink-3); opacity: 0.7; }
+.rdirs-note { margin: 6px 0 0; color: var(--ink-3); }
 .rdirs-block { margin-top: 8px; }
-.rdirs-k { color: var(--queue); margin-right: 8px; }
-.rdirs-line { margin-top: 4px; color: var(--paper); min-width: 0; line-height: 1.6; word-break: break-all; }
+.rdirs-k { color: var(--ink-3); margin-right: 8px; }
+.rdirs-line { margin-top: 4px; color: var(--ink); min-width: 0; line-height: 1.6; word-break: break-all; }
 .rdirs-line > * + * { margin-left: 8px; }
-.rdirs-line code { color: var(--phosphor); word-break: break-all; }
-.rdirs-key { color: var(--paper); font-weight: 600; }
+.rdirs-line code { color: var(--accent); word-break: break-all; }
+.rdirs-key { color: var(--ink); font-weight: 600; }
 .rdirs-arrow { color: var(--line); }
 .rdirs-missing { color: var(--fail) !important; text-decoration: line-through dotted; }
 </style>

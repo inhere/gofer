@@ -490,12 +490,12 @@ onMounted(() => {
 .title {
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 0;
 }
 .count {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .spacer {
   flex: 1;
@@ -505,14 +505,14 @@ onMounted(() => {
 }
 .note {
   font-size: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
   margin: 0;
 }
 .readonly {
   font-size: 12px;
-  color: var(--queue);
+  color: var(--ink-3);
   border: 1px dashed var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 10px;
   margin: 0;
 }
@@ -523,16 +523,16 @@ onMounted(() => {
 }
 .group-title {
   font-size: 12px;
-  color: var(--phosphor);
+  color: var(--accent);
   margin: 4px 0 0;
 }
 .prefix {
-  color: var(--queue);
+  color: var(--ink-3);
   font-size: 11px;
 }
 .card {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 10px 14px;
   min-width: 0;
   display: flex;
@@ -547,14 +547,14 @@ onMounted(() => {
 }
 .key {
   font-size: 13px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .tag {
   font-size: 11px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 6px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .tag--mod {
   color: var(--done);
@@ -563,7 +563,7 @@ onMounted(() => {
 .desc {
   margin: 0;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .edit {
   min-width: 0;
@@ -573,7 +573,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
   cursor: pointer;
 }
 .int-row {
@@ -588,16 +588,16 @@ onMounted(() => {
   gap: 4px;
 }
 .input {
-  background: var(--panel);
-  color: var(--paper);
+  background: var(--surface);
+  color: var(--ink);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 5px 8px;
   font-size: 12px;
   min-width: 0;
 }
 .input:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .int-row .input {
   width: 120px;
@@ -612,15 +612,15 @@ onMounted(() => {
 }
 .hint {
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
 }
 .default {
   margin: 0;
   font-size: 11px;
-  color: var(--queue);
-  background: var(--panel);
+  color: var(--ink-3);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 6px 8px;
   max-height: 220px;
   overflow: auto;
@@ -630,7 +630,7 @@ onMounted(() => {
 .meta {
   margin: 0;
   font-size: 11px;
-  color: var(--queue);
+  color: var(--ink-3);
   word-break: break-word;
 }
 .field-error {
@@ -652,25 +652,25 @@ onMounted(() => {
   color: var(--fail);
   font-size: 12px;
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 8px 10px;
   margin: 0;
   word-break: break-word;
 }
 .mini-btn {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--accent);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 4px 10px;
   font-size: 11px;
   cursor: pointer;
 }
 .mini-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
 }
 .mini-btn:disabled {
-  color: var(--queue);
+  color: var(--ink-3);
   cursor: default;
 }
 .mini-btn--primary {
@@ -694,7 +694,7 @@ onMounted(() => {
 .modal-card {
   background: var(--bg, #0d0f0d);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 14px;
   width: min(760px, 100%);
   max-height: 86vh;
@@ -708,7 +708,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: var(--paper);
+  color: var(--ink);
 }
 .modal-actions {
   display: flex;
@@ -726,10 +726,10 @@ onMounted(() => {
   padding: 4px 6px;
   text-align: left;
   vertical-align: top;
-  color: var(--paper);
+  color: var(--ink);
 }
 .diff th {
-  color: var(--queue);
+  color: var(--ink-3);
   font-weight: normal;
 }
 .diff tr.refused td {
@@ -738,7 +738,7 @@ onMounted(() => {
 .brk {
   word-break: break-all;
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .int-row .input {
     width: 100%;
   }

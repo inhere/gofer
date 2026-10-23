@@ -206,33 +206,33 @@ defineExpose({ open })
 </template>
 
 <style scoped>
-.fab { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 60; padding: 10px 16px; border-radius: 22px; border: 1px solid var(--phosphor); background: var(--phosphor); color: var(--ink); font-size: 13px; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
-.panel { position: fixed; right: 16px; bottom: 16px; z-index: 70; display: flex; flex-direction: column; width: min(420px, calc(100vw - 32px)); height: min(600px, calc(100vh - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5); overflow: hidden; }
+.fab { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 60; padding: 10px 16px; border-radius: 22px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font-size: 13px; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
+.panel { position: fixed; right: 16px; bottom: 16px; z-index: 70; display: flex; flex-direction: column; width: min(420px, calc(100vw - 32px)); height: min(600px, calc(100vh - 32px)); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-chip); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5); overflow: hidden; }
 .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex: none; }
-.head-main { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--paper); }
+.head-main { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; color: var(--ink); }
 .head-actions { display: flex; gap: 6px; flex: none; }
-.mini { padding: 3px 8px; font-size: 11px; color: var(--paper); background: transparent; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }
-.muted { color: var(--queue); }
-.state { padding: 0 8px; border: 1px solid var(--line); border-radius: 9px; font-size: 10px; color: var(--queue); }
+.mini { padding: 3px 8px; font-size: 11px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); cursor: pointer; }
+.muted { color: var(--ink-3); }
+.state { padding: 0 8px; border: 1px solid var(--line); border-radius: 9px; font-size: 10px; color: var(--ink-3); }
 .state--idle { color: var(--done); border-color: var(--done); }
 .state--running { color: var(--run); border-color: var(--run); }
-.disabled { padding: 24px 14px; font-size: 13px; color: var(--paper); text-align: center; }
-.disabled a { color: var(--phosphor); }
+.disabled { padding: 24px 14px; font-size: 13px; color: var(--ink); text-align: center; }
+.disabled a { color: var(--accent); }
 .body { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .bubble { max-width: 92%; border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; font-size: 13px; }
 .bubble--user { align-self: flex-end; background: rgba(100, 170, 255, 0.09); }
-.bubble--bot { align-self: flex-start; background: var(--ink); }
-.role { margin-bottom: 4px; font-size: 9px; letter-spacing: 0.08em; color: var(--queue); }
+.bubble--bot { align-self: flex-start; background: var(--bg); }
+.role { margin-bottom: 4px; font-size: 9px; letter-spacing: 0.08em; color: var(--ink-3); }
 .plain { white-space: pre-wrap; word-break: break-word; }
-.note { margin: 0; font-size: 11px; color: var(--queue); text-align: center; }
-.err { margin: 0 10px 6px; padding: 6px 8px; font-size: 11px; color: var(--fail); border: 1px solid var(--fail); border-radius: var(--radius); word-break: break-word; }
+.note { margin: 0; font-size: 11px; color: var(--ink-3); text-align: center; }
+.err { margin: 0 10px 6px; padding: 6px 8px; font-size: 11px; color: var(--fail); border: 1px solid var(--fail); border-radius: var(--r-chip); word-break: break-word; }
 .quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 6px; flex: none; }
-.chip { padding: 4px 10px; font-size: 11px; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.chip { padding: 4px 10px; font-size: 11px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .chip:disabled, .send:disabled { opacity: 0.45; cursor: not-allowed; }
 .compose { display: flex; gap: 6px; padding: 6px 10px 10px; border-top: 1px solid var(--line); flex: none; }
-.compose textarea { flex: 1; min-width: 0; resize: none; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; font-size: 13px; }
-.send { padding: 0 14px; color: var(--ink); background: var(--phosphor); border: 0; border-radius: var(--radius); cursor: pointer; }
-@media (max-width: 767px) {
+.compose textarea { flex: 1; min-width: 0; resize: none; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 13px; }
+.send { padding: 0 14px; color: var(--bg); background: var(--accent); border: 0; border-radius: var(--r-chip); cursor: pointer; }
+@media (max-width: 760px) {
   /* 手机：全屏底部抽屉；悬浮按钮抬高，免得盖住底部操作 */
   .panel { inset: 0; right: 0; bottom: 0; width: 100vw; height: 100dvh; border-radius: 0; }
   .fab { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }

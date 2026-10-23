@@ -1166,7 +1166,7 @@ onUnmounted(() => {
   gap: 6px;
   font-size: var(--fs-lg);
   margin: 0;
-  color: var(--fg);
+  color: var(--ink);
   letter-spacing: -0.015em;
 }
 .filter-chip {
@@ -1177,7 +1177,7 @@ onUnmounted(() => {
   border-radius: var(--r-chip);
   padding: 3px 8px;
   font-size: var(--fs-xs);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .chip-x {
   background: none;
@@ -1206,7 +1206,7 @@ onUnmounted(() => {
   border: 1px solid transparent;
   border-radius: var(--r-ctl);
   padding: 8px 10px;
-  color: var(--fg);
+  color: var(--ink);
   cursor: pointer;
 }
 .conv:hover {
@@ -1340,7 +1340,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 6px;
   font-size: var(--fs-xs);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .bubble-to {
   font-size: var(--fs-xs);
@@ -1361,7 +1361,7 @@ onUnmounted(() => {
 .bubble-body {
   margin-top: 6px;
   font-size: var(--fs-base);
-  color: var(--fg);
+  color: var(--ink);
 }
 .fold {
   margin-top: 4px;
@@ -1425,14 +1425,14 @@ onUnmounted(() => {
 }
 .broadcast-head {
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .broadcast-dot {
   font-size: var(--fs-xs);
   padding: 0 5px;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 /* 写信框（Sheet 内容）：内容多时自己滚，不把抽屉撑出视口。 */
 .compose {
@@ -1446,7 +1446,7 @@ onUnmounted(() => {
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
-  color: var(--fg);
+  color: var(--ink);
   padding: 6px 8px;
   font-size: var(--fs-sm);
 }
@@ -1464,11 +1464,11 @@ onUnmounted(() => {
   border-radius: var(--r-chip);
   padding: 2px 6px;
   font-size: var(--fs-xs);
-  color: var(--fg-2);
+  color: var(--ink-2);
 }
 .compose-preview {
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .compose-pick {
   display: flex;
@@ -1488,7 +1488,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: var(--fs-xs);
-  color: var(--fg);
+  color: var(--ink);
   padding: 2px 0;
 }
 .pick-label {
@@ -1509,7 +1509,7 @@ onUnmounted(() => {
 .compose-advanced summary {
   cursor: pointer;
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .compose-advanced input {
   width: 100%;
@@ -1551,13 +1551,13 @@ onUnmounted(() => {
   color: var(--fail);
 }
 .tone--queue {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .act {
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-ctl);
-  color: var(--fg);
+  color: var(--ink);
   padding: 4px 10px;
   font-size: var(--fs-sm);
   cursor: pointer;
@@ -1579,7 +1579,7 @@ onUnmounted(() => {
   margin: 0;
 }
 .dim {
-  color: var(--fg-3);
+  color: var(--ink-3);
 }
 .pad {
   padding: 8px 0;

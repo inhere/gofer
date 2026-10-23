@@ -104,28 +104,28 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 <style scoped>
 .mono { font-family: var(--font-mono); }
 .rg-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; padding: 20px; }
-.rg-panel { width: 100%; max-width: 460px; max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.rg-panel { width: 100%; max-width: 460px; max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-chip); }
 .rg-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.rg-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--paper); }
-.rg-sub { margin: 2px 0 0; font-size: 12px; color: var(--queue); overflow-wrap: anywhere; }
-.rg-x { font-size: 18px; line-height: 1; padding: 2px 8px; color: var(--queue); background: transparent; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }
+.rg-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--ink); }
+.rg-sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+.rg-x { font-size: 18px; line-height: 1; padding: 2px 8px; color: var(--ink-3); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); cursor: pointer; }
 /* 说明：左侧色条用「运行中」色，先讲清续期只改一件事 */
-.rg-note { margin: 0; padding: 9px 12px; font-size: 13px; line-height: 1.55; border: 1px solid var(--line); border-left: 3px solid var(--run); border-radius: var(--radius); background: var(--term-bg); }
+.rg-note { margin: 0; padding: 9px 12px; font-size: 13px; line-height: 1.55; border: 1px solid var(--line); border-left: 3px solid var(--run); border-radius: var(--r-chip); background: var(--sunken); }
 .rg-note strong { display: block; color: var(--run); font-weight: 600; margin-bottom: 2px; }
-.rg-hint { margin: 0; font-size: 12px; color: var(--queue); line-height: 1.5; display: flex; flex-wrap: wrap; gap: 6px; }
+.rg-hint { margin: 0; font-size: 12px; color: var(--ink-3); line-height: 1.5; display: flex; flex-wrap: wrap; gap: 6px; }
 .rg-field { display: grid; gap: 4px; min-width: 0; }
-select { background: var(--term-bg); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; font-size: 13px; min-width: 0; }
-select:focus-visible, .rg-btn:focus-visible, .rg-x:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
-.rg-msg { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; overflow-wrap: anywhere; }
+select { background: var(--sunken); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 13px; min-width: 0; }
+select:focus-visible, .rg-btn:focus-visible, .rg-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rg-msg { margin: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-chip); font-size: 13px; overflow-wrap: anywhere; }
 .rg-msg--error { color: var(--fail); border-color: var(--fail); }
 .rg-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.rg-btn { font: inherit; font-size: 12px; padding: 6px 14px; color: var(--paper); background: transparent; border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }
-.rg-btn:hover:not(:disabled) { border-color: var(--phosphor); }
+.rg-btn { font: inherit; font-size: 12px; padding: 6px 14px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); cursor: pointer; }
+.rg-btn:hover:not(:disabled) { border-color: var(--accent); }
 .rg-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.rg-btn--primary { color: var(--ink); background: var(--phosphor); border-color: var(--phosphor); }
-@media (max-width: 640px) {
+.rg-btn--primary { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+@media (max-width: 760px) {
   .rg-overlay { padding: 0; align-items: flex-end; }
-  .rg-panel { max-width: none; max-height: 92vh; border-radius: var(--radius) var(--radius) 0 0; }
+  .rg-panel { max-width: none; max-height: 92vh; border-radius: var(--r-chip) var(--r-chip) 0 0; }
   .rg-field { flex: 1 1 100%; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
