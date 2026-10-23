@@ -46,23 +46,31 @@ describe('workbench P3 layout', () => {
   })
 
   it('offers send / queue / interrupt-and-send in the session composer', () => {
-    expect(threadView).toContain("type SendMode = 'send' | 'queue' | 'interrupt'")
-    expect(threadView).toContain("(['send', 'queue', 'interrupt'] as SendMode[])")
-    expect(threadView).toContain("t(`workbench.composer.mode.${mode}`)")
+    // P4：工作台的输入框换成统一的 Composer（设计与实现只在 ui/Composer.vue 一处）。
+    const composer = raw(import.meta.glob('../ui/Composer.vue', { eager: true, query: '?raw', import: 'default' }))
+    expect(threadView).toContain("import Composer from '../../ui/Composer.vue'")
+    expect(threadView).toContain(":modes=\"['send', 'queue', 'interrupt']\"")
+    expect(threadView).toContain('@interrupt="onInterrupt"')
+    expect(composer).toContain("export type ComposerMode = 'send' | 'queue' | 'interrupt'")
+    expect(composer).toContain("emit('send', next)")
     // 排队：线程一空闲就按顺序发出；打断：先取消再排队。
-    expect(threadView).toContain('watch(canTurn, (ready) => {')
+    expect(composer).toContain('watch(')
     expect(threadView).toContain('await stopCurrent()')
-    expect(threadView).toContain("t('workbench.composer.queued', { n: queued.length })")
+    expect(composer).toContain("t('composer.queued', { n: queued.length })")
   })
 
   it('persists the pending-send queue per session so a reload keeps it', () => {
     // 评审意见：队列按会话存 localStorage，重开恢复，发出 / 丢弃后清除。
-    expect(threadView).toContain("import { clearSendQueue, readSendQueue, writeSendQueue } from './sendQueue'")
-    expect(threadView).toContain('queued.value = current ? readSendQueue(current.id) : []')
-    expect(threadView).toContain('writeSendQueue(id, items)')
-    expect(threadView).toContain('clearSendQueue(id)')
+    // P4：队列收进 ui/composer.ts，工作台的键还是 gofer.workbench.queue.<id>。
+    const composer = raw(import.meta.glob('../ui/composer.ts', { eager: true, query: '?raw', import: 'default' }))
+    expect(composer).toContain('export function readComposerQueue(')
+    expect(composer).toContain('export function writeComposerQueue(')
+    expect(composer).toContain('export function clearComposerQueue(')
+    expect(threadView).toContain('queue-scope="workbench"')
+    expect(threadView).toContain(':queue-key="thread.id"')
     const queue = raw(import.meta.glob('../components/workbench/sendQueue.ts', { eager: true, query: '?raw', import: 'default' }))
-    expect(queue).toContain('gofer.workbench.queue.')
+    expect(queue).toContain("const SCOPE = 'workbench'")
+    expect(queue).toContain('composerQueueKey(SCOPE, threadID)')
   })
 
   it('shows the orphan waiting count as one header line', () => {

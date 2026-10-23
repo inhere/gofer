@@ -43,29 +43,29 @@ describe('attachment bar', () => {
 
 describe('composer wiring', () => {
   it('mounts the bar in the workbench turn composer with the thread capability', () => {
-    expect(thread).toContain('<AttachmentBar')
-    expect(thread).toContain(':capability="attachCapability"')
+    // P4：附件条收进统一的 Composer，能力位仍由 thread 决定。
+    expect(thread).toContain('<Composer')
+    expect(thread).toContain('attachments')
+    expect(thread).toContain(':attach-capability="attachCapability"')
     expect(thread).toContain('attachmentCapability(thread.value)')
-    expect(thread).toContain('@paste="attachBar?.addFromPaste($event)"')
-    expect(thread).toContain('@drop="attachBar?.handleDrop($event)"')
   })
 
   it('sends the turn with the uploaded attachment ids and clears the bar after success', () => {
-    expect(thread).toContain('attachBar.value?.readyIDs()')
+    expect(thread).toContain('turnInput.value?.readyIDs()')
     expect(thread).toContain('turnWorkbenchThread(current.id, text, attachmentIDs)')
-    expect(thread).toContain('attachBar.value?.clear()')
-    // 排队 / 打断模式要在这一轮还在跑时也能提交，所以按钮的禁用只看文本与「直接发送」模式。
-    expect(thread).toContain(":disabled=\"!draft.trim() || (sendMode === 'send' && !canSendTurn)\"")
+    expect(thread).toContain('turnInput.value?.clearAttachments()')
+    // 排队 / 打断模式要在这一轮还在跑时也能提交：Composer 的禁用只看文本与「直接发送」模式。
+    const composer = raw(import.meta.glob('../ui/Composer.vue', { eager: true, query: '?raw', import: 'default' }))
+    expect(composer).toContain("mode.value === 'send' && !props.canSend")
   })
 
   it('mounts the bar in the session drawer answer box and gates on an open turn', () => {
-    expect(drawer).toContain('<AttachmentBar')
-    expect(drawer).toContain(':capability="attachCapability"')
+    expect(drawer).toContain('<Composer')
+    expect(drawer).toContain('attachments')
+    expect(drawer).toContain(':attach-capability="attachCapability"')
     expect(drawer).toContain('turnWorkbenchThread(props.threadId, text, attachmentIDs)')
-    expect(drawer).toContain('attachBar.value?.clear()')
-    expect(drawer).toContain('@paste="attachBar?.addFromPaste($event)"')
-    expect(drawer).toContain('@drop="attachBar?.handleDrop($event)"')
-    expect(drawer).toContain('attachBlocked')
+    expect(drawer).toContain('composerRef.value?.clearAttachments()')
+    expect(drawer).toContain('composerRef.value?.readyIDs()')
   })
 
   it('sends attachments only with the attachment field present', () => {

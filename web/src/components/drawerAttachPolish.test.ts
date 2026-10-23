@@ -54,7 +54,7 @@ describe('drawer attach availability', () => {
   })
 
   it('keeps the reason in one place (paperclip title, not the note line)', () => {
-    expect(drawer).toContain('attachHintNote(attachBar.value?.hint()')
+    expect(drawer).toContain('attachHintNote(composerRef.value?.attachHint')
   })
 })
 

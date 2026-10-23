@@ -49,7 +49,8 @@ import {
 import { turnWorkbenchThread } from '../api/workbench'
 import { attachHintNote, UNSUPPORTED_OUTSIDE_THREAD_REASON, type AttachmentCapability } from '../utils/attachments'
 import { attachmentBubbleText } from '../utils/attachmentText'
-import AttachmentBar from './AttachmentBar.vue'
+import Composer from '../ui/Composer.vue'
+import Drawer from '../ui/Drawer.vue'
 import AttachmentThumbs from './AttachmentThumbs.vue'
 import { topicDisplay } from '../utils/sessionTopic'
 import { MOBILE_HEADER_FALLBACK, sessionHeaderSummary } from '../utils/mobileLayout'
@@ -316,15 +317,23 @@ const canSend = computed(
 )
 // 附图条：只有工作台里的会话（有 threadId）能带附件，可用性只看 thread 的能力位——
 // 工作台 composer 也是这么量的。agent 没在等回复也能收图：后端走 SendMessage / 传话人 / 送达阶梯。
-const attachBar = ref<InstanceType<typeof AttachmentBar> | null>(null)
 const attachCapability = computed<AttachmentCapability>(() => {
   if (!props.threadId) {
     return { mode: 'none', enabled: false, reason: UNSUPPORTED_OUTSIDE_THREAD_REASON }
   }
   return props.attachmentCapability
 })
-const attachHint = computed(() => attachHintNote(attachBar.value?.hint() ?? '', attachCapability.value.reason))
-const attachBlocked = computed(() => !!attachBar.value && !attachBar.value.canSend())
+// 附图条随统一的 Composer（P4）：附件与发送门禁都由它管，这里只取提示与就绪 id。
+const composerRef = ref<InstanceType<typeof Composer> | null>(null)
+const attachHint = computed(() => attachHintNote(composerRef.value?.attachHint ?? '', attachCapability.value.reason))
+// 抽屉外壳换成 ui/Drawer（P2）：宽度沿用会话抽屉的规格；关闭即发 close。
+const drawerOpen = computed({
+  get: () => true,
+  set: (value: boolean) => {
+    if (!value && !props.embedded) emit('close')
+  },
+})
+const drawerWidth = 'min(max(760px, 62vw), 1200px, 94vw)'
 // showWake：已被接管的会话由下方的接管条处理（跳转 / 解除），其余状态都给唤醒入口。
 const showWake = computed(() => !!session.value && session.value.state !== 'handed_off')
 
@@ -392,6 +401,29 @@ async function confirmWake(): Promise<void> {
 
 // toTerminal：这封消息走的是注入路径（没有 turn 在等），占位与回执据此切换。
 const toTerminal = computed(() => !openTurn.value)
+
+// 统一的输入框（P4 Composer）：占位文字与说明跟会话状态走。
+const composerPlaceholder = computed(() =>
+  session.value?.state === 'ended'
+    ? '会话已结束：点上方「唤醒」在新终端里继续'
+    : session.value?.state === 'handed_off'
+      ? '会话已被 web 接管：到接管终端里继续，或先解除接管'
+      : openTurn.value
+        ? '回复 agent…（Ctrl/Cmd+Enter 发送；输入 /off 关闭中继，让会话正常停下）'
+        : session.value
+          ? '下一条消息'
+          : '发送给会话…（Ctrl/Cmd+Enter 发送；忙或空闲时经会话间消息转达）',
+)
+const composerHint = computed(() => {
+  if (openTurn.value) return '回复将原样进入 agent 上下文；输入 /off 关闭中继并让会话正常停下。'
+  if (session.value?.state === 'ended') return '会话已结束，不能再发消息；点上方「唤醒」可以在新终端里继续它。'
+  if (session.value?.state === 'handed_off') return '本会话已被 web 用 --resume 起的新进程接管；原终端不再中继，要恢复请解除接管。'
+  if (takeoverOffered.value) {
+    return `送不进终端（${session.value?.tmux_pane ? 'pane 已失效' : '未登记 tmux pane'}），可起新进程接管。`
+  }
+  if (toTerminal.value) return '会话没有在等回复：消息由一次性传话人经会话间消息原样转达；对方不会把它当作你的审批。'
+  return '会话未在等待回复。'
+})
 // handedOffJob：会话当前被哪个 pty job 接管（§9.1 B），空 = 没被接管。
 const handedOffJob = computed(() => session.value?.handed_off_job_id ?? '')
 // takeoverHint 是二次确认的文案（设计 §9.1 B 的原话）：说明要起什么进程、原终端会怎样。
@@ -747,7 +779,7 @@ async function send(): Promise<void> {
   if (!text || !canSend.value) {
     return
   }
-  const attachmentIDs = attachBar.value?.readyIDs() ?? []
+  const attachmentIDs = composerRef.value?.readyIDs() ?? []
   if (attachmentIDs.length > 0 && !props.threadId) {
     // 送入终端 / 纯会话窗口没有附件字段：不静默丢图。
     actionError.value = '这个位置不能带附图：请在带会话抽屉的工作台里发送'
@@ -773,7 +805,7 @@ async function send(): Promise<void> {
     }
     draft.value = ''
     // 发送成功才清空附件条（失败时图还在，可直接重试）。
-    attachBar.value?.clear()
+    composerRef.value?.clearAttachments()
     await load({ silent: true })
     scrollToBottom()
     emit('changed')
@@ -906,19 +938,6 @@ function deliverErrorMessage(e: unknown): string {
   return errorMessage(e)
 }
 
-function onKeydown(ev: KeyboardEvent): void {
-  if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
-    ev.preventDefault()
-    void send()
-  }
-}
-
-function autoGrow(ev: Event): void {
-  const el = ev.target as HTMLTextAreaElement
-  el.style.height = 'auto'
-  el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`
-}
-
 async function remove(): Promise<void> {
   if (deleting.value) {
     return
@@ -1000,18 +1019,16 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 </script>
 
 <template>
-  <div class="drawer-overlay" :class="{ 'drawer-overlay--embedded': embedded }" @click.self="!embedded && emit('close')">
+  <Drawer v-model="drawerOpen" :label="titleText" :embedded="embedded" flush :width="drawerWidth">
     <div
       class="drawer-panel"
-      :class="{ 'drawer-panel--head-open': headerOpen, 'drawer-panel--hint-open': hintOpen }"
-      :role="embedded ? 'region' : 'dialog'"
+      :class="{ 'drawer-panel--head-open': headerOpen, 'drawer-panel--hint-open': hintOpen, 'drawer-panel--embedded': embedded }"
+      :role="embedded ? 'region' : undefined"
       aria-label="会话详情"
     >
       <div v-if="!embedded" class="drawer-head">
-        <div class="head-main">
-          <span class="drawer-title mono" :title="titleText">{{ titleText }}</span>
+        <div v-if="session" class="head-main">
           <span
-            v-if="session"
             class="state-badge mono"
             :class="`state--${session.state}`"
           >
@@ -1432,11 +1449,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 
       <SessionNudges v-if="session && sid" :sid="sid" :state="session.state" />
 
-      <div
-        class="composer"
-        @dragover="attachBar?.handleDragOver($event)"
-        @drop="attachBar?.handleDrop($event)"
-      >
+      <div class="composer">
         <p v-if="actionError" class="error mono">{{ actionError }}</p>
         <p v-else-if="actionInfo" class="receipt mono">{{ actionInfo }}</p>
         <!-- 已接管（§9.1 B）：对话在 pty job 里继续，这里只提供跳转与解除。 -->
@@ -1470,76 +1483,38 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             </button>
           </span>
         </div>
-        <AttachmentBar ref="attachBar" :capability="attachCapability" @error="actionError = $event" />
         <p v-if="attachHint" class="attach-note mono">{{ attachHint }}</p>
-        <textarea
+        <Composer
+          ref="composerRef"
           v-model="draft"
-          class="composer-input mono"
-          rows="1"
+          :placeholder="composerPlaceholder"
           :disabled="!canSend"
-          :placeholder="
-            session?.state === 'ended'
-              ? '会话已结束：点上方「唤醒」在新终端里继续'
-              : session?.state === 'handed_off'
-                ? '会话已被 web 接管：到接管终端里继续，或先解除接管'
-                : openTurn
-                  ? '回复 agent…（Ctrl/Cmd+Enter 发送；输入 /off 关闭中继，让会话正常停下）'
-                  : session
-                    ? '下一条消息'
-                    : '发送给会话…（Ctrl/Cmd+Enter 发送；忙或空闲时经会话间消息转达）'
-          "
-          @keydown="onKeydown"
-          @input="autoGrow"
-          @paste="attachBar?.addFromPaste($event)"
-        ></textarea>
-        <div class="composer-foot mono">
-          <!-- 手机档：说明文字默认收起，点「?」才展开（输入框本身照旧可用）。 -->
-          <button
-            class="hint-toggle mono"
-            type="button"
-            :aria-expanded="hintOpen"
-            :aria-label="hintOpen ? '收起输入框说明' : '显示输入框说明'"
-            data-test="composer-hint-toggle"
-            @click="hintOpen = !hintOpen"
-          >?</button>
-          <span class="hint">
-            <template v-if="openTurn">回复将原样进入 agent 上下文；输入 <code>/off</code> 关闭中继并让会话正常停下。</template>
-            <template v-else-if="session?.state === 'ended'">
-              会话已结束，不能再发消息；点上方「唤醒」可以在新终端里继续它。
-            </template>
-            <template v-else-if="session?.state === 'handed_off'">
-              本会话已被 web 用 <code>--resume</code> 起的新进程接管；原终端不再中继，要恢复请解除接管。
-            </template>
-            <template v-else-if="takeoverOffered">
-              送不进终端（{{ session?.tmux_pane ? 'pane 已失效' : '未登记 tmux pane' }}），可起新进程接管。
-            </template>
-            <template v-else-if="toTerminal">
-              会话没有在等回复：消息由一次性传话人经会话间消息原样转达；对方不会把它当作你的审批。
-            </template>
-            <template v-else>会话未在等待回复。</template>
-          </span>
-          <button
-            v-if="takeoverOffered && !takeoverConfirm"
-            class="act mono"
-            type="button"
-            :disabled="!draft.trim() || sending"
-            title="用 --resume 起一个新进程接管该会话，把这条消息作为它的首条输入"
-            @click="takeoverConfirm = true"
-          >
-            起新进程接管并发送
-          </button>
-          <button
-            class="act act--primary mono"
-            type="button"
-            :disabled="!canSend || !draft.trim() || takeoverConfirm || attachBlocked"
-            @click="send"
-          >
-            {{ sending ? '发送中…' : toTerminal ? '送到会话' : '发送' }}
-          </button>
-        </div>
+          :sending="sending"
+          :can-send="canSend && !takeoverConfirm"
+          :send-label="toTerminal ? '送到会话' : '发送'"
+          attachments
+          :attach-capability="attachCapability"
+          :hint="composerHint"
+          hint-collapsible
+          @send="send"
+          @attachment-error="actionError = $event"
+        >
+          <template #actions>
+            <button
+              v-if="takeoverOffered && !takeoverConfirm"
+              class="act mono"
+              type="button"
+              :disabled="!draft.trim() || sending"
+              title="用 --resume 起一个新进程接管该会话，把这条消息作为它的首条输入"
+              @click="takeoverConfirm = true"
+            >
+              起新进程接管并发送
+            </button>
+          </template>
+        </Composer>
       </div>
     </div>
-  </div>
+  </Drawer>
 </template>
 
 <style scoped>
@@ -1555,6 +1530,8 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .drawer-panel {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   /* PC 上随屏宽放大（对话里的长消息 / 授权参数不再被省略），手机仍贴满。 */
   width: min(max(760px, 62vw), 1200px, 94vw);
   height: 100%;
@@ -1570,7 +1547,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   height: 100%;
   background: transparent;
 }
-.drawer-overlay--embedded .drawer-panel {
+.drawer-panel--embedded {
   width: 100%;
   max-width: none;
   border-left: 0;

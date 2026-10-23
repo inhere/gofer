@@ -1,22 +1,39 @@
 <script setup lang="ts">
 // 侧抽屉外壳（设计稿 §8）：只做外壳，内容走默认插槽。行为与 Sheet 同一套
 // （Esc 关闭、遮罩关闭、焦点循环与归还、body 不滚）。
+// embedded：内容内联渲染在自己页面里（工作台右栏那种「嵌在页面里的抽屉」），
+// 不 Teleport、不出遮罩、不画标题栏；flush：插槽内容自己管滚动（会话抽屉的时间线）。
 import { ref } from 'vue'
 import { t } from '../i18n'
 import { useOverlayBehavior } from './overlay'
 
 const open = defineModel<boolean>({ default: false })
-withDefaults(defineProps<{ label: string; side?: 'right' | 'left'; width?: string }>(), {
-  side: 'right',
-  width: '380px',
-})
+withDefaults(
+  defineProps<{
+    label: string
+    side?: 'right' | 'left'
+    width?: string
+    embedded?: boolean
+    flush?: boolean
+  }>(),
+  { side: 'right', width: '380px', embedded: false, flush: false },
+)
 
 const panel = ref<HTMLElement | null>(null)
 const onKeydown = useOverlayBehavior(open, { panel })
 </script>
 
 <template>
-  <Teleport to="body">
+  <div
+    v-if="embedded"
+    class="dw-inline"
+    data-test="drawer"
+    role="region"
+    :aria-label="label"
+  >
+    <slot />
+  </div>
+  <Teleport v-else to="body">
     <div v-if="open" class="dw-layer" data-test="drawer" role="presentation" @keydown="onKeydown">
       <div class="dw-scrim" data-test="drawer-scrim" @click="open = false"></div>
       <aside
@@ -41,7 +58,7 @@ const onKeydown = useOverlayBehavior(open, { panel })
             ✕
           </button>
         </header>
-        <div class="dw-body">
+        <div class="dw-body" :class="{ 'dw-body--flush': flush }">
           <slot />
         </div>
       </aside>
@@ -124,6 +141,22 @@ const onKeydown = useOverlayBehavior(open, { panel })
   overflow-y: auto;
   padding: var(--s3) var(--s4);
   -webkit-overflow-scrolling: touch;
+}
+.dw-body--flush {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.dw-inline {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.dw-inline > :deep(*) {
+  min-height: 0;
 }
 @keyframes dw-in-right {
   from {

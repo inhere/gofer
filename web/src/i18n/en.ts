@@ -126,4 +126,23 @@ export const en: Dict = {
   'field.allProjects': 'All projects',
   'field.agent': 'Agent',
   'help.shortcuts': 'Press Ctrl+K to open the command palette',
+
+  // Unified composer (design §8; page-specific copy lives in i18n/pages/<page>.ts)
+  'composer.ariaLabel': 'Message',
+  'composer.send': 'Send',
+  'composer.sending': 'Sending…',
+  'composer.attach': 'Attach',
+  'composer.urgent': 'Urgent',
+  'composer.urgentTitle': 'Mark as urgent: the recipient sees it first',
+  'composer.modeLabel': 'Send mode',
+  'composer.mode.send': 'Send',
+  'composer.mode.sendTitle': 'Send now',
+  'composer.mode.queue': 'Queue',
+  'composer.mode.queueTitle': 'Send automatically when this turn ends',
+  'composer.mode.interrupt': 'Interrupt & send',
+  'composer.mode.interruptTitle': 'Interrupt the current turn, then send',
+  'composer.queued': 'Queued {n}',
+  'composer.clearQueue': 'Clear',
+  'composer.hintShow': 'Show composer help',
+  'composer.hintHide': 'Hide composer help',
 }
