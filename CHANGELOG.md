@@ -13,6 +13,7 @@
 
 ### 修复
 
+- **运行节点拓扑出现两个 server（gofer-hez1）**：中心 hub 与本机 in-process runner 各画了一个节点，读起来像两个 server。本机 runner 不再单独成节点，它的说明与 server 项目列表并进中心节点的面板（hub 面板新增「本机 runner」一节）。
 - **统计页「任务状态分布」小格的状态名（gofer-hez1）**：原来写英文缩写并被裁成 runni… / recov… / appro…；改成与全站一致的状态名（`status.<值>`），格子最小宽放到 84px 且不再 ellipsis（窄了就换行），原始状态值留在悬停提示里。
 - **今天页右栏「并行中」的行排版（gofer-hez1）**：右栏只有 ~340px，原来 6 列挤在一行，标题只剩 4–5 个字、红色「停滞」压在进度点阵上。改成两行：第一行状态点 + 标题与项目（独占整行，超出省略号，悬停给全文），第二行 agent / 点阵 / 当前步骤 / 健康度 / 用时；点阵与健康度固定宽度，不再重叠。桌面与手机宽度相同结构。
 - **侧栏「节点 N/M 在线」把已连接的 worker 算成离线（gofer-hez1）**：worker 的在线值是 `connected`（local / peer-http 才是 `up`），侧栏摘要只判 `up`，于是 4 个已连接 worker + server 本机显示成 1/5。在线口径统一到 `utils/runners.runnerOnline`，侧栏摘要与一键更新弹层都用它，与运行节点页一致。
