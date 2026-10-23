@@ -1970,3 +1970,42 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 - 视觉自查：`agent-browser` 在本环境起不了 Chromium（`Chrome exited early … without writing DevToolsActivePort`，加 `--no-sandbox` 同样失败），改用 Edge headless + 同源引导页（临时文件，先写登录态 / 主题 / 语言再跳 `/work`）+ 本地桩 `/v1` 服务（合成数据，均不入库）：看了 zh × 深 × 1440、en × 浅 × 1440、zh × 深 × 756（Edge headless 最小窗宽，已落在 ≤760 断点）、en × 浅 × 375 四张。确认：平铺网格三列等宽、卡片左边框颜色按泳道（黄 = 等我 / 待验收 / 需现场，蓝 = 进行中，灰 = 等资源 / 草稿 / 收集箱，深浅主题随 token 自动变）、按钮统一（打开会话松绿主按钮，整理 / 标状态次要，详情文字按钮第二行右对齐）、状态 chip 一排带计数、收集箱卡片带「记录 / 想法 + 收集箱」文字、手机单列且 chip 在框内横向滑动、无页面级横向滚动。
 - 卡片动作行在 330px 宽的列里是两行（动作一行、详情右对齐一行）：五个按钮排不进一行，两行且第二行统一右对齐，不随卡片内容跳到不同位置。
 - `utils/work.ts` 的 `groupByStatus` / `visibleItems` 两个旧口径页面已不再调用。保留是因为 `groupByStatus` 仍有自己的单测、`sortCards` 仍被 `Work.vue` 的工作区视图使用，删除留给样式收尾那一批统一处理。
+
+### P6-记忆页第二版：全部范围、分页、详情抽屉（2026-10-23，issue gofer-icqt）
+
+用户 2026-10-23：记忆常忘记记在哪个项目，要能一次搜全部；列表要分页；详情改成右侧抽屉并能编辑摘要与标签。本项接在 `P6-记忆页`（gofer-hez1）之后，页面仍是 `views/Memory.vue`。
+
+**后端读路径的选择（issue 第 1 条的两个分支）**：选了「前端并发取再合并」。原因：`GET /v1/memories` 与 `GET /v1/tracker/memories` 都已按调用方的 ceiling 过滤（`scopeMemories` / `scopeRows`），项目与仓库清单也各自受权限裁剪；聚合读接口要重做一遍这套过滤，收益只是少几次请求（项目与仓库通常个位数），却多一条要登记权限的路由（G056）与一份要维护的文档。合并、去重、来源标注留在 `utils/memories.ts` 的纯函数里，便于单测。代价：仓库很多时是 N 次请求（每个仓库一次，含 doctor 计算）；单个来源失败不影响其余，错误提示里带失败个数。
+
+**改动**
+
+| 文件 | 内容 |
+|---|---|
+| `utils/memories.ts` | `MemoryScope` 加 `all`；`MemorySource` / `SourcedMemoryRow`（来源 = 仓库 / 项目 / 全局）；`mergeMemoryBatches`（按「来源 + key」去重，最近的在前）、`mergeMemoryDoctor`（doctor 映射带来源前缀，同名 key 不串）、`memorySourceKey` / `memorySourceLabel`；`readMemoryPage` / `pageQueryUpdate` / `MEMORY_PAGE_SIZE_KEY` / `memoryPageSlice` / `memoryPageCount`；抽屉编辑态 `memoryEditOf` / `memoryUpdateBody` / `addMemoryTag` / `removeMemoryTag` / `normalizeMemoryTags`；scoped 行补 `title / source / expires_at / flags` 透传 |
+| `views/Memory.vue` | 作用域 chip 加「全部」（`?memory_scope=all`，排在第一位）；全部范围 `Promise.allSettled` 并发取全局 + 每个项目 + 每个仓库后合并；分页控件沿用 Issues 页那一套（每页条数本机记忆、页码写 `?page=`），作用域 / 仓库 / 项目 / 搜索 / 类型 chip / 每页条数变化都回到第 1 页；旧页内展开删掉，改开抽屉；保存 / 删除 / 标记失效按来源调对应接口 |
+| `components/MemoryList.vue` | 行改成只负责展示与「点开」；全部范围多一列来源（手机端在堆叠行里仍显示）；去掉展开区与草稿事件 |
+| `components/MemoryDrawer.vue`（新） | `ui/Drawer` 外壳：key、摘要、类型、来源、更新时间、过期时间、作者、失效报告；内容 / 摘要可编辑；标签 chip 增删；保存 / 删除（二次确认）/ 标记失效（理由必填，仓库记忆没有该接口，显示说明文字） |
+| `api/client.ts` | 新增 `flagScopedMemory`（`POST /v1/memories/{scope}/{scope_key}/{key}/flag`，接口早已存在，只补前端入口） |
+| `api/types.ts` | `ScopedMemory` / `TrackerMemoryBody` 补 `title / source / expires_at / flags` |
+| `i18n/pages/memory.ts` | 新增 `memory.scope.all*`、`memory.source.*`、`memory.allNote`、`memory.pager.*`、`memory.pageSummary`、`memory.allError`、`memory.drawer.*`（zh / en 并列，仍只写在本页文件） |
+
+**不丢信息核对（对照 issue 的字段清单与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 作用域三选 + 每档说明 | 三档保留，另加「全部」（四枚 chip，说明行随档变） |
+| 仓库选择（项目 / 目录 / 路径）、同步按钮、上次同步与摘要、同步状态折叠区 | 全部保留（仓库 / 全局档） |
+| 项目下拉、全局说明 | 保留 |
+| 类型 chip、关键字搜索（key / 摘要 / 内容）、⚠ 有标记 | 保留；搜索在「全部」范围上同样生效（先取全量再筛） |
+| 列表：key、类型、摘要、doctor 标记、标签、年龄、作者 | 全部保留，另加来源列（仅全部范围） |
+| 详情：全文（Markdown）、编辑内容、保存、删除 | 移到右侧抽屉，另加摘要编辑、标签 chip 增删、过期时间、类型、来源、更新时间、作者、失效报告与「标记失效」 |
+| 空态（暂无仓库 / 请选项目 / 暂无 memory） | 保留 |
+| 深链 `?memory=<key>` | 保留（仍打开那条，只是改成抽屉） |
+
+**测试**
+
+- `utils/memories.test.ts` 新增：「全部」作用域的 URL、`?page=` 读写与第 1 页不写、切页 / 页数、多路合并去重与来源标注、最近在前、合并集上的关键字与类型筛选、doctor 带来源前缀、抽屉初始态 / 标签增删 / 保存请求体、来源文案 zh↔en（11 → 21 例）。
+- `components/memoryDrawer.test.ts`（新，4 例）：SSR 渲染抽屉（Teleport 内容取 `ctx.teleports.body`，`dompurify` 在无 DOM 的测试环境里打成透传），断言字段与中文文案、仓库记忆没有「标记失效」、en 下的来源与按钮文案，以及保存 / 二次确认删除 / 标签走纯函数 / 标记理由的接线。
+- `views/memoryPage.test.ts` 新增 4 例：全部范围的 chip / 说明 / 不显示仓库与项目选择器、页头页码、URL 页码读取与钳位、分页与抽屉接线（含「旧页内展开已删」）。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 239 passed (239)` / `Tests 1643 passed (1643)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.51s`。没有 Go 代码改动，也没有新增路由（所以 G056 声明、`go generate` 与 `docs/reference/http-api.md` 都不变）。
