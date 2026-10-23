@@ -95,7 +95,11 @@ var fieldPolicies = map[string]FieldPolicy{
 	// F12 (2026-09-25): the directory-lock WAIT cap, read per submit
 	// (EffectiveDirLockMaxWaitSec) like dir_lock itself — a hot edit applies to the
 	// next job.
-	"server.dir_lock_max_wait_sec":         {Editable: true},
+	"server.dir_lock_max_wait_sec": {Editable: true},
+	// gofer-y05q: the worker capacity-queue cap is captured by each worker runner when it
+	// is built (assemble, or a reload that ADDS a worker runner), so an existing runner
+	// keeps the value it was built with — the conservative class rather than a hot edit.
+	"server.worker_queue_max_wait_sec":     {RestartRequired: true},
 	"server.dir_lock_allow_unbounded_wait": {Editable: true},
 	"server.agent_health":                  {Editable: true},
 	// SEC-01: the extra env denylist. Read per job spawn (effectiveJobEnvDeny), so a

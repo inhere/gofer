@@ -18,6 +18,7 @@
 ### 修复
 
 - **`wf rerun --failed` 只重跑一路 fan 时不再被拒（gofer-rx7s）**：`join: all` + 多路 fan 的步骤只有一路失败时，`--failed` 只保留那一路，但 join 还写着，提交被拒（`step 1 sets join="all" but fan_out=0`），整个工作流无法重跑。现在裁剪后某步只剩一路时去掉 join，并把这一路 fan 自己的 `cmd` / `env` / `cwd` / `timeout_sec` / `agent` / `runner` 合并进该步（否则重跑会去跑该步骤自己的命令、而不是失败的那一路）；剩两路及以上时 join 与 fan 列表保持不变。
+- **远端 worker 满载时 job 排队等空位，不再直接判失败（gofer-y05q）**：派发到远程 worker 的 job 数超过它的 `max_concurrent` 时，过去整个 job 以 `worker at capacity` 直接失败（exit -1、一秒也没跑），扇出验证里常有一两路遇上。现在 job 保持 `queued`，时间线上记一条 `job.waiting_worker`（带 worker id 与当时的 `in_flight` / `max`）；worker 空出名额（某个 job 结束 / 注销、调高 `max_concurrent`、重连回来）后按**提交顺序**重新派发，多个排队的 job 不会插队。**排队时间不计入 job 自己的超时**（与等目录锁一致：超时从 worker 报 `started` 才算起）；worker 断线 / 下线时排队的 job 按现有规则立即按 `worker offline` 失败。排队上限是新配置 `server.worker_queue_max_wait_sec`（默认 1800 秒，0 = 不限），超时才失败并在 `error` 里写明「一直满载、从未开始」。
 
 ## [0.188.1] - 2026-10-23
 

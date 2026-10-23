@@ -92,6 +92,14 @@ const EventSkillsMounted = "job.skills_mounted"
 // job.EventJobCredentialSkipped aliases it.
 const EventCredentialSkipped = "job.credential_skipped"
 
+// EventWaitingWorker records that a job is QUEUED for a free slot on a remote worker at
+// its max_concurrent (gofer-y05q): {worker_id, in_flight, max}. A dispatch beyond the
+// worker's capacity no longer fails the job; it stays queued and is dispatched, in
+// submission order, as soon as a slot frees. This event is what makes the queue visible
+// on the job's own timeline (its job.running event follows once the worker starts it).
+// job.EventJobWaitingWorker aliases it.
+const EventWaitingWorker = "job.waiting_worker"
+
 // Runner executes one resolved command and reports how it ended.
 type Runner interface {
 	// Name returns the runner's stable identifier (e.g. "local").

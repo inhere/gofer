@@ -262,6 +262,7 @@ gofer job wait <id>... [--any] [--timeout 30m]             # 等到终态，输�
 - `--shared-dir` 放弃独占（自担风险）；`--exclusive-dir` 强制独占（exec 也独占）。`--worktree` job 不取锁。
 - `--lock-wait <秒>` 限等锁时长（0 = 不限，是否允许由 server 决定）；超时报错写出实际锁路径与持有者。串联多个长 job 时显式设值。
 - agent 的 `max_concurrent` 另限单个 agent 的并发，超出停在 `queued`。
+- **远端 worker 的 `max_concurrent` 也一样排队不失败**：派到一台已满载 worker 的 job 停在 `queued`，记一条事件 `job.waiting_worker`（带 worker id 与 `in_flight` / `max`），共 worker 空出名额后按提交顺序派发；排队时间不计入 job 自己的超时，上限由 server 的 `worker_queue_max_wait_sec` 控制（默认 30 分钟），超时才失败并写明原因。`gofer job show <id>` 的事件里能看到它到底在等什么。
 
 ## 交付：合并 / 推分支 / 开 PR
 

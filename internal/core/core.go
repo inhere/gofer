@@ -314,7 +314,9 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 			}
 			runners[name] = peerhttprunner.New(name, rc.BaseURL, token)
 		case "worker":
-			runners[name] = workerrunner.New(name, rc.WorkerID, hub, workerrunner.WithPtyRelay(relayNonces, ptyRelays))
+			runners[name] = workerrunner.New(name, rc.WorkerID, hub,
+				workerrunner.WithPtyRelay(relayNonces, ptyRelays),
+				workerrunner.WithQueueMaxWait(workerQueueMaxWait(cfg)))
 		}
 	}
 	dbPath, err := cfg.ResolveDBPathChecked()
@@ -777,6 +779,12 @@ func (c *Core) reloadLocked(cfg *config.Config) *ConfigSnapshot {
 	return snap
 }
 
+// workerQueueMaxWait resolves server.worker_queue_max_wait_sec into how long a dispatch
+// may queue for a free slot on a worker at its max_concurrent (0 = no cap, gofer-y05q).
+func workerQueueMaxWait(cfg *config.Config) time.Duration {
+	return time.Duration(cfg.EffectiveWorkerQueueMaxWaitSec()) * time.Second
+}
+
 // reloadWorkerRunners refreshes only config-declared worker runners. Their
 // transport is the already-live hub, so adding/removing one is safe during a
 // reload. Peer-http and other runner types keep their startup instances and are
@@ -803,7 +811,9 @@ func (c *Core) reloadWorkerRunners(oldCfg, newCfg *config.Config) {
 				continue
 			}
 		}
-		next[name] = workerrunner.New(name, rc.WorkerID, c.Hub, workerrunner.WithPtyRelay(c.RelayNonces, c.PtyRelays))
+		next[name] = workerrunner.New(name, rc.WorkerID, c.Hub,
+			workerrunner.WithPtyRelay(c.RelayNonces, c.PtyRelays),
+			workerrunner.WithQueueMaxWait(workerQueueMaxWait(newCfg)))
 	}
 	c.Runners = next
 	c.Jobs.ReloadRunners(next)

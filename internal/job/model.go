@@ -1299,6 +1299,13 @@ const (
 	// job's own job.running event later says it got in. A subscriber sees the queue
 	// without polling the row.
 	EventJobWaitingDir = "job.waiting_dir"
+	// EventJobWaitingWorker is a job QUEUED for a free slot on a remote worker at its
+	// max_concurrent (gofer-y05q): {worker_id, in_flight, max}. The dispatch is parked in
+	// the hub's per-worker FIFO and goes out in submission order once a slot frees, so the
+	// job stays `queued` meanwhile — its own timeout does not start until the worker's
+	// started frame. The literal lives in the runner package (it emits it) and is aliased
+	// here, like the other runner-raised events.
+	EventJobWaitingWorker = runner.EventWaitingWorker
 	// EventJobDirWaitTimeout is a job whose wait for the same-directory lock exceeded
 	// server.dir_lock_max_wait_sec (JOB-11, F12 fix 2026-09-25): {holder_job, dir,
 	// wait_sec}. The job is FAILED by that wait (it never ran at all), and this row is
