@@ -8,7 +8,7 @@ describe('Runners page: worker enrollment section', () => {
   it('is reachable as the #enrollments anchor and gated on worker.manage', () => {
     expect(source).toContain('id="enrollments"')
     expect(source).toContain('data-test="enrollments"')
-    expect(source).toContain("v-if=\"enrollAllowed && !enrollDenied\"")
+    expect(source).toContain('v-if="enrollAllowed && !enrollDenied"')
     expect(source).toContain("const enrollAllowed = computed(() => can('worker.manage'))")
     // Today 卡片 / 顶栏提醒跳过来时补一次锚点滚动（SPA 不会自己滚）
     expect(source).toContain("route.hash === `#${ENROLL_ANCHOR}`")
@@ -19,12 +19,12 @@ describe('Runners page: worker enrollment section', () => {
     for (const s of [
       'data-test="enroll-item"',
       'enrollTitle(e)',
-      'e.source || \'来源未知\'',
+      "e.source || t('runners.enroll.sourceUnknown')",
       'enrollHostLine(e)',
       'hostLine(e.host)',
       'data-test="enroll-countdown"',
-      'decideCountdown(e.decide_until, nowSec)',
-      'collectCountdown(e.collect_until, nowSec)',
+      'decideCountdownText(e.decide_until, nowSec)',
+      'collectCountdownText(e.collect_until, nowSec)',
       'data-test="enroll-labels"',
       'data-test="enroll-agents"',
       'data-test="enroll-roots"',
@@ -43,7 +43,7 @@ describe('Runners page: worker enrollment section', () => {
   })
 
   it('shows how to enable the feature when the server reports enabled=false', () => {
-    expect(source).toContain("const enrollDisabledHint = computed(() => disabledHint(enrollEnabled.value))")
+    expect(source).toContain("t('runners.enroll.disabled')")
     expect(source).toContain('data-test="enroll-disabled"')
     expect(source).toContain('enrollEnabled.value = resp.enabled')
   })
@@ -60,13 +60,13 @@ describe('Runners page: worker enrollment section', () => {
   })
 
   it('styles the section with the console tokens and stays usable on phone widths', () => {
-    expect(source).toContain('.card--enroll[data-state=\'pending\']')
-    expect(source).toContain('var(--run)')
+    expect(source).toContain(".card--enroll[data-state='pending']")
+    expect(source).toContain('var(--need)')
     expect(source).toContain('var(--fail)')
-    expect(source).toContain('.enroll-hint')
+    expect(source).toContain('.enroll-left')
     // 沿用既有卡片/按钮类，窄屏的既有媒体查询继续生效
     expect(source).toContain('class="card card--enroll"')
-    expect(source).toContain('class="reload-btn mono"')
+    expect(source).toContain('class="btn"')
   })
 
   it('hands the accept dialog the projects, the clock and the locally known worker ids', () => {
