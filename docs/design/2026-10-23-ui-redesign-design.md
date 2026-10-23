@@ -735,6 +735,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 右栏：「并行中」（原来的 `TodayLanes`，改成右栏区块）+ 「刚处理过」（新增 `TodayRecentHandled`，最近 5 条，数据同「已处理」抽屉）。
 - 贴底状态条（`TodayStatusBar` 重绘）：在跑 / 今天失败 / 节点在线 / 用量 / 管家 / 版本，`position: sticky` 在内容底部，异常项变色排最前。首屏**不放** KPI 四宫格（§12 D7）。
 - 手机（≤760）：全部单栏，chip 行框内横向滑动，卡片主操作铺满且点按目标 ≥40px。
+- 卡片快捷键（§10）：卡片可获得焦点（`tabindex=0`），聚焦后 `a` 允许 / 通过、`d` 拒绝 / 打回、`s` 稍后、`r` 回复、`i` 详情、`1`–`9` 按顺序触发操作、`Esc` 收起卡内菜单；处理掉的键 `stopPropagation`（不连带触发专注模式与全局 `z`）；输入框内打字与输入法组字（`isComposing`）不触发。键位映射在 `utils/todayKeys.ts`（纯函数）。卡片底部有一行快捷键提示，手机隐藏。
 
 **数据（不新增接口）**
 
@@ -769,9 +770,10 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 **测试**
 
 - 新增 `utils/todayFilters.test.ts`：卡片种类 → 六个 chip 的映射（含归不进六类的种类）、计数、类型 / 项目筛选（空值 = 全部）、`laneAgentStats`。
+- 新增 `utils/todayKeys.test.ts`：a / d / s / r / i / 1–9 / Esc 的映射，输入框内打字、输入法组字、带修饰键时不触发。
 - 改写 `views/today.test.ts`：首屏标题与摘要、digest、前 5 张 + 还有 N 张、状态条顺序与链接、空态与专注处理灰显、类型 / 项目 chip 接线、右栏两块、文案走本页字典、窄屏单栏与 chip 横向滑动。
 - 同步修改：`views/todayActionGate.test.ts`（专注处理的禁用条件改成筛选后的张数）、`components/today/decisionCard.test.ts`（「详情 / 收起」走 i18n）、`components/today/todayLanes.test.ts`（「还有 N 条正常运行中」走 i18n）、`i18n/i18n.test.ts`（页面域加 `today.`）。
-- 全量 `npx vitest run` 195 个文件 / 1312 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build` 通过。
+- 全量 `npx vitest run` 196 个文件 / 1317 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build` 通过。
 
 **如实记录的范围边界**
 

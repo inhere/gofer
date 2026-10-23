@@ -13,6 +13,7 @@ import { approveAction, focusActions, replyAction as replyActionOf } from '../..
 import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
 import { cardActionBlock } from '../../utils/todayGate'
+import { cardKeyFromEvent } from '../../utils/todayKeys'
 import { CEILING_READ_ONLY_NOTICE } from '../../utils/ceiling'
 import { t } from '../../i18n'
 import { useWhoami } from '../../store/whoami'
@@ -154,46 +155,91 @@ onUnmounted(() => {
 })
 
 // 专注模式（Today 页的 FocusMode）按键驱动这张卡；返回 false 表示这张卡没有对应操作。
-defineExpose({
-  runAction(index: number): boolean {
-    if (snoozeOpen.value) {
-      const opt = snoozeOptions(props.card)[index]
-      if (opt) pickSnooze(opt)
-      return !!opt
+function runActionIndex(index: number): boolean {
+  if (snoozeOpen.value) {
+    const opt = snoozeOptions(props.card)[index]
+    if (opt) pickSnooze(opt)
+    return !!opt
+  }
+  const a = focusActions(props.card)[index]
+  if (a) onAction(a, a === advice.value)
+  return !!a
+}
+
+function approveTop(): boolean {
+  const a = approveAction(props.card)
+  if (a) onAction(a, a === advice.value)
+  return !!a
+}
+
+function openReplyTop(): boolean {
+  const a = replyActionOf(props.card)
+  if (a) onAction(a)
+  return !!a
+}
+
+// Esc 先收起卡内的菜单 / 回复框，收起了就返回 true（专注模式不退出）。
+function dismissCard(): boolean {
+  if (snoozeOpen.value) {
+    snoozeOpen.value = false
+    return true
+  }
+  if (replyAction.value || rerunOpen.value) {
+    replyAction.value = null
+    rerunOpen.value = false
+    return true
+  }
+  return false
+}
+
+// 拒绝 / 打回：样式为 bad 的那个操作（待批卡的 refuse、验收卡的 reject、记忆卡的忽略）。
+function rejectTop(): boolean {
+  const a = props.card.actions.find((x) => x.style === 'bad' || /^(reject|deny|dismiss)/.test(x.id))
+  if (a) onAction(a, a === advice.value)
+  return !!a
+}
+
+// 卡片自己也能接收快捷键（设计稿 §10）：只对获得焦点的卡片生效，处理完的键不再往上冒给
+// 专注模式 / 全局快捷键。输入法组字中（isComposing）不触发。
+function onKey(ev: KeyboardEvent): void {
+  const cmd = cardKeyFromEvent(ev)
+  if (!cmd) return
+  let handled = false
+  if (cmd === 'dismiss') {
+    handled = dismissCard()
+  } else if (cmd === 'approve') {
+    handled = approveTop()
+  } else if (cmd === 'reject') {
+    handled = rejectTop()
+  } else if (cmd === 'reply') {
+    handled = openReplyTop()
+  } else if (cmd === 'info') {
+    if (hasInfo.value) {
+      infoOpen.value = !infoOpen.value
+      handled = true
     }
-    const a = focusActions(props.card)[index]
-    if (a) onAction(a, a === advice.value)
-    return !!a
-  },
-  approve(): boolean {
-    const a = approveAction(props.card)
-    if (a) onAction(a, a === advice.value)
-    return !!a
-  },
-  openReply(): boolean {
-    const a = replyActionOf(props.card)
-    if (a) onAction(a)
-    return !!a
-  },
+  } else if (cmd === 'snooze') {
+    snoozeOpen.value = !snoozeOpen.value
+    handled = true
+  } else {
+    handled = runActionIndex(cmd.index)
+  }
+  if (!handled) return
+  ev.preventDefault()
+  ev.stopPropagation()
+}
+
+defineExpose({
+  runAction: runActionIndex,
+  approve: approveTop,
+  openReply: openReplyTop,
   toggleInfo(): void {
     if (hasInfo.value) infoOpen.value = !infoOpen.value
   },
   toggleSnooze(): void {
     snoozeOpen.value = !snoozeOpen.value
   },
-  // Esc 先收起卡内的菜单 / 回复框，收起了就返回 true（专注模式不退出）。
-  dismiss(): boolean {
-    if (snoozeOpen.value) {
-      snoozeOpen.value = false
-      return true
-    }
-    if (replyAction.value || rerunOpen.value) {
-      replyAction.value = null
-      rerunOpen.value = false
-      return true
-    }
-    return false
-  },
+  dismiss: dismissCard,
 })
 
 function linkFor(a: TodayAction): string {
@@ -202,7 +248,15 @@ function linkFor(a: TodayAction): string {
 </script>
 
 <template>
-  <article class="dc" :data-u="card.urgency" :data-kind="card.kind" :data-key="card.key" data-test="decision-card">
+  <article
+    class="dc"
+    :data-u="card.urgency"
+    :data-kind="card.kind"
+    :data-key="card.key"
+    tabindex="0"
+    data-test="decision-card"
+    @keydown="onKey"
+  >
     <div class="dc-body">
       <div class="dc-top mono" data-test="dc-line-source">
         <span class="pill k-need dc-kind" data-test="dc-kind">{{ kindLabel }}</span>
@@ -380,6 +434,10 @@ function linkFor(a: TodayAction): string {
 }
 .dc[data-u='blocking']::before {
   background: var(--run);
+}
+.dc:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 .dc-body {
   flex: 1;

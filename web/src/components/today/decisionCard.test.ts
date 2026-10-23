@@ -206,6 +206,16 @@ describe('DecisionCard snooze', () => {
     expect(source).toContain('v-for="t in snoozeTips"')
     expect(source).toContain("emit('snooze', opt)")
   })
+
+  it('takes the design §10 shortcuts only while the card itself has focus', () => {
+    expect(source).toContain('tabindex="0"')
+    expect(source).toContain('@keydown="onKey"')
+    expect(source).toContain('cardKeyFromEvent(ev)')
+    // 处理掉的键不再往上冒（专注模式 / 全局 z 撤销收不到）
+    expect(source).toContain('ev.stopPropagation()')
+    // 数字键复用同一套操作顺序（稍后菜单打开时选的是稍后选项）
+    expect(source).toContain('runAction: runActionIndex')
+  })
 })
 
 describe('DecisionQueue', () => {

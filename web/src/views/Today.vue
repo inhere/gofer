@@ -184,6 +184,7 @@ onUnmounted(() => {
           <input type="checkbox" :checked="includeExec" @change="setIncludeExec(($event.target as HTMLInputElement).checked)" />
           {{ t('today.inclExec') }}
         </label>
+        <span class="keys mono">{{ t('today.card.keys') }}</span>
         <span class="grow"></span>
         <button type="button" class="foot-link" data-test="open-snoozed" @click="snoozedOpen = true">
           {{ t('today.snoozed', { n: snoozedCount }) }}
@@ -358,6 +359,10 @@ onUnmounted(() => {
 .grow {
   flex: 1;
 }
+.keys {
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
 .foot-link {
   padding: 0;
   color: var(--fg-3);
@@ -403,6 +408,10 @@ onUnmounted(() => {
   .btn-focus,
   .foot-link {
     min-height: 40px;
+  }
+  /* 手机上没有实体键盘，快捷键提示不占位 */
+  .keys {
+    display: none;
   }
 }
 </style>

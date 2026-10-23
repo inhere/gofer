@@ -10,7 +10,6 @@ export const today: PageDict = {
     'today.sum.running': '{n} 个 agent 在跑',
     'today.sum.idle': '{n} 个空闲会话',
     'today.sum.done': '今天完成 {n}',
-    'today.updated': '更新于 {t}',
 
     // 「自上次打开」摘要
     'today.digest': '自上次打开',
@@ -52,6 +51,7 @@ export const today: PageDict = {
     'today.snoozed': '已稍后 {n}',
     'today.handledN': '已处理 {n}',
     'today.inclExec': '含 exec 待验收',
+    'today.card.keys': '卡片上按 A 允许 · D 拒绝 · S 稍后 · R 回复',
     'today.tier.now': '会超时',
     'today.tier.block': '卡住别人',
     'today.tier.normal': '可稍后',
@@ -79,12 +79,10 @@ export const today: PageDict = {
     'today.card.confirm': '确认{label}',
     'today.card.replyPlaceholder': '{label}…（Enter 发送，Esc 取消）',
     'today.card.optionalPlaceholder': '{label}理由（可不填，Enter 发送，Esc 取消）',
-    'today.card.waiting': '等了 {t}',
 
     // 右栏
     'today.lanes': '并行中',
     'today.lanes.meta': '{n} 条',
-    'today.lanes.attention': '{n} 条要留意',
     'today.lanes.empty': '没有并行中的工作',
     'today.lanes.loading': '加载中…',
     'today.lanes.fold': '还有 {n} 条正常运行中',
@@ -112,7 +110,6 @@ export const today: PageDict = {
     'today.sum.running': '{n} agents running',
     'today.sum.idle': '{n} idle sessions',
     'today.sum.done': '{n} done today',
-    'today.updated': 'updated {t}',
 
     'today.digest': 'Since your last visit',
     'today.digest.done': 'done',
@@ -150,6 +147,7 @@ export const today: PageDict = {
     'today.snoozed': 'Snoozed {n}',
     'today.handledN': 'Handled {n}',
     'today.inclExec': 'Include exec reviews',
+    'today.card.keys': 'On a focused card: A allow · D reject · S later · R reply',
     'today.tier.now': 'Expiring',
     'today.tier.block': 'Blocking others',
     'today.tier.normal': 'Can wait',
@@ -177,11 +175,9 @@ export const today: PageDict = {
     'today.card.confirm': 'Confirm {label}',
     'today.card.replyPlaceholder': '{label}… (Enter to send, Esc to cancel)',
     'today.card.optionalPlaceholder': 'Reason for {label} (optional, Enter to send, Esc to cancel)',
-    'today.card.waiting': 'waiting {t}',
 
     'today.lanes': 'In parallel',
     'today.lanes.meta': '{n} lanes',
-    'today.lanes.attention': '{n} need attention',
     'today.lanes.empty': 'Nothing running in parallel',
     'today.lanes.loading': 'Loading…',
     'today.lanes.fold': '{n} more running normally',
