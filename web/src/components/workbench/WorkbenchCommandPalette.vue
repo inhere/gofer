@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import type { WorkbenchThread } from '../../api/types'
+import { t } from '../../i18n'
 
 const props = defineProps<{
   open: boolean
@@ -37,29 +38,29 @@ function choose(thread: WorkbenchThread): void {
 
 <template>
   <div v-if="open" class="palette-overlay" @click.self="emit('close')">
-    <section class="palette" role="dialog" aria-label="命令面板">
-      <input ref="input" v-model="query" class="palette-query mono" placeholder="跳会话 / 切项目 / 当前动作" @keydown.esc="emit('close')" />
+    <section class="palette" role="dialog" :aria-label="t('workbench.palette.title')">
+      <input ref="input" v-model="query" class="palette-query mono" :placeholder="t('workbench.palette.placeholder')" @keydown.esc="emit('close')" />
       <div class="quick-actions">
-        <button type="button" @click="emit('new'); emit('close')">＋ 新会话</button>
-        <button v-if="current" type="button" @click="emit('action', 'stop'); emit('close')">停止当前</button>
-        <button v-if="current?.resumable" type="button" @click="emit('action', 'continue'); emit('close')">续接当前</button>
-        <button v-if="current?.latest_job_id" type="button" @click="emit('action', 'detail'); emit('close')">打开详情</button>
-        <button type="button" @click="emit('action', 'split-h'); emit('close')">分屏左右</button>
-        <button type="button" @click="emit('action', 'split-v'); emit('close')">分屏上下</button>
-        <button type="button" @click="emit('action', 'close-pane'); emit('close')">关闭窗格</button>
-        <button type="button" @click="emit('action', 'maximize'); emit('close')">最大化/还原</button>
-        <button type="button" @click="emit('action', 'new-tab'); emit('close')">新标签</button>
+        <button type="button" @click="emit('new'); emit('close')">＋ {{ t('workbench.palette.newSession') }}</button>
+        <button v-if="current" type="button" @click="emit('action', 'stop'); emit('close')">{{ t('workbench.palette.stop') }}</button>
+        <button v-if="current?.resumable" type="button" @click="emit('action', 'continue'); emit('close')">{{ t('workbench.palette.continue') }}</button>
+        <button v-if="current?.latest_job_id" type="button" @click="emit('action', 'detail'); emit('close')">{{ t('workbench.palette.detail') }}</button>
+        <button type="button" @click="emit('action', 'split-h'); emit('close')">{{ t('workbench.palette.splitH') }}</button>
+        <button type="button" @click="emit('action', 'split-v'); emit('close')">{{ t('workbench.palette.splitV') }}</button>
+        <button type="button" @click="emit('action', 'close-pane'); emit('close')">{{ t('workbench.palette.closePane') }}</button>
+        <button type="button" @click="emit('action', 'maximize'); emit('close')">{{ t('workbench.palette.maximize') }}</button>
+        <button type="button" @click="emit('action', 'new-tab'); emit('close')">{{ t('workbench.palette.newTab') }}</button>
       </div>
       <div class="palette-section">
-        <h2 class="mono">会话</h2>
+        <h2 class="mono">{{ t('workbench.palette.sessions') }}</h2>
         <button v-for="thread in filtered" :key="thread.id" type="button" class="palette-row" @click="choose(thread)">
           <span>{{ thread.title }}</span><small class="mono">{{ thread.project_key }} · {{ thread.status }}</small>
         </button>
       </div>
       <div class="palette-section project-chips">
-        <h2 class="mono">切项目</h2>
-        <button type="button" @click="emit('switch-project', ''); emit('close')">全部</button>
-        <button v-for="project in projects" :key="project" type="button" @click="emit('switch-project', project); emit('close')">{{ project || '未归属' }}</button>
+        <h2 class="mono">{{ t('workbench.palette.projects') }}</h2>
+        <button type="button" @click="emit('switch-project', ''); emit('close')">{{ t('workbench.palette.all') }}</button>
+        <button v-for="project in projects" :key="project" type="button" @click="emit('switch-project', project); emit('close')">{{ project || t('workbench.palette.unassigned') }}</button>
       </div>
     </section>
   </div>

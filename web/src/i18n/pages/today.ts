@@ -103,6 +103,15 @@ export const today: PageDict = {
     'today.status.stewardAdvice': ' · {n} 条建议',
     'today.status.stewardAlert': ' · 异常',
     'today.status.version': '版本 {v}',
+
+    // 「已处理」抽屉（components/today/HandledDrawer.vue）
+    'today.handled.title': '已处理',
+    'today.handled.heading': '已处理 · 近 7 天',
+    'today.handled.close': '关闭',
+    'today.handled.empty': '近 7 天没有在首页处理过卡片',
+    'today.handled.you': '你：{label}',
+    'today.handled.viaAdvice': '按建议',
+    'today.handled.advice': '管家建议：{advice}',
   },
   en: {
     'today.title.n': '{n} things need you',
@@ -197,5 +206,13 @@ export const today: PageDict = {
     'today.status.stewardAdvice': ' · {n} suggestions',
     'today.status.stewardAlert': ' · issue',
     'today.status.version': 'version {v}',
+
+    'today.handled.title': 'Handled',
+    'today.handled.heading': 'Handled · last 7 days',
+    'today.handled.close': 'Close',
+    'today.handled.empty': 'No cards were handled on the home page in the last 7 days',
+    'today.handled.you': 'You: {label}',
+    'today.handled.viaAdvice': 'By advice',
+    'today.handled.advice': 'Steward advice: {advice}',
   },
 }

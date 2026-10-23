@@ -3,6 +3,7 @@
 //  - 链状态：把 status / paused / blocked_todo 翻成一句话（自动推进中 / 已挂起 / 阻塞于 …）；
 //  - 用量块：jobs 与主 Agent 会话（主 / 子 agent、按模型）分开列，再给合计。
 import type { JobUsage, PlanUsage } from '../api/types'
+import { t } from '../i18n'
 import { formatTokens } from './jobOutcome'
 import { tokenLine } from './sessionUsage'
 
@@ -11,31 +12,32 @@ export interface PlanControlHelp {
   help: string
 }
 
-// 每个链控件的可见标签与作用说明（同一句话也用作 title 悬浮提示）。
+// 每个链控件的可见标签与作用说明（同一句话也用作 title 悬浮提示）。文案跟当前语言，
+// 所以用 getter：引用处（模板 / 脚本）拿到的仍是字符串。
 export const PLAN_CONTROL_HELP = {
   leader: {
-    label: '管家主导轮次（leader）',
-    help: '开：每个成员 job 结束时唤醒一个管家 job 决定下一步；关（默认）：只按条目依赖自动推进，不唤醒管家',
+    get label() { return t('plans.ctrl.leader.label') },
+    get help() { return t('plans.ctrl.leader.help') },
   },
   notify: {
-    label: '结束通知',
-    help: '开：本 plan 派发的每个 job 结束时，通知绑定的监督会话；关（默认）：各 job 按自己的设置。没有监督会话时开了也不会通知谁',
+    get label() { return t('plans.ctrl.notify.label') },
+    get help() { return t('plans.ctrl.notify.help') },
   },
   run: {
-    label: '启动链',
-    help: '把依赖已满足、已指派的待办置为 ready 并立即派发（同时解除挂起 / 阻塞）',
+    get label() { return t('plans.ctrl.run.label') },
+    get help() { return t('plans.ctrl.run.help') },
   },
   pause: {
-    label: '挂起',
-    help: '暂停自动推进：条目完成后不再自动派发后续条目；已在跑的 job 不会被取消',
+    get label() { return t('plans.ctrl.pause.label') },
+    get help() { return t('plans.ctrl.pause.help') },
   },
   resume: {
-    label: '继续',
-    help: '解除挂起，按依赖继续自动推进',
+    get label() { return t('plans.ctrl.resume.label') },
+    get help() { return t('plans.ctrl.resume.help') },
   },
   unblock: {
-    label: '解除阻塞',
-    help: '解除失败条目造成的阻塞并继续推进（也可在下方横幅里重派或跳过该条目）',
+    get label() { return t('plans.ctrl.unblock.label') },
+    get help() { return t('plans.ctrl.unblock.help') },
   },
 } satisfies Record<string, PlanControlHelp>
 
@@ -52,14 +54,14 @@ export function planChainState(
   blockedTitle = '',
 ): ChainState {
   if (!p) return { tone: 'idle', text: '' }
-  if (p.status === 'archived') return { tone: 'idle', text: '已归档，不再推进' }
-  if (p.status === 'done') return { tone: 'idle', text: '已完成' }
+  if (p.status === 'archived') return { tone: 'idle', text: t('plans.chain.archived') }
+  if (p.status === 'done') return { tone: 'idle', text: t('plans.chain.done') }
   if (p.blocked_todo || p.status === 'blocked') {
-    const what = blockedTitle || p.blocked_todo || '失败条目'
-    return { tone: 'blocked', text: `阻塞于「${what}」：重派、跳过或点「解除阻塞」后继续` }
+    const what = blockedTitle || p.blocked_todo || t('plans.chain.failedTodo')
+    return { tone: 'blocked', text: t('plans.chain.blocked', { what }) }
   }
-  if (p.paused) return { tone: 'paused', text: '已挂起：条目完成后不会自动派发后续条目，点「继续」恢复' }
-  return { tone: 'running', text: '自动推进中：条目完成后自动派发依赖已满足的下一项' }
+  if (p.paused) return { tone: 'paused', text: t('plans.chain.paused') }
+  return { tone: 'running', text: t('plans.chain.running') }
 }
 
 export interface UsageRow {
@@ -83,13 +85,13 @@ export function planUsageRows(u: PlanUsage | null | undefined): UsageRow[] {
   const overall = [overallTokens > 0 ? `${formatTokens(overallTokens)} tokens` : '—', costText(overallCost)]
     .filter(Boolean)
     .join(' / ')
-  rows.push({ label: '合计', text: overall })
+  rows.push({ label: t('plans.usage.total'), text: overall })
 
   if (u.jobs > 0) {
     const head = [u.total_tokens > 0 ? `${formatTokens(u.total_tokens)} tokens` : '—', costText(u.cost_usd)]
       .filter(Boolean)
       .join(' / ')
-    rows.push({ label: `Jobs（${u.jobs} 个）`, text: head })
+    rows.push({ label: t('plans.usage.jobs', { n: u.jobs }), text: head })
   }
   // 缓存 token（读 / 写，gofer-rnp3）：接续会话省下的主要就是这两笔，故在 Jobs 行下单独
   // 拆出来；两端都缺（老服务端 / 没采集到）就整行不渲染，不当 0 显示。
@@ -97,17 +99,17 @@ export function planUsageRows(u: PlanUsage | null | undefined): UsageRow[] {
   const cacheWrite = u.cache_write_tokens ?? 0
   if (cacheRead > 0 || cacheWrite > 0) {
     rows.push({
-      label: '　· 缓存读 / 写',
-      text: `读 ${formatTokens(cacheRead)} / 写 ${formatTokens(cacheWrite)}`,
+      label: t('plans.usage.cache'),
+      text: t('plans.usage.cacheDetail', { read: formatTokens(cacheRead), write: formatTokens(cacheWrite) }),
     })
   }
   if (s) {
-    const n = s.sessions > 1 ? `（${s.sessions} 个会话）` : ''
-    rows.push({ label: `主 Agent 会话${n}`, text: tokenLine(s.total) || '—' })
+    const n = s.sessions > 1 ? t('plans.usage.sessionCount', { n: s.sessions }) : ''
+    rows.push({ label: t('plans.usage.mainAgentSessions', { n }), text: tokenLine(s.total) || '—' })
     const main = tokenLine(s.main)
-    if (main) rows.push({ label: '　· 主 agent', text: main })
+    if (main) rows.push({ label: t('plans.usage.mainAgent'), text: main })
     const sub = tokenLine(s.sub)
-    if (sub) rows.push({ label: '　· 子 agent', text: sub })
+    if (sub) rows.push({ label: t('plans.usage.subAgent'), text: sub })
     const models = Object.entries(s.by_model ?? {}).sort(
       (a, b) => (b[1].total_tokens ?? 0) - (a[1].total_tokens ?? 0) || a[0].localeCompare(b[0]),
     )

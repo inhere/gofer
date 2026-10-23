@@ -610,6 +610,16 @@ export const shared = {
     'common.quickCapture.done': '已记下一条{kind}',
     'common.quickCapture.goto': '去收集箱',
     'common.quickCapture.dismiss': '关闭提示',
+
+    // 历史消息的附件缩略图（components/AttachmentThumbs.vue）
+    'common.attachments.label': '图片附件',
+    'common.attachments.expiredTitle': 'server 已按保存期删除原图',
+    'common.attachments.expired': '图片已过期',
+    'common.attachments.open': '查看原图',
+    'common.attachments.openWithSize': '查看原图（{size}）',
+    'common.attachments.openLabel': '查看原图 {id}',
+    'common.attachments.failed': '读取失败',
+    'common.attachments.loading': '加载中',
   },
   en: {
     'status.closed': 'Closed',
@@ -1196,5 +1206,14 @@ export const shared = {
     'common.quickCapture.done': 'Saved one {kind}',
     'common.quickCapture.goto': 'Open the inbox',
     'common.quickCapture.dismiss': 'Dismiss',
+
+    'common.attachments.label': 'Image attachments',
+    'common.attachments.expiredTitle': 'The server removed the original after its retention period',
+    'common.attachments.expired': 'Image expired',
+    'common.attachments.open': 'View the original',
+    'common.attachments.openWithSize': 'View the original ({size})',
+    'common.attachments.openLabel': 'View the original {id}',
+    'common.attachments.failed': 'Failed to load',
+    'common.attachments.loading': 'Loading',
   },
 }
