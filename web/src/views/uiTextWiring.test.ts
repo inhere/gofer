@@ -23,7 +23,7 @@ const OLD_TITLES = ['PLANS', 'JOBS BOARD', 'WORKFLOWS', 'SESSIONS', 'PROJECTS', 
 
 describe('页面标题用中文', () => {
   const titled: Array<[string, string]> = [
-    ['Plans', '{{ PAGE.plans }}'],
+    ['Plans', "t('plans.list.title')"],
     ['Board', '{{ PAGE.board }}'],
     ['Workflows', '{{ PAGE.workflows }}'],
     ['Sessions', '{{ PAGE.sessions }}'],

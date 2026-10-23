@@ -15,17 +15,21 @@ const router = useRouter()
 
 const progress = computed(() => planProgressModel(props.plan))
 
-// 卡点列：卡在哪个 todo、多少在跑、多少 job 失败。列表接口没有 needs_review 的分状态
-// 计数（只有 counts.failed），「N 待验收」要等计划详情（P3）用完整 job 列表算。
+// 卡点列：卡在哪个 todo、多少待验收、多少在跑、多少 job 失败。列表接口直接给
+// needs_review / failed_jobs（gofer-rj5e），不用逐个拉详情。
 const blockers = computed(() => {
   const plan = props.plan
-  const items: Array<{ key: string; text: string; tone: 'fail' | 'doing' }> = []
+  const items: Array<{ key: string; text: string; tone: 'fail' | 'doing' | 'need' }> = []
   if (plan.blocked_todo) {
     items.push({ key: 'blocked', text: t('plans.overview.blockedAt', { todo: plan.blocked_todo }), tone: 'fail' })
   }
-  const failed = plan.counts?.failed ?? 0
+  const failed = plan.failed_jobs ?? plan.counts?.failed ?? 0
   if (failed > 0) {
     items.push({ key: 'failed', text: t('plans.overview.failed', { n: failed }), tone: 'fail' })
+  }
+  const review = plan.needs_review ?? 0
+  if (review > 0) {
+    items.push({ key: 'review', text: t('plans.overview.review', { n: review }), tone: 'need' })
   }
   const doing = plan.todo_counts?.doing ?? 0
   if (doing > 0) {
@@ -161,6 +165,9 @@ function open(): void {
 }
 .prow-blocker--doing {
   color: var(--run);
+}
+.prow-blocker--need {
+  color: var(--need);
 }
 .prow-muted {
   color: var(--fg-3);

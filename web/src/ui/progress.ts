@@ -28,11 +28,15 @@ export function percentOf(done: number, total: number): number | null {
   return Math.min(100, Math.max(0, pct))
 }
 
-// 列表接口只给 counts.failed（没有 needs_review 的分状态计数），所以「待验收」段在
-// 计划总览里恒为 0；计划详情（P3）有完整 job 列表时再传进来。
+// 列表接口与详情都带 needs_review（待验收 job 数）与 failed_jobs（失败 job 数，gofer-rj5e），
+// 所以「待验收」与「受阻」两段按真实数字画；老服务端缺这两个字段时按 0 处理（段宽为 0，
+// 不臆造 job 数）。
 export function planProgressModel(plan: Plan): ProgressModel {
   const todos = plan.todo_counts
   const jobs = plan.counts
+  // 待验收 / 受阻是 job 口径（一个 job 等验收就是它那条待办在等验收）。
+  const review = Math.max(0, plan.needs_review ?? 0)
+  const blocked = Math.max(0, plan.failed_jobs ?? jobs?.failed ?? 0)
   let parts: ProgressPart[]
 
   if (todos && todos.total > 0) {
@@ -42,16 +46,16 @@ export function planProgressModel(plan: Plan): ProgressModel {
     parts = [
       { family: 'done', count: done },
       { family: 'doing', count: doing },
-      { family: 'review', count: 0 },
-      { family: 'blocked', count: jobs?.failed ?? 0 },
+      { family: 'review', count: review },
+      { family: 'blocked', count: blocked },
       { family: 'todo', count: rest },
     ]
   } else if (jobs && jobs.total > 0) {
     parts = [
       { family: 'done', count: jobs.done },
       { family: 'doing', count: jobs.running },
-      { family: 'review', count: 0 },
-      { family: 'blocked', count: jobs.failed },
+      { family: 'review', count: review },
+      { family: 'blocked', count: blocked },
       { family: 'todo', count: jobs.queued },
     ]
   } else {

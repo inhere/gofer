@@ -724,6 +724,69 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 手机上的筛选走 `FilterDrawer`（底部抽屉），桌面同样是抽屉，没有做「桌面内联展开」的第二套形态。
 - i18n 只覆盖新组件与新的列表头；页面其余中文文案按 P3 起逐页抽取。
 
+### P3 计划页（2026-10-23，issue gofer-hez1、gofer-rj5e）
+
+落地范围即 §14 表格 P3 行的「计划总览 + 计划详情」两页（Today / 任务详情 / 工作台由同期的其他分支负责），外加为「待验收」段补的服务端聚合（gofer-rj5e，不新增路由）。
+
+**服务端：计划列表的进度数据（gofer-rj5e）**
+
+- `GET /v1/plans` 的每一项与 `GET /v1/plans/{id}` 新增 `needs_review`（等待验收的 job 数）与 `failed_jobs`（失败 job 数，含 timeout / cancelled，等于 `counts.failed`）。
+- 列表里 job 汇总改成一次聚合：`jobstore.Store.PlanJobStatusCountsByPlan(ids)` 按 `todoCountsChunk`（500）分块，每块一条 `GROUP BY plan_id, status`；原来的实现是**每个计划一条** `PlanJobStatusCounts`。
+- 覆盖：`internal/httpapi/plan_completion_test.go` 新增 `TestPlanListReviewAndFailureCounts`（2 needs_review + failed + timeout + done → `needs_review=2`、`failed_jobs=2`、`counts{total 5, done 1, failed 2}`，详情同样两个字段）；`docs/reference/http-api.md` 补一段字段说明。
+
+**计划总览（`/plans`）**
+
+- 进度条改用 `needs_review` / `failed_jobs`：「待验收」段不再恒为 0，「受阻」段优先取 `failed_jobs`（老服务端回落 `counts.failed`）。分段口径仍在 `ui/progress.ts`，列表与详情共用。
+- 卡点列顺序：卡在哪个待办（fail）→ N 个 job 失败（fail）→ N 待验收（黄，`--need`）→ N 进行中（run）。
+- 页头标题、状态 chip 标签、关键字 / tag 抽屉、空态、分页条全部走 `t()`，key 在 `i18n/pages/plans.ts`；`plans.*` 从 `zh.ts` / `en.ts` 移到该文件（同一页自己的 key，避免与其他页面并行迁移冲突）。
+
+**计划详情（`/plans/:id`）**
+
+- 头部：`BackLink`（回 `/plans`，带 P2 记下的筛选与滚动位置）；标题、状态、标记完成 / 归档 / 重新打开 / 在任务列表查看、看板·列表切换；**大号分段进度条**（`ProgressBar` size md + 图例）加一行元信息（N 运行中 · N 失败 · 最近活动）；描述；元信息（id / 状态 / 负责人 / 主 Agent 会话 / 项目 / tags / 进度 / 创建 / 更新）；用量块；链控制行（链状态、leader、notify、启动链 / 挂起·继续·解除阻塞、帮助）与 leader 回合、blocked 横幅都留在头部。
+- 下方六个页签（`ui/Tabs`，值在 `?tab=`，默认 `todos` 不写进 URL）：待办（`PlanBoard` 五列 / 列表切换，选择仍记 `gofer.plans.view`）、任务（job 表 + 附加任务）、决策（`InteractionCard` 投影，OPEN 时有黄色角标）、交接说明（原头部卡片整体搬进页签，版本选择 / 编辑 / 预览 / 历史只读不变）、评论、事件（按需展开才拉第一页的行为不变）。
+- 原来纵向堆叠的约 12 个块收敛：`dt` 里的英文标签（id / status / owner / project / progress / created / updated）走 i18n；旧的 counts-card 进度块删除（头部 `ProgressBar` 取代），`canFinish` 提示移到头部进度条下。
+
+**i18n**
+
+- 新增 `web/src/i18n/pages/plans.ts`（zh/en 同名同数），key 前缀 `plans.`，涵盖总览与详情的头部、页签、任务表、待办工具栏、交接说明。
+- 未迁移（如实记录）：待办派发字段编辑表单里的字段标签与 placeholder、`utils/planControls.ts` 的 `PLAN_CONTROL_HELP` 文案、`PlanSupervisor` / `PlanBoard` / `InteractionCard` 等共享组件内部的文案——它们属于 P4/P5 或共享组件范围。
+
+**测试**（§13）
+
+- 新增 `views/planDetailTabs.test.ts`：六个页签声明与 `active ===` 门控、默认 `todos`、链控制在页签之外、`BackLink` 回总览、头部 `planProgressModel` + `failed_jobs`、`?tab=` 的读写（默认页签不写 URL）、总览的待验收段 / 卡点行。
+- 同步修改：`ui/progress.test.ts`（新增 `needs_review` / `failed_jobs` 两段与缺字段按 0 的口径）、`utils/planControls.test.ts`（`ops-label` 与主会话标签改成断言 i18n key）、`views/uiTextWiring.test.ts`（Plans 标题从 `PAGE.plans` 改为 `t('plans.list.title')`）。
+- `npx vue-tsc --noEmit`、`npx vitest run`、`npx vite build` 三命令全绿（195 个文件 / 1315 个用例）。
+
+**对照 §7 字段清单的核对**
+
+| §7 要求 | 落点 |
+|---|---|
+| 返回「计划」 | 头部 `BackLink`（文案「计划 / Plans」，回 `/plans` 并复原筛选与滚动） |
+| 项目 + id、标题、状态 | 头部标题 + 元信息（项目来自 plan.project，详情页 head-card） |
+| 主会话（改绑、清除） | 头部元信息一行（名称 + 状态 + 跳会话页），完整面板仍是 `PlanSupervisor` |
+| 暂停 / 恢复、标记完成 | 头部状态操作 + 链控制行（挂起 / 继续 / 解除阻塞） |
+| 更多菜单：归档、重新打开、在任务列表查看 | 头部「更多」菜单（`/jobs` 链接） |
+| 大号分段进度条与图例、job 运行数 / 失败数 / 最近活动 | 头部 `ProgressBar` + `head-progress-meta` |
+| 描述 | 头部 `head-desc`（元信息里的 description 行随之去掉，避免重复） |
+| 链控制行（链状态、leader、notify、启动、暂停/恢复、解除阻塞、帮助） | 头部 `chain-ctl`，行为与文案来源未变 |
+| 用量 | 头部操作条合计 + 「用量」块（jobs 与会话分开、缓存 token），位置从纵向区块改成头部区 |
+| 待办：看板 / 列表切换 + PlanBoard 五列与跳过落点 | `todos` 页签，拖拽与确认逻辑未改 |
+| 任务（job 表） | `jobs` 页签（状态 / 标题·ID / agent / runner / 开始 / 耗时） |
+| 附加任务并入「任务」 | `jobs` 页签第二个区块 |
+| 决策 | `decisions` 页签（OPEN 黄角标） |
+| 交接说明 | `handoff` 页签（版本 / 新增 / 修改 / 预览 / 历史只读） |
+| 评论 | `comments` 页签（`CommentThread` plan 级） |
+| 事件 | `events` 页签（折叠 + 加载更多，展开时随 plan 刷新重取第一页） |
+| `dt` 英文标签走 i18n | 已迁移（meta 全部走 `t()`） |
+
+手机：页签栏 ≤760 点按目标 40px、横向可滑；看板仍是 `PlanBoard` 自己的手机布局（一次一列由它的样式决定，P2 起的移动测试继续覆盖）。
+
+**未做 / 范围边界**
+
+- 没有在浏览器里按 zh/en × 浅/深 × 四种宽度逐页截图（与 P1 同一状态，靠 CSS 口径 + 现有测试）。
+- 计划详情的用量块位置在头部区而非元信息网格内部（视觉上紧接链控制行）。
+- 待办编辑表单的内部字段标签未抽 i18n（见上）。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**

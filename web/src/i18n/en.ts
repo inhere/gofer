@@ -126,17 +126,4 @@ export const en: Dict = {
   'field.allProjects': 'All projects',
   'field.agent': 'Agent',
   'help.shortcuts': 'Press Ctrl+K to open the command palette',
-
-  'plans.progress.done': 'Done',
-  'plans.progress.doing': 'In progress',
-  'plans.progress.review': 'Needs review',
-  'plans.progress.blocked': 'Blocked',
-  'plans.progress.todo': 'Not started',
-  'plans.overview.blockers': 'Blockers',
-  'plans.overview.supervisor': 'Main session',
-  'plans.overview.activity': 'Last activity',
-  'plans.overview.blockedAt': 'Stuck at {todo}',
-  'plans.overview.doing': '{n} in progress',
-  'plans.overview.failed': '{n} jobs failed',
-  'plans.overview.clear': 'Nothing blocked',
 }

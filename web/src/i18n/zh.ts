@@ -111,17 +111,4 @@ export const zh: Dict = {
   'field.allProjects': '全部项目',
   'field.agent': 'Agent',
   'help.shortcuts': '按 Ctrl+K 打开命令面板',
-
-  'plans.progress.done': '完成',
-  'plans.progress.doing': '进行中',
-  'plans.progress.review': '待验收',
-  'plans.progress.blocked': '受阻',
-  'plans.progress.todo': '未开始',
-  'plans.overview.blockers': '卡点',
-  'plans.overview.supervisor': '主会话',
-  'plans.overview.activity': '最近活动',
-  'plans.overview.blockedAt': '卡在 {todo}',
-  'plans.overview.doing': '{n} 进行中',
-  'plans.overview.failed': '{n} 个 job 失败',
-  'plans.overview.clear': '无卡点',
 }
