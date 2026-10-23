@@ -47,9 +47,9 @@ describe('Dashboard statistics wall structure', () => {
   })
 
   it('has range switch, bucket switch and copy action', () => {
-    expect(source).toContain('aria-label="时间范围"')
-    expect(source).toContain('aria-label="分桶"')
-    expect(source).toContain('复制统计')
+    expect(source).toContain('t(\'stats.rangeAria\')')
+    expect(source).toContain('t(\'stats.bucketAria\')')
+    expect(source).toContain("t('stats.copy')")
     expect(source).toContain('navigator.clipboard.writeText(copyText(')
   })
 
@@ -59,7 +59,7 @@ describe('Dashboard statistics wall structure', () => {
     expect(source).toContain("range.value === 'today' ? ['hour'] : ['day', 'week', 'month']")
     expect(source).toContain('hourRows(ov.value?.hourly')
     // 今日的「最高产」不显示按天的数字：换成最佳时段
-    expect(source).toContain('最佳时段')
+    expect(source).toContain("t('stats.best.hour')")
   })
 
   it('puts the compact job-status distribution inside the activity card', () => {
@@ -71,11 +71,11 @@ describe('Dashboard statistics wall structure', () => {
     expect(status).toBeLessThan(agents)
     // 全部 job 的当前状态，来自 /v1/stats，不随区间；注明以免和区间 Jobs 卡混淆
     expect(jobStatus).toContain('getStats()')
-    expect(jobStatus).toContain('全部 job · 不随区间')
+    expect(jobStatus).toContain("t('stats.jobStatus.title')")
     expect(jobStatus).toContain('data-test="job-status"')
     expect(jobStatus).not.toContain('createLiveTopic')
     // 手机宽度堆叠
-    expect(source).toMatch(/@media \(max-width: 640px\)[\s\S]*\.act-body \{\s*flex-direction: column/)
+    expect(source).toMatch(/@media \(max-width: 760px\)[\s\S]*\.act-body \{\s*flex-direction: column/)
   })
 
   it('drops the Agent usage card and the old status card from the system fold', () => {
