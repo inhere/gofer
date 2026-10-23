@@ -588,7 +588,7 @@ func (s *Server) handleMailConversations(c *rux.Context) {
 		last := toMailView(agg.last)
 		ps.forView(&last)
 		out = append(out, mailConversationView{
-			ID: mailConversationID(mailConversationKey(agg.a, agg.b)),
+			ID:  mailConversationID(mailConversationKey(agg.a, agg.b)),
 			Key: mailConversationKey(agg.a, agg.b), A: av, B: bv, Last: last,
 			Count: agg.count, Unread: agg.unread, Urgent: agg.urgent, ActivityAt: agg.last.CreatedAt,
 		})
