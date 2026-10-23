@@ -1,4 +1,8 @@
-// 纯 Bearer 无状态鉴权。token 存 sessionStorage。
+// 纯 Bearer 无状态鉴权。token 存 sessionStorage（关掉所有标签页即需重新登录）。
+//
+// sessionStorage 是按标签页隔离的：从通知 / 钉钉链接打开的新标签页本来拿不到 token，
+// 会被送去 /access。为此新标签页没有 token 时，先经 BroadcastChannel 向同源的其他已登录
+// 标签页要一份（requestTokenFromPeers）；只在同源标签页之间传递，不落 localStorage。
 
 const TOKEN_KEY = 'gofer-token'
 
@@ -25,6 +29,58 @@ function notifyAuthChange(): void {
 export function setToken(token: string): void {
   sessionStorage.setItem(TOKEN_KEY, token)
   notifyAuthChange()
+}
+
+// ---- 跨标签页交接 token（BroadcastChannel，同源） ----
+
+const CHANNEL = 'gofer-auth'
+type AuthMsg = { type: 'need-token' } | { type: 'token'; token: string }
+
+let channel: BroadcastChannel | null = null
+
+function authChannel(): BroadcastChannel | null {
+  if (channel) return channel
+  if (typeof BroadcastChannel === 'undefined') return null
+  channel = new BroadcastChannel(CHANNEL)
+  // 已登录的标签页回应别的标签页的请求。
+  channel.addEventListener('message', (ev: MessageEvent<AuthMsg>) => {
+    if (ev.data?.type === 'need-token') {
+      const t = getToken()
+      if (t) channel?.postMessage({ type: 'token', token: t } satisfies AuthMsg)
+    }
+  })
+  return channel
+}
+
+// startTokenSharing 让本标签页开始回应其他标签页的 token 请求（main.ts 启动时调用）。
+export function startTokenSharing(): void {
+  authChannel()
+}
+
+// requestTokenFromPeers 向其他已登录的同源标签页要 token，等 timeoutMs 内的第一个回应；
+// 拿到就写入本标签页并返回 true。没有 BroadcastChannel 或无人回应时返回 false。
+export function requestTokenFromPeers(timeoutMs = 500): Promise<boolean> {
+  const ch = authChannel()
+  if (!ch || hasToken()) return Promise.resolve(hasToken())
+  return new Promise((resolve) => {
+    let done = false
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      ch.removeEventListener('message', onMsg)
+      clearTimeout(timer)
+      resolve(ok)
+    }
+    const onMsg = (ev: MessageEvent<AuthMsg>) => {
+      if (ev.data?.type === 'token' && typeof ev.data.token === 'string' && ev.data.token) {
+        setToken(ev.data.token)
+        finish(true)
+      }
+    }
+    ch.addEventListener('message', onMsg)
+    const timer = setTimeout(() => finish(false), timeoutMs)
+    ch.postMessage({ type: 'need-token' } satisfies AuthMsg)
+  })
 }
 
 export function clearToken(): void {

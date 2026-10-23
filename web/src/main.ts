@@ -14,7 +14,7 @@ import './styles/status.css'
 
 import App from './App.vue'
 import router from './router'
-import { setUnauthorizedHandler } from './store/auth'
+import { setUnauthorizedHandler, startTokenSharing } from './store/auth'
 import { markStaleBuild } from './store/staleBuild'
 import { initTheme } from './store/theme'
 import { initLocale } from './store/locale'
@@ -37,6 +37,9 @@ if ('serviceWorker' in navigator) {
     { once: true },
   )
 }
+
+// 已登录的标签页回应其他同源标签页的 token 请求（从通知链接打开的新标签页据此免登录）
+startTokenSharing()
 
 // 注册 401 处理：client 已清 token，这里负责跳转到接入页
 setUnauthorizedHandler(() => {

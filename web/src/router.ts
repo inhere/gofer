@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { routes } from './router.routes'
-import { hasToken } from './store/auth'
+import { hasToken, requestTokenFromPeers } from './store/auth'
 
 const router = createRouter({
   history: createWebHistory('/'),
@@ -8,12 +8,16 @@ const router = createRouter({
 })
 
 // 全局守卫：无 token 且目标非 /access -> 跳 /access
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   if (to.path === '/access') {
     return true
   }
   if (!hasToken()) {
-    return { path: '/access' }
+    // 从通知链接打开的新标签页：先向已登录的其他标签页要 token，要不到才去 /access。
+    if (await requestTokenFromPeers()) {
+      return true
+    }
+    return { path: '/access', query: { redirect: to.fullPath } }
   }
   return true
 })

@@ -23,7 +23,10 @@ async function connect() {
   try {
     // 用 listProjects 验证 token 与服务连通性
     await listProjects()
-    router.replace({ path: '/dashboard' })
+    // 回到被送来登录前要打开的页面（只接受站内路径，防止跳到别的站点）
+    const back = router.currentRoute.value.query.redirect
+    const target = typeof back === 'string' && back.startsWith('/') && !back.startsWith('//') && !back.startsWith('/access') ? back : '/dashboard'
+    router.replace(target)
   } catch (e) {
     // 401 时 client 已清 token；其他失败这里兜底清掉
     clearToken()

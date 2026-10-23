@@ -378,7 +378,18 @@ onUnmounted(() => {
   flex: none;
   background: var(--surface-2);
   border-right: 1px solid var(--line);
-  min-height: 100vh;
+  /* 侧栏固定为一屏高并贴住视口：页面再长，导航在 .side-nav 里自己滚，
+     底部节点区始终停在窗口底部（不随右侧内容被推到很下面）。 */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+  align-self: flex-start;
+}
+@supports (height: 100dvh) {
+  .side {
+    height: 100dvh;
+  }
 }
 .side--rail {
   width: 64px;
