@@ -185,7 +185,7 @@ describe('DecisionCard', () => {
 
   it('toggles 详情 and only opens the reply box when 「回复」 is clicked', () => {
     expect(source).toContain('@click="infoOpen = !infoOpen"')
-    expect(source).toContain("{{ infoOpen ? '收起' : '详情' }}")
+    expect(source).toContain("{{ infoOpen ? t('today.card.collapse') : t('today.card.info') }}")
     expect(source).toMatch(/if \(a\.needs_text \|\| a\.optional_text\) \{\s*replyAction\.value = a/)
     expect(source).toContain('<div v-if="replyAction" class="dc-reply"')
     // 「附意见重跑」复用验收台的 RejectDialog

@@ -1,30 +1,39 @@
 <script setup lang="ts">
-// 首页状态条（design §1.4）：runner / 今日用量 / 管家 / 版本四项，平时低对比；有异常的项
-// 变色并排最前（runner 离线、管家巡检失败等，来自 status.alerts）。点各项跳对应页面。
+// 今天页的贴底状态条（设计稿 §7.1，替代原来的 TodayStatusBar）：在跑 / 今天失败 / 节点在线 /
+// 用量 / 管家 / 版本。平时低对比；有异常的项变色并排最前（节点离线、管家巡检失败等，来自
+// status.alerts）。点各项跳对应页面，链接目标与迁移前一致。
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { TodayStatus } from '../../api/today'
 import { fmtTokens } from '../../utils/today'
+import { t } from '../../i18n'
+import StatusGlyph from '../../ui/StatusGlyph.vue'
+import type { StatusFamily } from '../../utils/statusFamily'
 
-const props = defineProps<{ status: TodayStatus }>()
+const props = withDefaults(defineProps<{ status: TodayStatus; failed?: number }>(), { failed: 0 })
 
 interface Item {
   key: string
   to: string
   text: string
+  family: StatusFamily
   alert: boolean
 }
 
 const items = computed<Item[]>(() => {
   const st = props.status
   const offline = st.runners.offline ?? []
-  const runner: Item = {
-    key: 'runner',
-    to: '/runners',
-    text: `runner ${st.runners.online}/${st.runners.total}${offline.length ? ` · ${offline.join(', ')} 离线` : ''} · 运行 ${st.runners.running_jobs}`,
-    alert: offline.length > 0,
-  }
-  const all: Item[] = [runner]
+  const all: Item[] = [
+    { key: 'running', to: '/workbench', text: t('today.status.running', { n: st.runners.running_jobs }), family: 'run', alert: false },
+    { key: 'failed', to: '/jobs?status=failed', text: t('today.status.failed', { n: props.failed }), family: 'fail', alert: false },
+    {
+      key: 'nodes',
+      to: '/runners',
+      text: t('today.status.nodes', { on: st.runners.online, total: st.runners.total }),
+      family: offline.length ? 'fail' : 'done',
+      alert: offline.length > 0,
+    },
+  ]
   // 受限调用方（带 ceiling 的 token）拿不到今日用量与管家这两块：字段缺省时整项不摆，
   // 不当 0 用量显示。
   const u = st.usage_today
@@ -33,75 +42,90 @@ const items = computed<Item[]>(() => {
     all.push({
       key: 'usage',
       to: '/dashboard',
-      text: `今日 job ${u.jobs} · ${fmtTokens(tokens)} tok${u.cost_usd > 0 ? ` · $${u.cost_usd.toFixed(2)}` : ''}`,
+      text: `${t('today.status.usage', { jobs: u.jobs, tokens: fmtTokens(tokens) })}${u.cost_usd > 0 ? ` · $${u.cost_usd.toFixed(2)}` : ''}`,
+      family: 'idle',
       alert: false,
     })
   }
   const sw = st.steward_today
   const stewardAlert = st.alerts.some((a) => a.startsWith('管家'))
   if (sw) {
+    const base = sw.enabled
+      ? t('today.status.steward', { notes: sw.notes, summaries: sw.summaries })
+      : t('today.status.stewardOff', { summaries: sw.summaries })
     all.push({
       key: 'steward',
       to: '/settings/work',
-      text: sw.enabled
-        ? `管家 ${sw.notes} 条笔记 · ${sw.summaries} 次整理${sw.advice ? ` · ${sw.advice} 条建议` : ''}${stewardAlert ? ' · 异常' : ''}`
-        : `管家未启用 · ${sw.summaries} 次整理`,
+      text: `${base}${sw.advice ? t('today.status.stewardAdvice', { n: sw.advice }) : ''}${stewardAlert ? t('today.status.stewardAlert') : ''}`,
+      family: stewardAlert ? 'fail' : 'idle',
       alert: stewardAlert,
     })
   }
-  const version: Item = { key: 'version', to: '/settings/about', text: st.version || '—', alert: false }
-  all.push(version)
-  return [...all.filter((i) => i.alert), ...all.filter((i) => !i.alert)]
+  all.push({ key: 'version', to: '/settings/about', text: st.version || '—', family: 'idle', alert: false })
+  const offlineItem: Item[] = offline.length
+    ? [{ key: 'offline', to: '/runners', text: t('today.status.offline', { names: offline.join(', ') }), family: 'fail', alert: true }]
+    : []
+  // 有异常的项排最前（与迁移前一致）
+  return [...offlineItem, ...all.filter((i) => i.alert), ...all.filter((i) => !i.alert)]
 })
 </script>
 
 <template>
-  <footer class="sb mono" aria-label="状态" data-test="today-status">
+  <footer class="statbar" :aria-label="t('today.status.label')" data-test="today-status">
     <RouterLink
       v-for="it in items"
       :key="it.key"
       :to="it.to"
-      class="sb-item"
-      :class="{ 'sb-item--alert': it.alert }"
+      class="item"
+      :class="{ 'item--alert': it.alert }"
       :data-test="`status-${it.key}`"
-    >{{ it.text }}</RouterLink>
+    >
+      <StatusGlyph :family="it.family" :size="12" />
+      <span>{{ it.text }}</span>
+    </RouterLink>
   </footer>
 </template>
 
 <style scoped>
-.sb {
-  position: fixed;
-  left: 0;
-  right: 0;
+.statbar {
+  position: sticky;
   bottom: 0;
-  z-index: 25;
+  z-index: 20;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
-  padding: 7px 18px calc(7px + env(safe-area-inset-bottom));
-  background: var(--panel);
+  gap: var(--s1) var(--s4);
+  grid-column: 1 / -1;
+  margin: var(--s4) calc(-1 * var(--s2)) 0;
+  padding: var(--s2) var(--s3) calc(var(--s2) + env(safe-area-inset-bottom));
+  background: var(--surface-2);
   border-top: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--fs-sm);
+  color: var(--fg-2);
 }
-.sb-item {
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
   min-width: 0;
-  color: var(--queue);
-  opacity: 0.8;
+  color: var(--fg-3);
   overflow-wrap: anywhere;
 }
-.sb-item:hover {
-  color: var(--paper);
-  opacity: 1;
+.item:hover {
+  color: var(--fg);
   text-decoration: none;
 }
-.sb-item--alert {
+.item:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.item--alert {
   color: var(--fail);
-  opacity: 1;
   font-weight: 600;
 }
-@media (max-width: 768px) {
-  .sb {
-    padding-left: 76px;
+@media (max-width: 760px) {
+  .statbar {
+    gap: var(--s1) var(--s3);
+    font-size: var(--fs-xs);
   }
 }
 </style>

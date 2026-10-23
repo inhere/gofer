@@ -65,7 +65,7 @@ describe('TodayLanes display rules', () => {
     const s2 = splitLanes(bad)
     expect(s2.shown).toHaveLength(14)
     expect(s2.folded.map((l) => l.id)).toEqual(['ok1', 'ok2'])
-    expect(lanesVue).toContain('还有 ${split.folded.length} 条正常运行中')
+    expect(lanesVue).toContain("t('today.lanes.fold', { n: split.folded.length })")
     expect(lanesVue).toContain('data-test="lanes-fold"')
   })
 

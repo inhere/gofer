@@ -1,15 +1,18 @@
 <script setup lang="ts">
-// 「今天」首页「并行中」区（N3 §3）：一行一条并行的工作项 / plan，一眼看完全部 agent 在干什么、
-// 谁停了、谁出问题。自带数据：GET /v1/today/lanes，订阅 work / plans / jobs / sessions 推送
-// （防抖 1s 重拉；断线回落 30s 轮询，沿用 createLiveTopic）。点行：工作项打开 Works 的工作项抽屉
-// （/work?id=，复用 WorkDrawer），plan 跳 plan 详情。
+// 「今天」首页右栏「并行中」区（N3 §3、UI 重设计 §7.1）：一行一条并行的工作项 / plan，
+// 一眼看完全部 agent 在干什么、谁停了、谁出问题。自带数据：GET /v1/today/lanes，订阅
+// work / plans / jobs / sessions 推送（防抖 1s 重拉；断线回落 30s 轮询，沿用 createLiveTopic）。
+// 点行：工作项打开 Works 的工作项抽屉（/work?id=，复用 WorkDrawer），plan 跳 plan 详情。
+// 拉到的数据同时 emit 给页面（首屏一行摘要里的 agent 在跑 / 空闲会话数从泳道的 agents 算）。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getTodayLanes, type TodayLane, type TodayLanesResp } from '../../api/todayLanes'
 import { createLiveTopic } from '../../utils/useLiveTopic'
 import { laneSummaryText, laneTarget, splitLanes } from '../../utils/todayLanes'
+import { t } from '../../i18n'
 import TodayLaneRow from './TodayLaneRow.vue'
 
+const emit = defineEmits<{ (e: 'loaded', data: TodayLanesResp): void }>()
 const router = useRouter()
 
 const data = ref<TodayLanesResp | null>(null)
@@ -21,6 +24,7 @@ async function load(): Promise<void> {
   if (!data.value) loading.value = true
   try {
     data.value = await getTodayLanes()
+    emit('loaded', data.value)
     error.value = ''
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -66,15 +70,16 @@ defineExpose({ reload: load })
 
 <template>
   <section class="today-lanes" aria-labelledby="today-lanes-h" data-test="today-lanes">
-    <div class="sh">
-      <h2 id="today-lanes-h">并行中</h2>
-      <span class="meta mono" data-test="lanes-summary">
-        {{ summary.main }}<template v-if="summary.attention"> · <span class="bad" data-test="lanes-attention">{{ summary.attention }}</span></template>
-      </span>
-    </div>
+    <h2 id="today-lanes-h">
+      {{ t('today.lanes') }}
+      <span class="muted">{{ t('today.lanes.meta', { n: lanes.length }) }}</span>
+    </h2>
+    <p class="meta mono" data-test="lanes-summary">
+      {{ summary.main }}<template v-if="summary.attention"> · <span class="bad" data-test="lanes-attention">{{ summary.attention }}</span></template>
+    </p>
     <p v-if="error" class="msg mono" data-test="lanes-error">{{ error }}</p>
-    <p v-else-if="loading && !data" class="empty mono">加载中…</p>
-    <p v-else-if="!lanes.length" class="empty mono" data-test="lanes-empty">没有并行中的工作</p>
+    <p v-else-if="loading && !data" class="empty mono">{{ t('today.lanes.loading') }}</p>
+    <p v-else-if="!lanes.length" class="empty mono" data-test="lanes-empty">{{ t('today.lanes.empty') }}</p>
     <div v-else class="lanes">
       <TodayLaneRow v-for="l in visible" :key="`${l.kind}:${l.id}`" :lane="l" @open="open" />
       <button
@@ -84,18 +89,18 @@ defineExpose({ reload: load })
         :aria-expanded="expanded"
         data-test="lanes-fold"
         @click="expanded = !expanded"
-      >{{ expanded ? '收起正常运行的' : `还有 ${split.folded.length} 条正常运行中` }}</button>
+      >{{ expanded ? t('today.lanes.unfold') : t('today.lanes.fold', { n: split.folded.length }) }}</button>
     </div>
   </section>
 </template>
 
 <style scoped>
-.today-lanes { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.sh { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.sh h2 { margin: 0; font-size: 15px; color: var(--paper); }
-.meta { font-size: 12px; color: var(--queue); }
+.today-lanes { display: flex; flex-direction: column; gap: var(--s1); min-width: 0; margin-bottom: var(--s5); }
+.today-lanes h2 { display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s1); font-size: var(--fs-md); font-weight: 600; }
+.today-lanes h2 .muted { margin-left: auto; color: var(--fg-3); font-size: var(--fs-sm); font-weight: 400; }
+.meta { font-size: var(--fs-sm); color: var(--fg-3); }
 .bad { color: var(--fail); }
-.lanes { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; min-width: 0; }
+.lanes { border: 1px solid var(--line); border-radius: var(--r-panel); background: var(--surface); overflow: hidden; min-width: 0; }
 .fold {
   display: block;
   width: 100%;

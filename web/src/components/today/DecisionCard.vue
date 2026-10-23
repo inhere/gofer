@@ -14,6 +14,7 @@ import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
 import { cardActionBlock } from '../../utils/todayGate'
 import { CEILING_READ_ONLY_NOTICE } from '../../utils/ceiling'
+import { t } from '../../i18n'
 import { useWhoami } from '../../store/whoami'
 
 const props = defineProps<{ card: TodayCard; nowSec: number; initialInfoOpen?: boolean }>()
@@ -44,6 +45,8 @@ function actionBlock(a: TodayAction): string {
 
 const advice = computed(() => adviceAction(props.card))
 const otherActions = computed(() => props.card.actions.filter((a) => a !== advice.value))
+// 类型 pill（设计稿 §7.1）：卡片种类走 i18n，业务内容（标题、摘要）不翻译。
+const kindLabel = computed(() => t(`today.kind.${props.card.kind}`))
 const short = computed(() => blockShort(props.card))
 const wait = computed(() => waitText(props.card, props.nowSec))
 const expires = computed(() => expiresText(props.card, props.nowSec))
@@ -199,13 +202,14 @@ function linkFor(a: TodayAction): string {
 </script>
 
 <template>
-  <article class="dc" :data-u="card.urgency" :data-key="card.key" data-test="decision-card">
-    <div class="dc-stripe" aria-hidden="true"></div>
+  <article class="dc" :data-u="card.urgency" :data-kind="card.kind" :data-key="card.key" data-test="decision-card">
     <div class="dc-body">
       <div class="dc-top mono" data-test="dc-line-source">
-        <span class="dc-tag">{{ card.tag }}</span>
+        <span class="pill k-need dc-kind" data-test="dc-kind">{{ kindLabel }}</span>
+        <span v-if="card.tag && card.tag !== kindLabel" class="dc-tag">{{ card.tag }}</span>
+        <span v-if="card.agent" class="dc-agent">{{ card.agent }}</span>
         <span v-if="card.project_key" class="dc-proj">{{ card.project_key }}</span>
-        <span v-if="wait">· {{ wait }}</span>
+        <span v-if="wait" class="dc-when">{{ wait }}</span>
         <span v-if="expires" class="dc-exp">· {{ expires }}</span>
         <span v-if="short" class="dc-blk">· {{ short }}</span>
         <span v-if="woke" class="dc-woke" data-test="dc-woke">· {{ woke }}</span>
@@ -223,7 +227,7 @@ function linkFor(a: TodayAction): string {
           :disabled="!!actionBlock(advice)"
           :title="actionBlock(advice) || undefined"
           @click="onAction(advice, true)"
-        >按建议：{{ advice.label }}</button>
+        >{{ t('today.card.advice', { label: advice.label }) }}</button>
         <template v-for="a in otherActions" :key="actionKey(a)">
           <RouterLink
             v-if="a.id === 'diff' || a.id === 'open'"
@@ -251,7 +255,7 @@ function linkFor(a: TodayAction): string {
           data-test="dc-info-toggle"
           :aria-expanded="infoOpen"
           @click="infoOpen = !infoOpen"
-        >{{ infoOpen ? '收起' : '详情' }}</button>
+        >{{ infoOpen ? t('today.card.collapse') : t('today.card.info') }}</button>
         <span ref="snoozeWrap" class="dc-snz">
           <button
             class="dc-btn dc-btn--dim"
@@ -260,7 +264,7 @@ function linkFor(a: TodayAction): string {
             aria-haspopup="menu"
             :aria-expanded="snoozeOpen"
             @click="snoozeOpen = !snoozeOpen"
-          >稍后</button>
+          >{{ t('today.card.snooze') }}</button>
           <div v-if="snoozeOpen" class="dc-menu" role="menu" data-test="dc-snooze-menu">
             <button
               v-for="(o, i) in snoozeOpts"
@@ -280,7 +284,7 @@ function linkFor(a: TodayAction): string {
           ref="replyInput"
           v-model="replyText"
           class="mono"
-          :placeholder="replyAction.optional_text ? `${replyAction.label}理由（可不填，Enter 发送，Esc 取消）` : `${replyAction.label}…（Enter 发送，Esc 取消）`"
+          :placeholder="replyAction.optional_text ? t('today.card.optionalPlaceholder', { label: replyAction.label }) : t('today.card.replyPlaceholder', { label: replyAction.label })"
           :aria-label="replyAction.label"
           @keydown="onReplyKey"
         />
@@ -289,51 +293,51 @@ function linkFor(a: TodayAction): string {
           type="button"
           :disabled="!replyText.trim() && !replyAction.optional_text"
           @click="sendReply"
-        >{{ replyAction.optional_text ? `确认${replyAction.label}` : '发送' }}</button>
+        >{{ replyAction.optional_text ? t('today.card.confirm', { label: replyAction.label }) : t('today.card.send') }}</button>
       </div>
       <div v-if="infoOpen && hasInfo" class="dc-info" data-test="dc-info">
-        <p v-if="card.blocks.text"><b>卡住</b>{{ card.blocks.text }}</p>
-        <p v-if="card.advice?.text" data-test="dc-advice-text"><b>管家</b>{{ card.advice.text }}</p>
+        <p v-if="card.blocks.text"><b>{{ t('today.card.blocking') }}</b>{{ card.blocks.text }}</p>
+        <p v-if="card.advice?.text" data-test="dc-advice-text"><b>{{ t('today.card.steward') }}</b>{{ card.advice.text }}</p>
         <p v-if="adviceDigest" class="dc-digest" data-test="dc-advice-digest">{{ adviceDigest }}</p>
         <template v-if="review">
           <p class="mono">
-            <b>改动</b>{{ review.commits }} 个提交 · <span class="dc-add">+{{ review.adds }}</span> /
+            <b>{{ t('today.card.changes') }}</b>{{ t('today.card.commits', { n: review.commits }) }} · <span class="dc-add">+{{ review.adds }}</span> /
             <span class="dc-del">−{{ review.dels }}</span><template v-if="review.verify"> · verify {{ review.verify }}</template>
           </p>
-          <p v-if="review.digest" class="dc-digest" data-test="dc-review-digest"><b>摘要</b>{{ review.digest }}</p>
-          <p><RouterLink to="/review" @click="emit('navigate')">看全部待验收</RouterLink></p>
+          <p v-if="review.digest" class="dc-digest" data-test="dc-review-digest"><b>{{ t('today.card.summary') }}</b>{{ review.digest }}</p>
+          <p><RouterLink to="/review" @click="emit('navigate')">{{ t('today.card.allReviews') }}</RouterLink></p>
         </template>
         <template v-if="approval">
-          <p v-if="approval.reason" data-test="dc-approval-reason"><b>理由</b>{{ approval.reason }}</p>
-          <p v-if="approval.origin" class="mono"><b>来源</b>{{ originText(approval.origin) }}</p>
-          <p v-if="approvalCmd" class="dc-digest mono" data-test="dc-approval-command"><b>命令</b>{{ approvalCmd }}</p>
-          <p v-else-if="approval.prompt_preview" class="dc-digest" data-test="dc-approval-prompt"><b>任务</b>{{ approval.prompt_preview }}</p>
+          <p v-if="approval.reason" data-test="dc-approval-reason"><b>{{ t('today.card.reason') }}</b>{{ approval.reason }}</p>
+          <p v-if="approval.origin" class="mono"><b>{{ t('today.card.origin') }}</b>{{ originText(approval.origin) }}</p>
+          <p v-if="approvalCmd" class="dc-digest mono" data-test="dc-approval-command"><b>{{ t('today.card.command') }}</b>{{ approvalCmd }}</p>
+          <p v-else-if="approval.prompt_preview" class="dc-digest" data-test="dc-approval-prompt"><b>{{ t('today.card.task') }}</b>{{ approval.prompt_preview }}</p>
         </template>
         <template v-if="memory">
-          <p data-test="dc-memory-proposal"><b>提议</b>{{ memoryProposal }}</p>
+          <p data-test="dc-memory-proposal"><b>{{ t('today.card.proposal') }}</b>{{ memoryProposal }}</p>
           <p class="mono dc-mem-now" data-test="dc-memory-now">
-            <b>现状</b>{{ memory.key }} · {{ memory.current_kind || '—' }}<template v-if="memory.age"> · {{ memory.age }}</template>
+            <b>{{ t('today.card.current') }}</b>{{ memory.key }} · {{ memory.current_kind || '—' }}<template v-if="memory.age"> · {{ memory.age }}</template>
             <template v-if="memory.current_summary"> · {{ memory.current_summary }}</template>
           </p>
-          <p v-if="memory.payload?.content" class="dc-digest" data-test="dc-memory-merged"><b>合并后</b>{{ memory.payload.content }}</p>
+          <p v-if="memory.payload?.content" class="dc-digest" data-test="dc-memory-merged"><b>{{ t('today.card.merged') }}</b>{{ memory.payload.content }}</p>
           <p v-if="memory.content" class="dc-digest dc-mem-body">{{ memory.content }}</p>
         </template>
         <div v-for="sg in card.suggestions ?? []" :key="sg.field" class="dc-sg">
-          <span><b>建议</b>{{ sg.text }}</span>
+          <span><b>{{ t('today.card.suggestion') }}</b>{{ sg.text }}</span>
           <button
             class="dc-btn dc-btn--ok"
             type="button"
             :disabled="readOnly"
             :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
             @click="suggestionAct(sg.field, true)"
-          >采纳</button>
+          >{{ t('today.card.adopt') }}</button>
           <button
             class="dc-btn"
             type="button"
             :disabled="readOnly"
             :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"
             @click="suggestionAct(sg.field, false)"
-          >忽略</button>
+          >{{ t('today.card.dismiss') }}</button>
         </div>
       </div>
     </div>
@@ -348,42 +352,55 @@ function linkFor(a: TodayAction): string {
 .dc-mem-body {
   max-height: 10em;
   overflow: auto;
-  color: var(--queue);
+  color: var(--fg-3);
 }
+/* 卡片（设计稿 §7.1）：黄色左边线标「需要人」，面板圆角，不加阴影。 */
 .dc {
+  position: relative;
   display: flex;
   min-width: 0;
-  background: var(--panel);
+  padding: var(--s3) var(--s3) var(--s3) var(--s5);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-panel);
   overflow: hidden;
 }
-.dc-stripe {
-  flex: none;
-  width: 3px;
-  background: var(--queue);
+.dc::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--need);
 }
-.dc[data-u='now'] .dc-stripe {
+/* 会超时 / 卡住别人的卡用红 / 蓝边线，与队列的分组标题一致。 */
+.dc[data-u='now']::before {
   background: var(--fail);
 }
-.dc[data-u='blocking'] .dc-stripe {
+.dc[data-u='blocking']::before {
   background: var(--run);
 }
 .dc-body {
   flex: 1;
   min-width: 0;
-  padding: 9px 12px 10px;
 }
 .dc-top {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 6px;
-  color: var(--queue);
-  font-size: 11px;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
+.dc-kind {
+  font-family: var(--font-ui);
 }
 .dc-tag {
-  color: var(--paper);
-  font-weight: 600;
+  color: var(--fg-2);
+}
+.dc-agent {
+  color: var(--fg-3);
 }
 .dc-exp {
   color: var(--fail);
@@ -392,7 +409,11 @@ function linkFor(a: TodayAction): string {
   color: var(--run);
 }
 .dc-woke {
-  color: var(--phosphor);
+  color: var(--accent);
+}
+.dc-when {
+  margin-left: auto;
+  white-space: nowrap;
 }
 .dc-snz {
   position: relative;
@@ -407,58 +428,64 @@ function linkFor(a: TodayAction): string {
   width: max-content;
   min-width: 160px;
   max-width: min(260px, calc(100vw - 32px));
-  padding: 4px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  padding: var(--s1);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-panel);
+  box-shadow: var(--shadow-pop);
 }
 .dc-menu-item {
   display: flex;
-  gap: 8px;
+  gap: var(--s2);
   align-items: center;
-  padding: 6px 8px;
-  color: var(--paper);
+  min-height: 32px;
+  padding: var(--s1) var(--s2);
+  color: var(--fg-2);
   background: transparent;
   border: 0;
-  border-radius: var(--radius);
-  font-size: 12px;
+  border-radius: var(--r-chip);
+  font: inherit;
+  font-size: var(--fs-sm);
   text-align: left;
+  cursor: pointer;
 }
 .dc-menu-item:hover,
 .dc-menu-item:focus-visible {
-  background: var(--ink);
+  background: var(--sunken);
+  color: var(--fg);
 }
 .dc-menu-n {
-  color: var(--queue);
-  font-size: 10px;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
 }
 .dc-menu-hint {
-  margin: 4px 8px 2px;
-  color: var(--queue);
-  font-size: 11px;
+  margin: var(--s1) var(--s2) 2px;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
 .dc-menu-hint.bad {
   color: var(--fail);
 }
 .dc-title {
-  margin: 3px 0 2px;
-  font-size: 14px;
+  margin: var(--s2) 0 var(--s1);
+  font-size: var(--fs-lg);
   font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 .dc-title a {
-  color: var(--paper);
+  color: var(--fg);
 }
 .dc-title a:hover {
-  color: var(--phosphor);
+  color: var(--accent);
   text-decoration: none;
 }
 .dc-sum {
-  margin: 0 0 8px;
-  color: var(--queue);
-  font-size: 13px;
+  margin: 0 0 var(--s2);
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -467,7 +494,7 @@ function linkFor(a: TodayAction): string {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--s1);
 }
 .dc-sp {
   flex: 1;
@@ -475,27 +502,39 @@ function linkFor(a: TodayAction): string {
 .dc-btn {
   display: inline-flex;
   align-items: center;
-  min-height: 26px;
-  padding: 3px 10px;
-  color: var(--paper);
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  font-size: 12px;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 var(--s3);
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
   white-space: nowrap;
+  cursor: pointer;
 }
 .dc-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
+  color: var(--accent);
   text-decoration: none;
+}
+.dc-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 .dc-btn:disabled {
   opacity: 0.5;
+  cursor: default;
 }
 .dc-btn--pri {
-  color: var(--ink);
-  background: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
   font-weight: 600;
+}
+.dc-btn--pri:hover:not(:disabled) {
+  color: var(--bg);
 }
 .dc-btn--ok {
   color: var(--done);
@@ -506,44 +545,47 @@ function linkFor(a: TodayAction): string {
   border-color: var(--fail);
 }
 .dc-btn--link {
-  color: var(--phosphor);
+  color: var(--accent);
+  background: transparent;
   border-color: transparent;
 }
 .dc-btn--dim {
-  color: var(--queue);
+  color: var(--fg-3);
+  background: transparent;
   border-color: transparent;
 }
 .dc-reply {
   display: flex;
-  gap: 6px;
-  margin-top: 8px;
+  gap: var(--s1);
+  margin-top: var(--s2);
 }
 .dc-reply input {
   flex: 1;
   min-width: 0;
-  padding: 4px 8px;
-  color: var(--paper);
-  background: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  font-size: 12px;
+  min-height: 32px;
+  padding: 0 var(--s2);
+  color: var(--fg);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font-size: var(--fs-sm);
 }
 .dc-info {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: var(--s2);
+  padding-top: var(--s2);
   border-top: 1px dashed var(--line);
-  font-size: 12px;
-  color: var(--paper);
+  font-size: var(--fs-sm);
+  color: var(--fg);
 }
 .dc-info p {
-  margin: 0 0 4px;
+  margin: 0 0 var(--s1);
   overflow-wrap: anywhere;
 }
 .dc-info b {
   display: inline-block;
   min-width: 3em;
-  margin-right: 6px;
-  color: var(--queue);
+  margin-right: var(--s1);
+  color: var(--fg-3);
   font-weight: 500;
 }
 .dc-digest {
@@ -559,11 +601,29 @@ function linkFor(a: TodayAction): string {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  gap: var(--s1);
+  margin-top: var(--s1);
 }
 .dc-sg span {
   flex: 1 1 200px;
   min-width: 0;
+}
+/* 手机：主操作铺满，点按目标 ≥40px（§6.3、§10）。 */
+@media (max-width: 760px) {
+  .dc {
+    padding: var(--s3) var(--s3) var(--s3) var(--s4);
+  }
+  .dc-acts .dc-btn {
+    flex: 1 1 auto;
+    min-height: 40px;
+  }
+  .dc-when {
+    margin-left: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dc::before {
+    transition: none;
+  }
 }
 </style>

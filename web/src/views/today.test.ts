@@ -19,6 +19,7 @@ const workbenchSrc = raw(import.meta.glob('./Workbench.vue', { eager: true, quer
 const cardSrc = raw(import.meta.glob('../components/today/DecisionCard.vue', { eager: true, query: '?raw', import: 'default' }))
 const overlaySrc = raw(import.meta.glob('../components/today/DecisionOverlay.vue', { eager: true, query: '?raw', import: 'default' }))
 const statusSrc = raw(import.meta.glob('../components/today/TodayStatusBar.vue', { eager: true, query: '?raw', import: 'default' }))
+const recentSrc = raw(import.meta.glob('../components/today/TodayRecentHandled.vue', { eager: true, query: '?raw', import: 'default' }))
 const storeSrc = raw(import.meta.glob('../store/today.ts', { eager: true, query: '?raw', import: 'default' }))
 
 function card(i: number, over: Partial<TodayCard> = {}): TodayCard {
@@ -63,35 +64,60 @@ async function render(component: unknown): Promise<string> {
   return renderToString(app)
 }
 
-describe('Today page', () => {
-  it('renders the digest line, the top 5 cards, 「还有 N 张」 and the status bar with alerts first', async () => {
+describe('Today page (design §7.1)', () => {
+  it('renders the hero count, the one-line summary, the digest and the top 5 cards', async () => {
     hiddenKeys.value = new Set(['work:w7'])
     todayData.value = data([1, 2, 3, 4, 5, 6, 7, 8].map((i) => card(i)))
     const html = await render(Today)
-    expect(html).toMatch(/自上次打开：完成 <b[^>]*>12<\/b>/)
-    expect(html).toMatch(/新提交 <b[^>]*>9<\/b>/)
-    expect(html).toContain('待我决策')
-    // 8 张，1 张在撤销窗口里已收起 → 7 张可见，展开 5 张
-    expect(html).toContain('7 项')
+    // 首屏：日期 + 「N 件事在等你」（8 张，1 张在撤销窗口里已收起 → 7 张可见）
+    expect(html).toContain('data-test="today-title"')
+    expect(html).toContain('7 件事在等你')
+    // 一行摘要：agent 在跑 / 空闲会话 / 今天完成（泳道数据未加载时为 0，完成了 12 个）
+    expect(html).toContain('data-test="today-summary"')
+    expect(html).toContain('0 个 agent 在跑')
+    expect(html).toContain('0 个空闲会话')
+    expect(html).toContain('今天完成 12')
+    // 「自上次打开」摘要：完成 / 失败 / 新提交
+    expect(html).toContain('data-test="today-digest"')
+    expect(html).toMatch(/<b[^>]*>12<\/b> 完成/)
+    expect(html).toMatch(/<b[^>]*>1<\/b> 失败/)
+    expect(html).toMatch(/<b[^>]*>9<\/b> 新提交/)
+    // 队列只展开前 5 张，其余折成「还有 N 张」
     expect(html.match(/data-test="decision-card"/g)?.length).toBe(5)
     expect(html).toContain('还有 2 张')
     expect(html).not.toContain('工作 7')
+    // 卡片底部入口全部保留
+    expect(html).toContain('data-test="open-focus"')
+    expect(html).toContain('data-test="open-snoozed"')
     expect(html).toContain('data-test="open-handled"')
-    // 状态条：runner 告警排第一
-    const runner = html.indexOf('data-test="status-runner"')
-    expect(runner).toBeGreaterThan(-1)
-    expect(runner).toBeLessThan(html.indexOf('data-test="status-usage"'))
-    expect(html).toContain('w-mac 离线')
-    expect(html).toContain('sb-item--alert')
-    expect(html).toContain('今日 job 41 · 1.5M tok · $4.86')
-    expect(html).toContain('v0.127.0')
+    expect(html).toContain('含 exec 待验收')
+  })
+
+  it('puts the status bar at the bottom with the alerting node first and the same links as before', async () => {
+    hiddenKeys.value = new Set()
+    todayData.value = data([1, 2].map((i) => card(i)))
+    const html = await render(Today)
+    const bar = html.slice(html.indexOf('data-test="today-status"'))
+    const node = bar.indexOf('data-test="status-nodes"')
+    expect(node).toBeGreaterThan(-1)
+    expect(node).toBeLessThan(bar.indexOf('data-test="status-usage"'))
+    expect(bar).toContain('w-mac 离线')
+    expect(bar).toContain('item--alert')
+    expect(bar).toContain('在跑 2')
+    expect(bar).toContain('今天失败 1')
+    expect(bar).toContain('今日 job 41 · 1.5M tok · $4.86')
+    expect(bar).toContain('v0.127.0')
+    // 链接目标与迁移前一致
+    for (const to of ['/runners', '/dashboard', '/settings/work', '/settings/about']) {
+      expect(bar).toContain(`href="${to}"`)
+    }
   })
 
   it('shows the one-line empty state with 专注处理 disabled (T3)', async () => {
     hiddenKeys.value = new Set()
     todayData.value = data([])
     const html = await render(Today)
-    expect(html).toContain('没有等你的事 · 今天处理了')
+    expect(html).toContain('没有等你的事 · 今天处理了 0 张')
     expect(html).toMatch(/<button[^>]*data-test="open-focus"[^>]*disabled/)
     expect(html).toContain('已稍后 0')
     expect(html).not.toContain('data-test="focus-mode"')
@@ -109,13 +135,59 @@ describe('Today page', () => {
     expect(todaySrc).toContain('@snooze="snoozeCard"')
   })
 
-  it('mounts the parallel lanes between the queue and the status bar and subscribes the five live topics', () => {
-    expect(todaySrc).toContain("import TodayLanes from '../components/today/TodayLanes.vue'")
-    expect(todaySrc.indexOf('<TodayLanes />')).toBeGreaterThan(todaySrc.indexOf('<DecisionQueue'))
-    expect(todaySrc.indexOf('<TodayLanes />')).toBeLessThan(todaySrc.indexOf('<TodayStatusBar'))
+  it('filters the queue by decision type and by project chip', async () => {
+    hiddenKeys.value = new Set()
+    todayData.value = data([
+      card(1, { key: 'approval:j1', kind: 'approval', project_key: 'p1' }),
+      card(2, { key: 'review:j2', kind: 'review', project_key: 'p2' }),
+      card(3, { key: 'interaction:j3', kind: 'interaction', project_key: 'p1' }),
+      card(4, { key: 'relay:j4', kind: 'relay' }),
+    ])
+    const html = await render(Today)
+    // 类型 chip 带计数（六个类型 + 全部），项目 chip 显示「全部项目」
+    expect(html).toContain('data-test="filter-chips"')
+    expect(html).toContain('data-test="project-filter"')
+    expect(html).toContain('全部项目')
+    for (const label of ['全部', '审批', '提问', '验收', '等回复', '记忆', 'worker 申请']) {
+      expect(html).toContain(`>${label}<`)
+    }
+    // 卡片上的类型 pill（按接口 kind 翻译）
+    expect(html).toContain('data-test="dc-kind"')
+    expect(html).toContain('待批准')
+    expect(html).toContain('验收')
+    // chip 的计数来自 utils/todayFilters（不把筛选逻辑写在模板里）
+    expect(todaySrc).toContain("from '../utils/todayFilters'")
+    expect(todaySrc).toContain('filterByType(projectCards.value, typeFilter.value)')
+    // 项目筛选写进 URL（唯一真源，§6.4）
+    expect(todaySrc).toContain("useProjectFilter('/today')")
+  })
+
+  it('mounts the parallel lanes and the recently-handled list in the right column', async () => {
+    hiddenKeys.value = new Set()
+    todayData.value = data([1, 2].map((i) => card(i)))
+    const html = await render(Today)
+    expect(html).toContain('data-test="today-lanes"')
+    expect(html).toContain('data-test="today-recent"')
+    expect(html).toContain('并行中')
+    expect(html).toContain('刚处理过')
+    // 泳道数据回传给页面算首屏摘要
+    expect(todaySrc).toContain('<TodayLanes @loaded="lanes = $event" />')
+    expect(recentSrc).toContain('listTodayHandled')
+    expect(recentSrc).toContain('watch(handledTodayCount')
+  })
+
+  it('subscribes the five live topics and keeps the undo window global', () => {
     expect(storeSrc).toContain("export const TODAY_TOPICS = ['pending', 'jobs', 'work', 'sessions', 'plans'] as const")
     expect(storeSrc).toContain('export const REFRESH_DEBOUNCE_MS = 1000')
     expect(storeSrc).toContain("window.addEventListener('pagehide', () => undoQueue.flush(true))")
+  })
+
+  it('keeps the page copy in the page dictionary', () => {
+    // 本页文案只写在 i18n/pages/today.ts，页面与组件都走 t()
+    expect(todaySrc).toContain("from '../i18n'")
+    expect(todaySrc).toContain("t('today.title.n', { n: shownCards.length })")
+    expect(statusSrc).toContain("t('today.status.nodes'")
+    expect(cardSrc).toContain('today.kind.${props.card.kind}')
   })
 })
 
@@ -169,15 +241,20 @@ describe('navigation (design §6)', () => {
   })
 })
 
-describe('Today mobile (~400px) layout', () => {
-  it('wraps instead of scrolling horizontally', () => {
+describe('Today narrow layout (≤760)', () => {
+  it('stacks the right column, wraps the card actions and scrolls the chips inside their own row', () => {
+    // 单列：右栏在窄屏下换到主栏下面，不出横向滚动
+    expect(todaySrc).toMatch(/\.today \{\s*display: grid;\s*grid-template-columns: minmax\(0, 1fr\) 340px/)
+    expect(todaySrc).toMatch(/@media \(max-width: 1099px\) \{\s*\.today \{\s*grid-template-columns: minmax\(0, 1fr\)/)
+    // 类型 / 项目 chip 在手机上框内横向滑动
+    expect(todaySrc).toMatch(/\.today-filters \{\s*flex-wrap: nowrap;\s*overflow-x: auto/)
+    // 卡片主操作换行、点按目标够大
     expect(cardSrc).toMatch(/\.dc-acts \{[^}]*flex-wrap: wrap/)
-    expect(cardSrc).toMatch(/\.dc-top \{[^}]*flex-wrap: wrap/)
-    expect(cardSrc).toMatch(/\.dc-body \{[^}]*min-width: 0/)
     expect(cardSrc).toMatch(/\.dc-title \{[^}]*overflow-wrap: anywhere/)
-    expect(cardSrc).toMatch(/\.dc-reply input \{[^}]*min-width: 0/)
+    expect(cardSrc).toMatch(/min-height: 40px/)
+    // 状态条在手机上也换行
+    expect(statusSrc).toMatch(/\.statbar \{[^}]*flex-wrap: wrap/)
+    // 浮层仍是右侧抽屉，宽度不撑破视口
     expect(overlaySrc).toContain('width: min(max(480px, 40vw), 760px, 100vw)')
-    expect(statusSrc).toMatch(/\.sb \{[^}]*flex-wrap: wrap/)
-    expect(todaySrc).toMatch(/\.sh \{[^}]*flex-wrap: wrap/)
   })
 })
