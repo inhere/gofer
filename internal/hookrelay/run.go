@@ -100,6 +100,10 @@ type Options struct {
 	// MailStateDir holds one "next urgent-mail check" timestamp file per session (the
 	// PreToolUse throttle, mail_inject.go). Empty = a directory under the system temp dir.
 	MailStateDir string
+	// MailUrgentDeadline bounds the PreToolUse urgent-mail take (0 = MailUrgentDeadline).
+	// Only tests raise it: under a loaded machine the stub hub may answer later than the
+	// production bound, which would read as "no letter" rather than as slowness.
+	MailUrgentDeadline time.Duration
 	// StopJobWait is session.stop_job_wait as THIS machine's config wrote it ("" =
 	// unset, see config.ConfiguredSessionStopJobWait): what a Stop does about the
 	// session's watched jobs — away (default) / always / never. An unset value lets
@@ -394,6 +398,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.MemoryStateTTL <= 0 {
 		o.MemoryStateTTL = DefaultPromptMemoryStateTTL
+	}
+	if o.MailUrgentDeadline <= 0 {
+		o.MailUrgentDeadline = MailUrgentDeadline
 	}
 	if o.now == nil {
 		o.now = time.Now

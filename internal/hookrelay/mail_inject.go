@@ -188,7 +188,7 @@ func (r *runner) urgentMailContext() string {
 		m, rem := r.takeMail(true, &abandoned, &failed)
 		done <- out{m, rem}
 	}()
-	timer := time.NewTimer(MailUrgentDeadline)
+	timer := time.NewTimer(r.opts.MailUrgentDeadline)
 	defer timer.Stop()
 	select {
 	case o := <-done:
@@ -207,7 +207,7 @@ func (r *runner) urgentMailContext() string {
 	case <-timer.C:
 		abandoned.Store(true)
 		r.urgentMailBackoff()
-		r.log("urgent mail: deadline %s exceeded, nothing injected", MailUrgentDeadline)
+		r.log("urgent mail: deadline %s exceeded, nothing injected", r.opts.MailUrgentDeadline)
 		return ""
 	}
 }

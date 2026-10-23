@@ -240,7 +240,7 @@ func runPreToolUseHook(p hookrelay.Payload, started time.Time) error {
 	var api hookrelay.API
 	if cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token); err == nil {
 		lister = client.NewWithTimeout(cli.BaseURL(), cli.Token(), hookCommandMemoryTimeout)
-		api = preToolUseMailClient(cli.BaseURL(), cli.Token())
+		api = preToolUseMailClient(cli.BaseURL(), cli.Token(), preToolUseMailDeadline)
 	}
 	deadline := hookrelay.DefaultCommandMemoryDeadline - time.Since(started)
 	if deadline < hookCommandMinDeadline {
@@ -248,11 +248,12 @@ func runPreToolUseHook(p hookrelay.Payload, started time.Time) error {
 	}
 	runDir := filepath.Dir(config.RuntimeFilePath("run", "hook.log"))
 	res, err := hookrelay.Run(api, p, hookrelay.Options{
-		CommandMemories: hookrelay.NewCommandMemoryLoader(lister, localGlobalMemories, hookProjectFor(cfg, cfgErr)),
-		CommandDeadline: deadline,
-		MemoryStateDir:  filepath.Join(runDir, "prompt-memory"),
-		MailStateDir:    filepath.Join(runDir, "mail-urgent"),
-		Log:             logf,
+		CommandMemories:    hookrelay.NewCommandMemoryLoader(lister, localGlobalMemories, hookProjectFor(cfg, cfgErr)),
+		CommandDeadline:    deadline,
+		MemoryStateDir:     filepath.Join(runDir, "prompt-memory"),
+		MailStateDir:       filepath.Join(runDir, "mail-urgent"),
+		MailUrgentDeadline: preToolUseMailDeadline,
+		Log:                logf,
 	})
 	if err != nil {
 		return nil
@@ -264,9 +265,13 @@ func runPreToolUseHook(p hookrelay.Payload, started time.Time) error {
 // preToolUseMailClient is the PreToolUse fast path's hub client: it exists only so the
 // urgent-mail take can reach the hub (an api of nil silently disabled it), bounded by
 // the urgent-mail deadline.
-func preToolUseMailClient(baseURL, token string) hookrelay.API {
-	return client.NewWithTimeout(baseURL, token, hookrelay.MailUrgentDeadline)
+func preToolUseMailClient(baseURL, token string, deadline time.Duration) hookrelay.API {
+	return client.NewWithTimeout(baseURL, token, deadline)
 }
+
+// preToolUseMailDeadline is the urgent-mail bound the PreToolUse hook uses. A variable
+// only so tests can raise it (G052); production keeps hookrelay.MailUrgentDeadline.
+var preToolUseMailDeadline = hookrelay.MailUrgentDeadline
 
 // hookAbortGrace bounds how long the dying hook may spend telling the hub: the
 // agent CLI may follow its signal with a hard kill, and a hub that stalls must not

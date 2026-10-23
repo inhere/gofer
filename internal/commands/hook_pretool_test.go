@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/hookrelay"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // gofer-02fu: an AskUserQuestion PreToolUse needs the session hub, so it must not
@@ -27,6 +28,11 @@ func TestPreToolUseFastPathExcludesAskUserQuestion(t *testing.T) {
 // urgent take — found in the first live test of the mailbox, not by the hookrelay unit
 // tests (they inject a fake API).
 func TestPreToolUseFastPathDeliversUrgentMail(t *testing.T) {
+	// The production bound is 300ms; a loaded Windows host has missed it against the stub
+	// hub (claims=0). Raise it here so the test checks delivery, not latency (G052).
+	prev := preToolUseMailDeadline
+	preToolUseMailDeadline = wait.Timeout(t, 10*time.Second)
+	t.Cleanup(func() { preToolUseMailDeadline = prev })
 	var claims int
 	stubAuthServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
