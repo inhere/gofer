@@ -439,7 +439,7 @@ onBeforeUnmount(() => {
   min-height: 30px;
   padding: 0 var(--s3);
   background: var(--accent);
-  color: var(--accent-fg, var(--surface));
+  color: var(--accent-ink);
   border: 1px solid var(--accent);
   border-radius: var(--r-ctl);
   font: inherit;
@@ -486,7 +486,7 @@ onBeforeUnmount(() => {
     min-width: 40px;
   }
   .composer-input {
-    font-size: var(--fs-base, 16px);
+    font-size: var(--fs-input-mobile);
     max-height: 28vh;
   }
   .composer-row {

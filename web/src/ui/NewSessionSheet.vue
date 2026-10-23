@@ -313,7 +313,7 @@ if (open.value) void loadMeta()
 }
 .ns-submit {
   background: var(--accent);
-  color: var(--accent-fg, var(--surface));
+  color: var(--accent-ink);
   border: 1px solid var(--accent);
   font-weight: 600;
 }

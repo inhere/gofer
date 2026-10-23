@@ -103,6 +103,7 @@ function whenText(sec: number | undefined): string {
     :active="active"
     :dim="item.status === 'dropped' || item.status === 'done'"
     openable
+    stacked
     :card-id="item.id"
     @toggle="emit('toggle')"
     @open="emit('open')"

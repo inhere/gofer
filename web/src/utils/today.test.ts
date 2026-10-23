@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TodayCard } from '../api/today'
+import { setLocale } from '../store/locale'
 
 const calls: string[] = []
 vi.mock('../api/client', () => {
@@ -48,12 +49,14 @@ vi.mock('../api/today', () => ({
 }))
 
 const {
+  actionLabel,
   adviceAction,
   blockShort,
   cardLink,
   createChordDetector,
   doneLabel,
   groupByTier,
+  handledActionLabel,
   isLocalAction,
   isTypingTarget,
   memoryProposalText,
@@ -284,5 +287,50 @@ describe('memory hygiene cards (P4)', () => {
     expect(memoryProposalText(card({ kind: 'memory', memory: { ...base, action: 'kind', current_kind: 'note', payload: { kind: 'rule' } } }))).toBe('类型 note → rule')
     expect(memoryProposalText(card({ kind: 'memory', memory: { ...base, action: 'when', payload: { keywords: ['发版', 'release'] } } }))).toBe('触发词 + 发版, release')
     expect(memoryProposalText(card({ kind: 'review' }))).toBe('')
+  })
+})
+
+// 服务端下发的动作名是固定中文（internal/today 的 Action.Label）：界面按动作类型本地化，
+// 未知类型才显示原文（截图检查 P6-2：英文界面曾出现「Suggested: 忽略」。
+describe('action labels follow the interface language', () => {
+  beforeEach(() => setLocale('zh-CN'))
+
+  it('maps the known server labels to i18n keys', () => {
+    expect(actionLabel({ id: 'adopt', label: '采纳' })).toBe('采纳')
+    expect(actionLabel({ id: 'dismiss', label: '忽略' })).toBe('忽略')
+    expect(actionLabel({ id: 'accept', label: '通过' })).toBe('通过')
+    expect(actionLabel({ id: 'reject', label: '拒绝' })).toBe('拒绝')
+    expect(actionLabel({ id: 'open', label: '去整理' })).toBe('去整理')
+  })
+
+  it('localizes them in English instead of showing the server text', () => {
+    setLocale('en-US')
+    expect(actionLabel({ id: 'adopt', label: '采纳' })).toBe('Accept')
+    expect(actionLabel({ id: 'dismiss', label: '忽略' })).toBe('Ignore')
+    expect(actionLabel({ id: 'accept', label: '通过' })).toBe('Accept')
+    expect(actionLabel({ id: 'reject', label: '拒绝' })).toBe('Reject')
+    expect(actionLabel({ id: 'resume', label: '继续' })).toBe('Resume')
+    // 同一 id、不同卡片的文案（open 的四种）分别对到各自的 key，不互相覆盖。
+    expect(actionLabel({ id: 'open', label: '看详情' })).toBe('Open details')
+    expect(actionLabel({ id: 'open', label: '去指派' })).toBe('Assign it')
+    expect(actionLabel({ id: 'open', label: '打开 plan' })).toBe('Open the plan')
+    setLocale('zh-CN')
+  })
+
+  it('keeps unknown labels (answer options and new server actions) as they are', () => {
+    expect(actionLabel({ id: 'answer', label: '允许' })).toBe('允许')
+    expect(actionLabel({ id: 'answer', label: 'Yes, deploy it' })).toBe('Yes, deploy it')
+    expect(actionLabel({ id: 'brand-new', label: '新动作' })).toBe('新动作')
+  })
+
+  it('re-reads the label of an already handled suggestion in the current language', () => {
+    setLocale('en-US')
+    // 点的时候按当时语言记下的 label（中文）不能直接展示。
+    expect(handledActionLabel('dismiss:goal', '忽略建议')).toBe('Ignore the suggestion')
+    expect(handledActionLabel('adopt:next_step', '采纳建议')).toBe('Accept the suggestion')
+    // 其它动作走同一张表；都不认识就原样显示。
+    expect(handledActionLabel('approve', '批准')).toBe('Approve')
+    expect(handledActionLabel('whatever', '原文')).toBe('原文')
+    setLocale('zh-CN')
   })
 })

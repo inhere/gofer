@@ -74,6 +74,7 @@ import {
   mailConversationInProject,
   mailConversationKey,
   mailConversationSeq,
+  mailCountConversations,
   mailFoldedBody,
   mailLongBody,
   mailPartyAddress,
@@ -137,8 +138,10 @@ const sessionFilter = ref(queryValue(route.query.session))
 const { project, setProject, options: projectOptions, loadOptions: loadProjectOptions, loadError: projectLoadError } =
   useProjectFilter('/mail')
 
-// 各筛选下的对话数（chip 上的计数）。收件 / 发件 / 全部取 conversations 接口的 count，
-// 待指派按本地分组的对话数算——它们都没有服务端过滤参数，只能各问一次。
+// 各筛选下的对话数（chip 上的计数）。口径与页头「N 个对话」一致：这个筛选下有几个对话。
+// conversations 接口的 count 是这一页的条数（limit=1 时恒为 1，之前 chip 因此全显示 1），所以按
+// 返回的对话数数；待指派没有对话接口，按本地分组的对话数算。
+const MAIL_COUNT_LIMIT = 200 // = 服务端 mailConvMax：一次取满再数，不给计数另建接口
 const counts = ref<Record<MailFilter, number>>({ all: 0, in: 0, out: 0, held: 0 })
 
 const filterItems = computed<FilterChipItem[]>(() => [
@@ -316,22 +319,22 @@ async function loadRows(): Promise<void> {
   rows.value = resp.conversations ?? []
 }
 
-// loadCounts 取四个筛选 chip 的计数：收件 / 发件 / 全部问 conversations 接口的 count，
-// 待指派按本地分组算对话数（它就是「还没投出去的信」，没有单独的对话接口）。
-// 计数只是提示，失败就不显示变化，不影响看信。
+// loadCounts 取四个筛选 chip 的计数：收件 / 发件 / 全部看 conversations 接口返回的对话
+// （按当前项目收窄，跟页头的数一致），待指派按本地分组算对话数（它就是「还没投出去的信」，
+// 没有单独的对话接口）。计数只是提示，失败就不显示变化，不影响看信。
 async function loadCounts(): Promise<void> {
   try {
     const [all, inbox, outbox, held] = await Promise.all([
-      listMailConversations({ box: 'all', limit: 1 }),
-      listMailConversations({ box: 'in', limit: 1 }),
-      listMailConversations({ box: 'out', limit: 1 }),
+      listMailConversations({ box: 'all', limit: MAIL_COUNT_LIMIT }),
+      listMailConversations({ box: 'in', limit: MAIL_COUNT_LIMIT }),
+      listMailConversations({ box: 'out', limit: MAIL_COUNT_LIMIT }),
       listMail(mailHeldQuery()),
     ])
     counts.value = {
-      all: all.count ?? 0,
-      in: inbox.count ?? 0,
-      out: outbox.count ?? 0,
-      held: groupMailConversations(held.mail ?? []).length,
+      all: mailCountConversations(all.conversations ?? [], project.value),
+      in: mailCountConversations(inbox.conversations ?? [], project.value),
+      out: mailCountConversations(outbox.conversations ?? [], project.value),
+      held: mailCountConversations(groupMailConversations(held.mail ?? []), project.value),
     }
   } catch {
     // 计数失败保持上一次的值
@@ -872,18 +875,21 @@ onUnmounted(() => {
           <!-- 时间线是页面自己的滚动区（整页不滚）：右边缘一条小地图，标记＜3 封时不画。 -->
           <div class="timeline-wrap">
             <div ref="timelineEl" class="timeline" data-test="mail-timeline" @scroll="syncTimelineScroll">
-              <!-- 分页：打开对话只加载最新的一页，更早的信按需往上翻。 -->
+              <!-- 分页：打开对话只加载最新的一页，更早的信按需往上翻。「还有更早」的提示与
+                   按钮都在这一行里（截图检查 P6-2：提示原先浮在小地图旁，压在信件正文上）。 -->
               <div class="older" data-test="mail-older">
-                <button
-                  v-if="hasOlder"
-                  class="act mono"
-                  type="button"
-                  :disabled="loadingOlder"
-                  data-test="mail-older-load"
-                  @click="loadOlder"
-                >
-                  {{ loadingOlder ? t('mail.older.loading') : t('mail.older.load', { n: MAIL_TIMELINE_PAGE }) }}
-                </button>
+                <template v-if="hasOlder">
+                  <span class="older-hint dim mono" data-test="mail-older-hint">{{ t('mail.thread.minimapMore') }}</span>
+                  <button
+                    class="act mono"
+                    type="button"
+                    :disabled="loadingOlder"
+                    data-test="mail-older-load"
+                    @click="loadOlder"
+                  >
+                    {{ loadingOlder ? t('mail.older.loading') : t('mail.older.load', { n: MAIL_TIMELINE_PAGE }) }}
+                  </button>
+                </template>
                 <span v-else class="dim mono" data-test="mail-older-end">{{ t('mail.older.end') }}</span>
               </div>
               <article
@@ -983,16 +989,6 @@ onUnmounted(() => {
                 </div>
               </article>
             </div>
-            <button
-              v-if="hasOlder"
-              class="minimap-more mono"
-              type="button"
-              :title="t('mail.thread.minimapMore')"
-              data-test="mail-minimap-more"
-              @click="loadOlder"
-            >
-              {{ t('mail.thread.minimapMore') }}
-            </button>
             <MailMinimap
               v-if="minimapMarks.length"
               :marks="minimapMarks"
@@ -1275,36 +1271,22 @@ onUnmounted(() => {
   overflow-y: auto;
   padding: var(--s2) 4px var(--s2) 0;
 }
-/* 分页入口：时间线顶端一行（还有更早的就出按钮，到底了说一声）。 */
+/* 分页入口：时间线顶端一行（还有更早的就出提示 + 按钮，到底了说一声）。
+   这一行占满整行、不叠在气泡上（截图检查 P6-2）。 */
 .older {
   display: flex;
   justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s2);
   flex: 0 0 auto;
 }
 .older .act {
   font-size: var(--fs-xs);
   padding: 2px 8px;
 }
-/* 小地图旁的提示：还有更早的信件没加载（点它等同加载更多），贴在轨道顶端。 */
-.minimap-more {
-  position: absolute;
-  right: 20px;
-  top: 2px;
-  z-index: 1;
-  max-width: 40%;
-  padding: 1px 6px;
-  font-size: 10px;
-  color: var(--accent);
-  background: var(--surface);
-  border: 1px dashed var(--line);
-  border-radius: var(--r-chip);
-  cursor: pointer;
-  opacity: 0.9;
-}
-.minimap-more:hover,
-.minimap-more:focus-visible {
-  opacity: 1;
-  outline: none;
+.older-hint {
+  font-size: var(--fs-xs);
 }
 /* 气泡：自己的一方在右（--right），对方在左；回信用虚线边，急件勾红线。
    宽度取对话区的大部分（max-width 用 ch 限制超宽屏上的行长），手机宽度下满宽。 */
@@ -1362,7 +1344,7 @@ onUnmounted(() => {
 }
 .bubble-body {
   margin-top: 6px;
-  font-size: var(--fs-base);
+  font-size: var(--fs-md);
   color: var(--ink);
 }
 .fold {
@@ -1535,7 +1517,7 @@ onUnmounted(() => {
   height: 18px;
   border-radius: 999px;
   background: var(--accent);
-  color: var(--accent-fg, var(--surface));
+  color: var(--accent-ink);
   font-size: 11px;
   font-weight: 600;
   text-align: center;
@@ -1567,7 +1549,7 @@ onUnmounted(() => {
 .act--primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--accent-fg, var(--surface));
+  color: var(--accent-ink);
   font-weight: 600;
 }
 .err {
@@ -1612,11 +1594,7 @@ onUnmounted(() => {
   .back {
     display: inline-flex;
   }
-  /* 手机上小地图不画（见 MailMinimap），它的「还有更早」提示也不再叠在气泡上；
-     顶端已有「加载更早的 N 条」按钮。 */
-  .minimap-more {
-    display: none;
-  }
+  /* 手机上小地图不画（见 MailMinimap）；「还有更早」的提示本来就在时间线顶端那一行，不占气泡。 */
   .bubble {
     max-width: 100%;
   }

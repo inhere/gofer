@@ -28,6 +28,8 @@
   --fs-3xl: 28px;
   --fs-hero: 34px;
   --fs-body-mobile: 15px;
+  /* 手机上的输入框字号：iOS 聚焦时不缩放的底线是 16px（小一号就会自动拉大页面）。 */
+  --fs-input-mobile: 16px;
 
   /* 间距：4 的倍数 */
   --s1: 4px;

@@ -108,6 +108,11 @@ describe('work page structure', () => {
     expect(page).toContain("filter.value = v === '' ? 'all' : (v as WorkFilter)")
   })
 
+  it('leaves room at the bottom so the steward button does not cover the last card', () => {
+    // 截图检查 P6-2：右下角浮动的「问管家」压住了最后一张卡的「详情」。
+    expect(page).toContain('padding-bottom: 64px')
+  })
+
   it('opens the detail in the P2 drawer, full width on a phone', () => {
     expect(drawer).toContain('width="clamp(640px, 52vw, 1040px)"')
     expect(drawer).toContain('flush')

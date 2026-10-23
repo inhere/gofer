@@ -5,6 +5,7 @@ import { ref, watch } from 'vue'
 import { listTodayHandled, type TodayHandled } from '../../api/today'
 import { fmtDateTime } from '../../api/time'
 import { t } from '../../i18n'
+import { actionLabel, handledActionLabel } from '../../utils/today'
 import { handledOpen } from '../../store/today'
 
 const rows = ref<TodayHandled[]>([])
@@ -26,6 +27,7 @@ watch(handledOpen, async (open) => {
 
 // 当时的管家建议：建议的操作名，没有操作时用建议原文
 function adviceOf(h: TodayHandled): string {
+  if (h.advice_action_id && h.advice_label) return actionLabel({ id: h.advice_action_id, label: h.advice_label })
   return h.advice_label || h.advice_text || h.advice_action_id || ''
 }
 
@@ -48,7 +50,7 @@ function close(): void {
         <span class="hd-card">{{ h.title || h.card_key }}</span>
         <span class="hd-meta mono">
           <span>{{ fmtDateTime(h.at) }}</span>
-          <span>{{ t('today.handled.you', { label: h.label || h.action_id }) }}</span>
+          <span>{{ t('today.handled.you', { label: handledActionLabel(h.action_id, h.label ?? '') }) }}</span>
           <span v-if="h.via_advice" class="hd-via">{{ t('today.handled.viaAdvice') }}</span>
           <span v-else-if="adviceOf(h)" :title="h.advice_text">{{ t('today.handled.advice', { advice: adviceOf(h) }) }}</span>
         </span>

@@ -1719,3 +1719,18 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **测试与验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`（222 文件 / 1505 例，导出末尾 `Tests 1505 passed`）；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`（`✓ built in 3.81s`）。现有用例里 9 处按中文断言改为按 key 断言（`steward.test.ts`、`messengerSessionWake.test.ts`、`drawerAttachPolish.test.ts`、`sessionDrawerRelay.test.ts`、`s8SessionMessage.test.ts`、`views/sessionsRefusedOwner.test.ts`、`workbench/threadViewSessionComposer.test.ts`、`mobileLayout.test.ts`、`utils/steward.test.ts`）。
 
 本批后 `PENDING` 从 122 个文件降到 **81 个**。
+
+## 实施记录 P6-2（截图检查第二组，gofer-hez1）
+
+输入是全页面截图检查的产物（`tmp/pagecheck/out-0191/`：zh/en × 浅/深 × 1440/390 + `report.json`）。本组修六项：
+
+1. **信箱「还有更早的信件未加载」不再压正文**：原来它是 `.minimap-more`，`position: absolute` 贴在小地图旁，压在信件正文上。现在这一行（`data-test="mail-older"`）同时放提示与「加载更早的 N 条」按钮，居中占整行；`.minimap-more` 与它在手机断点下的隐藏规则一起删掉。测试：`mailPage.test.ts` / `mailConversationsWiring.test.ts` 改为断言 `mail-older-hint` 在同一行、且页面里不再出现 `minimap-more`。
+2. **信箱筛选 chip 的计数**：根因是 `GET /v1/mail/conversations` 的 `count` 是**这一页的条数**（`len(conversations)`），而计数只想要个数字，前端带的是 `limit=1`——于是「全部 / 收件 / 发件」永远显示 1，与页头按本地行数算的「N 个对话」对不上。改为按接口返回的对话数数（`limit` 提到服务端上限 200），并新增 `utils/mailConversations.ts` 的 `mailCountConversations(convs, project)`：项目筛选下与页头同一个口径。测试：`mailConversations.test.ts` 新增两条（按对话数而非信件数、项目收窄），`mailPage.test.ts` 钉住不再用 `limit: 1` 取 count。
+3. **任务详情「最近日志」的 ANSI**：概览的末 6 行是纯文本 `pre`（不走 `LogTape` 的 ANSI 渲染），把 `[2m`、`[36m` 当可见字符。新增 `utils/logRender.ts` 的 `stripAnsi()`（CSI / OSC / 三字符转义 / 其余 ESC + 残余 C0 控制字符；`\r` 拆行、`\t` 与 `\n` 保留），`JobDetail.vue` 的 `logTail` 先过它。测试：`logRender.test.ts` 四例 + `views/jobDetailLogTail.test.ts`（接线 + 真实彩色日志样例）。
+4. **工作项卡片**：`InfoCard` 新增向后兼容的 `stacked` 属性（默认 false，行为不变），`WorkCard` 打开它——header 改列方向，标题占整行、状态 / 到期 / 未整理 / 离线 chip 在下一行；`Work.vue` 的 `.work-page` 加 `padding-bottom: 64px`，右下角浮动的「问管家」（fixed，约 40px + 16px 底距）不再压住最后一张卡的「详情」。测试：`workCard.test.ts`（header 带 `icard-head--stacked`、标题在徽标之前）、`workPage.test.ts`（底部留白）。
+5. **今天页建议卡片的动作名**：动作名来自服务端（`internal/today` 的 `Action.Label` 是固定中文），英文界面出现「Suggested：忽略」「采纳 / 忽略」。新增 `utils/today.ts` 的 `actionLabel()`：按 `id:label` 配对映射到本页 i18n key（`today.action.*`，`open` 的四种文案各对一条，`answer` 的选项文案与未知动作原样显示），`DecisionCard` 的「按建议」「其它动作」「回复占位 / 确认」都走它；`handledActionLabel()` 让「已处理」抽屉按 `action_id` 重新取（那里记的是点击时语言的文案）。服务端中文匹配键进 `noHardcodedCjk` 白名单并写明理由。测试：`utils/today.test.ts` 四例（zh 映射、en 本地化、未知原样、已处理重取）。
+6. **未定义 CSS 变量**：`--muted`→`--ink-3`、`--warn`→`--need`/`--need-ink`、`--hover`→`--surface-2`、`--dim`→`--ink-3`、`--accent-fg`→`--accent-ink`、`--fs-base`→`--fs-md`（信箱正文）/ 新增 `--fs-input-mobile: 16px`（`Composer` 手机输入框，iOS 聚焦不缩放的下限）。`--risk` 确认是 `SessionGrantDialog` / `settings/Permissions.vue` 的局部变量，保留。测试：`styles/cssVariables.test.ts`——扫 `web/src` 的 `var(--x)`，必须在 `src/styles/*.css` 定义或在同一文件里局部定义；另钉住六个旧拼写不再出现。为读到 CSS 正文，新增 `web/vitest.config.ts`（`test.css: true`，默认会把 CSS 模块变成空串）。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run` → `Test Files 226 passed (226)` / `Tests 1538 passed (1538)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` → `✓ built in 5.13s`。本组只改前端，没有 Go 侧改动。
+
+**共享组件改动**：`ui/InfoCard.vue` 新增可选 `stacked`（默认 false），`ui/Composer.vue` / `ui/NewSessionSheet.vue` 只换 token 名（`--accent-ink` / `--fs-input-mobile`），外观不变；`styles/tokens.css` 新增一个变量，其余向下兼容。

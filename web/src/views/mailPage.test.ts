@@ -103,16 +103,20 @@ describe('页面接线（源码断言）', () => {
     expect(pageSrc).toContain("import ProjectFilter from '../ui/ProjectFilter.vue'")
     expect(pageSrc).toContain("useProjectFilter('/mail')")
     expect(pageSrc).toContain("router.replace({ path: '/mail'")
-    // 计数来自四个查询（收件 / 发件 / 全部的 count，待指派按本地分组算）
+    // 计数口径：conversations 接口的 count 是这一页的条数，所以按返回的对话数数（原先 limit: 1
+    // 取 count，四个 chip 全显示 1），项目筛选与页头同一个口径。
     expect(pageSrc).toContain('async function loadCounts()')
-    expect(pageSrc).toContain('listMailConversations({ box: \'all\', limit: 1 })')
+    expect(pageSrc).toContain("listMailConversations({ box: 'all', limit: MAIL_COUNT_LIMIT })")
+    expect(pageSrc).toContain('mailCountConversations(all.conversations ?? [], project.value)')
     expect(pageSrc).toContain('mailHeldQuery()')
   })
 
   it('线程顶部是「加载更早的 N 条」，小地图与视口框都在', () => {
     expect(pageSrc).toContain("t('mail.older.load', { n: MAIL_TIMELINE_PAGE })")
     expect(pageSrc).toContain('data-test="mail-older-load"')
-    expect(pageSrc).toContain('data-test="mail-minimap-more"')
+    // 「还有更早的信件未加载」与按钮同一行，不叠在信件正文上。
+    expect(pageSrc).toContain('data-test="mail-older-hint"')
+    expect(pageSrc).not.toContain('minimap-more')
     expect(pageSrc).toContain('<MailMinimap')
     expect(pageSrc).toContain(':band="minimapVisibleBand"')
   })

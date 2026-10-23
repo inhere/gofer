@@ -193,7 +193,7 @@ watch(
   align-items: baseline;
   gap: 8px;
   font-size: 12px;
-  color: var(--muted, #888);
+  color: var(--ink-3);
 }
 .cm-author {
   color: var(--ink);
@@ -231,7 +231,7 @@ watch(
 }
 .cm-empty {
   font-size: 12px;
-  color: var(--muted, #888);
+  color: var(--ink-3);
   margin: 0;
 }
 .cm-form {
@@ -259,7 +259,7 @@ watch(
 }
 .cm-hint {
   font-size: 11px;
-  color: var(--muted, #888);
+  color: var(--ink-3);
 }
 .cm-send {
   background: transparent;

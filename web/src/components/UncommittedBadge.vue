@@ -18,7 +18,7 @@ defineProps<{ count?: number; files?: string[] }>()
 
 <style scoped>
 .uncommitted-badge { position: relative; display: inline-block; flex: none; font-size: 11px; }
-.uncommitted-badge summary { cursor: pointer; list-style: none; padding: 3px 7px; border: 1px solid var(--warn, #c98a35); border-radius: var(--r-chip); color: var(--warn, #c98a35); white-space: nowrap; }
+.uncommitted-badge summary { cursor: pointer; list-style: none; padding: 3px 7px; border: 1px solid var(--need); border-radius: var(--r-chip); color: var(--need-ink); white-space: nowrap; }
 .uncommitted-badge summary::-webkit-details-marker { display: none; }
 .uncommitted-popover { position: absolute; z-index: 20; top: calc(100% + 5px); left: 0; min-width: 240px; max-width: min(420px, 85vw); max-height: 260px; overflow: auto; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--surface); color: var(--ink); box-shadow: 0 8px 24px #0005; }
 .uncommitted-popover ul { margin: 0; padding-left: 18px; overflow-wrap: anywhere; }

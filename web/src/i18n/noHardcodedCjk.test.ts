@@ -28,6 +28,15 @@ const WHITELIST: Record<string, { text: string[]; why: string }[]> = {
   'utils/findings.ts': [
     { text: ['发现但不碰'], why: '汇报里固定小节标题的解析关键字（与 Go 侧 internal/job/findings.go 对齐），不翻译' },
   ],
+  'utils/today.ts': [
+    {
+      text: [
+        '回复', '已读', '通过', '附意见重跑', '看 diff', '批准', '拒绝', '看详情', '去整理', '去指派',
+        '打开 plan', '去处理', '请求汇报', '搁置', '采纳', '忽略', '继续',
+      ],
+      why: '今天页动作按钮的匹配键：服务端（internal/today）下发的动作名是固定中文，用 id:label 对上 i18n key；界面文案仍来自字典',
+    },
+  ],
   'components/today/TodayStatusBar.vue': [
     { text: ['管家'], why: '服务端 status.alerts 里的告警前缀（wire 原文，中文），用 startsWith 判断，不是界面文案' },
   ],

@@ -129,7 +129,9 @@ describe('the timeline is paged', () => {
     }
     expect(page).toContain('data-test="mail-older-load"')
     expect(page).toContain('data-test="mail-older-end"')
-    expect(page).toContain('data-test="mail-minimap-more"')
+    // 「还有更早」的提示在时间线顶端那一行里（截图检查 P6-2：曾浮在小地图旁压住信正文）。
+    expect(page).toContain('data-test="mail-older-hint"')
+    expect(page).not.toContain('minimap-more')
     // 同一对话的刷新（ack / 回信 / 新信）只补最新的，不重载已加载的页。
     expect(page).toContain('refreshTimeline(')
     expect(page).toContain('timelineNearBottom(')

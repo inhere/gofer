@@ -1353,7 +1353,7 @@ onUnmounted(() => {
   color: var(--done);
 }
 .a-peer-messaging.pending {
-  color: var(--muted);
+  color: var(--ink-3);
 }
 .copy-btn {
   margin-left: 6px;

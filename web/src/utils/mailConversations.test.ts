@@ -11,6 +11,7 @@ import {
   mailConversationBox,
   mailConversationKey,
   mailConversationSeq,
+  mailCountConversations,
   mailFoldedBody,
   mailLongBody,
   mailPartyAddress,
@@ -312,5 +313,32 @@ describe('reply badge and folding', () => {
     expect(mailFoldedBody(long).endsWith('…')).toBe(true)
     expect([...mailFoldedBody(long)].length).toBe(MAIL_LONG_BODY + 1)
     expect(mailFoldedBody('短')).toBe('短')
+  })
+})
+
+// 筛选 chip 上的对话数与页头「N 个对话」同一个口径（截图检查 P6-2：四个 chip 曾全显示 1）。
+describe('conversation counts for the filter chips', () => {
+  const convs = groupMailConversations([
+    mail(),
+    mail({ id: 2, from: S2, to: S1 }),
+    mail({ id: 3, to: BOX, to_address: 'caller:c1' }),
+  ])
+
+  it('counts conversations, not letters of the page', () => {
+    // 两封在一个对话里 → 两个参与方对 = 2 个对话，不是 3 封信。
+    expect(convs.length).toBe(2)
+    expect(mailCountConversations(convs)).toBe(2)
+  })
+
+  it('narrows by project like the list header does', () => {
+    const withProject = convs.map((c) => ({
+      ...c,
+      a: { ...c.a, persona: { ...c.a.persona, project_key: c.key.includes('sess_bbb') ? 'p-one' : 'p-two' } },
+    }))
+    expect(mailCountConversations(withProject, 'p-one')).toBe(1)
+    expect(mailCountConversations(withProject, 'p-two')).toBe(1)
+    expect(mailCountConversations(withProject, '  ')).toBe(2)
+    expect(mailCountConversations(withProject, '')).toBe(2)
+    expect(mailCountConversations([], 'p-one')).toBe(0)
   })
 })

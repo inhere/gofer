@@ -8,7 +8,7 @@ import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import RejectDialog from '../RejectDialog.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
-import { actionKey, actionLink, adviceAction, blockShort, cardLink, expiresText, memoryProposalText, waitText } from '../../utils/today'
+import { actionKey, actionLabel, actionLink, adviceAction, blockShort, cardLink, expiresText, memoryProposalText, waitText } from '../../utils/today'
 import { approveAction, focusActions, replyAction as replyActionOf } from '../../utils/todayFocus'
 import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
@@ -281,7 +281,7 @@ function linkFor(a: TodayAction): string {
           :disabled="!!actionBlock(advice)"
           :title="actionBlock(advice) || undefined"
           @click="onAction(advice, true)"
-        >{{ t('today.card.advice', { label: advice.label }) }}</button>
+        >{{ t('today.card.advice', { label: actionLabel(advice) }) }}</button>
         <template v-for="a in otherActions" :key="actionKey(a)">
           <RouterLink
             v-if="a.id === 'diff' || a.id === 'open'"
@@ -299,7 +299,7 @@ function linkFor(a: TodayAction): string {
             :disabled="!!actionBlock(a)"
             :title="actionBlock(a) || undefined"
             @click="onAction(a)"
-          >{{ a.label }}</button>
+          >{{ actionLabel(a) }}</button>
         </template>
         <span class="dc-sp"></span>
         <button
@@ -338,8 +338,8 @@ function linkFor(a: TodayAction): string {
           ref="replyInput"
           v-model="replyText"
           class="mono"
-          :placeholder="replyAction.optional_text ? t('today.card.optionalPlaceholder', { label: replyAction.label }) : t('today.card.replyPlaceholder', { label: replyAction.label })"
-          :aria-label="replyAction.label"
+          :placeholder="replyAction.optional_text ? t('today.card.optionalPlaceholder', { label: actionLabel(replyAction) }) : t('today.card.replyPlaceholder', { label: actionLabel(replyAction) })"
+          :aria-label="actionLabel(replyAction)"
           @keydown="onReplyKey"
         />
         <button
@@ -347,7 +347,7 @@ function linkFor(a: TodayAction): string {
           type="button"
           :disabled="!replyText.trim() && !replyAction.optional_text"
           @click="sendReply"
-        >{{ replyAction.optional_text ? t('today.card.confirm', { label: replyAction.label }) : t('today.card.send') }}</button>
+        >{{ replyAction.optional_text ? t('today.card.confirm', { label: actionLabel(replyAction) }) : t('today.card.send') }}</button>
       </div>
       <div v-if="infoOpen && hasInfo" class="dc-info" data-test="dc-info">
         <p v-if="card.blocks.text"><b>{{ t('today.card.blocking') }}</b>{{ card.blocks.text }}</p>

@@ -98,6 +98,13 @@ export function mailConversationInProject(conv: MailConversation, project: strin
   return [conv.a?.persona?.project_key, conv.b?.persona?.project_key].some((p) => (p ?? '').trim() === key)
 }
 
+// mailCountConversations 是一个箱下的对话数（按项目收窄后），给筛选 chip 与页头同一个口径：
+// 页头的「N 个对话」就是当前项目下列表里的对话数。
+export function mailCountConversations(convs: MailConversation[], project = ''): number {
+  const key = (project ?? '').trim()
+  return key ? convs.filter((c) => mailConversationInProject(c, key)).length : convs.length
+}
+
 // mailConversationBox 把页签映射成对话列表 / 时间线的箱参数（「待指派」两边都要）。
 export function mailConversationBox(filter: MailFilter): 'in' | 'out' | 'all' {
   return filter === 'in' ? 'in' : filter === 'out' ? 'out' : 'all'

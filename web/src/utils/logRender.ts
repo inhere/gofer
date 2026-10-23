@@ -103,6 +103,26 @@ export function renderAnsiChunk(
   return { html, classes, partialLine: line, lineCount }
 }
 
+// stripAnsi 把带 ANSI 转义的日志做成纯文本：颜色的 SGR（\x1b[2m 这类）、光标 / 擦除等 CSI、
+// OSC 标题与超链接、其余双字符转义全去掉，剩下的 C0 控制字符也去掉（\r 变行尾，行内的回车
+// 重写——进度条——拆成多行）；\t 与 \n 保留。给「最近日志」这类不走 LogTape 的纯文本用：
+// 不能把 \x1b[2m 当可见字符显示给用户。
+export function stripAnsi(text: string): string {
+  return (text ?? '')
+    // CSI：\x1b[ 后面跟参数与终止字母（SGR 颜色、光标移动、擦除都属这一类）
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+    // OSC：\x1b] ... 以 BEL 或 ST 结束（窗口标题、超链接）
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    // 三字符转义：字符集选择（\x1b(0）、指定 G 集（\x1b)B）
+    .replace(/\x1b[()#][0-9A-Za-z]/g, '')
+    // 其余双字符转义（\x1b7 之类）
+    .replace(/\x1b[\s\S]/g, '')
+    // \r：进度条靠它回到行首重写，拆成新行比全部拼在一起好读；\r\n 只当一个换行
+    .replace(/\r\n?/g, '\n')
+    // 剩下的 C0 控制字符（\x00-\x1f 除 \n \t，以及 \x7f）全去掉
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+}
+
 export function countLogLines(text: string): number {
   let count = 0
   for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) count++

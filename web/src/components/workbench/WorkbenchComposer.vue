@@ -335,7 +335,7 @@ onMounted(async () => {
 .submit { align-self: stretch; color: var(--bg); background: var(--accent); border: 1px solid var(--accent); border-radius: var(--r-chip); padding: 0 16px; font-weight: 700; }
 .submit:disabled { opacity: .45; cursor: default; }
 .error { color: var(--fail); margin: 0; font-size: 11px; }
-.hint { color: var(--muted, var(--ink)); margin: 0; font-size: 11px; }
+.hint { color: var(--ink-3); margin: 0; font-size: 11px; }
 @media (max-width: 760px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
 @media (max-width: 760px) {
   /* 手机：会话打开时由工作台顶栏提供 ＋，表单从底部弹出 */
