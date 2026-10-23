@@ -2,10 +2,13 @@
 // Projects：左列项目 keys（listProjects），选中拉详情（getProject），右列展示配置与项目写层。
 // P3 增强（E20/E32）：右列再加 git 状态卡 + 子仓库列表 + 关键文件查看（FilePreview）。
 // 刷新策略（D7）：进入项目详情时取 git/repos，git 卡提供手动刷新按钮，不轮询。
+// P5（gofer-d1kn）：「按项目 / 按执行机」视图切换（?view=project|runner）。按执行机视图每台
+// 执行机一组：server 声明且 allowed_runners 含它的项目 + worker 自有项目 + 它的默认工作空间；
+// 按项目视图里 worker 自有项目另列一组，内置 default 标明「server 本机」。只用现有接口。
 import { runnerLabel } from '../utils/runnerDisplay'
 import { t } from '../i18n'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useWhoami } from '../store/whoami'
 import {
   ApiError,
@@ -15,10 +18,13 @@ import {
   getProject,
   getProjectFile,
   getProjectGit,
+  getWorkerProjects,
+  getWorkerView,
   listJobs,
   listPlans,
   listProjects,
   listRepos,
+  listRunners,
   updateProject,
 } from '../api/client'
 import type {
@@ -28,9 +34,16 @@ import type {
   ProjectWriteReq,
   ProjectWriteResp,
   RepoInfo,
+  Runner,
+  WorkerView,
 } from '../api/types'
 import FilePreview from '../components/FilePreview.vue'
+import Tabs from '../ui/Tabs.vue'
+import StatusPill from '../ui/StatusPill.vue'
+import type { TabItem } from '../ui/tabs'
+import { buildFleet, projectAllowedFromConfig, workerOwnProjects, type FleetGroup, type FleetNote } from '../utils/projectFleet'
 
+const route = useRoute()
 const router = useRouter()
 
 const keys = ref<string[]>([])
@@ -177,6 +190,105 @@ async function loadConfigOptions() {
   } catch (e) {
     configError.value = e instanceof Error ? e.message : String(e)
   }
+}
+
+// ── 「按项目 / 按执行机」视图（P5，gofer-d1kn）─────────────────────────────
+// 视图切换走 URL 的 ?view=：默认「按项目」不写进 URL，?view=runner 可深链（ui/Tabs 的 param）。
+const viewTabs = computed<TabItem[]>(() => [
+  { value: 'project', label: t('projects.view.project'), count: keys.value.length },
+  { value: 'runner', label: t('projects.view.runner'), count: runnerGroups.value.length },
+])
+
+// 执行机数据（只用现有接口）：/v1/runners 列执行机；/v1/workers/{id} 取默认工作空间（dirs.workspace）；
+// /v1/workers/{id}/projects 取 worker 自有项目。allowed_runners 逐项目取——有配置读权限时
+// 一次从 /v1/config 拿全。
+const fleetRunners = ref<Runner[]>([])
+const workerViews = reactive<Record<string, WorkerView | undefined>>({})
+const workerProjects = reactive<Record<string, string[] | undefined>>({})
+const workerErrors = reactive<Record<string, string | undefined>>({})
+const projectAllowed = reactive<Record<string, string[] | undefined>>({})
+const fleetLoading = ref(false)
+const fleetError = ref('')
+
+const workerIDs = computed(() =>
+  [...new Set(fleetRunners.value.filter((r) => r.type === 'worker').map((r) => r.worker_id || r.name))].sort(),
+)
+
+const runnerGroups = computed<FleetGroup[]>(() =>
+  buildFleet({
+    projects: keys.value,
+    injected: injectedKeys.value,
+    allowed: projectAllowed,
+    runners: fleetRunners.value,
+    workerViews,
+    workerProjects,
+    workerErrors,
+  }),
+)
+
+// 「按项目」视图里的 worker 自有项目（server 配置里没有的那些）。
+const ownProjects = computed(() => workerOwnProjects({ projects: keys.value, workerProjects }))
+
+function errText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+// 取不到数据时的原因文案（FleetNote）。
+function fleetNote(note: FleetNote): string {
+  if (note === 'offline') return t('projects.fleet.offlineData')
+  if (note === 'notReported') return t('projects.fleet.notReported')
+  return ''
+}
+
+async function loadProjectAllowed(): Promise<void> {
+  Object.assign(projectAllowed, projectAllowedFromConfig(config.value?.projects))
+  const todo = keys.value.filter((key) => projectAllowed[key] === undefined)
+  await Promise.all(
+    todo.map(async (key) => {
+      try {
+        const detail = await getProject(key)
+        projectAllowed[key] = detail.allowed_runners ?? []
+      } catch {
+        // 取不到就不猜：undefined 按「只在本机可用」处理（见 utils/projectFleet.ts）。
+      }
+    }),
+  )
+}
+
+async function loadFleet(): Promise<void> {
+  fleetLoading.value = true
+  fleetError.value = ''
+  try {
+    const resp = await listRunners()
+    fleetRunners.value = resp.runners ?? []
+  } catch (e) {
+    fleetError.value = errText(e)
+  }
+  await Promise.all([
+    loadProjectAllowed(),
+    ...workerIDs.value.map(async (id) => {
+      delete workerErrors[id]
+      try {
+        workerViews[id] = await getWorkerView(id)
+      } catch (e) {
+        workerViews[id] = undefined
+        workerErrors[id] = errText(e)
+      }
+      try {
+        workerProjects[id] = (await getWorkerProjects(id)).projects ?? []
+      } catch (e) {
+        workerProjects[id] = undefined
+        workerErrors[id] = errText(e)
+      }
+    }),
+  ])
+  fleetLoading.value = false
+}
+
+// 「按执行机」视图里点项目 chip：回到「按项目」视图并选中它（默认页签不写进 URL）。
+function openProject(key: string): void {
+  void router.replace({ path: route.path, query: {} })
+  if (keys.value.includes(key)) void selectKey(key)
 }
 
 async function selectKey(key: string, keepMessages = false) {
@@ -327,7 +439,8 @@ async function saveProject(): Promise<void> {
 }
 
 async function removeProject(): Promise<void> {
-  if (!selected.value || !window.confirm(t('projects.confirmDelete', { key: selected.value }))) {
+  const key = selected.value
+  if (!key || !window.confirm(t('projects.confirmDelete', { key }))) {
     return
   }
   formError.value = ''
@@ -335,10 +448,12 @@ async function removeProject(): Promise<void> {
   warnings.value = []
   deleting.value = true
   try {
-    await deleteProject(selected.value)
+    await deleteProject(key)
     notice.value = t('projects.notice.deleted')
     resetForm()
     await loadList('', true)
+    delete projectAllowed[key]
+    void loadFleet()
   } catch (e) {
     formError.value = classifyWriteError(e)
   } finally {
@@ -353,6 +468,9 @@ async function applyWriteSuccess(resp: ProjectWriteResp, message: string): Promi
   mode.value = 'edit'
   fillForm(resp)
   await loadList(resp.key, true)
+  // 准入名单可能改了：「按执行机」视图立刻按新名单分组。
+  projectAllowed[resp.key] = resp.allowed_runners ?? []
+  void loadFleet()
 }
 
 function classifyWriteError(e: unknown): string {
@@ -472,9 +590,14 @@ function viewPlans(key: string) {
 }
 
 onMounted(() => {
-  void loadList()
-  void loadConfigOptions()
+  void init()
 })
+
+// 先拉项目列表与配置（表单选项 + allowed_runners 的来源），再拉执行机数据。
+async function init(): Promise<void> {
+  await Promise.all([loadList(), loadConfigOptions()])
+  await loadFleet()
+}
 </script>
 
 <template>
@@ -491,6 +614,98 @@ onMounted(() => {
     <p v-if="listError" class="error mono">{{ listError }}</p>
     <p v-if="configError" class="error mono">{{ configError }}</p>
 
+    <Tabs :tabs="viewTabs" param="view" :label="t('projects.view.label')">
+      <template #default="{ active }">
+        <!-- 按执行机（P5，gofer-d1kn）：server 本机 + 每个 worker 一组 -->
+        <div v-if="active === 'runner'" class="fleet" data-test="projects-runner-view">
+          <div class="fleet-head">
+            <p class="fleet-hint mono">{{ t('projects.fleet.hint') }}</p>
+            <button
+              class="mini-btn mono"
+              type="button"
+              :disabled="fleetLoading"
+              data-test="fleet-refresh"
+              @click="loadFleet"
+            >
+              {{ fleetLoading ? t('hint.loading') : t('act.refresh') }}
+            </button>
+          </div>
+          <p v-if="fleetError" class="error mono">{{ fleetError }}</p>
+          <p v-if="fleetLoading && runnerGroups.length <= 1" class="placeholder mono">{{ t('hint.loading') }}</p>
+          <ul class="groups" :aria-label="t('projects.fleet.aria')">
+            <li
+              v-for="g in runnerGroups"
+              :key="g.id"
+              class="group"
+              :class="{ 'group--off': !g.online }"
+              :data-test="`fleet-group-${g.kind}`"
+            >
+              <header class="group-head">
+                <span class="group-name mono">{{ g.label }}</span>
+                <span class="tag mono">
+                  {{ g.kind === 'server' ? t('projects.fleet.local') : t('projects.fleet.worker') }}
+                </span>
+                <StatusPill
+                  :family="g.online ? 'done' : 'idle'"
+                  :label="g.online ? t('projects.fleet.online') : t('projects.fleet.offline')"
+                />
+              </header>
+
+              <dl class="group-kv">
+                <dt class="mono">{{ t('projects.fleet.workspace') }}</dt>
+                <dd class="mono" data-test="fleet-workspace">
+                  <template v-if="g.workspace">
+                    <code class="path">{{ g.workspace.path }}</code>
+                    <span v-if="g.workspace.exists === false" class="dim">{{ t('projects.fleet.workspaceMissing') }}</span>
+                  </template>
+                  <span v-else class="dim">{{ fleetNote(g.workspaceNote) }}</span>
+                </dd>
+
+                <dt class="mono">{{ t('projects.fleet.projects') }}</dt>
+                <dd data-test="fleet-projects">
+                  <template v-if="g.projects.length">
+                    <button
+                      v-for="p in g.projects"
+                      :key="p.key"
+                      type="button"
+                      class="proj-chip mono"
+                      @click="openProject(p.key)"
+                    >
+                      {{ p.key }}
+                      <span v-if="p.injected" class="builtin-badge">{{ t('projects.builtin') }}</span>
+                    </button>
+                  </template>
+                  <span v-else class="dim">{{ t('projects.fleet.noProjects') }}</span>
+                </dd>
+
+                <template v-if="g.kind === 'worker'">
+                  <dt class="mono">{{ t('projects.fleet.own') }}</dt>
+                  <dd data-test="fleet-own">
+                    <template v-if="g.own.length">
+                      <span
+                        v-for="p in g.own"
+                        :key="p.key"
+                        class="proj-chip proj-chip--own mono"
+                        :title="p.path || ''"
+                      >
+                        {{ p.key }}
+                      </span>
+                    </template>
+                    <span v-else class="dim">
+                      {{ fleetNote(g.ownNote) || t('projects.fleet.noOwn') }}
+                    </span>
+                  </dd>
+                </template>
+              </dl>
+              <p v-if="g.error" class="group-error mono" data-test="fleet-group-error">
+                {{ t('projects.fleet.error', { detail: g.error }) }}
+              </p>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 按项目：原有的主从布局 -->
+        <template v-else>
     <label class="mobile-project-picker mono">
       <span>{{ t('projects.picker') }}</span>
       <select class="control mono" :value="selected" @change="selectKey(($event.target as HTMLSelectElement).value)">
@@ -511,6 +726,12 @@ onMounted(() => {
             @click="selectKey(key)"
           >
             {{ key }}
+            <span
+              v-if="key === 'default'"
+              class="builtin-badge"
+              data-test="project-default-local"
+              :title="t('projects.defaultLocalTitle')"
+            >{{ t('projects.defaultLocal') }}</span>
             <span v-if="injectedKeys.includes(key)" class="builtin-badge" data-test="project-builtin-badge" :title="t('projects.builtinTitle')">{{ t('projects.builtin') }}</span>
           </button>
         </li>
@@ -529,6 +750,12 @@ onMounted(() => {
         <div v-if="detail" class="detail-body">
           <div class="detail-head">
             <span class="detail-key mono">{{ detail.key }}</span>
+            <span
+              v-if="detail.key === 'default'"
+              class="builtin-badge"
+              data-test="project-default-local"
+              :title="t('projects.defaultLocalTitle')"
+            >{{ t('projects.defaultLocal') }}</span>
             <span v-if="detail.injected" class="builtin-badge" data-test="project-builtin-detail" :title="t('projects.builtinTitle')">{{ t('projects.builtin') }}</span>
             <button class="board-link mono" type="button" @click="viewOnBoard(detail.key)">
               {{ t('projects.boardLink') }} &#9656;
@@ -855,7 +1082,29 @@ onMounted(() => {
           </section>
         </div>
       </section>
+
+      <!-- worker 自有项目（P5，gofer-d1kn）：只在 worker.yaml 里声明，server 配置里没有 -->
+      <section
+        v-if="ownProjects.length"
+        class="worker-own"
+        :aria-label="t('projects.workerOwn.title')"
+        data-test="project-worker-own"
+      >
+        <div class="block-head">
+          <h2 class="block-title mono">{{ t('projects.workerOwn.title') }}</h2>
+        </div>
+        <p class="field-hint mono">{{ t('projects.workerOwn.hint') }}</p>
+        <ul class="own-list">
+          <li v-for="row in ownProjects" :key="row.key" class="own-row" data-test="project-worker-own-row">
+            <span class="own-key mono">{{ row.key }}</span>
+            <span v-for="w in row.workers" :key="w" class="tag mono">{{ w }}</span>
+          </li>
+        </ul>
+      </section>
     </div>
+        </template>
+      </template>
+    </Tabs>
   </div>
 </template>
 
@@ -1373,5 +1622,159 @@ onMounted(() => {
 .count-link:hover {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* 「按项目 / 按执行机」视图切换（P5，gofer-d1kn）：按执行机视图一台执行机一张卡。 */
+.fleet-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+.fleet-hint {
+  margin: 0;
+  flex: 1;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+}
+.groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--s3);
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+  padding: var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+}
+/* 离线 worker：整张卡灰显；在线与否另有 StatusPill 文字，不只靠颜色。 */
+.group--off {
+  opacity: 0.6;
+}
+.group-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--line);
+}
+.group-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.group-kv {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: var(--s1) var(--s2);
+  margin: 0;
+  font-size: var(--fs-xs);
+}
+.group-kv dt {
+  color: var(--fg-3);
+}
+.group-kv dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1);
+  min-width: 0;
+  margin: 0;
+  color: var(--fg);
+}
+.group-kv .path {
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.group-kv .dim {
+  color: var(--fg-3);
+}
+.proj-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 26px;
+  padding: 0 var(--s2);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  font: inherit;
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+button.proj-chip:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+/* worker 自有：不是 server 项目，点不了（改要去那台 worker 的 worker.yaml）。 */
+.proj-chip--own {
+  color: var(--need-ink);
+  border-style: dashed;
+}
+.group-error {
+  margin: 0;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+/* 按项目视图里的 worker 自有项目组：跨两列，手机上排到详情前面。 */
+.worker-own {
+  grid-column: 1 / -1;
+  padding: var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
+}
+.own-list {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.own-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  font-size: var(--fs-xs);
+}
+.own-key {
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .groups {
+    grid-template-columns: 1fr;
+  }
+  .group-kv {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .group-kv dt {
+    margin-top: var(--s1);
+  }
+  .proj-chip {
+    min-height: 36px;
+  }
+}
+@media (max-width: 640px) {
+  .worker-own {
+    order: -1;
+  }
 }
 </style>

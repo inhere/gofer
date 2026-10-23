@@ -71,6 +71,8 @@ import type {
   RetriesResp,
   RunnersResp,
   WorkerReloadResp,
+  WorkerProjectsResp,
+  WorkerView,
   WorkDetail,
   WorkItemPatch,
   WorkListResp,
@@ -441,6 +443,18 @@ export function listMessengerAgents(runner: string, refresh = false): Promise<Me
 
 export function listRunners(): Promise<RunnersResp> {
   return request<RunnersResp>('/v1/runners')
+}
+
+// 单个 worker 的明细（GET /v1/workers/{id}）：连接状态 + 心跳上报的目录（dirs.workspace 是
+// 它的默认工作空间）。项目页的「按执行机」视图用它取每台执行机的默认工作空间。
+export function getWorkerView(workerID: string): Promise<WorkerView> {
+  return request<WorkerView>(`/v1/workers/${encodeURIComponent(workerID)}`)
+}
+
+// worker 自己在 worker.yaml 里声明的项目（GET /v1/workers/{id}/projects）：server 配置里没有
+// 的项目只在这里能看到，项目页把它们标成「worker 自有」。
+export function getWorkerProjects(workerID: string): Promise<WorkerProjectsResp> {
+  return request<WorkerProjectsResp>(`/v1/workers/${encodeURIComponent(workerID)}/projects`)
 }
 
 export function reloadWorker(workerID: string, reason = 'web console', timeoutSec = 15): Promise<WorkerReloadResp> {
