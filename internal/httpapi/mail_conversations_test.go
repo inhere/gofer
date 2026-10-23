@@ -17,9 +17,10 @@ import (
 
 // mailListBody is the answer of GET /v1/mail.
 type mailListBody struct {
-	Mail    []mailView `json:"mail"`
-	Count   int        `json:"count"`
-	HasMore bool       `json:"has_more"`
+	Mail         []mailView           `json:"mail"`
+	Count        int                  `json:"count"`
+	HasMore      bool                 `json:"has_more"`
+	Conversation *mailConversationRef `json:"conversation"`
 }
 
 // convListBody is the answer of GET /v1/mail/conversations.
@@ -304,6 +305,98 @@ func TestMailListUnrestrictedCallerUnchanged(t *testing.T) {
 	mailDecode(t, conv, &list2)
 	if list2.Count != 2 {
 		t.Errorf("unrestricted conversations = %s, want 2", conv)
+	}
+}
+
+// TestMailConversationID: a conversation has one stable short id derived from its key, so the
+// same pair of people always gets the same id whichever way their letters went.
+func TestMailConversationID(t *testing.T) {
+	key := mailConversationKey(mailParty{Address: "session:s1"}, mailParty{Address: "caller:bob"})
+	one := mailConversationID(key)
+	swapped := mailConversationID(mailConversationKey(mailParty{Address: "caller:bob"}, mailParty{Address: "session:s1"}))
+	if one != swapped {
+		t.Errorf("conversation id depends on the direction: %q vs %q", one, swapped)
+	}
+	if len(one) != len(mailConvIDPrefix)+mailConvIDHex || !strings.HasPrefix(one, mailConvIDPrefix) {
+		t.Errorf("conversation id = %q, want %s + %d hex chars", one, mailConvIDPrefix, mailConvIDHex)
+	}
+	if again := mailConversationID(key); again != one {
+		t.Errorf("conversation id is not stable: %q then %q", one, again)
+	}
+	if other := mailConversationID(mailConversationKey(mailParty{Address: "session:s2"}, mailParty{Address: "caller:bob"})); other == one {
+		t.Errorf("two different conversations share the id %q", one)
+	}
+}
+
+// TestMailConversationByID: the conversations list and the timeline both carry the short id, and
+// `?conv=<id>` reads that one conversation — a 404 when the caller has no such conversation,
+// which is the same answer as a letter the caller may not read.
+func TestMailConversationByID(t *testing.T) {
+	e := newMailEnv(t)
+	e.grant()
+	e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindCaller, FromCaller: "bob",
+		ToAddress: "session:" + e.sA, ToKind: jobstore.MailKindSession, ToID: e.sA, Body: "in"})
+	e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindSession, FromID: e.sA, FromCaller: "alice",
+		ToAddress: "caller", ToKind: jobstore.MailKindCaller, ToCaller: "bob", Body: "out"})
+	e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindCaller, FromCaller: "bob",
+		ToAddress: "job:" + e.jA, ToKind: jobstore.MailKindJob, ToID: e.jA, JobID: e.jA, Body: "elsewhere"})
+
+	_, body := e.req(t, mailTokAlice, "", "GET", "/v1/mail/conversations", nil)
+	cv := convOf(t, body, "session:"+e.sA, "caller:bob")
+	want := mailConversationID(cv.Key)
+	if cv.ID != want {
+		t.Fatalf("conversation id = %q, want %q", cv.ID, want)
+	}
+
+	// The conversation's own letters, oldest first, whichever way they went: the id needs no
+	// peer=/with= and no knowledge of which end is which.
+	_, list := e.req(t, mailTokAlice, "", "GET", "/v1/mail?conv="+cv.ID, nil)
+	var letters mailListBody
+	mailDecode(t, list, &letters)
+	if letters.Count != 2 || letters.Mail[0].Body != "in" || letters.Mail[1].Body != "out" {
+		t.Errorf("conv listing = %s, want the two letters of that conversation, oldest first", list)
+	}
+	if letters.Conversation == nil || letters.Conversation.ID != want || letters.Conversation.Key != cv.Key {
+		t.Errorf("conv listing conversation = %+v, want id %q and key %q", letters.Conversation, want, cv.Key)
+	}
+	// The same conversation as one item.
+	_, one := e.req(t, mailTokAlice, "", "GET", "/v1/mail/conversations?conv="+cv.ID, nil)
+	var only convListBody
+	mailDecode(t, one, &only)
+	if only.Count != 1 || only.Conversations[0].ID != want || only.Conversations[0].Key != cv.Key {
+		t.Errorf("conversations?conv= = %s, want that one conversation", one)
+	}
+
+	// An id that is not a conversation of this mailbox is a 404, not an empty list: a caller
+	// cannot tell a typo from somebody else's conversation.
+	otherID := mailConversationID(mailConversationKey(mailParty{Address: "session:" + e.sA}, mailParty{Address: "job:" + e.jA}))
+	if otherID == cv.ID {
+		t.Fatalf("the two conversations collide on %q", cv.ID)
+	}
+	e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindCaller, FromCaller: "dave",
+		ToAddress: "session:" + e.sB, ToKind: jobstore.MailKindSession, ToID: e.sB, Body: "not yours"})
+	_, theirs := e.req(t, mailTokAlice, "", "GET", "/v1/mail/conversations", nil)
+	hiddenID := mailConversationID(mailConversationKey(mailParty{Address: "caller:dave"}, mailParty{Address: "session:" + e.sB}))
+	if strings.Contains(theirs, hiddenID) {
+		t.Fatalf("alice sees dave's conversation id: %s", theirs)
+	}
+	for _, path := range []string{"/v1/mail?conv=" + hiddenID, "/v1/mail/conversations?conv=" + hiddenID} {
+		if status, body := e.req(t, mailTokAlice, "", "GET", path, nil); status != http.StatusNotFound {
+			t.Errorf("GET %s = %d (%s), want 404", path, status, body)
+		}
+	}
+	// ... and the same id becomes readable once the caller holds the permission.
+	e.grant(authz.PermSessionReplyOthers)
+	if status, body := e.req(t, mailTokAlice, "", "GET", "/v1/mail/conversations?conv="+hiddenID, nil); status != http.StatusOK ||
+		!strings.Contains(body, hiddenID) {
+		t.Errorf("permitted GET conv=%s = %d (%s), want that conversation", hiddenID, status, body)
+	}
+	// A malformed id and an id combined with peer/with are refused.
+	if status, _ := e.req(t, mailTokAlice, "", "GET", "/v1/mail?conv=bogus", nil); status != http.StatusBadRequest {
+		t.Errorf("conv=bogus = %d, want 400", status)
+	}
+	if status, _ := e.req(t, mailTokAlice, "", "GET", "/v1/mail?conv="+cv.ID+"&peer=caller:bob&with=session:"+e.sA, nil); status != http.StatusBadRequest {
+		t.Errorf("conv with peer/with = %d, want 400", status)
 	}
 }
 

@@ -141,6 +141,7 @@ describe('grouping into conversations', () => {
 
 describe('timeline query', () => {
   const conv: MailConversation = {
+    id: 'cv-0123456789',
     key: 'session:sess_aaa|session:sess_bbb',
     a: S1,
     b: S2,
@@ -178,6 +179,7 @@ describe('timeline query', () => {
 
 describe('bubble side (decision 4)', () => {
   const conv: MailConversation = {
+    id: 'cv-0123456789',
     key: 'session:mine|session:other',
     a: { kind: 'session', id: 'other' },
     b: { kind: 'session', id: 'mine' },

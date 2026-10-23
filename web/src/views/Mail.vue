@@ -12,7 +12,7 @@
 // 规则（地址解析校验、对话 key、气泡方向、人物卡取色、摘要去 markdown、查询参数）都在
 // utils/mail.ts 与 utils/mailConversations.ts，这里只管渲染与请求。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { X } from '@lucide/vue'
+import { Copy, X } from '@lucide/vue'
 import Icon from '../ui/Icon.vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -27,6 +27,7 @@ import {
   sendMail,
 } from '../api/client'
 import { fmtAgo, fmtDateTime } from '../api/time'
+import { copyText } from '../utils/sessionMessaging'
 import type { MailCandidate, MailConversation, MailMessage } from '../api/types'
 import { useWhoami } from '../store/whoami'
 import { t, te } from '../i18n'
@@ -132,6 +133,8 @@ const timelineKey = ref('')
 
 const filter = ref<MailFilter>(mailFilterFromQuery(route.query))
 const sessionFilter = ref(queryValue(route.query.session))
+// 对话短 id 深链（/mail?conv=cv-…）：服务端按 id 反查对话，查不到就报错（不再安静地选第一个）。
+const convQuery = ref(queryValue(route.query.conv))
 
 // 项目是筛选条件，不是全局状态（设计稿 §6.4）：值写进 URL 的 ?project=，对话按参与方的
 // 所属项目在本地过滤（conversations 接口没有项目参数）。
@@ -287,6 +290,9 @@ const replyWriteBlock = computed(() => {
 })
 
 const active = computed(() => rows.value.find((r) => r.key === activeKey.value) ?? null)
+// 对话的稳定短 id（服务端给；本地分组的「待指派」对话没有）。头部显示 + 复制它，
+// 就是「按 id 找人看问题」的入口。
+const activeConvId = computed(() => active.value?.id ?? '')
 const seq = computed(() => mailConversationSeq(timeline.value))
 // 「待指派」与会话深链没有对应的 conversations 过滤：按信件在本地分组成对话。
 const groupedLocally = computed(() => filter.value === 'held' || !!sessionFilter.value)
@@ -317,6 +323,30 @@ async function loadRows(): Promise<void> {
   }
   const resp = await listMailConversations({ box: mailConversationBox(filter.value), limit: 100 })
   rows.value = resp.conversations ?? []
+}
+
+// selectConvFromQuery 是 /mail?conv=<id> 的深链：那一个对话可能不在当前列表里（不在当前项目 /
+// 不在第一页），所以直接按 id 找服务端要（GET /v1/mail/conversations?conv=）。找到了就把它放进
+// 列表并选中；服务端说没有（404）就是真的看不到，报错而不是安静地选第一个。
+async function selectConvFromQuery(): Promise<boolean> {
+  const id = convQuery.value
+  if (!id) return false
+  const known = rows.value.find((r) => r.id === id)
+  if (known) {
+    activeKey.value = known.key
+    return true
+  }
+  try {
+    const resp = await listMailConversations({ conv: id, limit: 1 })
+    const conv = (resp.conversations ?? [])[0]
+    if (!conv) return false
+    rows.value = [conv, ...rows.value.filter((r) => r.key !== conv.key)]
+    activeKey.value = conv.key
+    return true
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+    return false
+  }
 }
 
 // loadCounts 取四个筛选 chip 的计数：收件 / 发件 / 全部看 conversations 接口返回的对话
@@ -448,9 +478,12 @@ async function load(silent = false): Promise<void> {
   nowSec.value = Math.floor(Date.now() / 1000)
   try {
     await loadRows()
-    const shown = visibleRows.value
-    if (!shown.some((r) => r.key === activeKey.value)) {
-      activeKey.value = shown[0]?.key ?? ''
+    // 深链选定的对话优先；否则在当前筛选的结果里保持 / 重选。
+    if (!(await selectConvFromQuery())) {
+      const shown = visibleRows.value
+      if (!shown.some((r) => r.key === activeKey.value)) {
+        activeKey.value = shown[0]?.key ?? ''
+      }
     }
     // 同一个对话的静默刷新只补最新的信；换对话（或首屏）才整段重取。
     if (silent && timelineKey.value && timelineKey.value === activeKey.value && timeline.value.length) {
@@ -491,10 +524,11 @@ function clearSession(): void {
 }
 
 watch(
-  () => [route.query.filter, route.query.box, route.query.state, route.query.session],
+  () => [route.query.filter, route.query.box, route.query.state, route.query.session, route.query.conv],
   () => {
     filter.value = mailFilterFromQuery(route.query)
     sessionFilter.value = queryValue(route.query.session)
+    convQuery.value = queryValue(route.query.conv)
     activeKey.value = ''
     void load()
   },
@@ -542,6 +576,19 @@ async function ackUnread(): Promise<void> {
 
 function backToList(): void {
   mobileDetail.value = false
+}
+
+// copyConvId / copyThread 把对话 id 与 thread id 放进剪贴板（剪贴板不可用时安静地失败）：
+// 这两个 id 是「拿去看问题」的手柄，能复制才真的用得起来。
+async function copyConvId(): Promise<void> {
+  const id = activeConvId.value
+  if (!id) return
+  if (await copyText(id)) notice.value = t('mail.notice.copied', { id })
+}
+
+async function copyThread(id: string): Promise<void> {
+  if (!id) return
+  if (await copyText(id)) notice.value = t('mail.notice.copied', { id })
 }
 
 async function sendCompose(): Promise<void> {
@@ -869,6 +916,17 @@ onUnmounted(() => {
             <MailPersonaChip :party="active.a" :now-sec="nowSec" @open-session="openSession" />
             <span class="dim" aria-hidden="true">↔</span>
             <MailPersonaChip :party="active.b" :now-sec="nowSec" @open-session="openSession" />
+            <span v-if="activeConvId" class="conv-id mono" data-test="mail-conv-id">
+              {{ t('mail.thread.convId', { id: activeConvId }) }}
+              <button
+                class="copy-btn"
+                type="button"
+                :title="t('mail.thread.copyId')"
+                :aria-label="t('mail.thread.copyId')"
+                data-test="mail-conv-id-copy"
+                @click="copyConvId"
+              ><Icon :icon="Copy" size="sm" /></button>
+            </span>
             <span class="dim mono">{{ t('mail.thread.count', { n: timeline.length }) }}</span>
           </header>
 
@@ -919,6 +977,17 @@ onUnmounted(() => {
                   <span class="dim mono" :title="fmtDateTime(m.created_at)">
                     {{ t('mail.letter.id', { id: m.id, ago: fmtAgo(m.created_at, nowSec) }) }}
                   </span>
+                  <!-- thread id 的手柄：每封信都有一个，挂在悬停 / 聚焦时出现（手机上一直有），
+                       点一下复制完整 id。 -->
+                  <button
+                    v-if="m.thread_id"
+                    class="copy-btn copy-btn--letter"
+                    type="button"
+                    :title="t('mail.letter.copyThread', { id: m.thread_id })"
+                    :aria-label="t('mail.letter.copyThread', { id: m.thread_id })"
+                    data-test="mail-thread-copy"
+                    @click="copyThread(m.thread_id)"
+                  ><Icon :icon="Copy" size="sm" /></button>
                 </header>
 
                 <!-- 广播（设计 2026-10-22「D5」）：这张卡是一封群发的副本，下面是整组的收件人状态条。 -->
@@ -1254,6 +1323,48 @@ onUnmounted(() => {
 }
 .back {
   display: none;
+}
+/* 对话短 id（cv-…）：可复制的稳定手柄，跟人物卡同一行、不抢宽（窄的小号等宽字体）。 */
+.conv-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 1px 2px 1px 6px;
+}
+/* 复制按钮：头部一直显示；信件的 thread id 复制入口在悬停 / 聚焦时出现（手机一直显示）。 */
+.copy-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-ctl);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.copy-btn:hover {
+  color: var(--ink);
+  background: var(--sunken);
+}
+.copy-btn--letter {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.bubble:hover .copy-btn--letter,
+.bubble:focus-within .copy-btn--letter,
+.copy-btn--letter:focus-visible {
+  opacity: 1;
+}
+@media (max-width: 760px) {
+  .copy-btn--letter {
+    opacity: 1;
+  }
 }
 .timeline-wrap {
   position: relative;

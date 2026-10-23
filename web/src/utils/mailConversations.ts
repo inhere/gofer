@@ -58,6 +58,8 @@ export function groupMailConversations(mails: MailMessage[]): MailConversation[]
     const first = sorted[0]
     const last = sorted[sorted.length - 1]
     out.push({
+      // 本地分组拿不到服务端的对话短 id（它是按对话 key 算的，服务端给）：留空，界面就不显示。
+      id: '',
       key,
       a: first.from,
       b: first.to,

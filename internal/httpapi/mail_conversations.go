@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"sort"
@@ -264,6 +266,63 @@ func mailConversationKey(x, y mailParty) string {
 	return x.Address + "|" + y.Address
 }
 
+const (
+	// mailConvIDPrefix marks a conversation id in what a person copies / pastes.
+	mailConvIDPrefix = "cv-"
+	// mailConvIDHex is how much of the key's hash the id keeps (10 hex chars = 40 bits).
+	mailConvIDHex = 10
+)
+
+// mailConversationID is the short, stable id of a conversation: the key (direction-free, one per
+// pair of parties) hashed and truncated. It is what a person quotes when asking about a
+// conversation, so `cv-` + 10 hex chars is all it is; the same pair always gets the same id.
+func mailConversationID(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return mailConvIDPrefix + hex.EncodeToString(sum[:])[:mailConvIDHex]
+}
+
+// mailConvIDQuery reads ?conv= — the short id of one conversation ("" = none); ok=false: the
+// answer is already written.
+func mailConvIDQuery(c *rux.Context) (string, bool) {
+	id := strings.ToLower(strings.TrimSpace(c.Query("conv")))
+	if id == "" {
+		return "", true
+	}
+	if len(id) != len(mailConvIDPrefix)+mailConvIDHex || !strings.HasPrefix(id, mailConvIDPrefix) {
+		writeError(c, http.StatusBadRequest, "invalid conversation id", "conv must be a conversation id like cv-0123456789")
+		return "", false
+	}
+	return id, true
+}
+
+// mailConversationIDKey resolves a conversation id back to its key. Only the conversations the
+// caller may see are searched — the same inbox and the same keep predicate as the listing — so an
+// id of somebody else's conversation is simply not found, exactly like a letter he may not read.
+// found=false means "no such conversation for this caller" (the caller answers 404).
+func (s *Server) mailConversationIDKey(c *rux.Context, box, id string) (key string, found bool, err error) {
+	keep := s.mailListKeep(c, box, "")
+	for page := 0; page < mailListScanPages; page++ {
+		rows, err := s.jobs.Meta().ListMail(jobstore.ListMailOpts{
+			Limit: jobstore.MailListMaxLimit, Offset: page * jobstore.MailListMaxLimit,
+		})
+		if err != nil {
+			return "", false, err
+		}
+		for _, m := range rows {
+			if !keep(m) {
+				continue
+			}
+			if k := mailConversationKey(mailFromParty(m), mailToParty(m)); mailConversationID(k) == id {
+				return k, true, nil
+			}
+		}
+		if len(rows) < jobstore.MailListMaxLimit {
+			break
+		}
+	}
+	return "", false, nil
+}
+
 // mailUnread reports whether a letter still waits to be read by its recipient: it has no read
 // stamp and did not end up cancelled / failed / expired, and an answered letter counts as read
 // (answering it WAS reading it).
@@ -281,6 +340,9 @@ func mailUnread(m jobstore.Mail) bool {
 // mailConversationView is one line of the conversation list: both people, the newest letter, and
 // the counts a person needs to see what is waiting.
 type mailConversationView struct {
+	// ID is the stable short id of the conversation ("cv-" + 10 hex chars of the key's hash):
+	// the same pair of people always has the same id, whichever way their letters went.
+	ID   string        `json:"id"`
 	Key  string        `json:"key"`
 	A    mailPartyView `json:"a"`
 	B    mailPartyView `json:"b"`
@@ -371,10 +433,34 @@ type mailConvAgg struct {
 	count, unread, urgent int
 }
 
-// mailConversationQuery reads ?peer= / ?with= and returns the direction-free key of that one
-// conversation ("" when neither is given); ok=false: the answer is already written.
-func (s *Server) mailConversationQuery(c *rux.Context) (string, bool) {
+// mailConversationQuery reads ?peer= / ?with= / ?conv= and returns the direction-free key of that
+// one conversation ("" when none is given); ok=false: the answer is already written.
+//
+// ?conv= takes the conversation's short id instead of the two addresses: it is resolved against
+// the conversations this caller can see (mailConversationIDKey), so an id that names no visible
+// conversation is a 404 — the same answer as a letter the caller may not read.
+func (s *Server) mailConversationQuery(c *rux.Context, box string) (string, bool) {
+	conv, ok := mailConvIDQuery(c)
+	if !ok {
+		return "", false
+	}
 	peer, with := strings.TrimSpace(c.Query("peer")), strings.TrimSpace(c.Query("with"))
+	if conv != "" {
+		if peer != "" || with != "" {
+			writeError(c, http.StatusBadRequest, "invalid conversation", "conv and peer/with are exclusive")
+			return "", false
+		}
+		key, found, err := s.mailConversationIDKey(c, box, conv)
+		if err != nil {
+			s.writeMailError(c, err)
+			return "", false
+		}
+		if !found {
+			writeError(c, http.StatusNotFound, "conversation not found", "no conversation "+conv+" in your mailbox")
+			return "", false
+		}
+		return key, true
+	}
 	if peer == "" && with == "" {
 		return "", true
 	}
@@ -401,6 +487,8 @@ func (s *Server) mailConversationQuery(c *rux.Context) (string, bool) {
 // direction-free, newest activity first. It aggregates exactly what `GET /v1/mail` shows (the
 // same filter, so a letter the caller may not see neither counts nor names a participant), over
 // the same bounded scan the listing walks.
+// ?conv=<id> narrows the same aggregation to ONE conversation (404 when this caller has no such
+// conversation), which is how the console opens `/mail?conv=<id>`.
 func (s *Server) handleMailConversations(c *rux.Context) {
 	if !s.mailReady(c) {
 		return
@@ -408,6 +496,23 @@ func (s *Server) handleMailConversations(c *rux.Context) {
 	box, ok := mailBoxQuery(c)
 	if !ok {
 		return
+	}
+	convID, ok := mailConvIDQuery(c)
+	if !ok {
+		return
+	}
+	wantKey := ""
+	if convID != "" {
+		key, found, err := s.mailConversationIDKey(c, box, convID)
+		if err != nil {
+			s.writeMailError(c, err)
+			return
+		}
+		if !found {
+			writeError(c, http.StatusNotFound, "conversation not found", "no conversation "+convID+" in your mailbox")
+			return
+		}
+		wantKey = key
 	}
 	limit, offset := mailPageQuery(c, mailConvDefault, mailConvMax)
 	keep := s.mailListKeep(c, box, "")
@@ -426,6 +531,9 @@ func (s *Server) handleMailConversations(c *rux.Context) {
 			}
 			a, b := mailFromParty(m), mailToParty(m)
 			key := mailConversationKey(a, b)
+			if wantKey != "" && key != wantKey {
+				continue
+			}
 			agg := byKey[key]
 			if agg == nil {
 				// The store lists newest first, so the first letter seen IS the newest and the
@@ -480,6 +588,7 @@ func (s *Server) handleMailConversations(c *rux.Context) {
 		last := toMailView(agg.last)
 		ps.forView(&last)
 		out = append(out, mailConversationView{
+			ID: mailConversationID(mailConversationKey(agg.a, agg.b)),
 			Key: mailConversationKey(agg.a, agg.b), A: av, B: bv, Last: last,
 			Count: agg.count, Unread: agg.unread, Urgent: agg.urgent, ActivityAt: agg.last.CreatedAt,
 		})
