@@ -1777,3 +1777,45 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 
 - `npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 228 passed (228)` / `Tests 1533 passed (1533)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.35s`。
 - 视觉自查：用构建产物 + 桩 `/v1` 数据（fixture 是合成的，不进仓库）在 Edge 里跑 `/today`、`/runners`、`/dashboard`、`/plans/<id>` × zh / en × 浅 / 深 × 1440 / 390，并程序化量了关键尺寸：右栏标题 290px 且点阵与健康度不重叠、侧栏「节点 4/5 在线」、拓扑里只有一个 `server` 节点名、状态分布 11 个格子的标签无裁切、清单进度条 829px 且 `4/6` 与条同一行（手机 201px 同样同一行）。
+
+### P6-记忆页（2026-10-23，issue gofer-hez1）
+
+范围：把 Issues 页的记忆页签独立成 `/memory` 并进导航（用户 2026-10-23：记忆比较常用）。不涉及 Go 代码、没有新增接口。
+
+**方案选择（本次任务第 3 条的两个选项）**：选「Issues 页的记忆页签改成指向 `/memory` 的入口」。取数 / 范围选择逻辑整体从 `views/Issues.vue` 搬到 `views/Memory.vue`，列表仍是 `components/MemoryList.vue`，因此不存在两份实现；页签通过 `TabItem.to`（`ui/Tabs.vue` 新增的可选字段，点带 `to` 的页签直接 `router.push`，不写 `?tab=`）跳过去。旧链接 `/issues?tab=memories…` 由 `/issues` 的 `beforeEnter` 带全部参数重定向（`utils/memories.legacyMemoryQuery`）。今天页记忆整理卡的链接因此不用改。
+
+**新增 / 改动的文件**
+
+| 文件 | 内容 |
+|---|---|
+| `views/Memory.vue`（新） | 页头「记忆 / Memory」+ 计数 + 刷新；作用域 chip（含说明行）；仓库作用域的项目 chip（`?tracker=`）+ 同步按钮 + 上次同步摘要 / 同步结果；项目作用域的项目下拉；全局作用域的说明与同步状态折叠区；记忆类型 chip +「⚠ 有标记」+ 关键字（`?q=`）；`MemoryList` 与错误 / 加载 / 空态 |
+| `utils/memories.ts`（新） | 纯逻辑：`readMemoryScope/Project/Key/Search`、`memoryQueryUpdate`、`searchQueryUpdate`、`legacyMemoryQuery`（旧链接重定向）、`memoryRowsOf`（两种响应归一）、`memoryDoctorOf`、`memoryRowKey`、`filterMemories` |
+| `utils/useRepoSync.ts`（新） | 仓库同步接线（`runTrackerSync` + `syncTrackerRepo/getJob/logsTail`），Issues 与记忆两页共用，页面只管文案 |
+| `views/Issues.vue` | 去掉记忆面板 / 作用域 / 同步状态 / 记忆筛选与「记忆」页签的本地 tab 分支；页签改成 `to: '/memory'`；同步改用 `useRepoSync`；随之删除无用的样式与 key |
+| `components/MemoryList.vue`、`utils/trackerView.ts` | 文案 key 从 `issues.memory.*` 改到本页的 `memory.*`（`pages/memory.ts`），文案逐字不变 |
+| `router.routes.ts` | `/memory`（name `memory`）+ `/issues` 的 `beforeEnter` 重定向 |
+| `utils/shell.ts`、`ui/icon.ts`、`utils/uiText.ts` | 侧栏「协作」组 Issues 下面加 `nav.memory`（图标 BookMarked）；`moreItems()` 自动带进手机「更多」；`PALETTE_PAGES` 加一条（支持 `p:<项目>`），命令面板按「记忆」搜得到；`NAV.memory` / `PAGE.memory` |
+| `i18n/pages/memory.ts`（新） | 本页全部文案（`memory.*`）以及导航项 `nav.memory`、`ui.nav.memory`、`ui.page.memory`（页面字典优先于主字典，不动 `zh.ts` / `en.ts`） |
+| `ui/tabs.ts`、`ui/Tabs.vue` | `TabItem.to`（向后兼容的可选字段）：带 `to` 的页签是链接式页签 |
+
+**信息与操作核对表（迁移前 Issues 页记忆页签 → `/memory`）**
+
+| 旧页面 | 新页面 |
+|---|---|
+| 作用域三选（仓库 / 项目 / 全局）+ 每档说明 | 同（chip，`?memory_scope=`） |
+| 仓库选择（统一项目 chip）+ 当前仓库标签 | 同（`?tracker=`） |
+| 「同步」按钮、上次同步时间、冲突摘要、同步结果 + job 链接 | 同（同步接线抽到 `utils/useRepoSync.ts`，两页共用） |
+| 项目下拉（`?memory_project=`） | 同 |
+| 全局作用域的说明「无需选择仓库」 | 同 |
+| 全局作用域的「同步状态」折叠区（机器数、最近主机、逐台明细、空态、错误） | 同 |
+| 没有已登记仓库时的空态（gofer repo init / sync） | 同 |
+| 记忆类型 chip 与「⚠ 有标记」 | 同（「有标记」只在仓库作用域出现，与旧页面一致） |
+| 关键字搜索（key / 摘要 / 正文） | 同，并按本任务要求写进 URL（`?q=`） |
+| `MemoryList`：key、类型、摘要、年龄、作者、doctor 标记、展开全文、编辑保存、删除、空态 | 同（`components/MemoryList.vue` 原样复用） |
+| 深链 `?memory=<key>`（今天页记忆整理卡） | 同（旧链接经重定向带过来，仍会展开那一条） |
+
+**测试**（新增 2 个文件、改 1 个）
+- `utils/memories.test.ts`：URL 契约（作用域 / 项目 / 关键字、非法值回落）、旧链接重定向（保留全部参数、非记忆链接不重定向）、响应归一（两种形态、删除项、缺列表）、行 key、关键字 + 类型 + doctor 标记的组合筛选。
+- `views/memoryPage.test.ts`：`/memory` 路由与 `name`；`/issues?tab=memories…` 的 `beforeEnter` 重定向与普通 `/issues` 放行；页面骨架（页头、三档 chip、项目 chip、同步按钮、全局同步状态、类型 chip、关键字）；zh / en 两种语言；Issues 页保留「记忆」页签但不再是记忆面板（且源码里不再 import `MemoryList`）；`Tabs` 的链接式页签走 `router.push`。
+- `utils/shell.test.ts`：协作组新增 `nav.memory`（排在 issues 后、图标 `memory`）、手机「更多」含 `/memory`、命令面板按「记忆」与 `p:<项目>` 都能命中。
+- 各页的公共守卫（`i18nKeyUsage` / `noHardcodedCjk` / `icon.test` 的导航图标与双语文案）覆盖新页面与导航项。
