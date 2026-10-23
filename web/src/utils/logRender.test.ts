@@ -8,6 +8,7 @@ import {
   countLogLines,
   logLineLimit,
   planTailBatches,
+  stripAnsi,
   tailLinesText,
   renderAnsi,
   renderAnsiChunk,
@@ -17,6 +18,27 @@ import { appendCapped } from '../api/sse'
 function stripLineWrappers(html: string): string {
   return html.replace(/<span class="log-line">/g, '').replace(/<\/span>(?=(<span class="log-line">|$))/g, '')
 }
+
+describe('stripAnsi', () => {
+  it('drops SGR colour codes and keeps the text', () => {
+    expect(stripAnsi('\u001b[2m答\u001b[22m \u001b[36mcyan\u001b[0m')).toBe('答 cyan')
+  })
+
+  it('drops cursor / erase CSI, OSC titles and other escapes', () => {
+    expect(stripAnsi('a\u001b[1;31mb\u001b[Kc')).toBe('abc')
+    expect(stripAnsi('\u001b]0;title\u0007ok')).toBe('ok')
+    expect(stripAnsi('\u001b(0x\u001b(B')).toBe('x')
+  })
+
+  it('turns carriage returns into line breaks and keeps \\n / \\t', () => {
+    expect(stripAnsi('10%\r50%\r100%\n')).toBe('10%\n50%\n100%\n')
+    expect(stripAnsi('a\r\nb\tc')).toBe('a\nb\tc')
+  })
+
+  it('strips the remaining C0 control characters', () => {
+    expect(stripAnsi('a\u0000b\u0007c\u007fd')).toBe('abcd')
+  })
+})
 
 function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, '')

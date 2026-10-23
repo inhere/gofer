@@ -70,6 +70,7 @@ import { fanNameForJob, jobWorkflowLabel } from '../utils/workflowResult'
 import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
 import { wrapUpText } from '../utils/wrapUpDisplay'
 import { normalizeJobTitle } from '../utils/jobTitle'
+import { stripAnsi } from '../utils/logRender'
 import { agentBudgetExhausted, agentBudgetLine, budgetLine, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { createPoller } from '../utils/poller'
 import { attachQuery, resumeChoices, resumePromptNeed, type ResumeChoice, type ResumeMode } from '../utils/resumeChoice'
@@ -1916,8 +1917,9 @@ function startJobLive(): void {
 }
 
 // 概览里的「最近日志」：取 stdout（没有就 stderr）最后 6 行，完整日志在「日志」页签。
+// 这里是纯文本（不走 LogTape 的 ANSI 渲染），控制字符不能显示给用户：先 stripAnsi 去转义码。
 const logTail = computed<string[]>(() => {
-  const text = stdout.value.length > 0 ? stdout.value : stderr.value
+  const text = stripAnsi(stdout.value.length > 0 ? stdout.value : stderr.value)
   if (!text) return []
   const lines = text.split('\n').filter((line) => line.trim() !== '')
   return lines.slice(-6)
