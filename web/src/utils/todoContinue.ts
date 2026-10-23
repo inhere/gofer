@@ -9,6 +9,7 @@
 //  - todo.continue_note = 最近一次派发【没有】续接的原因；真正续接成功或从未派发时为空。
 //  - 创建 / 修改 todo 都接受 continue_from（键缺省 = 保持原值，显式空串 = 清除）。校验失败
 //    返回 400，error 为 CONTINUE_ERROR、detail 为原因。
+import { t as tr } from '../i18n'
 
 export interface ContinueTodo {
   todo_id: string
@@ -82,9 +83,9 @@ export function continuationLabels(
   const by = (t.continued_by ?? '').trim()
   const note = (t.continue_note ?? '').trim()
   return {
-    from: from ? `接续自 ${titleOf(from, todos)}` : '',
-    note: note ? `未接续：${note}` : '',
-    by: by ? `已被 ${titleOf(by, todos)} 接续` : '',
+    from: from ? tr('plans.todo.cont.from', { title: titleOf(from, todos) }) : '',
+    note: note ? tr('plans.todo.cont.note', { reason: note }) : '',
+    by: by ? tr('plans.todo.cont.by', { title: titleOf(by, todos) }) : '',
   }
 }
 
@@ -111,5 +112,5 @@ export function continueApiErrorText(e: unknown): string {
   const err = e as { code?: string; detail?: string } | null | undefined
   if (!err || err.code !== CONTINUE_ERROR) return ''
   const reason = (err.detail ?? '').trim()
-  return reason ? `前序项无效：${reason}` : '前序项无效：请换一个前序项，或关掉这个开关'
+  return reason ? tr('plans.todo.cont.invalidWith', { reason }) : tr('plans.todo.cont.invalid')
 }

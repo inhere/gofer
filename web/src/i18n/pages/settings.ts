@@ -473,6 +473,8 @@ export const settings: PageDict = {
     'settings.tunnels.deleted': '已删除预设 {name}',
     'settings.tunnels.copied': '已复制：{cmd}',
     'settings.tunnels.copyFailed': '复制失败，请手动执行：{cmd}',
+    // utils/mcpView.ts：绑定位置的「server」项
+    'settings.mcp.boundServer': 'server（所有 job）',
   },
   en: {
     'settings.navLabel': 'Settings sections',
@@ -944,5 +946,6 @@ export const settings: PageDict = {
     'settings.tunnels.deleted': 'Deleted preset {name}',
     'settings.tunnels.copied': 'Copied: {cmd}',
     'settings.tunnels.copyFailed': 'Copy failed, run it yourself: {cmd}',
+    'settings.mcp.boundServer': 'server (all jobs)',
   },
 }

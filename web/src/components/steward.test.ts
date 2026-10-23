@@ -15,15 +15,15 @@ describe('Steward panel (问管家)', () => {
     for (const hook of ['steward-fab', 'steward-panel', 'steward-quick', 'steward-input', 'steward-send', 'steward-restart', 'steward-notes-btn', 'steward-disabled']) {
       expect(panel).toContain(`data-test="${hook}"`)
     }
-    expect(panel).toContain('QUICK_QUESTIONS')
-    expect(panel).toContain('管家未启用，')
-    expect(panel).toContain('去设置页开启')
-    expect(panel).toContain('发第一条消息会自动启动管家')
+    expect(panel).toContain('quickQuestions()')
+    expect(panel).toContain("t('util.steward.panel.disabled')")
+    expect(panel).toContain("t('util.steward.panel.openSettings')")
+    expect(panel).toContain("t('util.steward.panel.hint')")
   })
 
   it('sends on Enter, keeps Shift+Enter for a newline and says when the steward is busy', () => {
     expect(panel).toContain("ev.key === 'Enter' && !ev.shiftKey")
-    expect(panel).toContain('BUSY_TEXT')
+    expect(panel).toContain('stewardBusyText()')
     expect(panel).toContain('e.status === 409')
   })
 
@@ -31,7 +31,7 @@ describe('Steward panel (问管家)', () => {
     expect(panel).toContain('streamACPJob(jobId')
     expect(panel).toContain('nextSubscription(subscribed.value, reported)')
     expect(panel).toContain('data-test="steward-rebuilt"')
-    expect(panel).toContain('管家已重建')
+    expect(panel).toContain("t('util.steward.panel.rebuilt')")
   })
 
   it('polls the status only while open', () => {

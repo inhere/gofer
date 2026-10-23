@@ -4,6 +4,7 @@
 import { AUTH_MANAGE } from './permissions'
 import type { AuthWhoami } from './permissions'
 import { ceilingReadOnly } from './ceiling'
+import { t } from '../i18n'
 
 export interface GateRule {
   // 动作要求的权限（全部持有才显示）。
@@ -14,25 +15,26 @@ export interface GateRule {
   label: string
 }
 
+// label 是 getter：文案随当前语言取（i18n 字典 util.perm.gate.*）。
 export const ACTION_PERMISSIONS = {
   // 授权管理：新增 / 撤销授权、会话「授权」按钮。
-  'grant.manage': { perms: [AUTH_MANAGE], label: '管理授权' },
+  'grant.manage': { perms: [AUTH_MANAGE], get label() { return t('util.perm.gate.grant') } },
   // Runners：用 server 二进制升级 worker；注册 / 删除 / 重载 worker。
-  'worker.upgrade': { perms: ['worker.upgrade'], label: '升级 worker' },
-  'worker.manage': { perms: ['worker.manage'], label: '注册 / 重载 worker' },
+  'worker.upgrade': { perms: ['worker.upgrade'], get label() { return t('util.perm.gate.workerUpgrade') } },
+  'worker.manage': { perms: ['worker.manage'], get label() { return t('util.perm.gate.workerManage') } },
   // 设置 → 关于：一键更新。
-  'update.apply': { perms: ['update.apply'], label: '一键更新' },
+  'update.apply': { perms: ['update.apply'], get label() { return t('util.perm.gate.updateApply') } },
   // 配置：写配置 / 校验 / 重载；项目增删改。
-  'config.write': { perms: ['config.write'], label: '写配置' },
+  'config.write': { perms: ['config.write'], get label() { return t('util.perm.gate.configWrite') } },
   // 设置 → 扩展设置：数据库里的阈值 / 名单 / 提示词（settings.write，中风险，默认不种）。
-  'settings.write': { perms: ['settings.write'], label: '写扩展设置' },
-  'project.write': { perms: ['project.write'], label: '改项目' },
+  'settings.write': { perms: ['settings.write'], get label() { return t('util.perm.gate.settingsWrite') } },
+  'project.write': { perms: ['project.write'], get label() { return t('util.perm.gate.projectWrite') } },
   // job：删除记录（他人的需要 job.delete.others，自己的不需要）。
-  'job.delete': { perms: ['job.delete.others'], othersOnly: true, label: '删除他人 job' },
+  'job.delete': { perms: ['job.delete.others'], othersOnly: true, get label() { return t('util.perm.gate.jobDelete') } },
   // 隧道：托管转发 / 预设（tunnel.hosted）；停别人的转发（tunnel.manage.others）。
-  'tunnel.hosted': { perms: ['tunnel.hosted'], label: '托管转发与预设' },
-  'tunnel.stopOthers': { perms: ['tunnel.manage.others'], othersOnly: true, label: '停他人的转发' },
-} as const satisfies Record<string, GateRule>
+  'tunnel.hosted': { perms: ['tunnel.hosted'], get label() { return t('util.perm.gate.tunnelHosted') } },
+  'tunnel.stopOthers': { perms: ['tunnel.manage.others'], othersOnly: true, get label() { return t('util.perm.gate.tunnelStopOthers') } },
+} satisfies Record<string, GateRule>
 
 export type GateAction = keyof typeof ACTION_PERMISSIONS
 

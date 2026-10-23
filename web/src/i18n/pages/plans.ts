@@ -178,6 +178,16 @@ export const plans: PageDict = {
     'plans.detail.handoffEditMode': '编辑',
     'plans.detail.handoffPlaceholder': '记录当前进度、下一步和未决事项',
     'plans.detail.handoffEmpty': '暂无交接说明，点击「＋ 新增」创建第一份交接说明',
+
+    // 待办接续（utils/todoContinue.ts）与进度摘要（utils/planProgress.ts）
+    'plans.todo.cont.from': '接续自 {title}',
+    'plans.todo.cont.note': '未接续：{reason}',
+    'plans.todo.cont.by': '已被 {title} 接续',
+    'plans.todo.cont.invalidWith': '前序项无效：{reason}',
+    'plans.todo.cont.invalid': '前序项无效：请换一个前序项，或关掉这个开关',
+    'plans.progress.todos': '待办 {done}/{total}',
+    'plans.progress.todosSkipped': '（含跳过 {n}）',
+    'plans.progress.todosDoing': ' · 进行中 {n}',
   },
   en: {
     'plans.progress.done': 'Done',
@@ -348,5 +358,14 @@ export const plans: PageDict = {
     'plans.detail.handoffEditMode': 'Edit',
     'plans.detail.handoffPlaceholder': 'Record the current progress, the next step and open questions',
     'plans.detail.handoffEmpty': 'No handoff note yet — “+ New” creates the first one',
+
+    'plans.todo.cont.from': 'Continues from {title}',
+    'plans.todo.cont.note': 'Not continued: {reason}',
+    'plans.todo.cont.by': 'Continued by {title}',
+    'plans.todo.cont.invalidWith': 'Invalid predecessor: {reason}',
+    'plans.todo.cont.invalid': 'Invalid predecessor: pick another item or turn this switch off',
+    'plans.progress.todos': 'Todos {done}/{total}',
+    'plans.progress.todosSkipped': ' (incl. {n} skipped)',
+    'plans.progress.todosDoing': ' · {n} in progress',
   },
 }

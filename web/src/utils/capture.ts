@@ -1,14 +1,16 @@
 // 收集箱（design 2026-10-16 §3）的纯逻辑：kind 标签、随手记表单校验与请求体、
 // 「待整理」区页签路由（?tab=capture）、看板请求的状态过滤。组件只负责渲染。
 import type { WorkItem } from '../api/types'
+import { t } from '../i18n'
 
 export type CaptureKind = 'idea' | 'issue' | 'request' | 'note'
 
+// label 是 getter：文案随当前语言取（i18n 字典 util.capture.kind.*）。
 export const CAPTURE_KINDS: Array<{ key: CaptureKind; label: string }> = [
-  { key: 'idea', label: '想法' },
-  { key: 'issue', label: '问题' },
-  { key: 'request', label: '需求' },
-  { key: 'note', label: '记录' },
+  { key: 'idea', get label() { return t('util.capture.kind.idea') } },
+  { key: 'issue', get label() { return t('util.capture.kind.issue') } },
+  { key: 'request', get label() { return t('util.capture.kind.request') } },
+  { key: 'note', get label() { return t('util.capture.kind.note') } },
 ]
 
 export const DEFAULT_CAPTURE_KIND: CaptureKind = 'note'
@@ -18,7 +20,7 @@ export const CAPTURE_BOX_LINK = '/work?tab=capture'
 
 export function captureKindLabel(kind: string | undefined): string {
   const k = CAPTURE_KINDS.find((x) => x.key === kind)
-  return k ? k.label : kind ? kind : '记录'
+  return k ? k.label : kind ? kind : t('util.capture.kind.note')
 }
 
 export interface CaptureForm {
@@ -41,10 +43,10 @@ export interface CaptureBuild {
 // buildCaptureRequest：校验并构造 POST /v1/work-items/capture 的请求体；project 为空则省略。
 export function buildCaptureRequest(f: CaptureForm): CaptureBuild {
   const text = f.text.trim()
-  if (!text) return { req: null, error: '先写点内容' }
-  if ([...text].length > CAPTURE_TEXT_MAX) return { req: null, error: `内容最多 ${CAPTURE_TEXT_MAX} 个字符` }
+  if (!text) return { req: null, error: t('util.capture.err.empty') }
+  if ([...text].length > CAPTURE_TEXT_MAX) return { req: null, error: t('util.capture.err.tooLong', { max: CAPTURE_TEXT_MAX }) }
   const kind = CAPTURE_KINDS.find((k) => k.key === f.kind)?.key
-  if (!kind) return { req: null, error: '请选择类型' }
+  if (!kind) return { req: null, error: t('util.capture.err.pickKind') }
   const req: CaptureRequest = { text, kind }
   const project = f.project.trim()
   if (project) req.project = project
@@ -92,7 +94,7 @@ export function onlyCaptured(items: WorkItem[]): WorkItem[] {
 // 收集箱条目的来源说明；没有来源返回空串。
 export function captureSource(it: Pick<WorkItem, 'capture_source_session' | 'capture_source_job'>): string {
   const parts: string[] = []
-  if (it.capture_source_session) parts.push(`会话 ${it.capture_source_session.slice(0, 8)}`)
+  if (it.capture_source_session) parts.push(t('util.capture.source.session', { id: it.capture_source_session.slice(0, 8) }))
   if (it.capture_source_job) parts.push(`job ${it.capture_source_job.slice(0, 10)}`)
   return parts.join(' / ')
 }

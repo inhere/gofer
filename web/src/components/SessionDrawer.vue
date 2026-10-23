@@ -53,7 +53,7 @@ import Composer from '../ui/Composer.vue'
 import Drawer from '../ui/Drawer.vue'
 import AttachmentThumbs from './AttachmentThumbs.vue'
 import { topicDisplay } from '../utils/sessionTopic'
-import { MOBILE_HEADER_FALLBACK, sessionHeaderSummary } from '../utils/mobileLayout'
+import { mobileHeaderFallback, sessionHeaderSummary } from '../utils/mobileLayout'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { canRetrySessionMessage, copyText, isSessionReply, mergeSessionTimeline, peerNameLabel, sessionMessageAuthorLabel, sessionMessageStatusText, sessionReplyLabel, shouldShowLastMessage, upsertSessionMessage } from '../utils/sessionMessaging'
 import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
@@ -446,7 +446,7 @@ function shortSid(id: string): string {
 // headerSummary 是手机折叠条上的那一行：「主题 · 范围」（主题是推断值也照显示）。
 const headerSummary = computed(() => {
   const s = session.value
-  if (!s) return MOBILE_HEADER_FALLBACK
+  if (!s) return mobileHeaderFallback()
   return sessionHeaderSummary(topicDisplay(s).text, s.scope ?? [])
 })
 

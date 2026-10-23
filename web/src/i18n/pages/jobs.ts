@@ -244,6 +244,13 @@ export const jobs: PageDict = {
     'jobs.detail.readonly': '只读',
     'jobs.detail.acpMessageAria': 'ACP 会话消息',
     'jobs.detail.copySha': '复制 {sha}',
+
+    // utils/wrapUpDisplay.ts：agent 自己收尾的原因
+    'jobs.wrapUp.maxSteps': '步数上限（agent 自己收尾，任务可能未完成）',
+    'jobs.wrapUp.maxTokens': '用量上限（agent 自己收尾，任务可能未完成）',
+    'jobs.wrapUp.timeout': '时限（agent 自己收尾，任务可能未完成）',
+    'jobs.wrapUp.budget': '预算耗尽收尾（agent 自己收尾，任务可能未完成）',
+    'jobs.wrapUp.unknown': '{reason}（agent 自己收尾，任务可能未完成）',
   },
   en: {
     'jobs.h.title': 'Jobs',
@@ -473,5 +480,11 @@ export const jobs: PageDict = {
     'jobs.detail.readonly': 'Read-only',
     'jobs.detail.acpMessageAria': 'ACP session message',
     'jobs.detail.copySha': 'Copy {sha}',
+
+    'jobs.wrapUp.maxSteps': 'Hit the step limit (the agent wrapped up on its own; the task may be unfinished)',
+    'jobs.wrapUp.maxTokens': 'Hit the token limit (the agent wrapped up on its own; the task may be unfinished)',
+    'jobs.wrapUp.timeout': 'Hit the time limit (the agent wrapped up on its own; the task may be unfinished)',
+    'jobs.wrapUp.budget': 'Budget exhausted (the agent wrapped up on its own; the task may be unfinished)',
+    'jobs.wrapUp.unknown': '{reason} (the agent wrapped up on its own; the task may be unfinished)',
   },
 }

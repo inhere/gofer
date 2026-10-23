@@ -1,5 +1,5 @@
 export function trackerRepoLabel(repo: { project_key: string; prefix: string; rel_path: string }): string {
-  return `${repo.project_key || '未归属'} · ${repo.prefix || '—'} · ${repo.rel_path || '—'}`
+  return `${repo.project_key || t('issues.tracker.repo.unassigned')} · ${repo.prefix || '—'} · ${repo.rel_path || '—'}`
 }
 
 export function trackerIssueMatches(data: Record<string, any>, id: string, statuses: string[], type: string, tag: string, query: string): boolean {
@@ -21,7 +21,12 @@ export function trackerMemoryMatches(data: { key?: string; content?: string; sum
 
 export type MemoryKind = 'rule' | 'note' | 'handoff'
 export const MEMORY_KINDS: MemoryKind[] = ['rule', 'note', 'handoff']
-export const MEMORY_KIND_LABEL: Record<MemoryKind, string> = { rule: '规则', note: '笔记', handoff: '交接' }
+// getter：文案随当前语言取（i18n 字典 issues.memory.kind.*）。
+export const MEMORY_KIND_LABEL: Record<MemoryKind, string> = {
+  get rule() { return t('issues.memory.kind.rule') },
+  get note() { return t('issues.memory.kind.note') },
+  get handoff() { return t('issues.memory.kind.handoff') },
+}
 
 // 与 tracker.EffectiveMemoryKind 一致：存的 kind，否则旧 `prime` 标签算 rule，否则 note。
 export function memoryKind(data: { kind?: string; tags?: string[] }): MemoryKind {
@@ -45,23 +50,24 @@ export function memorySummary(data: { summary?: string; content?: string }): str
 
 // 年龄：今天 / N 天前（无法解析时为空）。
 export function memoryAge(updatedAt: string | undefined, nowMs = Date.now()): string {
-  const t = updatedAt ? Date.parse(updatedAt) : NaN
-  if (Number.isNaN(t)) return ''
-  const days = Math.floor((nowMs - t) / 86_400_000)
-  return days <= 0 ? '今天' : `${days} 天前`
+  const parsed = updatedAt ? Date.parse(updatedAt) : NaN
+  if (Number.isNaN(parsed)) return ''
+  const days = Math.floor((nowMs - parsed) / 86_400_000)
+  return days <= 0 ? t('issues.memory.age.today') : t('issues.memory.age.days', { n: days })
 }
 
-export const DOCTOR_LABEL: Record<string, string> = {
-  'handoff-expired': '交接已过期',
-  'note-stale': '久未更新',
-  'summary-missing': '缺摘要',
-  duplicate: '疑似重复',
-  'path-missing': '路径不存在',
-  'commit-missing': '提交不存在',
+const DOCTOR_LABEL: Record<string, string> = {
+  'handoff-expired': 'issues.memory.doctor.handoffExpired',
+  'note-stale': 'issues.memory.doctor.noteStale',
+  'summary-missing': 'issues.memory.doctor.summaryMissing',
+  duplicate: 'issues.memory.doctor.duplicate',
+  'path-missing': 'issues.memory.doctor.pathMissing',
+  'commit-missing': 'issues.memory.doctor.commitMissing',
 }
 
 export function doctorLabel(slug: string): string {
-  return DOCTOR_LABEL[slug] ?? slug
+  const key = DOCTOR_LABEL[slug]
+  return key && te(key) ? t(key) : slug
 }
 
 // 记忆列表筛选：类型（空 = 全部）与「只看有标记的」。
@@ -75,12 +81,13 @@ export function memoryKindMatches(
   return kinds.length === 0 || kinds.includes(memoryKind(data))
 }
 import { fmtAgo, fmtDateTime } from '../api/time'
+import { t, te } from '../i18n'
 
 // 同步状态面板的一行：主机名 · 调用方 · 多久前同步 · 摘要（缺项用 —）。
 export function syncClientLine(
   c: { client_host: string; caller: string; last_sync_at: number; summary: string },
   nowSec?: number,
 ): string {
-  const ago = c.last_sync_at > 0 ? `${fmtAgo(c.last_sync_at, nowSec)}同步` : '—'
+  const ago = c.last_sync_at > 0 ? t('issues.tracker.sync.ago', { ago: fmtAgo(c.last_sync_at, nowSec) }) : '—'
   return [c.client_host || 'unknown', c.caller || '—', ago, c.summary || '—'].join(' · ')
 }

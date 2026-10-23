@@ -124,6 +124,16 @@ export const sessions: PageDict = {
     'sessions.new.fullConfig': '完整配置',
     'sessions.new.create': '创建并打开',
     'sessions.new.creating': '创建中…',
+
+    // 投递模式（utils/injectMode.ts）与手机头部占位（utils/mobileLayout.ts）
+    'sessions.inject.hold': '留待',
+    'sessions.inject.force': '直送',
+    'sessions.inject.auto': '看输入框',
+    'sessions.inject.title.hold': 'hold：从不往终端打字，消息一律留待，由会话下一次 hook 注入',
+    'sessions.inject.title.force': 'force：不检查输入框直接粘贴（只在确定那个终端没人用时选）',
+    'sessions.inject.title.auto': 'auto：只在输入框确认为空时打字；有人在打字或停在选择界面时消息留待',
+    'sessions.inject.sendNow': '现在送 {n}',
+    'sessions.mobile.headerFallback': '会话信息',
   },
   en: {
     'sessions.title': 'Sessions',
@@ -239,5 +249,14 @@ export const sessions: PageDict = {
     'sessions.new.fullConfig': 'Full configuration',
     'sessions.new.create': 'Create and open',
     'sessions.new.creating': 'Creating…',
+
+    'sessions.inject.hold': 'Hold',
+    'sessions.inject.force': 'Direct',
+    'sessions.inject.auto': 'Watch box',
+    'sessions.inject.title.hold': 'hold: never type into the terminal; messages wait for the session’s next hook injection',
+    'sessions.inject.title.force': 'force: paste without checking the prompt (only when nobody else is using that terminal)',
+    'sessions.inject.title.auto': 'auto: type only when the prompt is empty; messages wait while someone is typing or the session sits on a picker',
+    'sessions.inject.sendNow': 'Send now ({n})',
+    'sessions.mobile.headerFallback': 'Session info',
   },
 }
