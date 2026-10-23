@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { Ellipsis, Square } from '@lucide/vue'
+import Icon from '../../ui/Icon.vue'
 import { useRouter } from 'vue-router'
 import { answerInteraction, cancelJob, getJob, puntInteraction } from '../../api/client'
 import { appendCapped, streamJob } from '../../api/sse'
@@ -454,8 +456,8 @@ onUnmounted(() => {
         :aria-label="t('workbench.head.stop')"
         :disabled="!canStop || stopping"
         @click="stopCurrent"
-      >■</button>
-      <button class="icon-btn mobile-menu" type="button" :aria-label="t('workbench.head.more')" @click="menuOpen = !menuOpen">⋯</button>
+      ><Icon :icon="Square" size="sm" /></button>
+      <button class="icon-btn mobile-menu" type="button" :aria-label="t('workbench.head.more')" @click="menuOpen = !menuOpen"><Icon :icon="Ellipsis" size="md" /></button>
       <div class="head-actions" :class="{ 'head-actions--open': menuOpen }">
         <button type="button" @click="togglePin">{{ thread.pinned ? t('workbench.head.unpin') : t('workbench.head.pin') }}</button>
         <button type="button" :disabled="!canStop || stopping" @click="stopCurrent">{{ stopping ? t('workbench.head.stopping') : t('workbench.head.stop') }}</button>

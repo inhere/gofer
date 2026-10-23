@@ -354,7 +354,9 @@ defineExpose({ focusSearch })
   color: var(--ink);
 }
 .caret {
-  width: 10px;
+  /* 图标是 14px 的 lucide svg（ui/Icon.vue）：定宽就定成它的尺寸，不再按字符宽度算 */
+  width: 14px;
+  flex: none;
 }
 .sess {
   width: 100%;

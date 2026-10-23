@@ -1531,6 +1531,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 关闭：`Drawer` / `Sheet` 的 `✕`、各弹窗的 `×`（EnrollAccept / EnrollReject / GrantRenew / SessionGrant / ClusterTopology / AttachmentBar / QuickCapture 提示 / Mail 的两个 chip / Workbench 的两处）→ X。
 - 展开 / 收起：Skills、Agents、WorkbenchSidebar、ConversationView、UnifiedDiff、SessionDrawer（两处）、ProjectFilter、JobDetail 的会话任务链、AttachTerminal 的输入框开关 → ChevronRight / ChevronDown（ProjectFilter 向上为 ChevronUp）。
 - `views/settings/SettingsLayout.vue` 的面包屑分隔符 `content: '▸ '` 改成普通标点 `/`（CSS 伪元素放不了图标组件，而分隔符本身不需要图标语义）。
+- 其他：`Schedules` 有参数时「运行」按钮的齿轮 `⚙` → Cog；工作台会话头部的停止 `■` → Square、「更多」`⋯` → Ellipsis。
 
 **事件时间线**
 
@@ -1544,7 +1545,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 **测试**
 
 - `ui/icon.test.ts`（新）：尺寸档位与 `tokens.css` 一致；16+ 个导航项都有可解析的图标且 zh/en 都有可访问名；`Icon` 的 SSR 行为（装饰性 `aria-hidden`、有 `label` 才 `role="img"`、`size="lg"` → width 20、线宽 1.75、`spin`）。
-- `ui/iconScan.test.ts`（新）：扫 `web/src` 下全部 `.vue` / `.ts`（排除测试、`i18n/` 字典、注释），不允许再出现 21 个「已彻底清掉」的图标字形（◉ ▤ ▥ ◇ ⧉ ⌁ ✉ ▦ ⇉ ◷ ⬡ ⌂ ⟨ ⟩ ☀ ☾ ◔ ↯ ▸ ▾ ▴ 表里逐字符写了理由）；白名单 `WHITELIST` 必须写理由。不在清单里的 `●` / `×` / `✓` / `§` 等是因为它们仍作为文字或状态点合法出现（详见上面「没动」）。
+- `ui/iconScan.test.ts`（新）：扫 `web/src` 下全部 `.vue` / `.ts`（排除测试、`i18n/` 字典、注释），不允许再出现 24 个「已彻底清掉」的图标字形（◉ ▤ ▥ ◇ ⧉ ⌁ ✉ ▦ ⇉ ◷ ⬡ ■ ⋯ ⚙ ⌂ ⟨ ⟩ ☀ ☾ ◔ ↯ ▸ ▾ ▴ 表里逐字符写了理由）；白名单 `WHITELIST` 必须写理由。不在清单里的 `●` / `×` / `✓` / `§` / `⏸` / `↻` 等是因为它们仍作为文字或状态点合法出现（详见上面「没动」）。
 - `ui/statusGlyph.test.ts`：新增「每个族渲染对应 lucide 图标（`lucide-<kind>` + 线宽 1.75）」与「只有 run 旋转」。
 - `views/work.test.ts`、`views/mailWiring.test.ts`：导航项断言从 `glyph: '▥'` / `glyph: '✉'` 改成 `icon: 'work'` / `icon: 'mail'`。
 
