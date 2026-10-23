@@ -81,3 +81,14 @@ describe('AppShell SSR smoke', () => {
     expect(phone.match(/class="lucide lucide-/g)?.length).toBeGreaterThanOrEqual(5)
   })
 })
+
+describe('brand logo', () => {
+  it('shows the gofer logo instead of a letter in the sidebar and the phone top bar', async () => {
+    const desktop = await render(1440)
+    expect(desktop).toContain('data-test="brand-logo"')
+    expect(desktop).toContain('src="/favicon.svg"') // :src 绑定在 SSR 里渲染成同样的属性
+    expect(desktop).not.toMatch(/class="brand-mark"[^>]*>g</)
+    const phone = await render(390)
+    expect(phone).toContain('data-test="brand-logo"')
+  })
+})

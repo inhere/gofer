@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// 左上角品牌 logo：public/ 下的静态文件（与 favicon 同一张）。用绑定而不是字面 src，模板编译
+// 才不会把它当成要打包导入的资源。
+const BRAND_LOGO_URL = '/favicon.svg'
 // 应用外壳（设计稿 §6、§16）：侧栏 / 图标栏、顶栏、信号带、手机标签栏与「更多」抽屉。
 //
 // 形态完全由视口宽度决定（utils/shell.ts 的 shellForm），不做路由级判断：
@@ -157,7 +160,7 @@ onUnmounted(() => {
     <aside v-if="showSidebar" class="side" :class="{ 'side--rail': !expanded }" :aria-label="t('shell.nav')">
       <div class="side-head">
         <RouterLink to="/today" class="brand" :title="t('shell.home')">
-          <span class="brand-mark" aria-hidden="true">g</span>
+          <img class="brand-mark" :src="BRAND_LOGO_URL" alt="" aria-hidden="true" width="24" height="24" data-test="brand-logo" />
           <span v-if="expanded" class="brand-name">gofer</span>
         </RouterLink>
         <span
@@ -240,7 +243,7 @@ onUnmounted(() => {
       <!-- 顶栏 -->
       <header class="top">
         <RouterLink v-if="hasTabBar(form)" to="/today" class="brand brand--mobile">
-          <span class="brand-mark" aria-hidden="true">g</span>
+          <img class="brand-mark" :src="BRAND_LOGO_URL" alt="" aria-hidden="true" width="24" height="24" data-test="brand-logo" />
         </RouterLink>
         <button
           class="search"
@@ -417,17 +420,11 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: block;
   width: 24px;
   height: 24px;
   flex: none;
-  border-radius: var(--r-chip);
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 700;
-  font-size: var(--fs-sm);
+  /* 品牌 logo（public/favicon.svg：自带深色圆角底，浅色 / 深色主题都清楚） */
 }
 .conn {
   display: inline-flex;
