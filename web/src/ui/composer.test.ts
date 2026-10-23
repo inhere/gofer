@@ -121,6 +121,8 @@ describe('composer rendering', () => {
     expect(html).toContain('data-test="composer-attach-hint"')
     expect(html).toContain('该会话不支持附图')
     expect(html).toContain('title="该会话不支持附图"')
+    // 选文件的地方还在：隐藏的 file input 一直挂在附件条里（否则 📎 无事可做）。
+    expect(html).toContain('data-test="attach-input"')
   })
 
   it('disables the input and send button when the caller is not ready', async () => {

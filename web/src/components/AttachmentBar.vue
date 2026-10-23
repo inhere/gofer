@@ -310,9 +310,10 @@ defineExpose({
 
 <template>
   <!-- compact：调用方自己有一个 📎（统一 Composer 的附件按钮），这里只画已选附件的缩略图条，
-       不再重复一个 📎 与提示行（P6 截图：工作台输入框上方两个附件入口）。 -->
+       不再重复一个 📎 与提示行（P6 截图：工作台输入框上方两个附件入口）。
+       根节点必须一直挂着（哪怕看起来是空的、高度为 0）：隐藏的 file input 与 openPicker() /
+       粘贴 / 拖放都在它里面，拆掉就没有选文件的地方了。 -->
   <div
-    v-if="!compact || items.length > 0"
     class="attach"
     :class="{ 'attach--drag': dragActive, 'attach--compact': compact }"
     @dragenter.prevent="dragActive = true"

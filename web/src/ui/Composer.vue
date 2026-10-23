@@ -104,6 +104,8 @@ const showModes = computed(() => props.modes.length > 1)
 const mode = ref<ComposerMode>(props.modes.includes('send') ? 'send' : props.modes[0] ?? 'send')
 const queued = ref<string[]>([])
 const attachBlocked = computed(() => !!attachBar.value && !attachBar.value.canSend())
+// 已选附件：紧凑附件条只在有图时占位（没图时它高度 0，但仍挂载：选文件 / 拖放靠它）。
+const attachCount = computed(() => attachBar.value?.items?.length ?? 0)
 // 附件提示：能力不可用时直接取 capability.reason（此时缩略图条根本不渲染，拿不到子组件的 hint），
 // 其余情况（上传中 / 失败）用附件条的 hint。两边同一来源（utils/attachments 的 composerAttachmentState）。
 const attachHint = computed(() => {
@@ -221,7 +223,11 @@ onBeforeUnmount(() => {
     @dragover="attachBar?.handleDragOver($event)"
     @drop="attachBar?.handleDrop($event)"
   >
-    <div v-if="attachments && attachCapability" class="composer-attach">
+    <div
+      v-if="attachments && attachCapability"
+      class="composer-attach"
+      :class="{ 'composer-attach--empty': attachCount === 0 }"
+    >
       <AttachmentBar
         ref="attachBar"
         :capability="attachCapability"
@@ -325,6 +331,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+/* 还没选附件：这一行不占位（也不吃掉父容器的 gap），附件条的 DOM 仍在。 */
+.composer-attach--empty {
+  display: none;
 }
 /* 附件提示一行小字：与输入的说明文字同口径，不抢正文。 */
 .composer-attach-hint {
