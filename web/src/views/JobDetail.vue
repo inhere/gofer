@@ -2848,7 +2848,7 @@ onUnmounted(() => {
           <span class="outcome-k mono">{{ t('jobs.detail.artifactsCount', { n: artifacts.length }) }}</span>
         </div>
         <p v-if="isRemoteSource" class="diff-note mono">
-          清单来自{{ sourceLabel }}；文件留在执行机（worker / 共享盘 / peer 侧），本机不提供下载
+          {{ t('jobs.detail.remoteNote', { source: sourceLabel }) }}
         </p>
         <ul class="artifact-list">
           <li v-for="a in artifacts" :key="a.name" class="artifact-row">
@@ -2861,7 +2861,7 @@ onUnmounted(() => {
                 :disabled="previewingNames.has(a.name)"
                 @click="onPreview(a.name)"
               >
-                {{ previewingNames.has(a.name) ? '打开中…' : '预览' }}
+                {{ previewingNames.has(a.name) ? t('jobs.detail.opening') : t('jobs.detail.preview') }}
               </button>
               <button
                 class="artifact-dl mono"
@@ -2869,7 +2869,7 @@ onUnmounted(() => {
                 :disabled="downloadingNames.has(a.name)"
                 @click="onDownload(a.name)"
               >
-                {{ downloadingNames.has(a.name) ? '下载中…' : '下载' }}
+                {{ downloadingNames.has(a.name) ? t('jobs.detail.downloading') : t('jobs.detail.download') }}
               </button>
             </template>
             <span v-else class="artifact-remote mono">留在执行机</span>
@@ -2890,13 +2890,13 @@ onUnmounted(() => {
         <!-- 上传：执行机在 agent 起跑前放进 dest（cwd 相对）的文件；失败的会说明原因
              （此时 agent 没跑、job 已 failed）。 -->
         <div v-if="xferUploads.length > 0" class="xfer-part">
-          <p class="diff-note mono">随 job 上传的文件（{{ xferUploads.length }}）· 起跑前放进执行机</p>
+          <p class="diff-note mono">{{ t('jobs.detail.uploadsNote', { n: xferUploads.length }) }}</p>
           <ul class="artifact-list">
             <li v-for="(u, i) in xferUploads" :key="`up-${i}-${u.dest}`" class="artifact-row">
               <span class="artifact-name mono" :title="u.dest">{{ u.dest }}</span>
               <span class="artifact-size mono">{{ fmtSize(u.size) }}</span>
               <span class="xfer-chip mono" :class="u.ok ? 'xfer-chip--ok' : 'xfer-chip--bad'">
-                {{ u.ok ? '已就位' : '失败' }}
+                {{ u.ok ? t('jobs.detail.xferOk') : t('jobs.detail.xferFailed') }}
               </span>
               <span v-if="!u.ok && u.error" class="xfer-note mono" :title="u.error">{{ u.error }}</span>
             </li>
@@ -2905,13 +2905,13 @@ onUnmounted(() => {
 
         <!-- 收集：job 结束后按 cwd 匹配到的文件，本体落在本 job 产物的 collected/ 下。 -->
         <div v-if="xferCollected.length > 0" class="xfer-part">
-          <p class="diff-note mono">收集（{{ xferCollected.length }}）· 点名字预览</p>
+          <p class="diff-note mono">{{ t('jobs.detail.collectedNote', { n: xferCollected.length }) }}</p>
           <ul class="artifact-list">
             <li v-for="c in xferCollected" :key="`col-${c.name}`" class="artifact-row">
               <button
                 class="artifact-name xfer-name-btn mono"
                 type="button"
-                :title="`预览 ${collectedName(c.name)}`"
+                :title="t('jobs.detail.previewTitle', { name: collectedName(c.name) })"
                 :disabled="previewingNames.has(collectedName(c.name))"
                 @click="onPreview(collectedName(c.name), 'xfer')"
               >
@@ -2932,10 +2932,10 @@ onUnmounted(() => {
 
         <!-- 跳过：匹配到但没传回的文件（超单文件/总量上限等），连同原因列出。 -->
         <div v-if="xferSkipped.length > 0" class="xfer-part">
-          <p class="diff-note mono">跳过（{{ xferSkipped.length }}）· 匹配到但没传回</p>
+          <p class="diff-note mono">{{ t('jobs.detail.skippedNote', { n: xferSkipped.length }) }}</p>
           <ul class="artifact-list">
             <li v-for="(sk, i) in xferSkipped" :key="`skip-${i}-${sk.name || sk.pattern || ''}`" class="artifact-row">
-              <span class="artifact-name mono" :title="sk.name || sk.pattern || ''">{{ sk.name || sk.pattern || '（未命名）' }}</span>
+              <span class="artifact-name mono" :title="sk.name || sk.pattern || ''">{{ sk.name || sk.pattern || t('jobs.detail.unnamed') }}</span>
               <span v-if="sk.pattern && sk.name" class="artifact-size mono" :title="`pattern ${sk.pattern}`">{{ sk.pattern }}</span>
               <span class="xfer-note mono" :title="sk.reason">{{ sk.reason }}</span>
             </li>
