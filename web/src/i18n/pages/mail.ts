@@ -143,6 +143,9 @@ export const mail: PageDict = {
     'mail.persona.cancelled': '已取消',
     'mail.persona.canceled': '已取消',
     'mail.persona.timeout': '超时',
+
+    // 写信预览的占位正文（还没写正文时先带一个，过服务端的非空校验）
+    'mail.compose.previewBody': '预览',
   },
   en: {
     // 页头与筛选
@@ -284,5 +287,6 @@ export const mail: PageDict = {
     'mail.persona.cancelled': 'cancelled',
     'mail.persona.canceled': 'cancelled',
     'mail.persona.timeout': 'timeout',
+    'mail.compose.previewBody': 'Preview',
   },
 }

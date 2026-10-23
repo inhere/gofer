@@ -118,6 +118,9 @@ export const review: PageDict = {
     'review.memory.reject': '拒绝',
     'review.memory.accepted': '已接受 → {key}',
     'review.memory.rejected': '已拒绝',
+
+    // 验收面板的参考输出截断行（components/ReviewPanel.vue）
+    'review.verify.omitted': '…（前面 {kept} 行已省略，本段共 {total} 行）',
   },
   en: {
     // 列表头
@@ -233,5 +236,6 @@ export const review: PageDict = {
     'review.memory.reject': 'Reject',
     'review.memory.accepted': 'Accepted → {key}',
     'review.memory.rejected': 'Rejected',
+    'review.verify.omitted': '… ({kept} earlier lines omitted, {total} in this block)',
   },
 }

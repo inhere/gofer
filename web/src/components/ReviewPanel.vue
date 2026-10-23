@@ -275,7 +275,7 @@ const verifyOutput = computed(() => {
     return block.join('\n')
   }
   const kept = block.length - MAX_VERIFY_LINES
-  return [`…（前面 ${kept} 行已省略，本段共 ${block.length} 行）`, ...block.slice(kept)].join('\n')
+  return [t('review.verify.omitted', { kept, total: block.length }), ...block.slice(kept)].join('\n')
 })
 
 // 没有 verify 步骤时这一页的参考输出：汇报里「验证」标题下的代码块，来源是 agent 自述。
