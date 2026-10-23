@@ -683,7 +683,7 @@ code { font-family: var(--font-mono); font-size: 12.5px; }
 .audit-at { color: var(--ink-3); font-size: 11.5px; }
 .audit-detail { color: var(--ink-3); font-size: 11.5px; overflow-wrap: anywhere; }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .who-count { margin-left: 0; width: 100%; }
   .audit-row { grid-template-columns: 1fr; gap: 2px; }
   .grant-actions { margin-left: 0; width: 100%; }

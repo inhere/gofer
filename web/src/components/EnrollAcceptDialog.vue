@@ -244,7 +244,7 @@ onUnmounted(() => {
 .ea-btn:hover:not(:disabled) { border-color: var(--accent); }
 .ea-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .ea-btn--primary { color: var(--bg); background: var(--accent); border-color: var(--accent); }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .ea-overlay { padding: 0; align-items: flex-end; }
   .ea-panel { max-width: none; max-height: 92vh; border-radius: var(--r-chip) var(--r-chip) 0 0; }
   .ea-projects { max-height: 30vh; }

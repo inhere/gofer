@@ -17,7 +17,7 @@ describe('Z4 compare view wiring', () => {
     expect(compare).toContain('选这个并合并')
     expect(compare).toContain('并排展开 diff')
     expect(compare).toContain('<UnifiedDiff')
-    expect(compare).toContain('@media (max-width: 720px)')
+    expect(compare).toContain('@media (max-width: 760px)')
     expect(compare).toContain('.col:not(.col--active)')
   })
 

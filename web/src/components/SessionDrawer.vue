@@ -1870,7 +1870,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .last-message-head .link-btn,
 .last-message-released { flex: none; white-space: nowrap; }
 .last-message-head .link-btn { padding: 0; }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .last-message-head { gap: 8px; }
   /* 手机：放行说明缩成标记，完整说明在 title 里 */
   .last-message-released { font-size: 0; }
@@ -2212,7 +2212,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   color: var(--accent);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .drawer-overlay--embedded .composer { padding: 6px 8px 8px; gap: 4px; }
   .drawer-overlay--embedded .composer-input { min-height: 34px; padding: 6px 8px; }
   .drawer-overlay--embedded .composer-foot { gap: 6px; }

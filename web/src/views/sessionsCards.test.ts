@@ -75,6 +75,6 @@ describe('Sessions page cards', () => {
   it('lays out one column on a phone and several on a desktop through the shared grid', () => {
     const card = Object.values(import.meta.glob('../components/InfoCard.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
     expect(card).toContain('repeat(auto-fill, minmax(330px, 1fr))')
-    expect(card).toMatch(/@media \(max-width: 640px\) \{\s*\.icard-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/)
+    expect(card).toMatch(/@media \(max-width: 760px\) \{\s*\.icard-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/)
   })
 })

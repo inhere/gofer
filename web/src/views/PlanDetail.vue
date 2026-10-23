@@ -2024,7 +2024,7 @@ onUnmounted(() => {
 .sup-meta { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
 .sup-link { color: var(--accent); overflow-wrap: anywhere; }
 .sup-state, .sup-none { color: var(--ink-3); }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .usage-row { grid-template-columns: 1fr; gap: 0; }
 }
 /* leader 开关（LEAD-02 C2）：一个紧凑的 checkbox + 状态文字，跟着链操作按钮走。 */
@@ -2739,7 +2739,7 @@ onUnmounted(() => {
     flex-direction: column;
   }
 }
-@media (max-width: 639px) {
+@media (max-width: 760px) {
   .handoff-head {
     flex-direction: column;
     gap: 8px;
@@ -2755,7 +2755,7 @@ onUnmounted(() => {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   /* 一行工具栏：≤780px 的规则把头部改成了纵向，这里改回横向、左对齐，放不下时横滑。 */
   .detail-head {
     flex-direction: row;

@@ -224,7 +224,7 @@ input:focus-visible, select:focus-visible, .sg-btn:focus-visible, .sg-chip:focus
 .sg-btn:hover:not(:disabled) { border-color: var(--accent); }
 .sg-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .sg-btn--primary { color: var(--bg); background: var(--accent); border-color: var(--accent); }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .sg-overlay { padding: 0; align-items: flex-end; }
   .sg-panel { max-width: none; max-height: 92vh; border-radius: var(--r-chip) var(--r-chip) 0 0; }
   .sg-list { max-height: 30vh; }

@@ -1531,7 +1531,7 @@ async function init(): Promise<void> {
   margin: 0 0 8px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .layout {
     grid-template-columns: 1fr;
   }
@@ -1541,7 +1541,7 @@ async function init(): Promise<void> {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .head {
     align-items: center;
     justify-content: space-between;
@@ -1772,7 +1772,7 @@ button.proj-chip:hover {
     min-height: 36px;
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .worker-own {
     order: -1;
   }

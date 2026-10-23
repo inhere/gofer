@@ -79,7 +79,7 @@ describe('Runners page: worker enrollment section', () => {
 
 describe('EnrollAcceptDialog on a phone', () => {
   it('becomes a bottom sheet and keeps the code fields side by side', () => {
-    expect(acceptDialog).toContain('@media (max-width: 640px)')
+    expect(acceptDialog).toContain('@media (max-width: 760px)')
     expect(acceptDialog).toContain('align-items: flex-end')
     expect(acceptDialog).toContain('.ea-code { display: flex;')
   })

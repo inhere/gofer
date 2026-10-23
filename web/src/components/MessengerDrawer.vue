@@ -317,7 +317,7 @@ onUnmounted(() => document.removeEventListener('keydown', onEsc))
 .dfail .dres, .derr { color: var(--fail); }
 .dmsg { color: var(--ink-3); flex-basis: 100%; word-break: break-word; }
 .derr { flex-basis: 100%; word-break: break-word; }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .mdrawer-panel { width: 100vw; }
   .mdl { grid-template-columns: 72px 1fr; }
   /* 手机：会话表改成每行一张小卡片，“给它传话”不再被挤到横向滚动之外 */

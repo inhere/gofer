@@ -232,7 +232,7 @@ defineExpose({ open })
 .compose { display: flex; gap: 6px; padding: 6px 10px 10px; border-top: 1px solid var(--line); flex: none; }
 .compose textarea { flex: 1; min-width: 0; resize: none; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 13px; }
 .send { padding: 0 14px; color: var(--bg); background: var(--accent); border: 0; border-radius: var(--r-chip); cursor: pointer; }
-@media (max-width: 767px) {
+@media (max-width: 760px) {
   /* 手机：全屏底部抽屉；悬浮按钮抬高，免得盖住底部操作 */
   .panel { inset: 0; right: 0; bottom: 0; width: 100vw; height: 100dvh; border-radius: 0; }
   .fab { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }

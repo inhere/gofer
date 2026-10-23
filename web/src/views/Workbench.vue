@@ -683,7 +683,7 @@ function openJobDetail(id: string): void {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown, true)
-  mobileQuery = window.matchMedia('(max-width: 767px)')
+  mobileQuery = window.matchMedia('(max-width: 760px)')
   onMobileQuery(mobileQuery)
   mobileQuery.addEventListener('change', onMobileQuery)
   wideQuery = window.matchMedia('(min-width: 1280px)')

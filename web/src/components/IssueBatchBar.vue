@@ -90,5 +90,5 @@ function confirm(): void {
 .bb-ids,.bb-note{margin:0;color:var(--ink-3);font-size:11px;overflow-wrap:anywhere}
 .bb-field{display:flex;flex-direction:column;gap:5px;color:var(--ink-3);font-size:11px}
 .bb-actions{display:flex;justify-content:flex-end;gap:8px}
-@media (max-width:639px){.batch-bar{gap:6px}.batch-group{flex:1 1 100%}.batch-group .batch-input{flex:1 1 auto}}
+@media (max-width:760px){.batch-bar{gap:6px}.batch-group{flex:1 1 100%}.batch-group .batch-input{flex:1 1 auto}}
 </style>

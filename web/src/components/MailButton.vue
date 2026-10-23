@@ -71,7 +71,7 @@ onUnmounted(() => poller.stop())
   white-space: nowrap;
 }
 /* 与「随手记」的 .qc-label 同断点：窄屏只留图标。 */
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .mail-label {
     display: none;
   }

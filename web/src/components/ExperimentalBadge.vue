@@ -35,7 +35,7 @@ withDefaults(defineProps<{ label?: string; hint?: string }>(), {
 
 /* 手机档（与 utils/mobileLayout.ts 的 MOBILE_MAX_WIDTH = 900 同一断点体系，这里取更窄的
    640 只压内边距）：标题行已经会折行，徽标保持一行、不挤占标题的宽度。 */
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .experimental-badge {
     margin-left: 4px;
     padding: 0 4px;

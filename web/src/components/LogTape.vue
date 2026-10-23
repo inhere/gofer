@@ -74,7 +74,7 @@ function streamPre(stream: 'stdout' | 'stderr'): HTMLElement | null {
 }
 
 // 窄屏（手机）渲染行数上限更小；切 tab / 重置时先从尾部裁到上限，再分批插入。
-const narrowMq = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 640px)') : null
+const narrowMq = typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 760px)') : null
 function domLineLimit(): number {
   return logLineLimit(Boolean(narrowMq?.matches))
 }
@@ -767,7 +767,7 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 767px) {
+@media (max-width: 760px) {
   .pane-head {
     align-items: flex-start;
     flex-direction: column;

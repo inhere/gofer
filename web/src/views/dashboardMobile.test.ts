@@ -18,8 +18,10 @@ describe('Dashboard mobile layout', () => {
   })
 
   it('keeps the system cards in a two-column grid at phone width', () => {
-    expect(system).toContain('@media (max-width: 640px)')
+    expect(system).toContain('@media (max-width: 760px)')
     expect(system).toContain('grid-template-columns: repeat(2, minmax(0, 1fr));')
     expect(system).toContain('.span2')
+    // 中间断点（图标栏区间）用 900，替掉旧的 980。
+    expect(system).toContain('@media (max-width: 900px)')
   })
 })

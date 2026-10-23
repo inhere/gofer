@@ -189,5 +189,5 @@ h4 { margin: 0 0 6px; font-size: 11px; color: var(--ink-3); }
 .btn.primary { color: var(--bg); background: var(--accent); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .link { background: none; border: 0; padding: 0 4px; font-size: 11px; color: var(--accent); cursor: pointer; text-decoration: underline; }
-@media (max-width: 640px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .cols { grid-template-columns: minmax(0, 1fr); } }
 </style>

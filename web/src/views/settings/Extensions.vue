@@ -738,7 +738,7 @@ onMounted(() => {
 .brk {
   word-break: break-all;
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .int-row .input {
     width: 100%;
   }

@@ -1270,7 +1270,7 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .board-head {
     margin-bottom: 8px;
   }

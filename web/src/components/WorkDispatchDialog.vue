@@ -249,7 +249,7 @@ async function submit(): Promise<void> {
 .dd-submit, .dd-cancel { padding: 6px 16px; font-size: 12px; color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: var(--r-chip); cursor: pointer; text-decoration: none; }
 .dd-submit { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .dd-submit:disabled, .dd-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .dd-mask { align-items: flex-end; padding: 0; }
   .dd { width: 100%; border-radius: var(--r-chip) var(--r-chip) 0 0; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
   .dd-act { padding: 10px 8px; font-size: 13px; }

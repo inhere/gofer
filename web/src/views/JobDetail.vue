@@ -3250,7 +3250,7 @@ onUnmounted(() => {
 }
 .title-action:hover:not(:disabled) { border-color: var(--accent); }
 .title-action:disabled { opacity: .55; cursor: wait; }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .job-header { align-items: flex-start; flex-wrap: wrap; }
   .job-name,
   .job-name--id {
@@ -3458,7 +3458,7 @@ onUnmounted(() => {
   word-break: break-word;
   color: var(--ink-3);
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .session-composer-row {
     align-items: stretch;
     flex-direction: column;
@@ -3491,7 +3491,7 @@ onUnmounted(() => {
 .meta-v.bad {
   color: var(--fail);
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .meta {
     grid-template-columns: minmax(0, 1fr);
   }

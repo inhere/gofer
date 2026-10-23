@@ -1186,7 +1186,7 @@ onMounted(() => {
   cursor: default;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .card {
     padding: 14px;
   }

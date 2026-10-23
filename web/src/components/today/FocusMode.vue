@@ -292,7 +292,7 @@ kbd {
 .fm-swipe {
   display: none;
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .fm-keys {
     display: none;
   }

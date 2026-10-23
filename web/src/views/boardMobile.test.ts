@@ -4,7 +4,7 @@ const source = Object.values(import.meta.glob('./Board.vue', { eager: true, quer
 
 describe('Board mobile layout', () => {
   it('keeps job labels inline with the title metadata', () => {
-    expect(source).toContain('@media (max-width: 640px)')
+    expect(source).toContain('@media (max-width: 760px)')
     expect(source).toContain('.col-job .job-tags')
     expect(source).toContain("content: ' · '")
   })

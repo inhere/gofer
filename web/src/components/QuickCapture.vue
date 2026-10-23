@@ -155,7 +155,7 @@ onBeforeUnmount(() => clearTimeout(doneTimer))
 }
 .qc-toast-link { color: var(--accent); text-decoration: underline; }
 .qc-toast-x { background: none; border: 0; color: var(--ink-3); cursor: pointer; font-size: 14px; }
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .qc-label { display: none; }
   .qc-btn { padding: 4px 10px; font-size: 14px; }
   .qc-panel { top: auto; right: 0; bottom: 0; left: 0; width: auto; border-radius: var(--r-chip) var(--r-chip) 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }

@@ -95,7 +95,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 .er-btn:hover:not(:disabled) { border-color: var(--accent); }
 .er-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .er-btn--bad { color: var(--fail); border-color: var(--fail); }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .er-overlay { padding: 0; align-items: flex-end; }
   .er-panel { max-width: none; max-height: 92vh; border-radius: var(--r-chip) var(--r-chip) 0 0; }
 }

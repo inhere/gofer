@@ -336,8 +336,8 @@ onMounted(async () => {
 .submit:disabled { opacity: .45; cursor: default; }
 .error { color: var(--fail); margin: 0; font-size: 11px; }
 .hint { color: var(--muted, var(--ink)); margin: 0; font-size: 11px; }
-@media (max-width: 620px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
-@media (max-width: 767px) {
+@media (max-width: 760px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
+@media (max-width: 760px) {
   /* 手机：会话打开时由工作台顶栏提供 ＋，表单从底部弹出 */
   .mobile-launch { display: none; }
   .composer-backdrop { align-items: flex-end; padding: 8px; }

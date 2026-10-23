@@ -123,7 +123,7 @@ select:focus-visible, .rg-btn:focus-visible, .rg-x:focus-visible { outline: 2px 
 .rg-btn:hover:not(:disabled) { border-color: var(--accent); }
 .rg-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .rg-btn--primary { color: var(--bg); background: var(--accent); border-color: var(--accent); }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .rg-overlay { padding: 0; align-items: flex-end; }
   .rg-panel { max-width: none; max-height: 92vh; border-radius: var(--r-chip) var(--r-chip) 0 0; }
   .rg-field { flex: 1 1 100%; }

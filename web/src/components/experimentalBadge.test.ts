@@ -32,7 +32,7 @@ describe('ExperimentalBadge', () => {
     expect(css).toContain('var(--run)')
     expect(css).toContain('var(--r-chip)')
     expect(css).toContain('white-space: nowrap')
-    expect(css).toContain('@media (max-width: 640px)')
+    expect(css).toContain('@media (max-width: 760px)')
     // 不写死色值（浅色主题由 tokens.css 覆盖同名变量）。
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     expect(css).not.toContain('rgb(')

@@ -76,7 +76,7 @@ const emit = defineEmits<{
   gap: 10px;
   align-items: start;
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .icard-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -221,7 +221,7 @@ const emit = defineEmits<{
 .icard-btn--primary {
   color: var(--accent);
 }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .icard-btn {
     min-height: 34px;
     padding: 4px 12px;

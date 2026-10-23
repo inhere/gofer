@@ -283,7 +283,7 @@ summary.ap-k {
 }
 
 /* 手机：信息单列；按钮条贴在视口底部，按钮等分且触控高度 ≥44px。 */
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .ap-facts {
     grid-template-columns: minmax(0, 1fr);
     gap: 0;

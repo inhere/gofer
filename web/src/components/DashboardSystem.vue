@@ -439,26 +439,20 @@ onUnmounted(() => {
   color: var(--ink);
 }
 
-@media (max-width: 980px) {
+/* 中间断点（761–1099，图标栏区间）：卡片 4 列收成 2 列。 */
+@media (max-width: 900px) {
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 700px) {
+/* 手机（≤760，与其它页同一个断点）：头部竖排，卡片仍两列（窄屏一屏看得到更多卡），
+   service 卡给右上角按钮留位。原 700 的单列 + 640 的两列两层已合并到这里。 */
+@media (max-width: 760px) {
   .head {
     align-items: flex-start;
     flex-direction: column;
   }
-  .grid {
-    grid-template-columns: 1fr;
-  }
-  .span2 {
-    grid-column: auto;
-  }
-}
-
-@media (max-width: 640px) {
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;

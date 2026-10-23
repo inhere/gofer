@@ -1095,7 +1095,7 @@ onUnmounted(() => {
   margin-left: 6px; padding: 0 5px; border: 1px dashed var(--line); border-radius: 999px;
   font-size: 10px; font-style: normal;
 }
-@media (max-width: 640px) { .find-input { font-size: 16px; } }
+@media (max-width: 760px) { .find-input { font-size: 16px; } }
 .link-pick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .link-pick select { max-width: 100%; min-width: 0; }
 .board {

@@ -4,9 +4,9 @@ const source = Object.values(import.meta.glob('./InteractionToast.vue', { eager:
 
 describe('interaction toast mobile placement', () => {
   it('moves the toast below the mobile top bar and keeps it dismissible', () => {
-    expect(source).toContain('@media (max-width: 640px)')
-    expect(source).toMatch(/@media \(max-width: 640px\) \{[\s\S]*\.toast[\s\S]*top:/)
-    expect(source).toMatch(/@media \(max-width: 640px\) \{[\s\S]*\.toast[\s\S]*bottom:\s*auto/)
+    expect(source).toContain('@media (max-width: 760px)')
+    expect(source).toMatch(/@media \(max-width: 760px\) \{[\s\S]*\.toast[\s\S]*top:/)
+    expect(source).toMatch(/@media \(max-width: 760px\) \{[\s\S]*\.toast[\s\S]*bottom:\s*auto/)
     expect(source).toContain('aria-label="关闭提示"')
   })
 })

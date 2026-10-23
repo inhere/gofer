@@ -128,7 +128,7 @@ function goto(): void {
   color: var(--ink);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .toast {
     top: 56px;
     right: 12px;

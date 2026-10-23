@@ -325,7 +325,7 @@ defineExpose({ refresh, focusFile })
 .review-actions .review-send { border-color: var(--accent); background: var(--accent); color: var(--bg); font-weight: 700; }
 .review-actions button:disabled, .changes-files-head button:disabled { opacity: .4; }
 .diff-scroll { flex: 1; min-height: 0; overflow: auto; padding: 10px; }
-@media (max-width: 767px) {
+@media (max-width: 760px) {
   .changes-view { grid-template-columns: 1fr; grid-template-rows: minmax(110px, 28%) minmax(0, 1fr); }
   .changes-files { border-right: 0; border-bottom: 1px solid var(--line); }
   .review-toolbar { grid-template-columns: 1fr; }

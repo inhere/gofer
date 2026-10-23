@@ -647,7 +647,7 @@ function isActive(r: Runner): boolean {
   word-break: break-word;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .node {
     width: 100px;
   }

@@ -462,7 +462,7 @@ const hint = computed(() => {
 }
 
 /* 手机：一次一张纵向卡片，顶部 tab / 底部 ‹ › 切换 */
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .cmp-tabs {
     display: flex;
     gap: 6px;

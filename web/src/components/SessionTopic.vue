@@ -166,7 +166,7 @@ async function save(): Promise<void> {
 .stopic-actions .stopic-btn--danger { margin-left: auto; }
 .stopic-btn--danger:hover:not(:disabled) { border-color: var(--fail); color: var(--fail); }
 .stopic-btn--primary { border-color: var(--accent); color: var(--accent); }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .stopic-edit { padding: 4px 12px; font-size: 12px; }
   .stopic-field input, .stopic-field textarea { font-size: 16px; }
 }
