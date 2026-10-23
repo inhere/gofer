@@ -121,7 +121,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="today">
+  <div class="today page">
     <section class="today-main">
       <p v-if="todayError" class="today-err mono">{{ todayError }}</p>
 
@@ -212,7 +212,6 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
   gap: var(--s5);
-  max-width: 1240px;
   min-width: 0;
 }
 .today-main {

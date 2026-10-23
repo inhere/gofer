@@ -588,7 +588,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="newwf">
+  <div class="newwf page">
     <div class="newwf-head">
       <BackLink list="workflows" to="/workflows" :label="t('workflows.detail.back')" />
       <h1 class="title mono">{{ t('workflows.new.title') }}<ExperimentalBadge /></h1>
@@ -810,10 +810,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.newwf {
-  max-width: 900px;
-  margin: 0 auto;
-}
 .newwf-head {
   display: flex;
   align-items: baseline;

@@ -1142,7 +1142,7 @@ watch(interactive, (on) => {
 </script>
 
 <template>
-  <div class="newjob" data-test="newjob-page">
+  <div class="newjob page" data-test="newjob-page">
     <header class="newjob-head">
       <BackLink list="jobs" to="/jobs" :label="t('newjob.back')" />
       <h1 class="title">{{ pageTitle }}</h1>
@@ -1703,8 +1703,6 @@ watch(interactive, (on) => {
 <style scoped>
 /* 新建任务：常用字段两栏、高级选项折叠（设计稿 §7.1）。手机单栏，提交按钮吸底。 */
 .newjob {
-  max-width: 1080px;
-  margin: 0 auto;
   padding-bottom: var(--s6);
 }
 .newjob-head {

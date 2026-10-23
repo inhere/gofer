@@ -818,7 +818,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="mail-page">
+  <section class="mail-page page page--full">
     <div class="split" :class="{ 'split--detail': mobileDetail }">
       <!-- 左栏：标题、筛选 chip、项目 chip、写信按钮 + 对话列表 + 常驻 agent。 -->
       <aside class="mail-list" :aria-label="t('mail.list.label')">

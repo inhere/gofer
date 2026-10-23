@@ -477,7 +477,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="newjob">
+  <div class="newjob page">
     <div class="newjob-head">
       <BackLink list="schedules" to="/schedules" :label="t('schedules.title')" />
       <h1 class="title mono">{{ t('schedules.new.title') }}</h1>
@@ -853,10 +853,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.newjob {
-  max-width: 760px;
-  margin: 0 auto;
-}
 .newjob-head {
   display: flex;
   align-items: baseline;

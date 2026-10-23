@@ -1857,3 +1857,31 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 - `views/memoryPage.test.ts`：`/memory` 路由与 `name`；`/issues?tab=memories…` 的 `beforeEnter` 重定向与普通 `/issues` 放行；页面骨架（页头、三档 chip、项目 chip、同步按钮、全局同步状态、类型 chip、关键字）；zh / en 两种语言；Issues 页保留「记忆」页签但不再是记忆面板（且源码里不再 import `MemoryList`）；`Tabs` 的链接式页签走 `router.push`。
 - `utils/shell.test.ts`：协作组新增 `nav.memory`（排在 issues 后、图标 `memory`）、手机「更多」含 `/memory`、命令面板按「记忆」与 `p:<项目>` 都能命中。
 - 各页的公共守卫（`i18nKeyUsage` / `noHardcodedCjk` / `icon.test` 的导航图标与双语文案）覆盖新页面与导航项。
+
+## 实施记录 P6-4（内容区宽度统一，2026-10-23，issue gofer-hez1）
+
+**问题**：右侧内容区宽度每个页面各写一个上限，有的居中有的不居中（Issues / 待验收 1240、任务详情 1200、Agents 1160、统计 1120、任务 / 计划 / 项目 / 工作流 1100、新建任务 1080、计划详情 980 / 看板 1400、新建工作流与运行节点 900、新建定时 760、会话 1280、设置 1480）。同事反馈「不同页面用到的宽度不一致」，用户决定统一到 Issues 页这种比较满的宽度。
+
+**改法**
+
+- `styles/tokens.css`：新增页面宽度 token `--page-max: 1440px`（按 Issues 这种「比较满」的页面定）与统一页边距 `--page-pad-x` / `--page-pad-y`（桌面 28 / 22，与预览稿 `.page` 一致；`@media (max-width: 760px)` 收窄到 14 / 16）。
+- `ui/page.css`（`main.ts` 引入）：全站唯一的页面容器，二选一的方案里取「全局 `.page` 类」——根元素本来就多是 `div` / `main` / `section`，挂类不改变 DOM 结构与语义标签：
+  - `.page`：`width: 100%`、`max-width: var(--page-max)`、`margin-inline: auto`、`padding: var(--page-pad-y) var(--page-pad-x)`；宽度不足时铺满。
+  - `.page--full`：工作台与信箱的满宽变体，`max-width: none; padding: 0`（多栏布局自己贴边）。
+- `ui/AppShell.vue`：`.content` 不再自带内边距（原来 16px，手机 12px），页边距统一由 `.page` 提供，避免两层叠加。
+- 22 个路由页面根元素挂 `page`：Today / Dashboard / Board(/jobs) / ReviewQueue / Sessions / Work / NewJob / JobsView(/jobs/:id) / Workflows / NewWorkflow / WorkflowDetail / Plans / Issues / PlanDetail / Schedules / NewSchedule / Projects / Agents / Runners / SettingsLayout 用 `.page`，工作台与信箱用 `page page--full`；Issues / Agents / Runners / Schedules / Workflows / WorkflowDetail 原本就写着 `.page`，删掉各自的 `max-width` + `margin: 0 auto` 规则。
+- 页面内部的重复上限一并去掉：JobDetail 1200（宿主 JobsView 已是 `.page`）、Skills 1160（设置子页，容器在 SettingsLayout）、DashboardSystem 1160、PlanDetail 的 980 / 1400 两档、Board / Plans / Sessions / ReviewQueue / Projects / Work 等根元素的上限。Board 在任务详情里并排时是内嵌列表，只有 `!embedded` 时才挂 `page`（`:class="{ page: !embedded }"`）。
+- 例外（与设计稿一致）：登录页 `/access` 是壳外的 420px 窄卡片；表单里的单个输入控件自己的 `max-width`（如 Issues 的 640px）不动；组件内部的局部 max-width（下拉、弹层、气泡、信箱的消息行长）不动。
+
+**测试**
+
+- 新增 `views/pageWidth.test.ts`：从 `router.routes.ts` 反查路由页面清单，每个页面必须在映射里（新页面忘了挂容器会红）；根元素带 `page`（工作台 / 信箱必须带 `page--full`，其它页面不许用）；根元素自己的样式规则里不再出现页面级 `max-width: Npx`；外壳 `.content` 不带内边距。
+- 新增 `ui/pageContainer.test.ts`：tokens 的值、`.page` 的上限 / 居中 / 页边距、`.page--full` 的满宽与零边距、`main.ts` 引入 `ui/page.css`。
+- `views/settings/settingsLayoutWidth.test.ts` 改为断言设置页走 `.page`、不再自己写 1480px（内容列 fluid 与两个断点不变）。
+
+**验证**
+
+- `npx vue-tsc --noEmit` 退出码 0。
+- `npx vitest run` → `Test Files 234 passed (234)` / `Tests 1570 passed (1570)`。
+- `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` → `✓ built in 5.51s`。
+- 实机核对（dist 构建 + 本机 Chrome CDP 量 `.page` 的左右边界；截图在 `tmp/`，不入库）：1440 下所有非满宽页面都是 `[236, 1430]`（内容区 1194px），1920 下都是 `[353, 1793]`（内容区 1440px，居中）；工作台 / 信箱 1440 `[236, 1430]`、1920 `[236, 1910]` 铺满。26 个路由 × 2 种宽度逐页打过，两种宽度都没有横向滚动（`scrollWidth` 1430 / 1910）；zh / en × 浅 / 深各看过 Issues、设置、信箱、今天、任务、工作台，左右边界一致、没有溢出。手机（390 / 760，侧栏收起）下页面容器铺满内容区（`[0, 380]` / `[0, 750]`），同样没有横向滚动。

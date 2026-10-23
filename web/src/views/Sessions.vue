@@ -660,7 +660,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="board">
+  <div class="board page">
     <header class="board-head">
       <div class="head-main">
         <h1 class="title">{{ t('sessions.title') }}</h1>
@@ -1108,8 +1108,7 @@ onUnmounted(() => {
 .link-pick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .link-pick select { max-width: 100%; min-width: 0; }
 .board {
-  max-width: 1280px;
-  margin: 0 auto;
+  min-width: 0;
 }
 .session-create {
   margin: 0 0 20px;

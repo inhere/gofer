@@ -332,7 +332,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="work-page">
+  <div class="work-page page">
     <header class="page-head">
       <div class="head-text">
         <h1 class="page-title">{{ t('work.h.title') }}</h1>
@@ -542,8 +542,6 @@ onUnmounted(() => {
 
 <style scoped>
 .work-page {
-  max-width: 1480px;
-  margin: 0 auto;
   /* 右下角「问管家」浮层按钮（fixed，约 40px 高 + 16px 底距）不盖住最后一张卡的操作按钮。 */
   padding-bottom: 64px;
 }

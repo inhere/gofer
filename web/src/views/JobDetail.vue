@@ -3103,8 +3103,7 @@ onUnmounted(() => {
 
 <style scoped>
 .detail {
-  max-width: 1200px;
-  margin: 0 auto;
+  min-width: 0;
 }
 /* 概览里的「去验收」横幅（§7.1）：黄色只代表「需要人」（§5）。 */
 .review-banner {

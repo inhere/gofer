@@ -1,7 +1,7 @@
 // P6-4（issue gofer-hez1 第 4 项）：设置页二级导航右侧的内容区原先被 grid 钉死在 720px，
-// 1440 / 1920 宽度下右边一大片空白。现在内容列跟随可用宽度（minmax(0, 1fr)），整页限一个
-// 合理上限（1480px，与 /work 同口径）；手机布局不变。按 settingsLayoutMobile.test.ts 的
-// ?raw 口径断言样式源码。
+// 1440 / 1920 宽度下右边一大片空白。现在内容列跟随可用宽度（minmax(0, 1fr)），整页宽度
+// 交给全站统一的页面容器 .page（web/src/ui/page.css，上限 1440px），不再单独写 1480px；
+// 手机布局不变。按 settingsLayoutMobile.test.ts 的 ?raw 口径断言样式源码。
 import { describe, expect, it } from 'vitest'
 
 const src = Object.values(
@@ -14,8 +14,10 @@ describe('设置页内容区宽度', () => {
     expect(src).not.toContain('minmax(0, 720px)')
   })
 
-  it('整页有一个合理上限，宽屏不无限拉长', () => {
-    expect(src).toMatch(/\.settings \{[\s\S]*?max-width: 1480px;/)
+  it('整页走统一页面容器，不再自己写宽度上限', () => {
+    // 根元素挂 .page（宽度上限、居中、页边距都在 tokens + ui/page.css 里）
+    expect(src).toMatch(/<div class="settings page">/)
+    expect(src).not.toMatch(/max-width: 1480px/)
   })
 
   it('平板与手机断点保持不变', () => {
