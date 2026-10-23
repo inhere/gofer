@@ -34,7 +34,7 @@ describe('Sessions page cards', () => {
     expect(detailsAt).toBeGreaterThan(actionsAt)
     const head = agent.slice(0, detailsAt)
     // key info: title, state badge, agent / project / workspace / last activity, work item, main actions
-    for (const keep of ['sessionDisplayName(s)', 'agentStateLabel(s.state)', '{{ s.agent }}', 's.project_key', 'workspaceLabel(s.cwd)', 'fmtAgo(s.last_seen_at, nowSec)', 'data-test="work-link"', 'data-test="row-open"', 'data-test="row-wake"']) {
+    for (const keep of ['sessionDisplayName(s)', 'stateText(s.state)', '{{ s.agent }}', 's.project_key', 'workspaceLabel(s.cwd)', 'fmtAgo(s.last_seen_at, nowSec)', 'data-test="work-link"', 'data-test="row-open"', 'data-test="row-wake"']) {
       expect(head).toContain(keep)
     }
     // the noisy columns of the old table only appear in the expanded part
@@ -61,15 +61,15 @@ describe('Sessions page cards', () => {
     expect(source).toContain('@click="load()"')
     expect(source).toContain('@open="openDrawer(s.session_id)"')
     expect(source).toContain('<SessionDrawer')
-    expect(source).toContain('已接管 →')
+    expect(source).toContain("t('sessions.card.handedOff')")
   })
 
   it('shows the ACP and terminal cards with their own key info and actions', () => {
-    expect(source).toContain('查看过程')
-    expect(source).toContain('打开终端')
-    expect(source).toContain('下载录制')
+    expect(source).toContain("t('sessions.acp.openJob')")
+    expect(source).toContain("t('sessions.card.openTerminal')")
+    expect(source).toContain("t('sessions.card.downloadRecording')")
     expect(source).toContain('onDownloadRecording(s)')
-    expect(source).toContain('第 {{ item.turn_no ?? 0 }} 轮')
+    expect(source).toContain("t('sessions.card.turns')")
   })
 
   it('lays out one column on a phone and several on a desktop through the shared grid', () => {

@@ -1,12 +1,4 @@
 <script setup lang="ts">
-import { runnerLabel } from '../utils/runnerDisplay'
-import {
-  CEILING_LABEL,
-  ceilingAllowsAgent,
-  ceilingAllowsProject,
-  ceilingAllowsRunner,
-  ceilingDeniedText,
-} from '../utils/ceiling'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import InfoCard from '../components/InfoCard.vue'
 import { toggleExpanded } from '../utils/cardExpand'
@@ -24,151 +16,160 @@ import {
   attachWorkSession,
   resumeSession,
   setSessionRelay,
-  submitJob,
 } from '../api/client'
-import { getMetaCached } from '../api/metaCache'
 import { fmtAgo, fmtDateTime, fmtDuration } from '../api/time'
-import type { AgentSession, AgentSessionRelayMode, Job, MetaAgent, MetaProject, MetaResp, MetaRunner, PtySession, SubmitJobReq, WorkItem } from '../api/types'
+import type { AgentSession, AgentSessionRelayMode, Job, PtySession, WorkItem } from '../api/types'
 import SessionTopic from '../components/SessionTopic.vue'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import SessionGrantDialog from '../components/SessionGrantDialog.vue'
 import { refreshSessionGrants, useSessionGrants } from '../store/sessionGrants'
 import { useWhoami } from '../store/whoami'
 import { badgeTitle, canGrantSession, sessionGrantBadge } from '../utils/sessionGrant'
-import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
+import { runnerLabel } from '../utils/runnerDisplay'
 import { copyText, peerMessagingLabel, peerNameLabel, sessionDisplayName as formatSessionDisplayName, shortAgentSessionId } from '../utils/sessionMessaging'
-import { resumeConfirmText, resumeFailText, resumeLabel, resumeTitle } from '../utils/sessionResume'
+import { resumeConfirmText, resumeFailText, resumeTitle } from '../utils/sessionResume'
 import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
-import { buildFindParams, findSummary, hitReasons, MAYBE_OFFLINE_LABEL, topicDisplay } from '../utils/sessionTopic'
-import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils/runnerChoice'
-import { PAGE } from '../utils/uiText'
+import { buildFindParams, findSummary, hitReasons, topicDisplay } from '../utils/sessionTopic'
+import { t } from '../i18n'
+import Tabs from '../ui/Tabs.vue'
+import ProjectFilter from '../ui/ProjectFilter.vue'
+import FilterChips from '../ui/FilterChips.vue'
+import NewSessionSheet from '../ui/NewSessionSheet.vue'
+import { useProjectFilter } from '../ui/projectFilter'
+import type { FilterChipItem } from '../ui/filterChips'
+import { tabFromQuery } from '../ui/tabs'
 
 const DEFAULT_LIMIT = 50
 // 手机上新建表单默认收起：展开时它占满第一屏，会话列表要往下滑才看得到。
 const relayHelpOpen = ref(false)
-const createOpen = ref(typeof window === 'undefined' || !window.matchMedia?.('(max-width: 640px)').matches)
-// Agent 会话列表轮询间隔（页面可见时）
+// 新建会话统一走 NewSessionSheet（设计稿 §8）；类型由入口决定。
+const sheetOpen = ref(false)
+const sheetType = ref<'pty' | 'acp'>('pty')
 
 const route = useRoute()
 const router = useRouter()
 
-const sessionMeta = ref<MetaResp>({ projects: [], agents: [], runners: [], workers: [] })
-const sessionType = ref<'pty' | 'acp'>('pty')
-const sessionProject = ref('')
-const sessionAgent = ref('')
-const sessionRunner = ref('local')
-const sessionTitle = ref('')
-const sessionPrompt = ref('')
-const sessionModel = ref('')
-// 运行目录与目录锁（gofer-jkd2）：会话落在项目根会把整个项目根锁住，别的子目录 job 只能排队。
-const sessionCwd = ref('.')
-const sessionLockPaths = ref('')
-const sessionCreating = ref(false)
-const sessionCreateError = ref('')
+// 项目筛选（设计稿 §6.4）：URL ?project= 是唯一真源，三组会话都按它收窄。
+const { project, setProject, options: projectOptions, loadOptions: loadProjectOptions } = useProjectFilter('/sessions')
 
-const selectedSessionProject = computed<MetaProject | undefined>(() =>
-  sessionMeta.value.projects.find((p) => p.key === sessionProject.value),
-)
-
-// 调用方上限（ceiling）：范围外的 project 不列出（下拉没有灰显原因的位置，选到就必被拒）。
-const sessionProjects = computed<MetaProject[]>(() =>
-  sessionMeta.value.projects.filter((p) => ceilingAllowsProject(ceil.value, p.key)),
-)
-const sessionProjectCeilingHidden = computed(
-  () => sessionMeta.value.projects.length - sessionProjects.value.length,
-)
-
-const sessionAgents = computed<MetaAgent[]>(() => {
-  const allowed = new Set(selectedSessionProject.value?.allowed_agents ?? [])
-  return sessionMeta.value.agents
-    .filter((a) => allowed.size === 0 || allowed.has(a.key))
-    .filter((a) => sessionType.value === 'acp' ? a.type === 'acp-agent' : !!a.interactive)
-    // 调用方上限：范围外的 agent 不出现。
-    .filter((a) => ceilingAllowsAgent(ceil.value, a.key))
-    .sort((a, b) => a.key.localeCompare(b.key))
-})
-const sessionRunners = computed<MetaRunner[]>(() => {
-  const allowed = new Set(selectedSessionProject.value?.allowed_runners ?? [])
-  return sessionMeta.value.runners
-    .filter((r) => r.type === 'local' || allowed.size === 0 || allowed.has(r.name))
-    // ACP 持续会话：local 与协议 >= v13 的 worker 可用，其它 runner 不放出
-    .filter((r) => sessionType.value !== 'acp' || r.type === 'local' || r.type === 'worker')
-})
-// 灰显原因：project 级阻塞（worker 不具备该 project 等）+ ACP 会话的 worker 协议门槛
-// + 调用方上限（范围外的 runner 同样灰显 + 写原因）。
-const sessionRunnerBlocks = computed(() => {
-  const base = computeRunnerBlocks(selectedSessionProject.value, sessionRunners.value, sessionMeta.value.workers)
-  for (const runner of sessionRunners.value) {
-    if (!ceilingAllowsRunner(ceil.value, runner.name)) {
-      base[runner.name] = { short: CEILING_LABEL, full: ceilingDeniedText('runner', runner.name) }
-    }
-  }
-  return effectiveRunnerBlocks(
-    sessionRunners.value,
-    base,
-    sessionMeta.value.workers,
-    sessionType.value === 'acp',
-  )
-})
-
-function chooseSessionDefaults(): void {
-  if (!sessionProject.value) sessionProject.value = sessionProjects.value[0]?.key ?? ''
-  if (!sessionAgent.value || !sessionAgents.value.some((a) => a.key === sessionAgent.value)) {
-    sessionAgent.value = sessionAgents.value[0]?.key ?? ''
-  }
-  sessionRunner.value =
-    pickRunner(sessionRunner.value, selectedSessionProject.value, sessionRunners.value, sessionRunnerBlocks.value) ||
-    sessionRunners.value[0]?.name ||
-    'local'
+function openSheet(type: 'pty' | 'acp'): void {
+  sheetType.value = type
+  sheetOpen.value = true
 }
 
-const fullSessionConfigURL = computed(() => {
-  const q = new URLSearchParams({ mode: 'session' })
-  if (sessionProject.value) q.set('project', sessionProject.value)
-  if (sessionAgent.value) q.set('agent', sessionAgent.value)
-  if (sessionRunner.value) q.set('runner', sessionRunner.value)
-  if (sessionTitle.value.trim()) q.set('title', sessionTitle.value.trim())
-  if (sessionPrompt.value.trim()) q.set('prompt', sessionPrompt.value.trim())
-  if (sessionModel.value.trim()) q.set('model', sessionModel.value.trim())
-  if (sessionCwd.value.trim() && sessionCwd.value.trim() !== '.') q.set('cwd', sessionCwd.value.trim())
-  if (sessionLockPaths.value.trim()) q.set('lock', sessionLockPaths.value.trim())
-  return `/new?${q.toString()}`
-})
-
-async function createSession(): Promise<void> {
-  if (sessionCreating.value || !sessionProject.value || !sessionAgent.value) return
-  sessionCreating.value = true
-  sessionCreateError.value = ''
-  const req: SubmitJobReq = {
-    project_key: sessionProject.value,
-    agent: sessionAgent.value,
-    runner: sessionRunner.value,
-    title: sessionTitle.value.trim() || undefined,
-    prompt: sessionPrompt.value.trim() || undefined,
-    model: sessionModel.value.trim() || undefined,
-    cwd: sessionCwd.value.trim() || '.',
-    session: sessionType.value === 'acp',
-    interactive: sessionType.value === 'pty',
-  }
-  const lockList = parseLockPaths(sessionLockPaths.value)
-  if (lockList.length > 0) req.lock_paths = lockList
-  try {
-    const result = await submitJob(req)
-    if (sessionType.value === 'pty') {
-      await router.push(`/jobs/${encodeURIComponent(result.job.id)}?attach=1`)
-    } else if (result.job.session_id) {
-      await router.push({ path: '/workbench', query: { thread: `s:${result.job.session_id}` } })
-    } else {
-      // ACP 会话正常会在提交响应里带 session_id；保留 job 查询作为异步建会话窗口，
-      // 仍然停留在对话工作台而不是跳到 job 详情页。
-      await router.push({ path: '/workbench', query: { job: result.job.id } })
-    }
-  } catch (e) {
-    sessionCreateError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    sessionCreating.value = false
+async function onSessionCreated(payload: { jobID: string; sessionID: string; type: 'pty' | 'acp' }): Promise<void> {
+  if (payload.type === 'pty') {
+    await router.push(`/jobs/${encodeURIComponent(payload.jobID)}?attach=1`)
+  } else if (payload.sessionID) {
+    await router.push({ path: '/workbench', query: { thread: `s:${payload.sessionID}` } })
+  } else {
+    // ACP 会话正常会在提交响应里带 session_id；保留 job 查询作为异步建会话窗口，
+    // 仍然停留在对话工作台而不是跳到 job 详情页。
+    await router.push({ path: '/workbench', query: { job: payload.jobID } })
   }
 }
+
+// ---------------- 页签、状态筛选与项目筛选（设计稿 §7.1） ----------------
+type SessionTab = 'agent' | 'acp' | 'pty'
+const tabItems = computed(() => [
+  { value: 'agent', label: t('sessions.tab.agent'), count: agentSessions.value.length, badge: waitingCount.value > 0 },
+  { value: 'acp', label: t('sessions.tab.acp'), count: acpSessions.value.length },
+  { value: 'pty', label: t('sessions.tab.pty'), count: sessions.value.length },
+])
+const activeTab = computed<SessionTab>(() => {
+  const value = tabFromQuery(route.query, tabItems.value) as SessionTab
+  return value || 'agent'
+})
+
+// 状态 chip（一个页签一套口径）：值就是接口里的状态值，计数只算当前项目下的行。
+const statusFilter = ref('')
+function countStates(rows: string[]): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const state of rows) counts[state] = (counts[state] ?? 0) + 1
+  return counts
+}
+const statusChips = computed<FilterChipItem[]>(() => {
+  const all = { value: '', label: t('sessions.status.all') }
+  if (activeTab.value === 'agent') {
+    const rows = agentSessions.value.filter((s) => !project.value || s.project_key === project.value)
+    const counts = countStates(rows.map((s) => s.state))
+    return [
+      { ...all, count: rows.length },
+      { value: 'waiting_reply', label: t('sessions.status.waiting'), count: counts.waiting_reply },
+      { value: 'running', label: t('sessions.status.running'), count: counts.running },
+      { value: 'idle', label: t('sessions.status.idle'), count: counts.idle },
+      { value: 'offline', label: t('sessions.status.offline'), count: counts.offline },
+      { value: 'ended', label: t('sessions.status.ended'), count: counts.ended },
+    ].filter((chip) => chip.value === '' || (chip.count ?? 0) > 0)
+  }
+  if (activeTab.value === 'acp') {
+    const rows = acpSessions.value.filter((j) => !project.value || j.project_key === project.value)
+    const counts = countStates(rows.map((j) => j.status))
+    const ended = ['done', 'failed', 'cancelled', 'timeout', 'rejected']
+    return [
+      { ...all, count: rows.length },
+      { value: 'awaiting_input', label: t('sessions.status.awaitingInput'), count: counts.awaiting_input },
+      { value: 'running', label: t('sessions.status.running'), count: counts.running },
+      { value: 'ended', label: t('sessions.status.ended'), count: ended.reduce((n, s) => n + (counts[s] ?? 0), 0) },
+    ].filter((chip) => chip.value === '' || (chip.count ?? 0) > 0)
+  }
+  const counts = countStates(sessions.value.map((s) => (s.state === 'open' || s.state === 'attached' ? 'active' : 'ended')))
+  return [
+    { ...all, count: sessions.value.length },
+    { value: 'active', label: t('sessions.status.active'), count: counts.active },
+    { value: 'ended', label: t('sessions.status.ended'), count: counts.ended },
+  ].filter((chip) => chip.value === '' || (chip.count ?? 0) > 0)
+})
+
+function matchesStatus(state: string): boolean {
+  if (!statusFilter.value) return true
+  if (statusFilter.value === 'ended') return ['done', 'failed', 'cancelled', 'timeout', 'rejected', 'closed'].includes(state)
+  if (statusFilter.value === 'active') return state === 'open' || state === 'attached'
+  return state === statusFilter.value
+}
+
+// 换页签时清掉上一个页签的状态筛选（两套状态值不通用）。
+// 注意：这个 watch 会立即求值一次 activeTab → tabItems → 三个列表 ref，所以必须放在
+// agentSessions / acpSessions / sessions 声明之后（放在这里会触发 TDZ，页面白屏）。
+
+// 组内按状态排（需要人的在前：等回复 > 运行 > 空闲 > 离线 > 已结束），读起来就是按状态分组。
+const AGENT_STATE_ORDER: Record<string, number> = {
+  waiting_reply: 0,
+  running: 1,
+  idle: 2,
+  offline: 3,
+  ended: 4,
+}
+const ACP_STATE_ORDER: Record<string, number> = {
+  awaiting_input: 0,
+  pending_interaction: 0,
+  running: 1,
+  queued: 2,
+}
+function stateRank(order: Record<string, number>, state: string): number {
+  return order[state] ?? 3
+}
+
+const filteredAgent = computed(() =>
+  agentSessions.value
+    .filter((s) => !project.value || s.project_key === project.value)
+    .filter((s) => matchesStatus(s.state))
+    .slice()
+    .sort((a, b) => stateRank(AGENT_STATE_ORDER, a.state) - stateRank(AGENT_STATE_ORDER, b.state)),
+)
+const filteredAcp = computed(() =>
+  acpSessions.value
+    .filter((j) => !project.value || j.project_key === project.value)
+    .filter((j) => matchesStatus(j.status))
+    .slice()
+    .sort((a, b) => stateRank(ACP_STATE_ORDER, a.status) - stateRank(ACP_STATE_ORDER, b.status)),
+)
+const filteredPty = computed(() =>
+  sessions.value
+    .filter((s) => matchesStatus(s.state))
+    .slice()
+    .sort((a, b) => Number(canAttachSession(b)) - Number(canAttachSession(a))),
+)
 
 // ---------------- Agent 会话（会话中继 SESS-01） ----------------
 const agentSessions = ref<AgentSession[]>([])
@@ -282,11 +283,28 @@ async function loadWorkItems(): Promise<void> {
   }
 }
 
-const hasAgentSessions = computed(() => agentSessions.value.length > 0)
 const waitingCount = computed(
   () => agentSessions.value.filter((s) => s.state === 'waiting_reply').length,
 )
 
+// 会话状态文案（页面字典）：接口值 → i18n key，未知值（新状态）回落到共用映射。
+const STATE_KEYS: Record<string, string> = {
+  running: 'sessions.state.running',
+  idle: 'sessions.state.idle',
+  waiting_reply: 'sessions.state.waiting',
+  needs_attention: 'sessions.state.attention',
+  handed_off: 'sessions.state.handedOff',
+  ended: 'sessions.state.ended',
+  offline: 'sessions.state.offline',
+}
+function stateText(state: string): string {
+  const key = STATE_KEYS[state]
+  return key ? t(key) : agentStateLabel(state)
+}
+function wakeLabel(s: AgentSession): string {
+  if (wakingIds.value.has(s.session_id)) return '…'
+  return s.state === 'ended' ? t('sessions.card.wake') : t('sessions.card.takeover')
+}
   function sessionDisplayName(s: AgentSession): string {
     return formatSessionDisplayName(s)
   }
@@ -378,7 +396,7 @@ function relayTitle(s: AgentSession): string {
 
 // 会话授权（根管理员）：行上「授权」按钮与「已授权」徽标。列表来自 GET /v1/auth/grants，
 // 只有能管理授权的人才去读（别人读会 403）。
-const { mode: whoMode, ceiling: ceil, readOnly } = useWhoami()
+const { mode: whoMode, readOnly } = useWhoami()
 const { grants: sessionGrantRows } = useSessionGrants()
 const grantTarget = ref<AgentSession | null>(null)
 function grantBadgeOf(s: AgentSession) {
@@ -503,13 +521,6 @@ watch(showEnded, () => {
   void loadAcpSessions()
 })
 
-watch(sessionProject, chooseSessionDefaults)
-watch(sessionType, () => {
-  sessionAgent.value = ''
-  sessionRunner.value = sessionType.value === 'acp' ? 'local' : sessionRunner.value
-  chooseSessionDefaults()
-})
-
 // ---------------- pty 会话（既有） ----------------
 
 const sessions = ref<PtySession[]>([])
@@ -523,13 +534,12 @@ const hasSessions = computed(() => sessions.value.length > 0)
 const acpSessions = ref<Job[]>([])
 const acpLoading = ref(false)
 const acpError = ref('')
-const hasAcpSessions = computed(() => acpSessions.value.length > 0)
 
 function acpStatusLabel(job: Job): string {
-  if (job.session_ending) return '结束中'
-  if (job.status === 'awaiting_input') return '等待输入'
-  if (job.status === 'running') return '运行中'
-  if (['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(job.status)) return '已结束'
+  if (job.session_ending) return t('sessions.acp.ending')
+  if (job.status === 'awaiting_input') return t('sessions.acp.awaitingInput')
+  if (job.status === 'running') return t('sessions.acp.running')
+  if (['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(job.status)) return t('sessions.acp.ended')
   return job.status
 }
 
@@ -539,7 +549,7 @@ function acpTone(job: Job): 'live' | 'hot' | 'off' {
 }
 
 function acpPreview(job: Job): string {
-  return job.error || (job.status === 'awaiting_input' ? '等待你的下一句话' : '打开会话查看过程')
+  return job.error || (job.status === 'awaiting_input' ? t('sessions.acp.previewAwaiting') : t('sessions.acp.previewOpen'))
 }
 
 async function loadAcpSessions(): Promise<void> {
@@ -620,13 +630,12 @@ async function load(): Promise<void> {
   }
 }
 
+// 换页签时清掉上一个页签的状态筛选（两套状态值不通用）。
+// 放在这里：watch 会立即求值一次 activeTab → tabItems → 三个列表 ref，必须等它们都初始化。
+watch(activeTab, () => { statusFilter.value = '' })
+
 onMounted(() => {
-  void getMetaCached().then((meta) => {
-    sessionMeta.value = meta
-    chooseSessionDefaults()
-  }).catch((e) => {
-    sessionCreateError.value = e instanceof Error ? e.message : String(e)
-  })
+  void loadProjectOptions()
   void load()
   void loadAgentSessions()
   void loadAcpSessions()
@@ -644,116 +653,85 @@ onUnmounted(() => {
 <template>
   <div class="board">
     <header class="board-head">
-      <h1 class="title mono">{{ PAGE.sessions }}</h1>
-    </header>
-
-    <section v-if="!readOnly" class="session-create" aria-label="新建会话">
-      <div class="session-create-head">
-        <h2 class="group-title mono">新建会话</h2>
-        <div class="session-create-actions">
-          <button class="act mono" type="button" :aria-expanded="createOpen" @click="createOpen = !createOpen">
-            {{ createOpen ? '收起' : '＋ 新建会话' }}
-          </button>
-          <RouterLink class="act mono" :to="fullSessionConfigURL">完整配置</RouterLink>
-        </div>
+      <div class="head-main">
+        <h1 class="title">{{ t('sessions.title') }}</h1>
+        <p class="head-summary">
+          {{ t('sessions.summary', { n: agentSessions.length + acpSessions.length + sessions.length, waiting: waitingCount }) }}
+        </p>
       </div>
-      <div v-show="createOpen" class="session-create-fields">
-        <label class="session-field mono">会话类型
-          <select v-model="sessionType">
-            <option value="pty">终端 PTY</option>
-            <option value="acp">ACP 持续会话</option>
-          </select>
-        </label>
-        <label class="session-field mono">项目
-          <select v-model="sessionProject">
-            <option v-for="project in sessionProjects" :key="project.key" :value="project.key">{{ project.key }}</option>
-          </select>
-          <span v-if="sessionProjectCeilingHidden > 0" class="session-hint">{{ sessionProjectCeilingHidden }} 个 project {{ CEILING_LABEL }}，未列出</span>
-        </label>
-        <label class="session-field mono">agent
-          <select v-model="sessionAgent" :disabled="!sessionAgents.length">
-            <option v-for="agent in sessionAgents" :key="agent.key" :value="agent.key">{{ agent.key }}</option>
-          </select>
-        </label>
-        <label class="session-field mono">runner
-          <select v-model="sessionRunner">
-            <option v-for="runner in sessionRunners" :key="runner.name" :value="runner.name" :disabled="!!sessionRunnerBlocks[runner.name]">{{ runnerLabel(runner.name) }}<template v-if="sessionRunnerBlocks[runner.name]"> · {{ sessionRunnerBlocks[runner.name].short }}</template></option>
-          </select>
-        </label>
-        <label class="session-field mono">模型（可选）
-          <input v-model="sessionModel" type="text" placeholder="留空 = agent 默认" />
-        </label>
-        <label class="session-field mono">工作目录（项目根相对）
-          <input v-model="sessionCwd" type="text" placeholder="." />
-        </label>
-        <label class="session-field session-field-wide mono">锁定目录（可选，可多个；会话期间一直持有锁，尽量锁子目录）
-          <input v-model="sessionLockPaths" type="text" :title="DIR_LOCK_HINT" placeholder="留空 = 锁整个 cwd；如 gookit/ini" />
-        </label>
-        <label class="session-field session-field-wide mono">标题（可选）
-          <input v-model="sessionTitle" type="text" placeholder="会话标题" />
-        </label>
-        <label class="session-field session-field-wide mono">第一句话（可选）
-          <textarea v-model="sessionPrompt" rows="2" placeholder="创建后发送的第一句话"></textarea>
-        </label>
-        <button class="act act--primary mono session-create-submit" type="button" :disabled="sessionCreating || !sessionAgent" @click="createSession">
-          {{ sessionCreating ? '创建中…' : '创建并打开' }}
+      <div class="head-filters">
+        <ProjectFilter
+          :model-value="project"
+          :options="projectOptions"
+          @update:model-value="setProject"
+        />
+        <button
+          v-if="!readOnly"
+          class="act act--primary"
+          type="button"
+          data-test="new-session"
+          @click="openSheet('pty')"
+        >
+          {{ t('sessions.new.title') }}
         </button>
       </div>
-      <p v-if="sessionCreateError" class="error mono">{{ sessionCreateError }}</p>
-    </section>
+    </header>
+
+    <div class="status-row">
+      <FilterChips v-model="statusFilter" :items="statusChips" :label="t('sessions.filter.status')" />
+    </div>
+
+    <NewSessionSheet v-model="sheetOpen" :type="sheetType" @created="onSessionCreated" />
+
+    <Tabs :tabs="tabItems" fallback="agent" :label="t('sessions.tabsLabel')">
+      <template #default="{ active }">
 
     <!-- Agent 会话（会话中继 SESS-01）：hook 登记的 claude/codex 会话，点击行开详情抽屉 -->
-    <section class="group">
+    <section v-if="active === 'agent'" class="group">
       <header class="group-head">
-        <h2 class="group-title mono">
-          AGENT 会话
-          <button class="relay-help-btn mono" type="button" :aria-expanded="relayHelpOpen" title="中继三态开关说明" @click="relayHelpOpen = !relayHelpOpen">?</button>
-          <span v-if="waitingCount > 0" class="group-count group-count--hot mono">{{ waitingCount }} 等待回复</span>
-          <span v-else-if="hasAgentSessions" class="group-count mono">{{ agentSessions.length }}</span>
-        </h2>
-        <div class="controls mono">
+        <div class="group-tools">
+          <button class="relay-help-btn" type="button" :aria-expanded="relayHelpOpen" :title="t('sessions.relay.helpTitle')" @click="relayHelpOpen = !relayHelpOpen">?</button>
+          <span v-if="waitingCount > 0" class="group-count group-count--hot">{{ t('sessions.waiting', { n: waitingCount }) }}</span>
+        </div>
+        <div class="controls">
           <label class="check">
             <input v-model="showEnded" type="checkbox" />
-            显示已结束
+            {{ t('sessions.showEnded') }}
           </label>
           <button
-            class="act mono"
+            class="act"
             type="button"
             :disabled="agentLoading"
             @click="loadAgentSessions()"
           >
-            {{ agentLoading ? '刷新中…' : '刷新' }}
+            {{ agentLoading ? t('sessions.refreshing') : t('sessions.refresh') }}
           </button>
         </div>
       </header>
       <!-- 中继三态开关说明：默认收起，点标题旁的「?」展开 -->
-      <p v-if="relayHelpOpen" class="relay-note mono">
-        三态开关：<code>on</code> = 每次停下都等你回复；<code>off</code> = 从不等；<code>auto</code> =
-        键盘空闲 ≥ <code>session.auto_relay_idle_sec</code>（默认 5 分钟）时等你回复，探测不到键盘的终端（容器）改用
-        距上次人工输入 ≥ <code>session.auto_relay_turn_sec</code>（默认 15 分钟）判定——不用拨开关。
-        自动判定开的等待，人回来即放行（键盘一碰即放，或按 Esc / 直接输入一条）。
-        <code>on</code> 适合人离开时用：在终端里输入一条，就视为人回来了，开关自动回到 <code>auto</code>（网页送进去的话不算）。
+      <p v-if="relayHelpOpen" class="relay-note">
+        {{ t('sessions.relay.help') }}
       </p>
 
-      <form class="find-box mono" data-test="find-box" role="search" @submit.prevent="runFind">
+      <form class="find-box" data-test="find-box" role="search" @submit.prevent="runFind">
         <input
           v-model="findInput"
-          class="find-input mono"
+          class="find-input"
           type="search"
           data-test="find-input"
-          placeholder="查找会话：关键词（主题 / 会话名 / 项目）或路径（如 internal/job）"
-          aria-label="查找会话"
+          :placeholder="t('sessions.find.placeholder')"
+          :aria-label="t('sessions.find.label')"
         />
-        <button class="act mono" type="submit" data-test="find-submit">查找</button>
-        <button v-if="activeFind || findInput" class="act mono" type="button" data-test="find-clear" @click="clearFind">清除</button>
+        <button class="act" type="submit" data-test="find-submit">{{ t('sessions.find.submit') }}</button>
+        <button v-if="activeFind || findInput" class="act" type="button" data-test="find-clear" @click="clearFind">{{ t('sessions.find.clear') }}</button>
       </form>
-      <p v-if="activeFind && !agentLoading" class="find-note mono" data-test="find-summary">{{ findSummary(agentSessions.length, activeFindText) }}</p>
+      <p v-if="activeFind && !agentLoading" class="find-note" data-test="find-summary">{{ findSummary(filteredAgent.length, activeFindText) }}</p>
 
       <p v-if="agentError" class="error mono">{{ agentError }}</p>
 
-      <div v-if="hasAgentSessions" class="icard-grid" data-test="agent-cards">
+      <div v-if="filteredAgent.length > 0" class="icard-grid" data-test="agent-cards">
         <InfoCard
-          v-for="s in agentSessions"
+          v-for="s in filteredAgent"
           :key="s.session_id"
           :tone="agentStateTone(s.state)"
           :dim="agentStateDim(s.state)"
@@ -770,19 +748,19 @@ onUnmounted(() => {
               class="sbadge mono"
               :class="`sbadge--${agentStateTone(s.state)}`"
               :title="s.state === 'offline' ? `长时间没有心跳（最后心跳 ${fmtTime(s.last_seen_at)}），进程可能已退出；仍可唤醒` : undefined"
-            >{{ agentStateLabel(s.state) }}</span>
+            >{{ stateText(s.state) }}</span>
             <span
               v-if="whoMode.canManage && grantBadgeOf(s).granted"
               class="sbadge mono sbadge--granted"
               data-test="session-granted-badge"
               :title="grantBadgeTitle(s)"
-            >已授权</span>
+            >{{ t('sessions.card.granted') }}</span>
             <span
               v-if="s.refused_caller_id"
               class="sbadge mono sbadge--warn"
               data-test="refused-owner-badge"
               :title="refusedOwnerHelp(s)"
-            >归属被拒</span>
+            >{{ t('sessions.card.ownerRefused') }}</span>
           </template>
           <template #meta>
             <button
@@ -792,7 +770,7 @@ onUnmounted(() => {
               data-test="peer-name"
               :title="`Claude 会话名 ${peerNameLabel(s)}，点击复制（其它会话用它作 SendMessage 地址）`"
               @click.stop="copySessionID(`name:${s.session_id}`, s.peer_name!)"
-            >{{ s.peer_name }}<span class="a-peername-copy">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? ' 已复制' : '' }}</span></button>
+            >{{ s.peer_name }}<span class="a-peername-copy">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? t('sessions.card.copied') : '' }}</span></button>
             <span class="a-agent mono">{{ s.agent }}</span>
             <span class="a-project mono" :title="s.project_key">{{ s.project_key || '—' }}</span>
             <span
@@ -806,9 +784,9 @@ onUnmounted(() => {
               class="a-topic mono"
               :class="{ 'a-topic--inferred': topicDisplay(s).inferred }"
               data-test="card-topic"
-              :title="topicDisplay(s).title"
-            >{{ topicDisplay(s).text }}<em v-if="topicDisplay(s).inferred" class="a-topic-tag">推断</em></span>
-            <span v-if="s.maybe_offline" class="sbadge mono sbadge--off" data-test="maybe-offline">{{ MAYBE_OFFLINE_LABEL }}</span>
+              :title="topicDisplay(s).title || t('sessions.card.inferredTitle')"
+            >{{ topicDisplay(s).text }}<em v-if="topicDisplay(s).inferred" class="a-topic-tag">{{ t('sessions.card.inferred') }}</em></span>
+            <span v-if="s.maybe_offline" class="sbadge mono sbadge--off" data-test="maybe-offline">{{ t('sessions.card.maybeOffline') }}</span>
             <span v-for="(r, i) in hitReasons(s.hits)" :key="i" class="icard-chip mono" data-test="hit-reason">{{ r }}</span>
             <span v-if="s.cwd" class="mono" :title="s.cwd">{{ workspaceLabel(s.cwd) }}</span>
             <span class="a-seen mono" :title="fmtTime(s.last_seen_at)">{{ fmtAgo(s.last_seen_at, nowSec) }}</span>
@@ -817,8 +795,8 @@ onUnmounted(() => {
               class="icard-chip mono"
               data-test="work-link"
               :to="`/work?id=${encodeURIComponent(workBySession.get(s.session_id)!.id)}`"
-              :title="`所属工作项：${workBySession.get(s.session_id)!.title}`"
-            >工作项 · {{ workBySession.get(s.session_id)!.title }}</RouterLink>
+              :title="t('sessions.card.workItemTitle', { title: workBySession.get(s.session_id)!.title })"
+            >{{ t('sessions.card.workItem', { title: workBySession.get(s.session_id)!.title }) }}</RouterLink>
           </template>
           <template #actions>
             <button
@@ -831,22 +809,22 @@ onUnmounted(() => {
               @click="onTransferOwner(s)"
             >{{ ownerBusyIds.has(s.session_id) ? '…' : transferOwnerLabel(s) }}</button>
             <span v-if="ownerErrors.get(s.session_id)" class="relay-err mono" data-test="refused-owner-error">转移失败：{{ ownerErrors.get(s.session_id) }}</span>
-            <button class="icard-btn icard-btn--primary mono" type="button" data-test="row-open" @click="openDrawer(s.session_id)">打开</button>
+            <button class="icard-btn icard-btn--primary mono" type="button" data-test="row-open" @click="openDrawer(s.session_id)">{{ t('sessions.card.open') }}</button>
             <button
               v-if="canGrantSession(whoMode.canManage, s)"
               class="icard-btn mono"
               type="button"
               data-test="row-grant"
-              title="给这个终端会话临时授权（仅根管理员）"
+              :title="t('sessions.card.grantTitle')"
               @click="grantTarget = s"
-            >授权</button>
+            >{{ t('sessions.card.grant') }}</button>
             <span class="a-wake">
               <RouterLink
                 v-if="s.state === 'handed_off' && s.handed_off_job_id"
                 class="icard-btn wake-link mono"
                 :to="`/jobs/${encodeURIComponent(s.handed_off_job_id)}?attach=1`"
                 title="这个会话已被一个终端 job 接管，点开继续对话"
-              >已接管 →</RouterLink>
+              >{{ t('sessions.card.handedOff') }}</RouterLink>
               <button
                 v-else
                 class="icard-btn wake-btn mono"
@@ -855,7 +833,7 @@ onUnmounted(() => {
                 :disabled="!s.can_resume || wakingIds.has(s.session_id)"
                 :title="wakeErrors.get(s.session_id) ? `唤醒失败：${wakeErrors.get(s.session_id)}` : resumeTitle(s)"
                 @click="onWake(s)"
-              >{{ wakingIds.has(s.session_id) ? '…' : resumeLabel(s) }}</button>
+              >{{ wakeLabel(s) }}</button>
               <span v-if="wakeErrors.get(s.session_id)" class="relay-err mono" :title="wakeErrors.get(s.session_id)">!</span>
             </span>
           </template>
@@ -869,33 +847,33 @@ onUnmounted(() => {
                   <button class="copy-btn mono" type="button" @click="copySessionID(`name:${s.session_id}`, s.peer_name!)">{{ copiedSessionIDs.has(`name:${s.session_id}`) ? '已复制' : '复制' }}</button>
                 </dd>
               </template>
-              <dt>主题</dt>
+              <dt>{{ t('sessions.card.topic') }}</dt>
               <dd><SessionTopic :session="s" @updated="updateSession" /></dd>
-              <dt>Session</dt>
+              <dt>{{ t('sessions.card.session') }}</dt>
               <dd>
                 <span class="a-session-id" :title="s.session_id">{{ shortAgentSessionId(s.session_id) }}</span>
-                <button class="copy-btn mono" type="button" @click="copySessionID(s.session_id)">{{ copiedSessionIDs.has(s.session_id) ? '已复制' : '复制' }}</button>
+                <button class="copy-btn mono" type="button" @click="copySessionID(s.session_id)">{{ copiedSessionIDs.has(s.session_id) ? t('sessions.card.copied') : t('sessions.card.copy') }}</button>
               </dd>
-              <dt>Runner</dt><dd :title="s.runner">{{ runnerLabel(s.runner) || '—' }}</dd>
-              <template v-if="s.cwd"><dt>目录</dt><dd>{{ s.cwd }}</dd></template>
-              <template v-if="s.last_cwd"><dt>当前目录</dt><dd>{{ s.last_cwd }}</dd></template>
+              <dt>{{ t('sessions.card.runner') }}</dt><dd :title="s.runner">{{ runnerLabel(s.runner) || '—' }}</dd>
+              <template v-if="s.cwd"><dt>{{ t('sessions.card.cwd') }}</dt><dd>{{ s.cwd }}</dd></template>
+              <template v-if="s.last_cwd"><dt>{{ t('sessions.card.lastCwd') }}</dt><dd>{{ s.last_cwd }}</dd></template>
               <template v-for="u in sessionUsageRows(s.usage)" :key="u.label">
-                <dt>{{ u.label }}用量</dt><dd class="mono" data-test="session-usage">{{ u.text }}</dd>
+                <dt>{{ t('sessions.card.usage', { label: u.label }) }}</dt><dd class="mono" data-test="session-usage">{{ u.text }}</dd>
               </template>
-              <dt>Turns</dt><dd class="a-turns">{{ s.turn_no }}</dd>
+              <dt>{{ t('sessions.card.turns') }}</dt><dd class="a-turns">{{ s.turn_no }}</dd>
               <template v-if="s.peer_status || s.peer_name">
-                <dt>Peer</dt>
+                <dt>{{ t('sessions.card.peer') }}</dt>
                 <dd>
                   <span v-if="s.peer_status" class="a-peer-status">peer {{ s.peer_status }}</span>
                   <span class="a-peer-messaging" :class="{ ready: s.peer_messaging, pending: peerMessagingLabel(s) === '待上报' }">{{ peerMessagingLabel(s) }}</span>
                 </dd>
               </template>
-              <template v-else><dt>Peer</dt><dd><span class="a-peer-messaging" :class="{ ready: s.peer_messaging, pending: peerMessagingLabel(s) === '待上报' }">{{ peerMessagingLabel(s) }}</span></dd></template>
-              <template v-if="s.issue_id"><dt>Issue</dt><dd><RouterLink :to="`/issues?issue=${encodeURIComponent(s.issue_id)}`">issue {{ s.issue_id }}</RouterLink></dd></template>
-              <template v-if="s.transcript"><dt>Transcript</dt><dd>{{ s.transcript }}</dd></template>
+              <template v-else><dt>{{ t('sessions.card.peer') }}</dt><dd><span class="a-peer-messaging" :class="{ ready: s.peer_messaging, pending: peerMessagingLabel(s) === '待上报' }">{{ peerMessagingLabel(s) }}</span></dd></template>
+              <template v-if="s.issue_id"><dt>{{ t('sessions.card.issue') }}</dt><dd><RouterLink :to="`/issues?issue=${encodeURIComponent(s.issue_id)}`">issue {{ s.issue_id }}</RouterLink></dd></template>
+              <template v-if="s.transcript"><dt>{{ t('sessions.card.transcript') }}</dt><dd>{{ s.transcript }}</dd></template>
             </dl>
             <div class="a-relay">
-              <span class="relay-label mono">中继</span>
+              <span class="relay-label mono">{{ t('sessions.card.relay') }}</span>
               <span class="relay-modes mono" :class="{ busy: relayBusyIds.has(s.session_id) }" :title="relayTitle(s)">
                 <button
                   v-for="m in RELAY_MODES"
@@ -918,7 +896,7 @@ onUnmounted(() => {
             </details>
             <div v-if="s.last_message" class="a-lastbox">
               <span class="a-last mono">{{ s.last_message }}</span>
-              <button class="last-message-open mono" type="button" @click="openDrawer(s.session_id, true)">查看全文</button>
+              <button class="last-message-open mono" type="button" @click="openDrawer(s.session_id, true)">{{ t('sessions.card.viewFull') }}</button>
             </div>
             <span v-if="s.watches?.length" class="session-watches mono">
               <RouterLink
@@ -935,21 +913,22 @@ onUnmounted(() => {
         </InfoCard>
       </div>
 
-      <div v-else-if="!agentLoading && !agentError" class="empty mono">
-        暂无 agent 会话。执行 <code>gofer init hooks</code> 装配后，agent 会话会自动登记到这里。
+      <div v-else-if="!agentLoading && !agentError" class="empty">
+        {{ t('sessions.empty.agent') }}
       </div>
     </section>
 
-    <section class="group">
+    <section v-else-if="active === 'acp'" class="group">
       <header class="group-head">
-        <h2 class="group-title mono">ACP 持续会话 <span v-if="hasAcpSessions" class="group-count mono">{{ acpSessions.length }}</span></h2>
-        <button class="act mono" type="button" :disabled="acpLoading" @click="loadAcpSessions()">{{ acpLoading ? '刷新中…' : '刷新' }}</button>
+        <span v-if="filteredAcp.length" class="group-count">{{ filteredAcp.length }}</span>
+        <span class="grow"></span>
+        <button class="act" type="button" :disabled="acpLoading" @click="loadAcpSessions()">{{ acpLoading ? t('sessions.refreshing') : t('sessions.refresh') }}</button>
       </header>
       <p v-if="acpError" class="error mono">{{ acpError }}</p>
       <p v-if="linkError" class="error mono" data-test="link-error">{{ linkError }}</p>
-      <div v-if="hasAcpSessions" class="icard-grid" data-test="acp-cards">
+      <div v-if="filteredAcp.length > 0" class="icard-grid" data-test="acp-cards">
         <InfoCard
-          v-for="item in acpSessions"
+          v-for="item in filteredAcp"
           :key="item.id"
           :tone="acpTone(item)"
           :dim="acpTone(item) === 'off'"
@@ -963,59 +942,57 @@ onUnmounted(() => {
             <span class="mono">{{ item.agent }}</span>
             <span class="mono">{{ item.project_key }}</span>
             <span class="mono">{{ runnerLabel(item.runner) }}</span>
-            <span class="mono">第 {{ item.turn_no ?? 0 }} 轮</span>
+            <span class="mono">{{ t('sessions.card.turns') }} {{ item.turn_no ?? 0 }}</span>
             <RouterLink
               v-if="workForJob(item.id, item.session_id)"
               class="icard-chip mono"
               data-test="acp-work-link"
               :to="`/work?id=${encodeURIComponent(workForJob(item.id, item.session_id)!.id)}`"
-              :title="`所属工作项：${workForJob(item.id, item.session_id)!.title}`"
-            >工作项 · {{ workForJob(item.id, item.session_id)!.title }}</RouterLink>
+              :title="t('sessions.card.workItemTitle', { title: workForJob(item.id, item.session_id)!.title })"
+            >{{ t('sessions.card.workItem', { title: workForJob(item.id, item.session_id)!.title }) }}</RouterLink>
           </template>
           <template #actions>
-            <RouterLink class="icard-btn icard-btn--primary mono" :to="`/jobs/${encodeURIComponent(item.id)}`">查看过程</RouterLink>
+            <RouterLink class="icard-btn icard-btn--primary mono" :to="`/jobs/${encodeURIComponent(item.id)}`">{{ t('sessions.acp.openJob') }}</RouterLink>
           </template>
           <template #details>
             <dl class="icard-kv mono">
               <dt>Job</dt><dd>{{ item.id }}</dd>
               <template v-if="item.session_id"><dt>Session</dt><dd>{{ item.session_id }}</dd></template>
-              <dt>开始</dt><dd>{{ fmtTime(item.started_at) }}</dd>
-              <dt>最后一条回复</dt><dd>{{ acpPreview(item) }}</dd>
+              <dt>{{ t('sessions.card.started') }}</dt><dd>{{ fmtTime(item.started_at) }}</dd>
+              <dt>{{ t('sessions.card.lastReply') }}</dt><dd>{{ acpPreview(item) }}</dd>
               <template v-if="!workForJob(item.id, item.session_id) && linkableItems.length">
-                <dt>关联工作项</dt>
+                <dt>{{ t('sessions.card.linkWork') }}</dt>
                 <dd class="link-pick">
-                  <select v-model="linkPick[item.id]" class="mono" data-test="acp-link-pick"><option value="">选一个工作项…</option><option v-for="w in linkableItems" :key="w.id" :value="w.id">{{ w.title }}</option></select>
-                  <button class="icard-btn mono" type="button" :disabled="!linkPick[item.id] || linkBusy === item.id" data-test="acp-link-btn" @click="linkJobToWork(item.id)">关联</button>
+                  <select v-model="linkPick[item.id]" class="mono" data-test="acp-link-pick"><option value="">{{ t('sessions.card.pickWork') }}</option><option v-for="w in linkableItems" :key="w.id" :value="w.id">{{ w.title }}</option></select>
+                  <button class="icard-btn mono" type="button" :disabled="!linkPick[item.id] || linkBusy === item.id" data-test="acp-link-btn" @click="linkJobToWork(item.id)">{{ t('sessions.card.link') }}</button>
                 </dd>
               </template>
             </dl>
           </template>
         </InfoCard>
       </div>
-      <div v-else-if="!acpLoading && !acpError" class="empty mono">暂无 ACP 持续会话</div>
+      <div v-else-if="!acpLoading && !acpError" class="empty">{{ t('sessions.empty.acp') }}</div>
     </section>
 
-    <section class="group">
+    <section v-else class="group">
       <header class="group-head">
-        <h2 class="group-title mono">
-          终端会话
-          <span v-if="hasSessions" class="group-count mono">{{ sessions.length }}</span>
-        </h2>
-        <div class="controls mono">
-          <RouterLink v-if="!readOnly" class="act act--primary mono" to="/new?mode=session">
-            新建会话
-          </RouterLink>
-          <button class="act mono" type="button" :disabled="loading" @click="load()">
-            {{ loading ? '刷新中…' : '刷新' }}
+        <span v-if="filteredPty.length" class="group-count">{{ filteredPty.length }}</span>
+        <span class="grow"></span>
+        <div class="controls">
+          <button v-if="!readOnly" class="act act--primary" type="button" data-test="new-terminal-session" @click="openSheet('pty')">
+            {{ t('sessions.new.title') }}
+          </button>
+          <button class="act" type="button" :disabled="loading" @click="load()">
+            {{ loading ? t('sessions.refreshing') : t('sessions.refresh') }}
           </button>
         </div>
       </header>
 
     <p v-if="error" class="error mono">{{ error }}</p>
 
-    <div v-if="hasSessions" class="icard-grid" data-test="pty-cards">
+    <div v-if="filteredPty.length > 0" class="icard-grid" data-test="pty-cards">
       <InfoCard
-        v-for="s in sessions"
+        v-for="s in filteredPty"
         :key="s.pty_session_id"
         :tone="canAttachSession(s) ? 'live' : 'off'"
         :dim="!canAttachSession(s)"
@@ -1023,7 +1000,7 @@ onUnmounted(() => {
         :card-id="s.pty_session_id"
         @toggle="expandedPty = toggleExpanded(expandedPty, s.pty_session_id)"
       >
-        <template #title>终端会话 · {{ shortId(s.job_id) }}</template>
+        <template #title>{{ t('sessions.tab.pty') }} · {{ shortId(s.job_id) }}</template>
         <template #badges><span class="sbadge mono" :class="canAttachSession(s) ? 'sbadge--live' : 'sbadge--off'">{{ s.state }}</span></template>
         <template #meta>
           <span class="size mono">{{ s.cols }}×{{ s.rows }}</span>
@@ -1034,8 +1011,8 @@ onUnmounted(() => {
             class="icard-chip mono"
             data-test="pty-work-link"
             :to="`/work?id=${encodeURIComponent(workForJob(s.job_id, s.session_id)!.id)}`"
-            :title="`所属工作项：${workForJob(s.job_id, s.session_id)!.title}`"
-          >工作项 · {{ workForJob(s.job_id, s.session_id)!.title }}</RouterLink>
+            :title="t('sessions.card.workItemTitle', { title: workForJob(s.job_id, s.session_id)!.title })"
+          >{{ t('sessions.card.workItem', { title: workForJob(s.job_id, s.session_id)!.title }) }}</RouterLink>
         </template>
         <template #actions>
           <RouterLink
@@ -1043,7 +1020,7 @@ onUnmounted(() => {
             class="icard-btn icard-btn--primary mono"
             :to="`/jobs/${encodeURIComponent(s.job_id ?? '')}?attach=1`"
           >
-            打开终端
+            {{ t('sessions.card.openTerminal') }}
           </RouterLink>
           <button
             v-if="s.has_recording"
@@ -1052,7 +1029,7 @@ onUnmounted(() => {
             :disabled="downloadingRecordingIds.has(s.pty_session_id)"
             @click="onDownloadRecording(s)"
           >
-            {{ downloadingRecordingIds.has(s.pty_session_id) ? '下载中' : '下载录制' }}
+            {{ downloadingRecordingIds.has(s.pty_session_id) ? t('sessions.card.downloading') : t('sessions.card.downloadRecording') }}
           </button>
         </template>
         <template #details>
@@ -1060,28 +1037,30 @@ onUnmounted(() => {
             <dt>Job</dt>
             <dd><RouterLink v-if="s.job_id" :to="`/jobs/${encodeURIComponent(s.job_id)}`" :title="s.job_id">{{ s.job_id }}</RouterLink><template v-else>—</template></dd>
             <dt>Session ID</dt><dd :title="s.session_id || ''">{{ shortSessionID(s.session_id) }}</dd>
-            <dt>流量(输入/输出)</dt><dd>{{ bytesText(s) }}</dd>
+            <dt>{{ t('sessions.card.size') }}</dt><dd>{{ bytesText(s) }}</dd>
             <template v-if="s.job_id && !workForJob(s.job_id, s.session_id) && linkableItems.length">
-              <dt>关联工作项</dt>
+              <dt>{{ t('sessions.card.linkWork') }}</dt>
               <dd class="link-pick">
-                <select v-model="linkPick[s.job_id]" class="mono" data-test="pty-link-pick"><option value="">选一个工作项…</option><option v-for="w in linkableItems" :key="w.id" :value="w.id">{{ w.title }}</option></select>
-                <button class="icard-btn mono" type="button" :disabled="!linkPick[s.job_id] || linkBusy === s.job_id" data-test="pty-link-btn" @click="linkJobToWork(s.job_id)">关联</button>
+                <select v-model="linkPick[s.job_id]" class="mono" data-test="pty-link-pick"><option value="">{{ t('sessions.card.pickWork') }}</option><option v-for="w in linkableItems" :key="w.id" :value="w.id">{{ w.title }}</option></select>
+                <button class="icard-btn mono" type="button" :disabled="!linkPick[s.job_id] || linkBusy === s.job_id" data-test="pty-link-btn" @click="linkJobToWork(s.job_id)">{{ t('sessions.card.link') }}</button>
               </dd>
             </template>
-            <dt>加密</dt><dd>{{ s.encrypted ? '加密' : '明文' }}</dd>
-            <dt>录制</dt><dd>{{ s.has_recording ? '已录制' : '无录制' }}</dd>
+            <dt>{{ t('sessions.card.encrypted') }}</dt><dd>{{ s.encrypted ? t('sessions.card.encryptedYes') : t('sessions.card.encryptedNo') }}</dd>
+            <dt>{{ t('sessions.card.recording') }}</dt><dd>{{ s.has_recording ? t('sessions.card.recorded') : t('sessions.card.notRecorded') }}</dd>
           </dl>
         </template>
       </InfoCard>
     </div>
 
-    <div v-else-if="!loading && !error" class="empty mono">
-      暂无终端会话
+    <div v-else-if="!loading && !error" class="empty">
+      {{ t('sessions.empty.pty') }}
     </div>
-    <p v-if="hasSessions" class="sessions-note mono">
-      输入/输出字节是 relay 计数；只有已录制的会话会保留可下载回放。
+    <p v-if="hasSessions" class="sessions-note">
+      {{ t('sessions.ptyNote') }}
     </p>
     </section>
+      </template>
+    </Tabs>
 
     <SessionGrantDialog
       v-if="grantTarget"
@@ -1197,6 +1176,23 @@ onUnmounted(() => {
   gap: 14px;
   margin-bottom: 14px;
 }
+.head-main {
+  min-width: 0;
+}
+.head-summary {
+  margin: 2px 0 0;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+}
+.head-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.status-row {
+  margin: 4px 0 var(--s2);
+}
 .title {
   font-size: 16px;
   letter-spacing: 0.08em;
@@ -1256,6 +1252,14 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 14px;
   margin-bottom: 10px;
+}
+.group-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.grow {
+  flex: 1;
 }
 .group-title {
   display: flex;
@@ -1504,6 +1508,21 @@ onUnmounted(() => {
   font-size: 13px;
   padding: 28px 14px;
   text-align: center;
+}
+
+@media (max-width: 760px) {
+  .board-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--s2);
+    margin-bottom: var(--s3);
+  }
+  .head-filters {
+    justify-content: space-between;
+  }
+  .head-filters .act {
+    min-height: 40px;
+  }
 }
 
 @media (max-width: 900px) {

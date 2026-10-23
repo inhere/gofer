@@ -78,10 +78,15 @@ describe('mobile session header', () => {
   })
 
   it('hides the composer hints behind a ? toggle and keeps the input usable', () => {
-    expect(drawer).toContain('data-test="composer-hint-toggle"')
-    expect(drawer).toContain('drawer-panel--hint-open')
-    expect(drawer).toContain('.drawer-panel:not(.drawer-panel--hint-open) .hint { display: none; }')
-    expect(drawer).toContain('@media (max-width: 900px)')
+    // P4：说明的折叠收进统一的 Composer（hintCollapsible）；抽屉照旧传这条说明。
+    const composer = Object.values(
+      import.meta.glob('../ui/Composer.vue', { eager: true, query: '?raw', import: 'default' }),
+    )[0] as string
+    expect(composer).toContain('data-test="composer-hint-toggle"')
+    expect(composer).toContain('v-show="hintOpen" class="composer-hint"')
+    expect(composer).toContain('@media (max-width: 760px)')
+    expect(drawer).toContain('hint-collapsible')
+    expect(drawer).toContain(':hint="composerHint"')
   })
 })
 

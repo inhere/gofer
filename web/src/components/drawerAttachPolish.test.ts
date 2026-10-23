@@ -54,7 +54,9 @@ describe('drawer attach availability', () => {
   })
 
   it('keeps the reason in one place (paperclip title, not the note line)', () => {
-    expect(drawer).toContain('attachHintNote(attachBar.value?.hint()')
+    // P4：提示由 Composer 自己渲染（附图条标题），抽屉不再重复一行。
+    expect(drawer).toContain(':attach-capability="attachCapability"')
+    expect(drawer).not.toContain('class="attach-note mono"')
   })
 })
 

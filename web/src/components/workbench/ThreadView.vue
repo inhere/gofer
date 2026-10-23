@@ -9,24 +9,22 @@ import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
 import { attachmentCapability } from '../../utils/attachments'
 import { formatNumber, formatRelative } from '../../utils/format'
 import { t } from '../../i18n'
-import AttachmentBar from '../AttachmentBar.vue'
 import AttachTerminal from '../AttachTerminal.vue'
 import UncommittedBadge from '../UncommittedBadge.vue'
 import ConversationView from './ConversationView.vue'
 import ThreadChangesView from './ThreadChangesView.vue'
-import { clearSendQueue, readSendQueue, writeSendQueue } from './sendQueue'
 import InteractionCard from '../InteractionCard.vue'
 import LogTape from '../LogTape.vue'
 import SessionDrawer from '../SessionDrawer.vue'
 import StatusPill from '../../ui/StatusPill.vue'
+import Composer from '../../ui/Composer.vue'
 
 const props = defineProps<{ threadId: string; focused: boolean }>()
 
 // 工作台只看"现在到哪了"：日志从最后 LOG_TAIL_LINES 行开始推，完整日志去 job 详情页。
 const LOG_TAIL_LINES = 200
 
-// 发送模式（设计稿 §7）：直接发送 / 排队等这一轮结束 / 打断当前 job 再发送。
-type SendMode = 'send' | 'queue' | 'interrupt'
+// 发送方式（直接发送 / 排队 / 打断后发送）由统一的 Composer 提供（设计稿 §8）。
 
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
@@ -50,7 +48,7 @@ const context = injectedContext
 
 const router = useRouter()
 const root = ref<HTMLElement | null>(null)
-const turnInput = ref<HTMLTextAreaElement | null>(null)
+const turnInput = ref<InstanceType<typeof Composer> | null>(null)
 const sessionDrawer = ref<InstanceType<typeof SessionDrawer> | null>(null)
 const menuOpen = ref(false)
 const embeddedRelayModes = ['auto', 'on', 'off'] as const
@@ -64,10 +62,6 @@ const streamError = ref('')
 const actionError = ref('')
 const submittingInteraction = ref<Set<string>>(new Set())
 const draft = ref('')
-const sendMode = ref<SendMode>('send')
-// 排队：等这一轮结束再发（设计稿 §7「排队」）；打断：先取消当前 job 再发。
-// 队列按会话持久化到 localStorage（review）：刷新 / 重开页面后恢复，发出或丢弃后清除。
-const queued = ref<string[]>([])
 const sending = ref(false)
 const stopping = ref(false)
 const editingTitle = ref(false)
@@ -108,12 +102,7 @@ const canTurn = computed(() => thread.value?.kind === 'agent' && thread.value.re
 // 附图（gofer-ha0x）：能力位由 thread 带（inline / file 能用，none / 缺失置灰）；
 // 上传中或还有失败项时不让发送，免得发出缺图的消息。
 const attachCapability = computed(() => attachmentCapability(thread.value))
-const attachBar = ref<InstanceType<typeof AttachmentBar> | null>(null)
-const attachHint = computed(() => attachBar.value?.hint() ?? '')
-const attachBlocked = computed(() => !!attachBar.value && !attachBar.value.canSend())
-const canSendTurn = computed(() => canTurn.value && !attachBlocked.value)
 const oneShot = computed(() => thread.value?.kind === 'job' && !thread.value.resumable)
-const hasQueued = computed(() => queued.value.length > 0)
 
 function resetForThread(): void {
   streamAbort?.abort()
@@ -126,10 +115,8 @@ function resetForThread(): void {
   streamError.value = ''
   actionError.value = ''
   draft.value = ''
-  // 待发队列按会话存在 localStorage 里：切回来（或刷新后重开）还能看到
-  queued.value = current ? readSendQueue(current.id) : []
   // 换会话（或判断出别的线程）时丢掉上一轮的附图：它们的责任线程已经不是当前这个。
-  attachBar.value?.clear()
+  turnInput.value?.clearAttachments()
   titleDraft.value = current?.title ?? ''
   activeView.value = 'process'
   if (current?.kind !== 'relay' && !isACPThread.value && latestJobID.value) void startStream(latestJobID.value)
@@ -218,10 +205,10 @@ async function deliver(text: string): Promise<void> {
   sending.value = true
   actionError.value = ''
   try {
-    const attachmentIDs = attachBar.value?.readyIDs() ?? []
+    const attachmentIDs = turnInput.value?.readyIDs() ?? []
     const result = await turnWorkbenchThread(current.id, text, attachmentIDs)
     // 发送成功才清空附件条（失败时图还在，可直接重试）。
-    attachBar.value?.clear()
+    turnInput.value?.clearAttachments()
     context.continued(result.job_id)
   } catch (e) {
     actionError.value = e instanceof Error ? e.message : String(e)
@@ -230,61 +217,20 @@ async function deliver(text: string): Promise<void> {
   }
 }
 
-async function submitTurn(): Promise<void> {
-  const text = draft.value.trim()
-  if (!text) return
-  if (sendMode.value === 'queue' && !canTurn.value) {
-    queued.value = [...queued.value, text]
-    draft.value = ''
-    return
-  }
-  if (sendMode.value === 'interrupt' && !canTurn.value) {
-    // 打断后发送：先取消当前 job，把这条放进队首，等线程空闲时自动发出。
-    if (!canStop.value || stopping.value) {
-      actionError.value = t('workbench.composer.running')
-      return
-    }
-    queued.value = [text, ...queued.value]
-    draft.value = ''
-    await stopCurrent()
-    return
-  }
-  if (!canSendTurn.value) return
+// Composer 的发送：成功后清空草稿（失败时保留，可直接重试）。
+async function onSend(text: string): Promise<void> {
   await deliver(text)
   if (!actionError.value) draft.value = ''
 }
 
-// 队列只管「现在发不了」的消息：线程一有空就按顺序发出。
-watch(canTurn, (ready) => {
-  if (!ready || sending.value || queued.value.length === 0) return
-  const [next, ...rest] = queued.value
-  queued.value = rest
-  void deliver(next)
-})
-
-// 每次变动写回 storage（空队列则删除该键）：发出 / 丢弃 / 入队都就地落盘。
-watch(queued, (items) => {
-  const id = thread.value?.id
-  if (id) writeSendQueue(id, items)
-})
-
-function clearQueue(): void {
-  queued.value = []
-  const id = thread.value?.id
-  if (id) clearSendQueue(id)
-}
-
-function onTurnKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-    event.preventDefault()
-    void submitTurn()
+// 打断后发送：Composer 先把这条放进队首，这里只负责取消当前 job；
+// 线程回到可发送状态时 Composer 会自动发出队首。
+async function onInterrupt(): Promise<void> {
+  if (!canStop.value || stopping.value) {
+    actionError.value = t('workbench.composer.running')
+    return
   }
-}
-
-function autoGrowTurn(event: Event): void {
-  const el = event.target as HTMLTextAreaElement
-  el.style.height = 'auto'
-  el.style.height = `${Math.min(el.scrollHeight, window.innerHeight * 0.4)}px`
+  await stopCurrent()
 }
 
 function refreshEmbeddedSession(): void {
@@ -616,60 +562,26 @@ onUnmounted(() => {
     <footer
       v-if="activeView === 'process' && thread.kind !== 'relay' && !thread.interactive"
       class="turn-composer"
-      @dragover="attachBar?.handleDragOver($event)"
-      @drop="attachBar?.handleDrop($event)"
     >
-      <div class="turn-attach">
-        <AttachmentBar
-          ref="attachBar"
-          :capability="attachCapability"
-          @error="actionError = $event"
-        />
-        <p v-if="attachHint" class="turn-hint mono">{{ attachHint }}</p>
-      </div>
-      <div class="composer-box">
-        <textarea
-          ref="turnInput"
-          v-model="draft"
-          class="turn-input"
-          rows="2"
-          :disabled="oneShot"
-          :placeholder="oneShot ? t('workbench.composer.oneShot') : canTurn ? t('workbench.composer.placeholder') : live ? t('workbench.composer.running') : t('workbench.composer.placeholder')"
-          @keydown="onTurnKeydown"
-          @input="autoGrowTurn"
-          @paste="attachBar?.addFromPaste($event)"
-        ></textarea>
-        <div class="composer-row">
-          <button
-            class="icon-btn"
-            type="button"
-            :title="t('workbench.composer.attach')"
-            :aria-label="t('workbench.composer.attach')"
-            :disabled="!attachCapability.enabled"
-            @click="attachBar?.openPicker()"
-          >📎</button>
-          <div class="seg mode-seg" role="group" :aria-label="t('act.filter')">
-            <button
-              v-for="mode in (['send', 'queue', 'interrupt'] as SendMode[])"
-              :key="mode"
-              type="button"
-              :aria-pressed="sendMode === mode"
-              :class="{ on: sendMode === mode }"
-              :title="t(`workbench.composer.mode.${mode}Title`)"
-              :data-mode="mode"
-              @click="sendMode = mode"
-            >{{ t(`workbench.composer.mode.${mode}`) }}</button>
-          </div>
-          <span v-if="hasQueued" class="queue-chip">
-            {{ t('workbench.composer.queued', { n: queued.length }) }}
-            <button type="button" class="link-btn" @click="clearQueue">{{ t('workbench.composer.clearQueue') }}</button>
-          </span>
-          <span class="grow"></span>
-          <button class="btn primary sm" type="button" :disabled="!draft.trim() || (sendMode === 'send' && !canSendTurn)" @click="submitTurn">
-            {{ sending ? t('workbench.composer.sending') : t('workbench.composer.send') }}
-          </button>
-        </div>
-      </div>
+      <Composer
+        ref="turnInput"
+        v-model="draft"
+        :placeholder="oneShot ? t('workbench.composer.oneShot') : canTurn ? t('workbench.composer.placeholder') : live ? t('workbench.composer.running') : t('workbench.composer.placeholder')"
+        :disabled="oneShot"
+        :sending="sending"
+        :can-send="canTurn"
+        :can-interrupt="canStop"
+        :modes="['send', 'queue', 'interrupt']"
+        queue-scope="workbench"
+        :queue-key="thread.id"
+        submit-on-enter
+        attachments
+        :attach-capability="attachCapability"
+        :aria-label="t('workbench.composer.placeholder')"
+        @send="onSend"
+        @interrupt="onInterrupt"
+        @attachment-error="actionError = $event"
+      />
     </footer>
   </section>
   <section v-else class="thread-pane missing-thread mono">

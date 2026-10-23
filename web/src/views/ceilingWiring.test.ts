@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 const raw = (g: Record<string, unknown>): string => Object.values(g)[0] as string
 const newJob = raw(import.meta.glob('./NewJob.vue', { eager: true, query: '?raw', import: 'default' }))
 const sessions = raw(import.meta.glob('./Sessions.vue', { eager: true, query: '?raw', import: 'default' }))
+const newSession = raw(import.meta.glob('../ui/NewSessionSheet.vue', { eager: true, query: '?raw', import: 'default' }))
 const newWorkflow = raw(import.meta.glob('./NewWorkflow.vue', { eager: true, query: '?raw', import: 'default' }))
 const plans = raw(import.meta.glob('./Plans.vue', { eager: true, query: '?raw', import: 'default' }))
 const workflows = raw(import.meta.glob('./Workflows.vue', { eager: true, query: '?raw', import: 'default' }))
@@ -54,11 +55,11 @@ describe('新建 job 表单按上限收窄', () => {
 
 describe('新建会话 / workflow 向导按上限收窄', () => {
   it('会话：project 过滤 + 说明，agent 过滤，runner 灰显', () => {
-    expect(sessions).toContain('sessionMeta.value.projects.filter((p) => ceilingAllowsProject(ceil.value, p.key))')
-    expect(sessions).toContain('data-test') // 会话页没有内联 data-test，这里只确认文件被替换过
-    expect(sessions).toContain('.filter((a) => ceilingAllowsAgent(ceil.value, a.key))')
-    expect(sessions).toContain('if (!ceilingAllowsRunner(ceil.value, runner.name))')
-    expect(sessions).toContain('class="session-hint"')
+    // P4：新建会话表单在 ui/NewSessionSheet，收窄规则随之搬过去。
+    expect(newSession).toContain('meta.value.projects.filter((p) => ceilingAllowsProject(ceil.value, p.key))')
+    expect(newSession).toContain('.filter((a) => ceilingAllowsAgent(ceil.value, a.key))')
+    expect(newSession).toContain('if (!ceilingAllowsRunner(ceil.value, runner.name))')
+    expect(newSession).toContain('class="ns-hint"')
   })
   it('workflow 向导：向导的候选表（project / agent / runner）都收窄', () => {
     expect(newWorkflow).toContain('projects.value.filter((p) => ceilingAllowsProject(ceil.value, p.key))')
@@ -84,8 +85,8 @@ describe('只读上限：写入口消失 + 顶栏标记 + 权限页摘要', () =
     expect(plans).toContain('v-if="!readOnly" class="create-row mono"')
     expect(workflows).toContain('v-if="!readOnly" to="/workflows/new" class="create-link"')
     expect(schedules).toContain('v-if="!readOnly" to="/schedules/new"')
-    expect(sessions).toContain('v-if="!readOnly" class="session-create"')
-    expect(sessions).toContain('v-if="!readOnly" class="act act--primary mono" to="/new?mode=session"')
+    expect(sessions).toContain('v-if="!readOnly"')
+    expect(sessions).toContain('@click="openSheet(\'pty\')"')
   })
   it('设置 → 权限显示上限摘要', () => {
     expect(permissions).toContain('data-test="perm-ceiling"')

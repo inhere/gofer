@@ -111,4 +111,23 @@ export const zh: Dict = {
   'field.allProjects': '全部项目',
   'field.agent': 'Agent',
   'help.shortcuts': '按 Ctrl+K 打开命令面板',
+
+  // 统一输入框 Composer（设计稿 §8；页面专属文案在 i18n/pages/<page>.ts）
+  'composer.ariaLabel': '消息',
+  'composer.send': '发送',
+  'composer.sending': '发送中…',
+  'composer.attach': '附图',
+  'composer.urgent': '急件',
+  'composer.urgentTitle': '标为急件：收件方会优先看到',
+  'composer.modeLabel': '发送方式',
+  'composer.mode.send': '发送',
+  'composer.mode.sendTitle': '现在发送',
+  'composer.mode.queue': '排队',
+  'composer.mode.queueTitle': '等这一轮结束后自动发送',
+  'composer.mode.interrupt': '打断并发送',
+  'composer.mode.interruptTitle': '先打断当前回合，再把这条发出去',
+  'composer.queued': '排队 {n}',
+  'composer.clearQueue': '清空',
+  'composer.hintShow': '显示输入框说明',
+  'composer.hintHide': '收起输入框说明',
 }

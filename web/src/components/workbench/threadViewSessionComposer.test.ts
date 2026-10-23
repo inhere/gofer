@@ -19,7 +19,9 @@ describe('workbench relay composer', () => {
     expect(drawer).toContain('v-if="!embedded" class="drawer-head"')
     expect(drawer).toContain('v-if="session && !embedded" class="meta-wrap"')
     expect(thread).toContain('class="icon-btn mobile-menu"')
-    expect(thread).toContain('class="composer-box"')
+    // P4：输入框已换成统一的 Composer（紧凑样式在 Composer 自己的样式表里）。
+    expect(thread).toContain('<Composer')
+    expect(thread).toContain(':attach-capability="attachCapability"')
   })
 
   it('exposes acknowledge controls for an open relay turn', () => {
