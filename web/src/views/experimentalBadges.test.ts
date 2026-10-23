@@ -42,7 +42,7 @@ describe('experimental badges on the console entries', () => {
   it('信箱：页面标题', () => {
     const mail = page('Mail.vue')
     expect(mail).toContain(IMPORT)
-    expectBadgeAfter(mail, '<h1 class="mail-title">信箱')
+    expectBadgeAfter(mail, '<h1 class="mail-title">{{ t(\'mail.h.title\') }}')
   })
 
   it('leader 回合：plan 详情里的 leader 开关（徽标在 label 外，点它不改状态）', () => {

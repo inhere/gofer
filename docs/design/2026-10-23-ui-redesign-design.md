@@ -1049,6 +1049,68 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - **视觉检查**：用构建产物 + Playwright（本机 Edge）+ 桩接口把 `/sessions` 按 1440 / 390 宽 × zh / en × 浅 / 深 截图看过，会话抽屉（Drawer 外壳 + Composer）也看了桌面 / 手机两张（截图在 `tmp/`，不入库）；据此修了四个问题：`watch(activeTab)` 放在列表 ref 之前触发 TDZ（整页白屏）、页签标题与大组标题重复、手机页头未堆叠、Composer 与 AttachmentBar 重复显示一行附图说明。
 - 浅 / 深两边都用了现有 token；抽屉内侧文案（时间线、元信息、按钮）仍是中文，见下文「未做」。
 
+### P4 信箱页（2026-10-23，issue gofer-hez1）
+
+落地范围即 §7.1 的 `/mail` 信箱页（`views/Mail.vue` + 本页专属组件 `components/mail/*`）。不涉及 Go 代码、没有新增接口：数据仍来自 `GET /v1/mail`、`GET /v1/mail/conversations`、`POST /v1/mail`（含 `dry_run` 预览）、`/reply`、`/ack`、`/cancel`、`/readdress`、`GET /v1/mail/agents`。
+
+**布局（`Mail.vue`）**
+
+- 桌面两栏（§7.1、预览 `.mail`）：320–340px 左栏 + 自适应线程，整块是圆角面板、两栏各自滚；满高布局（`AppShell` 的 `shell--fill` / `content--fill`）不变。
+- 左栏自上而下：标题 + 对话数 + 刷新 + 写信 → 筛选 chip（全部 / 收件 / 发件 / 待指派，带计数）+ 项目 chip + 会话过滤 chip → 对话列表（人物卡对、摘要、急件 / 待指派徽标、未读数、信件数与活动时间）→ 常驻 agent（`ResidentAgents`，原来在整页顶部，按 §7.1 挪进左栏底部）。
+- 右栏：线程头（手机上是 `BackLink` 返回列表）→ 时间线（顶部「加载更早的 N 条」，`N` = `MAIL_TIMELINE_PAGE`；右边缘小地图与「还有更早的信件未加载」提示、点击跳转与高亮带不变）→ 底部回复框。
+- 待指派的信仍在气泡里显示原因、候选、改投 / 撤回与「在收集箱处理」链接；广播副本卡仍带整组收件人状态条。
+- 手机（≤760，§4.3 冻结断点）：列表 → 线程两级，返回用 P2 的 `ui/BackLink`（`to` 带上当前 filter / session / project，返回不会丢筛选）。
+
+**写信与回复都走 `Composer`**
+
+- 写信进 `ui/Sheet`（§7.1「写信放进 Sheet」）：收件人标签、会话多选 + 搜索、按项目 / 主题 / agent / 子路径的「全部」选器、手写地址（高级）、服务端 `dry_run` 投递数预览全部保留；正文与急件改用 `ui/Composer`（`urgent-option` + `v-model:urgent`），发送按钮即 Composer 的发送。
+- 回复框同理：`Composer` + 急件；只读 / 他人的信灰显改成 Composer 的 `can-send` + `hint`（原因仍来自 `utils/pageGate.ts` 的 `pageWriteBlock`，服务端权威）。
+- 文案（发送 / 回复 / 急件 / 排队等）用 Composer 自己的 `composer.*` 字典，页面不再各写一份。
+
+**筛选与计数**
+
+- 筛选 chip 用 P2 的 `ui/FilterChips`，计数来自一次并行查询：收件 / 发件 / 全部的 `conversations.count`，待指派按 `GET /v1/mail?state=held` 的本地分组算对话数。计数失败不影响看信（保持上一次的值）。
+- 项目 chip 用 P2 的 `ui/ProjectFilter` + `useProjectFilter('/mail')`，值写进 URL 的 `?project=`（唯一真源）；conversations 接口没有项目参数，所以按参与方的 `persona.project_key` 在本地收窄（`utils/mailConversations.ts` 的 `mailConversationInProject`，两端任一属于该项目即算）。
+
+**i18n（§9）**
+
+- 本页文案全部进 `web/src/i18n/pages/mail.ts`（前缀 `mail.`，zh / en 同名同数，已登记进 `i18n.test.ts` 的 `pageDomains`），不动 `zh.ts` / `en.ts`：页头、筛选、列表、线程、信件状态（`mail.state.<状态值>`）、广播、待指派、写信、收件人标签、投递预览与结果提示、小地图、常驻 agent、人物卡状态词。
+- 页面里原先由 util 拼的中文（`mailStateLabel` / `mailAddressLabel` / `mailComposePreviewText` / `MAIL_FILTERS` 的 label / `MAIL_SCOPES` 的 label 与 hint）改在页面按字典拼；`utils/mail.ts` 的对应函数保留（`MailButton` 与既有单测还在用）。
+
+**不丢信息核对（对照 §7.1 本页规格与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 页头：标题「信箱」+ 实验性徽标、刷新、写信 / 收起 | 标题 + 徽标、对话数、刷新、写信（写信改成打开 Sheet，按钮不再兼作收起） |
+| 页签「全部 / 收件 / 发件 / 待指派」 | 四个筛选 chip（**新增计数**），值仍写回 URL |
+| — | 项目 chip（§6.4，新增）、会话过滤 chip（原样） |
+| 对话列表：两个人物卡、摘要、未读数、急件、信件数、活动时间 | 全部保留，另加「待指派」徽标（§7.1） |
+| 常驻 agent（整页顶部，名称 / 项目 / 会话 job / 信件数 / 空闲 / 状态 / 结束） | 挪到左栏底部，字段与按钮不变，文案走字典 |
+| 线程头：返回「← 列表」、两端人物卡、封信数 | 保留；返回改用 `BackLink`，只在小屏显示 |
+| 时间线顶部「加载更早的信件（还有更早的）」/「已到最早」 | 改成「加载更早的 N 条」/「已到最早」（`mail-older-load` / `mail-older-end`） |
+| 小地图（标记、悬停、点击跳转、视口框、未加载提示） | 保留（组件只改了颜色 token 与 aria 文案） |
+| 气泡：分边、回信「回复 #N」跳转与高亮、急件、状态、时间、长信折叠 | 全部保留（状态文案改走字典） |
+| 广播副本卡：组 id、收件人 / 已送达 / 已回复 / 过期 / 待送达、逐条状态 | 保留（文案走字典） |
+| 待指派：原因、候选、改投、撤回、收集箱链接 | 全部保留 |
+| 回复框：正文、急件、发送中、错误提示、只读灰显原因 | 正文与急件改用 `Composer`，发送中 / 错误 / 只读原因保留 |
+| 写信：收件人标签、会话多选 + 搜索、四种「全部」选器、手写地址、投递数预览、正文、急件、错误 | 全部保留（改成 Sheet + Composer 承载），发送按钮不再有「收起」语义 |
+| 提示条（已发出 / 群发 / 转待指派 / 已撤回）+ 错误条 | 保留，文案走字典 |
+| 手机：列表 / 时间线两级切换 | 保留，断点从 900 改成冻结的 760（§4.3） |
+
+**测试（§13）**
+
+- 新增 `views/mailPage.test.ts`（11 个用例）：SSR 渲染页头 / 四个筛选 chip / 项目 chip / 常驻 agent / 空态与「选一个对话」、`?project=` 的空态、`?session=` 的会话 chip、英文字典无残留中文；源码断言 Sheet + 两处 Composer（急件、`can-send` + `hint`）、FilterChips / ProjectFilter / `useProjectFilter('/mail')`、「加载更早的 N 条」、待指派与广播、手机两级 + `BackLink`；`mailConversationInProject` 的空项目 / 命中 / 不命中 / 无 persona。
+- 同步修改：`views/mailWiring.test.ts`、`views/mailConversationsWiring.test.ts`、`views/mailMinimapWiring.test.ts`（旧的中文文案、`mail-tab-*`、`<textarea>` 断言改成 i18n key / chip / Composer，断点 900 → 760）、`views/pageWriteGate.test.ts`（回信灰显改成 Composer 的 `can-send` / `hint`）、`views/experimentalBadges.test.ts`（标题锚点改成 `t('mail.h.title')`）、`i18n/i18n.test.ts`（页面域加 `mail.`）。
+- 全量 `npx vitest run` 208 个文件 / 1421 个用例通过（新增用例后 209 / 1432），`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
+
+**如实记录的范围边界**
+
+- **视觉检查**：用构建产物 + 本机 Edge（headless，CDP 驱动）把 `/mail` 按 zh / en × 浅 / 深各截一屏（1440×900），另加手机（390×844）一屏；`/v1` 请求用临时樁数据（`tmp/visual/`，不入库）。据此改了三处：左栏的常驻 agent 从七列表格改成两行式列表（320–340px 宽度下不再折成一堆碎块，字段不变）、小地图轨道从 14px 加到 22px 并把标记与视口框改成能看清的形状、页头与筛选用 P0 token 对齐预览（浅 / 深两边对比度都够）；手机上另修一处：小地图不画时它的「还有更早的信件未加载」提示不再叠在气泡上（顶端已有「加载更早的 N 条」）。
+- 筛选计数是提示值：收件 / 发件 / 全部取 conversations 接口的 `count`（受服务端 `limit` / 扫描页数上限约束），待指派按本地分组算对话数，与信件数不是同一个口径。
+- 项目筛选是**前端**收窄（服务端 conversations 没有项目参数），一次最多取 100 个对话；跨项目的对话在两个项目下都会出现。
+- 写信的「正文」按钮由 Composer 提供：Composer 在正文为空时禁用发送，原来那种点了才提示「先写点内容」的路径不再走到（`buildMailSend` 的校验保留兜底）。
+- 仍留在工具层的中文：`utils/mail.ts` 的 `MAIL_STATE_LABEL` / `mailAddressLabel` / `mailComposePreviewText` / `MAIL_FILTERS` / `MAIL_SCOPES`（页面已不用它们出文案，`MailButton` 与单测还在用）、`utils/mailMinimap.ts` 的悬停文案、`utils/mailConversations.ts` 的 `personaStateLabel` 回退与 `mailReplyLabel`——P6 统一处理。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**

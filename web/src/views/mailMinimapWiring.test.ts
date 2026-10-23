@@ -30,8 +30,8 @@ describe('the conversation minimap is on the mailbox page', () => {
     // 悬停给出「发件方与时间 + 首行摘要」，点击把标记派发出去。
     expect(minimap).toContain(':title="mk.tooltip"')
     expect(minimap).toContain("@click=\"emit('jump', mk)\"")
-    // 手机宽度下隐藏（时间线已占满宽度）。
-    expect(minimap).toContain('@media (max-width: 900px)')
+    // 手机宽度下隐藏（时间线已占满宽度；断点是设计稿冻结的 760，§4.3）。
+    expect(minimap).toContain('@media (max-width: 760px)')
   })
 
   it('clicking a mark scrolls the timeline to that letter', () => {

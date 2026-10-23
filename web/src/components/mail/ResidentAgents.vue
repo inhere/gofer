@@ -7,6 +7,7 @@ import { RouterLink } from 'vue-router'
 import { endMailAgent, listMailAgents } from '../../api/client'
 import type { MailAgentsResp, MailResidentSession } from '../../api/types'
 import { fmtAgo } from '../../api/time'
+import { t } from '../../i18n'
 
 const data = ref<MailAgentsResp>({ agents_max_resident: 0, agents: [], residents: [] })
 const loading = ref(false)
@@ -53,74 +54,62 @@ defineExpose({ load })
 <template>
   <section class="resident" data-test="mail-resident-agents">
     <header class="resident-head">
-      <h2 class="resident-title">常驻 agent</h2>
+      <h2 class="resident-title">{{ t('mail.resident.title') }}</h2>
       <span class="dim" data-test="mail-resident-cap">
-        {{ live.length }} / {{ data.agents_max_resident }} 个会话
+        {{ t('mail.resident.cap', { n: live.length, max: data.agents_max_resident }) }}
       </span>
-      <button type="button" class="tiny" :disabled="loading" data-test="mail-resident-refresh" @click="load">刷新</button>
+      <button type="button" class="tiny" :disabled="loading" data-test="mail-resident-refresh" @click="load">
+        {{ t('mail.resident.refresh') }}
+      </button>
     </header>
     <p v-if="error" class="err" data-test="mail-resident-error">{{ error }}</p>
     <p v-if="!data.agents.length" class="dim" data-test="mail-resident-empty">
-      还没有配置收件 agent：在 server 配置的 mail.agents 里声明后，就能用 agent:&lt;名字&gt; 发信。
+      {{ t('mail.resident.empty') }}
     </p>
     <template v-else>
       <div class="chips" data-test="mail-resident-names">
         <code v-for="n in names" :key="n" class="chip">{{ n }}</code>
       </div>
-      <table v-if="data.residents.length" class="tbl" data-test="mail-resident-table">
-        <thead>
-          <tr>
-            <th>名字</th>
-            <th>项目</th>
-            <th>会话 job</th>
-            <th>信件</th>
-            <th>空闲</th>
-            <th>状态</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in data.residents" :key="`${r.name}@${r.project ?? ''}`" data-test="mail-resident-row">
-            <td class="mono">{{ r.name }}</td>
-            <td class="mono dim">{{ r.project || '—' }}</td>
-            <td class="mono">
-              <RouterLink v-if="r.job_id" :to="`/jobs/${encodeURIComponent(r.job_id)}`" data-test="mail-resident-job">
-                {{ r.job_id }}
-              </RouterLink>
-              <span v-else class="dim">—</span>
-            </td>
-            <td class="mono">{{ r.letters }}<span v-if="r.pending" class="dim"> (+{{ r.pending }} 待投递)</span></td>
-            <td class="mono dim">{{ idleOf(r) }}</td>
-            <td class="mono" :title="r.last_error || undefined">{{ r.status }}</td>
-            <td>
-              <button
-                type="button"
-                class="tiny"
-                :disabled="ending === `${r.name}@${r.project ?? ''}` || r.status !== 'resident'"
-                data-test="mail-resident-end"
-                @click="end(r)"
-              >
-                结束
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-else class="dim" data-test="mail-resident-none">当前没有常驻会话（下一封 agent: 信件会启动一个）。</p>
+      <!-- 左栏只有 320–340px：每行两个层——名字 / 状态 / 结束在上，job、信件数、空闲在下。 -->
+      <div v-if="data.residents.length" class="rows" data-test="mail-resident-table">
+        <div v-for="r in data.residents" :key="`${r.name}@${r.project ?? ''}`" class="row" data-test="mail-resident-row">
+          <div class="row-top">
+            <span class="mono name">{{ r.name }}</span>
+            <span class="mono dim ellipsis">{{ r.project || '—' }}</span>
+            <span class="mono dim" :title="r.last_error || r.status">{{ r.status }}</span>
+            <button
+              type="button"
+              class="tiny"
+              :disabled="ending === `${r.name}@${r.project ?? ''}` || r.status !== 'resident'"
+              data-test="mail-resident-end"
+              @click="end(r)"
+            >
+              {{ t('mail.resident.end') }}
+            </button>
+          </div>
+          <div class="row-meta mono dim">
+            <RouterLink v-if="r.job_id" :to="`/jobs/${encodeURIComponent(r.job_id)}`" data-test="mail-resident-job">
+              {{ r.job_id }}
+            </RouterLink>
+            <span v-else>—</span>
+            <span>{{ r.letters }}<template v-if="r.pending">{{ t('mail.resident.pending', { n: r.pending }) }}</template></span>
+            <span v-if="idleOf(r)">{{ idleOf(r) }}</span>
+          </div>
+        </div>
+      </div>
+      <p v-else class="dim" data-test="mail-resident-none">{{ t('mail.resident.none') }}</p>
     </template>
   </section>
 </template>
 
 <style scoped>
 .resident {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-  /* 信箱页是满高 flex 布局：这块按内容高度但不超过 30vh，长了内部自己滚，不挤对话区。 */
+  border-top: 1px solid var(--line);
+  padding: var(--s2) var(--s3);
+  /* 信箱页是满高 flex 布局，常驻 agent 在左栏底部：按内容高度，长了内部自己滚。 */
   flex: 0 0 auto;
   max-height: 30vh;
-  overflow-y: auto;
+  overflow: auto;
 }
 .resident-head {
   display: flex;
@@ -129,12 +118,13 @@ defineExpose({ load })
   margin-bottom: 6px;
 }
 .resident-title {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   margin: 0;
+  color: var(--fg);
 }
 .dim {
-  color: var(--queue);
-  font-size: 12px;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
 }
 .err {
   color: var(--fail);
@@ -150,19 +140,47 @@ defineExpose({ load })
 .chip {
   font-size: 11px;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: var(--r-chip);
   padding: 1px 6px;
 }
-.tbl {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
 }
-.tbl th,
-.tbl td {
-  text-align: left;
-  padding: 3px 6px;
-  border-bottom: 1px solid var(--line);
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  border-top: 1px solid var(--line);
+}
+.row-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--fs-xs);
+}
+.row-top .name {
+  color: var(--fg);
+  font-weight: 600;
+}
+.row-top .tiny {
+  margin-left: auto;
+}
+.row-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  font-size: 11px;
+}
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 12ch;
 }
 .mono {
   font-family: var(--font-mono);
@@ -170,10 +188,10 @@ defineExpose({ load })
 .tiny {
   font-size: 11px;
   background: none;
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-chip);
   padding: 1px 6px;
-  color: var(--paper);
+  color: var(--fg);
   cursor: pointer;
 }
 .tiny:disabled {

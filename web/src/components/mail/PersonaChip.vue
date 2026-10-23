@@ -5,6 +5,7 @@
 // 规则（取色、名字回退、状态文案）都在 utils/mailConversations.ts。
 import { computed } from 'vue'
 import type { MailParty } from '../../api/types'
+import { t, te } from '../../i18n'
 import {
   personaColor,
   personaInitial,
@@ -33,6 +34,13 @@ const color = computed(() => personaColor(personaSeed(props.party)))
 const initial = computed(() => personaInitial(name.value))
 const subline = computed(() => personaSubline(props.party))
 const state = computed(() => personaState(props.party))
+// 状态词走本页字典（mail.persona.<state>）；字典里没有的状态值原样显示。
+const stateText = computed(() => {
+  const s = state.value
+  if (!s) return ''
+  const key = `mail.persona.${s}`
+  return te(key) ? t(key) : personaStateLabel(s)
+})
 const tip = computed(() => personaTooltip(props.party, props.nowSec))
 const sid = computed(() => (props.party.kind === 'session' ? (props.party.id ?? '') : ''))
 
@@ -74,9 +82,9 @@ function onKey(e: KeyboardEvent): void {
       <span class="persona-name" data-test="mail-persona-name">{{ name }}</span>
       <span v-if="variant === 'full' && subline" class="persona-sub dim" data-test="mail-persona-sub">{{ subline }}</span>
     </span>
-    <span v-if="state" class="persona-state" :class="`tone--${personaStateTone(state)}`" :title="personaStateLabel(state)">
+    <span v-if="state" class="persona-state" :class="`tone--${personaStateTone(state)}`" :title="stateText">
       <span class="persona-dot" aria-hidden="true"></span>
-      <span v-if="variant === 'full'" class="persona-state-label">{{ personaStateLabel(state) }}</span>
+      <span v-if="variant === 'full'" class="persona-state-label">{{ stateText }}</span>
     </span>
   </span>
 </template>
@@ -90,7 +98,7 @@ function onKey(e: KeyboardEvent): void {
   background: none;
   border: 0;
   padding: 0;
-  color: var(--paper);
+  color: var(--fg);
   font-family: var(--font-sans);
   font-size: 12px;
   text-align: left;
@@ -99,7 +107,7 @@ function onKey(e: KeyboardEvent): void {
   cursor: pointer;
 }
 .persona--link:hover .persona-name {
-  color: var(--phosphor);
+  color: var(--accent);
   text-decoration: underline;
 }
 .persona-avatar {
@@ -164,9 +172,9 @@ function onKey(e: KeyboardEvent): void {
   color: var(--fail);
 }
 .tone--queue {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 .dim {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 </style>

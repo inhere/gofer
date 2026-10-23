@@ -51,7 +51,6 @@ describe('mailbox page wiring', () => {
       'mailFilterFromQuery(',
       'mailListQuery(',
       'groupMailConversations(',
-      'mailStateLabel(',
       'mailStateTone(',
       'mailPartyLabel(',
       'mailSummary(',
@@ -67,18 +66,16 @@ describe('mailbox page wiring', () => {
     // 页面自己不拼 HTML（design 2026-10-20「三、markdown 渲染」）。
     expect(page).toContain('<MarkdownBlock :text="bodyText(m)" />')
     expect(page).not.toContain('v-html')
-    // 颜色走 token 变量，不写死色值。
-    expect(page).toContain('var(--phosphor)')
-    expect(page).toContain('@media (max-width: 900px)')
+    // 颜色走 token 变量，不写死色值；手机断点是设计稿冻结的 760（§4.3）。
+    expect(page).toContain('var(--accent)')
+    expect(page).toContain('@media (max-width: 760px)')
   })
 
-  it('filter tabs, held mail actions and the compose form are on the page', () => {
+  it('filter chips, held mail actions and the compose form are on the page', () => {
     const page = src('Mail.vue')
     for (const t of [
-      '`mail-tab-${f.key}`',
+      '<FilterChips',
       'data-test="mail-to"',
-      'data-test="mail-urgent"',
-      'data-test="mail-reply-body"',
       'data-test="mail-readdress"',
       'data-test="mail-cancel"',
       'data-test="mail-held"',
@@ -87,6 +84,9 @@ describe('mailbox page wiring', () => {
     }
     // 页签切回地址栏（可分享 / 供 Today 与抽屉深链复用）。
     expect(page).toContain('router.replace({ path: \'/mail\'')
+    // 书信正文与回复都走统一的 Composer（急件开关由调用方声明）
+    expect(page.match(/<Composer/g)?.length).toBe(2)
+    expect(page.match(/urgent-option/g)?.length).toBe(2)
   })
 
   // 写信框的收件人（gofer-ndy5，设计 2026-10-22「D5」）：会话多选 + 「按项目 / 主题 / agent
@@ -104,13 +104,15 @@ describe('mailbox page wiring', () => {
       'data-test="mail-to-preview"',
       'data-test="mail-preview-error"',
       'mailComposeAddresses(',
-      'mailComposePreviewText(',
       'toggleComposeSession(',
       'removeComposeAddress(',
       'addComposeScope(',
     ]) {
       expect(page).toContain(t)
     }
+    // 投递数预览走本页字典的 previewText（数字来自服务端的 dry_run 或本地估算）
+    expect(page).toContain('previewText(')
+    expect(page).toContain('mailRecipientPreview(')
     // 预览是服务端的 dry_run（同一个 POST /v1/mail，不新增路由；G056）。
     expect(page).toContain('previewMail(')
     expect(src('client.ts')).toContain('dry_run: true')
