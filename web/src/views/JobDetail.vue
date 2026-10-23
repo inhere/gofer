@@ -4031,6 +4031,10 @@ onUnmounted(() => {
   word-break: break-word;
   overflow-x: auto;
 }
+/* markdown 形态的渲染命令：HTML 不能 pre-wrap，否则标签间的换行变成空行 */
+.outcome-pre.outcome-md {
+  white-space: normal;
+}
 .outcome-pre--cmd {
   max-height: 360px;
   overflow: auto;

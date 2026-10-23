@@ -1879,13 +1879,12 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   .last-message-released { font-size: 0; }
   .last-message-released::before { content: '已放行'; font-size: 11px; color: var(--ink-3); }
 }
+/* 渲染后的 markdown：不能 pre-wrap（标签之间的换行会变成一行行空白），也不用等宽字体（代码块自带） */
 .last-message-text {
   max-height: 45vh;
   overflow: auto;
   margin: 8px 0 0;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -1918,7 +1917,6 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   max-height: 35vh;
   overflow: auto;
   margin-top: 8px;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .outbox-panel {
