@@ -645,6 +645,46 @@ func (s *Store) scanTodoCounts(query string, args []any, out map[string]PlanTodo
 	return nil
 }
 
+// PlanJobStatusCountsByPlan is the batched form of PlanJobStatusCounts: one grouped
+// query per chunk for the jobs of many plans (the plan list must not issue a query
+// per plan). Plans without jobs are absent from the map, i.e. read as no jobs.
+func (s *Store) PlanJobStatusCountsByPlan(planIDs []string) (map[string]map[string]int, error) {
+	out := make(map[string]map[string]int, len(planIDs))
+	for start := 0; start < len(planIDs); start += todoCountsChunk {
+		chunk := planIDs[start:min(start+todoCountsChunk, len(planIDs))]
+		args := make([]any, len(chunk))
+		for i, id := range chunk {
+			args[i] = id
+		}
+		query := `SELECT plan_id, status, COUNT(*) FROM jobs WHERE plan_id IN (` +
+			strings.TrimSuffix(strings.Repeat("?,", len(chunk)), ",") + `) GROUP BY plan_id, status`
+		rows, err := s.db.Query(query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("jobstore: plan job status counts: %w", err)
+		}
+		for rows.Next() {
+			var (
+				planID, status string
+				n              int
+			)
+			if err := rows.Scan(&planID, &status, &n); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("jobstore: scan plan job status counts: %w", err)
+			}
+			if out[planID] == nil {
+				out[planID] = make(map[string]int)
+			}
+			out[planID][status] = n
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("jobstore: plan job status count rows: %w", err)
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
 // PlanJobStatusCounts returns a raw status->count map for jobs bound to planID.
 // It uses a full GROUP BY query so counts are not affected by any job list limit.
 func (s *Store) PlanJobStatusCounts(planID string) (map[string]int, error) {
