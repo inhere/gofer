@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { settings as settingsDict } from '../i18n/pages/settings'
+
+const workZh = settingsDict.zh
 
 const read = (glob: Record<string, unknown>): string => Object.values(glob)[0] as string
 const panel = read(import.meta.glob('./StewardPanel.vue', { eager: true, query: '?raw', import: 'default' }))
@@ -62,8 +65,10 @@ describe('Steward settings section', () => {
       expect(settings).toContain(`data-test="${hook}"`)
     }
     expect(settings).toContain('putConfigSteward(stewardDiff.value)')
-    expect(settings).toContain('重启管家')
-    expect(settings).toContain('笔记超过 8KB，下次巡检会精简')
+    expect(settings).toContain("t('settings.work.stewardRestart')")
+    expect(workZh['settings.work.stewardRestart']).toContain('重启管家')
+    expect(settings).toContain("t('settings.work.stewardNotesSlim')")
+    expect(workZh['settings.work.stewardNotesSlim']).toContain('笔记超过 8KB，下次巡检会精简')
     expect(settings).toContain('`/jobs/${encodeURIComponent(stewardStatus.job_id)}`')
   })
 })

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
 import UpdateApplyDialog from './UpdateApplyDialog.vue'
+import { settings as settingsDict } from '../i18n/pages/settings'
+
+const aboutZh = settingsDict.zh
 
 // gofer-dzv3「空闲时更新」的 web 面：确认弹层的新说明与最长等待选择、关于页 waiting_idle 的
 // 进度（在等谁 / 停住多少 / 放弃时间 / 取消等待），以及 paused_for_update 在状态文案、颜色与
@@ -51,8 +54,9 @@ describe('一键更新：空闲时更新（gofer-dzv3）', () => {
   })
 
   it('关于页在 waiting_idle 阶段列出在等的 job、停住数量与放弃时间，并可取消等待', () => {
-    expect(aboutSrc).toMatch(/waiting_idle: '等运行中的 job 结束'/)
-    expect(aboutSrc).toMatch(/cancelled: '已取消'/)
+    expect(aboutSrc).toMatch(/phaseText\(apply\.phase\)/)
+    expect(aboutZh['settings.about.phase.waiting_idle']).toBe('等运行中的 job 结束')
+    expect(aboutZh['settings.about.phase.cancelled']).toBe('已取消')
     expect(aboutSrc).toMatch(/const activePhases = \['downloading', 'waiting_idle', 'restarting', 'upgrading_workers'\]/)
     expect(aboutSrc).toMatch(/data-testid="update-wait-idle"/)
     // 在等的 job 可点进详情；每个还显示 runner 与状态。

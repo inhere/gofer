@@ -2,6 +2,7 @@
 // 设置 · 工作项：被动整理（整理器 agent / 参数 / 开关 / 阈值 / 每日上限）、请求超时、
 // 自动交接与每日摘要。读 GET /v1/work-items/summarizer（有效值 + 整理器可用性），
 // 写 PUT /v1/config/work（部分更新，需要 can_admin）；改动在下一个扫描周期生效。
+// UI 重设计 P5-d：FormSection 分节 + 吸底 SaveBar + 文案走 i18n（settings.work.*）。
 import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { ApiError, getWorkSummarizer, listAgents, putConfigWork } from '../../api/client'
@@ -16,8 +17,10 @@ import {
 } from '../../api/steward'
 import StewardNotes from '../../components/StewardNotes.vue'
 import type { AgentInfo, WorkSettings, WorkSummarizerStatus } from '../../api/types'
+import { t } from '../../i18n'
+import FormSection from '../../ui/FormSection.vue'
+import SaveBar from '../../ui/SaveBar.vue'
 import { acpAgentOptions, agentSwitchWarning, notesSizeLabel, settingsDiff, stateLabel } from '../../utils/steward'
-import { PAGE } from '../../utils/uiText'
 
 const status = ref<WorkSummarizerStatus | null>(null)
 const loading = ref(true)
@@ -79,10 +82,10 @@ function errText(e: unknown): string {
 }
 
 function parseArgs(text: string): string[] | null {
-  const t = text.trim()
-  if (t === '') return []
+  const trimmed = text.trim()
+  if (trimmed === '') return []
   try {
-    const v = JSON.parse(t)
+    const v = JSON.parse(trimmed)
     return Array.isArray(v) && v.every((x) => typeof x === 'string') ? (v as string[]) : null
   } catch {
     return null
@@ -114,7 +117,7 @@ async function save(): Promise<void> {
   notice.value = ''
   const args = parseArgs(form.argsText)
   if (args === null) {
-    error.value = '整理器参数要写成 JSON 字符串数组，例如 ["--model","haiku","--tools","","--no-session-persistence"]'
+    error.value = t('settings.work.errArgs')
     return
   }
   const idle = intOf(form.summarize_idle_min)
@@ -122,16 +125,16 @@ async function save(): Promise<void> {
   const daily = intOf(form.summarize_daily_limit)
   const timeout = intOf(form.request_timeout_min)
   if (idle === null || gap === null || daily === null || timeout === null || idle < 1 || gap < 1 || timeout < 1) {
-    error.value = '阈值要填正整数（每日上限填 -1 表示不限）。'
+    error.value = t('settings.work.errThreshold')
     return
   }
   if (!/^\d{1,2}:\d{2}$/.test(form.digest_time.trim())) {
-    error.value = '摘要时间写成 HH:MM，例如 09:00。'
+    error.value = t('settings.work.errDigest')
     return
   }
   const throttle = intOf(form.needs_me_throttle_min)
   if (throttle === null || throttle < 1) {
-    error.value = '「等我」通知的节流间隔要填正整数（分钟）。'
+    error.value = t('settings.work.errThrottle')
     return
   }
   saving.value = true
@@ -151,7 +154,7 @@ async function save(): Promise<void> {
       needs_me_notify: form.needs_me_notify,
       needs_me_throttle_min: throttle,
     })
-    notice.value = '已保存，下一个扫描周期生效。'
+    notice.value = t('settings.work.saved')
     await load()
   } catch (e) {
     error.value = errText(e)
@@ -200,18 +203,18 @@ async function saveSteward(): Promise<void> {
   stewardError.value = ''
   stewardNotice.value = ''
   if (sform.review_time.trim() && !/^\d{1,2}:\d{2}$/.test(sform.review_time.trim())) {
-    stewardError.value = '巡检时间写成 HH:MM，例如 08:50（留空 = 摘要前 10 分钟）。'
+    stewardError.value = t('settings.work.errReviewTime')
     return
   }
   const idle = Number.parseInt(sform.idle_end_min, 10)
   if (!Number.isFinite(idle) || idle < 1) {
-    stewardError.value = '空闲结束分钟要填正整数。'
+    stewardError.value = t('settings.work.errIdle')
     return
   }
   stewardBusy.value = true
   try {
     await putConfigSteward(stewardDiff.value)
-    stewardNotice.value = '已保存。'
+    stewardNotice.value = t('toast.saved')
     await loadSteward()
   } catch (e) {
     stewardError.value = errText(e)
@@ -222,7 +225,7 @@ async function saveSteward(): Promise<void> {
 
 async function stewardAction(kind: 'start' | 'restart' | 'stop'): Promise<void> {
   if (stewardBusy.value) return
-  if (kind === 'restart' && !window.confirm('重启管家？当前会话会结束并重建。')) return
+  if (kind === 'restart' && !window.confirm(t('settings.work.confirmRestart'))) return
   stewardError.value = ''
   stewardNotice.value = ''
   stewardBusy.value = true
@@ -245,135 +248,344 @@ onMounted(() => {
 
 <template>
   <div class="work-settings" data-test="work-settings">
-    <div class="head">
-      <span class="eyebrow mono">{{ PAGE.work }}</span>
-      <h2>{{ PAGE.work }}</h2>
-    </div>
+    <header class="page-head">
+      <div class="grow">
+        <h1>{{ t('settings.work.title') }}</h1>
+        <p class="sub">{{ t('settings.work.sub') }}</p>
+      </div>
+    </header>
 
-    <p v-if="error" class="msg msg--err mono" data-test="ws-error">{{ error }}</p>
-    <p v-if="notice" class="msg msg--ok mono" data-test="ws-notice">{{ notice }}</p>
-    <p v-if="loading && !status" class="muted mono">加载中…</p>
+    <p v-if="error" class="msg msg--err" data-test="ws-error">{{ error }}</p>
+    <p v-if="notice" class="msg msg--ok" data-test="ws-notice">{{ notice }}</p>
+    <p v-if="loading && !status" class="muted">{{ t('settings.work.loading') }}</p>
 
     <template v-if="status">
-      <section class="card">
-        <h3 class="mono">被动整理</h3>
-        <p v-if="status.available" class="ok mono" data-test="ws-available">整理器可用：{{ status.agent }}　今天已自动整理 {{ status.daily_used }} 次<template v-if="status.daily_limit > 0"> / 上限 {{ status.daily_limit }}</template></p>
-        <p v-else class="warn mono" data-test="ws-unavailable">整理功能暂不可用：{{ status.reason || '没有可用的整理器 agent' }}。下面指定一个已安装的 cli-agent 后即可恢复。</p>
-        <p class="muted mono">会话空闲、离线或结束后，用一次性只读、不带工具的小模型读它最近的对话，补全工作项的目标 / 阻塞 / 下一步。人或会话写过的内容只给「整理建议」，不会被覆盖。</p>
-
-        <label class="check mono"><input v-model="form.summarize_enabled" type="checkbox" data-test="ws-enabled" /> 自动整理（关闭后只能手动点「整理」）</label>
-        <div class="grid">
-          <label class="field mono">整理器 agent<input v-model="form.summarizer_agent" type="text" placeholder="claude" data-test="ws-agent" /></label>
-          <label class="field mono">整理用的项目（可选）<input v-model="form.summarizer_project" type="text" placeholder="留空 = 默认使用 default（~/.gofer/workspace）" data-test="ws-project" /></label>
-        </div>
-        <p class="muted mono" data-test="ws-project-hint">
-          <template v-if="form.summarizer_project.trim()">整理 job 固定在项目 {{ form.summarizer_project.trim() }} 里跑。</template>
-          <template v-else>留空：优先用工作项自己的项目（需允许整理器 agent 与本机 runner），否则默认使用 default（~/.gofer/workspace）。</template>
-          <template v-if="status.effective_project">　当前解析：{{ status.effective_project }}<template v-if="status.effective_dir">（{{ status.effective_dir }}）</template></template>
+      <FormSection :title="t('settings.work.summarize')" :desc="t('settings.work.summarizeDesc')">
+        <p v-if="status.available" class="ok" data-test="ws-available">
+          {{
+            status.daily_limit > 0
+              ? t('settings.work.availableCapped', { agent: status.agent, used: status.daily_used, cap: status.daily_limit })
+              : t('settings.work.available', { agent: status.agent, used: status.daily_used })
+          }}
         </p>
-        <label class="field mono">额外参数（JSON 数组，默认给 claude 配了便宜模型且不带工具）
+        <p v-else class="warn" data-test="ws-unavailable">
+          {{
+            t('settings.work.unavailable', {
+              reason: status.reason || t('settings.work.noReason'),
+            })
+          }}
+        </p>
+        <p class="muted">{{ t('settings.work.summarizeHelp') }}</p>
+
+        <label class="check">
+          <input v-model="form.summarize_enabled" type="checkbox" data-test="ws-enabled" />
+          {{ t('settings.work.enabledToggle') }}
+        </label>
+        <div class="grid">
+          <label class="field">
+            <span class="lab">{{ t('settings.work.agentLabel') }}</span>
+            <input v-model="form.summarizer_agent" type="text" placeholder="claude" data-test="ws-agent" />
+          </label>
+          <label class="field">
+            <span class="lab">{{ t('settings.work.projectLabel') }}</span>
+            <input
+              v-model="form.summarizer_project"
+              type="text"
+              :placeholder="t('settings.work.projectPlaceholder')"
+              data-test="ws-project"
+            />
+          </label>
+        </div>
+        <p class="muted" data-test="ws-project-hint">
+          <template v-if="form.summarizer_project.trim()">
+            {{ t('settings.work.projectHintFixed', { project: form.summarizer_project.trim() }) }}
+          </template>
+          <template v-else>{{ t('settings.work.projectHintEmpty') }}</template>
+          <template v-if="status.effective_project">
+            {{ ' ' }}{{ t('settings.work.projectHintCurrent', {
+              project: status.effective_project,
+              dir: status.effective_dir ? `（${status.effective_dir}）` : '',
+            }) }}
+          </template>
+        </p>
+        <label class="field">
+          <span class="lab">{{ t('settings.work.argsLabel') }}</span>
           <input v-model="form.argsText" type="text" placeholder='["--model","haiku","--tools","","--no-session-persistence"]' data-test="ws-args" />
         </label>
         <div class="grid3">
-          <label class="field mono">空闲多久后整理（分钟）<input v-model="form.summarize_idle_min" type="number" min="1" data-test="ws-idle" /></label>
-          <label class="field mono">同一会话最小间隔（分钟）<input v-model="form.summarize_min_interval_min" type="number" min="1" /></label>
-          <label class="field mono">每日自动整理上限（-1 不限）<input v-model="form.summarize_daily_limit" type="number" data-test="ws-daily" /></label>
+          <label class="field">
+            <span class="lab">{{ t('settings.work.idleLabel') }}</span>
+            <input v-model="form.summarize_idle_min" type="number" min="1" data-test="ws-idle" />
+          </label>
+          <label class="field">
+            <span class="lab">{{ t('settings.work.intervalLabel') }}</span>
+            <input v-model="form.summarize_min_interval_min" type="number" min="1" />
+          </label>
+          <label class="field">
+            <span class="lab">{{ t('settings.work.dailyLabel') }}</span>
+            <input v-model="form.summarize_daily_limit" type="number" data-test="ws-daily" />
+          </label>
         </div>
-      </section>
+      </FormSection>
 
-      <section class="card">
-        <h3 class="mono">请求与交接</h3>
-        <label class="check mono"><input v-model="form.auto_handoff" type="checkbox" data-test="ws-handoff" /> 搁置 / 标「需现场」时自动请会话写交接（只对在运行的会话；不在运行则改为整理）</label>
-        <label class="field mono">请求超时（分钟）：会话没回就标超时并改为整理<input v-model="form.request_timeout_min" type="number" min="1" /></label>
-      </section>
+      <FormSection :title="t('settings.work.handoff')" :desc="t('settings.work.handoffDesc')">
+        <label class="check">
+          <input v-model="form.auto_handoff" type="checkbox" data-test="ws-handoff" />
+          {{ t('settings.work.handoffToggle') }}
+        </label>
+        <label class="field">
+          <span class="lab">{{ t('settings.work.timeoutLabel') }}</span>
+          <input v-model="form.request_timeout_min" type="number" min="1" />
+        </label>
+      </FormSection>
 
-      <section class="card">
-        <h3 class="mono">每日摘要</h3>
-        <label class="check mono"><input v-model="form.digest_enabled" type="checkbox" /> 每天推送工作摘要</label>
-        <label class="field mono">推送时间（HH:MM）<input v-model="form.digest_time" type="text" placeholder="09:00" /></label>
-      </section>
+      <FormSection :title="t('settings.work.digest')" :desc="t('settings.work.digestDesc')">
+        <label class="check">
+          <input v-model="form.digest_enabled" type="checkbox" />
+          {{ t('settings.work.digestToggle') }}
+        </label>
+        <label class="field">
+          <span class="lab">{{ t('settings.work.digestTime') }}</span>
+          <input v-model="form.digest_time" type="text" placeholder="09:00" />
+        </label>
+      </FormSection>
 
-      <section class="card" data-test="needs-me-section">
-        <h3 class="mono">「等我」通知</h3>
-        <label class="check mono"><input v-model="form.needs_me_notify" type="checkbox" data-test="ws-needsme" /> 工作项进入「等我」时推送通知（work.needs_me，默认关闭；自动或手动进入都算）</label>
-        <label class="field mono">同一工作项的最小通知间隔（分钟）<input v-model="form.needs_me_throttle_min" type="number" min="1" data-test="ws-needsme-throttle" /></label>
-      </section>
+      <FormSection
+        :title="t('settings.work.needsMe')"
+        :desc="t('settings.work.needsMeDesc')"
+        data-test="needs-me-section"
+      >
+        <label class="check">
+          <input v-model="form.needs_me_notify" type="checkbox" data-test="ws-needsme" />
+          {{ t('settings.work.needsMeToggle') }}
+        </label>
+        <label class="field">
+          <span class="lab">{{ t('settings.work.needsMeThrottle') }}</span>
+          <input v-model="form.needs_me_throttle_min" type="number" min="1" data-test="ws-needsme-throttle" />
+        </label>
+      </FormSection>
 
-      <section class="card" data-test="steward-section">
-        <h3 class="mono">管家</h3>
-        <p class="muted mono">管家是一个常驻的 ACP 会话：只调度和整理工作项（读、记、提醒、建议合并、请会话汇报），不替你完成或放弃任何事，也不能提交 job / 改配置。关键信息都落在工作项和笔记里，换 agent 随时可以接着做。</p>
-        <p v-if="stewardError" class="msg msg--err mono" data-test="steward-error">{{ stewardError }}</p>
-        <p v-if="stewardNotice" class="msg msg--ok mono" data-test="steward-notice">{{ stewardNotice }}</p>
+      <FormSection :title="t('settings.work.steward')" :desc="t('settings.work.stewardHelp')">
+        <p v-if="stewardError" class="msg msg--err" data-test="steward-error">{{ stewardError }}</p>
+        <p v-if="stewardNotice" class="msg msg--ok" data-test="steward-notice">{{ stewardNotice }}</p>
         <template v-if="stewardStatus">
-          <p class="mono status-line" data-test="steward-status">
-            状态：<strong>{{ stateLabel(stewardStatus.state, stewardStatus.enabled) }}</strong>
-            <template v-if="stewardStatus.job_id">　会话 <RouterLink :to="`/jobs/${encodeURIComponent(stewardStatus.job_id)}`" data-test="steward-job">{{ stewardStatus.job_id }}</RouterLink>（{{ stewardStatus.job_agent }}）</template>
+          <p class="status-line" data-test="steward-status">
+            {{ t('settings.work.stewardState', { state: stateLabel(stewardStatus.state, stewardStatus.enabled) }) }}
+            <template v-if="stewardStatus.job_id">
+              {{ ' ' }}{{ t('settings.work.stewardSession') }}
+              <RouterLink :to="`/jobs/${encodeURIComponent(stewardStatus.job_id)}`" data-test="steward-job">{{ stewardStatus.job_id }}</RouterLink>
+              （{{ stewardStatus.job_agent }}）
+            </template>
           </p>
-          <p v-if="stewardStatus.agent_error" class="warn mono" data-test="steward-agent-error">{{ stewardStatus.agent_error }}</p>
+          <p v-if="stewardStatus.agent_error" class="warn" data-test="steward-agent-error">{{ stewardStatus.agent_error }}</p>
         </template>
-        <label class="check mono"><input v-model="sform.enabled" type="checkbox" data-test="steward-enabled" /> 启用管家（默认关闭；开启后按需启动，空闲自动结束）</label>
+        <label class="check">
+          <input v-model="sform.enabled" type="checkbox" data-test="steward-enabled" />
+          {{ t('settings.work.stewardEnabled') }}
+        </label>
         <div class="grid">
-          <label class="field mono">管家 agent（已安装的 acp-agent）
+          <label class="field">
+            <span class="lab">{{ t('settings.work.stewardAgent') }}</span>
             <select v-model="sform.agent" data-test="steward-agent">
-              <option value="">（未选择）</option>
+              <option value="">{{ t('settings.work.stewardNone') }}</option>
               <option v-for="o in agentOptions" :key="o.key" :value="o.key">{{ o.label }}</option>
             </select>
           </label>
-          <label class="field mono">运行项目（可选）<input v-model="sform.project" type="text" placeholder="留空 = 内置 default 项目" data-test="steward-project" /></label>
+          <label class="field">
+            <span class="lab">{{ t('settings.work.stewardProject') }}</span>
+            <input v-model="sform.project" type="text" :placeholder="t('settings.work.stewardProjectPlaceholder')" data-test="steward-project" />
+          </label>
         </div>
-        <p v-if="switchWarning" class="warn mono" data-test="steward-switch-warning">{{ switchWarning }}</p>
+        <p v-if="switchWarning" class="warn" data-test="steward-switch-warning">{{ switchWarning }}</p>
         <div class="grid3">
-          <label class="field mono">每日巡检时间（HH:MM）<input v-model="sform.review_time" type="text" :placeholder="stewardSettings ? `留空 = 摘要前 10 分钟（${stewardSettings.review_time}）` : '08:50'" data-test="steward-review-time" /></label>
-          <label class="field mono">空闲多久结束会话（分钟）<input v-model="sform.idle_end_min" type="number" min="1" data-test="steward-idle" /></label>
+          <label class="field">
+            <span class="lab">{{ t('settings.work.stewardReviewTime') }}</span>
+            <input
+              v-model="sform.review_time"
+              type="text"
+              :placeholder="stewardSettings
+                ? t('settings.work.stewardReviewPlaceholder', { time: stewardSettings.review_time })
+                : '08:50'"
+              data-test="steward-review-time"
+            />
+          </label>
+          <label class="field">
+            <span class="lab">{{ t('settings.work.stewardIdle') }}</span>
+            <input v-model="sform.idle_end_min" type="number" min="1" data-test="steward-idle" />
+          </label>
         </div>
-        <label class="check mono"><input v-model="sform.event_wake" type="checkbox" data-test="steward-event-wake" /> 会话离线 / 到期 / 草稿较多时唤醒管家整理（批量，节流 30 分钟；关闭则只记下，留给下次巡检）</label>
-        <p v-if="stewardStatus" class="muted mono" data-test="steward-notes-info">
-          管家笔记 v{{ stewardStatus.notes_version }}（{{ notesSizeLabel(stewardStatus.notes_bytes) }}）
-          <template v-if="stewardStatus.notes_need_slim">　<span class="warn">笔记超过 8KB，下次巡检会精简。</span></template>
-          <button class="btn mono" type="button" data-test="steward-notes-open" @click="notesOpen = true">查看 / 编辑笔记</button>
+        <label class="check">
+          <input v-model="sform.event_wake" type="checkbox" data-test="steward-event-wake" />
+          {{ t('settings.work.stewardEventWake') }}
+        </label>
+        <p v-if="stewardStatus" class="muted" data-test="steward-notes-info">
+          {{ t('settings.work.stewardNotes', { version: stewardStatus.notes_version, size: notesSizeLabel(stewardStatus.notes_bytes) }) }}
+          <template v-if="stewardStatus.notes_need_slim">
+            <span class="warn"> {{ t('settings.work.stewardNotesSlim') }}</span>
+          </template>
+          <button class="btn" type="button" data-test="steward-notes-open" @click="notesOpen = true">
+            {{ t('settings.work.stewardNotesOpen') }}
+          </button>
         </p>
         <div class="actions">
-          <button class="btn primary mono" type="button" :disabled="stewardBusy || !stewardDirty" data-test="steward-save" @click="saveSteward">{{ stewardBusy ? '处理中…' : '保存管家设置' }}</button>
-          <button class="btn mono" type="button" :disabled="stewardBusy || !stewardStatus?.enabled || stewardStatus?.state !== 'not_started'" data-test="steward-start" @click="stewardAction('start')">启动</button>
-          <button class="btn mono" type="button" :disabled="stewardBusy || !stewardStatus?.enabled" data-test="steward-restart" @click="stewardAction('restart')">重启管家</button>
-          <button class="btn mono" type="button" :disabled="stewardBusy || stewardStatus?.state === 'not_started'" data-test="steward-stop" @click="stewardAction('stop')">停止</button>
+          <button class="btn btn--primary" type="button" :disabled="stewardBusy || !stewardDirty" data-test="steward-save" @click="saveSteward">
+            {{ stewardBusy ? t('settings.work.busy') : t('settings.work.stewardSave') }}
+          </button>
+          <button class="btn" type="button" :disabled="stewardBusy || !stewardStatus?.enabled || stewardStatus?.state !== 'not_started'" data-test="steward-start" @click="stewardAction('start')">
+            {{ t('settings.work.stewardStart') }}
+          </button>
+          <button class="btn" type="button" :disabled="stewardBusy || !stewardStatus?.enabled" data-test="steward-restart" @click="stewardAction('restart')">
+            {{ t('settings.work.stewardRestart') }}
+          </button>
+          <button class="btn" type="button" :disabled="stewardBusy || stewardStatus?.state === 'not_started'" data-test="steward-stop" @click="stewardAction('stop')">
+            {{ t('settings.work.stewardStop') }}
+          </button>
         </div>
-      </section>
+      </FormSection>
 
-      <div class="actions">
-        <button class="btn primary mono" type="button" :disabled="saving || !dirty" data-test="ws-save" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
-        <button class="btn mono" type="button" :disabled="loading" @click="load">重新读取</button>
-        <span v-if="dirty" class="muted mono">有未保存的修改</span>
-      </div>
+      <SaveBar
+        :dirty="dirty"
+        :busy="saving"
+        :save-text="t('settings.work.save')"
+        @save="save"
+        @discard="load"
+      />
     </template>
     <StewardNotes v-if="notesOpen" @close="notesOpen = false" @changed="loadSteward" />
   </div>
 </template>
 
 <style scoped>
-.work-settings { display: grid; gap: 14px; }
-.head { display: flex; align-items: baseline; gap: 10px; }
-.eyebrow { color: var(--phosphor); font-size: 10px; letter-spacing: 0.18em; }
-h2 { margin: 0; color: var(--paper); font-size: 18px; }
-h3 { margin: 0 0 6px; color: var(--paper); font-size: 13px; }
-.card { display: grid; gap: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 14px; }
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--queue); min-width: 0; }
-.field input, .field select { min-width: 0; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; font: inherit; font-size: 12px; }
-.check { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--paper); }
-.check input { accent-color: var(--phosphor); margin-top: 2px; }
-.muted { margin: 0; font-size: 11px; color: var(--queue); }
-.ok { margin: 0; font-size: 12px; color: var(--done); }
-.warn { margin: 0; font-size: 12px; color: var(--warning, var(--fail)); }
-.msg { margin: 0; padding: 8px 12px; font-size: 12px; border: 1px solid var(--line); border-radius: var(--radius); }
-.msg--err { color: var(--fail); border-color: var(--fail); }
-.msg--ok { color: var(--done); border-color: var(--done); }
-.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.btn { border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 12px; cursor: pointer; color: var(--paper); background: transparent; }
-.btn.primary { color: var(--ink); background: var(--phosphor); }
-.btn:disabled { cursor: not-allowed; opacity: 0.45; }
-@media (max-width: 640px) {
-  .grid, .grid3 { grid-template-columns: minmax(0, 1fr); }
+.work-settings {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.page-head {
+  margin-bottom: 6px;
+}
+.page-head h1 {
+  margin: 0 0 4px;
+  font-size: var(--fs-xl);
+  color: var(--fg);
+}
+.sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--fg-3);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-sm);
+  margin-bottom: 12px;
+  min-width: 0;
+}
+.field .lab {
+  font-weight: 500;
+  color: var(--fg);
+}
+.field input,
+.field select {
+  min-width: 0;
+  color: var(--fg);
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 7px 9px;
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--fg);
+  margin-bottom: 10px;
+}
+.check input {
+  accent-color: var(--accent);
+  margin-top: 2px;
+}
+.muted {
+  margin: 0 0 10px;
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
+  line-height: 1.6;
+}
+.ok {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  color: var(--accent);
+}
+.warn {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  color: var(--need-ink);
+}
+.status-line {
+  margin: 0 0 10px;
+  font-size: var(--fs-sm);
+  color: var(--fg);
+}
+.msg {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  font-size: var(--fs-sm);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+}
+.msg--err {
+  color: var(--fail);
+  border-color: var(--fail);
+}
+.msg--ok {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn {
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 7px 12px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--fg);
+  background: transparent;
+}
+.btn--primary {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+@media (max-width: 760px) {
+  .grid,
+  .grid3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>
