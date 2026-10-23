@@ -35,16 +35,23 @@ describe('Work page', () => {
     expect(drawer).toContain('e.status === 409')
   })
 
-  it('shows the three count chips that filter, a status/workspace switch and the unsorted area', () => {
-    for (const hook of ['data-test="chip-needs-me"', 'data-test="chip-due"', 'data-test="chip-unsorted"', 'data-test="view-status"', 'data-test="view-workspace"', 'data-test="triage-area"']) {
+  it('shows the four count chips (all / needs me / due / unsorted), a status/workspace switch and the unsorted area', () => {
+    for (const hook of ['FilterChips', 'ProjectFilter', 'workCounts', 'data-test="view-status"', 'data-test="view-workspace"', 'data-test="triage-area"', 'data-test="work-summary"']) {
       expect(work).toContain(hook)
     }
-    expect(work).toContain('等我 <strong>')
-    expect(work).toContain('到期提醒 <strong>')
+    // chips carry the counts; the filter value keeps utils/work's WorkFilter vocabulary
+    for (const key of ['work.f.all', 'work.f.needsMe', 'work.f.due', 'work.f.unsorted']) expect(work).toContain(key)
+    expect(work).toContain('workCounts(inProject.value, unsortedItems(inProject.value))')
     expect(work).toContain("localStorage.setItem(VIEW_KEY, v)")
     // the unsorted area is only a separate section when nothing is being filtered
     expect(work).toContain('const showTriageArea = computed(')
     expect(work).toContain('() => !filtering.value && !q.value.trim() &&')
+  })
+
+  it('narrows by project through the URL (one entry point for the project chip)', () => {
+    expect(work).toContain("useProjectFilter('/work')")
+    expect(work).toContain('narrowByProject(items.value, project.value)')
+    expect(work).toContain('narrowByProject(captured.value, project.value)')
   })
 
   it('renders the same shared card shell as the Sessions page (no private copy)', () => {
@@ -75,7 +82,13 @@ describe('Work page', () => {
 
   it('hides empty columns on a phone so the first screen has content', () => {
     expect(work).toContain('.work-col--empty { display: none; }')
-    expect(work).toContain('@media (max-width: 640px)')
+    // §4.3 froze the phone breakpoint at 760 for this redesign
+    expect(work).toContain('@media (max-width: 760px)')
+  })
+
+  it('uses the P0 status pill for the column headers instead of the old sbadge', () => {
+    expect(work).toContain('<StatusPill :status="col.status" />')
+    expect(work).not.toContain('sbadge--${col.tone}')
   })
 })
 
@@ -83,11 +96,11 @@ describe('Work drawer', () => {
   it('writes with the optimistic lock and recovers from a 409', () => {
     expect(drawer).toContain('patchWorkItem(d.id, { ...p, rev: d.rev })')
     expect(drawer).toContain('e.status === 409')
-    expect(drawer).toContain('刚被别人（或会话）改过')
+    expect(drawer).toContain("t('work.d.conflict')")
   })
 
   it('has the organising operations: status, park, remind, complete/drop, merge, split, link, note', () => {
-    for (const hook of ['data-test="mark-done"', 'data-test="mark-dropped"', 'data-test="park-btn"', 'data-test="remind-btn"', 'data-test="merge-btn"', 'data-test="split-btn"', 'data-test="add-link"', 'data-test="add-note"', 'data-test="hand-back"']) {
+    for (const hook of ['data-test="mark-done"', 'data-test="mark-dropped"', 'data-test="park-btn"', 'data-test="remind-btn"', 'data-test="merge-btn"', 'data-test="split-btn"', 'data-test="add-link"', 'data-test="note-composer"', 'data-test="hand-back"']) {
       expect(drawer).toContain(hook)
     }
     expect(drawer).toContain('mergeWorkItems(d.id')
@@ -115,8 +128,13 @@ describe('Work drawer', () => {
     expect(drawer).toContain('data-test="tl-by"')
   })
 
-  it('stacks under the session drawer so opening a session from here stays on top', () => {
-    expect(drawer).toContain('z-index: 78')
+  it('stacks the P2 drawer shell under the session drawer and puts the note box on Composer', () => {
+    expect(drawer).toContain("import Drawer from '../ui/Drawer.vue'")
+    expect(drawer).toContain('<Drawer v-model="open" :label="drawerLabel" flush')
+    // P4 已合入的统一输入框：写备注不再自带一个输入框 + 按钮
+    expect(drawer).toContain("import Composer from '../ui/Composer.vue'")
+    expect(drawer).toContain('@send="addNote"')
+    expect(drawer).not.toContain('data-test="note-input"')
   })
 })
 

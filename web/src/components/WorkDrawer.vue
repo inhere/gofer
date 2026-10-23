@@ -1,10 +1,15 @@
 <script setup lang="ts">
 // 工作项详情抽屉：字段编辑、日志时间线、会话（当前 / 历史）、关联项，以及整理类操作
 // （标状态 / 搁置 / 提醒 / 完成·放弃 / 请它汇报 / 合并 / 拆分）。
+// 外壳用 P2 的 ui/Drawer（手机铺满宽 = 两级页面的详情层）；写备注的输入框用统一 Composer。
 // 修改都带 rev 做乐观锁：别人改过会收到 409，面板提示并重新拉取。
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import WorkDispatchDialog from './WorkDispatchDialog.vue'
+import Drawer from '../ui/Drawer.vue'
+import Composer from '../ui/Composer.vue'
+import StatusPill from '../ui/StatusPill.vue'
+import { t } from '../i18n'
 import { isPendingSync, PENDING_SYNC_HINT, PENDING_SYNC_LABEL } from '../utils/dispatch'
 import {
   acceptWorkSuggestion,
@@ -41,16 +46,13 @@ import {
   localInputToUnix,
   pendingSuggestions,
   reportRequestBlock,
-  requestLine,
-  statusLabel,
-  statusTone,
-  suggestionLabel,
   suggestionValueText,
   summarizeBlock,
   unixToLocalInput,
   whenPresets,
   WORK_STATUSES,
 } from '../utils/work'
+import { suggestionLabelKey, workRequestLine } from '../utils/workBoard'
 import type { AgentSession, Plan, WorkDetail, WorkItem, WorkItemPatch, WorkReportRequestResult, WorkStatus } from '../api/types'
 
 const props = defineProps<{
@@ -75,6 +77,12 @@ const busy = ref(false)
 const error = ref('')
 const notice = ref('')
 const nowSec = ref(Math.floor(Date.now() / 1000))
+
+// Drawer 外壳的开关：关闭时把意图交回页面（页面负责清掉 URL 里的 ?id=）。
+const open = ref(true)
+watch(open, (v) => {
+  if (!v) emit('close')
+})
 
 const form = reactive({
   title: '', goal: '', blocker_kind: '', blocker_text: '', next_step: '', summary: '', project_key: '', workspace: '', priority: '0',
@@ -140,7 +148,7 @@ async function patch(p: WorkItemPatch, okText = ''): Promise<boolean> {
     return true
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
-      error.value = '这个工作项刚被别人（或会话）改过，已刷新到最新；请确认后再改一次。'
+      error.value = t('work.d.conflict')
       await load()
     } else {
       error.value = errText(e)
@@ -177,20 +185,20 @@ async function saveFields(): Promise<void> {
       next_step: form.next_step, summary: form.summary, project_key: form.project_key, workspace: form.workspace,
       priority: Number.isFinite(prio) ? prio : 0,
     },
-    '已保存',
+    t('work.d.saved'),
   )
 }
 
 async function setStatus(st: WorkStatus): Promise<void> {
-  if (st === 'dropped' && !window.confirm('确定放弃这个工作项？它会移出看板（可在「显示已完成」里找回）。')) return
-  await patch({ status: st }, `状态已改为「${statusLabel(st)}」`)
+  if (st === 'dropped' && !window.confirm(t('work.d.dropConfirm'))) return
+  await patch({ status: st }, t('work.d.statusSet', { status: t(`status.${st}`) }))
 }
 
 // 永久删除（仅已完成 / 已放弃的项）：二次确认，成功后通知列表刷新并关闭抽屉。
 async function removeItem(): Promise<void> {
   const d = detail.value
   if (!d || busy.value || !closed.value) return
-  if (!window.confirm(`永久删除「${d.title}」？它的日志、会话关联和关联项会一并删除，无法恢复。`)) return
+  if (!window.confirm(t('work.d.deleteConfirm', { title: d.title }))) return
   busy.value = true
   error.value = ''
   try {
@@ -205,11 +213,11 @@ async function removeItem(): Promise<void> {
 }
 
 async function handBackToAuto(): Promise<void> {
-  await patch({ status_source: 'auto' }, '状态已交还给会话自动判定')
+  await patch({ status_source: 'auto' }, t('work.d.handedBack'))
 }
 
 async function markSorted(): Promise<void> {
-  await patch({ unsorted: false }, '已标为整理好')
+  await patch({ unsorted: false }, t('work.d.markedSorted'))
 }
 
 // ---------------- 搁置 / 提醒 ----------------
@@ -221,10 +229,10 @@ const presets = computed(() => whenPresets(new Date(nowSec.value * 1000)))
 async function park(): Promise<void> {
   const until = localInputToUnix(parkUntil.value)
   if (!until && !parkNote.value.trim()) {
-    error.value = '搁置需要写明什么时候回来（时间）和 / 或什么条件满足再继续。'
+    error.value = t('work.d.parkNeedsWhen')
     return
   }
-  const ok = await patch({ status: 'parked', park_until: until, park_note: parkNote.value.trim() }, '已搁置')
+  const ok = await patch({ status: 'parked', park_until: until, park_note: parkNote.value.trim() }, t('work.d.parkedOk'))
   if (ok) {
     parkUntil.value = ''
     parkNote.value = ''
@@ -234,14 +242,14 @@ async function park(): Promise<void> {
 async function setRemind(): Promise<void> {
   const at = localInputToUnix(remindAt.value)
   if (!at) {
-    error.value = '请选一个提醒时间。'
+    error.value = t('work.d.remindNeedsTime')
     return
   }
-  if (await patch({ remind_at: at }, '提醒已设置')) remindAt.value = ''
+  if (await patch({ remind_at: at }, t('work.d.remindSet'))) remindAt.value = ''
 }
 
 async function clearRemind(): Promise<void> {
-  await patch({ remind_at: 0 }, '提醒已清除')
+  await patch({ remind_at: 0 }, t('work.d.remindCleared'))
 }
 
 // ---------------- 请它汇报 / 写交接 / 整理 ----------------
@@ -256,22 +264,23 @@ async function askReport(kind: 'report' | 'handoff' = 'report'): Promise<void> {
   const r = await run(() => requestWorkReport(d.id, '', kind), '')
   if (!r) return
   reportResults.value = r.results
-  notice.value = r.sent ? '已请会话回复：它写回后这里会自动更新' : '没能送达给会话，已改为自动整理（见下方）'
+  notice.value = r.sent ? t('work.d.reportSent') : t('work.d.reportFallback')
   void load({ silent: true })
 }
 
 async function tidyNow(): Promise<void> {
   const d = detail.value
   if (!d || tidyBlock.value || tidying.value) return
-  if (await run(() => summarizeWorkItem(d.id), '已开始整理：完成后这里会自动更新')) void load({ silent: true })
+  if (await run(() => summarizeWorkItem(d.id), t('work.d.tidyStarted'))) void load({ silent: true })
 }
 
 async function onSuggestion(field: string, accept: boolean): Promise<void> {
   const d = detail.value
   if (!d) return
+  const label = t(suggestionLabelKey(field))
   const r = await run(
     () => (accept ? acceptWorkSuggestion(d.id, field) : dismissWorkSuggestion(d.id, field)),
-    accept ? `已采纳「${suggestionLabel(field)}」建议` : `已忽略「${suggestionLabel(field)}」建议`,
+    accept ? t('work.d.suggestionAccepted', { field: label }) : t('work.d.suggestionDismissed', { field: label }),
   )
   if (r) {
     detail.value = r
@@ -289,11 +298,11 @@ function srcKind(field: string): string {
 }
 
 const note = ref('')
-async function addNote(): Promise<void> {
+async function addNote(text?: string): Promise<void> {
   const d = detail.value
-  const text = note.value.trim()
-  if (!d || !text) return
-  if (await run(() => addWorkNote(d.id, text), '备注已写入')) {
+  const body = (text ?? note.value).trim()
+  if (!d || !body) return
+  if (await run(() => addWorkNote(d.id, body), t('work.d.noteAdded'))) {
     note.value = ''
     await load({ silent: true })
   }
@@ -310,7 +319,7 @@ const attachSid = ref('')
 async function attach(): Promise<void> {
   const d = detail.value
   if (!d || !attachSid.value) return
-  const r = await run(() => attachWorkSession(d.id, attachSid.value), '已关联会话')
+  const r = await run(() => attachWorkSession(d.id, attachSid.value), t('work.d.attachOk'))
   if (r) {
     detail.value = r
     attachSid.value = ''
@@ -319,8 +328,8 @@ async function attach(): Promise<void> {
 
 async function detach(sid: string): Promise<void> {
   const d = detail.value
-  if (!d || !window.confirm('取消关联这个会话？它会转入历史。')) return
-  const r = await run(() => detachWorkSession(d.id, sid), '已取消关联')
+  if (!d || !window.confirm(t('work.d.detachConfirm'))) return
+  const r = await run(() => detachWorkSession(d.id, sid), t('work.d.detached'))
   if (r) detail.value = r
 }
 
@@ -349,7 +358,7 @@ async function addLink(): Promise<void> {
   const d = detail.value
   const ref = linkRef.value.trim()
   if (!d || !ref) return
-  const r = await run(() => linkWorkItem(d.id, linkKind.value, ref), '已关联')
+  const r = await run(() => linkWorkItem(d.id, linkKind.value, ref), t('work.d.linkOk'))
   if (r) {
     detail.value = r
     linkRef.value = ''
@@ -359,7 +368,7 @@ async function addLink(): Promise<void> {
 async function removeLink(kind: string, ref: string): Promise<void> {
   const d = detail.value
   if (!d) return
-  const r = await run(() => unlinkWorkItem(d.id, kind, ref), '已取消关联')
+  const r = await run(() => unlinkWorkItem(d.id, kind, ref), t('work.d.unlinkOk'))
   if (r) detail.value = r
 }
 
@@ -411,12 +420,14 @@ async function submitTodo(): Promise<void> {
     const r = await workToTodo(d.id, todoPlanId.value ? { plan_id: todoPlanId.value } : { new_plan_title: todoNewTitle.value.trim() })
     detail.value = r.item
     todoDlg.value = false
-    notice.value = r.plan_created ? `已转为 todo，并新建了 plan ${r.plan_id}` : `已转为 todo（plan ${r.plan_id}）`
+    notice.value = r.plan_created
+      ? t('work.d.toTodoCreatedPlan', { plan: r.plan_id })
+      : t('work.d.toTodoCreated', { plan: r.plan_id })
     emit('changed')
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
       const b = (e.body ?? {}) as { todo_id?: string; plan_id?: string }
-      todoErr.value = `已经转过了：todo ${b.todo_id ?? ''}（plan ${b.plan_id ?? ''}）`
+      todoErr.value = t('work.d.toTodoExists', { todo: b.todo_id ?? '', plan: b.plan_id ?? '' })
       void load({ silent: true })
     } else {
       todoErr.value = errText(e)
@@ -444,8 +455,8 @@ function toggleMerge(id: string): void {
 async function merge(): Promise<void> {
   const d = detail.value
   if (!d || mergeIds.value.size === 0) return
-  if (!window.confirm(`把选中的 ${mergeIds.value.size} 个工作项合并进「${d.title}」？它们的会话、日志和关联项会并到这里，原工作项隐藏。`)) return
-  const r = await run(() => mergeWorkItems(d.id, [...mergeIds.value]), '已合并')
+  if (!window.confirm(t('work.d.mergeConfirm', { n: mergeIds.value.size, title: d.title }))) return
+  const r = await run(() => mergeWorkItems(d.id, [...mergeIds.value]), t('work.d.merged'))
   if (r) {
     detail.value = r
     fillForm(r)
@@ -468,12 +479,12 @@ function toggleSplitSid(sid: string): void {
 async function split(): Promise<void> {
   const d = detail.value
   if (!d || !splitTitle.value.trim()) {
-    error.value = '拆分需要给新工作项起个标题。'
+    error.value = t('work.d.splitNeedsTitle')
     return
   }
   const r = await run(
     () => splitWorkItem(d.id, { title: splitTitle.value.trim(), goal: splitGoal.value.trim(), session_ids: [...splitSids.value], keep_sessions: splitKeep.value }),
-    '已拆分出新的工作项',
+    t('work.d.splitDone'),
   )
   if (r) {
     detail.value = r.source
@@ -497,8 +508,15 @@ const pastSessions = computed(() => (detail.value?.sessions ?? []).filter((s) =>
 // 「完成 / 放弃」有单独的按钮，状态行只放活着的 6 个
 const STATUS_BUTTONS = WORK_STATUSES.filter((m) => m.key !== 'done' && m.key !== 'dropped')
 const closed = computed(() => detail.value?.status === 'done' || detail.value?.status === 'dropped')
+const drawerLabel = computed(() => detail.value?.title || t('work.d.label'))
 
-const KIND_LABEL: Record<string, string> = { report: '汇报', note: '备注', status: '变更', steward: '整理', link: '关联' }
+const KIND_LABEL_KEY: Record<string, string> = {
+  report: 'work.d.kindReport',
+  note: 'work.d.kindNote',
+  status: 'work.d.kindStatus',
+  steward: 'work.d.kindSteward',
+  link: 'work.d.kindLink',
+}
 
 const live = createLiveTopic('work', { initial: false, fetch: () => load({ silent: true }) })
 watch(() => props.id, () => void load())
@@ -510,299 +528,304 @@ onUnmounted(() => live.stop())
 </script>
 
 <template>
-  <div class="drawer-overlay" @click.self="emit('close')">
-    <div class="drawer-panel" role="dialog" aria-label="工作项详情">
-      <div class="drawer-head">
-        <div class="head-main">
-          <span class="drawer-title mono" :title="detail?.title">{{ detail?.title || id }}</span>
-          <span v-if="detail" class="sbadge mono" :class="`sbadge--${statusTone(detail.status)}`">{{ statusLabel(detail.status) }}</span>
-          <span v-if="detail?.due" class="sbadge sbadge--hot mono">到期</span>
-          <span
-            v-if="detail && healthLabel"
-            class="health mono"
-            :class="`health--${detail.health}`"
-            :title="detail.health_reason"
-            data-test="drawer-health"
-          >{{ healthLabel }}<template v-if="detail.health_reason">：{{ detail.health_reason }}</template></span>
-        </div>
-        <div class="head-actions mono">
-          <button class="icard-btn mono" type="button" :disabled="loading" @click="load()">{{ loading ? '刷新中…' : '刷新' }}</button>
-          <button class="icard-btn mono" type="button" data-test="drawer-close" @click="emit('close')">关闭</button>
-        </div>
+  <Drawer v-model="open" :label="drawerLabel" flush width="clamp(640px, 52vw, 1040px)">
+    <div class="detail-head">
+      <div class="head-main">
+        <StatusPill v-if="detail" :status="detail.status" size="md" />
+        <span v-if="detail?.due" class="mark mark--need">{{ t('work.card.dueRemind') }}</span>
+        <span
+          v-if="detail && healthLabel"
+          class="health"
+          :class="`health--${detail.health}`"
+          :title="detail.health_reason"
+          data-test="drawer-health"
+        >{{ healthLabel }}<template v-if="detail.health_reason">：{{ detail.health_reason }}</template></span>
       </div>
-
-      <div class="drawer-body">
-        <p v-if="error" class="msg msg--err mono" data-test="drawer-error">{{ error }}</p>
-        <p v-if="notice" class="msg msg--ok mono">{{ notice }}</p>
-        <p v-if="!detail && loading" class="empty mono">加载中…</p>
-
-        <template v-if="detail">
-          <section v-if="isCaptured" class="sec" data-test="drawer-dispatch">
-            <h4 class="sec-title mono">收集箱</h4>
-            <p class="hint mono">还没整理。交给会话、新建 job、转 todo 或 issue，或者归档 / 丢弃。</p>
-            <div class="row3">
-              <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy" data-test="open-dispatch" @click="dispatchDlg = true">分派…</button>
-            </div>
-          </section>
-
-          <section class="sec">
-            <h4 class="sec-title mono">状态</h4>
-            <div class="status-row">
-              <button
-                v-for="m in STATUS_BUTTONS"
-                :key="m.key"
-                type="button"
-                class="icard-btn mono"
-                :class="{ 'icard-btn--primary': m.key === detail.status }"
-                :disabled="busy || m.key === detail.status"
-                :title="m.hint"
-                :data-test="`set-${m.key}`"
-                @click="setStatus(m.key)"
-              >{{ m.label }}</button>
-            </div>
-            <p class="hint mono">
-              <template v-if="detail.status_source === 'human'">状态是你手动设置的，会话再怎么跑也不会覆盖它。</template>
-              <template v-else-if="detail.status_source === 'report'">状态来自会话自汇报；你改过之后以你为准。</template>
-              <template v-else>状态跟随会话自动判定（执行中→进行中，等回复→等我，关联 job 待验收→待验收）。</template>
-              <button v-if="detail.status_source !== 'auto' && !closed" class="link-btn mono" type="button" :disabled="busy" data-test="hand-back" @click="handBackToAuto">交还给自动判定</button>
-              <button v-if="detail.unsorted" class="link-btn mono" type="button" :disabled="busy" @click="markSorted">标为已整理</button>
-            </p>
-            <div class="status-row">
-              <button class="icard-btn mono" type="button" :disabled="busy || closed" data-test="mark-done" @click="setStatus('done')">✓ 完成</button>
-              <button class="icard-btn mono" type="button" :disabled="busy || closed" data-test="mark-dropped" @click="setStatus('dropped')">放弃</button>
-              <button v-if="closed" class="icard-btn mono" type="button" :disabled="busy" @click="setStatus('active')">重新打开</button>
-              <button v-if="closed" class="icard-btn mono" type="button" :disabled="busy" data-test="delete-item" @click="removeItem">删除</button>
-            </div>
-          </section>
-
-          <section v-if="suggestions.length" class="sec" data-test="drawer-suggestions">
-            <h4 class="sec-title mono">整理建议</h4>
-            <p class="hint mono">整理器读了会话的对话后，对「你或会话已经写过」的内容给出的建议；采纳后算你写的，忽略后同一条不会再提。</p>
-            <article v-for="sg in suggestions" :key="sg.field" class="srow" :data-field="sg.field">
-              <div class="srow-main mono">
-                <strong>{{ suggestionLabel(sg.field) }}</strong>
-                <span class="sg-val">{{ suggestionValueText(sg) }}</span>
-                <span class="hint">{{ actorLabel(sg.by) }}<template v-if="sg.confidence"> · 把握 {{ Math.round(sg.confidence * 100) }}%</template> · {{ fmtAgo(sg.at, nowSec) }}</span>
-              </div>
-              <div class="status-row">
-                <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy" data-test="drawer-accept" @click="onSuggestion(sg.field, true)">采纳</button>
-                <button class="icard-btn mono" type="button" :disabled="busy" data-test="drawer-dismiss" @click="onSuggestion(sg.field, false)">忽略</button>
-              </div>
-            </article>
-          </section>
-
-          <section class="sec">
-            <h4 class="sec-title mono">内容</h4>
-            <div class="form">
-              <label class="field mono">标题<input v-model="form.title" type="text" data-test="f-title" /></label>
-              <label class="field mono">目标<span v-if="src('goal')" class="src" :class="`src--${srcKind('goal')}`" data-test="drawer-src-goal">{{ src('goal') }}</span><textarea v-model="form.goal" rows="2" data-test="f-goal"></textarea></label>
-              <div class="row2">
-                <label class="field mono">阻塞类型<input v-model="form.blocker_kind" type="text" placeholder="设备 / 账号 / 现场 / 人…" /></label>
-                <label class="field mono">阻塞原因<span v-if="src('blocker')" class="src" :class="`src--${srcKind('blocker')}`">{{ src('blocker') }}</span><input v-model="form.blocker_text" type="text" /></label>
-              </div>
-              <label class="field mono">下一步<span v-if="src('next')" class="src" :class="`src--${srcKind('next')}`">{{ src('next') }}</span><textarea v-model="form.next_step" rows="2"></textarea></label>
-              <label class="field mono">摘要<span v-if="src('summary')" class="src" :class="`src--${srcKind('summary')}`">{{ src('summary') }}</span><textarea v-model="form.summary" rows="2"></textarea></label>
-              <div class="row2">
-                <label class="field mono">项目<input v-model="form.project_key" type="text" /></label>
-                <label class="field mono">优先级<input v-model="form.priority" type="number" /></label>
-              </div>
-              <label class="field mono">工作区<input v-model="form.workspace" type="text" /></label>
-              <div class="status-row">
-                <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy || !dirty" data-test="save-fields" @click="saveFields">{{ busy ? '保存中…' : '保存修改' }}</button>
-                <span v-if="dirty" class="hint mono">有未保存的修改</span>
-              </div>
-            </div>
-          </section>
-
-          <section class="sec">
-            <h4 class="sec-title mono">搁置与提醒</h4>
-            <p v-if="detail.status === 'parked'" class="hint mono">
-              已搁置<template v-if="detail.park_until">到 {{ fmtDateTime(detail.park_until) }}</template><template v-if="detail.park_note">；条件：{{ detail.park_note }}</template>
-            </p>
-            <p v-if="detail.remind_at" class="hint mono">
-              提醒：{{ fmtDateTime(detail.remind_at) }}
-              <button class="link-btn mono" type="button" :disabled="busy" data-test="clear-remind" @click="clearRemind">清除{{ detail.due ? '（知道了）' : '' }}</button>
-            </p>
-            <div class="form">
-              <div class="preset-row">
-                <button v-for="p in presets" :key="'p' + p.key" type="button" class="chip-btn mono" @click="parkUntil = unixToLocalInput(p.at)">{{ p.label }}</button>
-              </div>
-              <div class="row2">
-                <label class="field mono">搁置到<input v-model="parkUntil" type="datetime-local" data-test="park-until" /></label>
-                <label class="field mono">或等条件<input v-model="parkNote" type="text" placeholder="例如：设备到货后继续" data-test="park-note" /></label>
-              </div>
-              <div class="status-row">
-                <button class="icard-btn mono" type="button" :disabled="busy" data-test="park-btn" @click="park">搁置</button>
-              </div>
-              <div class="preset-row">
-                <button v-for="p in presets" :key="'r' + p.key" type="button" class="chip-btn mono" @click="remindAt = unixToLocalInput(p.at)">{{ p.label }}</button>
-              </div>
-              <div class="row2">
-                <label class="field mono">提醒我<input v-model="remindAt" type="datetime-local" data-test="remind-at" /></label>
-                <div class="field"><button class="icard-btn mono" type="button" :disabled="busy" data-test="remind-btn" @click="setRemind">设提醒</button></div>
-              </div>
-            </div>
-          </section>
-
-          <section class="sec">
-            <h4 class="sec-title mono">会话</h4>
-            <div class="status-row">
-              <button
-                class="icard-btn icard-btn--primary mono"
-                type="button"
-                data-test="ask-report"
-                :disabled="busy || !!reportBlock"
-                :title="reportBlock || '向会话发一段固定的汇报请求，它用 gofer work report --request 写回；会话不在运行时改为自动整理'"
-                @click="askReport('report')"
-              >请它汇报</button>
-              <button
-                class="icard-btn mono"
-                type="button"
-                data-test="ask-handoff"
-                :disabled="busy || !!reportBlock"
-                title="请会话写一段交接：做到哪了、卡在哪、回来第一步"
-                @click="askReport('handoff')"
-              >请它写交接</button>
-              <button
-                class="icard-btn mono"
-                type="button"
-                data-test="drawer-summarize"
-                :disabled="busy || tidying || !!tidyBlock"
-                :title="tidyBlock || '读会话最近的对话，提炼目标 / 阻塞 / 下一步（一次性只读，不打扰会话）'"
-                @click="tidyNow"
-              >{{ tidying ? '整理中…' : '整理' }}</button>
-              <span v-if="reportBlock" class="hint mono" data-test="report-block">{{ reportBlock }}</span>
-            </div>
-            <ul v-if="reportResults.length" class="plain">
-              <li v-for="r in reportResults" :key="r.session_id" class="mono hint">
-                {{ sessionLabel(r.session_id) }}：{{ r.sent ? '已送达' : r.kind === 'summarize' ? `已改为整理（${r.reason || '会话未在运行'}）` : `未送达（${r.reason || '原因不明'}）` }}
-              </li>
-            </ul>
-            <ul v-if="requests.length" class="plain" data-test="drawer-requests">
-              <li v-for="r in requests" :key="r.id" class="mono hint">{{ requestLine(r, nowSec) }} · {{ r.id }} · {{ fmtAgo(r.created_at, nowSec) }}</li>
-            </ul>
-            <p v-if="!currentSessions.length" class="hint mono">没有关联会话。</p>
-            <article v-for="s in currentSessions" :key="s.session_id" class="srow" data-test="session-row">
-              <div class="srow-main mono">
-                <strong>{{ sessionTitle(s) }}</strong>
-                <button
-                  v-if="s.peer_name"
-                  class="link-btn mono peer-name"
-                  type="button"
-                  data-test="session-peer-name"
-                  title="Claude 会话名（其它会话用它作 SendMessage 地址），点击复制"
-                  @click="copyPeerName(s.session_id, s.peer_name!)"
-                >{{ s.peer_name }}{{ copiedPeer === s.session_id ? ' · 已复制' : ' · 复制' }}</button>
-                <span class="hint">{{ s.agent || '—' }} · {{ runnerLabel(s.runner) || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }} · {{ fmtAgo(s.last_seen_at, nowSec) }}</span>
-              </div>
-              <div class="status-row">
-                <button v-if="!s.missing" class="icard-btn mono" type="button" :data-test="s.kind === 'job' ? 'open-job-session' : undefined" @click="emit('open-session', s.session_id)">{{ s.kind === 'job' ? '打开 job' : '打开 / 传话' }}</button>
-                <button
-                  v-if="s.offline && sessionById.get(s.session_id)?.can_resume"
-                  class="icard-btn mono"
-                  type="button"
-                  :title="resumeTitle(sessionById.get(s.session_id)!)"
-                  @click="emit('wake', s.session_id)"
-                >{{ resumeLabel(sessionById.get(s.session_id)!) }}</button>
-                <button class="icard-btn mono" type="button" :disabled="busy" @click="detach(s.session_id)">取消关联</button>
-              </div>
-            </article>
-            <details v-if="pastSessions.length" class="past">
-              <summary class="mono">历史会话（{{ pastSessions.length }}）</summary>
-              <div v-for="s in pastSessions" :key="s.session_id" class="srow mono hint">
-                {{ sessionTitle(s) }} · {{ s.agent || '—' }} · {{ s.missing ? '记录已删除' : agentStateLabel(s.state) }}
-                <button v-if="!s.missing" class="link-btn mono" type="button" @click="emit('open-session', s.session_id)">打开</button>
-              </div>
-            </details>
-            <div v-if="attachCandidates.length" class="row2">
-              <label class="field mono">关联会话
-                <select v-model="attachSid"><option value="">选一个会话…</option><option v-for="s in attachCandidates" :key="s.session_id" :value="s.session_id">{{ sessionTitle(s) }} · {{ s.agent }}</option></select>
-              </label>
-              <div class="field"><button class="icard-btn mono" type="button" :disabled="busy || !attachSid" @click="attach">关联</button></div>
-            </div>
-          </section>
-
-          <section class="sec">
-            <h4 class="sec-title mono">关联项</h4>
-            <ul v-if="detail.links.length" class="plain">
-              <li v-for="l in detail.links" :key="l.kind + l.ref" class="mono link-row">
-                <span class="icard-chip">{{ l.kind }}</span>
-                <RouterLink v-if="l.kind === 'job'" :to="`/jobs/${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
-                <RouterLink v-else-if="l.kind === 'plan'" :to="`/plans/${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
-                <RouterLink v-else-if="l.kind === 'todo' && todoInfo?.planId" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" title="打开所在 plan">{{ l.ref }}</RouterLink>
-                <RouterLink v-else-if="l.kind === 'issue'" :to="`/issues?issue=${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
-                <span v-else>{{ l.ref }}</span>
-                <span v-if="isPendingSync(l)" class="icard-chip pending-sync" :title="PENDING_SYNC_HINT" data-test="pending-sync">{{ PENDING_SYNC_LABEL }}</span>
-                <button class="link-btn mono" type="button" :disabled="busy" @click="removeLink(l.kind, l.ref)">移除</button>
-              </li>
-            </ul>
-            <p v-else class="hint mono">没有关联 issue / plan / job / todo。</p>
-            <div class="row3" data-test="to-todo-row">
-              <button v-if="!todoInfo" class="icard-btn mono" type="button" :disabled="busy" data-test="to-todo" @click="openTodoDlg">转为 todo</button>
-              <template v-else>
-                <button class="icard-btn mono" type="button" disabled data-test="to-todo-done">已转为 todo</button>
-                <RouterLink v-if="todoInfo.planId" class="mono" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" data-test="to-todo-open">打开 plan</RouterLink>
-              </template>
-            </div>
-            <div class="row3">
-              <select v-model="linkKind" class="field-sel mono" data-test="link-kind"><option value="issue">issue</option><option value="plan">plan</option><option value="todo">todo</option><option value="job">job</option></select>
-              <input v-model="linkRef" class="field-in mono" type="text" placeholder="id" data-test="link-ref" @keydown.enter="addLink" />
-              <button class="icard-btn mono" type="button" :disabled="busy || !linkRef.trim()" data-test="add-link" @click="addLink">关联</button>
-            </div>
-          </section>
-
-          <section class="sec">
-            <h4 class="sec-title mono">合并与拆分</h4>
-            <details class="past">
-              <summary class="mono">合并其它工作项进来（同一件事开了多个会话）</summary>
-              <p v-if="!sameWorkspaceFirst.length" class="hint mono">没有其它未结束的工作项。</p>
-              <label v-for="i in sameWorkspaceFirst" :key="i.id" class="check mono">
-                <input type="checkbox" :checked="mergeIds.has(i.id)" @change="toggleMerge(i.id)" />
-                {{ i.title }} <span class="hint">{{ i.workspace === detail.workspace ? '· 同工作区' : '' }}</span>
-              </label>
-              <button class="icard-btn mono" type="button" :disabled="busy || !mergeIds.size" data-test="merge-btn" @click="merge">合并 {{ mergeIds.size }} 个</button>
-            </details>
-            <details class="past">
-              <summary class="mono">拆分出一个新工作项（一个会话做了两件事）</summary>
-              <div class="form">
-                <label class="field mono">新标题<input v-model="splitTitle" type="text" data-test="split-title" /></label>
-                <label class="field mono">目标（可选）<input v-model="splitGoal" type="text" /></label>
-                <label v-for="s in currentSessions" :key="s.session_id" class="check mono">
-                  <input type="checkbox" :checked="splitSids.has(s.session_id)" @change="toggleSplitSid(s.session_id)" />
-                  带走会话 {{ sessionTitle(s) }}
-                </label>
-                <label class="check mono"><input v-model="splitKeep" type="checkbox" /> 同时保留在原工作项（一个会话两件事）</label>
-                <button class="icard-btn mono" type="button" :disabled="busy" data-test="split-btn" @click="split">拆分</button>
-              </div>
-            </details>
-          </section>
-
-          <section class="sec">
-            <h4 class="sec-title mono">日志</h4>
-            <div class="row3">
-              <input v-model="note" class="field-in mono" type="text" placeholder="写一条备注…" data-test="note-input" @keydown.enter="addNote" />
-              <button class="icard-btn mono" type="button" :disabled="busy || !note.trim()" data-test="add-note" @click="addNote">写入</button>
-            </div>
-            <div class="seg mono" role="group" aria-label="日志粒度" data-test="journal-level">
-              <button type="button" :aria-pressed="!journalAll" data-test="journal-milestones" @click="journalAll = false">只看里程碑</button>
-              <button type="button" :aria-pressed="journalAll" data-test="journal-all" @click="journalAll = true">全部</button>
-            </div>
-            <p v-if="!journalAll && !journalMilestones.length" class="hint mono" data-test="journal-no-milestones">还没有里程碑，点「全部」看完整日志</p>
-            <ol class="timeline" data-test="journal">
-              <li v-for="e in journal" :key="e.id" class="tl-item" :class="[`tl--${e.kind}`, `tl-actor--${actorKind(e.by)}`, { 'tl--detail': journalAll && e.level !== 'milestone' }]">
-                <div class="tl-head mono">
-                  <span class="tl-kind">{{ KIND_LABEL[e.kind] || e.kind }}</span>
-                  <span class="tl-by" :class="`tl-by--${actorKind(e.by)}`" data-test="tl-by">{{ actorLabel(e.by) }}</span>
-                  <span v-if="e.origin_item" class="hint" :title="`来自合并前的工作项 ${e.origin_item}`">· 来自 {{ e.origin_item }}</span>
-                  <span class="hint">{{ fmtDateTime(e.at) }}</span>
-                </div>
-                <div class="tl-text">{{ e.text }}</div>
-              </li>
-            </ol>
-          </section>
-        </template>
+      <div class="head-actions">
+        <button class="btn" type="button" :disabled="loading" data-test="drawer-refresh" @click="load()">{{ loading ? t('work.h.refreshing') : t('act.refresh') }}</button>
       </div>
     </div>
+
+    <div class="drawer-body">
+      <p v-if="error" class="msg msg--err" data-test="drawer-error">{{ error }}</p>
+      <p v-if="notice" class="msg msg--ok" data-test="drawer-notice">{{ notice }}</p>
+      <p v-if="!detail && loading" class="empty">{{ t('work.d.loading') }}</p>
+
+      <template v-if="detail">
+        <section v-if="isCaptured" class="sec" data-test="drawer-dispatch">
+          <h4 class="sec-title">{{ t('work.d.inbox') }}</h4>
+          <p class="hint">{{ t('work.d.inboxHint') }}</p>
+          <div class="row3">
+            <button class="btn btn--primary" type="button" :disabled="busy" data-test="open-dispatch" @click="dispatchDlg = true">{{ t('work.d.dispatch') }}</button>
+          </div>
+        </section>
+
+        <section class="sec">
+          <h4 class="sec-title">{{ t('work.d.status') }}</h4>
+          <div class="status-row">
+            <button
+              v-for="m in STATUS_BUTTONS"
+              :key="m.key"
+              type="button"
+              class="btn"
+              :class="{ 'btn--primary': m.key === detail.status }"
+              :disabled="busy || m.key === detail.status"
+              :title="m.hint"
+              :data-test="`set-${m.key}`"
+              @click="setStatus(m.key)"
+            >{{ t(`status.${m.key}`) }}</button>
+          </div>
+          <p class="hint">
+            <template v-if="detail.status_source === 'human'">{{ t('work.d.statusHuman') }}</template>
+            <template v-else-if="detail.status_source === 'report'">{{ t('work.d.statusReport') }}</template>
+            <template v-else>{{ t('work.d.statusAuto') }}</template>
+            <button v-if="detail.status_source !== 'auto' && !closed" class="link-btn" type="button" :disabled="busy" data-test="hand-back" @click="handBackToAuto">{{ t('work.d.handBack') }}</button>
+            <button v-if="detail.unsorted" class="link-btn" type="button" :disabled="busy" @click="markSorted">{{ t('work.d.markSorted') }}</button>
+          </p>
+          <div class="status-row">
+            <button class="btn" type="button" :disabled="busy || closed" data-test="mark-done" @click="setStatus('done')">{{ t('work.d.done') }}</button>
+            <button class="btn" type="button" :disabled="busy || closed" data-test="mark-dropped" @click="setStatus('dropped')">{{ t('work.d.drop') }}</button>
+            <button v-if="closed" class="btn" type="button" :disabled="busy" @click="setStatus('active')">{{ t('work.d.reopen') }}</button>
+            <button v-if="closed" class="btn" type="button" :disabled="busy" data-test="delete-item" @click="removeItem">{{ t('work.d.delete') }}</button>
+          </div>
+        </section>
+
+        <section v-if="suggestions.length" class="sec" data-test="drawer-suggestions">
+          <h4 class="sec-title">{{ t('work.d.suggestions') }}</h4>
+          <p class="hint">{{ t('work.d.suggestionsHint') }}</p>
+          <article v-for="sg in suggestions" :key="sg.field" class="srow" :data-field="sg.field">
+            <div class="srow-main">
+              <strong>{{ t(suggestionLabelKey(sg.field)) }}</strong>
+              <span class="sg-val">{{ suggestionValueText(sg) }}</span>
+              <span class="hint">{{ actorLabel(sg.by) }}<template v-if="sg.confidence"> · {{ t('work.d.confidence', { n: Math.round(sg.confidence * 100) }) }}</template> · {{ fmtAgo(sg.at, nowSec) }}</span>
+            </div>
+            <div class="status-row">
+              <button class="btn btn--primary" type="button" :disabled="busy" data-test="drawer-accept" @click="onSuggestion(sg.field, true)">{{ t('work.card.accept') }}</button>
+              <button class="btn" type="button" :disabled="busy" data-test="drawer-dismiss" @click="onSuggestion(sg.field, false)">{{ t('work.card.dismiss') }}</button>
+            </div>
+          </article>
+        </section>
+
+        <section class="sec">
+          <h4 class="sec-title">{{ t('work.d.content') }}</h4>
+          <div class="form">
+            <label class="field">{{ t('work.d.title') }}<input v-model="form.title" type="text" data-test="f-title" /></label>
+            <label class="field">{{ t('work.card.goal') }}<span v-if="src('goal')" class="src" :class="`src--${srcKind('goal')}`" data-test="drawer-src-goal">{{ src('goal') }}</span><textarea v-model="form.goal" rows="2" data-test="f-goal"></textarea></label>
+            <div class="row2">
+              <label class="field">{{ t('work.d.blockerKind') }}<input v-model="form.blocker_kind" type="text" :placeholder="t('work.d.blockerKindHint')" /></label>
+              <label class="field">{{ t('work.d.blockerReason') }}<span v-if="src('blocker')" class="src" :class="`src--${srcKind('blocker')}`">{{ src('blocker') }}</span><input v-model="form.blocker_text" type="text" /></label>
+            </div>
+            <label class="field">{{ t('work.card.nextField') }}<span v-if="src('next')" class="src" :class="`src--${srcKind('next')}`">{{ src('next') }}</span><textarea v-model="form.next_step" rows="2"></textarea></label>
+            <label class="field">{{ t('work.card.summary') }}<span v-if="src('summary')" class="src" :class="`src--${srcKind('summary')}`">{{ src('summary') }}</span><textarea v-model="form.summary" rows="2"></textarea></label>
+            <div class="row2">
+              <label class="field">{{ t('work.card.project') }}<input v-model="form.project_key" type="text" /></label>
+              <label class="field">{{ t('work.d.priority') }}<input v-model="form.priority" type="number" /></label>
+            </div>
+            <label class="field">{{ t('work.card.workspace') }}<input v-model="form.workspace" type="text" /></label>
+            <div class="status-row">
+              <button class="btn btn--primary" type="button" :disabled="busy || !dirty" data-test="save-fields" @click="saveFields">{{ busy ? t('work.d.saving') : t('work.d.save') }}</button>
+              <span v-if="dirty" class="hint">{{ t('work.d.dirty') }}</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="sec">
+          <h4 class="sec-title">{{ t('work.d.parkAndRemind') }}</h4>
+          <p v-if="detail.status === 'parked'" class="hint">
+            <template v-if="detail.park_until">{{ t('work.d.parkedUntil', { time: fmtDateTime(detail.park_until) }) }}</template>
+            <template v-else>{{ t('work.card.parked') }}</template>
+            <template v-if="detail.park_note"> · {{ t('work.d.parkedNote', { note: detail.park_note }) }}</template>
+          </p>
+          <p v-if="detail.remind_at" class="hint">
+            {{ t('work.d.remind', { time: fmtDateTime(detail.remind_at) }) }}
+            <button class="link-btn" type="button" :disabled="busy" data-test="clear-remind" @click="clearRemind">{{ t('work.d.clear') }}{{ detail.due ? t('work.d.acknowledge') : '' }}</button>
+          </p>
+          <div class="form">
+            <div class="preset-row">
+              <button v-for="p in presets" :key="'p' + p.key" type="button" class="chip-btn" @click="parkUntil = unixToLocalInput(p.at)">{{ p.label }}</button>
+            </div>
+            <div class="row2">
+              <label class="field">{{ t('work.d.parkUntil') }}<input v-model="parkUntil" type="datetime-local" data-test="park-until" /></label>
+              <label class="field">{{ t('work.d.parkNote') }}<input v-model="parkNote" type="text" :placeholder="t('work.d.parkNoteHint')" data-test="park-note" /></label>
+            </div>
+            <div class="status-row">
+              <button class="btn" type="button" :disabled="busy" data-test="park-btn" @click="park">{{ t('work.d.park') }}</button>
+            </div>
+            <div class="preset-row">
+              <button v-for="p in presets" :key="'r' + p.key" type="button" class="chip-btn" @click="remindAt = unixToLocalInput(p.at)">{{ p.label }}</button>
+            </div>
+            <div class="row2">
+              <label class="field">{{ t('work.d.remindAt') }}<input v-model="remindAt" type="datetime-local" data-test="remind-at" /></label>
+              <div class="field"><button class="btn" type="button" :disabled="busy" data-test="remind-btn" @click="setRemind">{{ t('work.d.setRemind') }}</button></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="sec">
+          <h4 class="sec-title">{{ t('work.d.sessions') }}</h4>
+          <div class="status-row">
+            <button
+              class="btn btn--primary"
+              type="button"
+              data-test="ask-report"
+              :disabled="busy || !!reportBlock"
+              :title="reportBlock || t('work.d.askReportTitle')"
+              @click="askReport('report')"
+            >{{ t('work.d.askReport') }}</button>
+            <button
+              class="btn"
+              type="button"
+              data-test="ask-handoff"
+              :disabled="busy || !!reportBlock"
+              :title="t('work.d.askHandoffTitle')"
+              @click="askReport('handoff')"
+            >{{ t('work.d.askHandoff') }}</button>
+            <button
+              class="btn"
+              type="button"
+              data-test="drawer-summarize"
+              :disabled="busy || tidying || !!tidyBlock"
+              :title="tidyBlock || t('work.card.summarizeTitle')"
+              @click="tidyNow"
+            >{{ tidying ? t('work.card.summarizing') : t('work.card.summarize') }}</button>
+            <span v-if="reportBlock" class="hint" data-test="report-block">{{ reportBlock }}</span>
+          </div>
+          <ul v-if="reportResults.length" class="plain">
+            <li v-for="r in reportResults" :key="r.session_id" class="hint">
+              {{ sessionLabel(r.session_id) }}：{{ r.sent ? t('work.d.delivered') : r.kind === 'summarize' ? t('work.d.summarizeFallback', { reason: r.reason || '' }) : t('work.d.notDelivered', { reason: r.reason || t('work.d.reasonUnknown') }) }}
+            </li>
+          </ul>
+          <ul v-if="requests.length" class="plain" data-test="drawer-requests">
+            <li v-for="r in requests" :key="r.id" class="hint">{{ workRequestLine(r, nowSec) }} · {{ r.id }} · {{ fmtAgo(r.created_at, nowSec) }}</li>
+          </ul>
+          <p v-if="!currentSessions.length" class="hint">{{ t('work.d.noSession') }}</p>
+          <article v-for="s in currentSessions" :key="s.session_id" class="srow" data-test="session-row">
+            <div class="srow-main">
+              <strong>{{ sessionTitle(s) }}</strong>
+              <button
+                v-if="s.peer_name"
+                class="link-btn peer-name"
+                type="button"
+                data-test="session-peer-name"
+                :title="t('work.d.peerName')"
+                @click="copyPeerName(s.session_id, s.peer_name!)"
+              >{{ s.peer_name }}{{ copiedPeer === s.session_id ? t('work.d.peerCopied') : t('work.d.peerCopy') }}</button>
+              <span class="hint">{{ s.agent || '—' }} · {{ runnerLabel(s.runner) || '—' }} · {{ s.missing ? t('work.card.deleted') : agentStateLabel(s.state) }} · {{ fmtAgo(s.last_seen_at, nowSec) }}</span>
+            </div>
+            <div class="status-row">
+              <button v-if="!s.missing" class="btn" type="button" :data-test="s.kind === 'job' ? 'open-job-session' : undefined" @click="emit('open-session', s.session_id)">{{ s.kind === 'job' ? t('work.d.openJob') : t('work.d.openRelay') }}</button>
+              <button
+                v-if="s.offline && sessionById.get(s.session_id)?.can_resume"
+                class="btn"
+                type="button"
+                :title="resumeTitle(sessionById.get(s.session_id)!)"
+                @click="emit('wake', s.session_id)"
+              >{{ resumeLabel(sessionById.get(s.session_id)!) }}</button>
+              <button class="btn" type="button" :disabled="busy" @click="detach(s.session_id)">{{ t('work.d.detach') }}</button>
+            </div>
+          </article>
+          <details v-if="pastSessions.length" class="past">
+            <summary>{{ t('work.d.pastSessions', { n: pastSessions.length }) }}</summary>
+            <div v-for="s in pastSessions" :key="s.session_id" class="srow hint">
+              {{ sessionTitle(s) }} · {{ s.agent || '—' }} · {{ s.missing ? t('work.card.deleted') : agentStateLabel(s.state) }}
+              <button v-if="!s.missing" class="link-btn" type="button" @click="emit('open-session', s.session_id)">{{ t('work.card.open') }}</button>
+            </div>
+          </details>
+          <div v-if="attachCandidates.length" class="row2">
+            <label class="field">{{ t('work.d.attach') }}
+              <select v-model="attachSid"><option value="">{{ t('work.d.attachPick') }}</option><option v-for="s in attachCandidates" :key="s.session_id" :value="s.session_id">{{ sessionTitle(s) }} · {{ s.agent }}</option></select>
+            </label>
+            <div class="field"><button class="btn" type="button" :disabled="busy || !attachSid" @click="attach">{{ t('work.d.attachBtn') }}</button></div>
+          </div>
+        </section>
+
+        <section class="sec">
+          <h4 class="sec-title">{{ t('work.d.links') }}</h4>
+          <ul v-if="detail.links.length" class="plain">
+            <li v-for="l in detail.links" :key="l.kind + l.ref" class="link-row">
+              <span class="icard-chip">{{ l.kind }}</span>
+              <RouterLink v-if="l.kind === 'job'" :to="`/jobs/${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
+              <RouterLink v-else-if="l.kind === 'plan'" :to="`/plans/${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
+              <RouterLink v-else-if="l.kind === 'todo' && todoInfo?.planId" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" :title="t('work.d.openPlan')">{{ l.ref }}</RouterLink>
+              <RouterLink v-else-if="l.kind === 'issue'" :to="`/issues?issue=${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
+              <span v-else>{{ l.ref }}</span>
+              <span v-if="isPendingSync(l)" class="icard-chip pending-sync" :title="PENDING_SYNC_HINT" data-test="pending-sync">{{ PENDING_SYNC_LABEL }}</span>
+              <button class="link-btn" type="button" :disabled="busy" @click="removeLink(l.kind, l.ref)">{{ t('work.d.remove') }}</button>
+            </li>
+          </ul>
+          <p v-else class="hint">{{ t('work.d.noLinks') }}</p>
+          <div class="row3" data-test="to-todo-row">
+            <button v-if="!todoInfo" class="btn" type="button" :disabled="busy" data-test="to-todo" @click="openTodoDlg">{{ t('work.d.toTodo') }}</button>
+            <template v-else>
+              <button class="btn" type="button" disabled data-test="to-todo-done">{{ t('work.d.toTodoDone') }}</button>
+              <RouterLink v-if="todoInfo.planId" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" data-test="to-todo-open">{{ t('work.d.openPlan') }}</RouterLink>
+            </template>
+          </div>
+          <div class="row3">
+            <select v-model="linkKind" class="field-sel" data-test="link-kind"><option value="issue">issue</option><option value="plan">plan</option><option value="todo">todo</option><option value="job">job</option></select>
+            <input v-model="linkRef" class="field-in" type="text" placeholder="id" data-test="link-ref" @keydown.enter="addLink" />
+            <button class="btn" type="button" :disabled="busy || !linkRef.trim()" data-test="add-link" @click="addLink">{{ t('work.d.linkBtn') }}</button>
+          </div>
+        </section>
+
+        <section class="sec">
+          <h4 class="sec-title">{{ t('work.d.mergeSplit') }}</h4>
+          <details class="past">
+            <summary>{{ t('work.d.mergeSummary') }}</summary>
+            <p v-if="!sameWorkspaceFirst.length" class="hint">{{ t('work.d.mergeNone') }}</p>
+            <label v-for="i in sameWorkspaceFirst" :key="i.id" class="check">
+              <input type="checkbox" :checked="mergeIds.has(i.id)" @change="toggleMerge(i.id)" />
+              {{ i.title }} <span class="hint">{{ i.workspace === detail.workspace ? t('work.d.mergeSameWorkspace') : '' }}</span>
+            </label>
+            <button class="btn" type="button" :disabled="busy || !mergeIds.size" data-test="merge-btn" @click="merge">{{ t('work.d.merge', { n: mergeIds.size }) }}</button>
+          </details>
+          <details class="past">
+            <summary>{{ t('work.d.splitSummary') }}</summary>
+            <div class="form">
+              <label class="field">{{ t('work.d.splitTitle') }}<input v-model="splitTitle" type="text" data-test="split-title" /></label>
+              <label class="field">{{ t('work.d.splitGoal') }}<input v-model="splitGoal" type="text" /></label>
+              <label v-for="s in currentSessions" :key="s.session_id" class="check">
+                <input type="checkbox" :checked="splitSids.has(s.session_id)" @change="toggleSplitSid(s.session_id)" />
+                {{ t('work.d.takeSession', { name: sessionTitle(s) }) }}
+              </label>
+              <label class="check"><input v-model="splitKeep" type="checkbox" /> {{ t('work.d.splitKeep') }}</label>
+              <button class="btn" type="button" :disabled="busy" data-test="split-btn" @click="split">{{ t('work.d.split') }}</button>
+            </div>
+          </details>
+        </section>
+
+        <section class="sec">
+          <h4 class="sec-title">{{ t('work.d.journal') }}</h4>
+          <Composer
+            v-model="note"
+            :placeholder="t('work.d.journalPlaceholder')"
+            :send-label="t('work.d.journalWrite')"
+            :disabled="busy"
+            :can-send="!busy"
+            :aria-label="t('work.d.note')"
+            data-test="note-composer"
+            @send="addNote"
+          />
+          <div class="seg" role="group" :aria-label="t('work.d.journalLevel')" data-test="journal-level">
+            <button type="button" :aria-pressed="!journalAll" data-test="journal-milestones" @click="journalAll = false">{{ t('work.d.journalMilestones') }}</button>
+            <button type="button" :aria-pressed="journalAll" data-test="journal-all" @click="journalAll = true">{{ t('work.d.journalAll') }}</button>
+          </div>
+          <p v-if="!journalAll && !journalMilestones.length" class="hint" data-test="journal-no-milestones">{{ t('work.d.journalNone') }}</p>
+          <ol class="timeline" data-test="journal">
+            <li v-for="e in journal" :key="e.id" class="tl-item" :class="[`tl--${e.kind}`, `tl-actor--${actorKind(e.by)}`, { 'tl--detail': journalAll && e.level !== 'milestone' }]">
+              <div class="tl-head">
+                <span class="tl-kind">{{ KIND_LABEL_KEY[e.kind] ? t(KIND_LABEL_KEY[e.kind]) : e.kind }}</span>
+                <span class="tl-by" :class="`tl-by--${actorKind(e.by)}`" data-test="tl-by">{{ actorLabel(e.by) }}</span>
+                <span v-if="e.origin_item" class="hint" :title="t('work.d.journalFrom', { id: e.origin_item })">{{ t('work.d.journalFromShort', { id: e.origin_item }) }}</span>
+                <span class="hint">{{ fmtDateTime(e.at) }}</span>
+              </div>
+              <div class="tl-text">{{ e.text }}</div>
+            </li>
+          </ol>
+        </section>
+      </template>
+    </div>
+
     <WorkDispatchDialog
       v-if="dispatchDlg && detail"
       :item="detail"
@@ -812,127 +835,112 @@ onUnmounted(() => live.stop())
       @refresh="onDispatchRefresh"
     />
     <div v-if="todoDlg" class="todo-dlg-mask" @click.self="todoDlg = false">
-      <div class="todo-dlg" role="dialog" aria-label="转为 todo" data-test="todo-dlg">
-        <h4 class="sec-title mono">转为 plan todo</h4>
-        <p class="hint mono">标题与描述取自这个工作项；转换后工作项上会记录关联，可跳转。</p>
-        <label class="field mono">
-          <span>加到哪个 plan</span>
-          <select v-model="todoPlanId" class="field-sel mono" data-test="todo-plan">
-            <option value="">＋ 新建 plan</option>
+      <div class="todo-dlg" role="dialog" :aria-label="t('work.d.toTodoTitle')" data-test="todo-dlg">
+        <h4 class="sec-title">{{ t('work.d.toTodoTitle') }}</h4>
+        <p class="hint">{{ t('work.d.toTodoHint') }}</p>
+        <label class="field">
+          <span>{{ t('work.d.toTodoPlan') }}</span>
+          <select v-model="todoPlanId" class="field-sel" data-test="todo-plan">
+            <option value="">{{ t('work.d.toTodoNewPlan') }}</option>
             <option v-for="p in todoPlans" :key="p.plan_id" :value="p.plan_id">{{ p.title || p.plan_id }}</option>
           </select>
         </label>
-        <label v-if="!todoPlanId" class="field mono">
-          <span>新 plan 标题</span>
-          <input v-model="todoNewTitle" class="field-in mono" type="text" data-test="todo-new-title" />
+        <label v-if="!todoPlanId" class="field">
+          <span>{{ t('work.d.toTodoNewPlanTitle') }}</span>
+          <input v-model="todoNewTitle" class="field-in" type="text" data-test="todo-new-title" />
         </label>
-        <p v-if="todoErr" class="msg msg--err mono" data-test="todo-dlg-error">{{ todoErr }}</p>
+        <p v-if="todoErr" class="msg msg--err" data-test="todo-dlg-error">{{ todoErr }}</p>
         <div class="row3">
-          <button class="icard-btn icard-btn--primary mono" type="button" :disabled="busy" data-test="todo-submit" @click="submitTodo">创建 todo</button>
-          <button class="icard-btn mono" type="button" @click="todoDlg = false">取消</button>
+          <button class="btn btn--primary" type="button" :disabled="busy" data-test="todo-submit" @click="submitTodo">{{ t('work.d.toTodoCreate') }}</button>
+          <button class="btn" type="button" @click="todoDlg = false">{{ t('work.d.cancel') }}</button>
         </div>
       </div>
     </div>
-  </div>
+  </Drawer>
 </template>
 
 <style scoped>
-.drawer-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 78; /* 在会话抽屉(80)之下：从这里打开会话时，会话抽屉盖在上面 */
-  display: flex;
-  justify-content: flex-end;
-  background: rgba(0, 0, 0, 0.6);
-}
-.drawer-panel {
-  display: flex;
-  flex-direction: column;
-  width: min(max(640px, 52vw), 1040px, 100vw);
-  height: 100%;
-  background: var(--panel);
-  border-left: 1px solid var(--line);
-  overflow: hidden;
-}
-.drawer-head {
+/* 外壳（遮罩 / 面板 / 标题 / 关闭）由 ui/Drawer 提供；这里只负责内容。
+   flush 让内容自己管滚动：头部固定，正文滚动。 */
+.detail-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
+  gap: var(--s2);
   flex: none;
+  padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--line);
 }
-.head-main { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
-.drawer-title { min-width: 0; font-size: 13px; color: var(--paper); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.head-main { display: flex; align-items: center; gap: var(--s2); min-width: 0; flex: 1; }
 .head-actions { display: flex; gap: 6px; flex: none; }
-.drawer-body { flex: 1; overflow-y: auto; padding: 12px 14px 40px; display: flex; flex-direction: column; gap: 14px; }
-.sec { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px dashed var(--line); }
+.drawer-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s3) var(--s4) 40px; display: flex; flex-direction: column; gap: var(--s4); }
+.sec { display: flex; flex-direction: column; gap: var(--s2); padding-bottom: var(--s3); border-bottom: 1px dashed var(--line); }
 .sec:last-child { border-bottom: 0; }
-.sec-title { margin: 0; font-size: 11px; letter-spacing: 0.08em; color: var(--queue); text-transform: uppercase; }
+.sec-title { margin: 0; font-size: var(--fs-xs); letter-spacing: 0.08em; color: var(--fg-3); text-transform: uppercase; }
 .status-row, .preset-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.hint { margin: 0; font-size: 11px; color: var(--queue); }
-.msg { margin: 0; padding: 6px 10px; font-size: 12px; border-radius: var(--radius); border: 1px solid var(--line); }
+.hint { margin: 0; font-size: var(--fs-xs); color: var(--fg-3); }
+.msg { margin: 0; padding: 6px 10px; font-size: var(--fs-sm); border-radius: var(--r-ctl); border: 1px solid var(--line); }
 .msg--err { color: var(--fail); border-color: var(--fail); }
 .msg--ok { color: var(--done); border-color: var(--done); }
-.empty { color: var(--queue); font-size: 12px; text-align: center; padding: 20px; }
-.form { display: flex; flex-direction: column; gap: 8px; }
-.field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--queue); min-width: 0; }
+.empty { color: var(--fg-3); font-size: var(--fs-sm); text-align: center; padding: 20px; }
+.form { display: flex; flex-direction: column; gap: var(--s2); }
+.field { display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-xs); color: var(--fg-3); min-width: 0; }
 .field input, .field textarea, .field select, .field-in, .field-sel {
-  min-width: 0; color: var(--paper); background: var(--ink); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 6px 7px; font: inherit; font-size: 12px;
+  min-width: 0; color: var(--fg); background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-ctl); padding: 6px 7px; font: inherit; font-size: var(--fs-sm);
 }
 .field textarea { resize: vertical; }
-.row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: end; }
+.row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); align-items: end; }
 .row3 { display: flex; gap: 6px; align-items: center; }
 .row3 .field-in { flex: 1; }
-.chip-btn { padding: 2px 8px; font-size: 10px; color: var(--queue); background: transparent; border: 1px solid var(--line); border-radius: 9px; cursor: pointer; }
-.chip-btn:hover { color: var(--phosphor); border-color: var(--phosphor); }
-.link-btn { background: none; border: 0; padding: 0 4px; font-size: 11px; color: var(--phosphor); cursor: pointer; text-decoration: underline; }
+.chip-btn { padding: 2px 8px; font: inherit; font-size: var(--fs-xs); color: var(--fg-3); background: transparent; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; }
+.chip-btn:hover { color: var(--accent); border-color: var(--accent); }
+.link-btn { background: none; border: 0; padding: 0 4px; font: inherit; font-size: var(--fs-xs); color: var(--accent); cursor: pointer; text-decoration: underline; }
 .link-btn:disabled { opacity: 0.45; cursor: default; }
 .plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.link-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.srow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); }
+.link-row { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-sm); }
+.srow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-panel); }
 .peer-name { align-self: flex-start; padding: 0; }
-.srow-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; }
-.past { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; }
-.past summary { cursor: pointer; font-size: 11px; color: var(--queue); }
-.check { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 0; }
-.check input { accent-color: var(--phosphor); }
+.srow-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--fs-sm); }
+.past { border: 1px solid var(--line); border-radius: var(--r-panel); padding: 6px 8px; }
+.past summary { cursor: pointer; font-size: var(--fs-xs); color: var(--fg-3); }
+.check { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); padding: 3px 0; }
+.check input { accent-color: var(--accent); }
 .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .tl--detail { opacity: 0.72; }
-.seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.seg button { padding: 3px 10px; font: inherit; font-size: 11px; color: var(--queue); background: transparent; border: 0; cursor: pointer; }
+.seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--line); border-radius: var(--r-ctl); overflow: hidden; }
+.seg button { padding: 3px 10px; font: inherit; font-size: var(--fs-xs); color: var(--fg-3); background: transparent; border: 0; cursor: pointer; }
 .seg button + button { border-left: 1px solid var(--line); }
-.seg button[aria-pressed='true'] { color: var(--paper); background: var(--ink); }
-.health { min-width: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg button[aria-pressed='true'] { color: var(--fg); background: var(--surface-2); }
+.health { min-width: 0; font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .health--blocked, .health--stalled { color: var(--fail); }
-.health--at_risk { color: var(--run); }
-.tl-item { padding: 6px 8px; border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--radius); }
-.tl--report { border-left-color: var(--phosphor); }
+.health--at_risk { color: var(--time); }
+.mark { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; font-size: var(--fs-xs); color: var(--fg-3); white-space: nowrap; }
+.mark--need { color: var(--need); border-color: var(--need); }
+.tl-item { padding: 6px 8px; border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--r-panel); }
+.tl--report { border-left-color: var(--accent); }
 .tl--note { border-left-color: var(--run); }
 .tl--steward { border-left-color: var(--done); }
-.tl-head { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: var(--paper); }
-.tl-kind { color: var(--queue); }
-.tl-by { padding: 0 6px; border: 1px solid var(--line); border-radius: 9px; }
-.tl-by--human { color: var(--paper); }
-.tl-by--session { color: var(--phosphor); border-color: var(--phosphor); }
+.tl-head { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: var(--fs-xs); color: var(--fg); }
+.tl-kind { color: var(--fg-3); }
+.tl-by { padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; }
+.tl-by--human { color: var(--fg); }
+.tl-by--session { color: var(--accent); border-color: var(--accent); }
 .tl-by--summarizer { color: var(--run); border-color: var(--run); }
 .tl-by--steward { color: var(--done); border-color: var(--done); }
 .tl-actor--summarizer { border-left-color: var(--run); }
-.tl-actor--session { border-left-color: var(--phosphor); }
-.src { align-self: flex-start; padding: 0 6px; font-size: 10px; color: var(--queue); border: 1px solid var(--line); border-radius: 9px; }
+.tl-actor--session { border-left-color: var(--accent); }
+.src { align-self: flex-start; padding: 0 6px; font-size: 10px; color: var(--fg-3); border: 1px solid var(--line); border-radius: 999px; }
 .src--summarizer { color: var(--run); border-color: var(--run); }
-.src--session { color: var(--phosphor); border-color: var(--phosphor); }
+.src--session { color: var(--accent); border-color: var(--accent); }
 .src--steward { color: var(--done); border-color: var(--done); }
-.sg-val { overflow-wrap: anywhere; color: var(--paper); }
-.tl-text { margin-top: 3px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--paper); }
-@media (max-width: 640px) {
-  .drawer-panel { width: 100vw; }
-  .row2 { grid-template-columns: minmax(0, 1fr); }
-}
+.sg-val { overflow-wrap: anywhere; color: var(--fg); }
+.tl-text { margin-top: 3px; font-size: var(--fs-sm); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); }
 .pending-sync { color: var(--run); border-color: var(--run); }
-.todo-dlg-mask { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 16px; }
-.todo-dlg { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-.todo-dlg .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.todo-dlg-mask { position: fixed; inset: 0; z-index: 90; background: var(--scrim); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.todo-dlg { width: min(420px, 100%); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-panel); padding: 14px; display: flex; flex-direction: column; gap: var(--s2); }
+@media (max-width: 760px) {
+  .row2 { grid-template-columns: minmax(0, 1fr); }
+  .btn { min-height: 40px; }
+}
 </style>

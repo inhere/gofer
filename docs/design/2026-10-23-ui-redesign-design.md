@@ -1111,6 +1111,78 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 写信的「正文」按钮由 Composer 提供：Composer 在正文为空时禁用发送，原来那种点了才提示「先写点内容」的路径不再走到（`buildMailSend` 的校验保留兜底）。
 - 仍留在工具层的中文：`utils/mail.ts` 的 `MAIL_STATE_LABEL` / `mailAddressLabel` / `mailComposePreviewText` / `MAIL_FILTERS` / `MAIL_SCOPES`（页面已不用它们出文案，`MailButton` 与单测还在用）、`utils/mailMinimap.ts` 的悬停文案、`utils/mailConversations.ts` 的 `personaStateLabel` 回退与 `mailReplyLabel`——P6 统一处理。
 
+### P4 工作项页（2026-10-23，issue gofer-hez1）
+
+落地范围即 §14 表格 P4 行的 `/work`（`views/Work.vue` + `components/WorkCard.vue` + `components/WorkDrawer.vue` + 新的 `utils/workBoard.ts`）。不涉及 Go 代码，没有新增接口：数据仍来自 `GET /v1/work-items`（看板与收集箱两次查询）、`GET /v1/agent-sessions`、`GET /v1/work-items/merge-suggestions`、`PATCH /v1/work-items/{id}`、`POST /v1/work-items/{id}/suggestions/*`、`/report-request`、`/summarize`、`/attach|detach-session`、`/link|unlink`、`/merge`、`/split`、`/note`、`/to-todo`、`DELETE /v1/work-items/{id}`。
+
+**页面结构（`views/Work.vue`）**
+
+- 页头：标题「工作项」（迁移前写的是「工作」）+ 一行摘要（`N 个未结束的工作项 · 等我 M 个`，没有时写「还没有未结束的工作项」）+ 右侧「按状态 / 按工作区」分段、显示已完成、刷新、＋新建。
+- 列表头：`ProjectFilter`（§6.4，值进 URL 的 `?project=`，唯一真源）+ `FilterChips`（全部 / 等我 / 到期提醒 / 未整理，带计数，单选再点取消）+ 搜索框 + 「清除筛选」。计数与分栏都按项目收窄后的结果算。
+- 下面仍按原来的顺序：管家合并建议 → 待整理（草稿 / 收集箱两页签，`?tab=capture` 深链不变）→ 筛选结果 / 按状态 8 列 / 按工作区分组 → 空态。
+- 手机（≤760，§4.3 冻结断点）：所有区块单栏，空的列不占位，chip 行在框内横向滑动（`FilterChips` 自带），搜索框与分段按钮的点按目标 ≥40px；点开一条进入铺满宽的 `Drawer`（两级页面的详情层）。
+
+**卡片（`components/WorkCard.vue`）**
+
+- 状态徽标改用 P0 的 `StatusPill`（状态族字形 + `status.<值>` 译文，手动设置的状态另起一个小字「手动」）；`InfoCard` 外壳保留（P2 没有交付通用 `Card`，与 P4 会话页同一取舍）。
+- 卡片标记：到期（提醒到期 / 搁置到期）、**停滞 N 天**（新增）、未整理、会话已离线，各自带说明 `title`。
+- 字段与动作逐项保留（见下表）。
+
+**详情抽屉（`components/WorkDrawer.vue`）**
+
+- 外壳换成 P2 的 `ui/Drawer`（§8「WorkDrawer … 的外壳」）：`role=dialog` + `aria-modal`、Esc / 点遮罩关闭、焦点循环与归还、打开时 body 不滚；宽度 `clamp(640px, 52vw, 1040px)`，手机铺满宽。关闭仍把意图交回页面（页面清 `?id=`）。
+- 头部一行：`StatusPill`（`size=md`）、到期标记、健康度（阻塞 / 停滞 / 有风险时才出现，带原因）、刷新按钮；标题来自工作项标题（Drawer 的 `label`），关闭按钮由 Drawer 提供。
+- 抽屉内写备注的输入框改成 P4 已合入的 `Composer`（发送按钮即「写入」，Ctrl/⌘+Enter 提交，手机点按目标 ≥40px）；备忘录式的其它表单（标题 / 目标 / 阻塞 / 下一步 / 摘要 / 项目 / 优先级 / 工作区、搁置与提醒、合并 / 拆分）仍是普通字段，因为它们不是消息输入框。
+- 其余区块与按钮一个不少：收集箱分派、状态按钮 + 三种状态来源说明 + 交还给自动判定 / 标为已整理、整理建议（采纳 / 忽略、把握百分比、作者与时间）、内容表单与保存（409 冲突提示）、搁置与提醒（预设时间 + datetime-local）、会话（请它汇报 / 请它写交接 / 整理、请求账本一行说明、当前会话的打开 / 唤醒 / 取消关联、历史会话、关联会话）、关联项（job / plan / todo / issue 跳转、待同步标记、移除、转 todo、手动关联）、合并与拆分、日志（里程碑 / 全部切换、作者标注、来自合并前的工作项）。
+- 转为 todo 的小对话框保留（选 plan / 新建 plan、409 时提示已转过）。
+
+**i18n（§9）**
+
+- 本页文案全部进 `web/src/i18n/pages/work.ts`（前缀 `work.`，zh / en 同名同数，已登记进 `i18n.test.ts` 的 `pageDomains`），不动 `zh.ts` / `en.ts`：页头、chip、新建、合并建议、待整理、卡片全部字段与标记、详情抽屉各区块与提示消息、整理建议字段名、请求账本的种类与状态。
+- 请求账本的一行说明改由 `utils/workBoard.ts` 的 `workRequestLine` 按字典拼（`utils/work.ts` 的 `requestLine` 保留给既有单测，页面不用它）；状态文字统一用 `status.<值>`，不再取 `utils/work.ts` 的 `WORK_STATUSES` 中文 label。
+- 业务内容（工作项标题、目标 / 阻塞 / 摘要原文、agent / 项目 / 工作区名、id、日志正文）不翻译。
+
+**不丢信息核对（对照 §7.1 本页规格与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 页头 h1「工作」 | 标题「工作项」（+ 一行摘要） |
+| 按状态 / 按工作区分组（记在 `gofer.work.view`） | 保留（分段按钮） |
+| 显示已完成 | 保留 |
+| 刷新 / ＋新建 / 收起 | 保留（＋新建换成主按钮） |
+| 计数徽标「等我 / 到期提醒 / 未整理」（点击筛选） | 四个 chip（新增「全部」与计数），再点一次取消 |
+| 搜索（标题 / 目标 / 阻塞 / 项目 / 工作区 / id）+ 清除筛选 | 保留（清除筛选在有筛选或搜索时出现） |
+| — | 项目 chip（§6.4，新增，`?project=`） |
+| 新建表单（标题 + 目标） | 保留 |
+| 管家的合并建议（采纳 / 忽略） | 保留 |
+| 待整理：草稿 / 收集箱页签、说明、收集箱条目（类型 / 项目 / 来源 / 时间）、空态 | 保留（文案走字典） |
+| 筛选结果 / 状态 8 列 / 工作区分组 / 空态 | 保留 |
+| 卡片：状态（+ 手动）、到期、未整理、会话已离线、会话行、工作区、最近活动 | 全部保留（状态改 pill；新增停滞标记） |
+| 卡片：目标 / 阻塞 / 下一步 / 字段来源标注 / 整理建议 / 请求进度 / 关联标签 | 全部保留 |
+| 卡片详情：目标、阻塞、下一步、摘要、项目、工作区、搁置、提醒、来源、状态来源、ID、会话列表、用量、关联 | 全部保留 |
+| 卡片动作：打开会话、唤醒、整理、标状态、编辑 | 全部保留 |
+| 抽屉：刷新 / 关闭 / 标题 / 状态 / 到期 / 健康度 | 保留（关闭由 Drawer 提供） |
+| 抽屉：收集箱分派、状态按钮与来源说明、交还自动 / 标为已整理、完成 / 放弃 / 重新打开 / 删除 | 全部保留 |
+| 抽屉：整理建议、内容表单与保存、搁置与提醒、会话区、关联项、合并 / 拆分、日志与里程碑切换 | 全部保留 |
+| 抽屉：写备注 + 写入 | 改成 `Composer`（同一个 `addWorkNote`） |
+| 转 todo 对话框 | 保留 |
+
+**测试（§13）**
+
+- 新增 `utils/workBoard.test.ts`（9 个用例）：计数口径（只算未结束、未整理取草稿）、项目收窄（空 = 全部 / 命中 / 不命中）、`stalledDays`（阈值、已结束 / 搁置 / 草稿 / 在途请求不算、结束后重新计入）、`dueLabelKey` / 来源与建议字段 key、`workRequestLine` 的进行中 / 已送达（带超时分钟数）/ 已回复 / 超时改为整理 / 失败带原因，以及跟随 en 字典。
+- 新增 `views/workPage.test.ts`（12 个用例）：页面 / 卡片 / 抽屉 / utils 用到的 `t()` 与 `work.*` / `status.*` key 在 zh 与 en 字典里都存在、两份 key 集合相等、英文串里没有汉字、卡片停滞标记（显示 / 已结束·搁置·草稿·在途请求不显示）、`StatusPill` 与到期 / 离线标记、en 下的界面文案（业务内容不翻译）、页头→筛选顺序、空值 chip 映射到「全部」、`Drawer` 宽度 + `flush` + 手机断点、抽屉里 14 个操作锚点、备忘录走 `Composer`。
+- 同步修改：`views/work.test.ts`（计数徽标改成 chip + `workCounts`、项目 chip 接线、断点 640 → 760、状态列改 `StatusPill`、抽屉换成 `Drawer` + `Composer`、409 文案断言改 key）、`components/workCard.test.ts`（「手动」标记改成独立元素）、`components/today/todayLanes.test.ts`（日志粒度切换的文案断言改 key）、`i18n/i18n.test.ts`（页面域加 `work.`）。
+- 全量 `npx vitest run` 210 个文件 / 1445 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
+
+**如实记录的范围边界与差异**
+
+- 设计稿 §7.1 的「健康 / 停滞标记」：列表接口（`WorkItem`）**没有** health 字段，只有详情（`WorkDetail`）有。所以列表上的「停滞」是前端口径（未结束、非搁置、非草稿，`last_activity_at` 距今 ≥2 天，且没有在途的汇报 / 整理请求），详情抽屉里显示服务端给的 health。
+- 项目收窄是**前端**收窄（一次取 `boardListOpts` 那么多条，与迁移前同一上限），没有把 `?project=` 变成服务端参数。
+- 预览稿（`tmp/gofer-ui-redesign/preview.html`）**没有** `/work` 屏，所以本页形态按 §7.1 的字段清单 + 预览里最近的形态（列表行 / 卡片 / 抽屉 / 表单）落地，而非逐像素对齐。
+- 仍留在工具层的中文：`utils/work.ts` 的 `statusLabel` / `workspaceLabel` / `dueText` / `actorLabel` / `suggestionLabel` / `requestLine` / `whenPresets`、`utils/todayLanes.ts` 的 `healthText`、`utils/sessionState.ts` 的 `agentStateLabel`（卡片与抽屉的「执行中 / 等待回复」）、`utils/sessionUsage.ts` 的 `workUsageLabel`、`utils/sessionResume.ts` 的唤醒文案、`utils/steward.ts` 的 `mergeSuggestionText`、`utils/capture.ts` 的 `captureKindLabel` / `captureSource`，以及本页专属组件 `WorkDispatchDialog.vue`（收集箱分派对话框）的文案——P6 统一处理。
+- 视觉与交互自查：用构建产物 + 本机 Edge（Playwright，headless）+ `/v1` 桩数据（`tmp/visual/`，不入库）把 `/work` 按 zh / en × 浅 / 深各截一屏（1440×900），另加手机（390×844）列表 / 详情两屏。据此只改了一处：卡片上去掉一个与「到期」标记重复的到期小标签（它还是工具层中文，英文界面里会中英混排）；其余按设计稿落地后看起来正常（浅 / 深对比度都够、控制台只有桩服务的 WS 报错、手机无横向滚动）。交互冒烟也跑过：计数 chip 点选后出现「筛选结果」、再点取消；项目 chip 写进 `?project=` 后卡片只剩该项目的；`?id=` 打开抽屉后 Esc 关闭、`?id=` 被清掉、body 滚动恢复；手机「更多」→ 工作项能正常列表（6 张卡）。
+- `WorkCard` 的「详情 / 收起」仍由共享的 `InfoCard` 提供（中文），同 P4 会话页的取舍。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**
