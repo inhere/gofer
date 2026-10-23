@@ -724,6 +724,63 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 手机上的筛选走 `FilterDrawer`（底部抽屉），桌面同样是抽屉，没有做「桌面内联展开」的第二套形态。
 - i18n 只覆盖新组件与新的列表头；页面其余中文文案按 P3 起逐页抽取。
 
+### P3 任务页（2026-10-23，issue gofer-hez1）
+
+落地范围：§7.1 的 `/jobs` 任务列表与 `/jobs/:id` 任务详情，以及 §16 追加的「按宽度并排」要求。不涉 Go 代码、没有新接口。
+
+**列表 / 详情的宽度契约（`web/src/utils/jobsLayout.ts` + `web/src/store/jobsSplit.ts` + `web/src/utils/useElementWidth.ts`）**
+
+| 名称 | 含义 |
+|---|---|
+| `SPLIT_MIN_CONTENT_WIDTH` = 1280 | 主内容区（`JobsView` 根的实测宽度）达到这个值才可能并排 |
+| `DETAIL_MIN_WIDTH` = 760 / `LIST_MIN_WIDTH` = 520 | 并排时详情面板的最小宽度；1280 − 520 = 760，两者是同一个约束的两面 |
+| `splitAllowed(width)` / `splitLayout(width, pref)` | 纯函数：宽度不够或用户选了「单栏」就不并排；`NaN` / `Infinity` / 0（SSR、量不到）一律单栏 |
+| `readSplitPreference` / `saveSplitPreference` | 「并排 / 单栏」记在 `localStorage gofer.jobsSplit`（默认并排） |
+| `jobTabForStatus(status)` | 默认页签：`needs_review` → 验收、`failed` → 日志、其余 → 概览 |
+| `JOB_TAB` / `JOB_TAB_ORDER` | 七个页签值（`overview` / `review` / `log` / `changes` / `messages` / `artifacts` / `events`），顺序即页签顺序 |
+| `useElementWidth()` | `ResizeObserver` 量根元素宽度，没有 ResizeObserver 时退回 `window.resize` + 首测 |
+
+路由：`/jobs/:id` 的组件从 `JobDetail.vue` 换成宿主 `views/JobsView.vue`（`props: true` 不变）。宿主量自己的宽度：够宽时左列 `Board`、右列 `JobDetail`（都带 `embedded`），不够宽只渲染 `JobDetail`。手机（≤760）主内容区不可能到 1280，自然只有两级页面。
+
+**任务列表（`Board.vue`）**
+
+- 行：`StatusPill`（字形 + 文案）、标题 / id（含 tags）、项目、agent（续接带 ↻）、runner（远端高亮，副行 worker_id）、徽标（未提交、验证失败、只读、角色、渠道、附件、目录锁）、`Signal` + 耗时（**所有状态都显示**，旧版只有 `running` 才显示）、时间。
+- `embedded`：并排时隐藏页面标题，只留一行计数；头部多一个「单栏」按钮（写 `store/jobsSplit.ts`）。
+- 筛选写回哪个路径由 `listPath()` 决定：并排时留在当前 `/jobs/:id`（右侧详情不丢），否则回 `/jobs`。点行时把当前 `route.query` 带进详情 URL（单栏时返回链接也能回到同一筛选）。
+- 列表侧文案（页头、chip、抽屉里的八个筛选维、表头、徽标、空态、分页）全部走 `t('jobs.*')`。
+
+**任务详情（`JobDetail.vue`）**
+
+- 页头：`BackLink`（`list="jobs"`，回来源列表）+ 状态 / 未提交 / 信号 + 快速重建、打开终端、取消、删除记录、释放锁并结束。并排时不显示返回链接（列表就在左边）。
+- 页签用 P2 的 `ui/Tabs.vue`：`?tab=` 深链、默认页签不写进 URL、`role=tablist/tab/tabpanel`、← → Home End。页签带计数（变更 = 提交数、消息 = 消息数、产物 = 产物数、事件 = 时间线 + 交互数），验收页签在 `needs_review` 时带黄色角标。
+- 各页签内容（全部是旧页面原有区块，只换了位置）：
+  - 概览：「去验收」横幅（`needs_review`）、`ApprovalPanel`、元信息网格（完整保留）、渲染命令、最近 6 行日志（取 stdout，没有就 stderr）+ 去日志页签；
+  - 验收：`ReviewPanel`；
+  - 日志：`LogTape`（跟随 / 换行 / stdout–stderr 切换不变）；
+  - 变更：提交列表（sha 可复制、基线短 sha）与未提交 diff 从「产物」里拆出来，空时写一行说明；
+  - 消息：传话消息、消息列表（首条 prompt 可展开注入内容）、ACP 会话输入框；
+  - 产物：结构化结果、产物文件、文件传输（上传 / 收集 / 跳过）、验证、用量；
+  - 事件：待应答 / 已应答交互、事件时间线、评论、通知投递、终端会话、唤醒。
+- 产物里的「查看输出」会先切到「日志」页签再聚焦 stderr 末尾（页签没挂载时 `LogTape` 为空）。
+- 页头文案、页签名、消息 / 事件 / 产物 / 变更区块的标签走 `t('jobs.*')`（`i18n/pages/jobs.ts`）。
+
+**测试**
+
+- 新增 `utils/jobsLayout.test.ts`：1280 阈值、760 详情最小宽的等价关系、非有限宽度、单栏开关优先、偏好的存取与坏 storage、`jobTabForStatus` 全状态。
+- 新增 `views/jobsPage.test.ts`（SSR）：七个页签与 `role=tablist/tabpanel`、`?tab=changes` 深链选中、未知 `?tab=` 回落概览、并排时无返回链接、宿主页在量不到宽度时单栏、列表行的字段与徽标、打开任务带筛选、「单栏」开关。
+- 新增 `views/jobsSplit.test.ts`（SSR + mock 宽度 1440）：并排时列表 + 详情同屏、无返回链接、单栏偏好下面板消失并回完整详情页。
+- 同步修改：`views/uiTextWiring.test.ts`（Board 标题与 JobDetail 返回链接改断 i18n / `BackLink`）、`components/approvalPanel.test.ts`（待批面板在概览页签）、`views/jobDetailMessages.test.ts`、`views/jobDetailMessenger.test.ts`、`views/jobDetailSessionComposer.test.ts`、`views/jobDetailAgentBudget.test.ts`（中文文案断言改为断 i18n key）。
+- 全量 `npx vitest run` 197 个文件 / 1322 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build` 通过。
+
+**如实记录的范围边界**
+
+- 并排与单栏是固定比例（`minmax` 两列），未做「拖宽分隔条」；宽度够不够由 util 判定，CSS 只负责布局。
+- 页头操作还是平铺按钮，没有合并成 §7.1 说的「更多」菜单（按钮集合与旧版一致：快速重建 / 合并到基线 / 释放锁并结束 / 删除记录 / 取消 / 打开终端）。
+- 计划待办的进度步骤在任务详情里本来就没有，本页未新增（§7.1 提到的「进度步骤」留给计划详情）。
+- 详情页仍有未搬进 i18n 的长尾文案：元信息网格的字段标签（项目 / 派生自 / 会话内 job / 目录锁……）、产物传输里的预览 / 下载 / 提交 / 跳过按钮、续跑表单与唤醒表单。它们与旧版逐字相同，留到 P6 的「残留文案抽取」。
+- 页签切换会让被隐藏的区块卸载（LogTape、ReviewPanel 的滚动与展开状态不保留），数据在父组件里，切回来重新渲染。
+- `LogTape` 在 setup 里读 `window`，node SSR 下不能挂载，所以 SSR 测试只用不渲染日志页签的 `?tab=` 值（该组件本身未改）。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**
