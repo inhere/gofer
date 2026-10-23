@@ -17,7 +17,7 @@ import {
   hourRows,
   mondayOf,
   perJob,
-  RANGE_LABEL,
+  rangeName,
   RANGES,
   topN,
 } from './dashStats'
@@ -45,7 +45,7 @@ describe('dashStats buckets', () => {
 
   it('ranges run today → 7d → 30d → all and default to 7d', () => {
     expect(RANGES).toEqual(['today', '7d', '30d', 'all'])
-    expect(RANGES.map((r) => RANGE_LABEL[r])).toEqual(['今日', '近 7 天', '近 30 天', '全部'])
+    expect(RANGES.map(rangeName)).toEqual(['今日', '近 7 天', '近 30 天', '全部'])
     expect(DEFAULT_RANGE).toBe('7d')
     expect(defaultBucket(DEFAULT_RANGE)).toBe('day')
   })

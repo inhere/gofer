@@ -1,30 +1,28 @@
-// agent 会话状态的展示：Sessions 页与「工作」页的卡片共用。
+// agent 会话状态的展示：Sessions 页与「工作」页的卡片共用。文案走 i18n（util.session.*），
+// 以 zh 为回退；没有登记的状态原样显示。
 import type { AgentSessionState } from '../api/types'
-
-const LABELS: Record<AgentSessionState, string> = {
-  running: '执行中',
-  idle: '空闲',
-  waiting_reply: '等待回复',
-  needs_attention: '需注意',
-  handed_off: '已接管',
-  ended: '已结束',
-  offline: '离线',
-}
+import { t, te } from '../i18n'
 
 // ACP 持续会话 / 终端 job 关联到工作项时，状态是 job 状态（SessionBrief.kind = job）。
-const JOB_LABELS: Record<string, string> = {
-  queued: '排队中',
-  awaiting_input: '等待输入',
-  done: '已结束',
-  failed: '已失败',
-  cancelled: '已取消',
-  timeout: '已超时',
-  rejected: '已拒绝',
+// 两个前缀分开：agent 会话状态 util.session.state.*，job 状态 util.session.job.*，
+// 其余 job 状态值直接复用主字典的 status.*。
+function agentStateKey(s: string): string {
+  return `util.session.state.${s}`
+}
+
+function jobStateKey(s: string): string {
+  const own = `util.session.job.${s}`
+  if (te(own)) return own
+  const shared = `status.${s}`
+  return te(shared) ? shared : ''
 }
 
 export function agentStateLabel(s: AgentSessionState | string | undefined): string {
   if (!s) return '—'
-  return (LABELS as Record<string, string>)[s] ?? JOB_LABELS[s] ?? s
+  const key = agentStateKey(s)
+  if (te(key)) return t(key)
+  const jobKey = jobStateKey(s)
+  return jobKey ? t(jobKey) : s
 }
 
 // 卡片左侧色条：等回复 = 要你处理；需注意 = 异常；执行中 / 已接管 = 进行中；离线 / 已结束 = 暗淡。

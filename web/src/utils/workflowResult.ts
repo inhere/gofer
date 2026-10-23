@@ -2,6 +2,7 @@
 // 只做「后端字段 → 给人看的一行」的换算与文案，不碰网络，方便单测。
 import type { Job, JobStatus, Workflow, WorkflowStep, WorkflowTemplateWriteResult } from '../api/types'
 import { fmtDateTime, fmtDuration } from '../api/time'
+import { t } from '../i18n'
 import { runnerLabel } from './runnerDisplay'
 
 // 结果表一行 = 一个 step-job（重试每次一行、扇出每路一行）。
@@ -124,10 +125,11 @@ export function jobWorkflowLabel(
   fanName?: string,
 ): string {
   if (!job.workflow_id) return ''
-  const parts = [`第 ${job.step_index ?? 1} 步`]
-  if ((job.attempt ?? 1) >= 2) parts.push(`第 ${job.attempt} 次尝试`)
+  const parts = [t('util.wf.step', { n: job.step_index ?? 1 })]
+  if ((job.attempt ?? 1) >= 2) parts.push(t('util.wf.attempt', { n: job.attempt ?? 1 }))
   if ((job.fan_index ?? 0) >= 1) {
-    parts.push(fanName ? `第 ${job.fan_index} 路（${fanName}）` : `第 ${job.fan_index} 路`)
+    const fan = job.fan_index ?? 1
+    parts.push(fanName ? t('util.wf.fanNamed', { n: fan, name: fanName }) : t('util.wf.fan', { n: fan }))
   }
   return parts.join(' · ')
 }
@@ -162,12 +164,12 @@ export interface TemplateEditGate {
 
 export function templateEditGate(holdsConfigWrite: boolean, whoamiKnown: boolean): TemplateEditGate {
   if (!whoamiKnown || holdsConfigWrite) return { editable: true, reason: '' }
-  return { editable: false, reason: '需要 config.write 权限才能编辑模板（当前只读）' }
+  return { editable: false, reason: t('util.wf.edit.needWrite') }
 }
 
 // 内置模板本身只读：同名保存到全局 / 项目是「覆盖」，不是改内置。
 export function templateReadOnlyNote(source: string | undefined): string {
-  if (source === 'builtin') return '内置模板只能查看；保存到全局或项目会以同名文件覆盖它'
+  if (source === 'builtin') return t('util.wf.edit.builtinNote')
   return ''
 }
 
@@ -178,23 +180,24 @@ export function overridesBuiltinNotice(
   scope: TemplateScope,
 ): string {
   if (!name || source !== 'builtin') return ''
-  return `将覆盖内置模板 ${name}（保存到${scope === 'global' ? '全局' : '当前项目'}）`
+  const scopeText = t(scope === 'global' ? 'util.wf.edit.overrideGlobal' : 'util.wf.edit.overrideProject')
+  return t('util.wf.edit.override', { name, scope: scopeText })
 }
 
 // shadows 说明：这一份模板盖住了哪些层。
 export function shadowsNote(shadows: string[] | undefined): string {
   if (!shadows || shadows.length === 0) return ''
-  return `覆盖了 ${shadows.map(sourceLabel).join(' / ')}的模板`
+  return t('util.wf.edit.shadows', { layers: shadows.map(sourceLabel).join(' / ') })
 }
 
 function sourceLabel(source: string): string {
   switch (source) {
     case 'project':
-      return '项目'
+      return t('util.wf.source.project')
     case 'global':
-      return '全局'
+      return t('util.wf.source.global')
     case 'builtin':
-      return '内置'
+      return t('util.wf.source.builtin')
     default:
       return source
   }
@@ -208,24 +211,25 @@ export interface SaveNotice {
 }
 
 export function templateSaveNotice(r: WorkflowTemplateWriteResult): SaveNotice {
-  const where = r.path || `${r.scope} 模板`
+  const where = r.path || t('util.wf.save.scopeName', { scope: r.scope })
   if (r.uncommitted) {
     return {
       tone: 'warn',
-      text: `已写入项目工作区（${where}），尚未提交——提交到仓库才算数`,
+      text: t('util.wf.save.uncommitted', { where }),
       command: r.commit_command ?? '',
     }
   }
+  const scope = r.scope === 'global' ? t('util.wf.source.global') : r.scope
   return {
     tone: 'ok',
-    text: `已保存到${r.scope === 'global' ? '全局' : r.scope}模板：${where}`,
+    text: t('util.wf.save.saved', { scope, where }),
     command: '',
   }
 }
 
 // 删除结果 → 提示；删除后名字回落到下一层（全局 / 内置）要说清楚。
 export function templateDeleteNotice(r: WorkflowTemplateWriteResult): string {
-  const base = r.uncommitted ? `已删除项目工作区里的模板 ${r.name}（尚未提交）` : `已删除模板 ${r.name}`
-  if (!r.falls_back_to) return `${base}，这个模板已不存在`
-  return `${base}，现在回落到${sourceLabel(r.falls_back_to)}模板`
+  const base = r.uncommitted ? t('util.wf.delete.uncommitted', { name: r.name }) : t('util.wf.delete.done', { name: r.name })
+  if (!r.falls_back_to) return t('util.wf.delete.gone', { base })
+  return t('util.wf.delete.fallback', { base, source: sourceLabel(r.falls_back_to) })
 }

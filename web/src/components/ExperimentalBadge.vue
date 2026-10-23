@@ -2,14 +2,17 @@
 // 「实验性」标注：挂在 docs/guide/stability.md 列为「标为实验性 / 默认关闭」的功能入口上，
 // 只提示"这块还在变"，不拦任何操作。外观沿用控制台已有的小徽标（Agents 页的「内置」）：
 // 10px mono 字、发丝边框、4px 圆角；颜色一律走 styles/tokens.css 的语义变量。
-withDefaults(defineProps<{ label?: string; hint?: string }>(), {
-  label: '实验性',
-  hint: '此功能仍在调整，行为与配置可能变化',
-})
+// label / hint 不传就用字典里的通用文案（util.experimental.*），文案随语言切。
+import { computed } from 'vue'
+import { t } from '../i18n'
+
+const props = defineProps<{ label?: string; hint?: string }>()
+const badgeLabel = computed(() => props.label ?? t('util.experimental.label'))
+const badgeHint = computed(() => props.hint ?? t('util.experimental.hint'))
 </script>
 
 <template>
-  <span class="experimental-badge mono" :title="hint" data-test="experimental-badge">{{ label }}</span>
+  <span class="experimental-badge mono" :title="badgeHint" data-test="experimental-badge">{{ badgeLabel }}</span>
 </template>
 
 <style scoped>

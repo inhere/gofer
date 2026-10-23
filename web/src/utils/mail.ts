@@ -1,7 +1,8 @@
 // 信箱页（design 2026-10-16「二、gofer 信箱」，计划 M7）的纯逻辑：地址解析与校验、
 // 对话串分组与排序、方向 / 状态 / 对方文案、列表查询参数。组件只负责渲染与发请求，
-// 规则都在这里，便于在 node 环境下单测。
+// 规则都在这里，便于在 node 环境下单测。文案走 i18n（util.mail.*），以 zh 为回退。
 import type { MailMessage, MailParty } from '../api/types'
+import { t, te } from '../i18n'
 
 // 页内路由与深链：Today 的「信件待指派」卡与 /v1/today 的卡片动作都指向 MAIL_HELD_LINK。
 export const MAIL_PAGE_LINK = '/mail'
@@ -36,7 +37,7 @@ export function parseMailAddress(input: string): ParsedMailAddress {
   if (sep < 0) {
     return {
       ok: false, scheme: '', value: raw, address: '',
-      error: '地址要带前缀：session: / job: / topic: / path: / caller',
+      error: t('util.mail.err.needScheme'),
     }
   }
   const prefix = raw.slice(0, sep).trim().toLowerCase()
@@ -47,16 +48,16 @@ export function parseMailAddress(input: string): ParsedMailAddress {
     case 'topic':
     case 'path': {
       if (!value) {
-        return { ok: false, scheme: prefix, value, address: '', error: `${prefix}: 后面要写目标` }
+        return { ok: false, scheme: prefix, value, address: '', error: t('util.mail.err.needTarget', { prefix }) }
       }
       if (/\s/.test(value)) {
-        return { ok: false, scheme: prefix, value, address: '', error: '地址中间不能有空白' }
+        return { ok: false, scheme: prefix, value, address: '', error: t('util.mail.err.noSpace') }
       }
       return { ok: true, scheme: prefix, value, address: `${prefix}:${value}`, error: '' }
     }
     case 'caller': {
       if (value) {
-        return { ok: false, scheme: 'caller', value, address: '', error: 'caller 后面不带值' }
+        return { ok: false, scheme: 'caller', value, address: '', error: t('util.mail.err.callerNoValue') }
       }
       return { ok: true, scheme: 'caller', value: '', address: 'caller', error: '' }
     }
@@ -64,7 +65,7 @@ export function parseMailAddress(input: string): ParsedMailAddress {
       // agent: 等在第三期才开放；明确说清而不是让服务端回一个 400。
       return {
         ok: false, scheme: '', value, address: '',
-        error: `不支持的地址前缀 ${prefix}:（可用 session: / job: / topic: / path: / caller）`,
+        error: t('util.mail.err.unknownPrefix', { prefix }),
       }
   }
 }
@@ -112,7 +113,7 @@ export function parseMailRecipients(input: string): MailRecipients {
       const scheme = sep < 0 ? '' : rest.slice(0, sep).trim().toLowerCase()
       const value = sep < 0 ? '' : rest.slice(sep + 1).trim()
       if (!EACH_SCHEMES.has(scheme) || !value || /\s/.test(value)) {
-        return { ok: false, addresses: [], error: 'each: 后面要写 topic: / path: / project: / agent: 选择器，例如 each:project:gofer' }
+        return { ok: false, addresses: [], error: t('util.mail.err.eachNeed') }
       }
       out.push(`each:${scheme}:${value}`)
       continue
@@ -198,7 +199,7 @@ export function mailComposeAddresses(st: MailComposeState): MailRecipients {
     const scheme = (sc.scheme ?? '').trim().toLowerCase()
     const value = (sc.value ?? '').trim()
     if (!EACH_SCHEMES.has(scheme) || !value || /\s/.test(value)) {
-      return { ok: false, addresses: [], error: `「全部」选器要填值（按${mailScopeLabel(scheme as MailScope['scheme'])}），且不能有空白` }
+      return { ok: false, addresses: [], error: t('util.mail.err.scopeValue', { scope: mailScopeLabel(scheme as MailScope['scheme']) }) }
     }
     push(`each:${scheme}:${value}`)
   }
@@ -213,39 +214,41 @@ export function mailComposeAddresses(st: MailComposeState): MailRecipients {
   return { ok: true, addresses: out, error: '' }
 }
 
-// 选器的人话名称（下拉与提示共用）。
+// 选器的人话名称（下拉与提示共用）。label / hint 用 getter：模块加载时不能定住语言，
+// 渲染时读当前 locale（t() 读 store/locale.ts 的 ref）。
 export const MAIL_SCOPES: Array<{ key: MailScope['scheme']; label: string; hint: string }> = [
-  { key: 'project', label: '按项目全部', hint: '项目 key，例如 <project>' },
-  { key: 'topic', label: '按主题全部', hint: '主题关键词，例如 login' },
-  { key: 'agent', label: '按 agent 全部', hint: 'agent 名，例如 claude / codex' },
-  { key: 'path', label: '按工作区子路径全部', hint: '子路径，例如 web/src' },
+  { key: 'project', get label() { return t('util.mail.scope.project') }, get hint() { return t('util.mail.scope.hint.project') } },
+  { key: 'topic', get label() { return t('util.mail.scope.topic') }, get hint() { return t('util.mail.scope.hint.topic') } },
+  { key: 'agent', get label() { return t('util.mail.scope.agent') }, get hint() { return t('util.mail.scope.hint.agent') } },
+  { key: 'path', get label() { return t('util.mail.scope.path') }, get hint() { return t('util.mail.scope.hint.path') } },
 ]
 
+// 选器的短名（「项目 X 全部」里的「项目」）。
 export function mailScopeLabel(scheme: MailScope['scheme'] | ''): string {
-  const label = MAIL_SCOPES.find((s) => s.key === scheme)?.label ?? String(scheme)
-  return label.replace(/^按/, '').replace(/全部$/, '').trim()
+  const key = `util.mail.scopeShort.${scheme}`
+  return te(key) ? t(key) : String(scheme)
 }
 
 // mailAddressLabel 是已选收件人标签上的文字：会话短 id、job id，选器写「项目 X 全部」。
 export function mailAddressLabel(address: string): string {
-  if (address === 'caller') return '我自己的收集箱'
+  if (address === 'caller') return t('util.mail.addr.caller')
   if (address.startsWith('each:')) {
     const [, scheme, ...rest] = address.split(':')
     const value = rest.join(':')
-    return `${mailScopeLabel(scheme as MailScope['scheme'])} ${value} 全部`
+    return t('util.mail.addr.each', { scope: mailScopeLabel(scheme as MailScope['scheme']), value })
   }
   const sep = address.indexOf(':')
   const scheme = sep < 0 ? '' : address.slice(0, sep)
   const value = sep < 0 ? address : address.slice(sep + 1)
   switch (scheme) {
     case 'session':
-      return `会话 ${value}`
+      return t('util.mail.addr.session', { id: value })
     case 'job':
       return `job ${value}`
     case 'topic':
-      return `主题 ${value}`
+      return t('util.mail.addr.topic', { value })
     case 'path':
-      return `路径 ${value}`
+      return t('util.mail.addr.path', { value })
   }
   return address
 }
@@ -264,7 +267,7 @@ export function filterComposeSessions(sessions: ComposeSessionOption[], q: strin
 
 // mailSessionOptionLabel 是会话多选里的一行：会话名（短 id）+ 标题 + agent + 项目。
 export function mailSessionOptionLabel(s: PreviewSession & { title?: string; state?: string }): string {
-  const bits = [s.title || '(无标题)', s.agent || '—', s.project_key || '(无项目)']
+  const bits = [s.title || t('util.mail.session.noTitle'), s.agent || '—', s.project_key || t('util.mail.session.noProject')]
   return `${shortId(s.session_id)} · ${bits.join(' · ')}`
 }
 
@@ -282,14 +285,14 @@ export function mailComposePreviewText(
   localEstimate: number,
 ): string {
   if (!addresses.length || (addresses.length === 1 && addresses[0] === 'caller')) {
-    return '收件人留空 = 投给自己的收集箱'
+    return t('util.mail.preview.self')
   }
   if (preview) {
-    const skip = preview.skipped > 0 ? `（略过 ${preview.skipped} 个）` : ''
-    return `将投递 ${preview.delivered} 个会话${skip}`
+    const skip = preview.skipped > 0 ? t('util.mail.preview.skipped', { n: preview.skipped }) : ''
+    return `${t('util.mail.preview.willDeliver', { n: preview.delivered })}${skip}`
   }
-  if (localEstimate < 0) return '含 path: 选择器：投递数由服务端按范围匹配'
-  return `约 ${localEstimate} 个会话（服务端确认中…）`
+  if (localEstimate < 0) return t('util.mail.preview.pathUnknown')
+  return t('util.mail.preview.estimate', { n: localEstimate })
 }
 
 export interface MailBuild {
@@ -301,15 +304,15 @@ export interface MailBuild {
 // 手写地址串（老写法）或写信框拼好的地址数组。
 export function buildMailSend(f: MailComposeForm): MailBuild {
   const body = f.body.trim()
-  if (!body) return { req: null, error: '先写点内容' }
+  if (!body) return { req: null, error: t('util.mail.err.emptyBody') }
   if (new TextEncoder().encode(body).length > MAIL_BODY_MAX) {
-    return { req: null, error: `正文最多 ${MAIL_BODY_MAX} 字节` }
+    return { req: null, error: t('util.mail.err.tooLong', { max: MAIL_BODY_MAX }) }
   }
   const addr = Array.isArray(f.to)
     ? { ok: true, addresses: f.to, error: '' }
     : parseMailRecipients(f.to)
   if (!addr.ok) return { req: null, error: addr.error }
-  if (!addr.addresses.length) return { req: null, error: '没有收件人' }
+  if (!addr.addresses.length) return { req: null, error: t('util.mail.err.noRecipient') }
   // 一个普通地址保持原来的字符串写法；多个地址 / any each: 选择器发成数组（群发）。
   const broadcast = addr.addresses.length > 1 || addr.addresses.some((a) => a.startsWith('each:'))
   const req: MailSendBody = { to: broadcast ? addr.addresses : addr.addresses[0], body }
@@ -320,9 +323,9 @@ export function buildMailSend(f: MailComposeForm): MailBuild {
 // buildMailReply 校验回复正文（地址由原信决定，不用填）。
 export function buildMailReply(body: string, urgent = false): { req: { body: string; urgent?: boolean } | null; error: string } {
   const text = body.trim()
-  if (!text) return { req: null, error: '先写点内容' }
+  if (!text) return { req: null, error: t('util.mail.err.emptyBody') }
   if (new TextEncoder().encode(text).length > MAIL_BODY_MAX) {
-    return { req: null, error: `正文最多 ${MAIL_BODY_MAX} 字节` }
+    return { req: null, error: t('util.mail.err.tooLong', { max: MAIL_BODY_MAX }) }
   }
   return { req: urgent ? { body: text, urgent: true } : { body: text }, error: '' }
 }
@@ -337,20 +340,11 @@ export function buildMailReaddress(to: string): { req: { to: string } | null; er
 // ---- 文案 ----
 
 // 状态文案（服务端的信件状态机：pending / delivering / delivered / answered / held /
-// expired / failed / cancelled）。
-export const MAIL_STATE_LABEL: Record<string, string> = {
-  pending: '待送达',
-  delivering: '投递中',
-  delivered: '已送达',
-  answered: '已答复',
-  held: '待指派',
-  expired: '已过期',
-  failed: '投递失败',
-  cancelled: '已撤回',
-}
-
+// expired / failed / cancelled）；文案在 i18n 的 util.mail.state.*。
 export function mailStateLabel(state: string): string {
-  return MAIL_STATE_LABEL[state] ?? (state || '—')
+  const key = `util.mail.state.${state}`
+  if (te(key)) return t(key)
+  return state || '—'
 }
 
 // 状态配色用的语义色名（页面映射到 styles/tokens.css 的变量）。
@@ -380,17 +374,17 @@ function shortId(id: string | undefined): string {
 
 // 一方（出处 / 收件方）的可读名：服务端给了 display 就用它，否则按类型拼。
 export function mailPartyLabel(p: MailParty | undefined): string {
-  if (!p) return '未知'
+  if (!p) return t('util.mail.party.unknown')
   if (p.display) return p.display
   switch (p.kind) {
     case 'session':
-      return `会话 ${shortId(p.id)}`
+      return t('util.mail.party.session', { id: shortId(p.id) })
     case 'job':
       return `job ${shortId(p.id)}`
     case 'caller':
-      return `调用方 ${p.caller || p.id || '—'}`
+      return t('util.mail.party.caller', { id: p.caller || p.id || '—' })
   }
-  return p.id ? shortId(p.id) : '未知'
+  return p.id ? shortId(p.id) : t('util.mail.party.unknown')
 }
 
 // 方向：web 只认得调用方（弹出来自是谁），抽屉里再带上当前会话，免得自己的会话发的
@@ -479,10 +473,10 @@ export function groupMailThreads(mails: MailMessage[], me: MailIdentity = {}): M
 export type MailFilter = 'all' | 'in' | 'out' | 'held'
 
 export const MAIL_FILTERS: Array<{ key: MailFilter; label: string }> = [
-  { key: 'all', label: '全部' },
-  { key: 'in', label: '收件' },
-  { key: 'out', label: '发件' },
-  { key: 'held', label: '待指派' },
+  { key: 'all', get label() { return t('act.all') } },
+  { key: 'in', get label() { return t('util.mail.filter.in') } },
+  { key: 'out', get label() { return t('util.mail.filter.out') } },
+  { key: 'held', get label() { return t('util.mail.state.held') } },
 ]
 
 function first(v: unknown): string {

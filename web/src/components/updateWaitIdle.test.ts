@@ -72,8 +72,10 @@ describe('一键更新：空闲时更新（gofer-dzv3）', () => {
 
   it('paused_for_update 有状态文案、颜色与筛选入口', () => {
     expect(typesSrc).toMatch(/\| 'paused_for_update'/)
-    // 状态文案的唯一出处（徽标 / 筛选芯片 / 各页共用一张表）。
-    expect(statusSrc).toMatch(/paused_for_update: '⏳ 等更新'/)
+    // 状态文案的唯一出处（徽标 / 筛选芯片 / 各页共用一张表）；P6-b 起词走字典、
+    // 符号前缀留在代码里（符号是状态本身的信号，不是文案）。
+    expect(statusSrc).toMatch(/paused_for_update: '⏳ '/)
+    expect(statusSrc).toMatch(/t\(key\)/)
     expect(badgeSrc).toMatch(/statusText\(props\.status\)/)
     expect(clientSrc).toMatch(/paused_for_update: 'var\(--queue\)'/)
     expect(statusSrc).toMatch(/'paused_for_update',/)
