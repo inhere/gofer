@@ -104,24 +104,26 @@ defineExpose({ reload: load })
 .fold {
   display: block;
   width: 100%;
-  padding: 8px 14px;
+  min-height: 36px;
+  padding: var(--s1) var(--s3);
   border: 0;
   border-top: 1px solid var(--line);
   background: transparent;
-  color: var(--queue);
-  font-size: 12px;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: var(--fs-sm);
   text-align: left;
   cursor: pointer;
 }
-.fold:hover, .fold:focus-visible { color: var(--phosphor); }
+.fold:hover, .fold:focus-visible { color: var(--accent); }
 .empty, .msg {
   margin: 0;
-  padding: 12px 14px;
-  font-size: 13px;
-  color: var(--queue);
-  background: var(--panel);
+  padding: var(--s3) var(--s3);
+  font-size: var(--fs-sm);
+  color: var(--fg-3);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-panel);
 }
 .msg { color: var(--fail); border-color: var(--fail); }
 </style>
