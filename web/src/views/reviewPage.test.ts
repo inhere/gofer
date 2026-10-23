@@ -173,6 +173,8 @@ describe('验收面板（ReviewPanel）', () => {
     expect(panelSrc).toContain('report.value = newResource()')
     expect(panelSrc).toContain('ensureTab(activeTab.value as Tab)')
     expect(panelSrc).toContain('watch(activeTab, (value) => ensureTab(value as Tab))')
+    // 汇报总是先拉：深链到 Diff / 验证时「发现 / 经验」页签也要跟着出现。
+    expect(panelSrc).toContain("ensureTab('report')")
   })
 
   it('面板文案全部走 review.* i18n key', () => {

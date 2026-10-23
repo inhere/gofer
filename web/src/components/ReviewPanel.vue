@@ -388,17 +388,23 @@ watch(
     manualFinding.value = -1
     candidates.value = []
     hintsJobID.value = ''
-    ensureTab(activeTab.value as Tab)
-    void loadCandidates()
+    bootstrap()
   },
 )
 
 // 页签切换（点 / 键盘 / 浏览器前进后退）才去拉那一页需要的数据。
 watch(activeTab, (value) => ensureTab(value as Tab))
 
-onMounted(() => {
+// 汇报总是先拉：它是首页签，也是「发现 / 经验」页签与审阅提示的数据来源——
+// 深链到 Diff / 验证时如果只按当前页签加载，那两个页签会一直不出现。
+function bootstrap(): void {
+  ensureTab('report')
   ensureTab(activeTab.value as Tab)
   void loadCandidates()
+}
+
+onMounted(() => {
+  bootstrap()
 })
 </script>
 
