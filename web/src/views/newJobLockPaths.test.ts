@@ -9,8 +9,8 @@ describe('new job directory lock and worktree fields (gofer-jkd2)', () => {
     for (const id of ['id="nj-lock"', 'id="nj-lock-wait"', 'v-model="worktree" type="checkbox"']) {
       expect(source).toContain(id)
     }
-    expect(source).toContain('锁定目录（可选，可多个）')
-    expect(source).toContain('等锁时长（秒，可选）')
+    expect(source).toContain("t('newjob.field.lock')")
+    expect(source).toContain("t('newjob.field.lockWait')")
     expect(source).toContain('{{ DIR_LOCK_HINT }}')
   })
 

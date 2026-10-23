@@ -58,7 +58,7 @@ describe('页面标题用中文', () => {
 
   it('新建页与设置区标题也是中文', () => {
     expect(view('NewWorkflow')).toContain("t('workflows.new.title')")
-    expect(view('NewJob')).toContain('{{ isRebuild ? \'快速重建\' : fromSession ? \'从会话新开\' : PAGE.newJob }}')
+    expect(view('NewJob')).toContain("{{ pageTitle }}")
     expect(settingsView('Rules')).toContain('{{ PAGE.rules }}')
     expect(settingsView('SettingsLayout')).toContain('{{ PAGE.settings }}')
     expect(settingsView('SettingsLayout')).not.toContain('>SETTINGS<')
@@ -70,7 +70,8 @@ describe('页面标题用中文', () => {
 
 describe('面包屑用中文', () => {
   it('返回链接取自 BACK 或 ui/BackLink', () => {
-    expect(view('NewJob')).toContain('{{ BACK.board }}')
+    // 新建任务已迁到 ui/BackLink（P5）：回来源列表，文案走 i18n。
+    expect(view('NewJob')).toContain('<BackLink list="jobs" to="/jobs"')
     // 新建调度 / 新建工作流已迁到 ui/BackLink（P5）：回来源列表，文案走 i18n。
     expect(view('NewSchedule')).toContain('<BackLink list="schedules" to="/schedules"')
     expect(view('NewWorkflow')).toContain('<BackLink list="workflows" to="/workflows"')
@@ -135,9 +136,9 @@ describe('表头与表单标签用中文', () => {
     for (const gone of ['>PROJECT<', '>RUNNER<', '>AGENT<', '>TEMPLATE（任务书模板，可选）<', '>CWD<', '>TAGS（逗号分隔，可选）<']) {
       expect(src).not.toContain(gone)
     }
-    expect(src).toContain('任务书模板（可选）')
-    expect(src).toContain('{{ COL.project }}')
-    expect(src).toContain('{{ COL.runner }}')
-    expect(src).toContain('{{ COL.agent }}')
+    expect(src).toContain("t('newjob.field.template')")
+    expect(src).toContain("t('newjob.field.project')")
+    expect(src).toContain("t('newjob.field.runner')")
+    expect(src).toContain("t('newjob.field.agent')")
   })
 })

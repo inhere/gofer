@@ -6,9 +6,7 @@
 //  - cwd（默认 .）/ title / timeout / sync 勾选
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
 import { runnerOptionText } from '../utils/runnerDisplay'
-import { BACK, COL, PAGE } from '../utils/uiText'
-import {
-  CEILING_LABEL,
+import { CEILING_LABEL,
   CEILING_READ_ONLY_NOTICE,
   ceilingAllowsAgent,
   ceilingAllowsExec,
@@ -41,6 +39,8 @@ import { useWhoami } from '../store/whoami'
 import { getAgentsCached, getMetaCached } from '../api/metaCache'
 import { fromSessionFormError, readFromSessionQuery, withFromSession } from '../utils/fromSession'
 import { DIR_LOCK_HINT, formatLockPaths, parseLockPaths } from '../utils/lockPaths'
+import { t } from '../i18n'
+import BackLink from '../ui/BackLink.vue'
 import type {
   JobBudget,
   JobUpload,
@@ -124,21 +124,29 @@ const fromSession = computed(() => (isRebuild.value ? '' : readFromSessionQuery(
 const agentFromSessionCaps = ref<Record<string, boolean | undefined>>({})
 const rebuildRedacted = ref(false)
 const planId = ref('')   // 隐藏：rebuild 继承/可覆盖源 plan_id（若已有则复用）
+// 标题跟随模式变化（设计稿 §7.1）：新建任务 / 快速重建 / 从会话新开。
+const pageTitle = computed(() =>
+  isRebuild.value ? t('newjob.title.rebuild') : fromSession.value ? t('newjob.title.fromSession') : t('newjob.title'),
+)
 const promptLabel = computed(() => {
   if (interactive.value) {
-    return 'PROMPT（可选）'
+    return t('newjob.prompt.labelInteractive')
   }
-  return templateName.value !== '' ? 'PROMPT（追加在模板正文之后，可选）' : 'PROMPT（可贴 markdown）'
+  return templateName.value !== '' ? t('newjob.prompt.labelAppend') : t('newjob.prompt.label')
 })
 const promptPlaceholder = computed(() =>
   interactive.value
-    ? '可留空；填写后会作为系统提示打开会话'
+    ? t('newjob.prompt.placeholderInteractive')
     : templateName.value !== ''
-      ? '可留空；这里的内容会接在模板渲染出的正文之后'
-      : '描述任务，正文即 prompt...',
+      ? t('newjob.prompt.placeholderAppend')
+      : t('newjob.prompt.placeholder'),
 )
 const timeoutPlaceholder = computed(() =>
-  continuousSession.value ? '每轮上限；不填采用项目默认值' : interactive.value ? '不填则无超时' : '不填则默认 300s（AI agent 1200s）',
+  continuousSession.value
+    ? t('newjob.timeout.placeholderSession')
+    : interactive.value
+      ? t('newjob.timeout.placeholderInteractive')
+      : t('newjob.timeout.placeholder'),
 )
 
 // 任务书模板（SUP-01 P5）：选中后在服务端渲染正文预览 —— include/head 只有服务端
@@ -1125,945 +1133,903 @@ watch(interactive, (on) => {
 </script>
 
 <template>
-  <div class="newjob">
-    <div class="newjob-head">
-      <RouterLink to="/jobs" class="back mono">{{ BACK.board }}</RouterLink>
-      <h1 class="title mono">{{ isRebuild ? '快速重建' : fromSession ? '从会话新开' : PAGE.newJob }}</h1>
-    </div>
+  <div class="newjob" data-test="newjob-page">
+    <header class="newjob-head">
+      <BackLink list="jobs" to="/jobs" :label="t('newjob.back')" />
+      <h1 class="title">{{ pageTitle }}</h1>
+    </header>
 
-    <p v-if="loadError" class="error mono">表单选项加载失败：{{ loadError }}</p>
-    <p v-else-if="loading" class="hint mono">加载选项中…</p>
+    <p v-if="loadError" class="error">{{ t('newjob.loadFailed', { err: loadError }) }}</p>
+    <p v-else-if="loading" class="hint">{{ t('newjob.loading') }}</p>
 
     <form v-else class="card" @submit.prevent="onSubmit">
-      <div v-if="isRebuild && rebuildRedacted" class="redacted-banner mono">
-        部分字段含已脱敏的占位值，提交前必须替换；未改字段不会提交，将沿用源 job 原值。
+      <div v-if="isRebuild && rebuildRedacted" class="redacted-banner">
+        {{ t('newjob.redactedBanner') }}
       </div>
-      <div v-if="fromItem" class="from-session-banner mono" data-test="from-item-banner">
-        来自收集箱条目 <RouterLink :to="workItemLink(fromItem)" :title="fromItem">{{ fromItem }}</RouterLink>：提交后 job 自动关联到这条。
+      <div v-if="fromItem" class="from-session-banner" data-test="from-item-banner">
+        {{ t('newjob.fromItem.banner', { id: fromItem }) }}<RouterLink :to="workItemLink(fromItem)" :title="fromItem">{{ fromItem }}</RouterLink>
         <span v-if="itemNote" class="from-item-note" data-test="from-item-note">{{ itemNote }}</span>
-        <span v-if="!canSubmitJobs" class="from-item-note" data-test="from-item-nosubmit">你没有提交 job 的权限（job.submit）。</span>
+        <span v-if="!canSubmitJobs" class="from-item-note" data-test="from-item-nosubmit">{{ t('newjob.fromItem.noSubmit') }}</span>
       </div>
-      <div v-if="fromSession" class="from-session-banner mono" data-test="from-session-banner">
-        从会话 <code :title="fromSession">{{ fromSession }}</code> 新开：新会话继承其上下文（源会话不被续接）。
-        需 cli-agent 配置 from_session_args。
-      </div>
-
-      <!-- project -->
-      <div class="field">
-        <label class="label mono" for="nj-project">{{ COL.project }}</label>
-        <select
-          id="nj-project"
-          v-model="projectKey"
-          class="control mono"
-          @change="onProjectChange"
-        >
-          <option v-for="p in projectOptions" :key="p.key" :value="p.key">{{ p.key }}</option>
-        </select>
-        <p v-if="projectOptions.length === 0" class="field-hint mono">无可用 project</p>
-        <p v-else-if="projectCeilingHidden > 0" class="field-hint field-hint--warn mono" data-test="nj-project-ceiling">
-          {{ projectCeilingHidden }} 个 project {{ CEILING_LABEL }}，未列出
-        </p>
+      <div v-if="fromSession" class="from-session-banner" data-test="from-session-banner">
+        {{ t('newjob.fromSession.banner', { id: fromSession }) }}
       </div>
 
-      <!-- runner（必须先于 agent：agent 候选 = project 白名单 ∩ 执行侧真实能力） -->
-      <div class="field">
-        <label class="label mono" for="nj-runner">{{ COL.runner }}</label>
-        <select id="nj-runner" v-model="runnerName" class="control mono">
-          <option
-            v-for="r in runnerOptions"
-            :key="r.name"
-            :value="r.name"
-            :disabled="!!runnerBlocks[r.name]"
-          >
-            {{ runnerOptionText(r) }}<template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
-          </option>
-        </select>
-        <p v-if="selectedRunnerBlock" class="field-hint field-hint--warn mono">
-          {{ selectedRunnerBlock }}
-        </p>
-      </div>
-
-      <!-- runner=worker 选机（agent 之前——它决定 agent 候选）。
-           pin 型 runner 没有"选机"可言：配置已把它绑死到一台，且那是授权而非默认路由
-           （请求不得改路由，后端会拒），所以这里只陈述事实，不给选项。 -->
-      <div v-if="isWorkerRunner && pinnedWorkerId" class="field">
-        <label class="label mono">Worker</label>
-        <p class="field-hint mono">
-          {{ pinnedWorkerId }} —— runner 配置已绑定该 worker（授权约束，不可在提交时改派）
-        </p>
-      </div>
-
-      <details v-else-if="isWorkerRunner" class="advanced" :open="advancedOpen">
-        <summary class="mono" @click.prevent="advancedOpen = !advancedOpen">
-          worker 选机（必填二选一）
-        </summary>
-        <div class="advanced-body">
-          <div class="seg mono">
-            <button
-              type="button"
-              class="seg-btn"
-              :class="{ 'seg-btn--on': workerMode === 'id' }"
-              @click="workerMode = 'id'"
-            >
-              指定 worker
-            </button>
-            <button
-              type="button"
-              class="seg-btn"
-              :class="{ 'seg-btn--on': workerMode === 'labels' }"
-              @click="workerMode = 'labels'"
-            >
-              按标签自动
-            </button>
-          </div>
-
-          <div v-if="workerMode === 'id'" class="field">
-            <label class="label mono" for="nj-wid">Worker ID（仅 connected）</label>
-            <select id="nj-wid" v-model="workerId" class="control mono">
-              <option value="">选择一个已连接 worker</option>
-              <option v-for="w in connectedWorkers" :key="w.id" :value="w.id">
-                {{ w.id }}<template v-if="w.labels && w.labels.length"> · {{ w.labels.join(',') }}</template>
-              </option>
-            </select>
-            <p v-if="connectedWorkers.length === 0" class="field-hint mono">
-              无已连接 worker，可改用「按标签自动」或先连接 worker
-            </p>
-          </div>
-
-          <div v-else class="field">
-            <label class="label mono" for="nj-labels">Worker 标签（逗号分隔）</label>
-            <input
-              id="nj-labels"
-              v-model="workerLabels"
-              class="control mono"
-              spellcheck="false"
-              autocomplete="off"
-              placeholder="gpu, linux"
-            />
-            <p class="field-hint mono">worker 须包含全部标签（AND 匹配）</p>
-          </div>
-        </div>
-      </details>
-
-      <p v-if="workerNarrowingPending" class="field-hint field-hint--warn mono">
-        runner=worker：请先在「worker 选机」定下机器，agent / project 才能按其上报能力收窄
-      </p>
-      <p v-else-if="capabilityHint" class="field-hint mono">{{ capabilityHint }}</p>
-
-      <!-- agent（最后定：受 project 白名单与执行侧能力双向约束） -->
-      <div class="field">
-        <label class="label mono" for="nj-agent">{{ COL.agent }}</label>
-        <select
-          id="nj-agent"
-          v-model="agentKey"
-          class="control mono"
-          :disabled="agentOptions.length === 0"
-        >
-          <option v-for="a in agentOptions" :key="a.key" :value="a.key">
-            {{ a.key }} · {{ a.type }}
-          </option>
-        </select>
-        <p v-if="agentEmptyReason" class="field-hint field-hint--warn mono">{{ agentEmptyReason }}</p>
-      </div>
-
-      <!-- 任务书模板（SUP-01 P5）：选中后由服务端渲染正文预览（include/head 只有服务端
-           展开得了），变量输入按模板声明的 vars 生成；提交只发 template + vars，
-           prompt 栏此时是"追加正文"。 -->
-      <div class="field">
-        <label class="label mono" for="nj-template">任务书模板（可选）</label>
-        <select id="nj-template" v-model="templateName" class="control mono">
-          <option value="">不使用模板</option>
-          <option
-            v-for="t in templates"
-            :key="t.name"
-            :value="t.name"
-            :disabled="!!t.error"
-          >
-            {{ t.name }} · {{ t.source }}{{ t.desc ? ` · ${t.desc}` : ''
-            }}{{ t.error ? '（解析失败）' : '' }}
-          </option>
-        </select>
-        <p v-if="templateError" class="field-hint field-hint--warn mono">{{ templateError }}</p>
-        <p v-else-if="selectedTemplate?.error" class="field-hint field-hint--warn mono">
-          {{ selectedTemplate.error }}
-        </p>
-        <p v-else-if="selectedTemplate" class="field-hint mono">{{ selectedTemplate.path }}</p>
-
-        <div v-if="templateVarsList.length > 0" class="tmpl-vars">
-          <div v-for="[vn, spec] in templateVarsList" :key="vn" class="tmpl-var">
-            <label class="label mono" :for="`nj-tvar-${vn}`">
-              {{ vn }}{{ spec.required ? ' *' : '' }}
-            </label>
-            <input
-              :id="`nj-tvar-${vn}`"
-              v-model="templateVars[vn]"
-              class="control mono"
-              spellcheck="false"
-              :placeholder="spec.default ?? ''"
-            />
-            <p v-if="spec.desc" class="field-hint mono">{{ spec.desc }}</p>
-          </div>
-        </div>
-
-        <template v-if="templateName !== '' && !templateError">
-          <p v-if="templateMissing.length > 0" class="field-hint field-hint--warn mono">
-            缺必填变量：{{ templateMissing.join(', ') }}
-          </p>
-          <p
-            v-for="(w, i) in templateWarnings"
-            :key="i"
-            class="field-hint field-hint--warn mono"
-          >
-            {{ w }}
-          </p>
-          <p class="field-hint mono">正文预览（服务端渲染，与提交时一致）：</p>
-          <pre class="tmpl-preview mono">{{ templatePrompt }}</pre>
-        </template>
-      </div>
-
-      <!-- cli-agent: prompt 文本域 -->
-      <div v-if="isCliAgent" class="field">
-        <label class="label mono" for="nj-prompt">{{ promptLabel }}</label>
-        <textarea
-          id="nj-prompt"
-          v-model="prompt"
-          class="control mono area"
-          :class="{ 'control--redacted': promptRedacted }"
-          rows="8"
-          spellcheck="false"
-          :placeholder="promptPlaceholder"
-        ></textarea>
-        <p v-if="promptRedacted" class="field-hint field-hint--warn mono">
-          该字段含脱敏占位；如需改动，提交前必须替换。
-        </p>
-        <p v-if="interactive" class="field-hint mono">
-          如果写入会作为系统提示打开会话
-        </p>
-      </div>
-
-      <details class="mobile-advanced" :open="!mobileViewport || mobileAdvancedOpen" @toggle="mobileAdvancedOpen = ($event.target as HTMLDetailsElement).open">
-        <summary class="mono">高级选项</summary>
-
-      <!-- N1 §B：可选模型；cli-agent 走 model_args，acp-agent 走协议 -->
-      <div v-if="isCliAgent" class="field">
-        <label class="label mono" for="nj-model">模型（可选）</label>
-        <input
-          id="nj-model"
-          v-model="model"
-          class="control mono"
-          spellcheck="false"
-          autocomplete="off"
-          placeholder="留空 = agent 自身默认，例如 opus / gpt-5.1-codex"
-        />
-        <p class="field-hint mono">cli-agent 需配 model_args（claude / codex 已内置）；acp-agent 经协议选择，agent 不支持时提交会失败。</p>
-      </div>
-
-      <!-- cli-agent: per-job agent flags（xu64.12 §14），每行一个完整参数 -->
-      <div v-if="isCliAgent" class="field">
-        <label class="label mono" for="nj-agent-args">Agent 参数（每行一个，追加到 agent argv 末尾）</label>
-        <textarea
-          id="nj-agent-args"
-          v-model="agentArgs"
-          class="control mono area"
-          rows="3"
-          spellcheck="false"
-          placeholder="每行一个完整参数，例如：&#10;--dangerously-skip-permissions"
-        ></textarea>
-        <p class="field-hint mono">仅 cli-agent 生效（exec 忽略）；不做空格分词，一行即一个 argv 元素。</p>
-      </div>
-
-      <!-- exec: command 输入 -->
-      <div v-else-if="isExec" class="field">
-        <label class="label mono" for="nj-cmd">命令（空格分词为 argv）</label>
-        <input
-          id="nj-cmd"
-          v-model="command"
-          class="control mono"
-          :class="{ 'control--redacted': commandRedacted }"
-          spellcheck="false"
-          autocomplete="off"
-          placeholder="echo hello"
-        />
-        <p v-if="commandRedacted" class="field-hint field-hint--warn mono">
-          该字段含脱敏占位；如需改动，提交前必须替换。
-        </p>
-      </div>
-
-      <!-- cwd / title / timeout -->
-      <div class="row">
+      <!-- 常用：两栏（设计稿 §7.1「新建任务」）。左栏决定执行侧（项目 / runner / worker / agent），
+           右栏是任务本身（模板 / 标题 / cwd / 任务说明）。 -->
+      <section class="form-grid" :aria-label="t('newjob.title')">
+        <!-- project -->
         <div class="field">
-          <label class="label mono" for="nj-cwd">工作目录</label>
+          <label class="label" for="nj-project">{{ t('newjob.field.project') }}</label>
+          <select
+            id="nj-project"
+            v-model="projectKey"
+            class="control"
+            @change="onProjectChange"
+          >
+            <option v-for="p in projectOptions" :key="p.key" :value="p.key">{{ p.key }}</option>
+          </select>
+          <p v-if="projectOptions.length === 0" class="field-hint">{{ t('newjob.noProject') }}</p>
+          <p v-else-if="projectCeilingHidden > 0" class="field-hint field-hint--warn" data-test="nj-project-ceiling">
+            {{ t('newjob.projectCeiling', { n: projectCeilingHidden, label: CEILING_LABEL }) }}
+          </p>
+        </div>
+
+        <!-- runner（必须先于 agent：agent 候选 = project 白名单 ∩ 执行侧真实能力） -->
+        <div class="field">
+          <label class="label" for="nj-runner">{{ t('newjob.field.runner') }}</label>
+          <select id="nj-runner" v-model="runnerName" class="control">
+            <option
+              v-for="r in runnerOptions"
+              :key="r.name"
+              :value="r.name"
+              :disabled="!!runnerBlocks[r.name]"
+            >
+              {{ runnerOptionText(r) }}<template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
+            </option>
+          </select>
+          <p v-if="selectedRunnerBlock" class="field-hint field-hint--warn">
+            {{ selectedRunnerBlock }}
+          </p>
+        </div>
+
+        <!-- runner=worker 选机（agent 之前——它决定 agent 候选）。
+             pin 型 runner 没有"选机"可言：配置已把它绑死到一台，且那是授权而非默认路由
+             （请求不得改路由，后端会拒），所以这里只陈述事实，不给选项。 -->
+        <div v-if="isWorkerRunner && pinnedWorkerId" class="field">
+          <label class="label">{{ t('newjob.field.worker') }}</label>
+          <p class="field-hint">
+            {{ t('newjob.pinnedWorker', { id: pinnedWorkerId }) }}
+          </p>
+        </div>
+
+        <details v-else-if="isWorkerRunner" class="advanced" :open="advancedOpen">
+          <summary @click.prevent="advancedOpen = !advancedOpen">
+            {{ t('newjob.worker.title') }}
+          </summary>
+          <div class="advanced-body">
+            <div class="seg">
+              <button
+                type="button"
+                class="seg-btn"
+                :class="{ 'seg-btn--on': workerMode === 'id' }"
+                :aria-pressed="workerMode === 'id'"
+                @click="workerMode = 'id'"
+              >
+                {{ t('newjob.worker.byId') }}
+              </button>
+              <button
+                type="button"
+                class="seg-btn"
+                :class="{ 'seg-btn--on': workerMode === 'labels' }"
+                :aria-pressed="workerMode === 'labels'"
+                @click="workerMode = 'labels'"
+              >
+                {{ t('newjob.worker.byLabels') }}
+              </button>
+            </div>
+
+            <div v-if="workerMode === 'id'" class="field">
+              <label class="label" for="nj-wid">{{ t('newjob.worker.id') }}</label>
+              <select id="nj-wid" v-model="workerId" class="control">
+                <option value="">{{ t('newjob.worker.idPlaceholder') }}</option>
+                <option v-for="w in connectedWorkers" :key="w.id" :value="w.id">
+                  {{ w.id }}<template v-if="w.labels && w.labels.length"> · {{ w.labels.join(',') }}</template>
+                </option>
+              </select>
+              <p v-if="connectedWorkers.length === 0" class="field-hint">
+                {{ t('newjob.worker.noConnected') }}
+              </p>
+            </div>
+
+            <div v-else class="field">
+              <label class="label" for="nj-labels">{{ t('newjob.worker.labels') }}</label>
+              <input
+                id="nj-labels"
+                v-model="workerLabels"
+                class="control"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="gpu, linux"
+              />
+              <p class="field-hint">{{ t('newjob.worker.labelsHint') }}</p>
+            </div>
+          </div>
+        </details>
+
+        <p v-if="workerNarrowingPending" class="field-hint field-hint--warn span2">
+          {{ t('newjob.worker.pending') }}
+        </p>
+        <p v-else-if="capabilityHint" class="field-hint span2">{{ capabilityHint }}</p>
+
+        <!-- agent（最后定：受 project 白名单与执行侧能力双向约束） -->
+        <div class="field">
+          <label class="label" for="nj-agent">{{ t('newjob.field.agent') }}</label>
+          <select
+            id="nj-agent"
+            v-model="agentKey"
+            class="control"
+            :disabled="agentOptions.length === 0"
+          >
+            <option v-for="a in agentOptions" :key="a.key" :value="a.key">
+              {{ a.key }} · {{ a.type }}
+            </option>
+          </select>
+          <p v-if="agentEmptyReason" class="field-hint field-hint--warn">{{ agentEmptyReason }}</p>
+        </div>
+
+        <div class="field">
+          <label class="label" for="nj-title">{{ t('newjob.field.title') }}</label>
+          <input
+            id="nj-title"
+            v-model="title"
+            class="control"
+            autocomplete="off"
+            :placeholder="t('newjob.title.placeholder')"
+          />
+        </div>
+
+        <!-- 任务书模板（SUP-01 P5）：选中后由服务端渲染正文预览（include/head 只有服务端
+             展开得了），变量输入按模板声明的 vars 生成；提交只发 template + vars，
+             prompt 栏此时是"追加正文"。 -->
+        <div class="field">
+          <label class="label" for="nj-template">{{ t('newjob.field.template') }}</label>
+          <select id="nj-template" v-model="templateName" class="control">
+            <option value="">{{ t('newjob.template.none') }}</option>
+            <option
+              v-for="tpl in templates"
+              :key="tpl.name"
+              :value="tpl.name"
+              :disabled="!!tpl.error"
+            >
+              {{ tpl.name }} · {{ tpl.source }}{{ tpl.desc ? ` · ${tpl.desc}` : ''
+              }}{{ tpl.error ? t('newjob.template.parseFailed') : '' }}
+            </option>
+          </select>
+          <p v-if="templateError" class="field-hint field-hint--warn">{{ templateError }}</p>
+          <p v-else-if="selectedTemplate?.error" class="field-hint field-hint--warn">
+            {{ selectedTemplate.error }}
+          </p>
+          <p v-else-if="selectedTemplate" class="field-hint">{{ selectedTemplate.path }}</p>
+
+          <div v-if="templateVarsList.length > 0" class="tmpl-vars">
+            <div v-for="[vn, spec] in templateVarsList" :key="vn" class="tmpl-var">
+              <label class="label" :for="`nj-tvar-${vn}`">
+                {{ vn }}{{ spec.required ? ' *' : '' }}
+              </label>
+              <input
+                :id="`nj-tvar-${vn}`"
+                v-model="templateVars[vn]"
+                class="control"
+                spellcheck="false"
+                :placeholder="spec.default ?? ''"
+              />
+              <p v-if="spec.desc" class="field-hint">{{ spec.desc }}</p>
+            </div>
+          </div>
+
+          <template v-if="templateName !== '' && !templateError">
+            <p v-if="templateMissing.length > 0" class="field-hint field-hint--warn">
+              {{ t('newjob.template.missing', { names: templateMissing.join(', ') }) }}
+            </p>
+            <p
+              v-for="(w, i) in templateWarnings"
+              :key="i"
+              class="field-hint field-hint--warn"
+            >
+              {{ w }}
+            </p>
+            <p class="field-hint">{{ t('newjob.template.previewHint') }}</p>
+            <pre class="tmpl-preview">{{ templatePrompt }}</pre>
+          </template>
+        </div>
+
+        <div class="field">
+          <label class="label" for="nj-cwd">{{ t('newjob.field.cwd') }}</label>
           <input
             id="nj-cwd"
             v-model="cwd"
-            class="control mono"
+            class="control"
             :class="{ 'control--redacted': cwdRedacted }"
             spellcheck="false"
             autocomplete="off"
             placeholder="."
           />
-          <p v-if="cwdRedacted" class="field-hint field-hint--warn mono">
-            该字段含脱敏占位；如需改动，提交前必须替换。
+          <p v-if="cwdRedacted" class="field-hint field-hint--warn">
+            {{ t('newjob.hint.mustReplace') }}
           </p>
         </div>
-        <div class="field">
-          <label class="label mono" for="nj-title">标题（可选）</label>
-          <input
-            id="nj-title"
-            v-model="title"
-            class="control mono"
-            autocomplete="off"
-            placeholder="人类可读任务名"
-          />
-        </div>
-      </div>
 
-      <!-- 锁定目录 / 等锁时长 / worktree（gofer-jkd2）：对应 CLI 的 --lock / --lock-wait / --worktree。
-           锁定目录按项目根相对（与后端 SafeJoin 同口径：不许逃出项目根）。 -->
-      <div class="row">
-        <div class="field">
-          <label class="label mono" for="nj-lock">锁定目录（可选，可多个）</label>
+        <!-- cli-agent: prompt 文本域 -->
+        <div v-if="isCliAgent" class="field span2">
+          <label class="label" for="nj-prompt">{{ promptLabel }}</label>
           <textarea
-            id="nj-lock"
-            v-model="lockPaths"
-            class="control mono area"
-            rows="2"
+            id="nj-prompt"
+            v-model="prompt"
+            class="control area"
+            :class="{ 'control--redacted': promptRedacted }"
+            rows="8"
             spellcheck="false"
-            placeholder="gookit/ini&#10;gookit/cli"
+            :placeholder="promptPlaceholder"
           ></textarea>
-          <p class="field-hint mono">{{ DIR_LOCK_HINT }}</p>
-          <p v-if="lockCandidates.length" class="field-hint mono" data-test="lock-candidates">
-            本项目里的子仓库（点一下加入）：
-            <button
-              v-for="candidate in lockCandidates"
-              :key="candidate"
-              class="lock-chip mono"
-              type="button"
-              @click="addLockPath(candidate)"
-            >{{ candidate }}</button>
+          <p v-if="promptRedacted" class="field-hint field-hint--warn">
+            {{ t('newjob.hint.mustReplace') }}
+          </p>
+          <p v-if="interactive" class="field-hint">
+            {{ t('newjob.hint.interactiveWrites') }}
           </p>
         </div>
-        <div class="field">
-          <label class="label mono" for="nj-lock-wait">等锁时长（秒，可选）</label>
+
+        <!-- exec: command 输入 -->
+        <div v-else-if="isExec" class="field span2">
+          <label class="label" for="nj-cmd">{{ t('newjob.field.command') }}</label>
           <input
-            id="nj-lock-wait"
-            v-model.number="lockWaitSec"
-            class="control mono"
-            type="number"
-            min="0"
-            placeholder="服务端默认"
+            id="nj-cmd"
+            v-model="command"
+            class="control"
+            :class="{ 'control--redacted': commandRedacted }"
+            spellcheck="false"
+            autocomplete="off"
+            :placeholder="t('newjob.command.placeholder')"
           />
-          <p class="field-hint mono">等目录锁超过该秒数即失败；0 = 不限（需服务端允许）。</p>
+          <p v-if="commandRedacted" class="field-hint field-hint--warn">
+            {{ t('newjob.hint.mustReplace') }}
+          </p>
         </div>
-      </div>
-      <div class="field">
-        <label class="check mono">
-          <input v-model="worktree" type="checkbox" />
-          <span>worktree（在独立 checkout 里跑，提交落在分支 gofer/&lt;job-id&gt;）</span>
-        </label>
-        <p class="field-hint mono">需要项目是 git 仓库；worktree job 不取目录锁，交付方式按项目的 delivery 设置。</p>
-      </div>
+      </section>
 
-      <!-- interactive pty：通常配合 runner=worker，本地/准入规则由后端最终校验。 -->
-      <div class="field">
-        <label class="check mono">
-          <input v-model="interactive" type="checkbox" />
-          <span>交互式（pty，可在详情页接入终端；通常需 runner=worker）</span>
-        </label>
-      </div>
-      <div v-if="canUseContinuousSession && !isRebuild" class="field">
-        <label class="check mono">
-          <input v-model="continuousSession" type="checkbox" />
-          <span>持续会话（ACP，同一 job 内多轮对话；远程 worker 需要 v13；等待输入时占用锁和 agent 名额）</span>
-        </label>
-      </div>
-      <div v-if="continuousSession" class="row">
-        <div class="field">
-          <label class="label mono" for="nj-idle-timeout">等待输入上限（秒，默认 1800）</label>
-          <input id="nj-idle-timeout" v-model.number="idleTimeoutSec" class="control mono" type="number" min="1" placeholder="1800" />
-        </div>
-        <div class="field">
-          <label class="label mono" for="nj-max-session">整个会话上限（秒，可选）</label>
-          <input id="nj-max-session" v-model.number="maxSessionSec" class="control mono" type="number" min="1" placeholder="不限" />
-        </div>
-      </div>
+      <!-- 高级：模型 / agent 参数 / 锁 / 会话 / 上限 / PTY / 上传 / 收集 / env / 超时（设计稿 §7.1）。
+           桌面上是可折叠分组；手机上默认收起（原来就是这套行为）。 -->
+      <details class="mobile-advanced" :open="!mobileViewport || mobileAdvancedOpen" @toggle="mobileAdvancedOpen = ($event.target as HTMLDetailsElement).open">
+        <summary>{{ t('newjob.advanced') }}</summary>
 
-      <!-- 只读：agent 不能写文件（cli-agent 追加沙箱参数 / acp-agent set_mode）。 -->
-      <div class="field">
-        <label class="check mono">
-          <input v-model="readOnly" type="checkbox" />
-          <span>只读（审查/分析类任务：agent 不能写文件；需该 agent 配置了只读模式）</span>
-        </label>
-      </div>
-
-      <!-- N2 §B 预算熔断（可选）：执行侧按 agent 上报的用量计量，越线即终止整个 job 并标 failure_class=budget。
-           需要 agent 上报可读用量（claude/omp 的 ndjson、acp-agent、codex），否则后端 400。 -->
-      <div class="row">
-        <div class="field">
-          <label class="label mono" for="nj-max-tokens">最多 tokens（可选）</label>
-          <input id="nj-max-tokens" v-model.number="maxTokens" class="control mono" type="number" min="1" placeholder="不限" />
-        </div>
-        <div class="field">
-          <label class="label mono" for="nj-max-cost">最多费用 USD（可选）</label>
-          <input id="nj-max-cost" v-model.number="maxCostUsd" class="control mono" type="number" min="0" step="0.01" placeholder="不限" />
-        </div>
-        <div class="field">
-          <label class="label mono" for="nj-max-turns">最多回合数（可选）</label>
-          <input id="nj-max-turns" v-model.number="maxTurns" class="control mono" type="number" min="1" placeholder="不限" />
-        </div>
-      </div>
-
-      <div v-if="interactive" class="row">
-        <div class="field">
-          <label class="label mono" for="nj-cols">列数</label>
-          <input
-            id="nj-cols"
-            v-model.number="cols"
-            class="control mono"
-            type="number"
-            min="1"
-            placeholder="120"
-          />
-        </div>
-        <div class="field">
-          <label class="label mono" for="nj-rows">行数</label>
-          <input
-            id="nj-rows"
-            v-model.number="rows"
-            class="control mono"
-            type="number"
-            min="1"
-            placeholder="32"
-          />
-        </div>
-      </div>
-
-      <div v-if="interactive" class="field">
-        <label class="check mono">
-          <input v-model="recordPty" type="checkbox" />
-          <span>录制终端（保存 asciinema 回放；需要服务端开启 storage.cast.enabled）</span>
-        </label>
-      </div>
-
-      <!-- tags：逗号分隔，提交解析为数组（E5 检索维度） -->
-      <div class="field">
-        <label class="label mono" for="nj-tags">{{ COL.tags }}（逗号分隔，可选）</label>
-        <input
-          id="nj-tags"
-          v-model="tags"
-          class="control mono"
-          spellcheck="false"
-          autocomplete="off"
-          placeholder="ci, nightly"
-        />
-        <p class="field-hint mono">自由标签，提交后可按 tag 检索 / 行内徽标展示</p>
-      </div>
-
-      <!-- 文件传输（XFER-01 X2）：上传 = 提交前先暂存（stage_only），执行机在 agent 起跑前
-           把文件放到目标路径；收集 = job 结束后按 cwd 匹配的 glob，命中项进本 job 产物的
-           collected/（详情页可直接预览/下载）。rebuild 走只发改动字段的通道，故不显示。 -->
-      <template v-if="!isRebuild">
-        <div class="field">
-          <label class="label mono" for="nj-upload">上传（文件，可选）</label>
-          <input
-            id="nj-upload"
-            class="control mono file-input"
-            type="file"
-            multiple
-            @change="onFilesPicked"
-          />
-          <div v-for="(row, i) in uploadRows" :key="`up-${i}`" class="upload-row">
-            <span class="upload-name mono" :title="row.file.name">{{ row.file.name }}</span>
+        <div class="form-grid">
+          <!-- N1 §B：可选模型；cli-agent 走 model_args，acp-agent 走协议 -->
+          <div v-if="isCliAgent" class="field span2">
+            <label class="label" for="nj-model">{{ t('newjob.field.model') }}</label>
             <input
-              v-model="row.dest"
-              class="control mono upload-dest"
+              id="nj-model"
+              v-model="model"
+              class="control"
               spellcheck="false"
               autocomplete="off"
-              placeholder="目标路径（cwd 相对），如 tmp/in/a.bin"
+              :placeholder="t('newjob.model.placeholder')"
             />
-            <button type="button" class="env-btn" @click="uploadRows.splice(i, 1)">移除</button>
+            <p class="field-hint">{{ t('newjob.model.hint') }}</p>
           </div>
-          <p v-if="uploadRows.length > 0 && xferRunner !== ''" class="field-hint mono">
-            提交前会先暂存到 {{ xferRunner }}，由执行机在 agent 起跑前放到目标路径
-          </p>
-          <p v-else-if="uploadRows.length > 0" class="field-hint field-hint--warn mono">
-            需先指定 worker：暂存要落到一台具体的执行机（按标签自动时落点由服务端定）
-          </p>
-          <p v-else class="field-hint mono">可多选；每个文件需填一个目标路径（执行机 cwd 相对）</p>
-        </div>
 
-        <div class="field">
-          <label class="label mono" for="nj-collect">收集（每行一个 glob，可选）</label>
-          <textarea
-            id="nj-collect"
-            v-model="collectText"
-            class="control mono area area--short"
-            rows="2"
-            spellcheck="false"
-            placeholder="tmp/out/*.csv"
-          ></textarea>
-          <p class="field-hint mono">
-            job 结束后按 cwd 匹配（失败也会收集），命中项落到本 job 产物的 collected/ 下，可在详情页预览/下载
-          </p>
-        </div>
-      </template>
+          <!-- cli-agent: per-job agent flags（xu64.12 §14），每行一个完整参数 -->
+          <div v-if="isCliAgent" class="field span2">
+            <label class="label" for="nj-agent-args">{{ t('newjob.field.agentArgs') }}</label>
+            <textarea
+              id="nj-agent-args"
+              v-model="agentArgs"
+              class="control area"
+              rows="3"
+              spellcheck="false"
+              :placeholder="t('newjob.agentArgs.placeholder')"
+            ></textarea>
+            <p class="field-hint">{{ t('newjob.agentArgs.hint') }}</p>
+          </div>
 
-      <div v-if="isRebuild" class="field">
-        <label class="label mono">环境变量（源 job 继承；值保留在服务端）</label>
-        <div v-if="envRows.length === 0 && envAdds.length === 0" class="field-hint mono">
-          源 job 无 env key；可新增覆盖项。
-        </div>
-        <div v-for="row in envRows" :key="row.key" class="env-row mono">
-          <span class="env-key">{{ row.key }}</span>
-          <template v-if="row.action === 'set'">
-            <input v-model="row.value" class="control mono env-value-input" placeholder="新值" />
-            <button type="button" class="env-btn" @click="row.action = 'keep'; row.value = ''">撤销</button>
+          <!-- 锁定目录 / 等锁时长 / worktree（gofer-jkd2）：对应 CLI 的 --lock / --lock-wait / --worktree。
+               锁定目录按项目根相对（与后端 SafeJoin 同口径：不许逃出项目根）。 -->
+          <div class="field">
+            <label class="label" for="nj-lock">{{ t('newjob.field.lock') }}</label>
+            <textarea
+              id="nj-lock"
+              v-model="lockPaths"
+              class="control area"
+              rows="2"
+              spellcheck="false"
+              placeholder="gookit/ini&#10;gookit/cli"
+            ></textarea>
+            <p class="field-hint">{{ DIR_LOCK_HINT }}</p>
+            <p v-if="lockCandidates.length" class="field-hint" data-test="lock-candidates">
+              {{ t('newjob.lock.candidates') }}
+              <button
+                v-for="candidate in lockCandidates"
+                :key="candidate"
+                class="lock-chip"
+                type="button"
+                @click="addLockPath(candidate)"
+              >{{ candidate }}</button>
+            </p>
+          </div>
+          <div class="field">
+            <label class="label" for="nj-lock-wait">{{ t('newjob.field.lockWait') }}</label>
+            <input
+              id="nj-lock-wait"
+              v-model.number="lockWaitSec"
+              class="control"
+              type="number"
+              min="0"
+              :placeholder="t('newjob.lockWait.placeholder')"
+            />
+            <p class="field-hint">{{ t('newjob.lockWait.hint') }}</p>
+          </div>
+
+          <div class="field span2">
+            <label class="check">
+              <input v-model="worktree" type="checkbox" />
+              <span>{{ t('newjob.field.worktree') }}</span>
+            </label>
+            <p class="field-hint">{{ t('newjob.worktree.hint') }}</p>
+          </div>
+
+          <!-- interactive pty：通常配合 runner=worker，本地/准入规则由后端最终校验。 -->
+          <div class="field span2">
+            <label class="check">
+              <input v-model="interactive" type="checkbox" />
+              <span>{{ t('newjob.field.interactive') }}</span>
+            </label>
+          </div>
+          <div v-if="canUseContinuousSession && !isRebuild" class="field span2">
+            <label class="check">
+              <input v-model="continuousSession" type="checkbox" />
+              <span>{{ t('newjob.field.session') }}</span>
+            </label>
+          </div>
+          <template v-if="continuousSession">
+            <div class="field">
+              <label class="label" for="nj-idle-timeout">{{ t('newjob.field.idleTimeout') }}</label>
+              <input id="nj-idle-timeout" v-model.number="idleTimeoutSec" class="control" type="number" min="1" placeholder="1800" />
+            </div>
+            <div class="field">
+              <label class="label" for="nj-max-session">{{ t('newjob.field.maxSession') }}</label>
+              <input id="nj-max-session" v-model.number="maxSessionSec" class="control" type="number" min="1" :placeholder="t('newjob.placeholder.unlimited')" />
+            </div>
           </template>
-          <template v-else>
-            <span class="env-val" :class="{ struck: row.action === 'unset' }">••••（保留原值）</span>
-            <button type="button" class="env-btn" @click="row.action = 'set'">改值</button>
-            <button type="button" class="env-btn" @click="row.action = row.action === 'unset' ? 'keep' : 'unset'">
-              {{ row.action === 'unset' ? '恢复' : '删除' }}
-            </button>
+
+          <!-- 只读：agent 不能写文件（cli-agent 追加沙箱参数 / acp-agent set_mode）。 -->
+          <div class="field span2">
+            <label class="check">
+              <input v-model="readOnly" type="checkbox" />
+              <span>{{ t('newjob.field.readOnly') }}</span>
+            </label>
+          </div>
+
+          <!-- N2 §B 预算熔断（可选）：执行侧按 agent 上报的用量计量，越线即终止整个 job 并标 failure_class=budget。
+               需要 agent 上报可读用量（claude/omp 的 ndjson、acp-agent、codex），否则后端 400。 -->
+          <div class="field">
+            <label class="label" for="nj-max-tokens">{{ t('newjob.field.maxTokens') }}</label>
+            <input id="nj-max-tokens" v-model.number="maxTokens" class="control" type="number" min="1" :placeholder="t('newjob.placeholder.unlimited')" />
+          </div>
+          <div class="field">
+            <label class="label" for="nj-max-cost">{{ t('newjob.field.maxCost') }}</label>
+            <input id="nj-max-cost" v-model.number="maxCostUsd" class="control" type="number" min="0" step="0.01" :placeholder="t('newjob.placeholder.unlimited')" />
+          </div>
+          <div class="field">
+            <label class="label" for="nj-max-turns">{{ t('newjob.field.maxTurns') }}</label>
+            <input id="nj-max-turns" v-model.number="maxTurns" class="control" type="number" min="1" :placeholder="t('newjob.placeholder.unlimited')" />
+          </div>
+
+          <template v-if="interactive">
+            <div class="field">
+              <label class="label" for="nj-cols">{{ t('newjob.field.cols') }}</label>
+              <input
+                id="nj-cols"
+                v-model.number="cols"
+                class="control"
+                type="number"
+                min="1"
+                placeholder="120"
+              />
+            </div>
+            <div class="field">
+              <label class="label" for="nj-rows">{{ t('newjob.field.rows') }}</label>
+              <input
+                id="nj-rows"
+                v-model.number="rows"
+                class="control"
+                type="number"
+                min="1"
+                placeholder="32"
+              />
+            </div>
+            <div class="field span2">
+              <label class="check">
+                <input v-model="recordPty" type="checkbox" />
+                <span>{{ t('newjob.field.record') }}</span>
+              </label>
+            </div>
+          </template>
+
+          <!-- tags：逗号分隔，提交解析为数组（E5 检索维度） -->
+          <div class="field">
+            <label class="label" for="nj-tags">{{ t('newjob.field.tags') }}</label>
+            <input
+              id="nj-tags"
+              v-model="tags"
+              class="control"
+              spellcheck="false"
+              autocomplete="off"
+              :placeholder="t('newjob.tags.placeholder')"
+            />
+            <p class="field-hint">{{ t('newjob.tags.hint') }}</p>
+          </div>
+
+          <div class="field">
+            <label class="label" for="nj-timeout">{{ t('newjob.field.timeout') }}</label>
+            <input
+              id="nj-timeout"
+              v-model.number="timeoutSec"
+              class="control"
+              type="number"
+              min="1"
+              :placeholder="timeoutPlaceholder"
+            />
+          </div>
+
+          <!-- 文件传输（XFER-01 X2）：上传 = 提交前先暂存（stage_only），执行机在 agent 起跑前
+               把文件放到目标路径；收集 = job 结束后按 cwd 匹配的 glob，命中项进本 job 产物的
+               collected/（详情页可直接预览/下载）。rebuild 走只发改动字段的通道，故不显示。 -->
+          <template v-if="!isRebuild">
+            <div class="field span2">
+              <label class="label" for="nj-upload">{{ t('newjob.field.upload') }}</label>
+              <input
+                id="nj-upload"
+                class="control file-input"
+                type="file"
+                multiple
+                @change="onFilesPicked"
+              />
+              <div v-for="(row, i) in uploadRows" :key="`up-${i}`" class="upload-row">
+                <span class="upload-name" :title="row.file.name">{{ row.file.name }}</span>
+                <input
+                  v-model="row.dest"
+                  class="control upload-dest"
+                  spellcheck="false"
+                  autocomplete="off"
+                  :placeholder="t('newjob.upload.dest')"
+                />
+                <button type="button" class="env-btn" @click="uploadRows.splice(i, 1)">{{ t('newjob.upload.remove') }}</button>
+              </div>
+              <p v-if="uploadRows.length > 0 && xferRunner !== ''" class="field-hint">
+                {{ t('newjob.upload.staged', { runner: xferRunner }) }}
+              </p>
+              <p v-else-if="uploadRows.length > 0" class="field-hint field-hint--warn">
+                {{ t('newjob.upload.needWorker') }}
+              </p>
+              <p v-else class="field-hint">{{ t('newjob.upload.hint') }}</p>
+            </div>
+
+            <div class="field span2">
+              <label class="label" for="nj-collect">{{ t('newjob.field.collect') }}</label>
+              <textarea
+                id="nj-collect"
+                v-model="collectText"
+                class="control area area--short"
+                rows="2"
+                spellcheck="false"
+                :placeholder="t('newjob.collect.placeholder')"
+              ></textarea>
+              <p class="field-hint">{{ t('newjob.collect.hint') }}</p>
+            </div>
           </template>
         </div>
-        <div v-for="(a, i) in envAdds" :key="'add' + i" class="env-row mono">
-          <input v-model="a.key" class="control mono env-key-input" placeholder="KEY" />
-          <input v-model="a.value" class="control mono env-value-input" placeholder="value" />
-          <button type="button" class="env-btn" @click="envAdds.splice(i, 1)">删除</button>
-        </div>
-        <button type="button" class="env-add mono" @click="envAdds.push({ key: '', value: '' })">+ 新增 env</button>
-        <p v-if="rebuildRedacted" class="field-hint field-hint--warn mono">
-          源 job 的 env / 命令含敏感值，已在服务端保留；仅改动过的字段会提交，未改字段沿用原值
-        </p>
-      </div>
 
-      <div class="row">
-        <div class="field">
-          <label class="label mono" for="nj-timeout">超时（秒，可选）</label>
-          <input
-            id="nj-timeout"
-            v-model.number="timeoutSec"
-            class="control mono"
-            type="number"
-            min="1"
-            :placeholder="timeoutPlaceholder"
-          />
+        <div v-if="isRebuild" class="field">
+          <label class="label">{{ t('newjob.env.label') }}</label>
+          <div v-if="envRows.length === 0 && envAdds.length === 0" class="field-hint">
+            {{ t('newjob.env.none') }}
+          </div>
+          <div v-for="row in envRows" :key="row.key" class="env-row">
+            <span class="env-key">{{ row.key }}</span>
+            <template v-if="row.action === 'set'">
+              <input v-model="row.value" class="control env-value-input" :placeholder="t('newjob.env.value')" />
+              <button type="button" class="env-btn" @click="row.action = 'keep'; row.value = ''">{{ t('newjob.env.undo') }}</button>
+            </template>
+            <template v-else>
+              <span class="env-val" :class="{ struck: row.action === 'unset' }">{{ t('newjob.env.keep') }}</span>
+              <button type="button" class="env-btn" @click="row.action = 'set'">{{ t('newjob.env.change') }}</button>
+              <button type="button" class="env-btn" @click="row.action = row.action === 'unset' ? 'keep' : 'unset'">
+                {{ row.action === 'unset' ? t('newjob.env.restore') : t('newjob.env.delete') }}
+              </button>
+            </template>
+          </div>
+          <div v-for="(a, i) in envAdds" :key="'add' + i" class="env-row">
+            <input v-model="a.key" class="control env-key-input" placeholder="KEY" />
+            <input v-model="a.value" class="control env-value-input" placeholder="value" />
+            <button type="button" class="env-btn" @click="envAdds.splice(i, 1)">{{ t('newjob.env.delete') }}</button>
+          </div>
+          <button type="button" class="env-add" @click="envAdds.push({ key: '', value: '' })">{{ t('newjob.env.add') }}</button>
+          <p v-if="rebuildRedacted" class="field-hint field-hint--warn">
+            {{ t('newjob.env.hint') }}
+          </p>
         </div>
-        <div class="field field--check">
-          <label class="check mono">
-            <input v-model="sync" type="checkbox" :disabled="continuousSession" />
-            <span>sync（同步等待终态再返回；超服务端上限退回后台）</span>
-          </label>
-        </div>
-      </div>
 
+        <div class="form-grid">
+          <div class="field span2">
+            <label class="check">
+              <input v-model="sync" type="checkbox" :disabled="continuousSession" />
+              <span>{{ t('newjob.field.sync') }}</span>
+            </label>
+          </div>
+        </div>
       </details>
 
-      <p v-if="validationError" class="field-hint field-hint--warn mono">
+      <p v-if="validationError" class="field-hint field-hint--warn">
         {{ validationError }}
       </p>
-      <p v-if="ceilingReadOnly" class="field-hint field-hint--warn mono" data-test="nj-readonly">{{ CEILING_READ_ONLY_NOTICE }}</p>
-      <p v-if="submitError" class="error mono">{{ submitError }}</p>
-      <p v-if="notice" class="notice mono">{{ notice }}</p>
+      <p v-if="ceilingReadOnly" class="field-hint field-hint--warn" data-test="nj-readonly">{{ CEILING_READ_ONLY_NOTICE }}</p>
+      <p v-if="submitError" class="error">{{ submitError }}</p>
+      <p v-if="notice" class="notice">{{ notice }}</p>
 
-      <div v-if="submittedJobId" class="link-result mono" data-test="link-result">
-        <p class="link-line">job <RouterLink :to="`/jobs/${encodeURIComponent(submittedJobId)}`" data-test="link-job">{{ submittedJobId }}</RouterLink> 已提交。</p>
-        <p v-if="itemLinked" class="link-line link-line--ok" data-test="link-ok">已关联到条目 <RouterLink :to="workItemLink(fromItem)">{{ fromItem }}</RouterLink>，条目转为进行中。</p>
+      <div v-if="submittedJobId" class="link-result" data-test="link-result">
+        <p class="link-line">job <RouterLink :to="`/jobs/${encodeURIComponent(submittedJobId)}`" data-test="link-job">{{ submittedJobId }}</RouterLink> — {{ t('newjob.link.job', { id: submittedJobId }) }}</p>
+        <p v-if="itemLinked" class="link-line link-line--ok" data-test="link-ok">{{ t('newjob.link.ok', { id: fromItem }) }}</p>
         <template v-else>
-          <p class="link-line link-line--err" data-test="link-error">没能关联到条目：{{ linkError || '未知原因' }}。job 不受影响。</p>
-          <button class="submit link-retry" type="button" :disabled="linking" data-test="link-retry" @click="linkSubmittedJob">{{ linking ? '关联中…' : '重试关联' }}</button>
+          <p class="link-line link-line--err" data-test="link-error">{{ t('newjob.link.error', { err: linkError || t('newjob.link.unknown') }) }}</p>
+          <button class="submit link-retry" type="button" :disabled="linking" data-test="link-retry" @click="linkSubmittedJob">{{ linking ? t('newjob.link.retrying') : t('newjob.link.retry') }}</button>
         </template>
       </div>
       <button v-else class="submit" type="submit" :disabled="!canSubmit">
-        {{ submitting ? '提交中…' : isRebuild ? '提交重建' : '提交 job' }}
+        {{ submitting ? t('newjob.submitting') : isRebuild ? t('newjob.submitRebuild') : t('newjob.submit') }}
       </button>
     </form>
   </div>
 </template>
 
 <style scoped>
+/* 新建任务：常用字段两栏、高级选项折叠（设计稿 §7.1）。手机单栏，提交按钮吸底。 */
 .newjob {
-  max-width: 760px;
+  max-width: 1080px;
   margin: 0 auto;
+  padding-bottom: var(--s6);
 }
 .newjob-head {
   display: flex;
-  align-items: baseline;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-.back {
-  font-size: 13px;
-  color: var(--queue);
-}
-.back:hover {
-  color: var(--phosphor);
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin-bottom: var(--s3);
 }
 .title {
-  font-size: 16px;
-  color: var(--paper);
   margin: 0;
+  font-size: var(--fs-lg);
+  color: var(--fg);
 }
-
-.hint {
-  color: var(--queue);
-  font-size: 13px;
+.hint,
+.field-hint {
+  margin: 0;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
 }
-
+.field-hint--warn {
+  color: var(--need-ink);
+}
+.error {
+  color: var(--fail);
+  font-size: var(--fs-sm);
+  border: 1px solid var(--fail);
+  border-radius: var(--r-ctl);
+  padding: var(--s2);
+  margin: 0 0 var(--s2);
+  overflow-wrap: anywhere;
+}
+.notice {
+  color: var(--done);
+  font-size: var(--fs-sm);
+  margin: 0 0 var(--s2);
+}
 .card {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  padding: var(--s4);
 }
-
-.row {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s3);
+  align-items: start;
 }
-.row > .field {
-  flex: 1 1 0;
-  min-width: 220px;
+.span2 {
+  grid-column: 1 / -1;
 }
-
 .field {
   display: flex;
   flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
-.field--check {
-  justify-content: flex-end;
-}
-
 .label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--queue);
-  margin-bottom: 6px;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
 }
-
 .control {
+  min-height: 34px;
   width: 100%;
-  background: var(--ink);
-  color: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 9px 10px;
-  font-size: 13px;
-  outline: none;
+  padding: 6px var(--s2);
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
 }
-.control:focus {
-  border-color: var(--phosphor);
+.control:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
-.control--redacted {
-  border-color: var(--run);
+.control:disabled {
+  opacity: 0.6;
 }
 .area {
+  min-height: 64px;
   resize: vertical;
-  min-height: 120px;
+  font-family: var(--font-mono);
 }
-select.control {
-  cursor: pointer;
-}
-
-.field-hint {
-  color: var(--queue);
-  font-size: 11px;
-  margin: 6px 0 0;
-}
-.field-hint--warn {
-  color: var(--run);
-}
-/* 锁定目录的可选值（gofer-jkd2）：项目子仓库一键填入。 */
-.lock-chip {
-  margin: 4px 4px 0 0;
-  padding: 1px 6px;
-  color: var(--paper);
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  font-size: 11px;
-  cursor: pointer;
-}
-.lock-chip:hover {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
-}
-
-/* 文件上传（XFER-01 X2）：一个文件一行（名字 · 目标路径 · 移除），与 env-row 同款网格。 */
-.file-input {
-  padding: 7px 10px;
-  font-size: 12px;
-}
-.file-input::file-selector-button {
-  background: transparent;
-  color: var(--phosphor);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 12px;
-  margin-right: 10px;
-  cursor: pointer;
-}
-.upload-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.7fr) minmax(180px, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  background: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 8px;
-  margin-top: 8px;
-}
-.upload-name {
-  color: var(--paper);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.upload-dest {
-  padding: 6px 8px;
-}
-/* 收集 glob 输入比 prompt 矮：通常是两三个 pattern。 */
 .area--short {
-  min-height: 54px;
+  min-height: 48px;
 }
-
-.from-session-banner {
-  margin-bottom: 12px;
-  padding: 8px 10px;
+.control--redacted {
+  border-color: var(--need);
+  background: var(--need-soft);
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  color: var(--fg-2);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+.check input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  flex: none;
+}
+.advanced,
+.mobile-advanced {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  font-size: 12px;
+  border-radius: var(--r-panel);
+  background: var(--surface-2);
+  padding: var(--s2) var(--s3);
 }
-.from-item-note { display: block; margin-top: 4px; color: var(--run); }
-.link-result { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--done); border-radius: var(--radius); font-size: 12px; }
-.link-line { margin: 0; overflow-wrap: anywhere; }
-.link-line--ok { color: var(--done); }
-.link-line--err { color: var(--fail); }
-.link-retry { align-self: flex-start; }
-.redacted-banner {
-  color: var(--run);
-  background: var(--ink);
-  border: 1px solid var(--run);
-  border-radius: var(--radius);
-  padding: 9px 11px;
-  font-size: 12px;
-}
-
-.advanced {
-  background: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-}
-.advanced > summary {
+.advanced summary,
+.mobile-advanced summary {
   cursor: pointer;
-  color: var(--phosphor);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  list-style: revert;
+  color: var(--fg-2);
+  font-size: var(--fs-sm);
+  min-height: 32px;
+  display: flex;
+  align-items: center;
 }
 .advanced-body {
-  margin-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--s2);
+  padding-top: var(--s2);
 }
-
-.mobile-advanced {
-  display: contents;
+.mobile-advanced > .form-grid,
+.mobile-advanced > .field {
+  margin-top: var(--s3);
 }
-.mobile-advanced > summary {
-  display: none;
-}
-
 .seg {
   display: inline-flex;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
   overflow: hidden;
   width: fit-content;
 }
 .seg-btn {
+  min-height: 30px;
+  padding: 0 var(--s3);
   background: transparent;
-  color: var(--queue);
-  border: none;
-  padding: 6px 14px;
-  font-size: 12px;
+  color: var(--fg-3);
+  border: 0;
+  border-right: 1px solid var(--line);
+  font: inherit;
+  font-size: var(--fs-sm);
 }
-.seg-btn:hover {
-  color: var(--paper);
+.seg-btn:last-child {
+  border-right: 0;
 }
 .seg-btn--on {
-  background: var(--phosphor);
-  color: var(--ink);
-}
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--paper);
-  cursor: pointer;
-}
-.check input {
-  accent-color: var(--phosphor);
-}
-
-.env-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.7fr) minmax(180px, 1fr) auto auto;
-  gap: 8px;
-  align-items: center;
-  background: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 8px;
-  margin-top: 8px;
-}
-.env-key {
-  color: var(--phosphor);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.env-val {
-  color: var(--queue);
-  font-size: 12px;
-}
-.env-val.struck {
-  color: var(--fail);
-  text-decoration: line-through;
-}
-.env-key-input,
-.env-value-input {
-  padding: 6px 8px;
-}
-.env-btn,
-.env-add {
-  background: transparent;
-  color: var(--phosphor);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
-  padding: 5px 10px;
-  font-size: 12px;
-}
-.env-btn:hover,
-.env-add:hover {
-  background: var(--phosphor);
-  color: var(--ink);
-}
-.env-add {
-  margin-top: 8px;
-  align-self: flex-start;
-}
-
-.error {
-  color: var(--fail);
-  font-size: 12px;
-  border: 1px solid var(--fail);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  margin: 0;
-  word-break: break-word;
-}
-.notice {
-  color: var(--done);
-  font-size: 12px;
-  margin: 0;
-}
-
-.submit {
-  margin-top: 4px;
-  background: var(--phosphor);
-  color: var(--ink);
-  border: none;
-  border-radius: var(--radius);
-  padding: 10px 16px;
-  font-size: 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-weight: 600;
-  align-self: flex-start;
 }
-.submit:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
 .tmpl-vars {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--s2);
+  margin-top: var(--s2);
 }
-
 .tmpl-var {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-
-/* 模板正文预览：与提交时服务端渲染出的 prompt 逐字一致，长文本自己滚，不撑破表单。 */
 .tmpl-preview {
-  margin: 4px 0 0;
-  padding: 8px;
-  max-height: 220px;
+  margin: 0;
+  max-height: 260px;
   overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12px;
-  line-height: 1.5;
-  background: var(--term-bg);
+  padding: var(--s2);
+  background: var(--sunken);
+  color: var(--fg-2);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--paper);
+  border-radius: var(--r-ctl);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-
-@media (max-width: 560px) {
-  .row {
-    flex-direction: column;
-    gap: 16px;
+.upload-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s2);
+  min-width: 0;
+}
+.upload-name {
+  flex: 0 1 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--fg-2);
+}
+.upload-dest {
+  flex: 1;
+}
+.file-input {
+  padding: 4px;
+}
+.env-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s2);
+  min-width: 0;
+}
+.env-key {
+  min-width: 8ch;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.env-key-input {
+  max-width: 180px;
+}
+.env-value-input {
+  flex: 1;
+}
+.env-val {
+  flex: 1;
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
+.env-val.struck {
+  text-decoration: line-through;
+}
+.env-btn,
+.lock-chip {
+  min-height: 28px;
+  padding: 0 var(--s2);
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-chip);
+  font: inherit;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.env-add {
+  margin-top: var(--s2);
+  background: none;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-ctl);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: var(--s1) var(--s2);
+}
+.lock-chip {
+  margin-left: 4px;
+}
+.redacted-banner,
+.from-session-banner {
+  border: 1px solid var(--need);
+  background: var(--need-soft);
+  color: var(--need-ink);
+  border-radius: var(--r-ctl);
+  padding: var(--s2) var(--s3);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+.from-item-note {
+  display: block;
+  color: var(--fg-2);
+  font-size: var(--fs-xs);
+}
+.link-result {
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  padding: var(--s2) var(--s3);
+  font-size: var(--fs-sm);
+}
+.link-line {
+  margin: 2px 0;
+}
+.link-line--ok {
+  color: var(--done);
+}
+.link-line--err {
+  color: var(--fail);
+}
+.submit {
+  align-self: flex-start;
+  min-height: 38px;
+  padding: 0 var(--s5);
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.submit:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.link-retry {
+  margin-top: var(--s1);
+}
+/* 手机：单栏，工具条与提交按钮吸底（保留 env(safe-area-inset-bottom) 避让）。 */
+@media (max-width: 760px) {
+  .card {
+    padding: var(--s3) var(--s3) calc(var(--s5) + env(safe-area-inset-bottom));
   }
-  .env-row {
-    grid-template-columns: 1fr;
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .upload-row {
-    grid-template-columns: 1fr;
-  }
-  .mobile-advanced {
-    display: block;
-    padding: 10px 12px;
-    background: var(--ink);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-  }
-  .mobile-advanced > summary {
-    display: block;
-    color: var(--phosphor);
-    cursor: pointer;
-    font-size: 12px;
-    list-style: revert;
-  }
-  .mobile-advanced[open] {
-    padding-bottom: 12px;
-  }
-  .mobile-advanced > :not(summary) {
-    margin-top: 12px;
+  .control,
+  .seg-btn,
+  .submit,
+  .env-btn,
+  .lock-chip {
+    min-height: 40px;
   }
   .submit {
     position: sticky;
     bottom: 0;
-    z-index: 2;
     width: 100%;
-    padding-bottom: calc(10px + env(safe-area-inset-bottom));
-    box-shadow: 0 -8px 16px color-mix(in srgb, var(--panel) 85%, transparent);
+    padding-bottom: env(safe-area-inset-bottom);
+    z-index: 5;
   }
 }
 </style>
