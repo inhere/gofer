@@ -1467,11 +1467,19 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 | `utils/runnerDisplay.ts` | `（本机）` 与下拉项的 `· 本机` |
 | `components/ExperimentalBadge.vue` | 默认 label / hint 改用 computed + `t()`（不传 prop 时跟随语言） |
 | `components/CompareColumns.vue` | 整个对比视图的模板文案（提示、徽标、按钮、表头、空态、分页 aria） |
+| `utils/enrollments.ts` | 配对码校验与倒计时、worker id / 标签校验、接受与拒绝的错误文案、关闭态提示、申请状态词 |
+| `utils/dispatch.ts` | 分派校验错误、六个动作的名字与说明、触达结果、409 文案、优先级名、待同步标记 |
+| `utils/messenger.ts` | 传话人状态 / 不可用原因、空闲退出倒计时、轮换原因与上限、token 用量、传话受阻原因 |
+| `utils/sessionTopic.ts` | 主题来源标签与悬停说明、编辑门槛、范围校验、命中原因、查找结果行 |
+| `utils/eventMeta.ts` | 63 个事件类型的标签（移到 `util.event.<type>`）+ `detail_json` 摘要的拼接片段 |
+| `utils/permissions.ts` | 授权对象标签、预览问题文案、表单门槛、只读原因、授权状态与提示、审计动作名、403 缺权限文案、有效期选项 |
 
 写法：模块级常量持有的是 getter（`get label() { return statusText('active') }`），模块加载时不定住语言；纯函数内部直接调 `t()`；`t()` 读的是 `store/locale.ts` 的单例 ref，模板 / computed 里调用仍然响应式。zh 的值与抽取前的字面量逐字一致，所以「只换文案来源」可验证：现有按中文断言的用例逐字保留。
 
-**扫描测试** `i18n/noHardcodedCjk.test.ts`：用 `import.meta.glob(?raw)` 读 `web/src` 下的 .ts / .vue（除 `i18n/` 与 `*.test.ts`），.ts 与 SFC 的 `<script>` 交给 TypeScript 解析、只看字符串 / 模板字面量（注释是 trivia，天然不算；SFC 的 `<template>` 按原文扫、只去 HTML 注释与 `<style>`）。`WHITELIST` 收明确需要的字面量（目前只有语言开关的「中文」），逐条写理由；还没抽完的 128 个文件列在 `PENDING`，第二个用例断言「表里的文件确实还有硬编码中文」，所以抽干净后不删表项会红——这份名单只增不减地变短。
+**扫描测试** `i18n/noHardcodedCjk.test.ts`：用 `import.meta.glob(?raw)` 读 `web/src` 下的 .ts / .vue（除 `i18n/` 与 `*.test.ts`），.ts 与 SFC 的 `<script>` 交给 TypeScript 解析、只看字符串 / 模板字面量（注释是 trivia，天然不算；SFC 的 `<template>` 按原文扫、只去 HTML 注释与 `<style>`）。`WHITELIST` 收明确需要的字面量（目前只有语言开关的「中文」），逐条写理由；还没抽完的文件列在 `PENDING`，第二个用例断言「表里的文件确实还有硬编码中文」，所以抽干净后不删表项会红——这份名单只减不增。
 
-**未完成**：`PENDING` 里的 128 个文件（主要是 `views/*.vue` 的残留、`api/client.ts` / `api/attachments.ts` 的错误文案、`components/SessionDrawer.vue` / `MessengerDrawer.vue` / `Config.vue` 等），按页面分批继续；这批做完才是 §14 P6 行的完整验收（「全站扫描没有硬编码中文」）。
+本批从 141 个文件 / 1884 处降到 **122 个文件 / 1575 处**。
+
+**未完成**：`PENDING` 里剩下的 122 个文件（约 1575 处），集中在 `views/*.vue`（`Config` / `JobDetail` / `NewJob` / `PlanDetail` / `Mail` …）、`components/*.vue`（`SessionDrawer` / `MessengerDrawer` / `WorkDispatchDialog` / `MergeDialog` …）、`api/client.ts` 与 `api/attachments.ts` 的错误文案，以及 `utils/` 里剩下的 50 个小模块（`today` / `approval` / `planControls` / `extensionSettings` …）。`npx node tmp/gen-pending.mjs`（仓库根）可以重算名单；抽完删表项即可。
 
 **测试与验证**：`web` 三命令全绿——`npx vue-tsc --noEmit`（退出码 0）、`npx vitest run`（221 文件 / 1502 例，导出末尾：`Tests 1502 passed`）、`npx vite build --outDir ../tmp/web-dist-check`（`✓ built in`）。现有用例随之改了三处断言（`dashStats.test.ts` 用 `rangeName()`；`uiTextWiring.test.ts` 按 getter 形态；`updateWaitIdle.test.ts` 按符号映射）。

@@ -13,7 +13,7 @@
 
 ### 变更
 
-- **残留文案抽取（P6-b，gofer-hez1）**：工具层与公共组件里仍硬编码的中文全部抽进 i18n——`utils/statusText.ts`（状态词改走 `status.<值>`，`⚠ / ⏳ / ⏸` 符号前缀留在代码里）、`utils/work.ts`（工作项状态的 hint、工作区 / 到期 / 发言者 / 整理字段 / 请求账本 / 提醒时间预设）、`utils/mail.ts`（地址校验错误、选器与状态文案、收件人标签、发送预览）、`utils/mailMinimap.ts`、`utils/todayLanes.ts`、`utils/sessionState.ts`、`utils/delivery.ts`、`utils/workflowResult.ts`、`utils/dashStats.ts`（区间 / 星期 / 摘要行，**「复制统计」的纯文本也按当前语言出**）、`utils/runnerDisplay.ts`，以及 `components/ExperimentalBadge.vue` 与 `components/CompareColumns.vue`。字典新增 `i18n/pages/shared.ts`（域 `util.`，zh/en 并列）供跨页的工具层共用；模块级常量改用 getter，渲染时才取词。只换文案来源，样式与布局不动。
+- **残留文案抽取（P6-b，gofer-hez1）**：工具层与公共组件里仍硬编码的中文全部抽进 i18n——`utils/statusText.ts`（状态词改走 `status.<值>`，`⚠ / ⏳ / ⏸` 符号前缀留在代码里）、`utils/work.ts`（工作项状态的 hint、工作区 / 到期 / 发言者 / 整理字段 / 请求账本 / 提醒时间预设）、`utils/mail.ts`（地址校验错误、选器与状态文案、收件人标签、发送预览）、`utils/mailMinimap.ts`、`utils/todayLanes.ts`、`utils/sessionState.ts`、`utils/delivery.ts`、`utils/workflowResult.ts`、`utils/dashStats.ts`（区间 / 星期 / 摘要行，**「复制统计」的纯文本也按当前语言出**）、`utils/runnerDisplay.ts`，以及 `components/ExperimentalBadge.vue` 与 `components/CompareColumns.vue`；第二批接着抽了 `utils/enrollments.ts`（worker 自助注册的校验与错误）、`utils/dispatch.ts`（收集箱分派）、`utils/messenger.ts`（传话人）、`utils/sessionTopic.ts`（主题与查找）、`utils/eventMeta.ts`（63 个事件类型的标签与摘要片段）与 `utils/permissions.ts`（授权、审计与 403 文案）。字典新增 `i18n/pages/shared.ts`（域 `util.`，zh/en 并列）供跨页的工具层共用；模块级常量改用 getter，渲染时才取词。只换文案来源，样式与布局不动。
 
 **测试**
 
