@@ -1741,6 +1741,24 @@ export interface RunnersResp {
   server?: RunnersServerInfo
 }
 
+// GET /v1/workers/{id}：worker 连接明细（心跳上报的目录在 worker.dirs，含默认工作空间）。
+// connected=false 时没有 worker 字段 —— 离线 worker 的项目与目录一律取不到。
+export interface WorkerView {
+  worker_id: string
+  connected: boolean
+  worker?: RunnerWorker
+  upgrade?: WorkerUpgradeRecord
+  upgrade_history?: WorkerUpgradeRecord[]
+}
+
+// GET /v1/workers/{id}/projects：worker 自己在 worker.yaml 里声明的项目（worker 自有）。
+export interface WorkerProjectsResp {
+  worker_id: string
+  connected: boolean
+  projects: string[]
+  worker?: RunnerWorker
+}
+
 export interface WorkerReloadResp {
   worker_id: string
   applied: boolean
