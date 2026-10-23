@@ -1777,3 +1777,39 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 
 - `npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 228 passed (228)` / `Tests 1533 passed (1533)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.35s`。
 - 视觉自查：用构建产物 + 桩 `/v1` 数据（fixture 是合成的，不进仓库）在 Edge 里跑 `/today`、`/runners`、`/dashboard`、`/plans/<id>` × zh / en × 浅 / 深 × 1440 / 390，并程序化量了关键尺寸：右栏标题 290px 且点阵与健康度不重叠、侧栏「节点 4/5 在线」、拓扑里只有一个 `server` 节点名、状态分布 11 个格子的标签无裁切、清单进度条 829px 且 `4/6` 与条同一行（手机 201px 同样同一行）。
+
+## 实施记录 P6-3（截图检查第三组，gofer-hez1）
+
+输入：`tmp/pagecheck/out-0191/` 的第三组用户反馈（信箱对话没有可复制的 id、工作台附件入口重复、工作台置顶按钮太小看不出含义、设置页内容区太窄）。逐项一个提交，各带测试。
+
+**1. 信箱对话的固定 id（`cv-…`）**
+
+- 后端：`internal/httpapi/mail_conversations.go` 新增 `mailConversationID(key)` = `cv-` + `sha256(key)` 前 10 位 hex（key 本身就是两端地址排序拼接、方向无关，所以同一对人永远同一个 id）；`mailConversationView` 带 `id`。新增 `mailConvIDQuery`（格式校验，`conv=bogus` 是 400）与 `Server.mailConversationIDKey`——在**本调用方可见范围**内按 id 反查 key（与列表同一个 `mailListKeep`、同一段有界扫描，封顶 `mailListScanPages` 页），查不到一律 404（与「看不到那封信」同一个回答，不泄露别人的对话是否存在）。
+- 接口：`GET /v1/mail?conv=<id>`（与 `peer`/`with` 互斥，同时给是 400）与 `GET /v1/mail/conversations?conv=<id>` 都按 id 取那一个对话；`GET /v1/mail` 被限定到一个对话时回答里多一个 `conversation: {id, key}`（additive，不改变原有 `mail` / `count` / `has_more`）。路由未变，所以 `authz_routes.go` 的声明不变（`go generate ./internal/httpapi/...` 无 diff）。
+- CLI：`gofer session mail conv <cv-id>`（走既有 `session mail` 命令组，G033）——先用 `GET /v1/mail/conversations?conv=` 取对话（双方 + 计数），再用 `?conv=` 取全部信件（最早在前）打印。client 侧新增 `MailConversation` 与 `Client.GetMailConversation`，`MailListOpts` 加 `Conv`。
+- 前端：`MailConversation` 类型带 `id`（本地分组拿不到服务端 id 时是空串）；右栏头部显示「对话 cv-xxxx」+ 复制按钮（`copyText`，与既有剪贴板 helper 同一口径），每封信的 `thread_id` 有复制入口（悬停 / 聚焦出现，手机常显）；`/mail?conv=<id>` 打开时按 id 向服务端要那一个对话（不在当前列表里也进得去，404 就报错而不是安静地选第一个）。
+- 测试：Go `TestMailConversationID`（方向无关、稳定、格式、不同对话不撞）、`TestMailConversationByID`（列表带 id、两个接口都按 id 取、越权 / 不存在 404、有权限后可见、非法 id 与 `conv`+`peer` 400）；CLI `TestSessionMailConvCLI`；前端 `mailPage.test.ts` 新增两条（id / 复制入口接线、`?conv=` 深链）。
+
+**2. 工作台输入框只剩一个附件入口**
+
+- 根因：`ui/Composer.vue` 既渲染 `AttachmentBar`（自带 📎 与一行提示），又在自己 `composer-row` 里有一个 📎；不可用原因（如「…暂不支持读取图片」）同时出现在旧条的 📎 `title` 与下方小字。
+- 改法：`AttachmentBar` 新增向后兼容的 `compact` 属性（默认 false，行为不变）——compact 时不再画 📎 与提示行，只在**有已选附件时**画缩略图条（选文件 / 拖放 / 粘贴 / 上传 / 重试 / 删除全在，只是入口不重复）。`Composer` 用 `compact`，把提示统一放到自己的附件按钮 `title` + 输入框下方一行小字（`data-test="composer-attach-hint"`）；提示来源同一处（`utils/attachments.composerAttachmentState`）：能力不可用时直接取 `capability.reason`（此时缩略图条根本不渲染，拿不到子组件的 hint），其余情况（上传中 / 失败）仍取附件条的 `hint()`。📎 字形顺手换成 lucide `Paperclip`（P6-c 的图标口径）。
+- 测试：`ui/composer.test.ts` 新增「只留一个附件入口 + 原因走 title 与小字」（不再有 `attach-button` / `attach-hint`，有 `composer-attach-hint` 与 `title="…"`）。
+
+**3. 工作台置顶按钮**
+
+- 原来是 `.icon-btn` 里一个纯文本 ⌖ 小字形，32×32、无文字、只能靠悬停猜。改为 `btn sm pin-btn`：lucide `Pin` 图标（`size="sm"`，与其它图标同一尺寸口径）+ 桌面显示「置顶 / 取消置顶」文字；≤760px 只收掉 `.pin-text`（点击目标仍 32×32），`title` / `aria-label` / `aria-pressed` 全程都有。已置顶时 `.pin-btn.on` 用 `--accent` 边框 + `--accent-soft` 底，不用悬停也能看出来。手机「更多」菜单里的置顶入口保留。
+- 同行的其它纯图标按钮复查：返回 `☰`（仅手机，`aria-label` 有）、停止 `Square`（有 `title` / `aria-label`，`--fail` 颜色）、更多 `Ellipsis`（仅手机，有 `aria-label`），尺寸与含义都够；「打开 job 详情」本来就有文字。故只改置顶这一处。
+- 测试：新增 `components/workbench/threadViewPin.test.ts`（图标 + 文字、手机断点、选中样式、手机菜单入口仍在）。
+
+**4. 设置页内容区宽度**
+
+- 根因：`views/settings/SettingsLayout.vue` 的 `.settings-body` 是 `210px minmax(0, 720px)`，内容列被钉死在 720px。
+- 改法：内容列 `minmax(0, 1fr)`，整页 `.settings` 加 `max-width: 1480px`（与 `/work` 同口径）；卡片 / 表格 / 说明文字用满内容区，表格在窄屏仍走既有的 `.table-wrap` 横向滚动；表单字段本身没有拉伸（原本就没有 `width: 100%`）。平板（`180px minmax(0, 1fr)`）与手机（单列 + 下拉导航）断点不变。
+- 测试：新增 `views/settings/settingsLayoutWidth.test.ts`（内容列 fluid、整页上限、两个断点不变）。
+
+**验证**
+
+- `npx vue-tsc --noEmit` 退出码 0；`npx vitest run` → `Test Files 232 passed (232)` / `Tests 1560 passed (1560)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` → `✓ built in 5.39s`。
+- Go：`go build ./...`、`go vet ./...` 退出码 0；`go test ./internal/httpapi/ ./internal/commands/ ./internal/client/ -count=1` → 三个包 `ok`（httpapi 98.1s / commands 111.2s / client 8.7s）。
+- 视觉自查：条目 3 与 4 的尺寸改动用构建产物在 1440 / 1920 宽度下复核（内容区不再停在第 720px 列，置顶按钮带文字且选中态可见）；截图用的数据是临时桩，不进仓库。
