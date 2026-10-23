@@ -1500,6 +1500,55 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 四态截图（zh/en × 浅/深）仍未在本机跑（无可用浏览器/截图工具），`web/scripts/shots.mjs` 的自动检查留给发版前。
 - 日志查看器（LogTape）与终端（AttachTerminal）按 §4.1 应该是「两种主题都深底」，但它们内部用的是主题正文色，本轮只把底色换成 `--sunken` 保持迁移前观感；改成深底 + `--log-ink` / `--log-dim` 属于这两块的样式重做。
 
+### P6-c 图标改用 Lucide（2026-10-23，issue gofer-h355）
+
+用户反馈：图标不好看、有些很小看不清。现状是把 Unicode 字形当图标（`utils/shell.ts` 的 `glyph`：◉ ▤ ⧉ ⌁ ⬡ ◈ ⌂ ⚙ …，页面里还有 ✉ ✓ ⚑ ⇉ ◷ ↻ ✕ ▸ 等），打包字体（Schibsted Grotesk / IBM Plex Mono 的拉丁子集）并不含这些符号，回退到系统字体后大小、粗细、基线各机器不一致。
+
+**依赖**
+
+用 `@lucide/vue` **1.53.0**（`--save-exact`，ISC 许可，图标本体来自 lucide）。issue 里写的是 `lucide-vue-next`，但它已被官方整包弃用（`deprecated: Package deprecated. Please use @lucide/vue instead.`），所以改用后继包；API 相同（`import { Search } from '@lucide/vue'`，每个图标一个函数组件）。按需 import + `sideEffects: false`，打包只含用到的图标，无外网依赖。选 1.53.0 是因为该包按日自动发版，取两周前（2026-10-08）的版本，符合「发布超过两周的稳定版」。
+
+**基元**
+
+- `styles/tokens.css`：新增 `--icon-sm: 14px` / `--icon: 16px` / `--icon-lg: 20px`（行内与表格 / 导航与按钮 / 标签栏与宫格）。`ui/icon.ts` 的 `ICON_PX` 是同一组数值（lucide 要像素数），`ui/icon.test.ts` 读 `tokens.css` 校验两者一致，防漂移。
+- `ui/Icon.vue`（新）：唯一入口。线宽统一 **1.75**（lucide 默认 2 在 14–16px 上偏重）；颜色跟随 `currentColor`；给了 `label` 才是 `role="img"` + `aria-label`（可加 `title`），不给就是装饰性（lucide 自动 `aria-hidden="true"`）；`spin` 用于运行中。
+- `styles/icons.css`（新）：`.icon` 的基线对齐与 `.icon--spin`（唯一的图标动画，`prefers-reduced-motion` 由 `base.css` 统一关闭）。
+- `ui/icon.ts`（新）：`NavIcon` 语义名 → lucide 组件的表（换图标只改这里）。
+
+**导航与顶栏**
+
+- `utils/shell.ts`：`ShellNavItem.glyph: string` 改为 `icon: NavIcon`（type-only import，纯逻辑模块不引入组件运行时）；16 个页面 + 手机标签栏 + 「更多」宫格同一个表。
+- 图标选择（§6.1 分组）：今天 Sun / 工作台 LayoutGrid / 工作项 ListChecks / 计划 Milestone / 任务 ClipboardList / 会话 MessagesSquare / 信箱 Mail / 待验收 ClipboardCheck / Issues CircleDot / 统计 ChartColumn / 工作流 Workflow / 定时 CalendarClock / 运行节点 Server / Agents Bot / 项目 FolderKanban / 设置 Settings / 更多 Ellipsis。
+- `ui/AppShell.vue`：侧栏、图标栏、手机标签栏、更多宫格改 `<Icon>`；侧栏收起/展开 `⟨ ⟩` → PanelLeftClose / PanelLeftOpen；搜索 `⌕` → Search；新建 `+` → Plus；新版本 `↯` → Sparkles。
+- 顶栏按钮：MailButton `✉` → Mail、QuickCapture `✎` → SquarePen、ThemeToggle `☀/☾` → Sun/Moon、NeedsMeButton 手机上的 `::before content:'◔'` → 真正的 Bell 图标（桌面藏图标、手机藏文字）。
+
+**状态字形（§5）**
+
+`ui/statusGlyph.ts` 的 shape 从自绘 SVG 换成 lucide：run `loader-circle`（常驻旋转）/ need `circle-alert` / done `circle-check` / fail `circle-x` / time `clock` / idle `circle` / queue `circle-dashed`。`GlyphKind` 改成 lucide 图标名，`data-kind` 与 `StatusGlyph.vue` 的渲染一一对应；族的颜色（`.k-<族>` 的 `--c`）与 `StatusPill` 的文字口径不变，小的脉冲环动画换成 loader 旋转（`icon--spin`），`status.css` 里的 `glyph-pulse` 一并删除。
+
+**页面里的字符按钮**
+
+- 关闭：`Drawer` / `Sheet` 的 `✕`、各弹窗的 `×`（EnrollAccept / EnrollReject / GrantRenew / SessionGrant / ClusterTopology / AttachmentBar / QuickCapture 提示 / Mail 的两个 chip / Workbench 的两处）→ X。
+- 展开 / 收起：Skills、Agents、WorkbenchSidebar、ConversationView、UnifiedDiff、SessionDrawer（两处）、ProjectFilter、JobDetail 的会话任务链、AttachTerminal 的输入框开关 → ChevronRight / ChevronDown（ProjectFilter 向上为 ChevronUp）。
+- `views/settings/SettingsLayout.vue` 的面包屑分隔符 `content: '▸ '` 改成普通标点 `/`（CSS 伪元素放不了图标组件，而分隔符本身不需要图标语义）。
+
+**没动（有意留下）**
+
+- `utils/eventMeta.ts` 的事件图标表（✓ ✎ ▶ ■ ⌨ → ⌛ ⏸ …，25 个）在事件时间线里当类型标记用，替换要连带改 `eventIcon()` 的返回类型与 JobDetail / PlanDetail 三处渲染，另立 issue。
+- 表格里的 `●`（Tabs 活跃点、各页状态点）、文案里的 `✓` / `×`（乘号、删除文案）、`exportMeta` 的 `⏸` / `↻` 等：这些是文字或状态点，不是图标按钮，本次不动。
+- `↻` 在 Board / JobDetail / PlanDetail 的 `agent ↻` 是「经 exec 恢复」的文字后缀（拼在模板字符串里），不是按钮。
+
+**测试**
+
+- `ui/icon.test.ts`（新）：尺寸档位与 `tokens.css` 一致；16+ 个导航项都有可解析的图标且 zh/en 都有可访问名；`Icon` 的 SSR 行为（装饰性 `aria-hidden`、有 `label` 才 `role="img"`、`size="lg"` → width 20、线宽 1.75、`spin`）。
+- `ui/iconScan.test.ts`（新）：扫 `web/src` 下全部 `.vue` / `.ts`（排除测试、`i18n/` 字典、注释），不允许再出现 21 个当图标用的字形（◉ ▤ ▥ ◇ ⧉ ⌁ ✉ ▦ ⇉ ◷ ⬡ ⌂ ⟨ ⟩ ☀ ☾ ◔ ↯ ▸ ▾ ▴）；白名单 `WHITELIST` 必须写理由。
+- `ui/statusGlyph.test.ts`：新增「每个族渲染对应 lucide 图标（`lucide-<kind>` + 线宽 1.75）」与「只有 run 旋转」。
+- `views/work.test.ts`、`views/mailWiring.test.ts`：导航项断言从 `glyph: '▥'` / `glyph: '✉'` 改成 `icon: 'work'` / `icon: 'mail'`。
+
+**验证**
+
+`npx vue-tsc --noEmit`、`npx vitest run`、`npx vite build` 全绿（见 issue 汇报里的原始输出）。
+
 ## 附：0.1 版待确认问题（已于 0.2 决定，见 §16）
 
 1. **品牌色和字体是否跟着换？**
