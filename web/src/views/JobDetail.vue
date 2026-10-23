@@ -1909,6 +1909,14 @@ function startJobLive(): void {
   jobLive.start()
 }
 
+// 概览里的「最近日志」：取 stdout（没有就 stderr）最后 6 行，完整日志在「日志」页签。
+const logTail = computed<string[]>(() => {
+  const text = stdout.value.length > 0 ? stdout.value : stderr.value
+  if (!text) return []
+  const lines = text.split('\n').filter((line) => line.trim() !== '')
+  return lines.slice(-6)
+})
+
 // 页签（设计稿 §7.1、§16-5）：值以 URL 的 ?tab= 为准（可深链、可前进后退）；
 // 默认页签按状态——needs_review 进「验收」、failed 进「日志」、其余「概览」。
 const tabItems = computed<TabItem[]>(() => [
@@ -2553,6 +2561,14 @@ onUnmounted(() => {
       </details>
     </section>
 
+    <section v-if="active === 'overview' && logTail.length > 0" class="log-tail" data-test="log-tail">
+      <h2 class="outcomes-title mono">{{ t('jobs.detail.recentLog') }}</h2>
+      <pre class="log-tail-pre mono">{{ logTail.join('\n') }}</pre>
+      <button class="review-banner-btn mono" type="button" @click="goTab(JOB_TAB.log)">
+        {{ t('jobs.tab.log') }}
+      </button>
+    </section>
+
     <!-- 事件时间线（E13）：append-only 生命周期事件，每事件一行（图标 + 标签 +
          关键 detail + 相对时间）。仿 interactions 渲染风格，仅在有事件时展示。 -->
     <section v-if="active === 'events' && timelineEvents.length > 0" class="timeline">
@@ -3116,6 +3132,18 @@ onUnmounted(() => {
 .changes-empty {
   color: var(--fg-3);
   font-size: var(--fs-sm);
+}
+/* 概览里的最近日志：只看末 6 行，完整日志在「日志」页签。 */
+.log-tail-pre {
+  margin: 0 0 var(--s2);
+  padding: var(--s2);
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .detail-head {
   display: flex;

@@ -61,6 +61,7 @@ describe('任务详情的页签（§7.1、§16-5）', () => {
     expect(detailSource).toMatch(/v-if="active === 'overview' && job && showApprovalPanel"/)
     expect(detailSource).toMatch(/v-if="active === 'overview' && job" class="meta"/)
     expect(detailSource).toMatch(/v-if="active === 'overview' && renderedCommand"/)
+    expect(detailSource).toContain('data-test="log-tail"')
     // 验收 / 日志 / 变更
     expect(detailSource).toMatch(/v-if="active === 'review' && job && showReviewPanel"/)
     expect(detailSource).toMatch(/<template v-if="active === 'log'">/)
@@ -83,6 +84,20 @@ describe('任务详情的宿主页（§16 并排 / 单栏）', () => {
     expect(html).toContain('data-layout="single"')
     expect(html).toContain('data-test="jobs-view-detail"')
     expect(html).not.toContain('data-test="jobs-view-list"')
+  })
+})
+
+describe('jobs 页文案（i18n/pages/jobs.ts）', () => {
+  it('keeps zh and en key sets identical and non-empty', async () => {
+    const { jobs } = await import('../i18n/pages/jobs')
+    const zhKeys = Object.keys(jobs.zh).sort()
+    const enKeys = Object.keys(jobs.en).sort()
+    expect(enKeys.filter((k) => !zhKeys.includes(k))).toEqual([])
+    expect(zhKeys.filter((k) => !enKeys.includes(k))).toEqual([])
+    for (const key of zhKeys) expect(key.startsWith('jobs.'), key).toBe(true)
+    for (const value of [...Object.values(jobs.zh), ...Object.values(jobs.en)]) {
+      expect(value.trim()).not.toBe('')
+    }
   })
 })
 

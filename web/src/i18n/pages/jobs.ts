@@ -147,6 +147,7 @@ export const jobs: PageDict = {
     'jobs.detail.usage': '用量',
     'jobs.detail.budget': '预算 {value}',
     'jobs.detail.budgetExhausted': '预算耗尽收尾',
+    'jobs.detail.recentLog': '最近日志',
   },
   en: {
     'jobs.h.title': 'Jobs',
@@ -282,5 +283,6 @@ export const jobs: PageDict = {
     'jobs.detail.usage': 'Usage',
     'jobs.detail.budget': 'Budget {value}',
     'jobs.detail.budgetExhausted': 'Wrapped up on budget exhaustion',
+    'jobs.detail.recentLog': 'Recent log',
   },
 }
