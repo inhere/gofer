@@ -88,6 +88,15 @@ export function sortMailTimeline(mails: MailMessage[]): MailMessage[] {
   return [...mails].sort((a, b) => a.created_at - b.created_at || a.id - b.id)
 }
 
+// mailConversationInProject：这个对话是不是属于某个项目（UI 重设计 §6.4：信箱按参与方
+// 所属项目过滤，conversations 接口没有项目参数，只能在本地收窄）。两端的 persona 任一属于
+// 该项目即算——跨项目的对话出现在两个项目的筛选里，比「莫名消失」好解释。
+export function mailConversationInProject(conv: MailConversation, project: string): boolean {
+  const key = (project ?? '').trim()
+  if (!key) return true
+  return [conv.a?.persona?.project_key, conv.b?.persona?.project_key].some((p) => (p ?? '').trim() === key)
+}
+
 // mailConversationBox 把页签映射成对话列表 / 时间线的箱参数（「待指派」两边都要）。
 export function mailConversationBox(filter: MailFilter): 'in' | 'out' | 'all' {
   return filter === 'in' ? 'in' : filter === 'out' ? 'out' : 'all'

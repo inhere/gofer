@@ -77,6 +77,7 @@ describe('信箱：回信按只读 / 他人的信灰显', () => {
     expect(mail).toContain("import { pageWriteBlock } from '../utils/pageGate'")
     expect(mail).toContain('const replyWriteBlock = computed(')
     expect(mail).toContain("anyPerms: ['session.reply.others', 'job.manage.others']")
-    expect(mail).toContain(':disabled="replying || !!replyWriteBlock" :title="replyWriteBlock || undefined"')
+    expect(mail).toContain(':can-send="!replyWriteBlock"')
+    expect(mail).toContain(":hint=\"replyWriteBlock || ''\"")
   })
 })

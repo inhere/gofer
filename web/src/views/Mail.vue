@@ -1,12 +1,14 @@
 <script setup lang="ts">
-// 信箱页（design 2026-10-20「信箱按对话显示、会话以人物呈现」，计划 M2）：一个信箱一个页面——
-//  - 左：对话列表（服务端按参与方对聚合的 conversations 接口，一行一个对话）——两个人物卡、
-//    最后一封的纯文本摘要、未读数、急件、信件数、活动时间；页签「全部 / 收件 / 发件 / 待指派」；
-//  - 右：所选对话的时间线（GET /v1/mail?peer=&with=，时间正序）——气泡按「我方在右」分边，
+// 信箱页（design 2026-10-20「信箱按对话显示、会话以人物呈现」，计划 M2；UI 重设计 P4 按 §7.1 落地）：
+//  - 左栏：标题、筛选 chip（全部 / 收件 / 发件 / 待指派，带计数）、项目 chip、写信按钮；
+//    对话列表（服务端按参与方对聚合的 conversations 接口，一行一个对话）——两个人物卡、
+//    最后一封的纯文本摘要、未读数、急件与待指派标记、信件数、活动时间；底部是常驻 agent；
+//  - 右栏：所选对话的时间线（GET /v1/mail?peer=&with=，时间正序）——气泡按「我方在右」分边，
 //    回信标「回复 #N」可跳到被回复的那封，正文按 markdown 渲染（MarkdownBlock，含消毒）、
-//    长信折叠；底部回复框；
+//    长信折叠；顶部「加载更早的 N 条」；底部回复框（ui/Composer，带急件）；
 //  - 待指派：原因、候选（服务端在发信 / 改投的回答里带回）、改投（改地址重发）、撤回；
-//  - 顶部「写信」：地址与急件开关。
+//  - 写信：Sheet 里的收件人（会话多选 / 「按项目 · 主题 · agent 全部」选器 / 手写地址）、
+//    投递数预览、正文（ui/Composer）、急件。
 // 规则（地址解析校验、对话 key、气泡方向、人物卡取色、摘要去 markdown、查询参数）都在
 // utils/mail.ts 与 utils/mailConversations.ts，这里只管渲染与请求。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -25,6 +27,7 @@ import {
 import { fmtAgo, fmtDateTime } from '../api/time'
 import type { MailCandidate, MailConversation, MailMessage } from '../api/types'
 import { useWhoami } from '../store/whoami'
+import { t, te } from '../i18n'
 import { pageWriteBlock } from '../utils/pageGate'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
@@ -32,24 +35,27 @@ import MailPersonaChip from '../components/mail/PersonaChip.vue'
 import MailMinimap from '../components/mail/MailMinimap.vue'
 import MailResidentAgents from '../components/mail/ResidentAgents.vue'
 import SessionDrawer from '../components/SessionDrawer.vue'
+import BackLink from '../ui/BackLink.vue'
+import Composer from '../ui/Composer.vue'
+import FilterChips from '../ui/FilterChips.vue'
+import ProjectFilter from '../ui/ProjectFilter.vue'
+import Sheet from '../ui/Sheet.vue'
+import { type FilterChipItem } from '../ui/filterChips'
+import { useProjectFilter } from '../ui/projectFilter'
 import {
   buildMailReaddress,
   buildMailReply,
   buildMailSend,
   emptyMailCompose,
   filterComposeSessions,
-  MAIL_FILTERS,
-  MAIL_SCOPES,
-  mailAddressLabel,
   mailComposeAddresses,
-  mailComposePreviewText,
   mailFilterFromQuery,
+  mailHeldQuery,
   mailListQuery,
   mailOutgoing,
   mailPartyLabel,
   mailRecipientPreview,
   mailSessionOptionLabel,
-  mailStateLabel,
   mailStateTone,
   parseMailRecipients,
   type ComposeSessionOption,
@@ -63,12 +69,12 @@ import {
   bubbleSide,
   groupMailConversations,
   mailConversationBox,
+  mailConversationInProject,
   mailConversationKey,
   mailConversationSeq,
   mailFoldedBody,
   mailLongBody,
   mailPartyAddress,
-  mailReplyLabel,
   mailSummary,
   mailTimelineAddressable,
   mailTimelineQuery,
@@ -124,6 +130,22 @@ const timelineKey = ref('')
 const filter = ref<MailFilter>(mailFilterFromQuery(route.query))
 const sessionFilter = ref(queryValue(route.query.session))
 
+// 项目是筛选条件，不是全局状态（设计稿 §6.4）：值写进 URL 的 ?project=，对话按参与方的
+// 所属项目在本地过滤（conversations 接口没有项目参数）。
+const { project, setProject, options: projectOptions, loadOptions: loadProjectOptions, loadError: projectLoadError } =
+  useProjectFilter('/mail')
+
+// 各筛选下的对话数（chip 上的计数）。收件 / 发件 / 全部取 conversations 接口的 count，
+// 待指派按本地分组的对话数算——它们都没有服务端过滤参数，只能各问一次。
+const counts = ref<Record<MailFilter, number>>({ all: 0, in: 0, out: 0, held: 0 })
+
+const filterItems = computed<FilterChipItem[]>(() => [
+  { value: 'all', label: t('mail.filter.all'), count: counts.value.all },
+  { value: 'in', label: t('mail.filter.in'), count: counts.value.in },
+  { value: 'out', label: t('mail.filter.out'), count: counts.value.out },
+  { value: 'held', label: t('mail.filter.held'), count: counts.value.held },
+])
+
 // 服务端只在发信 / 改投的回答里带候选，收件箱列表不带：这里按信件 id 记下见过的那几组，
 // 打开待指派信件时能一键填进改投输入框。
 const candidates = ref<Record<number, MailCandidate[]>>({})
@@ -147,7 +169,7 @@ const composeLocalEstimate = computed(() =>
   mailRecipientPreview(composeAddresses.value.addresses.join(' '), composeSessions.value),
 )
 const composePreviewText = computed(() =>
-  mailComposePreviewText(composeAddresses.value.addresses, composePreview.value, composeLocalEstimate.value),
+  previewText(composeAddresses.value.addresses, composePreview.value, composeLocalEstimate.value),
 )
 
 async function loadComposeSessions(): Promise<void> {
@@ -268,6 +290,19 @@ const activeTitle = computed(() => {
   if (!conv) return ''
   return `${personaLabel(conv.a)} / ${personaLabel(conv.b)}`
 })
+// 左栏真正显示的对话：在当前筛选的结果里再按项目收窄（§6.4）。
+const visibleRows = computed(() =>
+  project.value ? rows.value.filter((r) => mailConversationInProject(r, project.value)) : rows.value,
+)
+// 回到列表的地址（手机上的返回链接）：保留当前筛选，别把用户选的页签 / 会话弄丢。
+const listUrl = computed(() => {
+  const params = new URLSearchParams()
+  if (filter.value !== 'all') params.set('filter', filter.value)
+  if (sessionFilter.value) params.set('session', sessionFilter.value)
+  if (project.value) params.set('project', project.value)
+  const qs = params.toString()
+  return qs ? `/mail?${qs}` : '/mail'
+})
 
 async function loadRows(): Promise<void> {
   if (groupedLocally.value) {
@@ -277,6 +312,28 @@ async function loadRows(): Promise<void> {
   }
   const resp = await listMailConversations({ box: mailConversationBox(filter.value), limit: 100 })
   rows.value = resp.conversations ?? []
+}
+
+// loadCounts 取四个筛选 chip 的计数：收件 / 发件 / 全部问 conversations 接口的 count，
+// 待指派按本地分组算对话数（它就是「还没投出去的信」，没有单独的对话接口）。
+// 计数只是提示，失败就不显示变化，不影响看信。
+async function loadCounts(): Promise<void> {
+  try {
+    const [all, inbox, outbox, held] = await Promise.all([
+      listMailConversations({ box: 'all', limit: 1 }),
+      listMailConversations({ box: 'in', limit: 1 }),
+      listMailConversations({ box: 'out', limit: 1 }),
+      listMail(mailHeldQuery()),
+    ])
+    counts.value = {
+      all: all.count ?? 0,
+      in: inbox.count ?? 0,
+      out: outbox.count ?? 0,
+      held: groupMailConversations(held.mail ?? []).length,
+    }
+  } catch {
+    // 计数失败保持上一次的值
+  }
 }
 
 // timelineBase 是一个对话时间线的公共取数参数（分页只在它上面加 limit / before / order）。
@@ -386,8 +443,9 @@ async function load(silent = false): Promise<void> {
   nowSec.value = Math.floor(Date.now() / 1000)
   try {
     await loadRows()
-    if (!rows.value.some((r) => r.key === activeKey.value)) {
-      activeKey.value = rows.value[0]?.key ?? ''
+    const shown = visibleRows.value
+    if (!shown.some((r) => r.key === activeKey.value)) {
+      activeKey.value = shown[0]?.key ?? ''
     }
     // 同一个对话的静默刷新只补最新的信；换对话（或首屏）才整段重取。
     if (silent && timelineKey.value && timelineKey.value === activeKey.value && timeline.value.length) {
@@ -405,6 +463,9 @@ async function load(silent = false): Promise<void> {
   } finally {
     loading.value = false
   }
+  // 计数跟着刷新走（异步、失败不影响看信）。静默刷新（读信后的补最新）不必重算：
+  // 读信不改计数，发信 / 改投 / 撤回会单独再取一次。
+  if (!silent) void loadCounts()
 }
 
 // 页签切换写回地址栏（可分享 / 可收藏），再由 watch 重新拉；Today 卡与抽屉的深链也是
@@ -413,12 +474,14 @@ function setFilter(f: MailFilter): void {
   const query: Record<string, string> = {}
   if (f !== 'all') query.filter = f
   if (sessionFilter.value) query.session = sessionFilter.value
+  if (project.value) query.project = project.value
   void router.replace({ path: '/mail', query })
 }
 
 function clearSession(): void {
   const query: Record<string, string> = {}
   if (filter.value !== 'all') query.filter = filter.value
+  if (project.value) query.project = project.value
   void router.replace({ path: '/mail', query })
 }
 
@@ -431,6 +494,16 @@ watch(
     void load()
   },
 )
+
+// 换项目：当前对话不在新项目里就自动选这个项目的第一条。
+watch(project, async () => {
+  if (!visibleRows.value.some((r) => r.key === activeKey.value)) {
+    activeKey.value = visibleRows.value[0]?.key ?? ''
+    await loadTimeline().catch(() => {
+      timeline.value = []
+    })
+  }
+})
 
 // 打开一个对话 = 读过它的信：把自己收的未读信件逐封 ack（读 = 送达；服务端只对收件方生效）。
 async function selectConversation(key: string): Promise<void> {
@@ -477,12 +550,16 @@ async function sendCompose(): Promise<void> {
     const skipped = resp.skipped_count ?? 0
     if (count > 1 || skipped > 0) {
       // 广播：回一句投递了几个人（略过几个），不再说「信件 #N 已发出」。
-      notice.value = `已群发给 ${count} 个会话${skipped ? `（因权限略过 ${skipped} 个）` : ''}。`
+      notice.value =
+        skipped > 0
+          ? t('mail.notice.broadcastSkipped', { n: count, k: skipped })
+          : t('mail.notice.broadcast', { n: count })
       await load(true)
     } else {
       noteSendResult(resp.mail, resp.held, resp.candidates ?? [])
       await load(true)
     }
+    void loadCounts()
     compose.value = emptyMailCompose()
     composeSearch.value = ''
     composePreview.value = null
@@ -497,17 +574,19 @@ async function sendCompose(): Promise<void> {
 function noteSendResult(m: MailMessage, held: boolean, cands: MailCandidate[]): void {
   if (cands.length) candidates.value = { ...candidates.value, [m.id]: cands }
   if (held) {
-    notice.value = `地址没有唯一命中，信件 #${m.id} 已转「待指派」${cands.length ? `，候选 ${cands.length} 个` : ''}。`
+    notice.value = cands.length
+      ? t('mail.notice.heldCandidates', { id: m.id, n: cands.length })
+      : t('mail.notice.held', { id: m.id })
   } else {
-    notice.value = `已发出 #${m.id}（${mailStateLabel(m.state)}）。`
+    notice.value = t('mail.notice.sent', { id: m.id, state: stateLabel(m.state) })
   }
 }
 
-async function sendReply(): Promise<void> {
+async function sendReply(text: string): Promise<void> {
   // 回复送回原发件方地址（不是我发出的那封的最新一封）。
   const target = replyTarget(timeline.value, me.value)
   if (!target) return
-  const built = buildMailReply(reply.value.body, reply.value.urgent)
+  const built = buildMailReply(text, reply.value.urgent)
   replyError.value = built.error
   if (!built.req) return
   replying.value = true
@@ -516,6 +595,7 @@ async function sendReply(): Promise<void> {
     noteSendResult(resp.mail, resp.held, resp.candidates ?? [])
     reply.value = { body: '', urgent: false }
     await load(true)
+    void loadCounts()
   } catch (e) {
     replyError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -532,6 +612,7 @@ async function doReaddress(m: MailMessage): Promise<void> {
     const resp = await readdressMail(m.id, built.req)
     noteSendResult(resp.mail, resp.held, resp.candidates ?? [])
     await load(true)
+    void loadCounts()
   } catch (e) {
     readdressError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -543,8 +624,9 @@ async function doCancel(m: MailMessage): Promise<void> {
   acting.value = true
   try {
     await cancelMail(m.id)
-    notice.value = `已撤回 #${m.id}。`
+    notice.value = t('mail.notice.cancelled', { id: m.id })
     await load(true)
+    void loadCounts()
   } catch (e) {
     readdressError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -556,9 +638,46 @@ function fillReaddress(m: MailMessage, to: string): void {
   readdressDraft.value = { ...readdressDraft.value, [m.id]: to }
 }
 
+// ---- 文案（页面字典；服务端返回的状态值是文案来源，业务内容不翻译）----
+
+// 信件状态：服务端状态值 → 本页字典（没有翻译的状态值原样显示）。
+function stateLabel(state: string): string {
+  const key = `mail.state.${state}`
+  return te(key) ? t(key) : state || '—'
+}
+
+// 收件人地址的人话名称（写信框的标签、预览共用）。
+function addressLabel(address: string): string {
+  if (address === 'caller') return t('mail.addr.caller')
+  if (address.startsWith('each:')) {
+    const [, scheme, ...rest] = address.split(':')
+    const word = te(`mail.scopeWord.${scheme}`) ? t(`mail.scopeWord.${scheme}`) : scheme
+    return t('mail.addr.each', { scope: word, value: rest.join(':') })
+  }
+  const sep = address.indexOf(':')
+  const scheme = sep < 0 ? '' : address.slice(0, sep)
+  const value = sep < 0 ? address : address.slice(sep + 1)
+  const key = `mail.addr.${scheme}`
+  return te(key) ? t(key, { value }) : address
+}
+
+// 投递数预览：服务端的 dry_run 优先，其次本地估算（规则同 utils/mail.ts 的 mailRecipientPreview）。
+function previewText(addresses: string[], preview: MailPreviewCount | null, localEstimate: number): string {
+  if (!addresses.length || (addresses.length === 1 && addresses[0] === 'caller')) return t('mail.preview.caller')
+  if (preview) {
+    return preview.skipped > 0
+      ? t('mail.preview.countSkipped', { n: preview.delivered, k: preview.skipped })
+      : t('mail.preview.count', { n: preview.delivered })
+  }
+  if (localEstimate < 0) return t('mail.preview.path')
+  return t('mail.preview.estimate', { n: localEstimate })
+}
+
 // 回信角标与跳转（设计「同一个 thread 里的回信用细线串起来，标注回复 #N，点击跳到被回复的那封」）。
 function replyLabel(m: MailMessage): string {
-  return mailReplyLabel(m, seq.value)
+  if (!m.reply_to) return ''
+  const n = seq.value.get(m.reply_to)
+  return n ? t('mail.letter.replyRef', { n }) : t('mail.letter.replyRefPlain')
 }
 
 // 滚到某一封信：时间线是自己的滚动容器（整页不再滚动），scrollIntoView 会找最近的可滚动祖先。
@@ -635,6 +754,7 @@ function openSession(sid: string): void {
 
 onMounted(() => {
   void load()
+  void loadProjectOptions()
   // 窗口尺寸变了时间线高度跟着变：重算高亮带（整页不滚动，所以不会触发 scroll）。
   window.addEventListener('resize', syncTimelineScroll)
 })
@@ -646,150 +766,105 @@ onUnmounted(() => {
 
 <template>
   <section class="mail-page">
-    <header class="mail-head">
-      <h1 class="mail-title">信箱<ExperimentalBadge /></h1>
-      <nav class="mail-tabs" aria-label="信箱过滤">
-        <button
-          v-for="f in MAIL_FILTERS"
-          :key="f.key"
-          class="tab"
-          :class="{ 'tab--active': filter === f.key }"
-          type="button"
-          :data-test="`mail-tab-${f.key}`"
-          @click="setFilter(f.key)"
-        >
-          {{ f.label }}
-        </button>
-      </nav>
-      <span v-if="sessionFilter" class="filter-chip mono" data-test="mail-session-filter">
-        会话 {{ sessionFilter }}
-        <button class="chip-x" type="button" title="去掉会话过滤" @click="clearSession">×</button>
-      </span>
-      <button class="act mono" type="button" data-test="mail-refresh" @click="load()">刷新</button>
-      <button class="act act--primary mono" type="button" data-test="mail-compose-toggle" @click="composeOpen = !composeOpen">
-        {{ composeOpen ? '收起' : '写信' }}
-      </button>
-    </header>
-
-    <!-- 常驻 agent（设计 2026-10-22 mail-agent-address）：独立组件，这里只挂载。 -->
-    <MailResidentAgents />
-
-    <form v-if="composeOpen" class="compose" data-test="mail-compose" @submit.prevent="sendCompose">
-      <!-- 收件人（gofer-ndy5，设计 2026-10-22「D5」）：已选的显示为可删除标签，下面是会话多选
-           与「按项目 / 主题 / agent 全部」选器，手写地址收在高级里。 -->
-      <div class="compose-tags" data-test="mail-to-tags">
-        <span v-for="a in composeTags" :key="a" class="tag-chip mono" data-test="mail-to-tag">
-          {{ mailAddressLabel(a) }}
-          <button class="chip-x" type="button" :title="`去掉 ${a}`" data-test="mail-to-tag-x" @click="removeComposeAddress(a)">×</button>
-        </span>
-        <span v-if="!composeTags.length" class="dim mono">未选收件人 = 投给自己的收集箱</span>
-      </div>
-      <p v-if="!composeAddresses.ok" class="err" data-test="mail-to-error">{{ composeAddresses.error }}</p>
-
-      <div class="compose-pick">
-        <input
-          v-model="composeSearch"
-          class="compose-to mono"
-          type="text"
-          placeholder="搜索会话：标题 / agent / 项目 / 会话 id"
-          data-test="mail-session-search"
-        />
-        <div class="pick-list" data-test="mail-session-options">
-          <label v-for="s in composeSessionOptions" :key="s.session_id" class="pick-row mono">
-            <input
-              type="checkbox"
-              :checked="compose.sessions.includes(s.session_id)"
-              :data-test="`mail-session-${s.session_id}`"
-              @change="toggleComposeSession(s.session_id)"
-            />
-            <span class="pick-label">{{ mailSessionOptionLabel(s) }}</span>
-          </label>
-          <p v-if="!composeSessionOptions.length" class="dim mono">没有匹配的会话</p>
-        </div>
-      </div>
-
-      <div class="compose-scope">
-        <select v-model="scopePick.scheme" class="compose-to mono" data-test="mail-scope-scheme">
-          <option v-for="s in MAIL_SCOPES" :key="s.key" :value="s.key">{{ s.label }}</option>
-        </select>
-        <input
-          v-model="scopePick.value"
-          class="compose-to mono"
-          type="text"
-          :placeholder="MAIL_SCOPES.find((s) => s.key === scopePick.scheme)?.hint"
-          data-test="mail-scope-value"
-          @keydown.enter.prevent="addComposeScope"
-        />
-        <button class="act mono" type="button" data-test="mail-scope-add" @click="addComposeScope">加「全部」</button>
-      </div>
-
-      <p v-if="composePreviewError" class="err" data-test="mail-preview-error">{{ composePreviewError }}</p>
-
-      <details class="compose-advanced">
-        <summary class="mono">高级：手写地址</summary>
-        <input
-          v-model="compose.manual"
-          class="compose-to mono"
-          type="text"
-          placeholder="空格 / 逗号分隔：session:<sid> / job:<id> / topic:<关键词> / path:<子路径> / caller / each:…"
-          data-test="mail-to"
-        />
-      </details>
-      <textarea
-        v-model="compose.body"
-        class="compose-body"
-        rows="3"
-        placeholder="正文（markdown，单封上限 32 KB）"
-        data-test="mail-body"
-      ></textarea>
-      <div class="compose-row">
-        <label class="urgent-pick"
-          ><input v-model="compose.urgent" type="checkbox" data-test="mail-urgent" /> 急件（在收件会话的下一轮内注入）</label
-        >
-        <span class="compose-preview mono" data-test="mail-to-preview">{{ composePreviewText }}</span>
-        <button class="act act--primary mono" type="submit" :disabled="sending" data-test="mail-send">
-          {{ sending ? '发送中…' : '发送' }}
-        </button>
-      </div>
-      <p v-if="composeError" class="err" data-test="mail-compose-error">{{ composeError }}</p>
-    </form>
-
-    <p v-if="notice" class="notice" data-test="mail-notice">{{ notice }}</p>
-    <p v-if="error" class="err" data-test="mail-error">{{ error }}</p>
-
     <div class="split" :class="{ 'split--detail': mobileDetail }">
-      <aside class="convs" aria-label="对话">
-        <p v-if="loading" class="dim pad">加载中…</p>
-        <p v-else-if="!rows.length" class="dim pad" data-test="mail-empty">没有信件</p>
-        <button
-          v-for="c in rows"
-          :key="c.key"
-          class="conv"
-          :class="{ 'conv--active': c.key === activeKey }"
-          type="button"
-          data-test="mail-conversation"
-          @click="selectConversation(c.key)"
-        >
-          <span class="conv-people">
-            <MailPersonaChip variant="row" :party="c.a" :now-sec="nowSec" @open-session="openSession" />
-            <span class="conv-arrow dim">↔</span>
-            <MailPersonaChip variant="row" :party="c.b" :now-sec="nowSec" @open-session="openSession" />
-            <span v-if="c.urgent" class="tag tag--urgent" data-test="mail-conv-urgent">急件</span>
-            <span v-if="c.unread" class="unread" data-test="mail-conv-unread">{{ c.unread }}</span>
-          </span>
-          <span class="conv-excerpt dim" data-test="mail-conv-excerpt">{{ mailSummary(c.last_mail.body, 80) }}</span>
-          <span class="conv-meta dim mono">{{ c.count }} 封 · {{ fmtAgo(c.activity_at, nowSec) }}</span>
-        </button>
+      <!-- 左栏：标题、筛选 chip、项目 chip、写信按钮 + 对话列表 + 常驻 agent。 -->
+      <aside class="mail-list" :aria-label="t('mail.list.label')">
+        <header class="list-head">
+          <div class="head-row">
+            <h1 class="mail-title">{{ t('mail.h.title') }}<ExperimentalBadge /></h1>
+            <span class="dim" data-test="mail-summary">{{ t('mail.h.summary', { n: visibleRows.length }) }}</span>
+            <button class="act mono" type="button" data-test="mail-refresh" @click="load()">
+              {{ t('mail.h.refresh') }}
+            </button>
+            <button
+              class="act act--primary mono"
+              type="button"
+              data-test="mail-compose-toggle"
+              @click="composeOpen = true"
+            >
+              {{ t('mail.h.compose') }}
+            </button>
+          </div>
+          <div class="head-filters">
+            <FilterChips
+              :items="filterItems"
+              :model-value="filter"
+              :label="t('mail.h.filters')"
+              @update:model-value="(v) => setFilter(v as MailFilter)"
+            />
+            <ProjectFilter
+              :model-value="project"
+              :options="projectOptions"
+              :loading="false"
+              :error="projectLoadError"
+              @update:model-value="setProject"
+            />
+            <span v-if="sessionFilter" class="filter-chip mono" data-test="mail-session-filter">
+              {{ t('mail.h.session', { sid: sessionFilter }) }}
+              <button class="chip-x" type="button" :title="t('mail.h.clearSession')" @click="clearSession">×</button>
+            </span>
+          </div>
+        </header>
+
+        <div class="convs" role="list">
+          <p v-if="loading" class="dim pad">{{ t('mail.list.loading') }}</p>
+          <p v-else-if="!visibleRows.length" class="dim pad" data-test="mail-empty">
+            {{ project ? t('mail.list.emptyProject') : t('mail.list.empty') }}
+          </p>
+          <button
+            v-for="c in visibleRows"
+            :key="c.key"
+            class="conv"
+            :class="{ 'conv--active': c.key === activeKey }"
+            type="button"
+            role="listitem"
+            :aria-current="c.key === activeKey"
+            :aria-label="t('mail.conv.select', { who: `${personaLabel(c.a)} / ${personaLabel(c.b)}` })"
+            data-test="mail-conversation"
+            @click="selectConversation(c.key)"
+          >
+            <span class="conv-people">
+              <MailPersonaChip variant="row" :party="c.a" :now-sec="nowSec" @open-session="openSession" />
+              <span class="conv-arrow dim" aria-hidden="true">↔</span>
+              <MailPersonaChip variant="row" :party="c.b" :now-sec="nowSec" @open-session="openSession" />
+              <span v-if="c.urgent" class="tag tag--urgent" data-test="mail-conv-urgent">
+                {{ t('mail.conv.urgent') }}
+              </span>
+              <span v-if="c.last_mail.state === 'held'" class="tag tag--held" data-test="mail-conv-held">
+                {{ t('mail.conv.held') }}
+              </span>
+              <span
+                v-if="c.unread"
+                class="unread"
+                :title="t('mail.conv.unread', { n: c.unread })"
+                data-test="mail-conv-unread"
+              >{{ c.unread }}</span>
+            </span>
+            <span class="conv-excerpt dim" data-test="mail-conv-excerpt">{{ mailSummary(c.last_mail.body, 80) }}</span>
+            <span class="conv-meta dim mono">{{ t('mail.conv.meta', { n: c.count, ago: fmtAgo(c.activity_at, nowSec) }) }}</span>
+          </button>
+        </div>
+
+        <!-- 常驻 agent（设计 2026-10-22 mail-agent-address）：独立组件，这里只挂载。 -->
+        <MailResidentAgents />
       </aside>
 
-      <section class="detail" aria-label="对话时间线">
+      <section class="detail" :aria-label="t('mail.thread.label')">
         <template v-if="active">
           <header class="detail-head">
-            <button class="act mono back" type="button" data-test="mail-back" @click="backToList">← 列表</button>
+            <BackLink
+              v-if="mobileDetail"
+              class="back"
+              list="mail"
+              :to="listUrl"
+              :label="t('mail.thread.back')"
+              data-test="mail-back"
+              @click="backToList"
+            />
             <MailPersonaChip :party="active.a" :now-sec="nowSec" @open-session="openSession" />
-            <span class="dim">↔</span>
+            <span class="dim" aria-hidden="true">↔</span>
             <MailPersonaChip :party="active.b" :now-sec="nowSec" @open-session="openSession" />
-            <span class="dim mono">{{ timeline.length }} 封</span>
+            <span class="dim mono">{{ t('mail.thread.count', { n: timeline.length }) }}</span>
           </header>
 
           <!-- 时间线是页面自己的滚动区（整页不滚）：右边缘一条小地图，标记＜3 封时不画。 -->
@@ -805,9 +880,9 @@ onUnmounted(() => {
                   data-test="mail-older-load"
                   @click="loadOlder"
                 >
-                  {{ loadingOlder ? '加载中…' : '加载更早的信件（还有更早的）' }}
+                  {{ loadingOlder ? t('mail.older.loading') : t('mail.older.load', { n: MAIL_TIMELINE_PAGE }) }}
                 </button>
-                <span v-else class="dim mono" data-test="mail-older-end">已到最早</span>
+                <span v-else class="dim mono" data-test="mail-older-end">{{ t('mail.older.end') }}</span>
               </div>
               <article
                 v-for="m in timeline"
@@ -823,38 +898,49 @@ onUnmounted(() => {
               >
                 <header class="bubble-head">
                   <MailPersonaChip variant="row" :party="m.from" :now-sec="nowSec" @open-session="openSession" />
-                  <span class="dim mono bubble-to" :title="mailPartyAddress(m.to) || m.to_address">→ {{ m.to_address || mailPartyLabel(m.to) }}</span>
+                  <span class="dim mono bubble-to" :title="mailPartyAddress(m.to) || m.to_address">
+                    {{ t('mail.letter.to', { to: m.to_address || mailPartyLabel(m.to) }) }}
+                  </span>
                   <button v-if="replyLabel(m)" class="reply-ref mono" type="button" data-test="mail-reply-ref" @click="jumpToReply(m)">
                     {{ replyLabel(m) }}
                   </button>
-                  <span v-if="m.urgent" class="tag tag--urgent">急件</span>
+                  <span v-if="m.urgent" class="tag tag--urgent">{{ t('mail.letter.urgent') }}</span>
                   <span class="letter-state mono" :class="`tone--${mailStateTone(m.state)}`" data-test="mail-letter-state">
-                    {{ mailStateLabel(m.state) }}
+                    {{ stateLabel(m.state) }}
                   </span>
-                  <span class="dim mono" :title="fmtDateTime(m.created_at)">#{{ m.id }} · {{ fmtAgo(m.created_at, nowSec) }}</span>
+                  <span class="dim mono" :title="fmtDateTime(m.created_at)">
+                    {{ t('mail.letter.id', { id: m.id, ago: fmtAgo(m.created_at, nowSec) }) }}
+                  </span>
                 </header>
 
                 <!-- 广播（设计 2026-10-22「D5」）：这张卡是一封群发的副本，下面是整组的收件人状态条。 -->
                 <div v-if="m.broadcast" class="broadcast" data-test="mail-broadcast">
-                  <span class="broadcast-head mono">群发 b{{ m.broadcast.id }} · 收件人 {{ m.broadcast.count }} · 已送达 {{ m.broadcast.delivered }} · 已回复 {{ m.broadcast.answered }}<template v-if="m.broadcast.expired"> · 过期 {{ m.broadcast.expired }}</template><template v-if="m.broadcast.pending"> · 待送达 {{ m.broadcast.pending }}</template></span>
+                  <span class="broadcast-head mono">
+                    {{ t('mail.broadcast.head', {
+                      id: m.broadcast.id,
+                      count: m.broadcast.count,
+                      delivered: m.broadcast.delivered,
+                      answered: m.broadcast.answered,
+                    }) }}<template v-if="m.broadcast.expired">{{ t('mail.broadcast.expired', { n: m.broadcast.expired }) }}</template><template v-if="m.broadcast.pending">{{ t('mail.broadcast.pending', { n: m.broadcast.pending }) }}</template>
+                  </span>
                   <span
                     v-for="r in m.broadcast.recipients"
                     :key="r.mail_id || r.address"
                     class="broadcast-dot mono"
-                    :title="`${r.address}${r.skipped ? ' · 因权限略过' : r.state ? ' · ' + mailStateLabel(r.state) : ''}`"
-                  >{{ r.id || r.address }} · {{ r.skipped ? '略过' : mailStateLabel(r.state || '') }}</span>
+                    :title="`${r.address}${r.skipped ? ' · ' + t('mail.broadcast.skipReason') : r.state ? ' · ' + stateLabel(r.state) : ''}`"
+                  >{{ r.id || r.address }} · {{ r.skipped ? t('mail.broadcast.skipped') : stateLabel(r.state || '') }}</span>
                 </div>
                 <!-- 正文是别的 agent 会话写的 markdown：走 MarkdownBlock（marked + DOMPurify 消毒）。 -->
                 <div class="bubble-body" data-test="mail-letter-body">
                   <MarkdownBlock :text="bodyText(m)" />
                 </div>
                 <button v-if="mailLongBody(m.body)" class="fold mono" type="button" data-test="mail-letter-fold" @click="toggleFold(m.id)">
-                  {{ expandedIds.has(m.id) ? '收起' : `展开全文（${m.body.length} 字）` }}
+                  {{ expandedIds.has(m.id) ? t('mail.letter.unfold') : t('mail.letter.fold', { n: [...m.body].length }) }}
                 </button>
 
                 <div v-if="m.state === 'held'" class="held" data-test="mail-held">
                   <p class="held-why">
-                    <b>待指派</b>
+                    <b>{{ t('mail.held.title') }}</b>
                     <span v-if="m.last_error" class="dim">· {{ m.last_error }}</span>
                     <!-- 候选与「新建 job / 丢弃」在收集箱条目里：待指派时生成的条目带推荐的分派目标。 -->
                     <RouterLink
@@ -862,10 +948,10 @@ onUnmounted(() => {
                       class="held-item"
                       data-test="mail-held-item"
                       :to="{ path: '/work', query: { id: m.capture_item_id } }"
-                    >在收集箱处理</RouterLink>
+                    >{{ t('mail.held.item') }}</RouterLink>
                   </p>
                   <div v-if="candidates[m.id]?.length" class="cands" data-test="mail-candidates">
-                    <span class="dim">候选：</span>
+                    <span class="dim">{{ t('mail.held.candidates') }}</span>
                     <button
                       v-for="c in candidates[m.id]"
                       :key="`${c.kind}:${c.id}`"
@@ -882,13 +968,15 @@ onUnmounted(() => {
                       v-model="readdressDraft[m.id]"
                       class="mono"
                       type="text"
-                      placeholder="改投到：session:… / job:… / topic:… / path:…"
+                      :placeholder="t('mail.held.readdressTo')"
                       data-test="mail-readdress-to"
                     />
                     <button class="act act--primary mono" type="button" :disabled="acting" data-test="mail-readdress" @click="doReaddress(m)">
-                      改投
+                      {{ t('mail.held.readdress') }}
                     </button>
-                    <button class="act mono" type="button" :disabled="acting" data-test="mail-cancel" @click="doCancel(m)">撤回</button>
+                    <button class="act mono" type="button" :disabled="acting" data-test="mail-cancel" @click="doCancel(m)">
+                      {{ t('mail.held.cancel') }}
+                    </button>
                   </div>
                 </div>
               </article>
@@ -897,11 +985,11 @@ onUnmounted(() => {
               v-if="hasOlder"
               class="minimap-more mono"
               type="button"
-              title="加载更早的信件"
+              :title="t('mail.thread.minimapMore')"
               data-test="mail-minimap-more"
               @click="loadOlder"
             >
-              还有更早的信件未加载
+              {{ t('mail.thread.minimapMore') }}
             </button>
             <MailMinimap
               v-if="minimapMarks.length"
@@ -911,81 +999,185 @@ onUnmounted(() => {
             />
           </div>
 
-          <form class="reply" @submit.prevent="sendReply">
-            <textarea
+          <!-- 回复框走统一的 Composer（设计稿 §8、§10）：急件开关由调用方声明。 -->
+          <div class="reply" data-test="mail-reply-box">
+            <Composer
               v-model="reply.body"
-              class="reply-body"
-              rows="3"
-              :placeholder="`回复 ${activeTitle}（送回发件方地址，仍在同一对话里）`"
-              data-test="mail-reply-body"
-            ></textarea>
-            <div class="compose-row">
-              <label class="urgent-pick"><input v-model="reply.urgent" type="checkbox" /> 急件</label>
-              <button class="act act--primary mono" type="submit" :disabled="replying || !!replyWriteBlock" :title="replyWriteBlock || undefined" data-test="mail-reply">
-                {{ replying ? '发送中…' : '回复' }}
-              </button>
-            </div>
+              v-model:urgent="reply.urgent"
+              :placeholder="t('mail.reply.placeholder', { who: activeTitle })"
+              :send-label="t('mail.reply.send')"
+              :sending="replying"
+              :can-send="!replyWriteBlock"
+              :hint="replyWriteBlock || ''"
+              :aria-label="t('mail.reply.send')"
+              urgent-option
+              @send="sendReply"
+            />
             <p v-if="replyError" class="err" data-test="mail-reply-error">{{ replyError }}</p>
             <p v-if="readdressError" class="err" data-test="mail-readdress-error">{{ readdressError }}</p>
-          </form>
+          </div>
         </template>
-        <p v-else class="dim pad">左边选一个对话；要发新信件点右上角「写信」。</p>
+        <p v-else class="dim pad">{{ t('mail.thread.select') }}</p>
       </section>
     </div>
+
+    <p v-if="notice" class="notice" data-test="mail-notice">{{ notice }}</p>
+    <p v-if="error" class="err" data-test="mail-error">{{ error }}</p>
+
+    <!-- 写信：收件人选择、投递数预览、正文与急件都放进统一的底部抽屉（设计稿 §7.1、§8）。 -->
+    <Sheet v-model="composeOpen" :label="t('mail.compose.title')" data-test="mail-compose-sheet">
+      <form class="compose" data-test="mail-compose" @submit.prevent="sendCompose">
+        <!-- 收件人（gofer-ndy5，设计 2026-10-22「D5」）：已选的显示为可删除标签，下面是会话多选
+             与「按项目 / 主题 / agent 全部」选器，手写地址收在高级里。 -->
+        <div class="compose-tags" data-test="mail-to-tags">
+          <span v-for="a in composeTags" :key="a" class="tag-chip mono" data-test="mail-to-tag">
+            {{ addressLabel(a) }}
+            <button class="chip-x" type="button" :title="t('mail.compose.remove', { address: a })" data-test="mail-to-tag-x" @click="removeComposeAddress(a)">×</button>
+          </span>
+          <span v-if="!composeTags.length" class="dim mono">{{ t('mail.compose.none') }}</span>
+        </div>
+        <p v-if="!composeAddresses.ok" class="err" data-test="mail-to-error">{{ composeAddresses.error }}</p>
+
+        <div class="compose-pick">
+          <input
+            v-model="composeSearch"
+            class="compose-to mono"
+            type="text"
+            :placeholder="t('mail.compose.search')"
+            data-test="mail-session-search"
+          />
+          <div class="pick-list" data-test="mail-session-options">
+            <label v-for="s in composeSessionOptions" :key="s.session_id" class="pick-row mono">
+              <input
+                type="checkbox"
+                :checked="compose.sessions.includes(s.session_id)"
+                :data-test="`mail-session-${s.session_id}`"
+                @change="toggleComposeSession(s.session_id)"
+              />
+              <span class="pick-label">{{ mailSessionOptionLabel(s) }}</span>
+            </label>
+            <p v-if="!composeSessionOptions.length" class="dim mono">{{ t('mail.compose.noSessions') }}</p>
+          </div>
+        </div>
+
+        <div class="compose-scope">
+          <select v-model="scopePick.scheme" class="compose-to mono" data-test="mail-scope-scheme">
+            <option value="project">{{ t('mail.scope.project') }}</option>
+            <option value="topic">{{ t('mail.scope.topic') }}</option>
+            <option value="agent">{{ t('mail.scope.agent') }}</option>
+            <option value="path">{{ t('mail.scope.path') }}</option>
+          </select>
+          <input
+            v-model="scopePick.value"
+            class="compose-to mono"
+            type="text"
+            :placeholder="t(`mail.scopeHint.${scopePick.scheme}`)"
+            data-test="mail-scope-value"
+            @keydown.enter.prevent="addComposeScope"
+          />
+          <button class="act mono" type="button" data-test="mail-scope-add" @click="addComposeScope">
+            {{ t('mail.compose.scopeAdd') }}
+          </button>
+        </div>
+
+        <p v-if="composePreviewError" class="err" data-test="mail-preview-error">{{ composePreviewError }}</p>
+
+        <details class="compose-advanced">
+          <summary class="mono">{{ t('mail.compose.advanced') }}</summary>
+          <input
+            v-model="compose.manual"
+            class="compose-to mono"
+            type="text"
+            :placeholder="t('mail.compose.manual')"
+            data-test="mail-to"
+          />
+        </details>
+
+        <Composer
+          v-model="compose.body"
+          v-model:urgent="compose.urgent"
+          :placeholder="t('mail.compose.body')"
+          :send-label="t('mail.compose.send')"
+          :sending="sending"
+          :aria-label="t('mail.compose.send')"
+          urgent-option
+          @send="sendCompose"
+        />
+        <span class="compose-preview mono" data-test="mail-to-preview">{{ composePreviewText }}</span>
+        <p v-if="composeError" class="err" data-test="mail-compose-error">{{ composeError }}</p>
+      </form>
+    </Sheet>
 
     <SessionDrawer v-if="openSid" :sid="openSid" @close="openSid = ''" @changed="load(true)" />
   </section>
 </template>
 
 <style scoped>
-/* 整页占满顶栏以下的视口（App.vue 的 content--fill）：头部 / 写信框 / 提示条高度自适应，
-   剩下的全给左右两栏，页面本身不出现外层滚动条。 */
+/* 整页占满顶栏以下的视口（App.vue 的 content--fill）：左右两栏自己滚，页面不出现外层滚动条。 */
 .mail-page {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--s3);
   min-width: 0;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
-.mail-head {
+/* 与预览同形的两栏：320px 列表 + 自适应线程；1279–1100 收窄到 270px。 */
+.split {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  overflow: hidden;
+}
+.mail-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.list-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.head-row,
+.head-filters {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--s2);
+  min-width: 0;
 }
 .mail-title {
-  font-size: 16px;
-  margin: 0;
-  color: var(--paper);
-}
-.mail-tabs {
-  display: flex;
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-}
-.tab {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--queue);
-  padding: 3px 10px;
-  font-size: 12px;
-}
-.tab--active {
-  color: var(--ink);
-  background: var(--phosphor);
-  border-color: var(--phosphor);
+  font-size: var(--fs-lg);
+  margin: 0;
+  color: var(--fg);
+  letter-spacing: -0.015em;
 }
 .filter-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 3px 8px;
-  font-size: 11px;
-  color: var(--queue);
+  font-size: var(--fs-xs);
+  color: var(--fg-2);
 }
 .chip-x {
   background: none;
@@ -994,60 +1186,270 @@ onUnmounted(() => {
   font-size: 14px;
   line-height: 1;
   padding: 0 2px;
+  cursor: pointer;
 }
-.compose,
+.convs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s1);
+}
+.conv {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  padding: 8px 10px;
+  color: var(--fg);
+  cursor: pointer;
+}
+.conv:hover {
+  background: var(--sunken);
+}
+.conv--active {
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: var(--shadow-1);
+}
+.conv:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.conv-people {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.conv-arrow {
+  font-size: var(--fs-xs);
+}
+.conv-excerpt,
+.conv-meta {
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--s2);
+}
+.detail-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--s2);
+}
+.back {
+  display: none;
+}
+.timeline-wrap {
+  position: relative;
+  display: flex;
+  gap: var(--s1);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s2) 4px var(--s2) 0;
+}
+/* 分页入口：时间线顶端一行（还有更早的就出按钮，到底了说一声）。 */
+.older {
+  display: flex;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.older .act {
+  font-size: var(--fs-xs);
+  padding: 2px 8px;
+}
+/* 小地图旁的提示：还有更早的信件没加载（点它等同加载更多），贴在轨道顶端。 */
+.minimap-more {
+  position: absolute;
+  right: 20px;
+  top: 2px;
+  z-index: 1;
+  max-width: 40%;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-chip);
+  cursor: pointer;
+  opacity: 0.9;
+}
+.minimap-more:hover,
+.minimap-more:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+/* 气泡：自己的一方在右（--right），对方在左；回信用虚线边，急件勾红线。
+   宽度取对话区的大部分（max-width 用 ch 限制超宽屏上的行长），手机宽度下满宽。 */
+.bubble {
+  max-width: min(94%, 96ch);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-strong);
+  border-radius: 4px var(--r-panel) var(--r-panel) var(--r-panel);
+  padding: var(--s2) var(--s3);
+  transition: outline-color 0.2s;
+}
+.bubble--left {
+  align-self: flex-start;
+}
+.bubble--right {
+  align-self: flex-end;
+  border-left-color: var(--accent);
+  border-radius: var(--r-panel) 4px var(--r-panel) var(--r-panel);
+  background: var(--accent-soft);
+}
+.bubble--reply {
+  border-style: dashed;
+}
+.bubble--urgent {
+  border-right: 2px solid var(--fail);
+}
+.bubble--hot {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.bubble-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--fg-2);
+}
+.bubble-to {
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 24ch;
+  white-space: nowrap;
+}
+.reply-ref {
+  background: none;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 10px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+.bubble-body {
+  margin-top: 6px;
+  font-size: var(--fs-base);
+  color: var(--fg);
+}
+.fold {
+  margin-top: 4px;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  padding: 0;
+  cursor: pointer;
+}
+.held {
+  margin-top: var(--s2);
+  border-top: 1px dashed var(--line);
+  padding-top: var(--s2);
+}
+.held-why {
+  margin: 0 0 6px;
+  font-size: var(--fs-xs);
+  color: var(--need-ink);
+}
+.cands {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: var(--fs-xs);
+}
+.cand {
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  color: var(--accent);
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.readdress {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.readdress input {
+  flex: 1 1 240px;
+}
+/* 回复框固定在对话底部（Composer 自带面板外形，这里只留间距）。 */
 .reply {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px;
-}
-/* 写信框内容多（会话多选、选器、正文），空间不够时自己缩、自己滚，不把时间线挤没。 */
-.compose {
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-}
-/* 回复框固定在对话底部。 */
-.reply {
+  gap: var(--s1);
   flex: 0 0 auto;
+  min-width: 0;
+}
+/* 广播（设计 2026-10-22）：副本卡上的收件人状态条。 */
+.broadcast {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+.broadcast-head {
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
+}
+.broadcast-dot {
+  font-size: var(--fs-xs);
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  color: var(--fg-3);
+}
+/* 写信框（Sheet 内容）：内容多时自己滚，不把抽屉撑出视口。 */
+.compose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
 }
 .compose-to,
 .readdress input {
-  background: var(--term-bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--paper);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  color: var(--fg);
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
-.compose-body,
-.reply-body {
-  background: var(--term-bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--paper);
-  padding: 8px;
-  font-size: 13px;
-  font-family: var(--font-sans);
-  resize: vertical;
-}
-.compose-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-/* 群发（设计 2026-10-22）：写信框的投递数预览与副本卡上的收件人状态条。 */
-.compose-preview {
-  margin: 0;
-  font-size: 11px;
-  color: var(--dim);
-}
-/* 收件人：已选标签、会话多选、选器（gofer-ndy5）。 */
 .compose-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1059,10 +1461,14 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 2px 6px;
-  font-size: 11px;
-  color: var(--queue);
+  font-size: var(--fs-xs);
+  color: var(--fg-2);
+}
+.compose-preview {
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
 }
 .compose-pick {
   display: flex;
@@ -1073,16 +1479,16 @@ onUnmounted(() => {
   max-height: 150px;
   overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--term-bg);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
   padding: 4px 6px;
 }
 .pick-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  color: var(--paper);
+  font-size: var(--fs-xs);
+  color: var(--fg);
   padding: 2px 0;
 }
 .pick-label {
@@ -1102,267 +1508,38 @@ onUnmounted(() => {
 }
 .compose-advanced summary {
   cursor: pointer;
-  font-size: 11px;
-  color: var(--dim);
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
 }
 .compose-advanced input {
   width: 100%;
   margin-top: 6px;
 }
-.broadcast {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: 4px 0 6px;
-}
-.broadcast-head {
-  font-size: 11px;
-  color: var(--dim);
-}
-.broadcast-dot {
-  font-size: 11px;
-  padding: 0 5px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--dim);
-}
-.urgent-pick {
-  color: var(--queue);
-  font-size: 12px;
-}
-.split {
-  display: flex;
-  gap: 12px;
-  align-items: stretch;
-  min-width: 0;
-  /* 占满页头以下的剩余高度：左列表与右对话各自在自己的区域内滚。 */
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.convs {
-  flex: 0 0 340px;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow-y: auto;
-}
-.conv {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  text-align: left;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 2px solid transparent;
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  color: var(--paper);
-}
-.conv--active {
-  border-left-color: var(--phosphor);
-}
-.conv-people {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.conv-arrow {
-  font-size: 11px;
-}
-.conv-excerpt,
-.conv-meta {
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.detail {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.detail-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  border-bottom: 1px dashed var(--line);
-  padding-bottom: 8px;
-}
-.back {
-  display: none;
-}
-.timeline-wrap {
-  position: relative;
-  display: flex;
-  gap: 6px;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  /* 右边留出滚动条与小地图的位置。 */
-  padding-right: 4px;
-}
-/* 分页入口：时间线顶端一行（还有更早的就出按钮，到底了说一声）。 */
-.older {
-  display: flex;
-  justify-content: center;
-  flex: 0 0 auto;
-}
-.older .act {
-  font-size: 11px;
-  padding: 2px 8px;
-}
-/* 小地图旁的提示：还有更早的信件没加载（点它等同加载更多），贴在轨道顶端。 */
-.minimap-more {
-  position: absolute;
-  right: 20px;
-  top: 2px;
-  z-index: 1;
-  max-width: 40%;
-  padding: 1px 6px;
-  font-size: 10px;
-  color: var(--queue);
-  background: var(--panel);
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  cursor: pointer;
-  opacity: 0.9;
-}
-.minimap-more:hover,
-.minimap-more:focus-visible {
-  opacity: 1;
-  outline: none;
-}
-/* 气泡：自己的一方在右（--right），对方在左；回信用虚线边与左侧细线区分新信。
-   宽度取对话区的大部分（max-width 用 ch 限制超宽屏上的行长），手机宽度下满宽。 */
-.bubble {
-  max-width: min(94%, 96ch);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 2px solid var(--line);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  transition: outline-color 0.2s;
-}
-.bubble--left {
-  align-self: flex-start;
-}
-.bubble--right {
-  align-self: flex-end;
-  border-left-color: var(--run);
-  background: var(--term-bg);
-}
-.bubble--reply {
-  border-style: dashed;
-}
-.bubble--urgent {
-  border-right: 2px solid var(--fail);
-}
-.bubble--hot {
-  outline: 2px solid var(--phosphor);
-  outline-offset: 1px;
-}
-.bubble-head {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--paper);
-}
-.bubble-to {
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 24ch;
-  white-space: nowrap;
-}
-.reply-ref {
-  background: none;
-  border: 1px dashed var(--line);
-  border-radius: 999px;
-  color: var(--phosphor);
-  font-size: 10px;
-  padding: 0 6px;
-}
-.bubble-body {
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--paper);
-}
-.fold {
-  margin-top: 4px;
-  background: none;
-  border: 0;
-  color: var(--phosphor);
-  font-size: 11px;
-  padding: 0;
-}
-.held {
-  margin-top: 10px;
-  border-top: 1px dashed var(--line);
-  padding-top: 8px;
-}
-.held-why {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--queue);
-}
-.cands {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 6px;
-  font-size: 12px;
-}
-.cand {
-  background: var(--term-bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--phosphor);
-  padding: 2px 8px;
-  font-size: 11px;
-}
-.readdress {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.readdress input {
-  flex: 1 1 240px;
-}
 .tag {
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   padding: 0 5px;
   font-size: 10px;
 }
 .tag--urgent {
   color: var(--fail);
 }
+.tag--held {
+  color: var(--need-ink);
+  border-color: var(--need);
+}
 .unread {
-  min-width: 16px;
+  min-width: 18px;
+  height: 18px;
   border-radius: 999px;
-  background: var(--phosphor);
-  color: var(--ink);
-  font-size: 10px;
+  background: var(--accent);
+  color: var(--accent-fg, var(--surface));
+  font-size: 11px;
+  font-weight: 600;
   text-align: center;
-  padding: 1px 5px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
 }
 .tone--run {
   color: var(--run);
@@ -1374,63 +1551,80 @@ onUnmounted(() => {
   color: var(--fail);
 }
 .tone--queue {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 .act {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--paper);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  color: var(--fg);
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
+  cursor: pointer;
 }
 .act--primary {
-  background: var(--phosphor);
-  border-color: var(--phosphor);
-  color: var(--ink);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg, var(--surface));
   font-weight: 600;
 }
 .err {
   color: var(--fail);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   margin: 0;
 }
 .notice {
   color: var(--done);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   margin: 0;
 }
 .dim {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 .pad {
   padding: 8px 0;
-  font-size: 12px;
+  font-size: var(--fs-xs);
+}
+.held-item {
+  margin-left: 0.5em;
+  color: var(--accent);
 }
 
-/* 窄屏：列表与时间线切换显示（沿用 900px 断点）；窄屏下气泡占满宽度。 */
-@media (max-width: 900px) {
+/* 手机（≤760，§4.3）：列表与时间线两级切换；气泡占满宽度、操作按钮铺满。 */
+@media (max-width: 760px) {
   .split {
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
-  .convs {
-    flex: 1 1 auto;
+  .mail-list {
+    border-right: 0;
+  }
+  .mail-list .convs {
     min-height: 0;
   }
   .split:not(.split--detail) .detail {
     display: none;
   }
-  .split--detail .convs {
+  .split--detail .mail-list {
     display: none;
   }
   .back {
     display: inline-flex;
   }
+  /* 手机上小地图不画（见 MailMinimap），它的「还有更早」提示也不再叠在气泡上；
+     顶端已有「加载更早的 N 条」按钮。 */
+  .minimap-more {
+    display: none;
+  }
   .bubble {
     max-width: 100%;
   }
-}
-.held-item {
-  margin-left: 0.5em;
+  .head-row .act,
+  .held .act,
+  .readdress .act {
+    min-height: 40px;
+  }
+  .conv {
+    min-height: 56px;
+  }
 }
 </style>
