@@ -2,9 +2,10 @@
 // 按权限隐藏动作、新建 job 的预填与「提交后关联」流程、转 issue 的仓库过滤、「待同步」展示规则。
 // 组件只负责渲染；服务端仍是唯一权威，这里只提前给出可读的错误与不必要的按钮隐藏。
 import type { AgentSession, TrackerRepo, WorkItem, WorkLink } from '../api/types'
+import { t } from '../i18n'
 import type { AuthWhoami } from './permissions'
 import { holdsPermission } from './permissionGate'
-import { hitLabel, MAYBE_OFFLINE_LABEL } from './sessionTopic'
+import { hitLabel, maybeOfflineLabel } from './sessionTopic'
 
 export type DispatchTo = 'session' | 'job' | 'todo' | 'issue' | 'archive' | 'drop'
 
@@ -38,10 +39,10 @@ export interface DispatchBuild {
 export function buildDispatchRequest(to: DispatchTo, f: DispatchForm): DispatchBuild {
   switch (to) {
     case 'session':
-      if (!f.sessionId.trim()) return { req: null, error: '先选一个会话' }
+      if (!f.sessionId.trim()) return { req: null, error: t('util.dispatch.err.pickSession') }
       return { req: { to, session_id: f.sessionId.trim() }, error: '' }
     case 'job':
-      if (!f.jobId.trim()) return { req: null, error: '先提交 job，再关联到条目' }
+      if (!f.jobId.trim()) return { req: null, error: t('util.dispatch.err.pickJob') }
       return { req: { to, job_id: f.jobId.trim() }, error: '' }
     case 'todo': {
       const req: DispatchRequest = { to }
@@ -50,7 +51,7 @@ export function buildDispatchRequest(to: DispatchTo, f: DispatchForm): DispatchB
       return { req, error: '' }
     }
     case 'issue': {
-      if (!f.trackerId.trim()) return { req: null, error: '先选一个仓库' }
+      if (!f.trackerId.trim()) return { req: null, error: t('util.dispatch.err.pickRepo') }
       const req: DispatchRequest = { to, tracker_id: f.trackerId.trim() }
       if (f.issueTitle.trim()) req.title = f.issueTitle.trim()
       return { req, error: '' }
@@ -59,17 +60,18 @@ export function buildDispatchRequest(to: DispatchTo, f: DispatchForm): DispatchB
     case 'drop':
       return { req: { to }, error: '' }
     default:
-      return { req: null, error: '未知的分派方式' }
+      return { req: null, error: t('util.dispatch.err.unknown') }
   }
 }
 
+// 动作的名字与说明（getter：渲染时取当前语言）。
 export const DISPATCH_ACTIONS: Array<{ to: DispatchTo; label: string; hint: string }> = [
-  { to: 'session', label: '交给会话', hint: '把条目内容作为信件发给一个会话（对方下一轮开始时收到），条目转为进行中' },
-  { to: 'job', label: '新建 job', hint: '带着条目内容去新建 job，提交后自动关联' },
-  { to: 'todo', label: '转 todo', hint: '加到一个 plan 里作为 todo' },
-  { to: 'issue', label: '转 issue', hint: '在仓库里新建 issue，同步前带「待同步」标记' },
-  { to: 'archive', label: '归档', hint: '不处理了，标为已完成' },
-  { to: 'drop', label: '丢弃', hint: '放弃这条' },
+  { to: 'session', get label() { return t('util.dispatch.act.session') }, get hint() { return t('util.dispatch.act.sessionHint') } },
+  { to: 'job', get label() { return t('util.dispatch.act.job') }, get hint() { return t('util.dispatch.act.jobHint') } },
+  { to: 'todo', get label() { return t('util.dispatch.act.todo') }, get hint() { return t('util.dispatch.act.todoHint') } },
+  { to: 'issue', get label() { return t('util.dispatch.act.issue') }, get hint() { return t('util.dispatch.act.issueHint') } },
+  { to: 'archive', get label() { return t('util.dispatch.act.archive') }, get hint() { return t('util.dispatch.act.archiveHint') } },
+  { to: 'drop', get label() { return t('util.dispatch.act.drop') }, get hint() { return t('util.dispatch.act.dropHint') } },
 ]
 
 // ---- 推荐候选 ----
@@ -104,11 +106,11 @@ export function targetRows(targets: AgentSession[] | undefined): TargetRow[] {
     topicInferred: s.topic_source === 'inferred',
     hits: (s.hits ?? []).map((h) => ({
       label: hitLabel(h),
-      text: h.match ? `${hitLabel(h)}：${h.match}` : hitLabel(h),
+      text: h.match ? t('util.dispatch.hit', { label: hitLabel(h), match: h.match }) : hitLabel(h),
       inferred: h.source === 'inferred',
     })),
     maybeOffline: s.maybe_offline === true,
-    offlineLabel: s.maybe_offline ? MAYBE_OFFLINE_LABEL : '',
+    offlineLabel: s.maybe_offline ? maybeOfflineLabel() : '',
     callerId: s.caller_id ?? '',
   }))
 }
@@ -173,14 +175,14 @@ export function dispatchErrorText(to: DispatchTo, e: DispatchErrorLike): Dispatc
   const b = (e.body ?? {}) as { todo_id?: string; plan_id?: string }
   if (e.status === 409) {
     if (to === 'todo' && (b.todo_id || b.plan_id)) {
-      return { text: `已经转过了：todo ${b.todo_id ?? ''}（plan ${b.plan_id ?? ''}）`, refresh: true }
+      return { text: t('util.dispatch.err.converted', { todo: b.todo_id ?? '', plan: b.plan_id ?? '' }), refresh: true }
     }
     if (e.detail) return { text: e.detail, refresh: to !== 'session' && to !== 'issue' }
-    if (to === 'session') return { text: '会话没能收下这条，条目仍在收集箱', refresh: false }
-    return { text: e.message || '这条已经不在收集箱了', refresh: true }
+    if (to === 'session') return { text: t('util.dispatch.err.sessionRefused'), refresh: false }
+    return { text: e.message || t('util.dispatch.err.notInInbox'), refresh: true }
   }
-  const base = e.message || '分派失败'
-  return { text: e.detail && !base.includes(e.detail) ? `${base}：${e.detail}` : base, refresh: false }
+  const base = e.message || t('util.dispatch.err.failed')
+  return { text: e.detail && !base.includes(e.detail) ? t('util.dispatch.err.withDetail', { base, detail: e.detail }) : base, refresh: false }
 }
 
 // ---- 新建 job 的预填与关联 ----
@@ -251,16 +253,17 @@ export function issueRepos(repos: TrackerRepo[] | undefined): TrackerRepo[] {
 }
 
 export function issueRepoLabel(r: Pick<TrackerRepo, 'tracker_id' | 'project_key' | 'prefix'>): string {
-  return `${r.project_key || r.tracker_id}（${r.prefix}-）`
+  return t('util.dispatch.repoLabel', { name: r.project_key || r.tracker_id, prefix: r.prefix })
 }
 
 export const ISSUE_TYPES = ['task', 'bug', 'feature', 'chore', 'epic'] as const
+// 优先级的名字（getter：渲染时取当前语言）。
 export const ISSUE_PRIORITIES: Array<{ value: number; label: string }> = [
-  { value: 0, label: 'P0 紧急' },
-  { value: 1, label: 'P1 高' },
-  { value: 2, label: 'P2 普通' },
-  { value: 3, label: 'P3 低' },
-  { value: 4, label: 'P4 待定' },
+  { value: 0, get label() { return t('util.dispatch.prio.0') } },
+  { value: 1, get label() { return t('util.dispatch.prio.1') } },
+  { value: 2, get label() { return t('util.dispatch.prio.2') } },
+  { value: 3, get label() { return t('util.dispatch.prio.3') } },
+  { value: 4, get label() { return t('util.dispatch.prio.4') } },
 ]
 export const ISSUE_TITLE_MAX = 300
 
@@ -287,13 +290,13 @@ export interface NewIssueBuild {
 // buildNewIssueRequest：Issues 页「新建 issue」表单校验与请求体（POST /v1/tracker/repos/{id}/issues）。
 export function buildNewIssueRequest(f: NewIssueForm, repos: TrackerRepo[] | undefined): NewIssueBuild {
   const repo = (repos ?? []).find((r) => r.tracker_id === f.trackerId)
-  if (!repo) return { req: null, error: '先选一个仓库' }
-  if (!(repo.prefix ?? '').trim()) return { req: null, error: '这个仓库还没有 id 前缀，先在仓库里执行 gofer repo sync' }
+  if (!repo) return { req: null, error: t('util.dispatch.err.pickRepo') }
+  if (!(repo.prefix ?? '').trim()) return { req: null, error: t('util.dispatch.err.noRepoPrefix') }
   const title = f.title.trim()
-  if (!title) return { req: null, error: '标题不能为空' }
-  if ([...title].length > ISSUE_TITLE_MAX) return { req: null, error: `标题最多 ${ISSUE_TITLE_MAX} 个字符` }
+  if (!title) return { req: null, error: t('util.dispatch.err.emptyTitle') }
+  if ([...title].length > ISSUE_TITLE_MAX) return { req: null, error: t('util.dispatch.err.titleTooLong', { n: ISSUE_TITLE_MAX }) }
   const priority = Number.parseInt(f.priority, 10)
-  if (!Number.isFinite(priority) || priority < 0 || priority > 4) return { req: null, error: '优先级取 0–4' }
+  if (!Number.isFinite(priority) || priority < 0 || priority > 4) return { req: null, error: t('util.dispatch.err.priority') }
   const type = (ISSUE_TYPES as readonly string[]).includes(f.type) ? f.type : 'task'
   const req: NewIssueRequest = { title, priority, type }
   const description = f.description.trim()
@@ -303,8 +306,14 @@ export function buildNewIssueRequest(f: NewIssueForm, repos: TrackerRepo[] | und
 
 // ---- 待同步 ----
 
-export const PENDING_SYNC_LABEL = '待同步'
-export const PENDING_SYNC_HINT = 'server 已新建这个 issue，仓库下次 gofer repo sync 后才会拉到本地'
+// 「待同步」标记文案（页面上的 chip 与悬停说明）。
+export function pendingSyncLabel(): string {
+  return t('util.dispatch.pendingSync')
+}
+
+export function pendingSyncHint(): string {
+  return t('util.dispatch.pendingSyncHint')
+}
 
 // 只有 issue 关联且 pending_sync 为真才显示；同步后 server 清除标记，标记随之消失。
 export function isPendingSync(l: Pick<WorkLink, 'kind'> & { pending_sync?: boolean }): boolean {

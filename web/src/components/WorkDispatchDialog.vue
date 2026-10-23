@@ -16,8 +16,8 @@ import {
   issueRepoLabel,
   issueRepos,
   newJobLink,
-  PENDING_SYNC_HINT,
-  PENDING_SYNC_LABEL,
+  pendingSyncHint,
+  pendingSyncLabel,
   targetRows,
 } from '../utils/dispatch'
 import type { DispatchTo } from '../utils/dispatch'
@@ -81,7 +81,7 @@ const doneText: Record<DispatchTo, string> = {
   session: '已交给会话，条目转为进行中',
   job: '已关联 job',
   todo: '已转为 todo',
-  issue: '已转为 issue，同步前显示「' + PENDING_SYNC_LABEL + '」',
+  issue: '已转为 issue，同步前显示「' + pendingSyncLabel() + '」',
   archive: '已归档',
   drop: '已丢弃',
 }
@@ -195,7 +195,7 @@ async function submit(): Promise<void> {
           <span>标题（默认用条目标题）</span>
           <input v-model="form.issueTitle" class="dd-in mono" type="text" data-test="dispatch-issue-title" />
         </label>
-        <p class="dd-hint mono">{{ PENDING_SYNC_HINT }}。</p>
+        <p class="dd-hint mono">{{ pendingSyncHint() }}。</p>
       </section>
 
       <section v-else-if="to === 'archive'" class="dd-body">

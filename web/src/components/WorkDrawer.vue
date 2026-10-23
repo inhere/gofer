@@ -10,7 +10,7 @@ import Drawer from '../ui/Drawer.vue'
 import Composer from '../ui/Composer.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import { t } from '../i18n'
-import { isPendingSync, PENDING_SYNC_HINT, PENDING_SYNC_LABEL } from '../utils/dispatch'
+import { isPendingSync, pendingSyncHint, pendingSyncLabel } from '../utils/dispatch'
 import {
   acceptWorkSuggestion,
   addWorkNote,
@@ -749,7 +749,7 @@ onUnmounted(() => live.stop())
               <RouterLink v-else-if="l.kind === 'todo' && todoInfo?.planId" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" :title="t('work.d.openPlan')">{{ l.ref }}</RouterLink>
               <RouterLink v-else-if="l.kind === 'issue'" :to="`/issues?issue=${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
               <span v-else>{{ l.ref }}</span>
-              <span v-if="isPendingSync(l)" class="icard-chip pending-sync" :title="PENDING_SYNC_HINT" data-test="pending-sync">{{ PENDING_SYNC_LABEL }}</span>
+              <span v-if="isPendingSync(l)" class="icard-chip pending-sync" :title="pendingSyncHint()" data-test="pending-sync">{{ pendingSyncLabel() }}</span>
               <button class="link-btn" type="button" :disabled="busy" @click="removeLink(l.kind, l.ref)">{{ t('work.d.remove') }}</button>
             </li>
           </ul>
