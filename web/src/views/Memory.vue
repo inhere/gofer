@@ -1,16 +1,19 @@
 <script setup lang="ts">
 // 「记忆」页（UI 重设计 P6，issue gofer-hez1）：原 Issues 页的记忆页签独立成 /memory。
-// 三档作用域（仓库 / 项目 / 全局）各取自不同接口，取数与筛选在 utils/memories.ts，
-// 列表行仍是 components/MemoryList.vue（与迁移前同一份组件）。
+// 第二版（issue gofer-icqt）：「全部」范围把仓库 / 项目 / 全局三路并发取回再合并（每条带来源），
+// 列表分页（Issues 页同一套控件，页码写进 URL），详情改成右侧抽屉（components/MemoryDrawer.vue）。
+// 取数与筛选在 utils/memories.ts，列表行仍是 components/MemoryList.vue。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MemoryList from '../components/MemoryList.vue'
+import MemoryDrawer from '../components/MemoryDrawer.vue'
 import FilterChips from '../ui/FilterChips.vue'
 import TrackerRepoPath from '../ui/TrackerRepoPath.vue'
 import TrackerRepoPicker from '../ui/TrackerRepoPicker.vue'
 import {
   deleteScopedMemory,
   deleteTrackerMemory,
+  flagScopedMemory,
   listProjects,
   listScopedMemories,
   listTrackerMemories,
@@ -22,20 +25,32 @@ import {
 import type { MemoryDoctorFinding, TrackerRepo, TrackerSyncClient } from '../api/types'
 import {
   filterMemories,
-  memoryDoctorOf,
-  memoryQueryUpdate,
-  memoryRowKey,
-  memoryRowsOf,
+  MEMORY_PAGE_SIZE_KEY,
+  memoryPageSlice,
+  memoryPageCount,
+  mergeMemoryBatches,
+  mergeMemoryDoctor,
+  memorySourceKey,
+  memoryUpdateBody,
+  pageQueryUpdate,
   readMemoryKey,
+  readMemoryPage,
   readMemoryProject,
   readMemoryScope,
   readMemorySearch,
   searchQueryUpdate,
-  type MemoryRow,
+  memoryQueryUpdate,
+  memoryRowKey,
+  memoryRowsOf,
+  type MemoryBatch,
+  type MemoryEdit,
   type MemoryScope,
+  type MemorySource,
+  type SourcedMemoryRow,
 } from '../utils/memories'
+import { clampPage, normalizePageSize, PAGE_SIZES } from '../utils/issuePaging'
 import { useRepoSync } from '../utils/useRepoSync'
-import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, syncClientLine } from '../utils/trackerView'
+import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, syncClientLine, trackerRepoTitle } from '../utils/trackerView'
 import { t } from '../i18n'
 import type { FilterChipItem } from '../ui/filterChips'
 
@@ -47,17 +62,19 @@ const projectKeys = ref<string[]>([])
 const trackerId = ref(typeof route.query.tracker === 'string' ? route.query.tracker : '')
 const scope = ref<MemoryScope>(readMemoryScope(route.query))
 const projectKey = ref(readMemoryProject(route.query))
-const memories = ref<MemoryRow[]>([])
+const memories = ref<SourcedMemoryRow[]>([])
 const doctor = ref<Record<string, MemoryDoctorFinding[]>>({})
 const kinds = ref<string[]>([])
 const flaggedOnly = ref(false)
 const search = ref(readMemorySearch(route.query))
-const selected = ref<MemoryRow | null>(null)
-const draft = ref('')
+const selected = ref<SourcedMemoryRow | null>(null)
+const flagged = ref(false)
+const saving = ref(false)
+const drawerError = ref('')
 const loading = ref(false)
 const error = ref('')
 
-// 仓库记忆要有仓库、项目记忆要有项目；全局记忆直接可读。
+// 仓库记忆要有仓库、项目记忆要有项目；全局与「全部」直接可读。
 const canLoad = computed(() => {
   if (scope.value === 'repo') return !!trackerId.value
   if (scope.value === 'project') return !!projectKey.value
@@ -66,7 +83,38 @@ const canLoad = computed(() => {
 const filtered = computed(() => filterMemories(memories.value, search.value, kinds.value, flaggedOnly.value, doctor.value))
 const repo = computed(() => repos.value.find((item) => item.tracker_id === trackerId.value))
 
+// 分页（前端切页：接口本就整仓 / 整项目返回，筛选与 doctor 也要全量）。
+const pageSize = ref(loadPageSize())
+const page = ref(readMemoryPage(route.query))
+const pageCount = computed(() => memoryPageCount(filtered.value.length, pageSize.value))
+const currentPage = computed(() => clampPage(page.value, pageCount.value))
+const pageRows = computed(() => memoryPageSlice(filtered.value, pageSize.value, currentPage.value))
+const listEl = ref<HTMLElement | null>(null)
+
+function loadPageSize(): number {
+  try {
+    return normalizePageSize(localStorage.getItem(MEMORY_PAGE_SIZE_KEY))
+  } catch {
+    return normalizePageSize(null)
+  }
+}
+function setPageSize(value: unknown): void {
+  pageSize.value = normalizePageSize(value)
+  page.value = 1
+  try {
+    localStorage.setItem(MEMORY_PAGE_SIZE_KEY, String(pageSize.value))
+  } catch {
+    /* 无存储时只在本次生效 */
+  }
+}
+function gotoPage(p: number): void {
+  page.value = clampPage(p, pageCount.value)
+  writeQuery(pageQueryUpdate(route.query, page.value))
+  listEl.value?.scrollIntoView?.({ block: 'start' })
+}
+
 const scopeItems = computed<FilterChipItem[]>(() => [
+  { value: 'all', label: t('memory.scope.all') },
   { value: 'repo', label: t('memory.scope.repo') },
   { value: 'project', label: t('memory.scope.project') },
   { value: 'global', label: t('memory.scope.global') },
@@ -74,17 +122,18 @@ const scopeItems = computed<FilterChipItem[]>(() => [
 const scopeHelp = computed(() => t(`memory.scope.${scope.value}Help`))
 const kindItems = computed<FilterChipItem[]>(() => MEMORY_KINDS.map((kind) => ({ value: kind, label: MEMORY_KIND_LABEL[kind] })))
 
-// 同步状态：作用域 / 项目 / 仓库 / 关键字都写进 URL（可分享、后退可复原）。
+// 同步状态：作用域 / 项目 / 仓库 / 关键字 / 页码都写进 URL（可分享、后退可复原）。
 function writeQuery(next: Record<string, string>): void {
   void router.replace({ query: { ...next } })
 }
 
 function pickScope(value: string): void {
-  if (value !== 'repo' && value !== 'project' && value !== 'global') return
+  if (value !== 'repo' && value !== 'project' && value !== 'global' && value !== 'all') return
   if (value === scope.value) return
   scope.value = value
   selected.value = null
-  writeQuery(memoryQueryUpdate(route.query, scope.value, projectKey.value))
+  page.value = 1
+  writeQuery(pageQueryUpdate(memoryQueryUpdate(route.query, scope.value, projectKey.value), 1))
   void load()
 }
 
@@ -92,13 +141,15 @@ function pickRepo(value: string): void {
   if (!value || value === trackerId.value) return
   trackerId.value = value
   selected.value = null
-  writeQuery({ ...memoryQueryUpdate(route.query, scope.value, projectKey.value), tracker: value })
+  page.value = 1
+  writeQuery(pageQueryUpdate({ ...memoryQueryUpdate(route.query, scope.value, projectKey.value), tracker: value }, 1))
   void load()
 }
 
 function changeProject(): void {
   selected.value = null
-  writeQuery(memoryQueryUpdate(route.query, scope.value, projectKey.value))
+  page.value = 1
+  writeQuery(pageQueryUpdate(memoryQueryUpdate(route.query, scope.value, projectKey.value), 1))
   void load()
 }
 
@@ -107,8 +158,20 @@ function clearSearch(): void {
 }
 
 watch(search, (value) => {
-  writeQuery(searchQueryUpdate(route.query, value))
+  page.value = 1
+  writeQuery(pageQueryUpdate(searchQueryUpdate(route.query, value), 1))
 })
+// 类型 chip / 「有标记」/ 每页条数只影响本页的切页，回到第 1 页。
+watch([kinds, flaggedOnly, pageSize], () => {
+  page.value = 1
+})
+// 后退 / 前进改 URL 时页码跟着走。
+watch(
+  () => route.query.page,
+  (value) => {
+    page.value = readMemoryPage({ page: value })
+  },
+)
 
 async function loadRepos(): Promise<void> {
   const [result, projects] = await Promise.all([listTrackerRepos(), listProjects()])
@@ -121,6 +184,40 @@ async function loadRepos(): Promise<void> {
   }
 }
 
+function repoSource(item: TrackerRepo | undefined): MemorySource {
+  return { scope: 'repo', trackerId: item?.tracker_id ?? trackerId.value, label: item ? trackerRepoTitle(item) : trackerId.value }
+}
+
+// 当前作用域对应的那一份来源（单作用域取数也带上，抽屉保存 / 删除就走同一条路径）。
+function currentSource(): MemorySource {
+  if (scope.value === 'repo') return repoSource(repo.value)
+  if (scope.value === 'project') return { scope: 'project', project: projectKey.value }
+  return { scope: 'global' }
+}
+
+// 「全部」范围：全局一份 + 每个项目一份 + 每个仓库一份，并发取回后合并（同一个失败不影响其余）。
+async function loadAll(): Promise<void> {
+  const tasks: Array<Promise<MemoryBatch>> = [
+    listScopedMemories('global', '', '').then((result): MemoryBatch => ({ source: { scope: 'global' }, result })),
+  ]
+  for (const key of projectKeys.value) {
+    tasks.push(listScopedMemories('project', key, '').then((result): MemoryBatch => ({ source: { scope: 'project', project: key }, result })))
+  }
+  for (const item of repos.value) {
+    tasks.push(listTrackerMemories(item.tracker_id).then((result): MemoryBatch => ({ source: repoSource(item), result })))
+  }
+  const settled = await Promise.allSettled(tasks)
+  const batches: MemoryBatch[] = []
+  const failures: string[] = []
+  for (const result of settled) {
+    if (result.status === 'fulfilled') batches.push(result.value)
+    else failures.push(result.reason instanceof Error ? result.reason.message : String(result.reason))
+  }
+  memories.value = mergeMemoryBatches(batches)
+  doctor.value = mergeMemoryDoctor(batches)
+  error.value = failures.length > 0 ? t('memory.allError', { n: failures.length, err: failures[0] }) : ''
+}
+
 async function load(): Promise<void> {
   if (!canLoad.value) {
     memories.value = []
@@ -130,13 +227,20 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    const result = scope.value === 'repo'
-      ? await listTrackerMemories(trackerId.value)
-      : await listScopedMemories(scope.value, scope.value === 'project' ? projectKey.value : '', search.value)
-    doctor.value = memoryDoctorOf(result)
-    memories.value = memoryRowsOf(result)
+    if (scope.value === 'all') {
+      await loadAll()
+    } else {
+      const result = scope.value === 'repo'
+        ? await listTrackerMemories(trackerId.value)
+        : await listScopedMemories(scope.value, scope.value === 'project' ? projectKey.value : '', search.value)
+      const source = currentSource()
+      memories.value = memoryRowsOf(result).map((row) => ({ ...row, source }))
+      doctor.value = mergeMemoryDoctor([{ source, result }])
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
+    memories.value = []
+    doctor.value = {}
   } finally {
     loading.value = false
   }
@@ -178,37 +282,79 @@ async function syncRepo(): Promise<void> {
   }
 }
 
-function openMemory(row: MemoryRow): void {
-  selected.value = selected.value?.id === row.id ? null : row
-  draft.value = String(row.data.content ?? '')
+function openMemory(row: SourcedMemoryRow): void {
+  selected.value = row
+  flagged.value = false
+  drawerError.value = ''
 }
 
-async function saveMemory(): Promise<void> {
-  if (!selected.value) return
+function closeDrawer(): void {
+  selected.value = null
+  drawerError.value = ''
+}
+
+// 保存 / 删除 / 标记后重取列表；标记后按来源 + key 重新选中那一条（抽屉不关）。
+function reselect(key: string): void {
+  selected.value = memories.value.find((row) => memorySourceKey(row) === key) ?? null
+}
+
+async function saveMemory(edit: MemoryEdit): Promise<void> {
+  const row = selected.value
+  const source = row?.source
+  if (!row || !source) return
+  saving.value = true
+  drawerError.value = ''
   try {
-    if (scope.value === 'repo') {
-      await updateTrackerMemory(trackerId.value, selected.value.id, { content: draft.value, expected_rev: selected.value.rev })
+    const body = memoryUpdateBody(edit)
+    if (source.scope === 'repo') {
+      await updateTrackerMemory(source.trackerId, row.id, { ...body, expected_rev: row.rev })
     } else {
-      await updateScopedMemory(scope.value, scope.value === 'project' ? projectKey.value : '', selected.value.id, {
-        content: draft.value,
-        tags: selected.value.data.tags ?? [],
-      })
+      await updateScopedMemory(source.scope, source.scope === 'project' ? source.project : '', row.data.key || row.id, body)
     }
-    selected.value = null
+    closeDrawer()
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    drawerError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    saving.value = false
   }
 }
 
-async function removeMemory(row: MemoryRow): Promise<void> {
+async function removeMemory(): Promise<void> {
+  const row = selected.value
+  const source = row?.source
+  if (!row || !source) return
+  saving.value = true
+  drawerError.value = ''
   try {
-    if (scope.value === 'repo') await deleteTrackerMemory(trackerId.value, row.id)
-    else await deleteScopedMemory(scope.value, scope.value === 'project' ? projectKey.value : '', row.id)
-    selected.value = null
+    if (source.scope === 'repo') await deleteTrackerMemory(source.trackerId, row.id)
+    else await deleteScopedMemory(source.scope, source.scope === 'project' ? source.project : '', row.data.key || row.id)
+    closeDrawer()
     await load()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    drawerError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+// 标记失效：只有 server 存的 scoped 记忆有接口（仓库记忆没有），理由必填。
+async function flagMemory(reason: string): Promise<void> {
+  const row = selected.value
+  const source = row?.source
+  if (!row || !source || source.scope === 'repo') return
+  const key = memorySourceKey(row)
+  saving.value = true
+  drawerError.value = ''
+  try {
+    await flagScopedMemory(source.scope, source.scope === 'project' ? source.project : '', row.data.key || row.id, reason)
+    flagged.value = true
+    await load()
+    reselect(key)
+  } catch (e) {
+    drawerError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    saving.value = false
   }
 }
 
@@ -230,7 +376,7 @@ onMounted(async () => {
     <header class="page-head">
       <div class="head-main">
         <h1 class="title">{{ t('memory.title') }}</h1>
-        <p class="sub">{{ t('memory.subtitle', { n: filtered.length }) }}</p>
+        <p class="sub">{{ t('memory.subtitle', { n: filtered.length }) }} · {{ t('memory.pageSummary', { page: currentPage, pages: pageCount }) }}</p>
       </div>
       <div class="head-actions">
         <button class="btn btn--primary" type="button" :disabled="loading || !canLoad" data-test="memory-refresh" @click="load">
@@ -239,14 +385,14 @@ onMounted(async () => {
       </div>
     </header>
 
-    <!-- 作用域：仓库（随代码） / 项目（server） / 全局（server，所有项目共享）。 -->
+    <!-- 作用域：全部（三路合并） / 仓库（随代码） / 项目（server） / 全局（server，所有项目共享）。 -->
     <section class="scope-row">
       <span class="field-label">{{ t('memory.scope.label') }}</span>
       <FilterChips :model-value="scope" :items="scopeItems" :label="t('memory.scope.label')" @update:model-value="pickScope(String($event))" />
       <small class="scope-help">{{ scopeHelp }}</small>
     </section>
 
-    <section class="meta-panel">
+    <section v-if="scope !== 'all'" class="meta-panel">
       <div v-if="scope === 'repo'" class="repo-row">
         <TrackerRepoPicker :model-value="trackerId" :repos="repos" @update:model-value="pickRepo" />
         <TrackerRepoPath :repo="repo" :placeholder="t('memory.repoPlaceholder')" />
@@ -261,7 +407,7 @@ onMounted(async () => {
           <option v-for="item in projectKeys" :key="item" :value="item">{{ item }}</option>
         </select>
       </div>
-      <div v-else class="repo-row">
+      <div v-else-if="scope === 'global'" class="repo-row">
         <span class="field-label">{{ t('memory.repo') }}</span>
         <span class="dim">{{ t('memory.globalNote') }}</span>
       </div>
@@ -297,7 +443,7 @@ onMounted(async () => {
       <section class="filter-panel">
         <div class="kind-chips" data-test="memory-kind-filter">
           <FilterChips v-model="kinds" multiple :items="kindItems" :label="t('memory.filter.type')" />
-          <button v-if="scope === 'repo'" type="button" class="chip" :class="{ 'chip--on': flaggedOnly }" :aria-pressed="flaggedOnly" data-test="memory-flagged" :title="t('memory.filter.flaggedTitle')" @click="flaggedOnly = !flaggedOnly">{{ t('memory.filter.flagged') }}</button>
+          <button v-if="scope === 'repo' || scope === 'all'" type="button" class="chip" :class="{ 'chip--on': flaggedOnly }" :aria-pressed="flaggedOnly" data-test="memory-flagged" :title="t('memory.filter.flaggedTitle')" @click="flaggedOnly = !flaggedOnly">{{ t('memory.filter.flagged') }}</button>
         </div>
         <label class="field field--inline query-field">
           {{ t('memory.filter.keyword') }}
@@ -306,18 +452,33 @@ onMounted(async () => {
       </section>
       <p v-if="error" class="err panel-err" data-test="memory-error">{{ error }}</p>
       <p v-else-if="loading" class="dim">{{ t('memory.loading') }}</p>
-      <MemoryList
-        v-if="!loading"
-        :doctor="scope === 'repo' ? doctor : {}"
-        :rows="filtered"
-        :selected="selected"
-        :draft="draft"
-        @open="openMemory"
-        @update:draft="draft = $event"
-        @save="saveMemory"
-        @remove="removeMemory"
-      />
+      <template v-else>
+        <div ref="listEl">
+          <MemoryList :doctor="doctor" :rows="pageRows" :show-source="scope === 'all'" :active-key="selected ? memorySourceKey(selected) : ''" @open="openMemory" />
+        </div>
+        <nav v-if="filtered.length > 0" class="pager" data-test="memory-pager" :aria-label="t('memory.pager.label')">
+          <label class="pager-size">{{ t('memory.pager.perPage') }}<select :value="pageSize" class="in" data-test="memory-page-size" @change="setPageSize(($event.target as HTMLSelectElement).value)"><option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }}</option></select></label>
+          <button type="button" class="page-btn" :disabled="currentPage <= 1" data-test="memory-page-prev" @click="gotoPage(currentPage - 1)">{{ t('memory.pager.prev') }}</button>
+          <span class="pager-gap">·</span>
+          <button type="button" class="page-btn page-btn--on" :data-test="`memory-page-${currentPage}`" :aria-label="t('memory.pager.page', { page: currentPage })">{{ currentPage }}</button>
+          <span class="pager-gap">/ {{ pageCount }}</span>
+          <button type="button" class="page-btn" :disabled="currentPage >= pageCount" data-test="memory-page-next" @click="gotoPage(currentPage + 1)">{{ t('memory.pager.next') }}</button>
+        </nav>
+      </template>
     </template>
+
+    <MemoryDrawer
+      v-if="selected"
+      :row="selected"
+      :doctor="doctor[memorySourceKey(selected)] ?? []"
+      :saving="saving"
+      :flagged="flagged"
+      :error="drawerError"
+      @close="closeDrawer"
+      @save="saveMemory"
+      @remove="removeMemory"
+      @flag="flagMemory"
+    />
   </main>
 </template>
 
@@ -543,6 +704,45 @@ onMounted(async () => {
   padding: var(--s2);
   margin: 0 0 var(--s3);
 }
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin-top: var(--s3);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+.pager-size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+.page-btn {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 var(--s2);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.page-btn--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.pager-gap {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
 .empty-line {
   color: var(--ink-3);
   text-align: center;
@@ -576,7 +776,8 @@ onMounted(async () => {
     flex-direction: column;
     gap: var(--s2);
   }
-  .btn {
+  .btn,
+  .page-btn {
     min-height: 40px;
   }
   .meta-panel {

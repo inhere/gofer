@@ -92,8 +92,30 @@ describe('记忆页骨架', () => {
     expect(html).toContain('data-test="memory-kind-filter"')
     expect(html).toContain('data-value="rule"')
     expect(html).toContain('data-test="memory-search"')
-    // 「只看有标记的」只在仓库作用域出现（doctor 只覆盖仓库记忆）
+    // 「只看有标记的」只在仓库 / 全部作用域出现（doctor 只覆盖仓库记忆）
     expect(MemorySource).toContain('data-test="memory-flagged"')
+  })
+
+  it('adds the "all" scope (search across every project, repository and global memory)', async () => {
+    setLocale('zh-CN')
+    const html = await render(Memory, '/memory?memory_scope=all')
+    expect(html).toContain('data-value="all"')
+    // 说明行走「全部」那一档
+    expect(html).toContain('一次搜索所有项目 / 仓库 / 全局的记忆')
+    // 全部范围不需要选仓库 / 项目（不画那块面板）
+    expect(html).not.toContain('data-test="memory-project"')
+    expect(html).not.toContain('data-test="sync-repo"')
+    // 页码也显示在页头（第 1 / 1 页）
+    expect(html).toContain('第 1 / 1 页')
+  })
+
+  it('reads the page number from the URL and clamps it to the last page', async () => {
+    // 页码来自 ?page=（readMemoryPage），没数据时钳到第 1 / 1 页
+    expect(MemorySource).toContain('const page = ref(readMemoryPage(route.query))')
+    expect(MemorySource).toContain('const currentPage = computed(() => clampPage(page.value, pageCount.value))')
+    setLocale('zh-CN')
+    const html = await render(Memory, '/memory?memory_scope=all&page=3')
+    expect(html).toContain('第 1 / 1 页')
   })
 
   it('renders in English when the locale is en-US', async () => {
@@ -104,6 +126,56 @@ describe('记忆页骨架', () => {
     expect(html).toContain('Repository')
     expect(html).not.toContain('记忆 / Memory')
     expect(html).not.toContain('刷新')
+  })
+})
+
+describe('记忆页的分页与抽屉接线', () => {
+  it('reuses the Issues pager (per-page options, URL page number) and resets to page 1 on filter changes', () => {
+    // 分页控件与每页条数选项与 Issues 页共用
+    expect(MemorySource).toContain("from '../utils/issuePaging'")
+    expect(MemorySource).toContain('PAGE_SIZES')
+    expect(MemorySource).toContain("from '../utils/memories'")
+    expect(MemorySource).toContain('memoryPageSlice(')
+    expect(MemorySource).toContain('memoryPageCount(')
+    expect(MemorySource).toContain('data-test="memory-pager"')
+    expect(MemorySource).toContain('data-test="memory-page-size"')
+    expect(MemorySource).toContain('data-test="memory-page-prev"')
+    expect(MemorySource).toContain('data-test="memory-page-next"')
+    // 页码写进 URL，作用域 / 搜索变化回到第 1 页
+    expect(MemorySource).toContain('pageQueryUpdate(route.query, page.value)')
+    expect(MemorySource).toContain('writeQuery(pageQueryUpdate(searchQueryUpdate(route.query, value), 1))')
+    expect(MemorySource).toContain('watch([kinds, flaggedOnly, pageSize]')
+  })
+
+  it('loads every source concurrently for the "all" scope and merges them with their source', () => {
+    expect(MemorySource).toContain('mergeMemoryBatches(')
+    expect(MemorySource).toContain('mergeMemoryDoctor(')
+    expect(MemorySource).toContain('Promise.allSettled(')
+    expect(MemorySource).toContain("listScopedMemories('global', '', '')")
+    expect(MemorySource).toContain('listTrackerMemories(item.tracker_id)')
+    // 单个来源失败不影响其余（错误提示里带来源个数）
+    expect(MemorySource).toContain("t('memory.allError'")
+    // 合并结果带来源列
+    expect(MemorySource).toContain(':show-source="scope === \'all\'"')
+  })
+
+  it('opens the detail in the Drawer and writes content, summary and tags / delete / flag through the client', () => {
+    expect(MemorySource).toContain("import MemoryDrawer from '../components/MemoryDrawer.vue'")
+    expect(MemorySource).toContain('<MemoryDrawer')
+    expect(MemorySource).toContain('memoryUpdateBody(edit)')
+    expect(MemorySource).toContain('updateTrackerMemory(source.trackerId, row.id')
+    expect(MemorySource).toContain('updateScopedMemory(source.scope')
+    expect(MemorySource).toContain('deleteTrackerMemory(')
+    expect(MemorySource).toContain('deleteScopedMemory(')
+    expect(MemorySource).toContain('flagScopedMemory(')
+    // 旧的页内展开详情已删掉（详情只留在抽屉里）
+    expect(MemorySource).not.toContain('memory-expanded')
+    const list = Object.values(
+      import.meta.glob('../components/MemoryList.vue', { eager: true, query: '?raw', import: 'default' }),
+    )[0] as string
+    expect(list).not.toContain('memory-expanded')
+    expect(list).toContain("emit('open', row)")
+    expect(list).toContain('data-test="memory-source"')
   })
 })
 
