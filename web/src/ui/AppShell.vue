@@ -579,12 +579,15 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   align-self: stretch;
+  min-height: 26px;
   background: transparent;
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
   color: var(--ink-3);
-  font-size: var(--fs-xs);
   padding: 2px 6px;
 }
 .collapse-btn:hover {
