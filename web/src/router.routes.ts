@@ -1,4 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router'
+import { legacyMemoryQuery } from './utils/memories'
 
 // 路由表（与 router.ts 分离：本文件不建 router，测试可直接在 node 环境导入）。
 export const routes: RouteRecordRaw[] = [
@@ -46,7 +47,19 @@ export const routes: RouteRecordRaw[] = [
     props: true,
   },
   { path: '/plans', name: 'plans', component: () => import('./views/Plans.vue') },
-  { path: '/issues', name: 'issues', component: () => import('./views/Issues.vue') },
+  {
+    path: '/issues',
+    name: 'issues',
+    component: () => import('./views/Issues.vue'),
+    // 记忆页签独立成 /memory（UI 重设计 P6）：旧链接 /issues?tab=memories… 带全部参数跳过去
+    // （今天页的记忆整理卡就是这个形式，带 memory_scope / tracker / memory）。
+    beforeEnter: (to) => {
+      const query = legacyMemoryQuery(to.query)
+      return query ? { path: '/memory', query } : true
+    },
+  },
+  // 记忆：仓库（.gofer/tracker） / 项目 / 全局三档作用域，原 Issues 页的记忆页签。
+  { path: '/memory', name: 'memory', component: () => import('./views/Memory.vue') },
   {
     path: '/plans/:id',
     name: 'plan-detail',

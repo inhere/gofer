@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { dicts } from '../i18n'
 import {
   DEFAULT_SHELL_PREFS,
   SHELL_NAV_GROUPS,
@@ -98,7 +99,7 @@ describe('local prefs (gofer.shell)', () => {
 describe('navigation groups', () => {
   it('has the four groups of §6.1, each with the pages it names', () => {
     expect(SHELL_NAV_GROUPS.map((g) => g.key)).toEqual(['nav.group.core', 'nav.group.collab', 'nav.group.auto', 'nav.group.infra'])
-    expect(SHELL_NAV_GROUPS[1].items.map((i) => i.key)).toEqual(['nav.mail', 'nav.review', 'nav.issues', 'nav.dashboard'])
+    expect(SHELL_NAV_GROUPS[1].items.map((i) => i.key)).toEqual(['nav.mail', 'nav.review', 'nav.issues', 'nav.memory', 'nav.dashboard'])
     expect(SHELL_NAV_GROUPS[2].items.map((i) => i.key)).toEqual(['nav.workflows', 'nav.schedules'])
     expect(SHELL_NAV_GROUPS[3].items.map((i) => i.key)).toEqual(['nav.runners', 'nav.agents', 'nav.projects', 'nav.settings'])
   })
@@ -124,6 +125,17 @@ describe('navigation groups', () => {
     // 标签栏已有的页面不再重复出现在「更多」里
     for (const tab of TAB_BAR_ITEMS) expect(more.some((i) => i.to === tab.to)).toBe(false)
     expect(more.map((i) => i.to)).toContain('/settings')
+  })
+
+  it('lists 记忆 in the collab group with its own icon and puts it in 更多', () => {
+    const item = SHELL_NAV_GROUPS.flatMap((g) => g.items).find((i) => i.to === '/memory')
+    expect(item?.key).toBe('nav.memory')
+    expect(item?.icon).toBe('memory')
+    // 就排在 Issues 下面（协作组）
+    const collab = SHELL_NAV_GROUPS[1].items.map((i) => i.to)
+    expect(collab.indexOf('/memory')).toBe(collab.indexOf('/issues') + 1)
+    // 手机「更多」抽屉里同步出现（它不是底部 5 标签之一）
+    expect(moreItems().map((i) => i.to)).toContain('/memory')
   })
 
   it('activates one tab at a time and falls back to 更多', () => {
@@ -183,5 +195,11 @@ describe('command palette (design §6.5, P1 scope)', () => {
     expect(withProject('/jobs', 'p1')).toBe('/jobs?project=p1')
     expect(withProject('/jobs?status=done', 'p1')).toBe('/jobs?status=done&project=p1')
     expect(withProject('/jobs', 'a b')).toBe('/jobs?project=a%20b')
+  })
+
+  it('finds 记忆 by its nav label and offers it under p:', () => {
+    const zh = (key: string): string => dicts['zh-CN'][key] ?? key
+    expect(paletteHits('记忆', undefined, zh).map((h) => h.to)).toContain('/memory')
+    expect(paletteHits('p:my-tools', undefined, zh).map((h) => h.to)).toContain('/memory?project=my-tools')
   })
 })

@@ -6,6 +6,8 @@ export interface TabItem {
   count?: number
   /** 需要人处理的页签显示黄色小角标 */
   badge?: boolean
+  /** 链接式页签：该页签已独立成别的路由（如记忆 → /memory），点击直接跳过去，不写 ?tab= */
+  to?: string
 }
 
 export function defaultTabValue(tabs: TabItem[], fallback = ''): string {

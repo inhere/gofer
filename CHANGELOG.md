@@ -20,6 +20,7 @@
 ### 新增
 
 - **信箱对话有可复制的固定 id（gofer-hez1，UI 截图检查 P6 第三组）**：每组对话（同一对人之间、不分方向的全部信件）多一个稳定短 id `cv-` + 10 位十六进制（由两端地址算出，谁先发、几条 thread 都不变）。`GET /v1/mail/conversations` 的每一项带 `id`，`GET /v1/mail` 被限定到一个对话时回答里也带 `conversation: {id, key}`；两个接口都接受 `conv=<id>` 按 id 取对话（只在本调用方可见范围内反查，别人的对话一律 404）。CLI 新增 `gofer session mail conv <cv-id>` 看一个对话（双方与全部信件，最早在前）；web 信箱右栏头部显示「对话 cv-xxxx」并可一键复制，每封信也有 thread id 的复制入口，`/mail?conv=<id>` 直接打开这个对话。
+- **Web 控制台把「记忆」独立成一页（gofer-hez1，UI 重设计 P6）**：侧栏「协作」组 Issues 下面新增「记忆」（`/memory`，书签图标），手机的「更多」抽屉与命令面板（搜「记忆」）也能进。页面沿用记忆页签的全部能力，并把位置写进 URL（可分享、后退可复原）：作用域 `?memory_scope=repo|project|global`、项目 `?memory_project=`、仓库 `?tracker=`、关键字 `?q=`、深链 `?memory=<key>`；仓库作用域保留「同步」按钮与上次同步摘要，全局作用域保留各机器的同步状态折叠区。Issues 页的「记忆」页签保留为入口（点它跳到 `/memory`），旧链接 `/issues?tab=memories…` 带全部参数自动重定向到 `/memory`——两处共用同一份列表组件，不会出现两套记忆界面。
 
 ### 变更
 

@@ -1,30 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import IssueBatchBar from '../components/IssueBatchBar.vue'
 import IssueDrawer from '../components/IssueDrawer.vue'
-import MemoryList from '../components/MemoryList.vue'
 import {
   batchTrackerIssues,
   createTrackerIssue,
   commentTrackerIssue,
-  deleteTrackerMemory,
   getTrackerIssue,
   listTrackerIssues,
-  listTrackerMemories,
   listTrackerRepos,
-  listTrackerSyncClients,
-  syncTrackerRepo,
-  getJob,
-  logsTail,
-  listProjects,
-  listScopedMemories,
   updateTrackerIssue,
-  updateTrackerMemory,
-  updateScopedMemory,
-  deleteScopedMemory,
 } from '../api/client'
-import type { MemoryDoctorFinding, TrackerBatchSet, TrackerIssue, TrackerIssueView, TrackerMemory, TrackerRepo, TrackerSyncClient } from '../api/types'
+import type { TrackerBatchSet, TrackerIssue, TrackerIssueView, TrackerRepo } from '../api/types'
 import { buildIssueTree, type IssueNode } from '../utils/issueTree'
 import { ISSUE_STATUS_VALUES, issueStatusText } from '../utils/statusText'
 import { clampPage, descendantIds, normalizePageSize, PAGE_SIZES, pageCheckState, pageWindow, paginateEntries,
@@ -32,10 +20,10 @@ import { clampPage, descendantIds, normalizePageSize, PAGE_SIZES, pageCheckState
 import {
   buildNewIssueRequest, ISSUE_PRIORITIES, ISSUE_TYPES, issueRepoLabel, issueRepos,
 } from '../utils/dispatch'
-import { runTrackerSync } from '../utils/trackerSync'
+import { useRepoSync } from '../utils/useRepoSync'
 import { pageWriteBlock } from '../utils/pageGate'
 import { useWhoami } from '../store/whoami'
-import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, memoryKindMatches, syncClientLine, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
+import { fmtTrackerTime, trackerIssueMatches, trackerRepoLabel } from '../utils/trackerView'
 import { t, te } from '../i18n'
 import Tabs from '../ui/Tabs.vue'
 import FilterChips from '../ui/FilterChips.vue'
@@ -45,7 +33,6 @@ import type { FilterChipItem } from '../ui/filterChips'
 import type { TabItem } from '../ui/tabs'
 
 type IssueRow = TrackerIssue & { data: TrackerIssue['body'] }
-type MemoryRow = TrackerMemory & { data: TrackerMemory['body'] }
 
 const route = useRoute()
 const router = useRouter()
@@ -58,26 +45,15 @@ const { whoami } = useWhoami()
 const writeBlock = computed(() => pageWriteBlock(whoami.value))
 const repos = ref<TrackerRepo[]>([])
 const trackerId = ref('')
-const memoryScope = ref<'repo' | 'project' | 'global'>('repo')
-const projectKeys = ref<string[]>([])
-const projectKey = ref('')
-const tab = ref<'issues' | 'memories'>('issues')
 const issues = ref<IssueRow[]>([])
-const memories = ref<MemoryRow[]>([])
-// P4：服务端 doctor 标记（仅仓库记忆）与记忆筛选
-const memoryDoctor = ref<Record<string, MemoryDoctorFinding[]>>({})
-const memoryKinds = ref<string[]>([])
-const flaggedOnly = ref(false)
 const selected = ref<TrackerIssueView | null>(null)
 const selectedRow = ref<IssueRow | null>(null)
-const selectedMemory = ref<MemoryRow | null>(null)
 const loading = ref(false)
 const error = ref('')
 const query = ref('')
 const typeFilter = ref('')
 const tagFilter = ref('')
 const statuses = ref(['open', 'in_progress', 'blocked'])
-const memoryDraft = ref('')
 const VIEW_KEY = 'gofer.issues.view'
 function loadViewMode(): 'tree' | 'flat' {
   try { return localStorage.getItem(VIEW_KEY) === 'flat' ? 'flat' : 'tree' } catch { return 'tree' }
@@ -95,17 +71,11 @@ function toggleExpand(id: string, current: boolean): void {
 }
 const saving = ref(false)
 
-// 页签：值以 URL 的 ?tab= 为准（Tabs 组件负责读），本地 ref 供 load() 与监听用。
+// 页签：Issues 是本站内容；记忆已独立成 /memory（tab.to 由 Tabs 组件直接跳过去，不写 ?tab=）。
 const tabItems = computed<TabItem[]>(() => [
   { value: 'issues', label: t('issues.tab.issues') },
-  { value: 'memories', label: t('issues.tab.memories') },
+  { value: 'memories', label: t('issues.tab.memories'), to: '/memory' },
 ])
-function setTab(value: string): void {
-  const next = value === 'memories' ? 'memories' : 'issues'
-  if (next === tab.value) return
-  tab.value = next
-  void load()
-}
 
 // 分页（前端）：列表接口本就整仓返回（过滤/树形也依赖全量），~1000 条下切页成本可忽略。
 const PAGE_SIZE_KEY = 'gofer.issues.pagesize'
@@ -128,17 +98,6 @@ function gotoPage(p: number): void {
 const selectedIds = ref(new Set<string>())
 const batchRunning = ref(false)
 const batchResult = ref<BatchSummary | null>(null)
-
-function queryValue(value: unknown): string {
-  return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
-}
-
-function updateMemoryQuery(): void {
-  const query: LocationQueryRaw = { ...route.query, memory_scope: memoryScope.value }
-  if (memoryScope.value === 'project' && projectKey.value) query.memory_project = projectKey.value
-  else delete query.memory_project
-  void router.replace({ query })
-}
 
 // 新建 issue：在 server 镜像里建，仓库下次 gofer repo sync 时拉到本地；只列有 id 前缀的仓库。
 const newOpen = ref(false)
@@ -165,7 +124,7 @@ async function submitNewIssue(): Promise<void> {
     newMsg.value = t('issues.newForm.created', { id: r.issue?.id ?? 'issue' })
     newForm.value.title = ''
     newForm.value.description = ''
-    if (trackerId.value === newForm.value.trackerId && tab.value === 'issues') await load()
+    if (trackerId.value === newForm.value.trackerId) await load()
   } catch (e) {
     newError.value = e instanceof Error ? (('detail' in e && (e as { detail?: string }).detail) || e.message) : String(e)
   } finally {
@@ -212,17 +171,6 @@ const statusItems = computed<FilterChipItem[]>(() => {
   }))
 })
 
-// 记忆作用域：单选 chip（原来的三段按钮）。
-const scopeItems = computed<FilterChipItem[]>(() => [
-  { value: 'repo', label: t('issues.scope.repo') },
-  { value: 'project', label: t('issues.scope.project') },
-  { value: 'global', label: t('issues.scope.global') },
-])
-const scopeHelp = computed(() => t(`issues.scope.${memoryScope.value}Help`))
-function pickScope(value: string): void {
-  selectMemoryScope(value)
-}
-
 function onCheck(id: string, ev: MouseEvent): void {
   if (ev.shiftKey) selectFamily(id)
   else selectedIds.value = toggleId(selectedIds.value, id)
@@ -247,19 +195,10 @@ async function runBatch(set: TrackerBatchSet): Promise<void> {
   clearSelection()
   await load()
 }
-const filteredMemories = computed(() =>
-  memories.value.filter(
-    (row) =>
-      trackerMemoryMatches(row.data, row.id, query.value) &&
-      memoryKindMatches(row.data, memoryKinds.value, flaggedOnly.value, (memoryDoctor.value[row.data.key || row.id]?.length ?? 0) > 0),
-  ),
-)
 
 async function loadRepos(): Promise<void> {
-  const [result, projects] = await Promise.all([listTrackerRepos(), listProjects()])
+  const result = await listTrackerRepos()
   repos.value = result.repos ?? []
-  projectKeys.value = projects.projects ?? []
-  if (!projectKeys.value.includes(projectKey.value)) projectKey.value = projectKeys.value[0] ?? ''
   const recent = [...repos.value].sort((a, b) => b.last_sync_at - a.last_sync_at)[0]
   if (!trackerId.value || !repos.value.some((item) => item.tracker_id === trackerId.value)) {
     trackerId.value = recent?.tracker_id ?? ''
@@ -267,81 +206,35 @@ async function loadRepos(): Promise<void> {
 }
 
 async function load(): Promise<void> {
-  if (tab.value === 'issues' && !trackerId.value) return
-  if (tab.value === 'memories' && memoryScope.value === 'repo' && !trackerId.value) return
-  if (tab.value === 'memories' && memoryScope.value === 'project' && !projectKey.value) return
+  if (!trackerId.value) return
   loading.value = true
   error.value = ''
   try {
-    const issueResult = trackerId.value ? await listTrackerIssues(trackerId.value) : { issues: [] }
-    const memoryResult = memoryScope.value === 'repo'
-      ? (trackerId.value ? await listTrackerMemories(trackerId.value) : { memories: [] })
-      : await listScopedMemories(memoryScope.value, memoryScope.value === 'project' ? projectKey.value : '', query.value)
+    const issueResult = await listTrackerIssues(trackerId.value)
     issues.value = (issueResult.issues ?? []).map((item) => ({ ...item, data: item.body }))
     const present = new Set(issues.value.map((r) => r.id))
     if ([...selectedIds.value].some((id) => !present.has(id))) selectedIds.value = new Set([...selectedIds.value].filter((id) => present.has(id)))
-    memoryDoctor.value = ('doctor' in memoryResult ? memoryResult.doctor : undefined) ?? {}
-    memories.value = (memoryResult.memories ?? []).filter((item) => !item.deleted).map((item) => {
-      if ('body' in item) return { ...item, data: item.body }
-      const body = { key: item.key, content: item.content, tags: item.tags, updated_at: item.updated_at, by: item.updated_by, kind: item.kind, summary: item.summary }
-      return { id: item.key, rev: 1, updated_at: item.updated_at, body, data: body }
-    })
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
   }
-  if (memoryScope.value === 'global') void loadSyncClients()
 }
 
-// 全局记忆的「同步状态」：每台机器最近一次 `gofer memory sync --global` 的记录。
-// 单独请求、单独报错：拿不到同步状态不影响记忆列表本身。
-const GLOBAL_TRACKER_ID = 'global'
-const syncClients = ref<TrackerSyncClient[]>([])
-const syncClientsError = ref('')
-const syncClientsLoaded = ref(false)
-async function loadSyncClients(): Promise<void> {
-  try {
-    const out = await listTrackerSyncClients(GLOBAL_TRACKER_ID)
-    syncClients.value = out.clients ?? []
-    syncClientsError.value = ''
-  } catch (e) {
-    syncClientsError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    syncClientsLoaded.value = true
-  }
-}
-// load() 在 Issues 页签且没选仓库时会提前返回：切到「记忆 · 全局」时补拉一次。
-watch(tab, (t2) => {
-  if (t2 === 'memories' && memoryScope.value === 'global' && !syncClientsLoaded.value) void loadSyncClients()
-})
-
-// TRK-05：服务端派发 `gofer repo sync`，轮询其 job，结束后刷新仓库与列表。
-const syncing = ref(false)
+// TRK-05：服务端派发 `gofer repo sync`，轮询其 job，结束后刷新仓库与列表（接线在 utils/useRepoSync）。
+const { syncing, syncRepo: runSync } = useRepoSync()
 const syncMsg = ref<{ ok: boolean; text: string; jobId: string } | null>(null)
 async function syncRepo(): Promise<void> {
-  if (syncing.value || !trackerId.value) return
-  const id = trackerId.value
-  syncing.value = true
+  if (!trackerId.value) return
   syncMsg.value = null
-  try {
-    const out = await runTrackerSync({
-      start: () => syncTrackerRepo(id),
-      getJob: (jid) => getJob(jid),
-      stderrTail: (jid) => logsTail(jid, 'stderr', 4096),
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    })
-    if (out.state === 'ok') {
-      await loadRepos()
-      await load()
-      syncMsg.value = { ok: true, text: t('issues.syncDone', { time: fmtTrackerTime(repo.value?.last_sync_at) }), jobId: out.jobId }
-    } else {
-      syncMsg.value = { ok: false, text: t('issues.syncFailed', { err: out.message }), jobId: out.jobId }
-    }
-  } catch (e) {
-    syncMsg.value = { ok: false, text: t('issues.syncFailed', { err: e instanceof Error ? e.message : String(e) }), jobId: '' }
-  } finally {
-    syncing.value = false
+  const out = await runSync(trackerId.value)
+  if (!out) return
+  if (out.ok) {
+    await loadRepos()
+    await load()
+    syncMsg.value = { ok: true, text: t('issues.syncDone', { time: fmtTrackerTime(repo.value?.last_sync_at) }), jobId: out.jobId }
+  } else {
+    syncMsg.value = { ok: false, text: t('issues.syncFailed', { err: out.message }), jobId: out.jobId }
   }
 }
 
@@ -350,7 +243,6 @@ async function changeRepo(): Promise<void> {
   clearSelection()
   batchResult.value = null
   selected.value = null
-  selectedMemory.value = null
   await load()
 }
 
@@ -359,25 +251,6 @@ function pickRepo(value: string): void {
   if (!value || value === trackerId.value) return
   trackerId.value = value
   void changeRepo()
-}
-
-async function changeMemoryScope(): Promise<void> {
-  selectedMemory.value = null
-  updateMemoryQuery()
-  await load()
-}
-
-async function changeMemoryProject(): Promise<void> {
-  selectedMemory.value = null
-  updateMemoryQuery()
-  await load()
-}
-
-function selectMemoryScope(value: string): void {
-  if (value === 'repo' || value === 'project' || value === 'global') {
-    memoryScope.value = value
-    void changeMemoryScope()
-  }
 }
 
 async function openIssue(row: IssueRow): Promise<void> {
@@ -419,48 +292,12 @@ async function addComment(text: string): Promise<void> {
   }
 }
 
-function openMemory(row: MemoryRow): void {
-  selectedMemory.value = selectedMemory.value?.id === row.id ? null : row
-  memoryDraft.value = String(row.data.content ?? '')
-}
-
-async function saveMemory(): Promise<void> {
-  if (!selectedMemory.value) return
-  try {
-    if (memoryScope.value === 'repo') await updateTrackerMemory(trackerId.value, selectedMemory.value.id, { content: memoryDraft.value, expected_rev: selectedMemory.value.rev })
-    else await updateScopedMemory(memoryScope.value, memoryScope.value === 'project' ? projectKey.value : '', selectedMemory.value.id, { content: memoryDraft.value, tags: selectedMemory.value.data.tags ?? [] })
-    selectedMemory.value = null
-    await load()
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
-async function removeMemory(row: MemoryRow): Promise<void> {
-  try {
-    if (memoryScope.value === 'repo') await deleteTrackerMemory(trackerId.value, row.id)
-    else await deleteScopedMemory(memoryScope.value, memoryScope.value === 'project' ? projectKey.value : '', row.id)
-    await load()
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
 onMounted(async () => {
   try {
-    const requestedScope = queryValue(route.query.memory_scope)
-    if (requestedScope === 'repo' || requestedScope === 'project' || requestedScope === 'global') memoryScope.value = requestedScope
-    projectKey.value = queryValue(route.query.memory_project)
-    // 「今天」记忆整理卡的标题链接：?tab=memories&tracker=<id>&memory=<key>
-    if (queryValue(route.query.tab) === 'memories') tab.value = 'memories'
-    const requestedTracker = queryValue(route.query.tracker)
+    const requestedTracker = typeof route.query.tracker === 'string' ? route.query.tracker : ''
     if (requestedTracker) trackerId.value = requestedTracker
     await loadRepos()
-    updateMemoryQuery()
     await load()
-    const memoryKey = queryValue(route.query.memory)
-    const memoryRow = memoryKey ? memories.value.find((item) => (item.data.key || item.id) === memoryKey) : undefined
-    if (memoryRow) openMemory(memoryRow)
     const issueId = String(route.query.issue || '')
     const row = issues.value.find((item) => item.id === issueId)
     if (row) await openIssue(row)
@@ -476,7 +313,7 @@ onMounted(async () => {
       <div class="head-main">
         <h1 class="title">{{ t('issues.title') }}</h1>
         <p class="sub">
-          {{ tab === 'issues' ? t('issues.subtitle', { n: filteredIssues.length }) : t('issues.subtitle', { n: filteredMemories.length }) }}
+          {{ t('issues.subtitle', { n: filteredIssues.length }) }}
         </p>
       </div>
       <div class="head-actions">
@@ -486,7 +323,7 @@ onMounted(async () => {
         <button
           class="btn btn--primary"
           type="button"
-          :disabled="loading || (tab === 'issues' ? !trackerId : (memoryScope === 'repo' ? !trackerId : memoryScope === 'project' && !projectKey))"
+          :disabled="loading || !trackerId"
           @click="load"
         >
           {{ t('issues.refresh') }}
@@ -514,10 +351,8 @@ onMounted(async () => {
       </div>
     </form>
 
-    <!-- 上个面板在两个页签下结构一致（一个选择槽 + 一个同步槽，各留固定高度），
-         切换 Issues / 记忆 时面板与页签都不跳动。记忆作用域放在页签下方，撑高页面只把内容往下推。 -->
     <section class="meta-panel">
-      <div v-if="tab === 'issues' || memoryScope === 'repo'" class="repo-row">
+      <div class="repo-row">
         <ProjectFilter
           :model-value="trackerId"
           :options="repos.map((item) => item.tracker_id)"
@@ -526,16 +361,8 @@ onMounted(async () => {
         <span class="repo-current" :title="trackerId">{{ repo ? trackerRepoLabel(repo) : t('issues.repoPlaceholder') }}</span>
         <button class="btn" type="button" data-test="sync-repo" :disabled="syncing || !trackerId" :title="t('issues.repoSyncTitle')" @click="syncRepo">{{ syncing ? t('issues.repoSyncing') : t('issues.repoSync') }}</button>
       </div>
-      <div v-else-if="memoryScope === 'project'" class="repo-row">
-        <span class="field-label">{{ t('issues.project') }}</span>
-        <select v-model="projectKey" class="in" @change="changeMemoryProject"><option value="">{{ t('issues.projectPlaceholder') }}</option><option v-for="item in projectKeys" :key="item" :value="item">{{ item }}</option></select>
-      </div>
-      <div v-else class="repo-row">
-        <span class="field-label">{{ t('issues.repo') }}</span>
-        <span class="dim">{{ t('issues.globalNote') }}</span>
-      </div>
       <div class="sync-summary">
-        <template v-if="repo && (tab === 'issues' || memoryScope === 'repo')">
+        <template v-if="repo">
           <span>{{ t('issues.lastSync', { time: fmtTrackerTime(repo.last_sync_at) }) }}</span>
           <span :title="repo.sync_summary || ''">{{ repo.sync_summary || t('issues.noSyncSummary') }}</span>
           <span v-if="syncMsg" data-test="sync-msg" :class="syncMsg.ok ? 'ok' : 'err'" :title="syncMsg.text">{{ syncMsg.text }}<router-link v-if="syncMsg.jobId" :to="`/jobs/${syncMsg.jobId}`"> · {{ t('issues.syncJob', { id: syncMsg.jobId.slice(0, 8) }) }}</router-link></span>
@@ -543,26 +370,10 @@ onMounted(async () => {
       </div>
     </section>
 
-    <!-- 页签在没有已登记仓库时也在（全局 / 项目记忆存于 server，不需要仓库）。 -->
-    <Tabs :tabs="tabItems" @change="setTab" />
+    <!-- 「记忆」页签已独立成 /memory（tabItems 里的 to），点它直接跳过去。 -->
+    <Tabs :tabs="tabItems" />
 
-    <div v-if="tab === 'memories'" class="scope-row">
-      <span class="field-label">{{ t('issues.scope.label') }}</span>
-      <FilterChips :model-value="memoryScope" :items="scopeItems" :label="t('issues.scope.label')" @update:model-value="pickScope(String($event))" />
-      <small class="scope-help">{{ scopeHelp }}</small>
-    </div>
-
-    <!-- 全局记忆：各机器本地副本最近一次与 server 同步的情况（可折叠，默认收起，摘要行给出最近一台）。 -->
-    <details v-if="tab === 'memories' && memoryScope === 'global'" class="sync-clients" data-test="sync-clients">
-      <summary>{{ t('issues.syncClients.title') }}<template v-if="syncClients.length"> · {{ t('issues.syncClients.summary', { n: syncClients.length, host: syncClients[0].client_host }) }}</template></summary>
-      <p v-if="syncClientsError" class="err">{{ syncClientsError }}</p>
-      <p v-else-if="syncClientsLoaded && syncClients.length === 0" class="sync-clients-empty">{{ t('issues.syncClients.empty') }}</p>
-      <ul v-else class="sync-clients-list">
-        <li v-for="c in syncClients" :key="`${c.client_host}|${c.caller}`" :title="t('issues.syncClients.lastSync', { time: fmtTrackerTime(c.last_sync_at) })">{{ syncClientLine(c) }}</li>
-      </ul>
-    </details>
-
-    <section v-if="repos.length === 0 && (tab === 'issues' || memoryScope === 'repo')" class="empty-panel">
+    <section v-if="repos.length === 0" class="empty-panel">
       <span>{{ t('issues.empty.noRepos') }}</span>
       <code>gofer repo init</code>
       <code>gofer repo sync</code>
@@ -570,31 +381,27 @@ onMounted(async () => {
 
     <template v-else>
       <section class="filter-panel">
-        <div v-if="tab === 'issues'" class="seg" role="group" :aria-label="t('issues.view.label')">
+        <div class="seg" role="group" :aria-label="t('issues.view.label')">
           <button type="button" class="seg-btn" :class="{ 'seg-btn--on': viewMode === 'tree' }" :aria-pressed="viewMode === 'tree'" data-test="view-tree" @click="setViewMode('tree')">{{ t('issues.view.tree') }}</button>
           <button type="button" class="seg-btn" :class="{ 'seg-btn--on': viewMode === 'flat' }" :aria-pressed="viewMode === 'flat'" data-test="view-flat" @click="setViewMode('flat')">{{ t('issues.view.flat') }}</button>
         </div>
-        <FilterChips v-if="tab === 'issues'" v-model="statuses" multiple :items="statusItems" :label="t('issues.col.status')" />
-        <label v-if="tab === 'issues'" class="field field--inline">{{ t('issues.filter.type') }}<input v-model="typeFilter" class="in" :placeholder="t('issues.filter.typePlaceholder')" /></label>
-        <label v-if="tab === 'issues'" class="field field--inline">{{ t('issues.filter.tag') }}<input v-model="tagFilter" class="in" :placeholder="t('issues.filter.tagPlaceholder')" /></label>
-        <div v-if="tab === 'memories'" class="kind-chips" data-test="memory-kind-filter">
-          <FilterChips v-model="memoryKinds" multiple :items="MEMORY_KINDS.map((kind) => ({ value: kind, label: MEMORY_KIND_LABEL[kind] }))" :label="t('issues.filter.type')" />
-          <button v-if="memoryScope === 'repo'" type="button" class="chip" :class="{ 'chip--on': flaggedOnly }" :aria-pressed="flaggedOnly" data-test="memory-flagged" :title="t('issues.filter.flaggedTitle')" @click="flaggedOnly = !flaggedOnly">{{ t('issues.filter.flagged') }}</button>
-        </div>
-        <label class="field field--inline query-field">{{ t('issues.filter.query') }}<input v-model="query" class="in" :placeholder="tab === 'memories' ? t('issues.filter.queryMemories') : t('issues.filter.queryIssues')" /></label>
+        <FilterChips v-model="statuses" multiple :items="statusItems" :label="t('issues.col.status')" />
+        <label class="field field--inline">{{ t('issues.filter.type') }}<input v-model="typeFilter" class="in" :placeholder="t('issues.filter.typePlaceholder')" /></label>
+        <label class="field field--inline">{{ t('issues.filter.tag') }}<input v-model="tagFilter" class="in" :placeholder="t('issues.filter.tagPlaceholder')" /></label>
+        <label class="field field--inline query-field">{{ t('issues.filter.query') }}<input v-model="query" class="in" :placeholder="t('issues.filter.queryIssues')" /></label>
       </section>
-      <p v-if="tab === 'issues'" class="hint-line" data-test="select-hint">{{ t('issues.selectHint') }}</p>
-      <IssueBatchBar v-if="tab === 'issues' && selectedIds.size > 0" :count="selectedIds.size" :sample-ids="selectedList.slice(0, 8)" :running="batchRunning" @clear="clearSelection" @run="runBatch" />
-      <div v-if="tab === 'issues' && batchResult" class="batch-result" :class="{ bad: batchResult.failed > 0 }" data-test="batch-result">
+      <p class="hint-line" data-test="select-hint">{{ t('issues.selectHint') }}</p>
+      <IssueBatchBar v-if="selectedIds.size > 0" :count="selectedIds.size" :sample-ids="selectedList.slice(0, 8)" :running="batchRunning" @clear="clearSelection" @run="runBatch" />
+      <div v-if="batchResult" class="batch-result" :class="{ bad: batchResult.failed > 0 }" data-test="batch-result">
         <div class="batch-result-head"><strong>{{ batchResult.text }}</strong><button type="button" class="link-btn" @click="batchResult = null">{{ t('issues.batch.dismiss') }}</button></div>
         <ul v-if="batchResult.failures.length" class="batch-failures"><li v-for="f in batchResult.failures" :key="f.id"><code>{{ f.id }}</code> {{ f.error }}</li></ul>
       </div>
       <p v-if="error" class="err panel-err">{{ error }}</p>
       <p v-else-if="loading" class="dim">{{ t('issues.loading') }}</p>
-      <p v-if="tab === 'issues' && !loading" class="page-summary" data-test="page-summary">
+      <p v-if="!loading" class="page-summary" data-test="page-summary">
         {{ t('issues.summary', { n: filteredIssues.length }) }}<template v-if="viewMode === 'tree'">{{ t('issues.summaryTree') }}</template> · {{ t('issues.summaryPage', { page: currentPage, pages: pageCount }) }}
       </p>
-      <section v-if="tab === 'issues' && !loading" ref="tableEl" class="table" role="table">
+      <section v-if="!loading" ref="tableEl" class="table" role="table">
         <div class="thead" role="row">
           <span class="check-col"><input type="checkbox" :aria-label="t('issues.table.checkPage')" data-test="check-page" :checked="headState === 'all'" :indeterminate="headState === 'some'" :disabled="pageIds.length === 0" @change="selectedIds = togglePage(selectedIds, pageIds)" /></span>
           <span>{{ t('issues.col.id') }}</span><span>{{ t('issues.col.title') }}</span><span>{{ t('issues.col.status') }}</span><span>{{ t('issues.col.priority') }}</span><span>{{ t('issues.col.type') }}</span><span>{{ t('issues.col.tags') }}</span><span class="updated-col">{{ t('issues.col.updated') }}</span>
@@ -611,13 +418,12 @@ onMounted(async () => {
         </div>
         <div v-if="filteredIssues.length === 0" class="empty-line">{{ t('issues.table.empty') }}</div>
       </section>
-      <nav v-if="tab === 'issues' && !loading && filteredIssues.length > 0" class="pager" data-test="pager" :aria-label="t('issues.pager.label')">
+      <nav v-if="!loading && filteredIssues.length > 0" class="pager" data-test="pager" :aria-label="t('issues.pager.label')">
         <label class="pager-size">{{ t('issues.pager.perPage') }}<select :value="pageSize" class="in" data-test="page-size" @change="setPageSize(($event.target as HTMLSelectElement).value)"><option v-for="n in PAGE_SIZES" :key="n" :value="n">{{ n }}</option></select></label>
         <button type="button" class="page-btn" :disabled="currentPage <= 1" data-test="page-prev" @click="gotoPage(currentPage - 1)">{{ t('issues.pager.prev') }}</button>
         <template v-for="(p, i) in pageWindow(currentPage, pageCount)" :key="i"><span v-if="p === null" class="pager-gap">…</span><button v-else type="button" class="page-btn" :class="{ 'page-btn--on': p === currentPage }" :data-test="`page-${p}`" :aria-label="t('issues.pager.page', { page: p })" @click="gotoPage(p)">{{ p }}</button></template>
         <button type="button" class="page-btn" :disabled="currentPage >= pageCount" data-test="page-next" @click="gotoPage(currentPage + 1)">{{ t('issues.pager.next') }}</button>
       </nav>
-      <MemoryList v-if="tab === 'memories' && !loading" :doctor="memoryScope === 'repo' ? memoryDoctor : {}" :rows="filteredMemories" :selected="selectedMemory" :draft="memoryDraft" @open="openMemory" @update:draft="memoryDraft = $event" @save="saveMemory" @remove="removeMemory" />
     </template>
     <IssueDrawer v-if="selected" :issue="selected" :all-issues="issueNodes" @open-issue="openById" :saving="saving" :write-block="writeBlock" :expected-rev="selectedRow?.rev ?? 0" @close="closeDrawer" @save="saveIssue" @comment="addComment" />
   </main>
@@ -732,11 +538,6 @@ onMounted(async () => {
   gap: var(--s2);
   flex-wrap: wrap;
 }
-.field-label {
-  color: var(--ink-3);
-  font-size: var(--fs-xs);
-  white-space: nowrap;
-}
 .hint-line {
   margin: 0 0 var(--s2);
   color: var(--ink-3);
@@ -808,17 +609,6 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.scope-row {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  flex-wrap: wrap;
-  margin: var(--s3) 0 var(--s2);
-  font-size: var(--fs-xs);
-}
-.scope-help {
-  color: var(--ink-3);
-}
 .seg {
   display: inline-flex;
   border: 1px solid var(--line-strong);
@@ -853,31 +643,6 @@ onMounted(async () => {
 }
 .query-field {
   flex: 1 1 220px;
-}
-.kind-chips {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 2px var(--s2);
-  background: transparent;
-  color: var(--ink-3);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  font: inherit;
-  font-size: var(--fs-sm);
-  white-space: nowrap;
-}
-.chip--on {
-  color: var(--need-ink);
-  border-color: var(--need);
-  background: var(--need-soft);
 }
 .table {
   border: 1px solid var(--line);
@@ -1053,38 +818,6 @@ onMounted(async () => {
   padding-left: 18px;
   color: var(--fail);
   overflow-wrap: anywhere;
-}
-.sync-clients {
-  border: 1px solid var(--line);
-  border-radius: var(--r-panel);
-  background: var(--surface);
-  padding: var(--s2) var(--s3);
-  margin-bottom: var(--s3);
-  font-size: var(--fs-xs);
-  color: var(--ink-3);
-  max-width: 100%;
-}
-.sync-clients summary {
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sync-clients-list {
-  list-style: none;
-  margin: var(--s2) 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--ink);
-}
-.sync-clients-list li,
-.sync-clients-empty {
-  overflow-wrap: anywhere;
-}
-.sync-clients-empty {
-  margin: var(--s2) 0 0;
 }
 .pager {
   display: flex;
