@@ -1,6 +1,8 @@
 <script setup lang="ts">
-// 主题切换器：图标表示「将切换到的目标模式」（深色时显示 ☀，浅色时显示 ☾）。
+// 主题切换器：图标表示「将切换到的目标模式」（深色时显示太阳，浅色时显示月亮）。
 import { computed } from 'vue'
+import { Moon, Sun } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { toggleTheme, useTheme } from '../store/theme'
 
 const { theme } = useTheme()
@@ -16,7 +18,7 @@ const label = computed(() => (isDark.value ? '切换到浅色模式' : '切换�
     :title="label"
     @click="toggleTheme"
   >
-    <span class="theme-glyph" aria-hidden="true">{{ isDark ? '☀' : '☾' }}</span>
+    <Icon class="theme-glyph" :icon="isDark ? Sun : Moon" size="sm" />
   </button>
 </template>
 
@@ -39,7 +41,5 @@ const label = computed(() => (isDark.value ? '切换到浅色模式' : '切换�
 }
 .theme-glyph {
   display: block;
-  width: 1em;
-  text-align: center;
 }
 </style>

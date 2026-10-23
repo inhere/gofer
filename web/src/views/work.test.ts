@@ -12,7 +12,7 @@ describe('Work page', () => {
     expect(router).toContain("path: '/work'")
     expect(router).toContain("import('./views/Work.vue')")
     // 设计稿 §6.1：导航分组搬到 utils/shell.ts（侧栏 / 更多 / 标签栏共用），文案走 i18n 的 nav.*。
-    expect(nav).toContain("{ to: '/work', key: 'nav.work', glyph: '▥' }")
+    expect(nav).toContain("{ to: '/work', key: 'nav.work', icon: 'work' }")
   })
 
   it('has no Home menu item: the logo goes home and carries the connection dot', () => {

@@ -15,6 +15,9 @@ import NeedsMeButton from './NeedsMeButton.vue'
 import CommandPalette from './CommandPalette.vue'
 import Wire from './Wire.vue'
 import LangToggle from './LangToggle.vue'
+import Icon from './Icon.vue'
+import { navIcon } from './icon'
+import { PanelLeftClose, PanelLeftOpen, Plus, Search, Sparkles } from '@lucide/vue'
 import { listRunners } from '../api/client'
 import { liveStatus } from '../api/live'
 import { decisionCount } from '../store/today'
@@ -179,7 +182,7 @@ onUnmounted(() => {
             :title="t(item.key)"
             data-test="side-link"
           >
-            <span class="side-glyph" aria-hidden="true">{{ item.glyph }}</span>
+            <Icon :icon="navIcon(item.icon)" size="md" />
             <span v-if="expanded" class="side-label">{{ t(item.key) }}</span>
             <!-- 黄色徽标只给「需要人」的入口（§6.1）：今天 = 决策队列里要我现在处理的件数。 -->
             <span
@@ -226,7 +229,7 @@ onUnmounted(() => {
           data-test="sidebar-toggle"
           @click="toggleSidebar"
         >
-          <span aria-hidden="true">{{ expanded ? '⟨' : '⟩' }}</span>
+          <span aria-hidden="true" class="chev"><Icon :icon="expanded ? PanelLeftClose : PanelLeftOpen" size="sm" /></span>
         </button>
       </div>
     </aside>
@@ -245,7 +248,7 @@ onUnmounted(() => {
           data-test="palette-open"
           @click="paletteOpen = true"
         >
-          <span aria-hidden="true">⌕</span>
+          <Icon :icon="Search" size="sm" />
           <span class="search-label">{{ t('shell.search') }}</span>
           <kbd class="kbd search-kbd">Ctrl K</kbd>
         </button>
@@ -277,11 +280,11 @@ onUnmounted(() => {
             class="update-avail"
             :title="`gofer ${updateLatest}`"
             data-testid="update-available-badge"
-            >↯ {{ updateLatest }}</RouterLink
+            ><Icon :icon="Sparkles" size="sm" /> {{ updateLatest }}</RouterLink
           >
           <NeedsMeButton />
           <RouterLink v-if="!readOnly" to="/new" class="new-job" :title="t('act.newJob')" active-class="new-job--active">
-            <span aria-hidden="true">+</span>
+            <Icon :icon="Plus" size="sm" />
             <span class="new-job-label">{{ t('act.newJob') }}</span>
           </RouterLink>
           <QuickCapture v-if="!hasTabBar(form)" />
@@ -312,7 +315,7 @@ onUnmounted(() => {
           class="tab"
           :class="{ 'tab--active': tabBarActive(route.path) === item.to }"
         >
-          <span class="tab-glyph" aria-hidden="true">{{ item.glyph }}</span>
+          <Icon :icon="navIcon(item.icon)" size="lg" />
           <span class="tab-label">{{ t(item.key) }}</span>
         </RouterLink>
         <button
@@ -323,7 +326,7 @@ onUnmounted(() => {
           data-test="tab-more"
           @click="moreOpen = !moreOpen"
         >
-          <span class="tab-glyph" aria-hidden="true">⋯</span>
+          <Icon :icon="navIcon('more')" size="lg" />
           <span class="tab-label">{{ t('nav.more') }}</span>
         </button>
       </nav>
@@ -334,7 +337,7 @@ onUnmounted(() => {
       <div class="more" role="dialog" aria-modal="true" :aria-label="t('nav.more')" data-test="more-sheet">
         <div class="more-grid">
           <RouterLink v-for="item in more" :key="item.to" :to="item.to" class="more-item">
-            <span class="more-glyph" aria-hidden="true">{{ item.glyph }}</span>
+            <Icon :icon="navIcon(item.icon)" size="lg" />
             <span class="more-label">{{ t(item.key) }}</span>
           </RouterLink>
         </div>
@@ -496,11 +499,6 @@ onUnmounted(() => {
 .side-link--active {
   background: var(--accent-soft);
   color: var(--accent);
-}
-.side-glyph {
-  width: 16px;
-  text-align: center;
-  flex: none;
 }
 .side-label {
   overflow: hidden;
@@ -728,10 +726,6 @@ onUnmounted(() => {
 .tab--active {
   color: var(--accent);
 }
-.tab-glyph {
-  font-size: var(--fs-md);
-  line-height: 1;
-}
 
 /* ---- 更多抽屉 ---- */
 .more-scrim {
@@ -767,9 +761,6 @@ onUnmounted(() => {
   color: var(--ink);
   font-size: var(--fs-sm);
   text-decoration: none;
-}
-.more-glyph {
-  font-size: var(--fs-lg);
 }
 .more-label {
   overflow: hidden;

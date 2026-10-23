@@ -39,6 +39,12 @@
   --s8: 32px;
   --s10: 40px;
 
+  /* 图标尺寸（ui/Icon.vue 的三档；组件里要传像素数给 lucide，两处由 icon.test.ts 校验一致）：
+     14 行内 / 表格 / pill；16 导航 / 按钮（默认）；20 标签栏 / 宫格 / 大按钮。 */
+  --icon-sm: 14px;
+  --icon: 16px;
+  --icon-lg: 20px;
+
   /* 圆角层级 */
   --r-chip: 5px;
   --r-ctl: 8px;

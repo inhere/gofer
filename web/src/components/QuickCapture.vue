@@ -3,6 +3,8 @@
 // 桌面是顶栏下方的小浮层，手机是贴底的面板（拇指可及，输入框 16px 防 iOS 缩放）。
 // 提交成功后弹一条带「去收集箱」链接的提示，几秒后自行消失；Esc / 点遮罩关闭。
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { SquarePen, X } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { captureWorkItem, listProjects } from '../api/client'
 import {
   buildCaptureRequest,
@@ -73,7 +75,7 @@ onBeforeUnmount(() => clearTimeout(doneTimer))
 <template>
   <div class="qc-wrap">
     <button class="qc-btn mono" type="button" :aria-expanded="open" title="随手记：把想法、问题、需求丢进收集箱" data-test="quick-capture-btn" @click="open = !open">
-      <span aria-hidden="true">✎</span><span class="qc-label">随手记</span>
+      <Icon :icon="SquarePen" size="sm" /><span class="qc-label">随手记</span>
     </button>
 
     <template v-if="open">
@@ -114,7 +116,7 @@ onBeforeUnmount(() => clearTimeout(doneTimer))
     <div v-if="done" class="qc-toast mono" role="status" aria-live="polite" data-test="quick-capture-toast">
       <span>已记下一条{{ captureKindLabel(done.kind) }}</span>
       <RouterLink :to="CAPTURE_BOX_LINK" class="qc-toast-link" data-test="quick-capture-link" @click="done = null">去收集箱</RouterLink>
-      <button class="qc-toast-x" type="button" aria-label="关闭提示" @click="done = null">×</button>
+      <button class="qc-toast-x" type="button" aria-label="关闭提示" @click="done = null"><Icon :icon="X" size="sm" /></button>
     </div>
   </div>
 </template>

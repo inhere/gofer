@@ -4,6 +4,9 @@
 // 三种形态按「视口宽度」决定，不做容器查询；侧栏是否收起、节点区是否展开都记在 localStorage
 // （`gofer.shell`），与设计稿 §16 的两条追加要求一致。这里只放纯函数，DOM / 组件在 ui/AppShell.vue。
 
+// 图标名只借类型：图标组件表在 ui/icon.ts，这里是纯逻辑模块，不引入组件运行时代码。
+import type { NavIcon } from '../ui/icon'
+
 // 断点：与设计稿 §4.3 一致（只保留这三个口径）。
 export const SHELL_MOBILE_MAX = 760
 export const SHELL_RAIL_MAX = 1099
@@ -99,14 +102,15 @@ export function writeShellPrefs(prefs: ShellPrefs, storage: StorageLike | null =
 
 // ---- 导航分组（设计稿 §6.1） ----
 //
-// 图标只做形态提示（纯字符，不加载图标库），名称一律走 i18n 的 nav.*，与顶栏 / 页面标题同源。
+// 图标是 lucide 的语义名（ui/icon.ts 的 NAV_ICONS），名称一律走 i18n 的 nav.*，
+// 与顶栏 / 页面标题同源。
 export interface ShellNavItem {
   // 路由；/jobs 是任务列表（旧 /board 重定向过来）
   to: string
   // i18n key（nav.*）
   key: string
-  // 图标栏 / 手机标签用的字形
-  glyph: string
+  // 图标（ui/icon.ts 的 NAV_ICONS）：侧栏、图标栏、手机标签、更多抽屉共用
+  icon: NavIcon
 }
 
 export interface ShellNavGroup {
@@ -119,37 +123,37 @@ export const SHELL_NAV_GROUPS: readonly ShellNavGroup[] = [
   {
     key: 'nav.group.core',
     items: [
-      { to: '/today', key: 'nav.today', glyph: '◉' },
-      { to: '/workbench', key: 'nav.workbench', glyph: '▤' },
-      { to: '/work', key: 'nav.work', glyph: '▥' },
-      { to: '/plans', key: 'nav.plans', glyph: '◇' },
-      { to: '/jobs', key: 'nav.jobs', glyph: '⧉' },
-      { to: '/sessions', key: 'nav.sessions', glyph: '⌁' },
+      { to: '/today', key: 'nav.today', icon: 'today' },
+      { to: '/workbench', key: 'nav.workbench', icon: 'workbench' },
+      { to: '/work', key: 'nav.work', icon: 'work' },
+      { to: '/plans', key: 'nav.plans', icon: 'plans' },
+      { to: '/jobs', key: 'nav.jobs', icon: 'jobs' },
+      { to: '/sessions', key: 'nav.sessions', icon: 'sessions' },
     ],
   },
   {
     key: 'nav.group.collab',
     items: [
-      { to: '/mail', key: 'nav.mail', glyph: '✉' },
-      { to: '/review', key: 'nav.review', glyph: '✓' },
-      { to: '/issues', key: 'nav.issues', glyph: '⚑' },
-      { to: '/dashboard', key: 'nav.dashboard', glyph: '▦' },
+      { to: '/mail', key: 'nav.mail', icon: 'mail' },
+      { to: '/review', key: 'nav.review', icon: 'review' },
+      { to: '/issues', key: 'nav.issues', icon: 'issues' },
+      { to: '/dashboard', key: 'nav.dashboard', icon: 'dashboard' },
     ],
   },
   {
     key: 'nav.group.auto',
     items: [
-      { to: '/workflows', key: 'nav.workflows', glyph: '⇉' },
-      { to: '/schedules', key: 'nav.schedules', glyph: '◷' },
+      { to: '/workflows', key: 'nav.workflows', icon: 'workflows' },
+      { to: '/schedules', key: 'nav.schedules', icon: 'schedules' },
     ],
   },
   {
     key: 'nav.group.infra',
     items: [
-      { to: '/runners', key: 'nav.runners', glyph: '⬡' },
-      { to: '/agents', key: 'nav.agents', glyph: '◈' },
-      { to: '/projects', key: 'nav.projects', glyph: '⌂' },
-      { to: '/settings', key: 'nav.settings', glyph: '⚙' },
+      { to: '/runners', key: 'nav.runners', icon: 'runners' },
+      { to: '/agents', key: 'nav.agents', icon: 'agents' },
+      { to: '/projects', key: 'nav.projects', icon: 'projects' },
+      { to: '/settings', key: 'nav.settings', icon: 'settings' },
     ],
   },
 ]
@@ -161,15 +165,15 @@ export function sidebarNavGroups(): ShellNavGroup[] {
 
 // 手机底部标签：今天 / 工作台 / 任务 / 计划 / 更多（§16-3：工作项放「更多」第一位）。
 export const TAB_BAR_ITEMS: readonly ShellNavItem[] = [
-  { to: '/today', key: 'nav.today', glyph: '◉' },
-  { to: '/workbench', key: 'nav.workbench', glyph: '▤' },
-  { to: '/jobs', key: 'nav.jobs', glyph: '⧉' },
-  { to: '/plans', key: 'nav.plans', glyph: '◇' },
+  { to: '/today', key: 'nav.today', icon: 'today' },
+  { to: '/workbench', key: 'nav.workbench', icon: 'workbench' },
+  { to: '/jobs', key: 'nav.jobs', icon: 'jobs' },
+  { to: '/plans', key: 'nav.plans', icon: 'plans' },
 ]
 
 // moreItems：更多抽屉里的宫格，工作项排第一（§16-3）。
 export function moreItems(): ShellNavItem[] {
-  const first = { to: '/work', key: 'nav.work', glyph: '▥' }
+  const first: ShellNavItem = { to: '/work', key: 'nav.work', icon: 'work' }
   const rest: ShellNavItem[] = []
   for (const g of SHELL_NAV_GROUPS) {
     for (const it of g.items) {
