@@ -9,7 +9,7 @@ const gate = raw(import.meta.glob('../../utils/permissionGate.ts', { eager: true
 
 describe('extension settings page wiring', () => {
   it('is reachable from the settings menu and the router', () => {
-    expect(layout).toContain("{ to: '/settings/extensions', label: '扩展设置' }")
+    expect(layout).toContain("{ to: '/settings/extensions', key: 'settings.nav.extensions' }")
     expect(router).toContain("name: 'settings-extensions'")
     expect(router).toContain("import('./views/settings/Extensions.vue')")
     expect(router).toContain("path: 'extensions'")
