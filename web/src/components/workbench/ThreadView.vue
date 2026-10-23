@@ -664,6 +664,7 @@ onUnmounted(() => {
     padding: 0;
     width: 32px;
     min-width: 32px;
+    height: 32px;
     justify-content: center;
   }
   .pin-btn .pin-text {

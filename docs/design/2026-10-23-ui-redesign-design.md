@@ -1815,4 +1815,4 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 - 实机核对（dist 构建 + playwright 拦截 `/v1/**` 的合成桩，桩数据不进仓库）：zh / en × 浅 / 深 × 1440 / 1920 共 8 组，逐项量尺寸与文案——
   - 设置页内容区：1440 下 `.settings-pane` 920px（原来是封顶 720px 的列）、`.settings-body` 1162px；1920 下 1238 / 1480px；两种宽度都没有横向溢出（`scrollWidth` 1430 / 1910）。
   - 信箱：右栏头部是「对话 cv-1e07803035」（en：`Conversation cv-1e07803035`），复制按钮在，两封信各一个 thread id 复制入口；输入框只剩 Composer 自己的一个 📎（旧附件条的 `attach-button` 不再出现）。
-  - 置顶：未置顶时 `置顶` / 87×23px（紧邻的「打开 job 详情」是 95×23px，同一行高度一致）、图标 14px、`aria-pressed=false`；置顶后类名带 `on`、文字变 `取消置顶`、颜色与边框都是 `--accent`（`rgb(91,195,159)`）；≤760px 时 `.pin-text` 为 `display: none`、`aria-label` / `title` 仍为「置顶 / 取消置顶」。
+  - 置顶：未置顶时 `置顶` / 87×23px（紧邻的「打开 job 详情」是 95×23px，同一行高度一致）、图标 14px、`aria-pressed=false`；置顶后类名带 `on`、文字变 `取消置顶`、颜色与边框都是 `--accent`（`rgb(91,195,159)`）；≤760px 时 `.pin-text` 为 `display: none`、按钮 32×32（与同排停止按钮一致）、`aria-label` / `title` 仍为「置顶 / 取消置顶」。

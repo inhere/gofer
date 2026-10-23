@@ -19,8 +19,8 @@ describe('workbench 置顶按钮', () => {
     expect(thread).toContain(":title=\"thread.pinned ? t('workbench.head.unpin') : t('workbench.head.pin')\"")
     expect(thread).toContain(":aria-label=\"thread.pinned ? t('workbench.head.unpin') : t('workbench.head.pin')\"")
     expect(thread).toContain(':aria-pressed="!!thread.pinned"')
-    // ≤760 只收掉文字，点击目标仍是 32×32。
-    expect(thread).toMatch(/@media \(max-width: 760px\) \{\s*\.pin-btn \{[\s\S]*?\.pin-btn \.pin-text \{\s*display: none;/)
+    // ≤760 只收掉文字，点击目标仍与同排图标按钮一致（32×32）。
+    expect(thread).toMatch(/@media \(max-width: 760px\) \{\s*\.pin-btn \{[\s\S]*?height: 32px;[\s\S]*?\.pin-btn \.pin-text \{\s*display: none;/)
   })
 
   it('已置顶有选中样式，不只靠悬停', () => {
