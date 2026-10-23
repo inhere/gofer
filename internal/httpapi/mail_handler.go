@@ -81,6 +81,12 @@ func (s *Server) writeMailError(c *rux.Context, err error) {
 		writeError(c, http.StatusNotFound, "not found", "mail not found")
 	case errors.Is(err, mail.ErrSessionNotFound):
 		writeError(c, http.StatusNotFound, "session not found", err.Error())
+	case errors.Is(err, mail.ErrJobNotFound):
+		writeError(c, http.StatusNotFound, "job not found", err.Error())
+	case errors.Is(err, mail.ErrJobCannotReceive):
+		writeError(c, http.StatusConflict, "job cannot receive mail", err.Error())
+	case errors.Is(err, mail.ErrNotAnswerable):
+		writeError(c, http.StatusConflict, "letter cannot be answered", err.Error())
 	case errors.Is(err, mail.ErrSessionAmbiguous):
 		writeError(c, http.StatusConflict, "session id ambiguous", err.Error())
 	case errors.Is(err, jobstore.ErrMailState):

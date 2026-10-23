@@ -124,13 +124,13 @@ func TestSendDirectAddresses(t *testing.T) {
 	if job.Held || job.Target.Kind != jobstore.MailKindJob || job.Mail.JobID != "job-live" {
 		t.Fatalf("job: send = %+v", job)
 	}
-	// An ended job is not a delivery target: the letter is parked instead.
-	dead, err := f.svc.Send(SendInput{To: "job:job-done", Body: "status?", Origin: sender()})
-	if err != nil {
-		t.Fatal(err)
+	// An ended job is not a delivery target, and a job: address names its recipient exactly, so
+	// the letter is REFUSED (deferred in the capture box it would only wait for nobody).
+	if _, err := f.svc.Send(SendInput{To: "job:job-done", Body: "status?", Origin: sender()}); !errors.Is(err, ErrJobCannotReceive) {
+		t.Fatalf("job: to an ended job err = %v, want ErrJobCannotReceive", err)
 	}
-	if !dead.Held || dead.Mail.State != jobstore.MailHeld || dead.CaptureItemID == "" {
-		t.Fatalf("job: to an ended job = %+v", dead)
+	if _, err := f.svc.Send(SendInput{To: "job:job-missing", Body: "status?", Origin: sender()}); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("job: to an unknown job err = %v, want ErrJobNotFound", err)
 	}
 	unknown, err := f.svc.Send(SendInput{To: "session:sess-ended", Body: "anyone?", Origin: sender()})
 	if err != nil {

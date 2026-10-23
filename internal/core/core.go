@@ -349,6 +349,9 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// is wired, and this instance never delivers anything (the serve process's relay owns the
 	// delivery ladder, the web messages and the outbox).
 	c.Mail = mail.NewService(store, sessionrelay.NewService(store))
+	// A letter to a job needs the job layer's word on whether that job can ever take one
+	// (gofer-0n6r): a one-off run cannot, and neither can an ended job.
+	c.Mail.SetSessionJobCheck(mail.SessionJobLookup(jobs.Get))
 	// RECOV-01 R4: let the hub ADOPT the `recovering` jobs a PREVIOUS serve process left
 	// in the store. The hub cannot see the store (it depends on wsproto only) and the
 	// job service cannot see the wire, so the two are bridged here, at assemble time,
