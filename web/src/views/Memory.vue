@@ -6,7 +6,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MemoryList from '../components/MemoryList.vue'
 import FilterChips from '../ui/FilterChips.vue'
-import ProjectFilter from '../ui/ProjectFilter.vue'
+import TrackerRepoPath from '../ui/TrackerRepoPath.vue'
+import TrackerRepoPicker from '../ui/TrackerRepoPicker.vue'
 import {
   deleteScopedMemory,
   deleteTrackerMemory,
@@ -34,7 +35,7 @@ import {
   type MemoryScope,
 } from '../utils/memories'
 import { useRepoSync } from '../utils/useRepoSync'
-import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, syncClientLine, trackerRepoLabel } from '../utils/trackerView'
+import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, syncClientLine } from '../utils/trackerView'
 import { t } from '../i18n'
 import type { FilterChipItem } from '../ui/filterChips'
 
@@ -64,7 +65,6 @@ const canLoad = computed(() => {
 })
 const filtered = computed(() => filterMemories(memories.value, search.value, kinds.value, flaggedOnly.value, doctor.value))
 const repo = computed(() => repos.value.find((item) => item.tracker_id === trackerId.value))
-const repoIds = computed(() => repos.value.map((item) => item.tracker_id))
 
 const scopeItems = computed<FilterChipItem[]>(() => [
   { value: 'repo', label: t('memory.scope.repo') },
@@ -248,8 +248,8 @@ onMounted(async () => {
 
     <section class="meta-panel">
       <div v-if="scope === 'repo'" class="repo-row">
-        <ProjectFilter :model-value="trackerId" :options="repoIds" @update:model-value="pickRepo" />
-        <span class="repo-current" :title="trackerId">{{ repo ? trackerRepoLabel(repo) : t('memory.repoPlaceholder') }}</span>
+        <TrackerRepoPicker :model-value="trackerId" :repos="repos" @update:model-value="pickRepo" />
+        <TrackerRepoPath :repo="repo" :placeholder="t('memory.repoPlaceholder')" />
         <button class="btn" type="button" data-test="sync-repo" :disabled="syncing || !trackerId" :title="t('memory.repoSyncTitle')" @click="syncRepo">
           {{ syncing ? t('memory.repoSyncing') : t('memory.repoSync') }}
         </button>
@@ -441,15 +441,7 @@ onMounted(async () => {
   gap: var(--s2);
   min-width: 0;
   flex-wrap: wrap;
-}
-.repo-current {
-  color: var(--ink);
-  font-size: var(--fs-sm);
-  font-family: var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 40ch;
+  flex: 1;
 }
 .sync-summary {
   display: flex;

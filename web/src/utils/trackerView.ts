@@ -1,5 +1,63 @@
-export function trackerRepoLabel(repo: { project_key: string; prefix: string; rel_path: string }): string {
-  return `${repo.project_key || t('issues.tracker.repo.unassigned')} · ${repo.prefix || '—'} · ${repo.rel_path || '—'}`
+// ---- 仓库选择器（UI 重设计 P6，issue gofer-hez1）----
+// 接口里只有 tracker_id / project_key / rel_path / prefix：没有单独的「仓库名」字段，
+// 所以目录名取 rel_path（server 记录的仓库根绝对路径）的最后一段，其余全在前端组合。
+export interface TrackerRepoLike {
+  tracker_id: string
+  project_key: string
+  rel_path: string
+  prefix?: string
+}
+
+// Windows 记录的路径可能带反斜杠，两种分隔符都算。
+export function repoPathSegments(relPath: string): string[] {
+  return String(relPath ?? '').split(/[\\/]+/).filter((seg) => seg.length > 0)
+}
+
+export function repoDirName(relPath: string): string {
+  const segs = repoPathSegments(relPath)
+  return segs.length > 0 ? segs[segs.length - 1] : ''
+}
+
+// 信息条第一行：项目 · 前缀（缺项用 —，项目为空时标「未归属」）。
+export function trackerRepoMeta(repo: { project_key: string; prefix?: string }): string {
+  return `${repo.project_key || t('issues.tracker.repo.unassigned')} · ${repo.prefix || '—'}`
+}
+
+export function trackerRepoLabel(repo: { project_key: string; prefix?: string; rel_path: string }): string {
+  return `${trackerRepoMeta(repo)} · ${repo.rel_path || '—'}`
+}
+
+// 下拉选项的主文字：项目 key / 仓库目录名——同一项目下多个仓库也能一眼区分。
+export function trackerRepoTitle(repo: TrackerRepoLike): string {
+  const project = repo.project_key || t('issues.tracker.repo.unassigned')
+  const dir = repoDirName(repo.rel_path) || repo.prefix || '—'
+  return `${project} / ${dir}`
+}
+
+// 下拉选项的次要文字：tracker id + 路径末两级（同级目录常撞名，留两级才好认）。
+export function trackerRepoHint(repo: TrackerRepoLike): string {
+  const tail = repoPathSegments(repo.rel_path).slice(-2).join('/')
+  return tail ? `${repo.tracker_id} · ${tail}` : repo.tracker_id
+}
+
+export interface TrackerRepoOption {
+  value: string
+  title: string
+  hint: string
+  path: string
+}
+
+// 选项顺序：按项目（未归属的排最后），项目内按目录名、再按 tracker id——
+// 同一项目的多个仓库紧挨在一起。
+export function trackerRepoOptions(repos: TrackerRepoLike[]): TrackerRepoOption[] {
+  const dir = (repo: TrackerRepoLike): string => repoDirName(repo.rel_path) || repo.prefix || ''
+  return [...repos]
+    .sort((a, b) =>
+      Number(!a.project_key) - Number(!b.project_key) ||
+      a.project_key.localeCompare(b.project_key) ||
+      dir(a).localeCompare(dir(b)) ||
+      a.tracker_id.localeCompare(b.tracker_id))
+    .map((repo) => ({ value: repo.tracker_id, title: trackerRepoTitle(repo), hint: trackerRepoHint(repo), path: repo.rel_path }))
 }
 
 export function trackerIssueMatches(data: Record<string, any>, id: string, statuses: string[], type: string, tag: string, query: string): boolean {
