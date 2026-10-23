@@ -1368,6 +1368,7 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - `utils/enrollments.ts` 的 `stateLabel` / `decideCountdown` / `collectCountdown` / `disabledHint` 仍被接受 / 拒绝对话框使用；页面侧的同一信息改走字典（`runners.enroll.*`），工具函数本身留给 P6。
 - `/runners` 的 `max-width` 从 760 放宽到 900：worker 卡片的信息密度比原来多（状态 pill + 操作按钮一行）。
 - 本页没有逐像素对齐预览稿（预览稿没有这三屏），形态按 §7.4 的字段清单 + P2/P4/P5 已合入的基元落地。
+- 视觉自查**没有做成**：搭了临时预览入口（`preview-p5c.html` + `src/preview-p5c.ts`，stub 了 `/v1/runners`、`/v1/worker-enrollments`、`/v1/agents`、`/v1/config`、`/v1/projects` 与 `/git`、`/repos`、`/v1/jobs`、`/v1/plans`，vite dev 能起来），但本机 Chrome 在 agent-browser 下启动即退出（`Chrome exited early without writing DevToolsActivePort`，加 `--no-sandbox` 同样失败），拿不到截图。所以 zh / en × 浅 / 深的外观没有经过人眼，只按 CSS 口径（≥1100 完整侧栏、≤760 单栏 + 40px 点按目标）+ 字典完整性用例 + SSR 用例核对。临时入口与 stub 数据已删除。
 
 
 
