@@ -91,9 +91,48 @@ export function adviceAction(card: TodayCard): TodayAction | null {
   return card.actions.find((a) => actionKey(a) === id || a.id === id) ?? null
 }
 
-// 操作的稳定标识：answer 类按 value 区分。
+// actionKey 是一个操作的稳定标识：answer 类按 value 区分。
 export function actionKey(a: TodayAction): string {
   return a.id === 'answer' ? `answer:${a.value ?? ''}` : a.id
+}
+
+// ACTION_LABEL_KEYS 把服务端下发的动作名（internal/today 的 Action.Label，固定中文）对到本页
+// i18n key：动作的语义是「id + 文案」一起定的——open 在不同卡上是「看详情」/「去整理」/「去指派」/
+// 「打开 plan」——所以按 id:label 配对映射。表里没有的（answer 的选项文案、服务端新加的动作、
+// 业务内容）原样显示服务端给的文案。
+const ACTION_LABEL_KEYS: Record<string, string> = {
+  'reply:回复': 'today.action.reply',
+  'ack:已读': 'today.action.ack',
+  'accept:通过': 'today.action.accept',
+  'rerun:附意见重跑': 'today.action.rerun',
+  'diff:看 diff': 'today.action.diff',
+  'approve:批准': 'today.action.approve',
+  'reject:拒绝': 'today.action.reject',
+  'open:看详情': 'today.action.openDetail',
+  'open:去整理': 'today.action.openCapture',
+  'open:去指派': 'today.action.openMailHeld',
+  'open:打开 plan': 'today.action.openPlan',
+  'open:去处理': 'today.action.openEnroll',
+  'report:请求汇报': 'today.action.report',
+  'park:搁置': 'today.action.park',
+  'adopt:采纳': 'today.action.adopt',
+  'dismiss:忽略': 'today.action.dismiss',
+  'resume:继续': 'today.action.resume',
+}
+
+// actionLabel 是动作按钮上显示的文案：已知动作走 i18n（跟界面语言一致），未知的原样显示。
+export function actionLabel(a: Pick<TodayAction, 'id' | 'label'>): string {
+  const key = ACTION_LABEL_KEYS[`${a.id}:${a.label}`]
+  return key ? t(key) : a.label
+}
+
+// handledActionLabel 是「已处理」列表里的动作名：采纳 / 忽略建议的 label 是点的时候按当时的界面
+// 语言记下的（dismiss:goal 这类），换语言后不能把旧中文直接展示，按 action_id 前缀重新取；其余
+// 动作走 actionLabel，都不认识就原样显示。
+export function handledActionLabel(actionId: string, label: string): string {
+  if (actionId.startsWith('adopt:')) return t('today.suggestion.adopt')
+  if (actionId.startsWith('dismiss:')) return t('today.suggestion.dismiss')
+  return actionLabel({ id: actionId, label })
 }
 
 // 纯跳转 / 展开类操作：不进撤销窗口、不记审计。
