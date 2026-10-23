@@ -12,6 +12,7 @@
 // 一并兼容，避免历史日志变成 raw。
 // 只读展示：不发起任何请求。
 import { computed, ref } from 'vue'
+import { t } from '../i18n'
 
 const props = defineProps<{
   text: string
@@ -343,7 +344,7 @@ function classify(line: string, index: number): TimelineItem {
         kind: 'message',
         label: type,
         body: toolLines(parsed.tools),
-        meta: textLen > 0 ? `文本 ${textLen} 字（已进 stdout）` : '',
+        meta: textLen > 0 ? t('util.ndjson.textLen', { n: textLen }) : '',
         foldable: true,
       }
     }
@@ -422,10 +423,10 @@ function hiddenLineCount(item: TimelineItem): number {
 
 <template>
   <div class="timeline">
-    <p v-if="items.length === 0" class="empty">（无事件输出）</p>
+    <p v-if="items.length === 0" class="empty">{{ t('util.ndjson.empty') }}</p>
     <template v-else>
       <p v-if="!looksStructured" class="hint">
-        该路日志不是结构化事件流，已按原始行显示。
+        {{ t('util.ndjson.notStructured') }}
       </p>
       <article v-for="item in items" :key="item.index" class="event" :class="`event--${item.kind}`">
         <header class="event-head">
@@ -441,7 +442,7 @@ function hiddenLineCount(item: TimelineItem): number {
             type="button"
             @click="toggle(item.index)"
           >
-            {{ expanded.has(item.index) ? '收起' : `展开其余 ${hiddenLineCount(item)} 行` }}
+            {{ expanded.has(item.index) ? t('util.ndjson.collapse') : t('util.ndjson.expandRest', { n: hiddenLineCount(item) }) }}
           </button>
         </template>
         <pre v-else class="event-body event-body--raw">{{ item.raw }}</pre>

@@ -642,6 +642,13 @@ export const shared = {
     'util.approval.err.gone': '{action}失败：job 不存在（可能已被删除）',
     'util.approval.err.badRequest': '{action}失败：{raw}',
     'util.approval.err.generic': '{action}失败：{err}',
+
+    // components/NdjsonTimeline.vue：结构化事件流
+    'util.ndjson.empty': '（无事件输出）',
+    'util.ndjson.notStructured': '该路日志不是结构化事件流，已按原始行显示。',
+    'util.ndjson.collapse': '收起',
+    'util.ndjson.expandRest': '展开其余 {n} 行',
+    'util.ndjson.textLen': '文本 {n} 字（已进 stdout）',
   },
   en: {
     'status.closed': 'Closed',
@@ -1260,5 +1267,11 @@ export const shared = {
     'util.approval.err.gone': '{action} failed: no such job (it may have been deleted)',
     'util.approval.err.badRequest': '{action} failed: {raw}',
     'util.approval.err.generic': '{action} failed: {err}',
+
+    'util.ndjson.empty': '(no event output)',
+    'util.ndjson.notStructured': 'This log is not a structured event stream, so it is shown as raw lines.',
+    'util.ndjson.collapse': 'Collapse',
+    'util.ndjson.expandRest': 'Show the other {n} lines',
+    'util.ndjson.textLen': 'text {n} chars (already in stdout)',
   },
 }
