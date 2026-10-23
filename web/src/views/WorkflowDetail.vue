@@ -6,15 +6,14 @@
 //  - workflow_events 时间线（P1）展示 fan-out/retry/子 wf/终态等里程碑。
 //  - 每个 step 链到对应 job 详情 /jobs/{job_id}（未起的 step 无链接）。
 //  - running 显示 cancel 按钮（cancelWorkflow），终态停轮询。
+// UI 重设计 P5：ui/BackLink 回列表、ui/StatusPill、结果表按 §7.2 的列、另存为模板进 ui/Drawer。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { createLiveTopic } from '../utils/useLiveTopic'
-import StatusBadge from '../components/StatusBadge.vue'
 import CompareColumns from '../components/CompareColumns.vue'
 import { cancelWorkflow, getWorkflow, getWorkflowEvents, rerunWorkflow, saveWorkflowAsTemplate } from '../api/client'
 import { getMetaCached } from '../api/metaCache'
 import { fmtDuration } from '../api/time'
-import { workflowStepText } from '../utils/workflowStep'
 import {
   canRerunFailed,
   failedCount,
@@ -25,11 +24,14 @@ import {
   type ResultRow,
   type SaveNotice,
 } from '../utils/workflowResult'
-import type { JobStatus, Workflow, WorkflowEvent, WorkflowStep } from '../api/types'
+import { t } from '../i18n'
+import BackLink from '../ui/BackLink.vue'
+import StatusPill from '../ui/StatusPill.vue'
+import Drawer from '../ui/Drawer.vue'
+import type { Workflow, WorkflowEvent, WorkflowStep } from '../api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
-
 
 const workflow = ref<Workflow | null>(null)
 const events = ref<WorkflowEvent[]>([])
@@ -52,8 +54,8 @@ async function onRerun(mode: 'failed' | 'from', step?: string): Promise<void> {
   if (rerunning.value) return
   const msg =
     mode === 'failed'
-      ? '只重跑失败的步骤（扇出步只重跑失败的那几路）？会新建一个 workflow，原记录不动。'
-      : `从第 ${step} 步起重跑？会新建一个 workflow，原记录不动。`
+      ? t('workflows.detail.rerunFailedConfirm')
+      : t('workflows.detail.rerunFromConfirm', { step: step ?? '' })
   if (!window.confirm(msg)) return
   rerunning.value = true
   rerunError.value = ''
@@ -102,7 +104,7 @@ async function openSaveAsTemplate(): Promise<void> {
 async function onSaveAsTemplate(): Promise<void> {
   if (!tplName.value.trim() || tplSaving.value) return
   if (tplScope.value === 'project' && !tplProject.value) {
-    tplError.value = '保存到项目需要选一个项目'
+    tplError.value = t('workflows.detail.needProject')
     return
   }
   tplSaving.value = true
@@ -121,7 +123,6 @@ async function onSaveAsTemplate(): Promise<void> {
     tplSaving.value = false
   }
 }
-
 
 const isRunning = computed(() => workflow.value?.status === 'running')
 
@@ -259,6 +260,12 @@ function eventTime(at: number): string {
   return new Date(at * 1000).toLocaleTimeString()
 }
 
+// 步骤进度：done 之后后端的 current_step 会越过 total_steps，显示层夹到 total。
+function stepProgressText(wf: Workflow): string {
+  const cur = wf.total_steps > 0 && wf.current_step > wf.total_steps ? wf.total_steps : wf.current_step
+  return `${cur}/${wf.total_steps}`
+}
+
 // 路由 param 从一个 workflow 跳到另一个（如点"子工作流 →"）时，/workflows/:id
 // 复用同一组件实例、onMounted 不再触发，必须 watch props.id 重新拉取，否则停留在旧
 // workflow。重置数据避免旧详情闪现，再按新 workflow 是否 running 决定轮询。
@@ -289,177 +296,169 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="detail">
+  <div class="page" data-test="workflow-detail">
     <div class="detail-head">
-      <button class="back mono" type="button" @click="router.push('/workflows')">
-        &larr; workflows
-      </button>
+      <BackLink list="workflows" to="/workflows" :label="t('workflows.detail.back')" />
       <div v-if="workflow" class="head-status">
-        <StatusBadge :status="workflow.status" />
+        <StatusPill :status="workflow.status" size="md" />
         <button
           v-if="isRunning"
-          class="cancel-btn mono"
+          class="btn btn--danger"
           type="button"
           :disabled="cancelling"
+          data-test="cancel-workflow"
           @click="onCancel"
         >
-          {{ cancelling ? '取消中…' : '取消工作流' }}
+          {{ cancelling ? t('workflows.detail.cancelling') : t('workflows.detail.cancel') }}
         </button>
       </div>
     </div>
 
-    <p v-if="error" class="error mono">{{ error }}</p>
+    <p v-if="error" class="error">{{ error }}</p>
 
     <div v-if="workflow" class="head-card">
       <h1 class="wf-title">{{ workflow.title || workflow.id }}</h1>
-      <dl class="meta mono">
+      <dl class="meta">
         <div class="meta-row">
           <dt>id</dt>
-          <dd>{{ workflow.id }}</dd>
+          <dd class="mono">{{ workflow.id }}</dd>
         </div>
         <div class="meta-row">
-          <dt>step</dt>
-          <dd>{{ workflowStepText(workflow.status, workflow.current_step, workflow.total_steps) }}</dd>
+          <dt>{{ t('workflows.detail.step') }}</dt>
+          <dd class="mono">{{ stepProgressText(workflow) }}</dd>
         </div>
         <div class="meta-row">
-          <dt>耗时</dt>
-          <dd>{{ duration }}</dd>
+          <dt>{{ t('workflows.detail.duration') }}</dt>
+          <dd class="mono">{{ duration }}</dd>
         </div>
         <div v-if="workflow.error" class="meta-row meta-row--err">
-          <dt>error</dt>
+          <dt>{{ t('workflows.detail.error') }}</dt>
           <dd>{{ workflow.error }}</dd>
         </div>
       </dl>
     </div>
 
     <section v-if="workflow" class="results" data-test="result-table">
-      <div class="results-head">
-        <h2 class="chain-title mono">结果</h2>
-        <span v-if="failures" class="results-fail mono" data-test="result-fail-count">{{ failures }} 路失败</span>
-        <span class="results-actions">
+      <div class="section-head">
+        <h2 class="section-title">{{ t('workflows.detail.results') }}</h2>
+        <span v-if="failures" class="results-fail" data-test="result-fail-count">
+          {{ t('workflows.detail.failedRoutes', { n: failures }) }}
+        </span>
+        <span class="section-actions">
           <button
             v-if="!isRunning"
-            class="mini-btn mono"
+            class="btn"
             type="button"
             :disabled="!canRerunFailed(workflow) || rerunning"
-            :title="canRerunFailed(workflow) ? '只重跑失败的步骤 / 路' : '没有失败的步骤可重跑'"
+            :title="canRerunFailed(workflow) ? t('workflows.detail.rerunFailedTitle') : t('workflows.detail.rerunFailedDisabled')"
             data-test="rerun-failed"
             @click="onRerun('failed')"
           >
-            只重跑失败的
+            {{ t('workflows.detail.rerunFailed') }}
           </button>
-          <button
-            class="mini-btn mono"
-            type="button"
-            data-test="save-as-template-open"
-            @click="openSaveAsTemplate"
-          >
-            另存为模板
+          <button class="btn" type="button" data-test="save-as-template-open" @click="openSaveAsTemplate">
+            {{ t('workflows.detail.saveAsTemplate') }}
           </button>
         </span>
       </div>
-      <p v-if="rerunError" class="error mono" data-test="rerun-error">{{ rerunError }}</p>
+      <p v-if="rerunError" class="error" data-test="rerun-error">{{ rerunError }}</p>
 
-      <p v-if="rows.length === 0" class="step-empty mono">尚无已起步骤</p>
+      <p v-if="rows.length === 0" class="empty-line">{{ t('workflows.detail.noSteps') }}</p>
       <ol v-else class="res-list">
-        <li v-for="row in rows" :key="row.key" class="res-row" :class="{ 'res-row--fail': row.failed }" :data-test="`res-${row.stepIndex}-${row.tag || '0'}`">
-          <div class="res-main">
-            <span class="res-step mono">{{ row.stepLabel }}</span>
+        <li
+          v-for="row in rows"
+          :key="row.key"
+          class="res-row"
+          :class="{ 'res-row--fail': row.failed }"
+          :data-test="`res-${row.stepIndex}-${row.tag || '0'}`"
+        >
+          <div class="res-head">
+            <span class="res-step" :title="row.stepLabel">{{ row.stepLabel }}</span>
             <span v-if="row.tag" class="res-tag mono">{{ row.tag }}</span>
-            <span class="res-badge"><StatusBadge v-if="row.status" :status="row.status as JobStatus" /><span v-else class="step-pending mono">待起</span></span>
-            <span class="res-cell mono" data-test="res-runner"><em>runner</em>{{ row.runner }}</span>
-            <span class="res-cell mono" data-test="res-started"><em>开始</em>{{ row.startedAt || '—' }}</span>
-            <span class="res-cell mono"><em>退出码</em>{{ row.exitCode || '—' }}</span>
-            <span class="res-cell mono"><em>耗时</em>{{ row.duration }}</span>
-            <span class="res-acts">
-              <button
-                v-if="hasExcerpt(row)"
-                class="mini-btn mono"
-                type="button"
-                data-test="res-excerpt-toggle"
-                @click="toggleExcerpt(row.key)"
-              >
-                {{ expanded[row.key] ? '收起摘录' : '失败摘录' }}
-              </button>
-              <button
-                v-if="row.jobId"
-                class="mini-btn mono"
-                type="button"
-                :title="row.jobId"
-                data-test="res-log"
-                @click="openJob(row.jobId!)"
-              >
-                日志 &rarr;
-              </button>
-              <button
-                v-if="!isRunning"
-                class="mini-btn mono"
-                type="button"
-                :disabled="rerunning"
-                :title="`从第 ${row.stepIndex} 步起重跑`"
-                data-test="rerun-from"
-                @click="onRerun('from', fromStepValue(row))"
-              >
-                从此步重跑
-              </button>
+            <span class="res-badge">
+              <StatusPill v-if="row.status" :status="row.status" />
+              <span v-else class="step-pending">{{ t('workflows.detail.stepPending') }}</span>
             </span>
           </div>
-          <pre v-if="expanded[row.key] && hasExcerpt(row)" class="res-excerpt mono" data-test="res-excerpt">{{ row.excerpt.join('\n') }}</pre>
+          <dl class="res-grid">
+            <div class="res-cell" data-test="res-runner">
+              <dt>{{ t('workflows.detail.runner') }}</dt>
+              <dd class="mono">{{ row.runner }}</dd>
+            </div>
+            <div class="res-cell" data-test="res-started">
+              <dt>{{ t('workflows.detail.started') }}</dt>
+              <dd class="mono">{{ row.startedAt || '—' }}</dd>
+            </div>
+            <div class="res-cell">
+              <dt>{{ t('workflows.detail.exitCode') }}</dt>
+              <dd class="mono">{{ row.exitCode || '—' }}</dd>
+            </div>
+            <div class="res-cell">
+              <dt>{{ t('workflows.detail.duration') }}</dt>
+              <dd class="mono">{{ row.duration }}</dd>
+            </div>
+          </dl>
           <!-- 工作目录：ref: 步跑在临时检出目录里，光看路径说不出是哪棵树，所以并排显示 ref。 -->
           <p v-if="row.cwd" class="res-cwd mono" data-test="res-cwd">
-            <em>cwd</em>{{ row.cwd }}<span v-if="row.ref" class="res-cwd-ref"> (ref {{ row.ref.slice(0, 12) }})</span>
+            <em>{{ t('schedules.detailCwd') }}</em>{{ row.cwd
+            }}<span v-if="row.ref" class="res-cwd-ref"> (ref {{ row.ref.slice(0, 12) }})</span>
           </p>
+          <div class="res-acts">
+            <button
+              v-if="hasExcerpt(row)"
+              class="btn btn--sm"
+              type="button"
+              data-test="res-excerpt-toggle"
+              @click="toggleExcerpt(row.key)"
+            >
+              {{ expanded[row.key] ? t('workflows.detail.hideExcerpt') : t('workflows.detail.excerpt') }}
+            </button>
+            <button
+              v-if="row.jobId"
+              class="btn btn--sm"
+              type="button"
+              :title="row.jobId"
+              data-test="res-log"
+              @click="openJob(row.jobId!)"
+            >
+              {{ t('workflows.detail.openJob') }} →
+            </button>
+            <button
+              v-if="!isRunning"
+              class="btn btn--sm"
+              type="button"
+              :disabled="rerunning"
+              :title="t('workflows.detail.rerunFromTitle', { step: row.stepIndex })"
+              data-test="rerun-from"
+              @click="onRerun('from', fromStepValue(row))"
+            >
+              {{ t('workflows.detail.rerunFrom') }}
+            </button>
+          </div>
+          <pre v-if="expanded[row.key] && hasExcerpt(row)" class="res-excerpt mono" data-test="res-excerpt">{{
+            row.excerpt.join('\n')
+          }}</pre>
         </li>
       </ol>
-
-      <div v-if="tplOpen" class="save-tpl" data-test="save-as-template">
-        <div class="field">
-          <label class="label mono" for="sat-name">模板名（字母、数字、. _ -）</label>
-          <input id="sat-name" v-model="tplName" class="control mono" type="text" data-test="sat-name" />
-        </div>
-        <div class="field">
-          <span class="label mono">保存到哪一层</span>
-          <label class="radio mono"><input v-model="tplScope" type="radio" value="global" data-test="sat-scope-global" /> 全局</label>
-          <label class="radio mono"><input v-model="tplScope" type="radio" value="project" data-test="sat-scope-project" /> 项目</label>
-          <select v-if="tplScope === 'project'" v-model="tplProject" class="control mono">
-            <option v-for="p in projects" :key="p" :value="p">{{ p }}</option>
-          </select>
-        </div>
-        <p v-if="tplError" class="error mono" data-test="sat-error">{{ tplError }}</p>
-        <p v-if="tplNotice" class="notice mono" :class="`notice--${tplNotice.tone}`" data-test="sat-notice">
-          {{ tplNotice.text }}
-        </p>
-        <code v-if="tplNotice?.command" class="sat-cmd mono" data-test="sat-commit-cmd">{{ tplNotice.command }}</code>
-        <div class="res-acts">
-          <button class="mini-btn mono" type="button" :disabled="tplSaving" data-test="sat-save" @click="onSaveAsTemplate">
-            {{ tplSaving ? '保存中…' : '保存为模板' }}
-          </button>
-          <button class="mini-btn mono" type="button" @click="tplOpen = false">关闭</button>
-        </div>
-      </div>
     </section>
 
     <section v-if="workflow" class="chain">
-      <h2 class="chain-title mono">步骤链</h2>
+      <h2 class="section-title">{{ t('workflows.detail.chain') }}</h2>
       <ol class="step-groups">
-        <li
-          v-for="group in stepGroups"
-          :key="group.stepIndex"
-          class="step-group"
-        >
+        <li v-for="group in stepGroups" :key="group.stepIndex" class="step-group">
           <div class="group-head">
             <span class="step-idx mono">{{ group.stepIndex }}</span>
             <span class="step-name">{{ group.name }}</span>
-            <span v-if="group.fanned" class="dim-tag mono dim-tag--fan">并行</span>
-            <span v-if="group.retried" class="dim-tag mono dim-tag--retry">重试</span>
+            <span v-if="group.fanned" class="dim-tag dim-tag--fan">{{ t('workflows.detail.fanned') }}</span>
+            <span v-if="group.retried" class="dim-tag dim-tag--retry">{{ t('workflows.detail.retried') }}</span>
             <button
               v-if="childByStep.has(group.stepIndex)"
-              class="sub-link mono"
+              class="btn btn--sm sub-link"
               type="button"
               :title="childByStep.get(group.stepIndex)"
               @click="openWorkflow(childByStep.get(group.stepIndex)!)"
             >
-              子工作流 &rarr;
+              {{ t('workflows.detail.childWorkflow') }}
             </button>
           </div>
           <CompareColumns
@@ -477,30 +476,30 @@ onUnmounted(() => {
               <span v-if="rowTag(row)" class="row-tag mono">{{ rowTag(row) }}</span>
               <span v-else class="row-tag mono row-tag--none">·</span>
               <span class="row-badge">
-                <StatusBadge v-if="row.status" :status="row.status" />
-                <span v-else class="step-pending mono">待起</span>
+                <StatusPill v-if="row.status" :status="row.status" />
+                <span v-else class="step-pending">{{ t('workflows.detail.stepPending') }}</span>
               </span>
               <button
                 v-if="row.job_id"
-                class="step-link mono"
+                class="btn btn--sm"
                 type="button"
                 :title="row.job_id"
                 @click="openJob(row.job_id)"
               >
-                job &rarr;
+                {{ t('workflows.detail.openJob') }} →
               </button>
-              <span v-else class="step-nojob mono">—</span>
+              <span v-else class="step-nojob">—</span>
             </li>
           </ul>
         </li>
-        <li v-if="stepGroups.length === 0" class="step-empty mono">
-          尚无已起步骤
+        <li v-if="stepGroups.length === 0" class="empty-line">
+          {{ t('workflows.detail.noSteps') }}
         </li>
       </ol>
     </section>
 
     <section v-if="workflow && events.length" class="timeline">
-      <h2 class="chain-title mono">事件</h2>
+      <h2 class="section-title">{{ t('workflows.detail.events') }}</h2>
       <ol class="events">
         <li v-for="ev in events" :key="ev.seq" class="event">
           <span class="ev-time mono">{{ eventTime(ev.at) }}</span>
@@ -510,12 +509,50 @@ onUnmounted(() => {
       </ol>
     </section>
 
-    <p v-else-if="!workflow && !error" class="loading mono">加载中…</p>
+    <p v-else-if="!workflow && !error" class="loading">{{ t('workflows.loading') }}</p>
+
+    <!-- 另存为模板（D7）：模板名 + 保存层级 + 项目，结果带提交命令 -->
+    <Drawer v-model="tplOpen" :label="t('workflows.detail.saveAsTemplate')" width="clamp(420px, 32vw, 560px)">
+      <div data-test="save-as-template">
+        <div class="field">
+          <label class="label" for="sat-name">{{ t('workflows.detail.templateName') }}</label>
+          <input id="sat-name" v-model="tplName" class="control mono" type="text" data-test="sat-name" />
+          <span class="hint">{{ t('workflows.detail.templateNameHint') }}</span>
+        </div>
+        <div class="field">
+          <span class="label">{{ t('workflows.detail.templateScope') }}</span>
+          <label class="radio"
+            ><input v-model="tplScope" type="radio" value="global" data-test="sat-scope-global" />
+            {{ t('workflows.detail.templateGlobal') }}</label
+          >
+          <label class="radio"
+            ><input v-model="tplScope" type="radio" value="project" data-test="sat-scope-project" />
+            {{ t('workflows.detail.templateProject') }}</label
+          >
+          <select v-if="tplScope === 'project'" v-model="tplProject" class="control">
+            <option v-for="p in projects" :key="p" :value="p">{{ p }}</option>
+          </select>
+        </div>
+        <p v-if="tplError" class="error" data-test="sat-error">{{ tplError }}</p>
+        <p v-if="tplNotice" class="notice" :class="`notice--${tplNotice.tone}`" data-test="sat-notice">
+          {{ tplNotice.text }}
+        </p>
+        <code v-if="tplNotice?.command" class="sat-cmd mono" data-test="sat-commit-cmd">{{ tplNotice.command }}</code>
+        <div class="modal-act">
+          <button class="btn" type="button" :disabled="tplSaving" data-test="sat-save" @click="onSaveAsTemplate">
+            {{ tplSaving ? t('workflows.detail.templateSaving') : t('workflows.detail.templateSave') }}
+          </button>
+          <button class="btn" type="button" data-test="sat-close" @click="tplOpen = false">
+            {{ t('workflows.detail.close') }}
+          </button>
+        </div>
+      </div>
+    </Drawer>
   </div>
 </template>
 
 <style scoped>
-.detail {
+.page {
   max-width: 1180px;
   margin: 0 auto;
 }
@@ -523,63 +560,73 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
-}
-.back {
-  background: transparent;
-  color: var(--queue);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 12px;
-}
-.back:hover {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  gap: var(--s3);
+  margin-bottom: var(--s3);
 }
 .head-status {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--s3);
 }
-.cancel-btn {
-  background: transparent;
-  color: var(--fail);
-  border: 1px solid var(--fail);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 12px;
+.btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--s3);
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
 }
-.cancel-btn:hover:not(:disabled) {
-  background: var(--fail);
-  color: var(--ink);
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
 }
-.cancel-btn:disabled {
-  opacity: 0.6;
+.btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.btn:disabled {
+  opacity: 0.45;
   cursor: default;
 }
-
+.btn--sm {
+  min-height: 26px;
+  padding: 0 var(--s2);
+  font-size: var(--fs-xs);
+}
+.btn--danger {
+  color: var(--fail);
+  border-color: var(--fail);
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--fail);
+  color: var(--accent-ink);
+}
 .error {
   color: var(--fail);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  margin: 0 0 12px;
+  border-radius: var(--r-ctl);
+  padding: var(--s2);
+  margin: 0 0 var(--s3);
   word-break: break-word;
 }
-
 .head-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 18px;
-  background: var(--panel);
+  border-radius: var(--r-panel);
+  padding: var(--s4);
+  margin-bottom: var(--s4);
+  background: var(--surface);
 }
 .wf-title {
-  font-size: 18px;
-  color: var(--paper);
-  margin: 0 0 12px;
+  font-size: var(--fs-lg);
+  color: var(--fg);
+  margin: 0 0 var(--s3);
   word-break: break-word;
 }
 .meta {
@@ -587,113 +634,168 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .meta-row {
   display: grid;
   grid-template-columns: 80px 1fr;
-  gap: 10px;
+  gap: var(--s3);
 }
 .meta-row dt {
-  color: var(--queue);
+  color: var(--fg-3);
   letter-spacing: 0.04em;
 }
 .meta-row dd {
   margin: 0;
-  color: var(--paper);
+  color: var(--fg);
   word-break: break-all;
 }
 .meta-row--err dd {
   color: var(--fail);
 }
-
-.chain-title {
-  font-size: 12px;
+.section-title {
+  font-size: var(--fs-xs);
   letter-spacing: 0.08em;
-  color: var(--queue);
+  color: var(--fg-3);
   text-transform: uppercase;
-  margin: 0 0 10px;
+  margin: 0 0 var(--s2);
 }
-.steps {
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s2);
+  flex-wrap: wrap;
+}
+.results-fail {
+  color: var(--fail);
+  font-size: var(--fs-sm);
+}
+.section-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: var(--s1);
+  flex-wrap: wrap;
+}
+.results {
+  margin-bottom: var(--s4);
+}
+.res-list {
   list-style: none;
   margin: 0;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-panel);
   overflow: hidden;
+  background: var(--surface);
 }
-.step {
-  display: grid;
-  grid-template-columns: 40px minmax(120px, 1fr) 140px 72px;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 14px;
+.res-row {
   border-bottom: 1px solid var(--line);
+  padding: var(--s2) var(--s3);
 }
-.step:last-child {
+.res-row:last-child {
   border-bottom: none;
 }
-.step-idx {
-  color: var(--phosphor);
-  font-size: 13px;
+.res-row--fail {
+  border-left: 2px solid var(--fail);
 }
-.step-name {
-  color: var(--paper);
-  font-size: 13px;
+.res-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+.res-step {
+  color: var(--fg);
+  font-weight: 600;
+  font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.step-badge {
+.res-tag {
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
+.res-badge {
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
 }
-.step-pending {
-  color: var(--queue);
-  font-size: 12px;
-  opacity: 0.7;
+/* 结果行的字段格：桌面横排、窄屏换行（§9.6 英文更宽）。 */
+.res-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-sm);
 }
-.step-link {
-  background: transparent;
-  color: var(--phosphor);
+.res-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.res-cell dt {
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+}
+.res-cell dd {
+  margin: 0;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.res-acts {
+  display: inline-flex;
+  gap: var(--s1);
+  flex-wrap: wrap;
+  margin-top: var(--s1);
+}
+.res-excerpt {
+  margin: var(--s2) 0 0;
+  background: var(--log-bg);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 3px 8px;
-  font-size: 12px;
+  border-radius: var(--r-ctl);
+  padding: var(--s2);
+  font-size: var(--fs-xs);
+  color: var(--fail);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
 }
-.step-link:hover {
-  border-color: var(--phosphor);
+.res-cwd {
+  margin: 6px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
+  word-break: break-all;
 }
-.step-nojob {
-  color: var(--queue);
-  font-size: 12px;
-  text-align: center;
-  opacity: 0.6;
+.res-cwd em {
+  font-style: normal;
+  color: var(--fg-3);
+  opacity: 0.7;
+  margin-right: 6px;
 }
-.step-empty {
-  padding: 18px 14px;
-  text-align: center;
-  color: var(--queue);
-  font-size: 12px;
+.res-cwd-ref {
+  color: var(--accent);
 }
-.loading {
-  color: var(--queue);
-  font-size: 13px;
-  padding: 18px 0;
+.chain {
+  margin-bottom: var(--s4);
 }
-
-/* P4/T4.3: grouped step rendering (fan-out / retry / sub-workflow). */
 .step-groups {
   list-style: none;
   margin: 0;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-panel);
   overflow: hidden;
+  background: var(--surface);
 }
 .step-group {
   border-bottom: 1px solid var(--line);
-  padding: 10px 14px;
+  padding: var(--s2) var(--s3);
 }
 .step-group:last-child {
   border-bottom: none;
@@ -701,34 +803,47 @@ onUnmounted(() => {
 .group-head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--s2);
   margin-bottom: 6px;
 }
+.step-idx {
+  color: var(--accent);
+  font-size: var(--fs-sm);
+}
+.step-name {
+  color: var(--fg);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .dim-tag {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   padding: 1px 6px;
-  border-radius: var(--radius);
+  border-radius: var(--r-chip);
   border: 1px solid var(--line);
   letter-spacing: 0.04em;
 }
 .dim-tag--fan {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 .dim-tag--retry {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 .sub-link {
   margin-left: auto;
-  background: transparent;
-  color: var(--phosphor);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 3px 8px;
-  font-size: 12px;
 }
-.sub-link:hover {
-  border-color: var(--phosphor);
+.step-pending {
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  opacity: 0.8;
+}
+.step-nojob {
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+  text-align: center;
+  opacity: 0.6;
 }
 .group-rows {
   list-style: none;
@@ -740,13 +855,13 @@ onUnmounted(() => {
 }
 .group-row {
   display: grid;
-  grid-template-columns: 56px 140px 72px;
+  grid-template-columns: 56px 140px 96px;
   align-items: center;
-  gap: 12px;
+  gap: var(--s3);
 }
 .row-tag {
-  color: var(--queue);
-  font-size: 12px;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
 }
 .row-tag--none {
   opacity: 0.4;
@@ -755,203 +870,92 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
 }
-
-/* P1: workflow_events timeline. */
+.empty-line {
+  padding: var(--s5) var(--s3);
+  text-align: center;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+}
+.loading {
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
+  padding: var(--s5) 0;
+}
 .timeline {
-  margin-top: 18px;
+  margin-top: var(--s4);
 }
 .events {
   list-style: none;
   margin: 0;
   padding: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-panel);
   overflow: hidden;
+  background: var(--surface);
 }
 .event {
   display: grid;
   grid-template-columns: 96px 180px 1fr;
   align-items: baseline;
-  gap: 10px;
-  padding: 7px 14px;
+  gap: var(--s3);
+  padding: 7px var(--s3);
   border-bottom: 1px solid var(--line);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 .event:last-child {
   border-bottom: none;
 }
 .ev-time {
-  color: var(--queue);
+  color: var(--fg-3);
 }
 .ev-type {
-  color: var(--phosphor);
+  color: var(--accent);
 }
 .ev-detail {
-  color: var(--paper);
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0.85;
 }
-
-/* 结果表（design §一·6）：每步 / 每路 fan 一行；窄屏改纵向卡片。 */
-.results {
-  margin-bottom: 18px;
-}
-.results-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-.results-fail {
-  color: var(--fail);
-  font-size: 12px;
-}
-.results-actions {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.res-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.res-row {
-  border-bottom: 1px solid var(--line);
-  padding: 8px 12px;
-}
-.res-row:last-child {
-  border-bottom: none;
-}
-.res-row--fail {
-  border-left: 2px solid var(--fail);
-}
-.res-main {
-  display: grid;
-  grid-template-columns: minmax(120px, 1.6fr) 48px 96px 96px 72px 68px minmax(0, auto);
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-}
-.res-step {
-  color: var(--paper);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.res-tag {
-  color: var(--queue);
-  font-size: 11px;
-}
-.res-cell {
-  color: var(--paper);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.res-cell em {
-  display: none;
-  font-style: normal;
-  color: var(--queue);
-  margin-right: 6px;
-}
-.res-acts {
-  display: inline-flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.mini-btn {
-  background: transparent;
-  color: var(--queue);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 3px 8px;
-  font-size: 11px;
-}
-.mini-btn:hover:not(:disabled) {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
-}
-.mini-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.res-excerpt {
-  margin: 8px 0 0;
-  background: var(--term-bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 8px;
-  font-size: 11px;
-  color: var(--fail);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 240px;
-  overflow: auto;
-}
-.res-cwd {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: var(--queue);
-  word-break: break-all;
-}
-.res-cwd em {
-  font-style: normal;
-  color: var(--line);
-  margin-right: 6px;
-}
-.res-cwd-ref {
-  color: var(--phosphor);
-}
-.save-tpl {
-  margin-top: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.save-tpl .field {
+.field {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  margin-bottom: var(--s3);
 }
-.save-tpl .label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--queue);
+.label {
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  color: var(--fg-3);
 }
-.save-tpl .control {
+.control {
   width: 100%;
-  background: var(--ink);
-  color: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
   padding: 8px;
-  font-size: 13px;
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.hint {
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
 }
 .radio {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  color: var(--paper);
+  font-size: var(--fs-sm);
+  color: var(--fg);
 }
 .notice {
-  margin: 0;
-  font-size: 12px;
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-sm);
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 8px 10px;
+  border-radius: var(--r-ctl);
+  padding: var(--s2);
   word-break: break-word;
 }
 .notice--ok {
@@ -959,34 +963,40 @@ onUnmounted(() => {
   border-color: var(--done);
 }
 .notice--warn {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
-  background: var(--ink);
+  color: var(--need);
+  border-color: var(--need);
 }
 .sat-cmd {
-  font-size: 11px;
-  color: var(--paper);
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--fg);
   word-break: break-all;
 }
-
-@media (max-width: 720px) {
-  .res-main {
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 4px;
+.modal-act {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+  margin-top: var(--s4);
+}
+@media (max-width: 760px) {
+  .btn {
+    min-height: 40px;
+  }
+  .btn--sm {
+    min-height: 32px;
   }
   .res-step {
-    grid-column: 1 / -1;
     white-space: normal;
   }
-  .res-cell em {
-    display: inline;
+  .event {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
-  .res-acts {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
+  .ev-detail {
+    white-space: normal;
   }
-  .results-actions {
-    margin-left: 0;
+  .group-row {
+    grid-template-columns: 44px 1fr 96px;
   }
 }
 </style>

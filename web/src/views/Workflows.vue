@@ -1,35 +1,69 @@
 <script setup lang="ts">
 // Workflows 列表（job 链）：轮询 listWorkflows（2.5s），Page Visibility 暂停/恢复，
-// status 过滤，行点击进详情。仿 Board.vue 结构。
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+// 状态 chip 过滤（客户端收窄 + 计数，接口没有按项目过滤的参数），行点击进详情。
+// UI 重设计 P5：ui/FilterChips + ui/StatusPill + 分段 ProgressBar（设计稿 §7.2）。
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRouter } from 'vue-router'
-import StatusBadge from '../components/StatusBadge.vue'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import { listWorkflows } from '../api/client'
 import { fmtDateTime, fmtDuration } from '../api/time'
-import { workflowStepText } from '../utils/workflowStep'
 import { workflowStatusOptions } from '../utils/statusText'
-import { COL, PAGE } from '../utils/uiText'
+import { statusText } from '../utils/statusText'
+import { t, te } from '../i18n'
+import FilterChips from '../ui/FilterChips.vue'
+import StatusPill from '../ui/StatusPill.vue'
+import ProgressBar from '../ui/ProgressBar.vue'
+import { useListReturn } from '../ui/useListReturn'
 import { useWhoami } from '../store/whoami'
+import type { FilterChipItem } from '../ui/filterChips'
 import type { Workflow, WorkflowStatus } from '../api/types'
 
 const router = useRouter()
 // 调用方上限只读时，创建入口一律不摆出来（服务端也会 403）。
 const { readOnly } = useWhoami()
 
+// 详情页的「← 工作流」回到这里（带筛选与滚动位置）。
+useListReturn('workflows', '/workflows')
+
 const workflows = ref<Workflow[]>([])
 const loading = ref(false)
 const error = ref('')
 const statusFilter = ref<'' | WorkflowStatus>('')
 
-const statusOptions: Array<{ value: '' | WorkflowStatus; label: string }> = workflowStatusOptions()
+// 状态 chip 的文案走 i18n；没有 status.<值> 时回退到旧的中文映射（P5 之后只剩 i18n）。
+const statusOptions = workflowStatusOptions().filter((o) => o.value !== '')
 
+const statusItems = computed<FilterChipItem[]>(() => {
+  const counts = new Map<string, number>()
+  for (const wf of workflows.value) {
+    counts.set(wf.status, (counts.get(wf.status) ?? 0) + 1)
+  }
+  const all: FilterChipItem = {
+    value: '',
+    label: t('workflows.filterAll'),
+    count: workflows.value.length,
+  }
+  return [
+    all,
+    ...statusOptions.map((o) => ({
+      value: o.value,
+      label: te(`status.${o.value}`) ? t(`status.${o.value}`) : statusText(o.value),
+      count: counts.get(o.value) ?? 0,
+    })),
+  ]
+})
+
+const visible = computed(() =>
+  statusFilter.value ? workflows.value.filter((wf) => wf.status === statusFilter.value) : workflows.value,
+)
+
+const filtered = computed(() => statusFilter.value !== '')
 
 async function fetchWorkflows(): Promise<void> {
   loading.value = true
   try {
-    const resp = await listWorkflows(statusFilter.value || undefined)
+    const resp = await listWorkflows()
     workflows.value = resp.workflows ?? []
     error.value = ''
   } catch (e) {
@@ -40,6 +74,7 @@ async function fetchWorkflows(): Promise<void> {
   }
 }
 
+// 换 chip 立即重拉一次（与之前换 select 的行为一致；WS 失效通知也会触发）。
 watch(statusFilter, () => {
   void fetchWorkflows()
 })
@@ -52,6 +87,24 @@ function shortId(id: string): string {
 function rowDuration(wf: Workflow): string {
   const end = wf.status === 'running' ? Math.floor(Date.now() / 1000) : wf.updated_at
   return fmtDuration(Math.max(0, end - wf.created_at))
+}
+
+// 步骤进度：done 之后后端的 current_step 会越过 total_steps，显示层夹到 total。
+function stepsDone(wf: Workflow): number {
+  return wf.total_steps > 0 && wf.current_step > wf.total_steps ? wf.total_steps : wf.current_step
+}
+
+function stepsText(wf: Workflow): string {
+  return t('workflows.stepsOf', { cur: stepsDone(wf), total: wf.total_steps })
+}
+
+// 列表里的分段进度条只用「已完成 / 未开始」两段（列表拿不到每步状态）。
+function stepParts(wf: Workflow) {
+  const done = stepsDone(wf)
+  return [
+    { family: 'done' as const, count: done },
+    { family: 'todo' as const, count: Math.max(0, wf.total_steps - done) },
+  ]
 }
 
 function openWorkflow(wf: Workflow): void {
@@ -72,177 +125,215 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="board">
-    <div class="board-head">
+  <div class="page" data-test="workflows-page">
+    <header class="page-head">
       <!-- 工作流 / 模板库在 docs/guide/stability.md 里属实验性，标题旁挂标注。 -->
-      <h1 class="title mono">{{ PAGE.workflows }}<ExperimentalBadge /></h1>
-      <div class="controls mono">
-        <RouterLink v-if="!readOnly" to="/workflows/new" class="create-link">
-          创建工作流
-        </RouterLink>
-        <label class="filter">
-          <span class="filter-label">{{ COL.status }}</span>
-          <select v-model="statusFilter" class="filter-select mono">
-            <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-        </label>
-        <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
+      <div class="head-main">
+        <h1 class="title">{{ t('workflows.title') }}<ExperimentalBadge /></h1>
+        <p class="sub">{{ visible.length ? t('workflows.subtitle', { n: visible.length }) : t('workflows.subtitleEmpty') }}</p>
       </div>
+      <div class="head-actions">
+        <span class="poll-dot" :class="{ 'poll-dot--on': loading }" aria-hidden="true">●</span>
+        <RouterLink v-if="!readOnly" to="/workflows/new" class="btn btn--primary" data-test="new-workflow">
+          {{ t('workflows.new') }}
+        </RouterLink>
+      </div>
+    </header>
+
+    <p v-if="error" class="error">{{ error }}</p>
+
+    <div class="list-bar">
+      <FilterChips v-model="statusFilter" :items="statusItems" :label="t('workflows.col.status')" />
+      <button v-if="filtered" class="link-btn" type="button" data-test="clear-filters" @click="statusFilter = ''">
+        {{ t('workflows.clearFilters') }}
+      </button>
     </div>
 
-    <p v-if="error" class="error mono">{{ error }}</p>
-
-    <div class="table">
-      <div class="thead mono">
-        <span class="col-status">{{ COL.status }}</span>
-        <span class="col-wf">工作流 · 标题 / ID</span>
-        <span class="col-step">步骤</span>
-        <span class="col-started">开始时间</span>
-        <span class="col-dur">耗时</span>
+    <div class="table" role="table">
+      <div class="thead" role="row">
+        <span class="col-status">{{ t('workflows.col.status') }}</span>
+        <span class="col-wf">{{ t('workflows.col.name') }}</span>
+        <span class="col-step">{{ t('workflows.col.steps') }}</span>
+        <span class="col-started">{{ t('workflows.col.started') }}</span>
+        <span class="col-dur">{{ t('workflows.col.duration') }}</span>
       </div>
 
       <div
-        v-for="wf in workflows"
+        v-for="wf in visible"
         :key="wf.id"
         class="trow"
-        role="button"
+        role="row"
         tabindex="0"
         @click="openWorkflow(wf)"
         @keydown.enter="openWorkflow(wf)"
       >
-        <span class="col-status"><StatusBadge :status="wf.status" /></span>
+        <span class="col-status"><StatusPill :status="wf.status" /></span>
         <span class="col-wf" :class="{ 'col-wf--titled': wf.title }">
           <span v-if="wf.title" class="wf-title" :title="wf.title">{{ wf.title }}</span>
           <span class="wf-id mono" :title="wf.id">{{ shortId(wf.id) }}</span>
         </span>
-        <span class="col-step mono">{{ workflowStepText(wf.status, wf.current_step, wf.total_steps) }}</span>
-        <span class="col-started mono" :title="fmtDateTime(wf.created_at)">{{ fmtDateTime(wf.created_at) }}</span>
+        <span class="col-step">
+          <template v-if="wf.total_steps > 0">
+            <ProgressBar
+              :parts="stepParts(wf)"
+              :total="wf.total_steps"
+              :done="stepsDone(wf)"
+              :label="stepsText(wf)"
+              :legend="false"
+              size="sm"
+            />
+            <span class="step-text mono">{{ stepsText(wf) }}</span>
+          </template>
+          <span v-else class="dim">{{ stepsText(wf) }}</span>
+        </span>
+        <span class="col-started" :title="fmtDateTime(wf.created_at)">{{ fmtDateTime(wf.created_at) }}</span>
         <span class="col-dur mono">{{ rowDuration(wf) }}</span>
       </div>
 
-      <div v-if="workflows.length === 0 && !error" class="empty mono">
-        <p>暂无工作流</p>
-        <RouterLink v-if="!readOnly" to="/workflows/new" class="empty-link">创建工作流</RouterLink>
+      <div v-if="visible.length === 0 && !error" class="empty">
+        <p>{{ t('workflows.empty') }}</p>
+        <p class="empty-hint">{{ t('workflows.emptyHint') }}</p>
+        <RouterLink v-if="!readOnly" to="/workflows/new" class="btn btn--primary">{{ t('workflows.new') }}</RouterLink>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.board {
+.page {
   max-width: 1100px;
   margin: 0 auto;
 }
-.board-head {
+.page-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 14px;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
 }
 .title {
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  color: var(--paper);
-  margin: 0;
-}
-.controls {
   display: flex;
   align-items: center;
-  gap: 14px;
-  font-size: 12px;
+  gap: var(--s2);
+  margin: 0;
+  font-size: var(--fs-lg);
+  color: var(--fg);
 }
-.create-link {
-  background: var(--phosphor);
-  color: var(--ink);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 600;
+.sub {
+  margin: 2px 0 0;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
 }
-.create-link:hover {
-  text-decoration: none;
-  opacity: 0.9;
-}
-.filter {
-  display: inline-flex;
+.head-actions {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--queue);
+  gap: var(--s2);
 }
-.filter-label {
-  font-size: 11px;
-  letter-spacing: 0.06em;
-}
-.filter-select {
-  background: var(--panel);
-  color: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 8px;
-  font-size: 12px;
-  outline: none;
-}
-.filter-select:focus {
-  border-color: var(--phosphor);
-}
-.poll-hint {
+.poll-dot {
   color: var(--line);
   font-size: 10px;
   transition: color 0.2s;
 }
-.poll-hint--on {
-  color: var(--phosphor);
+.poll-dot--on {
+  color: var(--accent);
 }
-
+.btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--s3);
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover {
+  text-decoration: none;
+  border-color: var(--accent);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.btn--primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  color: var(--fg-3);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.link-btn:hover {
+  color: var(--fg);
+}
 .error {
   color: var(--fail);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   border: 1px solid var(--fail);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  margin: 0 0 12px;
+  border-radius: var(--r-ctl);
+  padding: var(--s2);
+  margin: 0 0 var(--s3);
   word-break: break-word;
 }
-
+.list-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+  min-width: 0;
+}
 .table {
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--r-panel);
   overflow: hidden;
+  background: var(--surface);
 }
 .thead,
 .trow {
   display: grid;
-  grid-template-columns: 124px minmax(200px, 1fr) 90px 150px 120px;
+  grid-template-columns: 124px minmax(200px, 1fr) 150px 150px 110px;
   align-items: center;
-  gap: 12px;
-  padding: 9px 14px;
+  gap: var(--s3);
+  padding: 10px var(--s3);
 }
 .thead {
-  background: var(--panel);
+  background: var(--surface-2);
   border-bottom: 1px solid var(--line);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: 0.06em;
-  color: var(--queue);
+  color: var(--fg-3);
   text-transform: uppercase;
 }
 .trow {
   border-bottom: 1px solid var(--line);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   outline: none;
 }
 .trow:last-child {
   border-bottom: none;
 }
 .trow:hover {
-  background: var(--panel);
+  background: var(--surface-2);
 }
 .trow:focus-visible {
-  background: var(--panel);
-  box-shadow: inset 2px 0 0 var(--phosphor);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .col-wf {
   display: flex;
@@ -251,77 +342,77 @@ onUnmounted(() => {
   min-width: 0;
 }
 .wf-title {
-  color: var(--paper);
+  color: var(--fg);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .wf-id {
-  color: var(--phosphor);
-  font-size: 11px;
+  color: var(--accent);
+  font-size: var(--fs-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .col-wf:not(.col-wf--titled) .wf-id {
-  font-size: 13px;
-}
-.col-step {
-  color: var(--queue);
+  font-size: var(--fs-sm);
 }
 .col-started {
-  color: var(--queue);
-  font-size: 12px;
+  color: var(--fg-3);
   white-space: nowrap;
 }
 .col-dur {
-  color: var(--queue);
+  color: var(--fg-3);
+}
+.col-step {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+.step-text {
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.dim {
+  color: var(--fg-3);
 }
 .empty {
-  padding: 28px 14px;
+  padding: var(--s6) var(--s3);
   text-align: center;
-  color: var(--queue);
-  font-size: 13px;
+  color: var(--fg-3);
+  font-size: var(--fs-sm);
 }
 .empty p {
-  margin: 0 0 10px;
+  margin: 0 0 var(--s2);
 }
-.empty-link {
-  display: inline-block;
-  background: var(--phosphor);
-  color: var(--ink);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
+.empty-hint {
+  color: var(--fg-3);
 }
-.empty-link:hover {
-  text-decoration: none;
-  opacity: 0.9;
+.empty .btn {
+  margin-top: var(--s1);
 }
-
-@media (max-width: 900px) {
-  .board-head {
-    align-items: flex-start;
+@media (max-width: 760px) {
+  .page-head {
     flex-direction: column;
-    gap: 10px;
+    gap: var(--s2);
   }
-  .controls {
-    flex-wrap: wrap;
+  .btn,
+  .link-btn {
+    min-height: 40px;
   }
-  /* 手机档（断点与 utils/mobileLayout.ts 的 MOBILE_MAX_WIDTH = 900 一致）：一行任务
-     压成两行卡片——标题/id 一行，状态与步骤 / 耗时排列在下面，与「任务看板」手机版同一做法。 */
+  /* 手机：一行压成两行卡片——标题/id 一行，状态与步骤 / 耗时排列在下面。 */
   .thead {
     display: none;
   }
   .trow {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
-    gap: 2px 0;
-    padding: 8px 10px;
+    align-items: center;
+    gap: 4px 0;
+    padding: var(--s2) var(--s3);
   }
   .col-wf {
     order: 1;
@@ -334,23 +425,19 @@ onUnmounted(() => {
     display: flex;
     justify-content: flex-end;
   }
-  .col-step,
+  .col-step {
+    order: 3;
+    flex: 1 1 120px;
+  }
   .col-started,
   .col-dur {
-    order: 3;
-    flex: none;
-    font-size: 11px;
+    order: 4;
+    font-size: var(--fs-xs);
+    white-space: nowrap;
   }
   .col-dur::before {
     content: ' · ';
     white-space: pre;
-    color: var(--queue);
-  }
-}
-
-@media (max-width: 640px) {
-  .filter-label {
-    font-size: 10px;
   }
 }
 </style>
