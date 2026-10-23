@@ -6,6 +6,7 @@
 // 服务端按 job.OriginCaller 判上限所有者；详情接口不下发 origin caller，所以这里退回按提交者
 // （job.caller_id）判断，两者在「自己提交、自己审」这条路上等价。
 // whoami 取不到（旧 server / 网络）时一律放行，让服务端的 403 说话。
+import { t } from '../i18n'
 import { ceilingReadOnly } from './ceiling'
 import { holdsPermission } from './permissionGate'
 import type { AuthWhoami } from './permissions'
@@ -39,21 +40,21 @@ export function canReviewJob(
 ): ReviewGate {
   if (!who) return ALLOWED
   if (ceilingReadOnly(who.ceiling)) {
-    return deny('只读身份：只能查看，不能验收或批准')
+    return deny(t('util.review.readOnly'))
   }
   // 凭据不受权限管辖（worker / job 凭据等）时后端另有闸门，界面不隐藏。
   if (who.kind === 'user') {
     if (!holdsPermission(who, REVIEW_PERM)) {
-      return deny('没有审阅权限（job.review）')
+      return deny(t('util.review.noPerm'))
     }
     const others = !!job?.caller_id && job.caller_id !== who.caller_id
     if (others && !holdsPermission(who, REVIEW_OTHERS_PERM)) {
-      return deny('没有审阅他人 job 的权限（job.review.others）')
+      return deny(t('util.review.noOthersPerm'))
     }
   }
   // 受限调用方不能给自己提交的 job 签字（服务端同口径）。
   if (who.ceiling && job?.caller_id && job.caller_id === who.caller_id) {
-    return deny('受限身份不能审阅自己的 job，需要别人验收')
+    return deny(t('util.review.selfCeiling'))
   }
   return ALLOWED
 }

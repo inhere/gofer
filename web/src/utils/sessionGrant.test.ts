@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { translate } from '../i18n'
 import {
   SESSION_GRANT_DEFAULT_EXPIRY_SEC,
   SESSION_GRANT_EXPIRY_OPTIONS,
-  SESSION_GRANT_THREAT_NOTE,
   badgeTitle,
   buildSessionGrantRequests,
   canGrantSession,
@@ -65,8 +65,9 @@ describe('session grant dialog logic', () => {
   })
 
   it('states the threat model in plain words', () => {
-    expect(SESSION_GRANT_THREAT_NOTE).toContain('终端会话')
-    expect(SESSION_GRANT_THREAT_NOTE).toContain('运行命令')
+    const note = translate('util.sessionGrant.threat', undefined, 'zh-CN')
+    expect(note).toContain('终端会话')
+    expect(note).toContain('运行命令')
   })
 })
 

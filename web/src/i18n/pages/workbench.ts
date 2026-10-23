@@ -109,6 +109,12 @@ export const workbench: PageDict = {
     'workbench.tabs.saving': '保存中…',
     'workbench.prefix.hint': 'ctrl+b：% 左右 · " 上下 · 方向键焦点 · x 关闭 · z 最大化 · c 新标签 · n/p/1–8 切标签',
 
+    // 多窗格布局容器（components/workbench/LayoutPane.vue）
+    'workbench.layout.emptyPane': '空窗格',
+    'workbench.layout.emptyPaneHint': '从左侧选择一个会话',
+    'workbench.layout.resizeH': '调整左右分屏比例',
+    'workbench.layout.resizeV': '调整上下分屏比例',
+
     'workbench.conv.loadEarlier': '加载更早的轮次（还有 {n} 轮）',
     'workbench.conv.continuous': '持续会话',
     'workbench.conv.round': '第 {n} 轮',
@@ -254,6 +260,10 @@ export const workbench: PageDict = {
     'workbench.context.hide': 'Hide the session info panel',
     'workbench.tabs.saving': 'saving…',
     'workbench.prefix.hint': 'ctrl+b: % split left/right · " split up/down · arrows move focus · x close · z maximize · c new tab · n/p/1–8 switch tab',
+    'workbench.layout.emptyPane': 'Empty pane',
+    'workbench.layout.emptyPaneHint': 'Pick a session on the left',
+    'workbench.layout.resizeH': 'Resize the left/right split',
+    'workbench.layout.resizeV': 'Resize the top/bottom split',
 
     'workbench.conv.loadEarlier': 'Load earlier rounds ({n} more)',
     'workbench.conv.continuous': 'Continuous session',

@@ -1,5 +1,6 @@
 // Issues 页的层级视图：把平铺的 issue 按 parent 挂成树，并算出依赖关系。
 // 纯函数，不碰 DOM，便于单测。
+import { t } from '../i18n'
 
 export interface IssueNode {
   id: string
@@ -130,7 +131,7 @@ export function issueRelations(all: IssueNode[], id: string): IssueRelations {
     if (n.id === id) continue
     for (const d of n.deps ?? []) {
       if (d.id === id && d.type === 'blocks') rel.blocks.push({ id: n.id, node: n, open: !isClosed(n.status) })
-      else if (d.id === id && d.type !== 'blocks') rel.other.push({ id: n.id, type: `${d.type}（被）`, node: n })
+      else if (d.id === id && d.type !== 'blocks') rel.other.push({ id: n.id, type: t('util.issueTree.reverseType', { type: d.type }), node: n })
     }
   }
   return rel

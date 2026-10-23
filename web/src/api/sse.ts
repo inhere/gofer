@@ -1,6 +1,7 @@
 // 纯函数 SSE 帧解析器（便于单测）+ streamJob 消费器。
 // 使用 fetch + res.body.getReader()（带 Authorization 头），不用 EventSource。
 
+import { t } from '../i18n'
 import { getToken, triggerUnauthorized } from '../store/auth'
 import type { SSEEvent, SSEEventType } from './types'
 
@@ -160,10 +161,10 @@ async function streamSSE(
 
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error('未授权（401）')
+    throw new Error(t('util.sse.unauthorized'))
   }
   if (!res.ok || !res.body) {
-    throw new Error(`stream 请求失败：HTTP ${res.status}`)
+    throw new Error(t('util.sse.streamFailed', { status: res.status }))
   }
   onOpen?.()
 

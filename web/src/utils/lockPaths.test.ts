@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { translate } from '../i18n'
 import { DIR_LOCK_HINT, formatLockPaths, parseLockPaths } from './lockPaths'
 
 describe('lock paths input (gofer-jkd2)', () => {
@@ -23,6 +24,7 @@ describe('lock paths input (gofer-jkd2)', () => {
   })
 
   it('hints the same rule everywhere the field appears', () => {
-    expect(DIR_LOCK_HINT).toContain('留空 = 锁整个 CWD')
+    expect(translate('util.lock.hint', undefined, 'zh-CN')).toContain('留空 = 锁整个 CWD')
+    expect(DIR_LOCK_HINT.value).toBe(translate('util.lock.hint'))
   })
 })

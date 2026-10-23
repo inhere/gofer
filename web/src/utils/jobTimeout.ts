@@ -1,8 +1,9 @@
 import { fmtDuration } from '../api/time'
+import { t } from '../i18n'
 
 /** Format the effective timeout shown next to a job's elapsed duration. */
 export function fmtJobTimeout(timeoutSec: number | null | undefined): string {
-  return timeoutSec != null && timeoutSec > 0 ? `超时 ${fmtDuration(timeoutSec)}` : '不限时'
+  return timeoutSec != null && timeoutSec > 0 ? t('util.jobTimeout.limit', { d: fmtDuration(timeoutSec) }) : t('util.jobTimeout.unlimited')
 }
 
 /** Explain a server-side timeout clamp when the requested and effective values differ. */
@@ -18,6 +19,6 @@ export function jobTimeoutTitle(
   ) {
     return undefined
   }
-  const effectiveText = effectiveSec > 0 ? fmtDuration(effectiveSec) : '不限时'
-  return `请求 ${fmtDuration(requestedSec)}，已按上限夹紧为 ${effectiveText}`
+  const effectiveText = effectiveSec > 0 ? fmtDuration(effectiveSec) : t('util.jobTimeout.unlimited')
+  return t('util.jobTimeout.clamped', { req: fmtDuration(requestedSec), eff: effectiveText })
 }

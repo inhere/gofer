@@ -7,7 +7,7 @@ const client = Object.values(import.meta.glob('../api/client.ts', { eager: true,
 
 describe('planSupervisor helpers', () => {
   it('uses the handoff quick phrase', () => {
-    expect(HANDOFF_QUICK_PHRASE).toBe('请写交接说明并更新 plan handoff')
+    expect(HANDOFF_QUICK_PHRASE.value).toBe('请写交接说明并更新 plan handoff')
   })
   it('labels sessions by title or agent + short id', () => {
     expect(sessionLabel({ session_id: 'abcdef123456', title: ' 主会话 ', agent: 'claude', state: 'idle' })).toBe('主会话 · idle')

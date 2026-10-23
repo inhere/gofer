@@ -1,4 +1,5 @@
 export type SplitDirection = 'h' | 'v'
+import { t } from '../../i18n'
 export type FocusDirection = 'left' | 'right' | 'up' | 'down'
 export type LayoutRejectReason = 'pane_limit' | 'tab_limit' | 'pane_not_found' | 'tab_not_found'
 
@@ -241,13 +242,13 @@ function nextTabIdentity(tabs: readonly LayoutTab[]): { id: string; title: strin
   const ids = new Set(tabs.map((tab) => tab.id))
   let index = 1
   while (ids.has(`tab-${index}`)) index++
-  return { id: `tab-${index}`, title: `标签 ${index}` }
+  return { id: `tab-${index}`, title: t('util.layout.tabTitle', { n: index }) }
 }
 
 export function createLayoutDocument(threadId: string | null = null): LayoutDocument {
   return {
     active_tab_id: 'tab-1',
-    tabs: [{ id: 'tab-1', title: '标签 1', focused: '', root: emptyPane(threadId) }],
+    tabs: [{ id: 'tab-1', title: t('util.layout.tabTitle', { n: 1 }), focused: '', root: emptyPane(threadId) }],
   }
 }
 
@@ -372,7 +373,7 @@ export function normalize(value: unknown, initialThreadId: string | null = null)
       id,
       title: typeof raw.title === 'string' && raw.title.trim()
         ? raw.title.trim()
-        : `标签 ${tabs.length + 1}`,
+        : t('util.layout.tabTitle', { n: tabs.length + 1 }),
       focused,
       root,
     })

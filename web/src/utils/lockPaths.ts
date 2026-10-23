@@ -3,6 +3,9 @@
 //
 // 与 internal/job/model.go 的 JobRequest.lock_paths 对齐：值是**项目根相对**路径，由服务端
 // 经 SafeJoin 解析、拒绝逃出项目根的写法，所以这里只做拆行/去空白，不校验也不改写路径。
+import { computed } from 'vue'
+import { t } from '../i18n'
+
 export function parseLockPaths(raw: string): string[] {
   return raw
     .split(/[\n,]/)
@@ -17,5 +20,5 @@ export function formatLockPaths(paths: readonly string[] | undefined): string {
 }
 
 // DIR_LOCK_HINT 是锁定目录字段的共用提示：新建 job、新会话、继续会话三处口径一致。
-export const DIR_LOCK_HINT =
-  '项目根相对，可多个（换行或逗号分隔）；留空 = 锁整个 CWD。只动某个子目录就写它，别的子目录的 job 才不用排队。'
+// 引用处全部在模板里（`DIR_LOCK_HINT`），导出 computed 让语言切换即时生效。
+export const DIR_LOCK_HINT = computed(() => t('util.lock.hint'))
