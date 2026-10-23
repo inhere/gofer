@@ -11,6 +11,7 @@
 //    失败回滚），链操作走 planRun/planPause/planResume；视图选择记 localStorage。
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import Icon from '../ui/Icon.vue'
 import { useRoute, useRouter } from 'vue-router'
 import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
@@ -1659,7 +1660,7 @@ onUnmounted(() => {
                   class="timeline-row"
                   :class="'ev-' + ev.type.replace('.', '-')"
                 >
-                  <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
+                  <Icon class="ev-icon" :icon="eventIcon(ev.type)" size="sm" />
                   <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
                   <span v-if="eventDetailText(ev)" class="ev-detail mono" :title="eventDetailText(ev)">
                     {{ eventDetailText(ev) }}

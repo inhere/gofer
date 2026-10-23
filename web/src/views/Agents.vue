@@ -5,6 +5,8 @@
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { ChevronDown, ChevronRight } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { getConfig, listAgents, probeAgent } from '../api/client'
 import InteractionToast from '../components/InteractionToast.vue'
 import StatusGlyph from '../ui/StatusGlyph.vue'
@@ -196,7 +198,7 @@ function listValue(v?: string[]): string {
               :title="expanded.has(a.key) ? t('agents.detect.collapse') : t('agents.detect.expand')"
               @click="toggleExpand(a.key)"
             >
-              <span class="chev" aria-hidden="true">{{ expanded.has(a.key) ? '▾' : '▸' }}</span>
+              <Icon class="chev" :icon="expanded.has(a.key) ? ChevronDown : ChevronRight" size="sm" />
               <span class="key-text">{{ a.key }}</span>
             </button>
             <!-- 内置模板注入的 agent（config.yaml 里没有它，是本机 PATH 上装了 CLI 后

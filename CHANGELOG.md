@@ -21,6 +21,7 @@
 **测试**
 - `i18n/noHardcodedCjk.test.ts`：全站扫描——`web/src` 下除 i18n 字典与测试外的 .ts/.vue 里出现中文即失败（.ts 与 SFC `<script>` 交给 TypeScript 解析，只看字符串 / 模板字面量，注释天然不算）；白名单（如语言开关的「中文」）集中在测试里并写理由；还没抽完的文件列在 `PENDING`，第二个用例守着「抽干净了必须从表里删掉」。
 - 受影响的现有用例随迁移改断言（`utils/dashStats.test.ts` 用 `rangeName()`；`views/uiTextWiring.test.ts`、`components/updateWaitIdle.test.ts` 按新的 getter / 符号映射取断言）。
+- **Web 图标改用 Lucide 图标库（P6-c，gofer-h355）**：界面里当图标用的 Unicode 字形（导航的 ◉ ▤ ⧉ ⌁ ⬡ ◈ ⌂ ⚙，页面里的 ✉ ✓ ⚑ ⇉ ◷ ↻ ✕ ▸ 等）全部换成 [lucide](https://lucide.dev) 图标（`@lucide/vue`，ISC，按需打包、离线可用）。侧栏 / 图标栏 / 手机标签栏 / 「更多」宫格、顶栏按钮（搜索、新建、随手记、信箱、待我决策、主题、语言、新版本）、窗口与弹窗的关闭按钮、各处的展开 / 收起箭头、任务与计划事件时间线的类型标记都换成线稿图标；尺寸统一为 14 / 16 / 20 三档（`--icon-sm` / `--icon` / `--icon-lg`）、线宽统一 1.75，颜色跟随文字。状态字形（`StatusGlyph` / `StatusPill`）的族与颜色不变，形状改为 lucide 图标（运行中旋转圆环、需要人感叹号、完成对勾、失败叉、超时时钟、空闲空心圆、排队虚线圆），小尺寸下更清楚。纯图标按钮都带 `aria-label` 与 `title`（走 zh/en 字典）。新增扫描测试：`web/src` 下不再允许出现当图标用的那批字形（白名单需写理由）。
 
 ## [0.190.0] - 2026-10-23
 

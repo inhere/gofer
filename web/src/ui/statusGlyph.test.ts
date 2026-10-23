@@ -53,6 +53,22 @@ describe('StatusGlyph', () => {
     }
   })
 
+  it('draws the lucide icon of the family', async () => {
+    for (const fam of STATUS_FAMILIES) {
+      const html = await render(StatusGlyph, { family: fam })
+      // 图标本体是 lucide：类名带 lucide-<图标名>，与 kind 同名
+      expect(html).toContain(`lucide-${GLYPHS[fam].kind}`)
+      expect(html).toContain('stroke-width="1.75"')
+    }
+  })
+
+  it('only spins while running', async () => {
+    expect(await render(StatusGlyph, { family: 'run' })).toContain('icon--spin')
+    for (const fam of ['need', 'done', 'fail', 'time', 'idle', 'queue'] as const) {
+      expect(await render(StatusGlyph, { family: fam })).not.toContain('icon--spin')
+    }
+  })
+
   it('maps a status value to its family', async () => {
     expect(await render(StatusGlyph, { status: 'needs_review' })).toContain('data-family="need"')
     expect(await render(StatusGlyph, { status: 'timeout' })).toContain('data-family="time"')

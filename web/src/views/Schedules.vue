@@ -5,6 +5,8 @@
 // UI 重设计 P5：参数「⚙」、立即执行参数表单进 ui/Sheet、编辑进 ui/Drawer（设计稿 §7.2）。
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { Cog } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { useRouter } from 'vue-router'
 import { useWhoami } from '../store/whoami'
@@ -399,7 +401,7 @@ onUnmounted(() => {
               data-test="schedule-run"
               @click="startRun(s)"
             >
-              {{ t('schedules.run') }}<span v-if="hasParams(s.params)" class="gear" data-test="schedule-param-gear">⚙</span>
+              {{ t('schedules.run') }}<Icon v-if="hasParams(s.params)" class="gear" :icon="Cog" size="sm" data-test="schedule-param-gear" />
             </button>
             <button
               class="act"

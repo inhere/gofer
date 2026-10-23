@@ -104,7 +104,8 @@ const selected = computed(() => active.value?.to ?? '')
   font-size: var(--fs-sm);
 }
 .crumb::before {
-  content: '▸ ';
+  /* 分隔符用普通标点（不是图标字形），不依赖打包字体以外的东西 */
+  content: '/ ';
   color: var(--ink-3);
 }
 

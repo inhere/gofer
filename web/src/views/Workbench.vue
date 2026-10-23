@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError } from '../api/client'
 import { getMetaCached } from '../api/metaCache'
@@ -744,7 +746,7 @@ onUnmounted(() => {
     <p v-if="error" class="page-error mono">{{ error }}</p>
     <p v-if="layoutNotice" class="layout-notice mono">
       {{ layoutNotice }}
-      <button type="button" :aria-label="t('workbench.error.dismiss')" @click="layoutNotice = ''">×</button>
+      <button type="button" :aria-label="t('workbench.error.dismiss')" @click="layoutNotice = ''"><Icon :icon="X" size="sm" /></button>
     </p>
     <div
       class="workbench-body"
@@ -837,7 +839,7 @@ onUnmounted(() => {
             >
               {{ tab.title }}
             </button>
-            <button class="tab-close" type="button" :aria-label="t('workbench.tabs.close', { title: tab.title })" @click="removeTab(tab.id)">×</button>
+            <button class="tab-close" type="button" :aria-label="t('workbench.tabs.close', { title: tab.title })" @click="removeTab(tab.id)"><Icon :icon="X" size="sm" /></button>
           </div>
           <button class="tab-new" type="button" :title="t('workbench.tabs.new')" @click="createTab">＋</button>
           <span v-if="prefixActive" class="prefix-status mono">{{ prefixHint }}</span>

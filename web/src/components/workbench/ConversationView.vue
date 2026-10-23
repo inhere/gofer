@@ -9,6 +9,8 @@ import MarkdownBlock from '../MarkdownBlock.vue'
 import AttachmentThumbs from '../AttachmentThumbs.vue'
 import InteractionCard from '../InteractionCard.vue'
 import StatusGlyph from '../../ui/StatusGlyph.vue'
+import Icon from '../../ui/Icon.vue'
+import { ChevronDown, ChevronRight } from '@lucide/vue'
 import {
   acpNoticeText,
   isACPEvent,
@@ -343,7 +345,7 @@ onUnmounted(abortAll)
               data-test="tools-toggle"
               @click="toggleTools(round.jobId, index)"
             >
-              <span class="caret" aria-hidden="true">{{ isToolsOpen(round.jobId, index) ? '▾' : '▸' }}</span>
+              <Icon class="caret" :icon="isToolsOpen(round.jobId, index) ? ChevronDown : ChevronRight" size="sm" />
               <span>{{ t('workbench.conv.tools', { n: block.events.length }) }}</span>
               <span v-if="block.failed > 0" class="tools-fail">{{ t('workbench.conv.toolsFail', { n: block.failed }) }}</span>
             </button>

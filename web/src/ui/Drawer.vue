@@ -4,6 +4,8 @@
 // embedded：内容内联渲染在自己页面里（工作台右栏那种「嵌在页面里的抽屉」），
 // 不 Teleport、不出遮罩、不画标题栏；flush：插槽内容自己管滚动（会话抽屉的时间线）。
 import { ref } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from './Icon.vue'
 import { t } from '../i18n'
 import { useOverlayBehavior } from './overlay'
 
@@ -55,7 +57,7 @@ const onKeydown = useOverlayBehavior(open, { panel })
             data-test="drawer-close"
             @click="open = false"
           >
-            ✕
+            <Icon :icon="X" size="sm" />
           </button>
         </header>
         <div class="dw-body" :class="{ 'dw-body--flush': flush }">

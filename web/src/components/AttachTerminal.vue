@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ChevronDown, ChevronRight } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -853,7 +855,8 @@ onUnmounted(() => {
     <!-- 聊天式输入区（tools-j0e）：长文本编辑确认后一次性写入，终端直输仍可用 -->
     <div v-if="!exited" class="chat-box">
       <button class="chat-toggle mono" type="button" @click="toggleChat">
-        {{ chatCollapsed ? '▸ 输入框' : '▾ 输入框' }}
+        <Icon :icon="chatCollapsed ? ChevronRight : ChevronDown" size="sm" />
+        <span>输入框</span>
       </button>
       <template v-if="!chatCollapsed">
         <textarea

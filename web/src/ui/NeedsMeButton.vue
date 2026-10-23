@@ -8,6 +8,8 @@
 //  - `pending` 快照仍接 utils/pendingAlert 弹提示条（新的人工介入请求 / 决策 / 待批准 job）；
 //  - worker 申请只对持有 worker.manage 的人订阅（无权限订阅该主题会被服务端拒）。
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { Bell } from '@lucide/vue'
+import Icon from './Icon.vue'
 import { getStats, listEnrollments, listJobs, listOpenDecisions, listPendingInteractions } from '../api/client'
 import type { PendingSnapshot, Stats } from '../api/types'
 import { noteServerVersion } from '../store/staleBuild'
@@ -144,6 +146,7 @@ function toggleOpen(): void {
       data-test="needs-me"
       @click="toggleOpen"
     >
+      <Icon class="nm-icon" :icon="Bell" size="sm" />
       <span class="nm-label">{{ label }}</span>
       <span class="nm-n" data-test="needs-me-count">{{ total }}</span>
     </button>
@@ -197,6 +200,10 @@ function toggleOpen(): void {
 .nm--hot {
   border-color: var(--fail);
 }
+/* 桌面有文字标签，铃铛图标只在手机（藏了文字）出现。 */
+.nm-icon {
+  display: none;
+}
 .nm--hot .nm-n {
   color: var(--fail);
 }
@@ -207,9 +214,8 @@ function toggleOpen(): void {
   .nm {
     gap: 4px;
   }
-  .nm::before {
-    content: '◔';
-    font-size: 14px;
+  .nm-icon {
+    display: inline-flex;
   }
 }
 </style>

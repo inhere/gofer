@@ -69,4 +69,15 @@ describe('AppShell SSR smoke', () => {
     // 5 个标签：今天 / 工作台 / 任务 / 计划 / 更多（每项一个 tab-label）
     expect(html.match(/class="tab-label"/g)?.length).toBe(5)
   })
+
+  it('draws a lucide icon for every navigation entry', async () => {
+    // issue gofer-h355：图标不再是 Unicode 字形，而是 ui/Icon.vue 渲染的 lucide svg
+    const desktop = await render(1440)
+    expect(desktop.match(/class="lucide lucide-/g)?.length).toBeGreaterThanOrEqual(16)
+    // 导航图标都是装饰性的：名称在链接的 title / 文字标签上
+    expect(desktop).toContain('data-test="side-link"')
+    const phone = await render(390)
+    // 4 个标签 + 「更多」
+    expect(phone.match(/class="lucide lucide-/g)?.length).toBeGreaterThanOrEqual(5)
+  })
 })

@@ -1,0 +1,21 @@
+/* 图标基元（issue gofer-h355，ui/Icon.vue）。
+ * 尺寸与线宽在组件里给定（lucide 需要像素数），这里只管排版与动画：
+ * 垂直对齐跟文字基线走，不撑开行高；颜色永远跟随 currentColor。
+ */
+.icon {
+  display: inline-block;
+  flex: none;
+  color: currentColor;
+  vertical-align: -0.15em;
+}
+
+/* 运行中：唯一常驻的图标动画（另一处是信号带流光），reduced-motion 由 base.css 统一关闭。 */
+.icon--spin {
+  animation: icon-spin 1.1s linear infinite;
+}
+
+@keyframes icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

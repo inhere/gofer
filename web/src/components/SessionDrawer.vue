@@ -14,6 +14,8 @@ import { sessionUsageRows } from '../utils/sessionUsage'
 import { runnerLabel } from '../utils/runnerDisplay'
 import { heldLabel, INJECT_MODES, injectModeLabel, injectModeTitle } from '../utils/injectMode'
 import SessionNudges from './SessionNudges.vue'
+import Icon from '../ui/Icon.vue'
+import { ChevronDown, ChevronRight } from '@lucide/vue'
 import SessionTopic from './SessionTopic.vue'
 import SessionGrantDialog from './SessionGrantDialog.vue'
 import GrantRenewDialog from './GrantRenewDialog.vue'
@@ -1151,7 +1153,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         <span v-if="ownerError" class="owner-refused-err" data-test="refused-owner-error">转移失败：{{ ownerError }}</span>
       </div>
 
-      <!-- 手机档（≤900px）：主题 / 范围 / 中继状态说明这几块收成一行「主题 · 范围 ▸」，
+      <!-- 手机档（≤900px）：主题 / 范围 / 中继状态说明这几块收成一行「主题 · 范围」加展开箭头，
            点开才显示；接管 / 唤醒 / 从此会话新开这一组主操作不进折叠区，一直可见。
            宽屏这条折叠条不显示，头部照旧全展开。 -->
       <button
@@ -1162,7 +1164,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         data-test="session-head-toggle"
         @click="headerOpen = !headerOpen"
       >
-        <span class="caret">{{ headerOpen ? '▾' : '▸' }}</span>
+        <Icon class="caret" :icon="headerOpen ? ChevronDown : ChevronRight" size="sm" />
         <span class="head-summary-text" data-test="session-head-summary">{{ headerSummary }}</span>
       </button>
 
@@ -1177,7 +1179,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           :aria-expanded="metaOpen"
           @click="toggleMeta"
         >
-          <span class="caret">{{ metaOpen ? '▾' : '▸' }}</span>
+          <Icon class="caret" :icon="metaOpen ? ChevronDown : ChevronRight" size="sm" />
           <span class="meta-summary">
             <span v-if="session.peer_name" :title="peerNameLabel(session)">{{ session.peer_name }}</span>
             <span v-else :title="session.session_id">{{ shortSid(session.session_id) }}</span>

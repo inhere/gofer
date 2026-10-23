@@ -7,6 +7,8 @@ import { canCancelJob } from '../utils/jobCancel'
 import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { deliveryLink, deliveryModeLabel, deliveryText } from '../utils/delivery'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ChevronDown, ChevronRight } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -2197,7 +2199,7 @@ onUnmounted(() => {
       <div v-if="job.session_id && sessionJobs.length > 1" class="meta-item">
         <span class="meta-k mono">{{ t('jobs.detail.sessionJobs') }}</span>
         <button class="chain-toggle mono" type="button" @click="sessionJobsOpen = !sessionJobsOpen">
-          {{ t('jobs.detail.sessionJobsCount', { n: sessionJobs.length }) }}{{ sessionJobsOpen ? ' ▾' : ' ▸' }}
+          {{ t('jobs.detail.sessionJobsCount', { n: sessionJobs.length }) }}<Icon :icon="sessionJobsOpen ? ChevronDown : ChevronRight" size="sm" />
         </button>
       </div>
       <ol v-if="sessionJobsOpen && sessionJobs.length > 1" class="chain-list">
@@ -2589,7 +2591,7 @@ onUnmounted(() => {
           class="timeline-row"
           :class="'ev-' + ev.type.replace('.', '-')"
         >
-          <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
+          <Icon class="ev-icon" :icon="eventIcon(ev.type)" size="sm" />
           <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
           <span v-if="eventDetailText(ev)" class="ev-detail mono" :title="eventDetailText(ev)">
             {{ eventDetailText(ev) }}
@@ -2772,7 +2774,7 @@ onUnmounted(() => {
         <p class="diff-note mono">{{ t('jobs.detail.wakeupHistory', { n: wakeupHistory.length }) }}</p>
         <ul class="timeline-list">
           <li v-for="ev in wakeupHistory" :key="ev.seq" class="timeline-row">
-            <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
+            <Icon class="ev-icon" :icon="eventIcon(ev.type)" size="sm" />
             <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
             <span class="ev-detail mono" :title="wakeupHistoryText(ev)">{{ wakeupHistoryText(ev) }}</span>
             <span class="ev-time mono">{{ fmtTime(ev.at) }}</span>

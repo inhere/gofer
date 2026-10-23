@@ -6,6 +6,8 @@ import { formatDuration, formatRelative } from '../../utils/format'
 import FilterChips from '../../ui/FilterChips.vue'
 import ProjectFilter from '../../ui/ProjectFilter.vue'
 import StatusGlyph from '../../ui/StatusGlyph.vue'
+import Icon from '../../ui/Icon.vue'
+import { ChevronDown, ChevronRight } from '@lucide/vue'
 import { WORKBENCH_THREAD_DRAG_TYPE } from './layoutTree'
 import { groupOfThread, groupThreads, THREAD_GROUP_ORDER, threadGroupLabelKey } from './threadGroups'
 
@@ -167,7 +169,7 @@ defineExpose({ focusSearch })
             :aria-expanded="endedOpen"
             @click="endedOpen = !endedOpen"
           >
-            <span class="caret" aria-hidden="true">{{ endedOpen ? '▾' : '▸' }}</span>
+            <Icon class="caret" :icon="endedOpen ? ChevronDown : ChevronRight" size="sm" />
             <span class="group-name">{{ t(threadGroupLabelKey(group)) }}</span>
             <span class="group-count">{{ grouped.ended.length }}</span>
           </button>
@@ -352,7 +354,9 @@ defineExpose({ focusSearch })
   color: var(--ink);
 }
 .caret {
-  width: 10px;
+  /* 图标是 14px 的 lucide svg（ui/Icon.vue）：定宽就定成它的尺寸，不再按字符宽度算 */
+  width: 14px;
+  flex: none;
 }
 .sess {
   width: 100%;

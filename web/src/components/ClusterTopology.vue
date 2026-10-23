@@ -8,6 +8,8 @@
 //  - 不画「项目→节点」映射边（D2/§10.2：worker.yaml 独立、server 不知 worker 的 projects）。
 import { runnerLabelNote } from '../utils/runnerDisplay'
 import { computed, ref } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import Heartbeat from '../components/Heartbeat.vue'
 import type { Runner } from '../api/types'
 import { beatOf, fmtAge, fmtUptime, workerAgeMs, workerStatusText } from '../utils/runners'
@@ -233,7 +235,7 @@ function isActive(r: Runner): boolean {
         <h2 class="panel-title mono">
           {{ isHubSelected ? 'server' : runnerLabelNote(selectedRunner?.name) }}
         </h2>
-        <button type="button" class="panel-close" aria-label="关闭" @click="closePanel">×</button>
+        <button type="button" class="panel-close" aria-label="关闭" @click="closePanel"><Icon :icon="X" size="sm" /></button>
       </header>
 
       <!-- hub / server -->

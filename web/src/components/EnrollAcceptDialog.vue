@@ -8,6 +8,8 @@
 //    pending，人可以改 id 再试）。
 //  - 纯逻辑（分段 / 规范化 / 校验 / 请求构造 / 错误文案）在 utils/enrollments.ts，本组件只管渲染。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { acceptEnrollment } from '../api/client'
 import type { WorkerEnrollment } from '../api/types'
 import {
@@ -130,7 +132,7 @@ onUnmounted(() => {
             {{ item.source || '来源未知' }}<template v-if="host"> · {{ host }}</template><template v-if="left"> · {{ left }}</template>
           </p>
         </div>
-        <button class="ea-x mono" type="button" :disabled="busy" aria-label="关闭" @click="emit('close')">×</button>
+        <button class="ea-x mono" type="button" :disabled="busy" aria-label="关闭" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
       </header>
 
       <p class="ea-note">

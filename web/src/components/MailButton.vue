@@ -7,6 +7,8 @@
 //    回来立刻拉一次），与顶栏其它兜底刷新的节奏一致。
 import { onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { Mail } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { listMail } from '../api/client'
 import { MAIL_PAGE_LINK, mailBadgeLabel, mailHeldQuery } from '../utils/mail'
 import { createPoller } from '../utils/poller'
@@ -39,7 +41,7 @@ onUnmounted(() => poller.stop())
     data-test="mail-btn"
     data-testid="mail-button"
   >
-    <span aria-hidden="true">✉</span>
+    <Icon :icon="Mail" size="sm" />
     <span class="mail-label">信箱</span>
     <span v-if="count > 0" class="mail-n" :title="`${count} 封信待指派`" data-test="mail-badge">{{ mailBadgeLabel(count) }}</span>
   </RouterLink>

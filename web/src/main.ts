@@ -10,6 +10,7 @@ import '@fontsource/ibm-plex-mono/latin-500.css'
 
 import './styles/tokens.css'
 import './styles/base.css'
+import './styles/icons.css'
 import './styles/status.css'
 
 import App from './App.vue'

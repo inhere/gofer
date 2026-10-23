@@ -4,6 +4,8 @@
 // 绑定的会话都不变；有效期仍是 1 / 4 / 24 小时（与「授权」同一组选项）。
 // 纯逻辑（选项、请求体、剩余时间、失败文案）在 utils/grantRenew.ts（有单测），这里只管渲染与调用。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { X } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import { ApiError } from '../api/client'
 import { renewAuthGrant } from '../api/permissions'
 import { fmtDateTime } from '../api/time'
@@ -68,7 +70,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
           <h2 class="rg-title">续期会话授权</h2>
           <p class="rg-sub mono" :title="label || target">{{ target }}</p>
         </div>
-        <button class="rg-x mono" type="button" :disabled="saving" aria-label="关闭" @click="emit('close')">×</button>
+        <button class="rg-x mono" type="button" :disabled="saving" aria-label="关闭" @click="emit('close')"><Icon :icon="X" size="sm" /></button>
       </header>
 
       <p class="rg-note" data-test="rg-note">

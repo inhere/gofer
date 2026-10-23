@@ -9,6 +9,8 @@
 // 上限（决策 1）：原文 > 1MB 或 > 5000 行只渲染前 5000 行，底部给「下载完整 diff」；
 // 二进制文件只渲染一行（内容不可读，base85 段整块跳过）。
 import { computed, nextTick, ref } from 'vue'
+import { ChevronDown, ChevronRight } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 
 interface DiffReviewComment {
   id: string
@@ -319,7 +321,7 @@ defineExpose({ focusFile })
           :aria-expanded="!collapsed.has(`${gi}:${fi}`)"
           @click="toggleFile(`${gi}:${fi}`)"
         >
-          <span class="ud-caret">{{ collapsed.has(`${gi}:${fi}`) ? '▸' : '▾' }}</span>
+          <Icon class="ud-caret" :icon="collapsed.has(`${gi}:${fi}`) ? ChevronRight : ChevronDown" size="sm" />
           <span class="ud-path" :title="f.path">{{ f.path }}</span>
           <span v-if="f.note" class="ud-note">{{ f.note }}</span>
           <span v-if="isFlagged(f.path)" class="ud-flag">范围外</span>

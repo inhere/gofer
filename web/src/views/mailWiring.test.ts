@@ -29,7 +29,7 @@ describe('mailbox page wiring', () => {
     expect(r).toContain("path: '/mail'")
     expect(r).toContain("import('./views/Mail.vue')")
     // 信箱在侧栏「协作」分组里是导航项（utils/shell.ts），顶栏另有信封按钮（components/MailButton.vue）。
-    expect(src('shell.ts')).toContain("{ to: '/mail', key: 'nav.mail', glyph: '✉' }")
+    expect(src('shell.ts')).toContain("{ to: '/mail', key: 'nav.mail', icon: 'mail' }")
   })
 
   it('the page talks to /v1/mail through the client', () => {
