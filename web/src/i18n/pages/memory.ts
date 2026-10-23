@@ -28,7 +28,6 @@ export const memory: PageDict = {
     'memory.source.project': '项目 · {name}',
     'memory.source.global': '全局',
     'memory.source.label': '来源',
-    'memory.allNote': '汇总所有项目 / 仓库与全局的记忆',
 
     'memory.repo': '仓库',
     'memory.repoPlaceholder': '请选择已登记仓库',
@@ -129,7 +128,6 @@ export const memory: PageDict = {
     'memory.source.project': 'Project · {name}',
     'memory.source.global': 'Global',
     'memory.source.label': 'Source',
-    'memory.allNote': 'Collects the memories of every project, repository and the global scope',
 
     'memory.repo': 'Repository',
     'memory.repoPlaceholder': 'Pick a registered repository',

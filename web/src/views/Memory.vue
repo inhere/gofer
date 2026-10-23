@@ -392,7 +392,7 @@ onMounted(async () => {
       <small class="scope-help">{{ scopeHelp }}</small>
     </section>
 
-    <section class="meta-panel">
+    <section v-if="scope !== 'all'" class="meta-panel">
       <div v-if="scope === 'repo'" class="repo-row">
         <TrackerRepoPicker :model-value="trackerId" :repos="repos" @update:model-value="pickRepo" />
         <TrackerRepoPath :repo="repo" :placeholder="t('memory.repoPlaceholder')" />
@@ -410,10 +410,6 @@ onMounted(async () => {
       <div v-else-if="scope === 'global'" class="repo-row">
         <span class="field-label">{{ t('memory.repo') }}</span>
         <span class="dim">{{ t('memory.globalNote') }}</span>
-      </div>
-      <div v-else class="repo-row">
-        <span class="field-label">{{ t('memory.source.label') }}</span>
-        <span class="dim" data-test="memory-all-note">{{ t('memory.allNote') }}</span>
       </div>
       <div class="sync-summary">
         <template v-if="repo && scope === 'repo'">

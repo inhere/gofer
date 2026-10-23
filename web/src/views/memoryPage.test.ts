@@ -100,8 +100,9 @@ describe('记忆页骨架', () => {
     setLocale('zh-CN')
     const html = await render(Memory, '/memory?memory_scope=all')
     expect(html).toContain('data-value="all"')
-    expect(html).toContain('data-test="memory-all-note"')
-    // 全部范围不需要选仓库 / 项目
+    // 说明行走「全部」那一档
+    expect(html).toContain('一次搜索所有项目 / 仓库 / 全局的记忆')
+    // 全部范围不需要选仓库 / 项目（不画那块面板）
     expect(html).not.toContain('data-test="memory-project"')
     expect(html).not.toContain('data-test="sync-repo"')
     // 页码也显示在页头（第 1 / 1 页）

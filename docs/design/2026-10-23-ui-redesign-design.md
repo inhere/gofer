@@ -2008,4 +2008,6 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 - `components/memoryDrawer.test.ts`（新，4 例）：SSR 渲染抽屉（Teleport 内容取 `ctx.teleports.body`，`dompurify` 在无 DOM 的测试环境里打成透传），断言字段与中文文案、仓库记忆没有「标记失效」、en 下的来源与按钮文案，以及保存 / 二次确认删除 / 标签走纯函数 / 标记理由的接线。
 - `views/memoryPage.test.ts` 新增 4 例：全部范围的 chip / 说明 / 不显示仓库与项目选择器、页头页码、URL 页码读取与钳位、分页与抽屉接线（含「旧页内展开已删」）。
 
-**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 239 passed (239)` / `Tests 1643 passed (1643)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.51s`。没有 Go 代码改动，也没有新增路由（所以 G056 声明、`go generate` 与 `docs/reference/http-api.md` 都不变）。
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 239 passed (239)` / `Tests 1643 passed (1643)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.60s`。`go build ./...` / `go vet ./...` 退出码 0（本项无 Go 代码改动）。没有新增路由，所以 G056 声明、`go generate` 与 `docs/reference/http-api.md` 都不变。
+
+**视觉自查**：worktree 构建产物 + 本机静态服务 + `/v1` 桩数据（合成数据与脚本在 `tmp/pagecheck/`，均已 gitignore），Edge headless 截图：zh × 深 / zh × 浅 / en × 浅 / en × 深 × 1440，zh × 深 / en × 浅 × 390，各再多一张打开抽屉的。确认：全部范围的来源列（项目 · gofer / 仓库 · gofer / gofer / 全局）同一行都不截断、深浅主题随 token 变；页头「共 N 条 · 第 1 / 1 页」与底部页码条（每页 50 / 上一页 / 1 / 1 / 下一页）整齐；抽屉在 1440 下 520px 靠右、在 390 下铺满全宽，字段两列自适应、标签 chip 与输入行不溢出；手机行堆叠后来源仍可见（标签列按旧口径隐藏）。两处按截图修掉的取舍：全部范围不再画那块「选择器面板」（说明行已经写了口径，空面板只是噪声）、面板里也不再多一行「来源」字段标签。
