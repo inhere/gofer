@@ -43,6 +43,8 @@ describe('任务页并排（主内容区 ≥1280）', () => {
     expect(html).toContain('data-layout="single"')
     expect(html).not.toContain('data-test="jobs-view-list"')
     expect(html).toContain('data-test="back-link"')
+    // 宽度够但选了单栏：仍给一个回「并排」的入口，否则就回不去了。
+    expect(html).toContain('data-test="jobs-split-enable"')
     expect(jobsSplitPreference.value).toBe('single')
   })
 })

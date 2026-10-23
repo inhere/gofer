@@ -84,6 +84,8 @@ describe('任务详情的宿主页（§16 并排 / 单栏）', () => {
     expect(html).toContain('data-layout="single"')
     expect(html).toContain('data-test="jobs-view-detail"')
     expect(html).not.toContain('data-test="jobs-view-list"')
+    // 量不到宽度就不能说「够宽可以并排」，所以不给并排开关。
+    expect(html).not.toContain('data-test="jobs-split-enable"')
   })
 })
 
