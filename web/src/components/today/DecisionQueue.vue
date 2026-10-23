@@ -6,6 +6,7 @@ import DecisionCard from './DecisionCard.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
 import type { SnoozeOption } from '../../utils/todaySnooze'
 import { groupByTier } from '../../utils/today'
+import { t } from '../../i18n'
 import { CEILING_READ_ONLY_NOTICE } from '../../utils/ceiling'
 import { useWhoami } from '../../store/whoami'
 
@@ -27,9 +28,9 @@ const { readOnly } = useWhoami()
 
 <template>
   <div class="dq" data-test="decision-queue">
-    <p v-if="cards.length === 0" class="dq-empty mono">{{ emptyText || '没有等你的事' }}</p>
+    <p v-if="cards.length === 0" class="dq-empty mono">{{ emptyText || t('today.queue.empty', { n: 0 }) }}</p>
     <template v-for="g in groups" :key="g.tier">
-      <div class="dq-tier mono" :data-tier="g.tier">{{ g.label }}</div>
+      <div class="dq-tier mono" :data-tier="g.tier">{{ t(`today.tier.${g.tier}`) }}</div>
       <DecisionCard
         v-for="c in g.cards"
         :key="c.key"
@@ -41,8 +42,12 @@ const { readOnly } = useWhoami()
       />
     </template>
     <div v-if="rest > 0" class="dq-rest mono">
-      <button class="dq-more" type="button" data-test="dq-more" @click="emit('more')">还有 {{ rest }} 张 · 打开全部</button>
-      <button class="dq-focus" type="button" data-test="dq-focus" :disabled="readOnly" :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined" @click="emit('focus')">专注处理</button>
+      <button class="dq-more" type="button" data-test="dq-more" @click="emit('more')">
+        {{ t('today.queue.rest', { n: rest }) }}
+      </button>
+      <button class="dq-focus" type="button" data-test="dq-focus" :disabled="readOnly" :title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined" @click="emit('focus')">
+        {{ t('today.focus') }}
+      </button>
     </div>
   </div>
 </template>
@@ -51,13 +56,13 @@ const { readOnly } = useWhoami()
 .dq {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--s2);
   min-width: 0;
 }
 .dq-tier {
-  margin-top: 4px;
-  color: var(--queue);
-  font-size: 11px;
+  margin-top: var(--s1);
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
   letter-spacing: 0.06em;
 }
 .dq-tier[data-tier='now'] {
@@ -68,42 +73,60 @@ const { readOnly } = useWhoami()
 }
 .dq-empty {
   margin: 0;
-  padding: 14px;
-  color: var(--queue);
-  font-size: 12px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
+  padding: var(--s5) var(--s4);
+  color: var(--fg-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  font-size: var(--fs-sm);
   text-align: center;
 }
 .dq-rest {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--s1);
 }
 .dq-focus {
-  padding: 8px 12px;
-  color: var(--ink);
-  background: var(--phosphor);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
-  font-size: 12px;
+  padding: var(--s1) var(--s3);
+  color: var(--bg);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
   font-weight: 600;
+  cursor: pointer;
 }
 .dq-focus:disabled {
-  opacity: 0.5;
+  color: var(--fg-3);
+  background: transparent;
+  border-color: var(--line);
+  cursor: default;
+}
+.dq-focus:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
 }
 .dq-more {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 8px 12px;
-  color: var(--phosphor);
+  padding: var(--s1) var(--s3);
+  color: var(--accent);
   background: transparent;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  font-size: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-ctl);
+  font: inherit;
+  font-size: var(--fs-sm);
   text-align: left;
+  cursor: pointer;
 }
 .dq-more:hover {
-  border-color: var(--phosphor);
+  border-color: var(--accent);
+}
+@media (max-width: 760px) {
+  .dq-more,
+  .dq-focus {
+    min-height: 40px;
+  }
 }
 </style>

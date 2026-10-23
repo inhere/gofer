@@ -35,7 +35,8 @@ describe('今天页：卡片写操作按权限灰显', () => {
 describe('今天页：只读身份下「专注处理」灰显', () => {
   it('页头按钮取 whoami 的 readOnly 并说明原因', () => {
     expect(today).toContain('const { readOnly } = useWhoami()')
-    expect(today).toContain(':disabled="!visibleCards.length || readOnly"')
+    // 类型 / 项目 chip 过滤后的张数决定「专注处理」能不能点
+    expect(today).toContain(':disabled="!shownCards.length || readOnly"')
     expect(today).toContain(':title="readOnly ? CEILING_READ_ONLY_NOTICE : undefined"')
   })
   it('队列底部的「专注处理」同样灰显', () => {
