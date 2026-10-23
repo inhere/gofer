@@ -13,6 +13,8 @@
 
 ### 变更
 
+- **项目页新增「按项目 / 按执行机」两个视图（gofer-d1kn）**：`/projects` 顶部加视图切换（`?view=runner` 可深链）。按执行机视图每台执行机一组：server 本机（显示为 `server`）与每个 worker 各一组，组内列出 server 声明且 `allowed_runners` 允许它运行的项目、它自己声明的项目（标「worker 自有」，来自 `GET /v1/workers/{id}/projects`）与它的默认工作空间（server 取本机工作空间，worker 取 `GET /v1/workers/{id}` 的 `dirs.workspace`），点项目 chip 回到按项目视图并选中；离线 worker 整卡灰显、标「离线」，心跳上报的项目与目录取不到时写明原因，取数失败也显示原始错误。按项目视图里 worker 自有项目另列一组（带声明它的 worker），内置 / `default` 项目标明「server 本机」。只用现有接口，未改后端。
+
 - **运行节点、Agents、项目三页改版（P5-c，gofer-hez1）**：`/runners` 的页头换成标题 + 一行摘要，待接受申请置顶，worker 申请同时进入「待我决策」；worker / peer / server 卡片保留状态、协议与 gofer 版本、平台、运行时长、in_flight、项目目录、agents 与外部工具、传话人入口、重新加载配置、一键升级与升级记录，离线 / 心跳过期 / 待决定 / 已拒绝都改用状态字形 + 文字 pill（不再各自画圆点），拓扑可折叠（手机上默认收起）。`/agents` 的只读健康表保留检测、键、类型、健康度、版本 / 错误与内置标记，健康度改用状态字形 + 文字 pill、附带宽口径的悬停说明，并新增「编辑」链接直达 设置 › 配置管理 的 agent 段。`/projects` 的主从布局保留（手机上是顶栏选择器 + 单栏），详情新增项目概览（活跃任务 / 进行中计划的计数，各自跳到该项目的过滤列表），内置项目标记、allowed_agents / allowed_runners、交互与 exec 开关、规则绑定、worktree 路径、git 状态、子仓库与关键文件全部保留。三页文案进 `web/src/i18n/pages/runners.ts`、`agents.ts`、`projects.ts`。
 
 - **Issues、统计、新建任务三页改版（P5-b，gofer-hez1）**：`/issues` 的仓库下拉换成列表头统一的项目 chip（repo 视作项目），Issues / 记忆两个页签换成统一页签（`?tab=` 可深链），状态筛选换成带计数的 chip，树形 / 平铺切换与记忆作用域都改用分段控件，issue 详情改成统一侧抽屉（关系、备注、评论、保存/评论的只读判断都保留），页头去掉 TRACKER 眉标。`/dashboard` 迁到新 token（状态族配色、数字等宽、面板圆角分级），所有标题、口径提示、图例与单位走 zh/en 字典，手机断点统一到 760px。`/new` 改成两栏（左栏项目 / runner / worker / agent，右栏模板 / 标题 / cwd / 任务说明），其余选项收进可折叠的「高级选项」，返回链接换成统一的「← 任务」，标题随模式变化（新建任务 / 快速重建 / 从会话新开），全部字段与校验不变。三页文案进 `web/src/i18n/pages/issues.ts`、`stats.ts`、`newjob.ts`。

@@ -1370,6 +1370,44 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 - 本页没有逐像素对齐预览稿（预览稿没有这三屏），形态按 §7.4 的字段清单 + P2/P4/P5 已合入的基元落地。
 - 视觉自查**没有做成**：搭了临时预览入口（`preview-p5c.html` + `src/preview-p5c.ts`，stub 了 `/v1/runners`、`/v1/worker-enrollments`、`/v1/agents`、`/v1/config`、`/v1/projects` 与 `/git`、`/repos`、`/v1/jobs`、`/v1/plans`，vite dev 能起来），但本机 Chrome 在 agent-browser 下启动即退出（`Chrome exited early without writing DevToolsActivePort`，加 `--no-sandbox` 同样失败），拿不到截图。所以 zh / en × 浅 / 深的外观没有经过人眼，只按 CSS 口径（≥1100 完整侧栏、≤760 单栏 + 40px 点按目标）+ 字典完整性用例 + SSR 用例核对。临时入口与 stub 数据已删除。
 
+### P5 项目页「按执行机」视图（2026-10-23，issue gofer-d1kn）
+
+落地范围：`web/src/views/Projects.vue`、新增 `web/src/utils/projectFleet.ts`（纯函数）、`web/src/i18n/pages/projects.ts`、`api/client.ts` 与 `api/types.ts` 各加两个读接口的封装。**后端一行没改**，只用现有接口：`GET /v1/projects`（键 + `injected`）、`GET /v1/projects/{key}`（`allowed_runners`；有配置读权限时先从 `GET /v1/config` 的 `projects` 一次拿全）、`GET /v1/runners`（执行机清单与状态）、`GET /v1/workers/{id}`（`dirs.workspace` 即该执行机的默认工作空间）、`GET /v1/workers/{id}/projects`（worker 自己声明的项目）。
+
+**视图切换**
+
+- `ui/Tabs`，参数名 `view`：默认 `project` 不写进 URL，`?view=runner` 可深链、可前进后退；两个页签带数量（项目数 / 执行机组数）。
+- 两种视图各自保留原来的按项目主从布局；执行机视图无需选中态，点项目 chip 即回按项目视图并选中它。
+
+**按执行机**
+
+- server 本机一组 + 每台 worker 一组（同一 worker 上有多个 runner 名时合成一组；`/v1/runners` 里 type=worker 的行才是 worker）。
+- 准入口径与后端一致，不在前端自创：`allowed_runners` 为空只放行本机（`internal/project.AllowsLocalRunner`、`internal/core/policy.go` Q8「空 allowlist 不推给任何 worker」），`server` 与 `local` 视为同一个（G043）。
+- 组内三行：默认工作空间（server 取本机 `dirs.workspace`，worker 取 `GET /v1/workers/{id}` 的 `dirs.workspace`，目录不存在标「目录不存在」）、可用项目（server 声明且允许它运行）、worker 自有（`GET /v1/workers/{id}/projects` 里 server 没声明的 key，虚线 chip，悬停显示该 worker 上报的解析路径）。
+- 离线 worker：整卡灰显（`opacity: .6`）+ `StatusPill`「离线」；心跳上报的项目与目录取不到时按原因写文案（离线 / 在线但未上报），接口失败另起一行显示原始错误。
+
+**按项目**
+
+- `default` 行（列表与详情头）加「server 本机」徽标：内置 `default` 指向 server 的默认工作空间，容易与 worker 自己的工作空间混淆。
+- 新增「worker 自有项目」一组：跨两列排在主从布局下方，手机上 `order: -1` 排到详情之前；同一 key 被多台 worker 声明时合成一行并列出声明它的 worker。这些项目只读（不在 server 配置里，改要去那台 worker 的 worker.yaml）。
+- 表单、项目概览计数、git 状态、子仓库、关键文件、删除与内置项目规则一律未动。
+
+**i18n**
+
+- 新 key 全在 `web/src/i18n/pages/projects.ts`：`projects.view.*`、`projects.fleet.*`、`projects.workerOwn.*`、`projects.defaultLocal*`，zh / en 同名同数；不动 `zh.ts` / `en.ts`。业务内容（项目名、worker id、路径、错误原文）不翻译。
+
+**测试**
+
+- 新增 `web/src/utils/projectFleet.test.ts`（11 个用例）：空 allowlist 只放行本机、`server` 别名、按 runner 名匹配、server 组与它的默认工作空间、worker 自有排除 server 已声明的 key、离线 worker（原因 + 错误原文）、在线未上报、`/v1/runners` 为空时仍有 server 组、`workerOwnProjects` 跨 worker 合并、`allowed_runners` 的 config 预填。
+- 新增 `web/src/views/projectsFleet.test.ts`（8 个用例）：SSR 渲染两种视图与字典文案、`?view=runner` 深链、默认视图不渲染执行机视图、worker 自有接线、`default` 的本机标记、离线灰显与原因、只用现有接口、手机断点。
+- `npx vue-tsc --noEmit`、`npx vitest run`（217 文件 / 1483 用例）、`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 全过。
+
+**如实记录的范围边界**
+
+- `GET /v1/projects/{key}` 取不到 `allowed_runners` 时（非管理员且接口失败），该项目的准入名单按「只在本机可用」处理：它仍出现在 server 组，不推给任何 worker。不做猜测。
+- 视觉自查没做成截图：本机 Chrome 在 agent-browser 下起不来（P5-c 报 `DevToolsActivePort`，本次连 `open data:text/html,…` 都直接挂住、无输出，3 分钟超时被杀），预览稿也没有这一屏。外观按 token 口径（卡片 `--r-panel`、状态走 `StatusPill`、手机上单列 + chip 36px 点按目标）与 SSR 用例核对，zh / en × 浅 / 深未经过人眼。
+- 只做了「两种视图 / 离线 / 默认工作空间」的结构断言，没有真实 `/v1/runners` 联调截图。
+
 
 
 1. **品牌色和字体是否跟着换？**
