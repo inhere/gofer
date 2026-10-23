@@ -458,23 +458,52 @@ func (d *Deliverer) sweepJobs(ctx context.Context, now time.Time, st Settings) {
 			return
 		}
 		rec, ok, err := d.svc.store.GetJob(id)
-		if err != nil || !ok {
+		if err != nil {
 			continue
 		}
 		letters := byID[id]
 		switch {
+		case !ok:
+			// The job row is gone (pruned, deleted): no later sweep can deliver these.
+			d.holdJobLetters(letters, "收件 job 不存在")
 		case rec.Interactive:
-			for _, m := range letters {
-				if _, _, err := d.svc.HoldLetter(m.ID, PtyHoldReason); err != nil {
-					slog.Warn("mail deliverer: holding a pty job letter failed", "mail", m.ID, "error", err)
-				}
-			}
+			d.holdJobLetters(letters, PtyHoldReason)
+		case job.IsTerminal(rec.Status):
+			// The recipient ended while the letter was waiting: park it and tell the sender
+			// now instead of at the delivery deadline (gofer-0n6r).
+			d.holdJobLetters(letters, "收件 job 已结束（"+rec.Status+"），这封信没人读了")
+		case !d.svc.receivesJobMail(id):
+			// A one-off run has no ACP session, so no turn of it can ever take a letter. New
+			// sends are refused at the address (mail.Send); this catches letters stored
+			// before that rule existed.
+			d.holdJobLetters(letters, oneOffJobReason)
 		case rec.Status == job.StatusAwaitingInput:
 			d.sayToJob(ctx, id, letters[0], st)
 		}
-		// Anything else (queued / running / terminal) waits: a job that reaches
-		// awaiting_input gets its letters at a later sweep, the rest go to the capture box
-		// at the delivery deadline.
+		// Anything else (queued / running session job) waits: a job that reaches
+		// awaiting_input gets its letters at a later sweep.
+	}
+}
+
+// oneOffJobReason explains a hold of a letter to a job that can never receive mail.
+const oneOffJobReason = "收件是一次性作业（没有 ACP 会话），收不到信件"
+
+// receivesJobMail reports whether a job can take a letter at all (见 SessionJobCheck): the
+// deliverer's judgement when no seam is wired is the record's own state, i.e. "maybe".
+func (s *Service) receivesJobMail(jobID string) bool {
+	if s.sessionJob == nil {
+		return true
+	}
+	session, found := s.sessionJob(jobID)
+	return session || !found
+}
+
+// holdJobLetters parks the pending letters of one job and returns each to its sender.
+func (d *Deliverer) holdJobLetters(letters []jobstore.Mail, reason string) {
+	for _, m := range letters {
+		if _, _, err := d.svc.HoldLetter(m.ID, reason); err != nil {
+			slog.Warn("mail deliverer: holding a job letter failed", "mail", m.ID, "error", err)
+		}
 	}
 }
 

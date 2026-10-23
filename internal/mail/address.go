@@ -265,18 +265,37 @@ func (s *Service) resolveSession(in resolveInput) (resolution, error) {
 	}}, nil
 }
 
+// resolveJob answers a job:<id> address. A job: address names its recipient exactly, so there is
+// nothing to park: a job that no longer exists or that can never take a letter (an ended job, a
+// one-off run with no ACP session) is REFUSED here, with what to do instead. Parking such a
+// letter for a person to assign made the sender wait 24h for an answer nobody would ever give
+// (gofer-0n6r).
 func (s *Service) resolveJob(in resolveInput) (resolution, error) {
 	rec, ok, err := s.store.GetJob(in.addr.Value)
 	if err != nil {
 		return resolution{}, err
 	}
-	if !ok || job.IsTerminal(rec.Status) {
-		return resolution{reason: in.addr.Raw + " names no live job"}, nil
+	if !ok {
+		return resolution{}, fmt.Errorf("%w: %s names no job (see `gofer job ls`)%s", ErrJobNotFound, in.addr.Raw, jobMailInstead)
+	}
+	if job.IsTerminal(rec.Status) {
+		return resolution{}, fmt.Errorf("%w: %s already ended (%s) and will never read a letter; read its report instead (`gofer job show %s`)%s",
+			ErrJobCannotReceive, in.addr.Raw, rec.Status, in.addr.Value, jobMailInstead)
+	}
+	if s.sessionJob != nil {
+		if session, found := s.sessionJob(in.addr.Value); found && !session {
+			return resolution{}, fmt.Errorf("%w: %s is a one-off job (no ACP session), so nothing can be said into it%s",
+				ErrJobCannotReceive, in.addr.Raw, jobMailInstead)
+		}
 	}
 	return resolution{target: Target{
 		Kind: jobstore.MailKindJob, ID: in.addr.Value, Address: in.addr.Raw, Deliver: true,
 	}}, nil
 }
+
+// jobMailInstead is the tail of a refused job: address: what the sender can do instead. (It avoids
+// <…> placeholders: the text travels in a JSON body, where Go escapes angle brackets.)
+const jobMailInstead = "; mail the session behind it (an address like session:…), wait for it to end and read its report, or leave a comment on it (`gofer job comment …`)"
 
 // resolveByFind answers a topic: / path: address through the session finder (sessionrelay.Find
 // — the matching and ranking live there). topic: keeps the sessions whose DECLARED topic

@@ -38,6 +38,11 @@ func (o Origin) Validate() (Origin, error) {
 		if norm.ID != "" {
 			return Origin{}, fmt.Errorf("%w: a caller sender has no id", ErrInvalidOrigin)
 		}
+	case jobstore.MailKindGofer:
+		// gofer itself (a 退信): no id, no caller.
+		if norm.ID != "" || norm.Caller != "" {
+			return Origin{}, fmt.Errorf("%w: a gofer sender has no id and no caller", ErrInvalidOrigin)
+		}
 	case "":
 		return Origin{}, fmt.Errorf("%w: kind required", ErrInvalidOrigin)
 	default:
@@ -62,6 +67,8 @@ func (o Origin) Display() string {
 			return "调用方"
 		}
 		return "调用方 " + o.Caller
+	case jobstore.MailKindGofer:
+		return "gofer"
 	}
 	return "未知出处"
 }
@@ -81,6 +88,10 @@ func AddressOf(kind, id, caller string) string {
 		return "job:" + id
 	case jobstore.MailKindCaller:
 		return "caller:" + caller
+	case jobstore.MailKindGofer:
+		// gofer has no id and no caller: the address is just its name, so a 退信 still has a
+		// party to show (and a conversation to belong to). Nothing sends INTO it.
+		return "gofer"
 	}
 	return ""
 }

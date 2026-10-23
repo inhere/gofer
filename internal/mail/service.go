@@ -41,6 +41,15 @@ var (
 	ErrRateLimited = fmt.Errorf("mail: send rate limited")
 	// ErrMailNotFound: no letter with that id.
 	ErrMailNotFound = fmt.Errorf("mail: letter not found")
+	// ErrJobNotFound: a job: address names no job at all (a typo, a deleted row).
+	ErrJobNotFound = fmt.Errorf("mail: job not found")
+	// ErrJobCannotReceive: a job: address names a job that can never take a letter — an ended
+	// job, or a one-off run (no ACP session, so nothing can be said into it). The send is
+	// refused instead of storing a letter that would hang until the delivery deadline.
+	ErrJobCannotReceive = fmt.Errorf("mail: job cannot receive mail")
+	// ErrNotAnswerable: the letter was written by gofer itself (a 退信), so there is no sender
+	// to answer.
+	ErrNotAnswerable = fmt.Errorf("mail: letter cannot be answered")
 	// ErrInvalidBody: an empty body (there is nothing to deliver).
 	ErrInvalidBody = fmt.Errorf("mail: body required")
 )
@@ -117,6 +126,9 @@ type Service struct {
 	// residents is the `mail.agents` block (hot-reloaded like the numbers above): which names
 	// an `agent:` address may use and how their resident session is started.
 	residents atomic.Pointer[ResidentsConfig]
+	// sessionJob says whether a job id is an ACP session job (`--session`), the only job kind a
+	// letter can be delivered into (nil = this process cannot tell, and a live job is accepted).
+	sessionJob SessionJobCheck
 	// residentHost starts / ends / looks up the resident session jobs (nil = this process cannot
 	// start sessions, so `agent:` letters are parked).
 	residentHost ResidentHost
@@ -134,6 +146,16 @@ func NewService(store *jobstore.Store, finder SessionFinder) *Service {
 // SetCaptureBox replaces the collection-box seam (tests, and a deployment whose capture box is
 // not the metadata store).
 func (s *Service) SetCaptureBox(b CaptureBox) { s.box = b }
+
+// SessionJobCheck reports whether a job id is an ACP session job — one started with `session: true`
+// (the only job kind a letter can be said into) — and whether the job is known at all (found).
+// It is the job service's judgement, injected at assembly: the mailbox does not read job request
+// payloads to find out.
+type SessionJobCheck func(jobID string) (session, found bool)
+
+// SetSessionJobCheck installs the job-side judgement of a `job:` address (nil = none: every live
+// job is then accepted, which is what a process without a job service can do).
+func (s *Service) SetSessionJobCheck(fn SessionJobCheck) { s.sessionJob = fn }
 
 // SetClock overrides the service clock (tests).
 func (s *Service) SetClock(fn func() time.Time) {
@@ -243,6 +265,9 @@ func (s *Service) Reply(in ReplyInput) (SendResult, error) {
 	}
 	if !ok {
 		return SendResult{}, ErrMailNotFound
+	}
+	if orig.FromKind == jobstore.MailKindGofer {
+		return SendResult{}, fmt.Errorf("%w: letter %d is a gofer notice (退信), there is no sender to answer", ErrNotAnswerable, orig.ID)
 	}
 	if err := s.checkBody(in.Body); err != nil {
 		return SendResult{}, err

@@ -87,6 +87,8 @@ func newMailEnv(t *testing.T) *mailEnv {
 		{ID: e.jCredNone, CallerID: "alice"},
 	} {
 		j.ProjectKey, j.Agent, j.Runner, j.Status, j.Cwd, j.StartedAt, j.UpdatedAt = "p1", "exec", "worker", job.StatusRunning, ".", now, now
+		// `session: true`: an ACP session job is the only job that can take a letter.
+		j.SessionStateJSON = `{"session":true}`
 		if err := st.UpsertJob(j); err != nil {
 			t.Fatalf("seed job %s: %v", j.ID, err)
 		}
@@ -181,6 +183,35 @@ func TestMailSendPermissionCells(t *testing.T) {
 	after, _ := e.s.jobs.Meta().ListMail(jobstore.ListMailOpts{FromCaller: "alice", Limit: 500})
 	if len(after) != len(before) {
 		t.Errorf("a refused send stored %d letter(s)", len(after)-len(before))
+	}
+}
+
+// TestMailSendToOneOffOrEndedJobIsRefused (gofer-0n6r): a job: address names a job that can never
+// take a letter — a one-off run, or an ended job — and the send is refused with what to do
+// instead, instead of a letter that waits for a delivery nobody will make.
+func TestMailSendToOneOffOrEndedJobIsRefused(t *testing.T) {
+	e := newMailEnv(t)
+	e.grant()
+	st := e.s.jobs.Meta()
+	now := time.Now().Unix()
+	for id, status := range map[string]string{"job-batch": job.StatusRunning, "job-finished": job.StatusDone} {
+		if err := st.UpsertJob(jobstore.JobRecord{
+			ID: id, CallerID: "alice", ProjectKey: "p1", Agent: "exec", Runner: "local", Status: status,
+			Cwd: ".", StartedAt: now, UpdatedAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"job-batch", "job-finished"} {
+		status, body := e.req(t, mailTokAlice, "", "POST", "/v1/mail", map[string]any{"to": "job:" + id, "body": "hi"})
+		if status != http.StatusConflict || !strings.Contains(body, "job cannot receive mail") ||
+			!strings.Contains(body, "gofer job comment") {
+			t.Errorf("mail to %s = %d (%s), want 409 with the alternatives", id, status, body)
+		}
+	}
+	// The session job of the same fixture is still mailable.
+	if status, body := e.req(t, mailTokAlice, "", "POST", "/v1/mail", map[string]any{"to": "job:" + e.jA, "body": "hi"}); status != http.StatusOK {
+		t.Errorf("mail to a session job = %d (%s), want 200", status, body)
 	}
 }
 

@@ -35,12 +35,16 @@ const (
 	// the resident session gofer keeps for an `agent:<名字>` address, so it is delivered into
 	// that agent's session job by the deliverer, not by a job credential of its own.
 	MailKindAgent = "agent"
+	// MailKindGofer is a from_kind only: gofer itself is the author of the letter — the 退信
+	// that tells a sender its letter could not be delivered. It has no id and no caller, and
+	// nothing is ever delivered INTO it (a bounce is never bounced, a notice is never answered).
+	MailKindGofer = "gofer"
 )
 
-// MailValidKind reports whether k is one of the three letter kinds.
+// MailValidKind reports whether k is a letter kind (a from_kind or, except for gofer, a to_kind).
 func MailValidKind(k string) bool {
 	switch k {
-	case MailKindSession, MailKindCaller, MailKindJob:
+	case MailKindSession, MailKindCaller, MailKindJob, MailKindGofer:
 		return true
 	}
 	return false
@@ -299,6 +303,11 @@ func validateMailInput(in MailInput) error {
 	case MailKindSession, MailKindJob:
 		if strings.TrimSpace(in.FromID) == "" {
 			return fmt.Errorf("%w: from_id required for a %s sender", ErrMailInvalid, in.FromKind)
+		}
+	case MailKindGofer:
+		// gofer itself: no id, no caller — the row says "machine text" and nothing else.
+		if strings.TrimSpace(in.FromID) != "" || strings.TrimSpace(in.FromCaller) != "" {
+			return fmt.Errorf("%w: a gofer sender has no id and no caller", ErrMailInvalid)
 		}
 	}
 	switch in.ToKind {
