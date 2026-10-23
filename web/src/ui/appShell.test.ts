@@ -58,6 +58,12 @@ describe('AppShell top bar', () => {
     expect(shell).toContain('data-test="nodes-summary"')
   })
 
+  it('counts node online-ness with the shared runner rule (gofer-hez1)', () => {
+    // worker 的在线值是 connected；只判 up 会让侧栏的「节点 N/M 在线」把已连接 worker 当离线。
+    expect(shell).toContain('online: runnerOnline(r.status)')
+    expect(shell).not.toContain("r.status === 'up'")
+  })
+
   it('renders the phone tab bar and the more sheet only at the tab-bar width', () => {
     expect(shell).toContain('v-if="hasTabBar(form)" class="tabs"')
     expect(shell).toContain('data-test="more-sheet"')

@@ -115,6 +115,8 @@ export const runners: PageDict = {
     'runners.topo.noLabels': '无 labels',
     'runners.topo.probe': '探活',
     'runners.topo.local': '本机',
+    'runners.topo.localRunner': '本机 runner（server 进程内）',
+    'runners.topo.serverProjects': 'server 项目（{n}）',
     'runners.topo.runOn': '执行',
     'runners.topo.runInProcess': '本机 in-process',
     'runners.topo.noProjects': '无项目',
@@ -198,6 +200,7 @@ export const runners: PageDict = {
     'runners.enroll.rejectBtn': '拒绝',
 
     // runner 的工作目录折叠区（components/RunnerDirs.vue）
+    'runners.dirs.title': '工作目录',
     'runners.dirs.problemCount': '{n} 处有问题',
     'runners.dirs.notReported': '未上报',
     'runners.dirs.notReportedHint': '该 runner 没有上报目录（旧版本 worker，或还没有心跳）。升级 worker 后这里会显示。',
@@ -320,6 +323,8 @@ export const runners: PageDict = {
     'runners.topo.noLabels': 'No labels',
     'runners.topo.probe': 'Probe',
     'runners.topo.local': 'local',
+    'runners.topo.localRunner': 'Local runner (inside the server process)',
+    'runners.topo.serverProjects': 'Server projects ({n})',
     'runners.topo.runOn': 'Runs',
     'runners.topo.runInProcess': 'in-process on this server',
     'runners.topo.noProjects': 'No projects',
@@ -402,6 +407,7 @@ export const runners: PageDict = {
     'runners.enroll.rejectingBtn': 'Rejecting…',
     'runners.enroll.rejectBtn': 'Reject',
 
+    'runners.dirs.title': 'Working directories',
     'runners.dirs.problemCount': '{n} problems',
     'runners.dirs.notReported': 'Not reported',
     'runners.dirs.notReportedHint':

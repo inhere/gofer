@@ -5,6 +5,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { listJobs, listRunners } from '../api/client'
 import type { Runner } from '../api/types'
+import { runnerOnline } from '../utils/runners'
 import { t } from '../i18n'
 
 const props = defineProps<{ current: string; latest: string; submitting: boolean; error: string }>()
@@ -42,7 +43,7 @@ function toRow(r: Runner): WorkerRow {
     id: r.worker_id || r.name,
     platform: w?.os && w?.arch ? `${w.os}/${w.arch}` : '—',
     version: w?.gofer_version || '—',
-    online: r.status === 'connected' || r.status === 'up',
+    online: runnerOnline(r.status),
   }
 }
 

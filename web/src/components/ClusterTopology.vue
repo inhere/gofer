@@ -31,13 +31,17 @@ const loaded = computed(() => true)
 const selected = ref<Runner | 'hub' | null>(null)
 
 
-// 节点排序：worker（主角）→ peer → local，与 Runners 名册分组一致。
+// 节点排序：worker（主角）→ peer。
+// local（server 进程内 runner）不画成辐射节点：它和中心 hub 是同一个 server，
+// 画出来会出现两个「server」节点（gofer-hez1）；它的信息并进 hub 节点与 hub 面板。
 const orderedRunners = computed(() => {
   const w = runners.value.filter((r) => r.type === 'worker')
   const p = runners.value.filter((r) => r.type === 'peer-http')
-  const l = runners.value.filter((r) => r.type === 'local')
-  return [...w, ...p, ...l]
+  return [...w, ...p]
 })
+
+// hub 节点里展示的本机 runner（GET /v1/runners 的 local 行）。
+const localRunner = computed<Runner | null>(() => runners.value.find((r) => r.type === 'local') ?? null)
 
 interface TopoNode {
   runner: Runner
@@ -67,7 +71,6 @@ const inFlightTotal = computed(() =>
 )
 const workerCount = computed(() => runners.value.filter((r) => r.type === 'worker').length)
 const peerCount = computed(() => runners.value.filter((r) => r.type === 'peer-http').length)
-const localCount = computed(() => runners.value.filter((r) => r.type === 'local').length)
 
 
 // peer-http 探活年龄
@@ -165,17 +168,18 @@ function isActive(r: Runner): boolean {
         />
       </svg>
 
-      <!-- 中心 hub = server -->
+      <!-- 中心 hub = server（含本机 in-process runner；local 不再单独画成节点） -->
       <button
         type="button"
         class="node node--hub"
         :class="{ 'node--sel': isHubSelected }"
         style="left: 50%; top: 50%"
+        data-test="topo-hub"
         @click="selectHub"
       >
         <span class="hub-core" aria-hidden="true"></span>
         <span class="node-name mono">server</span>
-        <span class="node-meta mono">{{ inFlightTotal }} in-flight</span>
+        <span class="node-meta mono" data-test="topo-hub-meta">{{ inFlightTotal }} in-flight</span>
       </button>
 
       <!-- 辐射节点 -->
@@ -212,7 +216,6 @@ function isActive(r: Runner): boolean {
               ? node.runner.probe.latency_ms + 'ms'
               : peerStatusText(node.runner) }}
           </template>
-          <template v-else>in-process</template>
         </span>
       </button>
 
@@ -246,9 +249,19 @@ function isActive(r: Runner): boolean {
           <dt>{{ t('runners.topo.inFlightTotal') }}</dt><dd>{{ inFlightTotal }}</dd>
           <dt>workers</dt><dd>{{ workerCount }}</dd>
           <dt>peers</dt><dd>{{ peerCount }}</dd>
-          <dt>local</dt><dd>{{ localCount }}</dd>
           <dt>projects</dt><dd>{{ projects.length }}</dd>
         </dl>
+        <!-- 本机 runner（server 进程内执行）：曾画成另一个 server 节点，现并在这里 -->
+        <h3 class="sub mono">{{ t('runners.topo.localRunner') }}</h3>
+        <dl class="kv mono" data-test="topo-hub-local">
+          <dt>{{ t('runners.topo.runOn') }}</dt><dd>{{ t('runners.topo.runInProcess') }}</dd>
+          <dt>{{ t('runners.topo.status') }}</dt><dd style="color: var(--done)">{{ localRunner ? 'up' : '—' }}</dd>
+        </dl>
+        <h3 class="sub mono">{{ t('runners.topo.serverProjects', { n: projects.length }) }}</h3>
+        <ul v-if="projects.length" class="proj-list mono">
+          <li v-for="p in projects" :key="p" :title="p">{{ p }}</li>
+        </ul>
+        <p v-else class="muted mono">{{ t('runners.topo.noProjects') }}</p>
       </div>
 
       <!-- worker -->
@@ -320,19 +333,7 @@ function isActive(r: Runner): boolean {
         </p>
       </div>
 
-      <!-- local -->
-      <div v-else-if="selectedRunner?.type === 'local'" class="panel-body">
-        <span class="kind mono kind--local">SERVER · {{ t('runners.topo.local') }}</span>
-        <dl class="kv mono">
-          <dt>{{ t('runners.topo.runOn') }}</dt><dd>{{ t('runners.topo.runInProcess') }}</dd>
-          <dt>{{ t('runners.topo.status') }}</dt><dd style="color: var(--done)">up</dd>
-        </dl>
-        <h3 class="sub mono">server projects（{{ projects.length }}）</h3>
-        <ul v-if="projects.length" class="proj-list mono">
-          <li v-for="p in projects" :key="p" :title="p">{{ p }}</li>
-        </ul>
-        <p v-else class="muted mono">{{ t('runners.topo.noProjects') }}</p>
-      </div>
+      <!-- local（server 进程内 runner）：不再单独成节点，内容已并入上面的 hub 面板 -->
     </aside>
   </div>
 </template>

@@ -22,6 +22,7 @@ import { listRunners } from '../api/client'
 import { liveStatus } from '../api/live'
 import { decisionCount } from '../store/today'
 import { createPoller } from '../utils/poller'
+import { runnerOnline } from '../utils/runners'
 import { t } from '../i18n'
 import { staleBuild } from '../store/staleBuild'
 import { updateLatest } from '../store/updateAvailable'
@@ -100,7 +101,8 @@ const nodes = ref<Array<{ name: string; online: boolean }>>([])
 async function refreshNodes(): Promise<void> {
   try {
     const resp = await listRunners()
-    nodes.value = (resp.runners ?? []).map((r) => ({ name: r.name, online: r.status === 'up' }))
+    // 与运行节点页同一口径（utils/runners.runnerOnline）：worker 的在线值是 connected，不是 up。
+    nodes.value = (resp.runners ?? []).map((r) => ({ name: r.name, online: runnerOnline(r.status) }))
   } catch {
     // 只是摘要：拉不到保持上一帧
   }

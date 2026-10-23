@@ -123,6 +123,7 @@ export const shared = {
     'util.lane.state.awaiting_input': '等输入',
 
     // utils/sessionState.ts：agent 会话状态
+    'util.session.state.idle': '空闲',
     'util.session.state.running': '执行中',
     'util.session.state.waiting_reply': '等待回复',
     'util.session.state.needs_attention': '需注意',
@@ -1229,6 +1230,7 @@ export const shared = {
     'util.lane.attention': '{n} need attention',
     'util.lane.state.awaiting_input': 'awaiting input',
 
+    'util.session.state.idle': 'Idle',
     'util.session.state.running': 'Running',
     'util.session.state.waiting_reply': 'Waiting for reply',
     'util.session.state.needs_attention': 'Needs attention',
