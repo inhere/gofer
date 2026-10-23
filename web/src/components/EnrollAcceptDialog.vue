@@ -22,6 +22,7 @@ import {
   workerIdError,
   type AcceptForm,
 } from '../utils/enrollments'
+import { t } from '../i18n'
 
 const props = defineProps<{
   item: WorkerEnrollment
@@ -122,25 +123,24 @@ onUnmounted(() => {
 
 <template>
   <div class="ea-overlay" @click.self="!busy && emit('close')">
-    <form class="ea-panel" role="dialog" aria-modal="true" aria-label="接受 worker 注册申请" data-test="enroll-accept-dialog" @submit.prevent="submit">
+    <form class="ea-panel" role="dialog" aria-modal="true" :aria-label="t('runners.enroll.acceptAria')" data-test="enroll-accept-dialog" @submit.prevent="submit">
       <header class="ea-head">
         <div class="ea-head-main">
-          <h2 class="ea-title">接受注册申请</h2>
+          <h2 class="ea-title">{{ t('runners.enroll.acceptTitle') }}</h2>
           <p class="ea-sub mono" data-test="enroll-accept-facts">
-            {{ item.source || '来源未知' }}<template v-if="host"> · {{ host }}</template><template v-if="left"> · {{ left }}</template>
+            {{ item.source || t('runners.enroll.sourceUnknownLabel') }}<template v-if="host"> · {{ host }}</template><template v-if="left"> · {{ left }}</template>
           </p>
         </div>
-        <button class="ea-x mono" type="button" :disabled="busy" aria-label="关闭" @click="emit('close')">×</button>
+        <button class="ea-x mono" type="button" :disabled="busy" :aria-label="t('util.action.close')" @click="emit('close')">×</button>
       </header>
 
       <p class="ea-note">
-        <strong>配对码在 worker 终端上</strong>
-        申请方运行 <code class="mono">gofer worker join</code> 时命令行会显示 8 位配对码；web 不显示码，
-        照着输入以确认这是那台机器发起的申请（不是冒名）。
+        <strong>{{ t('runners.enroll.codeNoteTitle') }}</strong>
+        {{ t('runners.enroll.codeNoteBody') }}
       </p>
 
       <div class="ea-field">
-        <span class="ea-hint mono">配对码（4+4）</span>
+        <span class="ea-hint mono">{{ t('runners.enroll.codeLabel') }}</span>
         <div class="ea-code">
           <input
             ref="firstEl"
@@ -151,7 +151,7 @@ onUnmounted(() => {
             spellcheck="false"
             maxlength="4"
             placeholder="XXXX"
-            aria-label="配对码前 4 位"
+            :aria-label="t('runners.enroll.codeFirstAria')"
             data-test="enroll-code-first"
             :value="codeFirst"
             @input="onSegmentInput(1, $event)"
@@ -167,7 +167,7 @@ onUnmounted(() => {
             spellcheck="false"
             maxlength="4"
             placeholder="XXXX"
-            aria-label="配对码后 4 位"
+            :aria-label="t('runners.enroll.codeSecondAria')"
             data-test="enroll-code-second"
             :value="codeSecond"
             @input="onSegmentInput(2, $event)"
@@ -178,28 +178,28 @@ onUnmounted(() => {
 
       <div class="ea-field">
         <span class="ea-hint mono">WORKER ID</span>
-        <input v-model="workerID" class="ea-input mono" autocomplete="off" placeholder="worker 标识" data-test="enroll-worker-id" />
+        <input v-model="workerID" class="ea-input mono" autocomplete="off" :placeholder="t('runners.enroll.workerIdPlaceholder')" data-test="enroll-worker-id" />
         <p v-if="idHint" class="ea-hint ea-hint--warn mono" data-test="enroll-id-hint">{{ idHint }}</p>
       </div>
 
       <div class="ea-field">
-        <span class="ea-hint mono">项目（可选多个）</span>
+        <span class="ea-hint mono">{{ t('runners.enroll.projectsLabel') }}</span>
         <div v-if="projects.length" class="ea-projects" data-test="enroll-projects">
           <label v-for="p in projects" :key="p" class="ea-row">
             <input type="checkbox" :checked="picked.includes(p)" :data-test="`enroll-project-${p}`" @change="toggleProject(p)" />
             <code class="mono">{{ p }}</code>
           </label>
         </div>
-        <p v-else class="ea-hint mono">server 上没有可选项目。</p>
+        <p v-else class="ea-hint mono">{{ t('runners.enroll.noProjects') }}</p>
       </div>
 
       <div class="ea-field">
-        <span class="ea-hint mono">标签（逗号分隔，可选）</span>
+        <span class="ea-hint mono">{{ t('runners.enroll.labelsLabel') }}</span>
         <input v-model="labels" class="ea-input mono" autocomplete="off" placeholder="linux,gpu" data-test="enroll-labels" />
       </div>
 
       <div v-if="agents.length || roots.length || item.labels?.length" class="ea-facts mono" data-test="enroll-accept-detail">
-        <p v-if="item.labels?.length"><b>申请方标签</b>{{ item.labels.join(', ') }}</p>
+        <p v-if="item.labels?.length"><b>{{ t('runners.enroll.applicantLabels') }}</b>{{ item.labels.join(', ') }}</p>
         <p v-if="agents.length"><b>agents</b>{{ agents.join(', ') }}</p>
         <p v-if="roots.length"><b>roots</b>{{ roots.join(' · ') }}</p>
       </div>
@@ -207,8 +207,8 @@ onUnmounted(() => {
       <p v-if="error" class="ea-msg mono" role="alert" data-test="enroll-accept-error">{{ error }}</p>
 
       <footer class="ea-actions">
-        <button type="button" class="ea-btn" :disabled="busy" @click="emit('close')">取消</button>
-        <button type="submit" class="ea-btn ea-btn--primary" :disabled="busy" data-test="enroll-accept-submit">{{ busy ? '接受中…' : '接受' }}</button>
+        <button type="button" class="ea-btn" :disabled="busy" @click="emit('close')">{{ t('util.action.cancel') }}</button>
+        <button type="submit" class="ea-btn ea-btn--primary" :disabled="busy" data-test="enroll-accept-submit">{{ busy ? t('runners.enroll.acceptingBtn') : t('runners.enroll.acceptBtn') }}</button>
       </footer>
     </form>
   </div>

@@ -4,6 +4,7 @@
 import { computed, ref } from 'vue'
 import type { TrackerBatchSet } from '../api/types'
 import { ISSUE_STATUS_VALUES, issueStatusText, type IssueStatus } from '../utils/statusText'
+import { t } from '../i18n'
 
 const props = defineProps<{ count: number; sampleIds: string[]; running: boolean }>()
 const emit = defineEmits<{
@@ -18,11 +19,17 @@ const pending = ref<Kind | null>(null)
 const reason = ref('')
 
 const tagList = computed(() => tags.value.split(/[,\s，]+/).map((t) => t.trim()).filter(Boolean))
-const title = computed(() => pending.value === 'close' ? '批量关闭' : pending.value === 'status' ? '批量改状态' : '批量加标签')
+const title = computed(() =>
+  pending.value === 'close'
+    ? t('issues.batch.close')
+    : pending.value === 'status'
+      ? t('issues.batch.status')
+      : t('issues.batch.tag'),
+)
 const detail = computed(() => {
-  if (pending.value === 'close') return `将 ${props.count} 个 issue 标记为已关闭`
-  if (pending.value === 'status') return `将 ${props.count} 个 issue 的状态改为${issueStatusText(status.value)}`
-  return `给 ${props.count} 个 issue 添加标签：${tagList.value.join('、')}`
+  if (pending.value === 'close') return t('issues.batch.closeDetail', { n: props.count })
+  if (pending.value === 'status') return t('issues.batch.statusDetail', { n: props.count, status: issueStatusText(status.value) })
+  return t('issues.batch.tagDetail', { n: props.count, tags: tagList.value.join(t('util.sep.list')) })
 })
 
 function ask(kind: Kind): void {
@@ -41,17 +48,17 @@ function confirm(): void {
 
 <template>
   <div class="batch-bar mono" data-test="batch-bar">
-    <span class="batch-count" data-test="batch-count">已选 {{ count }} 项</span>
-    <button type="button" class="batch-link" data-test="batch-clear" @click="emit('clear')">清空</button>
+    <span class="batch-count" data-test="batch-count">{{ t('issues.batch.selected', { n: count }) }}</span>
+    <button type="button" class="batch-link" data-test="batch-clear" @click="emit('clear')">{{ t('issues.batch.clear') }}</button>
     <span class="batch-sep"></span>
-    <button type="button" class="batch-btn danger" :disabled="running" data-test="batch-close" @click="ask('close')">批量关闭</button>
+    <button type="button" class="batch-btn danger" :disabled="running" data-test="batch-close" @click="ask('close')">{{ t('issues.batch.close') }}</button>
     <span class="batch-group">
-      <select v-model="status" class="batch-input" aria-label="目标状态"><option v-for="s in ISSUE_STATUS_VALUES" :key="s" :value="s">{{ issueStatusText(s) }}</option></select>
-      <button type="button" class="batch-btn" :disabled="running" data-test="batch-status" @click="ask('status')">改状态</button>
+      <select v-model="status" class="batch-input" :aria-label="t('issues.batch.targetStatus')"><option v-for="s in ISSUE_STATUS_VALUES" :key="s" :value="s">{{ issueStatusText(s) }}</option></select>
+      <button type="button" class="batch-btn" :disabled="running" data-test="batch-status" @click="ask('status')">{{ t('issues.batch.changeStatus') }}</button>
     </span>
     <span class="batch-group">
-      <input v-model="tags" class="batch-input" placeholder="标签，逗号分隔" aria-label="要添加的标签" />
-      <button type="button" class="batch-btn" :disabled="running || tagList.length === 0" data-test="batch-tag" @click="ask('tag')">加标签</button>
+      <input v-model="tags" class="batch-input" :placeholder="t('issues.batch.tagsPlaceholder')" :aria-label="t('issues.batch.tagsAria')" />
+      <button type="button" class="batch-btn" :disabled="running || tagList.length === 0" data-test="batch-tag" @click="ask('tag')">{{ t('issues.batch.addTag') }}</button>
     </span>
   </div>
 
@@ -59,14 +66,14 @@ function confirm(): void {
     <div class="bb-panel" role="dialog" aria-modal="true" :aria-label="title">
       <p class="bb-title mono">{{ title }}</p>
       <p class="bb-detail mono">{{ detail }}</p>
-      <p class="bb-ids mono">{{ sampleIds.join('、') }}<span v-if="count > sampleIds.length"> 等 {{ count }} 项</span></p>
-      <label v-if="pending === 'close'" class="bb-field mono"><span>关闭原因（可选，所有条目统一）</span>
-        <input v-model="reason" class="batch-input" placeholder="例如：已过时" data-test="batch-reason" @keydown.enter="confirm" />
+      <p class="bb-ids mono">{{ sampleIds.join(t('util.sep.list')) }}<span v-if="count > sampleIds.length">{{ t('issues.batch.more', { n: count }) }}</span></p>
+      <label v-if="pending === 'close'" class="bb-field mono"><span>{{ t('issues.batch.closeReason') }}</span>
+        <input v-model="reason" class="batch-input" :placeholder="t('issues.batch.closeReasonPlaceholder')" data-test="batch-reason" @keydown.enter="confirm" />
       </label>
-      <p class="bb-note mono">逐条执行；个别失败不影响其它条目。变更会在下次 gofer repo sync 时同步回仓库。</p>
+      <p class="bb-note mono">{{ t('issues.batch.note') }}</p>
       <div class="bb-actions">
-        <button type="button" class="batch-btn" data-test="batch-cancel" @click="pending = null">取消</button>
-        <button type="button" class="batch-btn primary" data-test="batch-confirm-ok" @click="confirm">确认执行</button>
+        <button type="button" class="batch-btn" data-test="batch-cancel" @click="pending = null">{{ t('util.action.cancel') }}</button>
+        <button type="button" class="batch-btn primary" data-test="batch-confirm-ok" @click="confirm">{{ t('issues.batch.confirm') }}</button>
       </div>
     </div>
   </div>

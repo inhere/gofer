@@ -13,6 +13,7 @@ import {
   snoozeCard,
   visibleCards,
 } from '../../store/today'
+import { t } from '../../i18n'
 
 const nowSec = ref(Math.floor(Date.now() / 1000))
 let timer: ReturnType<typeof setInterval> | null = null
@@ -45,18 +46,18 @@ function openHandled(): void {
 
 <template>
   <div v-if="overlayOpen" class="ov-scrim" aria-hidden="true" @click="close"></div>
-  <aside v-if="overlayOpen" class="ov" role="dialog" aria-label="待我决策" data-test="decision-overlay">
+  <aside v-if="overlayOpen" class="ov" role="dialog" :aria-label="t('today.decision.aria')" data-test="decision-overlay">
     <header class="ov-head">
-      <span class="ov-title">待我决策 <span class="ov-n mono">{{ visibleCards.length }}</span></span>
-      <span class="ov-hint mono">任何页面按 g d</span>
-      <button class="ov-x mono" type="button" @click="close">关闭</button>
+      <span class="ov-title">{{ t('today.decision.title') }} <span class="ov-n mono">{{ visibleCards.length }}</span></span>
+      <span class="ov-hint mono">{{ t('today.decision.hint') }}</span>
+      <button class="ov-x mono" type="button" @click="close">{{ t('util.action.close') }}</button>
     </header>
     <div class="ov-tools mono">
       <label class="ov-toggle">
         <input type="checkbox" :checked="includeExec" @change="setIncludeExec(($event.target as HTMLInputElement).checked)" />
-        含 exec 待验收
+        {{ t('today.decision.includeExec') }}
       </label>
-      <button class="ov-link" type="button" @click="openHandled">已处理</button>
+      <button class="ov-link" type="button" @click="openHandled">{{ t('today.decision.handled') }}</button>
     </div>
     <div class="ov-body">
       <DecisionQueue

@@ -2,10 +2,11 @@
 // 顶栏语言开关（设计稿 §6.1 / §16-2 相邻项）：直接切换 zh / en，不再藏在「更多」菜单里。
 import { computed } from 'vue'
 import { locale, toggleLocale } from '../store/locale'
+import { t } from '../i18n'
 
 // 按钮上写「要切到的语言」：现在是中文就显示 EN。
 const next = computed(() => (locale.value === 'zh-CN' ? 'EN' : '中'))
-const label = computed(() => (locale.value === 'zh-CN' ? 'Switch to English' : '切换到中文'))
+const label = computed(() => (locale.value === 'zh-CN' ? t('util.lang.switchToEn') : t('util.lang.switchToZh')))
 </script>
 
 <template>

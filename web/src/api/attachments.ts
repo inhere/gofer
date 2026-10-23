@@ -5,8 +5,11 @@
 import { getToken, triggerUnauthorized } from '../store/auth'
 import { request } from './client'
 import type { AttachmentInfo } from './types'
+import { t } from '../i18n'
 
-const UNAUTHORIZED_MESSAGE = '未授权（401）：token 无效或已失效'
+function unauthorizedMessage(): string {
+  return t('util.attach.unauthorized')
+}
 
 function authHeader(): Record<string, string> {
   const token = getToken()
@@ -24,13 +27,13 @@ function uploadErrorMessage(status: number, body: string): string {
   }
   switch (status) {
     case 413:
-      return `图片超过服务端上限${message ? `（${message}）` : ''}`
+      return message ? t('util.attach.errTooLargeWith', { message }) : t('util.attach.errTooLarge')
     case 415:
-      return `服务端不支持这种图片类型${message ? `（${message}）` : ''}`
+      return message ? t('util.attach.errBadTypeWith', { message }) : t('util.attach.errBadType')
     case 429:
-      return '上传太频繁，稍后再试'
+      return t('util.attach.errTooOften')
     default:
-      return message || `上传失败：HTTP ${status}`
+      return message || t('util.attach.errHttp', { status })
   }
 }
 
@@ -49,12 +52,12 @@ export function uploadAttachment(
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable && event.total > 0) onProgress?.(event.loaded / event.total)
     }
-    xhr.onerror = () => reject(new Error('上传失败：网络错误'))
-    xhr.onabort = () => reject(new Error('上传已取消'))
+    xhr.onerror = () => reject(new Error(t('util.attach.errNetwork')))
+    xhr.onabort = () => reject(new Error(t('util.attach.errCancelled')))
     xhr.onload = () => {
       if (xhr.status === 401) {
         triggerUnauthorized()
-        reject(new Error(UNAUTHORIZED_MESSAGE))
+        reject(new Error(unauthorizedMessage()))
         return
       }
       if (xhr.status < 200 || xhr.status >= 300) {
@@ -64,7 +67,7 @@ export function uploadAttachment(
       try {
         resolve(JSON.parse(xhr.responseText) as AttachmentInfo)
       } catch {
-        reject(new Error('上传失败：响应不是 JSON'))
+        reject(new Error(t('util.attach.errNotJson')))
       }
     }
     xhr.send(form)
@@ -85,9 +88,9 @@ export async function fetchAttachmentBlob(id: string, thumb = false): Promise<Bl
   const res = await fetch(attachmentPath(id, thumb), { headers: authHeader() })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error(UNAUTHORIZED_MESSAGE)
+    throw new Error(unauthorizedMessage())
   }
-  if (!res.ok) throw new Error(`读取附件失败：HTTP ${res.status}`)
+  if (!res.ok) throw new Error(t('util.attach.errRead', { status: res.status }))
   return res.blob()
 }
 
