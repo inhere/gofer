@@ -135,6 +135,22 @@ describe('验收面板（ReviewPanel）', () => {
     expect(html).toMatch(/aria-selected="true"[^>]*data-value="diff"|data-value="diff"[^>]*aria-selected="true"/)
   })
 
+  it('验证页签显示状态、退出码与耗时（有 verify 步骤时）', async () => {
+    const html = decode(
+      await render(ReviewPanel, '/jobs/j1', {
+        query: { rtab: 'verify' },
+        props: {
+          job: job({
+            verify: { status: 'passed', command: ['go', 'test', './...'], exit_code: 0, duration_ms: 42000 },
+          }),
+        },
+      }),
+    )
+    expect(html).toContain('passed (42.0s)')
+    expect(html).toContain('exit 0 · 42.0s')
+    expect(html).toContain('go test ./...')
+  })
+
   it('裁决条贴底固定，通过 / 拒绝 / 不交付都在', () => {
     expect(panelSrc).toContain('.rp-actions {\n  position: sticky;\n  bottom: 0;')
     expect(panelSrc).toContain('t(\'review.act.skipDelivery\')')

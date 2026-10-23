@@ -1014,9 +1014,9 @@ gofer 是多项目的，不存在「当前项目」这种全局状态。
 
 **测试（§13）**
 
-- 新增 `views/reviewPage.test.ts`（13 个用例）：SSR 渲染页头 / 摘要 / 空态（含 `?project=` 时的筛选空态）、面板骨架（标题、说明、五个固定页签、`role=tablist`、冲突按钮）、`?rtab=diff` 深链选中；源码断言项目 / 验证 chip 的接线、行内裁决与拒绝弹层、淡出与排序、手机卡片断点、面板用 `ui/Tabs` 且参数是 `rtab`、贴底裁决条、以及原有内容（验收标准、发现建 issue、diff 下载、verify 截尾 200 行、用量逐项、换 job 重置）都还在。
+- 新增 `views/reviewPage.test.ts`（14 个用例）：SSR 渲染页头 / 摘要 / 空态（含 `?project=` 时的筛选空态）、面板骨架（标题、说明、五个固定页签、`role=tablist`、冲突按钮）、`?rtab=diff` 深链选中、`?rtab=verify` 时的验证状态 / 退出码 / 耗时；源码断言项目 / 验证 chip 的接线、行内裁决与拒绝弹层、淡出与排序、手机卡片断点、面板用 `ui/Tabs` 且参数是 `rtab`、贴底裁决条、以及原有内容（验收标准、发现建 issue、diff 下载、verify 截尾 200 行、用量逐项、换 job 重置）都还在。
 - 同步修改：`views/uiTextWiring.test.ts`（`ReviewQueue` 标题从 `PAGE.review` 改成 `t('review.h.title')`，与 Board 同一条口子）、`components/reviewHintsWiring.test.ts`（「审阅提示」「来源：agent 自述」改为断言 i18n key + 字典译文）。`views/readOnlyAndReviewGate.test.ts` 的断言（`reviewGate(job).allowed`、`blockedReason?: string`、两个 `data-test`）本轮刻意一字未改，作为「面板契约没变」的背书。
-- 全量 `npx vitest run` 204 个文件 / 1385 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
+- 全量 `npx vitest run` 204 个文件 / 1386 个用例通过，`npx vue-tsc --noEmit` 与 `npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 通过。
 
 **如实记录的范围边界与差异**
 
