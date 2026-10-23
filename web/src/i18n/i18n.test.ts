@@ -39,11 +39,13 @@ describe('translate', () => {
   })
 
   it('falls back to Chinese when the key is missing in the locale', () => {
-    zh['test.onlyZh'] = '只有中文'
+    // dicts holds merged copies (main + i18n/pages), so the key goes into the merged
+    // Chinese dictionary rather than into zh.ts's object.
+    dicts['zh-CN']['test.onlyZh'] = '只有中文'
     try {
       expect(translate('test.onlyZh', undefined, 'en-US')).toBe('只有中文')
     } finally {
-      delete zh['test.onlyZh']
+      delete dicts['zh-CN']['test.onlyZh']
     }
   })
 
