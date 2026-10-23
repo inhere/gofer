@@ -1914,3 +1914,59 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 - `utils/trackerView.test.ts`：目录名（`/`、`\`、末尾斜杠、空串）、主/次文字、排序、信息条 meta 行。
 - `views/p5bPages.test.ts`、`views/memoryPage.test.ts`：仓库选择断言从 `project-filter` 改成 `tracker-repo-picker` + `tracker-repo-info`。
 - 视觉自查：构建产物 + 桩 `/v1`（合成数据不入库），zh / en × 浅 / 深 × 1440 / 390，Issues 与记忆各一屏，另加下拉展开与手机贴底；无横向溢出、无控制台错误。
+### P6 工作项页收尾：统一按钮 / 平铺排序 / 状态色 / 状态筛选（2026-10-23，issue gofer-hez1）
+
+落地范围是 issue gofer-hez1 里「工作项页改版收尾」（用户 2026-10-23 反馈，截图 `tmp/pagecheck/out-01912/work__zh-CN_dark_1440.png` 与 `work__en-US_light_390.png`）的五条。不改接口、不改 Go 代码。
+
+**1）按钮与下拉统一（新增两个基元）**
+
+- `web/src/ui/Button.vue` + `button.ts`：三档语义 `primary` / `secondary` / `ghost`、两档尺寸 `sm`（卡片内）/ `md`（页头 / 表单），全部走 token（`--accent` / `--surface` / `--line` / `--r-ctl` / `--focus`），≤760 点按目标 40px。设计稿 §8 把基元放在 `base.css`，但那一层留的是 `.btn` 类名占位、**从未实现**——工作项页的 `class="btn mono"` 因此一直渲染成浏览器默认按钮（卡片与抽屉都是）。这次补的是组件而不是全站 `.btn` 类：各页自己的 scoped `.btn` 不动，避免一次改到 106 个 SFC。
+- `web/src/ui/MenuSelect.vue` + `menuSelect.ts`：下拉菜单（取代原生 `<select>`），触发器 `aria-haspopup="menu"`、面板 `role="menu"` + `role=menuitemradio`（当前值带勾），↑ ↓ 循环（跳过不可选项）、Enter 选中、Esc 关闭并归还焦点、点外面关闭。纯逻辑在 `menuSelect.ts`（`menuIndex` / `stepIndex` / `firstEnabledIndex` / `nextEnabledIndex`）。
+- 用在：`WorkCard`（打开会话 primary，唤醒 / 整理 / 标状态 secondary，详情 ghost，标状态改菜单）、`Work.vue`（刷新、＋新建、合并建议采纳 / 忽略、清除筛选）、`WorkDrawer`（状态行、保存、搁置 / 提醒、合并 / 拆分、关联、转 todo 等 30 处 `.btn`）。抽屉里不是「标状态」的普通表单下拉（关联会话、关联项种类、转 todo 选 plan）保持原生 `<select>`：它们是字段，不是动作菜单。
+
+**2）取消分组，平铺按状态排序**
+
+- `utils/workBoard.ts` 新增平铺口径，顺序**只在一处定义**：`WORK_LANES` = 等我 → 待验收 → 进行中 → 需现场 → 等资源 → 搁置 → 待整理（草稿）→ 收集箱 → 已完成 → 已放弃；`workLane(it)` 把一条工作项折成泳道（收集箱 → captured；未结束的未整理草稿 → draft；其余就是状态）；`sortByLane` 泳道内按最近活动倒序（收集箱条目没有活动时间，用创建时间）；`laneCounts` / `laneFromQuery` / `laneQuery` / `laneChipKeys`。
+- `views/Work.vue`「按状态」视图换成一条网格（`repeat(auto-fill, minmax(330px, 1fr))`，卡片等宽、按行对齐），删掉「待整理（草稿 / 收集箱）」分段区与 8 列状态栏，也就没有组间与列高不一的空洞；收集箱条目作为泳道里的卡片排在草稿之后（保留类型标签、内容、项目、来源、时间，点开仍进详情抽屉）。「按工作区」视图保留分组，同一套卡片；收集箱条目只在平铺视图占一条泳道，不进工作区视图（与迁移前一致）。
+- 草稿 / 收集箱泳道上方各有一行说明（原来的两个页签说明文案），`?tab=capture` 旧深链落到 `captured` 泳道。
+
+**3）状态用左边框着色**
+
+- 泳道 → 状态族用 `laneFamily`（真实状态走 `utils/statusFamily.ts` 的唯一映射，草稿 / 收集箱固定 `queue`），卡片根元素带 `k-<族>` 类，`border-left: 4px solid var(--c)`——颜色来自 `styles/status.css`，浅 / 深主题自适应。状态文字（`StatusPill`）仍在卡片上，颜色不是唯一信息来源。收集箱卡片同样处理。
+
+**4）状态筛选 chip + URL**
+
+- 列表头一排：`ProjectFilter` + 状态 `FilterChips`（全部 + 各泳道，带计数，单选，值进 URL `?status=`，再点一次回全部）+ 到期提醒 chip（与状态叠加，不是状态所以单独一组）+ 搜索 + 清除筛选。原来的「等我 / 未整理」不再单独设 chip：等我与待整理都是泳道，到期提醒保留为标记 chip。
+- 「显示已完成」勾选后 chip 才出现已完成 / 已放弃两条。
+
+**5）手机**
+
+- ≤760 单列；筛选 chip 行由 `FilterChips` 自己横向滑动；按钮点按目标 40px。
+
+**不丢信息核对（§7 本页字段清单）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 页头 h1 / 摘要 / 按状态·按工作区 / 显示已完成 / 刷新 / ＋新建 | 全部保留（按钮换统一样式） |
+| 计数 chip：全部 / 等我 / 到期提醒 / 未整理 | 换成状态 chip（全部 + 各泳道，含等我 / 待整理 / 收集箱）+ 到期提醒 chip |
+| 项目 chip（`?project=`） | 保留 |
+| 搜索（标题 / 目标 / 阻塞 / 项目 / 工作区 / id）+ 清除筛选 | 保留（清除筛选同时清状态与标记） |
+| 新建表单、管家合并建议 | 保留 |
+| 待整理区：草稿 / 收集箱两页签、说明、收集箱条目的类型 / 项目 / 来源 / 时间、空态 | 草稿与收集箱成为两条泳道，说明文字在泳道上方；条目字段与空态保留 |
+| 状态 8 列 / 工作区分组 / 筛选结果区 | 平铺列表（按状态）+ 工作区分组；空态文案保留 |
+| 卡片：状态 + 手动、到期、未整理、离线、停滞、目标 / 阻塞 / 下一步 / 来源标注 / 整理建议 / 请求进度 / 关联标签、详情全部字段 | 全部保留 |
+| 卡片动作：打开会话 / 唤醒 / 整理 / 标状态 / 详情 | 全部保留（换统一按钮 + 下拉菜单） |
+| 抽屉全部区块与动作 | 保留（按钮换统一样式；状态仍是按钮行） |
+
+**测试**
+
+- 新增 `ui/buttonMenu.test.ts`（9 例）：Button 的三档语义 / 两档尺寸 / 灰显与 title / block，MenuSelect 的触发器 aria 与占位、当前值，以及下拉纯逻辑（当前值下标、上下循环、跳过不可选项）。
+- `utils/workBoard.test.ts` 新增 `flat lanes (P6)` 6 例：泳道顺序、`workLane` 折叠、`sortByLane` 顺序与同泳道倒序、`laneCounts`、泳道 → 族 / 类名 / 文案 key、`?status=` 读写与旧 `?tab=capture` 深链、`laneChipKeys`。
+- 同步修改：`views/workPage.test.ts`（chip 的 URL 口径、平铺断言、左边框 / 状态文字、统一按钮与下拉、不再有原生 select）、`views/work.test.ts`（状态 chip 一排、平铺单列断点、卡片事件两处）、`views/captureBoxWiring.test.ts`（收集箱改泳道）、`views/pageWriteGate.test.ts`（`write-block` 传到两处卡片）、`components/workCard.test.ts`（按钮标签断言不依赖属性顺序、标状态改菜单）。
+- `npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 231 passed (231)` / `Tests 1570 passed (1570)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 8.31s`。
+
+**视觉自查与取舍**
+
+- 视觉自查：`agent-browser` 在本环境起不了 Chromium（`Chrome exited early … without writing DevToolsActivePort`，加 `--no-sandbox` 同样失败），改用 Edge headless + 同源引导页（临时文件，先写登录态 / 主题 / 语言再跳 `/work`）+ 本地桩 `/v1` 服务（合成数据，均不入库）：看了 zh × 深 × 1440、en × 浅 × 1440、zh × 深 × 756（Edge headless 最小窗宽，已落在 ≤760 断点）、en × 浅 × 375 四张。确认：平铺网格三列等宽、卡片左边框颜色按泳道（黄 = 等我 / 待验收 / 需现场，蓝 = 进行中，灰 = 等资源 / 草稿 / 收集箱，深浅主题随 token 自动变）、按钮统一（打开会话松绿主按钮，整理 / 标状态次要，详情文字按钮第二行右对齐）、状态 chip 一排带计数、收集箱卡片带「记录 / 想法 + 收集箱」文字、手机单列且 chip 在框内横向滑动、无页面级横向滚动。
+- 卡片动作行在 330px 宽的列里是两行（动作一行、详情右对齐一行）：五个按钮排不进一行，两行且第二行统一右对齐，不随卡片内容跳到不同位置。
+- `utils/work.ts` 的 `groupByStatus` / `visibleItems` 两个旧口径页面已不再调用。保留是因为 `groupByStatus` 仍有自己的单测、`sortCards` 仍被 `Work.vue` 的工作区视图使用，删除留给样式收尾那一批统一处理。

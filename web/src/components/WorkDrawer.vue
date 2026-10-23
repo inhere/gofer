@@ -9,6 +9,7 @@ import WorkDispatchDialog from './WorkDispatchDialog.vue'
 import Drawer from '../ui/Drawer.vue'
 import Composer from '../ui/Composer.vue'
 import StatusPill from '../ui/StatusPill.vue'
+import Button from '../ui/Button.vue'
 import { t } from '../i18n'
 import { isPendingSync, pendingSyncHint, pendingSyncLabel } from '../utils/dispatch'
 import {
@@ -542,7 +543,7 @@ onUnmounted(() => live.stop())
         >{{ healthLabel }}<template v-if="detail.health_reason">：{{ detail.health_reason }}</template></span>
       </div>
       <div class="head-actions">
-        <button class="btn" type="button" :disabled="loading" data-test="drawer-refresh" @click="load()">{{ loading ? t('work.h.refreshing') : t('act.refresh') }}</button>
+        <Button size="sm" :disabled="loading" data-test="drawer-refresh" @click="load()">{{ loading ? t('work.h.refreshing') : t('act.refresh') }}</Button>
       </div>
     </div>
 
@@ -556,37 +557,36 @@ onUnmounted(() => live.stop())
           <h4 class="sec-title">{{ t('work.d.inbox') }}</h4>
           <p class="hint">{{ t('work.d.inboxHint') }}</p>
           <div class="row3">
-            <button class="btn btn--primary" type="button" :disabled="busy" data-test="open-dispatch" @click="dispatchDlg = true">{{ t('work.d.dispatch') }}</button>
+            <Button variant="primary" size="sm" :disabled="busy" data-test="open-dispatch" @click="dispatchDlg = true">{{ t('work.d.dispatch') }}</Button>
           </div>
         </section>
 
         <section class="sec">
           <h4 class="sec-title">{{ t('work.d.status') }}</h4>
           <div class="status-row">
-            <button
+            <Button
               v-for="m in STATUS_BUTTONS"
               :key="m.key"
-              type="button"
-              class="btn"
-              :class="{ 'btn--primary': m.key === detail.status }"
+              size="sm"
+              :variant="m.key === detail.status ? 'primary' : 'secondary'"
               :disabled="busy || m.key === detail.status"
               :title="m.hint"
               :data-test="`set-${m.key}`"
               @click="setStatus(m.key)"
-            >{{ t(`status.${m.key}`) }}</button>
+            >{{ t(`status.${m.key}`) }}</Button>
           </div>
           <p class="hint">
             <template v-if="detail.status_source === 'human'">{{ t('work.d.statusHuman') }}</template>
             <template v-else-if="detail.status_source === 'report'">{{ t('work.d.statusReport') }}</template>
             <template v-else>{{ t('work.d.statusAuto') }}</template>
-            <button v-if="detail.status_source !== 'auto' && !closed" class="link-btn" type="button" :disabled="busy" data-test="hand-back" @click="handBackToAuto">{{ t('work.d.handBack') }}</button>
-            <button v-if="detail.unsorted" class="link-btn" type="button" :disabled="busy" @click="markSorted">{{ t('work.d.markSorted') }}</button>
+            <Button v-if="detail.status_source !== 'auto' && !closed" variant="ghost" size="sm" :disabled="busy" data-test="hand-back" @click="handBackToAuto">{{ t('work.d.handBack') }}</Button>
+            <Button v-if="detail.unsorted" variant="ghost" size="sm" :disabled="busy" @click="markSorted">{{ t('work.d.markSorted') }}</Button>
           </p>
           <div class="status-row">
-            <button class="btn" type="button" :disabled="busy || closed" data-test="mark-done" @click="setStatus('done')">{{ t('work.d.done') }}</button>
-            <button class="btn" type="button" :disabled="busy || closed" data-test="mark-dropped" @click="setStatus('dropped')">{{ t('work.d.drop') }}</button>
-            <button v-if="closed" class="btn" type="button" :disabled="busy" @click="setStatus('active')">{{ t('work.d.reopen') }}</button>
-            <button v-if="closed" class="btn" type="button" :disabled="busy" data-test="delete-item" @click="removeItem">{{ t('work.d.delete') }}</button>
+            <Button size="sm" :disabled="busy || closed" data-test="mark-done" @click="setStatus('done')">{{ t('work.d.done') }}</Button>
+            <Button size="sm" :disabled="busy || closed" data-test="mark-dropped" @click="setStatus('dropped')">{{ t('work.d.drop') }}</Button>
+            <Button v-if="closed" size="sm" :disabled="busy" @click="setStatus('active')">{{ t('work.d.reopen') }}</Button>
+            <Button v-if="closed" size="sm" :disabled="busy" data-test="delete-item" @click="removeItem">{{ t('work.d.delete') }}</Button>
           </div>
         </section>
 
@@ -600,8 +600,8 @@ onUnmounted(() => live.stop())
               <span class="hint">{{ actorLabel(sg.by) }}<template v-if="sg.confidence"> · {{ t('work.d.confidence', { n: Math.round(sg.confidence * 100) }) }}</template> · {{ fmtAgo(sg.at, nowSec) }}</span>
             </div>
             <div class="status-row">
-              <button class="btn btn--primary" type="button" :disabled="busy" data-test="drawer-accept" @click="onSuggestion(sg.field, true)">{{ t('work.card.accept') }}</button>
-              <button class="btn" type="button" :disabled="busy" data-test="drawer-dismiss" @click="onSuggestion(sg.field, false)">{{ t('work.card.dismiss') }}</button>
+              <Button variant="primary" size="sm" :disabled="busy" data-test="drawer-accept" @click="onSuggestion(sg.field, true)">{{ t('work.card.accept') }}</Button>
+              <Button size="sm" :disabled="busy" data-test="drawer-dismiss" @click="onSuggestion(sg.field, false)">{{ t('work.card.dismiss') }}</Button>
             </div>
           </article>
         </section>
@@ -623,7 +623,7 @@ onUnmounted(() => live.stop())
             </div>
             <label class="field">{{ t('work.card.workspace') }}<input v-model="form.workspace" type="text" /></label>
             <div class="status-row">
-              <button class="btn btn--primary" type="button" :disabled="busy || !dirty" data-test="save-fields" @click="saveFields">{{ busy ? t('work.d.saving') : t('work.d.save') }}</button>
+              <Button variant="primary" size="sm" :disabled="busy || !dirty" data-test="save-fields" @click="saveFields">{{ busy ? t('work.d.saving') : t('work.d.save') }}</Button>
               <span v-if="dirty" class="hint">{{ t('work.d.dirty') }}</span>
             </div>
           </div>
@@ -638,7 +638,7 @@ onUnmounted(() => live.stop())
           </p>
           <p v-if="detail.remind_at" class="hint">
             {{ t('work.d.remind', { time: fmtDateTime(detail.remind_at) }) }}
-            <button class="link-btn" type="button" :disabled="busy" data-test="clear-remind" @click="clearRemind">{{ t('work.d.clear') }}{{ detail.due ? t('work.d.acknowledge') : '' }}</button>
+            <Button variant="ghost" size="sm" :disabled="busy" data-test="clear-remind" @click="clearRemind">{{ t('work.d.clear') }}{{ detail.due ? t('work.d.acknowledge') : '' }}</Button>
           </p>
           <div class="form">
             <div class="preset-row">
@@ -649,14 +649,14 @@ onUnmounted(() => live.stop())
               <label class="field">{{ t('work.d.parkNote') }}<input v-model="parkNote" type="text" :placeholder="t('work.d.parkNoteHint')" data-test="park-note" /></label>
             </div>
             <div class="status-row">
-              <button class="btn" type="button" :disabled="busy" data-test="park-btn" @click="park">{{ t('work.d.park') }}</button>
+              <Button size="sm" :disabled="busy" data-test="park-btn" @click="park">{{ t('work.d.park') }}</Button>
             </div>
             <div class="preset-row">
               <button v-for="p in presets" :key="'r' + p.key" type="button" class="chip-btn" @click="remindAt = unixToLocalInput(p.at)">{{ p.label }}</button>
             </div>
             <div class="row2">
               <label class="field">{{ t('work.d.remindAt') }}<input v-model="remindAt" type="datetime-local" data-test="remind-at" /></label>
-              <div class="field"><button class="btn" type="button" :disabled="busy" data-test="remind-btn" @click="setRemind">{{ t('work.d.setRemind') }}</button></div>
+              <div class="field"><Button size="sm" :disabled="busy" data-test="remind-btn" @click="setRemind">{{ t('work.d.setRemind') }}</Button></div>
             </div>
           </div>
         </section>
@@ -664,30 +664,30 @@ onUnmounted(() => live.stop())
         <section class="sec">
           <h4 class="sec-title">{{ t('work.d.sessions') }}</h4>
           <div class="status-row">
-            <button
-              class="btn btn--primary"
+            <Button
+              variant="primary"
               type="button"
               data-test="ask-report"
               :disabled="busy || !!reportBlock"
               :title="reportBlock || t('work.d.askReportTitle')"
               @click="askReport('report')"
-            >{{ t('work.d.askReport') }}</button>
-            <button
-              class="btn"
+            >{{ t('work.d.askReport') }}</Button>
+            <Button
+              size="sm"
               type="button"
               data-test="ask-handoff"
               :disabled="busy || !!reportBlock"
               :title="t('work.d.askHandoffTitle')"
               @click="askReport('handoff')"
-            >{{ t('work.d.askHandoff') }}</button>
-            <button
-              class="btn"
+            >{{ t('work.d.askHandoff') }}</Button>
+            <Button
+              size="sm"
               type="button"
               data-test="drawer-summarize"
               :disabled="busy || tidying || !!tidyBlock"
               :title="tidyBlock || t('work.card.summarizeTitle')"
               @click="tidyNow"
-            >{{ tidying ? t('work.card.summarizing') : t('work.card.summarize') }}</button>
+            >{{ tidying ? t('work.card.summarizing') : t('work.card.summarize') }}</Button>
             <span v-if="reportBlock" class="hint" data-test="report-block">{{ reportBlock }}</span>
           </div>
           <ul v-if="reportResults.length" class="plain">
@@ -702,40 +702,40 @@ onUnmounted(() => live.stop())
           <article v-for="s in currentSessions" :key="s.session_id" class="srow" data-test="session-row">
             <div class="srow-main">
               <strong>{{ sessionTitle(s) }}</strong>
-              <button
+              <Button
                 v-if="s.peer_name"
                 class="link-btn peer-name"
                 type="button"
                 data-test="session-peer-name"
                 :title="t('work.d.peerName')"
                 @click="copyPeerName(s.session_id, s.peer_name!)"
-              >{{ s.peer_name }}{{ copiedPeer === s.session_id ? t('work.d.peerCopied') : t('work.d.peerCopy') }}</button>
+              >{{ s.peer_name }}{{ copiedPeer === s.session_id ? t('work.d.peerCopied') : t('work.d.peerCopy') }}</Button>
               <span class="hint">{{ s.agent || '—' }} · {{ runnerLabel(s.runner) || '—' }} · {{ s.missing ? t('work.card.deleted') : agentStateLabel(s.state) }} · {{ fmtAgo(s.last_seen_at, nowSec) }}</span>
             </div>
             <div class="status-row">
-              <button v-if="!s.missing" class="btn" type="button" :data-test="s.kind === 'job' ? 'open-job-session' : undefined" @click="emit('open-session', s.session_id)">{{ s.kind === 'job' ? t('work.d.openJob') : t('work.d.openRelay') }}</button>
-              <button
+              <Button v-if="!s.missing" size="sm" :data-test="s.kind === 'job' ? 'open-job-session' : undefined" @click="emit('open-session', s.session_id)">{{ s.kind === 'job' ? t('work.d.openJob') : t('work.d.openRelay') }}</Button>
+              <Button
                 v-if="s.offline && sessionById.get(s.session_id)?.can_resume"
-                class="btn"
+              size="sm"
                 type="button"
                 :title="resumeTitle(sessionById.get(s.session_id)!)"
                 @click="emit('wake', s.session_id)"
-              >{{ resumeLabel(sessionById.get(s.session_id)!) }}</button>
-              <button class="btn" type="button" :disabled="busy" @click="detach(s.session_id)">{{ t('work.d.detach') }}</button>
+              >{{ resumeLabel(sessionById.get(s.session_id)!) }}</Button>
+              <Button size="sm" :disabled="busy" @click="detach(s.session_id)">{{ t('work.d.detach') }}</Button>
             </div>
           </article>
           <details v-if="pastSessions.length" class="past">
             <summary>{{ t('work.d.pastSessions', { n: pastSessions.length }) }}</summary>
             <div v-for="s in pastSessions" :key="s.session_id" class="srow hint">
               {{ sessionTitle(s) }} · {{ s.agent || '—' }} · {{ s.missing ? t('work.card.deleted') : agentStateLabel(s.state) }}
-              <button v-if="!s.missing" class="link-btn" type="button" @click="emit('open-session', s.session_id)">{{ t('work.card.open') }}</button>
+              <Button v-if="!s.missing" variant="ghost" size="sm" @click="emit('open-session', s.session_id)">{{ t('work.card.open') }}</Button>
             </div>
           </details>
           <div v-if="attachCandidates.length" class="row2">
             <label class="field">{{ t('work.d.attach') }}
               <select v-model="attachSid"><option value="">{{ t('work.d.attachPick') }}</option><option v-for="s in attachCandidates" :key="s.session_id" :value="s.session_id">{{ sessionTitle(s) }} · {{ s.agent }}</option></select>
             </label>
-            <div class="field"><button class="btn" type="button" :disabled="busy || !attachSid" @click="attach">{{ t('work.d.attachBtn') }}</button></div>
+            <div class="field"><Button size="sm" :disabled="busy || !attachSid" @click="attach">{{ t('work.d.attachBtn') }}</Button></div>
           </div>
         </section>
 
@@ -750,21 +750,21 @@ onUnmounted(() => live.stop())
               <RouterLink v-else-if="l.kind === 'issue'" :to="`/issues?issue=${encodeURIComponent(l.ref)}`">{{ l.ref }}</RouterLink>
               <span v-else>{{ l.ref }}</span>
               <span v-if="isPendingSync(l)" class="icard-chip pending-sync" :title="pendingSyncHint()" data-test="pending-sync">{{ pendingSyncLabel() }}</span>
-              <button class="link-btn" type="button" :disabled="busy" @click="removeLink(l.kind, l.ref)">{{ t('work.d.remove') }}</button>
+              <Button variant="ghost" size="sm" :disabled="busy" @click="removeLink(l.kind, l.ref)">{{ t('work.d.remove') }}</Button>
             </li>
           </ul>
           <p v-else class="hint">{{ t('work.d.noLinks') }}</p>
           <div class="row3" data-test="to-todo-row">
-            <button v-if="!todoInfo" class="btn" type="button" :disabled="busy" data-test="to-todo" @click="openTodoDlg">{{ t('work.d.toTodo') }}</button>
+            <Button v-if="!todoInfo" size="sm" :disabled="busy" data-test="to-todo" @click="openTodoDlg">{{ t('work.d.toTodo') }}</Button>
             <template v-else>
-              <button class="btn" type="button" disabled data-test="to-todo-done">{{ t('work.d.toTodoDone') }}</button>
+              <Button size="sm" disabled data-test="to-todo-done">{{ t('work.d.toTodoDone') }}</Button>
               <RouterLink v-if="todoInfo.planId" :to="`/plans/${encodeURIComponent(todoInfo.planId)}`" data-test="to-todo-open">{{ t('work.d.openPlan') }}</RouterLink>
             </template>
           </div>
           <div class="row3">
             <select v-model="linkKind" class="field-sel" data-test="link-kind"><option value="issue">issue</option><option value="plan">plan</option><option value="todo">todo</option><option value="job">job</option></select>
             <input v-model="linkRef" class="field-in" type="text" placeholder="id" data-test="link-ref" @keydown.enter="addLink" />
-            <button class="btn" type="button" :disabled="busy || !linkRef.trim()" data-test="add-link" @click="addLink">{{ t('work.d.linkBtn') }}</button>
+            <Button size="sm" :disabled="busy || !linkRef.trim()" data-test="add-link" @click="addLink">{{ t('work.d.linkBtn') }}</Button>
           </div>
         </section>
 
@@ -777,7 +777,7 @@ onUnmounted(() => live.stop())
               <input type="checkbox" :checked="mergeIds.has(i.id)" @change="toggleMerge(i.id)" />
               {{ i.title }} <span class="hint">{{ i.workspace === detail.workspace ? t('work.d.mergeSameWorkspace') : '' }}</span>
             </label>
-            <button class="btn" type="button" :disabled="busy || !mergeIds.size" data-test="merge-btn" @click="merge">{{ t('work.d.merge', { n: mergeIds.size }) }}</button>
+            <Button size="sm" :disabled="busy || !mergeIds.size" data-test="merge-btn" @click="merge">{{ t('work.d.merge', { n: mergeIds.size }) }}</Button>
           </details>
           <details class="past">
             <summary>{{ t('work.d.splitSummary') }}</summary>
@@ -789,7 +789,7 @@ onUnmounted(() => live.stop())
                 {{ t('work.d.takeSession', { name: sessionTitle(s) }) }}
               </label>
               <label class="check"><input v-model="splitKeep" type="checkbox" /> {{ t('work.d.splitKeep') }}</label>
-              <button class="btn" type="button" :disabled="busy" data-test="split-btn" @click="split">{{ t('work.d.split') }}</button>
+              <Button size="sm" :disabled="busy" data-test="split-btn" @click="split">{{ t('work.d.split') }}</Button>
             </div>
           </details>
         </section>
@@ -851,8 +851,8 @@ onUnmounted(() => live.stop())
         </label>
         <p v-if="todoErr" class="msg msg--err" data-test="todo-dlg-error">{{ todoErr }}</p>
         <div class="row3">
-          <button class="btn btn--primary" type="button" :disabled="busy" data-test="todo-submit" @click="submitTodo">{{ t('work.d.toTodoCreate') }}</button>
-          <button class="btn" type="button" @click="todoDlg = false">{{ t('work.d.cancel') }}</button>
+          <Button variant="primary" size="sm" :disabled="busy" data-test="todo-submit" @click="submitTodo">{{ t('work.d.toTodoCreate') }}</Button>
+          <Button size="sm" @click="todoDlg = false">{{ t('work.d.cancel') }}</Button>
         </div>
       </div>
     </div>

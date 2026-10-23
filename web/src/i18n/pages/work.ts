@@ -16,9 +16,14 @@ export const work: PageDict = {
     // 筛选
     'work.f.chips': '工作项筛选',
     'work.f.all': '全部',
+    'work.f.status': '按状态筛选',
+    'work.f.flags': '标记筛选',
     'work.f.needsMe': '等我',
     'work.f.due': '到期提醒',
     'work.f.unsorted': '未整理',
+    // 平铺列表的泳道名（真实状态用 status.<值>，这里只有两个伪状态）
+    'work.lane.draft': '待整理',
+    'work.lane.captured': '收集箱',
     'work.f.search': '搜索标题 / 目标 / 阻塞…',
     'work.f.clear': '清除筛选',
     // 新建
@@ -308,9 +313,13 @@ export const work: PageDict = {
     'work.h.refreshing': 'Refreshing…',
     'work.f.chips': 'Work item filters',
     'work.f.all': 'All',
+    'work.f.status': 'Filter by status',
+    'work.f.flags': 'Filter by marker',
     'work.f.needsMe': 'Needs me',
     'work.f.due': 'Due',
     'work.f.unsorted': 'Unsorted',
+    'work.lane.draft': 'Drafts',
+    'work.lane.captured': 'Inbox',
     'work.f.search': 'Search title, goal, blocker…',
     'work.f.clear': 'Clear filters',
     'work.c.open': '＋ New',

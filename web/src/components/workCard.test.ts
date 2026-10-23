@@ -18,11 +18,19 @@ async function render(props: Record<string, unknown>): Promise<string> {
   return renderToString(createSSRApp({ render: () => h(WorkCard as any, props) }))
 }
 
+// 按钮的标签里可能先出现 disabled 再出现 data-test（统一按钮组件先渲染自己的 props），
+// 所以先把整个 <button> 标签取出来再断言，不靠属性顺序。
+function buttonTag(html: string, hook: string): string {
+  return html.match(new RegExp(`<button[^>]*data-test="${hook}"[^>]*>`))?.[0] ?? ''
+}
+
 describe('WorkCard', () => {
   it('puts the badges on their own line so several status chips cannot squeeze the title', async () => {
     // 截图检查 P6-2：状态 / 未整理 / 会话离线三个 chip 在右侧时，标题被挤成一窄列换四五行。
     const html = await render({ item: item(), nowSec: 1060 })
     expect(html).toContain('icard-head--stacked')
+    // 左边框颜色来自状态族（needs_onsite → need），状态文字仍在卡片上
+    expect(html).toContain('work-card k-need')
     // 标题与徽标区仍在同一个 header 里（CSS 把 header 改成列方向：标题整行，徽标在下）。
     expect(html).toMatch(/class="icard-head--stacked icard-head"[\s\S]*class="icard-title[^"]*"[\s\S]*class="icard-badges"/)
   })
@@ -64,7 +72,7 @@ describe('WorkCard', () => {
 
   it('greys "open session" out when there is no session, and only offers wake for an offline resumable one', async () => {
     const none = await render({ item: item({ sessions: [], session_ids: [] }) })
-    expect(none).toMatch(/data-test="open-session"[^>]*disabled/)
+    expect(buttonTag(none, 'open-session')).toContain('disabled')
     expect(none).toContain('没有关联会话')
 
     const offline: WorkSessionBrief = { session_id: 's1', role: 'current', agent: 'claude', state: 'offline', offline: true, last_seen_at: 1 }
@@ -81,11 +89,11 @@ describe('WorkCard', () => {
     expect(running).not.toContain('data-test="wake"')
   })
 
-  it('offers a status picker with the current status disabled', async () => {
+  it('offers a status menu with the current status marked, instead of a native select', async () => {
     const html = await render({ item: item({ status: 'review' }) })
-    expect(html).toContain('data-test="status-select"')
-    expect(html).toMatch(/<option value="review" disabled[^>]*>待验收<\/option>/)
-    expect(html).toContain('>已放弃</option>')
+    expect(html).toContain('data-test="status-menu"')
+    expect(html).toContain('aria-haspopup="menu"')
+    expect(html).not.toContain('<select')
   })
 
   it('shows who wrote each field, with a colour class per speaker kind', async () => {
@@ -128,16 +136,16 @@ describe('WorkCard', () => {
     })
     expect(done).toContain('data-test="request-done"')
     expect(done).toContain('会话未回应，已改为整理')
-    expect(done).not.toMatch(/data-test="summarize"[^>]*disabled/)
+    expect(buttonTag(done, 'summarize')).not.toContain('disabled')
 
     const live = await render({
       item: item({ requests: [{ id: 'wr-3', work_item_id: 'w-abc', kind: 'summarize', state: 'pending', by: 'human:me', created_at: 990 }] }),
       nowSec: 1000,
     })
-    expect(live).toMatch(/data-test="summarize"[^>]*disabled/)
+    expect(buttonTag(live, 'summarize')).toContain('disabled')
     expect(live).toContain('整理中…')
 
     const noSession = await render({ item: item({ sessions: [], session_ids: [] }) })
-    expect(noSession).toMatch(/data-test="summarize"[^>]*disabled/)
+    expect(buttonTag(noSession, 'summarize')).toContain('disabled')
   })
 })

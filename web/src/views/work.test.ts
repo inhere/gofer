@@ -35,17 +35,19 @@ describe('Work page', () => {
     expect(drawer).toContain('e.status === 409')
   })
 
-  it('shows the four count chips (all / needs me / due / unsorted), a status/workspace switch and the unsorted area', () => {
-    for (const hook of ['FilterChips', 'ProjectFilter', 'workCounts', 'data-test="view-status"', 'data-test="view-workspace"', 'data-test="triage-area"', 'data-test="work-summary"']) {
+  it('shows one status chip row with counts, the marker chip next to it, and a status/workspace switch', () => {
+    for (const hook of ['FilterChips', 'ProjectFilter', 'laneCounts', 'data-test="view-status"', 'data-test="view-workspace"', 'data-test="status-view"', 'data-test="work-summary"']) {
       expect(work).toContain(hook)
     }
     // chips carry the counts; the filter value keeps utils/work's WorkFilter vocabulary
-    for (const key of ['work.f.all', 'work.f.needsMe', 'work.f.due', 'work.f.unsorted']) expect(work).toContain(key)
+    for (const key of ['work.f.all', 'work.f.due']) expect(work).toContain(key)
+    // 状态 chip 的文案来自泳道映射（真实状态 status.<值>，草稿 / 收集箱走本页字典）
+    expect(work).toContain('laneLabelKey(l)')
     expect(work).toContain('workCounts(inProject.value, unsortedItems(inProject.value))')
     expect(work).toContain("localStorage.setItem(VIEW_KEY, v)")
-    // the unsorted area is only a separate section when nothing is being filtered
-    expect(work).toContain('const showTriageArea = computed(')
-    expect(work).toContain('() => !filtering.value && !q.value.trim() &&')
+    // 不再有「待整理」分段区：草稿与收集箱都是平铺列表里的泳道
+    expect(work).not.toContain('showTriageArea')
+    expect(work).toContain('laneHint')
   })
 
   it('narrows by project through the URL (one entry point for the project chip)', () => {
@@ -76,19 +78,23 @@ describe('Work page', () => {
     expect(work).toContain('summarizeWorkItem(it.id)')
     expect(work).toContain('acceptWorkSuggestion(it.id, field)')
     expect(work).toContain('dismissWorkSuggestion(it.id, field)')
-    expect((work.match(/@summarize="summarize\(it\)"/g) ?? []).length).toBe(4)
-    expect((work.match(/@accept-suggestion=/g) ?? []).length).toBe(4)
+    // 两个视图（按状态平铺 / 按工作区）各一份卡片
+    expect((work.match(/@summarize="summarize\(it\)"/g) ?? []).length).toBe(2)
+    expect((work.match(/@accept-suggestion=/g) ?? []).length).toBe(2)
   })
 
-  it('hides empty columns on a phone so the first screen has content', () => {
-    expect(work).toContain('.work-col--empty { display: none; }')
+  it('is one column on a phone, with the chip rows scrolling inside their box', () => {
     // §4.3 froze the phone breakpoint at 760 for this redesign
     expect(work).toContain('@media (max-width: 760px)')
+    expect(work).toContain('.work-flat { grid-template-columns: minmax(0, 1fr);')
+    expect(work).not.toContain('.work-col--empty')
   })
 
-  it('uses the P0 status pill for the column headers instead of the old sbadge', () => {
-    expect(work).toContain('<StatusPill :status="col.status" />')
+  it('keeps the status text on the card, not just the left-edge colour', () => {
+    const card = read(import.meta.glob('../components/WorkCard.vue', { eager: true, query: '?raw', import: 'default' }))
+    expect(card).toContain('<StatusPill :status="item.status" />')
     expect(work).not.toContain('sbadge--${col.tone}')
+    expect(work).not.toContain('col-cards')
   })
 })
 
