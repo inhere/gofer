@@ -14,6 +14,7 @@
 ### 修复
 
 - **扇出步提交中途失败不再留下孤儿 fan（gofer-ourk）**：一个 fan 提交失败时整个 workflow 以失败结束，但此前已经提交的 fan 还在跑，只能手工取消。现在失败的步骤把已经起的那几路 fan 一并取消；取消放在 workflow 写入失败状态之后，被取消的 fan 触发的那次推进不会再把同一步骤重新起起来。
+- **`git worktree add` 撞上并发登记时短暂重试（gofer-ourk）**：同一仓库被主机与容器同时创建 worktree 时，git 可能读到别人刚建了一半的 `.git/worktrees/<id>/commondir`（或 `gitdir`）而直接报 `fatal: failed to read …: No error`。这类错误现在最多试 4 次（退避 200/400/600ms）；真正的失败（目录或分支已存在、base 不是提交、没有 git）仍然一次就返回原错误。
 
 ## [0.194.1] - 2026-10-24
 

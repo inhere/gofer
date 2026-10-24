@@ -84,6 +84,9 @@ gofer job worktree rm <job-id> --delete-branch    # 连分支一起删（已合�
 
 - **`worktree add` 报 already exists**：同 job id 的残留目录（极端情况：结果目录被保留但
   目录被手删一半）。手工 `rm -rf` 该目录后重投，或 `git worktree prune` 清条目。
+- **`worktree add` 报 `failed to read .git/worktrees/<id>/commondir`（或 `gitdir`）**：同一
+  仓库正被另一台机器 / 容器并发建 worktree，读到了刚建一半的登记。gofer 对这类错误会退避
+  重试几次（200/400/600ms）；反复出现说明那条登记真坏了——`git worktree prune` 后重投。
 - **一个项目要不要长期开 `worktree_default`**：项目里几乎都是并行写代码的 agent job →
   开；以只读/构建类 job 为主 → 不开（每次检出整棵树有成本）。
 - **worktree 跑在 worker 上，我在本机 `rm` 报 MISSING**：正常。在 worker 那台机器上执行

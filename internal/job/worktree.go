@@ -48,6 +48,12 @@ const (
 	// tempCheckoutShutdownTimeout 是停机期间删临时检出的预算：进程要尽快退出，删不掉的
 	// 留给下次启动的清扫，绝不为了它拖住 shutdown。
 	tempCheckoutShutdownTimeout = 15 * time.Second
+	// worktreeAddAttempts / worktreeAddRetryBase 是 `git worktree add` 对「同一仓库正被
+	// 别的进程建 worktree」这类瞬时错误的退避重试（gofer-ourk）：主机与容器同时往一个仓库
+	// 建 worktree 时，git 扫 .git/worktrees/* 会读到刚建了一半的登记而直接 fatal。窗口是毫秒
+	// 级，最坏多等 200+400+800ms，仍远在 worktreeTimeout 之内。
+	worktreeAddAttempts  = 4
+	worktreeAddRetryBase = 200 * time.Millisecond
 )
 
 // 导出给 worktree job 的环境变量（值见 worktreeRef）。agent 侧据此知道"我在受管
@@ -119,7 +125,7 @@ func prepareJobWorktree(ctx context.Context, cwd, jobID, base string, opts workt
 	if _, err := gitOut(ctx, top, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
 		return nil, fmt.Errorf("%w: branch %s already exists (pick another --branch or --worktree-name)", ErrInvalidRequest, branch)
 	}
-	if _, err := gitOut(ctx, top, "worktree", "add", "--detach", path, baseSHA); err != nil {
+	if err := gitWorktreeAdd(ctx, top, "worktree", "add", "--detach", path, baseSHA); err != nil {
 		return nil, fmt.Errorf("worktree add %s: %w", path, err)
 	}
 	if _, err := gitOut(ctx, path, "switch", "-c", branch); err != nil {
@@ -159,7 +165,7 @@ func prepareTempWorktree(ctx context.Context, cwd, jobID, sha string, opts workt
 	if isDir(path) {
 		return nil, fmt.Errorf("%w: worktree dir %s already exists", ErrInvalidRequest, path)
 	}
-	if _, err := gitOut(ctx, top, "worktree", "add", "--detach", path, sha); err != nil {
+	if err := gitWorktreeAdd(ctx, top, "worktree", "add", "--detach", path, sha); err != nil {
 		return nil, fmt.Errorf("worktree add --detach %s: %w", path, err)
 	}
 	return &worktreeRef{Path: path, BaseSHA: sha, Top: top, Links: opts.Links, Temp: true}, nil
@@ -414,6 +420,71 @@ func gitOut(ctx context.Context, dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// --- 并发建 worktree 的瞬时错误重试（gofer-ourk）----------------------------
+
+// worktreeRaceMarkers are the git messages that mean "another process is writing its own
+// worktree registration in this repository right now" rather than "this checkout is
+// broken": the admin entries live under .git/worktrees/<id>/ and git reads them as a
+// directory listing, so a half-created sibling makes it die with
+// "failed to read .git/worktrees/<id>/commondir: No error" (or .../gitdir). A repository
+// index lock held for a moment by a parallel job is the same kind of transient.
+var worktreeRaceMarkers = []string{"/commondir", "/gitdir", "index.lock"}
+
+// isWorktreeRaceError reports whether err is one of those transient registration races.
+// Anything else (no git, path/branch already exists, base is not a commit, a corrupted
+// registration that stays unreadable) is a real error and is never retried.
+func isWorktreeRaceError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	for _, marker := range worktreeRaceMarkers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// gitWorktreeAdd runs a `git worktree add ...` through gitOut, retrying ONLY the transient
+// registration race (isWorktreeRaceError) with a bounded backoff (attempt N waits
+// N*worktreeAddRetryBase). Two machines — typically the host and a container — creating
+// worktrees of the same repository at the same moment is a normal setup (a fan-out step
+// dispatched to both), and the race window is milliseconds. A real error is returned on the
+// first attempt unchanged, and so is the race once the attempts are used up: the operator
+// still sees git's own message.
+func gitWorktreeAdd(ctx context.Context, dir string, args ...string) error {
+	return retryWorktreeAdd(ctx, func() error {
+		_, err := gitOut(ctx, dir, args...)
+		return err
+	})
+}
+
+// retryWorktreeAdd is gitWorktreeAdd's retry loop without the git call, so the policy (what
+// is retried, how many times, how it backs off, when it gives up) is testable on its own.
+func retryWorktreeAdd(ctx context.Context, run func() error) error {
+	var err error
+	for attempt := 1; attempt <= worktreeAddAttempts; attempt++ {
+		if err = run(); err == nil {
+			return nil
+		}
+		if attempt == worktreeAddAttempts || !isWorktreeRaceError(err) {
+			return err
+		}
+		delay := time.Duration(attempt) * worktreeAddRetryBase
+		slog.Warn("worktree add lost a race with another worktree registration, retrying",
+			"attempt", attempt, "backoff", delay.String(), "err", err)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
+	}
+	return err
 }
 
 // --- ls / rm（W2）----------------------------------------------------------
