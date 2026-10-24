@@ -360,6 +360,23 @@ func Newer(latest, current string) bool {
 	return false
 }
 
+// ReleaseVersion turns a build version into the release version a download source names
+// (gofer-n1vj): "0.152.3" for "0.152.3", "v0.152.3", "0.152.3-2-gabc1234" or
+// "0.152.3 (abc1234)"; "" when the build is not a release version ("dev", a bare commit).
+func ReleaseVersion(build string) string {
+	if _, ok := parseVersion(build); !ok {
+		return ""
+	}
+	v := strings.TrimPrefix(strings.TrimSpace(build), "v")
+	if i := strings.IndexAny(v, " ("); i >= 0 {
+		v = v[:i]
+	}
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	return v
+}
+
 // parseVersion reads the X.Y.Z of "vX.Y.Z[-suffix]" (the display form
 // "X.Y.Z (commit)" too); a suffix (dev build) does not change the base.
 func parseVersion(v string) (nums [3]int, ok bool) {

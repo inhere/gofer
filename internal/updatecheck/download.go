@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/config"
 )
 
 const (
@@ -75,6 +78,71 @@ func (c *Checker) AssetFor(goos, goarch string) (Asset, error) {
 	}
 	if a.URL == "" {
 		return Asset{}, fmt.Errorf("release %s has no binary for %s/%s", st.Latest, goos, goarch)
+	}
+	return a, nil
+}
+
+// AssetForVersion resolves a platform's binary of ONE release (gofer-n1vj): "" or the
+// latest checked release is what AssetFor returns; another version is resolved from the
+// source itself — the mirror's url_template with that {version}, or that GitHub release's
+// assets. A mirror publishes the checksums of its latest release only, so any other
+// version is downloaded unverified (the URL is the administrator's own template).
+func (c *Checker) AssetForVersion(ctx context.Context, goos, goarch, version string) (Asset, error) {
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	if version == "" {
+		return c.AssetFor(goos, goarch)
+	}
+	c.mu.Lock()
+	latest := c.status.Latest
+	c.mu.Unlock()
+	if version == latest {
+		return c.AssetFor(goos, goarch)
+	}
+	u := c.cfg()
+	if u.UsesMirror() {
+		t := strings.TrimSpace(u.URLTemplate)
+		if t == "" {
+			return Asset{}, errors.New("server.update.url_template is not configured, so the mirror cannot name a release binary")
+		}
+		return Asset{OS: goos, Arch: goarch, Version: version, URL: expand(t, version, goos, goarch)}, nil
+	}
+	return c.gitHubAssetFor(ctx, u, goos, goarch, version)
+}
+
+// gitHubAssetFor resolves another release of the GitHub source: that release's archive
+// for the platform, plus the checksums of the latest.yaml it ships.
+func (c *Checker) gitHubAssetFor(ctx context.Context, u config.UpdateConfig, goos, goarch, version string) (Asset, error) {
+	body, err := c.get(ctx, u, githubAPI+"/repos/"+u.EffectiveRepo()+"/releases/tags/v"+version, "application/vnd.github+json")
+	if err != nil {
+		return Asset{}, err
+	}
+	var gh struct {
+		Assets []struct {
+			Name    string `json:"name"`
+			Browser string `json:"browser_download_url"`
+			API     string `json:"url"`
+		} `json:"assets"`
+	}
+	if err := json.Unmarshal(body, &gh); err != nil {
+		return Asset{}, fmt.Errorf("read the GitHub release: %v", err)
+	}
+	assets := make(map[string]ghAsset, len(gh.Assets))
+	for _, a := range gh.Assets {
+		assets[a.Name] = ghAsset{Browser: a.Browser, API: a.API}
+	}
+	name := assetFor(assets, goos, goarch)
+	if name == "" {
+		return Asset{}, fmt.Errorf("release %s has no binary for %s/%s", version, goos, goarch)
+	}
+	a := Asset{OS: goos, Arch: goarch, Version: version, Name: name}
+	a.URL, a.accept = assets[name].downloadURL()
+	if meta, ok := assets["latest.yaml"]; ok {
+		url, accept := meta.downloadURL()
+		if body, err := c.get(ctx, u, url, accept); err == nil {
+			if m, err := parseLatest(body); err == nil {
+				a.SHA256 = m.Files[BinaryName(goos, goarch)]
+			}
+		}
 	}
 	return a, nil
 }
