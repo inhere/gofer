@@ -2011,3 +2011,36 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 239 passed (239)` / `Tests 1643 passed (1643)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.60s`。`go build ./...` / `go vet ./...` 退出码 0（本项无 Go 代码改动）。没有新增路由，所以 G056 声明、`go generate` 与 `docs/reference/http-api.md` 都不变。
 
 **视觉自查**：worktree 构建产物 + 本机静态服务 + `/v1` 桩数据（合成数据与脚本在 `tmp/pagecheck/`，均已 gitignore），Edge headless 截图：zh × 深 / zh × 浅 / en × 浅 / en × 深 × 1440，zh × 深 / en × 浅 × 390，各再多一张打开抽屉的。确认：全部范围的来源列（项目 · gofer / 仓库 · gofer / gofer / 全局）同一行都不截断、深浅主题随 token 变；页头「共 N 条 · 第 1 / 1 页」与底部页码条（每页 50 / 上一页 / 1 / 1 / 下一页）整齐；抽屉在 1440 下 520px 靠右、在 390 下铺满全宽，字段两列自适应、标签 chip 与输入行不溢出；手机行堆叠后来源仍可见（标签列按旧口径隐藏）。两处按截图修掉的取舍：全部范围不再画那块「选择器面板」（说明行已经写了口径，空面板只是噪声）、面板里也不再多一行「来源」字段标签。
+
+### P6 接入页：在此浏览器记住登录（2026-10-23，issue gofer-x5k4）
+
+**做了什么**
+
+- **勾选框「在此浏览器记住登录」（默认勾选）**：`views/Access.vue` 连接时把勾选状态交给 `store/auth.setToken(token, { remember })`。勾选 → `localStorage`（按 origin 持久，从桌面通知 / 钉钉链接打开的新标签页、重开浏览器都不用再登录）；不勾选 → 当前标签页的 `sessionStorage`（关掉标签页即失效，与迁移前一致）。
+- **存储读写口径**（`store/auth.ts`）：读取顺序 `sessionStorage → localStorage`；写入只落选中的那一处，并把另一处的旧值清掉（两处各存一份会让「退出」「切换记住方式」「另一个标签页沿用旧 token」变成同步问题）；退出登录 / 401 / 登录失败兜底都清两处。跨标签页交接（`requestTokenFromPeers`）仍只落在接收标签页的 `sessionStorage`，不改对端的记忆设置。存储不可用（隐私模式、SSR、组件测试）时按未登录处理，读写都不抛错。
+- **地址一致性提示**：`GET /health`（免鉴权，接入页还没有 token 也能拉）新增 `web_base_url` —— 即 `server.web_base_url`（trim 后；未配置则没有该字段）。接入页挂载时拉一次，用 `views/accessOrigin.ts` 的 `mismatchedNotifyOrigin(当前 origin, web_base_url)` 比对：origin 不同就用 `--need` 色画一行提示（「通知链接指向 <origin>，与当前地址不同…」），相同 / 未配置 / 不是合法 URL / 拉不到都不提示、不影响登录。抽成纯函数是因为这一页在 node 下无法 SSR 渲染（`<img src="/…png">` 的公共资源 URL 解析），比对逻辑要能单独测。
+- **设置 › 关于新增「这个浏览器」一节**：显示当前是否记住登录（`store/auth.isRemembered()`），并有「退出并忘记此浏览器」——`clearToken()` 清两处后回 `/access`。侧栏「更多」里原有的登出同样清两处。
+- **文案**：`i18n/pages/access.ts` 新增 `access.remember` / `access.rememberHint` / `access.originMismatch`，并把 `access.hint` 里「只保存在 sessionStorage」的旧说法改成存储无关的说法；`i18n/pages/settings.ts` 新增 `settings.about.browser` / `browserDesc` / `remembered` / `notRemembered` / `logoutForget` / `logoutForgetHint`。zh / en 并列，两本字典 key 集合相等。
+
+**字段与操作核对（迁移前的 /access 与关于页 → 现在）**
+
+| 迁移前 | 现在 |
+|---|---|
+| token 输入（等宽、`autocomplete="current-password"`） | 保留，`data-testid="access-token"` 不变 |
+| 连接按钮、连接中状态、错误行（`role="alert"`） | 保留，`access-error` 不变 |
+| 成功后回 `?redirect`（只接受站内路径，默认 `/dashboard`） | 保留（`connect()` 未改这段判断） |
+| 右上角主题 / 语言开关、品牌 logo、标题、提示 | 保留（提示文案改为存储无关） |
+| 跨标签页 token 交接在 `router.ts` 的公开路由守卫 | 保留（交接写入接收标签页） |
+| ——（新增）勾选「在此浏览器记住登录」，默认勾选 | 新增 `access-remember` |
+| ——（新增）地址不一致提示 | 新增 `access-origin-hint` |
+| 关于页：版本 / 地址 / 运行时长 / 服务器时间 / 更新 | 全部保留，另加「这个浏览器」一节（记住状态 + 退出并忘记） |
+
+**测试**
+
+- `store/authStorage.test.ts`（新，8 例）：默认只写 sessionStorage、勾选写 localStorage、读取顺序与「另一处清掉」、无本标签页 token 时回落到记住的那份、退出与 401 清两处、跨标签页交接只写本标签页、存储缺失 / 抛错按未登录。
+- `views/accessPage.test.ts`（新，10 例）：`mismatchedNotifyOrigin` 的六种输入（不同 origin、带路径、协议不同、相同、未配置、非法 URL）；页面源码断言（复选框默认勾选、连接时带 `remember.value`、失败兜底 `clearToken`、`/health` → `getHealth()` → 提示与 `data-testid`）；新增 key 两本字典都有、旧提示不再说 sessionStorage；关于页的按钮、`isRemembered()` 状态行、`clearToken()` + 回 `/access`、新 key 的字典。
+- Go：`internal/httpapi/server_test.go` 新增 `TestHealthReportsWebBaseURL`（配置的地址 trim 后出现）与 `TestHealthOmitsWebBaseURLWhenUnset`（未配置不带该字段）。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 242 passed (242)` / `Tests 1662 passed (1662)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 23.96s`。`go build ./...` 退出码 0，`go vet ./...` 退出码 0，`go test -count=1 ./internal/httpapi/`：`ok github.com/inhere/gofer/internal/httpapi 120.663s`。不新增路由（`/health` 不在 `/v1` 下、无权限声明），G056 与 `go generate` 不变；`docs/reference/http-api.md` 的 `/health` 一行已补 `web_base_url`。
+
+**视觉自查**：脚本与桩在 `tmp/pagecheck/`（已忽略）。静态服务跑 worktree 构建产物 + `/health` 桩（返回一个与当前地址不同的 `web_base_url`），Edge headless 截 1440×900 的 zh/en × 浅/深 四张，用 CDP 把视口压到 390×844（Windows headless 的 `--window-size` 有约 496 的最小宽度）再截 zh 浅 / en 深两张。确认：复选框与说明在深浅两套 token 下都清楚（`accent-color: var(--accent)`）；提示条用 `--need` / `--need-soft` / `--need-ink`，深浅主题下都过了对比度且不与错误行（`--fail`）混淆；手机 390 下 `document.documentElement.scrollWidth = 390`，无横向滚动，卡片 420 上限不溢出。

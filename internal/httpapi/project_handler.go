@@ -16,12 +16,23 @@ import (
 )
 
 // handleHealth is the unauthenticated liveness probe (plan §7).
+//
+// web_base_url (gofer-x5k4) is the console address the server puts into notifications and
+// links (server.web_base_url), omitted when unset. The sign-in page reads it without a token
+// and warns the operator when the address they are using is not the one notifications use
+// (so "remember me" per origin cannot bridge the two).
 func (s *Server) handleHealth(c *rux.Context) {
-	c.JSON(http.StatusOK, rux.M{
+	body := rux.M{
 		"ok":          true,
 		"service":     "gofer",
 		"server_time": time.Now().UnixMilli(),
-	})
+	}
+	if cfg := s.serverCfg(); cfg != nil {
+		if base := strings.TrimSpace(cfg.WebBaseURL); base != "" {
+			body["web_base_url"] = base
+		}
+	}
+	c.JSON(http.StatusOK, body)
 }
 
 // handleListProjects returns the registered project keys.

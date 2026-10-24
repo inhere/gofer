@@ -26,6 +26,7 @@ import type {
   DeliveriesResp,
   FileContent,
   GitStatus,
+  HealthResp,
   Interaction,
   Job,
   JobDetailResp,
@@ -430,6 +431,12 @@ export async function getStats(): Promise<Stats> {
   // 用它（见 api/time.ts）。
   setServerTZOffset(stats.server_tz_offset_sec)
   return stats
+}
+
+// /health 是免鉴权的存活探针，接入页（还没登录）也能拉：gofer-x5k4 用它取
+// server.web_base_url，与当前 origin 比对后提示「通知里的地址 ≠ 你现在用的地址」。
+export function getHealth(): Promise<HealthResp> {
+  return request<HealthResp>('/health')
 }
 
 // 运行器舰队状态（worker / peer-http / local）。Runners 视图轮询读取。
