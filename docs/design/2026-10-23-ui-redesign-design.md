@@ -2195,3 +2195,34 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 244 passed (244)` / `Tests 1699 passed (1699)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.63s`。无 Go 改动、无路由 / 权限 / 协议变化（G056、`docs/reference/http-api.md` 不涉及）；skill 同步了 `references/web-console.md` 计划详情一句（看板状态字形 / 视图切换位置与 `?view=`）。
 
 **视觉自查**：构建产物 + 静态服务 + playwright（msedge）拦截 `/v1/**` 的合成桩（脚本与截图在 `tmp/ui-check/`，已忽略、不进仓库），zh / en × 浅 / 深 × 1440 与 zh 深 / en 浅 × 390，各截看板与列表两屏。程序化断言：五列列头都有 `data-testid="status-glyph"`（family 依次 queue / queue / run / need / done）、计数边框色为 `--run` / `--fail` / `--need`、`.todos-head .view-switch` 存在而 `.detail-head .view-switch` 不存在、`?view=list` 与 `?view=board` 都能直接落到对应视图、两种宽度都没有页面级横向滚动、无 pageerror。肉眼核对：深浅两套下的列头字形 / 文字对比度正常，手机上标题与切换同一行且不溢出。
+
+
+### P6-任务详情：被封顶的 timeout 写出来（2026-10-24，issue gofer-ea2i）
+
+**问题**：`job run --timeout 14400` 被 `server.max_job_timeout_sec`（5400）截短时，提交那一刻有 stderr 警告和 `--strict-timeout`，事后 `job show` 只打 `timeout: 5400s`；web 任务详情概览的 duration 行只显示 `12s (超时 1h30m)`，请求值藏在 `title` 悬停提示里。调用方（或过滤了输出的 agent）回头查详情时看不出自己要求的时限被截短过。
+
+**改动**
+
+- `views/JobDetail.vue`：概览元信息网格的 duration 行，在生效时限 `(超时 1h30m)` 后新增一行可见的夹紧说明 `data-test="timeout-clamp"`，读 `requested_timeout_sec` / `timeout_limit_key` / `timeout_limit_source`；颜色用 `--time`（超时族）。原来的 `title`（完整句「请求 X，已按上限夹紧为 Y」）保留。
+- `utils/jobTimeout.ts` 新增 `jobTimeoutClampNote(requested, effective, limitKey?, limitSource?)`：有配置键就写键（`server.max_job_timeout_sec` / `projects.<key>.max_timeout_sec`），只有来源就写「服务端 / 项目上限」，两者都没有就写「超时上限」；未截短返回 `undefined`（整段不渲染）。
+- `api/types.ts`：`Job` 补 `timeout_clamped` / `timeout_limit_source` / `timeout_limit_key`（后端 `job.JobResult` 早已下发，`GET /v1/jobs/{id}` 直接内嵌）。
+- 文案：`i18n/pages/shared.ts` 的 `util.jobTimeout.*` 追加 5 个 key（zh / en 并列），沿用既有 namespace，`JobDetail` / `jobTimeout` 不新增页面文件。
+
+**不丢信息核对（对照 §7「/jobs/:id」概览与迁移前的 duration 行）**
+
+| 迁移前 | 现在 |
+|---|---|
+| `duration` 行：耗时 + `(超时 1h30m)`，`title` 说明夹紧 | 全部保留，另加可见的「请求 X，被 <配置键> 封顶」 |
+| 未截短时不显示任何夹紧痕迹 | 保留（`undefined` 不渲染） |
+| 老 job（没有 `timeout_limit_key`） | 显示「被服务端 / 项目上限封顶」，再退到「被超时上限封顶」 |
+
+**测试**
+
+- `utils/jobTimeout.test.ts` 新增 3 例：带配置键、按来源回退（server / project / 无来源）、未截短 / 缺字段不渲染。
+- `views/jobDetailTimeout.test.ts`（新）：页面真的 import 并用了 `jobTimeoutClampNote` 与三个 wire 字段、模板里 `v-if="timeoutClampText"` 的 `data-test="timeout-clamp"` 在生效时限之后、`api/types.ts` 声明了这三个字段。
+- `internal/commands/job_test.go` 新增 `TestJobShowPrintsTimeoutClamp`：`job show` 输出同时含 `timeout:    5400s` 与 `(timeout 14400s clamped to 5400s by server.max_job_timeout_sec)`。
+- `internal/httpapi/strict_timeout_test.go` 扩展：提交响应之后 `GET /v1/jobs/{id}` 仍带 `timeout_sec` / `requested_timeout_sec` / `timeout_clamped` / `timeout_limit_source` / `timeout_limit_key`。
+
+**验证**：`go build ./...` / `go vet ./...` 退出码 0；`go test ./internal/commands ./internal/httpapi -count=1` 均 `ok`（各约 110s）；web `npx vue-tsc --noEmit` 退出码 0、`npx vitest run` 为 `Test Files 247 passed (247)` / `Tests 1718 passed (1718)`、`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 为 `✓ built in 18.82s`。视觉自查（构建产物 + 静态服务 + playwright/msedge 的 `/v1/**` 合成桩，脚本与截图在 `tmp/ui-check/`，已忽略）：zh / en × 浅 / 深 × 1440 与 zh 深 / en 浅 × 390 六种组合都渲染出 `请求 4h00m，被 server.max_job_timeout_sec 封顶` / `Requested 4h00m, capped by server.max_job_timeout_sec`，颜色随主题（浅 `--time #8653B3`、深 `--time #BB96E2`），无 pageerror，手机宽度下换行不溢出。无路由 / 权限 / 协议变化（G056、`docs/reference/http-api.md` 不涉及，字段早已在 `job.JobResult` 里）。
+
+**CLI 侧**：`job show` 在 `timeout:` 行下打 `(timeout 14400s clamped to 5400s by server.max_job_timeout_sec)`（`timeoutClampNote`）在 issue 之前已经落地，本次补回归测试把它钉住，不再改动输出格式。

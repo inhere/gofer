@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **被服务端截短的任务时限不再静默（gofer-ea2i）**：`gofer job show` 的 `timeout:` 行下面写明请求值与封顶的配置键（`(timeout 14400s clamped to 5400s by server.max_job_timeout_sec)`），web 任务详情概览的 duration 行同样在生效时限旁写「请求 4h00m，被 server.max_job_timeout_sec 封顶」（zh / en）。以前 web 只在悬停提示里说、`job show` 只在提交时打警告，事后再查详情只看到生效值，看不出它被截短过。
+
 ## [0.194.1] - 2026-10-24
 
 ### 修复
