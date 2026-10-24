@@ -161,7 +161,7 @@ function fmtTime(v: number | undefined): string {
 </script>
 
 <template>
-  <div class="icard" :class="{ 'icard--answered': answered || expired }">
+  <div class="icard msg-body" :class="{ 'icard--answered': answered || expired }">
     <div class="icard-head mono">
       <span class="icard-type">{{ interaction.type }}</span>
       <span class="icard-id">{{ interaction.id }}</span>
@@ -323,6 +323,7 @@ function fmtTime(v: number | undefined): string {
 
 <style scoped>
 .icard {
+  min-width: 0;
   border: 1px solid var(--line);
   border-left: 2px solid var(--accent);
   border-radius: var(--r-chip);
@@ -360,7 +361,6 @@ function fmtTime(v: number | undefined): string {
   color: var(--ink);
   font-size: 13px;
   line-height: 1.5;
-  word-break: break-word;
 }
 
 .icard-done {
@@ -432,7 +432,6 @@ function fmtTime(v: number | undefined): string {
   color: var(--ink-3);
   font-size: 11px;
   white-space: pre-wrap;
-  word-break: break-all;
 }
 .icard-label {
   font-size: 11px;

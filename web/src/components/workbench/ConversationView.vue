@@ -309,7 +309,7 @@ onUnmounted(abortAll)
         <template v-for="(block, index) in timelineBlocks(round.events)" :key="`${block.kind}-${index}`">
           <div v-if="block.kind === 'text' && block.event.kind === 'prompt'" class="msg msg--me">
             <div class="who">{{ t('workbench.conv.you') }}<span class="muted">{{ eventTime(block.event) }}</span></div>
-            <div class="bubble bubble--user">
+            <div class="bubble bubble--user msg-body">
               <div class="plain-text" lang="en">{{ block.event.text }}</div>
               <AttachmentThumbs v-if="eventAttachments(block.event).length > 0" :items="eventAttachments(block.event)" />
               <span v-if="block.event.truncated" class="truncated">{{ t('workbench.conv.truncated') }}</span>
@@ -318,7 +318,7 @@ onUnmounted(abortAll)
 
           <div v-else-if="block.kind === 'text'" class="msg">
             <div class="who">{{ t('workbench.conv.assistant') }}<span class="muted">{{ eventTime(block.event) }}</span></div>
-            <div class="txt">
+            <div class="txt msg-body">
               <MarkdownBlock :text="block.event.text" />
               <AttachmentThumbs v-if="eventAttachments(block.event).length > 0" :items="eventAttachments(block.event)" />
               <span v-if="block.event.truncated" class="truncated">{{ t('workbench.conv.truncated') }}</span>
@@ -432,6 +432,7 @@ onUnmounted(abortAll)
   flex-direction: column;
   gap: var(--s1);
   max-width: min(88%, 760px);
+  min-width: 0;
 }
 .msg--me {
   align-self: flex-end;
@@ -450,6 +451,7 @@ onUnmounted(abortAll)
   font-size: var(--fs-xs);
   font-weight: 400;
 }
+/* 气泡只定外观；长内容不撑宽容器（min-width / 断行 / pre 与表格横滚）由 .msg-body 统一处理。 */
 .bubble,
 .txt {
   border: 1px solid var(--line);
@@ -457,7 +459,7 @@ onUnmounted(abortAll)
   padding: var(--s2) var(--s3);
   background: var(--surface);
   color: var(--ink);
-  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .bubble--user {
   background: var(--accent-soft);

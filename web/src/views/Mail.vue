@@ -955,7 +955,7 @@ onUnmounted(() => {
                 v-for="m in timeline"
                 :id="`mail-${m.id}`"
                 :key="m.id"
-                class="bubble"
+                class="bubble msg-body"
                 :class="[
                   `bubble--${bubbleSide(m, active, me)}`,
                   { 'bubble--reply': !!m.reply_to, 'bubble--hot': highlightId === m.id, 'bubble--urgent': !!m.urgent },
@@ -1408,9 +1408,11 @@ onUnmounted(() => {
   font-size: var(--fs-xs);
 }
 /* 气泡：自己的一方在右（--right），对方在左；回信用虚线边，急件勾红线。
-   宽度取对话区的大部分（max-width 用 ch 限制超宽屏上的行长），手机宽度下满宽。 */
+   宽度取对话区的大部分（max-width 用 ch 限制超宽屏上的行长），手机宽度下满宽。
+   长内容不撑宽容器（min-width / 断行 / pre 与表格横滚）由 .msg-body 统一处理。 */
 .bubble {
   max-width: min(94%, 96ch);
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--line);
   border-left: 2px solid var(--line-strong);

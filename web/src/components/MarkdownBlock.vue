@@ -4,6 +4,7 @@
 // sanitize 的 HTML。FilePreview（.md 产物预览）与验收面板「汇报」共用这一条路径。
 //
 // 不设自身高度/滚动：容器（.fp-md / 验收面板）决定，块内只负责排版。
+// 溢出（长行 / 代码块 / 宽表格）统一交给全局的 .msg-body（styles/msg.css、issue gofer-ndub）。
 import { computed } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -15,16 +16,17 @@ const html = computed(() => DOMPurify.sanitize(marked.parse(props.text, { async:
 
 <template>
   <!-- eslint-disable-next-line vue/no-v-html -->
-  <div class="md" v-html="html"></div>
+  <div class="md msg-body" v-html="html"></div>
 </template>
 
 <style scoped>
-/* scoped 不穿透动态 HTML，故用 :deep() 给常见元素补排版。 */
+/* scoped 不穿透动态 HTML，故用 :deep() 给常见元素补排版。
+   不撑宽容器的规则（min-width / overflow-wrap / pre 与 table 横滚）在 styles/msg.css 的
+   .msg-body 里统一处理，这里只管排版，不再各写一份 word-break。 */
 .md {
   font-size: 13px;
   line-height: 1.6;
   color: var(--ink);
-  word-break: break-word;
 }
 .md :deep(h1),
 .md :deep(h2),

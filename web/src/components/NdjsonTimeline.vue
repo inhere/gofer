@@ -435,7 +435,7 @@ function hiddenLineCount(item: TimelineItem): number {
           <span v-if="item.meta" class="event-meta">{{ item.meta }}</span>
         </header>
         <template v-if="item.body">
-          <pre class="event-body">{{ visibleBody(item) }}</pre>
+          <pre class="event-body msg-body">{{ visibleBody(item) }}</pre>
           <button
             v-if="item.foldable && (hiddenLineCount(item) > 0 || expanded.has(item.index))"
             class="fold"
@@ -445,7 +445,7 @@ function hiddenLineCount(item: TimelineItem): number {
             {{ expanded.has(item.index) ? t('util.ndjson.collapse') : t('util.ndjson.expandRest', { n: hiddenLineCount(item) }) }}
           </button>
         </template>
-        <pre v-else class="event-body event-body--raw">{{ item.raw }}</pre>
+        <pre v-else class="event-body event-body--raw msg-body">{{ item.raw }}</pre>
       </article>
     </template>
   </div>
@@ -515,7 +515,6 @@ function hiddenLineCount(item: TimelineItem): number {
 .event-body {
   margin: 6px 0 0;
   white-space: pre-wrap;
-  word-break: break-word;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.45;

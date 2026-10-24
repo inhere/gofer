@@ -184,7 +184,7 @@ defineExpose({ open })
           <p v-if="status?.agent_error" class="err mono">{{ status.agent_error }}</p>
           <p v-if="rebuilt" class="note mono" data-test="steward-rebuilt">{{ t('util.steward.panel.rebuilt') }}</p>
           <p v-if="!messages.length && status?.state === 'not_started'" class="note mono" data-test="steward-hint">{{ t('util.steward.panel.hint') }}</p>
-          <div v-for="m in messages" :key="`${m.kind}-${m.seq}`" class="bubble" :class="m.kind === 'prompt' ? 'bubble--user' : 'bubble--bot'" data-test="steward-msg">
+          <div v-for="m in messages" :key="`${m.kind}-${m.seq}`" class="bubble msg-body" :class="m.kind === 'prompt' ? 'bubble--user' : 'bubble--bot'" data-test="steward-msg">
             <div class="role mono">{{ m.kind === 'prompt' ? 'YOU' : 'STEWARD' }}</div>
             <div v-if="m.kind === 'prompt'" class="plain">{{ displayPrompt(textOf(m)) }}</div>
             <MarkdownBlock v-else :text="textOf(m)" />
@@ -220,11 +220,11 @@ defineExpose({ open })
 .disabled { padding: 24px 14px; font-size: 13px; color: var(--ink); text-align: center; }
 .disabled a { color: var(--accent); }
 .body { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-.bubble { max-width: 92%; border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; font-size: 13px; }
+.bubble { max-width: 92%; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; font-size: 13px; }
 .bubble--user { align-self: flex-end; background: rgba(100, 170, 255, 0.09); }
 .bubble--bot { align-self: flex-start; background: var(--bg); }
 .role { margin-bottom: 4px; font-size: 9px; letter-spacing: 0.08em; color: var(--ink-3); }
-.plain { white-space: pre-wrap; word-break: break-word; }
+.plain { white-space: pre-wrap; }
 .note { margin: 0; font-size: 11px; color: var(--ink-3); text-align: center; }
 .err { margin: 0 10px 6px; padding: 6px 8px; font-size: 11px; color: var(--fail); border: 1px solid var(--fail); border-radius: var(--r-chip); word-break: break-word; }
 .quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 6px; flex: none; }

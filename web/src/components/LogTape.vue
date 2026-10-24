@@ -482,7 +482,7 @@ onMounted(() => {
         </div>
         <div
           v-else-if="stdoutMarkdownMode && showStdoutMarkdown"
-          class="log-md"
+          class="log-md msg-body"
           v-html="stdoutMarkdownHtml"
         ></div>
         <pre v-else ref="stdoutPre" class="log-text"></pre>

@@ -2432,7 +2432,7 @@ onUnmounted(() => {
         </div>
         <div
           v-if="canViewCommandMarkdown && commandMarkdownMode"
-          class="outcome-pre outcome-pre--cmd outcome-md"
+          class="outcome-pre outcome-pre--cmd outcome-md msg-body"
           v-html="renderedCommandMarkdown"
         />
         <pre v-else class="outcome-pre outcome-pre--cmd mono"><span class="cmd-bin">{{ renderedCommand.command }}</span><template
@@ -2489,7 +2489,7 @@ onUnmounted(() => {
               :to="`/jobs/${encodeURIComponent(m.job_id)}`"
             >{{ shortId(m.job_id) }}</RouterLink>
           </div>
-          <pre class="job-message-text">{{ m.text }}</pre>
+          <pre class="job-message-text msg-body">{{ m.text }}</pre>
           <span v-if="m.truncated" class="job-message-truncated mono">{{ t('jobs.detail.truncated') }}</span>
           <details v-if="m.injected" class="job-message-injected">
             <summary class="mono">{{ t('jobs.detail.viewInjected') }}</summary>
@@ -3436,7 +3436,6 @@ onUnmounted(() => {
 .job-message-text {
   margin: 6px 0 0;
   white-space: pre-wrap;
-  word-break: break-word;
   color: var(--ink);
   font-family: inherit;
 }

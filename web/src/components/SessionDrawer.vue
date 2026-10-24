@@ -1307,13 +1307,13 @@ defineExpose({ load, loadMore, setRelayMode, remove })
         </div>
         <template v-for="entry in conversationTimeline" :key="entry.kind === 'turn' ? entry.turn.id : entry.message.id">
           <div v-if="entry.kind === 'message' && isSessionReply(entry.message)" class="turn">
-            <div class="bubble bubble--agent session-reply" data-test="session-reply">
+            <div class="bubble bubble--agent session-reply msg-body" data-test="session-reply">
               <div class="bubble-meta mono">
                 <span>{{ sessionReplyLabel(entry.message, session) }}</span>
                 <span :title="fmtDateTime(entry.message.created_at)">{{ fmtAgo(entry.message.created_at, nowSec) }}</span>
               </div>
               <div
-                class="bubble-md"
+                class="bubble-md msg-body"
                 :class="{ clamped: isLong(entry.message.text) && !expanded.has(entry.message.id) }"
                 v-html="renderMd(entry.message.text)"
               ></div>
@@ -1328,14 +1328,14 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             </div>
           </div>
           <div v-else-if="entry.kind === 'message'" class="turn">
-            <div class="bubble bubble--human relay-message">
+            <div class="bubble bubble--human relay-message msg-body">
               <div class="bubble-meta mono">
                 <span>{{ sessionMessageAuthorLabel(entry.message) }}</span>
                 <span :title="fmtDateTime(entry.message.created_at)">{{ fmtAgo(entry.message.created_at, nowSec) }}</span>
               </div>
               <pre
                 v-if="attachmentBubbleText(entry.message.text, entry.message.attachments)"
-                class="bubble-text"
+                class="bubble-text msg-body"
               >{{ attachmentBubbleText(entry.message.text, entry.message.attachments) }}</pre>
               <AttachmentThumbs v-if="entry.message.attachments?.length" :items="entry.message.attachments" />
               <div class="relay-message-status mono" :class="`outbox-status--${entry.message.status}`">
@@ -1354,18 +1354,18 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             <SessionPermissionPrompt :sid="sid" :decision="entry.turn" :now-sec="nowSec" @answered="onPermissionAnswered" />
           </div>
           <div v-else class="turn">
-            <div class="bubble bubble--agent">
+            <div class="bubble bubble--agent msg-body">
               <div class="bubble-meta mono">
                 <span>{{ session?.agent || 'agent' }}</span>
                 <span :title="fmtDateTime(entry.turn.asked_at)">{{ fmtAgo(entry.turn.asked_at, nowSec) }}</span>
               </div>
               <div
                 v-if="entry.turn.question"
-                class="bubble-md"
+                class="bubble-md msg-body"
                 :class="{ clamped: isLong(entry.turn.question) && !expanded.has(entry.turn.id) }"
                 v-html="renderMd(entry.turn.question)"
               ></div>
-              <pre v-else class="bubble-text">{{ t('sessions.drawer.noMessage') }}</pre>
+              <pre v-else class="bubble-text msg-body">{{ t('sessions.drawer.noMessage') }}</pre>
               <button
                 v-if="isLong(entry.turn.question)"
                 class="link-btn mono"
@@ -1375,14 +1375,14 @@ defineExpose({ load, loadMore, setRelayMode, remove })
                 {{ expanded.has(entry.turn.id) ? t('util.action.collapse') : t('sessions.drawer.expandFull', { n: entry.turn.question.length }) }}
               </button>
             </div>
-            <div v-if="entry.turn.state === 'ANSWERED' && !entry.relayed" class="bubble bubble--human">
+            <div v-if="entry.turn.state === 'ANSWERED' && !entry.relayed" class="bubble bubble--human msg-body">
               <div class="bubble-meta mono">
                 <span>{{ entry.turn.answered_by || 'web' }}</span>
                 <span :title="fmtDateTime(entry.turn.answered_at)">{{ fmtAgo(entry.turn.answered_at, nowSec) }}</span>
               </div>
               <pre
                 v-if="attachmentBubbleText(entry.turn.answer, entry.turn.attachments)"
-                class="bubble-text"
+                class="bubble-text msg-body"
               >{{ attachmentBubbleText(entry.turn.answer, entry.turn.attachments) }}</pre>
               <AttachmentThumbs v-if="entry.turn.attachments?.length" :items="entry.turn.attachments" />
             </div>
@@ -1422,7 +1422,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           </div>
           <div
             v-if="lastMessageOpen"
-            class="last-message-text bubble-md"
+            class="last-message-text bubble-md msg-body"
             v-html="renderMd(session.last_message)"
           ></div>
         </section>
@@ -1437,7 +1437,7 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           </button>
         </div>
         <p class="session-progress-preview mono" :title="session.progress_text">{{ session.progress_text }}</p>
-        <div v-if="progressOpen" class="session-progress-full bubble-md" v-html="renderMd(session.progress_text)"></div>
+        <div v-if="progressOpen" class="session-progress-full bubble-md msg-body" v-html="renderMd(session.progress_text)"></div>
       </section>
 
       <SessionNudges v-if="session && sid" :sid="sid" :state="session.state" />
@@ -1938,13 +1938,16 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .outbox-status--queued, .outbox-status--delivering { color: var(--run); }
 .outbox-status--failed, .outbox-status--undelivered, .outbox-error { color: var(--fail); }
 .relay-message-status { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 11px; }
+/* 气泡只定外观；长内容不撑宽容器（min-width / 断行 / pre 与表格横滚）由 .msg-body 统一处理。 */
 .turn {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 .bubble {
   max-width: 88%;
+  min-width: 0;
   border-radius: 8px;
   padding: 8px 11px;
   font-size: 13px;
@@ -1997,14 +2000,13 @@ defineExpose({ load, loadMore, setRelayMode, remove })
   font-family: var(--font-mono);
   font-size: 12px;
   white-space: pre-wrap;
-  word-break: break-word;
 }
 /* markdown 渲染的 agent 消息：紧凑排版，折叠时用高度裁剪 + 渐隐，
-   避免截断 markdown 源码破坏语法。 */
+   避免截断 markdown 源码破坏语法。溢出（pre / table / 长行）在 .msg-body 里统一处理。 */
 .bubble-md {
+  min-width: 0;
   font-size: 12px;
   line-height: 1.55;
-  word-break: break-word;
 }
 .bubble-md.clamped {
   max-height: 320px;
@@ -2050,7 +2052,6 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 .bubble-md pre {
   margin: 0 0 8px;
   padding: 8px 10px;
-  overflow-x: auto;
   border: 1px solid var(--line);
   border-radius: var(--r-chip);
   background: var(--surface-2);
@@ -2069,8 +2070,6 @@ defineExpose({ load, loadMore, setRelayMode, remove })
 }
 .bubble-md table {
   border-collapse: collapse;
-  display: block;
-  overflow-x: auto;
 }
 .bubble-md th,
 .bubble-md td {

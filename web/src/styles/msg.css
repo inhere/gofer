@@ -1,0 +1,50 @@
+/* 消息正文的统一口径（设计稿 §11、issue gofer-ndub）。
+ *
+ * 聊天 / 时间线 / 信箱 / 抽屉里渲染的是不可信的长内容：代码块、长命令、长路径、长 URL、
+ * 宽表格。它们只许在自己的框里断行或横滚，绝不许把气泡（进而把页面）撑宽。以前每个组件
+ * 各自写一份 white-space / word-break / overflow，口径互相漂移，表格与 pre 尤其容易漏。
+ * 现在只有一个入口——「消息正文容器」挂 .msg-body：
+ *   - MarkdownBlock 的根元素自带（凡走 markdown 渲染的地方都自动覆盖）；
+ *   - 纯文本气泡（pre-wrap 的那类）在模板里手动加同名 class。
+ *
+ * 规则只做「不撑宽」，具体排版（底色、边框、间距、字号、white-space）仍由组件自己的 scoped
+ * 样式决定；scoped 规则带 [data-v-*] 权重更高，组件要覆写这里也没问题。
+ *
+ *   1. min-width:0      —— 气泡常是 flex / grid 子项，自动最小宽度会让长内容顶出容器；
+ *   2. overflow-wrap:anywhere —— 普通文本里的超长单词 / URL / 路径就地断行，
+ *                          同时把最小内容宽度降到「一个字符」，fit-content 的气泡不再被撑大；
+ *   3. pre / table      —— 块级内容在自己的框里横向滚动，不参与父容器的最小内容宽度。
+ */
+.msg-body {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.msg-body pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* 表格自己当滚动容器：table 根盒默认不接受 overflow，宽表格会直接撑破气泡；
+   display:block 让它在框内横滚（列宽仍按表格算法），width:max-content 保住「列按内容排开」
+   （只写 display:block 时列宽会被压成每列一个字）；max-width:100% + overflow 让它不撑宽父容器。 */
+.msg-body table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* 单元格内改回 break-word：.msg-body 的 anywhere 会把宽表格的每一列压成「一个字」宽——
+   不溢出，但表格没法读；break-word 只在真放不下时断词，列宽按最长词排开，放不下时整表横滚。 */
+.msg-body th,
+.msg-body td {
+  overflow-wrap: break-word;
+}
+
+.msg-body img,
+.msg-body video {
+  max-width: 100%;
+  height: auto;
+}
