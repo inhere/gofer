@@ -328,3 +328,22 @@ func TestExtractArchiveLayouts(t *testing.T) {
 		t.Error("an archive without the binary must fail")
 	}
 }
+
+// A version or platform that is not a plain release / os-arch never reaches the download
+// URL (CodeQL go/request-forgery): the version comes from an HTTP request body.
+func TestAssetForVersionRejectsUnsafeInput(t *testing.T) {
+	c := &Checker{}
+	for _, v := range []string{"1.2.3/../../x", "1.2", "1.2.3?x=1", "1.2.3@evil.host", "http://x/1.2.3"} {
+		if _, err := c.AssetForVersion(t.Context(), "linux", "amd64", v); err == nil {
+			t.Errorf("version %q accepted, want an error", v)
+		}
+	}
+	for _, p := range [][2]string{{"linux/..", "amd64"}, {"linux", "amd64?x"}, {"Linux", "amd64"}} {
+		if _, err := c.AssetForVersion(t.Context(), p[0], p[1], "1.2.3"); err == nil {
+			t.Errorf("platform %q/%q accepted, want an error", p[0], p[1])
+		}
+	}
+	if !releaseVersionRe.MatchString("0.194.0") || !releaseVersionRe.MatchString("1.2.3-rc.1") {
+		t.Error("a plain release version was rejected")
+	}
+}

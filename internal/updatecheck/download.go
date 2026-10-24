@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -82,6 +83,13 @@ func (c *Checker) AssetFor(goos, goarch string) (Asset, error) {
 	return a, nil
 }
 
+// releaseVersionRe is a release version as gofer tags them (without the v): X.Y.Z with an
+// optional -suffix of letters, digits, dots and dashes.
+var releaseVersionRe = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$`)
+
+// platformPartRe is one half of a GOOS/GOARCH pair.
+var platformPartRe = regexp.MustCompile(`^[a-z0-9]+$`)
+
 // AssetForVersion resolves a platform's binary of ONE release (gofer-n1vj): "" or the
 // latest checked release is what AssetFor returns; another version is resolved from the
 // source itself — the mirror's url_template with that {version}, or that GitHub release's
@@ -91,6 +99,16 @@ func (c *Checker) AssetForVersion(ctx context.Context, goos, goarch, version str
 	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
 	if version == "" {
 		return c.AssetFor(goos, goarch)
+	}
+	// The version (an HTTP request field) and the platform (what a worker reported) are
+	// spliced into the download URL — the mirror's url_template or the GitHub API path. Only
+	// a plain release version and a plain os/arch may reach it, so neither can add a host,
+	// a path segment or a query.
+	if !releaseVersionRe.MatchString(version) {
+		return Asset{}, fmt.Errorf("invalid release version %q (want X.Y.Z or X.Y.Z-suffix)", version)
+	}
+	if !platformPartRe.MatchString(goos) || !platformPartRe.MatchString(goarch) {
+		return Asset{}, fmt.Errorf("invalid platform %q/%q", goos, goarch)
 	}
 	c.mu.Lock()
 	latest := c.status.Latest
