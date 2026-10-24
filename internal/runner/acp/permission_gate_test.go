@@ -328,3 +328,22 @@ func TestKindReadStaysAutoAllowed(t *testing.T) {
 		}
 	}
 }
+
+// TestGoferToolNameDoesNotUnlockMutatingKinds: the tool-name rule only decides MCP-shaped
+// calls. A call the agent reports as edit / delete / move / execute / switch_mode goes to a
+// human even when its title is a gofer tool on gofer's own server — a name must never let a
+// write or a command through.
+func TestGoferToolNameDoesNotUnlockMutatingKinds(t *testing.T) {
+	for _, kind := range []string{acp.ToolKindEdit, acp.ToolKindDelete, acp.ToolKindMove, acp.ToolKindExecute, acp.ToolKindSwitchMode} {
+		for _, title := range []string{"mcp__gofer__gofer_today_list", "mcp__gofer__gofer_today_advise"} {
+			t.Run(kind+"/"+title, func(t *testing.T) {
+				sink := &recordingSink{}
+				h, _ := gateHandler(t, config.ApprovalAsk, sink)
+				out := h.RequestPermission(permissionRequest(title, kind))
+				if len(sink.asked) != 1 {
+					t.Fatalf("kind=%s %s: asked %d time(s), want the human asked (outcome %+v)", kind, title, len(sink.asked), out)
+				}
+			})
+		}
+	}
+}

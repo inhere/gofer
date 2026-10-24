@@ -937,7 +937,7 @@ func (h *handler) RequestPermission(p acp.RequestPermissionParams) acp.Permissio
 // every other tool name is matched as the operator wrote it.
 func (h *handler) toolAutoAllowed(tc *acp.ToolCall) bool {
 	raw := toolCallTitle(tc)
-	if raw == "" {
+	if raw == "" || !nameRuleKind(tc) {
 		return false
 	}
 	if h.policy.AsksTool(raw) {
@@ -950,6 +950,23 @@ func (h *handler) toolAutoAllowed(tc *acp.ToolCall) bool {
 		return false
 	}
 	return h.policy.AutoAllowTool(raw)
+}
+
+// nameRuleKind reports whether a tool call's kind may be decided by tool NAME at all. An
+// MCP tool arrives as kind=other (or a read-like kind); a call the agent reports as one of
+// the mutating kinds (edit / delete / move / execute / switch_mode) is never let through
+// by a name that merely looks like a gofer tool — the name rule widens what an MCP call may
+// do, it must not narrow the guard on writes and commands (defence in depth on top of the
+// server attribution in goferToolOwned).
+func nameRuleKind(tc *acp.ToolCall) bool {
+	if tc == nil {
+		return false
+	}
+	switch tc.Kind {
+	case acp.ToolKindEdit, acp.ToolKindDelete, acp.ToolKindMove, acp.ToolKindExecute, acp.ToolKindSwitchMode:
+		return false
+	}
+	return true
 }
 
 // autoAllowToolReason is the acp.jsonl / stderr reason recorded for a no-human decision
@@ -1397,6 +1414,9 @@ const autoReasonMailResidentReply = "mail_resident_reply"
 // rule in the mail routes).
 func (h *handler) isGoferMailReplyTool(tc *acp.ToolCall) bool {
 	raw := toolCallTitle(tc)
+	if !nameRuleKind(tc) {
+		return false
+	}
 	if _, ok := mcptools.MailReplyToolName(raw); !ok {
 		return false
 	}
