@@ -348,7 +348,7 @@ defineExpose({ refresh, focusFile })
 /* 没有基线（409）：一条说明 + 重试，不留空白也不弹错误。 */
 .changes-unavailable { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 14px 12px; margin: 10px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--surface); }
 .unavailable-title { margin: 0; color: var(--ink); font-size: 12px; font-weight: 600; }
-.unavailable-reason { margin: 0; color: var(--ink-3); font-size: 11px; white-space: pre-wrap; }
+.unavailable-reason { margin: 0; color: var(--ink-3); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .changes-unavailable button { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--bg); color: var(--ink); }
 .changes-unavailable button:disabled { opacity: .4; }
 .review-toolbar { flex: none; display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); background: var(--surface); }
