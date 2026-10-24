@@ -47,6 +47,7 @@ gofer serve reload -c <config> [--timeout 秒]                           # 本�
 
 - worker 热生效：agents / roots / guards / labels / tools / max_concurrent / 隧道白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。结果：成功（打印新能力摘要）/ worker 的拒绝原因 / `offline` / 版本太旧（需升级重启）/ 超时（可能已应用，稍后 `worker show`）。
 - server 也可 Unix `SIGHUP` 或 web 设置页「重新读取文件」。`server.workers` 与 type=worker 的 runner 增删改热生效；`server.addr`、token、tls、callers、session_messaging、agent_fallback、xfer 等改动列在 `restart_required` 里，需要重启。
+- 同一页「重新读取文件」旁还有「**重启 server**」：只对受管服务（`gofer serve register` 注册过）可点，未注册时灰显并说明原因。它用的是与一键更新同一套受管交接（套接字先停放新 job、等机器空闲，再交给 `serve upgrade` 换二进制），不下载任何东西；确认框会写清影响（在跑的 job 先结束、新提交的 job 排队、控制台断几秒）并可选「最多等空闲」或随时「取消等待」。等空闲期间机器上仍在跑的 job 就是挡住重启的那几个，页面会逐个列出。接口是 `POST/GET/DELETE /v1/server/restart`（字段见 `docs/reference/http-api.md`）。
 - 主机新装了某个 agent CLI，想让探测可见：重载对应的 server 或 worker 一次。
 
 ## 远程升级 worker

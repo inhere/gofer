@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+- **配置管理页展示完整配置 + 可重启 server（gofer-4uk5）**：
+  - `GET /v1/config` 现在会带回全部顶层段：`log`、`wakeup`、`session`、`work`、`steward`、`pty`、`mail`、`tools`、`mcp_servers`、`secrets`、`pricing`、`http_proxy`、`include`，以及 `server.*` 里原先没有的块（`tls`、`update`、`worker_enrollment`、`push`、`session_messaging`、`policy_repush`、`agent_fallback`、`xfer`、`attachments`、`worker_queue_max_wait_sec`、`hold`、`notification.desktop`），还有 `governance.require_tunnel_capability` / `attach_origins`、`callers[].can_attach` / `can_tunnel`、`storage.mail_retention_days` / `attachment_retention_days`。全都是**只读**字段；密钥与代理 URL 只回「已配置 / 未配置」，env / header 只给名字（沿用 webhook `secret_env` 的先例）。
+  - 设置 › 配置管理把其余各段按分组卡片（默认收起，标「只读」）展示，敏感字段显示「已配置 / 未配置」；原有的 server / agents 编辑入口不变。
+  - 「重新读取文件」旁新增「重启 server」：写清影响的二次确认（在跑的 job 先结束、新 job 排队、控制台断几秒）、可选「最多等空闲」（30 分钟 / 1 / 2 / 4 小时）与「取消等待」；不是受管服务（未 `gofer serve register`）时按钮灰显并说明原因。
+  - 新接口 `POST /v1/server/restart`（`GET` 读进度与 `managed`、`DELETE` 取消等待），复用一键更新的受管交接（`gofer serve upgrade`）：套接字照样先停放新 job、等机器空闲，再把**当前可执行文件的副本**交给交接——不下载任何东西。权限与一键更新同档（admin + `config.write`）；非受管 server 返回 409。
+
 ## [0.193.0] - 2026-10-24
 
 ### 新增

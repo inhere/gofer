@@ -85,6 +85,30 @@ The details worth knowing:
 - `PUT /v1/config/agents/{key}` on an `extends` agent keeps it an `extends` agent: the file gets only the declared keys plus fields that now differ from the template.
 - A config reload receipt (`serve reload`, `POST /v1/config/reload`) lists `files` (main first) when the config is split.
 
+## Config view: the whole configuration (gofer-4uk5)
+
+`GET /v1/config` publishes every top-level section so a console can show what is actually in effect. Everything below is **read-only** over the API (the write surface stays `PUT /v1/config/server`, `/v1/config/work`, `/v1/config/steward` and the agent endpoints):
+
+- `include` (the `include:` list itself; `sources` maps each section to its file).
+- `log {file, dir, max_size_mb, max_age_days, max_backups}`, `wakeup {ttl_sec}` (resolved), `pty {transcript_max_bytes}`.
+- `session` (all relay / takeover thresholds, `inject_commands`, `stop_job_wait`; `null` = unset ≠ `0`), `work` (digest, summarizer, tidy-up, needs-me), `steward`, `mail` (tick / wake / delivery / broadcast plus `agents[] {key, agent, runner, args, idle_minutes, max_letters, max_hours}`; the resident prompt and the mail approval block are not part of the view).
+- `tools[] {name, desc, bin}` (this machine's external tools), `pricing[] {model, input, output, cache_read, cache_write}`.
+- `mcp_servers[] {key, desc, type, command, args, url, env_keys, header_keys, secret_env_set, secret_header_keys, tools, enabled}` — the registry declaration; env / header values never appear, and `secret_env` is reported as `secret_env_set` (the name itself is not echoed, as with webhook `secret_env`).
+- `secrets[] {key, description, as, set}` — `set` says whether the indirection is configured; the env NAME it reads is not echoed.
+- `http_proxy {proxy_url_set, allow_sites}` — the URL may carry credentials, so only its presence is reported.
+- `server.*` additions: `web_dir`, `web_base_url`, `tls {addr, cert_file, key_file, enabled}`, `update {enabled, interval, repo, latest_url, url_template, proxy_set}`, `worker_enrollment {enabled, decide_sec, collect_sec, per_source_per_min, max_pending, trusted_proxies}`, `push {vapid_subject}`, `session_messaging {enabled, messenger_command, messenger_timeout_sec, messenger_idle_sec, messenger_max_messages, messenger_max_age_sec}` (the last two resolved), `policy_repush`, `agent_fallback {configured, on_failure, pre_dispatch}`, `xfer {max_bytes, ttl_sec, collect_max_bytes}`, `attachments {max_bytes, max_per_message, hourly_per_caller}`, `worker_queue_max_wait_sec`, `hold {default_timeout_sec, max_timeout_sec}`, `notification.desktop {enabled, events, projects, merge_sec}`.
+- `server.governance` gains `require_tunnel_capability` and `attach_origins`; `server.callers[]` gains `can_attach` / `can_tunnel`; `storage` gains `mail_retention_days` / `attachment_retention_days`.
+
+## Restarting the server (`/v1/server/restart`, gofer-4uk5)
+
+Restart the managed serve without downloading anything — the one-click update's handover with the running binary as the candidate.
+
+- `GET /v1/server/restart` -> `{managed, state?}`: `managed` is `true` only for a server registered as a native service (`gofer serve register`); a plain foreground `gofer serve` can never restart itself, which is what a console greys its button out from. `state` is the latest restart (absent when none ran): `{id, phase, error?, version?, started_at, updated_at, wait_deadline?, wait_timeout_sec?, waiting?:[{id,title,status,runner,started_at}], paused?}`.
+- `POST /v1/server/restart` body `{wait_idle_sec?}` (same default 7200 and clamps [60, 86400] as `POST /v1/update/apply`) -> `202` with the state. `409` when the server is not managed or an update / restart is already in flight. It parks new submissions first (`paused_for_update`, like an update), waits until nothing a restart would kill is running (`waiting` / `paused` report what it waits for), then copies the running executable under `<config-dir>/run/update/restart/<id>/` and hands that copy to `serve upgrade` — so the installed binary is replaced by a file, never by itself. Events `server.restart_waiting_idle`, `server.restart_restarting`, `server.restart_wait_over`, `server.restart_failed`, `server.restart_done`.
+- `DELETE /v1/server/restart` -> `202` (state) when a restart is waiting for idle: the parked jobs run again and the phase becomes `cancelled`; `409` when nothing waits (already handing over).
+- Phases: `waiting_idle`, `restarting`, then `done` (recorded by the restarted process at startup) / `failed` / `cancelled`. A `waiting_idle` state a new process finds is failed, since its waiter is gone.
+- Permissions: `GET` needs `config.read`; `POST` / `DELETE` need `config.write` and refuse worker / job credentials (same tier as the config writes).
+
 ## Config view: `leader` and retired-section `warnings`
 
 - `GET /v1/config` reports the plan leader block as a top-level `leader` (`{enabled, agent?, scopes[], max_rounds_per_scope, wake_delay_sec, on_member_done}`, resolved values with defaults applied; absent when the config has no `leader:` section). The view no longer has `supervisor` or `presence`.
