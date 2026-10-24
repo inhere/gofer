@@ -41,6 +41,11 @@ type Tool struct {
 	// arguments (a "set" rather than an "append"). Read-only tools are always
 	// idempotent and do not need it.
 	Idempotent bool
+	// Advisory marks a WRITE that only records a suggestion for a person to accept or
+	// ignore (gofer_today_advise, gofer_work_merge_suggest, gofer_memory_suggest). It is
+	// still a Write — it stores a row — but it changes no state a caller has to confirm
+	// and executes nothing, so the approval gate may run it without a human.
+	Advisory bool
 }
 
 // registry is every gofer_* tool internal/mcpserver registers, in a stable order:
@@ -134,7 +139,9 @@ var registry = []Tool{
 	{Name: "gofer_memory_flag", Class: Write},
 	{Name: "gofer_memory_candidate_adopt", Class: Write},
 	{Name: "gofer_memory_candidate_reject", Class: Write},
-	{Name: "gofer_memory_suggest", Class: Write},
+	// Advisory: it only proposes a tidying (archive / merge / retype / summary), which
+	// becomes a 「今天」 card the person adopts or ignores.
+	{Name: "gofer_memory_suggest", Class: Write, Advisory: true},
 
 	// Work-item / session writes.
 	{Name: "gofer_work_update", Class: Write},
@@ -142,7 +149,8 @@ var registry = []Tool{
 	{Name: "gofer_work_report", Class: Write},
 	{Name: "gofer_work_capture", Class: Write},
 	{Name: "gofer_work_remind", Class: Write},
-	{Name: "gofer_work_merge_suggest", Class: Write},
+	// Advisory: it only records a merge suggestion; merging stays a person's call.
+	{Name: "gofer_work_merge_suggest", Class: Write, Advisory: true},
 	{Name: "gofer_work_request_report", Class: Write},
 	{Name: "gofer_work_summarize", Class: Write},
 	{Name: "gofer_steward_notes", Class: Write},
@@ -153,7 +161,9 @@ var registry = []Tool{
 	{Name: "gofer_session_mail_cancel", Class: Destructive},
 
 	// Today writes.
-	{Name: "gofer_today_advise", Class: Write},
+	// Advisory: advice only — the person still decides whether to act on it, and the
+	// card's action_id is a SUGGESTION gofer never runs on the steward's behalf.
+	{Name: "gofer_today_advise", Class: Write, Advisory: true},
 }
 
 // byName indexes registry once, so the approval gate's lookup is a map hit on the hot
@@ -181,6 +191,31 @@ func IsReadOnly(name string) bool {
 	return ok && t.Class == ReadOnly
 }
 
+// IsAdvisory reports whether name is one of gofer's advice-only write tools.
+func IsAdvisory(name string) bool {
+	t, ok := byName[name]
+	return ok && t.Advisory
+}
+
+// AutoApprovedTools returns the exact names of the tools the approval gate may run
+// without a human by DEFAULT under mode=ask (config.DefaultApprovalAutoAllowTools):
+// every read-only tool, then every advisory one, in registry order. The list is data,
+// not a prefix rule — a tool another MCP server names the same way is never included.
+func AutoApprovedTools() []string {
+	out := make([]string, 0, len(registry))
+	for _, t := range registry {
+		if t.Class == ReadOnly {
+			out = append(out, t.Name)
+		}
+	}
+	for _, t := range registry {
+		if t.Advisory {
+			out = append(out, t.Name)
+		}
+	}
+	return out
+}
+
 // MailReplyTool is the mailbox's answer tool. It is a Write tool, but the resident 收件会话
 // may call it without a human (gofer-sh7r): answering a letter that arrived in this session
 // is the whole job. Callers still gate every other gofer write tool.
@@ -197,6 +232,48 @@ func MailReplyToolName(raw string) (string, bool) {
 	return name, true
 }
 
+// ServerName is the name gofer's own MCP server is advertised under when gofer injects it
+// (the steward's and a resident 收件会话's session both get exactly this name). It is the
+// canonical server segment of an MCP-qualified tool name, and the approval gate takes
+// gofer's tool names only from it (or from a name this server itself advertised for the
+// same gofer binary) — never from any other MCP server's namespace.
+const ServerName = "gofer"
+
+// ServerOf returns the server segment of an mcp__<server>__<tool> name ("gofer" for
+// "mcp__gofer__gofer_work_list"). ok is false for a bare name and for any other
+// namespacing scheme, which is what lets a caller tell "the agent said this is gofer's
+// tool" from "the agent sent a bare name gofer cannot attribute".
+func ServerOf(raw string) (string, bool) {
+	name := normalize(raw)
+	if !strings.HasPrefix(name, "mcp__") {
+		return "", false
+	}
+	parts := strings.Split(name, "__")
+	if len(parts) < 3 || parts[1] == "" {
+		return "", false
+	}
+	return parts[1], true
+}
+
+// BaseName returns the tool segment of a raw or mcp__<server>__<tool> name, lowercased
+// and unquoted ("gofer_work_list" for both "gofer_work_list" and
+// "mcp__other__gofer_work_list"). It deliberately does NOT say whether the name is
+// gofer's: config's tool lists are matched through it for tools of ANY MCP server.
+func BaseName(raw string) string {
+	name := normalize(raw)
+	if srv, ok := ServerOf(name); ok && srv != "" {
+		parts := strings.Split(name, "__")
+		return parts[len(parts)-1]
+	}
+	return name
+}
+
+// normalize lowercases, trims and unquotes a raw tool name.
+func normalize(raw string) string {
+	name := strings.ToLower(strings.TrimSpace(raw))
+	return strings.Trim(name, "\"'")
+}
+
 // ToolName resolves the gofer tool a raw name refers to. raw is either the bare tool
 // name (what suga and most ACP agents put in a tool call's title, e.g.
 // "gofer_work_list") or an MCP-qualified name in the mcp__<server>__<tool> shape
@@ -205,32 +282,20 @@ func MailReplyToolName(raw string) (string, bool) {
 // refused rather than guessed: the caller uses this to skip a human approval, so a
 // false positive is the expensive mistake.
 func ToolName(raw string) (string, bool) {
-	name := strings.ToLower(strings.TrimSpace(raw))
-	name = strings.Trim(name, "\"'")
+	name := normalize(raw)
 	if name == "" {
 		return "", false
 	}
-	switch {
-	case strings.HasPrefix(name, "mcp__"):
-		parts := strings.Split(name, "__")
-		if len(parts) < 3 || parts[1] != "gofer" {
+	if srv, qualified := ServerOf(name); qualified {
+		if srv != ServerName {
 			return "", false
 		}
-		name = parts[len(parts)-1]
-	case strings.Contains(name, "__"):
+		name = BaseName(name)
+	} else if strings.Contains(name, "__") {
 		// A server-namespaced name in some other scheme: do not guess.
 		return "", false
 	}
 	if _, ok := byName[name]; !ok {
-		return "", false
-	}
-	return name, true
-}
-
-// ReadOnlyToolName reports the gofer read-only tool raw names, if it names one.
-func ReadOnlyToolName(raw string) (string, bool) {
-	name, ok := ToolName(raw)
-	if !ok || byName[name].Class != ReadOnly {
 		return "", false
 	}
 	return name, true
