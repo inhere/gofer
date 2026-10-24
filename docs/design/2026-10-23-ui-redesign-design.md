@@ -2226,7 +2226,7 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 
 **测试**：新增 `utils/workbenchDiff.test.ts`（3 例：409 带 detail → 说明；409 无 detail → message；500 / 504 / TypeError 仍是失败）与 `components/workbench/threadChangesLazy.test.ts`（4 例：懒挂载条件与 `showChanges` 置位、pane 记着页签并 `initial-view` 恢复、409 走页签说明且 `emit('error')` 只在非 409 分支、词典 zh / en 两条都有）。
 
-**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 249 passed (249)` / `Tests 1726 passed (1726)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.54s`。无 Go / 路由 / 权限变化（G056、`docs/reference/http-api.md` 不涉及）；skill 同步了 `references/web-console.md` 工作台一句。
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 249 passed (249)` / `Tests 1727 passed (1727)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.67s`。无 Go / 路由 / 权限变化（G056、`docs/reference/http-api.md` 不涉及）；skill 同步了 `references/web-console.md` 工作台一句。
 
 **视觉自查**：构建产物 + `tmp/vis/` 里的临时栈服务（静态服务 dist + 最小 `/v1` 桩：一个 `job-1` 会话、`/diff` 回 409 + detail；脚本与截图在 `tmp/vis/`，已忽略、不进仓库）+ Edge headless（`--screenshot` + 页面内 `?__click=` 自动点「改动」页签，zh 文案与 en 的 `Changes` 各点一次）：zh 浅色 / en 深色 × 1440 与 zh 浅色 × 390，说明块（标题 + 服务端原因 + 「刷新」）在四套里都正常、不被当成错误（页面顶部没有红字）、暗色与浅色的底色 / 文字对比正常；1440 下无页面级横向滚动。（390 下工作台整体有横向溢出，但「过程」页签同样存在，是既有问题、与本项无关，见汇报「发现但不碰」。）计划详情同样用这套栈（桩里 `completion.percent` 故意写成 100、实际 9 完成 + 1 受阻）：zh 浅 / en 浅 / en 深 / zh 深 四张里页头与清单进度都是 **9/10 90%**，「完成 9、受阻 1」的段宽也正常（受阻段从剩余里扣，总宽仍是 10）。
 
@@ -2236,7 +2236,7 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 
 **口径（唯一一处 `utils/planProgress.ts`）**
 
-- `planProgress(source)` 接受三种输入：明细 `todos`（详情页 / 看板，按条目状态数）、`todo_counts`（总览列表）、`counts`（没有待办的计划回落 job）。完成 = `done` + `skipped`（`isTodoComplete`），总数 = 全部条目；受阻 / 失败 / 待验收 / 进行中都不进分子。
+- `planProgress(source)` 接受三种输入：明细 `todos`（详情页 / 看板，按条目状态数；空数组 = 没有待办，继续往下回落）、`todo_counts`（总览列表）、`counts`（没有待办的计划回落 job）。完成 = `done` + `skipped`（`isTodoComplete`），总数 = 全部条目；受阻 / 失败 / 待验收 / 进行中都不进分子。清单进度只传 `todos`、不传汇总，所以它不会被回落成 job 口径。
 - `percentOf(done, total)` 是唯一折算（0–100 取整，`total <= 0` → `null`，夹在 0–100），从 `ui/progress.ts` 移到 utils 并由它 re-export（`ProgressBar` 的调用点不变）。
 - **不再沿用服务端的 `completion.percent`**：百分比一律由界面上显示的 done / total 折算，宁可少信服务端，也不会再出现「9/10 100%」。
 
@@ -2253,8 +2253,8 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 - 计划看板列头：只画各列卡片数（skipped 在完成列），本来就没有百分比，口径一致，未改；
 - 「今天」页并行泳道：pips 是服务端按 todo 状态给的（done / skipped 都画成完成色、失败的画成失败色），没有百分比可算，未改。
 
-**测试**：新增 `utils/planProgress.test.ts`（6 例：percentOf 边界、9 完成 + 1 受阻 = 9/10 90%、明细优先于汇总、`done=true` 即完成、无待办回落 job、空计划 null）；`ui/progress.test.ts` 更新：各段之和 = total、「受阻 / 待验收从剩余里扣」、服务端 percent 与 done/total 冲突时以 done/total 为准。
+**测试**：新增 `utils/planProgress.test.ts`（7 例：percentOf 边界、9 完成 + 1 受阻 = 9/10 90%、明细优先于汇总、`done=true` 即完成、无待办回落 job、空明细的详情回落 job 而只传明细时仍是 0/0、空计划 null）；`ui/progress.test.ts` 更新：各段之和 = total、「受阻 / 待验收从剩余里扣」、服务端 percent 与 done/total 冲突时以 done/total 为准。
 
-**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 249 passed (249)` / `Tests 1726 passed (1726)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.62s`。skill 同步了 `references/web-console.md` 计划进度一句。
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 249 passed (249)` / `Tests 1727 passed (1727)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.67s`。skill 同步了 `references/web-console.md` 计划进度一句。
 
 **视觉自查**：同上那套 `tmp/vis/` 栈（桩计划：9 个 done + 1 个 doing 且 job 失败、`todo_counts` 10 项、`completion.percent` 故意写 100），zh 浅 / en 浅 / en 深 / zh 深：页头大号进度条与操作条「清单进度」都是 **9/10 90%**，图例写「完成 9 / 受阻 1」，色带总宽等于 10（以前会是 9/11 而百分比来自服务端）。
