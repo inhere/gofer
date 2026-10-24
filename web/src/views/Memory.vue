@@ -52,6 +52,8 @@ import { clampPage, normalizePageSize, PAGE_SIZES } from '../utils/issuePaging'
 import { useRepoSync } from '../utils/useRepoSync'
 import { fmtTrackerTime, MEMORY_KIND_LABEL, MEMORY_KINDS, syncClientLine, trackerRepoTitle } from '../utils/trackerView'
 import { t } from '../i18n'
+import SearchSelect from '../ui/SearchSelect.vue'
+import type { SearchOption } from '../ui/searchSelect'
 import type { FilterChipItem } from '../ui/filterChips'
 
 const route = useRoute()
@@ -59,6 +61,11 @@ const router = useRouter()
 
 const repos = ref<TrackerRepo[]>([])
 const projectKeys = ref<string[]>([])
+// 可搜索的项目下拉（issue gofer-b8nh）：首项是「未选项目」，与原来的空 option 等价。
+const projectItems = computed<SearchOption[]>(() => [
+  { value: '', label: t('memory.projectPlaceholder') },
+  ...projectKeys.value.map((key) => ({ value: key, label: key })),
+])
 const trackerId = ref(typeof route.query.tracker === 'string' ? route.query.tracker : '')
 const scope = ref<MemoryScope>(readMemoryScope(route.query))
 const projectKey = ref(readMemoryProject(route.query))
@@ -402,10 +409,17 @@ onMounted(async () => {
       </div>
       <div v-else-if="scope === 'project'" class="repo-row">
         <span class="field-label">{{ t('memory.project') }}</span>
-        <select v-model="projectKey" class="in" data-test="memory-project" @change="changeProject">
-          <option value="">{{ t('memory.projectPlaceholder') }}</option>
-          <option v-for="item in projectKeys" :key="item" :value="item">{{ item }}</option>
-        </select>
+        <SearchSelect
+          class="mono"
+          test-id="memory-project"
+          variant="chip"
+          :model-value="projectKey"
+          :options="projectItems"
+          :label="t('memory.project')"
+          :placeholder="t('memory.projectPlaceholder')"
+          @update:model-value="projectKey = $event"
+          @select="changeProject()"
+        />
       </div>
       <div v-else-if="scope === 'global'" class="repo-row">
         <span class="field-label">{{ t('memory.repo') }}</span>

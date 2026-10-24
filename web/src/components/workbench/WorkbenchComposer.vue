@@ -2,6 +2,8 @@
 import { runnerOptionText } from '../../utils/runnerDisplay'
 import { useWhoami } from '../../store/whoami'
 import { t } from '../../i18n'
+import SearchSelect from '../../ui/SearchSelect.vue'
+import type { SearchOption } from '../../ui/searchSelect'
 import {
   ceilingLabel,
   ceilingReadOnlyNotice,
@@ -59,6 +61,10 @@ const { ceiling: ceil, readOnly: ceilingReadOnly } = useWhoami()
 const selectedProject = computed<MetaProject | undefined>(() => meta.value.projects.find((p) => p.key === projectKey.value))
 // 调用方上限：范围外的 project 不列出（下拉没有灰显原因的位置，选到就必被拒）。
 const projectOptions = computed(() => meta.value.projects.filter((p) => ceilingAllowsProject(ceil.value, p.key)))
+// 可搜索的项目下拉（issue gofer-b8nh）。
+const projectItems = computed<SearchOption[]>(() =>
+  projectOptions.value.map((p) => ({ value: p.key, label: p.key })),
+)
 const projectCeilingHidden = computed(() => meta.value.projects.length - projectOptions.value.length)
 const selectedAgent = computed<MetaAgent | undefined>(() => meta.value.agents.find((a) => a.key === agentKey.value))
 const agentOptions = computed(() => {
@@ -266,10 +272,16 @@ onMounted(async () => {
         <button class="panel-close mono" type="button" :aria-label="t('act.close')" @click="close">×</button>
       </div>
       <div class="composer-selects">
-      <select v-model="projectKey" class="field mono" :aria-label="t('field.project')" :disabled="loading">
-        <option value="" disabled>{{ t('field.project') }}</option>
-        <option v-for="project in projectOptions" :key="project.key" :value="project.key">{{ project.key }}</option>
-      </select>
+      <SearchSelect
+        class="mono"
+        test-id="composer-project"
+        variant="field"
+        v-model="projectKey"
+        :options="projectItems"
+        :label="t('field.project')"
+        :disabled="loading || projectOptions.length === 0"
+        :empty-text="t('newjob.noProject')"
+      />
       <select v-model="agentKey" class="field mono" :aria-label="t('field.agent')" :disabled="loading">
         <option value="" disabled>agent</option>
         <option v-for="agent in agentOptions" :key="agent.key" :value="agent.key">{{ agent.key }} · {{ agentCapability(agent) }}</option>
@@ -328,6 +340,15 @@ onMounted(async () => {
 .panel-close { color: var(--ink); background: transparent; border: 0; font-size: 20px; line-height: 1; cursor: pointer; }
 .mobile-launch { display: none; }
 .composer-selects { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; }
+/* 可搜索的项目下拉（ui/SearchSelect，issue gofer-b8nh）：跟同行其它字段一样紧凑。 */
+.composer-selects :deep(.ss-trigger) {
+  min-height: 28px;
+  padding: 4px 7px;
+  font-size: 12px;
+  background: var(--bg);
+  border-color: var(--line);
+  border-radius: var(--r-chip);
+}
 .field, .prompt { min-width: 0; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 7px; font-size: 12px; }
 .field:focus, .prompt:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 .prompt-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; }

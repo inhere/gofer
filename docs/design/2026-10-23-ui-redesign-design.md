@@ -2248,3 +2248,48 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`go build ./...` 与 `go vet ./...` 退出码 0；`go test -count=1 ./internal/httpapi` → `ok …/httpapi 144.202s`；`go generate ./internal/httpapi/...` 无 diff（路由声明未变）。Web：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run` → `Test Files 246 passed (246)` / `Tests 1713 passed (1713)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` → `✓ built in 5.73s`。
 
 **视觉自查**：构建产物 + 桩 `/v1`（合成 fixture，`tmp/` 下、不进仓库）+ Edge CDP 截图（zh / en × 浅 / 深，另加 `?project=p-one` 与 390 宽）。程序化断言：桩只返回 3 行而 `total=7` 时页头显示「7 个对话」，chip 为 全部 7 / 收件 4 / 发件 7 / 待指派 0（四个数各不相同，不再恒为 1）；`?project=p-one` 时变成 6 / 4 / 6；四种组合下无横向溢出。肉眼核对：深浅两套下 chip 与页头的数字都完整显示。
+### P6-项目选择改为可搜索下拉（2026-10-24，issue gofer-b8nh）
+
+范围：新增共享组件 `ui/SearchSelect.vue`（纯逻辑 `ui/searchSelect.ts`），`ui/ProjectFilter.vue` 内部换用它，并把各页选项目的原生 `<select>` 全部换掉。不动接口、不动 Go 代码、不动路由。
+
+**1）共享的可搜索下拉**
+
+- `ui/searchSelect.ts`：`matchRank` / `filterOptions` / `initialIndex`。匹配口径——大小写不敏感、包含匹配（label / value / keywords 三处都查），排序：完全相等 0 → 前缀 1 → 词首（分隔符后）2 → 其它包含 3，同分保序；空查询词原样返回。项目 key 都是 ASCII，所以没有引入拼音库（issue 里的「拼音首字母」是可选加分项），需要时经 `keywords` 传入即可。
+- `ui/SearchSelect.vue`：触发器 + 面板（搜索框 + `role=listbox` 选项）。打开即聚焦搜索框并清空上次输入，当前值预高亮；↑ ↓ 循环（跳过 disabled，复用 `menuSelect.nextEnabledIndex`）、Home / End 跳首尾、Enter 选中、Esc 关闭并**停掉冒泡**（不连带关父级抽屉）且焦点还给触发器、Tab 收起、点面板外关闭；选中项带勾 + `aria-selected`；无匹配 / 无选项 / 加载中各一句空态。两种形态：`chip`（列表头，与 FilterChips 同高）与 `field`（表单字段，尺寸对齐各页原来的 `.control`）；≤760 面板贴底展开（与 Sheet 同一形态），选项 40px。
+- 文案进 `i18n/pages/shared.ts` 的 `util.` 域（跨页公共组件）：`util.select.search` / `util.select.searchFor` / `util.select.noMatch`；「全部项目」继续用主字典的 `field.allProjects`。
+
+**2）接线（每处保留原来的行为）**
+
+| 位置 | 之前 | 现在 |
+|---|---|---|
+| 列表头项目 chip（今天 / 任务 / 计划 / 工作台 / 会话 / 信箱 / 待验收 / 工作项 / 看板 / 统计 / 工作流 / 定时） | `ui/ProjectFilter` 的普通下拉 | 同一个 `ProjectFilter`，内部换成 `SearchSelect`（对页面 API 不变，`?project=` 口径不变），首项仍是「全部项目」 |
+| `/new` 新建任务 | `<select id="nj-project">` + `@change` | `SearchSelect`（`field`，`trigger-id="nj-project"`，`@select="onProjectChange()"`） |
+| `/schedules/new` 定时 | `<select id="ns-project">` | 同上（`ns-project`） |
+| `/workflows/new` 工作流模板 | `<select id="nw-project">` | 同上（`tpl-project`，仍 `v-model` 触发 `watch(tplProject)` 重拉模板） |
+| `/workflows/:id` 保存模板的作用域 | `<select>` 选项目 | 同上（`v-model="tplProject"`） |
+| 工作台新建会话（Composer） | `<select class="field mono">` | `SearchSelect`（`field`，局部 `:deep` 收紧到 28px / 12px 与同排字段一致） |
+| 会话抽屉新建会话（`ui/NewSessionSheet`） | `<select data-test="session-project">` | `SearchSelect`（外层 `label` 改 `div`，避免 label 包住按钮 + 输入框） |
+| `/memory` 项目作用域 | `<select class="in">` | `SearchSelect`（`chip`，首项「请选择项目」＝原来的空 option） |
+| `/projects` 手机选择器 | `<select class="control">` | `SearchSelect`（`field`，首项「选择项目」） |
+
+**不丢信息核对（对照 §7 与迁移前页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 项目下拉的所有选项（含 worker-only / 受调用方上限过滤后的列表） | 全部列出，且可按 key 输入过滤 |
+| 首项「全部项目」/「未选项目」/「请选择项目」 | 保留（作为值为空串的第一项），选中态仍高亮 |
+| 选中即写入 `?project=`（列表页）/ 触发 `onProjectChange` 收敛 agent·runner·worker（新建页） | 不变（`@select` 在后，`v-model` 在前，处理器读到的已是新值） |
+| 加载中 / 加载失败提示 | 保留（`loading` 与 `error` 走触发器 `title`，与原来一致） |
+| 「无可用项目」「上限隐藏了 N 个项目」等说明行 | 一行未动（仍在字段下方），空列表时下拉自身也给空态 |
+| `data-test` 钩子（`project-filter` / `project-filter-trigger` / `nj-project` / `memory-project` / `tpl-project` / `session-project`） | 保留（`SearchSelect` 的 `testId` 与 `testId-trigger`） |
+| 手机上项目选择可用（贴底、40px 点按目标） | 保留（≤760 面板贴底，选项 40px） |
+
+**测试**
+
+- 新增 `ui/searchSelect.test.ts`（8 例）：空查询词保序、大小写不敏感 + 包含匹配、相等 / 前缀 / 词首 / 包含的排序、`keywords` 参与匹配（与 `value` 一起查）、初始高亮（当前值或首项）、关闭态 SSR（`aria-haspopup=listbox` / `aria-expanded=false` / `triggerId` / 无列表）、占位与 disabled，以及源码接线（打开聚焦搜索框、↑↓/Enter/Esc/Tab/Home/End、Esc 停冒泡、点外面关闭、combobox/listbox/option、空态、手机贴底）。
+- 新增 `ui/projectPickerWiring.test.ts`（13 例）：八个改动的页面都用了 `SearchSelect` 且带对应 `test-id`；扫描全部 `.vue`，**没有任何 `v-model="projectKey|tplProject"` 的原生 `<select>`**，也没有用项目列表当选项的原生 `<select>`；各页仍接原来的处理器（`onProjectChange` / `changeProject` / `v-model`）；`ProjectFilter` 内部委派 `SearchSelect` 且「全部项目」仍是首项、`project-filter` / `project-filter-trigger` 钩子与错误 `title` 都还在。
+- 既有测试一行未改即绿（`ui/primitives.test.ts` 的 ProjectFilter 例、`views/listLandings.test.ts`、`views/memoryPage.test.ts`、`views/ceilingWiring.test.ts` 等）。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run` → `Test Files 246 passed (246)` / `Tests 1733 passed (1733)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` → `✓ built in 6.08s`。无 Go 改动（`go build/vet` 不涉及），无路由 / 权限变化（G056、`docs/reference/http-api.md` 不涉及）。skill：`skills/gofer-usage/references/web-console.md` 导航节加一条「各处选项目共用一个可搜索下拉」。
+
+**视觉自查**：脚本与截图在 `tmp/pagecheck-b8nh/`（已忽略）。自己起的静态服务（`serve.mjs`，把 `/v1` 反代到本机 server）+ 系统 Edge（playwright-core `channel: msedge`），真构建产物 + 真接口：`/jobs`、`/today`（项目 chip）、`/new`、`/schedules/new`、`/workflows/new`（表单字段）、`/memory?memory_scope=project`、`/projects`（手机）、`/workbench`（新建会话面板），zh / en × 浅 / 深 × 1440 与 zh 深 / en 浅 × 390，每屏三张（打开 / 输入 `e` 过滤 / 输入不存在词的空态）。程序化断言：42 个变体全部 `panelVisible`、选项数 > 0、过滤后仍 > 0、无匹配空态可见、Esc 关闭、页面无横向溢出（`scrollWidth - innerWidth ≤ 1`）。控制台只有一条限制令牌导致的 `403` 资源错误（与本次改动无关）。肉眼核对：chip 面板与列表同宽区自然贴合，`field` 形态与同栏 `.control` 尺寸一致，手机上贴底展开、选项高度 40px、深色主题下搜索框与选中项对比度正常。

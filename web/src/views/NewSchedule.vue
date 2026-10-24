@@ -11,6 +11,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { t } from '../i18n'
 import BackLink from '../ui/BackLink.vue'
+import SearchSelect from '../ui/SearchSelect.vue'
+import type { SearchOption } from '../ui/searchSelect'
 import { createSchedule } from '../api/client'
 import { getMetaCached } from '../api/metaCache'
 import type {
@@ -241,6 +243,11 @@ const projectOptions = computed<MetaProject[]>(() => {
   }
   return hostOnly
 })
+
+// 可搜索的项目下拉（issue gofer-b8nh）。
+const projectItems = computed<SearchOption[]>(() =>
+  projectOptions.value.map((p) => ({ value: p.key, label: p.key })),
+)
 
 // T5.3a：选了 worker runner 但尚未指定具体 worker（id 模式）→ 提示先选 worker（下拉暂用全量，不锁死）。
 const workerNarrowingPending = computed(
@@ -603,14 +610,18 @@ onMounted(() => {
       <!-- project -->
       <div class="field">
         <label class="label mono" for="ns-project">{{ t('schedules.new.project') }}</label>
-        <select
-          id="ns-project"
+        <SearchSelect
+          trigger-id="ns-project"
+          test-id="ns-project"
+          variant="field"
+          class="mono"
           v-model="projectKey"
-          class="control mono"
-          @change="onProjectChange"
-        >
-          <option v-for="p in projectOptions" :key="p.key" :value="p.key">{{ p.key }}</option>
-        </select>
+          :options="projectItems"
+          :label="t('schedules.new.project')"
+          :disabled="projectOptions.length === 0"
+          :empty-text="t('schedules.new.noProject')"
+          @select="onProjectChange()"
+        />
         <p v-if="projectOptions.length === 0" class="field-hint mono">{{ t('schedules.new.noProject') }}</p>
       </div>
 

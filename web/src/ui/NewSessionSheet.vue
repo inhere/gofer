@@ -19,6 +19,8 @@ import type { MetaAgent, MetaProject, MetaResp, MetaRunner, SubmitJobReq } from 
 import { DIR_LOCK_HINT, parseLockPaths } from '../utils/lockPaths'
 import { computeRunnerBlocks, effectiveRunnerBlocks, pickRunner } from '../utils/runnerChoice'
 import Sheet from './Sheet.vue'
+import SearchSelect from './SearchSelect.vue'
+import type { SearchOption } from './searchSelect'
 
 export type NewSessionType = 'pty' | 'acp'
 
@@ -49,6 +51,10 @@ const projects = computed<MetaProject[]>(() =>
   meta.value.projects.filter((p) => ceilingAllowsProject(ceil.value, p.key)),
 )
 const projectCeilingHidden = computed(() => meta.value.projects.length - projects.value.length)
+// 可搜索的项目下拉（issue gofer-b8nh）。
+const projectItems = computed<SearchOption[]>(() =>
+  projects.value.map((p) => ({ value: p.key, label: p.key })),
+)
 const agents = computed<MetaAgent[]>(() => {
   const allowed = new Set(selectedProject.value?.allowed_agents ?? [])
   return meta.value.agents
@@ -163,15 +169,21 @@ if (open.value) void loadMeta()
           <option value="acp">{{ t('sessions.new.typeAcp') }}</option>
         </select>
       </label>
-      <label class="ns-field">
+      <div class="ns-field">
         <span>{{ t('field.project') }}</span>
-        <select v-model="projectKey" data-test="session-project">
-          <option v-for="project in projects" :key="project.key" :value="project.key">{{ project.key }}</option>
-        </select>
+        <SearchSelect
+          test-id="session-project"
+          variant="field"
+          v-model="projectKey"
+          :options="projectItems"
+          :label="t('field.project')"
+          :disabled="projects.length === 0"
+          :empty-text="t('newjob.noProject')"
+        />
         <span v-if="projectCeilingHidden > 0" class="ns-hint">
           {{ t('sessions.new.ceilingHidden', { n: projectCeilingHidden, label: ceilingLabel() }) }}
         </span>
-      </label>
+      </div>
       <label class="ns-field">
         <span>{{ t('field.agent') }}</span>
         <select v-model="agentKey" :disabled="!agents.length" data-test="session-agent">
@@ -263,6 +275,13 @@ if (open.value) void loadMeta()
   outline: 2px solid var(--focus);
   outline-offset: 0;
   border-color: var(--accent);
+}
+/* 可搜索的项目下拉（ui/SearchSelect，issue gofer-b8nh）：与同栏的输入框同一套外观。 */
+.ns-field :deep(.ss-trigger) {
+  min-height: 32px;
+  padding: 6px 7px;
+  background: var(--surface-2);
+  border-color: var(--line);
 }
 .ns-hint {
   color: var(--need);
