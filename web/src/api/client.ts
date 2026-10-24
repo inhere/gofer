@@ -471,11 +471,13 @@ export function reloadWorker(workerID: string, reason = 'web console', timeoutSe
   })
 }
 
-// 用 server 自身二进制远程升级 worker：worker 校验通过后返回 202，最终结果看 runners 行的 upgrade。
+// 远程升级 worker：source=auto 由 server 按平台选二进制（同平台用 server 自身可执行文件，
+// 其它平台从下载源 server.update 取该平台的发布包）；worker 校验通过后返回 202，最终结果看
+// runners 行的 upgrade。
 export function upgradeWorker(workerID: string, force = false): Promise<WorkerUpgradeResp> {
   return request<WorkerUpgradeResp>(`/v1/workers/${encodeURIComponent(workerID)}/upgrade`, {
     method: 'POST',
-    body: JSON.stringify({ source: 'server', force }),
+    body: JSON.stringify({ source: 'auto', force }),
   })
 }
 

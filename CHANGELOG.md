@@ -15,6 +15,14 @@
 
 - **聊天里的长行不再把气泡撑出可视区（gofer-ndub）**：工作台、会话抽屉、信箱、管家面板、审批卡片、评论、任务的「消息」区与汇报里，代码块、长命令、长路径、长 URL 与宽表格以前会把气泡（甚至整页）撑宽。现在这类内容走同一份 `.msg-body` 样式（`web/src/styles/msg.css`）：气泡本身不再被内容顶开（`min-width:0`），普通文本里的超长单词 / URL 就地断行（`overflow-wrap:anywhere`），代码块与表格在自己的框里横向滚动。markdown 渲染统一经 `MarkdownBlock`（根元素自带该类），纯文本气泡在模板里加同名 class；扫掠测试守住「每个注入点在 `.msg-body` 里」。
 
+### 新增
+
+- **异构 worker 可以单点升级：从下载源取该平台的发布包（gofer-n1vj）**：
+  - `POST /v1/workers/{id}/upgrade` 新增来源 `mirror`（始终从 `server.update` 的下载源取）与 `auto`（新的默认值：与 server 同 os/arch 用 server 自身可执行文件，其他平台从下载源取该平台的发布包）。显式 `source: server` 在平台不同时仍报 `platform mismatch`，`staged` 未变。
+  - 新增 `version` 字段（`X.Y.Z`，可带 `v`）：默认跟 server 同版本，可指定其他发布版本；mirror 用 `url_template` 的 `{version}`，GitHub 走该 tag 的 release。下载与校验复用的是一键更新的逻辑（有 sha256 就校验；mirror 只发布最新版的校验和）。
+  - CLI：`gofer worker upgrade <id>` 默认 `--source auto`，新增 `--source auto|server|mirror` 与 `--version`；`--file` 仍优先。下载源未配 / 检查失败 / 平台没有对应包时命令直接报原因。
+  - Web 运行节点页：平台不同的 worker 不再灰掉升级按钮，改为从下载源升级（卡片上注明），确认框说明二进制来自下载源。
+
 ## [0.193.0] - 2026-10-24
 
 ### 新增

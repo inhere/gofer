@@ -65,7 +65,7 @@ gofer 现在处于 **1.0 之前**：核心的那条线（提交 job、远程执�
 
 **worker**
 
-- `gofer worker upgrade <worker-id>`：默认上传 server 自己的二进制（要求同 os / arch），也可以 `--file <路径>`；排空、交接、失败回滚。`--force` 不等在跑的 job。
+- `gofer worker upgrade <worker-id>`：与 server 同 os / arch 时用 server 自己的二进制，其他平台由 server 从下载源（`server.update`）取该平台的发布包；也可以 `--file <路径>` 直接上传，`--source` / `--version` 指定来源与版本；排空、交接、失败回滚。`--force` 不等在跑的 job。
 
 **自己起的进程**
 

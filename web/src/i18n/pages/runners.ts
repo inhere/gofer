@@ -74,9 +74,12 @@ export const runners: PageDict = {
     'runners.worker.reloadErr': 'worker {id} 重载请求失败：{err}',
     'runners.worker.upgrade': '升级',
     'runners.worker.upgrading': '升级中…',
-    'runners.worker.upgradeTitle': '用 server 自身二进制升级此 worker',
+    'runners.worker.upgradeTitle': '升级此 worker',
     'runners.worker.upgradeConfirm':
       '用 server 自身二进制升级 worker {id}？\n当前 {from} → {to}\n在途任务会先等待结束（最长 10 分钟），期间不接新任务；失败会自动回滚。',
+    'runners.worker.upgradeConfirmSource':
+      '从下载源（server.update）取 {os}/{arch} 的发布包升级 worker {id}？\n当前 {from} → {to}\n在途任务会先等待结束（最长 10 分钟），期间不接新任务；失败会自动回滚。',
+    'runners.worker.upgradeFromSource': '该 worker 是 {os}/{arch}：升级二进制取自下载源（server.update 配置）',
     'runners.worker.upgradeToServer': 'server 当前版本',
     'runners.worker.upgradeAccepted': 'worker {id} 已接受新二进制（{version}），正在升级…',
     'runners.worker.upgradeErr': 'worker {id} 升级请求失败：{err}',
@@ -283,9 +286,12 @@ export const runners: PageDict = {
     'runners.worker.reloadErr': 'reload request for worker {id} failed: {err}',
     'runners.worker.upgrade': 'Upgrade',
     'runners.worker.upgrading': 'Upgrading…',
-    'runners.worker.upgradeTitle': 'Upgrade this worker with the server binary',
+    'runners.worker.upgradeTitle': 'Upgrade this worker',
     'runners.worker.upgradeConfirm':
       'Upgrade worker {id} with the server binary?\n{from} → {to}\nRunning jobs finish first (up to 10 minutes) and no new jobs are taken meanwhile; a failure rolls back automatically.',
+    'runners.worker.upgradeConfirmSource':
+      'Upgrade worker {id} with the {os}/{arch} release package from the download source (server.update)?\n{from} → {to}\nRunning jobs finish first (up to 10 minutes) and no new jobs are taken meanwhile; a failure rolls back automatically.',
+    'runners.worker.upgradeFromSource': 'This worker is {os}/{arch}: the binary comes from the download source (server.update)',
     'runners.worker.upgradeToServer': "the server's current version",
     'runners.worker.upgradeAccepted': 'worker {id} accepted the new binary ({version}), upgrading…',
     'runners.worker.upgradeErr': 'upgrade request for worker {id} failed: {err}',

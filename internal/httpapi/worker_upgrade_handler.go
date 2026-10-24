@@ -17,6 +17,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/pushhub"
+	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/workerupgrade"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -114,17 +115,30 @@ func (s *Server) handleWorkerUpgradeFile(c *rux.Context) {
 	http.ServeContent(c.Resp, c.Req, "", time.Time{}, f)
 }
 
-// workerUpgradeSourceStaged is the `source` that upgrades a worker from the binary an earlier
-// PUT /v1/workers/{id}/upgrade/file stored; the default, "server", stages this server's own
-// executable instead. Running the STORED binary is the dangerous half of the operation, so that
-// branch needs worker.upgrade.upload as well (see mayUpgradeWorker, authz_admin_rules.go).
-const workerUpgradeSourceStaged = "staged"
+// Worker upgrade sources (POST /v1/workers/{id}/upgrade `source`, gofer-n1vj). "auto"
+// (the default) stages this server's own executable for a worker of the server's platform
+// and downloads the worker's platform from the release source otherwise; "server" always
+// means this server's own executable, "mirror" always the release source (both for a
+// caller that wants to be explicit), and "staged" runs the binary an earlier
+// PUT .../upgrade/file stored. Running the STORED binary is the dangerous half of the
+// operation, so that branch needs worker.upgrade.upload as well (see mayRunStagedBinary,
+// authz_admin_rules.go); a download comes from the source the administrator configured in
+// server.update, not from the request, so worker.upgrade is enough for it.
+const (
+	workerUpgradeSourceAuto   = "auto"
+	workerUpgradeSourceServer = "server"
+	workerUpgradeSourceMirror = "mirror"
+	workerUpgradeSourceStaged = "staged"
+)
 
 // workerUpgradeRequest is the body of POST /v1/workers/{id}/upgrade. Source "staged"
-// uses the binary uploaded with PUT .../upgrade/file; "server" (the default) stages
-// this server's own executable, which only fits a worker of the same os/arch.
+// uses the binary uploaded with PUT .../upgrade/file; "server" stages this server's own
+// executable (same os/arch only); "mirror" downloads the worker's platform from the
+// release source configured in server.update; "auto" (the default) picks between the last
+// two by platform. Version names the release to download ("" = this server's version).
 type workerUpgradeRequest struct {
 	Source          string `json:"source"`
+	Version         string `json:"version"`
 	Force           bool   `json:"force"`
 	DrainTimeoutSec int    `json:"drain_timeout_sec"`
 	ReadyTimeoutSec int    `json:"ready_timeout_sec"`
@@ -222,19 +236,33 @@ func (s *Server) startWorkerUpgrade(ctx context.Context, id string, req workerUp
 		if errors.Is(err, workerupgrade.ErrNotStaged) {
 			return workerupgrade.Record{}, failUpgrade(http.StatusBadRequest, "no staged binary", "upload one first: PUT /v1/workers/"+id+"/upgrade/file")
 		}
-	case source == "" || source == "server":
-		if ws.OS != runtime.GOOS || ws.Arch != runtime.GOARCH {
+	case source == "" || source == workerUpgradeSourceAuto || source == workerUpgradeSourceServer || source == workerUpgradeSourceMirror:
+		auto := source == "" || source == workerUpgradeSourceAuto
+		if ws.OS == "" || ws.Arch == "" {
+			return workerupgrade.Record{}, failUpgrade(http.StatusConflict, "worker platform unknown",
+				"worker "+id+" has not reported its os/arch yet: wait for its next heartbeat, or upgrade it with an explicit binary (gofer worker upgrade "+id+" --file <worker binary>)")
+		}
+		if (auto || source == workerUpgradeSourceServer) && ws.OS == runtime.GOOS && ws.Arch == runtime.GOARCH {
+			// Same platform: the server's own executable is the exact match and needs no download.
+			var exe string
+			if exe, err = os.Executable(); err == nil {
+				staged, err = s.upgrades.StageFile(id, exe)
+			}
+			targetVersion = s.build.DisplayVersion()
+			break
+		}
+		if !auto && source == workerUpgradeSourceServer {
 			return workerupgrade.Record{}, failUpgrade(http.StatusConflict, "platform mismatch",
-				fmt.Sprintf("worker %s is %s/%s but this server is %s/%s: upgrade it with an explicit binary (gofer worker upgrade %s --file <worker binary>)",
+				fmt.Sprintf("worker %s is %s/%s but this server is %s/%s: upgrade it from the download source (gofer worker upgrade %s --source mirror) or with an explicit binary (--file <worker binary>)",
 					id, ws.OS, ws.Arch, runtime.GOOS, runtime.GOARCH, id))
 		}
-		var exe string
-		if exe, err = os.Executable(); err == nil {
-			staged, err = s.upgrades.StageFile(id, exe)
+		// Another platform: the release source has the worker's binary (gofer-n1vj).
+		staged, targetVersion, err = s.stageWorkerFromSource(ctx, id, ws.OS, ws.Arch, req.Version)
+		if err != nil {
+			return workerupgrade.Record{}, err
 		}
-		targetVersion = s.build.DisplayVersion()
 	default:
-		return workerupgrade.Record{}, failUpgrade(http.StatusBadRequest, "invalid upgrade request", `source must be "staged" or "server"`)
+		return workerupgrade.Record{}, failUpgrade(http.StatusBadRequest, "invalid upgrade request", `source must be "auto", "server", "mirror" or "staged"`)
 	}
 	if err != nil {
 		return workerupgrade.Record{}, failUpgrade(http.StatusInternalServerError, "stage upgrade binary failed", err.Error())
@@ -275,6 +303,63 @@ func (s *Server) startWorkerUpgrade(ctx context.Context, id string, req workerUp
 	s.upgrades.SetTargetVersion(id, upgradeID, version)
 	rec, _ = s.upgrades.Latest(id)
 	return rec, nil
+}
+
+// upgradeSourceTimeout bounds downloading a worker's platform binary from the release
+// source during one upgrade; the download itself gives up after 10 minutes.
+const upgradeSourceTimeout = 12 * time.Minute
+
+// stageWorkerFromSource downloads a worker's platform binary from the release source
+// configured in server.update and stages it as that worker's upgrade binary (gofer-n1vj) —
+// the same download and checksum verification the one-click update uses. version "" means
+// this server's release version, and the source's latest release when this build is not a
+// release version (a "dev" build). The binary belongs to another platform, so it is never
+// run here: the worker verifies it and reports its version.
+func (s *Server) stageWorkerFromSource(ctx context.Context, id, goos, goarch, versionArg string) (workerupgrade.Staged, string, error) {
+	if s.updater == nil {
+		return workerupgrade.Staged{}, "", failUpgrade(http.StatusServiceUnavailable, "no download source",
+			"this server has no release checker, so it cannot download a "+goos+"/"+goarch+" binary: upgrade worker "+id+" with an explicit binary (gofer worker upgrade "+id+" --file <worker binary>)")
+	}
+	version := updatecheck.ReleaseVersion(versionArg)
+	if version == "" && strings.TrimSpace(versionArg) != "" {
+		return workerupgrade.Staged{}, "", failUpgrade(http.StatusBadRequest, "invalid upgrade request",
+			fmt.Sprintf("version %q is not a release version (want X.Y.Z)", versionArg))
+	}
+	if version == "" {
+		version = updatecheck.ReleaseVersion(s.build.Version)
+	}
+	if version == "" {
+		// The periodic check may be a minute away: run one now, so an upgrade right after
+		// startup (or right after the source was fixed) works.
+		if st := s.updater.Status(); st.Latest == "" || st.Error != "" {
+			if st := s.updater.Check(ctx); st.Error != "" {
+				return workerupgrade.Staged{}, "", failUpgrade(http.StatusConflict, "no download source",
+					"the release source is not usable, so there is no binary for worker "+id+" ("+goos+"/"+goarch+"): "+st.Error)
+			}
+		}
+	}
+	asset, err := s.updater.AssetForVersion(ctx, goos, goarch, version)
+	if err != nil {
+		return workerupgrade.Staged{}, "", failUpgrade(http.StatusConflict, "no binary for the worker's platform",
+			fmt.Sprintf("the download source has no binary for worker %s (%s/%s): %v", id, goos, goarch, err))
+	}
+	ctx, cancel := context.WithTimeout(ctx, upgradeSourceTimeout)
+	defer cancel()
+	dir, err := os.MkdirTemp("", "gofer-worker-upgrade-")
+	if err != nil {
+		return workerupgrade.Staged{}, "", failUpgrade(http.StatusInternalServerError, "download the worker binary failed", err.Error())
+	}
+	defer os.RemoveAll(dir)
+	path, err := s.updater.Download(ctx, asset, dir)
+	if err != nil {
+		return workerupgrade.Staged{}, "", failUpgrade(http.StatusConflict, "download the worker binary failed",
+			fmt.Sprintf("download %s: %v", asset.URL, err))
+	}
+	staged, err := s.upgrades.StageFile(id, path)
+	if err != nil {
+		return workerupgrade.Staged{}, "", failUpgrade(http.StatusInternalServerError, "stage upgrade binary failed", err.Error())
+	}
+	return staged, asset.Version, nil
 }
 
 func (s *Server) latestUpgrade(id string) *workerupgrade.Record {

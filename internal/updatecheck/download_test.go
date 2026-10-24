@@ -168,6 +168,120 @@ func TestAssetForBeforeCheck(t *testing.T) {
 	}
 }
 
+// A worker upgrade can name another release than the checked latest (gofer-n1vj): a
+// mirror serves it through its template (unverified — it publishes the latest checksums
+// only), a GitHub release through its tag.
+func TestAssetForVersion(t *testing.T) {
+	latest, older := []byte("0.160.0 linux binary"), []byte("0.150.0 linux arm64 binary")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest.yaml":
+			_, _ = w.Write([]byte("version: 0.160.0\nfiles:\n  gofer-linux-amd64: " + sum(latest) + "\n"))
+		case "/0.160.0/gofer-linux-amd64":
+			_, _ = w.Write(latest)
+		case "/0.150.0/gofer-linux-arm64":
+			_, _ = w.Write(older)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	u := config.UpdateConfig{LatestURL: srv.URL + "/latest.yaml", URLTemplate: srv.URL + "/{version}/{name}-{os}-{arch}{ext}"}
+	c := checker("0.160.0", u, "linux", "amd64")
+	if st := c.Check(context.Background()); st.Latest != "0.160.0" {
+		t.Fatalf("check: %+v", st)
+	}
+	ctx := context.Background()
+
+	// "" and the latest release resolve from the check, with its checksum.
+	for _, v := range []string{"", "0.160.0", "v0.160.0"} {
+		a, err := c.AssetForVersion(ctx, "linux", "amd64", v)
+		if err != nil || a.URL != srv.URL+"/0.160.0/gofer-linux-amd64" || a.SHA256 != sum(latest) || a.Version != "0.160.0" {
+			t.Fatalf("version %q: asset = %+v, %v", v, a, err)
+		}
+	}
+
+	// Any other version goes into the template; the mirror has no checksum for it.
+	a, err := c.AssetForVersion(ctx, "linux", "arm64", "0.150.0")
+	if err != nil || a.URL != srv.URL+"/0.150.0/gofer-linux-arm64" || a.SHA256 != "" || a.Version != "0.150.0" {
+		t.Fatalf("asset = %+v, %v", a, err)
+	}
+	p, err := c.Download(ctx, a, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(p); !bytes.Equal(got, older) {
+		t.Fatalf("downloaded %q", got)
+	}
+
+	// A mirror without a template cannot name a release binary.
+	noTmpl := checker("0.160.0", config.UpdateConfig{LatestURL: srv.URL + "/latest.yaml"}, "linux", "amd64")
+	if _, err := noTmpl.AssetForVersion(ctx, "linux", "arm64", "0.150.0"); err == nil || !strings.Contains(err.Error(), "url_template") {
+		t.Fatalf("no template: %v", err)
+	}
+}
+
+// The GitHub source resolves another release through its tag, checksums included.
+func TestAssetForVersionGitHubTag(t *testing.T) {
+	body := []byte("0.150.0 windows binary")
+	var base string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/o/r/releases/tags/v0.150.0" {
+			_, _ = w.Write([]byte(`{"tag_name":"v0.150.0","assets":[
+				{"name":"gofer-windows-amd64.zip","browser_download_url":"https://github.example/w","url":"` + base + `/assets/1"},
+				{"name":"latest.yaml","browser_download_url":"https://github.example/l","url":"` + base + `/assets/2"}]}`))
+			return
+		}
+		switch r.URL.Path {
+		case "/assets/1":
+			_, _ = w.Write(zipOf(t, "gofer.exe", body))
+		case "/assets/2":
+			_, _ = w.Write([]byte("version: 0.150.0\nfiles:\n  gofer-windows-amd64.exe: " + sum(body) + "\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	base = srv.URL
+	old := githubAPI
+	githubAPI = srv.URL
+	defer func() { githubAPI = old }()
+
+	// No check needed: an explicit version is resolved from the release itself.
+	c := checker("0.160.0", config.UpdateConfig{Repo: "o/r"}, "linux", "amd64")
+	a, err := c.AssetForVersion(context.Background(), "windows", "amd64", "0.150.0")
+	if err != nil || a.URL != srv.URL+"/assets/1" || a.Version != "0.150.0" || a.SHA256 != sum(body) {
+		t.Fatalf("asset = %+v, %v", a, err)
+	}
+	p, err := c.Download(context.Background(), a, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(p); !bytes.Equal(got, body) {
+		t.Fatalf("downloaded %q", got)
+	}
+	if _, err := c.AssetForVersion(context.Background(), "darwin", "arm64", "0.150.0"); err == nil {
+		t.Fatal("a platform the release does not ship must fail")
+	}
+}
+
+func TestReleaseVersion(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"0.152.3", "0.152.3"},
+		{"v0.152.3", "0.152.3"},
+		{"0.152.3-2-gabc1234", "0.152.3"},
+		{"0.152.3-dirty", "0.152.3"},
+		{"0.152.3 (66fdbbd)", "0.152.3"},
+		{"dev-abc1234", ""},
+		{"abc1234", ""},
+		{"", ""},
+	} {
+		if got := ReleaseVersion(tc.in); got != tc.want {
+			t.Errorf("ReleaseVersion(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // The callback (update.available) fires once per newly seen newer version.
 func TestOnAvailableOncePerVersion(t *testing.T) {
 	version := "0.160.0"

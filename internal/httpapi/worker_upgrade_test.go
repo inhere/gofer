@@ -9,7 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -20,6 +23,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/workerupgrade"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -165,8 +169,8 @@ func TestWorkerUpgradeRejections(t *testing.T) {
 		"w1": connectedWorker("plan9", "mips", 15),
 		"w2": connectedWorker(runtime.GOOS, runtime.GOARCH, 14),
 	})
-	// Platform mismatch for the server-binary source -> point at --file.
-	resp := do(t, s, http.MethodPost, "/v1/workers/w1/upgrade", testToken, map[string]any{})
+	// Platform mismatch for the explicit server-binary source -> point at the download source.
+	resp := do(t, s, http.MethodPost, "/v1/workers/w1/upgrade", testToken, map[string]any{"source": "server"})
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("mismatch status = %d, want 409", resp.StatusCode)
 	}
@@ -174,6 +178,10 @@ func TestWorkerUpgradeRejections(t *testing.T) {
 	resp = do(t, s, http.MethodPost, "/v1/workers/w2/upgrade", testToken, map[string]any{})
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("old protocol status = %d, want 409", resp.StatusCode)
+	}
+	// An unknown source is refused.
+	if resp := do(t, s, http.MethodPost, "/v1/workers/w1/upgrade", testToken, map[string]any{"source": "usb"}); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown source status = %d, want 400", resp.StatusCode)
 	}
 	// Staged source without a staged file.
 	s2, _, _ := newUpgradeServer(t, map[string]WorkerStatus{"w1": connectedWorker("linux", "amd64", 15)})
@@ -207,6 +215,196 @@ func TestWorkerUpgradeWorkerRefusalMarksFailed(t *testing.T) {
 	}
 	if fu.got.Version != "v9.9 (abcdef0)" {
 		t.Fatalf("target version = %q", fu.got.Version)
+	}
+}
+
+// An upgrade of a worker on another platform downloads that platform's binary from the
+// release source (gofer-n1vj); the same platform keeps this server's own executable.
+func TestWorkerUpgradeOtherPlatformFromSource(t *testing.T) {
+	t.Parallel()
+	oos, oarch := otherPlatform()
+	s, fu, mgr := newUpgradeServer(t, map[string]WorkerStatus{
+		"w1": connectedWorker(runtime.GOOS, runtime.GOARCH, 15),
+		"w2": connectedWorker(oos, oarch, 15),
+	})
+	s.SetBuildInfo(buildinfo.Info{Version: "0.160.0", GitCommit: "abc1234"})
+	c, bins := releaseMirror(t)
+	s.SetUpdateChecker(c)
+	fu.version = "0.160.0"
+
+	// Default source (auto) for another platform: the release binary of that platform.
+	if resp := do(t, s, http.MethodPost, "/v1/workers/w2/upgrade", testToken, map[string]any{}); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", resp.StatusCode)
+	}
+	rec, ok := mgr.Latest("w2")
+	if !ok || rec.TargetSHA256 != hexSum(bins[updatecheck.BinaryName(oos, oarch)]) {
+		t.Fatalf("record = %+v, want the %s/%s release binary", rec, oos, oarch)
+	}
+	if fu.got.Version != "0.160.0" || fu.got.URLPath != "/v1/workers/w2/upgrade/file" {
+		t.Fatalf("frame = %+v", fu.got)
+	}
+
+	// The same platform: this server's own executable, no download.
+	if resp := do(t, s, http.MethodPost, "/v1/workers/w1/upgrade", testToken, map[string]any{}); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("same platform status = %d, want 202", resp.StatusCode)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum, err := fileSHA256(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec, _ := mgr.Latest("w1"); rec.TargetSHA256 != sum || fu.got.Version != "0.160.0 (abc1234)" {
+		t.Fatalf("same platform record = %+v, frame version %q", rec, fu.got.Version)
+	}
+}
+
+// Explicit sources: "mirror" downloads even for the server's platform, "server" still
+// refuses another platform, and an unusable release source says why.
+func TestWorkerUpgradeSourceSelection(t *testing.T) {
+	t.Parallel()
+	oos, oarch := otherPlatform()
+	s, fu, mgr := newUpgradeServer(t, map[string]WorkerStatus{
+		"w1": connectedWorker(runtime.GOOS, runtime.GOARCH, 15),
+		"w2": connectedWorker(oos, oarch, 15),
+	})
+	s.SetBuildInfo(buildinfo.Info{Version: "0.160.0", GitCommit: "abc1234"})
+	c, bins := releaseMirror(t)
+	s.SetUpdateChecker(c)
+	fu.version = "0.150.0"
+
+	// source=mirror on the server's own platform: the downloaded release binary.
+	if resp := do(t, s, http.MethodPost, "/v1/workers/w1/upgrade", testToken, map[string]any{"source": "mirror"}); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("mirror status = %d, want 202", resp.StatusCode)
+	}
+	if rec, _ := mgr.Latest("w1"); rec.TargetSHA256 != hexSum(bins[updatecheck.BinaryName(runtime.GOOS, runtime.GOARCH)]) {
+		t.Fatalf("mirror record = %+v", rec)
+	}
+
+	// source=server on another platform: still a platform mismatch, now pointing at the source.
+	resp := do(t, s, http.MethodPost, "/v1/workers/w2/upgrade", testToken, map[string]any{"source": "server"})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("server source status = %d, want 409", resp.StatusCode)
+	}
+	if detail := failedBody(t, resp); !strings.Contains(detail, "--source mirror") {
+		t.Fatalf("detail = %q", detail)
+	}
+
+	// A version of another release is downloaded through the source's template; a
+	// malformed one is refused before anything is fetched.
+	if resp := do(t, s, http.MethodPost, "/v1/workers/w2/upgrade", testToken, map[string]any{"source": "mirror", "version": "latest"}); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad version status = %d, want 400", resp.StatusCode)
+	}
+	if _, ok := mgr.Latest("w2"); ok {
+		t.Fatal("a refused request must not create an upgrade record")
+	}
+}
+
+// Another release of the source can be named: the version goes into the download URL
+// (gofer-n1vj).
+func TestWorkerUpgradeSourceVersion(t *testing.T) {
+	t.Parallel()
+	oos, oarch := otherPlatform()
+	s, fu, mgr := newUpgradeServer(t, map[string]WorkerStatus{"w2": connectedWorker(oos, oarch, 15)})
+	s.SetBuildInfo(buildinfo.Info{Version: "0.160.0", GitCommit: "abc1234"})
+	old := []byte("0.150.0 other-platform binary")
+	var mu sync.Mutex
+	var served string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/latest.yaml" {
+			_, _ = w.Write([]byte("version: 0.160.0\n"))
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/0.150.0/") {
+			mu.Lock()
+			served = r.URL.Path
+			mu.Unlock()
+			_, _ = w.Write(old)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	u := config.UpdateConfig{LatestURL: srv.URL + "/latest.yaml", URLTemplate: srv.URL + "/{version}/{name}-{os}-{arch}{ext}"}
+	s.SetUpdateChecker(updatecheck.New("0.160.0", func() config.UpdateConfig { return u }))
+	fu.version = "0.150.0"
+
+	resp := do(t, s, http.MethodPost, "/v1/workers/w2/upgrade", testToken, map[string]any{"source": "mirror", "version": "0.150.0"})
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202: %s", resp.StatusCode, failedBody(t, resp))
+	}
+	mu.Lock()
+	got := served
+	mu.Unlock()
+	if want := "/0.150.0/" + updatecheck.BinaryName(oos, oarch); got != want {
+		t.Fatalf("downloaded %q, want %q", got, want)
+	}
+	if rec, _ := mgr.Latest("w2"); rec.TargetSHA256 != hexSum(old) || fu.got.Version != "0.150.0" {
+		t.Fatalf("record = %+v, frame version %q", rec, fu.got.Version)
+	}
+}
+
+// failedBody is the response body of a failed request (the reason is in its detail).
+func failedBody(t *testing.T, resp *http.Response) string {
+	t.Helper()
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return string(b)
+}
+
+// fileSHA256 is the sha256 of a file on disk (the digest upgrade staging computes).
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// Without a usable release source a worker of another platform is refused with a reason
+// the caller can act on, and nothing is handed to the worker.
+func TestWorkerUpgradeNoReleaseSource(t *testing.T) {
+	t.Parallel()
+	oos, oarch := otherPlatform()
+	s, fu, mgr := newUpgradeServer(t, map[string]WorkerStatus{"w2": connectedWorker(oos, oarch, 15)})
+
+	resp := do(t, s, http.MethodPost, "/v1/workers/w2/upgrade", testToken, map[string]any{})
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("no checker status = %d, want 503", resp.StatusCode)
+	}
+	if detail := failedBody(t, resp); !strings.Contains(detail, "no release checker") || !strings.Contains(detail, "--file") {
+		t.Fatalf("detail = %q", detail)
+	}
+
+	// A source that cannot be checked: the reason is passed on.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusBadGateway)
+	}))
+	t.Cleanup(srv.Close)
+	u := config.UpdateConfig{LatestURL: srv.URL + "/latest.yaml"}
+	s.SetUpdateChecker(updatecheck.New("0.160.0", func() config.UpdateConfig { return u }))
+	resp = do(t, s, http.MethodPost, "/v1/workers/w2/upgrade", testToken, map[string]any{})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("failed source status = %d, want 409", resp.StatusCode)
+	}
+	if detail := failedBody(t, resp); !strings.Contains(detail, "not usable") || !strings.Contains(detail, "502") {
+		t.Fatalf("detail = %q", detail)
+	}
+	if fu.called != 0 {
+		t.Fatal("no request may reach the worker when the download failed")
+	}
+	if _, ok := mgr.Latest("w2"); ok {
+		t.Fatal("a failed download must not create an upgrade record")
 	}
 }
 

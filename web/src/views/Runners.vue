@@ -25,7 +25,7 @@ import { messengerDisplay } from '../utils/messenger'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { t } from '../i18n'
 import type { StatusFamily } from '../utils/statusFamily'
-import { beatOf, fmtAge, fmtUptime, runnerTools, toolTitle, upgradeBlockReason, upgradeStateClass, upgradeSummary, workerAgeMs } from '../utils/runners'
+import { beatOf, fmtAge, fmtUptime, runnerTools, toolTitle, upgradeBlockReason, upgradeSource, upgradeStateClass, upgradeSummary, workerAgeMs } from '../utils/runners'
 import { ENROLL_ANCHOR, enrollTitle, hostLine, isPending } from '../utils/enrollments'
 
 const runners = ref<Runner[]>([])
@@ -198,14 +198,18 @@ async function reloadWorkerConfig(workerID: string): Promise<void> {
   }
 }
 
-// 用 server 自身二进制升级 worker。在途任务会先等到结束（最长 10 分钟），期间 worker 不接新任务；
+// 远程升级 worker：同平台用 server 自己的可执行文件，其它平台由 server 从下载源取该平台的
+// 发布包（gofer-n1vj）。在途任务会先等到结束（最长 10 分钟），期间 worker 不接新任务；
 // 最终结果（已升级 / 已回滚）由 4s 轮询带回的 upgrade 记录显示。
 async function upgradeWorkerBinary(r: Runner): Promise<void> {
   const id = r.worker_id || r.name
   if (upgrading.value) return
   const from = r.worker?.gofer_version || '?'
   const to = serverInfo.value?.version || t('runners.worker.upgradeToServer')
-  if (!window.confirm(t('runners.worker.upgradeConfirm', { id, from, to }))) return
+  const confirm = upgradeSource(r, serverInfo.value) === 'mirror'
+    ? t('runners.worker.upgradeConfirmSource', { id, from, to, os: r.worker?.os || '?', arch: r.worker?.arch || '?' })
+    : t('runners.worker.upgradeConfirm', { id, from, to })
+  if (!window.confirm(confirm)) return
   upgrading.value = id
   upgradeNotice.value = ''
   try {
@@ -587,6 +591,14 @@ function beatLabel(r: Runner): string {
             <p v-if="w.worker?.draining" class="upgrade-line upgrade-line--warn">{{ t('runners.worker.draining') }}</p>
             <p v-if="w.upgrade" class="upgrade-line" :class="upgradeStateClass(w.upgrade)">{{ upgradeSummary(w.upgrade) }}</p>
             <p v-if="upgradeBlockReason(w, serverInfo) && w.upgrade?.state !== 'pending'" class="upgrade-hint">{{ upgradeBlockReason(w, serverInfo) }}</p>
+            <!-- 异构 worker：升级二进制取自下载源（server.update），同平台用 server 自身可执行文件 -->
+            <p
+              v-if="!upgradeBlockReason(w, serverInfo) && upgradeSource(w, serverInfo) === 'mirror'"
+              class="upgrade-hint"
+              data-test="upgrade-source-hint"
+            >
+              {{ t('runners.worker.upgradeFromSource', { os: w.worker?.os || '?', arch: w.worker?.arch || '?' }) }}
+            </p>
             <details v-if="w.upgrade_history?.length" class="upgrade-history">
               <summary class="upgrade-hint">{{ t('runners.worker.history', { n: Math.min(w.upgrade_history.length, 5) }) }}</summary>
               <ul class="upgrade-history-list">
