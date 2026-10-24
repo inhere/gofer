@@ -30,6 +30,8 @@ import { runnerOptionText } from '../utils/runnerDisplay'
 import { t } from '../i18n'
 import Tabs from '../ui/Tabs.vue'
 import BackLink from '../ui/BackLink.vue'
+import SearchSelect from '../ui/SearchSelect.vue'
+import type { SearchOption } from '../ui/searchSelect'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import { useWhoami } from '../store/whoami'
 import { ceilingAllowsAgent, ceilingAllowsExec, ceilingAllowsProject, ceilingAllowsRunner } from '../utils/ceiling'
@@ -81,6 +83,10 @@ const modeTabs = computed(() => [
   { value: 'yaml', label: t('workflows.new.tabYaml') },
 ])
 const tplProject = ref('')
+// 可搜索的项目下拉（issue gofer-b8nh）。
+const projectItems = computed<SearchOption[]>(() =>
+  projects.value.map((p) => ({ value: p.key, label: p.key })),
+)
 const templates = ref<WorkflowTemplateInfo[]>([])
 const tplLoading = ref(false)
 const tplError = ref('')
@@ -602,9 +608,17 @@ onMounted(() => {
     <div v-if="!loading && mode === 'template'" class="card" data-test="template-pane">
       <div class="field">
         <label class="label mono" for="nw-project">{{ t('workflows.new.project') }}</label>
-        <select id="nw-project" v-model="tplProject" class="control mono" data-test="tpl-project">
-          <option v-for="p in projects" :key="p.key" :value="p.key">{{ p.key }}</option>
-        </select>
+        <SearchSelect
+          trigger-id="nw-project"
+          test-id="tpl-project"
+          variant="field"
+          class="mono"
+          v-model="tplProject"
+          :options="projectItems"
+          :label="t('workflows.new.project')"
+          :disabled="projects.length === 0"
+          :empty-text="t('workflows.new.noProject')"
+        />
         <p class="field-hint mono">{{ t('workflows.new.projectHint') }}</p>
       </div>
 

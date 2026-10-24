@@ -42,6 +42,8 @@ import { DIR_LOCK_HINT, formatLockPaths, parseLockPaths } from '../utils/lockPat
 import { defaultProject, rememberProject } from '../ui/projectFilter'
 import { t } from '../i18n'
 import BackLink from '../ui/BackLink.vue'
+import SearchSelect from '../ui/SearchSelect.vue'
+import type { SearchOption } from '../ui/searchSelect'
 import type {
   JobBudget,
   JobUpload,
@@ -546,6 +548,11 @@ const projectOptions = computed<MetaProject[]>(() =>
 
 // 被上限藏起来的 project 数（给一句说明，免得用户以为项目不见了）。
 const projectCeilingHidden = computed(() => projects.value.length - projectOptions.value.length)
+
+// 可搜索下拉的选项（issue gofer-b8nh）：项目多了靠输入过滤，不用在一长串里找。
+const projectItems = computed<SearchOption[]>(() =>
+  projectOptions.value.map((p) => ({ value: p.key, label: p.key })),
+)
 
 // 选了 worker runner 但目标 worker 还未确定（id 模式未选且 runner 无 pin / labels 模式未填标签
 // 或无匹配）→ 能力收窄尚未生效，提示用户先定机器。
@@ -1170,14 +1177,18 @@ watch(interactive, (on) => {
         <!-- project -->
         <div class="field">
           <label class="label" for="nj-project">{{ t('newjob.field.project') }}</label>
-          <select
-            id="nj-project"
+          <SearchSelect
+            trigger-id="nj-project"
+            test-id="nj-project"
+            variant="field"
+            class="mono"
             v-model="projectKey"
-            class="control"
-            @change="onProjectChange"
-          >
-            <option v-for="p in projectOptions" :key="p.key" :value="p.key">{{ p.key }}</option>
-          </select>
+            :options="projectItems"
+            :label="t('newjob.field.project')"
+            :disabled="projectOptions.length === 0"
+            :empty-text="t('newjob.noProject')"
+            @select="onProjectChange()"
+          />
           <p v-if="projectOptions.length === 0" class="field-hint">{{ t('newjob.noProject') }}</p>
           <p v-else-if="projectCeilingHidden > 0" class="field-hint field-hint--warn" data-test="nj-project-ceiling">
             {{ t('newjob.projectCeiling', { n: projectCeilingHidden, label: ceilingLabel() }) }}

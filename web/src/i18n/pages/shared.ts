@@ -22,6 +22,11 @@ export const shared = {
     'util.repo.copied': '已复制',
     'util.repo.copyFailed': '复制失败：浏览器不允许写剪贴板，请手动选中路径复制',
 
+    // ui/SearchSelect.vue：可搜索下拉（项目 key / 显示名过滤，前缀优先）
+    'util.select.search': '输入以筛选',
+    'util.select.searchFor': '搜索{label}',
+    'util.select.noMatch': '没有匹配的选项',
+
     // utils/work.ts：工作项
     'util.work.hint.active': '会话正在干活',
     'util.work.hint.needs_me': '需要你回复 / 决策',
@@ -1136,6 +1141,11 @@ export const shared = {
     'util.repo.copyPath': 'Copy path',
     'util.repo.copied': 'Copied',
     'util.repo.copyFailed': 'Copy failed: the browser blocked clipboard writes; select the path and copy it by hand',
+
+    // ui/SearchSelect.vue：可搜索下拉（项目 key / 显示名过滤，前缀优先）
+    'util.select.search': 'Type to filter',
+    'util.select.searchFor': 'Search {label}',
+    'util.select.noMatch': 'No matching option',
 
     'util.work.hint.active': 'The session is working',
     'util.work.hint.needs_me': 'Needs your reply or decision',

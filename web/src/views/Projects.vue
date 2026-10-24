@@ -39,6 +39,8 @@ import type {
 } from '../api/types'
 import FilePreview from '../components/FilePreview.vue'
 import Tabs from '../ui/Tabs.vue'
+import SearchSelect from '../ui/SearchSelect.vue'
+import type { SearchOption } from '../ui/searchSelect'
 import StatusPill from '../ui/StatusPill.vue'
 import type { TabItem } from '../ui/tabs'
 import { buildFleet, projectAllowedFromConfig, workerOwnProjects, type FleetGroup, type FleetNote } from '../utils/projectFleet'
@@ -50,6 +52,11 @@ const keys = ref<string[]>([])
 // 内置项目的 key（server 注入、配置里没写）：列表与详情标「内置」，删除按钮禁用。
 const injectedKeys = ref<string[]>([])
 const selected = ref<string>('')
+// 可搜索的项目下拉（issue gofer-b8nh）：手机上的项目选择器，首项与原来的空 option 等价。
+const projectItems = computed<SearchOption[]>(() => [
+  { value: '', label: t('projects.pickerPlaceholder') },
+  ...keys.value.map((key) => ({ value: key, label: key })),
+])
 const detail = ref<ProjectDetail | null>(null)
 const loadingList = ref(false)
 const loadingDetail = ref(false)
@@ -708,10 +715,16 @@ async function init(): Promise<void> {
         <template v-else>
     <label class="mobile-project-picker mono">
       <span>{{ t('projects.picker') }}</span>
-      <select class="control mono" :value="selected" @change="selectKey(($event.target as HTMLSelectElement).value)">
-        <option value="">{{ t('projects.pickerPlaceholder') }}</option>
-        <option v-for="key in keys" :key="key" :value="key">{{ key }}</option>
-      </select>
+      <SearchSelect
+        class="mono ps-project-select"
+        test-id="projects-picker"
+        variant="field"
+        :model-value="selected"
+        :options="projectItems"
+        :label="t('projects.picker')"
+        :placeholder="t('projects.pickerPlaceholder')"
+        @update:model-value="selectKey($event)"
+      />
     </label>
 
     <div class="layout">
@@ -1554,6 +1567,10 @@ async function init(): Promise<void> {
     flex: 1;
     min-width: 0;
     padding: 7px 8px;
+  }
+  .mobile-project-picker .ps-project-select {
+    flex: 1;
+    min-width: 0;
   }
   .layout {
     grid-template-columns: 1fr;

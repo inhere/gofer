@@ -26,6 +26,7 @@ import {
 } from '../utils/workflowResult'
 import { t } from '../i18n'
 import BackLink from '../ui/BackLink.vue'
+import SearchSelect from '../ui/SearchSelect.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import Drawer from '../ui/Drawer.vue'
 import type { Workflow, WorkflowEvent, WorkflowStep } from '../api/types'
@@ -75,6 +76,8 @@ const tplName = ref('')
 const tplScope = ref<'global' | 'project'>('project')
 const tplProject = ref('')
 const projects = ref<string[]>([])
+// 可搜索的项目下拉（issue gofer-b8nh）。
+const projectItems = computed(() => projects.value.map((key) => ({ value: key, label: key })))
 const tplSaving = ref(false)
 const tplError = ref('')
 const tplNotice = ref<SaveNotice | null>(null)
@@ -529,9 +532,17 @@ onUnmounted(() => {
             ><input v-model="tplScope" type="radio" value="project" data-test="sat-scope-project" />
             {{ t('workflows.detail.templateProject') }}</label
           >
-          <select v-if="tplScope === 'project'" v-model="tplProject" class="control">
-            <option v-for="p in projects" :key="p" :value="p">{{ p }}</option>
-          </select>
+          <SearchSelect
+            v-if="tplScope === 'project'"
+            test-id="sdt-project"
+            variant="field"
+            class="mono"
+            v-model="tplProject"
+            :options="projectItems"
+            :label="t('workflows.detail.templateProject')"
+            :disabled="projects.length === 0"
+            :empty-text="t('workflows.new.noProject')"
+          />
         </div>
         <p v-if="tplError" class="error" data-test="sat-error">{{ tplError }}</p>
         <p v-if="tplNotice" class="notice" :class="`notice--${tplNotice.tone}`" data-test="sat-notice">
