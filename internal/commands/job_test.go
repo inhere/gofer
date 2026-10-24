@@ -667,6 +667,48 @@ func TestJobShowOmitsRecoveringSinceWhenUnset(t *testing.T) {
 	}
 }
 
+// TestJobShowPrintsTimeoutClamp: a job whose requested deadline was cut to a lower
+// ceiling must say so in `job show` — what was asked and which config key cut it
+// (gofer-ea2i). A caller that only reads this output otherwise sees the effective value
+// alone and cannot tell it was shortened.
+func TestJobShowPrintsTimeoutClamp(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	t.Cleanup(func() { jobConnOpts.server, jobConnOpts.token = "", "" })
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/v1/jobs/job-clamp" {
+			// wakeups / retries and any other optional read: nothing to print.
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(job.JobResult{
+			ID: "job-clamp", ProjectKey: "self", Status: job.StatusRunning,
+			TimeoutSec: 5400, RequestedTimeoutSec: 14400, TimeoutClamped: true,
+			TimeoutLimitSource: "server", TimeoutLimitKey: "server.max_job_timeout_sec",
+		})
+	}))
+	defer ts.Close()
+
+	app := NewApp("test")
+	out := captureOutput(t, func() {
+		if code := app.Run([]string{"job", "show", "job-clamp", "--server", ts.URL}); code != 0 {
+			t.Fatalf("app.Run exit code=%d", code)
+		}
+	})
+	for _, want := range []string{
+		"timeout:    5400s",
+		"(timeout 14400s clamped to 5400s by server.max_job_timeout_sec)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("job show output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // TestFmtServerTimeUsesServerOffset is the h-aii-tnua regression: a stamp is
 // rendered in the SERVER's zone with its UTC offset, not in whatever zone the CLI
 // process happens to run in. The offset is pinned through the resolution seam, so

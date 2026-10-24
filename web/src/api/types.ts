@@ -118,6 +118,13 @@ export interface Job {
   timeout_sec?: number
   // 提交者请求的超时时间；仅在与生效值不同时用于说明夹紧原因。
   requested_timeout_sec?: number
+  // 服务端把请求时限截到上限时由后端标出（gofer-ea2i）：timeout_clamped=true 表示发生过
+  // 夹紧；timeout_limit_source 是哪一级上限（project | server）；timeout_limit_key 是那条
+  // 配置键（server.max_job_timeout_sec / projects.<key>.max_timeout_sec）。详情页用它们说明
+  // 「实际时限为什么比要求的短」。
+  timeout_clamped?: boolean
+  timeout_limit_source?: string
+  timeout_limit_key?: string
   // RECOV-01：进入 recovering 的 unix 秒（后端 omitempty，0/缺省=不在 recovering）。详情页据此
   // 展示 job 在等 worker 重连了多久。
   recovering_since?: number

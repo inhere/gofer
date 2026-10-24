@@ -67,7 +67,7 @@ import { MAX_STDERR_BUFFER_BYTES, appendCappedWithStats, streamJob } from '../ap
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { fanNameForJob, jobWorkflowLabel } from '../utils/workflowResult'
-import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
+import { fmtJobTimeout, jobTimeoutClampNote, jobTimeoutTitle } from '../utils/jobTimeout'
 import { wrapUpText } from '../utils/wrapUpDisplay'
 import { normalizeJobTitle } from '../utils/jobTitle'
 import { stripAnsi } from '../utils/logRender'
@@ -347,6 +347,17 @@ const durationText = computed(() => fmtDuration(durationSec.value))
 const timeoutText = computed(() => fmtJobTimeout(job.value?.timeout_sec))
 const timeoutTitle = computed(() =>
   jobTimeoutTitle(job.value?.requested_timeout_sec, job.value?.timeout_sec),
+)
+// gofer-ea2i：请求时限被服务端上限截短时，在生效值旁边直接写出请求值与封顶的配置键
+// （与 `gofer job show` 的 "(timeout 14400s clamped to 5400s by server.max_job_timeout_sec)"
+// 同一口径）——只藏在 tooltip 里，调用方过滤输出后就看不到自己要求的是多少。
+const timeoutClampText = computed(() =>
+  jobTimeoutClampNote(
+    job.value?.requested_timeout_sec,
+    job.value?.timeout_sec,
+    job.value?.timeout_limit_key,
+    job.value?.timeout_limit_source,
+  ),
 )
 
 // SSE 速率估算：滑动窗口内收到的 stdout/stderr 文本行数 / 时间 -> 行每秒
@@ -2375,6 +2386,7 @@ onUnmounted(() => {
         <span class="meta-v duration-value mono">
           {{ durationText }}
           <span class="duration-timeout mono" :title="timeoutTitle">({{ timeoutText }})</span>
+          <span v-if="timeoutClampText" class="duration-clamp mono" data-test="timeout-clamp">{{ timeoutClampText }}</span>
         </span>
       </div>
       <div class="meta-item">
@@ -3486,6 +3498,10 @@ onUnmounted(() => {
 }
 .duration-timeout {
   color: var(--ink-3);
+}
+/* 请求时限被上限截短：与生效值同行写出请求值与封顶的配置键（gofer-ea2i）。 */
+.duration-clamp {
+  color: var(--time);
 }
 .meta-v.id {
   color: var(--accent);

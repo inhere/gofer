@@ -26,6 +26,7 @@ func TestSubmitStrictTimeoutAndClampSource(t *testing.T) {
 	delete(body, "strict_timeout")
 	resp = do(t, s, http.MethodPost, "/v1/jobs", testToken, body)
 	var out struct {
+		ID                  string `json:"id"`
 		TimeoutSec          int    `json:"timeout_sec"`
 		RequestedTimeoutSec int    `json:"requested_timeout_sec"`
 		TimeoutClamped      bool   `json:"timeout_clamped"`
@@ -35,5 +36,21 @@ func TestSubmitStrictTimeoutAndClampSource(t *testing.T) {
 	decode(t, resp, &out)
 	if out.TimeoutSec != 100 || out.RequestedTimeoutSec != 500 || !out.TimeoutClamped || out.TimeoutLimitSource != "server" || out.TimeoutLimitKey != "server.max_job_timeout_sec" {
 		t.Fatalf("clamped submit = %+v", out)
+	}
+
+	// gofer-ea2i: the detail endpoint (what `job show` and the web detail page read) must
+	// carry the same fields, otherwise the clamp can only be explained right after submit.
+	resp = do(t, s, http.MethodGet, "/v1/jobs/"+out.ID, testToken, nil)
+	var detail struct {
+		TimeoutSec          int    `json:"timeout_sec"`
+		RequestedTimeoutSec int    `json:"requested_timeout_sec"`
+		TimeoutClamped      bool   `json:"timeout_clamped"`
+		TimeoutLimitSource  string `json:"timeout_limit_source"`
+		TimeoutLimitKey     string `json:"timeout_limit_key"`
+	}
+	decode(t, resp, &detail)
+	if resp.StatusCode != http.StatusOK || detail.TimeoutSec != 100 || detail.RequestedTimeoutSec != 500 ||
+		!detail.TimeoutClamped || detail.TimeoutLimitSource != "server" || detail.TimeoutLimitKey != "server.max_job_timeout_sec" {
+		t.Fatalf("GET /v1/jobs/{id} must keep the clamp fields, got %d %+v", resp.StatusCode, detail)
 	}
 }
