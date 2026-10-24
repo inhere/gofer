@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -105,8 +107,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		jobID:        req.JobID,
 		mailResident: req.ACP.MailResident,
 		logThoughts:  req.ACP.LogThoughts,
-		toolStatus:   map[string]string{},
-		toolEvents:   map[string]string{},
+		// The MCP servers THIS session was given: the approval gate believes a
+		// gofer_* tool name only when gofer's own server is among them.
+		goferMCPServers: goferAdvertisedMCPServers(req.ACP.MCPServers),
+		toolStatus:      map[string]string{},
+		toolEvents:      map[string]string{},
 	}
 	// F14: when the agent's config asks for it, the process starts with the `env` block
 	// of claude's user settings file layered in — keys neither the process environment
@@ -577,6 +582,12 @@ type handler struct {
 	// its call to gofer_session_mail_reply is answered without a human, because
 	// answering a letter that arrived in this session is the whole job (gofer-sh7r).
 	mailResident bool
+	// goferMCPServers holds the names of the MCP servers advertised to this session that
+	// are gofer's OWN (see goferAdvertisedMCPServers). A permission request naming a gofer
+	// tool only counts as gofer's when it came from one of them: the approval gate skips a
+	// human on that name, so an unattributable name (or another server's look-alike) must
+	// stay gated (gofer-78on).
+	goferMCPServers map[string]bool
 	// logThoughts keeps the coalesced thought line in the logs (acp.log_thoughts).
 	logThoughts bool
 
@@ -877,16 +888,20 @@ func (h *handler) usageSnapshot() *runner.Usage {
 
 // RequestPermission implements acp.Handler with the job's approval policy (GATE-01
 // §1). Mode off auto-allows (the S0 behaviour); ask auto-allows the policy's
-// auto_allow_kinds and remembers an allow_always answer for the kind; everything else
-// is put to a human as a `permission` interaction and the agent waits for the answer.
+// auto_allow_kinds and auto_allow_tools, remembers an allow_always answer for the kind;
+// everything else is put to a human as a `permission` interaction and the agent waits for
+// the answer.
 //
-// Under mode=ask a request for one of gofer's OWN read-only MCP tools is allowed
-// whatever kind the agent reported: an ACP agent calls an MCP tool with kind=other
-// (suga sends session/request_permission with kind=other even when the tool advertises
-// readOnlyHint), and other is in the default ask_kinds — so without this rule asking
-// gofer_work_list or gofer_today_list parked a steward on a human. The tool is
-// resolved by exact name against internal/mcptools, never by a name prefix, and a tool
-// qualified by another MCP server is not gofer's. mode=strict still asks everything.
+// Under mode=ask a request for one of gofer's OWN tools that the policy lists in
+// auto_allow_tools is allowed whatever kind the agent reported: an ACP agent calls an MCP
+// tool with kind=other (suga sends session/request_permission with kind=other even when
+// the tool advertises readOnlyHint), and other is in the default ask_kinds — so without
+// this rule asking gofer_work_list or gofer_today_advise parked a steward on a human.
+// The default list (config.DefaultApprovalAutoAllowTools) is gofer's read-only tools plus
+// its advice-only writes, and the tool is resolved by exact name against
+// internal/mcptools AND attributed to gofer's own MCP server before the name is believed:
+// a tool qualified by another server, or a bare gofer name in a session that was never
+// given gofer's MCP, is a look-alike and stays gated. mode=strict still asks everything.
 //
 // A resident 收件会话 (gofer-sh7r) gets ONE more allowance: gofer_session_mail_reply, the
 // answer path of a letter that arrived in its own conversation. Answering IS that
@@ -902,9 +917,9 @@ func (h *handler) RequestPermission(p acp.RequestPermissionParams) acp.Permissio
 	switch {
 	case h.policy.Mode == config.ApprovalOff:
 		return h.answerAutomatically(p, kind, "off")
-	case h.policy.Mode == config.ApprovalAsk && isGoferReadOnlyTool(p.ToolCall):
-		return h.answerAutomatically(p, kind, "gofer_readonly_tool")
-	case h.policy.Mode == config.ApprovalAsk && h.mailResident && isGoferMailReplyTool(p.ToolCall):
+	case h.policy.Mode == config.ApprovalAsk && h.toolAutoAllowed(p.ToolCall):
+		return h.answerAutomatically(p, kind, h.autoAllowToolReason(p.ToolCall))
+	case h.policy.Mode == config.ApprovalAsk && h.mailResident && h.isGoferMailReplyTool(p.ToolCall):
 		return h.answerAutomatically(p, kind, autoReasonMailResidentReply)
 	case h.rememberedAllowAlways(kind):
 		return h.answerAutomatically(p, kind, "remembered_allow_always")
@@ -914,6 +929,49 @@ func (h *handler) RequestPermission(p acp.RequestPermissionParams) acp.Permissio
 		return h.askApprover(p, kind)
 	}
 }
+
+// toolAutoAllowed reports whether the policy allows this tool call without a human by
+// NAME (auto_allow_tools / ask_tools). ask_tools always wins — including for a look-alike
+// of a listed tool, because the operator asked to see that name. A name that internal/
+// mcptools knows (gofer_*) is then only believed when it came from gofer's own MCP server;
+// every other tool name is matched as the operator wrote it.
+func (h *handler) toolAutoAllowed(tc *acp.ToolCall) bool {
+	raw := toolCallTitle(tc)
+	if raw == "" {
+		return false
+	}
+	if h.policy.AsksTool(raw) {
+		return false
+	}
+	// A name gofer's registry knows is only believable from gofer's own MCP server —
+	// whatever the qualification says, and whatever tool list it is in: another server's
+	// gofer_work_list is a different tool with the same name.
+	if _, known := mcptools.Lookup(mcptools.BaseName(raw)); known && !h.goferToolOwned(raw) {
+		return false
+	}
+	return h.policy.AutoAllowTool(raw)
+}
+
+// autoAllowToolReason is the acp.jsonl / stderr reason recorded for a no-human decision
+// made by tool name, so the audit line says WHICH rule let it through.
+func (h *handler) autoAllowToolReason(tc *acp.ToolCall) string {
+	if name, ok := mcptools.ToolName(toolCallTitle(tc)); ok {
+		switch {
+		case mcptools.IsReadOnly(name):
+			return autoReasonGoferReadOnlyTool
+		case mcptools.IsAdvisory(name):
+			return autoReasonGoferAdviceTool
+		}
+	}
+	return autoReasonAutoAllowTool
+}
+
+// Auto-allow reasons recorded on an approval decision (acp.jsonl, stderr).
+const (
+	autoReasonGoferReadOnlyTool = "gofer_readonly_tool"
+	autoReasonGoferAdviceTool   = "gofer_advice_tool"
+	autoReasonAutoAllowTool     = "auto_allow_tool"
+)
 
 // answerAutomatically resolves a request without a human: allow_once, falling back to
 // allow_always — except in the remembered case, where the human's allow_always answer
@@ -1264,14 +1322,67 @@ func toolCallTitle(tc *acp.ToolCall) string {
 	return tc.Title
 }
 
-// isGoferReadOnlyTool reports whether this permission request is for one of gofer's own
-// read-only MCP tools (internal/mcptools): the ACP tool call names it in its title, bare
-// ("gofer_work_list", what suga sends) or MCP-qualified ("mcp__gofer__gofer_work_list").
-// A tool that another MCP server names the same way is not gofer's tool and stays
-// gated; so does a write tool with the same prefix.
-func isGoferReadOnlyTool(tc *acp.ToolCall) bool {
-	_, ok := mcptools.ReadOnlyToolName(toolCallTitle(tc))
-	return ok
+// goferToolOwned reports whether this permission request for a gofer tool name really
+// came from gofer's own MCP server. A title is the only identity an ACP permission request
+// carries — rawInput is the agent's own arguments and proves nothing — so the rule is
+// conservative:
+//
+//   - an MCP-qualified name (mcp__<server>__<tool>) counts only when <server> is one of
+//     the gofer servers advertised to THIS session (mcp__gofer__…, or the name an operator
+//     bound the same gofer binary under);
+//   - a bare name (what suga sends) counts only when such a server was advertised at all —
+//     an agent that was never given gofer's MCP cannot be running its tools, so the name
+//     is a look-alike of another tool.
+func (h *handler) goferToolOwned(raw string) bool {
+	if len(h.goferMCPServers) == 0 {
+		return false
+	}
+	if srv, qualified := mcptools.ServerOf(raw); qualified {
+		return h.goferMCPServers[srv]
+	}
+	return true
+}
+
+// goferAdvertisedMCPServers returns the names of the MCP servers advertised to an ACP
+// session that are gofer's OWN: the canonical `gofer` name gofer injects itself under
+// (the steward's and a resident 收件会话's session), plus any entry whose command is this
+// same gofer binary — an operator may bind gofer's MCP under a name of their own, and a
+// gofer_* tool name from that server is still gofer's tool.
+func goferAdvertisedMCPServers(servers []runner.ACPMCPServer) map[string]bool {
+	if len(servers) == 0 {
+		return nil
+	}
+	self := selfBinaryName()
+	out := make(map[string]bool, len(servers))
+	for _, s := range servers {
+		name := strings.ToLower(strings.TrimSpace(s.Name))
+		if name == "" {
+			continue
+		}
+		if name == mcptools.ServerName || (self != "" && binaryBaseName(s.Command) == self) {
+			out[name] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// selfBinaryName is this process's own program name in the form binaryBaseName returns.
+func selfBinaryName() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return binaryBaseName(exe)
+}
+
+// binaryBaseName is the last path element of a command without the .exe suffix, lowercased
+// — so a Windows server and its advertised MCP entry compare equal.
+func binaryBaseName(p string) string {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(p)))
+	return strings.TrimSuffix(base, ".exe")
 }
 
 // autoReasonMailResidentReply is the acp.jsonl / stderr reason recorded when a resident
@@ -1279,13 +1390,17 @@ func isGoferReadOnlyTool(tc *acp.ToolCall) bool {
 const autoReasonMailResidentReply = "mail_resident_reply"
 
 // isGoferMailReplyTool reports whether this permission request is gofer's mailbox reply
-// tool (gofer_session_mail_reply), resolved by exact name through internal/mcptools — so a
-// tool another MCP server names the same way, or any other gofer write tool, stays gated.
-// Which letter may be answered is NOT decided here: the server refuses a reply whose
-// letter this job did not receive (the credential rule in the mail routes).
-func isGoferMailReplyTool(tc *acp.ToolCall) bool {
-	_, ok := mcptools.MailReplyToolName(toolCallTitle(tc))
-	return ok
+// tool (gofer_session_mail_reply), resolved by exact name through internal/mcptools and
+// attributed to gofer's own MCP server — so a tool another MCP server names the same way,
+// or any other gofer write tool, stays gated. Which letter may be answered is NOT decided
+// here: the server refuses a reply whose letter this job did not receive (the credential
+// rule in the mail routes).
+func (h *handler) isGoferMailReplyTool(tc *acp.ToolCall) bool {
+	raw := toolCallTitle(tc)
+	if _, ok := mcptools.MailReplyToolName(raw); !ok {
+		return false
+	}
+	return h.goferToolOwned(raw)
 }
 
 // pickOption returns the first offered optionId of the given kind ("" if none).

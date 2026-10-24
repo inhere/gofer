@@ -48,25 +48,30 @@ func TestMailResidentGateKeepsEverythingElseGated(t *testing.T) {
 		name         string
 		mode         string
 		resident     bool
+		noGoferMCP   bool
 		title        string
 		kind         string
 		wantToAHuman bool
 	}{
-		{"ordinary session replying", config.ApprovalAsk, false, "gofer_session_mail_reply", acp.ToolKindOther, true},
-		{"resident answering", config.ApprovalAsk, true, "gofer_session_mail_reply", acp.ToolKindOther, false},
-		{"resident sending a new letter", config.ApprovalAsk, true, "gofer_session_mail_send", acp.ToolKindOther, true},
-		{"resident using another gofer write tool", config.ApprovalAsk, true, "gofer_run_job", acp.ToolKindOther, true},
-		{"resident writing a file", config.ApprovalAsk, true, "Write", acp.ToolKindEdit, true},
-		{"resident writing a file, kind=other", config.ApprovalAsk, true, "edit_file", acp.ToolKindOther, true},
-		{"resident typing a shell command", config.ApprovalAsk, true, "Bash", acp.ToolKindExecute, true},
-		{"another server's look-alike", config.ApprovalAsk, true, "mcp__other__gofer_session_mail_reply", acp.ToolKindOther, true},
-		{"strict mode keeps asking", config.ApprovalStrict, true, "gofer_session_mail_reply", acp.ToolKindOther, true},
+		{"ordinary session replying", config.ApprovalAsk, false, false, "gofer_session_mail_reply", acp.ToolKindOther, true},
+		{"resident answering", config.ApprovalAsk, true, false, "gofer_session_mail_reply", acp.ToolKindOther, false},
+		{"resident answering, no gofer MCP advertised", config.ApprovalAsk, true, true, "gofer_session_mail_reply", acp.ToolKindOther, true},
+		{"resident sending a new letter", config.ApprovalAsk, true, false, "gofer_session_mail_send", acp.ToolKindOther, true},
+		{"resident using another gofer write tool", config.ApprovalAsk, true, false, "gofer_run_job", acp.ToolKindOther, true},
+		{"resident writing a file", config.ApprovalAsk, true, false, "Write", acp.ToolKindEdit, true},
+		{"resident writing a file, kind=other", config.ApprovalAsk, true, false, "edit_file", acp.ToolKindOther, true},
+		{"resident typing a shell command", config.ApprovalAsk, true, false, "Bash", acp.ToolKindExecute, true},
+		{"another server's look-alike", config.ApprovalAsk, true, false, "mcp__other__gofer_session_mail_reply", acp.ToolKindOther, true},
+		{"strict mode keeps asking", config.ApprovalStrict, true, false, "gofer_session_mail_reply", acp.ToolKindOther, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sink := &recordingSink{}
 			h, _ := gateHandler(t, tc.mode, sink)
 			h.mailResident = tc.resident
+			if tc.noGoferMCP {
+				h.goferMCPServers = nil
+			}
 			h.RequestPermission(permissionRequest(tc.title, tc.kind))
 			if got := len(sink.asked) == 1; got != tc.wantToAHuman {
 				t.Fatalf("asked a human = %v (%d time(s)), want %v", got, len(sink.asked), tc.wantToAHuman)
