@@ -851,6 +851,21 @@ export interface ConfigView {
   agent_policy: Record<string, FieldPolicy>
   /** 配置用 include 拆成多个文件时：顶层段 → 所在文件（相对主配置文件）；单文件时没有 */
   sources?: Record<string, string>
+  // gofer-4uk5：其余顶层段（只读）。服务端已脱敏：secret 只给「已配置 / 未配置」，
+  // 代理 URL 只给 *_set。字段很多且各不相同，控制台按分组展平展示，故用宽松类型。
+  include?: string[]
+  log?: Record<string, unknown>
+  wakeup?: Record<string, unknown>
+  session?: Record<string, unknown>
+  work?: Record<string, unknown>
+  steward?: Record<string, unknown>
+  pty?: Record<string, unknown>
+  mail?: Record<string, unknown>
+  tools?: Record<string, unknown>[]
+  mcp_servers?: Record<string, unknown>[]
+  secrets?: Record<string, unknown>[]
+  pricing?: Record<string, unknown>[]
+  http_proxy?: Record<string, unknown>
 }
 
 // FieldPolicy 是一个配置字段的写契约（internal/config/editable.go）。
@@ -895,6 +910,30 @@ export interface ServerConfigView {
   event_hooks?: EventHookView[]
   // 决策 hook（server.decision_hooks）：同样**只读**，只能改配置文件；env 只给键名。
   decision_hooks?: DecisionHookView[]
+  // MCP-06：部署级 MCP 注册表绑定（只读显示）。
+  mcp: string[]
+  // gofer-4uk5：其余 server.* 段，控制台只读展示（字段多且各不相同，故用宽松类型）。
+  web_dir?: string
+  web_base_url?: string
+  tls?: Record<string, unknown> | null
+  update?: Record<string, unknown>
+  worker_enrollment?: Record<string, unknown>
+  push?: Record<string, unknown>
+  session_messaging?: Record<string, unknown>
+  policy_repush?: Record<string, unknown> | null
+  agent_fallback?: Record<string, unknown>
+  xfer?: Record<string, unknown>
+  attachments?: Record<string, unknown>
+  worker_queue_max_wait_sec?: number | null
+  hold?: Record<string, unknown>
+  comment_trigger?: Record<string, unknown>
+  dir_lock?: boolean | null
+  dir_lock_max_wait_sec?: number | null
+  dir_lock_allow_unbounded_wait?: boolean | null
+  agent_health?: Record<string, unknown> | null
+  skill_limits?: Record<string, unknown>
+  job_env_denylist?: string[]
+  tunnel?: Record<string, unknown>
 }
 
 export interface DecisionHookView {
@@ -941,6 +980,9 @@ export interface GovernanceView {
   default_rate_burst: number
   require_answer_capability: boolean
   require_admin_capability: boolean
+  require_attach_capability?: boolean
+  require_tunnel_capability?: boolean
+  attach_origins?: string[]
 }
 
 export interface CallerConfigView {
@@ -950,6 +992,8 @@ export interface CallerConfigView {
   token_set: boolean
   can_answer: boolean
   can_admin: boolean
+  can_attach?: boolean
+  can_tunnel?: boolean
   max_concurrent_jobs?: number
   rate_limit?: number
   rate_burst?: number
@@ -980,6 +1024,8 @@ export interface NotificationView {
   // S4：出站通知总开关（nil = 开）。关掉只停止入队新投递，已入队的仍会发完。
   enabled: boolean
   session_reply_delay_sec: number
+  // gofer-4uk5：server.notification.desktop（server 主机的桌面推送）；块未配置时不返回。
+  desktop?: Record<string, unknown>
 }
 
 export interface WebhookView {
@@ -1005,6 +1051,9 @@ export interface StorageConfigView {
   db_path: string
   retention: RetentionView
   cast: CastView
+  // gofer-4uk5：邮件 / 附件的保留天数（存储段的其余部分）。
+  mail_retention_days?: number
+  attachment_retention_days?: number
 }
 
 export interface RetentionView {
@@ -1109,6 +1158,29 @@ export interface ConfigReloadResp {
   path?: string
   changed: string[]
   restart_required: string[]
+}
+
+// ServerRestartState 是 POST/DELETE /v1/server/restart 与 GET /v1/server/restart 里
+// 的重启进度（gofer-4uk5）。phase 的取值与一键更新共用：waiting_idle / restarting /
+// done / failed / cancelled；waiting 是它还在等哪些 job，paused 是它停放了几个提交。
+export interface ServerRestartState {
+  id: string
+  phase: 'waiting_idle' | 'restarting' | 'done' | 'failed' | 'cancelled'
+  error?: string
+  version?: string
+  started_at: number
+  updated_at: number
+  wait_deadline?: number
+  wait_timeout_sec?: number
+  waiting?: UpdateApplyWaitingJob[]
+  paused?: number
+}
+
+// ServerRestartView 是 GET /v1/server/restart：这台 server 能不能自己重启（只有注册成
+// 受管服务的才行），以及上一次重启的进度。
+export interface ServerRestartView {
+  managed: boolean
+  state?: ServerRestartState
 }
 
 export interface ConfigAgentDeleteResp {

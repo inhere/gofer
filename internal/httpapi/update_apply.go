@@ -191,22 +191,30 @@ func (s *Server) applyView() *ApplyState {
 // (so the list and the decision can never disagree) plus the number of jobs it parked.
 // Both are read live: the persisted state only carries the deadline.
 func (s *Server) fillWaitingView(view *ApplyState) {
+	view.Waiting, view.Paused = s.waitingSnapshot()
+}
+
+// waitingSnapshot is the live view fillWaitingView and the server restart both report:
+// what a restart would still have to wait for, and how many submits it parked meanwhile.
+func (s *Server) waitingSnapshot() ([]ApplyWaitingJob, int) {
 	if s.jobs == nil {
-		return
+		return nil, 0
 	}
+	paused := 0
 	if n, err := s.jobs.CountUpdatePaused(); err == nil {
-		view.Paused = n
+		paused = n
 	}
 	blockers, err := s.jobs.ListUpgradeRestartBlockers(nil, applyWaitingListLimit)
 	if err != nil {
-		return
+		return nil, paused
 	}
-	view.Waiting = make([]ApplyWaitingJob, 0, len(blockers))
+	waiting := make([]ApplyWaitingJob, 0, len(blockers))
 	for _, b := range blockers {
-		view.Waiting = append(view.Waiting, ApplyWaitingJob{
+		waiting = append(waiting, ApplyWaitingJob{
 			ID: b.ID, Title: b.Title, Status: b.Status, Runner: b.Runner, StartedAt: b.StartedAt,
 		})
 	}
+	return waiting, paused
 }
 
 type applyFile struct {
@@ -433,7 +441,7 @@ func (s *Server) runUpdateApply(f applyFile, managed ManagedUpgradeFunc, dir str
 	applyWaitingIdlePublished()
 	slog.Info("update.apply_waiting_idle", "event", "update.apply_waiting_idle", "id", f.ID,
 		"deadline", time.Unix(f.WaitDeadline, 0).Format(time.RFC3339), "wait_sec", f.WaitTimeoutSec)
-	outcome := s.waitForIdle(f)
+	outcome := s.waitForIdle(f.WaitDeadline)
 	if outcome != waitIdleReached {
 		s.endWaitingApply(&f, outcome)
 		return
@@ -465,8 +473,9 @@ const (
 // waitForIdle blocks until nothing is left that a server restart would kill, the
 // wait's deadline passes, or an administrator cancels. It pauses new starts for the
 // whole wait, so what arrives meanwhile is parked (and counted as such) instead of
-// starting a job the restart would have to wait for.
-func (s *Server) waitForIdle(f applyFile) waitIdleOutcome {
+// starting a job the restart would have to wait for. deadlineUnix is the wait's own
+// deadline (`wait_deadline`), shared by the update and the server restart.
+func (s *Server) waitForIdle(deadlineUnix int64) waitIdleOutcome {
 	if s.jobs == nil {
 		return waitIdleReached
 	}
@@ -481,7 +490,7 @@ func (s *Server) waitForIdle(f applyFile) waitIdleOutcome {
 		cancel()
 	}()
 
-	deadline := time.Unix(f.WaitDeadline, 0)
+	deadline := time.Unix(deadlineUnix, 0)
 	for {
 		if n, err := s.jobs.CountUpgradeRestartBlockers(nil); err == nil && n == 0 {
 			return waitIdleReached

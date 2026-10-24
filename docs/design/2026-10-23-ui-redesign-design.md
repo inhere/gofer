@@ -2081,3 +2081,71 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 243 passed (243)` / `Tests 1685 passed (1685)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.77s`。无 Go 改动、无路由 / 权限 / 协议变化（G056、http-api.md 不涉及）；skill 无需更新。
 
 **视觉自查**：临时入口（`web/msgcheck.html` + `msgcheck-main.ts`，截图后已删除；截图在 `tmp/msgcheck/`，均已忽略）挂真实 `MarkdownBlock` + 真实 `styles/*.css`，内容含长代码块、七列宽表、超长 URL / 路径、无空格长串，浅 / 深 × 容器 320px / 1440px 四张。Windows headless 的 `--window-size` 压不窄视口（实测 764），故把容器宽度写进 URL 参数来量。用 `scrollWidth` 断言：320px 下 `wrap` 320/320 不溢出、气泡 258/258 不溢出、`pre` 234→1517 可横滚、`table` 236→658 可横滚；1440px 下表格 1056 按内容排开、不挤压。截图确认：深浅两套 token 下表格列宽可读（首版只写 `display:block` 时每列被压成一个字，截图发现后补了 `width:max-content` 与单元格 `break-word`）、代码块裁在自己的框里、URL / 路径正常断行。
+### P6 配置管理：完整配置 + 重启 server（2026-10-24，issue gofer-4uk5）
+
+落地范围：设置 › 配置管理（`web/src/views/Config.vue`）与它依赖的两个后端改动（`GET /v1/config` 的字段、新接口 `POST/GET/DELETE /v1/server/restart`）。页面结构沿用 P5 的设置外壳（`SettingsLayout` + 右侧内容区），没有新增导航项。
+
+**① 后端：`GET /v1/config` 补齐全部配置段**
+
+审计对象是 `internal/config` 的 `Config` 模型（server / log / storage / projects / agents / runners / roles / leader / schedule / wakeup / session / work / steward / pty / mail / tools / mcp_servers / secrets / pricing / http_proxy + include + 各嵌套块）。补的字段全在 `internal/httpapi/config_view_sections.go`（新文件），`config_handler.go` 只负责把它们挂进 `configView` / `serverConfigView`。
+
+脱敏口径沿用既有先例（webhook `secret_env`：**名字也不回声**）：
+
+| 配置 / 字段 | 是否展示 | 展示位置 | 脱敏 |
+|---|---|---|---|
+| include | 是 | 配置文件来源（含 `sources` 的按文件分组） | 原文 |
+| server（addr / path_view / web_enabled / token / allow_empty_token / max_job_timeout_sec / stall_timeout_sec / auto_resume_max / skills） | 是 | 上方「服务端」卡片 + 编辑弹窗 | token → 已配置 / 未配置 |
+| server 其余块：web_dir / web_base_url / tls / update / worker_enrollment / push / session_messaging / policy_repush / agent_fallback / xfer / attachments / worker_queue_max_wait_sec / hold / comment_trigger / dir_lock* / agent_health / skill_limits / job_env_denylist / tunnel / mcp | 是 | 「服务端 · 其余设置」折叠卡（只读） | update.proxy → `proxy_set`；tls 只给文件路径与是否启用 |
+| server.governance（含新增 require_tunnel_capability / attach_origins） | 是 | 「治理 / 指标」卡片 + `serverExtra` | — |
+| server.callers（含新增 can_attach / can_tunnel / ceiling） | 是 | 「调用方」表格 | token → 已配置 / 未配置 |
+| server.workers | 是 | 「角色 / Workers」卡片 | token → 已配置 / 未配置 |
+| server.notification（webhooks / desktop / 阈值） | 是 | 「服务端」卡片与编辑弹窗；`desktop` 在 `serverExtra` | webhook secret_env → `secret_set`；env 名不回声 |
+| server.event_hooks / decision_hooks | 是 | 编辑弹窗内的只读区块（原样保留） | env 只给键名 |
+| storage（root / db_path / 子目录 / retention / cast）+ 新增 mail_retention_days / attachment_retention_days | 是 | 「存储」卡片 + 「存储 · 保留与录制」 | cast 加密 key env 不回声 |
+| projects | 是 | 已有 `projects[]`（同 `/v1/projects` 的视图）；本页不重复渲染，跳「项目」页编辑 | 项目 `secrets` 只给名字 |
+| agents（含 injected / extends / env_keys / skills / mcp） | 是 | 「Agents」卡片 + 编辑弹窗 | env 只给键名 |
+| runners | 是 | 「Runners」卡片 | token → 已配置 / 未配置 |
+| roles | 是 | 「角色 / Workers」卡片 | env 只给键名 |
+| leader | 是 | 「主节点」卡片 | — |
+| schedule | 是 | 「定时 / 探针」卡片 | — |
+| log | 是 | 「日志」折叠卡 | — |
+| wakeup | 是 | 「唤醒」折叠卡 | — |
+| session | 是 | 「会话」折叠卡 | — |
+| work | 是 | 「工作项」折叠卡 | — |
+| steward | 是 | 「管家」折叠卡 | — |
+| pty | 是 | 「终端（pty）」折叠卡 | — |
+| mail（含 agents[]） | 是 | 「信箱」折叠卡（agents 逐条） | 常驻 prompt 与 mail approval 不在视图里 |
+| tools | 是 | 「本机工具」折叠卡 | — |
+| mcp_servers | 是 | 「MCP 注册表」折叠卡 | env / header 只给键名；secret_env → `secret_env_set` |
+| secrets | 是 | 「密钥登记」折叠卡 | 只给 key / description / as / **set**（env 名不回声） |
+| pricing | 是 | 「模型价格表」折叠卡 | — |
+| http_proxy | 是 | 「出站代理」折叠卡 | URL → `proxy_url_set`（可能含凭据） |
+
+写入面不变（`PUT /v1/config/server`、`/work`、`/steward`、agent 三件套），所以新增的段在页面上标「只读」：要改就改 `config.yaml` 再「重新读取文件」。
+
+**② 重启 server**
+
+- 后端：`internal/httpapi/server_restart.go`。复用一键更新的受管交接：同一个 `s.applyBusy`、同一个 `waitForIdle`（签名改为收 deadline，行为不变）、同一个 `serve upgrade` 闭包（`serve.managedUpgrade`，serve 侧零改动）、同一套 `paused_for_update` 停放。差异只有一处——候选二进制不是下载来的，而是把 `os.Executable()` 复制到 `<config-dir>/run/update/restart/<id>/`（受管升级是「用文件替换安装的二进制」，拿正在运行的它替换自己是它没写过的场景）。新进程启动时 `ResumeServerRestart()` 把 `restarting` 记为 `done`，把没人等的 `waiting_idle` 记为失败。
+- 路由与权限（G056）：`GET /v1/server/restart` → `Require(config.read)`；`POST` / `DELETE` → `Require(config.write)` + handler 里 `adminUserOnly`（拒 worker / job 凭据）。`routeDecls` 已登记，`go generate ./internal/httpapi/...` 重新生成了 `docs/reference/permissions.md`。
+- 前端：工具条「重新读取文件」旁新增「重启 server」。非受管（`GET` 的 `managed=false`）时按钮禁用并在下方写明原因；点击弹二次确认，写清影响（在跑的 job 先结束、新 job 排队、控制台断几秒）并可选「最多等空闲」（30 分钟 / 1 / 2 / 4 小时，默认 2 小时，与一键更新同档）。进行中显示阶段（等待空闲 / 正在重启 / 已重启 / 失败 / 已取消）、挡住重启的 job 列表（可点进详情）、已停放数与放弃时间，并提供「取消等待」；server 真正重启那几秒请求会失败，页面显示「连不上，恢复后自动刷新」并继续轮询，恢复后重读配置与 `whoami`。
+
+**不丢信息核对**（迁移前 → 现在）
+
+| 迁移前有 | 现在 | 位置 |
+|---|---|---|
+| 配置文件来源（include 分组）、配置警告 banner、刷新 / 轮询指示、「重新读取文件」 | 全部保留 | 页头 |
+| server / governance / storage / leader / schedule 五张卡片 | 保留 | 上方卡片 |
+| 调用方表（id / 名称 / token / 可应答 / 可管理 / 配额） | 保留，另加 can_attach / can_tunnel 的 ceiling（表格内 token 与配额列不变） | 同上 |
+| agents 列表（类型 / command / 内置 / extends / env / skills / mcp）+ 编辑 / 新增 / 删除 / YAML 预览 | 保留 | 同上 |
+| runners 列表、roles + workers 列表 | 保留 | 同上 |
+| server / agent 编辑弹窗的全部字段、干跑预览、需重启字段 | 保留，未改一列 | 弹窗 |
+| —（新增） | 14 个只读分组卡 + 重启按钮与进度 | 页面下方 / 页头 |
+
+**测试**
+
+- Go：`internal/httpapi/server_restart_test.go`（新，4 例）：非受管时 `GET.managed=false` 且 `POST` 409；受管时交接拿到的是 `restart/` 下的副本、阶段从 `restarting` 变 `done`（由新进程的 `ResumeServerRestart` 收尾）；等空闲期间 `DELETE` 取消 → 阶段 `cancelled`、不交接、放行停放的 job；`GET` 的 `waiting` 列出挡住重启的 job。
+- Web：`views/configRows.test.ts`（新，5 例）：`*_set` / `set` → 已配置 / 未配置（不能落到是 / 否）、null vs 0 vs 空串、嵌套展平、secrets 无 env 名、列表段的条目名与占位。`views/configComplete.test.ts`（新，8 例）：14 个分组标题 zh/en 都在、只读标、`details` 折叠、TS 类型跟上新增段、重启按钮的禁用条件与原因、确认框影响文案与四档等待、等待 UI 与取消、未连接继续轮询并重读配置、三个接口的契约与阶段文案。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 244 passed (244)` / `Tests 1677 passed (1677)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.54s`。`go build ./...` 与 `go vet ./...` 退出码 0；`go test -count=1 ./internal/httpapi ./internal/serve ./internal/config`：`ok …/httpapi 112.000s` / `ok …/serve 7.830s` / `ok …/config 0.448s`。`go generate ./internal/httpapi/...` 已重新生成 `docs/reference/permissions.md`（新增三条只读 / 写声明）。
+
+**视觉自查**：脚本在 `tmp/pagecheck/`（已忽略）：用临时 config 起一个本地 server（`allow_empty_token` + 几个 secrets / mcp_servers / mail.agents / tools / pricing 条目），把 web 构建进 `internal/webui/dist` 再编进临时二进制，用 CDP 写入 token / theme / locale 后截 `zh × 浅 / 深`、`en × 浅 / 深` 四张，另加 `zh-light-open` / `en-dark-open` 展开几组敏感字段。确认：14 个分组都在且折叠（`svgs: 14` = 每个 summary 一个箭头图标）、`document.documentElement.scrollWidth = 1430 < 1440`（四张都无横向滚动）、敏感字段渲染成「已配置」徽标而不是「是」、未配置项显示「默认」或 `-`。自查发现并修掉两处：① 分组标题左端没有展开提示（`summary` 用 `display:flex` 会隐藏原生 marker）→ 换成 `lucide` 的 `ChevronRight`，展开时转 90°；② 长配置键（`worker_enrollment.per_source_per_min`）会盖到值上——标签列从 148px 固定的 `.kv` 改为分组内 `minmax(0,280px) minmax(0,1fr)` 且允许换行，≤900 堆成上下两行。

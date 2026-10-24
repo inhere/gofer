@@ -14,6 +14,8 @@ import type {
   ArtifactsResp,
   ConfigAgentDeleteResp,
   ConfigReloadResp,
+  ServerRestartState,
+  ServerRestartView,
   ConfigValidateReq,
   ConfigValidateResult,
   ConfigView,
@@ -303,6 +305,25 @@ export async function validateConfig(req: ConfigValidateReq): Promise<ConfigVali
 // 在主机编辑器里手工改过 config.yaml 之后用它生效。
 export function reloadConfig(): Promise<ConfigReloadResp> {
 	return request<ConfigReloadResp>('/v1/config/reload', { method: 'POST' })
+}
+
+// gofer-4uk5：重启受管的 server（与一键更新同一套“等机器空闲 → 换二进制”的交接，
+// 只是不下载任何东西）。进度用 getServerRestart 轮询；「取消等待」用 cancelServerRestart，
+// 只能拦下还在等空闲的那种。
+export function getServerRestart(): Promise<ServerRestartView> {
+  return request<ServerRestartView>('/v1/server/restart')
+}
+
+export function restartServer(waitIdleSec: number): Promise<ServerRestartState> {
+  return request<ServerRestartState>('/v1/server/restart', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wait_idle_sec: waitIdleSec }),
+  })
+}
+
+export function cancelServerRestart(): Promise<ServerRestartState> {
+  return request<ServerRestartState>('/v1/server/restart', { method: 'DELETE' })
 }
 
 export function createProject(req: ProjectWriteReq): Promise<ProjectWriteResp> {

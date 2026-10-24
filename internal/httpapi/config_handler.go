@@ -29,6 +29,23 @@ type configView struct {
 	// Sources maps each top-level section to the file holding it (relative to the
 	// main config file) when the config is split with include; absent otherwise.
 	Sources map[string]string `json:"sources,omitempty"`
+	// Include is the `include:` list itself, so the console can show how the config is
+	// split before it shows which section lives where (Sources).
+	Include []string `json:"include"`
+	// The remaining top-level sections (gofer-4uk5). They are read-only over this API;
+	// secrets / proxied URLs are reported as configured-or-not, never echoed.
+	Log        logConfigView         `json:"log"`
+	Wakeup     wakeupConfigView      `json:"wakeup"`
+	Session    sessionConfigView     `json:"session"`
+	Work       workConfigView        `json:"work"`
+	Steward    stewardConfigView     `json:"steward"`
+	Pty        ptyConfigView         `json:"pty"`
+	Mail       mailConfigView        `json:"mail"`
+	Tools      []toolView            `json:"tools"`
+	MCPServers []mcpServerConfigView `json:"mcp_servers"`
+	Secrets    []secretConfigView    `json:"secrets"`
+	Pricing    []modelPriceView      `json:"pricing"`
+	HTTPProxy  httpProxyConfigView   `json:"http_proxy"`
 	// Warnings are load-time notices about retired config sections that are now
 	// ignored (see config.Config.LoadWarnings).
 	Warnings []string `json:"warnings,omitempty"`
@@ -109,6 +126,20 @@ type serverConfigView struct {
 	EventHooks []eventHookView `json:"event_hooks"`
 	// DecisionHooks (AUTO-04b) are read-only for the same reason.
 	DecisionHooks []decisionHookView `json:"decision_hooks"`
+	// The blocks the console could not see before gofer-4uk5. All read-only over this API.
+	WebDir                string                     `json:"web_dir,omitempty"`
+	WebBaseURL            string                     `json:"web_base_url,omitempty"`
+	TLS                   *tlsConfigView             `json:"tls,omitempty"`
+	Update                updateConfigView           `json:"update"`
+	WorkerEnrollment      workerEnrollmentConfigView `json:"worker_enrollment"`
+	Push                  pushConfigView             `json:"push"`
+	SessionMessaging      sessionMessagingView       `json:"session_messaging"`
+	PolicyRepush          *policyRepushView          `json:"policy_repush,omitempty"`
+	AgentFallback         agentFallbackView          `json:"agent_fallback"`
+	Xfer                  xferConfigView             `json:"xfer"`
+	Attachments           attachmentsConfigView      `json:"attachments"`
+	WorkerQueueMaxWaitSec *int                       `json:"worker_queue_max_wait_sec"`
+	Hold                  holdConfigView             `json:"hold"`
 }
 
 // serverTunnelView is the server.tunnel block as the console edits it (TUN-03). Zero
@@ -142,12 +173,14 @@ type commentTriggerView struct {
 }
 
 type governanceView struct {
-	DefaultCallerMaxConcurrent int     `json:"default_caller_max_concurrent"`
-	DefaultRateLimit           float64 `json:"default_rate_limit"`
-	DefaultRateBurst           int     `json:"default_rate_burst"`
-	RequireAnswerCapability    bool    `json:"require_answer_capability"`
-	RequireAdminCapability     bool    `json:"require_admin_capability"`
-	RequireAttachCapability    bool    `json:"require_attach_capability"`
+	DefaultCallerMaxConcurrent int      `json:"default_caller_max_concurrent"`
+	DefaultRateLimit           float64  `json:"default_rate_limit"`
+	DefaultRateBurst           int      `json:"default_rate_burst"`
+	RequireAnswerCapability    bool     `json:"require_answer_capability"`
+	RequireAdminCapability     bool     `json:"require_admin_capability"`
+	RequireAttachCapability    bool     `json:"require_attach_capability"`
+	RequireTunnelCapability    bool     `json:"require_tunnel_capability"`
+	AttachOrigins              []string `json:"attach_origins"`
 }
 
 type callerConfigView struct {
@@ -156,6 +189,8 @@ type callerConfigView struct {
 	TokenSet          bool    `json:"token_set"`
 	CanAnswer         bool    `json:"can_answer"`
 	CanAdmin          bool    `json:"can_admin"`
+	CanAttach         bool    `json:"can_attach"`
+	CanTunnel         bool    `json:"can_tunnel"`
 	MaxConcurrentJobs int     `json:"max_concurrent_jobs,omitempty"`
 	RateLimit         float64 `json:"rate_limit,omitempty"`
 	RateBurst         int     `json:"rate_burst,omitempty"`
@@ -193,6 +228,9 @@ type notificationView struct {
 	// omitted `enabled` in a patch leaves the configured value alone.
 	Enabled              bool `json:"enabled"`
 	SessionReplyDelaySec int  `json:"session_reply_delay_sec"`
+	// Desktop is the server-host desktop channel (server.notification.desktop). Absent
+	// when the block is not configured.
+	Desktop *desktopNotifyView `json:"desktop,omitempty"`
 }
 
 type webhookView struct {
@@ -279,12 +317,14 @@ func buildDecisionHookViews(hooks []config.DecisionHookConfig) []decisionHookVie
 }
 
 type storageConfigView struct {
-	DefaultExchangeSubdir string        `json:"default_exchange_subdir"`
-	DefaultResultSubdir   string        `json:"default_result_subdir"`
-	Root                  string        `json:"root"`
-	DBPath                string        `json:"db_path"`
-	Retention             retentionView `json:"retention"`
-	Cast                  castView      `json:"cast"`
+	DefaultExchangeSubdir   string        `json:"default_exchange_subdir"`
+	DefaultResultSubdir     string        `json:"default_result_subdir"`
+	Root                    string        `json:"root"`
+	DBPath                  string        `json:"db_path"`
+	Retention               retentionView `json:"retention"`
+	Cast                    castView      `json:"cast"`
+	MailRetentionDays       int           `json:"mail_retention_days"`
+	AttachmentRetentionDays int           `json:"attachment_retention_days"`
 }
 
 // castView is the redacted cast recording config: it exposes whether recording
@@ -445,6 +485,11 @@ func buildConfigView(cfg *config.Config) configView {
 			Agents:       []configAgentView{},
 			Runners:      []configRunnerView{},
 			Roles:        []configRoleView{},
+			Include:      []string{},
+			Tools:        []toolView{},
+			MCPServers:   []mcpServerConfigView{},
+			Secrets:      []secretConfigView{},
+			Pricing:      []modelPriceView{},
 			ServerPolicy: sp,
 			AgentPolicy:  ap,
 		}
@@ -462,6 +507,19 @@ func buildConfigView(cfg *config.Config) configView {
 		ServerPolicy: sp,
 		AgentPolicy:  ap,
 		Sources:      cfg.SectionSources(),
+		Include:      nonNil(cfg.Include),
+		Log:          buildLogConfigView(cfg.Log),
+		Wakeup:       buildWakeupConfigView(cfg.Wakeup),
+		Session:      buildSessionConfigView(cfg.Session),
+		Work:         buildWorkConfigView(cfg.Work),
+		Steward:      buildStewardConfigView(cfg.Steward),
+		Pty:          ptyConfigView{TranscriptMaxBytes: cfg.Pty.TranscriptMaxBytes},
+		Mail:         buildMailConfigView(cfg.Mail),
+		Tools:        buildToolViews(cfg.Tools),
+		MCPServers:   buildMCPServerConfigViews(cfg.MCPServers),
+		Secrets:      buildSecretConfigViews(cfg.Secrets),
+		Pricing:      buildModelPriceViews(cfg.Pricing),
+		HTTPProxy:    buildHTTPProxyConfigView(cfg.HTTPProxy),
 		Schedule: scheduleConfigView{
 			SweepIntervalSec: cfg.Schedule.SweepIntervalSec,
 			MissGraceSec:     cfg.Schedule.MissGraceSec,
@@ -494,6 +552,8 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			RequireAnswerCapability:    sc.Governance.RequireAnswerCapability,
 			RequireAdminCapability:     sc.Governance.RequireAdminCapability,
 			RequireAttachCapability:    sc.Governance.RequireAttachCapability,
+			RequireTunnelCapability:    sc.Governance.RequireTunnelCapability,
+			AttachOrigins:              nonNil(sc.Governance.AttachOrigins),
 		},
 		Callers: buildCallerViews(sc.Callers),
 		Workers: buildWorkerViews(sc.Workers),
@@ -531,8 +591,21 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			MaxFileBytes:  sc.SkillLimits.MaxFileBytes,
 			MaxTotalBytes: sc.SkillLimits.MaxTotalBytes,
 		},
-		JobEnvDenyList: nonNil(sc.JobEnvDenyList),
-		Tunnel:         serverTunnelView{ForwarderTTLSec: sc.Tunnel.ForwarderTTLSec},
+		JobEnvDenyList:        nonNil(sc.JobEnvDenyList),
+		Tunnel:                serverTunnelView{ForwarderTTLSec: sc.Tunnel.ForwarderTTLSec},
+		WebDir:                sc.WebDir,
+		WebBaseURL:            sc.WebBaseURL,
+		TLS:                   buildTLSConfigView(sc.TLS),
+		Update:                buildUpdateConfigView(sc.Update),
+		WorkerEnrollment:      buildWorkerEnrollmentView(sc.WorkerEnrollment),
+		Push:                  pushConfigView{VAPIDSubject: sc.Push.VAPIDSubject},
+		SessionMessaging:      buildSessionMessagingView(sc.SessionMessaging),
+		PolicyRepush:          buildPolicyRepushView(sc.PolicyRepush),
+		AgentFallback:         buildAgentFallbackView(sc.AgentFallback),
+		Xfer:                  buildXferConfigView(sc.Xfer),
+		Attachments:           buildAttachmentsConfigView(sc.Attachments),
+		WorkerQueueMaxWaitSec: sc.WorkerQueueMaxWaitSec,
+		Hold:                  buildHoldConfigView(sc.Hold),
 	}
 }
 
@@ -558,6 +631,8 @@ func buildCallerViews(in []config.CallerConfig) []callerConfigView {
 			TokenSet:          cc.Token != "" || cc.TokenEnv != "",
 			CanAnswer:         cc.CanAnswer,
 			CanAdmin:          cc.CanAdmin,
+			CanAttach:         cc.CanAttach,
+			CanTunnel:         cc.CanTunnel,
 			MaxConcurrentJobs: cc.MaxConcurrentJobs,
 			RateLimit:         cc.RateLimit,
 			RateBurst:         cc.RateBurst,
@@ -595,6 +670,10 @@ func buildNotificationView(n *config.NotificationConfig) *notificationView {
 		Enabled:              n.IsEnabled(),
 		SessionReplyDelaySec: n.EffectiveSessionReplyDelaySec(),
 	}
+	if n.Desktop != nil {
+		dn := buildDesktopNotifyView(n.Desktop)
+		out.Desktop = &dn
+	}
 	for _, wh := range n.Webhooks {
 		out.Webhooks = append(out.Webhooks, webhookView{
 			URL:          wh.URL,
@@ -622,6 +701,8 @@ func buildStorageConfigView(sc config.StorageConfig) storageConfigView {
 			IntervalMinutes:    sc.Retention.IntervalMinutes,
 			WorkflowMaxAgeDays: sc.Retention.WorkflowMaxAgeDays,
 		},
+		MailRetentionDays:       sc.MailRetentionDays,
+		AttachmentRetentionDays: sc.AttachmentRetentionDays,
 		Cast: castView{
 			Enabled:           sc.Cast.Enabled,
 			RetentionTTLHours: sc.Cast.RetentionTTLHours,

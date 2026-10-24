@@ -268,6 +268,9 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/schedules/{id}/rotate-token` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
 | `POST` | `/v1/schedules/{id}/run-now` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — | `Resource(schedule)` | 写 |
 | `POST` | `/v1/schedules/{id}/trigger` | `NoUserSurface` | — | `自身凭据` | `Resource(schedule)` | 写 |
+| `DELETE` | `/v1/server/restart` | `Require` | `config.write` | — | `NoProject` | 写 |
+| `GET` | `/v1/server/restart` | `Require` | `config.read` | — | `NoProject` | 读 |
+| `POST` | `/v1/server/restart` | `Require` | `config.write` | — | `NoProject` | 写 |
 | `POST` | `/v1/session-ask` | `InHandler(deny)` | `session.reply.others`、`job.manage.others` | `job` | `Resource(session)` | 写 |
 | `GET` | `/v1/sessions` | `InHandler(filter)` | `session.read.others` | `job` | `Filter` | 读 |
 | `POST` | `/v1/sessions` | `Public` | — | — | `BodyProject` | 写 |
