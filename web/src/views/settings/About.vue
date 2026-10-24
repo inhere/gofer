@@ -10,14 +10,18 @@
 //  - 构建时间 / worker wire 协议版本：/v1/stats 没有这两个字段，故不渲染（本期不改后端）。
 // UI 重设计 P5-d：FormSection 分节 + 文案走 i18n（settings.about.*）。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { applyUpdate, cancelUpdateWait, checkUpdate, getStats, getUpdateStatus } from '../../api/client'
 import { fmtAgo, fmtDateTime, fmtDuration } from '../../api/time'
 import type { Stats, UpdateApply, UpdateStatus } from '../../api/types'
 import UpdateApplyDialog from '../../components/UpdateApplyDialog.vue'
+import { clearToken, isRemembered } from '../../store/auth'
 import { useWhoami } from '../../store/whoami'
 import { noteUpdateStatus } from '../../store/updateAvailable'
 import { t } from '../../i18n'
 import FormSection from '../../ui/FormSection.vue'
+
+const router = useRouter()
 
 const stats = ref<Stats | null>(null)
 const error = ref('')
@@ -25,6 +29,13 @@ const loading = ref(false)
 const loaded = ref(false)
 
 const serverAddr = window.location.origin
+
+// gofer-x5k4：这个浏览器是否记着登录（token 在 localStorage）。退出并忘记 = 两处存储都清掉。
+const remembered = isRemembered()
+function logoutForget(): void {
+  clearToken()
+  void router.replace('/access')
+}
 
 const version = computed(() => stats.value?.version || t('settings.about.versionUnknown'))
 const uptime = computed(() => {
@@ -347,6 +358,18 @@ onUnmounted(() => {
       <p class="hint">{{ t('settings.about.pollHint') }}</p>
     </FormSection>
 
+    <FormSection :title="t('settings.about.browser')" :desc="t('settings.about.browserDesc')">
+      <p class="hint hint--tight" data-testid="about-remember-state">
+        {{ remembered ? t('settings.about.remembered') : t('settings.about.notRemembered') }}
+      </p>
+      <div class="actions">
+        <button class="btn" type="button" data-testid="about-logout-forget" @click="logoutForget">
+          {{ t('settings.about.logoutForget') }}
+        </button>
+        <span class="hint hint--inline">{{ t('settings.about.logoutForgetHint') }}</span>
+      </div>
+    </FormSection>
+
     <UpdateApplyDialog
       v-if="showApply && update?.latest"
       :current="update.current"
@@ -513,6 +536,12 @@ onUnmounted(() => {
   font-size: var(--fs-sm);
   margin: 12px 0 0;
   line-height: 1.6;
+}
+.hint--tight {
+  margin: 0;
+}
+.hint--inline {
+  margin: 0;
 }
 
 .msg {
