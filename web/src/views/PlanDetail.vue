@@ -26,6 +26,7 @@ import ProgressBar from '../ui/ProgressBar.vue'
 import Tabs from '../ui/Tabs.vue'
 import { queryWithTab, tabFromQuery, type TabItem } from '../ui/tabs'
 import { planProgressModel, type ProgressModel } from '../ui/progress'
+import { planProgress, percentOf } from '../utils/planProgress'
 import { t } from '../i18n'
 import {
   addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
@@ -43,7 +44,6 @@ import type {
 import { deliveryStateLabel } from '../utils/delivery'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { formatTokens } from '../utils/jobOutcome'
-import { boardProgress } from '../utils/planBoard'
 import { decisionsTabTone, jobsTabTone, todoTabTone } from '../utils/planTabTone'
 import { COL } from '../utils/uiText'
 import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
@@ -279,10 +279,12 @@ const todoSummary = computed(() => {
   const todos = plan.value?.todos ?? []
   const doing = todos.filter((t) => t.status === 'doing').length
   const skipped = todos.filter((t) => t.status === 'skipped').length
-  const complete = todos.filter((t) => t.done || t.status === 'skipped').length
+  // 完成 / 总数与服务端一致（gofer-j4j1）：跳过算完成，受阻 / 失败不算；口径只有
+  // utils/planProgress 一处，别在这里自己数。
+  const { done, total } = planProgress({ todos })
   const base = skipped
-    ? t('plans.detail.todosSummarySkipped', { done: complete, total: todos.length, skipped })
-    : t('plans.detail.todosSummary', { done: complete, total: todos.length })
+    ? t('plans.detail.todosSummarySkipped', { done, total, skipped })
+    : t('plans.detail.todosSummary', { done, total })
   return doing > 0 ? `${base}${t('plans.detail.todosDoing', { n: doing })}` : base
 })
 
@@ -520,13 +522,13 @@ function setView(next: 'board' | 'list'): void {
   if (next === 'board') void loadAgents() // 看板拖到 ready 时要用 agent 列表
 }
 
-// 头部进度条（done + skipped / total）：与看板列头同源，planProgress 的 job 口径不动。
-const boardPct = computed(() => boardProgress(plan.value?.todos ?? []))
+// 清单进度（done + skipped / total）：与页头、计划总览同一个口径（utils/planProgress）。
+const boardPct = computed(() => planProgress({ todos: plan.value?.todos }))
 
 // 操作条的「清单进度」用同一个 ProgressBar（条 + 右侧分数同一行，gofer-hez1）：
-// 只分完成 / 未完成两段（清单只看 todo 的 done+skipped），total 与 percent 沿用 boardPct。
+// 只分完成 / 未完成两段（清单只看 todo 的 done+skipped），total 与 percent 来自 boardPct。
 const boardModel = computed<ProgressModel>(() => {
-  const { done, total, percent } = boardPct.value
+  const { done, total } = boardPct.value
   return {
     parts: [
       { family: 'done', count: done },
@@ -534,7 +536,7 @@ const boardModel = computed<ProgressModel>(() => {
     ],
     total,
     done,
-    percent,
+    percent: percentOf(done, total),
   }
 })
 

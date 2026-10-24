@@ -110,19 +110,6 @@ export function columnTodos<T extends BoardTodo>(todos: readonly T[], col: Board
   ]
 }
 
-export interface BoardProgress {
-  done: number
-  total: number
-  percent: number | null
-}
-
-// 头部进度：done + skipped 计完成；没有待办时 percent 为 null（"没得量" ≠ 0%）。
-export function boardProgress(todos: readonly BoardTodo[]): BoardProgress {
-  const total = todos.length
-  const done = todos.filter((t) => t.status === 'done' || t.status === 'skipped').length
-  return { done, total, percent: total === 0 ? null : Math.round((done * 100) / total) }
-}
-
 // 依赖是否全部满足：after 里的每一项都已 done/skipped。空 after（根节点）恒为 true；
 // after 指向本 plan 里不存在的 id 时按未满足处理（灰角标，比假装满足安全）。
 export function depsSatisfied(t: BoardTodo, all: readonly BoardTodo[]): boolean {
