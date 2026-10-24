@@ -2149,3 +2149,49 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 244 passed (244)` / `Tests 1677 passed (1677)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.54s`。`go build ./...` 与 `go vet ./...` 退出码 0；`go test -count=1 ./internal/httpapi ./internal/serve ./internal/config`：`ok …/httpapi 112.000s` / `ok …/serve 7.830s` / `ok …/config 0.448s`。`go generate ./internal/httpapi/...` 已重新生成 `docs/reference/permissions.md`（新增三条只读 / 写声明）。
 
 **视觉自查**：脚本在 `tmp/pagecheck/`（已忽略）：用临时 config 起一个本地 server（`allow_empty_token` + 几个 secrets / mcp_servers / mail.agents / tools / pricing 条目），把 web 构建进 `internal/webui/dist` 再编进临时二进制，用 CDP 写入 token / theme / locale 后截 `zh × 浅 / 深`、`en × 浅 / 深` 四张，另加 `zh-light-open` / `en-dark-open` 展开几组敏感字段。确认：14 个分组都在且折叠（`svgs: 14` = 每个 summary 一个箭头图标）、`document.documentElement.scrollWidth = 1430 < 1440`（四张都无横向滚动）、敏感字段渲染成「已配置」徽标而不是「是」、未配置项显示「默认」或 `-`。自查发现并修掉两处：① 分组标题左端没有展开提示（`summary` 用 `display:flex` 会隐藏原生 marker）→ 换成 `lucide` 的 `ChevronRight`，展开时转 90°；② 长配置键（`worker_enrollment.per_source_per_min`）会盖到值上——标签列从 148px 固定的 `.kv` 改为分组内 `minmax(0,280px) minmax(0,1fr)` 且允许换行，≤900 堆成上下两行。
+
+### P6-计划详情看板状态着色、视图切换与页签计数（2026-10-24，issue gofer-qw2g）
+
+范围：`/plans/:id` 计划详情（`views/PlanDetail.vue` 与 `components/PlanBoard.vue`），不动接口、不动 Go 代码。
+
+**1）看板状态用状态族着色 + Lucide 字形**
+
+- 列头从原始状态键（`pending` / `ready` / …）换成词典里的状态名（未开始 / 就绪 / 进行中 / 待验收 / 完成），并在前面加 `StatusGlyph`；族映射直接走 `utils/statusFamily`（pending / ready → queue，doing → run，needs_review → need，done → done），颜色仍来自 `styles/status.css`，没有新的颜色表。原来的解释文案（「拖到 ready 即派发」等）留在列头 `title` 里。
+- 卡片加一条待办状态 `StatusPill`（与列头同一套词：未开始 / 就绪 / 进行中 / 完成 / 跳过），job 状态从自己画点的 `StatusBadge` 换成同一套 `StatusPill`——失败、待验收等状态在卡片上也能靠形状分辨，不再只看颜色。
+- 手机（≤760）的切列标签同步：字形 + 状态名 + 计数，按钮带同一族类名（选中的那条仍是 `--accent` 边框）。
+
+**2）视图切换挪到待办标题右侧，并写进 URL**
+
+- 「看板 / 列表」从页头右上角（`detail-head` 里那组）挪到「待办（完成 2/3 · 进行中 1）」这一行的右侧（`.section-head.todos-head`），页头那组删除；手机上该行允许换行、按钮点按目标 40px。
+- 视图选择从 localStorage 改成 URL 的 `?view=`（`list` 才写；默认看板不写），复用页签那套 `tabFromQuery` / `queryWithTab` 契约——可分享、可前进后退。拖拽落点与「拖到 ready 即派发」等行为不变。
+
+**3）页签计数按含义着色**
+
+- `ui/tabs.ts` 的 `TabItem` 增加可选 `tone?: StatusFamily`（向后兼容：不给就是现在的中性徽标），`ui/Tabs.vue` 据此给计数徽标加一圈状态色边框与同色数字（need 族用 `--need-ink` 保证浅色主题对比度）。
+- 取色口径在新增的 `utils/planTabTone.ts`（纯函数）：待办 = 受阻 → need、最近一次 job 失败 → fail、还有在做 → run、全部完成（含跳过）→ done，其余 queue；任务 = `failed_jobs` / job 失败 → fail、有在跑 → run、全部 done → done，其余 queue；决策 = 有 OPEN 决策 → need。交接 / 评论 / 事件不设 tone。
+- 决策页签原来的黄色小角标（`badge`）保留：角标表示「还有 OPEN 决策」，与计数的含义色不冲突。
+
+**改动文件**：`views/PlanDetail.vue`、`components/PlanBoard.vue`、`ui/tabs.ts`、`ui/Tabs.vue`（向后兼容的可选 `tone`）、新增 `utils/planTabTone.ts`、`i18n/pages/plans.ts`（新增 `plans.board.label.*` 与 `plans.detail.viewLabel`，zh / en 并列，不动 `zh.ts` / `en.ts`）。
+
+**不丢信息核对（对照 §7「/plans/:id」与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 看板五列 + 跳过落点、拖拽派发、无 assignee 先选 agent、done / skipped 二次确认 | 全部保留（拖拽逻辑一行未改） |
+| 列头显示原始状态键 + 悬停解释 | 显示状态名 + 同族字形；解释文案仍在 `title` |
+| 卡片：标题、依赖标记、手动标记、assignee、job 状态、job 链接、verify、PR、交付失败、接续信息、用量、派发错误、「去验收」 | 全部保留；job 状态换成同族 pill，新增待办状态 pill |
+| 卡片上的「N jobs」「接续自 / 已被接续」「跳过」压暗 | 保留（跳过卡片仍压暗，另多一条「跳过」pill） |
+| 页签六个、`?tab=` 深链、决策角标 | 保留；计数新增含义色边框 |
+| 待办标题「待办（完成 x/y · 进行中 n）」 | 保留，右侧新增看板 / 列表切换 |
+| 页头右上角的看板 / 列表切换 | 挪到待办标题右侧（页头那组删除） |
+| 视图选择记在本浏览器（localStorage） | 改为 URL 的 `?view=`（可分享、后退可复原）；默认看板链接保持干净 |
+
+**测试**
+
+- 新增 `utils/planTabTone.test.ts`（8 个用例）：待办 / 任务 / 决策三组取色，含「只看最近一次 job」「全部完成才转绿」「失败优先于进行中」。
+- `views/planDetailTabs.test.ts` 新增 3 组用例：列头用词典状态名且保留 `title`、列头与卡片共用 `StatusGlyph` / `StatusPill` 与 `statusFamily`、视图切换在待办标题行且页头那组已删、`?view=` 走 `tabFromQuery` / `queryWithTab` 且不再读 localStorage、页签 `tone` 接线与 `Tabs` 的着色样式；默认页签用例改成断言 `todos` 是列表第一项。
+- `views/planDetailMobile.test.ts` 新增一条：手机上切换按钮 40px 且 `.todos-head` 允许换行。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 244 passed (244)` / `Tests 1699 passed (1699)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.63s`。无 Go 改动、无路由 / 权限 / 协议变化（G056、`docs/reference/http-api.md` 不涉及）；skill 同步了 `references/web-console.md` 计划详情一句（看板状态字形 / 视图切换位置与 `?view=`）。
+
+**视觉自查**：构建产物 + 静态服务 + playwright（msedge）拦截 `/v1/**` 的合成桩（脚本与截图在 `tmp/ui-check/`，已忽略、不进仓库），zh / en × 浅 / 深 × 1440 与 zh 深 / en 浅 × 390，各截看板与列表两屏。程序化断言：五列列头都有 `data-testid="status-glyph"`（family 依次 queue / queue / run / need / done）、计数边框色为 `--run` / `--fail` / `--need`、`.todos-head .view-switch` 存在而 `.detail-head .view-switch` 不存在、`?view=list` 与 `?view=board` 都能直接落到对应视图、两种宽度都没有页面级横向滚动、无 pageerror。肉眼核对：深浅两套下的列头字形 / 文字对比度正常，手机上标题与切换同一行且不溢出。
