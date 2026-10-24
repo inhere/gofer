@@ -2195,3 +2195,62 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 244 passed (244)` / `Tests 1699 passed (1699)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.63s`。无 Go 改动、无路由 / 权限 / 协议变化（G056、`docs/reference/http-api.md` 不涉及）；skill 同步了 `references/web-console.md` 计划详情一句（看板状态字形 / 视图切换位置与 `?view=`）。
 
 **视觉自查**：构建产物 + 静态服务 + playwright（msedge）拦截 `/v1/**` 的合成桩（脚本与截图在 `tmp/ui-check/`，已忽略、不进仓库），zh / en × 浅 / 深 × 1440 与 zh 深 / en 浅 × 390，各截看板与列表两屏。程序化断言：五列列头都有 `data-testid="status-glyph"`（family 依次 queue / queue / run / need / done）、计数边框色为 `--run` / `--fail` / `--need`、`.todos-head .view-switch` 存在而 `.detail-head .view-switch` 不存在、`?view=list` 与 `?view=board` 都能直接落到对应视图、两种宽度都没有页面级横向滚动、无 pageerror。肉眼核对：深浅两套下的列头字形 / 文字对比度正常，手机上标题与切换同一行且不溢出。
+
+## 实施记录 P6-yb5x（工作台「改动」页签点开才拉 diff，2026-10-24，issue gofer-yb5x）
+
+范围：`web/src/components/workbench/{ThreadChangesView,ThreadView,LayoutPane}.vue`、`web/src/utils/workbenchDiff.ts`（新增）、`i18n/pages/workbench.ts`。后端不变（`GET /v1/workbench/threads/{id}/diff` 仍是 409 + detail 说明原因）。
+
+**1）只在点开页签时请求**
+
+- `ThreadView` 新增 `changesMounted`：`ThreadChangesView` 的挂载条件从「有这个会话的最新 job」改成「`changesMounted` 且 …」，`showChanges()`（页签按钮、右栏上下文栏的「改动」、对话里点 diff 链接的 `openDiff`）才把它置真。挂载后保留（`v-show` 控制可见），切回「过程」不重新请求；`ThreadChangesView` 自己的 `refresh` / 10s 轮询 / 可见性补拉不变。
+- 页签选择按 **pane** 记着：`LayoutPane` 存 `view`（`'process' | 'changes'`），`ThreadView` 用 `initial-view` 收、`@view` 回传。`ThreadView` 是按 `:key="node.thread_id"` 重建的，所以同一个 pane 里换会话（拖入别的会话、左右会话列表点另一条）时页签仍停在「改动」，那一刻才请求**新会话**的 diff——这正是「切换会话时若该页签已打开再请求」。
+- `resetForThread` 不再把 `activeView` 踢回「过程」：否则新一轮 job 一起来（轮询刷新 `latest_job_id`）就把正在看改动的人赶回过程视图。
+
+**2）409 在页签里说明，不冒泡成错误**
+
+- 新增 `utils/workbenchDiff.ts` 的 `classifyDiffFailure(error)`：`ApiError` 且 `status === 409` → `{ unavailable: true, reason: detail || message }`（服务端 detail 已是可读中文，原样显示）；其余（500 / 504 / 网络）仍是真失败。
+- `ThreadChangesView` 的 `performRefresh` 按它分流：409 时 `unavailable` 写原因、清 `diff`，**不** `emit('error')`（页面顶部红字与控制台留给真正的失败）；页签主体换成说明块（`data-test="changes-unavailable"`，一句 `workbench.changes.unavailable` + 服务端原因 + 「刷新」），同时不给评审摘要 / 接受 / 发送评审按钮，左侧文件列表也不再显示「暂无改动」。`focusFile` / `scrollToFile` 在说明态直接返回 false。
+
+**改动文件**：`components/workbench/ThreadChangesView.vue`、`components/workbench/ThreadView.vue`、`components/workbench/LayoutPane.vue`、新增 `utils/workbenchDiff.ts`、`i18n/pages/workbench.ts`（新增 `workbench.changes.unavailable`，zh / en 并列）、`CHANGELOG.md`。
+
+**不丢信息核对（对照 §7 工作台与迁移前的页面）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 「过程 / 改动」切换（页头分段控件、右栏上下文栏） | 保留；只改「改动」何时加载 |
+| 打开工作台就给每个会话拉 diff | 点开「改动」页签才拉；页签开着换会话拉新会话的 |
+| 409 冒到页面顶部错误行（并刷控制台） | 页签内说明：标题 + 服务端原因 + 「刷新」 |
+| 文件列表、+/- 计数、截断 / 采集提示、刷新按钮 | 保留（说明态不显示「暂无改动」） |
+| 评审摘要、行内评论、接受、发送评审、下载原文、通知条 | 保留（说明态整块不显示，因为没有 diff 可评审） |
+| 手机断点（左列表 + 右 diff 上下排） | 保留 |
+
+**测试**：新增 `utils/workbenchDiff.test.ts`（3 例：409 带 detail → 说明；409 无 detail → message；500 / 504 / TypeError 仍是失败）与 `components/workbench/threadChangesLazy.test.ts`（4 例：懒挂载条件与 `showChanges` 置位、pane 记着页签并 `initial-view` 恢复、409 走页签说明且 `emit('error')` 只在非 409 分支、词典 zh / en 两条都有）。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 249 passed (249)` / `Tests 1726 passed (1726)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.62s`。无 Go / 路由 / 权限变化（G056、`docs/reference/http-api.md` 不涉及）；skill 同步了 `references/web-console.md` 工作台一句。
+
+## 实施记录 P6-j4j1（计划进度统一口径，2026-10-24，issue gofer-j4j1）
+
+范围：`web/src/utils/planProgress.ts`（改成唯一口径）、`ui/progress.ts`（只留分段）、`utils/planBoard.ts`（删掉重复的实现）、`views/PlanDetail.vue`。不动接口、不动 Go（服务端 `jobstore.RollupPlanCompletion` 的口径本来就是「待办完成 + 跳过 / 待办总数」，问题是前端没照它算）。
+
+**口径（唯一一处 `utils/planProgress.ts`）**
+
+- `planProgress(source)` 接受三种输入：明细 `todos`（详情页 / 看板，按条目状态数）、`todo_counts`（总览列表）、`counts`（没有待办的计划回落 job）。完成 = `done` + `skipped`（`isTodoComplete`），总数 = 全部条目；受阻 / 失败 / 待验收 / 进行中都不进分子。
+- `percentOf(done, total)` 是唯一折算（0–100 取整，`total <= 0` → `null`，夹在 0–100），从 `ui/progress.ts` 移到 utils 并由它 re-export（`ProgressBar` 的调用点不变）。
+- **不再沿用服务端的 `completion.percent`**：百分比一律由界面上显示的 done / total 折算，宁可少信服务端，也不会再出现「9/10 100%」。
+
+**分段不再撑大总数**
+
+`planProgressModel` 的 done / total / percent 全部来自上面那一处；待验收 / 受阻 / 进行中三段从「未完成」里扣出来（受阻先扣、再看待验收与进行中，扣不下的溢出丢掉），各段之和恒等于 total。以前它们是**加**上去的：9 个完成 + 1 个受阻的 10 项计划会摊成 9/11，而百分比又是服务端的 90% / 100%。
+
+**用到的地方**
+
+- 计划详情头部大号进度条（`planProgressModel(plan.value)`）；
+- 详情操作条「清单进度」（`planProgress({ todos })`，`boardModel` 的两段仍是完成 / 未完成）；
+- 待办标题「待办（完成 x/y · 进行中 n）」（`todoSummary`，不再自己 filter 计数）；
+- 计划总览列表（`ui/PlanOverviewRow.vue` → `planProgressModel`）；
+- 计划看板列头：只画各列卡片数（skipped 在完成列），本来就没有百分比，口径一致，未改；
+- 「今天」页并行泳道：pips 是服务端按 todo 状态给的（done / skipped 都画成完成色、失败的画成失败色），没有百分比可算，未改。
+
+**测试**：新增 `utils/planProgress.test.ts`（6 例：percentOf 边界、9 完成 + 1 受阻 = 9/10 90%、明细优先于汇总、`done=true` 即完成、无待办回落 job、空计划 null）；`ui/progress.test.ts` 更新：各段之和 = total、「受阻 / 待验收从剩余里扣」、服务端 percent 与 done/total 冲突时以 done/total 为准。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 249 passed (249)` / `Tests 1726 passed (1726)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.62s`。skill 同步了 `references/web-console.md` 计划进度一句。
