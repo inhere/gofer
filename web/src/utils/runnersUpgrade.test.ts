@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Runner, RunnersServerInfo, WorkerUpgradeRecord } from '../api/types'
-import { upgradeBlockReason, upgradeStateClass, upgradeSummary } from './runners'
+import { upgradeBlockReason, upgradeSource, upgradeStateClass, upgradeSummary } from './runners'
 
 const server: RunnersServerInfo = { os: 'linux', arch: 'amd64', version: 'v2 (abc)' }
 
@@ -25,10 +25,12 @@ describe('upgradeBlockReason', () => {
     expect(upgradeBlockReason(worker({ upgrade: { state: 'pending' } as WorkerUpgradeRecord }), server)).toContain('进行中')
     expect(upgradeBlockReason(worker(), undefined)).toContain('不支持')
   })
-  it('points to the CLI when the platform differs', () => {
-    const msg = upgradeBlockReason(worker({}, { os: 'windows', arch: 'amd64' }), server)
-    expect(msg).toContain('windows/amd64')
-    expect(msg).toContain('gofer worker upgrade w1 --file')
+  it('allows a worker of another platform: its binary comes from the download source', () => {
+    const w = worker({}, { os: 'windows', arch: 'amd64' })
+    expect(upgradeBlockReason(w, server)).toBe('')
+    expect(upgradeSource(w, server)).toBe('mirror')
+    expect(upgradeSource(worker(), server)).toBe('server')
+    expect(upgradeSource(worker(), undefined)).toBe('server')
   })
 })
 

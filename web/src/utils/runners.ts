@@ -55,24 +55,24 @@ export function fmtUptime(startedAtSec: number | undefined, nowMs: number): stri
 export const UPGRADE_MIN_PROTOCOL = 15
 
 // 空串 = 可以升级；否则是按钮不可点的原因（直接显示给用户）。
-// 网页只提供「用 server 自身二进制升级」，所以要求 worker 与 server 同 os/arch；
-// 不同平台的 worker 用 CLI 传二进制：gofer worker upgrade <id> --file <二进制>。
+// 升级二进制按平台选：与 server 同 os/arch 用 server 自己的可执行文件，其它平台由 server
+// 从下载源（server.update 的 mirror / GitHub release）取该平台的发布包（gofer-n1vj），所以
+// 平台不同不再是不可升级的理由。下载源没配好时 server 拒绝并回原因，显示在升级提示里。
 export function upgradeBlockReason(r: Runner, server?: RunnersServerInfo): string {
   const w = r.worker
   if (r.status !== 'connected' || !w) return t('util.upgrade.offline')
   if (r.upgrade?.state === 'pending') return t('util.upgrade.inProgress')
   if ((w.protocol_version ?? 0) < UPGRADE_MIN_PROTOCOL) return t('util.upgrade.tooOld')
   if (!server) return t('util.upgrade.noServer')
-  if (w.os !== server.os || w.arch !== server.arch) {
-    return t('util.upgrade.platform', {
-      os: w.os || '?',
-      arch: w.arch || '?',
-      serverOs: server.os,
-      serverArch: server.arch,
-      id: r.worker_id || r.name,
-    })
-  }
   return ''
+}
+
+// 升级二进制从哪来：同平台用 server 自己的可执行文件（server），其它平台由 server 从下载源
+// 取该平台的发布包（mirror）。平台未知时按 server 处理，由 server 报原因。
+export function upgradeSource(r: Runner, server?: RunnersServerInfo): 'server' | 'mirror' {
+  const w = r.worker
+  if (server && w?.os && w.arch && (w.os !== server.os || w.arch !== server.arch)) return 'mirror'
+  return 'server'
 }
 
 function fmtDuration(ms?: number): string {
