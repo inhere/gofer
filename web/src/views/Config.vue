@@ -9,6 +9,8 @@ import { refreshWhoami, useWhoami } from '../store/whoami'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
 import { leaderRows, warningsSuffix } from '../utils/configLeader'
 import { PAGE } from '../utils/uiText'
+import { ChevronRight } from '@lucide/vue'
+import Icon from '../ui/Icon.vue'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import {
   ApiError,
@@ -1179,6 +1181,7 @@ onUnmounted(() => {
              secret / 代理 URL 类字段服务端只给「已配置 / 未配置」。 -->
         <details v-for="sec in extraSections" :key="sec.key" class="panel cfg-group" :data-test="`cfg-group-${sec.key}`">
           <summary class="cfg-group-head mono">
+            <Icon :icon="ChevronRight" size="sm" class="cfg-caret" />
             <span class="cfg-group-title">{{ sec.title }}</span>
             <span class="tag tag--builtin">{{ t('settings.config.readonly') }}</span>
           </summary>
@@ -1778,10 +1781,26 @@ onUnmounted(() => {
 .cfg-group-head .cfg-group-title {
   flex: 1;
 }
+/* 展开箭头：折叠时向右，展开时向下（原生 marker 会被 display:flex 隐藏）。 */
+.cfg-caret {
+  color: var(--ink-3);
+  transition: transform 150ms var(--ease);
+}
+.cfg-group[open] .cfg-caret {
+  transform: rotate(90deg);
+}
 .cfg-group-title {
   font-size: 12px;
   letter-spacing: 0.08em;
   color: var(--ink);
+}
+/* 完整配置的行：配置键可能很长（worker_enrollment.per_source_per_min），标签列给宽一点
+   并允许换行，不能让值盖在标签上。 */
+.cfg-group .kv {
+  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
+}
+.cfg-group .kv dt {
+  word-break: break-word;
 }
 .cfg-item {
   border-top: 1px dashed var(--line);
@@ -2085,6 +2104,10 @@ onUnmounted(() => {
   .overview-grid,
   .cards-3,
   .modal-body {
+    grid-template-columns: 1fr;
+  }
+  /* 手机档：配置键比屏幕宽，键值上下堆。 */
+  .cfg-group .kv {
     grid-template-columns: 1fr;
   }
   /* 手机档：调用方表格（6 列）横向滚动，不把列挤成一团（wrapper 已是 overflow-x: auto）。 */
