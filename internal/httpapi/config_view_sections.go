@@ -1,6 +1,9 @@
 package httpapi
 
 import (
+	"net/url"
+	"strings"
+
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -329,7 +332,7 @@ func buildMCPServerConfigViews(servers map[string]config.MCPServerConfig) []mcpS
 			Type:             sc.Type,
 			Command:          sc.Command,
 			Args:             nonNil(sc.Args),
-			URL:              sc.URL,
+			URL:              redactConfigURL(sc.URL),
 			EnvKeys:          sortedMapKeys(sc.Env),
 			HeaderKeys:       sortedMapKeys(sc.Headers),
 			SecretEnvSet:     len(sc.SecretEnv) > 0,
@@ -377,8 +380,8 @@ func buildUpdateConfigView(uc config.UpdateConfig) updateConfigView {
 		Enabled:     uc.IsEnabled(),
 		Interval:    uc.Interval,
 		Repo:        uc.Repo,
-		LatestURL:   uc.LatestURL,
-		URLTemplate: uc.URLTemplate,
+		LatestURL:   redactConfigURL(uc.LatestURL),
+		URLTemplate: redactConfigURL(uc.URLTemplate),
 		ProxySet:    uc.Proxy != "",
 	}
 }
@@ -447,4 +450,31 @@ func buildDesktopNotifyView(dn *config.DesktopNotifyConfig) desktopNotifyView {
 		Projects: nonNil(dn.Projects),
 		MergeSec: dn.EffectiveMergeSec(),
 	}
+}
+
+// redactConfigURL masks the parts of a configured URL that may carry a credential before
+// the config view echoes it: the user:password@ part and every query value (a token in
+// ?key= / ?access_token=). Scheme, host, port and path stay readable. A value that does
+// not parse as an absolute URL is shown as configured, never raw. "" stays "".
+func redactConfigURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "(configured)"
+	}
+	if u.User != nil {
+		u.User = url.User("***")
+	}
+	if u.RawQuery != "" {
+		q := u.Query()
+		for k := range q {
+			q[k] = []string{"***"}
+		}
+		u.RawQuery = q.Encode()
+	}
+	// url.URL re-escapes a template's {os}/{arch}; keep the placeholders readable.
+	return strings.NewReplacer("%7B", "{", "%7D", "}").Replace(u.String())
 }
