@@ -154,6 +154,44 @@ func TestHealthNoAuth(t *testing.T) {
 	}
 }
 
+// TestHealthReportsWebBaseURL (gofer-x5k4): the unauthenticated probe reports
+// server.web_base_url so the sign-in page can warn when the operator's address differs
+// from the one notifications link to. Unset -> the field is absent (old servers and
+// deployments without a public address behave the same way the console already expects).
+func TestHealthReportsWebBaseURL(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Token: testToken, WebBaseURL: " https://gofer.example.com/ "},
+		Storage: config.StorageConfig{Root: root},
+	}
+	s := wireMetaServer(t, cfg, nil)
+
+	resp := do(t, s, http.MethodGet, "/health", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("health status=%d, want 200", resp.StatusCode)
+	}
+	var body map[string]any
+	decode(t, resp, &body)
+	if got := body["web_base_url"]; got != "https://gofer.example.com/" {
+		t.Fatalf("web_base_url=%v, want the trimmed configured address", got)
+	}
+}
+
+func TestHealthOmitsWebBaseURLWhenUnset(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodGet, "/health", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("health status=%d, want 200", resp.StatusCode)
+	}
+	var body map[string]any
+	decode(t, resp, &body)
+	if _, ok := body["web_base_url"]; ok {
+		t.Fatalf("unset server.web_base_url must not emit the field: %v", body)
+	}
+}
+
 func TestAuthRejectedWithoutHeader(t *testing.T) {
 	t.Parallel()
 	s := newTestServer(t, testToken, false)
