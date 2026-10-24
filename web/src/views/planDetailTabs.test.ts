@@ -27,7 +27,8 @@ describe('plan detail tabs', () => {
   })
 
   it('defaults to the todo tab and keeps the chain controls out of the panes', () => {
-    expect(detail).toContain(`tabFromQuery(route.query, planTabs.value, 'tab', 'todos')`)
+    // 默认页签 = 列表第一项（todos）；Tabs 自己的 URL 契约在下面的 ?tab= 用例里覆盖。
+    expect(detail.indexOf("value: 'todos'")).toBeLessThan(detail.indexOf("value: 'jobs'"))
     // 链控制行在页签之前（头部），所以切换页签不会把它藏起来。
     expect(detail.indexOf('class="chain-ctl mono"')).toBeLessThan(detail.indexOf('<Tabs :tabs="planTabs"'))
   })
@@ -123,5 +124,66 @@ describe('plan board on a phone', () => {
     // 桌面仍是五列并排：切列标签只在 ≤760 出现，其它列在手机上隐藏。
     expect(board).toMatch(/@media \(max-width: 760px\) \{[\s\S]*?\.col \{\n    display: none;/)
     expect(board).toMatch(/\.col--active \{\n    display: flex;/)
+  })
+})
+
+describe('plan board status colouring (gofer-qw2g)', () => {
+  const board = raw(import.meta.glob('../components/PlanBoard.vue', { eager: true, query: '?raw', import: 'default' }))
+
+  it('labels the columns with translated status names instead of the raw keys', () => {
+    for (const key of ['pending', 'ready', 'doing', 'needsReview', 'done']) {
+      expect(board).toContain(`t('plans.board.label.${key}')`)
+    }
+    // 解释文案仍留在列头的 title 里，不丢原来的说明。
+    expect(board).toContain(":title=\"c.title\"")
+    expect(board).toContain("{{ c.label }}")
+  })
+
+  it('draws the column glyph and the card status from the shared status families', () => {
+    expect(board).toContain('statusFamily(key)')
+    expect(board).toContain('<StatusGlyph :family="c.family" :size="13" />')
+    expect(board).toContain('<StatusPill :status="card.todo.status" :label="TODO_LABELS[card.todo.status]" />')
+    // 卡片与列头同一套词（不给待办状态两种叫法）。
+    for (const key of ['pending', 'ready', 'doing', 'done', 'skipped']) {
+      expect(board).toContain(`t('plans.board.label.${key}')`)
+    }
+    // job 状态也换成同一套 pill（原来是自己画点的 StatusBadge）。
+    expect(board).toContain('<StatusPill :status="card.job.status" />')
+    expect(board).not.toContain('StatusBadge')
+    // 手机切列标签同样带图标与状态族类名。
+    expect(board).toMatch(/class="col-tab"\n        :class="\[`k-\$\{c.family\}`, \{ 'col-tab--on': mobileCol === c.key \}\]"/)
+  })
+})
+
+describe('todo tab: view switch and count tones (gofer-qw2g)', () => {
+  it('keeps the board / list switch next to the todo heading, not in the page head', () => {
+    const head = detail.indexOf('class="detail-head"')
+    const headEnd = detail.indexOf('class="head-card"')
+    const switchAt = detail.indexOf('class="view-switch mono"')
+    const todosHead = detail.indexOf('class="section-head todos-head"')
+    expect(head).toBeGreaterThanOrEqual(0)
+    expect(todosHead).toBeGreaterThan(headEnd)
+    // 页签之内、待办标题旁；页头那一组已经删掉。
+    expect(switchAt).toBeGreaterThan(todosHead)
+    expect(detail.slice(head, headEnd)).not.toContain('view-switch')
+    expect(detail).toContain("t('plans.detail.viewLabel')")
+  })
+
+  it('keeps the view choice in the URL and keeps the default board link clean', () => {
+    expect(detail).toContain("tabFromQuery(route.query, VIEW_ITEMS, 'view', 'board')")
+    expect(detail).toContain("queryWithTab(route.query, next, VIEW_ITEMS, 'view', 'board')")
+    // 旧的 localStorage 记忆已删：URL 是唯一来源（可分享、后退可复原）。
+    expect(detail).not.toContain('gofer.plans.view')
+    expect(detail).not.toContain('localStorage.setItem(VIEW_KEY')
+  })
+
+  it('colours the tab counts by meaning through the shared families', () => {
+    expect(detail).toContain('tone: todoTabTone(todos, p?.blocked_todo ?? \'\')')
+    expect(detail).toContain('tone: jobsTabTone(')
+    expect(detail).toContain('tone: decisionsTabTone(')
+    const tabs = raw(import.meta.glob('../ui/Tabs.vue', { eager: true, query: '?raw', import: 'default' }))
+    expect(tabs).toContain('statusFamilyClass(tab.tone)')
+    expect(tabs).toContain("'tab-count--tone'")
+    expect(tabs).toContain('.tab-count--tone.k-need')
   })
 })

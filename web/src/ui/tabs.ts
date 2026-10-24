@@ -1,11 +1,18 @@
 // 页签的 URL 契约（设计稿 §8：Tabs 支持 ?tab= 深链）：纯函数，组件与测试共用。
 // 默认页签不写进 URL（链接干净），其他页签写进去（可分享、可前进后退）。
+import type { StatusFamily } from '../utils/statusFamily'
+
 export interface TabItem {
   value: string
   label: string
   count?: number
   /** 需要人处理的页签显示黄色小角标 */
   badge?: boolean
+  /**
+   * 计数徽标按含义着色（issue gofer-qw2g）：给状态族即可，颜色由 styles/status.css 的
+   * .k-<族> 提供。不给 = 现在的中性徽标，其它页面不受影响。
+   */
+  tone?: StatusFamily
   /** 链接式页签：该页签已独立成别的路由（如记忆 → /memory），点击直接跳过去，不写 ?tab= */
   to?: string
 }

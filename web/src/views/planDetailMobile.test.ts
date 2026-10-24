@@ -15,4 +15,11 @@ describe('Plan detail mobile toolbar', () => {
     expect(source).toMatch(/@media \(max-width: 760px\) \{[\s\S]*?\.detail-head \{[^}]*flex-direction: row/)
     expect(source).toMatch(/\.head-status \{\n    flex-direction: row/)
   })
+
+  it('keeps the board / list switch on the todo heading row and tappable', () => {
+    // gofer-qw2g：切换从页头挪到待办标题右侧；手机允许换行，点按目标 ≥40px。
+    expect(source).toMatch(/@media \(max-width: 760px\) \{[\s\S]*?\.todos-head \.view-btn \{\n    min-height: 40px;/)
+    expect(source).toContain('.todos-head {')
+    expect(source).toContain('.todos-head .view-switch {')
+  })
 })

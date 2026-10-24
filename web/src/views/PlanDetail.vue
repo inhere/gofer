@@ -8,7 +8,7 @@
 //    ready) / 编辑派发字段(assignee、template、verify、review、runner、cwd、timeout、project)。
 //  - attach：把已有 job id 补挂到本 plan（attachJob）。
 //  - WEB-10 看板（PlanBoard）：同一份详情数据派生五列，拖拽落点走 patchTodo（乐观更新 +
-//    失败回滚），链操作走 planRun/planPause/planResume；视图选择记 localStorage。
+//    失败回滚），链操作走 planRun/planPause/planResume；看板/列表视图选择写在 URL 的 ?view=。
 import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
@@ -24,7 +24,7 @@ import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import BackLink from '../ui/BackLink.vue'
 import ProgressBar from '../ui/ProgressBar.vue'
 import Tabs from '../ui/Tabs.vue'
-import { tabFromQuery, type TabItem } from '../ui/tabs'
+import { queryWithTab, tabFromQuery, type TabItem } from '../ui/tabs'
 import { planProgressModel, type ProgressModel } from '../ui/progress'
 import { t } from '../i18n'
 import {
@@ -44,6 +44,7 @@ import { deliveryStateLabel } from '../utils/delivery'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { formatTokens } from '../utils/jobOutcome'
 import { boardProgress } from '../utils/planBoard'
+import { decisionsTabTone, jobsTabTone, todoTabTone } from '../utils/planTabTone'
 import { COL } from '../utils/uiText'
 import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
 import { PLAN_CONTROL_HELP, planChainState, planUsageRows } from '../utils/planControls'
@@ -64,25 +65,38 @@ const route = useRoute()
 
 // 页签（设计稿 §7「/plans/:id 计划详情」）：头部放进度与链控制，下方六个页签把原本纵向
 // 堆叠的区块收起来；值以 URL 的 ?tab= 为准（深链、可后退），默认待办。
+// 「需要人」的黄色角标只给还有 OPEN 决策的页签（§5：黄色只代表需要人）；计数徽标另按
+// 含义着色（issue gofer-qw2g：失败 / 受阻告警色、进行中运行色、全完成成功色，其余中性）。
+const hasOpenDecision = computed(() => (plan.value?.decisions ?? []).some((d) => d.state === 'OPEN'))
 const planTabs = computed<TabItem[]>(() => {
   const p = plan.value
+  const todos = p?.todos ?? []
+  const jobs = p?.jobs ?? []
   return [
-    { value: 'todos', label: t('plans.detail.tab.todos'), count: p?.todos?.length ?? 0 },
-    { value: 'jobs', label: t('plans.detail.tab.jobs'), count: p?.jobs?.length ?? 0 },
+    {
+      value: 'todos',
+      label: t('plans.detail.tab.todos'),
+      count: todos.length,
+      tone: todoTabTone(todos, p?.blocked_todo ?? ''),
+    },
+    {
+      value: 'jobs',
+      label: t('plans.detail.tab.jobs'),
+      count: jobs.length,
+      tone: jobsTabTone(jobs, p?.failed_jobs ?? p?.counts?.failed ?? 0),
+    },
     {
       value: 'decisions',
       label: t('plans.detail.tab.decisions'),
       count: p?.decisions?.length ?? 0,
       badge: hasOpenDecision.value,
+      tone: decisionsTabTone((p?.decisions ?? []).filter((d) => d.state === 'OPEN').length),
     },
     { value: 'handoff', label: t('plans.detail.tab.handoff'), count: handoffVersions.value.length || undefined },
     { value: 'comments', label: t('plans.detail.tab.comments') },
     { value: 'events', label: t('plans.detail.tab.events') },
   ]
 })
-const activeTab = computed(() => tabFromQuery(route.query, planTabs.value, 'tab', 'todos'))
-// 「需要人」的黄色角标只给还有 OPEN 决策的页签（§5：黄色只代表需要人）。
-const hasOpenDecision = computed(() => (plan.value?.decisions ?? []).some((d) => d.state === 'OPEN'))
 // 头部进度：与计划总览同一套分段口径（needs_review / failed_jobs 由接口直接给）。
 const progress = computed(() => (plan.value ? planProgressModel(plan.value) : null))
 
@@ -491,23 +505,18 @@ function onToggleNewTodoContinue(on: boolean): void {
 
 // —— WEB-10 看板 ——
 
-// 视图选择（默认看板）：列表/看板同一份数据，只换渲染方式；选择记 localStorage。
-const VIEW_KEY = 'gofer.plans.view'
-const view = ref<'board' | 'list'>(readView())
-function readView(): 'board' | 'list' {
-  try {
-    return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'board'
-  } catch {
-    return 'board'
-  }
-}
+// 视图选择（默认看板）：列表/看板同一份数据，只换渲染方式。值写在 URL 的 ?view=（可分享、
+// 可前进后退），默认看板不写进 URL——与页签同一套 tabFromQuery / queryWithTab 契约。
+const VIEW_ITEMS: TabItem[] = [
+  { value: 'board', label: '' },
+  { value: 'list', label: '' },
+]
+const view = computed<'board' | 'list'>(() =>
+  tabFromQuery(route.query, VIEW_ITEMS, 'view', 'board') === 'list' ? 'list' : 'board',
+)
 function setView(next: 'board' | 'list'): void {
-  view.value = next
-  try {
-    localStorage.setItem(VIEW_KEY, next)
-  } catch {
-    /* ignore storage failures */
-  }
+  if (next === view.value) return
+  void router.replace({ path: route.path, query: queryWithTab(route.query, next, VIEW_ITEMS, 'view', 'board') })
   if (next === 'board') void loadAgents() // 看板拖到 ready 时要用 agent 列表
 }
 
@@ -1039,25 +1048,6 @@ onUnmounted(() => {
             </div>
           </details>
         </div>
-        <!-- WEB-10 视图切换（待办页签内）：列表/看板同一份数据；选择记 localStorage，默认看板。 -->
-        <div v-if="activeTab === 'todos'" class="view-switch mono">
-          <button
-            class="view-btn"
-            :class="{ 'view-btn--on': view === 'board' }"
-            type="button"
-            @click="setView('board')"
-          >
-            {{ t('plans.detail.viewBoard') }}
-          </button>
-          <button
-            class="view-btn"
-            :class="{ 'view-btn--on': view === 'list' }"
-            type="button"
-            @click="setView('list')"
-          >
-            {{ t('plans.detail.viewList') }}
-          </button>
-        </div>
       </div>
     </div>
 
@@ -1394,8 +1384,30 @@ onUnmounted(() => {
         </section>
 
         <section v-if="plan && active === 'todos'" class="section">
-          <div class="section-head">
+          <!-- 视图切换（issue gofer-qw2g）：从页头右上角挪到「待办（完成 x/y · 进行中 n）」
+               这一行的右侧；值仍写在 URL 的 ?view=（默认看板不写）。 -->
+          <div class="section-head todos-head">
             <h2 class="section-title mono">{{ t('plans.detail.tab.todos') }}（{{ todoSummary }}）</h2>
+            <div class="view-switch mono" role="group" :aria-label="t('plans.detail.viewLabel')">
+              <button
+                class="view-btn"
+                :class="{ 'view-btn--on': view === 'board' }"
+                type="button"
+                :aria-pressed="view === 'board'"
+                @click="setView('board')"
+              >
+                {{ t('plans.detail.viewBoard') }}
+              </button>
+              <button
+                class="view-btn"
+                :class="{ 'view-btn--on': view === 'list' }"
+                type="button"
+                :aria-pressed="view === 'list'"
+                @click="setView('list')"
+              >
+                {{ t('plans.detail.viewList') }}
+              </button>
+            </div>
           </div>
           <!-- 看板：拖到 ready 即派发（无 assignee 先选 agent）；done/skipped 落点先确认。 -->
           <PlanBoard
@@ -2179,6 +2191,20 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 10px;
 }
+/* 待办标题与看板/列表切换同一行（issue gofer-qw2g）：切换靠右，窄屏可换行，
+   不用在页头右上角再占一组按钮。 */
+.todos-head {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  margin-bottom: 10px;
+}
+.todos-head .section-title {
+  margin: 0;
+  min-width: 0;
+}
+.todos-head .view-switch {
+  margin-left: auto;
+}
 .handoff-head {
   align-items: flex-start;
 }
@@ -2774,6 +2800,14 @@ onUnmounted(() => {
   .board-btn,
   .view-switch {
     flex: none;
+  }
+  /* 切换在待办标题右侧：手机上允许换行并给足点按目标（≥40px）。 */
+  .todos-head .view-switch {
+    margin-left: auto;
+  }
+  .todos-head .view-btn {
+    min-height: 40px;
+    padding: 0 12px;
   }
   .head-status {
     flex-direction: row;

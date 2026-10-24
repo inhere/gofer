@@ -10,7 +10,9 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { t } from '../i18n'
-import StatusBadge from './StatusBadge.vue'
+import StatusPill from '../ui/StatusPill.vue'
+import StatusGlyph from '../ui/StatusGlyph.vue'
+import { statusFamily } from '../utils/statusFamily'
 import { usageBadge, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { deliveryStateLabel } from '../utils/delivery'
 import {
@@ -38,12 +40,34 @@ const emit = defineEmits<{
 const router = useRouter()
 
 // 列头文案用状态名（与列表页/CLI 同一套词），中文解释放 title —— 看板不发明新术语。
+// 状态名与状态族都取自同一张表（issue gofer-qw2g）：列头的图标、颜色与卡片上的
+// StatusPill 同源，不给看板另造一套颜色。
 const COLUMN_TITLES: Record<BoardColumn, string> = {
   get pending() { return t('plans.board.col.pending') },
   get ready() { return t('plans.board.col.ready') },
   get doing() { return t('plans.board.col.doing') },
   get needs_review() { return t('plans.board.col.needsReview') },
   get done() { return t('plans.board.col.done') },
+}
+
+const COLUMN_LABELS: Record<BoardColumn, string> = {
+  get pending() { return t('plans.board.label.pending') },
+  get ready() { return t('plans.board.label.ready') },
+  get doing() { return t('plans.board.label.doing') },
+  get needs_review() { return t('plans.board.label.needsReview') },
+  get done() { return t('plans.board.label.done') },
+}
+
+// 列 → 状态值就是列名（pending / ready / doing / needs_review / done），状态族直接走
+// utils/statusFamily（pending/ready 归 queue，doing 归 run，needs_review 归 need，done 归 done）。
+
+// 卡片上的待办状态与列头同一套词（issue gofer-qw2g）：看板里同一状态不出现两种叫法。
+const TODO_LABELS: Record<TodoStatus, string> = {
+  get pending() { return t('plans.board.label.pending') },
+  get ready() { return t('plans.board.label.ready') },
+  get doing() { return t('plans.board.label.doing') },
+  get done() { return t('plans.board.label.done') },
+  get skipped() { return t('plans.board.label.skipped') },
 }
 
 interface CardJob {
@@ -114,7 +138,9 @@ function decorate(todo: Todo): BoardCard {
 const columns = computed(() =>
   BOARD_COLUMNS.map((key) => ({
     key,
+    label: COLUMN_LABELS[key],
     title: COLUMN_TITLES[key],
+    family: statusFamily(key),
     cards: columnTodos(props.todos, key).map(decorate),
   })),
 )
@@ -267,14 +293,15 @@ function shortId(id: string): string {
         v-for="c in columns"
         :key="c.key"
         class="col-tab"
-        :class="{ 'col-tab--on': mobileCol === c.key }"
+        :class="[`k-${c.family}`, { 'col-tab--on': mobileCol === c.key }]"
         type="button"
         role="tab"
         :aria-selected="mobileCol === c.key"
         :data-col="c.key"
         @click="mobileCol = c.key"
       >
-        <span class="col-tab-name">{{ c.key }}</span>
+        <StatusGlyph :family="c.family" :size="13" />
+        <span class="col-tab-name">{{ c.label }}</span>
         <span class="col-tab-count">{{ c.cards.length }}</span>
       </button>
     </div>
@@ -291,8 +318,9 @@ function shortId(id: string): string {
             (overTarget !== '' && dropTargets(c.key).includes(overTarget)),
         }"
       >
-        <header class="col-head mono" :title="c.title">
-          <span class="col-name">{{ c.key }}</span>
+        <header class="col-head mono" :class="`k-${c.family}`" :title="c.title">
+          <StatusGlyph :family="c.family" :size="13" />
+          <span class="col-name">{{ c.label }}</span>
           <span class="col-count">{{ c.cards.length }}</span>
         </header>
         <div
@@ -350,11 +378,14 @@ function shortId(id: string): string {
               </span>
             </div>
             <div class="card-meta mono">
+              <!-- 卡片也带状态 pill（issue gofer-qw2g）：看板列头虽已分组，但跳过、待验收、
+                   失败这类状态光靠颜色分不出，字形 + 文字在所有列里都一致。 -->
+              <StatusPill :status="card.todo.status" :label="TODO_LABELS[card.todo.status]" />
               <span class="assignee" :class="{ 'assignee--none': !card.todo.assignee }">
                 {{ card.todo.assignee || t('plans.board.unassigned') }}
               </span>
               <template v-if="card.job">
-                <StatusBadge :status="card.job.status" />
+                <StatusPill :status="card.job.status" />
                 <button
                   class="chip mono"
                   type="button"
@@ -517,6 +548,9 @@ function shortId(id: string): string {
     color: var(--ink);
     border-color: var(--accent);
   }
+  .col-tab-name {
+    color: var(--ink);
+  }
   .col-tab-count {
     color: var(--ink-2);
     font-variant-numeric: tabular-nums;
@@ -535,12 +569,21 @@ function shortId(id: string): string {
 .col-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--line);
   color: var(--ink-3);
   font-size: 11px;
   letter-spacing: 0.06em;
+}
+/* 列名与列头图标同源（issue gofer-qw2g）：图标跟随 .k-<族> 的 --c，列名保持正文色。 */
+.col-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
 }
 .col-count {
   color: var(--ink);

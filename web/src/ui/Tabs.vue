@@ -4,6 +4,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { t } from '../i18n'
+import { statusFamilyClass } from '../utils/statusFamily'
 import { queryWithTab, tabFromQuery, type TabItem } from './tabs'
 
 const props = withDefaults(
@@ -25,6 +26,11 @@ const router = useRouter()
 const buttons = ref<HTMLButtonElement[]>([])
 
 const active = computed(() => tabFromQuery(route.query, props.tabs, props.param, props.fallback))
+
+// 计数徽标的着色类（issue gofer-qw2g）：.k-<族> 给出 --c，样式里只用这个变量。
+function countClass(tab: TabItem): string[] {
+  return tab.tone ? ['tab-count--tone', statusFamilyClass(tab.tone)] : []
+}
 
 function select(value: string): void {
   if (!value) return
@@ -72,7 +78,7 @@ function onKeydown(event: KeyboardEvent, index: number): void {
       @keydown="onKeydown($event, index)"
     >
       <span class="tab-label">{{ tab.label }}</span>
-      <span v-if="tab.count !== undefined" class="tab-count">{{ tab.count }}</span>
+      <span v-if="tab.count !== undefined" class="tab-count" :class="countClass(tab)">{{ tab.count }}</span>
       <span v-if="tab.badge" class="tab-badge" aria-hidden="true">●</span>
     </button>
   </div>
@@ -133,6 +139,16 @@ function onKeydown(event: KeyboardEvent, index: number): void {
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   text-align: center;
+}
+/* 按含义着色的计数（issue gofer-qw2g）：只加一圈状态色边框与同色数字，底色还给页签。 */
+.tab-count--tone {
+  background: transparent;
+  border: 1px solid var(--c);
+  color: var(--c);
+}
+/* need 在浅色主题下万寿菊做正文色对比不足（同 StatusPill）。 */
+.tab-count--tone.k-need {
+  color: var(--need-ink);
 }
 /* 黄色只代表「需要人」（§5） */
 .tab-badge {
