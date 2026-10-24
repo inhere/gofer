@@ -318,8 +318,9 @@ describe('reply badge and folding', () => {
   })
 })
 
-// 筛选 chip 上的对话数与页头「N 个对话」同一个口径（截图检查 P6-2：四个 chip 曾全显示 1）。
-describe('conversation counts for the filter chips', () => {
+// 本地分组（待指派 / 会话深链）的对话数：服务端 conversations 接口的 chip 计数读的是 total
+// （gofer-av8f），只有没有服务端对话接口的本地分组要自己数。
+describe('conversation counts for the locally grouped list', () => {
   const convs = groupMailConversations([
     mail(),
     mail({ id: 2, from: S2, to: S1 }),

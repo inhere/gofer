@@ -27,6 +27,8 @@ type mailListBody struct {
 type convListBody struct {
 	Conversations []mailConversationView `json:"conversations"`
 	Count         int                    `json:"count"`
+	// Total is the number of conversations that match box / project, before limit / offset.
+	Total int `json:"total"`
 }
 
 func mailDecode(t *testing.T, body string, v any) {
@@ -180,6 +182,83 @@ func TestMailConversationsAggregate(t *testing.T) {
 	}
 	if status, _ := e.req(t, mailTokAlice, "", "GET", "/v1/mail/conversations?box=sideways", nil); status != http.StatusBadRequest {
 		t.Errorf("invalid box = %d, want 400", status)
+	}
+}
+
+// TestMailConversationsProjectAndTotal (gofer-av8f): `?project=` narrows the aggregation by the
+// project of a conversation's parties (either end), and `total` counts the matching conversations
+// before paging, so a counter can ask the server for one row and still say how many there are.
+func TestMailConversationsProjectAndTotal(t *testing.T) {
+	e := newMailEnv(t)
+	e.grant()
+	// bob's box → alice's p1 session, alice → bob's p2 session, and bob's p2 session → alice's p1
+	// session (a conversation that belongs to BOTH projects).
+	e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindCaller, FromCaller: "bob",
+		ToAddress: "session:" + e.sA, ToKind: jobstore.MailKindSession, ToID: e.sA, Body: "p1 only"})
+	e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindCaller, FromCaller: "alice",
+		ToAddress: "session:" + e.sP2, ToKind: jobstore.MailKindSession, ToID: e.sP2, Body: "p2 only"})
+	e.letter(t, jobstore.MailInput{FromKind: jobstore.MailKindSession, FromID: e.sP2, FromCaller: "bob",
+		ToAddress: "session:" + e.sA, ToKind: jobstore.MailKindSession, ToID: e.sA, Body: "across"})
+
+	list := func(q string) convListBody {
+		t.Helper()
+		status, body := e.req(t, mailTokAlice, "", "GET", "/v1/mail/conversations"+q, nil)
+		if status != http.StatusOK {
+			t.Fatalf("GET /v1/mail/conversations%s = %d (%s)", q, status, body)
+		}
+		var out convListBody
+		mailDecode(t, body, &out)
+		return out
+	}
+	keyOf := func(x, y string) string {
+		return mailConversationKey(mailParty{Address: x}, mailParty{Address: y})
+	}
+	// Every conversation of the mailbox, and the same answer for a single row: total is the number
+	// before limit, count the size of the page.
+	if all := list(""); all.Count != 3 || all.Total != 3 {
+		t.Errorf("all = %d of %d conversations, want 3 of 3", all.Count, all.Total)
+	}
+	one := list("?limit=1")
+	if one.Count != 1 || one.Total != 3 || len(one.Conversations) != 1 {
+		t.Errorf("limit=1 = %d of %d (%d rows), want 1 of 3", one.Count, one.Total, len(one.Conversations))
+	}
+	// A conversation whose either end is in the project is in it; one across two projects shows
+	// under both.
+	p1 := list("?project=p1")
+	if p1.Total != 2 || len(p1.Conversations) != 2 {
+		t.Fatalf("project=p1 = %d of %d, want the 2 conversations with a p1 party", p1.Count, p1.Total)
+	}
+	got1 := map[string]bool{}
+	for _, cv := range p1.Conversations {
+		got1[cv.Key] = true
+	}
+	for _, want := range []string{keyOf("session:"+e.sA, "caller:bob"), keyOf("session:"+e.sA, "session:"+e.sP2)} {
+		if !got1[want] {
+			t.Errorf("project=p1 misses %q", want)
+		}
+	}
+	p2 := list("?project=p2")
+	if p2.Total != 2 {
+		t.Fatalf("project=p2 = %d, want 2", p2.Total)
+	}
+	got2 := map[string]bool{}
+	for _, cv := range p2.Conversations {
+		got2[cv.Key] = true
+	}
+	for _, want := range []string{keyOf("session:"+e.sP2, "caller:alice"), keyOf("session:"+e.sA, "session:"+e.sP2)} {
+		if !got2[want] {
+			t.Errorf("project=p2 misses %q", want)
+		}
+	}
+	// A project nobody is in, and a project combined with a box that has nothing in it.
+	if none := list("?project=p-none"); none.Total != 0 || len(none.Conversations) != 0 {
+		t.Errorf("project=p-none = %d conversations, want none", none.Total)
+	}
+	if in := list("?project=p2&box=in"); in.Total != 1 {
+		t.Errorf("project=p2&box=in = %d, want the one conversation bob's p2 session wrote", in.Total)
+	}
+	if out := list("?project=p2&box=out"); out.Total != 1 {
+		t.Errorf("project=p2&box=out = %d, want the one alice sent to p2", out.Total)
 	}
 }
 

@@ -2089,6 +2089,8 @@ export interface ListMailConversationsOpts {
   offset?: number
   // conv（对话短 id，cv-…）：按 id 取那一个对话（越权 / 不存在都是 404）。
   conv?: string
+  // project：按项目收窄（两端任一属于该项目即算，与页面的本地过滤同一口径）。
+  project?: string
 }
 
 export function listMailConversations(opts: ListMailConversationsOpts = {}): Promise<MailConversationsResp> {
@@ -2097,6 +2099,7 @@ export function listMailConversations(opts: ListMailConversationsOpts = {}): Pro
   if (opts.limit) params.set('limit', String(opts.limit))
   if (opts.offset) params.set('offset', String(opts.offset))
   if (opts.conv) params.set('conv', opts.conv)
+  if (opts.project) params.set('project', opts.project)
   const qs = params.toString()
   return request<MailConversationsResp>(`/v1/mail/conversations${qs ? `?${qs}` : ''}`)
 }

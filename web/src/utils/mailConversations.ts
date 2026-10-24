@@ -92,16 +92,17 @@ export function sortMailTimeline(mails: MailMessage[]): MailMessage[] {
 }
 
 // mailConversationInProject：这个对话是不是属于某个项目（UI 重设计 §6.4：信箱按参与方
-// 所属项目过滤，conversations 接口没有项目参数，只能在本地收窄）。两端的 persona 任一属于
-// 该项目即算——跨项目的对话出现在两个项目的筛选里，比「莫名消失」好解释。
+// 所属项目过滤）。两端任一属于该项目即算——跨项目的对话出现在两个项目的筛选里，比「莫名
+// 消失」好解释。服务端 `?project=` 是同一口径；这里用于本地分组出来的对话（待指派 / 会话
+// 深链）与深链追加进来的那一行。
 export function mailConversationInProject(conv: MailConversation, project: string): boolean {
   const key = (project ?? '').trim()
   if (!key) return true
   return [conv.a?.persona?.project_key, conv.b?.persona?.project_key].some((p) => (p ?? '').trim() === key)
 }
 
-// mailCountConversations 是一个箱下的对话数（按项目收窄后），给筛选 chip 与页头同一个口径：
-// 页头的「N 个对话」就是当前项目下列表里的对话数。
+// mailCountConversations 是本地分组（待指派）在某个项目下的对话数：页头与 chip 在服务端
+// conversations 接口上读的是 total，只有没有服务端对话接口的本地分组需要自己数。
 export function mailCountConversations(convs: MailConversation[], project = ''): number {
   const key = (project ?? '').trim()
   return key ? convs.filter((c) => mailConversationInProject(c, key)).length : convs.length

@@ -481,7 +481,40 @@ func (s *Server) mailConversationQuery(c *rux.Context, box string) (string, bool
 	return mailConversationKey(mailParty{Address: aKey}, mailParty{Address: bKey}), true
 }
 
-// GET /v1/mail/conversations?box=in|out|all&limit=&offset=
+// mailConvProjects answers which project a conversation belongs to, for the `?project=` narrowing
+// of the conversation listing. A conversation is in a project when either of its two parties is
+// (the console shows a cross-project conversation under both projects rather than letting it
+// vanish), which is the rule its own local filter applies. Lookups are cached per request: a
+// mailbox holds many letters between a handful of sessions and jobs.
+type mailConvProjects struct {
+	s *Server
+	// cache maps "<kind>/<id>" → the party's project ("" = none, gone, or not a project owner).
+	cache map[string]string
+}
+
+// of is the project of one party ("" when the party has none).
+func (p *mailConvProjects) of(party mailParty) string {
+	if party.Kind != jobstore.MailKindSession && party.Kind != jobstore.MailKindJob {
+		return ""
+	}
+	key := party.Kind + "/" + party.ID
+	if project, done := p.cache[key]; done {
+		return project
+	}
+	project, _ := p.s.mailEndProject(party.Kind, party.ID)
+	p.cache[key] = project
+	return project
+}
+
+// keeps reports whether a conversation is in project ("" keeps everything).
+func (p *mailConvProjects) keeps(agg *mailConvAgg, project string) bool {
+	if project == "" {
+		return true
+	}
+	return strings.TrimSpace(p.of(agg.a)) == project || strings.TrimSpace(p.of(agg.b)) == project
+}
+
+// GET /v1/mail/conversations?box=in|out|all&project=&limit=&offset=
 //
 // The letters of the caller's mailbox grouped by the pair of people who exchanged them,
 // direction-free, newest activity first. It aggregates exactly what `GET /v1/mail` shows (the
@@ -489,6 +522,9 @@ func (s *Server) mailConversationQuery(c *rux.Context, box string) (string, bool
 // the same bounded scan the listing walks.
 // ?conv=<id> narrows the same aggregation to ONE conversation (404 when this caller has no such
 // conversation), which is how the console opens `/mail?conv=<id>`.
+// ?project=<key> narrows it to the conversations with a party in that project. The answer's
+// `total` counts the conversations that match, before limit / offset: the filter chips and the
+// "N conversations" header read it instead of pulling every conversation to count them here.
 func (s *Server) handleMailConversations(c *rux.Context) {
 	if !s.mailReady(c) {
 		return
@@ -515,6 +551,7 @@ func (s *Server) handleMailConversations(c *rux.Context) {
 		wantKey = key
 	}
 	limit, offset := mailPageQuery(c, mailConvDefault, mailConvMax)
+	project := strings.TrimSpace(c.Query("project"))
 	keep := s.mailListKeep(c, box, "")
 	byKey := make(map[string]*mailConvAgg)
 	for page := 0; page < mailListScanPages; page++ {
@@ -565,6 +602,19 @@ func (s *Server) handleMailConversations(c *rux.Context) {
 		}
 		return li.ID > lj.ID
 	})
+	if project != "" {
+		projects := &mailConvProjects{s: s, cache: make(map[string]string)}
+		kept := list[:0]
+		for _, agg := range list {
+			if projects.keeps(agg, project) {
+				kept = append(kept, agg)
+			}
+		}
+		list = kept
+	}
+	// total is the number of conversations this caller has in that box / project, whatever page
+	// was asked for: it is what the console's counters read.
+	total := len(list)
 	if offset > 0 {
 		if offset >= len(list) {
 			list = nil
@@ -593,5 +643,5 @@ func (s *Server) handleMailConversations(c *rux.Context) {
 			Count: agg.count, Unread: agg.unread, Urgent: agg.urgent, ActivityAt: agg.last.CreatedAt,
 		})
 	}
-	c.JSON(http.StatusOK, map[string]any{"conversations": out, "count": len(out)})
+	c.JSON(http.StatusOK, map[string]any{"conversations": out, "count": len(out), "total": total})
 }

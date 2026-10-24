@@ -3691,7 +3691,10 @@ export interface MailConversation {
 
 export interface MailConversationsResp {
   conversations: MailConversation[]
+  // count 是这一页的条数（不是总数）：要总数看 total。
   count: number
+  // total 是这个箱 / 项目下的对话总数（分页前）：筛选 chip 与页头「N 个对话」读它。
+  total: number
 }
 
 // 发信 / 回信 / 改投的回答：held=true 表示这封信没能投出去，转成了「待指派」。
