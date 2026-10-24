@@ -57,4 +57,12 @@ describe('planProgress', () => {
     expect(planProgress({})).toEqual({ done: 0, total: 0, percent: null })
     expect(planProgress({ todos: [] })).toEqual({ done: 0, total: 0, percent: null })
   })
+
+  it('falls back to job counts when a plan detail has no todos at all', () => {
+    // 计划详情会带一份空 todos；没有待办的计划（服务端 completion 也是 jobs）要看 job 成功数，
+    // 不是 0/0。清单进度只传 todos、不传汇总，所以它仍显示 0/0。
+    const counts = { total: 5, queued: 0, running: 1, done: 3, failed: 1 }
+    expect(planProgress({ todos: [], counts })).toEqual({ done: 3, total: 5, percent: 60 })
+    expect(planProgress({ todos: [] })).toEqual({ done: 0, total: 0, percent: null })
+  })
 })

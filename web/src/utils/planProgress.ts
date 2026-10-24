@@ -23,7 +23,7 @@ export interface ProgressTodo {
 
 // 三种输入任给其一：明细（详情页 / 看板）、todo 汇总（总览列表）、job 汇总（无待办的计划）。
 export interface PlanProgressSource {
-  /** 明细：给了就按条目实际状态数（计划详情的 todos 已全量返回） */
+  /** 明细：给了就按条目实际状态数（计划详情的 todos 已全量返回；空数组 = 没有待办，回落到下面两个汇总） */
   todos?: readonly ProgressTodo[]
   todo_counts?: PlanTodoCounts
   counts?: PlanCounts
@@ -48,7 +48,9 @@ export function planProgress(source: PlanProgressSource): PlanProgress {
 
 function progressCounts(source: PlanProgressSource): { done: number; total: number } {
   const todos = source.todos
-  if (todos) {
+  // 空明细不算「有明细」：计划没有待办时服务端也回落到 job 口径（CompletionJobs），
+  // 页头 / 总览跟着回落；只要待办明细本身的调用方（清单进度）不传 counts，就不会被回落。
+  if (todos && todos.length > 0) {
     return { done: todos.filter(isTodoComplete).length, total: todos.length }
   }
   const tc = source.todo_counts
