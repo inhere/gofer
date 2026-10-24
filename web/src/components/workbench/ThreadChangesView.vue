@@ -9,6 +9,7 @@ import {
 } from '../../api/workbench'
 import UnifiedDiff from '../UnifiedDiff.vue'
 import { t } from '../../i18n'
+import { classifyDiffFailure } from '../../utils/workbenchDiff'
 import {
   REVIEW_DRAFT_STORAGE_KEY,
   addReviewComment,
@@ -43,6 +44,9 @@ const loading = ref(false)
 const sending = ref(false)
 const accepting = ref(false)
 const error = ref('')
+// unavailable：没有 git 基线（或会话不可续接）时后端 409 的原因，在页签里当说明显示
+// （gofer-yb5x），不进页面的错误行、也不当加载失败。
+const unavailable = ref('')
 const locationNotice = ref('')
 const selectedPath = ref('')
 const drafts = ref<ReviewDraftState>(readStoredDrafts())
@@ -120,12 +124,20 @@ async function performRefresh(): Promise<void> {
     loading.value = true
     try {
       diff.value = await getWorkbenchThreadDiff(props.threadId)
+      unavailable.value = ''
       error.value = ''
       if (selectedPath.value) await scrollToFile(selectedPath.value)
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause)
-      error.value = message
-      emit('error', t('workbench.changes.loadFailed', { err: message }))
+      const failure = classifyDiffFailure(cause)
+      if (failure.unavailable) {
+        // 409：页签内说明原因（"这个会话没有 git 改动基线"），不冒泡成页面错误。
+        diff.value = null
+        unavailable.value = failure.reason
+        error.value = ''
+      } else {
+        error.value = failure.reason
+        emit('error', t('workbench.changes.loadFailed', { err: failure.reason }))
+      }
     } finally {
       loading.value = false
     }
@@ -142,6 +154,7 @@ function refresh(): Promise<void> {
 }
 
 async function scrollToFile(path: string): Promise<boolean> {
+  if (unavailable.value) return false
   await nextTick()
   const focused = await diffRenderer.value?.focusFile(path)
   if (!focused) locationNotice.value = t('workbench.changes.noChange')
@@ -213,6 +226,7 @@ function startPolling(): void {
 watch(() => props.threadId, () => {
   diff.value = null
   error.value = ''
+  unavailable.value = ''
   locationNotice.value = ''
   selectedPath.value = ''
   void refresh()
@@ -259,10 +273,20 @@ defineExpose({ refresh, focusFile })
         <span class="file-path" :title="file.path">{{ file.path }}</span>
         <span class="file-count"><b>+{{ file.additions }}</b><i>−{{ file.deletions }}</i></span>
       </button>
-      <p v-if="!loading && diff && diff.files.length === 0" class="empty mono">{{ t('workbench.changes.noChanges') }}</p>
+      <p v-if="!loading && !unavailable && diff && diff.files.length === 0" class="empty mono">{{ t('workbench.changes.noChanges') }}</p>
     </aside>
 
     <main class="changes-main">
+      <!-- 没有 git 基线（409）时页签内说明原因（gofer-yb5x）：不给评审 / 接受按钮，
+           也不把后端的原因当成加载失败。 -->
+      <div v-if="unavailable" class="changes-unavailable" data-test="changes-unavailable">
+        <p class="unavailable-title">{{ t('workbench.changes.unavailable') }}</p>
+        <p class="unavailable-reason mono">{{ unavailable }}</p>
+        <button type="button" :disabled="loading" @click="refresh">
+          {{ loading ? t('workbench.changes.refreshing') : t('workbench.changes.refresh') }}
+        </button>
+      </div>
+      <template v-else>
       <p v-if="error" class="changes-error mono">{{ error }}</p>
       <p v-if="locationNotice" class="changes-notice mono">{{ locationNotice }}</p>
       <div class="review-toolbar">
@@ -300,6 +324,7 @@ defineExpose({ refresh, focusFile })
         />
         <p v-else-if="loading" class="empty mono">{{ t('workbench.changes.loading') }}</p>
       </div>
+      </template>
     </main>
   </div>
 </template>
@@ -320,6 +345,12 @@ defineExpose({ refresh, focusFile })
 .changes-notice { color: var(--run); background: rgba(255, 190, 80, .07); }
 .changes-error { color: var(--fail); background: rgba(200, 70, 70, .07); }
 .changes-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+/* 没有基线（409）：一条说明 + 重试，不留空白也不弹错误。 */
+.changes-unavailable { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 14px 12px; margin: 10px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--surface); }
+.unavailable-title { margin: 0; color: var(--ink); font-size: 12px; font-weight: 600; }
+.unavailable-reason { margin: 0; color: var(--ink-3); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.changes-unavailable button { padding: 4px 8px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--bg); color: var(--ink); }
+.changes-unavailable button:disabled { opacity: .4; }
 .review-toolbar { flex: none; display: grid; grid-template-columns: minmax(180px, 1fr) auto; gap: 8px; padding: 8px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .review-summary { resize: vertical; min-height: 38px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--bg); color: var(--ink); }
 .review-actions { display: flex; align-items: center; gap: 7px; color: var(--ink-3); }

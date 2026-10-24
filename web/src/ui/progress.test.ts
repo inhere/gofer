@@ -1,4 +1,5 @@
 // 分段进度（设计稿 §8 ProgressBar）：计划总览的进度口径 + 组件渲染。
+// 进度数字来自 utils/planProgress 的唯一口径（gofer-j4j1），这里同时盯住「各段之和 = total」。
 import { describe, expect, it } from 'vitest'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from 'vue/server-renderer'
@@ -37,10 +38,28 @@ describe('planProgressModel', () => {
       }),
     )
     expect(model.parts.map((p) => p.family)).toEqual(['done', 'doing', 'review', 'blocked', 'todo'])
-    expect(model.parts.map((p) => p.count)).toEqual([3, 2, 0, 1, 3])
-    expect(model.total).toBe(9)
+    // 3 完成 + 2 进行中 + 1 受阻 + 2 未开始 = 8（分母就是待办总数，不再被受阻段撑到 9）。
+    expect(model.parts.map((p) => p.count)).toEqual([3, 2, 0, 1, 2])
+    expect(model.total).toBe(8)
     expect(model.done).toBe(3)
-    expect(model.percent).toBe(33)
+    expect(model.percent).toBe(38)
+    expect(model.parts.reduce((n, p) => n + p.count, 0)).toBe(model.total)
+  })
+
+  it('keeps the blocked segment inside the unfinished remainder instead of inflating the total', () => {
+    const model = planProgressModel(
+      plan({
+        todo_counts: { total: 10, pending: 0, doing: 1, done: 8, skipped: 1 },
+        counts: { total: 10, queued: 0, running: 1, done: 8, failed: 1 },
+        failed_jobs: 1,
+      }),
+    )
+    // gofer-j4j1：完成 9、受阻 1 的 10 项计划只可能是 9/10 90%，不能是 9/11 或 9/10 100%。
+    expect(model.done).toBe(9)
+    expect(model.total).toBe(10)
+    expect(model.percent).toBe(90)
+    expect(model.parts.find((p) => p.family === 'blocked')?.count).toBe(1)
+    expect(model.parts.reduce((n, p) => n + p.count, 0)).toBe(10)
   })
 
   it('falls back to job counts when the plan has no todos', () => {
@@ -67,9 +86,12 @@ describe('planProgressModel', () => {
         failed_jobs: 2,
       }),
     )
-    // 待验收 / 受阻是 job 口径：不再恒为 0，也不再只靠 counts.failed 揣摩。
-    expect(model.parts.find((p) => p.family === 'review')?.count).toBe(2)
+    // 待验收 / 受阻是 job 口径：不再恒为 0，也不再只靠 counts.failed 揣摩；两者都从
+    // 「未完成的 3 项」里扣（受阻先扣），扣不下的溢出丢掉，不让各段之和超过 total。
     expect(model.parts.find((p) => p.family === 'blocked')?.count).toBe(2)
+    expect(model.parts.find((p) => p.family === 'review')?.count).toBe(1)
+    expect(model.parts.reduce((n, p) => n + p.count, 0)).toBe(model.total)
+    expect(model.percent).toBe(50)
   })
 
   it('treats a missing needs_review / failed_jobs as zero instead of guessing', () => {
@@ -80,13 +102,17 @@ describe('planProgressModel', () => {
     expect(model.parts.find((p) => p.family === 'blocked')?.count).toBe(0)
   })
 
-  it('prefers the server completion figure (single progress authority)', () => {
+  it('derives the percent from the displayed done/total instead of the server percent', () => {
+    // 服务端的 percent 与前端数出来的分子分母不一致时，界面一律按自己显示的两个数折算
+    // （gofer-j4j1：宁可少信服务端，也不能出现「9/10 100%」）。
     const model = planProgressModel(
       plan({
         todo_counts: { total: 4, pending: 1, doing: 1, done: 2, skipped: 0 },
-        completion: { basis: 'todos', done: 2, total: 4, percent: 50 },
+        completion: { basis: 'todos', done: 4, total: 4, percent: 100 },
       }),
     )
+    expect(model.done).toBe(2)
+    expect(model.total).toBe(4)
     expect(model.percent).toBe(50)
   })
 

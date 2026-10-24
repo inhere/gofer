@@ -152,6 +152,7 @@ export const workbench: PageDict = {
     'workbench.changes.sending': '发送中…',
     'workbench.changes.sendReview': '发送评审（{n}）',
     'workbench.changes.loading': '加载会话改动…',
+    'workbench.changes.unavailable': '这个会话没有 git 改动基线，暂时没有可显示的改动',
 
     'workbench.conv.loadEarlier': '加载更早的轮次（还有 {n} 轮）',
     'workbench.conv.continuous': '持续会话',
@@ -348,6 +349,7 @@ export const workbench: PageDict = {
     'workbench.changes.sending': 'Sending…',
     'workbench.changes.sendReview': 'Send the review ({n})',
     'workbench.changes.loading': 'Loading the session changes…',
+    'workbench.changes.unavailable': 'This session has no git baseline, so there are no changes to show yet',
 
     'workbench.conv.loadEarlier': 'Load earlier rounds ({n} more)',
     'workbench.conv.continuous': 'Continuous session',
