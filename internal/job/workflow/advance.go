@@ -330,8 +330,12 @@ func (e *Engine) startStepAt(wf jobstore.Workflow, stepIdx int, priorJobs []jobs
 		e.setWorkflowFailed(wf.ID, wfPending(wf, fmt.Sprintf("step %d resolve refs: %s", stepIdx, err.Error())))
 		return
 	}
-	if err := e.submitStepFan(wf, next, stepIdx, 1); err != nil {
+	if started, err := e.submitStepFan(wf, next, stepIdx, 1); err != nil {
 		e.setWorkflowFailed(wf.ID, wfPending(wf, "submit step: "+err.Error()))
+		// Only now stop the fans the failed submission had already started (gofer-ourk): the
+		// header is terminal, so a cancelled fan's finish hook can no longer re-start the
+		// generation (see cancelStartedFans).
+		e.cancelStartedFans(wf.ID, started)
 		return
 	}
 }
@@ -426,8 +430,10 @@ func (e *Engine) startStepJob(wf jobstore.Workflow, step, attempt int, priorJobs
 		e.setWorkflowFailed(wf.ID, fmt.Sprintf("step %d resolve refs: %s", step, err.Error()))
 		return
 	}
-	if err := e.submitStepFan(wf, stepSpec, step, attempt); err != nil {
+	started, err := e.submitStepFan(wf, stepSpec, step, attempt)
+	if err != nil {
 		e.setWorkflowFailed(wf.ID, "submit step: "+err.Error())
+		e.cancelStartedFans(wf.ID, started)
 		return
 	}
 }
@@ -444,7 +450,11 @@ func (e *Engine) startStepJob(wf jobstore.Workflow, step, attempt int, priorJobs
 // workflow.terminal before Submit returns, inverting order): step.started for a single
 // job, step.fanout (with all fan job_ids) for a fan-out generation. The step's spec is
 // assumed already ref-resolved by the caller.
-func (e *Engine) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, attempt int) error {
+//
+// On a fan-out failure it returns the JOB ids of the fans it had already started, so the
+// caller can stop them after failing the workflow (gofer-ourk: they used to keep running
+// as orphans needing a manual cancel).
+func (e *Engine) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, attempt int) ([]string, error) {
 	// P3: a workflow-type step submits an INLINE sub-workflow (D18) instead of a job.
 	// The child is bound to (wf.ID, stepIndex) with a deterministic id, so a racing
 	// re-start (finish-hook + sweeper) only ever creates ONE child (idempotent). The
@@ -452,7 +462,7 @@ func (e *Engine) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, a
 	// via FindChildWorkflow). A sub-workflow is a black box (no ref into its inner steps,
 	// design §3), so the step's own resolved fields are unused here.
 	if step.Type == stepTypeWorkflow {
-		return e.startSubWorkflow(wf, step, stepIndex, attempt)
+		return nil, e.startSubWorkflow(wf, step, stepIndex, attempt)
 	}
 	want := fanWant(step)
 	if want <= 1 {
@@ -462,9 +472,9 @@ func (e *Engine) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, a
 			"step": stepIndex, "attempt": attempt, "job_id": req.RequestID,
 		})
 		if _, err := e.ops.Submit(req); err != nil {
-			return err
+			return nil, err
 		}
-		return nil
+		return nil, nil
 	}
 
 	// Fan-out path (P2): record the fanout event up front with every fan's deterministic
@@ -482,12 +492,39 @@ func (e *Engine) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, a
 		"step": stepIndex, "attempt": attempt, "fan_out": want,
 		"join": joinPolicy(step), "job_ids": jobIDs,
 	})
+	// started holds the JOB ids (Submit's return value, not the request_id) of the fans
+	// this call actually launched, so the caller can stop them after failing the workflow.
+	started := make([]string, 0, want)
 	for i := range reqs {
-		if _, err := e.ops.Submit(reqs[i]); err != nil {
-			return err
+		res, err := e.ops.Submit(reqs[i])
+		if err != nil {
+			return started, fmt.Errorf("fan %d of step %d: %w", i+1, stepIndex, err)
+		}
+		started = append(started, res.ID)
+	}
+	return nil, nil
+}
+
+// cancelStartedFans best-effort cancels the fans a partially-failed fan submission had
+// already launched (gofer-ourk), so a failed step does not leave running orphans behind.
+// It MUST run after the workflow header is terminal: a cancelled fan's finish hook re-drives
+// Advance, and against a still-running header with fewer fans than `want` that re-drive
+// (re)starts the generation — starting the very fans this call is tearing down (the
+// deterministic request_ids make that a real submit, not a no-op). Cancel is a stable no-op
+// for a known terminal job, so a fan that finished on its own keeps its result; a cancel
+// error is logged rather than returned, because the caller is already failing the workflow
+// with the submit error, which is the reason an operator needs to see.
+func (e *Engine) cancelStartedFans(wfID string, jobIDs []string) {
+	if len(jobIDs) == 0 {
+		return
+	}
+	slog.Info("workflow: cancelled fans started by a failed step submission",
+		"workflow_id", wfID, "fans", len(jobIDs))
+	for _, id := range jobIDs {
+		if err := e.ops.Cancel(id); err != nil {
+			slog.Warn("workflow: cancel started fan after submit failure", "job_id", id, "err", err)
 		}
 	}
-	return nil
 }
 
 // startSubWorkflow submits the inline sub-workflow of a workflow-type step (P3, D19).
