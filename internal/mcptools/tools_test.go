@@ -26,9 +26,84 @@ func TestRegistryIsConsistent(t *testing.T) {
 		if tl.Idempotent && tl.Class == ReadOnly {
 			t.Fatalf("%s: read-only tools are idempotent implicitly; drop the flag", tl.Name)
 		}
+		if tl.Advisory && tl.Class != Write {
+			t.Fatalf("%s: only a write can be advisory (class %q)", tl.Name, tl.Class)
+		}
 	}
 	if readOnly == 0 {
 		t.Fatal("registry has no read-only tool")
+	}
+}
+
+// TestAutoApprovedTools pins the default no-approval list (the approval gate's default
+// auto_allow_tools): every read-only tool plus exactly the advice-only writes, each
+// entry an exact registry name.
+func TestAutoApprovedTools(t *testing.T) {
+	want := map[string]bool{
+		"gofer_work_list":              true, // read-only
+		"gofer_today_list":             true, // read-only
+		"gofer_session_mail_read":      true, // read-only bookkeeping
+		"gofer_today_advise":           true, // advisory
+		"gofer_work_merge_suggest":     true, // advisory
+		"gofer_memory_suggest":         true, // advisory
+		"gofer_run_job":                false,
+		"gofer_work_note":              false, // a write that changes state
+		"gofer_steward_notes":          false,
+		"gofer_session_mail_reply":     false, // allowed only for a resident session
+		"gofer_memory_candidate_adopt": false,
+	}
+	got := map[string]bool{}
+	for _, name := range AutoApprovedTools() {
+		if _, ok := Lookup(name); !ok {
+			t.Fatalf("AutoApprovedTools lists %q, which is not a registry tool", name)
+		}
+		if got[name] {
+			t.Fatalf("AutoApprovedTools lists %q twice", name)
+		}
+		got[name] = true
+	}
+	for name, wantOK := range want {
+		if got[name] != wantOK {
+			t.Errorf("AutoApprovedTools contains %q = %v, want %v", name, got[name], wantOK)
+		}
+	}
+	// Every read-only tool is in the list: nothing to ask a human about.
+	for _, tl := range All() {
+		if tl.Class == ReadOnly && !got[tl.Name] {
+			t.Errorf("read-only tool %q is missing from AutoApprovedTools", tl.Name)
+		}
+		if tl.Class != ReadOnly && !tl.Advisory && got[tl.Name] {
+			t.Errorf("tool %q (class %q) must stay gated by default", tl.Name, tl.Class)
+		}
+	}
+}
+
+// TestServerOfAndBaseName pins the identity split a permission request's tool name goes
+// through: an mcp__<server>__<tool> name reports its server, a bare name reports none,
+// and BaseName is the tool segment either way.
+func TestServerOfAndBaseName(t *testing.T) {
+	cases := []struct {
+		raw    string
+		server string
+		ok     bool
+		base   string
+	}{
+		{"mcp__gofer__gofer_work_list", "gofer", true, "gofer_work_list"},
+		{"mcp__other__gofer_work_list", "other", true, "gofer_work_list"},
+		{"MCP__Gofer__Gofer_Today_List", "gofer", true, "gofer_today_list"},
+		{"gofer_work_list", "", false, "gofer_work_list"},
+		{"  gofer_work_list  ", "", false, "gofer_work_list"},
+		{"other__gofer_work_list", "", false, "other__gofer_work_list"},
+		{"mcp__gofer__", "gofer", true, ""}, // no tool segment: an empty tool name
+		{"", "", false, ""},
+	}
+	for _, tc := range cases {
+		if srv, ok := ServerOf(tc.raw); srv != tc.server || ok != tc.ok {
+			t.Errorf("ServerOf(%q) = %q,%v want %q,%v", tc.raw, srv, ok, tc.server, tc.ok)
+		}
+		if got := BaseName(tc.raw); got != tc.base {
+			t.Errorf("BaseName(%q) = %q want %q", tc.raw, got, tc.base)
+		}
 	}
 }
 
@@ -75,9 +150,9 @@ func TestToolNameResolution(t *testing.T) {
 		{"gofer_work", false},                  // prefix of a registered tool is not one
 	}
 	for _, tc := range readOnly {
-		name, ok := ReadOnlyToolName(tc.raw)
-		if ok != tc.ok {
-			t.Errorf("ReadOnlyToolName(%q) = %q,%v want ok=%v", tc.raw, name, ok, tc.ok)
+		name, ok := ToolName(tc.raw)
+		if got := ok && IsReadOnly(name); got != tc.ok {
+			t.Errorf("IsReadOnly(ToolName(%q)) = %v want %v", tc.raw, got, tc.ok)
 		}
 	}
 }

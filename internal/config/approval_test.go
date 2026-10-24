@@ -29,6 +29,12 @@ func TestApprovalPolicyDefaultsAndValidation(t *testing.T) {
 	if got, want := strings.Join(def.AskKinds, ","), strings.Join(DefaultApprovalAskKinds, ","); got != want {
 		t.Errorf("default ask_kinds = %q, want %q", got, want)
 	}
+	if got, want := strings.Join(def.AutoAllowTools, ","), strings.Join(DefaultApprovalAutoAllowTools, ","); got != want {
+		t.Errorf("default auto_allow_tools = %q, want %q", got, want)
+	}
+	if len(def.AskTools) != 0 {
+		t.Errorf("default ask_tools = %v, want empty", def.AskTools)
+	}
 
 	// A partial block keeps what it sets and defaults the rest.
 	no := false
@@ -72,6 +78,38 @@ func TestApprovalPolicyDefaultsAndValidation(t *testing.T) {
 		t.Error("ask_kinds must take precedence over auto_allow_kinds")
 	}
 
+	// Tool names (gofer-78on): the default list is gofer's read-only tools plus its
+	// advice-only ones, ask_tools wins, an explicit list replaces the default, and an
+	// entry matches either spelling of the same tool.
+	if !auto.AutoAllowTool("gofer_today_advise") {
+		t.Error("gofer_today_advise must be auto-allowed by the default policy")
+	}
+	if !auto.AutoAllowTool("mcp__gofer__gofer_today_advise") {
+		t.Error("an MCP-qualified gofer tool name must match the same default entry")
+	}
+	if auto.AutoAllowTool("gofer_run_job") {
+		t.Error("a gofer write tool must require approval under mode=ask")
+	}
+	if auto.AutoAllowTool("Bash") {
+		t.Error("a tool named by neither list must require approval")
+	}
+	tools := ProjectConfig{Approval: &ApprovalConfig{
+		AutoAllowTools: []string{"Bash", "mcp__docs__search"},
+		AskTools:       []string{"Bash", "gofer_work_list"},
+	}}.ApprovalPolicy()
+	if tools.AutoAllowTool("Bash") || !tools.AsksTool("Bash") {
+		t.Error("ask_tools must take precedence over auto_allow_tools")
+	}
+	if !tools.AutoAllowTool("search") {
+		t.Error("a bare list entry must match the qualified request name")
+	}
+	if tools.AutoAllowTool("gofer_today_advise") {
+		t.Error("an explicit auto_allow_tools list must replace the default one")
+	}
+	if tools.AutoAllowTool("gofer_work_list") {
+		t.Error("ask_tools must veto a name that the default list would allow")
+	}
+
 	bad := []struct {
 		name string
 		ap   ApprovalConfig
@@ -81,6 +119,8 @@ func TestApprovalPolicyDefaultsAndValidation(t *testing.T) {
 		{"unknown on_timeout", ApprovalConfig{OnTimeout: "deny"}, "on_timeout"},
 		{"unknown auto_allow kind", ApprovalConfig{AutoAllowKinds: []string{"write"}}, "auto_allow_kinds"},
 		{"unknown ask kind", ApprovalConfig{AskKinds: []string{"shell"}}, "ask_kinds"},
+		{"empty auto_allow_tools entry", ApprovalConfig{AutoAllowTools: []string{" "}}, "auto_allow_tools"},
+		{"ask_tools entry with whitespace", ApprovalConfig{AskTools: []string{" Bash"}}, "ask_tools"},
 		{"negative timeout", ApprovalConfig{TimeoutSec: -1}, "timeout_sec"},
 	}
 	for _, tc := range bad {
@@ -99,6 +139,7 @@ func TestApprovalPolicyDefaultsAndValidation(t *testing.T) {
 		{Mode: ApprovalStrict},
 		{Mode: ApprovalOff, OnTimeout: ApprovalOnTimeoutAllow},
 		{Mode: ApprovalAsk, AutoAllowKinds: []string{"read"}, AskKinds: []string{"edit", "switch_mode"}, TimeoutSec: 30},
+		{Mode: ApprovalAsk, AutoAllowTools: []string{"Bash", "mcp__docs__search"}, AskTools: []string{"Read"}},
 	}
 	for i, ap := range ok {
 		ap := ap

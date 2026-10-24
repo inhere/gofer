@@ -1215,6 +1215,8 @@ type ApprovalPolicy struct {
 	Mode                string   `json:"mode"`
 	AutoAllowKinds      []string `json:"auto_allow_kinds"`
 	AskKinds            []string `json:"ask_kinds"`
+	AutoAllowTools      []string `json:"auto_allow_tools"`
+	AskTools            []string `json:"ask_tools"`
 	TimeoutSec          int      `json:"timeout_sec"`
 	OnTimeout           string   `json:"on_timeout"`
 	RememberAllowAlways bool     `json:"remember_allow_always"`

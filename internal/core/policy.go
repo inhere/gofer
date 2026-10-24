@@ -123,6 +123,8 @@ func approvalToPolicy(a config.ApprovalConfig) *wsproto.ApprovalPolicy {
 		Mode:                a.Mode,
 		AutoAllowKinds:      nonNilStrings(a.AutoAllowKinds),
 		AskKinds:            nonNilStrings(a.AskKinds),
+		AutoAllowTools:      nonNilStrings(a.AutoAllowTools),
+		AskTools:            nonNilStrings(a.AskTools),
 		TimeoutSec:          a.TimeoutSec,
 		OnTimeout:           a.OnTimeout,
 		RememberAllowAlways: a.AllowsAlways(),

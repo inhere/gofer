@@ -1042,6 +1042,8 @@ func approvalFromPolicy(ap *wsproto.ApprovalPolicy) *config.ApprovalConfig {
 		Mode:                ap.Mode,
 		AutoAllowKinds:      ap.AutoAllowKinds,
 		AskKinds:            ap.AskKinds,
+		AutoAllowTools:      ap.AutoAllowTools,
+		AskTools:            ap.AskTools,
 		TimeoutSec:          ap.TimeoutSec,
 		OnTimeout:           ap.OnTimeout,
 		RememberAllowAlways: &remember,

@@ -336,7 +336,11 @@ gofer job answer <id> <interaction-id> <optionId>   # 作答（web 交互面板 
 
 等人作答的时间**不计入** job 的每轮超时：job 停在 `pending_interaction` 期间，这一轮的计时暂停（答完恢复），所以人回得慢不会让 job 以 "turn timed out" 失败。暂停 / 恢复各记一条 job 事件（`job.turn_timeout_paused` / `job.turn_timeout_resumed`，详情带本轮预算 `timeout_sec`、已用 `used_sec`、剩余 `remaining_sec` 与 `interaction_id`）。审批自己的 `timeout_sec` 照旧兜底，因此等待仍有上限；会话 / job 的总时长上限（`--max-session`、`--timeout` 的整体上限）不暂停，照旧按墙上时间算。
 
-`mode: ask` 下，agent 调用 **gofer 自己的只读 MCP 工具**（`gofer_work_list`、`gofer_today_list`、`gofer_get_job`、`gofer_list_*` 等）不弹审批：不论 agent 把工具调用报成什么 `kind`（ACP agent 常报 `other`）都自动放行，并在 `artifacts/acp.jsonl` 记一条 `reason=gofer_readonly_tool`。写类工具（提交 job、改状态、写记忆等）与别的 MCP server 的**同名工具**照旧按策略；`mode: strict` 仍然每个工具都问人。
+`mode: ask` 下，agent 调用 **gofer 自己的工具**时按**工具名**放行，不看它报的 `kind`（ACP agent 常把 MCP 工具报成 `other`，而 `other` 在默认 `ask_kinds` 里）：默认名单 `auto_allow_tools` 是 gofer 的只读 MCP 工具（`gofer_work_list`、`gofer_today_list`、`gofer_get_job`、`gofer_list_*` …）加**只写建议、不改状态**的几个（`gofer_today_advise`、`gofer_work_merge_suggest`、`gofer_memory_suggest`——它们只写一条建议，由人采纳或忽略），名单唯一来源是 `internal/mcptools`。放行原因记在 `artifacts/acp.jsonl`：只读工具 `reason=gofer_readonly_tool`、建议类 `gofer_advice_tool`、名单里的其他工具 `auto_allow_tool`。
+
+- **配置**：`approval.auto_allow_tools`（放行名单）/ `ask_tools`（永远问人，优先）。两者都按工具名匹配，可写裸名或 MCP 限定名（`mcp__gofer__gofer_today_advise`）、大小写不敏感，也可以写别的 MCP server 的工具名（如 `mcp__docs__search`）。写了 `auto_allow_tools` 就**替换**默认名单（含 gofer 只读工具，想保留请一并列出）；不写 = 默认名单；写 `auto_allow_tools: []` = 只按 kind 判。项目 `approval` 与 `mail.agents.<名字>.approval` 都用这几个字段（结构相同）。
+- **伪造不了**：权限请求里可用的身份只有工具标题（`title`）：`mcp__<server>__<tool>` 必须限定在 gofer 自己的 MCP server（gofer 注入的名字固定是 `gofer`；若你把同一个 gofer 二进制绑在别的名字下，该名字也算），裸工具名只在这个会话**确实拿到过** gofer MCP 时才算。所以别的 MCP server 的同名工具、没注入 gofer MCP 时的冒名裸名、名字前缀像 `gofer_` 的工具，都照旧按策略审批（`rawInput` 是 agent 自己填的参数，不能作为身份依据）。
+- **其余照旧**：写文件、执行命令、提交 job、改状态、写记忆等写类工具仍逐次问人；`mode: strict` 每个工具都问人。
 
 ## 日志：stdout / stderr 的分工
 
