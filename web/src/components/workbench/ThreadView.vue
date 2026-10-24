@@ -21,7 +21,11 @@ import SessionDrawer from '../SessionDrawer.vue'
 import StatusPill from '../../ui/StatusPill.vue'
 import Composer from '../../ui/Composer.vue'
 
-const props = defineProps<{ threadId: string; focused: boolean }>()
+const props = defineProps<{ threadId: string; focused: boolean; initialView?: 'process' | 'changes' }>()
+
+const emit = defineEmits<{
+  (event: 'view', view: 'process' | 'changes'): void
+}>()
 
 // 工作台只看"现在到哪了"：日志从最后 LOG_TAIL_LINES 行开始推，完整日志去 job 详情页。
 const LOG_TAIL_LINES = 200
@@ -55,7 +59,10 @@ const sessionDrawer = ref<InstanceType<typeof SessionDrawer> | null>(null)
 const menuOpen = ref(false)
 const embeddedRelayModes = ['auto', 'on', 'off'] as const
 const changesView = ref<InstanceType<typeof ThreadChangesView> | null>(null)
-const activeView = ref<'process' | 'changes'>('process')
+const activeView = ref<'process' | 'changes'>(props.initialView === 'changes' ? 'changes' : 'process')
+// 「改动」页签只在第一次打开时才挂载（gofer-yb5x）：打开工作台就拉 diff 会让没有 git
+// 基线的会话每次都吃一个 409。挂载后保留，切回「过程」不重新请求。
+const changesMounted = ref(activeView.value === 'changes')
 const stdout = ref('')
 const stderr = ref('')
 const liveStatus = ref('')
@@ -120,7 +127,8 @@ function resetForThread(): void {
   // 换会话（或判断出别的线程）时丢掉上一轮的附图：它们的责任线程已经不是当前这个。
   turnInput.value?.clearAttachments()
   titleDraft.value = current?.title ?? ''
-  activeView.value = 'process'
+  // 不把页签踢回「过程」：同一 pane 里换会话时沿用当前页签（元 pane 把选择存在自己身上），
+  // 换到新会话的 diff 也是那一刻才请求。
   if (current?.kind !== 'relay' && !isACPThread.value && latestJobID.value) void startStream(latestJobID.value)
 }
 
@@ -290,7 +298,10 @@ function openDetails(): void {
 }
 
 function showChanges(): void {
-  if (thread.value?.kind !== 'relay' && latestJobID.value) activeView.value = 'changes'
+  if (thread.value?.kind !== 'relay' && latestJobID.value) {
+    changesMounted.value = true
+    activeView.value = 'changes'
+  }
 }
 
 function showProcess(): void {
@@ -307,7 +318,7 @@ function filesChanged(): void {
 }
 
 function reviewContinued(jobID?: string): void {
-  activeView.value = 'process'
+  showProcess()
   context.continued(jobID)
 }
 
@@ -351,6 +362,10 @@ function onDocumentVisibility(): void {
 }
 
 defineExpose({ stopCurrent, focusTurn, showView: (view: 'process' | 'changes') => { if (view === 'changes') showChanges(); else showProcess() } })
+
+// 页签选择告诉 pane（LayoutPane 按 pane 记着它，换会话时据此恢复）：只在用户切换时发，
+// 初始值由 initialView 传回去，不会来回打圈。
+watch(activeView, (view) => emit('view', view))
 
 const exposedActions: FocusedThreadActions = {
   stopCurrent,
@@ -551,7 +566,7 @@ onUnmounted(() => {
         <p v-else class="empty mono">{{ t('workbench.empty.noJob') }}</p>
       </div>
       <ThreadChangesView
-        v-if="thread.kind !== 'relay' && latestJobID"
+        v-if="changesMounted && thread.kind !== 'relay' && latestJobID"
         v-show="activeView === 'changes'"
         ref="changesView"
         :thread-id="thread.id"

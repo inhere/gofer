@@ -26,6 +26,9 @@ type DropEdge = 'center' | 'left' | 'right' | 'top' | 'bottom'
 
 const splitRoot = ref<HTMLElement | null>(null)
 const dropZone = ref<DropEdge | ''>('')
+// 这个 pane 当前看的子视图（过程 / 改动）：ThreadView 按 thread 重建（:key），页签选择
+// 得由 pane 自己记着，否则换会话就退回「过程」（gofer-yb5x：页签开着换会话要请求新会话的 diff）。
+const view = ref<'process' | 'changes'>('process')
 let stopPointerTracking: (() => void) | null = null
 
 function childPath(side: 'a' | 'b'): string {
@@ -128,6 +131,8 @@ onUnmounted(() => stopPointerTracking?.())
       :key="node.thread_id"
       :thread-id="node.thread_id"
       :focused="focusedPath === path && contentActive !== false"
+      :initial-view="view"
+      @view="view = $event"
     />
     <button v-else class="empty-pane mono" type="button" @click="emit('focus', path)">
       {{ t('workbench.layout.emptyPane') }}<br /><small>{{ t('workbench.layout.emptyPaneHint') }}</small>
