@@ -214,6 +214,14 @@ func TestComputePolicyCarriesApproval(t *testing.T) {
 	if pooled.Approval.OnTimeout != config.ApprovalOnTimeoutReject || !pooled.Approval.RememberAllowAlways {
 		t.Errorf("pooled approval = %+v, want on_timeout=reject remember=true", pooled.Approval)
 	}
+	// gofer-78on: the tool-name lists ride along too — the gate that reads them runs on
+	// the WORKER, so a list missing here would re-gate the steward's gofer tools there.
+	if got, want := strings.Join(pooled.Approval.AutoAllowTools, ","), strings.Join(config.DefaultApprovalAutoAllowTools, ","); got != want {
+		t.Errorf("pooled approval auto_allow_tools = %q, want %q", got, want)
+	}
+	if pooled.Approval.AskTools == nil {
+		t.Error("approval ask_tools marshals to null; an empty list must stay []")
+	}
 
 	multi := byKey["multi"]
 	if multi.Approval == nil || multi.Approval.Mode != config.ApprovalOff {

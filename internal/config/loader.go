@@ -475,7 +475,13 @@ func validateApprovalAt(owner string, a ApprovalConfig) error {
 	if err := validateApprovalKinds(owner, "auto_allow_kinds", a.AutoAllowKinds); err != nil {
 		return err
 	}
-	return validateApprovalKinds(owner, "ask_kinds", a.AskKinds)
+	if err := validateApprovalKinds(owner, "ask_kinds", a.AskKinds); err != nil {
+		return err
+	}
+	if err := validateApprovalTools(owner, "auto_allow_tools", a.AutoAllowTools); err != nil {
+		return err
+	}
+	return validateApprovalTools(owner, "ask_tools", a.AskTools)
 }
 
 // validateApprovalKinds rejects a kind outside the ACP ToolKind vocabulary — kinds
@@ -485,6 +491,22 @@ func validateApprovalKinds(owner, field string, kinds []string) error {
 		if !slices.Contains(acp.ToolKinds, k) {
 			return fmt.Errorf("%s: unknown approval.%s entry %q (want one of %s)",
 				owner, field, k, strings.Join(acp.ToolKinds, "|"))
+		}
+	}
+	return nil
+}
+
+// validateApprovalTools rejects tool-name entries that cannot mean anything: an empty
+// entry (it would match nothing while looking like a configured allowance) or a name with
+// surrounding whitespace. Unlike a KIND, a tool name is not a closed vocabulary — a
+// project may name a tool from any MCP server — so an unknown name is not an error.
+func validateApprovalTools(owner, field string, tools []string) error {
+	for _, t := range tools {
+		if strings.TrimSpace(t) == "" {
+			return fmt.Errorf("%s: approval.%s has an empty entry", owner, field)
+		}
+		if t != strings.TrimSpace(t) {
+			return fmt.Errorf("%s: approval.%s entry %q has surrounding whitespace", owner, field, t)
 		}
 	}
 	return nil

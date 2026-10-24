@@ -12,6 +12,7 @@ import (
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/inhere/gofer/internal/acp"
+	"github.com/inhere/gofer/internal/mcptools"
 	"github.com/inhere/gofer/internal/tunnel"
 )
 
@@ -2381,6 +2382,18 @@ type ApprovalConfig struct {
 	// AskKinds lists the ACP ToolKinds that always ask ("" => DefaultApprovalAskKinds).
 	// It takes precedence over AutoAllowKinds, so a kind in both lists asks.
 	AskKinds []string `yaml:"ask_kinds,omitempty"`
+	// AutoAllowTools lists the tool NAMES approved without asking under mode=ask ("" =>
+	// DefaultApprovalAutoAllowTools: gofer's own read-only MCP tools plus the steward's
+	// advice-only ones). An entry is matched case-insensitively against the name a
+	// permission request carries, bare (gofer_today_advise) or MCP-qualified
+	// (mcp__gofer__gofer_today_advise), so a tool from ANY MCP server can be named —
+	// except that a name gofer's registry knows (gofer_*) only counts when the request
+	// really came from gofer's own MCP server (the runner decides that; a look-alike from
+	// another server is not the tool the operator listed).
+	AutoAllowTools []string `yaml:"auto_allow_tools,omitempty"`
+	// AskTools lists the tool NAMES that always ask ("" => empty). It takes precedence
+	// over AutoAllowTools, so a tool in both lists asks.
+	AskTools []string `yaml:"ask_tools,omitempty"`
 	// TimeoutSec bounds how long a pending approval waits for an answer ("" / <=0 =>
 	// DefaultApprovalTimeoutSec). The job's own timeout still applies on top.
 	TimeoutSec int `yaml:"timeout_sec,omitempty"`
@@ -2438,6 +2451,13 @@ var (
 	}
 )
 
+// DefaultApprovalAutoAllowTools are the tools approved without asking under mode=ask,
+// by NAME: gofer's own read-only MCP tools plus the advice-only writes an ACP agent still
+// reports as kind=other. Without them a steward asking gofer_work_list, or writing
+// gofer_today_advise, parked on a human for every call. The list comes from
+// internal/mcptools, so a new tool is classified in exactly one place.
+var DefaultApprovalAutoAllowTools = mcptools.AutoApprovedTools()
+
 // WithDefaults returns the policy with every unset field resolved, so a consumer
 // (the runner) never has to know the defaults. Slices are copied: the returned value
 // shares no backing array with the config.
@@ -2450,6 +2470,12 @@ func (a ApprovalConfig) WithDefaults() ApprovalConfig {
 	}
 	if a.AskKinds == nil {
 		a.AskKinds = append([]string(nil), DefaultApprovalAskKinds...)
+	}
+	if a.AutoAllowTools == nil {
+		a.AutoAllowTools = append([]string(nil), DefaultApprovalAutoAllowTools...)
+	}
+	if a.AskTools == nil {
+		a.AskTools = []string{}
 	}
 	if a.TimeoutSec <= 0 {
 		a.TimeoutSec = DefaultApprovalTimeoutSec
@@ -2485,6 +2511,48 @@ func (a ApprovalConfig) AutoAllow(kind string) bool {
 		}
 	}
 	return false
+}
+
+// AutoAllowTool reports whether a permission request for the tool named raw needs no
+// approval by NAME. It is asked of a RESOLVED policy: ask_tools wins over
+// auto_allow_tools (a tool in both asks), and a tool named by neither list is decided by
+// its kind (AutoAllow). raw may be bare or mcp__<server>__<tool>; both sides are compared
+// by tool segment, so an entry matches either spelling.
+//
+// This is a name test only: whether the request really came from gofer's own MCP server
+// is the runner's call, and it must be settled before a gofer_* name is believed.
+func (a ApprovalConfig) AutoAllowTool(raw string) bool {
+	for _, t := range a.AskTools {
+		if approvalToolMatches(t, raw) {
+			return false
+		}
+	}
+	for _, t := range a.AutoAllowTools {
+		if approvalToolMatches(t, raw) {
+			return true
+		}
+	}
+	return false
+}
+
+// AsksTool reports whether a tool NAME is on ask_tools (never auto-allowed by name).
+func (a ApprovalConfig) AsksTool(raw string) bool {
+	for _, t := range a.AskTools {
+		if approvalToolMatches(t, raw) {
+			return true
+		}
+	}
+	return false
+}
+
+// approvalToolMatches reports whether a list entry names the same tool as raw, ignoring
+// case and the mcp__<server>__<tool> qualification on either side.
+func approvalToolMatches(entry, raw string) bool {
+	e := mcptools.BaseName(entry)
+	if e == "" {
+		return false
+	}
+	return e == mcptools.BaseName(raw)
 }
 
 // ApprovalPolicy returns the project's approval policy with the defaults applied
