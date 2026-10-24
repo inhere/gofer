@@ -84,7 +84,10 @@ func TestGitWorktreeAddRetriesAConcurrentRegistration(t *testing.T) {
 	if attempts != 2 {
 		t.Fatalf("attempts = %d, want 2 (one race, one success)", attempts)
 	}
-	if list := gitOutIn(t, repo, "worktree", "list", "--porcelain"); !strings.Contains(list, filepath.ToSlash(path)) {
+	// Match the path's tail: on Windows the temp dir may be an 8.3 short name (RUNNER~1)
+	// while git lists the long one, so the full string differs though it is one directory.
+	tail := "tmp/gofer/wt/" + filepath.Base(path)
+	if list := gitOutIn(t, repo, "worktree", "list", "--porcelain"); !strings.Contains(filepath.ToSlash(list), tail) {
 		t.Fatalf("the retried worktree add did not register %s:\n%s", path, list)
 	}
 }

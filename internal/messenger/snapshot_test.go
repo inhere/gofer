@@ -2,6 +2,7 @@ package messenger
 
 import (
 	"context"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"strings"
 	"testing"
 	"time"
@@ -109,10 +110,13 @@ func TestListAgentsReadsToolResult(t *testing.T) {
 	if _, err := m.ListAgents(context.Background(), "local", "", command); err != nil {
 		t.Fatal(err)
 	}
-	s := m.Snapshot("local")
-	if len(s.Deliveries) != 2 || s.Deliveries[0].Op != "list_agents" || !strings.Contains(s.StderrTail, "fake-stderr") {
-		t.Fatalf("snapshot = %+v", s)
-	}
+	// stderr is copied by a reader goroutine: wait for the tail instead of reading it the
+	// instant the call returns (G052).
+	var s Snapshot
+	wait.Until(t, wait.Timeout(t, 5*time.Second), "the snapshot to carry both deliveries and the stderr tail", func() bool {
+		s = m.Snapshot("local")
+		return len(s.Deliveries) == 2 && s.Deliveries[0].Op == "list_agents" && strings.Contains(s.StderrTail, "fake-stderr")
+	})
 }
 
 func TestParseAgentsToleratesFencesAndUnknownSegments(t *testing.T) {
