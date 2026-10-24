@@ -790,6 +790,11 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/update/check":                   {user: Require(authz.PermUpdateCheck), scope: NoProject()},
 	"POST /v1/update/apply":                   {user: InHandler(permDeny, authz.PermUpdateApply, authz.PermWorkerUpgrade), scope: NoProject()},
 	"DELETE /v1/update/apply":                 {user: Require(authz.PermUpdateApply), scope: NoProject()},
+	// gofer-4uk5: restarting the managed serve is gated like the console's config writes;
+	// reading its progress needs only config.read.
+	"GET /v1/server/restart":                  {user: Require(authz.PermConfigRead), scope: NoProject()},
+	"POST /v1/server/restart":                 {user: Require(authz.PermConfigWrite), scope: NoProject()},
+	"DELETE /v1/server/restart":               {user: Require(authz.PermConfigWrite), scope: NoProject()},
 	"POST /v1/workers":                        {user: Require(authz.PermWorkerManage), scope: NoProject()},
 	"DELETE /v1/workers/{id}":                 {user: Require(authz.PermWorkerManage), scope: Resource("worker")},
 	"GET /v1/worker-enrollments":              {user: Require(authz.PermWorkerManage), scope: NoProject()},

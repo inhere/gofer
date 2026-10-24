@@ -1256,6 +1256,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/update/apply", s.handleUpdateApply)
 		// gofer-dzv3: stop an update that is waiting for the server to go idle.
 		r.DELETE("/update/apply", s.handleUpdateApplyCancel)
+		// gofer-4uk5: restart the managed serve (the update's handover without a download).
+		r.GET("/server/restart", s.handleServerRestartStatus)
+		r.POST("/server/restart", s.handleServerRestart)
+		r.DELETE("/server/restart", s.handleServerRestartCancel)
 		r.POST("/tracker/repos/{tracker_id}/sync", s.handleTrackerRepoSync)
 		r.POST("/tracker/repos/{tracker_id}/rename", s.handleTrackerRepoRename)
 		r.POST("/tracker/repos/{tracker_id}/issues", s.handleTrackerIssueCreate)

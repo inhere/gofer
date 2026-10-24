@@ -496,6 +496,9 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		}
 		srv.SetUpdateApply(filepath.Join(configDir, "run", "update"), managed)
 		go srv.ResumeUpdateApply(updateCtx)
+		// gofer-4uk5: a restart the previous process asked for is visible only from here
+		// (the asking process exits during the handover).
+		srv.ResumeServerRestart()
 	}
 	// POST /v1/workers/{id}/reload: adapt the same hub to the reload seam, which also
 	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.
