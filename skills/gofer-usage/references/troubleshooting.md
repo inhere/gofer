@@ -36,6 +36,7 @@
 | 送话失败 `no_runner` / `no_tmux` / `pane_busy` | 见 [sessions-relay.md](sessions-relay.md)「送话」。 |
 | agent 改出的文件混进制表符 / 空字符，Markdown 行内代码或注释被吃掉 | Windows 主机上 agent 用 PowerShell 双引号字符串写文件，反引号被当成转义符。任务书要求用 apply_patch，提交前 `git grep -nP "[\x00-\x08\x0b\x0c\x0e-\x1f]"` 自查。 |
 | 容器里建的 worktree 在主机上 git 报错 | worktree 的 `.git` 文件指向容器路径。要在主机跑依赖 git 的 job，就在主机建 worktree 或在主 checkout 里跑。 |
+| `worktree add` 报 `failed to read .git/worktrees/<id>/commondir`（或 `gitdir`） | 同一仓库正被另一台机器 / 容器并发建 worktree，读到了刚建一半的登记。gofer 会自动退避重试几次；反复出现说明那条登记真坏了：`git worktree prune` 后重投。 |
 | 子 agent 在 worktree 里 `issue brief <新 id>` 找不到 | worktree 里的 tracker 是建分支时的副本；先提交 tracker 再开 worktree。 |
 | 看不到 ndjson agent 的输出 | stdout 只留最终答复、过程事件在 stderr；开 agent 的 `ndjson_raw: true` 重跑对照。 |
 | 偶发失败 | 先单独重跑确认；连续出现或「单跑也挂」的不要当偶发，查根因。 |

@@ -408,6 +408,7 @@ steps:
 | `review-committee` | 两个 agent 只读评审 → verifier 读各评审报告、对照源码逐条核实后汇总 | `agent_a`、`agent_b`、`verifier` |
 
 - 异构扇出：步骤 `agents: [claude, codex]`（第 K 个 fan 用第 K 个 agent）或 `fan: [{agent: claude}, {agent: codex, runner: <r>}]`。
+- 扇出步提交中途失败：这一步算失败、整个 workflow 随即失败，**已经起的那几路 fan 会被一并取消**（状态显示 `cancelled`），不会留下还在跑的孤儿需要手工停。原因看 workflow 的错误（形如 `submit step 1: fan 2 of step 1: …`，点名哪一路没起成）。
 - 每路不同命令（一次并行跑多项检查）：`fan` 的每一项可有自己的 `name`、`cmd`、`env`、`cwd`、`timeout_sec`，未写的沿用步骤上的值；带 `cmd` 时 `agent` 可省（默认 exec）；`name` 在步骤内唯一，之后用 `${steps.<step>.<fan 名>.<field>}` 引用这一路。配合 `join: all`，全部跑完、任一路失败则整体失败：
 
 ```yaml

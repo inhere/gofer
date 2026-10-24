@@ -92,6 +92,19 @@ func newTestEngineWithService(t *testing.T, root string) (*Engine, *job.Service)
 	return eng, svc
 }
 
+// newTestEngineWrapped is newTestEngine with the host JobOps passed through wrap, the
+// fault-injection seam for a submission that fails MID-WAY (a fan whose Submit errors after
+// its siblings started) and for watching the calls the engine makes on the host. The wrapped
+// engine is the one registered with the service, so the finish hook drives the chain through
+// it as well.
+func newTestEngineWrapped(t *testing.T, root string, wrap func(JobOps) JobOps) *Engine {
+	t.Helper()
+	eng, svc := newTestEngineWithService(t, root)
+	wrapped := NewEngine(wrap(eng.ops))
+	svc.SetWorkflow(wrapped)
+	return wrapped
+}
+
 // Teardown-drain tuning: the budget bounds the whole wait (a job that ignores
 // cancellation must not stall the suite), the quiet window is how many consecutive
 // observations of "nothing in flight and no new job id" end the drain early.
