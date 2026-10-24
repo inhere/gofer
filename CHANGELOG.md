@@ -11,18 +11,20 @@
 
 ## [未发布]
 
+## [0.194.0] - 2026-10-24
+
+### 修复
+
+- **配置视图里的地址不再泄露凭据**：配置管理页回显的 MCP server 地址与更新源地址，把 `user:pass@` 与查询参数的值打码，协议、主机、路径与 `{os}` / `{arch}` 占位符照常显示。
+- **聊天里的长行不再把气泡撑出可视区（gofer-ndub）**：工作台、会话抽屉、信箱、管家面板、审批卡片、评论、任务的「消息」区与汇报里，代码块、长命令、长路径、长 URL 与宽表格以前会把气泡（甚至整页）撑宽。现在这类内容走同一份 `.msg-body` 样式（`web/src/styles/msg.css`）：气泡本身不再被内容顶开（`min-width:0`），普通文本里的超长单词 / URL 就地断行（`overflow-wrap:anywhere`），代码块与表格在自己的框里横向滚动。markdown 渲染统一经 `MarkdownBlock`（根元素自带该类），纯文本气泡在模板里加同名 class；扫掠测试守住「每个注入点在 `.msg-body` 里」。
+
+### 新增
+
 - **配置管理页展示完整配置 + 可重启 server（gofer-4uk5）**：
   - `GET /v1/config` 现在会带回全部顶层段：`log`、`wakeup`、`session`、`work`、`steward`、`pty`、`mail`、`tools`、`mcp_servers`、`secrets`、`pricing`、`http_proxy`、`include`，以及 `server.*` 里原先没有的块（`tls`、`update`、`worker_enrollment`、`push`、`session_messaging`、`policy_repush`、`agent_fallback`、`xfer`、`attachments`、`worker_queue_max_wait_sec`、`hold`、`notification.desktop`），还有 `governance.require_tunnel_capability` / `attach_origins`、`callers[].can_attach` / `can_tunnel`、`storage.mail_retention_days` / `attachment_retention_days`。全都是**只读**字段；密钥与代理 URL 只回「已配置 / 未配置」，env / header 只给名字（沿用 webhook `secret_env` 的先例）。
   - 设置 › 配置管理把其余各段按分组卡片（默认收起，标「只读」）展示，敏感字段显示「已配置 / 未配置」；原有的 server / agents 编辑入口不变。
   - 「重新读取文件」旁新增「重启 server」：写清影响的二次确认（在跑的 job 先结束、新 job 排队、控制台断几秒）、可选「最多等空闲」（30 分钟 / 1 / 2 / 4 小时）与「取消等待」；不是受管服务（未 `gofer serve register`）时按钮灰显并说明原因。
   - 新接口 `POST /v1/server/restart`（`GET` 读进度与 `managed`、`DELETE` 取消等待），复用一键更新的受管交接（`gofer serve upgrade`）：套接字照样先停放新 job、等机器空闲，再把**当前可执行文件的副本**交给交接——不下载任何东西。权限与一键更新同档（admin + `config.write`）；非受管 server 返回 409。
-
-### 修复
-
-- **聊天里的长行不再把气泡撑出可视区（gofer-ndub）**：工作台、会话抽屉、信箱、管家面板、审批卡片、评论、任务的「消息」区与汇报里，代码块、长命令、长路径、长 URL 与宽表格以前会把气泡（甚至整页）撑宽。现在这类内容走同一份 `.msg-body` 样式（`web/src/styles/msg.css`）：气泡本身不再被内容顶开（`min-width:0`），普通文本里的超长单词 / URL 就地断行（`overflow-wrap:anywhere`），代码块与表格在自己的框里横向滚动。markdown 渲染统一经 `MarkdownBlock`（根元素自带该类），纯文本气泡在模板里加同名 class；扫掠测试守住「每个注入点在 `.msg-body` 里」。
-
-### 新增
-
 - **异构 worker 可以单点升级：从下载源取该平台的发布包（gofer-n1vj）**：
   - `POST /v1/workers/{id}/upgrade` 新增来源 `mirror`（始终从 `server.update` 的下载源取）与 `auto`（新的默认值：与 server 同 os/arch 用 server 自身可执行文件，其他平台从下载源取该平台的发布包）。显式 `source: server` 在平台不同时仍报 `platform mismatch`，`staged` 未变。
   - 新增 `version` 字段（`X.Y.Z`，可带 `v`）：默认跟 server 同版本，可指定其他发布版本；mirror 用 `url_template` 的 `{version}`，GitHub 走该 tag 的 release。下载与校验复用的是一键更新的逻辑（有 sha256 就校验；mirror 只发布最新版的校验和）。
