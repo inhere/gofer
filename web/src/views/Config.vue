@@ -12,14 +12,33 @@ import { PAGE } from '../utils/uiText'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import {
   ApiError,
+  cancelServerRestart,
   deleteConfigAgent,
   getConfig,
+  getServerRestart,
   putConfigAgent,
   putConfigServer,
   reloadConfig,
+  restartServer,
   validateConfig,
 } from '../api/client'
-import type { ConfigAgentView, ConfigView, ConfigValidateResult, FieldPolicy, WebhookView } from '../api/types'
+import { fmtDateTime, fmtDuration } from '../api/time'
+import {
+  cfgItems as buildCfgItems,
+  cfgRows as buildCfgRows,
+  type CfgLabels,
+  type CfgRow,
+  type CfgSection,
+} from './configRows'
+import type {
+  ConfigAgentView,
+  ConfigView,
+  ConfigValidateResult,
+  FieldPolicy,
+  ServerRestartState,
+  ServerRestartView,
+  WebhookView,
+} from '../api/types'
 
 
 // 写配置需要 config.write；没有就不摆编辑 / 新增 / 删除 / 重新读取（读仍可看）。
@@ -49,6 +68,120 @@ const sourceGroups = computed(() => {
 const workers = computed(() => config.value?.server.workers ?? [])
 const eventHooks = computed(() => config.value?.server.event_hooks ?? [])
 const decisionHooks = computed(() => config.value?.server.decision_hooks ?? [])
+
+// ------------------------------------------------------- 完整配置（只读分组）
+//
+// gofer-4uk5：GET /v1/config 现在会把每个顶层段都发过来，下面把这些段按分组展示。除了
+// 已有的 server / agents 编辑入口外，这些段在本接口上是只读的（要改就改 config.yaml +
+// 「重新读取文件」或「重启 server」），所以每组都带「只读」标。字段名是配置键本身（技术
+// 标识不翻译），值按类型格式化；`*_set` 字段是服务端的脉敏表示，只显示「已配置 / 未配置」。
+
+// cfgLabels 把配置行的文案（是 / 否 / 已配置 / 未配置 / 默认 / 列表分隔符）交给纯函数
+// configRows.ts，这样两种语言与格式化逻辑可以分别测。
+const cfgLabels = computed<CfgLabels>(() => ({
+  yes: t('settings.config.yes'),
+  no: t('settings.config.no'),
+  set: t('settings.config.set'),
+  unset: t('settings.config.unset'),
+  def: t('settings.config.default'),
+  sep: t('util.sep.list'),
+}))
+
+// 两个薄包装：调用处只管传数据，文案从当前语言取。
+function cfgRows(obj: Record<string, unknown> | undefined, prefix = ''): CfgRow[] {
+  return buildCfgRows(obj, cfgLabels.value, prefix)
+}
+
+function cfgItems(items: Record<string, unknown>[] | undefined, titleKey: string): CfgSection['items'] {
+  return buildCfgItems(items, titleKey, cfgLabels.value)
+}
+
+// extraSections 是「除已有总览卡片以外的全部配置段」。空段不渲染（没有配置就不占地方）。
+const extraSections = computed<CfgSection[]>(() => {
+  const c = config.value
+  if (!c) {
+    return []
+  }
+  const s = c.server
+  const serverExtra = cfgRows({
+    web_dir: s.web_dir,
+    web_base_url: s.web_base_url,
+    tls: s.tls,
+    update: s.update,
+    worker_enrollment: s.worker_enrollment,
+    push: s.push,
+    session_messaging: s.session_messaging,
+    policy_repush: s.policy_repush,
+    agent_fallback: s.agent_fallback,
+    xfer: s.xfer,
+    attachments: s.attachments,
+    worker_queue_max_wait_sec: s.worker_queue_max_wait_sec,
+    hold: s.hold,
+    comment_trigger: s.comment_trigger,
+    dir_lock: s.dir_lock,
+    dir_lock_max_wait_sec: s.dir_lock_max_wait_sec,
+    dir_lock_allow_unbounded_wait: s.dir_lock_allow_unbounded_wait,
+    agent_health: s.agent_health,
+    skill_limits: s.skill_limits,
+    job_env_denylist: s.job_env_denylist,
+    tunnel: s.tunnel,
+    mcp: s.mcp,
+  })
+  const mailRaw = (c.mail ?? {}) as Record<string, unknown>
+  const { agents: mailAgents, ...mailRest } = mailRaw
+  const sections: CfgSection[] = [
+    { key: 'serverExtra', title: t('settings.config.sec.serverExtra'), rows: serverExtra },
+    {
+      key: 'storageExtra',
+      title: t('settings.config.sec.storageExtra'),
+      rows: cfgRows({
+        mail_retention_days: c.storage.mail_retention_days,
+        attachment_retention_days: c.storage.attachment_retention_days,
+        cast: c.storage.cast,
+        prune_interval_minutes: c.storage.retention.prune_interval_minutes,
+        workflow_max_age_days: c.storage.retention.workflow_max_age_days,
+      }),
+    },
+    { key: 'log', title: t('settings.config.sec.log'), rows: cfgRows(c.log) },
+    { key: 'wakeup', title: t('settings.config.sec.wakeup'), rows: cfgRows(c.wakeup) },
+    { key: 'session', title: t('settings.config.sec.session'), rows: cfgRows(c.session) },
+    { key: 'work', title: t('settings.config.sec.work'), rows: cfgRows(c.work) },
+    { key: 'steward', title: t('settings.config.sec.steward'), rows: cfgRows(c.steward) },
+    { key: 'pty', title: t('settings.config.sec.pty'), rows: cfgRows(c.pty) },
+    {
+      key: 'mail',
+      title: t('settings.config.sec.mail'),
+      rows: cfgRows(mailRest),
+      items: cfgItems(mailAgents as Record<string, unknown>[] | undefined, 'key'),
+    },
+    { key: 'httpProxy', title: t('settings.config.sec.httpProxy'), rows: cfgRows(c.http_proxy) },
+    {
+      key: 'tools',
+      title: t('settings.config.sec.tools'),
+      rows: [],
+      items: cfgItems(c.tools as Record<string, unknown>[] | undefined, 'name'),
+    },
+    {
+      key: 'mcpServers',
+      title: t('settings.config.sec.mcpServers'),
+      rows: [],
+      items: cfgItems(c.mcp_servers as Record<string, unknown>[] | undefined, 'key'),
+    },
+    {
+      key: 'secrets',
+      title: t('settings.config.sec.secrets'),
+      rows: [],
+      items: cfgItems(c.secrets as Record<string, unknown>[] | undefined, 'key'),
+    },
+    {
+      key: 'pricing',
+      title: t('settings.config.sec.pricing'),
+      rows: [],
+      items: cfgItems(c.pricing as Record<string, unknown>[] | undefined, 'model'),
+    },
+  ]
+  return sections.filter((sec) => sec.rows.length > 0 || (sec.items?.length ?? 0) > 0)
+})
 
 async function loadConfig(silent = false): Promise<void> {
   if (!silent) {
@@ -659,6 +792,114 @@ async function reloadNow(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------- 重启 server
+//
+// gofer-4uk5：「重新读取文件」只能让进程重读配置；有些项（监听地址、存储、TLS 等）启动时
+// 才读，必须重启。这里走 POST /v1/server/restart：复用一键更新的「停放新 job → 等机器空闲
+// → 交给 serve upgrade 换二进制」，只是不下载任何东西（候选就是当前这个可执行文件的副本）。
+const restart = ref<ServerRestartView | null>(null)
+const showRestart = ref(false)
+const restarting = ref(false)
+const restartError = ref('')
+const restartWaitSec = ref(7200)
+const restartUnreachable = ref(false)
+const restartCancelling = ref(false)
+const restartCancelError = ref('')
+let restartTimer: ReturnType<typeof setTimeout> | null = null
+
+const restartManaged = computed(() => restart.value?.managed === true)
+const restartState = computed<ServerRestartState | null>(() => restart.value?.state ?? null)
+// 只有这两个阶段算「进行中」：restarting 之后本进程会退出，界面靠「连不上 → 再连上」收尾。
+const restartActive = computed(() => {
+  const phase = restartState.value?.phase
+  return phase === 'waiting_idle' || phase === 'restarting'
+})
+const restartWaiting = computed(() => restartState.value?.phase === 'waiting_idle')
+const restartWaitingRows = computed(() => (restartWaiting.value ? (restartState.value?.waiting ?? []) : []))
+const restartPhaseText = computed(() => {
+  const phase = restartState.value?.phase
+  return phase ? t(`settings.config.restartPhase.${phase}`) : ''
+})
+const restartDeadlineText = computed(() => {
+  const at = restartState.value?.wait_deadline
+  if (!at) {
+    return ''
+  }
+  const left = at - Math.floor(Date.now() / 1000)
+  return t('settings.config.restartGiveUpAt', {
+    at: fmtDateTime(at),
+    left: left > 0 ? t('settings.config.restartLeft', { d: fmtDuration(left) }) : t('settings.config.restartSoon'),
+  })
+})
+
+function scheduleRestartPoll(): void {
+  if (restartTimer) {
+    clearTimeout(restartTimer)
+  }
+  restartTimer = setTimeout(() => void pollRestart(), 3000)
+}
+
+// pollRestart 读重启进度。server 真的重启那几秒请求会失败：记下 unreachable 并继续轮询，
+// 等它回来后重新读配置（重启要生效的正是那些启动时读取的项）。
+async function pollRestart(): Promise<void> {
+  try {
+    restart.value = await getServerRestart()
+    restartUnreachable.value = false
+    if (restartActive.value) {
+      scheduleRestartPoll()
+      return
+    }
+    // 重启完成（或失败/取消）：相位不再是进行中，重读配置与令牌能力。
+    await loadConfig(true)
+    void refreshWhoami()
+  } catch {
+    restartUnreachable.value = true
+    scheduleRestartPoll()
+  }
+}
+
+async function loadRestart(): Promise<void> {
+  try {
+    restart.value = await getServerRestart()
+    if (restartActive.value) {
+      scheduleRestartPoll()
+    }
+  } catch (e) {
+    restartError.value = errorMessage(e)
+  }
+}
+
+// startRestart 提交重启：confirm 对话框已经写清影响（在跑的 job 等它们结束、新 job 排队、
+// 控制台断几秒），wait 是愿意为「等空闲」花多久。
+async function startRestart(): Promise<void> {
+  restarting.value = true
+  restartError.value = ''
+  try {
+    await restartServer(restartWaitSec.value)
+    showRestart.value = false
+    await loadRestart()
+    scheduleRestartPoll()
+  } catch (e) {
+    restartError.value = classifyWriteError(e)
+  } finally {
+    restarting.value = false
+  }
+}
+
+// cancelRestartWait：停下「等空闲」的重启，停放的 job 立即放行；已进入重启则 409。
+async function cancelRestartWait(): Promise<void> {
+  restartCancelling.value = true
+  restartCancelError.value = ''
+  try {
+    await cancelServerRestart()
+    scheduleRestartPoll()
+  } catch (e) {
+    restartCancelError.value = classifyWriteError(e)
+  } finally {
+    restartCancelling.value = false
+  }
+}
+
 function classifyWriteError(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.status === 403) {
@@ -688,11 +929,15 @@ const liveMeta = createLiveTopic('meta', {
 
 onMounted(() => {
   void loadConfig()
+  void loadRestart()
   liveMeta.start()
 })
 
 onUnmounted(() => {
   liveMeta.stop()
+  if (restartTimer) {
+    clearTimeout(restartTimer)
+  }
 })
 </script>
 
@@ -704,7 +949,58 @@ onUnmounted(() => {
       <button v-if="can('config.write')" class="mini-btn mono" type="button" :disabled="loading" data-test="cfg-reload" @click="reloadNow()">
         {{ t('settings.config.reloadFile') }}
       </button>
+      <!-- gofer-4uk5：有些项只有重启才生效；非受管启动时按钮灰显并说明原因。 -->
+      <button
+        v-if="can('config.write')"
+        class="mini-btn mono"
+        type="button"
+        data-test="cfg-restart"
+        :disabled="!restartManaged || restartActive || restarting"
+        :title="restartManaged ? t('settings.config.restartHint') : t('settings.config.restartUnmanaged')"
+        @click="showRestart = true; restartError = ''"
+      >
+        {{ restartActive ? t('settings.config.restarting') : t('settings.config.restartServer') }}
+      </button>
       <span class="poll mono" :class="{ 'poll--on': loading }">●</span>
+    </div>
+
+    <p v-if="!restartManaged && can('config.write')" class="hint mono" data-test="cfg-restart-unmanaged">
+      {{ t('settings.config.restartUnmanaged') }}
+    </p>
+    <p v-if="restartError" class="error mono">{{ restartError }}</p>
+
+    <!-- 重启进度：等空闲时列出在等谁、停住了多少，可随时取消。 -->
+    <div v-if="restartState" class="panel restart-panel" data-test="cfg-restart-state">
+      <h3 class="panel-title mono">
+        {{ t('settings.config.restartLast') }}
+        <span class="flag" :class="restartState.phase === 'failed' ? 'flag--no' : 'flag--yes'">{{ restartPhaseText }}</span>
+      </h3>
+      <p v-if="restartUnreachable && restartActive" class="hint mono">{{ t('settings.config.restartUnreachable') }}</p>
+      <p v-if="restartState.error" class="error mono">{{ restartState.error }}</p>
+      <template v-if="restartWaiting">
+        <p class="hint mono">
+          {{ t('settings.config.restartWaiting', { n: restartWaitingRows.length, paused: restartState.paused ?? 0 }) }}
+        </p>
+        <ul class="mini-list">
+          <li v-for="j in restartWaitingRows" :key="j.id" class="mini-row mono">
+            <RouterLink class="item-main" :to="`/jobs/${j.id}`">{{ j.title || j.id }}</RouterLink>
+            <span class="muted">{{ j.runner || '' }}</span>
+            <span class="muted">{{ j.status }}</span>
+          </li>
+        </ul>
+        <p v-if="restartState.wait_deadline" class="hint mono">{{ restartDeadlineText }}</p>
+        <p class="hint mono">{{ t('settings.config.restartCancelHint') }}</p>
+        <button
+          class="mini-btn mono"
+          type="button"
+          data-test="cfg-restart-cancel"
+          :disabled="restartCancelling"
+          @click="cancelRestartWait()"
+        >
+          {{ restartCancelling ? t('settings.config.restartCancelling') : t('settings.config.restartCancelWait') }}
+        </button>
+        <p v-if="restartCancelError" class="error mono">{{ restartCancelError }}</p>
+      </template>
     </div>
 
     <p v-if="loadError" class="error mono">{{ loadError }}</p>
@@ -878,8 +1174,67 @@ onUnmounted(() => {
             </ul>
           </article>
         </div>
+
+        <!-- gofer-4uk5：其余全部配置段（只读，按分组折叠）。值来自 GET /v1/config；
+             secret / 代理 URL 类字段服务端只给「已配置 / 未配置」。 -->
+        <details v-for="sec in extraSections" :key="sec.key" class="panel cfg-group" :data-test="`cfg-group-${sec.key}`">
+          <summary class="cfg-group-head mono">
+            <span class="cfg-group-title">{{ sec.title }}</span>
+            <span class="tag tag--builtin">{{ t('settings.config.readonly') }}</span>
+          </summary>
+          <dl v-if="sec.rows.length > 0" class="kv mono">
+            <template v-for="row in sec.rows" :key="row.label">
+              <dt>{{ row.label }}</dt>
+              <dd>
+                <span v-if="row.set !== undefined" class="flag" :class="row.set ? 'flag--yes' : 'flag--no'">{{ row.value }}</span>
+                <span v-else>{{ row.value }}</span>
+              </dd>
+            </template>
+          </dl>
+          <div v-for="item in sec.items ?? []" :key="item.label" class="cfg-item">
+            <p class="cfg-item-head mono">{{ item.label }}</p>
+            <dl class="kv mono">
+              <template v-for="row in item.rows" :key="`${item.label}:${row.label}`">
+                <dt>{{ row.label }}</dt>
+                <dd>
+                  <span v-if="row.set !== undefined" class="flag" :class="row.set ? 'flag--yes' : 'flag--no'">{{ row.value }}</span>
+                  <span v-else>{{ row.value }}</span>
+                </dd>
+              </template>
+            </dl>
+          </div>
+        </details>
       </section>
     </template>
+
+    <!-- gofer-4uk5：重启 server 的二次确认——写清影响，并让操作人选择愿意为「等空闲」花多久。 -->
+    <div v-if="showRestart" class="scrim" data-test="cfg-restart-dialog" @click.self="showRestart = false">
+      <div class="modal modal--narrow" role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <h2 class="modal-title mono">{{ t('settings.config.restartConfirmTitle') }}</h2>
+          <button class="mini-btn mono" type="button" @click="showRestart = false">{{ t('settings.config.close') }}</button>
+        </div>
+        <div class="modal-body">
+          <p class="hint mono">{{ t('settings.config.restartImpact') }}</p>
+          <label class="field">
+            <span class="field-name">{{ t('settings.config.restartWait') }}</span>
+            <select v-model.number="restartWaitSec" class="input" data-test="cfg-restart-wait">
+              <option :value="1800">{{ t('settings.config.restartWaitOpt', { min: 30 }) }}</option>
+              <option :value="3600">{{ t('settings.config.restartWaitOpt', { min: 60 }) }}</option>
+              <option :value="7200">{{ t('settings.config.restartWaitOpt', { min: 120 }) }}</option>
+              <option :value="14400">{{ t('settings.config.restartWaitOpt', { min: 240 }) }}</option>
+            </select>
+          </label>
+          <p class="hint mono">{{ t('settings.config.restartHint') }}</p>
+          <p v-if="restartError" class="error mono">{{ restartError }}</p>
+          <div class="form-actions">
+            <button class="mini-btn mono" type="button" data-test="cfg-restart-confirm" :disabled="restarting" @click="startRestart()">
+              {{ restarting ? t('settings.config.restarting') : t('settings.config.restartSubmit') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div v-if="isEdit" class="scrim" @click.self="closeEditor()">
       <div class="modal" role="dialog" aria-modal="true">
@@ -1409,6 +1764,40 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+/* gofer-4uk5：完整配置的只读分组卡片（原生 details，默认收起）。 */
+.cfg-group {
+  margin-top: 12px;
+}
+.cfg-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.cfg-group-head .cfg-group-title {
+  flex: 1;
+}
+.cfg-group-title {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+}
+.cfg-item {
+  border-top: 1px dashed var(--line);
+  margin-top: 10px;
+  padding-top: 8px;
+}
+.cfg-item-head {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink);
+}
+.restart-panel {
+  margin-bottom: 14px;
+}
+.modal--narrow {
+  max-width: 520px;
 }
 .cards-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
