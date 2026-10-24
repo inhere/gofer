@@ -118,7 +118,7 @@ watch(
           <span class="cm-kind">{{ cm.author_kind }}</span>
           <span class="cm-time">{{ fmtDateTime(cm.created_at) }}</span>
         </div>
-        <div class="cm-body">
+        <div class="cm-body msg-body">
           <span
             v-for="(p, i) in parts(cm.body)"
             :key="i"
@@ -207,8 +207,8 @@ watch(
   font-size: 11px;
 }
 .cm-body {
+  min-width: 0;
   white-space: pre-wrap;
-  word-break: break-word;
   font-size: 13px;
   line-height: 1.5;
 }

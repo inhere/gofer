@@ -14,6 +14,8 @@ import './styles/base.css'
 import './ui/page.css'
 import './styles/icons.css'
 import './styles/status.css'
+// 消息正文（.msg-body）：气泡里的长行 / 代码块 / 表格不撑宽容器，聊天各处共用这一份。
+import './styles/msg.css'
 
 import App from './App.vue'
 import router from './router'

@@ -2044,3 +2044,40 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 242 passed (242)` / `Tests 1662 passed (1662)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 23.96s`。`go build ./...` 退出码 0，`go vet ./...` 退出码 0，`go test -count=1 ./internal/httpapi/`：`ok github.com/inhere/gofer/internal/httpapi 120.663s`。不新增路由（`/health` 不在 `/v1` 下、无权限声明），G056 与 `go generate` 不变；`docs/reference/http-api.md` 的 `/health` 一行已补 `web_base_url`。
 
 **视觉自查**：脚本与桩在 `tmp/pagecheck/`（已忽略）。静态服务跑 worktree 构建产物 + `/health` 桩（返回一个与当前地址不同的 `web_base_url`），Edge headless 截 1440×900 的 zh/en × 浅/深 四张，用 CDP 把视口压到 390×844（Windows headless 的 `--window-size` 有约 496 的最小宽度）再截 zh 浅 / en 深两张。确认：复选框与说明在深浅两套 token 下都清楚（`accent-color: var(--accent)`）；提示条用 `--need` / `--need-soft` / `--need-ink`，深浅主题下都过了对比度且不与错误行（`--fail`）混淆；手机 390 下 `document.documentElement.scrollWidth = 390`，无横向滚动，卡片 420 上限不溢出。
+
+## 实施记录 P6-ndub（消息正文溢出，gofer-ndub）
+
+用户 2026-10-24：工作台 / 会话抽屉 / 信箱等聊天对话里，消息中的长行（代码块、长命令、长路径、长 URL、宽表格）把气泡撑出可视区。
+
+**根因**：每个气泡各写一份 `white-space: pre-wrap` / `word-break` / `overflow-wrap`，口径互不一致；`table` 根盒默认不接受 `overflow`，宽表格直接把 fit-content 的气泡（`max-width` + `align-self`）撑宽；`<pre>` 在没有滚动容器的气泡里同理。`SessionDrawer` 早先局部补过 `pre` / `table` 的横滚，其余markdown / 纯文本渲染点没有。
+
+**改法（一处统一样式）**：新增全局 `web/src/styles/msg.css`（`main.ts` 引入），唯一入口 `.msg-body`：
+
+| 规则 | 作用 |
+|---|---|
+| `.msg-body { min-width:0; max-width:100%; overflow-wrap:anywhere }` | flex / grid 子项的自动最小宽度不再把长内容顶出容器；超长单词 / URL / 路径就地断行 |
+| `.msg-body pre { max-width:100%; overflow-x:auto }` | 代码块、长命令在自己的框里横滚 |
+| `.msg-body table { display:block; width:max-content; max-width:100%; overflow-x:auto }` | 宽表格整表横滚；`width:max-content` 保住「列按内容排开」 |
+| `.msg-body th, .msg-body td { overflow-wrap:break-word }` | 单元格不继承 `anywhere`，否则宽表格会被压成每列一个字（可读性比「不溢出」重要） |
+| `.msg-body img, .msg-body video { max-width:100%; height:auto }` | 大图不撑宽 |
+
+`MarkdownBlock` 的根元素直接带 `md msg-body`（凡走 markdown 渲染的地方自动覆盖：Mail、ConversationView、ReviewPanel 汇报、StewardPanel、StewardNotes、MemoryDrawer、IssueDrawer、FilePreview、Rules、PlanDetail handoff），纯文本 / 直接 `v-html` 的渲染点在模板里手动加同名 class；同时删掉各组件里被这份样式取代的重复声明（`word-break: break-word` / `overflow-wrap: anywhere` / `pre`、`table` 的 `overflow-x`）。组件自己的排版（底色、边框、字号、`white-space: pre-wrap`）留在 scoped 样式里不动。
+
+**覆盖点**（旧页面显示的信息与操作一个没少，只改溢出行为）
+
+| 渲染点 | 挂载方式 |
+|---|---|
+| 工作台 Conversations（用户纯文本气泡 / agent markdown） | `.bubble` / `.txt` 加 `msg-body`，`.msg` / `.bubble` 补 `min-width:0` |
+| 会话抽屉时间线（agent 回复、中继消息、问题、回答、最后一条消息、进度展开） | `.bubble`、`.bubble-md`、`.bubble-text`、`.last-message-text`、`.session-progress-full` |
+| 信箱信件正文 | `.bubble`（`article`）加 `msg-body` + `min-width:0` |
+| 问管家面板气泡 | `.bubble` + `min-width:0`，删掉 `.plain` 的重复 `word-break` |
+| 审批 / 交互卡片（prompt、tool 原始入参） | 根 `.icard` 加 `msg-body` + `min-width:0` |
+| 任务的「消息」区、markdown 形态的命令 | `pre.job-message-text`、`.outcome-md` |
+| 验收面板汇报与验收清单 markdown | `MarkdownBlock` |
+| 评论、ndjson 过程事件、日志的 markdown 视图 | `.cm-body`、`.event-body`、`.log-md` |
+
+**测试**：新增 `web/src/styles/msgBody.test.ts`（21 例）：`.msg-body` 只在 `styles/msg.css` 定义且被 `main.ts` 引入；三条关键规则（`min-width:0` / `overflow-wrap:anywhere` / `pre` 与 `table` 的 `overflow-x:auto` 与 `display:block`）；十一个消息渲染点各自带 `msg-body`；**扫掠**全仓 `v-html=`，每个注入点所在的标签都必须是 `.msg-body`（以后新增气泡漏挂会红）。`utils/sessionReply.test.ts` 的类名断言随迁移更新。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 243 passed (243)` / `Tests 1685 passed (1685)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.77s`。无 Go 改动、无路由 / 权限 / 协议变化（G056、http-api.md 不涉及）；skill 无需更新。
+
+**视觉自查**：临时入口（`web/msgcheck.html` + `msgcheck-main.ts`，截图后已删除；截图在 `tmp/msgcheck/`，均已忽略）挂真实 `MarkdownBlock` + 真实 `styles/*.css`，内容含长代码块、七列宽表、超长 URL / 路径、无空格长串，浅 / 深 × 容器 320px / 1440px 四张。Windows headless 的 `--window-size` 压不窄视口（实测 764），故把容器宽度写进 URL 参数来量。用 `scrollWidth` 断言：320px 下 `wrap` 320/320 不溢出、气泡 258/258 不溢出、`pre` 234→1517 可横滚、`table` 236→658 可横滚；1440px 下表格 1056 按内容排开、不挤压。截图确认：深浅两套 token 下表格列宽可读（首版只写 `display:block` 时每列被压成一个字，截图发现后补了 `width:max-content` 与单元格 `break-word`）、代码块裁在自己的框里、URL / 路径正常断行。

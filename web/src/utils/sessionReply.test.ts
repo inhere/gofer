@@ -27,7 +27,7 @@ describe('session reply to a web message', () => {
 
   it('renders a reply as an agent-side markdown bubble, before the web-message branch', () => {
     expect(drawer).toContain(`v-if="entry.kind === 'message' && isSessionReply(entry.message)"`)
-    expect(drawer).toContain('class="bubble bubble--agent session-reply" data-test="session-reply"')
+    expect(drawer).toContain('class="bubble bubble--agent session-reply msg-body" data-test="session-reply"')
     expect(drawer).toContain('v-html="renderMd(entry.message.text)"')
     expect(drawer.indexOf('data-test="session-reply"')).toBeLessThan(drawer.indexOf('sessionMessageAuthorLabel(entry.message)'))
   })
