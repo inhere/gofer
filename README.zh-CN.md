@@ -22,6 +22,23 @@ flowchart LR
 
 ![gofer-workbench](.github/image/gofer-workbench-zh.png)
 
+## 功能特色
+
+- [任务（job）](docs/guide/features.md#job)：把 Claude Code、Codex、ACP agent 或普通命令作为可追踪的任务运行——日志、diff、提交、token 用量、超时、重试，以及续接同一个 agent 会话。
+- [并行 worktree](docs/runbook/parallel-jobs-with-worktree.md)：每个任务可以有自己的 git worktree 与分支，一条命令合并回来；冲突时干净地中止。
+- [验收关口](docs/guide/features.md#验收与质量关口)：任务停在「待验收」，汇报、提交、diff、验证输出在一个面板里看完；通过，或写明理由打回并自动续投。
+- [计划与工作流](skills/gofer-usage/references/plans-workflows.md)：待办按依赖自动派发；一份任务扇出给多个 agent，对比后择优合并。
+- [审批](skills/gofer-usage/references/hold-approval.md)：任务可以先挂起等人批准；ACP agent 的高风险工具调用（改文件 / 执行命令）要人点头，只读工具自动放行。
+- [会话与传话](docs/runbook/session-relay.md)：登记终端里的 Claude / Codex 会话，在 web 工作台和手机上跟进，并把消息送进会话。
+- [信箱](docs/runbook/2026-10-18-mailbox-runbook.md)：会话与任务按地址（`session:` / `topic:` / `job:`）互相写信，支持急件、群发、退信，以及常驻收信的 agent。
+- [今天与工作项](skills/gofer-usage/references/work-items.md)：所有等你决定的事汇成一个决策队列；长期工作项由会话持续汇报进展。
+- [仓库 tracker 与记忆](skills/gofer-usage/references/tracker.md)：issue 与 agent 记忆存在仓库里（`.gofer/tracker`），web 上可跨项目搜索，相关时自动注入会话。
+- [Worker](skills/gofer-usage/references/worker-config.md)：把其他机器或容器加为 worker，由 worker 主动连入、无需开放入站端口；在控制台里一键升级整个机群，不限操作系统与架构。
+- [定时任务](docs/runbook/2026-06-30-cron-schedule-runbook.md)：cron 或一次性任务，可带参数，在 web 上立即执行。
+- [Web 控制台](docs/reference/web-console.md)：桌面与手机布局、中文 / 英文、浅色 / 深色，桌面通知与 Web Push，支持 PWA。
+- [接入与安全](docs/guide/security.md)：基于 token 的调用方与权限上限、按项目的准入规则、日志与配置视图中的密钥脱敏。
+- [集成入口](skills/gofer-usage/references/commands.md)：CLI、HTTP API、MCP server 与会话 hook 操作同一批任务；钉钉 / 飞书 / webhook 通知，以及 TCP 隧道。
+
 ## 安装
 
 1. **Release 包（推荐）**——内含 Web 控制台：

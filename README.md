@@ -22,6 +22,23 @@ It is built for one developer, or a small team that trusts each other. It is **n
 
 ![gofer-workbench](.github/image/gofer-workbench-en.png)
 
+## Features
+
+- [Jobs](docs/guide/features.md#job): run Claude Code, Codex, ACP agents or plain commands as tracked jobs — logs, diff, commits, token usage, timeouts, retries and resume of the same agent session.
+- [Parallel worktrees](docs/runbook/parallel-jobs-with-worktree.md): each job can get its own git worktree and branch, then merge back with one command; conflicts abort cleanly.
+- [Review gate](docs/guide/features.md#验收与质量关口): jobs stop at `needs_review` with report, commits, diff and verify output on one panel; accept, or reject with a reason and an automatic follow-up.
+- [Plans and workflows](skills/gofer-usage/references/plans-workflows.md): chain todos that dispatch themselves when their dependencies finish; fan out to several agents, compare and pick the best result.
+- [Approvals](skills/gofer-usage/references/hold-approval.md): hold a job until a person approves it, and gate an ACP agent's risky tool calls (edit / execute) behind a human while read-only tools pass.
+- [Sessions and relay](docs/runbook/session-relay.md): register your terminal Claude / Codex sessions, follow them from the web workbench and phone, and send messages into them.
+- [Mailbox](docs/runbook/2026-10-18-mailbox-runbook.md): sessions and jobs write to each other by address (`session:` / `topic:` / `job:`), with urgent letters, broadcasts, bounces and resident agents that answer mail.
+- [Today and work items](skills/gofer-usage/references/work-items.md): one decision queue for everything waiting on you, plus long-running work items that sessions report progress into.
+- [Repository tracker and memory](skills/gofer-usage/references/tracker.md): issues and agent memories stored in the repository (`.gofer/tracker`), searchable from the web across projects and injected into sessions when relevant.
+- [Workers](skills/gofer-usage/references/worker-config.md): add machines or containers as workers that dial in — no inbound port — and upgrade the whole fleet, any OS / arch, from the console.
+- [Schedules](docs/runbook/2026-06-30-cron-schedule-runbook.md): cron or one-off jobs with parameters, run now from the web.
+- [Web console](docs/reference/web-console.md): desktop and phone layouts, Chinese / English, light / dark, desktop and Web Push notifications, PWA.
+- [Access and security](docs/guide/security.md): token-based callers with permission ceilings, per-project admission rules, secret redaction in logs and config views.
+- [Integrations](skills/gofer-usage/references/commands.md): CLI, HTTP API, MCP server and session hooks reach the same jobs; DingTalk / Feishu / webhook notifications and TCP tunnels.
+
 ## Install
 
 1. **Release package (recommended)** — includes the built-in web console:
