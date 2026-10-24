@@ -436,9 +436,10 @@ mail:
   #     max_letters: 50              # 可选：收满多少封后轮换（未写 = 50；0 = 不限）
   #     max_hours: 24                # 可选：存在多久后轮换（未写 = 24；0 = 不限）
   #     prompt: ""                   # 可选：追加给开场说明的提示词
-  #     approval: {mode: ask}        # 可选：本收件会话单独的 ACP 审批（结构同项目的 approval；
-  #                                  # 未写 = 沿用项目策略）。mode: ask 时读类工具自动放行、
-  #                                  # 写文件 / 执行命令逐次人工审批；想连读也问用 strict。
+  #     approval: {mode: ask}        # 可选：本收件会话单独的 ACP 审批（结构同项目的 approval，
+  #                                  # 含 auto_allow_tools / ask_tools；未写 = 沿用项目策略）。
+  #                                  # mode: ask 时读类工具自动放行、写文件 / 执行命令逐次人工
+  #                                  # 审批；想连读也问用 strict。
   #                                  # 它只管这个常驻会话，不影响项目里其他 ACP 会话。
   # 全局最多同时存在的常驻会话，超出时信件转待指派。未写 = 6。
   # agents_max_resident: 6
@@ -583,8 +584,19 @@ projects:
   #   #   timeout_sec: 1800        # 等人上限(秒)，超时按 on_timeout 处理(默认 1800)
   #   #   on_timeout: reject       # reject = 超时选拒绝(默认) | allow = 超时放行
   #   #   remember_allow_always: true   # 有人选了 allow_always，本 job 内同类请求不再问(默认 true)
+  #   #   # 按工具名放行 / 必问（不论 agent 报的 kind）。不写 auto_allow_tools = 默认名单：gofer
+  #   #   # 自己的只读 MCP 工具 + 只写建议的工具（gofer_work_list、gofer_today_list、
+  #   #   # gofer_today_advise、gofer_work_merge_suggest、gofer_memory_suggest 等，名单见
+  #   #   # internal/mcptools）。写了就替换默认名单（含 gofer 只读工具，想保留请一并列出）。
+  #   #   # 名字可写裸名或 MCP 限定名(mcp__gofer__gofer_today_advise)，大小写不敏感；ask_tools
+  #   #   # 优先（两边都写就问人）；也可以写别的 MCP server 的工具名（如 mcp__docs__search）。
+  #   #   # gofer_* 名字只认 gofer 自己的 MCP server：别的 server 的同名工具、或这个会话
+  #   #   # 根本没拿到 gofer MCP 时的裸名，一律不算，仍按策略审批。
+  #   #   auto_allow_tools: [gofer_work_list, gofer_today_list, gofer_today_advise]
+  #   #   ask_tools: [gofer_work_request_report]   # 这些工具名永远问人(默认为空)
   #   # kind 取值就是 ACP ToolKind 词汇(加载时校验，写错直接启动失败)；ask_kinds 优先于
-  #   # auto_allow_kinds(同时写了就问人)，两个名单都没有的 kind 也问人(拿不准就请求批准)。
+  #   # auto_allow_kinds(同时写了就问人)，两个名单都没有的 kind 也问人(拿不准就请求批准)；
+  #   # 工具名名单同理：ask_tools 优先，工具名与 kind 都不放行时才问人。
   #   # agent 侧只能收紧：agents.<key>.acp.permission_policy = ask|strict 会把本项目的 off 提升到
   #   # ask / strict，但永远不能把项目的 ask / strict 放宽为自动放行。
   #   # 请求批准时 job 进入 pending_interaction，Web 交互面板出现审批卡片(工具调用 + 选项按钮 +
