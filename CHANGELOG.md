@@ -11,12 +11,15 @@
 
 ## [未发布]
 
+## [0.193.0] - 2026-10-24
+
 ### 新增
 
 - **Web 控制台登录可以「在此浏览器记住登录」（gofer-x5k4）**：`/access` 页新增勾选框（默认勾选）。勾选时 token 存 localStorage（按站点持久），从桌面通知 / 钉钉链接打开的新标签页、重开浏览器都不用再登录；不勾选只留在当前标签页（sessionStorage，关掉即失效）。读取顺序 sessionStorage → localStorage；退出登录与 401 都把两处清干净。设置 › 关于新增「这个浏览器」一节，显示当前是否记住登录，并提供「退出并忘记此浏览器」。另外 `GET /health` 多返回一个 `web_base_url`（`server.web_base_url` 未配置时没有该字段）：接入页拿它与当前地址比对，两者 origin 不同时给一行提示——两个地址各记一份登录，从通知链接打开会要求重新登录。
 
 ### 修复
 
+- **按工具名放行不越过改动类调用**：按名放行只用于非改动类调用；agent 报为 edit / delete / move / execute / switch_mode 的调用，即使标题是 gofer 自己的工具，也一律问人。
 - **审批可以按工具名放行：gofer 自己的 MCP 工具不再每次找人批（gofer-78on）**：`approval: ask` 以前只按 ACP `kind` 放行，而 agent 调 MCP 工具一律报 `kind=other`，于是管家（steward）每做一次巡检都要为 `gofer_today_advise` 这类只写建议的工具等人批。现在审批支持**工具名名单**：
   - 新增 `approval.auto_allow_tools` / `ask_tools`（项目 `approval` 与 `mail.agents.<名字>.approval` 同结构，`ask_tools` 优先，可写裸名或 MCP 限定名、大小写不敏感、也可写别的 MCP server 的工具名）。不写 = 默认名单：gofer 的**只读** MCP 工具（`gofer_work_list`、`gofer_today_list` …）加**只写建议、不改状态**的三个（`gofer_today_advise`、`gofer_work_merge_suggest`、`gofer_memory_suggest`，名单唯一来源 `internal/mcptools`）。写了就替换默认名单，`auto_allow_tools: []` = 只按 kind 判。
   - 放行原因记在 `artifacts/acp.jsonl`：只读工具 `reason=gofer_readonly_tool`、建议类 `gofer_advice_tool`、名单里的其他工具 `auto_allow_tool`。
