@@ -1,20 +1,41 @@
 <script setup lang="ts">
-// 接入页（无外壳，设计稿 §7.4）：只有 token 输入、主题开关、语言开关。
-// 行为不变：验证成功后回 ?redirect 指定的站内页面（默认 /dashboard）；跨标签页 token
+// 接入页（无外壳，设计稿 §7.4）：只有 token 输入、「在此浏览器记住登录」、主题开关、语言开关。
+// 行为：验证成功后回 ?redirect 指定的站内页面（默认 /dashboard）；跨标签页 token
 // 交接在 router.ts 的公开路由守卫里（本页不参与）。
-import { ref } from 'vue'
+//
+// gofer-x5k4：勾选「记住登录」（默认勾选）时 token 存 localStorage，按 origin 持久——从桌面
+// 通知 / 钉钉链接打开的新标签页、重开浏览器都不用再登录；不勾选只存本标签页的 sessionStorage。
+// 另外拉一次免鉴权的 /health：server 配了 web_base_url 且与当前 origin 不同时提示一行，
+// 让用户发现「通知里的地址和自己在用的地址不是同一个」。
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { listProjects } from '../api/client'
+import { getHealth, listProjects } from '../api/client'
 import { clearToken, setToken } from '../store/auth'
 import { t } from '../i18n'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import LangToggle from '../ui/LangToggle.vue'
+import { mismatchedNotifyOrigin } from './accessOrigin'
 
 const router = useRouter()
 
 const tokenInput = ref('')
+const remember = ref(true)
 const loading = ref(false)
 const error = ref('')
+// 通知链接指向的 origin（与当前地址不同时才有值）。
+const notifyOrigin = ref('')
+
+// 拉一次免鉴权的 /health，取 server 报告的 web_base_url 与当前 origin 比对。
+async function loadNotifyOrigin(): Promise<void> {
+  try {
+    const health = await getHealth()
+    notifyOrigin.value = mismatchedNotifyOrigin(window.location.origin, health.web_base_url)
+  } catch {
+    // 探针拉不到（老 server / 网络问题）就不提示，不影响登录
+  }
+}
+
+onMounted(loadNotifyOrigin)
 
 async function connect(): Promise<void> {
   const token = tokenInput.value.trim()
@@ -24,7 +45,7 @@ async function connect(): Promise<void> {
   }
   error.value = ''
   loading.value = true
-  setToken(token)
+  setToken(token, { remember: remember.value })
   try {
     // 用 listProjects 验证 token 与服务连通性
     await listProjects()
@@ -83,10 +104,20 @@ async function connect(): Promise<void> {
           required
         />
 
+        <label class="remember">
+          <input v-model="remember" type="checkbox" data-testid="access-remember" />
+          <span>{{ t('access.remember') }}</span>
+        </label>
+        <p class="hint hint--sm">{{ t('access.rememberHint') }}</p>
+
         <button class="connect" type="submit" :disabled="loading" data-testid="access-connect">
           {{ loading ? t('access.connecting') : t('access.connect') }}
         </button>
       </form>
+
+      <p v-if="notifyOrigin" class="notice" data-testid="access-origin-hint">
+        {{ t('access.originMismatch', { origin: notifyOrigin }) }}
+      </p>
 
       <p v-if="error" class="error" role="alert" data-testid="access-error">{{ error }}</p>
     </div>
@@ -154,6 +185,12 @@ async function connect(): Promise<void> {
   margin: 0 0 20px;
   text-align: center;
 }
+.hint--sm {
+  margin: 6px 0 0;
+  font-size: var(--fs-xs);
+  text-align: left;
+  line-height: 1.6;
+}
 
 .label {
   display: block;
@@ -177,6 +214,23 @@ async function connect(): Promise<void> {
   border-color: var(--accent);
 }
 
+/* 「在此浏览器记住登录」：复选框紧跟一行文字，整行可点。 */
+.remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  cursor: pointer;
+}
+.remember input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .connect {
   margin-top: 16px;
   width: 100%;
@@ -196,6 +250,19 @@ async function connect(): Promise<void> {
 .connect:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* 地址不一致的提示：黄色（需要人注意），不是错误。 */
+.notice {
+  margin: 16px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--need);
+  border-radius: var(--r-ctl);
+  background: var(--need-soft);
+  color: var(--need-ink);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  word-break: break-word;
 }
 
 .error {

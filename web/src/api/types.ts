@@ -655,6 +655,9 @@ export interface HealthResp {
   ok: boolean
   service: string
   server_time: number
+  // 通知 / 链接里用的控制台地址（server.web_base_url）；没配置时缺省。
+  // 接入页拿它和当前 origin 比对，地址不一致时提示「从通知打开会要求重新登录」。
+  web_base_url?: string
 }
 
 // 只读总览统计（/v1/stats）。
