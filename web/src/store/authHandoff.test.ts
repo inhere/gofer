@@ -46,3 +46,20 @@ describe('requestTokenFromPeers', () => {
     expect(auth.hasToken()).toBe(false)
   })
 })
+
+// 回归（2026-10-23）：挂载应用后外壳立刻请求接口；若 token 交接还没完成，这些请求 401 会清掉
+// 刚交接来的 token 并跳 /access。main.ts 必须先等交接、再挂载；401 跳转要带回原页面。
+describe('boot order', () => {
+  const mainSrc = Object.values(
+    import.meta.glob('../main.ts', { eager: true, query: '?raw', import: 'default' }),
+  )[0] as string
+  it('asks peer tabs for the token before mounting the app', () => {
+    const ask = mainSrc.indexOf('await requestTokenFromPeers()')
+    const mount = mainSrc.indexOf(".mount('#app')")
+    expect(ask).toBeGreaterThan(-1)
+    expect(mount).toBeGreaterThan(ask)
+  })
+  it('keeps the page to return to when a 401 sends the tab to /access', () => {
+    expect(mainSrc).toContain("query: { redirect: current.fullPath }")
+  })
+})

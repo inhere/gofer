@@ -17,7 +17,7 @@ import './styles/status.css'
 
 import App from './App.vue'
 import router from './router'
-import { setUnauthorizedHandler, startTokenSharing } from './store/auth'
+import { hasToken, requestTokenFromPeers, setUnauthorizedHandler, startTokenSharing } from './store/auth'
 import { markStaleBuild } from './store/staleBuild'
 import { initTheme } from './store/theme'
 import { initLocale } from './store/locale'
@@ -47,8 +47,10 @@ startTokenSharing()
 
 // 注册 401 处理：client 已清 token，这里负责跳转到接入页
 setUnauthorizedHandler(() => {
-  if (router.currentRoute.value.path !== '/access') {
-    router.replace({ path: '/access' })
+  const current = router.currentRoute.value
+  if (current.path !== '/access') {
+    // 带上原页面，登录后回到这里（与路由守卫一致）
+    router.replace({ path: '/access', query: { redirect: current.fullPath } })
   }
 })
 
@@ -122,4 +124,13 @@ window.addEventListener('vite:preloadError', (e) => {
   reloadOnce()
 })
 
-createApp(App).use(router).mount('#app')
+// 新标签页（从通知 / 复制的链接打开）没有 token：先向已登录的同源标签页要一份，再挂载应用。
+// 挂载后外壳会立刻请求接口；若此时还没拿到 token，这些请求 401 → 清 token → 跳 /access，
+// 刚交接来的 token 也会被清掉（路由守卫里的交接因此总是落空）。
+async function boot(): Promise<void> {
+  if (!hasToken()) {
+    await requestTokenFromPeers()
+  }
+  createApp(App).use(router).mount('#app')
+}
+void boot()
