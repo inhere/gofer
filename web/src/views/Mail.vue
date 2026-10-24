@@ -136,16 +136,17 @@ const sessionFilter = ref(queryValue(route.query.session))
 // 对话短 id 深链（/mail?conv=cv-…）：服务端按 id 反查对话，查不到就报错（不再安静地选第一个）。
 const convQuery = ref(queryValue(route.query.conv))
 
-// 项目是筛选条件，不是全局状态（设计稿 §6.4）：值写进 URL 的 ?project=，对话按参与方的
-// 所属项目在本地过滤（conversations 接口没有项目参数）。
+// 项目是筛选条件，不是全局状态（设计稿 §6.4）：值写进 URL 的 ?project=，对话由服务端按
+// ?project= 收窄（两端任一属于该项目即算），列表与计数都走服务端同一个口径。
 const { project, setProject, options: projectOptions, loadOptions: loadProjectOptions, loadError: projectLoadError } =
   useProjectFilter('/mail')
 
 // 各筛选下的对话数（chip 上的计数）。口径与页头「N 个对话」一致：这个筛选下有几个对话。
-// conversations 接口的 count 是这一页的条数（limit=1 时恒为 1，之前 chip 因此全显示 1），所以按
-// 返回的对话数数；待指派没有对话接口，按本地分组的对话数算。
-const MAIL_COUNT_LIMIT = 200 // = 服务端 mailConvMax：一次取满再数，不给计数另建接口
+// 数字来自 conversations 接口的 total（分页前的总数，项目收窄后），一条 limit=1 就够——不用
+// 把 200 个对话拉回来再数，超过 200 个对话时也是对的；待指派没有对话接口，按本地分组的对话数算。
 const counts = ref<Record<MailFilter, number>>({ all: 0, in: 0, out: 0, held: 0 })
+// 当前筛选（与服务端同一口径）下的对话总数：页头「N 个对话」读它，不是这一页的行数。
+const rowsTotal = ref(0)
 
 const filterItems = computed<FilterChipItem[]>(() => [
   { value: 'all', label: t('mail.filter.all'), count: counts.value.all },
@@ -301,10 +302,13 @@ const activeTitle = computed(() => {
   if (!conv) return ''
   return `${personaLabel(conv.a)} / ${personaLabel(conv.b)}`
 })
-// 左栏真正显示的对话：在当前筛选的结果里再按项目收窄（§6.4）。
+// 左栏真正显示的对话：服务端已按项目收窄，这里保留同一口径的本地过滤——待指派是本地分组的，
+// 深链追加进来的那一行也可能不在当前项目里（§6.4）。
 const visibleRows = computed(() =>
   project.value ? rows.value.filter((r) => mailConversationInProject(r, project.value)) : rows.value,
 )
+// 页头「N 个对话」= 当前筛选下的对话总数：服务端 total（分页前），本地分组时就是分组出的行数。
+const conversationCount = computed(() => (groupedLocally.value ? visibleRows.value.length : rowsTotal.value))
 // 回到列表的地址（手机上的返回链接）：保留当前筛选，别把用户选的页签 / 会话弄丢。
 const listUrl = computed(() => {
   const params = new URLSearchParams()
@@ -321,8 +325,9 @@ async function loadRows(): Promise<void> {
     rows.value = groupMailConversations(resp.mail ?? [])
     return
   }
-  const resp = await listMailConversations({ box: mailConversationBox(filter.value), limit: 100 })
+  const resp = await listMailConversations({ box: mailConversationBox(filter.value), limit: 100, project: project.value || undefined })
   rows.value = resp.conversations ?? []
+  rowsTotal.value = resp.total ?? rows.value.length
 }
 
 // selectConvFromQuery 是 /mail?conv=<id> 的深链：那一个对话可能不在当前列表里（不在当前项目 /
@@ -349,21 +354,22 @@ async function selectConvFromQuery(): Promise<string> {
   }
 }
 
-// loadCounts 取四个筛选 chip 的计数：收件 / 发件 / 全部看 conversations 接口返回的对话
-// （按当前项目收窄，跟页头的数一致），待指派按本地分组算对话数（它就是「还没投出去的信」，
-// 没有单独的对话接口）。计数只是提示，失败就不显示变化，不影响看信。
+// loadCounts 取四个筛选 chip 的计数：收件 / 发件 / 全部只要一条（limit=1）读接口给的 total
+// （分页前的对话总数，按项目收窄，跟页头的数一致），待指派按本地分组算对话数（它就是「还没
+// 投出去的信」，没有单独的对话接口）。计数只是提示，失败就不显示变化，不影响看信。
 async function loadCounts(): Promise<void> {
+  const scoped = project.value || undefined
   try {
     const [all, inbox, outbox, held] = await Promise.all([
-      listMailConversations({ box: 'all', limit: MAIL_COUNT_LIMIT }),
-      listMailConversations({ box: 'in', limit: MAIL_COUNT_LIMIT }),
-      listMailConversations({ box: 'out', limit: MAIL_COUNT_LIMIT }),
+      listMailConversations({ box: 'all', limit: 1, project: scoped }),
+      listMailConversations({ box: 'in', limit: 1, project: scoped }),
+      listMailConversations({ box: 'out', limit: 1, project: scoped }),
       listMail(mailHeldQuery()),
     ])
     counts.value = {
-      all: mailCountConversations(all.conversations ?? [], project.value),
-      in: mailCountConversations(inbox.conversations ?? [], project.value),
-      out: mailCountConversations(outbox.conversations ?? [], project.value),
+      all: all.total ?? 0,
+      in: inbox.total ?? 0,
+      out: outbox.total ?? 0,
       held: mailCountConversations(groupMailConversations(held.mail ?? []), project.value),
     }
   } catch {
@@ -495,6 +501,7 @@ async function load(silent = false): Promise<void> {
     error.value = convErr
   } catch (e) {
     rows.value = []
+    rowsTotal.value = 0
     timeline.value = []
     hasOlder.value = false
     timelineKey.value = ''
@@ -535,14 +542,10 @@ watch(
   },
 )
 
-// 换项目：当前对话不在新项目里就自动选这个项目的第一条。
-watch(project, async () => {
-  if (!visibleRows.value.some((r) => r.key === activeKey.value)) {
-    activeKey.value = visibleRows.value[0]?.key ?? ''
-    await loadTimeline().catch(() => {
-      timeline.value = []
-    })
-  }
+// 换项目：对话与计数都由服务端按 ?project= 收窄，要重新取一次列表；当前对话不在新项目里时
+// load() 会选中这个项目的第一条。
+watch(project, () => {
+  void load()
 })
 
 // 打开一个对话 = 读过它的信：把自己收的未读信件逐封 ack（读 = 送达；服务端只对收件方生效）。
@@ -825,7 +828,7 @@ onUnmounted(() => {
         <header class="list-head">
           <div class="head-row">
             <h1 class="mail-title">{{ t('mail.h.title') }}<ExperimentalBadge /></h1>
-            <span class="dim" data-test="mail-summary">{{ t('mail.h.summary', { n: visibleRows.length }) }}</span>
+            <span class="dim" data-test="mail-summary">{{ t('mail.h.summary', { n: conversationCount }) }}</span>
             <button class="act mono" type="button" data-test="mail-refresh" @click="load()">
               {{ t('mail.h.refresh') }}
             </button>

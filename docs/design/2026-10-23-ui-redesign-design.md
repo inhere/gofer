@@ -2226,3 +2226,25 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`go build ./...` / `go vet ./...` 退出码 0；`go test ./internal/commands ./internal/httpapi -count=1` 均 `ok`（各约 110s）；web `npx vue-tsc --noEmit` 退出码 0、`npx vitest run` 为 `Test Files 247 passed (247)` / `Tests 1718 passed (1718)`、`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` 为 `✓ built in 18.82s`。视觉自查（构建产物 + 静态服务 + playwright/msedge 的 `/v1/**` 合成桩，脚本与截图在 `tmp/ui-check/`，已忽略）：zh / en × 浅 / 深 × 1440 与 zh 深 / en 浅 × 390 六种组合都渲染出 `请求 4h00m，被 server.max_job_timeout_sec 封顶` / `Requested 4h00m, capped by server.max_job_timeout_sec`，颜色随主题（浅 `--time #8653B3`、深 `--time #BB96E2`），无 pageerror，手机宽度下换行不溢出。无路由 / 权限 / 协议变化（G056、`docs/reference/http-api.md` 不涉及，字段早已在 `job.JobResult` 里）。
 
 **CLI 侧**：`job show` 在 `timeout:` 行下打 `(timeout 14400s clamped to 5400s by server.max_job_timeout_sec)`（`timeoutClampNote`）在 issue 之前已经落地，本次补回归测试把它钉住，不再改动输出格式。
+## 实施记录 P6-fix3：信箱对话计数改读服务端 total（2026-10-24，issue gofer-av8f）
+
+来源：信箱页筛选 chip 的计数是 P6-fix2 在前端绕出来的（三个箱各取 `limit=200` 再在前端按项目过滤数对话），超过 200 个对话就数不准，而且每次刷新多搬两页数据。
+
+**后端**（`internal/httpapi/mail_conversations.go`）
+
+- `GET /v1/mail/conversations` 新增 `project=<key>`：聚合完成后按对话两端的所属项目收窄，**两端任一属于该项目即算**（跨项目的对话在两个项目里都出现，比「莫名消失」好解释），与前端 `mailConversationInProject` 同一口径。项目查询按请求缓存（`mailConvProjects`，按 `<kind>/<id>` 复用既有的 `mailEndProject`），一个箱里成百封信一般只落到几个会话 / job 上；拿不到项目的端（收集箱、已删除、没解析到人的原始地址）不命中任何项目。
+- 回答新增 `total`：**分页前**、按 `box` / `project` 收窄后的对话总数。`count` 仍是这一页的条数（不变，additive）。
+- 权限不变：聚合仍走 `mailListKeep`，`project` 只是收窄已可见的对话。路由没变，`authz_routes.go` 的声明不变（`go generate ./internal/httpapi/...` 无 diff）。
+- 测试：`TestMailConversationsProjectAndTotal`——一个 p1 会话对话、一个 p2 会话对话、一个跨 p1+p2 的对话：全量 3 / `project=p1` 2 / `project=p2` 2 / 不存在的项目 0；`limit=1` 时 `count=1` 而 `total=3`；`project` 与 `box` 可组合。
+
+**前端**（`web/src/views/Mail.vue`、`api/client.ts`、`api/types.ts`、`utils/mailConversations.ts`）
+
+- `listMailConversations` 多一个 `project` 参数，`MailConversationsResp` 多一个 `total`。
+- 列表请求带上 `project`（服务端收窄），行仍保留本地同口径过滤（待指派是本地分组的，深链追加的那一行也可能不在当前项目）；换项目时重新 `load()`（服务端要重取），原来只重选当前行。
+- chip 计数：`全部 / 收件 / 发件` 各请求 `limit=1` 读 `total`（删掉 `MAIL_COUNT_LIMIT=200` 与「拉满再数」），`待指派` 仍按本地分组的对话数（没有对话接口）。
+- 页头「N 个对话」改读同一个 `total`（`conversationCount`），本地分组时仍是分组出的行数 —— 与 chip 同一口径，不再受「一页 100 行」限制。
+- 测试：`mailPage.test.ts` 改为钉住 `limit: 1, project: scoped` 与 `all.total ?? 0`、`rowsTotal.value = resp.total ?? …`、页头读 `conversationCount`，并断言页面里不再出现 `MAIL_COUNT_LIMIT`；`mailConversations.test.ts` 的计数用例改名为「本地分组（待指派）的对话数」。
+
+**验证**：`go build ./...` 与 `go vet ./...` 退出码 0；`go test -count=1 ./internal/httpapi` → `ok …/httpapi 144.202s`；`go generate ./internal/httpapi/...` 无 diff（路由声明未变）。Web：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run` → `Test Files 246 passed (246)` / `Tests 1713 passed (1713)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir` → `✓ built in 5.73s`。
+
+**视觉自查**：构建产物 + 桩 `/v1`（合成 fixture，`tmp/` 下、不进仓库）+ Edge CDP 截图（zh / en × 浅 / 深，另加 `?project=p-one` 与 390 宽）。程序化断言：桩只返回 3 行而 `total=7` 时页头显示「7 个对话」，chip 为 全部 7 / 收件 4 / 发件 7 / 待指派 0（四个数各不相同，不再恒为 1）；`?project=p-one` 时变成 6 / 4 / 6；四种组合下无横向溢出。肉眼核对：深浅两套下 chip 与页头的数字都完整显示。

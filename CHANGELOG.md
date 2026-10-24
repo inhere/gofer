@@ -16,6 +16,7 @@
 - **被服务端截短的任务时限不再静默（gofer-ea2i）**：`gofer job show` 的 `timeout:` 行下面写明请求值与封顶的配置键（`(timeout 14400s clamped to 5400s by server.max_job_timeout_sec)`），web 任务详情概览的 duration 行同样在生效时限旁写「请求 4h00m，被 server.max_job_timeout_sec 封顶」（zh / en）。以前 web 只在悬停提示里说、`job show` 只在提交时打警告，事后再查详情只看到生效值，看不出它被截短过。
 - **扇出步提交中途失败不再留下孤儿 fan（gofer-ourk）**：一个 fan 提交失败时整个 workflow 以失败结束，但此前已经提交的 fan 还在跑，只能手工取消。现在失败的步骤把已经起的那几路 fan 一并取消；取消放在 workflow 写入失败状态之后，被取消的 fan 触发的那次推进不会再把同一步骤重新起起来。
 - **`git worktree add` 撞上并发登记时短暂重试（gofer-ourk）**：同一仓库被主机与容器同时创建 worktree 时，git 可能读到别人刚建了一半的 `.git/worktrees/<id>/commondir`（或 `gitdir`）而直接报 `fatal: failed to read …: No error`。这类错误现在最多试 4 次（退避 200/400/600ms）；真正的失败（目录或分支已存在、base 不是提交、没有 git）仍然一次就返回原错误。
+- **信箱筛选 chip 的对话数由服务端算准（gofer-av8f）**：`GET /v1/mail/conversations` 新增 `project` 参数（按参与方所属项目收窄，与页面的本地过滤同一口径）与 `total`（分页前的对话总数）；Web 的「全部 / 收件 / 发件」计数改为只要一条（`limit=1`）读 `total`，不再拉满 200 个对话在前端数。页头的「N 个对话」与 chip 同一口径，对话超过 200 个时也准确。`count` 仍是这一页的条数（不变，additive 字段）。
 
 ## [0.194.1] - 2026-10-24
 

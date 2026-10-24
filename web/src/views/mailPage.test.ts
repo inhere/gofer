@@ -103,12 +103,22 @@ describe('页面接线（源码断言）', () => {
     expect(pageSrc).toContain("import ProjectFilter from '../ui/ProjectFilter.vue'")
     expect(pageSrc).toContain("useProjectFilter('/mail')")
     expect(pageSrc).toContain("router.replace({ path: '/mail'")
-    // 计数口径：conversations 接口的 count 是这一页的条数，所以按返回的对话数数（原先 limit: 1
-    // 取 count，四个 chip 全显示 1），项目筛选与页头同一个口径。
+    // 计数口径（gofer-av8f）：chip 只要一条（limit=1）读接口的 total（分页前的对话总数，
+    // 项目收窄后），不再把 200 个对话拉回来自己数；待指派没有对话接口，仍然本地分组数。
     expect(pageSrc).toContain('async function loadCounts()')
-    expect(pageSrc).toContain("listMailConversations({ box: 'all', limit: MAIL_COUNT_LIMIT })")
-    expect(pageSrc).toContain('mailCountConversations(all.conversations ?? [], project.value)')
+    for (const box of ['all', 'in', 'out']) {
+      expect(pageSrc).toContain(`listMailConversations({ box: '${box}', limit: 1, project: scoped })`)
+    }
+    expect(pageSrc).toContain('all: all.total ?? 0')
+    expect(pageSrc).toContain('mailCountConversations(groupMailConversations(held.mail ?? []), project.value)')
     expect(pageSrc).toContain('mailHeldQuery()')
+    expect(pageSrc).not.toContain('MAIL_COUNT_LIMIT')
+  })
+
+  it('列表与页头同一口径：服务端按 ?project= 收窄，页头读 total', () => {
+    expect(pageSrc).toContain("listMailConversations({ box: mailConversationBox(filter.value), limit: 100, project: project.value || undefined })")
+    expect(pageSrc).toContain('rowsTotal.value = resp.total ?? rows.value.length')
+    expect(pageSrc).toContain("t('mail.h.summary', { n: conversationCount })")
   })
 
   it('线程顶部是「加载更早的 N 条」，小地图与视口框都在', () => {
@@ -181,7 +191,7 @@ describe('英文界面', () => {
   })
 })
 
-describe('项目筛选（本地按参与方所属项目收窄）', () => {
+describe('项目筛选（两端任一属于该项目即算）', () => {
   it('空项目 = 全部；两端任一属于该项目即算', () => {
     const c = conv()
     expect(mailConversationInProject(c, '')).toBe(true)
