@@ -113,6 +113,7 @@ func TestServerRestartWaitCancelled(t *testing.T) {
 func TestServerRestartStatusReportsWaitCensus(t *testing.T) {
 	s, _ := newWaitIdleServer(t)
 	setApplyWaitTuning(t, 3600, 20*time.Millisecond)
+	stopRestartWaitOnCleanup(t, s)
 	blocker := submitCmdJob(t, s, []string{testcmd.Path(t), "stdout-lines", "tick", "200", "50ms"})
 	waitJobStatus(t, s, blocker.ID, "running")
 
@@ -132,5 +133,24 @@ func TestServerRestartStatusReportsWaitCensus(t *testing.T) {
 		}
 		return false
 	})
-	_ = s.handleServerRestartCancel // keep the handler referenced for the cancel path
+}
+
+// stopRestartWaitOnCleanup cancels a restart that is still waiting for idle when the test
+// ends and waits until its goroutine has left the wait loop. Registered AFTER
+// setApplyWaitTuning, it runs BEFORE that cleanup restores the tuning globals — the wait
+// loop reads them, so a restart left waiting raced the restore under -race (G051).
+func stopRestartWaitOnCleanup(t *testing.T, s *Server) {
+	t.Helper()
+	t.Cleanup(func() {
+		st := serverRestartState(t, s)
+		if st == nil || st.Phase != applyWaitingIdle {
+			return
+		}
+		resp := do(t, s, http.MethodDelete, "/v1/server/restart", testToken, nil)
+		resp.Body.Close()
+		wait.Until(t, wait.Timeout(t, 10*time.Second), "the restart wait to end", func() bool {
+			st := serverRestartState(t, s)
+			return st == nil || st.Phase != applyWaitingIdle
+		})
+	})
 }

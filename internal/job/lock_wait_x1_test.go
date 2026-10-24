@@ -2,6 +2,7 @@ package job
 
 import (
 	"encoding/json"
+	"github.com/inhere/gofer/internal/testutil/wait"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -89,7 +90,9 @@ func TestLockWaitOverridesServerCap(t *testing.T) {
 			req := exclusiveCmd(t, 30)
 			req.LockWaitSec = &tc.jobWait
 			waiter := mustSubmit(t, s, req)
-			final := waitStatus(t, s, waiter.ID, 10*time.Second, StatusDone, StatusFailed)
+			// The waiter needs the holder's 6s, its own start and run: 10s flat was too tight on
+			// a loaded Windows verify. The wait returns as soon as the job ends (G052).
+			final := waitStatus(t, s, waiter.ID, wait.Timeout(t, 30*time.Second), StatusDone, StatusFailed)
 			if final.Status != tc.want {
 				t.Fatalf("status=%s error=%q, want %s", final.Status, final.Error, tc.want)
 			}
