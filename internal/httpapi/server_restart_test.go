@@ -154,3 +154,33 @@ func stopRestartWaitOnCleanup(t *testing.T, s *Server) {
 		})
 	})
 }
+
+// A cancel sent the moment the restart was accepted finds a wait to cancel: the cancel func
+// is armed before waiting_idle is published. It used to be set only once the wait loop
+// started, so a DELETE right after the 202 answered 409 on a fast machine (macOS CI).
+func TestServerRestartCancelledRightAway(t *testing.T) {
+	s, handed := newWaitIdleServer(t)
+	setApplyWaitTuning(t, 3600, 20*time.Millisecond)
+	stopRestartWaitOnCleanup(t, s)
+	blocker := submitCmdJob(t, s, []string{testcmd.Path(t), "stdout-lines", "tick", "200", "50ms"})
+	waitJobStatus(t, s, blocker.ID, "running")
+
+	body, _ := json.Marshal(updateApplyRequest{WaitIdleSec: 3600})
+	resp := rawDo(t, s, http.MethodPost, "/v1/server/restart", testToken, body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("POST = %d, want 202", resp.StatusCode)
+	}
+	if resp := do(t, s, http.MethodDelete, "/v1/server/restart", testToken, nil); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("immediate DELETE = %d, want 202", resp.StatusCode)
+	}
+	wait.Until(t, wait.Timeout(t, 10*time.Second), "the restart to be cancelled", func() bool {
+		st := serverRestartState(t, s)
+		return st != nil && st.Phase == applyCancelled
+	})
+	select {
+	case b := <-handed:
+		t.Fatalf("a cancelled restart handed over %q", b)
+	case <-time.After(200 * time.Millisecond):
+	}
+}

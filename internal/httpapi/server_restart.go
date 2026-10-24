@@ -127,19 +127,20 @@ func (s *Server) handleServerRestart(c *rux.Context) {
 	now := time.Now()
 	f.WaitStartedAt = now.Unix()
 	f.WaitDeadline = now.Add(time.Duration(f.WaitTimeoutSec) * time.Second).Unix()
+	waitCtx := s.armWaitIdle()
 	s.saveRestart(&f)
 	slog.Info("server.restart_waiting_idle", "event", "server.restart_waiting_idle", "id", f.ID,
 		"deadline", time.Unix(f.WaitDeadline, 0).Format(time.RFC3339), "wait_sec", f.WaitTimeoutSec)
 	view := f.ServerRestartState
-	go s.runServerRestart(f, managed, dir)
+	go s.runServerRestart(waitCtx, f, managed, dir)
 	c.JSON(http.StatusAccepted, view)
 }
 
 // runServerRestart waits for the machine to go idle, stages a copy of this executable
 // and hands it to the managed upgrade. Nothing is validated against a release: the
 // candidate is the binary that is already running.
-func (s *Server) runServerRestart(f restartFile, managed ManagedUpgradeFunc, dir string) {
-	if outcome := s.waitForIdle(f.WaitDeadline); outcome != waitIdleReached {
+func (s *Server) runServerRestart(waitCtx context.Context, f restartFile, managed ManagedUpgradeFunc, dir string) {
+	if outcome := s.waitForIdle(waitCtx, f.WaitDeadline); outcome != waitIdleReached {
 		s.endWaitingRestart(&f, outcome)
 		return
 	}

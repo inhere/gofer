@@ -437,11 +437,12 @@ func (s *Server) runUpdateApply(f applyFile, managed ManagedUpgradeFunc, dir str
 	f.WaitStartedAt = now.Unix()
 	f.WaitDeadline = now.Add(time.Duration(f.WaitTimeoutSec) * time.Second).Unix()
 	f.Phase = applyWaitingIdle
+	waitCtx := s.armWaitIdle()
 	s.saveApply(&f)
 	applyWaitingIdlePublished()
 	slog.Info("update.apply_waiting_idle", "event", "update.apply_waiting_idle", "id", f.ID,
 		"deadline", time.Unix(f.WaitDeadline, 0).Format(time.RFC3339), "wait_sec", f.WaitTimeoutSec)
-	outcome := s.waitForIdle(f.WaitDeadline)
+	outcome := s.waitForIdle(waitCtx, f.WaitDeadline)
 	if outcome != waitIdleReached {
 		s.endWaitingApply(&f, outcome)
 		return
@@ -470,28 +471,49 @@ const (
 	waitIdleCancelled
 )
 
+// armWaitIdle makes the coming wait cancellable and returns its context. Call it before
+// the waiting_idle phase is published; waitForIdle disarms it when the wait ends.
+func (s *Server) armWaitIdle() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.applyMu.Lock()
+	s.applyWaitCancel = cancel
+	s.applyMu.Unlock()
+	return ctx
+}
+
+// disarmWaitIdle releases the wait's cancel func once the wait is over.
+func (s *Server) disarmWaitIdle() {
+	s.applyMu.Lock()
+	cancel := s.applyWaitCancel
+	s.applyWaitCancel = nil
+	s.applyMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 // waitForIdle blocks until nothing is left that a server restart would kill, the
 // wait's deadline passes, or an administrator cancels. It pauses new starts for the
 // whole wait, so what arrives meanwhile is parked (and counted as such) instead of
 // starting a job the restart would have to wait for. deadlineUnix is the wait's own
 // deadline (`wait_deadline`), shared by the update and the server restart.
-func (s *Server) waitForIdle(deadlineUnix int64) waitIdleOutcome {
+//
+// ctx comes from armWaitIdle, which the caller runs BEFORE it publishes waiting_idle: a
+// person who sees the waiting phase and cancels at once must find something to cancel
+// (the cancel func used to be set here, after the phase was public, so a quick DELETE
+// answered 409 "nothing to cancel").
+func (s *Server) waitForIdle(ctx context.Context, deadlineUnix int64) waitIdleOutcome {
+	defer s.disarmWaitIdle()
 	if s.jobs == nil {
 		return waitIdleReached
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	s.applyMu.Lock()
-	s.applyWaitCancel = cancel
-	s.applyMu.Unlock()
-	defer func() {
-		s.applyMu.Lock()
-		s.applyWaitCancel = nil
-		s.applyMu.Unlock()
-		cancel()
-	}()
 
 	deadline := time.Unix(deadlineUnix, 0)
 	for {
+		// A cancel that arrived before this poll ends the wait first.
+		if ctx.Err() != nil {
+			return waitIdleCancelled
+		}
 		if n, err := s.jobs.CountUpgradeRestartBlockers(nil); err == nil && n == 0 {
 			return waitIdleReached
 		}
