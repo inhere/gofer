@@ -146,7 +146,7 @@ gofer config validate [server|worker]
 **升级**：
 
 - **Web 一键更新**（受管 server）：设置 → 关于 → 检查更新 → 更新。server 会先排空（在跑的 job 跑完，新提交的 job 停在 `paused_for_update`），再换二进制重启。
-- **手动换二进制**：`gofer serve upgrade --binary <新二进制路径>`（受管 server，带排空与失败回滚）；worker 端用 `gofer worker upgrade <worker-id>`（默认上传 server 自己的二进制，同 os/arch；可 `--file` 指定；排空、交接、失败回滚）。`--no-wait` 只等到“接受”就返回。
+- **手动换二进制**：`gofer serve upgrade --binary <新二进制路径>`（受管 server，带排空与失败回滚）；worker 端用 `gofer worker upgrade <worker-id>`（同 os/arch 用 server 自己的二进制，其他平台从下载源 `server.update` 取该平台的发布包；也可 `--file` 指定；`--source` / `--version` 可选；排空、交接、失败回滚）。`--no-wait` 只等到“接受”就返回。
 - **看结果**：`gofer serve upgrade status`、`gofer serve status`、worker 机器的 `<config-dir>/run/worker-<id>.log`。
 
 **回滚**：
