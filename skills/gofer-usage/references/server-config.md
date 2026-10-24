@@ -595,7 +595,7 @@ server:
 - 空闲后把二进制交给 `gofer serve upgrade`（内部 `--drain-timeout` 用较短的 2 分钟：刚刚已经等到空闲）替换并重启，失败自动回滚。
 - 新 server 起来后**先把停住的 job 全部放行**，再逐个升级勾选的 worker：同平台用 server 自己的新二进制，其他平台用同一来源下载的该平台二进制。
 - 进度在关于页显示（也在 `GET /v1/update` 的 `apply`）：等空闲时列出还在挡着重启的 job（可点进详情）、已停住的 job 数与放弃时间；`<config-dir>/run/update/` 下有下载的文件、`apply.json` 与 `serve-upgrade.log`（失败时错误信息就从它尾部取）。
-- 普通 `gofer serve`（前台 / `-d`）不能自我替换：关于页给出手动步骤——下载二进制替换后重启；worker 用 `gofer worker upgrade <id>`（其他平台加 `--file <该平台二进制>`）。
+- 普通 `gofer serve`（前台 / `-d`）不能自我替换：关于页给出手动步骤——下载二进制替换后重启；worker 用 `gofer worker upgrade <id>`（其他平台由 server 从下载源 `server.update` 自动取该平台的发布包，也可以加 `--file <该平台二进制>`）。
 
 ## worker 自助注册（worker_enrollment）
 

@@ -176,6 +176,18 @@ Registered keys (first batch; consumers land in later work):
 - `GET /v1/workers/{id}`: `worker.tools`, same shape.
 - Descriptive only: the list is what agent jobs on that machine are told; it does not affect routing.
 
+## Remote worker upgrade (`POST /v1/workers/{id}/upgrade`)
+
+- Body `{source, version, force, drain_timeout_sec, ready_timeout_sec}`; answers `202 {worker_id, accepted: true, upgrade}` once the worker has downloaded, verified and test-run the new binary. The final outcome is the `upgrade` record of `GET /v1/workers/{id}` (`upgrade` / `upgrade_history`).
+- `source`:
+  - `auto` (default, and `""`): a worker of the server's own os/arch is upgraded with the server's own executable; a worker of any other platform gets its platform's release binary downloaded from the update source (`server.update`).
+  - `server`: always the server's own executable — a worker of another platform is refused with `409 platform mismatch`.
+  - `mirror`: always the update source, whatever the platform.
+  - `staged`: the binary an earlier `PUT /v1/workers/{id}/upgrade/file` stored; `400` when nothing was staged.
+- `version`: the release to download (`X.Y.Z`, a leading `v` is accepted). Default = the server's own version, and the source's latest release when the server runs a build that is not a release (`dev…`). The source resolves like the one-click update's: a mirror's `latest_url` / `url_template` (`{version}` is filled with the requested release), or the GitHub release — the checked latest, or `/releases/tags/v<version>` for another one. Downloads are verified against the published sha256 when the source publishes one (a mirror publishes the checksums of its latest release only); the binary is never run on the server — it belongs to the worker's platform — the worker verifies it and reports the version it came up with.
+- Errors: `503` when this server has no release checker (no update source at all), `409` when the source cannot be checked, has no binary for that platform, or the download failed (the message carries the source's own error), and for an offline / too-old worker; `400` for an unknown `source` or a malformed `version`.
+- Permissions: `worker.upgrade` for `auto` / `server` / `mirror`; `staged` additionally needs `worker.upgrade.upload`, because it runs a binary the caller supplied (a download comes from the source the administrator configured in `server.update`, not from the request). `PUT /v1/workers/{id}/upgrade/file` (uploading the binary) needs `worker.upgrade.upload`; `GET /v1/workers/{id}/upgrade/file` is the worker's own token only.
+
 ## Runner messenger (`messenger_detail`)
 
 The local row of `GET /v1/runners` carries `messenger_detail` read in-process; a worker row carries the worker's last heartbeat copy (absent = an older build or no heartbeat yet). Rotation / usage fields (gofer-li3t):

@@ -52,10 +52,12 @@ gofer serve reload -c <config> [--timeout 秒]                           # 本�
 ## 远程升级 worker
 
 ```bash
-gofer worker upgrade <id> [--file <worker 二进制>] [--force] [--drain-timeout 秒] [--no-wait] [--timeout 秒]   # 需管理员
+gofer worker upgrade <id> [--source auto|server|mirror] [--version <X.Y.Z>] [--file <worker 二进制>] [--force] [--drain-timeout 秒] [--no-wait] [--timeout 秒]   # 需管理员
 ```
 
-- 不带 `--file` 时用 server 自己的可执行文件（要求同 os / arch）；带 `--file` 时先上传到 server 暂存，worker 下载后校验 sha256 并试跑 `--version`。
+- 二进制去哪取（`--source`）：`auto`（默认）——与 server 同 os / arch 用 server 自己的可执行文件，其他平台从下载源（配置里的 `server.update`：mirror 的 `url_template` 或 GitHub release）取该平台的发布包；`server` 强制用 server 自身二进制（平台不同直接报错）；`mirror` 强制从下载源取。`--file` 时先上传到 server 暂存（优先于 `--source`），worker 下载后校验 sha256 并试跑 `--version`。
+- `--version` 指定下载哪个发布版本（默认跟 server 同版本；server 本身是开发构建时用下载源的最新版）。下载源的 sha256 只发布最新版，其他版本不校验（URL 全部来自管理员配置）。
+- 其它平台的 worker 不需要再手工找二进制：下载源没配好（检查失败 / 平台没有对应包）时命令直接报原因，可回退 `--file`。
 - worker 先排空（不再接新 job，在途 job 做完，默认最多等 600 秒，超时放弃升级并恢复接单；`--force` 不等），再切换二进制、拉起新进程；新进程注册成功后旧进程退出，60 秒内没注册则还原旧二进制，记为 `rolled_back`。
 - CLI 默认等最终结果，打印「已升级到 vX（耗时）」或「已回滚：原因」，失败时退出码非 0。升级期间向该 worker 提交 job 会失败（`worker is being upgraded`）。
 - 太旧的 worker 不支持远程升级，会提示手动升级一次。`gofer worker show <id>` 与 web Runners 卡片显示最近 5 次升级记录（带时间）。旧二进制保留为 `<exe>.old` 供手动回退。

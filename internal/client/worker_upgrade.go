@@ -37,10 +37,13 @@ type WorkerUpgradeRecord struct {
 }
 
 // WorkerUpgradeOptions is the body of POST /v1/workers/{id}/upgrade. Source is
-// "staged" (the binary uploaded with StageWorkerUpgrade) or "server" (the server's own
-// executable; the default).
+// "auto" (the server's own executable for a worker of the server's platform, the release
+// source otherwise; the default), "server" (the server's own executable), "mirror" (the
+// release source configured in server.update) or "staged" (the binary uploaded with
+// StageWorkerUpgrade). Version names the release to download ("" = the server's version).
 type WorkerUpgradeOptions struct {
 	Source          string `json:"source,omitempty"`
+	Version         string `json:"version,omitempty"`
 	Force           bool   `json:"force,omitempty"`
 	DrainTimeoutSec int    `json:"drain_timeout_sec,omitempty"`
 	ReadyTimeoutSec int    `json:"ready_timeout_sec,omitempty"`
@@ -50,8 +53,9 @@ type WorkerUpgradeOptions struct {
 const workerUpgradeUploadTimeout = 10 * time.Minute
 
 // workerUpgradeAcceptTimeout covers the server waiting for the worker's download +
-// verification (the server's own wait is 5 minutes).
-const workerUpgradeAcceptTimeout = 6 * time.Minute
+// verification (the server's own wait is 5 minutes), plus a binary downloaded from the
+// release source for the worker's platform first (gofer-n1vj).
+const workerUpgradeAcceptTimeout = 20 * time.Minute
 
 // StageWorkerUpgrade uploads the file as worker id's upgrade binary. The server
 // computes the digest itself; the returned values are what it stored.

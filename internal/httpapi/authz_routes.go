@@ -739,7 +739,10 @@ var routeDecls = map[string]routeDecl{
 	//                 downloads and executes (危险级, so it is spelled out literally); and
 	//                 POST /v1/workers/{id}/upgrade with `source=staged` runs exactly that
 	//                 stored binary, which is why the design's `worker.upgrade.upload` row
-	//                 reads「上传二进制；`source=staged` 也需要」.
+	//                 reads「上传二进制；`source=staged` 也需要」. The other sources
+	//                 (`auto` / `server` / `mirror`) supply nothing through the request —
+	//                 `mirror` downloads from the source the administrator configured in
+	//                 server.update (gofer-n1vj) — so they need worker.upgrade only.
 	//
 	// The three worker handshakes are WorkerSelf ANNOTATIONS of the same kind as the four
 	// rows of workercredential.go's whitelist: they are registered OUTSIDE the /v1 group (a WS

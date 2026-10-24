@@ -71,6 +71,8 @@ var workerShowOpts = struct {
 
 var workerUpgradeOpts struct {
 	file         string
+	source       string
+	version      string
 	force        bool
 	noWait       bool
 	drainTimeout int
@@ -356,14 +358,17 @@ func NewWorkerReloadCmd() *gcli.Command {
 }
 
 // NewWorkerUpgradeCmd builds the remote worker upgrade entry point (protocol v15+).
-// Without --file the server upgrades the worker with its own executable (same os/arch
-// only); with --file the binary is uploaded to the server first. The command waits for
-// the final outcome unless --no-wait is given.
+// Without --file the server picks the binary by platform (--source auto): its own
+// executable for a worker of its platform, the release source for any other. With --file
+// the binary is uploaded to the server first. The command waits for the final outcome
+// unless --no-wait is given.
 func NewWorkerUpgradeCmd() *gcli.Command {
 	return &gcli.Command{Name: "upgrade", Desc: "Upgrade a connected worker's binary remotely (drain, hand over, roll back on failure)", Config: func(c *gcli.Command) {
 		bindConfigFlag(c)
 		bindServerFlags(c)
-		c.StrOpt(&workerUpgradeOpts.file, "file", "", "", "replacement worker binary to upload (default: the server's own executable, same os/arch only)")
+		c.StrOpt(&workerUpgradeOpts.file, "file", "", "", "replacement worker binary to upload (overrides --source)")
+		c.StrOpt(&workerUpgradeOpts.source, "source", "", workerUpgradeSourceAuto, "where the binary comes from: auto | server (this server's executable) | mirror (the download source, server.update)")
+		c.StrOpt(&workerUpgradeOpts.version, "version", "", "", "release version to download for another platform (default: the server's version)")
 		c.BoolOpt(&workerUpgradeOpts.force, "force", "", false, "do not wait for in-flight jobs to finish; they are treated like a worker restart")
 		c.BoolOpt(&workerUpgradeOpts.noWait, "no-wait", "", false, "return once the worker accepted the new binary instead of waiting for the final result")
 		c.IntOpt(&workerUpgradeOpts.drainTimeout, "drain-timeout", "", wsproto.DefaultUpgradeDrainSec, "seconds to wait for in-flight jobs before giving up the upgrade")
@@ -371,6 +376,14 @@ func NewWorkerUpgradeCmd() *gcli.Command {
 		c.AddArg("id", "worker id", true)
 	}, Func: runWorkerUpgrade}
 }
+
+// Worker upgrade sources `gofer worker upgrade --source` accepts (the wire values of
+// POST /v1/workers/{id}/upgrade; "staged" is implied by --file).
+const (
+	workerUpgradeSourceAuto   = "auto"
+	workerUpgradeSourceServer = "server"
+	workerUpgradeSourceMirror = "mirror"
+)
 
 // workerUpgradePollInterval is how often the final result is polled.
 const workerUpgradePollInterval = time.Second
@@ -381,7 +394,7 @@ func runWorkerUpgrade(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	opt := client.WorkerUpgradeOptions{Force: workerUpgradeOpts.force, DrainTimeoutSec: workerUpgradeOpts.drainTimeout}
+	opt := client.WorkerUpgradeOptions{Force: workerUpgradeOpts.force, DrainTimeoutSec: workerUpgradeOpts.drainTimeout, Version: workerUpgradeOpts.version}
 	if workerUpgradeOpts.file != "" {
 		sha, size, err := cli.StageWorkerUpgrade(id, workerUpgradeOpts.file)
 		if err != nil {
@@ -390,7 +403,14 @@ func runWorkerUpgrade(c *gcli.Command, _ []string) error {
 		c.Printf("uploaded %s (%d bytes, sha256 %s)\n", workerUpgradeOpts.file, size, sha)
 		opt.Source = "staged"
 	} else {
-		opt.Source = "server"
+		switch workerUpgradeOpts.source {
+		case "", workerUpgradeSourceAuto:
+			opt.Source = workerUpgradeSourceAuto
+		case workerUpgradeSourceServer, workerUpgradeSourceMirror:
+			opt.Source = workerUpgradeOpts.source
+		default:
+			return fmt.Errorf("--source %q: want auto, server or mirror", workerUpgradeOpts.source)
+		}
 	}
 	rec, err := cli.StartWorkerUpgrade(id, opt)
 	if err != nil {
