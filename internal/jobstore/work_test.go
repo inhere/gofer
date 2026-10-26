@@ -329,6 +329,28 @@ func TestWorkLinksAndSessionsAreJournaled(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrWorkItemNotFound))
 }
 
+// TestFirstWorkJournalIsTheCreationLine: the oldest line is the creation one (who captured an
+// item), while updated_by follows the last write.
+func TestFirstWorkJournalIsTheCreationLine(t *testing.T) {
+	s := openTest(t)
+	w, err := s.CaptureWorkItem(CaptureInput{Text: "随手记", Kind: WorkKindIdea, By: "human:cap"})
+	assert.NoErr(t, err)
+	goal := "后来补的目标"
+	got, _, err := s.UpdateWorkItem(w.ID, WorkItemPatch{Goal: &goal}, 0, "human:edit")
+	assert.NoErr(t, err)
+	assert.Eq(t, "human:edit", got.UpdatedBy)
+
+	e, ok, err := s.FirstWorkJournal(w.ID)
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "human:cap", e.By)
+	assert.True(t, strings.Contains(e.Text, "收集"))
+
+	if _, ok, err = s.FirstWorkJournal("w-nope"); err != nil || ok {
+		t.Fatalf("an unknown item has no journal line (ok=%v err=%v)", ok, err)
+	}
+}
+
 func TestWorkChangeEventAndKV(t *testing.T) {
 	s := openTest(t)
 	var kinds []ChangeKind

@@ -21,6 +21,10 @@
 
 - **英文用户文档（T04）**：新增 `docs/guide/en/`——`getting-started.md`（安装→第一个 job→Web 控制台→加 worker→终端会话交给 web，每步带预期输出与常见卡点）、`concepts.md`（概念总览 + mermaid 图）、`features.md`（按功能分节，链接到对应 skill reference / runbook）、`security.md`（信任模型、部署建议、脱敏范围）。`README.md` 的 Features / Documentation / 指南链接改指英文版，`docs/guide/README.md` 增加英文入口。其余指南与 runbook 仍为中文。
 
+### 修复
+
+- **收集项转 issue 不再丢原文（gofer-wcga）**：从收集箱把条目转成仓库 issue 时，若在转换界面把标题改短，描述里原来只剩「captured as work item …」，认真写下的收集内容哪里都不剩。现在描述总是带收集原文：issue 标题与条目标题不同时把条目标题全文写进描述（多行原样保留），条目 goal 与标题不同时一并写入，条目文本里的附图 / 附件引用（`/v1/attachments/<id>`）单列一行，另加一行来源（谁收集、何时、来自哪个会话 / job / 收集箱 / 信箱、项目；「谁」取收集时的作者，不是最后一次编辑者），末行仍是 `captured as work item <id>`。转会话 / 转 todo / 转 job 也已核对：它们本来就带整份文本，无同类丢失。
+
 ## [0.196.0] - 2026-10-26
 
 ### 修复

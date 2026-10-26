@@ -59,6 +59,11 @@ func TestWorkDispatchToIssue(t *testing.T) {
 	if is.Title != "Login 500" || is.Type != "bug" || !strings.Contains(is.Description, w.ID) {
 		t.Fatalf("issue = %+v", is)
 	}
+	// The title was shortened on the way over, so the captured text has to be in the description
+	// (gofer-wcga).
+	if !strings.Contains(is.Description, "login page 500s") || !strings.Contains(is.Description, "captured by t at ") {
+		t.Fatalf("description lost the captured text or its source: %q", is.Description)
+	}
 	if j := journalText(t, s, w.ID); !strings.Contains(j, links[0].Ref) {
 		t.Fatalf("journal lacks the issue id: %q", j)
 	}
