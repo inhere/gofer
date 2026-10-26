@@ -46,6 +46,14 @@ type Tool struct {
 	// still a Write — it stores a row — but it changes no state a caller has to confirm
 	// and executes nothing, so the approval gate may run it without a human.
 	Advisory bool
+	// Steward is WHY a steward session's own job may run this write without a human
+	// (gofer-j0aq): the steward's work IS this call — noting, reminding, asking a session
+	// to report, keeping its own notes — so an `approval: ask` gate that asks for every
+	// gofer write parked the daily tidy-up on a human until it timed out as a refusal.
+	// Non-empty = in StewardTools, and only a steward job's own policy lists them; every
+	// other ACP session still asks. Empty = gated for the steward too. Only a
+	// non-destructive Write may carry a reason (TestRegistryIsConsistent).
+	Steward string
 }
 
 // registry is every gofer_* tool internal/mcpserver registers, in a stable order:
@@ -144,17 +152,22 @@ var registry = []Tool{
 	{Name: "gofer_memory_suggest", Class: Write, Advisory: true},
 
 	// Work-item / session writes.
-	{Name: "gofer_work_update", Class: Write},
-	{Name: "gofer_work_note", Class: Write},
+	//
+	// The steward: marks are the tidying side the steward's own session is FOR; each one
+	// is a field-level / scheduling change a person can undo, never a decision. The
+	// steward MCP surface (mcpserver.registerStewardTools) is the other half of the same
+	// boundary, and the steward credential refuses the rest at the server.
+	{Name: "gofer_work_update", Class: Write, Steward: "it may change a work item's descriptive fields (never done / dropped: ending an item is the person's call)"},
+	{Name: "gofer_work_note", Class: Write, Steward: "appending a journal line is the steward's bookkeeping, recorded as steward(<agent>)"},
 	{Name: "gofer_work_report", Class: Write},
 	{Name: "gofer_work_capture", Class: Write},
-	{Name: "gofer_work_remind", Class: Write},
+	{Name: "gofer_work_remind", Class: Write, Steward: "setting or clearing a reminder only schedules a nudge for the person"},
 	// Advisory: it only records a merge suggestion; merging stays a person's call.
 	{Name: "gofer_work_merge_suggest", Class: Write, Advisory: true},
-	{Name: "gofer_work_request_report", Class: Write},
-	{Name: "gofer_work_summarize", Class: Write},
-	{Name: "gofer_steward_notes", Class: Write},
-	{Name: "gofer_session_ask", Class: Write},
+	{Name: "gofer_work_request_report", Class: Write, Steward: "asking a running session to report opens a request-ledger entry; the session answers, the person reads it"},
+	{Name: "gofer_work_summarize", Class: Write, Steward: "it fills goal / blocker / next from the transcript tail and only SUGGESTS a value a person or the session already wrote"},
+	{Name: "gofer_steward_notes", Class: Write, Steward: "the steward's own versioned notes are its memory; every set keeps the previous version"},
+	{Name: "gofer_session_ask", Class: Write, Steward: "putting a question to an online session is how the steward asks for a report; the answer lands in the ledger"},
 	{Name: "gofer_session_set_topic", Class: Write},
 	{Name: "gofer_session_mail_send", Class: Write},
 	{Name: "gofer_session_mail_reply", Class: Write},
@@ -214,6 +227,37 @@ func AutoApprovedTools() []string {
 		}
 	}
 	return out
+}
+
+// StewardTools returns the exact names of the gofer WRITE tools a steward session's own
+// job may run without a human (Tool.Steward), in registry order. It is the steward's half
+// of the default steward approval policy (config.DefaultStewardApproval): gofer's
+// read-only / advice-only tools are approved for every gate, these only for the steward's.
+// A tool missing here is asked about even in the steward's session.
+func StewardTools() []string {
+	var out []string
+	for _, t := range registry {
+		if t.Steward != "" {
+			out = append(out, t.Name)
+		}
+	}
+	return out
+}
+
+// StewardReason reports why a steward session may run name without a human; ok is false
+// for a tool that is not in StewardTools (the gate then decides by the policy alone).
+func StewardReason(name string) (string, bool) {
+	t, ok := byName[name]
+	if !ok || t.Steward == "" {
+		return "", false
+	}
+	return t.Steward, true
+}
+
+// IsStewardTool reports whether name is one of StewardTools.
+func IsStewardTool(name string) bool {
+	_, ok := StewardReason(name)
+	return ok
 }
 
 // MailReplyTool is the mailbox's answer tool. It is a Write tool, but the resident 收件会话

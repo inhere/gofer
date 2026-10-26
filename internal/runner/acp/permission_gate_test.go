@@ -242,6 +242,55 @@ func TestApprovalToolListsConfigurable(t *testing.T) {
 	}
 }
 
+// TestStewardApprovalGate pins gofer-j0aq at the gate: with the steward's own policy
+// (config.DefaultStewardApproval) the gofer writes the steward is FOR run without a human
+// and the audit line says which rule did it — while every gofer-78on protection still
+// holds: a mutating kind always asks, a name from another MCP server is not gofer's, a
+// gofer write outside the list asks, mode=strict asks everything, and an ORDINARY policy
+// (the project's, an ordinary ACP session's) keeps asking for the same tool name.
+func TestStewardApprovalGate(t *testing.T) {
+	steward := config.DefaultStewardApproval()
+	strict := steward
+	strict.Mode = config.ApprovalStrict
+	cases := []struct {
+		name        string
+		policy      config.ApprovalConfig
+		title       string
+		kind        string
+		wantToHuman bool
+		wantReason  string
+	}{
+		{name: "bare steward tool", policy: steward, title: "gofer_work_remind", kind: acp.ToolKindOther, wantReason: "gofer_steward_tool"},
+		{name: "qualified steward tool", policy: steward, title: "mcp__gofer__gofer_work_remind", kind: acp.ToolKindOther, wantReason: "gofer_steward_tool"},
+		{name: "steward notes", policy: steward, title: "gofer_steward_notes", kind: acp.ToolKindOther, wantReason: "gofer_steward_tool"},
+		{name: "read-only stays auto", policy: steward, title: "gofer_work_list", kind: acp.ToolKindOther, wantReason: "gofer_readonly_tool"},
+		{name: "steward tool as edit kind", policy: steward, title: "gofer_work_remind", kind: acp.ToolKindEdit, wantToHuman: true},
+		{name: "steward tool from another server", policy: steward, title: "mcp__other__gofer_work_remind", kind: acp.ToolKindOther, wantToHuman: true},
+		{name: "gofer write outside the list", policy: steward, title: "gofer_run_job", kind: acp.ToolKindOther, wantToHuman: true},
+		{name: "strict asks the steward tool", policy: strict, title: "gofer_work_remind", kind: acp.ToolKindOther, wantToHuman: true},
+		{name: "ordinary policy still asks", policy: config.ApprovalConfig{Mode: config.ApprovalAsk}, title: "gofer_work_remind", kind: acp.ToolKindOther, wantToHuman: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &recordingSink{}
+			h, events := gateHandlerPolicy(t, tc.policy, sink)
+			out := h.RequestPermission(permissionRequest(tc.title, tc.kind))
+			if got := len(sink.asked) == 1; got != tc.wantToHuman {
+				t.Fatalf("asked a human = %v (%d time(s)), want %v (outcome %+v)", got, len(sink.asked), tc.wantToHuman, out)
+			}
+			if tc.wantReason != "" && events.f != nil {
+				b, err := os.ReadFile(filepath.Join(filepath.Dir(events.f.Name()), ACPFileName))
+				if err != nil {
+					t.Fatalf("read acp.jsonl: %v", err)
+				}
+				if !strings.Contains(string(b), `"reason":"`+tc.wantReason+`"`) {
+					t.Fatalf("acp.jsonl does not record reason %q:\n%s", tc.wantReason, b)
+				}
+			}
+		})
+	}
+}
+
 // TestGateHandlerGoferServers pins what attribution trusts: gofer's canonical server
 // name, and any entry running this same gofer binary (an operator may bind it under a
 // name of their own). Another program's server is not gofer's, whatever it is called.

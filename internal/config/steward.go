@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/mcptools"
 )
 
 // StewardConfig is the top-level `steward:` block (W2b, design 2026-10-05 §9 / §14.4).
@@ -36,6 +38,14 @@ type StewardConfig struct {
 	EventWake bool `yaml:"event_wake,omitempty"`
 	// EventThrottleMin is the minimum gap between two event-driven wakes (default 30).
 	EventThrottleMin int `yaml:"event_throttle_min,omitempty"`
+	// Approval is the approval gate of the steward's OWN session (gofer-j0aq): a policy that
+	// REPLACES the project's one for that job only, the same way
+	// mail.agents.<名字>.approval does for a resident 收件会话 (Config.EffectiveApprovalWith).
+	// Nil = DefaultStewardApproval: mode=ask with gofer's own read-only / advice-only tools
+	// plus the steward's tools pre-approved, so the daily tidy-up does not park on a human
+	// for every gofer write while everything else (files, shell, other MCP servers) still
+	// asks. See StewardConfig.ApprovalPolicy.
+	Approval *ApprovalConfig `yaml:"approval,omitempty"`
 }
 
 // W2b steward defaults.
@@ -50,6 +60,36 @@ const (
 	StewardEventDraftsThreshold  = 5
 	stewardReviewTimeLayoutHint  = "HH:MM"
 )
+
+// DefaultStewardApproval is the approval gate a steward session runs under when
+// steward.approval is absent (gofer-j0aq): mode=ask — a human decides everything the gate
+// does not explicitly release — with gofer's read-only / advice-only tools
+// (DefaultApprovalAutoAllowTools) plus the steward's own writes (mcptools.StewardTools):
+// noting, reminding, asking a session to report and keeping its notes ARE its job.
+// The gofer-78on protections are untouched: a name counts only from gofer's own MCP
+// server, the mutating kinds (edit / delete / move / execute / switch_mode) always ask,
+// and mode=strict asks everything.
+func DefaultStewardApproval() ApprovalConfig {
+	tools := append([]string(nil), DefaultApprovalAutoAllowTools...)
+	return ApprovalConfig{Mode: ApprovalAsk, AutoAllowTools: append(tools, mcptools.StewardTools()...)}
+}
+
+// ApprovalPolicy resolves the steward session's approval gate: the configured
+// steward.approval block, or DefaultStewardApproval when it is absent. A block that leaves
+// auto_allow_tools unset keeps the steward's own default list — writing `approval: {mode:
+// ask}` must not silently re-gate the tools the steward is made of, and `mode: strict` still
+// asks for everything because the mode is checked before any tool list.
+func (s StewardConfig) ApprovalPolicy() ApprovalConfig {
+	def := DefaultStewardApproval()
+	if s.Approval == nil {
+		return def.WithDefaults()
+	}
+	pol := *s.Approval
+	if pol.AutoAllowTools == nil {
+		pol.AutoAllowTools = def.AutoAllowTools
+	}
+	return pol.WithDefaults()
+}
 
 // AgentName is the configured steward agent ("" = none chosen).
 func (s StewardConfig) AgentName() string { return strings.TrimSpace(s.Agent) }
@@ -113,6 +153,11 @@ func (s StewardConfig) validate() error {
 		var h, m int
 		if n, err := fmt.Sscanf(t, "%d:%d", &h, &m); err != nil || n != 2 || h < 0 || h > 23 || m < 0 || m > 59 {
 			return fmt.Errorf("steward.review_time %q must look like %s", s.ReviewTime, stewardReviewTimeLayoutHint)
+		}
+	}
+	if s.Approval != nil {
+		if err := validateApprovalAt("steward", *s.Approval); err != nil {
+			return err
 		}
 	}
 	return nil

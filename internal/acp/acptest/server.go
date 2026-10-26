@@ -84,6 +84,11 @@ type Options struct {
 	// raises ("" => PermissionKindDefault, "edit"). A "read"-ish kind is what the
 	// approval gate's auto_allow_kinds is about.
 	PermissionKind string
+	// PermissionTool is the toolCall.title of that request ("" => PermissionTitle, the
+	// edit a "yes" would let through). An MCP tool call arrives as kind=other with the
+	// tool's own NAME in the title, which is what the approval gate's tool-name rule
+	// (gofer-78on / gofer-j0aq) decides on.
+	PermissionTool string
 	// PermissionOptions lists the option KINDS the request offers, in order
 	// ("" => allow_once, allow_always, reject_once — the S0 script). Dropping
 	// reject_once is how a test reaches "rejected with no reject option available".
@@ -285,6 +290,12 @@ func parseArgs(args []string) (Options, error) {
 			}
 			i++
 			o.PermissionKind = args[i]
+		case "--perm-tool":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--perm-tool needs a value")
+			}
+			i++
+			o.PermissionTool = args[i]
 		case "--perm-options":
 			if i+1 >= len(args) {
 				return o, fmt.Errorf("--perm-options needs a value")
@@ -783,9 +794,13 @@ func (s *server) permissionToolCall() map[string]any {
 	if kind == "" {
 		kind = PermissionKindDefault
 	}
+	title := s.opts.PermissionTool
+	if title == "" {
+		title = PermissionTitle
+	}
 	return map[string]any{
 		"toolCallId": ToolCallID,
-		"title":      PermissionTitle,
+		"title":      title,
 		"kind":       kind,
 		"status":     "pending",
 		"rawInput":   map[string]any{"path": "main.go"},

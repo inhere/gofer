@@ -34,6 +34,9 @@ func CmdArgs(o Options) []string {
 	if o.PermissionKind != "" {
 		args = append(args, "--perm-kind", o.PermissionKind)
 	}
+	if o.PermissionTool != "" {
+		args = append(args, "--perm-tool", o.PermissionTool)
+	}
 	if len(o.PermissionOptions) > 0 {
 		args = append(args, "--perm-options", strings.Join(o.PermissionOptions, ","))
 	}

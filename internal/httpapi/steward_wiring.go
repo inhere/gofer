@@ -32,7 +32,13 @@ func (h stewardHost) StartSession(sp steward.StartSpec) (string, error) {
 		// hold the directory lock other jobs of the default project need.
 		ExclusiveDir: &shared,
 		Channel:      "steward", CallerID: "gofer",
-		Review: false, ReviewFixed: true,
+		// gofer-j0aq: the steward's own approval gate (steward.approval, default
+		// config.DefaultStewardApproval). It REPLACES the project's policy for this one
+		// job, so the steward's gofer writes run without a human while every other ACP
+		// session of the project keeps asking — and the gate's own protections (gofer's
+		// MCP attribution, the mutating kinds, mode=strict) still apply.
+		SessionApproval: sp.Approval,
+		Review:          false, ReviewFixed: true,
 		Steward: true,
 	})
 	if err != nil {
