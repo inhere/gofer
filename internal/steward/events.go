@@ -84,9 +84,13 @@ func (s *Service) scanEvents(now time.Time) {
 				continue
 			}
 			ref := strings.Join([]string{id, sid, a.State, strconv.FormatInt(a.LastSeenAt, 10)}, eventSep)
+			state := a.State
+			if key := eventStateKeys[a.State]; key != "" {
+				state = stewardText(s.language(), key)
+			}
 			_, _ = s.store.AddStewardEvent(jobstore.StewardEventSession, ref,
 				stewardText(s.language(), "event.session", "id", id, "title", byID[id].Title,
-					"session", shortID(sid), "state", stewardText(s.language(), eventStateKeys[a.State])))
+					"session", shortID(sid), "state", state))
 		}
 	}
 	if drafts >= config.StewardEventDraftsThreshold {
