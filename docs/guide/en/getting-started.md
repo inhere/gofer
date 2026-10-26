@@ -111,7 +111,7 @@ ERROR: server 401: unauthorized: missing or invalid bearer token
 
 So: the agent must be in the project's `allowed_agents`; `--cwd` is a path *inside* the project (`--cwd sub/dir`), never an absolute path — the job may run on another machine where your absolute path means something else; and a missing token is a client-side problem (`GOFER_SERVER_TOKEN`, or `gofer init client` on a machine that only submits jobs).
 
-Two more defaults worth knowing: a job's timeout defaults to the project's value (300 s unless configured) and is clamped by `server.max_job_timeout_sec`; `--sync` gives up after about 30 s (`--wait-timeout`), which is not the job's timeout.
+Two more defaults worth knowing: a job's timeout is 300 s unless you pass `--timeout`, and the server clamps it to `server.max_job_timeout_sec` (3600 s by default, or the project's `max_timeout_sec`); `--sync` gives up after about 30 s (`--wait-timeout`), which is not the job's timeout.
 
 ## 4. A real agent job, with a review gate
 
@@ -177,7 +177,7 @@ The other direction works too, if `server.worker_enrollment` is enabled: `gofer 
 - The `worker_id` must be identical in three places: the worker's own config, the key under `server.workers` on the server, and `runners.<name>.worker_id`. A mismatch is rejected at registration ("worker_id not bound to this token").
 - The token is shown once. If you lost it, `gofer worker remove` and register again.
 - The worker maps the server's project paths to its own directories through `roots`; a job is refused when the mapped directory does not exist on that machine. `gofer worker projects w-office` shows the effective mapping.
-- `--runner` takes `server` (this host), `local` (a compatibility alias for the same thing), a worker id, or a peer name. `server` and `local` are reserved names: a worker cannot be called that.
+- `--runner` takes `server` (this host — `local` is the same runner, and the name storage and the API use), a worker id, or a peer name. `server` and `local` are reserved: no worker or custom runner may be called that.
 
 ## 7. Hand your terminal sessions over to the web
 
