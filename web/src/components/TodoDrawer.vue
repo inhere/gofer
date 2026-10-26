@@ -1,16 +1,20 @@
 <script setup lang="ts">
 // 待办详情抽屉（issue gofer-5inz）：看板卡片 / 列表行点开右侧抽屉，把这一条待办的
 // 全部信息放在一处——标题、状态、依赖、验收标准、派发字段、关联 job（可跳转）、备注、
-// 计划交接说明、评论与事件；常用操作（改状态、派发 / 重派）也在抽屉里，走的还是列表行
+// 待办评论与关联 job 的事件；常用操作（改状态、派发 / 重派）也在抽屉里，走的还是列表行
 // 那两条路径（宿主页面 onTodoStatus / dispatchTodo），本组件只发意图、不改数据。
 //  - 抽屉外壳统一用 ui/Drawer（§8）；评论复用 CommentThread（scope=todo，接口早已存在）。
-//  - 事件没有 todo 级的接口：拉关联 job 的事件合并展示（最多看最近 5 个 job），空则显示说明。
+//  - 计划级交接说明不在这里：那是整个计划的，计划详情页已有（用户反馈：抽屉里混着分不清
+//    哪些属于这一条待办）。
+//  - 事件没有 todo 级的接口：拉关联 job 的事件合并展示（最多看最近 5 个 job）。这是「关联
+//    job 的事件」不是待办自己的，故默认折叠、展开才请求；没有关联 job 时整节不显示。
 //  - 写操作受宿主页面的 plan 写权限门控（writeBlock 非空 = 只读，按钮禁用并给出原因）。
 import { computed, ref, watch } from 'vue'
 import { t } from '../i18n'
 import Drawer from '../ui/Drawer.vue'
 import Icon from '../ui/Icon.vue'
 import StatusPill from '../ui/StatusPill.vue'
+import { ChevronDown, ChevronRight } from '@lucide/vue'
 import MarkdownBlock from './MarkdownBlock.vue'
 import CommentThread from './CommentThread.vue'
 import { listEvents } from '../api/client'
@@ -19,7 +23,7 @@ import { formatRelative } from '../utils/format'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { depsSatisfied } from '../utils/planBoard'
 import { usageBadge, verifyLabel } from '../utils/jobOutcome'
-import type { AgentInfo, Job, JobEvent, PlanHandoff, Todo, TodoStatus } from '../api/types'
+import type { AgentInfo, Job, JobEvent, Todo, TodoStatus } from '../api/types'
 
 const props = defineProps<{
   todo: Todo | null
@@ -29,8 +33,6 @@ const props = defineProps<{
   jobs: Job[]
   // 派发时给没 assignee 的条目选 agent（与看板「拖到 ready 先选 agent」同一份候选）。
   agents: AgentInfo[]
-  // 计划当前的交接说明（plan 详情里已经取到了，这里只展示，不另发请求）。
-  handoff: PlanHandoff | null
   // 非空 = 没有写权限（自己的 plan 之外），文案即禁用原因。
   writeBlock?: string
 }>()
@@ -107,18 +109,24 @@ function titleOf(id: string): string {
 
 const continuedBy = computed(() => (props.todo?.continued_by ? titleOf(props.todo.continued_by) : ''))
 
-// —— 关联 job 的事件（没有 todo 级接口，合并最近几个 job 的事件） ——
+// —— 关联 job 的事件（没有 todo 级接口，展开时合并最近几个 job 的事件） ——
 const EVENT_JOBS = 5
 const EVENT_SHOWN = 20
 const events = ref<Array<JobEvent & { jobId: string }>>([])
 const eventsLoading = ref(false)
 const eventsError = ref('')
+// 折叠态：展开才请求（列表行 / 看板卡片点开抽屉时不该顺手拉五路事件）。
+const eventsOpen = ref(false)
+const eventsLoaded = ref(false)
 
 async function loadEvents(): Promise<void> {
   const ids = related.value.slice(0, EVENT_JOBS).map((r) => r.id)
   events.value = []
   eventsError.value = ''
-  if (ids.length === 0) return
+  if (ids.length === 0) {
+    eventsLoaded.value = true
+    return
+  }
   eventsLoading.value = true
   try {
     const pages = await Promise.all(
@@ -139,13 +147,25 @@ async function loadEvents(): Promise<void> {
     eventsError.value = e instanceof Error ? e.message : String(e)
   } finally {
     eventsLoading.value = false
+    // 只有拉成功才算「加载过」：失败时保留未加载，收起再展开会重试。
+    eventsLoaded.value = !eventsError.value
   }
 }
 
-// 换条目 / 打开抽屉时重拉事件（卡片与列表共用这一个抽屉）。
+// 换条目时收起事件节并清掉上一条的事件（卡片与列表共用这一个抽屉）。
 watch(() => props.todo?.todo_id, () => {
-  void loadEvents()
-}, { immediate: true })
+  eventsOpen.value = false
+  eventsLoaded.value = false
+  events.value = []
+  eventsError.value = ''
+  eventsLoading.value = false
+})
+
+// 展开 / 收起事件节：第一次展开才请求，收起再展开复用已有结果。
+function toggleEvents(): void {
+  eventsOpen.value = !eventsOpen.value
+  if (eventsOpen.value && !eventsLoaded.value) void loadEvents()
+}
 
 function onStatusChange(ev: Event): void {
   const todo = props.todo
@@ -329,7 +349,9 @@ const canDispatch = computed(() => {
 
       <section v-if="todo.note" class="td-sec" data-test="todo-drawer-note">
         <h4 class="td-h mono">{{ t('plans.todo.note') }}</h4>
-        <p class="td-pre mono">{{ todo.note }}</p>
+        <!-- 备注是一行一条的（--append-note 每次追加一行、服务端用换行连接）：breaks 保住
+             换行，externalLinks 让裸 URL（缺陷系统等）可点并在新标签页打开。 -->
+        <MarkdownBlock :text="todo.note" breaks external-links />
       </section>
 
       <section class="td-sec" data-test="todo-drawer-times">
@@ -350,16 +372,8 @@ const canDispatch = computed(() => {
         </dl>
       </section>
 
-      <!-- 计划当前的交接说明：待办是链上的一环，接手人要能看到计划层面的交代。 -->
-      <section class="td-sec" data-test="todo-drawer-handoff">
-        <h4 class="td-h mono">
-          {{ t('plans.todo.handoff') }}
-          <span v-if="handoff" class="td-muted">v{{ handoff.version }} · {{ handoff.by }}</span>
-        </h4>
-        <MarkdownBlock v-if="handoff?.body" :text="handoff.body" />
-        <p v-else class="td-muted mono">{{ t('plans.todo.handoffNone') }}</p>
-      </section>
-
+      <!-- 评论本来就是这条待办自己的（CommentThread scope=todo）；计划级交接说明不在这里，
+           计划详情页的「交接」页签已有（用户反馈：抽屉里混着分不清哪些属于这条待办）。 -->
       <section class="td-sec" data-test="todo-drawer-comments">
         <h4 class="td-h mono">{{ t('plans.todo.comments') }}</h4>
         <CommentThread
@@ -370,19 +384,33 @@ const canDispatch = computed(() => {
         />
       </section>
 
-      <section class="td-sec" data-test="todo-drawer-events">
-        <h4 class="td-h mono">{{ t('plans.todo.events') }}</h4>
-        <p v-if="eventsLoading" class="td-muted mono">{{ t('plans.todo.eventsLoading') }}</p>
-        <p v-else-if="eventsError" class="td-error mono">{{ eventsError }}</p>
-        <ul v-else-if="events.length > 0" class="td-list">
-          <li v-for="ev in events" :key="`${ev.jobId}-${ev.seq}`" class="td-li mono">
-            <Icon class="td-ev-icon" :icon="eventIcon(ev.type)" size="sm" />
-            <span class="td-li-text">{{ eventLabel(ev.type) }}</span>
-            <span v-if="eventDetailText(ev)" class="td-muted">{{ eventDetailText(ev) }}</span>
-            <span class="td-muted">{{ fmtDateTime(ev.at) }}</span>
-          </li>
-        </ul>
-        <p v-else class="td-muted mono">{{ t('plans.todo.eventsNone') }}</p>
+      <!-- 关联 job 的事件（不是待办自己的）：默认折叠，展开才请求；没有关联 job 时整节不显示。 -->
+      <section v-if="related.length > 0" class="td-sec" data-test="todo-drawer-events">
+        <h4 class="td-h mono">
+          <button
+            class="td-toggle mono"
+            type="button"
+            :aria-expanded="eventsOpen"
+            data-test="todo-drawer-events-toggle"
+            @click="toggleEvents"
+          >
+            <Icon class="td-caret" :icon="eventsOpen ? ChevronDown : ChevronRight" size="sm" />
+            {{ t('plans.todo.events') }}
+          </button>
+        </h4>
+        <template v-if="eventsOpen">
+          <p v-if="eventsLoading" class="td-muted mono">{{ t('plans.todo.eventsLoading') }}</p>
+          <p v-else-if="eventsError" class="td-error mono">{{ eventsError }}</p>
+          <ul v-else-if="events.length > 0" class="td-list">
+            <li v-for="ev in events" :key="`${ev.jobId}-${ev.seq}`" class="td-li mono">
+              <Icon class="td-ev-icon" :icon="eventIcon(ev.type)" size="sm" />
+              <span class="td-li-text">{{ eventLabel(ev.type) }}</span>
+              <span v-if="eventDetailText(ev)" class="td-muted">{{ eventDetailText(ev) }}</span>
+              <span class="td-muted">{{ fmtDateTime(ev.at) }}</span>
+            </li>
+          </ul>
+          <p v-else class="td-muted mono">{{ t('plans.todo.eventsNone') }}</p>
+        </template>
       </section>
     </div>
   </Drawer>
@@ -552,6 +580,23 @@ const canDispatch = computed(() => {
   text-decoration: underline;
 }
 .td-ev-icon {
+  color: var(--ink-3);
+}
+/* 折叠节标题本身就是开关：保持 .td-h 的大写小字，不额外加框。 */
+.td-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+.td-caret {
   color: var(--ink-3);
 }
 </style>

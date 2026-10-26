@@ -1458,18 +1458,24 @@ onUnmounted(() => {
           />
           <div v-else class="todos">
             <div v-for="t in plan.todos" :key="t.todo_id" class="todo-item">
-              <label class="todo-row">
-                <input type="checkbox" :checked="t.done" @change="onToggleTodo(t)" />
+              <!-- 行容器不是 label（issue：点行内空白会误勾选 done）：只有勾选框本身切完成态。
+                   故行内按钮不再需要 .prevent / .stop 防冒泡。 -->
+              <div class="todo-row">
+                <input
+                  type="checkbox"
+                  :checked="t.done"
+                  :aria-label="t.title"
+                  @change="onToggleTodo(t)"
+                />
                 <span class="todo-main">
-                  <!-- 标题即详情入口（issue gofer-5inz）：点开右侧抽屉。放在 label 里故要
-                       阻止冒泡，否则会顺手勾掉 done。 -->
+                  <!-- 标题即详情入口（issue gofer-5inz）：点开右侧抽屉。 -->
                   <button
                     class="todo-title"
                     type="button"
                     :class="{ 'todo-title--done': t.done }"
                     :title="tr('plans.detail.todoOpen')"
                     data-test="todo-open"
-                    @click.prevent.stop="openTodo(t)"
+                    @click="openTodo(t)"
                   >{{ t.title }}</button>
                   <!-- PLAN-02 P2：认领这个条目的 agent（空 = 没人认领，故派发要先选 agent）。 -->
                   <span v-if="t.assignee" class="todo-assignee mono" :title="`assignee: ${t.assignee}`">
@@ -1481,7 +1487,7 @@ onUnmounted(() => {
                       type="button"
                       :title="tr('plans.detail.todoOpen')"
                       data-test="todo-detail-btn"
-                      @click.prevent.stop="openTodo(t)"
+                      @click="openTodo(t)"
                     >
                       {{ tr('plans.detail.todoDetail') }}
                     </button>
@@ -1494,7 +1500,7 @@ onUnmounted(() => {
                           ? tr('plans.detail.dispatchTitleAssigned', { agent: t.assignee })
                           : tr('plans.detail.dispatchTitleUnassigned')
                       "
-                      @click.prevent="onDispatch(t)"
+                      @click="onDispatch(t)"
                     >
                       {{ dispatching === t.todo_id ? tr('plans.detail.dispatching') : tr('plans.detail.dispatch') }}
                     </button>
@@ -1503,7 +1509,7 @@ onUnmounted(() => {
                       :class="{ 'todo-edit-btn--on': editFor === t.todo_id }"
                       type="button"
                       :title="tr('plans.detail.editFields')"
-                      @click.prevent="toggleTodoEdit(t)"
+                      @click="toggleTodoEdit(t)"
                     >
                       {{ editFor === t.todo_id ? tr('plans.detail.collapse') : tr('plans.detail.edit') }}
                     </button>
@@ -1534,7 +1540,7 @@ onUnmounted(() => {
                   :class="{ 'todo-job--live': todoLiveJob(t) }"
                   type="button"
                   :title="todoJobRef(t)"
-                  @click.prevent="openJob(todoJobRef(t))"
+                  @click="openJob(todoJobRef(t))"
                 >
                   job {{ shortId(todoJobRef(t)) }} &rarr;
                 </button>
@@ -1557,7 +1563,7 @@ onUnmounted(() => {
                     {{ tr('plans.detail.deliveryFailed') }}
                   </span>
                 </span>
-              </label>
+              </div>
               <!-- gofer-rnp3：接续信息（接续自谁 / 为什么没续接 / 谁接走了本项的会话）。 -->
               <div v-if="contLines(t).length > 0" class="todo-continue mono">
                 <p
@@ -1594,7 +1600,10 @@ onUnmounted(() => {
               <p v-if="t.dispatch_error" class="todo-dispatch-error mono">
                 {{ tr('plans.detail.dispatchFailed', { err: t.dispatch_error }) }}
               </p>
-              <p v-if="t.note" class="todo-note mono">{{ t.note }}</p>
+              <!-- 备注：一行一条（--append-note 追加），裸 URL 可点、新标签页打开。 -->
+              <div v-if="t.note" class="todo-note mono" data-test="todo-note">
+                <MarkdownBlock :text="t.note" breaks external-links />
+              </div>
               <!-- 派发字段编辑面板：prefill 自该条目，保存走同一条 PATCH（见 saveTodoEdit）。 -->
               <div v-if="editFor === t.todo_id" class="todo-edit mono">
                 <label class="edit-field">
@@ -1818,7 +1827,6 @@ onUnmounted(() => {
       :todos="plan?.todos ?? []"
       :jobs="plan?.jobs ?? []"
       :agents="agents"
-      :handoff="handoffLatest"
       :write-block="planWriteBlock()"
       @status="onTodoStatus"
       @dispatch="onTodoDrawerDispatch"
@@ -2636,7 +2644,8 @@ onUnmounted(() => {
   color: var(--ink-3);
   font-size: 12px;
   word-break: break-word;
-  white-space: pre-line;
+  /* 不再需要 white-space: pre-line：换行由 MarkdownBlock 的 breaks 负责，
+     保留它会把渲染出来的 HTML 源码换行当成额外换行。 */
 }
 /* 接续信息（gofer-rnp3）：与 note 同缩进的一小段；「未接续」是退回新会话的提醒，用 run 色。 */
 .todo-continue {

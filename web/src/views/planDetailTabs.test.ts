@@ -217,7 +217,7 @@ describe('todo detail drawer (gofer-5inz)', () => {
     expect(detail).toContain('@open="openTodo"')
     expect(detail).toContain('data-test="todo-open"')
     expect(detail).toContain('data-test="todo-detail-btn"')
-    expect(detail).toContain('@click.prevent.stop="openTodo(t)"')
+    expect(detail).toContain('@click="openTodo(t)"')
   })
 
   it('renders the shared drawer with the plan data and the existing write paths', () => {
@@ -225,11 +225,49 @@ describe('todo detail drawer (gofer-5inz)', () => {
     expect(detail).toContain('v-model="todoDrawerOpen"')
     expect(detail).toContain(':todos="plan?.todos ?? []"')
     expect(detail).toContain(':jobs="plan?.jobs ?? []"')
-    expect(detail).toContain(':handoff="handoffLatest"')
+    // 计划级交接说明不再穿过抽屉（抽屉里那份已删，计划详情页原本就有）。
+    expect(detail).not.toContain(':handoff="handoffLatest"')
     expect(detail).toContain(':write-block="planWriteBlock()"')
     // 写操作复用列表行那两条路，不另起 PATCH。
     expect(detail).toContain('@status="onTodoStatus"')
     expect(detail).toContain('void dispatchTodo(todo, agent)')
     expect(detail).toContain('@open-job="openJob"')
+  })
+})
+
+describe('todo list row (toggling done by accident)', () => {
+  // 行容器的整段模板：从 <div class="todo-row"> 到接续信息之前。
+  const rowStart = detail.indexOf('<div class="todo-row">')
+  const row = detail.slice(rowStart, detail.indexOf('<!-- gofer-rnp3：接续信息'))
+
+  it('is not a label: clicking the blank part of the row must not toggle done', () => {
+    expect(rowStart).toBeGreaterThanOrEqual(0)
+    // label 会把行内任何点击转给复选框——这就是误勾选的根因。
+    expect(detail).not.toContain('<label class="todo-row">')
+    expect(row).not.toMatch(/<div class="todo-row"[^>]*@click/)
+    expect(row).not.toMatch(/class="todo-item"[^>]*@change/)
+  })
+
+  it('toggles only from the checkbox itself, which keeps an accessible name', () => {
+    // 整个行里只有复选框绑 onToggleTodo。
+    expect(row.match(/onToggleTodo/g)?.length).toBe(1)
+    expect(row).toContain('@change="onToggleTodo(t)"')
+    expect(row).toContain(':aria-label="t.title"')
+  })
+
+  it('drops the anti-bubbling modifiers the label made necessary', () => {
+    expect(row).not.toContain('@click.prevent')
+    expect(row).not.toContain('.stop=')
+  })
+
+  it('renders the note as markdown so links work and lines stay apart', () => {
+    expect(detail).toContain('<MarkdownBlock :text="t.note" breaks external-links />')
+    // 备注不再以纯文本插值渲染（那样裸 URL 点不了）。
+    expect(detail).not.toContain('{{ t.note }}')
+    // 换行交给 breaks，容器不再用 white-space: pre-line（会把 HTML 源码换行当换行）。
+    const noteCss = detail
+      .slice(detail.indexOf('.todo-note {'), detail.indexOf('/* 接续信息'))
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(noteCss).not.toContain('pre-line')
   })
 })
