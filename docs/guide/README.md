@@ -2,6 +2,8 @@
 
 这组文档写给**用 gofer 的人**：拿到 gofer 之后想知道它是什么、十分钟内跑通第一个 job、遇到问题能自己查。
 
+> **English**：面向英文读者的入口在 [`en/`](en/)，目前有 [getting started](en/getting-started.md)、[concepts](en/concepts.md)、[features](en/features.md)、[security](en/security.md)；本目录其余文档暂时只有中文。
+
 gofer 自己是什么，一句话：**把 Claude Code、Codex 或任意命令，作为可追踪、可验收的 job，在你自己的机器上、在真实的项目目录里运行的调度台。** 你在主力机器上跑一个 server，按需在其他机器或容器里跑 worker；人和 agent 通过 CLI、HTTP API、MCP 和 Web 控制台访问同一套 job 记录。
 
 ## 从这里开始

@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **英文用户文档（T04）**：新增 `docs/guide/en/`——`getting-started.md`（安装→第一个 job→Web 控制台→加 worker→终端会话交给 web，每步带预期输出与常见卡点）、`concepts.md`（概念总览 + mermaid 图）、`features.md`（按功能分节，链接到对应 skill reference / runbook）、`security.md`（信任模型、部署建议、脱敏范围）。`README.md` 的 Features / Documentation / 指南链接改指英文版，`docs/guide/README.md` 增加英文入口。其余指南与 runbook 仍为中文。
+
 ## [0.196.0] - 2026-10-26
 
 ### 修复

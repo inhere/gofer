@@ -1,6 +1,6 @@
 # gofer
 
-English · [中文](README.zh-CN.md) · [Changelog](CHANGELOG.md) · [User guide](docs/guide/README.md)
+English · [中文](README.zh-CN.md) · [Changelog](CHANGELOG.md) · [User guide](docs/guide/en/getting-started.md)
 
 **gofer is a self-hosted control plane that runs coding agents — Claude Code, Codex, ACP agents or plain commands — as tracked, reviewable jobs inside your real projects, on your own machines.**
 
@@ -24,9 +24,9 @@ It is built for one developer, or a small team that trusts each other. It is **n
 
 ## Features
 
-- [Jobs](docs/guide/features.md#job): run Claude Code, Codex, ACP agents or plain commands as tracked jobs — logs, diff, commits, token usage, timeouts, retries and resume of the same agent session.
+- [Jobs](docs/guide/en/features.md#job): run Claude Code, Codex, ACP agents or plain commands as tracked jobs — logs, diff, commits, token usage, timeouts, retries and resume of the same agent session.
 - [Parallel worktrees](docs/runbook/parallel-jobs-with-worktree.md): each job can get its own git worktree and branch, then merge back with one command; conflicts abort cleanly.
-- [Review gate](docs/guide/features.md#验收与质量关口): jobs stop at `needs_review` with report, commits, diff and verify output on one panel; accept, or reject with a reason and an automatic follow-up.
+- [Review gate](docs/guide/en/features.md#review-and-quality-gates): jobs stop at `needs_review` with report, commits, diff and verify output on one panel; accept, or reject with a reason and an automatic follow-up.
 - [Plans and workflows](skills/gofer-usage/references/plans-workflows.md): chain todos that dispatch themselves when their dependencies finish; fan out to several agents, compare and pick the best result.
 - [Approvals](skills/gofer-usage/references/hold-approval.md): hold a job until a person approves it, and gate an ACP agent's risky tool calls (edit / execute) behind a human while read-only tools pass.
 - [Sessions and relay](docs/runbook/session-relay.md): register your terminal Claude / Codex sessions, follow them from the web workbench and phone, and send messages into them.
@@ -36,7 +36,7 @@ It is built for one developer, or a small team that trusts each other. It is **n
 - [Workers](skills/gofer-usage/references/worker-config.md): add machines or containers as workers that dial in — no inbound port — and upgrade the whole fleet, any OS / arch, from the console.
 - [Schedules](docs/runbook/2026-06-30-cron-schedule-runbook.md): cron or one-off jobs with parameters, run now from the web.
 - [Web console](docs/reference/web-console.md): desktop and phone layouts, Chinese / English, light / dark, desktop and Web Push notifications, PWA.
-- [Access and security](docs/guide/security.md): token-based callers with permission ceilings, per-project admission rules, secret redaction in logs and config views.
+- [Access and security](docs/guide/en/security.md): token-based callers with permission ceilings, per-project admission rules, secret redaction in logs and config views.
 - [Integrations](skills/gofer-usage/references/commands.md): CLI, HTTP API, MCP server and session hooks reach the same jobs; DingTalk / Feishu / webhook notifications and TCP tunnels.
 
 ## Install
@@ -92,7 +92,7 @@ gofer job review <id>         # report, commits, diff, verify, usage on one scre
 gofer job accept <id>         # or: gofer job reject <id> --note "…" --resume
 ```
 
-`exec` runs the argv after `--` (no shell); `claude` / `codex` / `omp` / … run an agent. Agent jobs can be isolated in a git worktree (`--worktree`), held for approval before running (`--hold`), and parked for human review (`--review`). See [scenarios](docs/guide/scenarios.md) for these.
+`exec` runs the argv after `--` (no shell); `claude` / `codex` / `omp` / … run an agent. Agent jobs can be isolated in a git worktree (`--worktree`), held for approval before running (`--hold`), and parked for human review (`--review`). See [getting started](docs/guide/en/getting-started.md) for these and for the pitfalls at each step.
 
 ### 3. Open the web console
 
@@ -126,14 +126,15 @@ Now a session that stops can be answered from the browser or phone, woken up aga
 
 | Where | What |
 |---|---|
-| [`docs/guide/`](docs/guide/README.md) | **Start here.** Concepts, common scenarios, configuration, security, troubleshooting, stability |
+| [`docs/guide/en/`](docs/guide/en/getting-started.md) | **Start here (English).** Getting started, concepts, features, security |
+| [`docs/guide/`](docs/guide/README.md) | The same guide in Chinese, wider coverage: scenarios, configuration, troubleshooting, stability, development |
 | [`skills/gofer-usage/`](skills/gofer-usage/SKILL.md) | The same platform for agents: command reference, config fields, protocol notes (kept in sync with every release) |
 | [`docs/reference/`](docs/reference/) | HTTP API, permissions catalogue, web console details |
 | [`docs/runbook/`](docs/runbook/) | Step-by-step operating guides (session relay, container worker, tunnels, HTTPS/PWA, Web Push, managed server, worktrees, retries…) |
 | [`docs/design/`](docs/design/) | Design records for each feature |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each release (Chinese) |
 
-The guide, most runbooks and design records are written in Chinese; the command line, `gofer <cmd> -h`, is authoritative for flags.
+Most runbooks, design records and the rest of the guide are written in Chinese; the English starting points are in [`docs/guide/en/`](docs/guide/en/getting-started.md). The command line, `gofer <cmd> -h`, is authoritative for flags.
 
 ## Contributing
 
