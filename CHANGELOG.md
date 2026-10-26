@@ -11,15 +11,15 @@
 
 ## [未发布]
 
-### 改进
-
-- **对外发布前的私有信息清扫（G031）**：仓库里残留的业务项目名、个人主机 / worker 名、内网地址统一换成中性示例（`acme-app` / `w-office` / `office-pc` / `192.0.2.x`），设计稿与 runbook 只改名不改结论，tracker 里的历史条目与项目记忆同步改名。新增 `scripts/check-private-names.sh`（`sh scripts/check-private-names.sh`）：读**不入库**的 `.private-names`（格式见 `.private-names.example`，一行一个 ERE），扫 `git ls-files`，命中私有名就非零退出；发版前跑一次（见 `AGENTS.md`）。
-
 ## [0.196.0] - 2026-10-26
 
 ### 修复
 
-- **管家日常整理不再每次写工具都卡在人工审批（gofer-j0aq）**：管家会话现在带自己的审批策略（新增配置 `steward.approval`，缺省 `mode: ask` + 放行 gofer 只读 / 只提建议的工具与管家本职的写工具——`gofer_work_update` / `gofer_work_note` / `gofer_work_remind` / `gofer_work_request_report` / `gofer_work_summarize` / `gofer_steward_notes` / `gofer_session_ask`）。以前：项目开了 `approval` 时，管家每次记备注、设提醒都发一张审批卡，而管家的卡没人作答，超时被拒后整轮巡检以 agent 拒绝结束。只改管家这一条会话，项目里其他 ACP 会话照旧问人；写文件 / 执行命令 / 其他 MCP server 的工具仍然问人，`mode: strict` 一律问人，审计行记 `gofer_steward_tool`。
+- **管家日常整理不再每次写工具都卡在人工审批（gofer-j0aq）**：管家会话现在带自己的审批策略：没配置 `steward.approval` 时沿用项目自己的审批模式（项目没开审批仍然不问），只在放行清单里加上管家本职的写工具；配置了 `steward.approval`（新增）则整条替换。管家本职的写工具——`gofer_work_update` / `gofer_work_note` / `gofer_work_remind` / `gofer_work_request_report` / `gofer_work_summarize` / `gofer_steward_notes` / `gofer_session_ask`。以前：项目开了 `approval` 时，管家每次记备注、设提醒都发一张审批卡，而管家的卡没人作答，超时被拒后整轮巡检以 agent 拒绝结束。只改管家这一条会话，项目里其他 ACP 会话照旧问人；写文件 / 执行命令 / 其他 MCP server 的工具仍然问人，`mode: strict` 一律问人，审计行记 `gofer_steward_tool`。
+
+### 改进
+
+- **对外发布前的私有信息清扫（G031）**：仓库里残留的业务项目名、个人主机 / worker 名、内网地址统一换成中性示例（`acme-app` / `w-office` / `office-pc` / `192.0.2.x`），设计稿与 runbook 只改名不改结论，tracker 里的历史条目与项目记忆同步改名。新增 `scripts/check-private-names.sh`（`sh scripts/check-private-names.sh`）：读**不入库**的 `.private-names`（格式见 `.private-names.example`，一行一个 ERE），扫 `git ls-files`，命中私有名就非零退出；发版前跑一次（见 `AGENTS.md`）。
 
 ## [0.195.1] - 2026-10-24
 
