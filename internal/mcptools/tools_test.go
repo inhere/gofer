@@ -1,6 +1,9 @@
 package mcptools
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestRegistryIsConsistent guards the two properties the registry must have: one entry
 // per tool and at least one read-only tool (an empty read-only set would silently turn
@@ -28,6 +31,9 @@ func TestRegistryIsConsistent(t *testing.T) {
 		}
 		if tl.Advisory && tl.Class != Write {
 			t.Fatalf("%s: only a write can be advisory (class %q)", tl.Name, tl.Class)
+		}
+		if tl.Steward != "" && tl.Class != Write {
+			t.Fatalf("%s: only a write can carry a steward reason (class %q)", tl.Name, tl.Class)
 		}
 	}
 	if readOnly == 0 {
@@ -75,6 +81,60 @@ func TestAutoApprovedTools(t *testing.T) {
 		if tl.Class != ReadOnly && !tl.Advisory && got[tl.Name] {
 			t.Errorf("tool %q (class %q) must stay gated by default", tl.Name, tl.Class)
 		}
+	}
+}
+
+// TestStewardTools pins the steward's own write list (gofer-j0aq): every entry is a
+// registry tool with a written reason, it takes only a non-destructive WRITE (a read-only
+// tool needs no steward mark — it is approved everywhere), and it holds exactly the gofer
+// writes the steward's session is FOR — not the deciding ones.
+func TestStewardTools(t *testing.T) {
+	got := map[string]bool{}
+	for _, name := range StewardTools() {
+		if got[name] {
+			t.Fatalf("StewardTools lists %q twice", name)
+		}
+		got[name] = true
+		tl, ok := Lookup(name)
+		if !ok {
+			t.Fatalf("StewardTools lists %q, which is not a registry tool", name)
+		}
+		if tl.Class != Write {
+			t.Errorf("%s: only a write needs a steward reason (class %q)", name, tl.Class)
+		}
+		if reason, ok := StewardReason(name); !ok || strings.TrimSpace(reason) == "" {
+			t.Errorf("%s: StewardTools entry without a reason", name)
+		}
+		if !IsStewardTool(name) {
+			t.Errorf("IsStewardTool(%q) = false, want true", name)
+		}
+	}
+	want := map[string]bool{
+		"gofer_work_update":         true,
+		"gofer_work_note":           true,
+		"gofer_work_remind":         true, // the gofer-j0aq case
+		"gofer_work_request_report": true,
+		"gofer_work_summarize":      true,
+		"gofer_session_ask":         true,
+		"gofer_steward_notes":       true,
+		// Gated for the steward too: these decide something a person owns.
+		"gofer_run_job":            false,
+		"gofer_cancel_job":         false,
+		"gofer_job_end":            false,
+		"gofer_memory_rm":          false,
+		"gofer_work_merge_suggest": false, // advisory, not a steward-only write
+		"gofer_work_list":          false, // read-only
+	}
+	for name, wantOK := range want {
+		if got[name] != wantOK {
+			t.Errorf("StewardTools contains %q = %v, want %v", name, got[name], wantOK)
+		}
+	}
+	if _, ok := StewardReason("gofer_work_remind"); !ok {
+		t.Fatal("StewardReason(gofer_work_remind) must explain the allowance")
+	}
+	if _, ok := StewardReason("gofer_run_job"); ok {
+		t.Fatal("gofer_run_job must not have a steward reason")
 	}
 }
 

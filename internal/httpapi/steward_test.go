@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/acp"
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -27,10 +28,17 @@ import (
 // newStewardServer is a server with two fake acp-agents (acpa, acpb: they echo the prompt
 // they got and print their environment), the built-in default project, and the steward
 // switched on with acpa.
+//
+// The fake agent's per-turn tool call is scripted as a READ: the steward session now runs
+// under its own approval gate (gofer-j0aq, mode=ask), so an edit-kind request would park
+// the session on a human interaction these lifecycle tests do not answer — while a read is
+// in the gate's auto_allow_kinds, exactly like a real agent reading the workspace. The gate
+// itself is covered where it lives (internal/job, internal/runner/acp).
 func newStewardServer(t *testing.T) *Server {
 	t.Helper()
 	root := t.TempDir()
-	opts := acptest.Options{EchoPrompt: true, EnvPrint: []string{job.EnvJobToken, "GOFER_STEWARD", "GOFER_SERVER_ADDR"}}
+	opts := acptest.Options{EchoPrompt: true, EnvPrint: []string{job.EnvJobToken, "GOFER_STEWARD", "GOFER_SERVER_ADDR"},
+		PermissionKind: acp.ToolKindRead}
 	acp := func() config.AgentConfig {
 		return config.AgentConfig{Type: agent.TypeACPAgent, Command: testcmd.Path(t), Args: acptest.CmdArgs(opts)}
 	}

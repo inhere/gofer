@@ -903,6 +903,12 @@ func (h *handler) usageSnapshot() *runner.Usage {
 // a tool qualified by another server, or a bare gofer name in a session that was never
 // given gofer's MCP, is a look-alike and stays gated. mode=strict still asks everything.
 //
+// The steward's session (gofer-j0aq) runs under steward.approval
+// (config.DefaultStewardApproval), whose list also carries mcptools.StewardTools — the
+// gofer WRITES that ARE the steward's job (note / remind / ask a session to report). They
+// reach this gate as ordinary entries of that policy's auto_allow_tools; nothing here is
+// steward-specific, and an ordinary job's policy never lists them.
+//
 // A resident 收件会话 (gofer-sh7r) gets ONE more allowance: gofer_session_mail_reply, the
 // answer path of a letter that arrived in its own conversation. Answering IS that
 // session's job, so asking a human for every letter made the mailbox unusable under
@@ -978,6 +984,9 @@ func (h *handler) autoAllowToolReason(tc *acp.ToolCall) string {
 			return autoReasonGoferReadOnlyTool
 		case mcptools.IsAdvisory(name):
 			return autoReasonGoferAdviceTool
+		case mcptools.IsStewardTool(name):
+			// Only a steward job's policy lists these (config.DefaultStewardApproval).
+			return autoReasonGoferStewardTool
 		}
 	}
 	return autoReasonAutoAllowTool
@@ -987,6 +996,7 @@ func (h *handler) autoAllowToolReason(tc *acp.ToolCall) string {
 const (
 	autoReasonGoferReadOnlyTool = "gofer_readonly_tool"
 	autoReasonGoferAdviceTool   = "gofer_advice_tool"
+	autoReasonGoferStewardTool  = "gofer_steward_tool"
 	autoReasonAutoAllowTool     = "auto_allow_tool"
 )
 

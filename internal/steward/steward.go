@@ -43,6 +43,10 @@ type StartSpec struct {
 	Prompt string
 	// IdleSec ends the session after that long without a turn.
 	IdleSec int
+	// Approval is the session job's approval gate (gofer-j0aq): the steward's OWN policy
+	// (steward.approval), so its tidy-up does not park on a human for every gofer write.
+	// Nil = the project's policy (the caller resolved no steward gate).
+	Approval *config.ApprovalConfig
 }
 
 // JobInfo is what the steward needs to know about its session job.
@@ -382,9 +386,17 @@ func (s *Service) ensureSession(firstTurn string) (jobID string, started bool, e
 	if strings.TrimSpace(firstTurn) == "" {
 		firstTurn = readyLine
 	}
+	// gofer-j0aq: the steward job carries its OWN approval gate. Its work is gofer writes
+	// (note / remind / ask a session to report), so the project's policy would park every
+	// call on a human — and nobody answers a steward's card: the request timed out as a
+	// rejection and the whole turn ended as a refusal. The policy rides the job request
+	// (SessionApproval), so every other ACP session of the project is untouched and a
+	// resumed / recovered session keeps the same gate.
+	approval := c.ApprovalPolicy()
 	id, err := s.host.StartSession(StartSpec{
 		Agent: c.AgentName(), Project: c.ProjectKey(), Title: "管家 · " + c.AgentName(),
 		Prompt: prime.Text + "\n\n---\n\n" + firstTurn, IdleSec: int(c.IdleEnd().Seconds()),
+		Approval: &approval,
 	})
 	if err != nil {
 		return "", false, err

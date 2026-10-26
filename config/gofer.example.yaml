@@ -346,6 +346,18 @@ server:
 #   review_max_items: 20      # 每次巡检最多处理几个有变化的工作项
 #   event_wake: false         # true = 会话离线 / 到期 / 草稿多时批量唤醒管家(默认只记下，留给下次巡检)
 #   event_throttle_min: 30    # 两次事件唤醒的最小间隔
+#   # 管家会话自己的工具审批策略(结构与项目 approval 相同)：默认 mode: ask + 自动放行 gofer 只读 /
+#   # 只提建议的工具 + 管家本职的写工具(work_update / work_note / work_remind /
+#   # work_request_report / work_summarize / steward_notes / session_ask)，否则管家每次记备注、
+#   # 设提醒都要等人点，没人作答就超时被拒、整轮巡检失败。它只替代管家这一条会话的策略，项目里
+#   # 其他 ACP 会话不受影响；写文件 / 执行命令 / 其他 MCP server 的工具仍然问人，mode: strict
+#   # 则一律问人。
+#   approval:
+#     mode: ask               # ask(默认)| strict | off
+#     # auto_allow_tools: [gofer_work_remind]   # 写了就替换默认名单(想保留默认名单请一并列出)
+#     # ask_tools: []
+#     # timeout_sec: 1800
+#     # on_timeout: reject
 
 # 终端会话中继：每个会话的开关是三态 auto | on | off，存在 server 侧
 # (CLI `gofer session relay on|off|auto`，或在 Web 会话页点选)。
