@@ -8,32 +8,32 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
 // verifyPkgsMax caps the directories a verification command names.
 const verifyPkgsMax = 8
 
-const verifyConfigHint = "`.gofer/tracker/config.yaml` 的 `brief.verify`"
-
 // verifySection lists the verification commands for the issue's code-entry files.
 // With `brief.verify` rules configured, every rule whose paths match an entry file
 // (or that has no paths) contributes its command. Without rules there is only a
 // generic hint: when the repository has a go.mod, `go test` on the Go packages the
 // entries sit in. Either way the generic rule memories below stay authoritative.
-func verifySection(root string, rules []tracker.BriefVerifyRule, files []string) Section {
-	sec := Section{Title: "本 issue 的验证命令", More: "gofer memory ls verify"}
+func verifySection(lang i18n.Lang, root string, rules []tracker.BriefVerifyRule, files []string) Section {
+	sec := Section{Title: briefText(lang, "brief.verify.title"), More: "gofer memory ls verify"}
+	hint := briefText(lang, "brief.verify.config_hint")
 	if len(rules) > 0 {
 		for _, r := range rules {
-			if line, ok := verifyRuleLine(root, r, files); ok {
+			if line, ok := verifyRuleLine(lang, root, r, files); ok {
 				sec.Lines = append(sec.Lines, line)
 			}
 		}
 		if len(sec.Lines) == 0 {
-			sec.Note = verifyConfigHint + " 没有匹配本 issue 代码入口的命令，验证命令见下方 rule 记忆"
+			sec.Note = briefText(lang, "brief.verify.no_match", "hint", hint)
 			return sec
 		}
-		sec.Lines = append(sec.Lines, "- （按 "+verifyConfigHint+" 匹配代码入口；全量与其他约束以下方 rule 记忆为准）")
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.verify.configured_note", "hint", hint))
 		return sec
 	}
 	var pkgs []string
@@ -47,20 +47,20 @@ func verifySection(root string, rules []tracker.BriefVerifyRule, files []string)
 		pkgs = existingDirs(root, goFiles)
 	}
 	if len(pkgs) == 0 {
-		sec.Note = "无法从代码入口推导验证命令；可在 " + verifyConfigHint + " 按路径配置本仓库的命令，或见下方 rule 记忆"
+		sec.Note = briefText(lang, "brief.verify.derive_note", "hint", hint)
 		return sec
 	}
-	list, extra := capList(pkgs, "个包")
+	list, extra := capList(lang, pkgs, briefText(lang, "brief.verify.unit_package"))
 	sec.Lines = append(sec.Lines,
 		"- `go build ./... && go vet ./...`",
 		"- `go test -count=1 "+strings.Join(list, " ")+"`"+extra,
-		"- （由代码入口推导的通用提示；本仓库的验证命令可在 "+verifyConfigHint+" 配置，全量与平台相关的约束以下方 rule 记忆为准）")
+		briefText(lang, "brief.verify.generic_note", "hint", hint))
 	return sec
 }
 
 // verifyRuleLine renders one configured rule for the entry files; ok=false when the
 // rule does not apply (no path matches, or a placeholder has nothing to expand to).
-func verifyRuleLine(root string, r tracker.BriefVerifyRule, files []string) (string, bool) {
+func verifyRuleLine(lang i18n.Lang, root string, r tracker.BriefVerifyRule, files []string) (string, bool) {
 	cmd := strings.TrimSpace(r.Cmd)
 	if cmd == "" {
 		return "", false
@@ -87,7 +87,7 @@ func verifyRuleLine(root string, r tracker.BriefVerifyRule, files []string) (str
 			return "", false
 		}
 		var list []string
-		list, extra = capList(dirs, "个目录")
+		list, extra = capList(lang, dirs, briefText(lang, "brief.verify.unit_dir"))
 		cmd = strings.ReplaceAll(cmd, "{dirs}", strings.Join(list, " "))
 	}
 	if strings.Contains(cmd, "{files}") {
@@ -100,7 +100,7 @@ func verifyRuleLine(root string, r tracker.BriefVerifyRule, files []string) (str
 		if len(present) == 0 {
 			return "", false
 		}
-		list, more := capList(present, "个文件")
+		list, more := capList(lang, present, briefText(lang, "brief.verify.unit_file"))
 		if extra == "" {
 			extra = more
 		}
@@ -136,11 +136,12 @@ func existingDirs(root string, files []string) []string {
 }
 
 // capList keeps the first verifyPkgsMax items and says how many it left out.
-func capList(items []string, unit string) ([]string, string) {
+func capList(lang i18n.Lang, items []string, unit string) ([]string, string) {
 	if len(items) <= verifyPkgsMax {
 		return items, ""
 	}
-	return items[:verifyPkgsMax], "  # 另有 " + strconv.Itoa(len(items)-verifyPkgsMax) + " " + unit + "，按需补"
+	n := strconv.Itoa(len(items) - verifyPkgsMax)
+	return items[:verifyPkgsMax], "  # " + briefText(lang, "brief.verify.cap", "n", n, "unit", unit)
 }
 
 func fileExists(p string) bool {

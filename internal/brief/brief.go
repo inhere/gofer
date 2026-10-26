@@ -10,11 +10,11 @@
 package brief
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -69,8 +69,13 @@ type Options struct {
 	GlobalMemories func() ([]tracker.Memory, error)
 	// AgentName filters `agent:<name>` tagged memories (tracker.MemoryForAgent).
 	AgentName string
-	MaxLines  int
-	Now       time.Time
+	// Language is the language of the brief's own text (design
+	// 2026-10-27-i18n-design.md §3): the job project's language for a brief an MCP tool
+	// hands to an agent, the client config's for `gofer issue|plan brief`. "" keeps the
+	// deployment default, so an existing deployment reads the text it always read.
+	Language i18n.Lang
+	MaxLines int
+	Now      time.Time
 }
 
 func (o Options) root() string {
@@ -97,13 +102,15 @@ func (o Options) now() time.Time {
 	return o.Now
 }
 
+// lang is the language of the text this brief is written in.
+func (o Options) lang() i18n.Lang { return i18n.Resolve(o.Language) }
+
 // serverNote is the note of a section skipped for want of a server.
 func (o Options) serverNote() string {
-	note := "未连接 server，本节跳过"
 	if o.ClientNote != "" {
-		note += "（" + o.ClientNote + "）"
+		return briefText(o.lang(), "brief.note.server_reason", "reason", o.ClientNote)
 	}
-	return note
+	return briefText(o.lang(), "brief.note.server")
 }
 
 // Section is one titled part of a brief.
@@ -123,9 +130,15 @@ type Brief struct {
 	Kind     string    `json:"kind"` // issue | plan
 	ID       string    `json:"id"`
 	Sections []Section `json:"sections"`
+	// Lang is the language the sections were written in (not part of the JSON shape).
+	Lang i18n.Lang `json:"-"`
 }
 
-func (b Brief) header() string { return fmt.Sprintf("# 接手包 %s %s", b.Kind, b.ID) }
+func (b Brief) lang() i18n.Lang { return i18n.Resolve(b.Lang) }
+
+func (b Brief) header() string {
+	return briefText(b.lang(), "brief.head.brief", "kind", b.Kind, "id", b.ID)
+}
 
 // Text renders the brief as markdown-ish text.
 func (b Brief) Text() string {
@@ -134,24 +147,23 @@ func (b Brief) Text() string {
 	for _, s := range b.Sections {
 		out.WriteString("\n## " + s.Title + "\n")
 		if s.Note != "" {
-			out.WriteString("（" + s.Note + "）\n")
+			out.WriteString(briefText(b.lang(), "brief.section.note", "note", s.Note) + "\n")
 		}
 		for _, line := range s.Lines {
 			out.WriteString(line + "\n")
 		}
 		if s.Truncated > 0 {
-			out.WriteString(truncatedMarker(s))
+			out.WriteString(truncatedMarker(b.lang(), s))
 		}
 	}
 	return out.String()
 }
 
-func truncatedMarker(s Section) string {
-	marker := fmt.Sprintf("[本节截断 %d 行", s.Truncated)
+func truncatedMarker(lang i18n.Lang, s Section) string {
 	if s.More != "" {
-		marker += "：`" + s.More + "`"
+		return briefText(lang, "brief.section.truncated_more", "n", s.Truncated, "more", s.More) + "\n"
 	}
-	return marker + "]\n"
+	return briefText(lang, "brief.section.truncated", "n", s.Truncated) + "\n"
 }
 
 // sectionCost is the rendered line count of s: blank + heading + note + lines.
@@ -205,23 +217,22 @@ func fit(sections []Section, maxLines int) []Section {
 
 // hintSection is the fixed tail of every brief. claimID is the issue to claim ("" in
 // a plan brief, which has no memory section of its own).
-func hintSection(store *tracker.Store, claimID string) Section {
-	s := Section{Title: "接手提示"}
+func hintSection(lang i18n.Lang, store *tracker.Store, claimID string) Section {
+	s := Section{Title: briefText(lang, "brief.hint.title")}
 	if store != nil {
 		if cfg, err := store.ReadConfig(); err == nil {
 			if policy, err := tracker.CommitPolicyText(cfg.CommitPolicy); err == nil {
-				s.Lines = append(s.Lines, "- 提交策略："+policy)
+				s.Lines = append(s.Lines, briefText(lang, "brief.hint.commit_policy", "policy", policy))
 			}
 		}
 	}
-	rules := "- 本地提交 / push 规则与验证命令以「适用记忆」里的 rule 为准（`gofer repo prime` 有全集）。"
+	rules := briefText(lang, "brief.hint.rules_issue")
 	if claimID == "" {
-		rules = "- 本地提交 / push 规则与验证命令以 rule 记忆为准（`gofer repo prime`，或关联 issue 的 `gofer issue brief <id>`）。"
+		rules = briefText(lang, "brief.hint.rules_plan")
 	}
-	s.Lines = append(s.Lines, rules,
-		"- 记忆 / 规则与实际不符：`gofer memory flag <key> --reason \"…\"`，不要静默绕过。")
+	s.Lines = append(s.Lines, rules, briefText(lang, "brief.hint.memory_flag_mismatch"))
 	if claimID != "" {
-		s.Lines = append(s.Lines, fmt.Sprintf("- 开工前 `gofer issue update %s --claim`；进展 `gofer issue comment %s \"…\"`；完成 `gofer issue close %s --reason \"…\"`。", claimID, claimID, claimID))
+		s.Lines = append(s.Lines, briefText(lang, "brief.hint.claim", "id", claimID))
 	}
 	return s
 }

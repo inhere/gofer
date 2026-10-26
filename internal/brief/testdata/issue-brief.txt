@@ -1,0 +1,66 @@
+# 接手包 issue t-ep.1
+
+## issue
+t-ep.1 [open] P2 feature feat: flow capture improvement
+标签 flow
+已有方案评论（<time> me，共 2 行）：
+  方案：先改 flow.go
+  再补测试
+描述：
+  see docs/notes/plan.md for the plan
+验收标准：无验收标准
+  → 补写：`gofer issue update t-ep.1 --acceptance "…"`
+评论（最近 1 / 共 1）：
+  - <time> me:
+    （方案评论，见上）
+
+## 上下文树
+父：t-ep [open] P2 epic epic flow
+兄弟：
+  - t-ep.10 [open] P3 task far sibling
+  - t-ep.2 [closed] P2 task done sibling — 关闭：landed in <sha>
+  - t-ep.3 [open] P3 task next sibling
+被依赖（等本 issue）：
+  - t-ep.3 [open] P3 task next sibling
+
+## 设计稿
+- docs/notes/plan.md
+  （文件不存在）
+- docs/design/<time>-flow-design.md
+  § Flow 设计（t-ep.1 / .2）
+    > epic t-ep
+  § 实施记录
+    - 落地 t-ep.1 的第一步。
+
+## 相关提交
+- <sha> <time> feat(flow): first step of t-ep.1
+- <sha> <time> feat(flow): sibling work（经 t-ep.2 关闭说明）
+issue 文本提到的文件：
+  - internal/flow/flow.go
+关键符号（这些提交新增 / 改动的 Go / TS / JS 函数，行号为当前工作区）：
+  - internal/flow/flow.go:3  Capture
+  - internal/flow/flow.go:5  Store.Save
+
+## 相关 job / plan
+- job job-1 [done] codex
+    评审：接受：OK
+- plan plan-a [open] flow plan (t-ep)（`gofer plan brief plan-a`）
+    - [done] implement t-ep.1 · job job-1 done
+
+## 本 issue 的验证命令
+- `go build ./... && go vet ./...`
+- `go test -count=1 ./internal/flow`
+- （由代码入口推导的通用提示；本仓库的验证命令可在 `.gofer/tracker/config.yaml` 的 `brief.verify` 配置，全量与平台相关的约束以下方 rule 记忆为准）
+
+## 适用记忆
+- ⚠ 待复核（lint 已并入 test） verify（规则）: run make test
+    then make lint
+- [全局] g-rule（规则）: global rule
+- capture-tips · keyword matched note · 今天
+- flow-pitfall · flow.go and the TS copy must change together · 今天
+
+## 接手提示
+- 提交策略：按功能点本地提交是默认授权；push 到远端需用户授权；`.gofer/tracker/*.jsonl` 的变化随功能点一起提交；提交前 `git status` 确认没有夹带无关文件。
+- 本地提交 / push 规则与验证命令以「适用记忆」里的 rule 为准（`gofer repo prime` 有全集）。
+- 记忆 / 规则与实际不符：`gofer memory flag <key> --reason "…"`，不要静默绕过。
+- 开工前 `gofer issue update t-ep.1 --claim`；进展 `gofer issue comment t-ep.1 "…"`；完成 `gofer issue close t-ep.1 --reason "…"`。

@@ -8,23 +8,48 @@ import (
 	"unicode"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
 // notesMax caps the path / keyword matched notes listed.
 const notesMax = 10
 
+// scopeKind is where a memory came from.
+type scopeKind string
+
+const (
+	// scopeRepo is the repository's own tracker.
+	scopeRepo scopeKind = ""
+	// scopeGlobal is the global memory set, read locally or from the server.
+	scopeGlobal scopeKind = "global"
+	// scopeProject is one project's memories on the server.
+	scopeProject scopeKind = "project"
+)
+
 // scopedMemory is a memory with the scope it came from ("" = repository).
 type scopedMemory struct {
-	scope string // "" | "全局" | "项目 <key>"
+	scope scopeKind
+	key   string // the project key of a project scope
 	m     tracker.Memory
 }
 
-func (s scopedMemory) label() string {
-	if s.scope == "" {
-		return s.m.Key
+// scopeName is the scope as the brief spells it ("" for the repository's own).
+func (s scopedMemory) scopeName(lang i18n.Lang) string {
+	switch s.scope {
+	case scopeGlobal:
+		return briefText(lang, "brief.memory.scope_global")
+	case scopeProject:
+		return briefText(lang, "brief.memory.scope_project", "project", s.key)
 	}
-	return "[" + s.scope + "] " + s.m.Key
+	return ""
+}
+
+func (s scopedMemory) label(lang i18n.Lang) string {
+	if name := s.scopeName(lang); name != "" {
+		return "[" + name + "] " + s.m.Key
+	}
+	return s.m.Key
 }
 
 // memoryTarget is what the memories are matched against.
@@ -85,7 +110,8 @@ func (t memoryTarget) keywordHit(m tracker.Memory) bool {
 // code entries' paths or by the issue's keywords as index lines. Flagged memories
 // carry the 「⚠ 待复核」 prefix.
 func memorySection(opts Options, target memoryTarget) Section {
-	sec := Section{Title: "适用记忆", More: "gofer memory ls <关键字>"}
+	lang := opts.lang()
+	sec := Section{Title: briefText(lang, "brief.memory.title"), More: briefText(lang, "brief.memory.hint")}
 	var all []scopedMemory
 	if opts.Store != nil {
 		if items, err := opts.Store.ReadMemories(); err == nil {
@@ -100,11 +126,11 @@ func memorySection(opts Options, target memoryTarget) Section {
 		switch {
 		case err == nil:
 			for _, m := range items {
-				all = append(all, scopedMemory{scope: "全局", m: m})
+				all = append(all, scopedMemory{scope: scopeGlobal, m: m})
 			}
 			globalDone = true
 		case !errors.Is(err, tracker.ErrGlobalNotSynced):
-			sec.Note = "全局记忆读取失败：" + err.Error()
+			sec.Note = briefText(lang, "brief.memory.global_failed", "err", err.Error())
 			globalDone = true
 		}
 	}
@@ -112,22 +138,22 @@ func memorySection(opts Options, target memoryTarget) Section {
 	case opts.Client == nil:
 		if globalDone {
 			if opts.ProjectKey != "" {
-				sec.Note = "项目记忆：" + opts.serverNote()
+				sec.Note = briefText(lang, "brief.memory.project_note", "note", opts.serverNote())
 			}
 		} else {
-			sec.Note = "全局 / 项目记忆：" + opts.serverNote()
+			sec.Note = briefText(lang, "brief.memory.scoped_note", "note", opts.serverNote())
 		}
 	default:
 		if !globalDone {
 			if rows, err := opts.Client.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"}); err == nil {
-				all = appendScoped(all, rows, "全局")
+				all = appendScoped(all, rows, scopeGlobal, "")
 			} else {
-				sec.Note = "全局记忆读取失败：" + err.Error()
+				sec.Note = briefText(lang, "brief.memory.global_failed", "err", err.Error())
 			}
 		}
 		if opts.ProjectKey != "" {
 			if rows, err := opts.Client.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "project", ScopeKey: opts.ProjectKey}); err == nil {
-				all = appendScoped(all, rows, "项目 "+opts.ProjectKey)
+				all = appendScoped(all, rows, scopeProject, opts.ProjectKey)
 			}
 		}
 	}
@@ -148,7 +174,7 @@ func memorySection(opts Options, target memoryTarget) Section {
 	sortScoped(rules)
 	sortScoped(notes)
 	for _, sm := range rules {
-		head := "- " + flagPrefix(sm.m) + sm.label() + "（规则）: "
+		head := "- " + flagPrefix(sm.m) + sm.label(lang) + briefText(lang, "brief.memory.rule_head") + ": "
 		body := indentBlock(sm.m.Content, "    ")
 		if len(body) == 0 {
 			continue
@@ -158,12 +184,12 @@ func memorySection(opts Options, target memoryTarget) Section {
 	}
 	for i, sm := range notes {
 		if i >= notesMax {
-			sec.Lines = append(sec.Lines, "- 另有 "+strconv.Itoa(len(notes)-i)+" 条：`gofer memory ls <关键字>`")
+			sec.Lines = append(sec.Lines, briefText(lang, "brief.memory.more", "n", strconv.Itoa(len(notes)-i)))
 			break
 		}
-		line := "- " + flagPrefix(sm.m) + sm.label()
+		line := "- " + flagPrefix(sm.m) + sm.label(lang)
 		if kind := sm.m.EffectiveKind(); kind == tracker.MemoryKindHandoff {
-			line += "（交接）"
+			line += briefText(lang, "brief.memory.handoff")
 		}
 		if headline := tracker.DisplayMemoryHeadline(sm.m.MemoryMeta, sm.m.Content); headline != "" {
 			line += " · " + headline
@@ -174,7 +200,7 @@ func memorySection(opts Options, target memoryTarget) Section {
 		sec.Lines = append(sec.Lines, line)
 	}
 	if len(sec.Lines) == 0 && sec.Note == "" {
-		sec.Note = "无匹配记忆"
+		sec.Note = briefText(lang, "brief.memory.none")
 	}
 	return sec
 }
@@ -186,23 +212,33 @@ func flagPrefix(m tracker.Memory) string {
 	return ""
 }
 
-func appendScoped(out []scopedMemory, rows []client.ScopedMemory, scope string) []scopedMemory {
+func appendScoped(out []scopedMemory, rows []client.ScopedMemory, scope scopeKind, key string) []scopedMemory {
 	for _, row := range rows {
 		if !row.Deleted {
-			out = append(out, scopedMemory{scope: scope, m: row.TrackerMemory()})
+			out = append(out, scopedMemory{scope: scope, key: key, m: row.TrackerMemory()})
 		}
 	}
 	return out
 }
 
-// sortScoped orders repository memories first, then by key.
+// sortScoped orders repository memories first, then the global set, then by project
+// key and memory key.
 func sortScoped(items []scopedMemory) {
-	sort.SliceStable(items, func(i, j int) bool {
-		if (items[i].scope == "") != (items[j].scope == "") {
-			return items[i].scope == ""
+	rank := func(s scopeKind) int {
+		switch s {
+		case scopeRepo:
+			return 0
+		case scopeGlobal:
+			return 1
 		}
-		if items[i].scope != items[j].scope {
-			return items[i].scope < items[j].scope
+		return 2
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if ri, rj := rank(items[i].scope), rank(items[j].scope); ri != rj {
+			return ri < rj
+		}
+		if items[i].key != items[j].key {
+			return items[i].key < items[j].key
 		}
 		return items[i].m.Key < items[j].m.Key
 	})

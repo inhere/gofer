@@ -1,0 +1,40 @@
+# 接手包 issue t-ep.1
+
+## issue
+t-ep.1 [open] P2 feature feat: flow capture improvement
+标签 flow
+已有方案评论（<time> me，共 2 行）：
+  方案：先改 flow.go
+  再补测试
+描述：
+  see docs/notes/plan.md for the plan
+design：
+  设计行
+  设计行
+  设计行
+  设计行
+[本节截断 81 行：`gofer issue show t-ep.1`]
+
+## 上下文树
+[本节截断 7 行：`gofer issue show t-ep.1`]
+
+## 设计稿
+[本节截断 7 行：`grep -rn t-ep.1 docs`]
+
+## 相关提交
+[本节截断 7 行：`git log --grep t-ep.1`]
+
+## 相关 job / plan
+[本节截断 4 行]
+
+## 本 issue 的验证命令
+[本节截断 3 行：`gofer memory ls verify`]
+
+## 适用记忆
+[本节截断 5 行：`gofer memory ls <关键字>`]
+
+## 接手提示
+- 提交策略：按功能点本地提交是默认授权；push 到远端需用户授权；`.gofer/tracker/*.jsonl` 的变化随功能点一起提交；提交前 `git status` 确认没有夹带无关文件。
+- 本地提交 / push 规则与验证命令以「适用记忆」里的 rule 为准（`gofer repo prime` 有全集）。
+- 记忆 / 规则与实际不符：`gofer memory flag <key> --reason "…"`，不要静默绕过。
+- 开工前 `gofer issue update t-ep.1 --claim`；进展 `gofer issue comment t-ep.1 "…"`；完成 `gofer issue close t-ep.1 --reason "…"`。

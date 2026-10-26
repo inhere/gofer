@@ -12,6 +12,7 @@ import (
 
 	"github.com/gookit/goutil/x/assert"
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -295,7 +296,7 @@ func TestIssueSectionPlanCommentAndAcceptanceHint(t *testing.T) {
 	other := "杂项\n1\n2\n3\n4\n5\n6\n7\n8"
 	it := tracker.Issue{ID: "t-x", Title: "x", Status: "open", Comments: []tracker.Comment{
 		{By: "a", Text: long}, {By: "b", Text: other}, {By: "c", Text: "short"}}}
-	text := strings.Join(issueSection(it).Lines, "\n")
+	text := strings.Join(issueSection(i18n.ZhCN, it).Lines, "\n")
 	assert.Contains(t, text, "已有方案评论")
 	assert.Contains(t, text, "步骤 59")
 	assert.NotContains(t, text, "步骤 61")
@@ -307,7 +308,7 @@ func TestIssueSectionPlanCommentAndAcceptanceHint(t *testing.T) {
 
 	it.AcceptanceCriteria = "done"
 	it.Comments = []tracker.Comment{{By: "b", Text: other}}
-	text = strings.Join(issueSection(it).Lines, "\n")
+	text = strings.Join(issueSection(i18n.ZhCN, it).Lines, "\n")
 	assert.NotContains(t, text, "--acceptance")
 	assert.Contains(t, text, "已有方案评论") // longest recent comment
 }
@@ -329,14 +330,14 @@ func TestVerifySection(t *testing.T) {
 	entries := []string{"internal/b/b_windows.go", "internal/a/a.go", "internal/gone/g.go", "web/src/x.ts", "skills/x.md"}
 
 	t.Run("no go.mod and no rules: no derived command", func(t *testing.T) {
-		sec := verifySection(root, nil, entries)
+		sec := verifySection(i18n.ZhCN, root, nil, entries)
 		assert.Empty(t, sec.Lines)
 		assert.Contains(t, sec.Note, "brief.verify")
 	})
 
 	t.Run("go.mod: plain go test on the packages, nothing else", func(t *testing.T) {
 		write(t, root, "go.mod", "module example.com/x\n")
-		sec := verifySection(root, nil, entries)
+		sec := verifySection(i18n.ZhCN, root, nil, entries)
 		text := strings.Join(sec.Lines, "\n")
 		assert.Contains(t, text, "`go test -count=1 ./internal/a ./internal/b`")
 		for _, unwanted := range []string{"-race", "GOOS=", "vue-tsc", "vitest", "gone"} {
@@ -344,7 +345,7 @@ func TestVerifySection(t *testing.T) {
 		}
 		assert.Eq(t, "", sec.Note)
 
-		none := verifySection(root, nil, []string{"skills/x.md"})
+		none := verifySection(i18n.ZhCN, root, nil, []string{"skills/x.md"})
 		assert.NotEq(t, "", none.Note)
 		assert.Empty(t, none.Lines)
 	})
@@ -359,7 +360,7 @@ func TestVerifySection(t *testing.T) {
 			{Cmd: "make lint"}, // no paths: always
 			{Paths: []string{"skills/**"}, Cmd: "check {files}"},
 		}
-		sec := verifySection(root, rules, entries)
+		sec := verifySection(i18n.ZhCN, root, rules, entries)
 		text := strings.Join(sec.Lines, "\n")
 		assert.Contains(t, text, "- `go test -race -count=1 ./internal/a ./internal/b`")
 		assert.Contains(t, text, "- `GOOS=windows go vet ./...`")
@@ -370,7 +371,7 @@ func TestVerifySection(t *testing.T) {
 		assert.NotContains(t, text, "check ") // skills/x.md does not exist
 		assert.Contains(t, text, "brief.verify")
 
-		empty := verifySection(root, []tracker.BriefVerifyRule{{Paths: []string{"docs/**"}, Cmd: "make docs"}}, entries)
+		empty := verifySection(i18n.ZhCN, root, []tracker.BriefVerifyRule{{Paths: []string{"docs/**"}, Cmd: "make docs"}}, entries)
 		assert.Empty(t, empty.Lines)
 		assert.Contains(t, empty.Note, "brief.verify")
 	})

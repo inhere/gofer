@@ -6,6 +6,7 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/inhere/gofer/internal/brief"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -22,11 +23,13 @@ func briefOptions(s *tracker.Store) brief.Options {
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		opts.ClientNote = err.Error()
+		opts.Language = briefLanguage("")
 		return opts
 	}
 	bc, note := brief.Connect(cli)
 	if bc == nil {
 		opts.ClientNote = note
+		opts.Language = briefLanguage("")
 		return opts
 	}
 	opts.Client = bc
@@ -37,7 +40,19 @@ func briefOptions(s *tracker.Store) brief.Options {
 	if _, key, err := primeServerTarget(s, config.InputCfgFile, root); err == nil {
 		opts.ProjectKey = serverProjectKey(cli, key, root)
 	}
+	opts.Language = briefLanguage(opts.ProjectKey)
 	return opts
+}
+
+// briefLanguage is the language of the brief's own text (design
+// 2026-10-27-i18n-design.md §3): the project's configured language over the server's.
+// A machine without a usable config falls back to the client chain (GOFER_LANG, then
+// the system language).
+func briefLanguage(project string) i18n.Lang {
+	if cfg, _, err := config.Load(config.InputCfgFile); err == nil && cfg != nil {
+		return cfg.LanguageFor(project)
+	}
+	return i18n.FromEnv()
 }
 
 func printBrief(c *gcli.Command, b brief.Brief) error {
