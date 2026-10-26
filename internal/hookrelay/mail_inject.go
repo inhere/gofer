@@ -12,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/mail"
 )
 
@@ -60,12 +61,15 @@ func mailTake(urgentOnly bool) client.MailTake {
 // RenderMail renders one letter as the fixed harness tag, so the model (and IsHarnessPrompt)
 // can tell a letter from something a person typed. Attribute values are escaped; a body that
 // contains the closing tag cannot end the element early.
-func RenderMail(m client.TakenMail) string {
+func RenderMail(m client.TakenMail) string { return RenderMailLang(i18n.Default, m) }
+
+// RenderMailLang renders one letter in lang; the harness tag itself is language-neutral.
+func RenderMailLang(lang i18n.Lang, m client.TakenMail) string {
 	from := m.From.Display
 	if from == "" {
 		from = m.From.Kind + " " + m.From.ID
 	}
-	return mail.RenderLetter(mail.Letter{
+	return mail.RenderLetterLang(lang, mail.Letter{
 		ID: m.ID, From: from, Topic: m.Topic, Urgent: m.Urgent, Body: m.Body, Truncated: m.Truncated,
 		BroadcastID: m.BroadcastID, Recipients: m.Recipients,
 	})

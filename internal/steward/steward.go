@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/work"
 )
@@ -112,8 +113,9 @@ type Service struct {
 	// nil = the code prompts.
 	settings Settings
 
-	cfgFn func() (config.StewardConfig, config.WorkConfig)
-	nowFn func() time.Time
+	langFn func() i18n.Lang
+	cfgFn  func() (config.StewardConfig, config.WorkConfig)
+	nowFn  func() time.Time
 
 	// mu serialises lifecycle changes (start / stop / reconcile); askMu serialises asks
 	// (an ask may wait for the previous turn to end); tickMu serialises Tick.
@@ -207,6 +209,16 @@ func New(store *jobstore.Store, ws *work.Service, host SessionHost) *Service {
 // SetConfigFn supplies the live steward: and work: blocks (read on every use, so a hot
 // reload applies to the next one).
 func (s *Service) SetConfigFn(fn func() (config.StewardConfig, config.WorkConfig)) { s.cfgFn = fn }
+
+// SetLanguageFn supplies the language for steward prompts. Nil uses the deployment default.
+func (s *Service) SetLanguageFn(fn func() i18n.Lang) { s.langFn = fn }
+
+func (s *Service) language() i18n.Lang {
+	if s.langFn != nil {
+		return i18n.Resolve(s.langFn())
+	}
+	return i18n.Default
+}
 
 // SetNow overrides the clock (tests).
 func (s *Service) SetNow(fn func() time.Time) {

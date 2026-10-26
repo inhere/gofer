@@ -33,6 +33,10 @@ const (
 	NameContract = "contract"
 	// NameDeadline is the job's time-limit notice.
 	NameDeadline = "deadline"
+	// NameStewardRole is the standing role prompt for a steward session.
+	NameStewardRole = "steward_role"
+	// NameStewardReview is the default review instruction.
+	NameStewardReview = "steward_review"
 )
 
 // The templates' data. Each language of a name takes the same data type, so the

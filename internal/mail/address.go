@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
@@ -144,17 +145,31 @@ type Candidate struct {
 	Why []string
 }
 
-// Display is the candidate as a person reads it: 「会话 sess-a（gofer 开发，可能不在线）」.
-func (c Candidate) Display() string {
-	label := "会话 " + c.ID
+// Display is the candidate as a person reads it in the default language.
+func (c Candidate) Display() string { return c.DisplayLang(i18n.Default) }
+
+// DisplayLang renders a candidate label in lang.
+func (c Candidate) DisplayLang(lang i18n.Lang) string {
+	label := i18n.T(lang, "mail.candidate.session", "id", c.ID)
 	if c.Topic != "" {
+		if i18n.Resolve(lang) == i18n.EN {
+			label += " (" + c.Topic
+			if c.Offline {
+				label += i18n.T(lang, "mail.candidate.offline")
+			}
+			return label + ")"
+		}
 		label += "（" + c.Topic
 		if c.Offline {
-			label += "，可能不在线"
+			label += i18n.T(lang, "mail.candidate.offline")
 		}
-		label += "）"
-	} else if c.Offline {
-		label += "（可能不在线）"
+		return label + "）"
+	}
+	if c.Offline {
+		if i18n.Resolve(lang) == i18n.EN {
+			return label + " (possibly offline)"
+		}
+		return label + "（可能不在线）"
 	}
 	return label
 }

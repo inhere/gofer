@@ -164,7 +164,7 @@ gofer session find 登录 --path web/src -p <project> --limit 5
 
 ## 信箱（mail）
 
-会话、session job 和调用方之间的"信"：存在 server 上、按对话串组织，信件**不是用户输入**——到达时包在 `<gofer-mail id="…" from="…">…</gofer-mail>` 标签里，不走 web 消息通道，也不会被当成有人在键盘前。
+会话所属项目的 `language`（未设置时取 `server.language`）决定唤醒提示、标签截断说明、收集箱摘要和退信的语言；`<gofer-mail>` / `<gofer-mail-wake>` 标签及属性保持语言无关。
 
 ```bash
 gofer session mail send <地址> [--urgent] [--body-file f | 正文]   # 发信

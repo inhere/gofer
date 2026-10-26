@@ -392,6 +392,10 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 			c := cr.Config()
 			return c.Steward, c.Work
 		})
+		st.SetLanguageFn(func() i18n.Lang {
+			c := cr.Config()
+			return c.LanguageFor(c.Steward.Project)
+		})
 		stopSteward := make(chan struct{})
 		defer close(stopSteward)
 		go st.Run(stopSteward)

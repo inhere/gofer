@@ -3,6 +3,8 @@ package mail
 import (
 	"strconv"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // The injected-letter tags (mailbox design §二). Letters are NOT user input: the hook and the
@@ -14,13 +16,18 @@ const (
 	TagLetter = "gofer-mail"
 	// TagWake is the self-closing wake marker: `<gofer-mail-wake count="N"/>`.
 	TagWake = "gofer-mail-wake"
-	// WakeNotice is the fixed one-line notice following the wake tag.
-	WakeNotice = "有待读信件，将在本轮开始时注入，无需回复"
 )
 
-// RenderWake renders the wake prompt for count pending letters.
-func RenderWake(count int) string {
-	return "<" + TagWake + ` count="` + strconv.Itoa(count) + `"/>` + "\n" + WakeNotice
+// WakeNotice is the default-language compatibility value.
+var WakeNotice = i18n.T(i18n.Default, "mail.wake.notice")
+
+// RenderWake renders the wake prompt for count pending letters in the default language.
+func RenderWake(count int) string { return RenderWakeLang(i18n.Default, count) }
+
+// RenderWakeLang renders the wake prompt in lang. The XML marker remains language-neutral.
+func RenderWakeLang(lang i18n.Lang, count int) string {
+	return "<" + TagWake + ` count="` + strconv.Itoa(count) + `"/>` + "\n" +
+		i18n.T(lang, "mail.wake.notice")
 }
 
 // Letter is what the tag shows of one letter: the id (so a recipient can tell a repeat of an
@@ -38,18 +45,18 @@ type Letter struct {
 	Recipients  int
 }
 
-// RenderLetter renders one letter as the fixed harness tag, so the model (and
-// IsHarnessPrompt) can tell a letter from something a person typed. Attribute values are
-// escaped; a body that contains the closing tag cannot end the element early.
-func RenderLetter(l Letter) string {
+// RenderLetter renders one letter in the default language.
+func RenderLetter(l Letter) string { return RenderLetterLang(i18n.Default, l) }
+
+// RenderLetterLang renders one letter as the fixed harness tag in lang.
+func RenderLetterLang(lang i18n.Lang, l Letter) string {
 	body := strings.ReplaceAll(l.Body, "</"+TagLetter, `<\/`+TagLetter)
 	if l.Truncated {
-		body += "\n…（正文已截断，完整内容：gofer session mail read " + strconv.FormatInt(l.ID, 10) + "）"
+		body += "\n" + i18n.T(lang, "mail.letter.truncated", "id", l.ID)
 	}
 	return "<" + TagLetter + ` id="` + strconv.FormatInt(l.ID, 10) + `" from="` + tagAttr(l.From) +
 		`" topic="` + tagAttr(l.Topic) + `" urgent="` + strconv.FormatBool(l.Urgent) + `"` +
-		broadcastAttrs(l) + ">" +
-		body + "</" + TagLetter + ">"
+		broadcastAttrs(l) + ">" + body + "</" + TagLetter + ">"
 }
 
 // broadcastAttrs renders the broadcast / recipients attributes of a broadcast copy, nothing at

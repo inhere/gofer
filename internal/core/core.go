@@ -15,6 +15,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -352,6 +353,7 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// A letter to a job needs the job layer's word on whether that job can ever take one
 	// (gofer-0n6r): a one-off run cannot, and neither can an ended job.
 	c.Mail.SetSessionJobCheck(mail.SessionJobLookup(jobs.Get))
+	c.Mail.SetLanguageFn(func() i18n.Lang { return cfg.Language() })
 	// RECOV-01 R4: let the hub ADOPT the `recovering` jobs a PREVIOUS serve process left
 	// in the store. The hub cannot see the store (it depends on wsproto only) and the
 	// job service cannot see the wire, so the two are bridged here, at assemble time,

@@ -119,12 +119,14 @@ export function stewardBusyText(): string {
 // 管家会话里的 prompt 对用户不友好：首轮是 24KB 的 prime（角色说明 + 笔记 + 工作项清单）+ 问题，
 // 巡检是系统指令。面板只显示用户真正说的话；系统发的折成一行说明。
 // PRIME_HEAD / PRIME_SEP / READY_LINE_HEAD 与巡检标题是服务端 prompt 的原文，用来识别，不是界面文案。
-const PRIME_HEAD = '# 你是工作管家'
+const PRIME_HEAD = '<!-- gofer:steward-prime -->'
+// DEPRECATED(v0.198): remove in v0.201; accept the old Chinese prime heading during migration.
+const LEGACY_PRIME_HEAD = '# 你是工作管家'
 const PRIME_SEP = '\n\n---\n\n'
 const READY_LINE_HEAD = '读完以上内容后'
 
 export function displayPrompt(text: string): string {
-  if (text.startsWith(PRIME_HEAD)) {
+  if (text.startsWith(PRIME_HEAD) || text.startsWith(LEGACY_PRIME_HEAD)) {
     const i = text.lastIndexOf(PRIME_SEP)
     const rest = i >= 0 ? text.slice(i + PRIME_SEP.length) : ''
     const started = t('util.steward.promptStarted')
