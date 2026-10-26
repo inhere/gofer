@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -28,29 +29,30 @@ func PlanBrief(id string, opts Options) (Brief, error) {
 		issues, _ = opts.Store.ReadIssues()
 	}
 	links := newPlanLinks(p, issues)
+	lang := opts.lang()
 
-	b := Brief{Kind: "plan", ID: id}
-	b.Sections = append(b.Sections, planSection(p), todoSection(p, links))
-	hs := Section{Title: "交接说明", More: "gofer plan handoff " + id + " --history"}
+	b := Brief{Kind: "plan", ID: id, Lang: lang}
+	b.Sections = append(b.Sections, planSection(lang, p), todoSection(lang, p, links))
+	hs := Section{Title: briefText(lang, "brief.handoff.title"), More: "gofer plan handoff " + id + " --history"}
 	if h, err := opts.Client.GetPlanHandoff(id, 0); err != nil {
-		hs.Note = "读取失败（" + err.Error() + "）"
+		hs.Note = briefText(lang, "brief.handoff.read_failed", "err", err.Error())
 	} else if h.Version == 0 || strings.TrimSpace(h.Body) == "" {
-		hs.Note = "无；用 `gofer plan handoff " + id + " --set \"…\"` 写入"
+		hs.Note = briefText(lang, "brief.handoff.none", "id", id)
 	} else {
 		hs.Lines = append(hs.Lines, fmt.Sprintf("v%d · %s · %s", h.Version, h.By, unixDate(h.At)))
 		hs.Lines = append(hs.Lines, indentBlock(h.Body, "  ")...)
 	}
-	b.Sections = append(b.Sections, hs, relatedIssueSection(opts, links), hintSection(opts.Store, ""))
+	b.Sections = append(b.Sections, hs, relatedIssueSection(opts, links), hintSection(lang, opts.Store, ""))
 	b.Sections = fit(b.Sections, opts.maxLines())
 	return b, nil
 }
 
-func planSection(p client.Plan) Section {
+func planSection(lang i18n.Lang, p client.Plan) Section {
 	sec := Section{Title: "plan", More: "gofer plan show " + p.PlanID}
 	sec.Lines = append(sec.Lines, fmt.Sprintf("%s [%s] %s", p.PlanID, p.Status, p.Title))
 	var facts []string
 	if p.Project != "" {
-		facts = append(facts, "项目 "+p.Project)
+		facts = append(facts, briefText(lang, "brief.field.project", "project", p.Project))
 	}
 	if p.TodoCounts != nil || len(p.Todos) > 0 {
 		done := 0
@@ -59,16 +61,16 @@ func planSection(p client.Plan) Section {
 				done++
 			}
 		}
-		facts = append(facts, fmt.Sprintf("进度 %d/%d todo", done, len(p.Todos)))
+		facts = append(facts, briefText(lang, "brief.field.progress", "done", done, "total", len(p.Todos)))
 	}
 	if len(p.Tags) > 0 {
-		facts = append(facts, "标签 "+strings.Join(p.Tags, ", "))
+		facts = append(facts, briefText(lang, "brief.field.tags", "tags", strings.Join(p.Tags, ", ")))
 	}
 	if p.Paused {
-		facts = append(facts, "已暂停")
+		facts = append(facts, briefText(lang, "brief.field.paused"))
 	}
 	if p.BlockedTodo != "" {
-		facts = append(facts, "阻塞于 "+p.BlockedTodo)
+		facts = append(facts, briefText(lang, "brief.field.blocked", "todo", p.BlockedTodo))
 	}
 	if p.Leader != "" && p.Leader != "off" {
 		facts = append(facts, "leader "+p.Leader)
@@ -77,7 +79,7 @@ func planSection(p client.Plan) Section {
 		sec.Lines = append(sec.Lines, strings.Join(facts, " · "))
 	}
 	if body := indentBlock(p.Description, "  "); len(body) > 0 {
-		sec.Lines = append(sec.Lines, "描述：")
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.field.block", "label", briefText(lang, "brief.field.description")))
 		sec.Lines = append(sec.Lines, body...)
 	}
 	return sec
@@ -141,10 +143,10 @@ func (l *planLinks) todoIssues(t client.Todo) []string {
 	return l.scan.find(t.Title+"\n"+t.Acceptance, l.base)
 }
 
-func todoSection(p client.Plan, links *planLinks) Section {
+func todoSection(lang i18n.Lang, p client.Plan, links *planLinks) Section {
 	sec := Section{Title: "todo", More: "gofer plan show " + p.PlanID}
 	if len(p.Todos) == 0 {
-		sec.Note = "还没有 todo"
+		sec.Note = briefText(lang, "brief.todo.none")
 		return sec
 	}
 	titles := make(map[string]string, len(p.Todos))
@@ -154,7 +156,7 @@ func todoSection(p client.Plan, links *planLinks) Section {
 	for _, t := range p.Todos {
 		line := "- " + todoLine(t) + " · " + t.TodoID
 		if t.Assignee != "" {
-			line += " · 指派 " + t.Assignee
+			line += " · " + briefText(lang, "brief.todo.assigned", "name", t.Assignee)
 		}
 		if ids := links.todoIssues(t); len(ids) > 0 {
 			line += " · issue " + strings.Join(ids, ", ")
@@ -169,16 +171,19 @@ func todoSection(p client.Plan, links *planLinks) Section {
 					after = append(after, a)
 				}
 			}
-			sec.Lines = append(sec.Lines, "    依赖："+strings.Join(after, "；"))
+			sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.todo.deps",
+				"list", strings.Join(after, briefText(lang, "brief.todo.deps_join"))))
 		}
 		if acc := strings.TrimSpace(t.Acceptance); acc != "" {
-			sec.Lines = append(sec.Lines, "    验收："+capRunes(strings.Join(strings.Fields(acc), " "), 200))
+			sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.todo.acceptance",
+				"text", capRunes(strings.Join(strings.Fields(acc), " "), 200)))
 		}
 		if note := lastLine(t.Note); note != "" {
-			sec.Lines = append(sec.Lines, "    结论："+capRunes(note, 200))
+			sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.todo.conclusion", "text", capRunes(note, 200)))
 		}
 		if t.DispatchError != "" {
-			sec.Lines = append(sec.Lines, "    派发失败："+firstLine(t.DispatchError, 160))
+			sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.todo.dispatch_failed",
+				"err", firstLine(t.DispatchError, 160)))
 		}
 	}
 	return sec
@@ -197,37 +202,40 @@ func lastLine(text string) string {
 // relatedIssueSection is a short brief (head line, acceptance, design docs) of each
 // issue the plan names.
 func relatedIssueSection(opts Options, links *planLinks) Section {
-	sec := Section{Title: "关联 issue"}
+	lang := opts.lang()
+	sec := Section{Title: briefText(lang, "brief.related.title")}
 	if opts.Store == nil {
-		sec.Note = "当前目录没有仓库 tracker，无法解析 issue"
+		sec.Note = briefText(lang, "brief.related.no_tracker")
 		return sec
 	}
 	if len(links.order) == 0 {
-		sec.Note = "plan 与 todo 里没有提到本仓库的 issue"
+		sec.Note = briefText(lang, "brief.related.none")
 		return sec
 	}
 	root := opts.root()
 	for i, id := range links.order {
 		if i >= relatedIssuesMax {
-			sec.Lines = append(sec.Lines, fmt.Sprintf("- 另有 %d 个", len(links.order)-i))
+			sec.Lines = append(sec.Lines, briefText(lang, "brief.related.more", "n", len(links.order)-i))
 			break
 		}
 		it := links.byID[id]
-		sec.Lines = append(sec.Lines, "- "+issueRefLine("", it))
+		sec.Lines = append(sec.Lines, "- "+issueRefLine(lang, "", it))
 		if acc := strings.TrimSpace(it.AcceptanceCriteria); acc != "" {
-			sec.Lines = append(sec.Lines, "    验收："+capRunes(strings.Join(strings.Fields(acc), " "), 200))
+			sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.todo.acceptance",
+				"text", capRunes(strings.Join(strings.Fields(acc), " "), 200)))
 		}
 		var docs []string
-		for _, h := range designDocs(root, it.ID, "", []string{it.Description, it.Design}) {
+		for _, h := range designDocs(lang, root, it.ID, "", []string{it.Description, it.Design}) {
 			if !h.missing {
 				docs = append(docs, h.path)
 			}
 		}
 		if len(docs) > 0 {
-			sec.Lines = append(sec.Lines, "    设计稿："+strings.Join(docs, "，"))
+			sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.related.design_docs",
+				"docs", strings.Join(docs, briefText(lang, "brief.related.design_docs_join"))))
 		}
 		if it.Status != "closed" {
-			sec.Lines = append(sec.Lines, "    接手：`gofer issue brief "+it.ID+"`")
+			sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.related.takeover", "id", it.ID))
 		}
 	}
 	return sec
@@ -235,9 +243,16 @@ func relatedIssueSection(opts Options, links *planLinks) Section {
 
 // PrimePlanLines renders one open plan for the prime 「进行中 plan」 section: the plan
 // line with the brief hint, then its doing / ready todos with the issues they name.
+//
+// DEPRECATED(v0.198): PrimePlanLinesIn(lang, …) is the language-aware form.
 func PrimePlanLines(p client.Plan, issues []tracker.Issue) []string {
+	return PrimePlanLinesIn(i18n.Default, p, issues)
+}
+
+// PrimePlanLinesIn is PrimePlanLines in lang.
+func PrimePlanLinesIn(lang i18n.Lang, p client.Plan, issues []tracker.Issue) []string {
 	links := newPlanLinks(p, issues)
-	out := []string{fmt.Sprintf("- %s %s（接手：`gofer plan brief %s`）", p.PlanID, p.Title, p.PlanID)}
+	out := []string{briefText(lang, "brief.prime.plan", "id", p.PlanID, "title", p.Title)}
 	for _, t := range p.Todos {
 		status := todoStatus(t)
 		if status != "doing" && status != "ready" {

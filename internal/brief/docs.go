@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 const (
@@ -32,7 +34,7 @@ type docHit struct {
 // designDocs scans root/docs/**/*.md for the issue id (or its parent id) and adds
 // the docs the issue text points at. Each listed doc shows the section headings of
 // its hits with the first lines of each section.
-func designDocs(root, id, parent string, refs []string) []docHit {
+func designDocs(lang i18n.Lang, root, id, parent string, refs []string) []docHit {
 	if root == "" {
 		return nil
 	}
@@ -62,7 +64,7 @@ func designDocs(root, id, parent string, refs []string) []docHit {
 			want = parent
 		}
 		listed[rel] = true
-		hits = append(hits, docHit{path: rel, self: self, lines: docSections(text, want)})
+		hits = append(hits, docHit{path: rel, self: self, lines: docSections(lang, text, want)})
 		return nil
 	})
 	sort.SliceStable(hits, func(i, j int) bool {
@@ -83,10 +85,10 @@ func designDocs(root, id, parent string, refs []string) []docHit {
 			listed[p] = true
 			data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(p)))
 			if err != nil {
-				named = append(named, docHit{path: p, self: true, missing: true, lines: []string{"  （文件不存在）"}})
+				named = append(named, docHit{path: p, self: true, missing: true, lines: []string{"  " + briefText(lang, "brief.docs.missing")}})
 				continue
 			}
-			named = append(named, docHit{path: p, self: true, lines: docOutline(string(data))})
+			named = append(named, docHit{path: p, self: true, lines: docOutline(lang, string(data))})
 		}
 	}
 	hits = append(named, hits...)
@@ -108,7 +110,7 @@ func headingText(line string) (string, bool) {
 // docSections renders, for every section holding a line that mentions want, the
 // section heading and its first lines (making sure the hit line itself shows), within
 // docLinesPerFile.
-func docSections(text, want string) []string {
+func docSections(lang i18n.Lang, text, want string) []string {
 	lines := strings.Split(text, "\n")
 	inFence := false
 	heading := make([]int, len(lines)) // index of the heading owning each line (-1 none)
@@ -141,7 +143,7 @@ func docSections(text, want string) []string {
 		if len(out) >= docLinesPerFile {
 			break
 		}
-		title := "（文件开头）"
+		title := briefText(lang, "brief.docs.file_start")
 		if h >= 0 {
 			title, _ = headingText(lines[h])
 		}
@@ -175,7 +177,7 @@ func docSections(text, want string) []string {
 }
 
 // docOutline lists the first headings of a doc (for docs the issue names).
-func docOutline(text string) []string {
+func docOutline(lang i18n.Lang, text string) []string {
 	var out []string
 	inFence := false
 	for _, line := range strings.Split(text, "\n") {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/msgprefix"
 )
 
@@ -67,27 +68,41 @@ func (r Refocus) Empty() bool {
 		len(r.Jobs) == 0 && len(r.Mail) == 0
 }
 
-// RefocusHead is the sentence after the prefix: why the section appeared.
-func RefocusHead(resumed bool) string {
+// RefocusHead is the sentence after the prefix: why the section appeared, in the
+// default language.
+//
+// DEPRECATED(v0.198): RenderRefocusIn / RefocusHeadIn take the language; this keeps
+// the default-language form for the caller that has none yet.
+func RefocusHead(resumed bool) string { return RefocusHeadIn(i18n.Default, resumed) }
+
+// RefocusHeadIn is RefocusHead in lang.
+func RefocusHeadIn(lang i18n.Lang, resumed bool) string {
 	if resumed {
-		return "会话刚恢复，以下是你之前在做的事（用每行末尾的命令接手）："
+		return briefText(lang, "brief.refocus.head_resumed")
 	}
-	return "上下文刚被压缩，以下是你压缩前在做的事（用每行末尾的命令接手）："
+	return briefText(lang, "brief.refocus.head_compacted")
 }
 
-// RenderRefocus renders the section, or "" when there is nothing to say, it does not
-// fit the budget, or the caller asked for no section at all.
+// RenderRefocus renders the section in the default language.
+//
+// DEPRECATED(v0.198): RenderRefocusIn(lang, …) is the language-aware form.
+func RenderRefocus(r Refocus, resumed bool, budget int) string {
+	return RenderRefocusIn(i18n.Default, r, resumed, budget)
+}
+
+// RenderRefocusIn renders the section in lang, or "" when there is nothing to say, it
+// does not fit the budget, or the caller asked for no section at all.
 //
 // budget is the number of BYTES the whole prime has left (the same budget
 // tracker.PrimeMaxBytes gives the other sections): items are appended while they fit,
 // so a long topic still leaves room for the first claim instead of dropping the
 // whole section.
-func RenderRefocus(r Refocus, resumed bool, budget int) string {
+func RenderRefocusIn(lang i18n.Lang, r Refocus, resumed bool, budget int) string {
 	if r.Empty() || budget <= 0 {
 		return ""
 	}
 	var b strings.Builder
-	head := msgprefix.Format(msgprefix.Hint, "", RefocusHead(resumed))
+	head := msgprefix.FormatIn(lang, msgprefix.Hint, "", RefocusHeadIn(lang, resumed))
 	if len(head)+1 > budget {
 		return ""
 	}
@@ -102,24 +117,24 @@ func RenderRefocus(r Refocus, resumed bool, budget int) string {
 		return true
 	}
 	if topic := strings.TrimSpace(r.Topic); topic != "" {
-		if !add("主题：" + topic) {
+		if !add(briefText(lang, "brief.refocus.topic", "topic", topic)) {
 			return ""
 		}
 	}
+	status := func(s string) string {
+		if s == "" {
+			return ""
+		}
+		return briefText(lang, "brief.refocus.status", "status", s)
+	}
 	if len(r.Claims) > 0 {
-		if !add("认领中的 issue：") {
+		if !add(briefText(lang, "brief.refocus.claims")) {
 			return b.String()
 		}
 		for _, c := range r.Claims {
-			line := fmt.Sprintf("- %s %s", c.ID, c.Title)
-			if c.Status != "" {
-				line += "（" + c.Status + "）"
-			}
+			line := "- " + c.ID + " " + c.Title + status(c.Status)
 			if c.Inferred {
-				line = "- [可能] " + c.ID + " " + c.Title
-				if c.Status != "" {
-					line += "（" + c.Status + "）"
-				}
+				line = "- " + briefText(lang, "brief.refocus.inferred") + " " + c.ID + " " + c.Title + status(c.Status)
 			}
 			line += " → gofer issue brief " + c.ID
 			if !add(line) {
@@ -128,7 +143,7 @@ func RenderRefocus(r Refocus, resumed bool, budget int) string {
 		}
 	}
 	if len(r.Plans) > 0 {
-		if !add("监督中的 plan：") {
+		if !add(briefText(lang, "brief.refocus.plans")) {
 			return b.String()
 		}
 		for _, p := range r.Plans {
@@ -136,8 +151,8 @@ func RenderRefocus(r Refocus, resumed bool, budget int) string {
 			if p.Title != "" {
 				line += " " + p.Title
 			}
-			if detail := planProgress(p); detail != "" {
-				line += "（" + detail + "）"
+			if detail := planProgress(lang, p); detail != "" {
+				line += briefText(lang, "brief.refocus.detail", "detail", detail)
 			}
 			line += " → gofer plan brief " + p.PlanID
 			if !add(line) {
@@ -146,7 +161,7 @@ func RenderRefocus(r Refocus, resumed bool, budget int) string {
 		}
 	}
 	if len(r.Jobs) > 0 {
-		if !add("在等的 job：") {
+		if !add(briefText(lang, "brief.refocus.jobs")) {
 			return b.String()
 		}
 		for _, j := range r.Jobs {
@@ -154,9 +169,7 @@ func RenderRefocus(r Refocus, resumed bool, budget int) string {
 			if j.Title != "" {
 				line += " " + j.Title
 			}
-			if j.Status != "" {
-				line += "（" + j.Status + "）"
-			}
+			line += status(j.Status)
 			line += " → gofer job show " + j.JobID
 			if !add(line) {
 				return b.String()
@@ -164,13 +177,13 @@ func RenderRefocus(r Refocus, resumed bool, budget int) string {
 		}
 	}
 	if len(r.Mail) > 0 {
-		if !add("未回的信件：") {
+		if !add(briefText(lang, "brief.refocus.mail")) {
 			return b.String()
 		}
 		for _, m := range r.Mail {
-			line := "- 来自 " + m.From
+			line := "- " + briefText(lang, "brief.refocus.mail_from", "from", m.From)
 			if m.Subject != "" {
-				line += "：" + m.Subject
+				line += briefText(lang, "brief.refocus.mail_subject", "subject", m.Subject)
 			}
 			line += fmt.Sprintf(" → gofer mail show %d", m.ID)
 			if !add(line) {
@@ -182,15 +195,15 @@ func RenderRefocus(r Refocus, resumed bool, budget int) string {
 }
 
 // planProgress spells a plan's state: progress, the next item, the blocker.
-func planProgress(p RefocusPlan) string {
+func planProgress(lang i18n.Lang, p RefocusPlan) string {
 	parts := make([]string, 0, 3)
 	if p.Total > 0 {
 		parts = append(parts, fmt.Sprintf("%d/%d", p.Progress, p.Total))
 	}
 	if p.Status == "blocked" && p.Blocked != "" {
-		parts = append(parts, "阻塞于 "+p.Blocked)
+		parts = append(parts, briefText(lang, "brief.refocus.blocked", "value", p.Blocked))
 	} else if p.Next != "" {
-		parts = append(parts, "下一项 "+p.Next)
+		parts = append(parts, briefText(lang, "brief.refocus.next", "value", p.Next))
 	}
-	return strings.Join(parts, "，")
+	return strings.Join(parts, briefText(lang, "brief.refocus.join"))
 }

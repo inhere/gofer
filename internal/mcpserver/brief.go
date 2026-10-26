@@ -34,7 +34,8 @@ func registerBriefTools(s *mcp.Server, b Backend) {
 // client, so its server sections say so.
 func briefOptionsFor(b Backend, in briefInput) brief.Options {
 	store, _ := tracker.Discover(".", "")
-	opts := brief.Options{Store: store, MaxLines: in.MaxLines, ProjectKey: strings.TrimSpace(in.Project)}
+	opts := brief.Options{Store: store, MaxLines: in.MaxLines, ProjectKey: strings.TrimSpace(in.Project),
+		Language: backendLang(b)}
 	if cb, ok := b.(*clientBackend); ok {
 		opts.Client, opts.ClientNote = brief.Connect(cb.cli)
 	} else {

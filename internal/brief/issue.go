@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -48,6 +49,7 @@ func IssueBrief(id string, opts Options) (Brief, error) {
 		return Brief{}, err
 	}
 	root := opts.root()
+	lang := opts.lang()
 
 	siblingReasons := map[string]string{}
 	if item.Parent != "" {
@@ -57,21 +59,21 @@ func IssueBrief(id string, opts Options) (Brief, error) {
 			}
 		}
 	}
-	commits, isGit := relatedCommits(root, id, item.Parent, siblingReasons)
+	commits, isGit := relatedCommits(lang, root, id, item.Parent, siblingReasons)
 	fromCommits := codeEntries(root, commits)
 	mentioned := mentionedFiles(root, item)
 	files := mergeEntries(mentioned, fromCommits)
 
-	b := Brief{Kind: "issue", ID: id}
+	b := Brief{Kind: "issue", ID: id, Lang: lang}
 	b.Sections = append(b.Sections,
-		issueSection(item),
-		treeSection(item, rel, issues, byID),
-		designSection(root, item),
-		commitSection(id, item.Parent, commits, mentioned, fromCommits, keySymbols(root, commits, files), isGit),
+		issueSection(lang, item),
+		treeSection(lang, item, rel, issues, byID),
+		designSection(lang, root, item),
+		commitSection(lang, id, item.Parent, commits, mentioned, fromCommits, keySymbols(root, commits, files), isGit),
 		workSection(opts, id),
-		verifySection(root, verifyRules(opts.Store), files),
+		verifySection(lang, root, verifyRules(opts.Store), files),
 		memorySection(opts, newMemoryTarget(item, files)),
-		hintSection(opts.Store, id),
+		hintSection(lang, opts.Store, id),
 	)
 	b.Sections = fit(b.Sections, opts.maxLines())
 	return b, nil
@@ -93,25 +95,25 @@ func issueHeadLine(it tracker.Issue) string {
 	return strings.TrimSpace(fmt.Sprintf("%s [%s] P%d %s %s", it.ID, it.Status, it.Priority, it.Type, it.Title))
 }
 
-func issueSection(it tracker.Issue) Section {
-	sec := Section{Title: "issue", More: "gofer issue show " + it.ID}
+func issueSection(lang i18n.Lang, it tracker.Issue) Section {
+	sec := Section{Title: briefText(lang, "brief.issue.title"), More: "gofer issue show " + it.ID}
 	sec.Lines = append(sec.Lines, issueHeadLine(it))
 	var facts []string
 	if len(it.Tags) > 0 {
-		facts = append(facts, "标签 "+strings.Join(it.Tags, ", "))
+		facts = append(facts, briefText(lang, "brief.field.tags", "tags", strings.Join(it.Tags, ", ")))
 	}
 	if it.Assignee != "" {
-		facts = append(facts, "指派 "+it.Assignee)
+		facts = append(facts, briefText(lang, "brief.field.assignee", "assignee", it.Assignee))
 	}
 	if it.UpdatedAt != "" {
-		facts = append(facts, "更新 "+shortTime(it.UpdatedAt))
+		facts = append(facts, briefText(lang, "brief.field.updated", "time", shortTime(it.UpdatedAt)))
 	}
 	if len(facts) > 0 {
 		sec.Lines = append(sec.Lines, strings.Join(facts, " · "))
 	}
 	block := func(label, text string) {
 		if body := indentBlock(text, "  "); len(body) > 0 {
-			sec.Lines = append(sec.Lines, label+"：")
+			sec.Lines = append(sec.Lines, briefText(lang, "brief.field.block", "label", label))
 			sec.Lines = append(sec.Lines, body...)
 		}
 	}
@@ -119,39 +121,42 @@ func issueSection(it tracker.Issue) Section {
 	if plan >= 0 {
 		c := it.Comments[plan]
 		lines := indentBlock(c.Text, "  ")
-		sec.Lines = append(sec.Lines, fmt.Sprintf("已有方案评论（%s %s，共 %d 行）：", shortTime(c.At), c.By, len(lines)))
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.issue.plan_comment",
+			"time", shortTime(c.At), "by", c.By, "n", len(lines)))
 		if len(lines) > planCommentLines {
 			sec.Lines = append(sec.Lines, lines[:planCommentLines]...)
-			sec.Lines = append(sec.Lines, fmt.Sprintf("  …（另 %d 行：`gofer issue show %s`）", len(lines)-planCommentLines, it.ID))
+			sec.Lines = append(sec.Lines, "  "+briefText(lang, "brief.issue.more_lines",
+				"n", len(lines)-planCommentLines, "id", it.ID))
 		} else {
 			sec.Lines = append(sec.Lines, lines...)
 		}
 	}
-	block("描述", it.Description)
+	block(briefText(lang, "brief.field.description"), it.Description)
 	block("design", it.Design)
 	if strings.TrimSpace(it.AcceptanceCriteria) == "" {
-		sec.Lines = append(sec.Lines, "验收标准：无验收标准",
-			fmt.Sprintf("  → 补写：`gofer issue update %s --acceptance \"…\"`", it.ID))
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.issue.no_acceptance"),
+			"  "+briefText(lang, "brief.issue.acceptance_hint", "id", it.ID))
 	} else {
-		block("验收标准", it.AcceptanceCriteria)
+		block(briefText(lang, "brief.field.acceptance"), it.AcceptanceCriteria)
 	}
 	if n := len(it.Comments); n > 0 {
 		from := 0
 		if n > commentsMax {
 			from = n - commentsMax
 		}
-		sec.Lines = append(sec.Lines, fmt.Sprintf("评论（最近 %d / 共 %d）：", n-from, n))
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.issue.comments", "shown", n-from, "total", n))
 		for i := from; i < n; i++ {
 			c := it.Comments[i]
 			sec.Lines = append(sec.Lines, fmt.Sprintf("  - %s %s:", shortTime(c.At), c.By))
 			if i == plan {
-				sec.Lines = append(sec.Lines, "    （方案评论，见上）")
+				sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.issue.plan_comment_above"))
 				continue
 			}
 			lines := indentBlock(c.Text, "    ")
 			if len(lines) > commentLines {
 				sec.Lines = append(sec.Lines, lines[:commentLines]...)
-				sec.Lines = append(sec.Lines, fmt.Sprintf("    …（另 %d 行：`gofer issue show %s`）", len(lines)-commentLines, it.ID))
+				sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.issue.more_lines",
+					"n", len(lines)-commentLines, "id", it.ID))
 			} else {
 				sec.Lines = append(sec.Lines, lines...)
 			}
@@ -185,24 +190,30 @@ func planComment(comments []tracker.Comment) int {
 	return best
 }
 
-func issueRefLine(prefix string, it tracker.Issue) string {
+func issueRefLine(lang i18n.Lang, prefix string, it tracker.Issue) string {
 	line := prefix + issueHeadLine(it)
 	if it.Status == "closed" && it.CloseReason != "" {
-		line += " — 关闭：" + firstLine(it.CloseReason, 120)
+		line += " " + briefText(lang, "brief.issue.close_reason", "reason", firstLine(it.CloseReason, 120))
 	}
 	return line
 }
 
-func treeSection(it tracker.Issue, rel tracker.Relations, issues []tracker.Issue, byID map[string]tracker.Issue) Section {
-	sec := Section{Title: "上下文树", More: "gofer issue show " + it.ID}
+func treeSection(lang i18n.Lang, it tracker.Issue, rel tracker.Relations, issues []tracker.Issue, byID map[string]tracker.Issue) Section {
+	sec := Section{Title: briefText(lang, "brief.tree.title"), More: "gofer issue show " + it.ID}
 	ref := func(prefix, id string) string {
 		if other, ok := byID[id]; ok {
-			return issueRefLine(prefix, other)
+			return issueRefLine(lang, prefix, other)
 		}
-		return prefix + id + "（不在本仓库 tracker）"
+		return prefix + id + briefText(lang, "brief.tree.not_in_tracker")
 	}
 	if it.Parent != "" {
-		sec.Lines = append(sec.Lines, ref("父：", it.Parent))
+		var head string
+		if other, ok := byID[it.Parent]; ok {
+			head = issueRefLine(lang, "", other)
+		} else {
+			head = it.Parent + briefText(lang, "brief.tree.not_in_tracker")
+		}
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.tree.parent", "head", head))
 		var sibs []tracker.Issue
 		for _, other := range issues {
 			if other.Parent == it.Parent && other.ID != it.ID {
@@ -211,59 +222,59 @@ func treeSection(it tracker.Issue, rel tracker.Relations, issues []tracker.Issue
 		}
 		sort.Slice(sibs, func(i, j int) bool { return sibs[i].ID < sibs[j].ID })
 		if len(sibs) > 0 {
-			sec.Lines = append(sec.Lines, "兄弟：")
+			sec.Lines = append(sec.Lines, briefText(lang, "brief.tree.siblings"))
 			for _, s := range sibs {
-				sec.Lines = append(sec.Lines, issueRefLine("  - ", s))
+				sec.Lines = append(sec.Lines, issueRefLine(lang, "  - ", s))
 			}
 		}
 	}
 	if len(rel.Children) > 0 {
-		sec.Lines = append(sec.Lines, "子：")
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.tree.children"))
 		for _, c := range rel.Children {
 			sec.Lines = append(sec.Lines, ref("  - ", c))
 		}
 	}
 	if len(rel.DependsOn) > 0 {
-		sec.Lines = append(sec.Lines, "依赖：")
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.tree.depends_on"))
 		for _, d := range rel.DependsOn {
 			sec.Lines = append(sec.Lines, ref("  - "+d.Type+" → ", d.ID))
 		}
 	}
 	if len(rel.Blocks) > 0 {
-		sec.Lines = append(sec.Lines, "被依赖（等本 issue）：")
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.tree.blocked_by"))
 		for _, b := range rel.Blocks {
 			sec.Lines = append(sec.Lines, ref("  - ", b))
 		}
 	}
 	if len(rel.Linked) > 0 {
-		sec.Lines = append(sec.Lines, "被关联：")
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.tree.linked"))
 		for _, d := range rel.Linked {
 			sec.Lines = append(sec.Lines, ref("  - "+d.Type+" ← ", d.ID))
 		}
 	}
 	if len(sec.Lines) == 0 {
-		sec.Note = "无父 / 子 / 依赖"
+		sec.Note = briefText(lang, "brief.tree.empty")
 	}
 	return sec
 }
 
-func designSection(root string, it tracker.Issue) Section {
-	sec := Section{Title: "设计稿", More: "grep -rn " + it.ID + " docs"}
+func designSection(lang i18n.Lang, root string, it tracker.Issue) Section {
+	sec := Section{Title: briefText(lang, "brief.design.title"), More: "grep -rn " + it.ID + " docs"}
 	refs := []string{it.Description, it.Design, it.AcceptanceCriteria}
 	for _, c := range it.Comments {
 		refs = append(refs, c.Text)
 	}
-	hits := designDocs(root, it.ID, it.Parent, refs)
+	hits := designDocs(lang, root, it.ID, it.Parent, refs)
 	for _, h := range hits {
 		line := "- " + h.path
 		if !h.self {
-			line += "（只提到父 " + it.Parent + "）"
+			line += briefText(lang, "brief.design.parent_only", "parent", it.Parent)
 		}
 		sec.Lines = append(sec.Lines, line)
 		sec.Lines = append(sec.Lines, h.lines...)
 	}
 	if len(hits) == 0 {
-		sec.Note = "docs/ 下没有提到本 issue 或其父的文档"
+		sec.Note = briefText(lang, "brief.design.none")
 	}
 	return sec
 }
@@ -273,33 +284,33 @@ func designSection(root string, it tracker.Issue) Section {
 // When no commit names the issue itself, the commit-derived entries come from the
 // parent / siblings and are labelled as such — they describe neighbouring work, not
 // necessarily where this issue lands.
-func commitSection(id, parent string, commits []commit, mentioned, files, symbols []string, isGit bool) Section {
+func commitSection(lang i18n.Lang, id, parent string, commits []commit, mentioned, files, symbols []string, isGit bool) Section {
 	more := "git log --grep " + id
-	sec := Section{Title: "相关提交", More: more}
+	sec := Section{Title: briefText(lang, "brief.commit.title"), More: more}
 	if !isGit {
-		sec.Note = "不是 git 仓库，本节跳过"
+		sec.Note = briefText(lang, "brief.commit.not_git")
 		return sec
 	}
 	if len(commits) == 0 {
 		if len(mentioned) == 0 {
-			sec.Note = "git log 中没有提到 " + id + "（或父 " + parent + "）的提交"
+			sec.Note = briefText(lang, "brief.commit.none", "id", id, "parent", parent)
 			return sec
 		}
-		sec.Lines = append(sec.Lines, "（git log 中没有提到 "+id+"（或父 "+parent+"）的提交）")
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.commit.none_inline", "id", id, "parent", parent))
 	}
 	for i, c := range commits {
 		if i >= commitsMax {
-			sec.Lines = append(sec.Lines, fmt.Sprintf("- 另有 %d 个：`%s`", len(commits)-i, more))
+			sec.Lines = append(sec.Lines, briefText(lang, "brief.commit.more", "n", len(commits)-i, "more", more))
 			break
 		}
 		line := fmt.Sprintf("- %s %s %s", c.Short, c.Date, c.Subject)
 		if c.Via != id {
-			line += "（经 " + c.Via + "）"
+			line += briefText(lang, "brief.commit.via", "via", c.Via)
 		}
 		sec.Lines = append(sec.Lines, line)
 	}
 	if len(mentioned) > 0 {
-		sec.Lines = append(sec.Lines, "issue 文本提到的文件：")
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.commit.mentioned"))
 		for _, f := range mentioned {
 			sec.Lines = append(sec.Lines, "  - "+f)
 		}
@@ -315,9 +326,9 @@ func commitSection(id, parent string, commits []commit, mentioned, files, symbol
 		}
 	}
 	if len(rest) > 0 {
-		hdr := "代码入口（这些提交触及最多的文件）："
+		hdr := briefText(lang, "brief.commit.entries")
 		if !hasOwnCommit(id, commits) {
-			hdr = "代码入口（来自父 / 兄弟 issue 的提交；本 issue 尚无提交，仅供参考）："
+			hdr = briefText(lang, "brief.commit.entries_ref")
 		}
 		sec.Lines = append(sec.Lines, hdr)
 		for _, f := range rest {
@@ -325,7 +336,7 @@ func commitSection(id, parent string, commits []commit, mentioned, files, symbol
 		}
 	}
 	if len(symbols) > 0 {
-		sec.Lines = append(sec.Lines, "关键符号（这些提交新增 / 改动的 Go / TS / JS 函数，行号为当前工作区）：")
+		sec.Lines = append(sec.Lines, briefText(lang, "brief.commit.symbols"))
 		for _, s := range symbols {
 			sec.Lines = append(sec.Lines, "  - "+s)
 		}
@@ -336,14 +347,15 @@ func commitSection(id, parent string, commits []commit, mentioned, files, symbol
 // workSection lists the jobs linked to the issue (issue_id or the tracker:issue tag)
 // and the open plans whose title / description / todos name it.
 func workSection(opts Options, id string) Section {
-	sec := Section{Title: "相关 job / plan"}
+	lang := opts.lang()
+	sec := Section{Title: briefText(lang, "brief.work.title")}
 	if opts.Client == nil {
 		sec.Note = opts.serverNote()
 		return sec
 	}
 	jobs, err := opts.Client.ListJobs(job.ListOpts{Project: opts.ProjectKey, Limit: jobScanLimit})
 	if err != nil {
-		sec.Note = "读取 server 失败，本节跳过（" + err.Error() + "）"
+		sec.Note = briefText(lang, "brief.work.read_failed", "err", err.Error())
 		return sec
 	}
 	for _, j := range jobs {
@@ -359,7 +371,7 @@ func workSection(opts Options, id string) Section {
 		}
 		sec.Lines = append(sec.Lines, line)
 		if note := firstLine(j.ReviewNote, 160); note != "" {
-			sec.Lines = append(sec.Lines, "    评审："+note)
+			sec.Lines = append(sec.Lines, "    "+briefText(lang, "brief.work.review", "note", note))
 		}
 	}
 	plans, err := opts.Client.ListPlans(client.PlanListOpts{Status: "open", Project: opts.ProjectKey, Limit: 20})
@@ -384,12 +396,13 @@ func workSection(opts Options, id string) Section {
 			if !planHit && len(todoLines) == 0 {
 				continue
 			}
-			sec.Lines = append(sec.Lines, fmt.Sprintf("- plan %s [%s] %s（`gofer plan brief %s`）", full.PlanID, full.Status, full.Title, full.PlanID))
+			sec.Lines = append(sec.Lines, briefText(lang, "brief.work.plan", "id", full.PlanID,
+				"status", full.Status, "title", full.Title))
 			sec.Lines = append(sec.Lines, todoLines...)
 		}
 	}
 	if len(sec.Lines) == 0 {
-		sec.Note = "没有关联本 issue 的 job，也没有提到它的进行中 plan"
+		sec.Note = briefText(lang, "brief.work.none")
 	}
 	return sec
 }

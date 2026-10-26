@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/procattr"
 )
 
@@ -85,7 +86,7 @@ func parseGitLog(out string) []logRow {
 
 // relatedCommits lists the commits whose message names id (or parent), then the
 // commits named in the sibling close reasons. ok=false: root is not a git checkout.
-func relatedCommits(root, id, parent string, siblingReasons map[string]string) ([]commit, bool) {
+func relatedCommits(lang i18n.Lang, root, id, parent string, siblingReasons map[string]string) ([]commit, bool) {
 	if root == "" {
 		return nil, false
 	}
@@ -134,7 +135,7 @@ func relatedCommits(root, id, parent string, siblingReasons map[string]string) (
 					continue
 				}
 				seen[row.c.Hash] = true
-				row.c.Via = sib + " 关闭说明"
+				row.c.Via = briefText(lang, "brief.commit.via_sibling", "sibling", sib)
 				out = append(out, row.c)
 				taken++
 			}
