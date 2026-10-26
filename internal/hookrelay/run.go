@@ -440,7 +440,7 @@ func (r *runner) lang() i18n.Lang {
 	if r.sessionLang != "" {
 		return r.sessionLang
 	}
-	if l := i18n.FromEnv(); l != "" {
+	if l := i18n.FromEnvVar(); l != "" {
 		return l
 	}
 	return i18n.Default

@@ -220,3 +220,18 @@ func TestDefaultIsPinned(t *testing.T) {
 		t.Errorf("LanguageDefaultNote does not name the default: %q", LanguageDefaultNote)
 	}
 }
+
+// TestFromEnvVarIgnoresTheSystemLocale: text for an agent follows the deployment, so an
+// English machine locale alone must not pick English (CI runs under LANG=C.UTF-8).
+func TestFromEnvVarIgnoresTheSystemLocale(t *testing.T) {
+	t.Setenv(EnvLanguageVar, "")
+	t.Setenv("LC_ALL", "en_US.UTF-8")
+	t.Setenv("LANG", "en_US.UTF-8")
+	if got := FromEnvVar(); got != "" {
+		t.Fatalf("FromEnvVar() = %q with only a system locale, want \"\"", got)
+	}
+	t.Setenv(EnvLanguageVar, "english")
+	if got := FromEnvVar(); got != EN {
+		t.Fatalf("FromEnvVar() = %q with GOFER_LANG=english, want %q", got, EN)
+	}
+}

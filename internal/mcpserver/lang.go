@@ -24,8 +24,12 @@ func backendLang(b Backend) i18n.Lang {
 	}
 	// A backend that cannot tell — the thin client forwarding to a central serve: the
 	// deployment's server.language does not reach this process (GET /v1/meta carries no
-	// language yet). Use the chain the CLI uses: GOFER_LANG -> system language -> default.
-	return i18n.FromEnv()
+	// language yet). Use an explicit GOFER_LANG, else the default — never the machine's
+	// locale: this is text for the agent, which follows the deployment, not the client.
+	if l := i18n.FromEnvVar(); l != "" {
+		return l
+	}
+	return i18n.Default
 }
 
 // text looks key up in b's language: the one way a description or an answer an agent

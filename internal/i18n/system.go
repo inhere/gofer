@@ -18,6 +18,20 @@ func FromEnv() Lang {
 	return Resolve(FromSystem())
 }
 
+// FromEnvVar reads only an explicit GOFER_LANG, "" when it is unset or unrecognized.
+//
+// Text gofer writes for an agent (a hook's injected context, a thin MCP client's
+// tool descriptions) follows the deployment's language, not the machine's: a hook on
+// an English-locale machine must not switch a zh-CN deployment's text to English just
+// because the server has not named a language yet. Such callers use this and fall
+// back to Default; FromEnv (with the system language) is for the CLI's own output.
+func FromEnvVar() Lang {
+	if l, ok := Normalize(os.Getenv(EnvLanguageVar)); ok {
+		return l
+	}
+	return ""
+}
+
 // FromSystem reads the machine's language: LANG / LC_ALL / LC_MESSAGES and, on
 // Windows, the user's preferred UI language. It returns "" when none of them
 // names a language gofer has text for, so the caller falls back to its next
