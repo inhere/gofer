@@ -132,7 +132,7 @@
 - **它是谁**：一个常驻的持续 ACP 会话 job，跑在 server 本机的默认工作空间。
 - **可换**：agent 由配置 `steward.agent` 指定，可选任何 acp-agent（claude-acp、codex-acp、omp-acp、gemini-acp……），**用户可随时在设置页切换**。
 - **无状态设计**：
-  - 管家自己不保存关键信息，一切都在工作项、日志和「管家笔记」里。管家笔记是一份版本化 Markdown，复用 plan_handoff 的存储与乐观锁，记录长期偏好和约定，例如"zy-bsly 现场一般周三去"。
+  - 管家自己不保存关键信息，一切都在工作项、日志和「管家笔记」里。管家笔记是一份版本化 Markdown，复用 plan_handoff 的存储与乐观锁，记录长期偏好和约定，例如"acme-app 现场一般周三去"。
   - 每次启动或切换 agent，用 prime 注入：管家笔记 + 未结工作项的简表 + 最近 24 小时的日志。因此换 agent、重启都能接着做。
 - **能力**（gofer 自动给管家会话注入 gofer MCP，带收窄的白名单，类似 leader 模式）：
   - 读：列出 / 查看工作项、会话（含 last_message、progress、transcript 尾部）、关联 job、issue；

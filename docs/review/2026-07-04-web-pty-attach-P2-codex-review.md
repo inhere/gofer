@@ -2,7 +2,7 @@
 
 > 审核方：codex（读真实代码交叉核对，未改源码）。  
 > 被审：`docs/design/2026-07-04-web-pty-attach-P2-design.md` v0.1。  
-> 自证：`go build ./...` / `go vet ./...` 使用 workspace 内 `GOCACHE/GOMODCACHE` 通过；默认 cache 路径因沙箱无权写 `C:\Users\KZL\AppData\Local\go-build` 与 `D:\env\gopath\pkg\mod\cache` 失败。
+> 自证：`go build ./...` / `go vet ./...` 使用 workspace 内 `GOCACHE/GOMODCACHE` 通过；默认 cache 路径因沙箱无权写 `C:\Users\<user>\AppData\Local\go-build` 与 `D:\env\gopath\pkg\mod\cache` 失败。
 
 ## 总评
 

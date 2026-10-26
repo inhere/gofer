@@ -18,7 +18,7 @@
 
 ## 背景与目标
 
-- 通过 worker 操作节点机（如 `w-hw-windows11`）时经常要传文件，现在只能 base64 塞进 job 日志再解出来：慢、有大小上限、污染日志。→ **XFER-01**。
+- 通过 worker 操作节点机（如 `w-lab`）时经常要传文件，现在只能 base64 塞进 job 日志再解出来：慢、有大小上限、污染日志。→ **XFER-01**。
 - 同一个 checkout 上并发派两个 agent job 会互相踩工作树，本周只能人工串行。→ **JOB-11**。
 - agent 卡死（供应商流挂起、CLI 等待不存在的交互）只能等 job 超时，续投/转移都触发不了。→ **AUTO-05**。
 - plan 的 todo 已能挂 job（`--todo`），但派发仍靠人敲命令；Multica 的"指派即派发"模型更顺手。→ **PLAN-02**。
@@ -47,10 +47,10 @@
 ### 1. 形态
 
 ```bash
-gofer tool cp ./firmware.bin  w-hw-windows11:zy-bsly-hw-win11/tmp/in/firmware.bin   # 推到 worker
-gofer tool cp w-hw-windows11:zy-bsly-hw-win11/tmp/out/report.csv  ./report.csv       # 从 worker 拿回
-gofer tool cp ./x.tar  server:zy-bsly-sf-dev/tmp/x.tar                                # 目标是 server 主机（local 别名同）
-gofer tool xfer ls|show <id>|rm <id>                                                  # 暂存区管理
+gofer tool cp ./firmware.bin  w-lab:acme-hw/tmp/in/firmware.bin  # 推到 worker
+gofer tool cp w-lab:acme-hw/tmp/out/report.csv  ./report.csv  # 从 worker 拿回
+gofer tool cp ./x.tar  server:acme-app/tmp/x.tar  # 目标是 server 主机（local 别名同）
+gofer tool xfer ls|show <id>|rm <id>  # 暂存区管理
 ```
 
 - 远端写法 `<runner>:<project>/<项目内相对路径>`；`runner` 是 `server`（`local` 别名）或 worker id。路径按**执行机**的项目根解析（`SafeJoin`，POLICY worker 经 roots 映射），**只允许项目根内**，与 job `--cwd` 同一边界；目标目录不存在时创建（仅项目根内）；目标已存在需 `--force` 覆盖。
@@ -159,7 +159,7 @@ gofer job wakeup list|show|disable|enable <…>
 
 | 期 | 内容 | 验收 |
 |---|---|---|
-| X1 | XFER-01 核心：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `file_xfer` 帧（v9）+ worker 执行端 + `runner=server` 路径 + `gofer tool cp` / `tool xfer` + 审计 + retention + G033 | 真机：容器 `tool cp` 一个 5MB 文件到 `w-kzl-desktop:<project>/tmp/`，sha256 一致；反向拉回一致；>max 被拒；路径逃逸被拒；worker 离线 → failed |
+| X1 | XFER-01 核心：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `file_xfer` 帧（v9）+ worker 执行端 + `runner=server` 路径 + `gofer tool cp` / `tool xfer` + 审计 + retention + G033 | 真机：容器 `tool cp` 一个 5MB 文件到 `w-office:<project>/tmp/`，sha256 一致；反向拉回一致；>max 被拒；路径逃逸被拒；worker 离线 → failed |
 | X2 | XFER-01 job 集成：`--upload` / `--collect` + `xfer_json` + artifacts 并入 + web「文件」块 + docs/skill | worker job 起跑前文件就位；结束后 `collect` 的文件可从 web 下载 |
 | P1 | JOB-11（dir lock + `waiting_dir` + per-agent 并发）+ AUTO-05（停滞检测 → transient） | 同 cwd 两个 agent job 第二个 `waiting_dir` 后接力；exec 不被挡；停滞 job 在 N 秒后 failed 且触发续投 | **已落地 2026-09-21**（见 §「P1 实测记录」；两个 job 是否重叠由 job 自己作证——`excl-guard`/`rendezvous` 见证，不靠时钟） |
 | P2 | PLAN-02（plan project、todo 字段、`ready`、派发器、`plan dispatch`、web、MCP、plan 用量） | `set-todo --assign omp --status ready` 自动出 job 并联动到 done；无模板默认 prompt 含 plan/todo 文本 |
@@ -210,7 +210,7 @@ X1 已落地（X2 未做）：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `fi
            / TestToolXferListShowRm / TestToolCpReportsTheReason   (internal/commands)
 ```
 
-**待真机（由监督者在容器执行，本 job 未做）**：容器 `gofer tool cp` 一个 5MB 文件到 `w-kzl-desktop:<project>/tmp/` 往返 + sha256 一致、>max 拒绝、路径逃逸拒绝、worker 离线 → failed。上面 e2e 已覆盖同一批断言在进程内 hub+worker 下的等价路径，但"真实 worker 进程 + 真实 HTTP + 不同机器文件系统"这一层需真机确认。
+**待真机（由监督者在容器执行，本 job 未做）**：容器 `gofer tool cp` 一个 5MB 文件到 `w-office:<project>/tmp/` 往返 + sha256 一致、>max 拒绝、路径逃逸拒绝、worker 离线 → failed。上面 e2e 已覆盖同一批断言在进程内 hub+worker 下的等价路径，但"真实 worker 进程 + 真实 HTTP + 不同机器文件系统"这一层需真机确认。
 
 ## X2 实测记录（2026-09-21，stub / e2e 部分）
 

@@ -245,7 +245,7 @@ func TestAskWhileTheSessionIsMidTurnTimesOutAsBusy(t *testing.T) {
 // the prime, which still carries the notes and the in-flight request ledger.
 func TestSwitchingAgentRebuildsFromThePrimeAndRecallsRequestsAndNotes(t *testing.T) {
 	e := newEnv(t)
-	w := e.item(t, "zy-bsly 现场换设备")
+	w := e.item(t, "acme-app 现场换设备")
 	sess, _ := e.st.UpsertAgentSession(jobstore.AgentSession{SessionID: "sess-recall1", Agent: "claude", ProjectKey: "p", Cwd: "/ws"})
 	assert.NoErr(t, e.st.AttachWorkSession(w.ID, sess.SessionID, "human:a"))
 	req, err := e.st.CreateWorkRequest(jobstore.WorkRequestInput{WorkItemID: w.ID, SessionID: sess.SessionID,
@@ -253,12 +253,12 @@ func TestSwitchingAgentRebuildsFromThePrimeAndRecallsRequestsAndNotes(t *testing
 	assert.NoErr(t, err)
 	_, _, err = e.st.MarkWorkRequest(req.ID, jobstore.WorkRequestSent, "turn", "", jobstore.WorkRequestPending)
 	assert.NoErr(t, err)
-	_, err = e.svc.SetNotes("- zy-bsly 现场一般周三去\n", "human:a", 0)
+	_, err = e.svc.SetNotes("- acme-app 现场一般周三去\n", "human:a", 0)
 	assert.NoErr(t, err)
 
 	a, err := e.svc.Start(context.Background())
 	assert.NoErr(t, err)
-	assert.True(t, strings.Contains(e.host.started[0].Prompt, "zy-bsly 现场一般周三去"))
+	assert.True(t, strings.Contains(e.host.started[0].Prompt, "acme-app 现场一般周三去"))
 
 	// Switch to codex: reconcile ends the old session, the next ask opens a new one.
 	e.cfg.Agent = "codex-acp"
@@ -272,7 +272,7 @@ func TestSwitchingAgentRebuildsFromThePrimeAndRecallsRequestsAndNotes(t *testing
 	assert.True(t, b.JobID != a.JobID)
 	sp := e.host.started[1]
 	assert.Eq(t, "codex-acp", sp.Agent)
-	for _, want := range []string{"zy-bsly 现场一般周三去", req.ID, "交接请求", "已发送待回复", w.ID, "在途：交接请求"} {
+	for _, want := range []string{"acme-app 现场一般周三去", req.ID, "交接请求", "已发送待回复", w.ID, "在途：交接请求"} {
 		assert.True(t, strings.Contains(sp.Prompt, want), want)
 	}
 }

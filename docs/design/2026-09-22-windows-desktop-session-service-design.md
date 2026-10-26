@@ -12,7 +12,7 @@
 
 ## 背景与目标
 
-主机 gofer server 由 nssm 以 Windows 服务方式常驻（`scripts/start.ps1`）。服务一律运行在 **session 0**（与登录账号无关，`-Account '.\<user>'` 也不例外），与用户桌面（session 1+）隔离：`--runner local` 的 job 无法操作 GUI——DTools/CODESYS 自动化、离线模拟 `capture click`、任何需要窗口/剪贴板/`BitBlt` 的动作都失败（bd 记忆里的 `BitBlt Access denied` 即此）。现在的绕法是在桌面开一个前台窗口跑 `gofer worker`（`w-kzl-desktop`），要一直开着窗。
+主机 gofer server 由 nssm 以 Windows 服务方式常驻（`scripts/start.ps1`）。服务一律运行在 **session 0**（与登录账号无关，`-Account '.\<user>'` 也不例外），与用户桌面（session 1+）隔离：`--runner local` 的 job 无法操作 GUI——DTools/CODESYS 自动化、离线模拟 `capture click`、任何需要窗口/剪贴板/`BitBlt` 的动作都失败（bd 记忆里的 `BitBlt Access denied` 即此）。现在的绕法是在桌面开一个前台窗口跑 `gofer worker`（`w-office`），要一直开着窗。
 
 用户观察到 jcode 在主机上会拉起一个后台 `serve` 进程，退出 jcode 后它仍在——那是 `DETACHED_PROCESS` 方式 spawn 的子进程，gofer 在 Linux 上的 `serve -d` 就是同一机制，但 Windows 侧被 `internal/daemon/daemon_windows.go` 明确拒绝（`daemon mode (-d) not supported on windows; run as a service`）。
 
@@ -44,7 +44,7 @@
 | 终端里 `gofer serve -d`（本设计补齐） | 当前会话 | 是 | 无 | ✓ | 临时 / 开发；也是 worker 后台化的手段 |
 | 服务内 `CreateProcessAsUser` 投放 | 投放到活动会话 | 否 | — | ✓ | 不做（复杂度 = 再写一个 worker） |
 
-决定（0.2）：**`start.ps1` 只管计划任务模式**；nssm 的参数（`-Auto/-Account/-Password/-Token`）、动作实现与文档删除，runbook 留一段迁移命令。当前主机切到登录任务模式后，`w-kzl-desktop` 前台窗口可以关掉（`local` 已有桌面；若仍要隔离可 `gofer worker -d`）。
+决定（0.2）：**`start.ps1` 只管计划任务模式**；nssm 的参数（`-Auto/-Account/-Password/-Token`）、动作实现与文档删除，runbook 留一段迁移命令。当前主机切到登录任务模式后，`w-office` 前台窗口可以关掉（`local` 已有桌面；若仍要隔离可 `gofer worker -d`）。
 
 ## 二、SVC-01a `internal/daemon` 的 Windows 实现
 
@@ -311,7 +311,7 @@ PASS: task unregistered
 
 ### 2. `session:2, interactive:false` 的解释（代码按设计工作）
 
-本机 `query session`：`services 0 Disc / console 1 Conn / rdp-tcp#0 KZL 2 Active` —— 用户只通过 **RDP** 登录，`WTSGetActiveConsoleSessionId()` 仍是那个空的控制台会话 1。于是「本进程会话(2) == 控制台会话(1)」为假 → `interactive=false`，尽管 serve 就在用户的桌面上。**结论：`interactive` 是"是否在控制台会话"，比"是否在用户桌面"更窄**；RDP 主机上应以 **SessionId 对比**为准（runbook §7.3 已写明）。如需更准的判据（如 `WTSQuerySessionInformation` 判用户活动会话），属后续小改，本次不改语义。
+本机 `query session`：`services 0 Disc / console 1 Conn / rdp-tcp#0 <user> 2 Active` —— 用户只通过 **RDP** 登录，`WTSGetActiveConsoleSessionId()` 仍是那个空的控制台会话 1。于是「本进程会话(2) == 控制台会话(1)」为假 → `interactive=false`，尽管 serve 就在用户的桌面上。**结论：`interactive` 是"是否在控制台会话"，比"是否在用户桌面"更窄**；RDP 主机上应以 **SessionId 对比**为准（runbook §7.3 已写明）。如需更准的判据（如 `WTSQuerySessionInformation` 判用户活动会话），属后续小改，本次不改语义。
 
 ### 3. 实测暴露的两处机制缺口（已修，属 §四 的必要组成）
 
@@ -366,7 +366,7 @@ ok  	github.com/inhere/gofer/internal/daemon	0.107s
 
 ### 2. `interactive` / `console`（T1）：同一台 RDP 主机上的前后对比
 
-本机仍是「`console 1 Conn / rdp-tcp#0 KZL 2 Active`」（§W2.2），登录任务的 serve 与 explorer 同在 session 2。W2 时 ready 行报 `interactive:false`，本次改判据后：
+本机仍是「`console 1 Conn / rdp-tcp#0 <user> 2 Active`」（§W2.2），登录任务的 serve 与 explorer 同在 session 2。W2 时 ready 行报 `interactive:false`，本次改判据后：
 
 ```
 $ pwsh -NoProfile -File scripts\win-tasktest.ps1 -LiveExe <repo>\dist\gofer.exe     # exit=0
@@ -379,7 +379,7 @@ console session = 2 (from explorer.exe)
 [2] start.ps1 -Action up (task mode, interactive session)
   PASS: up refuses while service 'gofer' exists (exit=3 + nssm migration commands)
 警告: a Windows service named 'gofer' exists; -AllowServiceConflict given -> continuing (isolated instance only).
-task 'gofer-tasktest-4065' registered (user=KZL logon=Interactive runlevel=Limited)
+task 'gofer-tasktest-4065' registered (user=<user> logon=Interactive runlevel=Limited)
   action: C:\Windows\System32\conhost.exe --headless "C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ...\scripts\win-supervisor.ps1 -ExeDir ...\tmp\win-tasktest\bin -WorkDir <repo> -ServeArgs serve,--no-web,--addr,127.0.0.1:9098 -EnvExtra GOFER_CONFIG_DIR=...\tmp\win-tasktest\cfg
 task 'gofer-tasktest-4065' started (state='Running')
 up: /health OK

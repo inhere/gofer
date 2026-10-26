@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 本地优先的 issue/memory 跟踪（TRK-01）与未提交改动守卫（GIT-01）
 
-> 状态：Approved（文档 identity：Draft 0.3；2026-09-27 用户批准：按建议——试点仓库 hyy-app-dev，GIT-01 默认 `warn`）
+> 状态：Approved（文档 identity：Draft 0.3；2026-09-27 用户批准：按建议——试点仓库 demo-app-dev，GIT-01 默认 `warn`）
 
 ## 修订记录
 
@@ -30,14 +30,14 @@
 
 ## 已确认事实与规范
 
-实测（2026-09-27，本工作空间 `zy-bsly-sf-dev`，bd 1.3.0）：
+实测（2026-09-27，本工作空间 `acme-app`，bd 1.3.0）：
 
 | 项 | 事实 |
 |---|---|
 | 使用面 | 20+ 仓库有 `.beads`（含若干 `tmp/` 克隆）；本仓 348 个 issue（275 closed / 43 open / 29 in_progress / 1 blocked），类型 task 166、bug 151、feature 29、epic 1、chore 1；memory 37 条 |
 | issue 字段 | 必有：id、title、status、priority、issue_type、owner、created_at/by、updated_at；常用：description(341)、closed_at/close_reason(275)、started_at、assignee、notes(159)、dependencies(119)、acceptance_criteria(108)；少量：comments、design、labels；子项 id 形如 `<parent>.<n>` |
 | memory | `bd memories --json` 输出 `{key: content}` |
-| 接入点 | `.claude/settings.json` 的 SessionStart 跑 `bd prime --hook-json`；`git config core.hooksPath` 指向 `.beads/hooks`（本仓还是失效的旧路径 `D:\work\zy-bsly-sf-dev\.beads\hooks`）；`CLAUDE.md`/`AGENTS.md` 有带哈希的托管块 |
+| 接入点 | `.claude/settings.json` 的 SessionStart 跑 `bd prime --hook-json`；`git config core.hooksPath` 指向 `.beads/hooks`（本仓还是失效的旧路径 `D:\work\acme-app\.beads\hooks`）；`CLAUDE.md`/`AGENTS.md` 有带哈希的托管块 |
 | 已知坑 | bd 的 jsonl 是 Dolt 的被动导出，auto-export 不保证落盘（bd 记忆 `bd-auto-export-may-not-flush`），提交前要手动 `bd export` |
 | gofer 现状 | 已有 `.gofer/`（`RULES.md`、`templates/`）；plan/todo、评论层、规则注入、`gofer init hooks`（Claude/Codex）、job 结束采集 `changes.diff`（未提交改动快照，只存档不提醒） |
 
@@ -158,11 +158,11 @@ P1 与 P2–P4 相互独立，可以并行排；P3 完成即可在试点仓库�
 4. 新增顶层命令 `repo`、`issue`、`memory`；仓库级公共动作（init / prime / sync / migrate / status）归 `gofer repo`。
 5. 迁移默认 dry-run；`.beads/` 保留为归档不删除。
 6. IDEV-STD 适配推迟到本功能可用后。
-7. 试点仓库 `hyy-app-dev`（74 个 issue，唯一不走 IDEV-STD 的 bd 仓库）。
+7. 试点仓库 `demo-app-dev`（74 个 issue，唯一不走 IDEV-STD 的 bd 仓库）。
 
 ## 待确认事项
 
-无（原两项已按建议确认：试点 hyy-app-dev；GIT-01 默认 `warn`）。
+无（原两项已按建议确认：试点 demo-app-dev；GIT-01 默认 `warn`）。
 
 ## 结论与人工计划 Gate
 
