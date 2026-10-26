@@ -3,6 +3,8 @@ package tracker
 import (
 	"strings"
 	"testing"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // The `gofer work report` line is conditional: absent by default, exactly one short
@@ -28,10 +30,10 @@ func TestPrimeWorkReportHintIsConditional(t *testing.T) {
 	if n := strings.Count(body, "gofer work report"); n != 1 {
 		t.Fatalf("prime mentions `gofer work report` %d times, want 1:\n%s", n, body)
 	}
-	if head, _, _ := strings.Cut(body, TrackerPrimeHint); !strings.Contains(head, WorkPrimeHint) {
+	if head, _, _ := strings.Cut(body, trackerPrimeHint(i18n.Default)); !strings.Contains(head, workPrimeHint(i18n.Default)) {
 		t.Fatalf("hint must sit in the fixed header:\n%s", body)
 	}
-	if strings.Contains(WorkPrimeHint, "\n") || len([]rune(WorkPrimeHint)) > 120 {
-		t.Fatalf("hint must stay one short line: %q", WorkPrimeHint)
+	if hint := workPrimeHint(i18n.Default); strings.Contains(hint, "\n") || len([]rune(hint)) > 120 {
+		t.Fatalf("hint must stay one short line: %q", hint)
 	}
 }

@@ -38,7 +38,7 @@ type PrimeOptions struct {
 	Focus string
 	// Unbounded disables the segment budgets (PrimeEstimate).
 	Unbounded bool
-	// WorkHint adds WorkPrimeHint to the fixed header. The command layer sets it
+	// WorkHint adds workPrimeHint to the fixed header. The command layer sets it
 	// when the project has open work items or the session relay hooks are installed.
 	WorkHint bool
 	// Language is the language of generated prime text. Empty uses i18n.Default.

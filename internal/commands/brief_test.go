@@ -9,6 +9,7 @@ import (
 
 	"github.com/gookit/goutil/x/assert"
 	"github.com/inhere/gofer/internal/brief"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -69,5 +70,5 @@ func TestPrimePlanSectionListsTodos(t *testing.T) {
 	assert.Require(t, assert.NoErr(t, err))
 	assert.Contains(t, body, "## 进行中 plan\n\n- p1 work（接手：`gofer plan brief p1`）\n  - [doing] T1 do "+item.ID+" · "+item.ID+"\n  - [ready] T3 next\n")
 	assert.NotContains(t, body, "T2 later")
-	assert.Contains(t, body, tracker.PrimeTakeoverHint)
+	assert.Contains(t, body, i18n.T(i18n.Default, "prime.header.takeover"))
 }
