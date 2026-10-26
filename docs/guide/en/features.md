@@ -20,7 +20,7 @@ Reference: [jobs in depth](../../../skills/gofer-usage/references/job-advanced.m
 - `--verify '<cmd>'`: after the agent stops, run a check on the executing machine; non-zero exit fails the job.
 - `--review`: the job stops at `needs_review`; only a person can accept it (`gofer job accept`) or reject it (`gofer job reject --note … --resume`).
 - `--hold [--hold-reason "…"]`: the job stops at `awaiting_approval` **before** it runs, for outward or irreversible operations the agent's own permissions block (a `git push`, a release, an outgoing message). A person approves it in the job page (works on a phone) or with `gofer job approve <id>`; a rejection or a timeout cancels it and nothing runs. An agent cannot approve its own held job.
-- `--acceptance` and `--scope` go into the prompt and into the review panel; changes outside the scope are flagged, and out-of-scope findings can be filed as issues with `gofer job findings --create-issues`.
+- `--acceptance` and `--scope` go into the prompt and into the review panel; changes outside the scope are flagged, and out-of-scope findings can be filed as issues with `gofer job findings <id> --create-issues`.
 - Uncommitted-changes guard (`on_uncommitted`), a tool-call approval gate for ACP agents (project `approval`), enforced rules (`gofer agent rule`) and skill binding (`gofer agent skill`).
 
 Reference: [hold and approval](../../../skills/gofer-usage/references/hold-approval.md) · [ACP agent auth and approvals](../../runbook/2026-09-25-acp-agent-auth-runbook.md).
