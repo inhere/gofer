@@ -424,6 +424,9 @@ const canDispatch = computed(() => {
   color: var(--ink-3);
   font-size: var(--fs-sm);
   word-break: break-word;
+  /* 段标题是 upper-case（.td-h），但标题里带出来的作者名 / 空态说明不应该跟着变大写。 */
+  text-transform: none;
+  letter-spacing: normal;
 }
 .td-error {
   margin: 0;

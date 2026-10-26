@@ -2399,7 +2399,13 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 256 passed (256)` / `Tests 1780 passed (1780)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 7.93s`。`go build ./...` / `go vet ./...` 退出码 0（本项无 Go 代码改动）。无新增路由、无权限变化：G056 路由声明、`go generate` 与 `docs/reference/http-api.md` 都不涉及；skill 同步了 `references/web-console.md` 的计划详情一句（视图记忆、空列收窄、待办抽屉）。
 
-**视觉自查（未完成，遗留）**：本项**没有**跑 zh / en × 浅 / 深的截图核对。搭了 `tmp/ui-check/stub.mjs`（静态服务 + `/v1` 合成桩：五列里故意一列空、一条 doing 带依赖与验收标准、一条 ready 带长键与派发字段、计划交接说明一条），但 `agent-browser` 在本机 `open` 卡住不返回（2 分钟后被掐掉），没取到截图。布局正确性当前只由纯函数单测（宽度轨道、视图记忆）与 SSR 渲染断言（抽屉字段、空态、只读态、en 文案）背书；三处需要人肉过一眼的地方：① 1/3 宽的空列在 1440 下是否仍好拖入、列头字形 + 计数是否挤；② en 下抽屉各段标题（Acceptance criteria / Dispatch settings / Related jobs）在 480px 里是否换行难读；③ 浅色主题下抽屉里 `--ink-3` 的空态文字对比度。下次接手时直接 `node tmp/ui-check/stub.mjs 8899` 起桩、再用可用的截图工具跑一遍即可。
+**视觉自查**：用 `tmp/ui-check/stub.mjs`（静态服务 + `/v1` 合成桩，合成数据不进仓库，G031）起本机桩，Chrome `--headless=new --screenshot` 截图核对 1440：
+
+- zh × 深 看板：空列（待验收）宽约普通列（≈250px）的三分之一，只留状态字形 + 计数 + 「空」，有卡片的四列分到余下宽度，五列仍在一屏内、没有页面级横向滚动；
+- en × 浅 看板：`Empty`、列头 `Pending / Ready / In progress / Done`、卡片上的 `Manual / Unassigned / Continues from …` 都不截断；
+- zh × 深 待办抽屉（点第一张卡片打开）：480px 靠右、遮罩正常；标题 / 状态 pill / 未指派 / 手动 / 更新时间、状态下拉 + agent 选择 + 禁用的「派发」、依赖、验收标准、派发字段、关联 job、备注、时间、交接说明（v2 · lead + Markdown）、评论框、事件空态自上而下排列，没有溢出。据此改了一处：段标题是 upper-case，标题里的作者名（`lead`）原来跟着变大写，现在 `.td-muted` 复位 `text-transform` / `letter-spacing`。
+
+**没做**：390 手机宽度与浅色主题下的抽屉没有单独截图（手机抽屉全宽铺满，抽屉样式这一批只动了 `text-transform` 一处）；重看 DnD 时的空列落点视觉也没截（行为由 `columnTodos` / `dropTargets` 的单测兜着）。下次接手补这两眼即可。
 
 ## 实施记录 P6-shue（任务详情概览的长键不挤到值上，2026-10-26，issue gofer-shue）
 
@@ -2417,5 +2423,6 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 256 passed (256)` / `Tests 1780 passed (1780)`（含本条新增用例）；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 7.93s`。无 Go 改动、无路由 / 权限 / 协议变化；skill 同步了 `references/web-console.md` 任务详情概览网格一句。
 
-**视觉自查（未完成，遗留）**：与 P6-5inz 同批，截图工具（`agent-browser`）在本机 `open` 卡住没起来，**没有**跑 zh / en × 浅 / 深的截图。需要人肉过一眼：1440 下概览里 `require_review` 那一行的标签是否只占一行、值列起点与上下行错开多少；390 下标签与值的换行是否还读得顺。桩数据在 `tmp/ui-check/stub.mjs`（`/v1/jobs/job-444444444444` 带 `require_review` / `worktree_branch` / `acceptance` / `scope`）。
+**视觉自查**：`/jobs/job-444444444444?tab=overview` 的桩 job（带 `require_review` / `worktree_branch` / `acceptance` / `scope` / `worktree`），Chrome `--headless=new --screenshot` 1440 × 浅：`REQUIRE_REVIEW | 需要人验收`、`REVIEWED_BY`、`WT_BRANCH`、`WT_MERGE`、`WORKTREE`、`ACCEPTANCE`、`SCOPE` 都在自己的列里，值与标签不再连在一起；短键（`ID` / `CWD` / `MODEL`…）仍在同一列起点对齐，网格两列各自按自己那一列最长的键定宽（同一行内值起点对齐、左右两列之间可以不同）。
 
+**没做**：390 手机宽度与深色主题没有单独截图（手机上原本就是单列 + 值换行，这一批没动那组规则）。
