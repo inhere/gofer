@@ -3,6 +3,8 @@ package msgprefix
 import (
 	"strings"
 	"testing"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // TestEveryKindRoundTrips pins the table itself: every kind's Format output is
@@ -34,6 +36,109 @@ func TestEveryKindRoundTrips(t *testing.T) {
 		kind, person := Classify(got)
 		if kind != c.kind || person != c.person {
 			t.Fatalf("Classify(%q) = (%q, %v), want (%q, %v)", got, kind, person, c.kind, c.person)
+		}
+	}
+}
+
+// TestEnglishPrefixes pins the English spellings of design §9.3, and proves the
+// recogniser reads them back: the table is generated per language but parsed
+// language-independently.
+func TestEnglishPrefixes(t *testing.T) {
+	cases := []struct {
+		kind   string
+		user   string
+		body   string
+		person bool
+		want   string
+	}{
+		{WebMessage, "alice", "how is it going", true, "[from web, alice] how is it going"},
+		{WebReply, "alice", "go with plan B", true, "[web reply, alice] go with plan B"},
+		{JobDone, "", "job-1 t status=done exit=0", false, "[gofer · job done] job-1 t status=done exit=0"},
+		{Wakeup, "", "check the CI", false, "[gofer · wakeup] check the CI"},
+		{WorkHandoff, "", "work item wr-1", false, "[gofer · work handoff] work item wr-1"},
+		{WorkReport, "", "work item wr-1", false, "[gofer · work report] work item wr-1"},
+		{Steward, "", "the resource arrived", false, "[gofer · steward relay] the resource arrived"},
+		{Memory, "", "matched \"release\"", false, "[gofer · memory] matched \"release\""},
+		{Hint, "", "no topic yet", false, "[gofer · hint] no topic yet"},
+		{Bounce, "", "letter #12 was not delivered", false, "[gofer · bounce] letter #12 was not delivered"},
+	}
+	for _, c := range cases {
+		got := FormatIn(i18n.EN, c.kind, c.user, c.body)
+		if got != c.want {
+			t.Fatalf("FormatIn(en, %q) = %q, want %q", c.kind, got, c.want)
+		}
+		kind, person := Classify(got)
+		if kind != c.kind || person != c.person {
+			t.Fatalf("Classify(%q) = (%q, %v), want (%q, %v)", got, kind, person, c.kind, c.person)
+		}
+	}
+	// A language the table does not carry falls back to the default spelling rather
+	// than to an unparseable prefix.
+	if got := PrefixIn("de", JobDone, ""); got != Prefix(JobDone, "") {
+		t.Fatalf("PrefixIn(unknown language) = %q", got)
+	}
+}
+
+// TestDefaultSpellingsMatchTheTable keeps the per-kind CONSTANTS equal to the
+// table's default-language entry: a call site declares its own constant from them,
+// so a drifted literal would be a marker that never matches what gofer writes.
+func TestDefaultSpellingsMatchTheTable(t *testing.T) {
+	want := map[string]string{
+		JobDone:     JobDoneOpen,
+		Wakeup:      WakeupOpen,
+		WorkHandoff: WorkHandoffOpen,
+		WorkReport:  WorkReportOpen,
+		Steward:     StewardOpen,
+		Memory:      MemoryOpen,
+		Hint:        HintOpen,
+		Bounce:      BounceOpen,
+	}
+	for kind, spelling := range want {
+		if got := Open(i18n.Default, kind); got != spelling {
+			t.Errorf("Open(default, %q) = %q, constant is %q", kind, got, spelling)
+		}
+	}
+	for kind, spelling := range map[string]string{WebMessage: WebMessageOpen, WebReply: WebReplyOpen} {
+		if got := personOpen(i18n.Default, kind); got != spelling {
+			t.Errorf("personOpen(default, %q) = %q, constant is %q", kind, got, spelling)
+		}
+	}
+}
+
+// TestRecognisersAcceptBothLanguages: every read path answers the same kind for
+// both spellings of one message — a session holds text written under whatever
+// language it had at the time.
+func TestRecognisersAcceptBothLanguages(t *testing.T) {
+	for _, lang := range i18n.Supported() {
+		for _, kind := range systemKinds() {
+			text := FormatIn(lang, kind, "", "body")
+			if got, person := Classify(text); got != kind || person {
+				t.Fatalf("%s: Classify(%q) = (%q, %v)", lang, text, got, person)
+			}
+			if !IsSystem(text) {
+				t.Fatalf("%s: %q does not read as a system message", lang, text)
+			}
+		}
+		for _, kind := range []string{WebMessage, WebReply} {
+			text := FormatIn(lang, kind, "alice", "body")
+			if got, person := Classify(text); got != kind || !person {
+				t.Fatalf("%s: Classify(%q) = (%q, %v)", lang, text, got, person)
+			}
+			if IsSystem(text) || !IsPerson(text) {
+				t.Fatalf("%s: %q read as the wrong half", lang, text)
+			}
+		}
+	}
+	// Opens / PersonOpens are what a "this prompt already carries it" check walks:
+	// both languages are there for every kind.
+	for _, kind := range systemKinds() {
+		if got := len(Opens(kind)); got != len(i18n.Supported()) {
+			t.Fatalf("Opens(%q) has %d spellings, want %d", kind, got, len(i18n.Supported()))
+		}
+	}
+	for _, kind := range []string{WebMessage, WebReply} {
+		if got := len(PersonOpens(kind)); got != len(i18n.Supported()) {
+			t.Fatalf("PersonOpens(%q) has %d spellings, want %d", kind, got, len(i18n.Supported()))
 		}
 	}
 }

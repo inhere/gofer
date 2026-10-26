@@ -23,6 +23,7 @@
 
 ### 改进
 
+- **送进会话的消息前缀有了英文写法**：`internal/msgprefix` 的前缀表现在按语言给出两种写法——系统消息 `[gofer · job done]`、`[gofer · wakeup]`、`[gofer · work handoff]`、`[gofer · work report]`、`[gofer · steward relay]`、`[gofer · memory]`、`[gofer · hint]`、`[gofer · bounce]`，人的消息 `[from web, <用户>]` / `[web reply, <用户>]`（设计稿第 9 节）。生成按收件会话所属项目的语言（`Open` / `PrefixIn` / `FormatIn`），**识别两种语言都认**：老消息、改过语言的项目里的旧文本、旧 worker 发来的消息不会被当成普通输入。`[gofer · ` 这个开头本身与语言无关，「是不是机器发的」判断不变。
 - **计划详情：视图选择记到浏览器、空列收窄、待办详情抽屉（gofer-5inz）**：待办页的「看板 / 列表」切换现在除了写进 URL，还记到本浏览器（按计划一份、另有一份全局「最近一次」），刷新或下次打开沿用；URL 上显式的 `?view=board` / `?view=list` 仍然优先，默认看板不写进 URL 的链接习惯不变。看板里 0 张卡的列收窄到约普通列三分之一，只留列头与计数（仍是拖拽落点），空出来的宽度归有卡片的列，手机一次一列的布局不变。看板卡片与列表行标题（或行内「详情」）可点开右侧详情抽屉：标题、状态与时间、依赖、验收标准、派发字段、关联 job（可跳转）、备注、计划交接说明、评论与事件都在一处，抽屉里可直接改状态、派发 / 重派（没指派时先选 agent，与看板拖到 ready 同一条规则）。
 - **任务详情概览的长键不再挤到值上（gofer-shue）**：概览的元信息网格里标签列从定长 78px 改成「至少 78px、按最长键自适应、超长可断词换行」，值列占余下宽度并省略号截断——`require_review`、`reviewed_by`、`wt_branch` 这类长键以前会和值连成「REQUIRE_REV需要人验收」。
 - **对外门面：贡献指南、安全策略与 issue 模板**：新增英文 `CONTRIBUTING.md`（构建、测试、提交前检查、conventional commit 约定、issue / PR 的期待，并指向 `AGENTS.md`）、`SECURITY.md`（只维护最新 0.x 版本、GitHub 私密漏洞报告、自托管且面向单人 / 互信小团队的信任模型）、`.github/ISSUE_TEMPLATE/`（bug / feature 表单，提问与文档的链接指向 Discussions 与 `docs/`）与 `.github/pull_request_template.md`；README 中英文顶部各加一句 0.x 状态说明（作者每天在用、发版频繁、接口可能调整，以 CHANGELOG 为准）；需要网页上操作的仓库设置（简介、topics、社交预览图、Discussions）记在 `docs/runbook/github-repo-settings.md`；`make test` 跑 Go 全量测试。
