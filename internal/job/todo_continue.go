@@ -308,8 +308,9 @@ func (s *Service) continuationRemainder(cfg *config.Config, todo jobstore.PlanTo
 // item. The base is the ORDINARY request of the item (cp.eff: caller, channel, plan and
 // todo linkage, notification, acceptance, scope, verify, review, timeout, budget, tags,
 // read-only, the task book's defaults); from the predecessor's job it takes only the
-// session fields — session id, lineage, cwd, the worktree to keep, the runner and its
-// resolved MCP. Hold, the frozen fallback plan, delivery, lock paths, secrets, env files,
+// session fields — session id, lineage, cwd, the worktree to keep, the runner, its
+// resolved MCP, its session approval and the language of its text. Hold, the frozen
+// fallback plan, delivery, lock paths, secrets, env files,
 // the " (resumed)" title suffix and ReviewFixed are NOT inherited: they are simply never
 // copied.
 //
@@ -339,6 +340,9 @@ func (s *Service) assembleContinuation(cfg *config.Config, pred jobstore.PlanTod
 	// gofer-81b4: the item continues the predecessor's session, so it is approved the way
 	// that session was (a resident 收件会话's own gate, not the project policy).
 	req.SessionApproval = requestOfJob(predJob).SessionApproval
+	// The text language of the predecessor's job: the item continues that job, and the
+	// time-limit line this machine appends later must speak the same language.
+	req.Language = requestOfJob(predJob).Language
 	// The item's model, else the predecessor's (checkResume settled which).
 	req.Model = chk.Model
 

@@ -1013,6 +1013,14 @@ func (s *Server) handlePutConfigServer(c *rux.Context) {
 // block it read.
 func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 	switch f.name {
+	case "language":
+		// The language gofer generates text in (design 2026-10-27-i18n-design.md §3).
+		// Read per job submit / per text, so a hot edit applies to the NEXT job.
+		v, err := fieldValue[string](f)
+		if err != nil {
+			return err
+		}
+		sc.Language = v
 	case "max_job_timeout_sec":
 		v, err := fieldValue[int](f)
 		if err != nil {
@@ -1546,6 +1554,8 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 	doc := make(map[string]any, len(applied))
 	for _, name := range applied {
 		switch name {
+		case "language":
+			doc[name] = sc.Language
 		case "max_job_timeout_sec":
 			doc[name] = sc.MaxJobTimeoutSec
 		case "auto_resume_max":
