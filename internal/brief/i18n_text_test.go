@@ -50,7 +50,7 @@ func goldenOptions(t *testing.T) Options {
 		plans: map[string]client.Plan{"plan-a": {
 			PlanID: "plan-a", Title: "flow plan (t-ep)", Status: "open", Project: "proj",
 			Description: "范围 t-ep.1（capture）、.3", Paused: true, BlockedTodo: "td-2", Leader: "leader-1",
-			Tags:  []string{"flow", "brief"},
+			Tags: []string{"flow", "brief"},
 			Todos: []client.Todo{
 				{TodoID: "td-1", Title: "implement t-ep.1", Status: "done", Note: "job ok\n结论：已合并", Acceptance: "tests pass",
 					Jobs: []client.TodoJob{{ID: "job-1", Status: "done"}}},

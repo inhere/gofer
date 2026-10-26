@@ -67,6 +67,7 @@ gofer plan brief <plan-id> [--json]
 - **issue brief** 依次：issue 字段（标题 / 状态 / 描述 / design / 验收标准——没写时给出补写命令 `gofer issue update <id> --acceptance "…"`；最近评论；像方案的评论置顶完整显示）→ 上下文树（父、兄弟及其关闭说明、子、依赖）→ 设计稿（文档里提到本 id 或父 id 的小节；issue 文本里写到的文档路径）→ 相关提交（提交信息含本 id 的提交、issue 文本提到的文件、代码入口、关键符号）→ 相关 job / plan（需 server）→ 本 issue 的验证命令（见下「配置验证命令」；全量验证以 rule 记忆为准）→ 适用记忆（rule 全文、相关 note 索引，被 flag 的带「⚠ 待复核」）→ 接手提示（提交策略、`issue update <id> --claim`）。
 - **plan brief**：plan 字段、每个 todo（状态 / 依赖 / 验收 / 最近 job 与结论 / 提到的 issue）、交接说明、关联 issue 的精简 brief。只靠 server。
 - 需要 server 的节连不上时跳过并注明原因，其余照常输出；超长按节截断并给出查看全文的命令。
+- **文案语言**跟项目走：CLI 用配置里该项目的 `language`（`projects.<p>.language` 覆盖 `server.language`），MCP 工具用本机配置的 `server.language`；英文下标题、字段、提示行都是英文（提交策略与记忆的时效 / 待复核标记等仍来自 tracker，随后续迁移切换）。
 - **配置验证命令**：`.gofer/tracker/config.yaml` 写 `brief.verify`，按 issue 提到的文件匹配 `paths`（glob 同记忆的 `when.paths`；不写 `paths` 的条目总是输出），`cmd` 里 `{dirs}` / `{files}` 换成匹配到的目录 / 文件：
   ```yaml
   brief:

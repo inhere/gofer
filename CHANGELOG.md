@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 改进
+
+- **接手包 brief 按项目语言输出（i18n 阶段 1）**：`gofer issue brief` / `gofer plan brief`、MCP 的 `gofer_issue_brief` / `gofer_plan_brief`，以及 `gofer repo prime` 的进行中 plan 行与压缩 / 恢复后重注入那段，标题、字段、提示行都跟着语言走（CLI 取客户端配置里该项目的 `language`，MCP 取 `server.language`）。中文输出与改动前逐字一致；英文按英文写法重写。提交策略与记忆的时效 / 待复核标记仍由 tracker 生成，会随后续迁移切换。
+
 ## [0.198.0] - 2026-10-27
 
 ### 改进
