@@ -124,7 +124,7 @@ func TestDeliverBodyFollowsProjectLanguage(t *testing.T) {
 // and test files are out of scope.
 func TestMigratedJobFilesHaveNoCJK(t *testing.T) {
 	t.Parallel()
-	for _, file := range []string{"prompt_sections.go", "branch_delivery.go"} {
+	for _, file := range []string{"prompt_sections.go", "branch_delivery.go", "resume_prompts.go", "execute.go", "uncommitted.go"} {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("read %s: %v", file, err)

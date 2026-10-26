@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -116,7 +117,7 @@ func TestUncommittedPolicyReviewAndResume(t *testing.T) {
 	if got := uncommittedDecision("warn", files, "sid", 0, 1, false); got != "warn" {
 		t.Fatalf("warn decision = %q", got)
 	}
-	if prompt := uncommittedResumePrompt(files); !strings.Contains(prompt, "a.go") || !strings.Contains(prompt, "b.go") || !strings.Contains(prompt, "不要 push") {
+	if prompt := uncommittedResumePrompt(i18n.ZhCN, files); !strings.Contains(prompt, "a.go") || !strings.Contains(prompt, "b.go") || !strings.Contains(prompt, "不要 push") {
 		t.Fatalf("resume prompt = %q", prompt)
 	}
 }

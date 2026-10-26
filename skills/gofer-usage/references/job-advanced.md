@@ -120,6 +120,7 @@ gofer job resume <源 job-id> \
 - `--lock <子目录>` 覆盖继承的目录锁：续接默认照抄源 job 的 `lock_paths`（没有就是锁整个 cwd），而持续会话一旦落在项目根就**锁住整个项目根**，别的子目录 job 只能排队等锁（表现为新建 job 停在 `waiting_dir`）。只想动某个子模块时 `gofer job resume <id> --lock gookit/ini` 把锁换到那个子目录（可重复）；声明锁也会同时要求独占（源 job 是 `--shared-dir` 时同样生效）。cwd 不能改：ACP 的 `session/load` 必须在同一 cwd 加载会话，要换目录请新开 job。
 - 结束通知默认**继承**：源 job 用 `--notify` / `plan create --notify` 开了通知时，续跑结束也通知**同一个会话**（续跑的 request 没有源会话可依靠，所以目标会话被显式带过来）；不想被通知加 `--no-notify`。
 - 命中瞬时错误时 gofer 会自动续跑一次（`auto_resume_max`）。哪些错误算瞬时、哪些 agent 默认带内置模式（claude / codex / omp / suga），见 [server-config.md](server-config.md#故障转移与健康度)。 agent 自带 `error_kind` 时以它为准：只有 `provider_transient` 续投，额度 / 被拒 / 非法响应与未知取值都不续投（额度类错误会在 job 错误里写出重置时间）。
+- 续接类提示语（自动续投、上一轮有未提交改动时的续投、plan 单项接着上一项会话的衔接语）按**该 job 的语言**输出：`projects.<key>.language` → `server.language`，以源 job 提交时固定的语言为准（见 [server-config.md](server-config.md)）。自己写 `--prompt` 时用什么语言随意，那是你的文本。
 - `job rerun <id>` = 原请求重提，**新会话**，agent 重读全部上下文。
 
 ## 继承旧会话开新会话（--from-session）

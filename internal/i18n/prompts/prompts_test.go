@@ -16,9 +16,12 @@ var cjk = regexp.MustCompile(`[\p{Han}]`)
 
 // goldenData is the fixed data every template is rendered with.
 var goldenData = map[string]any{
-	NameAcceptance: AcceptanceData{Acceptance: "- tests pass\n- no CJK in the prompt"},
-	NameContract:   ContractData{Scope: true, Knowledge: true, ScopeList: "internal/job/**, docs/**"},
-	NameDeadline:   DeadlineData{Limit: "30 min", Env: "GOFER_JOB_DEADLINE"},
+	NameAcceptance:        AcceptanceData{Acceptance: "- tests pass\n- no CJK in the prompt"},
+	NameContract:          ContractData{Scope: true, Knowledge: true, ScopeList: "internal/job/**, docs/**"},
+	NameDeadline:          DeadlineData{Limit: "30 min", Env: "GOFER_JOB_DEADLINE"},
+	NameAutoResume:        AutoResumeData{Hit: "stream ended after retries"},
+	NameUncommittedResume: UncommittedResumeData{Count: 3, Files: []string{"a.go", "b.go", "c.go"}},
+	NameTodoContinue:      TodoContinueData{Title: "wire the thing"},
 }
 
 // TestRenderGolden pins the rendered text of every template in both languages.

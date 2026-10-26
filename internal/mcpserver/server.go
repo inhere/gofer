@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,7 +140,7 @@ func newServer(b Backend, scoped string) *mcp.Server {
 
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_punt_interaction",
-		Description: "As a supervisor, mark a pending interaction as needing a human (高危/拿不准, 留给人处理): leaves it pending for a person and stops the supervisor being re-woken for it. Use this instead of guessing when you can't safely answer.",
+		Description: "As a supervisor, mark a pending interaction as needing a human " + text(b, "mcp.term.leave_to_human") + ": leaves it pending for a person and stops the supervisor being re-woken for it. Use this instead of guessing when you can't safely answer.",
 	}, puntInteractionHandler(b))
 
 	addGoferTool(s, &mcp.Tool{
@@ -851,7 +852,8 @@ func runJobHandler(b Backend, scoped string) mcp.ToolHandlerFor[runJobInput, job
 				in.ProjectKey = scoped
 			}
 			if in.ProjectKey != scoped {
-				return nil, jobView{}, fmt.Errorf("project-scoped MCP(--project %s): 不能向 project %q 提交", scoped, in.ProjectKey)
+				return nil, jobView{}, fmt.Errorf("%s", text(b, "mcp.error.project_scope_denied",
+					"scope", scoped, "project", strconv.Quote(in.ProjectKey)))
 			}
 		}
 		// provenance is injected here (handler) so both backends transparently
@@ -1816,7 +1818,7 @@ const envLeaderPlan = "GOFER_LEADER_PLAN"
 func registerLeaderTools(s *mcp.Server, b Backend) {
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_comment",
-		Description: "Comment on a job, plan or todo (scope=job|plan|todo, id, body) as the agent of THIS job (GOFER_JOB_ID). You are the plan's leader, so an `@<agent 或 role>` in your comment really dispatches work (subject to the server's throttle + the project's allowlist) — that is how you hand the next step to a member.",
+		Description: "Comment on a job, plan or todo (scope=job|plan|todo, id, body) as the agent of THIS job (GOFER_JOB_ID). You are the plan's leader, so an `" + text(b, "mcp.term.role_mention") + "` in your comment really dispatches work (subject to the server's throttle + the project's allowlist) — that is how you hand the next step to a member.",
 	}, commentHandler(b))
 
 	addGoferTool(s, &mcp.Tool{

@@ -1,0 +1,2 @@
+{{- /* Continuation that first commits what the previous run left uncommitted (en). */ -}}
+The previous run ended with {{ .Count }} uncommitted files: {{range $i, $f := .Files}}{{if $i}}, {{end}}{{$f}}{{end}}. Go through them change by change and commit locally (conventional commit); do not push, do not commit unrelated files, and say why for any that should not be committed.

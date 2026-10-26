@@ -34,10 +34,6 @@ const (
 	// that are not counted.
 	continueChainMaxHops = 256
 
-	// continueBridgeFormat is the line a continuation prompt opens with: the session
-	// already knows the previous item, the task book that follows is the new one.
-	continueBridgeFormat = "本任务接着上一项（%s）在同一个会话里继续。上一项已完成；下面是新的任务说明，以它为准。"
-
 	// Reasons of the claim step (condition 7), distinguished on purpose: a human fixing a
 	// plan needs to know whether another item took the session or this one already did.
 	continueClaimedByOther = "已被其他项续接"
@@ -356,7 +352,7 @@ func (s *Service) assembleContinuation(cfg *config.Config, pred jobstore.PlanTod
 		req.TimeoutSec = int(timeout / time.Second)
 	}
 
-	req.Prompt = strings.TrimSpace(fmt.Sprintf(continueBridgeFormat, pred.Title)) + "\n\n" + strings.TrimSpace(req.Prompt)
+	req.Prompt = strings.TrimSpace(todoContinuePrompt(promptLanguage(cfg, &req), pred.Title)) + "\n\n" + strings.TrimSpace(req.Prompt)
 	// The sections are decided for the agent that really runs the work, over the prompt
 	// they follow.
 	probe = req

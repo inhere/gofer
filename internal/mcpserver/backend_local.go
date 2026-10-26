@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
@@ -48,6 +49,11 @@ func (b *localBackend) workSvc() *work.Service {
 func newLocalBackend(jobs *job.Service, projects *project.Registry, agents *agent.Registry) *localBackend {
 	return &localBackend{jobs: jobs, projects: projects, agents: agents}
 }
+
+// Language reports the language of the text this backend renders: the server config it
+// was built from (the MCP server and the control plane share one config snapshot), as
+// server.language with the project's own language applying to a project's text.
+func (b *localBackend) Language() i18n.Lang { return b.jobs.Config().Language() }
 
 func (b *localBackend) ListProjects() ([]projectEntry, error) {
 	keys := b.projects.List() // already sorted
@@ -192,7 +198,7 @@ func (b *localBackend) RejectJob(id, note string, resume bool) (job.ReviewOutcom
 	// register this tool at all (see registerLeaderTools); this is the same rule one
 	// layer down, so the local path and the forwarded one behave identically.
 	if b.jobs.IsLeaderJob(strings.TrimSpace(os.Getenv(envJobID))) {
-		return job.ReviewOutcome{}, fmt.Errorf("a leader job cannot reject a delivery: 验收 is a human's call")
+		return job.ReviewOutcome{}, errors.New(text(b, "mcp.error.leader_no_reject"))
 	}
 	return b.jobs.RejectJob(id, "", note, resume)
 }

@@ -1,0 +1,1 @@
+The previous run was interrupted by a transient error (stream ended after retries). Check git status / git log to see how far you got, finish only the remaining work, do not redo committed work, then report as originally asked.

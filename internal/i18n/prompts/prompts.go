@@ -33,6 +33,15 @@ const (
 	NameContract = "contract"
 	// NameDeadline is the job's time-limit notice.
 	NameDeadline = "deadline"
+	// NameAutoResume is the prompt of a continuation gofer starts itself after a
+	// transient error (job: execute.go autoResume).
+	NameAutoResume = "auto-resume"
+	// NameUncommittedResume is the prompt of a continuation that first has to commit
+	// what the previous run left uncommitted (job: uncommitted.go).
+	NameUncommittedResume = "uncommitted-resume"
+	// NameTodoContinue is the bridging line a plan item's prompt opens with when it
+	// continues the session of the item before it (job: todo_continue.go).
+	NameTodoContinue = "todo-continue"
 )
 
 // The templates' data. Each language of a name takes the same data type, so the
@@ -55,6 +64,22 @@ type (
 	DeadlineData struct {
 		Limit string
 		Env   string
+	}
+	// AutoResumeData feeds NameAutoResume: the transient error that interrupted the run.
+	AutoResumeData struct {
+		Hit string
+	}
+	// UncommittedResumeData feeds NameUncommittedResume: how many files the previous
+	// run left uncommitted and which ones to look at (a cut-down list — Count is the
+	// full number).
+	UncommittedResumeData struct {
+		Count int
+		Files []string
+	}
+	// TodoContinueData feeds NameTodoContinue: the title of the item whose session is
+	// continued.
+	TodoContinueData struct {
+		Title string
 	}
 )
 

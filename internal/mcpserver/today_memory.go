@@ -39,7 +39,7 @@ func registerMemoryHygieneTools(s *mcp.Server, b Backend) {
 	}, memoryFindingsHandler(b))
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_memory_suggest",
-		Description: "Propose ONE cleanup of one repository tracker memory as a 「今天」 card the person adopts (「采纳」) or dismisses (「忽略」); nothing changes until a person adopts it. action: archive | merge (payload.into = target key; optional payload.content = merged body for the target) | kind (payload.kind = rule|note|handoff) | summary (payload.summary <=80 characters) | when (payload.keywords = trigger keywords to add). reason: one line <=120 characters. At most 5 per day; a key + action dismissed within 30 days is refused; the same key + action still pending is returned as is.",
+		Description: "Propose ONE cleanup of one repository tracker memory as a " + text(b, "mcp.term.today") + " card the person adopts (" + text(b, "mcp.term.adopt") + ") or dismisses (" + text(b, "mcp.term.dismiss") + "); nothing changes until a person adopts it. action: archive | merge (payload.into = target key; optional payload.content = merged body for the target) | kind (payload.kind = rule|note|handoff) | summary (payload.summary <=80 characters) | when (payload.keywords = trigger keywords to add). reason: one line <=120 characters. At most 5 per day; a key + action dismissed within 30 days is refused; the same key + action still pending is returned as is.",
 	}, memorySuggestHandler(b))
 }
 
@@ -65,7 +65,7 @@ func memorySuggestHandler(b Backend) mcp.ToolHandlerFor[today.MemorySuggestInput
 		if err != nil {
 			return nil, memorySuggestOutput{}, err
 		}
-		note := "recorded as a 「今天」 card: the person adopts or dismisses it; nothing was changed"
+		note := "recorded as a " + text(b, "mcp.term.today") + " card: the person adopts or dismisses it; nothing was changed"
 		if !recorded {
 			note = "the same key + action is already waiting for the person"
 		}
