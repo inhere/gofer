@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and usage help
+    url: https://github.com/inhere/gofer/discussions
+    about: Ask how to do something, or float an idea before it becomes an issue.
+  - name: Documentation
+    url: https://github.com/inhere/gofer/tree/main/docs
+    about: User guide, HTTP API, permission catalogue and operating runbooks.
+  - name: Report a security vulnerability
+    url: https://github.com/inhere/gofer/security/advisories/new
+    about: Privately, never in a public issue — see SECURITY.md.

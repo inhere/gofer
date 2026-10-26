@@ -29,6 +29,7 @@ GOOS=darwin go vet ./...                        # 改动平台相关代码之后
 
 ## 改动约定
 
+- **英文版贡献指南**：[`CONTRIBUTING.md`](../../CONTRIBUTING.md) 写给外部贡献者（构建、提交前检查、提交信息、issue / PR 期待），本页是它的中文对应；安全问题的报告方式见 [`SECURITY.md`](../../SECURITY.md)。对外发布前要改的仓库门面（简介、topics、社交预览图、Discussions）见 [`../runbook/github-repo-settings.md`](../runbook/github-repo-settings.md)。
 - **项目规则**（代码分层、CLI 分组与 flag 绑定、兼容策略、公共工具、路由与权限登记、测试稳定性）见 [`AGENTS.md`](../../AGENTS.md)。要点：入口层（`commands`、`httpapi`、`mcpserver`）只做绑定和转发；依赖单向；新的小工具命令放在 `gofer tool` 下；临时兼容代码带 `DEPRECATED(vX): remove in vY` 标记。
 - **用户可见的改动**在同一批提交里更新 [`skills/gofer-usage/`](../../skills/gofer-usage/SKILL.md)，并在 [`CHANGELOG.md`](../../CHANGELOG.md) 的「未发布」下加一条。改到这里（`docs/guide/`）的行为也要同步。
 - **HTTP 路由**必须在 `internal/httpapi/authz_routes.go` 声明并登记权限，然后 `go generate ./internal/httpapi/...` 更新 [`docs/reference/permissions.md`](../reference/permissions.md)。

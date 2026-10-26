@@ -1,0 +1,76 @@
+name: Bug report
+description: Something crashed, misbehaved, or disagrees with the documentation.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Before you paste anything: **remove tokens, internal host names and IP addresses, and private project or file names**. A redacted log is still useful; a leaked secret is not. Security problems go to [SECURITY.md](https://github.com/inhere/gofer/blob/main/SECURITY.md), never to a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: gofer version
+      description: "Output of `gofer --version` (version and commit)."
+      placeholder: "Version: 0.196.0 (b9045aa)"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      description: The machine where it went wrong, and say if it runs in a container.
+      placeholder: "Ubuntu 24.04 / amd64, container; Windows 11 / amd64, host"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where does it happen?
+      multiple: true
+      options:
+        - server (`gofer serve`)
+        - worker (`gofer worker`)
+        - CLI / MCP client
+        - web console
+        - not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead. State whether it happens every time.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands you ran (redacted), as small as you can make them.
+      placeholder: |
+        1. gofer project add <project> --host-path /abs/path/to/<project> --allow-agent codex --allow-runner server
+        2. gofer job run -p <project> -a codex --prompt "..."
+        3. gofer job show <id>   # stuck in queued
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        The tail of the server log (`<config-dir>/run/serve.log`), `gofer job logs <id>`, worker output, or the browser console.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Related configuration (redacted), a workaround you found, or how often it happens.

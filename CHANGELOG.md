@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 改进
+
+- **对外门面：贡献指南、安全策略与 issue 模板**：新增英文 `CONTRIBUTING.md`（构建、测试、提交前检查、conventional commit 约定、issue / PR 的期待，并指向 `AGENTS.md`）、`SECURITY.md`（只维护最新 0.x 版本、GitHub 私密漏洞报告、自托管且面向单人 / 互信小团队的信任模型）、`.github/ISSUE_TEMPLATE/`（bug / feature 表单，提问与文档的链接指向 Discussions 与 `docs/`）与 `.github/pull_request_template.md`；README 中英文顶部各加一句 0.x 状态说明（作者每天在用、发版频繁、接口可能调整，以 CHANGELOG 为准）；需要网页上操作的仓库设置（简介、topics、社交预览图、Discussions）记在 `docs/runbook/github-repo-settings.md`；`make test` 跑 Go 全量测试。
+
 ## [0.196.0] - 2026-10-26
 
 ### 修复
