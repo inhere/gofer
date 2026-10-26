@@ -1,0 +1,222 @@
+package i18n
+
+import (
+	"io/fs"
+	"path"
+	"slices"
+	"sort"
+	"strings"
+	"testing"
+)
+
+// TestNormalize covers EVERY alias table entry plus the forms that must not be
+// understood: the alias table is the contract every entry point relies on.
+func TestNormalize(t *testing.T) {
+	t.Parallel()
+	for alias, want := range Aliases {
+		if got, ok := Normalize(alias); !ok || got != want {
+			t.Errorf("Normalize(%q) = %q, %v; want %q, true", alias, got, ok, want)
+		}
+	}
+	cases := map[string]Lang{
+		// Case, separators, encoding and modifier are all irrelevant.
+		"EN":             EN,
+		"en_US.UTF-8":    EN,
+		"en-US":          EN,
+		"en_US":          EN,
+		"  zh_cn.utf8  ": ZhCN,
+		"zh_CN.UTF-8":    ZhCN,
+		"zh-Hans-CN":     ZhCN,
+		"zh-Hant":        ZhCN,
+		"zh_TW.UTF-8@x":  ZhCN,
+		"zh-SG":          ZhCN,
+		"C":              EN,
+		"POSIX":          EN,
+		"English":        EN,
+		"中文":             ZhCN,
+		"简体中文":           ZhCN,
+		// A regional variant of a known base language reads as that base.
+		"en-AU": EN,
+		"zh-MO": ZhCN,
+	}
+	for in, want := range cases {
+		if got, ok := Normalize(in); !ok || got != want {
+			t.Errorf("Normalize(%q) = %q, %v; want %q, true", in, got, ok, want)
+		}
+	}
+	for _, in := range []string{"", "   ", "de", "fr-FR", "klingon", "xx-YY"} {
+		if got, ok := Normalize(in); ok {
+			t.Errorf("Normalize(%q) = %q, want not understood", in, got)
+		}
+	}
+}
+
+// TestFromAcceptLanguage pins the q-value order: the FIRST understood language by
+// q wins, a header without q keeps its written order, and "*" names nothing.
+func TestFromAcceptLanguage(t *testing.T) {
+	t.Parallel()
+	cases := map[string]Lang{
+		"zh-CN,zh;q=0.9,en;q=0.8":        ZhCN,
+		"en-US,en;q=0.9,zh-CN;q=0.8":     EN,
+		"zh-CN;q=0.5,en;q=0.9":           EN,
+		"de-DE,fr;q=0.9,zh-CN;q=0.8":     ZhCN,
+		"*":                              "",
+		"*;q=0.9,zh-CN;q=0.1":            ZhCN,
+		"de-DE":                          "",
+		"":                               "",
+		"en-GB;q=0.4,en-US;q=0.6,zh;q=0": EN,
+	}
+	for in, want := range cases {
+		if got := FromAcceptLanguage(in); got != want {
+			t.Errorf("FromAcceptLanguage(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestResolve: the first understood candidate wins, and nothing understood means
+// the DEPRECATED default.
+func TestResolve(t *testing.T) {
+	t.Parallel()
+	if got := Resolve("", "zh-CN", "en"); got != ZhCN {
+		t.Errorf("Resolve = %q, want zh-CN", got)
+	}
+	if got := Resolve(EN, ZhCN); got != EN {
+		t.Errorf("Resolve = %q, want en", got)
+	}
+	if got := Resolve("", ""); got != Default {
+		t.Errorf("Resolve(empty) = %q, want the default", got)
+	}
+	if got := Resolve("klingon"); got != Default {
+		t.Errorf("Resolve(unrecognized) = %q, want the default", got)
+	}
+}
+
+// TestFromSystemAndEnv: LC_ALL wins over LANG, GOFER_LANG wins over both.
+func TestFromSystemAndEnv(t *testing.T) {
+	t.Setenv("GOFER_LANG", "")
+	t.Setenv("LC_ALL", "")
+	t.Setenv("LC_MESSAGES", "")
+	t.Setenv("LANG", "")
+	if got := FromSystem(); got != "" && !slices.Contains(Supported(), got) {
+		t.Errorf("FromSystem with no locale = %q, want no language (or the machine's UI language)", got)
+	}
+	t.Setenv("LANG", "zh_CN.UTF-8")
+	if got := FromSystem(); got != ZhCN {
+		t.Errorf("FromSystem(LANG=zh_CN.UTF-8) = %q, want zh-CN", got)
+	}
+	t.Setenv("LC_ALL", "C")
+	if got := FromSystem(); got != EN {
+		t.Errorf("FromSystem(LC_ALL=C, LANG=zh) = %q, want en", got)
+	}
+	t.Setenv(EnvLanguageVar, "zh-CN")
+	if got := FromEnv(); got != ZhCN {
+		t.Errorf("FromEnv(GOFER_LANG=zh-CN, LC_ALL=C) = %q, want zh-CN", got)
+	}
+	t.Setenv(EnvLanguageVar, "en")
+	if got := FromEnv(); got != EN {
+		t.Errorf("FromEnv = %q, want en", got)
+	}
+}
+
+// TestCatalogKeysMatch keeps the two catalogs in step: a key one language has and
+// the other does not is a text that would silently fall back to English. It also
+// proves every key of both files is actually LOADED (translator.HasKey).
+func TestCatalogKeysMatch(t *testing.T) {
+	t.Parallel()
+	en, zh := catalogKeys(t, EN), catalogKeys(t, ZhCN)
+	for _, key := range en {
+		if !slices.Contains(zh, key) {
+			t.Errorf("key %q is missing from zh-CN", key)
+		}
+	}
+	for _, key := range zh {
+		if !slices.Contains(en, key) {
+			t.Errorf("key %q is missing from en", key)
+		}
+	}
+	if len(en) == 0 {
+		t.Fatal("no keys found in the en catalog")
+	}
+	// Every key must actually translate to itself+: a key the loader dropped would
+	// read back as its own name.
+	for _, lang := range Supported() {
+		for _, key := range catalogKeys(t, lang) {
+			if got := T(lang, key); got == "" || got == key {
+				t.Errorf("%s: key %q is in the file but does not translate", lang, key)
+			}
+		}
+	}
+}
+
+// catalogKeys returns the keys the ini FILES under lang/ declare.
+func catalogKeys(t *testing.T, lang Lang) []string {
+	t.Helper()
+	dir := path.Join("lang", string(lang))
+	entries, err := fs.ReadDir(langFS, dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	var out []string
+	for _, ent := range entries {
+		raw, err := fs.ReadFile(langFS, path.Join(dir, ent.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", ent.Name(), err)
+		}
+		section := ""
+		for _, line := range strings.Split(string(raw), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+				continue
+			}
+			if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+				section = strings.TrimSuffix(strings.TrimPrefix(line, "["), "]")
+				continue
+			}
+			key, _, ok := strings.Cut(line, "=")
+			if !ok {
+				t.Fatalf("%s: not a key=value line: %q", ent.Name(), line)
+			}
+			key = strings.TrimSpace(key)
+			if section != "" {
+				key = section + "." + key
+			}
+			out = append(out, key)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestTReplacesNamedArgs: placeholders are named, so a language may reorder them.
+func TestTReplacesNamedArgs(t *testing.T) {
+	t.Parallel()
+	if got := T(ZhCN, "job.deadline.minutes", "n", 30); got != "30 分钟" {
+		t.Errorf("zh minutes = %q", got)
+	}
+	if got := T(EN, "job.deadline.minutes", "n", 30); got != "30 min" {
+		t.Errorf("en minutes = %q", got)
+	}
+	if got := T(EN, "job.delivery.more_commits", "n", 3); got != "…and 3 more" {
+		t.Errorf("en more_commits = %q", got)
+	}
+	// A key missing from the requested language falls back to English.
+	if got := T(ZhCN, "no.such.key"); got != "no.such.key" {
+		t.Errorf("unknown key = %q, want the key itself", got)
+	}
+}
+
+// TestDefaultIsPinned: the DEPRECATED default is named in ONE place, so flipping it
+// (G032, three versions after v0.197) is a deliberate edit with this test's company.
+func TestDefaultIsPinned(t *testing.T) {
+	t.Parallel()
+	if Default != ZhCN {
+		t.Fatalf("Default = %q: update i18n.LanguageDefaultNote, the design's "+
+			"implementation record and the config hint together", Default)
+	}
+	if got := List(); got != "en, zh-CN" {
+		t.Errorf("List = %q", got)
+	}
+	if !strings.Contains(LanguageDefaultNote, string(Default)) {
+		t.Errorf("LanguageDefaultNote does not name the default: %q", LanguageDefaultNote)
+	}
+}

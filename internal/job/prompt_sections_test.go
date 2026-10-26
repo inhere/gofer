@@ -6,8 +6,21 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/i18n/prompts"
 	"github.com/inhere/gofer/internal/jobstore"
 )
+
+// zhSection renders one prompt section the way a zh-CN deployment writes it — the
+// expected text of the composed-prompt tests.
+func zhSection(t *testing.T, name string, data any) string {
+	t.Helper()
+	out, err := prompts.Render(i18n.ZhCN, name, data)
+	if err != nil {
+		t.Fatalf("render %s: %v", name, err)
+	}
+	return out
+}
 
 // sectionsCfg is a config with one cli-agent and the built-in exec agent.
 func sectionsCfg() *config.Config {
@@ -27,7 +40,7 @@ func TestInjectAcceptanceSection(t *testing.T) {
 	t.Run("agent job gets the section at the end", func(t *testing.T) {
 		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "do it\n", Acceptance: "- a\n- b"}
 		injectPromptSections(cfg, &req)
-		want := "do it\n\n## 验收标准\n\n- a\n- b\n\n" + acceptanceSectionTail
+		want := "do it\n\n" + zhSection(t, prompts.NameAcceptance, prompts.AcceptanceData{Acceptance: "- a\n- b"})
 		if req.Prompt != want {
 			t.Fatalf("prompt = %q, want %q", req.Prompt, want)
 		}
@@ -174,7 +187,7 @@ func TestInjectScopeDisciplineSection(t *testing.T) {
 		if ai < 0 || si < ai {
 			t.Fatalf("acceptance must come before the discipline section: %q", req.Prompt)
 		}
-		if !strings.HasSuffix(req.Prompt, scopeSectionScopeLine+"internal/job/**, web/src/x.vue") {
+		if !strings.HasSuffix(req.Prompt, "- 本任务的改动范围：internal/job/**, web/src/x.vue") {
 			t.Fatalf("scope line missing: %q", req.Prompt)
 		}
 		once := req.Prompt
@@ -194,12 +207,12 @@ func TestInjectKnowledgeCaptureLine(t *testing.T) {
 	t.Run("auto: a todo job gets both modes, the flag line and the capture mark", func(t *testing.T) {
 		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", TodoID: "t", Scope: []string{"a/**"}}
 		injectPromptSections(withModes("", ""), &req)
-		for _, want := range []string{scopeSectionBody, knowledgeSectionLine, memoryFlagLine} {
+		for _, want := range []string{"- 只改与本任务直接相关", "- 跨任务可复用的经验", "gofer memory flag"} {
 			if !strings.Contains(req.Prompt, want) {
 				t.Fatalf("missing %q in %q", want, req.Prompt)
 			}
 		}
-		if !strings.HasSuffix(req.Prompt, scopeSectionScopeLine+"a/**") || !req.KnowledgeCapture {
+		if !strings.HasSuffix(req.Prompt, "- 本任务的改动范围：a/**") || !req.KnowledgeCapture {
 			t.Fatalf("scope line last + capture mark expected: %v %q", req.KnowledgeCapture, req.Prompt)
 		}
 	})
@@ -213,7 +226,7 @@ func TestInjectKnowledgeCaptureLine(t *testing.T) {
 	t.Run("knowledge on, scope off: the section carries only the knowledge and flag lines", func(t *testing.T) {
 		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", Scope: []string{"a/**"}}
 		injectPromptSections(withModes("off", "on"), &req)
-		want := "x\n\n" + scopeSectionHeader + "\n\n" + knowledgeSectionLine + "\n" + memoryFlagLine
+		want := "x\n\n" + zhSection(t, prompts.NameContract, prompts.ContractData{Knowledge: true})
 		if req.Prompt != want || !req.KnowledgeCapture {
 			t.Fatalf("prompt = %q, want %q (capture %v)", req.Prompt, want, req.KnowledgeCapture)
 		}
@@ -221,7 +234,7 @@ func TestInjectKnowledgeCaptureLine(t *testing.T) {
 	t.Run("knowledge off: scope lines and the flag line, no capture", func(t *testing.T) {
 		req := JobRequest{ProjectKey: "self", Agent: "cli", Prompt: "x", TodoID: "t"}
 		injectPromptSections(withModes("on", "off"), &req)
-		if strings.Contains(req.Prompt, knowledgeSectionLine) || !strings.Contains(req.Prompt, memoryFlagLine) || req.KnowledgeCapture {
+		if strings.Contains(req.Prompt, "- 跨任务可复用的经验") || !strings.Contains(req.Prompt, "gofer memory flag") || req.KnowledgeCapture {
 			t.Fatalf("capture=%v prompt=%q", req.KnowledgeCapture, req.Prompt)
 		}
 	})

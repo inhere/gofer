@@ -27,7 +27,7 @@ func TestParseKnowledge(t *testing.T) {
 		t.Fatalf("ParseFindings = %q", got)
 	}
 	// The 「交付约定」 line names the section inline — that is not a heading.
-	if got := ParseKnowledge(knowledgeSectionLine + "\n- not an item\n"); got != nil {
+	if got := ParseKnowledge(KnowledgeSectionTitle + "\n- not an item\n"); got != nil {
 		t.Fatalf("inline mention parsed: %q", got)
 	}
 	if got := ParseReportSection("### **可复用经验**：\n- x\n", KnowledgeSectionTitle, "Reusable"); !reflect.DeepEqual(got, []string{"x"}) {

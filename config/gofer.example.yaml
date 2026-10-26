@@ -12,6 +12,11 @@
 #   4. ~/.config/gofer/config.yaml
 
 server:
+  # gofer 生成的文本语言：en 或 zh-CN（也认 zh / zh_CN.UTF-8 / english 这类别名，
+  # 会归一化为规范值）。影响注入给 agent 的提示词段落、交付说明等；每个项目可用
+  # projects.<key>.language 覆盖。未写时暂用 zh-CN（后续版本默认改为 en）。
+  # `gofer init` 会按本机系统语言写入这里的值。
+  language: zh-CN
   # auto_resume_max: 1                  # 命中瞬时 agent 错误时自动 resume 的次数；0 = 关闭
   # 监听地址。默认 0.0.0.0:8765，容器可经 host.docker.internal 访问主机；
   # 安全依赖必填的 token 加内网访问控制。

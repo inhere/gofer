@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/tracker"
@@ -17,8 +18,9 @@ import (
 // and a person accepts one (it becomes a scoped memory, source job:<id>) or rejects it.
 // Nothing enters memory automatically.
 
-// KnowledgeSectionTitle is the report section an agent lists reusable lessons in.
-const KnowledgeSectionTitle = "可复用经验"
+// KnowledgeSectionTitle is the (zh-CN) heading of the report section an agent lists
+// reusable lessons in; internal/i18n/protocol.go holds every accepted spelling.
+var KnowledgeSectionTitle = i18n.Title(i18n.ZhCN, i18n.SectionKnowledge)
 
 // knowledgeReportBytes is how much of the report's tail is parsed — the same window
 // `job review` and the review panel read.
@@ -28,10 +30,10 @@ const knowledgeReportBytes = 64 * 1024
 // the target scope: accepting never overwrites a memory.
 var ErrMemoryCandidateKeyExists = errors.New("memory key already exists in that scope")
 
-// ParseKnowledge extracts the items of the LAST 「## 可复用经验」 section of a report
-// (same rules as ParseFindings, see ParseReportSection).
+// ParseKnowledge extracts the items of the LAST knowledge section of a report
+// (both languages accepted, same rules as ParseFindings, see ParseReportSection).
 func ParseKnowledge(report string) []string {
-	return ParseReportSection(report, KnowledgeSectionTitle)
+	return ParseReportSection(report, i18n.Titles(i18n.SectionKnowledge)...)
 }
 
 // captureKnowledge records the 「## 可复用经验」 items of a delivered job as pending

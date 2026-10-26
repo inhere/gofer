@@ -1,0 +1,9 @@
+{{- /* Delivery contract section (en). Markers live in internal/i18n/protocol.go. */ -}}
+## Delivery contract
+
+{{if .Scope}}- Change only the code and documents this task is about; do not refactor, rename or tidy anything else along the way.
+- Do not fix problems you notice outside the task's scope (bugs, code smells, stale documentation). List them at the end of your report under the "## Out-of-scope findings" heading, one per line: `- <location>: <problem>`. Leave the section out when there are none.
+{{end}}{{if .Knowledge}}- Put lessons reusable across tasks (pitfalls, conventions, verification tricks) at the end of your report under the "## Reusable lessons" heading, one per line. Only write what another task could use — no details specific to this one. Leave the section out when there are none.
+{{end}}- If an injected memory / rule does not match what you find in the code, run `gofer memory flag <key> --reason "…"` (add `--global` / `--project <p>` for a global / project memory) instead of silently working around it.
+{{if .ScopeList}}- Scope of this task: {{ .ScopeList }}
+{{end}}

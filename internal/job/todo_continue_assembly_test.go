@@ -59,6 +59,7 @@ var continuationFieldClasses = map[string]string{
 	// from the predecessor
 	"SessionID": fieldPred, "ResumedFrom": fieldPred, "SourceJobID": fieldPred, "Cwd": fieldPred,
 	"InheritWorktree": fieldPred, "Runner": fieldPred, "MCP": fieldPred, "SessionApproval": fieldPred,
+	"Language": fieldPred,
 	// set by the assembler
 	"Agent": fieldAssembled, "Cmd": fieldAssembled, "Prompt": fieldAssembled, "Model": fieldAssembled,
 	"TimeoutSec": fieldAssembled, "KnowledgeCapture": fieldAssembled, "RulesResolved": fieldAssembled,
@@ -144,7 +145,7 @@ func TestTodoContinuationFieldClassification(t *testing.T) {
 			`"hold_timeout_sec":60,"lock_paths":["a"],"secrets":["S1"],"env_files":["/x/.env"],` +
 			`"template":"book","vars":{"k":"v"},"worktree":true,"worktree_base":"main","exclusive_dir":false,` +
 			`"env":{"E":"1"},"deliver_draft":true,"deliver_branch":"b",` +
-			`"session_approval":{"Mode":"ask"},` +
+			`"session_approval":{"Mode":"ask"},"language":"en",` +
 			`"fallback":{"candidates":["cb"],"depth":1}}`
 	})
 	cont, normal := continueRequests(t, s, contSucc)
@@ -153,6 +154,9 @@ func TestTodoContinuationFieldClassification(t *testing.T) {
 		"SessionID": "sess-p", "ResumedFrom": "j-pred", "SourceJobID": "j-pred", "Cwd": "sub",
 		"InheritWorktree": true, "Runner": "local", "MCP": []string{"mcp-1"},
 		"SessionApproval": &config.ApprovalConfig{Mode: config.ApprovalAsk},
+		// The text language rides along: a continuation's own time-limit line must
+		// speak the language its predecessor's job was admitted in.
+		"Language": "en",
 	}
 	cv, nv := reflect.ValueOf(cont), reflect.ValueOf(normal)
 	for i := range typ.NumField() {

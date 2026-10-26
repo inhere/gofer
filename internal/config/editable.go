@@ -57,6 +57,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	"projects.*.secrets": {},
 	// How many consecutive plan items may share one agent session — file-only.
 	"projects.*.continue_max_chain": {},
+	// The language of the text gofer generates for this project's jobs (design
+	// 2026-10-27-i18n-design.md §3) — file-only for now, like the other project keys.
+	"projects.*.language": {},
 	// --- server: hot-editable (design §一.3 whitelist) --------------------------
 	"server.max_job_timeout_sec": {Editable: true},
 	"server.auto_resume_max":     {Editable: true},
@@ -158,10 +161,13 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.workers":           {HotReload: true},
 	// gofer-9b1b: read per held submit (EffectiveHoldTimeoutSec), so a reload applies
 	// to the next held job; the console has no form for it yet (WP3/WP5).
-	"server.hold":                   {HotReload: true},
-	"server.metrics":                {RestartRequired: true},
-	"server.governance":             {RestartRequired: true},
-	"server.web_base_url":           {RestartRequired: true},
+	"server.hold":         {HotReload: true},
+	"server.metrics":      {RestartRequired: true},
+	"server.governance":   {RestartRequired: true},
+	"server.web_base_url": {RestartRequired: true},
+	// The deployment's text language (en | zh-CN): read per job submit / per text, so
+	// a hot edit applies to the NEXT job — nothing caches it at startup.
+	"server.language":               {Editable: true},
 	"server.session_messaging":      {RestartRequired: true},
 	"server.job_recover_window_sec": {RestartRequired: true},
 	"server.policy_repush":          {RestartRequired: true},

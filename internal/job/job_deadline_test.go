@@ -7,6 +7,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
@@ -272,7 +273,7 @@ func TestAppendJobDeadlineLineShapes(t *testing.T) {
 		"exec": {Type: agent.TypeExec, Command: bin},
 	}}
 	limit := jobLimit{Sec: 600, Deadline: deadlineTestNow.Add(10 * time.Minute)}
-	line := jobDeadlineLine(limit)
+	line := jobDeadlineLine(i18n.ZhCN, limit)
 
 	cases := []struct {
 		name      string
@@ -313,12 +314,12 @@ func TestAppendJobDeadlineLineShapes(t *testing.T) {
 // seconds fallback for a limit that is not a whole minute.
 func TestJobDeadlineLineRendersDurationAndEnv(t *testing.T) {
 	t.Parallel()
-	got := jobDeadlineLine(jobLimit{Sec: 1800, Deadline: deadlineTestNow.Add(30 * time.Minute)})
+	got := jobDeadlineLine(i18n.ZhCN, jobLimit{Sec: 1800, Deadline: deadlineTestNow.Add(30 * time.Minute)})
 	want := "本 job 时限 30 分钟，从开始执行算起（排队等锁的时间不计入）；截止时刻与环境变量 $GOFER_JOB_DEADLINE 一致，也可运行 gofer job show $GOFER_JOB_ID 查看。接近时限时先提交已完成的部分，汇报里写清未完成项。"
 	if got != want {
 		t.Fatalf("line = %q\nwant %q", got, want)
 	}
-	if got := limitText(90); got != "90 秒" {
+	if got := limitText(i18n.ZhCN, 90); got != "90 秒" {
 		t.Fatalf("limitText(90) = %q, want 90 秒", got)
 	}
 }

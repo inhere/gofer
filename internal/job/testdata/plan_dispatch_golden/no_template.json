@@ -87,6 +87,7 @@
     "dir_wait_max_sec": 3600,
     "exclusive_dir": true,
     "knowledge_capture": true,
+    "language": "zh-CN",
     "lock_wait_sec": 3600,
     "origin_caller": "alice",
     "plan_id": "plan-g",

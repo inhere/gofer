@@ -254,7 +254,7 @@ func TestBuildPromptSections(t *testing.T) {
 		if iA < 0 || iC < iA || iD < iC {
 			t.Fatalf("section order wrong: %q", text)
 		}
-		if !strings.Contains(text, scopeSectionScopeLine+"docs/**") || !strings.Contains(text, knowledgeSectionLine) {
+		if !strings.Contains(text, "- 本任务的改动范围：docs/**") || !strings.Contains(text, "- 跨任务可复用的经验") {
 			t.Fatalf("contract lines missing: %q", text)
 		}
 		if strings.HasPrefix(text, "task") {

@@ -1,0 +1,1 @@
+This job's time limit is 30 min, counted from the moment it starts running (queue and lock wait do not count); the deadline instant is the value of $GOFER_JOB_DEADLINE, and `gofer job show $GOFER_JOB_ID` shows it too. When the limit gets close, commit what is finished first and say in your report what is left.

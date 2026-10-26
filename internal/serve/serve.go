@@ -30,6 +30,7 @@ import (
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/httpapi"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -97,6 +98,16 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: config: %s\n", opts.CfgPath)
 	}
 	slog.Info("server.config_loaded", "event", "server.config_loaded", "component", "server", "path", opts.CfgPath)
+	// Which language gofer writes the text it generates in (prompt sections, agent
+	// guidance, delivery descriptions). An unset server.language means the DEPRECATED
+	// default; say so once at startup so the eventual flip to en is not a surprise
+	// (design 2026-10-27-i18n-design.md §3).
+	if cfg.LanguageUnset() {
+		slog.Warn("server.language_not_set", "event", "server.language_not_set", "component", "server",
+			"default", string(cfg.Language()), "note", i18n.LanguageDefaultNote)
+	} else {
+		slog.Info("server.language", "event", "server.language", "component", "server", "language", string(cfg.Language()))
+	}
 	logLoadWarnings(c, cfg)
 	logCallerCeilings(c, cfg)
 
