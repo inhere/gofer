@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 	"github.com/inhere/gofer/internal/runner"
@@ -88,6 +89,10 @@ type Service struct {
 	// dueHook is told when a reminder / park deadline came due and was announced (W2b: the
 	// steward notes it as an event).
 	dueHook func(w jobstore.WorkItem, reason string, at int64)
+	// languageFor answers the language of the text gofer generates for an item of a
+	// project: the project's language, else the server's (config.LanguageFor, design
+	// 2026-10-27-i18n-design.md §3). nil = the DEPRECATED default.
+	languageFor func(project string) i18n.Lang
 
 	dirty chan struct{}
 	// dirtyAll / dirtySessions record WHAT asked for a re-sync while the debounce runs:
@@ -202,6 +207,18 @@ func (s *Service) SetConfigFn(fn func() config.WorkConfig) { s.cfgFn = fn }
 
 // SetDueHook installs the observer of announced reminders / park deadlines (nil = none).
 func (s *Service) SetDueHook(fn func(w jobstore.WorkItem, reason string, at int64)) { s.dueHook = fn }
+
+// SetLanguageFor injects the config's language resolution (config.LanguageFor): the
+// language of every text this service sends into a session.
+func (s *Service) SetLanguageFor(f func(project string) i18n.Lang) { s.languageFor = f }
+
+// lang is the language of the text this service writes for an item of project.
+func (s *Service) lang(project string) i18n.Lang {
+	if s.languageFor == nil {
+		return i18n.Default
+	}
+	return i18n.Resolve(s.languageFor(project))
+}
 
 // SetNow overrides the clock (tests).
 func (s *Service) SetNow(fn func() time.Time) {
@@ -1172,4 +1189,16 @@ func statusLabel(st string) string {
 		return l
 	}
 	return st
+}
+
+// statusLabelIn is statusLabel in lang. The catalog's [work.status] entries carry the
+// same labels as statusLabels for zh-CN (a test pins that), so a text composed for an
+// existing deployment keeps the words it had. An unknown status code (a caller's own
+// value) passes through, exactly as statusLabel leaves it.
+func statusLabelIn(lang i18n.Lang, st string) string {
+	key := "work.status." + st
+	if l := i18n.T(lang, key); l != key {
+		return l
+	}
+	return statusLabel(st)
 }

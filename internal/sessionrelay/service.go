@@ -22,6 +22,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 )
@@ -230,6 +231,23 @@ type Service struct {
 	messengerCommand string
 	messengerTimeout time.Duration
 	messengerIdle    time.Duration
+	// languageFor answers the language of the text gofer generates for a session
+	// of a project: the project's language, else the server's
+	// (config.LanguageFor, design 2026-10-27-i18n-design.md §3). nil = the
+	// DEPRECATED default, which is what a bare test service reads.
+	languageFor func(project string) i18n.Lang
+}
+
+// SetLanguageFor injects the config's language resolution (config.LanguageFor):
+// the language of every text this service sends into a session.
+func (s *Service) SetLanguageFor(f func(project string) i18n.Lang) { s.languageFor = f }
+
+// lang is the language of the text this service writes for a session of project.
+func (s *Service) lang(project string) i18n.Lang {
+	if s.languageFor == nil {
+		return i18n.Default
+	}
+	return i18n.Resolve(s.languageFor(project))
 }
 
 // NewService builds the relay service over the shared job store.

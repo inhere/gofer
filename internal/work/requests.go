@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
@@ -62,19 +63,17 @@ func sessionRunning(state string) bool {
 	return false
 }
 
-// requestText renders the ask a work item sends into a session. The prefix names the
-// TYPE only (the one table, msgprefix); the request id, the item and its title are
-// body text, so the prefix itself is a fixed, recognisable string.
-func requestText(kind, rid, itemID, title, status string) string {
+// requestText renders the ask a work item sends into a session, in lang (the
+// item's project language). The prefix names the TYPE only (the one table,
+// msgprefix); the request id, the item and its title are body text, so the prefix
+// itself is a fixed, recognisable string.
+func requestText(lang i18n.Lang, kind, rid, itemID, title, status string) string {
 	if kind == jobstore.WorkRequestHandoff {
-		return msgprefix.Format(msgprefix.WorkHandoff, "", fmt.Sprintf("工作项 %s「%s」被标为%s（请求 %s），请写一段交接：做到哪了、卡在哪、回来后第一步。运行 "+
-			"`gofer work report %s --request %s --summary \"<做到哪了>\" --blocker \"<卡在哪>\" --next \"<回来第一步>\"`"+
-			"（不需要的字段可省略）。", itemID, title, statusLabel(status), rid, itemID, rid))
+		return msgprefix.FormatIn(lang, msgprefix.WorkHandoff, "", i18n.T(lang, "work.request.handoff",
+			"item", itemID, "title", title, "status", statusLabelIn(lang, status), "request", rid))
 	}
-	return msgprefix.Format(msgprefix.WorkReport, "", fmt.Sprintf("工作项 %s「%s」当前进展（请求 %s）：运行 "+
-		"`gofer work report %s --request %s --goal \"<目标>\" --status <active|needs_me|waiting_resource|needs_onsite|review|parked> "+
-		"--blocker \"<卡在哪>\" --next \"<下一步>\" --summary \"<做到哪了>\"`（不需要的字段可省略；若已不再受阻请用 --status active）。",
-		itemID, title, rid, itemID, rid))
+	return msgprefix.FormatIn(lang, msgprefix.WorkReport, "", i18n.T(lang, "work.request.report",
+		"item", itemID, "title", title, "request", rid))
 }
 
 // shortID renders an id in about 8 chars for a journal line. A job id keeps the
@@ -168,7 +167,7 @@ func (s *Service) deliverRequest(ctx context.Context, w jobstore.WorkItem, a job
 		return oc
 	}
 	oc.RequestID, oc.State = req.ID, req.State
-	text := requestText(kind, req.ID, w.ID, w.Title, w.Status)
+	text := requestText(s.lang(w.ProjectKey), kind, req.ID, w.ID, w.Title, w.Status)
 	channel, serr := s.messenger.SendRequest(ctx, a.SessionID, text, by)
 	if serr != nil {
 		_, _, _ = s.store.MarkWorkRequest(req.ID, jobstore.WorkRequestFailed, "", serr.Error())

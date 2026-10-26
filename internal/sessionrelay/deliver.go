@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/util"
@@ -724,9 +725,10 @@ func (s *Service) recordCommand(a jobstore.AgentSession, text, by, jobID string)
 	if err != nil {
 		return jobstore.PlanDecision{}, err
 	}
+	lang := s.lang(a.ProjectKey)
 	d := jobstore.PlanDecision{
-		Title:      fmt.Sprintf("%s · 在线送话", sessionLabel(a)),
-		Question:   "（会话未在等待回复：这条消息已通过 agent 的送话命令交给在线进程）",
+		Title:      fmt.Sprintf("%s · %s", sessionLabel(a), i18n.T(lang, "sessionrelay.decision.online_title")),
+		Question:   i18n.T(lang, "sessionrelay.decision.online_question"),
 		TimeoutSec: 60,
 		SessionID:  a.SessionID,
 		Kind:       jobstore.DecisionKindRelay,
@@ -1054,9 +1056,10 @@ func (s *Service) recordTakeover(a jobstore.AgentSession, text, by, jobID string
 	if err != nil {
 		return jobstore.PlanDecision{}, err
 	}
+	lang := s.lang(a.ProjectKey)
 	d := jobstore.PlanDecision{
-		Title:      fmt.Sprintf("%s · 接管", sessionLabel(a)),
-		Question:   "（会话未在等待回复：这条消息由 web 新起的 `--resume` 进程接收）",
+		Title:      fmt.Sprintf("%s · %s", sessionLabel(a), i18n.T(lang, "sessionrelay.decision.takeover_title")),
+		Question:   i18n.T(lang, "sessionrelay.decision.takeover_question"),
 		TimeoutSec: 60,
 		SessionID:  a.SessionID,
 		Kind:       jobstore.DecisionKindRelay,
@@ -1066,7 +1069,7 @@ func (s *Service) recordTakeover(a jobstore.AgentSession, text, by, jobID string
 		return jobstore.PlanDecision{}, err
 	}
 	if strings.TrimSpace(text) == "" {
-		text = "（唤醒：没有附带首条消息）"
+		text = i18n.T(lang, "sessionrelay.decision.wake_no_text")
 	}
 	answered, err := s.store.AnswerDecision(d.ID, text, by)
 	if err != nil {
@@ -1115,9 +1118,10 @@ func (s *Service) recordInject(a jobstore.AgentSession, text, by, jobID string) 
 	if err != nil {
 		return jobstore.PlanDecision{}, err
 	}
+	lang := s.lang(a.ProjectKey)
 	d := jobstore.PlanDecision{
-		Title:      fmt.Sprintf("%s · tmux 注入", sessionLabel(a)),
-		Question:   "（会话未在等待回复：这条消息已直接送入终端 tmux）",
+		Title:      fmt.Sprintf("%s · %s", sessionLabel(a), i18n.T(lang, "sessionrelay.decision.inject_title")),
+		Question:   i18n.T(lang, "sessionrelay.decision.inject_question"),
 		TimeoutSec: 60,
 		SessionID:  a.SessionID,
 		Kind:       jobstore.DecisionKindRelay,

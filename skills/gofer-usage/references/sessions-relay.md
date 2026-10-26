@@ -254,6 +254,7 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 - **作为目标会话的 agent**：收到 `[来自 web，…]` 的转达，直接用 SendMessage 回给 `from` 地址，原话会出现在 web 对话里；也可以正常在终端回答。前提是装了 `gofer init hooks` 的 PostToolUse 条目（缺省就装）。
 - web 对话流里显示送达状态：**排队中 / 送达中 / 已送达 / 未送达 / 失败**。「送达中」= 内部送达 job 已开始但还没结束（更新等待空闲时最常出现），结果在 job 结束时回写，不要把它当成失败再发一遍。「重试」只对**未送达**开放——那是确实没送出去的（没试过，或 job 未启动就被撤销）；「失败」说明投递试过了、结果不明（送话命令非 0 退出也可能已经送到），重试可能重复送达。失败原因里会写明那只 job 的状态与退出码，不只是 `exit code -1`。Runners 页每台 runner 的卡片显示传话人状态（未启动 / 空闲 / 处理中），抽屉里有最近投递、错误输出尾部与「列出可见会话」。配置 `server.session_messaging` 见 [server-config.md](server-config.md)。
 - 「无需回复」：会话停在等回复的 turn 上时，web 可标已读（可撤销）。这不是回答、也不结束等待，只是从「待我决策」里消掉；要放行用 `/off` 或 `relay off`。
+- **gofer 发给会话的文本按会话所属项目的语言写**：job 完成通知（中文 `耗时 1m30s（这是 gofer 系统通知，不是用户消息；…）`，英文 `took 1m30s (this is a gofer system notice, …)`）、授权 / 选择题卡的最后消息与卡片问题（`需要授权：Bash …` / `Permission needed: Bash …`，`等你回答：…` / `Waiting for your answer: …`）、唤醒 / 接管失败的解释、传话人提示词。传话人按提示词里的回执词回答（中文 `已发送`、英文 `sent`），两边都认；判断这些文本是不是机器写的，看 `[gofer · …` 开头即可，与语言无关。
 
 ## session watch：job 跑完时被叫醒
 

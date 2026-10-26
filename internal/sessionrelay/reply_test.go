@@ -9,6 +9,7 @@ import (
 
 	"github.com/gookit/goutil/x/assert"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -113,7 +114,7 @@ func TestRecordReplyCapsText(t *testing.T) {
 
 // The messenger prompt keeps the delivered line recognisable by the target's hook.
 func TestMessengerPromptCarriesWebPrefix(t *testing.T) {
-	p := messengerPrompt("proj-a", "alice", "hi")
+	p := messengerPrompt(i18n.ZhCN, "proj-a", "alice", "hi")
 	assert.True(t, strings.Contains(p, "\n"+WebMessagePrefix+"，alice] hi"))
 	assert.True(t, strings.Contains(p, "不要转述"))
 }

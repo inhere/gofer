@@ -802,6 +802,9 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	s.hostedForwarders = tunnel.NewHostedForwarderManager(context.Background(), s.forwarders, s.dialHostedTunnel)
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
+		// The language of every text gofer writes INTO a session: the session's project
+		// language, else the server's (design 2026-10-27-i18n-design.md §3).
+		s.relay.SetLanguageFor(s.textLanguage)
 		s.mail = mail.NewService(jobs.Meta(), s.relay)
 		// Whether a job: address can take a letter is the job service's judgement (gofer-0n6r).
 		s.mail.SetSessionJobCheck(mail.SessionJobLookup(jobs.Get))
@@ -921,6 +924,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// W1: work items sit on the same store; the relay tells the service when a human
 		// typed a first prompt, job.Service sends its reminders / digest.
 		s.work = work.New(jobs.Meta())
+		s.work.SetLanguageFor(s.textLanguage)
 		s.work.SetNotifier(jobs)
 		s.work.SetJobProbe(workJobProbe{jobs: jobs})
 		s.work.SetMessenger(workMessenger{relay: s.relay})

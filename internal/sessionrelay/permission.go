@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/secret"
 )
@@ -240,9 +241,12 @@ func (s *Service) OpenPermission(sid string, in PermissionInput) (jobstore.PlanD
 	if err != nil {
 		return jobstore.PlanDecision{}, err
 	}
-	title, question := sessionLabel(a)+" · 需要授权", PermissionMessage(in.Summary)
+	lang := s.lang(a.ProjectKey)
+	title, question := sessionLabel(a)+" · "+i18n.T(lang, "sessionrelay.decision.permission_title"),
+		PermissionMessage(lang, in.Summary)
 	if len(in.Questions) > 0 {
-		title, question = sessionLabel(a)+" · 有问题要你回答", QuestionMessage(in.Questions[0].Question)
+		title, question = sessionLabel(a)+" · "+i18n.T(lang, "sessionrelay.decision.question_title"),
+			QuestionMessage(lang, in.Questions[0].Question)
 	}
 	d := jobstore.PlanDecision{
 		Title:      title,
@@ -261,11 +265,17 @@ func (s *Service) OpenPermission(sid string, in PermissionInput) (jobstore.PlanD
 	return d, nil
 }
 
-// PermissionMessage is the session's last message while a prompt is pending.
-func PermissionMessage(summary string) string { return "需要授权：" + summary }
+// PermissionMessage is the session's last message while a prompt is pending, in the
+// language of the session's project.
+func PermissionMessage(lang i18n.Lang, summary string) string {
+	return i18n.T(lang, "sessionrelay.decision.permission_question", "summary", summary)
+}
 
-// QuestionMessage is the session's last message while a question waits for an answer.
-func QuestionMessage(q string) string { return "等你回答：" + q }
+// QuestionMessage is the session's last message while a question waits for an
+// answer, in the language of the session's project.
+func QuestionMessage(lang i18n.Lang, q string) string {
+	return i18n.T(lang, "sessionrelay.decision.question_question", "question", q)
+}
 
 // ParseQuestionAnswer validates the answer to a question card: every question has a
 // non-empty answer (an offered label, several labels for multiSelect, or free text).
