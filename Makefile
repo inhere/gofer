@@ -16,7 +16,7 @@ LDFLAGS := -s -w \
 	-X main.GitCommit=$(GIT_HASH) \
 	-X 'main.BuildDate=$(BUILD_TIME)'
 
-.PHONY: all build backend clean help latest web
+.PHONY: all build backend clean help latest test web
 
 DIST_DIR := dist
 WEBUI_DIST := internal/webui/dist
@@ -50,6 +50,10 @@ build:
 	@echo "📦 Compressing binary..."
 	@upx -6 --no-progress $(DIST_DIR)/$(BINARY)
 	@echo "✅ Binary: $(DIST_DIR)/$(BINARY) ($$(du -sh $(DIST_DIR)/$(BINARY) | cut -f1))"
+
+## test: run the Go test suite (CONTRIBUTING.md lists the checks before a push)
+test:
+	go test ./...
 
 ## install: install Go binary to $GOPATH/bin
 install: web build
