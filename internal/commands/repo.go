@@ -422,7 +422,13 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 func primeWithServerContext(s *tracker.Store, configPath, agentName string, keywords []string) (string, error) {
 	base := ""
 	primeCfg := tracker.PrimeConfig{}
-	primeLang := i18n.FromEnv()
+	// Injected into the agent's session, so it follows the deployment: the project's
+	// language when a config is found, else an explicit GOFER_LANG, else the default —
+	// never the machine locale (CI runs under LANG=C.UTF-8).
+	primeLang := i18n.FromEnvVar()
+	if primeLang == "" {
+		primeLang = i18n.Default
+	}
 	if s != nil {
 		localCfg, err := s.ReadConfig()
 		if err != nil {

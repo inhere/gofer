@@ -46,13 +46,17 @@ func briefOptions(s *tracker.Store) brief.Options {
 
 // briefLanguage is the language of the brief's own text (design
 // 2026-10-27-i18n-design.md §3): the project's configured language over the server's.
-// A machine without a usable config falls back to the client chain (GOFER_LANG, then
-// the system language).
+// A brief is read by the agent taking the work over, so a machine without a usable
+// config falls back to an explicit GOFER_LANG, else the default — not the machine
+// locale (the same rule as repo prime).
 func briefLanguage(project string) i18n.Lang {
 	if cfg, _, err := config.Load(config.InputCfgFile); err == nil && cfg != nil {
 		return cfg.LanguageFor(project)
 	}
-	return i18n.FromEnv()
+	if l := i18n.FromEnvVar(); l != "" {
+		return l
+	}
+	return i18n.Default
 }
 
 func printBrief(c *gcli.Command, b brief.Brief) error {
