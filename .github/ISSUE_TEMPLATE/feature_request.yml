@@ -1,0 +1,56 @@
+name: Feature request
+description: A workflow you cannot get done today, or something that should behave differently.
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        gofer is pre-1.0 and grows out of real workflows, so start from the job you are trying to get done. Check `gofer <command> -h` and [docs/](https://github.com/inhere/gofer/tree/main/docs) first — the feature may already exist under another name.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, what gets in the way today, and what do you do instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: The behaviour or command you have in mind, with a short example if you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Existing flags, a script, another tool, or a different place in gofer where this could live.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - jobs
+        - plans and workflows
+        - sessions and relay
+        - workers
+        - web console
+        - CLI
+        - HTTP API / MCP
+        - tracker and memory
+        - docs
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Would you help with it?
+      options:
+        - label: I can test a change on my setup
+        - label: I can open a pull request
+        - label: I can write the design note
