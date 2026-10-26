@@ -1,0 +1,33 @@
+# 接手包 plan plan-a
+
+## plan
+plan-a [open] flow plan (t-ep)
+项目 proj · 进度 1/2 todo · 标签 flow, brief · 已暂停 · 阻塞于 td-2 · leader leader-1
+描述：
+  范围 t-ep.1（capture）、.3
+
+## todo
+- [done] implement t-ep.1 · job job-1 done · td-1 · issue t-ep.1
+    验收：tests pass
+    结论：结论：已合并
+- [blocked] next t-ep.3 · td-2 · 指派 suga · issue t-ep.3
+    依赖：implement t-ep.1
+    派发失败：runner busy
+
+## 交接说明
+（读取失败（dial tcp: connection refused））
+
+## 关联 issue
+- t-ep [open] P2 epic epic flow
+    设计稿：docs/design/<time>-flow-design.md
+    接手：`gofer issue brief t-ep`
+- t-ep.1 [open] P2 feature feat: flow capture improvement
+    设计稿：docs/design/<time>-flow-design.md
+    接手：`gofer issue brief t-ep.1`
+- t-ep.3 [open] P3 task next sibling
+    接手：`gofer issue brief t-ep.3`
+
+## 接手提示
+- 提交策略：按功能点本地提交是默认授权；push 到远端需用户授权；`.gofer/tracker/*.jsonl` 的变化随功能点一起提交；提交前 `git status` 确认没有夹带无关文件。
+- 本地提交 / push 规则与验证命令以 rule 记忆为准（`gofer repo prime`，或关联 issue 的 `gofer issue brief <id>`）。
+- 记忆 / 规则与实际不符：`gofer memory flag <key> --reason "…"`，不要静默绕过。

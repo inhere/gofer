@@ -1,0 +1,11 @@
+[gofer · 提示] 上下文刚被压缩，以下是你压缩前在做的事（用每行末尾的命令接手）：
+主题：会话压缩后重注入
+认领中的 issue：
+- gofer-o53s 会话压缩后重注入当前任务（in_progress） → gofer issue brief gofer-o53s
+- [可能] gofer-k23r 终端投递不覆盖输入（in_progress） → gofer issue brief gofer-k23r
+监督中的 plan：
+- p-1 会话收尾（2/5，下一项 写测试） → gofer plan brief p-1
+在等的 job：
+- job-9 全量测试（running） → gofer job show job-9
+未回的信件：
+- 来自 alice：先看这个 → gofer mail show 12

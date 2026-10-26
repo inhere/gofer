@@ -1,0 +1,17 @@
+# 接手包 plan plan-b
+
+## plan
+plan-b [open] empty
+
+## todo
+（还没有 todo）
+
+## 交接说明
+（无；用 `gofer plan handoff plan-b --set "…"` 写入）
+
+## 关联 issue
+（当前目录没有仓库 tracker，无法解析 issue）
+
+## 接手提示
+- 本地提交 / push 规则与验证命令以 rule 记忆为准（`gofer repo prime`，或关联 issue 的 `gofer issue brief <id>`）。
+- 记忆 / 规则与实际不符：`gofer memory flag <key> --reason "…"`，不要静默绕过。

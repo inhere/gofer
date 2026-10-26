@@ -1,0 +1,3 @@
+- plan-a flow plan (t-ep)（接手：`gofer plan brief plan-a`）
+  - [doing] implement t-ep.1 · t-ep.1
+  - [ready] next
