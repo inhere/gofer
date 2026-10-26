@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	gookit "github.com/gookit/i18n"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Short texts: internal/i18n/lang/<lang>/<domain>.ini, one file per domain
@@ -82,27 +84,36 @@ func lookup(lang Lang, key string) (string, bool) {
 
 // fill replaces the {name} placeholders of msg (gookit's ReplaceMode, applied
 // here because the message was resolved by lookup rather than by gookit).
+//
+// The pairs are built without a closure on purpose: a closure appending to a captured
+// slice made CodeQL's data flow lose the call context, so a value passed to one T call
+// appeared to come out of every other T call (go/command-injection on unrelated prompts).
 func fill(msg string, args ...any) string {
 	if len(args) == 0 {
 		return msg
 	}
-	var pairs []string
-	add := func(k, v any) {
-		pairs = append(pairs, "{"+fmt.Sprint(k)+"}", fmt.Sprint(v))
-	}
+	return strings.NewReplacer(placeholderPairs(args)...).Replace(msg)
+}
+
+// placeholderPairs turns T's args into strings.NewReplacer's old/new pairs.
+func placeholderPairs(args []any) []string {
 	switch a := args[0].(type) {
 	case map[string]any:
+		pairs := make([]string, 0, util.CapMul(len(a), 2))
 		for k, v := range a {
-			add(k, v)
+			pairs = append(pairs, "{"+k+"}", fmt.Sprint(v))
 		}
+		return pairs
 	case map[string]string:
+		pairs := make([]string, 0, util.CapMul(len(a), 2))
 		for k, v := range a {
-			add(k, v)
+			pairs = append(pairs, "{"+k+"}", v)
 		}
-	default:
-		for i := 0; i+1 < len(args); i += 2 {
-			add(args[i], args[i+1])
-		}
+		return pairs
 	}
-	return strings.NewReplacer(pairs...).Replace(msg)
+	pairs := make([]string, 0, len(args))
+	for i := 0; i+1 < len(args); i += 2 {
+		pairs = append(pairs, "{"+fmt.Sprint(args[i])+"}", fmt.Sprint(args[i+1]))
+	}
+	return pairs
 }
