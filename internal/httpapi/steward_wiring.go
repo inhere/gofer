@@ -24,6 +24,11 @@ const stewardTurnTimeoutSec = 20 * 60
 
 func (h stewardHost) StartSession(sp steward.StartSpec) (string, error) {
 	shared := false
+	approval := sp.Approval
+	if approval == nil {
+		pol := config.StewardApprovalOver(h.projectApproval(sp.Project))
+		approval = &pol
+	}
 	res, err := h.jobs.Submit(job.JobRequest{
 		ProjectKey: sp.Project, Agent: sp.Agent, Runner: config.BuiltinLocalRunner, Cwd: ".",
 		Prompt: sp.Prompt, Title: sp.Title, Tags: []string{job.StewardTag},
@@ -32,12 +37,12 @@ func (h stewardHost) StartSession(sp steward.StartSpec) (string, error) {
 		// hold the directory lock other jobs of the default project need.
 		ExclusiveDir: &shared,
 		Channel:      "steward", CallerID: "gofer",
-		// gofer-j0aq: the steward's own approval gate (steward.approval, default
-		// config.DefaultStewardApproval). It REPLACES the project's policy for this one
+		// gofer-j0aq: the steward's own approval gate — steward.approval when configured,
+		// otherwise the project's policy with the steward's writes released. It REPLACES the project's policy for this one
 		// job, so the steward's gofer writes run without a human while every other ACP
 		// session of the project keeps asking — and the gate's own protections (gofer's
 		// MCP attribution, the mutating kinds, mode=strict) still apply.
-		SessionApproval: sp.Approval,
+		SessionApproval: approval,
 		Review:          false, ReviewFixed: true,
 		Steward: true,
 	})
@@ -90,4 +95,17 @@ func (h stewardHost) CheckAgent(key string) error {
 		return fmt.Errorf("agent %q 不可用：%s", key, why)
 	}
 	return nil
+}
+
+// projectApproval is the project's own approval policy (the default when the project is
+// unknown or there is no config), the base a steward gate is derived from.
+func (h stewardHost) projectApproval(project string) config.ApprovalConfig {
+	if h.jobs != nil {
+		if cfg := h.jobs.Config(); cfg != nil {
+			if p, ok := cfg.Projects[project]; ok {
+				return p.ApprovalPolicy()
+			}
+		}
+	}
+	return config.ProjectConfig{}.ApprovalPolicy()
 }

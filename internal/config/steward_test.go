@@ -124,3 +124,26 @@ func TestStewardApprovalPolicy(t *testing.T) {
 		t.Fatalf("explicit auto_allow_tools = %v, want exactly the configured entry", pol.AutoAllowTools)
 	}
 }
+
+// Without steward.approval the steward keeps its project's mode — approval off stays off —
+// and only gains its own writes; it is never gated harder than the project's other
+// sessions (the first cut defaulted to mode=ask and parked stewards on approval-off
+// projects).
+func TestStewardApprovalOverKeepsTheProjectMode(t *testing.T) {
+	off := StewardApprovalOver(ProjectConfig{}.ApprovalPolicy())
+	if off.Mode != ApprovalOff {
+		t.Fatalf("mode = %q over an approval-off project, want off", off.Mode)
+	}
+	ask := StewardApprovalOver(ApprovalConfig{Mode: ApprovalAsk})
+	if ask.Mode != ApprovalAsk || !slices.Contains(ask.AutoAllowTools, "gofer_work_remind") || !slices.Contains(ask.AutoAllowTools, "gofer_today_list") {
+		t.Fatalf("over an ask project = %+v, want ask + read-only tools + the steward's writes", ask)
+	}
+	strict := StewardApprovalOver(ApprovalConfig{Mode: ApprovalStrict})
+	if strict.Mode != ApprovalStrict {
+		t.Fatalf("mode = %q over a strict project, want strict", strict.Mode)
+	}
+	twice := StewardApprovalOver(ask)
+	if len(twice.AutoAllowTools) != len(ask.AutoAllowTools) {
+		t.Fatalf("tools duplicated: %d then %d", len(ask.AutoAllowTools), len(twice.AutoAllowTools))
+	}
+}

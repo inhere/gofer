@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -61,8 +62,8 @@ const (
 	stewardReviewTimeLayoutHint  = "HH:MM"
 )
 
-// DefaultStewardApproval is the approval gate a steward session runs under when
-// steward.approval is absent (gofer-j0aq): mode=ask — a human decides everything the gate
+// DefaultStewardApproval is the steward gate a configured steward.approval block starts
+// from (its auto_allow_tools default) (gofer-j0aq): mode=ask — a human decides everything the gate
 // does not explicitly release — with gofer's read-only / advice-only tools
 // (DefaultApprovalAutoAllowTools) plus the steward's own writes (mcptools.StewardTools):
 // noting, reminding, asking a session to report and keeping its notes ARE its job.
@@ -72,6 +73,24 @@ const (
 func DefaultStewardApproval() ApprovalConfig {
 	tools := append([]string(nil), DefaultApprovalAutoAllowTools...)
 	return ApprovalConfig{Mode: ApprovalAsk, AutoAllowTools: append(tools, mcptools.StewardTools()...)}
+}
+
+// StewardApprovalOver is the steward's gate when steward.approval is NOT configured: the
+// project's own policy, its mode untouched, with the steward's own writes added to the
+// tools it releases. A project with approval off stays off for the steward too — the
+// steward must never be gated harder than every other session of its project just
+// because it got a policy of its own (the first cut defaulted to mode=ask and parked a
+// steward on projects that run with approval off).
+func StewardApprovalOver(base ApprovalConfig) ApprovalConfig {
+	pol := base.WithDefaults()
+	tools := append([]string(nil), pol.AutoAllowTools...)
+	for _, name := range mcptools.StewardTools() {
+		if !slices.Contains(tools, name) {
+			tools = append(tools, name)
+		}
+	}
+	pol.AutoAllowTools = tools
+	return pol
 }
 
 // ApprovalPolicy resolves the steward session's approval gate: the configured
