@@ -25,6 +25,6 @@ gofer is self-hosted, built for one developer or a small team that trusts each o
 
 ## Where the details are
 
-- [Security guide](docs/guide/security.md) — token and caller ceilings, listen address, secrets, log redaction, metrics endpoints, and a one-page checklist before you let another machine or person in. Written in Chinese, like most of `docs/`.
+- [Security guide](docs/guide/en/security.md) — token and caller ceilings, listen address, secrets, log redaction, metrics endpoints, and a one-page checklist before you let another machine or person in ([中文](docs/guide/security.md)).
 - [Stability and upgrades](docs/guide/stability.md) — what the `0.x` line promises, how upgrades and rollbacks work.
 - [HTTP API](docs/reference/http-api.md) and [permission catalogue](docs/reference/permissions.md) — what each route and permission requires.
