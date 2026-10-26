@@ -439,7 +439,12 @@ func managedBlockLanguage(root string) i18n.Lang {
 func primeWithServerContext(s *tracker.Store, configPath, agentName string, keywords []string) (string, error) {
 	base := ""
 	primeCfg := tracker.PrimeConfig{}
-	primeLang := i18n.FromEnv()
+	// The prime is text gofer writes FOR an agent, so its language follows the
+	// deployment (the project's language, then the server's), never the machine's
+	// locale: like a hook injection, only an explicit GOFER_LANG speaks for the
+	// deployment when no config is readable (i18n.FromEnvVar). An English-locale
+	// machine must not turn a zh-CN deployment's prime English.
+	primeLang := i18n.Resolve(i18n.FromEnvVar())
 	if s != nil {
 		localCfg, err := s.ReadConfig()
 		if err != nil {
