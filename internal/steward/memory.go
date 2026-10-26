@@ -1,8 +1,10 @@
 package steward
 
 import (
-	"fmt"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/i18n/prompts"
 )
 
 // Memory hygiene (design prime-memory-quality §2.6, P4): during a review the steward reads
@@ -66,20 +68,13 @@ func (s *Service) rememberMemoryPresented(h *MemoryHygiene) {
 }
 
 // memorySection is the review step that proposes memory cleanup; empty without findings.
-func memorySection(step int, h *MemoryHygiene) string {
+func memorySection(lang i18n.Lang, step int, h *MemoryHygiene) string {
 	if h == nil || h.Findings == 0 || h.Remaining <= 0 {
 		return ""
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d. 仓库记忆整理：服务端对镜像的仓库 tracker 记忆跑了 doctor，%d 条有待处理的问题（今天还可提 %d 条建议）：\n", step, h.Findings, h.Remaining)
-	for _, l := range h.Lines {
-		b.WriteString("   - " + l + "\n")
-	}
-	if h.Findings > len(h.Lines) {
-		fmt.Fprintf(&b, "   - …另有 %d 条\n", h.Findings-len(h.Lines))
-	}
-	b.WriteString("   用 gofer_memory_findings 读详情（含正文与可提的 actions），只挑真正值得的用 gofer_memory_suggest 提议（每条一个改动，reason 一行写理由）：\n")
-	b.WriteString("   archive（久未更新 / 过期交接）、merge（payload.into 目标 key，可给 payload.content 合并后的正文）、kind（payload.kind 改为 rule|note）、summary（payload.summary ≤80 字）、when（payload.keywords 触发词，适合常被手动查的记忆）。\n")
-	b.WriteString("   只是提议：由用户在「今天」页采纳或忽略；被忽略的 30 天内不要再提，拿不准就不提。\n")
-	return b.String()
+	more := h.Findings - len(h.Lines)
+	out := prompts.MustRender(lang, prompts.NameStewardMemory, prompts.StewardMemoryData{
+		Step: step, Findings: h.Findings, Remaining: h.Remaining, Lines: h.Lines, More: max(more, 0),
+	})
+	return out + "\n"
 }

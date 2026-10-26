@@ -2,7 +2,6 @@ package steward
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -125,9 +124,9 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		release()
 		id, berr := s.store.BeginStewardReview(day, o.Trigger, nil)
 		if berr == nil {
-			_ = s.store.FinishStewardReview(id, jobstore.StewardReviewSkipped, "", "", "没有变化的工作项")
+			_ = s.store.FinishStewardReview(id, jobstore.StewardReviewSkipped, "", "", s.reviewText("review.skipped"))
 		}
-		return ReviewResult{ReviewID: id, Skipped: true, Reason: "没有变化的工作项"}, nil
+		return ReviewResult{ReviewID: id, Skipped: true, Reason: s.reviewText("review.skipped")}, nil
 	}
 	notes, _ := s.NotesStatus()
 	prompt := s.reviewPrompt(o.Trigger, day, items, more, events, notes.NeedSlim, now, pending, mem)
@@ -174,11 +173,11 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 			}
 			_ = s.store.FinishStewardReview(rid, jobstore.StewardReviewDone, "", jobID, "")
 		} else {
-			_ = s.store.FinishStewardReview(rid, jobstore.StewardReviewFailed, "", jobID, "管家会话没有按时完成这一轮")
+			_ = s.store.FinishStewardReview(rid, jobstore.StewardReviewFailed, "", jobID, s.reviewText("review.timeout"))
 		}
 		slog.Info("steward.review_done", "event", "steward.review_done", "review", rid, "trigger", o.Trigger, "ok", ok, "items", len(ids))
 	}) { // closed: nobody will watch the turn
-		_ = s.store.FinishStewardReview(rid, jobstore.StewardReviewFailed, "", jobID, "管家服务已关闭")
+		_ = s.store.FinishStewardReview(rid, jobstore.StewardReviewFailed, "", jobID, s.reviewText("review.closed"))
 		release()
 	}
 	return ReviewResult{ReviewID: rid, JobID: jobID, Items: ids, Events: len(events)}, nil
@@ -223,29 +222,29 @@ func (s *Service) SetReviewSummary(text string) (jobstore.StewardReview, error) 
 // (which items, which events) and then the instruction (reviewInstruction). Only the
 // instruction is replaceable — the material must keep matching what was picked.
 func (s *Service) reviewPrompt(trigger, day string, items []work.ItemView, more int, events []jobstore.StewardEvent, slim bool, now time.Time, todayPending int, mem *MemoryHygiene) string {
+	lang := s.language()
 	var b strings.Builder
-	label := map[string]string{TriggerDaily: "每日巡检", TriggerManual: "手动巡检", TriggerEvent: "事件整理"}[trigger]
-	fmt.Fprintf(&b, "## %s（%s）\n\n", label, day)
+	b.WriteString(stewardText(lang, "review.heading", "label", reviewTriggerLabel(lang, trigger), "day", day) + "\n\n")
 	if len(items) == 0 {
-		b.WriteString("没有标记为有变化的工作项（强制巡检）：只做笔记和到期检查。\n")
+		b.WriteString(stewardText(lang, "review.no_items") + "\n")
 	} else {
-		fmt.Fprintf(&b, "只处理下面这 %d 个工作项（自上次巡检后有变化、已到期或有事件）", len(items))
+		b.WriteString(stewardText(lang, "review.items_scope", "n", len(items)))
 		if more > 0 {
-			fmt.Fprintf(&b, "；另有 %d 个同样有变化但超出本次上限，留给下次", more)
+			b.WriteString(stewardText(lang, "review.items_more", "n", more))
 		}
-		b.WriteString("：\n")
+		b.WriteString(stewardText(lang, "review.items_colon") + "\n")
 		for _, it := range items {
-			b.WriteString(itemLine(it, now) + "\n")
+			b.WriteString(itemLine(lang, it, now) + "\n")
 		}
 	}
 	if len(events) > 0 {
-		b.WriteString("\n待处理的事件：\n")
+		b.WriteString("\n" + stewardText(lang, "review.events_heading") + "\n")
 		for i, e := range events {
 			if i >= 30 {
-				fmt.Fprintf(&b, "- …另有 %d 条\n", len(events)-i)
+				b.WriteString(stewardText(lang, "review.events_more", "n", len(events)-i) + "\n")
 				break
 			}
-			fmt.Fprintf(&b, "- [%s] %s\n", e.Kind, runesCap(e.Detail, 120))
+			b.WriteString(stewardText(lang, "review.event_line", "kind", e.Kind, "detail", runesCap(e.Detail, 120)) + "\n")
 		}
 	}
 	b.WriteString("\n")
@@ -263,17 +262,27 @@ func (s *Service) reviewInstruction(slim bool, todayPending int, mem *MemoryHygi
 	b.WriteString(body)
 	b.WriteString("\n")
 	step := nextStepNumber(body)
-	if sec := todaySection(step, todayPending); sec != "" {
+	if sec := todaySection(s.language(), step, todayPending); sec != "" {
 		b.WriteString(sec)
 		step++
 	}
-	if sec := memorySection(step, mem); sec != "" {
+	if sec := memorySection(s.language(), step, mem); sec != "" {
 		b.WriteString(sec)
 		step++
 	}
-	fmt.Fprintf(&b, "%d. 最后调用 gofer_steward_notes，action 填 review_summary，text 写一段 300 字以内的点评（重点、风险、这些事的共同点；不要复述数字），它会附在今天的每日摘要里。\n", step)
-	b.WriteString("\n不要标完成 / 放弃，不要合并，不要提交 job，不要替用户执行「今天」卡上的任何动作。做完后只回复一行总结。")
+	b.WriteString(stewardText(s.language(), "review.summary_step", "step", step) + "\n")
+	b.WriteString("\n" + stewardText(s.language(), "review.closing"))
 	return settings.ComposePrompt(b.String(), s.settingString(settings.KeyPromptStewardReviewExtra))
+}
+
+// reviewTriggerLabel names a review trigger (daily / manual / event) in lang.
+func reviewTriggerLabel(lang i18n.Lang, trigger string) string {
+	return labeled(lang, "review", trigger)
+}
+
+// reviewText is a steward review catalog entry in the service's language.
+func (s *Service) reviewText(key string) string {
+	return stewardText(s.language(), key)
 }
 
 // nextStepNumber is the number the code-owned steps continue from: one past the highest

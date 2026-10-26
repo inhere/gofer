@@ -13,6 +13,7 @@ import (
 	"github.com/gookit/goutil/x/assert"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/wait"
 	"github.com/inhere/gofer/internal/work"
@@ -177,7 +178,7 @@ func TestStartIsIdempotentAndStopForgetsTheSession(t *testing.T) {
 	assert.Eq(t, 30*60, sp.IdleSec)
 	assert.True(t, strings.Contains(sp.Prompt, "# 你是工作管家"))
 	assert.True(t, strings.Contains(sp.Prompt, "修登录"))
-	assert.True(t, strings.HasSuffix(sp.Prompt, readyLine))
+	assert.True(t, strings.HasSuffix(sp.Prompt, readyLine(i18n.ZhCN)))
 
 	st := e.svc.Status()
 	assert.Eq(t, StateIdle, st.State)

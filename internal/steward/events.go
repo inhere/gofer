@@ -2,7 +2,6 @@ package steward
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -19,6 +18,12 @@ import (
 // every minute.
 
 const eventSep = "|"
+
+// eventStateKeys names the session states an event line can carry (events.go).
+var eventStateKeys = map[string]string{
+	jobstore.SessionOffline: "event.state_offline",
+	jobstore.SessionEnded:   "event.state_ended",
+}
 
 func eventItemID(e jobstore.StewardEvent) string {
 	id, _, ok := strings.Cut(e.Ref, eventSep)
@@ -37,7 +42,8 @@ func (s *Service) NoteDue(w jobstore.WorkItem, reason string, at int64) {
 		return
 	}
 	ref := strings.Join([]string{w.ID, "due", strconv.FormatInt(at, 10)}, eventSep)
-	if _, err := s.store.AddStewardEvent(jobstore.StewardEventDue, ref, fmt.Sprintf("工作项 %s「%s」%s", w.ID, w.Title, reason)); err != nil {
+	if _, err := s.store.AddStewardEvent(jobstore.StewardEventDue, ref,
+		stewardText(s.language(), "event.due", "id", w.ID, "title", w.Title, "reason", reason)); err != nil {
 		slog.Warn("steward.event_failed", "event", "steward.event_failed", "err", err)
 	}
 }
@@ -79,13 +85,13 @@ func (s *Service) scanEvents(now time.Time) {
 			}
 			ref := strings.Join([]string{id, sid, a.State, strconv.FormatInt(a.LastSeenAt, 10)}, eventSep)
 			_, _ = s.store.AddStewardEvent(jobstore.StewardEventSession, ref,
-				fmt.Sprintf("工作项 %s「%s」的会话 %s 已%s", id, byID[id].Title, shortID(sid), map[string]string{
-					jobstore.SessionOffline: "离线", jobstore.SessionEnded: "结束"}[a.State]))
+				stewardText(s.language(), "event.session", "id", id, "title", byID[id].Title,
+					"session", shortID(sid), "state", stewardText(s.language(), eventStateKeys[a.State])))
 		}
 	}
 	if drafts >= config.StewardEventDraftsThreshold {
 		_, _ = s.store.AddStewardEvent(jobstore.StewardEventDrafts, "*"+eventSep+"drafts"+eventSep+now.Format("2006-01-02"),
-			fmt.Sprintf("有 %d 个未整理的草稿工作项", drafts))
+			stewardText(s.language(), "event.drafts", "n", drafts))
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/i18n/prompts"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/work"
 )
@@ -370,7 +371,9 @@ type StartResult struct {
 }
 
 // readyLine is the first-turn instruction when nobody asked anything yet.
-const readyLine = "读完以上内容后，只回复一行：管家已就绪（说明未结工作项数量）。不要调用任何工具。"
+func readyLine(lang i18n.Lang) string {
+	return stewardText(lang, "session.ready")
+}
 
 // ensureSession makes sure a session on the configured agent lives, opening one from the
 // prime when needed; firstTurn is what the new session's first turn asks (the prime is
@@ -397,7 +400,7 @@ func (s *Service) ensureSession(firstTurn string) (jobID string, started bool, e
 		return "", false, err
 	}
 	if strings.TrimSpace(firstTurn) == "" {
-		firstTurn = readyLine
+		firstTurn = readyLine(s.language())
 	}
 	// gofer-j0aq: the steward job carries its OWN approval gate. Its work is gofer writes
 	// (note / remind / ask a session to report), so the project's policy would park every
@@ -413,7 +416,8 @@ func (s *Service) ensureSession(firstTurn string) (jobID string, started bool, e
 		approval = &pol
 	}
 	id, err := s.host.StartSession(StartSpec{
-		Agent: c.AgentName(), Project: c.ProjectKey(), Title: "管家 · " + c.AgentName(),
+		Agent: c.AgentName(), Project: c.ProjectKey(),
+		Title: stewardText(s.language(), "session.title", "agent", c.AgentName()),
 		Prompt: prime.Text + "\n\n---\n\n" + firstTurn, IdleSec: int(c.IdleEnd().Seconds()),
 		Approval: approval,
 	})
@@ -504,7 +508,7 @@ func (s *Service) Ask(ctx context.Context, text, by string) (AskResult, error) {
 	}
 	s.askMu.Lock()
 	defer s.askMu.Unlock()
-	turn := wrapQuestion(text, by)
+	turn := wrapQuestion(s.language(), text, by)
 
 	s.mu.Lock()
 	id, started, err := s.ensureSession(turn)
@@ -562,10 +566,11 @@ func (s *Service) say(ctx context.Context, jobID, text string) error {
 	}
 }
 
-func wrapQuestion(text, by string) string {
+func wrapQuestion(lang i18n.Lang, text, by string) string {
 	by = strings.TrimSpace(by)
 	if by == "" {
 		by = "human"
 	}
-	return "## 来自 " + by + " 的提问\n\n" + text + "\n\n（先用 gofer_work_list / gofer_work_get 核对最新数据再回答；中文，简洁。）"
+	return prompts.MustRender(lang, prompts.NameStewardQuestion,
+		prompts.StewardQuestionData{By: by, Text: text})
 }
