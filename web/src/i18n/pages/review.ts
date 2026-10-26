@@ -101,10 +101,10 @@ export const review: PageDict = {
     // 用量
     'review.usage.none': 'agent 未上报用量',
     // 底部裁决条
-    'review.act.acceptPlain': 'Accept 通过',
-    'review.act.acceptDeliver': 'Accept 通过并{label}',
+    'review.act.acceptPlain': '通过',
+    'review.act.acceptDeliver': '通过并{label}',
     'review.act.skipDelivery': '本次不交付',
-    'review.act.rejectOpen': 'Reject 拒绝…',
+    'review.act.rejectOpen': '拒绝…',
     'review.act.processing': '处理中…',
 
     // 拒绝验收弹层（components/RejectDialog.vue）
