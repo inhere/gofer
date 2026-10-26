@@ -225,7 +225,7 @@ server 侧拒绝统一记 `tunnel.rejected`：client connect 一侧带 `status`�
 转发规格较长时可存成具名预设，之后用 `--name`（`-n`）复用：
 
 ```bash
-gofer tun save hw-win11 -w w-hw-windows11 --note "现场 HMI + PLC" \
+gofer tun save hw-win11 -w w-lab --note "现场 HMI + PLC" \
       udp/21845:192.168.0.200:21845,1502:192.168.0.100:502   # 逗号/空格都可以
 gofer tun saved              # 列 server 上的预设（tun ls 是转发进程与活跃隧道，不要混）
 gofer tun forward -n hw-win11

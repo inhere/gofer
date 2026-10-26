@@ -125,11 +125,11 @@ $ curl -s http://127.0.0.1:18765/v1/tunnels/presets
 $ gofer tun forward -n demo            # 监听 1502/11217，worker 离线只影响拨号
 registered as fw-a673e3c2
 $ curl -s http://127.0.0.1:18765/v1/tunnels/forwarders
-{"forwarders":[{"id":"fw-a673e3c2","caller_id":"","worker":"w-smoke","specs":[{"network":"tcp","bind":"127.0.0.1","local_port":1502,"target":"127.0.0.1:502"},{"network":"tcp","bind":"127.0.0.1","local_port":11217,"target":"127.0.0.1:1217"}],"host":"PC-20260513EDRL","pid":46756,"started_at":"...","last_seen_at":"...","connections":0,"bytes_up":0,"bytes_down":0}]}
+{"forwarders":[{"id":"fw-a673e3c2","caller_id":"","worker":"w-smoke","specs":[{"network":"tcp","bind":"127.0.0.1","local_port":1502,"target":"127.0.0.1:502"},{"network":"tcp","bind":"127.0.0.1","local_port":11217,"target":"127.0.0.1:1217"}],"host":"office-pc","pid":46756,"started_at":"...","last_seen_at":"...","connections":0,"bytes_up":0,"bytes_down":0}]}
 $ gofer tun ls
 FORWARDERS
 ID WORKER RULES HOST PID AGE CONNS UP DOWN
-fw-a673e3c2 w-smoke 1502 -> 127.0.0.1:502;11217 -> 127.0.0.1:1217 PC-20260513EDRL 46756 4s 0 0 0
+fw-a673e3c2 w-smoke 1502 -> 127.0.0.1:502;11217 -> 127.0.0.1:1217 office-pc 46756 4s 0 0 0
 CONNECTIONS
 no active tunnels
 # Ctrl+C 后（进程 exit code 0）

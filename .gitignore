@@ -14,4 +14,6 @@ tmp/
 # 本地 workspace: 开发期把 gookit/gopty 指向 ../../gookit/gopty
 # (未提交的 go.work 才能这样用; CI 走发布版本)
 go.wor*
+# 私有名清单（scripts/check-private-names.sh 读；仓库里只放 .private-names.example）
+/.private-names
 

@@ -1,0 +1,23 @@
+# Private names that must never reach a published copy of this repository.
+#
+# Copy this file to .private-names (git-ignored, never committed) and replace
+# the entries with the names of your own projects, machines and networks.
+# Then run `sh scripts/check-private-names.sh` before publishing or releasing.
+#
+# Format: one extended regular expression per line; blank lines and lines
+# starting with # are ignored. Every pattern is matched against every tracked
+# file (case-sensitive), so keep them specific enough to avoid noise.
+
+# Project / business names, product and customer names
+acme-legacy-app
+some-customer-portal
+Some Business System
+
+# Personal environment: user names, machine names, worker ids
+alice
+my-desktop-pc
+w-alice-laptop
+
+# Internal addresses that must not be published (RFC 1918 ranges you use)
+172\.20\.[0-9]
+10\.12\.34\.

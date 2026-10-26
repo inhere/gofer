@@ -6,3 +6,4 @@ Windows 的 `start.ps1`、`win-supervisor.ps1`、`win-selfupdate.ps1` 等旧脚�
 
 - `smoke/`：各子系统的冒烟脚本。
 - `tracker-transfer/`：tracker 数据迁移小工具。
+- `check-private-names.sh`：`sh scripts/check-private-names.sh` 按不入库的 `.private-names` 扫 `git ls-files`，发布前确认没有私有项目名 / 主机名 / 内网地址（格式见 `.private-names.example`）。

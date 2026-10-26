@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 改进
+
+- **对外发布前的私有信息清扫（G031）**：仓库里残留的业务项目名、个人主机 / worker 名、内网地址统一换成中性示例（`acme-app` / `w-office` / `office-pc` / `192.0.2.x`），设计稿与 runbook 只改名不改结论，tracker 里的历史条目与项目记忆同步改名。新增 `scripts/check-private-names.sh`（`sh scripts/check-private-names.sh`）：读**不入库**的 `.private-names`（格式见 `.private-names.example`，一行一个 ERE），扫 `git ls-files`，命中私有名就非零退出；发版前跑一次（见 `AGENTS.md`）。
+
 ## [0.196.0] - 2026-10-26
 
 ### 修复

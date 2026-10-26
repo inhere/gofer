@@ -78,24 +78,24 @@ describe('buildFleet', () => {
       injected: ['default'],
       allowed: {
         default: ['local'],
-        alpha: ['w-inhere-win11'],
-        beta: ['local', 'w-inhere-win11'],
+        alpha: ['w-home'],
+        beta: ['local', 'w-home'],
       },
       runners: [
         localRunner(dirs('C:/Users/k/.gofer/workspace')),
-        workerRunner('w-inhere-win11', 'w-inhere-win11', 'connected'),
+        workerRunner('w-home', 'w-home', 'connected'),
         workerRunner('w-off', 'w-off', 'disconnected'),
       ],
       workerViews: {
-        'w-inhere-win11': workerView(
-          'w-inhere-win11',
+        'w-home': workerView(
+          'w-home',
           true,
-          dirs('D:/gofer/workspace', [{ key: 'hyy-app-dev', path: 'D:/work/hyy-app' }]),
+          dirs('D:/gofer/workspace', [{ key: 'demo-app-dev', path: 'D:/work/demo-app' }]),
         ),
         'w-off': workerView('w-off', false),
       },
       workerProjects: {
-        'w-inhere-win11': ['hyy-app-dev', 'alpha'],
+        'w-home': ['demo-app-dev', 'alpha'],
         'w-off': undefined,
       },
       workerErrors: { 'w-off': 'worker w-off is offline' },
@@ -116,7 +116,7 @@ describe('buildFleet', () => {
   })
 
   it('lists one group per worker with the projects it may run', () => {
-    const g = byID('w-inhere-win11')
+    const g = byID('w-home')
     expect(g.kind).toBe('worker')
     expect(g.online).toBe(true)
     // alpha 只给这台 worker，beta 给本机 + 它；default 只给本机
@@ -124,11 +124,11 @@ describe('buildFleet', () => {
   })
 
   it('takes the worker default workspace and worker-owned projects from GET /v1/workers/{id}', () => {
-    const g = byID('w-inhere-win11')
+    const g = byID('w-home')
     expect(g.workspace?.path).toBe('D:/gofer/workspace')
-    // alpha 同时被 server 声明 → 不是 worker 自有；hyy-app-dev 才是
+    // alpha 同时被 server 声明 → 不是 worker 自有；demo-app-dev 才是
     expect(g.own).toHaveLength(1)
-    expect(g.own[0]).toMatchObject({ key: 'hyy-app-dev', path: 'D:/work/hyy-app', exists: true })
+    expect(g.own[0]).toMatchObject({ key: 'demo-app-dev', path: 'D:/work/demo-app', exists: true })
     expect(g.ownNote).toBe('')
   })
 
@@ -181,13 +181,13 @@ describe('workerOwnProjects', () => {
     const rows = workerOwnProjects({
       projects: ['alpha'],
       workerProjects: {
-        'w-a': ['hyy-app-dev', 'alpha'],
-        'w-b': ['hyy-app-dev', 'zoo'],
+        'w-a': ['demo-app-dev', 'alpha'],
+        'w-b': ['demo-app-dev', 'zoo'],
         'w-c': undefined,
       },
     })
     expect(rows).toEqual([
-      { key: 'hyy-app-dev', workers: ['w-a', 'w-b'] },
+      { key: 'demo-app-dev', workers: ['w-a', 'w-b'] },
       { key: 'zoo', workers: ['w-b'] },
     ])
   })

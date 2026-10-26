@@ -19,7 +19,7 @@ gofer worker init \
 ```
 ✓ 连接 server v0.61.0，协议 v11，可派给 w-laptop 的项目 2 个
   my-tools-dev   host_path D:/work/inhere/my-tools-dev
-  zy-bsly-sf-dev   host_path D:/work/inhere/zy-bsly-sf-dev
+  acme-app         host_path D:/work/inhere/acme-app
 使用显式 --roots 映射 1 条（跳过推断）        # 没给 --roots 时这里是"推断 + 逐条确认"
 探测到 agents（已装 2 个）：
   ✓ claude       2.1.278 (Claude Code)

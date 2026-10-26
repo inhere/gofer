@@ -98,7 +98,7 @@ gofer 仓库清理前的 prime 输出正好 8KB，被截断：
 ```
 ## 当前重点（自动，2026-10-09 19:50）
 - 仓库：main 8d41dde5，最近 tag v0.128.2（之后 2 个提交），tracker 未提交改动 0
-- 服务：server 0.128.2；worker：w-docker-claude 0.128.2 · w-kzl-desktop 0.128.2 · w-mac-win10 离线
+- 服务：server 0.128.2；worker：w-docker-claude 0.128.2 · w-office 0.128.2 · w-mac-win10 离线
 - plan：plan-…3fc4ecd5「N3 收尾…」7/8 完成，下一步：…
 ```
 

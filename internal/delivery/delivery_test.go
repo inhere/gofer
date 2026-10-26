@@ -20,7 +20,7 @@ func TestParseRemoteAndDetect(t *testing.T) {
 		"git@github.com:o/r.git":                  {Host: "github.com", Path: "o/r"},
 		"ssh://git@gitlab.example.com:2222/g/s/r": {Host: "gitlab.example.com", Path: "g/s/r"},
 		"https://gitea.example.com:3000/o/r":      {Host: "gitea.example.com:3000", Path: "o/r"},
-		"http://172.20.1.5/team/project.git":      {Host: "172.20.1.5", Path: "team/project"},
+		"http://192.0.2.5/team/project.git":       {Host: "192.0.2.5", Path: "team/project"},
 	} {
 		got, err := ParseRemote(raw)
 		if err != nil || got != want {
@@ -31,12 +31,12 @@ func TestParseRemoteAndDetect(t *testing.T) {
 		t.Error("a local path is not a platform remote")
 	}
 	for host, want := range map[string]string{"github.com": "github", "gitlab.com": "gitlab", "git.gitlab.corp": "gitlab",
-		"codeberg.org": "gitea", "forgejo.home": "gitea", "172.20.1.5": ""} {
+		"codeberg.org": "gitea", "forgejo.home": "gitea", "192.0.2.5": ""} {
 		if got := DetectProvider(host, ""); got != want {
 			t.Errorf("%s: %q want %q", host, got, want)
 		}
 	}
-	if DetectProvider("172.20.1.5", "forgejo") != ProviderGitea || DetectProvider("x", "gitlab") != ProviderGitLab {
+	if DetectProvider("192.0.2.5", "forgejo") != ProviderGitea || DetectProvider("x", "gitlab") != ProviderGitLab {
 		t.Error("explicit provider")
 	}
 }

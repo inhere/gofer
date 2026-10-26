@@ -17,7 +17,7 @@
 
 ## 2. 背景与目标
 
-**场景**：本机开发一个上位机服务（Go），需要连接设备的 Modbus TCP server（如 `192.168.1.10:502`）做真机调试；设备只接在另一台电脑 B 的网络上，本机不可达。B 可部署 gofer worker 连入本机 server。
+**场景**：本机开发一个客户端服务（Go），需要连接设备的 Modbus TCP server（如 `192.168.1.10:502`）做真机调试；设备只接在另一台电脑 B 的网络上，本机不可达。B 可部署 gofer worker 连入本机 server。
 
 **目标**：
 
@@ -43,7 +43,7 @@
 ```txt
  本机(或容器)                          server (gofer serve)                        电脑 B (gofer worker)          设备网段
 ┌──────────────┐  TCP  ┌─────────────────┐ ws① /v1/tunnels/connect ┌──────────────┐ ws② /v1/workers/tunnel-connect ┌──────────┐ TCP ┌──────────┐
-│ 上位机服务    ├──────►│ gofer tunnel     ├────────────────────────►│ 拼接 ①⇄②     │◄───────────────────────────────┤ 隧道处理  ├────►│ PLC :502 │
+│ 客户端服务    ├──────►│ gofer tunnel     ├────────────────────────►│ 拼接 ①⇄②     │◄───────────────────────────────┤ 隧道处理  ├────►│ PLC :502 │
 │ →127.0.0.1:1502│      │ forward (监听)   │  Bearer(user caller)    │ (splice)     │  Bearer(worker)+一次性 nonce     │ 白名单+拨号│     └──────────┘
 └──────────────┘       └─────────────────┘                          └──────┬───────┘                                 └────▲─────┘
                                                                            │ 控制 ws（已有）: tunnel_open{tunnel_id,target,nonce}  │
@@ -180,7 +180,7 @@ gofer tunnel ls
 
 - 命令组 `tunnel`（别名 `tun`），子命令 `forward`（别名 `fwd`）/ `check` / `ls`；沿用 `-c/--config`、`-s/--server`、`--token`（`bindConfigFlag` + 现有 `newClient` 解析地址与 token，G011）。
 - forward 规格 `[bind:]lport:host:port`，host 为 IPv6 时写 `[addr]`；`lport=0` 表示随机端口（启动时打印实际端口）；bind 缺省 `127.0.0.1`。
-- 每条本地连接：打印打开（耗时）/关闭（时长、上下行字节）；打开失败打印 server 返回的状态与原因并关闭该本地连接（上位机的 Modbus 客户端会按自身策略重连）。`Ctrl+C` 关闭监听并拆掉所有隧道。
+- 每条本地连接：打印打开（耗时）/关闭（时长、上下行字节）；打开失败打印 server 返回的状态与原因并关闭该本地连接（客户端的 Modbus 连接会按自身策略重连）。`Ctrl+C` 关闭监听并拆掉所有隧道。
 - `GET /v1/tunnels`（鉴权组内 JSON，list 风格同 `/v1/runners`）：`id, caller_id, worker_id, target, client_remote, started_at, bytes_up, bytes_down`。
 
 ## 9. 代码落点与分层（G021/G022/G024）
@@ -208,7 +208,7 @@ gofer tunnel ls
 - 不支持半关闭；UDP 仅支持固定目标的单播，按来源地址隔离会话并在空闲超时后回收。依赖 **UDP 广播发现**的工具仍不能直接穿过隧道。
 - **UDP 转发（TUN-02）**：`udp/` 前缀启用。worker 用 **非连接** socket（`net.ListenPacket`）收发：connected socket 只接收源地址严格等于目标的数据报，而工控设备常从**另一个端口**回包，那些回包会被内核静默丢弃、表现得和隧道不通一模一样（现场实测确认，见 v1.3）。回包按**目标 IP** 放行（端口不限），其它主机的数据报忽略，授权边界不变。CLI 监听按来源地址建独立会话，默认空闲 60 秒、最多 32 个来源。只覆盖单播且目标固定的 UDP；广播/组播发现仍不适用。
 - **与现有 VPN 的关系**：若各机器已在同一 VPN 中，可在 VPN 中把设备网段路由到 worker 所在机（VPN 服务端路由 + 该机 IP 转发/NAT），则 TCP/UDP 单播原生可达（广播仍需 L2 桥接）。本隧道的优势是：无需改网络配置、按白名单细粒度放行、各现场设备网段重叠也无冲突（目标在 worker 本地拨号）、无 VPN 的现场同样可用。
-- 设备端并发连接数通常很小（部分 PLC 仅 1–4 个 Modbus TCP 连接）：隧道是 1:1 透传，**本地开几条连接就占设备几条**，调试时注意别和现场上位机抢连接。
+- 设备端并发连接数通常很小（部分 PLC 仅 1–4 个 Modbus TCP 连接）：隧道是 1:1 透传，**本地开几条连接就占设备几条**，调试时注意别和现场的客户端抢连接。
 - 后续可选：`gofer tunnel socks`（SOCKS5 动态目标，仍受 worker 白名单约束）、Web 控制台展示活跃隧道、metrics 计数、server 侧 per-caller 隧道配额。
 
 ## 12. 实施拆分（host codex 实施，主控审核/验收/提交）
@@ -229,7 +229,7 @@ gofer tunnel ls
 1. 电脑 B：`worker.yaml` 加 `tunnel.allow: ["192.168.1.10:502"]`，然后 `gofer worker reload <B 的 worker_id>`（或重启 worker）。B 的 gofer 需是支持协议 v5 的新版本。
 2. 本机：`gofer tunnel check -w <B> 192.168.1.10:502` 确认连通。
 3. 本机：`gofer tunnel forward -w <B> 1502:192.168.1.10:502`（保持运行）。
-4. 上位机服务把 Modbus 地址配成 `127.0.0.1:1502`；超时建议 ≥ 1–2s（多了一段 B↔server 的网络往返）。
+4. 客户端服务把 Modbus 地址配成 `127.0.0.1:1502`；超时建议 ≥ 1–2s（多了一段 B↔server 的网络往返）。
 
 ### 13.2 PLC 编程 IDE 远程在线（以 CODESYS V3 为例）
 

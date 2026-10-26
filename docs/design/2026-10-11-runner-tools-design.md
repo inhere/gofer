@@ -55,7 +55,7 @@ tools:
 ```markdown
 ## 本机可用工具（gofer 注入，按需使用）
 
-本任务运行在 worker `w-kzl-desktop` 上，以下工具已安装，可直接调用：
+本任务运行在 worker `w-office` 上，以下工具已安装，可直接调用：
 
 - `ffmpeg` — 音视频转码，支持 h264/hevc 硬件编码
 - `plc-sim`（`D:\tools\plcsim\plcsim.exe`）— 西门子 PLC 仿真器，端口 102；只读调试用

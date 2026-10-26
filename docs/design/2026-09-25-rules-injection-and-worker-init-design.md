@@ -71,7 +71,7 @@ $ gofer worker init --server http://192.168.65.254:8767 --token <worker token> -
 ✓ 连接 server 0.61.0，worker id w-laptop 未被占用
 可派给 w-laptop 的项目（projects.*.allowed_runners 含它）：
   my-tools-dev   host_path D:/work/inhere/my-tools-dev
-  zy-bsly-sf-dev   host_path D:/work/inhere/zy-bsly-sf-dev
+  acme-app         host_path D:/work/inhere/acme-app
 推断 roots（本机检查目录是否存在）：
   D:/work/inhere  →  /home/me/work/inhere   [✓ 存在]   接受? [Y/n/改]
 探测到 agents：claude 2.1.278 ✓   omp ✓   codex ✗   jcode ✓

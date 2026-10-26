@@ -19,7 +19,7 @@
 ## 范围、排除项与授权
 
 - Git 根固定为 `D:/work/inhere/my-tools-dev/gofer`。`internal/commands` 只作 CLI 绑定/输出；`internal/tracker` 拥有本地 prime 内容、迁移映射及仓库文件变更；`internal/hookrelay` 复用 JSON hook 合并机制；`internal/job` 复用 JOB-06① 的规则大小上限与 RuleRef 记录，保持 G021/G022 单向依赖。
-- `repo init` 补步骤 4 hooks；P4 的首次 sync（步骤 5）仍不实现。`repo status` 的 hooks 改为真实检测，sync 继续明确 P4 未实现。`repo migrate --from-bd` 默认 dry-run；只在 `--apply` 改写传入仓库，`.beads/` 保留。真实仓库不得运行 `--apply`，试点 `hyy-app-dev` 后续单独安排。
+- `repo init` 补步骤 4 hooks；P4 的首次 sync（步骤 5）仍不实现。`repo status` 的 hooks 改为真实检测，sync 继续明确 P4 未实现。`repo migrate --from-bd` 默认 dry-run；只在 `--apply` 改写传入仓库，`.beads/` 保留。真实仓库不得运行 `--apply`，试点 `demo-app-dev` 后续单独安排。
 - issue 模型/JSONL 字段 `labels` 直接改成 `tags`，删除 `issue ls --label` 与旧字段兼容分支；P2 尚无真实数据，按 Approved 0.3 不做旧 JSONL 兼容迁移。memory 模型/JSONL 加 `tags`。`issue create/update --tag a,b`、`issue update --untag c`、`issue ls --tag T`（可重复且取交集）与 `-q`（标题和描述）、`memory set --tag a,b`、`memory ls --tag T` 纳入本期；memory 现有位置参数 `kw` 保留。
 - `host_or_non_offline_action=NOT_APPLICABLE`。本期授权本地测试、代码、文档和按功能点本地提交；不授权 push、部署、远端同步、真实 bd 数据迁移、重启/reload live gofer server/worker 或读写真实配置 `D:/work/inhere/config/win-env/gofer`。
 
