@@ -417,7 +417,7 @@ func (s *Service) ensureSession(firstTurn string) (jobID string, started bool, e
 	}
 	id, err := s.host.StartSession(StartSpec{
 		Agent: c.AgentName(), Project: c.ProjectKey(),
-		Title: stewardText(s.language(), "session.title", "agent", c.AgentName()),
+		Title:  stewardText(s.language(), "session.title", "agent", c.AgentName()),
 		Prompt: prime.Text + "\n\n---\n\n" + firstTurn, IdleSec: int(c.IdleEnd().Seconds()),
 		Approval: approval,
 	})
