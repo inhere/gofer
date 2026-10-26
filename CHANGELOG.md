@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.196.0] - 2026-10-26
+
 ### 修复
 
 - **管家日常整理不再每次写工具都卡在人工审批（gofer-j0aq）**：管家会话现在带自己的审批策略（新增配置 `steward.approval`，缺省 `mode: ask` + 放行 gofer 只读 / 只提建议的工具与管家本职的写工具——`gofer_work_update` / `gofer_work_note` / `gofer_work_remind` / `gofer_work_request_report` / `gofer_work_summarize` / `gofer_steward_notes` / `gofer_session_ask`）。以前：项目开了 `approval` 时，管家每次记备注、设提醒都发一张审批卡，而管家的卡没人作答，超时被拒后整轮巡检以 agent 拒绝结束。只改管家这一条会话，项目里其他 ACP 会话照旧问人；写文件 / 执行命令 / 其他 MCP server 的工具仍然问人，`mode: strict` 一律问人，审计行记 `gofer_steward_tool`。
