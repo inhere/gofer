@@ -2400,3 +2400,22 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 256 passed (256)` / `Tests 1780 passed (1780)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 7.93s`。`go build ./...` / `go vet ./...` 退出码 0（本项无 Go 代码改动）。无新增路由、无权限变化：G056 路由声明、`go generate` 与 `docs/reference/http-api.md` 都不涉及；skill 同步了 `references/web-console.md` 的计划详情一句（视图记忆、空列收窄、待办抽屉）。
 
 **视觉自查（未完成，遗留）**：本项**没有**跑 zh / en × 浅 / 深的截图核对。搭了 `tmp/ui-check/stub.mjs`（静态服务 + `/v1` 合成桩：五列里故意一列空、一条 doing 带依赖与验收标准、一条 ready 带长键与派发字段、计划交接说明一条），但 `agent-browser` 在本机 `open` 卡住不返回（2 分钟后被掐掉），没取到截图。布局正确性当前只由纯函数单测（宽度轨道、视图记忆）与 SSR 渲染断言（抽屉字段、空态、只读态、en 文案）背书；三处需要人肉过一眼的地方：① 1/3 宽的空列在 1440 下是否仍好拖入、列头字形 + 计数是否挤；② en 下抽屉各段标题（Acceptance criteria / Dispatch settings / Related jobs）在 480px 里是否换行难读；③ 浅色主题下抽屉里 `--ink-3` 的空态文字对比度。下次接手时直接 `node tmp/ui-check/stub.mjs 8899` 起桩、再用可用的截图工具跑一遍即可。
+
+## 实施记录 P6-shue（任务详情概览的长键不挤到值上，2026-10-26，issue gofer-shue）
+
+范围：`web/src/views/JobDetail.vue` 概览页签的元信息表（`.meta` / `.meta-item` / `.meta-k` / `.meta-v`）的样式，外加一条 `views/jobDetailMetaKeys.test.ts`。不动数据、不动接口、不动 Go。
+
+**问题**：标签列是 `width: 78px; flex: none`（大写 + 0.06em 字距的等宽 12px，只能放下约 10 个字），而 `require_review`（14 字）、`reviewed_by`（11 字）、`review_note`、`wt_branch`、`acceptance` 这些键不会断词也没有省略号，就直接压到值上，显示成「REQUIRE_REV需要人验收」（2026-10-26 演示截图）。
+
+**修法**：标签列改成自适应——`flex: 0 1 auto` + `min-width: 78px`（常见短键仍对齐在同一列）+ `max-width: 46%`（长键不会吃掉整行）+ `overflow-wrap: anywhere` / `word-break: break-word`（顶到上限就断词换行），值列 `flex: 1 1 auto; min-width: 0` 占余下宽度并仍按原来的省略号截断。手机上（≤760）的既有规则不变：单列、值换行、`overflow: visible`。
+
+**没做**：没有把整张表改成 `subgrid` 让所有行的标签列严格等宽（`.meta` 里还混着 `chain-list` 这样的跨行子元素和带按钮的 `meta-item--merge` 行，改网格要连带调这些结构，收益只是「值列起点完全对齐」）；现在的口径是「短键对齐、长键那一行自己变宽」，两种键不会重叠。
+
+**不丢信息核对**：元信息网格的字段一个都没删、没改名（`require_review` / `reviewed_by` / `hole_*`（hold）/ `review_note` / `wt_branch` / `acceptance` / `scope` 等全部原样）；只改了标签列的宽度策略，值仍是原来的渲染（含折叠的 `acceptance`、带按钮的 `wt_merge` / `delivery` 行）。
+
+**测试**：新增 `views/jobDetailMetaKeys.test.ts`（3 例）：标签列有 `min-width: 78px` / `max-width: 46%` / `overflow-wrap: anywhere` 且不再有定宽 `width: 78px` 或 `flex: none`；值列 `flex: 1 1 auto` + `min-width: 0` + 省略号；`require_review` / `reviewed_by` / `wt_branch` / `acceptance` / `review_note` 各在自己的 `.meta-k` 里（值不会被拼进标签）。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 256 passed (256)` / `Tests 1780 passed (1780)`（含本条新增用例）；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 7.93s`。无 Go 改动、无路由 / 权限 / 协议变化；skill 同步了 `references/web-console.md` 任务详情概览网格一句。
+
+**视觉自查（未完成，遗留）**：与 P6-5inz 同批，截图工具（`agent-browser`）在本机 `open` 卡住没起来，**没有**跑 zh / en × 浅 / 深的截图。需要人肉过一眼：1440 下概览里 `require_review` 那一行的标签是否只占一行、值列起点与上下行错开多少；390 下标签与值的换行是否还读得顺。桩数据在 `tmp/ui-check/stub.mjs`（`/v1/jobs/job-444444444444` 带 `require_review` / `worktree_branch` / `acceptance` / `scope`）。
+
