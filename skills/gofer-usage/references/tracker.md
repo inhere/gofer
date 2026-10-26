@@ -178,12 +178,12 @@ gofer memory reject <候选 id>
 
 ## prime：会话开场注入什么
 
-SessionStart hook 调 `gofer repo prime --hook-json --agent <名>`；也可手动 `gofer repo prime [--keywords 关键词]` 看。内容依次：
+SessionStart hook 调 `gofer repo prime --hook-json --agent <名>`；也可手动 `gofer repo prime [--keywords 关键词]` 看。prime 的生成语言取当前项目 `projects.<key>.language` → `server.language`（命令行无项目映射时回落环境语言）；英文 prime 的标题、规则 / 记忆索引、焦点、交接与接手提示不再混入中文，用户自己写的 issue / memory / plan 内容保持原文。内容依次：
 
 - 提交策略与命令提示（`gofer work report` 那一行只在装了会话中继 hook 或本项目有未结工作项时出现）；规则段开头一行「记忆与实际不符时 `gofer memory flag …`」。
 - **当前重点**：在做的 issue / plan 进度 / 最新交接、近期解锁的 issue、未提交改动与未推送提交、分支与 HEAD，以及 server 版本和**服务本项目**的 worker 在线情况（取不到就省略；`prime.focus: false` 整段关闭，`prime.focus_env: false` 只关仓库与服务行，`prime.focus_tag: true` 额外显示「最近 tag 之后 N 个提交」，适合按 tag 发版的仓库）。
 - **规则**（rule 全文）→ 进行中 issue → ready 列表 → 记忆索引（按第一个标签分组，任务命中的排最前、带「（相关）」标记，其次 cwd 命中 `when.paths` 的）→ 未过期交接 → 接手入口提示（`gofer issue brief` / `gofer plan brief`）→ 全局 / 项目记忆 → 进行中 plan。
-- 每段独立截断并写「另有 N 条：`gofer …`」；总长有上限，没有 tracker 时也会注入全局 / 项目记忆。全局记忆读本机副本（连着 server 时先在预算内同步一次），server 连不上也照常注入；项目记忆与进行中 plan 来自 server，连不上时静默省略。
+- 每段独立截断并写「另有 N 条：`gofer …`」；总长有上限，没有 tracker 时也会注入全局 / 项目记忆。全局记忆读本机副本（连着 server 时先在预算内同步一次），server 连不上也照常注入；项目记忆与进行中 plan 来自 server，连不上时静默省略。prime 的中文输出保持兼容，英文输出使用同一布局的英文文案。
 - **压缩 / 恢复后重注入本会话的任务**（`source=compact` / `resume`）：SessionStart 的 stdin JSON 带着 `session_id` 与 `source`，prime 读到后向 server 取一次 `GET /v1/sessions/{sid}/focus`，在最后追加一段 `[gofer · 提示]`「本会话当前任务」——会话主题、认领中的 issue（`gofer issue brief`）、监督中的 plan（`gofer plan brief`）、在等的 job（`gofer job show`）、未回的信件（`gofer mail show`），每项一行、只给标题与接手命令。tracker 不记录 claim 的会话 id，所以 assignee 与调用方一致的是确定认领，会话启动后动过的 in_progress issue 标「可能」。`startup` / `clear` 不追加；没有任何当前任务、server 连不上都不追加，也不影响其余部分。手动跑时用 `--session <sid> --source compact|resume` 补这两个值。
 - 可在 `.gofer/tracker/config.yaml` 的 `prime:` 块开关 `issues` / `ready` / `memory` / `scoped_memory` / `handoff` / `focus`，并设 `issues_limit` / `ready_limit` / `memory_summary_limit`。
 - 派发给 job 的规则段（`tracker-prime`）：提交策略 + **适用于该 job cwd** 的 rule 全文 + 其它适用记忆的一行索引（被 flag 的带「⚠ 待复核」）。选材与会话 prime 同一套规则：`when.paths` 不覆盖 cwd 的 rule 不全文给，索引只列适用于 cwd 的记忆（没设 `when.paths` 的，或命中的），命中的排前面；cwd 相对 tracker 根目录算（根目录 `""` 只被 `**` 命中）。

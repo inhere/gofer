@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // memoryViewOptions is the scene a memory list is rendered for.
@@ -20,6 +22,7 @@ type memoryViewOptions struct {
 	// are ranked first in every index and marked （相关）. Zero value = the plain
 	// cwd-scoped behaviour.
 	Selection PrimeSelection
+	Language  i18n.Lang
 }
 
 // memoryView renders memories as prime segments: rules in full, the rest as a
@@ -82,7 +85,7 @@ func (v *memoryView) wantsFull(m Memory) bool {
 // 「⚠ 待复核（原因）」 prefix (one flag must not drop a rule).
 func (v *memoryView) fullMemoryLine(m Memory) string {
 	key := m.Key
-	if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+	if flag := MemoryFlagPrefixIn(v.opts.Language, m.MemoryMeta); flag != "" {
 		key = flag + " " + key
 	}
 	if v.opts.Stale[m.Key] {
@@ -101,8 +104,9 @@ func (v *memoryView) rulesSegment(budget int) primeSegment {
 	var lines []string
 	used := 0
 	skipped := 0
-	const note = "规则超出预算，%d 条未展开（见索引），请精简规则\n"
-	reserve := len(fmt.Sprintf(note, 99)) + len("\n## 规则\n") + len(MemoryFlagHint) + 1
+	lang := i18n.Resolve(v.opts.Language)
+	note := func(n int) string { return primeText(lang, "memory.rules_over_budget", "n", n) + "\n" }
+	reserve := len(note(99)) + len("\n## "+primeText(lang, "memory.rules_heading")+"\n") + len(memoryFlagHint(lang)) + 1
 	for _, m := range v.budgetOrder() {
 		if !v.wantsFull(m) {
 			continue
@@ -119,59 +123,61 @@ func (v *memoryView) rulesSegment(budget int) primeSegment {
 	if len(lines) == 0 && skipped == 0 {
 		return seg
 	}
-	seg.title = "规则"
-	seg.lead = []string{MemoryFlagHint + "\n"}
+	seg.title = primeText(lang, "memory.rules_heading")
+	seg.lead = []string{memoryFlagHint(lang) + "\n"}
 	seg.lines = lines
 	seg.extra = skipped
-	seg.more = func(n int) string { return fmt.Sprintf(note, n) }
+	seg.more = func(n int) string { return note(n) }
 	return seg
 }
 
 // MemoryIndexGroup is the index group of a memory: its first tag (ignoring the
 // legacy `prime` and `agent:*` tags), else 其他.
-func MemoryIndexGroup(tags []string) string {
+func MemoryIndexGroup(tags []string) string { return MemoryIndexGroupIn(i18n.Default, tags) }
+
+func MemoryIndexGroupIn(lang i18n.Lang, tags []string) string {
 	for _, tag := range tags {
 		if tag == "prime" || strings.HasPrefix(tag, "agent:") {
 			continue
 		}
 		return tag
 	}
-	return "其他"
+	return primeText(lang, "memory.other_group")
 }
 
 func (v *memoryView) indexLine(m Memory, withGroup bool) string {
 	var b strings.Builder
 	b.WriteString("- ")
 	if withGroup {
-		b.WriteString("[" + MemoryIndexGroup(m.Tags) + "] ")
+		b.WriteString("[" + MemoryIndexGroupIn(v.opts.Language, m.Tags) + "] ")
 	}
-	if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+	if flag := MemoryFlagPrefixIn(v.opts.Language, m.MemoryMeta); flag != "" {
 		b.WriteString(flag + " ")
 	}
 	b.WriteString(m.Key)
 	switch m.EffectiveKind() {
 	case MemoryKindRule:
-		b.WriteString("（规则）")
+		b.WriteString(primeText(v.opts.Language, "memory.section_rule"))
 	case MemoryKindHandoff:
-		b.WriteString("（交接）")
+		b.WriteString(primeText(v.opts.Language, "memory.section_handoff"))
 	}
 	if v.relevant(m) {
-		b.WriteString("（相关）")
+		b.WriteString(primeText(v.opts.Language, "memory.section_relevant"))
 	}
 	if headline := DisplayMemoryHeadline(m.MemoryMeta, m.Content); headline != "" {
 		b.WriteString(" · " + headline)
 	}
-	if age := AgeText(m.UpdatedAt, v.opts.Now); age != "" {
+	if age := AgeTextIn(v.opts.Language, m.UpdatedAt, v.opts.Now); age != "" {
 		b.WriteString(" · " + age)
 	}
 	if MemoryStale(m.MemoryMeta, m.Tags, m.UpdatedAt, v.opts.Now) {
-		b.WriteString("（久未更新）")
+		b.WriteString(primeText(v.opts.Language, "memory.section_stale"))
 	}
 	if v.opts.Stale[m.Key] {
 		b.WriteString(" " + PrimeStaleMarker)
 	}
 	if v.pathMatched(m) {
-		b.WriteString("（命中当前目录）")
+		b.WriteString(primeText(v.opts.Language, "memory.section_path"))
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -208,7 +214,7 @@ func (v *memoryView) indexEntries(include func(Memory) bool) []Memory {
 		if v.shown[m.Key] || !include(m) {
 			continue
 		}
-		g := MemoryIndexGroup(m.Tags)
+		g := MemoryIndexGroupIn(v.opts.Language, m.Tags)
 		groups[g] = append(groups[g], m)
 	}
 	type groupInfo struct {
@@ -247,8 +253,8 @@ func (v *memoryView) indexEntries(include func(Memory) bool) []Memory {
 		if a.match != b.match {
 			return a.match
 		}
-		if (a.name == "其他") != (b.name == "其他") {
-			return b.name == "其他"
+		if (a.name == primeText(v.opts.Language, "memory.other_group")) != (b.name == primeText(v.opts.Language, "memory.other_group")) {
+			return b.name == primeText(v.opts.Language, "memory.other_group")
 		}
 		if a.newest != b.newest {
 			return a.newest > b.newest
@@ -269,10 +275,11 @@ func (v *memoryView) indexSegment(title string, limit, budget int) primeSegment 
 	if len(entries) == 0 {
 		return primeSegment{}
 	}
+	titleText := primeText(v.opts.Language, "layout.index_heading", "n", len(entries))
 	seg := primeSegment{
-		title:  fmt.Sprintf("%s（%d 条，按需 `gofer memory show <key>`）", title, len(entries)),
+		title:  titleText,
 		budget: budget,
-		more:   func(n int) string { return fmt.Sprintf("另有 %d 条：`gofer memory ls <关键字>`\n", n) },
+		more:   func(n int) string { return primeText(v.opts.Language, "layout.index_more", "n", n) + "\n" },
 	}
 	for i, m := range entries {
 		if limit >= 0 && i >= limit {
@@ -309,7 +316,7 @@ func (v *memoryView) liveHandoffs() []Memory {
 func (v *memoryView) handoffLine(m Memory) string {
 	line := strings.TrimSuffix(v.indexLine(m, false), "\n")
 	if at, ok := MemoryExpiresAt(m.MemoryMeta, m.Tags, m.UpdatedAt); ok {
-		line += fmt.Sprintf(" · %d 天后过期", ageDays(v.opts.Now, at))
+		line += " · " + primeText(v.opts.Language, "layout.handoff_expiry", "n", ageDays(v.opts.Now, at))
 	}
 	return line + "\n"
 }
@@ -322,9 +329,9 @@ func (v *memoryView) handoffSegment(budget int) primeSegment {
 		return primeSegment{}
 	}
 	seg := primeSegment{
-		title:  fmt.Sprintf("交接（未过期，最新 %d 条）", primeHandoffLimit),
+		title:  primeText(v.opts.Language, "layout.handoff_title", "n", primeHandoffLimit),
 		budget: budget,
-		more:   func(n int) string { return fmt.Sprintf("另有 %d 条：`gofer memory ls --kind handoff`\n", n) },
+		more:   func(n int) string { return primeText(v.opts.Language, "layout.handoff_more", "n", n) + "\n" },
 	}
 	for i, m := range live {
 		if i >= primeHandoffLimit {
@@ -364,6 +371,7 @@ type ScopedPrimeOptions struct {
 	// Selection is the task the section is rendered for (gofer-11tz): the scoped
 	// memories it hits are ranked first and marked （相关）, exactly like the local ones.
 	Selection PrimeSelection
+	Language  i18n.Lang
 }
 
 // RenderScopedPrimeSection applies the local memory rules to scoped memories in
@@ -387,13 +395,13 @@ func RenderScopedPrimeSectionTruncated(title string, items []Memory, opts Scoped
 			visible = append(visible, m)
 		}
 	}
-	view := newMemoryView(visible, memoryViewOptions{CwdRel: opts.CwdRel, CwdKnown: opts.CwdKnown, Now: opts.Now, AgentName: opts.AgentName, Selection: opts.Selection})
+	view := newMemoryView(visible, memoryViewOptions{CwdRel: opts.CwdRel, CwdKnown: opts.CwdKnown, Now: opts.Now, AgentName: opts.AgentName, Selection: opts.Selection, Language: opts.Language})
 	hint := opts.LsHint
 	if hint == "" {
 		hint = "gofer memory ls"
 	}
 	seg := primeSegment{title: title, budget: opts.Budget, more: func(n int) string {
-		return fmt.Sprintf("另有 %d 条：`%s <关键字>`\n", n, hint)
+		return primeText(opts.Language, "memory.scoped_more", "n", n, "hint", hint) + "\n"
 	}}
 	for _, m := range view.items {
 		if view.wantsFull(m) {
@@ -403,7 +411,7 @@ func RenderScopedPrimeSectionTruncated(title string, items []Memory, opts Scoped
 	}
 	entries := view.indexEntries(func(m Memory) bool { return m.EffectiveKind() != MemoryKindHandoff })
 	if len(entries) > 0 {
-		seg.lines = append(seg.lines, "索引（按需 `gofer memory show <key>`）：\n")
+		seg.lines = append(seg.lines, primeText(opts.Language, "memory.scoped_index")+"\n")
 	}
 	for i, m := range entries {
 		if opts.SummaryLimit >= 0 && i >= opts.SummaryLimit {

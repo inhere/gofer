@@ -6,37 +6,36 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
-const PrimeMaxBytes = 8 << 10
+func primeText(lang i18n.Lang, key string, args ...any) string {
+	return i18n.T(lang, "prime."+key, args...)
+}
 
-// WorkPrimeHint is the one-line SessionStart hint about work-item reports: a session
-// that is asked to report its work item knows the command. It lives in the fixed header
-// so it always fits the byte budget, but only when PrimeOptions.WorkHint is set (work
-// items are an opt-in feature; most repositories never see a report request).
-const WorkPrimeHint = "工作项：被要求汇报时运行 `gofer work report <id> --goal … --status … --blocker … --next …`（`gofer work ls` 可查 id）。"
-
-// TrackerPrimeHint is the one-line command memory aid in the fixed header: how to
-// pick up work and how to recall memories that the summaries below only abbreviate.
-const TrackerPrimeHint = "任务：`gofer issue ready|show <id>|update <id> --claim|comment <id> \"…\"|close <id>`；记忆：`gofer memory ls <关键字>`（搜 key+摘要+内容）/ `show <key>`（全文）/ `set <key> \"…\" --summary \"一句话\"`；tracker 改动用 `gofer repo status --changed` 看，不要 diff `.gofer/tracker/*.jsonl`。\n" + MemoryWriteHint
-
-// PrimeTakeoverHint is the last line of the local prime: the entry point for taking
-// over an issue or a plan (design 2026-10-10 §一 「prime 配合」).
-const PrimeTakeoverHint = "接手：issue 用 `gofer issue brief <id>`，plan 用 `gofer plan brief <id>`（上下文树、设计稿、相关提交、job / plan 与适用记忆一次拿齐）。"
-
-// MemoryWriteHint is the writing guidance (design §2.8) shared by prime and the
-// managed AGENTS block.
-const MemoryWriteHint = "写记忆：长期约定用 `--kind rule`（写现状不写进度）；阶段进度写 plan 交接说明或 `--kind handoff`（默认 14 天后过期）；正文超 200 字要 `--summary`。"
+func workPrimeHint(lang i18n.Lang) string { return primeText(lang, "header.work_hint") }
+func trackerPrimeHint(lang i18n.Lang) string {
+	return primeText(lang, "header.tracker_hint") + "\n" + memoryWriteHint(lang)
+}
+func primeTakeoverHint(lang i18n.Lang) string { return primeText(lang, "header.takeover") }
+func memoryWriteHint(lang i18n.Lang) string   { return primeText(lang, "header.memory_write") }
+func memoryFlagHint(lang i18n.Lang) string    { return primeText(lang, "memory.flag_hint") }
 
 // PrimeWithHandoffSection appends the caller-provided best-effort server handoff
 // section while preserving the existing prime bytes first. The caller is expected
 // to have applied project selection, timeout and ordering before this seam.
 func (s *Store) PrimeWithHandoffSection(handoff string) (string, error) {
-	base, err := s.Prime()
+	return s.PrimeWithHandoffSectionIn(i18n.Default, handoff)
+}
+
+// PrimeWithHandoffSectionIn is the language-aware handoff variant.
+func (s *Store) PrimeWithHandoffSectionIn(lang i18n.Lang, handoff string) (string, error) {
+	base, err := s.PrimeWith(PrimeOptions{Language: lang})
 	if err != nil {
 		return "", err
 	}
-	return appendHandoffSection(base, handoff), nil
+	return appendHandoffSection(lang, base, handoff), nil
 }
 
 // PrimeWithHandoffFetch runs a best-effort handoff lookup supplied by the command
@@ -74,20 +73,21 @@ func (s *Store) PrimeWithHandoffFetch(ctx context.Context, fetch func(context.Co
 	if strings.TrimSpace(section) == "" {
 		return base, nil
 	}
-	return appendHandoffSection(base, section), nil
+	return appendHandoffSection(i18n.Default, base, section), nil
 }
 
-func appendHandoffSection(base, handoff string) string {
-	section := "\n## 进行中 plan 的交接说明\n\n" + handoff
+func appendHandoffSection(lang i18n.Lang, base, handoff string) string {
+	heading := primeText(lang, "header.handoff_heading")
+	marker := "\n" + primeText(lang, "header.handoff_cut") + "\n"
+	section := "\n" + heading + "\n\n" + handoff
 	if len([]byte(base))+len([]byte(section)) <= PrimeMaxBytes {
 		return base + section
 	}
-	const marker = "\n[交接说明已截断]\n"
-	remaining := PrimeMaxBytes - len([]byte(base)) - len([]byte("\n## 进行中 plan 的交接说明\n\n")) - len([]byte(marker))
+	remaining := PrimeMaxBytes - len([]byte(base)) - len([]byte("\n"+heading+"\n\n")) - len([]byte(marker))
 	if remaining < 0 {
 		return base
 	}
-	return base + "\n## 进行中 plan 的交接说明\n\n" + utf8Prefix(handoff, remaining) + marker
+	return base + "\n" + heading + "\n\n" + utf8Prefix(handoff, remaining) + marker
 }
 
 func utf8Prefix(value string, byteLimit int) string {
@@ -107,6 +107,10 @@ func utf8Prefix(value string, byteLimit int) string {
 // AppendPrimeSections appends optional server-backed sections within the same
 // bounded prime budget. Each section must include its heading and body.
 func AppendPrimeSections(base string, sections ...string) string {
+	return AppendPrimeSectionsIn(i18n.Default, base, sections...)
+}
+
+func AppendPrimeSectionsIn(lang i18n.Lang, base string, sections ...string) string {
 	out := base
 	for _, section := range sections {
 		if strings.TrimSpace(section) == "" {
@@ -120,7 +124,7 @@ func AppendPrimeSections(base string, sections ...string) string {
 			out += section
 			continue
 		}
-		marker := "\n[全局/项目记忆已截断]\n"
+		marker := "\n" + primeText(lang, "layout.scoped_cut_global") + "\n"
 		keep := remaining - len([]byte(marker))
 		if keep > 0 {
 			out += utf8Prefix(section, keep) + marker
@@ -143,7 +147,13 @@ type ScopedPrimeSection struct {
 
 // ScopedPrimeSectionCutMark marks a section the byte budget had to cut, so the job knows
 // the list it was given is not the whole story.
-func ScopedPrimeSectionCutMark(title string) string { return "\n[" + title + "已截断]\n" }
+func ScopedPrimeSectionCutMark(title string) string {
+	return ScopedPrimeSectionCutMarkIn(i18n.Default, title)
+}
+
+func ScopedPrimeSectionCutMarkIn(lang i18n.Lang, title string) string {
+	return "\n" + i18n.T(lang, "prime.memory.scoped_cut", "title", title) + "\n"
+}
 
 // scopedPrimeSectionMin is the room a section needs before it is worth rendering at all:
 // a section writes its heading and its 「另有 N 条」 note even when no entry fits, so a
@@ -162,7 +172,7 @@ func AppendScopedPrimeSections(base string, opts ScopedPrimeOptions, sections ..
 		if len(sec.Items) == 0 {
 			continue
 		}
-		cut := ScopedPrimeSectionCutMark(sec.Title)
+		cut := ScopedPrimeSectionCutMarkIn(opts.Language, sec.Title)
 		if PrimeMaxBytes-len([]byte(out)) < scopedPrimeSectionMin+len([]byte(cut)) {
 			if len([]byte(cut)) <= PrimeMaxBytes-len([]byte(out)) {
 				out += cut
@@ -195,16 +205,21 @@ func AppendScopedPrimeSections(base string, opts ScopedPrimeOptions, sections ..
 }
 
 func CommitPolicyText(policy string) (string, error) {
+	return CommitPolicyTextIn(i18n.Default, policy)
+}
+
+func CommitPolicyTextIn(lang i18n.Lang, policy string) (string, error) {
+	key := "header.commit_local"
 	switch policy {
-	case "", "local-commit":
-		return "按功能点本地提交是默认授权；push 到远端需用户授权；`.gofer/tracker/*.jsonl` 的变化随功能点一起提交；提交前 `git status` 确认没有夹带无关文件。", nil
 	case "ask":
-		return "提交前先询问用户；push 到远端需用户授权；`.gofer/tracker/*.jsonl` 的变化随获批功能点一起提交。", nil
+		key = "header.commit_ask"
 	case "none":
-		return "本仓库不提交本次改动；push 到远端需用户授权。", nil
+		key = "header.commit_none"
+	case "", "local-commit":
 	default:
 		return "", fmt.Errorf("unknown commit_policy %q", policy)
 	}
+	return primeText(lang, key), nil
 }
 
 // PrimeRule is the tracker part of a dispatched job's mandatory rules: the
@@ -228,11 +243,15 @@ func CommitPolicyText(policy string) (string, error) {
 // full when their paths allow it and always appear first in the index, marked （相关）.
 // Its zero value keeps the plain cwd-scoped prime.
 func (s *Store) PrimeRule(cwd string, sel PrimeSelection) (string, error) {
+	return s.PrimeRuleIn(i18n.Default, cwd, sel)
+}
+
+func (s *Store) PrimeRuleIn(lang i18n.Lang, cwd string, sel PrimeSelection) (string, error) {
 	cfg, err := s.ReadConfig()
 	if err != nil {
 		return "", err
 	}
-	policy, err := CommitPolicyText(cfg.CommitPolicy)
+	policy, err := CommitPolicyTextIn(lang, cfg.CommitPolicy)
 	if err != nil {
 		return "", err
 	}
@@ -241,14 +260,19 @@ func (s *Store) PrimeRule(cwd string, sel PrimeSelection) (string, error) {
 		return "", err
 	}
 	rel, inRepo := s.CwdRel(cwd)
-	return renderPrimeRule(policy, memories, rel, inRepo, sel, time.Now()), nil
+	return renderPrimeRuleIn(lang, policy, memories, rel, inRepo, sel, time.Now()), nil
 }
 
 // renderPrimeRule renders the job rule body. rel/inRepo are the job cwd relative to
 // the store's repository root (PrimeRule); inRepo=false means "unscoped", see above.
 func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, sel PrimeSelection, now time.Time) string {
+	return renderPrimeRuleIn(i18n.Default, policy, memories, rel, inRepo, sel, now)
+}
+
+func renderPrimeRuleIn(lang i18n.Lang, policy string, memories []Memory, rel string, inRepo bool, sel PrimeSelection, now time.Time) string {
+	lang = i18n.Resolve(lang)
 	const limit = PrimeMaxBytes - 64
-	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: now, Selection: sel})
+	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: now, Selection: sel, Language: lang})
 	var rules []Memory
 	// The budget below is spent in relevance order (gofer-11tz): a rule the task hit is
 	// written first, so a tight budget truncates the material for OTHER tasks.
@@ -263,17 +287,20 @@ func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, 
 		}
 	}
 	var out strings.Builder
-	out.WriteString("提交策略：")
+	out.WriteString(primeText(lang, "layout.commit_heading"))
+	out.WriteString("：")
 	out.WriteString(policy)
 	out.WriteString("\n")
 	if len(rules) > 0 {
-		out.WriteString("规则（全文）：\n")
+		out.WriteString(primeText(lang, "memory.rules_heading"))
+		out.WriteString(primeText(lang, "memory.rules_full"))
+		out.WriteString("\n")
 	}
 	// Reserve room for the flag hint, the index heading and its truncation note.
-	reserve := 160 + len(MemoryFlagHint) + 1
+	reserve := 160 + len(memoryFlagHint(lang)) + 1
 	for _, m := range rules {
 		key := m.Key
-		if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+		if flag := MemoryFlagPrefixIn(lang, m.MemoryMeta); flag != "" {
 			key = flag + " " + key
 		}
 		line := fmt.Sprintf("- %s: %s\n", key, m.Content)
@@ -285,7 +312,7 @@ func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, 
 		view.shown[m.Key] = true
 	}
 	if len(memories) > 0 {
-		out.WriteString(MemoryFlagHint + "\n")
+		out.WriteString(memoryFlagHint(lang) + "\n")
 	}
 	// The index is the shared cwd-scoped selection (memoryView.indexEntries): only
 	// memories that apply to the job's cwd, matches first. The rules that did not fit
@@ -303,30 +330,30 @@ func renderPrimeRule(policy string, memories []Memory, rel string, inRepo bool, 
 		return !inRepo || rel == "" || m.When == nil || len(m.When.Paths) == 0 || view.pathMatched(m) || view.relevant(m)
 	})
 	if len(entries) > 0 {
-		out.WriteString("其他记忆（索引，按需 `gofer memory show <key>`）：\n")
+		out.WriteString(primeText(lang, "memory.index_heading") + "：\n")
 	}
 	for i, m := range entries {
 		line := "- " + m.Key
-		if flag := MemoryFlagPrefix(m.MemoryMeta); flag != "" {
+		if flag := MemoryFlagPrefixIn(lang, m.MemoryMeta); flag != "" {
 			line = "- " + flag + " " + m.Key
 		}
 		switch m.EffectiveKind() {
 		case MemoryKindRule:
-			line += "（规则）"
+			line += primeText(lang, "memory.section_rule")
 		case MemoryKindHandoff:
-			line += "（交接）"
+			line += primeText(lang, "memory.section_handoff")
 		}
 		// The task hit this memory (gofer-11tz): the hit, not the cwd, is why it is worth
 		// reading — say so, so a reader knows where the material came from.
 		if view.relevant(m) {
-			line += "（相关）"
+			line += primeText(lang, "memory.section_relevant")
 		}
 		if headline := DisplayMemoryHeadline(m.MemoryMeta, m.Content); headline != "" {
 			line += " · " + headline
 		}
 		line += "\n"
 		if out.Len()+len(line)+64 > limit {
-			fmt.Fprintf(&out, "[另有 %d 条：`gofer memory ls`]\n", len(entries)-i)
+			fmt.Fprintf(&out, "%s\n", primeText(lang, "memory.rule_more", "n", len(entries)-i))
 			break
 		}
 		out.WriteString(line)

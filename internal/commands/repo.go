@@ -18,6 +18,7 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/hookrelay"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -421,6 +422,7 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 func primeWithServerContext(s *tracker.Store, configPath, agentName string, keywords []string) (string, error) {
 	base := ""
 	primeCfg := tracker.PrimeConfig{}
+	primeLang := i18n.FromEnv()
 	if s != nil {
 		localCfg, err := s.ReadConfig()
 		if err != nil {
@@ -428,11 +430,20 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string, keyw
 		}
 		primeCfg = localCfg.Prime
 		cwd, _ := os.Getwd()
-		opts := tracker.PrimeOptions{Cwd: cwd, Now: time.Now(), Keywords: keywords}
+		lang := primeLang
+		if appCfg, _, cfgErr := config.Load(configPath); cfgErr == nil {
+			if key, ok := appCfg.ProjectForPath(cwd); ok {
+				lang = appCfg.LanguageFor(key)
+			} else {
+				lang = appCfg.Language()
+			}
+		}
+		primeLang = lang
+		opts := tracker.PrimeOptions{Cwd: cwd, Now: time.Now(), Language: lang, Keywords: keywords}
 		workHint := make(chan bool, 1)
 		go func() { workHint <- primeWorkHint(s, configPath, cwd) }()
 		if primeCfg.FocusEnabled() {
-			opts.Focus = primeFocus(s, configPath, opts.Now)
+			opts.Focus = primeFocus(s, configPath, opts.Now, lang)
 		}
 		opts.WorkHint = <-workHint
 		if base, err = s.PrimeWith(opts); err != nil {
@@ -492,17 +503,17 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string, keyw
 		}
 		var out strings.Builder
 		if primeCfg.ScopedMemoryEnabled() {
-			opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base), Selection: tracker.KeywordsOnly(keywords)}
+			opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), Language: primeLang, SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base), Selection: tracker.KeywordsOnly(keywords)}
 			if s != nil {
 				opts.CwdRel, opts.CwdKnown = s.CwdRel(root)
 			}
 			if globalStore == nil {
 				opts.LsHint = "gofer memory ls --global"
-				out.WriteString(tracker.RenderScopedPrimeSection("全局记忆", scopedTrackerMemories(global), opts))
+				out.WriteString(tracker.RenderScopedPrimeSection(i18n.T(primeLang, "prime.memory.scoped_global_title"), scopedTrackerMemories(global), opts))
 			}
 			if projectKey != "" {
 				opts.LsHint = "gofer memory ls --project " + projectKey
-				out.WriteString(tracker.RenderScopedPrimeSection("项目记忆", scopedTrackerMemories(project), opts))
+				out.WriteString(tracker.RenderScopedPrimeSection(i18n.T(primeLang, "prime.memory.scoped_project_title"), scopedTrackerMemories(project), opts))
 			}
 		}
 		if !primeCfg.HandoffEnabled() {
@@ -539,7 +550,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string, keyw
 				planOut.WriteString(line + "\n")
 			}
 			if h, getErr := cli.GetPlanHandoff(plan.PlanID, 0); getErr == nil && h.Version > 0 {
-				planOut.WriteString(fmt.Sprintf("  交接说明 v%d (%s, %d)：\n%s\n", h.Version, h.By, h.At, h.Body))
+				planOut.WriteString(i18n.T(primeLang, "prime.header.handoff_line", "version", h.Version, "by", h.By, "at", h.At) + "\n" + h.Body + "\n")
 			}
 			select {
 			case <-ctx.Done():
@@ -548,7 +559,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string, keyw
 			}
 		}
 		if planOut.Len() > 0 {
-			out.WriteString("\n## 进行中 plan\n\n")
+			out.WriteString("\n" + i18n.T(primeLang, "prime.header.plans_heading") + "\n\n")
 			out.WriteString(planOut.String())
 		}
 		return out.String(), nil
@@ -566,14 +577,14 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string, keyw
 		case <-globalSynced:
 		case <-ctx.Done():
 		}
-		if section := primeGlobalSection(globalStore, base, agentName, keywords, primeCfg, s); section != "" {
+		if section := primeGlobalSection(globalStore, base, agentName, keywords, primeCfg, s, primeLang); section != "" {
 			serverSection = section + serverSection
 		}
 	}
 	if strings.TrimSpace(serverSection) == "" {
 		return base, nil
 	}
-	return tracker.AppendPrimeSections(base, serverSection), nil
+	return tracker.AppendPrimeSectionsIn(primeLang, base, serverSection), nil
 }
 
 // primeGlobalSyncTimeout bounds the global copy's sync inside the prime budget.
@@ -581,7 +592,7 @@ const primeGlobalSyncTimeout = 1200 * time.Millisecond
 
 // primeGlobalSection renders the 「全局记忆」 section from the local copy. A copy that
 // never synced and holds nothing asks the server (short timeout) instead.
-func primeGlobalSection(gs *tracker.Store, base, agentName string, keywords []string, primeCfg tracker.PrimeConfig, s *tracker.Store) string {
+func primeGlobalSection(gs *tracker.Store, base, agentName string, keywords []string, primeCfg tracker.PrimeConfig, s *tracker.Store, lang i18n.Lang) string {
 	items, err := localGlobalMemoriesFrom(gs)
 	if errors.Is(err, tracker.ErrGlobalNotSynced) {
 		if cli, cerr := trackerClient(); cerr == nil {
@@ -594,13 +605,13 @@ func primeGlobalSection(gs *tracker.Store, base, agentName string, keywords []st
 	if err != nil {
 		return ""
 	}
-	opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base), LsHint: "gofer memory ls --global", Selection: tracker.KeywordsOnly(keywords)}
+	opts := tracker.ScopedPrimeOptions{AgentName: agentName, Now: time.Now(), Language: lang, SummaryLimit: primeCfg.SummaryLimit(), Budget: scopedPrimeBudget(base), LsHint: "gofer memory ls --global", Selection: tracker.KeywordsOnly(keywords)}
 	if s != nil {
 		if root, werr := os.Getwd(); werr == nil {
 			opts.CwdRel, opts.CwdKnown = s.CwdRel(root)
 		}
 	}
-	return tracker.RenderScopedPrimeSection("全局记忆", items, opts)
+	return tracker.RenderScopedPrimeSection(i18n.T(lang, "prime.memory.scoped_global_title"), items, opts)
 }
 
 // primeClientTimeout bounds every server request prime makes.
