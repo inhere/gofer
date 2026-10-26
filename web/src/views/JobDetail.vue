@@ -3308,12 +3308,19 @@ onUnmounted(() => {
   font-size: 12px;
   min-width: 0;
 }
+/* 标签列按最长键自适应（issue gofer-shue）：曾经定长 78px + 不可断词，require_review /
+   reviewed_by / wt_branch 这类长键会直接顶到值上（显示成「REQUIRE_REV需要人验收」）。
+   现在：至少 78px（常见短键仍对齐）、随内容长到行的 46%、超过就断词换行；值列占余下
+   宽度并照旧省略号截断，两者不再重叠。 */
 .meta-k {
   color: var(--ink-3);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  width: 78px;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 78px;
+  max-width: 46%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .meta-item--merge {
   align-items: center;
@@ -3344,6 +3351,7 @@ onUnmounted(() => {
 }
 .meta-v {
   color: var(--ink);
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

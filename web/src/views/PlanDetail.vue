@@ -17,6 +17,7 @@ import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import InteractionCard from '../components/InteractionCard.vue'
 import PlanBoard from '../components/PlanBoard.vue'
+import TodoDrawer from '../components/TodoDrawer.vue'
 import CommentThread from '../components/CommentThread.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import PlanSupervisor from '../components/PlanSupervisor.vue'
@@ -24,7 +25,7 @@ import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import BackLink from '../ui/BackLink.vue'
 import ProgressBar from '../ui/ProgressBar.vue'
 import Tabs from '../ui/Tabs.vue'
-import { queryWithTab, tabFromQuery, type TabItem } from '../ui/tabs'
+import { queryWithTab, type TabItem } from '../ui/tabs'
 import { planProgressModel, type ProgressModel } from '../ui/progress'
 import { planProgress, percentOf } from '../utils/planProgress'
 import { t } from '../i18n'
@@ -47,6 +48,9 @@ import { formatTokens } from '../utils/jobOutcome'
 import { decisionsTabTone, jobsTabTone, todoTabTone } from '../utils/planTabTone'
 import { COL } from '../utils/uiText'
 import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
+import {
+  PLAN_VIEW_DEFAULT, rememberPlanView, resolvePlanView, type PlanView,
+} from '../utils/planView'
 import { PLAN_CONTROL_HELP, planChainState, planUsageRows } from '../utils/planControls'
 import { pageWriteBlock } from '../utils/pageGate'
 import { useWhoami } from '../store/whoami'
@@ -507,18 +511,27 @@ function onToggleNewTodoContinue(on: boolean): void {
 
 // —— WEB-10 看板 ——
 
-// 视图选择（默认看板）：列表/看板同一份数据，只换渲染方式。值写在 URL 的 ?view=（可分享、
-// 可前进后退），默认看板不写进 URL——与页签同一套 tabFromQuery / queryWithTab 契约。
+// 视图选择（默认看板）：列表/看板同一份数据，只换渲染方式。判定顺序（issue gofer-5inz）：
+// URL 的 ?view= 优先（可分享、可前进后退）→ 本浏览器上次的选择（按 plan 记，另有一份全局
+// 「最近一次」）→ 看板；切换时写回浏览器，刷新 / 下次打开沿用。默认值不写进 URL——
+// 与页签同一套 queryWithTab 契约。判定本身是纯函数（utils/planView.ts），这里只做接线。
 const VIEW_ITEMS: TabItem[] = [
   { value: 'board', label: '' },
   { value: 'list', label: '' },
 ]
-const view = computed<'board' | 'list'>(() =>
-  tabFromQuery(route.query, VIEW_ITEMS, 'view', 'board') === 'list' ? 'list' : 'board',
+const view = ref<PlanView>(resolvePlanView(route.query.view, props.id))
+// 路由回退 / 深链 / 换 plan：按「URL → 记忆 → 默认」重新判定（记忆每次都现读）。
+watch(
+  () => [route.query.view, props.id] as const,
+  () => {
+    view.value = resolvePlanView(route.query.view, props.id)
+  },
 )
-function setView(next: 'board' | 'list'): void {
+function setView(next: PlanView): void {
   if (next === view.value) return
-  void router.replace({ path: route.path, query: queryWithTab(route.query, next, VIEW_ITEMS, 'view', 'board') })
+  view.value = next
+  rememberPlanView(props.id, next) // 刷新 / 再打开沿用（issue gofer-5inz）
+  void router.replace({ path: route.path, query: queryWithTab(route.query, next, VIEW_ITEMS, 'view', PLAN_VIEW_DEFAULT) })
   if (next === 'board') void loadAgents() // 看板拖到 ready 时要用 agent 列表
 }
 
@@ -604,6 +617,27 @@ async function onBoardMove(payload: {
 
 function onBoardDrag(active: boolean): void {
   boardDragging.value = active
+}
+
+// 待办详情抽屉（issue gofer-5inz）：看板卡片（PlanBoard 的 open 事件）与列表行标题都能
+// 点开；数据就是 plan 详情这一份，抽屉里的写操作复用列表行那两条路（onTodoStatus /
+// dispatchTodo），不另起一套 PATCH。关闭 = 清空选中的 todo id。
+const todoOpenId = ref('')
+const todoOpen = computed<Todo | null>(
+  () => plan.value?.todos.find((x) => x.todo_id === todoOpenId.value) ?? null,
+)
+const todoDrawerOpen = computed({
+  get: () => todoOpen.value !== null,
+  set: (v: boolean) => {
+    if (!v) todoOpenId.value = ''
+  },
+})
+function openTodo(todo: Todo): void {
+  todoOpenId.value = todo.todo_id
+}
+// 没人认领的条目在抽屉里先选 agent（与看板拖到 ready 同一套：agent 随 status=ready 一起发）。
+function onTodoDrawerDispatch(todo: Todo, agent: string): void {
+  void dispatchTodo(todo, agent)
 }
 
 // plan 链操作（PLAN-03）：run=启动链（先解除 pause/block，把依赖已满足、已指派的 pending
@@ -1420,18 +1454,37 @@ onUnmounted(() => {
             :busy-ids="moving"
             @move="onBoardMove"
             @drag-active="onBoardDrag"
+            @open="openTodo"
           />
           <div v-else class="todos">
             <div v-for="t in plan.todos" :key="t.todo_id" class="todo-item">
               <label class="todo-row">
                 <input type="checkbox" :checked="t.done" @change="onToggleTodo(t)" />
                 <span class="todo-main">
-                  <span class="todo-title" :class="{ 'todo-title--done': t.done }">{{ t.title }}</span>
+                  <!-- 标题即详情入口（issue gofer-5inz）：点开右侧抽屉。放在 label 里故要
+                       阻止冒泡，否则会顺手勾掉 done。 -->
+                  <button
+                    class="todo-title"
+                    type="button"
+                    :class="{ 'todo-title--done': t.done }"
+                    :title="tr('plans.detail.todoOpen')"
+                    data-test="todo-open"
+                    @click.prevent.stop="openTodo(t)"
+                  >{{ t.title }}</button>
                   <!-- PLAN-02 P2：认领这个条目的 agent（空 = 没人认领，故派发要先选 agent）。 -->
                   <span v-if="t.assignee" class="todo-assignee mono" :title="`assignee: ${t.assignee}`">
                     {{ t.assignee }}
                   </span>
                   <span class="todo-actions">
+                    <button
+                      class="todo-detail mono"
+                      type="button"
+                      :title="tr('plans.detail.todoOpen')"
+                      data-test="todo-detail-btn"
+                      @click.prevent.stop="openTodo(t)"
+                    >
+                      {{ tr('plans.detail.todoDetail') }}
+                    </button>
                     <button
                       class="todo-dispatch mono"
                       type="button"
@@ -1756,6 +1809,21 @@ onUnmounted(() => {
     </Tabs>
 
     <p v-if="!plan && !error" class="loading mono">{{ t('plans.detail.loading') }}</p>
+
+    <!-- 待办详情抽屉（issue gofer-5inz）：看板卡片 / 列表行点开；写操作复用本页已有的
+         两条路径（改状态、派发），数据仍是 plan 详情这一份。 -->
+    <TodoDrawer
+      v-model="todoDrawerOpen"
+      :todo="todoOpen"
+      :todos="plan?.todos ?? []"
+      :jobs="plan?.jobs ?? []"
+      :agents="agents"
+      :handoff="handoffLatest"
+      :write-block="planWriteBlock()"
+      @status="onTodoStatus"
+      @dispatch="onTodoDrawerDispatch"
+      @open-job="openJob"
+    />
 
     <!-- 看板拖拽/链操作的结果：右下角浮层，点一下关掉，8s 自动消失。 -->
     <div v-if="toast" class="pd-toast mono" role="status" @click="toast = ''">
@@ -2461,6 +2529,7 @@ onUnmounted(() => {
   flex: none;
 }
 .todo-dispatch,
+.todo-detail,
 .todo-edit-btn {
   background: transparent;
   color: var(--ink-3);
@@ -2470,6 +2539,7 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .todo-dispatch:hover:not(:disabled),
+.todo-detail:hover,
 .todo-edit-btn:hover,
 .todo-edit-btn--on {
   color: var(--accent);
@@ -2598,9 +2668,19 @@ onUnmounted(() => {
 .todo-row input {
   accent-color: var(--accent);
 }
+/* 标题兼做详情入口（issue gofer-5inz）：按钮化但保持原来的文字样式。 */
 .todo-title {
   color: var(--ink);
   word-break: break-word;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.todo-title:hover {
+  text-decoration: underline;
 }
 .todo-title--done {
   color: var(--ink-3);

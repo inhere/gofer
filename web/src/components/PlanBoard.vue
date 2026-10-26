@@ -16,7 +16,7 @@ import { statusFamily } from '../utils/statusFamily'
 import { usageBadge, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { deliveryStateLabel } from '../utils/delivery'
 import {
-  BOARD_COLUMNS, allowedMove, columnOf, columnTodos, depsSatisfied, dropTargets,
+  BOARD_COLUMNS, allowedMove, boardTracks, columnOf, columnTodos, depsSatisfied, dropTargets,
 } from '../utils/planBoard'
 import type { BoardColumn, BoardTarget } from '../utils/planBoard'
 import { continuationLines } from '../utils/todoContinue'
@@ -35,6 +35,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'move', payload: { todo: Todo; status: TodoStatus; assignee?: string }): void
   (e: 'drag-active', active: boolean): void
+  // 点开卡片 → 右侧详情抽屉（issue gofer-5inz）；拖拽不会触发 click，故两者不打架。
+  (e: 'open', todo: Todo): void
 }>()
 
 const router = useRouter()
@@ -144,6 +146,10 @@ const columns = computed(() =>
     cards: columnTodos(props.todos, key).map(decorate),
   })),
 )
+
+// 空列收窄（issue gofer-5inz）：宽度轨道按每列卡片数算（空列约普通列三分之一），
+// 空出来的宽度归有卡片的列。只在桌面的五列网格上生效，手机一次一列不受影响。
+const tracks = computed(() => boardTracks(columns.value.map((c) => c.cards.length)))
 
 // 手机上列放不下五列：一次只显示一列，用列头下面的标签切换（设计稿 §7「计划详情」）。
 // 桌面不用这个状态（列头标签 ≤760 才显示）；选中列默认 doing——那是最常看的一列。
@@ -305,7 +311,7 @@ function shortId(id: string): string {
         <span class="col-tab-count">{{ c.cards.length }}</span>
       </button>
     </div>
-    <div class="board">
+    <div class="board" data-test="plan-board" :style="{ '--board-tracks': tracks }">
       <section
         v-for="c in columns"
         :key="c.key"
@@ -313,10 +319,12 @@ function shortId(id: string): string {
         :class="{
           'col--active': mobileCol === c.key,
           'col--disabled': dragging !== '' && !columnAllowed(c.key),
+          'col--empty': c.cards.length === 0,
           'col--over':
             overCol === c.key ||
             (overTarget !== '' && dropTargets(c.key).includes(overTarget)),
         }"
+        :data-col-count="c.cards.length"
       >
         <header class="col-head mono" :class="`k-${c.family}`" :title="c.title">
           <StatusGlyph :family="c.family" :size="13" />
@@ -354,8 +362,10 @@ function shortId(id: string): string {
               'card--skipped': card.skipped,
             }"
             draggable="true"
+            :title="t('plans.board.openDetail')"
             @dragstart="onDragStart(card.todo, $event)"
             @dragend="resetDrag"
+            @click="emit('open', card.todo)"
           >
             <div class="card-top">
               <span class="card-title" :title="card.todo.title">{{ card.todo.title }}</span>
@@ -390,7 +400,7 @@ function shortId(id: string): string {
                   class="chip mono"
                   type="button"
                   :title="t('plans.board.openJob', { id: card.job.id })"
-                  @click="openJob(card.job.id)"
+                  @click.stop="openJob(card.job.id)"
                 >
                   {{ shortId(card.job.id) }} &rarr;
                 </button>
@@ -409,6 +419,7 @@ function shortId(id: string): string {
                   target="_blank"
                   rel="noopener noreferrer"
                   draggable="false"
+                  @click.stop
                   :title="`PR · ${deliveryStateLabel(card.job.deliveryState) || '-'}`"
                 >
                   PR &#8599;
@@ -441,7 +452,9 @@ function shortId(id: string): string {
               {{ t('plans.board.goReview') }} &rarr;
             </RouterLink>
           </article>
-          <div v-if="c.cards.length === 0" class="col-empty mono">—</div>
+          <div v-if="c.cards.length === 0" class="col-empty mono" :title="t('plans.board.emptyColumn')">
+            {{ t('plans.board.emptyColumn') }}
+          </div>
         </div>
       </section>
     </div>
@@ -493,10 +506,11 @@ function shortId(id: string): string {
 .col-tabs {
   display: none;
 }
-/* ≤940px 横向滚动：列有 220px 最小宽，容器放不下就滚（不压缩卡片）。 */
+/* ≤940px 横向滚动：列有 220px 最小宽，容器放不下就滚（不压缩卡片）。
+   宽度轨道由 boardTracks 按每列卡片数给出：空列约普通列三分之一（issue gofer-5inz）。 */
 .board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  grid-template-columns: var(--board-tracks, repeat(5, minmax(220px, 1fr)));
   gap: 10px;
   overflow-x: auto;
   padding-bottom: 4px;
@@ -601,6 +615,22 @@ function shortId(id: string): string {
   font-size: 12px;
   text-align: center;
   padding: 6px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 空列（0 张卡）只留列头与计数（issue gofer-5inz）：名字收起、提示与空态文字截断，
+   两个落点也不再并排（窄列放不下两格）。手机不受影响（一次一列、列头标签另有一套）。 */
+@media (min-width: 761px) {
+  .col--empty .col-name {
+    display: none;
+  }
+  .col--empty .col-body {
+    padding: 8px 4px;
+  }
+}
+.col--empty .zones {
+  grid-template-columns: 1fr;
 }
 .zones {
   display: grid;

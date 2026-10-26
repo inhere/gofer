@@ -169,12 +169,14 @@ describe('todo tab: view switch and count tones (gofer-qw2g)', () => {
     expect(detail).toContain("t('plans.detail.viewLabel')")
   })
 
-  it('keeps the view choice in the URL and keeps the default board link clean', () => {
-    expect(detail).toContain("tabFromQuery(route.query, VIEW_ITEMS, 'view', 'board')")
-    expect(detail).toContain("queryWithTab(route.query, next, VIEW_ITEMS, 'view', 'board')")
-    // 旧的 localStorage 记忆已删：URL 是唯一来源（可分享、后退可复原）。
-    expect(detail).not.toContain('gofer.plans.view')
-    expect(detail).not.toContain('localStorage.setItem(VIEW_KEY')
+  it('keeps the view choice in the URL and remembers it in this browser', () => {
+    // URL 仍然优先、默认看板不写进 URL（可分享、后退可复原）。
+    expect(detail).toContain("queryWithTab(route.query, next, VIEW_ITEMS, 'view', PLAN_VIEW_DEFAULT)")
+    // issue gofer-5inz：选择同时记到本浏览器（按 plan + 全局「最近一次」），刷新 / 再打开沿用；
+    // 判定顺序（URL → 记忆 → 看板）只在 utils/planView.ts 里写一份。
+    expect(detail).toContain('resolvePlanView(route.query.view, props.id)')
+    expect(detail).toContain('rememberPlanView(props.id, next)')
+    expect(detail).not.toContain('tabFromQuery(route.query, VIEW_ITEMS')
   })
 
   it('colours the tab counts by meaning through the shared families', () => {
@@ -185,5 +187,49 @@ describe('todo tab: view switch and count tones (gofer-qw2g)', () => {
     expect(tabs).toContain('statusFamilyClass(tab.tone)')
     expect(tabs).toContain("'tab-count--tone'")
     expect(tabs).toContain('.tab-count--tone.k-need')
+  })
+})
+
+describe('board empty columns (gofer-5inz)', () => {
+  const board = raw(import.meta.glob('../components/PlanBoard.vue', { eager: true, query: '?raw', import: 'default' }))
+
+  it('narrows empty columns to about a third of a normal one', () => {
+    // 宽度轨道按每列卡片数算（纯函数在 utils/planBoard.ts，用例见 utils/planBoard.test.ts）。
+    expect(board).toContain('boardTracks(columns.value.map((c) => c.cards.length))')
+    expect(board).toContain("'--board-tracks': tracks") // :style 变量
+    expect(board).toContain('grid-template-columns: var(--board-tracks')
+    expect(board).toContain("'col--empty': c.cards.length === 0")
+  })
+
+  it('keeps the empty column as a drop target and leaves the phone layout alone', () => {
+    // 空列仍渲染 col-body 与落点（仍能拖进去）
+    expect(board).toContain('@dragover="onDragOverCol(c.key, $event)"')
+    expect(board).toContain("@media (min-width: 761px) {\n  .col--empty .col-name {")
+    expect(board).toContain('.col--empty .zones {')
+  })
+})
+
+describe('todo detail drawer (gofer-5inz)', () => {
+  const board = raw(import.meta.glob('../components/PlanBoard.vue', { eager: true, query: '?raw', import: 'default' }))
+
+  it('opens from a board card, from the list title and from a details button', () => {
+    expect(board).toContain("@click=\"emit('open', card.todo)\"")
+    expect(detail).toContain('@open="openTodo"')
+    expect(detail).toContain('data-test="todo-open"')
+    expect(detail).toContain('data-test="todo-detail-btn"')
+    expect(detail).toContain('@click.prevent.stop="openTodo(t)"')
+  })
+
+  it('renders the shared drawer with the plan data and the existing write paths', () => {
+    expect(detail).toContain('<TodoDrawer')
+    expect(detail).toContain('v-model="todoDrawerOpen"')
+    expect(detail).toContain(':todos="plan?.todos ?? []"')
+    expect(detail).toContain(':jobs="plan?.jobs ?? []"')
+    expect(detail).toContain(':handoff="handoffLatest"')
+    expect(detail).toContain(':write-block="planWriteBlock()"')
+    // 写操作复用列表行那两条路，不另起 PATCH。
+    expect(detail).toContain('@status="onTodoStatus"')
+    expect(detail).toContain('void dispatchTodo(todo, agent)')
+    expect(detail).toContain('@open-job="openJob"')
   })
 })
