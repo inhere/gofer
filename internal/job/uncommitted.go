@@ -3,7 +3,6 @@ package job
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/procattr"
 )
 
@@ -300,20 +300,22 @@ func uncommittedDecision(policy string, files []string, session string, attempt,
 	}
 }
 
-func uncommittedResumePrompt(files []string) string {
-	return uncommittedResumePromptCount(len(files), files)
+func uncommittedResumePrompt(lang i18n.Lang, files []string) string {
+	return uncommittedResumePromptCount(lang, len(files), files)
 }
 
-func uncommittedResumePromptCount(count int, files []string) string {
+// uncommittedResumePromptCount is uncommittedResumePrompt for a job whose recorded
+// change count is larger than the file list kept with it.
+func uncommittedResumePromptCount(lang i18n.Lang, count int, files []string) string {
 	first := files
 	if len(first) > 20 {
 		first = first[:20]
 	}
-	return fmt.Sprintf("上一轮结束时有 %d 个文件改动未提交：%s。请按功能点检查并本地提交（conventional commit），不要 push，不要提交无关文件；不应提交的请说明原因。", count, strings.Join(first, "、"))
+	return uncommittedResumePromptText(lang, count, first)
 }
 
 func (s *Service) resumeUncommitted(snap JobResult) bool {
-	res, err := s.resumeJob(snap.ID, uncommittedResumePromptCount(snap.UncommittedCount, snap.UncommittedFiles), snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1, nil, ResumeOptions{Internal: true})
+	res, err := s.resumeJob(snap.ID, uncommittedResumePromptCount(jobPromptLanguage(s.config(), snap), snap.UncommittedCount, snap.UncommittedFiles), snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1, nil, ResumeOptions{Internal: true})
 	if err != nil {
 		// PERMANENT: same as autoResume — a ceiling refusal ends this chain here.
 		if errors.Is(err, ErrCeilingDenied) {

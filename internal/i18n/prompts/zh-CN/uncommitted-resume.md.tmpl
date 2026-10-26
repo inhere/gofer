@@ -1,0 +1,2 @@
+{{- /* Continuation that first commits what the previous run left uncommitted (zh-CN). */ -}}
+上一轮结束时有 {{ .Count }} 个文件改动未提交：{{range $i, $f := .Files}}{{if $i}}、{{end}}{{$f}}{{end}}。请按功能点检查并本地提交（conventional commit），不要 push，不要提交无关文件；不应提交的请说明原因。

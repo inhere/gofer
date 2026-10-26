@@ -1,0 +1,1 @@
+The previous run ended with 3 uncommitted files: a.go, b.go, c.go. Go through them change by change and commit locally (conventional commit); do not push, do not commit unrelated files, and say why for any that should not be committed.
