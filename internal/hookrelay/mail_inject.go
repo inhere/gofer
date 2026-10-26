@@ -12,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/mail"
 )
 
@@ -72,8 +73,9 @@ func RenderMail(m client.TakenMail) string {
 }
 
 // MailMoreLine is the one line that says letters are still waiting after a capped injection.
-func MailMoreLine(n int) string {
-	return fmt.Sprintf("还有 %d 封待读信件，下一轮继续送达，或 gofer session mail ls", n)
+// It speaks the language of the session it is injected into.
+func MailMoreLine(lang i18n.Lang, n int) string {
+	return i18n.T(lang, "hook.mail.more", "n", n)
 }
 
 // renderMails joins the letters; the limits are the server's, but the hook never renders
@@ -154,7 +156,7 @@ func (r *runner) catchUpMail(res Result, a client.AgentSession) Result {
 	}
 	text := renderMails(mails)
 	if remaining > 0 {
-		text += "\n" + MailMoreLine(remaining)
+		text += "\n" + MailMoreLine(r.lang(), remaining)
 	}
 	r.log("catch-up: injecting %d letter(s), %d more waiting", len(mails), remaining)
 	if res.Context != "" {
@@ -200,7 +202,7 @@ func (r *runner) urgentMailContext() string {
 		}
 		text := renderMails(o.mails)
 		if o.remaining > 0 {
-			text += "\n" + MailMoreLine(o.remaining)
+			text += "\n" + MailMoreLine(r.lang(), o.remaining)
 		}
 		r.log("urgent mail: injecting %d letter(s) before the tool call", len(o.mails))
 		return text

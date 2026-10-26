@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -276,7 +277,7 @@ func TestMailInjectionLimitsAndMoreLine(t *testing.T) {
 		if countTag(res.Context) != 5 {
 			t.Fatalf("letters injected=%d, want 5: %q", countTag(res.Context), res.Context)
 		}
-		if !strings.Contains(res.Context, MailMoreLine(2)) || !strings.Contains(res.Context, "还有 2 封待读信件") {
+		if !strings.Contains(res.Context, MailMoreLine(i18n.Default, 2)) || !strings.Contains(res.Context, "还有 2 封待读信件") {
 			t.Fatalf("missing the 还有 N 封 line: %q", res.Context)
 		}
 		if st := f.states(); st[6] != "pending" || st[7] != "pending" || st[5] != "delivered" {
@@ -294,7 +295,7 @@ func TestMailInjectionLimitsAndMoreLine(t *testing.T) {
 		f.add(1, false, strings.Repeat("字", 5000))
 		f.add(2, false, strings.Repeat("字", 5000))
 		res, _ := Run(f, mailEventPayload(t, "claude", sid, "UserPromptSubmit"), fastOpts(nil))
-		if countTag(res.Context) != 1 || !strings.Contains(res.Context, MailMoreLine(1)) {
+		if countTag(res.Context) != 1 || !strings.Contains(res.Context, MailMoreLine(i18n.Default, 1)) {
 			t.Fatalf("want one letter and the more-line: %q", res.Context)
 		}
 		if f.states()[2] != "pending" {

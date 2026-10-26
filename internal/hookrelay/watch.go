@@ -1,12 +1,14 @@
 package hookrelay
 
 import (
-	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/msgprefix"
 )
 
 // WatchedJob is the small job projection needed by the Stop hook.
@@ -76,8 +78,9 @@ func extractJobWatchCandidates(tool, output string) []string {
 // formatWatchedJobCompletion renders one watched-job notice. It opens with the
 // job-done prefix (msgprefix.JobDone), the same prefix the messenger path uses
 // (sessionrelay.FormatJobEndedNotice): gofer's own notice, never a person's
-// "[来自 web，…]" line.
-func formatWatchedJobCompletion(job WatchedJob) string {
+// "[来自 web，…]" line. Both the prefix and the body speak lang — the language the
+// server names for the receiving session.
+func formatWatchedJobCompletion(job WatchedJob, lang i18n.Lang) string {
 	d := job.Duration
 	if d <= 0 && job.StartedAt > 0 && job.EndedAt >= job.StartedAt {
 		d = time.Duration(job.EndedAt-job.StartedAt) * time.Second
@@ -85,13 +88,14 @@ func formatWatchedJobCompletion(job WatchedJob) string {
 	if d < 0 {
 		d = 0
 	}
-	line := fmt.Sprintf(JobDoneTag+" %s %s status=%s exit=%d 耗时%s", job.ID,
-		strings.TrimSpace(job.Title), job.Status, job.ExitCode, formatDuration(d))
+	line := msgprefix.Open(lang, msgprefix.JobDone) + " " + i18n.T(lang, "hook.watch.job_done",
+		"id", job.ID, "title", strings.TrimSpace(job.Title), "status", job.Status,
+		"exit", job.ExitCode, "duration", formatDuration(d))
 	if reason := watchReason(job); reason != "" {
 		line += " reason=" + reason
 	}
 	if strings.EqualFold(job.Status, "needs_review") {
-		line += "（待验收：gofer job review " + job.ID + "，再 accept / reject）"
+		line += i18n.T(lang, "hook.watch.review_hint", "id", job.ID)
 	}
 	return line
 }
@@ -116,7 +120,7 @@ func formatDuration(d time.Duration) string {
 	return strconv.FormatInt(int64(d/time.Second), 10) + "s"
 }
 
-func mergeWatchedTerminals(jobs []WatchedJob) string {
+func mergeWatchedTerminals(jobs []WatchedJob, lang i18n.Lang) string {
 	if len(jobs) == 0 {
 		return ""
 	}
@@ -124,7 +128,7 @@ func mergeWatchedTerminals(jobs []WatchedJob) string {
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].ID < ordered[j].ID })
 	parts := make([]string, 0, len(ordered))
 	for _, job := range ordered {
-		parts = append(parts, formatWatchedJobCompletion(job))
+		parts = append(parts, formatWatchedJobCompletion(job, lang))
 	}
 	return strings.Join(parts, "\n")
 }

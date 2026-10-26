@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/secret"
 )
 
@@ -35,8 +36,20 @@ import (
 // EventPermissionRequest is the hook event name.
 const EventPermissionRequest = "PermissionRequest"
 
-// permissionMessagePrefix opens the session's last message while a prompt is pending.
-const permissionMessagePrefix = "需要授权："
+// permissionMessage opens the session's last message while a prompt is pending. It
+// speaks the language of the session it is reported for.
+func permissionMessage(lang i18n.Lang, summary string) string {
+	return i18n.T(lang, "hook.permission.request", "summary", summary)
+}
+
+// denyMessage is what the agent reads when the person denied: with their reason when
+// they gave one, the plain form otherwise.
+func denyMessage(lang i18n.Lang, reason string) string {
+	if reason = strings.TrimSpace(reason); reason == "" {
+		return i18n.T(lang, "hook.permission.denied")
+	}
+	return i18n.T(lang, "hook.permission.denied_reason", "reason", reason)
+}
 
 // Display caps: the summary is one line on a card, the input a collapsible block.
 const (
@@ -45,9 +58,6 @@ const (
 	permissionLabelRunes   = 160
 	permissionMaxSugs      = 4
 )
-
-// defaultDenyMessage is what the agent reads when the person denied without a reason.
-const defaultDenyMessage = "用户在 gofer web 上拒绝了这次操作"
 
 // PermissionDecision is the hook's decision (hookSpecificOutput.decision).
 type PermissionDecision struct {
@@ -136,8 +146,9 @@ func strField(m map[string]any, keys ...string) string {
 }
 
 // PermissionView renders what a person needs to judge a prompt: a one-line
-// summary ("Bash `rm -rf node_modules`") and the redacted, truncated input.
-func PermissionView(tool string, input json.RawMessage) (summary, detail string) {
+// summary ("Bash `rm -rf node_modules`") and the redacted, truncated input. lang is
+// the language of the session the card belongs to (the truncation marker).
+func PermissionView(lang i18n.Lang, tool string, input json.RawMessage) (summary, detail string) {
 	tool = strings.TrimSpace(tool)
 	if tool == "" {
 		tool = "tool"
@@ -171,7 +182,7 @@ func PermissionView(tool string, input json.RawMessage) (summary, detail string)
 		for cut > 0 && !utf8.RuneStart(detail[cut]) {
 			cut--
 		}
-		detail = detail[:cut] + "\n…（已截断）"
+		detail = detail[:cut] + "\n" + i18n.T(lang, "hook.permission.truncated")
 	}
 	summary = tool
 	if what != "" {
@@ -216,16 +227,16 @@ func PermissionFingerprint(tool string, input json.RawMessage) string {
 }
 
 // destinationLabel names where an "always allow" rule would be stored.
-func destinationLabel(dest string) string {
+func destinationLabel(lang i18n.Lang, dest string) string {
 	switch dest {
 	case "session":
-		return "本会话"
+		return i18n.T(lang, "hook.permission.dest_session")
 	case "localSettings":
-		return "本项目（本地）"
+		return i18n.T(lang, "hook.permission.dest_local")
 	case "projectSettings":
-		return "本项目"
+		return i18n.T(lang, "hook.permission.dest_project")
 	case "userSettings":
-		return "所有项目"
+		return i18n.T(lang, "hook.permission.dest_all")
 	}
 	return dest
 }
@@ -243,8 +254,8 @@ type permissionSuggestion struct {
 	} `json:"rules"`
 }
 
-// SuggestionLabel renders one permission_suggestions entry for a button.
-func SuggestionLabel(raw json.RawMessage) string {
+// SuggestionLabel renders one permission_suggestions entry for a button, in lang.
+func SuggestionLabel(lang i18n.Lang, raw json.RawMessage) string {
 	var s permissionSuggestion
 	if json.Unmarshal(raw, &s) != nil {
 		return ""
@@ -260,18 +271,18 @@ func SuggestionLabel(raw json.RawMessage) string {
 				parts = append(parts, r.ToolName)
 			}
 		}
-		label = "规则 " + strings.Join(parts, ", ")
+		label = i18n.T(lang, "hook.permission.rule", "items", strings.Join(parts, ", "))
 		if s.Behavior != "" && s.Behavior != "allow" {
-			label += "（" + s.Behavior + "）"
+			label += i18n.T(lang, "hook.permission.behavior", "behavior", s.Behavior)
 		}
 	case "addDirectories":
-		label = "目录 " + strings.Join(s.Directories, ", ")
+		label = i18n.T(lang, "hook.permission.dirs", "items", strings.Join(s.Directories, ", "))
 	case "setMode":
-		label = "切换到 " + s.Mode + " 模式"
+		label = i18n.T(lang, "hook.permission.mode", "mode", s.Mode)
 	default:
 		label = s.Type
 	}
-	if d := destinationLabel(s.Destination); d != "" {
+	if d := destinationLabel(lang, s.Destination); d != "" {
 		label += " · " + d
 	}
 	return truncateRunes(redactText(oneLineText(label)), permissionLabelRunes)
@@ -279,7 +290,7 @@ func SuggestionLabel(raw json.RawMessage) string {
 
 // parseSuggestions splits permission_suggestions into raw entries (what the hook
 // returns as updatedPermissions) and their labels (what the web shows).
-func parseSuggestions(raw json.RawMessage) ([]json.RawMessage, []client.PermissionSuggestionLabel) {
+func parseSuggestions(lang i18n.Lang, raw json.RawMessage) ([]json.RawMessage, []client.PermissionSuggestionLabel) {
 	var list []json.RawMessage
 	if len(raw) == 0 || json.Unmarshal(raw, &list) != nil {
 		return nil, nil
@@ -289,28 +300,23 @@ func parseSuggestions(raw json.RawMessage) ([]json.RawMessage, []client.Permissi
 	}
 	labels := make([]client.PermissionSuggestionLabel, 0, len(list))
 	for _, r := range list {
-		labels = append(labels, client.PermissionSuggestionLabel{Label: SuggestionLabel(r)})
+		labels = append(labels, client.PermissionSuggestionLabel{Label: SuggestionLabel(lang, r)})
 	}
 	return list, labels
 }
 
 // decisionFromAnswer turns the stored web answer into the hook decision. ok=false
-// for an answer the hook cannot honour (the terminal dialog then stays).
-func decisionFromAnswer(answer string, sugs []json.RawMessage) (PermissionDecision, bool) {
+// for an answer the hook cannot honour (the terminal dialog then stays). lang is the
+// session's language: the deny message is what the agent reads.
+func decisionFromAnswer(lang i18n.Lang, answer string, sugs []json.RawMessage) (PermissionDecision, bool) {
 	a := strings.TrimSpace(answer)
 	switch {
 	case a == "allow":
 		return PermissionDecision{Behavior: "allow"}, true
 	case a == "deny":
-		return PermissionDecision{Behavior: "deny", Message: defaultDenyMessage}, true
+		return PermissionDecision{Behavior: "deny", Message: denyMessage(lang, "")}, true
 	case strings.HasPrefix(a, "deny:"):
-		msg := strings.TrimSpace(strings.TrimPrefix(a, "deny:"))
-		if msg == "" {
-			msg = defaultDenyMessage
-		} else {
-			msg = "用户在 gofer web 上拒绝了这次操作：" + msg
-		}
-		return PermissionDecision{Behavior: "deny", Message: msg}, true
+		return PermissionDecision{Behavior: "deny", Message: denyMessage(lang, strings.TrimPrefix(a, "deny:"))}, true
 	case strings.HasPrefix(a, "always:"):
 		i, err := strconv.Atoi(strings.TrimPrefix(a, "always:"))
 		if err != nil || i < 0 || i >= len(sugs) {
@@ -405,8 +411,8 @@ func waitTerminalDenied(p Payload, wait time.Duration) bool {
 // is away, waits for their web answer. No answer = no output: the terminal dialog
 // that is already on screen simply stays.
 func (r *runner) permissionRequest() Result {
-	summary, detail := PermissionView(r.p.ToolName, r.p.ToolInput)
-	msg := permissionMessagePrefix + summary
+	summary, detail := PermissionView(r.lang(), r.p.ToolName, r.p.ToolInput)
+	msg := permissionMessage(r.lang(), summary)
 	if ObserveOnly(r.p.dialect()) {
 		r.beatAndLog(client.SessionHeartbeat{Event: r.p.Event, LastMessage: msg})
 		return Result{}
@@ -435,7 +441,7 @@ func (r *runner) permissionRequest() Result {
 			wait = budget
 		}
 	}
-	sugs, labels := parseSuggestions(r.p.PermissionSuggestions)
+	sugs, labels := parseSuggestions(r.lang(), r.p.PermissionSuggestions)
 	fp := PermissionFingerprint(r.p.ToolName, r.p.ToolInput)
 	d, err := r.api.OpenSessionPermission(r.p.SessionID, client.SessionPermission{
 		ToolName: r.p.ToolName, Summary: summary, Input: detail, Suggestions: labels,
@@ -455,7 +461,7 @@ func (r *runner) permissionRequest() Result {
 	if !ok {
 		return Result{}
 	}
-	dec, usable := decisionFromAnswer(answer, sugs)
+	dec, usable := decisionFromAnswer(r.lang(), answer, sugs)
 	if !usable {
 		r.log("permission answer %q not usable, leaving it to the terminal", answer)
 		r.releaseOpenPermission(fp)

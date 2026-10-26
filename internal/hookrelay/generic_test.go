@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 func gpayload(t *testing.T, key string, m map[string]any) Payload {
@@ -113,7 +114,7 @@ func TestGenericInjectedFlag(t *testing.T) {
 	if b.Injected || b.Title == "" {
 		t.Fatalf("injected=false beat = %+v", b)
 	}
-	if !IsHarnessPrompt(JobDoneTag+" x") || !strings.HasPrefix(formatWatchedJobCompletion(WatchedJob{ID: "j"}), JobDoneTag+" ") {
+	if !IsHarnessPrompt(JobDoneTag+" x") || !strings.HasPrefix(formatWatchedJobCompletion(WatchedJob{ID: "j"}, i18n.Default), JobDoneTag+" ") {
 		t.Fatal("job notice not recognised")
 	}
 }

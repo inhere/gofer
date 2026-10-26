@@ -1,11 +1,11 @@
 package hookrelay
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -130,12 +130,12 @@ func (r *runner) commandMemories() Result {
 			return
 		}
 		state := r.loadMemoryState()
-		hits := matchCommandMemories(cands, cmd, r.p.Agent, r.opts.now(), state.Keys)
+		hits := matchCommandMemories(cands, cmd, r.p.Agent, r.opts.now(), state.Keys, r.lang())
 		if len(hits) == 0 {
 			done <- outcome{}
 			return
 		}
-		done <- outcome{state: state, hits: hits, text: renderPromptMemories(hits, r.opts.MemoryBudget)}
+		done <- outcome{state: state, hits: hits, text: renderPromptMemories(hits, r.opts.MemoryBudget, r.lang())}
 	}()
 	timer := time.NewTimer(deadline)
 	defer timer.Stop()
@@ -156,13 +156,15 @@ func (r *runner) commandMemories() Result {
 }
 
 // matchCommandMemories picks the candidates whose when.commands prefix cmd (an
-// already normalised command), with matchPromptMemories' filters and order.
-func matchCommandMemories(cands []PromptMemory, cmd, agent string, now time.Time, seen []string) []promptMemoryHit {
+// already normalised command), with matchPromptMemories' filters and order. The
+// header line speaks lang: it names the command about to run.
+func matchCommandMemories(cands []PromptMemory, cmd, agent string, now time.Time, seen []string, lang i18n.Lang) []promptMemoryHit {
 	hits := matchMemories(cands, agent, now, seen, func(m tracker.Memory) (string, bool) {
 		return tracker.MemoryMatchesCommand(m.MemoryMeta, cmd)
 	})
 	for i := range hits {
-		hits[i].head = msgprefix.Format(msgprefix.Memory, "", fmt.Sprintf("执行 “%s” 前", hits[i].keyword))
+		head := i18n.T(lang, "hook.memory.exec_before", "cmd", hits[i].keyword)
+		hits[i].head = msgprefix.FormatIn(lang, msgprefix.Memory, "", head)
 	}
 	return hits
 }

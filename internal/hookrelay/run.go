@@ -15,6 +15,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/msgprefix"
 )
 
@@ -177,7 +178,12 @@ const (
 )
 
 // noMessageFallback is relayed when the last assistant text cannot be read.
-const noMessageFallback = "(无法读取最后一条消息，请查看终端)"
+//
+// It is a function of the language: the text is the session's own last message on
+// the web, and gofer writes it in the language it speaks to that session.
+func noMessageFallback(lang i18n.Lang) string {
+	return i18n.T(lang, "hook.result.no_message")
+}
 
 // Run executes one hook event. Network failures never surface as errors — the
 // terminal must never be blocked by a dead hub — they are logged and the hook
@@ -380,7 +386,7 @@ func (r *runner) logHubRefusal(err error) {
 		return
 	}
 	r.markRefusedLogged()
-	r.log("report REFUSED (403): %v — this session belongs to another caller (the hook runs under a different token); ask an admin to hand it over: gofer session owner %s <caller>, or the web 会话 page", err, r.p.SessionID)
+	r.log("report REFUSED (403): %v — this session belongs to another caller (the hook runs under a different token); ask an admin to hand it over: gofer session owner %s <caller>, or the web Sessions page", err, r.p.SessionID)
 }
 
 func (o Options) withDefaults() Options {
@@ -420,6 +426,32 @@ type runner struct {
 	// PostToolUse progress beat, so a long turn's usage reaches the hub (and the plan
 	// it is attributed to) before the turn's Stop.
 	usageOnBeat bool
+	// sessionLang is the language the server names for this session (its project's
+	// language, else the server's; design 2026-10-27-i18n §3). The hook has no config
+	// of its own, so this — carried on every session response — is where its text's
+	// language comes from. Empty until the first successful register / beat.
+	sessionLang i18n.Lang
+}
+
+// lang is the language of the text this hook injects into the session: the one the
+// server named (see sessionLang), else GOFER_LANG (a hook run by hand, or a server
+// too old to name one), else the DEPRECATED default.
+func (r *runner) lang() i18n.Lang {
+	if r.sessionLang != "" {
+		return r.sessionLang
+	}
+	if l := i18n.FromEnv(); l != "" {
+		return l
+	}
+	return i18n.Default
+}
+
+// learnLanguage takes the language the server named for the session (an older
+// server sends none: then lang() falls back).
+func (r *runner) learnLanguage(a client.AgentSession) {
+	if l, ok := i18n.Normalize(a.Language); ok {
+		r.sessionLang = l
+	}
 }
 
 func (r *runner) register(event string) (client.AgentSession, error) {
@@ -437,6 +469,7 @@ func (r *runner) register(event string) (client.AgentSession, error) {
 		r.logHubRefusal(err)
 		r.log("register failed: %v", err)
 	}
+	r.learnLanguage(a)
 	return a, err
 }
 
@@ -498,6 +531,7 @@ func (r *runner) heartbeat(hb client.SessionHeartbeat) (a client.AgentSession, o
 		r.log("heartbeat failed: %v", err)
 		return client.AgentSession{}, false
 	}
+	r.learnLanguage(a)
 	return a, true
 }
 
@@ -609,7 +643,7 @@ func (r *runner) stop() Result {
 	if a.WatchCount > 0 {
 		watched = r.watchedJobs()
 		if completed := r.releaseWatchedJobs(turn.ID, watched); len(completed) > 0 {
-			return Result{Blocked: true, Reason: mergeWatchedTerminals(completed)}
+			return Result{Blocked: true, Reason: mergeWatchedTerminals(completed, r.lang())}
 		}
 	}
 	// Letters already waiting go out now: the server closes this turn and takes them in one
@@ -660,7 +694,7 @@ func (r *runner) stop() Result {
 		// elsewhere) must be honoured, not only the ones that existed at Stop time.
 		watched = r.watchedJobs()
 		if completed := r.releaseWatchedJobs(turn.ID, watched); len(completed) > 0 {
-			return Result{Blocked: true, Reason: mergeWatchedTerminals(completed)}
+			return Result{Blocked: true, Reason: mergeWatchedTerminals(completed, r.lang())}
 		}
 		switch st.Outcome {
 		case "answered":
@@ -813,7 +847,7 @@ func (r *runner) waitJobsOnly(a client.AgentSession) Result {
 			// catch-up could not have delivered.
 			if done := r.deliverTerminal(jobs); len(done) > 0 {
 				r.log("watched job(s) finished while relay off, delivering %d notice(s)", len(done))
-				return Result{Blocked: true, Reason: mergeWatchedTerminals(done)}
+				return Result{Blocked: true, Reason: mergeWatchedTerminals(done, r.lang())}
 			}
 			if len(jobs) == 0 {
 				r.log("no watched jobs left, released")
@@ -866,7 +900,7 @@ func (r *runner) catchUpJobs(res Result, a client.AgentSession) Result {
 		return res
 	}
 	r.log("catch-up: injecting %d undelivered job notice(s)", len(done))
-	res.Context = mergeWatchedTerminals(done)
+	res.Context = mergeWatchedTerminals(done, r.lang())
 	return res
 }
 
@@ -1011,7 +1045,7 @@ func (r *runner) lastMessage() string {
 			return text
 		}
 	}
-	return noMessageFallback
+	return noMessageFallback(r.lang())
 }
 
 // webReplyContinuation is what the Stop hands the agent when its relay turn was

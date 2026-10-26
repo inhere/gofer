@@ -2596,6 +2596,11 @@ type AgentSession struct {
 	ProgressAt     int64  `json:"progress_at,omitempty"`
 	// LastCwd is the directory the hook last reported (display only).
 	LastCwd string `json:"last_cwd,omitempty"`
+	// Language is the language gofer writes the text IT sends this session in
+	// (its project's language, else the server's; design 2026-10-27-i18n §3).
+	// The hook has no config of its own, so it reads the setting here to generate
+	// the prefixes and blocks it injects in the same language.
+	Language string `json:"language,omitempty"`
 	// Topic / Scope / TopicSource / TopicAt: what the session works on (topic one sentence,
 	// scope the project-relative sub-paths it owns). TopicSource is self | human | inferred;
 	// an inferred topic is derived on every read.
