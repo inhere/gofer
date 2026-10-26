@@ -50,7 +50,13 @@ func TestRepoInitManagedBlockLanguage(t *testing.T) {
 				t.Setenv(k, v)
 			}
 			t.Setenv("GOFER_LANG", tc.env["GOFER_LANG"])
-			root := t.TempDir()
+			// The real path: on macOS t.TempDir() sits under /var, a symlink to /private/var,
+			// and the command's os.Getwd() reports the resolved path, so a config naming the
+			// symlinked one would not match the project (ProjectForPath compares cleaned paths).
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
 			if tc.config != "" {
 				cfg := fmt.Sprintf(tc.config, filepath.ToSlash(root))
 				if err := os.WriteFile(filepath.Join(root, "test-config.yaml"), []byte(cfg), 0o644); err != nil {
