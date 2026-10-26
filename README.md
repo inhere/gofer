@@ -2,6 +2,8 @@
 
 English · [中文](README.zh-CN.md) · [Changelog](CHANGELOG.md) · [User guide](docs/guide/README.md)
 
+> **Status: 0.x — young, and in daily use by its author.** Releases land often (sometimes several a week) and interfaces may still change between minor versions: [CHANGELOG.md](CHANGELOG.md) is the authority for what changed, and [stability](docs/guide/stability.md) says what you can rely on.
+
 **gofer is a self-hosted control plane that runs coding agents — Claude Code, Codex, ACP agents or plain commands — as tracked, reviewable jobs inside your real projects, on your own machines.**
 
 You run one gofer server on your main host and, optionally, workers on other machines or containers. Everything you hand over becomes a *job* with its logs, diff, commits, token usage and review state; people and agents reach the same jobs through the CLI, an HTTP API, MCP and a web console.
@@ -137,7 +139,7 @@ The guide, most runbooks and design records are written in Chinese; the command 
 
 ## Contributing
 
-See [docs/guide/development.md](docs/guide/development.md) for build and test commands, and [AGENTS.md](AGENTS.md) for the project rules (layering, CLI conventions, compatibility policy, shared utilities). User-visible changes update [`skills/gofer-usage/`](skills/gofer-usage/) and get an entry in [CHANGELOG.md](CHANGELOG.md) under "未发布" in the same change set.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, the checks to run before you push, the commit style and what a good issue or pull request looks like; [`docs/guide/development.md`](docs/guide/development.md) covers the same ground in Chinese, and [AGENTS.md](AGENTS.md) holds the project rules (layering, CLI conventions, compatibility policy, shared utilities) for contributors working with an AI agent. User-visible changes update [`skills/gofer-usage/`](skills/gofer-usage/) and get an entry in [CHANGELOG.md](CHANGELOG.md) under "未发布" in the same change set. Report security problems privately, as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

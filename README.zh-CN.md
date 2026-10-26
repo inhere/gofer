@@ -2,6 +2,8 @@
 
 [English](README.md) · 中文 · [更新日志](CHANGELOG.md) · [用户指南](docs/guide/README.md)
 
+> **状态：0.x，很年轻，但作者每天都在用。** 发版频繁（有时一周几个版本），minor 版本之间接口仍可能调整：以 [CHANGELOG.md](CHANGELOG.md) 为准，[稳定性说明](docs/guide/stability.md) 写明哪些可以放心依赖。
+
 **gofer 是一个自托管的控制平面：把 Claude Code、Codex、ACP agent 或普通命令，作为可追踪、可验收的 job，在你自己的机器上、在真实的项目目录里运行。**
 
 你在主力机器上跑一个 gofer server，按需在其他机器或容器里跑 worker。交出去的每件事都是一个 *job*，带日志、diff、提交、token 用量和验收状态；人和 agent 通过 CLI、HTTP API、MCP 和 Web 控制台看到的是同一批 job。
@@ -137,7 +139,7 @@ gofer session relay on                  # 本会话之后每次停下都在 Web 
 
 ## 参与开发
 
-构建与测试命令见 [docs/guide/development.md](docs/guide/development.md)；项目规则（分层、CLI 约定、兼容策略、公共工具）见 [AGENTS.md](AGENTS.md)。用户可见的改动在同一批提交里更新 [`skills/gofer-usage/`](skills/gofer-usage/)，并在 [CHANGELOG.md](CHANGELOG.md) 的「未发布」下加一条。
+构建、提交前检查、提交信息约定以及 issue / PR 的期待见 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）；中文说明见 [docs/guide/development.md](docs/guide/development.md)；项目规则（分层、CLI 约定、兼容策略、公共工具）见 [AGENTS.md](AGENTS.md)。用户可见的改动在同一批提交里更新 [`skills/gofer-usage/`](skills/gofer-usage/)，并在 [CHANGELOG.md](CHANGELOG.md) 的「未发布」下加一条。安全问题请私下报告，方式见 [SECURITY.md](SECURITY.md)。
 
 ## 许可
 
