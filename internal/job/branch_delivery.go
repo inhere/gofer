@@ -327,6 +327,9 @@ func deliveryTitle(snap JobResult, req JobRequest) string {
 // was checked, in the language of the job's project (design 2026-10-27-i18n-design.md
 // §3). The prompt passes through the same redaction as the logs.
 func (s *Service) deliveryBody(cfg *config.Config, snap JobResult, req JobRequest) string {
+	if req.ProjectKey == "" {
+		req.ProjectKey = snap.ProjectKey
+	}
 	lang := promptLanguage(cfg, &req)
 	t := func(key string, args ...any) string { return i18n.T(lang, key, args...) }
 	var b strings.Builder
