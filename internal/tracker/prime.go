@@ -10,6 +10,10 @@ import (
 	"github.com/inhere/gofer/internal/i18n"
 )
 
+// PrimeMaxBytes is the byte budget of one session-opening prime (and of the
+// tracker part of a dispatched job's rules).
+const PrimeMaxBytes = 8 << 10
+
 func primeText(lang i18n.Lang, key string, args ...any) string {
 	return i18n.T(lang, "prime."+key, args...)
 }

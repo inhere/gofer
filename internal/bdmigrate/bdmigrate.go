@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -34,6 +35,9 @@ type Options struct {
 	ActivityWindow time.Duration // 0 = DefaultActivityWindow
 	ExportTimeout  time.Duration // 0 = 2 minutes
 	Now            func() time.Time
+	// Language is the language of the managed instruction block written into
+	// AGENTS.md / CLAUDE.md ("" = the default language).
+	Language i18n.Lang
 }
 
 // Report is everything the run found and did; Format renders it for humans.
@@ -243,7 +247,7 @@ func buildPlan(opts Options) (*plan, error) {
 		rep.Notes = append(rep.Notes, "issue prefix could not be inferred; the directory name will be used")
 	}
 
-	blocks, err := planBlocks(root)
+	blocks, err := planBlocks(root, opts.Language)
 	if err != nil {
 		return p, err
 	}

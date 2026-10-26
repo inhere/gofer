@@ -68,7 +68,7 @@ func TestEnglishPrimeTextHasNoCJK(t *testing.T) {
 }
 
 func TestMigratedTrackerFilesHaveNoCJK(t *testing.T) {
-	for _, file := range []string{"prime.go", "prime_layout.go", "prime_memory.go", "focus.go"} {
+	for _, file := range []string{"prime.go", "prime_layout.go", "prime_memory.go", "focus.go", "repo_block.go"} {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)

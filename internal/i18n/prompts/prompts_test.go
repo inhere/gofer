@@ -28,6 +28,7 @@ var goldenData = map[string]any{
 	NameStewardMemory: StewardMemoryData{Step: 3, Findings: 4, Remaining: 2,
 		Lines: []string{"proj · k1（rule）：a, b"}, More: 3},
 	NameStewardQuestion: StewardQuestionData{By: "human:ann", Text: "what is still open?"},
+	NameRepoBlock:       RepoBlockData{CommitPolicy: "commit policy line", MemoryHint: "memory write hint"},
 }
 
 // TestRenderGolden pins the rendered text of every template in both languages.

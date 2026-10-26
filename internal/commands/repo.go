@@ -99,7 +99,7 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						return err
 					}
-					report, err := bdmigrate.Run(bdmigrate.Options{Root: root, Apply: applyMigration, Force: forceMigration})
+					report, err := bdmigrate.Run(bdmigrate.Options{Root: root, Apply: applyMigration, Force: forceMigration, Language: managedBlockLanguage(root)})
 					if err != nil {
 						if asJSON {
 							_ = printTrackerJSON(c, report)
@@ -193,7 +193,7 @@ func NewRepoCmd() *gcli.Command {
 						}
 						root = filepath.Dir(filepath.Dir(initTracker))
 					}
-					s, beads, err := tracker.InitWith(root, tracker.InitOptions{Prefix: prefix, NoAgentsMD: noAgents, CommitPolicy: commitPolicy})
+					s, beads, err := tracker.InitWith(root, tracker.InitOptions{Prefix: prefix, NoAgentsMD: noAgents, CommitPolicy: commitPolicy, Language: managedBlockLanguage(root)})
 					if err != nil {
 						return err
 					}
@@ -414,6 +414,23 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 	return primeWithServerContext(s, configPath, "", nil)
 }
 
+// managedBlockLanguage is the language of the instruction block a repository gets
+// (`repo init` / `repo migrate`). It is the repository's project language, else
+// `server.language`, else the deployment default (design 2026-10-27-i18n-design.md
+// §3). The machine's locale is deliberately not a source: the block is written for
+// the repository, so running init on an English-locale machine must not flip a
+// deployment that names another language (see i18n.FromEnvVar).
+func managedBlockLanguage(root string) i18n.Lang {
+	cfg, _, err := config.Load(config.InputCfgFile)
+	if err != nil || cfg == nil {
+		return i18n.Default
+	}
+	if key, ok := cfg.ProjectForPath(root); ok {
+		return cfg.LanguageFor(key)
+	}
+	return cfg.Language()
+}
+
 // primeWithServerContext renders the whole session-opening prime: the local tracker
 // prime (selected by the cwd and, since gofer-11tz, by keywords) plus the server-backed
 // scoped memories and open plans. keywords names the subsystems / languages / modules
@@ -422,13 +439,12 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 func primeWithServerContext(s *tracker.Store, configPath, agentName string, keywords []string) (string, error) {
 	base := ""
 	primeCfg := tracker.PrimeConfig{}
-	// Injected into the agent's session, so it follows the deployment: the project's
-	// language when a config is found, else an explicit GOFER_LANG, else the default —
-	// never the machine locale (CI runs under LANG=C.UTF-8).
-	primeLang := i18n.FromEnvVar()
-	if primeLang == "" {
-		primeLang = i18n.Default
-	}
+	// The prime is text gofer writes FOR an agent, so its language follows the
+	// deployment (the project's language, then the server's), never the machine's
+	// locale: like a hook injection, only an explicit GOFER_LANG speaks for the
+	// deployment when no config is readable (i18n.FromEnvVar). An English-locale
+	// machine must not turn a zh-CN deployment's prime English.
+	primeLang := i18n.Resolve(i18n.FromEnvVar())
 	if s != nil {
 		localCfg, err := s.ReadConfig()
 		if err != nil {
