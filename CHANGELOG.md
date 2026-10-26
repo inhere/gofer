@@ -11,8 +11,17 @@
 
 ## [未发布]
 
+## [0.199.0] - 2026-10-27
+
+### 新增
+
 - **`gofer repo init` / `repo migrate` 写进仓库的说明块按项目语言生成（gofer-992q，阶段 1 收尾 P1h）**：AGENTS.md / CLAUDE.md 里的 gofer 托管块（命令速查、提交策略、记忆写法、`repo status --changed` 提示）现在按该仓库所属项目的 `language` 生成（`projects.<key>.language` → `server.language` → 缺省），不再写死中文；语言只看配置，不看机器 locale。托管块的起止标记与语言无关，所以已有仓库重跑 `repo init` 会就地重写成新语言（新旧两种语言的块都认），块外内容不动，中英不会并存。中文默认输出与以前逐字一致。同一版还修了个同类的拾遗：`repo prime` 在没读得到配置时不再按机器 locale（`LANG`）选语言（英文系统 / CI 下会把 zh-CN 部署的 prime 切成英文），只认显式 `GOFER_LANG`，否则用部署缺省。
 - **`gofer repo prime` 按项目语言生成会话开场上下文（gofer-992q，阶段 1 P1g）**：prime 的提交策略、命令提示、当前重点、规则与记忆索引、交接和接手提示，以及派发 job 的 tracker-prime / 项目与全局记忆段落现在支持 `en` / `zh-CN`。语言取项目覆盖的 `projects.<key>.language`，再回落 `server.language`；用户自己写的 issue、记忆和 plan 内容保持原文，中文默认输出保持兼容。
+
+### 修复
+
+- **`gofer repo prime` 与 `gofer issue brief` / `plan brief` 不再跟着机器的系统语言变成英文**：两者的内容是给 agent 读的，拿不到配置时与 hook 一致，只认显式的 `GOFER_LANG`，否则用部署默认语言；只有 `gofer init` 写入的初始配置按系统语言。
+
 ## [0.198.1] - 2026-10-27
 
 ### 修复
