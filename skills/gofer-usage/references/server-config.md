@@ -77,6 +77,7 @@ projects:
     # scope_discipline: auto                  # auto/on/off；agent job prompt 末尾追加「## 交付约定」
     # tracker_prime: nearest                  # 注入的 tracker-prime 来自哪个 tracker：nearest(默认，逐级向上找最近的)/repo(只找 cwd 所在 git 仓，不越仓顶层)/off(不注入)
     # knowledge_capture: auto                 # auto/on/off；要求汇报写「## 可复用经验」，交付时记为经验候选
+    # language: en                            # 本项目的文本语言(覆盖 server.language)；注入的提示词段落与交付正文用它
     # require_review: true                    # job 正常完成后停在 needs_review 等人验收
     # verify: [make, test]                    # 默认验证步骤：agent 正常结束后在同一 cwd/env 跑, 非 0 → failed；需要 allow_exec
     # verify_timeout_sec: 900                 # 验证步骤超时(不写=600s)
@@ -266,6 +267,7 @@ server:
   allow_empty_token: false             # 要显式 true 才能无 token 起
   # web_enabled: true                  # 不写=开
   # web_base_url: https://gofer.example.com   # 对外地址(通知 / 待批链接里用)
+  # language: zh-CN                    # gofer 生成文本的语言: en 或 zh-CN(也认 zh / zh_CN.UTF-8 / english 等别名，归一化为规范值)；影响注入给 agent 的提示词段落(验收标准 / 交付约定 / 时限提示)与交付请求正文；项目可用 projects.<key>.language 覆盖；不写 = 暂用 zh-CN(以后版本默认改为 en，启动日志与 `gofer config validate` 会提示)；`gofer init` 按本机系统语言写入
   # path_view: host|container          # 执行视角(默认 host=用 host_path)
   # callers: [...]                     # 多调用方鉴权 + 每个 caller 的权限(can_admin / can_answer)与限流
   # governance: {...}                  # 限流全局兜底、require_answer_capability、attach_origins
