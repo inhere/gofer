@@ -178,16 +178,19 @@ func TestLocalRunnerPutPrunesAndReportsAbsPath(t *testing.T) {
 		t.Fatalf("AttachmentsDir: %v", err)
 	}
 	stale := dateDir(t, dir, time.Now().AddDate(0, 0, -30))
+	// The placement's own date dir is today's: a fixed date would itself age past the
+	// retention window and be pruned by this very placement.
+	today := time.Now().Format("20060102")
 
 	src := filepath.Join(t.TempDir(), "shot.png")
 	if err := os.WriteFile(src, []byte("png-bytes"), 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-	absPath, err := mgr.PutAndWait(t.Context(), "tester", "server", "alpha", src, "tmp/gofer-attachments/20261019/shot.png", 30*time.Second)
+	absPath, err := mgr.PutAndWait(t.Context(), "tester", "server", "alpha", src, "tmp/gofer-attachments/"+today+"/shot.png", 30*time.Second)
 	if err != nil {
 		t.Fatalf("PutAndWait: %v", err)
 	}
-	want := filepath.Join(root, "tmp", AttachmentsDirName, "20261019", "shot.png")
+	want := filepath.Join(root, "tmp", AttachmentsDirName, today, "shot.png")
 	if absPath != want {
 		t.Fatalf("abs path = %q, want %q", absPath, want)
 	}
@@ -197,7 +200,7 @@ func TestLocalRunnerPutPrunesAndReportsAbsPath(t *testing.T) {
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("the stale date dir survived the placement (err=%v)", err)
 	}
-	if !strings.HasSuffix(absPath, filepath.Join(AttachmentsDirName, "20261019", "shot.png")) {
+	if !strings.HasSuffix(absPath, filepath.Join(AttachmentsDirName, today, "shot.png")) {
 		t.Fatalf("reported path %q is not the attachment layout", absPath)
 	}
 }

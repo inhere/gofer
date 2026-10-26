@@ -57,7 +57,10 @@ func TestServerRestartHandsOverStagedCopyAndResumesAsDone(t *testing.T) {
 	var binary string
 	select {
 	case binary = <-handed:
-	case <-time.After(wait.Timeout(t, 10*time.Second)):
+	// Success-path budget: the handover follows a copy of the running test binary, and on
+	// Windows a freshly written executable is scanned before it can be read back, which
+	// under a loaded verify run took longer than 10s.
+	case <-time.After(wait.Timeout(t, 60*time.Second)):
 		t.Fatal("the managed handover was not called")
 	}
 	if !strings.Contains(binary, restartStageDir) {

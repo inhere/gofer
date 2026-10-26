@@ -36,7 +36,10 @@ func TestFileXferWorkerReportsAbsPath(t *testing.T) {
 	}
 
 	payload := []byte("new attachment bytes")
-	const rel = "tmp/gofer-attachments/20261019/xf-worker01.png"
+	// Today's date dir: a fixed date would age past the retention window and be pruned by
+	// this very placement.
+	today := time.Now().Format("20060102")
+	rel := "tmp/gofer-attachments/" + today + "/xf-worker01.png"
 	rec := stagePutPayload(t, hub.mgr, "alpha", rel, payload, false)
 	if err := hub.mgr.Deliver(ctx, rec.ID); err != nil {
 		t.Fatalf("Deliver: %v", err)
@@ -46,7 +49,7 @@ func TestFileXferWorkerReportsAbsPath(t *testing.T) {
 	if row.State != string(xfer.StateDone) {
 		t.Fatalf("put state = %s (error=%q), want done", row.State, row.Error)
 	}
-	want := filepath.Join(workerHost, "tmp", "gofer-attachments", "20261019", "xf-worker01.png")
+	want := filepath.Join(workerHost, "tmp", "gofer-attachments", today, "xf-worker01.png")
 	if row.AbsPath != want {
 		t.Fatalf("journal abs_path = %q, want the worker's own destination %q", row.AbsPath, want)
 	}
@@ -59,7 +62,7 @@ func TestFileXferWorkerReportsAbsPath(t *testing.T) {
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("the stale attachment date dir survived the placement (err=%v)", err)
 	}
-	if _, err := os.Stat(filepath.Join(attachments, "20261019")); err != nil {
+	if _, err := os.Stat(filepath.Join(attachments, today)); err != nil {
 		t.Fatalf("the placement's own date dir is missing: %v", err)
 	}
 }
