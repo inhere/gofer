@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Memory flags (design 2026-10-10-handoff-brief-and-knowledge-loop §二): an agent that
@@ -58,6 +60,13 @@ func MemoryFlagPrefix(meta MemoryMeta) string {
 		return ""
 	}
 	return fmt.Sprintf("⚠ 待复核（%s）", truncateRunes(strings.Join(strings.Fields(meta.Flags[0].Reason), " "), memoryFlagReasonRunes))
+}
+
+func MemoryFlagPrefixIn(lang i18n.Lang, meta MemoryMeta) string {
+	if len(meta.Flags) == 0 {
+		return ""
+	}
+	return i18n.T(lang, "prime.memory_format.flag", "reason", truncateRunes(strings.Join(strings.Fields(meta.Flags[0].Reason), " "), memoryFlagReasonRunes))
 }
 
 // FlagMemory adds a flag to a repository memory. It leaves updated_at alone: a flag is

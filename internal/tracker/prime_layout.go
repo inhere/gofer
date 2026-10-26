@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Segment budgets of the local prime (design §2.3.1). Each segment truncates on
@@ -39,6 +41,8 @@ type PrimeOptions struct {
 	// WorkHint adds WorkPrimeHint to the fixed header. The command layer sets it
 	// when the project has open work items or the session relay hooks are installed.
 	WorkHint bool
+	// Language is the language of generated prime text. Empty uses i18n.Default.
+	Language i18n.Lang
 	// Keywords is the task selection of a session opening (gofer-11tz): `gofer repo
 	// prime --keywords` (or GOFER_PRIME_KEYWORDS) names the subsystems / languages /
 	// modules this session is about, so the matching memories are injected in full and
@@ -75,7 +79,7 @@ func (s *Store) CwdRel(cwd string) (string, bool) {
 
 func (s *Store) defaultPrimeOptions() PrimeOptions {
 	cwd, _ := os.Getwd()
-	return PrimeOptions{Cwd: cwd, Now: time.Now()}
+	return PrimeOptions{Cwd: cwd, Now: time.Now(), Language: i18n.Default}
 }
 
 func (s *Store) Prime() (string, error) { return s.PrimeWith(s.defaultPrimeOptions()) }
@@ -101,6 +105,7 @@ func (s *Store) PrimeEstimate() (bytes int, truncated bool, err error) {
 }
 
 func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
+	lang := i18n.Resolve(opts.Language)
 	if opts.Now.IsZero() {
 		opts.Now = time.Now()
 	}
@@ -108,19 +113,20 @@ func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	policy, err := CommitPolicyText(cfg.CommitPolicy)
+	policy, err := CommitPolicyTextIn(lang, cfg.CommitPolicy)
 	if err != nil {
 		return "", false, err
 	}
 	var out strings.Builder
-	out.WriteString("## 提交策略\n")
+	out.WriteString(primeText(lang, "layout.commit_heading"))
+	out.WriteString("\n")
 	out.WriteString(policy)
 	out.WriteString("\n")
 	if opts.WorkHint {
-		out.WriteString(WorkPrimeHint)
+		out.WriteString(workPrimeHint(lang))
 		out.WriteString("\n")
 	}
-	out.WriteString(TrackerPrimeHint)
+	out.WriteString(trackerPrimeHint(lang))
 	out.WriteString("\n")
 	truncated := false
 	budget := func(n int) int {
@@ -147,7 +153,7 @@ func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
 	}
 	rel, inRepo := s.CwdRel(opts.Cwd)
 	view := newMemoryView(memories, memoryViewOptions{CwdRel: rel, CwdKnown: inRepo, Now: opts.Now,
-		Stale: s.primeStaleKeys(memories, cfg, opts.Now), Selection: KeywordsOnly(opts.Keywords)})
+		Stale: s.primeStaleKeys(memories, cfg, opts.Now), Selection: KeywordsOnly(opts.Keywords), Language: lang})
 	if cfg.Prime.MemoryEnabled() {
 		seg := view.rulesSegment(budget(primeRulesBudget))
 		truncated = seg.write(&out) || truncated
@@ -157,7 +163,7 @@ func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
 		if err != nil {
 			return "", false, err
 		}
-		seg := activeSegment(issues, cfg.Prime.ActiveLimit(), opts.Now, budget(primeActiveBudget))
+		seg := activeSegment(issues, cfg.Prime.ActiveLimit(), opts.Now, budget(primeActiveBudget), lang)
 		truncated = seg.write(&out) || truncated
 	}
 	if cfg.Prime.ReadyEnabled() {
@@ -165,19 +171,19 @@ func (s *Store) renderPrime(opts PrimeOptions) (string, bool, error) {
 		if err != nil {
 			return "", false, err
 		}
-		seg := readySegment(ready, cfg.Prime.ReadyCount(), opts.Now, budget(primeReadyBudget))
+		seg := readySegment(ready, cfg.Prime.ReadyCount(), opts.Now, budget(primeReadyBudget), lang)
 		truncated = seg.write(&out) || truncated
 	}
 	if cfg.Prime.MemoryEnabled() {
-		seg := view.indexSegment("记忆索引", cfg.Prime.SummaryLimit(), budget(primeIndexBudget))
+		seg := view.indexSegment(primeText(lang, "layout.index_heading", "n", len(view.indexEntries(func(m Memory) bool { return m.EffectiveKind() != MemoryKindHandoff }))), cfg.Prime.SummaryLimit(), budget(primeIndexBudget))
 		truncated = seg.write(&out) || truncated
 		seg = view.handoffSegment(budget(primeHandoffBudget))
 		truncated = seg.write(&out) || truncated
 	}
-	out.WriteString("\n" + PrimeTakeoverHint + "\n")
+	out.WriteString("\n" + primeTakeoverHint(lang) + "\n")
 	body := out.String()
 	if !opts.Unbounded && len(body) > PrimeMaxBytes {
-		const notice = "\n[内容已截断：使用 gofer issue ls / gofer memory ls 查看全部]\n"
+		notice := "\n" + primeText(lang, "layout.truncated") + "\n"
 		body = utf8Prefix(body, PrimeMaxBytes-len(notice)) + notice
 		truncated = true
 	}
@@ -252,7 +258,7 @@ func issueTouchedAt(item Issue) string {
 
 // activeSegment lists in_progress issues only (§2.7); open-but-assigned issues
 // are shown in ready with their assignee instead.
-func activeSegment(issues []Issue, limit int, now time.Time, budget int) primeSegment {
+func activeSegment(issues []Issue, limit int, now time.Time, budget int, lang i18n.Lang) primeSegment {
 	active := make([]Issue, 0)
 	for _, item := range issues {
 		if item.Status == "in_progress" {
@@ -268,8 +274,8 @@ func activeSegment(issues []Issue, limit int, now time.Time, budget int) primeSe
 		}
 		return active[i].ID < active[j].ID
 	})
-	seg := primeSegment{title: "进行中 issue", budget: budget, more: func(n int) string {
-		return fmt.Sprintf("另有 %d 条：`gofer issue ls --status in_progress`\n", n)
+	seg := primeSegment{title: primeText(lang, "layout.active_heading"), budget: budget, more: func(n int) string {
+		return primeText(lang, "layout.active_more", "n", n) + "\n"
 	}}
 	for i, item := range active {
 		if limit >= 0 && i >= limit {
@@ -281,16 +287,16 @@ func activeSegment(issues []Issue, limit int, now time.Time, budget int) primeSe
 			line += " @" + item.Assignee
 		}
 		if t, ok := parseTime(issueTouchedAt(item)); ok && now.Sub(t) > primeStaleClaim {
-			line += fmt.Sprintf("（认领 %d 天无更新）", ageDays(t, now))
+			line += primeText(lang, "layout.active_stale", "n", ageDays(t, now))
 		}
 		seg.lines = append(seg.lines, line+"\n")
 	}
 	return seg
 }
 
-func readySegment(ready []Issue, limit int, now time.Time, budget int) primeSegment {
-	seg := primeSegment{title: fmt.Sprintf("ready 前 %d", limit), budget: budget, more: func(n int) string {
-		return fmt.Sprintf("另有 %d 条：`gofer issue ready`\n", n)
+func readySegment(ready []Issue, limit int, now time.Time, budget int, lang i18n.Lang) primeSegment {
+	seg := primeSegment{title: primeText(lang, "layout.ready_heading", "n", limit), budget: budget, more: func(n int) string {
+		return primeText(lang, "layout.ready_more", "n", n) + "\n"
 	}}
 	for i, item := range ready {
 		if i >= limit {
@@ -300,7 +306,7 @@ func readySegment(ready []Issue, limit int, now time.Time, budget int) primeSegm
 		if item.Assignee != "" {
 			line += " @" + item.Assignee
 		}
-		if age := AgeText(issueTouchedAt(item), now); age != "" {
+		if age := AgeTextIn(lang, issueTouchedAt(item), now); age != "" {
 			line += " · " + age
 		}
 		seg.lines = append(seg.lines, line+"\n")

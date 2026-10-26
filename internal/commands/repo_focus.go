@@ -8,6 +8,7 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/focusremote"
 	"github.com/inhere/gofer/internal/hookrelay"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -26,7 +27,7 @@ var primeFocusGit tracker.GitRunner = tracker.ExecGit
 
 // primeFocus renders the 「当前重点」 section; "" when nothing is available.
 // Server data is optional: without a reachable server only local parts show.
-func primeFocus(s *tracker.Store, configPath string, now time.Time) string {
+func primeFocus(s *tracker.Store, configPath string, now time.Time, lang i18n.Lang) string {
 	ctx, cancel := context.WithTimeout(context.Background(), primeFocusTimeout)
 	defer cancel()
 	src := tracker.FocusSources{Git: primeFocusGit}
@@ -39,7 +40,7 @@ func primeFocus(s *tracker.Store, configPath string, now time.Time) string {
 		cli := client.NewWithTimeout(addr, os.Getenv("GOFER_SERVER_TOKEN"), primeClientTimeout)
 		src.Remote = focusremote.Remote(cli, serverProjectKey(cli, projectKey, root), clientPlanPrimeLimit, withServer)
 	}
-	return s.BuildFocus(ctx, now, src)
+	return s.BuildFocusIn(ctx, now, src, lang)
 }
 
 // primeWorkHint decides whether prime carries the `gofer work report` line: the

@@ -11,6 +11,7 @@
 
 ## [未发布]
 
+- **`gofer repo prime` 按项目语言生成会话开场上下文（gofer-992q，阶段 1 P1g）**：prime 的提交策略、命令提示、当前重点、规则与记忆索引、交接和接手提示，以及派发 job 的 tracker-prime / 项目与全局记忆段落现在支持 `en` / `zh-CN`。语言取项目覆盖的 `projects.<key>.language`，再回落 `server.language`；用户自己写的 issue、记忆和 plan 内容保持原文，中文默认输出保持兼容。
 ## [0.198.0] - 2026-10-27
 
 ### 改进

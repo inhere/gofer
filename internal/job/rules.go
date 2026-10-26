@@ -14,6 +14,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
 	"github.com/inhere/gofer/internal/util"
@@ -181,7 +182,7 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 			// gofer-11tz: on top of the cwd they are ranked by the TASK — the dispatcher's
 			// --prime-keywords plus the job's own title and prompt head.
 			sel := tracker.NewPrimeSelection(req.PrimeKeywords, req.Title, req.Prompt)
-			body, ok := s.trackerPrime(proj, req.ProjectKey, req.Agent, cwd, sel)
+			body, ok := s.trackerPrime(proj, req.ProjectKey, req.Agent, cwd, sel, i18n.Resolve(i18n.Lang(req.Language)))
 			if ok {
 				sum := sha256.Sum256([]byte(body))
 				refs = append(refs, RuleRef{Name: trackerPrimeRuleName, SHA256: hex.EncodeToString(sum[:])})
@@ -200,7 +201,7 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 			ErrInvalidRequest, total, limit, largestRules(bodies))
 	}
 
-	req.Prompt = renderRulesSection(refs, bodies) + req.Prompt
+	req.Prompt = renderRulesSectionIn(promptLanguage(cfg, req), refs, bodies) + req.Prompt
 	req.ruleRefs = refs
 	req.ruleBytes = int(total)
 	return nil
@@ -211,8 +212,12 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 // project file's name (project:<key>) is derived here rather than resolved from the
 // library.
 func renderRulesSection(refs []RuleRef, bodies map[string]string) string {
+	return renderRulesSectionIn(i18n.Default, refs, bodies)
+}
+
+func renderRulesSectionIn(lang i18n.Lang, refs []RuleRef, bodies map[string]string) string {
 	var b strings.Builder
-	b.WriteString(rulesPromptHeader)
+	b.WriteString(i18n.T(lang, "prime.rules.header"))
 	b.WriteString("\n\n")
 	for _, ref := range refs {
 		b.WriteString("### ")
@@ -238,7 +243,7 @@ func renderRulesSection(refs []RuleRef, bodies map[string]string) string {
 // tracker cannot be read. A half-initialised tracker (a stray .gofer/tracker without
 // its config) is skipped like an unreadable project rules file: the job can still run,
 // so it must not be rejected.
-func (s *Service) trackerPrime(proj config.ProjectConfig, projectKey, agentName, cwd string, sel tracker.PrimeSelection) (string, bool) {
+func (s *Service) trackerPrime(proj config.ProjectConfig, projectKey, agentName, cwd string, sel tracker.PrimeSelection, lang i18n.Lang) (string, bool) {
 	mode := proj.EffectiveTrackerPrime()
 	if mode == config.TrackerPrimeOff {
 		return "", false
@@ -251,11 +256,11 @@ func (s *Service) trackerPrime(proj config.ProjectConfig, projectKey, agentName,
 	if err != nil {
 		return "", false
 	}
-	body, err := store.PrimeRule(cwd, sel)
+	body, err := store.PrimeRuleIn(lang, cwd, sel)
 	if err != nil {
 		return "", false
 	}
-	return s.appendScopedPrime(store, body, projectKey, agentName, cwd, sel), true
+	return s.appendScopedPrime(store, body, projectKey, agentName, cwd, sel, lang), true
 }
 
 // appendScopedPrime adds the 「项目记忆」 and 「全局记忆」 sections to a job's tracker-prime
@@ -265,7 +270,7 @@ func (s *Service) trackerPrime(proj config.ProjectConfig, projectKey, agentName,
 // task keywords decide what is worth showing). Best effort: they belong to no tracker, so
 // a config that turns prime.scoped_memory off, a service without a metadata store or a
 // read failure simply leaves the section out — never a reason to fail a job.
-func (s *Service) appendScopedPrime(store *tracker.Store, base, projectKey, agentName, cwd string, sel tracker.PrimeSelection) string {
+func (s *Service) appendScopedPrime(store *tracker.Store, base, projectKey, agentName, cwd string, sel tracker.PrimeSelection, lang i18n.Lang) string {
 	if s.meta == nil {
 		return base
 	}
@@ -275,17 +280,17 @@ func (s *Service) appendScopedPrime(store *tracker.Store, base, projectKey, agen
 	}
 	rel, inRepo := store.CwdRel(cwd)
 	opts := tracker.ScopedPrimeOptions{AgentName: agentName, CwdRel: rel, CwdKnown: inRepo, Now: time.Now(),
-		SummaryLimit: cfg.Prime.SummaryLimit(), Selection: sel}
+		SummaryLimit: cfg.Prime.SummaryLimit(), Selection: sel, Language: lang}
 	// The project's own memories first: they are the more specific material, so a tight
 	// budget must cut the machine-wide ones instead.
 	sections := make([]tracker.ScopedPrimeSection, 0, 2)
 	if key := strings.TrimSpace(projectKey); key != "" {
 		if rows, err := s.meta.ListScopedMemories(jobstore.ScopedMemoryProject, key, "", nil); err == nil {
-			sections = append(sections, tracker.ScopedPrimeSection{Title: "项目记忆", Items: scopedTrackerMemories(rows), LsHint: "gofer memory ls --project " + key})
+			sections = append(sections, tracker.ScopedPrimeSection{Title: i18n.T(lang, "prime.memory.scoped_project_title"), Items: scopedTrackerMemories(rows), LsHint: "gofer memory ls --project " + key})
 		}
 	}
 	if rows, err := s.meta.ListScopedMemories(jobstore.ScopedMemoryGlobal, "", "", nil); err == nil {
-		sections = append(sections, tracker.ScopedPrimeSection{Title: "全局记忆", Items: scopedTrackerMemories(rows), LsHint: "gofer memory ls --global"})
+		sections = append(sections, tracker.ScopedPrimeSection{Title: i18n.T(lang, "prime.memory.scoped_global_title"), Items: scopedTrackerMemories(rows), LsHint: "gofer memory ls --global"})
 	}
 	return tracker.AppendScopedPrimeSections(base, opts, sections...)
 }
@@ -332,7 +337,7 @@ func ruleBodyOf(raw []byte) string {
 // quotes the header (a caller discussing gofer's rules) is not mistaken for one the
 // server injected.
 func hasRulesSection(prompt string) bool {
-	return strings.HasPrefix(prompt, rulesPromptHeader) && strings.Contains(prompt, rulesPromptEnd)
+	return (strings.HasPrefix(prompt, rulesPromptHeader) || strings.HasPrefix(prompt, i18n.T(i18n.EN, "prime.rules.header"))) && strings.Contains(prompt, rulesPromptEnd)
 }
 
 // stripRulesSection removes a leading injected section, returning the prompt the

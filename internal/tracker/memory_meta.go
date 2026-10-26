@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Memory kinds (design 2026-10-09-prime-memory-quality-design.md §2.1).
@@ -155,6 +157,18 @@ func AgeText(value string, now time.Time) string {
 		return "今天"
 	}
 	return fmt.Sprintf("%d 天前", days)
+}
+
+func AgeTextIn(lang i18n.Lang, value string, now time.Time) string {
+	t, ok := parseTime(value)
+	if !ok {
+		return ""
+	}
+	days := ageDays(t, now)
+	if days <= 0 {
+		return i18n.T(lang, "prime.memory_format.today")
+	}
+	return i18n.T(lang, "prime.memory_format.days_ago", "n", days)
 }
 
 func ageDays(t, now time.Time) int {

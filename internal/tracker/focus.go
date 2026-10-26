@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // 「当前重点」 section of prime (design §2.4). Everything is fetched fresh and best
@@ -94,7 +96,8 @@ type FocusInput struct {
 	Server   *FocusServer
 	Budget   int // 0 = FocusBudget
 	// NoEnv drops the environment lines (仓库 / 服务), prime.focus_env=false.
-	NoEnv bool
+	NoEnv    bool
+	Language i18n.Lang
 	// ShowTag adds the latest tag to the repository line, prime.focus_tag=true.
 	ShowTag bool
 }
@@ -103,7 +106,11 @@ type FocusInput struct {
 // and renders the section; "" when there is nothing to show. Local tracker read
 // errors and slow / failing sources only drop their own lines.
 func (s *Store) BuildFocus(ctx context.Context, now time.Time, src FocusSources) string {
-	in := FocusInput{Now: now}
+	return s.BuildFocusIn(ctx, now, src, i18n.Default)
+}
+
+func (s *Store) BuildFocusIn(ctx context.Context, now time.Time, src FocusSources, lang i18n.Lang) string {
+	in := FocusInput{Now: now, Language: lang}
 	if cfg, err := s.ReadConfig(); err == nil {
 		in.NoEnv, in.ShowTag = !cfg.Prime.FocusEnvEnabled(), cfg.Prime.FocusTagEnabled()
 	}
@@ -153,9 +160,14 @@ type focusLine struct {
 	text string
 }
 
+func focusText(lang i18n.Lang, key string, args ...any) string {
+	return i18n.T(lang, "prime.focus."+key, args...)
+}
+
 // RenderFocus renders the 「当前重点」 section within the budget, dropping whole
 // lines in the order env → 未收尾 → 刚解锁 → 在做 (last line of a category first).
 func RenderFocus(in FocusInput) string {
+	lang := i18n.Resolve(in.Language)
 	if in.Now.IsZero() {
 		in.Now = time.Now()
 	}
@@ -168,57 +180,57 @@ func RenderFocus(in FocusInput) string {
 		lines = append(lines, focusLine{cat: cat, text: "- " + fmt.Sprintf(format, args...) + "\n"})
 	}
 	for _, it := range focusActiveIssues(in.Issues, in.Now) {
-		add(focusDoing, "在做 %s %s", it.ID, truncateRunes(it.Title, focusTitleRunes))
+		add(focusDoing, "%s", focusText(lang, "work", "id", it.ID, "title", truncateRunes(it.Title, focusTitleRunes)))
 	}
 	for i, p := range in.Plans {
 		if i >= focusPlanLimit {
 			break
 		}
-		text := fmt.Sprintf("plan %s「%s」%d/%d", p.ID, truncateRunes(p.Title, 20), p.Done, p.Total)
+		text := focusText(lang, "plan", "id", p.ID, "title", truncateRunes(p.Title, 20), "done", p.Done, "total", p.Total)
 		if p.NextTodo != "" {
-			text += "，下一步：" + truncateRunes(p.NextTodo, focusTitleRunes)
+			text += focusText(lang, "plan_next", "next", truncateRunes(p.NextTodo, focusTitleRunes))
 		}
 		add(focusDoing, "%s", text)
 	}
 	if h, ok := focusHandoff(in.Memories, in.Now); ok {
-		add(focusDoing, "交接 %s：%s", h.Key, truncateRunes(DisplayMemorySummary(h.MemoryMeta, h.Content), 40))
+		add(focusDoing, "%s", focusText(lang, "handoff", "key", h.Key, "summary", truncateRunes(DisplayMemorySummary(h.MemoryMeta, h.Content), 40)))
 	}
 	for _, u := range unlockedIssues(in.Issues, in.Now) {
-		add(focusUnlocked, "刚解锁 %s %s（%s 已关闭）", u.issue.ID, truncateRunes(u.issue.Title, focusTitleRunes), u.by)
+		add(focusUnlocked, "%s", focusText(lang, "unlocked", "id", u.issue.ID, "title", truncateRunes(u.issue.Title, focusTitleRunes), "by", u.by))
 	}
 	if g := in.Git; g != nil {
 		var parts []string
 		switch {
 		case g.ChangedKnown && g.Changed > 0:
-			part := fmt.Sprintf("工作树 %d 个文件未提交", g.Changed)
+			part := focusText(lang, "worktree_changed", "n", g.Changed)
 			if g.TrackerChanged > 0 {
-				part += fmt.Sprintf("（含 tracker %d）", g.TrackerChanged)
+				part += focusText(lang, "worktree_tracker", "n", g.TrackerChanged)
 			}
 			parts = append(parts, part)
 		case !g.ChangedKnown && g.TrackerChanged > 0:
-			parts = append(parts, fmt.Sprintf("tracker %d 个文件未提交", g.TrackerChanged))
+			parts = append(parts, focusText(lang, "tracker_changed", "n", g.TrackerChanged))
 		}
 		if g.HasUpstream && g.Ahead > 0 {
-			parts = append(parts, fmt.Sprintf("领先上游 %d 个提交", g.Ahead))
+			parts = append(parts, focusText(lang, "ahead", "n", g.Ahead))
 		}
 		if len(parts) > 0 {
-			add(focusWrapUp, "未收尾：%s", strings.Join(parts, "；"))
+			add(focusWrapUp, "%s", focusText(lang, "unfinished", "parts", strings.Join(parts, i18n.T(lang, "prime.layout.separator"))))
 		}
 		if g.Head != "" && !in.NoEnv {
-			text := "仓库：" + strings.TrimSpace(g.Branch+" "+g.Head)
+			text := focusText(lang, "repo", "value", strings.TrimSpace(g.Branch+" "+g.Head))
 			if g.HasTag && in.ShowTag {
-				text += fmt.Sprintf("，最近 tag %s（之后 %d 个提交）", g.Tag, g.SinceTag)
+				text += focusText(lang, "repo_tag", "tag", g.Tag, "n", g.SinceTag)
 			}
 			add(focusEnv, "%s", text)
 		}
 	}
-	if line := focusServerLine(in.Server); line != "" && !in.NoEnv {
+	if line := focusServerLineIn(lang, in.Server); line != "" && !in.NoEnv {
 		add(focusEnv, "%s", line)
 	}
 	if len(lines) == 0 {
 		return ""
 	}
-	head := fmt.Sprintf("## 当前重点（自动，%s）\n", focusClock(in.Now, in.Server))
+	head := primeText(lang, "layout.focus_heading", "clock", focusClock(in.Now, in.Server)) + "\n"
 	size := func() int {
 		n := len(head)
 		for _, l := range lines {
@@ -342,16 +354,24 @@ func unlockedIssues(issues []Issue, now time.Time) []unlockedIssue {
 // focusServerLine: server version, then this project's workers — how many are
 // online, how many run a version other than the server's (a count, no names) and
 // the offline ones by name. Workers of other projects are never in srv.Workers.
-func focusServerLine(srv *FocusServer) string {
+func focusServerLine(srv *FocusServer) string { return focusServerLineIn(i18n.Default, srv) }
+
+func focusServerLineIn(lang i18n.Lang, srv *FocusServer) string {
 	if srv == nil {
 		return ""
 	}
 	version := shortVersion(srv.Version)
-	text := "服务："
+	text := focusText(lang, "service")
 	if version != "" {
+		if lang == i18n.EN {
+			text += " "
+		}
 		text += "server " + version
 	} else {
-		text += "server 在线"
+		if lang == i18n.EN {
+			text += " "
+		}
+		text += focusText(lang, "service_online")
 	}
 	if len(srv.Workers) == 0 {
 		return text
@@ -367,15 +387,15 @@ func focusServerLine(srv *FocusServer) string {
 			differ++
 		}
 	}
-	text += fmt.Sprintf("；本项目 worker %d/%d 在线", online, len(srv.Workers))
+	text += focusText(lang, "workers", "online", online, "total", len(srv.Workers))
 	switch {
 	case online > 0 && differ == 0:
-		text += "（同版本）"
+		text += focusText(lang, "same_version")
 	case differ > 0:
-		text += fmt.Sprintf("，%d 个与 server 版本不同", differ)
+		text += focusText(lang, "different_version", "n", differ)
 	}
 	if len(offline) > 0 {
-		text += "；离线 " + joinLimited(offline, 3)
+		text += focusText(lang, "offline", "names", joinLimitedIn(lang, offline, 3))
 	}
 	return text
 }
@@ -389,11 +409,13 @@ func shortVersion(v string) string {
 	return v
 }
 
-func joinLimited(items []string, limit int) string {
+func joinLimited(items []string, limit int) string { return joinLimitedIn(i18n.Default, items, limit) }
+
+func joinLimitedIn(lang i18n.Lang, items []string, limit int) string {
 	if len(items) <= limit {
 		return strings.Join(items, " · ")
 	}
-	return strings.Join(items[:limit], " · ") + fmt.Sprintf(" 等 %d 个", len(items))
+	return strings.Join(items[:limit], " · ") + " " + focusText(lang, "list_more", "n", len(items))
 }
 
 // focusClock formats now in the server's zone when known; otherwise in the local
