@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // TestStopHookHeldJobRejectedReason (gofer-9b1b): a held job's submit lines register a
@@ -28,11 +29,11 @@ func TestStopHookHeldJobRejectedReason(t *testing.T) {
 		t.Fatalf("stop result = %+v", res)
 	}
 
-	expired := formatWatchedJobCompletion(WatchedJob{ID: "job-e", Status: "cancelled", Error: "hold expired"})
+	expired := formatWatchedJobCompletion(WatchedJob{ID: "job-e", Status: "cancelled", Error: "hold expired"}, i18n.Default)
 	if !strings.HasSuffix(expired, " reason=hold expired") {
 		t.Fatalf("expired notice = %q", expired)
 	}
-	if done := formatWatchedJobCompletion(WatchedJob{ID: "job-d", Status: "failed", Error: "exit 1"}); strings.Contains(done, "reason=") {
+	if done := formatWatchedJobCompletion(WatchedJob{ID: "job-d", Status: "failed", Error: "exit 1"}, i18n.Default); strings.Contains(done, "reason=") {
 		t.Fatalf("only a cancelled job carries the reason: %q", done)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -14,7 +15,7 @@ func TestPromptMemoryFlagPrefix(t *testing.T) {
 		MemoryMeta: tracker.MemoryMeta{Kind: tracker.MemoryKindRule, When: &tracker.MemoryWhen{Keywords: []string{"发版"}},
 			Flags: []tracker.MemoryFlag{{At: "2026-10-09T00:00:00Z", Reason: "tag 规则已变"}}}}
 	hits := matchPromptMemories([]PromptMemory{{Memory: m}}, "准备发版", "", time.Now(), nil)
-	out := renderPromptMemories(hits, 0)
+	out := renderPromptMemories(hits, 0, i18n.Default)
 	if !strings.Contains(out, "⚠ 待复核（tag 规则已变） release\nRELEASE STEPS") {
 		t.Fatalf("flag prefix missing: %q", out)
 	}

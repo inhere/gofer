@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Claude Code's AskUserQuestion relayed to the web (gofer-02fu). The PreToolUse hook
@@ -21,8 +22,11 @@ import (
 // AskUserQuestionTool is Claude Code's question tool.
 const AskUserQuestionTool = "AskUserQuestion"
 
-// questionMessagePrefix leads the session's last message while a question waits.
-const questionMessagePrefix = "等你回答："
+// questionMessage is the session's last-message line while a question waits. It
+// speaks the language of the session it is reported for.
+func questionMessage(lang i18n.Lang, question string) string {
+	return i18n.T(lang, "hook.question.request", "question", question)
+}
 
 // PreToolDecision is a PreToolUse verdict that lets the call run with a rewritten
 // input (the answered questions).
@@ -55,7 +59,7 @@ func (r *runner) askUserQuestion() Result {
 		r.log("AskUserQuestion input not understood, leaving it to the terminal")
 		return Result{}
 	}
-	msg := questionMessagePrefix + head(in.Questions[0].Question, 200)
+	msg := questionMessage(r.lang(), head(in.Questions[0].Question, 200))
 	a, ok := r.heartbeat(client.SessionHeartbeat{Event: EventPermissionRequest, LastMessage: msg, IdleSec: idleSecPtr()})
 	if !ok {
 		return Result{}

@@ -12,6 +12,7 @@ import (
 	"github.com/gookit/goutil/x/assert"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // fake hub side of the permission endpoints (state lives on fakeAPI.turns).
@@ -78,26 +79,26 @@ func permPayload(t *testing.T, cmd string) Payload {
 }
 
 func TestPermissionViewSummaryRedactionTruncation(t *testing.T) {
-	sum, detail := PermissionView("Bash", json.RawMessage(`{"command":"curl -H 'Authorization: Bearer abcdefghijklmnop' --token s3cr3t https://x","description":"d"}`))
+	sum, detail := PermissionView(i18n.Default, "Bash", json.RawMessage(`{"command":"curl -H 'Authorization: Bearer abcdefghijklmnop' --token s3cr3t https://x","description":"d"}`))
 	assert.True(t, strings.HasPrefix(sum, "Bash `curl"), sum)
 	for _, leak := range []string{"abcdefghijklmnop", "s3cr3t"} {
 		assert.False(t, strings.Contains(sum, leak), "summary leaks "+leak+": "+sum)
 		assert.False(t, strings.Contains(detail, leak), "detail leaks "+leak)
 	}
-	_, detail = PermissionView("Bash", json.RawMessage(`{"command":"make a && make b"}`))
+	_, detail = PermissionView(i18n.Default, "Bash", json.RawMessage(`{"command":"make a && make b"}`))
 	assert.True(t, strings.Contains(detail, "make a && make b"), detail)
-	_, detail = PermissionView("mcp__x__call", json.RawMessage(`{"api_key":"zzz-secret-value","nested":{"password":"p4ss"},"q":"hello"}`))
+	_, detail = PermissionView(i18n.Default, "mcp__x__call", json.RawMessage(`{"api_key":"zzz-secret-value","nested":{"password":"p4ss"},"q":"hello"}`))
 	assert.False(t, strings.Contains(detail, "zzz-secret-value"))
 	assert.False(t, strings.Contains(detail, "p4ss"))
 	assert.True(t, strings.Contains(detail, "hello"))
 
 	big := strings.Repeat("x", 10000)
-	sum, detail = PermissionView("Write", json.RawMessage(`{"file_path":"/w/a.txt","content":"`+big+`"}`))
+	sum, detail = PermissionView(i18n.Default, "Write", json.RawMessage(`{"file_path":"/w/a.txt","content":"`+big+`"}`))
 	assert.Eq(t, "Write /w/a.txt", sum)
 	assert.True(t, len(detail) < permissionInputBytes+64, len(detail))
 	assert.True(t, strings.HasSuffix(detail, "（已截断）"))
 
-	long, _ := PermissionView("Bash", json.RawMessage(`{"command":"`+strings.Repeat("y", 500)+`"}`))
+	long, _ := PermissionView(i18n.Default, "Bash", json.RawMessage(`{"command":"`+strings.Repeat("y", 500)+`"}`))
 	assert.True(t, len([]rune(long)) <= permissionSummaryRunes+1)
 }
 
@@ -110,11 +111,11 @@ func TestPermissionFingerprintIgnoresKeyOrder(t *testing.T) {
 }
 
 func TestSuggestionLabels(t *testing.T) {
-	assert.Eq(t, "规则 Bash(npm --version) · 本项目（本地）", SuggestionLabel(json.RawMessage(
+	assert.Eq(t, "规则 Bash(npm --version) · 本项目（本地）", SuggestionLabel(i18n.Default, json.RawMessage(
 		`{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"npm --version"}],"behavior":"allow","destination":"localSettings"}`)))
-	assert.Eq(t, "目录 /w/proj · 本会话", SuggestionLabel(json.RawMessage(
+	assert.Eq(t, "目录 /w/proj · 本会话", SuggestionLabel(i18n.Default, json.RawMessage(
 		`{"type":"addDirectories","directories":["/w/proj"],"destination":"session"}`)))
-	assert.Eq(t, "切换到 acceptEdits 模式 · 本会话", SuggestionLabel(json.RawMessage(
+	assert.Eq(t, "切换到 acceptEdits 模式 · 本会话", SuggestionLabel(i18n.Default, json.RawMessage(
 		`{"type":"setMode","mode":"acceptEdits","destination":"session"}`)))
 }
 
@@ -127,12 +128,12 @@ func TestPermissionDecisionJSONShape(t *testing.T) {
 		{"deny:不要删", `{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"用户在 gofer web 上拒绝了这次操作：不要删"},"hookEventName":"PermissionRequest"}}`},
 	}
 	for _, tc := range cases {
-		d, ok := decisionFromAnswer(tc.answer, []json.RawMessage{sug})
+		d, ok := decisionFromAnswer(i18n.Default, tc.answer, []json.RawMessage{sug})
 		assert.True(t, ok, tc.answer)
 		assert.Eq(t, tc.want, string(PermissionJSON(d)), tc.answer)
 	}
 	for _, bad := range []string{"always:1", "always:x", "maybe", ""} {
-		_, ok := decisionFromAnswer(bad, []json.RawMessage{sug})
+		_, ok := decisionFromAnswer(i18n.Default, bad, []json.RawMessage{sug})
 		assert.False(t, ok, bad)
 	}
 }

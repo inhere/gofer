@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 func TestPostToolUseRegistersJobWatch(t *testing.T) {
@@ -68,11 +69,11 @@ func TestStopHookReleasesOnWatchedJobTerminal(t *testing.T) {
 		t.Fatalf("stop result=%+v watches=%+v", res, f.watchRows)
 	}
 	terminal := WatchedJob{ID: "job-1", Title: "compile", Status: "done", ExitCode: 0, Duration: 3 * time.Second}
-	reason := formatWatchedJobCompletion(terminal)
+	reason := formatWatchedJobCompletion(terminal, i18n.Default)
 	if !strings.Contains(reason, "[gofer · job 完成] job-1 compile status=done exit=0") {
 		t.Fatalf("completion injection = %q", reason)
 	}
-	if got := mergeWatchedTerminals([]WatchedJob{terminal}); got != reason {
+	if got := mergeWatchedTerminals([]WatchedJob{terminal}, i18n.Default); got != reason {
 		t.Fatalf("single terminal merge = %q, want %q", got, reason)
 	}
 }
@@ -105,7 +106,7 @@ func TestStopHookMergesSimultaneousFinishes(t *testing.T) {
 	got := mergeWatchedTerminals([]WatchedJob{
 		{ID: "job-1", Title: "first", Status: "done", ExitCode: 0, Duration: 2 * time.Second},
 		{ID: "job-2", Title: "second", Status: "failed", ExitCode: 1, Duration: 4 * time.Second},
-	})
+	}, i18n.Default)
 	if strings.Count(got, "[gofer · job 完成]") != 2 {
 		t.Fatalf("merged injection = %q, want two completion entries", got)
 	}

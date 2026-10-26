@@ -17,6 +17,7 @@ import (
 
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
@@ -350,6 +351,11 @@ type sessionView struct {
 	Scope       []string `json:"scope,omitempty"`
 	TopicSource string   `json:"topic_source,omitempty"`
 	TopicAt     int64    `json:"topic_at,omitempty"`
+	// Language is the language gofer writes this session's text in (its project's
+	// language, else the server's; design 2026-10-27-i18n §3). The hook reads it
+	// from here — it has no config of its own — so the text it injects (a memory
+	// block, the pending-mail line, a question line) matches what the server sends.
+	Language string `json:"language,omitempty"`
 }
 
 // toSessionView projects a stored session. Relay / WaitReason / AutoArmed are
@@ -397,7 +403,19 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt, LastCwd: lastCwdForView(a),
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
 		Usage: s.withEstimate(sessionUsageViewOf(a.UsageJSON)),
+		Language: string(s.textLanguage(a.ProjectKey)),
 	}
+}
+
+// textLanguage is the language of the text gofer generates for a session of
+// projectKey: the project's language, else the server's (config.LanguageFor is
+// that one chain). i18n.Default when no project registry is wired (a bare test
+// server), which is the same value an unset config reads as.
+func (s *Server) textLanguage(projectKey string) i18n.Lang {
+	if s.projects != nil {
+		return s.projects.Config().LanguageFor(projectKey)
+	}
+	return i18n.Default
 }
 
 // sessionUsageView is the wire shape of a session's usage: main + sub + total, and the
