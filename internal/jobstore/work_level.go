@@ -1,6 +1,8 @@
 package jobstore
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -135,6 +137,23 @@ func (s *Store) ListWorkJournalLevel(id string, limit int, before int64, level s
 		out[i], out[j] = out[j], out[i]
 	}
 	return out, nil
+}
+
+// FirstWorkJournal returns an item's OLDEST journal line (its creation line); ok is false when
+// the item has none. Who recorded a captured item is only kept there: the capture writes the
+// author into the creation line, while updated_by follows the last write.
+func (s *Store) FirstWorkJournal(id string) (WorkJournalEntry, bool, error) {
+	var e WorkJournalEntry
+	err := s.db.QueryRow(`SELECT id, work_item_id, kind, text, by, at, origin_item, level FROM work_journal
+  WHERE work_item_id = ? ORDER BY id LIMIT 1`, strings.TrimSpace(id)).
+		Scan(&e.ID, &e.WorkItemID, &e.Kind, &e.Text, &e.By, &e.At, &e.OriginItem, &e.Level)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WorkJournalEntry{}, false, nil
+	}
+	if err != nil {
+		return WorkJournalEntry{}, false, fmt.Errorf("jobstore: first work journal %q: %w", id, err)
+	}
+	return e, true, nil
 }
 
 // LatestWorkJournalAt is the time of an item's newest journal line (0 = none).
