@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -18,7 +19,7 @@ type ResumePlan struct {
 	// Reason is the machine-readable code when !Can (see the Reason* constants and
 	// HandedOffPrefix); "" when Can.
 	Reason string `json:"reason,omitempty"`
-	// Message is the plain-language (Chinese) explanation: why not, or what will happen.
+	// Message is the plain-language explanation: why not, or what will happen.
 	Message string `json:"message"`
 	// Warning is non-empty when waking is possible but worth a second look (the
 	// terminal may still be open).
@@ -32,10 +33,10 @@ type ResumePlan struct {
 	ProjectKey string   `json:"project_key,omitempty"`
 	Cwd        string   `json:"cwd,omitempty"`
 	Command    []string `json:"command,omitempty"`
-	// CwdAbs is Cwd resolved against the runner's project root; CwdSource is
-	// transcript | registered | project_root, and CwdReason says in plain Chinese
-	// why that directory was chosen (M8: the original start directory is verified
-	// from the transcript path, see ChooseResumeCwd).
+	// CwdAbs is Cwd resolved against the runner's project root. CwdSource is
+	// transcript | registered | project_root, and CwdReason says in
+	// plain language why that directory was chosen (M8: the original start
+	// directory is verified from the transcript path, see ChooseResumeCwd).
 	CwdAbs    string `json:"cwd_abs,omitempty"`
 	CwdSource string `json:"cwd_source,omitempty"`
 	CwdReason string `json:"cwd_reason,omitempty"`
@@ -60,24 +61,28 @@ func (s *Service) PlanResume(sid string) (ResumePlan, error) {
 func (s *Service) PlanResumeFor(a jobstore.AgentSession) ResumePlan {
 	plan := ResumePlan{State: a.State, Ended: a.State == jobstore.SessionEnded,
 		Runner: a.Runner, Agent: a.Agent, ProjectKey: a.ProjectKey}
+	lang := s.lang(a.ProjectKey)
 	tp, choice, cerr := s.takeoverCheck(a)
 	if cerr != nil {
 		plan.Reason = DeliverReason(cerr)
-		plan.Message = ExplainReason(plan.Reason, a, cerr)
+		plan.Message = ExplainReasonIn(lang, plan.Reason, a, cerr)
 		return plan
 	}
 	cwd := choice.Rel
 	plan.Can, plan.Cwd, plan.Command = true, cwd, append([]string(nil), tp.Argv...)
 	plan.CwdAbs, plan.CwdSource, plan.CwdReason = choice.Abs, choice.Source, choice.Reason
-	if plan.Ended {
-		plan.Message = fmt.Sprintf("会话已结束。将在执行机 %s 上起一个新进程，用「%s」继续这个会话，目录 %s。依据：%s。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
-	} else {
-		plan.Message = fmt.Sprintf("将在执行机 %s 上起一个新进程，用「%s」接管这个会话，目录 %s。依据：%s。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
-		plan.Warning = "这个会话还没有标记为结束，原来的终端可能仍开着；两个进程同时写同一个会话会互相覆盖，建议先关掉原终端。"
-		if a.State == jobstore.SessionOffline {
-			plan.Message = fmt.Sprintf("会话长时间没有心跳，已标记为离线（原进程可能已退出）。将在执行机 %s 上起一个新进程，用「%s」接管这个会话，目录 %s。依据：%s。", runnerLabel(a.Runner), a.Agent, choice.Abs, choice.Reason)
-			plan.Warning = "原进程可能已退出；若它其实还开着，两个进程同时写同一个会话会互相覆盖，建议先确认原终端已关闭。"
-		}
+	switch {
+	case plan.Ended:
+		plan.Message = i18n.T(lang, "sessionrelay.resume.planned_continue", "runner", runnerLabelIn(lang, a.Runner),
+			"agent", a.Agent, "cwd", choice.Abs, "basis", choice.Reason)
+	case a.State == jobstore.SessionOffline:
+		plan.Message = i18n.T(lang, "sessionrelay.resume.planned_offline", "runner", runnerLabelIn(lang, a.Runner),
+			"agent", a.Agent, "cwd", choice.Abs, "basis", choice.Reason)
+		plan.Warning = i18n.T(lang, "sessionrelay.resume.warning_offline")
+	default:
+		plan.Message = i18n.T(lang, "sessionrelay.resume.planned_takeover", "runner", runnerLabelIn(lang, a.Runner),
+			"agent", a.Agent, "cwd", choice.Abs, "basis", choice.Reason)
+		plan.Warning = i18n.T(lang, "sessionrelay.resume.warning_not_ended")
 	}
 	return plan
 }
@@ -119,46 +124,59 @@ func (s *Service) Resume(ctx context.Context, sid, initialInput, by, origin stri
 	return res, nil
 }
 
-func runnerLabel(r string) string {
+func runnerLabel(r string) string { return runnerLabelIn(i18n.Default, r) }
+
+// runnerLabelIn names a session's execution machine in lang; an empty label is
+// spelled out, because "" in the middle of a sentence reads as a mistake.
+func runnerLabelIn(lang i18n.Lang, r string) string {
 	if strings.TrimSpace(r) == "" {
-		return "(未登记)"
+		return i18n.T(lang, "sessionrelay.resume.runner_unknown")
 	}
 	return r
 }
 
-// ExplainReason turns a delivery/takeover failure code into a plain Chinese
-// sentence for the web. cause is the original error (its text is only quoted for
-// codes that carry no other information, such as a runner-side failure).
-func ExplainReason(reason string, a jobstore.AgentSession, cause error) string {
+// ExplainReasonIn turns a delivery/takeover failure code into a plain sentence IN
+// LANG for the web. cause is the original error (its text is only quoted for codes
+// that carry no other information, such as a runner-side failure).
+func ExplainReasonIn(lang i18n.Lang, reason string, a jobstore.AgentSession, cause error) string {
 	switch {
 	case reason == ReasonNoRunner:
-		return "这个会话没有登记执行机（或这台 server 没有接入任务执行器），无法在它原来的机器上起新进程。"
+		return i18n.T(lang, "sessionrelay.resume.no_runner")
 	case strings.HasPrefix(reason, HandedOffPrefix):
-		return fmt.Sprintf("这个会话已经被作业 %s 接管，正在运行。请直接打开那个作业继续对话；要重新起一个，先释放接管。", strings.TrimPrefix(reason, HandedOffPrefix))
+		return i18n.T(lang, "sessionrelay.resume.handed_off", "job", strings.TrimPrefix(reason, HandedOffPrefix))
 	case reason == ReasonNoResumeTemplate:
-		return fmt.Sprintf("会话所属的 agent「%s」没有配置交互式续接模板（session_resume_interactive），gofer 不知道怎么用新进程继续它。", a.Agent)
+		return i18n.T(lang, "sessionrelay.resume.no_resume_template", "agent", a.Agent)
 	case reason == ReasonInteractiveNotAllowed:
-		return fmt.Sprintf("项目「%s」没有开启交互终端（allow_interactive），gofer 不会为它起终端进程。需要的话在项目配置里打开。", a.ProjectKey)
+		return i18n.T(lang, "sessionrelay.resume.interactive_not_allowed", "project", a.ProjectKey)
 	case reason == ReasonCwdOutsideProject:
-		return fmt.Sprintf("会话的目录 %s 不在项目「%s」的根目录之下（按这台执行机看到的路径），在那里起新进程会落到错误的目录。", a.Cwd, a.ProjectKey)
+		return i18n.T(lang, "sessionrelay.resume.cwd_outside_project", "cwd", a.Cwd, "project", a.ProjectKey)
 	case strings.HasPrefix(reason, InjectFailedPrefix):
-		msg := "执行机没能启动新进程"
+		msg := i18n.T(lang, "sessionrelay.resume.inject_failed")
 		if cause != nil {
 			var ue *UndeliverableError
 			if errors.As(cause, &ue) && ue.Err != nil {
-				msg += "：" + ue.Err.Error()
+				msg += i18n.T(lang, "sessionrelay.resume.detail_sep") + ue.Err.Error()
 			}
 		}
 		return msg
 	case reason == ReasonSessionAlive:
-		return "会话进程仍在线（刚刚还有心跳），为避免两个进程同时写同一个会话，已拒绝接管。请在原终端继续，或用在线送话。"
+		return i18n.T(lang, "sessionrelay.resume.session_alive")
 	case reason == ReasonNotRunning:
-		return "会话进程已不在运行（送话命令报告没有存活进程）。"
+		return i18n.T(lang, "sessionrelay.resume.not_running")
 	case strings.HasPrefix(reason, DeliverFailedPrefix):
-		return "agent 的送话命令失败：" + strings.TrimPrefix(reason, DeliverFailedPrefix)
+		return i18n.T(lang, "sessionrelay.resume.deliver_failed", "detail", strings.TrimPrefix(reason, DeliverFailedPrefix))
 	case reason == ReasonEnded:
-		return "会话已结束。"
+		return i18n.T(lang, "sessionrelay.resume.ended")
 	default:
-		return "无法唤醒这个会话（" + reason + "）。"
+		return i18n.T(lang, "sessionrelay.resume.unknown", "reason", reason)
 	}
+}
+
+// ExplainReason is ExplainReasonIn in the DEFAULT language, for a caller that has
+// no session row (and so no project) in hand.
+//
+// DEPRECATED(v0.198): a caller holding a session uses ExplainReasonIn; remove this
+// form once every caller does (design 2026-10-27-i18n §6).
+func ExplainReason(reason string, a jobstore.AgentSession, cause error) string {
+	return ExplainReasonIn(i18n.Default, reason, a, cause)
 }

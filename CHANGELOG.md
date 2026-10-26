@@ -18,6 +18,7 @@
 ### 新增
 
 - **gofer 生成的文本可按语言输出（gofer-992q，i18n 阶段 1 第一步）**：新增配置 `server.language`（`en` / `zh-CN`，也认 `zh`、`zh_CN.UTF-8`、`english` 这类别名，一律归一化为规范值）与按项目的 `projects.<key>.language` 覆盖。本版迁移的是注入给 agent 的提示词段落：验收标准、交付约定（范围纪律 / 经验收集 / 记忆纠错提示 / 改动范围）、时限提示，以及 worktree job 的交付请求正文；英文提示词整体为英文，不再中英混杂。汇报小节「发现但不碰」「可复用经验」的解析同时接受中英两种小节名，旧的中文报告照旧识别。不写 `server.language` 时暂用 `zh-CN`（现有部署行为不变，启动日志与 `gofer config validate` 会提示显式设置；后续版本默认改为 `en`）；`gofer init` 按本机系统语言写入该值。
+- **发给会话的通知与工作项请求也按语言输出（gofer-992q，i18n 阶段 1）**：`internal/sessionrelay` 发给会话的文本按收件会话所属项目的语言生成——job 完成通知（`耗时 1m30s` / `took 1m30s`、`（这是 gofer 系统通知，不是用户消息；…）` / `(this is a gofer system notice, …)`）、决策卡的标题与问题（`需要授权：` / `Permission needed: `、`等你回答：` / `Waiting for your answer: `、`在线送话` / `live delivery`、`接管` / `takeover`、`tmux 注入` / `tmux injection`）、唤醒与接管失败的解释（`无法唤醒这个会话（…）` / `Cannot wake this session (…)` 等）以及传话人提示词；`internal/work` 的工作项交接 / 汇报请求正文与工作项状态名同样按语言。传话人按提示词里的回执词回答（中文 `已发送`、英文 `sent`），识别两种都认。中文输出逐字不变（有 golden 钉住）。
 
 ## [0.197.0] - 2026-10-27
 

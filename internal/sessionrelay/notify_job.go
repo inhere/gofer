@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/msgprefix"
 )
 
@@ -75,14 +76,14 @@ type JobEndedNotice struct {
 	WrapUp string
 }
 
-// FormatJobEndedNotice renders the one-line notice. It opens with the job-done
-// prefix (never a person's "[来自 web，…]", which means somebody typed it), and
-// states the job's identity, its outcome and where to look next; it says out loud
+// FormatJobEndedNotice renders the one-line notice IN LANG. It opens with the
+// job-done prefix (never a person's "[来自 web，…]", which means somebody typed it),
+// and states the job's identity, its outcome and where to look next; it says out loud
 // that it is a system notification, because the receiving session's rules tell it
 // that a prefixed message of this shape is gofer speaking.
-func FormatJobEndedNotice(n JobEndedNotice) string {
+func FormatJobEndedNotice(lang i18n.Lang, n JobEndedNotice) string {
 	var b strings.Builder
-	b.WriteString(msgprefix.Prefix(msgprefix.JobDone, ""))
+	b.WriteString(msgprefix.PrefixIn(lang, msgprefix.JobDone, ""))
 	b.WriteString(strings.TrimSpace(n.JobID))
 	if title := strings.TrimSpace(n.Title); title != "" {
 		b.WriteString(" ")
@@ -92,17 +93,13 @@ func FormatJobEndedNotice(n JobEndedNotice) string {
 	b.WriteString(strings.TrimSpace(n.Status))
 	b.WriteString(" exit=")
 	b.WriteString(strconv.Itoa(n.ExitCode))
-	b.WriteString(" 耗时")
-	b.WriteString(formatNoticeDuration(n.Duration))
+	b.WriteString(" ")
+	b.WriteString(i18n.T(lang, "sessionrelay.notice.duration", "duration", formatNoticeDuration(n.Duration)))
 	if wrap := strings.TrimSpace(n.WrapUp); wrap != "" {
 		b.WriteString(" wrap_up=")
 		b.WriteString(wrap)
 	}
-	b.WriteString("（这是 gofer 系统通知，不是用户消息；详情 `gofer job show ")
-	b.WriteString(strings.TrimSpace(n.JobID))
-	b.WriteString("`，日志 `gofer job logs ")
-	b.WriteString(strings.TrimSpace(n.JobID))
-	b.WriteString("`）")
+	b.WriteString(i18n.T(lang, "sessionrelay.notice.tail", "id", strings.TrimSpace(n.JobID)))
 	return b.String()
 }
 
@@ -148,13 +145,17 @@ func (s *Service) NotifyJobEnded(ctx context.Context, n JobEndedNotice) error {
 	if target == "" || jobID == "" {
 		return fmt.Errorf("%w: job end notification needs a target session and a job id", ErrInvalidInput)
 	}
+	lang := i18n.Default
 	if a, ok, err := s.store.GetAgentSession(target); err != nil {
 		return fmt.Errorf("read notification target: %w", err)
-	} else if ok && StopHookParked(a, s.now().Unix()) {
-		slog.Info("sessionrelay: job end notice left to the parked Stop hook",
-			"event", "sessionrelay.job_end_deferred_to_hook", "session_id", target, "job_id", jobID,
-			"parked_until", a.StopParkUntil)
-		return nil
+	} else if ok {
+		if StopHookParked(a, s.now().Unix()) {
+			slog.Info("sessionrelay: job end notice left to the parked Stop hook",
+				"event", "sessionrelay.job_end_deferred_to_hook", "session_id", target, "job_id", jobID,
+				"parked_until", a.StopParkUntil)
+			return nil
+		}
+		lang = s.lang(a.ProjectKey)
 	}
 	claimed, err := s.store.RemoveSessionJobWatch(target, jobID)
 	if err != nil {
@@ -164,7 +165,7 @@ func (s *Service) NotifyJobEnded(ctx context.Context, n JobEndedNotice) error {
 		// Already delivered (or removed) — see the at-most-once note above.
 		return nil
 	}
-	text := FormatJobEndedNotice(n)
+	text := FormatJobEndedNotice(lang, n)
 	// The notice is gofer's own message (by = OperatorGofer), but the delivery belongs to the
 	// session's OWNER: a relay job gofer dispatches for it is bounded by that caller's ceiling.
 	if _, err := s.SendMessage(ctx, target, text, OperatorGofer, s.sessionOwner(target)); err != nil {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/goutil/x/assert"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
 )
@@ -149,7 +150,7 @@ func TestDeliverLetterWithoutDeliverCommand(t *testing.T) {
 // refuse a wake ("no message body, only a pending-mail notice"); the prompt must state that
 // the notice is the whole message and carry it verbatim.
 func TestWakeMessengerPromptSaysTheNoticeIsTheMessage(t *testing.T) {
-	p := wakeMessengerPrompt("peer-a", "<gofer-mail-wake count=\"1\"/>")
+	p := wakeMessengerPrompt(i18n.ZhCN, "peer-a", "<gofer-mail-wake count=\"1\"/>")
 	for _, want := range []string{"peer-a", "完整消息", "不要因为没有正文而拒绝", "<gofer-mail-wake count=\"1\"/>"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("wake prompt misses %q:\n%s", want, p)

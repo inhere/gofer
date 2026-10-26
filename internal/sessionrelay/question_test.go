@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 func TestParseQuestionAnswer(t *testing.T) {
@@ -20,7 +22,7 @@ func TestParseQuestionAnswer(t *testing.T) {
 			t.Errorf("%q: err=%v", bad, err)
 		}
 	}
-	if !strings.HasPrefix(QuestionMessage("颜色？"), "等你回答：") {
+	if !strings.HasPrefix(QuestionMessage(i18n.ZhCN, "颜色？"), "等你回答：") {
 		t.Fatal("question message")
 	}
 }

@@ -32,6 +32,7 @@ gofer work report <id> --request <请求id> --goal "这件事为了什么" --sta
 ```
 
 SessionStart prime 里也有这行提示。
+请求文本按**工作项所属项目的语言**写（`projects.<p>.language` → `server.language`，见 [server-config.md](server-config.md)）：英文项目里是 `[gofer · work handoff] Work item wr-1 …`，命令与参数不变（`--request`、`--status` 这些值是标识符，不翻译）。
 
 ## 状态与自动映射
 

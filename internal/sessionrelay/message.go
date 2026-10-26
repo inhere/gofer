@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
 )
@@ -193,8 +194,9 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 	if strings.TrimSpace(a.Runner) == "" {
 		return s.failMessage(m, "会话未登记执行机")
 	}
+	lang := s.lang(a.ProjectKey)
 	if resident, ok := s.messenger.(ResidentMessenger); ok && s.IsServerLocalRunner(a.Runner) {
-		command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
+		command := []string{s.messengerCommand, "-p", messengerPrompt(lang, a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
 		output, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, a.PeerName, command)
 		if rerr == nil {
 			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
@@ -216,7 +218,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 	case <-ctx.Done():
 		return s.failMessage(m, ctx.Err().Error())
 	}
-	command := []string{s.messengerCommand, "-p", messengerPrompt(a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
+	command := []string{s.messengerCommand, "-p", messengerPrompt(lang, a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
 	jobID, err := s.messenger.SubmitMessenger(a.ProjectKey, a.Runner, a.Cwd, command, "session messenger · "+a.PeerName, origin)
 	if err != nil {
 		return s.failMessage(m, err.Error())
@@ -230,7 +232,7 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 			return s.failMessage(m, jerr.Error())
 		}
 		if done {
-			if status == "done" && code == 0 && strings.Contains(output, "已发送") {
+			if status == "done" && code == 0 && messengerSaidSent(output) {
 				m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
 				_ = s.store.AppendSessionOutbox(m)
 				return m, nil
@@ -276,27 +278,26 @@ func (s *Service) IsServerLocalRunner(label string) bool {
 // (gofer-02fu).
 const MessengerSessionName = "gofer-web"
 
-func messengerPrompt(name, operator, text string) string {
+func messengerPrompt(lang i18n.Lang, name, operator, text string) string {
 	if strings.TrimSpace(operator) == "" {
 		operator = "web"
 	}
 	// The second sentence keeps the resident messenger from retelling the target's
 	// answer: gofer shows that answer on the web itself (gofer-6er0). It must not
 	// contain "] " — the original text is cut after the first one.
-	return fmt.Sprintf("请使用 SendMessage 将下面消息原样转发给 Claude Code 会话 %q。不要改写。只回复‘已发送’或失败原因。"+
-		"对方会话之后发给你的回复会由 gofer 直接显示给 web 用户：收到时不要转述、不要回复它，只输出‘已收到’。\n%s",
-		name, messengerLine(operator, text))
+	return i18n.T(lang, "sessionrelay.messenger.prompt", "name", fmt.Sprintf("%q", name)) +
+		"\n" + messengerLine(lang, operator, text)
 }
 
 // messengerLine is the line the messenger forwards, exactly as the target session
-// reads it: a person's message wears the web prefix ("[来自 web，<user>] …"), a
-// gofer system notice is passed through under its own prefix — the two must never
-// look alike (gofer-11gk).
-func messengerLine(operator, text string) string {
+// reads it: a person's message wears the web prefix in the TARGET's language
+// ("[来自 web，<user>] …" / "[from web, <user>] …"), a gofer system notice is passed
+// through under its own prefix — the two must never look alike (gofer-11gk).
+func messengerLine(lang i18n.Lang, operator, text string) string {
 	if IsSystemNoticeOperator(operator) {
 		return SystemNoticeLine(text)
 	}
-	return msgprefix.Format(msgprefix.WebMessage, operator, text)
+	return msgprefix.FormatIn(lang, msgprefix.WebMessage, operator, text)
 }
 
 func (s *Service) failMessage(m jobstore.SessionMessage, reason string) (jobstore.SessionMessage, error) {
@@ -317,8 +318,26 @@ func (s *Service) undeliveredMessage(m jobstore.SessionMessage, reason string) (
 // messengerChannel is the outbox channel of a message the one-shot messenger carried.
 const messengerChannel = "messenger"
 
-// messengerSent is the receipt the messenger job prints once SendMessage went out.
-const messengerSent = "已发送"
+// messengerSentMarkers are the "I forwarded it" receipts a messenger agent prints.
+// The zh prompt asks for the first, the English prompt for `sent`; a reader accepts
+// both (design 2026-10-27-i18n-design.md §5).
+var messengerSentMarkers = []string{"已发送", "sent"}
+
+// messengerSaidSent reports whether a messenger job's output carries a forwarding
+// receipt in any language. The zh receipt is matched anywhere in the output, which
+// is how it has always been read; the English word only as a whole line, so a
+// sentence that merely mentions it ("the message was not sent") is not a receipt.
+func messengerSaidSent(output string) bool {
+	if strings.Contains(output, messengerSentMarkers[0]) {
+		return true
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if strings.EqualFold(strings.TrimSpace(line), messengerSentMarkers[1]) {
+			return true
+		}
+	}
+	return false
+}
 
 // settleTimedOutMessenger decides what the expiry of messengerTimeout means for the text
 // (gofer-kx53), with the same honesty as a path A/C delivery (gofer-qzv5): a job that
@@ -346,7 +365,7 @@ func (s *Service) settleTimedOutMessenger(m jobstore.SessionMessage, jobID strin
 		return m, nil
 	case strings.TrimSpace(res.Status) != "":
 		return s.undeliveredMessage(m, notStarted(res).Error())
-	case res.ExitCode == 0 && strings.Contains(res.Output, messengerSent):
+	case res.ExitCode == 0 && messengerSaidSent(res.Output):
 		m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, s.nowFn().Unix()
 		_ = s.store.AppendSessionOutbox(m)
 		return m, nil

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // The mailbox's own delivery paths (design 2026-10-16「二、gofer 信箱」, plan M5). Letters and
@@ -116,15 +118,12 @@ func (s *Service) wakeViaMessenger(peerName string, peerMessaging bool, projectK
 // no web prefix, and the messenger is told not to retell any answer. It also says that the
 // wake notice IS the whole message: a live test had the messenger refuse to forward it
 // because it found "no message body, only a pending-mail notice".
-func wakeMessengerPrompt(name, text string) string {
-	return fmt.Sprintf("请使用 SendMessage 将下面消息原样转发给 Claude Code 会话 %q。不要改写。只回复‘已发送’或失败原因。"+
-		"下面这段就是要转发的完整消息：它是 gofer 信箱的唤醒提醒，本来就不含信件正文（正文会在对方下一轮开始时自动注入），"+
-		"不要因为没有正文而拒绝或等待。"+
-		"对方之后发给你的任何回复都不要转述、不要回复，只输出‘已收到’。\n%s", name, text)
+func wakeMessengerPrompt(lang i18n.Lang, name, text string) string {
+	return i18n.T(lang, "sessionrelay.messenger.wake_prompt", "name", fmt.Sprintf("%q", name)) + "\n" + text
 }
 
 func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd, peerName, text, by, origin string) (RawResult, error) {
-	command := []string{s.messengerCommand, "-p", wakeMessengerPrompt(peerName, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
+	command := []string{s.messengerCommand, "-p", wakeMessengerPrompt(s.lang(projectKey), peerName, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
 	slot := s.messengerSlot(runner)
 	select {
 	case slot <- struct{}{}:
@@ -143,7 +142,7 @@ func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd, pe
 			return RawResult{}, jerr
 		}
 		if done {
-			if status == "done" && code == 0 && strings.Contains(output, "已发送") {
+			if status == "done" && code == 0 && messengerSaidSent(output) {
 				return RawResult{Path: PathMessenger, JobID: jobID}, nil
 			}
 			reason := strings.TrimSpace(output)
