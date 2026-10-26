@@ -25,6 +25,7 @@ import (
 	"github.com/inhere/gofer/internal/runner/peerhttp"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // bridge bundles a wired job.Service + httpapi.Server for one node (host/peer).
@@ -47,6 +48,20 @@ func openTestStore(t *testing.T, root string) *jobstore.Store {
 
 func (b *bridge) close() { b.srv.Close() }
 
+// drainOnCleanup stops the job service before the store closes (G051): registered after
+// openTestStore, it runs first, so a job's terminal bookkeeping (token revoke, metrics)
+// cannot outlive the database or keep gofer.db open while t.TempDir removes it.
+func drainOnCleanup(t *testing.T, jobs *job.Service) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, 30*time.Second))
+		defer cancel()
+		if err := jobs.Drain(ctx); err != nil {
+			t.Errorf("drain job service: %v", err)
+		}
+	})
+}
+
 // newPeerBridge starts a "peer" bridge: project "demo" allows the exec agent
 // with allow_exec=true and the built-in local runner; auth uses an empty token.
 func newPeerBridge(t *testing.T) *bridge {
@@ -68,6 +83,7 @@ func newPeerBridge(t *testing.T) *bridge {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	drainOnCleanup(t, jobs)
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	s := httpapi.New(&cfg.Server, "", true, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
@@ -103,6 +119,7 @@ func newHostBridge(t *testing.T, peerURL string) *bridge {
 		"docker-peer":    peerhttp.New("docker-peer", peerURL, ""),
 	}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	drainOnCleanup(t, jobs)
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	s := httpapi.New(&cfg.Server, "", true, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
@@ -458,6 +475,7 @@ func newPeerBridgeGit(t *testing.T) *bridge {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	drainOnCleanup(t, jobs)
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	s := httpapi.New(&cfg.Server, "", true, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
