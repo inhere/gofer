@@ -52,6 +52,9 @@ const (
 	NameStewardMemory = "steward_memory"
 	// NameStewardQuestion is the heading a question from a person is wrapped in.
 	NameStewardQuestion = "steward_question"
+	// NameRepoBlock is the instruction block `gofer repo init` keeps up to date in
+	// a repository's AGENTS.md / CLAUDE.md (tracker: repo_block.go).
+	NameRepoBlock = "repo_block"
 )
 
 // The templates' data. Each language of a name takes the same data type, so the
@@ -111,6 +114,13 @@ type (
 	StewardQuestionData struct {
 		By   string
 		Text string
+	}
+	// RepoBlockData feeds NameRepoBlock: the commit-policy line and the memory
+	// hint, both taken from the same catalog prime reads, so the block written into
+	// the repository agrees with what a session-opening prime says.
+	RepoBlockData struct {
+		CommitPolicy string
+		MemoryHint   string
 	}
 )
 

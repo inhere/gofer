@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // TestZhManagedBlockIsUnchanged is the pre-migration characterization of the
@@ -12,7 +14,7 @@ import (
 // from the catalog, so a migration that changes one character in Chinese fails.
 func TestZhManagedBlockIsUnchanged(t *testing.T) {
 	for _, policy := range []string{"local-commit", "ask", "none"} {
-		got, err := ManagedBlockFor(policy)
+		got, err := ManagedBlockForIn(i18n.ZhCN, policy)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -170,10 +171,10 @@ func stripGofer(body string) string {
 // planBlocks plans AGENTS.md / CLAUDE.md. A CLAUDE.md that imports AGENTS.md
 // loses its bd block but gets no gofer block (AGENTS.md carries it). With
 // neither file present a new AGENTS.md is created.
-func planBlocks(root string) ([]BlockPlan, error) {
+func planBlocks(root string, lang i18n.Lang) ([]BlockPlan, error) {
 	var plans []BlockPlan
 	importsAgents := tracker.ClaudeImportsAgents(root)
-	block := managedBlockFor(root)
+	block := managedBlockFor(root, lang)
 	found := false
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
 		b, err := os.ReadFile(filepath.Join(root, name))
@@ -198,13 +199,13 @@ func planBlocks(root string) ([]BlockPlan, error) {
 }
 
 // managedBlockFor is the gofer block for the repository's commit_policy when it
-// already has a tracker, else the block for the default policy.
-func managedBlockFor(root string) string {
+// already has a tracker, else the block for the default policy, in lang.
+func managedBlockFor(root string, lang i18n.Lang) string {
 	store := tracker.NewStore(filepath.Join(root, ".gofer", "tracker"))
 	if cfg, err := store.ReadConfig(); err == nil {
-		if block, err := tracker.ManagedBlockFor(cfg.CommitPolicy); err == nil {
+		if block, err := tracker.ManagedBlockForIn(lang, cfg.CommitPolicy); err == nil {
 			return block
 		}
 	}
-	return tracker.ManagedBlock()
+	return tracker.ManagedBlockIn(lang)
 }

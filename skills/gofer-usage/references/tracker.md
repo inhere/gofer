@@ -29,6 +29,7 @@ gofer repo prime [--agent claude|codex] [--keywords 任务关键词] [--hook-jso
 ```
 
 - 提交策略：新仓库默认 `local-commit`（按功能点本地提交已授权、push 需用户授权），`ask` = 提交前先问，`none` = 不提交；托管块与会话开场注入的提交说明都按它生成，`repo init` 会打印当前取值。
+- 托管块的语言跟项目走：`gofer repo init` / `repo migrate` 写进 AGENTS.md / CLAUDE.md 的说明按该仓库所属项目的 `language` 生成（`projects.<p>.language` 覆盖 `server.language`，都不写就用缺省 `zh-CN`），不看机器语言环境；项目换了语言后重跑 `repo init` 会把托管块就地重写成新语言（起止标记与语言无关，块外内容不动）。
 - `repo init` 会打印匹配到的 gofer 项目 key 与依据（最长路径前缀）；本地没有项目配置的机器（如容器）会向 server 查项目列表来匹配，匹配不到才提示如何填写 `.gofer/tracker/config.yaml` 的 `project_key`。当前目录是嵌套在同项目里的独立仓库时会提示可注册单独项目。
 - 写命令后会自动尝试同步（短超时，失败只警告）；手动 `repo sync` 首次同步大 tracker 可能要几秒。同步对 tags / deps 做三方合并，评论取并集；本地与 server 并发改同一条时自动合并重推，仍未落定的列为 `unresolved`，下次同步继续。
 - 提交 tracker 前用 `gofer repo status --changed` 看 issue / memory 相对 git HEAD 的变化（`+` 新增、`~` 变化、`-` 删除，末行汇总），**不要** `git diff` 原始 jsonl；jsonl 的变化随功能点一起提交。

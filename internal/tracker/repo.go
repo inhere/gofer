@@ -10,55 +10,12 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
-
-const beginBlock = "<!-- BEGIN GOFER TRACKER v:1 -->"
-const endBlock = "<!-- END GOFER TRACKER -->"
-
-// managedBlockHead / managedBlockTail surround the commit-policy line of the
-// managed block; the line itself is CommitPolicyText, the same text prime shows.
-const managedBlockHead = beginBlock + "\n" +
-	"## Gofer Issue Tracker\n\n" +
-	"本仓库用 `gofer issue` / `gofer memory` 跟踪任务与记忆（数据在 `.gofer/tracker/`，会话开场自动注入上下文）。\n\n" +
-	"```bash\n" +
-	"gofer issue ready                       # 可开工的 issue（open 且未被阻塞）\n" +
-	"gofer issue show <id>                   # 详情：评论 / 依赖 / 父子\n" +
-	"gofer issue create \"标题\" -p 1 -l 标签   # 新建（-l 标签区分子项目）\n" +
-	"gofer issue update <id> --claim         # 认领并开始\n" +
-	"gofer issue comment <id> \"进展\"        # 追加评论\n" +
-	"gofer issue close <id> --reason \"...\"  # 完成\n" +
-	"gofer memory set <key> \"内容\" --summary \"一句话\"  # 记住经验；gofer memory ls <关键字> / show <key> 召回\n" +
-	"```\n\n" +
-	"- 用 `gofer issue` 跟踪全部任务，不要另建 markdown TODO；持久经验用 `gofer memory`。\n" +
-	"- " + MemoryWriteHint + "\n"
-
-const managedBlockTail = "- 查看 tracker 改了什么用 `gofer repo status --changed`（逐条列出 issue / memory 的增删改）；**不要** `git diff` / `cat` `.gofer/tracker/*.jsonl`，整行 JSON 会灌满上下文。\n" +
-	endBlock + "\n"
 
 // DefaultCommitPolicy is the commit_policy of a new tracker.
 const DefaultCommitPolicy = "local-commit"
-
-// ManagedBlockFor renders the managed block for a commit_policy value; its
-// commit line is CommitPolicyText, so the block and prime always agree.
-func ManagedBlockFor(policy string) (string, error) {
-	text, err := CommitPolicyText(policy)
-	if err != nil {
-		return "", err
-	}
-	return managedBlockHead + "- " + text + "\n" + managedBlockTail, nil
-}
-
-// BeginBlock / EndBlock delimit the gofer-managed block in AGENTS.md / CLAUDE.md.
-const (
-	BeginBlock = beginBlock
-	EndBlock   = endBlock
-)
-
-// ManagedBlock returns the managed block for the default commit policy.
-func ManagedBlock() string {
-	block, _ := ManagedBlockFor(DefaultCommitPolicy)
-	return block
-}
 
 // ClaudeImportsAgents is claudeImportsAgents for other packages (the bd migration).
 func ClaudeImportsAgents(root string) bool { return claudeImportsAgents(root) }
@@ -75,6 +32,12 @@ type InitOptions struct {
 	// CommitPolicy sets commit_policy (local-commit | ask | none); "" keeps the
 	// current value (a new tracker gets DefaultCommitPolicy).
 	CommitPolicy string
+	// Language is the language of the managed instructions block; "" is the
+	// default language. The caller passes the repository's language (the project's
+	// `language`, else `server.language`) — never the machine's locale (design
+	// 2026-10-27-i18n-design.md §3), so an English-locale machine does not flip a
+	// zh-CN deployment's repository text.
+	Language i18n.Lang
 }
 
 // Init is InitWith without a commit policy change.
@@ -152,7 +115,7 @@ func InitWith(root string, opts InitOptions) (*Store, bool, error) {
 	if noAgentsMD {
 		return s, false, nil
 	}
-	block, err := ManagedBlockFor(cfg.CommitPolicy)
+	block, err := ManagedBlockForIn(opts.Language, cfg.CommitPolicy)
 	if err != nil {
 		return nil, false, fmt.Errorf(".gofer/tracker/config.yaml: %w", err)
 	}
@@ -202,24 +165,6 @@ func InitWith(root string, opts InitOptions) (*Store, bool, error) {
 		}
 	}
 	return s, beads, nil
-}
-
-// refreshManagedBlock replaces an existing gofer block with block, so re-running
-// `repo init` brings older instructions (and a changed commit_policy) up to date.
-// ok is false when the end marker is missing.
-func refreshManagedBlock(b []byte, block string) ([]byte, bool) {
-	start := bytes.Index(b, []byte(beginBlock))
-	rel := bytes.Index(b[start:], []byte(endBlock))
-	if rel < 0 {
-		return nil, false
-	}
-	end := start + rel + len(endBlock)
-	if end < len(b) && b[end] == '\n' {
-		end++
-	}
-	out := append([]byte(nil), b[:start]...)
-	out = append(out, block...)
-	return append(out, b[end:]...), true
 }
 
 // claudeImportsAgents reports whether root's CLAUDE.md pulls AGENTS.md in with
