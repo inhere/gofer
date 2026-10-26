@@ -12,9 +12,10 @@ const (
 	MailTag = mail.TagLetter
 	// MailWakeTag is the self-closing wake marker: `<gofer-mail-wake count="N"/>`.
 	MailWakeTag = mail.TagWake
-	// MailWakeNotice is the fixed one-line notice following the wake tag.
-	MailWakeNotice = mail.WakeNotice
 )
+
+// MailWakeNotice is the default-language compatibility value.
+var MailWakeNotice = mail.WakeNotice
 
 // RenderMailWake renders the wake prompt for count pending letters (the text itself lives in
 // internal/mail, which the server deliverer renders it from too).

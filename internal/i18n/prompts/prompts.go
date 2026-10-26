@@ -42,6 +42,10 @@ const (
 	// NameTodoContinue is the bridging line a plan item's prompt opens with when it
 	// continues the session of the item before it (job: todo_continue.go).
 	NameTodoContinue = "todo-continue"
+	// NameStewardRole is the standing role prompt for a steward session.
+	NameStewardRole = "steward_role"
+	// NameStewardReview is the default review instruction.
+	NameStewardReview = "steward_review"
 )
 
 // The templates' data. Each language of a name takes the same data type, so the

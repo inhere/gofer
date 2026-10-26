@@ -22,6 +22,8 @@ var goldenData = map[string]any{
 	NameAutoResume:        AutoResumeData{Hit: "stream ended after retries"},
 	NameUncommittedResume: UncommittedResumeData{Count: 3, Files: []string{"a.go", "b.go", "c.go"}},
 	NameTodoContinue:      TodoContinueData{Title: "wire the thing"},
+	NameStewardRole:       struct{}{},
+	NameStewardReview:     struct{ Slim bool }{Slim: false},
 }
 
 // TestRenderGolden pins the rendered text of every template in both languages.

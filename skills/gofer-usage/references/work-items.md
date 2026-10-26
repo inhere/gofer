@@ -149,7 +149,7 @@ gofer steward merges | merge-accept <n> | merge-dismiss <n>
 
 - 配置（`steward:` 块，web 设置 →「工作项」页的「管家」区）：`enabled`、`agent`（任意已装的 acp-agent）、`project`（默认内置 `default`）、`review_time`（每日巡检，默认 08:50）、`idle_end_min`（空闲多久结束会话，默认 30）、`review_max_items`（默认 20）、`event_wake`（会话离线 / 到期 / 草稿多时是否唤醒，默认 false）、`event_throttle_min`（默认 30）、`approval`（会话自己的工具审批策略，见下条）。
 - **管家会话自己的审批策略** `steward.approval`（结构与项目 `approval` 一样）：缺省 = `mode: ask` 并自动放行 gofer 只读 / 只提建议的工具**与管家本职的写工具**（`gofer_work_update` / `gofer_work_note` / `gofer_work_remind` / `gofer_work_request_report` / `gofer_work_summarize` / `gofer_steward_notes` / `gofer_session_ask`），所以记备注、设提醒、请会话汇报不会停下来等人；写文件 / 执行命令 / 其他 MCP server 的工具仍然问人，`mode: strict` 则一律问人。它**只**替代管家这一条会话的策略（以 job 的 `session_approval` 随 job 保存，`job resume`、会话续接、重启恢复都照旧），项目里其他 ACP 会话不受影响；只写 `mode` 时保留上面的默认工具名单，显式写 `auto_allow_tools` 才替换它。审批记录里这类自动放行的 `reason` 是 `gofer_steward_tool`。
-- 会话可抛弃：关键信息都在工作项、日志、请求和管家笔记里，重启 / 换 agent 靠首条消息里的摘要接着做。
+- 配置里的 `projects.<key>.language`（未设置则使用 `server.language`）也决定该项目管家会话收到的角色 / 巡检提示词语言；提示词首行带 `<!-- gofer:steward-prime -->` 标记。旧版以 `# 你是工作管家` 开头的首轮提示仍可被 Web 识别。
 - 每日巡检只处理自上次巡检后有变化的项与还没看过的「今天」卡；没变化就不起会话。巡检末尾写一段点评附在当天的摘要里。短命会话的项既不巡检、也不进首条摘要的未结列表、也不产生会话离线 / 结束事件（见 [降噪](#降噪短命会话与排除名单)）。
 - 问管家：Works 页右下角「问管家」面板（手机可用），或 `gofer steward ask`。
 - 权限提醒：管家的 gofer 凭据只能读写工作项相关数据、提建议；server 无 token 运行时这层限制不生效。管家 agent 自带的 shell / 文件工具不受 gofer 凭据约束。

@@ -21,6 +21,7 @@
 - **续接类提示语也按语言输出（gofer-992q，i18n 阶段 1 第三步 P1d）**：自动续投（瞬时错误后续跑）、上一轮有未提交改动时的续投、plan 单项接着上一项会话开头的衔接语，三种提示各有自己的模板，语言取该 job 提交时固定的语言（`projects.<key>.language` → `server.language`），与同一 job 的其余文本一致。自动续投的提示以前只有英文，现在中文部署收到对应的中文版、英文部署仍逐字不变；未提交续投与衔接语的中文与以前逐字一致。
 - **MCP 工具说明按语言输出（gofer-992q，P1d）**：agent 在 `tools/list` 里读到的工具说明与返回给它的错误文本里不再有中英混杂——`server.language: en` 下全是英文（如「今天」→ `Today`、「可复用经验」→ `Reusable lessons`、`@<agent 或 role>` → `@<agent or role>`），中文部署看到的文本与以前逐字一致。语言来源：内建 MCP（`gofer mcp --standalone`）读本机 `server.language`；瘦客户端（转发到中央 serve）暂用本机语言链（`GOFER_LANG` → 系统语言），因为中央的语言目前没有传到该进程。换语言需新开 MCP 会话。
 - **发给会话的通知与工作项请求也按语言输出（gofer-992q，i18n 阶段 1）**：`internal/sessionrelay` 发给会话的文本按收件会话所属项目的语言生成——job 完成通知（`耗时 1m30s` / `took 1m30s`、`（这是 gofer 系统通知，不是用户消息；…）` / `(this is a gofer system notice, …)`）、决策卡的标题与问题（`需要授权：` / `Permission needed: `、`等你回答：` / `Waiting for your answer: `、`在线送话` / `live delivery`、`接管` / `takeover`、`tmux 注入` / `tmux injection`）、唤醒与接管失败的解释（`无法唤醒这个会话（…）` / `Cannot wake this session (…)` 等）以及传话人提示词；`internal/work` 的工作项交接 / 汇报请求正文与工作项状态名同样按语言。传话人按提示词里的回执词回答（中文 `已发送`、英文 `sent`），识别两种都认。中文输出逐字不变（有 golden 钉住）。
+- **管家提示词与信箱渲染按语言输出（gofer-992q，P1c）**：管家首轮提示词现在首行带语言无关标记 `<!-- gofer:steward-prime -->`，按管家项目语言选择中英文角色 / 巡检模板；Web 同时识别新标记与旧中文开头。信件唤醒、标签截断提示、收集箱摘要与退信提供 `en` / `zh-CN` 渲染 API，中文默认输出保持不变。
 
 ## [0.197.0] - 2026-10-27
 

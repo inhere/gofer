@@ -83,10 +83,11 @@ describe('steward helpers', () => {
   })
 
   it('shows only what the person said, not the 24KB prime or the review instructions', () => {
-    const prime = '# 你是工作管家（gofer steward）\n\n很长的角色说明……\n\n## 未结工作项\n- w-1 [进行中] x'
+    const prime = '<!-- gofer:steward-prime -->\n# You are the work steward (gofer steward)\n\nA long role description…\n\n## Open work items\n- w-1 [active] x'
     const ask = '## 来自 human:me 的提问\n\n我手上还有什么没完成？\n\n（先用 gofer_work_list / gofer_work_get 核对最新数据再回答；中文，简洁。）'
     expect(displayPrompt(`${prime}\n\n---\n\n${ask}`)).toBe('（管家已启动：已注入角色说明、笔记和工作项清单）\n我手上还有什么没完成？')
     expect(displayPrompt(`${prime}\n\n---\n\n读完以上内容后，只回复一行：管家已就绪`)).toBe('（管家已启动：已注入角色说明、笔记和工作项清单）')
+    expect(displayPrompt('<!-- gofer:steward-prime -->\n# You are the work steward')).toBe('（管家已启动：已注入角色说明、笔记和工作项清单）')
     expect(displayPrompt(ask)).toBe('我手上还有什么没完成？')
     expect(displayPrompt('## 每日巡检（2026-10-06）\n\n只处理下面这 2 个工作项')).toBe('（系统）每日巡检（2026-10-06）')
     expect(displayPrompt('普通的一句话')).toBe('普通的一句话')

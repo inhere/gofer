@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
 )
@@ -37,7 +38,7 @@ func (s *Service) Bounce(m jobstore.Mail, reason, where string) (jobstore.Mail, 
 		ToAddress: AddressOf(m.FromKind, m.FromID, m.FromCaller),
 		ToKind:    m.FromKind, ToID: m.FromID, ToCaller: m.FromCaller,
 		JobID: jobID, Urgent: m.Urgent,
-		Body: BounceText(m, reason, where), DeliverBy: s.deliverBy(),
+		Body: BounceTextLang(s.textLanguage(), m, reason, where), DeliverBy: s.deliverBy(),
 	}
 	b, err := s.store.InsertMail(in)
 	if err != nil {
@@ -65,28 +66,32 @@ const overdueReasonText = "超过送达期限仍没有送到"
 // bounceExcerptRunes is how much of the returned letter's body the notice quotes back.
 const bounceExcerptRunes = MailSummaryRunes
 
-// BounceText is the body of a returned letter: which letter, why it came back, where it is now,
-// and the head of what it said (the sender does not have to open the original to recognize it).
+// BounceText renders a returned letter in the default language.
 func BounceText(m jobstore.Mail, reason, where string) string {
+	return BounceTextLang(i18n.Default, m, reason, where)
+}
+
+// BounceTextLang renders a returned letter in lang.
+func BounceTextLang(lang i18n.Lang, m jobstore.Mail, reason, where string) string {
 	var b strings.Builder
 	b.WriteString(msgprefix.BounceOpen)
-	fmt.Fprintf(&b, " 信件 #%d", m.ID)
+	fmt.Fprintf(&b, " %s", i18n.T(lang, "mail.bounce.letter", "id", m.ID))
 	if m.ToAddress != "" {
-		fmt.Fprintf(&b, "（发给 %s）", m.ToAddress)
+		b.WriteString(i18n.T(lang, "mail.bounce.for", "address", m.ToAddress))
 	}
 	if m.Urgent {
-		b.WriteString("（加急）")
+		b.WriteString(i18n.T(lang, "mail.bounce.urgent"))
 	}
-	b.WriteString("没有送到")
+	b.WriteString(i18n.T(lang, "mail.bounce.not_delivered"))
 	if reason = strings.TrimSpace(reason); reason != "" {
 		b.WriteString("：" + bounceReason(reason))
 	}
 	b.WriteString("。")
 	if where = strings.TrimSpace(where); where != "" {
-		b.WriteString("\n现在：" + where)
+		b.WriteString("\n" + i18n.T(lang, "mail.bounce.where") + where)
 	}
 	if head := Summarize(strings.TrimSpace(m.Body), bounceExcerptRunes); head != "" {
-		b.WriteString("\n原文摘录：" + strings.Join(strings.Fields(head), " "))
+		b.WriteString("\n" + i18n.T(lang, "mail.bounce.excerpt") + strings.Join(strings.Fields(head), " "))
 	}
 	return b.String()
 }

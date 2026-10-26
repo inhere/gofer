@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -54,23 +55,25 @@ func (o Origin) Validate() (Origin, error) {
 // Address is the address this origin can be reached at, i.e. what a reply is sent to.
 func (o Origin) Address() string { return AddressOf(o.Kind, o.ID, o.Caller) }
 
-// Display is the human label of an origin: 「会话 sess-a（调用方 alice）」, 「job job-7」 or
-// 「调用方 alice」.
-func (o Origin) Display() string {
+// Display renders the origin in the default language.
+func (o Origin) Display() string { return o.DisplayLang(i18n.Default) }
+
+// DisplayLang renders the human label of an origin in lang.
+func (o Origin) DisplayLang(lang i18n.Lang) string {
 	switch o.Kind {
 	case jobstore.MailKindSession:
-		return withCaller("会话 "+o.ID, o.Caller)
+		return withCaller(i18n.T(lang, "mail.origin.session", "id", o.ID), o.Caller, lang)
 	case jobstore.MailKindJob:
-		return withCaller("job "+o.ID, o.Caller)
+		return withCaller("job "+o.ID, o.Caller, lang)
 	case jobstore.MailKindCaller:
 		if o.Caller == "" {
-			return "调用方"
+			return i18n.T(lang, "mail.origin.caller")
 		}
-		return "调用方 " + o.Caller
+		return i18n.T(lang, "mail.origin.caller") + " " + o.Caller
 	case jobstore.MailKindGofer:
 		return "gofer"
 	}
-	return "未知出处"
+	return i18n.T(lang, "mail.origin.unknown")
 }
 
 // OriginOf reads the origin of a stored letter.
@@ -96,9 +99,12 @@ func AddressOf(kind, id, caller string) string {
 	return ""
 }
 
-func withCaller(label, caller string) string {
+func withCaller(label, caller string, lang i18n.Lang) string {
 	if caller == "" {
 		return label
+	}
+	if i18n.Resolve(lang) == i18n.EN {
+		return label + " (caller " + caller + ")"
 	}
 	return label + "（调用方 " + caller + "）"
 }

@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
@@ -108,6 +109,17 @@ const captureBy = "mail"
 // 条目只存信件 id 与正文前若干字摘要 — the body itself is never copied).
 const MailSummaryRunes = 200
 
+// SetLanguageFn supplies the language used for generated mailbox notices. Nil uses the
+// deployment default, preserving existing callers.
+func (s *Service) SetLanguageFn(fn func() i18n.Lang) { s.language = fn }
+
+func (s *Service) textLanguage() i18n.Lang {
+	if s.language != nil {
+		return i18n.Resolve(s.language())
+	}
+	return i18n.Default
+}
+
 // Service sends and replies to letters over the shared metadata store.
 type Service struct {
 	store  *jobstore.Store
@@ -118,6 +130,9 @@ type Service struct {
 	now    func() time.Time
 	// deliverByOverride (seconds, 0 = none) is the hot-reloaded delivery deadline; see SetDeliverBy.
 	deliverByOverride atomic.Int64
+	// language resolves the language of human-facing mailbox text.
+	language func() i18n.Lang
+
 	// broadcastMax / broadcastRate / broadcastWindow override Limits' broadcast numbers from
 	// the `mail:` config block (0 = use Limits): hot-reloaded like deliverByOverride.
 	broadcastMax    atomic.Int64
@@ -444,7 +459,7 @@ func (s *Service) recordCapture(m jobstore.Mail, cands []Candidate) (string, err
 	if s.box == nil {
 		return "", nil
 	}
-	in := CaptureInput{Text: CaptureText(m, cands), Kind: captureKind, By: captureBy}
+	in := CaptureInput{Text: CaptureTextLang(s.textLanguage(), m, cands), Kind: captureKind, By: captureBy}
 	switch m.FromKind {
 	case jobstore.MailKindSession:
 		in.SourceSession = m.FromID
@@ -459,30 +474,35 @@ func (s *Service) recordCapture(m jobstore.Mail, cands []Candidate) (string, err
 // room the header leaves instead of being cut off by the store mid-summary.
 const captureTextBudgetBytes = 200
 
-// bodyLabel separates a captured item's header from the body preview.
+// bodyLabel is retained for the package characterization tests; production rendering uses the
+// localized catalog value below.
 const bodyLabel = "\n正文摘录："
 
-// CaptureText is the text of the capture-box item a held letter becomes: what the letter is,
-// who sent it, why it is parked (with the candidates), and the HEAD of its body — the letter's
-// id and a summary, never the body itself.
+// CaptureText renders a capture-box item in the default language.
 func CaptureText(m jobstore.Mail, cands []Candidate) string {
+	return CaptureTextLang(i18n.Default, m, cands)
+}
+
+// CaptureTextLang renders a capture-box item in lang.
+func CaptureTextLang(lang i18n.Lang, m jobstore.Mail, cands []Candidate) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "邮件 #%d 待指派", m.ID)
+	b.WriteString(i18n.T(lang, "mail.capture.heading", "id", m.ID))
 	if m.ToAddress != "" {
 		fmt.Fprintf(&b, "：%s", m.ToAddress)
 	}
-	fmt.Fprintf(&b, "\n来自 %s", OriginOf(m).Display())
+	b.WriteString("\n" + i18n.T(lang, "mail.capture.from", "origin", OriginOf(m).DisplayLang(lang)))
 	if m.LastError != "" {
-		fmt.Fprintf(&b, "\n原因：%s", m.LastError)
+		b.WriteString("\n" + i18n.T(lang, "mail.capture.reason", "reason", m.LastError))
 	}
 	if len(cands) > 0 {
 		parts := make([]string, 0, len(cands))
 		for _, c := range cands {
-			parts = append(parts, c.Display())
+			parts = append(parts, c.DisplayLang(lang))
 		}
-		fmt.Fprintf(&b, "\n候选：%s", strings.Join(parts, "；"))
+		b.WriteString("\n" + i18n.T(lang, "mail.capture.candidates", "candidates", strings.Join(parts, "；")))
 	}
 	head := b.String()
+	bodyLabel := "\n" + i18n.T(lang, "mail.capture.body")
 	room := captureTextBudgetBytes - len(head) - len(bodyLabel) - len("…")
 	preview := SummarizeBytes(Summarize(m.Body, MailSummaryRunes), room)
 	if preview == "" {

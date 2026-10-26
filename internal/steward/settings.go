@@ -3,6 +3,7 @@ package steward
 import (
 	"log/slog"
 
+	"github.com/inhere/gofer/internal/i18n/prompts"
 	"github.com/inhere/gofer/internal/settings"
 )
 
@@ -46,5 +47,5 @@ func (s *Service) promptText(replaceKey, extraKey, def string) string {
 
 // roleText is the standing instruction of the steward session.
 func (s *Service) roleText() string {
-	return s.promptText(settings.KeyPromptStewardRole, settings.KeyPromptStewardRoleExtra, rolePrompt)
+	return s.promptText(settings.KeyPromptStewardRole, settings.KeyPromptStewardRoleExtra, prompts.MustRender(s.language(), prompts.NameStewardRole, struct{}{}))
 }
