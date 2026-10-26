@@ -678,6 +678,12 @@ type ServerConfig struct {
 	// it — the server cannot derive it from its listen address behind a proxy or
 	// a LAN IP. Empty = notifications carry no link.
 	WebBaseURL string `yaml:"web_base_url,omitempty"`
+	// Language is the language of the text gofer generates for people and agents:
+	// `en` or `zh-CN`, any accepted alias is normalized on load (i18n.Normalize).
+	// A project overrides it in projects.<p>.language. Unset means zh-CN for now
+	// (DEPRECATED(v0.197): the default flips to en in v0.200 — see
+	// i18n.LanguageDefaultNote), so an existing deployment's prompts do not change.
+	Language string `yaml:"language,omitempty"`
 	// SessionMessaging controls the web-to-agent session message bridge. It is
 	// intentionally server-scoped because the messenger job runs on the session's
 	// registered runner and must use one operator-wide command/timeout policy.
@@ -2277,6 +2283,11 @@ type ProjectConfig struct {
 	// memory candidates a person accepts or rejects. Same modes and the same auto
 	// coverage as ScopeDiscipline. See EffectiveKnowledgeCapture.
 	KnowledgeCapture string `yaml:"knowledge_capture,omitempty"`
+	// Language overrides the language of the text gofer generates for THIS
+	// project's jobs and sessions (prompt sections, delivery request body):
+	// `en` or `zh-CN`, aliases normalized on load. Empty = server.language.
+	// See Config.LanguageFor.
+	Language string `yaml:"language,omitempty"`
 	// Approval is the project's run-time approval gate (GATE-01 §1): how an
 	// acp-agent's session/request_permission is answered. Nil means the defaults,
 	// and the default mode is off (= the pre-GATE behaviour: the agent's own

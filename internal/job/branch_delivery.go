@@ -15,6 +15,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/delivery"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/secret"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -323,27 +324,31 @@ func deliveryTitle(snap JobResult, req JobRequest) string {
 }
 
 // deliveryBody is the request description: what was asked, what was done and how it
-// was checked. The prompt passes through the same redaction as the logs.
+// was checked, in the language of the job's project (design 2026-10-27-i18n-design.md
+// §3). The prompt passes through the same redaction as the logs.
 func (s *Service) deliveryBody(cfg *config.Config, snap JobResult, req JobRequest) string {
+	lang := promptLanguage(cfg, &req)
+	t := func(key string, args ...any) string { return i18n.T(lang, key, args...) }
 	var b strings.Builder
 	prompt, _ := secret.RedactString(deliveryTask(req.Prompt))
 	if prompt != "" {
-		b.WriteString("## 任务\n\n")
+		b.WriteString("## " + t("job.delivery.task") + "\n\n")
 		if lines := strings.Count(prompt, "\n"); lines > 12 || len(prompt) > 1500 {
 			first, _, _ := strings.Cut(prompt, "\n")
-			b.WriteString(first + "\n\n<details><summary>完整任务说明</summary>\n\n" + clipText(prompt, 8000) + "\n\n</details>\n\n")
+			b.WriteString(first + "\n\n<details><summary>" + t("job.delivery.details_summary") +
+				"</summary>\n\n" + clipText(prompt, 8000) + "\n\n</details>\n\n")
 		} else {
 			b.WriteString(prompt + "\n\n")
 		}
 	}
 	if a := strings.TrimSpace(snap.Acceptance); a != "" {
-		b.WriteString("## 验收标准\n\n" + a + "\n\n")
+		b.WriteString("## " + t("job.delivery.acceptance") + "\n\n" + a + "\n\n")
 	}
 	if len(snap.Commits) > 0 {
-		b.WriteString("## 提交\n\n")
+		b.WriteString("## " + t("job.delivery.commits") + "\n\n")
 		for i, c := range snap.Commits {
 			if i >= 30 {
-				fmt.Fprintf(&b, "- …另 %d 个\n", len(snap.Commits)-i)
+				b.WriteString("- " + t("job.delivery.more_commits", "n", len(snap.Commits)-i) + "\n")
 				break
 			}
 			sha := c.SHA
@@ -355,28 +360,28 @@ func (s *Service) deliveryBody(cfg *config.Config, snap JobResult, req JobReques
 		b.WriteString("\n")
 	}
 	if d := strings.TrimSpace(snap.DiffSummary); d != "" {
-		b.WriteString("## 改动统计\n\n```\n" + clipText(d, 3000) + "\n```\n\n")
+		b.WriteString("## " + t("job.delivery.stats") + "\n\n```\n" + clipText(d, 3000) + "\n```\n\n")
 	}
 	if v := snap.Verify; v != nil {
-		fmt.Fprintf(&b, "## 验证\n\n`%s` → **%s**", strings.Join(v.Command, " "), v.Status)
+		fmt.Fprintf(&b, "## %s\n\n`%s` → **%s**", t("job.delivery.verify"), strings.Join(v.Command, " "), v.Status)
 		if v.Reason != "" {
-			b.WriteString("（" + v.Reason + "）")
+			b.WriteString(t("job.delivery.verify_reason", "reason", v.Reason))
 		}
 		b.WriteString("\n\n")
 	}
 	if u := snap.Usage; u != nil {
 		if line := FormatUsage(u); line != "" {
-			b.WriteString("## 用量\n\n" + line + "\n\n")
+			b.WriteString("## " + t("job.delivery.usage") + "\n\n" + line + "\n\n")
 		}
 	}
 	if snap.ReviewedBy != "" {
-		fmt.Fprintf(&b, "## 验收\n\n%s 已通过", snap.ReviewedBy)
+		b.WriteString("## " + t("job.delivery.review") + "\n\n" + t("job.delivery.review_passed", "by", snap.ReviewedBy))
 		if n := strings.TrimSpace(snap.ReviewNote); n != "" {
-			b.WriteString("：" + n)
+			b.WriteString(t("job.delivery.review_note", "note", n))
 		}
 		b.WriteString("\n\n")
 	}
-	b.WriteString("---\n由 gofer 自动创建 · job `" + snap.ID + "`")
+	b.WriteString("---\n" + t("job.delivery.footer") + " · job `" + snap.ID + "`")
 	// The web console is usually on a private address, and a pull request may be
 	// public: the link is opt-in.
 	if cfg != nil && strings.TrimSpace(cfg.Server.WebBaseURL) != "" && deliveryJobLink(cfg, snap.ProjectKey) {
@@ -393,12 +398,14 @@ func (s *Service) deliveryBody(cfg *config.Config, snap JobResult, req JobReques
 // section in the body).
 func deliveryTask(prompt string) string {
 	p := stripRulesSection(strings.TrimSpace(prompt))
-	for _, h := range []string{acceptanceSectionHeader, scopeSectionHeader} {
-		if strings.HasPrefix(p, h+"\n") {
-			return ""
-		}
-		if i := strings.Index(p, "\n\n"+h+"\n"); i >= 0 {
-			p = p[:i]
+	for _, section := range []i18n.Section{i18n.SectionAcceptance, i18n.SectionContract} {
+		for _, h := range i18n.Titles(section) {
+			if strings.HasPrefix(p, h+"\n") {
+				return ""
+			}
+			if i := strings.Index(p, "\n\n"+h+"\n"); i >= 0 {
+				p = p[:i]
+			}
 		}
 	}
 	return strings.TrimSpace(p)
@@ -427,7 +434,7 @@ func deliveryJobRequest(snap JobResult, planJSON []byte) JobRequest {
 	return JobRequest{
 		ProjectKey: snap.ProjectKey, Agent: agent.ExecAgentKey, Runner: snap.Runner,
 		Cmd: []string{"gofer", "tool", "deliver"}, Cwd: ".", Stdin: string(planJSON),
-		Title: "交付 " + snap.ID, Tags: []string{DeliveryJobTag}, TimeoutSec: int(deliveryTimeout / time.Second),
+		Title: "deliver " + snap.ID, Tags: []string{DeliveryJobTag}, TimeoutSec: int(deliveryTimeout / time.Second),
 		OriginCaller: snap.OriginCaller, InternalExec: InternalExecDelivery,
 	}
 }

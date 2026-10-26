@@ -153,7 +153,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// gofer-3nxa.4 / .3: the acceptance criteria and the 「交付约定」 section are appended
 	// to the RENDERED prompt (a task book is part of the work description, these close
 	// it), before the interactive first input is derived from it and before the rules
-	// are prepended.
+	// are prepended. The language is fixed HERE (design 2026-10-27-i18n-design.md §3),
+	// so the text a worker appends later speaks the same language.
+	if req.Language == "" {
+		req.Language = string(cfg.LanguageFor(req.ProjectKey))
+	}
 	injectPromptSections(cfg, &req)
 	if req.Interactive && req.InitialInput == "" {
 		req.InitialInput = interactiveInitialInput(req.Prompt)

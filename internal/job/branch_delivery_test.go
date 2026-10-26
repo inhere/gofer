@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/delivery"
+	"github.com/inhere/gofer/internal/i18n/prompts"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
@@ -182,14 +183,15 @@ func TestRenderDeliveryBranchAndBody(t *testing.T) {
 // name machines and addresses) and the appended work-contract sections stay out.
 func TestDeliveryBodyLeavesInjectedSectionsOut(t *testing.T) {
 	prompt := rulesPromptHeader + "\n\n### house-rules\n- host D:\\work on 10.0.0.5\n\n" + rulesPromptEnd + "\n\nImplement the preview." +
-		"\n\n" + acceptanceSectionHeader + "\n\n- works\n\n" + acceptanceSectionTail + "\n\n" + scopeSectionHeader + "\n\n" + scopeSectionBody
+		"\n\n" + zhSection(t, prompts.NameAcceptance, prompts.AcceptanceData{Acceptance: "- works"}) +
+		"\n\n" + zhSection(t, prompts.NameContract, prompts.ContractData{Scope: true, Knowledge: true})
 	raw, _ := json.Marshal(map[string]string{"prompt": prompt})
 	snap := JobResult{ID: "j1", Acceptance: "- works", RequestJSON: string(raw)}
 	body := (&Service{}).deliveryBody(&config.Config{}, snap, requestOfJob(snap))
 	if !strings.Contains(body, "## 任务\n\nImplement the preview.\n") || !strings.Contains(body, "## 验收标准\n\n- works") {
 		t.Fatalf("body:\n%s", body)
 	}
-	for _, leak := range []string{"house-rules", "10.0.0.5", rulesPromptEnd, scopeSectionHeader, acceptanceSectionTail} {
+	for _, leak := range []string{"house-rules", "10.0.0.5", rulesPromptEnd, scopeSectionHeader, "- 只改与本任务直接相关", "汇报末尾逐条说明是否满足"} {
 		if strings.Contains(body, leak) {
 			t.Errorf("body carries %q:\n%s", leak, body)
 		}

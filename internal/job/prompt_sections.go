@@ -1,13 +1,13 @@
 package job
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
-	"github.com/inhere/gofer/internal/tracker"
+	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/i18n/prompts"
 )
 
 // The work-contract sections Submit appends to an agent's prompt (gofer-3nxa.4 / .3).
@@ -15,29 +15,28 @@ import (
 // persisted prompt that already carries them, and a peer re-submit hands over the
 // submitting side's prompt, so each section is appended only when its header is not
 // there yet.
-const (
-	acceptanceSectionHeader = "## 验收标准"
-	acceptanceSectionTail   = "汇报末尾逐条说明是否满足：满足 / 未满足 / 无法验证，并给出依据（测试名、命令输出、文件位置）。"
-
-	scopeSectionHeader = "## 交付约定"
-	scopeSectionBody   = "- 只改与本任务直接相关的代码和文档；不要顺手重构、改名或清理范围外的内容。\n" +
-		"- 范围外发现的问题（bug、坏味道、过时文档等）不要修改，写进汇报末尾的「## 发现但不碰」小节，每条一行：`- <位置>：<问题>`。没有就省略该小节。"
-	scopeSectionScopeLine = "- 本任务的改动范围："
-
-	// knowledgeSectionLine asks for the 「## 可复用经验」 report section (gofer-3nxa.2):
-	// the server turns its items into memory candidates (see captureKnowledge).
-	knowledgeSectionLine = "- 跨任务可复用的经验（踩坑、约定、验证技巧）写进汇报末尾的「## " + KnowledgeSectionTitle +
-		"」小节，每条一行；只写以后其他任务也用得上的，不写本次业务细节。没有就省略该小节。"
-	// memoryFlagLine asks the agent to report injected knowledge that turned out wrong
-	// instead of silently working around it (gofer-3nxa.1 ships `memory flag`).
-	memoryFlagLine = "- " + tracker.MemoryFlagHint
-
-	// deadlineLinePrefix opens the one-line time-limit notice the executing machine
-	// appends to a batch job's prompt (gofer-s2er) and doubles as its "already
-	// appended" marker, like the section headers above: a rerun or a peer re-submit of
-	// a prompt that already carries the line must not stack a second copy.
-	deadlineLinePrefix = "本 job 时限"
+//
+// The text itself lives in internal/i18n: the sections are prompt templates
+// (internal/i18n/prompts, one per language) and the headings — protocol text gofer
+// reads back — are in internal/i18n/protocol.go, which also lists every spelling
+// that counts as "the section is there" (design 2026-10-27-i18n-design.md §4 / §5).
+// The variables below are the zh-CN spellings of those headings, for the code that
+// composes or recognizes a prompt written in the deployment language.
+var (
+	acceptanceSectionHeader = i18n.Title(i18n.ZhCN, i18n.SectionAcceptance)
+	scopeSectionHeader      = i18n.Title(i18n.ZhCN, i18n.SectionContract)
+	deadlineLinePrefix      = i18n.Title(i18n.ZhCN, i18n.SectionDeadline)
 )
+
+// promptLanguage is the language gofer writes req's text in: the one fixed when
+// the job was admitted (so a worker agrees with the hub), else the job's project /
+// server language.
+func promptLanguage(cfg *config.Config, req *JobRequest) i18n.Lang {
+	if l, ok := i18n.Normalize(req.Language); ok {
+		return l
+	}
+	return cfg.LanguageFor(req.ProjectKey)
+}
 
 // injectPromptSections appends the acceptance-criteria section and then the
 // 「交付约定」 section to req.Prompt. It runs in Submit right after the task book is
@@ -95,33 +94,27 @@ func promptSectionParts(cfg *config.Config, req *JobRequest, realAgent string, l
 		return parts
 	}
 	cur := existing
+	lang := promptLanguage(cfg, req)
 	acceptance := strings.TrimSpace(req.Acceptance)
-	if acceptance != "" && !hasPromptSection(cur, acceptanceSectionHeader) {
-		parts.acceptance = acceptanceSectionHeader + "\n\n" + acceptance + "\n\n" + acceptanceSectionTail
+	if acceptance != "" && !hasPromptSection(cur, i18n.SectionAcceptance) {
+		parts.acceptance = prompts.MustRender(lang, prompts.NameAcceptance, prompts.AcceptanceData{Acceptance: acceptance})
 		cur = appendPromptSection(cur, parts.acceptance)
 	}
 	if batchContractJob(req) {
 		project := cfg.Projects[req.ProjectKey]
 		scoped := wantContractMode(cfg, req, project.EffectiveScopeDiscipline())
 		parts.knowledgeCapture = wantContractMode(cfg, req, project.EffectiveKnowledgeCapture())
-		if (scoped || parts.knowledgeCapture) && !hasPromptSection(cur, scopeSectionHeader) {
-			var lines []string
-			if scoped {
-				lines = append(lines, scopeSectionBody)
-			}
-			if parts.knowledgeCapture {
-				lines = append(lines, knowledgeSectionLine)
-			}
-			lines = append(lines, memoryFlagLine)
+		if (scoped || parts.knowledgeCapture) && !hasPromptSection(cur, i18n.SectionContract) {
+			data := prompts.ContractData{Scope: scoped, Knowledge: parts.knowledgeCapture}
 			if scope := cleanScope(req.Scope); scoped && len(scope) > 0 {
-				lines = append(lines, scopeSectionScopeLine+strings.Join(scope, ", "))
+				data.ScopeList = strings.Join(scope, ", ")
 			}
-			parts.contract = scopeSectionHeader + "\n\n" + strings.Join(lines, "\n")
+			parts.contract = prompts.MustRender(lang, prompts.NameContract, data)
 		}
 	}
 	if limit.Sec > 0 && !limit.Deadline.IsZero() && batchPromptJob(req) &&
-		!strings.Contains(existing, deadlineLinePrefix) {
-		parts.deadline = jobDeadlineLine(limit)
+		!containsSectionTitle(existing, i18n.SectionDeadline) {
+		parts.deadline = jobDeadlineLine(lang, limit)
 	}
 	return parts
 }
@@ -222,10 +215,26 @@ func isExecRealAgent(cfg *config.Config, realAgent string, req *JobRequest) bool
 	return len(req.Cmd) > 0
 }
 
-// hasPromptSection reports whether prompt has a line that is exactly header.
-func hasPromptSection(prompt, header string) bool {
+// hasPromptSection reports whether prompt already carries a heading of section,
+// in ANY known language: a rerun replays a prompt written under the language of
+// its submit, which the executing machine may since have changed.
+func hasPromptSection(prompt string, section i18n.Section) bool {
 	for _, line := range strings.Split(prompt, "\n") {
-		if strings.TrimRight(line, " \t\r") == header {
+		line = strings.TrimRight(line, " \t\r")
+		for _, title := range i18n.Titles(section) {
+			if line == title {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// containsSectionTitle reports whether prompt carries any known spelling of
+// section, anywhere in a line (a marker that is a line OPENING, not a heading).
+func containsSectionTitle(prompt string, section i18n.Section) bool {
+	for _, title := range i18n.Titles(section) {
+		if strings.Contains(prompt, title) {
 			return true
 		}
 	}
@@ -269,18 +278,20 @@ func appendJobDeadlineLine(cfg *config.Config, req *JobRequest, prompt string, l
 // deadline that a long queue — a saturated concurrency slot or a held directory lock, time
 // that F12 keeps out of the run — already ate into. The env var is the one source of the
 // instant, and it is the executing machine's own.
-func jobDeadlineLine(limit jobLimit) string {
-	return fmt.Sprintf("%s %s，从开始执行算起（排队等锁的时间不计入）；截止时刻与环境变量 $%s 一致，也可运行 gofer job show $GOFER_JOB_ID 查看。接近时限时先提交已完成的部分，汇报里写清未完成项。",
-		deadlineLinePrefix, limitText(limit.Sec), jobDeadlineEnv)
+func jobDeadlineLine(lang i18n.Lang, limit jobLimit) string {
+	return prompts.MustRender(lang, prompts.NameDeadline, prompts.DeadlineData{
+		Limit: limitText(lang, limit.Sec),
+		Env:   jobDeadlineEnv,
+	})
 }
 
 // limitText renders a limit as whole minutes — the unit a job's timeout is written in —
 // falling back to seconds for a limit that is not a whole minute (`--timeout 90`).
-func limitText(sec int64) string {
+func limitText(lang i18n.Lang, sec int64) string {
 	if sec%60 == 0 {
-		return fmt.Sprintf("%d 分钟", sec/60)
+		return i18n.T(lang, "job.deadline.minutes", "n", sec/60)
 	}
-	return fmt.Sprintf("%d 秒", sec)
+	return i18n.T(lang, "job.deadline.seconds", "n", sec)
 }
 
 // appendPromptSection appends section to prompt separated by one blank line.

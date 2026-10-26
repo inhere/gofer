@@ -1,0 +1,9 @@
+{{- /* Delivery contract section (zh-CN). Markers live in internal/i18n/protocol.go. */ -}}
+## 交付约定
+
+{{if .Scope}}- 只改与本任务直接相关的代码和文档；不要顺手重构、改名或清理范围外的内容。
+- 范围外发现的问题（bug、坏味道、过时文档等）不要修改，写进汇报末尾的「## 发现但不碰」小节，每条一行：`- <位置>：<问题>`。没有就省略该小节。
+{{end}}{{if .Knowledge}}- 跨任务可复用的经验（踩坑、约定、验证技巧）写进汇报末尾的「## 可复用经验」小节，每条一行；只写以后其他任务也用得上的，不写本次业务细节。没有就省略该小节。
+{{end}}- 发现注入的记忆 / 规则与实际不符时运行 `gofer memory flag <key> --reason "…"`（全局 / 项目记忆加 `--global` / `--project <p>`），不要静默绕过。
+{{if .ScopeList}}- 本任务的改动范围：{{ .ScopeList }}
+{{end}}

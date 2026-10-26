@@ -334,6 +334,7 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.authored == nil {
 		cfg.authored = cfg.Clone()
 	}
+	canonicalizeLanguages(cfg)
 	if cfg.Server.Addr == "" {
 		cfg.Server.Addr = DefaultAddr
 	}
@@ -526,6 +527,9 @@ func Validate(cfg *Config) error { return validate(cfg) }
 // path/agent existence checks live in internal/project Registry.Validate.
 func validate(cfg *Config) error {
 	if err := cfg.ValidateLocalPaths(); err != nil {
+		return err
+	}
+	if err := validateLanguage(cfg); err != nil {
 		return err
 	}
 	if err := cfg.Work.validate(); err != nil {

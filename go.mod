@@ -26,7 +26,10 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
+	github.com/gookit/i18n v1.3.0 // indirect
+	github.com/gookit/ini/v2 v2.3.2 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/monoculum/formam v3.5.5+incompatible // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

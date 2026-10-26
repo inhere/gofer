@@ -56,6 +56,11 @@ type JobRequest struct {
 	// value is overwritten), recorded in request_json, inherited by a continuation and
 	// mirrored on JobResult.KnowledgeCapture.
 	KnowledgeCapture bool `json:"knowledge_capture,omitempty" yaml:"-"`
+	// Language is the language gofer writes THIS job's text in (`en` / `zh-CN`), fixed
+	// at submit from the job's project (projects.<p>.language → server.language) so a
+	// worker executing the job writes the same language as the hub that admitted it.
+	// Empty = resolve from the config again (a request built in code).
+	Language string `json:"language,omitempty" yaml:"language,omitempty"`
 	// Budget is the job's spend ceiling (N2 §B GATE-02; `job run --max-tokens /
 	// --max-cost / --max-turns`, task-book `budget`, plan todo, HTTP/MCP `budget`). The
 	// EXECUTING machine meters the agent's streamed accounting against it and kills the

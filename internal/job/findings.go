@@ -3,11 +3,15 @@ package job
 import (
 	"regexp"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
-// FindingsSectionTitle is the report section an agent lists what it found outside its
-// scope but did not touch (gofer-3nxa.3, the 「交付约定」 section asks for it).
-const FindingsSectionTitle = "发现但不碰"
+// FindingsSectionTitle is the (zh-CN) heading of the report section an agent lists
+// what it found outside its scope but did not touch (gofer-3nxa.3, the 「交付约定」
+// section asks for it). Every accepted spelling — both languages plus the older
+// English forms — comes from internal/i18n/protocol.go.
+var FindingsSectionTitle = i18n.Title(i18n.ZhCN, i18n.SectionFindings)
 
 var (
 	findingsHeadingRE = regexp.MustCompile(`^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$`)
@@ -15,15 +19,13 @@ var (
 	findingsFenceRE   = regexp.MustCompile("^\\s{0,3}(```|~~~)")
 )
 
-// findingsTitleAliases are the other headings accepted for the findings section.
-var findingsTitleAliases = []string{"Out of scope", "Out-of-scope findings"}
-
-// ParseFindings extracts the list items of the LAST 「发现但不碰」 section of an agent's
-// markdown report (also accepted: "Out of scope" / "Out-of-scope findings", any case,
-// any heading level) — see ParseReportSection. The web console has the same parser in
-// web/src/utils/findings.ts — their tests share cases.
+// ParseFindings extracts the list items of the LAST findings section of an agent's
+// markdown report (also accepted: the English heading "Out-of-scope findings" /
+// "Out of scope", any case, any heading level) — see ParseReportSection and
+// i18n.Titles. The web console has the same parser in web/src/utils/findings.ts —
+// their tests share cases.
 func ParseFindings(report string) []string {
-	return ParseReportSection(report, append([]string{FindingsSectionTitle}, findingsTitleAliases...)...)
+	return ParseReportSection(report, i18n.Titles(i18n.SectionFindings)...)
 }
 
 // ParseReportSection extracts the list items of the LAST section of an agent's markdown
