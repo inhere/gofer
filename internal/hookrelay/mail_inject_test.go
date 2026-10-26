@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/client"
-	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // mailFake is the fake hub plus an in-memory mailbox with the real states

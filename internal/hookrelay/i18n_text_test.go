@@ -35,22 +35,22 @@ func TestZhHookTextIsUnchanged(t *testing.T) {
 	t.Parallel()
 	zh := i18n.ZhCN
 	cases := map[string]string{
-		"memory header": MemoryInjectHeader(zh),
+		"memory header":          MemoryInjectHeader(zh),
 		"memory header (en key)": i18n.T(zh, "hook.memory.header"),
-		"scope project":         i18n.T(zh, "hook.memory.scope_project", "project", "alpha"),
-		"scope global":          i18n.T(zh, "hook.memory.scope_global"),
-		"hit":                   i18n.T(zh, "hook.memory.hit", "keyword", "发版"),
-		"exec before":           i18n.T(zh, "hook.memory.exec_before", "cmd", "git"),
-		"summary":               i18n.T(zh, "hook.memory.summary", "text", "一句话"),
-		"budget":                i18n.T(zh, "hook.memory.budget", "cmd", "gofer memory show k"),
-		"mail more":             MailMoreLine(zh, 2),
+		"scope project":          i18n.T(zh, "hook.memory.scope_project", "project", "alpha"),
+		"scope global":           i18n.T(zh, "hook.memory.scope_global"),
+		"hit":                    i18n.T(zh, "hook.memory.hit", "keyword", "发版"),
+		"exec before":            i18n.T(zh, "hook.memory.exec_before", "cmd", "git"),
+		"summary":                i18n.T(zh, "hook.memory.summary", "text", "一句话"),
+		"budget":                 i18n.T(zh, "hook.memory.budget", "cmd", "gofer memory show k"),
+		"mail more":              MailMoreLine(zh, 2),
 		"watch done": formatWatchedJobCompletion(WatchedJob{
 			ID: "job-1", Title: "t", Status: "done", Duration: 90 * time.Second}, zh),
 		"watch needs_review": formatWatchedJobCompletion(WatchedJob{
 			ID: "job-1", Title: "t", Status: "needs_review", Duration: 90 * time.Second}, zh),
-		"permission": permissionMessage(zh, "Bash `ls`"),
-		"question":   questionMessage(zh, "哪个方案？"),
-		"denied":     denyMessage(zh, ""),
+		"permission":         permissionMessage(zh, "Bash `ls`"),
+		"question":           questionMessage(zh, "哪个方案？"),
+		"denied":             denyMessage(zh, ""),
 		"denied with reason": denyMessage(zh, "太危险"),
 		"no message":         noMessageFallback(zh),
 		"suggestion mode": SuggestionLabel(zh, json.RawMessage(

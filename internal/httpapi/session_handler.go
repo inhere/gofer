@@ -402,7 +402,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		PeerName: a.PeerName, PeerNameSource: a.PeerNameSource, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
 		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt, LastCwd: lastCwdForView(a),
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
-		Usage: s.withEstimate(sessionUsageViewOf(a.UsageJSON)),
+		Usage:    s.withEstimate(sessionUsageViewOf(a.UsageJSON)),
 		Language: string(s.textLanguage(a.ProjectKey)),
 	}
 }
