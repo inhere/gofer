@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **收集项转 issue 不再丢原文（gofer-wcga）**：从收集箱把条目转成仓库 issue 时，若在转换界面把标题改短，描述里原来只剩「captured as work item …」，认真写下的收集内容哪里都不剩。现在描述总是带收集原文：issue 标题与条目标题不同时把条目标题全文写进描述（多行原样保留），条目 goal 与标题不同时一并写入，条目文本里的附图 / 附件引用（`/v1/attachments/<id>`）单列一行，另加一行来源（谁收集、何时、来自哪个会话 / job / 收集箱 / 信箱、项目；「谁」取收集时的作者，不是最后一次编辑者），末行仍是 `captured as work item <id>`。转会话 / 转 todo / 转 job 也已核对：它们本来就带整份文本，无同类丢失。
+
 ### 改进
 
 - **对外门面：贡献指南、安全策略与 issue 模板**：新增英文 `CONTRIBUTING.md`（构建、测试、提交前检查、conventional commit 约定、issue / PR 的期待，并指向 `AGENTS.md`）、`SECURITY.md`（只维护最新 0.x 版本、GitHub 私密漏洞报告、自托管且面向单人 / 互信小团队的信任模型）、`.github/ISSUE_TEMPLATE/`（bug / feature 表单，提问与文档的链接指向 Discussions 与 `docs/`）与 `.github/pull_request_template.md`；README 中英文顶部各加一句 0.x 状态说明（作者每天在用、发版频繁、接口可能调整，以 CHANGELOG 为准）；需要网页上操作的仓库设置（简介、topics、社交预览图、Discussions）记在 `docs/runbook/github-repo-settings.md`；`make test` 跑 Go 全量测试。

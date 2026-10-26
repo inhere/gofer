@@ -3,7 +3,9 @@ package work
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
@@ -124,11 +126,11 @@ func IssueTypeForKind(kind string) string {
 }
 
 // DispatchToIssue files the captured item as a new issue in the server mirror of
-// trackerID (title: titleOverride or the item's title; description: its goal, plus where it
-// came from), links it (kind issue) and parks the item. The issue is flagged server-created
-// until a repository sync pulls it (the web shows 「待同步」); the journal says so. The
-// store's errors (ErrTrackerNoPrefix, ErrTrackerRepoUnknown, ErrReservedTracker) pass
-// through unchanged. Returns the created record.
+// trackerID (title: titleOverride or the item's title; description: the captured text plus
+// where it came from, see issueDescription), links it (kind issue) and parks the item. The
+// issue is flagged server-created until a repository sync pulls it (the web shows 「待同步」);
+// the journal says so. The store's errors (ErrTrackerNoPrefix, ErrTrackerRepoUnknown,
+// ErrReservedTracker) pass through unchanged. Returns the created record.
 func (s *Service) DispatchToIssue(id, trackerID, titleOverride, by string) (jobstore.TrackerRecord, jobstore.WorkItem, error) {
 	c, err := s.Captured(id)
 	if err != nil {
@@ -142,14 +144,7 @@ func (s *Service) DispatchToIssue(id, trackerID, titleOverride, by string) (jobs
 	if title == "" {
 		return jobstore.TrackerRecord{}, jobstore.WorkItem{}, fmt.Errorf("%w: title required", jobstore.ErrWorkInvalid)
 	}
-	desc := strings.TrimSpace(c.Item.Goal)
-	if desc == title {
-		desc = ""
-	}
-	if desc != "" {
-		desc += "\n\n"
-	}
-	desc += "captured as work item " + c.Item.ID
+	desc := s.issueDescription(c.Item, title)
 	rec, err := s.store.CreateServerTrackerIssue(strings.TrimSpace(trackerID), tracker.Issue{
 		Title: title, Description: desc, Type: IssueTypeForKind(c.Item.Kind), Priority: 2,
 	}, by)
@@ -159,4 +154,94 @@ func (s *Service) DispatchToIssue(id, trackerID, titleOverride, by string) (jobs
 	w, err := s.FinishDispatch(c.Item.ID, jobstore.WorkParked, jobstore.WorkLinkIssue, rec.ID,
 		fmt.Sprintf("已转为 issue %s（%s），待仓库同步", rec.ID, rec.TrackerID), by)
 	return rec, w, err
+}
+
+// issueDescription is the description of the issue a captured item becomes. The captured text
+// is all a person wrote, and a title only holds its head: rewriting the title on the way to an
+// issue used to leave the rest of the text nowhere (gofer-wcga). So the whole captured text
+// goes in unless the issue title IS that text, the goal is added when it says something the
+// title does not, the attachment references found in the text are listed (the capture box keeps
+// no attachment rows, a pasted image lives only as a path inside the text), and where the item
+// came from (who, when, which session / job, project) is recorded. The last line is always the
+// captured-item marker.
+func (s *Service) issueDescription(w jobstore.WorkItem, title string) string {
+	orig, goal := strings.TrimSpace(w.Title), strings.TrimSpace(w.Goal)
+	parts := []string{}
+	if orig != "" && orig != title {
+		parts = append(parts, orig)
+	}
+	if goal != "" && goal != title && goal != orig {
+		parts = append(parts, goal)
+	}
+	parts = append(parts, s.captureSourceLine(w))
+	desc := strings.Join(parts, "\n\n")
+	if refs := attachmentRefs(orig, goal); len(refs) > 0 {
+		desc += "\nattachments: " + strings.Join(refs, ", ")
+	}
+	return desc + "\n\ncaptured as work item " + w.ID
+}
+
+// captureSourceLine records where a captured item came from: who recorded it, when, the session
+// or job it was recorded from (else the entry it went through), and its project.
+func (s *Service) captureSourceLine(w jobstore.WorkItem) string {
+	by := s.captureAuthor(w)
+	line := fmt.Sprintf("captured by %s at %s from %s", by,
+		time.Unix(w.CreatedAt, 0).UTC().Format(time.RFC3339), captureEntry(w, by))
+	if p := strings.TrimSpace(w.ProjectKey); p != "" {
+		line += ", project " + p
+	}
+	return line
+}
+
+// captureAuthor is who recorded the item: the author of its creation journal line, because
+// updated_by follows whoever edited the item last (a title fixed while triaging is not the
+// capture). The last writer is the fallback when the journal cannot be read.
+func (s *Service) captureAuthor(w jobstore.WorkItem) string {
+	if e, ok, err := s.store.FirstWorkJournal(w.ID); err == nil && ok {
+		if by := strings.TrimSpace(e.By); by != "" {
+			return by
+		}
+	}
+	if by := strings.TrimSpace(w.UpdatedBy); by != "" {
+		return by
+	}
+	return "unknown"
+}
+
+// captureEntry names the way an item entered the capture box: the session (and job) it was
+// recorded from, else the mailbox (a letter nobody could be handed to is recorded there) or the
+// capture box itself.
+func captureEntry(w jobstore.WorkItem, by string) string {
+	sid, jid := strings.TrimSpace(w.CaptureSourceSession), strings.TrimSpace(w.CaptureSourceJob)
+	switch {
+	case sid != "" && jid != "":
+		return "session " + sid + " (job " + jid + ")"
+	case sid != "":
+		return "session " + sid
+	case jid != "":
+		return "job " + jid
+	case by == "mail":
+		return "the mailbox"
+	}
+	return "the capture box"
+}
+
+// attachmentRefPattern is an attachment path inside a captured item's text. The id shape is
+// internal/attachment's own (16-40 of [A-Za-z0-9_-]), so a shorter fragment is not an id.
+var attachmentRefPattern = regexp.MustCompile(`/v1/attachments/[A-Za-z0-9_-]{16,40}`)
+
+// attachmentRefs lists the distinct attachment paths in the given texts, in order of appearance.
+func attachmentRefs(texts ...string) []string {
+	var out []string
+	seen := make(map[string]struct{}, len(texts))
+	for _, t := range texts {
+		for _, ref := range attachmentRefPattern.FindAllString(t, -1) {
+			if _, dup := seen[ref]; dup {
+				continue
+			}
+			seen[ref] = struct{}{}
+			out = append(out, ref)
+		}
+	}
+	return out
 }
