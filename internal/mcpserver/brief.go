@@ -25,8 +25,8 @@ type briefOutput struct {
 }
 
 func registerBriefTools(s *mcp.Server, b Backend) {
-	addGoferTool(s, &mcp.Tool{Name: "gofer_issue_brief", Description: "Handoff brief (接手包) of a repository issue — the same text as `gofer issue brief <id>`: the issue, its parent/siblings/deps, design docs that name it, related commits and code entries, linked jobs / plans, applicable memories and takeover hints. Read this first when taking over an issue. Uses the repository tracker of this process's cwd."}, issueBriefHandler(b))
-	addGoferTool(s, &mcp.Tool{Name: "gofer_plan_brief", Description: "Handoff brief (接手包) of a plan — the same text as `gofer plan brief <id>`: fields, todos (status / deps / acceptance / job outcome), handoff note and a short brief of each issue it names."}, planBriefHandler(b))
+	addGoferTool(s, &mcp.Tool{Name: "gofer_issue_brief", Description: text(b, "mcp.desc.brief_issue")}, issueBriefHandler(b))
+	addGoferTool(s, &mcp.Tool{Name: "gofer_plan_brief", Description: text(b, "mcp.desc.brief_plan")}, planBriefHandler(b))
 }
 
 // briefOptionsFor binds the brief inputs of an MCP call: the cwd's repository tracker

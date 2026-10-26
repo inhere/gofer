@@ -89,15 +89,15 @@ type todayAdviseOutput struct {
 func registerTodayTools(s *mcp.Server, b Backend) {
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_today_list",
-		Description: "List the person's 「今天」 decision queue (read-only): each card's key, kind, title, one-line summary, actions (id = what gofer_today_advise action_id takes), refs (job_id / work_item_id / interaction_id / …) and current advice. Filters: kind, unadvised (only cards without advice), include_exec.",
+		Description: "List the person's " + text(b, "mcp.term.today") + " decision queue (read-only): each card's key, kind, title, one-line summary, actions (id = what gofer_today_advise action_id takes), refs (job_id / work_item_id / interaction_id / …) and current advice. Filters: kind, unadvised (only cards without advice), include_exec.",
 	}, todayListHandler(b))
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_today_card",
-		Description: "Read one 「今天」 card by key (read-only). A card tied to a job (review / interaction / plan_blocked) also returns the job's report, diff stat, commits and verify outcome — what a review digest is written from.",
+		Description: "Read one " + text(b, "mcp.term.today") + " card by key (read-only). A card tied to a job (review / interaction / plan_blocked) also returns the job's report, diff stat, commits and verify outcome — what a review digest is written from.",
 	}, todayCardHandler(b))
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_today_advise",
-		Description: "Advise on one 「今天」 card: text (one line, <=60 characters; your reasoning), optional action_id (one of the card's advisable action ids — the person sees it as the leading 「按建议：X」 button and decides; nothing is executed), optional digest (<=5 lines, for review cards: 改动分组 / 风险 / 测试). A decision card takes background only — no action_id. Writing again replaces the card's advice.",
+		Description: "Advise on one " + text(b, "mcp.term.today") + " card: text (one line, <=60 characters; your reasoning), optional action_id (one of the card's advisable action ids — the person sees it as the leading " + text(b, "mcp.term.as_advised") + " button and decides; nothing is executed), optional digest (<=5 lines, for review cards: " + text(b, "mcp.term.digest_sections") + "). A decision card takes background only — no action_id. Writing again replaces the card's advice.",
 	}, todayAdviseHandler(b))
 }
 

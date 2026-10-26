@@ -28,7 +28,7 @@ func registerScopedMemoryTools(s *mcp.Server, b Backend) {
 	addGoferTool(s, &mcp.Tool{Name: "gofer_memory_get", Description: "Read one server global or project memory."}, memoryGetHandler(b))
 	addGoferTool(s, &mcp.Tool{Name: "gofer_memory_set", Description: "Write a server global or project memory. Optional title (<= 80 chars, one line) is the display name; the key stays the identifier."}, memorySetHandler(b))
 	addGoferTool(s, &mcp.Tool{Name: "gofer_memory_rm", Description: "Soft-delete a server global or project memory."}, memoryRemoveHandler(b))
-	addGoferTool(s, &mcp.Tool{Name: "gofer_memory_flag", Description: "Report an injected memory / rule as out of date instead of silently working around it: it is marked 「⚠ 待复核（reason）」 wherever it is injected until a human reviews it. Omit scope for the repository tracker of this process's cwd; scope=global|project (+scope_key) for server memories. reason is required."}, memoryFlagHandler(b))
+	addGoferTool(s, &mcp.Tool{Name: "gofer_memory_flag", Description: "Report an injected memory / rule as out of date instead of silently working around it: it is marked " + text(b, "mcp.term.needs_review") + " wherever it is injected until a human reviews it. Omit scope for the repository tracker of this process's cwd; scope=global|project (+scope_key) for server memories. reason is required."}, memoryFlagHandler(b))
 }
 
 type memoryFlagInput struct {

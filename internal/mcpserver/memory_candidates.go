@@ -45,7 +45,7 @@ type memoryCandidateDecideInput struct {
 func registerMemoryCandidateTools(s *mcp.Server, b Backend) {
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_memory_candidates",
-		Description: "List knowledge candidates: the 「## 可复用经验」 report items of delivered jobs, waiting for a person to accept (it becomes a server memory, source job:<id>) or reject. Filters: job_id, project, status (pending default | accepted | rejected | all).",
+		Description: "List knowledge candidates: the " + text(b, "mcp.term.knowledge_section") + " report items of delivered jobs, waiting for a person to accept (it becomes a server memory, source job:<id>) or reject. Filters: job_id, project, status (pending default | accepted | rejected | all).",
 	}, memoryCandidatesHandler(b))
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_memory_candidate_adopt",

@@ -42,7 +42,7 @@ type issueGetInput struct {
 func registerSessionAskTool(s *mcp.Server, b Backend) {
 	addGoferTool(s, &mcp.Tool{
 		Name: "gofer_session_ask",
-		Description: "带话: deliver a short message to a RUNNING session over the existing relay channels (\"the resource arrived, you can continue\"). id is a terminal session id or an ACP / pty session job id. " +
+		Description: text(b, "mcp.term.relay") + ": deliver a short message to a RUNNING session over the existing relay channels (\"the resource arrived, you can continue\"). id is a terminal session id or an ACP / pty session job id. " +
 			"A session that is not online is an error (nothing is queued — tell the person instead). The message is logged on the session's work item as yours. Not for asking a session to report — use gofer_work_request_report for that.",
 	}, sessionAskHandler(b))
 }
