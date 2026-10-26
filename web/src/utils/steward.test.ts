@@ -90,6 +90,11 @@ describe('steward helpers', () => {
     expect(displayPrompt('<!-- gofer:steward-prime -->\n# You are the work steward')).toBe('（管家已启动：已注入角色说明、笔记和工作项清单）')
     expect(displayPrompt(ask)).toBe('我手上还有什么没完成？')
     expect(displayPrompt('## 每日巡检（2026-10-06）\n\n只处理下面这 2 个工作项')).toBe('（系统）每日巡检（2026-10-06）')
+    // The English spellings are written by an English deployment's server; forget neither.
+    expect(displayPrompt('## Daily review (2026-10-06)\n\nHandle only these 2 work items')).toBe('（系统）Daily review (2026-10-06)')
+    expect(displayPrompt('## Event tidy-up (2026-10-06)\n\nNo work item is marked as changed')).toBe('（系统）Event tidy-up (2026-10-06)')
+    const enAsk = '## Question from human:me\n\nWhat is still open?\n\n(Check the latest data with gofer_work_list / gofer_work_get before you answer; answer in English, concisely.)'
+    expect(displayPrompt(enAsk)).toBe('What is still open?')
     expect(displayPrompt('普通的一句话')).toBe('普通的一句话')
   })
 

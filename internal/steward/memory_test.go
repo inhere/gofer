@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gookit/goutil/x/assert"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // P4: a review with no changed work item still runs when the server-side memory doctor
@@ -51,9 +53,9 @@ func TestReviewProposesMemoryCleanup(t *testing.T) {
 }
 
 func TestMemorySectionStates(t *testing.T) {
-	assert.Eq(t, "", memorySection(5, nil))
-	assert.Eq(t, "", memorySection(5, &MemoryHygiene{Findings: 3, Remaining: 0}))
-	sec := memorySection(5, &MemoryHygiene{Findings: 10, Remaining: 2, Lines: []string{"x"}})
+	assert.Eq(t, "", memorySection(i18n.ZhCN, 5, nil))
+	assert.Eq(t, "", memorySection(i18n.ZhCN, 5, &MemoryHygiene{Findings: 3, Remaining: 0}))
+	sec := memorySection(i18n.ZhCN, 5, &MemoryHygiene{Findings: 10, Remaining: 2, Lines: []string{"x"}})
 	assert.True(t, strings.HasPrefix(sec, "5. 仓库记忆整理"))
 	assert.True(t, strings.Contains(sec, "…另有 9 条"))
 }

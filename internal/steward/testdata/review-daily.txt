@@ -1,0 +1,31 @@
+## 每日巡检（2026-11-05）
+
+只处理下面这 2 个工作项（自上次巡检后有变化、已到期或有事件）；另有 2 个同样有变化但超出本次上限，留给下次：
+- W-1 [等我] 修登录页 | 阻塞：等供应商报价 | 下一步：打样并验收 | 最后活动：10天前 | 在途：汇报请求(待发送)
+- W-2 [进行中] 整理线路（草稿） | 已到期 | 最后活动：10天前 | 会话已离线
+
+待处理的事件：
+- [due] 工作项 W-1「修登录页」3 天后到期
+- [session] 工作项 W-2「整理线路」的会话 abcdef 已离线
+
+你要做的（只整理，不替用户决定）：
+- 只给真正需要动的项提建议：测试、试用、演示性质的会话和工作项不给建议（它们多半已经被降噪挡在外面，挡不住时也略过）；优先处理真的卡住、在等人、已经到期的事项。
+- 建议要具体到下一步动作（谁做什么、在哪里做），不要写“继续关注”“保持沟通”这类空话。
+1. 对每个工作项用 gofer_work_get 看目标 / 阻塞 / 下一步 / 日志和会话；信息缺失或过期的，用 gofer_work_summarize 触发整理，或用 gofer_work_request_report 请运行中的会话汇报（异步：之后用 gofer_work_requests 看结果，不要等）；需要时用 gofer_session_tail 读会话记录尾部。
+2. 检查到期 / 即将到期的提醒和搁置：必要时用 gofer_work_remind 设提醒，用 gofer_work_note 记一笔。
+   关联了 issue 的项可用 gofer_issue_get 核对 issue 当前状态（只读）；等的资源已到、会话在线时，用 gofer_session_ask 带话让它继续（离线会报错，别重试）。
+3. 发现同一件事被拆成多个工作项，用 gofer_work_merge_suggest 记合并建议（只记建议，由用户确认）。
+4. **管家笔记已超过 8KB，请先精简**：gofer_steward_notes get 读全文，保留长期有效的偏好和约定，重写成更短的版本，用 set（带 version）写回（旧版本会保留）。
+5. 「今天」待决策队列里有 3 张卡还没有建议：用 gofer_today_list（unadvised=true）读卡，逐张用 gofer_today_advise 写建议（text 一行 ≤60 字，写理由）。
+   - review（待验收）：用 gofer_today_card 读汇报、diff 统计、提交与 verify，digest 写 3–5 行（改动分组 / 风险 / 测试），action_id 给 accept（通过）或 rerun（退回重跑）；
+   - suggestion / merge：给 adopt（采纳）或 dismiss（忽略）；interaction：只在选项明确时给 answer:<value>，不确定就只写 text；
+   - decision：只补背景，**不给 action_id、不替人选**。建议只是建议：你不执行任何动作，由用户点「按建议」。
+6. 仓库记忆整理：服务端对镜像的仓库 tracker 记忆跑了 doctor，4 条有待处理的问题（今天还可提 2 条建议）：
+   - proj · k1（rule）：a, b
+   - …另有 3 条
+   用 gofer_memory_findings 读详情（含正文与可提的 actions），只挑真正值得的用 gofer_memory_suggest 提议（每条一个改动，reason 一行写理由）：
+   archive（久未更新 / 过期交接）、merge（payload.into 目标 key，可给 payload.content 合并后的正文）、kind（payload.kind 改为 rule|note）、summary（payload.summary ≤80 字）、when（payload.keywords 触发词，适合常被手动查的记忆）。
+   只是提议：由用户在「今天」页采纳或忽略；被忽略的 30 天内不要再提，拿不准就不提。
+7. 最后调用 gofer_steward_notes，action 填 review_summary，text 写一段 300 字以内的点评（重点、风险、这些事的共同点；不要复述数字），它会附在今天的每日摘要里。
+
+不要标完成 / 放弃，不要合并，不要提交 job，不要替用户执行「今天」卡上的任何动作。做完后只回复一行总结。

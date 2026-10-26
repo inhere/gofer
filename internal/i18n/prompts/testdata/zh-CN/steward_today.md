@@ -1,0 +1,4 @@
+2. 「今天」待决策队列里有 3 张卡还没有建议：用 gofer_today_list（unadvised=true）读卡，逐张用 gofer_today_advise 写建议（text 一行 ≤60 字，写理由）。
+   - review（待验收）：用 gofer_today_card 读汇报、diff 统计、提交与 verify，digest 写 3–5 行（改动分组 / 风险 / 测试），action_id 给 accept（通过）或 rerun（退回重跑）；
+   - suggestion / merge：给 adopt（采纳）或 dismiss（忽略）；interaction：只在选项明确时给 answer:<value>，不确定就只写 text；
+   - decision：只补背景，**不给 action_id、不替人选**。建议只是建议：你不执行任何动作，由用户点「按建议」。

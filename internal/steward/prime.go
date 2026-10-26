@@ -19,6 +19,13 @@ import (
 // it (settings.go).
 var rolePrompt = prompts.MustRender(i18n.ZhCN, prompts.NameStewardRole, struct{}{})
 
+// stewardText is the steward's catalog entry key (under the steward.* sections) in lang.
+// The language comes from the steward project (`steward.language` → server.language), so a
+// session and its review always read the same language.
+func stewardText(lang i18n.Lang, key string, args ...any) string {
+	return i18n.T(lang, "steward."+key, args...)
+}
+
 // primeStats says how much of the picture the prime carries.
 type primeStats struct {
 	ItemsTotal   int
@@ -71,81 +78,90 @@ func runesCap(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
-func ago(now time.Time, at int64) string {
+// statusLabel names a work item's status in lang (the same words the work catalog gives the
+// requests it sends to a session); an unknown status reads as itself.
+func statusLabel(lang i18n.Lang, status string) string {
+	key := "work.status." + status
+	if !i18n.HasKey(i18n.EN, key) {
+		return status
+	}
+	return i18n.T(lang, key)
+}
+
+func ago(lang i18n.Lang, now time.Time, at int64) string {
 	if at <= 0 {
-		return "无"
+		return stewardText(lang, "ago.none")
 	}
 	d := now.Sub(time.Unix(at, 0))
 	switch {
 	case d < time.Minute:
-		return "刚刚"
+		return stewardText(lang, "ago.just_now")
 	case d < time.Hour:
-		return fmt.Sprintf("%d分钟前", int(d.Minutes()))
+		return stewardText(lang, "ago.minutes", "n", int(d.Minutes()))
 	case d < 48*time.Hour:
-		return fmt.Sprintf("%d小时前", int(d.Hours()))
+		return stewardText(lang, "ago.hours", "n", int(d.Hours()))
 	}
-	return fmt.Sprintf("%d天前", int(d.Hours()/24))
+	return stewardText(lang, "ago.days", "n", int(d.Hours()/24))
 }
 
-func requestKindLabel(k string) string {
-	switch k {
-	case jobstore.WorkRequestReport:
-		return "汇报请求"
-	case jobstore.WorkRequestHandoff:
-		return "交接请求"
-	case jobstore.WorkRequestSummarize:
-		return "整理"
-	}
-	return k
+func requestKindLabel(lang i18n.Lang, k string) string {
+	return labeled(lang, "request_kind", k)
 }
 
-func requestStateLabel(st string) string {
-	switch st {
-	case jobstore.WorkRequestPending:
-		return "待发送"
-	case jobstore.WorkRequestSent:
-		return "已发送待回复"
-	case jobstore.WorkRequestAnswered:
-		return "已回复"
-	case jobstore.WorkRequestFailed:
-		return "失败"
-	case jobstore.WorkRequestExpired:
-		return "未回应(已转整理)"
+func requestStateLabel(lang i18n.Lang, st string) string {
+	return labeled(lang, "request_state", st)
+}
+
+func journalKindLabel(lang i18n.Lang, k string) string {
+	return labeled(lang, "journal_kind", k)
+}
+
+// labeled reads the steward catalog's <area>.<value> entry; a value the catalog does not
+// know (a newer server's kind) reads as itself.
+func labeled(lang i18n.Lang, area, value string) string {
+	key := "steward." + area + "." + value
+	if !i18n.HasKey(i18n.EN, key) {
+		return value
 	}
-	return st
+	return i18n.T(lang, key)
 }
 
 // itemLine renders one work item on one line: id / status / title / blocker / next /
 // last activity / in-flight requests.
-func itemLine(it work.ItemView, now time.Time) string {
+func itemLine(lang i18n.Lang, it work.ItemView, now time.Time) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "- %s [%s] %s", it.ID, work.StatusLabel(it.Status), runesCap(it.Title, 60))
+	line := stewardText(lang, "item.line", "id", it.ID, "status", statusLabel(lang, it.Status),
+		"title", runesCap(it.Title, 60))
+	b.WriteString(line)
 	if it.Unsorted {
-		b.WriteString("（草稿）")
+		b.WriteString(stewardText(lang, "item.draft"))
 	}
 	if t := runesCap(it.BlockerText, 60); t != "" {
-		b.WriteString(" | 阻塞：" + t)
+		b.WriteString(" | " + stewardText(lang, "item.blocker", "text", t))
 	}
 	if t := runesCap(it.NextStep, 60); t != "" {
-		b.WriteString(" | 下一步：" + t)
+		b.WriteString(" | " + stewardText(lang, "item.next", "text", t))
 	}
 	if it.Due {
-		b.WriteString(" | 已到期")
+		b.WriteString(" | " + stewardText(lang, "item.due"))
 	} else if it.RemindAt > 0 {
-		b.WriteString(" | 提醒：" + time.Unix(it.RemindAt, 0).In(now.Location()).Format("01-02 15:04"))
+		b.WriteString(" | " + stewardText(lang, "item.remind",
+			"time", time.Unix(it.RemindAt, 0).In(now.Location()).Format("01-02 15:04")))
 	}
-	fmt.Fprintf(&b, " | 最后活动：%s", ago(now, it.LastActivityAt))
+	b.WriteString(" | " + stewardText(lang, "item.last_activity", "ago", ago(lang, now, it.LastActivityAt)))
 	if it.SessionOffline {
-		b.WriteString(" | 会话已离线")
+		b.WriteString(" | " + stewardText(lang, "item.offline"))
 	}
 	var inflight []string
 	for _, r := range it.Requests {
 		if jobstore.WorkRequestActive(r.State) {
-			inflight = append(inflight, fmt.Sprintf("%s(%s)", requestKindLabel(r.Kind), requestStateLabel(r.State)))
+			inflight = append(inflight, stewardText(lang, "item.inflight_item",
+				"kind", requestKindLabel(lang, r.Kind), "state", requestStateLabel(lang, r.State)))
 		}
 	}
 	if len(inflight) > 0 {
-		b.WriteString(" | 在途：" + strings.Join(inflight, "、"))
+		b.WriteString(" | " + stewardText(lang, "item.inflight",
+			"items", strings.Join(inflight, stewardText(lang, "item.list_sep"))))
 	}
 	return b.String()
 }
@@ -155,6 +171,7 @@ func itemLine(it work.ItemView, now time.Time) string {
 // role and the notes are never cut (the notes are capped on their own); the items take up
 // to 60% of what is left, the ledger and the journal share the rest.
 func (s *Service) BuildPrime(now time.Time) (Prime, error) {
+	lang := s.language()
 	items, err := s.work.List(work.WorkListOptsOpen())
 	if err != nil {
 		return Prime{}, err
@@ -166,23 +183,26 @@ func (s *Service) BuildPrime(now time.Time) (Prime, error) {
 
 	var out strings.Builder
 	out.WriteString(s.roleText())
-	fmt.Fprintf(&out, "\n\n## 现在\n%s（%s）", now.Format("2006-01-02 15:04"), weekdayCN(now.Weekday()))
+	out.WriteString("\n\n## " + stewardText(lang, "prime.now_heading") + "\n")
+	out.WriteString(stewardText(lang, "prime.now_line",
+		"time", now.Format("2006-01-02 15:04"), "weekday", weekday(lang, now.Weekday())))
 
 	// Notes.
 	notesText, notesVer := "", 0
 	if h, ok, nerr := s.store.GetPlanHandoff(jobstore.StewardNotesKey, 0); nerr == nil && ok {
 		notesText, notesVer = h.Body, h.Version
 	}
-	out.WriteString("\n\n## 管家笔记")
+	out.WriteString("\n\n## " + stewardText(lang, "prime.notes_heading"))
 	if notesVer > 0 {
-		fmt.Fprintf(&out, "（v%d，%.1fKB）", notesVer, float64(len(notesText))/1024)
+		out.WriteString(stewardText(lang, "prime.notes_ver",
+			"version", notesVer, "kb", fmt.Sprintf("%.1f", float64(len(notesText))/1024)))
 	}
 	out.WriteString("\n")
 	switch txt := strings.TrimSpace(notesText); {
 	case txt == "":
-		out.WriteString("（还没有笔记。有长期有效的偏好或约定时，用 gofer_steward_notes 记下来。）")
+		out.WriteString(stewardText(lang, "prime.notes_empty"))
 	case len(txt) > 12<<10:
-		out.WriteString(txt[:12<<10] + "\n…（笔记过长，只列出前 12KB；用 gofer_steward_notes get 读全文并在巡检时精简）")
+		out.WriteString(txt[:12<<10] + "\n" + stewardText(lang, "prime.notes_truncated"))
 	default:
 		out.WriteString(txt)
 	}
@@ -196,13 +216,13 @@ func (s *Service) BuildPrime(now time.Time) (Prime, error) {
 
 	// Open items, priority order, one line each, up to 60% of the remaining budget.
 	itemsBudget := remaining * 6 / 10
-	out.WriteString("\n\n## 未结工作项（快照，按 等我 > 到期 > 需现场/等资源 > 其他 排序）\n")
+	out.WriteString("\n\n## " + stewardText(lang, "prime.items_heading") + "\n")
 	if len(items) == 0 {
-		out.WriteString("（没有未结工作项）")
+		out.WriteString(stewardText(lang, "prime.items_empty"))
 	}
 	used := 0
 	for _, it := range items {
-		line := itemLine(it, now) + "\n"
+		line := itemLine(lang, it, now) + "\n"
 		if used+len(line) > itemsBudget {
 			break
 		}
@@ -212,13 +232,13 @@ func (s *Service) BuildPrime(now time.Time) (Prime, error) {
 	}
 	if hidden := st.ItemsTotal - st.ItemsShown; hidden > 0 {
 		st.Truncated = true
-		fmt.Fprintf(&out, "…另有 %d 项未列出（优先级较低或超出长度上限；用 gofer_work_list 查看）\n", hidden)
+		out.WriteString(stewardText(lang, "prime.items_hidden", "n", hidden) + "\n")
 	}
 	remaining -= used
 
 	// Request ledger: the in-flight asks and what became of the recent ones.
 	ledgerBudget := min(remaining/2, 3<<10)
-	out.WriteString("\n## 在途请求账本（你发出的和系统发出的汇报 / 交接 / 整理请求）\n")
+	out.WriteString("\n## " + stewardText(lang, "prime.ledger_heading") + "\n")
 	reqs, _ := s.store.ListWorkRequests("", false, 100)
 	cutoff := now.Add(-24 * time.Hour).Unix()
 	usedL, shownL, hiddenL := 0, 0, 0
@@ -226,8 +246,10 @@ func (s *Service) BuildPrime(now time.Time) (Prime, error) {
 		if !jobstore.WorkRequestActive(r.State) && r.CreatedAt < cutoff {
 			continue
 		}
-		line := fmt.Sprintf("- %s %s %s | 工作项 %s | 会话 %s | 发起：%s | %s\n", r.ID, requestKindLabel(r.Kind),
-			requestStateLabel(r.State), r.WorkItemID, orDash(r.SessionID), orDash(r.By), ago(now, r.CreatedAt))
+		line := stewardText(lang, "prime.ledger_line", "id", r.ID,
+			"kind", requestKindLabel(lang, r.Kind), "state", requestStateLabel(lang, r.State),
+			"item", r.WorkItemID, "session", orDash(r.SessionID), "by", orDash(r.By),
+			"ago", ago(lang, now, r.CreatedAt)) + "\n"
 		if usedL+len(line) > ledgerBudget {
 			hiddenL++
 			continue
@@ -237,23 +259,25 @@ func (s *Service) BuildPrime(now time.Time) (Prime, error) {
 		shownL++
 	}
 	if shownL == 0 && hiddenL == 0 {
-		out.WriteString("（没有在途请求）\n")
+		out.WriteString(stewardText(lang, "prime.ledger_empty") + "\n")
 	}
 	if hiddenL > 0 {
 		st.Truncated = true
-		fmt.Fprintf(&out, "…另有 %d 条未列出（用 gofer_work_requests 查看）\n", hiddenL)
+		out.WriteString(stewardText(lang, "prime.ledger_hidden", "n", hiddenL) + "\n")
 	}
 	st.RequestsShow = shownL
 	remaining -= usedL
 
 	// Last 24h of journal, newest first, in whatever is left.
-	out.WriteString("\n## 最近 24 小时的工作项日志（新的在前）\n")
+	out.WriteString("\n## " + stewardText(lang, "prime.journal_heading") + "\n")
 	journalBudget := max(remaining, 1024)
 	entries, _ := s.store.ListRecentWorkJournal(cutoff, 300)
 	usedJ, hiddenJ := 0, 0
 	for _, e := range entries {
-		line := fmt.Sprintf("- %s %s [%s] %s：%s\n", time.Unix(e.At, 0).In(now.Location()).Format("15:04"), e.WorkItemID,
-			journalKindLabel(e.Kind), runesCap(e.By, 40), runesCap(e.Text, 90))
+		line := stewardText(lang, "prime.journal_line",
+			"time", time.Unix(e.At, 0).In(now.Location()).Format("15:04"), "item", e.WorkItemID,
+			"kind", journalKindLabel(lang, e.Kind), "by", runesCap(e.By, 40),
+			"text", runesCap(e.Text, 90)) + "\n"
 		if usedJ+len(line) > journalBudget {
 			hiddenJ++
 			continue
@@ -263,11 +287,11 @@ func (s *Service) BuildPrime(now time.Time) (Prime, error) {
 		st.JournalShown++
 	}
 	if len(entries) == 0 {
-		out.WriteString("（最近 24 小时没有日志）\n")
+		out.WriteString(stewardText(lang, "prime.journal_empty") + "\n")
 	}
 	if hiddenJ > 0 {
 		st.Truncated = true
-		fmt.Fprintf(&out, "…另有 %d 条更早的未列出（用 gofer_work_get 看单项日志）\n", hiddenJ)
+		out.WriteString(stewardText(lang, "prime.journal_hidden", "n", hiddenJ) + "\n")
 	}
 
 	text := strings.TrimRight(out.String(), "\n")
@@ -281,22 +305,9 @@ func orDash(s string) string {
 	return s
 }
 
-func journalKindLabel(k string) string {
-	switch k {
-	case jobstore.WorkJournalReport:
-		return "汇报"
-	case jobstore.WorkJournalNote:
-		return "备注"
-	case jobstore.WorkJournalStatus:
-		return "状态"
-	case jobstore.WorkJournalSteward:
-		return "整理"
-	case jobstore.WorkJournalLink:
-		return "关联"
-	}
-	return k
-}
+// weekdayNames are the catalog keys of the weekdays, Sunday first.
+var weekdayNames = [...]string{"sun", "mon", "tue", "wed", "thu", "fri", "sat"}
 
-func weekdayCN(d time.Weekday) string {
-	return [...]string{"周日", "周一", "周二", "周三", "周四", "周五", "周六"}[d]
+func weekday(lang i18n.Lang, d time.Weekday) string {
+	return stewardText(lang, "weekday."+weekdayNames[d])
 }

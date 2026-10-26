@@ -133,9 +133,11 @@ export function displayPrompt(text: string): string {
     if (!rest || rest.startsWith(READY_LINE_HEAD)) return started
     return `${started}\n${displayPrompt(rest)}`
   }
-  const ask = /^## 来自 [^\n]* 的提问\n\n([\s\S]*?)\n\n（先用 gofer_work_list/.exec(text)
+  const ask = /^## (?:来自 [^\n]* 的提问|Question from [^\n]*)\n\n([\s\S]*?)\n\n(?:（先用 gofer_work_list|\(Check the latest data with gofer_work_list)/.exec(text)
   if (ask) return ask[1]
-  const sys = /^## (每日巡检|手动巡检|事件整理)[^\n]*/.exec(text)
+  // The review heading is written per language by the server (internal/steward/review.go);
+  // both spellings are recognized so an English review is not shown as a person's words.
+  const sys = /^## (每日巡检|手动巡检|事件整理|Daily review|Manual review|Event tidy-up)[^\n]*/.exec(text)
   if (sys) return `${t('util.steward.promptSystem')}${sys[0].replace(/^## /, '')}`
   return text
 }

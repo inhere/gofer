@@ -24,6 +24,10 @@ var goldenData = map[string]any{
 	NameTodoContinue:      TodoContinueData{Title: "wire the thing"},
 	NameStewardRole:       struct{}{},
 	NameStewardReview:     struct{ Slim bool }{Slim: false},
+	NameStewardToday:      StewardTodayData{Step: 2, Pending: 3},
+	NameStewardMemory: StewardMemoryData{Step: 3, Findings: 4, Remaining: 2,
+		Lines: []string{"proj · k1（rule）：a, b"}, More: 3},
+	NameStewardQuestion: StewardQuestionData{By: "human:ann", Text: "what is still open?"},
 }
 
 // TestRenderGolden pins the rendered text of every template in both languages.

@@ -22,6 +22,7 @@
 - **MCP 工具说明按语言输出（gofer-992q，P1d）**：agent 在 `tools/list` 里读到的工具说明与返回给它的错误文本里不再有中英混杂——`server.language: en` 下全是英文（如「今天」→ `Today`、「可复用经验」→ `Reusable lessons`、`@<agent 或 role>` → `@<agent or role>`），中文部署看到的文本与以前逐字一致。语言来源：内建 MCP（`gofer mcp --standalone`）读本机 `server.language`；瘦客户端（转发到中央 serve）暂用本机语言链（`GOFER_LANG` → 系统语言），因为中央的语言目前没有传到该进程。换语言需新开 MCP 会话。
 - **发给会话的通知与工作项请求也按语言输出（gofer-992q，i18n 阶段 1）**：`internal/sessionrelay` 发给会话的文本按收件会话所属项目的语言生成——job 完成通知（`耗时 1m30s` / `took 1m30s`、`（这是 gofer 系统通知，不是用户消息；…）` / `(this is a gofer system notice, …)`）、决策卡的标题与问题（`需要授权：` / `Permission needed: `、`等你回答：` / `Waiting for your answer: `、`在线送话` / `live delivery`、`接管` / `takeover`、`tmux 注入` / `tmux injection`）、唤醒与接管失败的解释（`无法唤醒这个会话（…）` / `Cannot wake this session (…)` 等）以及传话人提示词；`internal/work` 的工作项交接 / 汇报请求正文与工作项状态名同样按语言。传话人按提示词里的回执词回答（中文 `已发送`、英文 `sent`），识别两种都认。中文输出逐字不变（有 golden 钉住）。
 - **管家提示词与信箱渲染按语言输出（gofer-992q，P1c）**：管家首轮提示词现在首行带语言无关标记 `<!-- gofer:steward-prime -->`，按管家项目语言选择中英文角色 / 巡检模板；Web 同时识别新标记与旧中文开头。信件唤醒、标签截断提示、收集箱摘要与退信提供 `en` / `zh-CN` 渲染 API，中文默认输出保持不变。
+- **管家首轮简报与巡检提示的动态部分按语言输出（gofer-992q，P1e）**：管家会话开场那份简报（`## 现在`、管家笔记、未结工作项、在途请求账本、最近 24 小时日志这几节的标题与行，工作项行里的状态 / 阻塞 / 下一步 / 最后活动 / 在途请求标签，`N分钟前` 这类时间说法，星期名，草稿标记）与巡检提示里由代码拼出的部分（触发原因标题、工作项与事件清单、`「今天」` 待决策步骤、仓库记忆整理步骤、结尾约束）、管家事件摘要、会话标题（`管家 · <agent>`）与首轮指令、提问包装语全部进了新的 `internal/i18n/lang/{en,zh-CN}/steward.ini` 与三份模板，语言取管家项目（`projects.<管家项目>.language` → `server.language`）。英文环境下管家读到的提示词不再中英混杂；中文输出逐字不变（有 golden 钉住）。Web 的管家面板同时识别英文的巡检标题与英文提问包装语。
 
 ## [0.197.0] - 2026-10-27
 
