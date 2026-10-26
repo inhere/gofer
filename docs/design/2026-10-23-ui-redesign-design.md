@@ -2355,3 +2355,48 @@ P6-b 的第二批：本批认领 40 个还挂在 `PENDING` 里的文件（工具
 **验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 249 passed (249)` / `Tests 1727 passed (1727)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 5.67s`。skill 同步了 `references/web-console.md` 计划进度一句。
 
 **视觉自查**：同上那套 `tmp/vis/` 栈（桩计划：9 个 done + 1 个 doing 且 job 失败、`todo_counts` 10 项、`completion.percent` 故意写 100），zh 浅 / en 浅 / en 深 / zh 深：页头大号进度条与操作条「清单进度」都是 **9/10 90%**，图例写「完成 9 / 受阻 1」，色带总宽等于 10（以前会是 9/11 而百分比来自服务端）。
+
+## 实施记录 P6-5inz（计划详情：视图记忆 / 空列收窄 / 待办抽屉，2026-10-26，issue gofer-5inz）
+
+范围：`/plans/:id` 计划详情——`views/PlanDetail.vue`、`components/PlanBoard.vue`、新增 `components/TodoDrawer.vue` 与 `utils/planView.ts`，`utils/planBoard.ts` 补宽度轨道函数，`i18n/pages/plans.ts`。不动接口、不动 Go（评论走早已存在的 `/v1/todos/{id}/comments`，事件用关联 job 的 `GET /v1/jobs/{id}/events`）。
+
+**1）视图选择记到浏览器（`?view=` 仍然优先）**
+
+- 判定顺序收在一处纯函数 `utils/planView.ts` 的 `resolvePlanView(query.view, planId)`：URL 上显式的 `board` / `list` → 本浏览器对这个计划的记忆 → 全局「最近一次」→ 看板（默认值，与 `?view=` 契约一致，仍不写进 URL）。
+- 存储键：`gofer.plans.view:<plan id>`（按计划）+ `gofer.plans.view`（全局最近一次）；`setView` 时两份都写，刷新、下次打开、看过的其它计划都沿用。读写一律兜错（无 localStorage / 隐私模式 / 配额满都不抛错，切换照常生效）。
+- `view` 从「由 URL 计算的 computed」改成 ref + `watch([route.query.view, props.id])`：深链、前进后退、换计划都重新判定；URL 写法仍是 `queryWithTab(..., 'view', PLAN_VIEW_DEFAULT)`（gofer-qw2g 的链接习惯不变）。
+- 这一条推翻了 gofer-qw2g 记录里「localStorage 记忆已删、URL 是唯一来源」的决定：用户反馈刷新后又跳回看板（issue 第 1 条），现在两者并存，URL 优先。
+
+**2）看板空列收窄（手机不变）**
+
+- `utils/planBoard.ts` 新增 `columnTrack(cardCount)` / `boardTracks(counts)`：0 张卡的列 `minmax(72px, 0.34fr)`，有卡片的列 `minmax(220px, 1fr)`——空列约为普通列三分之一，空出来的宽度归有卡片的列。
+- `PlanBoard.vue` 把轨道串接成 CSS 变量 `--board-tracks` 给 `.board` 的 `grid-template-columns: var(--board-tracks, repeat(5, minmax(220px, 1fr)))`；空列加 `.col--empty`：桌面上收起列名（只留字形 + 计数）、空态文字截断、两个落点（完成 / 跳过）改为上下排列；列体仍是拖拽落点，窄列照样能拖入。手机（≤760）一次一列的布局与切列标签未改。
+
+**3）待办详情抽屉（`components/TodoDrawer.vue`）**
+
+- 外壳用统一的 `ui/Drawer`（480px，手机铺满）；入口：看板卡片整块可点（拖拽不会触发 click，故与拖拽共存；卡片里的 job 链接与 PR 链接 `@click.stop`）、列表行标题（`<button>`，放在 `<label>` 里故 `prevent.stop`，不会顺手把 done 勾掉）以及行内「详情」按钮。宿主页面按 `todo_id` 记录选中的条目，`todo` 为空即关闭。
+- 内容：标题、状态 pill（同看板的状态族）、处理人 / 手动标记 / 更新时间；**依赖**（同计划条目的标题、完成标记、`auto=false` 的手动说明、接续 `continue_from` / `continued_by` / `continue_note`）；**验收标准**（acceptance、scope、verify argv、是否要人验收）；**派发字段**（assignee / project / template / runner / cwd / timeout，派发错误原样显示）；**关联 job**（状态 pill、id 可跳 `/jobs/:id`、用量、verify 结果、耗时、PR 链接；`todo.jobs` 为空时按 `job_id` 从 `plan.jobs` 兜底）；备注；时间线（创建 / 开始 / 完结）；**计划交接说明**（取详情页已拿到的 `handoffLatest`，带版本与作者，不另发请求）；**评论**（复用 `CommentThread`，`scope='todo'`，接口早已存在）；**事件**（没有 todo 级接口，合并关联 job 的事件，最多最近 5 个 job、显示 20 条，单个拉不到不影响其余）。
+- 操作：改状态（下拉，`ready` + assignee 时服务端当场派发）、派发 / 重派（没 assignee 时抽屉里先选 agent，与看板拖到 ready 同一条规则）。两者都只发意图，仍走宿主页面的 `onTodoStatus` / `dispatchTodo`（同一条 PATCH），没有新增写路径；`planWriteBlock()` 非空时按钮禁用、评论框只读并写明原因。
+
+**不丢信息核对（对照 §7「/plans/:id」与迁移前的待办页签）**
+
+| 迁移前 | 现在 |
+|---|---|
+| 看板 / 列表切换在待办标题右侧、`?view=` 可深链 | 保留；另记到本浏览器，URL 显式值优先 |
+| 看板五列、跳过落点、拖拽派发、选 agent、done / skipped 二次确认 | 全部保留；空列收窄但仍是落点 |
+| 列表行：勾选 done、标题、assignee、派发、编辑字段、状态下拉、耗时、N jobs、job 链接、PR、交付失败、接续信息、派发错误、备注 | 全部保留；标题与新增的「详情」按钮打开抽屉，行内其余操作不变 |
+| 验收标准 / 范围 / verify / review 只在派发字段表单里能改，看不到现值 | 抽屉里只读展示现值（编辑仍在列表行的「编辑」面板） |
+| 计划交接说明只在「交接说明」页签 | 保留；抽屉里同时给出最新一版（接手人不必来回切页签） |
+| 评论只在「评论」页签（计划级） | 保留；抽屉里给出这一条待办的评论线程（todo 作用域，可发） |
+| 事件只在「事件」页签（计划级） | 保留；抽屉里给出关联 job 的事件 |
+
+**测试**
+
+- 新增 `utils/planView.test.ts`（7 例）：URL 优先（含显式 `board`）、按计划 → 全局 → 默认的回退、URL / 存储里的脏值被忽略、无存储不抛错、写两份键、键名冻结在 `gofer.plans.view`、getItem / setItem 抛错时不影响判定。
+- 新增 `utils/planBoard.test.ts`（4 例）：空列 `minmax(72px, 0.34fr)` 对普通列 `minmax(220px, 1fr)`（约三分之一）、保留最小宽、轨道顺序同 `BOARD_COLUMNS`、全空时五列都收窄。
+- 新增 `components/todoDrawer.test.ts`（7 例）SSR：`todo` 为空时 Teleport 里什么都不渲染（关闭态）；有 todo 时标题 / 状态 / 依赖（标题 + 完成 + 手动）/ 验收标准 / 派发字段 / 关联 job（含 PR）/ 备注 / 时间 / 交接说明 / 评论 / 事件都在，且事件按关联 job id 拉；空态文案；无写权限时下拉与派发禁用、评论只读并写明原因；en 下文案；接线（`emit('status'|'dispatch'|'open-job')`、没人认领时先选 agent、复用 `ui/Drawer` 与 todo 作用域评论）。
+- `views/planDetailTabs.test.ts` 更新 1 例 + 新增 4 例：视图选择改成 `resolvePlanView` / `rememberPlanView` 接线（不再是 URL 唯一来源）、空列轨道与 `--board-tracks`、空列仍是落点且手机布局用 `min-width: 761px` 隔离、抽屉入口（看板 card open、列表标题、详情按钮）与抽屉接线（复用 `onTodoStatus` / `dispatchTodo`）。
+
+**验证**：`npx vue-tsc --noEmit` 退出码 0；`npx vitest run`：`Test Files 256 passed (256)` / `Tests 1780 passed (1780)`；`npx vite build --outDir ../tmp/web-dist-check --emptyOutDir`：`✓ built in 7.93s`。`go build ./...` / `go vet ./...` 退出码 0（本项无 Go 代码改动）。无新增路由、无权限变化：G056 路由声明、`go generate` 与 `docs/reference/http-api.md` 都不涉及；skill 同步了 `references/web-console.md` 的计划详情一句（视图记忆、空列收窄、待办抽屉）。
+
+**视觉自查（未完成，遗留）**：本项**没有**跑 zh / en × 浅 / 深的截图核对。搭了 `tmp/ui-check/stub.mjs`（静态服务 + `/v1` 合成桩：五列里故意一列空、一条 doing 带依赖与验收标准、一条 ready 带长键与派发字段、计划交接说明一条），但 `agent-browser` 在本机 `open` 卡住不返回（2 分钟后被掐掉），没取到截图。布局正确性当前只由纯函数单测（宽度轨道、视图记忆）与 SSR 渲染断言（抽屉字段、空态、只读态、en 文案）背书；三处需要人肉过一眼的地方：① 1/3 宽的空列在 1440 下是否仍好拖入、列头字形 + 计数是否挤；② en 下抽屉各段标题（Acceptance criteria / Dispatch settings / Related jobs）在 480px 里是否换行难读；③ 浅色主题下抽屉里 `--ink-3` 的空态文字对比度。下次接手时直接 `node tmp/ui-check/stub.mjs 8899` 起桩、再用可用的截图工具跑一遍即可。

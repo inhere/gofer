@@ -122,3 +122,17 @@ export function depsSatisfied(t: BoardTodo, all: readonly BoardTodo[]): boolean 
 
 // auto=false 才显示「手动」标签（Vue 侧直接判 t.auto === false）：老服务端不发 auto
 // （undefined）时按服务端默认 auto=1 处理，故不能用 falsy 判断。
+
+// 列的宽度轨道（issue gofer-5inz）：0 张卡的列只留列头与计数，宽度约为普通列的三分之一，
+// 空出来的宽度归有卡片的列（拖拽落点仍在，只是窄）；手机不用它（一次只显示一列）。
+const EMPTY_COLUMN_TRACK = 'minmax(72px, 0.34fr)'
+const COLUMN_TRACK = 'minmax(220px, 1fr)'
+
+export function columnTrack(cardCount: number): string {
+  return cardCount === 0 ? EMPTY_COLUMN_TRACK : COLUMN_TRACK
+}
+
+// boardTracks 直接喂给 grid-template-columns（列顺序同 BOARD_COLUMNS）。
+export function boardTracks(cardCounts: readonly number[]): string {
+  return cardCounts.map(columnTrack).join(' ')
+}
