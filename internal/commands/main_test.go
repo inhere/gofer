@@ -8,6 +8,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/testutil/gitenv"
 )
 
@@ -51,6 +52,15 @@ func TestMain(m *testing.M) {
 	// fixture's (TestProjectAddListShowValidate failed that way in a verify workflow).
 	_ = os.Unsetenv(config.EnvRunMode)
 	_ = os.Unsetenv("GOFER_HOOK_RUNNER")
+	// The language of the CLI's own text is a SOURCE OF INPUT, not a property of
+	// the machine: the CLI follows GOFER_LANG → the machine's locale → the default,
+	// so without this every assertion on a Chinese message would pass on a zh_CN
+	// host and fail on the English-locale CI (G053). Pin the package to zh-CN — the
+	// catalog the pre-i18n tests were written against — and drop the client
+	// language sources; a test that exercises English or the language chain sets
+	// GOFER_LANG itself with t.Setenv.
+	_ = os.Setenv(i18n.EnvLanguageVar, string(i18n.ZhCN))
+	_ = os.Unsetenv("LANGUAGE") // glibc's message list: never a language source of ours
 	// The developer's config directory and server stay out of the tests: commands
 	// that open <config-dir>/tracker (the global memory copy) or sync it would
 	// otherwise touch the real ones. A test that needs either sets its own.
