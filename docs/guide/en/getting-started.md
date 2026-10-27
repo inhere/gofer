@@ -1,6 +1,6 @@
 # Getting started
 
-This page takes you from a downloaded binary to a running setup: a server on the machine that owns your code, your first job, the web console, a second machine, and your terminal agent sessions waiting for you in the browser. It is the long form of the [README quick start](../../../README.md#quick-start-about-10-minutes); every step says what you should see and what usually goes wrong.
+This page takes you from a downloaded binary to a running setup: a server on the machine that owns your code, your first job, the web console, a second machine, and your terminal agent sessions waiting for you in the browser. It is the long form of the [README walkthrough](../../../README.md#full-walkthrough-about-10-minutes); every step says what you should see and what usually goes wrong.
 
 One thing up front: gofer's CLI messages and most of its prose documentation are Chinese first. Commands, flags, field names and ids are English, and the quotes below are verbatim — expect a Chinese sentence next to English field names. When a flag is in doubt, `gofer <command> -h` is authoritative.
 

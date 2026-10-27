@@ -2,11 +2,35 @@
 
 [English](README.md) · 中文 · [更新日志](CHANGELOG.md) · [用户指南](docs/guide/README.md)
 
-> **状态：0.x，很年轻，但作者每天都在用。** 发版频繁（有时一周几个版本），minor 版本之间接口仍可能调整：以 [CHANGELOG.md](CHANGELOG.md) 为准，[稳定性说明](docs/guide/stability.md) 写明哪些可以放心依赖。
+**你的 agent、你的机器、一个控制面。** 把 Claude Code、Codex、ACP agent 或普通命令作为可追踪、可验收的任务，跑在你自己的每台机器上，不上云。
 
-**gofer 是一个自托管的控制平面：把 Claude Code、Codex、ACP agent 或普通命令，作为可追踪、可验收的 job，在你自己的机器上、在真实的项目目录里运行。**
+<img src=".github/image/gofer-intro-review-merge-zh.gif" alt="动图：一个 agent 任务停在「待验收」，验收标准、汇报与改动文件在同一屏，随后被接受并合并回来" width="760">
+
+- **worktree 隔离，像审 PR 一样验收。** 任务可以在自己的 git worktree 与分支里跑，做完停在「待验收」：汇报、提交、diff、验证输出在一个面板里看完；通过，或写明理由打回并自动续投。
+- **一台 server，多台 worker。** 其他机器与容器上的 worker 主动连入 server，不需要开放任何入站端口。
+- **终端会话，在手机上回复。** 登记你已经在用的 Claude Code / Codex 会话，在 web 工作台里跟进，在手机上回复。
+- **不带模型，不绑厂商。** gofer 不内含 agent、不绑定任何厂商：MIT 许可，一个 Go 二进制自带 Web 控制台。
+
+## 快速开始
+
+```bash
+eget install inhere/gofer               # 或从 GitHub Releases 下载归档
+gofer init server --global              # 写出 <config-dir>/config.yaml
+export GOFER_TOKEN=change-me            # 生成的配置从这个变量读 token
+gofer serve                             # Web 控制台在 http://<server>:8765/
+```
+
+到这里一台机器上就有能用的 server 了。第一个 job、把另一台机器加成 worker、把终端会话交给 web，见[上手指南](docs/guide/README.md)；本页下面的[完整走查](#完整走查约-10-分钟)把同样的步骤展开。
+
+> **状态：0.x，很年轻，但作者每天都在用。** minor 版本之间接口仍可能调整：以 [CHANGELOG.md](CHANGELOG.md) 为准，[稳定性说明](docs/guide/stability.md) 写明哪些可以放心依赖。
+
+## 是什么
 
 你在主力机器上跑一个 gofer server，按需在其他机器或容器里跑 worker。交出去的每件事都是一个 *job*，带日志、diff、提交、token 用量和验收状态；人和 agent 通过 CLI、HTTP API、MCP 和 Web 控制台看到的是同一批 job。
+
+它面向一个开发者、或互相信任的小团队。它**不是** agent 或大模型本身，不是托管服务，不是 CI/CD 系统或沙箱，也不是多租户平台：访问基于 token，job 以执行它的 gofer 进程的权限运行。
+
+## 各部分的角色
 
 ```mermaid
 flowchart LR
@@ -19,8 +43,6 @@ flowchart LR
 - **server**（`gofer serve`）——唯一真源：项目与准入规则、job 存储、调度、API 与 Web 控制台。一台机器一个。
 - **worker**（`gofer worker`）——远程执行机，主动连入 server，上报自己的目录和 agent，在本机执行 job；不需要开放入站端口。
 - **agent**——真正干活的程序。gofer 不内置模型，只启动和监督你已经装好的 CLI。
-
-它面向一个开发者、或互相信任的小团队。它**不是** agent 或大模型本身，不是托管服务，不是 CI/CD 系统或沙箱，也不是多租户平台：访问基于 token，job 以执行它的 gofer 进程的权限运行。
 
 ![gofer-workbench](.github/image/gofer-workbench-zh.png)
 
@@ -61,7 +83,7 @@ flowchart LR
 
 三种方式装出来的是同一个 CLI，区别只在有没有内嵌前端。
 
-## 10 分钟上手
+## 完整走查（约 10 分钟）
 
 ### 1. Server
 
