@@ -105,6 +105,8 @@ var registry = []Tool{
 	{Name: "gofer_session_list", Class: ReadOnly},
 	{Name: "gofer_session_get", Class: ReadOnly},
 	{Name: "gofer_session_tail", Class: ReadOnly},
+	{Name: "gofer_session_wait", Class: ReadOnly},
+	{Name: "gofer_session_screen", Class: ReadOnly},
 	{Name: "gofer_session_find", Class: ReadOnly},
 	{Name: "gofer_session_mail_list", Class: ReadOnly},
 	{Name: "gofer_session_mail_read", Class: ReadOnly},

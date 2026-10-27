@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
@@ -632,6 +633,14 @@ func (b *clientBackend) GetSessionView(id string) (sessionToolView, error) {
 
 func (b *clientBackend) SessionTail(id string, bytes int64) (work.SessionTailResult, error) {
 	return b.cli.SessionTail(id, bytes)
+}
+
+func (b *clientBackend) WaitSession(sid string, until []string, timeout time.Duration) (client.SessionWaitResult, error) {
+	return b.cli.WaitSession(sid, until, timeout)
+}
+
+func (b *clientBackend) SessionScreen(sid string, n int) (client.SessionScreen, error) {
+	return b.cli.SessionScreen(sid, n)
 }
 
 func (b *clientBackend) ListJobViews(project, status string, limit int) ([]job.JobResult, error) {

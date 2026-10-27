@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"time"
+
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -162,6 +164,10 @@ type Backend interface {
 	// Both need a running server.
 	SetSessionTopic(sid string, p client.SessionTopicPatch) (client.AgentSession, error)
 	FindSessions(o client.SessionFindOpts) ([]client.SessionFound, error)
+	// gofer-f8ik: wait until another session is idle / waiting / ended, and read the
+	// tail of what it shows. Both need a running server.
+	WaitSession(sid string, until []string, timeout time.Duration) (client.SessionWaitResult, error)
+	SessionScreen(sid string, n int) (client.SessionScreen, error)
 	IssueList(o client.IssueListOpts) (client.IssueListResp, error)
 	IssueGet(id, trackerID string) (client.IssueGetResp, error)
 	// The gofer mailbox (plan M3): all of it needs a running server.

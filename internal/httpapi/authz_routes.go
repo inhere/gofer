@@ -184,6 +184,8 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/sessions":                                 {user: InHandler(permFilter, authz.PermSessionReadOthers), jobCred: "GET /v1/sessions", scope: Filter()},
 	"GET /v1/sessions/{sid}":                           {user: InHandler(permDeny, authz.PermSessionReadOthers), jobCred: "GET /v1/sessions/*", scope: Resource("session")},
 	"GET /v1/sessions/{sid}/tail":                      {user: InHandler(permDeny, authz.PermSessionReadOthers), jobCred: "GET /v1/sessions/*/tail", scope: Resource("session")},
+	"GET /v1/sessions/{sid}/wait":                      {user: InHandler(permDeny, authz.PermSessionReadOthers), scope: Resource("session")},
+	"GET /v1/sessions/{sid}/screen":                    {user: InHandler(permDeny, authz.PermSessionReadOthers), scope: Resource("session")},
 	"GET /v1/jobs":                                     {user: InHandler(permFilter, authz.PermJobReadOthers), jobCred: "GET /v1/jobs", scope: Filter()},
 	"GET /v1/jobs/{id}":                                {user: InHandler(permDeny, authz.PermJobReadOthers), jobCred: "GET /v1/jobs/*", scope: Resource("job")},
 	"GET /v1/steward":                                  {user: Public(), jobCred: "GET /v1/steward", scope: NoProject()},

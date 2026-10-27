@@ -586,6 +586,15 @@ var sessionAuthzCases = []authzCase{
 	{key: "GET /v1/sessions/{sid}/focus", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/focus", nil}
 	}},
+	// gofer-f8ik: waiting on and reading another session's screen are reads like `session show`,
+	// so somebody else's session needs session.read.others. timeout=0 keeps the wait from
+	// blocking: the own half has to answer within the case's budget.
+	{key: "GET /v1/sessions/{sid}/wait", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/wait?until=idle&timeout=0", nil}
+	}},
+	{key: "GET /v1/sessions/{sid}/screen", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/sessions/" + e.session() + "/screen?n=5", nil}
+	}},
 	// The cross-session nudge list is the FILTER form: the answer stays 200 and only loses the
 	// other caller's rows.
 	{key: "GET /v1/nudges",

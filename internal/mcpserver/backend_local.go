@@ -789,6 +789,14 @@ func (b *localBackend) SessionTail(string, int64) (work.SessionTailResult, error
 	return work.SessionTailResult{}, errNeedsServer
 }
 
+func (b *localBackend) WaitSession(string, []string, time.Duration) (client.SessionWaitResult, error) {
+	return client.SessionWaitResult{}, errNeedsServer
+}
+
+func (b *localBackend) SessionScreen(string, int) (client.SessionScreen, error) {
+	return client.SessionScreen{}, errNeedsServer
+}
+
 func (b *localBackend) ListJobViews(string, string, int) ([]job.JobResult, error) {
 	return nil, errNeedsServer
 }

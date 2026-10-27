@@ -1657,6 +1657,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/mail/confirm", s.handleConfirmSessionMail)
 		r.POST("/sessions/{sid}/turns/{id}/complete-mail", s.handleCompleteMailTurn)
 		r.GET("/sessions/{sid}/tail", s.handleSessionTail)
+		// gofer-f8ik: the read side an agent needs to orchestrate another session —
+		// block until it is idle / waiting / gone, and read what it currently shows.
+		r.GET("/sessions/{sid}/wait", s.handleWaitSession)
+		r.GET("/sessions/{sid}/screen", s.handleSessionScreen)
 		r.POST("/sessions/{sid}/say", s.handleSessionSay)
 		// Terminal permission prompts (Claude Code PermissionRequest) answered on the web.
 		r.POST("/sessions/{sid}/permissions", s.handleOpenSessionPermission)

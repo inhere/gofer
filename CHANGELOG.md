@@ -28,6 +28,10 @@
   - **运行节点提示条**：有 worker 掉线、或 worker 的 gofer 版本低于 server 时，工作台顶部出现一条可关闭的提示（写明几台、哪几台，带「查看运行节点」入口）；没问题时不占位置，关掉后同一份状态不再弹，名单变了再出现。
   - **通知带上执行机**：IM 机器人 / 桌面通知 / Web Push 的 job 事件与「会话等你回复」正文、发给会话的「job 结束」通知都写明在哪台机器上跑的（本机内置 runner 显示 `server`，G043 的显示口径）；核对时发现 `jobEventText` 早已带 `runner`，其余四处补齐。Go 侧新增 `config.RunnerDisplayName` 作为唯一的显示名映射。
   - **README 末尾加「相关项目」一节**（两份 README）：客观列出 Claude Code Remote Control、Conductor、Superset（现名 Paradev）、Kero 各自的长处，以及与 gofer 的形态差异。
+- **`gofer session wait` / `gofer session screen`：编排其他会话的读接口**（gofer-f8ik）。
+  - `gofer session wait <sid> --until idle|waiting_reply|ended [--timeout 10m] [--json]`：阻塞到会话进入目标状态（`--until` 可逗号给多个），已处于该状态时立即返回；退出码 `0` 达成 / `2` 超时 / `1` 错误，`--json` 打印最终状态。底层是 `GET /v1/sessions/{sid}/wait?until=&timeout=`（长轮询，服务端单次最多 60s，CLI 循环到总超时；状态取已存的会话行，250ms 读一次）。
+  - `gofer session screen <sid> [-n 50] [--json]`：只读取该会话现在显示的内容（纯文本、已去 ANSI）：终端会话取最近的 relay turn（与 `session show` 同一数据源），被 pty job 接管的会话取那个 job 的 `pty.txt` 尾部（与 `job logs` 同一读法），还没有 turn 时取最后一条消息。底层是 `GET /v1/sessions/{sid}/screen?n=`。
+  - 两条路由都是会话读，权限与 `session show` 相同（自己的会话不需要权限，别人的要 `session.read.others`）；新增 MCP 工具 `gofer_session_wait`、`gofer_session_screen`。
 
 ### 文档
 

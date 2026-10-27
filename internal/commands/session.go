@@ -216,6 +216,8 @@ func NewSessionCmd() *gcli.Command {
 			},
 			newSessionNudgeCmd(),
 			newSessionMailCmd(),
+			newSessionWaitCmd(),
+			newSessionScreenCmd(),
 		},
 	}
 }
