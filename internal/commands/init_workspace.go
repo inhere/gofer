@@ -112,8 +112,8 @@ func insertDefaultProjectEntry(tmpl string, proj config.ProjectConfig) (string, 
 		out := make([]string, 0, util.CapSum(len(lines), len(strings.Split(block, "\n")), 4))
 		out = append(out, lines[:i+1]...)
 		out = append(out,
-			"  # " + cliText("cli.setup.init.workspace_comment_1"),
-			"  # " + cliText("cli.setup.init.workspace_comment_2"),
+			"  # "+cliText("cli.setup.init.workspace_comment_1"),
+			"  # "+cliText("cli.setup.init.workspace_comment_2"),
 		)
 		out = append(out, strings.Split(block, "\n")...)
 		out = append(out, lines[i+1:]...)
