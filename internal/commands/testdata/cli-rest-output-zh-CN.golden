@@ -1,0 +1,16 @@
+=== steward/state/running
+running（正在处理一轮）
+=== steward/state/idle
+idle（空闲，随时可问）
+=== steward/state/not_started
+not_started（未启动：有人问或到巡检时间会自动启动）
+=== repo/project-key/no-config
+project_key: 未写入（没有可用的 gofer 配置）；可在 .gofer/tracker/config.yaml 填写 project_key
+=== memory/candidate/row
+#7 [pending] p1 j1 (48h0m0s ago) prefer the repository accessor 适用路径 sub/a/**,sub/b/** -> k-1
+=== memory/scope/apply
+applied 2 memories (1 already scoped, 2 with no evidence)
+skipped 1 weaker suggestions: k-3（--min-confidence medium 也写入）
+no suggestion for: k-9
+=== dual-mode/fallback
+本机没有 server 配置（运行模式=server），且连接 server 失败：dial tcp 127.0.0.1:1: connect: connection refused

@@ -86,5 +86,5 @@ func (ch serverAPIChoice) wrap(err error) error {
 	if err == nil || !ch.fallback || client.StatusOf(err) != 0 {
 		return err
 	}
-	return fmt.Errorf("本机没有 server 配置（运行模式=%s），且连接 server 失败：%w", config.RunMode(), err)
+	return fmt.Errorf("%s%w", cliText("cli.dual.no_server_config", "mode", config.RunMode()), err)
 }

@@ -71,7 +71,7 @@ func NewStewardCmd() *gcli.Command {
 				Name: "ask", Desc: "Put a question to the steward (it starts if needed); prints its reply",
 				Config: func(c *gcli.Command) {
 					bind(c)
-					c.AddArg("question", "what to ask, e.g. \"我手上还有什么没完成？\"", true)
+					c.AddArg("question", cliText("cli.steward.ask.question_arg"), true)
 					c.BoolOpt(&stewardOpts.noWait, "no-wait", "", false, "do not wait for the reply: print the session job id and return")
 					c.IntOpt(&stewardOpts.timeoutSec, "timeout", "", 180, "seconds to wait for the reply")
 				},
@@ -128,11 +128,11 @@ func stewardClient() (*client.Client, error) {
 func stewardStateLabel(s string) string {
 	switch s {
 	case steward.StateRunning:
-		return "running（正在处理一轮）"
+		return cliText("cli.steward.status.state_running")
 	case steward.StateIdle:
-		return "idle（空闲，随时可问）"
+		return cliText("cli.steward.status.state_idle")
 	}
-	return "not_started（未启动：有人问或到巡检时间会自动启动）"
+	return cliText("cli.steward.status.state_not_started")
 }
 
 func runStewardStatus(c *gcli.Command, _ []string) error {
@@ -176,14 +176,14 @@ func runStewardStatus(c *gcli.Command, _ []string) error {
 		}
 		c.Println()
 		if r.Summary != "" {
-			c.Printf("  点评：%s\n", oneLine(r.Summary, 200))
+			c.Printf("  %s\n", cliText("cli.steward.status.review_summary", "text", oneLine(r.Summary, 200)))
 		}
 	}
 	for _, w := range st.Warnings {
 		c.Printf("\nWARN: %s\n", w)
 	}
 	if !s.Enabled {
-		c.Println("\nThe steward is off. Enable it and pick an acp-agent on the settings page (设置 → 工作 → 管家).")
+		c.Println("\n" + cliText("cli.steward.status.off_note"))
 	}
 	return nil
 }
@@ -289,7 +289,7 @@ func runStewardAsk(c *gcli.Command, _ []string) error {
 		if stewardOpts.asJSON {
 			return workPrintJSON(c, res)
 		}
-		c.Printf("asked (job %s); the reply streams in the web 「问管家」 panel or `gofer job logs %s`\n", res.JobID, res.JobID)
+		c.Printf("%s\n", cliText("cli.steward.ask.asked_nowait", "job", res.JobID))
 		return nil
 	}
 	deadline := time.Now().Add(time.Duration(stewardOpts.timeoutSec) * time.Second)

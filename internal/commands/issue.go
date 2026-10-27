@@ -151,7 +151,9 @@ func NewIssueCmd() *gcli.Command {
 			if f.stale && !f.asJSON {
 				now := time.Now()
 				for _, item := range items {
-					c.Printf("%s [%s] P%d %s · 更新于 %s\n", item.ID, item.Status, item.Priority, item.Title, tracker.AgeText(tracker.IssueTouchedAt(item), now))
+					c.Printf("%s\n", cliText("cli.issue.stale.line", "id", item.ID, "status", item.Status,
+						"priority", item.Priority, "title", item.Title,
+						"age", tracker.AgeTextIn(cliLang(), tracker.IssueTouchedAt(item), now)))
 				}
 				return nil
 			}

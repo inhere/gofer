@@ -9,7 +9,6 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
-	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -175,7 +174,7 @@ func NewMemoryCmd() *gcli.Command {
 		if asJSON {
 			return printTrackerJSON(c, item)
 		}
-		c.Print(tracker.MemoryDetailIn(i18n.FromEnv(), item, time.Now()))
+		c.Print(tracker.MemoryDetailIn(cliLang(), item, time.Now()))
 		return nil
 	}
 	return withMemoryCandidateCmds(&gcli.Command{Name: "memory", Desc: "Manage repository-local memories", Subs: []*gcli.Command{
@@ -266,7 +265,7 @@ func NewMemoryCmd() *gcli.Command {
 					return printTrackerJSON(c, items)
 				}
 				for _, item := range items {
-					c.Print(tracker.ArchivedMemoryListLine(item, now))
+					c.Print(tracker.ArchivedMemoryListLineIn(cliLang(), item, now))
 				}
 				return nil
 			}
@@ -288,7 +287,7 @@ func NewMemoryCmd() *gcli.Command {
 					return printTrackerJSON(c, kept)
 				}
 				for _, item := range kept {
-					c.Print(tracker.MemoryListLineIn(i18n.FromEnv(), item.TrackerMemory(), now))
+					c.Print(tracker.MemoryListLineIn(cliLang(), item.TrackerMemory(), now))
 				}
 				return nil
 			}
@@ -304,7 +303,7 @@ func NewMemoryCmd() *gcli.Command {
 				return printTrackerJSON(c, items)
 			}
 			for _, item := range items {
-				c.Print(tracker.MemoryListLineIn(i18n.FromEnv(), item, now))
+				c.Print(tracker.MemoryListLineIn(cliLang(), item, now))
 			}
 			return nil
 		}},
@@ -365,7 +364,7 @@ func NewMemoryCmd() *gcli.Command {
 					if i > 0 {
 						c.Println()
 					}
-					c.Print(tracker.MemoryDetailIn(i18n.FromEnv(), item.memory, time.Now()))
+					c.Print(tracker.MemoryDetailIn(cliLang(), item.memory, time.Now()))
 				}
 			}
 			if len(missing) > 0 {
@@ -403,7 +402,7 @@ func NewMemoryCmd() *gcli.Command {
 			c.Printf("memory %s removed\n", key)
 			return nil
 		}},
-		{Name: "flag", Desc: "Report a memory as out of date (marks it 「⚠ 待复核」 where it is injected; the rule keeps its full text)", Config: func(c *gcli.Command) {
+		{Name: "flag", Desc: cliText("cli.memory.flag.desc"), Config: func(c *gcli.Command) {
 			bind(c)
 			c.AddArg("key", "memory key", true)
 			c.StrOpt(&flagReason, "reason", "", "", "what no longer matches (required)")
@@ -524,7 +523,7 @@ func NewMemoryCmd() *gcli.Command {
 			if asJSON {
 				return printTrackerJSON(c, out)
 			}
-			c.Print(tracker.FormatDoctorReport(out.DoctorReport))
+			c.Print(tracker.FormatDoctorReportIn(cliLang(), out.DoctorReport))
 			c.Print(formatStaleCandidates(out.StaleCandidates))
 			return nil
 		}},
@@ -641,7 +640,7 @@ func printMemoryValue(c *gcli.Command, item client.ScopedMemory, asJSON bool) er
 	if asJSON {
 		return printTrackerJSON(c, item)
 	}
-	c.Print(tracker.MemoryDetailIn(i18n.FromEnv(), item.TrackerMemory(), time.Now()))
+	c.Print(tracker.MemoryDetailIn(cliLang(), item.TrackerMemory(), time.Now()))
 	return nil
 }
 
@@ -669,5 +668,5 @@ func autoScopeMemoryPaths(s *tracker.Store, key string, patch *tracker.MemoryPat
 	}
 	paths := []string{scope}
 	patch.WhenPaths = &paths
-	return fmt.Sprintf("适用路径已设为 %s（整仓通用用 --when-paths '**'，工作区通用请写成项目记忆 --project）", scope)
+	return cliText("cli.memory.add.when_paths", "paths", scope)
 }

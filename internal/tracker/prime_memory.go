@@ -89,7 +89,7 @@ func (v *memoryView) fullMemoryLine(m Memory) string {
 		key = flag + " " + key
 	}
 	if v.opts.Stale[m.Key] {
-		return fmt.Sprintf("- %s（%s）: %s\n", key, PrimeStaleMarker, m.Content)
+		return fmt.Sprintf("- %s（%s）: %s\n", key, PrimeStaleMarkerIn(v.opts.Language), m.Content)
 	}
 	return fmt.Sprintf("- %s: %s\n", key, m.Content)
 }
@@ -174,7 +174,7 @@ func (v *memoryView) indexLine(m Memory, withGroup bool) string {
 		b.WriteString(primeText(v.opts.Language, "memory.section_stale"))
 	}
 	if v.opts.Stale[m.Key] {
-		b.WriteString(" " + PrimeStaleMarker)
+		b.WriteString(" " + PrimeStaleMarkerIn(v.opts.Language))
 	}
 	if v.pathMatched(m) {
 		b.WriteString(primeText(v.opts.Language, "memory.section_path"))

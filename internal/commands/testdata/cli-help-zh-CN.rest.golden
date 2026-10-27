@@ -1,0 +1,1352 @@
+agent	desc	Inspect configured agents and manage the skill library
+agent	help	
+agent	examples	
+agent detect	desc	Run detect commands and report agent availability
+agent detect	help	
+agent detect	examples	
+agent detect	flag config	path to the gofer config file
+agent list	desc	List agents: the server's agents by default in client mode, else the local config's
+agent list	help	
+agent list	examples	
+agent list	flag config	path to the gofer config file
+agent list	flag local	force the LOCAL agent registry (built-in templates) even in client mode
+agent list	flag runner	list source: server/local or a configured runner id (default: local config, or the server when GOFER_RUN_MODE=client)
+agent list	flag server	server address (overrides config server.addr)
+agent list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent mcp	desc	Show the MCP server registry (mcp_servers) and where each entry is bound
+agent mcp	help	
+agent mcp	examples	
+agent mcp list	desc	List registry MCP servers with their type, bindings and secret readiness
+agent mcp list	help	
+agent mcp list	examples	
+agent mcp list	flag config	path to the gofer config file
+agent mcp list	flag here	check the secret variables against THIS machine's environment (run it on a worker to see what its jobs would lack)
+agent mcp list	flag local	read the LOCAL config's registry even in client mode
+agent mcp list	flag server	server address (overrides config server.addr)
+agent mcp list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent mcp show	desc	Show one registry MCP server: declaration, secret variables (names only) and bindings
+agent mcp show	help	
+agent mcp show	examples	
+agent mcp show	flag config	path to the gofer config file
+agent mcp show	flag here	check the secret variables against THIS machine's environment (run it on a worker to see what its jobs would lack)
+agent mcp show	flag local	read the LOCAL config's registry even in client mode
+agent mcp show	flag server	server address (overrides config server.addr)
+agent mcp show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent mcp test	desc	Start / connect to one registry MCP server from THIS machine and list its tools (secrets from this machine's environment)
+agent mcp test	help	
+agent mcp test	examples	
+agent mcp test	flag config	path to the gofer config file
+agent mcp test	flag here	check the secret variables against THIS machine's environment (run it on a worker to see what its jobs would lack)
+agent mcp test	flag local	read the LOCAL config's registry even in client mode
+agent mcp test	flag server	server address (overrides config server.addr)
+agent mcp test	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent probe	desc	Run a probe job on an agent: one line of output, exit 0/1
+agent probe	help	
+agent probe	examples	
+agent probe	flag config	path to the gofer config file
+agent probe	flag project	project to run the probe in (default: the first one admitting the agent)
+agent probe	flag server	server address (overrides config server.addr)
+agent probe	flag timeout	probe timeout in seconds (0 = server default 120)
+agent probe	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent rule	desc	Manage the server-side MANDATORY rule library (list/show/set/rm)
+agent rule	help	
+agent rule	examples	
+agent rule list	desc	List rules with their size, sha256 prefix and description
+agent rule list	help	
+agent rule list	examples	
+agent rule list	flag config	path to the gofer config file
+agent rule list	flag local	operate on the LOCAL rule library even in client mode
+agent rule list	flag server	server address (overrides config server.addr)
+agent rule list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent rule rm	desc	Delete a rule from the library
+agent rule rm	help	
+agent rule rm	examples	
+agent rule rm	flag config	path to the gofer config file
+agent rule rm	flag local	operate on the LOCAL rule library even in client mode
+agent rule rm	flag server	server address (overrides config server.addr)
+agent rule rm	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent rule set	desc	Create or replace a rule from a markdown file
+agent rule set	help	
+agent rule set	examples	
+agent rule set	flag config	path to the gofer config file
+agent rule set	flag file	read the rule text from this file ('-' = stdin)
+agent rule set	flag local	operate on the LOCAL rule library even in client mode
+agent rule set	flag server	server address (overrides config server.addr)
+agent rule set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent rule show	desc	Show one rule: metadata and its text
+agent rule show	help	
+agent rule show	examples	
+agent rule show	flag config	path to the gofer config file
+agent rule show	flag local	operate on the LOCAL rule library even in client mode
+agent rule show	flag server	server address (overrides config server.addr)
+agent rule show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent show	desc	Show an agent's configuration
+agent show	help	
+agent show	examples	
+agent show	flag config	path to the gofer config file
+agent skill	desc	Manage the server-side skill library (list/show/import/update/rm/export)
+agent skill	help	
+agent skill	examples	
+agent skill export	desc	Write a skill out as a .zip
+agent skill export	help	
+agent skill export	examples	
+agent skill export	flag config	path to the gofer config file
+agent skill export	flag local	operate on the LOCAL skill library even in client mode
+agent skill export	flag out	output path (default: <name>.zip in the cwd)
+agent skill export	flag server	server address (overrides config server.addr)
+agent skill export	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent skill import	desc	Import a skill from a directory, .zip, http(s) .zip URL or git+https://…#subdir
+agent skill import	help	
+agent skill import	examples	
+agent skill import	flag config	path to the gofer config file
+agent skill import	flag local	operate on the LOCAL skill library even in client mode
+agent skill import	flag server	server address (overrides config server.addr)
+agent skill import	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent skill list	desc	List skills with their version, size and description
+agent skill list	help	
+agent skill list	examples	
+agent skill list	flag config	path to the gofer config file
+agent skill list	flag local	operate on the LOCAL skill library even in client mode
+agent skill list	flag server	server address (overrides config server.addr)
+agent skill list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent skill rm	desc	Delete a skill from the library
+agent skill rm	help	
+agent skill rm	examples	
+agent skill rm	flag config	path to the gofer config file
+agent skill rm	flag local	operate on the LOCAL skill library even in client mode
+agent skill rm	flag server	server address (overrides config server.addr)
+agent skill rm	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent skill show	desc	Show a skill: metadata, file list and the SKILL.md body
+agent skill show	help	
+agent skill show	examples	
+agent skill show	flag config	path to the gofer config file
+agent skill show	flag local	operate on the LOCAL skill library even in client mode
+agent skill show	flag server	server address (overrides config server.addr)
+agent skill show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent skill update	desc	Re-fetch a skill from its recorded source and report the file-level diff
+agent skill update	help	
+agent skill update	examples	
+agent skill update	flag config	path to the gofer config file
+agent skill update	flag local	operate on the LOCAL skill library even in client mode
+agent skill update	flag server	server address (overrides config server.addr)
+agent skill update	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+agent status	desc	Show agents with availability and recent-job health (provider failures)
+agent status	help	
+agent status	examples	
+agent status	flag config	path to the gofer config file
+agent status	flag server	server address (overrides config server.addr)
+agent status	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth	desc	Inspect permissions: who this credential is, what it holds, what routes need
+auth	help	
+auth	examples	
+auth grant	desc	Renew a grant that is still in force (creation and revoking happen on the web console)
+auth grant	help	
+auth grant	examples	
+auth grant renew	desc	Give a session grant more time: renew <grant-id> --for <dur> (at most 24h)
+auth grant renew	help	Pushes back the deadline of a session grant that is still in force: the new deadline is now
+plus --for, at most 24 hours. Only the deadline moves — the granted pattern, what it expands to,
+the grantor and the session it is bound to all stay as they are, so a renewal cannot widen a grant.
+
+A grant that already expired, was revoked, no longer matches any permission, or whose session
+ended (or changed owner / incarnation) cannot be renewed: the server refuses it and this command
+prints its reason — grant it again from the web console instead.
+
+  gofer auth grant renew g-1a2b3c --for 4h
+  gofer auth grant renew g-1a2b3c --for 90m
+auth grant renew	examples	
+auth grant renew	flag config	path to the gofer config file
+auth grant renew	flag for	how much longer the grant should last, from now (e.g. 4h, 90m; at most 24h)
+auth grant renew	flag server	server address (overrides config server.addr)
+auth grant renew	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth routes	desc	List the server's routes and the permissions each one needs
+auth routes	help	Prints every route of the running server with its declaration: who may call it
+(require / in_handler / public / no_user_surface), the permissions it asks for, and which other
+credential reaches it (a job credential, a worker token, or the route's own ticket / token).
+
+  gofer auth routes
+auth routes	examples	
+auth routes	flag config	path to the gofer config file
+auth routes	flag json	print the server's answer as JSON
+auth routes	flag server	server address (overrides config server.addr)
+auth routes	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth whoami	desc	Show which caller this credential is and the permissions it holds
+auth whoami	help	Prints the caller id, whether it is a root administrator, every permission it holds with
+its source (root / config / db) and the grant a database permission came from.
+
+The request carries the terminal session this process belongs to, when the environment names
+exactly one of them ($GOFER_SESSION_ID explicitly, or a single agent session variable); the
+session grants that apply to it are part of the permissions printed, and the session and its
+source are named in the output. With no session, or with several candidates that disagree,
+nothing is attached — a request never guesses a session.
+
+  gofer auth whoami
+  gofer auth whoami --json
+auth whoami	examples	
+auth whoami	flag config	path to the gofer config file
+auth whoami	flag json	print the server's answer as JSON
+auth whoami	flag server	server address (overrides config server.addr)
+auth whoami	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+hook	desc	Agent-CLI hook executor (called by .claude/settings.json / .codex/hooks.json / the omp extension / jcode config.toml; installs via `gofer init hooks`)
+hook	help	
+hook	examples	
+hook	flag agent	generic: the gofer agent key the session is registered under (its session_resume / session_resume_interactive templates drive resume and takeover)
+hook	flag config	path to the gofer config file
+hook	flag poll	Stop: long-poll window per request in seconds (default 25)
+hook	flag project	project key override (default: server matches cwd)
+hook	flag runner	runner label to register the session under (default: worker id in worker mode, else server)
+hook	flag server	server address (overrides config server.addr)
+hook	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+hook	flag wait	Stop / PermissionRequest: seconds to block for a web reply (default 540; set below the hook timeout)
+issue	desc	Manage repository-local issues
+issue	help	
+issue	examples	
+issue brief	desc	Handoff brief of an issue: the issue, its tree, design docs, related commits / code entries, jobs / plans, applicable memories and takeover hints
+issue brief	help	
+issue brief	examples	
+issue brief	flag config	path to the gofer config file
+issue brief	flag json	print JSON (sections with lines / note)
+issue brief	flag max-lines	cap the output; sections are cut in order, each says what was cut and how to see it
+issue brief	flag server	server address (overrides config server.addr)
+issue brief	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+issue brief	flag tracker	explicit .gofer/tracker directory
+issue close	desc	Close one or more issues (same --reason for each)
+issue close	help	
+issue close	examples	
+issue close	flag config	path to the gofer config file
+issue close	flag json	print JSON
+issue close	flag reason	close reason
+issue close	flag tracker	explicit .gofer/tracker directory
+issue comment	desc	Append a comment to an issue
+issue comment	help	
+issue comment	examples	
+issue comment	flag config	path to the gofer config file
+issue comment	flag json	print JSON
+issue comment	flag tracker	explicit .gofer/tracker directory
+issue create	desc	Create an issue (title as the argument or --title)
+issue create	help	
+issue create	examples	
+issue create	flag acceptance	acceptance criteria
+issue create	flag assignee	assignee
+issue create	flag config	path to the gofer config file
+issue create	flag dep	blocking dependency id (repeatable)
+issue create	flag description	description
+issue create	flag design	design text
+issue create	flag from	issue this one was discovered from (records a discovered-from link)
+issue create	flag json	print JSON
+issue create	flag label	bd-style alias of --tag
+issue create	flag owner	owner
+issue create	flag parent	parent issue id
+issue create	flag priority	priority 0 (highest)..4
+issue create	flag tag	comma-separated tags (added)
+issue create	flag title	issue title
+issue create	flag tracker	explicit .gofer/tracker directory
+issue create	flag type	issue type (task|bug|feature|epic|chore|decision, free-form)
+issue dep	desc	Manage issue dependencies
+issue dep	help	
+issue dep	examples	
+issue dep add	desc	Make an issue depend on another (default kind: blocks)
+issue dep add	help	
+issue dep add	examples	
+issue dep add	flag config	path to the gofer config file
+issue dep add	flag json	print JSON
+issue dep add	flag tracker	explicit .gofer/tracker directory
+issue dep add	flag type	kind: blocks|related|relates-to|discovered-from|supersedes (only blocks gates ready)
+issue dep ls	desc	Show what an issue waits on and what waits on it
+issue dep ls	help	
+issue dep ls	examples	
+issue dep ls	flag config	path to the gofer config file
+issue dep ls	flag json	print JSON
+issue dep ls	flag tracker	explicit .gofer/tracker directory
+issue dep rm	desc	Remove a dependency
+issue dep rm	help	
+issue dep rm	examples	
+issue dep rm	flag config	path to the gofer config file
+issue dep rm	flag json	print JSON
+issue dep rm	flag tracker	explicit .gofer/tracker directory
+issue dep rm	flag type	only remove this kind (default: every kind)
+issue ls	desc	List issues (closed hidden unless --all or --status)
+issue ls	help	
+issue ls	examples	
+issue ls	flag all	include closed issues
+issue ls	flag assignee	filter assignee
+issue ls	flag config	path to the gofer config file
+issue ls	flag days	with --stale: days without an update
+issue ls	flag json	print JSON
+issue ls	flag label	bd-style alias of --tag
+issue ls	flag limit	show at most N issues (0 = all)
+issue ls	flag priority	filter priority 0..4
+issue ls	flag query	search title and description
+issue ls	flag reverse	reverse the sort order
+issue ls	flag sort	sort by id|priority|created|updated (updated = newest first)
+issue ls	flag stale	only issues untouched for --days (open + in_progress unless --status), oldest first
+issue ls	flag status	filter status (open|in_progress|blocked|closed)
+issue ls	flag tag	filter tag (repeatable or comma-separated, all required)
+issue ls	flag tracker	explicit .gofer/tracker directory
+issue ls	flag type	filter issue type
+issue ready	desc	List open unblocked issues
+issue ready	help	
+issue ready	examples	
+issue ready	flag config	path to the gofer config file
+issue ready	flag json	print JSON
+issue ready	flag tracker	explicit .gofer/tracker directory
+issue reopen	desc	Reopen a closed issue (clears closed_at and close_reason)
+issue reopen	help	
+issue reopen	examples	
+issue reopen	flag config	path to the gofer config file
+issue reopen	flag json	print JSON
+issue reopen	flag reason	why it is reopened (recorded as a comment)
+issue reopen	flag tracker	explicit .gofer/tracker directory
+issue show	desc	Show one or more issues with notes, comments, parent/children and dependencies
+issue show	help	
+issue show	examples	
+issue show	flag config	path to the gofer config file
+issue show	flag json	print JSON
+issue show	flag tracker	explicit .gofer/tracker directory
+issue update	desc	Update issue fields (only the flags you pass change; --clear empties a field)
+issue update	help	
+issue update	examples	
+issue update	flag acceptance	acceptance criteria
+issue update	flag append-notes	append one note
+issue update	flag assignee	assignee
+issue update	flag claim	claim and start the issue
+issue update	flag clear	comma-separated fields to empty: description,design,acceptance,assignee,owner,parent,close-reason
+issue update	flag config	path to the gofer config file
+issue update	flag description	description
+issue update	flag design	design text
+issue update	flag json	print JSON
+issue update	flag keep-assignee	with --status open: keep the assignee
+issue update	flag label	bd-style alias of --tag
+issue update	flag owner	owner
+issue update	flag parent	parent issue id
+issue update	flag priority	priority 0 (highest)..4
+issue update	flag status	new status (open|in_progress|blocked|closed); moving back to open clears the assignee
+issue update	flag tag	comma-separated tags (added)
+issue update	flag title	new title
+issue update	flag tracker	explicit .gofer/tracker directory
+issue update	flag type	issue type (task|bug|feature|epic|chore|decision, free-form)
+issue update	flag untag	remove comma-separated tags
+mcp	desc	Run the stdio MCP server
+mcp	help	
+mcp	examples	
+mcp	flag config	path to the gofer config file
+mcp	flag project	scope MCP to one project: <key> | auto (CWD/env) | empty=operator(all)
+mcp	flag server	server address (overrides config server.addr)
+mcp	flag standalone	force in-process mode (ignore GOFER_SERVER_ADDR / --server)
+mcp	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory	desc	Manage repository-local memories
+memory	help	
+memory	examples	
+memory accept	desc	Accept a knowledge candidate: write it as a server memory (default scope: the job's project; source job:<id>)
+memory accept	help	
+memory accept	examples	
+memory accept	flag config	path to the gofer config file
+memory accept	flag global	write to the global scope instead of the job's project
+memory accept	flag json	print JSON
+memory accept	flag key	memory key (required)
+memory accept	flag kind	rule | note
+memory accept	flag project	write to this project's scope instead of the job's project
+memory accept	flag server	server address (overrides config server.addr)
+memory accept	flag summary	one sentence (<= 80 chars); required for content > 200 chars
+memory accept	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory archive	desc	Move a memory to memories-archive.jsonl (out of prime; `ls --archived` finds it, `restore` brings it back)
+memory archive	help	
+memory archive	examples	
+memory archive	flag config	path to the gofer config file
+memory archive	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory archive	flag json	print JSON
+memory archive	flag project	use server project memory scope
+memory archive	flag reason	why it is archived
+memory archive	flag server	server address (overrides config server.addr)
+memory archive	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory archive	flag tracker	explicit .gofer/tracker directory
+memory candidates	desc	List knowledge candidates: the 「## 可复用经验」 items of delivered jobs, waiting for accept / reject
+memory candidates	help	
+memory candidates	examples	
+memory candidates	flag all	include accepted and rejected candidates
+memory candidates	flag config	path to the gofer config file
+memory candidates	flag job	only this job's candidates
+memory candidates	flag json	print JSON
+memory candidates	flag project	only this project's candidates
+memory candidates	flag server	server address (overrides config server.addr)
+memory candidates	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory doctor	desc	Check memories for staleness: agent flags, expired handoffs, 90-day notes, missing paths / commits, missing summaries, duplicates, 30-day-old pending knowledge candidates (advisory, exit 0; --global / --project check server-scoped memories, without the path / commit checks)
+memory doctor	help	
+memory doctor	examples	
+memory doctor	flag config	path to the gofer config file
+memory doctor	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory doctor	flag json	print JSON
+memory doctor	flag project	use server project memory scope
+memory doctor	flag server	server address (overrides config server.addr)
+memory doctor	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory doctor	flag tracker	explicit .gofer/tracker directory
+memory flag	desc	Report a memory as out of date (marks it 「⚠ 待复核」 where it is injected; the rule keeps its full text)
+memory flag	help	
+memory flag	examples	
+memory flag	flag config	path to the gofer config file
+memory flag	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory flag	flag json	print JSON
+memory flag	flag project	use server project memory scope
+memory flag	flag reason	what no longer matches (required)
+memory flag	flag server	server address (overrides config server.addr)
+memory flag	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory flag	flag tracker	explicit .gofer/tracker directory
+memory ls	desc	List memories (kind, age, title, summary), or search key/title/summary/content with a keyword (case-insensitive)
+memory ls	help	
+memory ls	examples	
+memory ls	flag archived	list / search archived memories (memories-archive.jsonl)
+memory ls	flag config	path to the gofer config file
+memory ls	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory ls	flag json	print JSON
+memory ls	flag kind	filter kind: rule|note|handoff (the legacy prime tag counts as rule)
+memory ls	flag project	use server project memory scope
+memory ls	flag server	server address (overrides config server.addr)
+memory ls	flag tag	filter tag (repeatable)
+memory ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory ls	flag tracker	explicit .gofer/tracker directory
+memory promote	desc	Turn a memory (typically a handoff) into a long-lived rule or note (clears the expiry, keeps source)
+memory promote	help	
+memory promote	examples	
+memory promote	flag config	path to the gofer config file
+memory promote	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory promote	flag json	print JSON
+memory promote	flag kind	rule | note (required)
+memory promote	flag project	use server project memory scope
+memory promote	flag server	server address (overrides config server.addr)
+memory promote	flag summary	one-sentence summary (required for content > 200 chars without one)
+memory promote	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory promote	flag tracker	explicit .gofer/tracker directory
+memory reject	desc	Reject a knowledge candidate (nothing is written)
+memory reject	help	
+memory reject	examples	
+memory reject	flag config	path to the gofer config file
+memory reject	flag json	print JSON
+memory reject	flag server	server address (overrides config server.addr)
+memory reject	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory restore	desc	Move an archived memory back into memories.jsonl
+memory restore	help	
+memory restore	examples	
+memory restore	flag config	path to the gofer config file
+memory restore	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory restore	flag json	print JSON
+memory restore	flag project	use server project memory scope
+memory restore	flag server	server address (overrides config server.addr)
+memory restore	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory restore	flag tracker	explicit .gofer/tracker directory
+memory rm	desc	Remove a memory
+memory rm	help	
+memory rm	examples	
+memory rm	flag config	path to the gofer config file
+memory rm	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory rm	flag json	print JSON
+memory rm	flag project	use server project memory scope
+memory rm	flag server	server address (overrides config server.addr)
+memory rm	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory rm	flag tracker	explicit .gofer/tracker directory
+memory scope	desc	Suggest the applicable path of memories that have none (a workspace root holding several checkouts) and optionally write it
+memory scope	help	
+memory scope	examples	
+memory scope	flag apply	write the suggested when.paths (prints them first)
+memory scope	flag config	path to the gofer config file
+memory scope	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory scope	flag json	print JSON
+memory scope	flag min-confidence	--apply writes suggestions at least this strong: high|medium
+memory scope	flag only	only consider the comma-separated memory keys
+memory scope	flag project	use server project memory scope
+memory scope	flag server	server address (overrides config server.addr)
+memory scope	flag suggest	only list the suggestions (default)
+memory scope	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory scope	flag tracker	explicit .gofer/tracker directory
+memory set	desc	Set a memory (updating keeps every field you do not pass; "-" clears title/summary/source/when-*)
+memory set	help	
+memory set	examples	
+memory set	flag config	path to the gofer config file
+memory set	flag doctor-ignore	comma-separated `memory doctor` slugs to silence for this memory
+memory set	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory set	flag json	print JSON
+memory set	flag kind	rule (long-lived convention, full text in prime) | note (default, index line) | handoff (short-lived, expires)
+memory set	flag project	use server project memory scope
+memory set	flag server	server address (overrides config server.addr)
+memory set	flag source	origin reference: issue:<id> | plan:<id> | job:<id> | session:<id> (default: job:$GOFER_JOB_ID or session:$GOFER_SESSION_ID when unset)
+memory set	flag summary	one sentence (<= 80 chars): what it covers and when to read it; required for rule/note content > 200 chars
+memory set	flag tag	comma-separated tags (the first tag groups the prime index)
+memory set	flag tags	alias of --tag
+memory set	flag title	display name (<= 80 chars, one line); the key stays the id, shown in ls / show / prime index as "title — summary"
+memory set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory set	flag tracker	explicit .gofer/tracker directory
+memory set	flag ttl	handoff lifetime, e.g. 14d (default), 2w, 36h
+memory set	flag when-commands	comma-separated command prefixes, e.g. 'git push,gofer worker upgrade'
+memory set	flag when-keywords	comma-separated prompt keywords that make it relevant
+memory set	flag when-paths	repo path globs, comma-separated and/or repeatable, e.g. 'web/**,internal/tunnel/**'; '' or - clears them
+memory show	desc	Show one or more memories by key
+memory show	help	
+memory show	examples	
+memory show	flag config	path to the gofer config file
+memory show	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory show	flag json	print JSON
+memory show	flag project	use server project memory scope
+memory show	flag server	server address (overrides config server.addr)
+memory show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory show	flag tracker	explicit .gofer/tracker directory
+memory sync	desc	Sync this machine's copy of the global memories with the server (--global; a repository syncs with `gofer repo sync`)
+memory sync	help	
+memory sync	examples	
+memory sync	flag config	path to the gofer config file
+memory sync	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory sync	flag json	print JSON
+memory sync	flag project	use server project memory scope
+memory sync	flag server	server address (overrides config server.addr)
+memory sync	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory sync	flag tracker	explicit .gofer/tracker directory
+memory unflag	desc	Clear the flags of a memory after reviewing it (rewriting the content with `memory set` clears them too)
+memory unflag	help	
+memory unflag	examples	
+memory unflag	flag config	path to the gofer config file
+memory unflag	flag global	use the global memories (this machine's copy under <config-dir>/tracker, synced with the server)
+memory unflag	flag json	print JSON
+memory unflag	flag project	use server project memory scope
+memory unflag	flag server	server address (overrides config server.addr)
+memory unflag	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory unflag	flag tracker	explicit .gofer/tracker directory
+repo	desc	Manage this repository's local tracker
+repo	help	
+repo	examples	
+repo changelog-merge	desc	Git merge driver for a Keep a Changelog CHANGELOG.md (merges the unreleased section); --install sets it up in this clone
+repo changelog-merge	help	git runs it as `gofer repo changelog-merge %O %A %B %P` (base, ours, theirs, path); the result
+replaces <ours>. Only the unreleased section is auto-merged: its `### ` subsections merge per
+entry — ours keeps the entry order, theirs' new entries (multi-line and nested ones included)
+are appended in theirs' order, an entry deleted on the other untouched side disappears, an
+entry changed on one side only takes that side's text (a new entry next to it is not a change
+of it), an entry changed differently on both sides becomes a conflict marker. A subsection
+only one side added is kept whole. The header and the released versions go through
+`git merge-file`, so a region both sides changed comes back with git's standard conflict
+markers and a non-zero exit.
+When one side released (renamed the unreleased heading to a version and opened a new
+unreleased section) while the other added entries, the new entries land in the new section.
+
+--install appends `<file> merge=gofer-changelog` to .gitattributes (commit it) and
+sets merge.gofer-changelog.{name,driver} in the clone's git config, which every worktree of
+the clone shares. Each new clone runs --install once.
+repo changelog-merge	examples	
+repo changelog-merge	flag config	path to the gofer config file
+repo changelog-merge	flag file	changelog path relative to the repository root (--install)
+repo changelog-merge	flag install	configure the driver for this repository (.gitattributes + git config) instead of merging
+repo changelog-merge	flag unreleased	comma-separated section titles treated as unreleased (default: 未发布,Unreleased)
+repo init	desc	Initialize local issue and memory files
+repo init	help	
+repo init	examples	
+repo init	flag commit-policy	set commit_policy: local-commit | ask | none (default: keep the current value; a new tracker gets local-commit)
+repo init	flag config	path to the gofer config file
+repo init	flag no-agents-md	do not write a managed agent instruction block
+repo init	flag no-hooks	do not install the session-start prime and command-memory hooks (.claude/settings.json, .codex/hooks.json)
+repo init	flag prefix	issue id prefix (default: repository directory name)
+repo init	flag tracker	explicit .gofer/tracker directory
+repo merge-driver	desc	Git merge driver for .gofer/tracker/*.jsonl (merges records by id); --install sets it up in this clone
+repo merge-driver	help	git runs it as `gofer repo merge-driver %O %A %B %P` (base, ours, theirs, path); the result
+replaces <ours>. Records merge by issue id / memory key: one-sided adds, edits and deletes are
+taken; a record edited on both sides merges field by field (a field both changed takes the side
+with the newer updated_at), comments / notes / tags / deps are unioned; delete vs edit keeps the
+edit. Decisions between two real edits are printed to stderr. A file it cannot read safely falls
+back to git's text merge (conflict markers, non-zero exit).
+
+--install (also run by `gofer repo init`) appends `.gofer/tracker/*.jsonl merge=gofer-tracker`
+to .gitattributes (commit it) and sets merge.gofer-tracker.{name,driver} in the clone's
+git config, which every worktree of the clone shares. Each new clone runs --install once.
+repo merge-driver	examples	
+repo merge-driver	flag config	path to the gofer config file
+repo merge-driver	flag install	configure the driver for this repository (.gitattributes + git config) instead of merging
+repo migrate	desc	Migrate a bd (beads) repository to the gofer tracker (dry-run unless --apply)
+repo migrate	help	Reads the live bd database (`bd export`, read-only; .beads/issues.jsonl only as a fallback) and
+imports issues + memories into .gofer/tracker, then swaps the bd integration points: the BEADS
+blocks in AGENTS.md/CLAUDE.md become the gofer block, `bd prime` / `bd codex-hook` hooks become
+`gofer repo prime --hook-json`, and core.hooksPath is unset when it points at .beads/hooks and
+that directory holds only bd's own hooks. .beads/ is kept. Anything else that mentions bd is
+listed for a human. --apply refuses while bd looks active (locks, processes, writes in the last
+minutes, unexpired claim leases); --force overrides.
+repo migrate	examples	
+repo migrate	flag apply	apply changes (default: dry-run)
+repo migrate	flag config	path to the gofer config file
+repo migrate	flag force	apply even though bd looks active
+repo migrate	flag from-bd	migrate from bd (required)
+repo migrate	flag json	print the report as JSON
+repo mirror	desc	List or remove tracker mirrors on the server
+repo mirror	help	
+repo mirror	examples	
+repo mirror ls	desc	List the repositories mirrored on the server
+repo mirror ls	help	
+repo mirror ls	examples	
+repo mirror ls	flag config	path to the gofer config file
+repo mirror ls	flag json	print JSON
+repo mirror ls	flag server	server URL override
+repo mirror rm	desc	Remove one tracker mirror from the server (admin; the repository's own tracker is kept)
+repo mirror rm	help	
+repo mirror rm	examples	
+repo mirror rm	flag config	path to the gofer config file
+repo mirror rm	flag server	server URL override
+repo mirror rm	flag yes	confirm the removal
+repo prime	desc	Print repository tracker context
+repo prime	help	
+repo prime	examples	
+repo prime	flag agent	agent name for server memory injection
+repo prime	flag config	path to the gofer config file
+repo prime	flag hook-json	Claude SessionStart JSON output
+repo prime	flag keywords	comma-separated subsystems / languages / modules this session is about: the matching memories are injected in full and ranked first (default: $GOFER_PRIME_KEYWORDS)
+repo prime	flag session	session id whose own tasks are re-injected after a compact / resume (default: the SessionStart hook's session_id on stdin)
+repo prime	flag source	SessionStart source: compact | resume re-inject this session's own tasks; startup | clear do not (default: the hook's source on stdin)
+repo status	desc	Inspect local tracker status
+repo status	help	
+repo status	examples	
+repo status	flag changed	list issue/memory changes vs git HEAD
+repo status	flag config	path to the gofer config file
+repo status	flag json	print JSON
+repo status	flag tracker	explicit .gofer/tracker directory
+repo sync	desc	Synchronize the local tracker with a server mirror
+repo sync	help	
+repo sync	examples	
+repo sync	flag config	path to the gofer config file
+repo sync	flag remote	ask the server to run the sync for this tracker_id (a hidden exec job in that repo's directory) instead of syncing here
+repo sync	flag server	tracker mirror URL override
+repo sync	flag timeout	request timeout for this manual sync (automatic sync after write commands keeps its short timeout)
+schedule	desc	Manage schedules via the bridge server
+schedule	help	
+schedule	examples	
+schedule add	desc	Create a schedule from a job request
+schedule add	help	
+schedule add	examples	
+schedule add	flag agent	agent key (required)
+schedule add	flag at	create a one-shot schedule at RFC3339 or unix seconds
+schedule add	flag catch-up	run once after a missed tick within the server grace window
+schedule add	flag config	path to the gofer config file
+schedule add	flag cron	standard 5-field cron expression
+schedule add	flag cwd	working dir within the project
+schedule add	flag delay	create a one-shot schedule after a duration, e.g. 30s/5m
+schedule add	flag name	schedule name (required)
+schedule add	flag param-def	declare a param as NAME[:type]=default[#desc] (repeatable; type: string|int|bool)
+schedule add	flag params-file	YAML file with the full param declaration list (name/type/default/desc/choices)
+schedule add	flag plan	attach the job to a plan (grouping key)
+schedule add	flag project	project key (required)
+schedule add	flag prompt	prompt text for cli-agent (use -- <argv...> for exec)
+schedule add	flag role	role preset: fills agent/system_prompt/project/tags when unset
+schedule add	flag runner	runner key (server and local are the same built-in runner)
+schedule add	flag server	server address (overrides config server.addr)
+schedule add	flag system-prompt	resident system prompt injected via the agent
+schedule add	flag tags	comma-separated free-form tags for the job
+schedule add	flag timeout	job timeout in seconds (0 = server default)
+schedule add	flag title	optional job title
+schedule add	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+schedule add	flag webhook	enable the external trigger endpoint: the server mints a trigger_token for POST /v1/schedules/{id}/trigger
+schedule disable	desc	Disable a schedule
+schedule disable	help	
+schedule disable	examples	
+schedule disable	flag config	path to the gofer config file
+schedule disable	flag server	server address (overrides config server.addr)
+schedule disable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+schedule edit	desc	Edit a schedule in place: cron/at, title, params, enabled, timeout (the command, agent, runner and project cannot change)
+schedule edit	help	
+schedule edit	examples	
+schedule edit	flag at	new one-shot run time (RFC3339 or unix seconds)
+schedule edit	flag config	path to the gofer config file
+schedule edit	flag cron	new cron expression (recomputes the next run)
+schedule edit	flag disable	turn the schedule off
+schedule edit	flag enable	turn the schedule on
+schedule edit	flag param-def	declare a param as NAME[:type]=default[#desc] (repeatable; type: string|int|bool)
+schedule edit	flag params-file	YAML file with the full param declaration list (name/type/default/desc/choices)
+schedule edit	flag server	server address (overrides config server.addr)
+schedule edit	flag timeout	new job timeout in seconds (0 = server default)
+schedule edit	flag title	new title
+schedule edit	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+schedule enable	desc	Enable a schedule
+schedule enable	help	
+schedule enable	examples	
+schedule enable	flag config	path to the gofer config file
+schedule enable	flag server	server address (overrides config server.addr)
+schedule enable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+schedule events	desc	List a schedule's own events (schedule.run_failed…), newest first
+schedule events	help	
+schedule events	examples	
+schedule events	flag before	only events older than this seq
+schedule events	flag config	path to the gofer config file
+schedule events	flag limit	max events (default 50, server caps at 200)
+schedule events	flag server	server address (overrides config server.addr)
+schedule events	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+schedule list	desc	List schedules
+schedule list	help	
+schedule list	examples	
+schedule list	flag config	path to the gofer config file
+schedule list	flag project	filter by project key
+schedule list	flag server	server address (overrides config server.addr)
+schedule list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+schedule rm	desc	Delete a schedule
+schedule rm	help	
+schedule rm	examples	
+schedule rm	flag config	path to the gofer config file
+schedule rm	flag server	server address (overrides config server.addr)
+schedule rm	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+schedule rotate-token	desc	Mint a fresh webhook trigger token for a schedule (also enables the webhook on one created without --webhook)
+schedule rotate-token	help	
+schedule rotate-token	examples	
+schedule rotate-token	flag config	path to the gofer config file
+schedule rotate-token	flag server	server address (overrides config server.addr)
+schedule rotate-token	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+schedule run	desc	Run a schedule now
+schedule run	help	
+schedule run	examples	
+schedule run	flag config	path to the gofer config file
+schedule run	flag param	override a declared param for this run, NAME=VALUE (repeatable)
+schedule run	flag server	server address (overrides config server.addr)
+schedule run	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+schedule show	desc	Show a schedule
+schedule show	help	
+schedule show	examples	
+schedule show	flag config	path to the gofer config file
+schedule show	flag server	server address (overrides config server.addr)
+schedule show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+settings	desc	Read and write the server's extension settings (thresholds, exclusion lists, prompt overrides)
+settings	help	
+settings	examples	
+settings export	desc	Print the changed settings as YAML (for a backup or another machine)
+settings export	help	Only the CHANGED keys are exported: a backup then carries what the operator
+decided, while unchanged keys keep following the binary's defaults.
+settings export	examples	
+settings export	flag config	path to the gofer config file
+settings export	flag out	write the YAML to this file instead of stdout
+settings export	flag server	server address (overrides config server.addr)
+settings export	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+settings get	desc	Print one setting's current value
+settings get	help	Prints the effective value: a string as it is, a list one item per line, a number
+or bool as written. Use --json for the whole entry (default, type, bounds, who changed it).
+settings get	examples	
+settings get	flag config	path to the gofer config file
+settings get	flag json	print the whole entry as JSON
+settings get	flag server	server address (overrides config server.addr)
+settings get	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+settings import	desc	Apply a YAML settings file (dry run: shows every key's change first)
+settings import	help	Every key is reported: set / reset / unchanged, and the reason a refused key was
+refused. WITHOUT --yes nothing is written (the server runs the same validation in its
+dry-run mode), so the default is a safe preview:
+
+  gofer settings import backup.yaml            # preview
+  gofer settings import backup.yaml --yes      # write
+  gofer settings export | gofer settings import - --yes
+settings import	examples	
+settings import	flag config	path to the gofer config file
+settings import	flag server	server address (overrides config server.addr)
+settings import	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+settings import	flag yes	write the values instead of printing the preview
+settings ls	desc	List every registered setting (key, type, whether it was changed, current value)
+settings ls	help	The keys are whatever this server registers: the noise-reduction thresholds and
+exclusion lists, and the prompt overrides. "changed" means a value is stored for the
+key; an unchanged key follows the binary's default.
+settings ls	examples	
+settings ls	flag config	path to the gofer config file
+settings ls	flag json	print the full entries as JSON instead of a table
+settings ls	flag server	server address (overrides config server.addr)
+settings ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+settings reset	desc	Drop a stored value, so the registered default applies again
+settings reset	help	
+settings reset	examples	
+settings reset	flag config	path to the gofer config file
+settings reset	flag server	server address (overrides config server.addr)
+settings reset	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+settings set	desc	Write one setting (value argument, or --file for a multi-line value)
+settings set	help	The value is converted to the key's registered type, so a list key takes a
+comma-separated value and an int key a number:
+
+  gofer settings set work.draft.min_prompts 3
+  gofer settings set work.draft.exclude_projects "demo,sandbox"
+  gofer settings set prompt.work.summarizer --file prompt.md
+  cat prompt.md | gofer settings set prompt.work.summarizer --file -
+
+The server validates the value and refuses (non-zero exit) with its reason.
+settings set	examples	
+settings set	flag config	path to the gofer config file
+settings set	flag file	read the value from this file ('-' reads stdin), for multi-line prompts
+settings set	flag server	server address (overrides config server.addr)
+settings set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward	desc	The work steward: a resident agent that schedules and tidies your work items (status / start / stop / ask / notes / review)
+steward	help	
+steward	examples	
+steward ask	desc	Put a question to the steward (it starts if needed); prints its reply
+steward ask	help	
+steward ask	examples	
+steward ask	flag config	path to the gofer config file
+steward ask	flag json	print JSON
+steward ask	flag no-wait	do not wait for the reply: print the session job id and return
+steward ask	flag server	server address (overrides config server.addr)
+steward ask	flag timeout	seconds to wait for the reply
+steward ask	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward merge-accept	desc	Accept a merge suggestion: performs the merge
+steward merge-accept	help	
+steward merge-accept	examples	
+steward merge-accept	flag config	path to the gofer config file
+steward merge-accept	flag json	print JSON
+steward merge-accept	flag server	server address (overrides config server.addr)
+steward merge-accept	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward merge-dismiss	desc	Dismiss a merge suggestion
+steward merge-dismiss	help	
+steward merge-dismiss	examples	
+steward merge-dismiss	flag config	path to the gofer config file
+steward merge-dismiss	flag json	print JSON
+steward merge-dismiss	flag server	server address (overrides config server.addr)
+steward merge-dismiss	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward merges	desc	List the merge suggestions the steward recorded (a person confirms them: `merge-accept` / `merge-dismiss`)
+steward merges	help	
+steward merges	examples	
+steward merges	flag config	path to the gofer config file
+steward merges	flag json	print JSON
+steward merges	flag server	server address (overrides config server.addr)
+steward merges	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward notes	desc	Show the steward's notes (versioned Markdown); --edit opens $EDITOR and saves a new version; --history lists versions
+steward notes	help	
+steward notes	examples	
+steward notes	flag config	path to the gofer config file
+steward notes	flag edit	edit the notes in $VISUAL/$EDITOR and save a new version
+steward notes	flag history	list every version (newest first)
+steward notes	flag json	print JSON
+steward notes	flag server	server address (overrides config server.addr)
+steward notes	flag set-file	replace the notes with this file's content (- = stdin)
+steward notes	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward notes	flag version	show this version instead of the latest
+steward restart	desc	End the session and open a fresh one from the prime (nothing is lost: it lives in the database)
+steward restart	help	
+steward restart	examples	
+steward restart	flag config	path to the gofer config file
+steward restart	flag json	print JSON
+steward restart	flag server	server address (overrides config server.addr)
+steward restart	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward review	desc	Run a review now: the steward looks at the work items that changed since the last one (--force: even if none did)
+steward review	help	
+steward review	examples	
+steward review	flag config	path to the gofer config file
+steward review	flag force	review even when nothing changed
+steward review	flag json	print JSON
+steward review	flag server	server address (overrides config server.addr)
+steward review	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward start	desc	Open the steward session now (it also starts on demand: a question, the daily review)
+steward start	help	
+steward start	examples	
+steward start	flag config	path to the gofer config file
+steward start	flag json	print JSON
+steward start	flag server	server address (overrides config server.addr)
+steward start	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward status	desc	Show whether the steward is on, which agent, whether a session is running, and the last review
+steward status	help	
+steward status	examples	
+steward status	flag config	path to the gofer config file
+steward status	flag json	print JSON
+steward status	flag server	server address (overrides config server.addr)
+steward status	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+steward stop	desc	End the steward session (the next need rebuilds it)
+steward stop	help	
+steward stop	examples	
+steward stop	flag config	path to the gofer config file
+steward stop	flag json	print JSON
+steward stop	flag server	server address (overrides config server.addr)
+steward stop	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+template	desc	Inspect task-book templates: job prompts rendered from files on the server
+template	help	
+template	examples	
+template ls	desc	List the templates a project can be driven with (project copies shadow global ones)
+template ls	help	
+template ls	examples	
+template ls	flag config	path to the gofer config file
+template ls	flag project	project key (default: the project detected from the current dir)
+template ls	flag server	server address (overrides config server.addr)
+template ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+template show	desc	Print one template: source path, declared variables and the rendered body preview
+template show	help	
+template show	examples	
+template show	flag config	path to the gofer config file
+template show	flag project	project key (default: the project detected from the current dir)
+template show	flag server	server address (overrides config server.addr)
+template show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+template show	flag var	template variable k=v (repeatable)
+tool	desc	Small utilities: a raw API call, file copy to/from a worker, the transfer staging area, certificates and the stats backfill
+tool	help	
+tool	examples	
+tool api	desc	Call the server's HTTP API and print the response (address and token included)
+tool api	help	The path is relative to the server's /v1 API, so "jobs" and "/v1/jobs" are the
+same request. The address and token come from the same place as everywhere else in the
+CLI (-c / --server / --token, or $GOFER_CONFIG_DIR/.env), so nothing has to be typed
+twice.
+
+Fields build the body (`application/json`); on a GET they become query parameters
+instead. A value is read as JSON when it parses as one (10 → number, true → bool) and as
+a plain string otherwise:
+
+  gofer tool api jobs -f status=running -f limit=5
+  gofer tool api jobs -X POST --input job.json
+  gofer tool api settings/work.draft.min_prompts -X PUT -f value=3
+  gofer tool api prompt -F value=@prompt.md          # file content as a string
+  gofer tool api jobs -q 'jobs.*.id'
+
+--query picks one value out of the JSON response by path (top.sub, jobs.0.id,
+jobs.*.id): a string prints as it is, anything else as indented JSON. A non-2xx answer
+exits non-zero and prints the body to stderr; --include also shows the status line and
+the response headers.
+tool api	examples	
+tool api	flag config	path to the gofer config file
+tool api	flag field	field as key=value (repeatable; query parameters on a GET)
+tool api	flag file-field	field as key=@file, the file's content as the string value (repeatable)
+tool api	flag include	print the status line and response headers
+tool api	flag input	raw request body from this file ('-' reads stdin)
+tool api	flag query	print this value of the JSON response instead of the whole body
+tool api	flag request	HTTP method (default: GET, or POST when a body is given)
+tool api	flag server	server address (overrides config server.addr)
+tool api	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tool cert	desc	Generate a local CA and HTTPS server certificate
+tool cert	help	
+tool cert	examples	
+tool cert	flag config	path to the gofer config file
+tool cert	flag hosts	comma-separated DNS names or IP addresses for the server certificate
+tool cert	flag out-dir	certificate output directory (default: <config-dir>/certs)
+tool cp	desc	Copy one file between this host and a worker (or the server host)
+tool cp	help	
+tool cp	examples	
+tool cp	flag config	path to the gofer config file
+tool cp	flag force	push: overwrite the file that already exists at the remote path
+tool cp	flag server	server address (overrides config server.addr)
+tool cp	flag timeout	seconds to wait for the transfer to finish
+tool cp	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tool deliver	desc	Run a delivery plan read from stdin (internal)
+tool deliver	help	
+tool deliver	examples	
+tool hook-test	desc	Run a decision hook once with a sample input and show how gofer would read its answer
+tool hook-test	help	The sample input is the JSON the hook receives on stdin (see the decision hook docs).
+It is read from --input, or from stdin when --input is not given. Nothing is submitted
+or delivered; the hook runs on this machine with this machine's config.
+
+  gofer tool hook-test no-push --point job.submit --input sample-submit.json
+tool hook-test	examples	
+tool hook-test	flag config	path to the gofer config file
+tool hook-test	flag input	file with the sample input (default: stdin)
+tool hook-test	flag point	decision point (default: the hook's first point)
+tool stats-backfill	desc	Compute the dashboard's per-job metrics for jobs that ended before they were recorded
+tool stats-backfill	help	
+tool stats-backfill	examples	
+tool stats-backfill	flag config	path to the gofer config file
+tool stats-backfill	flag force	recompute jobs that already have metrics
+tool stats-backfill	flag limit	jobs per server batch (1-1000)
+tool stats-backfill	flag server	server address (overrides config server.addr)
+tool stats-backfill	flag since	only jobs that ended within this window (e.g. 30d, 12h) or since YYYY-MM-DD; default all
+tool stats-backfill	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tool step	desc	Run a built-in workflow step reading its with: block from stdin (internal)
+tool step	help	
+tool step	examples	
+tool step	flag dir	working directory (default: the current one)
+tool step	flag with	with: block as JSON (default: read stdin)
+tool xfer	desc	Manage staged file transfers
+tool xfer	help	
+tool xfer	examples	
+tool xfer ls	desc	List the server's staging area
+tool xfer ls	help	
+tool xfer ls	examples	
+tool xfer ls	flag config	path to the gofer config file
+tool xfer ls	flag runner	filter by runner (a worker id, or server/local for the server host)
+tool xfer ls	flag server	server address (overrides config server.addr)
+tool xfer ls	flag state	filter by state: staged|dispatched|done|failed|expired
+tool xfer ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tool xfer rm	desc	Delete a transfer and its staged payload
+tool xfer rm	help	
+tool xfer rm	examples	
+tool xfer rm	flag config	path to the gofer config file
+tool xfer rm	flag server	server address (overrides config server.addr)
+tool xfer rm	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tool xfer show	desc	Print one transfer
+tool xfer show	help	
+tool xfer show	examples	
+tool xfer show	flag config	path to the gofer config file
+tool xfer show	flag server	server address (overrides config server.addr)
+tool xfer show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tunnel	desc	Manage TCP/UDP tunnels.
+tunnel	help	
+tunnel	examples	
+tunnel check	desc	Check connectivity to a worker tunnel target.
+tunnel check	help	
+tunnel check	examples	
+tunnel check	flag config	path to the gofer config file
+tunnel check	flag name	check every target of a saved preset
+tunnel check	flag server	server address (overrides config server.addr)
+tunnel check	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tunnel check	flag worker	worker id
+tunnel forget	desc	Delete a saved forward preset.
+tunnel forget	help	
+tunnel forget	examples	
+tunnel forget	flag config	path to the gofer config file
+tunnel forget	flag server	server address (overrides config server.addr)
+tunnel forget	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tunnel forward	desc	Forward local ports (or a local SOCKS5 proxy) through a worker tunnel.
+tunnel forward	help	
+tunnel forward	examples	
+tunnel forward	flag config	path to the gofer config file
+tunnel forward	flag log-dir	forwarder log directory
+tunnel forward	flag log-file	forwarder log file
+tunnel forward	flag name	saved preset name (gofer tunnel saved)
+tunnel forward	flag quiet	quiet
+tunnel forward	flag server	server address (overrides config server.addr)
+tunnel forward	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tunnel forward	flag worker	worker id
+tunnel ls	desc	List active worker tunnels.
+tunnel ls	help	
+tunnel ls	examples	
+tunnel ls	flag config	path to the gofer config file
+tunnel ls	flag server	server address (overrides config server.addr)
+tunnel ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tunnel presets	desc	Manage the presets stored on the server.
+tunnel presets	help	
+tunnel presets	examples	
+tunnel presets push	desc	Upload local presets to the server (names it already has are skipped).
+tunnel presets push	help	
+tunnel presets push	examples	
+tunnel presets push	flag config	path to the gofer config file
+tunnel presets push	flag force	overwrite a preset the server already has
+tunnel presets push	flag server	server address (overrides config server.addr)
+tunnel presets push	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tunnel save	desc	Save a forward preset for reuse with --name (stored on the server).
+tunnel save	help	
+tunnel save	examples	
+tunnel save	flag config	path to the gofer config file
+tunnel save	flag force	overwrite an existing preset of the same name
+tunnel save	flag note	free-form remark shown by `tunnel saved`
+tunnel save	flag server	server address (overrides config server.addr)
+tunnel save	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tunnel save	flag worker	worker id
+tunnel saved	desc	List saved forward presets (the server's, plus local ones not uploaded).
+tunnel saved	help	
+tunnel saved	examples	
+tunnel saved	flag config	path to the gofer config file
+tunnel saved	flag server	server address (overrides config server.addr)
+tunnel saved	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tunnel stop	desc	Ask a running `tunnel forward` process (any machine) to exit; it stops at its next heartbeat (<= 30s).
+tunnel stop	help	
+tunnel stop	examples	
+tunnel stop	flag config	path to the gofer config file
+tunnel stop	flag server	server address (overrides config server.addr)
+tunnel stop	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work	desc	Work items: what you are doing across terminal sessions (list / show / set / park / remind / report / merge) — a session reports with `work report`
+work	help	
+work	examples	
+work accept	desc	Adopt a tidy-up suggestion (field: goal | blocker | blocker_kind | next | summary | status_hint)
+work accept	help	
+work accept	examples	
+work accept	flag config	path to the gofer config file
+work accept	flag json	print JSON
+work accept	flag server	server address (overrides config server.addr)
+work accept	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work capture	desc	Jot an idea / issue / request / note into the capture box (status captured; sort it later from `work ls --status captured`)
+work capture	help	
+work capture	examples	
+work capture	flag config	path to the gofer config file
+work capture	flag json	print JSON
+work capture	flag kind	idea|issue|request|note (default note)
+work capture	flag project	project key (optional)
+work capture	flag server	server address (overrides config server.addr)
+work capture	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work digest	desc	Show the daily work digest (deterministic); --send queues it to the webhooks now
+work digest	help	
+work digest	examples	
+work digest	flag config	path to the gofer config file
+work digest	flag json	print JSON
+work digest	flag send	send it now as a work.digest notification
+work digest	flag server	server address (overrides config server.addr)
+work digest	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work dismiss	desc	Drop a tidy-up suggestion (the same proposal is not made again)
+work dismiss	help	
+work dismiss	examples	
+work dismiss	flag config	path to the gofer config file
+work dismiss	flag json	print JSON
+work dismiss	flag server	server address (overrides config server.addr)
+work dismiss	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work dispatch	desc	Hand a captured item over: to a session (sends its text as a letter the session reads at its next turn), to an already-submitted job (links it), to a todo, to a repo issue, or archive / drop it
+work dispatch	help	
+work dispatch	examples	
+work dispatch	flag config	path to the gofer config file
+work dispatch	flag job	already-submitted job id to link (--to job)
+work dispatch	flag json	print JSON
+work dispatch	flag plan	existing plan id (--to todo; default a new plan)
+work dispatch	flag server	server address (overrides config server.addr)
+work dispatch	flag session	target session id (--to session)
+work dispatch	flag title	issue title (--to issue; default the item's title)
+work dispatch	flag to	session|job|todo|issue|archive|drop
+work dispatch	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work dispatch	flag tracker	tracker repo id whose server mirror gets the new issue (--to issue; the repo needs an id prefix)
+work link	desc	Link an issue / plan / todo / job / session (--rm removes)
+work link	help	
+work link	examples	
+work link	flag acp	job id of an ACP persistent / pty session (attach it as a current session)
+work link	flag config	path to the gofer config file
+work link	flag issue	tracker issue id
+work link	flag job	job id
+work link	flag json	print JSON
+work link	flag plan	plan id
+work link	flag rm	remove the link / detach the session
+work link	flag server	server address (overrides config server.addr)
+work link	flag session	session id (attach it as a current session)
+work link	flag todo	plan todo id
+work link	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work ls	desc	List open work items (most recently active first)
+work ls	help	
+work ls	examples	
+work ls	flag all	include done / dropped items and items merged into another (shown as "已并入 <id>"); same set `work rm --status` previews
+work ls	flag config	path to the gofer config file
+work ls	flag due	only items whose reminder / park deadline has passed
+work ls	flag json	print JSON
+work ls	flag limit	max rows
+work ls	flag project	filter by project key
+work ls	flag query	text search (title/goal/blocker/next)
+work ls	flag server	server address (overrides config server.addr)
+work ls	flag status	filter by status (comma-separated): active|needs_me|waiting_resource|needs_onsite|review|parked|done|dropped
+work ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work ls	flag unsorted	only auto-created drafts nobody has sorted yet
+work ls	flag workspace	filter by workspace directory
+work merge	desc	Merge other work items into <id> (sessions, links and journals move over)
+work merge	help	
+work merge	examples	
+work merge	flag config	path to the gofer config file
+work merge	flag json	print JSON
+work merge	flag server	server address (overrides config server.addr)
+work merge	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work new	desc	Create a work item
+work new	help	
+work new	examples	
+work new	flag blocker	what is blocking
+work new	flag blocker-kind	blocker category (device / account / onsite / person …)
+work new	flag config	path to the gofer config file
+work new	flag goal	goal
+work new	flag json	print JSON
+work new	flag next	next step
+work new	flag priority	priority number
+work new	flag project	project key
+work new	flag server	server address (overrides config server.addr)
+work new	flag session	attach a session id (repeatable)
+work new	flag status	status: active|needs_me|waiting_resource|needs_onsite|review|parked|done|dropped
+work new	flag summary	summary
+work new	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work new	flag workspace	workspace directory
+work note	desc	Append a note to the journal
+work note	help	
+work note	examples	
+work note	flag config	path to the gofer config file
+work note	flag json	print JSON
+work note	flag server	server address (overrides config server.addr)
+work note	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work park	desc	Park it (status parked) until a time and/or a condition; --captured parks every capture-box item instead
+work park	help	
+work park	examples	
+work park	flag captured	rollback helper: move every capture-box item to parked (instead of <id>)
+work park	flag config	path to the gofer config file
+work park	flag json	print JSON
+work park	flag note	condition, e.g. "到货后继续"
+work park	flag server	server address (overrides config server.addr)
+work park	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work park	flag until	wake-up time: 2h | 3d | 2026-10-08 | "2026-10-08 09:30" | RFC3339 | tomorrow
+work remind	desc	Set (or --clear) the reminder time
+work remind	help	
+work remind	examples	
+work remind	flag clear	remove the reminder
+work remind	flag config	path to the gofer config file
+work remind	flag json	print JSON
+work remind	flag server	server address (overrides config server.addr)
+work remind	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work report	desc	Report where you are (a session runs this when asked): goal / status / blocker / next step / summary
+work report	help	
+work report	examples	
+work report	flag blocker	what is blocking
+work report	flag config	path to the gofer config file
+work report	flag goal	what this work is for
+work report	flag json	print JSON
+work report	flag next	the next step
+work report	flag request	the request id you were asked to answer (from the request text; marks it answered)
+work report	flag server	server address (overrides config server.addr)
+work report	flag session	reporting session id (journal author)
+work report	flag status	active|needs_me|waiting_resource|needs_onsite|review|parked (active = the blocker is gone)
+work report	flag summary	how far it got
+work report	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work requests	desc	Show the request ledger (report / hand-over / tidy-up asks and what became of them); with no id, every item
+work requests	help	
+work requests	examples	
+work requests	flag all	include finished requests (default: only in flight)
+work requests	flag config	path to the gofer config file
+work requests	flag json	print JSON
+work requests	flag limit	max rows
+work requests	flag server	server address (overrides config server.addr)
+work requests	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work rm	desc	Permanently delete finished (done / dropped) work items with everything attached: `work rm <id>...` or `work rm --status dropped` (a person's decision: not available to sessions, the steward or MCP)
+work rm	help	
+work rm	examples	
+work rm	flag config	path to the gofer config file
+work rm	flag dry-run	only list what would be deleted
+work rm	flag json	print JSON
+work rm	flag server	server address (overrides config server.addr)
+work rm	flag status	delete every item in this final status: dropped|done
+work rm	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work rm	flag yes	confirm the deletion (without it the items are only listed and the command fails)
+work set	desc	Change fields (a status you set here wins over the session-derived one; `--auto` hands it back)
+work set	help	
+work set	examples	
+work set	flag auto	let the session state drive the status again
+work set	flag blocker	what is blocking
+work set	flag blocker-kind	blocker category (device / account / onsite / person …)
+work set	flag config	path to the gofer config file
+work set	flag goal	goal
+work set	flag json	print JSON
+work set	flag next	next step
+work set	flag priority	priority number
+work set	flag project	project key
+work set	flag rev	expected rev (optimistic lock; 409 when stale)
+work set	flag server	server address (overrides config server.addr)
+work set	flag sorted	mark an auto draft as sorted
+work set	flag status	status: active|needs_me|waiting_resource|needs_onsite|review|parked|done|dropped
+work set	flag summary	summary
+work set	flag title	new title
+work set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work set	flag workspace	workspace directory
+work show	desc	Show one work item with its sessions, links and journal
+work show	help	
+work show	examples	
+work show	flag config	path to the gofer config file
+work show	flag json	print JSON
+work show	flag server	server address (overrides config server.addr)
+work show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work split	desc	Split a new work item out of <id> (--session moves sessions; --keep leaves them on both)
+work split	help	
+work split	examples	
+work split	flag config	path to the gofer config file
+work split	flag goal	goal of the new item
+work split	flag json	print JSON
+work split	flag keep	keep the sessions on the source too
+work split	flag server	server address (overrides config server.addr)
+work split	flag session	session id to hand over (repeatable)
+work split	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work summarize	desc	Tidy a work item up now: a cheap one-shot model reads the session's transcript tail and fills goal / blocker / next (what a person or the session wrote becomes a suggestion, see `work accept`)
+work summarize	help	
+work summarize	examples	
+work summarize	flag config	path to the gofer config file
+work summarize	flag json	print JSON
+work summarize	flag server	server address (overrides config server.addr)
+work summarize	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work to-todo	desc	Turn a work item into a plan todo (an existing --plan, or a new plan) and link it back; a second conversion is refused
+work to-todo	help	
+work to-todo	examples	
+work to-todo	flag config	path to the gofer config file
+work to-todo	flag json	print JSON
+work to-todo	flag new-plan	create a new plan with this title (default: the item's title when no --plan)
+work to-todo	flag plan	existing plan id to add the todo to
+work to-todo	flag server	server address (overrides config server.addr)
+work to-todo	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow	desc	Submit and manage workflows (job chains) via the bridge server
+workflow	help	
+workflow	examples	
+workflow cancel	desc	Cancel a running workflow
+workflow cancel	help	
+workflow cancel	examples	
+workflow cancel	flag config	path to the gofer config file
+workflow cancel	flag server	server address (overrides config server.addr)
+workflow cancel	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow events	desc	Print a workflow's lifecycle event timeline
+workflow events	help	
+workflow events	examples	
+workflow events	flag config	path to the gofer config file
+workflow events	flag server	server address (overrides config server.addr)
+workflow events	flag since	only events with seq strictly greater than this cursor
+workflow events	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow export	desc	Export a workflow's spec (secrets stripped) for re-import; default yaml (= `wf run` format)
+workflow export	help	
+workflow export	examples	
+workflow export	flag config	path to the gofer config file
+workflow export	flag format	output format: yaml (default, = wf run input) | json
+workflow export	flag out	write the spec to this file instead of stdout
+workflow export	flag server	server address (overrides config server.addr)
+workflow export	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow init	desc	Write a starter workflow file (.gofer/workflows/verify.yaml or release.yaml) for a repository
+workflow init	help	
+workflow init	examples	
+workflow init	flag config	path to the gofer config file
+workflow init	flag dir	repository directory (default: the current directory)
+workflow init	flag force	overwrite the file when it already exists
+workflow list	desc	List workflows with an optional status filter
+workflow list	help	
+workflow list	examples	
+workflow list	flag config	path to the gofer config file
+workflow list	flag server	server address (overrides config server.addr)
+workflow list	flag status	filter by status (running/done/failed/cancelled)
+workflow list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow pick	desc	Select a fan of a join=pick step and continue the workflow
+workflow pick	help	
+workflow pick	examples	
+workflow pick	flag cleanup-others	with --merge: remove the other fans' worktrees and branches
+workflow pick	flag config	path to the gofer config file
+workflow pick	flag fan	1-based fan index
+workflow pick	flag merge	after picking, merge the picked fan's worktree branch into the project main checkout (local runner only)
+workflow pick	flag server	server address (overrides config server.addr)
+workflow pick	flag squash	with --merge: squash into one commit
+workflow pick	flag step	1-based workflow step
+workflow pick	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow rerun	desc	Re-run a finished workflow as a new one: only its failed steps, or from a step on
+workflow rerun	help	
+workflow rerun	examples	
+workflow rerun	flag config	path to the gofer config file
+workflow rerun	flag failed	keep only the failed steps (and, inside a failed fan-out step, only the failed fans)
+workflow rerun	flag from	keep this step and every later one (1-based number or step name)
+workflow rerun	flag server	server address (overrides config server.addr)
+workflow rerun	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow rerun	flag watch	poll the new workflow until it reaches a terminal state
+workflow run	desc	Submit a workflow from a yaml or json file (title + steps[])
+workflow run	help	
+workflow run	examples	
+workflow run	flag config	path to the gofer config file
+workflow run	flag project	project key: the workflow's default project (a step without project_key runs there)
+workflow run	flag server	server address (overrides config server.addr)
+workflow run	flag template	workflow template name (project .gofer/workflows, config-dir workflows, or built-in)
+workflow run	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow run	flag var	workflow template variable k=v (repeatable)
+workflow run	flag watch	poll the workflow until it reaches a terminal state, printing each step
+workflow save-as-template	desc	Save a workflow's exported spec as a named template
+workflow save-as-template	help	
+workflow save-as-template	examples	
+workflow save-as-template	flag config	path to the gofer config file
+workflow save-as-template	flag global	write the global template (<config-dir>/workflows)
+workflow save-as-template	flag project	write the template into this project's workspace (.gofer/workflows)
+workflow save-as-template	flag server	server address (overrides config server.addr)
+workflow save-as-template	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow show	desc	Query a workflow's status + step chain
+workflow show	help	
+workflow show	examples	
+workflow show	flag config	path to the gofer config file
+workflow show	flag server	server address (overrides config server.addr)
+workflow show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow show	flag verbose	also print each step's working directory and ref
+workflow template	desc	List, show, save or remove workflow templates
+workflow template	help	
+workflow template	examples	
+workflow template ls	desc	
+workflow template ls	help	
+workflow template ls	examples	
+workflow template ls	flag config	path to the gofer config file
+workflow template ls	flag project	also search this project's .gofer/workflows
+workflow template ls	flag server	server address (overrides config server.addr)
+workflow template ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow template rm	desc	Remove a global or project template
+workflow template rm	help	
+workflow template rm	examples	
+workflow template rm	flag config	path to the gofer config file
+workflow template rm	flag global	write the global template (<config-dir>/workflows)
+workflow template rm	flag project	write the template into this project's workspace (.gofer/workflows)
+workflow template rm	flag server	server address (overrides config server.addr)
+workflow template rm	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow template save	desc	Save a template file to the global scope or a project workspace (validated first)
+workflow template save	help	
+workflow template save	examples	
+workflow template save	flag config	path to the gofer config file
+workflow template save	flag file	template YAML file to read (default: stdin)
+workflow template save	flag global	write the global template (<config-dir>/workflows)
+workflow template save	flag project	write the template into this project's workspace (.gofer/workflows)
+workflow template save	flag server	server address (overrides config server.addr)
+workflow template save	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+workflow template show	desc	
+workflow template show	help	
+workflow template show	examples	
+workflow template show	flag config	path to the gofer config file
+workflow template show	flag project	also search this project's .gofer/workflows
+workflow template show	flag server	server address (overrides config server.addr)
+workflow template show	flag source	print the template's own YAML source (and where it comes from) instead of the parsed spec
+workflow template show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gookit/goutil/x/assert"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -36,7 +37,7 @@ func TestMemoryDoctorArchivePromoteCLI(t *testing.T) {
 	assert.Eq(t, tracker.DoctorPathMissing, report.Memories[0].Findings[0].Slug)
 	out = trackerRunOK(t, root, "memory", "doctor")
 	assert.Contains(t, out, "  - path-missing: docs/gone.md")
-	assert.Contains(t, trackerRunOK(t, root, "repo", "prime"), "deploy-x（"+tracker.PrimeStaleMarker+"）")
+	assert.Contains(t, trackerRunOK(t, root, "repo", "prime"), "deploy-x（"+tracker.PrimeStaleMarkerIn(i18n.ZhCN)+"）")
 	trackerRunOK(t, root, "memory", "set", "deploy-x", "see `docs/gone.md`", "--doctor-ignore", "path-missing")
 	out = trackerRunOK(t, root, "memory", "doctor")
 	assert.Contains(t, out, "checked 2, with findings 0, suppressed 1")

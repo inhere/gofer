@@ -60,7 +60,7 @@ func runMemoryScope(c *gcli.Command, s *tracker.Store, opts memoryScopeOptions, 
 			scoped++
 		}
 	}
-	suggestions, err := s.SuggestMemoryScopes(memoryScopeCwdLookup(s))
+	suggestions, err := s.SuggestMemoryScopesIn(cliLang(), memoryScopeCwdLookup(s))
 	if err != nil {
 		return err
 	}
@@ -139,10 +139,10 @@ func printMemoryScopeSuggestions(c *gcli.Command, suggestions []tracker.ScopeSug
 		keyWidth = max(keyWidth, len(sug.Key))
 		pathWidth = max(pathWidth, len(strings.Join(sug.Paths, ",")))
 	}
-	c.Printf("%-*s  %-*s  %s\n", keyWidth, "KEY", pathWidth, "WHEN.PATHS", "依据 / 置信度")
+	c.Printf("%-*s  %-*s  %s\n", keyWidth, "KEY", pathWidth, "WHEN.PATHS", cliText("cli.memory.scope.basis_head"))
 	for _, sug := range suggestions {
 		paths := strings.Join(sug.Paths, ",")
-		c.Printf("%-*s  %-*s  [%s] %s\n", keyWidth, sug.Key, pathWidth, paths, tracker.ScopeConfidenceLabel(sug.Confidence), sug.Basis)
+		c.Printf("%-*s  %-*s  [%s] %s\n", keyWidth, sug.Key, pathWidth, paths, tracker.ScopeConfidenceLabelIn(cliLang(), sug.Confidence), sug.Basis)
 	}
 	c.Printf("apply: gofer memory scope --apply [--min-confidence medium] [--only <key>,<key>]\n")
 	if len(out.Unknown) > 0 {
@@ -153,8 +153,7 @@ func printMemoryScopeSuggestions(c *gcli.Command, suggestions []tracker.ScopeSug
 func printMemoryScopeApplyResult(c *gcli.Command, out memoryScopeOutput) {
 	c.Printf("applied %d memories (%d already scoped, %d with no evidence)\n", len(out.Applied), out.AlreadyScoped, out.Unresolved)
 	if len(out.BelowThreshold) > 0 {
-		c.Printf("skipped %d weaker suggestions: %s（--min-confidence medium 也写入）\n",
-			len(out.BelowThreshold), strings.Join(out.BelowThreshold, ", "))
+		c.Printf("%s\n", cliText("cli.memory.scope.below_threshold", "count", len(out.BelowThreshold), "keys", strings.Join(out.BelowThreshold, ", ")))
 	}
 	if len(out.Unknown) > 0 {
 		c.Printf("no suggestion for: %s\n", strings.Join(out.Unknown, ", "))

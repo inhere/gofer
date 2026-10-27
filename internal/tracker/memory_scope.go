@@ -1,11 +1,12 @@
 package tracker
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Confidence of a `memory scope` suggestion (gofer-opv5): `source` and key / tag
@@ -38,13 +39,18 @@ func ScopeConfidenceRank(confidence string) int {
 
 // ScopeConfidenceLabel is the label of a confidence level shown by `memory scope`.
 func ScopeConfidenceLabel(confidence string) string {
+	return ScopeConfidenceLabelIn(i18n.Default, confidence)
+}
+
+// ScopeConfidenceLabelIn is ScopeConfidenceLabel in lang.
+func ScopeConfidenceLabelIn(lang i18n.Lang, confidence string) string {
 	switch confidence {
 	case ScopeConfidenceHigh:
-		return "高"
+		return i18n.T(lang, "cli.tracker.scope.confidence_high")
 	case ScopeConfidenceMedium:
-		return "中"
+		return i18n.T(lang, "cli.tracker.scope.confidence_medium")
 	}
-	return "低"
+	return i18n.T(lang, "cli.tracker.scope.confidence_low")
 }
 
 // Subrepos lists the nested repositories directly under the tracker's repository root:
@@ -88,6 +94,11 @@ func (s *Store) Subrepos() []string {
 // Evidence naming no subproject or several of them suggests nothing: that memory stays
 // workspace-wide.
 func (s *Store) SuggestMemoryScopes(cwdOf func(source string) (string, bool)) ([]ScopeSuggestion, error) {
+	return s.SuggestMemoryScopesIn(i18n.Default, cwdOf)
+}
+
+// SuggestMemoryScopesIn is SuggestMemoryScopes with lang for the evidence line.
+func (s *Store) SuggestMemoryScopesIn(lang i18n.Lang, cwdOf func(source string) (string, bool)) ([]ScopeSuggestion, error) {
 	root := s.RepoRoot()
 	dirs := s.Subrepos()
 	if root == "" || len(dirs) == 0 {
@@ -102,7 +113,7 @@ func (s *Store) SuggestMemoryScopes(cwdOf func(source string) (string, bool)) ([
 		if item.When != nil && len(item.When.Paths) > 0 {
 			continue // already scoped: never touched
 		}
-		if sug, ok := suggestMemoryScope(item, root, dirs, cwdOf); ok {
+		if sug, ok := suggestMemoryScope(lang, item, root, dirs, cwdOf); ok {
 			out = append(out, sug)
 		}
 	}
@@ -110,22 +121,22 @@ func (s *Store) SuggestMemoryScopes(cwdOf func(source string) (string, bool)) ([
 	return out, nil
 }
 
-func suggestMemoryScope(item Memory, root string, dirs []string, cwdOf func(string) (string, bool)) (ScopeSuggestion, bool) {
+func suggestMemoryScope(lang i18n.Lang, item Memory, root string, dirs []string, cwdOf func(string) (string, bool)) (ScopeSuggestion, bool) {
 	if cwdOf != nil {
 		if source := strings.TrimSpace(item.Source); isSourceRef(source) {
 			if cwd, ok := cwdOf(source); ok {
 				if dir, ok := subrepoOfCwd(root, cwd, dirs); ok {
-					return scopeSuggestion(item.Key, dir, fmt.Sprintf("来源 %s 的 cwd 在 %s/ 内", source, dir), ScopeConfidenceHigh), true
+					return scopeSuggestion(item.Key, dir, i18n.T(lang, "cli.tracker.scope.basis_source", "source", source, "dir", dir), ScopeConfidenceHigh), true
 				}
 			}
 		}
 	}
 	if dir, ok := scopeNameMatch(item, dirs); ok {
-		return scopeSuggestion(item.Key, dir, fmt.Sprintf("key 前缀 / 标签与子仓名 %s 匹配", dir), ScopeConfidenceHigh), true
+		return scopeSuggestion(item.Key, dir, i18n.T(lang, "cli.tracker.scope.basis_name", "dir", dir), ScopeConfidenceHigh), true
 	}
 	if mentioned := mentionedSubrepos(item, dirs); len(mentioned) == 1 {
 		dir := mentioned[0]
-		return scopeSuggestion(item.Key, dir, fmt.Sprintf("摘要 / 正文提到子仓名 %s", dir), ScopeConfidenceMedium), true
+		return scopeSuggestion(item.Key, dir, i18n.T(lang, "cli.tracker.scope.basis_mention", "dir", dir), ScopeConfidenceMedium), true
 	}
 	return ScopeSuggestion{}, false
 }

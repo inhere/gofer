@@ -135,6 +135,9 @@ func TestZhCliMessagesAreUnchanged(t *testing.T) {
 func TestMigratedCliFilesHaveNoCJK(t *testing.T) {
 	for _, file := range append([]string{
 		"job.go", "job_findings.go", "plan.go", "session.go",
+		"dual_mode.go", "issue.go", "mcp.go", "memory.go", "memory_candidates.go",
+		"memory_scope.go", "repo.go", "repo_changelog.go", "repo_projectkey.go",
+		"steward.go", "work.go",
 	}, setupMigratedFiles...) {
 		src, err := os.ReadFile(file)
 		if err != nil {

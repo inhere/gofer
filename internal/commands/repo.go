@@ -248,7 +248,7 @@ func NewRepoCmd() *gcli.Command {
 						}
 						return nil
 					}
-					status, err := s.Status()
+					status, err := s.StatusIn(cliLang())
 					if err != nil {
 						return err
 					}
@@ -264,7 +264,7 @@ func NewRepoCmd() *gcli.Command {
 					c.Printf("memories: %d\ncommit_policy: %s\nmanaged_block: %v\nhooks: %s\nsync: %s\npending_sync: %d\nlast_sync_at: %s\nsync_summary: %s\n", status.Memories, status.CommitPolicy, status.ManagedBlock, status.Hooks, status.Sync, status.PendingSync, status.LastSyncAt, status.SyncSummary)
 					c.Printf("prime_bytes: %d\nprime_truncated: %v\n", status.PrimeBytes, status.PrimeTruncated)
 					if strings.TrimSpace(status.ProjectKey) == "" {
-						c.Println("project_key: 未填写；可在 .gofer/tracker/config.yaml 填写 project_key")
+						c.Println(cliText("cli.repo.status.project_key_missing"))
 					} else {
 						c.Printf("project_key: %s\n", status.ProjectKey)
 					}

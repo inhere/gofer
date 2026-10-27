@@ -270,6 +270,11 @@ type repoSyncMeta struct {
 }
 
 func (s *Store) Status() (RepoStatus, error) {
+	return s.StatusIn(i18n.Default)
+}
+
+// StatusIn is Status with lang for the hooks / sync words it reports.
+func (s *Store) StatusIn(lang i18n.Lang) (RepoStatus, error) {
 	cfg, err := s.ReadConfig()
 	if err != nil {
 		return RepoStatus{}, err
@@ -282,7 +287,7 @@ func (s *Store) Status() (RepoStatus, error) {
 	if err != nil {
 		return RepoStatus{}, err
 	}
-	status := RepoStatus{Tracker: s.Dir, Issues: map[string]int{"open": 0, "in_progress": 0, "blocked": 0, "closed": 0}, Memories: len(memories), CommitPolicy: cfg.CommitPolicy, ProjectKey: cfg.ProjectKey, Hooks: "已检测", Sync: "未同步"}
+	status := RepoStatus{Tracker: s.Dir, Issues: map[string]int{"open": 0, "in_progress": 0, "blocked": 0, "closed": 0}, Memories: len(memories), CommitPolicy: cfg.CommitPolicy, ProjectKey: cfg.ProjectKey, Hooks: i18n.T(lang, "cli.tracker.repo.hooks_checked"), Sync: i18n.T(lang, "cli.tracker.repo.sync_unsynced")}
 	status.PrimeBytes, status.PrimeTruncated, err = s.PrimeEstimate()
 	if err != nil {
 		return RepoStatus{}, err
@@ -292,7 +297,7 @@ func (s *Store) Status() (RepoStatus, error) {
 		if json.Unmarshal(b, &meta) == nil {
 			status.LastSyncAt = meta.LastSyncAt
 			status.SyncSummary = meta.Summary
-			status.Sync = "已同步"
+			status.Sync = i18n.T(lang, "cli.tracker.repo.sync_synced")
 		}
 	}
 	if base, e := readSyncBase(s.Dir); e == nil {

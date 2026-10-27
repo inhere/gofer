@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // memoryArchiveFile holds archived memories (design §2.6 / §2.10). It is a
@@ -160,8 +162,13 @@ func (s *Store) ListArchivedMemories(filter MemoryFilter) ([]ArchivedMemory, err
 
 // ArchivedMemoryListLine is one `memory ls --archived` row.
 func ArchivedMemoryListLine(a ArchivedMemory, now time.Time) string {
-	line := strings.TrimSuffix(MemoryListLine(a.Memory, now), "\n")
-	line += " · 归档于 " + AgeText(a.ArchivedAt, now)
+	return ArchivedMemoryListLineIn(i18n.Default, a, now)
+}
+
+// ArchivedMemoryListLineIn is ArchivedMemoryListLine in lang.
+func ArchivedMemoryListLineIn(lang i18n.Lang, a ArchivedMemory, now time.Time) string {
+	line := strings.TrimSuffix(MemoryListLineIn(lang, a.Memory, now), "\n")
+	line += " · " + i18n.T(lang, "cli.tracker.memory.archived_at", "age", AgeTextIn(lang, a.ArchivedAt, now))
 	if a.ArchiveReason != "" {
 		line += "（" + a.ArchiveReason + "）"
 	}

@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,7 +44,7 @@ func bindTrackerProjectKeyWith(s *tracker.Store, root string, fetch func() ([]cl
 	if projects, ferr := fetch(); ferr == nil {
 		if key, projRoot, ok := client.MatchProjectPath(projects, root); ok {
 			_ = s.SetProjectKey(key)
-			return []string{fmt.Sprintf("project_key: %s（匹配依据：server 项目路径最长前缀 %s）", key, projRoot)}
+			return []string{cliText("cli.repo.projectkey.server_match", "key", key, "root", projRoot)}
 		}
 	}
 	if err != nil {
@@ -58,18 +57,15 @@ func bindTrackerProjectKeyWith(s *tracker.Store, root string, fetch func() ([]cl
 // no gofer config could be loaded. key is the matched project ("" = none).
 func trackerProjectKeyNotes(cfg *config.Config, root, key string) []string {
 	if cfg == nil {
-		return []string{"project_key: 未写入（没有可用的 gofer 配置）；可在 .gofer/tracker/config.yaml 填写 project_key"}
+		return []string{cliText("cli.repo.projectkey.no_config")}
 	}
 	_, projRoot, ok := cfg.ProjectMatchForPath(root)
 	if !ok || key == "" {
-		return []string{"project_key: 未匹配到 gofer 项目（目录不在任何已登记项目路径下，或与多个项目并列）；" +
-			"可 `gofer project add` 登记该目录，或手工在 .gofer/tracker/config.yaml 填写 project_key"}
+		return []string{cliText("cli.repo.projectkey.no_match")}
 	}
-	notes := []string{fmt.Sprintf("project_key: %s（匹配依据：最长路径前缀 %s）", key, projRoot)}
+	notes := []string{cliText("cli.repo.projectkey.matched", "key", key, "root", projRoot)}
 	if outer := nestedOuterRepo(root, projRoot); outer != "" {
-		notes = append(notes, fmt.Sprintf(
-			"提示: 这是嵌套的独立仓库（上层仓库 %s 也在项目 %s 目录下），已归属项目 %s；"+
-				"如需独立，可注册单独项目并改 .gofer/tracker/config.yaml 的 project_key", outer, key, key))
+		notes = append(notes, cliText("cli.repo.projectkey.nested", "outer", outer, "key", key))
 	}
 	return notes
 }

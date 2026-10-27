@@ -19,6 +19,11 @@
   - 桌面通知改成与 IM 机器人一致的「页面摘要 + 编辑侧栏」：页面只显示开关状态、已选事件数、限定项目与合并窗口，点「编辑」在同样宽度的侧栏里改，保存仍走 `PUT /v1/config/server` 的补丁式写入。事件分组多选与限定项目输入抽成两个侧栏共用的组件（不再各写一份）。
   - 「设置 › 配置管理」顶部操作区的「重新读取文件」以前被按钮自带的左外边距推到中间，现在与「重启 server」贴右相邻，两个按钮各带一个图标（刷新 / 电源）。「重启 server」点下去先弹确认框写清影响（在跑的 job 先结束、新 job 排队、期间页面会短暂断开），取消不提交。
 
+### 变更
+
+- **CLI 输出按 `GOFER_LANG` / 系统语言本地化（阶段 2 收尾，gofer-992q）**：`agent` / `auth` / `hook` / `issue` / `mcp` / `memory` / `repo` / `schedule` / `settings` / `steward` / `template` / `tool` / `tunnel` / `work` / `workflow` 这些命令组的提示、错误、表头与 `--help` 说明，以及 `gofer memory` / `gofer repo status` 打印的记忆文本（列表、详情、归档、doctor、scope 依据、记忆年龄），都改由 `internal/i18n` 渲染：`GOFER_LANG` → 系统语言 → 缺省。zh-CN 下的输出与改动前逐字一致。
+- `internal/commands` 除 `worker_init.go`（写进 worker.yaml 的模板注释）外已整体纳入「字符串字面量不得含中文」的扫描测试。
+
 ## [0.201.0] - 2026-10-27
 
 ### 新增
