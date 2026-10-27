@@ -228,7 +228,7 @@ func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		if err != nil {
 			return errorx.Failf(serve.ExitErr, "%v", err)
 		}
-		c.Printf("gofer serve 已后台启动 pid=%d log=%s\n", pid, serveLogFile())
+		c.Printf("%s\n", cliText("cli.daemon.serve.daemon_started", "pid", pid, "log", serveLogFile()))
 		return nil
 	}
 	// Detached child (Daemonized), or a foreground start: the real process runs

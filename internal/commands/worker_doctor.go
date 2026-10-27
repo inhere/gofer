@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -192,12 +193,12 @@ func buildWorkerDoctorReport(path string, timeout time.Duration, info buildinfo.
 
 	// 1) identity + hub addresses.
 	if wc.WorkerID == "" {
-		rep.add(doctorFail, "worker_id", "worker_id 未设置（必须等于 server.workers 里的一个键）")
+		rep.add(doctorFail, "worker_id", cliText("cli.worker.doctor.no_worker_id"))
 	} else {
 		rep.add(doctorPass, "worker_id", wc.WorkerID)
 	}
 	if len(wc.ServerLink.URLs) == 0 {
-		rep.add(doctorFail, "url", "server_link.urls 为空（worker 不知道连哪个 hub）")
+		rep.add(doctorFail, "url", cliText("cli.worker.doctor.no_urls"))
 	}
 	for _, raw := range wc.ServerLink.URLs {
 		rep.addRow(doctorURLRow(raw, timeout))
@@ -216,14 +217,12 @@ func buildWorkerDoctorReport(path string, timeout time.Duration, info buildinfo.
 	cfg, projects, _ := initialWorkerConfig(mode, wc, workerPolicyCachePath(wc.WorkerID))
 	switch mode {
 	case modePolicy:
-		rep.add(doctorPass, "mode", fmt.Sprintf("policy: %d roots, 当前生效 %d 个 project（server 下发，读自 policy 缓存）",
-			len(wc.Roots), len(projects)))
+		rep.add(doctorPass, "mode", cliText("cli.worker.doctor.mode_policy", "roots", len(wc.Roots), "projects", len(projects)))
 		rep.extend(doctorRootRows(wc))
 	case modeLegacy:
-		rep.add(doctorWarn, "mode", fmt.Sprintf("legacy: 本地 projects 段 %d 个 — 已废弃（策略改由 server 下发），迁移见 %s；本版本仍然生效",
-			len(wc.Projects), migrationDoc))
+		rep.add(doctorWarn, "mode", cliText("cli.worker.doctor.mode_legacy", "projects", len(wc.Projects), "doc", migrationDoc))
 	default:
-		rep.add(doctorFail, "mode", "无 roots（policy 模式）也无 projects（legacy）— 这台 worker 跑不了任何 job")
+		rep.add(doctorFail, "mode", cliText("cli.worker.doctor.mode_empty"))
 	}
 
 	// 4) guards / concurrency summary, then what this host can actually run.
@@ -240,7 +239,7 @@ func buildWorkerDoctorReport(path string, timeout time.Duration, info buildinfo.
 
 	// 5) the register handshake, unless the operator turned it off.
 	if !connect {
-		rep.add(doctorWarn, "connect", "--connect=false：跳过 hub 注册握手（urls 只做了 TCP 可达检查）")
+		rep.add(doctorWarn, "connect", cliText("cli.worker.doctor.connect_disabled"))
 	} else {
 		rep.addRow(doctorConnectRow(wc, cfg, detected, projects, timeout, info))
 	}
@@ -257,7 +256,7 @@ func doctorURLRow(raw string, timeout time.Duration) workerDoctorRow {
 	trimmed := strings.TrimSpace(raw)
 	u, err := url.Parse(trimmed)
 	if err != nil {
-		row.Status, row.Detail = doctorFail, fmt.Sprintf("%s: url 解析失败: %v", trimmed, err)
+		row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.url_parse_failed", "url", trimmed, "err", err)
 		return row
 	}
 	// ws/wss is the documented form. http(s):// is accepted by the dialer
@@ -268,15 +267,15 @@ func doctorURLRow(raw string, timeout time.Duration) workerDoctorRow {
 	case "http", "https":
 		row.Status = doctorWarn
 	case "":
-		row.Status, row.Detail = doctorFail, fmt.Sprintf("%s: 缺少 scheme（应为 ws:// 或 wss://）", trimmed)
+		row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.url_no_scheme", "url", trimmed)
 		return row
 	default:
-		row.Status, row.Detail = doctorFail, fmt.Sprintf("%s: scheme 必须是 ws:// 或 wss://（got %q）", trimmed, u.Scheme)
+		row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.url_bad_scheme", "url", trimmed, "scheme", strconv.Quote(u.Scheme))
 		return row
 	}
 	host := u.Hostname()
 	if host == "" {
-		row.Status, row.Detail = doctorFail, fmt.Sprintf("%s: 缺少 host", trimmed)
+		row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.url_no_host", "url", trimmed)
 		return row
 	}
 	if _, err := net.LookupHost(host); err != nil {
@@ -284,18 +283,17 @@ func doctorURLRow(raw string, timeout time.Duration) workerDoctorRow {
 		// host.docker.internal, which a Linux container cannot resolve. Say the IP
 		// instead of leaving the operator with a bare DNS error.
 		row.Status = doctorFail
-		row.Detail = fmt.Sprintf("%s: host %q 解析失败: %v — 容器内改用宿主 IP（如 192.168.65.254）",
-			trimmed, host, err)
+		row.Detail = cliText("cli.worker.doctor.url_host_failed", "url", trimmed, "host", host, "err", err)
 		return row
 	}
 	addr := net.JoinHostPort(host, portOrDefault(u))
 	conn, derr := net.DialTimeout("tcp", addr, timeout)
 	if derr != nil {
-		row.Status, row.Detail = doctorFail, fmt.Sprintf("%s: TCP 不可达 %s: %v", trimmed, addr, derr)
+		row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.url_unreachable", "url", trimmed, "addr", addr, "err", derr)
 		return row
 	}
 	_ = conn.Close()
-	row.Detail = fmt.Sprintf("%s: 可达（%s）", trimmed, addr)
+	row.Detail = cliText("cli.worker.doctor.url_reachable", "url", trimmed, "addr", addr)
 	return row
 }
 
@@ -318,16 +316,16 @@ func doctorTokenRow(wc *config.WorkerConfig) workerDoctorRow {
 	case link.TokenEnv != "":
 		if os.Getenv(link.TokenEnv) != "" {
 			return workerDoctorRow{Check: "token", Status: doctorPass,
-				Detail: fmt.Sprintf("来自环境变量 %s（值不打印）", link.TokenEnv)}
+				Detail: cliText("cli.worker.doctor.token_from_env", "name", link.TokenEnv)}
 		}
 		return workerDoctorRow{Check: "token", Status: doctorFail,
-			Detail: fmt.Sprintf("%s 为空：token 需从 <config-dir>/.env 或环境变量导出（值不打印）", link.TokenEnv)}
+			Detail: cliText("cli.worker.doctor.token_env_empty", "name", link.TokenEnv)}
 	case link.Token != "":
 		return workerDoctorRow{Check: "token", Status: doctorPass,
-			Detail: "来自 worker.yaml 的明文 token（建议改 token_env，避免密钥入库）"}
+			Detail: cliText("cli.worker.doctor.token_inline")}
 	default:
 		return workerDoctorRow{Check: "token", Status: doctorWarn,
-			Detail: "token_env / token 都为空：只有 server 端同样未启用鉴权时才能注册上"}
+			Detail: cliText("cli.worker.doctor.token_unset")}
 	}
 }
 
@@ -344,20 +342,20 @@ func doctorRootRows(wc *config.WorkerConfig) []workerDoctorRow {
 		to := strings.TrimSpace(r.To)
 		switch {
 		case from == "":
-			row.Status, row.Detail = doctorFail, r.From+" -> "+to+" (from 不能为空)"
+			row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.root_from_empty", "from", r.From, "to", to)
 		case to == "":
-			row.Status, row.Detail = doctorFail, r.From+" -> (to 不能为空)"
+			row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.root_to_empty", "from", r.From)
 		case seen[from]:
-			row.Status, row.Detail = doctorFail, "重复的 from: "+r.From+" (每个 from 只能映射一次)"
+			row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.root_dup_from", "from", r.From)
 		default:
 			seen[from] = true
 			fi, err := os.Stat(to)
 			if err != nil || !fi.IsDir() {
-				row.Status, row.Detail = doctorFail, fmt.Sprintf("%s -> %s (to 目录不存在或不是目录)", r.From, to)
+				row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.root_to_missing", "from", r.From, "to", to)
 				break
 			}
 			if err := dirReadable(to); err != nil {
-				row.Status, row.Detail = doctorFail, fmt.Sprintf("%s -> %s (to 目录不可读: %v)", r.From, to, err)
+				row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.root_to_unreadable", "from", r.From, "to", to, "err", err)
 				break
 			}
 			row.Detail = fmt.Sprintf("%s -> %s", r.From, to)
@@ -388,7 +386,7 @@ func dirReadable(dir string) error {
 func doctorGuardsRow(wc *config.WorkerConfig) workerDoctorRow {
 	if wc.Guards.AllowExec == nil && wc.Guards.AllowInteractive == nil {
 		return workerDoctorRow{Check: "guards", Status: doctorWarn,
-			Detail: "护栏未设置 = 不额外收紧（exec/interactive 全放行）；建议显式声明 allow_exec / allow_interactive"}
+			Detail: cliText("cli.worker.doctor.guards_unset")}
 	}
 	return workerDoctorRow{Check: "guards", Status: doctorPass,
 		Detail: fmt.Sprintf("allow_exec=%s allow_interactive=%s", boolPtrStr(wc.Guards.AllowExec), boolPtrStr(wc.Guards.AllowInteractive))}
@@ -399,10 +397,10 @@ func doctorGuardsRow(wc *config.WorkerConfig) workerDoctorRow {
 func doctorMaxConcurrentRow(wc *config.WorkerConfig) workerDoctorRow {
 	if wc.MaxConcurrent > 0 {
 		return workerDoctorRow{Check: "max_concurrent", Status: doctorPass,
-			Detail: fmt.Sprintf("%d（hub 侧 in-flight 上限）", wc.MaxConcurrent)}
+			Detail: cliText("cli.worker.doctor.max_concurrent_set", "value", wc.MaxConcurrent)}
 	}
 	return workerDoctorRow{Check: "max_concurrent", Status: doctorWarn,
-		Detail: "未设置（hub 侧不限并发）；建议按本机 CPU/内存设一个值"}
+		Detail: cliText("cli.worker.doctor.max_concurrent_unset")}
 }
 
 // doctorToolsRow summarises the declared external tools (CFG-16): how many, and
@@ -411,14 +409,14 @@ func doctorMaxConcurrentRow(wc *config.WorkerConfig) workerDoctorRow {
 func doctorToolsRow(wc *config.WorkerConfig) workerDoctorRow {
 	if len(wc.Tools) == 0 {
 		return workerDoctorRow{Check: "tools", Status: doctorPass,
-			Detail: "未声明（job prompt 不带本机工具清单）"}
+			Detail: cliText("cli.worker.doctor.tools_none")}
 	}
 	if missing := config.MissingToolBins(wc.Tools); len(missing) > 0 {
 		return workerDoctorRow{Check: "tools", Status: doctorWarn,
-			Detail: fmt.Sprintf("声明 %d 个，本机找不到 %d 个: %s", len(wc.Tools), len(missing), strings.Join(missing, ", "))}
+			Detail: cliText("cli.worker.doctor.tools_missing", "declared", len(wc.Tools), "missing", len(missing), "names", strings.Join(missing, ", "))}
 	}
 	return workerDoctorRow{Check: "tools", Status: doctorPass,
-		Detail: fmt.Sprintf("声明 %d 个，可执行文件均已找到", len(wc.Tools))}
+		Detail: cliText("cli.worker.doctor.tools_ok", "declared", len(wc.Tools))}
 }
 
 // doctorAgentRow reports one agent's availability. A declared agent whose CLI is
@@ -468,13 +466,12 @@ func doctorConnectRow(wc *config.WorkerConfig, cfg *config.Config, detected map[
 	row := workerDoctorRow{Check: "connect"}
 	if pid, running := localWorkerPID(wc.WorkerID); running {
 		row.Status = doctorWarn
-		row.Detail = fmt.Sprintf("本机已有 worker %s 在运行（pid %d）：跳过注册探测，探测会顶掉它在 hub 上的连接并失败其 in-flight job；注册结果看日志 %s，确需试连先 `gofer worker stop %s`",
-			wc.WorkerID, pid, workerLogFile(wc.WorkerID), wc.WorkerID)
+		row.Detail = cliText("cli.worker.doctor.connect_skipped", "id", wc.WorkerID, "pid", pid, "log", workerLogFile(wc.WorkerID))
 		return row
 	}
 	urls := wsDialURLs(wc.ServerLink.URLs)
 	if len(urls) == 0 {
-		row.Status, row.Detail = doctorFail, "server_link.urls 为空，无法试连"
+		row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.connect_no_urls")
 		return row
 	}
 	caps := workerCaps(wc, cfg, detected, projects)
@@ -510,7 +507,7 @@ func doctorConnectRow(wc *config.WorkerConfig, cfg *config.Config, detected map[
 		}
 		if !ack.Accepted {
 			row.Status = doctorFail
-			row.Detail = fmt.Sprintf("%s: 注册被拒: %s", raw, ack.Reason)
+			row.Detail = cliText("cli.worker.doctor.connect_rejected", "url", raw, "reason", ack.Reason)
 			return row
 		}
 		row.Status = doctorPass
@@ -518,7 +515,7 @@ func doctorConnectRow(wc *config.WorkerConfig, cfg *config.Config, detected map[
 		return row
 	}
 	row.Status = doctorFail
-	row.Detail = "所有 hub 地址都试连失败: " + strings.Join(failures, "; ")
+	row.Detail = cliText("cli.worker.doctor.connect_failed", "failures", strings.Join(failures, "; "))
 	return row
 }
 
@@ -528,7 +525,7 @@ func doctorConnectRow(wc *config.WorkerConfig, cfg *config.Config, detected map[
 // looks like a generic handshake failure.
 func dialFailureHint(err error) string {
 	if err != nil && strings.Contains(err.Error(), "401") {
-		return "（401：token 被 hub 拒绝 — 核对 server_link.token_env 解析出的值与 server.workers.<worker_id>.token 是否一致）"
+		return cliText("cli.worker.doctor.dial_401_hint")
 	}
 	return ""
 }
@@ -590,10 +587,10 @@ func renderWorkerDoctor(rep *workerDoctorReport, asJSON bool) (string, error) {
 func doctorVerdict(rep *workerDoctorReport) string {
 	switch {
 	case rep.Failures > 0:
-		return fmt.Sprintf("FAILED — %d check(s) failed, %d warning(s)", rep.Failures, rep.Warnings)
+		return cliText("cli.worker.doctor.verdict_failed", "failures", rep.Failures, "warnings", rep.Warnings)
 	case rep.Warnings > 0:
-		return fmt.Sprintf("OK — 0 failed, %d warning(s)", rep.Warnings)
+		return cliText("cli.worker.doctor.verdict_warn", "warnings", rep.Warnings)
 	default:
-		return "OK — all checks passed"
+		return cliText("cli.worker.doctor.verdict_ok")
 	}
 }

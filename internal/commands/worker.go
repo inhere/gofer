@@ -476,16 +476,16 @@ func upgradeTime(r client.WorkerUpgradeRecord) string {
 // describeWorkerUpgrade renders the one-line outcome of a finished upgrade.
 func describeWorkerUpgrade(r client.WorkerUpgradeRecord) string {
 	if r.State == client.WorkerUpgradePending {
-		return fmt.Sprintf("升级进行中（目标 %s，目标 sha256 %s）", orDash(r.TargetVersion), orDash(r.TargetSHA256))
+		return cliText("cli.worker.upgrade.pending", "version", orDash(r.TargetVersion), "sha", orDash(r.TargetSHA256))
 	}
 	took := (time.Duration(r.DurationMS) * time.Millisecond).Round(100 * time.Millisecond)
 	switch r.State {
 	case client.WorkerUpgradeSucceeded:
-		return fmt.Sprintf("已升级到 %s（耗时 %s）", orDash(r.TargetVersion), took)
+		return cliText("cli.worker.upgrade.succeeded", "version", orDash(r.TargetVersion), "took", took)
 	case client.WorkerUpgradeRolledBack:
-		return fmt.Sprintf("已回滚：%s（仍运行 %s，耗时 %s）", r.Error, orDash(r.FromVersion), took)
+		return cliText("cli.worker.upgrade.rolled_back", "err", r.Error, "from", orDash(r.FromVersion), "took", took)
 	default:
-		return fmt.Sprintf("升级失败：%s（仍运行 %s，耗时 %s）", r.Error, orDash(r.FromVersion), took)
+		return cliText("cli.worker.upgrade.failed", "err", r.Error, "from", orDash(r.FromVersion), "took", took)
 	}
 }
 
@@ -662,7 +662,7 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		if err != nil {
 			return errorx.Failf(workerExitErr, "%v", err)
 		}
-		c.Printf("gofer worker(%s) 已后台启动 pid=%d log=%s\n", wc.WorkerID, pid, workerLogFile(wc.WorkerID))
+		c.Printf("%s\n", cliText("cli.worker.daemon.started", "id", wc.WorkerID, "pid", pid, "log", workerLogFile(wc.WorkerID)))
 		return nil
 	}
 	// The real worker process (foreground or the -d child) records itself in the

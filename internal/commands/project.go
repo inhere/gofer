@@ -174,7 +174,7 @@ func runProjectList(c *gcli.Command, _ []string) error {
 		}
 		mark := ""
 		if localInjected[k] {
-			mark = " [内置]"
+			mark = cliText("cli.project.list.builtin_mark")
 		}
 		c.Printf("%-20s host=%s default_agent=%s%s\n", k, p.HostPath, agent, mark)
 	}
@@ -234,13 +234,13 @@ func workerPolicyProjects(wc *config.WorkerConfig) (map[string]config.ProjectCon
 	if err != nil {
 		// A half-written / foreign-worker cache: treat as "no cache" (never panic),
 		// but say why so the operator can tell it apart from a clean empty.
-		return nil, "policy 缓存不可用 (worker 未运行或尚未收到 Policy): " + err.Error(), nil
+		return nil, cliText("cli.project.source.policy_cache_unusable", "err", err.Error()), nil
 	}
 	if p == nil {
-		return nil, "policy 缓存不存在 (worker 未运行或尚未收到 Policy)", nil
+		return nil, cliText("cli.project.source.policy_cache_missing"), nil
 	}
 	cfg, _ := projectPolicy(wc, *p) // rejected (path_outside_roots) drop out — not effective
-	return cfg.Projects, "policy 缓存 (server 下发)", nil
+	return cfg.Projects, cliText("cli.project.source.policy_cache"), nil
 }
 
 // runProjectListRemote lists the SERVER's live projects via API (--remote). It
@@ -268,7 +268,7 @@ func runProjectListRemote(c *gcli.Command) error {
 		}
 		mark := ""
 		if p.Injected {
-			mark = " [内置]"
+			mark = cliText("cli.project.list.builtin_mark")
 		}
 		c.Printf("%-20s default_agent=%s allowed_agents=%s%s\n", p.Key, agent, strings.Join(p.AllowedAgents, ","), mark)
 	}

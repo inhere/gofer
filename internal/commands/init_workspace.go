@@ -112,8 +112,8 @@ func insertDefaultProjectEntry(tmpl string, proj config.ProjectConfig) (string, 
 		out := make([]string, 0, util.CapSum(len(lines), len(strings.Split(block, "\n")), 4))
 		out = append(out, lines[:i+1]...)
 		out = append(out,
-			"  # 默认工作空间：临时的、不属于任何仓库的活的安全落脚处(可用 --workspace /",
-			"  # GOFER_WORKSPACE 改路径)。`job run` 不带 -p 且当前目录匹配不到任何项目时回落到它。",
+			"  # " + cliText("cli.setup.init.workspace_comment_1"),
+			"  # " + cliText("cli.setup.init.workspace_comment_2"),
 		)
 		out = append(out, strings.Split(block, "\n")...)
 		out = append(out, lines[i+1:]...)
@@ -180,8 +180,7 @@ func applyDefaultWorkspace(path, tmpl, explicitWorkspace string) (string, error)
 // workspace: a POLICY worker does not own its project list (the server pushes it), so
 // the directory is created locally and the project is registered server-side.
 func inlineWorkspaceHint(wsDir string) string {
-	return fmt.Sprintf("默认工作空间 %s 已就绪：把它登记为 server 上的 `%s` 项目（allowed_runners 含本 worker 的 runner）后即可承接无仓库的活",
-		wsDir, defaultWorkspaceProjectKey)
+	return cliText("cli.setup.init.workspace_hint", "dir", wsDir, "project", defaultWorkspaceProjectKey)
 }
 
 // ensureWorkspaceDir creates the (flag/env/home-resolved) workspace directory and
