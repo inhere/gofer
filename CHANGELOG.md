@@ -15,6 +15,10 @@
 
 - **计划描述按 Markdown 渲染，链接可点**（gofer-46wp）：计划详情头部的描述原来是纯文本（`white-space: pre-wrap`），列表、标题、代码块都不成形，链接点了不跳。现在与待办备注同一条渲染路径（`MarkdownBlock`：单换行保留、链接在标签页打开、仍经 DOMPurify 消毒）。计划列表不显示描述摘要，因此列表页不变。
 
+### 修复
+
+- **工作台附图报「会话没有执行机信息」、实际只是目录不属于任何项目**：终端会话在不属于任何已配置项目的目录里打开时，服务端把「缺项目」和「缺执行机」归成同一句提示，用户无从下手。现在两种原因分开，并且尽量不拒绝：执行机是 server 本机（runner `local` / `server`）而目录不属于任何项目时，图片改由 server 自己落到 `<config-dir>/run/attachments/<日期>/`（与项目目录同一套日期命名与 7 天清理规则，不需要传输管理器），消息里仍写绝对路径，agent 照常能打开；只有在**远程 worker** 上执行、又没有项目时仍然拒绝，提示写明会话所在目录、`gofer project add` 与远程执行机。文案进了 `internal/i18n`（`workbench.attachments`，中英双份），随会话所属项目的语言、否则 `server.language`。
+
 ### 文档
 
 - **两份 README 的第一屏重排**：开头依次是一句话定位、验收流程动图（`review` → `merge`，两张动图复制到 `.github/image/`、用相对路径引用）、四条卖点和 4 行快速开始（`eget install` → `gofer init server --global` → `GOFER_TOKEN` → `gofer serve`）；0.x 状态提示缩成一句并移到快速开始之后。原有的「是什么 / 不是什么」、架构图与工作台截图、Features、安装步骤都保留，原来的「10 分钟上手」改名为「完整走查」。

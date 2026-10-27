@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/xfer"
@@ -63,6 +67,9 @@ type RouteInput struct {
 	Agent   string
 	Runner  string
 	Project string
+	// Cwd is the session's own directory. It does not steer the decision; it is named in the
+	// reason a send is refused with, so the operator knows which directory to add as a project.
+	Cwd string
 	// Pty marks an interactive pty job: it takes no images at all.
 	Pty bool
 	// ACPAccepts: the thread is a live resident ACP session whose agent advertised
@@ -75,39 +82,66 @@ type RouteInput struct {
 	Arg bool
 }
 
+// RouteReason names why a receiver takes no images; the service renders it in the
+// deployment's language (the workbench.attachments.<reason> catalog key).
+type RouteReason string
+
+const (
+	// ReasonPty: an interactive pty session takes no images.
+	ReasonPty RouteReason = "pty"
+	// ReasonAgent: the agent has no way to read an image (config image_input = none).
+	ReasonAgent RouteReason = "agent"
+	// ReasonNoRunner: the session never said where it runs, so nothing can be placed there.
+	ReasonNoRunner RouteReason = "no_runner"
+	// ReasonNoProject: the executor is a remote worker, which can only place files inside one
+	// of its projects, and the session's directory belongs to none.
+	ReasonNoProject RouteReason = "no_project"
+)
+
 // Route is the delivery decision; Reason is set only for AttachNone.
 type Route struct {
 	Mode   AttachMode
-	Reason string
+	Reason RouteReason
+	// OnServer marks a file/arg delivery whose images are placed on the SERVER itself
+	// (<config-dir>/run/attachments/<date>/), because the session's directory belongs to no
+	// project: there is no project root for xfer to resolve, but the executing machine IS the
+	// server, so the file can still land somewhere the agent can open.
+	OnServer bool
 }
 
 // RouteAttachments is the pure delivery-mode table:
 //
-//	pty job                                  -> none ("pty 会话不支持附图")
+//	pty job                                  -> none (ReasonPty)
 //	live ACP session accepting images        -> inline
-//	agent cannot take images at all          -> none ("<agent> 暂不支持读取图片")
-//	no runner or no project to place into    -> none ("会话没有执行机信息")
+//	agent cannot take images at all          -> none (ReasonAgent)
+//	no runner to place onto                  -> none (ReasonNoRunner)
+//	remote executor and no project           -> none (ReasonNoProject)
 //	agent takes images as argv flags (arg)   -> arg
 //	otherwise                                -> file
+//
+// A session whose directory belongs to no project is only refused when its executor is a
+// REMOTE worker (the placement rides xfer, which resolves a project root there). When the
+// executor is the server itself the images still reach the agent, placed in the server's own
+// attachments directory — the Route then carries OnServer.
 func RouteAttachments(in RouteInput) Route {
 	switch {
 	case in.Pty:
-		return Route{Mode: AttachNone, Reason: "pty 会话不支持附图"}
+		return Route{Mode: AttachNone, Reason: ReasonPty}
 	case in.ACPAccepts:
 		return Route{Mode: AttachInline}
 	case !in.FilePath && !in.Arg:
-		name := strings.TrimSpace(in.Agent)
-		if name == "" {
-			name = "该 agent"
-		}
-		return Route{Mode: AttachNone, Reason: name + " 暂不支持读取图片"}
-	case strings.TrimSpace(in.Runner) == "" || strings.TrimSpace(in.Project) == "":
-		return Route{Mode: AttachNone, Reason: "会话没有执行机信息"}
-	case in.Arg:
-		return Route{Mode: AttachArg}
-	default:
-		return Route{Mode: AttachFile}
+		return Route{Mode: AttachNone, Reason: ReasonAgent}
+	case strings.TrimSpace(in.Runner) == "":
+		return Route{Mode: AttachNone, Reason: ReasonNoRunner}
 	}
+	onServer := strings.TrimSpace(in.Project) == ""
+	if onServer && !config.IsBuiltinLocalRunnerName(in.Runner) {
+		return Route{Mode: AttachNone, Reason: ReasonNoProject}
+	}
+	if in.Arg {
+		return Route{Mode: AttachArg, OnServer: onServer}
+	}
+	return Route{Mode: AttachFile, OnServer: onServer}
 }
 
 // AttachmentStore is the slice of jobstore.Store the send path uses.
@@ -197,7 +231,7 @@ func (s *Service) annotateAttachments(t *Thread) {
 		return
 	}
 	in := RouteInput{
-		Kind: t.Kind, Agent: t.Agent, Runner: t.Runner, Project: t.ProjectKey,
+		Kind: t.Kind, Agent: t.Agent, Runner: t.Runner, Project: t.ProjectKey, Cwd: t.Cwd,
 		Pty: t.Kind != KindRelay && t.Interactive,
 	}
 	// A message to a live terminal session goes over the session's own delivery channel
@@ -217,7 +251,35 @@ func (s *Service) annotateAttachments(t *Thread) {
 	r := RouteAttachments(in)
 	t.Attachments = r.Mode
 	if r.Mode == AttachNone {
-		t.AttachmentsReason = r.Reason
+		t.AttachmentsReason = s.routeReason(in, r)
+	}
+}
+
+// routeReason renders why a send cannot carry images, in the language of the thread's own
+// project (else the deployment's): the texts are the workbench.attachments catalog keys.
+func (s *Service) routeReason(in RouteInput, r Route) string {
+	lang := i18n.Default
+	if s.att.Config != nil {
+		lang = s.att.Config().LanguageFor(in.Project)
+	}
+	key := "workbench.attachments." + string(r.Reason)
+	switch r.Reason {
+	case ReasonAgent:
+		name := strings.TrimSpace(in.Agent)
+		if name == "" {
+			name = i18n.T(lang, "workbench.attachments.agent_unnamed")
+		}
+		return i18n.T(lang, key, "agent", name)
+	case ReasonNoProject:
+		// The directory is what the operator has to add as a project; a session that never
+		// reported one still gets the rest of the hint.
+		cwd := strings.TrimSpace(in.Cwd)
+		if cwd == "" {
+			cwd = "?"
+		}
+		return i18n.T(lang, key, "cwd", cwd, "runner", strings.TrimSpace(in.Runner))
+	default:
+		return i18n.T(lang, key)
 	}
 }
 
@@ -307,8 +369,12 @@ type placedImage struct {
 }
 
 // placeImages puts every image on the executing machine under the project's attachment
-// directory. All placements share one budget; any failure aborts with ErrAttachmentDelivery.
-func (s *Service) placeImages(callerID string, recs []jobstore.Attachment, runner, projectKey string) ([]placedImage, error) {
+// directory, or — with onServer — into the server's own attachment directory. All
+// placements share one budget; any failure aborts with ErrAttachmentDelivery.
+func (s *Service) placeImages(callerID string, recs []jobstore.Attachment, runner, projectKey string, onServer bool) ([]placedImage, error) {
+	if onServer {
+		return s.placeOnServer(recs)
+	}
 	if s.att.Xfer == nil {
 		return nil, fmt.Errorf("%w: file transfer is not available", ErrAttachmentDelivery)
 	}
@@ -341,10 +407,64 @@ func (s *Service) placeImages(callerID string, recs []jobstore.Attachment, runne
 	return out, nil
 }
 
+// placeOnServer copies the images into the server's own attachment directory
+// (<config-dir>/run/attachments/<yyyymmdd>/, xfer.ServerAttachmentsDir) and reports their
+// absolute paths. It is the placement for a session that runs on the server itself but whose
+// directory belongs to no project: there is no project root for xfer to resolve, yet the
+// agent still needs a path it can open, so the file lands next to the server's runtime files
+// with a project placement's naming and cleanup rules.
+func (s *Service) placeOnServer(recs []jobstore.Attachment) ([]placedImage, error) {
+	dir := xfer.ServerAttachmentsDir(s.now())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("%w: create %s: %v", ErrAttachmentDelivery, dir, err)
+	}
+	out := make([]placedImage, 0, len(recs))
+	for i, rec := range recs {
+		src, err := s.att.Files.AbsPath(rec)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrAttachmentDelivery, err)
+		}
+		dst := filepath.Join(dir, rec.ID+"."+imageExt(rec.Mime))
+		if err := copyAttachmentFile(src, dst); err != nil {
+			return nil, fmt.Errorf("%w: 附图 %d: %v", ErrAttachmentDelivery, i+1, err)
+		}
+		out = append(out, placedImage{abs: dst, dest: dst})
+	}
+	// A placement is what triggers the cleanup, exactly as on the project path (best effort).
+	xfer.PruneServerAttachments(s.now())
+	return out, nil
+}
+
+// copyAttachmentFile copies src onto dst through a temp file, so a half-written image is never
+// visible under the name the agent is told to open.
+func copyAttachmentFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp := dst + ".gofer-tmp"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	_, cerr := io.Copy(out, in)
+	closeErr := out.Close()
+	if cerr != nil || closeErr != nil {
+		reason := cerr
+		if reason == nil {
+			reason = closeErr
+		}
+		_ = os.Remove(tmp)
+		return reason
+	}
+	return os.Rename(tmp, dst)
+}
+
 // placeFiles puts every image on the executing machine and returns the text section naming
 // them (appended to the message). oneLine puts the paths on the message's own line.
-func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner, projectKey string, oneLine bool) (string, error) {
-	placed, err := s.placeImages(callerID, recs, runner, projectKey)
+func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner, projectKey string, oneLine, onServer bool) (string, error) {
+	placed, err := s.placeImages(callerID, recs, runner, projectKey, onServer)
 	if err != nil {
 		return "", err
 	}
@@ -426,7 +546,7 @@ type imageSend struct {
 func (s *Service) deliverWithImages(m imageSend, body string) (refKind, refID string, err error) {
 	route := RouteAttachments(m.in)
 	if route.Mode == AttachNone {
-		return "", "", fmt.Errorf("%w: %s", ErrAttachmentsUnsupported, route.Reason)
+		return "", "", fmt.Errorf("%w: %s", ErrAttachmentsUnsupported, s.routeReason(m.in, route))
 	}
 	bound := false
 	if m.earlyRef != "" {
@@ -461,7 +581,7 @@ func (s *Service) deliverWithImages(m imageSend, body string) (refKind, refID st
 		route = RouteAttachments(in)
 		if route.Mode != AttachFile {
 			release()
-			return "", "", fmt.Errorf("%w: %s", ErrAttachmentsUnsupported, route.Reason)
+			return "", "", fmt.Errorf("%w: %s", ErrAttachmentsUnsupported, s.routeReason(in, route))
 		}
 	}
 	if route.Mode == AttachArg {
@@ -469,7 +589,7 @@ func (s *Service) deliverWithImages(m imageSend, body string) (refKind, refID st
 			release()
 			return "", "", fmt.Errorf("%w: %s 的附图还不能随这条消息送出", ErrAttachmentsUnsupported, m.in.Agent)
 		}
-		placed, err := s.placeImages(m.callerID, m.atts, m.runner, m.project)
+		placed, err := s.placeImages(m.callerID, m.atts, m.runner, m.project, route.OnServer)
 		if err != nil {
 			release()
 			return "", "", err
@@ -494,7 +614,7 @@ func (s *Service) deliverWithImages(m imageSend, body string) (refKind, refID st
 		}
 		return kind, ref, nil
 	}
-	section, err := s.placeFiles(m.callerID, m.atts, m.runner, m.project, m.oneLine)
+	section, err := s.placeFiles(m.callerID, m.atts, m.runner, m.project, m.oneLine, route.OnServer)
 	if err != nil {
 		release()
 		return "", "", err

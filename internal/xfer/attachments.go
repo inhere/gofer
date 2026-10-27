@@ -37,6 +37,41 @@ const AttachmentRetention = 7 * 24 * time.Hour
 // the attachments dir is never touched.
 const attachmentDateLayout = "20060102"
 
+// ServerAttachmentsDirName is the directory under the gofer config dir's run/ folder where
+// the server keeps the attachments it placed WITHOUT a project (a session run by the server
+// itself whose directory belongs to no project: there is no project root to place into, and
+// an agent still has to be able to open the file).
+const ServerAttachmentsDirName = "attachments"
+
+// ServerAttachmentsBase is <config-dir>/run/attachments.
+func ServerAttachmentsBase() string {
+	return config.RuntimeFilePath("run", ServerAttachmentsDirName)
+}
+
+// ServerAttachmentsDir is the dated directory of ServerAttachmentsBase. It uses the SAME
+// date layout and retention as a project's attachments, so PruneServerAttachments cleans it
+// with the very rules that clean a project's copies.
+func ServerAttachmentsDir(now time.Time) string {
+	return filepath.Join(ServerAttachmentsBase(), now.Format(attachmentDateLayout))
+}
+
+// PruneServerAttachments prunes ServerAttachmentsBase the way a placement prunes a
+// project's directory. Like PruneAttachmentsAfterPut it is BEST EFFORT: the file is already
+// placed, so a failure is only logged.
+func PruneServerAttachments(now time.Time) {
+	base := ServerAttachmentsBase()
+	removed, err := PruneAttachments(base, now)
+	if err != nil {
+		slog.Warn("xfer.attachments_prune_failed", "event", "xfer.attachments_prune_failed", "component", "server",
+			"dir", base, "err", err)
+		return
+	}
+	if len(removed) > 0 {
+		slog.Info("xfer.attachments_pruned", "event", "xfer.attachments_pruned", "component", "server",
+			"dir", base, "count", len(removed), "removed", removed)
+	}
+}
+
 // AttachmentsDir returns the absolute attachment directory of a project:
 // <exchange dir>/gofer-attachments.
 //

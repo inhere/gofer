@@ -557,7 +557,7 @@ func (s *Service) TurnWithAttachments(callerID, threadID, text string, attachmen
 }
 
 func rowRouteInput(row jobstore.JobRecord) (RouteInput, string, string) {
-	return RouteInput{Kind: KindAgent, Agent: row.Agent, Runner: row.Runner, Project: row.ProjectKey, Pty: row.Interactive},
+	return RouteInput{Kind: KindAgent, Agent: row.Agent, Runner: row.Runner, Project: row.ProjectKey, Cwd: row.Cwd, Pty: row.Interactive},
 		row.Runner, row.ProjectKey
 }
 
@@ -671,7 +671,7 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 			return TurnResult{}, relaySendError(jobstore.SessionMessage{}, err)
 		}
 	}
-	in := RouteInput{Kind: KindRelay, Agent: sess.Agent, Runner: sess.Runner, Project: sess.ProjectKey}
+	in := RouteInput{Kind: KindRelay, Agent: sess.Agent, Runner: sess.Runner, Project: sess.ProjectKey, Cwd: sess.Cwd}
 	// The session's own delivery channel (stdin / a queue command) carries text only, so an
 	// arg agent is not advertised as image-capable on this path; only path-readers get the
 	// file delivery here.

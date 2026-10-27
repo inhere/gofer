@@ -12,6 +12,7 @@ import (
 	"github.com/gookit/goutil/x/assert"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/xfer"
@@ -19,33 +20,75 @@ import (
 
 func TestRouteAttachmentsTruthTable(t *testing.T) {
 	cases := []struct {
-		name   string
-		in     RouteInput
-		mode   AttachMode
-		reason string
+		name     string
+		in       RouteInput
+		mode     AttachMode
+		reason   RouteReason
+		onServer bool
 	}{
-		{"pty job", RouteInput{Kind: KindAgent, Agent: "claude", Runner: "local", Project: "p", Pty: true, FilePath: true}, AttachNone, "pty 会话不支持附图"},
-		{"pty beats acp", RouteInput{Pty: true, ACPAccepts: true}, AttachNone, "pty 会话不支持附图"},
-		{"acp accepts images", RouteInput{Kind: KindAgent, Agent: "claude-acp", Runner: "local", Project: "p", ACPAccepts: true, FilePath: true}, AttachInline, ""},
-		{"acp inline needs no executor info", RouteInput{Kind: KindAgent, Agent: "x", ACPAccepts: true}, AttachInline, ""},
-		{"acp without image support, agent reads files", RouteInput{Kind: KindAgent, Agent: "claude-acp", Runner: "w1", Project: "p", FilePath: true}, AttachFile, ""},
-		{"cli session job", RouteInput{Kind: KindAgent, Agent: "claude", Runner: "local", Project: "p", FilePath: true}, AttachFile, ""},
-		{"terminal session", RouteInput{Kind: KindRelay, Agent: "codex", Runner: "w-docker-claude", Project: "p", FilePath: true}, AttachFile, ""},
-		{"agent cannot read images", RouteInput{Kind: KindRelay, Agent: "suga", Runner: "local", Project: "p"}, AttachNone, "suga 暂不支持读取图片"},
-		{"unnamed agent cannot", RouteInput{Runner: "local", Project: "p"}, AttachNone, "该 agent 暂不支持读取图片"},
-		{"no runner", RouteInput{Agent: "claude", Project: "p", FilePath: true}, AttachNone, "会话没有执行机信息"},
-		{"no project", RouteInput{Agent: "claude", Runner: "local", FilePath: true}, AttachNone, "会话没有执行机信息"},
+		{"pty job", RouteInput{Kind: KindAgent, Agent: "claude", Runner: "local", Project: "p", Pty: true, FilePath: true}, AttachNone, ReasonPty, false},
+		{"pty beats acp", RouteInput{Pty: true, ACPAccepts: true}, AttachNone, ReasonPty, false},
+		{"acp accepts images", RouteInput{Kind: KindAgent, Agent: "claude-acp", Runner: "local", Project: "p", ACPAccepts: true, FilePath: true}, AttachInline, "", false},
+		{"acp inline needs no executor info", RouteInput{Kind: KindAgent, Agent: "x", ACPAccepts: true}, AttachInline, "", false},
+		{"acp without image support, agent reads files", RouteInput{Kind: KindAgent, Agent: "claude-acp", Runner: "w1", Project: "p", FilePath: true}, AttachFile, "", false},
+		{"cli session job", RouteInput{Kind: KindAgent, Agent: "claude", Runner: "local", Project: "p", FilePath: true}, AttachFile, "", false},
+		{"terminal session", RouteInput{Kind: KindRelay, Agent: "codex", Runner: "w-docker-claude", Project: "p", FilePath: true}, AttachFile, "", false},
+		{"agent cannot read images", RouteInput{Kind: KindRelay, Agent: "suga", Runner: "local", Project: "p"}, AttachNone, ReasonAgent, false},
+		{"unnamed agent cannot", RouteInput{Runner: "local", Project: "p"}, AttachNone, ReasonAgent, false},
+		{"no runner", RouteInput{Agent: "claude", Project: "p", FilePath: true}, AttachNone, ReasonNoRunner, false},
+		{"no runner beats no project", RouteInput{Agent: "claude", Cwd: "/srv/x", FilePath: true}, AttachNone, ReasonNoRunner, false},
+		// The executor decides what a missing project means: the server itself can still place
+		// the file (its own attachments directory), a remote worker cannot.
+		{"no project on the server places on the server", RouteInput{Agent: "claude", Runner: "local", Cwd: "/srv/notes", FilePath: true}, AttachFile, "", true},
+		{"the server spelling is the same runner", RouteInput{Agent: "claude", Runner: "server", Cwd: "/srv/notes", FilePath: true}, AttachFile, "", true},
+		{"no project on a remote worker is refused", RouteInput{Kind: KindRelay, Agent: "claude", Runner: "w-docker-claude", Cwd: "/srv/notes", FilePath: true}, AttachNone, ReasonNoProject, false},
 		// image_input: arg — the paths ride the next job's argv instead of the text.
-		{"arg agent", RouteInput{Kind: KindAgent, Agent: "suga", Runner: "local", Project: "p", Arg: true}, AttachArg, ""},
-		{"arg agent needs executor info", RouteInput{Kind: KindAgent, Agent: "suga", Arg: true}, AttachNone, "会话没有执行机信息"},
-		{"arg agent cannot be a pty", RouteInput{Kind: KindAgent, Agent: "suga", Runner: "local", Project: "p", Pty: true, Arg: true}, AttachNone, "pty 会话不支持附图"},
+		{"arg agent", RouteInput{Kind: KindAgent, Agent: "suga", Runner: "local", Project: "p", Arg: true}, AttachArg, "", false},
+		{"arg agent without a project on the server", RouteInput{Kind: KindAgent, Agent: "suga", Runner: "local", Cwd: "/srv/notes", Arg: true}, AttachArg, "", true},
+		{"arg agent needs executor info", RouteInput{Kind: KindAgent, Agent: "suga", Arg: true}, AttachNone, ReasonNoRunner, false},
+		{"arg agent cannot be a pty", RouteInput{Kind: KindAgent, Agent: "suga", Runner: "local", Project: "p", Pty: true, Arg: true}, AttachNone, ReasonPty, false},
 	}
 	for _, c := range cases {
 		got := RouteAttachments(c.in)
-		if got.Mode != c.mode || got.Reason != c.reason {
-			t.Errorf("%s: got %+v, want mode=%s reason=%q", c.name, got, c.mode, c.reason)
+		if got.Mode != c.mode || got.Reason != c.reason || got.OnServer != c.onServer {
+			t.Errorf("%s: got %+v, want mode=%s reason=%q onServer=%v", c.name, got, c.mode, c.reason, c.onServer)
 		}
 	}
+}
+
+// The refusal texts follow the deployment language (server.language / the project's), not the
+// machine locale: the two reasons that tell the operator what to fix are the ones this task
+// added, so both read as clear sentences in zh-CN and en.
+func TestRouteReasonTextFollowsTheLanguage(t *testing.T) {
+	f := newAttFixture(t, &fakePlacer{})
+	in := RouteInput{Kind: KindRelay, Agent: "claude", Runner: "w-docker-claude", Cwd: "/srv/notes", FilePath: true}
+	noProject := RouteAttachments(in)
+	assert.Eq(t, ReasonNoProject, noProject.Reason)
+	noRunner := RouteAttachments(RouteInput{Agent: "claude", FilePath: true})
+	assert.Eq(t, ReasonNoRunner, noRunner.Reason)
+
+	f.cfg.Server.Language = string(i18n.ZhCN)
+	zh := f.svc.routeReason(in, noProject)
+	assert.True(t, strings.Contains(zh, "/srv/notes") && strings.Contains(zh, "不属于任何项目"), zh)
+	assert.True(t, strings.Contains(zh, "w-docker-claude"), zh)
+	assert.True(t, strings.Contains(f.svc.routeReason(RouteInput{Agent: "claude", FilePath: true}, noRunner), "没有执行机信息"))
+
+	f.cfg.Server.Language = string(i18n.EN)
+	en := f.svc.routeReason(in, noProject)
+	assert.True(t, strings.Contains(en, "/srv/notes") && strings.Contains(en, "belongs to no project"), en)
+	assert.True(t, strings.Contains(en, "w-docker-claude"), en)
+	assert.True(t, strings.Contains(f.svc.routeReason(RouteInput{Agent: "claude", FilePath: true}, noRunner), "no executor"))
+
+	// The project's own language wins over the server's.
+	f.cfg.Server.Language = string(i18n.ZhCN)
+	p := f.cfg.Projects["alpha"]
+	p.Language = string(i18n.EN)
+	f.cfg.Projects["alpha"] = p
+	withProj := RouteInput{Kind: KindRelay, Agent: "suga", Runner: "local", Project: "alpha"}
+	assert.True(t, strings.Contains(f.svc.routeReason(withProj, RouteAttachments(withProj)), "cannot read images"))
+	// An unnamed agent gets the language's own stand-in instead of a blank subject.
+	unnamed := RouteInput{Kind: KindRelay, Runner: "local", Project: "alpha"}
+	assert.True(t, strings.Contains(f.svc.routeReason(unnamed, RouteAttachments(unnamed)), "this agent cannot read images"))
 }
 
 // fakeFiles serves attachment originals from a directory.
@@ -335,6 +378,30 @@ func TestTurnAttachmentChecks(t *testing.T) {
 	assert.NoErr(t, err)
 	_, err = f.svc.TurnWithAttachments("alice", "r:t1", "", nil)
 	assert.True(t, errors.Is(err, ErrEmptyTurn))
+}
+
+// A terminal session opened on the server in a directory that belongs to no project still
+// takes images: they are copied into the server's own <config-dir>/run/attachments/<date>/
+// (no xfer, no project root) and named by absolute path in the message.
+func TestTurnPlacesAttachmentsOnTheServerWithoutAProject(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir)
+	// A placer that would fail: the server-local placement must not need one at all.
+	f := newAttFixture(t, &fakePlacer{err: errors.New("no transfer expected")})
+	f.relay.session = jobstore.AgentSession{SessionID: "np", Agent: "claude", Runner: "local", Cwd: "/srv/notes"}
+	id := f.upload(t, "alice", "PNGDATA")
+
+	res, err := f.svc.TurnWithAttachments("alice", "r:np", "see this", []string{id})
+	assert.NoErr(t, err)
+	assert.Eq(t, "answered-decision", res.DecisionID)
+	want := filepath.Join(cfgDir, "run", xfer.ServerAttachmentsDirName, time.Now().Format("20060102"), id+".png")
+	assert.Eq(t, "see this [附图 1] "+want, f.relay.answer)
+	data, err := os.ReadFile(want)
+	assert.NoErr(t, err)
+	assert.Eq(t, "PNGDATA", string(data))
+	rec := f.bound(t, id)
+	assert.Eq(t, "r:np", rec.ThreadID)
+	assert.Eq(t, "answered-decision", rec.RefID)
 }
 
 func TestTurnUnsupportedReceiverSendsNothing(t *testing.T) {

@@ -34,6 +34,35 @@ func dateDir(t *testing.T, dir string, day time.Time) string {
 	return p
 }
 
+// TestServerAttachmentsDirAndPrune pins where the server places an attachment it had to put
+// WITHOUT a project: <config-dir>/run/attachments/<YYYYMMDD>, pruned by the same date rule
+// as a project's directory.
+func TestServerAttachmentsDirAndPrune(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir)
+	now := time.Now()
+	base := filepath.Join(cfgDir, "run", ServerAttachmentsDirName)
+	if got, want := ServerAttachmentsBase(), base; got != want {
+		t.Fatalf("ServerAttachmentsBase = %q, want %q", got, want)
+	}
+	if got, want := ServerAttachmentsDir(now), filepath.Join(base, now.Format(attachmentDateLayout)); got != want {
+		t.Fatalf("ServerAttachmentsDir = %q, want %q", got, want)
+	}
+
+	old := dateDir(t, base, now.Add(-30*24*time.Hour))
+	today := ServerAttachmentsDir(now)
+	if err := os.MkdirAll(today, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", today, err)
+	}
+	PruneServerAttachments(now)
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("an aged date dir survived the prune: %v", err)
+	}
+	if _, err := os.Stat(today); err != nil {
+		t.Fatalf("today's dir was pruned: %v", err)
+	}
+}
+
 // TestAttachmentsDirResolvesUnderProject pins the one location a placement writes to and a
 // prune deletes in: <exchange dir>/gofer-attachments, following a project's own
 // exchange_subdir instead of assuming `tmp`.
