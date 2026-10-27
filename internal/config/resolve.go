@@ -31,14 +31,18 @@ func (c *Config) ProjectMatchForPath(cwd string) (key, root string, ok bool) {
 	cwd = resolveMatchPath(cwd)
 	best, bestRoot, bestLen, tie := "", "", -1, false
 	for k, p := range c.Projects {
-		ep := resolveMatchPath(c.ExecPath(p))
+		// Match on the resolved paths, but report the root as configured: the caller shows it
+		// to a person and walks the cwd up to it lexically (nestedOuterRepo), and a resolved
+		// root (/private/var on macOS, a long name for a Windows 8.3 path) matches neither.
+		configured := filepath.Clean(c.ExecPath(p))
+		ep := resolveMatchPath(configured)
 		if ep == "" || ep == "." {
 			continue
 		}
 		if matchPathPrefix(cwd, ep) {
 			switch {
 			case len(ep) > bestLen:
-				best, bestRoot, bestLen, tie = k, ep, len(ep), false
+				best, bestRoot, bestLen, tie = k, configured, len(ep), false
 			case len(ep) == bestLen:
 				tie = true
 			}
