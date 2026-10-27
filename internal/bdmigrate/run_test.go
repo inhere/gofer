@@ -215,7 +215,7 @@ func TestRunReportsEarlierMigrationWithoutSourceMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.UpdateMemories(func(existing []tracker.Memory) ([]tracker.Memory, error) {
-		return append(existing, tracker.Memory{Key: "how-to", Content: "use the thing", CreatedAt: "2026-02-01T00:00:00Z", UpdatedAt: "2026-02-01T00:00:00Z", By: "bd-migrate"}), nil
+		return append(existing, tracker.Memory{Key: "how-to", Content: "use the thing", UpdatedAt: "2026-02-01T00:00:00Z", By: "bd-migrate", MemoryMeta: tracker.MemoryMeta{CreatedAt: "2026-02-01T00:00:00Z"}}), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -229,8 +229,8 @@ func TestRunReportsEarlierMigrationWithoutSourceMarker(t *testing.T) {
 	if mem, _ := store.Memory("how-to"); mem.Source != "" || mem.CreatedUnknown || mem.CreatedAt != "2026-02-01T00:00:00Z" {
 		t.Fatalf("the legacy memory must be left as it was: %+v", mem)
 	}
-	if !strings.Contains(Format(rep), "earlier bd migration") {
-		t.Fatalf("formatted report must mention it:\n%s", Format(rep))
+	if !strings.Contains(rep.Format(), "earlier bd migration") {
+		t.Fatalf("formatted report must mention it:\n%s", rep.Format())
 	}
 }
 
