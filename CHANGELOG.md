@@ -22,6 +22,7 @@
 
 ### 修复
 
+- **服务方式运行时鉴权 token 与前台不同却没有任何提示（gofer-t9md）**：注册成系统服务后，serve 不继承注册终端的环境，只读 `<config-dir>/.env` 与 config.yaml；注册前在终端 `export GOFER_TOKEN=...` 的部署于是出现「前台用这个 token 登录 web 正常、`serve start` 后同一个 token 401」。现在 `gofer serve register` 会比对「当前终端看到的 token」与「服务将看到的 token」（含服务侧没有 token），不一致时打印警告：两边来源各是什么、指纹、修法（把 token 写进 `<config-dir>/.env`），不阻止注册；`gofer serve status`（含 `--json` 的 `auth_token`：`service` / `current_process` / `match`）与 serve 启动日志（`server.token_source`）都给出来源与指纹（sha256 前 8 位，从不输出 token 值）；web 接入页 401 时多一句说明「服务方式运行时 token 取自配置目录的 .env / config.yaml，不读启动终端的环境变量」并指向 `gofer serve status`。`server.token_env` 的取值口径（`server.token` 字面量 / 指名的环境变量，不写 `token_env` 就不读 `GOFER_TOKEN`）在 runbook 与 gofer-usage skill 里写明。
 - 收集箱条目转为 issue / todo 后正确结束为 `done`，保留 issue / todo 链接；启动迁移会修正旧版已转出但仍为 `parked` 的条目。
 
 ## [0.199.1] - 2026-10-27
