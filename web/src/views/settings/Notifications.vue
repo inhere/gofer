@@ -23,7 +23,8 @@ import type {
   PushSubscriptionView,
 } from '../../api/types'
 import { t } from '../../i18n'
-import { locale } from '../../store/locale'
+import NotifyEventsPicker from '../../components/NotifyEventsPicker.vue'
+import NotifyProjectsField from '../../components/NotifyProjectsField.vue'
 import Drawer from '../../ui/Drawer.vue'
 import FormSection from '../../ui/FormSection.vue'
 import {
@@ -63,6 +64,13 @@ interface BotForm {
   enabled: boolean
 }
 
+interface DesktopForm {
+  enabled: boolean
+  events: string[]
+  projects: string
+  mergeSec: string
+}
+
 const config = ref<ConfigView | null>(null)
 const catalog = ref<NotifyEventsResp | null>(null)
 const bots = ref<BotForm[]>([])
@@ -70,13 +78,21 @@ const botsSaving = ref(false)
 const drawerOpen = ref(false)
 const editingIndex = ref<number | null>(null)
 const draft = reactive<BotForm>(emptyBot())
+// 桌面通知与 IM 机器人同一套编辑方式：页面只显示摘要（开关 / 事件数 / 项目 / 合并窗口），
+// 点「编辑」打开同样宽度的侧栏改草稿，保存成功后再重读配置（摘要永远是已保存的值）。
 const desktopSaving = ref(false)
 const desktopEnabled = ref(false)
 const desktopEvents = ref<string[]>([])
 const desktopProjects = ref('')
 const desktopMergeSec = ref('')
+const desktopOpen = ref(false)
+const desktopDraft = reactive<DesktopForm>(emptyDesktop())
 const rowResult = reactive<Record<number, NotifyTestResp>>({})
 const testing = ref('')
+
+function emptyDesktop(): DesktopForm {
+  return { enabled: false, events: [], projects: '', mergeSec: '' }
+}
 
 function emptyBot(): BotForm {
   return {
@@ -93,30 +109,11 @@ function emptyBot(): BotForm {
   }
 }
 
-// eventText / groupText：事件说明由后端事件目录给出 zh / en 两份，控制台只挑当前语言。
-function eventText(item: { zh: string; en: string }): string {
-  return locale.value.startsWith('zh') ? item.zh : item.en
-}
-
-// eventsByGroup 把目录按分组排好序给事件多选框用（顺序由后端 groups 决定，不在这里重排）。
-const eventsByGroup = computed(() => {
-  const out: Array<{ key: string; label: string; items: NotifyEventsResp['events'] }> = []
-  for (const g of catalog.value?.groups ?? []) {
-    const items = (catalog.value?.events ?? []).filter((e) => e.group === g.key)
-    if (items.length > 0) out.push({ key: g.key, label: eventText(g), items })
-  }
-  return out
-})
-
-function toggleEvent(list: string[], key: string, on: boolean): void {
-  const i = list.indexOf(key)
-  if (on && i < 0) list.push(key)
-  if (!on && i >= 0) list.splice(i, 1)
-}
-
-function defaultEvents(channel: 'webhook' | 'desktop'): string[] {
+// defaultEvents：新机器人的预选事件集（后端给的 webhook 默认集）；桌面频道留空同样
+// 表示「用默认事件集」，所以打开侧栏时不替用户勾死任何事件。
+function defaultEvents(): string[] {
   return (catalog.value?.events ?? [])
-    .filter((e) => (channel === 'desktop' ? e.desktop_default : e.default))
+    .filter((e) => e.default)
     .map((e) => e.key)
 }
 
@@ -151,6 +148,25 @@ function splitList(text: string): string[] {
     .filter(Boolean)
 }
 
+// ---- 桌面通知摘要 ----------------------------------------------------------------------
+// 摘要只读已保存的值（侧栏里的是草稿）：事件 0 个 = 后端默认事件集，项目留空 = 全部项目，
+// 合并窗口留空 = 服务端默认。
+const desktopEventsLabel = computed(() =>
+  desktopEvents.value.length === 0
+    ? t('settings.notify.eventsDefault')
+    : t('settings.notify.desktopEventsCount', { n: desktopEvents.value.length }),
+)
+const desktopProjectsLabel = computed(() =>
+  t('settings.notify.botProjectsLabel', {
+    projects: desktopProjects.value.trim() || t('settings.notify.desktopAllProjects'),
+  }),
+)
+const desktopMergeLabel = computed(() =>
+  t('settings.notify.desktopMergeSec', {
+    sec: desktopMergeSec.value.trim() || String(catalog.value?.desktop.merge_sec_default ?? 10),
+  }),
+)
+
 async function loadNotify(): Promise<void> {
   try {
     const [cfg, cat] = await Promise.all([getConfig(), listNotifyEvents()])
@@ -169,9 +185,20 @@ async function loadNotify(): Promise<void> {
 }
 
 function openAdd(): void {
-  Object.assign(draft, emptyBot(), { events: defaultEvents('webhook') })
+  Object.assign(draft, emptyBot(), { events: defaultEvents() })
   editingIndex.value = null
   drawerOpen.value = true
+}
+
+// openDesktop：侧栏草稿从已保存的值复制（取消 = 丢弃草稿，摘要不受影响）。
+function openDesktop(): void {
+  Object.assign(desktopDraft, {
+    enabled: desktopEnabled.value,
+    events: [...desktopEvents.value],
+    projects: desktopProjects.value,
+    mergeSec: desktopMergeSec.value,
+  })
+  desktopOpen.value = true
 }
 
 function openEdit(index: number): void {
@@ -245,24 +272,27 @@ async function saveBots(): Promise<void> {
   }
 }
 
+// saveDesktop 写回桌面频道（config/server 的补丁式写入：body 里只带 desktop 成员）。
+// secret 无关，事件留空 = 默认事件集，merge_sec 留空 = 服务端默认。
 async function saveDesktop(): Promise<void> {
   if (desktopSaving.value) return
   desktopSaving.value = true
   error.value = ''
   notice.value = ''
   try {
-    const merge = desktopMergeSec.value.trim()
+    const merge = desktopDraft.mergeSec.trim()
     await putConfigServer({
       notification: {
         desktop: {
-          enabled: desktopEnabled.value,
-          events: [...desktopEvents.value],
-          projects: splitList(desktopProjects.value),
+          enabled: desktopDraft.enabled,
+          events: [...desktopDraft.events],
+          projects: splitList(desktopDraft.projects),
           merge_sec: merge === '' ? undefined : Number(merge),
         },
       },
     })
     notice.value = t('settings.notify.saved')
+    desktopOpen.value = false
     await loadNotify()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -541,45 +571,24 @@ onMounted(() => {
       <p class="hint" data-testid="desktop-platform">
         {{ catalog?.desktop.supported ? t('settings.notify.desktopSupported') : t('settings.notify.desktopUnsupported') }}
       </p>
+      <!-- 与 IM 机器人同一套：页面只显示摘要，编辑在同样宽度的侧栏里（openDesktop）。 -->
       <div class="toggle-row">
         <div class="tx">
           <b>{{ t('settings.notify.desktopToggle') }}</b>
           <span>{{ t('settings.notify.desktopMachine') }}</span>
         </div>
-        <label class="field field--check">
-          <input v-model="desktopEnabled" type="checkbox" data-testid="desktop-enabled" />
-          <span>{{ desktopEnabled ? t('settings.notify.on') : t('settings.notify.off') }}</span>
-        </label>
+        <span class="pill" :class="desktopEnabled ? 'pill--ok' : 'pill--idle'" data-testid="desktop-state">
+          {{ desktopEnabled ? t('settings.notify.on') : t('settings.notify.off') }}
+        </span>
       </div>
-      <div class="field">
-        <span class="field-name">{{ t('settings.notify.eventsTitle') }}</span>
-        <p class="hint">{{ t('settings.notify.eventsHint') }}</p>
-        <div v-for="g in eventsByGroup" :key="`d-${g.key}`" class="ev-group">
-          <span class="ev-group__name">{{ g.label }}</span>
-          <label v-for="e in g.items" :key="`d-${e.key}`" class="ev-item" :title="eventText(e)">
-            <input
-              type="checkbox"
-              :checked="desktopEvents.includes(e.key)"
-              @change="toggleEvent(desktopEvents, e.key, ($event.target as HTMLInputElement).checked)"
-            />
-            <span class="mono">{{ e.key }}</span>
-            <span class="muted">{{ eventText(e) }}</span>
-          </label>
-        </div>
-      </div>
-      <div class="field-row">
-        <label class="field">
-          <span class="field-name">{{ t('settings.notify.projectsLabel') }}</span>
-          <input v-model="desktopProjects" class="input" data-testid="desktop-projects" :placeholder="t('settings.notify.projectsPlaceholder')" />
-        </label>
-        <label class="field">
-          <span class="field-name">{{ t('settings.notify.mergeSec') }}</span>
-          <input v-model="desktopMergeSec" class="input" data-testid="desktop-merge" :placeholder="String(catalog?.desktop.merge_sec_default ?? 10)" />
-        </label>
+      <div class="desktop-summary" data-testid="desktop-summary">
+        <span data-testid="desktop-events">{{ desktopEventsLabel }}</span>
+        <span data-testid="desktop-projects">{{ desktopProjectsLabel }}</span>
+        <span data-testid="desktop-merge">{{ desktopMergeLabel }}</span>
       </div>
       <div class="actions">
-        <button class="btn btn--primary" type="button" data-testid="desktop-save" :disabled="desktopSaving" @click="saveDesktop">
-          {{ t('act.save') }}
+        <button class="btn btn--primary" type="button" data-testid="desktop-edit" @click="openDesktop">
+          {{ t('settings.notify.desktopEdit') }}
         </button>
         <button class="btn" type="button" data-testid="desktop-test" :disabled="testing === 'desktop:0'" @click="test('desktop')">
           {{ t('settings.notify.testSend') }}
@@ -587,7 +596,36 @@ onMounted(() => {
       </div>
     </FormSection>
 
-    <Drawer v-model="drawerOpen" :label="t('settings.notify.botDrawerTitle')" width="440px">
+    <Drawer v-model="desktopOpen" :label="t('settings.notify.desktopDrawerTitle')" width="clamp(560px, 46vw, 900px)">
+      <div class="bot-form">
+        <label class="field field--check">
+          <input v-model="desktopDraft.enabled" type="checkbox" data-testid="desktop-enabled" />
+          <span>{{ t('settings.notify.desktopToggle') }}</span>
+        </label>
+        <p class="hint">{{ t('settings.notify.desktopMachine') }}</p>
+        <NotifyEventsPicker v-model="desktopDraft.events" :catalog="catalog" />
+        <NotifyProjectsField v-model="desktopDraft.projects" test-id="desktop-projects" />
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.mergeSec') }}</span>
+          <input
+            v-model="desktopDraft.mergeSec"
+            class="input"
+            data-testid="desktop-merge"
+            :placeholder="String(catalog?.desktop.merge_sec_default ?? 10)"
+          />
+        </label>
+        <div class="actions">
+          <button class="btn btn--primary" type="button" data-testid="desktop-save" :disabled="desktopSaving" @click="saveDesktop">
+            {{ t('act.save') }}
+          </button>
+          <button class="btn" type="button" data-testid="desktop-cancel" @click="desktopOpen = false">
+            {{ t('act.cancel') }}
+          </button>
+        </div>
+      </div>
+    </Drawer>
+
+    <Drawer v-model="drawerOpen" :label="t('settings.notify.botDrawerTitle')" width="clamp(560px, 46vw, 900px)">
       <div class="bot-form">
         <label class="field">
           <span class="field-name">{{ t('settings.notify.botType') }}</span>
@@ -622,26 +660,8 @@ onMounted(() => {
           <input v-model="draft.clearSecret" type="checkbox" data-testid="bot-clear-secret" />
           <span>{{ t('settings.notify.botClearSecret') }}</span>
         </label>
-        <label class="field">
-          <span class="field-name">{{ t('settings.notify.projectsLabel') }}</span>
-          <input v-model="draft.projects" class="input" data-testid="bot-projects" :placeholder="t('settings.notify.projectsPlaceholder')" />
-        </label>
-        <div class="field">
-          <span class="field-name">{{ t('settings.notify.eventsTitle') }}</span>
-          <p class="hint">{{ t('settings.notify.eventsHint') }}</p>
-          <div v-for="g in eventsByGroup" :key="`b-${g.key}`" class="ev-group">
-            <span class="ev-group__name">{{ g.label }}</span>
-            <label v-for="e in g.items" :key="`b-${e.key}`" class="ev-item" :title="eventText(e)">
-              <input
-                type="checkbox"
-                :checked="draft.events.includes(e.key)"
-                @change="toggleEvent(draft.events, e.key, ($event.target as HTMLInputElement).checked)"
-              />
-              <span class="mono">{{ e.key }}</span>
-              <span class="muted">{{ eventText(e) }}</span>
-            </label>
-          </div>
-        </div>
+        <NotifyProjectsField v-model="draft.projects" test-id="bot-projects" />
+        <NotifyEventsPicker v-model="draft.events" :catalog="catalog" />
         <label class="field field--check">
           <input v-model="draft.enabled" type="checkbox" data-testid="bot-enabled" />
           <span>{{ t('settings.notify.botEnabled') }}</span>
@@ -689,8 +709,7 @@ onMounted(() => {
 .list-head,
 .actions,
 .meta,
-.row-head,
-.field-row {
+.row-head {
   display: flex;
   align-items: center;
 }
@@ -707,14 +726,15 @@ onMounted(() => {
   font-size: var(--fs-sm);
   color: var(--ink);
 }
-.field-row {
-  gap: 12px;
-  align-items: flex-end;
+/* 桌面通知摘要：开关状态、已选事件数、项目、合并窗口一行排开（编辑在侧栏）。 */
+.desktop-summary {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
-}
-.field-row .field {
-  flex: 1;
-  min-width: 160px;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
 }
 
 .toggle-row {
@@ -873,22 +893,7 @@ onMounted(() => {
   background: var(--surface);
   color: var(--ink);
 }
-.ev-group {
-  display: grid;
-  gap: 2px;
-  margin-bottom: 8px;
-}
-.ev-group__name {
-  font-size: var(--fs-xs);
-  color: var(--ink-2);
-  font-weight: 600;
-}
-.ev-item {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: var(--fs-xs);
-}
+/* 事件多选（.ev-*）在 components/NotifyEventsPicker.vue 里，页面与两个侧栏共用同一份。 */
 .bot-form {
   display: grid;
   gap: 4px;
