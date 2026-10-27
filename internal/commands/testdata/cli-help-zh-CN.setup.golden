@@ -248,10 +248,6 @@ serve stop	help
 serve stop	examples	
 serve stop	flag config	path to the gofer config file
 serve stop	flag name	managed instance name
-serve supervise	desc	Run the registered Windows server supervisor
-serve supervise	help	
-serve supervise	examples	
-serve supervise	flag spec	absolute managed service spec path
 serve uninstall	desc	Stop and remove the native registration; keep server assets
 serve uninstall	help	
 serve uninstall	examples	

@@ -45,7 +45,7 @@ var setupMigratedFiles = []string{
 // examples and every flag usage) of the setup & config subtrees.
 func TestZhSetupCliHelpIsUnchanged(t *testing.T) {
 	t.Setenv("GOFER_LANG", "zh-CN")
-	got := collectCliHelpFor(t, setupHelpRoots)
+	got := dropPlatformCommands(collectCliHelpFor(t, setupHelpRoots))
 	compareGolden(t, setupHelpGolden, got)
 }
 
@@ -55,7 +55,40 @@ func TestZhSetupCliHelpIsUnchanged(t *testing.T) {
 // so a change to what an existing zh-CN deployment prints turns this red.
 func TestZhSetupOutputsAreUnchanged(t *testing.T) {
 	t.Setenv("GOFER_LANG", "zh-CN")
-	compareGolden(t, setupOutputsGolden, collectSetupOutputs(t))
+	compareGolden(t, setupOutputsGolden, slashTmpPaths(collectSetupOutputs(t)))
+}
+
+// platformOnlyCommands are registered on some platforms only (serve supervise is the
+// Windows service supervisor), so the golden, generated on any one machine, leaves them
+// out and every platform compares the same text.
+var platformOnlyCommands = []string{"serve supervise"}
+
+// dropPlatformCommands removes the help lines of platformOnlyCommands.
+func dropPlatformCommands(help string) string {
+	lines := strings.SplitAfter(help, "\n")
+	out := lines[:0]
+	for _, l := range lines {
+		keep := true
+		for _, cmd := range platformOnlyCommands {
+			if strings.HasPrefix(l, cmd+"\t") {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "")
+}
+
+// tmpPathRE matches a path under the fixture's temp dir as the outputs print it.
+var tmpPathRE = regexp.MustCompile("<tmp>[^\\s)，（`]*")
+
+// slashTmpPaths writes the <tmp> paths with forward slashes, so the golden is the same
+// on Windows and elsewhere.
+func slashTmpPaths(s string) string {
+	return tmpPathRE.ReplaceAllStringFunc(s, func(p string) string { return strings.ReplaceAll(p, `\`, "/") })
 }
 
 // compareGolden compares got with the golden file, or writes it when
