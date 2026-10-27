@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getStats } from '../api/client'
 import type { AgentSessionRelayMode, AgentSessionState, Stats } from '../api/types'
 import { fmtBytes } from '../utils/bytes'
+import { REPO_URL } from '../utils/repo'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { t } from '../i18n'
 
@@ -118,7 +119,7 @@ onUnmounted(() => {
       <div class="card service-card">
         <a
           class="service-logo-link"
-          href="https://github.com/inhere/gofer"
+          :href="REPO_URL"
           target="_blank"
           rel="noopener noreferrer"
           :aria-label="t('stats.sys.githubAria')"

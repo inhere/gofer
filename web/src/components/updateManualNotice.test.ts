@@ -83,9 +83,11 @@ describe('UpdateManualNotice', () => {
 
   it('is wired into the About page only for a server that is not managed', () => {
     expect(about).toContain("import UpdateManualNotice from '../../components/UpdateManualNotice.vue'")
-    // 一键更新按钮与说明块互斥：button 走 update.managed，说明块走 v-else
-    expect(about).toContain('v-if="update.managed"')
-    expect(about).toContain('<UpdateManualNotice v-else :managed="update.managed" />')
+    // 一键更新按钮与说明块互斥：按钮走 canApplyNow（受管服务），说明块走 showManualNotice
+    // （有新版本、没在更新、有权限、但不是受管服务）。
+    expect(about).toContain('const canApplyNow = computed(() => showApplyEntry.value && update.value?.managed === true)')
+    expect(about).toContain('const showManualNotice = computed(() => showApplyEntry.value && update.value?.managed !== true)')
+    expect(about).toContain('<UpdateManualNotice v-if="showManualNotice" :managed="update?.managed" />')
     // 旧的一行灰字提示已经换成这个组件
     expect(about).not.toContain("t('settings.about.manual')")
   })

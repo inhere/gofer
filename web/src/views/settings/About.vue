@@ -20,6 +20,7 @@ import { clearToken, isRemembered } from '../../store/auth'
 import { useWhoami } from '../../store/whoami'
 import { noteUpdateStatus } from '../../store/updateAvailable'
 import { t } from '../../i18n'
+import { REPO_URL } from '../../utils/repo'
 import FormSection from '../../ui/FormSection.vue'
 
 const router = useRouter()
@@ -92,6 +93,11 @@ let pollTimer: ReturnType<typeof setTimeout> | null = null
 
 const activePhases = ['downloading', 'waiting_idle', 'restarting', 'upgrading_workers']
 const applyActive = computed(() => !!apply.value && activePhases.includes(apply.value.phase))
+// 一键更新入口（有新版本、没在更新、且本人有 update.apply）：受管服务给按钮，
+// 不是受管服务改为警示框（说明为什么没有按钮、怎么手动更新）。
+const showApplyEntry = computed(() => !!update.value?.newer && !applyActive.value && can('update.apply'))
+const canApplyNow = computed(() => showApplyEntry.value && update.value?.managed === true)
+const showManualNotice = computed(() => showApplyEntry.value && update.value?.managed !== true)
 // 阶段与 worker 状态都按 i18n 取（settings.about.phase.* / settings.about.worker.*），
 // 没登记的取值原样显示（服务端新增阶段时不至于空白）。
 function phaseText(phase: string): string {
@@ -237,63 +243,54 @@ onUnmounted(() => {
     <FormSection :title="t('settings.about.update')" :desc="t('settings.about.updateDesc')">
       <p v-if="updateError" class="msg msg--err" :title="updateError">{{ updateError }}</p>
 
-      <dl v-if="update" class="facts-grid">
-        <dt>{{ t('settings.about.latest') }}</dt>
-        <dd class="brk mono">
-          <template v-if="update.latest">
-            {{ update.latest }}
-            <span v-if="update.newer" class="badge badge--new">{{ t('settings.about.newer') }}</span>
-            <span v-else-if="!update.error" class="badge">{{ t('settings.about.uptodate') }}</span>
+      <dl class="facts-grid">
+        <template v-if="update">
+          <dt>{{ t('settings.about.latest') }}</dt>
+          <dd class="brk mono">
+            <template v-if="update.latest">
+              {{ update.latest }}
+              <span v-if="update.newer" class="badge badge--new">{{ t('settings.about.newer') }}</span>
+              <span v-else-if="!update.error" class="badge">{{ t('settings.about.uptodate') }}</span>
+            </template>
+            <template v-else>—</template>
+          </dd>
+
+          <template v-if="update.released_at">
+            <dt>{{ t('settings.about.releasedAt') }}</dt>
+            <dd class="brk">{{ update.released_at }}</dd>
           </template>
-          <template v-else>—</template>
-        </dd>
 
-        <template v-if="update.released_at">
-          <dt>{{ t('settings.about.releasedAt') }}</dt>
-          <dd class="brk">{{ update.released_at }}</dd>
+          <template v-if="update.description">
+            <dt>{{ t('settings.about.description') }}</dt>
+            <dd class="brk">{{ update.description }}</dd>
+          </template>
+
+          <template v-if="update.download_url">
+            <dt>{{ t('settings.about.download') }}</dt>
+            <dd class="brk"><a :href="update.download_url" target="_blank" rel="noopener">{{ update.download_url }}</a></dd>
+          </template>
+
+          <template v-if="update.release_url">
+            <dt>{{ t('settings.about.releasePage') }}</dt>
+            <dd class="brk"><a :href="update.release_url" target="_blank" rel="noopener">{{ update.release_url }}</a></dd>
+          </template>
+
+          <dt>{{ t('settings.about.source') }}</dt>
+          <dd>{{ sourceLabel }}</dd>
+
+          <dt>{{ t('settings.about.checked') }}</dt>
+          <dd>{{ checkedAt }}</dd>
+
+          <template v-if="update.error">
+            <dt>{{ t('settings.about.checkFailed') }}</dt>
+            <dd class="brk fail">{{ update.error }}</dd>
+          </template>
         </template>
 
-        <template v-if="update.description">
-          <dt>{{ t('settings.about.description') }}</dt>
-          <dd class="brk">{{ update.description }}</dd>
-        </template>
-
-        <template v-if="update.download_url">
-          <dt>{{ t('settings.about.download') }}</dt>
-          <dd class="brk"><a :href="update.download_url" target="_blank" rel="noopener">{{ update.download_url }}</a></dd>
-        </template>
-
-        <template v-if="update.release_url">
-          <dt>{{ t('settings.about.releasePage') }}</dt>
-          <dd class="brk"><a :href="update.release_url" target="_blank" rel="noopener">{{ update.release_url }}</a></dd>
-        </template>
-
-        <dt>{{ t('settings.about.source') }}</dt>
-        <dd>{{ sourceLabel }}</dd>
-
-        <dt>{{ t('settings.about.checked') }}</dt>
-        <dd>{{ checkedAt }}</dd>
-
-        <template v-if="update.error">
-          <dt>{{ t('settings.about.checkFailed') }}</dt>
-          <dd class="brk fail">{{ update.error }}</dd>
-        </template>
+        <!-- GitHub 栏：仓库地址（发布页、下载包都从这里来），不依赖更新状态，取不到时照常显示。 -->
+        <dt>{{ t('settings.about.github') }}</dt>
+        <dd class="brk"><a :href="REPO_URL" target="_blank" rel="noopener noreferrer">{{ REPO_URL }}</a></dd>
       </dl>
-
-      <div v-if="update?.newer && !applyActive && can('update.apply')" class="apply-entry">
-        <template v-if="update.managed">
-          <button
-            class="btn btn--primary"
-            type="button"
-            data-testid="update-apply-open"
-            @click="showApply = true; applyError = ''"
-          >
-            {{ t('settings.about.applyNow', { version: update.latest ?? '' }) }}
-          </button>
-        </template>
-        <!-- 不是受管服务：一键更新用不了，摆一个警示框说清原因和手动 / 改成服务的步骤。 -->
-        <UpdateManualNotice v-else :managed="update.managed" />
-      </div>
 
       <div v-if="apply" class="apply" data-testid="update-apply-progress">
         <div class="apply-head">
@@ -349,11 +346,25 @@ onUnmounted(() => {
         </p>
       </div>
 
+      <!-- 「检查更新」与「一键更新」同一行（主按钮在右，间距与其它按钮组一致）；
+           窄屏整组换行，按钮宽度随文案，版本号不被挤掉。 -->
       <div class="actions">
         <button class="btn" type="button" :disabled="checking" @click="runCheck()">
           {{ checking ? t('settings.about.checking') : t('settings.about.check') }}
         </button>
+        <button
+          v-if="canApplyNow"
+          class="btn btn--primary"
+          type="button"
+          data-testid="update-apply-open"
+          @click="showApply = true; applyError = ''"
+        >
+          {{ t('settings.about.applyNow', { version: update?.latest ?? '' }) }}
+        </button>
       </div>
+
+      <!-- 不是受管服务：一键更新用不了，摆一个警示框说清原因和手动 / 改成服务的步骤。 -->
+      <UpdateManualNotice v-if="showManualNotice" :managed="update?.managed" />
 
       <p class="hint">{{ t('settings.about.pollHint') }}</p>
     </FormSection>
@@ -424,8 +435,11 @@ onUnmounted(() => {
 
 .actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 12px;
+  /* 窄屏整组按钮换行，而不是把按钮挤窄（否则「立即更新到 <版本>」会被挤掉一半）。 */
+  flex-wrap: wrap;
 }
 
 .btn {
@@ -436,6 +450,9 @@ onUnmounted(() => {
   font-size: var(--fs-sm);
   background: transparent;
   color: var(--ink);
+  /* 宽度随文案：按钮是 flex 项时不收缩，文案不折行也不被截断。 */
+  flex: none;
+  white-space: nowrap;
 }
 .btn:hover:not(:disabled) {
   border-color: var(--accent);
@@ -450,6 +467,14 @@ onUnmounted(() => {
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
+}
+/* 主按钮 hover：与 SaveBar / 接入页等页一致——底色与描边走 --accent-hover，前景保持
+   --accent-ink。必须显式写 color：上面 .btn:hover 的 color: var(--accent) 优先级更高，
+   不盖回来就变成「前景 = 背景」的文字消失。 */
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--accent-ink);
 }
 
 .badge {
@@ -475,10 +500,6 @@ onUnmounted(() => {
 }
 .dim {
   color: var(--ink-3);
-}
-
-.apply-entry {
-  margin-top: 12px;
 }
 
 .apply {
