@@ -1,0 +1,97 @@
+=== list/plain
+k-plain [note] · 1 天前 · plain content #t1 · 来源 job:j1
+
+=== list/expired-handoff
+k-handoff [handoff] · 30 天前（已过期） · handoff body #handoff
+
+=== list/stale-note
+k-stale [note] · 100 天前（久未更新） · an old note
+
+=== list/flagged
+k-flagged [note] · 2 天前 ⚠ 待复核（the path is gone） · flagged body
+
+=== list/created-unknown
+k-imported [note] · 导入于 2026-10-22T12:00:00Z · imported body
+
+=== detail/plain
+key: k-plain
+kind: note
+summary: plain content（自动摘取，建议 --summary 补写）
+tags: t1
+source: job:j1
+created: 2026-10-26T12:00:00Z（1 天前）
+updated: 2026-10-26T12:00:00Z（1 天前） by suga
+---
+plain content
+
+=== detail/live-handoff
+key: k-live-handoff
+kind: handoff
+summary: live（自动摘取，建议 --summary 补写）
+tags: handoff
+created: 2026-10-26T12:00:00Z（1 天前）
+updated: 2026-10-26T12:00:00Z（1 天前）
+expires: 2026-10-30T12:00:00Z（3 天后过期）
+---
+live
+
+=== detail/expired-handoff
+key: k-handoff
+kind: handoff
+summary: handoff body（自动摘取，建议 --summary 补写）
+tags: handoff
+created: 2026-09-27T12:00:00Z（30 天前）
+updated: 2026-09-27T12:00:00Z（30 天前）
+expires: 2026-10-11T12:00:00Z（已过期）
+---
+handoff body
+
+=== detail/flagged
+key: k-flagged
+kind: note
+summary: flagged body（自动摘取，建议 --summary 补写）
+flags: 1（待复核；`gofer memory unflag k-flagged` 清除，改正文也会清除）
+  - 2026-10-26T12:00:00Z · the path is gone · by agent · job:j9
+created: 2026-10-25T12:00:00Z（2 天前）
+updated: 2026-10-25T12:00:00Z（2 天前）
+---
+flagged body
+
+=== detail/kind-inferred
+key: k-inferred
+kind: rule（由 prime 标签推断）
+summary: inferred kind（自动摘取，建议 --summary 补写）
+tags: prime
+created: 2026-10-25T12:00:00Z（2 天前）
+updated: 2026-10-25T12:00:00Z（2 天前）
+---
+inferred kind
+
+=== detail/derived-summary
+key: k-derived
+kind: note
+summary: 这条记忆没有摘要。（自动摘取，建议 --summary 补写）
+created: 2026-10-25T12:00:00Z（2 天前）
+updated: 2026-10-25T12:00:00Z（2 天前）
+---
+这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。这条记忆没有摘要。
+
+=== archive/line
+k-plain [note] · 1 天前 · plain content #t1 · 来源 job:j1 · 归档于 今天（superseded）
+
+=== doctor/report
+k-stale [note] · an old note
+  - note-stale: updated 100 天前
+  - duplicate: similar to k-stale2 (0.75)
+k-flagged [rule]
+  - flagged: 1 次 · 最近：the path is gone · job:j9 · by agent · 2026-10-26（复核后 `gofer memory unflag <key>`）
+checked 2, with findings 2, suppressed 1 (advisory; silence with `memory set <key> … --doctor-ignore <slug>` or prime.doctor.suppress)
+
+=== age/today
+今天
+=== age/days
+5 天前
+=== scope/confidence
+高 中 低
+=== write/summary-required
+memory content is 270 chars (> 200): --summary "<一句话：这条讲什么、什么时候该看>" is required; candidate: --summary "这条记忆没有摘要。"
