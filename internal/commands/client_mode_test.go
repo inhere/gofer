@@ -221,7 +221,7 @@ func TestInitClientWritesEnvTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client .env not written at %s: %v", path, err)
 	}
-	if string(got) != clientEnvTemplate {
+	if string(got) != clientEnvContent() {
 		t.Fatalf("written content != client env template:\n%s", got)
 	}
 	for _, line := range []string{"GOFER_SERVER_ADDR=", "GOFER_SERVER_TOKEN=", "GOFER_RUN_MODE=client"} {
@@ -270,7 +270,7 @@ func TestInitClientDoesNotOverwrite(t *testing.T) {
 	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init client --force: %v", err)
 	}
-	if got, _ := os.ReadFile(path); string(got) != clientEnvTemplate {
+	if got, _ := os.ReadFile(path); string(got) != clientEnvContent() {
 		t.Fatalf("--force did not rewrite the template:\n%s", got)
 	}
 }

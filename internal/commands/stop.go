@@ -42,11 +42,11 @@ const (
 func stopDaemon(c *gcli.Command, pidPath, label string) error {
 	pid, err := daemon.ReadPIDFile(pidPath)
 	if err != nil {
-		c.Printf("gofer: %s 未在运行（无 pidfile %s）\n", label, pidPath)
+		c.Printf("%s\n", cliText("cli.daemon.stop.not_running_no_pidfile", "label", label, "path", pidPath))
 		return nil
 	}
 	if !daemon.PIDAlive(pid) {
-		c.Printf("gofer: %s 未在运行（pid=%d 已退出），清理残留 pidfile\n", label, pid)
+		c.Printf("%s\n", cliText("cli.daemon.stop.not_running_exited", "label", label, "pid", pid))
 		daemon.RemovePIDFile(pidPath)
 		return nil
 	}
@@ -65,7 +65,7 @@ func stopDaemon(c *gcli.Command, pidPath, label string) error {
 		return errorx.Failf(stopExitErr, "stop %s (pid=%d): %v", label, pid, stopErr)
 	}
 	if stopErr == nil {
-		c.Printf("gofer: 已向 %s(pid=%d) 发送停止信号，等待退出...\n", label, pid)
+		c.Printf("%s\n", cliText("cli.daemon.stop.signal_sent", "label", label, "pid", pid))
 	}
 
 	// The stopped process removes its own pidfile on graceful exit; we still
@@ -73,10 +73,11 @@ func stopDaemon(c *gcli.Command, pidPath, label string) error {
 	for waited := time.Duration(0); waited < stopWaitTimeout; waited += stopPoll {
 		if !daemon.PIDAlive(pid) {
 			daemon.RemovePIDFile(pidPath)
-			c.Printf("gofer: %s 已停止\n", label)
+			c.Printf("%s\n", cliText("cli.daemon.stop.stopped", "label", label))
 			return nil
 		}
 		time.Sleep(stopPoll)
 	}
-	return errorx.Failf(stopExitErr, "%s(pid=%d) 在 %s 内未退出；可手动 %s", label, pid, stopWaitTimeout, daemon.KillHint(pid))
+	return errorx.Failf(stopExitErr, "%s", cliText("cli.daemon.stop.timeout",
+		"label", label, "pid", pid, "timeout", stopWaitTimeout, "hint", daemon.KillHint(pid)))
 }

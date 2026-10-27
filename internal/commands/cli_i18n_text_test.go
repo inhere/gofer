@@ -20,8 +20,10 @@ var han = regexp.MustCompile(`\p{Han}`)
 // subtrees is English — no Chinese word survives anywhere in it.
 func TestEnglishCliHelpHasNoCJK(t *testing.T) {
 	t.Setenv("GOFER_LANG", string(i18n.EN))
-	if m := han.FindString(collectCliHelp(t)); m != "" {
-		t.Errorf("the English help carries CJK (%q):\n%s", m, collectCliHelp(t))
+	for _, roots := range [][]string{migratedHelpRoots, setupHelpRoots} {
+		if m := han.FindString(collectCliHelpFor(t, roots)); m != "" {
+			t.Errorf("the English help carries CJK (%q):\n%s", m, collectCliHelpFor(t, roots))
+		}
 	}
 }
 
@@ -125,7 +127,9 @@ func TestZhCliMessagesAreUnchanged(t *testing.T) {
 // added to a migrated file must not be written in Chinese — the text belongs in
 // internal/i18n. Comments are not scanned, and test files are out of scope.
 func TestMigratedCliFilesHaveNoCJK(t *testing.T) {
-	for _, file := range []string{"job.go", "job_findings.go", "plan.go", "session.go"} {
+	for _, file := range append([]string{
+		"job.go", "job_findings.go", "plan.go", "session.go",
+	}, setupMigratedFiles...) {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("read %s: %v", file, err)

@@ -84,6 +84,14 @@ GOFER_SERVER_TOKEN=
 GOFER_RUN_MODE=client
 `
 
+// clientEnvContent is what `gofer init client` writes: the starter above plus the
+// language hint (design 2026-10-27-i18n-design.md §3 — a client node keeps its
+// language in this .env, which config.LoadDotenv exports before the CLI is built).
+// The hint comment is written in the language the init ran in.
+func clientEnvContent() string {
+	return clientEnvTemplate + "# " + cliText("cli.setup.init.client_env_lang") + "\n# GOFER_LANG=en\n"
+}
+
 // initTemplate maps an init target to its embedded starter template + default
 // output path. `server` is the default (backward-compatible: bare `gofer init`).
 func initTemplate(target string) (tmpl, defaultPath string, ok bool) {
@@ -233,14 +241,14 @@ func runInit(c *gcli.Command, info buildinfo.Info) error {
 		if usedGlobal {
 			// Global worker.yaml is the path `gofer worker` auto-discovers, so no
 			// --worker-config is needed.
-			c.Printf("已生成全局 worker 配置 %s，编辑后直接运行 `gofer worker` 即可(自动发现该路径)\n", path)
+			c.Printf("%s\n", cliText("cli.setup.init.worker_global", "path", path))
 		} else {
-			c.Printf("已生成 worker 配置 %s，编辑后运行 `gofer worker --worker-config %s` 启动\n", path, path)
+			c.Printf("%s\n", cliText("cli.setup.init.worker", "path", path))
 		}
 	} else {
-		c.Printf("已生成 %s，编辑后运行 `gofer config validate` 校验\n", path)
+		c.Printf("%s\n", cliText("cli.setup.init.server", "path", path))
 		if usedGlobal {
-			c.Printf("提示: export GOFER_CONFIG=%s 后任意目录可用\n", path)
+			c.Printf("%s\n", cliText("cli.setup.init.server_global_hint", "path", path))
 		}
 	}
 	return nil
@@ -281,10 +289,10 @@ func runInitClient(c *gcli.Command) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return errorx.Failf(configExitErr, "create %s: %v", filepath.Dir(path), err)
 	}
-	if err := os.WriteFile(path, []byte(clientEnvTemplate), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(clientEnvContent()), 0o644); err != nil {
 		return errorx.Failf(configExitErr, "write %s: %v", path, err)
 	}
-	c.Printf("已生成客户端节点 .env %s，填入 GOFER_SERVER_ADDR/GOFER_SERVER_TOKEN 后即可用 `gofer job list` 等命令\n", path)
+	c.Printf("%s\n", cliText("cli.setup.init.client_env", "path", path))
 	return nil
 }
 
@@ -332,7 +340,7 @@ func runInitHooks(c *gcli.Command) error {
 			if explicit {
 				return errorx.Failf(configExitErr, "jcode has no project-level hooks: use --global (~/.jcode/config.toml) or -o <JCODE_HOME dir>")
 			}
-			c.Printf("跳过 jcode: 它没有项目级 hook 配置 (加 --global, 或 -o <JCODE_HOME 目录>)\n")
+			c.Printf("%s\n", cliText("cli.setup.hooks.skip_jcode"))
 			continue
 		}
 		var path string
@@ -350,13 +358,13 @@ func runInitHooks(c *gcli.Command) error {
 		// agent keeps creating its dir.
 		if !explicit {
 			if cfgDir := hookAgentDir(path); !dirExists(cfgDir) {
-				c.Printf("跳过 %s：未发现 %s\n", agent, cfgDir)
+				c.Printf("%s\n", cliText("cli.setup.hooks.skip_agent_missing_dir", "agent", agent, "dir", cfgDir))
 				continue
 			}
 		}
 		jsonHooks := agent == hookrelay.AgentClaude || agent == hookrelay.AgentCodex
 		if initOpts.primeOnly && !jsonHooks {
-			c.Printf("跳过 %s: 没有 SessionStart 记忆注入 (--prime-only 只适用于 claude / codex)\n", agent)
+			c.Printf("%s\n", cliText("cli.setup.hooks.skip_prime_only", "agent", agent))
 			continue
 		}
 		var res hookrelay.InstallResult
@@ -408,27 +416,27 @@ func runInitHooks(c *gcli.Command) error {
 		}
 		if initOpts.primeOnly {
 			if initOpts.remove {
-				c.Printf("已从 %s 移除 %s 的记忆注入 (SessionStart / PreToolUse, %d 条)\n", path, agent, res.Removed)
+				c.Printf("%s\n", cliText("cli.setup.hooks.memory_removed", "path", path, "agent", agent, "count", res.Removed))
 			} else {
-				c.Printf("已在 %s 写入 %s 的记忆注入 (SessionStart / PreToolUse, %d 条)\n", path, agent, res.Added)
+				c.Printf("%s\n", cliText("cli.setup.hooks.memory_written", "path", path, "agent", agent, "count", res.Added))
 			}
 			continue
 		}
 		switch {
 		case initOpts.remove:
-			c.Printf("已从 %s 移除 gofer 的 %s hooks (%d 条)\n", res.Path, agent, res.Removed)
+			c.Printf("%s\n", cliText("cli.setup.hooks.hooks_removed", "path", res.Path, "agent", agent, "count", res.Removed))
 		case res.Created:
-			c.Printf("已生成 %s 并写入 gofer 的 %s hooks (%d 条)\n", res.Path, agent, res.Added)
+			c.Printf("%s\n", cliText("cli.setup.hooks.hooks_created", "path", res.Path, "agent", agent, "count", res.Added))
 		default:
-			c.Printf("已合并 gofer 的 %s hooks 到 %s (%d 条, 替换旧条目 %d)\n", agent, res.Path, res.Added, res.Replaced)
+			c.Printf("%s\n", cliText("cli.setup.hooks.hooks_merged", "agent", agent, "path", res.Path, "count", res.Added, "replaced", res.Replaced))
 		}
 		for _, n := range res.Notes {
-			c.Printf("  注意: %s\n", n)
+			c.Printf("%s\n", cliText("cli.setup.hooks.note", "note", n))
 		}
 		if !initOpts.remove {
 			installed = append(installed, agent)
 			for _, n := range hookrelay.PostInstallNotes(agent) {
-				c.Printf("  提示: %s\n", n)
+				c.Printf("%s\n", cliText("cli.setup.hooks.tip", "tip", n))
 			}
 		}
 	}
@@ -436,7 +444,7 @@ func runInitHooks(c *gcli.Command) error {
 		reportProjectLevelDuplicates(c, installed)
 	}
 	if !initOpts.remove && !initOpts.primeOnly {
-		c.Printf("用法: 离开电脑前 `gofer session relay on`; web「会话」页可查看/回复; 回来后终端输入任意一条即自动关闭 (或 web 回复 /off)\n")
+		c.Printf("%s\n", cliText("cli.setup.hooks.relay_usage"))
 	}
 	return nil
 }
@@ -486,10 +494,10 @@ func runInitSkill(c *gcli.Command) error {
 				kept = append(kept, parent)
 				continue
 			}
-			c.Printf("跳过：未发现 %s\n", conv)
+			c.Printf("%s\n", cliText("cli.setup.skill.skip_missing_dir", "dir", conv))
 		}
 		if parents = kept; len(parents) == 0 {
-			c.Printf("没有可写入的 skill 目录（-a all 只写已存在的 agent 配置目录）；要创建请去掉 -a all\n")
+			c.Printf("%s\n", cliText("cli.setup.skill.no_dest_dir"))
 			return nil
 		}
 	}
@@ -517,13 +525,13 @@ func runInitSkill(c *gcli.Command) error {
 		if a, absErr := filepath.Abs(skillDir); absErr == nil {
 			abs = a
 		}
-		c.Printf("已安装 gofer-usage skill 到 %s (%d 个文件):\n", abs, len(written))
+		c.Printf("%s\n", cliText("cli.setup.skill.installed", "path", abs, "count", len(written)))
 		for _, f := range written {
 			c.Printf("  %s\n", f)
 		}
 	}
 	if usedGlobal {
-		c.Printf("提示: 全局 skill 对所有项目可见\n")
+		c.Printf("%s\n", cliText("cli.setup.skill.global_hint"))
 	}
 	return nil
 }
@@ -1076,7 +1084,7 @@ func runConfigShow(c *gcli.Command, _ []string) error {
 	c.Printf("max_concurrent_jobs: %d\n", p.MaxConcurrentJobs)
 	c.Printf("capture_diff: %s\n", boolPtrStr(p.CaptureDiff))
 	c.Printf("notify_enabled: %s\n", boolPtrStr(p.NotifyEnabled))
-	c.Println("(诊断视图: overlay 须在 serve 同机/容器内可读才生效; 否则仅显示全局值)")
+	c.Println(cliText("cli.config.show.diagnostic_note"))
 	return nil
 }
 
@@ -1317,12 +1325,12 @@ func validateWorkerConfig(c *gcli.Command) error {
 		validateWorkerGuards(wc, line)
 		n, note := effectivePolicyProjectCount(wc)
 		line(docStatusInfo, "projects",
-			fmt.Sprintf("projects 由 server 下发; 当前生效 %d 个 (读自 policy 缓存%s)", n, note))
+			cliText("cli.config.validate.policy_projects", "count", n, "note", note))
 	case modeEmpty:
-		chk("projects", false, "无 roots(policy 模式) 也无 projects(legacy) — 这台 worker 跑不了任何 job")
+		chk("projects", false, cliText("cli.config.validate.no_projects"))
 	default: // modeLegacy
 		line(docStatusWarn, "projects",
-			"`projects:` 段已废弃(策略改由 server 下发)，迁移见 "+migrationDoc+"; 本版本仍然生效")
+			cliText("cli.config.validate.legacy_projects_deprecated", "doc", migrationDoc))
 		if !validateWorkerLocalProjects(c, wc, chk) {
 			allOK = false
 		}
@@ -1388,7 +1396,7 @@ func validateWorkerRoots(c *gcli.Command, wc *config.WorkerConfig, line func(str
 	if len(wc.Roots) == 0 {
 		// modePolicy implies len(Roots)>0, so this only fires on a future refactor —
 		// keep it loud rather than silently skipping the roots check.
-		line(docStatusFail, "roots", "policy 模式需要至少一条 root (roots 为空)")
+		line(docStatusFail, "roots", cliText("cli.config.validate.roots_empty_policy"))
 		return
 	}
 	seen := map[string]bool{}
@@ -1397,20 +1405,20 @@ func validateWorkerRoots(c *gcli.Command, wc *config.WorkerConfig, line func(str
 		from := normRootPrefix(r.From)
 		to := strings.TrimSpace(r.To)
 		if from == "" {
-			line(docStatusFail, name, "from 不能为空")
+			line(docStatusFail, name, cliText("cli.config.validate.root_from_empty"))
 			continue
 		}
 		if to == "" {
-			line(docStatusFail, name, r.From+" -> (to 不能为空)")
+			line(docStatusFail, name, cliText("cli.config.validate.root_to_empty", "from", r.From))
 			continue
 		}
 		if seen[from] {
-			line(docStatusFail, name, "重复的 from: "+r.From+" (每个 from 只能映射一次)")
+			line(docStatusFail, name, cliText("cli.config.validate.root_dup_from", "from", r.From))
 			continue
 		}
 		seen[from] = true
 		if fi, statErr := os.Stat(to); statErr != nil || !fi.IsDir() {
-			line(docStatusFail, name, fmt.Sprintf("%s -> %s (to 目录不存在或不是目录)", r.From, to))
+			line(docStatusFail, name, cliText("cli.config.validate.root_to_missing", "from", r.From, "to", to))
 			continue
 		}
 		line(docStatusOK, name, fmt.Sprintf("%s -> %s", r.From, to))
@@ -1425,7 +1433,7 @@ func validateWorkerRoots(c *gcli.Command, wc *config.WorkerConfig, line func(str
 			a, b := normRootPrefix(wc.Roots[i].From), normRootPrefix(wc.Roots[j].From)
 			if a != "" && b != "" && a != b && isBoundaryPrefix(a, b) {
 				line(docStatusInfo, "roots/overlap",
-					fmt.Sprintf("%s 覆盖 %s 下的更长路径 (最长前缀/更具体者优先)", wc.Roots[j].From, wc.Roots[i].From))
+					cliText("cli.config.validate.roots_overlap", "longer", wc.Roots[j].From, "shorter", wc.Roots[i].From))
 			}
 		}
 	}
@@ -1438,7 +1446,7 @@ func validateWorkerRoots(c *gcli.Command, wc *config.WorkerConfig, line func(str
 func validateWorkerGuards(wc *config.WorkerConfig, line func(string, string, string)) {
 	if wc.Guards.AllowExec == nil && wc.Guards.AllowInteractive == nil {
 		line(docStatusWarn, "guards",
-			"护栏未设置 = 不额外收紧(exec/interactive 全放行); 建议显式声明 allow_exec / allow_interactive")
+			cliText("cli.config.validate.guards_unset"))
 		return
 	}
 	line(docStatusOK, "guards",
@@ -1453,10 +1461,10 @@ func validateWorkerGuards(wc *config.WorkerConfig, line func(string, string, str
 func effectivePolicyProjectCount(wc *config.WorkerConfig) (int, string) {
 	p, err := worker.ReadPolicyCacheFile(workerPolicyCachePath(wc.WorkerID), wc.WorkerID)
 	if err != nil {
-		return 0, ", 缓存不可用: " + err.Error()
+		return 0, cliText("cli.config.validate.policy_cache_error", "err", err.Error())
 	}
 	if p == nil {
-		return 0, ", worker 未运行或尚未收到 Policy"
+		return 0, cliText("cli.config.validate.policy_no_cache")
 	}
 	cfg, _ := projectPolicy(wc, *p)
 	return len(cfg.Projects), ""
@@ -1545,7 +1553,7 @@ func reportProjectLevelDuplicates(c *gcli.Command, agents []string) {
 				continue
 			}
 			if !found {
-				c.Printf("注意: 下列项目已有项目级 gofer hooks, 与全局 hooks 并存会让同一事件触发两次 (claude 对相同命令会去重, 其余请按未去重处理); 建议清理项目级:\n")
+				c.Printf("%s\n", cliText("cli.setup.hooks.duplicates_head"))
 				found = true
 			}
 			c.Printf("  gofer init hooks --remove --agent %s -o %s\n", agent, root)
