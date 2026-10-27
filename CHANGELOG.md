@@ -13,6 +13,7 @@
 
 ### 改进
 
+- **关于页的「不能一键更新」提示改成警示框，并写清怎么改成服务**：server 不是以服务方式运行（`gofer serve register` 注册过的才会有「立即更新」）时，「设置 › 关于」原来只有一行灰色小字，容易被当成一键更新坏了。现在是一个警示色提示框：先说清为什么没有一键更新，再分成「现在手动更新」（替换二进制后重启 `gofer serve`；worker 用 `gofer worker upgrade <id>`，其他平台加 `--file`）与「改成服务（之后可在这里一键更新）」两段，后者按步骤列出停掉前台 `gofer serve` → `gofer serve register`（默认只登记，加 `--start` 一步注册并启动）→ `gofer serve start` → `gofer serve status` 看到 `health=healthy`；命令等宽显示、可一键复制，末尾指向 `gofer serve register --help`。深浅主题都清楚可读，手机宽度不溢出；中英文都已更新。
 - **Web 工作流列表分页（每页 50 条）**：`/workflows` 由「整表返回、只显示最新 200 条」改成服务端分页，页脚可上下翻页、页码写进 URL 的 `?page=`（可分享、后退可复原），切状态过滤回到第 1 页；页头与页脚显示当前过滤下的总条数与第几页。为此 `GET /v1/workflows` 新增 `limit` / `offset` 参数并返回 `total`（不带参数时与以前一样返回整段列表）；没有 `job.read.others` 的调用方「只看自己的」这一限制改为随查询下推，一页不再被过滤后剩半页。状态 chip 不再带计数（分页后拿不到各状态的总数，总数显示在页头 / 页脚）。
 
 ### 新增
