@@ -2,6 +2,7 @@ package config
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -27,14 +28,14 @@ func (c *Config) ProjectForPath(cwd string) (key string, ok bool) {
 // (the longest path prefix that decided the match), for messages that must say
 // WHY a directory belongs to a project.
 func (c *Config) ProjectMatchForPath(cwd string) (key, root string, ok bool) {
-	cwd = filepath.Clean(cwd)
+	cwd = resolveMatchPath(cwd)
 	best, bestRoot, bestLen, tie := "", "", -1, false
 	for k, p := range c.Projects {
-		ep := filepath.Clean(c.ExecPath(p))
+		ep := resolveMatchPath(c.ExecPath(p))
 		if ep == "" || ep == "." {
 			continue
 		}
-		if cwd == ep || strings.HasPrefix(cwd, ep+string(filepath.Separator)) {
+		if matchPathPrefix(cwd, ep) {
 			switch {
 			case len(ep) > bestLen:
 				best, bestRoot, bestLen, tie = k, ep, len(ep), false
@@ -47,4 +48,22 @@ func (c *Config) ProjectMatchForPath(cwd string) (key, root string, ok bool) {
 		return "", "", false
 	}
 	return best, bestRoot, true
+}
+
+// resolveMatchPath makes project matching agree across symlinked workspace paths. A path may
+// not exist yet (for example, a configured project root), so a failed resolution falls back to
+// the lexical clean path. The two sides must use the same fallback rule.
+func resolveMatchPath(path string) string {
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return path
+}
+
+func matchPathPrefix(path, root string) bool {
+	if runtime.GOOS == "windows" {
+		path, root = strings.ToLower(path), strings.ToLower(root)
+	}
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
