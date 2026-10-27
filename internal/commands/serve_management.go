@@ -90,6 +90,21 @@ type serveStatusOutput struct {
 	ConfigFile        string             `json:"config_file,omitempty"`
 	Executable        string             `json:"executable,omitempty"`
 	ApplicationLog    string             `json:"application_log,omitempty"`
+	// AuthToken is where the managed service's auth token comes from and whether
+	// this terminal resolves the same one (gofer-t9md). Never the value itself.
+	AuthToken *serveAuthTokenStatus `json:"auth_token,omitempty"`
+}
+
+// serveAuthTokenStatus is the `serve status --json` view of the managed auth
+// token: the service's own source, the source this terminal would use, and
+// whether the two agree (by fingerprint). Credentials lists every token the
+// server accepts (legacy + server.callers + server.workers) resolved from the
+// SERVICE's environment, so a caller whose variable is empty there shows up.
+type serveAuthTokenStatus struct {
+	Service        config.TokenSource   `json:"service"`
+	CurrentProcess config.TokenSource   `json:"current_process"`
+	Match          bool                 `json:"match"`
+	Credentials    []config.TokenSource `json:"credentials,omitempty"`
 }
 
 func newServeManagementCommands(info buildinfo.Info) []*gcli.Command {
@@ -227,6 +242,12 @@ func runServeRegister(c *gcli.Command, info buildinfo.Info) error {
 	}
 	if err := spec.CheckFiles(); err != nil {
 		return err
+	}
+	// gofer-t9md: the service does not inherit this terminal's environment. Warn (do
+	// not block) when the token the service will read differs from the one this CLI
+	// just used — the drift behind "web login worked until the server became a service".
+	for _, line := range tokenWarningLines(compareManagedToken(cfg, spec, config.ProcessEnvView()), cfg, spec) {
+		c.Printf("%s\n", line)
 	}
 	if registerOpts.start {
 		if err := preflightManagedAssets(cfg, spec); err != nil {
@@ -380,6 +401,11 @@ func runServeManagedStatus(c *gcli.Command, _ []string) error {
 	if out.VersionError != "" {
 		c.Printf("running version: %s\n", out.VersionError)
 	}
+	if out.AuthToken != nil {
+		for _, line := range tokenStatusLines(out.AuthToken) {
+			c.Printf("%s\n", line)
+		}
+	}
 	return nil
 }
 
@@ -410,6 +436,7 @@ func inspectManagedStatus(ctx context.Context, m *servicemgr.Manager) (serveStat
 	}
 	out.Backend, out.Registered, out.NativeState, out.Active = spec.Backend, native.Installed, native.NativeState, native.Active
 	out.ConfigFile, out.Executable, out.RegisteredVersion = spec.ConfigFile, spec.Exe, spec.RegisteredVersion
+	out.AuthToken = managedAuthTokenStatus(spec)
 	out.ServerPID, out.SupervisorPID = native.Server.PID, native.Supervisor.PID
 	out.ServerVerified = native.Server.PID > 0 && native.IdentityError == ""
 	out.IdentityError = native.IdentityError
