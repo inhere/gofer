@@ -272,7 +272,9 @@ func runServeRegister(c *gcli.Command, info buildinfo.Info) error {
 }
 
 func preflightManagedAssets(cfg *config.Config, spec servicemgr.Spec) error {
-	if !spec.Serve.AllowEmptyToken && cfg.Server.Token == "" && (cfg.Server.TokenEnv == "" || os.Getenv(cfg.Server.TokenEnv) == "") {
+	// gofer-t9md: ask what the SERVICE will resolve, not this terminal. A token only
+	// exported here passes an os.Getenv check and then the service refuses to start.
+	if token, _ := config.ResolveServerToken(&cfg.Server, "", managedTokenView(spec)); !spec.Serve.AllowEmptyToken && token == "" {
 		return errors.New("managed server would start without a token; set server.token/token_env or --allow-empty-token")
 	}
 	if cfg.Server.TLS != nil && cfg.Server.TLS.Addr != "" {

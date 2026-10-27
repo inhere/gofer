@@ -271,6 +271,38 @@ func TestServeStatusJSONReportsTokenSource(t *testing.T) {
 	}
 }
 
+// TestManagedStartPreflightUsesTheServiceToken: `serve register --start` must
+// refuse when the SERVICE has no token, even if this terminal exported one — a
+// check against os.Getenv (the old one) accepted such a registration and the
+// service then refused to start (gofer-t9md).
+func TestManagedStartPreflightUsesTheServiceToken(t *testing.T) {
+	const envName = "GOFER_T9MD_PREFLIGHT_TOKEN"
+	configDir := t.TempDir()
+	t.Setenv(envName, "exported-only-in-this-terminal")
+	unsetCommandsEnv(t, config.EnvJobToken)
+	cfg := &config.Config{Server: config.ServerConfig{TokenEnv: envName}}
+	spec := servicemgr.Spec{ConfigDir: configDir, WorkDir: configDir}
+
+	if err := preflightManagedAssets(cfg, spec); err == nil {
+		t.Fatal("a token only this terminal sees passed the preflight")
+	}
+
+	// The token in the config dir's .env is what the service will read.
+	writeCommandsFile(t, filepath.Join(configDir, config.EnvFileName), envName+"=service-side\n")
+	if err := preflightManagedAssets(cfg, spec); err != nil {
+		t.Fatalf("a service-side token was refused: %v", err)
+	}
+
+	// allow_empty_token is the documented way to start without one.
+	if err := os.Remove(filepath.Join(configDir, config.EnvFileName)); err != nil {
+		t.Fatal(err)
+	}
+	spec.Serve.AllowEmptyToken = true
+	if err := preflightManagedAssets(cfg, spec); err != nil {
+		t.Fatalf("allow_empty_token was not honoured: %v", err)
+	}
+}
+
 func writeCommandsFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
