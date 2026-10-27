@@ -50,6 +50,14 @@ func TestZhCliHelpIsUnchanged(t *testing.T) {
 // "<command path>\t<kind>\t<text>" line each, in a stable order.
 func collectCliHelp(t *testing.T) string {
 	t.Helper()
+	return collectCliHelpFor(t, migratedHelpRoots)
+}
+
+// collectCliHelpFor renders the help text of the given subtrees in the same
+// "<command path>\t<kind>\t<text>" form. Each command group migrated in its own
+// step has its own golden, so the steps do not rewrite each other's file.
+func collectCliHelpFor(t *testing.T, roots []string) string {
+	t.Helper()
 	app := NewApp("test")
 	var lines []string
 	var walk func(cmd *gcli.Command, path string)
@@ -73,7 +81,7 @@ func collectCliHelp(t *testing.T) string {
 			walk(cmd.Commands()[name], path+" "+strings.TrimSpace(name))
 		}
 	}
-	for _, root := range migratedHelpRoots {
+	for _, root := range roots {
 		cmd, ok := app.Command(root)
 		if !ok {
 			t.Fatalf("command %q not found", root)

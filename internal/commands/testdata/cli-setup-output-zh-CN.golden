@@ -1,0 +1,79 @@
+=== doctor/url/no-scheme
+[FAIL] url: hub.local:8765: scheme 必须是 ws:// 或 wss://（got "hub.local"）
+=== doctor/url/bad-scheme
+[FAIL] url: ftp://hub.local:8765: scheme 必须是 ws:// 或 wss://（got "ftp"）
+=== doctor/url/no-host
+[FAIL] url: ws://: 缺少 host
+=== doctor/token/from-env
+[PASS] token: 来自环境变量 GOFER_TOKEN_FIXTURE（值不打印）
+=== doctor/token/env-empty
+[FAIL] token: GOFER_TOKEN_FIXTURE_UNSET 为空：token 需从 <config-dir>/.env 或环境变量导出（值不打印）
+=== doctor/token/inline
+[PASS] token: 来自 worker.yaml 的明文 token（建议改 token_env，避免密钥入库）
+=== doctor/token/unset
+[WARN] token: token_env / token 都为空：只有 server 端同样未启用鉴权时才能注册上
+=== doctor/roots[0]
+[FAIL] roots[0]:  -> <tmp>\root (from 不能为空)
+=== doctor/roots[1]
+[FAIL] roots[1]: /a -> (to 不能为空)
+=== doctor/roots[2]
+[PASS] roots[2]: /a -> <tmp>\root
+=== doctor/roots[3]
+[FAIL] roots[3]: 重复的 from: /a (每个 from 只能映射一次)
+=== doctor/roots[4]
+[FAIL] roots[4]: /b -> <tmp>\no-such-root (to 目录不存在或不是目录)
+=== doctor/guards/unset
+[WARN] guards: 护栏未设置 = 不额外收紧（exec/interactive 全放行）；建议显式声明 allow_exec / allow_interactive
+=== doctor/max_concurrent/set
+[PASS] max_concurrent: 4（hub 侧 in-flight 上限）
+=== doctor/max_concurrent/unset
+[WARN] max_concurrent: 未设置（hub 侧不限并发）；建议按本机 CPU/内存设一个值
+=== doctor/tools/none
+[PASS] tools: 未声明（job prompt 不带本机工具清单）
+=== doctor/tools/missing
+[WARN] tools: 声明 1 个，本机找不到 1 个: ffmpeg (gofer-no-such-tool-xyz)
+=== doctor/agent/unavailable
+[FAIL] agent.claude: unavailable
+=== doctor/dial-hint/401
+（401：token 被 hub 拒绝 — 核对 server_link.token_env 解析出的值与 server.workers.<worker_id>.token 是否一致）
+=== doctor/dial-hint/other
+
+=== doctor/verdict/failed
+FAILED — 2 check(s) failed, 1 warning(s)
+=== doctor/verdict/warn
+OK — 0 failed, 3 warning(s)
+=== doctor/verdict/ok
+OK — all checks passed
+=== doctor/table
+worker doctor: <config>
+worker_id:     w1
+PASS  config     <config>
+PASS  worker_id  w1
+FAIL  url        ws://hub.local:8765: TCP 不可达
+result: FAILED — 1 check(s) failed, 0 warning(s)
+=== validate/worker/empty
+[FAIL] worker/worker_id           (must equal a server.workers key)
+[FAIL] worker/server_link.urls   []
+[FAIL] worker/server_link.token  inline token (must equal server.workers. token)
+[FAIL] worker/projects           无 roots(policy 模式) 也无 projects(legacy) — 这台 worker 跑不了任何 job
+exit: worker config validation failed
+=== validate/worker/roots
+[OK  ] worker/worker_id          w1 (must equal a server.workers key)
+[OK  ] worker/server_link.urls   [ws://127.0.0.1:1]
+[OK  ] worker/server_link.token  inline token (must equal server.workers.w1 token)
+[OK  ] worker/roots[0]           /a -> <tmp>/root
+[FAIL] worker/roots[1]           重复的 from: /a (每个 from 只能映射一次)
+[FAIL] worker/roots[2]           /a/b -> <tmp>/nope (to 目录不存在或不是目录)
+[INFO] worker/roots/overlap      /a/b 覆盖 /a 下的更长路径 (最长前缀/更具体者优先)
+[INFO] worker/roots/overlap      /a/b 覆盖 /a 下的更长路径 (最长前缀/更具体者优先)
+[WARN] worker/guards             护栏未设置 = 不额外收紧(exec/interactive 全放行); 建议显式声明 allow_exec / allow_interactive
+[INFO] worker/projects           projects 由 server 下发; 当前生效 0 个 (读自 policy 缓存, worker 未运行或尚未收到 Policy)
+exit: worker config validation failed
+=== init/worker
+已生成 worker 配置 <tmp>\worker.yaml，编辑后运行 `gofer worker --worker-config <tmp>\worker.yaml` 启动
+
+=== init/client
+已生成客户端节点 .env <tmp>\.env，填入 GOFER_SERVER_ADDR/GOFER_SERVER_TOKEN 后即可用 `gofer job list` 等命令
+
+=== init/workspace-hint
+默认工作空间 /ws 已就绪：把它登记为 server 上的 `default` 项目（allowed_runners 含本 worker 的 runner）后即可承接无仓库的活

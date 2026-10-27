@@ -1,0 +1,277 @@
+init	desc	Scaffold a starter config, skill or agent hooks from the embedded templates (target: server | worker | client | skill | hooks)
+init	help	
+init	examples	
+init	flag admin-token	worker wizard: server administrator token (used only for one-time registration; never written)
+init	flag agent	hooks: which agent config to write: claude | codex | omp | jcode | all (all = the four, only for agents whose config dir already exists; skill: all = only existing .claude / .agents; jcode has no project level, needs --global or -o <JCODE_HOME dir>)
+init	flag force	overwrite an existing config file or skill (hooks: replace an unparsable hook config)
+init	flag global	write to the user-global dir (<config-dir>/config.yaml|worker.yaml|.env for server/worker/client; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude, ~/.codex, ~/.omp/agent/extensions and ~/.jcode/config.toml)
+init	flag id	worker wizard: worker_id (must equal the server's server.workers key)
+init	flag output	output path (config file for server/worker; .env for client; single skills parent dir for skill; project dir for hooks — overrides the default)
+init	flag prime-only	hooks: install or remove only the memory injection (SessionStart prime + PreToolUse command memories)
+init	flag project	worker wizard: project to allow during registration (repeatable)
+init	flag remove	hooks: remove gofer's hook entries instead of installing them
+init	flag roots	worker wizard: explicit roots mapping from=to (repeatable; wins over inference)
+init	flag server	worker: hub address — switches `init worker` to the interactive worker wizard (see `gofer worker init`)
+init	flag timeout	worker wizard: per-check timeout for the doctor run, e.g. 10s
+init	flag token	worker wizard: the worker's hub token (written to <config-dir>/.env)
+init	flag workspace	server: directory to register as the `default` project (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)
+init	flag yes	worker wizard: accept the inferred values without prompting (non-interactive)
+config	desc	Inspect and validate the gofer configuration
+config	help	
+config	examples	
+config edit	desc	Open the resolved config file in $VISUAL/$EDITOR (or code/vim/nano)
+config edit	help	
+config edit	examples	
+config edit	flag config	path to the gofer config file
+config edit	flag key	open the file holding this top-level section (e.g. agents) when the config is split with include
+config info	desc	Show the resolved config path, key ENV and key settings
+config info	help	
+config info	examples	
+config info	flag config	path to the gofer config file
+config lint	desc	Report config keys that can be deleted without changing the effective config (and agents that could use extends: builtin)
+config lint	help	
+config lint	examples	
+config lint	flag config	path to the gofer config file
+config lint	flag fix	delete the removable keys (files are backed up; the result is checked to load the same)
+config show	desc	Show the effective (overlay-merged) config of a project
+config show	help	
+config show	examples	
+config show	flag config	path to the gofer config file
+config split	desc	Move top-level sections (default: agents, projects) of the server config into their own files and include them
+config split	help	
+config split	examples	
+config split	flag config	path to the gofer config file
+config split	flag dir	directory for the section files, relative to the main config file
+config split	flag dry-run	print what would change without writing
+config split	flag keys	comma-separated top-level sections to move
+config validate	desc	Validate a config (target: server | worker): load + per-project paths/agents/runners
+config validate	help	
+config validate	examples	
+config validate	flag config	path to the gofer config file
+worker	desc	As worker that dials a central hub and executes dispatched jobs locally
+worker	help	
+worker	examples	
+worker	flag daemon	run in background (detached); logs to <config-dir>/run/worker-<id>.log
+worker	flag upgrade-from	(internal) pid of the worker process this one replaces after a remote upgrade
+worker	flag upgrade-id	(internal) remote upgrade id this process registers with
+worker	flag upgrade-ready	(internal) readiness marker file written once registered after a remote upgrade
+worker	flag worker-config	path to the worker config file (default: <config-dir>/worker.yaml)
+worker add	desc	Register a worker on the server and print its one-time token
+worker add	help	
+worker add	examples	
+worker add	flag config	path to the gofer config file
+worker add	flag labels	worker label (repeatable)
+worker add	flag project	project to allow (repeatable)
+worker add	flag server	server address (overrides config server.addr)
+worker add	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+worker doctor	desc	Self-check this worker: config, hub urls, token, roots, agents, register handshake
+worker doctor	help	
+worker doctor	examples	
+worker doctor	flag connect	run the hub register handshake (skipped automatically while this worker_id runs locally)
+worker doctor	flag json	machine-readable JSON instead of the table
+worker doctor	flag timeout	per-check timeout, e.g. 10s (host lookup / TCP dial / register handshake)
+worker doctor	flag worker-config	path to the worker config file (default: <config-dir>/worker.yaml)
+worker init	desc	Onboard THIS machine as a worker in one command: ask the server for its projects, infer roots, probe agents, write worker.yaml, run doctor
+worker init	help	
+worker init	examples	
+worker init	flag admin-token	server administrator token: register this worker once (never written to disk)
+worker init	flag force	overwrite an existing worker.yaml (the old file is backed up to worker.yaml.bak-<time>)
+worker init	flag id	worker_id (must equal the server's server.workers key; required)
+worker init	flag project	project to allow during registration (repeatable)
+worker init	flag roots	explicit roots mapping from=to (repeatable; wins over inference)
+worker init	flag server	hub address, e.g. http://<server-ip>:8767 (required)
+worker init	flag timeout	per-check timeout for the doctor run, e.g. 10s
+worker init	flag token	this worker's hub token (written to <config-dir>/.env as GOFER_WORKER_TOKEN; defaults to an already-exported GOFER_WORKER_TOKEN)
+worker init	flag workspace	directory to create as the default workspace (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)
+worker init	flag yes	non-interactive: accept every inferred value without prompting
+worker join	desc	Ask a server to admit this machine as a worker: it prints a pairing code a person accepts in the console, then writes the token and worker.yaml here
+worker join	help	
+worker join	examples	
+worker join	flag config	path to the gofer config file
+worker join	flag force	overwrite an existing worker.yaml (the old file is backed up to worker.yaml.bak-<time>)
+worker join	flag id	worker id to propose (the accepting person may choose another one)
+worker join	flag labels	worker label to propose (repeatable, or comma separated)
+worker join	flag roots	explicit roots mapping from=to (repeatable)
+worker join	flag server	hub address to join, e.g. http://<server-ip>:8767 (required)
+worker join	flag start	start the worker in the background once the config is written (Windows: prints the foreground command instead)
+worker join	flag timeout	per-check timeout for the doctor run, e.g. 10s
+worker join	flag workspace	directory to create as the default workspace (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)
+worker join	flag yes	non-interactive: accept inferred values without prompting
+worker list	desc	List workers registered on the server
+worker list	help	
+worker list	examples	
+worker list	flag config	path to the gofer config file
+worker list	flag server	server address (overrides config server.addr)
+worker list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+worker projects	desc	Show a worker's effective project list
+worker projects	help	
+worker projects	examples	
+worker projects	flag config	path to the gofer config file
+worker projects	flag server	server address (overrides config server.addr)
+worker projects	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+worker reload	desc	Ask a connected worker to re-read its config (no restart); waits for its receipt
+worker reload	help	
+worker reload	examples	
+worker reload	flag config	path to the gofer config file
+worker reload	flag local	reload a worker process on this host through its pidfile
+worker reload	flag reason	why the reload was triggered (forwarded to the worker, logged)
+worker reload	flag server	server address (overrides config server.addr)
+worker reload	flag timeout	seconds to wait for the worker's receipt (0 = server default)
+worker reload	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+worker remove	desc	Remove a worker registration and disconnect it
+worker remove	help	
+worker remove	examples	
+worker remove	flag config	path to the gofer config file
+worker remove	flag server	server address (overrides config server.addr)
+worker remove	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+worker show	desc	Show one worker connection, protocol, capabilities and policy state
+worker show	help	
+worker show	examples	
+worker show	flag config	path to the gofer config file
+worker show	flag server	server address (overrides config server.addr)
+worker show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+worker show	flag verbose	also show each declared tool's description and executable
+worker stop	desc	Stop the running worker via its pidfile (id auto-detected when only one is running)
+worker stop	help	
+worker stop	examples	
+worker stop	flag worker-config	worker config to resolve the default worker_id when none is running (default: <config-dir>/worker.yaml)
+worker upgrade	desc	Upgrade a connected worker's binary remotely (drain, hand over, roll back on failure)
+worker upgrade	help	
+worker upgrade	examples	
+worker upgrade	flag config	path to the gofer config file
+worker upgrade	flag drain-timeout	seconds to wait for in-flight jobs before giving up the upgrade
+worker upgrade	flag file	replacement worker binary to upload (overrides --source)
+worker upgrade	flag force	do not wait for in-flight jobs to finish; they are treated like a worker restart
+worker upgrade	flag no-wait	return once the worker accepted the new binary instead of waiting for the final result
+worker upgrade	flag server	server address (overrides config server.addr)
+worker upgrade	flag source	where the binary comes from: auto | server (this server's executable) | mirror (the download source, server.update)
+worker upgrade	flag timeout	seconds to wait for the final result (0 = drain timeout + 90s)
+worker upgrade	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+worker upgrade	flag version	release version to download for another platform (default: the server's version)
+project	desc	Manage registered projects
+project	help	
+project	examples	
+project add	desc	Register a new project
+project add	help	
+project add	examples	
+project add	flag allow-agent	allowed agent (repeatable)
+project add	flag allow-exec	allow exec agent in this project
+project add	flag allow-runner	allowed runner (repeatable)
+project add	flag config	path to the gofer config file
+project add	flag container-path	container mount path of the project
+project add	flag default-agent	default agent for this project
+project add	flag exchange-subdir	data exchange subdir under the project
+project add	flag force	overwrite an existing project entry
+project add	flag host-path	absolute host path of the project (required)
+project add	flag interactive	interactively add the current directory (prompts for key/paths/agents)
+project add	flag result-subdir	result subdir under the exchange subdir
+project list	desc	List projects: local config by GOFER_RUN_MODE (server→config.yaml / worker→worker.yaml), or the server's live projects (--remote; always in client mode)
+project list	help	
+project list	examples	
+project list	flag config	path to the gofer config file
+project list	flag remote	list the server's live projects via API (GET /v1/meta) instead of local config (the default when GOFER_RUN_MODE=client)
+project list	flag server	server address (overrides config server.addr)
+project list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+project remove	desc	Remove a registered project
+project remove	help	
+project remove	examples	
+project remove	flag config	path to the gofer config file
+project show	desc	Show a project's details (from the server in client mode)
+project show	help	
+project show	examples	
+project show	flag config	path to the gofer config file
+project show	flag server	server address (overrides config server.addr)
+project show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+project validate	desc	Validate a project's paths, agents and runners (against the server in client mode)
+project validate	help	
+project validate	examples	
+project validate	flag config	path to the gofer config file
+project validate	flag server	server address (overrides config server.addr)
+project validate	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+serve	desc	Start the gofer HTTP server
+serve	help	
+serve	examples	
+serve	flag addr	HTTP listen address (default from config / 0.0.0.0:8765)
+serve	flag allow-empty-token	allow starting without a token
+serve	flag config	path to the gofer config file
+serve	flag daemon	run in background (detached); logs to <config-dir>/run/serve.log
+serve	flag no-web	disable the web console (static UI)
+serve	flag token	bearer token override (prefer config/env)
+serve	flag web-dir	serve the web console from this on-disk dir (dev; e.g. web/dist)
+serve logs	desc	Read the managed application log
+serve logs	help	
+serve logs	examples	
+serve logs	flag config	path to the gofer config file
+serve logs	flag follow	follow appended lines
+serve logs	flag journal	read Linux systemd journal instead
+serve logs	flag lines	last N lines (1..1000)
+serve logs	flag name	managed instance name
+serve register	desc	Register a managed native server service (no start by default)
+serve register	help	
+serve register	examples	
+serve register	flag addr	non-secret listen address override
+serve register	flag adopt	adopt a verified legacy Gofer Windows task
+serve register	flag allow-empty-token	allow server without an auth token
+serve register	flag config	path to the gofer config file
+serve register	flag elevated	register an elevated Windows task
+serve register	flag exe	server executable path (default current Gofer)
+serve register	flag name	managed instance name
+serve register	flag no-web	disable embedded Web
+serve register	flag run-as	account for a Linux system service
+serve register	flag scope	Linux system|user scope (default system)
+serve register	flag start	start after registration
+serve register	flag web-dir	on-disk Web directory
+serve register	flag work-dir	server working directory (default config directory)
+serve reload	desc	Reload the local serve process configuration without restarting
+serve reload	help	
+serve reload	examples	
+serve reload	flag config	path to the gofer config file
+serve reload	flag timeout	seconds to wait for the reload result (default 10)
+serve restart	desc	Stop then start a registered native server
+serve restart	help	
+serve restart	examples	
+serve restart	flag config	path to the gofer config file
+serve restart	flag name	managed instance name
+serve start	desc	Start a registered native server
+serve start	help	
+serve start	examples	
+serve start	flag config	path to the gofer config file
+serve start	flag name	managed instance name
+serve status	desc	Inspect native registration, server identity and health
+serve status	help	
+serve status	examples	
+serve status	flag config	path to the gofer config file
+serve status	flag json	print JSON
+serve status	flag name	managed instance name
+serve stop	desc	Stop a managed server, or an unregistered daemon via its pidfile
+serve stop	help	
+serve stop	examples	
+serve stop	flag config	path to the gofer config file
+serve stop	flag name	managed instance name
+serve supervise	desc	Run the registered Windows server supervisor
+serve supervise	help	
+serve supervise	examples	
+serve supervise	flag spec	absolute managed service spec path
+serve uninstall	desc	Stop and remove the native registration; keep server assets
+serve uninstall	help	
+serve uninstall	examples	
+serve uninstall	flag config	path to the gofer config file
+serve uninstall	flag name	managed instance name
+serve upgrade	desc	Upgrade a registered server from a prebuilt binary
+serve upgrade	help	
+serve upgrade	examples	
+serve upgrade	flag binary	prebuilt candidate binary path
+serve upgrade	flag config	path to the gofer config file
+serve upgrade	flag drain-timeout	how long the drain waits for in-flight jobs before giving up, as a duration (e.g. 90s, 5m)
+serve upgrade	flag name	managed instance name
+serve upgrade	flag no-wait	return after durable drain acceptance
+serve upgrade status	desc	Read a durable upgrade result
+serve upgrade status	help	
+serve upgrade status	examples	
+serve upgrade status	flag config	path to the gofer config file
+serve upgrade status	flag json	print JSON
+serve upgrade status	flag name	managed instance name
+serve upgrade-helper	desc	Resume a registered server upgrade transaction
+serve upgrade-helper	help	
+serve upgrade-helper	examples	
+serve upgrade-helper	flag receipt	absolute managed upgrade receipt path
