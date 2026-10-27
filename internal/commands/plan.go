@@ -389,7 +389,7 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planCreateOpts.desc, "desc", "", "", "plan description")
 					c.StrOpt(&planCreateOpts.project, "project", "", "", "project the plan's items run in (an item may still override it)")
 					c.StrOpt(&planCreateOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind the authenticated terminal session that supervises plan dispatches (default: the agent session this command runs in, from $GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID / $CODEX_THREAD_ID)")
-					c.BoolOpt(&planCreateOpts.noSupervisor, "no-supervisor", "", false, "do not bind the current agent session as the plan's supervisor (主 Agent)")
+					c.BoolOpt(&planCreateOpts.noSupervisor, "no-supervisor", "", false, cliText("cli.plan.flag.no_supervisor"))
 					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (the global leader switch must also be on)")
 					c.BoolOpt(&planCreateOpts.notify, "notify", "", false, "notify the plan's supervisor session when a job this plan dispatches ends (needs a bound supervisor session; each notice starts a messenger process)")
 					c.StrOpt(&planCreateOpts.tags, "tags", "", "", "comma-separated plan tags")
@@ -706,22 +706,22 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("plan %s created: status=%s leader=%s\n", p.PlanID, p.Status, p.Leader)
 	if p.Notify == jobstore.PlanNotifyOn {
-		c.Printf("notify: 该 plan 派发的 job 结束时通知主 Agent 会话\n")
+		c.Println(cliText("cli.plan.create.notify_on"))
 	}
 	switch {
 	case planCreateOpts.noSupervisor:
 	case planCreateOpts.supervisorSessionID != "":
-		c.Printf("已绑定主 Agent 会话 %s\n", shortSID(p.SupervisorSessionID))
+		c.Println(cliText("cli.plan.create.bound", "session", shortSID(p.SupervisorSessionID)))
 	case bind.Bound():
-		c.Printf("已绑定主 Agent 会话 %s (%s)\n", shortSID(bind.Session.SessionID), sessionDisplayName(bind.Session))
-		c.Printf("  job 结束会通知该会话；不需要时：gofer plan set %s --clear-supervisor-session（或创建时加 --no-supervisor）\n", p.PlanID)
+		c.Println(cliText("cli.plan.create.bound_named", "session", shortSID(bind.Session.SessionID), "name", sessionDisplayName(bind.Session)))
+		c.Println("  " + cliText("cli.plan.create.bound_hint", "plan", p.PlanID))
 	default:
 		printPlanBindHint(c, p.PlanID, bind.Reason)
 	}
 	// gofer-3db4: notify with nobody to tell is the one combination whose promise cannot
 	// be kept — say it now, not at every dispatch.
 	if p.Notify == jobstore.PlanNotifyOn && p.SupervisorSessionID == "" {
-		c.Printf("warning: notify 已开但 plan 没有主 Agent 会话，派发的 job 不会通知任何人（用 --supervisor-session-id <sid> 绑定）\n")
+		c.Println(cliText("cli.plan.create.notify_without_supervisor"))
 	}
 	return nil
 }
@@ -749,7 +749,7 @@ func planSetChanges(p client.Plan, leader, notify, tags, supervisor bool) []stri
 		if p.SupervisorSessionID != "" {
 			sid = shortSID(p.SupervisorSessionID)
 		}
-		out = append(out, "主 Agent 会话 -> "+sid)
+		out = append(out, cliText("cli.plan.set.supervisor_changed")+" "+sid)
 	}
 	return out
 }
@@ -771,7 +771,7 @@ func printPlanBindHint(c *gcli.Command, planID, reason string) {
 	if reason != "" {
 		reason = reason + "; "
 	}
-	c.Printf("未绑定主 Agent 会话（%s绑定：gofer plan set %s --supervisor-session-id <sid>，见 gofer session ls）\n", reason, planID)
+	c.Println(cliText("cli.plan.bind.none", "reason", reason, "plan", planID))
 }
 
 // sessionDisplayName names a session for a one-line message: its peer name,
@@ -927,7 +927,7 @@ func printPlanTable(c *gcli.Command, plans []client.Plan) {
 // printPlanPageFooter states the total and the slice on screen: a page of 20 out of 57
 // must not read as "that is all there is".
 func printPlanPageFooter(c *gcli.Command, total, offset, shown int) {
-	c.Printf("共 %d 条，显示 %d–%d\n", total, offset+1, offset+shown)
+	c.Println(cliText("cli.plan.list.footer", "total", total, "from", offset+1, "to", offset+shown))
 }
 
 func runPlanShow(c *gcli.Command, _ []string) error {
@@ -1308,7 +1308,7 @@ func formatPlanLeader(p client.Plan) string {
 	}
 	s := fmt.Sprintf("%s (round %d/%d", leader, p.LeaderRound.Round, p.LeaderRound.MaxRounds)
 	if !p.LeaderRound.Active {
-		s += ", 总开关未开"
+		s += cliText("cli.plan.show.leader_switch_off")
 	}
 	return s + ")"
 }

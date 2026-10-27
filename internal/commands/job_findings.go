@@ -7,6 +7,7 @@ import (
 	"github.com/gookit/gcli/v3"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -40,7 +41,7 @@ func runJobFindings(c *gcli.Command, _ []string) error {
 	}
 	findings := job.ParseFindings(report)
 	if len(findings) == 0 {
-		c.Printf("job %s reported no 「%s」 items\n", id, job.FindingsSectionTitle)
+		c.Println(cliText("cli.job.findings.none", "id", id, "section", i18n.Title(cliLang(), i18n.SectionFindings)))
 		return nil
 	}
 	if !jobFindingsOpts.create {

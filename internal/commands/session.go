@@ -114,7 +114,7 @@ func NewSessionCmd() *gcli.Command {
 					c.AddArg("mode", "auto | hold | force", true)
 					c.StrOpt(&sessionInjectModeOpts.session, "session", "", "", "session id (default: resolve by current directory)")
 					c.BoolOpt(&sessionInjectModeOpts.sendHeld, "send-held", "", false,
-						"instead of setting a mode, send the messages waiting for this session right now (「现在送」)")
+						cliText("cli.session.flag.inject_send_held"))
 				},
 				Func: runSessionInjectMode,
 			},
@@ -312,7 +312,7 @@ func runSessionList(c *gcli.Command, _ []string) error {
 		c.Print(formatSessionList(list, sessionListOpts.long))
 	}
 	if hidden > 0 {
-		c.Printf("另有 %d 个超过 %d 天未活动的会话已隐藏，用 --all 查看\n", hidden, staleSessionDays)
+		c.Println(cliText("cli.session.list.hidden", "count", hidden, "days", staleSessionDays))
 	}
 	return nil
 }
@@ -545,7 +545,7 @@ func runSessionInjectMode(c *gcli.Command, _ []string) error {
 	c.Printf("delivery mode %s for session %s (%s)\n", a.InjectMode, shortSID(a.SessionID), sessionTitle(a))
 	switch a.InjectMode {
 	case jobstore.InjectModeAuto:
-		c.Println("  messages are typed only when the input area is confirmed empty; otherwise they wait for the session's next hook (the web page sends them with 「现在送」)")
+		c.Println("  " + cliText("cli.session.inject_mode.auto_note"))
 	case jobstore.InjectModeHold:
 		c.Println("  nothing is typed into this terminal: every message waits for the session's next hook")
 	default:
@@ -591,7 +591,7 @@ func runSessionRelay(c *gcli.Command, _ []string) error {
 	c.Printf("relay %s for session %s (%s)\n", a.RelayMode, shortSID(a.SessionID), sessionTitle(a))
 	switch a.RelayMode {
 	case "on":
-		c.Println("  every stop now waits on the gofer web 会话 page until you reply there (/off releases it)")
+		c.Println("  " + cliText("cli.session.relay.on_note"))
 	case "auto":
 		c.Println("  the server decides: you are away (keyboard idle, or no input for a while) → it waits; your next terminal input releases it")
 	default:
@@ -929,7 +929,7 @@ func formatSessionFind(list []client.SessionFound) string {
 	for i, a := range list {
 		state := a.State
 		if a.MaybeOffline {
-			state += "(可能不在线)"
+			state += cliText("cli.session.list.maybe_offline")
 		}
 		topic := a.Topic
 		if topic == "" {

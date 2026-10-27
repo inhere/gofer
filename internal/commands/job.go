@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -390,7 +391,7 @@ func NewJobCmd() *gcli.Command {
 			},
 			{
 				Name: "review",
-				Desc: "Print a job's acceptance材料 in one screen (status / review / verify / commits / usage / diff summary + report tail); --diff adds the full diff",
+				Desc: cliText("cli.job.desc.review"),
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -403,7 +404,7 @@ func NewJobCmd() *gcli.Command {
 			},
 			{
 				Name: "findings",
-				Desc: "List the 「发现但不碰」 (out-of-scope findings) items of a job's report; --create-issues files them in the current repo's tracker",
+				Desc: cliText("cli.job.desc.findings"),
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -1152,7 +1153,7 @@ func newJobWorktreeCmd() *gcli.Command {
 					c.BoolOpt(&jobWorktreeOpts.squash, "squash", "", false, "squash the selected branch into one commit")
 					c.BoolOpt(&jobWorktreeOpts.cleanupOthers, "cleanup-others", "", false, "after merging, force-remove the other fan worktrees (and branches) of the same workflow step")
 					c.BoolOpt(&jobWorktreeOpts.todoDone, "todo-done", "", false, "after merging, mark the job's plan todo done (ignored, with a note, for a job without one)")
-					c.StrOpt(&jobWorktreeOpts.note, "note", "", "", "note for --todo-done (default: `<branch> 合入 <main short sha>`)")
+					c.StrOpt(&jobWorktreeOpts.note, "note", "", "", cliText("cli.job.flag.worktree_note"))
 					c.StrOpt(&jobWorktreeOpts.comment, "comment", "", "", "after merging, record this comment on the job")
 					c.BoolOpt(&jobWorktreeOpts.cleanup, "cleanup", "", false, "after merging, unlink the dependency links, remove the worktree and delete the merged branch")
 					c.AddArg("id", "job id", true)
@@ -1475,8 +1476,8 @@ func bindJobRunFlags(c *gcli.Command) {
 	// gofer-3nxa.4：验收标准——非 exec agent 的 prompt 末尾追加「## 验收标准」节，验收面板 / job review 显示。
 	// gofer-3nxa.3：声明改动范围（验收时越界文件标「范围外」）+ 单次关闭「交付约定」节。
 	c.VarOpt(&jobRunOpts.scope, "scope", "", "declared change scope: path globs relative to the repo root (comma-separated and/or repeatable); changed files outside it are marked in review", gflag.WithCategory("Execution"))
-	c.BoolOpt2(&jobRunOpts.noScopeDisc, "no-scope-discipline", "do not append the project's 「交付约定」 (scope discipline) section to this job's prompt", gflag.WithCategory("Execution"))
-	c.StrOpt2(&jobRunOpts.acceptance, "acceptance", "acceptance criteria (markdown list): appended to the agent's prompt as a 「## 验收标准」 section and shown in review", jobRunOptCategory("Execution", ""))
+	c.BoolOpt2(&jobRunOpts.noScopeDisc, "no-scope-discipline", cliText("cli.job.flag.no_scope_discipline"), gflag.WithCategory("Execution"))
+	c.StrOpt2(&jobRunOpts.acceptance, "acceptance", cliText("cli.job.flag.acceptance"), jobRunOptCategory("Execution", ""))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
 	c.BoolOpt2(&jobRunOpts.strictTimeout, "strict-timeout", "refuse a --timeout above the applicable limit with an error (naming the limit and its config key) instead of clamping it", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.session, "session", "keep an ACP agent in the same job across turns", gflag.WithCategory("Execution"))
@@ -1592,8 +1593,7 @@ func newClient(configPath, serverFlag, tokenFlag string) (*client.Client, error)
 	// serverFlag 已经过 gcli 的 ${GOFER_SERVER_ADDR} 环境变量插值(含 dotenv 加载后的
 	// GOFER_CONFIG_DIR/.env)，非空即视为"显式指定"，不误伤正常配置场景。
 	if path == "" && serverFlag == "" {
-		return nil, fmt.Errorf("未找到配置文件，且未通过 -s/--server 指定 server 地址；" +
-			"请用 -s/--server 指定，或配置 $GOFER_CONFIG_DIR/.env（或 --config 指定配置文件）")
+		return nil, errors.New(cliText("cli.job.err.no_config"))
 	}
 	if addr == "" {
 		return nil, fmt.Errorf("no server address: pass --server or set server.addr in config")
@@ -1804,7 +1804,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	// gofer-3db4: say WHICH session the end-notification will reach, so a wrong
 	// target is visible at submit rather than only after the job is over.
 	if target := jobRunNotifyTargetOf(res); target != "" {
-		c.Printf("notify: job 结束时通知会话 %s\n", shortSID(target))
+		c.Println(cliText("cli.job.run.notify", "session", shortSID(target)))
 	}
 	// bd h-aii-s9ck: the server clamps timeout_sec to the project ceiling. Say so on
 	// stderr (never silently truncate a long job's budget) — the job will be killed
@@ -2046,7 +2046,7 @@ func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, er
 	if err != nil && implicitHoldNotify(req) && client.IsNotifyTargetRejected(err) {
 		// The default notice must not cost the job: drop it, say so, submit once more.
 		// An explicit --notify / --notify-session never gets here and still fails.
-		fmt.Fprintf(jobRunStderr, "warning: 默认的 hold 结束通知被服务端拒绝（%v），本次不通知；需要通知请用 --notify-session <sid> 指定\n", err)
+		fmt.Fprintln(jobRunStderr, cliText("cli.job.warn.hold_notify_rejected", "err", err))
 		req.Notify, req.NotifySession = false, ""
 		return cli.SubmitJobSync(req)
 	}
@@ -2079,7 +2079,7 @@ func warnJobRunSecrets(req *job.JobRequest, prompt string) {
 	if len(locations) == 0 {
 		return
 	}
-	fmt.Fprintf(jobRunStderr, "warning: 命令行疑似包含秘密，会被保存在 job 记录中（位置：%s）\n", strings.Join(locations, ", "))
+	fmt.Fprintln(jobRunStderr, cliText("cli.job.warn.secret_in_command", "locations", strings.Join(locations, ", ")))
 }
 
 // stageJobUploads turns every --upload spec into a staged transfer and fills the
@@ -2180,7 +2180,7 @@ func resolveJobRunNotify(cli *client.Client) (bool, string, error) {
 		}
 	}
 	if sid == "" {
-		return false, "", fmt.Errorf("--notify 没有可通知的会话：用 --notify-session <sid> 指定，或从 agent 会话里提交（$GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID；会话列表见 gofer session ls）")
+		return false, "", errors.New(cliText("cli.job.err.notify_no_session"))
 	}
 	return true, sid, nil
 }
@@ -2320,7 +2320,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		trackerID = jobRunOpts.trackerID
 	}
 	if jobRunOpts.issue != "" && trackerID == "" {
-		return job.JobRequest{}, fmt.Errorf("无法从 job cwd 找到 tracker_id；请在工作目录或其父目录初始化 .gofer/tracker，或显式传 --tracker-id")
+		return job.JobRequest{}, errors.New(cliText("cli.job.err.no_tracker_id"))
 	}
 	notify, notifySession, err := resolveJobRunNotify(cli)
 	if err != nil {
@@ -2840,7 +2840,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 		c.Printf("started_at: %s\n", formatStarted(res.StartedAt))
 	}
 	if res.QueuedAt > 0 && res.StartedAt > res.QueuedAt {
-		c.Printf("排队:       %s\n", (time.Duration(res.StartedAt-res.QueuedAt) * time.Second).String())
+		c.Println(cliText("cli.job.show.queued_wait", "duration", (time.Duration(res.StartedAt-res.QueuedAt) * time.Second).String()))
 	}
 	c.Printf("cwd:        %s\n", res.Cwd)
 	c.Printf("result_dir: %s\n", res.ResultDir)
@@ -2903,7 +2903,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 			lockPaths = []string{res.Cwd}
 		}
 		c.Printf("waiting_dir: holder=%s lock_paths=%s\n", res.WaitingOnJob, strings.Join(lockPaths, ", "))
-		c.Printf("waiting_dir_help: 被占用；只读任务加 --read-only，或用 --lock 收窄范围、--shared-dir 放弃独占、--worktree 隔离\n")
+		c.Println(cliText("cli.job.show.waiting_dir_help"))
 	}
 	// GATE-01 S3：人工验收——是否要求人验收，以及已经做出的裁决（谁/何时/为什么）。
 	// needs_review 时 reviewed_* 为空，正说明"还没人裁"。
@@ -3401,7 +3401,7 @@ func runJobReview(c *gcli.Command, _ []string) error {
 		if diff, err := fetchDiff(); err != nil {
 			c.Printf("out_of_scope: (no diff to check: %v)\n", err)
 		} else if outside := job.OutOfScope(job.DiffFiles(diff), res.Scope); len(outside) > 0 {
-			c.Printf("out_of_scope: %d file(s) outside the declared scope (范围外)\n", len(outside))
+			c.Println(cliText("cli.job.review.out_of_scope", "count", len(outside)))
 			for _, f := range outside {
 				c.Printf("            %s\n", f)
 			}
@@ -3420,7 +3420,7 @@ func runJobReview(c *gcli.Command, _ []string) error {
 
 	// gofer-3nxa.4：验收标准放在汇报前——先看标准，再对照汇报逐条判断。
 	if a := strings.TrimSpace(res.Acceptance); a != "" {
-		c.Printf("\n验收标准 (acceptance):\n%s\n", a)
+		c.Printf("\n%s\n%s\n", cliText("cli.job.review.acceptance"), a)
 	}
 
 	tail := jobReviewOpts.tail
@@ -3436,7 +3436,7 @@ func runJobReview(c *gcli.Command, _ []string) error {
 			c.Printf("\nreport (stdout, last %d lines):\n%s\n", tail, lastLines(report, tail))
 			// gofer-3nxa.3：汇报里「发现但不碰」小节单列（从整个 64KB 窗口解析，不受 --tail 限制）。
 			if findings := job.ParseFindings(report); len(findings) > 0 {
-				c.Printf("\n发现但不碰 (%d; file them with `job findings %s --create-issues`):\n", len(findings), id)
+				c.Printf("\n%s\n", cliText("cli.job.review.findings", "count", len(findings), "id", id))
 				for _, f := range findings {
 					c.Printf("- %s\n", f)
 				}
@@ -3494,9 +3494,9 @@ func printReviewHints(c *gcli.Command, h job.ReviewHints) {
 		len(h.ReportVerify) == 0 {
 		return
 	}
-	c.Printf("\n审阅提示 (review hints):\n")
+	c.Printf("\n%s\n", cliText("cli.job.review.hints_head"))
 	if len(h.DeletionHotspots) > 0 {
-		c.Printf("deletion hotspots (删除最多; net = 新增-删除, ⚠ = 删除显著多于新增):\n")
+		c.Printf("%s\n", cliText("cli.job.review.hotspots"))
 		for _, d := range h.DeletionHotspots {
 			mark := "  "
 			if d.DeletionHeavy {
@@ -3506,20 +3506,20 @@ func printReviewHints(c *gcli.Command, h job.ReviewHints) {
 		}
 	}
 	if len(h.RemovedComments) > 0 {
-		c.Printf("removed comments (被删注释):\n")
+		c.Printf("%s\n", cliText("cli.job.review.removed_comments"))
 		for _, rc := range h.RemovedComments {
 			c.Printf("  %s:%d  %s\n", rc.Path, rc.Line, rc.Text)
 		}
 	}
 	if len(h.VerifyLines) > 0 {
-		c.Printf("verify lines (汇报里的验证结果):\n")
+		c.Printf("%s\n", cliText("cli.job.review.verify_lines"))
 		for _, line := range h.VerifyLines {
 			c.Printf("  %s\n", line)
 		}
 	}
 	if len(h.ReportVerify) > 0 {
 		// 来源是 agent 自述：没有 verify 步骤的 job 只能作参考，不能当验收证据。
-		c.Printf("report verify (来源: agent 自述, 仅参考):\n")
+		c.Printf("%s\n", cliText("cli.job.review.report_verify"))
 		for _, b := range h.ReportVerify {
 			c.Printf("  [%s] source=%s\n", b.Heading, b.Source)
 			for _, line := range strings.Split(b.Text, "\n") {
@@ -3628,8 +3628,8 @@ func runJobApprove(c *gcli.Command, _ []string) error {
 	}
 	for _, key := range approvalSessionEnvKeys {
 		if strings.TrimSpace(os.Getenv(key)) != "" {
-			return fmt.Errorf("job approve refused: %s is set, so this runs inside an agent session or job. "+
-				"批准必须由人在 web 或 agent 会话之外的终端操作 (approval must be given by a person in the web console or a terminal outside any agent session)", key)
+			return fmt.Errorf("job approve refused: %s is set, so this runs inside an agent session or job. %s",
+				key, cliText("cli.job.err.approval_needs_person"))
 		}
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
@@ -3902,7 +3902,7 @@ func runJobResume(c *gcli.Command, _ []string) error {
 	c.Printf("resume of %s submitted: new job %s status=%s session_id=%s\n",
 		id, res.ID, res.Status, res.SessionID)
 	if target := jobRunNotifyTargetOf(res); target != "" {
-		c.Printf("notify: job 结束时通知会话 %s（--no-notify 关掉）\n", shortSID(target))
+		c.Println(cliText("cli.job.resume.notify", "session", shortSID(target)))
 	}
 	c.Printf("watch it: gofer job watch %s\n", res.ID)
 	return nil
