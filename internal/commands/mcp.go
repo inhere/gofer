@@ -100,7 +100,7 @@ func resolveScopedProject(flag string, cfg *config.Config, cwd string) (string, 
 	if k := strings.TrimSpace(os.Getenv("GOFER_PROJECT")); k != "" {
 		return k, nil
 	}
-	return "", fmt.Errorf("--project auto: 无法从 CWD(%s) / .gofer.project.yaml / GOFER_PROJECT 解析 project", cwd)
+	return "", fmt.Errorf("%s", cliText("cli.mcp.project_auto_unresolved", "cwd", cwd))
 }
 
 func runMcp(_ *gcli.Command, _ []string) error {

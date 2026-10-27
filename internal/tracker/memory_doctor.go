@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/procattr"
 )
 
@@ -38,8 +39,8 @@ var DoctorSlugs = []string{DoctorFlagged, DoctorHandoffExpired, DoctorNoteStale,
 // summary-missing and duplicate are housekeeping, reported by doctor only.
 var doctorStaleSlugs = []string{DoctorHandoffExpired, DoctorNoteStale, DoctorPathMissing, DoctorCommitMissing}
 
-// PrimeStaleMarker is appended to flagged rule / note entries in prime.
-const PrimeStaleMarker = "⚠ 可能过期"
+// PrimeStaleMarkerIn is appended to flagged rule / note entries in prime.
+func PrimeStaleMarkerIn(lang i18n.Lang) string { return i18n.T(lang, "cli.tracker.doctor.stale_marker") }
 
 const (
 	// duplicateJaccard is the token-set similarity from which two memories with
@@ -103,7 +104,7 @@ func cheapFindings(m Memory, now time.Time) []DoctorFinding {
 	var out []DoctorFinding
 	kind := m.EffectiveKind()
 	if len(m.Flags) > 0 {
-		out = append(out, DoctorFinding{Slug: DoctorFlagged, Detail: flaggedDetail(m.Flags)})
+		out = append(out, DoctorFinding{Slug: DoctorFlagged, Detail: flaggedDetailIn(i18n.FromEnv(), m.Flags)})
 	}
 	if MemoryExpired(m.MemoryMeta, m.Tags, m.UpdatedAt, now) {
 		at, _ := MemoryExpiresAt(m.MemoryMeta, m.Tags, m.UpdatedAt)
@@ -153,10 +154,10 @@ func referenceFindings(m Memory, opts DoctorOptions, missingCommits map[string]b
 	return out
 }
 
-// flaggedDetail is 「N 次 · 最近：<reason> · job:<id> · by <who> · <date>」.
-func flaggedDetail(flags []MemoryFlag) string {
+// flaggedDetailIn is 「N 次 · 最近：<reason> · job:<id> · by <who> · <date>」.
+func flaggedDetailIn(lang i18n.Lang, flags []MemoryFlag) string {
 	last := flags[0]
-	parts := []string{fmt.Sprintf("%d 次", len(flags)), "最近：" + last.Reason}
+	parts := []string{i18n.T(lang, "cli.tracker.doctor.flagged_detail", "count", len(flags), "reason", last.Reason)}
 	if last.Job != "" {
 		parts = append(parts, "job:"+last.Job)
 	}
@@ -166,7 +167,7 @@ func flaggedDetail(flags []MemoryFlag) string {
 	if t, ok := parseTime(last.At); ok {
 		parts = append(parts, t.Format("2006-01-02"))
 	}
-	return strings.Join(parts, " · ") + "（复核后 `gofer memory unflag <key>`）"
+	return strings.Join(parts, " · ") + i18n.T(lang, "cli.tracker.doctor.flagged_review")
 }
 
 func detailList(items []string) string {
@@ -634,6 +635,11 @@ func (s *Store) primeStaleKeys(items []Memory, cfg Config, now time.Time) map[st
 
 // FormatDoctorReport is the human `memory doctor` output.
 func FormatDoctorReport(r DoctorReport) string {
+	return FormatDoctorReportIn(i18n.FromEnv(), r)
+}
+
+// FormatDoctorReportIn is FormatDoctorReport in lang.
+func FormatDoctorReportIn(lang i18n.Lang, r DoctorReport) string {
 	var b strings.Builder
 	for _, e := range r.Memories {
 		fmt.Fprintf(&b, "%s [%s]", e.Key, e.Kind)

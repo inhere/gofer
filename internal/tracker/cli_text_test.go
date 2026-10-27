@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // cliMemoryGolden is the zh-CN text the memory commands print (`memory ls`,
@@ -79,7 +81,7 @@ func collectMemoryCliText() string {
 					{Slug: DoctorDuplicate, Detail: "similar to k-stale2 (0.75)"},
 				}},
 				{Key: "k-flagged", Kind: MemoryKindRule, Findings: []DoctorFinding{
-					{Slug: DoctorFlagged, Detail: flaggedDetail(flagged.Flags)},
+					{Slug: DoctorFlagged, Detail: flaggedDetailIn(i18n.Default, flagged.Flags)},
 				}},
 			},
 		})},

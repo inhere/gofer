@@ -40,7 +40,7 @@ func withMemoryCandidateCmds(cmd *gcli.Command) *gcli.Command {
 		c.BoolOpt(&o.asJSON, "json", "", false, "print JSON")
 	}
 	cmd.Subs = append(cmd.Subs,
-		&gcli.Command{Name: "candidates", Desc: "List knowledge candidates: the 「## 可复用经验」 items of delivered jobs, waiting for accept / reject", Config: func(c *gcli.Command) {
+		&gcli.Command{Name: "candidates", Desc: cliText("cli.memory.candidates.desc"), Config: func(c *gcli.Command) {
 			bind(c)
 			c.StrOpt(&o.project, "project", "p", "", "only this project's candidates")
 			c.StrOpt(&o.job, "job", "", "", "only this job's candidates")
@@ -109,7 +109,7 @@ func memoryCandidateLine(m jobstore.MemoryCandidate, now time.Time) string {
 	line := fmt.Sprintf("#%d [%s] %s %s (%s ago) %s", m.ID, m.Status, m.ProjectKey, m.JobID, age, m.Text)
 	if len(m.WhenPaths) > 0 {
 		// The scope the accepted memory inherits (gofer-opv5): the checkout the job ran in.
-		line += " 适用路径 " + strings.Join(m.WhenPaths, ",")
+		line += " " + cliText("cli.memory.candidates.paths_label") + " " + strings.Join(m.WhenPaths, ",")
 	}
 	if m.MemoryKey != "" {
 		line += " -> " + m.MemoryKey
@@ -147,7 +147,7 @@ func runMemoryAccept(c *gcli.Command, _ []string) error {
 		}
 		c.Printf("candidate #%d accepted -> memory %s (%s, %s)\n", id, out.Memory.Key, where, out.Memory.Kind)
 		if out.Memory.When != nil && len(out.Memory.When.Paths) > 0 {
-			c.Printf("适用路径已设为 %s（来自 job 的 cwd）\n", strings.Join(out.Memory.When.Paths, ","))
+			c.Printf("%s\n", cliText("cli.memory.candidates.paths_set", "paths", strings.Join(out.Memory.When.Paths, ",")))
 		}
 	}
 	return nil

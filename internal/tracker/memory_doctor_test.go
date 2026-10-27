@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gookit/goutil/x/assert"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 func slugsOf(r DoctorReport, key string) []string {
@@ -111,7 +113,7 @@ func TestStoreDoctorGitAndPrimeMarker(t *testing.T) {
 	assert.Require(t, assert.NoErr(t, err))
 	assert.Contains(t, out, "- good-rule: built")
 	assert.Contains(t, out, "- bad-rule: built")
-	assert.Contains(t, out, "aged-note · an old note · 100 天前（久未更新） "+PrimeStaleMarker)
+	assert.Contains(t, out, "aged-note · an old note · 100 天前（久未更新） "+PrimeStaleMarkerIn(i18n.Default))
 
 	r, err := s.Doctor(now)
 	assert.Require(t, assert.NoErr(t, err))
@@ -122,7 +124,7 @@ func TestStoreDoctorGitAndPrimeMarker(t *testing.T) {
 	// A fresh cache lets prime mark the git / path findings without running git.
 	out, err = s.PrimeWith(PrimeOptions{Now: now})
 	assert.Require(t, assert.NoErr(t, err))
-	assert.Contains(t, out, "- bad-rule（"+PrimeStaleMarker+"）: built")
+	assert.Contains(t, out, "- bad-rule（"+PrimeStaleMarkerIn(i18n.Default)+"）: built")
 	assert.Contains(t, out, "- good-rule: built")
 
 	// Config suppression applies to the cached findings too.

@@ -40,7 +40,7 @@ func newRepoChangelogMergeCmd() *gcli.Command {
 			bindConfigFlag(c)
 			c.BoolOpt(&install, "install", "", false, "configure the driver for this repository (.gitattributes + git config) instead of merging")
 			c.StrOpt(&file, "file", "", "CHANGELOG.md", "changelog path relative to the repository root (--install)")
-			c.StrOpt(&unreleased, "unreleased", "", "", "comma-separated section titles treated as unreleased (default: 未发布,Unreleased)")
+			c.StrOpt(&unreleased, "unreleased", "", "", cliText("cli.repo.changelog.unreleased_flag"))
 			c.AddArg("base", "merge base version (%O)", false)
 			c.AddArg("ours", "our version (%A); receives the result", false)
 			c.AddArg("theirs", "their version (%B)", false)

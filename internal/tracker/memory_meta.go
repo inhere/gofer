@@ -154,15 +154,7 @@ func parseTime(value string) (time.Time, bool) {
 
 // AgeText renders the age of a timestamp as 今天 / N 天前 ("" when unparsable).
 func AgeText(value string, now time.Time) string {
-	t, ok := parseTime(value)
-	if !ok {
-		return ""
-	}
-	days := ageDays(t, now)
-	if days <= 0 {
-		return "今天"
-	}
-	return fmt.Sprintf("%d 天前", days)
+	return AgeTextIn(i18n.Default, value, now)
 }
 
 func AgeTextIn(lang i18n.Lang, value string, now time.Time) string {
@@ -412,7 +404,7 @@ func ValidateMemoryForWrite(item Memory) error {
 		return nil
 	}
 	if n := len([]rune(item.Content)); n > MemorySummaryRequiredRunes {
-		msg := fmt.Sprintf("memory content is %d chars (> %d): --summary \"<一句话：这条讲什么、什么时候该看>\" is required", n, MemorySummaryRequiredRunes)
+		msg := i18n.T(i18n.FromEnv(), "cli.tracker.write.summary_required", "n", n, "max", MemorySummaryRequiredRunes)
 		if candidate := FallbackMemorySummary(item.Content); candidate != "" {
 			msg += fmt.Sprintf("; candidate: --summary %s", strconv.Quote(candidate))
 		}

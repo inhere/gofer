@@ -66,7 +66,7 @@ func NewWorkCmd() *gcli.Command {
 					c.StrOpt(&workOpts.query, "query", "q", "", "text search (title/goal/blocker/next)")
 					c.BoolOpt(&workOpts.unsorted, "unsorted", "", false, "only auto-created drafts nobody has sorted yet")
 					c.BoolOpt(&workOpts.due, "due", "", false, "only items whose reminder / park deadline has passed")
-					c.BoolOpt(&workOpts.all, "all", "", false, "include done / dropped items and items merged into another (shown as \"已并入 <id>\"); same set `work rm --status` previews")
+					c.BoolOpt(&workOpts.all, "all", "", false, cliText("cli.work.all_flag"))
 					c.IntOpt(&workOpts.limit, "limit", "", 0, "max rows")
 				},
 				Func: runWorkList,
@@ -128,7 +128,7 @@ func NewWorkCmd() *gcli.Command {
 					c.AddArg("id", "work item id (omit with --captured)", false)
 					c.BoolOpt(&workOpts.captured, "captured", "", false, "rollback helper: move every capture-box item to parked (instead of <id>)")
 					c.StrOpt(&workOpts.until, "until", "u", "", "wake-up time: 2h | 3d | 2026-10-08 | \"2026-10-08 09:30\" | RFC3339 | tomorrow")
-					c.StrOpt(&workOpts.note, "note", "n", "", "condition, e.g. \"到货后继续\"")
+					c.StrOpt(&workOpts.note, "note", "n", "", cliText("cli.work.park_note_arg"))
 				},
 				Func: runWorkPark,
 			},
@@ -412,7 +412,7 @@ func runWorkList(c *gcli.Command, _ []string) error {
 		}
 		title := w.Title
 		if w.MergedInto != "" {
-			title += "  （已并入 " + w.MergedInto + "）"
+			title += "  " + cliText("cli.work.merged_into", "id", w.MergedInto)
 		}
 		c.Printf("%-13s %-16s %-4d %-5s %-6s %s\n", w.ID, w.Status, len(w.SessionIDs), ago(w.LastActivityAt), flags, title)
 	}
