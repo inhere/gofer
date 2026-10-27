@@ -161,6 +161,9 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/jobs/{id}/end` | `InHandler(deny)` | `job.manage.others` | `job` | `Resource(job)` | 写 |
 | `GET` | `/v1/jobs/{id}/events` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `POST` | `/v1/jobs/{id}/findings/issue` | `Public` | — | — | `Resource(job)` | 写 |
+| `GET` | `/v1/jobs/{id}/follow-ups` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/follow-ups` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(job)` | 写 |
+| `DELETE` | `/v1/jobs/{id}/follow-ups/{follow_up_id}` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(job)` | 写 |
 | `GET` | `/v1/jobs/{id}/interactions` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `POST` | `/v1/jobs/{id}/interactions` | `InHandler(deny)` | `job.manage.others` | — | `Resource(job)` | 写 |
 | `POST` | `/v1/jobs/{id}/interactions/{interaction_id}/answer` | `Require` | `interaction.answer` | — | `Resource(job)` | 写 |

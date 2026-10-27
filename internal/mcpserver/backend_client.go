@@ -62,6 +62,18 @@ func (b *clientBackend) EndJob(id string) (job.JobResult, error) {
 	return b.cli.EndJob(id)
 }
 
+func (b *clientBackend) QueueFollowUp(id, prompt string, reviewEach bool) (job.FollowUp, error) {
+	return b.cli.QueueFollowUp(id, prompt, reviewEach)
+}
+
+func (b *clientBackend) ListFollowUps(id string) ([]job.FollowUp, error) {
+	return b.cli.ListFollowUps(id)
+}
+
+func (b *clientBackend) DropFollowUp(id string, followUpID int64) error {
+	return b.cli.DropFollowUp(id, followUpID)
+}
+
 // RejectJob forwards the refusal to the central serve, whose own auth stamps the
 // reviewer (by here is only used by the in-process backend). Nothing about the caller's
 // identity rides along: the central serve reads it from the CREDENTIAL the request

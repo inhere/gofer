@@ -1525,6 +1525,9 @@ func (s *Server) buildRouter() *rux.Router {
 		// exec job（同 runner）。body {prompt, runner?}；校验失败 4xx/404(resumeStatus)。
 		r.POST("/jobs/{id}/resume", s.handleResumeJob)
 
+		r.POST("/jobs/{id}/follow-ups", s.handleQueueFollowUp)
+		r.GET("/jobs/{id}/follow-ups", s.handleListFollowUps)
+		r.DELETE("/jobs/{id}/follow-ups/{follow_up_id}", s.handleDropFollowUp)
 		// P5: rebuild a NEW job from a source job's request + edits (env stays server-side).
 		// rerun = empty-body rebuild. 校验失败 4xx/404(rebuildStatus)。
 		r.POST("/jobs/{id}/rebuild", s.handleRebuildJob)

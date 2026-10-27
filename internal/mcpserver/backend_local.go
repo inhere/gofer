@@ -190,6 +190,27 @@ func (b *localBackend) EndJob(id string) (job.JobResult, error) {
 	return result, nil
 }
 
+func (b *localBackend) QueueFollowUp(id, prompt string, reviewEach bool) (job.FollowUp, error) {
+	if _, err := b.sessionTarget(id); err != nil {
+		return job.FollowUp{}, err
+	}
+	return b.jobs.QueueFollowUp(id, prompt, os.Getenv(envJobID), reviewEach)
+}
+
+func (b *localBackend) ListFollowUps(id string) ([]job.FollowUp, error) {
+	if _, err := b.sessionTarget(id); err != nil {
+		return nil, err
+	}
+	return b.jobs.ListFollowUps(id)
+}
+
+func (b *localBackend) DropFollowUp(id string, followUpID int64) error {
+	if _, err := b.sessionTarget(id); err != nil {
+		return err
+	}
+	return b.jobs.DropFollowUp(id, followUpID)
+}
+
 // RejectJob records the MCP caller's refusal of a needs_review job. by is this
 // session's registered driver agent id ("" when unregistered — the job layer records
 // that as anonymous), so the audit trail names the agent that refused the delivery.

@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 改进
+
+- **运行中 job 支持追加需求（gofer-t9b6）**：新增 `gofer job follow-up`、HTTP `/v1/jobs/{id}/follow-ups`、MCP `gofer_job_follow_up` 与 Web 详情入口；需求持久化排队，在源 job 结束后复用同一会话与工作目录续接，支持查看、撤回及逐条人工验收。
+
 ### 文档
 
 - **两份 README 的第一屏重排**：开头依次是一句话定位、验收流程动图（`review` → `merge`，两张动图复制到 `.github/image/`、用相对路径引用）、四条卖点和 4 行快速开始（`eget install` → `gofer init server --global` → `GOFER_TOKEN` → `gofer serve`）；0.x 状态提示缩成一句并移到快速开始之后。原有的「是什么 / 不是什么」、架构图与工作台截图、Features、安装步骤都保留，原来的「10 分钟上手」改名为「完整走查」。

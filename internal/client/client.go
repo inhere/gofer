@@ -1423,7 +1423,34 @@ func (c *Client) ResumeJobWith(id, prompt, runner string, opts job.ResumeOptions
 	return res, err
 }
 
-// WorkflowStep is one row of a workflow's step chain in the detail response,
+// FollowUp is a queued request that will continue a live job's session after it ends.
+type FollowUp = job.FollowUp
+
+func (c *Client) QueueFollowUp(id, prompt string, reviewEach bool) (FollowUp, error) {
+	body, err := json.Marshal(struct {
+		Prompt     string `json:"prompt"`
+		ReviewEach bool   `json:"review_each,omitempty"`
+	}{prompt, reviewEach})
+	if err != nil {
+		return FollowUp{}, err
+	}
+	var out FollowUp
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/follow-ups", bytes.NewReader(body), &out)
+	return out, err
+}
+
+func (c *Client) ListFollowUps(id string) ([]FollowUp, error) {
+	var out struct {
+		FollowUps []FollowUp `json:"follow_ups"`
+	}
+	err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/follow-ups", nil, &out)
+	return out.FollowUps, err
+}
+
+func (c *Client) DropFollowUp(id string, followUpID int64) error {
+	return c.doJSON(http.MethodDelete, "/v1/jobs/"+url.PathEscape(id)+"/follow-ups/"+strconv.FormatInt(followUpID, 10), nil, &struct{}{})
+}
+
 // mirroring httpapi's workflow.Step JSON (snake_case). job_id/status are empty
 // for a step not yet started (the chain is strictly serial). Attempt is the 1-based
 // retry attempt of this step-job (P1) and FanIndex the 1-based fan-out parallel index

@@ -1255,7 +1255,14 @@ export function resumeJob(
   })
 }
 
-// 工作流列表（GET /v1/workflows）：可选 status 过滤 + limit / offset 分页；返回头部数组（无 steps）
+export function queueFollowUp(id: string, prompt: string, reviewEach = false): Promise<{ id: number; prompt: string; status: string; review_each?: boolean }> {
+  return request(`/v1/jobs/${encodeURIComponent(id)}/follow-ups`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, review_each: reviewEach }),
+  })
+}
+
+
 // 与同一过滤条件下的总条数 total。
 export function listWorkflows(opts: { status?: WorkflowStatus; limit?: number; offset?: number } = {}): Promise<WorkflowsResp> {
   const qs = new URLSearchParams()

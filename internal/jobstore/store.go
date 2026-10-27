@@ -164,6 +164,18 @@ var schemaStmts = []string{
 	// (jobs of one agent inside a time window) — the read behind `gofer agent status`,
 	// the web badge and the pre-dispatch decision.
 	`CREATE INDEX IF NOT EXISTS idx_jobs_agent_started ON jobs(agent, started_at)`,
+	`CREATE TABLE IF NOT EXISTS job_followups (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id         TEXT NOT NULL,
+  prompt         TEXT NOT NULL,
+  created_at     INTEGER NOT NULL,
+  created_by     TEXT,
+  review_each    INTEGER NOT NULL DEFAULT 0,
+  status         TEXT NOT NULL DEFAULT 'pending',
+  claimed_at     INTEGER,
+  continuation_id TEXT
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_job_followups_pending ON job_followups(job_id, status, id)`,
 	`CREATE TABLE IF NOT EXISTS interactions (
   id           TEXT NOT NULL,
   job_id       TEXT NOT NULL,

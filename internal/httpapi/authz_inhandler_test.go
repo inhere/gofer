@@ -262,6 +262,15 @@ var jobAuthzCases = []authzCase{
 	{key: "POST /v1/jobs/{id}/resume", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/resume", map[string]string{"prompt": "again"}}
 	}},
+	{key: "POST /v1/jobs/{id}/follow-ups", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/follow-ups", map[string]string{"prompt": "later"}}
+	}},
+	{key: "GET /v1/jobs/{id}/follow-ups", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/follow-ups", nil}
+	}},
+	{key: "DELETE /v1/jobs/{id}/follow-ups/{follow_up_id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/jobs/" + e.job.ID + "/follow-ups/1", nil}
+	}},
 	// reject is review always, plus job.submit when it asks to resume (a resume starts a new
 	// job): the resume body makes the own half decide both permissions.
 	{key: "POST /v1/jobs/{id}/reject", req: func(e *authzCaseEnv) caseReq {

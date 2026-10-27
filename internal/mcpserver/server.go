@@ -118,6 +118,10 @@ func newServer(b Backend, scoped string) *mcp.Server {
 		Name:        "gofer_job_end",
 		Description: "End a resident ACP session job and release its lock.",
 	}, sessionJobEndHandler(b))
+	addGoferTool(s, &mcp.Tool{
+		Name:        "gofer_job_follow_up",
+		Description: "Queue, list, or drop follow-up requests for a running job; queued requests continue its session when it ends.",
+	}, jobFollowUpHandler(b))
 
 	// GATE-01 S3: an agent may REFUSE a delivery it judges unacceptable (with a reason,
 	// and optionally hand the work back for another attempt), but it can never ACCEPT
@@ -1429,6 +1433,46 @@ func sessionJobEndHandler(b Backend) mcp.ToolHandlerFor[sessionJobEndInput, jobV
 			return nil, jobView{}, err
 		}
 		return nil, toJobView(result), nil
+	}
+}
+
+type jobFollowUpInput struct {
+	JobID      string `json:"job_id"`
+	Prompt     string `json:"prompt,omitempty"`
+	ReviewEach bool   `json:"review_each,omitempty"`
+	List       bool   `json:"list,omitempty"`
+	DropID     int64  `json:"drop_id,omitempty"`
+}
+
+type jobFollowUpOutput struct {
+	FollowUps []job.FollowUp `json:"follow_ups"`
+	Queued    *job.FollowUp  `json:"queued,omitempty"`
+}
+
+func jobFollowUpHandler(b Backend) mcp.ToolHandlerFor[jobFollowUpInput, jobFollowUpOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in jobFollowUpInput) (*mcp.CallToolResult, jobFollowUpOutput, error) {
+		if in.JobID == "" {
+			return nil, jobFollowUpOutput{}, fmt.Errorf("job_id is required")
+		}
+		if in.DropID > 0 {
+			if err := b.DropFollowUp(in.JobID, in.DropID); err != nil {
+				return nil, jobFollowUpOutput{}, err
+			}
+		} else if strings.TrimSpace(in.Prompt) != "" {
+			item, err := b.QueueFollowUp(in.JobID, in.Prompt, in.ReviewEach)
+			if err != nil {
+				return nil, jobFollowUpOutput{}, err
+			}
+			items, _ := b.ListFollowUps(in.JobID)
+			return nil, jobFollowUpOutput{FollowUps: items, Queued: &item}, nil
+		} else if !in.List {
+			return nil, jobFollowUpOutput{}, fmt.Errorf("prompt, list, or drop_id is required")
+		}
+		items, err := b.ListFollowUps(in.JobID)
+		if err != nil {
+			return nil, jobFollowUpOutput{}, err
+		}
+		return nil, jobFollowUpOutput{FollowUps: items}, nil
 	}
 }
 

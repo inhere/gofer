@@ -55,6 +55,7 @@ import {
   patchJobTitle,
   puntInteraction,
   resumeJob,
+  queueFollowUp,
   getWorkflow,
   createWakeup,
   deleteWakeup,
@@ -758,6 +759,23 @@ async function doResume(): Promise<void> {
   } finally {
     resuming.value = false
   }
+}
+
+const followUpPrompt = ref('')
+const followUpReviewEach = ref(false)
+const followUpBusy = ref(false)
+const followUpError = ref('')
+const followUps = ref<Array<{ id: number; prompt: string; status: string; review_each?: boolean }>>([])
+async function submitFollowUp(): Promise<void> {
+  if (!job.value || !followUpPrompt.value.trim() || followUpBusy.value) return
+  followUpBusy.value = true
+  followUpError.value = ''
+  try {
+    const item = await queueFollowUp(job.value.id, followUpPrompt.value, followUpReviewEach.value)
+    followUps.value.push(item)
+    followUpPrompt.value = ''
+  } catch (e) { followUpError.value = e instanceof Error ? e.message : String(e) }
+  finally { followUpBusy.value = false }
 }
 
 // 会话链：同 session_id 的全部 job（含本 job）。resume 复用源 job 的 session_id，
@@ -2172,6 +2190,15 @@ onUnmounted(() => {
           {{ t('jobs.detail.fromSession') }}
         </button>
         <span v-if="isTerminalView && fromSessionPick.visible && fromSessionPick.note" class="meta-v resume-mode-note" data-test="from-session-note">{{ fromSessionPick.note }}</span>
+      </div>
+      <div v-if="job.session_id && !isTerminalView && canResume" class="resume-form follow-up-form">
+        <textarea v-model="followUpPrompt" class="resume-input mono" rows="2" :placeholder="t('jobs.detail.followUpPh')"></textarea>
+        <label class="mono"><input v-model="followUpReviewEach" type="checkbox" /> {{ t('jobs.detail.followUpEach') }}</label>
+        <div class="resume-actions">
+          <button class="resume-go mono" type="button" :disabled="followUpBusy || !followUpPrompt.trim()" @click="submitFollowUp">{{ followUpBusy ? t('jobs.detail.followUpSubmitting') : t('jobs.detail.followUpSubmit') }}</button>
+          <span v-if="followUpError" class="resume-err mono">{{ followUpError }}</span>
+        </div>
+        <ul v-if="followUps.length" class="chain-list"><li v-for="item in followUps" :key="item.id" class="mono">[{{ item.status }}] {{ item.prompt }}</li></ul>
       </div>
       <div v-if="job.session_id && isTerminalView && showResumeForm && canResume" class="resume-form">
         <div class="resume-modes" role="radiogroup" :aria-label="t('jobs.detail.resumeModes')">

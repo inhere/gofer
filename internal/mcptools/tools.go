@@ -118,6 +118,7 @@ var registry = []Tool{
 	{Name: "gofer_job_set", Class: Write, Idempotent: true},
 	{Name: "gofer_cancel_job", Class: Destructive},
 	{Name: "gofer_job_say", Class: Write},
+	{Name: "gofer_job_follow_up", Class: Write},
 	{Name: "gofer_job_end", Class: Destructive},
 	{Name: "gofer_reject_job", Class: Write},
 	{Name: "gofer_answer_interaction", Class: Write},

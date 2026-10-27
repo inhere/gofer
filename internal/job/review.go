@@ -175,6 +175,9 @@ func (s *Service) reviewJob(jobID, by, note, verdict string, resume, skipDeliver
 	// needs_review already told its sender once, so this second dispatch is a no-op
 	// (the notification deduplicates itself durably; see sessionrelay.NotifyJobEnded).
 	s.notifyJobEnded(snap)
+	if verdict == verdictAccepted {
+		s.processFollowUps(snap)
+	}
 	// Post-finish hook (finish's tail): a reviewed step-job unblocks/advances its
 	// workflow now — an accepted step is a done step, a rejected one is a failed step.
 	// Never blocking, and a no-op for a non-workflow job.
