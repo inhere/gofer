@@ -15,6 +15,10 @@
 
 - **Web 工作流列表分页（每页 50 条）**：`/workflows` 由「整表返回、只显示最新 200 条」改成服务端分页，页脚可上下翻页、页码写进 URL 的 `?page=`（可分享、后退可复原），切状态过滤回到第 1 页；页头与页脚显示当前过滤下的总条数与第几页。为此 `GET /v1/workflows` 新增 `limit` / `offset` 参数并返回 `total`（不带参数时与以前一样返回整段列表）；没有 `job.read.others` 的调用方「只看自己的」这一限制改为随查询下推，一页不再被过滤后剩半页。状态 chip 不再带计数（分页后拿不到各状态的总数，总数显示在页头 / 页脚）。
 
+### 新增
+
+- **常用 CLI 命令的 `--help` 与输出按语言显示（gofer-992q，阶段 2 之一）**：`gofer job`（含 `review` / `findings` / `worktree merge` / `resume` / `show` / `approve` 等）、`gofer plan`、`gofer session` 三个命令组的说明、flag 说明、提示与错误现在支持 `en` / `zh-CN`。语言来源：`GOFER_LANG` → 系统语言（`LANG` / `LC_ALL`，Windows 取界面语言）→ 缺省；`--json` 等机器可读输出不翻译。中文输出与以前逐字一致（有帮助文本 golden 守住）。
+
 ## [0.199.1] - 2026-10-27
 
 ### 修复

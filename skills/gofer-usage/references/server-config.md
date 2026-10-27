@@ -268,6 +268,7 @@ server:
   # web_enabled: true                  # 不写=开
   # web_base_url: https://gofer.example.com   # 对外地址(通知 / 待批链接里用)
   # language: zh-CN                    # gofer 生成文本的语言: en 或 zh-CN(也认 zh / zh_CN.UTF-8 / english 等别名，归一化为规范值)；影响注入给 agent 的提示词段落(验收标准 / 交付约定 / 时限提示)、交付请求正文、续接 / 自动续投 / 未提交续投的提示语、管家会话的首条简报与巡检提示里的动态部分，以及 agent 在 MCP tools/list 里读到的工具说明与报错(内建 MCP 读本机配置；瘦客户端暂用本机语言链)、`gofer repo init` / `repo migrate` 写进 AGENTS.md / CLAUDE.md 的托管说明块；项目可用 projects.<key>.language 覆盖；不写 = 暂用 zh-CN(以后版本默认改为 en，启动日志与 `gofer config validate` 会提示)；`gofer init` 按本机系统语言写入
+
   # path_view: host|container          # 执行视角(默认 host=用 host_path)
   # callers: [...]                     # 多调用方鉴权 + 每个 caller 的权限(can_admin / can_answer)与限流
   # governance: {...}                  # 限流全局兜底、require_answer_capability、attach_origins
@@ -365,6 +366,8 @@ server:
   agent_fallback: { on_failure: true, pre_dispatch: false }
   agent_health: { window_sec: 3600, degraded_after: 3, recover_after_ok: 1 }
 ```
+
+> `gofer` 命令自己的 `--help` 与提示按**调用方**的语言显示，来源链：`GOFER_LANG` 环境变量 → 系统语言(`LANG` / `LC_ALL`，Windows 取界面语言) → 缺省。`--json` 等机器可读输出不翻译。已支持的命令组:`job` / `plan` / `session`。
 
 - 候选必须是 `agents` 里声明过的、非 exec、能跑批处理的 agent，加载时校验；提交时再按项目 `allowed_agents` 过滤（不在白名单的跳过并告警），解析结果随 job 冻结。单个 job 用 `job run --fallback omp,claude` 覆盖、`--no-fallback` 关掉。
 - 触发：job 失败且命中瞬时错误模式、自己也续不了；验证步骤失败不算。动作：以普通 job 重提原请求（新会话、同一 cwd，prompt 加前缀说明只做剩余部分，标题加 `(→omp)`，继承 plan / tags / review / verify / todo 等）。

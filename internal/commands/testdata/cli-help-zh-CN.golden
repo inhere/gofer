@@ -1,0 +1,821 @@
+job	desc	Submit and manage jobs via the bridge server
+job	help	
+job	examples	
+job accept	desc	Accept a job awaiting review (needs_review -> done)
+job accept	help	
+job accept	examples	
+job accept	flag config	path to the gofer config file
+job accept	flag no-deliver	accept without delivering the worktree branch (skip the project's delivery)
+job accept	flag note	optional note recorded with the acceptance
+job accept	flag server	server address (overrides config server.addr)
+job accept	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job answer	desc	Answer a job's pending interaction (an approval takes one of its option ids)
+job answer	help	
+job answer	examples	
+job answer	flag config	path to the gofer config file
+job answer	flag server	server address (overrides config server.addr)
+job answer	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job approve	desc	Approve a job awaiting approval (awaiting_approval -> queued, then it runs). A person's decision: refused inside an agent session
+job approve	help	
+job approve	examples	
+job approve	flag config	path to the gofer config file
+job approve	flag note	optional note recorded with the approval
+job approve	flag server	server address (overrides config server.addr)
+job approve	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job cancel	desc	Cancel a running job
+job cancel	help	
+job cancel	examples	
+job cancel	flag config	path to the gofer config file
+job cancel	flag server	server address (overrides config server.addr)
+job cancel	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job comment	desc	Comment on a job. A mention like @omp or @reviewer in a USER's comment dispatches a job for it; inside a job (GOFER_JOB_ID set) the comment is recorded as that agent's and dispatches nothing
+job comment	help	
+job comment	examples	
+job comment	flag config	path to the gofer config file
+job comment	flag server	server address (overrides config server.addr)
+job comment	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job comments	desc	List a job's comment thread
+job comments	help	
+job comments	examples	
+job comments	flag config	path to the gofer config file
+job comments	flag server	server address (overrides config server.addr)
+job comments	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job delete	desc	Delete terminal job records and keep a deletion audit
+job delete	help	
+job delete	examples	
+job delete	flag config	path to the gofer config file
+job delete	flag server	server address (overrides config server.addr)
+job delete	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job delete	flag yes	confirm deletion without an interactive prompt
+job deliver	desc	Deliver a done --worktree job now: merge its branch, push it, or push it and open a pull / merge request
+job deliver	help	
+job deliver	examples	
+job deliver	flag branch	remote branch name (default: the project's delivery.branch template)
+job deliver	flag config	path to the gofer config file
+job deliver	flag draft	open the request as a draft
+job deliver	flag dry-run	show the delivery plan without executing it
+job deliver	flag mode	merge | push | pr (default: the job's / project's delivery mode)
+job deliver	flag ready	open the request ready for review (not a draft)
+job deliver	flag server	server address (overrides config server.addr)
+job deliver	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job end	desc	End a resident ACP session job and release its lock
+job end	help	
+job end	examples	
+job end	flag config	path to the gofer config file
+job end	flag server	server address (overrides config server.addr)
+job end	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job findings	desc	List the 「发现但不碰」 (out-of-scope findings) items of a job's report; --create-issues files them in the current repo's tracker
+job findings	help	
+job findings	examples	
+job findings	flag config	path to the gofer config file
+job findings	flag create-issues	create one issue per finding in the current repository's tracker (description names the job) and print the new ids
+job findings	flag priority	priority of the created issues, 0 (highest)..4
+job findings	flag server	server address (overrides config server.addr)
+job findings	flag tag	comma-separated tags of the created issues
+job findings	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job interactions	desc	List a job's interactions (questions, choices, approval requests)
+job interactions	help	
+job interactions	examples	
+job interactions	flag config	path to the gofer config file
+job interactions	flag server	server address (overrides config server.addr)
+job interactions	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job list	desc	List jobs with optional filters (tag/agent/runner/since/...)
+job list	help	
+job list	examples	
+job list	flag agent	filter by agent key
+job list	flag all	include internal delivery jobs (messenger)
+job list	flag caller	filter by caller id
+job list	flag config	path to the gofer config file
+job list	flag limit	max jobs to return (0 = server default)
+job list	flag plan	filter by plan id (exact match)
+job list	flag project	filter by project key
+job list	flag runner	filter by runner key
+job list	flag server	server address (overrides config server.addr)
+job list	flag session	filter by session id (exact match; lists a session's turns)
+job list	flag since	keep jobs with started_at >= since (unix seconds)
+job list	flag source-job	filter by source job id (list jobs derived from it)
+job list	flag status	filter by status (awaiting_approval/paused_for_update/queued/running/recovering/pending_interaction/needs_review/done/failed/cancelled/timeout/rejected)
+job list	flag tag	filter by tag (exact element match)
+job list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job list	flag wf	filter by workflow id (list that workflow's step-jobs)
+job logs	desc	Read a job's stdout/stderr logs
+job logs	help	
+job logs	examples	
+job logs	flag config	path to the gofer config file
+job logs	flag head	read first lines
+job logs	flag lines	number of lines (last N; first N with --head; default 20 with --head/--tail)
+job logs	flag server	server address (overrides config server.addr)
+job logs	flag stderr	read stderr stream
+job logs	flag stream	log stream: stdout|stderr
+job logs	flag tail	read last lines
+job logs	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job redact	desc	Redact literals or patterns from a terminal job
+job redact	help	
+job redact	examples	
+job redact	flag config	path to the gofer config file
+job redact	flag literal-from-stdin	read the literal from stdin; it is never accepted as an argument
+job redact	flag pattern	RE2 pattern to redact (repeatable)
+job redact	flag server	server address (overrides config server.addr)
+job redact	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job reject	desc	Reject a job awaiting review (needs_review -> rejected; --resume continues it with the note) or a job awaiting approval (-> cancelled, never run; the reason is optional)
+job reject	help	
+job reject	examples	
+job reject	flag config	path to the gofer config file
+job reject	flag note	why it is refused (required for a delivery, optional for a held job; also the continuation's prompt with --resume)
+job reject	flag reason	alias of --note
+job reject	flag resume	continue the work: start a new job with the note as its prompt (not for a held job)
+job reject	flag server	server address (overrides config server.addr)
+job reject	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job rerun	desc	Re-submit a job from its original request (fresh idempotency key)
+job rerun	help	
+job rerun	examples	
+job rerun	flag config	path to the gofer config file
+job rerun	flag server	server address (overrides config server.addr)
+job rerun	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job rerun	flag watch	watch the new job's stream until it finishes
+job resume	desc	Resume a job's underlying agent session as a new job (same runner)
+job resume	help	
+job resume	examples	
+job resume	flag agent	continue with another agent of the same session family (e.g. claude-acp <-> claude); default = the source's agent
+job resume	flag agent-budget-cost-usd	soft USD cost budget handed to the agent, which winds the run up itself once spent, e.g. 2.5 (only agents with an agent_budget mapping — others are refused)
+job resume	flag agent-budget-tokens	soft token budget handed to the agent, which winds the run up itself once spent (accepts 50000 / 50k / 1.5m; only agents with an agent_budget mapping, e.g. suga — others are refused). Keep it below --max-tokens
+job resume	flag config	path to the gofer config file
+job resume	flag env	extra env var for the resumed process: K=V (repeatable; overrides the env inherited from the source agent/job). The value is stored with the new job (request_json) - never pass secrets here
+job resume	flag lock	narrow the directory lock to this project-relative path (repeatable): overrides the lock inherited from the source job, e.g. --lock gookit/ini so jobs of other sub-modules stop queueing behind the project root. The continuation's cwd is unchanged
+job resume	flag max-cost	kill the job once its reported cost exceeds this many USD, e.g. 2.5 (only for agents that report a cost; default unlimited)
+job resume	flag max-tokens	kill the job once its token usage (input+output+cache) exceeds this; accepts 50000 / 50k / 1.5m (default: the agent's / project's budget, else unlimited)
+job resume	flag max-turns	kill the job once it has made more than this many model requests (default unlimited)
+job resume	flag mode	continuation form: session (resident ACP) | interactive (pty) | batch (one-shot --resume -p); default = what the source job implies
+job resume	flag model	model for the continuation (default = the source job's model)
+job resume	flag no-notify	do not notify the session when the continuation ends (the source job's end-notification is inherited by default)
+job resume	flag no-plan	group the continuation under no plan (drops the inherited plan and its checklist link)
+job resume	flag plan	plan to group the continuation under (default = the source job's plan)
+job resume	flag prompt	prompt text for the resumed turn
+job resume	flag runner	target runner (must equal the source job's runner; default = source runner)
+job resume	flag server	server address (overrides config server.addr)
+job resume	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job retry	desc	Inspect or cancel the durable retries of a failed job
+job retry	help	
+job retry	examples	
+job retry cancel	desc	Cancel one pending retry so the sweeper will not submit it
+job retry cancel	help	
+job retry cancel	examples	
+job retry cancel	flag config	path to the gofer config file
+job retry cancel	flag server	server address (overrides config server.addr)
+job retry cancel	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job retry ls	desc	List a job's retry chain (attempt/state/reason/next run)
+job retry ls	help	
+job retry ls	examples	
+job retry ls	flag config	path to the gofer config file
+job retry ls	flag server	server address (overrides config server.addr)
+job retry ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job review	desc	Print a job's acceptance材料 in one screen (status / review / verify / commits / usage / diff summary + report tail); --diff adds the full diff
+job review	help	
+job review	examples	
+job review	flag config	path to the gofer config file
+job review	flag diff	also print the full diff (the captured changes.diff)
+job review	flag json	print the job's id/status and the review hints as JSON instead of the review screen
+job review	flag server	server address (overrides config server.addr)
+job review	flag tail	how many lines of the agent's final report (stdout tail) to print
+job review	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job run	desc	Submit a new job
+job run	help	
+job run	examples	
+job run	flag acceptance	acceptance criteria (markdown list): appended to the agent's prompt as a 「## 验收标准」 section and shown in review
+job run	flag agent	agent key (required)
+job run	flag agent-arg	extra arg appended to cli-agent argv (repeatable)
+job run	flag agent-budget-cost-usd	soft USD cost budget handed to the agent, which winds the run up itself once spent, e.g. 2.5 (only agents with an agent_budget mapping — others are refused)
+job run	flag agent-budget-tokens	soft token budget handed to the agent, which winds the run up itself once spent (accepts 50000 / 50k / 1.5m; only agents with an agent_budget mapping, e.g. suga — others are refused). Keep it below --max-tokens
+job run	flag branch	branch name for --worktree (overrides the project's worktree.branch template)
+job run	flag channel	submission channel recorded as provenance (cli/web/mcp/...)
+job run	flag collect	glob collected from the job's cwd into its artifacts after the job ends (repeatable, e.g. 'tmp/out/*.csv')
+job run	flag cols	initial terminal columns for --interactive (0 = server default 80)
+job run	flag config	path to the gofer config file
+job run	flag cwd	working dir within the project
+job run	flag deliver	with --worktree: deliver the branch once done / accepted: none | merge | push | pr (overrides the project's delivery.mode)
+job run	flag deliver-branch	with --deliver push|pr: the remote branch name
+job run	flag env	extra env var for the job process: K=V (repeatable). The value is stored with the job (request_json) — never pass secrets here
+job run	flag exclusive-dir	force the exclusive same-directory lock for this job (an exec job included): no other exclusive job runs in this directory, its ancestors or its subdirectories
+job run	flag fallback	comma-separated fallback agents for a transient failure (e.g. omp,claude); overrides the project/agent lists
+job run	flag file	submit a md+yaml task file (frontmatter params + prompt body)
+job run	flag from-session	start a NEW agent session that inherits this earlier session's context (cli-agent with from_session_args, e.g. suag --from); unlike `job resume` the source session is not continued
+job run	flag hold	hold the job for a person's approval: it parks in awaiting_approval and runs only after someone approves it in the web console (or gofer job approve outside an agent session); rejected or expired = cancelled, never run
+job run	flag hold-reason	why the job needs approval, shown to the approver (with --hold)
+job run	flag hold-timeout	seconds to wait for a decision before the job is cancelled (0 = server.hold.default_timeout_sec, 86400; above server.hold.max_timeout_sec is refused)
+job run	flag idle-timeout	seconds to await the next session message (0 = 1800)
+job run	flag interactive	request an interactive pty job
+job run	flag issue	link this job to a repository tracker issue
+job run	flag lock	project-relative directory lock path (repeatable)
+job run	flag lock-wait	directory lock wait cap in seconds (0 = no cap, if server allows)
+job run	flag max-cost	kill the job once its reported cost exceeds this many USD, e.g. 2.5 (only for agents that report a cost; default unlimited)
+job run	flag max-session	whole session ceiling in seconds (0 = unlimited)
+job run	flag max-tokens	kill the job once its token usage (input+output+cache) exceeds this; accepts 50000 / 50k / 1.5m (default: the agent's / project's budget, else unlimited)
+job run	flag max-turns	kill the job once it has made more than this many model requests (default unlimited)
+job run	flag mcp	registry MCP server to give this job (repeatable or comma-separated; adds to the server/agent/project bindings)
+job run	flag model	model for the agent (cli-agent: its model_args, built in for claude/codex; acp-agent: picked over the protocol); default = the agent's own
+job run	flag no-fallback	do not hand this job to a fallback agent (overrides every configured list)
+job run	flag no-mcp	give this job no registry MCP servers (overrides every configured binding)
+job run	flag no-notify	do not notify the submitting session when this job ends (a --hold job run from an agent session notifies that session by default)
+job run	flag no-retry	never re-run this job after a failure (overrides every configured policy)
+job run	flag no-rules	inject no rules for this job (overrides every configured binding; a job credential may not use this)
+job run	flag no-scope-discipline	do not append the project's 「交付约定」 (scope discipline) section to this job's prompt
+job run	flag no-secret-check	disable the advisory secret-shape scan before submitting this job
+job run	flag no-skills	mount no skills for this job (overrides every configured binding)
+job run	flag no-stall	never kill this job for silence (overrides --stall-timeout, the agent's and the server's settings)
+job run	flag no-verify	do not run the project's default verify step for this job
+job run	flag notify	tell the submitting session through the gofer messenger when this job ends (a system notice; off by default because each notice starts a messenger process)
+job run	flag notify-session	session id to notify when this job ends (implies --notify); default: the source session, else the agent session this command runs in ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID)
+job run	flag plan	attach the job to a plan (grouping key)
+job run	flag prime-keywords	comma-separated subsystems / languages / modules this task touches: the injected tracker-prime matches them (with the title and the prompt head) against the memories' keywords, keys, tags and summaries, injecting the matching ones in full and first (default: $GOFER_PRIME_KEYWORDS)
+job run	flag project	project key (required)
+job run	flag prompt	prompt text for cli-agent (use -- <argv...> for exec)
+job run	flag read-only	run read-only: audit/analysis only, the agent cannot write (cli-agent read_only_args / acp-agent acp.modes.read_only)
+job run	flag retry	re-run this job after a failure: <n>[:<b1,b2,...>] (n = total attempts including the first; the backoff table defaults to 30,120,300,900,3600)
+job run	flag retry-on	with --retry: only re-run on these exit codes, comma-separated (default: any non-zero exit)
+job run	flag review	require human review: on a normal completion the job parks in needs_review until someone accepts or rejects it
+job run	flag role	role preset: fills agent/system_prompt/project/tags when unset
+job run	flag rows	initial terminal rows for --interactive (0 = server default 24)
+job run	flag rule	MANDATORY rule to inject at the top of this job's prompt (repeatable; adds to the server/agent/project bindings)
+job run	flag runner	runner key (server = server-local; local is a compatibility alias)
+job run	flag scope	declared change scope: path globs relative to the repo root (comma-separated and/or repeatable); changed files outside it are marked in review
+job run	flag secret	secret to give this job by name (repeatable or comma-separated; declared under secrets: and allowed by the project; server runner only)
+job run	flag server	server address (overrides config server.addr)
+job run	flag session	keep an ACP agent in the same job across turns
+job run	flag shared-dir	give up the exclusive same-directory lock for this job (share the tree with other jobs, at your own risk)
+job run	flag skill	skill to mount into this job's private dir (repeatable; adds to the server/agent/project bindings)
+job run	flag source-session-id	authenticated terminal session submitting this job; never the agent target session
+job run	flag stall-timeout	kill the job after this many seconds without any output (default: the agent's setting, then the server's)
+job run	flag strict-timeout	refuse a --timeout above the applicable limit with an error (naming the limit and its config key) instead of clamping it
+job run	flag sync	submit synchronously: server waits for terminal state, then returns
+job run	flag system-prompt	resident system prompt injected via the agent (advanced; overrides role's)
+job run	flag tags	comma-separated free-form tags for the job (search dimension, e.g. --tags ci,nightly)
+job run	flag template	render the prompt from a task-book template (see `gofer template ls`)
+job run	flag timeout	job timeout in seconds (0 = server default)
+job run	flag title	optional job title
+job run	flag todo	run this job for a plan todo: the plan is resolved from the todo, the item turns doing and its outcome/commits are written back to its note
+job run	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job run	flag tracker-id	tracker repository identity used with --issue
+job run	flag upload	local file to place on the executing machine: <local path>:<dest relative to the job cwd> (repeatable)
+job run	flag var	template variable k=v (repeatable; requires --template/-t)
+job run	flag verify	command to run after the agent finishes (shell-words, no shell); a non-zero exit fails the job
+job run	flag verify-timeout	timeout for the --verify step in seconds (0 = project default, 600s)
+job run	flag wait	poll until the job reaches a terminal state
+job run	flag wait-timeout	sync wait cap in seconds (0 = server default 30s)
+job run	flag worker-id	target worker id for runner=worker (explicit routing)
+job run	flag worker-labels	comma-separated labels to auto-select a worker (runner=worker, when --worker-id is unset)
+job run	flag worktree	run in a managed git worktree of the project checkout (branch gofer/<job-id>, kept afterwards)
+job run	flag worktree-base	base ref for --worktree (default: the checkout's current HEAD)
+job run	flag worktree-name	name of this job's --worktree (fills the project's {name} template; default: the job id)
+job say	desc	Send the next message to a resident ACP session job
+job say	help	
+job say	examples	
+job say	flag config	path to the gofer config file
+job say	flag server	server address (overrides config server.addr)
+job say	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job secret-scan	desc	Find a literal or pattern across terminal job text
+job secret-scan	help	
+job secret-scan	examples	
+job secret-scan	flag config	path to the gofer config file
+job secret-scan	flag literal-from-stdin	read the literal from stdin; it is never accepted as an argument
+job secret-scan	flag pattern	RE2 pattern to scan (repeatable)
+job secret-scan	flag project	limit scan to a project
+job secret-scan	flag redact	redact every terminal hit
+job secret-scan	flag server	server address (overrides config server.addr)
+job secret-scan	flag since	only jobs started within a duration (for example 24h)
+job secret-scan	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job secret-scan	flag vacuum	VACUUM once after redaction
+job secret-scan	flag yes	confirm --redact
+job set	desc	Set or clear a job title
+job set	help	
+job set	examples	
+job set	flag config	path to the gofer config file
+job set	flag server	server address (overrides config server.addr)
+job set	flag title	job title; empty clears it
+job set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job show	desc	Query a job's status
+job show	help	
+job show	examples	
+job show	flag config	path to the gofer config file
+job show	flag server	server address (overrides config server.addr)
+job show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job wait	desc	Wait until the given jobs are terminal (all of them, or any with --any)
+job wait	help	
+job wait	examples	
+job wait	flag any	return as soon as ANY of the jobs is terminal
+job wait	flag config	path to the gofer config file
+job wait	flag interval	poll interval (default 2s)
+job wait	flag server	server address (overrides config server.addr)
+job wait	flag timeout	give up after this duration (e.g. 90s, 30m); empty or 0 = wait forever
+job wait	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job wakeup	desc	Register an event subscription or timer that resumes a job when it fires
+job wakeup	help	
+job wakeup	examples	
+job wakeup create	desc	Register a wakeup on a job (--kind at|every|cron|event; -m/-f carries the instruction)
+job wakeup create	help	
+job wakeup create	examples	
+job wakeup create	flag after	kind=at: fire after this duration (e.g. 10m, 2h)
+job wakeup create	flag at	kind=at: fire at this RFC3339 instant
+job wakeup create	flag config	path to the gofer config file
+job wakeup create	flag cron	kind=cron: five-field cron expression
+job wakeup create	flag event	kind=event: event type(s), comma-separated (e.g. job.terminal)
+job wakeup create	flag every	kind=every: repeat interval (>= 60s, e.g. 1h)
+job wakeup create	flag file	read the instruction from a file
+job wakeup create	flag job-id	kind=event: watch THIS job's events (default: the job the wakeup is on)
+job wakeup create	flag kind	at | every | cron | event
+job wakeup create	flag message	instruction the continuation receives
+job wakeup create	flag mode	once | continuous (default: once, or continuous for every/cron)
+job wakeup create	flag server	server address (overrides config server.addr)
+job wakeup create	flag status	kind=event + job.terminal: only these terminal statuses, comma-separated
+job wakeup create	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job wakeup create	flag tz	kind=cron: IANA timezone (default: server local time)
+job wakeup disable	desc	Disable a wakeup without removing it
+job wakeup disable	help	
+job wakeup disable	examples	
+job wakeup disable	flag config	path to the gofer config file
+job wakeup disable	flag server	server address (overrides config server.addr)
+job wakeup disable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job wakeup enable	desc	Enable a wakeup (a timer is re-armed from now; missed ticks are not replayed)
+job wakeup enable	help	
+job wakeup enable	examples	
+job wakeup enable	flag config	path to the gofer config file
+job wakeup enable	flag server	server address (overrides config server.addr)
+job wakeup enable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job wakeup list	desc	List a job's wakeups
+job wakeup list	help	
+job wakeup list	examples	
+job wakeup list	flag config	path to the gofer config file
+job wakeup list	flag server	server address (overrides config server.addr)
+job wakeup list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job wakeup rm	desc	Remove a wakeup
+job wakeup rm	help	
+job wakeup rm	examples	
+job wakeup rm	flag config	path to the gofer config file
+job wakeup rm	flag server	server address (overrides config server.addr)
+job wakeup rm	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job wakeup show	desc	Show one wakeup
+job wakeup show	help	
+job wakeup show	examples	
+job wakeup show	flag config	path to the gofer config file
+job wakeup show	flag server	server address (overrides config server.addr)
+job wakeup show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job watch	desc	Stream a job's status + logs live until it finishes
+job watch	help	
+job watch	examples	
+job watch	flag config	path to the gofer config file
+job watch	flag from	resume stdout from a byte offset
+job watch	flag server	server address (overrides config server.addr)
+job watch	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job worktree	desc	List or remove the managed worktrees of --worktree jobs
+job worktree	help	
+job worktree	examples	
+job worktree ls	desc	List managed worktrees of --worktree jobs (branch, commits ahead, dirty, merged)
+job worktree ls	help	
+job worktree ls	examples	
+job worktree ls	flag config	path to the gofer config file
+job worktree ls	flag limit	max jobs to inspect (0 = server default)
+job worktree ls	flag project	filter by project key
+job worktree ls	flag server	server address (overrides config server.addr)
+job worktree ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job worktree merge	desc	Merge a local managed worktree branch into the project main checkout
+job worktree merge	help	
+job worktree merge	examples	
+job worktree merge	flag cleanup	after merging, unlink the dependency links, remove the worktree and delete the merged branch
+job worktree merge	flag cleanup-others	after merging, force-remove the other fan worktrees (and branches) of the same workflow step
+job worktree merge	flag comment	after merging, record this comment on the job
+job worktree merge	flag config	path to the gofer config file
+job worktree merge	flag note	note for --todo-done (default: `<branch> 合入 <main short sha>`)
+job worktree merge	flag server	server address (overrides config server.addr)
+job worktree merge	flag squash	squash the selected branch into one commit
+job worktree merge	flag todo-done	after merging, mark the job's plan todo done (ignored, with a note, for a job without one)
+job worktree merge	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job worktree rm	desc	Remove a job's managed worktree (refuses uncommitted changes without --force)
+job worktree rm	help	
+job worktree rm	examples	
+job worktree rm	flag config	path to the gofer config file
+job worktree rm	flag delete-branch	also delete the branch (the deliverable — only when it is safe to lose)
+job worktree rm	flag force	discard uncommitted changes in the worktree
+job worktree rm	flag server	server address (overrides config server.addr)
+job worktree rm	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan	desc	Create and inspect job grouping plans
+plan	help	
+plan	examples	
+plan add-todo	desc	Add a todo to a plan (the item is created pending; --assign describes who runs it once it is ready)
+plan add-todo	help	
+plan add-todo	examples	
+plan add-todo	flag acceptance	acceptance criteria (markdown list); appended to the job's prompt and shown in review. --acceptance "" clears them
+plan add-todo	flag acceptance-from-issue	copy the acceptance_criteria of this issue (the current repo's tracker) into --acceptance
+plan add-todo	flag after	comma-separated todo ids this item waits for; `prev` = the plan's previous item (the last one by sort)
+plan add-todo	flag agent-budget-cost-usd	soft USD cost budget handed to the agent, which winds the run up itself once spent, e.g. 2.5 (only agents with an agent_budget mapping — others are refused)
+plan add-todo	flag agent-budget-tokens	soft token budget handed to the agent, which winds the run up itself once spent (accepts 50000 / 50k / 1.5m; only agents with an agent_budget mapping, e.g. suga — others are refused). Keep it below --max-tokens
+plan add-todo	flag assign	agent key that runs this item; a ready item with an assignee is dispatched at once
+plan add-todo	flag auto	let the chain start this item once its dependencies are done (default)
+plan add-todo	flag cmd	argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)
+plan add-todo	flag config	path to the gofer config file
+plan add-todo	flag continue	continue the agent session of this todo id instead of starting a new one; `prev` = the plan's previous item (add-todo only); implies --after on it
+plan add-todo	flag cwd	working dir within the project (default: the project root)
+plan add-todo	flag job	bind the todo to a job id (optional)
+plan add-todo	flag max-cost	kill the job once its reported cost exceeds this many USD, e.g. 2.5 (only for agents that report a cost; default unlimited)
+plan add-todo	flag max-tokens	kill the job once its token usage (input+output+cache) exceeds this; accepts 50000 / 50k / 1.5m (default: the agent's / project's budget, else unlimited)
+plan add-todo	flag max-turns	kill the job once it has made more than this many model requests (default unlimited)
+plan add-todo	flag model	model the item's job runs with (cli-agent model_args / acp-agent protocol pick; default = the agent's own)
+plan add-todo	flag no-auto	park this item — only a human (or `plan run`) starts it
+plan add-todo	flag no-continue	set-todo: stop continuing a predecessor's session (clears continue_from)
+plan add-todo	flag note	short remark for the todo (optional); append later with gofer plan set-todo <todo-id> --append-note "..."
+plan add-todo	flag prime-keywords	subsystems / languages / modules this item's job is about, comma-separated and/or repeatable: the dispatched job's tracker-prime injects the matching memories in full and first. --prime-keywords "" clears them
+plan add-todo	flag project	project this item runs in (default: the plan's project)
+plan add-todo	flag review	require human review: on a normal completion the run parks in needs_review until someone accepts or rejects it
+plan add-todo	flag runner	runner key for the job (default: the server's built-in local runner)
+plan add-todo	flag scope	declared change scope: path globs relative to the repo root, comma-separated and/or repeatable (e.g. 'internal/job/**,web/src/x.vue'); changed files outside it are marked in review. --scope "" clears it
+plan add-todo	flag server	server address (overrides config server.addr)
+plan add-todo	flag template	task-book template to render this item's prompt from (default: the plan/todo prompt)
+plan add-todo	flag timeout	job timeout in seconds (0 = the server default)
+plan add-todo	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan add-todo	flag var	template variable k=v (repeatable; requires --template)
+plan add-todo	flag verify	command run after the agent finishes (shell-words, no shell); a non-zero exit fails the job
+plan answer	desc	Answer an OPEN decision
+plan answer	help	
+plan answer	examples	
+plan answer	flag answer	the answer text (required)
+plan answer	flag config	path to the gofer config file
+plan answer	flag server	server address (overrides config server.addr)
+plan answer	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan archive	desc	Archive a plan
+plan archive	help	
+plan archive	examples	
+plan archive	flag config	path to the gofer config file
+plan archive	flag server	server address (overrides config server.addr)
+plan archive	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan ask	desc	Raise a decision question for a human (does NOT wait; blocking wait is the MCP gofer_ask_human semantics)
+plan ask	help	
+plan ask	examples	
+plan ask	flag config	path to the gofer config file
+plan ask	flag option	answer option (repeatable; omit all for free-text answer)
+plan ask	flag plan	plan id to attach the decision to (optional; empty = global question)
+plan ask	flag question	the question for the human (required)
+plan ask	flag server	server address (overrides config server.addr)
+plan ask	flag timeout	answer timeout, e.g. 30m (default 30m; clamped server-side to [2s,24h])
+plan ask	flag title	decision title (required)
+plan ask	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan attach	desc	Attach an existing job to a plan
+plan attach	help	
+plan attach	examples	
+plan attach	flag config	path to the gofer config file
+plan attach	flag server	server address (overrides config server.addr)
+plan attach	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan brief	desc	Handoff brief of a plan: fields, todos (status / deps / acceptance / job outcome), handoff note and the issues it names
+plan brief	help	
+plan brief	examples	
+plan brief	flag config	path to the gofer config file
+plan brief	flag json	print JSON (sections with lines / note)
+plan brief	flag max-lines	cap the output; sections are cut in order, each says what was cut and how to see it
+plan brief	flag server	server address (overrides config server.addr)
+plan brief	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan comment	desc	Comment on a plan (or, with --todo, on one of its checklist items). A mention like @omp or @reviewer in a USER's comment dispatches a job for it
+plan comment	help	
+plan comment	examples	
+plan comment	flag config	path to the gofer config file
+plan comment	flag server	server address (overrides config server.addr)
+plan comment	flag todo	comment on this todo's own thread instead of the plan's
+plan comment	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan comments	desc	List a plan's comment thread
+plan comments	help	
+plan comments	examples	
+plan comments	flag config	path to the gofer config file
+plan comments	flag server	server address (overrides config server.addr)
+plan comments	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan create	desc	Create a plan
+plan create	help	
+plan create	examples	
+plan create	flag config	path to the gofer config file
+plan create	flag desc	plan description
+plan create	flag leader	opt this plan into leader rounds (the global leader switch must also be on)
+plan create	flag no-supervisor	do not bind the current agent session as the plan's supervisor (主 Agent)
+plan create	flag notify	notify the plan's supervisor session when a job this plan dispatches ends (needs a bound supervisor session; each notice starts a messenger process)
+plan create	flag plan-id	plan id (optional; server generates when empty)
+plan create	flag project	project the plan's items run in (an item may still override it)
+plan create	flag server	server address (overrides config server.addr)
+plan create	flag supervisor-session-id	bind the authenticated terminal session that supervises plan dispatches (default: the agent session this command runs in, from $GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID / $CODEX_THREAD_ID)
+plan create	flag tags	comma-separated plan tags
+plan create	flag title	plan title
+plan create	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan decisions	desc	List decisions, optionally filtered by state/plan
+plan decisions	help	
+plan decisions	examples	
+plan decisions	flag config	path to the gofer config file
+plan decisions	flag plan	filter by plan id
+plan decisions	flag server	server address (overrides config server.addr)
+plan decisions	flag state	filter by state (OPEN/ANSWERED/EXPIRED)
+plan decisions	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan dispatch	desc	Dispatch a todo's assigned agent now, whatever its status (the explicit fallback to "ready + assigned")
+plan dispatch	help	
+plan dispatch	examples	
+plan dispatch	flag config	path to the gofer config file
+plan dispatch	flag server	server address (overrides config server.addr)
+plan dispatch	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan handoff	desc	Show or update a plan handoff note
+plan handoff	help	
+plan handoff	examples	
+plan handoff	flag config	path to the gofer config file
+plan handoff	flag file	read handoff text from file
+plan handoff	flag history	list handoff history
+plan handoff	flag server	server address (overrides config server.addr)
+plan handoff	flag set	replace with this handoff text
+plan handoff	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan handoff	flag version	read a historical version
+plan import	desc	Create a todo chain from a plan's ```gofer-todos``` block (a planner job's report or a file): one item per step chained by `after`, each `check` an exec item gating the next steps
+plan import	help	
+plan import	examples	
+plan import	flag assign	agent key the steps are assigned to (checks are always exec items)
+plan import	flag config	path to the gofer config file
+plan import	flag dry-run	print the todos that would be created, create nothing
+plan import	flag file	read the block from this file
+plan import	flag from-job	read the block from this job's report (stdout)
+plan import	flag server	server address (overrides config server.addr)
+plan import	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan list	desc	List plans
+plan list	help	
+plan list	examples	
+plan list	flag all	list every matching plan (pages through the server cap; overrides --limit)
+plan list	flag config	path to the gofer config file
+plan list	flag limit	page size (server cap 100)
+plan list	flag project	filter by project key (exact)
+plan list	flag q	search: plan id prefix or title substring
+plan list	flag server	server address (overrides config server.addr)
+plan list	flag status	filter by status (open/done/archived/blocked)
+plan list	flag tag	filter by plan tag (repeatable; all tags must match)
+plan list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan pause	desc	Hold a plan's automatic chain advance (running items are not cancelled)
+plan pause	help	
+plan pause	examples	
+plan pause	flag config	path to the gofer config file
+plan pause	flag server	server address (overrides config server.addr)
+plan pause	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan resume	desc	Release a plan's pause and block, then advance the chain
+plan resume	help	
+plan resume	examples	
+plan resume	flag config	path to the gofer config file
+plan resume	flag server	server address (overrides config server.addr)
+plan resume	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan run	desc	Start a plan's chain: queue every pending item whose dependencies are done and that has an assignee (roots included), and release a pause/block
+plan run	help	
+plan run	examples	
+plan run	flag config	path to the gofer config file
+plan run	flag server	server address (overrides config server.addr)
+plan run	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan set	desc	Set a plan-level field (--leader on|off turns this plan's leader rounds on or off)
+plan set	help	
+plan set	examples	
+plan set	flag clear-supervisor-session	clear the existing supervisor session binding
+plan set	flag config	path to the gofer config file
+plan set	flag leader	leader rounds for this plan: on | off
+plan set	flag notify	notify the plan's supervisor session when a job this plan dispatches ends: on | off (needs a bound supervisor session; each notice starts a messenger process)
+plan set	flag server	server address (overrides config server.addr)
+plan set	flag supervisor-session-id	bind a supervisor session (the plan owner, or a caller with can_admin, must own it)
+plan set	flag tags	replace the plan's tags with this comma-separated list
+plan set	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan set	flag untag	remove these comma-separated plan tags
+plan set-status	desc	Set a plan status
+plan set-status	help	
+plan set-status	examples	
+plan set-status	flag config	path to the gofer config file
+plan set-status	flag server	server address (overrides config server.addr)
+plan set-status	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan set-todo	desc	Update a todo: --status pending|ready|doing|done|skipped and/or --note, and/or its dispatch fields; bare = done, --undone = pending. A ready item with an assignee is dispatched at once
+plan set-todo	help	
+plan set-todo	examples	
+plan set-todo	flag acceptance	acceptance criteria (markdown list); appended to the job's prompt and shown in review. --acceptance "" clears them
+plan set-todo	flag after	comma-separated todo ids this item waits for; `prev` = the plan's previous item (the last one by sort)
+plan set-todo	flag agent-budget-cost-usd	soft USD cost budget handed to the agent, which winds the run up itself once spent, e.g. 2.5 (only agents with an agent_budget mapping — others are refused)
+plan set-todo	flag agent-budget-tokens	soft token budget handed to the agent, which winds the run up itself once spent (accepts 50000 / 50k / 1.5m; only agents with an agent_budget mapping, e.g. suga — others are refused). Keep it below --max-tokens
+plan set-todo	flag append-note	append a line to the todo note (mutually exclusive with --note)
+plan set-todo	flag assign	agent key that runs this item; a ready item with an assignee is dispatched at once
+plan set-todo	flag auto	let the chain start this item once its dependencies are done (default)
+plan set-todo	flag cmd	argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)
+plan set-todo	flag config	path to the gofer config file
+plan set-todo	flag continue	continue the agent session of this todo id instead of starting a new one; `prev` = the plan's previous item (add-todo only); implies --after on it
+plan set-todo	flag cwd	working dir within the project (default: the project root)
+plan set-todo	flag max-cost	kill the job once its reported cost exceeds this many USD, e.g. 2.5 (only for agents that report a cost; default unlimited)
+plan set-todo	flag max-tokens	kill the job once its token usage (input+output+cache) exceeds this; accepts 50000 / 50k / 1.5m (default: the agent's / project's budget, else unlimited)
+plan set-todo	flag max-turns	kill the job once it has made more than this many model requests (default unlimited)
+plan set-todo	flag model	model the item's job runs with (cli-agent model_args / acp-agent protocol pick; default = the agent's own)
+plan set-todo	flag no-auto	park this item — only a human (or `plan run`) starts it
+plan set-todo	flag no-continue	set-todo: stop continuing a predecessor's session (clears continue_from)
+plan set-todo	flag note	set the todo note; --note "" clears it (kept unchanged when omitted)
+plan set-todo	flag prime-keywords	subsystems / languages / modules this item's job is about, comma-separated and/or repeatable: the dispatched job's tracker-prime injects the matching memories in full and first. --prime-keywords "" clears them
+plan set-todo	flag project	project this item runs in (default: the plan's project)
+plan set-todo	flag review	require human review: on a normal completion the run parks in needs_review until someone accepts or rejects it
+plan set-todo	flag runner	runner key for the job (default: the server's built-in local runner)
+plan set-todo	flag scope	declared change scope: path globs relative to the repo root, comma-separated and/or repeatable (e.g. 'internal/job/**,web/src/x.vue'); changed files outside it are marked in review. --scope "" clears it
+plan set-todo	flag server	server address (overrides config server.addr)
+plan set-todo	flag status	lifecycle status: pending|ready|doing|done|skipped (wins over --undone)
+plan set-todo	flag template	task-book template to render this item's prompt from (default: the plan/todo prompt)
+plan set-todo	flag timeout	job timeout in seconds (0 = the server default)
+plan set-todo	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+plan set-todo	flag undone	mark the todo not done (= --status pending)
+plan set-todo	flag var	template variable k=v (repeatable; requires --template)
+plan set-todo	flag verify	command run after the agent finishes (shell-words, no shell); a non-zero exit fails the job
+plan show	desc	Show a plan and its jobs
+plan show	help	
+plan show	examples	
+plan show	flag config	path to the gofer config file
+plan show	flag server	server address (overrides config server.addr)
+plan show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session	desc	Terminal agent sessions registered via hooks: list / relay on|off / say (web ↔ terminal message relay)
+session	help	
+session	examples	
+session find	desc	Find which session works on a topic or a path (ranked; shows why each matched)
+session find	help	
+session find	examples	
+session find	flag config	path to the gofer config file
+session find	flag limit	max rows (default 20)
+session find	flag path	project-relative path that must hit a session's scope
+session find	flag project	limit to one project key
+session find	flag server	server address (overrides config server.addr)
+session find	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session inject-mode	desc	Set how a message is typed into a session's terminal: auto (only into a confirmed-empty input area) | hold (never type, the message waits for the next hook) | force (type without looking)
+session inject-mode	help	
+session inject-mode	examples	
+session inject-mode	flag config	path to the gofer config file
+session inject-mode	flag send-held	instead of setting a mode, send the messages waiting for this session right now (「现在送」)
+session inject-mode	flag server	server address (overrides config server.addr)
+session inject-mode	flag session	session id (default: resolve by current directory)
+session inject-mode	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session list	desc	List registered agent sessions (waiting_reply first)
+session list	help	
+session list	examples	
+session list	flag agent	filter by agent: claude|codex|omp|jcode
+session list	flag all	include ended sessions, the offline ones silent for more than 5 days, and the internal sessions of gofer's own jobs (hidden by default)
+session list	flag config	path to the gofer config file
+session list	flag limit	max rows (default 200)
+session list	flag long	show the full session id (default: the shortest prefix, at least 8 chars, that tells the listed sessions apart)
+session list	flag project	filter by project key
+session list	flag server	server address (overrides config server.addr)
+session list	flag state	filter by state: running|idle|waiting_reply|needs_attention|ended|offline
+session list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail	desc	Letters between sessions, jobs and callers: send <address> <text> | ls | read <id> | reply <id> <text> | cancel <id> | conv <cv-id> | agents | redact <id>
+session mail	help	
+session mail	examples	
+session mail agents	desc	List the mail agents (the names `agent:<name>` may use) and their resident sessions; --end stops one
+session mail agents	help	
+session mail agents	examples	
+session mail agents	flag config	path to the gofer config file
+session mail agents	flag end	end the resident session of this agent name
+session mail agents	flag project	project of the resident session
+session mail agents	flag server	server address (overrides config server.addr)
+session mail agents	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail cancel	desc	Withdraw a letter that has not been delivered
+session mail cancel	help	
+session mail cancel	examples	
+session mail cancel	flag config	path to the gofer config file
+session mail cancel	flag server	server address (overrides config server.addr)
+session mail cancel	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail conv	desc	Show one conversation by its id (cv-…): who the two people are and the letters, oldest first
+session mail conv	help	
+session mail conv	examples	
+session mail conv	flag config	path to the gofer config file
+session mail conv	flag in	only the letters you received
+session mail conv	flag limit	max letters (default: the whole conversation)
+session mail conv	flag out	only the letters you sent
+session mail conv	flag server	server address (overrides config server.addr)
+session mail conv	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail list	desc	List letters (both directions by default)
+session mail list	help	
+session mail list	examples	
+session mail list	flag config	path to the gofer config file
+session mail list	flag in	only letters you received
+session mail list	flag limit	max rows (default 50)
+session mail list	flag out	only letters you sent
+session mail list	flag server	server address (overrides config server.addr)
+session mail list	flag session	only letters of this session
+session mail list	flag state	only these states (comma-separated): pending|delivering|delivered|answered|held|expired|failed|cancelled
+session mail list	flag thread	only this conversation thread
+session mail list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail read	desc	Read a letter (this marks it read: it is not injected again)
+session mail read	help	
+session mail read	examples	
+session mail read	flag config	path to the gofer config file
+session mail read	flag server	server address (overrides config server.addr)
+session mail read	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail redact	desc	Erase secrets from a letter (and from the collection-box summaries quoting it)
+session mail redact	help	
+session mail redact	examples	
+session mail redact	flag config	path to the gofer config file
+session mail redact	flag literal-from-stdin	read the secret from stdin (keeps it out of argv)
+session mail redact	flag pattern	RE2 pattern to erase (repeatable)
+session mail redact	flag server	server address (overrides config server.addr)
+session mail redact	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail reply	desc	Answer a letter in its thread (the answer goes back to the sender)
+session mail reply	help	
+session mail reply	examples	
+session mail reply	flag body-file	read the answer from a file (`-` = stdin)
+session mail reply	flag config	path to the gofer config file
+session mail reply	flag server	server address (overrides config server.addr)
+session mail reply	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail reply	flag urgent	mark the answer urgent
+session mail send	desc	Send a letter: <address> is session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); repeat --to or use each:topic:/each:path:/each:project:/each:agent: to send to every match
+session mail send	help	
+session mail send	examples	
+session mail send	flag body-file	read the letter from a file (`-` = stdin)
+session mail send	flag config	path to the gofer config file
+session mail send	flag server	server address (overrides config server.addr)
+session mail send	flag to	recipient address (repeatable; also each: selectors)
+session mail send	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail send	flag urgent	deliver inside the running turn / wake an idle session at once
+session nudge	desc	Remind a session on a timer: nudge <sid> (--every <dur> | --when-stalled <dur>) -m <text> [--until <time>]; ls / rm / pause / resume
+session nudge	help	
+session nudge	examples	
+session nudge	flag config	path to the gofer config file
+session nudge	flag every	send every <dur> (e.g. 30m, min 1m)
+session nudge	flag message	the text sent to the session
+session nudge	flag server	server address (overrides config server.addr)
+session nudge	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session nudge	flag until	stop at this time (2h, 3d, 2026-10-08 09:30, RFC3339)
+session nudge	flag when-stalled	send when the session made no progress for <dur> (e.g. 20m, min 1m)
+session nudge list	desc	List nudges (of one session, or all); ended ones with --all
+session nudge list	help	
+session nudge list	examples	
+session nudge list	flag all	include ended nudges
+session nudge list	flag config	path to the gofer config file
+session nudge list	flag server	server address (overrides config server.addr)
+session nudge list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session nudge pause	desc	Pause an active nudge
+session nudge pause	help	
+session nudge pause	examples	
+session nudge pause	flag config	path to the gofer config file
+session nudge pause	flag server	server address (overrides config server.addr)
+session nudge pause	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session nudge remove	desc	Delete a nudge
+session nudge remove	help	
+session nudge remove	examples	
+session nudge remove	flag config	path to the gofer config file
+session nudge remove	flag server	server address (overrides config server.addr)
+session nudge remove	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session nudge resume	desc	Resume a paused nudge (failure count cleared, timers restart now)
+session nudge resume	help	
+session nudge resume	examples	
+session nudge resume	flag config	path to the gofer config file
+session nudge resume	flag server	server address (overrides config server.addr)
+session nudge resume	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session owner	desc	Hand a session to another caller (admin only; needs can_admin): the way out of a token split, where the hook now reports as a caller the session does not belong to
+session owner	help	
+session owner	examples	
+session owner	flag config	path to the gofer config file
+session owner	flag server	server address (overrides config server.addr)
+session owner	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session relay	desc	Set a session's web relay mode auto|on|off (omit --session: the session of the current directory)
+session relay	help	
+session relay	examples	
+session relay	flag config	path to the gofer config file
+session relay	flag server	server address (overrides config server.addr)
+session relay	flag session	session id (default: resolve by current directory)
+session relay	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session release-takeover	desc	Give a session taken over by a `--resume` pty job back to its original terminal (cancels that job, session returns to idle)
+session release-takeover	help	
+session release-takeover	examples	
+session release-takeover	flag config	path to the gofer config file
+session release-takeover	flag server	server address (overrides config server.addr)
+session release-takeover	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session remove	desc	Remove a session registration (its turns stay for audit)
+session remove	help	
+session remove	examples	
+session remove	flag config	path to the gofer config file
+session remove	flag server	server address (overrides config server.addr)
+session remove	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session resume	desc	Wake a session up: start a new `--resume` pty process for it (works for ended sessions too); then attach in the web console
+session resume	help	
+session resume	examples	
+session resume	flag config	path to the gofer config file
+session resume	flag input	first text typed into the new terminal (optional)
+session resume	flag plan	only show whether and how the session could be woken up; start nothing
+session resume	flag server	server address (overrides config server.addr)
+session resume	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session say	desc	Answer a session's waiting turn from the CLI (same as the web input box; --deliver also reaches an idle session in tmux)
+session say	help	
+session say	examples	
+session say	flag config	path to the gofer config file
+session say	flag deliver	route the reply: answer the OPEN turn if there is one, else type it into the session's tmux pane (§9.1 A)
+session say	flag server	server address (overrides config server.addr)
+session say	flag takeover	with --deliver: if the session has no usable tmux pane, start a new `--resume` process and send it there (§9.1 B; the original terminal stops relaying)
+session say	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session show	desc	Show one session and its recent relay turns
+session show	help	
+session show	examples	
+session show	flag config	path to the gofer config file
+session show	flag server	server address (overrides config server.addr)
+session show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session topic	desc	Record what the current session works on (one sentence) and the sub-paths it owns, so others can find it with `session find`
+session topic	help	
+session topic	examples	
+session topic	flag clear-scope	empty the scope
+session topic	flag config	path to the gofer config file
+session topic	flag scope	project-root-relative sub-path this session owns (repeatable; replaces the old scope)
+session topic	flag server	server address (overrides config server.addr)
+session topic	flag session	session id (default: the current session from the environment; never guessed from the directory)
+session topic	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session watch	desc	Register a job for the current agent session's Stop-hook completion notice
+session watch	help	
+session watch	examples	
+session watch	flag config	path to the gofer config file
+session watch	flag server	server address (overrides config server.addr)
+session watch	flag session	session id (default: resolve by current directory)
+session watch	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
