@@ -12,6 +12,7 @@ import { useRouter } from 'vue-router'
 import { getHealth, listProjects, UnauthorizedError } from '../api/client'
 import { clearToken, setToken } from '../store/auth'
 import { t } from '../i18n'
+import { REPO_URL } from '../utils/repo'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import LangToggle from '../ui/LangToggle.vue'
 import { mismatchedNotifyOrigin } from './accessOrigin'
@@ -82,7 +83,7 @@ async function connect(): Promise<void> {
     <div class="card">
       <a
         class="brand-link"
-        href="https://github.com/inhere/gofer"
+        :href="REPO_URL"
         target="_blank"
         rel="noopener noreferrer"
         :aria-label="t('access.brandAria')"
