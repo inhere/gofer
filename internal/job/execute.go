@@ -692,7 +692,8 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 			guardDecision = "review"
 		}
 	}
-	needsReview := (pre.RequireReview && (status == StatusDone || verifyBlocked(pre.Verify))) || guardDecision == "review"
+	followUpPending, followUpReviewEach := s.pendingFollowUpGate(pre.ID)
+	needsReview := guardDecision == "review" || (pre.RequireReview && (status == StatusDone || verifyBlocked(pre.Verify)) && (!followUpPending || followUpReviewEach))
 	// SUP-01 P3: a failure is classified and (possibly) taken over from ONE decision —
 	// the pattern match, whether this agent can still continue the work, and whether
 	// the candidate chain has a link left. It is pure (it submits nothing), so it runs

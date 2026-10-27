@@ -116,7 +116,8 @@ type ResumeOptions struct {
 	// auto-resume, a rerun): an end-notification it cannot address is dropped (with a
 	// job.notify_dropped event) instead of refusing the continuation. A caller's own
 	// `job resume` keeps its notification strict — their mistake is reported to them.
-	Internal bool
+	Internal   bool
+	ReviewEach bool
 	// ImagePaths are images (absolute paths on the executing machine) that must ride the
 	// continuation's argv, expanded through the target agent's image_args (workbench
 	// attachments for an image_input: arg agent). Only a cli-agent batch continuation can
@@ -345,6 +346,10 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	// overridden, dropped when the target cannot honour an inherited one).
 	base.Model = chk.Model
 	base.Budget = chk.Budget
+	if opts.ReviewEach {
+		base.Review = true
+		base.ReviewFixed = true
+	}
 	if len(opts.Env) > 0 {
 		base.Env = util.MergeEnv(nil, opts.Env)
 	}

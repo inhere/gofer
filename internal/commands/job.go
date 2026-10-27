@@ -212,6 +212,12 @@ var jobResumeOpts = struct {
 
 var jobSetOpts struct{ title string }
 
+var jobFollowUpOpts struct {
+	list       bool
+	drop       int
+	reviewEach bool
+}
+
 var jobRedactOpts struct {
 	literalFromStdin bool
 	patterns         gcli.Strings
@@ -502,6 +508,21 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "source job id", true)
 				},
 				Func: runJobResume,
+			},
+			{
+				Name:    "follow-up",
+				Aliases: []string{"followup"},
+				Desc:    "Queue a follow-up request for a running job's session",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobFollowUpOpts.list, "list", "", false, "list queued follow-ups")
+					c.IntOpt(&jobFollowUpOpts.drop, "drop", "", 0, "drop queued follow-up by its position")
+					c.BoolOpt(&jobFollowUpOpts.reviewEach, "review-each", "", false, "pause for human review after this follow-up")
+					c.AddArg("id", "running job id", true)
+					c.AddArg("prompt", "follow-up request", false)
+				},
+				Func: runJobFollowUp,
 			},
 			{
 				Name: "interactions",
@@ -3851,6 +3872,57 @@ func runJobRerun(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	return watchToTerminal(c, cli, res.ID, 0)
+}
+
+func runJobFollowUp(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job follow-up requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	if jobFollowUpOpts.list {
+		items, err := cli.ListFollowUps(id)
+		if err != nil {
+			return err
+		}
+		for i, item := range items {
+			c.Printf("%d. [%s] %s\n", i+1, item.Status, item.Prompt)
+		}
+		return nil
+	}
+	if jobFollowUpOpts.drop > 0 {
+		items, err := cli.ListFollowUps(id)
+		if err != nil {
+			return err
+		}
+		pending := make([]client.FollowUp, 0, len(items))
+		for _, item := range items {
+			if item.Status == "pending" {
+				pending = append(pending, item)
+			}
+		}
+		if jobFollowUpOpts.drop > len(pending) {
+			return fmt.Errorf("follow-up position %d is out of range", jobFollowUpOpts.drop)
+		}
+		if err := cli.DropFollowUp(id, pending[jobFollowUpOpts.drop-1].ID); err != nil {
+			return err
+		}
+		c.Printf("dropped follow-up %d\n", jobFollowUpOpts.drop)
+		return nil
+	}
+	prompt := strings.TrimSpace(argString(c, "prompt"))
+	if prompt == "" {
+		return fmt.Errorf("job follow-up requires a prompt, --list, or --drop")
+	}
+	item, err := cli.QueueFollowUp(id, prompt, jobFollowUpOpts.reviewEach)
+	if err != nil {
+		return err
+	}
+	c.Printf("follow-up %d queued for %s\n", item.ID, id)
+	return nil
 }
 
 // runJobResume续接 the source job's底层 agent 会话 (session-capture P2): it POSTs

@@ -22,6 +22,7 @@ var goldenData = map[string]any{
 	NameAutoResume:        AutoResumeData{Hit: "stream ended after retries"},
 	NameUncommittedResume: UncommittedResumeData{Count: 3, Files: []string{"a.go", "b.go", "c.go"}},
 	NameTodoContinue:      TodoContinueData{Title: "wire the thing"},
+	NameFollowUp:          FollowUpData{Requests: "1. check the thing"},
 	NameStewardRole:       struct{}{},
 	NameStewardReview:     struct{ Slim bool }{Slim: false},
 	NameStewardToday:      StewardTodayData{Step: 2, Pending: 3},

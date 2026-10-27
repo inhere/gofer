@@ -921,7 +921,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 				TargetSession: target, JobID: r.ID, Title: r.Title, Status: r.Status,
 				ExitCode: r.ExitCode, WrapUp: r.WrapUp, Duration: jobNotifyDuration(r),
 				// 执行机：会话收到通知时要知道这个 job 在哪台机器上跑的（gofer-okz3 ④）。
-				Runner: config.RunnerDisplayName(r.Runner),
+				Runner:          config.RunnerDisplayName(r.Runner),
+				FollowUpPending: jobs.PendingFollowUpCount(r.ID),
 			}
 			if err := s.relay.NotifyJobEnded(context.Background(), notice); err != nil {
 				slog.Warn("job end notification failed", "job_id", r.ID, "session_id", target, "err", err)
@@ -1537,6 +1538,9 @@ func (s *Server) buildRouter() *rux.Router {
 		// exec job（同 runner）。body {prompt, runner?}；校验失败 4xx/404(resumeStatus)。
 		r.POST("/jobs/{id}/resume", s.handleResumeJob)
 
+		r.POST("/jobs/{id}/follow-ups", s.handleQueueFollowUp)
+		r.GET("/jobs/{id}/follow-ups", s.handleListFollowUps)
+		r.DELETE("/jobs/{id}/follow-ups/{follow_up_id}", s.handleDropFollowUp)
 		// P5: rebuild a NEW job from a source job's request + edits (env stays server-side).
 		// rerun = empty-body rebuild. 校验失败 4xx/404(rebuildStatus)。
 		r.POST("/jobs/{id}/rebuild", s.handleRebuildJob)

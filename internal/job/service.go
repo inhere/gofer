@@ -506,6 +506,9 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 	s.OnTerminal(s.autoDeliver)
 	// A failed todo continuation is taken over from the item's own ordinary request.
 	s.rebuildTodoRequest = s.ordinaryTodoRequest
+	// Follow-ups are durable requests queued against a live session; process them only
+	// after the source has reached a stable done state (review acceptance calls it too).
+	s.OnJobEnded(s.processFollowUps)
 	return s
 }
 

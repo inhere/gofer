@@ -307,18 +307,21 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/jobs/{id}/findings/issue":         {user: Public(), scope: Resource("job")},
 	// attach: someone else's (or an ownerless) job needs job.attach.others, the
 	// caller's OWN job the attach gate job.attach (design §1 / row 38, 54, 55).
-	"POST /v1/jobs/{id}/attach-ticket": {user: InHandler(permDeny, authz.PermJobAttachOthers, authz.PermJobAttach), scope: Resource("job")},
-	"GET /v1/jobs/{id}/pty/recording":  {user: InHandler(permDeny, authz.PermJobAttachOthers, authz.PermJobAttach), scope: Resource("job")},
-	"GET /v1/jobs/{id}/pty/sessions":   {user: InHandler(permDeny, authz.PermJobAttachOthers, authz.PermJobAttach), scope: Resource("job")},
-	"GET /v1/pty/sessions":             {user: InHandler(permFilter, authz.PermJobAttachOthers), scope: Filter()},
-	"POST /v1/jobs/{id}/cancel":        {user: InHandler(permDeny, authz.PermJobCancelOthers), scope: Resource("job")},
-	"POST /v1/workflows/{id}/cancel":   {user: InHandler(permDeny, authz.PermJobCancelOthers), scope: Resource("workflow")},
-	"DELETE /v1/retries/{rid}":         {user: InHandler(permDeny, authz.PermJobCancelOthers), scope: Resource("retry")},
-	"DELETE /v1/jobs/{id}":             {user: InHandler(permDeny, authz.PermJobDeleteOthers), scope: Resource("job")},
-	"POST /v1/jobs/{id}/redact":        {user: InHandler(permDeny, authz.PermJobDeleteOthers), scope: Resource("job")},
-	"POST /v1/jobs/{id}/resume":        {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("job")},
-	"POST /v1/jobs/{id}/rebuild":       {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("job")},
-	"POST /v1/workflows/{id}/pick":     {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("workflow")},
+	"POST /v1/jobs/{id}/attach-ticket":               {user: InHandler(permDeny, authz.PermJobAttachOthers, authz.PermJobAttach), scope: Resource("job")},
+	"GET /v1/jobs/{id}/pty/recording":                {user: InHandler(permDeny, authz.PermJobAttachOthers, authz.PermJobAttach), scope: Resource("job")},
+	"GET /v1/jobs/{id}/pty/sessions":                 {user: InHandler(permDeny, authz.PermJobAttachOthers, authz.PermJobAttach), scope: Resource("job")},
+	"GET /v1/pty/sessions":                           {user: InHandler(permFilter, authz.PermJobAttachOthers), scope: Filter()},
+	"POST /v1/jobs/{id}/cancel":                      {user: InHandler(permDeny, authz.PermJobCancelOthers), scope: Resource("job")},
+	"POST /v1/workflows/{id}/cancel":                 {user: InHandler(permDeny, authz.PermJobCancelOthers), scope: Resource("workflow")},
+	"DELETE /v1/retries/{rid}":                       {user: InHandler(permDeny, authz.PermJobCancelOthers), scope: Resource("retry")},
+	"DELETE /v1/jobs/{id}":                           {user: InHandler(permDeny, authz.PermJobDeleteOthers), scope: Resource("job")},
+	"POST /v1/jobs/{id}/redact":                      {user: InHandler(permDeny, authz.PermJobDeleteOthers), scope: Resource("job")},
+	"POST /v1/jobs/{id}/resume":                      {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("job")},
+	"POST /v1/jobs/{id}/follow-ups":                  {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("job")},
+	"GET /v1/jobs/{id}/follow-ups":                   {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("job")},
+	"DELETE /v1/jobs/{id}/follow-ups/{follow_up_id}": {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("job")},
+	"POST /v1/jobs/{id}/rebuild":                     {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("job")},
+	"POST /v1/workflows/{id}/pick":                   {user: InHandler(permDeny, authz.PermJobManageOthers, authz.PermJobSubmit), scope: Resource("workflow")},
 	// S4 rerun (design §一·7) starts NEW work from the original spec, so it needs what a
 	// submit needs (job.submit; job.manage.others for someone else's workflow) — the same
 	// rule as resume / pick above.

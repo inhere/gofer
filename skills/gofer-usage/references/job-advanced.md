@@ -181,7 +181,11 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 - 这种 job 的 status **仍是 done**、汇报也在（汇报本身是真实产出），所以不看这一行就与做完的任务分不开。要续跑用 `gofer job resume <id> --prompt "…"`。
 - 只识别 agent 自己说的，gofer 不推算：流里没有这个信息就不标（别的 agent 方言多数不报）。
 
-## 验证步骤（--verify）
+
+### 运行中追加需求（follow-up）
+
+任务运行时可以把下一步排进同一会话：`gofer job follow-up <job-id> "完成后再检查一遍"`。多条需求会按顺序合并，在源任务结束后自动续接；源 job 开启人工验收时，普通追加需求会先完成再和源任务一起进入验收，`--review-each` 才会在该条续接完成后停在人审。失败、取消或超时不会自动续接，通知会提示未执行条数；`--list` 查看队列，`--drop <n>` 撤回第 n 条。HTTP 使用 `/v1/jobs/{id}/follow-ups`，MCP 使用 `gofer_job_follow_up`。
+
 
 `job run --verify '<命令>'`：agent **正常结束**后在同一台执行机、同一 cwd / env 跑这条命令（按 shell-words 拆分，不经 shell；要 shell 就写 `bash -lc '…'`），独立超时 `--verify-timeout`（缺省项目 `verify_timeout_sec`，再缺省 600 秒）。
 

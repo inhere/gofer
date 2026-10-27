@@ -73,6 +73,15 @@ job findings	flag priority	priority of the created issues, 0 (highest)..4
 job findings	flag server	server address (overrides config server.addr)
 job findings	flag tag	comma-separated tags of the created issues
 job findings	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job follow-up	desc	Queue a follow-up request for a running job's session
+job follow-up	help	
+job follow-up	examples	
+job follow-up	flag config	path to the gofer config file
+job follow-up	flag drop	drop queued follow-up by its position
+job follow-up	flag list	list queued follow-ups
+job follow-up	flag review-each	pause for human review after this follow-up
+job follow-up	flag server	server address (overrides config server.addr)
+job follow-up	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 job interactions	desc	List a job's interactions (questions, choices, approval requests)
 job interactions	help	
 job interactions	examples	

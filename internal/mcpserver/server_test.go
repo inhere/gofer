@@ -136,6 +136,7 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_cancel_job":    false,
 		"gofer_job_say":       false,
 		"gofer_job_end":       false,
+		"gofer_job_follow_up": false,
 		// GATE-01 S3: an agent may refuse a delivery it deems unacceptable, never
 		// accept one (there is deliberately no gofer_accept_job).
 		"gofer_reject_job":         false,
