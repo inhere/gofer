@@ -39,7 +39,7 @@ gofer worker init \
 - **覆盖保护**：`<config-dir>/worker.yaml` 已存在时**先报错**（在任何网络请求之前），`--force` 才覆盖，且**覆盖前备份**为 `worker.yaml.bak-<YYYYMMDD-HHMMSS>`。`.env` 是**就地更新**那一行 `GOFER_WORKER_TOKEN`，其它键原样保留（同一份 .env 里可能还有别的凭据）。
 - **占用告警**：若该 id 在 server 上**已有在线 worker**，先打一行 warning —— 启动第二份会顶掉它的连接并失败其 in-flight job。
 - **收尾跑 doctor**：向导用刚写的文件跑一次完整 doctor（含注册握手），**任一 FAIL 则命令非零退出**并提示重跑 `gofer worker doctor`；token 用本次 `--token` 复核，所以新机器（还没 export）也能验通。
-- 两个入口**同一实现**：`gofer init worker --server …` 委托给向导（不带 `--server` 时 `init worker` 仍是"写一份示例模板"的老行为）。
+- 入口统一为 `gofer worker init`；`gofer init worker` 只生成模板，带向导参数时会提示改用新命令。
 
 服务端侧的读接口：`GET /v1/workers/{id}/assignable` —— 返回**能派给这个 worker 的 project（key + server 侧 host_path）**与 server/协议版本。判定：project 的 `allowed_runners` 里**直接写了该 worker id**，或者写了一个 `type: worker` 且 `worker_id: <id>` 的 runner 名。鉴权：**该 worker 自己的 token 或 user caller**；别的 worker token → 403。
 

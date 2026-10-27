@@ -68,6 +68,9 @@ func collectCliHelpFor(t *testing.T, roots []string) string {
 		lines = append(lines, path+"\texamples\t"+cmd.Examples)
 		var flags []string
 		cmd.Flags.FSet().VisitAll(func(f *gflag.Flag) {
+			if opt := cmd.Opt(f.Name); opt != nil && opt.Hidden {
+				return
+			}
 			flags = append(flags, path+"\tflag "+f.Name+"\t"+f.Usage)
 		})
 		sort.Strings(flags)

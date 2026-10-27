@@ -143,7 +143,7 @@ func runWorkerAdd(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	c.Printf("worker %s registered\nworker token (shown once): %s\nworker connect: %s\nnext: gofer init worker --server %s --id %s --token %s --yes\n", reg.WorkerID, reg.WorkerToken, reg.WorkerConnectURL, cli.BaseURL(), reg.WorkerID, reg.WorkerToken)
+	c.Printf("worker %s registered\nworker token (shown once): %s\nworker connect: %s\nnext: gofer worker init --server %s --id %s --token %s --yes\n", reg.WorkerID, reg.WorkerToken, reg.WorkerConnectURL, cli.BaseURL(), reg.WorkerID, reg.WorkerToken)
 	return nil
 }
 

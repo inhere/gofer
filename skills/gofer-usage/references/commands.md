@@ -212,7 +212,7 @@ gofer init [server|worker|client]       # 从内置模板生成配置（默认 s
 gofer init -g worker                    # 写到用户全局 config 目录
 gofer init [-g] skill [-o <dir>] [--force]   # 装本 skill：默认写 ./.claude/skills 与 ./.agents/skills；-g 写 ~/.claude 与 ~/.agents
 gofer init hooks …                      # 见 session
-gofer init worker --server <addr> --id <id> [--admin-token …] --yes   # worker 接入向导，见 operations.md
+gofer worker init --server <addr> --id <id> [--admin-token …] --yes   # worker 接入向导，见 operations.md
 ```
 
 ## worker（别名 w）

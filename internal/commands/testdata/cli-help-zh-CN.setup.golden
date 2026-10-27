@@ -1,21 +1,13 @@
 init	desc	Scaffold a starter config, skill or agent hooks from the embedded templates (target: server | worker | client | skill | hooks)
 init	help	
 init	examples	
-init	flag admin-token	worker wizard: server administrator token (used only for one-time registration; never written)
 init	flag agent	hooks: which agent config to write: claude | codex | omp | jcode | all (all = the four, only for agents whose config dir already exists; skill: all = only existing .claude / .agents; jcode has no project level, needs --global or -o <JCODE_HOME dir>)
 init	flag force	overwrite an existing config file or skill (hooks: replace an unparsable hook config)
 init	flag global	write to the user-global dir (<config-dir>/config.yaml|worker.yaml|.env for server/worker/client; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude, ~/.codex, ~/.omp/agent/extensions and ~/.jcode/config.toml)
-init	flag id	worker wizard: worker_id (must equal the server's server.workers key)
 init	flag output	output path (config file for server/worker; .env for client; single skills parent dir for skill; project dir for hooks — overrides the default)
 init	flag prime-only	hooks: install or remove only the memory injection (SessionStart prime + PreToolUse command memories)
-init	flag project	worker wizard: project to allow during registration (repeatable)
 init	flag remove	hooks: remove gofer's hook entries instead of installing them
-init	flag roots	worker wizard: explicit roots mapping from=to (repeatable; wins over inference)
-init	flag server	worker: hub address — switches `init worker` to the interactive worker wizard (see `gofer worker init`)
-init	flag timeout	worker wizard: per-check timeout for the doctor run, e.g. 10s
-init	flag token	worker wizard: the worker's hub token (written to <config-dir>/.env)
 init	flag workspace	server: directory to register as the `default` project (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)
-init	flag yes	worker wizard: accept the inferred values without prompting (non-interactive)
 config	desc	Inspect and validate the gofer configuration
 config	help	
 config	examples	
