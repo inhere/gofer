@@ -2,7 +2,7 @@
 // 接口结果归一成列表行、筛选，以及旧链接 `/issues?tab=memories` 的重定向。
 // 渲染在 views/Memory.vue，列表行在 components/MemoryList.vue（两处共用同一份取数与筛选）。
 import type { MemoryDoctorFinding, ScopedMemory, TrackerMemory } from '../api/types'
-import { clampPage } from './issuePaging'
+import { clampPage, pageCountOf, readPageQuery } from './issuePaging'
 import { memoryKindMatches, trackerMemoryMatches } from './trackerView'
 import { t } from '../i18n'
 
@@ -69,27 +69,18 @@ export function memoryQueryUpdate(
   return next
 }
 
-// readMemoryPage：列表页码（?page=，与 Issues 页同一口径）；坏值回落到第 1 页。
-export function readMemoryPage(query: Record<string, unknown> | undefined): number {
-  const n = Math.floor(Number(queryValue(query?.page)))
-  return Number.isFinite(n) && n >= 1 ? n : 1
-}
+// readMemoryPage：列表页码（?page=，与 Issues / 工作流页同一口径）；坏值回落到第 1 页。
+export const readMemoryPage = readPageQuery
 
 // pageQueryUpdate：页码写进 ?page=（第 1 页不写，链接保持干净），其余参数保留。
-export function pageQueryUpdate(base: Record<string, unknown> | undefined, page: number): Record<string, string> {
-  const next: Record<string, string> = {}
-  for (const [k, v] of Object.entries(base ?? {})) {
-    if (typeof v === 'string' && v && k !== 'page') next[k] = v
-  }
-  if (page > 1) next.page = String(page)
-  return next
-}
+// 实现与其它列表页共用（utils/issuePaging）。
+export { pageQueryUpdate } from './issuePaging'
 
 // 每页条数记在本机（与 Issues 页同样不写 URL），选项与默认值沿用同一套。
 export const MEMORY_PAGE_SIZE_KEY = 'gofer.memory.pagesize'
 
 export function memoryPageCount(total: number, pageSize: number): number {
-  return Math.max(1, Math.ceil(total / Math.max(1, Math.floor(pageSize))))
+  return pageCountOf(total, pageSize)
 }
 
 // memoryPageSlice：平铺列表切页（记忆没有父子层级，按行切）。

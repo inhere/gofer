@@ -2464,6 +2464,8 @@ export interface Workflow {
 
 export interface WorkflowsResp {
   workflows: Workflow[]
+  // 与同一过滤条件匹配的总条数（服务端分页：limit / offset 切页，total 供页脚算页数）。
+  total?: number
 }
 
 // plan 编排（plan-orchestration，design §5/§10）。归组容器：把陆续产生的独立 job

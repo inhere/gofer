@@ -1,14 +1,15 @@
 <script setup lang="ts">
 // Workflows 列表（job 链）：轮询 listWorkflows（2.5s），Page Visibility 暂停/恢复，
-// 状态 chip 过滤（客户端收窄 + 计数，接口没有按项目过滤的参数），行点击进详情。
+// 状态 chip 过滤 + 服务端分页（每页 50 条，页码写 ?page=），行点击进详情。
 // UI 重设计 P5：ui/FilterChips + ui/StatusPill + 分段 ProgressBar（设计稿 §7.2）。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { createLiveTopic } from '../utils/useLiveTopic'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import { listWorkflows } from '../api/client'
 import { fmtDateTime, fmtDuration } from '../api/time'
 import { workflowStatusOptions, statusText } from '../utils/statusText'
+import { clampPage, pageCountOf, pageQueryUpdate, pageWindow, readPageQuery } from '../utils/issuePaging'
 import { t, te } from '../i18n'
 import FilterChips from '../ui/FilterChips.vue'
 import StatusPill from '../ui/StatusPill.vue'
@@ -18,53 +19,59 @@ import { useWhoami } from '../store/whoami'
 import type { FilterChipItem } from '../ui/filterChips'
 import type { Workflow, WorkflowStatus } from '../api/types'
 
+const route = useRoute()
 const router = useRouter()
 // 调用方上限只读时，创建入口一律不摆出来（服务端也会 403）。
 const { readOnly } = useWhoami()
 
-// 详情页的「← 工作流」回到这里（带筛选与滚动位置）。
+// 详情页的「← 工作流」回到这里（带筛选、页码与滚动位置）。
 useListReturn('workflows', '/workflows')
+
+// 每页 50 条：limit / offset 交给服务端切页，total 是同一过滤条件下的总条数。
+const PAGE_SIZE = 50
 
 const workflows = ref<Workflow[]>([])
 const loading = ref(false)
 const error = ref('')
 const statusFilter = ref<'' | WorkflowStatus>('')
+const total = ref(0)
+const page = ref(readPageQuery(route.query))
+const pageCount = computed(() => pageCountOf(total.value, PAGE_SIZE))
+const currentPage = computed(() => clampPage(page.value, pageCount.value))
+const tableEl = ref<HTMLElement | null>(null)
 
 // 状态 chip 的文案走 i18n；没有 status.<值> 时回退到旧的中文映射（P5 之后只剩 i18n）。
 const statusOptions = workflowStatusOptions().filter((o) => o.value !== '')
 
-const statusItems = computed<FilterChipItem[]>(() => {
-  const counts = new Map<string, number>()
-  for (const wf of workflows.value) {
-    counts.set(wf.status, (counts.get(wf.status) ?? 0) + 1)
-  }
-  const all: FilterChipItem = {
-    value: '',
-    label: t('workflows.filterAll'),
-    count: workflows.value.length,
-  }
-  return [
-    all,
-    ...statusOptions.map((o) => ({
-      value: o.value,
-      label: te(`status.${o.value}`) ? t(`status.${o.value}`) : statusText(o.value),
-      count: counts.get(o.value) ?? 0,
-    })),
-  ]
-})
-
-const visible = computed(() =>
-  statusFilter.value ? workflows.value.filter((wf) => wf.status === statusFilter.value) : workflows.value,
-)
+// 服务端分页后拿到的是当前页，按状态计数要扫全量才能给出，所以 chip 只做筛选、不再带计数
+// （全部条数在页头副标题与页脚的「共 N 条」上）。
+const statusItems = computed<FilterChipItem[]>(() => [
+  { value: '', label: t('workflows.filterAll') },
+  ...statusOptions.map((o) => ({
+    value: o.value,
+    label: te(`status.${o.value}`) ? t(`status.${o.value}`) : statusText(o.value),
+  })),
+])
 
 const filtered = computed(() => statusFilter.value !== '')
 
 async function fetchWorkflows(): Promise<void> {
   loading.value = true
   try {
-    const resp = await listWorkflows()
+    const resp = await listWorkflows({
+      status: statusFilter.value || undefined,
+      limit: PAGE_SIZE,
+      offset: (currentPage.value - 1) * PAGE_SIZE,
+    })
     workflows.value = resp.workflows ?? []
+    total.value = resp.total ?? workflows.value.length
     error.value = ''
+    // 当前页已越界（行被删、或别人改小了这个过滤下的总数）：退回最后一页重拉，URL 跟着修。
+    if (page.value > pageCount.value) {
+      page.value = pageCount.value
+      writeQuery(pageQueryUpdate(route.query, page.value))
+      void fetchWorkflows()
+    }
   } catch (e) {
     // 401 已由 client 处理（跳转登录）；其余显示错误条
     error.value = e instanceof Error ? e.message : String(e)
@@ -73,10 +80,35 @@ async function fetchWorkflows(): Promise<void> {
   }
 }
 
-// 换 chip 立即重拉一次（与之前换 select 的行为一致；WS 失效通知也会触发）。
+// 页码写进 ?page=（第 1 页不写），可分享、后退可复原。
+function writeQuery(next: Record<string, string>): void {
+  void router.replace({ query: next })
+}
+
+function gotoPage(p: number): void {
+  page.value = clampPage(p, pageCount.value)
+  writeQuery(pageQueryUpdate(route.query, page.value))
+  tableEl.value?.scrollIntoView?.({ block: 'start' })
+  void fetchWorkflows()
+}
+
+// 换 chip 立即回到第 1 页并重拉（WS 失效通知也会触发）。
 watch(statusFilter, () => {
+  page.value = 1
+  writeQuery(pageQueryUpdate(route.query, 1))
   void fetchWorkflows()
 })
+
+// 后退 / 前进改 URL 时页码跟着走（自己换页时 page 已是新值，不重复拉一次）。
+watch(
+  () => route.query.page,
+  (value) => {
+    const next = readPageQuery({ page: value })
+    if (next === page.value) return
+    page.value = next
+    void fetchWorkflows()
+  },
+)
 
 // 工作流耗时：created_at -> updated_at（运行中按 now）。
 function rowDuration(wf: Workflow): string {
@@ -125,7 +157,7 @@ onUnmounted(() => {
       <!-- 工作流 / 模板库在 docs/guide/stability.md 里属实验性，标题旁挂标注。 -->
       <div class="head-main">
         <h1 class="title">{{ t('workflows.title') }}<ExperimentalBadge /></h1>
-        <p class="sub">{{ visible.length ? t('workflows.subtitle', { n: visible.length }) : t('workflows.subtitleEmpty') }}</p>
+        <p class="sub">{{ total ? t('workflows.subtitle', { n: total }) : t('workflows.subtitleEmpty') }}</p>
       </div>
       <div class="head-actions">
         <span class="poll-dot" :class="{ 'poll-dot--on': loading }" aria-hidden="true">●</span>
@@ -144,7 +176,7 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <div class="table" role="table">
+    <div ref="tableEl" class="table" role="table">
       <div class="thead" role="row">
         <span class="col-status">{{ t('workflows.col.status') }}</span>
         <span class="col-wf">{{ t('workflows.col.name') }}</span>
@@ -154,7 +186,7 @@ onUnmounted(() => {
       </div>
 
       <div
-        v-for="wf in visible"
+        v-for="wf in workflows"
         :key="wf.id"
         class="trow"
         role="row"
@@ -184,12 +216,20 @@ onUnmounted(() => {
         <span class="col-dur mono">{{ rowDuration(wf) }}</span>
       </div>
 
-      <div v-if="visible.length === 0 && !error" class="empty">
+      <div v-if="workflows.length === 0 && !error" class="empty">
         <p>{{ t('workflows.empty') }}</p>
         <p class="empty-hint">{{ t('workflows.emptyHint') }}</p>
         <RouterLink v-if="!readOnly" to="/workflows/new" class="btn btn--primary">{{ t('workflows.new') }}</RouterLink>
       </div>
     </div>
+
+    <!-- 服务端分页（每页 50 条）：页码进 ?page=，切筛选回第 1 页。 -->
+    <nav v-if="total > 0" class="pager" data-test="pager" :aria-label="t('workflows.pager.label')">
+      <span class="pager-count" data-test="page-summary">{{ t('workflows.pageSummary', { total, page: currentPage, pages: pageCount }) }}</span>
+      <button type="button" class="page-btn" :disabled="currentPage <= 1" data-test="page-prev" @click="gotoPage(currentPage - 1)">{{ t('workflows.pager.prev') }}</button>
+      <template v-for="(p, i) in pageWindow(currentPage, pageCount)" :key="i"><span v-if="p === null" class="pager-gap">…</span><button v-else type="button" class="page-btn" :class="{ 'page-btn--on': p === currentPage }" :data-test="`page-${p}`" :aria-label="t('workflows.pager.page', { page: p })" @click="gotoPage(p)">{{ p }}</button></template>
+      <button type="button" class="page-btn" :disabled="currentPage >= pageCount" data-test="page-next" @click="gotoPage(currentPage + 1)">{{ t('workflows.pager.next') }}</button>
+    </nav>
   </div>
 </template>
 
@@ -379,12 +419,51 @@ onUnmounted(() => {
 .empty .btn {
   margin-top: var(--s1);
 }
+/* 分页条（与 Issues / 记忆页同一套写法）：可换行，手机上按钮够大。 */
+.pager {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin-top: var(--s3);
+  font-size: var(--fs-sm);
+}
+.pager-count {
+  color: var(--ink-3);
+  margin-right: var(--s2);
+  font-size: var(--fs-xs);
+}
+.page-btn {
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--ink);
+  padding: 3px 9px;
+  font: inherit;
+  font-size: var(--fs-xs);
+  min-width: 30px;
+  min-height: 30px;
+}
+.page-btn--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pager-gap {
+  color: var(--ink-3);
+}
 @media (max-width: 760px) {
   .page-head {
     flex-direction: column;
     gap: var(--s2);
   }
   .btn,
+  .page-btn,
   .link-btn {
     min-height: 40px;
   }

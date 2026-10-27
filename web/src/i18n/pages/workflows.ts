@@ -19,6 +19,11 @@ export const workflows: PageDict = {
     'workflows.col.started': '开始时间',
     'workflows.col.duration': '耗时',
     'workflows.stepsOf': '{cur}/{total}',
+    'workflows.pager.label': '工作流分页',
+    'workflows.pager.prev': '上一页',
+    'workflows.pager.next': '下一页',
+    'workflows.pager.page': '第 {page} 页',
+    'workflows.pageSummary': '共 {total} 条 · 第 {page} / {pages} 页',
 
     'workflows.new.title': '新建工作流',
     'workflows.new.tabTemplate': '从模板新建',
@@ -142,6 +147,11 @@ export const workflows: PageDict = {
     'workflows.col.started': 'Started',
     'workflows.col.duration': 'Duration',
     'workflows.stepsOf': '{cur}/{total}',
+    'workflows.pager.label': 'Workflow pages',
+    'workflows.pager.prev': 'Previous',
+    'workflows.pager.next': 'Next',
+    'workflows.pager.page': 'Page {page}',
+    'workflows.pageSummary': '{total} total · page {page} / {pages}',
 
     'workflows.new.title': 'New workflow',
     'workflows.new.tabTemplate': 'From template',
