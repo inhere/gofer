@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -24,7 +26,9 @@ import (
 	"github.com/inhere/gofer/internal/logx"
 	"github.com/inhere/gofer/internal/project"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
+	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/worker"
+	"github.com/inhere/gofer/internal/workerprovision"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -112,8 +116,14 @@ func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 }
 
 var workerManageOpts struct {
-	labels   gcli.Strings
-	projects gcli.Strings
+	labels    gcli.Strings
+	projects  gcli.Strings
+	ssh       string
+	wsl       string
+	dryRun    bool
+	binary    string
+	binaryURL string
+	wait      time.Duration
 }
 
 func NewWorkerAddCmd() *gcli.Command {
@@ -124,6 +134,12 @@ func NewWorkerAddCmd() *gcli.Command {
 			bindServerFlags(c)
 			c.VarOpt(&workerManageOpts.labels, "labels", "", "worker label (repeatable)")
 			c.VarOpt(&workerManageOpts.projects, "project", "", "project to allow (repeatable)")
+			c.StrOpt(&workerManageOpts.ssh, "ssh", "", "", "remote SSH target user@host; provision and start the worker there")
+			c.StrOpt(&workerManageOpts.wsl, "wsl", "", "", "WSL distribution to provision and start")
+			c.BoolOpt(&workerManageOpts.dryRun, "dry-run", "", false, "print provisioning steps without connecting or changing the remote host")
+			c.StrOpt(&workerManageOpts.binary, "binary", "", "", "local gofer binary to upload when remote download is unavailable")
+			c.StrOpt(&workerManageOpts.binaryURL, "binary-url", "", "", "remote binary URL (optional release-source override)")
+			c.DurationOpt(&workerManageOpts.wait, "wait", "", 30*time.Second, "time to wait for the worker to connect")
 			c.AddArg("id", "worker id", true)
 		},
 		Func: runWorkerAdd,
@@ -135,6 +151,24 @@ func runWorkerAdd(c *gcli.Command, _ []string) error {
 	if err := config.CheckWorkerID(id); err != nil {
 		return errorx.Failf(configExitErr, "%v", err)
 	}
+	if workerManageOpts.ssh != "" && workerManageOpts.wsl != "" {
+		return errorx.Failf(configExitErr, "--ssh and --wsl are mutually exclusive")
+	}
+	if workerManageOpts.wsl != "" && runtime.GOOS != "windows" {
+		return errorx.Failf(configExitErr, "--wsl is only supported when gofer is running on Windows")
+	}
+	remote := strings.TrimSpace(workerManageOpts.ssh) != "" || strings.TrimSpace(workerManageOpts.wsl) != ""
+	if workerManageOpts.dryRun {
+		if !remote {
+			return errorx.Failf(configExitErr, "--dry-run requires --ssh or --wsl")
+		}
+		target := strings.TrimSpace(workerManageOpts.ssh)
+		if target == "" {
+			target = "wsl.exe -d " + strings.TrimSpace(workerManageOpts.wsl)
+		}
+		c.Printf("worker add %s (dry-run)\n1. probe: %s uname -sm (fallback: PowerShell)\n2. download gofer from the configured release source; fallback: scp matching binary to the remote host\n3. run: %s <gofer> worker init --server %s --id %s --token-stdin --yes (token via stdin)\n4. run: %s <gofer> worker --daemon\n5. poll GET /v1/workers/%s until connected\n", id, target, target, jobConnOpts.server, id, target, id)
+		return nil
+	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
@@ -143,8 +177,68 @@ func runWorkerAdd(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	c.Printf("worker %s registered\nworker token (shown once): %s\nworker connect: %s\nnext: gofer worker init --server %s --id %s --token %s --yes\n", reg.WorkerID, reg.WorkerToken, reg.WorkerConnectURL, cli.BaseURL(), reg.WorkerID, reg.WorkerToken)
-	return nil
+	if !remote {
+		c.Printf("worker %s registered\nworker token (shown once): %s\nworker connect: %s\nnext: gofer worker init --server %s --id %s --token %s --yes\n", reg.WorkerID, reg.WorkerToken, reg.WorkerConnectURL, cli.BaseURL(), reg.WorkerID, reg.WorkerToken)
+		return nil
+	}
+	if workerManageOpts.wait <= 0 {
+		workerManageOpts.wait = 30 * time.Second
+	}
+	var resolveURL func(context.Context, string, string) (string, error)
+	var resolveBinary func(context.Context, string, string) (string, error)
+	var releaseDir string
+	if workerManageOpts.binaryURL == "" && workerManageOpts.binary == "" {
+		if cfg, _, loadErr := config.Load(config.InputCfgFile); loadErr == nil {
+			checker := updatecheck.New("", func() config.UpdateConfig { return cfg.Server.Update })
+			if dir, dirErr := os.MkdirTemp("", "gofer-worker-add-"); dirErr == nil {
+				releaseDir = dir
+				defer os.RemoveAll(releaseDir)
+				resolveURL = func(ctx context.Context, goos, goarch string) (string, error) {
+					st := checker.Check(ctx)
+					if st.Error != "" {
+						return "", errors.New(st.Error)
+					}
+					a, assetErr := checker.AssetFor(goos, goarch)
+					if assetErr != nil {
+						return "", assetErr
+					}
+					if strings.HasSuffix(a.Name, ".zip") || strings.HasSuffix(a.Name, ".tar.gz") || strings.HasSuffix(a.Name, ".tgz") {
+						return "", errors.New("release asset is an archive")
+					}
+					return a.URL, nil
+				}
+				resolveBinary = func(ctx context.Context, goos, goarch string) (string, error) {
+					st := checker.Check(ctx)
+					if st.Error != "" {
+						return "", errors.New(st.Error)
+					}
+					a, assetErr := checker.AssetFor(goos, goarch)
+					if assetErr != nil {
+						return "", assetErr
+					}
+					return checker.Download(ctx, a, releaseDir)
+				}
+			}
+		}
+	}
+	exec := workerprovision.SystemExecutor{SSH: strings.TrimSpace(workerManageOpts.ssh), WSL: strings.TrimSpace(workerManageOpts.wsl)}
+	result, err := workerprovision.Run(context.Background(), workerprovision.Options{ID: id, Server: cli.BaseURL(), Token: reg.WorkerToken, Binary: workerManageOpts.binary, BinaryURL: workerManageOpts.binaryURL, ResolveURL: resolveURL, ResolveBinary: resolveBinary, Executor: exec, Output: os.Stdout, Timeout: workerManageOpts.wait + 2*time.Minute})
+	if err != nil {
+		return errorx.Failf(configExitErr, "worker %s registered, but remote provisioning failed: %v\nmanual recovery: gofer worker init --server %s --id %s --token-stdin --yes", id, err, cli.BaseURL(), id)
+	}
+	deadline := time.Now().Add(workerManageOpts.wait)
+	for {
+		w, getErr := cli.GetWorker(id)
+		if getErr == nil && w.Connected {
+			c.Printf("worker %s connected (%s/%s)\n", id, result.OS, result.Arch)
+			return nil
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return errorx.Failf(configExitErr, "worker %s was provisioned but did not connect within %s; run gofer worker show %s", id, workerManageOpts.wait, id)
 }
 
 func NewWorkerRemoveCmd() *gcli.Command {

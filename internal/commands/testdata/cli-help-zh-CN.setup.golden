@@ -51,11 +51,17 @@ worker	flag worker-config	path to the worker config file (default: <config-dir>/
 worker add	desc	Register a worker on the server and print its one-time token
 worker add	help	
 worker add	examples	
+worker add	flag binary	local gofer binary to upload when remote download is unavailable
+worker add	flag binary-url	remote binary URL (optional release-source override)
 worker add	flag config	path to the gofer config file
+worker add	flag dry-run	print provisioning steps without connecting or changing the remote host
 worker add	flag labels	worker label (repeatable)
 worker add	flag project	project to allow (repeatable)
 worker add	flag server	server address (overrides config server.addr)
+worker add	flag ssh	remote SSH target user@host; provision and start the worker there
 worker add	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+worker add	flag wait	time to wait for the worker to connect
+worker add	flag wsl	WSL distribution to provision and start
 worker doctor	desc	Self-check this worker: config, hub urls, token, roots, agents, register handshake
 worker doctor	help	
 worker doctor	examples	
@@ -74,6 +80,7 @@ worker init	flag roots	explicit roots mapping from=to (repeatable; wins over inf
 worker init	flag server	hub address, e.g. http://<server-ip>:8767 (required)
 worker init	flag timeout	per-check timeout for the doctor run, e.g. 10s
 worker init	flag token	this worker's hub token (written to <config-dir>/.env as GOFER_WORKER_TOKEN; defaults to an already-exported GOFER_WORKER_TOKEN)
+worker init	flag token-stdin	read the worker token from stdin (used by remote provisioning; never put secrets in process arguments)
 worker init	flag workspace	directory to create as the default workspace (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)
 worker init	flag yes	non-interactive: accept every inferred value without prompting
 worker join	desc	Ask a server to admit this machine as a worker: it prints a pairing code a person accepts in the console, then writes the token and worker.yaml here

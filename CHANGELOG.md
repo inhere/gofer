@@ -32,6 +32,7 @@
   - `gofer session wait <sid> --until idle|waiting_reply|ended [--timeout 10m] [--json]`：阻塞到会话进入目标状态（`--until` 可逗号给多个），已处于该状态时立即返回；退出码 `0` 达成 / `2` 超时 / `1` 错误，`--json` 打印最终状态。底层是 `GET /v1/sessions/{sid}/wait?until=&timeout=`（长轮询，服务端单次最多 60s，CLI 循环到总超时；状态取已存的会话行，250ms 读一次）。
   - `gofer session screen <sid> [-n 50] [--json]`：只读取该会话现在显示的内容（纯文本、已去 ANSI）：终端会话取最近的 relay turn（与 `session show` 同一数据源），被 pty job 接管的会话取那个 job 的 `pty.txt` 尾部（与 `job logs` 同一读法），还没有 turn 时取最后一条消息。底层是 `GET /v1/sessions/{sid}/screen?n=`。
   - 两条路由都是会话读，权限与 `session show` 相同（自己的会话不需要权限，别人的要 `session.read.others`）；新增 MCP 工具 `gofer_session_wait`、`gofer_session_screen`。
+- **`gofer worker add` 支持通过 SSH / WSL 一键接入远程 worker**（gofer-ciou）：先探测目标平台，再优先尝试远端下载、失败时用 `scp` / WSL 传送 gofer 二进制；worker 初始化凭据经 stdin 传递，不出现在进程参数中；启动后台 worker 后轮询确认已连接。`--dry-run` 可只打印步骤，`--ssh` 与 `--wsl` 互斥。
 
 ### 文档
 
