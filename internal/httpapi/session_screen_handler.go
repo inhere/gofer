@@ -98,6 +98,9 @@ func (s *Server) sessionScreen(sid string, lines int) (sessionScreenResult, erro
 // yet), so the caller falls back to the relay turns instead of answering an empty
 // screen.
 func (s *Server) ptyScreen(jobID string, lines int) (string, bool) {
+	if s.jobs == nil {
+		return "", false
+	}
 	res, ok := s.jobs.Get(jobID)
 	if !ok || !res.Interactive || res.ResultDir == "" {
 		return "", false

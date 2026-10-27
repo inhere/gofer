@@ -300,7 +300,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/sessions/{sid}/replies` | `Public` | — | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/resume` | `InHandler(deny)` | `session.reply.others`、`job.submit` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/say` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
-| `GET` | `/v1/sessions/{sid}/screen` | `InHandler(deny)` | `session.read.others` | `job` | `Resource(session)` | 读 |
+| `GET` | `/v1/sessions/{sid}/screen` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
 | `GET` | `/v1/sessions/{sid}/tail` | `InHandler(deny)` | `session.read.others` | `job` | `Resource(session)` | 读 |
 | `GET` | `/v1/sessions/{sid}/takeover-plan` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
 | `POST` | `/v1/sessions/{sid}/turns` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
@@ -310,7 +310,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/sessions/{sid}/turns/{id}/complete-mail` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/turns/{id}/complete-watches` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/turns/{id}/release` | `InHandler(deny)` | `session.manage.others` | — | `Resource(session)` | 写 |
-| `GET` | `/v1/sessions/{sid}/wait` | `InHandler(deny)` | `session.read.others` | `job` | `Resource(session)` | 读 |
+| `GET` | `/v1/sessions/{sid}/wait` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
 | `GET` | `/v1/sessions/{sid}/watches` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
 | `POST` | `/v1/sessions/{sid}/watches` | `InHandler(deny)` | `session.reply.others` | `job` | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/watches/complete` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
