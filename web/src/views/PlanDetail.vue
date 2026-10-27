@@ -1112,7 +1112,9 @@ onUnmounted(() => {
           {{ t('plans.detail.canFinish') }}
         </p>
       </div>
-      <p v-if="plan.description" class="head-desc">{{ plan.description }}</p>
+      <!-- 描述按 markdown 渲染（与待办备注同一条写法）：单换行保留、链接新标签页打开、
+           渲染经 DOMPurify 消毒（见 MarkdownBlock）。 -->
+      <MarkdownBlock v-if="plan.description" class="head-desc" :text="plan.description" breaks external-links />
       <dl class="meta mono">
         <div class="meta-row">
           <dt>{{ t('plans.detail.id') }}</dt>
@@ -1864,11 +1866,14 @@ onUnmounted(() => {
 .hp-fail {
   color: var(--fail);
 }
+/* 描述块：换行由 MarkdownBlock 的 breaks 负责（不再用 white-space: pre-wrap，
+   否则渲染出来的 HTML 源码换行会变成额外空行）；标题 / 列表 / 链接的排版在
+   MarkdownBlock 自己的样式里。字号与颜色仍用头部原来的（页头这句是次要信息，
+   不抢标题）：父级 scoped 规则比块内的 .md 多一个作用域属性，所以这里写就生效。 */
 .head-desc {
   margin: 0 0 var(--s3);
   color: var(--ink-2);
   font-size: var(--fs-sm);
-  white-space: pre-wrap;
   word-break: break-word;
 }
 .head-status {
