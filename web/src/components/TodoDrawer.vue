@@ -196,7 +196,7 @@ const canDispatch = computed(() => {
 <template>
   <Drawer
     v-model="open"
-    width="480px"
+    width="clamp(560px, 46vw, 900px)"
     :label="t('plans.todo.drawer')"
     data-test="todo-drawer"
   >
@@ -350,8 +350,9 @@ const canDispatch = computed(() => {
       <section v-if="todo.note" class="td-sec" data-test="todo-drawer-note">
         <h4 class="td-h mono">{{ t('plans.todo.note') }}</h4>
         <!-- 备注是一行一条的（--append-note 每次追加一行、服务端用换行连接）：breaks 保住
-             换行，externalLinks 让裸 URL（缺陷系统等）可点并在新标签页打开。 -->
-        <MarkdownBlock :text="todo.note" breaks external-links />
+             换行，externalLinks 让裸 URL（缺陷系统等）可点并在新标签页打开。
+             抽屉加宽后备注行会过长，正文限到 72ch 才好读（用户反馈：备注以前挤在 480px 里）。 -->
+        <MarkdownBlock class="td-note" :text="todo.note" breaks external-links />
       </section>
 
       <section class="td-sec" data-test="todo-drawer-times">
@@ -566,6 +567,10 @@ const canDispatch = computed(() => {
   font-size: var(--fs-sm);
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* 抽屉在大屏是 560–900px：备注正文限到 72ch，长行不会拉成一行要来回扫。 */
+.td-note {
+  max-width: 72ch;
 }
 .td-link {
   background: none;

@@ -246,4 +246,12 @@ describe('抽屉的接线', () => {
     expect(source).toContain(':scope="\'todo\'"')
     expect(source).toContain("from 'vue'")
   })
+
+  // 备注在窄抽屉里挤成一团（用户反馈）：大屏按屏幕宽度加宽，正文限到 72ch 才好读；
+  // 手机仍由 ui/Drawer 的媒体查询走全屏。
+  it('widens with the screen and caps the note width', () => {
+    expect(source).toContain('width="clamp(560px, 46vw, 900px)"')
+    expect(source).toContain('.td-note')
+    expect(source).toContain('max-width: 72ch')
+  })
 })

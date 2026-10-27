@@ -317,7 +317,7 @@ web 默认落地页 `/today` 的数据接口。人与普通 job 凭据可读；s
 - `GET /v1/memory-suggestions[?state=pending|adopted|dismissed|stale|all]`。
 - `POST /v1/memory-suggestions {tracker_id,key,action:archive|merge|kind|summary|when,payload:{into?,content?,kind?,summary?,keywords?},reason}`：人或 steward 凭据；新建 201、同 key + 动作已在等 200 原样返回、记忆不存在 404、参数错 400、30 天内被忽略或今天已满 5 条 409。
 - `POST /v1/memory-suggestions/{id}/adopt|dismiss`：只接受人凭据；已处理 409；记忆 / 合并目标在建议之后被改过 409 并把建议记为 stale。
-- `GET /v1/tracker/memories?tracker_id=` 的返回带 `doctor:{<key>:[{slug,detail}]}`。
+- `GET /v1/tracker/memories?tracker_id=` 的返回带 `doctor:{<key>:[{slug,detail}]}`。每条记忆的 `body` 原样透传仓库记录，含可选的 `created_unknown: true`（`created_at` / `updated_at` 是导入时间，源数据本身没有原始时间，如 `repo migrate --from-bd`）；Web / CLI 据此把时间显示成「导入于 …」而不是创建时间。
 
 ## Dashboard statistics
 

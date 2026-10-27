@@ -20,6 +20,14 @@ const emit = defineEmits<{ (event: 'open', row: SourcedMemoryRow): void }>()
 function findings(row: SourcedMemoryRow): MemoryDoctorFinding[] {
   return props.doctor?.[memorySourceKey(row)] ?? []
 }
+
+// timeText：时间列。原始时间未知的记忆（如从 bd 迁移，源里没有时间）显示「导入于 …」，
+// 不能当成创建时间 / 年龄显示。
+function timeText(row: SourcedMemoryRow): string {
+  const at = row.data.created_at || row.data.updated_at || row.updated_at
+  if (row.data.created_unknown) return t('memory.imported', { time: fmtTrackerTime(at) })
+  return memoryAge(row.data.updated_at || row.updated_at)
+}
 </script>
 
 <template>
@@ -38,7 +46,7 @@ function findings(row: SourcedMemoryRow): MemoryDoctorFinding[] {
         </span>
         <span v-if="showSource" class="memory-source" data-test="memory-source">{{ memorySourceLabel(row.source) }}</span>
         <span class="memory-tags">{{ (row.data.tags ?? []).join(' · ') || t('memory.tagsNone') }}</span>
-        <span class="mono memory-time" :title="fmtTrackerTime(row.data.updated_at || row.updated_at)"><span data-test="memory-age">{{ memoryAge(row.data.updated_at || row.updated_at) }}</span> · {{ row.data.by || '—' }}</span>
+        <span class="mono memory-time" :title="fmtTrackerTime(row.data.updated_at || row.updated_at)"><span data-test="memory-age">{{ timeText(row) }}</span> · {{ row.data.by || '—' }}</span>
       </button>
     </article>
     <div v-if="rows.length === 0" class="empty-panel mono">{{ t('memory.empty') }}</div>

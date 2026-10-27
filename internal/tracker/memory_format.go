@@ -4,15 +4,26 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // MemoryListLine is one `memory ls` row: key [kind] · age · summary, with the
 // 已过期 marker for an expired handoff and 久未更新 for a 90-day-old note.
 func MemoryListLine(m Memory, now time.Time) string {
+	return MemoryListLineIn(i18n.Default, m, now)
+}
+
+// MemoryListLineIn is MemoryListLine with lang for the imported-at label of a
+// memory whose source carried no timestamp (created_unknown).
+func MemoryListLineIn(lang i18n.Lang, m Memory, now time.Time) string {
 	var b strings.Builder
 	b.WriteString(m.Key)
 	b.WriteString(" [" + m.EffectiveKind() + "]")
-	if age := AgeText(m.UpdatedAt, now); age != "" {
+	if m.CreatedUnknown {
+		// The stored time is when the memory was imported, not an age: say so.
+		b.WriteString(" · " + MemoryImportedAtText(lang, MemoryCreatedAt(m.MemoryMeta, m.UpdatedAt)))
+	} else if age := AgeText(m.UpdatedAt, now); age != "" {
 		b.WriteString(" · " + age)
 	}
 	if MemoryExpired(m.MemoryMeta, m.Tags, m.UpdatedAt, now) {
@@ -41,6 +52,12 @@ const memorySourceShortRunes = 24
 
 // MemoryDetail renders every field of a memory for `memory show`, then the content.
 func MemoryDetail(m Memory, now time.Time) string {
+	return MemoryDetailIn(i18n.Default, m, now)
+}
+
+// MemoryDetailIn is MemoryDetail with lang for the imported-at label of a memory
+// whose source carried no timestamp (created_unknown).
+func MemoryDetailIn(lang i18n.Lang, m Memory, now time.Time) string {
 	var b strings.Builder
 	field := func(name, value string) {
 		if strings.TrimSpace(value) != "" {
@@ -88,7 +105,12 @@ func MemoryDetail(m Memory, now time.Time) string {
 			b.WriteString("\n")
 		}
 	}
-	field("created", withAge(MemoryCreatedAt(m.MemoryMeta, m.UpdatedAt), now))
+	created := MemoryCreatedAt(m.MemoryMeta, m.UpdatedAt)
+	if m.CreatedUnknown {
+		field("created", MemoryImportedAtText(lang, created))
+	} else {
+		field("created", withAge(created, now))
+	}
 	updated := withAge(m.UpdatedAt, now)
 	if m.By != "" {
 		updated += " by " + m.By
@@ -114,4 +136,11 @@ func withAge(value string, now time.Time) string {
 		return value + "（" + age + "）"
 	}
 	return value
+}
+
+// MemoryImportedAtText renders the time column of a memory whose source carried no
+// timestamp: 「导入于 <time>」 / "Imported <time>". The stored time is the import
+// time, so it must not be shown as a creation time.
+func MemoryImportedAtText(lang i18n.Lang, at string) string {
+	return i18n.T(lang, "prime.memory_format.imported", "time", strings.TrimSpace(at))
 }
