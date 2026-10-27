@@ -169,8 +169,8 @@ gofer session relay on                  # 本会话之后每次停下都在 Web 
 
 - **[Claude Code Remote Control](https://code.claude.com/docs/en/overview)** —— 离开终端之后把 Claude Code 会话接到浏览器或手机上继续，接入体验很顺；它围绕 Claude Code 一个 agent，gofer 则把任意 agent（Claude Code、codex、ACP agent、普通命令）都当作异步 job 执行，并带计划、验收与多机 worker。
 - **[Conductor](https://conductor.build)** —— 精致的 macOS 应用，在隔离的 git worktree 里并行跑多路 Claude Code / Codex / Cursor，并排审阅、合并改动；gofer 在自己的 server 上无头运行，任务可以来自浏览器、CLI、别的 agent（MCP）或 CI，控制台是 Web 而不是原生应用。
-- **[Superset（现名 Paradev）](https://paradev.com)** —— 面向并行 agent 的 IDE 式工作区，编辑与审阅体验强，也能通过 SSH 使用远端机器；gofer 走任务队列这条线：可恢复的 job 与计划、按 worker 派发、重试、定时，以及给别人用的 API。
-- **Kero** —— 界面优先的 agent 工作台，围绕会话列表、类似「今天」的决策队列与通知来做；gofer 追求同样的顺手，但保持 agent 与机器无关，server、worker 与协议都握在自己手里。
+- **[Superset](https://superset.sh)** —— 桌面 IDE，并行运行 Claude Code、Codex 等命令行 agent，每个任务一个 git worktree，自带审阅与远程工作区；gofer 走任务队列这条线：可恢复的 job 与计划、按 worker 派发、重试、定时，以及给别人用的 API。
+- **[Kero](https://github.com/egoist/kero)** —— 面向 coding agent 的原生终端应用：会话跑在一个小守护进程里，每个窗格显示 agent 是在干活、等你还是已完成，远程主机通过 SSH 或 Tailscale 接入同一个侧边栏；gofer 是 server 加 worker 的形态，带 Web 控制台，并在会话之上提供验收、计划和 API。
 
 ## 许可
 

@@ -170,8 +170,8 @@ gofer is one answer to "how do I run coding agents on more than one machine and 
 
 - **[Claude Code Remote Control](https://code.claude.com/docs/en/overview)** — keeps a Claude Code session within reach when you leave the terminal, continuing it from a browser or phone; it is centred on Claude Code, while gofer treats any agent (Claude Code, codex, ACP agents, plain commands) as an asynchronous job with plans, review and workers on several machines.
 - **[Conductor](https://conductor.build)** — a polished macOS app that runs several Claude Code / Codex / Cursor agents in isolated git worktrees so you can review and merge their changes side by side; gofer runs headless on its own server, so the same jobs can come from a browser, the CLI, another agent over MCP or CI, and its console is web-first instead of a native app.
-- **[Superset (now Paradev)](https://paradev.com)** — an IDE-style workspace for parallel agents with a strong editing and review surface, plus optional remote machines over SSH; gofer takes the task-queue angle: durable jobs and plans, dispatch per worker, retries, schedules and an API other tools build on.
-- **Kero** — a UI-first agent workbench built around a session list, a today-style decision queue and notifications; gofer chases the same comfort while staying agent- and machine-agnostic, with the server, workers and protocol under your own control.
+- **[Superset](https://superset.sh)** — a desktop IDE that runs Claude Code, Codex and other CLI agents in parallel, one git worktree per task, with built-in review and remote workspaces; gofer takes the task-queue angle: durable jobs and plans, dispatch per worker, retries, schedules and an API other tools build on.
+- **[Kero](https://github.com/egoist/kero)** — a native terminal app for coding agents: sessions keep running in a small daemon, each pane shows whether its agent is working, waiting or done, and remote hosts join the same sidebar over SSH or Tailscale; gofer is a server plus workers with a web console, and adds review, plans and an API on top of the sessions.
 
 ## License
 
