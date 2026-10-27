@@ -16,6 +16,9 @@ import (
 // and must never turn a missing tool into an error the job path cares about.
 func NewSystemNotifier() Notifier { return linuxNotifier{} }
 
+// PlatformSupported reports whether this build can pop a desktop notification at all.
+func PlatformSupported() bool { return true }
+
 type linuxNotifier struct{}
 
 func (linuxNotifier) Show(n Notification) error {

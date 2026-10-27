@@ -6,6 +6,9 @@ package desktop
 // skip, recorded once (see Dispatcher.report), so the channel is simply inert.
 func NewSystemNotifier() Notifier { return unsupportedNotifier{} }
 
+// PlatformSupported reports whether this build can pop a desktop notification at all.
+func PlatformSupported() bool { return false }
+
 type unsupportedNotifier struct{}
 
 func (unsupportedNotifier) Show(Notification) error {

@@ -17,6 +17,9 @@ import (
 // toast, posted by a short PowerShell child.
 func NewSystemNotifier() Notifier { return windowsNotifier{} }
 
+// PlatformSupported reports whether this build can pop a desktop notification at all.
+func PlatformSupported() bool { return true }
+
 type windowsNotifier struct{}
 
 // toastExecutor runs the fixed toast program (toastps.go) with the event data in env

@@ -14,6 +14,9 @@ import (
 // notification …'`, which is built into macOS (no tool to install).
 func NewSystemNotifier() Notifier { return darwinNotifier{} }
 
+// PlatformSupported reports whether this build can pop a desktop notification at all.
+func PlatformSupported() bool { return true }
+
 type darwinNotifier struct{}
 
 func (darwinNotifier) Show(n Notification) error {

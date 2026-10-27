@@ -749,7 +749,11 @@ var routeDecls = map[string]routeDecl{
 	// handshake cannot use the JSON error envelope), so the worker middleware — and with it
 	// that whitelist — never sees them. They have no user-class surface at all: the handshake
 	// authenticates the caller itself, which is why the user side says NoUserSurface.
-	"GET /v1/config":                 {user: Require(authz.PermConfigRead), scope: NoProject()},
+	"GET /v1/config": {user: Require(authz.PermConfigRead), scope: NoProject()},
+	// gofer-x9mb: the notification event catalog is a config read (it describes what can be
+	// subscribed), while a test send talks to a configured target — config.write.
+	"GET /v1/notify/events":          {user: Require(authz.PermConfigRead), scope: NoProject()},
+	"POST /v1/notify/test":           {user: Require(authz.PermConfigWrite), scope: NoProject()},
 	"PUT /v1/config/agents/{key}":    {user: Require(authz.PermConfigWrite), scope: NoProject()},
 	"DELETE /v1/config/agents/{key}": {user: Require(authz.PermConfigWrite), scope: NoProject()},
 	"PUT /v1/config/server":          {user: Require(authz.PermConfigWrite), scope: NoProject()},

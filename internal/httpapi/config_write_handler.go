@@ -1239,6 +1239,21 @@ type notificationPatch struct {
 	MaxAttempts          *int            `json:"max_attempts"`
 	Webhooks             *[]webhookPatch `json:"webhooks"`
 	SessionReplyDelaySec *int            `json:"session_reply_delay_sec"`
+	// Desktop is the server-host desktop channel (gofer-x9mb). A member-level patch like
+	// the rest of the block: an omitted member keeps the configured value, while `events:
+	// []` / `projects: []` reset to the channel's defaults. A nil block keeps whatever is
+	// configured; an `enabled: false` inside it pauses the channel (the block stays, so
+	// the events / projects are not lost — the same rule a paused webhook follows).
+	Desktop *desktopNotifyPatch `json:"desktop"`
+}
+
+// desktopNotifyPatch is the desktop channel as a patch.
+type desktopNotifyPatch struct {
+	Enabled  *bool    `json:"enabled"`
+	Events   []string `json:"events"`
+	Projects []string `json:"projects"`
+	// MergeSec is the coalescing window in seconds; 0 disables merging.
+	MergeSec *int `json:"merge_sec"`
 }
 
 // webhookPatch is one entry of a notification patch. The list it belongs to REPLACES
@@ -1318,7 +1333,34 @@ func patchNotification(sc *config.ServerConfig, p *notificationPatch) {
 	if p.Webhooks != nil {
 		next.Webhooks = patchWebhooks(*p.Webhooks, cur)
 	}
+	if p.Desktop != nil {
+		next.Desktop = patchDesktopNotify(next.Desktop, p.Desktop)
+	}
 	sc.Notification = &next
+}
+
+// patchDesktopNotify applies a desktop-channel patch onto the configured block. Every
+// omitted member keeps its value; a nil configured block starts empty (and is therefore
+// ON, since an empty block means "use the defaults"). A `projects` / `events` array is
+// taken verbatim — an empty one is the operator resetting to the channel defaults.
+func patchDesktopNotify(cur *config.DesktopNotifyConfig, p *desktopNotifyPatch) *config.DesktopNotifyConfig {
+	next := config.DesktopNotifyConfig{}
+	if cur != nil {
+		next = *cur
+	}
+	if p.Enabled != nil {
+		next.Enabled = p.Enabled
+	}
+	if p.Events != nil {
+		next.Events = p.Events
+	}
+	if p.Projects != nil {
+		next.Projects = p.Projects
+	}
+	if p.MergeSec != nil {
+		next.MergeSec = p.MergeSec
+	}
+	return &next
 }
 
 // patchWebhooks rebuilds the webhook list from a patch body, marking each configured
