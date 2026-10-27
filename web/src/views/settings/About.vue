@@ -15,6 +15,7 @@ import { applyUpdate, cancelUpdateWait, checkUpdate, getStats, getUpdateStatus }
 import { fmtAgo, fmtDateTime, fmtDuration } from '../../api/time'
 import type { Stats, UpdateApply, UpdateStatus } from '../../api/types'
 import UpdateApplyDialog from '../../components/UpdateApplyDialog.vue'
+import UpdateManualNotice from '../../components/UpdateManualNotice.vue'
 import { clearToken, isRemembered } from '../../store/auth'
 import { useWhoami } from '../../store/whoami'
 import { noteUpdateStatus } from '../../store/updateAvailable'
@@ -290,9 +291,8 @@ onUnmounted(() => {
             {{ t('settings.about.applyNow', { version: update.latest ?? '' }) }}
           </button>
         </template>
-        <p v-else class="hint" data-testid="update-manual">
-          {{ t('settings.about.manual') }}
-        </p>
+        <!-- 不是受管服务：一键更新用不了，摆一个警示框说清原因和手动 / 改成服务的步骤。 -->
+        <UpdateManualNotice v-else :managed="update.managed" />
       </div>
 
       <div v-if="apply" class="apply" data-testid="update-apply-progress">
