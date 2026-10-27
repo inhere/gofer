@@ -9,7 +9,7 @@
 // 让用户发现「通知里的地址和自己在用的地址不是同一个」。
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { getHealth, listProjects } from '../api/client'
+import { getHealth, listProjects, UnauthorizedError } from '../api/client'
 import { clearToken, setToken } from '../store/auth'
 import { t } from '../i18n'
 import ThemeToggle from '../components/ThemeToggle.vue'
@@ -22,6 +22,9 @@ const tokenInput = ref('')
 const remember = ref(true)
 const loading = ref(false)
 const error = ref('')
+// 401（token 不对）时额外说明服务端 token 从哪来：服务方式运行时只读配置目录的
+// .env / config.yaml，不读启动终端的环境变量（gofer-t9md）。
+const unauthorized = ref(false)
 // 通知链接指向的 origin（与当前地址不同时才有值）。
 const notifyOrigin = ref('')
 
@@ -44,6 +47,7 @@ async function connect(): Promise<void> {
     return
   }
   error.value = ''
+  unauthorized.value = false
   loading.value = true
   setToken(token, { remember: remember.value })
   try {
@@ -59,6 +63,7 @@ async function connect(): Promise<void> {
   } catch (e) {
     // 401 时 client 已清 token；其他失败这里兜底清掉
     clearToken()
+    unauthorized.value = e instanceof UnauthorizedError
     const detail = e instanceof Error ? e.message : String(e)
     error.value = t('access.invalid', { detail })
   } finally {
@@ -120,6 +125,9 @@ async function connect(): Promise<void> {
       </p>
 
       <p v-if="error" class="error" role="alert" data-testid="access-error">{{ error }}</p>
+      <p v-if="unauthorized" class="notice" data-testid="access-token-source-hint">
+        {{ t('access.tokenSourceHint') }}
+      </p>
     </div>
   </div>
 </template>

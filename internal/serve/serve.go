@@ -130,12 +130,19 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 
 	ensureDefaultWorkspace()
 
-	token := resolveToken(&cfg.Server, opts.Token)
+	token, tokenSrc := config.ResolveServerToken(&cfg.Server, opts.Token, config.ProcessEnvView())
 	if token == "" && !allowEmpty {
 		// Refuse to start an unauthenticated server unless explicitly allowed
 		// (plan §11). A coded error makes gcli exit non-zero.
 		return errorx.Failf(ExitErr, "refusing to start without a token: set server.token / server.token_env / --token, or pass --allow-empty-token")
 	}
+	// gofer-t9md: say WHERE the token came from and its value-free fingerprint (never
+	// the value). A managed service does not inherit the registering terminal's
+	// environment, so a token that came from THIS process's env is one the service
+	// will not have — the one case worth naming at startup.
+	slog.Info("server.token_source", "event", "server.token_source", "component", "server",
+		"role", tokenSrc.Role, "kind", tokenSrc.Kind, "field", tokenSrc.Field, "env_var", tokenSrc.EnvVar,
+		"env_file", tokenSrc.EnvFile, "set", tokenSrc.Set, "length", tokenSrc.Length, "fingerprint", tokenSrc.Fingerprint)
 
 	cr, err := core.Build(cfg, core.WithConfigPath(opts.CfgPath), core.WithBuiltinDefaultProject())
 	if err != nil {
@@ -593,6 +600,11 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: starting WITHOUT auth (allow_empty_token) on %s\n", addr)
 	} else {
 		c.Printf("gofer: starting on %s (token auth enabled)\n", addr)
+		c.Printf("gofer: auth token: %s\n", tokenSrc.Summary())
+		if tokenSrc.Kind == config.TokenSourceProcess {
+			c.Printf("gofer: warning: the auth token comes from this process's environment; a service start will not see it — put %s=<token> in %s\n",
+				tokenEnvName(&cfg.Server), config.ConfigDirDotenvPath())
+		}
 	}
 	sess := daemon.SessionInfo()
 	slog.Info("server.ready", "event", "server.ready", "component", "server", "addr", addr,
@@ -1396,21 +1408,13 @@ func mergeServeOpts(cfg *config.Config, opts Opts) (addr string, allowEmpty bool
 	return addr, allowEmpty
 }
 
-// resolveToken computes the effective bearer token (plan §7):
-//   - start from the static server.token;
-//   - server.token_env (when set and the env var is non-empty) takes priority;
-//   - the --token flag is a temporary override and wins when provided.
-func resolveToken(sc *config.ServerConfig, flagToken string) string {
-	token := sc.Token
+// tokenEnvName is the variable a deployment's token is expected to live in
+// (server.token_env, else the name `gofer init` writes).
+func tokenEnvName(sc *config.ServerConfig) string {
 	if sc.TokenEnv != "" {
-		if v := os.Getenv(sc.TokenEnv); v != "" {
-			token = v
-		}
+		return sc.TokenEnv
 	}
-	if flagToken != "" {
-		token = flagToken
-	}
-	return token
+	return config.EnvTokenDefault
 }
 
 // ensureDefaultWorkspace creates the default workspace directory when it is missing

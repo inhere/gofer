@@ -155,6 +155,17 @@ export class ApiError extends Error {
   }
 }
 
+// UnauthorizedError 标记 401（token 不对）：接入页据此补一条「token 从哪来」的说明。
+// 401 不走 ApiError —— 响应体没有可展示的内容，文案由前端自己给。
+export class UnauthorizedError extends Error {
+  status = 401
+
+  constructor() {
+    super(t('util.err.unauthorized'))
+    this.name = 'UnauthorizedError'
+  }
+}
+
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = { ...extra }
   const token = getToken()
@@ -213,7 +224,7 @@ async function send(path: string, init?: RequestInit): Promise<Response> {
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error(t('util.err.unauthorized'))
+    throw new UnauthorizedError()
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -293,7 +304,7 @@ export async function validateConfig(req: ConfigValidateReq): Promise<ConfigVali
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error(t('util.err.unauthorized'))
+    throw new UnauthorizedError()
   }
   if (res.status >= 500) {
     return raiseForStatus(res)
@@ -608,7 +619,7 @@ export async function submitJob(req: SubmitJobReq): Promise<SubmitJobResult> {
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error(t('util.err.unauthorized'))
+    throw new UnauthorizedError()
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -690,7 +701,7 @@ export async function getJobRequest(
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error(t('util.err.unauthorized'))
+    throw new UnauthorizedError()
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -1046,7 +1057,7 @@ export async function fetchJobLog(
   )
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error(t('util.err.unauthorized'))
+    throw new UnauthorizedError()
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -1132,7 +1143,7 @@ export async function fetchArtifactBlob(id: string, name: string): Promise<Blob>
   const res = await fetch(url, { headers: authHeaders() })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error(t('util.err.unauthorized'))
+    throw new UnauthorizedError()
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -1147,7 +1158,7 @@ export async function fetchDiffText(id: string): Promise<string> {
   const res = await fetch(url, { headers: authHeaders() })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error(t('util.err.unauthorized'))
+    throw new UnauthorizedError()
   }
   if (!res.ok) {
     return raiseForStatus(res)
@@ -1678,7 +1689,7 @@ export async function exportWorkflow(
   })
   if (res.status === 401) {
     triggerUnauthorized()
-    throw new Error(t('util.err.unauthorized'))
+    throw new UnauthorizedError()
   }
   if (!res.ok) {
     return raiseForStatus(res)

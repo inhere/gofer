@@ -20,10 +20,34 @@
 
 遇到同名未知系统入口、配置/程序身份不符、权限不足、独立升级执行者未接管、drain 超时或停止失败时停止操作。不要根据一个不属于本实例的 `/health 200` 判定启动成功，也不要仅凭 PID 强杀未知进程。
 
+## token 的来源（登录对不上时先看这一节）
+
+server 的鉴权 token 只有两种来源，`--token` 是命令行临时覆盖、不会被服务继承：
+
+- `server.token`：config.yaml 里的字面量。
+- `server.token_env` 指名的环境变量（`gofer init` 与 `config/gofer.example.yaml` 写的是 `GOFER_TOKEN`；**不写 `token_env` 时 server 不读 `GOFER_TOKEN`**，没有内置缺省）。
+
+环境变量的值按 dotenv 规则确定：`<config-dir>/.env` 与工作目录的 `./.env` 依次加载（后加载覆盖前者），**启动终端显式 export 的同名变量覆盖两者**。
+
+前台运行与服务方式运行看到的不是同一个环境：
+
+- 前台 `gofer serve` 在注册用的终端里跑，继承该终端的全部环境变量，包括那次 `export GOFER_TOKEN=...`。
+- 注册成系统服务后，unit / 计划任务只注入 `GOFER_CONFIG_DIR`（Linux 还有 `GOFER_MANAGED_SPEC`），**不继承注册终端的环境**；服务只读 `<config-dir>/.env` 与 config.yaml。
+
+症状：注册前用终端里的 token 登录 web 正常，`serve start` 之后同一个 token 401（日志里只有 401，没有解释）。
+
+排查：
+
+1. `gofer serve status --json` 的 `auth_token`：`service`（服务会用的来源与指纹）、`current_process`（当前终端会用的）、`match`。`kind` 为 `config` / `env-file` / `process-env` / `flag` / `unset`；`fingerprint` 是 token 的 sha256 前 8 位；**任何输出都不含 token 值**。
+2. `gofer serve logs --name '<name>'` 或 `run/serve.log` 里的 `server.token_source` 行：`kind` / `env_var` / `env_file` / `fingerprint`，可与上面对照。
+3. `gofer serve register` 在两边不一致（含服务侧没有 token）时会打印警告，指出两边来源与修法；它不阻止注册。
+
+修法（让两边一致）：把要用的 token 写进 **配置目录的 `.env`**，例如 `<config-dir>/.env` 里 `GOFER_TOKEN=<token>`，然后 `gofer serve restart`；或登录 web / CLI 时改用服务那份。服务侧的 token 即使写在 config.yaml 的 `server.token` 也一致，但 dotenv 更便于轮换。不要写进 unit 文件、计划任务 XML 或注册命令的参数——受管 spec 只持久化非密参数。
+
 ## 操作步骤
 
 1. **只读核对目标。** 先运行 `gofer serve status --name '<name>' --json`，核对 `registered`、原生入口、server/supervisor PID、配置文件、程序路径、版本和 `port_owned`。默认名为 `gofer-serve`。确认 `<config-dir>` 与所选 `-c '<config-file>'`；显式 `-c` 时 PID/运行日志在该配置文件同目录的 `run/`。
-   预期：目标未登记，或输出的系统入口与计划接管的实例一致。停止条件：同名入口属于其他程序、状态无法核验或仍有未结束的任务。
+   预期：目标未登记，或输出的系统入口与计划接管的实例一致。停止条件：同名入口属于其他程序、状态无法核验或仍有未结束的任务。若已登记，顺带看 `auth_token`：`service` 与 `current_process` 的 `fingerprint` 不一致说明登录要用的 token 与服务那份不同（见上文「token 的来源」）。
 
 2. **登记，必要时启动。** Windows 在目标用户的交互终端运行：
 
@@ -42,6 +66,7 @@
    ```
 
    当前用户的 user scope 将 `--scope system --run-as '<user>'` 改为 `--scope user`。`register` 默认只登记，需一次完成时可加 `--start`。Windows 的 `--adopt` 仅用于已核对的旧 Gofer 脚本任务，不能覆盖任意同名任务。
+   `register` 会按「当前终端看到的 token」与「服务将看到的 token」比对：不一致（含服务侧没有 token）时打印警告并给出修法，但**不阻止注册**——处理方式见上文「token 的来源」。
    预期：系统入口已登记；显式 start 后实例状态为 active。停止条件：权限、TLS 文件、配置或所有权预检失败；运行中的实例若登记内容变化，先停旧实例再更新。
 
 3. **核对状态与日志。** 运行 `gofer serve status --name '<name>' --json` 和 `gofer serve logs --name '<name>' --lines 100`。Linux 的 unit 启动故障可另用 `gofer serve logs --name '<name>' --journal --lines 100`；Windows 默认读取应用日志，supervisor sidecar 日志保留在 `<config-dir>/run/service/`。
