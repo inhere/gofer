@@ -127,12 +127,9 @@ func TestZhCliMessagesAreUnchanged(t *testing.T) {
 // added to a migrated file must not be written in Chinese — the text belongs in
 // internal/i18n. Comments are not scanned, and test files are out of scope.
 func TestMigratedCliFilesHaveNoCJK(t *testing.T) {
-	for _, file := range []string{
+	for _, file := range append([]string{
 		"job.go", "job_findings.go", "plan.go", "session.go",
-		// S2b2: the setup & config group.
-		"config.go", "init_workspace.go", "project.go", "stop.go", "serve.go",
-		"worker.go", "worker_doctor.go",
-	} {
+	}, setupMigratedFiles...) {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("read %s: %v", file, err)

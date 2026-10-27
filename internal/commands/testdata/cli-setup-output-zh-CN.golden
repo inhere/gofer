@@ -49,7 +49,7 @@ worker doctor: <config>
 worker_id:     w1
 PASS  config     <config>
 PASS  worker_id  w1
-FAIL  url        ws://hub.local:8765: TCP 不可达
+FAIL  url        ws://hub.local:8765: TCP unreachable
 result: FAILED — 1 check(s) failed, 0 warning(s)
 === validate/worker/empty
 [FAIL] worker/worker_id           (must equal a server.workers key)

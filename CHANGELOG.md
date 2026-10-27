@@ -18,6 +18,7 @@
 ### 新增
 
 - **常用 CLI 命令的 `--help` 与输出按语言显示（gofer-992q，阶段 2 之一）**：`gofer job`（含 `review` / `findings` / `worktree merge` / `resume` / `show` / `approve` 等）、`gofer plan`、`gofer session` 三个命令组的说明、flag 说明、提示与错误现在支持 `en` / `zh-CN`。语言来源：`GOFER_LANG` → 系统语言（`LANG` / `LC_ALL`，Windows 取界面语言）→ 缺省；`--json` 等机器可读输出不翻译。中文输出与以前逐字一致（有帮助文本 golden 守住）。
+- **第二个 CLI 命令组也按语言显示（gofer-992q，阶段 2 之二）**：`gofer init`（server / client / hooks / worker）、`gofer config`、`gofer worker`（含 `worker init`、`worker doctor` 的检查行与结论、`worker upgrade` 结果）、`gofer project`、`gofer serve` / `gofer worker` 的后台与停机提示现在支持 `en` / `zh-CN`；`worker doctor` / `config validate` 的检查行（`[FAIL] …` 后面的说明）也按语言输出，`--json` 与退出码仍是机器可读的英文 / 数字。`gofer init client` 生成的 `.env` 多一行注释掉的 `# GOFER_LANG=en`，说明按 init 时的语言写。中文输出与以前逐字一致（帮助文本与各类输出行都有迁移前的 golden 守住）。
 
 ### 修复
 

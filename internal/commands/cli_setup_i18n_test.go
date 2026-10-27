@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // The setup & config command group (init / config / worker / project / serve) is
@@ -29,6 +31,15 @@ var (
 // setupHelpRoots are the command subtrees this step migrates. `serve` and `worker`
 // carry their own `stop`, so stop.go's text is covered through them.
 var setupHelpRoots = []string{"init", "config", "worker", "project", "serve"}
+
+// setupMigratedFiles are the non-test files this step migrated: their string
+// literals must carry no Chinese, and every cliText key they use must exist.
+// worker_init.go is not listed: the worker.yaml template it writes still carries
+// its Chinese comments (config template content, like config/example.yaml).
+var setupMigratedFiles = []string{
+	"config.go", "init_workspace.go", "project.go", "stop.go", "serve.go",
+	"worker.go", "worker_doctor.go",
+}
 
 // TestZhSetupCliHelpIsUnchanged pins the zh-CN help text (descriptions, help,
 // examples and every flag usage) of the setup & config subtrees.
@@ -159,7 +170,7 @@ func doctorOutputCases(t *testing.T) []setupCase {
 		Rows: []workerDoctorRow{
 			{Check: "config", Status: doctorPass, Detail: "<config>"},
 			{Check: "worker_id", Status: doctorPass, Detail: "w1"},
-			{Check: "url", Status: doctorFail, Detail: "ws://hub.local:8765: TCP 不可达"},
+			{Check: "url", Status: doctorFail, Detail: "ws://hub.local:8765: TCP unreachable"},
 		},
 		Failures: 1,
 	}, false)
@@ -286,6 +297,43 @@ func initOutputCases(t *testing.T) []setupCase {
 	// The worker wizard's default-workspace hint.
 	cases = append(cases, setupCase{name: "init/workspace-hint", text: inlineWorkspaceHint("/ws")})
 	return cases
+}
+
+// TestEnglishSetupOutputsHaveNoCJK: with GOFER_LANG=en every piece of output this
+// group prints is English — the rows, the validate lines and the init hints carry
+// no Chinese word (design §7).
+func TestEnglishSetupOutputsHaveNoCJK(t *testing.T) {
+	t.Setenv("GOFER_LANG", "en")
+	out := collectSetupOutputs(t)
+	if m := han.FindString(out); m != "" {
+		t.Errorf("the English setup output carries CJK (%q):\n%s", m, out)
+	}
+}
+
+// TestSetupCatalogCoversEveryKey: every key the migrated files ask cliText for
+// exists in both catalogs. T falls back to the key itself, so a missing or
+// misspelt key would otherwise print `cli.worker.doctor.no_roots` at the operator.
+func TestSetupCatalogCoversEveryKey(t *testing.T) {
+	keyPattern := regexp.MustCompile(`cliText\("([^"]+)"`)
+	seen := 0
+	for _, file := range setupMigratedFiles {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		for _, m := range keyPattern.FindAllStringSubmatch(string(src), -1) {
+			key := m[1]
+			seen++
+			for _, lang := range i18n.Supported() {
+				if got := i18n.T(lang, key); got == key {
+					t.Errorf("%s: key %q is missing in %s", file, key, lang)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no cliText key found — the scan is broken")
+	}
 }
 
 // TestSetupGoferLangPinsTheHelp guards the language source: the same command tree

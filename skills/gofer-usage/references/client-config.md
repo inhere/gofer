@@ -17,6 +17,19 @@ GOFER_RUN_MODE=client                                  # 节点角色: 不加载
 
 `gofer` 启动最早期自动加载 `<config-dir>/.env`（再叠加 `./.env`，已导出的 OS env 最高优先），`gofer job` 等命令的 `--server/--token` 默认值就来自这两个变量，**无需手动 source、无需每次传 token**。
 
+### CLI 输出语言：`GOFER_LANG`
+
+`gofer init client` 生成的 `.env` 末尾带一行注释掉的 `GOFER_LANG`：
+
+```dotenv
+# 这个节点的 CLI 输出语言: en 或 zh-CN（去掉下一行前面的 # 生效；不设则跟随系统语言）
+# GOFER_LANG=en
+```
+
+它是**这台机器 CLI 自己**的语言（`--help`、提示、错误），优先级：命令行已导出的 `GOFER_LANG` → 这个 `.env` → 系统语言（`LANG` / `LC_ALL`；Windows 取界面语言）→ `en`。`.env` 在命令组装前被导出，所以等效于直接导出环境变量。`--json` 等机器可读输出不翻译。
+
+注意：与 server 的 `server.language` / 项目的 `language` 是两回事——那两个决定**服务端生成、注入给 agent** 的文本（任务书、brief、通知），这里只决定本机 CLI 印给人看的字。已迁移的命令组：`job` / `plan` / `session` / `init` / `config` / `worker` / `project` / `serve`；其余命令组仍是中文。
+
 自检：
 
 ```bash
