@@ -287,11 +287,13 @@ func (s *Server) handleExportWorkflow(c *rux.Context) {
 func (s *Server) handleListWorkflows(c *rux.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	caller := ""
+	filter := jobstore.WorkflowListFilter{Status: c.Query("status")}
 	if !s.mayListAllJobs(c) {
-		caller = callerFromCtx(c)
+		// 只看自己的：显式带上 CallerID（空 id 的调用方也只看空 id 的行，不等于不过滤）。
+		filter.CallerID = callerFromCtx(c)
+		filter.RestrictCaller = true
 	}
-	list, total, err := s.workflow.ListWorkflowsPage(c.Query("status"), caller, limit, offset)
+	list, total, err := s.workflow.ListWorkflowsPage(filter, limit, offset)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workflows failed", err.Error())
 		return

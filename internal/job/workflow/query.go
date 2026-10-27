@@ -22,11 +22,11 @@ func (e *Engine) ListWorkflows(status string, limit int) ([]jobstore.Workflow, e
 	return e.meta.ListWorkflows(status, limit)
 }
 
-// ListWorkflowsPage returns one page of workflow headers (status filter optional;
-// callerID != "" keeps only that caller's rows) plus the total number of rows the
-// same filter matches. It backs the paged HTTP list (limit / offset / total).
-func (e *Engine) ListWorkflowsPage(status, callerID string, limit, offset int) ([]jobstore.Workflow, int, error) {
-	return e.meta.ListWorkflowsPage(status, callerID, limit, offset)
+// ListWorkflowsPage returns one page of workflow headers (status / caller filter) plus the
+// total number of rows the same filter matches. It backs the paged HTTP list
+// (limit / offset / total).
+func (e *Engine) ListWorkflowsPage(f jobstore.WorkflowListFilter, limit, offset int) ([]jobstore.Workflow, int, error) {
+	return e.meta.ListWorkflowsPage(f, limit, offset)
 }
 
 // WorkflowSteps returns the per-step summary for a workflow's detail view, in

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
@@ -269,9 +270,15 @@ func containsWorkflow(ids []string, id string) bool {
 // the response's total.
 func workflowPage(t *testing.T, s *Server, query string) ([]string, int) {
 	t.Helper()
-	resp := do(t, s, http.MethodGet, "/v1/workflows"+query, testToken, nil)
+	return workflowPageToken(t, s, testToken, query)
+}
+
+// workflowPageToken is workflowPage for a fixture caller's token.
+func workflowPageToken(t *testing.T, s *Server, token, query string) ([]string, int) {
+	t.Helper()
+	resp := do(t, s, http.MethodGet, "/v1/workflows"+query, token, nil)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("list %q status=%d, want 200", query, resp.StatusCode)
+		t.Fatalf("list %q as %s status=%d, want 200", query, token, resp.StatusCode)
 	}
 	var body struct {
 		Workflows []struct {
@@ -342,6 +349,51 @@ func TestListWorkflowsPagination(t *testing.T) {
 	running, total := workflowPage(t, s, "?status=running&limit=10")
 	if total != 0 || len(running) != 0 {
 		t.Fatalf("status=running = %v (total %d), want an empty page with total 0", running, total)
+	}
+}
+
+// TestListWorkflowsCallerFilter asserts the list's FILTER permission: a user-class caller
+// without job.read.others sees only its own workflows, and the page is cut AFTER that filter
+// (it does not fetch everyone's newest rows and drop the foreign ones afterwards).
+func TestListWorkflowsCallerFilter(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{
+			{ID: "alice", Token: "tok-alice"},
+			{ID: "bob", Token: "tok-bob"},
+		},
+	})
+	meta := s.jobs.Meta()
+	// A plain user caller holds no permission, so job.read.others is absent and the list is
+	// narrowed to its own rows (the FILTER form, not a 403).
+	s.setDBGrants(grantsFor(nil))
+	now := time.Now().Unix()
+	seed := func(id, caller string, at int64) {
+		wf := jobstore.Workflow{
+			ID: id, Status: jobstore.WorkflowDone, CallerID: caller,
+			CurrentStep: 1, TotalSteps: 1, SpecJSON: "{}", CreatedAt: at, UpdatedAt: at,
+		}
+		if err := meta.InsertWorkflow(wf); err != nil {
+			t.Fatalf("seed workflow %s: %v", id, err)
+		}
+	}
+	// bob's rows are the two newest overall, so an unrestricted first page would show them.
+	seed("wf-bob-2", "bob", now+3)
+	seed("wf-bob-1", "bob", now+2)
+	seed("wf-alice-2", "alice", now+1)
+	seed("wf-alice-1", "alice", now)
+
+	page1, total := workflowPageToken(t, s, "tok-alice", "?limit=1")
+	if total != 2 || len(page1) != 1 || page1[0] != "wf-alice-2" {
+		t.Fatalf("alice page 1 = %v (total %d), want [wf-alice-2] with total 2 (her own only)", page1, total)
+	}
+	page2, total := workflowPageToken(t, s, "tok-alice", "?limit=1&offset=1")
+	if total != 2 || len(page2) != 1 || page2[0] != "wf-alice-1" {
+		t.Fatalf("alice page 2 = %v (total %d), want [wf-alice-1]", page2, total)
+	}
+	own, total := workflowPageToken(t, s, "tok-bob", "?limit=10")
+	if total != 2 || len(own) != 2 || own[0] != "wf-bob-2" {
+		t.Fatalf("bob's list = %v (total %d), want his two rows, newest first", own, total)
 	}
 }
 

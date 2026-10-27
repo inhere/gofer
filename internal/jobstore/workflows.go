@@ -221,21 +221,31 @@ func (s *Store) ListWorkflows(status string, limit int) ([]Workflow, error) {
 	return out, nil
 }
 
+// WorkflowListFilter narrows a workflow listing. Status is an exact match when non-empty.
+// CallerID with RestrictCaller set keeps only that caller's rows — that is NOT the same as
+// "every caller": an empty CallerID then matches only rows written without a caller (the
+// caller-less pass-through and internal submits), which is what "a user sees its own"
+// means for such a caller.
+type WorkflowListFilter struct {
+	Status         string
+	CallerID       string
+	RestrictCaller bool
+}
+
 // workflowFilter builds the WHERE clause shared by ListWorkflowsPage's row query and its
-// COUNT query: status is an exact match when non-empty, and callerID (when non-empty)
-// keeps only that caller's workflows. Both are pushed into SQL so a page is cut AFTER
-// the filters (the caller filter used to run in memory on a capped list, which could
-// return a short, incomplete view).
-func workflowFilter(status, callerID string) (string, []any) {
+// COUNT query. Both conditions are pushed into SQL so a page is cut AFTER the filters (the
+// caller filter used to run in memory on a capped list, which could return a short,
+// incomplete view). caller_id is COALESCE'd so a caller-less row compares as "".
+func workflowFilter(f WorkflowListFilter) (string, []any) {
 	var conds []string
 	var args []any
-	if status != "" {
+	if f.Status != "" {
 		conds = append(conds, "status = ?")
-		args = append(args, status)
+		args = append(args, f.Status)
 	}
-	if callerID != "" {
-		conds = append(conds, "caller_id = ?")
-		args = append(args, callerID)
+	if f.RestrictCaller {
+		conds = append(conds, "COALESCE(caller_id,'') = ?")
+		args = append(args, f.CallerID)
 	}
 	if len(conds) == 0 {
 		return "", nil
@@ -247,8 +257,8 @@ func workflowFilter(status, callerID string) (string, []any) {
 // first) plus the total number of rows the same filter matches, so a pager can render
 // "page x of y" without fetching every row: offset is how many rows to skip (negative
 // => 0) and limit caps the page (<= 0 => DefaultListLimit). Total ignores limit/offset.
-func (s *Store) ListWorkflowsPage(status, callerID string, limit, offset int) ([]Workflow, int, error) {
-	where, args := workflowFilter(status, callerID)
+func (s *Store) ListWorkflowsPage(f WorkflowListFilter, limit, offset int) ([]Workflow, int, error) {
+	where, args := workflowFilter(f)
 
 	var total int
 	if err := s.db.QueryRow("SELECT COUNT(*) FROM workflows"+where, args...).Scan(&total); err != nil {
