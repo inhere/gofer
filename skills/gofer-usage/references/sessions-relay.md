@@ -18,6 +18,7 @@
 - [web 发消息（转达）与会话回复](#web-发消息转达与会话回复)
 - [session watch：job 跑完时被叫醒](#session-watchjob-跑完时被叫醒)
 - [会话催办（nudge）](#会话催办nudge)
+- [等另一个会话 / 看它的屏幕（wait / screen）](#等另一个会话--看它在显示什么wait--screen)
 - [自研 agent 接入（generic）](#自研-agent-接入generic)
 - [其它约定](#其它约定)
 
@@ -281,6 +282,19 @@ gofer session nudge rm|pause|resume <nudge-id>
 
 - 送达走与 web「发消息」同一条路径；连续 3 次送达失败自动 `paused`（可订阅事件 `session.nudge_paused`），`resume` 清零后继续。会话结束 / 被接管 / 到 `--until` 时自动结束；`offline` 的会话跳过。
 - 只有人（会话属主或有回答权限）能建、改、删；job 凭据与管家不行。web 会话抽屉有「催办」小区块。
+
+## 等另一个会话 / 看它在显示什么（wait / screen）
+
+编排其他会话时不要再 `session ls` + `sleep` 轮询：
+
+```bash
+gofer session wait <sid> --until idle|waiting_reply|ended [--timeout 10m] [--json]
+gofer session screen <sid> [-n 50] [--json]
+```
+
+- `wait`：阻塞到会话进入目标状态（`--until` 可逗号给多个，如 `idle,ended`）；已经处于该状态时立即返回。退出码 **0 = 达成、2 = 超时、1 = 错误**，超时不是失败，脚本可以据此换下一步；`--json` 打印最终状态（会话 + `state` + `reached`）。服务端是长轮询（单次最多 60s，CLI 自己循环到总超时），`GET /v1/sessions/{sid}/wait?until=&timeout=`。
+- `screen`：只读取它现在显示的内容，纯文本、已去 ANSI：终端（中继）会话给你最近的 turn（`agent>` / `human>` 行，与 `session show` 同一数据源）；被 pty job（`--resume` 接管）承载的会话给你那个 job 的 `pty.txt` 尾部（与 `job logs` 同一读法）；还没有 turn 时给最后一条消息。`-n` 控制行数（默认 50，最多 500）。`GET /v1/sessions/{sid}/screen?n=`。
+- 两者权限都与 `session show` 相同：自己的会话不需要权限，别人的要 `session.read.others`；MCP 里是 `gofer_session_wait` / `gofer_session_screen`。典型用法：`wait` 到 `waiting_reply` → `screen` 看它在问什么 → 人（或有回答权限的调用方）`session say` 回答。
 
 ## 自研 agent 接入（generic）
 

@@ -13,6 +13,11 @@
 
 ### 新增
 
+- **`gofer session wait` / `gofer session screen`：编排其他会话的读接口**（gofer-f8ik）。
+  - `gofer session wait <sid> --until idle|waiting_reply|ended [--timeout 10m] [--json]`：阻塞到会话进入目标状态（`--until` 可逗号给多个），已处于该状态时立即返回；退出码 `0` 达成 / `2` 超时 / `1` 错误，`--json` 打印最终状态。底层是 `GET /v1/sessions/{sid}/wait?until=&timeout=`（长轮询，服务端单次最多 60s，CLI 循环到总超时；状态取已存的会话行，250ms 读一次）。
+  - `gofer session screen <sid> [-n 50] [--json]`：只读取该会话现在显示的内容（纯文本、已去 ANSI）：终端会话取最近的 relay turn（与 `session show` 同一数据源），被 pty job 接管的会话取那个 job 的 `pty.txt` 尾部（与 `job logs` 同一读法），还没有 turn 时取最后一条消息。底层是 `GET /v1/sessions/{sid}/screen?n=`。
+  - 两条路由都是会话读，权限与 `session show` 相同（自己的会话不需要权限，别人的要 `session.read.others`）；新增 MCP 工具 `gofer_session_wait`、`gofer_session_screen`。
+
 - **「设置 › 通知」加上了 IM 机器人与桌面通知**（gofer-x9mb）：一页三节——本设备推送（浏览器 Web Push，不变）、IM 机器人（`server.notification.webhooks`）、桌面通知（`server.notification.desktop`）。
   - IM 机器人：列表（地址脱敏显示）、添加 / 编辑抽屉（类型钉钉 / 飞书 / 通用 webhook、bot URL、关键词、加签密钥的**环境变量名**（只填名字，不存也不回显密钥值）、事件多选（按分组带中英文说明，不勾 = 默认事件集）、限定项目、启用开关）与逐行「发送测试」；机器人拒绝（关键词没命中、签名错）会把它的原文报出来。
   - 桌面通知：开关、事件、限定项目、合并窗口秒数，并写明它弹在运行 server 的机器上、当前平台是否支持。
