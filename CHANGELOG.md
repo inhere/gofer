@@ -11,6 +11,16 @@
 
 ## [未发布]
 
+## [0.200.1] - 2026-10-27
+
+### 修复
+
+- **CI 上的平台相关测试**：Windows 上 `TestCliLangChain` 的「什么都没设」用例不成立（系统语言取自界面语言，不看 `LANG`）；两个 `serve status` 的 token 来源测试需要受管进程身份，只在 Windows / Linux 上运行。
+
+### 依赖
+
+- `modernc.org/sqlite` 1.60.1 → 1.61.0（dependabot #30）。
+
 ## [0.200.0] - 2026-10-27
 
 ### 改进
