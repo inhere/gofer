@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -218,6 +219,67 @@ func (s *Store) ListWorkflows(status string, limit int) ([]Workflow, error) {
 		return nil, fmt.Errorf("jobstore: list workflows rows: %w", err)
 	}
 	return out, nil
+}
+
+// workflowFilter builds the WHERE clause shared by ListWorkflowsPage's row query and its
+// COUNT query: status is an exact match when non-empty, and callerID (when non-empty)
+// keeps only that caller's workflows. Both are pushed into SQL so a page is cut AFTER
+// the filters (the caller filter used to run in memory on a capped list, which could
+// return a short, incomplete view).
+func workflowFilter(status, callerID string) (string, []any) {
+	var conds []string
+	var args []any
+	if status != "" {
+		conds = append(conds, "status = ?")
+		args = append(args, status)
+	}
+	if callerID != "" {
+		conds = append(conds, "caller_id = ?")
+		args = append(args, callerID)
+	}
+	if len(conds) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+// ListWorkflowsPage returns one page of workflows ordered like ListWorkflows (newest
+// first) plus the total number of rows the same filter matches, so a pager can render
+// "page x of y" without fetching every row: offset is how many rows to skip (negative
+// => 0) and limit caps the page (<= 0 => DefaultListLimit). Total ignores limit/offset.
+func (s *Store) ListWorkflowsPage(status, callerID string, limit, offset int) ([]Workflow, int, error) {
+	where, args := workflowFilter(status, callerID)
+
+	var total int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM workflows"+where, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("jobstore: count workflows: %w", err)
+	}
+
+	if limit <= 0 {
+		limit = DefaultListLimit
+	}
+	if offset < 0 {
+		// A negative / non-numeric offset skips nothing (same tolerance as the job list).
+		offset = 0
+	}
+	query := selectWorkflowCols + where + " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+	rows, err := s.db.Query(query, append(append([]any{}, args...), limit, offset)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("jobstore: list workflow page: %w", err)
+	}
+	defer rows.Close()
+	out := make([]Workflow, 0)
+	for rows.Next() {
+		w, scanErr := scanWorkflow(rows)
+		if scanErr != nil {
+			return nil, 0, fmt.Errorf("jobstore: scan workflow row: %w", scanErr)
+		}
+		out = append(out, w)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("jobstore: list workflow page rows: %w", err)
+	}
+	return out, total, nil
 }
 
 // AdvanceStep is the推进幂等屏障 (SR303), upgraded for工作流 v2 retry (P1, plan
