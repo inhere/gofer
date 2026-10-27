@@ -253,7 +253,8 @@ var schemaStmts = []string{
   updated_at   INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status)`,
-	`CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_key)`,
+	// idx_workflows_project is created by the workflows project_key migration, after the
+	// column exists: listed here it would fail on a database from before the column.
 	// workflow_events is the workflow-level append-only event stream (P1, design
 	// §5.4), the workflow analogue of job_events. One row per recorded event; seq is
 	// the monotonic global insertion order (AUTOINCREMENT) used as the poll cursor
