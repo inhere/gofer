@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/i18n/prompts"
@@ -99,11 +100,19 @@ func (s *Service) DropFollowUp(jobID string, id int64) error {
 // PendingFollowUpCount returns the number of queued requests not yet claimed.
 // Notification assembly uses it after a failed or human-gated ending.
 func (s *Service) PendingFollowUpCount(jobID string) int {
-	if _, ok := s.Get(jobID); !ok { return 0 }
+	if _, ok := s.Get(jobID); !ok {
+		return 0
+	}
 	rows, err := s.meta.ListFollowUps(jobID)
-	if err != nil { return 0 }
+	if err != nil {
+		return 0
+	}
 	n := 0
-	for _, row := range rows { if row.Status == jobstore.FollowUpPending { n++ } }
+	for _, row := range rows {
+		if row.Status == jobstore.FollowUpPending {
+			n++
+		}
+	}
 	return n
 }
 
@@ -132,7 +141,14 @@ func (s *Service) processFollowUps(snap JobResult) {
 	if snap.Status != StatusDone || s.meta == nil {
 		return
 	}
-	items, err := s.meta.ClaimFollowUps(snap.ID, s.nowFn().Unix())
+	// The claim is stamped with the job's own end time, not the service clock: this runs
+	// in a background hook after EVERY job ends, and reading s.nowFn here raced with tests
+	// that swap the clock once their job has finished.
+	claimAt := snap.EndedAt
+	if claimAt == 0 {
+		claimAt = time.Now().Unix()
+	}
+	items, err := s.meta.ClaimFollowUps(snap.ID, claimAt)
 	if err != nil || len(items) == 0 {
 		return
 	}
