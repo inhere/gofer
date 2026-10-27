@@ -23,7 +23,14 @@ func TestDispatchToIssueRewrittenTitleKeepsCapturedText(t *testing.T) {
 
 	rec, item, err := svc.DispatchToIssue(w.ID, "r1", "导出列选择", "human:a")
 	assert.NoErr(t, err)
-	assert.Eq(t, jobstore.WorkParked, item.Status)
+	assert.Eq(t, jobstore.WorkDone, item.Status)
+	// The issue link survives the close, so the web still reaches the issue.
+	links, err := st.ListWorkLinks(w.ID)
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, len(links))
+	assert.Eq(t, jobstore.WorkLinkIssue, links[0].Kind)
+	assert.Eq(t, rec.ID, links[0].Ref)
+	assert.True(t, journalHas(t, st, w.ID, "已转为 issue "+rec.ID), "the journal says where the item went")
 	is := issueOf(t, rec)
 	assert.Eq(t, "导出列选择", is.Title)
 	assert.True(t, strings.Contains(is.Description, orig), "the captured text must survive a rewritten title: %q", is.Description)
@@ -86,6 +93,38 @@ func TestDispatchToIssueTitleOnlyIsNotCopied(t *testing.T) {
 	assert.Eq(t, "faster export", is.Title)
 	assert.False(t, strings.Contains(is.Description, "faster export"), "the title must not be copied: %q", is.Description)
 	assert.True(t, strings.HasPrefix(is.Description, "captured by human:a at "), "%q", is.Description)
+}
+
+func TestDispatchToTodoClosesAndJournals(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	w, err := st.CaptureWorkItem(jobstore.CaptureInput{Text: "转成待办", Kind: jobstore.WorkKindIdea, By: "human:a"})
+	assert.NoErr(t, err)
+	res, got, err := svc.DispatchToTodo(w.ID, ToTodoInput{By: "human:a"})
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.WorkDone, got.Status)
+	// Both links (todo and its plan) survive the close.
+	links, err := st.ListWorkLinks(w.ID)
+	assert.NoErr(t, err)
+	kinds := map[string]string{}
+	for _, l := range links {
+		kinds[l.Kind] = l.Ref
+	}
+	assert.Eq(t, res.TodoID, kinds[jobstore.WorkLinkTodo])
+	assert.Eq(t, res.PlanID, kinds[jobstore.WorkLinkPlan])
+	assert.True(t, journalHas(t, st, w.ID, "已转为待办 "+res.TodoID), "the journal says where the item went")
+}
+
+// journalHas reports whether one of the item's journal lines contains text.
+func journalHas(t *testing.T, st *jobstore.Store, id, text string) bool {
+	t.Helper()
+	lines, err := st.ListWorkJournal(id, 50, 0)
+	assert.NoErr(t, err)
+	for _, e := range lines {
+		if strings.Contains(e.Text, text) {
+			return true
+		}
+	}
+	return false
 }
 
 func withIssueRepo(t *testing.T, st *jobstore.Store) {

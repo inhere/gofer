@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -84,8 +85,8 @@ func (s *Service) FinishDispatch(id string, status, linkKind, linkRef, journal, 
 	return w, nil
 }
 
-// DispatchToTodo converts a captured item into a todo (the to-todo rules) and moves it
-// to active.
+// DispatchToTodo converts a captured item into a todo (the to-todo rules) and closes the
+// capture item after handing it over.
 func (s *Service) DispatchToTodo(id string, in ToTodoInput) (ToTodoResult, jobstore.WorkItem, error) {
 	c, err := s.Captured(id)
 	if err != nil {
@@ -95,8 +96,8 @@ func (s *Service) DispatchToTodo(id string, in ToTodoInput) (ToTodoResult, jobst
 	if err != nil {
 		return ToTodoResult{}, jobstore.WorkItem{}, err
 	}
-	w, err := s.FinishDispatch(c.Item.ID, jobstore.WorkActive, "", "",
-		fmt.Sprintf("已转为 todo %s（plan %s）", res.TodoID, res.PlanID), in.By)
+	w, err := s.FinishDispatch(c.Item.ID, jobstore.WorkDone, "", "",
+		i18n.T(s.lang(c.Item.ProjectKey), "work.request.todo", "id", res.TodoID), in.By)
 	return res, w, err
 }
 
@@ -127,7 +128,7 @@ func IssueTypeForKind(kind string) string {
 
 // DispatchToIssue files the captured item as a new issue in the server mirror of
 // trackerID (title: titleOverride or the item's title; description: the captured text plus
-// where it came from, see issueDescription), links it (kind issue) and parks the item. The
+// where it came from, see issueDescription), links it (kind issue) and closes the item. The
 // issue is flagged server-created until a repository sync pulls it (the web shows 「待同步」);
 // the journal says so. The store's errors (ErrTrackerNoPrefix, ErrTrackerRepoUnknown,
 // ErrReservedTracker) pass through unchanged. Returns the created record.
@@ -151,8 +152,8 @@ func (s *Service) DispatchToIssue(id, trackerID, titleOverride, by string) (jobs
 	if err != nil {
 		return jobstore.TrackerRecord{}, jobstore.WorkItem{}, err
 	}
-	w, err := s.FinishDispatch(c.Item.ID, jobstore.WorkParked, jobstore.WorkLinkIssue, rec.ID,
-		fmt.Sprintf("已转为 issue %s（%s），待仓库同步", rec.ID, rec.TrackerID), by)
+	w, err := s.FinishDispatch(c.Item.ID, jobstore.WorkDone, jobstore.WorkLinkIssue, rec.ID,
+		i18n.T(s.lang(c.Item.ProjectKey), "work.request.issue", "id", rec.ID), by)
 	return rec, w, err
 }
 

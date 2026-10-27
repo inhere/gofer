@@ -1680,6 +1680,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateWorkJournalLevel(); err != nil { // WORK-06
 		return err
 	}
+	if err := s.migrateCapturedDispatchFinalizes(); err != nil {
+		return err
+	}
 	// Partial unique index: only non-empty request_id values are constrained, so
 	// jobs without a request_id never collide. Created after the column exists.
 	if _, err := s.db.Exec(
