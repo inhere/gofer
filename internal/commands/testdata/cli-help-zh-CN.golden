@@ -797,6 +797,14 @@ session say	flag deliver	route the reply: answer the OPEN turn if there is one, 
 session say	flag server	server address (overrides config server.addr)
 session say	flag takeover	with --deliver: if the session has no usable tmux pane, start a new `--resume` process and send it there (§9.1 B; the original terminal stops relaying)
 session say	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session screen	desc	Print the tail of what a session shows now (recent relay turns, or a takeover pty job's transcript); read-only
+session screen	help	
+session screen	examples	
+session screen	flag config	path to the gofer config file
+session screen	flag json	print the screen with its source as JSON
+session screen	flag n	how many lines to print (1-500)
+session screen	flag server	server address (overrides config server.addr)
+session screen	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 session show	desc	Show one session and its recent relay turns
 session show	help	
 session show	examples	
@@ -812,6 +820,15 @@ session topic	flag scope	project-root-relative sub-path this session owns (repea
 session topic	flag server	server address (overrides config server.addr)
 session topic	flag session	session id (default: the current session from the environment; never guessed from the directory)
 session topic	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session wait	desc	Block until a session reaches a state (idle | waiting_reply | ended). Exit 0 = reached, 2 = timeout, 1 = error
+session wait	help	
+session wait	examples	
+session wait	flag config	path to the gofer config file
+session wait	flag json	print the final session state as JSON
+session wait	flag server	server address (overrides config server.addr)
+session wait	flag timeout	give up after this long (e.g. 90s, 10m)
+session wait	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session wait	flag until	state to wait for: idle | waiting_reply | ended (comma-separated for several)
 session watch	desc	Register a job for the current agent session's Stop-hook completion notice
 session watch	help	
 session watch	examples	
