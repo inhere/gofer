@@ -20,8 +20,10 @@ var han = regexp.MustCompile(`\p{Han}`)
 // subtrees is English — no Chinese word survives anywhere in it.
 func TestEnglishCliHelpHasNoCJK(t *testing.T) {
 	t.Setenv("GOFER_LANG", string(i18n.EN))
-	if m := han.FindString(collectCliHelp(t)); m != "" {
-		t.Errorf("the English help carries CJK (%q):\n%s", m, collectCliHelp(t))
+	for _, roots := range [][]string{migratedHelpRoots, setupHelpRoots} {
+		if m := han.FindString(collectCliHelpFor(t, roots)); m != "" {
+			t.Errorf("the English help carries CJK (%q):\n%s", m, collectCliHelpFor(t, roots))
+		}
 	}
 }
 

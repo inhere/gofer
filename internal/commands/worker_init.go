@@ -149,7 +149,7 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 			return errorx.Failf(configExitErr, "register worker %s: %v", id, err)
 		}
 		token = reg.WorkerToken
-		c.Printf("✓ 已向 server 登记 worker %s，管理员 token 未写入磁盘\n", id)
+		c.Printf("%s\n", cliText("cli.worker.init.registered", "id", id))
 	}
 	cli, err := newClient(config.InputCfgFile, workerInitOpts.server, token)
 	if err != nil {
@@ -163,8 +163,8 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 	if strings.TrimSpace(serverVersion) == "" {
 		serverVersion = "(dev build: no version stamped)"
 	}
-	c.Printf("✓ 连接 server %s，协议 v%d，可派给 %s 的项目 %d 个\n",
-		serverVersion, assignable.ProtocolVersion, id, len(assignable.Projects))
+	c.Printf("%s\n", cliText("cli.worker.init.connected", "server", serverVersion,
+		"protocol", assignable.ProtocolVersion, "projects", id, "count", len(assignable.Projects)))
 	warnIfWorkerOnline(c, cli, id)
 
 	hostPaths := make([]string, 0, len(assignable.Projects))
@@ -180,21 +180,21 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 		return err
 	}
 	if len(roots) == 0 {
-		c.Printf("warning: 没有可用的 roots 映射 —— 这台 worker 目前跑不了任何 server 项目；补上 --roots <from>=<to> 后重跑\n")
+		c.Printf("%s\n", cliText("cli.worker.init.no_roots"))
 	}
 
 	agentKeys, detected := detectedAgents(workerInitDetector)
-	c.Printf("探测到 agents（已装 %d 个）：\n", len(agentKeys))
+	c.Printf("%s\n", cliText("cli.worker.init.agents_detected", "count", len(agentKeys)))
 	for _, key := range sortedDetectKeys(detected) {
 		res := detected[key]
-		mark, detail := "✗", "未安装"
+		mark, detail := "✗", cliText("cli.worker.init.agent_missing")
 		if res.Available {
 			mark, detail = "✓", res.Version
 		}
 		c.Printf("  %s %-12s %s\n", mark, key, detail)
 	}
 	if len(agentKeys) == 0 {
-		c.Printf("提示: 本机没有装任何可用的 agent CLI，生成的 worker 只能跑 exec job；装好后重跑本命令或手改 agents 段\n")
+		c.Printf("%s\n", cliText("cli.worker.init.no_agents"))
 	}
 
 	wsDir, err := ensureWorkspaceDir(workerInitOpts.workspace)
@@ -219,9 +219,9 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 	// the doctor verifies the registration with exactly the credential the worker will
 	// start with.
 	if err := os.Setenv(workerTokenEnv, token); err != nil {
-		c.Printf("warning: 设置 %s 失败：%v\n", workerTokenEnv, err)
+		c.Printf("%s\n", cliText("cli.worker.init.token_env_failed", "name", workerTokenEnv, "err", err))
 	}
-	c.Printf("已写入 %s、%s\n", workerPath, envPath)
+	c.Printf("%s\n", cliText("cli.worker.init.written", "worker", workerPath, "env", envPath))
 	c.Printf("%s\n", inlineWorkspaceHint(wsDir))
 
 	rep := buildWorkerDoctorReport(workerPath, timeout, info, workerInitDetector, true)
@@ -229,11 +229,11 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 	if rerr != nil {
 		return rerr
 	}
-	c.Printf("运行 doctor：\n%s", out)
+	c.Printf("%s\n%s", cliText("cli.worker.init.doctor_head"), out)
 	if rep.Failures > 0 {
-		return errorx.Failf(workerDoctorExitErr, "worker init: doctor 有 %d 项失败，修好上面的项后重跑 `gofer worker doctor`", rep.Failures)
+		return errorx.Failf(workerDoctorExitErr, "%s", cliText("cli.worker.init.doctor_failed", "count", rep.Failures))
 	}
-	c.Printf("启动：gofer worker -d        (worker 常驻后台；Windows 登录自启任务仅服务端有脚本，worker 请用该命令或做服务)\n")
+	c.Printf("%s\n", cliText("cli.worker.init.start_hint"))
 	return nil
 }
 
@@ -264,7 +264,7 @@ func warnIfWorkerOnline(c *gcli.Command, cli *client.Client, id string) {
 	}
 	for _, w := range workers {
 		if w.ID == id && w.Connected {
-			c.Printf("warning: server 上 %s 已有一个在线的 worker —— 启动本机会顶掉它的连接并失败其 in-flight job；确认是要替换再启动\n", id)
+			c.Printf("%s\n", cliText("cli.worker.init.online_warning", "id", id))
 			return
 		}
 	}
@@ -280,7 +280,7 @@ func resolveWorkerInitRoots(c *gcli.Command, hostPaths []string) ([]config.Worke
 		if err != nil {
 			return nil, errorx.Failf(configExitErr, "%v", err)
 		}
-		c.Printf("使用显式 --roots 映射 %d 条（跳过推断）\n", len(roots))
+		c.Printf("%s\n", cliText("cli.worker.init.roots_explicit", "count", len(roots)))
 		return roots, nil
 	}
 	inferred, notFound := inferWorkerRoots(hostPaths, osStatExists)
@@ -288,7 +288,7 @@ func resolveWorkerInitRoots(c *gcli.Command, hostPaths []string) ([]config.Worke
 		return nil, nil
 	}
 	for _, hp := range notFound {
-		c.Printf("warning: 项目目录在本机不存在（映射后）：%s —— 该 project 会派发失败，用 --roots 精确指定\n", hp)
+		c.Printf("%s\n", cliText("cli.worker.init.root_missing_local", "path", hp))
 	}
 	if workerInitOpts.yes {
 		return inferred, nil
@@ -303,11 +303,11 @@ func confirmRoots(c *gcli.Command, inferred []config.WorkerRoot) ([]config.Worke
 	sc := bufio.NewScanner(workerInitStdin)
 	out := make([]config.WorkerRoot, 0, len(inferred))
 	for _, r := range inferred {
-		state := "✓ 存在"
+		state := cliText("cli.worker.init.root_state_ok")
 		if !osStatExists(r.To) {
-			state = "✗ 不存在"
+			state = cliText("cli.worker.init.root_state_missing")
 		}
-		c.Printf("  %s → %s  [%s]  接受? [Y/n/改] ", r.From, r.To, state)
+		c.Printf("  %s", cliText("cli.worker.init.root_accept_prompt", "from", r.From, "to", r.To, "state", state))
 		if !sc.Scan() {
 			return nil, errorx.Failf(configExitErr, "stdin closed while confirming roots")
 		}
@@ -315,7 +315,7 @@ func confirmRoots(c *gcli.Command, inferred []config.WorkerRoot) ([]config.Worke
 		case "", "y", "yes":
 			out = append(out, r)
 		case "n", "no":
-			c.Printf("    已跳过 %s（该前缀下的项目不会被派到本机）\n", r.From)
+			c.Printf("    %s\n", cliText("cli.worker.init.root_skipped", "from", r.From))
 		default:
 			out = append(out, config.WorkerRoot{From: r.From, To: answer})
 		}
