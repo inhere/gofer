@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -50,9 +51,14 @@ func TestCliLangChain(t *testing.T) {
 	if got := cliLang(); got != i18n.EN {
 		t.Errorf("GOFER_LANG: cliLang() = %q, want en", got)
 	}
-	// Nothing names a language: the DEPRECATED default.
+	// Nothing names a language: the DEPRECATED default. Windows reads the machine's
+	// language from the user's UI language, not from LANG / LC_ALL, so clearing the
+	// variables does not make it "nothing set" there (an English CI runner says en).
 	t.Setenv(i18n.EnvLanguageVar, "")
 	t.Setenv("LC_ALL", "sn")
+	if runtime.GOOS == "windows" {
+		return
+	}
 	if got := cliLang(); got != i18n.Default {
 		t.Errorf("nothing set: cliLang() = %q, want the default %q", got, i18n.Default)
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -197,6 +198,9 @@ func TestServeStatusJSONReportsTokenSource(t *testing.T) {
 	writeCommandsFile(t, configFile, "server:\n  addr: "+addr+"\n  token_env: "+envName+"\n  callers:\n    - id: ops\n      token_env: GOFER_T9MD_STATUS_ABSENT\n")
 	t.Setenv(config.EnvConfigDir, root)
 
+	if runtime.GOOS != "windows" && runtime.GOOS != "linux" {
+		t.Skip("managed process identity is supported on Windows and Linux only")
+	}
 	self, err := daemon.CurrentProcessIdentity()
 	if err != nil {
 		t.Fatal(err)
@@ -451,6 +455,9 @@ func TestStatusVersionUnauthorizedHintsAtTheToken(t *testing.T) {
 	addr := strings.TrimPrefix(server.URL, "http://")
 	configFile := filepath.Join(root, "config.yaml")
 	writeCommandsFile(t, configFile, "server:\n  addr: "+addr+"\n  token_env: "+envName+"\n")
+	if runtime.GOOS != "windows" && runtime.GOOS != "linux" {
+		t.Skip("managed process identity is supported on Windows and Linux only")
+	}
 	self, err := daemon.CurrentProcessIdentity()
 	if err != nil {
 		t.Fatal(err)
