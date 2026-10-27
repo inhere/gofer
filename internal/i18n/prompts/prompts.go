@@ -42,6 +42,8 @@ const (
 	// NameTodoContinue is the bridging line a plan item's prompt opens with when it
 	// continues the session of the item before it (job: todo_continue.go).
 	NameTodoContinue = "todo-continue"
+	// NameFollowUp is the bridge prompt for queued follow-up requests.
+	NameFollowUp = "follow-up"
 	// NameStewardRole is the standing role prompt for a steward session.
 	NameStewardRole = "steward_role"
 	// NameStewardReview is the default review instruction.
@@ -93,6 +95,10 @@ type (
 	// continued.
 	TodoContinueData struct {
 		Title string
+	}
+	// FollowUpData feeds NameFollowUp with the numbered requests to complete.
+	FollowUpData struct {
+		Requests string
 	}
 	// StewardTodayData feeds NameStewardToday: the step number the section continues
 	// from and how many Today cards still wait for advice (negative = unknown).

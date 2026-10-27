@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/i18n/prompts"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -115,7 +116,8 @@ func (s *Service) processFollowUps(snap JobResult) {
 		}
 		fmt.Fprintf(&b, "%d. %s", i+1, item.Prompt)
 	}
-	prompt := "The previous task has completed. Continue in the same session and working directory. Complete these follow-up requests in order:\n" + b.String()
+	cfg := s.config()
+	prompt := prompts.MustRender(jobPromptLanguage(cfg, snap), prompts.NameFollowUp, prompts.FollowUpData{Requests: b.String()})
 	reviewEach := len(items) == 1 && items[0].ReviewEach
 	res, err := s.resumeJob(snap.ID, prompt, snap.Runner, snap.CallerID, 0, nil, ResumeOptions{Internal: true, ReviewEach: reviewEach})
 	if err != nil {
