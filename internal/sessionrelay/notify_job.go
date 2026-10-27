@@ -74,6 +74,8 @@ type JobEndedNotice struct {
 	// WrapUp is the agent's OWN reason for ending early ("max_steps" / "max_tokens"
 	// / "timeout"); "" drops the field (the agent answered).
 	WrapUp string
+	// FollowUpPending is the number of queued requests not yet executed.
+	FollowUpPending int
 }
 
 // FormatJobEndedNotice renders the one-line notice IN LANG. It opens with the
@@ -98,6 +100,10 @@ func FormatJobEndedNotice(lang i18n.Lang, n JobEndedNotice) string {
 	if wrap := strings.TrimSpace(n.WrapUp); wrap != "" {
 		b.WriteString(" wrap_up=")
 		b.WriteString(wrap)
+	}
+	if n.FollowUpPending > 0 {
+		b.WriteString(" ")
+		b.WriteString(i18n.T(lang, "sessionrelay.notice.follow_up_pending", "count", strconv.Itoa(n.FollowUpPending), "id", strings.TrimSpace(n.JobID)))
 	}
 	b.WriteString(i18n.T(lang, "sessionrelay.notice.tail", "id", strings.TrimSpace(n.JobID)))
 	return b.String()

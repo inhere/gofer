@@ -914,6 +914,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			notice := sessionrelay.JobEndedNotice{
 				TargetSession: target, JobID: r.ID, Title: r.Title, Status: r.Status,
 				ExitCode: r.ExitCode, WrapUp: r.WrapUp, Duration: jobNotifyDuration(r),
+				FollowUpPending: jobs.PendingFollowUpCount(r.ID),
 			}
 			if err := s.relay.NotifyJobEnded(context.Background(), notice); err != nil {
 				slog.Warn("job end notification failed", "job_id", r.ID, "session_id", target, "err", err)
