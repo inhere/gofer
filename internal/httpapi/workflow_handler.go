@@ -274,27 +274,39 @@ func (s *Server) handleExportWorkflow(c *rux.Context) {
 	c.JSON(http.StatusOK, spec)
 }
 
-// handleListWorkflows returns workflow headers, optionally filtered by ?status=. It is the
-// FILTER form of job.read.others: without the permission a user-class caller sees only its
-// own workflows (plan T1.5a). The list is always a non-nil array, so an empty result
-// serialises as {"workflows":[]}.
+// handleListWorkflows returns one page of workflow headers. Query params: status (exact
+// match) plus limit / offset (a non-numeric value falls back to 0; no limit keeps the
+// store default, so a caller that passes neither still gets the whole capped list). The
+// response always carries the non-nil page array plus total — how many rows the same
+// filter matches — so the web pager can render "page x of y" without fetching everything,
+// and an empty result serialises as {"workflows":[],"total":0}.
+//
+// It is the FILTER form of job.read.others: without the permission a user-class caller sees
+// only its own workflows (plan T1.5a). That caller restriction is pushed into the query, so
+// a page is cut after it instead of being narrowed afterwards.
 func (s *Server) handleListWorkflows(c *rux.Context) {
-	list, err := s.workflow.ListWorkflows(c.Query("status"), 0)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	filter := jobstore.WorkflowListFilter{Status: c.Query("status")}
+	if !s.mayListAllJobs(c) {
+		// 只看自己的：显式带上 CallerID（空 id 的调用方也只看空 id 的行，不等于不过滤）。
+		filter.CallerID = callerFromCtx(c)
+		filter.RestrictCaller = true
+	}
+	list, total, err := s.workflow.ListWorkflowsPage(filter, limit, offset)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workflows failed", err.Error())
 		return
 	}
+	// A ceiling-restricted caller reads only the workflows of its projects. Resolving a
+	// workflow's project needs its spec, so this narrowing stays row-by-row on the page
+	// (total still counts the rows the paging walks, so page count stays reachable).
 	list = scopeRowsByKind(s, c, "workflow", list, func(wf jobstore.Workflow) string { return wf.ID })
-	all := s.mayListAllJobs(c)
-	caller := callerFromCtx(c)
 	out := make([]workflowSummary, 0, len(list))
 	for _, wf := range list {
-		if !all && wf.CallerID != caller {
-			continue
-		}
 		out = append(out, toWorkflowSummary(wf))
 	}
-	c.JSON(http.StatusOK, map[string]any{"workflows": out})
+	c.JSON(http.StatusOK, map[string]any{"workflows": out, "total": total})
 }
 
 // handleListWorkflowEvents returns a workflow's append-only lifecycle events (P1)

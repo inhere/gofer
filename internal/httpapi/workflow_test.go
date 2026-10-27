@@ -1,11 +1,14 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job/workflow"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
@@ -261,6 +264,137 @@ func containsWorkflow(ids []string, id string) bool {
 		}
 	}
 	return false
+}
+
+// workflowPage GETs /v1/workflows with a raw query string and returns that page's ids plus
+// the response's total.
+func workflowPage(t *testing.T, s *Server, query string) ([]string, int) {
+	t.Helper()
+	return workflowPageToken(t, s, testToken, query)
+}
+
+// workflowPageToken is workflowPage for a fixture caller's token.
+func workflowPageToken(t *testing.T, s *Server, token, query string) ([]string, int) {
+	t.Helper()
+	resp := do(t, s, http.MethodGet, "/v1/workflows"+query, token, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list %q as %s status=%d, want 200", query, token, resp.StatusCode)
+	}
+	var body struct {
+		Workflows []struct {
+			ID string `json:"id"`
+		} `json:"workflows"`
+		Total int `json:"total"`
+	}
+	decode(t, resp, &body)
+	ids := make([]string, 0, len(body.Workflows))
+	for _, w := range body.Workflows {
+		ids = append(ids, w.ID)
+	}
+	return ids, body.Total
+}
+
+// TestListWorkflowsPagination asserts GET /v1/workflows pages with limit / offset and reports
+// total (the pager's denominator), while a request without limit still returns the whole list
+// like before paging existed.
+func TestListWorkflowsPagination(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	meta := s.jobs.Meta()
+	now := time.Now().Unix()
+	// Seeded oldest first, so the list order is wf-4 … wf-0 (created_at DESC).
+	for i := 0; i < 5; i++ {
+		wf := jobstore.Workflow{
+			ID: fmt.Sprintf("wf-%d", i), Status: jobstore.WorkflowDone, CallerID: "default",
+			CurrentStep: 1, TotalSteps: 1, SpecJSON: "{}",
+			CreatedAt: now + int64(i), UpdatedAt: now + int64(i),
+		}
+		if err := meta.InsertWorkflow(wf); err != nil {
+			t.Fatalf("seed workflow %s: %v", wf.ID, err)
+		}
+	}
+
+	// Page 1 is full and total counts every matching row, not just the page.
+	page1, total := workflowPage(t, s, "?limit=2")
+	if total != 5 {
+		t.Fatalf("total = %d, want 5", total)
+	}
+	if len(page1) != 2 || page1[0] != "wf-4" || page1[1] != "wf-3" {
+		t.Fatalf("page 1 = %v, want [wf-4 wf-3]", page1)
+	}
+
+	// The last (short) page continues where the previous one ended.
+	page3, total := workflowPage(t, s, "?limit=2&offset=4")
+	if total != 5 || len(page3) != 1 || page3[0] != "wf-0" {
+		t.Fatalf("page 3 = %v (total %d), want [wf-0] (total 5)", page3, total)
+	}
+
+	// An offset past the end is an empty page with the same total.
+	past, total := workflowPage(t, s, "?limit=2&offset=10")
+	if total != 5 || len(past) != 0 {
+		t.Fatalf("offset past the end = %v (total %d), want an empty page with total 5", past, total)
+	}
+
+	// Without limit the whole list still comes back, as before the paging params existed.
+	all, total := workflowPage(t, s, "")
+	if total != 5 || len(all) != 5 {
+		t.Fatalf("unpaged list = %v (total %d), want all 5", all, total)
+	}
+
+	// The status filter narrows the page and the total together.
+	done, total := workflowPage(t, s, "?status=done&limit=10")
+	if total != 5 || len(done) != 5 {
+		t.Fatalf("status=done = %v (total %d), want 5/5", done, total)
+	}
+	running, total := workflowPage(t, s, "?status=running&limit=10")
+	if total != 0 || len(running) != 0 {
+		t.Fatalf("status=running = %v (total %d), want an empty page with total 0", running, total)
+	}
+}
+
+// TestListWorkflowsCallerFilter asserts the list's FILTER permission: a user-class caller
+// without job.read.others sees only its own workflows, and the page is cut AFTER that filter
+// (it does not fetch everyone's newest rows and drop the foreign ones afterwards).
+func TestListWorkflowsCallerFilter(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{
+			{ID: "alice", Token: "tok-alice"},
+			{ID: "bob", Token: "tok-bob"},
+		},
+	})
+	meta := s.jobs.Meta()
+	// A plain user caller holds no permission, so job.read.others is absent and the list is
+	// narrowed to its own rows (the FILTER form, not a 403).
+	s.setDBGrants(grantsFor(nil))
+	now := time.Now().Unix()
+	seed := func(id, caller string, at int64) {
+		wf := jobstore.Workflow{
+			ID: id, Status: jobstore.WorkflowDone, CallerID: caller,
+			CurrentStep: 1, TotalSteps: 1, SpecJSON: "{}", CreatedAt: at, UpdatedAt: at,
+		}
+		if err := meta.InsertWorkflow(wf); err != nil {
+			t.Fatalf("seed workflow %s: %v", id, err)
+		}
+	}
+	// bob's rows are the two newest overall, so an unrestricted first page would show them.
+	seed("wf-bob-2", "bob", now+3)
+	seed("wf-bob-1", "bob", now+2)
+	seed("wf-alice-2", "alice", now+1)
+	seed("wf-alice-1", "alice", now)
+
+	page1, total := workflowPageToken(t, s, "tok-alice", "?limit=1")
+	if total != 2 || len(page1) != 1 || page1[0] != "wf-alice-2" {
+		t.Fatalf("alice page 1 = %v (total %d), want [wf-alice-2] with total 2 (her own only)", page1, total)
+	}
+	page2, total := workflowPageToken(t, s, "tok-alice", "?limit=1&offset=1")
+	if total != 2 || len(page2) != 1 || page2[0] != "wf-alice-1" {
+		t.Fatalf("alice page 2 = %v (total %d), want [wf-alice-1]", page2, total)
+	}
+	own, total := workflowPageToken(t, s, "tok-bob", "?limit=10")
+	if total != 2 || len(own) != 2 || own[0] != "wf-bob-2" {
+		t.Fatalf("bob's list = %v (total %d), want his two rows, newest first", own, total)
+	}
 }
 
 // TestRenderWorkflowTemplate asserts POST /v1/workflow-templates/{name}/render

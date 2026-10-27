@@ -38,6 +38,33 @@ export function clampPage(page: number, pageCount: number): number {
   return Math.min(Math.max(1, Math.floor(page) || 1), pageCount)
 }
 
+// ---- 列表分页的共用口径（Issues / 记忆 / 工作流）。页码进 ?page=，第 1 页不写，链接保持干净。
+
+function queryValue(value: unknown): string {
+  return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
+}
+
+// readPageQuery：列表页码（?page=）；坏值（空、0、负数、非数字）回落到第 1 页。
+export function readPageQuery(query: Record<string, unknown> | undefined): number {
+  const n = Math.floor(Number(queryValue(query?.page)))
+  return Number.isFinite(n) && n >= 1 ? n : 1
+}
+
+// pageQueryUpdate：页码写进 ?page=（第 1 页不写），其余参数原样保留。
+export function pageQueryUpdate(base: Record<string, unknown> | undefined, page: number): Record<string, string> {
+  const next: Record<string, string> = {}
+  for (const [k, v] of Object.entries(base ?? {})) {
+    if (typeof v === 'string' && v && k !== 'page') next[k] = v
+  }
+  if (page > 1) next.page = String(page)
+  return next
+}
+
+// pageCountOf：总条数 / 每页条数 -> 页数（0 条也算 1 页，页脚还在）。
+export function pageCountOf(total: number, pageSize: number): number {
+  return Math.max(1, Math.ceil(total / Math.max(1, Math.floor(pageSize))))
+}
+
 export type CheckState = 'none' | 'some' | 'all'
 
 export function pageCheckState(selected: ReadonlySet<string>, pageIds: string[]): CheckState {

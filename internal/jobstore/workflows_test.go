@@ -106,6 +106,69 @@ func TestListWorkflowsStatusFilter(t *testing.T) {
 	assert.Len(t, all, 3)
 }
 
+// TestListWorkflowsPage covers the paged list the HTTP route uses: limit / offset cut a
+// page out of the newest-first order, total counts every row the same filter matches
+// (status + caller) independent of the page, and an offset past the end yields an empty
+// page with the same total.
+func TestListWorkflowsPage(t *testing.T) {
+	s := openTest(t)
+	// Created newest last so the expected order is c, b, a (created_at DESC).
+	assert.NoErr(t, s.InsertWorkflow(Workflow{ID: "a", Status: WorkflowRunning, CallerID: "alice", CurrentStep: 1, TotalSteps: 1, SpecJSON: "{}", CreatedAt: 100, UpdatedAt: 100}))
+	assert.NoErr(t, s.InsertWorkflow(Workflow{ID: "b", Status: WorkflowDone, CallerID: "bob", CurrentStep: 1, TotalSteps: 1, SpecJSON: "{}", CreatedAt: 200, UpdatedAt: 200}))
+	assert.NoErr(t, s.InsertWorkflow(Workflow{ID: "c", Status: WorkflowRunning, CallerID: "alice", CurrentStep: 1, TotalSteps: 1, SpecJSON: "{}", CreatedAt: 300, UpdatedAt: 300}))
+
+	// First page of 2: the two newest rows, and the total counts all three.
+	page1, total, err := s.ListWorkflowsPage(WorkflowListFilter{}, 2, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, 3, total)
+	assert.Len(t, page1, 2)
+	assert.Eq(t, "c", page1[0].ID)
+	assert.Eq(t, "b", page1[1].ID)
+
+	// Second page continues where the first ended; the total does not change.
+	page2, total, err := s.ListWorkflowsPage(WorkflowListFilter{}, 2, 2)
+	assert.NoErr(t, err)
+	assert.Eq(t, 3, total)
+	assert.Len(t, page2, 1)
+	assert.Eq(t, "a", page2[0].ID)
+
+	// Offset past the end: empty page, same total (the pager's last page stays reachable).
+	empty, total, err := s.ListWorkflowsPage(WorkflowListFilter{}, 2, 10)
+	assert.NoErr(t, err)
+	assert.Eq(t, 3, total)
+	assert.Len(t, empty, 0)
+
+	// Status filter narrows both the page and the total.
+	running, total, err := s.ListWorkflowsPage(WorkflowListFilter{Status: WorkflowRunning}, 10, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, 2, total)
+	assert.Len(t, running, 2)
+
+	// Caller filter is pushed into the query (page cut after it, not narrowed afterwards).
+	mine, total, err := s.ListWorkflowsPage(WorkflowListFilter{CallerID: "alice", RestrictCaller: true}, 1, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, 2, total)
+	assert.Len(t, mine, 1)
+	assert.Eq(t, "c", mine[0].ID)
+
+	// RestrictCaller with an EMPTY caller id is not "every caller": it matches only the
+	// caller-less rows (a user-class caller with no id must not see everybody's workflows).
+	assert.NoErr(t, s.InsertWorkflow(Workflow{ID: "anon", Status: WorkflowDone, CurrentStep: 1, TotalSteps: 1, SpecJSON: "{}", CreatedAt: 50, UpdatedAt: 50}))
+	anon, total, err := s.ListWorkflowsPage(WorkflowListFilter{RestrictCaller: true}, 10, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, total)
+	assert.Len(t, anon, 1)
+	assert.Eq(t, "anon", anon[0].ID)
+	_, total, err = s.ListWorkflowsPage(WorkflowListFilter{}, 10, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, 4, total) // no restriction still sees every caller
+
+	// A non-positive limit keeps the store default cap instead of returning nothing.
+	all, _, err := s.ListWorkflowsPage(WorkflowListFilter{}, 0, 0)
+	assert.NoErr(t, err)
+	assert.Len(t, all, 4)
+}
+
 // TestAdvanceCurrentStepConcurrentSingleClaim is the推进幂等 core: N goroutines
 // race AdvanceCurrentStep(from=1 -> to=2) on one running workflow; EXACTLY ONE
 // must win (RowsAffected==1). The conditional UPDATE is the single-claim barrier.

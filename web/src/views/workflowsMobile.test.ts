@@ -14,7 +14,7 @@ describe('Workflows 列表的窄屏与基元', () => {
     expect(breakpoints).toContain(760)
   })
 
-  it('状态筛选改用 FilterChips（带计数），行用 StatusPill 与分段 ProgressBar', () => {
+  it('状态筛选改用 FilterChips（服务端 status 过滤），行用 StatusPill 与分段 ProgressBar', () => {
     expect(source).toContain('<FilterChips')
     expect(source).toContain('<StatusPill')
     expect(source).toContain('<ProgressBar')

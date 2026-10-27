@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clampPage, descendantIds, normalizePageSize, pageCheckState, pageWindow, paginateEntries, summarizeBatch,
-  toggleId, togglePage, toggleWithDescendants,
+  clampPage, descendantIds, normalizePageSize, pageCheckState, pageCountOf, pageQueryUpdate, pageWindow,
+  paginateEntries, readPageQuery, summarizeBatch, toggleId, togglePage, toggleWithDescendants,
 } from './issuePaging'
 
 const e = (id: string, depth = 0) => ({ id, depth })
@@ -52,6 +52,33 @@ describe('page size and window', () => {
   it('elides the middle of long page lists', () => {
     expect(pageWindow(1, 3)).toEqual([1, 2, 3])
     expect(pageWindow(10, 20)).toEqual([1, null, 8, 9, 10, 11, 12, null, 20])
+  })
+})
+
+// 页码的 URL 契约（Issues / 记忆 / 工作流共用）：?page= 读写、页数换算。
+describe('page query', () => {
+  it('reads ?page= and falls back to page 1 on junk', () => {
+    expect(readPageQuery({ page: '3' })).toBe(3)
+    expect(readPageQuery({ page: ['2', '5'] })).toBe(2)
+    expect(readPageQuery({ page: '2.7' })).toBe(2) // 非整数页码取整
+    for (const bad of [undefined, {}, { page: '' }, { page: '0' }, { page: '-2' }, { page: 'abc' }]) {
+      expect(readPageQuery(bad as Record<string, unknown> | undefined)).toBe(1)
+    }
+  })
+
+  it('writes ?page= only past page 1 and keeps other params', () => {
+    expect(pageQueryUpdate({}, 1)).toEqual({})
+    expect(pageQueryUpdate({}, 2)).toEqual({ page: '2' })
+    expect(pageQueryUpdate({ status: 'done', page: '2' }, 1)).toEqual({ status: 'done' })
+    expect(pageQueryUpdate({ status: 'done' }, 3)).toEqual({ status: 'done', page: '3' })
+  })
+
+  it('turns a total into a page count', () => {
+    expect(pageCountOf(0, 50)).toBe(1)
+    expect(pageCountOf(50, 50)).toBe(1)
+    expect(pageCountOf(51, 50)).toBe(2)
+    expect(pageCountOf(120, 50)).toBe(3)
+    expect(pageCountOf(10, 0)).toBe(10) // 每页 0 条按 1 条算，不会除零
   })
 })
 

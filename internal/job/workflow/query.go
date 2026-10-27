@@ -22,6 +22,13 @@ func (e *Engine) ListWorkflows(status string, limit int) ([]jobstore.Workflow, e
 	return e.meta.ListWorkflows(status, limit)
 }
 
+// ListWorkflowsPage returns one page of workflow headers (status / caller filter) plus the
+// total number of rows the same filter matches. It backs the paged HTTP list
+// (limit / offset / total).
+func (e *Engine) ListWorkflowsPage(f jobstore.WorkflowListFilter, limit, offset int) ([]jobstore.Workflow, int, error) {
+	return e.meta.ListWorkflowsPage(f, limit, offset)
+}
+
 // WorkflowSteps returns the per-step summary for a workflow's detail view, in
 // step order. It reads the started step-jobs (a step not yet reached has no job
 // row, so the list only contains started steps — the chain is strictly serial).

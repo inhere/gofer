@@ -1244,10 +1244,15 @@ export function resumeJob(
   })
 }
 
-// 工作流列表（GET /v1/workflows）：可选 status 过滤；返回头部数组（无 steps）。
-export function listWorkflows(status?: WorkflowStatus): Promise<WorkflowsResp> {
-  const qs = status ? `?status=${encodeURIComponent(status)}` : ''
-  return request<WorkflowsResp>(`/v1/workflows${qs}`)
+// 工作流列表（GET /v1/workflows）：可选 status 过滤 + limit / offset 分页；返回头部数组（无 steps）
+// 与同一过滤条件下的总条数 total。
+export function listWorkflows(opts: { status?: WorkflowStatus; limit?: number; offset?: number } = {}): Promise<WorkflowsResp> {
+  const qs = new URLSearchParams()
+  if (opts.status) qs.set('status', opts.status)
+  if (opts.limit && opts.limit > 0) qs.set('limit', String(opts.limit))
+  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset))
+  const query = qs.toString()
+  return request<WorkflowsResp>(`/v1/workflows${query ? `?${query}` : ''}`)
 }
 
 // 工作流详情（GET /v1/workflows/{id}）：头部 + 内联 steps 步骤链。
