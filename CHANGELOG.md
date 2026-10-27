@@ -18,6 +18,12 @@
   - 桌面通知：开关、事件、限定项目、合并窗口秒数，并写明它弹在运行 server 的机器上、当前平台是否支持。
   - 「配置管理」页的通知表单改为一行指路，避免两处编辑同一份配置（保存时不再带 `notification` 成员）。
   - 新增接口 `GET /v1/notify/events`（事件目录，`config.read`）与 `POST /v1/notify/test`（测试发送，`config.write`）；`PUT /v1/config/server` 的 `notification` 补丁新增 `desktop` 成员；`GET /v1/config` 的 webhook 条目新增 `url_redacted`。
+- **工作台与通知的几处小改进**（gofer-okz3）：
+  - **Ctrl/⌘+J 跳到「今天」队列的下一项**：任何页面都能按，不在首页时先带你回 `/today`，然后把下一张决策卡滚到可见处并描边高亮；走到末尾回到第一张（循环），跳过前 5 张时自动展开更多卡片。输入框 / 文本框 / 终端里聚焦时不触发。命令面板（Ctrl/⌘K）底部新增一栏**全局快捷键**，把 Ctrl/⌘+K、Ctrl/⌘+J、`g d`、`/` 都列出来（清单只有一处：`SHELL_SHORTCUTS`）。
+  - **会话显示执行机标签**：工作台会话列表每行与会话标题旁显示 `server`（本机）或 worker 名；每台 worker 由 worker id 哈希到一个固定的主题色（明暗主题都读得清，刷新 / 换页不变），server 本机用中性灰。
+  - **运行节点提示条**：有 worker 掉线、或 worker 的 gofer 版本低于 server 时，工作台顶部出现一条可关闭的提示（写明几台、哪几台，带「查看运行节点」入口）；没问题时不占位置，关掉后同一份状态不再弹，名单变了再出现。
+  - **通知带上执行机**：IM 机器人 / 桌面通知 / Web Push 的 job 事件与「会话等你回复」正文、发给会话的「job 结束」通知都写明在哪台机器上跑的（本机内置 runner 显示 `server`，G043 的显示口径）；核对时发现 `jobEventText` 早已带 `runner`，其余四处补齐。Go 侧新增 `config.RunnerDisplayName` 作为唯一的显示名映射。
+  - **README 末尾加「相关项目」一节**（两份 README）：客观列出 Claude Code Remote Control、Conductor、Superset（现名 Paradev）、Kero 各自的长处，以及与 gofer 的形态差异。
 
 ### 文档
 
