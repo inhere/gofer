@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.200.0] - 2026-10-27
+
 ### 改进
 
 - **关于页的「不能一键更新」提示改成警示框，并写清怎么改成服务**：server 不是以服务方式运行（`gofer serve register` 注册过的才会有「立即更新」）时，「设置 › 关于」原来只有一行灰色小字，容易被当成一键更新坏了。现在是一个警示色提示框：先说清为什么没有一键更新，再分成「现在手动更新」（替换二进制后重启 `gofer serve`；worker 用 `gofer worker upgrade <id>`，其他平台加 `--file`）与「改成服务（之后可在这里一键更新）」两段，后者按步骤列出停掉前台 `gofer serve` → `gofer serve register`（默认只登记，加 `--start` 一步注册并启动）→ `gofer serve start` → `gofer serve status` 看到 `health=healthy`；命令等宽显示、可一键复制，末尾指向 `gofer serve register --help`。深浅主题都清楚可读，手机宽度不溢出；中英文都已更新。
