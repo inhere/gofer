@@ -27,6 +27,7 @@ type workerInitFlags struct {
 	token      string
 	adminToken string
 	id         string
+	tokenStdin bool
 	roots      gcli.Strings
 	projects   gcli.Strings
 	yes        bool
@@ -63,6 +64,7 @@ func NewWorkerInitCmd(info buildinfo.Info) *gcli.Command {
 			c.StrOpt(&workerInitOpts.token, "token", "", "", "this worker's hub token (written to <config-dir>/.env as GOFER_WORKER_TOKEN; defaults to an already-exported GOFER_WORKER_TOKEN)")
 			c.StrOpt(&workerInitOpts.adminToken, "admin-token", "", "", "server administrator token: register this worker once (never written to disk)")
 			c.StrOpt(&workerInitOpts.id, "id", "", "", "worker_id (must equal the server's server.workers key; required)")
+			c.BoolOpt(&workerInitOpts.tokenStdin, "token-stdin", "", false, "read the worker token from stdin (used by remote provisioning; never put secrets in process arguments)")
 			c.VarOpt(&workerInitOpts.roots, "roots", "", "explicit roots mapping from=to (repeatable; wins over inference)")
 			c.VarOpt(&workerInitOpts.projects, "project", "", "project to allow during registration (repeatable)")
 			c.BoolOpt(&workerInitOpts.yes, "yes", "y", false, "non-interactive: accept every inferred value without prompting")
@@ -89,6 +91,13 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 		return errorx.Failf(configExitErr, "--server is required (the hub address, e.g. http://<server-ip>:8767)")
 	}
 	token := strings.TrimSpace(workerInitOpts.token)
+	if workerInitOpts.tokenStdin {
+		raw, readErr := io.ReadAll(workerInitStdin)
+		if readErr != nil {
+			return errorx.Failf(configExitErr, "read worker token from stdin: %v", readErr)
+		}
+		token = strings.TrimSpace(string(raw))
+	}
 	if token == "" {
 		token = os.Getenv(workerTokenEnv)
 	}

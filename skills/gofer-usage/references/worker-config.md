@@ -4,6 +4,18 @@
 > 脚手架：`gofer worker init`（一步接入向导）；`gofer init worker` 只生成 worker.yaml 模板；也可由本机发起自助注册 `gofer worker join --server <addr>`（管理员在 web 接受后自动写好本文件与 `.env`，见 [setup-recipes.md](setup-recipes.md)）。校验：`gofer config validate worker`（按模式给判据 + 校验 roots）；`gofer worker doctor`（再查连通、agent、注册握手）。
 > 运维命令（show / projects / reload / upgrade）见 [operations.md](operations.md)。热生效：agents / roots / guards / labels / tools / max_concurrent / 隧道白名单；`worker_id`、`server_link`、storage、`xfer_timeout_sec` 要重启。部分能力（ACP 持续会话、web 转达的常驻传话进程、读取会话记录、在线送话走 stdin、模型 / 预算 / 从旧会话分叉）需要较新的 worker；旧 worker 会被明确拒绝或降级，`gofer worker show <id>` 可看版本。
 
+## 通过 SSH / WSL 一键接入
+
+在 server 上登记并配置远程 worker：
+
+```bash
+gofer worker add <worker-id> --ssh <user@host> --project <project>
+# Windows 主机上的 WSL 发行版
+gofer worker add <worker-id> --wsl <distro> --project <project>
+```
+
+命令会用系统 `ssh` / `scp`（或 `wsl.exe`），探测目标 OS / 架构，优先尝试指定的发布源下载二进制，失败时上传本地 gofer；随后用 stdin 传递一次性 token 执行 `worker init`，启动后台 worker 并确认连接。不会接受密码，也不会把 token 放进远端进程参数。未知主机先手工执行一次 ssh 以加入 `known_hosts`。使用 `--dry-run` 可只打印步骤；`--ssh` 与 `--wsl` 不能同时指定。
+
 ## 目录
 
 - [结构总览](#结构总览)
