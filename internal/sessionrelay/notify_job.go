@@ -101,7 +101,7 @@ func FormatJobEndedNotice(lang i18n.Lang, n JobEndedNotice) string {
 		b.WriteString(" wrap_up=")
 		b.WriteString(wrap)
 	}
-	if n.FollowUpPending > 0 {
+	if n.FollowUpPending > 0 && n.Status != "done" {
 		b.WriteString(" ")
 		b.WriteString(i18n.T(lang, "sessionrelay.notice.follow_up_pending", "count", strconv.Itoa(n.FollowUpPending), "id", strings.TrimSpace(n.JobID)))
 	}

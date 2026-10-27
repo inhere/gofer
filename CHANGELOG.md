@@ -13,7 +13,7 @@
 
 ### 改进
 
-- **运行中 job 支持追加需求（gofer-t9b6）**：新增 `gofer job follow-up`、HTTP `/v1/jobs/{id}/follow-ups`、MCP `gofer_job_follow_up` 与 Web 详情入口；需求持久化排队，在源 job 结束后复用同一会话与工作目录续接，支持查看、撤回及逐条人工验收。
+- **运行中 job 支持追加需求（gofer-t9b6）**：新增 `gofer job follow-up`、HTTP `/v1/jobs/{id}/follow-ups`、MCP `gofer_job_follow_up` 与 Web 详情入口；需求持久化排队，在源 job 结束后复用同一会话与工作目录续接，普通追加需求在开启 review 时先完成再与源 job 一起验收，`--review-each` 可逐条验收；失败、取消或超时会保留队列并在通知中提示。
 
 ### 文档
 
