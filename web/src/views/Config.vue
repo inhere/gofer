@@ -9,7 +9,7 @@ import { refreshWhoami, useWhoami } from '../store/whoami'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
 import { leaderRows, warningsSuffix } from '../utils/configLeader'
 import { PAGE } from '../utils/uiText'
-import { ChevronRight } from '@lucide/vue'
+import { ChevronRight, Power, RefreshCw } from '@lucide/vue'
 import Icon from '../ui/Icon.vue'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
 import {
@@ -842,12 +842,15 @@ onUnmounted(() => {
 <template>
   <div class="config-page">
     <!-- WEB-12：页面级标题与宽度交给 /settings 外壳（SettingsLayout），这里只留一条工具条
-         ——「重新读取文件」让 server 重新读盘上的 config.yaml，与下面「刷新」只重读视图不同。 -->
+         ——「重新读取文件」让 server 重新读盘上的 config.yaml，与下面「刷新」只重读视图不同。
+         两个按钮都在最右、彼此紧挨（刷新指示点跟在后）；图标走 ui/Icon（lucide）。 -->
     <div class="toolbar">
       <button v-if="can('config.write')" class="mini-btn mono" type="button" :disabled="loading" data-test="cfg-reload" @click="reloadNow()">
+        <Icon :icon="RefreshCw" size="sm" />
         {{ t('settings.config.reloadFile') }}
       </button>
-      <!-- gofer-4uk5：有些项只有重启才生效；非受管启动时按钮灰显并说明原因。 -->
+      <!-- gofer-4uk5：有些项只有重启才生效；非受管启动时按钮灰显并说明原因。
+           点按钮只打开二次确认，真正提交在确认框里的「确认重启」（不会直接调接口）。 -->
       <button
         v-if="can('config.write')"
         class="mini-btn mono"
@@ -857,6 +860,7 @@ onUnmounted(() => {
         :title="restartManaged ? t('settings.config.restartHint') : t('settings.config.restartUnmanaged')"
         @click="showRestart = true; restartError = ''"
       >
+        <Icon :icon="Power" size="sm" />
         {{ restartActive ? t('settings.config.restarting') : t('settings.config.restartServer') }}
       </button>
       <span class="poll mono" :class="{ 'poll--on': loading }">●</span>
@@ -1129,6 +1133,10 @@ onUnmounted(() => {
           <div class="form-actions">
             <button class="mini-btn mono" type="button" data-test="cfg-restart-confirm" :disabled="restarting" @click="startRestart()">
               {{ restarting ? t('settings.config.restarting') : t('settings.config.restartSubmit') }}
+            </button>
+            <!-- 取消：只关掉确认框，不调接口（在跑的任务不受影响）。 -->
+            <button class="mini-btn mono" type="button" data-test="cfg-restart-dismiss" :disabled="restarting" @click="showRestart = false">
+              {{ t('act.cancel') }}
             </button>
           </div>
         </div>
@@ -1509,10 +1517,18 @@ onUnmounted(() => {
 }
 .toolbar {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
   margin-bottom: 14px;
+}
+/* 工具条里的按钮贴右排列：「重启 server」紧跟「重新读取文件」。.mini-btn 自带的
+   margin-left: auto 会把第一个按钮推到中间，这里复位。 */
+.toolbar .mini-btn {
+  margin-left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .section-head {
   display: flex;
