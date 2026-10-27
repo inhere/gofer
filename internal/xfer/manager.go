@@ -199,6 +199,21 @@ func (m *Manager) runnerOrNil() Runner {
 // the id comes from) and removed again if the copy or the commit fails, exactly like
 // the HTTP path's cleanup.
 func (m *Manager) StagePutFromFile(caller, runner, projectKey, srcPath, dest string, overwrite bool) (jobstore.XferRecord, error) {
+	return m.stagePutFromFile(caller, runner, projectKey, "", srcPath, dest, overwrite)
+}
+
+// StagePutToAttachments is StagePutFromFile's sibling for a placement into the EXECUTING
+// machine's own attachment directory (<config-dir>/run/attachments/): dest is relative to
+// that directory (e.g. "20261027/<id>.png") and there is no project at all. It is what a
+// session that belongs to no project of its executor delivers its images through, and the
+// worker must therefore have declared wsproto.WorkerAttachMinProtocolVersion.
+func (m *Manager) StagePutToAttachments(caller, runner, srcPath, dest string, overwrite bool) (jobstore.XferRecord, error) {
+	return m.stagePutFromFile(caller, runner, "", TargetAttachments, srcPath, dest, overwrite)
+}
+
+// stagePutFromFile is the one implementation of "copy this local file into a staged put":
+// target and projectKey pick the destination tree on the executing machine.
+func (m *Manager) stagePutFromFile(caller, runner, projectKey, target, srcPath, dest string, overwrite bool) (jobstore.XferRecord, error) {
 	info, err := os.Stat(srcPath)
 	if err != nil {
 		return jobstore.XferRecord{}, err
@@ -215,7 +230,7 @@ func (m *Manager) StagePutFromFile(caller, runner, projectKey, srcPath, dest str
 	}
 	defer src.Close()
 
-	rec, err := m.StagePut(caller, runner, projectKey, dest, info.Size(), "", overwrite)
+	rec, err := m.stagePut(caller, runner, projectKey, target, dest, info.Size(), "", overwrite)
 	if err != nil {
 		return jobstore.XferRecord{}, err
 	}
@@ -249,6 +264,13 @@ func (m *Manager) StagePutFromFile(caller, runner, projectKey, srcPath, dest str
 // caller (Store().Writer) and made visible with CommitPut. force allows
 // overwriting an existing destination.
 func (m *Manager) StagePut(caller, runner, projectKey, path string, size int64, sha256 string, force bool) (jobstore.XferRecord, error) {
+	return m.stagePut(caller, runner, projectKey, "", path, size, sha256, force)
+}
+
+// stagePut is StagePut's implementation, with the target base a path is relative to on the
+// executing machine (empty = the project, TargetAttachments = that machine's own
+// attachment directory).
+func (m *Manager) stagePut(caller, runner, projectKey, target, path string, size int64, sha256 string, force bool) (jobstore.XferRecord, error) {
 	if size > m.limits.MaxBytes {
 		return jobstore.XferRecord{}, fmt.Errorf("%w: %d bytes exceeds %d", ErrTooLarge, size, m.limits.MaxBytes)
 	}
@@ -256,6 +278,7 @@ func (m *Manager) StagePut(caller, runner, projectKey, path string, size int64, 
 		Op:         string(OpPut),
 		Runner:     config.NormalizeRunnerName(runner),
 		ProjectKey: projectKey,
+		Target:     target,
 		Path:       path,
 		Size:       size,
 		SHA256:     sha256,

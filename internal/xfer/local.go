@@ -51,6 +51,9 @@ type LocalRunner struct {
 // A put reports the absolute destination it just wrote: on this machine that path is
 // known here, so no round trip is needed to name the file the receiving agent must read.
 func (r *LocalRunner) Run(ctx context.Context, rec jobstore.XferRecord) (RunResult, error) {
+	if rec.Target == TargetAttachments {
+		return r.runOwnAttachment(ctx, rec)
+	}
 	target, proj, err := r.resolve(rec.ProjectKey, rec.Path)
 	if err != nil {
 		return RunResult{}, err
@@ -72,6 +75,29 @@ func (r *LocalRunner) Run(ctx context.Context, rec jobstore.XferRecord) (RunResu
 	default:
 		return RunResult{}, fmt.Errorf("unknown transfer op %q", rec.Op)
 	}
+}
+
+// runOwnAttachment carries out a put into the SERVER's own attachment directory
+// (<config-dir>/run/attachments/<date>/), the target of a session that belongs to no
+// project of this machine. The placement rules (date subdirectories, retention) are the
+// same as a project's attachment dir: xfer.PruneOwnAttachmentsAfterPut runs the same
+// prune over the same layout.
+func (r *LocalRunner) runOwnAttachment(ctx context.Context, rec jobstore.XferRecord) (RunResult, error) {
+	if Op(rec.Op) != OpPut {
+		return RunResult{}, fmt.Errorf("xfer: target %q only carries a put, not %q", rec.Target, rec.Op)
+	}
+	target, err := OwnAttachmentsPath(rec.Path)
+	if err != nil {
+		return RunResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return RunResult{}, err
+	}
+	if err := r.runPut(rec, target); err != nil {
+		return RunResult{}, err
+	}
+	PruneOwnAttachmentsAfterPut(target, "server")
+	return RunResult{AbsPath: target}, nil
 }
 
 // resolve maps a project-relative path onto the server's own filesystem, refusing

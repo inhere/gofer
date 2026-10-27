@@ -34,7 +34,10 @@ type XferRecord struct {
 	Op      string `json:"op"`
 	Runner  string `json:"runner"`
 	Project string `json:"project"`
-	Path    string `json:"path"`
+	// Target names the directory tree Path is relative to on the EXECUTING machine: empty =
+	// the project, "attachments" = that machine's own attachment directory (Project empty).
+	Target string `json:"target,omitempty"`
+	Path   string `json:"path"`
 	// AbsPath is the absolute destination the executing machine reported for a put (empty
 	// when it cannot report one). `gofer tool xfer show` prints it.
 	AbsPath    string `json:"abs_path,omitempty"`

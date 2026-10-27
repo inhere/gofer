@@ -17,6 +17,14 @@ import (
 // now or not at all.
 var ErrFileXferUnsupported = errors.New("worker protocol too old for file transfer")
 
+// ErrWorkerAttachUnsupported is returned when the target worker is connected and healthy
+// but speaks a protocol older than the one whose file_xfer carries Target
+// (wsproto.WorkerAttachMinProtocolVersion), so it cannot take a placement into its own
+// attachment directory. Like ErrFileXferUnsupported it is NOT a failure of the worker and
+// must be surfaced as "upgrade and restart this worker": an old peer drops the unknown key
+// and then resolves the path against a project root that is not there.
+var ErrWorkerAttachUnsupported = errors.New("worker protocol too old for its own attachment dir")
+
 // SendFileXfer sends one transfer instruction to a worker and waits for its result.
 //
 // It is SYNCHRONOUS: the dispatch the caller is driving (a staged transfer) can only
@@ -45,6 +53,14 @@ func (h *Hub) SendFileXfer(ctx context.Context, workerID string, req wsproto.Fil
 		return wsproto.FileXferResult{}, fmt.Errorf(
 			"%w: worker %s speaks protocol v%d, file transfer needs v%d — upgrade and restart it",
 			ErrFileXferUnsupported, workerID, wc.protocolVersion(), wsproto.FileXferMinProtocolVersion)
+	}
+	// The attachment target is a SECOND floor: the frame exists since v9, but only a v27
+	// peer knows the target key. An older one would drop it and look up a project named ""
+	// — so the placement is refused here, with the upgrade named.
+	if req.Target != "" && !wc.supportsWorkerAttach() {
+		return wsproto.FileXferResult{}, fmt.Errorf(
+			"%w: worker %s speaks protocol v%d, its own attachment dir needs v%d — upgrade and restart it",
+			ErrWorkerAttachUnsupported, workerID, wc.protocolVersion(), wsproto.WorkerAttachMinProtocolVersion)
 	}
 
 	// Register the pending entry BEFORE the frame goes out: a worker can answer faster
@@ -84,6 +100,18 @@ func (h *Hub) SendFileXfer(ctx context.Context, workerID string, req wsproto.Fil
 		}
 		return wsproto.FileXferResult{}, ctx.Err()
 	}
+}
+
+// SupportsWorkerAttach reports whether the worker behind workerID accepts a transfer into
+// its own attachment directory. A worker that is not connected right now answers false: a
+// caller decides whether to offer the placement before trying it, and an offline worker
+// would fail the transfer anyway.
+func (h *Hub) SupportsWorkerAttach(workerID string) bool {
+	wc, ok := h.reg.Get(workerID)
+	if !ok {
+		return false
+	}
+	return wc.supportsWorkerAttach()
 }
 
 // SetFileXferResultHandler installs the fallback for a file_xfer_result that no

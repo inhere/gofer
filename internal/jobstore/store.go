@@ -613,6 +613,10 @@ var schemaStmts = []string{
   -- reported: a get, a failed transfer, or a worker below protocol v25. Added by
   -- migrateXfers on a pre-existing db.
   abs_path     TEXT,
+  -- target names the directory tree "path" is relative to on the EXECUTING machine:
+  -- empty = the project, 'attachments' = that machine's own attachment directory
+  -- (<config-dir>/run/attachments), where project_key is empty. Added by migrateXfers.
+  target       TEXT,
   size         INTEGER NOT NULL DEFAULT 0,
   sha256       TEXT,
   state        TEXT NOT NULL,
@@ -2299,17 +2303,23 @@ func (s *Store) Close() error {
 
 // migrateXfers adds the executing machine's reported absolute destination to the
 // transfer journal (additive: pre-column rows read back empty, which means "not
-// reported" exactly like a get or an old worker).
+// reported" exactly like a get or an old worker), and the target base a path is relative
+// to (additive: pre-column rows read back empty, i.e. "the project", which is what every
+// transfer before the worker attachment directory was).
 func (s *Store) migrateXfers() error {
 	cols, err := s.tableColumns("xfers")
 	if err != nil {
 		return err
 	}
-	if _, ok := cols["abs_path"]; ok {
-		return nil
+	if _, ok := cols["abs_path"]; !ok {
+		if _, e := s.db.Exec("ALTER TABLE xfers ADD COLUMN abs_path TEXT"); e != nil {
+			return fmt.Errorf("jobstore: migrate xfers add abs_path: %w", e)
+		}
 	}
-	if _, e := s.db.Exec("ALTER TABLE xfers ADD COLUMN abs_path TEXT"); e != nil {
-		return fmt.Errorf("jobstore: migrate xfers add abs_path: %w", e)
+	if _, ok := cols["target"]; !ok {
+		if _, e := s.db.Exec("ALTER TABLE xfers ADD COLUMN target TEXT"); e != nil {
+			return fmt.Errorf("jobstore: migrate xfers add target: %w", e)
+		}
 	}
 	return nil
 }

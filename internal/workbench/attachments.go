@@ -73,6 +73,11 @@ type RouteInput struct {
 	// Arg: the agent takes an image path as an argv flag (config image_input = arg, agent
 	// image_args), so the placement result rides the next job's argv instead of the text.
 	Arg bool
+	// OwnDir: the executing machine can take the images into its OWN attachment directory
+	// (<config-dir>/run/attachments/<date>/), which is what a session that belongs to no
+	// project of that machine needs. True for the server itself and for a remote worker that
+	// declared the capability (xfer.Manager.OwnAttachmentsSupported).
+	OwnDir bool
 }
 
 // Route is the delivery decision; Reason is set only for AttachNone.
@@ -86,9 +91,16 @@ type Route struct {
 //	pty job                                  -> none ("pty 会话不支持附图")
 //	live ACP session accepting images        -> inline
 //	agent cannot take images at all          -> none ("<agent> 暂不支持读取图片")
-//	no runner or no project to place into    -> none ("会话没有执行机信息")
+//	no runner to place onto                  -> none ("会话没有执行机信息")
+//	no project and no own attachment dir     -> none (a hint to upgrade the worker)
 //	agent takes images as argv flags (arg)   -> arg
 //	otherwise                                -> file
+//
+// The project-less case is what OwnDir is for: with no project there is no project root to
+// hang the placement under, so the images go to the executing machine's own attachment
+// directory — which the server always has, a worker only when it declared
+// wsproto.WorkerAttachMinProtocolVersion. An old worker is refused with the upgrade named
+// instead of a placement it would drop.
 func RouteAttachments(in RouteInput) Route {
 	switch {
 	case in.Pty:
@@ -101,13 +113,27 @@ func RouteAttachments(in RouteInput) Route {
 			name = "该 agent"
 		}
 		return Route{Mode: AttachNone, Reason: name + " 暂不支持读取图片"}
-	case strings.TrimSpace(in.Runner) == "" || strings.TrimSpace(in.Project) == "":
+	case strings.TrimSpace(in.Runner) == "":
 		return Route{Mode: AttachNone, Reason: "会话没有执行机信息"}
+	case strings.TrimSpace(in.Project) == "" && !in.OwnDir:
+		return Route{Mode: AttachNone, Reason: ownDirReason(in.Runner)}
 	case in.Arg:
 		return Route{Mode: AttachArg}
 	default:
 		return Route{Mode: AttachFile}
 	}
+}
+
+// ownDirReason names why a project-less session's images cannot be placed: the executor is
+// a remote worker that did not declare its own attachment directory, which an operator
+// fixes by upgrading (and restarting) that worker — or by connecting it, since an offline
+// worker cannot declare anything either.
+func ownDirReason(runner string) string {
+	name := strings.TrimSpace(runner)
+	if name == "" {
+		name = "执行机"
+	}
+	return "会话没有项目，worker " + name + " 不能接收附件（未连接或版本过旧，请升级并重启该 worker）"
 }
 
 // AttachmentStore is the slice of jobstore.Store the send path uses.
@@ -127,6 +153,16 @@ type AttachmentFiles interface {
 // Placer puts a local file onto the executing machine (xfer.Manager.PutAndWait).
 type Placer interface {
 	PutAndWait(ctx context.Context, caller, runner, projectKey, srcPath, dest string, timeout time.Duration) (string, error)
+}
+
+// OwnDirPlacer is the optional half of Placer for a session that belongs to no project: it
+// places into the EXECUTING machine's own attachment directory and answers whether that
+// machine can take one at all (xfer.Manager.PutAttachmentsAndWait /
+// OwnAttachmentsSupported). A Placer that does not implement it cannot deliver to a
+// project-less session, which is exactly what the route's refusal says.
+type OwnDirPlacer interface {
+	PutAttachmentsAndWait(ctx context.Context, caller, runner, srcPath, dest string, timeout time.Duration) (string, error)
+	OwnAttachmentsSupported(runner string) bool
 }
 
 // ImageJobs is the image-carrying side of the job service.
@@ -187,6 +223,23 @@ func (s *Service) applyImageInput(in *RouteInput) {
 	}
 }
 
+// ownDir reports whether the executing machine behind runner can take an image into its own
+// attachment directory: the server always can (this process writes it), a remote worker only
+// when it declared the capability at registration.
+func (s *Service) ownDir(runner string) bool {
+	if strings.TrimSpace(runner) == "" {
+		return false
+	}
+	if config.IsBuiltinLocalRunnerName(runner) {
+		return true
+	}
+	placer, ok := s.att.Xfer.(OwnDirPlacer)
+	if !ok {
+		return false
+	}
+	return placer.OwnAttachmentsSupported(runner)
+}
+
 // annotateAttachments fills a listed thread's attachment capability bit.
 func (s *Service) annotateAttachments(t *Thread) {
 	if !s.attachmentsReady() {
@@ -198,7 +251,8 @@ func (s *Service) annotateAttachments(t *Thread) {
 	}
 	in := RouteInput{
 		Kind: t.Kind, Agent: t.Agent, Runner: t.Runner, Project: t.ProjectKey,
-		Pty: t.Kind != KindRelay && t.Interactive,
+		Pty:    t.Kind != KindRelay && t.Interactive,
+		OwnDir: s.ownDir(t.Runner),
 	}
 	// A message to a live terminal session goes over the session's own delivery channel
 	// (stdin / a queue command), which has no image flag yet: such a thread keeps the file
@@ -306,11 +360,16 @@ type placedImage struct {
 	dest string
 }
 
-// placeImages puts every image on the executing machine under the project's attachment
-// directory. All placements share one budget; any failure aborts with ErrAttachmentDelivery.
+// placeImages puts every image on the executing machine: under the project's attachment
+// directory when the session has one, else under that MACHINE's own attachment directory
+// (a project-less session, see RouteInput.OwnDir). All placements share one budget; any
+// failure aborts with ErrAttachmentDelivery.
 func (s *Service) placeImages(callerID string, recs []jobstore.Attachment, runner, projectKey string) ([]placedImage, error) {
 	if s.att.Xfer == nil {
 		return nil, fmt.Errorf("%w: file transfer is not available", ErrAttachmentDelivery)
+	}
+	if strings.TrimSpace(projectKey) == "" {
+		return s.placeOwnImages(callerID, recs, runner)
 	}
 	cfg := s.att.Config()
 	proj, ok := cfg.Projects[projectKey]
@@ -333,6 +392,42 @@ func (s *Service) placeImages(callerID string, recs []jobstore.Attachment, runne
 			return nil, fmt.Errorf("%w: timed out placing the images (%s)", ErrAttachmentDelivery, placeTimeout)
 		}
 		abs, err := s.att.Xfer.PutAndWait(context.Background(), callerID, runner, projectKey, src, dest, remaining)
+		if err != nil {
+			return nil, fmt.Errorf("%w: 附图 %d: %v", ErrAttachmentDelivery, i+1, err)
+		}
+		out = append(out, placedImage{abs: abs, dest: dest})
+	}
+	return out, nil
+}
+
+// placeOwnImages places the images in the executing machine's own attachment directory:
+// <config-dir>/run/attachments/<yyyymmdd>/<id>.<ext> on that machine. The date layout is
+// the same one xfer prunes there, and the placement reports the absolute path (there is no
+// project-relative path a receiver could resolve instead).
+func (s *Service) placeOwnImages(callerID string, recs []jobstore.Attachment, runner string) ([]placedImage, error) {
+	placer, ok := s.att.Xfer.(OwnDirPlacer)
+	if !ok {
+		return nil, fmt.Errorf("%w: 会话没有项目，无法把附图放到执行机", ErrAttachmentDelivery)
+	}
+	if !placer.OwnAttachmentsSupported(runner) {
+		return nil, fmt.Errorf("%w: %s", ErrAttachmentDelivery, ownDirReason(runner))
+	}
+	base := s.now().Format("20060102")
+	deadline := s.now().Add(placeTimeout)
+	out := make([]placedImage, 0, len(recs))
+	for i, rec := range recs {
+		src, err := s.att.Files.AbsPath(rec)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrAttachmentDelivery, err)
+		}
+		// Relative to the machine's attachment dir: it owns the date level, exactly like the
+		// project variant above (which is relative to the project root).
+		dest := path.Join(base, rec.ID+"."+imageExt(rec.Mime))
+		remaining := deadline.Sub(s.now())
+		if remaining <= 0 {
+			return nil, fmt.Errorf("%w: timed out placing the images (%s)", ErrAttachmentDelivery, placeTimeout)
+		}
+		abs, err := placer.PutAttachmentsAndWait(context.Background(), callerID, runner, src, dest, remaining)
 		if err != nil {
 			return nil, fmt.Errorf("%w: 附图 %d: %v", ErrAttachmentDelivery, i+1, err)
 		}

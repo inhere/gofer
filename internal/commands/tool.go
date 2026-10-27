@@ -560,6 +560,9 @@ func runXferShow(c *gcli.Command, cli *client.Client, id string) error {
 	c.Printf("runner:      %s\n", rec.Runner)
 	c.Printf("project:     %s\n", rec.Project)
 	c.Printf("path:        %s\n", rec.Path)
+	if rec.Target != "" {
+		c.Printf("target:      %s\n", rec.Target)
+	}
 	if rec.AbsPath != "" {
 		c.Printf("abs_path:    %s\n", rec.AbsPath)
 	}

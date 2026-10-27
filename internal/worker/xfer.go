@@ -118,6 +118,9 @@ func (cl *Client) reportFileXfer(ctx context.Context, res wsproto.FileXferResult
 // for a put, the ABSOLUTE destination this machine wrote: the hub records it so a caller
 // can name the file to an agent without guessing this machine's layout (protocol v25).
 func (cl *Client) runFileXfer(ctx context.Context, sessionURL string, fr wsproto.FileXfer) (int64, string, string, error) {
+	if fr.Target == wsproto.FileXferTargetAttachments {
+		return cl.runOwnAttachmentXfer(ctx, sessionURL, fr)
+	}
 	run, err := cl.xferProject(fr.ProjectKey)
 	if err != nil {
 		return 0, "", "", err
@@ -146,6 +149,44 @@ func (cl *Client) runFileXfer(ctx context.Context, sessionURL string, fr wsproto
 		// The placement is done, so the attachment cleanup runs (best effort: a prune
 		// failure never turns a delivered file into a failed transfer).
 		xfer.PruneAttachmentsAfterPut(run.cfg, run.proj, target, "worker")
+		return n, sum, target, nil
+	case "get":
+		n, sum, gerr := cl.xferSend(ctx, contentURL, target)
+		return n, sum, "", gerr
+	default:
+		return 0, "", "", fmt.Errorf("unknown transfer op %q", fr.Op)
+	}
+}
+
+// runOwnAttachmentXfer carries out a put (or get) against THIS worker's own attachment
+// directory (<config-dir>/run/attachments/<date>/): the target of a session that belongs to
+// no project of this machine, so there is no project root to resolve the path against and
+// the base is the worker's runtime directory instead.
+//
+// The path is still confined (xfer.OwnAttachmentsPath refuses an escape) and the placement
+// runs the same cleanup a project attachment dir does, so both layouts age out identically.
+func (cl *Client) runOwnAttachmentXfer(ctx context.Context, sessionURL string, fr wsproto.FileXfer) (int64, string, string, error) {
+	target, err := xfer.OwnAttachmentsPath(fr.Path)
+	if err != nil {
+		return 0, "", "", err
+	}
+	base, err := xferHTTPBase(sessionURL)
+	if err != nil {
+		return 0, "", "", err
+	}
+	contentURL, err := xferContentURL(base, fr.URLPath)
+	if err != nil {
+		return 0, "", "", err
+	}
+	switch fr.Op {
+	case "put":
+		n, sum, ferr := cl.xferFetch(ctx, contentURL, fr, target)
+		if ferr != nil {
+			return 0, "", "", ferr
+		}
+		xfer.PruneOwnAttachmentsAfterPut(target, "worker")
+		// The absolute path is what the hub records and the caller prints: with no project
+		// there is no relative fallback a receiver could resolve.
 		return n, sum, target, nil
 	case "get":
 		n, sum, gerr := cl.xferSend(ctx, contentURL, target)

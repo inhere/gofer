@@ -37,6 +37,59 @@ const AttachmentRetention = 7 * 24 * time.Hour
 // the attachments dir is never touched.
 const attachmentDateLayout = "20060102"
 
+// OwnAttachmentsDirName is the attachment directory an executing machine keeps its OWN
+// copies in — the ones that belong to no project of that machine:
+// <config-dir>/run/attachments, with the same <date> subdirectories and the same
+// AttachmentRetention as a project's AttachmentsDirName. A session with no project (a
+// terminal session on a remote worker, say) has no project root to place into, so the
+// executing machine qualifies its own runtime directory instead.
+const OwnAttachmentsDirName = "attachments"
+
+// OwnAttachmentsDir returns the absolute attachment directory of the machine running
+// this process: <config-dir>/run/attachments. The config dir is resolved per call (a test
+// can move it through GOFER_CONFIG_DIR), and every placement built from it is re-checked
+// by OwnAttachmentsPath before anything is written.
+func OwnAttachmentsDir() string {
+	return config.RuntimeFilePath("run", OwnAttachmentsDirName)
+}
+
+// OwnAttachmentsPath resolves a transfer path RELATIVE to the machine's own attachment
+// directory, refusing anything that escapes it (the same boundary a project transfer
+// obeys). The base is re-read per call so a moved config dir is honoured.
+func OwnAttachmentsPath(rel string) (string, error) {
+	base := OwnAttachmentsDir()
+	if strings.TrimSpace(rel) == "" {
+		return "", fmt.Errorf("xfer: empty attachment path")
+	}
+	dst, err := project.SafeJoin(base, rel)
+	if err != nil {
+		return "", fmt.Errorf("attachment path escapes the attachment dir: %w", err)
+	}
+	return dst, nil
+}
+
+// PruneOwnAttachmentsAfterPut is the post-placement step for a put that landed in the
+// machine's OWN attachment directory: the date subdirectories older than
+// AttachmentRetention are deleted. Like PruneAttachmentsAfterPut it is BEST EFFORT — the
+// file is already in place, so a failure is only logged. component names the side doing
+// it ("server" / "worker"), exactly like the project variant.
+func PruneOwnAttachmentsAfterPut(dst, component string) {
+	dir := OwnAttachmentsDir()
+	if !IsAttachmentPath(dir, dst) {
+		return // an ordinary transfer destination: not ours to clean
+	}
+	removed, err := PruneAttachments(dir, time.Now())
+	if err != nil {
+		slog.Warn("xfer.attachments_prune_failed", "event", "xfer.attachments_prune_failed", "component", component,
+			"dir", dir, "err", err)
+		return
+	}
+	if len(removed) > 0 {
+		slog.Info("xfer.attachments_pruned", "event", "xfer.attachments_pruned", "component", component,
+			"dir", dir, "count", len(removed), "removed", removed)
+	}
+}
+
 // AttachmentsDir returns the absolute attachment directory of a project:
 // <exchange dir>/gofer-attachments.
 //

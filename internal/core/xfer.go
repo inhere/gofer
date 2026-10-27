@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -129,10 +130,21 @@ type hubXferSender struct {
 }
 
 func (s hubXferSender) SendFileXfer(ctx context.Context, workerID string, req xfer.FileXferRequest) (xfer.FileXferResult, error) {
+	// The transfer manager stays free of the wire vocabulary (its own Target constant is
+	// the package's), so the one place that knows both spells the mapping out.
+	target := ""
+	switch req.Target {
+	case "":
+	case xfer.TargetAttachments:
+		target = wsproto.FileXferTargetAttachments
+	default:
+		return xfer.FileXferResult{}, fmt.Errorf("xfer: unknown transfer target %q", req.Target)
+	}
 	res, err := s.hub.SendFileXfer(ctx, workerID, wsproto.FileXfer{
 		XferID:     req.XferID,
 		Op:         req.Op,
 		ProjectKey: req.ProjectKey,
+		Target:     target,
 		Path:       req.Path,
 		Size:       req.Size,
 		SHA256:     req.SHA256,
@@ -153,4 +165,11 @@ func (s hubXferSender) SendFileXfer(ctx context.Context, workerID string, req xf
 		// which case the caller falls back to the project-relative path.
 		AbsPath: res.AbsPath,
 	}, nil
+}
+
+// SupportsWorkerAttach implements xfer.WorkerCapabilities over the hub's per-connection
+// negotiation: the transfer manager can then refuse a project-less placement on a worker
+// that predates the attachment target instead of sending a frame it would drop.
+func (s hubXferSender) SupportsWorkerAttach(workerID string) bool {
+	return s.hub.SupportsWorkerAttach(workerID)
 }

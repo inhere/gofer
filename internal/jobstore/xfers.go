@@ -16,7 +16,12 @@ type XferRecord struct {
 	Op         string // put | get
 	Runner     string // worker id, or `local`/`server` for the server's own machine
 	ProjectKey string
-	Path       string // project-relative path on the EXECUTING machine
+	// Target names the directory tree Path is relative to on the EXECUTING machine:
+	// empty = the project ProjectKey names, `attachments` = that machine's own attachment
+	// directory (<config-dir>/run/attachments/<date>/, ProjectKey then empty). It is what
+	// lets a session with no project still deliver its images.
+	Target string
+	Path   string // path relative to the target base on the EXECUTING machine
 	// AbsPath is the ABSOLUTE destination the executing machine reported for a put (the
 	// same file Path addresses, as that machine sees it). Empty for a get, for a failed
 	// transfer and for a worker that cannot report one (protocol below v25).
@@ -48,15 +53,15 @@ type XferFilter struct {
 	Limit    int
 }
 
-const selectXferCols = `SELECT id, op, runner, project_key, path, COALESCE(abs_path,''), size, COALESCE(sha256,''), state,
-  COALESCE(error,''), COALESCE(caller_id,''), COALESCE(force,0), COALESCE(job_id,''),
+const selectXferCols = `SELECT id, op, runner, project_key, COALESCE(target,''), path, COALESCE(abs_path,''), size,
+  COALESCE(sha256,''), state, COALESCE(error,''), COALESCE(caller_id,''), COALESCE(force,0), COALESCE(job_id,''),
   created_at, COALESCE(finished_at,0), COALESCE(expires_at,0)
   FROM xfers`
 
 func scanXfer(sc rowScanner) (XferRecord, error) {
 	var r XferRecord
 	err := sc.Scan(
-		&r.ID, &r.Op, &r.Runner, &r.ProjectKey, &r.Path, &r.AbsPath, &r.Size, &r.SHA256, &r.State,
+		&r.ID, &r.Op, &r.Runner, &r.ProjectKey, &r.Target, &r.Path, &r.AbsPath, &r.Size, &r.SHA256, &r.State,
 		&r.Error, &r.CallerID, &r.Force, &r.JobID,
 		&r.CreatedAt, &r.FinishedAt, &r.ExpiresAt,
 	)
@@ -69,18 +74,23 @@ func (s *Store) InsertXfer(r XferRecord) error {
 	if r.ID == "" {
 		return errors.New("jobstore: InsertXfer: empty xfer id")
 	}
-	if r.Op == "" || r.Runner == "" || r.ProjectKey == "" || r.Path == "" || r.State == "" {
-		return fmt.Errorf("jobstore: InsertXfer %q: missing op/runner/project/path/state", r.ID)
+	if r.Op == "" || r.Runner == "" || r.Path == "" || r.State == "" {
+		return fmt.Errorf("jobstore: InsertXfer %q: missing op/runner/path/state", r.ID)
+	}
+	// A project is required unless the transfer names another target base (the executing
+	// machine's own attachment directory), where there is deliberately no project.
+	if r.ProjectKey == "" && r.Target == "" {
+		return fmt.Errorf("jobstore: InsertXfer %q: missing project", r.ID)
 	}
 	const q = `INSERT INTO xfers
-  (id, op, runner, project_key, path, abs_path, size, sha256, state, error, caller_id, force, job_id,
+  (id, op, runner, project_key, target, path, abs_path, size, sha256, state, error, caller_id, force, job_id,
    created_at, finished_at, expires_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
-		r.ID, r.Op, r.Runner, r.ProjectKey, r.Path, r.AbsPath, r.Size, r.SHA256, r.State, r.Error, r.CallerID,
-		r.Force, r.JobID, r.CreatedAt, r.FinishedAt, r.ExpiresAt,
+		r.ID, r.Op, r.Runner, r.ProjectKey, r.Target, r.Path, r.AbsPath, r.Size, r.SHA256, r.State, r.Error,
+		r.CallerID, r.Force, r.JobID, r.CreatedAt, r.FinishedAt, r.ExpiresAt,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert xfer %q: %w", r.ID, err)
 	}

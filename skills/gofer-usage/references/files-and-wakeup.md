@@ -24,7 +24,7 @@ gofer tool xfer rm <id>                                                  # 立�
 
 恰好一端是远端，写法 `<runner>:<project>/<项目内相对路径>`，runner 填 worker id 或 `server`。
 
-`xfer show` 在执行机回报了绝对路径时多一行 `abs_path`（推送完成时由执行机报它自己盘上的真实路径，例如 `/home/u/proj/tmp/gofer-attachments/20261019/xf-abc12345.png`）。拉取、失败的传输，以及版本较旧的 worker 不报这个字段：那时只有 `path`，按项目根目录拼。
+`xfer show` 在执行机回报了绝对路径时多一行 `abs_path`（推送完成时由执行机报它自己盘上的真实路径，例如 `/home/u/proj/tmp/gofer-attachments/20261019/xf-abc12345.png`）。拉取、失败的传输，以及版本较旧的 worker 不报这个字段：那时只有 `path`，按项目根目录拼。目标不是项目时多一行 `target: attachments`：那是往执行机自己的附件目录（`<该机 config-dir>/run/attachments/`）放文件，`path` 相对它、`project` 为空（工作台给无项目的会话送图就走这条路，需要 worker 协议 v27 以上）。
 
 ## 让 job 自己带文件：--upload / --collect
 

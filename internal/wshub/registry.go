@@ -230,6 +230,13 @@ func (wc *workerConn) supportsFileXfer() bool {
 	return wsproto.SupportsFileXfer(wc.protocolVersion())
 }
 
+// supportsWorkerAttach reports whether THIS connection's worker accepts a transfer into
+// its own attachment directory (file_xfer.target, v27). Same single-source rule as the
+// other capability checks: the version lives in wsproto and callers ask this.
+func (wc *workerConn) supportsWorkerAttach() bool {
+	return wsproto.SupportsWorkerAttach(wc.protocolVersion())
+}
+
 // closeDone closes the per-connection done channel exactly once (stops the
 // heartbeat goroutine). Safe to call multiple times.
 func (wc *workerConn) closeDone() {
