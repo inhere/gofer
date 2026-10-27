@@ -14,7 +14,10 @@ import (
 // database it fails and the server does not start (v0.202.0: idx_workflows_project
 // referred to workflows.project_key before the migration added it).
 //
-// When a release changes the schema, add its schema file here too.
+// When a release changes the schema, add its schema file here too. To export one: build
+// that release's tree (git archive vX.Y.Z), open an empty database with its jobstore.Open,
+// then write every sqlite_master.sql (tables first, then indexes) as one statement per
+// line, plus the work_kv rows (one-time migration markers) as INSERTs.
 func TestOpenUpgradesPreviousReleaseSchema(t *testing.T) {
 	for _, fixture := range []string{"schema-v0.201.0.sql"} {
 		t.Run(fixture, func(t *testing.T) {
