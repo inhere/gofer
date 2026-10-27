@@ -15,6 +15,10 @@
 
 - **待办详情抽屉在大屏加宽**：`/plans` 里点开的待办详情抽屉由固定 480px 改成随屏幕变化（`clamp(560px, 46vw, 900px)`，与工作详情 / 计划编辑抽屉同一写法），备注不再挤成一团；备注正文限到 72ch 保持好读，手机仍由抽屉的媒体查询走全屏。
 
+### 修复
+
+- **从 bd 迁移的记忆不再把自己的导入时间当成创建时间**：bd 的 `export --include-memories` 与 `memories --json` 只有 key / value，没有时间字段，迁移只能填迁移时间。现在这类记忆带 `source: bd` 与 `created_unknown: true`，`gofer memory ls` / `show`、web 记忆列表与详情显示「导入于 <时间>」（英文 `Imported <时间>`）而不是创建时间；源数据确实带时间的记忆不打该标记。早先迁移过、没有 `source` 标记的记忆不做猜测性改写，`gofer repo migrate --from-bd` 的报告里会提示一句。
+
 ### 文档
 
 - **两份 README 的第一屏重排**：开头依次是一句话定位、验收流程动图（`review` → `merge`，两张动图复制到 `.github/image/`、用相对路径引用）、四条卖点和 4 行快速开始（`eget install` → `gofer init server --global` → `GOFER_TOKEN` → `gofer serve`）；0.x 状态提示缩成一句并移到快速开始之后。原有的「是什么 / 不是什么」、架构图与工作台截图、Features、安装步骤都保留，原来的「10 分钟上手」改名为「完整走查」。

@@ -85,6 +85,8 @@ function flag(): void {
         <div><dt>{{ t('memory.drawer.kind') }}</dt><dd data-test="drawer-memory-kind">{{ MEMORY_KIND_LABEL[memoryKind(row.data)] }}</dd></div>
         <div><dt>{{ t('memory.source.label') }}</dt><dd data-test="drawer-memory-source">{{ memorySourceLabel(row.source) || '—' }}</dd></div>
         <div><dt>{{ t('memory.drawer.updated') }}</dt><dd class="mono">{{ fmtTrackerTime(row.data.updated_at || row.updated_at) }}</dd></div>
+        <!-- 原始时间未知（从 bd 迁移等）：created_at 只是导入时间，不能说成创建时间。 -->
+        <div v-if="row.data.created_unknown"><dt>{{ t('memory.drawer.created') }}</dt><dd class="mono" data-test="drawer-memory-imported">{{ t('memory.imported', { time: fmtTrackerTime(row.data.created_at || row.data.updated_at || row.updated_at) }) }}</dd></div>
         <div><dt>{{ t('memory.drawer.expires') }}</dt><dd class="mono" data-test="drawer-memory-expires">{{ expires ? fmtTrackerTime(expires) : t('memory.drawer.never') }}</dd></div>
         <div><dt>{{ t('memory.drawer.by') }}</dt><dd>{{ row.data.by || '—' }}</dd></div>
       </dl>

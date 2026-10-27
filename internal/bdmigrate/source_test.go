@@ -136,4 +136,9 @@ func TestMigratedMemoryKeepsSourceTimestamps(t *testing.T) {
 	if a.UpdatedAt != "2026-06-01T00:00:00Z" || a.CreatedAt != "2026-05-01T00:00:00Z" || b.UpdatedAt != "2026-05-02T00:00:00Z" || b.CreatedAt != b.UpdatedAt || c.UpdatedAt != "NOW" || c.CreatedAt != "NOW" {
 		t.Fatalf("timestamps: %+v %+v %+v", a, b, c)
 	}
+	// bd memories carry no timestamp of their own: only such a memory is marked
+	// created_unknown (its times are the import time); one with a source time is not.
+	if c.Source != "bd" || !c.CreatedUnknown || a.Source != "bd" || a.CreatedUnknown || b.CreatedUnknown {
+		t.Fatalf("markers: %+v %+v %+v", a, b, c)
+	}
 }

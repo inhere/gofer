@@ -124,6 +124,7 @@ export function memoryRowsOf(result: MemoryResult): MemoryRow[] {
         summary: item.summary,
         title: item.title,
         source: item.source,
+        created_unknown: item.created_unknown,
         expires_at: item.expires_at,
         flags: item.flags,
       }

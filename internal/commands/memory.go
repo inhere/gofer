@@ -9,6 +9,7 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -174,7 +175,7 @@ func NewMemoryCmd() *gcli.Command {
 		if asJSON {
 			return printTrackerJSON(c, item)
 		}
-		c.Print(tracker.MemoryDetail(item, time.Now()))
+		c.Print(tracker.MemoryDetailIn(i18n.FromEnv(), item, time.Now()))
 		return nil
 	}
 	return withMemoryCandidateCmds(&gcli.Command{Name: "memory", Desc: "Manage repository-local memories", Subs: []*gcli.Command{
@@ -287,7 +288,7 @@ func NewMemoryCmd() *gcli.Command {
 					return printTrackerJSON(c, kept)
 				}
 				for _, item := range kept {
-					c.Print(tracker.MemoryListLine(item.TrackerMemory(), now))
+					c.Print(tracker.MemoryListLineIn(i18n.FromEnv(), item.TrackerMemory(), now))
 				}
 				return nil
 			}
@@ -303,7 +304,7 @@ func NewMemoryCmd() *gcli.Command {
 				return printTrackerJSON(c, items)
 			}
 			for _, item := range items {
-				c.Print(tracker.MemoryListLine(item, now))
+				c.Print(tracker.MemoryListLineIn(i18n.FromEnv(), item, now))
 			}
 			return nil
 		}},
@@ -364,7 +365,7 @@ func NewMemoryCmd() *gcli.Command {
 					if i > 0 {
 						c.Println()
 					}
-					c.Print(tracker.MemoryDetail(item.memory, time.Now()))
+					c.Print(tracker.MemoryDetailIn(i18n.FromEnv(), item.memory, time.Now()))
 				}
 			}
 			if len(missing) > 0 {
@@ -640,7 +641,7 @@ func printMemoryValue(c *gcli.Command, item client.ScopedMemory, asJSON bool) er
 	if asJSON {
 		return printTrackerJSON(c, item)
 	}
-	c.Print(tracker.MemoryDetail(item.TrackerMemory(), time.Now()))
+	c.Print(tracker.MemoryDetailIn(i18n.FromEnv(), item.TrackerMemory(), time.Now()))
 	return nil
 }
 

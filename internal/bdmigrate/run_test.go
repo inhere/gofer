@@ -150,6 +150,11 @@ func TestRunApplyMigratesEverythingAndVerifies(t *testing.T) {
 	if mem, err := store.Memory("how-to"); err != nil || mem.Content != "use the thing" {
 		t.Fatalf("memory: %+v %v", mem, err)
 	}
+	// bd keeps no timestamp for a memory: the migration marks where the recorded
+	// time comes from, so it is never read as a creation time.
+	if mem, _ := store.Memory("how-to"); mem.Source != "bd" || !mem.CreatedUnknown {
+		t.Fatalf("memory markers: %+v", mem)
+	}
 	// Label filter works on the migrated data (sub-project split).
 	if got, _ := store.ListIssues(tracker.IssueFilter{Tags: []string{"proj01"}, All: true}); len(got) != 1 || got[0].ID != "demo-aaa" {
 		t.Fatalf("label filter: %+v", got)
@@ -191,6 +196,41 @@ func TestRunApplyMigratesEverythingAndVerifies(t *testing.T) {
 	}
 	if readFile(t, filepath.Join(root, "CLAUDE.md")) != claude || len(rep2.Written) > 2 {
 		t.Fatalf("repeat run rewrote files: %v", rep2.Written)
+	}
+	// The memory now carries the source marker, so the repeat run does not report it
+	// as an unmarked earlier import.
+	if rep2.SkippedMem != 1 || strings.Contains(strings.Join(rep2.Notes, "\n"), "earlier bd migration") {
+		t.Fatalf("repeat run report: %+v", rep2)
+	}
+}
+
+// A memory an earlier bd migration wrote has no source marker: its times are the
+// import time too, but the record cannot tell that apart, so the run never guesses
+// — it only says so in the report.
+func TestRunReportsEarlierMigrationWithoutSourceMarker(t *testing.T) {
+	root := newBdRepo(t)
+	bin, _ := fakeBD(t, "ok")
+	store, _, err := tracker.Init(root, "demo", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateMemories(func(existing []tracker.Memory) ([]tracker.Memory, error) {
+		return append(existing, tracker.Memory{Key: "how-to", Content: "use the thing", CreatedAt: "2026-02-01T00:00:00Z", UpdatedAt: "2026-02-01T00:00:00Z", By: "bd-migrate"}), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(Options{Root: root, Apply: true, BDPath: bin, Now: later()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.SkippedMem != 1 || !strings.Contains(strings.Join(rep.Notes, "\n"), "earlier bd migration without the source marker") {
+		t.Fatalf("report: %+v", rep)
+	}
+	if mem, _ := store.Memory("how-to"); mem.Source != "" || mem.CreatedUnknown || mem.CreatedAt != "2026-02-01T00:00:00Z" {
+		t.Fatalf("the legacy memory must be left as it was: %+v", mem)
+	}
+	if !strings.Contains(Format(rep), "earlier bd migration") {
+		t.Fatalf("formatted report must mention it:\n%s", Format(rep))
 	}
 }
 

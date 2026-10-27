@@ -371,21 +371,24 @@ func apply(opts Options, p *plan) error {
 	rep.Written = append(rep.Written, ".gofer/tracker/issues.jsonl")
 	if len(p.memories) > 0 {
 		now := tracker.Now()
-		skipped := 0
+		skipped, legacy := 0, 0
 		if err := store.UpdateMemories(func(existing []tracker.Memory) ([]tracker.Memory, error) {
-			have := make(map[string]bool, len(existing))
+			known := make(map[string]tracker.Memory, len(existing))
+			p.have = make(map[string]bool, len(existing))
 			for _, m := range existing {
-				have[m.Key] = true
+				known[m.Key], p.have[m.Key] = m, true
 			}
-			p.have = have
 			keys := make([]string, 0, len(p.memories))
 			for k := range p.memories {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				if have[k] {
+				if prev, ok := known[k]; ok {
 					skipped++
+					if isLegacyBDMemory(prev) {
+						legacy++
+					}
 					continue
 				}
 				existing = append(existing, migratedMemory(k, p.memories[k], p.memTimes[k], now))
@@ -395,6 +398,10 @@ func apply(opts Options, p *plan) error {
 			return err
 		}
 		rep.SkippedMem = skipped
+		if legacy > 0 {
+			// No guessing: the record cannot tell the source time from the import time.
+			rep.Notes = append(rep.Notes, fmt.Sprintf("%d memory key(s) already exist from an earlier bd migration without the source marker (by=bd-migrate, no source): their created_at is the import time and cannot be recovered, so they are left as they are", legacy))
+		}
 		rep.Written = append(rep.Written, ".gofer/tracker/memories.jsonl")
 	}
 
@@ -490,7 +497,10 @@ func sameIssue(a, b tracker.Issue) bool {
 
 // migratedMemory keeps the source timestamps (design 2026-10-09 §2.7): updated_at
 // falls back to created_at and only then to the migration time; created_at falls
-// back to updated_at.
+// back to updated_at. bd memories carry no timestamp at all (`bd export
+// --include-memories` and `bd memories --json` give key / value only), so such a
+// memory is marked source=bd + created_unknown: its times are the import time and
+// readers must not show them as a creation time.
 func migratedMemory(key, content string, times [2]string, now string) tracker.Memory {
 	created, updated := times[0], times[1]
 	if updated == "" {
@@ -504,5 +514,14 @@ func migratedMemory(key, content string, times [2]string, now string) tracker.Me
 	}
 	m := tracker.Memory{Key: key, Content: content, UpdatedAt: updated, By: "bd-migrate"}
 	m.CreatedAt = created
+	m.Source = "bd"
+	m.CreatedUnknown = times[0] == "" && times[1] == ""
 	return m
+}
+
+// isLegacyBDMemory reports a memory an earlier bd migration wrote before the
+// source / created_unknown markers existed: its times are the import time too,
+// but that cannot be told from the record alone, so a run only reports it.
+func isLegacyBDMemory(m tracker.Memory) bool {
+	return m.By == "bd-migrate" && m.Source == ""
 }

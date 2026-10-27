@@ -58,9 +58,15 @@ type MemoryMeta struct {
 	Summary   string      `json:"summary,omitempty"`
 	When      *MemoryWhen `json:"when,omitempty"`
 	ExpiresAt string      `json:"expires_at,omitempty"`
-	// Source is a free-form origin reference: issue:<id>, plan:<id>, job:<id>, session:<id>.
+	// Source is a free-form origin reference: issue:<id>, plan:<id>, job:<id>,
+	// session:<id>, or an importing tool (bd).
 	Source    string `json:"source,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
+	// CreatedUnknown marks created_at / updated_at as the time the memory was
+	// imported, not the time it was written: the source it came from carried no
+	// timestamp (bd memories have none). Readers show 「导入于 <time>」 instead of a
+	// creation time. Absent in older bodies, where it means false.
+	CreatedUnknown bool `json:"created_unknown,omitempty"`
 	// DoctorIgnore lists `memory doctor` finding slugs silenced for this memory
 	// (known false positives, e.g. a rule that names a removed path on purpose).
 	DoctorIgnore []string `json:"doctor_ignore,omitempty"`

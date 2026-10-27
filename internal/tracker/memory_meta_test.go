@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 func strp(v string) *string { return &v }
@@ -223,6 +225,48 @@ func TestListMemoriesFilteredByKind(t *testing.T) {
 	hits, _ := s.ListMemoriesFiltered(MemoryFilter{Keyword: "NEEDLE"})
 	if len(hits) != 1 || hits[0].Key != "c" {
 		t.Fatalf("summary search: %+v", hits)
+	}
+}
+
+// A memory whose source carried no timestamp (bd migration) shows 「导入于 <time>」 /
+// "Imported <time>" instead of a creation time / age, in ls and in show; the
+// language comes from the CLI environment (LANG / LC_ALL / GOFER_LANG).
+func TestMemoryImportedTimeLabel(t *testing.T) {
+	now := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	m := Memory{Key: "bd-note", Content: "c", UpdatedAt: "2026-10-20T08:00:00Z", By: "bd-migrate",
+		MemoryMeta: MemoryMeta{Source: "bd", CreatedAt: "2026-10-20T08:00:00Z", CreatedUnknown: true}}
+
+	if line := MemoryListLineIn(i18n.ZhCN, m, now); !strings.Contains(line, "· 导入于 2026-10-20T08:00:00Z") {
+		t.Fatalf("zh ls line: %q", line)
+	}
+	if line := MemoryListLineIn(i18n.EN, m, now); !strings.Contains(line, "· Imported 2026-10-20T08:00:00Z") {
+		t.Fatalf("en ls line: %q", line)
+	}
+	if d := MemoryDetailIn(i18n.ZhCN, m, now); !strings.Contains(d, "created: 导入于 2026-10-20T08:00:00Z") {
+		t.Fatalf("zh detail:\n%s", d)
+	}
+	if d := MemoryDetailIn(i18n.EN, m, now); !strings.Contains(d, "created: Imported 2026-10-20T08:00:00Z") {
+		t.Fatalf("en detail:\n%s", d)
+	}
+
+	// The CLI takes the language from the environment; both locales must work.
+	for _, tc := range []struct{ locale, want string }{
+		{"C.UTF-8", "created: Imported 2026-10-20T08:00:00Z"},
+		{"zh_CN.UTF-8", "created: 导入于 2026-10-20T08:00:00Z"},
+	} {
+		t.Setenv(i18n.EnvLanguageVar, "")
+		t.Setenv("LC_ALL", "")
+		t.Setenv("LC_MESSAGES", "")
+		t.Setenv("LANG", tc.locale)
+		if d := MemoryDetailIn(i18n.FromEnv(), m, now); !strings.Contains(d, tc.want) {
+			t.Fatalf("LANG=%s detail:\n%s", tc.locale, d)
+		}
+	}
+
+	// A memory with a real source time keeps the plain age display.
+	plain := Memory{Key: "k", Content: "c", UpdatedAt: now.Format(time.RFC3339), MemoryMeta: MemoryMeta{CreatedAt: now.Format(time.RFC3339)}}
+	if line := MemoryListLineIn(i18n.ZhCN, plain, now); !strings.Contains(line, "· 今天") || strings.Contains(line, "导入于") {
+		t.Fatalf("plain ls line: %q", line)
 	}
 }
 

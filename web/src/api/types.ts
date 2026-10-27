@@ -2785,6 +2785,9 @@ export interface TrackerMemoryBody {
   expires_at?: string
   source?: string
   created_at?: string
+  // 原始时间未知：created_at 是导入时间（如从 bd 迁移的记忆，源里没有时间），
+  // 显示成「导入于 <time>」而不是创建时间。
+  created_unknown?: boolean
   doctor_ignore?: string[]
   // 代理上报的「这条已不成立」（标记失效），最新在前。
   flags?: Array<{ at: string; by?: string; job?: string; reason: string }>
@@ -2804,6 +2807,7 @@ export interface ScopedMemory {
   title?: string
   summary?: string
   source?: string
+  created_unknown?: boolean
   expires_at?: string
   flags?: Array<{ at: string; by?: string; job?: string; reason: string }>
   updated_at: string
