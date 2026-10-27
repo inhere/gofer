@@ -11,6 +11,7 @@ require (
 	github.com/gookit/gcli/v3 v3.8.5
 	github.com/gookit/gopty v0.1.2
 	github.com/gookit/goutil v0.8.3
+	github.com/gookit/i18n v1.3.0
 	github.com/gookit/rux/v2 v2.1.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/prometheus/client_golang v1.25.0
@@ -18,7 +19,7 @@ require (
 	golang.org/x/sys v0.49.0
 	golang.org/x/time v0.16.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	modernc.org/sqlite v1.60.1
+	modernc.org/sqlite v1.61.0
 )
 
 require (
@@ -28,7 +29,6 @@ require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
-	github.com/gookit/i18n v1.3.0 // indirect
 	github.com/gookit/ini/v2 v2.3.2 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/monoculum/formam v3.5.5+incompatible // indirect
@@ -47,7 +47,7 @@ require (
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	modernc.org/libc v1.78.0 // indirect
+	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
