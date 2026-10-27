@@ -273,3 +273,22 @@ export function withProject(path: string, project: string): string {
   const sep = path.includes('?') ? '&' : '?'
   return `${path}${sep}project=${encodeURIComponent(project)}`
 }
+
+// ---- 全局快捷键清单 ----
+//
+// 命令面板（Ctrl/⌘K）底部的「快捷键」区就是这份清单：新加快捷键必须在这里登记一行，
+// 否则用户只能从别处听说。keys 是给人看的写法（macOS 用 ⌘），匹配逻辑在各自的 listener 里。
+export interface ShellShortcut {
+  // 键位写法（`Ctrl/⌘ K`）
+  keys: string
+  // 做什么（i18n key）
+  key: string
+}
+
+export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
+  { keys: 'Ctrl/⌘ K', key: 'palette.shortcut.palette' },
+  // Ctrl/⌘+J：跳到「今天」队列的下一项（循环），实现在 store/today.ts
+  { keys: 'Ctrl/⌘ J', key: 'palette.shortcut.next' },
+  { keys: 'g d', key: 'palette.shortcut.needsMe' },
+  { keys: '/', key: 'palette.shortcut.search' },
+]

@@ -10,7 +10,7 @@ import { t } from '../../i18n'
 import { ceilingReadOnlyNotice } from '../../utils/ceiling'
 import { useWhoami } from '../../store/whoami'
 
-const props = defineProps<{ cards: TodayCard[]; nowSec: number; limit?: number; emptyText?: string }>()
+const props = defineProps<{ cards: TodayCard[]; nowSec: number; limit?: number; emptyText?: string; highlightKey?: string }>()
 const emit = defineEmits<{
   (e: 'act', card: TodayCard, action: TodayAction, text: string, viaAdvice: boolean): void
   (e: 'more'): void
@@ -36,6 +36,7 @@ const { readOnly } = useWhoami()
         :key="c.key"
         :card="c"
         :now-sec="nowSec"
+        :highlighted="!!highlightKey && c.key === highlightKey"
         @act="(a, text, adv) => emit('act', c, a, text, adv)"
         @navigate="emit('navigate')"
         @snooze="(o) => emit('snooze', c, o)"

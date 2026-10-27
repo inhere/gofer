@@ -18,7 +18,7 @@ import { ceilingReadOnlyNotice } from '../../utils/ceiling'
 import { t } from '../../i18n'
 import { useWhoami } from '../../store/whoami'
 
-const props = defineProps<{ card: TodayCard; nowSec: number; initialInfoOpen?: boolean }>()
+const props = defineProps<{ card: TodayCard; nowSec: number; initialInfoOpen?: boolean; highlighted?: boolean }>()
 const emit = defineEmits<{
   (e: 'act', action: TodayAction, text: string, viaAdvice: boolean): void
   (e: 'navigate'): void
@@ -26,6 +26,16 @@ const emit = defineEmits<{
 }>()
 
 const infoOpen = ref(!!props.initialInfoOpen)
+// Ctrl/⌘+J 跳到这张时滚到可见处（issue gofer-okz3 ①）；block:'nearest' 不把整页顶走。
+const cardEl = ref<HTMLElement | null>(null)
+watch(
+  () => props.highlighted,
+  (on) => {
+    if (!on) return
+    cardEl.value?.scrollIntoView?.({ block: 'nearest' })
+    cardEl.value?.focus?.({ preventScroll: true })
+  },
+)
 const replyAction = ref<TodayAction | null>(null)
 const replyText = ref('')
 const rerunOpen = ref(false)
@@ -249,10 +259,13 @@ function linkFor(a: TodayAction): string {
 
 <template>
   <article
+    ref="cardEl"
     class="dc"
+    :class="{ 'dc--next': highlighted }"
     :data-u="card.urgency"
     :data-kind="card.kind"
     :data-key="card.key"
+    :data-next="highlighted ? '1' : undefined"
     tabindex="0"
     data-test="decision-card"
     @keydown="onKey"
@@ -418,6 +431,11 @@ function linkFor(a: TodayAction): string {
   border: 1px solid var(--line);
   border-radius: var(--r-panel);
   overflow: hidden;
+}
+.dc--next {
+  /* Ctrl/⌘+J 跳到的那张：只加一圈强调色描边，不抢状态色语义（issue gofer-okz3 ①） */
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .dc::before {
   content: '';

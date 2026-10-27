@@ -20,9 +20,11 @@ import {
   endTodayVisit,
   handledOpen,
   handledTodayCount,
+  highlightedCardKey,
   includeExec,
   loadHandledToday,
   overlayOpen,
+  queueCursor,
   refreshToday,
   setIncludeExec,
   snoozeCard,
@@ -62,6 +64,8 @@ const stats = computed(() => laneAgentStats(lanes.value?.lanes))
 const projectCards = computed(() => filterByProject(visibleCards.value, project.value))
 const counts = computed(() => typeCounts(projectCards.value))
 const shownCards = computed(() => filterByType(projectCards.value, typeFilter.value))
+// Ctrl/⌘+J 跳过前 5 张后也要能看见高亮的那张：按光标把渲染张数撑开（issue gofer-okz3 ①）。
+const queueLimit = computed(() => Math.max(TOP_N, queueCursor.value + 1))
 const typeItems = computed(() => [
   { value: '', label: t('today.filter.all'), count: projectCards.value.length },
   ...TODAY_TYPE_GROUPS.map((g) => ({ value: g, label: t(`today.filter.${g}`), count: counts.value[g] })),
@@ -163,7 +167,8 @@ onUnmounted(() => {
       <DecisionQueue
         :cards="shownCards"
         :now-sec="nowSec"
-        :limit="TOP_N"
+        :limit="queueLimit"
+        :highlight-key="highlightedCardKey"
         :empty-text="emptyText"
         @act="actOnCard"
         @snooze="snoozeCard"
