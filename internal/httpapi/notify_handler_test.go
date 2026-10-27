@@ -37,8 +37,8 @@ func TestNotifyEventsCatalog(t *testing.T) {
 		t.Fatalf("status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
 	}
 	var got struct {
-		Events []notify.EventInfo `json:"events"`
-		Groups []notify.EventGroup
+		Events  []notify.EventInfo `json:"events"`
+		Groups  []notify.EventGroup
 		Desktop struct {
 			Supported       bool `json:"supported"`
 			MergeSecDefault int  `json:"merge_sec_default"`
@@ -91,9 +91,9 @@ func TestNotifyTestWebhook(t *testing.T) {
 			Token:      "tk",
 			WebBaseURL: "https://gofer.example.test/",
 			Notification: &config.NotificationConfig{Webhooks: []config.WebhookConfig{{
-				URL:      "https://oapi.dingtalk.com/robot/send?access_token=tok",
-				Kind:     config.WebhookKindDingTalk,
-				Keyword:  "gofer",
+				URL:       "https://oapi.dingtalk.com/robot/send?access_token=tok",
+				Kind:      config.WebhookKindDingTalk,
+				Keyword:   "gofer",
 				SecretEnv: "HOOK_SECRET",
 			}}},
 		},
@@ -160,8 +160,8 @@ func TestNotifyTestWebhookProviderError(t *testing.T) {
 		t.Fatalf("status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
 	}
 	var got struct {
-		OK        bool   `json:"ok"`
-		Error     string `json:"error"`
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
 	}
 	decode(t, resp, &got)
 	if got.OK || !strings.Contains(got.Error, "Key Words Not Found") || !strings.Contains(got.Error, "19024") {

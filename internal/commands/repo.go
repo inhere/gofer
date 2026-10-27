@@ -179,7 +179,7 @@ func NewRepoCmd() *gcli.Command {
 					c.StrOpt(&initTracker, "tracker", "", "", "explicit .gofer/tracker directory")
 					c.StrOpt(&prefix, "prefix", "", "", "issue id prefix (default: repository directory name)")
 					c.BoolOpt(&noAgents, "no-agents-md", "", false, "do not write a managed agent instruction block")
-					c.BoolOpt(&noHooks, "no-hooks", "", false, "reserved; hooks are not installed in this mode")
+					c.BoolOpt(&noHooks, "no-hooks", "", false, "do not install the session-start prime and command-memory hooks (.claude/settings.json, .codex/hooks.json)")
 					c.StrOpt(&commitPolicy, "commit-policy", "", "", "set commit_policy: local-commit | ask | none (default: keep the current value; a new tracker gets local-commit)")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
