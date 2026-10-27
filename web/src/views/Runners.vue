@@ -238,7 +238,7 @@ async function addWorker(): Promise<void> {
   try {
     const out = await registerWorker(id, addLabels.value.split(',').map((x) => x.trim()).filter(Boolean), addProjects.value.split(',').map((x) => x.trim()).filter(Boolean))
     issuedToken.value = out.worker_token
-    issuedCommand.value = `gofer init worker --server ${window.location.origin} --id ${out.worker_id} --token ${out.worker_token} --yes`
+    issuedCommand.value = `gofer worker init --server ${window.location.origin} --id ${out.worker_id} --token ${out.worker_token} --yes`
     addID.value = ''
     addLabels.value = ''
     addProjects.value = ''
