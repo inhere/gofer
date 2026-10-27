@@ -39,7 +39,6 @@ import type {
   FieldPolicy,
   ServerRestartState,
   ServerRestartView,
-  WebhookView,
 } from '../api/types'
 
 
@@ -257,31 +256,6 @@ interface AgentForm {
   deliverOfflineMatch: string
 }
 
-// WebhookForm 是一行 webhook 的表单态。secretEnv 是"要写入的新名字"，留空即保留服务端
-// 已配置的那个（视图只给 secret_set，读不到名字，S4 的补丁式写入正是为此）。
-interface WebhookForm {
-  url: string
-  maxTextRunes: string
-  kind: string
-  keyword: string
-  enabled: boolean
-  eventsText: string
-  projectsText: string
-  secretEnv: string
-  secretSet: boolean
-  clearSecret: boolean
-}
-
-interface NotificationForm {
-  enabled: boolean
-  maxTextRunes: string
-  allowHTTP: boolean
-  maxAttempts: string
-  sessionReplyDelaySec: string
-  allowHostsText: string
-  webhooks: WebhookForm[]
-}
-
 interface ServerForm {
   maxJobTimeoutSec: string
   stallTimeoutSec: string
@@ -292,7 +266,6 @@ interface ServerForm {
   retryBackoffText: string
   skillsText: string
   rulesText: string
-  notification: NotificationForm
 }
 
 const editor = ref<EditorKind | null>(null)
@@ -349,49 +322,7 @@ const serverForm = reactive<ServerForm>({
   retryBackoffText: '',
   skillsText: '',
   rulesText: '',
-  notification: emptyNotificationForm(),
 })
-
-function emptyNotificationForm(): NotificationForm {
-  return { enabled: true, maxTextRunes: '3000', allowHTTP: false, maxAttempts: '', sessionReplyDelaySec: '120', allowHostsText: '', webhooks: [] }
-}
-
-// webhookFormFrom 把视图里的一条 webhook 变成表单行（secretEnv 永远从空开始：名字读不到）。
-function webhookFormFrom(w: WebhookView): WebhookForm {
-  return {
-    url: w.url,
-    maxTextRunes: w.max_text_runes > 0 ? String(w.max_text_runes) : '',
-    kind: w.kind ?? '',
-    keyword: w.keyword ?? '',
-    enabled: w.enabled ?? true,
-    eventsText: linesText(w.events),
-    projectsText: linesText(w.projects),
-    secretEnv: '',
-    secretSet: w.secret_set,
-    clearSecret: false,
-  }
-}
-
-function addWebhook(): void {
-  serverForm.notification.webhooks.push({
-    url: '',
-    maxTextRunes: '',
-    kind: '',
-    keyword: '',
-    enabled: true,
-    eventsText: '',
-    projectsText: '',
-    secretEnv: '',
-    secretSet: false,
-    clearSecret: false,
-  })
-  void refreshPreview()
-}
-
-function removeWebhook(index: number): void {
-  serverForm.notification.webhooks.splice(index, 1)
-  void refreshPreview()
-}
 
 const agentPolicy = computed<Record<string, FieldPolicy>>(() => config.value?.agent_policy ?? {})
 const serverPolicy = computed<Record<string, FieldPolicy>>(() => config.value?.server_policy ?? {})
@@ -500,7 +431,6 @@ function openServerEditor(): void {
   badFields.value = new Set()
   editing.value = null
   editor.value = 'server'
-  const n = sc.notification
   Object.assign(serverForm, {
     maxJobTimeoutSec: sc.max_job_timeout_sec > 0 ? String(sc.max_job_timeout_sec) : '',
     stallTimeoutSec: sc.stall_timeout_sec != null ? String(sc.stall_timeout_sec) : '',
@@ -511,15 +441,6 @@ function openServerEditor(): void {
     retryBackoffText: linesText(sc.retry?.backoff_sec?.map(String) ?? null),
     skillsText: linesText(sc.skills),
     rulesText: linesText(sc.rules),
-    notification: {
-      enabled: n?.enabled ?? true,
-      maxTextRunes: n && n.max_text_runes > 0 ? String(n.max_text_runes) : '3000',
-      allowHTTP: n?.allow_http ?? false,
-      maxAttempts: n && n.max_attempts > 0 ? String(n.max_attempts) : '',
-      sessionReplyDelaySec: String(n?.session_reply_delay_sec ?? 120),
-      allowHostsText: linesText(n?.allow_hosts ?? null),
-      webhooks: (n?.webhooks ?? []).map(webhookFormFrom),
-    },
   })
   void refreshPreview()
 }
@@ -631,35 +552,10 @@ function buildServerWrite(): Record<string, unknown> {
     // 但整份表单照发（与 skills 一致，免得"改一个字段顺手抹掉别的"）；旧 server 的策略表里
     // 没有这个字段 → 不发，否则会被当成未知字段拒掉。
     ...(serverPolicy.value['rules']?.editable ? { rules: lines(serverForm.rulesText) } : {}),
-    // S4：notification 是补丁式写入 —— 表单里没有的成员保留原值；webhook 行的 secret_env
-    // 留空即"保留服务端已配置的名字"（视图只给 secret_set，读不到名字），显式勾选"清除"
-    // 才发空串。整份列表照发，所以新增/删除条目都能表达。
-    notification: {
-      enabled: serverForm.notification.enabled,
-      max_text_runes: optionalInt(serverForm.notification.maxTextRunes) ?? 0,
-      allow_http: serverForm.notification.allowHTTP,
-      max_attempts: optionalInt(serverForm.notification.maxAttempts) ?? 0,
-      session_reply_delay_sec: optionalInt(serverForm.notification.sessionReplyDelaySec) ?? 120,
-      allow_hosts: lines(serverForm.notification.allowHostsText),
-      webhooks: serverForm.notification.webhooks.map((w) => {
-        const row: Record<string, unknown> = {
-          url: w.url.trim(),
-          max_text_runes: optionalInt(w.maxTextRunes) ?? 0,
-          kind: w.kind,
-          keyword: w.keyword.trim(),
-          enabled: w.enabled,
-          events: lines(w.eventsText),
-          projects: lines(w.projectsText),
-        }
-        const name = w.secretEnv.trim()
-        if (name !== '') {
-          row.secret_env = name
-        } else if (w.clearSecret) {
-          row.secret_env = ''
-        }
-        return row
-      }),
-    },
+    // notification（IM 机器人 / 桌面通知 / webhook 的 outbound 安全旋钮）不在这个表单里编辑：
+    // 它有独立的一页「设置 · 通知」，两处编辑同一份配置只会互相覆盖。body 里干脆不带这个
+    // 成员，服务端的补丁式写入就原样保留已配置的 webhook（含读不到的 secret_env 名字）、
+    // desktop 与 max_text_runes 等。
   }
 }
 
@@ -1530,100 +1426,11 @@ onUnmounted(() => {
               </p>
               <div class="field">
                 <span class="field-name">{{ t('settings.config.f.notification') }}</span>
-                <label class="field field--check">
-                  <input v-model="serverForm.notification.enabled" type="checkbox" @change="refreshPreview()" />
-                  <span class="field-name">{{ t('settings.config.f.notificationEnabled') }}</span>
-                </label>
-                <label class="field field--check">
-                  <input v-model="serverForm.notification.allowHTTP" type="checkbox" @change="refreshPreview()" />
-                  <span class="field-name">{{ t('settings.config.f.allowHttp') }}</span>
-                </label>
-                <label class="field">
-                  <span class="field-name">{{ t('settings.config.f.hookMaxAttempts') }}</span>
-                  <input v-model="serverForm.notification.maxAttempts" class="input" @change="refreshPreview()" />
-                </label>
-                <label class="field">
-                  <span class="field-name">{{ t('settings.config.f.maxTextRunes') }}</span>
-                  <input v-model="serverForm.notification.maxTextRunes" class="input" @change="refreshPreview()" />
-                </label>
-                <label class="field">
-                  <span class="field-name">{{ t('settings.config.f.sessionReplyDelay') }}</span>
-                  <input v-model="serverForm.notification.sessionReplyDelaySec" class="input" @change="refreshPreview()" />
-                </label>
-                <label class="field">
-                  <span class="field-name">{{ t('settings.config.f.allowHosts') }}</span>
-                  <textarea
-                    v-model="serverForm.notification.allowHostsText"
-                    class="input textarea"
-                    rows="2"
-                    @change="refreshPreview()"
-                  ></textarea>
-                </label>
+                <p class="hint">
+                  {{ t('settings.config.hintNotificationMoved') }}
+                  <RouterLink to="/settings/notifications">{{ t('settings.config.notificationMovedLink') }}</RouterLink>{{ t('settings.config.hintNotificationMovedTail') }}
+                </p>
               </div>
-              <div v-for="(w, i) in serverForm.notification.webhooks" :key="i" class="hook-row">
-                <div class="hook-row__head">
-                  <span class="field-name mono">webhook #{{ i + 1 }}</span>
-                  <button class="mini-btn mono" type="button" @click="removeWebhook(i)">{{ t('settings.config.delete') }}</button>
-                </div>
-                <label class="field">
-                  <span class="field-name">url</span>
-                  <input
-                    v-model="w.url"
-                    class="input"
-                    placeholder="https://hooks.example.com/gofer"
-                    @change="refreshPreview()"
-                  />
-                </label>
-                <label class="field">
-                  <span class="field-name">{{ t('settings.config.f.webhookKind') }}</span>
-                  <select v-model="w.kind" class="input" @change="refreshPreview()">
-                    <option value="">{{ t('settings.config.webhookKind.generic') }}</option>
-                    <option value="dingtalk">{{ t('settings.config.webhookKind.dingtalk') }}</option>
-                    <option value="feishu">{{ t('settings.config.webhookKind.feishu') }}</option>
-                  </select>
-                </label>
-                <label class="field">
-                  <span class="field-name">{{ t('settings.config.f.webhookKeyword') }}</span>
-                  <input
-                    v-model="w.keyword"
-                    class="input"
-                    placeholder="gofer"
-                    @change="refreshPreview()"
-                  />
-                </label>
-                <label class="field">
-                  <span class="field-name">{{ t('settings.config.f.webhookMaxTextRunes') }}</span>
-                  <input v-model="w.maxTextRunes" class="input" @change="refreshPreview()" />
-                </label>
-                <label class="field">
-                  <span class="field-name">{{ t('settings.config.f.webhookEvents') }}</span>
-                  <textarea v-model="w.eventsText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
-                </label>
-                <label class="field">
-                  <span class="field-name">{{ t('settings.config.f.webhookProjects') }}</span>
-                  <textarea v-model="w.projectsText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
-                </label>
-                <label class="field">
-                  <span class="field-name">
-                    {{ t('settings.config.f.webhookSecret', { kept: w.secretSet ? t('settings.config.keepSecret') : t('settings.config.noSecret') }) }}
-                  </span>
-                  <input
-                    v-model="w.secretEnv"
-                    class="input"
-                    placeholder="GOFER_WEBHOOK_SECRET"
-                    @change="refreshPreview()"
-                  />
-                </label>
-                <label v-if="w.secretSet" class="field field--check">
-                  <input v-model="w.clearSecret" type="checkbox" @change="refreshPreview()" />
-                  <span class="field-name">{{ t('settings.config.f.clearSecret') }}</span>
-                </label>
-                <label class="field field--check">
-                  <input v-model="w.enabled" type="checkbox" @change="refreshPreview()" />
-                  <span class="field-name">{{ t('settings.config.f.hookEnabled') }}</span>
-                </label>
-              </div>
-              <button class="mini-btn mono" type="button" @click="addWebhook">{{ t('settings.config.addWebhook') }}</button>
               <div class="field">
                 <span class="field-name">{{ t('settings.config.f.eventHooks') }}</span>
                 <ul class="mini-list">

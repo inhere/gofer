@@ -213,6 +213,8 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/memory-suggestions/{n}/adopt` | `Require` | `memory.write` | — | `Resource(memory_suggestion)` | 写 |
 | `POST` | `/v1/memory-suggestions/{n}/dismiss` | `Public` | — | — | `Resource(memory_suggestion)` | 写 |
 | `GET` | `/v1/meta` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/notify/events` | `Require` | `config.read` | — | `NoProject` | 读 |
+| `POST` | `/v1/notify/test` | `Require` | `config.write` | — | `NoProject` | 写 |
 | `GET` | `/v1/nudges` | `InHandler(filter)` | `session.read.others` | — | `Filter` | 读 |
 | `DELETE` | `/v1/nudges/{id}` | `InHandler(deny)` | `session.reply.others` | — | `Resource(nudge)` | 写 |
 | `PATCH` | `/v1/nudges/{id}` | `InHandler(deny)` | `session.reply.others` | — | `Resource(nudge)` | 写 |

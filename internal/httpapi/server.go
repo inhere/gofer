@@ -35,6 +35,7 @@ import (
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/castrec"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/desktop"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -382,8 +383,13 @@ type Server struct {
 	overview *overview.Service
 	// push owns W2b browser subscriptions, encryption, dispatch and one-time
 	// notification actions. Routes remain mounted when nil and return 503.
-	push         WebPushService
-	trackerStore *jobstore.Store
+	push WebPushService
+	// notifyDesktop / notifyPost are the two outbound seams behind POST /v1/notify/test
+	// (gofer-x9mb): nil = the real platform popup / the validated signed webhook POST. A
+	// handler test swaps them so no toast pops and no network call is made.
+	notifyDesktop func(desktop.Notification) error
+	notifyPost    func(ctx context.Context, kind, target, eventType string, body []byte, secretValue string, cfg config.NotificationConfig) error
+	trackerStore  *jobstore.Store
 	// enroll is the worker self-enrollment service (nil = feature not assembled).
 	enroll *workerenroll.Service
 	// trackerSyncCmd is the argv the TRK-05 sync job runs (nil = `gofer repo sync`).
@@ -1446,6 +1452,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/push/subscriptions", s.handleCreatePushSubscription)
 		r.DELETE("/push/subscriptions", s.handleDeletePushSubscription)
 		r.POST("/push/test", s.handleTestPush)
+		// gofer-x9mb: the notification settings' event catalog and test-send. Writing the
+		// targets themselves stays on PUT /v1/config/server.
+		r.GET("/notify/events", s.handleNotifyEvents)
+		r.POST("/notify/test", s.handleNotifyTest)
 
 		r.POST("/jobs", s.handleCreateJob)
 		r.POST("/jobs/secret-scan", s.handleSecretScan)

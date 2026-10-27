@@ -1032,11 +1032,65 @@ export interface NotificationView {
   enabled: boolean
   session_reply_delay_sec: number
   // gofer-4uk5：server.notification.desktop（server 主机的桌面推送）；块未配置时不返回。
-  desktop?: Record<string, unknown>
+  desktop?: DesktopNotifyView
+}
+
+// DesktopNotifyView 是 server 主机的桌面通知频道（gofer-3wce / gofer-x9mb）。
+export interface DesktopNotifyView {
+  enabled: boolean
+  // events 为空 = 频道自己的默认事件集（notify.DefaultDesktopEvents）。
+  events: string[]
+  projects: string[]
+  // merge_sec 是合并窗口秒数（缺省 10，0 = 不合并）。
+  merge_sec: number
+}
+
+// NotifyEventInfo 是通知事件目录的一条（GET /v1/notify/events）：说明文案由后端给出，
+// 前端不维护第二份事件名单。
+export interface NotifyEventInfo {
+  key: string
+  group: string
+  zh: string
+  en: string
+  // default：webhook / 事件钩子的 events 留空时的默认订阅集。
+  default: boolean
+  // desktop_default：桌面频道 events 留空时的默认订阅集（比 webhook 窄）。
+  desktop_default: boolean
+}
+
+export interface NotifyEventGroup {
+  key: string
+  zh: string
+  en: string
+}
+
+export interface NotifyEventsResp {
+  events: NotifyEventInfo[]
+  groups: NotifyEventGroup[]
+  desktop: {
+    // supported：server 所在平台能否真的弹出桌面通知。
+    supported: boolean
+    merge_sec_default: number
+  }
+}
+
+// NotifyTestResp 是一次测试投递的结果。ok=false 时 error 是投递失败原因原文（IM 机器人的
+// 业务错误，如关键词不匹配），skipped 表示桌面频道因环境原因（没有交互会话 / 没装通知工具）
+// 根本没有弹出。
+export interface NotifyTestResp {
+  ok: boolean
+  target: string
+  index?: number
+  kind?: string
+  error?: string
+  skipped?: boolean
 }
 
 export interface WebhookView {
   url: string
+  // url_redacted 是同一个 URL 脱敏后的样子（用户信息与查询串的值都遮掉）：列表显示用它，
+  // 写回时用原始 url（配置写是整表替换）。
+  url_redacted: string
   max_text_runes: number
   // OBS-07a：出站适配器（'' / generic / dingtalk / feishu）。
   kind: string

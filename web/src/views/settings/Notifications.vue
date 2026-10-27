@@ -1,9 +1,14 @@
 <script setup lang="ts">
-// 设置 · 通知（设计稿 §7.4）：本设备推送开关与当前 caller 的订阅列表。
-// 复用既有接口：GET/POST/DELETE /v1/push/subscriptions、GET /v1/push/vapid-public-key、
-// POST /v1/push/test。UI 重设计 P5-d：FormSection 分节 + 文案走 i18n（settings.notify.*）。
-import { computed, onMounted, ref } from 'vue'
-import { ApiError } from '../../api/client'
+// 设置 · 通知（设计稿 §7.4）：三个频道各一节 —— 本设备推送（浏览器 Web Push）、IM 机器人
+// （server.notification.webhooks）、桌面通知（server.notification.desktop，弹在 server 所在
+// 机器上）。
+// 本设备推送复用既有接口：GET/POST/DELETE /v1/push/subscriptions、GET /v1/push/vapid-public-key、
+// POST /v1/push/test。另两节读 GET /v1/config，写回仍走 PUT /v1/config/server 的补丁式写入
+// （body 里只带被编辑的成员，secret_env 名字读不到 → 留空即保留）；事件目录来自
+// GET /v1/notify/events，测试投递走 POST /v1/notify/test。
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ApiError, getConfig, putConfigServer } from '../../api/client'
+import { listNotifyEvents, sendNotifyTest } from '../../api/notify'
 import {
   createPushSubscription,
   deletePushSubscription,
@@ -11,8 +16,15 @@ import {
   listPushSubscriptions,
   sendTestPush,
 } from '../../api/push'
-import type { PushSubscriptionView } from '../../api/types'
+import type {
+  ConfigView,
+  NotifyEventsResp,
+  NotifyTestResp,
+  PushSubscriptionView,
+} from '../../api/types'
 import { t } from '../../i18n'
+import { locale } from '../../store/locale'
+import Drawer from '../../ui/Drawer.vue'
 import FormSection from '../../ui/FormSection.vue'
 import {
   currentPushSubscription,
@@ -35,6 +47,255 @@ const available = computed(() => unavailable.value === '')
 const currentEnabled = computed(
   () => currentEndpoint.value !== '' && rows.value.some((row) => row.endpoint === currentEndpoint.value),
 )
+
+// ---- IM 机器人 / 桌面通知 --------------------------------------------------------------
+
+interface BotForm {
+  url: string
+  urlRedacted: string
+  kind: string
+  keyword: string
+  secretEnv: string
+  secretSet: boolean
+  clearSecret: boolean
+  events: string[]
+  projects: string
+  enabled: boolean
+}
+
+const config = ref<ConfigView | null>(null)
+const catalog = ref<NotifyEventsResp | null>(null)
+const bots = ref<BotForm[]>([])
+const botsSaving = ref(false)
+const drawerOpen = ref(false)
+const editingIndex = ref<number | null>(null)
+const draft = reactive<BotForm>(emptyBot())
+const desktopSaving = ref(false)
+const desktopEnabled = ref(false)
+const desktopEvents = ref<string[]>([])
+const desktopProjects = ref('')
+const desktopMergeSec = ref('')
+const rowResult = reactive<Record<number, NotifyTestResp>>({})
+const testing = ref('')
+
+function emptyBot(): BotForm {
+  return {
+    url: '',
+    urlRedacted: '',
+    kind: '',
+    keyword: '',
+    secretEnv: '',
+    secretSet: false,
+    clearSecret: false,
+    events: [],
+    projects: '',
+    enabled: true,
+  }
+}
+
+// eventText / groupText：事件说明由后端事件目录给出 zh / en 两份，控制台只挑当前语言。
+function eventText(item: { zh: string; en: string }): string {
+  return locale.value.startsWith('zh') ? item.zh : item.en
+}
+
+// eventsByGroup 把目录按分组排好序给事件多选框用（顺序由后端 groups 决定，不在这里重排）。
+const eventsByGroup = computed(() => {
+  const out: Array<{ key: string; label: string; items: NotifyEventsResp['events'] }> = []
+  for (const g of catalog.value?.groups ?? []) {
+    const items = (catalog.value?.events ?? []).filter((e) => e.group === g.key)
+    if (items.length > 0) out.push({ key: g.key, label: eventText(g), items })
+  }
+  return out
+})
+
+function toggleEvent(list: string[], key: string, on: boolean): void {
+  const i = list.indexOf(key)
+  if (on && i < 0) list.push(key)
+  if (!on && i >= 0) list.splice(i, 1)
+}
+
+function defaultEvents(channel: 'webhook' | 'desktop'): string[] {
+  return (catalog.value?.events ?? [])
+    .filter((e) => (channel === 'desktop' ? e.desktop_default : e.default))
+    .map((e) => e.key)
+}
+
+function botFromView(w: {
+  url: string
+  url_redacted?: string
+  kind: string
+  keyword: string
+  secret_set: boolean
+  events: string[]
+  projects: string[]
+  enabled: boolean
+}): BotForm {
+  return {
+    url: w.url,
+    urlRedacted: w.url_redacted || w.url,
+    kind: w.kind ?? '',
+    keyword: w.keyword ?? '',
+    secretEnv: '',
+    secretSet: w.secret_set,
+    clearSecret: false,
+    events: [...(w.events ?? [])],
+    projects: (w.projects ?? []).join(', '),
+    enabled: w.enabled ?? true,
+  }
+}
+
+function splitList(text: string): string[] {
+  return text
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+async function loadNotify(): Promise<void> {
+  try {
+    const [cfg, cat] = await Promise.all([getConfig(), listNotifyEvents()])
+    config.value = cfg
+    catalog.value = cat
+    const n = cfg.server.notification
+    bots.value = (n?.webhooks ?? []).map(botFromView)
+    const d = n?.desktop
+    desktopEnabled.value = d?.enabled ?? false
+    desktopEvents.value = [...(d?.events ?? [])]
+    desktopProjects.value = (d?.projects ?? []).join(', ')
+    desktopMergeSec.value = d ? String(d.merge_sec) : ''
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+function openAdd(): void {
+  Object.assign(draft, emptyBot(), { events: defaultEvents('webhook') })
+  editingIndex.value = null
+  drawerOpen.value = true
+}
+
+function openEdit(index: number): void {
+  Object.assign(draft, bots.value[index] ?? emptyBot(), { secretEnv: '', clearSecret: false })
+  editingIndex.value = index
+  drawerOpen.value = true
+}
+
+function saveDraft(): void {
+  if (draft.url.trim() === '') {
+    error.value = t('settings.notify.botUrlRequired')
+    return
+  }
+  const next: BotForm = {
+    ...draft,
+    url: draft.url.trim(),
+    urlRedacted: draft.urlRedacted || draft.url.trim(),
+    keyword: draft.keyword.trim(),
+    events: [...draft.events],
+    projects: draft.projects.trim(),
+  }
+  if (editingIndex.value === null) {
+    bots.value.push(next)
+  } else {
+    bots.value.splice(editingIndex.value, 1, next)
+  }
+  drawerOpen.value = false
+  void saveBots()
+}
+
+function removeBot(index: number): void {
+  bots.value.splice(index, 1)
+  delete rowResult[index]
+  void saveBots()
+}
+
+// saveBots 把整张 webhook 表写回（配置写是整表替换）：secret_env 只在操作员**填了新名字**或
+// 显式勾了清除时才发，否则省略 → 服务端按 URL 继承已配置的名字（读路径不回声名字）。
+async function saveBots(): Promise<void> {
+  if (botsSaving.value) return
+  botsSaving.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    await putConfigServer({
+      notification: {
+        webhooks: bots.value.map((b) => {
+          const row: Record<string, unknown> = {
+            url: b.url,
+            kind: b.kind,
+            keyword: b.keyword,
+            events: b.events,
+            projects: splitList(b.projects),
+            enabled: b.enabled,
+          }
+          if (b.secretEnv.trim() !== '') {
+            row.secret_env = b.secretEnv.trim()
+          } else if (b.clearSecret) {
+            row.secret_env = ''
+          }
+          return row
+        }),
+      },
+    })
+    notice.value = t('settings.notify.saved')
+    await loadNotify()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    botsSaving.value = false
+  }
+}
+
+async function saveDesktop(): Promise<void> {
+  if (desktopSaving.value) return
+  desktopSaving.value = true
+  error.value = ''
+  notice.value = ''
+  try {
+    const merge = desktopMergeSec.value.trim()
+    await putConfigServer({
+      notification: {
+        desktop: {
+          enabled: desktopEnabled.value,
+          events: [...desktopEvents.value],
+          projects: splitList(desktopProjects.value),
+          merge_sec: merge === '' ? undefined : Number(merge),
+        },
+      },
+    })
+    notice.value = t('settings.notify.saved')
+    await loadNotify()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    desktopSaving.value = false
+  }
+}
+
+async function test(target: 'webhook' | 'desktop', index = 0): Promise<void> {
+  const key = `${target}:${index}`
+  if (testing.value === key) return
+  testing.value = key
+  error.value = ''
+  notice.value = ''
+  try {
+    const res = await sendNotifyTest(target, index)
+    if (target === 'webhook') {
+      rowResult[index] = res
+    } else if (res.ok) {
+      notice.value = t('settings.notify.testDesktopOk')
+    } else if (res.skipped) {
+      error.value = t('settings.notify.testDesktopSkipped', { reason: res.error ?? '' })
+    } else {
+      error.value = t('settings.notify.testFailed', { error: res.error ?? '' })
+    }
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    testing.value = ''
+  }
+}
+
+// ---- 本设备推送 -------------------------------------------------------------------------
 
 async function load(): Promise<void> {
   loading.value = true
@@ -146,8 +407,16 @@ function formatTime(value: number): string {
   return value > 0 ? new Date(value * 1000).toLocaleString() : t('settings.notify.never')
 }
 
+function eventsLabel(list: string[]): string {
+  if (list.length === 0) {
+    return t('settings.notify.eventsDefault')
+  }
+  return list.join(', ')
+}
+
 onMounted(() => {
   void load()
+  void loadNotify()
 })
 </script>
 
@@ -164,8 +433,8 @@ onMounted(() => {
     </header>
 
     <p v-if="unavailable" class="msg msg--warn">{{ unavailable }}</p>
-    <p v-if="error" class="msg msg--err">{{ error }}</p>
-    <p v-if="notice" class="msg msg--ok">{{ notice }}</p>
+    <p v-if="error" class="msg msg--err" data-testid="notify-error">{{ error }}</p>
+    <p v-if="notice" class="msg msg--ok" data-testid="notify-notice">{{ notice }}</p>
 
     <FormSection :title="t('settings.notify.deviceTitle')" :desc="t('settings.notify.deviceDesc')">
       <div class="toggle-row">
@@ -222,6 +491,169 @@ onMounted(() => {
         </li>
       </ul>
     </FormSection>
+
+    <FormSection :title="t('settings.notify.imTitle')" :desc="t('settings.notify.imDesc')">
+      <div class="list-head">
+        <strong>{{ t('settings.notify.imList') }}</strong>
+        <button class="btn btn--primary" type="button" data-testid="bot-add" @click="openAdd">
+          {{ t('settings.notify.botAdd') }}
+        </button>
+      </div>
+      <p v-if="bots.length === 0" class="empty" data-testid="bot-empty">
+        {{ t('settings.notify.imEmpty') }}
+      </p>
+      <ul v-else class="subscription-list">
+        <li v-for="(b, i) in bots" :key="`${b.url}:${i}`" data-testid="bot-row">
+          <div class="row-head">
+            <span class="endpoint mono" :title="b.url">{{ b.urlRedacted || b.url }}</span>
+            <span class="pill" :class="b.enabled ? 'pill--ok' : 'pill--idle'">
+              {{ b.enabled ? t('settings.notify.on') : t('settings.notify.off') }}
+            </span>
+          </div>
+          <div class="meta">
+            <span>{{ t('settings.notify.botKindLabel', { kind: b.kind || 'generic' }) }}</span>
+            <span v-if="b.keyword">{{ t('settings.notify.botKeywordLabel', { kw: b.keyword }) }}</span>
+            <span v-if="b.secretSet">{{ t('settings.notify.botSecretSet') }}</span>
+            <span>{{ t('settings.notify.botEventsLabel', { events: eventsLabel(b.events) }) }}</span>
+            <span v-if="b.projects">
+              {{ t('settings.notify.botProjectsLabel', { projects: b.projects }) }}
+            </span>
+          </div>
+          <p v-if="rowResult[i]" class="hint" :class="rowResult[i].ok ? 'hint--ok' : 'hint--bad'" data-testid="bot-test-result">
+            {{ rowResult[i].ok ? t('settings.notify.testWebhookOk') : t('settings.notify.testFailed', { error: rowResult[i].error ?? '' }) }}
+          </p>
+          <div class="actions">
+            <button class="btn" type="button" data-testid="bot-test" :disabled="testing === `webhook:${i}`" @click="test('webhook', i)">
+              {{ t('settings.notify.testSend') }}
+            </button>
+            <button class="btn" type="button" data-testid="bot-edit" @click="openEdit(i)">
+              {{ t('settings.notify.botEdit') }}
+            </button>
+            <button class="btn" type="button" data-testid="bot-remove" :disabled="botsSaving" @click="removeBot(i)">
+              {{ t('settings.notify.botRemove') }}
+            </button>
+          </div>
+        </li>
+      </ul>
+    </FormSection>
+
+    <FormSection :title="t('settings.notify.desktopTitle')" :desc="t('settings.notify.desktopDesc')">
+      <p class="hint" data-testid="desktop-platform">
+        {{ catalog?.desktop.supported ? t('settings.notify.desktopSupported') : t('settings.notify.desktopUnsupported') }}
+      </p>
+      <div class="toggle-row">
+        <div class="tx">
+          <b>{{ t('settings.notify.desktopToggle') }}</b>
+          <span>{{ t('settings.notify.desktopMachine') }}</span>
+        </div>
+        <label class="field field--check">
+          <input v-model="desktopEnabled" type="checkbox" data-testid="desktop-enabled" />
+          <span>{{ desktopEnabled ? t('settings.notify.on') : t('settings.notify.off') }}</span>
+        </label>
+      </div>
+      <div class="field">
+        <span class="field-name">{{ t('settings.notify.eventsTitle') }}</span>
+        <p class="hint">{{ t('settings.notify.eventsHint') }}</p>
+        <div v-for="g in eventsByGroup" :key="`d-${g.key}`" class="ev-group">
+          <span class="ev-group__name">{{ g.label }}</span>
+          <label v-for="e in g.items" :key="`d-${e.key}`" class="ev-item" :title="eventText(e)">
+            <input
+              type="checkbox"
+              :checked="desktopEvents.includes(e.key)"
+              @change="toggleEvent(desktopEvents, e.key, ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="mono">{{ e.key }}</span>
+            <span class="muted">{{ eventText(e) }}</span>
+          </label>
+        </div>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.projectsLabel') }}</span>
+          <input v-model="desktopProjects" class="input" data-testid="desktop-projects" :placeholder="t('settings.notify.projectsPlaceholder')" />
+        </label>
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.mergeSec') }}</span>
+          <input v-model="desktopMergeSec" class="input" data-testid="desktop-merge" :placeholder="String(catalog?.desktop.merge_sec_default ?? 10)" />
+        </label>
+      </div>
+      <div class="actions">
+        <button class="btn btn--primary" type="button" data-testid="desktop-save" :disabled="desktopSaving" @click="saveDesktop">
+          {{ t('act.save') }}
+        </button>
+        <button class="btn" type="button" data-testid="desktop-test" :disabled="testing === 'desktop:0'" @click="test('desktop')">
+          {{ t('settings.notify.testSend') }}
+        </button>
+      </div>
+    </FormSection>
+
+    <Drawer v-model="drawerOpen" :label="t('settings.notify.botDrawerTitle')" width="440px">
+      <div class="bot-form">
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.botType') }}</span>
+          <select v-model="draft.kind" class="input" data-testid="bot-kind">
+            <option value="">{{ t('settings.notify.kindGeneric') }}</option>
+            <option value="dingtalk">{{ t('settings.notify.kindDingtalk') }}</option>
+            <option value="feishu">{{ t('settings.notify.kindFeishu') }}</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.botUrl') }}</span>
+          <input v-model="draft.url" class="input" data-testid="bot-url" placeholder="https://oapi.dingtalk.com/robot/send?access_token=…" />
+        </label>
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.botKeyword') }}</span>
+          <input v-model="draft.keyword" class="input" data-testid="bot-keyword" placeholder="gofer" />
+          <span class="hint">{{ t('settings.notify.botKeywordHint') }}</span>
+        </label>
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.botSecret') }}</span>
+          <input
+            v-model="draft.secretEnv"
+            class="input"
+            data-testid="bot-secret-env"
+            placeholder="GOFER_WEBHOOK_SECRET"
+          />
+          <span class="hint">
+            {{ draft.secretSet ? t('settings.notify.botSecretKept') : t('settings.notify.botSecretHint') }}
+          </span>
+        </label>
+        <label v-if="draft.secretSet" class="field field--check">
+          <input v-model="draft.clearSecret" type="checkbox" data-testid="bot-clear-secret" />
+          <span>{{ t('settings.notify.botClearSecret') }}</span>
+        </label>
+        <label class="field">
+          <span class="field-name">{{ t('settings.notify.projectsLabel') }}</span>
+          <input v-model="draft.projects" class="input" data-testid="bot-projects" :placeholder="t('settings.notify.projectsPlaceholder')" />
+        </label>
+        <div class="field">
+          <span class="field-name">{{ t('settings.notify.eventsTitle') }}</span>
+          <p class="hint">{{ t('settings.notify.eventsHint') }}</p>
+          <div v-for="g in eventsByGroup" :key="`b-${g.key}`" class="ev-group">
+            <span class="ev-group__name">{{ g.label }}</span>
+            <label v-for="e in g.items" :key="`b-${e.key}`" class="ev-item" :title="eventText(e)">
+              <input
+                type="checkbox"
+                :checked="draft.events.includes(e.key)"
+                @change="toggleEvent(draft.events, e.key, ($event.target as HTMLInputElement).checked)"
+              />
+              <span class="mono">{{ e.key }}</span>
+              <span class="muted">{{ eventText(e) }}</span>
+            </label>
+          </div>
+        </div>
+        <label class="field field--check">
+          <input v-model="draft.enabled" type="checkbox" data-testid="bot-enabled" />
+          <span>{{ t('settings.notify.botEnabled') }}</span>
+        </label>
+        <div class="actions">
+          <button class="btn btn--primary" type="button" data-testid="bot-save" @click="saveDraft">
+            {{ t('act.save') }}
+          </button>
+          <button class="btn" type="button" @click="drawerOpen = false">{{ t('act.cancel') }}</button>
+        </div>
+      </div>
+    </Drawer>
   </div>
 </template>
 
@@ -256,12 +688,15 @@ onMounted(() => {
 .toggle-row,
 .list-head,
 .actions,
-.meta {
+.meta,
+.row-head,
+.field-row {
   display: flex;
   align-items: center;
 }
 .toggle-row,
-.list-head {
+.list-head,
+.row-head {
   justify-content: space-between;
   gap: 16px;
 }
@@ -271,6 +706,15 @@ onMounted(() => {
 .list-head strong {
   font-size: var(--fs-sm);
   color: var(--ink);
+}
+.field-row {
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.field-row .field {
+  flex: 1;
+  min-width: 160px;
 }
 
 .toggle-row {
@@ -365,6 +809,17 @@ onMounted(() => {
   color: var(--ink-3);
   font-size: var(--fs-xs);
 }
+.hint {
+  margin: 0 0 8px;
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+}
+.hint--ok {
+  color: var(--accent);
+}
+.hint--bad {
+  color: var(--fail);
+}
 
 .subscription-list {
   display: grid;
@@ -394,6 +849,49 @@ onMounted(() => {
   margin-top: 8px;
   color: var(--ink-3);
   font-size: var(--fs-xs);
+}
+.field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.field-name {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+.field--check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.input {
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  padding: 7px 10px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  background: var(--surface);
+  color: var(--ink);
+}
+.ev-group {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.ev-group__name {
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.ev-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-xs);
+}
+.bot-form {
+  display: grid;
+  gap: 4px;
 }
 
 @media (max-width: 760px) {

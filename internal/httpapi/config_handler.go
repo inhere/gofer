@@ -234,7 +234,12 @@ type notificationView struct {
 }
 
 type webhookView struct {
-	URL          string `json:"url"`
+	URL string `json:"url"`
+	// URLRedacted is the same URL with its credential parts masked (userinfo, query values
+	// — see redactConfigURL), which is what the console LISTS. `url` stays raw because a
+	// config write replaces the list with the URLs it is sent; a read-only caller that only
+	// shows the target reads this one (gofer-x9mb).
+	URLRedacted  string `json:"url_redacted"`
 	MaxTextRunes int    `json:"max_text_runes"`
 	Kind         string `json:"kind"`
 	// Keyword is the bot's 自定义关键词 setting (gofer-map1) — not a secret, so it IS
@@ -677,6 +682,7 @@ func buildNotificationView(n *config.NotificationConfig) *notificationView {
 	for _, wh := range n.Webhooks {
 		out.Webhooks = append(out.Webhooks, webhookView{
 			URL:          wh.URL,
+			URLRedacted:  redactConfigURL(wh.URL),
 			MaxTextRunes: wh.MaxTextRunes,
 			Kind:         wh.Kind,
 			Keyword:      wh.Keyword,

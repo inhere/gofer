@@ -11,6 +11,14 @@
 
 ## [未发布]
 
+### 新增
+
+- **「设置 › 通知」加上了 IM 机器人与桌面通知**（gofer-x9mb）：一页三节——本设备推送（浏览器 Web Push，不变）、IM 机器人（`server.notification.webhooks`）、桌面通知（`server.notification.desktop`）。
+  - IM 机器人：列表（地址脱敏显示）、添加 / 编辑抽屉（类型钉钉 / 飞书 / 通用 webhook、bot URL、关键词、加签密钥的**环境变量名**（只填名字，不存也不回显密钥值）、事件多选（按分组带中英文说明，不勾 = 默认事件集）、限定项目、启用开关）与逐行「发送测试」；机器人拒绝（关键词没命中、签名错）会把它的原文报出来。
+  - 桌面通知：开关、事件、限定项目、合并窗口秒数，并写明它弹在运行 server 的机器上、当前平台是否支持。
+  - 「配置管理」页的通知表单改为一行指路，避免两处编辑同一份配置（保存时不再带 `notification` 成员）。
+  - 新增接口 `GET /v1/notify/events`（事件目录，`config.read`）与 `POST /v1/notify/test`（测试发送，`config.write`）；`PUT /v1/config/server` 的 `notification` 补丁新增 `desktop` 成员；`GET /v1/config` 的 webhook 条目新增 `url_redacted`。
+
 ### 文档
 
 - **两份 README 的第一屏重排**：开头依次是一句话定位、验收流程动图（`review` → `merge`，两张动图复制到 `.github/image/`、用相对路径引用）、四条卖点和 4 行快速开始（`eget install` → `gofer init server --global` → `GOFER_TOKEN` → `gofer serve`）；0.x 状态提示缩成一句并移到快速开始之后。原有的「是什么 / 不是什么」、架构图与工作台截图、Features、安装步骤都保留，原来的「10 分钟上手」改名为「完整走查」。

@@ -285,6 +285,15 @@ web 使用，脚本一般不需要。
 - 反向代理需放行 `Upgrade` 头、关缓冲、空闲超时 > 60s；Vite 开发代理已加 `/v1/ws` 的 `ws: true`（开发源要加进 `governance.attach_origins`）。
 - `GET /v1/agents`、`GET /v1/meta` 在前端有模块级缓存，由 `meta` 主题的 inval 失效。
 
+## Notification settings: event catalog and test send (gofer-x9mb)
+
+设置 · 通知页在读配置（`GET /v1/config` 的 `server.notification`）之外，用这两条接口拿「有哪些事件」和「这条目标现在能不能发出去」。写配置仍走 `PUT /v1/config/server` 的 `notification` 补丁。
+
+- `GET /v1/notify/events`（`config.read`）-> `{events:[{key,group,zh,en,default,desktop_default}], groups:[{key,zh,en}], desktop:{supported,merge_sec_default}}`。事件目录由 `internal/notify` 生成（`EventCatalog`），`default` / `desktop_default` 直接取自 `DefaultTriggerEvents` / `DefaultDesktopEvents`——没有第二份事件名单；`desktop.supported` 是该平台有没有桌面通知实现（Windows toast / macOS osascript / Linux notify-send）。
+- `POST /v1/notify/test`（`config.write`）body `{target:"webhook",index:N}` 或 `{target:"desktop"}` -> `200 {ok,target,index?,kind?,error?,skipped?}`。用**当前配置**发一条测试消息：webhook 按 `kind` 渲染（钉钉 / 飞书带关键词与加签，`secret_env` 只读环境变量名，值从进程环境取），上报 `X-Gofer-Event: notify.test`；`desktop` 走 server 本机弹窗。IM 的业务错误（如 `Key Words Not Found`、`keywords not in content`）原样放在 `error` 里返回（`ok:false`），`skipped:true` 表示桌面频道因环境原因（无交互会话 / 没装通知工具）没有弹出。target 非法或 `index` 没有对应的 webhook 是 `400`。
+- `PUT /v1/config/server` 的 `notification` 补丁多了 `desktop` 成员：`{enabled,events,projects,merge_sec}`，逐成员生效（body 没提的成员保留原值，`events: []` 恢复频道默认事件集）；`desktop: {"enabled": false}` 只暂停，不清掉事件 / 项目。
+- `GET /v1/config` 的 `server.notification.webhooks[]` 多了 `url_redacted`：同一个 URL 遮掉 userinfo 与查询串的值（`redactConfigURL` 的规则），列表显示用它；`url` 仍是原始值（写入是整表替换）。
+
 ## Today and "needs my decision"
 
 web 默认落地页 `/today` 的数据接口。人与普通 job 凭据可读；steward 凭据只能读 `GET /v1/today` 与记忆整理的读接口；worker token 一律 403。

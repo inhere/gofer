@@ -305,11 +305,13 @@ server:
   # notification:
   #   max_text_runes: 3000             # 通知正文上限; 每个 webhook 可用同名字段覆盖; 钉钉/飞书另有字节上限
   #   webhooks: [...]                  # IM 通知; 事件订阅见 IM 通知文档
+  #                                    #   也可在 web「设置 → 通知」里增删、勾选事件、限定项目与发送测试
   #   desktop:                         # 桌面通知(server 所在主机弹系统通知); 整段不写 = 不启用
   #     enabled: true                  #   false = 暂停但保留配置
   #     events: [job.awaiting_approval, interaction.created, session.awaiting_reply, job.needs_review]  # 省略 = 这四个
   #     projects: [demo]               #   只对这些项目弹(省略 = 全部)
   #     merge_sec: 10                  #   同类事件合并成一条("3 个 job 等待批准")，0 = 不合并
+  #                                    #   这一段同样可在 web「设置 → 通知」里改（开关 / 事件 / 项目 / 合并窗口），并可发一条测试弹窗
   # event_hooks: [...]                 # 事件发生时在 server 主机上跑命令(见下「事件钩子」); 只能改文件
 session:                               # 终端会话中继; 0 = 关该判据
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 停下时在 web 等回复

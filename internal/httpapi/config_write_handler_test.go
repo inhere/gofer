@@ -486,6 +486,8 @@ func TestConfigWriteRequiresAdmin(t *testing.T) {
 			"section": "agents", "key": "x", "value": map[string]any{"command": "x"},
 		}},
 		{"reload", http.MethodPost, "/v1/config/reload", nil},
+		// gofer-x9mb: a test send talks to a configured target, so it is a config write too.
+		{"notify test", http.MethodPost, "/v1/notify/test", map[string]any{"target": "desktop"}},
 	}
 	for _, tc := range cases {
 		resp := do(t, s, tc.method, tc.path, opToken, tc.body)
