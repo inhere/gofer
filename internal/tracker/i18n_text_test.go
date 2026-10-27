@@ -68,7 +68,8 @@ func TestEnglishPrimeTextHasNoCJK(t *testing.T) {
 }
 
 func TestMigratedTrackerFilesHaveNoCJK(t *testing.T) {
-	for _, file := range []string{"prime.go", "prime_layout.go", "prime_memory.go", "focus.go", "repo_block.go"} {
+	for _, file := range []string{"prime.go", "prime_layout.go", "prime_memory.go", "focus.go", "repo_block.go",
+		"memory_format.go", "memory_meta.go", "memory_archive.go", "memory_doctor.go", "memory_scope.go", "repo.go"} {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
@@ -81,7 +82,7 @@ func TestMigratedTrackerFilesHaveNoCJK(t *testing.T) {
 		ast.Inspect(af, func(n ast.Node) bool {
 			lit, ok := n.(*ast.BasicLit)
 			if ok && lit.Kind == token.STRING && hanPrime.MatchString(lit.Value) {
-				t.Errorf("%s:%d still contains CJK; move generated text to prime.ini", file, fset.Position(lit.Pos()).Line)
+				t.Errorf("%s:%d still contains CJK; move generated text to prime.ini / cli_tracker.ini", file, fset.Position(lit.Pos()).Line)
 			}
 			return true
 		})

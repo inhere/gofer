@@ -56,12 +56,10 @@ func AddMemoryFlag(flags []MemoryFlag, flag MemoryFlag) []MemoryFlag {
 
 // MemoryFlagPrefix is 「⚠ 待复核（<latest reason>）」 for a flagged memory, else "".
 func MemoryFlagPrefix(meta MemoryMeta) string {
-	if len(meta.Flags) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("⚠ 待复核（%s）", truncateRunes(strings.Join(strings.Fields(meta.Flags[0].Reason), " "), memoryFlagReasonRunes))
+	return MemoryFlagPrefixIn(i18n.Default, meta)
 }
 
+// MemoryFlagPrefixIn is MemoryFlagPrefix in lang.
 func MemoryFlagPrefixIn(lang i18n.Lang, meta MemoryMeta) string {
 	if len(meta.Flags) == 0 {
 		return ""
