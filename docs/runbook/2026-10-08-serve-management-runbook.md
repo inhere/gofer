@@ -33,21 +33,35 @@ server 的鉴权 token 只有两种来源，`--token` 是命令行临时覆盖�
 
 - 前台 `gofer serve` 在注册用的终端里跑，继承该终端的全部环境变量，包括那次 `export GOFER_TOKEN=...`。
 - 注册成系统服务后，unit / 计划任务只注入 `GOFER_CONFIG_DIR`（Linux 还有 `GOFER_MANAGED_SPEC`），**不继承注册终端的环境**；服务只读 `<config-dir>/.env` 与 config.yaml。
+- **Windows 还有一层：启动账户的持久环境变量**。任务计划程序拉起的服务继承该账户的用户级（`HKCU\Environment`）与机器级（`HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment`）环境变量，而 gofer 让「已存在的环境变量」优先于 `.env` 同名值——用户级持久环境里留着一个旧的 `GOFER_TOKEN` 就压过 `.env`，**改 `.env` 没有任何效果**（现场确认的就是这种情况：两边长度不同）。Linux / macOS 没有这一层（systemd unit / launchd 只给显式声明的环境）。
 
 症状：注册前用终端里的 token 登录 web 正常，`serve start` 之后同一个 token 401（日志里只有 401，没有解释）。
 
 排查：
 
-1. `gofer serve status --json` 的 `auth_token`：`service`（服务会用的来源与指纹）、`current_process`（当前终端会用的）、`match`。`kind` 为 `config` / `env-file` / `process-env` / `flag` / `unset`；`fingerprint` 是 token 的 sha256 前 8 位；**任何输出都不含 token 值**。
-2. `gofer serve logs --name '<name>'` 或 `run/serve.log` 里的 `server.token_source` 行：`kind` / `env_var` / `env_file` / `fingerprint`，可与上面对照。
-3. `gofer serve register` 在两边不一致（含服务侧没有 token）时会打印警告，指出两边来源与修法；它不阻止注册。
+1. `gofer serve status --json` 的 `auth_token`：`service`（服务会用的来源与掩码）、`current_process`（当前终端会用的）、`match`。`kind` 为 `config` / `env-file` / `process-env` / `persistent-env` / `flag` / `unset`；`masked` 是 token 的展示形式 `len=<长度> <前两位>**<末位>`（长度小于 8 只给 `len=<长度>`）；**任何输出都不含 token 值**。另外三条差异来源也在里面：`persistent_env`（Windows 持久环境里压过 `.env` 的那个变量：`scope` / `name` / `masked` / `shadowed`）、`unread_dotenv`（本次 CLI 加载了、服务不会读的 `.env`）、顶层的 `config_files` 与 `dotenv_files`（本次读到的 config 文件与 `.env` 文件）。
+2. `gofer serve logs --name '<name>'` 或 `run/serve.log` 里的 `server.token_source` 行：`kind` / `env_var` / `env_file` / `scope` / `masked`，可与上面对照。
+3. `gofer serve register` 在两边不一致（含服务侧没有 token）时会打印警告，指出两边来源与修法；Windows 持久环境变量压过 `.env` 时单独给一段警告（两边掩码 + 删除 / 改值命令）。它不阻止注册。
+4. 版本查询 401（`version_error: stats returned HTTP 401`）时，`serve status` 追加一行提示：CLI 用 `GOFER_SERVER_TOKEN`（或 `server.token_env` / `server.token`）访问 server，与服务端认可的 token 不一致时给出两边掩码（`--json` 的 `version_auth_mismatch`）。
 
 修法（让两边一致）：把要用的 token 写进 **配置目录的 `.env`**，例如 `<config-dir>/.env` 里 `GOFER_TOKEN=<token>`，然后 `gofer serve restart`；或登录 web / CLI 时改用服务那份。服务侧的 token 即使写在 config.yaml 的 `server.token` 也一致，但 dotenv 更便于轮换。不要写进 unit 文件、计划任务 XML 或注册命令的参数——受管 spec 只持久化非密参数。
+
+Windows 持久环境变量（只在它确实存在时才要处理；`serve status` / `serve register` 已经指出 `scope` 与变量名）：
+
+```powershell
+# 看它现在是什么（只在本地确认用，别贴进聊天 / issue）
+[Environment]::GetEnvironmentVariable('GOFER_TOKEN','User')
+# 删掉（推荐：让 .env 成为唯一来源）。机器级把 'User' 换成 'Machine'，需要管理员
+[Environment]::SetEnvironmentVariable('GOFER_TOKEN',$null,'User')
+# 或改成要用的那份；改完要新起的进程才看到，所以随后重启服务
+[Environment]::SetEnvironmentVariable('GOFER_TOKEN','<token>','User')
+gofer serve restart --name '<name>' -c '<config-file>'
+```
 
 ## 操作步骤
 
 1. **只读核对目标。** 先运行 `gofer serve status --name '<name>' --json`，核对 `registered`、原生入口、server/supervisor PID、配置文件、程序路径、版本和 `port_owned`。默认名为 `gofer-serve`。确认 `<config-dir>` 与所选 `-c '<config-file>'`；显式 `-c` 时 PID/运行日志在该配置文件同目录的 `run/`。
-   预期：目标未登记，或输出的系统入口与计划接管的实例一致。停止条件：同名入口属于其他程序、状态无法核验或仍有未结束的任务。若已登记，顺带看 `auth_token`：`service` 与 `current_process` 的 `fingerprint` 不一致说明登录要用的 token 与服务那份不同（见上文「token 的来源」）。
+   预期：目标未登记，或输出的系统入口与计划接管的实例一致。停止条件：同名入口属于其他程序、状态无法核验或仍有未结束的任务。若已登记，顺带看 `auth_token`：`service` 与 `current_process` 的 `masked` 不一致说明登录要用的 token 与服务那份不同（见上文「token 的来源」）。
 
 2. **登记，必要时启动。** Windows 在目标用户的交互终端运行：
 

@@ -17,7 +17,7 @@ export const access: PageDict = {
     'access.empty': '请输入 token',
     'access.invalid': 'token 无效或服务不可达（{detail}）',
     'access.tokenSourceHint':
-      '若服务是以系统服务方式运行的，它的 token 取自配置目录的 .env（GOFER_TOKEN）或 config.yaml 的 server.token，不读启动它的终端里 export 的环境变量。在 server 主机上运行 gofer serve status 可以看到服务端 token 的来源与指纹（不含 token 本身），据此改用服务那份 token；要两台一致，就把 token 写进配置目录的 .env。',
+      '若服务是以系统服务方式运行的，它的 token 取自配置目录的 .env（GOFER_TOKEN）或 config.yaml 的 server.token，不读启动它的终端里 export 的环境变量；Windows 上还要看账户的持久环境变量（用户级 / 机器级），它会压过 .env。在 server 主机上运行 gofer serve status 可以看到服务端 token 的来源与掩码（长度 + 首尾几位，不含 token 本身），据此改用服务那份 token；要两边一致，就把 token 写进配置目录的 .env。',
     'access.originMismatch':
       '通知链接指向 {origin}，与当前地址不同：从通知打开会要求重新登录。要免登录，用同一个地址打开控制台，或把 server.web_base_url 改成这个地址。',
   },
@@ -35,7 +35,7 @@ export const access: PageDict = {
     'access.empty': 'Enter a token',
     'access.invalid': 'Invalid token or unreachable server ({detail})',
     'access.tokenSourceHint':
-      'If the server runs as a system service, its token comes from the config dir’s .env (GOFER_TOKEN) or server.token in config.yaml — not from the environment variables exported in the terminal that started it. Run gofer serve status on the server host to see where its token comes from and its fingerprint (never the token itself), then sign in with that token; to make both sides agree, put the token in the config dir’s .env.',
+      'If the server runs as a system service, its token comes from the config dir’s .env (GOFER_TOKEN) or server.token in config.yaml — not from the environment variables exported in the terminal that started it; on Windows the account’s persistent environment (User / Machine) also applies and overrides .env. Run gofer serve status on the server host to see where its token comes from and its mask (length plus the first and last characters, never the token itself), then sign in with that token; to make both sides agree, put the token in the config dir’s .env.',
     'access.originMismatch':
       'Notification links point to {origin}, not this address, so opening one will ask you to sign in again. To skip that, open the console at the same address, or set server.web_base_url to this address.',
   },
