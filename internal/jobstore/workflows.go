@@ -2,6 +2,7 @@ package jobstore
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -54,6 +55,7 @@ type Workflow struct {
 	CurrentStep int
 	TotalSteps  int
 	SpecJSON    string
+	ProjectKey  string
 	CallerID    string
 	Error       string
 	CreatedAt   int64
@@ -109,7 +111,7 @@ const selectWorkflowCols = `SELECT id, COALESCE(title,''), status, current_step,
   created_at, updated_at,
   COALESCE(step_attempt,1), COALESCE(next_step_at,0),
   COALESCE(parent_workflow_id,''), COALESCE(parent_step_index,0),
-  COALESCE(rerun_of,'') FROM workflows`
+  COALESCE(rerun_of,''), COALESCE(project_key,'') FROM workflows`
 
 // scanWorkflow reads one row (in selectWorkflowCols order) into a Workflow.
 func scanWorkflow(sc rowScanner) (Workflow, error) {
@@ -120,7 +122,7 @@ func scanWorkflow(sc rowScanner) (Workflow, error) {
 		&w.CreatedAt, &w.UpdatedAt,
 		&w.StepAttempt, &w.NextStepAt,
 		&w.ParentWorkflowID, &w.ParentStepIndex,
-		&w.RerunOf,
+		&w.RerunOf, &w.ProjectKey,
 	)
 	return w, err
 }
@@ -148,19 +150,56 @@ func (s *Store) InsertWorkflow(w Workflow) error {
 		parentWf = w.ParentWorkflowID
 		parentStep = w.ParentStepIndex
 	}
+	w.ProjectKey = workflowProjectKey(w.SpecJSON)
 	const q = `INSERT INTO workflows
-  (id, title, status, current_step, total_steps, spec_json, caller_id, error, created_at, updated_at, step_attempt, next_step_at, parent_workflow_id, parent_step_index, rerun_of)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  (id, title, status, current_step, total_steps, spec_json, project_key, caller_id, error, created_at, updated_at, step_attempt, next_step_at, parent_workflow_id, parent_step_index, rerun_of)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		w.ID, w.Title, w.Status, w.CurrentStep, w.TotalSteps,
-		w.SpecJSON, w.CallerID, w.Error, w.CreatedAt, w.UpdatedAt,
+		w.SpecJSON, w.ProjectKey, w.CallerID, w.Error, w.CreatedAt, w.UpdatedAt,
 		w.StepAttempt, w.NextStepAt, parentWf, parentStep, rerunOf(w.RerunOf),
 	); err != nil {
 		return fmt.Errorf("jobstore: insert workflow %q: %w", w.ID, err)
 	}
 	return nil
+}
+
+// workflowProjectKey returns a single effective project for SQL filtering. A workflow with
+// several distinct step projects is intentionally left empty so a restricted caller never
+// sees it through a single-project index.
+func workflowProjectKey(specJSON string) string {
+	var raw struct {
+		Project string `json:"project"`
+		Steps   []struct {
+			ProjectKey string `json:"project_key"`
+		} `json:"steps"`
+	}
+	if json.Unmarshal([]byte(specJSON), &raw) != nil {
+		return ""
+	}
+	projects := map[string]struct{}{}
+	for _, step := range raw.Steps {
+		project := step.ProjectKey
+		if project == "" {
+			project = raw.Project
+		}
+		if project == "" {
+			return ""
+		}
+		projects[project] = struct{}{}
+	}
+	if raw.Project != "" {
+		projects[raw.Project] = struct{}{}
+	}
+	if len(projects) != 1 {
+		return ""
+	}
+	for project := range projects {
+		return project
+	}
+	return ""
 }
 
 // rerunOf maps an empty rerun origin to NULL so a plain submit scans back as "".
@@ -230,6 +269,7 @@ type WorkflowListFilter struct {
 	Status         string
 	CallerID       string
 	RestrictCaller bool
+	ProjectKeys    []string
 }
 
 // workflowFilter builds the WHERE clause shared by ListWorkflowsPage's row query and its
@@ -246,6 +286,14 @@ func workflowFilter(f WorkflowListFilter) (string, []any) {
 	if f.RestrictCaller {
 		conds = append(conds, "COALESCE(caller_id,'') = ?")
 		args = append(args, f.CallerID)
+	}
+	if len(f.ProjectKeys) > 0 {
+		placeholders := make([]string, len(f.ProjectKeys))
+		for i, project := range f.ProjectKeys {
+			placeholders[i] = "?"
+			args = append(args, project)
+		}
+		conds = append(conds, "project_key IN ("+strings.Join(placeholders, ",")+")")
 	}
 	if len(conds) == 0 {
 		return "", nil

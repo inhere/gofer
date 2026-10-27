@@ -220,6 +220,7 @@ gofer workflow export <id>                            # 导出 spec（去密钥�
 ```
 
 - 文件格式：`.json` 按 json，其余按 yaml；顶层 `title` + `project` + `steps: [...]`。先 `export` 一个跑通的当模板最快。
+- `workflow list` 对受项目上限约束的调用方会在服务端按工作流项目先过滤再分页；返回的 `total` 也是可见项目的总数。包含多个不同项目或无法解析项目的旧数据会按安全策略不出现在受限列表中。
 - 顶层 `project:` 是这个 workflow 的默认项目：步骤不写 `project_key` 就在它里面跑。`wf run -p <project>` 覆盖文件里的 `project`（用 `--template` 时同时作为模板查找的项目与模板 `project` 变量的默认值）。
 - step 可声明依赖、`fan_out` 扇出、汇合；步骤可带 `worktree`、`worktree_base`、`ref`、`env`、`template`、`vars`、`read_only`、`verify`、`review`。runner 留空 = 项目默认（项目允许本机就用本机；只列一个就用它；列多个且不含本机则必须显式指定）。
 - 引用前序结果：`${steps.<name>.<field>}`，`.fK.` 选第 K 个 fan，`.<fan 名>.` 按 fan 的 `name` 选，`.all.` 选所有成功 fan，`.picked.` 选被择优的 fan。字段：`result_dir`、`result`、`stdout`、`exit_code`、`status`、`job_id`、`worktree_branch`、`diff`（`changes.diff` 的路径）、`diff_summary`。`.all.` 聚合超过 32KB 时自动写成文件、引用处换成文件路径。大段或不可信文本（如评审输出）请以**文件路径**传给下一步的 agent，不要插值进 exec 命令。
