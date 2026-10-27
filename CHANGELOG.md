@@ -24,6 +24,12 @@
 - **CLI 输出按 `GOFER_LANG` / 系统语言本地化（阶段 2 收尾，gofer-992q）**：`agent` / `auth` / `hook` / `issue` / `mcp` / `memory` / `repo` / `schedule` / `settings` / `steward` / `template` / `tool` / `tunnel` / `work` / `workflow` 这些命令组的提示、错误、表头与 `--help` 说明，以及 `gofer memory` / `gofer repo status` 打印的记忆文本（列表、详情、归档、doctor、scope 依据、记忆年龄），都改由 `internal/i18n` 渲染：`GOFER_LANG` → 系统语言 → 缺省。zh-CN 下的输出与改动前逐字一致。
 - `internal/commands` 除 `worker_init.go`（写进 worker.yaml 的模板注释）外已整体纳入「字符串字面量不得含中文」的扫描测试。
 
+### 修复
+
+- **项目路径匹配支持符号链接**（gofer-on30）：`--project auto` 现在解析当前目录与项目执行路径的符号链接后再匹配，项目通过软链接访问时仍能正确应用项目配置。
+- **服务重启后常驻信箱会话保留内部标记**（gofer-jtif）：恢复 `agent:` 常驻 ACP 会话时从服务端常驻登记表重新注入 gofer MCP 与回信放行标记，不再因 `request_json` 不含内部字段而失去信箱能力。
+- **受项目上限的工作流列表正确分页**（gofer-6snh）：工作流项目范围下推到列表与总数查询，受限调用方的 `total` 和每页内容不再包含其它项目。
+
 ## [0.201.0] - 2026-10-27
 
 ### 新增

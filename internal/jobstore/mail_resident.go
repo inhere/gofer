@@ -102,6 +102,19 @@ func (s *Store) ListResidentAgents(statuses ...string) ([]MailResidentAgent, err
 	return out, rows.Err()
 }
 
+// IsLiveMailResidentJob reports whether the server's resident-agent registry currently owns
+// jobID. This durable row is the trusted source for restoring the server-only marker; request_json
+// deliberately cannot set it.
+func (s *Store) IsLiveMailResidentJob(jobID string) bool {
+	if s == nil || strings.TrimSpace(jobID) == "" {
+		return false
+	}
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM mail_resident_agents WHERE job_id = ? AND status = ?`,
+		strings.TrimSpace(jobID), MailResidentLive).Scan(&one)
+	return err == nil
+}
+
 // CountLiveResidentAgents counts the rows whose session is the live one (the agents_max_resident
 // ceiling is about those).
 func (s *Store) CountLiveResidentAgents() (int, error) {

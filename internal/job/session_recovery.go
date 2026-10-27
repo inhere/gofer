@@ -87,6 +87,9 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 	// W2b: the steward marker is not part of request_json (server-stamped), so it is read
 	// back from its durable row — a recovered steward keeps its credential kind and MCP.
 	request.Steward = s.meta.IsStewardJob(rec.ID)
+	// MailResident is likewise server-only. Restore it only when the live resident registry
+	// still owns this job; never trust request_json, which callers can submit themselves.
+	request.MailResident = s.meta.IsLiveMailResidentJob(rec.ID)
 	runReq.Env = util.EnvWith(runReq.Env, s.jobCredentialEnv(cfg, rec.ID, request, sessionCredentialTTL(request, time.Duration(rec.TimeoutSec)*time.Second)))
 	for _, rel := range request.LockPaths {
 		path, pathErr := project.SafeJoin(cfg.ExecPath(proj), rel)
@@ -100,6 +103,9 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 		if serr := applyStewardRun(&runReq); serr != nil {
 			return serr
 		}
+	}
+	if request.MailResident {
+		applyMailResidentRun(&runReq)
 	}
 	runReq.ACP.LoadSessionID = rec.SessionID
 	runReq.ACP.AppendEvents = true

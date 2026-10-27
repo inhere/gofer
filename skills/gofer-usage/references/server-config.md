@@ -94,7 +94,7 @@ projects:
 - 含某 **worker-runner 名**（如 `builder`）→ 可派给那台 worker，**且 server 会把这个 project 下发进那台 worker 的 POLICY**。
 - **空 `allowed_runners` = 不推给任何 worker、也不在本机跑**（不是通配）。
 
-项目目录里还可放 `.gofer.project.yaml` 瘦配置（只放偏好，准入字段留在全局 config）。
+项目目录匹配会解析 `host_path` / `container_path` 与当前目录的符号链接后再判断归属；项目目录尚不存在或无法解析时回落到清理后的字面路径。
 
 ## worker = 两段配置
 

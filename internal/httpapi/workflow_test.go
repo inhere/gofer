@@ -397,6 +397,39 @@ func TestListWorkflowsCallerFilter(t *testing.T) {
 	}
 }
 
+// TestListWorkflowsCeilingProjectFilter asserts project ceilings are pushed into both the page
+// query and COUNT query; rows from another project must not consume page slots or total.
+func TestListWorkflowsCeilingProjectFilter(t *testing.T) {
+	t.Parallel()
+	s := newCeilingServer(t)
+	grantAll(s)
+	meta := s.jobs.Meta()
+	now := time.Now().Unix()
+	seed := func(id, project string, at int64) {
+		if err := meta.InsertWorkflow(jobstore.Workflow{
+			ID: id, Status: jobstore.WorkflowDone, CallerID: "bob", CurrentStep: 1, TotalSteps: 1,
+			SpecJSON:  fmt.Sprintf(`{"steps":[{"project_key":%q,"agent":"exec"}]}`, project),
+			CreatedAt: at, UpdatedAt: at,
+		}); err != nil {
+			t.Fatalf("seed workflow %s: %v", id, err)
+		}
+	}
+	seed("wf-p1-2", "p1", now+1)
+	seed("wf-p1-1", "p1", now)
+	seed("wf-p2-3", "p2", now+4)
+	seed("wf-p2-2", "p2", now+3)
+	seed("wf-p2-1", "p2", now+2)
+
+	page, total := workflowPageToken(t, s, ceilTokLim, "?limit=1")
+	if total != 2 || len(page) != 1 || page[0] != "wf-p1-2" {
+		t.Fatalf("limited workflow page = %v (total %d), want [wf-p1-2] (total 2)", page, total)
+	}
+	page, total = workflowPageToken(t, s, ceilTokLim, "?limit=1&offset=1")
+	if total != 2 || len(page) != 1 || page[0] != "wf-p1-1" {
+		t.Fatalf("limited workflow page 2 = %v (total %d), want [wf-p1-1] (total 2)", page, total)
+	}
+}
+
 // TestRenderWorkflowTemplate asserts POST /v1/workflow-templates/{name}/render
 // returns the executable spec without submitting anything, and rejects bad vars.
 func TestRenderWorkflowTemplate(t *testing.T) {

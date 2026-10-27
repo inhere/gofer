@@ -246,12 +246,14 @@ var schemaStmts = []string{
   current_step INTEGER NOT NULL,
   total_steps  INTEGER NOT NULL,
   spec_json    TEXT NOT NULL,
+  project_key  TEXT,
   caller_id    TEXT,
   error        TEXT,
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status)`,
+	`CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_key)`,
 	// workflow_events is the workflow-level append-only event stream (P1, design
 	// §5.4), the workflow analogue of job_events. One row per recorded event; seq is
 	// the monotonic global insertion order (AUTOINCREMENT) used as the poll cursor
@@ -1811,6 +1813,32 @@ func (s *Store) migrateWorkflows() error {
 	// S4: the rerun origin (design §一·7). 旧行 COALESCE→"" (an original submit).
 	if err := add("rerun_of", "rerun_of TEXT"); err != nil {
 		return err
+	}
+	// Workflow project scope is additive. A unique effective project is backfilled from
+	// spec_json; multi-project or malformed specs stay empty and are fail-closed for a
+	// project-restricted listing.
+	if err := add("project_key", "project_key TEXT"); err != nil {
+		return err
+	}
+	rows, err := s.db.Query(`SELECT id, COALESCE(spec_json,'') FROM workflows`)
+	if err != nil {
+		return fmt.Errorf("jobstore: migrate workflows read project: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, specJSON string
+		if err := rows.Scan(&id, &specJSON); err != nil {
+			return fmt.Errorf("jobstore: migrate workflows scan project: %w", err)
+		}
+		if _, err := s.db.Exec(`UPDATE workflows SET project_key=? WHERE id=?`, workflowProjectKey(specJSON), id); err != nil {
+			return fmt.Errorf("jobstore: migrate workflow %q project: %w", id, err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("jobstore: migrate workflows rows: %w", err)
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_key)`); err != nil {
+		return fmt.Errorf("jobstore: migrate workflows project index: %w", err)
 	}
 	return nil
 }

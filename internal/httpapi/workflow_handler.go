@@ -293,15 +293,16 @@ func (s *Server) handleListWorkflows(c *rux.Context) {
 		filter.CallerID = callerFromCtx(c)
 		filter.RestrictCaller = true
 	}
+	if ceil := s.ceilingOf(c); ceil != nil && len(ceil.Projects) > 0 {
+		filter.ProjectKeys = append(filter.ProjectKeys, ceil.Projects...)
+	}
 	list, total, err := s.workflow.ListWorkflowsPage(filter, limit, offset)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workflows failed", err.Error())
 		return
 	}
-	// A ceiling-restricted caller reads only the workflows of its projects. Resolving a
-	// workflow's project needs its spec, so this narrowing stays row-by-row on the page
-	// (total still counts the rows the paging walks, so page count stays reachable).
-	list = scopeRowsByKind(s, c, "workflow", list, func(wf jobstore.Workflow) string { return wf.ID })
+	// The workflow project filter is persisted and pushed into both SQL queries, so a
+	// ceiling-restricted caller's total and page are both limited to visible projects.
 	out := make([]workflowSummary, 0, len(list))
 	for _, wf := range list {
 		out = append(out, toWorkflowSummary(wf))
