@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/procattr"
 )
 
 // Executor is the small seam around the system ssh/scp (or wsl.exe) commands.
@@ -37,6 +39,7 @@ func (e SystemExecutor) Run(ctx context.Context, args []string, stdin io.Reader)
 		cmdArgs = append([]string{"-o", "BatchMode=yes", e.SSH}, cmdArgs...)
 	}
 	cmd := exec.CommandContext(ctx, name, cmdArgs...)
+	procattr.Background(cmd)
 	cmd.Stdin = stdin
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -55,6 +58,7 @@ func (e SystemExecutor) Copy(ctx context.Context, source, destination string) er
 		return err
 	}
 	cmd := exec.CommandContext(ctx, "scp", "-o", "BatchMode=yes", source, e.SSH+":"+destination)
+	procattr.Background(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("scp %s: %w: %s", e.SSH, err, strings.TrimSpace(string(out)))

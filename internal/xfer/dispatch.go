@@ -147,7 +147,7 @@ type TargetCapabilities interface {
 // attachment directory: the builtin local runner always can (this process writes its own
 // runtime directory), a worker only when it registered with the capability.
 func (m *Manager) OwnAttachmentsSupported(runner string) bool {
-	if config.NormalizeRunnerName(runner) == config.BuiltinLocalRunner {
+	if config.IsLocalRunnerName(runner) {
 		return true
 	}
 	caps, ok := m.runnerOrNil().(TargetCapabilities)
