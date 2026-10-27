@@ -35,6 +35,11 @@ const EnvConfigDir = "GOFER_CONFIG_DIR"
 // .env), and the CLI/MCP default their bearer token to it.
 const EnvJobToken = "GOFER_JOB_TOKEN"
 
+// EnvServerToken is the variable a CLI / client reads its bearer token from
+// before falling back to server.token_env / server.token (resolveClientToken).
+// `gofer init client` writes it into the config dir's .env.
+const EnvServerToken = "GOFER_SERVER_TOKEN"
+
 // DefaultConfigDirName is the user-level config dir under the OS config home
 // (~/.config/<name>).
 const DefaultConfigDirName = "gofer"

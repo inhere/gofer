@@ -30,7 +30,7 @@ func TestResolveServerToken(t *testing.T) {
 		if token != flagTok || src.Kind != TokenSourceFlag || !src.Set {
 			t.Fatalf("token=%q src=%+v", token, src)
 		}
-		if src.Fingerprint != TokenFingerprint(flagTok) || src.Length != len(flagTok) {
+		if src.Masked != TokenMask(flagTok) || src.Length != len(flagTok) {
 			t.Fatalf("flag source lost its value-free id: %+v", src)
 		}
 	})
@@ -53,7 +53,7 @@ func TestResolveServerToken(t *testing.T) {
 		if svcToken != fileTok || svcSrc.Kind != TokenSourceEnvFile || svcSrc.EnvFile != file {
 			t.Fatalf("service side: token=%q src=%+v", svcToken, svcSrc)
 		}
-		if TokenSourceMatches(procSrc, svcSrc) {
+		if TokenValuesMatch(procToken, svcToken) {
 			t.Fatal("the two sides were reported as the same token")
 		}
 	})
@@ -148,20 +148,125 @@ func TestTokenSourceNeverLeaksTheValue(t *testing.T) {
 	if strings.Contains(out, secret) {
 		t.Fatalf("Summary() leaked the token: %q", out)
 	}
-	if !strings.Contains(out, TokenFingerprint(secret)) || !strings.Contains(out, EnvFileName) {
-		t.Fatalf("Summary() = %q, want the fingerprint and the source", out)
+	if !strings.Contains(out, TokenMask(secret)) || !strings.Contains(out, EnvFileName) {
+		t.Fatalf("Summary() = %q, want the mask and the source", out)
 	}
 	if src.Length != len(secret) {
 		t.Fatalf("length = %d, want %d", src.Length, len(secret))
 	}
-	if TokenFingerprint(secret) == TokenFingerprint(secret+"x") {
-		t.Fatal("fingerprints of different tokens collided")
+	if TokenValuesMatch(secret, secret+"x") {
+		t.Fatal("different tokens compared equal")
 	}
-	if len(TokenFingerprint(secret)) != 8 {
-		t.Fatalf("fingerprint = %q, want 8 hex chars", TokenFingerprint(secret))
+	if !TokenValuesMatch("", "") {
+		t.Fatal("two unset sides must match")
 	}
-	if TokenFingerprint("") != "" {
-		t.Fatal("an empty token must have no fingerprint")
+}
+
+// TestTokenMask pins the display format: length plus the first two and last
+// character, and nothing but the length for a short token (gofer-t9md).
+func TestTokenMask(t *testing.T) {
+	cases := []struct {
+		name  string
+		token string
+		want  string
+	}{
+		{name: "empty", token: "", want: ""},
+		{name: "one character", token: "a", want: "len=1"},
+		{name: "short", token: "abcde", want: "len=5"},
+		{name: "just under the threshold", token: "abcdefg", want: "len=7"},
+		{name: "at the threshold", token: "abcdefgh", want: "len=8 ab**h"},
+		{name: "typical token", token: "0123456789abcdef0123456789abcdef", want: "len=32 01**f"},
+		{name: "multibyte", token: "令牌令牌令牌令牌令牌", want: "len=10 令牌**牌"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := TokenMask(tc.token); got != tc.want {
+				t.Fatalf("TokenMask(%q) = %q, want %q", tc.token, got, tc.want)
+			}
+			if tc.token != "" && len(tc.token) >= 8 && strings.Contains(TokenMask(tc.token), tc.token) {
+				t.Fatalf("the mask carries the whole token: %q", TokenMask(tc.token))
+			}
+		})
+	}
+}
+
+// TestTokenValuesMatchIgnoresTheMask: the mask is for people; the comparison must
+// use the value, or two different secrets that share a mask would look equal.
+func TestTokenValuesMatchIgnoresTheMask(t *testing.T) {
+	a, b := "01"+strings.Repeat("a", 29)+"f", "01"+strings.Repeat("b", 29)+"f"
+	if TokenMask(a) != TokenMask(b) {
+		t.Fatalf("the fixture was supposed to share a mask: %q vs %q", TokenMask(a), TokenMask(b))
+	}
+	if TokenValuesMatch(a, b) {
+		t.Fatal("two tokens with the same mask compared equal")
+	}
+}
+
+// TestFindPersistentEnv picks one value out of the Windows persistent stores: the
+// User value wins over the Machine one, names match case-insensitively, and an
+// empty value counts as unset.
+func TestFindPersistentEnv(t *testing.T) {
+	store := []PersistentEnvVar{
+		{Scope: PersistentEnvScopeMachine, Name: "GOFER_TOKEN", Value: "machine-token"},
+		{Scope: PersistentEnvScopeMachine, Name: "PATH", Value: `C:\Windows`},
+		{Scope: PersistentEnvScopeUser, Name: "gofer_token", Value: "user-token"},
+		{Scope: PersistentEnvScopeUser, Name: "GOFER_EMPTY_TOKEN", Value: ""},
+	}
+	if got, ok := FindPersistentEnv(store, "GOFER_TOKEN"); !ok || got.Value != "user-token" || got.Scope != PersistentEnvScopeUser {
+		t.Fatalf("user value did not win: %+v ok=%v", got, ok)
+	}
+	if got, ok := FindPersistentEnv(store, "path"); !ok || got.Value != `C:\Windows` {
+		t.Fatalf("case-insensitive lookup failed: %+v ok=%v", got, ok)
+	}
+	if got, ok := FindPersistentEnv(store[:1], "GOFER_TOKEN"); !ok || got.Scope != PersistentEnvScopeMachine {
+		t.Fatalf("machine-only store: %+v ok=%v", got, ok)
+	}
+	if _, ok := FindPersistentEnv(store, "GOFER_EMPTY_TOKEN"); ok {
+		t.Fatal("an empty persistent value counted as set")
+	}
+	if _, ok := FindPersistentEnv(store, "GOFER_TOKEN_MISSING"); ok {
+		t.Fatal("an absent name was reported as present")
+	}
+	if _, ok := FindPersistentEnv(nil, "GOFER_TOKEN"); ok {
+		t.Fatal("an empty store reported a value")
+	}
+}
+
+// TestServiceEnvViewPersistentWinsOverDotenv: the service inherits the persistent
+// environment, and gofer keeps an already-set variable over the .env — so a stale
+// Windows GOFER_TOKEN shadows <config-dir>/.env (the case that made web login
+// fail only after `serve register`).
+func TestServiceEnvViewPersistentWinsOverDotenv(t *testing.T) {
+	const (
+		inherited = "token-the-machine-still-has"
+		fileTok   = "token-in-the-dotenv-file"
+	)
+	dir := t.TempDir()
+	file := filepath.Join(dir, EnvFileName)
+	writeFile(t, file, "GOFER_TOKEN="+fileTok+"\nONLY_FILE=1\n")
+	store := []PersistentEnvVar{{Scope: PersistentEnvScopeUser, Name: "gofer_token", Value: inherited}}
+
+	sc := &ServerConfig{TokenEnv: EnvTokenDefault}
+	token, src := ResolveServerToken(sc, "", ServiceEnvView(store, file))
+	if token != inherited {
+		t.Fatalf("token = %q, want the inherited one", token)
+	}
+	if src.Kind != TokenSourcePersistentEnv || src.Scope != PersistentEnvScopeUser || src.EnvFile != "" {
+		t.Fatalf("source = %+v, want the persistent environment", src)
+	}
+	if src.Masked != TokenMask(inherited) {
+		t.Fatalf("mask = %q, want %q", src.Masked, TokenMask(inherited))
+	}
+	// The file still supplies everything the store does not define.
+	view := ServiceEnvView(store, file)
+	if v, ok := view.token("ONLY_FILE"); !ok || v != "1" {
+		t.Fatalf("a file-only key was lost: %q %v", v, ok)
+	}
+	// Without the store the same file resolves the other token: that difference is
+	// exactly what the warning tells the operator about.
+	fileToken, _ := ResolveServerToken(sc, "", DotenvOnlyEnvView(file))
+	if fileToken != fileTok || TokenValuesMatch(fileToken, token) {
+		t.Fatalf("file side = %q, inherited = %q", fileToken, token)
 	}
 }
 
@@ -208,7 +313,7 @@ func TestDescribeServerTokens(t *testing.T) {
 		t.Errorf("unresolvable caller = %+v", got[2])
 	}
 	if got[4].Kind != TokenSourceEnvFile || got[4].EnvFile != "/etc/gofer/.env" ||
-		got[4].Fingerprint != TokenFingerprint(workerTok) {
+		got[4].Masked != TokenMask(workerTok) {
 		t.Errorf("worker env source = %+v", got[4])
 	}
 }
