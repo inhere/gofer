@@ -90,14 +90,30 @@ type serveStatusOutput struct {
 	ConfigFile        string             `json:"config_file,omitempty"`
 	Executable        string             `json:"executable,omitempty"`
 	ApplicationLog    string             `json:"application_log,omitempty"`
+	// ConfigFiles lists every config file this status run read: the managed spec's
+	// (what the service runs) and, when -c points elsewhere, this CLI's own.
+	ConfigFiles []string `json:"config_files,omitempty"`
+	// DotenvFiles is what config.LoadDotenv actually loaded in THIS process, in load
+	// order. The service loads its own config dir's .env only (gofer-t9md).
+	DotenvFiles []string `json:"dotenv_files,omitempty"`
+	// VersionAuthMismatch is set when the /v1/stats probe got 401: this CLI's token
+	// is not one the service accepts (gofer-t9md).
+	VersionAuthMismatch *versionAuthMismatch `json:"version_auth_mismatch,omitempty"`
 	// AuthToken is where the managed service's auth token comes from and whether
 	// this terminal resolves the same one (gofer-t9md). Never the value itself.
 	AuthToken *serveAuthTokenStatus `json:"auth_token,omitempty"`
 }
 
+// versionAuthMismatch is the diagnosis of a 401 from the version probe: the token
+// this CLI sent and the one the service accepts, both by source and mask.
+type versionAuthMismatch struct {
+	CLI    config.TokenSource `json:"cli"`
+	Server config.TokenSource `json:"server"`
+}
+
 // serveAuthTokenStatus is the `serve status --json` view of the managed auth
 // token: the service's own source, the source this terminal would use, and
-// whether the two agree (by fingerprint). Credentials lists every token the
+// whether the two agree (by value). Credentials lists every token the
 // server accepts (legacy + server.callers + server.workers) resolved from the
 // SERVICE's environment, so a caller whose variable is empty there shows up.
 type serveAuthTokenStatus struct {
@@ -105,6 +121,11 @@ type serveAuthTokenStatus struct {
 	CurrentProcess config.TokenSource   `json:"current_process"`
 	Match          bool                 `json:"match"`
 	Credentials    []config.TokenSource `json:"credentials,omitempty"`
+	// Persistent is the persistent-environment variable (Windows User / Machine)
+	// that the service inherits and that overrides the .env value (gofer-t9md).
+	Persistent *persistentShadow `json:"persistent_env,omitempty"`
+	// UnreadDotenv lists dotenv files this process loaded that the service does not.
+	UnreadDotenv []string `json:"unread_dotenv,omitempty"`
 }
 
 func newServeManagementCommands(info buildinfo.Info) []*gcli.Command {
@@ -400,8 +421,14 @@ func runServeManagedStatus(c *gcli.Command, _ []string) error {
 	if out.IdentityError != "" {
 		c.Printf("identity: %s\n", out.IdentityError)
 	}
+	for _, line := range statusFileLines(&out) {
+		c.Printf("%s\n", line)
+	}
 	if out.VersionError != "" {
 		c.Printf("running version: %s\n", out.VersionError)
+	}
+	for _, line := range versionAuthHintLines(out.VersionAuthMismatch) {
+		c.Printf("%s\n", line)
 	}
 	if out.AuthToken != nil {
 		for _, line := range tokenStatusLines(out.AuthToken) {
@@ -438,6 +465,7 @@ func inspectManagedStatus(ctx context.Context, m *servicemgr.Manager) (serveStat
 	}
 	out.Backend, out.Registered, out.NativeState, out.Active = spec.Backend, native.Installed, native.NativeState, native.Active
 	out.ConfigFile, out.Executable, out.RegisteredVersion = spec.ConfigFile, spec.Exe, spec.RegisteredVersion
+	out.ConfigFiles, out.DotenvFiles = statusConfigFiles(spec), loadedDotenvFilesAbs()
 	out.AuthToken = managedAuthTokenStatus(spec)
 	out.ServerPID, out.SupervisorPID = native.Server.PID, native.Supervisor.PID
 	out.ServerVerified = native.Server.PID > 0 && native.IdentityError == ""
@@ -515,9 +543,18 @@ func inspectManagedStatus(ctx context.Context, m *servicemgr.Manager) (serveStat
 			return out, nil
 		}
 		out.Health = "healthy"
-		version, versionErr := readManagedRuntimeVersion(probeCtx, client, probeHost, rawPort, configValue)
+		cliToken, cliSrc := cliStatsToken(&configValue.Server)
+		version, versionErr := readManagedRuntimeVersion(probeCtx, client, probeHost, rawPort, cliToken)
 		if versionErr != nil {
 			out.VersionError = versionErr.Error()
+			var authErr statsAuthError
+			if errors.As(versionErr, &authErr) {
+				mismatch := &versionAuthMismatch{CLI: cliSrc}
+				if out.AuthToken != nil {
+					mismatch.Server = out.AuthToken.Service
+				}
+				out.VersionAuthMismatch = mismatch
+			}
 		} else {
 			out.RunningVersion = version
 		}
@@ -537,21 +574,17 @@ func inspectManagedStatus(ctx context.Context, m *servicemgr.Manager) (serveStat
 	return out, nil
 }
 
-func readManagedRuntimeVersion(ctx context.Context, client *http.Client, host, port string, cfg *config.Config) (string, error) {
+// statsAuthError is the 401 from the /v1/stats probe: the token this CLI sent is
+// not one the server accepts — the “web login worked, then not” case
+// (gofer-t9md).
+type statsAuthError struct{ status int }
+
+func (e statsAuthError) Error() string { return fmt.Sprintf("stats returned HTTP %d", e.status) }
+
+func readManagedRuntimeVersion(ctx context.Context, client *http.Client, host, port, token string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/v1/stats", nil)
 	if err != nil {
 		return "", err
-	}
-	// A CLI launched inside a job uses only its own job credential; it must not
-	// load a server administrator token from the machine's dotenv file.
-	token := os.Getenv(config.EnvJobToken)
-	if token == "" {
-		if cfg.Server.TokenEnv != "" {
-			token = os.Getenv(cfg.Server.TokenEnv)
-		}
-		if token == "" {
-			token = cfg.Server.Token
-		}
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -562,6 +595,9 @@ func readManagedRuntimeVersion(ctx context.Context, client *http.Client, host, p
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return "", statsAuthError{status: resp.StatusCode}
+		}
 		return "", fmt.Errorf("stats returned HTTP %d", resp.StatusCode)
 	}
 	var payload struct {

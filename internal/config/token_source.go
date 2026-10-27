@@ -1,8 +1,7 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"os"
@@ -22,8 +21,14 @@ import (
 // held B, the web login that worked with A fails the moment the server runs as a
 // service — and nothing said so. Everything that reports the token (the
 // `serve register` warning, `serve status`, the startup log) goes through the
-// functions below, so two sides are always compared by SOURCE and by FINGERPRINT
-// and no surface ever prints the value.
+// functions below: two sides are compared by their full VALUE (TokenValuesMatch)
+// and shown by SOURCE plus a masked form (TokenMask) that is enough to tell them
+// apart without handing out anything usable.
+//
+// On Windows a managed task also inherits the operator's PERSISTENT environment
+// (the User / Machine variables), which LoadDotenv's "an exported value wins"
+// rule lets override <config-dir>/.env — the stale GOFER_TOKEN case. ServiceEnvView
+// layers that store under the dotenv files exactly as the service does.
 //
 // The resolution mirrors the server exactly: serve.Start uses ResolveServerToken,
 // and httpapi builds its caller set from the same precedence (flag > token_env >
@@ -57,10 +62,33 @@ const (
 	TokenSourceProcess TokenSourceKind = "process-env"
 	// TokenSourceFlag means the `serve --token` command line override.
 	TokenSourceFlag TokenSourceKind = "flag"
+	// TokenSourcePersistentEnv means that variable, whose value the service
+	// inherits from a persistent environment store (Windows User / Machine) — it
+	// shadows the dotenv files (gofer-t9md).
+	TokenSourcePersistentEnv TokenSourceKind = "persistent-env"
 )
 
+// Persistent environment scopes (Windows): the two stores a managed task hands
+// to the service it starts, and the PowerShell scope names used to fix them.
+const (
+	PersistentEnvScopeUser    = "user"
+	PersistentEnvScopeMachine = "machine"
+)
+
+// PersistentEnvVar is one variable a service inherits from a process-independent
+// environment store instead of from the terminal that registered it.
+type PersistentEnvVar struct {
+	// Scope is PersistentEnvScopeUser or PersistentEnvScopeMachine.
+	Scope string `json:"scope"`
+	// Name is the variable's name as the store spells it.
+	Name string `json:"name"`
+	// Value is the inherited value. It is only ever shown masked, so it is never
+	// serialized either (a --json report must not carry a credential).
+	Value string `json:"-"`
+}
+
 // TokenSource is where one bearer token came from, with a value-free identity:
-// Length and Fingerprint are enough for two machines (or two starts of the same
+// Length and Masked are enough for two machines (or two starts of the same
 // machine) to tell whether they hold the same token, without ever printing it.
 type TokenSource struct {
 	// Role is "server" for the legacy token, "caller:<id>" / "worker:<id>" otherwise.
@@ -74,12 +102,17 @@ type TokenSource struct {
 	EnvVar string `json:"env_var,omitempty"`
 	// EnvFile is the dotenv file that supplied the value (Kind == env-file).
 	EnvFile string `json:"env_file,omitempty"`
+	// Scope is the persistent environment store the value came from
+	// (Kind == persistent-env): "user" or "machine".
+	Scope string `json:"scope,omitempty"`
 	// Set reports whether a token resolved.
 	Set bool `json:"set"`
 	// Length is the token's length; 0 when unset.
 	Length int `json:"length,omitempty"`
-	// Fingerprint is the first 8 hex chars of sha256(token); "" when unset.
-	Fingerprint string `json:"fingerprint,omitempty"`
+	// Masked is the displayable form of the token (see TokenMask), e.g.
+	// "len=32 ab**c"; "" when unset. It is NEVER the token and must not be used
+	// to decide whether two sides hold the same one (two tokens can share a mask).
+	Masked string `json:"masked,omitempty"`
 }
 
 // Summary renders the source (and the value-free identity) as one English line,
@@ -94,6 +127,8 @@ func (s TokenSource) Summary() string {
 		fmt.Fprintf(&b, "environment variable %s from %s", s.EnvVar, s.EnvFile)
 	case TokenSourceProcess:
 		fmt.Fprintf(&b, "environment variable %s from the process environment", s.EnvVar)
+	case TokenSourcePersistentEnv:
+		fmt.Fprintf(&b, "environment variable %s from the %s persistent environment", s.EnvVar, s.Scope)
 	case TokenSourceFlag:
 		b.WriteString("--token on the command line")
 	default:
@@ -104,25 +139,36 @@ func (s TokenSource) Summary() string {
 		}
 	}
 	if s.Set {
-		fmt.Fprintf(&b, " (length %d, fingerprint %s)", s.Length, s.Fingerprint)
+		fmt.Fprintf(&b, " (%s)", s.Masked)
 	}
 	return b.String()
 }
 
-// TokenFingerprint is the first 8 hex chars of sha256(token) — an identifier two
-// sides can compare without printing the secret. "" for an empty token.
-func TokenFingerprint(token string) string {
+// tokenMaskMinLen is the shortest token that shows any of itself: two leading and
+// one trailing character of a shorter secret is most of it.
+const tokenMaskMinLen = 8
+
+// TokenMask is the value-free identity to SHOW for a token: its length plus the
+// first two and the last character, e.g. "len=32 ab**c". Two sides can see at a
+// glance that they differ without either handing out anything usable. A token
+// shorter than tokenMaskMinLen characters shows only its length ("len=5"). "" for
+// an empty token.
+func TokenMask(token string) string {
 	if token == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:4])
+	runes := []rune(token)
+	if len(runes) < tokenMaskMinLen {
+		return fmt.Sprintf("len=%d", len(runes))
+	}
+	return fmt.Sprintf("len=%d %s**%s", len(runes), string(runes[:2]), string(runes[len(runes)-1:]))
 }
 
-// TokenSourceMatches reports whether two sides resolved the SAME token, compared
-// by fingerprint only. Two unset sides match.
-func TokenSourceMatches(a, b TokenSource) bool {
-	return a.Set == b.Set && a.Fingerprint == b.Fingerprint
+// TokenValuesMatch reports whether two sides resolved the SAME token, compared by
+// the full value in constant time — never by the display mask, which two different
+// tokens can share. Two unset (empty) sides match.
+func TokenValuesMatch(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 // EnvView is the environment a process resolves its tokens against, plus the
@@ -131,17 +177,40 @@ func TokenSourceMatches(a, b TokenSource) bool {
 type EnvView struct {
 	values map[string]string
 	files  map[string]string
+	scopes map[string]string
 }
 
 func newEnvView() EnvView {
-	return EnvView{values: map[string]string{}, files: map[string]string{}}
+	return EnvView{values: map[string]string{}, files: map[string]string{}, scopes: map[string]string{}}
 }
 
 // token returns the value of envVar, treating an empty value as absent — the
 // server's own reading of "no token here" (serve resolveToken / buildCallers).
+// A persistent-environment name is looked up case-insensitively as Windows does.
 func (v EnvView) token(envVar string) (string, bool) {
-	val := v.values[envVar]
-	return val, val != ""
+	if val, ok := v.values[envVar]; ok {
+		return val, val != ""
+	}
+	if val, ok := v.values[strings.ToUpper(envVar)]; ok {
+		return val, val != ""
+	}
+	return "", false
+}
+
+// file is the dotenv file envVar came from, if any.
+func (v EnvView) file(envVar string) string {
+	if file := v.files[envVar]; file != "" {
+		return file
+	}
+	return v.files[strings.ToUpper(envVar)]
+}
+
+// scope is the persistent environment store envVar came from, if any.
+func (v EnvView) scope(envVar string) string {
+	if scope := v.scopes[envVar]; scope != "" {
+		return scope
+	}
+	return v.scopes[strings.ToUpper(envVar)]
 }
 
 // ProcessEnvView is THIS process's environment as the server would see it:
@@ -190,6 +259,57 @@ func DotenvOnlyEnvView(paths ...string) EnvView {
 			view.values[key] = val
 			view.files[key] = path
 		}
+	}
+	return view
+}
+
+// PersistentEnv returns the process-independent environment a managed service
+// inherits on this platform: on Windows the User and Machine persistent
+// variables its task scheduler applies, nowhere else.
+func PersistentEnv() []PersistentEnvVar {
+	return platformPersistentEnv()
+}
+
+// FindPersistentEnv picks the value a service would get for name out of the
+// persistent stores: the User one wins over the Machine one (that is the order
+// Windows applies), the name matches case-insensitively, and an empty value
+// counts as unset.
+func FindPersistentEnv(vars []PersistentEnvVar, name string) (PersistentEnvVar, bool) {
+	best := PersistentEnvVar{}
+	found := false
+	for _, v := range vars {
+		if v.Name == "" || v.Value == "" || !strings.EqualFold(v.Name, name) {
+			continue
+		}
+		if found && !(v.Scope == PersistentEnvScopeUser && best.Scope != PersistentEnvScopeUser) {
+			continue
+		}
+		best, found = v, true
+	}
+	return best, found
+}
+
+// ServiceEnvView is the environment a MANAGED service starts with: the dotenv
+// files of its config dir (and working directory) with the inherited PERSISTENT
+// environment layered OVER them — a value the service inherits beats the file,
+// which is LoadDotenv's rule and the reason a stale Windows GOFER_TOKEN shadows
+// <config-dir>/.env. Nothing from the terminal that registered the service.
+func ServiceEnvView(persistent []PersistentEnvVar, paths ...string) EnvView {
+	view := DotenvOnlyEnvView(paths...)
+	for _, v := range persistent {
+		if v.Name == "" || v.Value == "" {
+			continue
+		}
+		key := strings.ToUpper(v.Name)
+		if view.scopes[key] == PersistentEnvScopeUser {
+			continue // a User value already won over this Machine one
+		}
+		view.values[key] = v.Value
+		view.values[v.Name] = v.Value
+		delete(view.files, key)
+		delete(view.files, v.Name)
+		view.scopes[key] = v.Scope
+		view.scopes[v.Name] = v.Scope
 	}
 	return view
 }
@@ -288,7 +408,7 @@ func ResolveServerToken(sc *ServerConfig, flagToken string, view EnvView) (strin
 	}
 	if flagToken != "" {
 		return flagToken, TokenSource{Role: RoleServerToken, Kind: TokenSourceFlag, Set: true,
-			Length: len(flagToken), Fingerprint: TokenFingerprint(flagToken)}
+			Length: len(flagToken), Masked: TokenMask(flagToken)}
 	}
 	if sc.TokenEnv != "" {
 		if val, ok := view.token(sc.TokenEnv); ok {
@@ -333,6 +453,16 @@ func DescribeServerTokens(sc *ServerConfig, flagToken string, view EnvView) []To
 	return out
 }
 
+// EnvTokenSource reports where a token a caller already HOLDS (in envVar) comes
+// from — a dotenv file, a persistent environment store, or the process — or that
+// the variable is empty there. Used to describe the CLI side of a comparison.
+func EnvTokenSource(role, envVar string, view EnvView) TokenSource {
+	if _, ok := view.token(envVar); ok {
+		return view.envTokenSource(role, envVar)
+	}
+	return TokenSource{Role: role, Kind: TokenSourceUnset, EnvVar: envVar}
+}
+
 // credentialTokenSource resolves ONE caller/worker credential the way
 // buildCallers does: the literal wins, else the named variable.
 func credentialTokenSource(role, field, literal, envVar string, view EnvView) TokenSource {
@@ -349,7 +479,7 @@ func credentialTokenSource(role, field, literal, envVar string, view EnvView) To
 
 func configTokenSource(role, field, value string) TokenSource {
 	return TokenSource{Role: role, Kind: TokenSourceConfig, Field: field, Set: true,
-		Length: len(value), Fingerprint: TokenFingerprint(value)}
+		Length: len(value), Masked: TokenMask(value)}
 }
 
 // envTokenSource attributes an env-resolved value to the dotenv file it came
@@ -357,8 +487,10 @@ func configTokenSource(role, field, value string) TokenSource {
 func (v EnvView) envTokenSource(role, envVar string) TokenSource {
 	val, _ := v.token(envVar)
 	src := TokenSource{Role: role, Kind: TokenSourceProcess, EnvVar: envVar, Set: true,
-		Length: len(val), Fingerprint: TokenFingerprint(val)}
-	if file := v.files[envVar]; file != "" {
+		Length: len(val), Masked: TokenMask(val)}
+	if scope := v.scope(envVar); scope != "" {
+		src.Kind, src.Scope = TokenSourcePersistentEnv, scope
+	} else if file := v.file(envVar); file != "" {
 		src.Kind, src.EnvFile = TokenSourceEnvFile, file
 	}
 	return src

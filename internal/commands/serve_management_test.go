@@ -144,6 +144,7 @@ func TestServeStatusReadsVersionOnlyFromVerifiedRuntimeStats(t *testing.T) {
 	}
 	t.Setenv("GOFER_T6_VERSION_TOKEN", token)
 	t.Setenv(config.EnvJobToken, "")
+	t.Setenv(config.EnvServerToken, "") // the probe reads the same variables every other CLI call does
 	self, err := daemon.CurrentProcessIdentity()
 	if err != nil {
 		t.Fatal(err)

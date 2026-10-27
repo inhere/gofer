@@ -4,7 +4,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/gookit/goutil/envutil"
 )
@@ -68,7 +70,28 @@ func LoadDotenv() ([]string, error) {
 			_ = os.Setenv(key, orig)
 		}
 	}
-	return dot.LoadedFiles(), nil
+	loaded := dot.LoadedFiles()
+	loadMu.Lock()
+	loadedDotenvFiles = loaded
+	loadMu.Unlock()
+	return loaded, nil
+}
+
+// loadedDotenvFiles is what the last LoadDotenv call actually read: the files it
+// found, in load order (later wins). `serve status` reports it, because a CLI
+// that loaded ./.env from its current directory is one source of a token the
+// managed service does not have (gofer-t9md).
+var (
+	loadedDotenvFiles []string
+	loadMu            sync.Mutex
+)
+
+// LoadedDotenvFiles lists the dotenv files this process loaded, in load order.
+// nil before LoadDotenv ran (or when no file existed).
+func LoadedDotenvFiles() []string {
+	loadMu.Lock()
+	defer loadMu.Unlock()
+	return slices.Clone(loadedDotenvFiles)
 }
 
 // envTokenSuffix is the shape of a credential key in a .env file (GOFER_TOKEN,

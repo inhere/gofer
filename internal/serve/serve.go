@@ -136,13 +136,14 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		// (plan §11). A coded error makes gcli exit non-zero.
 		return errorx.Failf(ExitErr, "refusing to start without a token: set server.token / server.token_env / --token, or pass --allow-empty-token")
 	}
-	// gofer-t9md: say WHERE the token came from and its value-free fingerprint (never
-	// the value). A managed service does not inherit the registering terminal's
-	// environment, so a token that came from THIS process's env is one the service
-	// will not have — the one case worth naming at startup.
+	// gofer-t9md: say WHERE the token came from and its masked form (never the value).
+	// A managed service does not inherit the registering terminal's environment, so a
+	// token that came from THIS process's env is one the service will not have — the
+	// one case worth naming at startup.
 	slog.Info("server.token_source", "event", "server.token_source", "component", "server",
 		"role", tokenSrc.Role, "kind", tokenSrc.Kind, "field", tokenSrc.Field, "env_var", tokenSrc.EnvVar,
-		"env_file", tokenSrc.EnvFile, "set", tokenSrc.Set, "length", tokenSrc.Length, "fingerprint", tokenSrc.Fingerprint)
+		"env_file", tokenSrc.EnvFile, "scope", tokenSrc.Scope, "set", tokenSrc.Set,
+		"length", tokenSrc.Length, "masked", tokenSrc.Masked)
 
 	cr, err := core.Build(cfg, core.WithConfigPath(opts.CfgPath), core.WithBuiltinDefaultProject())
 	if err != nil {
