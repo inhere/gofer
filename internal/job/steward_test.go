@@ -77,6 +77,44 @@ func TestStewardJobGetsStewardCredentialAndMCP(t *testing.T) {
 	s.Wait(plain.ID)
 }
 
+// A mail-resident session recovered after a restart keeps its MCP and reply allowance: the
+// marker is restored from mail_resident_agents, never from request_json.
+func TestRecoveredMailResidentSessionKeepsMCPAndReplyMarker(t *testing.T) {
+	root := t.TempDir()
+	s := newACPService(t, root, acptest.Options{EnvPrint: []string{EnvJobToken, "GOFER_MAIL_RESIDENT"}})
+	seedRecoverableSession(t, s, root, "recover-mail-resident", StatusAwaitingInput)
+	if err := s.meta.PutResidentAgent(jobstore.MailResidentAgent{
+		Name: "suga", Project: "self", JobID: "recover-mail-resident", SessionID: acptest.SessionID,
+		Status: jobstore.MailResidentLive,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ReconcileOrphanJobs(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		current, _ := s.Get("recover-mail-resident")
+		if s.entry("recover-mail-resident") != nil && current.Status == StatusAwaitingInput {
+			log := readJobLog(t, current, store.StderrFile)
+			if !strings.Contains(log, "session/load") || !strings.Contains(log, "mcp_servers=1") {
+				t.Fatalf("recovery did not reload the resident session with MCP: %s", log)
+			}
+			if envLine(log, "GOFER_MAIL_RESIDENT") != "1" {
+				t.Fatalf("recovered resident lost its marker env: %s", log)
+			}
+			_ = s.EndSession(current.ID)
+			s.Wait(current.ID)
+			return
+		}
+		if IsTerminal(current.Status) {
+			t.Fatalf("recovery reached %s: %s", current.Status, current.Error)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("mail resident session was not reloaded")
+}
+
 // The marker is server-set: a JSON body can never carry it.
 func TestStewardMarkerIsNotOnTheWire(t *testing.T) {
 	var req JobRequest
