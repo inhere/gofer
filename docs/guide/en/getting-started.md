@@ -156,7 +156,7 @@ gofer worker add w-office --project <project>
 ```
 worker w-office registered
 worker token (shown once): gw_0f1c…            # copy it now
-next: gofer init worker --server http://<server>:8765 --id w-office --token gw_0f1c… --yes
+next: gofer worker init --server http://<server>:8765 --id w-office --token gw_0f1c… --yes
 ```
 
 ```bash

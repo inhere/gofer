@@ -25,7 +25,7 @@
 现在接入一台 worker 要在两台机器之间来回操作：
 
 1. 在 server 端（或 web 的 Runners 页）执行 `gofer worker add <id> [--project …]`，拿到只显示一次的 worker token；
-2. 把 token 抄到 worker 机器，执行 `gofer init worker --server … --id … --token … --yes`。
+2. 把 token 抄到 worker 机器，执行 `gofer worker init --server … --id … --token … --yes`。
 
 用户希望反过来：worker 机器配好后执行一条子命令向 server 申请注册，server 的 web 弹出提示，管理员在 2 分钟内接受或拒绝；接受后 server 自动登记、worker 自动写好配置。
 

@@ -33,7 +33,7 @@ app-new:
 # 管理员（任意能连 server 的机器）：
 gofer worker add builder-1 --labels linux --project app-new      # 输出一次性 worker token 与下一步命令
 # worker 机器上：
-gofer init worker --server <server-addr> --id builder-1 --token <worker token> --project app-new --yes
+gofer worker init --server <server-addr> --id builder-1 --token <worker token> --project app-new --yes
 #   或直接用管理员 token 一步登记：--admin-token <管理员 token>（只用于本次，不写盘）
 gofer worker -d                 # 后台起；停用 gofer worker stop
 ```

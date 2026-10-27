@@ -214,7 +214,7 @@ R3（§二 CFG-05 `worker init` + `GET /v1/workers/{id}/assignable`、§三 F-e 
 
 **落成与设计的对照**
 
-- 入口两个、实现一份：`gofer worker init`（`worker` 组子命令）与 `gofer init worker --server …`（委托；不带 `--server` 时仍是"写示例模板"的老行为）。参数 `--server/--token/--id/--roots/--yes/--force/--workspace/--timeout`。token 缺省回落到已导出的 `GOFER_WORKER_TOKEN`。
+- 入口统一为 `gofer worker init`（`gofer init worker` 只生成模板；旧向导参数会提示改写命令）。参数 `--server/--token/--id/--roots/--yes/--force/--workspace/--timeout`。token 缺省回落到已导出的 `GOFER_WORKER_TOKEN`。
 - 服务端新接口 `GET /v1/workers/{id}/assignable`：返回 `{worker_id, projects:[{key,host_path}], server_version, protocol_version}`。判定比设计字面**宽一档**（设计写"allowed_runners 含该 id"）：`allowed_runners` **直接写了该 worker id**，或写了 `type: worker` 且 `worker_id == <id>` 的 runner 名，二者都算可派——后者正是 job 提交时 `checkRunnerAllowed` + `isWorkerRunner` 的准入口径，只按字面实现会漏掉"runner 名与 worker id 不同名"的部署。鉴权：该 worker 自己的 token 或 user caller；**别的 worker token 403**（不用 `callerMayAdmin`：worker id 永远没有 can_admin）。
 - roots 推断：最长公共前缀 → `to` 依次尝试**同路径** → **盘符互转**（`D:/x` ↔ `/d/x`）→ 交互输入；逐条显示存在性、回车接受/`n` 跳过/输入即改；映射后不存在的 project 单独告警。`from` 统一写成正斜杠形态（server 配置的写法，映射两侧本来就会归一）。显式 `--roots` **完全跳过推断**。
 - agent 探测复用 `agent.Resolve` 的一次 detect pass：**只写探测到的**（`exec` 不写，它是内置的）；报告行按 key 排序（Go map 顺序本来随机）。
@@ -275,7 +275,7 @@ ERROR: <tmp>/cfg-worker/worker.yaml already exists; use --force to overwrite (th
 worker.yaml.bak-20260926-122530
 
 # 委托入口等价（另一个临时 config dir）
-$ gofer init worker --server http://127.0.0.1:35164 --token … --id w-smoke --yes --roots '…=…'
+$ gofer worker init --server http://127.0.0.1:35164 --token … --id w-smoke --yes --roots '…=…'
 # 同一向导输出；--force 亦备份
 
 $ gofer init server -g          # GOFER_CONFIG_DIR=<tmp>/cfg-server HOME=<tmp>/home2

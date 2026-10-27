@@ -42,7 +42,8 @@ var initOpts = struct {
 	remove    bool
 	primeOnly bool
 	workspace string
-	// CFG-05 wizard passthrough (`init worker --server …` → the worker wizard).
+	// Flags accepted only to provide a migration error for the removed alias. They are
+	// hidden from `gofer init --help`; the onboarding wizard is `gofer worker init`.
 	server     string
 	token      string
 	adminToken string
@@ -114,10 +115,8 @@ func initTemplate(target string) (tmpl, defaultPath string, ok bool) {
 // .agents/skills/ (--output narrows to one dir). It refuses to overwrite an
 // existing target unless --force is given (design D6).
 //
-// `gofer init worker --server …` DELEGATES to the CFG-05 wizard (one implementation,
-// two entry points); without --server the worker target keeps writing the embedded
-// template. info is handed to the delegated wizard so its register probe reports the
-// same version the worker itself would.
+// `gofer init worker` always writes the embedded template. Worker onboarding is
+// intentionally a separate command: `gofer worker init`.
 func NewInitCmd(info buildinfo.Info) *gcli.Command {
 	return &gcli.Command{
 		Name: "init",
@@ -131,16 +130,19 @@ func NewInitCmd(info buildinfo.Info) *gcli.Command {
 			c.BoolOpt(&initOpts.remove, "remove", "", false, "hooks: remove gofer's hook entries instead of installing them")
 			c.BoolOpt(&initOpts.primeOnly, "prime-only", "", false, "hooks: install or remove only the memory injection (SessionStart prime + PreToolUse command memories)")
 			c.StrOpt(&initOpts.workspace, "workspace", "", "", "server: directory to register as the `default` project (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)")
-			// CFG-05: with --server, `init worker` runs the same wizard as
-			// `gofer worker init` (see runInit).
-			c.StrOpt(&initOpts.server, "server", "s", "", "worker: hub address — switches `init worker` to the interactive worker wizard (see `gofer worker init`)")
-			c.StrOpt(&initOpts.token, "token", "", "", "worker wizard: the worker's hub token (written to <config-dir>/.env)")
-			c.StrOpt(&initOpts.adminToken, "admin-token", "", "", "worker wizard: server administrator token (used only for one-time registration; never written)")
-			c.StrOpt(&initOpts.id, "id", "", "", "worker wizard: worker_id (must equal the server's server.workers key)")
-			c.VarOpt(&initOpts.roots, "roots", "", "worker wizard: explicit roots mapping from=to (repeatable; wins over inference)")
-			c.VarOpt(&initOpts.projects, "project", "", "worker wizard: project to allow during registration (repeatable)")
-			c.BoolOpt(&initOpts.yes, "yes", "y", false, "worker wizard: accept the inferred values without prompting (non-interactive)")
-			c.StrOpt(&initOpts.timeout, "timeout", "", "", "worker wizard: per-check timeout for the doctor run, e.g. 10s")
+			// Keep these hidden long enough to turn old invocations into an actionable
+			// migration error; the wizard itself lives under `gofer worker init`.
+			c.StrOpt(&initOpts.server, "server", "s", "", "worker: use `gofer worker init` for onboarding")
+			c.StrOpt(&initOpts.token, "token", "", "", "worker: use `gofer worker init` for onboarding")
+			c.StrOpt(&initOpts.adminToken, "admin-token", "", "", "worker: use `gofer worker init` for onboarding")
+			c.StrOpt(&initOpts.id, "id", "", "", "worker: use `gofer worker init` for onboarding")
+			c.VarOpt(&initOpts.roots, "roots", "", "worker: use `gofer worker init` for onboarding")
+			c.VarOpt(&initOpts.projects, "project", "", "worker: use `gofer worker init` for onboarding")
+			c.BoolOpt(&initOpts.yes, "yes", "y", false, "worker: use `gofer worker init` for onboarding")
+			c.StrOpt(&initOpts.timeout, "timeout", "", "", "worker: use `gofer worker init` for onboarding")
+			for _, name := range []string{"server", "token", "admin-token", "id", "roots", "project", "yes", "timeout"} {
+				c.Opt(name).Hidden = true
+			}
 		},
 		Func: func(c *gcli.Command, _ []string) error { return runInit(c, info) },
 	}
@@ -184,17 +186,16 @@ func runInit(c *gcli.Command, info buildinfo.Info) error {
 	if target == "client" {
 		return runInitClient(c)
 	}
-	// CFG-05: `init worker --server …` is the same wizard as `gofer worker init`.
-	// Without --server the template path below is unchanged (backward compatible).
-	if target == "worker" && initOpts.server != "" {
-		return runInitDelegatedWorker(c, info)
+	// `gofer init worker` always writes the template. The onboarding wizard is
+	// intentionally not a compatibility alias: use `gofer worker init`.
+	if target == "worker" && hasWorkerInitFlags() {
+		return rejectLegacyWorkerInit(c)
 	}
 	tmpl, defaultPath, ok := initTemplate(target)
 	if !ok {
 		return errorx.Failf(configExitErr, "unknown init target %q (use: server | worker | client | skill | hooks)", target)
 	}
 
-	// Path resolution: an explicit --output always wins (backward compatible).
 	// Otherwise --global writes to the user-global config dir for BOTH targets —
 	// config.yaml for server, worker.yaml for worker (the very path `gofer worker`
 	// auto-discovers via UserWorkerConfigPath). Without --global, the CWD default.
@@ -254,7 +255,48 @@ func runInit(c *gcli.Command, info buildinfo.Info) error {
 	return nil
 }
 
-// runInitClient writes the starter dotenv for a pure client node
+func hasWorkerInitFlags() bool {
+	return strings.TrimSpace(initOpts.server) != "" || strings.TrimSpace(initOpts.token) != "" ||
+		strings.TrimSpace(initOpts.adminToken) != "" || strings.TrimSpace(initOpts.id) != "" ||
+		len(initOpts.roots) > 0 || len(initOpts.projects) > 0 || initOpts.yes ||
+		strings.TrimSpace(initOpts.timeout) != "" || strings.TrimSpace(initOpts.workspace) != ""
+}
+
+func rejectLegacyWorkerInit(c *gcli.Command) error {
+	args := []string{"gofer", "worker", "init"}
+	appendArg := func(name, value string) {
+		if strings.TrimSpace(value) != "" {
+			args = append(args, name, value)
+		}
+	}
+	appendArg("--server", initOpts.server)
+	appendArg("--token", initOpts.token)
+	appendArg("--admin-token", initOpts.adminToken)
+	appendArg("--id", initOpts.id)
+	for _, root := range initOpts.roots {
+		appendArg("--roots", root)
+	}
+	for _, project := range initOpts.projects {
+		appendArg("--project", project)
+	}
+	if initOpts.yes {
+		args = append(args, "--yes")
+	}
+	appendArg("--timeout", initOpts.timeout)
+	appendArg("--workspace", initOpts.workspace)
+	if initOpts.config != "" {
+		appendArg("--output", initOpts.config)
+	}
+	if initOpts.global {
+		args = append(args, "--global")
+	}
+	if initOpts.force {
+		args = append(args, "--force")
+	}
+	return errorx.Failf(configExitErr, "%s", cliText("cli.setup.init.worker_redirect", "command", strings.Join(args, " ")))
+}
+
+// runInitClient writes the starter dotenv
 // (GOFER_RUN_MODE=client) — see clientEnvTemplate. Unlike server/worker it is not a
 // config file, and its home is fixed by the loader: the client node's connection env
 // is <config-dir>/.env (config.EnvFileName under config.ConfigDir), which is exactly

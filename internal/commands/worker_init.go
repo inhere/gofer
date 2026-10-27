@@ -21,8 +21,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 )
 
-// workerInitFlags holds `gofer worker init` (and the `gofer init worker --server …`
-// delegation that reuses the same flow) flags.
+// workerInitFlags holds `gofer worker init` flags.
 type workerInitFlags struct {
 	server     string
 	token      string
@@ -73,27 +72,6 @@ func NewWorkerInitCmd(info buildinfo.Info) *gcli.Command {
 		},
 		Func: func(c *gcli.Command, _ []string) error { return runWorkerInit(c, info) },
 	}
-}
-
-// runInitDelegatedWorker runs the wizard from the top-level `gofer init worker
-// --server …` entry point, mapping that command's flags onto the wizard's. It keeps
-// ONE implementation for both spellings (design §二).
-func runInitDelegatedWorker(c *gcli.Command, info buildinfo.Info) error {
-	prev := workerInitOpts
-	defer func() { workerInitOpts = prev }()
-	workerInitOpts = workerInitFlags{
-		server:     initOpts.server,
-		token:      initOpts.token,
-		adminToken: initOpts.adminToken,
-		id:         initOpts.id,
-		roots:      initOpts.roots,
-		projects:   initOpts.projects,
-		yes:        initOpts.yes,
-		force:      initOpts.force,
-		workspace:  initOpts.workspace,
-		timeout:    initOpts.timeout,
-	}
-	return runWorkerInit(c, info)
 }
 
 // runWorkerInit performs the onboarding flow. Every network call is read-only
