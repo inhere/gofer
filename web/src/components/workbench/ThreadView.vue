@@ -12,6 +12,7 @@ import { attachmentCapability } from '../../utils/attachments'
 import { formatNumber, formatRelative } from '../../utils/format'
 import { t } from '../../i18n'
 import AttachTerminal from '../AttachTerminal.vue'
+import RunnerTag from '../RunnerTag.vue'
 import UncommittedBadge from '../UncommittedBadge.vue'
 import ConversationView from './ConversationView.vue'
 import ThreadChangesView from './ThreadChangesView.vue'
@@ -435,7 +436,8 @@ onUnmounted(() => {
           <span v-if="thread.turns > 1" class="muted">{{ t('workbench.row.turns', { n: thread.turns }) }}</span>
           <UncommittedBadge :count="latestJob?.uncommitted_count" :files="latestJob?.uncommitted_files" />
           <span v-if="thread.stalled" class="muted">· {{ t('workbench.stalled') }}</span>
-          <span class="muted mono desk-only">{{ thread.agent || thread.kind }}<template v-if="thread.runner"> · {{ thread.runner }}</template></span>
+          <span class="muted mono desk-only">{{ thread.agent || thread.kind }}</span>
+          <RunnerTag :name="thread.runner" />
         </div>
       </div>
       <nav class="seg desk-only" :aria-label="t('workbench.view.label')">

@@ -45,6 +45,9 @@ import {
 } from '../components/workbench/layoutTree'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { createThreadAutoFocus } from '../components/workbench/threadAutoFocus'
+import { listRunners } from '../api/client'
+import { createPoller } from '../utils/poller'
+import { fleetNotice, type FleetNotice } from '../utils/fleetNotice'
 
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
@@ -95,6 +98,51 @@ const hiddenExecCount = computed(() => {
 
 // 服务端 counts.orphan_blocked / orphan_review 汇成一行提示（受阻计划 / 待决策，不在会话行里）。
 const orphanWaiting = computed(() => orphanWaitingCount(response.value.projects))
+
+// 运行节点提示（issue gofer-okz3 ③）：有 worker 掉线或版本低于 server 时在顶上给一行，
+// 指到运行节点页；没有问题 / 还没拉到数据时不占位置。关掉之后同一份问题状态不再弹，
+// 名单变了（新掉一台、版本又落后）再出现。
+const fleet = ref<FleetNotice | null>(null)
+const fleetDismissed = ref('')
+const fleetSignature = computed(() =>
+  fleet.value ? [...fleet.value.offline, ...fleet.value.behind.map((b) => `${b.name}@${b.version}`)].join('|') : '',
+)
+const showFleet = computed(() => !!fleet.value && fleetSignature.value !== fleetDismissed.value)
+
+// 名字太长时只列前三台（提示条只有一行，点进去看全部）。
+function fleetNames(names: string[]): string {
+  const shown = names.slice(0, 3)
+  return names.length > shown.length ? `${shown.join(', ')} …` : shown.join(', ')
+}
+
+const fleetText = computed(() => {
+  const notice = fleet.value
+  if (!notice) return ''
+  const parts: string[] = []
+  if (notice.offline.length) parts.push(t('workbench.fleet.offline', { n: notice.offline.length, names: fleetNames(notice.offline) }))
+  if (notice.behind.length) {
+    parts.push(t('workbench.fleet.behind', { n: notice.behind.length, names: fleetNames(notice.behind.map((b) => b.name)) }))
+  }
+  return parts.join(' · ')
+})
+
+async function refreshFleet(): Promise<void> {
+  try {
+    const resp = await listRunners()
+    fleet.value = fleetNotice(resp.runners, resp.server)
+  } catch {
+    // 只是提醒：拉不到保留上一帧（Runners 页有完整错误与重试）
+  }
+}
+const fleetPoller = createPoller(refreshFleet, 30_000)
+
+function dismissFleet(): void {
+  fleetDismissed.value = fleetSignature.value
+}
+
+function openRunners(): void {
+  void router.push('/runners')
+}
 
 // 这些项不是会话（是受阻计划 / 待决策），所以点过去到计划列表的「受阻」视图，
 // 带上当前项目筛选。
@@ -724,10 +772,12 @@ onMounted(async () => {
   locateRequestedThread(true)
   consumeRequestedJob()
   poller.start()
+  fleetPoller.start()
 })
 
 onUnmounted(() => {
   poller.stop()
+  fleetPoller.stop()
   if (layoutSaveTimer != null) window.clearTimeout(layoutSaveTimer)
   if (fullRefetchTimer != null) window.clearTimeout(fullRefetchTimer)
   clearPrefix()
@@ -748,6 +798,24 @@ onUnmounted(() => {
       {{ layoutNotice }}
       <button type="button" :aria-label="t('workbench.error.dismiss')" @click="layoutNotice = ''"><Icon :icon="X" size="sm" /></button>
     </p>
+    <div
+      v-if="showFleet"
+      class="fleet-notice"
+      role="status"
+      :aria-label="t('workbench.fleet.label')"
+      data-test="fleet-notice"
+    >
+      <span class="fleet-text" data-test="fleet-notice-text">{{ fleetText }}</span>
+      <button class="fleet-open" type="button" data-test="fleet-open" @click="openRunners">{{ t('workbench.fleet.open') }}</button>
+      <button
+        class="fleet-close"
+        type="button"
+        :aria-label="t('workbench.fleet.dismiss')"
+        :title="t('workbench.fleet.dismiss')"
+        data-test="fleet-dismiss"
+        @click="dismissFleet"
+      ><Icon :icon="X" size="sm" /></button>
+    </div>
     <div
       class="workbench-body"
       :class="[`mobile--${mobilePane}`, { 'workbench-body--wide': showContext && !!selectedThread }]"
@@ -905,6 +973,11 @@ onUnmounted(() => {
 .page-error { flex: none; margin: 0; padding: 6px var(--s3); color: var(--fail); background: var(--fail-soft, rgba(182,56,47,.08)); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
 .layout-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--s2); margin: 0; padding: 6px var(--s3); color: var(--run); background: var(--surface); border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
 .layout-notice button { color: inherit; background: transparent; border: 0; font-size: 16px; cursor: pointer; }
+/* 运行节点提示（issue gofer-okz3 ③）：一条可关闭的黄条，平时不渲染、不占高度。 */
+.fleet-notice { flex: none; display: flex; align-items: center; gap: var(--s2); padding: 5px var(--s3); color: var(--need-ink); background: var(--need-soft); border-bottom: 1px solid var(--need); font-size: var(--fs-sm); }
+.fleet-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fleet-open { flex: none; color: inherit; background: transparent; border: 0; padding: 0; font: inherit; text-decoration: underline; cursor: pointer; }
+.fleet-close { flex: none; display: inline-flex; align-items: center; color: inherit; background: transparent; border: 0; cursor: pointer; }
 .workbench-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 24vw) minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
 /* ≥1280 多一列上下文栏（设计稿 §4.3；1100–1279 不显示） */
 .workbench-body--wide { grid-template-columns: minmax(240px, 20vw) minmax(0,1fr) minmax(260px, 20vw); }
