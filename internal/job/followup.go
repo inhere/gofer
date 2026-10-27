@@ -96,7 +96,25 @@ func (s *Service) DropFollowUp(jobID string, id int64) error {
 	return nil
 }
 
-// processFollowUps starts one continuation for the pending queue after the
+// pendingFollowUpGate reports whether a source has queued work and whether the
+// first pending item explicitly asks for its own review. Queue order matters: a
+// normal item defers the source's review gate, while review_each keeps it.
+func (s *Service) pendingFollowUpGate(jobID string) (has, reviewEach bool) {
+	if s.meta == nil {
+		return false, false
+	}
+	rows, err := s.meta.ListFollowUps(jobID)
+	if err != nil {
+		return false, false
+	}
+	for _, row := range rows {
+		if row.Status == jobstore.FollowUpPending {
+			return true, row.ReviewEach
+		}
+	}
+	return false, false
+}
+
 // source has genuinely completed. Default entries are merged into one prompt;
 // review_each entries are claimed one at a time so a human decision gates the next.
 func (s *Service) processFollowUps(snap JobResult) {
