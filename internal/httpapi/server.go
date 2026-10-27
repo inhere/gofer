@@ -920,6 +920,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			notice := sessionrelay.JobEndedNotice{
 				TargetSession: target, JobID: r.ID, Title: r.Title, Status: r.Status,
 				ExitCode: r.ExitCode, WrapUp: r.WrapUp, Duration: jobNotifyDuration(r),
+				// 执行机：会话收到通知时要知道这个 job 在哪台机器上跑的（gofer-okz3 ④）。
+				Runner: config.RunnerDisplayName(r.Runner),
 			}
 			if err := s.relay.NotifyJobEnded(context.Background(), notice); err != nil {
 				slog.Warn("job end notification failed", "job_id", r.ID, "session_id", target, "err", err)

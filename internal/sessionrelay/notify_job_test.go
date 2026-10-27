@@ -164,6 +164,19 @@ func TestNotifyJobEndedRequiresATarget(t *testing.T) {
 	assert.Err(t, s.NotifyJobEnded(context.Background(), JobEndedNotice{JobID: "job-x"}))
 }
 
+// TestFormatJobEndedNoticeCarriesTheRunner (gofer-okz3 ④): the notice states the
+// machine the job ran on, next to the other outcome fields; "" drops the field so
+// the line keeps its old shape when the runner is unknown.
+func TestFormatJobEndedNoticeCarriesTheRunner(t *testing.T) {
+	text := FormatJobEndedNotice(i18n.ZhCN, JobEndedNotice{JobID: "job-rn", Status: "done", Runner: "w-lab"})
+	if !strings.Contains(text, " runner=w-lab ") {
+		t.Fatalf("notice = %q, want runner=w-lab", text)
+	}
+	if bare := FormatJobEndedNotice(i18n.ZhCN, JobEndedNotice{JobID: "job-rn", Status: "done"}); strings.Contains(bare, "runner=") {
+		t.Fatalf("notice = %q, an unknown runner must drop the field", bare)
+	}
+}
+
 // TestFormatJobEndedNoticeNeedsReviewHint: a delivery parked for a human says where
 // to rule on it, like the hook's own notice does.
 func TestFormatJobEndedNoticeNeedsReviewHint(t *testing.T) {

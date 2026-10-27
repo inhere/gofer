@@ -74,6 +74,9 @@ type JobEndedNotice struct {
 	// WrapUp is the agent's OWN reason for ending early ("max_steps" / "max_tokens"
 	// / "timeout"); "" drops the field (the agent answered).
 	WrapUp string
+	// Runner is the machine the job ran on, already a display name
+	// (config.RunnerDisplayName); "" drops the field (gofer-okz3 ④).
+	Runner string
 }
 
 // FormatJobEndedNotice renders the one-line notice IN LANG. It opens with the
@@ -93,6 +96,10 @@ func FormatJobEndedNotice(lang i18n.Lang, n JobEndedNotice) string {
 	b.WriteString(strings.TrimSpace(n.Status))
 	b.WriteString(" exit=")
 	b.WriteString(strconv.Itoa(n.ExitCode))
+	if runner := strings.TrimSpace(n.Runner); runner != "" {
+		b.WriteString(" runner=")
+		b.WriteString(runner)
+	}
 	b.WriteString(" ")
 	b.WriteString(i18n.T(lang, "sessionrelay.notice.duration", "duration", formatNoticeDuration(n.Duration)))
 	if wrap := strings.TrimSpace(n.WrapUp); wrap != "" {

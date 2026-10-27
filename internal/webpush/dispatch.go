@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/workbench"
 )
@@ -350,11 +351,23 @@ func terminalPushTitle(result job.JobResult) string {
 	return "任务已结束"
 }
 
+// terminalPushBody is the body of a finished-job / finished-session push: where it ran,
+// then the title (or the session's end reason).
 func terminalPushBody(result job.JobResult) string {
 	if result.Session && result.SessionEndReason != "" {
-		return sessionEndReason(result.SessionEndReason)
+		return withRunner(sessionEndReason(result.SessionEndReason), result.Runner)
 	}
-	return firstNonEmpty(result.Title, result.Error, result.ID)
+	return withRunner(firstNonEmpty(result.Title, result.Error, result.ID), result.Runner)
+}
+
+// withRunner appends "· runner <name>" (G043 display name) to a one-line push body;
+// an empty body or runner keeps the body as it is.
+func withRunner(body, runner string) string {
+	name := config.RunnerDisplayName(runner)
+	if name == "" || strings.TrimSpace(body) == "" {
+		return body
+	}
+	return body + " · runner " + name
 }
 
 func sessionEndReason(reason string) string {
@@ -378,6 +391,9 @@ func sessionAwaitingReplyPush(result job.JobResult, detail map[string]any) (stri
 	preview, _ := detail["reply_preview"].(string)
 	idleAt := int64Detail(detail, "idle_deadline_at")
 	body := fmt.Sprintf("第 %d 轮 · %s · %s", turn, result.Agent, result.ProjectKey)
+	if runner := config.RunnerDisplayName(result.Runner); runner != "" {
+		body += " · runner " + runner
+	}
 	if preview != "" {
 		body += "\n" + truncateRunes(preview, 200)
 	}

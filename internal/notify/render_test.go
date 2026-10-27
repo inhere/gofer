@@ -171,3 +171,17 @@ func TestBudgetMessage(t *testing.T) {
 		t.Fatal("another event rendered as a budget message")
 	}
 }
+
+// TestSessionAwaitingReplyMessageCarriesTheRunner: the reminder line says which
+// machine the session runs on (gofer-okz3 ④); "" drops the segment instead of
+// leaving a dangling separator.
+func TestSessionAwaitingReplyMessageCarriesTheRunner(t *testing.T) {
+	msg := SessionAwaitingReplyMessage("job.session_awaiting_reply", "title", "", 3, "codex", "project-a", "w-lab", "", "https://x/y", 10)
+	if !strings.Contains(msg.Text, "第 3 轮 · codex · project-a · runner w-lab") {
+		t.Fatalf("text = %q, want the runner segment", msg.Text)
+	}
+	bare := SessionAwaitingReplyMessage("job.session_awaiting_reply", "title", "", 3, "codex", "project-a", "", "", "https://x/y", 10)
+	if strings.Contains(bare.Text, "runner") {
+		t.Fatalf("text = %q, an unknown runner must drop the segment", bare.Text)
+	}
+}

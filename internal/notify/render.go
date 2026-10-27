@@ -89,8 +89,13 @@ func ApprovalMessage(eventType, title, reason, what, expires, link string, at in
 }
 
 // SessionAwaitingReplyMessage renders the delayed continuous-session reminder.
-func SessionAwaitingReplyMessage(eventType, title, body string, turn int, agent, project, idleAt, link string, at int64) Message {
+// runner is the machine the session runs on (already a display name, see
+// config.RunnerDisplayName); "" drops the segment.
+func SessionAwaitingReplyMessage(eventType, title, body string, turn int, agent, project, runner, idleAt, link string, at int64) Message {
 	text := fmt.Sprintf("第 %d 轮 · %s · %s", turn, agent, project)
+	if r := strings.TrimSpace(runner); r != "" {
+		text += " · runner " + r
+	}
 	if strings.TrimSpace(body) != "" {
 		text += "\n" + strings.TrimSpace(body)
 	}

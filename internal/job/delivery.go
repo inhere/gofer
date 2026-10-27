@@ -400,7 +400,7 @@ func (s *Service) sessionAwaitingReplyIMMessage(ev jobstore.JobEvent, summary no
 	if summary.SessionID != "" {
 		link = s.webURL("/workbench?thread=" + url.QueryEscape("s:"+summary.SessionID))
 	}
-	return notify.SessionAwaitingReplyMessage(ev.Type, d.Title, d.Preview, d.Turn, d.Agent, d.Project, idle, link, ev.At)
+	return notify.SessionAwaitingReplyMessage(ev.Type, d.Title, d.Preview, d.Turn, d.Agent, d.Project, config.RunnerDisplayName(summary.Runner), idle, link, ev.At)
 }
 
 // approvalPreviewLines caps how much of a held job's command / prompt an IM message

@@ -3109,6 +3109,18 @@ func IsBuiltinLocalRunnerName(name string) bool {
 // itself: `runners: {local: {type: local}}` (or `server: {type: local}`).
 func ReservedRunnerName(name string) bool { return IsBuiltinLocalRunnerName(name) }
 
+// RunnerDisplayName is the name a person reads for a runner (G043): the built-in
+// in-process runner is shown as its public spelling `server`, every other runner
+// keeps its own name. Use it wherever gofer words a message for a person (IM /
+// desktop / Web Push payloads, session notices); the wire, the DB and every
+// comparison keep the canonical `local`.
+func RunnerDisplayName(name string) string {
+	if IsBuiltinLocalRunnerName(name) {
+		return BuiltinLocalRunnerAlias
+	}
+	return strings.TrimSpace(name)
+}
+
 // ReservedNameError is the user-facing reason a reserved name was refused.
 // what describes the thing being named ("runner", "worker id", ...).
 func ReservedNameError(what, name string) error {

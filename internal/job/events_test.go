@@ -169,3 +169,24 @@ func TestEventsBestEffortDoesNotAffectTerminal(t *testing.T) {
 		t.Fatalf("expected >=3 recordEvent attempts, got %d", got)
 	}
 }
+
+// TestJobHeadlineTextNamesTheRunner (gofer-okz3 ④): a job event notification says
+// which machine ran the job. The built-in runner reads as its public spelling
+// `server`; unknown fields drop their segment instead of leaving " · ".
+func TestJobHeadlineTextNamesTheRunner(t *testing.T) {
+	cases := []struct {
+		name string
+		in   JobResult
+		want string
+	}{
+		{"worker", JobResult{ID: "job-1", ProjectKey: "p", Agent: "claude", Runner: "w-lab"}, "project p · agent claude · runner w-lab · job job-1"},
+		{"builtin runner", JobResult{ID: "job-2", Runner: "local"}, "runner server · job job-2"},
+		{"unknown runner", JobResult{ID: "job-3"}, "job job-3"},
+		{"exec job without agent or project", JobResult{ID: "job-4", Runner: "w-office"}, "runner w-office · job job-4"},
+	}
+	for _, tc := range cases {
+		if got := jobHeadlineText(tc.in); got != tc.want {
+			t.Errorf("%s: jobHeadlineText = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
