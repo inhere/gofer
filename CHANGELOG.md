@@ -19,6 +19,10 @@
 
 - **常用 CLI 命令的 `--help` 与输出按语言显示（gofer-992q，阶段 2 之一）**：`gofer job`（含 `review` / `findings` / `worktree merge` / `resume` / `show` / `approve` 等）、`gofer plan`、`gofer session` 三个命令组的说明、flag 说明、提示与错误现在支持 `en` / `zh-CN`。语言来源：`GOFER_LANG` → 系统语言（`LANG` / `LC_ALL`，Windows 取界面语言）→ 缺省；`--json` 等机器可读输出不翻译。中文输出与以前逐字一致（有帮助文本 golden 守住）。
 
+### 修复
+
+- 收集箱条目转为 issue / todo 后正确结束为 `done`，保留 issue / todo 链接；启动迁移会修正旧版已转出但仍为 `parked` 的条目。
+
 ## [0.199.1] - 2026-10-27
 
 ### 修复

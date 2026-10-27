@@ -43,8 +43,8 @@ func TestWorkDispatchToIssue(t *testing.T) {
 	}
 	resp.Body.Close()
 	d := itemDetail(t, s, w.ID)
-	if d.Status != jobstore.WorkParked {
-		t.Fatalf("status = %q, want parked", d.Status)
+	if d.Status != jobstore.WorkDone {
+		t.Fatalf("status = %q, want done", d.Status)
 	}
 	links, err := meta.ListWorkLinks(w.ID)
 	if err != nil || len(links) != 1 || links[0].Kind != jobstore.WorkLinkIssue || !strings.HasPrefix(links[0].Ref, "zz-") || !links[0].PendingSync {

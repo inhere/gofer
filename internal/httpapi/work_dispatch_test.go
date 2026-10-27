@@ -71,8 +71,8 @@ func TestWorkDispatchToTodo(t *testing.T) {
 		t.Fatalf("to todo = %d: %s", resp.StatusCode, readBody(t, resp))
 	}
 	d := itemDetail(t, s, id)
-	if d.Status != jobstore.WorkActive {
-		t.Fatalf("status = %q, want active", d.Status)
+	if d.Status != jobstore.WorkDone {
+		t.Fatalf("status = %q, want done", d.Status)
 	}
 	todoID, _, ok, err := s.work.ExistingTodo(id)
 	if err != nil || !ok || todoID == "" {
