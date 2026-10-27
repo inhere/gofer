@@ -29,6 +29,25 @@ func TestNormalizeRunnerName(t *testing.T) {
 	}
 }
 
+// TestRunnerDisplayName pins the display spelling (G043): a person reads `server`
+// for the built-in runner, every other runner keeps its own name. Display only —
+// the wire, the DB and every comparison keep `local`.
+func TestRunnerDisplayName(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ in, want string }{
+		{"local", "server"},
+		{"server", "server"},
+		{" Server ", "server"},
+		{"w-lab", "w-lab"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := RunnerDisplayName(tc.in); got != tc.want {
+			t.Errorf("RunnerDisplayName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestReservedRunnerNames: server / local belong to the built-in runner. The only
 // legal declaration is the built-in itself (type: local); anything else, and any
 // worker id spelled that way, is refused with an explanation.

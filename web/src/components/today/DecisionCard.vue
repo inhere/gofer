@@ -4,7 +4,7 @@
 // 卡片只发出 act 事件，真正的写操作与撤销窗口在 store/today.ts。
 // 「稍后」（T3）：菜单选 1 小时 / 明早 9:00 / 等相关 job 结束，发出 snooze 事件；专注模式经
 // defineExpose 的方法驱动同一张卡（数字键 / a / r / i / h）。
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import RejectDialog from '../RejectDialog.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
@@ -18,7 +18,7 @@ import { ceilingReadOnlyNotice } from '../../utils/ceiling'
 import { t } from '../../i18n'
 import { useWhoami } from '../../store/whoami'
 
-const props = defineProps<{ card: TodayCard; nowSec: number; initialInfoOpen?: boolean }>()
+const props = defineProps<{ card: TodayCard; nowSec: number; initialInfoOpen?: boolean; highlighted?: boolean }>()
 const emit = defineEmits<{
   (e: 'act', action: TodayAction, text: string, viaAdvice: boolean): void
   (e: 'navigate'): void
@@ -26,6 +26,23 @@ const emit = defineEmits<{
 }>()
 
 const infoOpen = ref(!!props.initialInfoOpen)
+// Ctrl/⌘+J 跳到这张时滚到可见处（issue gofer-okz3 ①）；block:'nearest' 不把整页顶走。
+// 新加进来的卡是带着 highlighted 挂载的（队列撑开），所以挂载时也要补一次。
+const cardEl = ref<HTMLElement | null>(null)
+function revealAsNext(): void {
+  cardEl.value?.scrollIntoView?.({ block: 'nearest' })
+  cardEl.value?.focus?.({ preventScroll: true })
+}
+watch(
+  () => props.highlighted,
+  (on) => {
+    if (on) revealAsNext()
+  },
+  { flush: 'post' },
+)
+onMounted(() => {
+  if (props.highlighted) revealAsNext()
+})
 const replyAction = ref<TodayAction | null>(null)
 const replyText = ref('')
 const rerunOpen = ref(false)
@@ -249,10 +266,13 @@ function linkFor(a: TodayAction): string {
 
 <template>
   <article
+    ref="cardEl"
     class="dc"
+    :class="{ 'dc--next': highlighted }"
     :data-u="card.urgency"
     :data-kind="card.kind"
     :data-key="card.key"
+    :data-next="highlighted ? '1' : undefined"
     tabindex="0"
     data-test="decision-card"
     @keydown="onKey"
@@ -418,6 +438,11 @@ function linkFor(a: TodayAction): string {
   border: 1px solid var(--line);
   border-radius: var(--r-panel);
   overflow: hidden;
+}
+.dc--next {
+  /* Ctrl/⌘+J 跳到的那张：只加一圈强调色描边，不抢状态色语义（issue gofer-okz3 ①） */
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 .dc::before {
   content: '';

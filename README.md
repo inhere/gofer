@@ -164,6 +164,15 @@ Most runbooks, design records and the rest of the guide are written in Chinese; 
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, the checks to run before you push, the commit style and what a good issue or pull request looks like; [`docs/guide/development.md`](docs/guide/development.md) covers the same ground in Chinese, and [AGENTS.md](AGENTS.md) holds the project rules (layering, CLI conventions, compatibility policy, shared utilities) for contributors working with an AI agent. User-visible changes update [`skills/gofer-usage/`](skills/gofer-usage/) and get an entry in [CHANGELOG.md](CHANGELOG.md) under "未发布" in the same change set. Report security problems privately, as described in [SECURITY.md](SECURITY.md).
 
+## Related projects
+
+gofer is one answer to "how do I run coding agents on more than one machine and keep track of what they are doing?". The projects below are good at parts of the same problem; gofer differs mainly in shape — it is a small server plus workers, with an HTTP / MCP API, rather than a single-machine desktop app.
+
+- **[Claude Code Remote Control](https://code.claude.com/docs/en/overview)** — keeps a Claude Code session within reach when you leave the terminal, continuing it from a browser or phone; it is centred on Claude Code, while gofer treats any agent (Claude Code, codex, ACP agents, plain commands) as an asynchronous job with plans, review and workers on several machines.
+- **[Conductor](https://conductor.build)** — a polished macOS app that runs several Claude Code / Codex / Cursor agents in isolated git worktrees so you can review and merge their changes side by side; gofer runs headless on its own server, so the same jobs can come from a browser, the CLI, another agent over MCP or CI, and its console is web-first instead of a native app.
+- **[Superset (now Paradev)](https://paradev.com)** — an IDE-style workspace for parallel agents with a strong editing and review surface, plus optional remote machines over SSH; gofer takes the task-queue angle: durable jobs and plans, dispatch per worker, retries, schedules and an API other tools build on.
+- **Kero** — a UI-first agent workbench built around a session list, a today-style decision queue and notifications; gofer chases the same comfort while staying agent- and machine-agnostic, with the server, workers and protocol under your own control.
+
 ## License
 
 [MIT](LICENSE)

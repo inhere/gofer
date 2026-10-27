@@ -436,3 +436,30 @@ func TestWebPushAwaitingApproval(t *testing.T) {
 		t.Fatalf("Urgency = %q, want high", got)
 	}
 }
+
+// TestPushBodiesNameTheRunner (gofer-okz3 ④): a push about a finished job / a
+// waiting session says which machine it ran on. The built-in runner shows its
+// public spelling `server` (G043); an unknown runner drops the suffix.
+func TestPushBodiesNameTheRunner(t *testing.T) {
+	cases := []struct {
+		name   string
+		runner string
+		want   string
+	}{
+		{"worker", "w-lab", "t · runner w-lab"},
+		{"builtin runner uses the server spelling", "local", "t · runner server"},
+		{"unknown runner keeps the suffix off", "", "t"},
+	}
+	for _, tc := range cases {
+		if got := terminalPushBody(job.JobResult{ID: "job-1", Title: "t", Runner: tc.runner}); got != tc.want {
+			t.Errorf("%s: terminalPushBody = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if got := terminalPushBody(job.JobResult{ID: "job-s", Session: true, SessionEndReason: "idle_timeout", Runner: "w-lab"}); got != "空闲超时 · runner w-lab" {
+		t.Errorf("terminalPushBody(session) = %q", got)
+	}
+	title, body := sessionAwaitingReplyPush(job.JobResult{ID: "job-2", Title: "fix", Agent: "codex", ProjectKey: "project-a", Runner: "local"}, map[string]any{"turn_no": 3})
+	if !strings.Contains(title, "会话等你回复") || !strings.Contains(body, "第 3 轮 · codex · project-a · runner server") {
+		t.Errorf("sessionAwaitingReplyPush = %q / %q", title, body)
+	}
+}

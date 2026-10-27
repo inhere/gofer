@@ -445,7 +445,7 @@ func (s *Service) immediateMessage(result JobResult, eventType, detailJSON strin
 		if result.SessionID != "" {
 			link = s.webURL("/workbench?thread=s:" + url.QueryEscape(result.SessionID))
 		}
-		return notify.SessionAwaitingReplyMessage(eventType, d.Title, d.Preview, d.Turn, d.Agent, d.Project, idle, link, at), true
+		return notify.SessionAwaitingReplyMessage(eventType, d.Title, d.Preview, d.Turn, d.Agent, d.Project, config.RunnerDisplayName(result.Runner), idle, link, at), true
 	case EventInteractionCreated:
 		var d struct {
 			InteractionID string `json:"interaction_id"`
@@ -475,22 +475,35 @@ func (s *Service) immediateMessage(result JobResult, eventType, detailJSON strin
 // shape: who/what/where, plus the job page as the click target.
 func (s *Service) jobHeadlineMessage(result JobResult, eventType string, at int64) notify.Message {
 	title := deliveryFirstNonEmpty(result.Title, result.ID)
-	parts := make([]string, 0, 3)
+	return notify.Message{
+		EventType: eventType,
+		Title:     jobEventLabel(eventType) + "：" + title,
+		Text:      jobHeadlineText(result),
+		Link:      s.webURL("/jobs/" + result.ID),
+		LinkLabel: "查看 job",
+		At:        at,
+	}
+}
+
+// jobHeadlineText is the one-line "who / what / where" body of a job event: the
+// project, the agent and the machine it runs on, then the job id. The machine is
+// part of it because with more than one worker "a job of mine finished" is not
+// actionable until you know which machine ran it (gofer-okz3 ④); the built-in
+// runner reads as `server` (G043). Unknown fields drop their segment instead of
+// leaving a dangling separator.
+func jobHeadlineText(result JobResult) string {
+	parts := make([]string, 0, 4)
 	if result.ProjectKey != "" {
 		parts = append(parts, "project "+result.ProjectKey)
 	}
 	if result.Agent != "" {
 		parts = append(parts, "agent "+result.Agent)
 	}
-	parts = append(parts, "job "+result.ID)
-	return notify.Message{
-		EventType: eventType,
-		Title:     jobEventLabel(eventType) + "：" + title,
-		Text:      strings.Join(parts, " · "),
-		Link:      s.webURL("/jobs/" + result.ID),
-		LinkLabel: "查看 job",
-		At:        at,
+	if runner := config.RunnerDisplayName(result.Runner); runner != "" {
+		parts = append(parts, "runner "+runner)
 	}
+	parts = append(parts, "job "+result.ID)
+	return strings.Join(parts, " · ")
 }
 
 // jobEventLabel names a job event for a person (a notification title). An event with

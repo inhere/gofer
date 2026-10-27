@@ -23,6 +23,7 @@ import {
   settleHidden,
 } from '../utils/today'
 import { createUndoQueue } from '../utils/undoQueue'
+import { isNextCardKey, nextQueueIndex } from '../utils/todayQueueJump'
 
 export const TODAY_TOPICS = ['pending', 'jobs', 'work', 'sessions', 'plans'] as const
 export const REFRESH_DEBOUNCE_MS = 1000
@@ -66,6 +67,20 @@ export const visibleCards = computed<TodayCard[]>(() =>
   (todayData.value?.decisions ?? []).filter((c) => !hiddenKeys.value.has(c.key)),
 )
 export const decisionCount = computed(() => visibleCards.value.length)
+
+// 「今天队列的下一项」光标（Ctrl/⌘+J，issue gofer-okz3 ①）：-1 = 还没跳过。
+// 队列里动态进出卡片，所以只记下标，越界由 nextQueueIndex 按模收敛；页面按 key 高亮。
+export const queueCursor = ref(-1)
+// 当前高亮的卡片 key（空串 = 没有高亮）；卡片被处理掉后自动失效。
+export const highlightedCardKey = computed(() => visibleCards.value[queueCursor.value]?.key ?? '')
+
+// jumpToNextCard：全局快捷键的动作，光标循环前进一格并返回该卡（队列为空返回 null）。
+export function jumpToNextCard(): TodayCard | null {
+  const cards = visibleCards.value
+  const next = nextQueueIndex(queueCursor.value, cards.length)
+  queueCursor.value = next
+  return cards[next] ?? null
+}
 
 export function setIncludeExec(on: boolean): void {
   includeExec.value = on
@@ -249,6 +264,15 @@ export function installTodayGlobals(router: Router): void {
   })
   const chord = createChordDetector()
   window.addEventListener('keydown', (ev) => {
+    // Ctrl/⌘+J：跳到「今天」队列里的下一项（循环）。不在 /today 时先把页面带过去，
+    // 这样这个键在哪儿都能用、按第二下就继续往下走（issue gofer-okz3 ①）。
+    if (isNextCardKey(ev)) {
+      const card = jumpToNextCard()
+      if (!card) return
+      ev.preventDefault()
+      if (router.currentRoute.value.path !== '/today') void router.push('/today')
+      return
+    }
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return
     const typing = isTypingTarget(ev.target)
     if (!typing && ev.key === 'z' && undoQueue.current.value) {

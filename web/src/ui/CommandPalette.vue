@@ -6,7 +6,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { t } from '../i18n'
-import { paletteHits, parsePaletteQuery } from '../utils/shell'
+import { paletteHits, parsePaletteQuery, SHELL_SHORTCUTS } from '../utils/shell'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
@@ -18,6 +18,7 @@ const inputEl = ref<HTMLInputElement | null>(null)
 
 const hits = computed(() => paletteHits(query.value, undefined, (key) => t(key)))
 const project = computed(() => parsePaletteQuery(query.value).project)
+const shortcuts = SHELL_SHORTCUTS
 
 watch(
   () => props.open,
@@ -125,6 +126,13 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKey))
         </li>
         <li v-if="!hits.length" class="cp-empty">{{ t('palette.empty') }}</li>
       </ul>
+      <!-- 全局快捷键登记处：SHELL_SHORTCUTS 是唯一清单（新加快捷键在 utils/shell.ts 里加一行） -->
+      <div class="cp-keys" data-test="palette-shortcuts">
+        <span class="cp-keys-title">{{ t('palette.shortcuts') }}</span>
+        <span v-for="s in shortcuts" :key="s.keys" class="cp-key">
+          <kbd class="kbd">{{ s.keys }}</kbd>{{ t(s.key) }}
+        </span>
+      </div>
     </div>
   </div>
 </template>
@@ -200,5 +208,23 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKey))
   padding: 10px;
   color: var(--ink-3);
   font-size: 13px;
+}
+.cp-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+.cp-keys-title {
+  font-weight: 600;
+}
+.cp-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 </style>

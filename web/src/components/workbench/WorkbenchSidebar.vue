@@ -7,6 +7,7 @@ import FilterChips from '../../ui/FilterChips.vue'
 import ProjectFilter from '../../ui/ProjectFilter.vue'
 import StatusGlyph from '../../ui/StatusGlyph.vue'
 import Icon from '../../ui/Icon.vue'
+import RunnerTag from '../RunnerTag.vue'
 import { ChevronDown, ChevronRight } from '@lucide/vue'
 import { WORKBENCH_THREAD_DRAG_TYPE } from './layoutTree'
 import { groupOfThread, groupThreads, THREAD_GROUP_ORDER, threadGroupLabelKey } from './threadGroups'
@@ -198,6 +199,7 @@ defineExpose({ focusSearch })
             <span class="tm">{{ formatRelative(thread.updated_at) }}</span>
             <span class="ln">
               <span class="ln-agent">{{ thread.agent || thread.kind }}</span>
+              <RunnerTag :name="thread.runner" />
               <span v-if="turnsText(thread)" class="ln-meta">{{ turnsText(thread) }}</span>
               <span v-if="durationText(thread)" class="ln-meta">{{ durationText(thread) }}</span>
               <span v-if="usageText(thread)" class="ln-meta">{{ usageText(thread) }}</span>
