@@ -40,7 +40,9 @@ var DoctorSlugs = []string{DoctorFlagged, DoctorHandoffExpired, DoctorNoteStale,
 var doctorStaleSlugs = []string{DoctorHandoffExpired, DoctorNoteStale, DoctorPathMissing, DoctorCommitMissing}
 
 // PrimeStaleMarkerIn is appended to flagged rule / note entries in prime.
-func PrimeStaleMarkerIn(lang i18n.Lang) string { return i18n.T(lang, "cli.tracker.doctor.stale_marker") }
+func PrimeStaleMarkerIn(lang i18n.Lang) string {
+	return i18n.T(lang, "cli.tracker.doctor.stale_marker")
+}
 
 const (
 	// duplicateJaccard is the token-set similarity from which two memories with
