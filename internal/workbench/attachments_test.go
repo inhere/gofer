@@ -34,7 +34,14 @@ func TestRouteAttachmentsTruthTable(t *testing.T) {
 		{"agent cannot read images", RouteInput{Kind: KindRelay, Agent: "suga", Runner: "local", Project: "p"}, AttachNone, "suga 暂不支持读取图片"},
 		{"unnamed agent cannot", RouteInput{Runner: "local", Project: "p"}, AttachNone, "该 agent 暂不支持读取图片"},
 		{"no runner", RouteInput{Agent: "claude", Project: "p", FilePath: true}, AttachNone, "会话没有执行机信息"},
-		{"no project", RouteInput{Agent: "claude", Runner: "local", FilePath: true}, AttachNone, "会话没有执行机信息"},
+		{"no project and no own dir", RouteInput{Agent: "claude", Runner: "w-old", FilePath: true}, AttachNone, ownDirReason("w-old")},
+		// A session that belongs to no project: the images go into the EXECUTING machine's own
+		// attachment directory, which the server always has and a remote worker only when it
+		// declared the capability.
+		{"no project on the server", RouteInput{Agent: "claude", Runner: "local", FilePath: true, OwnDir: true}, AttachFile, ""},
+		{"no project on a capable remote worker", RouteInput{Agent: "claude", Runner: "w-docker-claude", FilePath: true, OwnDir: true}, AttachFile, ""},
+		{"no project, capable worker, arg agent", RouteInput{Agent: "suga", Runner: "w-docker-claude", Arg: true, OwnDir: true}, AttachArg, ""},
+		{"own dir does not rescue a project placement", RouteInput{Agent: "claude", Runner: "local", Project: "p", FilePath: true, OwnDir: true}, AttachFile, ""},
 		// image_input: arg — the paths ride the next job's argv instead of the text.
 		{"arg agent", RouteInput{Kind: KindAgent, Agent: "suga", Runner: "local", Project: "p", Arg: true}, AttachArg, ""},
 		{"arg agent needs executor info", RouteInput{Kind: KindAgent, Agent: "suga", Arg: true}, AttachNone, "会话没有执行机信息"},
@@ -83,15 +90,28 @@ func (j *imageJobs) SaySessionBlocks(_, text string, images []job.ImageInput) er
 }
 
 type fakePlacer struct {
-	abs   string
-	err   error
-	calls []string
+	abs        string
+	err        error
+	ownErr     error
+	ownSupport bool
+	calls      []string
+	ownCalls   []string
 }
 
 func (p *fakePlacer) PutAndWait(_ context.Context, _, runner, project, _, dest string, _ time.Duration) (string, error) {
 	p.calls = append(p.calls, runner+"|"+project+"|"+dest)
 	return p.abs, p.err
 }
+
+func (p *fakePlacer) PutAttachmentsAndWait(_ context.Context, _, runner, _, dest string, _ time.Duration) (string, error) {
+	p.ownCalls = append(p.ownCalls, runner+"|"+dest)
+	if p.ownErr != nil {
+		return "", p.ownErr
+	}
+	return p.abs, nil
+}
+
+func (p *fakePlacer) OwnAttachmentsSupported(string) bool { return p.ownSupport }
 
 type sessionRelay struct {
 	recordingRelay

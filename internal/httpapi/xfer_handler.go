@@ -29,7 +29,11 @@ type xferView struct {
 	Op      string `json:"op"`
 	Runner  string `json:"runner"`
 	Project string `json:"project"`
-	Path    string `json:"path"`
+	// Target names the directory tree Path is relative to on the executing machine: empty
+	// (absent) = the project, "attachments" = that machine's own attachment directory, which
+	// is used when the session it serves belongs to no project ("project" is then empty).
+	Target string `json:"target,omitempty"`
+	Path   string `json:"path"`
 	// AbsPath is the absolute destination the EXECUTING machine reported for a put (empty
 	// for a get, a failed transfer, or a worker that cannot report one). It is what lets a
 	// caller print a path an agent on that machine can open directly.
@@ -46,7 +50,7 @@ type xferView struct {
 
 func xferJSON(rec jobstore.XferRecord) xferView {
 	return xferView{
-		ID: rec.ID, Op: rec.Op, Runner: rec.Runner, Project: rec.ProjectKey, Path: rec.Path,
+		ID: rec.ID, Op: rec.Op, Runner: rec.Runner, Project: rec.ProjectKey, Target: rec.Target, Path: rec.Path,
 		AbsPath: rec.AbsPath,
 		Size:    rec.Size, SHA256: rec.SHA256, State: rec.State, Error: rec.Error,
 		CallerID: rec.CallerID, CreatedAt: rec.CreatedAt, FinishedAt: rec.FinishedAt, ExpiresAt: rec.ExpiresAt,

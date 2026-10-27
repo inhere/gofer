@@ -241,6 +241,11 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// xferFilterRunner selects one runner's transfer rows for these tests.
+func xferFilterRunner(runner string) jobstore.XferFilter {
+	return jobstore.XferFilter{Runner: runner}
+}
+
 // xferState reads one journal row and fails when it is not in want.
 func xferRow(t *testing.T, mgr *xfer.Manager, id string) jobstore.XferRecord {
 	t.Helper()

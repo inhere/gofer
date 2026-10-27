@@ -17,6 +17,13 @@ import (
 // (or a worker that died mid-file) must not hold a record open.
 const DefaultWorkerTimeout = 10 * time.Minute
 
+// TargetAttachments is FileXferRequest.Target's value for a put into the executing
+// machine's OWN attachment directory (<config-dir>/run/attachments/<date>/) instead of a
+// project tree. The wire carries the same literal (wsproto.FileXferTargetAttachments):
+// the assembly adapter converts one into the other explicitly, so neither side has to
+// import the other (G022).
+const TargetAttachments = "attachments"
+
 // FileXferRequest is one transfer instruction for a worker. It deliberately
 // mirrors the wire frame instead of sharing it, so this package stays free of the
 // wire protocol (wsproto is imported only by the hub/worker and the assembly
@@ -25,10 +32,13 @@ type FileXferRequest struct {
 	XferID     string
 	Op         string
 	ProjectKey string
-	Path       string
-	Size       int64
-	SHA256     string
-	Force      bool
+	// Target names the base Path is relative to: empty = the project ProjectKey names,
+	// TargetAttachments = the worker's own attachment directory (no project at all).
+	Target string
+	Path   string
+	Size   int64
+	SHA256 string
+	Force  bool
 	// URLPath is the server-relative content URL the worker fetches (put) or
 	// uploads to (get).
 	URLPath string
@@ -52,6 +62,17 @@ type FileXferResult struct {
 // tests stub; a nil sender means "this deployment cannot reach workers".
 type WorkerSender interface {
 	SendFileXfer(ctx context.Context, workerID string, req FileXferRequest) (FileXferResult, error)
+}
+
+// WorkerCapabilities is the optional query half of WorkerSender: it answers which
+// optional capabilities a CONNECTED worker declared at registration. A sender that cannot
+// answer (a stub in a test, a deployment with no hub) does not implement it at all, and
+// the caller then treats that worker as lacking the capability — refusing a placement is
+// always safer than sending a frame the peer silently drops.
+type WorkerCapabilities interface {
+	// SupportsWorkerAttach reports whether workerID accepts a transfer into its own
+	// attachment directory (wsproto.SupportsWorkerAttach of the version it registered).
+	SupportsWorkerAttach(workerID string) bool
 }
 
 // Router picks the executor for a staged transfer from its runner name: the
@@ -89,6 +110,7 @@ func (r *Router) Run(ctx context.Context, rec jobstore.XferRecord) (RunResult, e
 		XferID:     rec.ID,
 		Op:         rec.Op,
 		ProjectKey: rec.ProjectKey,
+		Target:     rec.Target,
 		Path:       rec.Path,
 		Size:       rec.Size,
 		SHA256:     rec.SHA256,
@@ -111,6 +133,38 @@ func (r *Router) Run(ctx context.Context, rec jobstore.XferRecord) (RunResult, e
 		return RunResult{}, errors.New("worker refused the transfer")
 	}
 	return RunResult{AbsPath: res.AbsPath}, nil
+}
+
+// TargetCapabilities is the optional query side of Runner: whether the executor a
+// transfer names can take a placement into that machine's OWN attachment directory
+// (TargetAttachments). The file-delivery layer asks it before it promises a
+// project-less session that its images can be placed.
+type TargetCapabilities interface {
+	SupportsWorkerAttach(runner string) bool
+}
+
+// OwnAttachmentsSupported reports whether runner can take a put into its machine's own
+// attachment directory: the builtin local runner always can (this process writes its own
+// runtime directory), a worker only when it registered with the capability.
+func (m *Manager) OwnAttachmentsSupported(runner string) bool {
+	if config.NormalizeRunnerName(runner) == config.BuiltinLocalRunner {
+		return true
+	}
+	caps, ok := m.runnerOrNil().(TargetCapabilities)
+	if !ok {
+		return false
+	}
+	return caps.SupportsWorkerAttach(runner)
+}
+
+// SupportsWorkerAttach implements TargetCapabilities for the router: the answer comes from
+// the sender, which is the only side that knows what each connected worker declared.
+func (r *Router) SupportsWorkerAttach(workerID string) bool {
+	caps, ok := r.Sender.(WorkerCapabilities)
+	if !ok {
+		return false
+	}
+	return caps.SupportsWorkerAttach(workerID)
 }
 
 // ContentPath is the server-relative URL of a transfer's payload: the endpoint a

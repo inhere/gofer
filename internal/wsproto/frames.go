@@ -60,7 +60,10 @@ const (
 	// and image blocks in a session say: session_cmd.images, status/inflight
 	// session_images (see ImageSayMinProtocolVersion).
 	// v26 adds the optional dispatch.env (see JobEnvMinProtocolVersion).
-	CurrentProtocolVersion = 26
+	// v27 adds the optional file_xfer.target (see WorkerAttachMinProtocolVersion): a put
+	// into the executing WORKER's own attachment directory, for a session that belongs to
+	// no project of that machine.
+	CurrentProtocolVersion = 27
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -276,6 +279,27 @@ const XferAbsPathMinProtocolVersion = 25
 // proto reports the absolute destination of a put.
 func SupportsXferAbsPath(proto int) bool { return proto >= XferAbsPathMinProtocolVersion }
 
+// WorkerAttachMinProtocolVersion is the first protocol version whose FileXfer carries
+// Target: a put that lands in the WORKER's own attachment directory
+// (<worker config-dir>/run/attachments/<date>/) instead of inside one of its projects.
+// It exists for a session that belongs to no project of the executing machine, where the
+// project-relative placement has no root to resolve against at all.
+//
+// Same refusal rule as FileXferMinProtocolVersion, one level down: a peer below it ignores
+// the unknown key, so it would resolve the path against a project root that is not there
+// (and refuse with "unknown project") — the caller must refuse UP FRONT and name the
+// upgrade, because there is no honest downgrade (the images would simply never arrive).
+const WorkerAttachMinProtocolVersion = 27
+
+// SupportsWorkerAttach reports whether a worker that registered with protocol version
+// proto accepts a transfer into its own attachment directory.
+func SupportsWorkerAttach(proto int) bool { return proto >= WorkerAttachMinProtocolVersion }
+
+// FileXferTargetAttachments is FileXfer.Target's value for a put into the executing
+// worker's own attachment directory. With it set, ProjectKey is empty and Path is
+// relative to that directory (<date>/<name>): there is no project to be relative to.
+const FileXferTargetAttachments = "attachments"
+
 // SkillsMinProtocolVersion is the first protocol version whose XferUpload carries
 // Base (the skills mount, JOB-10). It is a floor of a different kind from the ones
 // above: nothing is REFUSED over it. A skill travels as an ordinary staged upload,
@@ -382,8 +406,14 @@ type FileXfer struct {
 	XferID     string `json:"xfer_id"`
 	Op         string `json:"op"` // put | get
 	ProjectKey string `json:"project_key"`
-	// Path is the project-RELATIVE path on the executing machine; the worker resolves
-	// it under its own project root and refuses anything that escapes it.
+	// Target (protocol v27, additive) picks the directory tree Path is relative to:
+	// empty = the project named by ProjectKey, FileXferTargetAttachments = the worker's
+	// own attachment directory (ProjectKey then empty). A worker below
+	// WorkerAttachMinProtocolVersion has no such target and is never sent one.
+	Target string `json:"target,omitempty"`
+	// Path is the path on the executing machine, RELATIVE to the base Target names (the
+	// project root, or the attachment directory); the worker resolves it under that base
+	// and refuses anything that escapes it.
 	Path    string `json:"path"`
 	Size    int64  `json:"size"`
 	SHA256  string `json:"sha256"`

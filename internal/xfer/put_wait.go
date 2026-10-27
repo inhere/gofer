@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // put_wait.go is the one-call placement seam of the file-delivery path (the gofer
@@ -32,10 +34,42 @@ const DefaultPutWaitTimeout = 60 * time.Second
 // means DefaultPutWaitTimeout; on a timeout the record is settled FAILED, so a stalled far
 // side can never leave it dispatched forever.
 func (m *Manager) PutAndWait(ctx context.Context, caller, runner, projectKey, srcPath, dest string, timeout time.Duration) (string, error) {
+	stage := func() (jobstore.XferRecord, error) {
+		return m.StagePutFromFile(caller, runner, projectKey, srcPath, dest, true)
+	}
+	return m.putWait(ctx, stage, timeout)
+}
+
+// PutAttachmentsAndWait is PutAndWait's sibling for a session that belongs to NO project of
+// its executor: it stages srcPath as a put into that machine's own attachment directory
+// (<config-dir>/run/attachments/<date>/), executes it and returns the ABSOLUTE path the
+// machine reported.
+//
+// Unlike the project placement there is no project-relative fallback: the whole point is
+// the absolute path (nothing else can name the file to the agent), so an executing machine
+// that cannot report one fails here instead of handing back a path the receiver cannot
+// resolve.
+func (m *Manager) PutAttachmentsAndWait(ctx context.Context, caller, runner, srcPath, dest string, timeout time.Duration) (string, error) {
+	stage := func() (jobstore.XferRecord, error) {
+		return m.StagePutToAttachments(caller, runner, srcPath, dest, true)
+	}
+	abs, err := m.putWait(ctx, stage, timeout)
+	if err != nil {
+		return "", err
+	}
+	if abs == "" {
+		return "", fmt.Errorf("xfer: the executing machine did not report where it placed the attachment (upgrade its worker)")
+	}
+	return abs, nil
+}
+
+// putWait is the shared body of the two Put*AndWait entry points: stage, deliver, then
+// report what the settled row says.
+func (m *Manager) putWait(ctx context.Context, stage func() (jobstore.XferRecord, error), timeout time.Duration) (string, error) {
 	if timeout <= 0 {
 		timeout = DefaultPutWaitTimeout
 	}
-	rec, err := m.StagePutFromFile(caller, runner, projectKey, srcPath, dest, true)
+	rec, err := stage()
 	if err != nil {
 		return "", err
 	}

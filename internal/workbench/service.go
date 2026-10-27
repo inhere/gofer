@@ -556,14 +556,20 @@ func (s *Service) TurnWithAttachments(callerID, threadID, text string, attachmen
 	}
 }
 
-func rowRouteInput(row jobstore.JobRecord) (RouteInput, string, string) {
-	return RouteInput{Kind: KindAgent, Agent: row.Agent, Runner: row.Runner, Project: row.ProjectKey, Pty: row.Interactive},
+// rowRouteInput is the route input of a job-backed thread: the session's own project decides
+// whether the placement goes into a project or into the executing machine's own attachment
+// directory.
+func (s *Service) rowRouteInput(row jobstore.JobRecord) (RouteInput, string, string) {
+	return RouteInput{
+			Kind: KindAgent, Agent: row.Agent, Runner: row.Runner, Project: row.ProjectKey, Pty: row.Interactive,
+			OwnDir: s.ownDir(row.Runner),
+		},
 		row.Runner, row.ProjectKey
 }
 
 // sayWithImages sends images into the live resident session job row.
 func (s *Service) sayWithImages(callerID, threadID string, row jobstore.JobRecord, text string, atts []jobstore.Attachment) (TurnResult, error) {
-	in, runner, project := rowRouteInput(row)
+	in, runner, project := s.rowRouteInput(row)
 	// A live resident session takes an image as a protocol block or not at all: its next
 	// turn has no argv of its own, so the arg delivery (which rides a fresh job's argv)
 	// does not apply here and the route reports the agent as file-only/none instead.
@@ -594,7 +600,7 @@ func (s *Service) sayWithImages(callerID, threadID string, row jobstore.JobRecor
 // executing machine and reach the agent either by path in the text (file) or as argv flags
 // (arg).
 func (s *Service) resumeWithImages(callerID, threadID string, row jobstore.JobRecord, text string, atts []jobstore.Attachment) (TurnResult, error) {
-	in, runner, project := rowRouteInput(row)
+	in, runner, project := s.rowRouteInput(row)
 	s.applyImageInput(&in)
 	var result job.JobResult
 	m := imageSend{
@@ -671,7 +677,8 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 			return TurnResult{}, relaySendError(jobstore.SessionMessage{}, err)
 		}
 	}
-	in := RouteInput{Kind: KindRelay, Agent: sess.Agent, Runner: sess.Runner, Project: sess.ProjectKey}
+	in := RouteInput{Kind: KindRelay, Agent: sess.Agent, Runner: sess.Runner, Project: sess.ProjectKey,
+		OwnDir: s.ownDir(sess.Runner)}
 	// The session's own delivery channel (stdin / a queue command) carries text only, so an
 	// arg agent is not advertised as image-capable on this path; only path-readers get the
 	// file delivery here.

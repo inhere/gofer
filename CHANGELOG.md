@@ -13,6 +13,11 @@
 
 ### 新增
 
+- **远程 worker 上不属于任何项目的会话也能附图**（gofer-xbhf）：没有项目根的会话（例如远程 worker 上的终端会话）以前直接拒绝附图（`会话没有执行机信息`）；现在附图标被放执行机（该 worker）自己的附件目录 `<worker 的 config-dir>/run/attachments/<YYYYMMDD>/`，日期布局与清理规则与项目附件目录完全一致（每次放置删 7 天前的日期子目录），消息里给 agent 的仍是执行机回报的绝对路径。
+  - 传输协议新增可选字段 `file_xfer.target`（v27，`WorkerAttachMinProtocolVersion`）：`target: attachments` 表示 `path` 相对执行机自己的附件目录、`project_key` 为空；不支持的老 worker 照旧拒绝并提示升级（server 发送前按 worker 注册的版本判断，hub 侧也再挡一次）。
+  - 服务端本机（`server` 运行器）上的无项目会话走同一个目标类型（`xfer.TargetAttachments`），由本机 runner 写到 server 自己的 `run/attachments/` 并按同一规则清理。
+  - `xfers` 表加一行 `target` 列（可空、additive，老库由 `migrateXfers` 补上）；`gofer xfer ls/show` 与 `GET /v1/xfer/{id}` 因此能看到一行传输是项目内的还是执行机附件目录的。
+
 - **「设置 › 通知」加上了 IM 机器人与桌面通知**（gofer-x9mb）：一页三节——本设备推送（浏览器 Web Push，不变）、IM 机器人（`server.notification.webhooks`）、桌面通知（`server.notification.desktop`）。
   - IM 机器人：列表（地址脱敏显示）、添加 / 编辑抽屉（类型钉钉 / 飞书 / 通用 webhook、bot URL、关键词、加签密钥的**环境变量名**（只填名字，不存也不回显密钥值）、事件多选（按分组带中英文说明，不勾 = 默认事件集）、限定项目、启用开关）与逐行「发送测试」；机器人拒绝（关键词没命中、签名错）会把它的原文报出来。
   - 桌面通知：开关、事件、限定项目、合并窗口秒数，并写明它弹在运行 server 的机器上、当前平台是否支持。
