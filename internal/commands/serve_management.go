@@ -457,6 +457,7 @@ func inspectManagedStatus(ctx context.Context, m *servicemgr.Manager) (serveStat
 	native, err := managedNativeStatusRead(ctx, m)
 	if errors.Is(err, os.ErrNotExist) {
 		out.Backend, out.ConfigFile, out.Executable = spec.Backend, spec.ConfigFile, spec.Exe
+		out.ConfigFiles, out.DotenvFiles = statusConfigFiles(spec), loadedDotenvFilesAbs()
 		out.IdentityError = "Gofer spec exists but native registration is missing"
 		return out, nil
 	}
