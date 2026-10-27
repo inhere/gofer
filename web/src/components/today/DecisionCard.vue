@@ -4,7 +4,7 @@
 // 卡片只发出 act 事件，真正的写操作与撤销窗口在 store/today.ts。
 // 「稍后」（T3）：菜单选 1 小时 / 明早 9:00 / 等相关 job 结束，发出 snooze 事件；专注模式经
 // defineExpose 的方法驱动同一张卡（数字键 / a / r / i / h）。
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import RejectDialog from '../RejectDialog.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
@@ -27,15 +27,22 @@ const emit = defineEmits<{
 
 const infoOpen = ref(!!props.initialInfoOpen)
 // Ctrl/⌘+J 跳到这张时滚到可见处（issue gofer-okz3 ①）；block:'nearest' 不把整页顶走。
+// 新加进来的卡是带着 highlighted 挂载的（队列撑开），所以挂载时也要补一次。
 const cardEl = ref<HTMLElement | null>(null)
+function revealAsNext(): void {
+  cardEl.value?.scrollIntoView?.({ block: 'nearest' })
+  cardEl.value?.focus?.({ preventScroll: true })
+}
 watch(
   () => props.highlighted,
   (on) => {
-    if (!on) return
-    cardEl.value?.scrollIntoView?.({ block: 'nearest' })
-    cardEl.value?.focus?.({ preventScroll: true })
+    if (on) revealAsNext()
   },
+  { flush: 'post' },
 )
+onMounted(() => {
+  if (props.highlighted) revealAsNext()
+})
 const replyAction = ref<TodayAction | null>(null)
 const replyText = ref('')
 const rerunOpen = ref(false)
