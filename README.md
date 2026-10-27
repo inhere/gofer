@@ -2,11 +2,35 @@
 
 English · [中文](README.zh-CN.md) · [Changelog](CHANGELOG.md) · [User guide](docs/guide/en/getting-started.md)
 
-> **Status: 0.x — young, and in daily use by its author.** Releases land often (sometimes several a week) and interfaces may still change between minor versions: [CHANGELOG.md](CHANGELOG.md) is the authority for what changed, and [stability](docs/guide/stability.md) says what you can rely on.
+**Your agents, your machines, one control plane.** Run Claude Code, Codex, ACP agents or plain commands as tracked, reviewable jobs on every machine you own: no cloud in between.
 
-**gofer is a self-hosted control plane that runs coding agents — Claude Code, Codex, ACP agents or plain commands — as tracked, reviewable jobs inside your real projects, on your own machines.**
+<img src=".github/image/gofer-intro-review-merge-en.gif" alt="An agent job stops at Needs review with its acceptance criteria, report and changed files on one panel, then is accepted and merged back" width="760">
+
+- **Worktree isolation, review like a pull request.** A job can run in its own git worktree and branch, and stops at `needs_review` with the report, commits, diff and verify output on one panel; accept it, or reject it with a reason and get an automatic follow-up.
+- **One server, many workers.** Workers on your other machines and containers dial in to the server, so you never open an inbound port.
+- **Terminal sessions, answered from your phone.** Register the Claude Code / Codex sessions you already work in, follow them in the web workbench and reply from a phone.
+- **No model, no vendor lock-in.** gofer embeds no agent and binds no provider: MIT, and one Go binary that ships the web console.
+
+## Quick start
+
+```bash
+eget install inhere/gofer               # or take the archive from GitHub Releases
+gofer init server --global              # writes <config-dir>/config.yaml
+export GOFER_TOKEN=change-me            # the generated config reads the token from this variable
+gofer serve                             # web console at http://<server>:8765/
+```
+
+That is a working server on one machine. Your first job, a second machine as a worker and handing your terminal sessions over to the web are in [getting started](docs/guide/en/getting-started.md); [below](#full-walkthrough-about-10-minutes) spreads the same steps out.
+
+> **Status: 0.x — young, and in daily use by its author.** Minor versions may still change interfaces: [CHANGELOG.md](CHANGELOG.md) is the authority for what changed, and [stability](docs/guide/stability.md) says what you can rely on.
+
+## What it is
 
 You run one gofer server on your main host and, optionally, workers on other machines or containers. Everything you hand over becomes a *job* with its logs, diff, commits, token usage and review state; people and agents reach the same jobs through the CLI, an HTTP API, MCP and a web console.
+
+It is built for one developer, or a small team that trusts each other. It is **not** an agent or an LLM itself, not a hosted service, not a CI/CD system or a sandbox, and not a multi-tenant platform: access is token based, and a job runs with the permissions of the gofer process that executes it.
+
+## How the pieces fit
 
 ```mermaid
 flowchart LR
@@ -19,8 +43,6 @@ flowchart LR
 - **server** (`gofer serve`) — the single source of truth: projects and their admission rules, job store, scheduler, API and web console. One per machine.
 - **worker** (`gofer worker`) — a remote executor that dials into the server, reports its directories and agents, and runs jobs locally. No inbound port needed.
 - **agent** — the program that does the work. gofer embeds no model; it launches and supervises CLIs you already have.
-
-It is built for one developer, or a small team that trusts each other. It is **not** an agent or an LLM itself, not a hosted service, not a CI/CD system or a sandbox, and not a multi-tenant platform: access is token based, and a job runs with the permissions of the gofer process that executes it.
 
 ![gofer-workbench](.github/image/gofer-workbench-en.png)
 
@@ -61,7 +83,7 @@ It is built for one developer, or a small team that trusts each other. It is **n
 
 Same binary in all three cases; only the embedded frontend differs.
 
-## Quick start (about 10 minutes)
+## Full walkthrough (about 10 minutes)
 
 ### 1. Server
 
