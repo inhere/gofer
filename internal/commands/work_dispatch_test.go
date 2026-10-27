@@ -47,7 +47,8 @@ func TestWorkDispatchCLI(t *testing.T) {
 	}
 
 	out := workCLIOK(t, server, "dispatch", id, "--to", "todo")
-	if !strings.Contains(out, "dispatched "+id+" to todo") || status(id) != jobstore.WorkActive {
+	// Handed over to the plan, the item is finished (done), not left active.
+	if !strings.Contains(out, "dispatched "+id+" to todo") || status(id) != jobstore.WorkDone {
 		t.Fatalf("to todo (status %s):\n%s", status(id), out)
 	}
 	// It left the capture box: a second dispatch is refused.
