@@ -367,7 +367,7 @@ server:
   agent_health: { window_sec: 3600, degraded_after: 3, recover_after_ok: 1 }
 ```
 
-> `gofer` 命令自己的 `--help` 与提示按**调用方**的语言显示，来源链：`GOFER_LANG` 环境变量 → 客户端节点 `.env` 里的 `language`(客户端节点只有 `.env`，键名经 dotenv 转成 `LANGUAGE`) → 系统语言(`LANG` / `LC_ALL`，Windows 取界面语言) → 缺省。`--json` 等机器可读输出不翻译。已支持的命令组:`job` / `plan` / `session`。
+> `gofer` 命令自己的 `--help` 与提示按**调用方**的语言显示，来源链：`GOFER_LANG` 环境变量 → 系统语言(`LANG` / `LC_ALL`，Windows 取界面语言) → 缺省。`--json` 等机器可读输出不翻译。已支持的命令组:`job` / `plan` / `session`。
 
 - 候选必须是 `agents` 里声明过的、非 exec、能跑批处理的 agent，加载时校验；提交时再按项目 `allowed_agents` 过滤（不在白名单的跳过并告警），解析结果随 job 冻结。单个 job 用 `job run --fallback omp,claude` 覆盖、`--no-fallback` 关掉。
 - 触发：job 失败且命中瞬时错误模式、自己也续不了；验证步骤失败不算。动作：以普通 job 重提原请求（新会话、同一 cwd，prompt 加前缀说明只做剩余部分，标题加 `(→omp)`，继承 plan / tags / review / verify / todo 等）。

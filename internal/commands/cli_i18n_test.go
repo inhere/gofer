@@ -26,7 +26,6 @@ var migratedHelpRoots = []string{"job", "plan", "session"}
 // examples and every flag usage) of the migrated subtrees.
 func TestZhCliHelpIsUnchanged(t *testing.T) {
 	t.Setenv("GOFER_LANG", string(i18n.ZhCN))
-	t.Setenv(i18n.EnvClientLangVar, "") // the client config never speaks for this test
 	got := collectCliHelp(t)
 
 	if os.Getenv("GOFER_GOLDEN_UPDATE") == "1" {

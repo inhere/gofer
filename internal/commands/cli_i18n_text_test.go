@@ -20,39 +20,36 @@ var han = regexp.MustCompile(`\p{Han}`)
 // subtrees is English — no Chinese word survives anywhere in it.
 func TestEnglishCliHelpHasNoCJK(t *testing.T) {
 	t.Setenv("GOFER_LANG", string(i18n.EN))
-	t.Setenv(i18n.EnvClientLangVar, "")
 	if m := han.FindString(collectCliHelp(t)); m != "" {
 		t.Errorf("the English help carries CJK (%q):\n%s", m, collectCliHelp(t))
 	}
 }
 
 // TestCliLangChain pins the language chain of the CLI's own output (design §3):
-// GOFER_LANG, then the client node's language, then the machine's locale, then
-// the default.
+// GOFER_LANG, then the machine's locale, then the default. The client node's
+// configured language sits between the last two in §3 and is not wired yet (see
+// cliLang); its test comes with the setup/config group that owns the client .env.
 func TestCliLangChain(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8") // the machine: English
 	t.Setenv("LANG", "")
 	t.Setenv("LC_MESSAGES", "")
 	t.Setenv(i18n.EnvLanguageVar, "")
-	t.Setenv(i18n.EnvClientLangVar, "")
 
 	if got := cliLang(); got != i18n.EN {
 		t.Errorf("machine locale only: cliLang() = %q, want en", got)
 	}
-	// The client config: a client node's `.env` `language` line reaches the process
-	// as LANGUAGE (config.LoadDotenv upper-cases it), and an alias reads canonical.
-	t.Setenv(i18n.EnvClientLangVar, "zh_CN.UTF-8")
+	// A regional / encoded spelling of the machine's language reads canonical.
+	t.Setenv("LC_ALL", "zh_CN.UTF-8")
 	if got := cliLang(); got != i18n.ZhCN {
-		t.Errorf("client config: cliLang() = %q, want zh-CN", got)
+		t.Errorf("machine locale zh_CN.UTF-8: cliLang() = %q, want zh-CN", got)
 	}
-	// GOFER_LANG beats both.
+	// GOFER_LANG beats the machine locale.
 	t.Setenv(i18n.EnvLanguageVar, "en")
 	if got := cliLang(); got != i18n.EN {
 		t.Errorf("GOFER_LANG: cliLang() = %q, want en", got)
 	}
 	// Nothing names a language: the DEPRECATED default.
 	t.Setenv(i18n.EnvLanguageVar, "")
-	t.Setenv(i18n.EnvClientLangVar, "")
 	t.Setenv("LC_ALL", "sn")
 	if got := cliLang(); got != i18n.Default {
 		t.Errorf("nothing set: cliLang() = %q, want the default %q", got, i18n.Default)
