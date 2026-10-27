@@ -176,6 +176,7 @@ func registerWorkTools(s *mcp.Server, b Backend, scoped string) {
 		registerSessionAskTool(s, b) // crosses sessions: not offered to a project-scoped MCP
 		registerSessionTopicTools(s, b)
 		registerSessionMailTools(s, b)
+		registerSessionWaitTools(s, b) // gofer-f8ik: wait on / read another session
 	}
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_work_list",
