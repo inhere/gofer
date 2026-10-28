@@ -33,7 +33,7 @@
 === doctor/tools/missing
 [WARN] tools: 声明 1 个，本机找不到 1 个: ffmpeg (gofer-no-such-tool-xyz)
 === doctor/agent/unavailable
-[FAIL] agent.claude: unavailable; 安装命令：irm https://claude.ai/install.ps1 | iex（官方文档：https://code.claude.com/docs/en/setup）
+[FAIL] agent.claude: unavailable; 安装命令：<install command>（官方文档：https://code.claude.com/docs/en/setup）
 === doctor/dial-hint/401
 （401：token 被 hub 拒绝 — 核对 server_link.token_env 解析出的值与 server.workers.<worker_id>.token 是否一致）
 === doctor/dial-hint/other

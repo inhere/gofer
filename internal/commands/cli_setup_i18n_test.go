@@ -55,7 +55,17 @@ func TestZhSetupCliHelpIsUnchanged(t *testing.T) {
 // so a change to what an existing zh-CN deployment prints turns this red.
 func TestZhSetupOutputsAreUnchanged(t *testing.T) {
 	t.Setenv("GOFER_LANG", "zh-CN")
-	compareGolden(t, setupOutputsGolden, slashTmpPaths(collectSetupOutputs(t)))
+	compareGolden(t, setupOutputsGolden, platformInstallCommands(slashTmpPaths(collectSetupOutputs(t))))
+}
+
+// installCommandRE matches the install command a missing-CLI hint prints. The command
+// differs per platform (curl | bash vs. irm | iex); the per-platform table has its own
+// tests in internal/agent, so the golden pins the sentence around it, not the command.
+var installCommandRE = regexp.MustCompile(`(安装命令：|install command: )[^（(]*`)
+
+// platformInstallCommands replaces the platform-specific install command with a marker.
+func platformInstallCommands(s string) string {
+	return installCommandRE.ReplaceAllString(s, "${1}<install command>")
 }
 
 // platformOnlyCommands are registered on some platforms only (serve supervise is the
