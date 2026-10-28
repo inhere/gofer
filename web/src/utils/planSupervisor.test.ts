@@ -32,11 +32,32 @@ describe('PlanDetail supervisor session wiring', () => {
     expect(planDetail).toContain('<PlanSupervisor')
     expect(planDetail).toContain('plan.supervisor_session_id')
   })
-  it('reuses the session message entry, session drawer and plan PATCH', () => {
+  it('keeps the supervisor session, message input and actions inside one card', () => {
+    expect(comp).toContain('data-test="supervisor-card"')
+    expect(comp).toContain('data-test="supervisor-session"')
+    expect(comp).toContain('data-test="supervisor-actions"')
     expect(comp).toContain('sendSessionMessage(props.sid')
     expect(comp).toContain('<SessionDrawer')
     expect(comp).toContain('setPlanSupervisorSession')
     expect(comp).toContain("bind('')")
     expect(client).toMatch(/supervisor_session_id: sid/)
+    const body = comp.slice(comp.indexOf('class="ps-body"'), comp.indexOf('<SessionDrawer'))
+    expect(body.indexOf('data-test="supervisor-session"')).toBeGreaterThanOrEqual(0)
+    expect(body.indexOf('class="op-input ps-input"')).toBeGreaterThan(body.indexOf('data-test="supervisor-session"'))
+    expect(body.indexOf('data-test="supervisor-actions"')).toBeGreaterThan(body.indexOf('class="op-input ps-input"'))
+  })
+
+  it('keeps the unbound empty state and bind entry in the same card', () => {
+    expect(comp).toContain('v-if="!sid" class="empty mono"')
+    expect(comp).toContain("sid ? t('plans.supervisor.change') : t('plans.supervisor.bind')")
+    expect(comp).toContain('class="section plan-supervisor" data-test="supervisor-card"')
+  })
+
+  it('combines checklist progress and chain controls into one card', () => {
+    const card = planDetail.slice(planDetail.indexOf('data-test="plan-controls-card"'), planDetail.indexOf('<!-- 用量：'))
+    expect(card).toContain('class="ops-summary"')
+    expect(card).toContain('class="chain-ctl mono"')
+    expect(card.indexOf('class="ops-summary"')).toBeLessThan(card.indexOf('class="chain-ctl mono"'))
+    expect(planDetail).toContain('.chain-ctl {\n  padding: 12px 14px 14px;\n  border-top: 1px solid var(--line);')
   })
 })

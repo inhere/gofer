@@ -116,7 +116,7 @@ watch(() => props.sid, loadSession)
 </script>
 
 <template>
-  <section class="section plan-supervisor">
+  <section class="section plan-supervisor" data-test="supervisor-card">
     <div class="section-head">
       <h2 class="section-title mono">{{ t('plans.supervisor.title') }}</h2>
       <div class="ps-actions">
@@ -125,43 +125,45 @@ watch(() => props.sid, loadSession)
       </div>
     </div>
 
-    <p v-if="!sid" class="empty mono">{{ t('plans.supervisor.unbound') }}</p>
-    <div v-else class="ps-card">
-      <template v-if="session">
-        <b class="ps-name">{{ session.title || session.agent }}</b>
-        <span class="ps-state mono" :class="`ps-state--${session.state}`">{{ session.state }}</span>
-        <span class="ps-beat mono" :title="fmtDateTime(session.last_seen_at)">{{ t('plans.supervisor.lastBeat', { ago: fmtAgo(session.last_seen_at) }) }}</span>
-      </template>
-      <span v-else-if="loadError" class="error mono">{{ t('plans.supervisor.loadFailed', { sid, err: loadError }) }}</span>
-      <span v-else class="mono">{{ t('plans.supervisor.loading') }}</span>
-      <code class="ps-sid mono">{{ sid }}</code>
-      <button class="op-btn ps-open" type="button" @click="drawerOpen = true">{{ t('plans.supervisor.open') }}</button>
-    </div>
-
-    <div v-if="sessionGone && !editing" class="ps-gone">
-      <span class="mono">{{ session?.state === 'handed_off' ? t('plans.supervisor.goneHandedOff') : t('plans.supervisor.goneEnded') }}</span>
-      <button class="op-btn ps-rebind" type="button" :disabled="bindBusy" @click="rebindLatest">{{ t('plans.supervisor.rebindLatest') }}</button>
-      <button class="op-btn" type="button" :disabled="bindBusy" @click="startEdit">{{ t('plans.supervisor.pickManual') }}</button>
-      <span v-if="rebindHint" class="mono ps-hint">{{ rebindHint }}</span>
-    </div>
-    <div v-if="editing" class="ps-edit">
-      <select v-model="pick" class="op-input ps-select mono" :aria-label="t('plans.supervisor.pickAria')">
-        <option value="">{{ t('plans.supervisor.pickPlaceholder') }}</option>
-        <option v-if="sid && !candidates.some((s) => s.session_id === sid)" :value="sid">{{ t('plans.supervisor.current', { sid }) }}</option>
-        <option v-for="s in candidates" :key="s.session_id" :value="s.session_id">{{ sessionLabel(s) }}</option>
-      </select>
-      <button class="op-btn ps-save" type="button" :disabled="bindBusy || !pick || pick === sid" @click="bind(pick)">{{ t('util.action.save') }}</button>
-      <button class="op-btn" type="button" :disabled="bindBusy" @click="editing = false">{{ t('util.action.cancel') }}</button>
-    </div>
-    <p v-if="bindError" class="error mono ps-bind-error">{{ bindError }}</p>
-
-    <div v-if="sid" class="ps-send">
-      <textarea v-model="draft" class="op-input ps-input" rows="2" :placeholder="t('plans.supervisor.sendPlaceholder')" />
-      <div class="ps-send-row">
-        <button class="op-btn ps-quick" type="button" @click="draft = HANDOFF_QUICK_PHRASE">{{ HANDOFF_QUICK_PHRASE }}</button>
-        <button class="op-btn ps-send-btn" type="button" :disabled="!canSend" @click="send">{{ sending ? t('plans.supervisor.sending') : t('plans.supervisor.send') }}</button>
+    <div class="ps-body">
+      <p v-if="!sid" class="empty mono">{{ t('plans.supervisor.unbound') }}</p>
+      <div v-else class="ps-card ps-session-row" data-test="supervisor-session">
+        <template v-if="session">
+          <b class="ps-name">{{ session.title || session.agent }}</b>
+          <span class="ps-state mono" :class="`ps-state--${session.state}`">{{ session.state }}</span>
+          <span class="ps-beat mono" :title="fmtDateTime(session.last_seen_at)">{{ t('plans.supervisor.lastBeat', { ago: fmtAgo(session.last_seen_at) }) }}</span>
+        </template>
+        <span v-else-if="loadError" class="error mono">{{ t('plans.supervisor.loadFailed', { sid, err: loadError }) }}</span>
+        <span v-else class="mono">{{ t('plans.supervisor.loading') }}</span>
+        <code class="ps-sid mono">{{ sid }}</code>
+        <button class="op-btn ps-open" type="button" @click="drawerOpen = true">{{ t('plans.supervisor.open') }}</button>
       </div>
-      <p v-if="sendResult" class="mono ps-result" :class="{ error: sendFailed }">{{ sendResult }}</p>
+
+      <div v-if="sessionGone && !editing" class="ps-gone">
+        <span class="mono">{{ session?.state === 'handed_off' ? t('plans.supervisor.goneHandedOff') : t('plans.supervisor.goneEnded') }}</span>
+        <button class="op-btn ps-rebind" type="button" :disabled="bindBusy" @click="rebindLatest">{{ t('plans.supervisor.rebindLatest') }}</button>
+        <button class="op-btn" type="button" :disabled="bindBusy" @click="startEdit">{{ t('plans.supervisor.pickManual') }}</button>
+        <span v-if="rebindHint" class="mono ps-hint">{{ rebindHint }}</span>
+      </div>
+      <div v-if="editing" class="ps-edit">
+        <select v-model="pick" class="op-input ps-select mono" :aria-label="t('plans.supervisor.pickAria')">
+          <option value="">{{ t('plans.supervisor.pickPlaceholder') }}</option>
+          <option v-if="sid && !candidates.some((s) => s.session_id === sid)" :value="sid">{{ t('plans.supervisor.current', { sid }) }}</option>
+          <option v-for="s in candidates" :key="s.session_id" :value="s.session_id">{{ sessionLabel(s) }}</option>
+        </select>
+        <button class="op-btn ps-save" type="button" :disabled="bindBusy || !pick || pick === sid" @click="bind(pick)">{{ t('util.action.save') }}</button>
+        <button class="op-btn" type="button" :disabled="bindBusy" @click="editing = false">{{ t('util.action.cancel') }}</button>
+      </div>
+      <p v-if="bindError" class="error mono ps-bind-error">{{ bindError }}</p>
+
+      <div v-if="sid" class="ps-send">
+        <textarea v-model="draft" class="op-input ps-input" rows="2" :placeholder="t('plans.supervisor.sendPlaceholder')" />
+        <div class="ps-send-row" data-test="supervisor-actions">
+          <button class="op-btn ps-quick" type="button" @click="draft = HANDOFF_QUICK_PHRASE">{{ HANDOFF_QUICK_PHRASE }}</button>
+          <button class="op-btn ps-send-btn" type="button" :disabled="!canSend" @click="send">{{ sending ? t('plans.supervisor.sending') : t('plans.supervisor.send') }}</button>
+        </div>
+        <p v-if="sendResult" class="mono ps-result" :class="{ error: sendFailed }">{{ sendResult }}</p>
+      </div>
     </div>
 
     <SessionDrawer v-if="drawerOpen" :sid="sid" @close="drawerOpen = false" @changed="loadSession" @deleted="drawerOpen = false; emit('changed', '')" />
@@ -171,29 +173,44 @@ watch(() => props.sid, loadSession)
 <style scoped>
 /* Same look as PlanDetail's sections: its scoped rules do not reach into this
    child component, so the shared classes are repeated here. */
-.section { margin-top: 18px; }
+.section {
+  margin-top: 18px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  background: var(--surface);
+}
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.section-title { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-3); text-transform: uppercase; margin: 0 0 10px; }
+.section-title { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-3); text-transform: uppercase; margin: 0; }
+.ps-body { min-width: 0; }
 .op-btn { background: transparent; color: var(--accent); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 4px 10px; font-size: 12px; cursor: pointer; }
 .op-btn:hover:not(:disabled) { border-color: var(--accent); }
 .op-btn:disabled { opacity: 0.55; cursor: default; }
 .op-input { min-width: 0; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 6px 8px; font-size: 12px; outline: none; }
 .op-input:focus { border-color: var(--accent); }
-.empty { padding: 12px 14px; text-align: center; color: var(--ink-3); font-size: 12px; border: 1px dashed var(--line); border-radius: var(--r-chip); }
+.empty { margin: 12px 0 0; padding: 4px 0; color: var(--ink-3); font-size: 12px; }
 .error { color: var(--fail); font-size: 12px; word-break: break-word; }
-.ps-card { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--surface); }
+.ps-card { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.ps-sid { opacity: 0.6; font-size: 11px; overflow-wrap: anywhere; }
 .ps-name { color: var(--ink); }
 .ps-beat { color: var(--ink-3); font-size: 11px; }
 .ps-gone { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--need); border-radius: var(--r-chip); font-size: 12px; color: var(--need-ink); }
 .ps-hint { color: var(--ink-3); }
 .ps-actions, .ps-edit, .ps-send-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.ps-card { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-.ps-sid { opacity: 0.6; font-size: 11px; }
+.ps-send-row { justify-content: space-between; }
 .ps-state { font-size: 11px; padding: 1px 6px; border: 1px solid var(--line, #8884); border-radius: 4px; }
 .ps-state--waiting_reply, .ps-state--needs_attention { color: var(--need-ink); }
 .ps-state--offline, .ps-state--ended { opacity: 0.6; }
 .ps-edit, .ps-send { margin-top: 10px; }
+.ps-send { padding-top: 12px; border-top: 1px solid var(--line); }
 .ps-select { min-width: 220px; max-width: 100%; }
 .ps-input { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
 .ps-result { margin: 6px 0 0; font-size: 12px; }
+@media (max-width: 560px) {
+  .section-head { align-items: flex-start; flex-direction: column; }
+  .ps-actions { width: 100%; }
+  .ps-actions .op-btn { flex: 0 1 auto; }
+  .ps-send-row { align-items: stretch; }
+  .ps-send-row .op-btn { max-width: 100%; }
+}
 </style>
