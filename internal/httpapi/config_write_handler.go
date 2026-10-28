@@ -1015,6 +1015,12 @@ func (s *Server) handlePutConfigServer(c *rux.Context) {
 // block it read.
 func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 	switch f.name {
+	case "read_dir_allow":
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		sc.ReadDirAllow = v
 	case "language":
 		// The language gofer generates text in (design 2026-10-27-i18n-design.md §3).
 		// Read per job submit / per text, so a hot edit applies to the NEXT job.
