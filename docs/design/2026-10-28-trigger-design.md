@@ -184,3 +184,101 @@ MCP 不是第三种外部认证通道：
 | `internal/template` / `gofer template` | Trigger 复用任务书解析与变量规则，但模板名来自文件配置；外部数据只能填声明变量。模板渲染后的 request 再走 owner admission，避免绕过既有校验。 |
 | authz / caller ceilings | 新的 HTTP 管理读路由与 MCP 工具走 `trigger.read`；外部 invoke 不走 user authz，但 dispatch 必须使用 owner 的有效权限与 ceiling。 |
 
+## 4. 分阶段
+
+### P0：内核与配置（无外部 provider）
+
+1. 在 `internal/config` 增加 trigger 配置、默认关闭、环境变量名校验、上限和 owner 引用校验；在 `config validate` 展示每个 trigger 的 enabled / owner / 固定 project / template，以及不可用原因。
+2. 建立 `internal/trigger` 深模块与 `TriggerRequest`、provider adapter seam、HMAC 验证、时间窗和受限输入映射；认证函数接收原始 body 与显式时钟，便于测试。
+3. 增加 `trigger_receipts` 迁移。基础 schema 必须先于迁移语句不引用新列，补充旧版本 schema 升级测试，遵守 G057。
+4. 将派活接到共享 job admission seam：固定 request + `CallerID` 为空 + `OriginCaller` 为 owner，补充 owner 权限 / ceiling 的拒绝审计。
+
+### P1：generic HTTP 与观测
+
+1. 注册 `/v1/triggers/{name}/invoke`、脱敏管理读路由和审计查询；在 `authz_routes.go` 登记 `NoUserSurface` / `External` / `Require(trigger.read)`，更新权限目录。
+2. 增加持久幂等、重启恢复、per-trigger token bucket、owner quota 交集、请求体 / 变量上限；响应稳定化并避免泄露 trigger 存在性和 secret。
+3. CLI 增加 `gofer tool trigger ls|show|invoke`；不增加远程配置写操作。补充 server 配置 references 和 HTTP API 文档（实现时按 G045 同批更新）。
+
+### P2：IM 入站适配器
+
+1. 先实现 provider-neutral inbound envelope：`provider`、外部事件 id、时间戳、sender、conversation、text、原始 body hash。provider 只负责验证签名和字段归一化，不负责派活。
+2. 每个 provider 单独声明签名算法、时间窗、重试响应和“机器人自身消息”过滤；所有结果仍进入 P0/P1 的 receipt、限流、owner admission 和审计。
+3. 默认不自动回 IM。需要结果反馈时使用已有出站 notification，并用 trigger / job id 作为关联键；回复 session、回答 interaction 或发送 mail 另立设计。
+
+### P3：运维增强
+
+- 可选 DB-backed rate limiter（多实例 / 受管 server 集群时）；
+- 可选本机 `tool trigger rotate`，只改文件并执行备份 + validate + reload；
+- Web 设置只读视图和最近审计，不提供写 trigger；
+- MCP 只读工具和 operator 侧的审计查询。
+
+每个阶段都应可独立关闭：没有配置 trigger 时不注册有效入口，不改变既有 job、schedule、notify、messenger 行为。
+
+## 5. 测试与守护
+
+### 配置与 admission
+
+- YAML 解析、缺省关闭、名称 / 重复、secret env 名、owner 不存在 / root / 无 `job.submit`、模板不存在 / 变量引用非法、上限越界、未知字段和 reload 原子性。
+- 固定 request 不能被 body 覆盖 `project`、`agent`、`runner`、`cmd`、`template`、环境变量或权限字段；owner 的 project / agent / runner / worker / exec / read-only ceiling 任一不符都拒绝。
+- job 的 `CallerID`、`OriginCaller`、`Channel`、trigger provenance 与重试 / continuation / failover 继承关系；owner 撤权后下一次触发失败，不使用旧权限快照。
+
+### 认证、重放与去重
+
+- HMAC 覆盖原始 body + timestamp；签名大小写 / 前缀、缺 header、错误 secret、时间窗边界、constant-time 路径。
+- 相同 trigger + external id + 相同 body 并发只生成一个 job；相同 id 不同 body 为 409；已过期 receipt 的清理；Submit 崩溃后的 reconciler 不双投。
+- provider adapter 对有效、过期、错误签名、机器人自身消息、重复 delivery id、provider 重试码逐项测试；provider 不可用不绕过 generic 校验。
+
+### 限流、HTTP 与审计
+
+- per-trigger burst / steady rate、owner caller rate / concurrency 交集、全局 body / in-flight 上限；首次请求、429 `Retry-After`、重启后的内存 bucket 行为。
+- 认证失败不产生 job；disabled / unknown trigger 不暴露 secret；4xx / 5xx body 不含原文、secret、完整签名；管理视图只含 env key / configured 标记。
+- 所有新路由均有 `routeDecls`，`TestEveryRouteIsDeclaredOrPending` 与权限目录生成检查通过；新增 `trigger.read` 的风险、范围、来源、是否可授予 session 有 catalog 测试。
+- 审计事件覆盖 received / auth_failed / replay / duplicate / rate_limited / submitted / rejected，含 request id 和脱敏外部 id；查询结果与 job 详情中的来源一致。
+
+### 端到端与兼容守护
+
+- testcmd / httptest provider，不连真实 IM、不执行 PATH 上的 gofer；使用可观测文件或 receipt 状态等待，不用固定 sleep（G051/G052）。
+- `server.triggers` 缺省的全量回归：现有 schedule webhook、event hook、出站 webhook、session messenger 和普通 `/v1/jobs` 行为逐字 / 逐状态不变。
+- SQLite 旧 schema 升级测试；配置写接口确保 trigger 块不被重渲染、丢失或意外持久化 secret。
+- 实现用户可见接口后，更新 `docs/reference/http-api.md`、权限参考和 `skills/gofer-usage/references/` 对应主题；没有实现前不在 skill 写示例。
+
+## 6. 风险
+
+- **owner 权限语义复杂**：如果把 trigger token 误当 user caller，外部系统会获得超出配置者预期的能力。缓解：`CallerID` 为空、`OriginCaller` 必须是非 root owner；固定 request 经过同一 admission seam；撤权回归测试。
+- **重放与双投风险**：仅靠时间戳或内存 map 都无法处理 provider 重试、进程重启和并发。缓解：HMAC 时间窗 + DB 唯一 receipt + 可恢复状态机；把“已接受”与“已提交”分开记录。
+- **任务书 prompt injection**：IM / webhook 的正文是外部不可信输入，可能诱导 agent 越权。缓解：固定模板、受限变量、大小上限和 owner ceiling；文档明确“触发器不是安全边界”，高风险项目应使用只读 / 非 exec owner。
+- **限流状态与多实例不一致**：进程内 bucket 在重启或多实例下会放过一小段突发。缓解：持久幂等仍是硬要求；P1 先限制单 server，P3 按部署需求引入共享 limiter，不把内存限流宣称为计费级配额。
+- **IM provider 语义漂移**：各平台的签名、重试码、机器人回环不同。缓解：provider adapter 只做验证 / 归一化；每个平台单独测试，不能把 outbound `notify` renderer 直接当 inbound parser。
+- **审计泄露敏感内容**：payload、签名和环境变量可能含 secret。缓解：只存 hash / 受控摘要；日志脱敏；API 只显示 env key；必要的原文留在外部系统，不让 gofer 默认持久化。
+- **与现有 schedule trigger 重复建设**：两个 endpoint 若悄悄改变 owner 或幂等规则会造成运维困惑。缓解：第一阶段只复用校验 / receipt / admission 的内部 seam，不改变 schedule 的公开行为；文档明确两者选择条件。
+
+## 7. 待确认项
+
+1. **配置是否必须文件专属？（推荐：是）**
+   - 推荐理由：trigger 能持续产生 job，远程写入模板 / project / secret 映射等价于远程执行能力；与 `event_hooks` 的安全判断一致。CLI 只读和本机文件编辑足够覆盖运维场景。若未来要 Web 编辑，应先做独立的高风险 `trigger.manage`、二次确认和审计，不在本设计偷偷放开。
+
+2. **触发身份是否使用“空 CallerID + owner OriginCaller”？（推荐：是）**
+   - 推荐理由：沿用 schedule webhook 已验证的语义，清楚区分“谁持有外部 secret”和“谁承担 job 上限”；不伪造一个可被其它 user 路由复用的 caller。owner 限制可审计、可撤权，并自然覆盖派生 job。
+
+3. **是否允许 owner 为 root？（推荐：否）**
+   - 推荐理由：root ceiling 不生效，任何配置错误都会把入站 token 变成 server 级派活入口；要求专用非 root caller 才能把 blast radius 限在项目 / agent / runner。没有显式 caller 的旧单 token 部署不能启用 trigger。
+
+4. **generic HTTP 是否接受静态 bearer / query token？（推荐：不接受；只用 HMAC + timestamp）**
+   - 推荐理由：query 会进入访问日志，静态 token 无法区分旧请求和重放；HMAC 对 body 绑定且可用时间窗拒绝旧包。若某 provider 只能给静态 secret，应在独立 adapter 中明确加 provider-specific 限制，而不是污染 generic 合约。
+
+5. **缺少外部事件 id 时是否自动生成去重键？（推荐：不自动去重）**
+   - 推荐理由：body hash + 时间很容易把合法的相同内容事件错误合并；宁可由上游提供 `Idempotency-Key`，没有键时明确“至少一次”，由 trigger 自己的限流缓解风暴。
+
+6. **IM 入站是否直接接入 session / mail？（推荐：不接）**
+   - 推荐理由：现有 messenger 的收件会话、interaction、mail 都有独立 owner 与权限；直接桥接会让一个 IM secret 代替人回答。第一版只创建固定一次性 job，结果通过既有出站通知回传；会话回复另做带目标和授权的设计。
+
+7. **限流是否首版做持久化 / 多实例一致？（推荐：先内存 + 持久幂等，按需升级）**
+   - 推荐理由：当前服务是单机单 serve，内存 bucket 足以挡重试风暴，且与 schedule trigger 现有做法一致；receipt 的持久唯一键承担“不双投”硬保证。只有明确部署多实例后再引入 DB / 共享 store，避免首版扩大 schema 与运维面。
+
+8. **是否提供 MCP 触发工具？（推荐：只读元数据，不提供 invoke）**
+   - 推荐理由：MCP agent 不应代持外部 secret，也不应借一个隐式工具绕开自身 job credential；operator 需要时可查看脱敏 trigger 状态，真正派活使用现有 job submit / schedule 语义。
+
+## 8. 实施记录
+
+尚未实施。issue `gofer-rztq` 在本工作区关联的 tracker / 本机 `gofer issue show` 中未找到，本文先按用户给出的主题和现有代码事实形成 0.1 草稿；issue 正文可取得后应补充与其验收标准的逐项对照。
+
