@@ -74,7 +74,7 @@ var continuationFieldClasses = map[string]string{
 	// the ordinary request of the item
 	"ProjectKey": fieldTodo, "Title": fieldTodo, "Acceptance": fieldTodo, "Scope": fieldTodo, "NoScopeDiscipline": fieldTodo,
 	"Budget": fieldTodo, "BudgetFixed": fieldTodo, "Verify": fieldTodo, "VerifyTimeoutSec": fieldTodo, "NoVerify": fieldTodo,
-	"Review": fieldTodo, "ReadOnly": fieldTodo, "Tags": fieldTodo, "PrimeKeywords": fieldTodo, "Rules": fieldTodo, "NoRules": fieldTodo,
+	"Review": fieldTodo, "ReadOnly": fieldTodo, "ReadDirs": fieldTodo, "Tags": fieldTodo, "PrimeKeywords": fieldTodo, "Rules": fieldTodo, "NoRules": fieldTodo,
 	"TodoID": fieldTodo, "PlanID": fieldTodo, "TodoForeign": fieldTodo, "Channel": fieldTodo, "CallerID": fieldTodo, "Client": fieldTodo,
 	"OriginCaller":       fieldTodo,
 	"ExtraCeilingOwners": fieldTodo, "SystemJob": fieldTodo, "InternalExec": fieldTodo,

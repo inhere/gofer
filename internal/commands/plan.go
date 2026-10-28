@@ -123,7 +123,8 @@ type todoDispatchFlags struct {
 	acceptance optionalString
 	// scope is the item's declared change scope (gofer-3nxa.3): repeatable and/or
 	// comma-separated globs; `--scope ""` clears it on set-todo.
-	scope gcli.Strings
+	scope    gcli.Strings
+	readDirs gcli.Strings
 	// primeKeywords are the task keywords of the item's job (gofer-11tz): repeatable
 	// and/or comma-separated; `--prime-keywords ""` clears them on set-todo.
 	primeKeywords gcli.Strings
@@ -148,6 +149,7 @@ func (f *todoDispatchFlags) bind(c *gcli.Command) {
 	f.budget.bind(c, "Execution")
 	c.StrOpt(&f.cmd, "cmd", "", "", "argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)")
 	c.VarOpt(&f.scope, "scope", "", "declared change scope: path globs relative to the repo root, comma-separated and/or repeatable (e.g. 'internal/job/**,web/src/x.vue'); changed files outside it are marked in review. --scope \"\" clears it")
+	c.VarOpt(&f.readDirs, "read-dir", "", "extra read-only directory for this todo (project-relative or absolute; repeatable)")
 	c.VarOpt(&f.acceptance, "acceptance", "", "acceptance criteria (markdown list); appended to the job's prompt and shown in review. --acceptance \"\" clears them")
 	c.VarOpt(&f.primeKeywords, "prime-keywords", "", "subsystems / languages / modules this item's job is about, comma-separated and/or repeatable: the dispatched job's tracker-prime injects the matching memories in full and first. --prime-keywords \"\" clears them")
 }
@@ -232,6 +234,10 @@ func (f *todoDispatchFlags) patch() (jobstore.TodoPatch, error) {
 	if f.acceptance.set {
 		v := strings.TrimSpace(f.acceptance.val)
 		p.Acceptance = &v
+	}
+	if len(f.readDirs) > 0 {
+		dirs := flattenPlanTags(f.readDirs)
+		p.ReadDirs = &dirs
 	}
 	if len(f.scope) > 0 {
 		globs := flattenPlanTags(f.scope)

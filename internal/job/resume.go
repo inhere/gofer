@@ -449,6 +449,7 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		// session already received its material (rules are not re-resolved), but the
 		// field keeps the request self-describing for a later re-read / rerun.
 		PrimeKeywords: srcReq.PrimeKeywords,
+		ReadDirs:      srcReq.ReadDirs,
 		// bd h-aii-0ql3: read-only is a property of the work, so it is inherited.
 		ReadOnly: src.ReadOnly,
 		// N1 §B: so is the model; ResumeOptions.Model overrides it.

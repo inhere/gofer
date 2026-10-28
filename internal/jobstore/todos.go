@@ -120,7 +120,8 @@ type PlanTodo struct {
 	// Scope are path globs (relative to the repository root of the job's cwd) the
 	// item's job is expected to change (gofer-3nxa.3). Copied to JobRequest.Scope; the
 	// review marks changed files outside them.
-	Scope []string
+	Scope    []string
+	ReadDirs []string
 	// AuthorCaller is the CEILING OWNER of the item: the caller that CREATED it. A
 	// dispatch of this item carries it next to the dispatcher's own owner, so an item
 	// authored by a restricted caller stays bounded even when somebody else starts it
@@ -167,6 +168,7 @@ type TodoPatch struct {
 	// PrimeKeywords are the task keywords of the item's job (gofer-11tz); a non-nil empty
 	// list clears them.
 	PrimeKeywords *[]string `json:"prime_keywords,omitempty"`
+	ReadDirs      *[]string `json:"read_dirs,omitempty"`
 	// ContinueFrom names the todo whose session this item continues; a non-nil empty
 	// string clears it. Setting it also adds the target to After (never duplicated),
 	// clearing it leaves After alone; both are resolved by the store.
@@ -179,7 +181,7 @@ func (p TodoPatch) Empty() bool {
 	return p.Assignee == nil && p.ProjectKey == nil && p.Template == nil && p.Vars == nil &&
 		p.Verify == nil && p.Review == nil && p.Runner == nil && p.Cwd == nil && p.TimeoutSec == nil &&
 		p.After == nil && p.Auto == nil && p.Cmd == nil && p.Model == nil && p.Budget == nil &&
-		p.Acceptance == nil && p.Scope == nil && p.PrimeKeywords == nil && p.ContinueFrom == nil
+		p.Acceptance == nil && p.Scope == nil && p.PrimeKeywords == nil && p.ReadDirs == nil && p.ContinueFrom == nil
 }
 
 const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
@@ -191,27 +193,27 @@ const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
   COALESCE(timeout_sec,0), COALESCE(dispatch_error,''),
   created_at, updated_at,
   COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,''), COALESCE(model,''), COALESCE(budget_json,''),
-  COALESCE(acceptance,''), COALESCE(scope_json,''), COALESCE(prime_keywords_json,''),
+  COALESCE(acceptance,''), COALESCE(scope_json,''), COALESCE(prime_keywords_json,''), COALESCE(read_dirs_json,''),
   COALESCE(continue_from,''), COALESCE(continued_by,''), COALESCE(continue_note,''),
   COALESCE(author_caller,'')
   FROM plan_todos`
 
 func scanTodo(sc rowScanner) (PlanTodo, error) {
 	var (
-		t                  PlanTodo
-		done, review, auto int
-		varsJSON, verif    string
-		afterJSON, cmdJSON string
-		budgetJSON         string
-		scopeJSON          string
-		primeKwJSON        string
+		t                         PlanTodo
+		done, review, auto        int
+		varsJSON, verif           string
+		afterJSON, cmdJSON        string
+		budgetJSON                string
+		scopeJSON                 string
+		primeKwJSON, readDirsJSON string
 	)
 	err := sc.Scan(&t.TodoID, &t.PlanID, &t.JobID, &t.Title, &done, &t.Status,
 		&t.StartedAt, &t.DoneAt, &t.Note, &t.Sort, &t.Assignee, &t.ProjectKey,
 		&t.Template, &varsJSON, &verif, &review, &t.Runner, &t.Cwd,
 		&t.TimeoutSec, &t.DispatchError, &t.CreatedAt, &t.UpdatedAt,
 		&afterJSON, &auto, &cmdJSON, &t.Model, &budgetJSON,
-		&t.Acceptance, &scopeJSON, &primeKwJSON,
+		&t.Acceptance, &scopeJSON, &primeKwJSON, &readDirsJSON,
 		&t.ContinueFrom, &t.ContinuedBy, &t.ContinueNote, &t.AuthorCaller)
 	if err != nil {
 		return PlanTodo{}, err
@@ -237,6 +239,9 @@ func scanTodo(sc rowScanner) (PlanTodo, error) {
 		return PlanTodo{}, err
 	}
 	if t.PrimeKeywords, err = decodeTodoList(primeKwJSON); err != nil {
+		return PlanTodo{}, err
+	}
+	if t.ReadDirs, err = decodeTodoList(readDirsJSON); err != nil {
 		return PlanTodo{}, err
 	}
 	if budgetJSON != "" {
@@ -385,6 +390,10 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	if err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: prime_keywords: %w", t.TodoID, err)
 	}
+	readDirsVal, err := encodeTodoJSON(t.ReadDirs)
+	if err != nil {
+		return fmt.Errorf("jobstore: insert todo %q: read_dirs: %w", t.TodoID, err)
+	}
 	// The auto flag is written explicitly (never left to the column default) so a todo
 	// created with Auto=false is not silently re-armed by the schema's DEFAULT 1.
 	auto := 0
@@ -394,14 +403,14 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	const q = `INSERT INTO plan_todos
   (todo_id, plan_id, job_id, title, done, status, started_at, done_at, note, sort,
    assignee, project_key, template, vars_json, verify_json, review, runner, cwd,
-   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, scope_json, prime_keywords_json, continue_from, author_caller, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, scope_json, prime_keywords_json, read_dirs_json, continue_from, author_caller, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
 		t.StartedAt, t.DoneAt, t.Note, t.Sort, t.Assignee, t.ProjectKey, t.Template,
 		varsVal, verifyVal, review, t.Runner, t.Cwd, t.TimeoutSec, t.DispatchError,
-		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, scopeVal, primeKwVal, t.ContinueFrom, t.AuthorCaller, t.CreatedAt, t.UpdatedAt); err != nil {
+		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, scopeVal, primeKwVal, readDirsVal, t.ContinueFrom, t.AuthorCaller, t.CreatedAt, t.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, err)
 	}
 	return nil
@@ -636,12 +645,12 @@ func (s *Store) UpdateTodoPatch(todoID string, p TodoPatch) (bool, error) {
 		}
 		add("scope_json", v)
 	}
-	if p.PrimeKeywords != nil {
-		v, err := encodeTodoJSON(*p.PrimeKeywords)
+	if p.ReadDirs != nil {
+		v, err := encodeTodoJSON(*p.ReadDirs)
 		if err != nil {
-			return false, fmt.Errorf("jobstore: update todo %q prime_keywords: %w", todoID, err)
+			return false, fmt.Errorf("jobstore: update todo %q read_dirs: %w", todoID, err)
 		}
-		add("prime_keywords_json", v)
+		add("read_dirs_json", v)
 	}
 	if p.After != nil {
 		v, err := encodeTodoJSON(*p.After)
@@ -744,8 +753,8 @@ func (t *PlanTodo) ApplyTodoPatch(p TodoPatch) {
 	if p.Scope != nil {
 		t.Scope = *p.Scope
 	}
-	if p.PrimeKeywords != nil {
-		t.PrimeKeywords = *p.PrimeKeywords
+	if p.ReadDirs != nil {
+		t.ReadDirs = *p.ReadDirs
 	}
 	if p.After != nil {
 		t.After = *p.After

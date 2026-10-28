@@ -374,7 +374,8 @@ type jobView struct {
 	Client  string `json:"client,omitempty"`
 	// ReadOnly reports whether this job ran under a read-only sandbox (bd
 	// h-aii-0ql3), so a caller can tell a review run from an editing one.
-	ReadOnly bool `json:"read_only,omitempty"`
+	ReadOnly bool     `json:"read_only,omitempty"`
+	ReadDirs []string `json:"read_dirs,omitempty"`
 	// Model is the model the job asked for (empty = the agent's own default).
 	Model string `json:"model,omitempty"`
 	// FromSession is the earlier session this job's new session inherited (gofer-f4z8).
@@ -435,6 +436,7 @@ func toJobView(r job.JobResult) jobView {
 		Channel:             r.Channel,
 		Client:              r.Client,
 		ReadOnly:            r.ReadOnly,
+		ReadDirs:            r.ReadDirs,
 		Model:               r.Model,
 		FromSession:         r.FromSession,
 		Budget:              r.Budget,
@@ -734,6 +736,7 @@ type runJobInput struct {
 	Runner     string   `json:"runner"`
 	Prompt     string   `json:"prompt,omitempty"`
 	AgentArgs  []string `json:"agent_args,omitempty"`
+	ReadDirs   []string `json:"read_dirs,omitempty"`
 	// Model picks the agent's model (N1 §B): a cli-agent renders its model_args, an
 	// acp-agent selects it over the protocol; empty = the agent's own default.
 	Model  string      `json:"model,omitempty"`
@@ -868,6 +871,7 @@ func runJobHandler(b Backend, scoped string) mcp.ToolHandlerFor[runJobInput, job
 			Runner:          in.Runner,
 			Prompt:          in.Prompt,
 			AgentArgs:       in.AgentArgs,
+			ReadDirs:        in.ReadDirs,
 			Model:           in.Model,
 			FromSession:     in.FromSession,
 			Budget:          in.Budget,
