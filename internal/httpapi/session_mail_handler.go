@@ -131,7 +131,7 @@ func (s *Server) setSessionMailPaused(c *rux.Context, paused bool) {
 		return
 	}
 	if !s.mayReplyToSession(c, a.CallerID) {
-		s.denySessionAction(c, authz.PermSessionManageOthers)
+		s.denySessionAction(c, authz.PermSessionReplyOthers)
 		return
 	}
 	updated, found, err := s.jobs.Meta().SetMailPaused(a.SessionID, paused)

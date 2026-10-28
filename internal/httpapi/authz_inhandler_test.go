@@ -638,6 +638,14 @@ var sessionAuthzCases = []authzCase{
 	{key: "POST /v1/sessions/{sid}/inject-mode", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/inject-mode", map[string]string{"mode": "hold"}}
 	}},
+	// Pausing / resuming letter delivery changes what reaches the session: the same right as
+	// answering it (gofer-67j1).
+	{key: "POST /v1/sessions/{sid}/mail/pause", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/mail/pause", map[string]any{}}
+	}},
+	{key: "POST /v1/sessions/{sid}/mail/resume", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/mail/resume", map[string]any{}}
+	}},
 	{key: "POST /v1/sessions/{sid}/held/send", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPost, "/v1/sessions/" + e.session() + "/held/send", map[string]any{}}
 	}},

@@ -882,6 +882,14 @@ export function listSessionJobWatches(sid: string): Promise<{ watches: SessionJo
 }
 
 // setSessionRelay 设置会话中继开关（R1 三态 auto|on|off；POST /v1/sessions/{sid}/relay，body {mode}）。
+// setSessionMailPaused pauses (paused=true) or resumes delivery of letters to a session:
+// POST /v1/sessions/{sid}/mail/pause|resume, answering the updated session.
+export function setSessionMailPaused(sid: string, paused: boolean): Promise<AgentSession> {
+  return request<AgentSession>(`/v1/sessions/${encodeURIComponent(sid)}/mail/${paused ? 'pause' : 'resume'}`, {
+    method: 'POST',
+  })
+}
+
 export function setSessionRelay(sid: string, mode: AgentSessionRelayMode): Promise<AgentSession> {
   return request<AgentSession>(`/v1/sessions/${encodeURIComponent(sid)}/relay`, {
     method: 'POST',
