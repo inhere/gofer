@@ -16,6 +16,25 @@ job 详情页已经按 job 的可见性保护详情、日志、事件和 WebSock
 - job 结束后仍保留一个可用的转发会造成残留服务和权限窗口；租约到期、浏览器刷新、worker 离线都必须有确定行为；
 - 现有 `wsproto` 的 `tunnel_open`（v5）只表达“worker 去拨一个 target”，没有 job 归属和本机服务端口约束，不能直接复用为 job preview 的安全协议。
 
+## 2. 目标与非目标
+
+### 目标
+
+- 为运行中的 job 创建一个短期、不可猜测的浏览器 URL，访问 job 执行机上指定的本机 TCP 端口。
+- 同时支持普通 HTTP/HTTPS-over-TCP 请求、重定向、相对资源和 WebSocket upgrade；不要求浏览器安装 CLI 或配置代理。
+- 预览入口的授权与 job 详情一致：只有能够读取该 job 的 user-class caller 才能创建；URL 持有者只在租约有效期内获得该预览，不获得其他 `/v1` API 权限。
+- 以 job 和 worker instance 为边界；job 进入任一终态时自动撤销该 job 的全部 preview 并关闭已有连接。
+- 有明确的租约、最大 TTL、并发连接限制、撤销操作和审计日志；协议协商失败时给出可操作的 worker 升级提示。
+- 保持 server 的单一公开入口，适配已有 `server.web_base_url`、HTTP 路由声明、`s.can` 权限决策与长连接重判定机制。
+
+### 非目标
+
+- 不把 preview 做成通用公网反向代理，不允许用户任意指定 worker 网络内目标；目标只能是该 job 执行机的 loopback 端口。
+- 不替代 `gofer tunnel` 的 TCP/UDP/SOCKS 能力，不改变 worker `tunnel.allow` 的语义。
+- 不解析或重写应用 HTML、JavaScript、CSS，不承诺修复应用写死的绝对 URL；应用应能在自身 origin 根路径运行。
+- 不为预览应用自动注入 gofer Bearer token，不让预览服务访问 `/v1` 控制面；应用自身的登录、Cookie 和 CORS 由应用负责。
+- 不做跨 job 共享、持久化公网域名、文件上传下载语义或多 server 联邦。
+
 ## 3. 方案
 
 ### 3.1 总体选择：以 opaque subdomain 为 canonical URL
@@ -146,6 +165,14 @@ server 通过控制 WebSocket 下发 `preview_open`；worker 仅在本地仍有�
 - preview origin 与控制台 origin 分离，默认不设跨域头、不允许预览应用设置父域 Cookie；控制面拒绝由 preview host 发起的 `/v1` 访问。WebSocket 只接受同一 preview origin 的 Origin，仍以 lease Cookie 为最终授权。
 - 所有 lease 创建、续租、撤销、过期、job 终态关闭、worker instance 丢失和拒绝原因记审计事件：job id、preview id、caller、worker、port、状态和 reason，不记录 token、Cookie、完整 URL。
 - 每 lease 限制并发连接、请求头大小、WebSocket frame 大小与空闲时长；代理不缓存响应，不允许 CONNECT、任意方法转发到 server 自身，不把 loopback 解析交给用户输入。应用能否访问公网由执行机网络策略决定，不由 preview 放宽。
+
+### 3.7 与现有功能的关系
+
+- **job 详情 / Web**：详情接口继续只返回 `previews` 的非 secret 摘要；JobDetail 页面在 job 运行中显示“Preview”创建与撤销操作，打开新标签页。页面自身 API 仍使用 `/v1` Bearer；preview 页面不是控制台 SPA 路由。
+- **WebSocket attach / browser push**：attach 继续使用已有一次性 ticket，不能把 ws-ticket 当 preview 凭据；preview 使用独立 lease Cookie / worker 数据连接，撤销和长连接关闭机制可复用 `registerLiveConn` 的重判定思想但不共享 ticket store。
+- **TCP tunnel**：generic tunnel 继续受 `tunnel.allow` 和 `tunnel.open` 管理，preview 不读取该 allowlist，也不把 job 服务注册成普通 tunnel。两者可共用 `internal/tunnel` 的二进制桥接、rendezvous 和字节统计代码。
+- **job 终态与 worker 协议**：复用 job service 的终态事件和 worker 注册的 instance id；不在 HTTP handler 里轮询 job 状态，也不把 job 终态当作已完成清理的充分条件，关闭动作必须等待代理连接收尾。
+- **通知 / MCP / CLI**：通知只可链接到控制台 job 详情，不把 bearer preview URL 写入通知、系统消息、agent prompt 或持久化评论；用户主动 create 后才得到 URL。
 
 ## 4. 分阶段
 
