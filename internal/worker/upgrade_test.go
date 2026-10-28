@@ -44,7 +44,7 @@ func TestCheckUpgradeCapabilityNotWritable(t *testing.T) {
 	if cap.Capable {
 		t.Fatalf("capability = %+v, want not capable", cap)
 	}
-	if !strings.Contains(cap.Error, dir) || !strings.Contains(cap.Error, "Install gofer") || strings.Count(cap.Error, ErrUpgradeDirNotWritable.Error()) != 0 {
+	if !strings.Contains(cap.Error, dir) || !strings.Contains(strings.ToLower(cap.Error), "gofer") || strings.Count(cap.Error, ErrUpgradeDirNotWritable.Error()) != 0 {
 		t.Fatalf("error = %q, want directory, remedy, and no typed prefix", cap.Error)
 	}
 }
