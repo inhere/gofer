@@ -169,6 +169,26 @@ func TestNotifyTestWebhookProviderError(t *testing.T) {
 	}
 }
 
+// TestNotifyTestWebhookHostDenied exercises the real validation without network access.
+func TestNotifyTestWebhookHostDenied(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Server: config.ServerConfig{
+		Token: "tk", Notification: &config.NotificationConfig{Webhooks: []config.WebhookConfig{{
+			URL: "https://user:secret@hooks.example.test:8443/robot?token=secret",
+		}}},
+	}}
+	s := notifyTestServer(t, cfg)
+	resp := do(t, s, http.MethodPost, "/v1/notify/test", "tk", map[string]any{"target": "webhook"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	var got notifyTestResp
+	decode(t, resp, &got)
+	if got.OK || got.Code != "host_not_allowed" || got.Host != "hooks.example.test" || !strings.Contains(got.Error, "allow_hosts") {
+		t.Fatalf("response = %+v, want structured host refusal", got)
+	}
+}
+
 // An index that names no configured webhook is a bad REQUEST (400), not a failed send.
 func TestNotifyTestWebhookUnknownIndex(t *testing.T) {
 	t.Parallel()

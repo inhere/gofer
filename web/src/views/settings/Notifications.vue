@@ -22,6 +22,7 @@ import type {
   NotifyTestResp,
   PushSubscriptionView,
 } from '../../api/types'
+import { botPolicy, globalForm, globalPatch, hostsWithBot, testResultMessage, type GlobalNotifyForm } from './notifyPolicy'
 import { t } from '../../i18n'
 import NotifyEventsPicker from '../../components/NotifyEventsPicker.vue'
 import NotifyProjectsField from '../../components/NotifyProjectsField.vue'
@@ -75,6 +76,9 @@ const config = ref<ConfigView | null>(null)
 const catalog = ref<NotifyEventsResp | null>(null)
 const bots = ref<BotForm[]>([])
 const botsSaving = ref(false)
+const globalNotify = reactive<GlobalNotifyForm>(globalForm())
+const globalSaving = ref(false)
+const addBotToAllowlist = ref(true)
 const drawerOpen = ref(false)
 const editingIndex = ref<number | null>(null)
 const draft = reactive<BotForm>(emptyBot())
@@ -173,6 +177,7 @@ async function loadNotify(): Promise<void> {
     config.value = cfg
     catalog.value = cat
     const n = cfg.server.notification
+    Object.assign(globalNotify, globalForm(n))
     bots.value = (n?.webhooks ?? []).map(botFromView)
     const d = n?.desktop
     desktopEnabled.value = d?.enabled ?? false
@@ -186,6 +191,7 @@ async function loadNotify(): Promise<void> {
 
 function openAdd(): void {
   Object.assign(draft, emptyBot(), { events: defaultEvents() })
+  addBotToAllowlist.value = true
   editingIndex.value = null
   drawerOpen.value = true
 }
@@ -203,8 +209,29 @@ function openDesktop(): void {
 
 function openEdit(index: number): void {
   Object.assign(draft, bots.value[index] ?? emptyBot(), { secretEnv: '', clearSecret: false })
+  const policy = botPolicy(draft.url, globalNotify.allowHosts, globalNotify.allowHttp)
+  addBotToAllowlist.value = policy.missing
   editingIndex.value = index
   drawerOpen.value = true
+}
+
+function botWarning() {
+  return botPolicy(draft.url, globalNotify.allowHosts, globalNotify.allowHttp)
+}
+
+async function saveGlobalNotify(): Promise<void> {
+  if (globalSaving.value) return
+  globalSaving.value = true
+  error.value = ''
+  try {
+    await putConfigServer(globalPatch(globalNotify))
+    notice.value = t('settings.notify.saved')
+    await loadNotify()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    globalSaving.value = false
+  }
 }
 
 function saveDraft(): void {
@@ -219,6 +246,10 @@ function saveDraft(): void {
     keyword: draft.keyword.trim(),
     events: [...draft.events],
     projects: draft.projects.trim(),
+  }
+  const policy = botPolicy(next.url, globalNotify.allowHosts, globalNotify.allowHttp)
+  if (addBotToAllowlist.value && policy.host && policy.missing) {
+    globalNotify.allowHosts = hostsWithBot(globalNotify.allowHosts, policy.host)
   }
   if (editingIndex.value === null) {
     bots.value.push(next)
@@ -245,6 +276,12 @@ async function saveBots(): Promise<void> {
   try {
     await putConfigServer({
       notification: {
+        enabled: globalNotify.enabled,
+        allow_hosts: globalNotify.allowHosts,
+        allow_http: globalNotify.allowHttp,
+        max_attempts: Number(globalNotify.maxAttempts) || 0,
+        max_text_runes: Number(globalNotify.maxTextRunes) || 0,
+        session_reply_delay_sec: Number(globalNotify.sessionReplyDelaySec) || 120,
         webhooks: bots.value.map((b) => {
           const row: Record<string, unknown> = {
             url: b.url,
@@ -311,6 +348,9 @@ async function test(target: 'webhook' | 'desktop', index = 0): Promise<void> {
     const res = await sendNotifyTest(target, index)
     if (target === 'webhook') {
       rowResult[index] = res
+      if (!res.ok && res.code === 'host_not_allowed') {
+        error.value = testResultMessage(res, t)
+      }
     } else if (res.ok) {
       notice.value = t('settings.notify.testDesktopOk')
     } else if (res.skipped) {
@@ -522,6 +562,18 @@ onMounted(() => {
       </ul>
     </FormSection>
 
+    <FormSection :title="t('settings.notify.globalTitle')" :desc="t('settings.notify.globalDesc')">
+      <div class="global-grid">
+        <label class="field field--check"><input v-model="globalNotify.enabled" type="checkbox" data-testid="notify-enabled" /><span>{{ t('settings.notify.globalEnabled') }}</span></label>
+        <label class="field"><span class="field-name">{{ t('settings.notify.allowHosts') }}</span><textarea :value="globalNotify.allowHosts.join('\n')" @input="globalNotify.allowHosts = ($event.target as HTMLTextAreaElement).value.split(/\s+/).filter(Boolean)" class="input textarea" data-testid="notify-allow-hosts" rows="3" /></label>
+        <label class="field field--check"><input v-model="globalNotify.allowHttp" type="checkbox" data-testid="notify-allow-http" /><span>{{ t('settings.notify.allowHttp') }}</span></label>
+        <label class="field"><span class="field-name">{{ t('settings.notify.maxAttempts') }}</span><input v-model="globalNotify.maxAttempts" class="input" data-testid="notify-max-attempts" /></label>
+        <label class="field"><span class="field-name">{{ t('settings.notify.maxTextRunes') }}</span><input v-model="globalNotify.maxTextRunes" class="input" data-testid="notify-max-text-runes" /></label>
+        <label class="field"><span class="field-name">{{ t('settings.notify.sessionReplyDelay') }}</span><input v-model="globalNotify.sessionReplyDelaySec" class="input" data-testid="notify-session-delay" /></label>
+      </div>
+      <button class="btn btn--primary" type="button" data-testid="notify-global-save" :disabled="globalSaving" @click="saveGlobalNotify">{{ t('act.save') }}</button>
+    </FormSection>
+
     <FormSection :title="t('settings.notify.imTitle')" :desc="t('settings.notify.imDesc')">
       <div class="list-head">
         <strong>{{ t('settings.notify.imList') }}</strong>
@@ -638,6 +690,13 @@ onMounted(() => {
         <label class="field">
           <span class="field-name">{{ t('settings.notify.botUrl') }}</span>
           <input v-model="draft.url" class="input" data-testid="bot-url" placeholder="https://oapi.dingtalk.com/robot/send?access_token=…" />
+        </label>
+        <p v-if="botWarning().missing || botWarning().httpBlocked" class="msg msg--warn" data-testid="bot-host-warning">
+          {{ botWarning().httpBlocked ? t('settings.notify.httpBlocked') : t('settings.notify.hostNotAllowed', { host: botWarning().host }) }}
+        </p>
+        <label v-if="botWarning().missing" class="field field--check">
+          <input v-model="addBotToAllowlist" type="checkbox" data-testid="bot-add-host" />
+          <span>{{ t('settings.notify.addHost', { host: botWarning().host }) }}</span>
         </label>
         <label class="field">
           <span class="field-name">{{ t('settings.notify.botKeyword') }}</span>

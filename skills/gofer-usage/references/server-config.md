@@ -303,7 +303,12 @@ server:
   #   max_per_message: 6               #   一条消息最多带几张(默认 6; 由发送侧检查)
   #   hourly_per_caller: 200           #   每个 caller 每小时最多上传次数(默认 200), 超出 429
   # notification:
-  #   max_text_runes: 3000             # 通知正文上限; 每个 webhook 可用同名字段覆盖; 钉钉/飞书另有字节上限
+  #   enabled: true                 # 出站通知总开关
+  #   allow_hosts: [hooks.example.com] # 空列表一律拒绝 webhook；也可在 web 设置 → 通知编辑
+  #   allow_http: false             # 仅本地测试需要开启
+  #   max_attempts: 6
+  #   max_text_runes: 3000
+  #   session_reply_delay_sec: 120
   #   webhooks: [...]                  # IM 通知; 事件订阅见 IM 通知文档
   #                                    #   也可在 web「设置 → 通知」里增删、勾选事件、限定项目与发送测试
   #   desktop:                         # 桌面通知(server 所在主机弹系统通知); 整段不写 = 不启用
