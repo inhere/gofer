@@ -22,7 +22,12 @@ func TestDispatchEnvAndRefProtocolGate(t *testing.T) {
 	if got := unsupportedDispatchFields(wsproto.JobEnvMinProtocolVersion, f); len(got) != 0 {
 		t.Fatalf("lacks = %v, want none at v%d", got, wsproto.JobEnvMinProtocolVersion)
 	}
-	// An absent field is never a reason to refuse: an ordinary job still runs anywhere.
+	if got := unsupportedDispatchFields(wsproto.ReadDirsMinProtocolVersion-1, &runner.Forward{ReadDirs: []string{"docs"}}); len(got) != 1 || got[0] != "read_dirs" {
+		t.Fatalf("lacks = %v, want [read_dirs]", got)
+	}
+	if got := unsupportedDispatchFields(wsproto.ReadDirsMinProtocolVersion, &runner.Forward{ReadDirs: []string{"docs"}}); len(got) != 0 {
+		t.Fatalf("lacks = %v, want none at v%d", got, wsproto.ReadDirsMinProtocolVersion)
+	}
 	if got := unsupportedDispatchFields(2, &runner.Forward{}); len(got) != 0 {
 		t.Fatalf("lacks = %v, want none for a plain job", got)
 	}

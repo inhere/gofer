@@ -21,7 +21,7 @@ func newDispatchService(t *testing.T, root string) *Service {
 	t.Helper()
 	bin := testcmd.Path(t)
 	agentOf := func(args []string) config.AgentConfig {
-		return config.AgentConfig{Type: agent.TypeCLIAgent, Command: bin, Args: args}
+		return config.AgentConfig{Type: agent.TypeCLIAgent, Command: bin, Args: args, AddDirArgs: []string{"--add-dir", "{{dir}}:ro"}}
 	}
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
@@ -114,7 +114,7 @@ func TestTodoDispatchOnReadyWithAssignee(t *testing.T) {
 	s := newDispatchService(t, t.TempDir())
 	seedDispatchPlan(t, s,
 		jobstore.Plan{PlanID: "plan-d", Title: "Dispatch plan", Status: jobstore.PlanOpen, ProjectKey: "self", CreatedAt: 1, UpdatedAt: 1},
-		jobstore.PlanTodo{TodoID: "todo-d", Title: "step one", CreatedAt: 1, UpdatedAt: 1})
+		jobstore.PlanTodo{TodoID: "todo-d", Title: "step one", ReadDirs: []string{"."}, CreatedAt: 1, UpdatedAt: 1})
 
 	// ready WITHOUT an assignee dispatches nothing: the rule needs both conditions.
 	setTodoStatus(t, s, "todo-d", jobstore.TodoReady)
@@ -143,6 +143,9 @@ func TestTodoDispatchOnReadyWithAssignee(t *testing.T) {
 	job := *d.Job
 	if job.Agent != "omp" || job.ProjectKey != "self" {
 		t.Fatalf("dispatched job ran as %s/%s, want omp/self", job.Agent, job.ProjectKey)
+	}
+	if len(job.ReadDirs) != 1 || job.ReadDirs[0] == "" {
+		t.Fatalf("dispatched job read_dirs = %v, want the project root", job.ReadDirs)
 	}
 	if job.TodoID != "todo-d" || job.PlanID != "plan-d" {
 		t.Fatalf("dispatched job lost its linkage: todo_id=%q plan_id=%q", job.TodoID, job.PlanID)
