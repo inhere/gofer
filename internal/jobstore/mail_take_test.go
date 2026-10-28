@@ -5,6 +5,28 @@ import (
 	"time"
 )
 
+func TestClaimSessionMailHonorsPauseAndResumesInOrder(t *testing.T) {
+	f := newMailFixture(t)
+	if _, err := f.store.UpsertAgentSession(AgentSession{SessionID: "sess-b", Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := f.store.InsertMail(sampleMail())
+	second, _ := f.store.InsertMail(sampleMail())
+	if _, changed, err := f.store.SetMailPaused("sess-b", true); err != nil || !changed {
+		t.Fatalf("pause changed=%v err=%v", changed, err)
+	}
+	if got, rem, err := f.store.ClaimSessionMail("sess-b", TakeMailOpts{}); err != nil || len(got) != 0 || rem != 2 {
+		t.Fatalf("paused take=%+v rem=%d err=%v", got, rem, err)
+	}
+	if _, changed, err := f.store.SetMailPaused("sess-b", false); err != nil || !changed {
+		t.Fatalf("resume changed=%v err=%v", changed, err)
+	}
+	got, _, err := f.store.ClaimSessionMail("sess-b", TakeMailOpts{})
+	if err != nil || len(got) != 2 || got[0].ID != first.ID || got[1].ID != second.ID {
+		t.Fatalf("resumed take=%+v err=%v", got, err)
+	}
+}
+
 func TestClaimSessionMailOrderLeaseAndConfirm(t *testing.T) {
 	f := newMailFixture(t)
 	plain, _ := f.store.InsertMail(sampleMail())
@@ -18,7 +40,6 @@ func TestClaimSessionMailOrderLeaseAndConfirm(t *testing.T) {
 	if got, _, _ := f.store.ClaimSessionMail("sess-b", TakeMailOpts{Limit: 5, UrgentOnly: true}); len(got) != 0 {
 		t.Fatalf("urgent-only take found %v, the only urgent letter is claimed", got)
 	}
-	// The lease runs out: the next take sweeps the stale claim first and gets both letters.
 	f.advance(2 * time.Minute)
 	taken, rem, err = f.store.ClaimSessionMail("sess-b", TakeMailOpts{Limit: 5})
 	if err != nil || len(taken) != 2 || taken[0].ID != hot.ID || taken[1].ID != plain.ID || rem != 0 {
@@ -27,7 +48,6 @@ func TestClaimSessionMailOrderLeaseAndConfirm(t *testing.T) {
 	if taken[0].Attempts != 2 {
 		t.Fatalf("attempts=%d, want 2 (every claim counts)", taken[0].Attempts)
 	}
-	// Only the holder session confirms; another session's letter is never touched.
 	if got, _ := f.store.ConfirmSessionMail("sess-other", []int64{hot.ID}); len(got) != 0 {
 		t.Fatalf("confirmed by a stranger: %v", got)
 	}
@@ -38,7 +58,6 @@ func TestClaimSessionMailOrderLeaseAndConfirm(t *testing.T) {
 	if m, _, _ := f.store.GetMail(other.ID); m.State != MailPending {
 		t.Fatalf("other session's letter=%+v, want untouched", m)
 	}
-	// Release hands a claim back; confirmed letters cannot be released.
 	more, _ := f.store.InsertMail(sampleMail())
 	if tk, _, _ := f.store.ClaimSessionMail("sess-b", TakeMailOpts{}); len(tk) != 1 {
 		t.Fatal("claim failed")

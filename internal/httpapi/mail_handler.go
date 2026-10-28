@@ -129,6 +129,9 @@ type mailView struct {
 	// BroadcastID marks a copy of a broadcast (0 = a single letter); the group's addressee table
 	// is in Broadcast (GET /v1/mail/{id} only).
 	BroadcastID int64              `json:"broadcast_id,omitempty"`
+	AckKind     string             `json:"ack,omitempty"`
+	AckBy       string             `json:"ack_by,omitempty"`
+	AckAt       int64              `json:"ack_at,omitempty"`
 	Broadcast   *mailBroadcastView `json:"broadcast,omitempty"`
 }
 
@@ -141,6 +144,7 @@ func toMailView(m jobstore.Mail) mailView {
 		JobID:     m.JobID, Urgent: m.Urgent, Body: m.Body, State: m.State, Attempts: m.Attempts,
 		LastError: m.LastError, CreatedAt: m.CreatedAt, DeliveredAt: m.DeliveredAt, ReadAt: m.ReadAt,
 		DeliverBy: m.DeliverBy, CaptureItemID: m.CaptureItemID, BroadcastID: m.BroadcastID,
+		AckKind: m.AckKind, AckBy: m.AckBy, AckAt: m.AckAt,
 	}
 }
 
@@ -809,24 +813,52 @@ func (s *Server) handleMailReply(c *rux.Context) {
 	c.JSON(http.StatusOK, s.toMailSendView(res))
 }
 
-// POST /v1/mail/{id}/ack — the recipient read it: reading IS delivery (state delivered, read_at
-// stamped). Somebody who is only the SENDER (or holds an `.others` permission) gets the letter
-// back unchanged: they did not read it as its recipient.
+// POST /v1/mail/{id}/ack — without a body this keeps the historical read acknowledgement;
+// {"done":true} records the lightweight sender-visible response.
 func (s *Server) handleMailAck(c *rux.Context) {
 	if !s.mailReady(c) {
 		return
+	}
+	var req struct {
+		Done *bool `json:"done"`
+	}
+	if c.Req.ContentLength != 0 {
+		if err := c.BindJSON(&req); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+			return
+		}
 	}
 	m, ok := s.requireMailAccess(c, true)
 	if !ok {
 		return
 	}
 	recipient := false
+	ackBy := callerFromCtx(c)
 	if jc, isJob := jobCallerFromCtx(c); isJob {
 		recipient = m.ToKind == jobstore.MailKindJob && m.ToID == jc.JobID
+		ackBy = "job:" + jc.JobID
 	} else {
 		recipient = s.mailIsRecipientSide(callerFromCtx(c), m)
+		if sid := requestSessionID(c); sid != "" {
+			ackBy = "session:" + sid
+		}
 	}
-	if recipient {
+	if req.Done != nil {
+		if !recipient {
+			writeError(c, http.StatusForbidden, "mail ack not permitted", "only the recipient may acknowledge a letter")
+			return
+		}
+		kind := "received"
+		if *req.Done {
+			kind = "done"
+		}
+		got, _, err := s.jobs.Meta().SetMailAck(m.ID, kind, ackBy)
+		if err != nil {
+			s.writeMailError(c, err)
+			return
+		}
+		m = got
+	} else if recipient {
 		got, changed, err := s.jobs.Meta().MarkMailRead(m.ID)
 		if err != nil {
 			s.writeMailError(c, err)

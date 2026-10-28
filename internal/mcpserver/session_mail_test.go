@@ -10,12 +10,16 @@ import (
 )
 
 var mailToolNames = []string{
+	"gofer_session_mail_pause", "gofer_session_mail_resume", "gofer_session_mail_ack",
 	"gofer_session_mail_send", "gofer_session_mail_list", "gofer_session_mail_read",
 	"gofer_session_mail_reply", "gofer_session_mail_cancel",
 }
 
 var mailToolArgs = map[string]map[string]any{
 	"gofer_session_mail_send":   {"to": []string{"caller"}, "body": "x"},
+	"gofer_session_mail_pause":  {"session": "sid-a"},
+	"gofer_session_mail_resume": {"session": "sid-a"},
+	"gofer_session_mail_ack":    {"id": 3},
 	"gofer_session_mail_list":   {},
 	"gofer_session_mail_read":   {"id": 3},
 	"gofer_session_mail_reply":  {"id": 3, "body": "x"},
@@ -64,6 +68,9 @@ func TestSessionMailToolsCallTheServer(t *testing.T) {
 		}
 	}
 	want := []string{
+		`POST /v1/sessions/sid-a/mail/pause {}`,
+		`POST /v1/sessions/sid-a/mail/resume {}`,
+		`POST /v1/mail/3/ack {"done":false}`,
 		`POST /v1/mail {"body":"x","to":["caller"]}`,
 		`GET /v1/mail `,
 		`GET /v1/mail/3 `,

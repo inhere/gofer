@@ -1,6 +1,8 @@
 package jobstore
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -55,6 +57,15 @@ func (s *Store) ClaimSessionMail(sid string, opts TakeMailOpts) (taken []TakenMa
 			s.emit(Change{Kind: ChangeMail, ID: mailIDString(t.ID)})
 		}
 	}()
+	if paused, err := s.mailDeliveryPausedLocked(sid); err != nil {
+		return nil, 0, err
+	} else if paused {
+		var n int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM mail WHERE to_kind=? AND to_id=? AND state=?`, MailKindSession, sid, MailPending).Scan(&n); err != nil {
+			return nil, 0, err
+		}
+		return nil, n, nil
+	}
 	if _, err := s.db.Exec(`UPDATE mail SET state=?, claim_until=0 WHERE state=? AND claim_until>0 AND claim_until<=? AND to_kind=? AND to_id=?`,
 		MailPending, MailDelivering, now, MailKindSession, sid); err != nil {
 		return nil, 0, fmt.Errorf("jobstore: release expired mail claims of %s: %w", sid, err)
@@ -121,7 +132,18 @@ func (s *Store) ClaimSessionMail(sid string, opts TakeMailOpts) (taken []TakenMa
 	return taken, len(pending) - len(taken), nil
 }
 
-// ConfirmSessionMail confirms the letters the hook is about to inject: delivering → delivered,
+func (s *Store) mailDeliveryPausedLocked(sid string) (bool, error) {
+	var paused int
+	err := s.db.QueryRow(`SELECT COALESCE(mail_paused,0) FROM agent_sessions WHERE session_id=?`, sid).Scan(&paused)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("jobstore: read mail pause for %s: %w", sid, err)
+	}
+	return paused != 0, nil
+}
+
 // only for letters this session's hook claimed. The confirmed letters are returned; an id
 // that is not (or no longer) held by the hook's claim is skipped, so the hook injects exactly
 // the returned ones.

@@ -852,6 +852,13 @@ func (b *localBackend) FindSessions(client.SessionFindOpts) ([]client.SessionFou
 	return nil, errNeedsServer
 }
 
+func (b *localBackend) SetSessionMailPaused(string, bool) (client.AgentSession, error) {
+	return client.AgentSession{}, errNeedsServer
+}
+func (b *localBackend) RespondMail(int64, bool) (client.Mail, error) {
+	return client.Mail{}, errNeedsServer
+}
+
 func (b *localBackend) SendMail([]string, string, bool) (client.MailSent, error) {
 	return client.MailSent{}, errNeedsServer
 }

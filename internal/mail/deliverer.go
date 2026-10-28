@@ -298,6 +298,9 @@ func (d *Deliverer) sweepSessions(ctx context.Context, now time.Time, st Setting
 		if err != nil || !ok {
 			continue
 		}
+		if a.MailPaused {
+			continue
+		}
 		letters := byID[sid]
 		if d.isSuga(a.Agent) {
 			d.deliverToSuga(ctx, a, letters, now, st)

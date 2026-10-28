@@ -151,6 +151,8 @@ export const mail: PageDict = {
     'mail.persona.lastSeen': '最后活动 {ago}',
     'mail.replyTo': '回复 #{n}',
     'mail.reply': '回复',
+    'mail.ack.received': '已收到',
+    'mail.ack.done': '已处理',
 
     // 顶栏信箱按钮（components/MailButton.vue）
     'mail.button.label': '信箱',
@@ -307,6 +309,8 @@ export const mail: PageDict = {
     'mail.persona.lastSeen': 'last active {ago}',
     'mail.replyTo': 'Reply #{n}',
     'mail.reply': 'Reply',
+    'mail.ack.received': 'Received',
+    'mail.ack.done': 'Done',
 
     'mail.button.label': 'Mail',
     'mail.button.badgeTitle': '{n} letters are waiting for an owner',

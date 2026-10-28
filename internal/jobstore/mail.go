@@ -194,6 +194,9 @@ type Mail struct {
 	// BroadcastID groups the copies of one broadcast: the id of the FIRST copy (its own id), 0
 	// for a single letter (设计 2026-10-22「D2 存储」).
 	BroadcastID int64
+	AckKind     string
+	AckBy       string
+	AckAt       int64
 }
 
 // MailInput is one letter to store. ThreadID empty starts a fresh thread. DeliverBy 0 takes
@@ -226,7 +229,7 @@ const selectMailCols = `SELECT id, thread_id, COALESCE(reply_to,0), from_kind, C
   COALESCE(to_caller,''), COALESCE(job_id,''), COALESCE(urgent,0), COALESCE(body,''), state,
   COALESCE(claimed_by,''), COALESCE(claim_until,0), COALESCE(attempts,0), COALESCE(last_error,''),
   created_at, COALESCE(delivered_at,0), COALESCE(read_at,0), COALESCE(deliver_by,0),
-  COALESCE(capture_item_id,''), COALESCE(broadcast_id,0)
+  COALESCE(capture_item_id,''), COALESCE(broadcast_id,0), COALESCE(ack_kind,''), COALESCE(ack_by,''), COALESCE(ack_at,0)
   FROM mail`
 
 func scanMail(sc rowScanner) (Mail, error) {
@@ -235,7 +238,7 @@ func scanMail(sc rowScanner) (Mail, error) {
 	err := sc.Scan(&m.ID, &m.ThreadID, &m.ReplyTo, &m.FromKind, &m.FromID, &m.FromCaller,
 		&m.ToAddress, &m.ToKind, &m.ToID, &m.ToCaller, &m.JobID, &urgent, &m.Body, &m.State,
 		&m.ClaimedBy, &m.ClaimUntil, &m.Attempts, &m.LastError,
-		&m.CreatedAt, &m.DeliveredAt, &m.ReadAt, &m.DeliverBy, &m.CaptureItemID, &m.BroadcastID)
+		&m.CreatedAt, &m.DeliveredAt, &m.ReadAt, &m.DeliverBy, &m.CaptureItemID, &m.BroadcastID, &m.AckKind, &m.AckBy, &m.AckAt)
 	m.Urgent = urgent != 0
 	return m, err
 }
@@ -337,7 +340,30 @@ func validateMailInput(in MailInput) error {
 	return nil
 }
 
-// GetMail reads one letter. ok is false when there is no such id.
+// SetMailAck records the recipient's lightweight response. One response per letter is kept;
+// received may be upgraded to done, but never downgraded.
+func (s *Store) SetMailAck(id int64, kind, by string) (Mail, bool, error) {
+	kind, by = strings.TrimSpace(kind), strings.TrimSpace(by)
+	if (kind != "received" && kind != "done") || by == "" {
+		return Mail{}, false, fmt.Errorf("%w: invalid mail ack", ErrMailInvalid)
+	}
+	defer s.emit(Change{Kind: ChangeMail, ID: mailIDString(id)})
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	m, ok, err := s.mailLocked(id)
+	if err != nil || !ok {
+		return Mail{}, false, err
+	}
+	if m.AckKind == "done" || (m.AckKind == kind && m.AckAt > 0) {
+		return m, false, nil
+	}
+	if _, err := s.db.Exec(`UPDATE mail SET ack_kind=?, ack_by=?, ack_at=? WHERE id=?`, kind, by, s.unixNow(), id); err != nil {
+		return Mail{}, false, err
+	}
+	m, _, err = s.mailLocked(id)
+	return m, true, err
+}
+
 func (s *Store) GetMail(id int64) (Mail, bool, error) {
 	return s.mailLocked(id)
 }
@@ -378,7 +404,7 @@ func (s *Store) ClaimMail(id int64, claimedBy string, ttl time.Duration) (Mail, 
 	}
 	ok, err := s.moveMailLocked(id, MailDelivering,
 		", claimed_by=?, claim_until=?, attempts=attempts+1",
-		[]any{strings.TrimSpace(claimedBy), now + int64(ttl/time.Second)}, "", nil)
+		[]any{strings.TrimSpace(claimedBy), now + int64(ttl/time.Second)}, ` AND (to_kind<>? OR NOT EXISTS (SELECT 1 FROM agent_sessions WHERE session_id=mail.to_id AND mail_paused=1))`, []any{MailKindSession})
 	if err != nil || !ok {
 		return Mail{}, false, err
 	}

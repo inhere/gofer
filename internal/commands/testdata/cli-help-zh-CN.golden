@@ -664,6 +664,13 @@ session list	flag token	bearer token override (prefer config/env: GOFER_SERVER_T
 session mail	desc	Letters between sessions, jobs and callers: send <address> <text> | ls | read <id> | reply <id> <text> | cancel <id> | conv <cv-id> | agents | redact <id>
 session mail	help	
 session mail	examples	
+session mail ack	desc	确认收到信件，不发送回信
+session mail ack	help	
+session mail ack	examples	
+session mail ack	flag config	path to the gofer config file
+session mail ack	flag done	标记已处理（默认已收到）
+session mail ack	flag server	server address (overrides config server.addr)
+session mail ack	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 session mail agents	desc	List the mail agents (the names `agent:<name>` may use) and their resident sessions; --end stops one
 session mail agents	help	
 session mail agents	examples	
@@ -699,6 +706,12 @@ session mail list	flag session	only letters of this session
 session mail list	flag state	only these states (comma-separated): pending|delivering|delivered|answered|held|expired|failed|cancelled
 session mail list	flag thread	only this conversation thread
 session mail list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+session mail pause	desc	暂停向会话送信
+session mail pause	help	
+session mail pause	examples	
+session mail pause	flag config	path to the gofer config file
+session mail pause	flag server	server address (overrides config server.addr)
+session mail pause	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 session mail read	desc	Read a letter (this marks it read: it is not injected again)
 session mail read	help	
 session mail read	examples	
@@ -721,6 +734,12 @@ session mail reply	flag config	path to the gofer config file
 session mail reply	flag server	server address (overrides config server.addr)
 session mail reply	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 session mail reply	flag urgent	mark the answer urgent
+session mail resume	desc	恢复向会话送信
+session mail resume	help	
+session mail resume	examples	
+session mail resume	flag config	path to the gofer config file
+session mail resume	flag server	server address (overrides config server.addr)
+session mail resume	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 session mail send	desc	Send a letter: <address> is session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); repeat --to or use each:topic:/each:path:/each:project:/each:agent: to send to every match
 session mail send	help	
 session mail send	examples	

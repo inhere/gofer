@@ -792,6 +792,13 @@ function jumpToMark(id: number): void {
 watch(timeline, () => void refreshTimelineMetrics())
 watch(activeKey, () => void refreshTimelineMetrics())
 
+async function acknowledgeMail(m: MailMessage, done: boolean): Promise<void> {
+  try {
+    const updated = await ackMail(m.id, done)
+    const i = timeline.value.findIndex((x) => x.id === m.id)
+    if (i >= 0) timeline.value = timeline.value.map((x, n) => n === i ? updated : x)
+  } catch (e) { error.value = e instanceof Error ? e.message : String(e) }
+}
 function bodyText(m: MailMessage): string {
   return expandedIds.value.has(m.id) ? m.body : mailFoldedBody(m.body)
 }
@@ -985,6 +992,9 @@ onUnmounted(() => {
                   <span class="letter-state mono" :class="`tone--${mailStateTone(m.state)}`" data-test="mail-letter-state">
                     {{ stateLabel(m.state) }}
                   </span>
+                  <span v-if="m.ack_kind" class="tag mono" data-test="mail-ack">{{ m.ack_kind }} · {{ m.ack_by }}</span>
+                  <button v-if="!m.ack_kind && m.to.caller === me.caller" class="act act--small mono" type="button" @click="acknowledgeMail(m, false)">{{ t('mail.ack.received') }}</button>
+                  <button v-if="m.ack_kind === 'received' && m.to.caller === me.caller" class="act act--small mono" type="button" @click="acknowledgeMail(m, true)">{{ t('mail.ack.done') }}</button>
                   <span class="dim mono" :title="fmtDateTime(m.created_at)">
                     {{ t('mail.letter.id', { id: m.id, ago: fmtAgo(m.created_at, nowSec) }) }}
                   </span>

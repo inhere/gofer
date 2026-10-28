@@ -1657,6 +1657,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/turns/{id}/release", s.handleReleaseTurn)
 		r.POST("/sessions/{sid}/turns/{id}/complete-watches", s.handleCompleteWatchedTurn)
 		// The hook's mail take: claim → confirm → inject, and the Stop path that closes a relay turn.
+		r.POST("/sessions/{sid}/mail/pause", s.handlePauseSessionMail)
+		r.POST("/sessions/{sid}/mail/resume", s.handleResumeSessionMail)
 		r.POST("/sessions/{sid}/mail/claim", s.handleClaimSessionMail)
 		r.POST("/sessions/{sid}/mail/confirm", s.handleConfirmSessionMail)
 		r.POST("/sessions/{sid}/turns/{id}/complete-mail", s.handleCompleteMailTurn)

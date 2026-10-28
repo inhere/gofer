@@ -321,6 +321,7 @@ type sessionView struct {
 	WatchCount int    `json:"watch_count,omitempty"`
 	// MailPending is how many mailbox letters the session still has to read (pending or in
 	// flight): the number a Stop hook keys its mail delivery on.
+	MailPaused     bool   `json:"mail_paused"`
 	MailPending    int    `json:"mail_pending,omitempty"`
 	PeerName       string `json:"peer_name,omitempty"`
 	PeerNameSource string `json:"peer_name_source,omitempty"`
@@ -398,7 +399,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
-		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView, MailPending: s.mailPendingOf(a.SessionID),
+		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView, MailPaused: a.MailPaused, MailPending: s.mailPendingOf(a.SessionID),
 		PeerName: a.PeerName, PeerNameSource: a.PeerNameSource, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
 		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt, LastCwd: lastCwdForView(a),
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,

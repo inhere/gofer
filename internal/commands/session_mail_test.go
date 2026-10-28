@@ -59,6 +59,7 @@ func resetMailOpts(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
 		sessionMailOpts.urgent, sessionMailOpts.bodyFile = false, ""
+		sessionMailOpts.done = false
 		sessionMailOpts.in, sessionMailOpts.out = false, false
 		sessionMailOpts.thread, sessionMailOpts.state, sessionMailOpts.session, sessionMailOpts.limit = "", "", "", 0
 	})
