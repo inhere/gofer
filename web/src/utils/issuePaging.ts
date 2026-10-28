@@ -44,19 +44,19 @@ function queryValue(value: unknown): string {
   return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
 }
 
-// readPageQuery：列表页码（?page=）；坏值（空、0、负数、非数字）回落到第 1 页。
-export function readPageQuery(query: Record<string, unknown> | undefined): number {
-  const n = Math.floor(Number(queryValue(query?.page)))
+// readPageQuery：列表页码（默认 ?page=）；坏值（空、0、负数、非数字）回落到第 1 页。
+export function readPageQuery(query: Record<string, unknown> | undefined, param = 'page'): number {
+  const n = Math.floor(Number(queryValue(query?.[param])))
   return Number.isFinite(n) && n >= 1 ? n : 1
 }
 
-// pageQueryUpdate：页码写进 ?page=（第 1 页不写），其余参数原样保留。
-export function pageQueryUpdate(base: Record<string, unknown> | undefined, page: number): Record<string, string> {
+// pageQueryUpdate：页码写进指定 query 参数（第 1 页不写），其余参数原样保留。
+export function pageQueryUpdate(base: Record<string, unknown> | undefined, page: number, param = 'page'): Record<string, string> {
   const next: Record<string, string> = {}
   for (const [k, v] of Object.entries(base ?? {})) {
-    if (typeof v === 'string' && v && k !== 'page') next[k] = v
+    if (typeof v === 'string' && v && k !== param) next[k] = v
   }
-  if (page > 1) next.page = String(page)
+  if (page > 1) next[param] = String(page)
   return next
 }
 

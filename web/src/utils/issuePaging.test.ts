@@ -73,6 +73,12 @@ describe('page query', () => {
     expect(pageQueryUpdate({ status: 'done' }, 3)).toEqual({ status: 'done', page: '3' })
   })
 
+  it('supports an independent query parameter for a second list', () => {
+    expect(readPageQuery({ jobsPage: '3', page: '9' }, 'jobsPage')).toBe(3)
+    expect(pageQueryUpdate({ tab: 'jobs', jobsPage: '3' }, 1, 'jobsPage')).toEqual({ tab: 'jobs' })
+    expect(pageQueryUpdate({ tab: 'jobs' }, 2, 'jobsPage')).toEqual({ tab: 'jobs', jobsPage: '2' })
+  })
+
   it('turns a total into a page count', () => {
     expect(pageCountOf(0, 50)).toBe(1)
     expect(pageCountOf(50, 50)).toBe(1)
