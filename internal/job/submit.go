@@ -226,11 +226,18 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	}
 
 	tm.mark("resolve")
+	if p, ok := cfg.Projects[req.ProjectKey]; ok {
+		mergeProjectReadDirs(cfg, &req, p)
+	}
 	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
 		return JobResult{}, err
 	}
-	// JOB-06②: the secrets are checked against the project and resolved on THIS
+	if !remote {
+		if err := resolveReadDirForRequest(cfg, proj, &req); err != nil {
+			return JobResult{}, fmt.Errorf("invalid read_dirs: %w", err)
+		}
+	}
 	// machine (only a local runner takes them) before anything is created, so a
 	// missing variable is a refused submit that names it.
 	if err := checkSecrets(cfg, proj, req, remote); err != nil {
@@ -765,6 +772,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// cannot silently drop the mount.
 			Prompt:    prompt,
 			AgentArgs: req.AgentArgs,
+			ReadDirs:  req.ReadDirs,
 			Model:     req.Model,
 			// gofer-f4z8: the executing machine renders ITS agent's from_session_args.
 			FromSession: req.FromSession,
@@ -959,6 +967,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// 仓里时，把项目根作为 {{dir}} 追加（判据见 adddir.go）。只有本机执行在这里构建 argv，
 		// 远端 job 的 argv 由执行侧自己的 Submit 渲染，拿到的就是执行机上的项目根。
 		if acOK {
+			runReq.Args = append(runReq.Args, readDirArgs(ac, req.ReadDirs)...)
 			runReq.Args = append(runReq.Args, addDirArgs(cfg, proj, ac, workDir)...)
 		}
 		secretMap, err := LoadEnvFilesMap(req.EnvFiles, cfg, proj)
@@ -1132,6 +1141,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// gofer-3nxa.2: decided by injectPromptSections above.
 			KnowledgeCapture: req.KnowledgeCapture,
 			Budget:           req.Budget,
+			ReadDirs:         req.ReadDirs,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,
 			// JOB-10: the decided skill bindings (jobs.skills_json) — the row answers

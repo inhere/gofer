@@ -378,6 +378,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		// gofer-3nxa.2: whether the finish captures memory candidates.
 		KnowledgeCapture: request.KnowledgeCapture,
 		Budget:           request.Budget.Normalize(),
+		ReadDirs:         request.ReadDirs,
 		Title:            TitleFromRequestJSON(rec.RequestJSON),
 		Interactive:      rec.Interactive,
 		ReadOnly:         rec.ReadOnly,
