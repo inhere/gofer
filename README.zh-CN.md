@@ -24,6 +24,18 @@ gofer serve                             # Web 控制台在 http://<server>:8765/
 
 > **状态：0.x，很年轻，但作者每天都在用。** minor 版本之间接口仍可能调整：以 [CHANGELOG.md](CHANGELOG.md) 为准，[稳定性说明](docs/guide/stability.md) 写明哪些可以放心依赖。
 
+### 稳定性速览
+
+| 可以放心依赖 | 仍在快速变化 |
+|---|---|
+| [Job 与日志](docs/guide/features.md#job) | [Squad / leader 编排](skills/gofer-usage/references/plans-workflows.md) |
+| [Worktree 隔离与合并](docs/runbook/parallel-jobs-with-worktree.md) | [管家](skills/gofer-usage/references/work-items.md) |
+| [人工验收关口](docs/guide/features.md#验收与质量关口) | [工作区代理](docs/guide/stability.md) |
+| [Worker 接入与机群升级](skills/gofer-usage/references/worker-config.md) | [部分 Web 控制台页面](skills/gofer-usage/references/web-console.md) |
+| [会话登记与传话](docs/runbook/session-relay.md) | [i18n 阶段 3：服务端与 Web 文本](skills/gofer-usage/references/server-config.md) |
+| [Tracker issue 与 memory](skills/gofer-usage/references/tracker.md) | |
+| [计划与 todo](skills/gofer-usage/references/plans-workflows.md) | |
+
 ## 是什么
 
 你在主力机器上跑一个 gofer server，按需在其他机器或容器里跑 worker。交出去的每件事都是一个 *job*，带日志、diff、提交、token 用量和验收状态；人和 agent 通过 CLI、HTTP API、MCP 和 Web 控制台看到的是同一批 job。

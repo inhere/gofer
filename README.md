@@ -24,6 +24,18 @@ That is a working server on one machine. Your first job, a second machine as a w
 
 > **Status: 0.x — young, and in daily use by its author.** Minor versions may still change interfaces: [CHANGELOG.md](CHANGELOG.md) is the authority for what changed, and [stability](docs/guide/stability.md) says what you can rely on.
 
+### Stability snapshot
+
+| Stable enough to rely on | Still changing quickly |
+|---|---|
+| [Jobs and their logs](docs/guide/features.md#job) | [Squad / leader orchestration](skills/gofer-usage/references/plans-workflows.md) |
+| [Worktree isolation and merge](docs/runbook/parallel-jobs-with-worktree.md) | [Steward](skills/gofer-usage/references/work-items.md) |
+| [Human review and acceptance](docs/guide/features.md#review-and-quality-gates) | [Workspace agent](docs/guide/stability.md) |
+| [Worker onboarding and fleet updates](skills/gofer-usage/references/worker-config.md) | [Some web console pages](skills/gofer-usage/references/web-console.md) |
+| [Session registration and relay](docs/runbook/session-relay.md) | [i18n phase 3: server and web text](skills/gofer-usage/references/server-config.md) |
+| [Tracker issues and memory](skills/gofer-usage/references/tracker.md) | |
+| [Plans and todos](skills/gofer-usage/references/plans-workflows.md) | |
+
 ## What it is
 
 You run one gofer server on your main host and, optionally, workers on other machines or containers. Everything you hand over becomes a *job* with its logs, diff, commits, token usage and review state; people and agents reach the same jobs through the CLI, an HTTP API, MCP and a web console.
