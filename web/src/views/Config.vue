@@ -224,6 +224,7 @@ interface AgentForm {
   type: string
   command: string
   argsText: string
+  addDirArgsText: string
   interactiveMode: boolean
   interactiveArgsText: string
   sessionCapture: string
@@ -282,6 +283,7 @@ const agentForm = reactive<AgentForm>({
   type: 'cli-agent',
   command: '',
   argsText: '',
+  addDirArgsText: '',
   interactiveMode: false,
   interactiveArgsText: '',
   sessionCapture: '',
@@ -387,6 +389,8 @@ function openAgentEditor(a: ConfigAgentView | null): void {
     type: a?.type ?? 'cli-agent',
     command: a?.command ?? '',
     argsText: linesText(a?.args),
+    // 额外只读目录 argv：仅 cli-agent 可配置，空值表示不追加。
+    addDirArgsText: linesText(a?.add_dir_args),
     // 有效交互模式 = interactive_args 非 null，或旧式 interactive
     interactiveMode: (a?.interactive_args ?? null) !== null || (a?.interactive ?? false),
     interactiveArgsText: linesText(interactiveArgs),
@@ -469,6 +473,18 @@ function editableAgentBody(base: Partial<ConfigAgentView>): Record<string, unkno
   return body
 }
 
+function validateAgentForm(): string {
+  if (
+    agentForm.type === 'cli-agent' &&
+    lines(agentForm.addDirArgsText).length > 0 &&
+    !lines(agentForm.addDirArgsText).some((arg) => arg.includes('{{dir}}'))
+  ) {
+    badFields.value = new Set(['add_dir_args'])
+    return t('settings.config.errAddDirArgs')
+  }
+  return ''
+}
+
 // buildAgentWrite：表单值覆盖基底。interactive_args 的 null/[] 区别由交互模式开关决定
 // （null = 批处理；[] = 交互且无额外 argv，AGT-02）。
 function buildAgentWrite(): Record<string, unknown> {
@@ -478,6 +494,9 @@ function buildAgentWrite(): Record<string, unknown> {
   body.type = agentForm.type
   body.command = agentForm.command.trim()
   body.args = lines(agentForm.argsText)
+  if (agentPolicy.value['add_dir_args']?.editable) {
+    body.add_dir_args = agentForm.type === 'cli-agent' ? lines(agentForm.addDirArgsText) : []
+  }
   body.interactive = agentForm.interactiveMode ? (base?.interactive ?? false) : false
   body.interactive_args = agentForm.interactiveMode ? lines(agentForm.interactiveArgsText) : null
   body.session_capture = agentForm.sessionCapture.trim()
@@ -576,6 +595,12 @@ async function runPreview(): Promise<void> {
   if (editor.value === null || config.value === null) {
     return
   }
+  const localError = isServer.value ? '' : validateAgentForm()
+  if (localError) {
+    formError.value = localError
+    preview.value = ''
+    return
+  }
   validating.value = true
   try {
     const result: ConfigValidateResult = await validateConfig(
@@ -605,6 +630,13 @@ async function saveEditor(): Promise<void> {
   writeError.value = ''
   saving.value = true
   try {
+    if (!isServer.value) {
+      const localError = validateAgentForm()
+      if (localError) {
+        formError.value = localError
+        return
+      }
+    }
     if (isServer.value) {
       const resp = await putConfigServer(buildServerWrite())
       notice.value = t('settings.config.serverSaved', {
@@ -1195,6 +1227,18 @@ onUnmounted(() => {
               <label class="field field--check">
                 <input v-model="agentForm.interactiveMode" type="checkbox" @change="refreshPreview()" />
                 <span class="field-name">{{ t('settings.config.f.interactive') }}</span>
+              </label>
+              <label v-if="agentForm.type === 'cli-agent' && agentPolicy['add_dir_args']?.editable" class="field">
+                <span class="field-name">{{ t('settings.config.f.addDirArgs') }}</span>
+                <textarea
+                  v-model="agentForm.addDirArgsText"
+                  class="input textarea"
+                  :class="{ 'input--bad': fieldBad('add_dir_args') }"
+                  rows="3"
+                  placeholder="--add-dir\n{{dir}}:ro"
+                  @change="refreshPreview()"
+                ></textarea>
+                <span class="hint mono">{{ t('settings.config.hintAddDirArgs') }}</span>
               </label>
               <label v-if="agentForm.interactiveMode" class="field">
                 <span class="field-name">{{ t('settings.config.f.interactiveArgs') }}</span>

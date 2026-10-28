@@ -717,6 +717,9 @@ export const settings: PageDict = {
 
     // agent 编辑弹窗的字段标签（前缀 f.）与提示
     'settings.config.f.args': 'args（每行一个，批处理 argv）',
+    'settings.config.f.addDirArgs': 'add_dir_args（每行一个参数，必须含 {{dir}}）',
+    'settings.config.hintAddDirArgs': '仅 cli-agent 使用；用于把额外目录以只读方式传给 agent。只要填写，就必须至少有一个参数包含 {{dir}}。',
+    'settings.config.errAddDirArgs': 'add_dir_args 已填写，但参数中必须包含 {{dir}}。',
     'settings.config.f.interactive': '交互模式（pty/TUI）',
     'settings.config.f.interactiveArgs': 'interactive_args（每行一个，留空 = 无额外 argv）',
     'settings.config.f.sessionCapture': 'session_capture（正则，第一个非空捕获组 = session id）',
@@ -1514,7 +1517,10 @@ export const settings: PageDict = {
     'settings.config.restartPhase.failed': 'restart failed',
     'settings.config.restartPhase.cancelled': 'cancelled',
 
-    'settings.config.f.args': 'args (one per line, batch argv)',
+    'settings.config.f.args': 'args (one argument per line, batch argv)',
+    'settings.config.f.addDirArgs': 'add_dir_args (one argument per line; must contain {{dir}})',
+    'settings.config.hintAddDirArgs': 'Used only by cli-agent to pass extra directories read-only. If set, at least one argument must contain {{dir}}.',
+    'settings.config.errAddDirArgs': 'add_dir_args is set, but at least one argument must contain {{dir}}.',
     'settings.config.f.interactive': 'Interactive mode (pty/TUI)',
     'settings.config.f.interactiveArgs': 'interactive_args (one per line; empty = no extra argv)',
     'settings.config.f.sessionCapture': 'session_capture (regex, first non-empty capture group = session id)',
