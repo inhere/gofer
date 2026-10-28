@@ -31,6 +31,7 @@ export const sessions: PageDict = {
     'sessions.state.handedOff': '已接管',
     'sessions.state.ended': '已结束',
     'sessions.state.offline': '离线',
+    'sessions.card.mailPaused': '已暂停送达',
     'sessions.card.maybeOffline': '可能不在线',
     'sessions.card.takeover': '接管',
     'sessions.ptyNote': '输入/输出字节是 relay 计数；只有已录制的会话会保留可下载回放。',
@@ -250,6 +251,8 @@ export const sessions: PageDict = {
     'sessions.drawer.relay.idle': 'auto：键盘空闲 {idle}，本次停下在等你回复',
     'sessions.drawer.relay.noProbe': 'auto：探测不到键盘，距上次人工输入 {silence}',
     'sessions.drawer.relay.waiting': '{mode}：本次停下在等你回复',
+    'sessions.drawer.mailPause': '暂停送达',
+    'sessions.drawer.mailResume': '恢复送达',
     'sessions.drawer.relayTitle': '中继开关（三态）：on = 每次停下都在这里等你回复（在终端输入一条后自动回到 auto）；off = 从不等；auto = server 按键盘空闲 / 距上次人工输入的时长决定',
     'sessions.drawer.injectTitle': '投递模式：auto = 只在输入框确认为空时打字（有人在打字或停在选择界面时消息留待）；hold = 从不打字，消息留待；force = 不检查直接粘贴',
     'sessions.drawer.sendNowTitle': '把这个会话里等待投递的消息立刻粘贴进终端（跳过输入框检查）',
@@ -375,6 +378,7 @@ export const sessions: PageDict = {
     'sessions.state.handedOff': 'Handed off',
     'sessions.state.ended': 'Ended',
     'sessions.state.offline': 'Offline',
+    'sessions.card.mailPaused': 'Mail delivery paused',
     'sessions.card.maybeOffline': 'Possibly offline',
     'sessions.card.takeover': 'Take over',
     'sessions.ptyNote': 'Input/output bytes are relay counters; only recorded sessions keep a downloadable replay.',
@@ -587,6 +591,8 @@ export const sessions: PageDict = {
     'sessions.drawer.relay.idle': 'auto: keyboard idle for {idle}, this stop waits for your reply',
     'sessions.drawer.relay.noProbe': 'auto: the keyboard cannot be probed; {silence} since the last human input',
     'sessions.drawer.relay.waiting': '{mode}: this stop waits for your reply',
+    'sessions.drawer.mailPause': 'Pause mail',
+    'sessions.drawer.mailResume': 'Resume mail',
     'sessions.drawer.relayTitle':
       'Relay switch (three states): on = every stop waits for your reply here (typing one line in the terminal returns it to auto); off = never wait; auto = the server decides from keyboard idleness / time since the last human input',
     'sessions.drawer.injectTitle':

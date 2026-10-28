@@ -795,6 +795,7 @@ onUnmounted(() => {
               data-test="card-topic"
               :title="topicDisplay(s).title || t('sessions.card.inferredTitle')"
             >{{ topicDisplay(s).text }}<em v-if="topicDisplay(s).inferred" class="a-topic-tag">{{ t('sessions.card.inferred') }}</em></span>
+            <span v-if="s.mail_paused" class="sbadge mono sbadge--off" data-test="mail-paused">{{ t('sessions.card.mailPaused') }}</span>
             <span v-if="s.maybe_offline" class="sbadge mono sbadge--off" data-test="maybe-offline">{{ t('sessions.card.maybeOffline') }}</span>
             <span v-for="(r, i) in hitReasons(s.hits)" :key="i" class="icard-chip mono" data-test="hit-reason">{{ r }}</span>
             <span v-if="s.cwd" class="mono" :title="s.cwd">{{ workspaceLabel(s.cwd) }}</span>

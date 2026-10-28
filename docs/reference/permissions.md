@@ -289,6 +289,8 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/sessions/{sid}/inject-mode` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/mail/claim` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `POST` | `/v1/sessions/{sid}/mail/confirm` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/mail/pause` | `Public` | — | — | `Resource(session)` | 写 |
+| `POST` | `/v1/sessions/{sid}/mail/resume` | `Public` | — | — | `Resource(session)` | 写 |
 | `GET` | `/v1/sessions/{sid}/messages` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |
 | `POST` | `/v1/sessions/{sid}/messages` | `InHandler(deny)` | `session.reply.others` | — | `Resource(session)` | 写 |
 | `GET` | `/v1/sessions/{sid}/nudges` | `InHandler(deny)` | `session.read.others` | — | `Resource(session)` | 读 |

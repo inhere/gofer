@@ -46,7 +46,27 @@ type mailReplyInput struct {
 	Urgent bool   `json:"urgent,omitempty"`
 }
 
+type mailPauseInput struct {
+	Session string `json:"session"`
+}
+type mailAckInput struct {
+	ID   int64 `json:"id"`
+	Done bool  `json:"done,omitempty"`
+}
+
 func registerSessionMailTools(s *mcp.Server, b Backend) {
+	addGoferTool(s, &mcp.Tool{
+		Name:        "gofer_session_mail_pause",
+		Description: "Pause mailbox delivery to one session; letters stay queued until resumed. Only its owner (or a caller with session.reply.others) may change it.",
+	}, mailPauseHandler(b, true))
+	addGoferTool(s, &mcp.Tool{
+		Name:        "gofer_session_mail_resume",
+		Description: "Resume mailbox delivery to one session, preserving queued letter order.",
+	}, mailPauseHandler(b, false))
+	addGoferTool(s, &mcp.Tool{
+		Name:        "gofer_session_mail_ack",
+		Description: "Acknowledge a letter as its recipient without sending a reply. done=false means received; done=true means processed.",
+	}, mailAckHandler(b))
 	addGoferTool(s, &mcp.Tool{
 		Name: "gofer_session_mail_send",
 		Description: "Send a letter to another session, a session job, a gofer mail agent or yourself. to: session:<sid> | job:<id> | agent:<name>[@<project>] | topic:<keyword> | path:<sub-path> | caller (your own capture box); give several, or an each:topic:<kw> / each:path:<sub> / each:project:<key> / each:agent:<name> selector, to send one letter to every match. " +
@@ -69,6 +89,26 @@ func registerSessionMailTools(s *mcp.Server, b Backend) {
 		Name:        "gofer_session_mail_cancel",
 		Description: "Withdraw a letter that has not been delivered yet (an already delivered letter cannot be cancelled). Needs a running gofer server.",
 	}, mailCancelHandler(b))
+}
+
+func mailPauseHandler(b Backend, paused bool) mcp.ToolHandlerFor[mailPauseInput, client.AgentSession] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in mailPauseInput) (*mcp.CallToolResult, client.AgentSession, error) {
+		if strings.TrimSpace(in.Session) == "" {
+			return nil, client.AgentSession{}, fmt.Errorf("session is required")
+		}
+		v, err := b.SetSessionMailPaused(in.Session, paused)
+		return nil, v, err
+	}
+}
+
+func mailAckHandler(b Backend) mcp.ToolHandlerFor[mailAckInput, client.Mail] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in mailAckInput) (*mcp.CallToolResult, client.Mail, error) {
+		if in.ID <= 0 {
+			return nil, client.Mail{}, fmt.Errorf("id is required")
+		}
+		v, err := b.RespondMail(in.ID, in.Done)
+		return nil, v, err
+	}
 }
 
 func mailSendHandler(b Backend) mcp.ToolHandlerFor[mailSendInput, client.MailSent] {

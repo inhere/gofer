@@ -40,6 +40,9 @@ type Mail struct {
 	CreatedAt     int64     `json:"created_at"`
 	DeliveredAt   int64     `json:"delivered_at,omitempty"`
 	ReadAt        int64     `json:"read_at,omitempty"`
+	AckKind       string    `json:"ack,omitempty"`
+	AckBy         string    `json:"ack_by,omitempty"`
+	AckAt         int64     `json:"ack_at,omitempty"`
 	DeliverBy     int64     `json:"deliver_by,omitempty"`
 	CaptureItemID string    `json:"capture_item_id,omitempty"`
 	// BroadcastID / Broadcast mark a copy of a broadcast and carry the group's addressee table
@@ -213,7 +216,17 @@ func (c *Client) AckMail(id int64) (Mail, error) {
 	return m, err
 }
 
-// CancelMail withdraws a letter that has not been delivered.
+// RespondMail records a sender-visible received/done acknowledgement without creating a letter.
+func (c *Client) RespondMail(id int64, done bool) (Mail, error) {
+	var m Mail
+	body, err := json.Marshal(map[string]bool{"done": done})
+	if err != nil {
+		return m, err
+	}
+	err = c.doJSON(http.MethodPost, mailPath(id, "ack"), bytes.NewReader(body), &m)
+	return m, err
+}
+
 func (c *Client) CancelMail(id int64) (Mail, error) {
 	var m Mail
 	err := c.doJSON(http.MethodPost, mailPath(id, "cancel"), bytes.NewReader([]byte("{}")), &m)

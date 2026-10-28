@@ -42,6 +42,26 @@ func sampleMail(over ...func(*MailInput)) MailInput {
 	return in
 }
 
+func TestMailAckUpgrade(t *testing.T) {
+	f := newMailFixture(t)
+	m, err := f.store.InsertMail(sampleMail())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, changed, err := f.store.SetMailAck(m.ID, "received", "session:sess-b")
+	if err != nil || !changed || got.AckKind != "received" || got.AckBy != "session:sess-b" || got.AckAt == 0 {
+		t.Fatalf("received=%+v changed=%v err=%v", got, changed, err)
+	}
+	got, changed, err = f.store.SetMailAck(m.ID, "done", "session:sess-b")
+	if err != nil || !changed || got.AckKind != "done" {
+		t.Fatalf("done=%+v changed=%v err=%v", got, changed, err)
+	}
+	got, changed, err = f.store.SetMailAck(m.ID, "received", "session:sess-b")
+	if err != nil || changed || got.AckKind != "done" {
+		t.Fatalf("downgrade=%+v changed=%v err=%v", got, changed, err)
+	}
+}
+
 func TestMailInsertDefaultsAndReadBack(t *testing.T) {
 	f := newMailFixture(t)
 	m, err := f.store.InsertMail(sampleMail())

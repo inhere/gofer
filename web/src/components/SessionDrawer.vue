@@ -38,6 +38,7 @@ import {
   getSessionMessageLog,
   getSessionTakeoverPlan,
   listMail,
+  setSessionMailPaused,
   listSessionMessages,
   releaseSessionTakeover,
   resumeSession,
@@ -706,7 +707,15 @@ async function openMessageHistory(): Promise<void> {
   }
 }
 
-// 中继三态开关：点击即 POST，乐观更新，失败回滚。
+async function toggleMailPause(): Promise<void> {
+  const s = session.value
+  if (!s || relayBusy.value) return
+  relayBusy.value = true
+  try { session.value = await setSessionMailPaused(s.session_id, !s.mail_paused); emit('changed') }
+  catch (e) { actionError.value = errorMessage(e) }
+  finally { relayBusy.value = false }
+}
+
 async function setRelayMode(mode: AgentSessionRelayMode): Promise<void> {
   const s = session.value
   if (!s || relayBusy.value || s.relay_mode === mode) {
@@ -1038,10 +1047,12 @@ defineExpose({ load, loadMore, setRelayMode, remove })
           </span>
         </div>
         <div class="head-actions mono">
+          <button class="relay-mode" type="button" :disabled="relayBusy" @click="toggleMailPause">
+            {{ session?.mail_paused ? t('sessions.drawer.mailResume') : t('sessions.drawer.mailPause') }}
+          </button>
           <span
             v-if="session"
             class="relay-modes mono"
-            :class="{ busy: relayBusy }"
             :title="t('sessions.drawer.relayTitle')"
           >
             <button

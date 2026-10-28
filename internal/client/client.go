@@ -2613,6 +2613,7 @@ type AgentSession struct {
 	LastHumanAt    int64  `json:"last_human_at,omitempty"`
 	WatchCount     int    `json:"watch_count,omitempty"`
 	// MailPending is how many mailbox letters the session still has to read.
+	MailPaused  bool   `json:"mail_paused"`
 	MailPending int    `json:"mail_pending,omitempty"`
 	PeerName    string `json:"peer_name,omitempty"`
 	// PeerNameSource is where Claude Code says the name came from (user / auto...).
@@ -2955,7 +2956,17 @@ func (c *Client) CompleteSessionWatches(sid string, jobIDs []string) (bool, erro
 	return out.Completed, err
 }
 
-// SetSessionRelayMode sets the three-state relay switch (auto|on|off, R1).
+// SetSessionMailPaused pauses or resumes delivery to a session.
+func (c *Client) SetSessionMailPaused(sid string, paused bool) (AgentSession, error) {
+	var out AgentSession
+	action := "pause"
+	if !paused {
+		action = "resume"
+	}
+	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/mail/"+action, bytes.NewReader([]byte("{}")), &out)
+	return out, err
+}
+
 func (c *Client) SetSessionRelayMode(sid, mode string) (AgentSession, error) {
 	body, _ := json.Marshal(map[string]string{"mode": mode})
 	var a AgentSession

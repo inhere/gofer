@@ -726,6 +726,13 @@ func (b *clientBackend) SessionAsk(sid, text, workID string) (work.AskResult, er
 	return b.cli.SessionAsk(sid, text, workID)
 }
 
+func (b *clientBackend) SetSessionMailPaused(sid string, paused bool) (client.AgentSession, error) {
+	return b.cli.SetSessionMailPaused(sid, paused)
+}
+func (b *clientBackend) RespondMail(id int64, done bool) (client.Mail, error) {
+	return b.cli.RespondMail(id, done)
+}
+
 func (b *clientBackend) SendMail(to []string, body string, urgent bool) (client.MailSent, error) {
 	return b.cli.SendMailTo(to, body, urgent)
 }

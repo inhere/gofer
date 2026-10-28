@@ -2165,8 +2165,10 @@ export function replyMail(id: number, body: { body: string; urgent?: boolean }):
 }
 
 // 收件方读信 = 送达（state delivered + read_at）；只是发件方时原样返回。
-export function ackMail(id: number): Promise<MailMessage> {
-  return request<MailMessage>(`/v1/mail/${id}/ack`, { method: 'POST' })
+export function ackMail(id: number, done?: boolean): Promise<MailMessage> {
+  return request<MailMessage>(`/v1/mail/${id}/ack`, done == null ? { method: 'POST' } : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ done }),
+  })
 }
 
 // 撤回一封还没送达的信（已送达是 409）。

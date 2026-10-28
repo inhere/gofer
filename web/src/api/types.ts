@@ -520,6 +520,7 @@ export interface AgentSession {
   notice?: string
   // mail_pending 是会话还有多少封信待读（pending 或投递中）：留待的投递也算在里面，
   // Stop hook 按它决定要不要取信。
+  mail_paused?: boolean
   mail_pending?: number
   watch_count?: number
   watches?: SessionJobWatch[]
@@ -3693,6 +3694,9 @@ export interface MailMessage {
   created_at: number
   delivered_at?: number
   read_at?: number
+  ack_kind?: 'received' | 'done' | string
+  ack_by?: string
+  ack_at?: number
   deliver_by?: number
   capture_item_id?: string
   // 广播（设计 2026-10-22「D5」）：副本的组 id（0 / 缺省 = 单封）与整组的收件人表。

@@ -19,6 +19,7 @@ import (
 
 var sessionMailOpts struct {
 	urgent   bool
+	done     bool
 	bodyFile string
 	to       gcli.Strings
 	in, out  bool
@@ -96,6 +97,12 @@ func newSessionMailCmd() *gcli.Command {
 				},
 				Func: runSessionMailConv,
 			},
+			{Name: "pause", Desc: cliText("cli.mail.pause.desc"), Config: func(c *gcli.Command) { common(c); c.AddArg("sid", cliText("cli.mail.sid"), true) }, Func: runSessionMailPause},
+			{Name: "resume", Desc: cliText("cli.mail.resume.desc"), Config: func(c *gcli.Command) { common(c); c.AddArg("sid", cliText("cli.mail.sid"), true) }, Func: runSessionMailResume},
+			{Name: "ack", Desc: cliText("cli.mail.ack.desc"), Config: func(c *gcli.Command) {
+				idArg(c)
+				c.BoolOpt(&sessionMailOpts.done, "done", "", false, cliText("cli.mail.ack.done"))
+			}, Func: runSessionMailAck},
 			{Name: "read", Desc: "Read a letter (this marks it read: it is not injected again)", Config: idArg, Func: runSessionMailRead},
 			{
 				Name: "reply",
@@ -180,6 +187,43 @@ func runSessionMailSend(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Print(formatMailSent("sent", res))
+	return nil
+}
+
+func runSessionMailPause(c *gcli.Command, _ []string) error  { return setMailPause(c, true) }
+func runSessionMailResume(c *gcli.Command, _ []string) error { return setMailPause(c, false) }
+func setMailPause(c *gcli.Command, paused bool) error {
+	sid := strings.TrimSpace(c.Arg("sid").String())
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	_, err = cli.SetSessionMailPaused(sid, paused)
+	if err != nil {
+		return err
+	}
+	key := "cli.mail.resumed"
+	if paused {
+		key = "cli.mail.paused"
+	}
+	c.Println(cliText(key, "sid", sid))
+	return nil
+}
+
+func runSessionMailAck(c *gcli.Command, _ []string) error {
+	id, err := parseMailID(c)
+	if err != nil {
+		return err
+	}
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	m, err := cli.RespondMail(id, sessionMailOpts.done)
+	if err != nil {
+		return err
+	}
+	c.Println(cliText("cli.mail.acked", "id", m.ID, "kind", m.AckKind))
 	return nil
 }
 
@@ -505,6 +549,9 @@ func formatMail(m client.Mail) string {
 			}
 			fmt.Fprintf(&b, "  #%d %s %s (%s)\n", r.MailID, r.Kind, who, state)
 		}
+	}
+	if m.AckKind != "" {
+		fmt.Fprintf(&b, "ack: %s · %s · %s\n", m.AckKind, m.AckBy, mailTime(m.AckAt))
 	}
 	b.WriteString("\n" + m.Body + "\n")
 	return b.String()

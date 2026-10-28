@@ -370,6 +370,8 @@ type AgentSession struct {
 	// must not be claimed away from a parked hook: the messenger's peer message
 	// cannot reach an agent that is blocked in its own Stop hook.
 	StopParkUntil int64
+	// MailPaused keeps letters queued while suppressing every delivery path.
+	MailPaused bool
 }
 
 // Who set a session's topic (AgentSession.TopicSource). The read view adds a third
@@ -390,7 +392,7 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0),
   COALESCE(refused_caller_id,''), COALESCE(refused_at,0),
   COALESCE(topic,''), COALESCE(scope_json,''), COALESCE(topic_source,''), COALESCE(topic_at,0),
-  COALESCE(human_prompts,0), COALESCE(stop_park_until,0), COALESCE(inject_mode,'auto')
+  COALESCE(human_prompts,0), COALESCE(stop_park_until,0), COALESCE(inject_mode,'auto'), COALESCE(mail_paused,0)
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -403,12 +405,34 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
 		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt,
 		&a.RefusedCallerID, &a.RefusedAt, &a.Topic, &scopeJSON, &a.TopicSource, &a.TopicAt, &a.HumanPrompts,
-		&a.StopParkUntil, &a.InjectMode)
+		&a.StopParkUntil, &a.InjectMode, &a.MailPaused)
 	if err == nil && scopeJSON != "" {
 		// A malformed value reads back as no scope rather than failing the whole row.
 		_ = json.Unmarshal([]byte(scopeJSON), &a.Scope)
 	}
 	return a, err
+}
+
+// SetMailPaused pauses or resumes all mailbox delivery paths for one session. Letters remain pending
+// and are delivered in their existing FIFO order when resumed.
+func (s *Store) SetMailPaused(sid string, paused bool) (AgentSession, bool, error) {
+	sid = strings.TrimSpace(sid)
+	if sid == "" {
+		return AgentSession{}, false, nil
+	}
+	defer s.emit(Change{Kind: ChangeSession})
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE agent_sessions SET mail_paused=? WHERE session_id=?`, boolInt(paused), sid)
+	if err != nil {
+		return AgentSession{}, false, fmt.Errorf("jobstore: set mail paused %q: %w", sid, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return AgentSession{}, false, err
+	}
+	a, ok, err := s.getSessionLocked(sid)
+	return a, n > 0 && ok, err
 }
 
 // UpsertAgentSession registers a session or refreshes an existing one. On

@@ -545,7 +545,9 @@ var schemaStmts = []string{
   -- While it is in the future a job-end notice must not be taken away from the
   -- parked hook and handed to the messenger: the hook is the channel that reaches
   -- the agent NOW. 0 = no park announced. additive, old rows read back 0.
-  stop_park_until   INTEGER NOT NULL DEFAULT 0
+  stop_park_until   INTEGER NOT NULL DEFAULT 0,
+  -- mail_paused parks delivery to this session without removing letters from its FIFO queue.
+  mail_paused       INTEGER NOT NULL DEFAULT 0
 )`,
 	// session_usage_daily is the per-day, per-model token tally of terminal sessions
 	// (N2 §A): what /v1/stats sums for its 24h / 7d windows. day is the UTC date.
@@ -1209,7 +1211,10 @@ var schemaStmts = []string{
   read_at         INTEGER,
   deliver_by      INTEGER NOT NULL DEFAULT 0,
   capture_item_id TEXT NOT NULL DEFAULT '',
-  broadcast_id    INTEGER NOT NULL DEFAULT 0
+  broadcast_id    INTEGER NOT NULL DEFAULT 0,
+  ack_kind        TEXT NOT NULL DEFAULT '',
+  ack_by          TEXT NOT NULL DEFAULT '',
+  ack_at          INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_to_state ON mail(to_kind, to_id, state, id)`,
 	`CREATE INDEX IF NOT EXISTS idx_mail_from ON mail(from_kind, from_id, id)`,
@@ -2258,6 +2263,7 @@ func (s *Store) migrateAgentSessions() error {
 		{"scope_json", "ALTER TABLE agent_sessions ADD COLUMN scope_json TEXT NOT NULL DEFAULT ''"},
 		{"topic_source", "ALTER TABLE agent_sessions ADD COLUMN topic_source TEXT NOT NULL DEFAULT ''"},
 		{"topic_at", "ALTER TABLE agent_sessions ADD COLUMN topic_at INTEGER NOT NULL DEFAULT 0"},
+		{"mail_paused", "ALTER TABLE agent_sessions ADD COLUMN mail_paused INTEGER NOT NULL DEFAULT 0"},
 		// stop_park_until (gofer-fv6a): the deadline of the Stop hook's park on the
 		// session's watched jobs; a pre-column row reads back 0 ("no park").
 		{"stop_park_until", "ALTER TABLE agent_sessions ADD COLUMN stop_park_until INTEGER NOT NULL DEFAULT 0"},
@@ -2390,6 +2396,17 @@ func (s *Store) migrateMail() error {
 	cols, err := s.tableColumns("mail")
 	if err != nil {
 		return err
+	}
+	for _, c := range []struct{ name, ddl string }{
+		{"ack_kind", "ALTER TABLE mail ADD COLUMN ack_kind TEXT NOT NULL DEFAULT ''"},
+		{"ack_by", "ALTER TABLE mail ADD COLUMN ack_by TEXT NOT NULL DEFAULT ''"},
+		{"ack_at", "ALTER TABLE mail ADD COLUMN ack_at INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if _, ok := cols[c.name]; !ok {
+			if _, e := s.db.Exec(c.ddl); e != nil {
+				return fmt.Errorf("jobstore: migrate mail add %s: %w", c.name, e)
+			}
+		}
 	}
 	if _, ok := cols["broadcast_id"]; !ok {
 		if _, e := s.db.Exec("ALTER TABLE mail ADD COLUMN broadcast_id INTEGER NOT NULL DEFAULT 0"); e != nil {

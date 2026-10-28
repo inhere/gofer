@@ -118,7 +118,34 @@ func (s *Server) mailTakeAccess(c *rux.Context, action string) (jobstore.AgentSe
 	return a, true
 }
 
-// handleClaimSessionMail is POST /v1/sessions/{sid}/mail/claim.
+// handlePauseSessionMail toggles durable delivery suppression for one session.
+func (s *Server) handlePauseSessionMail(c *rux.Context)  { s.setSessionMailPaused(c, true) }
+func (s *Server) handleResumeSessionMail(c *rux.Context) { s.setSessionMailPaused(c, false) }
+
+func (s *Server) setSessionMailPaused(c *rux.Context, paused bool) {
+	if !s.relayReady(c) || s.jobs == nil || s.jobs.Meta() == nil {
+		return
+	}
+	a, ok := s.sessionForAccess(c, "set session mail pause")
+	if !ok {
+		return
+	}
+	if !s.mayReplyToSession(c, a.CallerID) {
+		s.denySessionAction(c, authz.PermSessionManageOthers)
+		return
+	}
+	updated, found, err := s.jobs.Meta().SetMailPaused(a.SessionID, paused)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "set mail pause failed", err.Error())
+		return
+	}
+	if !found {
+		writeError(c, http.StatusNotFound, "session not found", a.SessionID)
+		return
+	}
+	c.JSON(http.StatusOK, s.toSessionView(updated))
+}
+
 func (s *Server) handleClaimSessionMail(c *rux.Context) {
 	if _, ok := s.mailTakeAccess(c, "claim session mail"); !ok {
 		return
