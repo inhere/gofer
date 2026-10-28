@@ -161,8 +161,10 @@ export const SHELL_NAV_GROUPS: readonly ShellNavGroup[] = [
 ]
 
 // sidebarNavGroups：侧栏去掉手机专属项（手机「更多」里才放的主题/语言不在这里）。
-export function sidebarNavGroups(): ShellNavGroup[] {
-  return SHELL_NAV_GROUPS.map((g) => ({ key: g.key, items: [...g.items] }))
+export function sidebarNavGroups(hidden: readonly string[] = []): ShellNavGroup[] {
+  const blocked = new Set(hidden)
+  return SHELL_NAV_GROUPS.map((g) => ({ key: g.key, items: g.items.filter((it) => !blocked.has(it.key) || it.key === 'nav.today' || it.key === 'nav.settings') }))
+    .filter((g) => g.items.length > 0)
 }
 
 // 手机底部标签：今天 / 工作台 / 任务 / 计划 / 更多（§16-3：工作项放「更多」第一位）。
@@ -174,16 +176,24 @@ export const TAB_BAR_ITEMS: readonly ShellNavItem[] = [
 ]
 
 // moreItems：更多抽屉里的宫格，工作项排第一（§16-3）。
-export function moreItems(): ShellNavItem[] {
+export function tabBarItems(hidden: readonly string[] = []): ShellNavItem[] {
+  const blocked = new Set(hidden)
+  const candidates = [...TAB_BAR_ITEMS, ...moreItems()]
+  return candidates.filter((it) => !blocked.has(it.key) || it.key === 'nav.today' || it.key === 'nav.settings').slice(0, 4)
+}
+
+export function moreItems(hidden: readonly string[] = []): ShellNavItem[] {
+  const blocked = new Set(hidden)
   const first: ShellNavItem = { to: '/work', key: 'nav.work', icon: 'work' }
   const rest: ShellNavItem[] = []
   for (const g of SHELL_NAV_GROUPS) {
     for (const it of g.items) {
       if (it.to === '/today' || it.to === '/workbench' || it.to === '/jobs' || it.to === '/plans' || it.to === '/work') continue
+      if (blocked.has(it.key) && it.key !== 'nav.settings') continue
       rest.push(it)
     }
   }
-  return [first, ...rest]
+  return [first, ...rest].filter((it) => !blocked.has(it.key) || it.key === 'nav.settings')
 }
 
 // navItemActive：当前路径是否落在该项上（含子页，如 /plans/:id、/jobs/:id）。
@@ -193,13 +203,13 @@ export function navItemActive(path: string, to: string): boolean {
 }
 
 // tabBarActive / moreActive：手机标签与「更多」的高亮。
-export function tabBarActive(path: string): string | null {
-  for (const it of TAB_BAR_ITEMS) if (navItemActive(path, it.to)) return it.to
+export function tabBarActive(path: string, items: readonly ShellNavItem[] = TAB_BAR_ITEMS): string | null {
+  for (const it of items) if (navItemActive(path, it.to)) return it.to
   return null
 }
 
-export function moreActive(path: string): boolean {
-  const hit = tabBarActive(path)
+export function moreActive(path: string, items: readonly ShellNavItem[] = TAB_BAR_ITEMS): boolean {
+  const hit = tabBarActive(path, items)
   return hit === null && path !== '/access'
 }
 
@@ -255,14 +265,15 @@ export function paletteHits(
   raw: string,
   pages: readonly PalettePage[] = PALETTE_PAGES,
   label: (key: string) => string = (key) => key,
-): Array<{ to: string; label: string }> {
+  hidden: readonly string[] = [],
+): Array<{ to: string; label: string; hidden?: boolean }> {
   const { project, text } = parsePaletteQuery(raw)
-  const out: Array<{ to: string; label: string }> = []
+  const out: Array<{ to: string; label: string; hidden?: boolean }> = []
   for (const p of pages) {
     if (project && !p.projectFilter) continue
     const name = label(p.key)
     if (text && !`${name} ${p.to}`.toLowerCase().includes(text)) continue
-    out.push({ to: withProject(p.to, project), label: name })
+    out.push({ to: withProject(p.to, project), label: name, hidden: hidden.includes(p.key) })
   }
   return out
 }

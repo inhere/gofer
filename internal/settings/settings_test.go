@@ -59,7 +59,7 @@ func TestRegistryIsWellFormed(t *testing.T) {
 	// The first batch the design names is registered.
 	for _, key := range []string{
 		KeyWorkDraftMinPrompts, KeyWorkDraftExcludeProjects, KeyWorkDraftExcludeCwds,
-		KeyWorkDraftExcludeTitlePatterns, KeyWorkShortSessionMaxMinutes, KeyWorkShortSessionMaxPrompts,
+		KeyWebNavHidden, KeyWorkDraftExcludeTitlePatterns, KeyWorkShortSessionMaxMinutes, KeyWorkShortSessionMaxPrompts,
 		KeyPromptStewardRole, KeyPromptStewardRoleExtra, KeyPromptStewardReview,
 		KeyPromptStewardReviewExtra, KeyPromptWorkSummarizer, KeyPromptWorkSummarizerExtra,
 	} {
@@ -82,8 +82,8 @@ func TestDefaultsWhenUnset(t *testing.T) {
 	if got, err := svc.GetInt(KeyWorkShortSessionMaxPrompts); err != nil || got != 3 {
 		t.Fatalf("default short_session.max_prompts = %d, %v; want 3", got, err)
 	}
-	if got, err := svc.GetStrings(KeyWorkDraftExcludeProjects); err != nil || len(got) != 0 {
-		t.Fatalf("default exclude_projects = %v, %v; want empty", got, err)
+	if got, err := svc.GetStrings(KeyWebNavHidden); err != nil || len(got) != 0 {
+		t.Fatalf("default nav_hidden = %v, %v; want empty", got, err)
 	}
 	if got, err := svc.GetString(KeyPromptWorkSummarizerExtra); err != nil || got != "" {
 		t.Fatalf("default summarizer extra = %q, %v; want empty", got, err)

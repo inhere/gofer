@@ -68,6 +68,7 @@ func (k Kind) Valid() bool {
 const (
 	GroupWork   = "work"
 	GroupPrompt = "prompt"
+	GroupWeb    = "web"
 )
 
 // MaxPromptLen caps a prompt setting (32 KiB): a prompt is sent with every summarize /
@@ -100,6 +101,7 @@ type Definition struct {
 // Registry keys. Handlers, planners and tests spell keys through these constants rather
 // than repeating string literals (the names are published, they never change).
 const (
+	KeyWebNavHidden                  = "web.nav_hidden"
 	KeyWorkDraftMinPrompts           = "work.draft.min_prompts"
 	KeyWorkDraftExcludeProjects      = "work.draft.exclude_projects"
 	KeyWorkDraftExcludeCwds          = "work.draft.exclude_cwds"
@@ -120,6 +122,10 @@ const (
 // noise rules and the summarizer prompt in internal/work, the steward prompts in
 // internal/steward), so a write applies to the next prompt / tick.
 var registry = []Definition{
+	{
+		Key: KeyWebNavHidden, Group: GroupWeb, Kind: KindStrings, Default: []string{},
+		Description: "Web 导航中隐藏的菜单 key（今天和设置始终显示）",
+	},
 	{
 		Key: KeyWorkDraftMinPrompts, Group: GroupWork, Kind: KindInt, Default: 2,
 		Min: 1, Max: 20,

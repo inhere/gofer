@@ -395,6 +395,9 @@ export const settings: PageDict = {
     'settings.perm.renewed': '已续期：到期时间往后挪了，权限范围不变。',
 
     'settings.ext.title': '扩展设置',
+    'settings.ext.navTitle': '菜单',
+    'settings.ext.navIntro': '选择要在导航中显示的菜单项；隐藏后仍可通过直接访问或命令面板打开。',
+    'settings.ext.navLocked': '始终显示',
     'settings.ext.count': '{n} 项 · 改过 {modified}',
     'settings.ext.refreshing': '刷新中…',
     'settings.ext.export': '导出 YAML',
@@ -1192,6 +1195,9 @@ export const settings: PageDict = {
     'settings.perm.renewed': 'Renewed: the expiry moved forward, the scope is unchanged.',
 
     'settings.ext.title': 'Extension settings',
+    'settings.ext.navTitle': 'Navigation',
+    'settings.ext.navIntro': 'Choose which menu items appear in navigation. Hidden pages remain directly accessible and searchable.',
+    'settings.ext.navLocked': 'Always shown',
     'settings.ext.count': '{n} item(s) · {modified} changed',
     'settings.ext.refreshing': 'Refreshing…',
     'settings.ext.export': 'Export YAML',

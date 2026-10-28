@@ -77,6 +77,7 @@ export const en: Dict = {
   'palette.placeholder': 'Jump to a page, or p:<project> to filter',
   'palette.project': 'Project {p} only',
   'palette.empty': 'No matching page',
+  'palette.hidden': '(hidden)',
   'palette.shortcuts': 'Shortcuts',
   'palette.shortcut.palette': 'Command palette',
   'palette.shortcut.next': 'Next item in the Today queue',

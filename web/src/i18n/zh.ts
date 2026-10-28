@@ -62,6 +62,7 @@ export const zh: Dict = {
   'palette.placeholder': '跳转到页面，或 p:<项目> 过滤',
   'palette.project': '仅看项目 {p}',
   'palette.empty': '没有匹配的页面',
+  'palette.hidden': '（已隐藏）',
   'palette.shortcuts': '快捷键',
   'palette.shortcut.palette': '命令面板',
   'palette.shortcut.next': '今天队列的下一项',

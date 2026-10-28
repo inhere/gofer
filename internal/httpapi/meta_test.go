@@ -11,6 +11,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/settings"
 )
 
 // newMetaServer builds a Server exercising the /v1/meta aggregate: a project with
@@ -75,6 +76,29 @@ func getMeta(t *testing.T, s *Server) metaResp {
 	return out
 }
 
+func TestMetaIncludesNavigationHiddenSetting(t *testing.T) {
+	s := newMetaServer(t, nil)
+	s.SetSettings(settings.NewService(s.jobs.Meta()))
+	if _, _, err := s.Settings().Set(settings.KeyWebNavHidden, []string{"nav.mail", "nav.renamed"}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	m := getMeta(t, s)
+	if len(m.NavHidden) != 2 || m.NavHidden[0] != "nav.mail" || m.NavHidden[1] != "nav.renamed" {
+		t.Fatalf("nav_hidden=%v, want unknown keys preserved", m.NavHidden)
+	}
+}
+
+func TestMetaSettingsReadFailureFallsBackToEmpty(t *testing.T) {
+	s := newMetaServer(t, nil)
+	s.SetSettings(settings.NewService(s.jobs.Meta()))
+	if err := s.jobs.Meta().Close(); err != nil {
+		t.Fatal(err)
+	}
+	m := getMeta(t, s)
+	if len(m.NavHidden) != 0 {
+		t.Fatalf("nav_hidden=%v, want empty fallback", m.NavHidden)
+	}
+}
 func TestMetaRequiresAuth(t *testing.T) {
 	t.Parallel()
 	s := newMetaServer(t, nil)

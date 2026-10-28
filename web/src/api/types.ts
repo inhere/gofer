@@ -2047,6 +2047,7 @@ export interface MetaResp {
   agents: MetaAgent[]
   runners: MetaRunner[]
   workers: MetaWorker[]
+  nav_hidden?: string[]
 }
 
 // POST /v1/jobs 提交载荷（与 internal/job/model.go 的 JobRequest 对齐）。
