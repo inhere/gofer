@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.203.0] - 2026-10-28
+
 ### 新增
 
 - **job 只读参考目录（gofer-x4h1）**：`job run --read-dir`、项目 `read_dirs` 与计划待办的目录字段会在提交时做路径 / 符号链接范围校验（项目内或 `server.read_dir_allow` 下），并按 agent 的 `add_dir_args` 以只读方式传给 cli-agent；内置 claude 与 suga 模板默认带 `--add-dir {{dir}}:ro`。job 详情、resume、待办续接与 worker 派发都保留该信息；派到协议低于 v28 的旧 worker 会提前拒绝并提示升级，避免旧 worker 静默忽略目录。Web 新建任务、待办编辑、job 详情可填写 / 查看只读目录（所选 agent 不支持时禁用并说明）；Agents 页可编辑 `add_dir_args`，项目与 server 配置可编辑 `read_dirs` / `read_dir_allow`。
