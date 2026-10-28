@@ -1083,6 +1083,8 @@ export interface NotifyTestResp {
   index?: number
   kind?: string
   error?: string
+  code?: string
+  host?: string
   skipped?: boolean
 }
 

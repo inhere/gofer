@@ -34,6 +34,15 @@ const (
 // upper bound on a single attempt; the sweeper retries on the backoff table.
 const DefaultPostTimeoutSeconds = 5
 
+// HostNotAllowedError identifies an outbound host rejected by the allowlist.
+type HostNotAllowedError struct {
+	Host string
+}
+
+func (e *HostNotAllowedError) Error() string {
+	return fmt.Sprintf("webhook host %q not in allow_hosts", e.Host)
+}
+
 // ValidateWebhookURL enforces the E14 outbound safety rules (design §5.7, SR904):
 //   - the URL parses and has a host;
 //   - the scheme is https (http only when cfg.AllowHTTP, for local testing);
@@ -60,7 +69,7 @@ func ValidateWebhookURL(raw string, cfg config.NotificationConfig) error {
 		return fmt.Errorf("webhook url has no host: %q", raw)
 	}
 	if !hostAllowed(host, cfg.AllowHosts) {
-		return fmt.Errorf("webhook host %q not in allow_hosts", host)
+		return &HostNotAllowedError{Host: host}
 	}
 
 	// SSRF: resolve and reject any non-public address. A literal IP host is

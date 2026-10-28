@@ -71,6 +71,8 @@ type notifyTestResp struct {
 	// Error is the delivery failure verbatim — for an IM bot that is its own business
 	// error ("keywords not in content"), which is the whole point of the test button.
 	Error string `json:"error,omitempty"`
+	Code  string `json:"code,omitempty"`
+	Host  string `json:"host,omitempty"`
 	// Skipped reports that the desktop channel could not show anything for an
 	// environment reason (no interactive session, no notifier installed).
 	Skipped bool `json:"skipped,omitempty"`
@@ -151,7 +153,12 @@ func (s *Server) handleNotifyTest(c *rux.Context) {
 		ctx, cancel := context.WithTimeout(c.Req.Context(), notify.DefaultPostTimeoutSeconds*time.Second)
 		defer cancel()
 		if err := s.postNotify(ctx, kind, target, EventNotifyTest, payload, hmacSecret, *nconf); err != nil {
-			c.JSON(http.StatusOK, notifyTestResp{Target: notifyTestTargetWebhook, Index: req.Index, Kind: kind, Error: err.Error()})
+			resp := notifyTestResp{Target: notifyTestTargetWebhook, Index: req.Index, Kind: kind, Error: err.Error()}
+			var denied *notify.HostNotAllowedError
+			if errors.As(err, &denied) {
+				resp.Code, resp.Host = "host_not_allowed", denied.Host
+			}
+			c.JSON(http.StatusOK, resp)
 			return
 		}
 		c.JSON(http.StatusOK, notifyTestResp{OK: true, Target: notifyTestTargetWebhook, Index: req.Index, Kind: kind})
