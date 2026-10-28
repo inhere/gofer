@@ -19,6 +19,10 @@ func agentInstallHint(key string, ac config.AgentConfig) string {
 	return cliText("cli.worker.init.agent_missing_hint", "command", info.Command, "url", info.URL)
 }
 
+// printBuiltinAgentInstallWarnings lists, as INFO, how to install the built-in agent CLIs
+// that are not on PATH. A built-in template only becomes an agent once its CLI is found,
+// so a missing one is optional, not a problem: printing it as WARN made every fresh
+// install look misconfigured (and failed TestConfigValidateFreshInitHasNoWarnings).
 func printBuiltinAgentInstallWarnings(c interface{ Printf(string, ...interface{}) }, det agent.Detector) {
 	templates := agent.BuiltinAgentConfigs()
 	detected := det.Detect(templates)
@@ -32,7 +36,7 @@ func printBuiltinAgentInstallWarnings(c interface{ Printf(string, ...interface{}
 			continue
 		}
 		if hint := agentInstallHint(key, templates[key]); hint != "" {
-			c.Printf("[WARN] agent/%-14s %s\n", key, hint)
+			c.Printf("[INFO] agent/%-14s %s\n", key, hint)
 		}
 	}
 }
@@ -58,6 +62,6 @@ func printAgentInstallWarnings(c interface{ Printf(string, ...interface{}) }, cf
 		if hint == "" {
 			continue
 		}
-		c.Printf("[WARN] agent/%-14s %s\n", key, hint)
+		c.Printf("[INFO] agent/%-14s %s\n", key, hint)
 	}
 }
