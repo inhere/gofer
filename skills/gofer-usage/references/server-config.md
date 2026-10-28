@@ -25,8 +25,12 @@
 - [价格表（费用估算）](#价格表费用估算)
 - [检查更新](#检查更新)
 - [worker 自助注册（worker_enrollment）](#worker-自助注册worker_enrollment)
-- [调用方上限（ceiling）](#调用方上限ceiling)
+- [memory.synthesis（可选每日记忆综合）](#memorysynthesis可选每日记忆综合)
 - [校验与生效](#校验与生效)
+
+## memory.synthesis（可选每日记忆综合）
+
+每日记忆综合默认关闭。P1 只做结构化材料的脱敏、预算裁剪、稳定 digest 与运行记录，不启动模型，也不自动写入长期记忆。详情与只读 HTTP 查询见 [memory-synthesis.md](memory-synthesis.md)。
 
 ## 结构总览
 
@@ -38,6 +42,7 @@ projects: {...}   # ★ 每个 project 的目录 + 准入(agent/runner) —— �
 agents:   {...}   # agent 定义(cli-agent 命令 + detect 探测)
 runners:  {...}   # runner 名册: local / peer-http / worker
 work: {...}  steward: {...}   # 工作项与管家（见 work-items.md）
+memory: {...}                 # 可选每日记忆综合（默认关闭）
 tools:    [...]   # server 本机装了哪些外部工具(只给本机 runner 的 agent job)
 include:  [...]   # 可选：把整段放到别的文件，见下
 ```

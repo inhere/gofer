@@ -65,6 +65,9 @@ type Config struct {
 	// Steward tunes the W2b steward: a resident ACP session that only schedules and tidies
 	// the work items (design 2026-10-05 §9 / §14.4). Off by default.
 	Steward StewardConfig `yaml:"steward,omitempty"`
+	// Memory tunes optional daily memory synthesis. It is off by default and has no
+	// effect on existing memory, work, or steward behavior when disabled.
+	Memory MemoryConfig `yaml:"memory,omitempty"`
 	// Pty tunes the WEB-03 pty relay's text transcript (PTY-01 §四). An absent
 	// block keeps the documented 4MB tail cap, so the transcript is always on and
 	// there is no enable switch to get wrong.
@@ -271,6 +274,9 @@ func (c *Config) Clone() *Config {
 	clone.Work.NeedsMeNotify = clonePtr(c.Work.NeedsMeNotify)
 	clone.Work.SummarizerArgs = append([]string(nil), c.Work.SummarizerArgs...)
 	clone.Steward = c.Steward
+	clone.Memory = c.Memory
+	clone.Memory.Synthesis.Projects = slices.Clone(c.Memory.Synthesis.Projects)
+	clone.Memory.Synthesis.ModelArgs = slices.Clone(c.Memory.Synthesis.ModelArgs)
 	clone.Tools = slices.Clone(c.Tools)
 	if c.Projects != nil {
 		p := make(map[string]ProjectConfig, len(c.Projects))

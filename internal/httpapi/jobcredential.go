@@ -157,6 +157,7 @@ var jobRouteWords = map[string]bool{
 	"permissions": true, "resolve": true,
 	// N3: the home page (reads only for job credentials; the action audit is a person's).
 	"today": true, "actions": true, "handled": true,
+	"memory-syntheses": true,
 	// N3 T3: 「稍后」 (snooze / put back are a person's; the list is a read).
 	"snooze": true, "snoozed": true,
 	// N3 T4: the steward's advice on a card (steward / person only).
@@ -595,6 +596,8 @@ var stewardReadAllow = map[string]bool{
 	// P4: the server-side memory doctor it proposes cleanup from, and its suggestions.
 	"GET /v1/memory-findings":    true,
 	"GET /v1/memory-suggestions": true,
+	"GET /v1/memory-syntheses":   true,
+	"GET /v1/memory-syntheses/*": true,
 	// The mailbox: the steward's own letters (the handler narrows to its job).
 	"GET /v1/mail":   true,
 	"GET /v1/mail/*": true,
