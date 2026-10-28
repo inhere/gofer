@@ -156,6 +156,7 @@ const handoffEditing = computed(() => handoffEditMode.value !== null)
 // 操作态
 const newTodoTitle = ref('')
 const newTodoJob = ref('')
+const newTodoReadDirs = ref('')
 const addingTodo = ref(false)
 // gofer-rnp3「接着上一项的会话做」：新增表单的开关 + 选中的前序项 + 表单内错误（400 的原因
 // 只在表单里显示，不挤到页面顶部的通用错误行）。关掉开关再打开不丢已选的前序项。
@@ -418,6 +419,8 @@ interface TodoEditForm {
   runner: string
   cwd: string
   timeoutSec: string
+  // 只读参考目录，每行一个。
+  readDirs: string
   // 接续（gofer-rnp3）：continueOn=开关，continueFrom=选中的前序项（关掉时保留选中值）。
   continueOn: boolean
   continueFrom: string
@@ -432,7 +435,7 @@ const editContinueError = ref('')
 function emptyEditForm(): TodoEditForm {
   return {
     assignee: '', project: '', template: '', verify: '',
-    review: false, runner: '', cwd: '', timeoutSec: '',
+    review: false, runner: '', cwd: '', timeoutSec: '', readDirs: '',
     continueOn: false, continueFrom: '',
   }
 }
@@ -454,6 +457,7 @@ function toggleTodoEdit(t: Todo): void {
     runner: t.runner ?? '',
     cwd: t.cwd ?? '',
     timeoutSec: t.timeout_sec ? String(t.timeout_sec) : '',
+    readDirs: (t.read_dirs ?? []).join('\n'),
     continueOn: !!t.continue_from,
     continueFrom: t.continue_from || defaultContinueFrom(plan.value?.todos ?? [], t.todo_id),
   }
@@ -486,6 +490,11 @@ async function saveTodoEdit(t: Todo): Promise<void> {
   const sec = Number(f.timeoutSec.trim())
   if (f.timeoutSec.trim() !== '' && Number.isFinite(sec) && sec > 0) {
     patch.timeout_sec = sec
+  }
+  // 只读参考目录：有值就发；原来有、现在清空时发 []（显式清除）；两边都空 = 不发。
+  const readDirs = f.readDirs.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (readDirs.length > 0 || (t.read_dirs?.length ?? 0) > 0) {
+    patch.read_dirs = readDirs
   }
   savingEdit.value = true
   opError.value = ''
@@ -846,8 +855,10 @@ async function onAddTodo(): Promise<void> {
       newTodoJob.value.trim() || undefined,
       undefined,
       cont || undefined,
+      newTodoReadDirs.value.split('\n').map((l) => l.trim()).filter(Boolean),
     )
     newTodoTitle.value = ''
+    newTodoReadDirs.value = ''
     newTodoJob.value = ''
     newTodoContinue.value = false
     newTodoContinueFrom.value = ''
@@ -1649,6 +1660,16 @@ onUnmounted(() => {
                     :placeholder="tr('plans.detail.f.timeout')"
                   />
                 </label>
+                <label class="edit-field">
+                  <span>read_dirs</span>
+                  <textarea
+                    v-model="editForm.readDirs"
+                    class="op-input mono"
+                    rows="2"
+                    spellcheck="false"
+                    :placeholder="tr('plans.detail.f.readDirs')"
+                  ></textarea>
+                </label>
                 <label class="edit-check">
                   <input v-model="editForm.review" type="checkbox" />
                   <span>{{ tr('plans.detail.f.review') }}</span>
@@ -1697,6 +1718,13 @@ onUnmounted(() => {
           <form class="op-form mono" @submit.prevent="onAddTodo">
             <input v-model="newTodoTitle" class="op-input mono" :placeholder="t('plans.detail.newTodoTitle')" />
             <input v-model="newTodoJob" class="op-input mono" :placeholder="t('plans.detail.newTodoJob')" />
+            <textarea
+              v-model="newTodoReadDirs"
+              class="op-input mono"
+              rows="1"
+              spellcheck="false"
+              :placeholder="t('plans.detail.f.readDirs')"
+            ></textarea>
             <!-- gofer-rnp3：新条目默认接着本 plan 的最后一项做（追加在末尾，它就是「上一项」）。 -->
             <label
               class="edit-check"

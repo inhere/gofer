@@ -1620,6 +1620,7 @@ export function addTodo(
   jobId?: string,
   note?: string,
   continueFrom?: string,
+  readDirs?: string[],
 ): Promise<Todo> {
   return request<Todo>(`/v1/plans/${encodeURIComponent(planId)}/todos`, {
     method: 'POST',
@@ -1629,6 +1630,7 @@ export function addTodo(
       job_id: jobId ?? '',
       note: note ?? '',
       ...(continueFrom ? { continue_from: continueFrom } : {}),
+      ...(readDirs && readDirs.length > 0 ? { read_dirs: readDirs } : {}),
     }),
   })
 }
