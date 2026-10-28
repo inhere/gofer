@@ -23,6 +23,7 @@ import (
 // added here (TestFlagGlobalsRegistryComplete fails if one is missed).
 func flagGlobals() map[string]any {
 	return map[string]any{
+		"doctorOpts":            &doctorOpts,
 		"agentListOpts":         &agentListOpts,
 		"authOpts":              &authOpts,
 		"authGrantOpts":         &authGrantOpts,
