@@ -28,9 +28,9 @@ That is a working server on one machine. Your first job, a second machine as a w
 
 | Stable enough to rely on | Still changing quickly |
 |---|---|
-| [Jobs and their logs](docs/guide/features.md#job) | [Squad / leader orchestration](skills/gofer-usage/references/plans-workflows.md) |
+| [Jobs and their logs](docs/guide/en/features.md#job) | [Squad / leader orchestration](skills/gofer-usage/references/plans-workflows.md) |
 | [Worktree isolation and merge](docs/runbook/parallel-jobs-with-worktree.md) | [Steward](skills/gofer-usage/references/work-items.md) |
-| [Human review and acceptance](docs/guide/features.md#review-and-quality-gates) | [Workspace agent](docs/guide/stability.md) |
+| [Human review and acceptance](docs/guide/en/features.md#review-and-quality-gates) | [Workspace agent](docs/guide/stability.md) |
 | [Worker onboarding and fleet updates](skills/gofer-usage/references/worker-config.md) | [Some web console pages](skills/gofer-usage/references/web-console.md) |
 | [Session registration and relay](docs/runbook/session-relay.md) | [i18n phase 3: server and web text](skills/gofer-usage/references/server-config.md) |
 | [Tracker issues and memory](skills/gofer-usage/references/tracker.md) | |
