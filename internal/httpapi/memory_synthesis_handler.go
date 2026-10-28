@@ -37,6 +37,11 @@ func (s *Server) handleListMemorySyntheses(c *rux.Context) {
 		return
 	}
 	rows = scopeRows(s, c, rows, func(r jobstore.MemorySynthesisRun) string { return r.ProjectKey })
+	for i := range rows {
+		// Listing is metadata-only; material previews are available from the detail route.
+		rows[i].MaterialSnapshot = ""
+		rows[i].ResultJSON = ""
+	}
 	c.JSON(http.StatusOK, map[string]any{"runs": rows})
 }
 
@@ -57,6 +62,11 @@ func (s *Server) handleGetMemorySynthesis(c *rux.Context) {
 	}
 	if !s.requireProjectScope(c, run.ProjectKey) {
 		return
+	}
+	if callerKindFromCtx(c) == callerKindJob {
+		// Job credentials may inspect their project-scoped metadata, but never a material
+		// snapshot (the snapshot can contain user-authored text even after scrubbing).
+		run.MaterialSnapshot = ""
 	}
 	c.JSON(http.StatusOK, run)
 }
