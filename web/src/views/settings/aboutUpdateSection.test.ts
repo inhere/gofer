@@ -48,6 +48,8 @@ async function renderAbout(): Promise<string> {
 }
 
 describe('关于页 · 更新区', () => {
+  // 本文件第一次 SSR 渲染要导入并编译 About.vue 整棵组件树；verify 五路并行的负载下
+  // 刚好超过 vitest 默认的 5 秒（v0.203.0 verify），放宽到 20 秒。
   it('GitHub 栏渲染成指向仓库地址的外链', async () => {
     const html = await renderAbout()
     expect(html).toContain(zh['settings.about.github'])
@@ -65,7 +67,7 @@ describe('关于页 · 更新区', () => {
     // 两本字典都有这一栏的标签。
     expect(zh['settings.about.github']).toBeTypeOf('string')
     expect(en['settings.about.github']).toBeTypeOf('string')
-  })
+  }, 20_000)
 
   it('「检查更新」与「一键更新」在同一行，主按钮在右', () => {
     const checkAt = aboutSrc.indexOf('@click="runCheck()"')

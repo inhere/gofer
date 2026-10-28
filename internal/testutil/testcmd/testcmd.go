@@ -126,7 +126,10 @@ func lockBuild(path string) (func(), error) {
 			_ = f.Close()
 			return func() { _ = os.Remove(path) }, nil
 		}
-		if !os.IsExist(err) {
+		// On Windows, creating a file that another process has just removed while a
+		// handle is still open (delete pending) fails with ERROR_ACCESS_DENIED, not
+		// "exists": the lock is changing hands, so wait like for a held lock.
+		if !os.IsExist(err) && !(runtime.GOOS == "windows" && os.IsPermission(err)) {
 			return nil, err
 		}
 		if fi, serr := os.Stat(path); serr == nil && time.Since(fi.ModTime()) > lockStale {
