@@ -543,7 +543,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	tm.mark("jobdir")
 
 	// WT-01: `--worktree` runs the job in a managed git worktree of this checkout
-	// (<top>/tmp/gofer/wt/<job-id>, branch gofer/<job-id>) so parallel jobs stop
+	// (<top>/.worktrees/<name>, branch gofer/<job-id>) so parallel jobs stop
 	// sharing one index. Created HERE — on the EXECUTING machine (serve-local, or the
 	// worker's own job.Service, which re-enters this very function with runner=local)
 	// — and only after the job's result dir exists, because the worktree dir is keyed

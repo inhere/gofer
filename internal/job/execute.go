@@ -107,7 +107,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// AFTER every concurrency slot (a job parked on a directory must not hold a slot
 	// the directories do not need) and BEFORE the status flips to running, so the
 	// whole wait is visible as `waiting_dir`. A managed-worktree job is skipped: its
-	// directory is created for IT alone (<repo>/tmp/gofer/wt/<job-id>), so there is
+	// directory is created for IT alone (<repo>/.worktrees/<name>), so there is
 	// nothing to serialize — and taking the ancestor lock of the enclosing checkout
 	// would make every worktree job queue behind the main one, which is exactly the
 	// parallelism WT-01 exists to provide.

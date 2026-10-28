@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -21,9 +22,8 @@ import (
 )
 
 // WT-01 受管 worktree 的测试。全部用 t.TempDir() 里 `git init` 出的**临时仓库**：绝不
-// 碰真实仓库，也不读真实配置（G：测试一律 t.TempDir()）。仓库里预置 .gitignore 忽略
-// tmp/，与真实项目同构——worktree 落在 <top>/tmp/gofer/wt/<id>，若 tmp/ 没被忽略就会
-// 在主 checkout 的 `git status` 里冒出来，"主 checkout 无改动"的断言正依赖这一点。
+// 碰真实仓库，也不读真实配置（G：测试一律 t.TempDir()）。仓库的 worktree 目录由测试
+// helper 写入 git 公共目录的 info/exclude，因此主 checkout 的 `git status` 保持干净。
 
 // gitOutIn 在 dir 里跑一条 git 命令并返回 stdout；失败即测试失败（测试夹具，不降级）。
 func gitOutIn(t *testing.T, dir string, args ...string) string {
@@ -56,6 +56,22 @@ func gitRepo(t *testing.T) (repo, head string) {
 	gitOutIn(t, repo, "add", ".")
 	gitOutIn(t, repo, "commit", "-q", "-m", "init")
 	return repo, gitOutIn(t, repo, "rev-parse", "HEAD")
+}
+
+func TestEnsureWorktreeIgnoredIsLocalAndIdempotent(t *testing.T) {
+	repo, _ := gitRepo(t)
+	common := gitOutIn(t, repo, "rev-parse", "--git-common-dir")
+	exclude := filepath.Join(repo, filepath.FromSlash(common), "info", "exclude")
+	ensureWorktreeIgnored(context.Background(), repo, ".worktrees/job-1")
+	first, err := os.ReadFile(exclude)
+	if err != nil || !strings.Contains(string(first), "# Added by gofer for managed worktrees\n/.worktrees/\n") {
+		t.Fatalf("info/exclude = %q (err=%v), want gofer rule", first, err)
+	}
+	ensureWorktreeIgnored(context.Background(), repo, ".worktrees/job-2")
+	second, _ := os.ReadFile(exclude)
+	if string(second) != string(first) {
+		t.Fatalf("info/exclude changed on repeat: before %q after %q", first, second)
+	}
 }
 
 // payloadCommit 在 repo 上从当前主干切一个临时分支，提交一个真实文件改动，再切回主干，
@@ -699,7 +715,7 @@ func TestMergeWorktreeClosingFlags(t *testing.T) {
 }
 
 // TestMergeWorktreeIgnoresUntrackedInMain: untracked files in the main checkout
-// (gofer's own tmp/gofer/wt worktrees in a repo that does not ignore tmp/, a
+// (gofer's own generated worktrees in a repo that does not ignore them, a
 // scratch note) must not block a merge; only tracked changes do — git merge
 // itself refuses if an untracked file would be overwritten.
 func TestMergeWorktreeIgnoresUntrackedInMain(t *testing.T) {

@@ -2266,7 +2266,7 @@ type ProjectConfig struct {
 	WorktreeDefault bool `yaml:"worktree_default,omitempty"`
 	// Worktree tunes the managed worktree itself (WT-01 extension): its directory and
 	// branch templates ({name} / {job_id}) and the directories to link in from the main
-	// checkout. Nil = the historical defaults (tmp/gofer/wt/{job_id}, gofer/{job_id},
+	// checkout. Nil = the current defaults (.worktrees/{name}, gofer/{job_id},
 	// no links), so an existing project is unaffected. See ProjectWorktree.
 	Worktree *ProjectWorktree `yaml:"worktree,omitempty"`
 	// RequireReview (GATE-01 S3) turns人工验收 ON for every job of this project: a job

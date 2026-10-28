@@ -29,10 +29,12 @@ import (
 // 份 Submit 路径）的唯一实现：定位仓库 → 落 worktree → 映射 cwd → 导出 env；job 结束
 // 后的两段 diff、终态分支状态，以及 W2 的 ls/rm/retention 清理也都基于这里的 ref。
 const (
-	// worktreeSubdir 是 worktree 相对仓库顶层的落点：<top>/tmp/gofer/wt/<job-id>。
-	// tmp/ 在各项目已被忽略（结果/交换目录同在此处），故 worktree 目录随之被忽略，
+	// worktreeSubdir is the default worktree parent used by tests.
+	// The repository-local location is ignored in the common git exclude file.
 	// 不会在主 checkout 的 `git status` 里冒出来。
-	worktreeSubdir = "tmp/gofer/wt"
+	worktreeSubdir = ".worktrees"
+	// legacyWorktreeSubdir is the former default, retained for stale-checkout cleanup.
+	legacyWorktreeSubdir = "tmp/gofer/wt"
 	// worktreeBranchPrefix 是 job 的 worktree 提交所在分支前缀，完整名 gofer/<job-id>。
 	worktreeBranchPrefix = "gofer/"
 	// worktreeTimeout 包住**创建** worktree 的 git 命令链（worktree add + switch）：
@@ -67,7 +69,7 @@ const (
 // worktreeRef 描述一个受管 worktree（WT-01）：checkout 目录、其提交所在分支、
 // 创建时的基线提交。
 type worktreeRef struct {
-	// Path is the worktree checkout dir: <Top>/tmp/gofer/wt/<job-id>.
+	// Path is the worktree checkout dir: <Top>/.worktrees/<name>.
 	Path string
 	// Branch is the branch the job's commits land on: gofer/<job-id>.
 	Branch string
@@ -114,6 +116,8 @@ func prepareJobWorktree(ctx context.Context, cwd, jobID, base string, opts workt
 	if err != nil {
 		return nil, fmt.Errorf("%w: worktree base %q is not a commit in %s", ErrInvalidRequest, base, top)
 	}
+	// Keep generated worktrees out of the user's index without modifying tracked config.
+	ensureWorktreeIgnored(ctx, top, opts.Dir)
 	path := filepath.Join(top, filepath.FromSlash(opts.Dir))
 	branch := opts.Branch
 	// A same-named checkout or branch is REFUSED, never reused: two jobs sharing one
@@ -138,7 +142,7 @@ func prepareJobWorktree(ctx context.Context, cwd, jobID, base string, opts workt
 }
 
 // prepareTempWorktree creates the TEMPORARY checkout a `ref:` job runs in (design 一·3):
-// <top>/tmp/gofer/wt/<job-id> detached at commit sha, with NO branch, so nothing of it
+// <top>/.worktrees/<name> detached at commit sha, with NO branch, so nothing of it
 // can be merged, pushed or kept. It is the same落点 and the same dependency links as a
 // managed worktree (a `ref:` verify needs the project's node_modules just as much);
 // only the branch and the lifetime differ — cleanupTempWorktree removes it when the job
@@ -157,10 +161,7 @@ func prepareTempWorktree(ctx context.Context, cwd, jobID, sha string, opts workt
 	if err != nil {
 		return nil, err
 	}
-	sha, err = gitOut(ctx, top, "rev-parse", "--verify", sha+"^{commit}")
-	if err != nil {
-		return nil, fmt.Errorf("%w: ref commit %q is not in %s", ErrInvalidRequest, sha, top)
-	}
+	ensureWorktreeIgnored(ctx, top, opts.Dir)
 	path := filepath.Join(top, filepath.FromSlash(opts.Dir))
 	if isDir(path) {
 		return nil, fmt.Errorf("%w: worktree dir %s already exists", ErrInvalidRequest, path)
@@ -393,7 +394,56 @@ func gitTopLevel(ctx context.Context, cwd string) (string, error) {
 	return filepath.Clean(top), nil
 }
 
-// gitOut 跑一个 git 子进程并返回其 stdout（已 TrimSpace）。与 gitdiff.go 的 runGit
+// ensureWorktreeIgnored adds a local-only ignore rule for the conventional .worktrees
+// location. Failure is deliberately best-effort: creating the worktree must still proceed.
+func ensureWorktreeIgnored(ctx context.Context, top, rel string) {
+	clean := filepath.ToSlash(filepath.Clean(rel))
+	if clean != ".worktrees" && !strings.HasPrefix(clean, ".worktrees/") {
+		return
+	}
+	if _, err := gitOut(ctx, top, "check-ignore", "-q", "--", clean); err == nil {
+		return
+	}
+	common, err := gitOut(ctx, top, "rev-parse", "--git-common-dir")
+	if err != nil {
+		slog.Warn("job.worktree_ignore_failed", "event", "job.worktree_ignore_failed", "path", clean, "err", err)
+		return
+	}
+	common = strings.TrimSpace(common)
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(top, filepath.FromSlash(common))
+	}
+	exclude := filepath.Join(common, "info", "exclude")
+	data, readErr := os.ReadFile(exclude)
+	if readErr == nil {
+		for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+			if strings.TrimSpace(line) == "/.worktrees/" {
+				return
+			}
+		}
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		slog.Warn("job.worktree_ignore_failed", "event", "job.worktree_ignore_failed", "path", clean, "err", readErr)
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(exclude), 0o755); err != nil {
+		slog.Warn("job.worktree_ignore_failed", "event", "job.worktree_ignore_failed", "path", clean, "err", err)
+		return
+	}
+	f, err := os.OpenFile(exclude, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		slog.Warn("job.worktree_ignore_failed", "event", "job.worktree_ignore_failed", "path", clean, "err", err)
+		return
+	}
+	defer f.Close()
+	prefix := ""
+	if info, statErr := f.Stat(); statErr == nil && info.Size() > 0 {
+		prefix = "\n"
+	}
+	if _, err := fmt.Fprintf(f, "%s# Added by gofer for managed worktrees\n/.worktrees/\n", prefix); err != nil {
+		slog.Warn("job.worktree_ignore_failed", "event", "job.worktree_ignore_failed", "path", clean, "err", err)
+	}
+}
+
 // 不同，它**返回错误**：worktree 的创建/清理是必须成功的动作，失败必须让调用方看见，
 // 而 runGit 是只读探测的优雅降级口径。stderr 原文并入错误信息，便于定位（如
 // "fatal: '<path>' already exists"）。exec.ErrNotFound 原样透传，让上层区分"没有

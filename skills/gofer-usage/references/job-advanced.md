@@ -231,7 +231,7 @@ gofer job list --status needs_review                     # 谁在等验收
 
 ## 并行：--worktree 与目录锁
 
-**--worktree**：多个 agent job 在同一 checkout 里并行改代码会互相踩（`.git/index.lock` 残留、互相覆盖）。加 `--worktree` 让每个 job 在 `<仓库顶层>/tmp/gofer/wt/<job-id>` 的独立 worktree 里跑，提交落在分支 `gofer/<job-id>`，主 checkout 不动。`--cwd` 仍相对项目根；`--worktree-base <ref>` 指定基线。项目可设 `worktree_default: true`。任务书里提醒 agent：不要切分支、不要 push。
+**--worktree**：多个 agent job 在同一 checkout 里并行改代码会互相踩（`.git/index.lock` 残留、互相覆盖）。加 `--worktree` 让每个 job 在 `<仓库顶层>/.worktrees/<job-id>` 的独立 worktree 里跑，提交落在分支 `gofer/<job-id>`，主 checkout 不动。`--cwd` 仍相对项目根；`--worktree-base <ref>` 指定基线。项目可设 `worktree_default: true`。任务书里提醒 agent：不要切分支、不要 push。
 
 位置与分支可以按项目配置改（模板 `{name}` / `{job_id}`），单个 job 也能覆盖：
 
@@ -239,7 +239,7 @@ gofer job list --status needs_review                     # 谁在等验收
 gofer job run -p <project> -a <agent> --worktree --worktree-name <名> --branch <分支名> --prompt "…"
 # 项目配置（见 server-config.md「项目」）：
 #   worktree:
-#     dir: ".worktrees/{name}"     # 默认 tmp/gofer/wt/{job_id}
+#     dir: ".worktrees/{name}"     # 默认 `.worktrees/{name}`
 #     branch: "{name}"             # 默认 gofer/{job_id}
 #     links: [web/node_modules]    # 从主 checkout 链接进 worktree 的目录
 ```

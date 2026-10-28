@@ -70,7 +70,7 @@ projects:
     # continue_max_chain: 3                   # 计划里「接着上一项会话做」(continue_from)最多连续接续几次，达到后下一项开新会话；默认 3，0=不限，最大 10
     # worktree_default: true                  # 该项目 job 默认在受管 git worktree 里跑
     # worktree:                               # --worktree job 落在哪、分支叫什么、从主 checkout 链接哪些目录
-    #   dir: ".worktrees/{name}"              # 相对仓库顶层；默认 tmp/gofer/wt/{job_id}；{name} 来自 --worktree-name（未给时 = job id）
+    #   dir: ".worktrees/{name}"              # 相对仓库顶层；默认 `.worktrees/{name}`；{name} 来自 --worktree-name（未给时 = job id）
     #   branch: "feat/{name}"                 # 默认 gofer/{job_id}；--branch 可单次覆盖
     #   links: [web/node_modules]             # 建好 worktree 后从主 checkout 同路径链接过来（Windows 目录联接 / 其它平台符号链接）；源不存在只记事件
     # capture_diff: auto                      # auto/on/off；auto 跳过普通 exec，cli-agent 或要验收的 job 采集

@@ -33,7 +33,7 @@ const tempCheckoutSweepDirs = 64
 //
 // The scan is driven by the PROJECT's worktree.dir template, not by the default one: a
 // project that puts its checkouts under `.worktrees/job-{job_id}` had its leftovers
-// invisible to a hard-coded `tmp/gofer/wt` (gofer-bgkk — nine temp checkouts of a failed
+// invisible to a hard-coded default (gofer-bgkk — nine temporary checkouts of a failed
 // workflow survived several serve restarts that way). The job id is read back out of the
 // directory name through the same template, so "does a live job still own this?" is
 // answerable for ANY template.
@@ -137,47 +137,51 @@ func repoTopOf(ctx context.Context, dir string) string {
 // sweepProjectTempCheckouts is the per-project scan: list the project's worktree dir and
 // remove every entry that names a job which no longer owns a checkout.
 func (s *Service) sweepProjectTempCheckouts(ctx context.Context, projectKey, top string, proj config.ProjectConfig) int {
-	parent, nameRe := tempCheckoutScan(proj)
-	if parent == "" || nameRe == nil {
-		return 0
+	sweep := func(scanProj config.ProjectConfig) int {
+		parent, nameRe := tempCheckoutScan(scanProj)
+		if parent == "" || nameRe == nil {
+			return 0
+		}
+		root := filepath.Join(top, filepath.FromSlash(parent))
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			return 0
+		}
+		removed := 0
+		for _, ent := range entries {
+			if !ent.IsDir() {
+				continue
+			}
+			id, ok := tempCheckoutJobID(nameRe, ent.Name())
+			if !ok || !s.sweepableCheckoutOwner(id) {
+				continue
+			}
+			path := filepath.Join(root, ent.Name())
+			if branch, isRepo := checkoutBranch(ctx, path); isRepo && branch != "" {
+				continue
+			}
+			cctx, cancel := context.WithTimeout(ctx, worktreeTimeout)
+			rmErr := removeTempCheckout(cctx, &worktreeRef{Path: path, Top: top, Temp: true})
+			cancel()
+			if rmErr != nil {
+				slog.Warn("job.temp_checkout_sweep_failed", "event", "job.temp_checkout_sweep_failed",
+					"component", "job", "project", projectKey, "job_id", id, "path", path, "err", rmErr)
+				continue
+			}
+			removed++
+			slog.Info("job.temp_checkout_swept", "event", "job.temp_checkout_swept", "component", "job",
+				"project", projectKey, "job_id", id, "path", path, "reason", "stale temporary ref checkout")
+			if rec, found, gerr := s.meta.GetJob(id); gerr == nil && found && isFinished(rec.Status) {
+				s.recordEvent(id, EventJobTempCheckoutSwept, map[string]any{"path": path, "project": projectKey})
+			}
+		}
+		return removed
 	}
-	root := filepath.Join(top, filepath.FromSlash(parent))
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return 0 // no checkouts in this project (the common case)
-	}
-	removed := 0
-	for _, ent := range entries {
-		if !ent.IsDir() {
-			continue
-		}
-		id, ok := tempCheckoutJobID(nameRe, ent.Name())
-		if !ok || !s.sweepableCheckoutOwner(id) {
-			continue
-		}
-		path := filepath.Join(root, ent.Name())
-		if branch, isRepo := checkoutBranch(ctx, path); isRepo && branch != "" {
-			// A branch checkout is a deliverable (--worktree) or somebody's own worktree.
-			continue
-		}
-		cctx, cancel := context.WithTimeout(ctx, worktreeTimeout)
-		rmErr := removeTempCheckout(cctx, &worktreeRef{Path: path, Top: top, Temp: true})
-		cancel()
-		if rmErr != nil {
-			slog.Warn("job.temp_checkout_sweep_failed", "event", "job.temp_checkout_sweep_failed",
-				"component", "job", "project", projectKey, "job_id", id, "path", path, "err", rmErr)
-			continue
-		}
-		removed++
-		slog.Info("job.temp_checkout_swept", "event", "job.temp_checkout_swept", "component", "job",
-			"project", projectKey, "job_id", id, "path", path, "reason", "stale temporary ref checkout")
-		// The row (when it still exists) records that the checkout outlived its job and
-		// this sweep completed the removal the finish path could not.
-		if rec, found, gerr := s.meta.GetJob(id); gerr == nil && found && isFinished(rec.Status) {
-			s.recordEvent(id, EventJobTempCheckoutSwept, map[string]any{
-				"path": path, "project": projectKey,
-			})
-		}
+	removed := sweep(proj)
+	// A project with no explicit location may still have detached checkouts from the
+	// former default. Keep that one-time migration path alongside the new default.
+	if proj.Worktree == nil || strings.TrimSpace(proj.Worktree.Dir) == "" {
+		removed += sweep(config.ProjectConfig{Worktree: &config.ProjectWorktree{Dir: legacyWorktreeSubdir + "/{name}"}})
 	}
 	return removed
 }

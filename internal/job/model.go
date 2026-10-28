@@ -83,7 +83,7 @@ type JobRequest struct {
 	ResolvedLockPaths []string `json:"-" yaml:"-"`
 	// Worktree (WT-01) runs the job in a MANAGED git worktree of the project
 	// checkout instead of the checkout itself: gofer creates
-	// <repo top>/tmp/gofer/wt/<job-id> on a fresh branch gofer/<job-id> at
+	// <repo top>/.worktrees/<name> on a fresh branch gofer/<job-id> at
 	// WorktreeBase, runs the whole job there (cwd mapped by the same relative
 	// sub-path, env GOFER_WORKTREE/_BRANCH/_BASE exported) and KEEPS it afterwards
 	// (the branch is the deliverable). It is what lets several agent jobs edit and
@@ -104,7 +104,7 @@ type JobRequest struct {
 	WorktreeBranch string `json:"worktree_branch_name,omitempty" yaml:"worktree_branch_name,omitempty"`
 	// Ref is a commit this job checks out in a TEMPORARY detached worktree
 	// (design 一·3, the workflow's `ref:`): gofer creates
-	// <repo top>/tmp/gofer/wt/<job-id> at that commit with NO branch, runs the job
+	// <repo top>/.worktrees/<name> at that commit with NO branch, runs the job
 	// there and removes the checkout when the job ends (success, failure or cancel).
 	// The commit is a full sha — the workflow resolves `ref:` once at submit so every
 	// fan of a step sees the same tree. On a machine whose checkout lacks the commit it
@@ -933,7 +933,7 @@ type JobResult struct {
 	AutoResumeAttempt int    `json:"auto_resume_attempt,omitempty"`
 	AutoResumedBy     string `json:"auto_resumed_by,omitempty"`
 	// WT-01 受管 worktree：该 job 在独立 worktree 中执行时，记录交付物位置与分支状态。
-	// WorktreePath=<repo top>/tmp/gofer/wt/<job-id>（默认保留，分支上的提交即交付物），
+	// WorktreePath=<repo top>/.worktrees/<name>（默认保留，分支上的提交即交付物），
 	// WorktreeBranch=gofer/<job-id>，WorktreeBaseSHA=基线提交，WorktreeHeadSHA=终态时该分支
 	// HEAD（git rev-parse HEAD），CommitsAhead=领先基线的提交数（git rev-list --count
 	// base..HEAD）。非 worktree job 全为空/0（omitempty 不出现）；一并入库 jobs 表，供
