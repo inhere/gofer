@@ -44,8 +44,10 @@ describe('extension settings page wiring', () => {
   it('goes read-only without settings.write or on a read-only ceiling', () => {
     expect(gate).toContain("'settings.write': { perms: ['settings.write']")
     expect(page).toContain("can('settings.write')")
-    expect(page).toContain('data-test="settings-readonly"')
-    expect(page).toContain('v-if="canWrite"')
+    expect(page).toContain('v-for="group in navGroups"')
+    expect(page).toContain("item.key === 'nav.today' || item.key === 'nav.settings'")
+    expect(page).toContain('data-test="nav-settings-readonly"')
+    expect(page).toContain('invalidateMetaCache()')
   })
 
   it('renders every kind with its own editor and shows the prompt default note', () => {

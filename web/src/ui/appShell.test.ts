@@ -48,6 +48,7 @@ describe('AppShell top bar', () => {
     expect(shell).toContain('data-test="palette-open"')
     expect(shell).toContain('<ThemeToggle />')
     expect(shell).toContain('<LangToggle />')
+    expect(shell).toContain('onMetaInvalidated(loadNavHidden)')
     expect(shell).toContain('<CommandPalette v-model:open="paletteOpen" />')
   })
 

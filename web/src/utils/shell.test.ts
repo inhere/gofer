@@ -17,7 +17,9 @@ import {
   readShellPrefs,
   shellForm,
   sidebarExpanded,
+  sidebarNavGroups,
   tabBarActive,
+  tabBarItems,
   withProject,
   writeShellPrefs,
   type StorageLike,
@@ -104,6 +106,15 @@ describe('navigation groups', () => {
     expect(SHELL_NAV_GROUPS[3].items.map((i) => i.key)).toEqual(['nav.runners', 'nav.agents', 'nav.projects', 'nav.settings'])
   })
 
+  it('filters hidden navigation entries, preserves today/settings, and fills phone tabs', () => {
+    const hidden = ['nav.workbench', 'nav.mail', 'nav.settings', 'nav.unknown']
+    const sidebar = sidebarNavGroups(hidden).flatMap((g) => g.items).map((i) => i.key)
+    expect(sidebar).not.toContain('nav.workbench')
+    expect(sidebar).toEqual(expect.arrayContaining(['nav.today', 'nav.settings']))
+    expect(moreItems(hidden).map((i) => i.key)).not.toContain('nav.mail')
+    expect(moreItems(hidden).map((i) => i.key)).toContain('nav.settings')
+    expect(tabBarItems(['nav.workbench', 'nav.jobs']).map((i) => i.key)).toEqual(['nav.today', 'nav.plans', 'nav.work', 'nav.sessions'])
+  })
   it('points 任务 at /jobs and keeps the sidebar free of a project picker', () => {
     const all = SHELL_NAV_GROUPS.flatMap((g) => g.items)
     expect(all.find((i) => i.key === 'nav.jobs')?.to).toBe('/jobs')
@@ -165,6 +176,10 @@ describe('needs-me count (merged decision queue + worker requests)', () => {
 describe('command palette (design §6.5, P1 scope)', () => {
   const label = (key: string): string => key.replace('nav.', '')
 
+  it('marks hidden command palette hits without removing them', () => {
+    const hit = paletteHits('', undefined, label, ['nav.mail']).find((h) => h.to === '/mail')
+    expect(hit?.hidden).toBe(true)
+  })
   it('parses a p:<project> prefix and keeps the rest as keywords', () => {
     expect(parsePaletteQuery('p:my-tools')).toEqual({ project: 'my-tools', text: '' })
     expect(parsePaletteQuery('p:my-tools jobs')).toEqual({ project: 'my-tools', text: 'jobs' })

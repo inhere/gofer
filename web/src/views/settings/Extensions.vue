@@ -38,6 +38,7 @@ import {
   valueText,
 } from '../../utils/extensionSettings'
 import type { Draft } from '../../utils/extensionSettings'
+import { invalidateMetaCache } from '../../api/metaCache'
 import { t } from '../../i18n'
 import { SHELL_NAV_GROUPS } from '../../utils/shell'
 
@@ -68,7 +69,7 @@ const fileInput = ref<HTMLInputElement | null>(null)
 
 const groups = computed(() => groupSettings(items.value))
 const modifiedCount = computed(() => items.value.filter((it) => it.modified).length)
-const navItems = SHELL_NAV_GROUPS.flatMap((g) => g.items)
+const navGroups = SHELL_NAV_GROUPS
 const navHidden = computed(() => {
   const it = items.value.find((x) => x.key === 'web.nav_hidden')
   return new Set(Array.isArray(it?.value) ? (it.value as string[]) : [])
@@ -81,6 +82,7 @@ async function toggleNav(key: string): Promise<void> {
   if (next.has(key)) next.delete(key)
   else next.add(key)
   const updated = await updateSetting(it.key, [...next])
+  invalidateMetaCache()
   items.value = items.value.map((x) => (x.key === it.key ? updated : x))
 }
 
@@ -304,13 +306,17 @@ onMounted(() => {
     <section class="nav-settings" data-test="nav-settings">
       <h3 class="group-title mono">{{ t('settings.ext.navTitle') }}</h3>
       <p class="note mono">{{ t('settings.ext.navIntro') }}</p>
-      <div v-for="item in navItems" :key="item.key" class="nav-setting">
-        <label>
-          <input type="checkbox" :checked="!navHidden.has(item.key)" :disabled="!canWrite || item.key === 'nav.today' || item.key === 'nav.settings'" @change="toggleNav(item.key)" />
-          {{ t(item.key) }}
-        </label>
-        <span v-if="item.key === 'nav.today' || item.key === 'nav.settings'" class="hint mono">{{ t('settings.ext.navLocked') }}</span>
-      </div>
+      <p v-if="!canWrite" class="readonly mono" data-test="nav-settings-readonly">{{ readOnlyReason }}</p>
+      <section v-for="group in navGroups" :key="group.key" class="nav-group">
+        <h4 class="nav-group-title mono">{{ t(group.key) }}</h4>
+        <div v-for="item in group.items" :key="item.key" class="nav-setting">
+          <label>
+            <input type="checkbox" :checked="!navHidden.has(item.key)" :disabled="!canWrite || item.key === 'nav.today' || item.key === 'nav.settings'" @change="toggleNav(item.key)" />
+            {{ t(item.key) }}
+          </label>
+          <span v-if="item.key === 'nav.today' || item.key === 'nav.settings'" class="hint mono">{{ t('settings.ext.navLocked') }}</span>
+        </div>
+      </section>
     </section>
 
     <section v-for="g in groups" :key="g.group" class="group" :data-test="`settings-group-${g.group}`">

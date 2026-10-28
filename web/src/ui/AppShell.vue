@@ -22,7 +22,7 @@ import Icon from './Icon.vue'
 import { navIcon } from './icon'
 import { PanelLeftClose, PanelLeftOpen, Plus, Search, Sparkles } from '@lucide/vue'
 import { listRunners } from '../api/client'
-import { getMetaCached } from '../api/metaCache'
+import { getMetaCached, onMetaInvalidated } from '../api/metaCache'
 import { liveStatus } from '../api/live'
 import { decisionCount } from '../store/today'
 import { createPoller } from '../utils/poller'
@@ -68,6 +68,13 @@ const more = computed(() => moreItems(hiddenNav.value))
 const tabs = computed(() => tabBarItems(hiddenNav.value))
 const connected = ref(false)
 
+function loadNavHidden(): void {
+  void getMetaCached().then((meta) => {
+    hiddenNav.value = (meta.nav_hidden ?? []).filter((key) => key !== 'nav.today' && key !== 'nav.settings')
+  }).catch(() => undefined)
+}
+
+const stopMetaInvalidated = onMetaInvalidated(loadNavHidden)
 function savePrefs(): void {
   writeShellPrefs(prefs.value)
 }
@@ -137,9 +144,7 @@ watch(
 onMounted(() => {
   prefs.value = readShellPrefs()
   connected.value = hasToken()
-  void getMetaCached().then((meta) => {
-    hiddenNav.value = (meta.nav_hidden ?? []).filter((key) => key !== 'nav.today' && key !== 'nav.settings')
-  }).catch(() => undefined)
+  loadNavHidden()
   window.addEventListener('resize', syncViewport)
   nodePoller.start()
 })
@@ -147,6 +152,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', syncViewport)
   nodePoller.stop()
+  stopMetaInvalidated()
 })
 </script>
 
