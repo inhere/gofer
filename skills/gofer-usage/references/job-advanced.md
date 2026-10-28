@@ -145,7 +145,19 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 - 只读随 job 记录（`job show` 的 `read_only: true`、列表 `[ro]`），resume 继承只读；想改成可写只能新开 job。
 - 只读 job 不抢目录锁；可写 job 等锁时显示 `waiting_dir`，见下「目录锁」。
 
-## 指定模型（--model）
+## 只读参考目录（--read-dir）
+
+给 cli-agent 追加仅用于读取的外部目录：
+
+```bash
+gofer job run -p <project> -a claude --read-dir ../reference --read-dir D:/docs --prompt "阅读参考资料后完成任务"
+```
+
+- 路径可为项目执行根下的相对路径或绝对路径；目录必须存在，且不能通过 `..` 或符号链接逃出项目根。
+- `server.read_dir_allow` 可列出额外允许的绝对目录。项目配置 `projects.<key>.read_dirs` 会对该项目的每个 job 默认追加，job 自身的 `--read-dir` 再追加。
+- 每个目录用 agent 的 `add_dir_args` 渲染，并强制按只读模板传入（内置 claude / suga 为 `--add-dir {{dir}}:ro`）。没有该能力的 cli-agent、所有 acp-agent 和 exec-agent 都会在提交时拒绝。
+- `read_dirs` 会出现在 job 详情、HTTP/MCP 请求与 plan todo 中；resume 会继承源 job 的目录。远程 worker 会在本机再次进行范围校验。
+
 
 `job run --model <id>`（也可写在任务书 frontmatter、`plan add-todo|set-todo --model`、web 表单）：
 
