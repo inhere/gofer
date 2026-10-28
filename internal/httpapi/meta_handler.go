@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"sort"
 
@@ -152,13 +153,13 @@ func (s *Server) handleMeta(c *rux.Context) {
 	}
 	navHidden := []string{}
 	if s.settings != nil {
-		value, err := s.settings.Get(settings.KeyWebNavHidden)
+		var err error
+		navHidden, err = s.settings.GetStrings(settings.KeyWebNavHidden)
 		if err != nil {
-			writeError(c, http.StatusInternalServerError, "read navigation settings failed", err.Error())
-			return
-		}
-		if hidden, ok := value.([]string); ok {
-			navHidden = nonNil(hidden)
+			slog.Warn("web navigation settings unavailable; using default", "key", settings.KeyWebNavHidden, "err", err)
+			navHidden = []string{}
+		} else {
+			navHidden = nonNil(navHidden)
 		}
 	}
 	c.JSON(http.StatusOK, metaResp{
