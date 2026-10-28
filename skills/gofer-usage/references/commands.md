@@ -1,7 +1,7 @@
 # gofer 命令参考
 
 > 每组命令「是什么 + 常用写法 + 去哪看细节」。完整 flag 一律以 `gofer <cmd> [<sub>] --help` 为准。连接、project key、agent / runner 的通用规则见 SKILL.md。
-> 顶级命令分组：配置（`init` `config` `settings` `project` `agent` `mcp` `hook`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `work` `steward` `template`）· 工具（`tool`）。
+> 顶级命令分组：配置（`init` `config` `settings` `project` `agent` `mcp` `hook` `doctor`）· 仓库跟踪（`issue` `memory` `repo`）· 控制面（`serve` `worker` `tunnel` `auth`）· 任务（`job` `plan` `workflow` `schedule` `session` `work` `steward` `template`）· 工具（`tool`）。
 
 ## 目录
 
@@ -22,6 +22,7 @@
 - [serve（别名 s）](#serve别名-s)
 - [auth](#auth)
 - [tunnel（别名 tun）](#tunnel别名-tun)
+- [doctor](#doctor)
 - [tool](#tool)
 - [mcp](#mcp)
 
@@ -268,6 +269,15 @@ gofer tunnel stop <forwarder-id>                                  # 让任意机
 - `socks/` 只能绑环回地址；每条连接仍按真实目标受 worker 白名单约束，被拒时客户端收到 SOCKS5 回复码 / HTTP 状态。只支持 CONNECT（无 UDP、无普通 HTTP 代理）；域名目标由 worker 解析，白名单的 CIDR 条目只匹配 IP。浏览器并发连接多，worker 的 `tunnel.max_conns`（默认 8）建议调到 32 以上。
 - `=<ip>:<port>` 让本地服务按真实地址连接；启动前检查监听地址是否属于本机，不在会报错并给出添加环回地址的命令。
 - 日志与「慢在哪」的判读见 [troubleshooting.md](troubleshooting.md)「隧道慢 / 不通」。
+
+## doctor
+
+```bash
+gofer doctor --bundle [-o <path>] [--lines 500]   # 导出脱敏诊断 zip（默认日志尾部 500 行）
+gofer doctor --print                              # 只打印清单与摘要，不创建文件
+```
+
+诊断包只包含版本 / 系统 / 运行模式、脱敏配置与 `.env` 路径、日志尾部、worker / agent 状态和受管服务状态；不会收集 token 原值、对话、信件或记忆。上传前仍应检查清单和内容。
 
 ## tool
 
