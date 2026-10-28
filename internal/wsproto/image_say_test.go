@@ -7,7 +7,7 @@ import (
 )
 
 func TestImageSayProtocol(t *testing.T) {
-	if ImageSayMinProtocolVersion != 25 || CurrentProtocolVersion != 27 {
+	if ImageSayMinProtocolVersion != 25 || CurrentProtocolVersion != 28 {
 		t.Fatalf("image say must ride on v25 without a further bump: min=%d current=%d", ImageSayMinProtocolVersion, CurrentProtocolVersion)
 	}
 	if SupportsImageSay(ImageSayMinProtocolVersion - 1) {

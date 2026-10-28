@@ -156,7 +156,7 @@ gofer job run -p <project> -a claude --read-dir ../reference --read-dir D:/docs 
 - 路径可为项目执行根下的相对路径或绝对路径；目录必须存在，且不能通过 `..` 或符号链接逃出项目根。
 - `server.read_dir_allow` 可列出额外允许的绝对目录。项目配置 `projects.<key>.read_dirs` 会对该项目的每个 job 默认追加，job 自身的 `--read-dir` 再追加。
 - 每个目录用 agent 的 `add_dir_args` 渲染，并强制按只读模板传入（内置 claude / suga 为 `--add-dir {{dir}}:ro`）。没有该能力的 cli-agent、所有 acp-agent 和 exec-agent 都会在提交时拒绝。
-- `read_dirs` 会出现在 job 详情、HTTP/MCP 请求与 plan todo 中；resume 会继承源 job 的目录。远程 worker 会在本机再次进行范围校验。
+- `read_dirs` 会出现在 job 详情、HTTP/MCP 请求与 plan todo 中；resume 会继承源 job 的目录。远程 worker 会在本机再次进行范围校验；协议低于 v28 的 worker 会在派发前拒绝并提示升级，避免静默忽略目录。
 
 
 `job run --model <id>`（也可写在任务书 frontmatter、`plan add-todo|set-todo --model`、web 表单）：

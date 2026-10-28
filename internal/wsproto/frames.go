@@ -63,7 +63,7 @@ const (
 	// v27 adds the optional file_xfer.target (see WorkerAttachMinProtocolVersion): a put
 	// into the executing WORKER's own attachment directory, for a session that belongs to
 	// no project of that machine.
-	CurrentProtocolVersion = 27
+	CurrentProtocolVersion = 28
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -164,6 +164,14 @@ const StdinMinProtocolVersion = 18
 // SupportsStdin reports whether a peer that registered with protocol version proto
 // understands dispatch.stdin.
 func SupportsStdin(proto int) bool { return proto >= StdinMinProtocolVersion }
+
+// ReadDirsMinProtocolVersion is the first protocol version whose Dispatch carries
+// read_dirs. An older worker would ignore the field and run without the requested
+// reference directories, so the hub refuses such a dispatch instead of degrading.
+const ReadDirsMinProtocolVersion = 28
+
+// SupportsReadDirs reports whether a worker understands dispatch.read_dirs.
+func SupportsReadDirs(proto int) bool { return proto >= ReadDirsMinProtocolVersion }
 
 // ModelMinProtocolVersion is the first protocol version whose Dispatch carries model
 // (N1 §B, `job run --model`): the executing machine renders ITS agent's model_args /
