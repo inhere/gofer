@@ -825,6 +825,8 @@ export interface ProjectDetail {
   default_agent?: string
   allowed_agents?: string[]
   allowed_runners?: string[]
+  // 项目默认只读目录；PUT 合并语义下显式 [] 可清空。
+  read_dirs?: string[]
   allow_exec: boolean
   // 项目级交互 job 总开关（AGT-02 §2）：false = 交互 job 一律不放行，且这是项目侧**唯一**的交互
   // 闸（0.3 已彻底移除按 agent 收窄的历史名单：想只放行一部分 agent，就定义一个不带 interactive_args
@@ -902,6 +904,7 @@ export interface ServerConfigView {
   // 控制台可热改的项：*_sec / auto_resume_max 为 null 表示"未设置"（继承默认），与 0
   // （显式关闭）不同，编辑表单必须原样回发这个区别。
   max_job_timeout_sec: number
+  read_dir_allow?: string[]
   auto_resume_max: number | null
   stall_timeout_sec: number | null
   job_recover_window_sec: number | null
@@ -1139,6 +1142,7 @@ export interface ConfigAgentView {
   interactive: boolean
   command?: string
   args: string[]
+  add_dir_args?: string[]
   env_keys: string[]
   allow_raw_cmd: boolean
   detect: DetectConfigView
@@ -1320,6 +1324,7 @@ export interface ProjectWriteReq {
   default_agent?: string
   allowed_agents?: string[]
   allowed_runners?: string[]
+  read_dirs?: string[]
   allow_exec: boolean
   allow_interactive?: boolean
   max_concurrent_jobs?: number
