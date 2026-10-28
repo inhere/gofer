@@ -26,6 +26,7 @@ func TestBuiltinCLIReadDirArgs(t *testing.T) {
 	}
 }
 
+// TestSugaBuiltinTemplate pins the suga CLI template against the argv its own
 // `--help` was measured with, plus the session / ndjson defaults that make a suga
 // job injectable, resumable and its stream readable. suga is a CLI and an ACP
 // server in one binary, so the two keys must resolve independently and share one
