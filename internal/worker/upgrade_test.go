@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,6 +28,44 @@ func TestCheckUpgradeCapabilityWritable(t *testing.T) {
 	cap := CheckUpgradeCapability(filepath.Join(dir, "gofer"))
 	if !cap.Capable || cap.Error != "" {
 		t.Fatalf("capability = %+v, want writable", cap)
+	}
+}
+
+func TestCheckUpgradeCapabilityNotWritable(t *testing.T) {
+	if runtime.GOOS == "windows" || runningAsRoot() {
+		t.Skip("chmod 0555 is ineffective when tests run as root")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o755)
+	cap := CheckUpgradeCapability(filepath.Join(dir, "gofer"))
+	if cap.Capable {
+		t.Fatalf("capability = %+v, want not capable", cap)
+	}
+	if !strings.Contains(cap.Error, dir) || !strings.Contains(cap.Error, "Install gofer") || strings.Count(cap.Error, ErrUpgradeDirNotWritable.Error()) != 0 {
+		t.Fatalf("error = %q, want directory, remedy, and no typed prefix", cap.Error)
+	}
+}
+
+func TestUpgradeRunPreflightBeforeFetchAndDrain(t *testing.T) {
+	if runtime.GOOS == "windows" || runningAsRoot() {
+		t.Skip("chmod 0555 is ineffective when tests run as root")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o755)
+	fetchCalled := false
+	u := &upgradeRun{deps: UpgradeDeps{ExePath: filepath.Join(dir, "gofer"), Fetch: func(context.Context, string, string, int64) error { fetchCalled = true; return nil }}, inflight: func() int { t.Fatal("drain called"); return 1 }}
+	err := u.run(context.Background(), wsproto.Upgrade{}, func(string) {})
+	if !errors.Is(err, ErrUpgradeDirNotWritable) || fetchCalled {
+		t.Fatalf("err=%v fetchCalled=%v", err, fetchCalled)
+	}
+	if strings.Count(err.Error(), ErrUpgradeDirNotWritable.Error()) != 1 {
+		t.Fatalf("error prefix repeated: %v", err)
 	}
 }
 

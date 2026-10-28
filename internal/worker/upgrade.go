@@ -2,7 +2,6 @@ package worker
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -35,9 +34,9 @@ func CheckUpgradeCapability(exe string) UpgradeCapability {
 		_ = os.Remove(name)
 		return UpgradeCapability{Capable: true}
 	}
-	return UpgradeCapability{Error: fmt.Sprintf("%s: %s", ErrUpgradeDirNotWritable, i18n.T(i18n.Default, "cli.worker.upgrade.dir_not_writable", map[string]any{
+	return UpgradeCapability{Error: i18n.T(i18n.Default, "cli.worker.upgrade.dir_not_writable", map[string]any{
 		"dir": dir, "user": currentUpgradeUser(), "owner": upgradeDirOwner(dir),
-	}))}
+	})}
 }
 
 // VerifyUpgradeFile checks the worker-side download before it can replace the
