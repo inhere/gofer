@@ -224,6 +224,7 @@ interface AgentForm {
   type: string
   command: string
   argsText: string
+  addDirArgsText: string
   interactiveMode: boolean
   interactiveArgsText: string
   sessionCapture: string
@@ -262,6 +263,7 @@ interface ServerForm {
   autoResumeMax: string
   probeIntervalSec: string
   probeTimeoutSec: string
+  readDirAllowText: string
   retryMaxAttempts: string
   retryBackoffText: string
   skillsText: string
@@ -282,6 +284,7 @@ const agentForm = reactive<AgentForm>({
   type: 'cli-agent',
   command: '',
   argsText: '',
+  addDirArgsText: '',
   interactiveMode: false,
   interactiveArgsText: '',
   sessionCapture: '',
@@ -318,6 +321,7 @@ const serverForm = reactive<ServerForm>({
   autoResumeMax: '',
   probeIntervalSec: '',
   probeTimeoutSec: '',
+  readDirAllowText: '',
   retryMaxAttempts: '',
   retryBackoffText: '',
   skillsText: '',
@@ -387,6 +391,8 @@ function openAgentEditor(a: ConfigAgentView | null): void {
     type: a?.type ?? 'cli-agent',
     command: a?.command ?? '',
     argsText: linesText(a?.args),
+    // 额外只读目录 argv：仅 cli-agent 可配置，空值表示不追加。
+    addDirArgsText: linesText(a?.add_dir_args),
     // 有效交互模式 = interactive_args 非 null，或旧式 interactive
     interactiveMode: (a?.interactive_args ?? null) !== null || (a?.interactive ?? false),
     interactiveArgsText: linesText(interactiveArgs),
@@ -437,6 +443,7 @@ function openServerEditor(): void {
     autoResumeMax: sc.auto_resume_max != null ? String(sc.auto_resume_max) : '',
     probeIntervalSec: String(sc.runner_probe.interval_seconds || ''),
     probeTimeoutSec: String(sc.runner_probe.timeout_seconds || ''),
+    readDirAllowText: linesText(sc.read_dir_allow),
     retryMaxAttempts: sc.retry ? String(sc.retry.max_attempts) : '',
     retryBackoffText: linesText(sc.retry?.backoff_sec?.map(String) ?? null),
     skillsText: linesText(sc.skills),
@@ -469,6 +476,18 @@ function editableAgentBody(base: Partial<ConfigAgentView>): Record<string, unkno
   return body
 }
 
+function validateAgentForm(): string {
+  if (
+    agentForm.type === 'cli-agent' &&
+    lines(agentForm.addDirArgsText).length > 0 &&
+    !lines(agentForm.addDirArgsText).some((arg) => arg.includes('{{dir}}'))
+  ) {
+    badFields.value = new Set(['add_dir_args'])
+    return t('settings.config.errAddDirArgs')
+  }
+  return ''
+}
+
 // buildAgentWrite：表单值覆盖基底。interactive_args 的 null/[] 区别由交互模式开关决定
 // （null = 批处理；[] = 交互且无额外 argv，AGT-02）。
 function buildAgentWrite(): Record<string, unknown> {
@@ -478,6 +497,9 @@ function buildAgentWrite(): Record<string, unknown> {
   body.type = agentForm.type
   body.command = agentForm.command.trim()
   body.args = lines(agentForm.argsText)
+  if (agentPolicy.value['add_dir_args']?.editable) {
+    body.add_dir_args = agentForm.type === 'cli-agent' ? lines(agentForm.addDirArgsText) : []
+  }
   body.interactive = agentForm.interactiveMode ? (base?.interactive ?? false) : false
   body.interactive_args = agentForm.interactiveMode ? lines(agentForm.interactiveArgsText) : null
   body.session_capture = agentForm.sessionCapture.trim()
@@ -539,6 +561,7 @@ function buildServerWrite(): Record<string, unknown> {
       interval_seconds: optionalInt(serverForm.probeIntervalSec) ?? 0,
       timeout_seconds: optionalInt(serverForm.probeTimeoutSec) ?? 0,
     },
+    read_dir_allow: lines(serverForm.readDirAllowText),
     retry:
       optionalInt(serverForm.retryMaxAttempts) === null
         ? null
@@ -576,6 +599,12 @@ async function runPreview(): Promise<void> {
   if (editor.value === null || config.value === null) {
     return
   }
+  const localError = isServer.value ? '' : validateAgentForm()
+  if (localError) {
+    formError.value = localError
+    preview.value = ''
+    return
+  }
   validating.value = true
   try {
     const result: ConfigValidateResult = await validateConfig(
@@ -605,6 +634,13 @@ async function saveEditor(): Promise<void> {
   writeError.value = ''
   saving.value = true
   try {
+    if (!isServer.value) {
+      const localError = validateAgentForm()
+      if (localError) {
+        formError.value = localError
+        return
+      }
+    }
     if (isServer.value) {
       const resp = await putConfigServer(buildServerWrite())
       notice.value = t('settings.config.serverSaved', {
@@ -940,6 +976,7 @@ onUnmounted(() => {
               <dt>server token</dt><dd><span class="flag" :class="config.server.token_set ? 'flag--yes' : 'flag--no'">{{ setText(config.server.token_set) }}</span></dd>
               <dt>allow_empty_token</dt><dd><span class="flag" :class="config.server.allow_empty_token ? 'flag--warn' : 'flag--no'">{{ yesNo(config.server.allow_empty_token) }}</span></dd>
               <dt>max_job_timeout_sec</dt><dd>{{ config.server.max_job_timeout_sec || '-' }}</dd>
+              <dt>read_dir_allow</dt><dd>{{ joinOrDash(config.server.read_dir_allow) }}</dd>
               <dt>stall_timeout_sec</dt><dd>{{ config.server.stall_timeout_sec ?? t('settings.config.default') }}</dd>
               <dt>auto_resume_max</dt><dd>{{ config.server.auto_resume_max ?? t('settings.config.default') }}</dd>
               <dt>skills</dt><dd>{{ joinOrDash(config.server.skills) }}</dd>
@@ -1196,6 +1233,18 @@ onUnmounted(() => {
                 <input v-model="agentForm.interactiveMode" type="checkbox" @change="refreshPreview()" />
                 <span class="field-name">{{ t('settings.config.f.interactive') }}</span>
               </label>
+              <label v-if="agentForm.type === 'cli-agent' && agentPolicy['add_dir_args']?.editable" class="field">
+                <span class="field-name">{{ t('settings.config.f.addDirArgs') }}</span>
+                <textarea
+                  v-model="agentForm.addDirArgsText"
+                  class="input textarea"
+                  :class="{ 'input--bad': fieldBad('add_dir_args') }"
+                  rows="3"
+                  placeholder="--add-dir\n{{dir}}:ro"
+                  @change="refreshPreview()"
+                ></textarea>
+                <span class="hint mono">{{ t('settings.config.hintAddDirArgs') }}</span>
+              </label>
               <label v-if="agentForm.interactiveMode" class="field">
                 <span class="field-name">{{ t('settings.config.f.interactiveArgs') }}</span>
                 <textarea
@@ -1392,6 +1441,11 @@ onUnmounted(() => {
               <label class="field">
                 <span class="field-name">runner_probe.timeout_seconds</span>
                 <input v-model="serverForm.probeTimeoutSec" class="input" @change="refreshPreview()" />
+              </label>
+              <label class="field">
+                <span class="field-name">{{ t('settings.config.f.readDirAllow') }}</span>
+                <textarea v-model="serverForm.readDirAllowText" class="input textarea" :class="{ 'input--bad': fieldBad('read_dir_allow') }" rows="3" @change="refreshPreview()"></textarea>
+                <span class="hint mono">{{ t('settings.config.hintReadDirAllow') }}</span>
               </label>
               <label class="field">
                 <span class="field-name">retry.max_attempts{{ t('settings.config.f.retryMaxServer') }}</span>
