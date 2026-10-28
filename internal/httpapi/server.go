@@ -43,6 +43,7 @@ import (
 	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/overview"
+	"github.com/inhere/gofer/internal/preview"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/pushhub"
@@ -167,6 +168,7 @@ type workerHub interface {
 // httptest.
 type Server struct {
 	jobs      *job.Service
+	preview   *preview.Manager
 	workflow  *workflow.Engine
 	projects  *project.Registry
 	agents    *agent.Registry
@@ -784,6 +786,10 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		attachTickets:   NewAttachTicketStore(),
 		wsTickets:       NewAttachTicketStore(),
 		startedAt:       time.UnixMilli(nowMillis()),
+	}
+	if jobs != nil && jobs.Meta() != nil {
+		s.preview = preview.New(jobs.Meta(), serverCfg.Preview)
+		jobs.OnTerminal(func(r job.JobResult) { s.preview.CloseJob(r.ID) })
 	}
 	s.snap.Store(newServerSnapshot(serverCfg, buildCallers(serverCfg, token), token != ""))
 	// 权限设计第一批 (plan T1.4) + 第二批 T2.1: the database half of the effective permissions
@@ -1460,6 +1466,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/notify/events", s.handleNotifyEvents)
 		r.POST("/notify/test", s.handleNotifyTest)
 
+		r.POST("/jobs/{id}/previews", s.handleCreateJobPreview)
+		r.GET("/jobs/{id}/previews", s.handleListJobPreviews)
+		r.DELETE("/jobs/{id}/previews/{preview_id}", s.handleCloseJobPreview)
 		r.POST("/jobs", s.handleCreateJob)
 		r.POST("/jobs/secret-scan", s.handleSecretScan)
 		r.GET("/jobs", s.handleListJobs)

@@ -1,4 +1,7 @@
-# HTTP API overview
+
+## Job preview
+
+With `server.preview.enabled: true`, a running local job can expose an application through a short-lived port lease. The control-plane endpoints are `POST /v1/jobs/{id}/previews` with `{ "port": 3000, "ttl_sec": 1800 }`, `GET /v1/jobs/{id}/previews`, and `DELETE /v1/jobs/{id}/previews/{preview_id}`. The returned URL is a bearer URL: the first request exchanges its one-time token for an HttpOnly cookie. The proxy strips control-plane credentials and only dials `127.0.0.1:<port>`.
 
 > Moved from the README (2026-10-10). Endpoint groups of the `/v1` API; the handlers in `internal/httpapi` are authoritative.
 
@@ -17,7 +20,7 @@ Permissions: what each `/v1` route needs, and what every permission means (what 
 | permissions | `GET /v1/auth/whoami`, `GET /v1/auth/catalog`, `GET /v1/auth/routes`, `GET /v1/auth/expand`, `GET/POST /v1/auth/grants`, `DELETE /v1/auth/grants/{id}`, `POST /v1/auth/grants/{id}/activate`, `POST /v1/auth/grants/{id}/renew`, `GET /v1/auth/audit` |
 | projects / agents / roster | `GET/POST /v1/projects`, `GET/PUT/DELETE /v1/projects/{key}`, `GET /v1/projects/{key}/repos[?refresh=1]`, `GET /v1/agents`, `GET /v1/runners`, `GET /v1/meta`, `GET /v1/metrics` |
 | templates | `GET /v1/projects/{key}/templates`, `GET /v1/projects/{key}/templates/{name}?var=k=v` (read-only; the detail endpoint returns the server's render of it) |
-| jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}[?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs,messages]`, `/logs/{stdout,stderr}`, `/stream` (日志 SSE), `/acp/stream`（归一化 ACP SSE）, `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/follow-ups`, `DELETE …/follow-ups/{follow_up_id}`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/worktree/merge`, `POST …/attach-ticket`, `GET …/pty/sessions` |
+| jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}[?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs,messages]`, `/logs/{stdout,stderr}`, `/stream` (日志 SSE), `/acp/stream`（归一化 ACP SSE）, `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/previews`, `DELETE …/previews/{preview_id}`, `POST/GET …/follow-ups`, `DELETE …/follow-ups/{follow_up_id}`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/worktree/merge`, `POST …/attach-ticket`, `GET …/pty/sessions` |
 | interactions | `POST/GET /v1/jobs/{id}/interactions`, `POST …/{iid}/answer`, `POST …/{iid}/punt`, `GET /v1/interactions` |
 | workbench | `GET /v1/workbench/threads?project=&status=&q=&since=&detail=full\|summary`, `PATCH /v1/workbench/threads/{s:\|j:\|r:…}`, `POST …/turn` |
 | plans / decisions | `POST/GET /v1/plans`, `GET /v1/plans/{id}`, `POST …/todos`, `POST …/jobs`, `POST …/run\|pause\|resume`, `POST/GET /v1/decisions`, `POST /v1/decisions/{id}/answer` |

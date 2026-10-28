@@ -3,7 +3,10 @@
 > 配主机 server：project 目录映射、准入白名单、runner 名册、worker 绑定、agent 定义。全部 `<占位符>`，按实际替换。
 > 脚手架：`gofer init server`（`-g` 写全局 `~/.config/gofer/config.yaml`）。校验：`gofer config validate server`。改完用 `gofer serve reload -c <config>`（或 Unix SIGHUP、web 设置页「重新读取文件」）生效。 生成的配置不含示例项目（只有指向默认工作空间的 `default`；示例写在 `projects:` 下的注释里），接着 `gofer project add` 即可。
 
-## 目录
+
+## job 预览
+
+server 本机预览默认关闭。设置 `server.preview.enabled: true` 后，可为运行中的 local job 创建短期端口租约；可选 `port_range`（默认 `18100-18199`）、`default_ttl_sec`（默认 1800）、`max_ttl_sec`（默认 28800）、`idle_timeout_sec` 与 `max_connections`。预览 URL 是 bearer URL，不要写入任务书或持久化日志；代理只连接执行机的 `127.0.0.1:<port>`。
 
 - [结构总览](#结构总览)
 - [projects（配得最多）](#projects配得最多)

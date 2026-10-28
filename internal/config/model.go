@@ -679,7 +679,8 @@ type ServerConfig struct {
 	// it — the server cannot derive it from its listen address behind a proxy or
 	// a LAN IP. Empty = notifications carry no link.
 	WebBaseURL string `yaml:"web_base_url,omitempty"`
-	// Language is the language of the text gofer generates for people and agents:
+	// Preview controls short-lived server-local reverse proxies for running jobs.
+	Preview PreviewConfig `yaml:"preview,omitempty"`
 	// `en` or `zh-CN`, any accepted alias is normalized on load (i18n.Normalize).
 	// A project overrides it in projects.<p>.language. Unset means zh-CN for now
 	// (DEPRECATED(v0.197): the default flips to en in v0.200 — see
@@ -830,7 +831,58 @@ type ServerConfig struct {
 	Hold HoldConfig `yaml:"hold,omitempty"`
 }
 
-// PolicyRepushConfig is the server-side Applied acknowledgement retry policy.
+// PreviewConfig controls the optional server-local job preview port pool.
+type PreviewConfig struct {
+	Enabled        bool   `yaml:"enabled,omitempty"`
+	PortRange      string `yaml:"port_range,omitempty"`
+	DefaultTTLSec  int    `yaml:"default_ttl_sec,omitempty"`
+	MaxTTLSec      int    `yaml:"max_ttl_sec,omitempty"`
+	IdleTimeoutSec int    `yaml:"idle_timeout_sec,omitempty"`
+	MaxConnections int    `yaml:"max_connections,omitempty"`
+}
+
+const (
+	DefaultPreviewPortRange      = "18100-18199"
+	DefaultPreviewTTLSec         = 1800
+	DefaultPreviewMaxTTLSec      = 28800
+	DefaultPreviewIdleTimeoutSec = 900
+	DefaultPreviewMaxConnections = 16
+)
+
+func (p PreviewConfig) Effective() PreviewConfig {
+	if p.PortRange == "" {
+		p.PortRange = DefaultPreviewPortRange
+	}
+	if p.DefaultTTLSec == 0 {
+		p.DefaultTTLSec = DefaultPreviewTTLSec
+	}
+	if p.MaxTTLSec == 0 {
+		p.MaxTTLSec = DefaultPreviewMaxTTLSec
+	}
+	if p.IdleTimeoutSec == 0 {
+		p.IdleTimeoutSec = DefaultPreviewIdleTimeoutSec
+	}
+	if p.MaxConnections == 0 {
+		p.MaxConnections = DefaultPreviewMaxConnections
+	}
+	return p
+}
+
+func (p PreviewConfig) Validate() error {
+	p = p.Effective()
+	var lo, hi int
+	if _, err := fmt.Sscanf(strings.TrimSpace(p.PortRange), "%d-%d", &lo, &hi); err != nil || lo < 1024 || hi > 65535 || lo > hi {
+		return fmt.Errorf("server.preview.port_range must be PORT-PORT within 1024..65535")
+	}
+	if p.DefaultTTLSec < 1 || p.DefaultTTLSec > p.MaxTTLSec || p.MaxTTLSec < 1 {
+		return fmt.Errorf("server.preview ttl values are invalid")
+	}
+	if p.IdleTimeoutSec < 0 || p.MaxConnections < 1 {
+		return fmt.Errorf("server.preview idle_timeout_sec/max_connections are invalid")
+	}
+	return nil
+}
+
 // It is read when the worker hub is assembled, so changing it takes effect on
 // the next server start rather than in the middle of an active retry schedule.
 type PolicyRepushConfig struct {

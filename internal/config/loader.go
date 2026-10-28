@@ -350,6 +350,10 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Storage.DefaultExchangeSubdir == "" {
 		cfg.Storage.DefaultExchangeSubdir = DefaultExchangeSubdir
 	}
+	if cfg.Server.Preview.PortRange == "" {
+		p := cfg.Server.Preview.Effective()
+		cfg.Server.Preview = p
+	}
 	if cfg.Storage.DefaultResultSubdir == "" {
 		cfg.Storage.DefaultResultSubdir = DefaultResultSubdir
 	}
@@ -547,6 +551,9 @@ func validate(cfg *Config) error {
 		return err
 	}
 	if err := cfg.ValidateSecrets(); err != nil {
+		return err
+	}
+	if err := cfg.Server.Preview.Validate(); err != nil {
 		return err
 	}
 	if err := cfg.ValidateMCPServers(); err != nil {
