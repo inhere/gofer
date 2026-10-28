@@ -680,6 +680,7 @@ type Dispatch struct {
 	Runner       string   `json:"runner"`
 	Prompt       string   `json:"prompt,omitempty"`
 	AgentArgs    []string `json:"agent_args,omitempty"`
+	ReadDirs     []string `json:"read_dirs,omitempty"`
 	Model        string   `json:"model,omitempty"`        // N1 §B; an old worker ignores it
 	FromSession  string   `json:"from_session,omitempty"` // gofer-f4z8 v21: source session the new one inherits
 	Budget       *Budget  `json:"budget,omitempty"`       // N2 §B v20: decided ceiling the worker meters; nil = unlimited

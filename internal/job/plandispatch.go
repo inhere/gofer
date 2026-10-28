@@ -188,7 +188,8 @@ func (s *Service) normalTodoRequest(plan jobstore.Plan, todo jobstore.PlanTodo, 
 		// appends them to the prompt and shows them in review.
 		Acceptance: todo.Acceptance,
 		// gofer-3nxa.3: so is the declared change scope.
-		Scope: todo.Scope,
+		Scope:    todo.Scope,
+		ReadDirs: todo.ReadDirs,
 		// gofer-11tz: and the task keywords that select and rank the tracker-prime the
 		// item's job receives.
 		PrimeKeywords: todo.PrimeKeywords,

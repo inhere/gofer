@@ -253,6 +253,9 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if len(req.AgentArgs) > 0 && ac.Type == agent.TypeExec {
 			return config.ProjectConfig{}, fmt.Errorf("%w: agent_args not allowed for exec agent %q", ErrInvalidRequest, gateAgent)
 		}
+		if err := validateReadDirAgent(req, ac); err != nil {
+			return config.ProjectConfig{}, err
+		}
 		// model (N1 §B): like read_only, the choice must be SERVABLE by the agent, so
 		// the verdict is taken at admission instead of half-way into a run. An exec
 		// agent's argv belongs to the caller; a cli-agent needs model_args (built in for

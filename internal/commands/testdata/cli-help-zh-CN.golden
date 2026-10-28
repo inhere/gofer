@@ -238,6 +238,7 @@ job run	flag plan	attach the job to a plan (grouping key)
 job run	flag prime-keywords	comma-separated subsystems / languages / modules this task touches: the injected tracker-prime matches them (with the title and the prompt head) against the memories' keywords, keys, tags and summaries, injecting the matching ones in full and first (default: $GOFER_PRIME_KEYWORDS)
 job run	flag project	project key (required)
 job run	flag prompt	prompt text for cli-agent (use -- <argv...> for exec)
+job run	flag read-dir	extra read-only directory (project-relative or absolute; repeatable)
 job run	flag read-only	run read-only: audit/analysis only, the agent cannot write (cli-agent read_only_args / acp-agent acp.modes.read_only)
 job run	flag retry	re-run this job after a failure: <n>[:<b1,b2,...>] (n = total attempts including the first; the backoff table defaults to 30,120,300,900,3600)
 job run	flag retry-on	with --retry: only re-run on these exit codes, comma-separated (default: any non-zero exit)
@@ -432,6 +433,7 @@ plan add-todo	flag no-continue	set-todo: stop continuing a predecessor's session
 plan add-todo	flag note	short remark for the todo (optional); append later with gofer plan set-todo <todo-id> --append-note "..."
 plan add-todo	flag prime-keywords	subsystems / languages / modules this item's job is about, comma-separated and/or repeatable: the dispatched job's tracker-prime injects the matching memories in full and first. --prime-keywords "" clears them
 plan add-todo	flag project	project this item runs in (default: the plan's project)
+plan add-todo	flag read-dir	extra read-only directory for this todo (project-relative or absolute; repeatable)
 plan add-todo	flag review	require human review: on a normal completion the run parks in needs_review until someone accepts or rejects it
 plan add-todo	flag runner	runner key for the job (default: the server's built-in local runner)
 plan add-todo	flag scope	declared change scope: path globs relative to the repo root, comma-separated and/or repeatable (e.g. 'internal/job/**,web/src/x.vue'); changed files outside it are marked in review. --scope "" clears it
@@ -612,6 +614,7 @@ plan set-todo	flag no-continue	set-todo: stop continuing a predecessor's session
 plan set-todo	flag note	set the todo note; --note "" clears it (kept unchanged when omitted)
 plan set-todo	flag prime-keywords	subsystems / languages / modules this item's job is about, comma-separated and/or repeatable: the dispatched job's tracker-prime injects the matching memories in full and first. --prime-keywords "" clears them
 plan set-todo	flag project	project this item runs in (default: the plan's project)
+plan set-todo	flag read-dir	extra read-only directory for this todo (project-relative or absolute; repeatable)
 plan set-todo	flag review	require human review: on a normal completion the run parks in needs_review until someone accepts or rejects it
 plan set-todo	flag runner	runner key for the job (default: the server's built-in local runner)
 plan set-todo	flag scope	declared change scope: path globs relative to the repo root, comma-separated and/or repeatable (e.g. 'internal/job/**,web/src/x.vue'); changed files outside it are marked in review. --scope "" clears it

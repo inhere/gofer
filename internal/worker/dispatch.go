@@ -82,6 +82,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		Runner:       builtinLocalRunner, // always local on the worker
 		Prompt:       d.Prompt,
 		AgentArgs:    d.AgentArgs,
+		ReadDirs:     d.ReadDirs,
 		Model:        d.Model,
 		FromSession:  d.FromSession,
 		Budget:       dispatchBudget(d.Budget), // N2 §B: meter exactly the ceiling the hub decided

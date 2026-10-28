@@ -59,6 +59,7 @@ gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 --model <id> / --max-tokens / --max-cost / --max-turns   硬预算；--agent-budget-tokens / --agent-budget-cost-usd 软预算（交给 agent 自己收尾，需 agent 配 agent_budget，见 job-advanced.md）
 --acceptance "<列表>"   验收标准（"" 清空）；add-todo 还有 --acceptance-from-issue <issue-id>
 --scope 'glob,…'        声明改动范围（"" 清空）
+--read-dir <路径>      追加只读参考目录（可重复；项目相对或绝对路径）
 --prime-keywords '子系统,…'  这一项的任务关键词，给派出的 job 选材 tracker-prime（"" 清空；缺省读 $GOFER_PRIME_KEYWORDS）
 --after <ids|prev>      这一项等哪些 todo（prev = 上一条）
 --continue <id|prev>    声明这一项接着前序项的 agent 会话做（prev 仅 add-todo，plan 为空报错；同 plan、不能指自己、不能成环；自动加入 after）

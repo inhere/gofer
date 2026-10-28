@@ -270,6 +270,7 @@ server:
   # language: zh-CN                    # gofer 生成文本的语言: en 或 zh-CN(也认 zh / zh_CN.UTF-8 / english 等别名，归一化为规范值)；影响注入给 agent 的提示词段落(验收标准 / 交付约定 / 时限提示)、交付请求正文、续接 / 自动续投 / 未提交续投的提示语、管家会话的首条简报与巡检提示里的动态部分，以及 agent 在 MCP tools/list 里读到的工具说明与报错(内建 MCP 读本机配置；瘦客户端暂用本机语言链)、`gofer repo init` / `repo migrate` 写进 AGENTS.md / CLAUDE.md 的托管说明块；项目可用 projects.<key>.language 覆盖；不写 = 暂用 zh-CN(以后版本默认改为 en，启动日志与 `gofer config validate` 会提示)；`gofer init` 按本机系统语言写入
 
   # path_view: host|container          # 执行视角(默认 host=用 host_path)
+  # read_dir_allow: [D:/reference]      # 允许 job --read-dir 使用的额外绝对目录
   # callers: [...]                     # 多调用方鉴权 + 每个 caller 的权限(can_admin / can_answer)与限流
   # governance: {...}                  # 限流全局兜底、require_answer_capability、attach_origins
   # max_job_timeout_sec: 3600          # job --timeout 上限; 超出被截断并明示(结果带 timeout_limit_source/timeout_limit_key 指出是哪个上限; job run --strict-timeout 改为直接报错); 项目 max_timeout_sec 可覆盖

@@ -75,6 +75,8 @@ type JobRequest struct {
 	// Cwd is the job's working directory, relative to the project root. Under
 	// --worktree it is mapped into the job's worktree (see Worktree).
 	Cwd string `json:"cwd,omitempty" yaml:"cwd,omitempty"`
+	// ReadDirs are additional directories mounted read-only for cli agents.
+	ReadDirs []string `json:"read_dirs,omitempty" yaml:"read_dirs,omitempty"`
 	// LockPaths narrows the directory lock to project-relative paths. Empty keeps
 	// the existing cwd lock behavior. ResolvedLockPaths is server-side only.
 	LockPaths         []string `json:"lock_paths,omitempty" yaml:"lock,omitempty"`
@@ -710,6 +712,9 @@ type JobResult struct {
 	// Budget mirrors JobRequest.Budget (N2 §B): the decided ceiling the job runs under;
 	// what it has spent is in Usage (tokens / cost / turns). nil = unlimited.
 	Budget *Budget `json:"budget,omitempty"`
+	// ReadDirs mirrors JobRequest.ReadDirs: the additional directories made available
+	// to the agent for reading. It is derived from request_json and needs no column.
+	ReadDirs []string `json:"read_dirs,omitempty"`
 	// ReadOnly mirrors JobRequest.ReadOnly and is persisted to jobs.read_only (bd
 	// h-aii-0ql3): whether THIS job ran under a read-only sandbox, inheritable by a
 	// resume and visible in `job show` / the web console after the fact.

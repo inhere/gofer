@@ -60,6 +60,7 @@ type jobRunFlags struct {
 	role            string
 	systemPrompt    string
 	agentArgs       gcli.Strings
+	readDirs        gcli.Strings
 	lock            gcli.Strings
 	lockWait        string
 	interactive     bool
@@ -1479,6 +1480,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	// N2 §B GATE-02：花费上限——执行侧按 agent 流式用量计量，越线即杀整棵进程树并判 failed（failure_class=budget）。
 	jobRunOpts.budget.bind(c, "Execution")
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
+	c.VarOpt(&jobRunOpts.readDirs, "read-dir", "", "extra read-only directory (project-relative or absolute; repeatable)", gflag.WithCategory("Execution"))
 	c.VarOpt(&jobRunOpts.lock, "lock", "", "project-relative directory lock path (repeatable)", gflag.WithCategory("Execution"))
 	c.StrOpt2(&jobRunOpts.lockWait, "lock-wait", "directory lock wait cap in seconds (0 = no cap, if server allows)", jobRunOptCategory("Execution", ""))
 	// bd h-aii-0ql3：只读 job（cli-agent 追加沙箱参数 / acp-agent session/set_mode）。
@@ -2353,6 +2355,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Runner:          runner,
 		Prompt:          jobRunOpts.prompt,
 		AgentArgs:       []string(jobRunOpts.agentArgs),
+		ReadDirs:        []string(jobRunOpts.readDirs),
 		LockPaths:       []string(jobRunOpts.lock),
 		LockWaitSec:     lockWait,
 		Cmd:             cmd, // tokens after `--`, e.g. ["go","version"]

@@ -148,6 +148,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.token_env":         {RestartRequired: true, SecretRef: true},
 	"server.allow_empty_token": {RestartRequired: true},
 	"server.path_view":         {RestartRequired: true},
+	"server.read_dir_allow":    {HotReload: true},
 	"server.callers":           {RestartRequired: true},
 	// Per-caller scope ceilings (上限): FILE-ONLY by decision — a ceiling is a limit the
 	// operator sets on a token, and the console write endpoint's vocabulary is
@@ -204,6 +205,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.interactive_args":           {Editable: true},
 	"agents.*.interactive":                {Editable: true},
 	"agents.*.read_only_args":             {Editable: true},
+	"agents.*.add_dir_args":               {Editable: true},
 	"agents.*.session_inject":             {Editable: true},
 	"agents.*.exit_keys":                  {Editable: true},
 	"agents.*.exit_grace_sec":             {Editable: true},

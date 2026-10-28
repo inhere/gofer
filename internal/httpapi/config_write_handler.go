@@ -546,7 +546,7 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.Command = v
-	case "args", "global_args", "read_only_args", "session_inject", "exit_keys", "session_resume",
+	case "args", "global_args", "read_only_args", "add_dir_args", "session_inject", "exit_keys", "session_resume",
 		"session_resume_interactive", "system_inject", "transient_error_patterns",
 		"fallback_agents", "ndjson_keep", "inject_process", "deliver_command":
 		v, err := fieldValue[[]string](f)
@@ -560,6 +560,8 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			ac.GlobalArgs = v
 		case "read_only_args":
 			ac.ReadOnlyArgs = v
+		case "add_dir_args":
+			ac.AddDirArgs = v
 		case "session_inject":
 			ac.SessionInject = v
 		case "exit_keys":
@@ -1013,6 +1015,12 @@ func (s *Server) handlePutConfigServer(c *rux.Context) {
 // block it read.
 func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 	switch f.name {
+	case "read_dir_allow":
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		sc.ReadDirAllow = v
 	case "language":
 		// The language gofer generates text in (design 2026-10-27-i18n-design.md §3).
 		// Read per job submit / per text, so a hot edit applies to the NEXT job.

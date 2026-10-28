@@ -2026,6 +2026,9 @@ func (s *Store) migratePlanTodos() error {
 	if err := add("prime_keywords_json", "prime_keywords_json TEXT"); err != nil {
 		return err
 	}
+	if err := add("read_dirs_json", "read_dirs_json TEXT"); err != nil {
+		return err
+	}
 	// 接着上一项的会话做（会话续接）：the predecessor to continue from, the successor that
 	// took this item's session (the atomic continuation slot) and the reason the last
 	// dispatch did not continue. An old row reads back as "an ordinary, uncontinued item".
