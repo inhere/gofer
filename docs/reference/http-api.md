@@ -2,6 +2,7 @@
 ## Job preview
 
 With `server.preview.enabled: true`, a running local job can expose an application through a short-lived port lease. The control-plane endpoints are `POST /v1/jobs/{id}/previews` with `{ "port": 3000, "ttl_sec": 1800 }`, `GET /v1/jobs/{id}/previews`, and `DELETE /v1/jobs/{id}/previews/{preview_id}`. The returned URL is a bearer URL: the first request exchanges its one-time token for an HttpOnly cookie. The proxy strips control-plane credentials and only dials `127.0.0.1:<port>`.
+CLI equivalents are `gofer job preview open <job-id> --port <port> [--ttl 30m]`, `gofer job preview ls <job-id>`, and `gofer job preview close <job-id> <preview-id>`. `open` prints the complete bearer URL once; do not persist it in prompts or logs.
 
 > Moved from the README (2026-10-10). Endpoint groups of the `/v1` API; the handlers in `internal/httpapi` are authoritative.
 

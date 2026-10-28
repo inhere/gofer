@@ -6,7 +6,8 @@
 
 ## job 预览
 
-server 本机预览默认关闭。设置 `server.preview.enabled: true` 后，可为运行中的 local job 创建短期端口租约；可选 `port_range`（默认 `18100-18199`）、`default_ttl_sec`（默认 1800）、`max_ttl_sec`（默认 28800）、`idle_timeout_sec` 与 `max_connections`。预览 URL 是 bearer URL，不要写入任务书或持久化日志；代理只连接执行机的 `127.0.0.1:<port>`。
+
+CLI：`gofer job preview open <job-id> --port <port> [--ttl 30m]` 创建并只打印一次 URL；`gofer job preview ls <job-id>` 列出租约；`gofer job preview close <job-id> <preview-id>` 撤销租约。
 
 - [结构总览](#结构总览)
 - [projects（配得最多）](#projects配得最多)
