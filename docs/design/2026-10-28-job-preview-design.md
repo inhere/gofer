@@ -248,4 +248,3 @@ server 通过控制 WebSocket 下发 `preview_open`；worker 仅在本地仍有�
 7. **MCP 是否返回完整 URL：推荐返回，但仅在 create 的单次工具结果中返回。**
    - 推荐理由：MCP agent 可以把 URL 交给人或调用方；list / 日志 / prompt 不重复暴露 secret，降低持久化泄露面。
    - 若部署策略禁止 agent 接触 bearer URL，则 MCP create 应只返回 preview id，由人通过 Web/CLI 创建，需同步修改 MCP 工具的产品定位。
-
