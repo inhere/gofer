@@ -263,6 +263,7 @@ interface ServerForm {
   autoResumeMax: string
   probeIntervalSec: string
   probeTimeoutSec: string
+  readDirAllowText: string
   retryMaxAttempts: string
   retryBackoffText: string
   skillsText: string
@@ -320,6 +321,7 @@ const serverForm = reactive<ServerForm>({
   autoResumeMax: '',
   probeIntervalSec: '',
   probeTimeoutSec: '',
+  readDirAllowText: '',
   retryMaxAttempts: '',
   retryBackoffText: '',
   skillsText: '',
@@ -441,6 +443,7 @@ function openServerEditor(): void {
     autoResumeMax: sc.auto_resume_max != null ? String(sc.auto_resume_max) : '',
     probeIntervalSec: String(sc.runner_probe.interval_seconds || ''),
     probeTimeoutSec: String(sc.runner_probe.timeout_seconds || ''),
+    readDirAllowText: linesText(sc.read_dir_allow),
     retryMaxAttempts: sc.retry ? String(sc.retry.max_attempts) : '',
     retryBackoffText: linesText(sc.retry?.backoff_sec?.map(String) ?? null),
     skillsText: linesText(sc.skills),
@@ -558,6 +561,7 @@ function buildServerWrite(): Record<string, unknown> {
       interval_seconds: optionalInt(serverForm.probeIntervalSec) ?? 0,
       timeout_seconds: optionalInt(serverForm.probeTimeoutSec) ?? 0,
     },
+    read_dir_allow: lines(serverForm.readDirAllowText),
     retry:
       optionalInt(serverForm.retryMaxAttempts) === null
         ? null
@@ -972,6 +976,7 @@ onUnmounted(() => {
               <dt>server token</dt><dd><span class="flag" :class="config.server.token_set ? 'flag--yes' : 'flag--no'">{{ setText(config.server.token_set) }}</span></dd>
               <dt>allow_empty_token</dt><dd><span class="flag" :class="config.server.allow_empty_token ? 'flag--warn' : 'flag--no'">{{ yesNo(config.server.allow_empty_token) }}</span></dd>
               <dt>max_job_timeout_sec</dt><dd>{{ config.server.max_job_timeout_sec || '-' }}</dd>
+              <dt>read_dir_allow</dt><dd>{{ joinOrDash(config.server.read_dir_allow) }}</dd>
               <dt>stall_timeout_sec</dt><dd>{{ config.server.stall_timeout_sec ?? t('settings.config.default') }}</dd>
               <dt>auto_resume_max</dt><dd>{{ config.server.auto_resume_max ?? t('settings.config.default') }}</dd>
               <dt>skills</dt><dd>{{ joinOrDash(config.server.skills) }}</dd>
@@ -1436,6 +1441,11 @@ onUnmounted(() => {
               <label class="field">
                 <span class="field-name">runner_probe.timeout_seconds</span>
                 <input v-model="serverForm.probeTimeoutSec" class="input" @change="refreshPreview()" />
+              </label>
+              <label class="field">
+                <span class="field-name">{{ t('settings.config.f.readDirAllow') }}</span>
+                <textarea v-model="serverForm.readDirAllowText" class="input textarea" :class="{ 'input--bad': fieldBad('read_dir_allow') }" rows="3" @change="refreshPreview()"></textarea>
+                <span class="hint mono">{{ t('settings.config.hintReadDirAllow') }}</span>
               </label>
               <label class="field">
                 <span class="field-name">retry.max_attempts{{ t('settings.config.f.retryMaxServer') }}</span>
