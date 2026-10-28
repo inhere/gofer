@@ -38,7 +38,7 @@ func (e SystemExecutor) Run(ctx context.Context, args []string, stdin io.Reader)
 	var name string
 	if e.WSL != "" {
 		name = "wsl.exe"
-		cmdArgs = append([]string{"-d", e.WSL, "--"}, cmdArgs...)
+		cmdArgs = wslCommandArgs(e.WSL, cmdArgs)
 	} else {
 		name = "ssh"
 		cmdArgs = append([]string{"-o", "BatchMode=yes", e.SSH}, remoteSSHArgs(args, e.TargetOS == "windows")...)
@@ -72,6 +72,10 @@ func (e SystemExecutor) Copy(ctx context.Context, source, destination string) er
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+
+func wslCommandArgs(distro string, args []string) []string {
+	return append([]string{"-d", distro, "--"}, args...)
+}
 
 func remoteSSHArgs(args []string, windows bool) []string {
 	if !windows {

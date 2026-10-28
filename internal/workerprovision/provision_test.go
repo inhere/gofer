@@ -78,6 +78,14 @@ type pathExec struct{ out string }
 func (f *pathExec) Run(context.Context, []string, io.Reader) (string, error) { return f.out, nil }
 func (f *pathExec) Copy(context.Context, string, string) error               { return nil }
 
+func TestWSLCommandArgsDoNotDuplicatePrefix(t *testing.T) {
+	got := wslCommandArgs("Ubuntu", []string{"sh", "-c", `printf %s "$HOME"`})
+	want := []string{"-d", "Ubuntu", "--", "sh", "-c", `printf %s "$HOME"`}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("got=%v want=%v", got, want)
+	}
+}
+
 func TestRemoteSSHArgsPreserveShellArguments(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("local sh simulation is unavailable on Windows")
