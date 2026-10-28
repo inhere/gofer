@@ -73,6 +73,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Runner:       peerRunner,
 		Prompt:       f.Prompt,
 		AgentArgs:    f.AgentArgs,
+		ReadDirs:     f.ReadDirs,
 		Model:        f.Model,
 		FromSession:  f.FromSession,
 		Budget:       f.Budget,

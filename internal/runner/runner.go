@@ -498,6 +498,7 @@ type Forward struct {
 	PeerRunner   string // runner to use on the peer; default "local"
 	Prompt       string
 	AgentArgs    []string
+	ReadDirs     []string
 	Model        string         // N1 §B: the executing machine renders ITS agent's model_args
 	FromSession  string         // gofer-f4z8: the executing machine renders ITS agent's from_session_args
 	Budget       *config.Budget // N2 §B: decided spend ceiling the EXECUTING machine meters; nil = unlimited
