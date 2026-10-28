@@ -238,6 +238,9 @@ func runInit(c *gcli.Command, info buildinfo.Info) error {
 	if err := os.WriteFile(path, []byte(tmpl), 0o644); err != nil {
 		return errorx.Failf(configExitErr, "write %s: %v", path, err)
 	}
+	if target != "worker" {
+		printBuiltinAgentInstallWarnings(c, initAgentDetector)
+	}
 	if target == "worker" {
 		if usedGlobal {
 			// Global worker.yaml is the path `gofer worker` auto-discovers, so no
