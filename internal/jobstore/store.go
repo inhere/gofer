@@ -2018,6 +2018,9 @@ func (s *Store) migratePlanTodos() error {
 	if err := add("scope_json", "scope_json TEXT"); err != nil {
 		return err
 	}
+	if err := add("prime_keywords_json", "prime_keywords_json TEXT"); err != nil {
+		return err
+	}
 	if err := add("read_dirs_json", "read_dirs_json TEXT"); err != nil {
 		return err
 	}

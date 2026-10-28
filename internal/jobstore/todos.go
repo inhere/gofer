@@ -645,6 +645,13 @@ func (s *Store) UpdateTodoPatch(todoID string, p TodoPatch) (bool, error) {
 		}
 		add("scope_json", v)
 	}
+	if p.PrimeKeywords != nil {
+		v, err := encodeTodoJSON(*p.PrimeKeywords)
+		if err != nil {
+			return false, fmt.Errorf("jobstore: update todo %q prime_keywords: %w", todoID, err)
+		}
+		add("prime_keywords_json", v)
+	}
 	if p.ReadDirs != nil {
 		v, err := encodeTodoJSON(*p.ReadDirs)
 		if err != nil {
@@ -752,6 +759,9 @@ func (t *PlanTodo) ApplyTodoPatch(p TodoPatch) {
 	}
 	if p.Scope != nil {
 		t.Scope = *p.Scope
+	}
+	if p.PrimeKeywords != nil {
+		t.PrimeKeywords = *p.PrimeKeywords
 	}
 	if p.ReadDirs != nil {
 		t.ReadDirs = *p.ReadDirs
