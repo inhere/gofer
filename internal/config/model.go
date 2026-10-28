@@ -609,7 +609,8 @@ type ServerConfig struct {
 	// container (no /.dockerenv probing). All gofer-process-side paths (SafeJoin /
 	// ExchangeDir / ResultBaseDir / Validate / overlay read dir) go through
 	// Config.ExecPath; E21 host-side actions always use host_path (not this).
-	PathView string `yaml:"path_view,omitempty"`
+	PathView     string   `yaml:"path_view,omitempty"`
+	ReadDirAllow []string `yaml:"read_dir_allow,omitempty"`
 	// Callers is the optional multi-caller auth set (C2): each entry maps a
 	// bearer token to a caller id stamped onto submitted jobs for audit /
 	// per-caller filtering. The legacy single Token/TokenEnv stays valid (treated
@@ -2173,6 +2174,8 @@ type ProjectConfig struct {
 	// levels: a project never REMOVES a server-wide skill (`--no-skills` on the job is
 	// the only off switch). See Config.EffectiveSkills.
 	Skills []string `yaml:"skills,omitempty"`
+	// ReadDirs are project-default directories made available read-only to jobs.
+	ReadDirs []string `yaml:"read_dirs,omitempty"`
 	// MCP lists the registry MCP servers this project's jobs get (MCP-06), unioned
 	// with server.mcp, the agent's list and the job's --mcp names.
 	MCP []string `yaml:"mcp,omitempty"`
