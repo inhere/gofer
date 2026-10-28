@@ -104,6 +104,7 @@ interface ProjectForm {
   // 项目级强制规则绑定（JOB-06①）：每行一个规则名（来自规则库 /settings/rules），与
   // server/agent 层的绑定取并集，项目永远不能取消 server 的规则。
   rulesText: string
+  readDirsText: string
 }
 
 const form = reactive<ProjectForm>({
@@ -117,6 +118,7 @@ const form = reactive<ProjectForm>({
   allow_interactive: false,
   max_concurrent_jobs: '',
   rulesText: '',
+  readDirsText: '',
 })
 
 const agents = computed(() => config.value?.agents ?? [])
@@ -349,6 +351,7 @@ function startCreate(): void {
     allow_interactive: false,
     max_concurrent_jobs: '',
     rulesText: '',
+    readDirsText: '',
   })
 }
 
@@ -364,6 +367,7 @@ function fillForm(p: ProjectDetail): void {
     allow_interactive: effectiveAllowInteractive(p),
     max_concurrent_jobs: p.max_concurrent_jobs != null ? String(p.max_concurrent_jobs) : '',
     rulesText: (p.rules ?? []).join('\n'),
+    readDirsText: (p.read_dirs ?? []).join('\n'),
   })
 }
 
@@ -380,6 +384,7 @@ function resetForm(): void {
     allow_interactive: false,
     max_concurrent_jobs: '',
     rulesText: '',
+    readDirsText: '',
   })
 }
 
@@ -413,6 +418,10 @@ function buildReq(): ProjectWriteReq {
     allow_exec: form.allow_exec,
     max_concurrent_jobs: Number.isFinite(max) && max > 0 ? max : 0,
     allow_interactive: form.allow_interactive,
+    read_dirs: form.readDirsText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l !== ''),
     // JOB-06①：规则绑定逐行一个名字。显式发数组（含空数组）才能表达"取消最后一个绑定"——
     // 省略字段在 PUT 的合并语义里等于"保持不变"。
     rules: form.rulesText
@@ -813,6 +822,14 @@ async function init(): Promise<void> {
               <span v-else>—</span>
             </dd>
 
+            <dt class="mono">read_dirs</dt>
+            <dd class="mono">
+              <template v-if="detail.read_dirs && detail.read_dirs.length">
+                <span v-for="d in detail.read_dirs" :key="d" class="tag">{{ d }}</span>
+              </template>
+              <span v-else>—</span>
+            </dd>
+
             <!-- JOB-06①：项目级强制规则绑定（与 server/agent 的绑定取并集，注入 prompt 顶部）。 -->
             <dt class="mono">rules</dt>
             <dd class="mono">
@@ -946,6 +963,12 @@ async function init(): Promise<void> {
                   :placeholder="t('projects.field.maxConcurrentPlaceholder')"
                 />
               </div>
+            </div>
+
+            <div class="field">
+              <label class="label mono" for="cfg-read-dirs">{{ t('projects.field.readDirs') }}</label>
+              <textarea id="cfg-read-dirs" v-model="form.readDirsText" class="control mono" rows="3" spellcheck="false"></textarea>
+              <p class="field-hint mono">{{ t('projects.field.readDirsHint') }}</p>
             </div>
 
             <div class="field">
