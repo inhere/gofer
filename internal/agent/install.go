@@ -1,6 +1,10 @@
 package agent
 
-import "runtime"
+import (
+	"runtime"
+
+	"github.com/inhere/gofer/internal/config"
+)
 
 // InstallInfo describes an official, non-interactive installation hint for an
 // agent executable. Commands are intentionally suggestions only; gofer never
@@ -18,7 +22,24 @@ var installInfo = map[string]InstallInfo{
 	"omp":      {Command: "curl -fsSL https://omp.sh/install | sh", URL: "https://github.com/can1357/oh-my-pi#install"},
 }
 
-// InstallInfoFor returns the official installation hint for command on goos.
+// AgentInstallInfo resolves the official hint for a configured agent.
+func AgentInstallInfo(key string, ac config.AgentConfig, goos string) (InstallInfo, bool) {
+	return InstallInfoForAgent(key, ac.Command, goos)
+}
+
+// InstallInfoForAgent resolves the command used by an agent config. ACP templates
+// are named after their underlying CLI, while their launcher is often npx.
+func InstallInfoForAgent(key, command, goos string) (InstallInfo, bool) {
+	if info, ok := InstallInfoFor(command, goos); ok && command != "npx" {
+		return info, true
+	}
+	base := key
+	for len(base) > 4 && base[len(base)-4:] == "-acp" {
+		base = base[:len(base)-4]
+	}
+	return InstallInfoFor(base, goos)
+}
+
 // An empty command means the upstream documentation is known but no command is
 // asserted by this project. Unknown executables return false.
 func InstallInfoFor(command, goos string) (InstallInfo, bool) {

@@ -172,11 +172,14 @@ func runWorkerInit(c *gcli.Command, info buildinfo.Info) error {
 
 	agentKeys, detected := detectedAgents(workerInitDetector)
 	c.Printf("%s\n", cliText("cli.worker.init.agents_detected", "count", len(agentKeys)))
+	resolved, _ := agent.Resolve(&config.Config{}, workerInitDetector)
 	for _, key := range sortedDetectKeys(detected) {
 		res := detected[key]
 		mark, detail := "✗", cliText("cli.worker.init.agent_missing")
 		if res.Available {
 			mark, detail = "✓", res.Version
+		} else if hint := agentInstallHint(key, resolved.Agents[key]); hint != "" {
+			detail += "; " + hint
 		}
 		c.Printf("  %s %-12s %s\n", mark, key, detail)
 	}
