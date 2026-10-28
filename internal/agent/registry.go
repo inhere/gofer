@@ -230,6 +230,7 @@ var claudeStreamJSONResume = []string{"--resume", "{{session_id}}", "-p", "--out
 // G031：仅含通用 agent（claude/codex）默认，不含任何业务相关信息。
 var builtinSessionDefaults = map[string]config.AgentConfig{
 	"claude": {
+		AddDirArgs:               []string{"--add-dir", "{{dir}}:ro"},
 		SessionInject:            []string{"--session-id", "{{session_id}}"},
 		ExitKeys:                 []string{"/exit", "enter"},
 		SessionResume:            []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
