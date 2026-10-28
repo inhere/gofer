@@ -238,6 +238,9 @@ func runInit(c *gcli.Command, info buildinfo.Info) error {
 	if err := os.WriteFile(path, []byte(tmpl), 0o644); err != nil {
 		return errorx.Failf(configExitErr, "write %s: %v", path, err)
 	}
+	if target != "worker" {
+		printBuiltinAgentInstallWarnings(c, initAgentDetector)
+	}
 	if target == "worker" {
 		if usedGlobal {
 			// Global worker.yaml is the path `gofer worker` auto-discovers, so no
@@ -1186,6 +1189,7 @@ func validateServerConfig(c *gcli.Command) error {
 	for _, w := range reg.Config().LoadWarnings() {
 		c.Printf("[%s] config  %s\n", docStatusWarn, w)
 	}
+	printAgentInstallWarnings(c, reg.Config())
 	// server.language names no language: every generated text runs in the
 	// DEPRECATED default. Advisory only — the default keeps an existing install
 	// behaving as it did (design 2026-10-27-i18n-design.md §3).
@@ -1360,6 +1364,8 @@ func validateWorkerConfig(c *gcli.Command) error {
 	} else if len(wc.Tools) > 0 {
 		line(docStatusOK, "tools", fmt.Sprintf("%d declared", len(wc.Tools)))
 	}
+	// Agent availability is advisory: this command may inspect a worker config for another host.
+	printAgentInstallWarnings(c, workerConfigToConfig(wc))
 
 	switch workerModeOf(wc) {
 	case modePolicy:

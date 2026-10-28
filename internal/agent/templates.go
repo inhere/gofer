@@ -190,7 +190,16 @@ var builtinTemplates = map[string]config.AgentConfig{
 	},
 }
 
-// boolRef returns a pointer to b, for the *bool template fields whose DEFAULT is the
+// BuiltinAgentConfigs returns a copy of the built-in template map for setup commands
+// that need to explain unavailable template CLIs without materializing them.
+func BuiltinAgentConfigs() map[string]config.AgentConfig {
+	out := make(map[string]config.AgentConfig, len(builtinTemplates))
+	for key, ac := range builtinTemplates {
+		out[key] = ac
+	}
+	return out
+}
+
 // point (F14: `claude_settings_env: true`). A plain `true` cannot express "explicitly
 // on" in those fields — unset and false are the same value — which is exactly the
 // distinction an operator's override and the runner both act on.

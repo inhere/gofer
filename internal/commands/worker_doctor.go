@@ -234,7 +234,7 @@ func buildWorkerDoctorReport(path string, timeout time.Duration, info buildinfo.
 	}
 	resolved, detected := agent.Resolve(cfg, det)
 	for _, key := range resolvedAgentKeys(resolved) {
-		rep.addRow(doctorAgentRow(key, detected[key]))
+		rep.addRow(doctorAgentRow(key, resolved.Agents[key], detected[key]))
 	}
 
 	// 5) the register handshake, unless the operator turned it off.
@@ -424,7 +424,7 @@ func doctorToolsRow(wc *config.WorkerConfig) workerDoctorRow {
 // display-only, it never filters routing) and re-validates on dispatch, so every
 // job routed to it dies at startup — exactly the failure a pre-flight check exists
 // to catch.
-func doctorAgentRow(key string, res agent.DetectResult) workerDoctorRow {
+func doctorAgentRow(key string, ac config.AgentConfig, res agent.DetectResult) workerDoctorRow {
 	row := workerDoctorRow{Check: "agent." + key}
 	if res.Available {
 		row.Status = doctorPass
@@ -441,6 +441,13 @@ func doctorAgentRow(key string, res agent.DetectResult) workerDoctorRow {
 	row.Detail = "unavailable"
 	if res.Error != "" {
 		row.Detail += ": " + res.Error
+	}
+	if info, ok := agent.AgentInstallInfo(key, ac, runtime.GOOS); ok {
+		if info.Command != "" {
+			row.Detail += "; " + cliText("cli.worker.init.agent_missing_hint", "command", info.Command, "url", info.URL)
+		} else {
+			row.Detail += "; " + cliText("cli.worker.init.agent_missing_docs", "url", info.URL)
+		}
 	}
 	return row
 }

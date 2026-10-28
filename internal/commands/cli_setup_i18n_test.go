@@ -187,7 +187,7 @@ func doctorOutputCases(t *testing.T) []setupCase {
 	addRow("doctor/tools/missing", doctorToolsRow(&config.WorkerConfig{Tools: []config.Tool{
 		{Name: "ffmpeg", Bin: "gofer-no-such-tool-xyz"},
 	}}))
-	addRow("doctor/agent/unavailable", doctorAgentRow("claude", agent.DetectResult{}))
+	addRow("doctor/agent/unavailable", doctorAgentRow("claude", config.AgentConfig{Command: "claude"}, agent.DetectResult{}))
 
 	cases = append(cases,
 		setupCase{name: "doctor/dial-hint/401", text: dialFailureHint(errors.New("websocket: bad handshake (401 Unauthorized)"))},
