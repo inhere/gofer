@@ -159,6 +159,9 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	if f.InitialInput != "" && !wsproto.SupportsInitialInput(proto) {
 		lacks = append(lacks, "initial_input")
 	}
+	if len(f.ReadDirs) > 0 && !wsproto.SupportsReadDirs(proto) {
+		lacks = append(lacks, "read_dirs")
+	}
 	if f.Model != "" && !wsproto.SupportsModel(proto) {
 		lacks = append(lacks, "model")
 	}

@@ -648,6 +648,31 @@ func TestAgentPutKeepsFieldsOutsideTheEditableSet(t *testing.T) {
 	}
 }
 
+// TestAgentPutRejectsInvalidAddDirArgs exercises the config write endpoint's validation,
+// not just the loader: malformed read-directory templates must be rejected before the
+// operator's config file is changed.
+func TestAgentPutRejectsInvalidAddDirArgs(t *testing.T) {
+	for name, body := range map[string]map[string]any{
+		"missing dir":        {"type": "cli-agent", "command": "mytool", "args": []string{"{{prompt}}"}, "add_dir_args": []string{"--add-dir", "/fixed"}},
+		"prompt placeholder": {"type": "cli-agent", "command": "mytool", "args": []string{"{{prompt}}"}, "add_dir_args": []string{"--add-dir", "{{dir}}", "{{prompt}}"}},
+		"acp agent":          {"type": "acp-agent", "command": "mytool", "args": []string{"acp"}, "add_dir_args": []string{"--add-dir", "{{dir}}"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			yamlText, _, _ := configWriteFixture(t)
+			s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+			before := string(readFile(t, cfgPath))
+			resp := do(t, s, http.MethodPut, "/v1/config/agents/mytool", adminToken, body)
+			if resp.StatusCode == http.StatusOK {
+				t.Fatalf("invalid add_dir_args accepted: %s", bodyText(t, resp))
+			}
+			if got := string(readFile(t, cfgPath)); got != before {
+				t.Fatal("invalid add_dir_args changed the config file")
+			}
+		})
+	}
+}
+
 // TestAgentDeleteFallsBackToBuiltin pins the delete contract (design §一.2): deleting
 // an agent that overrides a BUILT-IN template is not "removing a capability" — the
 // template definition comes back — and the caller is told so explicitly. A purely

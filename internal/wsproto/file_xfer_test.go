@@ -9,8 +9,8 @@ import "testing"
 // version (v25 since the optional absolute-path report, which is still ABOVE the v9
 // floor — the floor is what gates the capability, never the current version).
 func TestFileXferRoundTripAndSupports(t *testing.T) {
-	if CurrentProtocolVersion != 27 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 27 (v27 adds file_xfer.target)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 28 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 28 (v28 adds read_dirs)", CurrentProtocolVersion)
 	}
 	if FileXferMinProtocolVersion != 9 {
 		t.Fatalf("FileXferMinProtocolVersion = %d, want 9", FileXferMinProtocolVersion)

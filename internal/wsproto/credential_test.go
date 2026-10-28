@@ -11,8 +11,8 @@ func TestJobCredentialProtocolFloor(t *testing.T) {
 	if JobCredentialMinProtocolVersion != 11 {
 		t.Fatalf("JobCredentialMinProtocolVersion = %d, want 11", JobCredentialMinProtocolVersion)
 	}
-	if CurrentProtocolVersion != 27 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 27 (v27 adds file_xfer.target)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 28 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 28 (v28 adds read_dirs)", CurrentProtocolVersion)
 	}
 	if SupportsJobCredential(JobCredentialMinProtocolVersion - 1) {
 		t.Fatalf("a v%d worker must not be sent a job credential", JobCredentialMinProtocolVersion-1)
@@ -21,6 +21,12 @@ func TestJobCredentialProtocolFloor(t *testing.T) {
 		t.Fatal("SupportsJobCredential(11/12) = false, want true")
 	}
 	// Raising the protocol must never drop a capability an older floor already gave.
+	if SupportsReadDirs(ReadDirsMinProtocolVersion - 1) {
+		t.Fatal("an old worker must not receive read_dirs")
+	}
+	if !SupportsReadDirs(ReadDirsMinProtocolVersion) {
+		t.Fatal("the current read_dirs protocol floor must be supported")
+	}
 	if !SupportsSkills(CurrentProtocolVersion) || !SupportsFileXfer(CurrentProtocolVersion) || !SupportsVerify(CurrentProtocolVersion) {
 		t.Fatalf("protocol v%d must still carry the older capabilities", CurrentProtocolVersion)
 	}

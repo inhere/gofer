@@ -46,3 +46,39 @@ func TestReadDirArgs(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveReadDirsRejectsFileAndSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{}
+	proj := config.ProjectConfig{HostPath: root}
+	file := filepath.Join(root, "note.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveReadDirs(cfg, proj, []string{"note.txt"}); err == nil {
+		t.Fatal("expected non-directory rejection")
+	}
+
+	outside := t.TempDir()
+	link := filepath.Join(root, "outside")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := resolveReadDirs(cfg, proj, []string{"outside"}); err == nil {
+		t.Fatal("expected symlink escape rejection")
+	}
+}
+
+func TestValidateReadDirAgent(t *testing.T) {
+	req := JobRequest{Agent: "a", ReadDirs: []string{"docs"}}
+	for name, ac := range map[string]config.AgentConfig{
+		"missing add_dir_args": {Type: agent.TypeCLIAgent},
+		"acp-agent":            {Type: agent.TypeACPAgent, AddDirArgs: []string{"--add-dir", "{{dir}}"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateReadDirAgent(req, ac); err == nil {
+				t.Fatal("expected read_dirs capability rejection")
+			}
+		})
+	}
+}

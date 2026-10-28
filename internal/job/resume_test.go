@@ -703,7 +703,7 @@ func TestResumeJobRendersCodexArgv(t *testing.T) {
 
 	src := submitSourceCancel(t, s, JobRequest{
 		ProjectKey: "self", Agent: "codex", Runner: "local",
-		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, SessionID: sid,
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, SessionID: sid, ReadDirs: []string{"."},
 	})
 	if src.SessionID != sid {
 		t.Fatalf("setup: explicit source session_id = %q, want %q", src.SessionID, sid)
@@ -715,8 +715,8 @@ func TestResumeJobRendersCodexArgv(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
 
-	if newJob.SessionID != sid {
-		t.Fatalf("resumed job session_id = %q, want %q", newJob.SessionID, sid)
+	if len(newJob.ReadDirs) != 1 || newJob.ReadDirs[0] == "" {
+		t.Fatalf("resumed read_dirs = %v, want inherited resolved directory", newJob.ReadDirs)
 	}
 
 	got := resumeArgv(t, newJob.RequestJSON)
@@ -849,7 +849,7 @@ func newResumeRunnableService(t *testing.T, root, agentKey string) *Service {
 			// Command "claude" stays literal so the resumed argv asserts the real shape;
 			// it never executes a real claude (the resumed exec job's argv[0] is "claude"
 			// and would fail to start, but the RenderedCommand is captured before exec).
-			agentKey: {Type: agent.TypeCLIAgent, Command: agentKey, Args: []string{"-p", "{{prompt}}"}},
+			agentKey: {Type: agent.TypeCLIAgent, Command: agentKey, Args: []string{"-p", "{{prompt}}"}, AddDirArgs: []string{"--add-dir", "{{dir}}:ro"}},
 		},
 	}
 	return newServiceFromCfg(t, root, cfg)
