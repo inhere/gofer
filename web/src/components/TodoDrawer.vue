@@ -321,6 +321,10 @@ const canDispatch = computed(() => {
             <dt>{{ t('plans.todo.timeout') }}</dt>
             <dd>{{ todo.timeout_sec }}s</dd>
           </div>
+          <div v-if="todo.read_dirs?.length" class="td-kv-row">
+            <dt>{{ t('plans.todo.readDirs') }}</dt>
+            <dd class="td-break">{{ todo.read_dirs.join(', ') }}</dd>
+          </div>
         </dl>
       </section>
 

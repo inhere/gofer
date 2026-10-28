@@ -103,6 +103,8 @@ const idleTimeoutSec = ref<number | null>(null)
 const maxSessionSec = ref<number | null>(null)
 // 只读 job（bd h-aii-0ql3）：审查/分析类任务，agent 不能写文件。
 const readOnly = ref(false)
+// 只读参考目录（每行一个）：经 agent 的 add_dir_args 以只读参数传入。
+const readDirs = ref('')
 // N2 §B 预算熔断（可选，空 = 不限；越线 job 被终止并标 failure_class=budget）。
 const maxTokens = ref<number | null>(null)
 const maxCostUsd = ref<number | null>(null)
@@ -527,6 +529,13 @@ const agentType = computed(
   () => agentPool.value.find((a) => a.key === agentKey.value)?.type ?? '',
 )
 const isExec = computed(() => agentType.value === 'exec')
+// 所选 agent 配了 add_dir_args 才支持只读参考目录（否则后端 400）：不支持时禁用输入且不发。
+// add_dir_args 只在 /v1/agents（AgentInfo）里有，/v1/meta 的候选不带，故另存一份 key → 是否支持。
+const agentAddDirCaps = ref<Record<string, boolean>>({})
+const readDirsSupported = computed(() => agentAddDirCaps.value[agentKey.value] === true)
+function parseReadDirs(raw: string): string[] {
+  return raw.split('\n').map((l) => l.trim()).filter(Boolean)
+}
 const isCliAgent = computed(() => agentType.value !== '' && agentType.value !== 'exec')
 const canUseContinuousSession = computed(() =>
   agentType.value === 'acp-agent' && (isLocalRunner.value || runnerType.value === 'worker') && !interactive.value &&
@@ -905,6 +914,10 @@ async function onSubmit() {
     if (readOnly.value) {
       req.read_only = true
     }
+    const readDirList = readDirsSupported.value ? parseReadDirs(readDirs.value) : []
+    if (readDirList.length > 0) {
+      req.read_dirs = readDirList
+    }
     // gofer-jkd2：锁声明 / 等锁时长 / worktree。空值一律不发（保持既有默认行为）。
     const lockList = parseLockPaths(lockPaths.value)
     if (lockList.length > 0) {
@@ -1121,6 +1134,11 @@ onMounted(async () => {
   if (typeof route.query.cwd === 'string' && route.query.cwd.trim() !== '') cwd.value = route.query.cwd.trim()
   // gofer-jkd2：Sessions 页「完整配置」把已填的锁定目录带过来（逗号/换行分隔，同表单格式）。
   if (typeof route.query.lock === 'string' && route.query.lock.trim() !== '') lockPaths.value = route.query.lock.trim()
+  void getAgentsCached()
+    .then((r) => {
+      agentAddDirCaps.value = Object.fromEntries((r.agents ?? []).map((a) => [a.key, (a.add_dir_args?.length ?? 0) > 0]))
+    })
+    .catch(() => {})
   if (fromSession.value !== '') {
     void getAgentsCached()
       .then((r) => {
@@ -1527,6 +1545,21 @@ watch(interactive, (on) => {
               <input v-model="readOnly" type="checkbox" />
               <span>{{ t('newjob.field.readOnly') }}</span>
             </label>
+          </div>
+
+          <!-- 只读参考目录：agent 能读不能写；agent 没配 add_dir_args 时禁用并说明。 -->
+          <div class="field span2">
+            <label class="label" for="nj-read-dirs">{{ t('newjob.field.readDirs') }}</label>
+            <textarea
+              id="nj-read-dirs"
+              v-model="readDirs"
+              class="control area"
+              rows="2"
+              spellcheck="false"
+              :disabled="!readDirsSupported"
+              placeholder="docs&#10;../shared"
+            ></textarea>
+            <p v-if="!readDirsSupported" class="field-hint" data-test="read-dirs-unsupported">{{ t('newjob.hint.readDirsUnsupported') }}</p>
           </div>
 
           <!-- N2 §B 预算熔断（可选）：执行侧按 agent 上报的用量计量，越线即终止整个 job 并标 failure_class=budget。

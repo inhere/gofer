@@ -142,6 +142,8 @@ export const plans: PageDict = {
     'plans.detail.f.template': '任务书模板（空 = 默认 prompt）',
     'plans.detail.f.verify': '验收命令（空格分词为 argv）',
     'plans.detail.f.cwd': '项目内相对路径',
+    'plans.detail.f.readDirs': '只读参考目录（每行一个；清空保存 = 去掉）',
+    'plans.todo.readDirs': '只读参考目录',
     'plans.detail.f.timeout': '秒（空 = 默认）',
     'plans.detail.f.review': 'review（完成后要人验收）',
     'plans.detail.continueEditHelp':
@@ -446,6 +448,8 @@ export const plans: PageDict = {
     'plans.detail.f.template': 'Task book template (empty = default prompt)',
     'plans.detail.f.verify': 'Verify command (whitespace splits into argv)',
     'plans.detail.f.cwd': 'Path relative to the project',
+    'plans.detail.f.readDirs': 'Read-only reference directories (one per line; save empty to remove)',
+    'plans.todo.readDirs': 'Read-only directories',
     'plans.detail.f.timeout': 'Seconds (empty = default)',
     'plans.detail.f.review': 'review (a person accepts it when done)',
     'plans.detail.continueEditHelp':

@@ -2265,6 +2265,13 @@ onUnmounted(() => {
         <span class="meta-k mono">read_only</span>
         <span class="meta-v mono">{{ t('jobs.detail.readonlyNote') }}</span>
       </div>
+      <!-- 只读参考目录：非空才显示（agent 只能读、不能写）。 -->
+      <div v-if="job.read_dirs?.length" class="meta-item" data-test="read-dirs">
+        <span class="meta-k mono">read_dirs</span>
+        <ul class="meta-v meta-dirs mono">
+          <li v-for="d in job.read_dirs" :key="d">{{ d }}</li>
+        </ul>
+      </div>
       <!-- N1 §B：指定模型（空 = agent 自身默认，不显示）。 -->
       <div v-if="job.model" class="meta-item">
         <span class="meta-k mono">model</span>
@@ -3383,6 +3390,12 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.meta-dirs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 .session-input {
   min-width: 180px;

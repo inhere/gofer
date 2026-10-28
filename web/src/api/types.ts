@@ -82,6 +82,8 @@ export interface Job {
   // agent job 默认独占）；waiting_on_job 只在 status=waiting_dir 时有值，指向持有目录锁的
   // job id（详情/日程表据此说明"在等谁"）。
   dir_exclusive?: boolean
+  // 本次实际传给 agent 的只读参考目录。
+  read_dirs?: string[]
   lock_paths?: string[]
   held_lock_paths?: string[]
   // ACP 持续会话：会话模式、轮次与等待输入时限。
@@ -1411,6 +1413,8 @@ export interface AgentInfo {
   acp_load_session?: boolean
   // 能否「从此会话新开」（job 带 from_session；cli-agent 配了 from_session_args）。gofer-ldmp
   from_session?: boolean
+  // 配置了 add_dir_args 才支持只读参考目录。
+  add_dir_args?: string[]
   // 与哪些 agent 共享会话存储（同族之间才能互转续接）
   session_family?: string
 }
@@ -2072,6 +2076,9 @@ export interface SubmitJobReq {
   // N2 §B：预算上限（可选）；越线 job 被终止（failure_class=budget）。agent 须上报可读用量，否则后端 400。
   budget?: JobBudget
   cwd?: string
+  // 只读参考目录（gofer-x4h1）：项目相对或 server.read_dir_allow 下的绝对路径，
+  // 经 agent 的 add_dir_args 以只读参数传入；agent 不支持时后端 400。
+  read_dirs?: string[]
   // 目录锁（gofer-jkd2，对齐 CLI 的 `--lock`）：项目根相对的路径列表，执行期间独占这些
   // 目录（含子目录）。不填/空 = 锁整个 cwd（老行为）；只动子目录的 job 写它就不互相排队。
   lock_paths?: string[]
@@ -2622,6 +2629,8 @@ export interface Todo {
   continue_from?: string
   continued_by?: string
   continue_note?: string
+  // 只读参考目录：创建或编辑待办时提交的目录列表。
+  read_dirs?: string[]
   // Unix 秒
   created_at: number
   updated_at: number
@@ -2643,6 +2652,8 @@ export interface TodoPatch {
   runner?: string
   cwd?: string
   timeout_sec?: number
+  // 显式空数组清除已配置的只读参考目录。
+  read_dirs?: string[]
   // PLAN-03 链字段（与后端 jobstore.TodoPatch 同名）：after 显式空数组=清空依赖，
   // auto 是自动推进开关，cmd 是 exec 条目的 argv。
   after?: string[]
