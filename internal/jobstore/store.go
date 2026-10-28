@@ -1264,6 +1264,20 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_attachments_thread ON attachments(thread_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_attachments_expires ON attachments(expires_at)`,
+	// refs is the reverse index of object references found in free text (issue gofer-w9b2):
+	// one row per (source object, field, referenced object id). Writing a source field
+	// deletes that source's rows for that field first, so an edit replaces the old set.
+	`CREATE TABLE IF NOT EXISTS refs (
+  src_kind   TEXT NOT NULL,
+  src_id     TEXT NOT NULL,
+  dst_kind   TEXT NOT NULL,
+  dst_id     TEXT NOT NULL,
+  field      TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (src_kind, src_id, dst_kind, dst_id, field)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_refs_dst ON refs(dst_kind, dst_id, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_refs_src ON refs(src_kind, src_id, field)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
