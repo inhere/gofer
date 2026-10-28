@@ -1,13 +1,44 @@
 package worker
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/util"
 )
+
+// ErrUpgradeDirNotWritable means the running binary cannot be replaced by this user.
+var ErrUpgradeDirNotWritable = errors.New("upgrade directory is not writable")
+
+// UpgradeCapability reports whether this worker can replace its running binary.
+type UpgradeCapability struct {
+	Capable bool
+	Error   string
+}
+
+// CheckUpgradeCapability probes the executable directory without changing the
+// running binary. It is safe to call while jobs are running.
+func CheckUpgradeCapability(exe string) UpgradeCapability {
+	if exe == "" {
+		exe = runningBinaryPath()
+	}
+	dir := filepath.Dir(exe)
+	f, err := os.CreateTemp(dir, ".gofer.upgrade-check-*")
+	if err == nil {
+		name := f.Name()
+		_ = f.Close()
+		_ = os.Remove(name)
+		return UpgradeCapability{Capable: true}
+	}
+	return UpgradeCapability{Error: fmt.Sprintf("%s: %s", ErrUpgradeDirNotWritable, i18n.T(i18n.Default, "cli.worker.upgrade.dir_not_writable", map[string]any{
+		"dir": dir, "user": currentUpgradeUser(), "owner": upgradeDirOwner(dir),
+	}))}
+}
 
 // VerifyUpgradeFile checks the worker-side download before it can replace the
 // running binary. Size and digest are both mandatory protocol facts.

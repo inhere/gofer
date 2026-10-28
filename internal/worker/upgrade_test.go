@@ -22,6 +22,14 @@ func sha(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func TestCheckUpgradeCapabilityWritable(t *testing.T) {
+	dir := t.TempDir()
+	cap := CheckUpgradeCapability(filepath.Join(dir, "gofer"))
+	if !cap.Capable || cap.Error != "" {
+		t.Fatalf("capability = %+v, want writable", cap)
+	}
+}
+
 func TestWorkerUpgradeVerifiesChecksum(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "worker.new")
 	data := []byte("candidate")

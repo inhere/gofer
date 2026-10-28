@@ -511,12 +511,14 @@ type WorkerSnapshot struct {
 	// Tools are the worker's declared external tools (CFG-16) — display only.
 	Tools []wsproto.ToolBrief
 	// Node info reported on register (P1) — surfaced for the P4 runners panel.
-	OS           string
-	Arch         string
-	Hostname     string // self-reported machine hostname (register node info)
-	RemoteAddr   string // conn's remote addr as seen at accept (may be NAT/bridge)
-	GoferVersion string
-	StartedAt    int64 // worker process start, unix seconds
+	OS             string
+	Arch           string
+	Hostname       string // self-reported machine hostname (register node info)
+	RemoteAddr     string // conn's remote addr as seen at accept (may be NAT/bridge)
+	GoferVersion   string
+	UpgradeCapable *bool
+	UpgradeError   string
+	StartedAt      int64 // worker process start, unix seconds
 	// ProtocolVersion is the wire version this connection registered with
 	// (wc.meta.ProtocolVersion, immutable per-connection — see protocolVersion()).
 	// Surfaced so an operator can spot a too-old worker (reload/policy gated by
@@ -583,6 +585,8 @@ func (wc *workerConn) snapshot() WorkerSnapshot {
 		Hostname:            wc.meta.Hostname,
 		RemoteAddr:          wc.remoteAddr,
 		GoferVersion:        wc.meta.GoferVersion,
+		UpgradeCapable:      wc.meta.UpgradeCapable,
+		UpgradeError:        wc.meta.UpgradeError,
 		StartedAt:           wc.meta.StartedAt,
 		ProtocolVersion:     wc.meta.ProtocolVersion,
 		MessengerStatus:     wc.meta.MessengerStatus,

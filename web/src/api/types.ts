@@ -1785,6 +1785,8 @@ export interface RunnerWorker {
   // hub 侧看到的连接来源地址（观测辅助）
   remote_addr?: string
   gofer_version?: string
+  upgrade_capable?: boolean
+  upgrade_error?: string
   // worker 进程启动时间（Unix 秒）
   started_at?: number
   // worker 注册时上报的协议版本；过旧(< reload/policy 最低要求)时 reload/policy 会 409

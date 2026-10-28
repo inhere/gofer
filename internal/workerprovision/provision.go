@@ -125,9 +125,10 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	path := o.RemotePath
 	if path == "" {
-		path = "/tmp/gofer-worker-" + safeID(o.ID)
 		if goos == "windows" {
-			path = "C:/gofer-worker-" + safeID(o.ID) + ".exe"
+			path = "$env:LOCALAPPDATA/gofer/bin/gofer.exe"
+		} else {
+			path = "$HOME/.local/bin/gofer"
 		}
 	}
 	result := Result{OS: goos, Arch: goarch, RemotePath: path}

@@ -78,10 +78,10 @@ func TestRunStartsWorkerAfterCopy(t *testing.T) {
 	if got.OS != "linux" || got.Arch != "amd64" || len(f.calls) != 5 {
 		t.Fatalf("result=%+v calls=%v", got, f.calls)
 	}
-	if strings.Join(f.calls[3], " ") != "/tmp/gofer-worker-w1 worker init --server https://hub --id w1 --token-stdin --yes" {
+	if strings.Join(f.calls[3], " ") != "$HOME/.local/bin/gofer worker init --server https://hub --id w1 --token-stdin --yes" {
 		t.Fatalf("init args=%v", f.calls[3])
 	}
-	if strings.Join(f.calls[4], " ") != "/tmp/gofer-worker-w1 worker --daemon" {
+	if strings.Join(f.calls[4], " ") != "$HOME/.local/bin/gofer worker --daemon" {
 		t.Fatalf("start args=%v", f.calls[4])
 	}
 }
