@@ -3,13 +3,29 @@ package agent
 import (
 	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner/ndjsonfilter"
 )
 
-// TestSugaBuiltinTemplate pins the suga CLI template against the argv its own
+func TestBuiltinCLIReadDirArgs(t *testing.T) {
+	for _, key := range []string{"claude", "suga"} {
+		ac := applySessionDefaults(key, config.AgentConfig{Type: TypeCLIAgent})
+		found := false
+		for _, arg := range ac.AddDirArgs {
+			if strings.Contains(arg, "{{dir}}") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s add_dir_args = %v, want an argument containing {{dir}}", key, ac.AddDirArgs)
+		}
+	}
+}
+
 // `--help` was measured with, plus the session / ndjson defaults that make a suga
 // job injectable, resumable and its stream readable. suga is a CLI and an ACP
 // server in one binary, so the two keys must resolve independently and share one
