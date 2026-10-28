@@ -169,6 +169,15 @@ describe('todo tab: view switch and count tones (gofer-qw2g)', () => {
     expect(detail).toContain("t('plans.detail.viewLabel')")
   })
 
+  it('pages only the jobs tab while keeping the full job count and board input', () => {
+    expect(detail).toContain("const JOBS_PAGE_SIZE = 50")
+    expect(detail).toContain('v-for="j in pagedJobs"')
+    expect(detail).toContain('jobsPage')
+    expect(detail).toContain("t('plans.detail.jobsTitle', { n: plan.jobs.length })")
+    expect(detail).toContain(':jobs="plan.jobs"')
+    expect(detail).toContain('pageWindow(currentJobsPage, jobsPageCount)')
+  })
+
   it('keeps the view choice in the URL and remembers it in this browser', () => {
     // URL 仍然优先、默认看板不写进 URL（可分享、后退可复原）。
     expect(detail).toContain("queryWithTab(route.query, next, VIEW_ITEMS, 'view', PLAN_VIEW_DEFAULT)")

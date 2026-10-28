@@ -53,6 +53,7 @@ import {
 } from '../utils/planView'
 import { PLAN_CONTROL_HELP, planChainState, planUsageRows } from '../utils/planControls'
 import { pageWriteBlock } from '../utils/pageGate'
+import { clampPage, pageCountOf, pageQueryUpdate, pageWindow, readPageQuery } from '../utils/issuePaging'
 import { useWhoami } from '../store/whoami'
 import {
   continueApiErrorText, continueCandidates, continueFromValue, continuationLines, defaultContinueFrom,
@@ -119,6 +120,23 @@ function planWriteBlock(): string {
 
 const plan = ref<PlanDetail | null>(null)
 const error = ref('')
+const JOBS_PAGE_SIZE = 50
+const jobsPage = ref(readPageQuery(route.query, 'jobsPage'))
+const jobsPageCount = computed(() => pageCountOf(plan.value?.jobs.length ?? 0, JOBS_PAGE_SIZE))
+const currentJobsPage = computed(() => clampPage(jobsPage.value, jobsPageCount.value))
+const pagedJobs = computed(() => {
+  const start = (currentJobsPage.value - 1) * JOBS_PAGE_SIZE
+  return (plan.value?.jobs ?? []).slice(start, start + JOBS_PAGE_SIZE)
+})
+
+function writeJobsPageQuery(page: number): void {
+  void router.replace({ query: pageQueryUpdate(route.query, page, 'jobsPage') })
+}
+
+function gotoJobsPage(page: number): void {
+  jobsPage.value = clampPage(page, jobsPageCount.value)
+  writeJobsPageQuery(jobsPage.value)
+}
 const handoffLatest = ref<import('../api/types').PlanHandoff | null>(null)
 const handoffVersions = ref<import('../api/types').PlanHandoff[]>([])
 const handoffSelectedVersion = ref(0)
@@ -729,6 +747,10 @@ async function fetchPlan(): Promise<void> {
   }
 	try {
 		plan.value = await getPlan(props.id)
+		jobsPage.value = clampPage(jobsPage.value, jobsPageCount.value)
+		if (jobsPage.value !== readPageQuery(route.query, 'jobsPage')) {
+			writeJobsPageQuery(jobsPage.value)
+		}
 		tagsDraft.value = (plan.value.tags ?? []).join(', ')
 		const [h, history] = await Promise.all([
 			getPlanHandoff(props.id),
@@ -1008,6 +1030,13 @@ function rowStartTime(j: Job): string {
 
 // Q3：`plans` 主题的失效通知触发重拉；WS 断开超过 15s 才由 30s 兜底轮询接手（恢复后自动停）。
 const livePlan = createLiveTopic('plans', { initial: false, fetch: fetchPlan })
+
+watch(
+  () => route.query.jobsPage,
+  (value) => {
+    jobsPage.value = readPageQuery({ jobsPage: value }, 'jobsPage')
+  },
+)
 
 watch(
   () => props.id,
@@ -1387,7 +1416,7 @@ onUnmounted(() => {
               <span>{{ t('plans.detail.colDuration') }}</span>
             </div>
             <button
-              v-for="j in plan.jobs"
+              v-for="j in pagedJobs"
               :key="j.id"
               class="job-row"
               type="button"
@@ -1405,6 +1434,12 @@ onUnmounted(() => {
             </button>
             <div v-if="plan.jobs.length === 0" class="empty mono">{{ t('plans.detail.jobsEmpty') }}</div>
           </div>
+          <nav v-if="plan.jobs.length > 0" class="pager" data-test="jobs-pager" :aria-label="t('workflows.pager.label')">
+              <span class="pager-count" data-test="jobs-page-summary">{{ t('workflows.pageSummary', { total: plan.jobs.length, page: currentJobsPage, pages: jobsPageCount }) }}</span>
+              <button type="button" class="page-btn" :disabled="currentJobsPage <= 1" data-test="jobs-page-prev" @click="gotoJobsPage(currentJobsPage - 1)">{{ t('workflows.pager.prev') }}</button>
+              <template v-for="(p, i) in pageWindow(currentJobsPage, jobsPageCount)" :key="i"><span v-if="p === null" class="pager-gap">…</span><button v-else type="button" class="page-btn" :class="{ 'page-btn--on': p === currentJobsPage }" :data-test="`jobs-page-${p}`" :aria-label="t('workflows.pager.page', { page: p })" @click="gotoJobsPage(p)">{{ p }}</button></template>
+              <button type="button" class="page-btn" :disabled="currentJobsPage >= jobsPageCount" data-test="jobs-page-next" @click="gotoJobsPage(currentJobsPage + 1)">{{ t('workflows.pager.next') }}</button>
+            </nav>
         </section>
 
         <section v-if="plan && active === 'decisions' && (plan.decisions?.length ?? 0) > 0" class="section">
@@ -2779,6 +2814,44 @@ onUnmounted(() => {
   color: var(--ink-3);
   font-size: 12px;
 }
+.pager {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin-top: var(--s3);
+  font-size: var(--fs-sm);
+}
+.pager-count {
+  color: var(--ink-3);
+  margin-right: var(--s2);
+  font-size: var(--fs-xs);
+}
+.page-btn {
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--ink);
+  padding: 3px 9px;
+  font: inherit;
+  font-size: var(--fs-xs);
+  min-width: 30px;
+  min-height: 30px;
+}
+.page-btn--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pager-gap {
+  color: var(--ink-3);
+}
+
 .loading {
   color: var(--ink-3);
   font-size: 13px;
