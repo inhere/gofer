@@ -1,7 +1,7 @@
 # Trigger 外部触发派活设计
 
 > issue：gofer-rztq
-> 状态：0.1 草稿
+> 状态：0.2 已批准（2026-10-29，待确认项按推荐；补 GitHub 兼容 provider）
 > 相关：`docs/design/2026-10-11-event-hooks-design.md`（只读外发事件与 event_hooks）；`internal/notify`（generic / 钉钉 / 飞书 webhook 签名与 provider 适配）；`internal/config/ceiling.go`（调用方上限）；`internal/authz`、`docs/reference/permissions.md`（权限目录）；`internal/messenger`（会话传话与 IM 相关能力）；`internal/template`、`internal/job/template.go`（任务书模板）；`AUTO-02b` schedule trigger（现有单 schedule 外部触发）；G032、G033、G056。
 
 ## 1. 背景与问题
@@ -277,6 +277,12 @@ MCP 不是第三种外部认证通道：
 
 8. **是否提供 MCP 触发工具？（推荐：只读元数据，不提供 invoke）**
    - 推荐理由：MCP agent 不应代持外部 secret，也不应借一个隐式工具绕开自身 job credential；operator 需要时可查看脱敏 trigger 状态，真正派活使用现有 job submit / schedule 语义。
+
+## 7a. 已定事项（2026-10-29）
+
+- 待确认 1–8 按推荐：配置只在 server 本机文件声明；空 CallerID + owner OriginCaller；owner 不得为 root；generic HTTP 只接受 HMAC + timestamp；无外部事件 id 时不自动去重；IM 入站第一版只创建一次性 job、不接 session / mail；限流先内存 + 持久幂等；MCP 只读元数据。
+- **补充：GitHub 兼容 provider（代码托管平台 webhook）。** generic HTTP 的「HMAC + timestamp」不覆盖 GitHub 式 webhook（`X-Hub-Signature-256` 为 body 的 HMAC-SHA256，无时间戳）。新增一个 provider 适配器：校验 `X-Hub-Signature-256`（常量时间比较）；以 `X-GitHub-Delivery` 作为持久去重键（receipt 唯一键，挡重放与重投）；按 `X-GitHub-Event` 与 payload 的 `action` 过滤（如 `pull_request.opened`、`issue_comment.created`、`check_run.completed` 且 `conclusion=failure`）；模板变量只取白名单字段（仓库、编号、标题、链接、发起者、分支等）。重放窗口由 delivery 去重承担，并可选按 payload 时间字段拒绝过旧事件。该 provider 与 generic HTTP 同在 P1 落地。
+- 实施按 §4 的 P0（内核与配置）→ P1（generic HTTP + GitHub provider + 观测）→ P2（IM 入站）拆成独立任务，每个任务限时 45 分钟。
 
 ## 8. 实施记录
 

@@ -1,7 +1,7 @@
 # Job Preview（job-preview）设计
 
 > issue：gofer-ad2u
-> 状态：0.1 草稿
+> 状态：0.2 已批准（2026-10-29，待确认 2–7 按推荐；URL 形态改为端口模式默认）
 > 相关：`docs/runbook/tcp-tunnel.md`、`docs/design/2026-09-11-tcp-tunnel-design.md`、`internal/wsproto`、`internal/httpapi` job 详情与 WebSocket 鉴权、`skills/gofer-usage`（实施后按 G045 同步）
 
 ## 1. 背景与问题
@@ -218,6 +218,16 @@ server 通过控制 WebSocket 下发 `preview_open`；worker 仅在本地仍有�
 - **job 重启 / worker 重连**：同一个 job id 可能出现新执行实例。lease 绑定 instance 且旧 instance 丢失即关闭，牺牲自动恢复换取不把请求送到错误进程；用户可重新创建。
 - **权限扩大争议**：复用 `job.read.others` 最容易理解，但 job preview 比日志更接近实时应用。若安全评审要求最小授权，增加 `job.preview.others` 会带来 catalog、seed、session grant 和 references 的完整迁移成本，应在实现前定案。
 - **数据库清理与终态竞态**：创建恰逢 job 结束、renew 恰逢 revoke、连接恰逢 expiry 需要同一事务 / generation 检查；否则可能出现“响应成功但马上不可用”的边界。API 应返回最终状态，客户端按状态处理而不是假定成功即长存。
+
+## 8. 已定事项（2026-10-29）
+
+- **待确认 1 改定：默认端口模式，子域名为可选。** 部署常见为局域网 IP + 端口访问，没有泛域名 DNS / TLS，因此：
+  - 默认：server 在配置的端口池（如 `preview.port_range: 18100-18199`）里为每个预览分配一个端口，地址形如 `http://<server 主机>:<端口>/`，打开时由 server 生成并在 Web 上展示；根路径、相对资源、重定向与 WebSocket 原样工作。端口池同时是并发预览上限，租约结束端口回收。
+  - 隔离：localStorage 等按 origin（含端口）隔离，控制台的 token 不会被预览页读到；cookie 不按端口隔离，server 转发时剥掉 gofer 自己的 cookie 与 `Authorization` 头，并且预览响应里设置的同名 cookie 不得覆盖控制台 cookie（转发响应时丢弃与 gofer cookie 同名的 `Set-Cookie`）。
+  - 鉴权：预览端口上的第一次访问带一次性 token（由 Web「打开预览」生成），server 校验后在该端口 origin 下种一个仅本预览有效的 cookie；不可猜、可撤销、随租约失效。
+  - 配置了 `preview.base_domain` 时改用 §3.1 的 opaque subdomain 方案，其余语义一致。
+- 待确认 2–7 按推荐：server 本机 runner 与 worker 同一 API、P1 先支持本机；复用 `job.read.others`；租约默认 30 分钟、上限 8 小时、闲置 15 分钟回收；只拨执行机 `127.0.0.1:<port>`；server 关闭数据连接并以 lease 状态为权威；MCP 只在 create 的单次结果里返回完整 URL。
+- 实施按 §4 分阶段拆成独立任务（本机端口模式 → worker 协议 v29 → Web / CLI / MCP），每个任务限时 45 分钟。
 
 ## 7. 待确认项
 

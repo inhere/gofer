@@ -1,7 +1,7 @@
 # 每日记忆综合（daily-memory-synthesis）设计
 
 > issue：gofer-gah7
-> 状态：0.1 草稿
+> 状态：0.2 已批准（2026-10-29，待确认项按推荐；候选队列暂缓）
 > 相关：`docs/design/2026-10-09-prime-memory-quality-design.md`（记忆质量、doctor、管家建议卡）；`docs/design/2026-10-12-local-global-memory-design.md`（全局记忆同步）；`internal/work`（工作项与每日摘要）；`internal/steward`（每日巡检与一次性 agent 会话）；`internal/brief` / `internal/tracker/prime.go`（接手包与会话开场）；`internal/serve/serve.go`（schedule sweeper）。
 
 ## 1. 背景与问题
@@ -350,3 +350,9 @@ MCP 描述中明确：daily synthesis 是建议，不是事实数据库；agent 
 8. **跨项目范围：推荐每次只综合一个 project，global 只作为输入而不是输出默认 scope。**
    - 理由：项目是权限和开场引用的自然隔离单元，避免把一个项目的事实写入全局记忆；跨项目规则应由人明确选择 global。
    - 备选：server 每天做全局综合，成本和隐私范围都更大，且难以解释来源。
+
+## 11. 已定事项（2026-10-29）
+
+- 待确认 1–6、8 按推荐：默认关闭；复用 `work.summarizer_agent` 的配置但每次独立一次性 job；运行记录存 jobstore，不直接写 tracker；开场只放摘要 + 日期 + `show` 命令；默认不保存材料快照；先做显式 run，再接内置每日触发；每次只综合一个项目。
+- 待确认 7 **改为暂缓**：第一版不做候选队列（不建候选表、不做采纳 / 拒绝流程）。agent 输出只包含「项目动态」摘要（及其来源引用），落在运行记录里；§3.4、§3.5、§4 中与候选相关的字段、接口与状态机在第一版不实现。用一段时间、看清摘要质量后再决定是否加候选。
+- 实施按 §7 的 P1（材料与持久化）→ P2（显式 run 产出摘要，去掉候选部分）→ P3（每日调度与开场引用）拆成独立任务，每个任务限时 45 分钟。
