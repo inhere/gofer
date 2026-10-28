@@ -14,7 +14,8 @@ gofer worker add <worker-id> --ssh <user@host> --project <project>
 gofer worker add <worker-id> --wsl <distro> --project <project>
 ```
 
-命令会用系统 `ssh` / `scp`（或 `wsl.exe`），探测目标 OS / 架构，优先尝试指定的发布源下载二进制，失败时上传本地 gofer；随后用 stdin 传递一次性 token 执行 `worker init`，启动后台 worker 并确认连接。不会接受密码，也不会把 token 放进远端进程参数。未知主机先手工执行一次 ssh 以加入 `known_hosts`。使用 `--dry-run` 可只打印步骤；`--ssh` 与 `--wsl` 不能同时指定。
+命令默认把 worker 安装到用户可写目录：Linux/macOS 为 `~/.local/bin/gofer`，Windows 为 `%LOCALAPPDATA%\gofer\bin\gofer.exe`。自升级需要在运行中可执行文件所在目录创建临时文件并原子替换；系统目录（如 `/usr/local/bin`）通常由 root 拥有，普通 worker 无法写入。
+
 
 ## 目录
 

@@ -126,6 +126,10 @@ func (u *upgradeRun) run(ctx context.Context, req wsproto.Upgrade, accepted func
 	if exe == "" {
 		return errors.New("upgrade: cannot locate the running executable")
 	}
+	cap := CheckUpgradeCapability(exe)
+	if !cap.Capable {
+		return fmt.Errorf("%w: %s", ErrUpgradeDirNotWritable, cap.Error)
+	}
 	tmp := upgradeTempPath(exe)
 	switched := false
 	defer func() {

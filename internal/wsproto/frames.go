@@ -585,6 +585,10 @@ type Register struct {
 	// handover (Upgrade.RequestID). Additive: the hub treats a register carrying it
 	// as the upgrade's success signal.
 	UpgradeID string `json:"upgrade_id,omitempty"`
+	// UpgradeCapable is optional so old workers remain distinguishable from workers
+	// that explicitly cannot replace their executable.
+	UpgradeCapable *bool  `json:"upgrade_capable,omitempty"`
+	UpgradeError   string `json:"upgrade_error,omitempty"`
 	// Inflight (w→s, RECOV-01) is the worker's view of the jobs it currently
 	// tracks for this hub: the remote job_id, its local status and the byte
 	// offsets/seq it has ALREADY pushed on the wire. The hub uses it on a

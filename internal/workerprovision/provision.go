@@ -2,15 +2,19 @@ package workerprovision
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/inhere/gofer/internal/procattr"
 )
@@ -24,8 +28,9 @@ type Executor interface {
 
 // SystemExecutor uses only the operating system's ssh/scp or wsl.exe.
 type SystemExecutor struct {
-	SSH string
-	WSL string
+	SSH      string
+	WSL      string
+	TargetOS string
 }
 
 func (e SystemExecutor) Run(ctx context.Context, args []string, stdin io.Reader) (string, error) {
@@ -33,10 +38,10 @@ func (e SystemExecutor) Run(ctx context.Context, args []string, stdin io.Reader)
 	var name string
 	if e.WSL != "" {
 		name = "wsl.exe"
-		cmdArgs = append([]string{"-d", e.WSL, "--"}, cmdArgs...)
+		cmdArgs = wslCommandArgs(e.WSL, cmdArgs)
 	} else {
 		name = "ssh"
-		cmdArgs = append([]string{"-o", "BatchMode=yes", e.SSH}, cmdArgs...)
+		cmdArgs = append([]string{"-o", "BatchMode=yes", e.SSH}, remoteSSHArgs(args, e.TargetOS == "windows")...)
 	}
 	cmd := exec.CommandContext(ctx, name, cmdArgs...)
 	procattr.Background(cmd)
@@ -67,6 +72,35 @@ func (e SystemExecutor) Copy(ctx context.Context, source, destination string) er
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+
+func wslCommandArgs(distro string, args []string) []string {
+	return append([]string{"-d", distro, "--"}, args...)
+}
+
+func remoteSSHArgs(args []string, windows bool) []string {
+	if !windows {
+		return []string{strings.Join(mapQuote(args), " ")}
+	}
+	parts := make([]string, 0, len(args))
+	for _, arg := range args {
+		parts = append(parts, "'"+strings.ReplaceAll(arg, "'", "''")+"'")
+	}
+	script := "& " + strings.Join(parts, " ")
+	units := utf16.Encode([]rune(script))
+	buf := make([]byte, len(units)*2)
+	for i, u := range units {
+		binary.LittleEndian.PutUint16(buf[i*2:], u)
+	}
+	return []string{"powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", base64.StdEncoding.EncodeToString(buf)}
+}
+
+func mapQuote(args []string) []string {
+	out := make([]string, len(args))
+	for i, arg := range args {
+		out[i] = shellQuote(arg)
+	}
+	return out
+}
 
 // Options describes one remote worker installation.
 type Options struct {
@@ -107,13 +141,17 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		o.Output = io.Discard
 	}
 	if o.DryRun {
-		fmt.Fprintf(o.Output, "probe: uname -sm (fallback: PowerShell)\ninstall: remote release download, then scp fallback\ninit: worker init --server %s --id %s --token-stdin --yes (token via stdin)\nstart: worker --daemon\n", o.Server, o.ID)
+		fmt.Fprintf(o.Output, "probe: uname -sm (fallback: PowerShell)\ninstall: resolve user-writable absolute path at execution time, create its directory, then remote release download or scp fallback\npath: <resolved remote home>/.local/bin/gofer (Windows: <resolved LOCALAPPDATA>/gofer/bin/gofer.exe)\ninit: worker init --server %s --id %s --token-stdin --yes (token via stdin)\nstart: worker --daemon\n", o.Server, o.ID)
 		return Result{}, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()
 	probe, err := o.Executor.Run(ctx, []string{"uname", "-sm"}, nil)
 	if err != nil {
+		if se, ok := o.Executor.(SystemExecutor); ok {
+			se.TargetOS = "windows"
+			o.Executor = se
+		}
 		probe, err = o.Executor.Run(ctx, []string{"powershell", "-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.OS + ' ' + $env:PROCESSOR_ARCHITECTURE"}, nil)
 		if err != nil {
 			return Result{}, stepError("probe remote OS/architecture", err)
@@ -123,12 +161,19 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	if err != nil {
 		return Result{}, stepError("parse remote OS/architecture", err)
 	}
+	if se, ok := o.Executor.(SystemExecutor); ok {
+		se.TargetOS = goos
+		o.Executor = se
+	}
 	path := o.RemotePath
 	if path == "" {
-		path = "/tmp/gofer-worker-" + safeID(o.ID)
-		if goos == "windows" {
-			path = "C:/gofer-worker-" + safeID(o.ID) + ".exe"
+		path, err = resolveRemotePath(ctx, o.Executor, goos)
+		if err != nil {
+			return Result{}, stepError("resolve remote install path", err)
 		}
+	}
+	if _, err := o.Executor.Run(ctx, installDirCommand(goos, filepath.Dir(path)), nil); err != nil {
+		return Result{}, stepError("create remote install directory", err)
 	}
 	result := Result{OS: goos, Arch: goarch, RemotePath: path}
 	if o.BinaryURL == "" && o.ResolveURL != nil {
@@ -139,7 +184,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		}
 	}
 	if o.BinaryURL != "" {
-		args := []string{"curl", "-fL", "--tlsv1.2", "-o", path, o.BinaryURL}
+		args := []string{"curl", "-fL", "--tlsv1.2", "--create-dirs", "-o", path, o.BinaryURL}
 		if _, err := o.Executor.Run(ctx, args, nil); err == nil {
 			result.UsedDownload = true
 		} else {
@@ -167,14 +212,69 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		}
 	}
 	initArgs := []string{path, "worker", "init", "--server", o.Server, "--id", o.ID, "--token-stdin", "--yes"}
+	startArgs := []string{path, "worker", "--daemon"}
+	if goos == "windows" {
+		initArgs = powershellExec(path, "worker", "init", "--server", o.Server, "--id", o.ID, "--token-stdin", "--yes")
+		startArgs = powershellExec(path, "worker", "--daemon")
+	}
 	if _, err := o.Executor.Run(ctx, initArgs, strings.NewReader(o.Token+"\n")); err != nil {
 		return Result{}, stepError("initialize remote worker", err)
 	}
-	startArgs := []string{path, "worker", "--daemon"}
 	if _, err := o.Executor.Run(ctx, startArgs, nil); err != nil {
 		return Result{}, stepError("start remote worker", err)
 	}
 	return result, nil
+}
+
+func resolveRemotePath(ctx context.Context, e Executor, goos string) (string, error) {
+	if se, ok := e.(SystemExecutor); ok && se.WSL != "" {
+		out, err := e.Run(ctx, []string{"sh", "-c", `printf %s "$HOME"`}, nil)
+		if err != nil {
+			return "", err
+		}
+		base := strings.TrimSpace(out)
+		if base == "" || !strings.HasPrefix(base, "/") {
+			return "", fmt.Errorf("remote HOME is not absolute: %q", base)
+		}
+		return path.Join(base, ".local", "bin", "gofer"), nil
+	}
+	if goos == "windows" {
+		out, err := e.Run(ctx, []string{"powershell", "-NoProfile", "-NonInteractive", "-Command", "[Environment]::GetFolderPath('LocalApplicationData')"}, nil)
+		if err != nil {
+			return "", err
+		}
+		base := strings.TrimSpace(out)
+		if base == "" {
+			return "", errors.New("remote LOCALAPPDATA is empty")
+		}
+		base = strings.ReplaceAll(base, "\\", "/")
+		return path.Join(base, "gofer", "bin", "gofer.exe"), nil
+	}
+	out, err := e.Run(ctx, []string{"sh", "-c", `printf %s "$HOME"`}, nil)
+	if err != nil {
+		return "", err
+	}
+	base := strings.TrimSpace(out)
+	if base == "" || (!filepath.IsAbs(base) && !strings.HasPrefix(base, "/")) {
+		return "", fmt.Errorf("remote HOME is not absolute: %q", base)
+	}
+	return path.Join(base, ".local", "bin", "gofer"), nil
+}
+
+func installDirCommand(goos, dir string) []string {
+	if goos == "windows" {
+		return []string{"powershell", "-NoProfile", "-NonInteractive", "-Command", "New-Item -ItemType Directory -Force -Path '" + strings.ReplaceAll(dir, "'", "''") + "' | Out-Null"}
+	}
+	return []string{"mkdir", "-p", dir}
+}
+
+func powershellExec(path string, args ...string) []string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, "& '"+strings.ReplaceAll(path, "'", "''")+"'")
+	for _, arg := range args {
+		parts = append(parts, "'"+strings.ReplaceAll(arg, "'", "''")+"'")
+	}
+	return []string{"powershell", "-NoProfile", "-NonInteractive", "-Command", strings.Join(parts, " ")}
 }
 
 func localBinary(explicit, goos, goarch string) (string, error) {

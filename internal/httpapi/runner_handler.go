@@ -84,10 +84,12 @@ type WorkerStatus struct {
 	// Hostname is the worker's self-reported machine hostname; RemoteAddr is the
 	// conn's remote address as the hub saw it (may be a NAT/bridge address —
 	// hostname is the machine-identifying field).
-	Hostname     string `json:"hostname,omitempty"`
-	RemoteAddr   string `json:"remote_addr,omitempty"`
-	GoferVersion string `json:"gofer_version,omitempty"`
-	StartedAt    int64  `json:"started_at,omitempty"` // worker process start, unix seconds
+	Hostname       string `json:"hostname,omitempty"`
+	RemoteAddr     string `json:"remote_addr,omitempty"`
+	GoferVersion   string `json:"gofer_version,omitempty"`
+	UpgradeCapable *bool  `json:"upgrade_capable,omitempty"`
+	UpgradeError   string `json:"upgrade_error,omitempty"`
+	StartedAt      int64  `json:"started_at,omitempty"` // worker process start, unix seconds
 	// ProtocolVersion is the wire version this worker registered with. Surfaced so
 	// an operator can spot a too-old worker (reload/policy gated by
 	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
@@ -232,12 +234,14 @@ type workerView struct {
 	AgentCaps      []AgentBrief  `json:"agent_caps,omitempty"`
 	Tools          []config.Tool `json:"tools,omitempty"`
 	// Node info reported on register (P1).
-	OS           string `json:"os,omitempty"`
-	Arch         string `json:"arch,omitempty"`
-	Hostname     string `json:"hostname,omitempty"`
-	RemoteAddr   string `json:"remote_addr,omitempty"`
-	GoferVersion string `json:"gofer_version,omitempty"`
-	StartedAt    int64  `json:"started_at,omitempty"`
+	OS             string `json:"os,omitempty"`
+	Arch           string `json:"arch,omitempty"`
+	Hostname       string `json:"hostname,omitempty"`
+	RemoteAddr     string `json:"remote_addr,omitempty"`
+	GoferVersion   string `json:"gofer_version,omitempty"`
+	UpgradeCapable *bool  `json:"upgrade_capable,omitempty"`
+	UpgradeError   string `json:"upgrade_error,omitempty"`
+	StartedAt      int64  `json:"started_at,omitempty"`
 	// ProtocolVersion is the worker's wire version (see WorkerStatus.ProtocolVersion).
 	ProtocolVersion int                 `json:"protocol_version,omitempty"`
 	MessengerStatus string              `json:"messenger_status,omitempty"`
@@ -423,6 +427,8 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		Hostname:        ws.Hostname,
 		RemoteAddr:      ws.RemoteAddr,
 		GoferVersion:    ws.GoferVersion,
+		UpgradeCapable:  ws.UpgradeCapable,
+		UpgradeError:    ws.UpgradeError,
 		StartedAt:       ws.StartedAt,
 		ProtocolVersion: ws.ProtocolVersion,
 		MessengerStatus: ws.MessengerStatus,

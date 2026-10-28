@@ -206,9 +206,12 @@ async function upgradeWorkerBinary(r: Runner): Promise<void> {
   if (upgrading.value) return
   const from = r.worker?.gofer_version || '?'
   const to = serverInfo.value?.version || t('runners.worker.upgradeToServer')
-  const confirm = upgradeSource(r, serverInfo.value) === 'mirror'
+  const capabilityWarning = r.worker?.upgrade_capable === false
+    ? `\n\n${r.worker.upgrade_error || t('runners.worker.upgradeCapabilityUnknown', { reason: '?' })}`
+    : ''
+  const confirm = (upgradeSource(r, serverInfo.value) === 'mirror'
     ? t('runners.worker.upgradeConfirmSource', { id, from, to, os: r.worker?.os || '?', arch: r.worker?.arch || '?' })
-    : t('runners.worker.upgradeConfirm', { id, from, to })
+    : t('runners.worker.upgradeConfirm', { id, from, to })) + capabilityWarning
   if (!window.confirm(confirm)) return
   upgrading.value = id
   upgradeNotice.value = ''

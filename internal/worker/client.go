@@ -1107,6 +1107,8 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	// bytes the host already has. Until setConn, those writes hit the previous (dead)
 	// connection and fail fast, and the tailer simply retries them afterwards.
 	caps := cl.currentCaps()
+	capability := CheckUpgradeCapability("")
+	upgradeCapable := capability.Capable
 	if err := cl.writeFrameOn(ctx, conn, wsproto.TypeRegister, "", wsproto.Register{
 		WorkerID:            cl.workerID,
 		InstanceID:          cl.instanceID,
@@ -1126,6 +1128,8 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		Tools:               caps.Tools,
 		MessengerStatus:     cl.residentMessenger.Status(builtinLocalRunner),
 		UpgradeID:           cl.handoverID(),
+		UpgradeCapable:      &upgradeCapable,
+		UpgradeError:        capability.Error,
 		// RECOV-01: what this process still holds, so the hub can pair it against the
 		// jobs it is holding in `recovering`. ALWAYS non-nil (an empty list is a
 		// statement — "I track nothing" — while nil would mean "old worker, cannot

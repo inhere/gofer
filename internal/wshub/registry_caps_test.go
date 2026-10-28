@@ -9,6 +9,8 @@ import (
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
+func ptrBool(v bool) *bool { return &v }
+
 // TestWorkerSnapshotCarriesCapsAndNodeInfo (federation P2 / T2.1): the register
 // frame's capability report (AgentCaps + the bare Agents key list) and node info
 // (OS/Arch/GoferVersion/StartedAt) must round-trip through WorkerSnapshot — it is
@@ -23,6 +25,8 @@ func TestWorkerSnapshotCarriesCapsAndNodeInfo(t *testing.T) {
 		OS:              "linux",
 		Arch:            "arm64",
 		GoferVersion:    "v1.2.3",
+		UpgradeCapable:  ptrBool(false),
+		UpgradeError:    "cannot self-upgrade: /usr/local/bin is not writable",
 		StartedAt:       1700000000,
 		Labels:          []string{"gpu"},
 		Projects:        []string{"alpha", "beta"},
@@ -50,8 +54,11 @@ func TestWorkerSnapshotCarriesCapsAndNodeInfo(t *testing.T) {
 	}
 	// tools-edr: ProtocolVersion must round-trip so ops-facing surfaces (runners
 	// panel) can flag a too-old worker before a reload/policy push 409s.
-	if snap.ProtocolVersion != wsproto.CurrentProtocolVersion {
-		t.Fatalf("ProtocolVersion = %d, want %d", snap.ProtocolVersion, wsproto.CurrentProtocolVersion)
+	if snap.UpgradeCapable == nil || *snap.UpgradeCapable || snap.UpgradeError == "" {
+		t.Fatalf("upgrade capability not carried: %+v", snap)
+		if snap.ProtocolVersion != wsproto.CurrentProtocolVersion {
+			t.Fatalf("ProtocolVersion = %d, want %d", snap.ProtocolVersion, wsproto.CurrentProtocolVersion)
+		}
 	}
 	if len(snap.Projects) != 2 || snap.Projects[0] != "alpha" || snap.Agents[1] != "exec" || snap.Labels[0] != "gpu" {
 		t.Fatalf("labels/projects/agents = %v / %v / %v", snap.Labels, snap.Projects, snap.Agents)
