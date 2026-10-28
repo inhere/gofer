@@ -2,9 +2,15 @@ package workerprovision
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"io"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 type fakeExec struct {
@@ -47,7 +53,7 @@ func TestRemoteInstallPathAndCommands(t *testing.T) {
 	}{
 		{"linux", "linux", "/home/alice", "/home/alice/.local/bin/gofer"},
 		{"wsl", "linux", "/root", "/root/.local/bin/gofer"},
-		{"windows", "windows", `C:\\Users\\alice\\AppData\\Local`, `C:/Users/alice/AppData/Local/gofer/bin/gofer.exe`},
+		{"windows", "windows", `C:\Users\alice\AppData\Local`, `C:/Users/alice/AppData/Local/gofer/bin/gofer.exe`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &pathExec{out: tc.home}
@@ -72,8 +78,44 @@ type pathExec struct{ out string }
 func (f *pathExec) Run(context.Context, []string, io.Reader) (string, error) { return f.out, nil }
 func (f *pathExec) Copy(context.Context, string, string) error               { return nil }
 
+func TestRemoteSSHArgsPreserveShellArguments(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("local sh simulation is unavailable on Windows")
+	}
+	args := remoteSSHArgs([]string{"sh", "-c", `printf '%s|%s' "$HOME" "a b"`}, false)
+	cmd := exec.Command("sh", "-c", args[0])
+	cmd.Env = append(os.Environ(), "HOME=/home/test")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "/home/test|a b" {
+		t.Fatalf("output=%q", out)
+	}
+}
+
+func TestRemoteSSHWindowsEncodedCommand(t *testing.T) {
+	got := remoteSSHArgs([]string{"powershell", "-NoProfile", "-Command", `Write-Output 'a b'`}, true)
+	if len(got) != 5 || got[0] != "powershell" || got[3] != "-EncodedCommand" {
+		t.Fatalf("args=%v", got)
+	}
+	data, err := base64.StdEncoding.DecodeString(got[4])
+	if err != nil {
+		t.Fatal(err)
+	}
+	units := make([]uint16, len(data)/2)
+	for i := range units {
+		units[i] = binary.LittleEndian.Uint16(data[i*2:])
+	}
+	script := string(utf16.Decode(units))
+	if !strings.Contains(script, "a b") || !strings.Contains(script, "Write-Output") {
+		t.Fatalf("script=%q", script)
+	}
+}
+
 func TestParsePlatform(t *testing.T) {
 	for _, tc := range []struct{ in, wantOS, wantArch string }{
+		{"Linux x86_64", "linux", "amd64"},
 		{"Microsoft Windows 11 AMD64", "windows", "amd64"},
 		{"Darwin arm64", "darwin", "arm64"},
 	} {
