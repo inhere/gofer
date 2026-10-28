@@ -338,6 +338,10 @@ func (c *Config) Clone() *Config {
 func cloneServer(sc ServerConfig) ServerConfig {
 	out := sc
 	out.Callers = slices.Clone(sc.Callers)
+	out.Triggers = slices.Clone(sc.Triggers)
+	for i := range out.Triggers {
+		out.Triggers[i] = sc.Triggers[i].Clone()
+	}
 	// A caller's ceiling is reached THROUGH a pointer, so the struct copy above would
 	// leave the clone sharing it with the live generation (see the doc comment on this
 	// function): a write to `next.Server.Callers[i].Ceiling.ReadOnly` would edit the
@@ -655,7 +659,8 @@ type ServerConfig struct {
 	DecisionHooks []DecisionHookConfig `yaml:"decision_hooks,omitempty"`
 	// Update is the release check (gofer-6x2n): periodic and on demand, GitHub by
 	// default or a mirror's latest.yaml. File-only (the server fetches the URLs).
-	Update UpdateConfig `yaml:"update,omitempty"`
+	Triggers []TriggerConfig `yaml:"triggers,omitempty"`
+	Update   UpdateConfig    `yaml:"update,omitempty"`
 	// WorkerEnrollment is the self-service worker registration block (off by default).
 	WorkerEnrollment WorkerEnrollmentConfig `yaml:"worker_enrollment,omitempty"`
 	// Push configures the browser Web Push identity. Key material is never stored

@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **外部触发派活内核（P0）**：新增文件专属 `server.triggers` 配置、HMAC + 时间窗校验、受限输入映射、非 root owner ceiling 派活身份、SQLite 持久幂等 receipt、内存限流和脱敏审计。P0 尚未开放 HTTP/provider 入口，默认不监听外部请求。
+
 ## [0.203.0] - 2026-10-28
 
 ### 新增

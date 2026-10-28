@@ -11,6 +11,8 @@ Permissions: what each `/v1` route needs, and what every permission means (what 
 - The capability bits `can_answer` / `can_attach` / `can_tunnel` and the four `governance.require_*` switches are deprecated (they still decide the config-derived, read-only grants, so an existing configuration behaves as before). `can_admin` stays: it is what names a root administrator.
 - Permissions are for a **user-class caller** (a person's CLI, the web console, an agent session talking to the server directly). A worker token and a job credential never consult them: they are confined by their own allowlists (see the two sections below).
 - `gofer mcp --standalone` is a **trusted local entry**: it works on the same database directly and does not go through these decisions. Permissions exist to prevent mistakes, not to isolate — holding a dangerous permission is equivalent to being an administrator.
+- P0 的触发器内核目前没有对应的 `/v1` 路由；外部 invoke、管理读接口和 provider 适配器属于后续阶段，现有 API 行为不变。
+
 
 | group | main endpoints |
 |---|---|

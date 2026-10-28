@@ -588,6 +588,9 @@ func validate(cfg *Config) error {
 	if err := validateCallerCeilings(cfg); err != nil {
 		return err
 	}
+	if err := validateTriggers(cfg); err != nil {
+		return err
+	}
 	// Authentication picks the first matching caller. Shared worker credentials
 	// therefore make the other worker impossible to register; reject them before
 	// startup and on every file reload, without printing the credential itself.

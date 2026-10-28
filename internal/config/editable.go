@@ -149,6 +149,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.allow_empty_token": {RestartRequired: true},
 	"server.path_view":         {RestartRequired: true},
 	"server.read_dir_allow":    {HotReload: true},
+	"server.triggers":          {HotReload: true},
 	"server.callers":           {RestartRequired: true},
 	// Per-caller scope ceilings (上限): FILE-ONLY by decision — a ceiling is a limit the
 	// operator sets on a token, and the console write endpoint's vocabulary is

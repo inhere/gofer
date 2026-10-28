@@ -1069,6 +1069,23 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_target ON audit_events(target_id, at)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_events_kind ON audit_events(kind, at)`,
+	// trigger_receipts is the durable idempotency ledger. The unique key is the
+	// trigger name plus the provider's stable event id; it is intentionally separate
+	// from jobs.request_id because a trigger may be retried after a process restart.
+	`CREATE TABLE IF NOT EXISTS trigger_receipts (
+  trigger_name TEXT NOT NULL,
+  external_event_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  body_hash TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT '',
+  received_at INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  job_id TEXT NOT NULL DEFAULT '',
+  last_error TEXT NOT NULL DEFAULT '',
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY (trigger_name, external_event_id)
+ )`,
+	`CREATE INDEX IF NOT EXISTS idx_trigger_receipts_expiry ON trigger_receipts(expires_at)`,
 	// worker_enrollments holds worker self-enrollment requests (design
 	// 2026-10-17-worker-self-enrollment): a short-lived pending request that a human
 	// accepts or rejects. It stores only the SHA-256 of the enroll secret and the token
