@@ -62,7 +62,6 @@ import type { ContinuationLine } from '../utils/todoContinue'
 // 链控件说明默认收起，点行尾「?」展开（用户反馈：说明常驻太占地方）。
 const ctlHelpOpen = ref(false)
 const ctlHelpKeys = ['leader', 'run', 'pause', 'resume', 'unblock'] as const
-import type { AgentSession } from '../api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -287,15 +286,7 @@ const planUsageText = computed<string>(() => {
 const usageRows = computed(() => planUsageRows(plan.value?.usage))
 // 链状态一句话（自动推进中 / 已挂起 / 阻塞于 …），放在链控件上方。
 const chainState = computed(() => planChainState(plan.value, blockedTitle.value))
-// 头部「主 Agent 会话」行：名称取自 PlanSupervisor 已读到的会话，避免重复请求。
-const supervisorSession = ref<AgentSession | null>(null)
-const supervisorLabel = computed(() => {
-  const sid = plan.value?.supervisor_session_id
-  if (!sid) return ''
-  const s = supervisorSession.value
-  if (s && s.session_id === sid) return s.title?.trim() || `${s.agent || 'agent'} ${sid.slice(0, 8)}`
-  return sid.slice(0, 12)
-})
+// 主 Agent 会话卡片由 PlanSupervisor 负责加载会话详情与编辑状态。
 
 const todoSummary = computed(() => {
   const todos = plan.value?.todos ?? []
@@ -1155,23 +1146,6 @@ onUnmounted(() => {
           <dt>{{ t('plans.detail.owner') }}</dt>
           <dd>{{ plan.owner }}</dd>
         </div>
-        <!-- 绑定的主 Agent 会话：名称 + 跳会话页；完整面板（改绑 / 发消息）在下方。 -->
-        <div class="meta-row">
-          <dt>{{ t('plans.detail.supervisor') }}</dt>
-          <dd class="sup-meta">
-            <template v-if="plan.supervisor_session_id">
-              <router-link
-                class="sup-link"
-                :to="{ path: '/sessions', query: { sid: plan.supervisor_session_id } }"
-                :title="t('plans.detail.openSession', { id: plan.supervisor_session_id })"
-              >{{ supervisorLabel }}</router-link>
-              <span v-if="supervisorSession && supervisorSession.session_id === plan.supervisor_session_id" class="sup-state">
-                {{ supervisorSession.state }}
-              </span>
-            </template>
-            <span v-else class="sup-none">{{ t('plans.detail.supervisorUnbound') }}</span>
-          </dd>
-        </div>
         <!-- PLAN-02 P2：该 plan 的待办派发进哪个 project（待办可自带 project 覆盖）。 -->
         <div v-if="plan.project" class="meta-row">
           <dt>{{ t('plans.detail.project') }}</dt>
@@ -1206,35 +1180,35 @@ onUnmounted(() => {
       :sid="plan.supervisor_session_id || ''"
       :project="plan.project"
       @changed="(sid: string) => { plan = { ...plan!, supervisor_session_id: sid } }"
-      @session="(s: AgentSession | null) => { supervisorSession = s }"
     />
 
     <!-- WEB-10 头部操作条：进度（done+skipped/total）+ 用量汇总 + 链操作（PLAN-03）。 -->
-    <div v-if="plan" class="ops mono">
-      <div class="ops-progress" :title="t('plans.detail.listProgressTitle', { done: boardPct.done, total: boardPct.total })">
-        <span class="ops-label">{{ t('plans.detail.listProgress') }}</span>
-        <!-- 与页头同一个 ProgressBar 排版（gofer-hez1）：条 + 右侧数字同一行，不再自画一条窄条把分数挤到下面 -->
-        <ProgressBar
-          class="ops-bar"
-          :parts="boardModel.parts"
-          :total="boardModel.total"
-          :done="boardModel.done"
-          :percent="boardModel.percent"
-          size="sm"
-          :legend="false"
-        />
+    <section v-if="plan" class="ops plan-controls mono" data-test="plan-controls-card" :aria-label="t('plans.detail.chainLabel')">
+      <div class="ops-summary">
+        <div class="ops-progress" :title="t('plans.detail.listProgressTitle', { done: boardPct.done, total: boardPct.total })">
+          <span class="ops-label">{{ t('plans.detail.listProgress') }}</span>
+          <!-- 与页头同一个 ProgressBar 排版（gofer-hez1）：条 + 右侧数字同一行，不再自画一条窄条把分数挤到下面 -->
+          <ProgressBar
+            class="ops-bar"
+            :parts="boardModel.parts"
+            :total="boardModel.total"
+            :done="boardModel.done"
+            :percent="boardModel.percent"
+            size="sm"
+            :legend="false"
+          />
+        </div>
+        <!-- PLAN-02 P2：plan 级用量汇总（挂接 job 的 token/成本 + 各 agent 的 job 数）。 -->
+        <span v-if="planUsageText" class="ops-usage">{{ planUsageText }}</span>
       </div>
-      <!-- PLAN-02 P2：plan 级用量汇总（挂接 job 的 token/成本 + 各 agent 的 job 数）。 -->
-      <span v-if="planUsageText" class="ops-usage">{{ planUsageText }}</span>
-    </div>
 
-    <!-- 链控件：链状态一句话 + 控件同一行（leader 开关 / 启动链 / 挂起·继续·解除阻塞），
-         各控件的作用说明收在行尾「?」里，点开再看（title 悬浮提示照旧）。 -->
-    <section v-if="plan" class="chain-ctl mono" :aria-label="t('plans.detail.chainLabel')">
-      <p class="chain-state" :class="`chain-state--${chainState.tone}`">
-        <span class="chain-state-label">{{ t('plans.detail.chainState') }}</span>{{ chainState.text }}
-      </p>
-      <div class="ctl-row">
+      <!-- 链控件：链状态一句话 + 控件同一行（leader 开关 / 启动链 / 挂起·继续·解除阻塞），
+           各控件的作用说明收在行尾「?」里，点开再看（title 悬浮提示照旧）。 -->
+      <div class="chain-ctl mono">
+        <p class="chain-state" :class="`chain-state--${chainState.tone}`">
+          <span class="chain-state-label">{{ t('plans.detail.chainState') }}</span>{{ chainState.text }}
+        </p>
+        <div class="ctl-row">
         <!-- LEAD-02 C2：本 plan 自己的 leader 回合开关（服务端缺省 off）。 -->
         <label class="leader-switch mono" :title="planWriteBlock() || PLAN_CONTROL_HELP.leader.help">
           <input
@@ -1323,6 +1297,7 @@ onUnmounted(() => {
           <dd>{{ PLAN_CONTROL_HELP[k].help }}</dd>
         </template>
       </dl>
+      </div>
     </section>
 
     <!-- 用量：jobs 与绑定的主 Agent 会话分开列（会话只计绑定之后、plan 未结期间上报的用量）。 -->
@@ -2017,13 +1992,17 @@ onUnmounted(() => {
 }
 /* WEB-10 头部操作条：进度条 + 用量 + 链操作按钮，一行放不下就折行。 */
 .ops {
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  background: var(--surface);
+  overflow: hidden;
+}
+.ops-summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-chip);
+  padding: 12px 14px;
 }
 .ops-progress {
   display: flex;
@@ -2068,12 +2047,10 @@ onUnmounted(() => {
   color: var(--fail);
   word-break: break-word;
 }
-/* 链控件：每行「控件 + 说明」，窄屏下说明折到控件下方，不出现横向滚动。 */
+/* 链控件：和进度摘要共用一张卡片，中间只用细分隔线区分。 */
 .chain-ctl {
-  margin-top: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-chip);
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 8px;
