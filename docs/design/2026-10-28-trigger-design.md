@@ -167,7 +167,7 @@ MCP 不是第三种外部认证通道：
 
 安全细节：
 
-- HMAC 用原始 body + 时间戳，拒绝旧时间戳，签名和 secret 比较 constant-time；不接受重定向、不在 query 中放 secret。provider adapter 必须先验证厂商签名，再转入同一 seam。
+- HMAC 用原始 body + 时间戳，拒绝旧时间戳，签名和 secret 比较 constant-time；不接受重定向、不在 query 中放 secret。`internal/notify` 的 `allow_hosts` 是**出站 webhook 目标**的 SSRF / host allowlist，不是入站客户端白名单，Trigger 不能复用或把它误称为来源认证。需要网络层收口时优先用反向代理 / listener bind；若以后增加 `source_allow_cidrs`，必须明确可信代理链，不能直接信任未经验证的 `X-Forwarded-For`。provider adapter 必须先验证厂商签名，再转入同一 seam。
 - body、headers、变量和模板渲染结果都有上限；payload 作为不可信数据注入模板时使用明确分隔 / 转义，不能成为模板语法或命令行参数。外部值不能填 `cmd`、`runner`、`agent`、`project` 或任意环境变量。
 - 去重 claim 必须先于 `Submit`，并在数据库唯一键上兜底；服务重启、双请求、provider 重试不能产生两个 job。claim 后 Submit 崩溃时由可恢复 reconciler 按 receipt 状态补交或标记失败，不能无记录重跑。
 - 限流分为 per-trigger token bucket、owner caller 的全局速率 / 并发和全局 body / in-flight 上限；拒绝要可观测但不记录 secret / 原文。第一阶段可采用 server 进程内 bucket（与 schedule trigger 的 10 秒门槛同类），幂等必须持久化；多实例部署若出现需求再把 bucket 状态移到共享 store。
@@ -281,4 +281,3 @@ MCP 不是第三种外部认证通道：
 ## 8. 实施记录
 
 尚未实施。issue `gofer-rztq` 在本工作区关联的 tracker / 本机 `gofer issue show` 中未找到，本文先按用户给出的主题和现有代码事实形成 0.1 草稿；issue 正文可取得后应补充与其验收标准的逐项对照。
-
