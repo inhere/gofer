@@ -39,6 +39,7 @@ import {
 } from '../../utils/extensionSettings'
 import type { Draft } from '../../utils/extensionSettings'
 import { t } from '../../i18n'
+import { SHELL_NAV_GROUPS } from '../../utils/shell'
 
 const { readOnly, can } = useWhoami()
 
@@ -67,6 +68,22 @@ const fileInput = ref<HTMLInputElement | null>(null)
 
 const groups = computed(() => groupSettings(items.value))
 const modifiedCount = computed(() => items.value.filter((it) => it.modified).length)
+const navItems = SHELL_NAV_GROUPS.flatMap((g) => g.items)
+const navHidden = computed(() => {
+  const it = items.value.find((x) => x.key === 'web.nav_hidden')
+  return new Set(Array.isArray(it?.value) ? (it.value as string[]) : [])
+})
+
+async function toggleNav(key: string): Promise<void> {
+  const it = items.value.find((x) => x.key === 'web.nav_hidden')
+  if (!it || !canWrite.value) return
+  const next = new Set(navHidden.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  const updated = await updateSetting(it.key, [...next])
+  items.value = items.value.map((x) => (x.key === it.key ? updated : x))
+}
+
 
 function errText(e: unknown): string {
   if (e instanceof ApiError) return e.detail ? `${e.message}：${e.detail}` : e.message
@@ -283,6 +300,18 @@ onMounted(() => {
     <p v-if="importNotice" class="ok mono">{{ importNotice }}</p>
     <p v-if="importError" class="error mono">{{ importError }}</p>
     <p v-else-if="loading && items.length === 0" class="note mono">{{ t('settings.ext.reading') }}</p>
+
+    <section class="nav-settings" data-test="nav-settings">
+      <h3 class="group-title mono">{{ t('settings.ext.navTitle') }}</h3>
+      <p class="note mono">{{ t('settings.ext.navIntro') }}</p>
+      <div v-for="item in navItems" :key="item.key" class="nav-setting">
+        <label>
+          <input type="checkbox" :checked="!navHidden.has(item.key)" :disabled="!canWrite || item.key === 'nav.today' || item.key === 'nav.settings'" @change="toggleNav(item.key)" />
+          {{ t(item.key) }}
+        </label>
+        <span v-if="item.key === 'nav.today' || item.key === 'nav.settings'" class="hint mono">{{ t('settings.ext.navLocked') }}</span>
+      </div>
+    </section>
 
     <section v-for="g in groups" :key="g.group" class="group" :data-test="`settings-group-${g.group}`">
       <h3 class="group-title mono">{{ g.label }} <span class="prefix">{{ g.group }}.*</span></h3>

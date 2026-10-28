@@ -22,6 +22,7 @@ import Icon from './Icon.vue'
 import { navIcon } from './icon'
 import { PanelLeftClose, PanelLeftOpen, Plus, Search, Sparkles } from '@lucide/vue'
 import { listRunners } from '../api/client'
+import { getMetaCached } from '../api/metaCache'
 import { liveStatus } from '../api/live'
 import { decisionCount } from '../store/today'
 import { createPoller } from '../utils/poller'
@@ -34,7 +35,6 @@ import { ceilingReadOnlyNotice } from '../utils/ceiling'
 import { shouldShowWorkBadge, workBadgeLabel, workNeedsMeCount } from '../store/workNeedsMe'
 import {
   DEFAULT_SHELL_PREFS,
-  TAB_BAR_ITEMS,
   hasSidebar,
   hasTabBar,
   moreActive,
@@ -45,6 +45,7 @@ import {
   sidebarExpanded,
   sidebarNavGroups,
   tabBarActive,
+  tabBarItems,
   writeShellPrefs,
   type ShellPrefs,
 } from '../utils/shell'
@@ -61,8 +62,10 @@ const readOnly = useWhoami().readOnly
 const form = computed(() => shellForm(viewportW.value))
 const showSidebar = computed(() => hasSidebar(form.value))
 const expanded = computed(() => sidebarExpanded(form.value, prefs.value))
-const groups = sidebarNavGroups()
-const more = moreItems()
+const hiddenNav = ref<string[]>([])
+const groups = computed(() => sidebarNavGroups(hiddenNav.value))
+const more = computed(() => moreItems(hiddenNav.value))
+const tabs = computed(() => tabBarItems(hiddenNav.value))
 const connected = ref(false)
 
 function savePrefs(): void {
@@ -134,6 +137,9 @@ watch(
 onMounted(() => {
   prefs.value = readShellPrefs()
   connected.value = hasToken()
+  void getMetaCached().then((meta) => {
+    hiddenNav.value = (meta.nav_hidden ?? []).filter((key) => key !== 'nav.today' && key !== 'nav.settings')
+  }).catch(() => undefined)
   window.addEventListener('resize', syncViewport)
   nodePoller.start()
 })
@@ -314,18 +320,18 @@ onUnmounted(() => {
       <!-- 手机底部标签栏 -->
       <nav v-if="hasTabBar(form)" class="tabs" :aria-label="t('shell.nav')">
         <RouterLink
-          v-for="item in TAB_BAR_ITEMS"
+          v-for="item in tabs"
           :key="item.to"
           :to="item.to"
           class="tab"
-          :class="{ 'tab--active': tabBarActive(route.path) === item.to }"
+          :class="{ 'tab--active': tabBarActive(route.path, tabs) === item.to }"
         >
           <Icon :icon="navIcon(item.icon)" size="lg" />
           <span class="tab-label">{{ t(item.key) }}</span>
         </RouterLink>
         <button
           class="tab"
-          :class="{ 'tab--active': moreActive(route.path) || moreOpen }"
+          :class="{ 'tab--active': moreActive(route.path, tabs) || moreOpen }"
           type="button"
           :aria-expanded="moreOpen"
           data-test="tab-more"
@@ -354,7 +360,8 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <CommandPalette v-model:open="paletteOpen" />
+    <CommandPalette v-model:open="paletteOpen" :hidden="hiddenNav" />
+    <!-- <CommandPalette v-model:open="paletteOpen" /> -->
   </div>
 </template>
 

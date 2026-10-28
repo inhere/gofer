@@ -291,7 +291,7 @@ web 使用，脚本一般不需要。
 - 订阅按读权限过滤（**T2.3**）：`job:<id>` 需要自己的 job 或 `job.read.others`，`jobs` 需要 `job.read.others`，`sessions` 需要 `session.read.others`；没有权限的 topic 在 `error` 帧的 `topics` 里报回来，不订阅（默认部署里这两个权限种入给全体用户类调用方，所以行为不变）。其余主题（`stats` / `pending` / `meta` 等）不受影响。连接本身也登记在长连接表里：调用方被删、token 变了、或它的某个订阅失去权限时服务端主动断开（页面按游标重连重订）。
 - web 兜底：WS 断开超过 15s 回落 30s 一次的低频轮询；页面隐藏超过 5 分钟主动断开，回到前台重连；`hello.version` 变化触发「有新版本」提示。
 - 反向代理需放行 `Upgrade` 头、关缓冲、空闲超时 > 60s；Vite 开发代理已加 `/v1/ws` 的 `ws: true`（开发源要加进 `governance.attach_origins`）。
-- `GET /v1/agents`、`GET /v1/meta` 在前端有模块级缓存，由 `meta` 主题的 inval 失效。
+- `GET /v1/meta` additionally returns `nav_hidden: string[]`, the server-global `web.nav_hidden` setting used by the Web console. It is always a non-null array and defaults to `[]`; writing it uses the existing `settings.write` permission via `/v1/settings/web.nav_hidden`.
 
 ## Notification settings: event catalog and test send (gofer-x9mb)
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/settings"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -15,12 +16,14 @@ import (
 // form (G4 / design §6.4). It bundles everything the NewJob form needs in one
 // authed GET so the front-end does not fan out across /v1/projects, /v1/agents
 // and /v1/runners. All data is read from the config snapshot + the same worker
-// connected-state source as /v1/runners (WorkerStatus); it never queries the DB.
+// connected-state source as /v1/runners (WorkerStatus). Navigation preferences are
+// read from the extension settings service.
 type metaResp struct {
-	Projects []metaProject `json:"projects"`
-	Agents   []metaAgent   `json:"agents"`
-	Runners  []metaRunner  `json:"runners"`
-	Workers  []metaWorker  `json:"workers"`
+	Projects  []metaProject `json:"projects"`
+	Agents    []metaAgent   `json:"agents"`
+	Runners   []metaRunner  `json:"runners"`
+	Workers   []metaWorker  `json:"workers"`
+	NavHidden []string      `json:"nav_hidden"`
 }
 
 // metaProject carries the per-project allowlists the form uses to constrain the
@@ -147,11 +150,23 @@ func (s *Server) handleMeta(c *rux.Context) {
 		}
 		runners = kept
 	}
+	navHidden := []string{}
+	if s.settings != nil {
+		value, err := s.settings.Get(settings.KeyWebNavHidden)
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "read navigation settings failed", err.Error())
+			return
+		}
+		if hidden, ok := value.([]string); ok {
+			navHidden = nonNil(hidden)
+		}
+	}
 	c.JSON(http.StatusOK, metaResp{
-		Projects: projects,
-		Agents:   s.metaAgents(),
-		Runners:  runners,
-		Workers:  workers,
+		Projects:  projects,
+		Agents:    s.metaAgents(),
+		Runners:   runners,
+		Workers:   workers,
+		NavHidden: navHidden,
 	})
 }
 

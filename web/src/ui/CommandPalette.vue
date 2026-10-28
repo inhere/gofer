@@ -8,7 +8,7 @@ import { useRouter } from 'vue-router'
 import { t } from '../i18n'
 import { paletteHits, parsePaletteQuery, SHELL_SHORTCUTS } from '../utils/shell'
 
-const props = defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean; hidden?: string[] }>()
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
 const router = useRouter()
@@ -16,7 +16,7 @@ const query = ref('')
 const active = ref(0)
 const inputEl = ref<HTMLInputElement | null>(null)
 
-const hits = computed(() => paletteHits(query.value, undefined, (key) => t(key)))
+const hits = computed(() => paletteHits(query.value, undefined, (key) => t(key), props.hidden ?? []))
 const project = computed(() => parsePaletteQuery(query.value).project)
 const shortcuts = SHELL_SHORTCUTS
 
@@ -120,7 +120,7 @@ onUnmounted(() => window.removeEventListener('keydown', onGlobalKey))
             @click="pick(hit.to)"
             @mouseenter="active = i"
           >
-            <span class="cp-name">{{ hit.label }}</span>
+            <span class="cp-name">{{ hit.label }}<small v-if="hit.hidden" class="cp-hidden">{{ t('palette.hidden') }}</small></span>
             <span class="cp-path">{{ hit.to }}</span>
           </button>
         </li>
