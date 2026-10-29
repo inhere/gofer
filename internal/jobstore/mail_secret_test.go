@@ -181,8 +181,8 @@ func TestRedactMailRewritesBodyAndSummaries(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("read the item back: ok=%t err=%v", ok, err)
 	}
-	if strings.Contains(itemText.Title, mailSecret) {
-		t.Fatalf("item text = %q, want the summary redacted too", itemText.Title)
+	if strings.Contains(itemText.Title, mailSecret) || strings.Contains(itemText.CaptureText, mailSecret) {
+		t.Fatal("item text must have the summary and full capture body redacted")
 	}
 	if !strings.Contains(itemText.Title, "#"+itoa(m.ID)) {
 		t.Fatalf("item text = %q, want the reference to the letter kept", itemText.Title)

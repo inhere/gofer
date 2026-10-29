@@ -16,6 +16,7 @@ type wItem struct {
 	ID           string   `json:"id"`
 	Title        string   `json:"title"`
 	Goal         string   `json:"goal"`
+	CaptureText  string   `json:"capture_text"`
 	Status       string   `json:"status"`
 	StatusSource string   `json:"status_source"`
 	Unsorted     bool     `json:"unsorted"`

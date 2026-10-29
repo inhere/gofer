@@ -215,10 +215,10 @@ function relativeCwd(c: string | undefined): string {
   return v
 }
 
-// newJobPrefill：prompt = 标题 + 目标（相同则只写一份）；项目取条目的 project_key；
+// newJobPrefill：prompt 优先带完整收集原文（旧条目仍用标题）和目标；项目取条目的 project_key；
 // 目录只在是项目相对路径时带上（绝对路径提交会被拒）。
-export function newJobPrefill(it: Pick<WorkItem, 'title' | 'goal' | 'project_key' | 'workspace'>): NewJobPrefill {
-  const title = (it.title ?? '').trim()
+export function newJobPrefill(it: Pick<WorkItem, 'title' | 'goal' | 'capture_text' | 'project_key' | 'workspace'>): NewJobPrefill {
+  const title = (it.capture_text || it.title || '').trim()
   const goal = (it.goal ?? '').trim()
   const prompt = goal && goal !== title ? (title ? `${title}\n\n${goal}` : goal) : title || goal
   return { prompt, project: it.project_key ?? '', cwd: relativeCwd(it.workspace) }

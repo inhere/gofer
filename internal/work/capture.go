@@ -56,8 +56,12 @@ func (s *Service) TargetQuery(id string) (TargetQuery, error) {
 	if !ok {
 		return TargetQuery{}, jobstore.ErrWorkItemNotFound
 	}
-	parts := []string{w.Title}
-	if g := strings.TrimSpace(w.Goal); g != "" && g != w.Title {
+	text := strings.TrimSpace(w.CaptureText)
+	if text == "" {
+		text = w.Title
+	}
+	parts := []string{text}
+	if g := strings.TrimSpace(w.Goal); g != "" && g != text {
 		parts = append(parts, g)
 	}
 	return TargetQuery{Text: strings.Join(parts, "\n"), Project: w.ProjectKey}, nil

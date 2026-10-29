@@ -553,6 +553,11 @@ onUnmounted(() => live.stop())
       <p v-if="!detail && loading" class="empty">{{ t('work.d.loading') }}</p>
 
       <template v-if="detail">
+        <section v-if="isCaptured || detail.capture_text" class="sec" data-test="capture-body">
+          <h4 class="sec-title">{{ t('work.d.captureText') }}</h4>
+          <div class="tl-text">{{ detail.capture_text || detail.title }}</div>
+        </section>
+
         <section v-if="isCaptured" class="sec" data-test="drawer-dispatch">
           <h4 class="sec-title">{{ t('work.d.inbox') }}</h4>
           <p class="hint">{{ t('work.d.inboxHint') }}</p>

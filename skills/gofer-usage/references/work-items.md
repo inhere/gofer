@@ -44,13 +44,15 @@ SessionStart prime 里也有这行提示。
 
 ## 命令
 
+随手记最多接受 2000 个 Unicode 字符；完整原文独立保存，标题只是首行摘要。打开 Web 详情可查看正文；交给会话、新建 job、转 todo / issue 时都会携带完整原文。超过限制会明确报错，不静默截断。旧条目没有保存的后半段无法补回。
+
 ```bash
 gofer work ls [--status needs_me,review] [--project p] [--workspace dir] [--query q] [--unsorted] [--due] [--all] [--json]
 #   列：ID STATUS SESS SEEN FLAGS TITLE；FLAGS: U=未整理草稿 D=提醒/搁置到期 O=会话已离线
 gofer work capture "<内容>" [--kind idea|issue|request|note] [--project p]   # 收集箱快速记录（status captured，kind 默认 note），打印 id；用 `gofer work ls --status captured` 看；来源会话取环境里的会话 id，job 凭据下记来源 job
 gofer work dispatch <id> --to session|job|todo|issue|archive|drop [--session sid] [--job jid] [--plan pid] [--tracker tid] [--title t]   # 分派收集箱条目（只对 captured）：session 给对方发一封信（出处同 `session mail send`，条目记信件 id；信件送达 / 被回复时把「已送达」与回复摘要写进条目日志，送不出去时条目留在收集箱）、job 关联已提交的 job（结束时终态写进日志）、todo 同 to-todo、issue 在 --tracker 仓库的 server 镜像里新建 issue（--title 缺省用条目标题）、archive 结案(done)、drop 丢弃；成功后条目按去向结束：todo / issue 为 `done`，archive 为 `done`，drop 为 `dropped`；session / job 仍为 `active` 以便继续处理，条目与 issue / todo / plan / 信件 的关联照旧保留；他人的会话/job/plan 需 session.reply.others / job.read.others / plan.manage.others
 
-> 转仓库 issue（`--to issue --tracker <id>`，web 收集箱的「转 issue」同此）：在该仓库的 server 镜像里新建 issue（kind 为 issue 记 bug，其余记 task）、关联条目并结案（`done`，日志「已转为 issue <id>」，条目与 issue 的关联保留，web 上仍能点到）；issue 带「待同步」标记，下次 `gofer repo sync` 才进仓库。仓库还没同步过（没有 id 前缀）时 409。**描述总是带收集原文**：`--title` 改短了标题也不会丢——条目标题原文、与标题不同的 goal、文本里的附图 / 附件引用都进描述，外加一行来源（谁收集、何时、来自哪个会话 / job / 收集箱 / 信箱、项目）和末行 `captured as work item <id>`；所以标题改写只影响标题，原文始终可在 issue 里查。
+> 转仓库 issue（`--to issue --tracker <id>`，web 收集箱的「转 issue」同此）：在该仓库的 server 镜像里新建 issue（kind 为 issue 记 bug，其余记 task）、关联条目并结案（`done`，日志「已转为 issue <id>」，条目与 issue 的关联保留，web 上仍能点到）；issue 带「待同步」标记，下次 `gofer repo sync` 才进仓库。仓库还没同步过（没有 id 前缀）时 409。**描述总是带收集原文**：`--title` 改短了标题也不会丢——完整收集原文、与原文不同的 goal、文本里的附图 / 附件引用都进描述，外加一行来源（谁收集、何时、来自哪个会话 / job / 收集箱 / 信箱、项目）和末行 `captured as work item <id>`；所以标题改写只影响标题，原文始终可在 issue 里查。
 gofer work show <id>                       # 字段（含来源）+ 会话 + 关联 + 日志 + 建议 + 请求；id 可用唯一前缀
 gofer work new "标题" [--goal ..] [--project ..] [--session <sid>]...
 gofer work set <id> [--title|--goal|--status|--blocker|--blocker-kind|--next|--summary|--project|--workspace|--priority N] [--auto] [--sorted] [--rev N]   # 值给 - 清空

@@ -117,6 +117,8 @@ const (
 	maxWorkTitle   = 200
 	maxWorkField   = 4000
 	maxWorkJournal = 16000
+	// maxCaptureText is the user-visible quick-capture limit, measured in Unicode code points.
+	maxCaptureText = 2000
 )
 
 // WorkItem is one thing the human is working on (design §4.1). Timestamps are unix
@@ -152,6 +154,7 @@ type WorkItem struct {
 	// is a plain field, not a work_item_sessions row, so SyncAll and the summarizer
 	// never take the item over.
 	Kind                 string `json:"kind,omitempty"`
+	CaptureText          string `json:"capture_text,omitempty"`
 	CaptureSourceSession string `json:"capture_source_session,omitempty"`
 	CaptureSourceJob     string `json:"capture_source_job,omitempty"`
 }
@@ -192,7 +195,7 @@ type WorkLink struct {
 const selectWorkCols = `SELECT id, title, goal, status, status_source, blocker_kind, blocker_text, next_step,
   summary, project_key, workspace, priority, park_until, park_note, remind_at, reminded_at, source, unsorted,
   merged_into, rev, created_at, updated_at, updated_by, closed_at, last_activity_at, status_at,
-  kind, capture_source_session, capture_source_job FROM work_items`
+  capture_text, kind, capture_source_session, capture_source_job FROM work_items`
 
 func scanWorkItem(sc rowScanner) (WorkItem, error) {
 	var w WorkItem
@@ -200,7 +203,7 @@ func scanWorkItem(sc rowScanner) (WorkItem, error) {
 	err := sc.Scan(&w.ID, &w.Title, &w.Goal, &w.Status, &w.StatusSource, &w.BlockerKind, &w.BlockerText,
 		&w.NextStep, &w.Summary, &w.ProjectKey, &w.Workspace, &w.Priority, &w.ParkUntil, &w.ParkNote,
 		&w.RemindAt, &w.RemindedAt, &w.Source, &unsorted, &w.MergedInto, &w.Rev, &w.CreatedAt, &w.UpdatedAt,
-		&w.UpdatedBy, &w.ClosedAt, &w.LastActivityAt, &w.StatusAt, &w.Kind, &w.CaptureSourceSession, &w.CaptureSourceJob)
+		&w.UpdatedBy, &w.ClosedAt, &w.LastActivityAt, &w.StatusAt, &w.CaptureText, &w.Kind, &w.CaptureSourceSession, &w.CaptureSourceJob)
 	w.Unsorted = unsorted != 0
 	return w, err
 }
@@ -345,27 +348,39 @@ type CaptureInput struct {
 }
 
 // CaptureWorkItem inserts a captured item: status captured, status_source human, the
-// kind and the source session / job. Kind must be idea|issue|request|note.
+// kind and the source session / job. The full user text is kept separately from the
+// short title so a capture can be handed over without losing its body.
 func (s *Store) CaptureWorkItem(in CaptureInput) (WorkItem, error) {
-	title := capText(in.Text, maxWorkTitle)
-	if title == "" {
+	text := strings.TrimSpace(in.Text)
+	if text == "" {
 		return WorkItem{}, fmt.Errorf("%w: text required", ErrWorkInvalid)
+	}
+	if utf8.RuneCountInString(text) > maxCaptureText {
+		return WorkItem{}, fmt.Errorf("%w: capture text exceeds %d characters", ErrWorkInvalid, maxCaptureText)
 	}
 	if !ValidWorkKind(in.Kind) {
 		return WorkItem{}, fmt.Errorf("%w: invalid kind %q", ErrWorkInvalid, in.Kind)
+	}
+	var title string
+	if strings.TrimSpace(in.By) == "mail" {
+		// Mail captures intentionally keep the compact multi-line delivery summary in the
+		// title for old callers that only render that field.
+		title = capText(text, maxWorkTitle)
+	} else {
+		title = capText(FirstLine(text, 120), maxWorkTitle)
 	}
 	defer s.emit(Change{Kind: ChangeWork})
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	w, err := s.createWorkItemLocked(s.db, WorkItemInput{
-		Title: in.Text, Status: WorkActive, ProjectKey: in.ProjectKey, Workspace: in.Workspace,
+		Title: title, Status: WorkActive, ProjectKey: in.ProjectKey, Workspace: in.Workspace,
 		Source: WorkOriginHuman, By: in.By, Note: "收集：" + in.Kind,
 	}, title, WorkCaptured, WorkOriginHuman)
 	if err != nil {
 		return WorkItem{}, err
 	}
-	if _, err := s.db.Exec(`UPDATE work_items SET kind=?, capture_source_session=?, capture_source_job=?, status_source=? WHERE id=?`,
-		in.Kind, strings.TrimSpace(in.SourceSession), strings.TrimSpace(in.SourceJob), WorkSourceHuman, w.ID); err != nil {
+	if _, err := s.db.Exec(`UPDATE work_items SET capture_text=?, kind=?, capture_source_session=?, capture_source_job=?, status_source=? WHERE id=?`,
+		text, in.Kind, strings.TrimSpace(in.SourceSession), strings.TrimSpace(in.SourceJob), WorkSourceHuman, w.ID); err != nil {
 		return WorkItem{}, fmt.Errorf("jobstore: capture work item: %w", err)
 	}
 	w, _, err = s.getWorkItemOn(s.db, w.ID)
@@ -534,8 +549,8 @@ func (s *Store) ListWorkItems(o WorkListOpts) ([]WorkItem, error) {
 	}
 	if q := strings.TrimSpace(o.Query); q != "" {
 		like := "%" + strings.ReplaceAll(strings.ReplaceAll(q, "%", `\%`), "_", `\_`) + "%"
-		where = append(where, `(title LIKE ? ESCAPE '\' OR goal LIKE ? ESCAPE '\' OR blocker_text LIKE ? ESCAPE '\' OR next_step LIKE ? ESCAPE '\')`)
-		args = append(args, like, like, like, like)
+		where = append(where, `(title LIKE ? ESCAPE '\' OR capture_text LIKE ? ESCAPE '\' OR goal LIKE ? ESCAPE '\' OR blocker_text LIKE ? ESCAPE '\' OR next_step LIKE ? ESCAPE '\')`)
+		args = append(args, like, like, like, like, like)
 	}
 	if o.Due {
 		now := o.Now

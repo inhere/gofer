@@ -118,6 +118,8 @@ describe('new job from an item', () => {
     })
     expect(newJobPrefill({ title: '只有标题', goal: '只有标题', workspace: '/abs/path' })).toEqual({ prompt: '只有标题', project: '', cwd: '' })
     expect(newJobPrefill({ title: '', goal: '只有目标' }).prompt).toBe('只有目标')
+    const text = '第一行\n\n' + '完整中文正文'.repeat(200)
+    expect(newJobPrefill({ title: '摘要', goal: '', capture_text: text }).prompt).toBe(text)
   })
   it('reads the query and builds the link', () => {
     expect(readFromItemQuery(['w-1', 'x'])).toBe('w-1')

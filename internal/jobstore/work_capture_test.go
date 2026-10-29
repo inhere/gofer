@@ -3,7 +3,9 @@ package jobstore
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gookit/goutil/x/assert"
@@ -35,6 +37,14 @@ func TestCaptureWorkItemInsert(t *testing.T) {
 	assert.Eq(t, WorkKindIdea, w.Kind)
 	assert.Eq(t, "sess-x", w.CaptureSourceSession)
 	assert.Eq(t, "job-x", w.CaptureSourceJob)
+	// The complete capture body is independent from the short title.
+	long := strings.Repeat("想法", 1000)
+	full := mustCapture(t, s, long)
+	assert.Eq(t, long, full.CaptureText)
+	assert.True(t, len([]rune(full.Title)) <= 121)
+	assert.True(t, strings.HasPrefix(full.Title, "想法想法"))
+	_, err := s.CaptureWorkItem(CaptureInput{Text: strings.Repeat("x", maxCaptureText+1), Kind: WorkKindNote})
+	assert.True(t, errors.Is(err, ErrWorkInvalid))
 	// The source session is a field only: nothing is attached.
 	ss, err := s.ListWorkItemSessions(w.ID)
 	assert.NoErr(t, err)
@@ -44,6 +54,41 @@ func TestCaptureWorkItemInsert(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrWorkInvalid))
 	_, err = s.CaptureWorkItem(CaptureInput{Text: " ", Kind: WorkKindNote})
 	assert.True(t, errors.Is(err, ErrWorkInvalid))
+}
+
+func TestCaptureWorkItemPreservesLongText(t *testing.T) {
+	for _, text := range []string{
+		strings.Repeat("想", 500),
+		strings.Repeat("想", 2000),
+		strings.Repeat("😀", 2000),
+		"第一行标题\n\n" + strings.Repeat("中文正文\n", 99) + "中文正文",
+	} {
+		t.Run(fmt.Sprint(len([]rune(text))), func(t *testing.T) {
+			s := openTest(t)
+			w := mustCapture(t, s, text)
+			assert.Eq(t, text, w.CaptureText)
+			assert.Eq(t, "", w.Goal)
+			got, ok, err := s.GetWorkItem(w.ID)
+			assert.NoErr(t, err)
+			assert.True(t, ok)
+			assert.Eq(t, text, got.CaptureText)
+			if strings.Contains(text, "\n") {
+				assert.Eq(t, "第一行标题", got.Title)
+				matched, err := s.ListWorkItems(WorkListOpts{Statuses: []string{WorkCaptured}, Query: "中文正文"})
+				assert.NoErr(t, err)
+				assert.Len(t, matched, 1)
+			}
+		})
+	}
+}
+
+func TestCaptureWorkItemRejectsOversizedTextWithoutWriting(t *testing.T) {
+	s := openTest(t)
+	_, err := s.CaptureWorkItem(CaptureInput{Text: strings.Repeat("想", 2001), Kind: WorkKindIdea})
+	assert.True(t, errors.Is(err, ErrWorkInvalid))
+	items, err := s.ListWorkItems(WorkListOpts{Statuses: []string{WorkCaptured}})
+	assert.NoErr(t, err)
+	assert.Len(t, items, 0)
 }
 
 func TestListWorkItemsCaptured(t *testing.T) {
@@ -179,13 +224,14 @@ func TestMigrateWorkItemsCaptureColumns(t *testing.T) {
 	s, err := Open(path)
 	assert.NoErr(t, err)
 	defer s.Close()
-	for _, col := range []string{"kind", "capture_source_session", "capture_source_job"} {
+	for _, col := range []string{"capture_text", "kind", "capture_source_session", "capture_source_job"} {
 		assert.True(t, tableHasColumn(t, s, "work_items", col), "work_items.%s", col)
 	}
 	w, ok, err := s.GetWorkItem("w-old")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, "旧条目", w.Title)
+	assert.Eq(t, "", w.CaptureText)
 	assert.Eq(t, "", w.Kind)
 	// Re-opening is idempotent.
 	assert.NoErr(t, s.migrate())

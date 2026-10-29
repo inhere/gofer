@@ -3430,8 +3430,9 @@ export interface WorkItem {
   source: 'auto' | 'human' | 'steward'
   // 自动生成、还没人整理的草稿
   unsorted: boolean
-  // 收集箱条目的类型与来源（仅 captured 条目有）
+  // 收集箱条目的类型、完整正文与来源（仅 captured 条目有）
   kind?: 'idea' | 'issue' | 'request' | 'note'
+  capture_text?: string
   capture_source_session?: string
   capture_source_job?: string
   merged_into?: string

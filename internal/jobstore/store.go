@@ -959,7 +959,8 @@ var schemaStmts = []string{
   updated_by       TEXT NOT NULL DEFAULT '',
   closed_at        INTEGER NOT NULL DEFAULT 0,
   last_activity_at INTEGER NOT NULL DEFAULT 0,
-  status_at        INTEGER NOT NULL DEFAULT 0
+  status_at        INTEGER NOT NULL DEFAULT 0,
+  capture_text     TEXT NOT NULL DEFAULT ''
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_work_items_status ON work_items(status, updated_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_key)`,
@@ -2375,13 +2376,14 @@ func (s *Store) migrateXfers() error {
 }
 
 // migrateWorkItems adds the capture-box columns (additive; kind is empty for items
-// that were not captured).
+// that were not captured). capture_text is the full body of a quick capture; old rows
+// remain empty because the previous implementation never persisted that body.
 func (s *Store) migrateWorkItems() error {
 	cols, err := s.tableColumns("work_items")
 	if err != nil {
 		return err
 	}
-	for _, c := range []string{"kind", "capture_source_session", "capture_source_job"} {
+	for _, c := range []string{"capture_text", "kind", "capture_source_session", "capture_source_job"} {
 		if _, ok := cols[c]; ok {
 			continue
 		}

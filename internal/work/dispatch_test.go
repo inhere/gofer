@@ -13,6 +13,31 @@ import (
 	"github.com/inhere/gofer/internal/tracker"
 )
 
+func TestCaptureLongBodyFlowsToDispatch(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	withIssueRepo(t, st)
+	text := "标题\n\n" + strings.Repeat("完整中文正文", 200)
+	w := mustCaptured(t, st, text)
+	captured, err := svc.Captured(w.ID)
+	assert.NoErr(t, err)
+	assert.Eq(t, text, captured.Text)
+	query, err := svc.TargetQuery(w.ID)
+	assert.NoErr(t, err)
+	assert.Eq(t, text, query.Text)
+
+	res, _, err := svc.DispatchToTodo(w.ID, ToTodoInput{By: "human:a"})
+	assert.NoErr(t, err)
+	todo, ok, err := st.GetTodo(res.TodoID)
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.True(t, strings.Contains(todo.Note, text))
+
+	w = mustCaptured(t, st, text)
+	rec, _, err := svc.DispatchToIssue(w.ID, "r1", "改写标题", "human:a")
+	assert.NoErr(t, err)
+	assert.True(t, strings.Contains(issueOf(t, rec).Description, text))
+}
+
 func TestDispatchToIssueRewrittenTitleKeepsCapturedText(t *testing.T) {
 	svc, st, _ := newSvc(t)
 	withIssueRepo(t, st)

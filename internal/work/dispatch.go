@@ -49,7 +49,10 @@ func (s *Service) Captured(id string) (CapturedItem, error) {
 	if w.Status != jobstore.WorkCaptured {
 		return CapturedItem{}, fmt.Errorf("%w: %s is %s", ErrNotCaptured, w.ID, w.Status)
 	}
-	text := strings.TrimSpace(w.Title)
+	text := strings.TrimSpace(w.CaptureText)
+	if text == "" {
+		text = strings.TrimSpace(w.Title)
+	}
 	if g := strings.TrimSpace(w.Goal); g != "" && g != text {
 		text += "\n\n" + g
 	}
@@ -166,7 +169,10 @@ func (s *Service) DispatchToIssue(id, trackerID, titleOverride, by string) (jobs
 // came from (who, when, which session / job, project) is recorded. The last line is always the
 // captured-item marker.
 func (s *Service) issueDescription(w jobstore.WorkItem, title string) string {
-	orig, goal := strings.TrimSpace(w.Title), strings.TrimSpace(w.Goal)
+	orig, goal := strings.TrimSpace(w.CaptureText), strings.TrimSpace(w.Goal)
+	if orig == "" {
+		orig = strings.TrimSpace(w.Title)
+	}
 	parts := []string{}
 	if orig != "" && orig != title {
 		parts = append(parts, orig)

@@ -130,11 +130,18 @@ func (s *Service) ToTodo(id string, in ToTodoInput) (ToTodoResult, error) {
 	return res, nil
 }
 
-// todoNote is the todo description built from the item: goal, then the next step.
+// todoNote is the todo description: original capture, goal, then the next step.
 func todoNote(w jobstore.WorkItem) string {
 	var parts []string
-	if g := strings.TrimSpace(w.Goal); g != "" {
-		parts = append(parts, g)
+	text := strings.TrimSpace(w.CaptureText)
+	if text == "" {
+		text = strings.TrimSpace(w.Title)
+	}
+	if text != "" {
+		parts = append(parts, text)
+	}
+	if goal := strings.TrimSpace(w.Goal); goal != "" && goal != text {
+		parts = append(parts, goal)
 	}
 	if n := strings.TrimSpace(w.NextStep); n != "" {
 		parts = append(parts, "下一步: "+n)

@@ -32,6 +32,13 @@ describe('capture kinds and form', () => {
     expect(buildCaptureRequest({ text: '  ', kind: 'note', project: '' }).error).not.toBe('')
     expect(buildCaptureRequest({ text: 'x', kind: 'bogus', project: '' }).req).toBeNull()
   })
+  it('rejects oversized captures without trimming their content and counts emoji as characters', () => {
+    const form = { kind: 'note', project: '' }
+    const text = '😀'.repeat(2000)
+    expect(buildCaptureRequest({ ...form, text }).req?.text).toBe(text)
+    expect(buildCaptureRequest({ ...form, text: text + '字' }).req).toBeNull()
+    expect(buildCaptureRequest({ ...form, text: '中'.repeat(500) }).req?.text).toHaveLength(500)
+  })
   it('builds a trimmed request and omits an empty project', () => {
     expect(buildCaptureRequest({ text: ' 加个导出 ', kind: 'idea', project: ' ' }).req).toEqual({ text: '加个导出', kind: 'idea' })
     expect(buildCaptureRequest({ text: 'a', kind: 'issue', project: ' gofer ' }).req).toEqual({ text: 'a', kind: 'issue', project: 'gofer' })

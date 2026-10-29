@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 const mods = import.meta.glob(
-  ['../views/Work.vue', '../views/Board.vue', '../App.vue', '../ui/AppShell.vue', '../components/QuickCapture.vue', '../components/SessionTopic.vue', '../components/today/DecisionCard.vue', '../api/client.ts', '../store/today.ts'],
+  ['../views/Work.vue', '../views/Board.vue', '../App.vue', '../ui/AppShell.vue', '../components/QuickCapture.vue', '../components/WorkDrawer.vue', '../components/SessionTopic.vue', '../components/today/DecisionCard.vue', '../api/client.ts', '../store/today.ts'],
   { eager: true, query: '?raw', import: 'default' },
 ) as Record<string, string>
 const src = (n: string): string => {
@@ -32,6 +32,14 @@ describe('capture box wiring', () => {
     expect(q).toContain('data-test="quick-capture-link"')
     expect(q).toContain('CAPTURE_BOX_LINK')
     expect(src('client.ts')).toContain("'/v1/work-items/capture'")
+  })
+  it('shows the full body in detail, including after dispatch, and falls back for old records', () => {
+    const drawer = src('WorkDrawer.vue')
+    expect(drawer).toContain('isCaptured || detail.capture_text')
+    expect(drawer).toContain('detail.capture_text || detail.title')
+    // A textarea maxlength counts UTF-16 code units and silently clips pasted text.
+    // Use the code-point validator instead; rejected text stays in the form.
+    expect(src('QuickCapture.vue')).not.toContain(':maxlength=')
   })
   it('Today card navigates through actionLink; topic editor has a clear action', () => {
     expect(src('DecisionCard.vue')).toContain('actionLink(props.card, a)')

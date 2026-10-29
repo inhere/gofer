@@ -11,7 +11,6 @@ import {
   buildCaptureRequest,
   CAPTURE_BOX_LINK,
   CAPTURE_KINDS,
-  CAPTURE_TEXT_MAX,
   captureKindLabel,
   DEFAULT_CAPTURE_KIND,
 } from '../utils/capture'
@@ -87,7 +86,6 @@ onBeforeUnmount(() => clearTimeout(doneTimer))
           v-model="text"
           class="qc-text"
           rows="4"
-          :maxlength="CAPTURE_TEXT_MAX"
           :placeholder="t('common.quickCapture.placeholder')"
           data-test="quick-capture-text"
         ></textarea>

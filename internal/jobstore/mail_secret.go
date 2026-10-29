@@ -252,6 +252,7 @@ func redactMailText(tx *sql.Tx, id int64, literals []string, patterns []*regexp.
 // its reply summary with it.
 var mailReferenceSources = []struct{ table, column string }{
 	{"work_items", "title"},
+	{"work_items", "capture_text"},
 	{"work_journal", "text"},
 }
 
