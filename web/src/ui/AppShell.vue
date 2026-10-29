@@ -304,7 +304,7 @@ onUnmounted(() => {
             <Icon :icon="Plus" size="sm" />
             <span class="new-job-label">{{ t('act.newJob') }}</span>
           </RouterLink>
-          <QuickCapture v-if="!hasTabBar(form)" />
+          <QuickCapture />
           <MailButton />
           <ThemeToggle />
           <LangToggle v-if="!hasTabBar(form)" />

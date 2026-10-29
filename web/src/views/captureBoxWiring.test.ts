@@ -26,7 +26,8 @@ describe('capture box wiring', () => {
     expect(b).not.toContain('listWorkItems')
   })
   it('the top bar mounts the quick capture which posts to the capture route', () => {
-    expect(src('AppShell.vue')).toContain('<QuickCapture')
+    expect(src('AppShell.vue')).toContain('<QuickCapture />')
+    expect(src('AppShell.vue')).not.toContain('<QuickCapture v-if=')
     const q = src('QuickCapture.vue')
     expect(q).toContain('captureWorkItem(built.req)')
     expect(q).toContain('data-test="quick-capture-link"')
