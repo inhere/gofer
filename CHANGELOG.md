@@ -27,6 +27,11 @@
 - **job 与附件默认目录调整**：未显式配置存储路径时，job 结果改写入项目根 `.gofer/jobs/<job-id>`，工作台附件改写入 `.gofer/attachments/<日期>`；显式配置 `storage.root`、交换 / 结果子目录或项目 `exchange_subdir` / `result_subdir` 的行为不变。已有 job 的绝对 `result_dir` 不迁移；旧 `tmp/gofer-attachments` 附件会在后续 7 天清理周期内自然清空。
 - **交付核验契约（P0）**：`job run --check-prompt`、HTTP / MCP、任务书模板与计划待办可携带有界的交付核验要求；新增 `server.delivery_check` 与后台 agent 会话轮换配置，并为核验结果与后台会话记录准备可升级的存储结构。`check_prompt_source`（explicit / prompt_block）标记要求来源，`server.delivery_check.include_acceptance` 默认 true；当前版本仅定义契约与持久化，不会调用检查 agent。
 
+### 修复
+
+- **没有对应 SubagentStart 的 SubagentStop 不再放开 Stop 等待**（gofer-m80j）：Claude Code 会为它没宣布过的旁路查询发 SubagentStop，server 以前把它当成「最后一个子 agent 结束」，把 relay=on 会话刚开的等待轮 expire 掉并改成 idle，之后没有任何 hook 在等，web 传话切不进去。现在按子 agent id 配对，只有确实在跟踪的子 agent 结束且没有剩余时才放开（gofer-7lac 行为不变）。
+- **真正被子 agent 结束放开后 web 传话不再 409**（gofer-m80j）：会话视图带 `released_by=subagent_done` / `released_at`（web 会话抽屉显示「等待已被子 agent 结束放开」），此时对已放开那一轮的 `say` 改走传话通道开启新一轮；下一次 UserPromptSubmit / Stop 到来或超过 1 小时后标记清除。
+
 ### 新增
 
 - **工作流执行记录关联来源模板**：`wf run --template`、`POST /v1/workflows {template}` 与 web 向导提交的执行记录会记下模板名与来源（`template` / `template_source`，直接提交 spec 的为空；workflows 表 additive 迁移）。`GET /v1/workflows` 支持 `?template=` 过滤，`gofer wf ls --template <name>` 同；`GET /v1/workflow-templates` 每项附带 `runs`（执行次数）与 `last_run`（最近一次的 id / 状态 / 开始 / 结束时间，只计调用方可见的执行），`gofer wf template ls` 显示次数与最近一次状态。

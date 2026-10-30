@@ -729,6 +729,9 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	if in.Event == EventSessionStart || in.Event == EventSessionEnd {
 		s.subagents.clear(sid)
 	}
+	if clearsSubagentRelease(in.Event) {
+		s.subagents.clearReleased(sid)
+	}
 	if in.Event == EventStop {
 		s.ClaimSupervisedJobs(a)
 	}

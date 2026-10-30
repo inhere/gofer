@@ -1,6 +1,7 @@
 package sessionrelay
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -138,4 +139,84 @@ func TestWaitBudgetSec(t *testing.T) {
 	assert.Eq(t, 0, s.WaitBudgetSec(""))
 	s.SetWaitBudgets(0, 0)
 	assert.Eq(t, 0, s.WaitBudgetSec(WaitModeOn))
+}
+
+// gofer-m80j: a Stop wait let go by the last sub-agent's end leaves the session idle with
+// nothing waiting. The release is remembered until a turn event shows the main agent ran
+// again, and a text aimed at the released turn goes through the message ladder.
+func TestSubagentReleaseMarkAndSayReleased(t *testing.T) {
+	s := newSvc(t)
+	f := &residentFake{}
+	s.SetMessenger(f)
+	_, err := s.Register(RegisterInput{SessionID: "se", Agent: "claude", ProjectKey: "self", Runner: "builder",
+		PeerName: "proj-c", PeerMessaging: true, Event: EventSessionStart})
+	assert.NoErr(t, err)
+	_, err = s.SetRelayMode("se", jobstore.RelayModeOn)
+	assert.NoErr(t, err)
+
+	// no release yet: Say's "no open turn" stays the caller's answer
+	_, handled, err := s.SayReleased(context.Background(), "se", "x", "alice", "alice")
+	assert.NoErr(t, err)
+	assert.False(t, handled)
+
+	_, err = s.OpenTurn("se", "q", 600)
+	assert.NoErr(t, err)
+	subBeat(t, s, "se", EventSubagentStart, "a1")
+	subBeat(t, s, "se", EventSubagentStop, "a1")
+	assert.True(t, s.SubagentReleasedAt("se") > 0)
+	_, err = s.Say("se", "x", "alice")
+	assert.ErrIs(t, err, ErrNoOpenTurn)
+
+	m, handled, err := s.SayReleased(context.Background(), "se", "继续", "alice", "alice")
+	assert.NoErr(t, err)
+	assert.True(t, handled)
+	assert.Eq(t, jobstore.SessionMessageDelivered, m.Status)
+	assert.Eq(t, 1, f.submitted)
+
+	// the next turn event proves the main agent ran: the mark is gone
+	_, err = s.Heartbeat("se", HeartbeatInput{Event: EventUserPromptSubmit, Injected: true})
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(0), s.SubagentReleasedAt("se"))
+
+	// a release nobody follows up expires
+	now := time.Now()
+	s.nowFn = func() time.Time { return now }
+	s.subagents.markReleased("se", now.Unix())
+	assert.True(t, s.SubagentReleasedAt("se") > 0)
+	now = now.Add(SubagentReleaseTTL + time.Minute)
+	assert.Eq(t, int64(0), s.SubagentReleasedAt("se"))
+}
+
+// gofer-m80j: Claude Code raises SubagentStop for side queries it never announced with a
+// SubagentStart. Such an unpaired stop must not end the main agent's Stop wait, move the
+// session off waiting_reply, or leave a release mark; a tracked sub-agent's last stop
+// still does (TestSubagentStopReleasesExplicitOnTurn).
+func TestSubagentUnpairedStopKeepsTurnOpen(t *testing.T) {
+	s := newSvc(t)
+	_, err := s.Register(RegisterInput{SessionID: "sf", Agent: "claude"})
+	assert.NoErr(t, err)
+	_, err = s.SetRelayMode("sf", jobstore.RelayModeOn)
+	assert.NoErr(t, err)
+	d, err := s.OpenTurn("sf", "q", 600)
+	assert.NoErr(t, err)
+	before, _, _ := s.store.GetAgentSession("sf")
+
+	subBeat(t, s, "sf", EventSubagentStop, "never-started")
+	subBeat(t, s, "sf", EventSubagentStop, "") // id-less, nothing anonymous tracked either
+	got, _, _ := s.store.GetDecision(d.ID)
+	assert.Eq(t, jobstore.DecisionOpen, got.State)
+	row, _, _ := s.store.GetAgentSession("sf")
+	assert.Eq(t, before.State, row.State)
+	assert.Eq(t, int64(0), s.SubagentReleasedAt("sf"))
+
+	// a stop for an unknown id while another sub-agent runs does not end that one
+	subBeat(t, s, "sf", EventSubagentStart, "a1")
+	subBeat(t, s, "sf", EventSubagentStop, "other")
+	assert.Eq(t, 1, s.SubagentCount("sf"))
+	got, _, _ = s.store.GetDecision(d.ID)
+	assert.Eq(t, jobstore.DecisionOpen, got.State)
+
+	subBeat(t, s, "sf", EventSubagentStop, "a1")
+	got, _, _ = s.store.GetDecision(d.ID)
+	assert.Eq(t, jobstore.DecisionExpired, got.State)
 }
