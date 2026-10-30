@@ -225,7 +225,7 @@ type JobRecord struct {
 	TimeoutClamped      bool
 	// TimeoutLimitSource is which ceiling bound the deadline: project | server ("" = unknown).
 	TimeoutLimitSource string
-	// WT-01 受管 worktree：job 在 <repo top>/tmp/gofer/wt/<job-id> 的独立 worktree 中执行，
+	// WT-01 受管 worktree：job 在 <repo top>/.worktrees/<name> 的独立 worktree 中执行，
 	// 提交落在分支 gofer/<job-id> 上。WorktreePath/Branch 是交付物位置，BaseSHA=基线提交，
 	// HeadSHA/CommitsAhead=终态时该分支的 HEAD 与领先基线的提交数。非 worktree job 为空/0
 	// （旧库经 selectCols COALESCE 成 ""/0）；与 job.JobResult 同名字段互转，供 job show /

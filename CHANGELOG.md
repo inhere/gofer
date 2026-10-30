@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 变更
+
+- **worktree 默认位置调整**：未显式配置 `worktree.dir` 时改为 `<git 顶层>/.worktrees/<name>`（未给 name 时使用 job id）；显式配置不受影响，已有 `tmp/gofer/wt` worktree 仍可列出、合并与清理。创建默认 worktree 时，gofer 会把 `/.worktrees/` 加入仓库公共 git 目录的本地 `info/exclude`，不修改用户跟踪的 `.gitignore`。
+
 ## [0.203.1] - 2026-10-29
 
 ### 修复

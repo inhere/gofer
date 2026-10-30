@@ -27,8 +27,7 @@ gofer job run -p workspace -a codex --worktree --worktree-base v1.2.0 --prompt "
 
 ## job 里发生了什么
 
-- 执行目录：`<仓库顶层>/tmp/gofer/wt/<job-id>`，分支 `gofer/<job-id>`（`tmp/` 已在项目中
-  被忽略，主 checkout 的 `git status` 不会因此变脏）。嵌套仓库命中**最近**的顶层。
+- 执行目录：`<仓库顶层>/.worktrees/<job-id>`，分支 `gofer/<job-id>`（gofer 会将 `/.worktrees/` 写入公共 git 目录的本地 `info/exclude`，主 checkout 的 `git status` 不会因此变脏）。嵌套仓库命中**最近**的顶层。
 - cwd：`--cwd` 仍相对项目根，按相同子路径映射进 worktree（`--cwd sub` → `<worktree>/sub`）。
 - 环境变量：`GOFER_WORKTREE`（worktree 路径）、`GOFER_WORKTREE_BRANCH`（`gofer/<job-id>`）、
   `GOFER_WORKTREE_BASE`（基线 **sha**，不是 ref 名）。agent 可据此定位自己的分支。

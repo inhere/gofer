@@ -186,8 +186,7 @@ func TestRefJobCancelStillCleansUp(t *testing.T) {
 }
 
 // assertTempCheckoutGone checks that no temporary checkout of the repository survived: the
-// <top>/tmp/gofer/wt tree is empty (the fixture's tmp/ is ignored, so this never trips on
-// unrelated files) and git no longer lists a worktree there.
+// <top>/.worktrees tree is empty and git no longer lists a worktree there.
 func assertTempCheckoutGone(t *testing.T, repo string) {
 	t.Helper()
 	wtRoot := filepath.Join(repo, filepath.FromSlash(worktreeSubdir))

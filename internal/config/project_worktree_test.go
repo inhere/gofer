@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestProjectWorktreeRenderDefaults proves an unconfigured project keeps the historical
-// layout: tmp/gofer/wt/{job_id} on branch gofer/{job_id}, no links.
+// TestProjectWorktreeRenderDefaults proves an unconfigured project uses the repository-local
+// layout: .worktrees/{name} on branch gofer/{job_id}, no links.
 func TestProjectWorktreeRenderDefaults(t *testing.T) {
 	var p ProjectConfig
-	if got, want := p.RenderWorktreeDir("", "j-1"), "tmp/gofer/wt/j-1"; got != want {
+	if got, want := p.RenderWorktreeDir("", "j-1"), ".worktrees/j-1"; got != want {
 		t.Fatalf("dir = %q, want %q", got, want)
 	}
 	if got, want := p.RenderWorktreeBranch("", "j-1"), "gofer/j-1"; got != want {
@@ -29,7 +29,7 @@ func TestProjectWorktreeSectionsDefaultIndependently(t *testing.T) {
 		t.Fatalf("branch with only dir set = %q, want %q", got, want)
 	}
 	onlyBranch := ProjectConfig{Worktree: &ProjectWorktree{Branch: "feat/{name}"}}
-	if got, want := onlyBranch.RenderWorktreeDir("t", "j-1"), "tmp/gofer/wt/j-1"; got != want {
+	if got, want := onlyBranch.RenderWorktreeDir("t", "j-1"), ".worktrees/t"; got != want {
 		t.Fatalf("dir with only branch set = %q, want %q", got, want)
 	}
 }

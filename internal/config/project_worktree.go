@@ -9,12 +9,11 @@ import (
 // Worktree 模板（WT-01 扩展，2026-10-21 design「一、worktree 的位置、分支名与依赖链接」）。
 //
 // 项目的 `worktree:` 段只描述「本项目的 --worktree job 落在哪、分支叫什么、从主 checkout
-// 链接哪些目录过来」，默认值即历史行为（`tmp/gofer/wt/{job_id}` / `gofer/{job_id}`），
-// 因此老配置完全不受影响。模板展开在提交侧完成（见 job.worktreeOptionsFor），执行机拿到
-// 的是已解析好的路径与分支。
+// 链接哪些目录过来」，默认值为仓库顶层的 `.worktrees/{name}`（{name} 未给时为 job id）。
+// 模板展开在提交侧完成（见 job.worktreeOptionsFor），执行机拿到的是已解析好的路径与分支。
 const (
 	// DefaultWorktreeDir 是项目没配 worktree.dir 时的落点模板（相对仓库顶层）。
-	DefaultWorktreeDir = "tmp/gofer/wt/{job_id}"
+	DefaultWorktreeDir = ".worktrees/{name}"
 	// DefaultWorktreeBranch 是项目没配 worktree.branch 时的分支模板，完整名 gofer/<job-id>。
 	DefaultWorktreeBranch = "gofer/{job_id}"
 	// worktreeNamePlaceholder / worktreeJobIDPlaceholder 是模板里仅有的两个占位符。

@@ -70,8 +70,27 @@ func TestSweepStaleTempCheckouts(t *testing.T) {
 	}
 }
 
+func TestSweepStaleTempCheckoutsRecognizesLegacyDefault(t *testing.T) {
+	repo, head := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	path := filepath.Join(repo, filepath.FromSlash(legacyWorktreeSubdir), "legacy-job")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitOutIn(t, repo, "worktree", "add", "--detach", path, head)
+	if err := s.meta.UpsertJob(jobstore.JobRecord{ID: "legacy-job", Status: StatusFailed, Cwd: ".", ResultDir: filepath.Join(t.TempDir(), "legacy")}); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.SweepStaleTempCheckouts(t.Context()); n != 1 {
+		t.Fatalf("swept %d legacy checkout(s), want 1", n)
+	}
+	if isDir(path) {
+		t.Fatal("legacy stale checkout survived the sweep")
+	}
+}
+
 // TestSweepStaleTempCheckoutsUsesProjectWorktreeDir is the gofer-bgkk regression: the
-// sweep used to look at the DEFAULT `tmp/gofer/wt` only, so a project that puts its
+// sweep used to look at only one hard-coded default, so a project that puts its
 // checkouts in `.worktrees/job-{job_id}` (gofer's own config) never had a leftover
 // reclaimed — nine of them survived several restarts. The scan must follow the project's
 // worktree.dir template, read the job id back out of the dir name, and leave a branch
