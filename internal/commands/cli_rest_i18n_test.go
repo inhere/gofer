@@ -25,7 +25,7 @@ var (
 // restHelpRoots are the command subtrees this step migrates.
 var restHelpRoots = []string{
 	"agent", "auth", "hook", "issue", "mcp", "memory", "repo", "schedule",
-	"settings", "steward", "template", "tool", "tunnel", "work", "workflow", "doctor",
+	"settings", "steward", "template", "tool", "tunnel", "work", "workflow", "doctor", "refs",
 }
 
 // TestZhRestCliHelpIsUnchanged pins the zh-CN help text (descriptions, help,
