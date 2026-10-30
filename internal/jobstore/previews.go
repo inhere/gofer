@@ -94,6 +94,13 @@ func (s *Store) ClosePreviewsForJob(jobID, reason string, at int64) error {
 	_, e := s.db.Exec(`UPDATE job_previews SET state='job_ended',close_reason=?,closed_at=? WHERE job_id=? AND state='active'`, reason, at, jobID)
 	return e
 }
+
+// CloseActivePreviews ends every lease still marked active. A new process holds none of
+// their listeners (they lived in the previous serve), so they are dead whatever they say.
+func (s *Store) CloseActivePreviews(reason string, at int64) error {
+	_, e := s.db.Exec(`UPDATE job_previews SET state='closed',close_reason=?,closed_at=? WHERE state='active'`, reason, at)
+	return e
+}
 func (s *Store) ExpirePreviews(at int64) error {
 	_, e := s.db.Exec(`UPDATE job_previews SET state='expired',close_reason='expired',closed_at=? WHERE state='active' AND expires_at<=?`, at, at)
 	return e

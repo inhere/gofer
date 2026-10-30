@@ -257,7 +257,7 @@ func NewJobCmd() *gcli.Command {
 			},
 			{
 				Name: "preview",
-				Desc: "Expose a local port for a running job",
+				Desc: cliText("cli.job.desc.preview"),
 				Subs: []*gcli.Command{newJobPreviewOpenCmd(), newJobPreviewListCmd(), newJobPreviewCloseCmd()},
 			},
 			{
