@@ -894,6 +894,16 @@ func configMap(cfg *config.Config) map[string]any {
 	}
 	c := config.CanonicalConfig(cfg)
 	config.ApplyDefaults(c)
+	// Storage fields are compared as effective values, not as authored fields. The
+	// loader intentionally leaves these empty so path resolution can distinguish an
+	// explicit legacy layout from the new defaults; reload diffing must not report that
+	// representation detail as a storage change.
+	if c.Storage.DefaultExchangeSubdir == "" {
+		c.Storage.DefaultExchangeSubdir = config.DefaultExchangeSubdir
+	}
+	if c.Storage.DefaultResultSubdir == "" {
+		c.Storage.DefaultResultSubdir = config.DefaultResultSubdir
+	}
 	c.Include = nil
 	c.Agents = agent.EffectiveAgents(c)
 	for k, p := range c.Projects {
