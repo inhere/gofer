@@ -1380,6 +1380,15 @@ func (s *Store) applySchema() error {
 // in schemaStmts) because it references request_id, which does not exist on a
 // pre-existing C1 database until the ALTER below runs. Idempotent on every Open.
 func (s *Store) migrate() error {
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS inbox_item_state (
+		caller_id TEXT NOT NULL, item_key TEXT NOT NULL, column_name TEXT NOT NULL,
+		source_revision TEXT NOT NULL, seen_at INTEGER, cleared_at INTEGER, restored_at INTEGER,
+		updated_at INTEGER NOT NULL, PRIMARY KEY (caller_id, item_key))`); err != nil {
+		return fmt.Errorf("jobstore: migrate inbox item state: %w", err)
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_inbox_state_caller_updated ON inbox_item_state(caller_id, updated_at DESC)`); err != nil {
+		return fmt.Errorf("jobstore: migrate inbox state index: %w", err)
+	}
 	cols, err := s.tableColumns("jobs")
 	if err != nil {
 		return err

@@ -387,6 +387,16 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	out.DecisionHooks = cloneDecisionHooks(sc.DecisionHooks)
 	out.Update.Enabled = clonePtr(sc.Update.Enabled)
 	out.WorkerEnrollment = sc.WorkerEnrollment.clone()
+	if sc.Inbox != nil {
+		i := *sc.Inbox
+		i.Rules = slices.Clone(sc.Inbox.Rules)
+		for n := range i.Rules {
+			i.Rules[n].Kinds = slices.Clone(i.Rules[n].Kinds)
+			i.Rules[n].Events = slices.Clone(i.Rules[n].Events)
+			i.Rules[n].Projects = slices.Clone(i.Rules[n].Projects)
+		}
+		out.Inbox = &i
+	}
 	if sc.Notification != nil {
 		n := *sc.Notification
 		n.AllowHosts = slices.Clone(sc.Notification.AllowHosts)
@@ -606,6 +616,82 @@ func EffectiveSubmitAgents(list []string) []string {
 	return slices.Clone(list)
 }
 
+// InboxRule is one structured server-side rule for the Today inbox projection.
+type InboxRule struct {
+	ID          string   `yaml:"id" json:"id"`
+	Column      string   `yaml:"column" json:"column"`
+	Kinds       []string `yaml:"kinds,omitempty" json:"kinds,omitempty"`
+	Events      []string `yaml:"events,omitempty" json:"events,omitempty"`
+	Projects    []string `yaml:"projects,omitempty" json:"projects,omitempty"`
+	Priority    int      `yaml:"priority" json:"priority"`
+	IncludeExec bool     `yaml:"include_exec,omitempty" json:"include_exec,omitempty"`
+}
+
+// InboxConfig controls the personal inbox projection. Notification switches do not affect it.
+type InboxConfig struct {
+	Enabled bool        `yaml:"enabled,omitempty" json:"enabled"`
+	Rules   []InboxRule `yaml:"rules,omitempty" json:"rules,omitempty"`
+}
+
+// DefaultInboxRules returns the shipped two-column policy.
+func DefaultInboxRules() []InboxRule {
+	return []InboxRule{
+		{ID: "action", Column: "action", Kinds: []string{"interaction", "decision", "relay", "permission", "approval", "work", "plan_blocked", "mail_held", "review", "capture", "suggestion", "merge", "memory"}, Priority: 100, IncludeExec: true},
+		{ID: "fyi", Column: "fyi", Kinds: []string{"job.terminal", "work.digest", "activity", "comment", "agent.reply", "lane"}, Priority: 90, IncludeExec: true},
+	}
+}
+
+// ValidateInbox checks the declarative rule vocabulary and deterministic ordering.
+func ValidateInbox(in *InboxConfig) error {
+	if in == nil {
+		return nil
+	}
+	knownColumns := map[string]bool{"action": true, "fyi": true}
+	knownKinds := map[string]bool{}
+	knownEvents := map[string]bool{"interaction.created": true, "session.awaiting_reply": true, "job.awaiting_approval": true, "plan.blocked": true, "work.needs_me": true, "job.needs_review": true, "job.terminal": true, "work.digest": true, "activity.created": true, "comment.created": true, "agent.reply": true, "lane.health": true}
+	for _, r := range DefaultInboxRules() {
+		for _, k := range r.Kinds {
+			knownKinds[k] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, r := range in.Rules {
+		if strings.TrimSpace(r.ID) == "" || seen[r.ID] {
+			return fmt.Errorf("server.inbox.rules: duplicate or empty id %q", r.ID)
+		}
+		seen[r.ID] = true
+		for _, prior := range in.Rules {
+			if prior.ID == r.ID || prior.Priority != r.Priority || prior.Column == r.Column {
+				continue
+			}
+			for _, a := range prior.Kinds {
+				for _, b := range r.Kinds {
+					if a == b {
+						return fmt.Errorf("server.inbox.rules: priority %d has overlapping rules %q and %q", r.Priority, prior.ID, r.ID)
+					}
+				}
+			}
+		}
+		if !knownColumns[r.Column] {
+			return fmt.Errorf("server.inbox.rules[%s]: unknown column %q", r.ID, r.Column)
+		}
+		if r.Priority == 0 {
+			return fmt.Errorf("server.inbox.rules[%s]: priority must not be zero", r.ID)
+		}
+		for _, k := range r.Kinds {
+			if !knownKinds[k] {
+				return fmt.Errorf("server.inbox.rules[%s]: unknown kind %q", r.ID, k)
+			}
+		}
+		for _, e := range r.Events {
+			if !knownEvents[e] {
+				return fmt.Errorf("server.inbox.rules[%s]: unknown event %q", r.ID, e)
+			}
+		}
+	}
+	return nil
+}
+
 // ServerConfig holds HTTP server and auth settings.
 type ServerConfig struct {
 	Addr            string `yaml:"addr,omitempty"`
@@ -653,6 +739,8 @@ type ServerConfig struct {
 	// without a `notification` block. When present it lists the webhook targets,
 	// the outbound host allowlist and the retry cap.
 	Notification *NotificationConfig `yaml:"notification,omitempty"`
+	// Inbox is the independent Today two-column projection and personal read state policy.
+	Inbox *InboxConfig `yaml:"inbox,omitempty"`
 	// EventHooks are the AUTO-04 server-side event hooks: commands run on this host
 	// when a matching event happens (the generic webhook JSON on stdin). Separate from
 	// Notification on purpose — the notification pause switches do not apply to them —

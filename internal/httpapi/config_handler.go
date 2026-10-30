@@ -60,17 +60,18 @@ type fieldPolicyView struct {
 }
 
 type serverConfigView struct {
-	Addr            string             `json:"addr"`
-	PathView        string             `json:"path_view"`
-	AllowEmptyToken bool               `json:"allow_empty_token"`
-	WebEnabled      bool               `json:"web_enabled"`
-	TokenSet        bool               `json:"token_set"`
-	Governance      governanceView     `json:"governance"`
-	Callers         []callerConfigView `json:"callers"`
-	Workers         []workerConfigView `json:"workers"`
-	RunnerProbe     runnerProbeView    `json:"runner_probe"`
-	Notification    *notificationView  `json:"notification,omitempty"`
-	Metrics         metricsConfigView  `json:"metrics"`
+	Addr            string              `json:"addr"`
+	PathView        string              `json:"path_view"`
+	AllowEmptyToken bool                `json:"allow_empty_token"`
+	WebEnabled      bool                `json:"web_enabled"`
+	TokenSet        bool                `json:"token_set"`
+	Governance      governanceView      `json:"governance"`
+	Callers         []callerConfigView  `json:"callers"`
+	Workers         []workerConfigView  `json:"workers"`
+	RunnerProbe     runnerProbeView     `json:"runner_probe"`
+	Notification    *notificationView   `json:"notification,omitempty"`
+	Inbox           *config.InboxConfig `json:"inbox,omitempty"`
+	Metrics         metricsConfigView   `json:"metrics"`
 	// The edited-by-console knobs (WEB-04③ V1.1). Pointer fields are emitted as null
 	// when unset, which is a DIFFERENT decision from 0 (inherit vs off) and is exactly
 	// what the edit form has to send back.
@@ -572,6 +573,7 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			TimeoutSeconds:  sc.RunnerProbe.TimeoutSeconds,
 		},
 		Notification:  buildNotificationView(sc.Notification),
+		Inbox:         sc.Inbox,
 		EventHooks:    buildEventHookViews(sc.EventHooks),
 		DecisionHooks: buildDecisionHookViews(sc.DecisionHooks),
 		Metrics: metricsConfigView{

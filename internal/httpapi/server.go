@@ -1419,6 +1419,8 @@ func (s *Server) buildRouter() *rux.Router {
 		// writes for job credentials, and handlers additionally require a user caller.
 		// N3 「今天」: the decision queue + digest + status bar, the action audit and the
 		// 「已处理」 drawer. Reads are every person's; the audit write is a person's.
+		r.GET("/inbox", s.handleInbox)
+		r.POST("/inbox/state", s.handleInboxState)
 		r.GET("/today", s.handleToday)
 		r.POST("/today/actions", s.handleTodayAction)
 		r.POST("/today/advice", s.handleTodayAdvice) // N3 T4: steward / person advice

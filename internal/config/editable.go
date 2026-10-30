@@ -82,6 +82,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	// Compound blocks are editable as a WHOLE (the request carries the block; a
 	// partial block would silently drop the members it does not mention). None of
 	// them carries a secret VALUE — a webhook holds a secret_env NAME.
+	"server.inbox":        {Editable: true},
 	"server.notification": {Editable: true},
 	"server.runner_probe": {Editable: true},
 	"server.retry":        {Editable: true},

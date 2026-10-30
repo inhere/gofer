@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/inbox"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/today"
@@ -65,6 +66,14 @@ func (s *Server) handleToday(c *rux.Context) {
 		// The enrollment card is a server-global summary (names no project), so a restricted caller
 		// does not get it (计划决策 2).
 		s.appendWorkerEnrollCard(c, &resp)
+	}
+	for i := range resp.Decisions {
+		resp.Decisions[i].Column = inbox.Column(resp.Decisions[i], func() *config.InboxConfig {
+			if cfg := s.serverCfg(); cfg != nil {
+				return cfg.Inbox
+			}
+			return nil
+		}())
 	}
 	s.scopeTodayStatus(c, &resp)
 	c.JSON(http.StatusOK, resp)

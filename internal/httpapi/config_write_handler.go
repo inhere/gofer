@@ -1074,6 +1074,12 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			return err
 		}
 		sc.Retry = v
+	case "inbox":
+		v, err := fieldValue[*config.InboxConfig](f)
+		if err != nil {
+			return err
+		}
+		sc.Inbox = v
 	case "notification":
 		// S4 (2026-09-23): a PATCH, not a whole-block replace — see patchNotification
 		// for the two members a reader cannot round-trip.
