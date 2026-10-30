@@ -4,6 +4,7 @@ package preview
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -165,17 +166,25 @@ func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy) http.Hand
 			http.NotFound(w, r)
 			return
 		}
-		if r.URL.Query().Get("token") == token {
-			http.SetCookie(w, &http.Cookie{Name: "gofer_preview", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(rec.ExpiresAt - time.Now().Unix())})
-			q := r.URL.Query()
-			q.Del("token")
-			r.URL.RawQuery = q.Encode()
-		} else {
-			c, _ := r.Cookie("gofer_preview")
-			if c == nil || c.Value != token {
+		// The one-time token in the URL is traded for a cookie scoped to this preview's
+		// origin, then the browser is sent to the same URL without it, so the token does
+		// not stay in the address bar, the history or a bookmark. Compared in constant
+		// time: the token is the only thing guarding the preview.
+		if q := r.URL.Query(); q.Has("token") {
+			if !sameToken(q.Get("token"), token) {
 				http.NotFound(w, r)
 				return
 			}
+			http.SetCookie(w, &http.Cookie{Name: "gofer_preview", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(rec.ExpiresAt - time.Now().Unix())})
+			q.Del("token")
+			clean := *r.URL
+			clean.RawQuery = q.Encode()
+			http.Redirect(w, r, clean.RequestURI(), http.StatusSeeOther)
+			return
+		}
+		if c, _ := r.Cookie("gofer_preview"); c == nil || !sameToken(c.Value, token) {
+			http.NotFound(w, r)
+			return
 		}
 		r.Header.Del("Authorization")
 		r.Header.Set("Cookie", stripPreviewCookie(r.Header.Get("Cookie")))
@@ -184,6 +193,12 @@ func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy) http.Hand
 		rp.ServeHTTP(w, r)
 	})
 }
+
+// sameToken compares a presented preview token with the lease's in constant time.
+func sameToken(got, want string) bool {
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
 func stripPreviewCookie(raw string) string {
 	var keep []string
 	for _, part := range strings.Split(raw, ";") {

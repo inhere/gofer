@@ -118,6 +118,29 @@ job logs	flag stderr	read stderr stream
 job logs	flag stream	log stream: stdout|stderr
 job logs	flag tail	read last lines
 job logs	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job preview	desc	Expose a local port for a running job
+job preview	help	
+job preview	examples	
+job preview close	desc	Close a job preview lease
+job preview close	help	
+job preview close	examples	
+job preview close	flag config	path to the gofer config file
+job preview close	flag server	server address (overrides config server.addr)
+job preview close	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job preview ls	desc	List job preview leases
+job preview ls	help	
+job preview ls	examples	
+job preview ls	flag config	path to the gofer config file
+job preview ls	flag server	server address (overrides config server.addr)
+job preview ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job preview open	desc	Open a local preview lease
+job preview open	help	
+job preview open	examples	
+job preview open	flag config	path to the gofer config file
+job preview open	flag port	local application port
+job preview open	flag server	server address (overrides config server.addr)
+job preview open	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job preview open	flag ttl	lease duration
 job redact	desc	Redact literals or patterns from a terminal job
 job redact	help	
 job redact	examples	
