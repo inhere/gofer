@@ -205,6 +205,7 @@ agents:
     # inject_process: [myagent]         # tmux 送话的前台进程名
     # session_family: myfam             # 同族 cli/acp agent 可互相续接
     # deliver_command: [send, --session, "{{session_id}}"]   # 在线送话命令；退出码 0=送达 3=进程不在 其它=失败
+    # deliver_image_args: [--image, "{{image}}"]              # 传话类会话附图；每张图展开一次，必须含 {{image}}
     # deliver_offline_match: "no rollout found"   # 命令非 0 且输出匹配 → 按 exit 3 处理
     # deliver_stdin: true               # 文本走 stdin（argv 不含 {{text}}）
   exec:

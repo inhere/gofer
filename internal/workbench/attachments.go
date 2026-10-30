@@ -240,6 +240,14 @@ func (s *Service) ownDir(runner string) bool {
 	return placer.OwnAttachmentsSupported(runner)
 }
 
+func (s *Service) deliverImageArgs(agent string) []string {
+	cfg := s.att.Config()
+	if cfg == nil {
+		return nil
+	}
+	return cfg.EffectiveDeliverImageArgs(agent)
+}
+
 // annotateAttachments fills a listed thread's attachment capability bit.
 func (s *Service) annotateAttachments(t *Thread) {
 	if !s.attachmentsReady() {
@@ -261,6 +269,11 @@ func (s *Service) annotateAttachments(t *Thread) {
 	if t.Kind == KindRelay {
 		if s.imageInputAgent(t.Agent) == config.ImageInputPath {
 			in.FilePath = true
+		}
+		// A relay thread whose delivery command can take image paths reports the arg bit:
+		// the files are placed on the executor and each path becomes one argv flag.
+		if len(s.deliverImageArgs(t.Agent)) > 0 {
+			in.Arg = true
 		}
 	} else {
 		s.applyImageInput(&in)
