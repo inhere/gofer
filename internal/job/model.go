@@ -616,6 +616,9 @@ type JobRequest struct {
 	// review and delivery cover that branch (gofer-glyo).
 	InheritWorktree   bool `json:"-" yaml:"-"`
 	AutoResumeAttempt int  `json:"-" yaml:"-"`
+	// CheckResumeCount is how many delivery-check resumes the chain this job belongs to
+	// has used, including the one that created it (stamped by the check resume only).
+	CheckResumeCount int `json:"-" yaml:"-"`
 	// BaselineSHA is the commit this job's OWN changes are measured from: the base of
 	// its commit list (the plan item's done line), of the diff a reviewer sees and of the
 	// scope check, replacing the commit captured at start (or, for a worktree job, the

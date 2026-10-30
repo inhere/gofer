@@ -1,0 +1,5 @@
+{{- /* Continuation after a failed delivery check (en). */ -}}
+The delivery check found requirements that are not met yet (round {{ .Round }}):
+{{range .Items}}- [{{ .Source }}] {{ .Requirement }}{{ if .Evidence }} (found: {{ .Evidence }}){{ end }}{{ if .Action }} -> {{ .Action }}{{ end }}
+{{end}}
+First look at git status / git log to see what is already done, fix only the items above, commit locally (do not push), then report again as originally asked and answer each item above.

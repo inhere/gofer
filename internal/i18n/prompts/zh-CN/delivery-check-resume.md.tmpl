@@ -1,0 +1,5 @@
+{{- /* 交付核验不合格后的续接提示（zh-CN）。 */ -}}
+交付核验发现下列要求尚未满足（第 {{ .Round }} 轮）：
+{{range .Items}}- [{{ .Source }}] {{ .Requirement }}{{ if .Evidence }}（发现：{{ .Evidence }}）{{ end }}{{ if .Action }} -> {{ .Action }}{{ end }}
+{{end}}
+先看 git status / git log 确认已完成的部分，只修复上面的条目，本地提交（不要 push），然后按原要求重新汇报，并逐条回答上面的条目。

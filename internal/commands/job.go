@@ -2988,6 +2988,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if v := res.Verify; v != nil {
 		c.Printf("verify:     %s\n", formatVerify(v))
 	}
+	printDeliveryCheck(c, res)
 	// SUP-01 E：该 job 的 token/成本结算（agent 自报，来源在行尾）。没采集到（agent 不报 /
 	// 采集失败）就不打印——不伪造 0 用量。
 	if line := job.FormatUsage(res.Usage); line != "" {
@@ -3402,6 +3403,7 @@ func runJobReview(c *gcli.Command, _ []string) error {
 	if v := res.Verify; v != nil {
 		c.Printf("verify:     %s\n", formatVerify(v))
 	}
+	printDeliveryCheck(c, res)
 	if line := job.FormatUsage(res.Usage); line != "" {
 		c.Printf("usage:      %s\n", line)
 	}
@@ -4124,4 +4126,45 @@ func formatDelivery(d *job.DeliveryResult) string {
 		parts = append(parts, "error: "+d.Error)
 	}
 	return strings.Join(parts, " · ")
+}
+
+// printDeliveryCheck renders the delivery-check (交付核验) lines of `job show`: whether
+// the job carries a requirement, the last verdict with its unmet items, the number of
+// check-driven continuations and a checker error. Nothing is printed for a job that
+// has none of them.
+func printDeliveryCheck(c *gcli.Command, res job.JobResult) {
+	if res.CheckPrompt != "" {
+		src := res.CheckPromptSource
+		if src == "" {
+			src = job.CheckPromptSourceExplicit
+		}
+		c.Printf("check_req:  yes (%s)\n", src)
+	}
+	if sc, ok := job.DecodeStoredCheck(res.CheckJSON); ok {
+		c.Printf("check:      %s (round %d, %s)", sc.Verdict, sc.Round, sc.Action)
+		if sc.Summary != "" {
+			c.Printf(" - %s", sc.Summary)
+		}
+		c.Println()
+		for _, it := range sc.Items {
+			if it.Passed {
+				continue
+			}
+			src := it.Source
+			if src == "" {
+				src = "-"
+			}
+			c.Printf("            [%s] %s", src, it.Requirement)
+			if it.Action != "" {
+				c.Printf(" -> %s", it.Action)
+			}
+			c.Println()
+		}
+	}
+	if res.CheckResumeCount > 0 {
+		c.Printf("check_resumes: %d\n", res.CheckResumeCount)
+	}
+	if res.CheckError != "" {
+		c.Printf("check_error: %s\n", res.CheckError)
+	}
 }

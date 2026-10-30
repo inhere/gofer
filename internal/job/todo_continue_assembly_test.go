@@ -87,7 +87,7 @@ var continuationFieldClasses = map[string]string{
 	"Role": fieldTodo, "SystemPrompt": fieldTodo, "Messenger": fieldTodo, "MessengerMeta": fieldTodo,
 	"ResolvedLockPaths": fieldTodo, "LeaderOfPlan": fieldTodo, "Steward": fieldTodo, "MailResident": fieldTodo, "JobToken": fieldTodo,
 	"CredentialExternal": fieldTodo, "RequestID": fieldTodo, "WorkerID": fieldTodo, "WorkerLabels": fieldTodo,
-	"UpdateExempt": fieldTodo, "AutoResumeAttempt": fieldTodo, "StrictTimeout": fieldTodo,
+	"UpdateExempt": fieldTodo, "AutoResumeAttempt": fieldTodo, "CheckResumeCount": fieldTodo, "StrictTimeout": fieldTodo,
 	"EnvDenyExtra": fieldTodo, "Sync": fieldTodo, "WaitTimeoutSec": fieldTodo, "IssueID": fieldTodo, "TrackerID": fieldTodo,
 	"Retry": fieldTodo, "WorkflowID": fieldTodo, "StepIndex": fieldTodo, "Attempt": fieldTodo, "FanIndex": fieldTodo,
 	"NoFallback": fieldTodo, "FellBackFrom": fieldTodo, "RequestedAgent": fieldTodo,

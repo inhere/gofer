@@ -118,6 +118,9 @@ type ResumeOptions struct {
 	// `job resume` keeps its notification strict — their mistake is reported to them.
 	Internal   bool
 	ReviewEach bool
+	// checkRound is set by a delivery-check continuation: the chain's check-resume
+	// count the new job carries. It also makes an ACP continuation one-shot.
+	checkRound int
 	// ImagePaths are images (absolute paths on the executing machine) that must ride the
 	// continuation's argv, expanded through the target agent's image_args (workbench
 	// attachments for an image_input: arg agent). Only a cli-agent batch continuation can
@@ -342,6 +345,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		base.NotifyDegradable = true
 	}
 	base.admissionPermit = opts.admissionPermit
+	base.CheckResumeCount = opts.checkRound
 	// N1 §B / N2 §B: the model and budget checkResume settled (inherited unless
 	// overridden, dropped when the target cannot honour an inherited one).
 	base.Model = chk.Model
@@ -360,7 +364,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			// still asks for paths gets told instead of having them silently dropped.
 			return JobResult{}, fmt.Errorf("%w: images cannot ride an ACP session continuation (send them inline)", ErrInvalidRequest)
 		}
-		return s.resumeACPSession(base, src, ac, targetAgent, prompt, opts.Mode != "", autoAttempt, false)
+		return s.resumeACPSession(base, src, ac, targetAgent, prompt, opts.Mode != "", autoAttempt, opts.checkRound > 0)
 	default:
 		return s.resumeCLICarrier(base, src, ac, targetAgent, prompt, opts.ImagePaths, form == ResumeModeInteractive, opts.Mode != "")
 	}

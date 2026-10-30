@@ -42,6 +42,12 @@ const (
 	// NameTodoContinue is the bridging line a plan item's prompt opens with when it
 	// continues the session of the item before it (job: todo_continue.go).
 	NameTodoContinue = "todo-continue"
+	// NameDeliveryCheckRequest is the request a delivery-check agent answers
+	// (job: delivery_check.go).
+	NameDeliveryCheckRequest = "delivery-check-request"
+	// NameDeliveryCheckResume is the prompt of the continuation a failed delivery
+	// check starts (job: delivery_check.go).
+	NameDeliveryCheckResume = "delivery-check-resume"
 	// NameFollowUp is the bridge prompt for queued follow-up requests.
 	NameFollowUp = "follow-up"
 	// NameStewardRole is the standing role prompt for a steward session.
@@ -95,6 +101,20 @@ type (
 	// continued.
 	TodoContinueData struct {
 		Title string
+	}
+	// DeliveryCheckRequestData feeds NameDeliveryCheckRequest: the evidence JSON.
+	DeliveryCheckRequestData struct {
+		Evidence string
+	}
+	// DeliveryCheckResumeData feeds NameDeliveryCheckResume: the check round and the
+	// unmet items, each labelled with the requirement section it came from.
+	DeliveryCheckResumeData struct {
+		Round int
+		Items []DeliveryCheckResumeItem
+	}
+	// DeliveryCheckResumeItem is one unmet item of a failed delivery check.
+	DeliveryCheckResumeItem struct {
+		Source, Requirement, Evidence, Action string
 	}
 	// FollowUpData feeds NameFollowUp with the numbered requests to complete.
 	FollowUpData struct {
