@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+- 新增反向引用索引：`GET /v1/refs?kind=<kind>&id=<id>`、MCP `gofer_refs` 与 CLI `gofer refs <id>` 返回当前调用方可见、引用该对象的来源。
+
 ## [0.203.0] - 2026-10-28
 
 ### 新增
