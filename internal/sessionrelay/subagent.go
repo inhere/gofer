@@ -1,6 +1,7 @@
 package sessionrelay
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +32,11 @@ const ReleaseBySubagentDone = "subagent_done"
 // event for it: a lost SubagentStop must not keep a session unarmed forever.
 const SubagentExpiry = 2 * time.Hour
 
+// SubagentReleaseTTL is how long a "released by a finished sub-agent" mark outlives
+// its release when no new turn ever arrives: the mark only explains an idle session,
+// so it must not stay on forever.
+const SubagentReleaseTTL = time.Hour
+
 const anonPrefix = "?anon-"
 
 // subagentTracker keeps the in-flight sub-agents per session. It is in-memory on
@@ -41,6 +47,38 @@ type subagentTracker struct {
 	mu   sync.Mutex
 	sess map[string]map[string]int64 // sid -> agent id -> last event unix seconds
 	anon int64
+	// released: sid -> unix seconds when the last sub-agent's end let go of a Stop wait
+	// (gofer-m80j). Cleared by the next turn event (UserPromptSubmit / Stop / ...).
+	released map[string]int64
+}
+
+func (t *subagentTracker) markReleased(sid string, now int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.released == nil {
+		t.released = make(map[string]int64)
+	}
+	t.released[sid] = now
+}
+
+func (t *subagentTracker) clearReleased(sid string) {
+	t.mu.Lock()
+	delete(t.released, sid)
+	t.mu.Unlock()
+}
+
+func (t *subagentTracker) releasedAt(sid string, now int64) int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	at, ok := t.released[sid]
+	if !ok {
+		return 0
+	}
+	if now-at > int64(SubagentReleaseTTL/time.Second) {
+		delete(t.released, sid)
+		return 0
+	}
+	return at
 }
 
 // prune drops expired entries of sid and returns what is left (nil = none).
@@ -58,10 +96,12 @@ func (t *subagentTracker) prune(sid string, now int64) map[string]int64 {
 	return m
 }
 
-// apply records one event and returns the live count afterwards. delta > 0 adds
+// apply records one event and returns the live count afterwards, and whether a stop
+// ended a sub-agent this tracker knew (a stop with no matching start — Claude Code
+// raises SubagentStop for side queries it never announced — is not "one finished"). delta > 0 adds
 // (or refreshes) the id, delta < 0 removes it. An empty id is tolerated: a start
 // gets a synthetic id, a stop removes the oldest synthetic one.
-func (t *subagentTracker) apply(sid, id string, delta int, now int64) int {
+func (t *subagentTracker) apply(sid, id string, delta int, now int64) (live int, ended bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.sess == nil {
@@ -89,12 +129,15 @@ func (t *subagentTracker) apply(sid, id string, delta int, now int64) int {
 			}
 			id = oldest
 		}
-		delete(m, id)
+		if _, ok := m[id]; ok {
+			ended = true
+			delete(m, id)
+		}
 		if len(m) == 0 {
 			delete(t.sess, sid)
 		}
 	}
-	return len(t.sess[sid])
+	return len(t.sess[sid]), ended
 }
 
 func (t *subagentTracker) count(sid string, now int64) int {
@@ -112,6 +155,38 @@ func (t *subagentTracker) clear(sid string) {
 // SubagentCount is the number of sub-agents currently running in the session.
 func (s *Service) SubagentCount(sid string) int {
 	return s.subagents.count(sid, s.nowFn().Unix())
+}
+
+// SubagentReleasedAt is when a Stop wait of the session was let go because its last
+// sub-agent finished, as long as no later turn event (a prompt, the next Stop) has
+// proved the main agent really got a new turn out of it; 0 otherwise. Such a session
+// shows as plain idle although relay is on and nothing is waiting (gofer-m80j), so the
+// session view names the reason and a web answer is not refused (SayReleased).
+func (s *Service) SubagentReleasedAt(sid string) int64 {
+	return s.subagents.releasedAt(sid, s.nowFn().Unix())
+}
+
+// clearsSubagentRelease reports whether a hook event shows the main agent running a
+// turn again (or gone), which ends the "released by a sub-agent" story.
+func clearsSubagentRelease(event string) bool {
+	switch event {
+	case EventUserPromptSubmit, EventStop, EventSessionStart, EventSessionEnd, EventInterrupt:
+		return true
+	}
+	return false
+}
+
+// SayReleased is the answer path for a web text aimed at the open turn of a session whose
+// turn a finished sub-agent just released (gofer-m80j): the turn is gone, nobody waits,
+// and Say would refuse the text. Such a text goes out through the message ladder instead,
+// which starts a new turn (and the Stop that ends it waits again). handled is false when
+// the session is not in that state, so the caller keeps its own "no open turn" answer.
+func (s *Service) SayReleased(ctx context.Context, sid, text, operator, origin string) (m jobstore.SessionMessage, handled bool, err error) {
+	if s.SubagentReleasedAt(sid) == 0 {
+		return jobstore.SessionMessage{}, false, nil
+	}
+	m, err = s.SendMessage(ctx, sid, text, operator, origin)
+	return m, true, err
 }
 
 // SetWaitBudgets sets the Stop-wait budgets handed to the hook as wait_budget_sec:
@@ -150,8 +225,11 @@ func (s *Service) noteSubagent(sid string, in HeartbeatInput) error {
 			delta = -1
 		}
 	}
-	left := s.subagents.apply(sid, in.SubagentID, delta, s.nowFn().Unix())
-	if delta >= 0 || left > 0 {
+	left, ended := s.subagents.apply(sid, in.SubagentID, delta, s.nowFn().Unix())
+	// An unpaired SubagentStop (no tracked start for that id) neither counts nor
+	// releases: the main agent's wait must not end because of an event nobody started
+	// (gofer-m80j).
+	if delta >= 0 || !ended || left > 0 {
 		return nil
 	}
 	a, ok, err := s.store.GetAgentSession(sid)
@@ -170,6 +248,9 @@ func (s *Service) noteSubagent(sid string, in HeartbeatInput) error {
 			return err
 		}
 		released = released || done
+	}
+	if released {
+		s.subagents.markReleased(sid, s.nowFn().Unix())
 	}
 	if released && a.State == jobstore.SessionWaitingReply {
 		_, _ = s.store.SetSessionState(sid, jobstore.SessionIdle)

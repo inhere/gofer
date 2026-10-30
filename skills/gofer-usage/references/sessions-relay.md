@@ -86,7 +86,7 @@ gofer session find <关键词|路径>                    # 找哪个会话在做
 1. **键盘空闲**（`session.auto_relay_idle_sec`，默认 300，写 0 关）：hook 上报键鼠空闲秒数，人离开超过阈值就等 web 回复（列表显示 `auto (idle 12m)`）。Windows / macOS 探得到键盘；Linux 需要 `xprintidle`（X11），Wayland / 无桌面 / 容器里为「未知」。
 2. **距上次人工输入**（`session.auto_relay_turn_sec`，默认 900，写 0 关）：探测不到键盘时（容器里的 hook 测不到主机键盘），看会话里人最后一次输入距今多久，到阈值同样布防（列表显示 `auto (no input 22m)`）。
 
-不布防的情况：你名下还有 job 在跑、或会话里有子 agent 在跑（视同「监督中」，受 `session.auto_relay_skip_when_supervising` 控制；显式 `on` 不受影响）。最后一个子 agent 结束时，已阻塞的等待会被释放（auto 与显式 `on` 都一样：主 agent 先处理子 agent 的结果，下一次 Stop 再继续等 web 回复）。
+不布防的情况：你名下还有 job 在跑、或会话里有子 agent 在跑（视同「监督中」，受 `session.auto_relay_skip_when_supervising` 控制；显式 `on` 不受影响）。最后一个子 agent 结束时，已阻塞的等待会被释放（auto 与显式 `on` 都一样：主 agent 先处理子 agent 的结果，下一次 Stop 再继续等 web 回复）。只有按 id 配对过 SubagentStart 的子 agent 才算数：没有对应 start 的 SubagentStop（Claude Code 的旁路查询）不放开等待、不改状态。放开后若 Claude Code 没有为此开新一轮，会话停在 idle、没人等待：会话视图（`gofer session show` / HTTP）带 `released_by=subagent_done`、`released_at`，web 抽屉提示「等待已被子 agent 结束放开」；此时 `say` 不再 409，而是改走传话通道（messenger）开启新一轮，下一次 prompt / Stop 到来后标记清除。
 
 ## 人回来即放行
 

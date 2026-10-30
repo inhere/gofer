@@ -270,6 +270,11 @@ type sessionView struct {
 	WaitBudgetSec int `json:"wait_budget_sec,omitempty"`
 	// SubagentCount is how many sub-agents are running in the session (N1 §C).
 	SubagentCount int `json:"subagent_count,omitempty"`
+	// ReleasedBy / ReleasedAt say why a relay-on session sits idle with nothing waiting
+	// (gofer-m80j): "subagent_done" = its Stop wait was let go because the last sub-agent
+	// finished, and no new turn has started since. Cleared by the next prompt / Stop.
+	ReleasedBy string `json:"released_by,omitempty"`
+	ReleasedAt int64  `json:"released_at,omitempty"`
 	// PermissionWaitReason / PermissionWaitBudgetSec are WaitReason / WaitBudgetSec for
 	// a terminal permission prompt (sessionrelay.PermissionWaitReason): the supervising
 	// gate does not apply, since the dialog blocks the terminal anyway.
@@ -384,8 +389,15 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 			}
 		}
 	}
+	releasedBy, releasedAt := "", int64(0)
+	if s.relay != nil {
+		if releasedAt = s.relay.SubagentReleasedAt(a.SessionID); releasedAt > 0 {
+			releasedBy = sessionrelay.ReleaseBySubagentDone
+		}
+	}
 	topic, topicSource := sessionrelay.EffectiveTopic(a, s.projectRoots(a.ProjectKey))
 	return sessionView{
+		ReleasedBy: releasedBy, ReleasedAt: releasedAt,
 		Topic: topic, Scope: a.Scope, TopicSource: topicSource, TopicAt: a.TopicAt,
 		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: s.resolveRunnerName(a.Runner),
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
@@ -1113,6 +1125,25 @@ func (s *Server) handleSessionSay(c *rux.Context) {
 		return
 	}
 	d, err := s.relay.Say(c.Param("sid"), body.Answer, callerFromCtx(c))
+	if errors.Is(err, sessionrelay.ErrNoOpenTurn) {
+		// gofer-m80j: the turn the person answers was released by a finished sub-agent
+		// and nobody waits any more: send the text through the message ladder instead of
+		// refusing it.
+		m, handled, merr := s.relay.SayReleased(c.Req.Context(), c.Param("sid"), body.Answer, callerFromCtx(c), callerFromCtx(c))
+		if handled {
+			if merr != nil {
+				if m.ID != "" {
+					c.JSON(http.StatusConflict, m)
+					return
+				}
+				writeError(c, relayStatus(merr), "say failed", merr.Error())
+				return
+			}
+			s.relay.FollowWeb(c.Param("sid"), callerFromCtx(c))
+			c.JSON(http.StatusOK, m)
+			return
+		}
+	}
 	if err != nil {
 		writeError(c, relayStatus(err), "say failed", err.Error())
 		return

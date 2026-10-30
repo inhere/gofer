@@ -1422,6 +1422,9 @@ defineExpose({ load, loadMore, setRelayMode, remove })
             <span v-if="session.wait_reason_detail?.match(/^supervising (\d+) jobs$/)" class="last-message-released" :title="t('sessions.drawer.releasedSupervising', { n: session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] ?? 0 })">
               {{ t('sessions.drawer.releasedSupervising', { n: session.wait_reason_detail.match(/^supervising (\d+) jobs$/)?.[1] ?? 0 }) }}
             </span>
+            <span v-if="session.released_by === 'subagent_done'" class="last-message-released" :title="t('sessions.drawer.releasedSubagent')">
+              {{ t('sessions.drawer.releasedSubagent') }}
+            </span>
             <span class="last-message-preview mono" :title="session.last_message">{{ session.last_message }}</span>
             <button class="link-btn mono" type="button" @click="lastMessageOpen = !lastMessageOpen">
               {{ lastMessageOpen ? t('util.action.collapse') : t('sessions.drawer.expand') }}
