@@ -255,6 +255,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/push/subscriptions` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
 | `POST` | `/v1/push/test` | `Public` | — | — | `NoProject` | 写 |
 | `GET` | `/v1/push/vapid-public-key` | `Public` | — | — | `NoProject` | 读 |
+| `GET` | `/v1/refs` | `InHandler(filter)` | `job.read.others` | — | `Filter` | 读 |
 | `DELETE` | `/v1/retries/{rid}` | `InHandler(deny)` | `job.cancel.others` | — | `Resource(retry)` | 写 |
 | `GET` | `/v1/rules` | `Public` | — | — | `NoProject` | 读 |
 | `DELETE` | `/v1/rules/{name}` | `Require` | `rules.write` | — | `NoProject` | 写 |
