@@ -71,7 +71,8 @@ const (
 // keyed like builtinModelArgs (and including the -acp variants, which reach the same model
 // through their adapters). Claude Code reads images through its file-read tool and Codex
 // through its local-image viewer. suga takes them as `run --image <path>` (v0.40+), so its
-// built-in template declares image_input: arg with the image_args template. suga-acp
+// built-in template declares image_input: arg with the image_args template. Relay delivery uses the
+// separate built-in deliver_image_args template. suga-acp
 // (v0.38+) takes images INLINE when its model can see them (it advertises
 // promptCapabilities.image), which needs no entry here.
 var builtinImageInput = map[string]string{
@@ -106,11 +107,9 @@ func (c *Config) EffectiveImageInput(key string) string {
 //   - codex: `codex queue --thread <sid> --message <text>`; an unknown thread exits 1
 //     with "no rollout found for thread id", which offlineMatch maps to not-running so
 //     the relay ladder continues.
-//   - suga: `suga send --session <sid>` reads the text on stdin and already reports
-//     the outcomes in gofer's own exit-code contract (0 delivered, 3 the session's
-//     process is not online, 4 stdin too large), so no offline marker is needed — the
-//     exit code itself says the session is gone. `--source gofer` labels the message
-//     in the chat window.
+//   - suga: `suga send --session <sid> --source gofer` reads text on stdin and accepts one
+//     `--image <path>` per attachment. Exit 5 means the target process is too old for images
+//     and is a terminal failure; the workbench does not retry without the images.
 var builtinDeliver = map[string]struct {
 	command      []string
 	imageArgs    []string

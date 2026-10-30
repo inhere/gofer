@@ -171,8 +171,8 @@ var builtinTemplates = map[string]config.AgentConfig{
 	// Images: `suga run --image <path>` (v0.40+) takes a local image per flag, so the
 	// agent declares the arg delivery — the workbench appends image_args to the argv of
 	// the continuation that carries the message instead of writing the path into the
-	// text. `suga send --session <id> --image <path>` is NOT wired yet (a message to a
-	// live terminal session goes over stdin), so only job argv paths carry images.
+	// text. `suga send --session <id> --image <path>` is wired through deliver_image_args
+	// for live relay sessions; job argv paths keep image_args.
 	"suga": {
 		Type:            TypeCLIAgent,
 		Command:         "suga",

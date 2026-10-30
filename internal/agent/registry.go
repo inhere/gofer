@@ -645,8 +645,8 @@ func applyMCPDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	return a
 }
 
-// applyDeliverDefaults fills an agent's unset deliver_command / deliver_stdin /
-// deliver_offline_match from the built-in table, by agent key first and then the base
+// applyDeliverDefaults fills an agent's unset deliver_command / deliver_image_args /
+// deliver_stdin / deliver_offline_match from the built-in table, by agent key first and then the base
 // name of Command, like applyModelDefaults. Each is filled only when unset, but only
 // while the operator declared no delivery setup at all: an explicit
 // deliver_command / deliver_stdin is used as written (no mixing a custom command with
