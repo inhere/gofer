@@ -145,6 +145,14 @@ var jobAuthzCases = []authzCase{
 	// reads
 	{key: "GET /v1/jobs", req: func(*authzCaseEnv) caseReq { return caseReq{http.MethodGet, "/v1/jobs", nil} },
 		wantOthers: filteredList("jobs")},
+	// A job's title names an issue, so the issue's reverse links carry that job as a source:
+	// someone else's job has to be filtered out of the list.
+	{key: "GET /v1/refs", req: func(e *authzCaseEnv) caseReq {
+		if err := e.s.jobs.Meta().SyncTextRefs("job", e.job.ID, "title", "see gofer-w9b2"); err != nil {
+			e.t.Fatalf("seed a reference from the job: %v", err)
+		}
+		return caseReq{http.MethodGet, "/v1/refs?kind=issue&id=gofer-w9b2", nil}
+	}, wantOthers: filteredList("refs")},
 	{key: "GET /v1/jobs/{id}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID, nil}
 	}},

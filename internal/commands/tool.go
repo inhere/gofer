@@ -185,6 +185,7 @@ or delivered; the hook runs on this machine with this machine's config.
 			backfill,
 			{Name: "xfer", Desc: "Manage staged file transfers", Subs: []*gcli.Command{ls, show, rm}},
 			NewToolApiCmd(),
+			NewRefsCmd(),
 			// GIT-02 plumbing: the internal job that delivers a worker's worktree job.
 			{Name: "deliver", Hidden: true, Desc: "Run a delivery plan read from stdin (internal)", Func: runToolDeliver},
 			// Built-in workflow steps (design §一·5): the internal job a `uses: gofer/<name>`

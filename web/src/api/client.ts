@@ -7,6 +7,8 @@ import { setServerTZOffset } from './time'
 import { permissionDeniedMessage } from '../utils/permissions'
 import { streamJob } from './sse'
 import type {
+  RefItem,
+  RefsResp,
   AcceptEnrollmentReq,
   AcceptEnrollmentResp,
   AgentProbe,
@@ -717,6 +719,13 @@ export function rebuildJob(id: string, body: RebuildBody): Promise<Job> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+// 反向链接：谁引用了 kind（issue|job|plan|todo|wf）+ id 这个对象。
+export async function listRefs(kind: string, id: string): Promise<RefItem[]> {
+  const qs = new URLSearchParams({ kind, id })
+  const r = await request<RefsResp>(`/v1/refs?${qs.toString()}`)
+  return r?.refs ?? []
 }
 
 export function getJob(id: string): Promise<Job> {

@@ -920,6 +920,12 @@ tool hook-test	examples
 tool hook-test	flag config	path to the gofer config file
 tool hook-test	flag input	file with the sample input (default: stdin)
 tool hook-test	flag point	decision point (default: the hook's first point)
+tool refs	desc	列出引用某个 issue、job、plan、todo 或 workflow 的对象
+tool refs	help	对象类型由 id 前缀推断（gofer-、job-、plan-、todo-、wf-），每个引用来源输出一行。
+tool refs	examples	gofer tool refs gofer-abcd
+tool refs	flag config	path to the gofer config file
+tool refs	flag server	server address (overrides config server.addr)
+tool refs	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 tool stats-backfill	desc	Compute the dashboard's per-job metrics for jobs that ended before they were recorded
 tool stats-backfill	help	
 tool stats-backfill	examples	
@@ -1359,9 +1365,3 @@ doctor	flag lines	每份日志的最近行数（1..10000）
 doctor	flag output	诊断 zip 路径（默认：./gofer-diagnostics-<时间>.zip）
 doctor	flag print	只打印清单与摘要，不创建 zip
 doctor	flag worker-config	worker 模式下的配置路径（默认：<配置目录>/worker.yaml）
-refs	desc	List objects that reference an issue, job, plan, todo or workflow
-refs	help	
-refs	examples	
-refs	flag config	path to the gofer config file
-refs	flag server	server address (overrides config server.addr)
-refs	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)

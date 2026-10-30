@@ -212,6 +212,7 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_session_screen":      false,
 		"gofer_issue_list":          false,
 		"gofer_issue_get":           false,
+		"gofer_refs":                false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {

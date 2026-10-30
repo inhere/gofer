@@ -4,6 +4,7 @@ import StatusPill from '../ui/StatusPill.vue'
 import Drawer from '../ui/Drawer.vue'
 import { issueRelations, type IssueNode } from '../utils/issueTree'
 import MarkdownBlock from './MarkdownBlock.vue'
+import RefsPanel from './RefsPanel.vue'
 import type { TrackerIssueView } from '../api/types'
 import { ISSUE_STATUS_VALUES, issueStatusText, type IssueStatus } from '../utils/statusText'
 import { t, te } from '../i18n'
@@ -59,6 +60,7 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
       <h3>{{ t('issues.drawer.comments') }}</h3>
       <ul v-if="issue.comments?.length" class="thread"><li v-for="item in issue.comments" :key="`${item.at}-${item.by}`"><span class="meta mono">{{ item.at }} · {{ item.by }}</span><p>{{ item.text }}</p></li></ul>
       <p v-else class="empty-line">{{ t('issues.drawer.none') }}</p>
+      <RefsPanel kind="issue" :id="issue.id" />
       <div class="comment-form"><textarea v-model="comment" class="in" rows="4" :placeholder="t('issues.drawer.commentPlaceholder')" /><div class="comment-actions"><button class="btn" type="button" :disabled="!!props.writeBlock" :title="props.writeBlock || undefined" @click="sendComment">{{ t('issues.drawer.comment') }}</button></div></div>
     </div>
   </Drawer>
