@@ -205,9 +205,11 @@ func PruneAttachmentsAfterPut(cfg *config.Config, proj config.ProjectConfig, dst
 	if !inside {
 		return // an ordinary transfer destination: not ours to clean
 	}
-	if err := project.EnsureGoferGitignore(cfg.ExecPath(proj)); err != nil {
-		slog.Warn("xfer.gofer_gitignore_failed", "event", "xfer.gofer_gitignore_failed", "component", component,
-			"project_root", cfg.ExecPath(proj), "err", err)
+	if !cfg.HasExplicitExchangeSubdir(proj) {
+		if err := project.EnsureGoferGitignore(cfg.ExecPath(proj)); err != nil {
+			slog.Warn("xfer.gofer_gitignore_failed", "event", "xfer.gofer_gitignore_failed", "component", component,
+				"project_root", cfg.ExecPath(proj), "err", err)
+		}
 	}
 	for _, dir := range dirs {
 		removed, err := PruneAttachments(dir, time.Now())
