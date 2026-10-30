@@ -522,6 +522,9 @@ type todoView struct {
 	Budget *job.Budget `json:"budget,omitempty"`
 	// Acceptance is the item's acceptance criteria (gofer-3nxa.4).
 	Acceptance string `json:"acceptance,omitempty"`
+	// CheckPrompt / CheckPromptSource are the item's delivery-check requirement and its source.
+	CheckPrompt       string `json:"check_prompt,omitempty"`
+	CheckPromptSource string `json:"check_prompt_source,omitempty"`
 	// PrimeKeywords are the task keywords of the item's job (gofer-11tz).
 	PrimeKeywords []string `json:"prime_keywords,omitempty"`
 	// Scope is the item's declared change scope (path globs, gofer-3nxa.3).
@@ -552,7 +555,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model, Budget: t.Budget,
-		Acceptance: t.Acceptance, Scope: t.Scope, PrimeKeywords: t.PrimeKeywords,
+		Acceptance: t.Acceptance, CheckPrompt: t.CheckPrompt, CheckPromptSource: t.CheckPromptSource, Scope: t.Scope, PrimeKeywords: t.PrimeKeywords,
 		ContinueFrom: t.ContinueFrom, ContinuedBy: t.ContinuedBy, ContinueNote: t.ContinueNote,
 	}
 }
@@ -813,6 +816,8 @@ type runJobInput struct {
 	Acceptance string `json:"acceptance,omitempty"`
 	// CheckPrompt is a delivery-check requirement, not a shell command.
 	CheckPrompt string `json:"check_prompt,omitempty"`
+	// CheckPromptSource is "explicit" (default) or "prompt_block".
+	CheckPromptSource string `json:"check_prompt_source,omitempty"`
 	// Scope declares the path globs (relative to the repo root) the job is expected to
 	// change (gofer-3nxa.3); files outside them are marked in review (advisory).
 	Scope []string `json:"scope,omitempty"`
@@ -914,8 +919,9 @@ func runJobHandler(b Backend, scoped string) mcp.ToolHandlerFor[runJobInput, job
 			Uploads: xferUploadsFromMCP(in.Uploads),
 			Collect: in.Collect,
 			// gofer-3nxa.4：验收标准（注入任务书 + 验收面板显示）。
-			Acceptance:  in.Acceptance,
-			CheckPrompt: in.CheckPrompt,
+			Acceptance:        in.Acceptance,
+			CheckPrompt:       in.CheckPrompt,
+			CheckPromptSource: in.CheckPromptSource,
 			// gofer-3nxa.3：声明的改动范围 + 单次关闭交付约定。
 			Scope:             in.Scope,
 			NoScopeDiscipline: in.NoScopeDiscipline,
@@ -1116,6 +1122,10 @@ type addTodoToolInput struct {
 	// Acceptance is the item's acceptance criteria (gofer-3nxa.4), appended to the
 	// dispatched job's prompt and shown in review; "" clears it.
 	Acceptance *string `json:"acceptance,omitempty"`
+	// CheckPrompt is the item's delivery-check requirement (not a shell command); ""
+	// clears it. CheckPromptSource is "explicit" (default) or "prompt_block".
+	CheckPrompt       *string `json:"check_prompt,omitempty"`
+	CheckPromptSource *string `json:"check_prompt_source,omitempty"`
 	// Scope is the item's declared change scope (path globs relative to the repo root,
 	// gofer-3nxa.3): named in the job's 「交付约定」 section, files outside it are marked
 	// in review. An empty list clears it.
@@ -1139,7 +1149,7 @@ func (in addTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Assignee: in.Assignee, ProjectKey: in.Project, Template: in.Template,
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
-		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance,
+		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance, CheckPrompt: in.CheckPrompt, CheckPromptSource: in.CheckPromptSource,
 		Scope: in.Scope, PrimeKeywords: in.PrimeKeywords, ContinueFrom: in.ContinueFrom,
 	}
 }
@@ -1167,19 +1177,21 @@ type updateTodoToolInput struct {
 	// exclusive with note.
 	AppendNote string `json:"append_note,omitempty"`
 	// PLAN-02 P2 dispatch fields; see addTodoToolInput.
-	Assignee   *string           `json:"assignee,omitempty"`
-	Project    *string           `json:"project,omitempty"`
-	Template   *string           `json:"template,omitempty"`
-	Vars       map[string]string `json:"vars,omitempty"`
-	Verify     []string          `json:"verify,omitempty"`
-	Review     *bool             `json:"review,omitempty"`
-	Runner     *string           `json:"runner,omitempty"`
-	Cwd        *string           `json:"cwd,omitempty"`
-	TimeoutSec *int              `json:"timeout_sec,omitempty"`
-	Model      *string           `json:"model,omitempty"`
-	Budget     *job.Budget       `json:"budget,omitempty"`
-	Acceptance *string           `json:"acceptance,omitempty"`
-	Scope      *[]string         `json:"scope,omitempty"`
+	Assignee          *string           `json:"assignee,omitempty"`
+	Project           *string           `json:"project,omitempty"`
+	Template          *string           `json:"template,omitempty"`
+	Vars              map[string]string `json:"vars,omitempty"`
+	Verify            []string          `json:"verify,omitempty"`
+	Review            *bool             `json:"review,omitempty"`
+	Runner            *string           `json:"runner,omitempty"`
+	Cwd               *string           `json:"cwd,omitempty"`
+	TimeoutSec        *int              `json:"timeout_sec,omitempty"`
+	Model             *string           `json:"model,omitempty"`
+	Budget            *job.Budget       `json:"budget,omitempty"`
+	Acceptance        *string           `json:"acceptance,omitempty"`
+	CheckPrompt       *string           `json:"check_prompt,omitempty"`
+	CheckPromptSource *string           `json:"check_prompt_source,omitempty"`
+	Scope             *[]string         `json:"scope,omitempty"`
 	// PrimeKeywords are the subsystems / languages / modules the item's job is about
 	// (gofer-11tz); see addTodoToolInput. An empty list clears them.
 	PrimeKeywords *[]string `json:"prime_keywords,omitempty"`
@@ -1196,7 +1208,7 @@ func (in updateTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Assignee: in.Assignee, Project: in.Project, Template: in.Template,
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec, Model: in.Model, Budget: in.Budget,
-		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance,
+		After: in.After, Auto: in.Auto, Cmd: in.Cmd, Acceptance: in.Acceptance, CheckPrompt: in.CheckPrompt, CheckPromptSource: in.CheckPromptSource,
 		Scope: in.Scope, PrimeKeywords: in.PrimeKeywords, ContinueFrom: in.ContinueFrom,
 	}.todoPatch()
 }

@@ -123,6 +123,7 @@ func applyTemplateMeta(req *JobRequest, tpl *template.Template) {
 	}
 	if req.CheckPrompt == "" {
 		req.CheckPrompt = m.CheckPrompt
+		req.CheckPromptSource = m.CheckPromptSource
 	}
 	// An explicit --no-verify is an opt-OUT and wins over the template's default
 	// step (validate would reject carrying both).

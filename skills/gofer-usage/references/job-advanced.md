@@ -405,5 +405,7 @@ gofer job comments <job-id>
 
 `gofer job run --check-prompt "…"` 保存一条简短、可观察的交付核验要求，供 server 后续用结构化材料判断交付是否满足；它不是 `--verify` 的执行命令，也不等同于 `needs_review` 的人工验收。要求会随任务书模板、计划待办、HTTP / MCP 请求进入 job，并由续接继承。当前阶段只定义请求字段、长度限制、`job-check/v1` 输入与 `job-check-result/v1` 输出契约；检查 agent 的运行与自动修复属于后续阶段。
 
-配置在 `server.delivery_check`，默认关闭；后台 agent 会话轮换的默认值在 `server.background_agents.session`（上下文占比 0.7、20 次运行，未配置 `max_age` 时不按时间轮换）。
+`check_prompt_source`（`explicit` 默认 / `prompt_block`）标记要求的来源，随 `check_prompt` 一起保存与继承；HTTP / MCP / 任务书 / 计划待办均可带该字段。
+
+配置在 `server.delivery_check`，默认关闭（`include_acceptance` 默认 true，表示验收标准并入核验要求，P1 起生效）；后台 agent 会话轮换的默认值在 `server.background_agents.session`（上下文占比 0.7、20 次运行，未配置 `max_age` 时不按时间轮换）。
 

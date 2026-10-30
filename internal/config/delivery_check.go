@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // DeliveryCheckConfig controls the opt-in server-side delivery checker. It only
@@ -17,6 +18,9 @@ type DeliveryCheckConfig struct {
 	DailyLimit      int      `yaml:"daily_limit,omitempty"`
 	InputMaxBytes   int      `yaml:"input_max_bytes,omitempty"`
 	ReportTailBytes int      `yaml:"report_tail_bytes,omitempty"`
+	// IncludeAcceptance merges the job's acceptance criteria into the checked
+	// requirements (nil = default true).
+	IncludeAcceptance *bool `yaml:"include_acceptance,omitempty"`
 }
 
 const (
@@ -38,6 +42,9 @@ func (d DeliveryCheckConfig) EffectiveMaxAutoResumes() int {
 		return 0
 	}
 	return *d.MaxAutoResumes
+}
+func (d DeliveryCheckConfig) EffectiveIncludeAcceptance() bool {
+	return d.IncludeAcceptance == nil || *d.IncludeAcceptance
 }
 func (d DeliveryCheckConfig) EffectiveDailyLimit() int {
 	if d.DailyLimit < 0 {
@@ -97,7 +104,11 @@ func (s BackgroundAgentSessionConfig) validate() error {
 	if s.MaxRuns < 0 {
 		return fmt.Errorf("server.background_agents.session.max_runs must not be negative")
 	}
-	if strings.TrimSpace(s.MaxAge) != "" { /* parsed by the runner phase; preserve empty as disabled */
+	if age := strings.TrimSpace(s.MaxAge); age != "" {
+		dur, err := time.ParseDuration(age)
+		if err != nil || dur <= 0 {
+			return fmt.Errorf("server.background_agents.session.max_age %q must be a positive duration (empty = disabled)", s.MaxAge)
+		}
 	}
 	return nil
 }

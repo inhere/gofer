@@ -116,11 +116,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	req.Runner = config.NormalizeRunnerName(req.Runner)
 	req.SourceSessionID = strings.TrimSpace(req.SourceSessionID)
 	req.FromSession = strings.TrimSpace(req.FromSession)
-	checkPrompt, checkErr := NormalizeCheckPrompt(req.CheckPrompt)
-	if checkErr != nil {
+	if checkErr := normalizeCheckFields(&req); checkErr != nil {
 		return JobResult{}, fmt.Errorf("%w: %s", ErrInvalidRequest, checkErr)
 	}
-	req.CheckPrompt = checkPrompt
 
 	// E35: resolve a role preset BEFORE validate so the role-filled agent/project
 	// are still allowlist-checked (and an empty agent does not fail validation
@@ -139,6 +137,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 	applyTemplateMeta(&req, tpl)
+	// A task book may have supplied the requirement: bound and tag it like a caller's.
+	if checkErr := normalizeCheckFields(&req); checkErr != nil {
+		return JobResult{}, fmt.Errorf("%w: template %s", ErrInvalidRequest, checkErr)
+	}
 	// AUTO-04b: the job.submit decision hooks see the decided work (role and
 	// template applied) before gofer's own sections and rules are added, and may
 	// refuse it or make it more conservative. Their patch is carried onto the request
@@ -1132,17 +1134,19 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		secretValues:    secretValues,
 		sessionCommands: sessionCommands,
 		result: JobResult{
-			ID:          jobID,
-			ProjectKey:  req.ProjectKey,
-			Agent:       req.Agent,
-			ResumeAgent: resumeDisplayAgent,
-			Runner:      req.Runner,
-			Messenger:   req.MessengerMeta,
-			Interactive: req.Interactive,
-			Model:       req.Model,
-			FromSession: req.FromSession,
-			Acceptance:  req.Acceptance,
-			Scope:       req.Scope,
+			ID:                jobID,
+			ProjectKey:        req.ProjectKey,
+			Agent:             req.Agent,
+			ResumeAgent:       resumeDisplayAgent,
+			Runner:            req.Runner,
+			Messenger:         req.MessengerMeta,
+			Interactive:       req.Interactive,
+			Model:             req.Model,
+			FromSession:       req.FromSession,
+			Acceptance:        req.Acceptance,
+			CheckPrompt:       req.CheckPrompt,
+			CheckPromptSource: req.CheckPromptSource,
+			Scope:             req.Scope,
 			// gofer-3nxa.2: decided by injectPromptSections above.
 			KnowledgeCapture: req.KnowledgeCapture,
 			Budget:           req.Budget,

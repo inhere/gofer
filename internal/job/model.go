@@ -45,6 +45,10 @@ type JobRequest struct {
 	// CheckPrompt is the bounded delivery requirement consumed by the server-side checker.
 	// It is inherited by resumes and never means a shell command.
 	CheckPrompt string `json:"check_prompt,omitempty" yaml:"check_prompt,omitempty"`
+	// CheckPromptSource says where CheckPrompt came from: "explicit" (default, the
+	// caller wrote it) or "prompt_block" (extracted from a marked block of the prompt).
+	// Empty means explicit; Submit normalizes it and clears it when CheckPrompt is empty.
+	CheckPromptSource string `json:"check_prompt_source,omitempty" yaml:"check_prompt_source,omitempty"`
 	// Scope are the path globs (relative to the repository root of the job's cwd) this
 	// job is expected to change (gofer-3nxa.3; `job run --scope`, a plan todo's scope,
 	// HTTP/MCP `scope`). They are named in the 「交付约定」 section, and the review marks
@@ -708,6 +712,8 @@ type JobResult struct {
 	Acceptance string `json:"acceptance,omitempty"`
 	// CheckPrompt mirrors JobRequest.CheckPrompt and is recovered from request_json.
 	CheckPrompt string `json:"check_prompt,omitempty"`
+	// CheckPromptSource mirrors JobRequest.CheckPromptSource.
+	CheckPromptSource string `json:"check_prompt_source,omitempty"`
 	// Scope mirrors JobRequest.Scope: the declared change scope the review checks the
 	// diff's files against. Derived from request_json.
 	Scope []string `json:"scope,omitempty"`

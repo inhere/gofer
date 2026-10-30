@@ -13,7 +13,7 @@
 
 ### 变更
 
-- **交付核验契约（P0）**：`job run --check-prompt`、HTTP / MCP、任务书模板与计划待办可携带有界的交付核验要求；新增 `server.delivery_check` 与后台 agent 会话轮换配置，并为核验结果与后台会话记录准备可升级的存储结构。当前版本仅定义契约与持久化，不会调用检查 agent。
+- **交付核验契约（P0）**：`job run --check-prompt`、HTTP / MCP、任务书模板与计划待办可携带有界的交付核验要求；新增 `server.delivery_check` 与后台 agent 会话轮换配置，并为核验结果与后台会话记录准备可升级的存储结构。`check_prompt_source`（explicit / prompt_block）标记要求来源，`server.delivery_check.include_acceptance` 默认 true；当前版本仅定义契约与持久化，不会调用检查 agent。
 - **worktree 默认位置调整**：未显式配置 `worktree.dir` 时改为 `<git 顶层>/.worktrees/<name>`（未给 name 时使用 job id）；显式配置不受影响，已有 `tmp/gofer/wt` worktree 仍可列出、合并与清理。创建默认 worktree 时，gofer 会把 `/.worktrees/` 加入仓库公共 git 目录的本地 `info/exclude`，不修改用户跟踪的 `.gitignore`。
 
 ## [0.203.1] - 2026-10-29

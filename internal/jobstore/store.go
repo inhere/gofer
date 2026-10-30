@@ -442,6 +442,7 @@ var schemaStmts = []string{
   acceptance     TEXT,
   -- delivery-check requirement (not a command) carried by this plan item.
   check_prompt   TEXT,
+  check_prompt_source TEXT,
   -- declared change scope (JSON []string of path globs) of the dispatched job.
   scope_json     TEXT,
   -- task keywords (JSON []string) of the item's job: the tracker-prime material the
@@ -2068,6 +2069,9 @@ func (s *Store) migratePlanTodos() error {
 		return err
 	}
 	if err := add("check_prompt", "check_prompt TEXT"); err != nil {
+		return err
+	}
+	if err := add("check_prompt_source", "check_prompt_source TEXT"); err != nil {
 		return err
 	}
 	if err := add("scope_json", "scope_json TEXT"); err != nil {

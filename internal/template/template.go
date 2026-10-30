@@ -90,17 +90,18 @@ type Meta struct {
 	Model  string `json:"model,omitempty" yaml:"model"`
 	// Budget is the task book's default spend ceiling (N2 §B): fills the dimensions the
 	// request leaves unset, below the request and above the agent/project defaults.
-	Budget           *Budget  `json:"budget,omitempty" yaml:"budget"`
-	TimeoutSec       int      `json:"timeout_sec,omitempty" yaml:"timeout_sec"`
-	Tags             []string `json:"tags,omitempty" yaml:"tags"`
-	Verify           []string `json:"verify,omitempty" yaml:"verify"`
-	VerifyTimeoutSec int      `json:"verify_timeout_sec,omitempty" yaml:"verify_timeout_sec"`
-	Review           bool     `json:"review,omitempty" yaml:"review"`
-	Acceptance       string   `json:"acceptance,omitempty" yaml:"acceptance"`
-	CheckPrompt      string   `json:"check_prompt,omitempty" yaml:"check_prompt"`
-	ReadOnly         bool     `json:"read_only,omitempty" yaml:"read_only"`
-	Worktree         bool     `json:"worktree,omitempty" yaml:"worktree"`
-	FallbackAgents   []string `json:"fallback_agents,omitempty" yaml:"fallback_agents"`
+	Budget            *Budget  `json:"budget,omitempty" yaml:"budget"`
+	TimeoutSec        int      `json:"timeout_sec,omitempty" yaml:"timeout_sec"`
+	Tags              []string `json:"tags,omitempty" yaml:"tags"`
+	Verify            []string `json:"verify,omitempty" yaml:"verify"`
+	VerifyTimeoutSec  int      `json:"verify_timeout_sec,omitempty" yaml:"verify_timeout_sec"`
+	Review            bool     `json:"review,omitempty" yaml:"review"`
+	Acceptance        string   `json:"acceptance,omitempty" yaml:"acceptance"`
+	CheckPrompt       string   `json:"check_prompt,omitempty" yaml:"check_prompt"`
+	CheckPromptSource string   `json:"check_prompt_source,omitempty" yaml:"check_prompt_source"`
+	ReadOnly          bool     `json:"read_only,omitempty" yaml:"read_only"`
+	Worktree          bool     `json:"worktree,omitempty" yaml:"worktree"`
+	FallbackAgents    []string `json:"fallback_agents,omitempty" yaml:"fallback_agents"`
 }
 
 // Template is one parsed task book. Name/Source/Path are filled in by Resolve (and
@@ -227,20 +228,21 @@ func Parse(src []byte) (Template, error) {
 	}
 	tpl.Desc = f.Desc
 	tpl.Meta = Meta{
-		Agent:            f.Agent,
-		Runner:           f.Runner,
-		Model:            f.Model,
-		Budget:           f.Budget,
-		TimeoutSec:       f.TimeoutSec,
-		Tags:             f.Tags,
-		Verify:           f.Verify,
-		VerifyTimeoutSec: f.VerifyTimeoutSec,
-		Review:           f.Review,
-		Acceptance:       f.Acceptance,
-		CheckPrompt:      f.CheckPrompt,
-		ReadOnly:         f.ReadOnly,
-		Worktree:         f.Worktree,
-		FallbackAgents:   f.FallbackAgents,
+		Agent:             f.Agent,
+		Runner:            f.Runner,
+		Model:             f.Model,
+		Budget:            f.Budget,
+		TimeoutSec:        f.TimeoutSec,
+		Tags:              f.Tags,
+		Verify:            f.Verify,
+		VerifyTimeoutSec:  f.VerifyTimeoutSec,
+		Review:            f.Review,
+		Acceptance:        f.Acceptance,
+		CheckPrompt:       f.CheckPrompt,
+		CheckPromptSource: f.CheckPromptSource,
+		ReadOnly:          f.ReadOnly,
+		Worktree:          f.Worktree,
+		FallbackAgents:    f.FallbackAgents,
 	}
 	for name, spec := range f.Vars {
 		tpl.Vars[name] = spec
@@ -251,22 +253,23 @@ func Parse(src []byte) (Template, error) {
 // frontmatter is the strict wire shape of a template's header: exactly the keys the
 // design whitelists (plus the description and the variable declarations).
 type frontmatter struct {
-	Desc             string         `yaml:"desc"`
-	Agent            string         `yaml:"agent"`
-	Runner           string         `yaml:"runner"`
-	Model            string         `yaml:"model"`
-	Budget           *Budget        `yaml:"budget"`
-	TimeoutSec       int            `yaml:"timeout_sec"`
-	Tags             []string       `yaml:"tags"`
-	Verify           []string       `yaml:"verify"`
-	VerifyTimeoutSec int            `yaml:"verify_timeout_sec"`
-	Review           bool           `yaml:"review"`
-	Acceptance       string         `yaml:"acceptance"`
-	CheckPrompt      string         `yaml:"check_prompt"`
-	ReadOnly         bool           `yaml:"read_only"`
-	Worktree         bool           `yaml:"worktree"`
-	FallbackAgents   []string       `yaml:"fallback_agents"`
-	Vars             map[string]Var `yaml:"vars"`
+	Desc              string         `yaml:"desc"`
+	Agent             string         `yaml:"agent"`
+	Runner            string         `yaml:"runner"`
+	Model             string         `yaml:"model"`
+	Budget            *Budget        `yaml:"budget"`
+	TimeoutSec        int            `yaml:"timeout_sec"`
+	Tags              []string       `yaml:"tags"`
+	Verify            []string       `yaml:"verify"`
+	VerifyTimeoutSec  int            `yaml:"verify_timeout_sec"`
+	Review            bool           `yaml:"review"`
+	Acceptance        string         `yaml:"acceptance"`
+	CheckPrompt       string         `yaml:"check_prompt"`
+	CheckPromptSource string         `yaml:"check_prompt_source"`
+	ReadOnly          bool           `yaml:"read_only"`
+	Worktree          bool           `yaml:"worktree"`
+	FallbackAgents    []string       `yaml:"fallback_agents"`
+	Vars              map[string]Var `yaml:"vars"`
 }
 
 // ParseFile parses one template file and fills the Name/Path it can derive. A read

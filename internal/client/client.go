@@ -1810,6 +1810,9 @@ type Todo struct {
 	Budget *job.Budget `json:"budget,omitempty"`
 	// Acceptance is the item's acceptance criteria (gofer-3nxa.4).
 	Acceptance string `json:"acceptance,omitempty"`
+	// CheckPrompt / CheckPromptSource are the item's delivery-check requirement and its source.
+	CheckPrompt       string `json:"check_prompt,omitempty"`
+	CheckPromptSource string `json:"check_prompt_source,omitempty"`
 	// Scope is the item's declared change scope (path globs, gofer-3nxa.3).
 	Scope []string `json:"scope,omitempty"`
 	// PrimeKeywords are the task keywords of the item's job (gofer-11tz): the tracker-prime

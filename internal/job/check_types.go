@@ -69,6 +69,43 @@ func NormalizeCheckPrompt(v string) (string, error) {
 	return v, nil
 }
 
+const (
+	// CheckPromptSourceExplicit is a requirement the caller wrote (the default).
+	CheckPromptSourceExplicit = "explicit"
+	// CheckPromptSourcePromptBlock is a requirement extracted from a marked prompt block.
+	CheckPromptSourcePromptBlock = "prompt_block"
+)
+
+// NormalizeCheckPromptSource validates the source tag. An empty source defaults to
+// explicit when there is a requirement, and stays empty when there is none.
+func NormalizeCheckPromptSource(source, prompt string) (string, error) {
+	source = strings.TrimSpace(source)
+	switch source {
+	case "":
+		if prompt == "" {
+			return "", nil
+		}
+		return CheckPromptSourceExplicit, nil
+	case CheckPromptSourceExplicit, CheckPromptSourcePromptBlock:
+		return source, nil
+	}
+	return "", fmt.Errorf("check_prompt_source must be %q or %q", CheckPromptSourceExplicit, CheckPromptSourcePromptBlock)
+}
+
+// normalizeCheckFields bounds and tags the request's delivery-check requirement.
+func normalizeCheckFields(req *JobRequest) error {
+	prompt, err := NormalizeCheckPrompt(req.CheckPrompt)
+	if err != nil {
+		return err
+	}
+	source, err := NormalizeCheckPromptSource(req.CheckPromptSource, prompt)
+	if err != nil {
+		return err
+	}
+	req.CheckPrompt, req.CheckPromptSource = prompt, source
+	return nil
+}
+
 // ParseCheckResult parses exactly one bounded JSON object and validates its contract.
 // Unknown fields are ignored for additive compatibility; trailing JSON/text is rejected.
 func ParseCheckResult(raw []byte) (CheckResult, error) {
@@ -151,4 +188,37 @@ func (in CheckInput) Validate() error {
 		return fmt.Errorf("check input text exceeds its byte limit")
 	}
 	return nil
+}
+
+// Delivery-check event types (P0 contract; emitted by the checker in a later phase).
+const (
+	EventDeliveryCheckStarted     = "job.delivery_check.started"
+	EventDeliveryCheckPassed      = "job.delivery_check.passed"
+	EventDeliveryCheckFailed      = "job.delivery_check.failed"
+	EventDeliveryCheckAutoResumed = "job.delivery_check.auto_resumed"
+	EventDeliveryCheckError       = "job.delivery_check.error"
+)
+
+// DeliveryCheckEventDetail is the detail payload shared by the job.delivery_check.*
+// events. It carries counts and identifiers only, never the report or diff text.
+type DeliveryCheckEventDetail struct {
+	// Verdict is "pass" or "fail" (empty on started / error events).
+	Verdict string `json:"verdict,omitempty"`
+	// Round is the 1-based check round of this job chain.
+	Round int `json:"round,omitempty"`
+	// FailedItems counts the unmet items of a failed result.
+	FailedItems int `json:"failed_items,omitempty"`
+	// ResumeCount / MaxResumes describe the auto-resume budget after this event.
+	ResumeCount int `json:"resume_count,omitempty"`
+	MaxResumes  int `json:"max_resumes,omitempty"`
+	// ResumedJobID is the continuation job of an auto_resumed event.
+	ResumedJobID string `json:"resumed_job_id,omitempty"`
+	// Agent / Model / SessionID identify the checker run.
+	Agent     string `json:"agent,omitempty"`
+	Model     string `json:"model,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	// Source is the check_prompt_source of the requirement that was checked.
+	Source string `json:"source,omitempty"`
+	// Error is a short infrastructure error text (error events only).
+	Error string `json:"error,omitempty"`
 }
