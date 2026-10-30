@@ -54,7 +54,10 @@ type CheckResult struct {
 }
 
 type CheckItem struct {
-	ID          string `json:"id"`
+	ID string `json:"id"`
+	// Source names the requirement section the item came from: explicit,
+	// prompt_block or acceptance (optional; a checker that omits it is accepted).
+	Source      string `json:"source,omitempty"`
 	Requirement string `json:"requirement"`
 	Passed      bool   `json:"passed"`
 	Evidence    string `json:"evidence"`
@@ -74,6 +77,10 @@ const (
 	CheckPromptSourceExplicit = "explicit"
 	// CheckPromptSourcePromptBlock is a requirement extracted from a marked prompt block.
 	CheckPromptSourcePromptBlock = "prompt_block"
+	// CheckPromptSourceMerged is an explicit requirement and a marked prompt block kept
+	// together; CheckPrompt then carries both, in "### explicit" / "### prompt_block"
+	// sections.
+	CheckPromptSourceMerged = "merged"
 )
 
 // NormalizeCheckPromptSource validates the source tag. An empty source defaults to
@@ -86,10 +93,10 @@ func NormalizeCheckPromptSource(source, prompt string) (string, error) {
 			return "", nil
 		}
 		return CheckPromptSourceExplicit, nil
-	case CheckPromptSourceExplicit, CheckPromptSourcePromptBlock:
+	case CheckPromptSourceExplicit, CheckPromptSourcePromptBlock, CheckPromptSourceMerged:
 		return source, nil
 	}
-	return "", fmt.Errorf("check_prompt_source must be %q or %q", CheckPromptSourceExplicit, CheckPromptSourcePromptBlock)
+	return "", fmt.Errorf("check_prompt_source must be %q, %q or %q", CheckPromptSourceExplicit, CheckPromptSourcePromptBlock, CheckPromptSourceMerged)
 }
 
 // normalizeCheckFields bounds and tags the request's delivery-check requirement.
@@ -108,7 +115,28 @@ func normalizeCheckFields(req *JobRequest) error {
 
 // ParseCheckResult parses exactly one bounded JSON object and validates its contract.
 // Unknown fields are ignored for additive compatibility; trailing JSON/text is rejected.
+// unfenceCheckResult drops ONE Markdown code fence wrapped around the whole output
+// (```json … ``` or ``` … ```), which models add despite being told not to. Anything
+// else — prose around the object, two objects, a fence in the middle — still fails the
+// strict decode below.
+func unfenceCheckResult(raw []byte) []byte {
+	s := bytes.TrimSpace(raw)
+	if !bytes.HasPrefix(s, []byte("```")) || !bytes.HasSuffix(s, []byte("```")) || len(s) < 6 {
+		return raw
+	}
+	body := s[3 : len(s)-3]
+	nl := bytes.IndexByte(body, '\n')
+	if nl < 0 {
+		return raw
+	}
+	if lang := bytes.TrimSpace(body[:nl]); len(lang) > 0 && !bytes.EqualFold(lang, []byte("json")) {
+		return raw
+	}
+	return bytes.TrimSpace(body[nl+1:])
+}
+
 func ParseCheckResult(raw []byte) (CheckResult, error) {
+	raw = unfenceCheckResult(raw)
 	if len(raw) == 0 || len(raw) > CheckResultMaxBytes {
 		return CheckResult{}, fmt.Errorf("check result must be between 1 and %d bytes", CheckResultMaxBytes)
 	}

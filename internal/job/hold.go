@@ -147,6 +147,7 @@ type heldInternals struct {
 	Attempt           int            `json:"attempt,omitempty"`
 	ResumeSourceAgent string         `json:"resume_source_agent,omitempty"`
 	AutoResumeAttempt int            `json:"auto_resume_attempt,omitempty"`
+	CheckResumeCount  int            `json:"check_resume_count,omitempty"`
 	FellBackFrom      string         `json:"fell_back_from,omitempty"`
 	Fallback          *FallbackState `json:"fallback,omitempty"`
 	RequestedAgent    string         `json:"requested_agent,omitempty"`
@@ -180,7 +181,7 @@ func captureHeldInternals(r *JobRequest) *heldInternals {
 		BudgetFixed: r.BudgetFixed, ReviewFixed: r.ReviewFixed,
 		SkillsResolved: r.SkillsResolved, RulesResolved: r.RulesResolved, MCPResolved: r.MCPResolved,
 		TodoForeign: r.TodoForeign, SourceJobID: r.SourceJobID, Attempt: r.Attempt,
-		ResumeSourceAgent: r.ResumeSourceAgent, AutoResumeAttempt: r.AutoResumeAttempt,
+		ResumeSourceAgent: r.ResumeSourceAgent, AutoResumeAttempt: r.AutoResumeAttempt, CheckResumeCount: r.CheckResumeCount,
 		FellBackFrom: r.FellBackFrom, RequestedAgent: r.RequestedAgent, InheritWorktree: r.InheritWorktree,
 		WorkflowID: r.WorkflowID, StepIndex: r.StepIndex, FanIndex: r.FanIndex,
 		LeaderOfPlan: r.LeaderOfPlan, Steward: r.Steward,
@@ -214,6 +215,7 @@ func (h *heldInternals) restore(r *JobRequest) {
 	r.SkillsResolved, r.RulesResolved, r.MCPResolved = h.SkillsResolved, h.RulesResolved, h.MCPResolved
 	r.TodoForeign, r.SourceJobID, r.Attempt = h.TodoForeign, h.SourceJobID, h.Attempt
 	r.ResumeSourceAgent, r.AutoResumeAttempt = h.ResumeSourceAgent, h.AutoResumeAttempt
+	r.CheckResumeCount = h.CheckResumeCount
 	r.FellBackFrom, r.Fallback, r.RequestedAgent = h.FellBackFrom, h.Fallback, h.RequestedAgent
 	r.EnvDenyExtra = h.EnvDenyExtra
 	r.InheritWorktree = h.InheritWorktree
@@ -473,6 +475,7 @@ func (s *Service) parkJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 		KnowledgeCapture:    req.KnowledgeCapture,
 	}
 	snap.AutoResumeAttempt = req.AutoResumeAttempt
+	snap.CheckResumeCount = req.CheckResumeCount
 
 	// The source session watches the parked job like any other: its eventual terminal
 	// state (ran, or a hold that was rejected or expired) reaches the session through

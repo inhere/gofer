@@ -65,6 +65,22 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		cancel()
 	}
 
+	// The concurrency slots are returned in reverse order of acquisition, at the end of
+	// execute or earlier when finish asks (see jobEntry.releaseGates).
+	var gateReleases []func()
+	var gateOnce sync.Once
+	releaseGates := func() {
+		gateOnce.Do(func() {
+			for i := len(gateReleases) - 1; i >= 0; i-- {
+				gateReleases[i]()
+			}
+		})
+	}
+	defer releaseGates()
+	entry.mu.Lock()
+	entry.releaseGates = releaseGates
+	entry.mu.Unlock()
+
 	// Wait for a project concurrency slot (if limited), but abort if cancelled
 	// while queued.
 	if gates.project != nil {
@@ -73,7 +89,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			s.finish(entry, req.JobID, status, code, runErr)
 			return
 		}
-		defer func() { <-gates.project }()
+		gateReleases = append(gateReleases, func() { <-gates.project })
 	}
 
 	// E17: after the project slot, wait for the per-caller slot (design §7.2).
@@ -88,7 +104,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			s.finish(entry, req.JobID, status, code, runErr)
 			return
 		}
-		defer func() { <-gates.caller }()
+		gateReleases = append(gateReleases, func() { <-gates.caller })
 	}
 
 	// JOB-11: the per-agent slot (agents.<key>.max_concurrent), last of the three
@@ -100,7 +116,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			s.finish(entry, req.JobID, status, code, runErr)
 			return
 		}
-		defer func() { <-gates.agent }()
+		gateReleases = append(gateReleases, func() { <-gates.agent })
 	}
 
 	// JOB-11: serialize the jobs that must not share a working directory. Acquired
@@ -692,14 +708,32 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 			guardDecision = "review"
 		}
 	}
+	// Delivery check (交付核验): a job that ended normally, whose --verify did not fail
+	// and that is not about to be continued for uncommitted work, is judged against its
+	// requirements BEFORE its outcome becomes observable. A pass changes nothing; a fail
+	// either continues the job (it then ends as a failed-type intermediate record, like
+	// the other automatic continuations) or parks it in needs_review; a checker error is
+	// fail-open.
+	chk := checkDecision{}
+	if status == StatusDone && guardDecision != "resume" && guardDecision != "review" && !verifyBlocked(pre.Verify) {
+		chk = s.deliveryCheck(entry, pre)
+		if chk.action == checkActionResume {
+			status = StatusFailed
+			err = errors.New(chk.reason)
+			errStr = err.Error()
+			entry.mu.Lock()
+			entry.result.Error = errStr
+			entry.mu.Unlock()
+		}
+	}
 	followUpPending, followUpReviewEach := s.pendingFollowUpGate(pre.ID)
-	needsReview := guardDecision == "review" || (pre.RequireReview && (status == StatusDone || verifyBlocked(pre.Verify)) && (!followUpPending || followUpReviewEach))
+	needsReview := guardDecision == "review" || chk.action == checkActionReview || (pre.RequireReview && (status == StatusDone || verifyBlocked(pre.Verify)) && (!followUpPending || followUpReviewEach))
 	// SUP-01 P3: a failure is classified and (possibly) taken over from ONE decision —
 	// the pattern match, whether this agent can still continue the work, and whether
 	// the candidate chain has a link left. It is pure (it submits nothing), so it runs
 	// here, before the failure becomes observable.
 	dec := failureDecision{}
-	if status == StatusFailed {
+	if status == StatusFailed && chk.action != checkActionResume {
 		dec = s.failureDecision(pre)
 		// Quota reset time / a refused resume's own message go onto the job error, ahead
 		// of the terminal event and the persisted row that carry it.
@@ -719,7 +753,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	switch {
 	case needsReview:
 		s.recordEvent(jobID, EventJobNeedsReview, map[string]any{"job_id": jobID, "exit_code": exitCode})
-	case dec.AutoResume || dec.Fallback != "" || guardDecision == "resume":
+	case dec.AutoResume || dec.Fallback != "" || guardDecision == "resume" || chk.action == checkActionResume:
 		// A takeover is about to be submitted (the same agent's continuation, or the
 		// next candidate): its own event is recorded once the submission succeeds, and
 		// job.terminal is recorded late instead when it does not.
@@ -799,6 +833,9 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		s.issueLinker.LinkIssueFinished(snap)
 	}
 	persistErr := s.persist(snap)
+	if persistErr == nil && chk.ran && chk.action != checkActionResume {
+		s.commentDeliveryCheck(snap, chk, "")
+	}
 	// SEC-01: revoke the job's credential — every branch below means the job has stopped
 	// EXECUTING (a needs_review delivery included: its process is gone, it is merely not
 	// accepted yet). Done AFTER the terminal row is durable on purpose: the credential
@@ -854,6 +891,16 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		return
 	}
 	autoResumed, fellBack := false, false
+	if persistErr == nil && chk.action == checkActionResume {
+		autoResumed = s.resumeAfterCheck(snap, chk)
+		resumedID := ""
+		if autoResumed {
+			if rec, ok, rerr := s.meta.GetJob(jobID); rerr == nil && ok {
+				resumedID = rec.AutoResumedBy
+			}
+		}
+		s.commentDeliveryCheck(snap, chk, resumedID)
+	}
 	if persistErr == nil && guardDecision == "resume" {
 		autoResumed = s.resumeUncommitted(snap)
 	}
@@ -863,7 +910,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	if persistErr == nil && dec.Fallback != "" {
 		fellBack = s.fallBack(snap, dec.Hit, dec.Fallback)
 	}
-	if (guardDecision == "resume" && !autoResumed) || (dec.AutoResume && !autoResumed) || (dec.Fallback != "" && !fellBack) {
+	if (chk.action == checkActionResume && !autoResumed) || (guardDecision == "resume" && !autoResumed) || (dec.AutoResume && !autoResumed) || (dec.Fallback != "" && !fellBack) {
 		// The takeover could not be submitted (or the row never landed): the failure
 		// IS terminal after all — record it now, late but never missing.
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
@@ -911,6 +958,9 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// E24 统一 job 级重试 (P1 最小版)：非工作流 job 若带 Retry 策略且本次失败可重试，
 	// 进程内延迟重投 attempt+1。工作流 step 的重试走 advanceWorkflow（上面 return），
 	// 二者不重叠。可靠版（sweeper 驱动 next_retry_at）留后续。
+	if chk.action == checkActionResume && autoResumed {
+		return // the delivery-check continuation carries the work on; no job-level retry
+	}
 	s.maybeRetryJob(snap)
 }
 

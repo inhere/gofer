@@ -443,6 +443,7 @@ plan add-todo	flag agent-budget-cost-usd	soft USD cost budget handed to the agen
 plan add-todo	flag agent-budget-tokens	soft token budget handed to the agent, which winds the run up itself once spent (accepts 50000 / 50k / 1.5m; only agents with an agent_budget mapping, e.g. suga — others are refused). Keep it below --max-tokens
 plan add-todo	flag assign	agent key that runs this item; a ready item with an assignee is dispatched at once
 plan add-todo	flag auto	let the chain start this item once its dependencies are done (default)
+plan add-todo	flag check-prompt	delivery-check requirement for the server-side checker (not a shell command); checked after the job ends when server.delivery_check is enabled. --check-prompt "" clears it
 plan add-todo	flag cmd	argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)
 plan add-todo	flag config	path to the gofer config file
 plan add-todo	flag continue	continue the agent session of this todo id instead of starting a new one; `prev` = the plan's previous item (add-todo only); implies --after on it
@@ -625,6 +626,7 @@ plan set-todo	flag agent-budget-tokens	soft token budget handed to the agent, wh
 plan set-todo	flag append-note	append a line to the todo note (mutually exclusive with --note)
 plan set-todo	flag assign	agent key that runs this item; a ready item with an assignee is dispatched at once
 plan set-todo	flag auto	let the chain start this item once its dependencies are done (default)
+plan set-todo	flag check-prompt	delivery-check requirement for the server-side checker (not a shell command); checked after the job ends when server.delivery_check is enabled. --check-prompt "" clears it
 plan set-todo	flag cmd	argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)
 plan set-todo	flag config	path to the gofer config file
 plan set-todo	flag continue	continue the agent session of this todo id instead of starting a new one; `prev` = the plan's previous item (add-todo only); implies --after on it

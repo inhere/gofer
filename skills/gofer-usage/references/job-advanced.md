@@ -28,6 +28,7 @@
 - [脱敏、秘密扫描与删除](#脱敏秘密扫描与删除)
 - [派活给主机 agent 的注意事项](#派活给主机-agent-的注意事项)
 - [在 job 上留评论](#在-job-上留评论)
+- [交付核验（--check-prompt）](#交付核验--check-prompt)
 
 ## 等待方式与超时
 
@@ -403,9 +404,37 @@ gofer job comments <job-id>
 
 ## 交付核验（--check-prompt）
 
-`gofer job run --check-prompt "…"` 保存一条简短、可观察的交付核验要求，供 server 后续用结构化材料判断交付是否满足；它不是 `--verify` 的执行命令，也不等同于 `needs_review` 的人工验收。要求会随任务书模板、计划待办、HTTP / MCP 请求进入 job，并由续接继承。当前阶段只定义请求字段、长度限制、`job-check/v1` 输入与 `job-check-result/v1` 输出契约；检查 agent 的运行与自动修复属于后续阶段。
+交付核验是 server 在 job 结束后做的**语义检查**：用它准备的材料（验证要求、汇报末尾、提交列表与 diff 统计、未提交文件、`--verify` 结果）请一个只读、无工具、单轮的核验 agent 判断交付是否满足要求。三者分工不同：
 
-`check_prompt_source`（`explicit` 默认 / `prompt_block`）标记要求的来源，随 `check_prompt` 一起保存与继承；HTTP / MCP / 任务书 / 计划待办均可带该字段。
+| 机制 | 谁做 | 判断什么 |
+|---|---|---|
+| `--verify` | 执行机上跑命令 | 命令（构建、测试）的退出码 |
+| 交付核验 | server 请核验 agent | 汇报、提交与 diff 是否满足书面要求 |
+| `needs_review` | 人 | 最终 accept / reject |
 
-配置在 `server.delivery_check`，默认关闭（`include_acceptance` 默认 true，表示验收标准并入核验要求，P1 起生效）；后台 agent 会话轮换的默认值在 `server.background_agents.session`（上下文占比 0.7、20 次运行，未配置 `max_age` 时不按时间轮换）。
+**验证要求有三种来源，合并使用（不是互相覆盖）：**
 
+1. **显式**：`gofer job run --check-prompt "…"`（任务书模板、计划待办 `plan add-todo --check-prompt`、HTTP / MCP 的 `check_prompt` 字段同义）。
+2. **任务书里的标记块**：prompt 或 `-f` 任务文件正文里写
+
+   ```
+   <delivery-check>
+   - 至少 3 个 git commit，每块一个
+   - 汇报列出未完成项
+   </delivery-check>
+   ```
+
+   块可以有多个（按出现顺序拼接）；标记必须各自**独占一行**；代码围栏（``` / ~~~）里的同名标记不算；未闭合的块忽略。块**保留在发给 agent 的 prompt 里**（让 agent 知道会被怎样核验），同时被摘出来交给核验 agent。
+3. **验收标准 `--acceptance`**：当 `server.delivery_check.include_acceptance`（默认 true）打开时，验收标准作为第三节进入核验材料，核验 agent 对照汇报里的逐条回答与提交证据判定。
+
+显式与标记块都有时，`check_prompt` 里分为 `### explicit` / `### prompt_block` 两节，`check_prompt_source` 记为 `merged`（只有一种时为 `explicit` / `prompt_block`）；核验材料再加 `### acceptance` 节。长度上限（16 KiB）对合并后的整体生效，超出时提交被拒。
+
+**触发条件**：`server.delivery_check.enabled` 为 true，且 job 有任一来源的要求（只有 `--acceptance` 且 `include_acceptance: false` 时不核验）。时序：agent 正常结束 → 先跑 `--verify`（失败则不核验，沿用原有路径）→ 核验。
+
+- **合格**：照常 `done`，或按 `--review` / 项目 `require_review` 进入 `needs_review`。
+- **不合格**：自动续接同一会话（job 评论里写结论，续接提示按条列出不合格项并标注来源节），最多 `max_auto_resumes` 轮（默认 2，0 表示不自动续接）；用完仍不合格则停在 `needs_review`，结论留在 job 上。核验续接的轮数独立计数，不占用瞬时错误的自动续投预算；续接期间计划待办保持 `doing`。
+- **核验 agent 自己出错**（超时、不可用、输出不是合法 JSON、达到 `daily_limit`）：fail-open，job 保持原状态，记 `check_error` 与 `job.delivery_check.error` 事件，不会自动改代码。
+
+`gofer job show` 显示 `check_req`（是否带要求及来源）、`check`（裁决、轮次与不合格条目）、`check_resumes`、`check_error`。事件：`job.delivery_check.started|passed|failed|auto_resumed|error`。
+
+配置在 `server.delivery_check`（默认关闭）：`agent`（需是带只读模式的 cli-agent）、`model`、`args`、`timeout_sec`、`max_auto_resumes`、`daily_limit`、`input_max_bytes`、`report_tail_bytes`、`include_acceptance`。核验以隐藏的只读 job 运行（`gofer job ls --all` 可见）。要求写成可观测的条件（数量、文件、汇报内容），不要写成模糊的评价。后台 agent 会话轮换的默认值在 `server.background_agents.session`（上下文占比 0.7、20 次运行，未配置 `max_age` 时不按时间轮换）。

@@ -145,6 +145,13 @@ type Service struct {
 	pauseApplyID string
 	// Worker services report the guard result but leave review/resume to the hub.
 	uncommittedDecisionOnly bool
+	// deliveryChecker runs the delivery-check agent; nil = the default (a one-shot
+	// read-only job of server.delivery_check.agent). A test installs a fake.
+	deliveryChecker DeliveryChecker
+	// checkDayMu guards the per-day count of delivery-check runs (daily_limit).
+	checkDayMu    sync.Mutex
+	checkDay      string
+	checkDayCount int
 	// gitBase is a nil-in-production test seam for the pre-agent git captures.
 	gitBase *gitBaseline
 	// rebuildTodoRequest assembles the ORDINARY dispatch request of a plan item and is
@@ -415,6 +422,11 @@ type jobEntry struct {
 	// job its caller had already recorded as cancelled running to its own timeout.
 	// execute honours the intent the moment the context exists. Guarded by mu.
 	cancelRequested bool
+	// releaseGates returns the project / caller / agent concurrency slots this entry's
+	// execute holds. It is idempotent and set by execute; finish calls it before a step
+	// that submits and waits for another job (the delivery check), which would
+	// otherwise queue behind the very slot the job being finished still holds.
+	releaseGates func()
 	// executing is set by execute together with cancel: an execute goroutine drives
 	// this entry. started is closed at that moment if a Shutdown that found the entry
 	// not yet started asked for it (created lazily under mu). Both guarded by mu.

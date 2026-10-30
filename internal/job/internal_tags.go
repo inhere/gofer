@@ -19,6 +19,10 @@ const TrackerSyncJobTag = jobstore.TagTrackerSync
 // DeliveryJobTag marks the internal job delivering a worker's worktree job (GIT-02).
 const DeliveryJobTag = jobstore.TagDelivery
 
+// DeliveryCheckJobTag marks the one-shot run of the delivery checker (hidden like the
+// other internal records).
+const DeliveryCheckJobTag = jobstore.TagDeliveryCheck
+
 // hiddenJobTag reports whether a job carries any internal tag.
 func hiddenJobTag(tags []string) bool {
 	for _, t := range tags {

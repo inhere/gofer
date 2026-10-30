@@ -138,8 +138,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	}
 	applyTemplateMeta(&req, tpl)
 	// A task book may have supplied the requirement: bound and tag it like a caller's.
+	// The prompt's own <delivery-check> blocks join it here (the prompt keeps them),
+	// and the length limit applies to the merged text.
+	applyPromptCheckBlocks(&req)
 	if checkErr := normalizeCheckFields(&req); checkErr != nil {
-		return JobResult{}, fmt.Errorf("%w: template %s", ErrInvalidRequest, checkErr)
+		return JobResult{}, fmt.Errorf("%w: %s", ErrInvalidRequest, checkErr)
 	}
 	// AUTO-04b: the job.submit decision hooks see the decided work (role and
 	// template applied) before gofer's own sections and rules are added, and may
@@ -1242,6 +1245,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			Fallback:          fallback,
 			ResumedFrom:       req.ResumedFrom,
 			AutoResumeAttempt: req.AutoResumeAttempt,
+			CheckResumeCount:  req.CheckResumeCount,
 			// WT-01：受管 worktree 的交付物位置与基线（终态时 captureOutcomes 再补
 			// head sha / commits_ahead / 两段 diff）。远端 job 由执行机经 Outcome 回传。
 			WorktreePath:    wtPath,

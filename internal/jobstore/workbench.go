@@ -328,7 +328,7 @@ func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64, includeInter
 }
 
 const workbenchNonTerminalSQL = `status NOT IN ('done','failed','cancelled','timeout','rejected')`
-const workbenchVisibleSQL = `COALESCE(tags_json,'') NOT LIKE '%"` + TagSessionMessenger + `"%' AND COALESCE(tags_json,'') NOT LIKE '%"` + TagWorkSummarizer + `"%' AND COALESCE(tags_json,'') NOT LIKE '%"` + TagTrackerSync + `"%' AND COALESCE(tags_json,'') NOT LIKE '%"` + TagDelivery + `"%'`
+const workbenchVisibleSQL = `COALESCE(tags_json,'') NOT LIKE '%"` + TagSessionMessenger + `"%' AND COALESCE(tags_json,'') NOT LIKE '%"` + TagWorkSummarizer + `"%' AND COALESCE(tags_json,'') NOT LIKE '%"` + TagTrackerSync + `"%' AND COALESCE(tags_json,'') NOT LIKE '%"` + TagDelivery + `"%' AND COALESCE(tags_json,'') NOT LIKE '%"` + TagDeliveryCheck + `"%'`
 
 // listWorkbenchJobs selects the job window. Web session-messenger delivery jobs and
 // work-summarizer jobs are internal records and stay out unless includeInternal asks for them.

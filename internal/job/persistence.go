@@ -163,7 +163,10 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		// MCP 注册表（MCP-06）：绑定的 MCP 名字；没绑 → ""。
 		MCPJSON: marshalSkills(r.MCP),
 		// 交付（GIT-02）：合并 / 推送 / PR 的结果；没交付 → ""。
-		DeliveryJSON: marshalDelivery(r.Delivery),
+		DeliveryJSON:     marshalDelivery(r.Delivery),
+		CheckJSON:        r.CheckJSON,
+		CheckResumeCount: r.CheckResumeCount,
+		CheckError:       r.CheckError,
 		// 强制规则（JOB-06①）：该 job 实际注入的规则 [{name,sha256}]；没注入 → ""（读回即
 		// "没有规则"，不会伪造成注入过）。prompt 本身（request_json）记"agent 读到了什么"，
 		// 这一列记"读的是哪个版本"，规则库改过之后这对组合才回答得了事后追问。
@@ -504,9 +507,12 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		// 文件传输（XFER-01 X2）：旧行 "" = 该 job 没带文件（nil），不伪造空摘要。
 		Xfer: unmarshalXfer(rec.XferJSON),
 		// 技能绑定（JOB-10）：旧行 "" = 没绑技能（nil），不伪造成挂载过。
-		Skills:   unmarshalSkills(rec.SkillsJSON),
-		MCP:      unmarshalSkills(rec.MCPJSON),
-		Delivery: unmarshalDelivery(rec.DeliveryJSON),
+		Skills:           unmarshalSkills(rec.SkillsJSON),
+		MCP:              unmarshalSkills(rec.MCPJSON),
+		Delivery:         unmarshalDelivery(rec.DeliveryJSON),
+		CheckJSON:        rec.CheckJSON,
+		CheckResumeCount: rec.CheckResumeCount,
+		CheckError:       rec.CheckError,
 		// 强制规则（JOB-06①）：旧行 "" = 没注入规则（nil），不伪造成注入过。
 		Rules: unmarshalRules(rec.RulesJSON),
 		// 领导回合（MCP-05 阶段 B）：旧行 "" = 不是 leader job。

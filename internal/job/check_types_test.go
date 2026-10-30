@@ -10,6 +10,9 @@ func TestCheckResultParserContract(t *testing.T) {
 		`{"schema":"job-check-result/v1","verdict":"pass","items":[],"summary":"ok"}`,
 		`{"schema":"job-check-result/v1","verdict":"fail","items":[{"id":"a","requirement":"r","passed":false,"evidence":"missing"}],"summary":"no"}`,
 		`{"schema":"job-check-result/v1","verdict":"pass","items":[],"summary":"ok","extra":1}`,
+		// One fence around the whole output is tolerated (models add it anyway).
+		"```json\n" + `{"schema":"job-check-result/v1","verdict":"pass","items":[],"summary":"ok"}` + "\n```",
+		"  ```\n" + `{"schema":"job-check-result/v1","verdict":"pass","items":[],"summary":"ok"}` + "\n```\n",
 	} {
 		if _, err := ParseCheckResult([]byte(raw)); err != nil {
 			t.Fatalf("parse %s: %v", raw, err)
@@ -23,6 +26,8 @@ func TestCheckResultParserContract(t *testing.T) {
 		"unknown verdict":    `{"schema":"job-check-result/v1","verdict":"maybe","items":[],"summary":"ok"}`,
 		"item without id":    `{"schema":"job-check-result/v1","verdict":"fail","items":[{"id":" ","requirement":"r"}],"summary":"x"}`,
 		"not json":           `pass`,
+		"prose around fence": "Here it is:\n```json\n" + `{"schema":"job-check-result/v1","verdict":"pass","items":[],"summary":"ok"}` + "\n```",
+		"non-json fence":     "```yaml\n" + `{"schema":"job-check-result/v1","verdict":"pass","items":[],"summary":"ok"}` + "\n```",
 		"empty":              ``,
 		"oversized":          `{"schema":"job-check-result/v1","verdict":"pass","items":[],"summary":"` + strings.Repeat("x", CheckResultMaxBytes) + `"}`,
 		"summary too long":   `{"schema":"job-check-result/v1","verdict":"pass","items":[],"summary":"` + strings.Repeat("x", CheckTextMaxBytes+1) + `"}`,
