@@ -433,8 +433,11 @@ gofer job comments <job-id>
 
 - **合格**：照常 `done`，或按 `--review` / 项目 `require_review` 进入 `needs_review`。
 - **不合格**：自动续接同一会话（job 评论里写结论，续接提示按条列出不合格项并标注来源节），最多 `max_auto_resumes` 轮（默认 2，0 表示不自动续接）；用完仍不合格则停在 `needs_review`，结论留在 job 上。核验续接的轮数独立计数，不占用瞬时错误的自动续投预算；续接期间计划待办保持 `doing`。
+- **续接提交失败**：核验不合格、该自动续接却没能提交（会话不可用、被项目 / 上限拒绝等）时，job 转 `needs_review`（不是 `failed`，也不补发 `job.terminal`），原因写进 `check_error` 和 job 评论。
 - **核验 agent 自己出错**（超时、不可用、输出不是合法 JSON、达到 `daily_limit`）：fail-open，job 保持原状态，记 `check_error` 与 `job.delivery_check.error` 事件，不会自动改代码。
 
-`gofer job show` 显示 `check_req`（是否带要求及来源）、`check`（裁决、轮次与不合格条目）、`check_resumes`、`check_error`。事件：`job.delivery_check.started|passed|failed|auto_resumed|error`。
+**server 强制无工具**：核验 job 固定只读，并在 `server.delivery_check.args` 之后追加对应 agent 的无工具参数，管理员的 args 覆盖不了（claude `--tools ""`；codex 关 shell 工具；suga `--read-only`）。`agent` 不是 claude / codex / suga（含按命令名识别的改名）时，核验报错并 fail-open（记 `check_error`），不会带工具运行。
+
+`gofer job show` 显示 `check_req`（是否带要求及来源）、`check`（裁决、轮次与不合格条目）、`check_resumes`、`check_error`，以及由核验触发的续接 job id（`continued by:`）。事件：`job.delivery_check.started|passed|failed|auto_resumed|error`。
 
 配置在 `server.delivery_check`（默认关闭）：`agent`（需是带只读模式的 cli-agent）、`model`、`args`、`timeout_sec`、`max_auto_resumes`、`daily_limit`、`input_max_bytes`、`report_tail_bytes`、`include_acceptance`。核验以隐藏的只读 job 运行（`gofer job ls --all` 可见）。要求写成可观测的条件（数量、文件、汇报内容），不要写成模糊的评价。后台 agent 会话轮换的默认值在 `server.background_agents.session`（上下文占比 0.7、20 次运行，未配置 `max_age` 时不按时间轮换）。

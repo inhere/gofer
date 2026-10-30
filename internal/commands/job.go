@@ -4146,6 +4146,9 @@ func printDeliveryCheck(c *gcli.Command, res job.JobResult) {
 			c.Printf(" - %s", sc.Summary)
 		}
 		c.Println()
+		if sc.Action == "resume" && res.AutoResumedBy != "" {
+			c.Printf("            continued by: %s\n", res.AutoResumedBy)
+		}
 		for _, it := range sc.Items {
 			if it.Passed {
 				continue

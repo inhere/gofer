@@ -107,7 +107,7 @@ job 的顺序固定为：
 每次检查：
 
 - 合格：继续原有逻辑。若 `--review` 或项目 `require_review` 生效，状态为 `needs_review`；否则 `done`。
-- 不合格且 `check_resume_count < max_auto_resumes`：源 job 记录 `job.check_failed` 和 `job.check_auto_resumed`，源 job 以失败型中间结果结束，提交一个继承原工作树、plan、todo、verify prompt 和通知策略的新 resume job。todo 保持 `doing`，不写 done note。续接提示只包含不合格条目和修复要求，要求先检查已有提交，只做剩余修复。
+- 不合格且 `check_resume_count < max_auto_resumes`：源 job 记录 `job.delivery_check.failed` 和 `job.delivery_check.auto_resumed`，源 job 以失败型中间结果结束，提交一个继承原工作树、plan、todo、verify prompt 和通知策略的新 resume job。todo 保持 `doing`，不写 done note。续接提示只包含不合格条目和修复要求，要求先检查已有提交，只做剩余修复。
 - 不合格且达到上限：源 job 直接以 `needs_review` 停留，即使原 job 没有 `--review`；这是为了把「机器判定不合格但无法再自动修复」交给人。记录最终检查结论和每轮摘要，todo 按 `needs_review` 规则联动。
 - 检查 agent 本身超时、不可用、输出不是合法 JSON、usage 解析失败或内部持久化失败：记 `job.check_error`，不自动 resume，按原 job 的 `done` / `needs_review` 结果继续。检查基础设施故障不能变成对代码的错误否定；页面和事件明确显示「检查未完成」。
 
@@ -192,7 +192,7 @@ server 建立版本化的 `CheckInput`，检查 agent 只看到一个明确的�
 - `check_resume_count`：已经创建的检查续接轮数。
 - `check_error`：检查基础设施错误摘要，与实施 agent 的 `Error` 分开。
 
-新增事件：`job.check_started`（agent、轮数、输入截断标记）、`job.check_finished`（verdict / status / usage 摘要）、`job.check_failed`（基础设施错误）、`job.check_auto_resumed`（续接 job id、失败条目 id、轮数）。事件 detail 不带完整汇报和秘密。job comment 追加一条短结论，包含 verdict、轮数、续接 id 或「检查未完成」；长 JSON 只在 job 详情中按权限返回。
+新增事件（以实现为准，见 §9a 末尾）：`job.delivery_check.started`（agent、轮数、输入截断标记）、`job.delivery_check.passed`（核验合格）、`job.delivery_check.failed`（核验不合格，verdict / 失败条目数）、`job.delivery_check.error`（核验基础设施出错，fail-open）、`job.delivery_check.auto_resumed`（续接 job id、失败条目数、轮数）。事件 detail 不带完整汇报和秘密。job comment 追加一条短结论，包含 verdict、轮数、续接 id 或「检查未完成」；长 JSON 只在 job 详情中按权限返回。
 
 `JobResult`、HTTP job view、CLI `job show` 和 Web JobDetail 只展示结构化结果和截断的 evidence；`job events` 展示事件顺序。`check_json` 的持久化应在源 job 的状态对外可见前完成，遵循 `finish` 当前「事件先于终态可见」的时序；检查调用本身在后台编排中但不能让终态读者看到一个尚未有检查结论的假定通过。
 
@@ -391,6 +391,7 @@ POST /v1/background-agents/{kind}/session/reset
 - **名称（待确认 10）**：显示名「交付核验」，配置键 `delivery_check`（即正文中的 `server.job_check` 改名为 `server.delivery_check`），CLI `job run --check-prompt <text>`，wire / 模板 / 计划待办 / MCP 字段 `check_prompt`；正文里的 `verify_prompt` / `--verify-prompt` 一律按此改名，不保留别名。事件名前缀用 `job.delivery_check.*`（如 `job.delivery_check.failed`、`job.delivery_check.auto_resumed`）。与 `--verify`（执行命令）和 `needs_review`（人工验收）的区分写进用户文档。
 - 会话轮换：上下文占比（默认 0.7）为主、次数（默认 20）为辅，`max_age` 默认关闭；会话按 `kind + project + work_dir` 硬隔离，三类后台 agent 不跨类型复用。
 - 实施按 §7 的 P0 → P1 → P2 → P3 → P4 依次拆成独立任务，每个任务限时 45 分钟；P1（交付核验闭环）优先，P2 中 suga 上下文用量依赖 suga v0.52.0 的 `turn_end.context`，在其发布前只按次数轮换。
+- **事件名（实现为准）**：`job.delivery_check.started|passed|failed|auto_resumed|error`；`failed` 表示核验不合格，`error` 表示核验基础设施出错（fail-open），不再有 `finished`。
 
 ### 9b. 核验要求的来源（0.3 补充，2026-10-30）
 

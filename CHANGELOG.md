@@ -11,6 +11,12 @@
 
 ## [未发布]
 
+### 修复
+
+- 交付核验：server 现在强制核验 agent 无工具（在 `server.delivery_check.args` 之后追加 claude/codex/suga 的无工具参数）；未知 agent 类型核验报错并 fail-open，不再带工具运行。
+- 交付核验：核验不合格而自动续接提交失败时，job 转 `needs_review` 并在 `check_error` 与评论写明原因，不再变成 `failed` 并补发 `job.terminal`。
+- MCP `check_prompt_source` 说明补上 `merged`；`gofer job show` 显示由核验触发的续接 job id。
+
 ## [0.204.0] - 2026-10-30
 
 ### 新增

@@ -22,6 +22,8 @@ type fakeChecker struct {
 	mu    sync.Mutex
 	outs  []fakeCheckAnswer
 	calls []DeliveryCheckRequest
+	// onCall runs inside RunCheck (before the answer), to break something mid-check.
+	onCall func()
 }
 
 type fakeCheckAnswer struct {
@@ -32,6 +34,9 @@ type fakeCheckAnswer struct {
 func (f *fakeChecker) RunCheck(_ context.Context, req DeliveryCheckRequest) (DeliveryCheckOutput, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.onCall != nil {
+		f.onCall()
+	}
 	f.calls = append(f.calls, req)
 	if len(f.calls) > len(f.outs) {
 		return DeliveryCheckOutput{Output: []byte(checkPassJSON), JobID: "chk-fake", SessionID: "chk-sess"}, nil
@@ -91,7 +96,7 @@ func newCheckService(t *testing.T, opts checkSvcOpts) (*Service, *fakeChecker) {
 }
 
 func enabledCheck(maxResumes int) config.DeliveryCheckConfig {
-	return config.DeliveryCheckConfig{Enabled: true, Agent: "checker", MaxAutoResumes: &maxResumes}
+	return config.DeliveryCheckConfig{Enabled: true, Agent: "claude", MaxAutoResumes: &maxResumes}
 }
 
 func checkReq(mutate func(*JobRequest)) JobRequest {
@@ -307,7 +312,7 @@ func TestDeliveryCheckPassKeepsOutcome(t *testing.T) {
 	}
 	// The request the checker got is a bounded, tool-less one-shot carrying the evidence.
 	call := fake.calls[0]
-	if call.Agent != "checker" || call.SourceJobID != final.ID || !strings.Contains(call.Prompt, "job-check/v1") || !strings.Contains(call.Prompt, "at least two commits") {
+	if call.Agent != "claude" || call.SourceJobID != final.ID || !strings.Contains(call.Prompt, "job-check/v1") || !strings.Contains(call.Prompt, "at least two commits") {
 		t.Fatalf("check request = %+v", call)
 	}
 }
@@ -538,14 +543,14 @@ func TestDefaultCheckerRunsOneShotJob(t *testing.T) {
 	root := t.TempDir()
 	bin := testcmd.Path(t)
 	cfg := &config.Config{
-		Server:  config.ServerConfig{DeliveryCheck: config.DeliveryCheckConfig{Enabled: true, Agent: "checker", TimeoutSec: 30}},
+		Server:  config.ServerConfig{DeliveryCheck: config.DeliveryCheckConfig{Enabled: true, Agent: "claude", TimeoutSec: 30}},
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
-			"self": {HostPath: root, AllowedAgents: []string{"codex", "checker"}, AllowedRunners: []string{"local"}, MaxConcurrentJobs: 1},
+			"self": {HostPath: root, AllowedAgents: []string{"codex", "claude"}, AllowedRunners: []string{"local"}, MaxConcurrentJobs: 1},
 		},
 		Agents: map[string]config.AgentConfig{
 			"codex": {Type: agent.TypeCLIAgent, Command: bin, Args: []string{"stderr-exit", "0", "", "{{prompt}}"}},
-			"checker": {Type: agent.TypeCLIAgent, Command: bin, Args: []string{"printf", checkPassJSON, "{{prompt}}"},
+			"claude": {Type: agent.TypeCLIAgent, Command: bin, Args: []string{"printf", checkPassJSON, "{{prompt}}"},
 				ReadOnlyArgs: []string{"ro"}},
 		},
 	}
@@ -561,5 +566,82 @@ func TestDefaultCheckerRunsOneShotJob(t *testing.T) {
 	chk, found := s.Get(sc.CheckJobID)
 	if !found || !chk.ReadOnly || !hiddenJobTag(chk.Tags) {
 		t.Fatalf("checker job = %+v found=%v, want a hidden read-only job", chk, found)
+	}
+}
+
+// A failed check whose automatic continuation cannot be submitted parks the job in
+// needs_review (design §4.5) instead of leaving it failed with a late job.terminal, and
+// says why in check_error and the comment.
+func TestDeliveryCheckResumeSubmitFailureGoesToReview(t *testing.T) {
+	t.Parallel()
+	s, fake := newCheckService(t, checkSvcOpts{dc: enabledCheck(2), answer: []fakeCheckAnswer{{out: checkFailJSON}}})
+	fake.onCall = func() {
+		// The continuation is submitted after the checker answered: drop the project so
+		// that submission is refused.
+		cfg := s.config().Clone()
+		delete(cfg.Projects, "unrelated-none")
+		cfg.Projects["self"] = config.ProjectConfig{HostPath: cfg.Projects["self"].HostPath, AllowedAgents: []string{"codex"},
+			AllowedRunners: []string{"nowhere"}}
+		s.Reload(cfg)
+	}
+	final := settled(t, s, mustSubmit(t, s, checkReq(nil)).ID)
+	if final.Status != StatusNeedsReview || final.AutoResumedBy != "" {
+		t.Fatalf("status=%s resumedBy=%q err=%q, want needs_review and no continuation", final.Status, final.AutoResumedBy, final.Error)
+	}
+	if !strings.Contains(final.CheckError, "resume not submitted") {
+		t.Fatalf("check_error = %q, want the resume failure reason", final.CheckError)
+	}
+	if sc, ok := DecodeStoredCheck(final.CheckJSON); !ok || sc.Verdict != "fail" {
+		t.Fatalf("check_json = %q", final.CheckJSON)
+	}
+	types := eventTypes(t, s, final.ID)
+	for _, ty := range types {
+		if ty == EventJobTerminal {
+			t.Fatalf("a parked job must not get job.terminal: %v", types)
+		}
+	}
+	if types[len(types)-1] != EventJobNeedsReview {
+		t.Fatalf("last event = %v, want job.needs_review", types)
+	}
+	if c := jobComments(t, s, final.ID); len(c) != 1 || !strings.Contains(c[0], "待验收") || !strings.Contains(c[0], "未能提交") {
+		t.Fatalf("comments = %v", c)
+	}
+}
+
+// The server forces the tool-less argv after the operator's args; an unknown agent type
+// is refused (fail-open, recorded) instead of running with tools.
+func TestDeliveryCheckForcesNoToolsArgs(t *testing.T) {
+	t.Parallel()
+	for agentKey, want := range map[string][]string{
+		"claude": {"--tools", "", "--no-session-persistence"},
+		"codex":  {"-c", "features.shell_tool=false"},
+		"suga":   {"--read-only", "--no-project-rules"},
+	} {
+		dc := enabledCheck(0)
+		dc.Agent, dc.Args = agentKey, []string{"--tools", "Bash", "--extra"}
+		s, fake := newCheckService(t, checkSvcOpts{dc: dc, answer: []fakeCheckAnswer{{out: checkPassJSON}}})
+		settled(t, s, mustSubmit(t, s, checkReq(nil)).ID)
+		if fake.count() != 1 {
+			t.Fatalf("%s: checker calls = %d", agentKey, fake.count())
+		}
+		got := fake.calls[0].Args
+		wantAll := append([]string{"--tools", "Bash", "--extra"}, want...)
+		if strings.Join(got, "\x00") != strings.Join(wantAll, "\x00") {
+			t.Fatalf("%s: args = %q, want operator args then %q", agentKey, got, want)
+		}
+	}
+}
+
+func TestDeliveryCheckUnknownAgentFailsOpen(t *testing.T) {
+	t.Parallel()
+	dc := enabledCheck(2)
+	dc.Agent = "mystery"
+	s, fake := newCheckService(t, checkSvcOpts{dc: dc})
+	final := settled(t, s, mustSubmit(t, s, checkReq(nil)).ID)
+	if final.Status != StatusDone || fake.count() != 0 {
+		t.Fatalf("status=%s checker calls=%d, want done and the checker never run", final.Status, fake.count())
+	}
+	if !strings.Contains(final.CheckError, "no-tools") {
+		t.Fatalf("check_error = %q", final.CheckError)
 	}
 }
