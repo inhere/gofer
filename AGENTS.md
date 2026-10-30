@@ -60,6 +60,10 @@
   - 语言：一个模板 / prompt 内部不要中英混杂。
   - 原因：2026-10-11 用户指出 gofer-usage skill 偏向 gofer 自身细节，干扰其他项目使用（gofer-8g1t）。
 
+### 能力清单
+
+- **G058 能力清单随发版更新**（2026-10-29）：[`docs/capabilities.md`](docs/capabilities.md) 按整体 / 板块 / 子项列出 gofer 当前能做什么、入口与文档去向、稳定程度，是了解「gofer 有什么」的首选入口。每次发版对照 CHANGELOG 同步：新增能力加行、行为变更改描述、移除删行、「开发中」一节里发版的条目迁入对应板块；文首「适用版本」改成本次版本号。
+
 ### gofer 仓库自身开发约定
 
 - **并行 worktree**：并行的子 agent / 分支各用一个 worktree，目录 `.worktrees/<name>`（`git worktree add .worktrees/<name> -b <branch>`，该目录已被忽略），合并用 `--no-ff`，合并后删 worktree 与分支。worktree 里跑前端要把主 checkout 的 `web/node_modules` 链接过去（`ln -s <主 checkout>/web/node_modules web/node_modules`）。
