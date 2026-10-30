@@ -33,11 +33,16 @@ const error = ref('')
 
 // URL query 是过滤条件的唯一来源（get 读 URL、set 写 URL），所以浏览器前进/后退、分享链接
 // 都能复原同一页；q 是输入框的即时值，回车/失焦才写回 URL。
+// 默认看「进行中 + 受阻」：计划一受阻就从默认列表里消失，正是最需要人看到的时候。
+const DEFAULT_PLAN_STATUSES: PlanStatus[] = ['open', 'blocked']
 const statusFilter = computed<PlanStatus[]>(() => {
   const raw = typeof route.query.status === 'string' ? route.query.status : ''
   if (raw === 'all') return []
-  return raw ? raw.split(',').filter((s): s is PlanStatus => ['open', 'done', 'archived', 'blocked'].includes(s)) : ['open']
+  return raw ? raw.split(',').filter((s): s is PlanStatus => ['open', 'done', 'archived', 'blocked'].includes(s)) : [...DEFAULT_PLAN_STATUSES]
 })
+const isDefaultStatusFilter = computed(
+  () => statusFilter.value.length === DEFAULT_PLAN_STATUSES.length && DEFAULT_PLAN_STATUSES.every((s) => statusFilter.value.includes(s)),
+)
 const projectFilter = computed({
   get: () => {
     const p = route.query.project
@@ -116,7 +121,7 @@ const pageFrom = computed(() => (plans.value.length === 0 ? 0 : offset.value + 1
 const pageTo = computed(() => offset.value + plans.value.length)
 const hasPrev = computed(() => offset.value > 0)
 const hasNext = computed(() => pageTo.value < total.value)
-const hasFilters = computed(() => Boolean(projectFilter.value || tagFilter.value || qFilter.value || (statusFilter.value.length > 0 && (statusFilter.value.length !== 1 || statusFilter.value[0] !== 'open'))))
+const hasFilters = computed(() => Boolean(projectFilter.value || tagFilter.value || qFilter.value || (statusFilter.value.length > 0 && !isDefaultStatusFilter.value)))
 
 // FilterChips 的多选结果直接换算成 URL 上的 status=open,blocked（空 = all）。
 function onStatusChips(value: ChipValue): void {
