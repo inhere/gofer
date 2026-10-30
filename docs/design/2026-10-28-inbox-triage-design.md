@@ -208,3 +208,59 @@ CREATE INDEX idx_inbox_state_caller_updated
 
 手机不显示桌面快捷键提示；卡片主操作条在详情底部保持可见但不覆盖软键盘；详情、回复框和清理确认均支持 `Esc` / 返回手势，横向滚动只用于 chip，不用于卡片正文。
 
+### 3.8 与现有功能的关系
+
+- **Today 聚合**：`internal/today` 继续负责读取来源、计算 `urgency` / `blocks`、过滤项目和生成 actions；新增的是一个分栏与个人状态投影层。`GET /v1/today` 可在兼容期继续返回 `decisions[]`，新增 `columns` / `inbox_state` 为 additive 字段；前端从新字段切换，旧客户端仍能看到原单列队列。
+- **「等你」与顶栏入口**：Today、全局 NeedsMeButton / 决策浮层和手机分段栏共用同一份聚合数据与 unread 计数，不再各自计算交互、relay、待批和验收数量。原有 `/review` 保留为集中验收页，双栏的待验收卡提供跳转而不是替代它。
+- **待验收**：复用 `GET /v1/jobs?status=needs_review` 与现有 ReviewPanel 的数据和裁决接口；Today 只负责摘要、个人状态和跳转。`include_exec` 与现有 Today 开关保持同一偏好，不在新接口定义第二套 exec 语义。
+- **信件 / 收集箱**：`mail_held:box` 仍由 held 信件聚合生成，`/mail?state=held` 仍是指派入口；Inbox 的 `clear` 不调用 `MarkMailRead`、readdress 或 cancel。真正收件信的 `read_at` 仍表示收件方已读，不拿来作为 Today 的用户已读。
+- **稍后、撤销和审计**：稍后继续使用 `today_snooze` 与唤醒规则；卡片动作继续先经过撤销窗口并写 `today.action`。Inbox `seen` / `clear` 是独立的 `inbox.state`，两者都不计入「今天处理了 N 张」。
+- **泳道与通知**：泳道继续显示并行工作和健康度；普通完成 / 失败由 digest、泳道和通知承载，只有仍需要人动作的事件才成为 Inbox item。通知主题仍由 `pending`、`jobs`、`work`、`sessions`、`plans` 等现有推送触发刷新，新增 mail 变化时复用 mail topic。
+
+## 4. 分阶段
+
+| 阶段 | 内容 | 依赖 / 交付物 |
+|---|---|---|
+| P0 规则冻结 | 从现有 `internal/today`、`internal/notify`、mail 与 review 页面列出所有来源；固定默认规则、事件 key、exec 默认值和 source revision 组成 | 规则表、事件覆盖清单、旧客户端兼容说明 |
+| P1 服务端投影 | 新增 `inbox_item_state` 迁移与 DAO；实现双栏分类、source revision、caller ceiling 过滤和 `GET /v1/inbox`；对 `/v1/today` 只加 additive 字段 | 新库与旧库升级测试、HTTP golden |
+| P2 状态与 Web | 实现批量 seen / clear / restore、个人偏好、Today 双栏、顶栏计数、手机分段切换；保留单列回退与深链 | Web 单测、键盘 / 触控 / 无障碍验收 |
+| P3 配置与渠道对齐 | 增加 `server.inbox.rules` 校验、规则目录接口；把 Inbox 与 notify 事件目录的覆盖测试接上，不改变 webhook / desktop 既有默认集合 | 配置示例、权限登记、生成权限文档 |
+| P4 CLI / MCP 与收尾 | 实现 `gofer tool inbox` 和 MCP 工具；补 skill references、HTTP API 文档、变更记录；完成旧客户端和升级回滚演练 | G033/G045 相关文档、发布前全量验证 |
+
+每阶段都保持旧 `/today` 客户端可用；任何 schema 先在迁移前保证基础 schema 不引用新列，符合 G057。P1 完成后再扩大 Web 交互，避免在没有个人状态存储时先做只能写 localStorage 的临时方案。
+
+## 5. 测试与守护
+
+- **默认分类表**：对每个 Today `kind`、每个默认 notify event、exec 开关、项目过滤和无项目全局卡各有表驱动用例；断言每个 item 至多一个栏位，普通纯信息不会进入双栏。
+- **规则校验**：未知 key、重复 id、非法 column、冲突 priority、超长列表和空规则的默认回退都有失败用例；规则版本变化会使客户端重新拉取。
+- **状态隔离**：两个 caller 对同一 `item_key` 分别读写 seen / clear，互不影响；同一 caller 多设备并发写不回退；job credential、worker 和越权 project 均返回拒绝或过滤后的结果。
+- **source revision**：状态、计数、最新活动、动作集合和正文摘要变化分别触发重现；同 revision 的轮询不重复制造未读；源对象消失后的 GC 不影响仍存在的其他 item。
+- **渠道一致性**：事件目录每个 key 至少覆盖 Inbox / webhook / desktop 的期望矩阵；验证「desktop 默认较窄但显式 events 可扩展」「关闭 desktop 不隐藏 Inbox」「webhook 投递失败不改变 Inbox」。
+- **HTTP / MCP / CLI**：HTTP handler 测试覆盖游标、批量部分失败、幂等、409 revision 冲突、JSON 字段稳定；MCP 不得暴露配置 secret；CLI `--json` 通过快照，文本走语言入口。
+- **Web 交互**：桌面双栏计数、空态、过滤、清理与恢复、动作后重拉；手机 320px / 375px / 414px 宽度无横向溢出，触控目标至少 44px；键盘焦点、屏幕阅读器 label、`prefers-reduced-motion` 和软键盘遮挡均有用例。
+- **升级与生命周期**：用上一个发布版本 schema 建库后打开当前代码；验证服务停止后测试组件、数据库和临时目录清理顺序；跑相关 Go / Web 测试后再跑全量验证，按 G051–G057 处理失败。
+- **守护扫描**：禁止在前端另写事件默认集合；Go 侧所有规则事件必须来自 `internal/notify` catalog；新增 `/v1` 路由必须有 authz route declaration；新增用户可见 CLI / MCP / HTTP 行为必须同步 references。
+
+## 6. 风险
+
+- **分类规则过宽导致第二个待办列表**：默认只纳入已有可执行动作和 `needs_review`，纯通知不进双栏；设置「显示已清理」与来源深链，避免用清理掩盖真正阻塞。
+- **个人状态与共享源状态混淆**：明确表名、API 动词和审计 kind，禁止把 `read_at`、ack 或 reviewed 当作 Inbox read；代码评审把所有源写接口列为禁止调用清单。
+- **事件目录演进造成漏分栏**：catalog 增加事件时要求同时补默认分类矩阵和渠道一致性测试；未知事件在配置校验时失败而不是静默落到等你。
+- **多人 / 多设备竞态**：采用 caller + item 主键、source revision 和条件更新；客户端收到 409 即重拉，不做最后写入者覆盖全部状态。
+- **汇总卡的 revision 不稳定**：汇总卡只使用 count、最新活动和有限摘要的稳定哈希，不把随机生成时间或心跳放入 revision；held mail 变化通过 mail state hook 触发刷新。
+- **手机双栏降低可发现性**：默认首屏固定「等你」，标题同时展示两栏未读数，待验收不藏在菜单；保留 `/review` 深链和 URL filter，返回时恢复栏位。
+- **通知过度打扰**：不把 Inbox 开关复用成通知总开关；IM / 桌面仍各有暂停、项目和事件过滤，只有公共事件词汇与源生命周期一致。
+
+## 7. 待确认项
+
+1. **两栏名称与范围**：推荐保留「等你」与「待验收」，前者只放可执行动作，后者只放 `needs_review`。理由是与现有 `Today`、`/review`、顶栏 NeedsMe 术语连续，用户一眼能区分「回答 / 指派」和「阅读 / 裁决」。
+2. **默认是否纳入 exec 待验收**：推荐继续默认不纳入，只通过现有「含 exec 待验收」开关显式打开。理由是 exec 常用于验证 / 辅助任务，默认进入会扩大噪声；保持现有设计确认项，不引入第二套语义。
+3. **个人状态的身份键**：推荐使用认证上下文的 `caller_id`，不增加浏览器用户表。理由是 server 当前已经用 caller 进行 ceiling 与审计，且无法区分同一 token 的 Web / CLI；新增账号体系超出本题范围。
+4. **清理是否允许作用于仍可操作卡**：推荐允许个人隐藏，但源 revision 变化即复现，并在 UI 明示「不会执行动作」。理由是用户需要清掉暂不处理的噪声，同时不能把清理误认为批准；不提供永久删除。
+5. **个人规则是否首期实现**：推荐首期只做全局 `server.inbox.rules`，个人首期只存折叠 / exec / 显示已清理偏好。理由是全局分类更易审计和测试，个人规则会让 IM、桌面与 Inbox 的解释难以统一；需要时再增加受限 override。
+6. **已读触发时机**：推荐可视区累计 800ms、展开详情或明确批量操作时标记，快速滑过不算已读。理由是手机滚动很快，自动把整页标读会破坏未读计数；显式动作仍能即时更新。
+7. **通知与 Inbox 的开关关系**：推荐独立开关，共用事件目录、项目过滤和源 revision，不共用 enabled 状态。理由是网页 Inbox 是可靠工作面，IM / 桌面是可选打扰渠道；关闭弹窗不应让待验收消失。
+8. **是否新建 `inbox_item_state` 而不是复用 `today.action`**：推荐新表。理由是 `today.action` 是动作成功审计、按 caller 以外的现有记录语义读取；把浏览状态混进去会让「已读 / 清理」误计为已处理并破坏已有撤销 / 重拉逻辑。
+9. **HTTP 路由权限**：推荐沿用 Today 的 user-class `Public` + caller 隔离，拒绝 worker / job credential；配置写仍走现有 `config.write`。理由是个人状态不是跨用户资源，新增独立 permission 会增加授予面而没有额外安全收益；实施时仍按 G056 登记每条路由。
+10. **是否首期改造 `/v1/today` 而新建 `/v1/inbox`**：推荐先新建 `/v1/inbox` 并给 `/v1/today` additive 字段，稳定后再考虑前端合并请求。理由是旧客户端兼容、回滚和分阶段验证成本更低，也避免把 Today 的既有聚合契约变成强制个人状态依赖。
+
