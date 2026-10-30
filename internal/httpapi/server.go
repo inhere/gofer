@@ -1430,6 +1430,8 @@ func (s *Server) buildRouter() *rux.Router {
 		// cleanup suggestions (adopt / dismiss are a person's).
 		r.GET("/memory-findings", s.handleMemoryFindings)
 		r.GET("/memory-suggestions", s.handleListMemorySuggestions)
+		r.GET("/memory-syntheses", s.handleListMemorySyntheses)
+		r.GET("/memory-syntheses/{id}", s.handleGetMemorySynthesis)
 		r.POST("/memory-suggestions", s.handleAddMemorySuggestion)
 		r.POST("/memory-suggestions/{n}/adopt", s.handleDecideMemorySuggestion(true))
 		r.POST("/memory-suggestions/{n}/dismiss", s.handleDecideMemorySuggestion(false))

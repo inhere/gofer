@@ -319,7 +319,12 @@ web 默认落地页 `/today` 的数据接口。人与普通 job 凭据可读；s
 - Caller ceilings: `/v1/today`'s `digest` (title / text and the `since_last` counts) and `/v1/today/snoozed` are narrowed to the caller's projects like the cards are; every steward route (`GET /v1/steward`, `GET|PUT /v1/steward/notes`, `POST /v1/steward/review-summary`, `POST /v1/steward/ask`, `review`, `start`, `stop`, `restart`) answers **403** because the steward is server-wide, and `/v1/meta`'s `runners` list is filtered by the ceiling's `runners` dimension. `GET /v1/jobs` pushes a multi-project (or glob, expanded to the server's literal projects) ceiling into the query, so `limit` / `offset` page over the caller's own jobs instead of being cut after a server-wide page.
 - `GET /v1/today/lanes` -> `{lanes:[...], summary:{total, agents_running, attention}, generated_at}`：未结且未搁置的工作项，加上在跑 / 阻塞的 plan；已挂在工作项下的 plan 并入该工作项的行。每行：`id` `kind`（work|plan）`title` `project_key` `status`、`agents[]`、`progress`、`health` / `health_reason`、`started_at` / `elapsed_sec` / `activity_at`、`usage`、`links`。
 
-### Memory tidy-up (repository memories)
+### Daily memory synthesis runs (P1, read-only)
+
+- `GET /v1/memory-syntheses?project=&day=&state=&limit=` lists persisted material / run records. It returns only bounded metadata, status, input digest, source counts and timestamps; it never starts a model.
+- `GET /v1/memory-syntheses/{id}` returns one run, including the stored material snapshot only when `memory.synthesis.keep_material_snapshot` was enabled. The snapshot is already scrubbed and bounded; candidates and adoption are not part of P1.
+- Results are project-scoped. A job credential may read only through the same project scope it owns; an unknown run is `404`.
+
 
 - `GET /v1/memory-findings[?tracker_id=][&all=1]` -> `{findings:[{tracker_id,project_key,key,kind,summary,updated_at,age,findings:[{slug,detail}],actions,content}], daily_cap}`（server 端 doctor；默认只列还有可提动作的，`all=1` 连已提 / 30 天内被忽略的也列）。
 - `GET /v1/memory-suggestions[?state=pending|adopted|dismissed|stale|all]`。

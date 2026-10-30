@@ -15,6 +15,10 @@
 
 - **worktree 默认位置调整**：未显式配置 `worktree.dir` 时改为 `<git 顶层>/.worktrees/<name>`（未给 name 时使用 job id）；显式配置不受影响，已有 `tmp/gofer/wt` worktree 仍可列出、合并与清理。创建默认 worktree 时，gofer 会把 `/.worktrees/` 加入仓库公共 git 目录的本地 `info/exclude`，不修改用户跟踪的 `.gitignore`。
 
+### 新增
+
+- **每日记忆综合 P1（gofer-gah7）**：新增可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏 / 字符与字节预算裁剪，以及 jobstore 运行记录。`GET /v1/memory-syntheses` 与详情接口只读查询记录；默认不启动模型、不保存材料快照、不建立候选队列。
+
 ## [0.203.1] - 2026-10-29
 
 ### 修复

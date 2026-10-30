@@ -164,6 +164,31 @@ var schemaStmts = []string{
 	// (jobs of one agent inside a time window) — the read behind `gofer agent status`,
 	// the web badge and the pre-dispatch decision.
 	`CREATE INDEX IF NOT EXISTS idx_jobs_agent_started ON jobs(agent, started_at)`,
+	// P1 daily memory synthesis run metadata. Candidates deliberately do not have a
+	// table yet; the result JSON is the only persisted output in this phase.
+	`CREATE TABLE IF NOT EXISTS memory_synthesis_runs (
+  id                   TEXT PRIMARY KEY,
+  project_key          TEXT NOT NULL,
+  day                  TEXT NOT NULL,
+  status               TEXT NOT NULL,
+  input_digest         TEXT NOT NULL,
+  material_schema      TEXT NOT NULL,
+  material_counts_json TEXT NOT NULL DEFAULT '{}',
+  omitted_json         TEXT NOT NULL DEFAULT '{}',
+  agent                TEXT,
+  model                TEXT,
+  output_digest        TEXT,
+  result_json          TEXT,
+  error                TEXT,
+  started_at           INTEGER NOT NULL,
+  finished_at          INTEGER,
+  last_checked_at      INTEGER,
+  attempt              INTEGER NOT NULL DEFAULT 1,
+  created_by           TEXT,
+  material_snapshot    TEXT
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_memory_synthesis_runs_project_day ON memory_synthesis_runs(project_key, day, started_at DESC)`,
+	`CREATE INDEX IF NOT EXISTS idx_memory_synthesis_runs_status ON memory_synthesis_runs(status, started_at DESC)`,
 	`CREATE TABLE IF NOT EXISTS job_followups (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id         TEXT NOT NULL,
