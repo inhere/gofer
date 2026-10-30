@@ -9,36 +9,32 @@
 - 尚未发版的用户可见改动先记在「未发布」，发版时整段移入新版本。
 - v0.100.0 起逐版本记录；更早的版本按主题区间压缩记录（见文末「早期版本」）。
 
-## Inbox projection
-
-- `GET /v1/inbox` returns the caller's two columns, `columns.action` and `columns.fyi`, with `unread`, `total_unread`, source revisions, and caller-local state. The action column contains Today items that need a decision; FYI contains terminal job summaries and other informational entries. State is not the source item's read/ack/review state.
-- `POST /v1/inbox/state` accepts `{action:"seen"|"clear"|"restore", keys:[...]}`. A `clear` request with no keys and optional `column` clears all currently stored seen items in that column. Worker and job credentials are rejected, and keys are revalidated against the current projection.
-- `server.inbox` optionally enables/configures structured `rules` (`column: action|fyi`, `kinds`, `projects`, `priority`). Empty rules use the built-in policy; notification switches do not hide Inbox items.
-
-
 ## [未发布]
 
-- 新增反向引用索引：`GET /v1/refs?kind=<kind>&id=<id>`、MCP `gofer_refs` 与 CLI `gofer refs <id>` 返回当前调用方可见、引用该对象的来源。
-
-### 变更
-
-- **worktree 默认位置调整**：未显式配置 `worktree.dir` 时改为 `<git 顶层>/.worktrees/<name>`（未给 name 时使用 job id）；显式配置不受影响，已有 `tmp/gofer/wt` worktree 仍可列出、合并与清理。创建默认 worktree 时，gofer 会把 `/.worktrees/` 加入仓库公共 git 目录的本地 `info/exclude`，不修改用户跟踪的 `.gitignore`。
-- **传话类会话附图**（gofer-ioa1）：`r:<sid>` relay 会话如果 agent 的 `deliver_command` 配置了 `deliver_image_args`（每张图展开一次，必须含 `{{image}}`），web 附件会先放到执行机，再以绝对路径追加到送达命令；内置 suga 使用 `--image {{image}}`。旧版 suga 会话进程返回退出码 5 时会明确拒绝且不重试，请升级并重启该会话。
-- **job 与附件默认目录调整**：未显式配置存储路径时，job 结果改写入项目根 `.gofer/jobs/<job-id>`，工作台附件改写入 `.gofer/attachments/<日期>`；显式配置 `storage.root`、交换 / 结果子目录或项目 `exchange_subdir` / `result_subdir` 的行为不变。已有 job 的绝对 `result_dir` 不迁移；旧 `tmp/gofer-attachments` 附件会在后续 7 天清理周期内自然清空。
-- **交付核验契约（P0）**：`job run --check-prompt`、HTTP / MCP、任务书模板与计划待办可携带有界的交付核验要求；新增 `server.delivery_check` 与后台 agent 会话轮换配置，并为核验结果与后台会话记录准备可升级的存储结构。`check_prompt_source`（explicit / prompt_block）标记要求来源，`server.delivery_check.include_acceptance` 默认 true；当前版本仅定义契约与持久化，不会调用检查 agent。
-
-### 修复
-
-- **没有对应 SubagentStart 的 SubagentStop 不再放开 Stop 等待**（gofer-m80j）：Claude Code 会为它没宣布过的旁路查询发 SubagentStop，server 以前把它当成「最后一个子 agent 结束」，把 relay=on 会话刚开的等待轮 expire 掉并改成 idle，之后没有任何 hook 在等，web 传话切不进去。现在按子 agent id 配对，只有确实在跟踪的子 agent 结束且没有剩余时才放开（gofer-7lac 行为不变）。
-- **真正被子 agent 结束放开后 web 传话不再 409**（gofer-m80j）：会话视图带 `released_by=subagent_done` / `released_at`（web 会话抽屉显示「等待已被子 agent 结束放开」），此时对已放开那一轮的 `say` 改走传话通道开启新一轮；下一次 UserPromptSubmit / Stop 到来或超过 1 小时后标记清除。
+## [0.204.0] - 2026-10-30
 
 ### 新增
 
-- **工作流执行记录关联来源模板**：`wf run --template`、`POST /v1/workflows {template}` 与 web 向导提交的执行记录会记下模板名与来源（`template` / `template_source`，直接提交 spec 的为空；workflows 表 additive 迁移）。`GET /v1/workflows` 支持 `?template=` 过滤，`gofer wf ls --template <name>` 同；`GET /v1/workflow-templates` 每项附带 `runs`（执行次数）与 `last_run`（最近一次的 id / 状态 / 开始 / 结束时间，只计调用方可见的执行），`gofer wf template ls` 显示次数与最近一次状态。
-- **交付核验闭环（P1）**：启用 `server.delivery_check` 后，job 正常结束且 `--verify` 未失败时，server 用汇报末尾、提交列表、diff 统计、未提交文件和验证结果请一个只读、无工具的核验 agent 对照要求判定。要求有三种来源并合并使用：`--check-prompt`、prompt / 任务文件里独占一行的 `<delivery-check>…</delivery-check>` 块（块保留在发给 agent 的 prompt 里）、以及 `--acceptance`（`include_acceptance` 默认 true）。不合格会按条目自动续接（`max_auto_resumes` 默认 2，独立计数），用完后停在 `needs_review`；核验 agent 自己出错则保持原状态并记 `check_error`。新增事件 `job.delivery_check.*`、job 评论结论，`job show` 与 job 详情显示核验结果；`plan add-todo` / `set-todo` 支持 `--check-prompt`。
-- **每日记忆综合 P1（gofer-gah7）**：新增可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏 / 字符与字节预算裁剪，以及 jobstore 运行记录。`GET /v1/memory-syntheses` 与详情接口只读查询记录；默认不启动模型、不保存材料快照、不建立候选队列。
-- **外部触发派活内核（P0）**：新增文件专属 `server.triggers` 配置、HMAC + 时间窗校验、受限输入映射、非 root owner ceiling 派活身份、SQLite 持久幂等 receipt、内存限流和脱敏审计。P0 尚未开放 HTTP/provider 入口，默认不监听外部请求。
-- **server 本机 job 预览**：启用 `server.preview` 后，可为运行中的本机 job 申请短期端口租约；预览端口只反向代理到执行机 `127.0.0.1:<port>`，支持 HTTP / WebSocket，job 终态或撤销后自动失效。
+- **交付核验（gofer-r29d）**：启用 `server.delivery_check` 后，job 正常结束且 `--verify` 未失败时，server 用汇报末尾、提交列表、diff 统计、未提交文件和验证结果，请一个只读、无工具的核验 agent 对照要求判定。要求有三种来源并合并使用：`job run --check-prompt`、prompt / 任务文件里独占一行的 `<delivery-check>…</delivery-check>` 块（块保留在发给 agent 的 prompt 里）、以及 `--acceptance`（`include_acceptance` 默认 true）。不合格会按条目自动续接（`max_auto_resumes` 默认 2，独立计数），用完后停在 `needs_review`；核验 agent 自身出错则保持原状态并记 `check_error`。事件 `job.delivery_check.*`、job 评论结论，`job show` 与 job 详情显示核验结果；HTTP / MCP / 任务书模板 / 计划待办（`plan add-todo` / `set-todo --check-prompt`）都可携带要求。另新增后台 agent 会话轮换配置 `server.background_agents.session`（按上下文用量与次数，默认不按时长）的存储结构。默认关闭。
+- **job 预览（gofer-ad2u）**：启用 `server.preview` 后，可为 server 本机运行中的 job 申请短期端口租约（`gofer job preview open|ls|close`、HTTP）；预览端口只反向代理到 `127.0.0.1:<port>`，支持 HTTP / WebSocket。首次访问用一次性 token 换取只对该预览有效的 cookie 并跳转去掉 token；转发时剥掉 gofer 自己的凭据与 cookie；租约到期、撤销或 job 终态时自动关闭（已建立的 WebSocket 一并断开），server 重启会关闭遗留租约。默认关闭。
+- **反向链接（gofer-w9b2）**：issue / job / 计划 / 待办 / 信件 / 评论里提到的对象 id 自动记入引用索引；`GET /v1/refs`、MCP `gofer_refs`、CLI `gofer tool refs <id>` 查询「被哪些对象引用」（按调用方可见范围过滤）；job 详情、计划详情与 issue 抽屉显示「被引用」面板。
+- **收件箱分栏后端（gofer-addo）**：`GET /v1/inbox` 返回「要处理（action）/ 仅知会（fyi）」两栏与未读数，`POST /v1/inbox/state` 按调用方记录已读 / 清理 / 恢复；`server.inbox` 可配置结构化归栏规则。Web 双栏界面在后续版本。
+- **工作流执行记录关联来源模板**：从模板提交的执行记录会记下模板名与来源（`template` / `template_source`）；`GET /v1/workflows?template=` 与 `gofer wf ls --template` 按模板过滤；`GET /v1/workflow-templates` 每项附带执行次数与最近一次执行，`gofer wf template ls` 同步显示。
+- **传话类会话附图（gofer-ioa1）**：在执行机上直接启动并登记的终端会话（relay）现在能在 web 聊天里附图：agent 的送达模板配置 `deliver_image_args`（必须含 `{{image}}`）后，附件先放到执行机，再以绝对路径加到送达命令；内置 suga 使用 `--image {{image}}`。会话进程版本过旧（退出码 5）时明确拒绝且不重试。
+- **每日记忆综合 P1（gofer-gah7）**：可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏与预算裁剪，以及运行记录与只读查询接口 `GET /v1/memory-syntheses`；本版本不调用模型。默认关闭。
+- **入站触发内核 P0（gofer-rztq）**：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限、持久幂等、内存限流与审计；尚未开放 HTTP / provider 入口。
+- **能力清单**：新增 `docs/capabilities.md`，按板块列出 gofer 当前能做什么、入口与文档去向。
+
+### 变更
+
+- **job 结果与附件默认移到 `.gofer/`**：未显式配置存储路径时，job 结果写入项目根 `.gofer/jobs/<job-id>`，工作台附件写入 `.gofer/attachments/<日期>`，并由 gofer 维护 `.gofer/.gitignore`（只追加 `jobs/`、`attachments/`，不改其他行）。显式配置 `storage.root`、交换 / 结果子目录或项目 `exchange_subdir` / `result_subdir` 的不受影响；已有 job 不迁移，旧 `tmp/gofer-attachments` 在 7 天清理周期内自然清空。
+- **worktree 默认位置改为 `<git 顶层>/.worktrees/<name>`**（未给 name 时为 job id）；显式 `worktree.dir` 不受影响，已有 `tmp/gofer/wt` 下的 worktree 仍可列出、合并与清理。创建默认 worktree 时会把 `/.worktrees/` 加进仓库本地的 `info/exclude`，不改用户跟踪的 `.gitignore`。
+- **计划页默认显示「进行中 + 受阻」**：计划受阻后不再从默认列表里消失。
+
+### 修复
+
+- **web 传话在使用子 agent 的会话上失联（gofer-m80j）**：Claude Code 会为它没宣布过的旁路查询发 `SubagentStop`，server 以前把它当成「最后一个子 agent 结束」，把 relay=on 会话刚开的等待轮放掉并改成 idle，之后 web 消息只能以跨会话消息转达甚至送不到。现在按子 agent id 配对，只有确实在跟踪的子 agent 结束且没有剩余时才放开；真被子 agent 结束放开时，会话视图带 `released_by` / `released_at`（web 抽屉提示），回复改走传话通道，不再 409。
+- **临时 worktree 的提交校验**：按指定提交建临时 worktree 时，提交不在仓库里会明确报错并写出该提交号（此前该校验在一次重构中被删掉，报错里的提交号也为空）。
 
 ## [0.203.1] - 2026-10-29
 

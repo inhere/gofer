@@ -2,7 +2,7 @@
 
 > 一句话定位：把 codex / claude 等 agent 与普通命令桥接成可追踪、可验收的异步任务（job）的控制平面，提供 CLI / HTTP / MCP / Web 四种入口；自身不内置模型。
 >
-> **适用版本：截至 v0.203.1**（CHANGELOG 最新已发布版本，2026-10-29）。
+> **适用版本：截至 v0.204.0**（CHANGELOG 最新已发布版本，2026-10-30）。
 
 ## 维护说明
 
@@ -45,11 +45,11 @@
 
 | 子项 | 说明 | 主要入口 | 稳定程度 | 文档 |
 |---|---|---|---|---|
-| 提交与生命周期 | 提交命令或 agent 任务，状态机、日志、diff 与提交采集、用量成本、取消 / 重跑 | CLI `job run`（`add`）/ `logs` / `show` / `watch` / `list` / `cancel` / `rerun` / `set`；HTTP `/v1/jobs`；MCP `gofer_run_job` / `gofer_get_job` / `gofer_list_jobs` / `gofer_tail_log` / `gofer_cancel_job`；Web「任务」 | 稳定 | [../skills/gofer-usage/SKILL.md](../skills/gofer-usage/SKILL.md)、[guide/en/features.md](guide/en/features.md#job) |
+| 提交与生命周期 | 提交命令或 agent 任务，状态机、日志、diff 与提交采集、用量成本、取消 / 重跑。未显式配置存储路径时，job 结果默认写入项目根 `.gofer/jobs/<job-id>`（由 gofer 维护的 `.gofer/.gitignore` 忽略），已有 job 不迁移 | CLI `job run`（`add`）/ `logs` / `show` / `watch` / `list` / `cancel` / `rerun` / `set`；HTTP `/v1/jobs`；MCP `gofer_run_job` / `gofer_get_job` / `gofer_list_jobs` / `gofer_tail_log` / `gofer_cancel_job`；Web「任务」 | 稳定 | [../skills/gofer-usage/SKILL.md](../skills/gofer-usage/SKILL.md)、[guide/en/features.md](guide/en/features.md#job) |
 | agent 类型 | 三类：cli（claude / codex 等）、acp、exec（运行 `--` 之后的 argv，不经 shell）；按项目 `allowed_agents` 准入 | CLI `agent list` / `show` / `detect` / `status` / `probe`；MCP `gofer_list_agents` | 稳定 | [../skills/gofer-usage/references/server-config.md](../skills/gofer-usage/references/server-config.md) |
 | runner | 在 server 本机（`--runner server`，`local` 同义）或某台 worker 上执行 | CLI `job run --runner <id>`；`worker ls` | 稳定 | [../skills/gofer-usage/SKILL.md](../skills/gofer-usage/SKILL.md) |
 | 同步 / 异步与超时 | `--sync` 等待终态，长任务异步 + `watch`；`--timeout` 受上限截断，`--strict-timeout` | CLI `job run --sync --wait-timeout --timeout` | 稳定 | [../skills/gofer-usage/references/job-advanced.md](../skills/gofer-usage/references/job-advanced.md) |
-| worktree 隔离与交付 | `--worktree` 在独立 git worktree 与分支中运行；合并 / 推分支 / 开 PR 三种交付；目录锁 | CLI `job run --worktree`、`job worktree ls\|merge\|rm`、`job deliver`；Web 任务详情 | 稳定（worktree 与合并）；交付 push / PR 见 stability.md 实验性说明 | [runbook/parallel-jobs-with-worktree.md](runbook/parallel-jobs-with-worktree.md) |
+| worktree 隔离与交付 | `--worktree` 在独立 git worktree 与分支中运行；合并 / 推分支 / 开 PR 三种交付；目录锁。默认位置为 `<git 顶层>/.worktrees/<name>`（未给 name 时为 job id），并写入仓库本地 `info/exclude`；显式 `worktree.dir` 不变，旧位置的 worktree 仍可列出、合并与清理 | CLI `job run --worktree`、`job worktree ls\|merge\|rm`、`job deliver`；Web 任务详情 | 稳定（worktree 与合并）；交付 push / PR 见 stability.md 实验性说明 | [runbook/parallel-jobs-with-worktree.md](runbook/parallel-jobs-with-worktree.md) |
 | 只读 job | 只读审查模式 | CLI `job run --read-only` | 未标注 | job-advanced.md「只读 job」 |
 | 只读参考目录 | 给 job 挂只读参考目录，提交时做路径与符号链接范围校验（v0.203.0 新增） | CLI `job run --read-dir`；项目 `read_dirs`；计划待办目录字段 | 未标注（较新） | job-advanced.md「只读参考目录」 |
 | 续接 | 中断后续跑同一 agent 会话；继承旧会话开新会话；运行中追加需求 | CLI `job resume`、`job run --from-session`；`job follow-up` 相关命令；MCP `gofer_job_follow_up` | 稳定 | job-advanced.md「中断后续跑」「继承旧会话」 |
@@ -65,6 +65,8 @@
 | 结束通知提交会话 | 长 job 结束时经传话人通知提交方 | CLI `job run --notify` / `--notify-session` | 未标注 | job-advanced.md「job 结束时通知提交会话」 |
 | 评论 | 在 job 上留痕；人的评论中 `@agent` 会真的派出 job | CLI `job comment` / `job comments`；MCP `gofer_comment` / `gofer_list_comments` | 未标注 | [runbook/2026-09-23-comments-runbook.md](runbook/2026-09-23-comments-runbook.md) |
 | 凭据与 job 环境 | job 用仅作用于本 job 的凭据，默认清洗父环境中的 token | 配置 `job_env_denylist` / `job_env_allow` | 未标注 | [../skills/gofer-usage/references/operations.md](../skills/gofer-usage/references/operations.md)「job 的环境清洗」；[runbook/2026-09-23-job-credentials-runbook.md](runbook/2026-09-23-job-credentials-runbook.md) |
+| 交付核验 | 启用 `server.delivery_check` 后，job 正常结束且 `--verify` 未失败时，由只读、无工具的核验 agent 对照要求判定；要求来自 `--check-prompt`、prompt 中独占一行的 `<delivery-check>…</delivery-check>` 块、`--acceptance`；不合格按条目自动续接（`max_auto_resumes` 默认 2），用完停在 `needs_review`；核验 agent 出错则保持原状态并记 `check_error`。结论写入 job 评论与事件 `job.delivery_check.*`，`job show` 显示结果；HTTP / MCP / 任务书模板 / 计划待办均可携带要求。默认关闭 | CLI `job run --check-prompt`、`plan add-todo` / `set-todo --check-prompt`；配置 `server.delivery_check` | 实验（v0.204.0 新增，默认关闭） | [job-advanced.md](../skills/gofer-usage/references/job-advanced.md)、[design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md) |
+| job 预览 | 启用 `server.preview` 后，为 server 本机运行中的 job 申请短期端口租约；预览端口只反向代理到 `127.0.0.1:<port>`，支持 HTTP / WebSocket；首次访问用一次性 token 换只对该预览有效的 cookie，转发时剥掉 gofer 自己的凭据；租约到期、撤销或 job 终态自动关闭，server 重启关闭遗留租约。仅限 server 本机 job，worker 转发开发中。默认关闭 | CLI `job preview open\|ls\|close`；HTTP；配置 `server.preview` | 实验（v0.204.0 新增，默认关闭） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-job-preview-design.md](design/2026-10-28-job-preview-design.md) |
 
 ## 编排（plan / workflow / schedule）
 
@@ -75,11 +77,11 @@
 | 方案导入与交接 | 方案末尾的 `gofer-todos` 块转成 todo 链；阶段交接；接手简报 | CLI `plan import` / `plan attach` / `plan handoff` / `plan brief`；MCP `gofer_plan_handoff` / `gofer_plan_brief` | 稳定 | plans-workflows.md「方案规则与 plan import」 |
 | 主 Agent 会话（监督会话） | 计划绑定监督会话，job 结束与阻塞通知送达该会话 | CLI `plan create --supervisor-session-id` / `plan set`；MCP `gofer_set_plan_supervisor_session` | 未标注 | plans-workflows.md「主 Agent 会话与 job 来源会话」 |
 | leader 回合 | 按 plan opt-in，成员终态唤醒 leader 写评论 / 接着派活，有轮次上限，leader 不能验收 | plan 配置 | 变化中（Squad / leader） | [runbook/2026-09-23-leader-round-runbook.md](runbook/2026-09-23-leader-round-runbook.md) |
-| workflow | 有依赖的多步 YAML 编排，含扇出 / 汇合、子工作流、内置步骤、`if: always`、失败重跑 | CLI `workflow run` / `list` / `show` / `events` / `cancel` / `export` / `rerun`；Web「工作流」 | 变化中（stability.md 标实验） | plans-workflows.md「workflow」 |
-| workflow 模板 | 模板库、变量、保存为模板；`workflow init verify\|release` 生成起步文件 | CLI `workflow template ls\|show\|save\|rm`、`workflow save-as-template`、`workflow init`；Web 模板向导 | 变化中 | plans-workflows.md「模板的查看与保存」「verify / release 起步 workflow」 |
+| workflow | 有依赖的多步 YAML 编排，含扇出 / 汇合、子工作流、内置步骤、`if: always`、失败重跑；执行记录会记下来源模板名与来源（`template` / `template_source`），可按模板过滤 | CLI `workflow run` / `list`（`wf ls --template` 按模板过滤）/ `show` / `events` / `cancel` / `export` / `rerun`；HTTP `GET /v1/workflows?template=`；Web「工作流」 | 变化中（stability.md 标实验） | plans-workflows.md「workflow」 |
+| workflow 模板 | 模板库、变量、保存为模板；`workflow init verify\|release` 生成起步文件；模板列表附带每个模板的执行次数与最近一次执行 | CLI `workflow template ls\|show\|save\|rm`（`wf template ls` 显示执行次数与最近执行）、`workflow save-as-template`、`workflow init`；Web 模板向导 | 变化中 | plans-workflows.md「模板的查看与保存」「verify / release 起步 workflow」 |
 | 多 agent 对比与择优 | 同一任务扇出给多个 agent，人工挑选并可合并 worktree | CLI `workflow pick <id> <step> <fan> [--merge]` | 变化中 | plans-workflows.md「多 agent 对比与择优」 |
 | 定时任务 schedule | cron、一次性（`--delay` / `--at`）、webhook 触发；参数声明与立即运行 | CLI `schedule add` / `list` / `show` / `edit` / `enable` / `disable` / `run` / `rm` / `rotate-token`；HTTP `/v1/schedules`；Web `/schedules` | 稳定 | [runbook/2026-06-30-cron-schedule-runbook.md](runbook/2026-06-30-cron-schedule-runbook.md) |
-| 计划看板 | plan 总览（分段进度条）、自动驾驶看板；详情页任务页签分页 | Web「计划」 | 变化中（部分 Web 页面） | [design/2026-09-22-plan-autopilot-board-and-container-worker-design.md](design/2026-09-22-plan-autopilot-board-and-container-worker-design.md)、web-console.md |
+| 计划看板 | plan 总览（分段进度条）、自动驾驶看板；详情页任务页签分页；总览默认筛选「进行中 + 受阻」，受阻计划不再从默认列表消失 | Web「计划」 | 变化中（部分 Web 页面） | [design/2026-09-22-plan-autopilot-board-and-container-worker-design.md](design/2026-09-22-plan-autopilot-board-and-container-worker-design.md)、web-console.md |
 | 决策点问人 | agent 阻塞提问，人在 Web 作答 | MCP `gofer_ask_human`；CLI `plan ask` / `decisions` / `answer` | 稳定（随 plan） | plans-workflows.md「决策点问人」 |
 
 ## 会话与协作
@@ -94,6 +96,8 @@
 | 常驻 agent 收信 | 配置 `mail.agents` 后，`agent:<名字>` 地址由常驻 ACP 会话收信并回信 | 地址 `agent:<名字>[@<项目>]` | 变化中 | sessions-relay.md「信箱」 |
 | 会话提问 | 终端会话里的 AskUserQuestion 转到 Web 作答；会话间提问 | MCP `gofer_session_ask`；Web 今天 | 未标注 | [design/2026-10-12-session-question-relay-design.md](design/2026-10-12-session-question-relay-design.md) |
 | Web 消息转达与附图 | 在 Web 向会话发消息，输入框可带图片 | HTTP `/v1/attachments*`；Web 工作台 / 会话抽屉 | 未标注 | [design/2026-10-19-workbench-image-attachments-design.md](design/2026-10-19-workbench-image-attachments-design.md) |
+| 传话类会话附图 | 在执行机上直接启动并登记的终端会话（relay）可在 Web 聊天里附图：agent 送达模板配置 `deliver_image_args`（必须含 `{{image}}`）后，附件先放到执行机，再以绝对路径加到送达命令；内置 suga 使用 `--image {{image}}`；会话进程版本过旧（退出码 5）时明确拒绝且不重试 | 配置 `deliver_image_args`；HTTP `/v1/attachments*`；Web 工作台 / 会话抽屉 | 未标注（v0.204.0 新增） | [sessions-relay.md](../skills/gofer-usage/references/sessions-relay.md)、[design/2026-10-19-workbench-image-attachments-design.md](design/2026-10-19-workbench-image-attachments-design.md) |
+| 收件箱分栏（后端） | 按调用方汇总「要处理（action）/ 仅知会（fyi）」两栏与未读数，已读 / 清理 / 恢复状态按调用方记录；`server.inbox` 可配置结构化归栏规则。Web 双栏界面尚未发布 | HTTP `GET /v1/inbox`、`POST /v1/inbox/state`；配置 `server.inbox` | 实验（v0.204.0 新增，仅后端） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md) |
 | 今天与待我决策 | 汇总等人的事（审批、提问、验收、等回复、记忆、worker 申请）为卡片队列 | Web `/today`；HTTP `/v1/today`；MCP `gofer_today_list` / `gofer_today_card` | 稳定 | [../skills/gofer-usage/references/web-console.md](../skills/gofer-usage/references/web-console.md) |
 | 工作项与收集箱 | 长期工作项、随手记收集箱与分派、会话汇报进度 | CLI `work capture\|ls\|show\|new\|set\|note\|report\|...`；MCP `gofer_work_*`；Web `/work` | 稳定性速览未列（收集箱 / 管家 stability.md 标实验） | [../skills/gofer-usage/references/work-items.md](../skills/gofer-usage/references/work-items.md) |
 | 管家 steward | 自动整理工作项、提示建议；默认关闭 | CLI `steward status\|start\|restart\|stop\|ask\|notes\|review\|merges` | 变化中 | work-items.md |
@@ -111,6 +115,8 @@
 | prime 开场注入 | 会话开场注入提交策略、当前重点、ready issue、rule 记忆与记忆索引；`--prime-keywords` 提高相关记忆优先级 | CLI `repo prime [--keywords]`、`init hooks --prime-only` | 稳定 | tracker.md「prime」 |
 | tracker 同步与合并 | 初始化、与 server 镜像同步、状态查看、多 worktree 合并驱动、changelog 合并驱动、从 bd 迁移 | CLI `repo init\|sync\|status\|merge-driver\|changelog-merge\|migrate` | 稳定 | tracker.md；[runbook/tracker-transfer.md](runbook/tracker-transfer.md) |
 | 每日摘要 | 工作项摘要事件 `work.digest` 与 `work digest` | CLI `work digest`；事件 `work.digest` | 未标注 | work-items.md |
+| 反向链接 | issue / job / 计划 / 待办 / 信件 / 评论里提到的对象 id 自动记入引用索引，可查「被哪些对象引用」（按调用方可见范围过滤）；job 详情、计划详情与 issue 抽屉显示「被引用」面板 | CLI `tool refs <id>`；HTTP `GET /v1/refs`；MCP `gofer_refs`；Web 详情页 | 实验（v0.204.0 新增） | [commands.md](../skills/gofer-usage/references/commands.md)、[reference/http-api.md](reference/http-api.md) |
+| 每日记忆综合（P1） | 可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏与预算裁剪，以及运行记录和只读查询。本版本不调用模型，默认关闭 | 配置 `memory.synthesis`；HTTP `GET /v1/memory-syntheses` | 实验（v0.204.0 新增，默认关闭） | [memory-synthesis.md](../skills/gofer-usage/references/memory-synthesis.md)、[design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md) |
 
 ## 执行机与网络
 
@@ -123,7 +129,7 @@
 | 自升级 | 从控制台或命令升级整个 worker 舰队，任意 OS / 架构 | CLI `worker upgrade <id>`；HTTP `POST /v1/workers/{id}/upgrade`；Web Runners | 稳定 | operations.md「远程升级 worker」；[runbook/release-and-binary-swap.md](runbook/release-and-binary-swap.md) |
 | TCP 隧道 | 本机端口转发到 worker 所在网络；SOCKS5 / HTTP CONNECT 代理；同地址转发；预设；UDP | CLI `tunnel forward\|save\|saved\|forget\|check\|ls\|stop`、`tunnel presets push`；Web Tunnels | 未标注（运维类稳定项含隧道） | [runbook/tcp-tunnel.md](runbook/tcp-tunnel.md) |
 | 文件传输 | 单文件在 server 与 runner 之间对拷；job 自带文件上传 / 收集；传输暂存区 | CLI `tool cp`、`tool xfer ls\|show\|rm`、`job run --upload` / `--collect` | 稳定 | [../skills/gofer-usage/references/files-and-wakeup.md](../skills/gofer-usage/references/files-and-wakeup.md) |
-| 工作区附件 | Web 工作台 / 会话抽屉附图 | HTTP `/v1/attachments*` | 未标注 | web-console.md |
+| 工作区附件 | Web 工作台 / 会话抽屉附图；未显式配置存储路径时默认存到项目根 `.gofer/attachments/<日期>` | HTTP `/v1/attachments*` | 未标注 | web-console.md |
 
 ## 通知与事件
 
@@ -135,6 +141,7 @@
 | 浏览器推送与 PWA | Web Push、可安装为应用，审批通知可直接允许 / 拒绝 | Web 设置 → 通知；HTTP `/v1/ws` 实时推送 | 未标注 | [runbook/web-push.md](runbook/web-push.md)、[runbook/https-pwa.md](runbook/https-pwa.md) |
 | event hooks | 事件发生时在 server 主机跑命令，只读旁路；只能改配置文件 | 配置 `server.event_hooks`；改后 `serve reload` | 未标注 | [design/2026-10-11-event-hooks-design.md](design/2026-10-11-event-hooks-design.md)、im-notification.md「事件钩子」 |
 | 决策 hook | 提交前 `job.submit` / 交付前 `job.deliver` 外部判定，只能否决或收紧 | 配置 `server.decision_hooks`；CLI `tool hook-test` | 变化中（D1 已落地，D2 / D3 未做） | [runbook/decision-hooks.md](runbook/decision-hooks.md) |
+| 入站触发内核（P0） | 外部系统按事件派受约束 job 的内核：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限、持久幂等、内存限流与审计。尚未开放 HTTP / provider 入口，暂无法从外部实际触发 | 配置 `server.triggers`（仅文件） | 实验（v0.204.0 新增，无对外入口） | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md) |
 
 ## 权限与安全
 
@@ -158,7 +165,7 @@
 | 今天 `/today` | 待我决策队列、专注处理、并行泳道 | 稳定 |
 | 工作台 `/workbench` | 会话中枢：ACP 对话、持续会话、交互 PTY、改动与评审，多标签分屏 | 稳定 |
 | 任务 / 待验收 `/review` | job 列表与详情、验收面板、待批准 | 稳定 |
-| 计划 / 工作流 / 定时 `/schedules` | plan 总览与详情、workflow 与模板、定时任务 | 计划稳定，工作流变化中 |
+| 计划 / 工作流 / 定时 `/schedules` | plan 总览与详情（默认筛选「进行中 + 受阻」）、workflow 与模板、定时任务 | 计划稳定，工作流变化中 |
 | 会话 | 终端会话列表与抽屉（回复、接管、唤醒、催办） | 稳定 |
 | 信箱 `/mail` | 按对话显示的信件、写信、待指派 | 变化中 |
 | 工作项 `/work` | 工作项与收集箱 | 变化中 |
@@ -196,10 +203,9 @@
 
 | 能力 | 状态 | 说明 | 设计稿 |
 |---|---|---|---|
-| 入站触发 trigger | 开发中，未发布 | 外部系统按事件派一个受约束的 job；入站请求认证与签名，另含 GitHub 兼容 provider。与现有出站 webhook、只读 event_hooks 区别：这是入站且能提交 job | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md)（0.2 已批准） |
-| job 预览 job-preview | 开发中，未发布 | 暴露 job 在 server 本机或 worker 上运行的 HTTP 服务（开发服务器、报告查看器等）；URL 形态默认端口模式，相关 tunnel 设计可参考 | [design/2026-10-28-job-preview-design.md](design/2026-10-28-job-preview-design.md)（0.2 已批准） |
-| 每日记忆综合 | 开发中，未发布 | 把分散的当日结构化事实（工作项 journal、memory 体检等）综合为每日记忆；候选队列暂缓 | [design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md)（0.2 已批准） |
-| 收件箱分栏 | 设计中 | 把等你回答、待验收、失败、信件、agent 回复汇到一个入口并分栏，按人记已读 / 清理状态，与 IM / 桌面推送规则一致 | [design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md)（0.1 草稿） |
-| 反向链接 | 开发中，未发布 | issue / job / plan / 信件 / 评论里提到的对象 id 自动建立双向引用，详情页显示「被引用」；CLI `refs`、HTTP `/v1/refs`、MCP `gofer_refs` | — |
-| 项目输出目录 | 开发中，未发布 | job 结果与附件默认从 `<项目>/tmp/` 移到 `<项目>/.gofer/jobs`、`.gofer/attachments`（由 `.gofer/.gitignore` 忽略）；显式配置不变 | — |
-| worktree 默认位置 | 开发中，未发布 | `--worktree` 默认落在 `<git 顶层>/.worktrees/<name>`，并写入本地 `info/exclude`；显式 `worktree.dir` 不变，旧位置仍可列出与清理 | — |
+| 入站触发 HTTP / GitHub / IM 入口 | 开发中，未发布 | 内核（配置、签名校验、幂等、限流、审计）已在 v0.204.0 发布；HTTP 入站路由、GitHub 兼容 provider 与 IM 入口尚未开放 | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md)（0.2 已批准） |
+| job 预览的 worker 转发 | 开发中，未发布 | 目前只支持 server 本机运行的 job；经 worker 暴露其上运行的服务尚未提供 | [design/2026-10-28-job-preview-design.md](design/2026-10-28-job-preview-design.md)（0.2 已批准） |
+| 每日记忆综合的模型调用与每日调度 | 开发中，未发布 | P1 的配置、指纹、运行记录与查询已发布；调用模型生成每日记忆、每日定时调度、候选队列尚未提供 | [design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md)（0.2 已批准） |
+| 收件箱 Web 双栏界面 | 开发中，未发布（gofer-addo 后续） | 后端接口已发布；Web 双栏页面、与 IM / 桌面推送规则对齐尚未发布 | [design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md) |
+| 后台 agent 管理页与会话轮换 | 开发中，未发布 | 会话轮换配置 `server.background_agents.session`（按上下文用量与次数，默认不按时长）目前只有存储结构，轮换行为与管理页尚未提供 | [design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md)（方案二） |
+| 工作流页改为工作流列表（gofer-sg61） | 后端已完成，Web 页面开发中 | 工作流页将改为工作流列表视图 | — |
