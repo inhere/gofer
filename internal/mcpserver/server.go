@@ -268,6 +268,12 @@ func newServer(b Backend, scoped string) *mcp.Server {
 		Name:        "gofer_list_comments",
 		Description: "Read the comment thread of a job, plan or todo (scope=job|plan|todo, id), oldest first — including the jobs a human's @mentions dispatched.",
 	}, listCommentsHandler(b))
+
+	addGoferTool(s, &mcp.Tool{
+		Name:        "gofer_refs",
+		Description: "List visible jobs, plans, todos and comments that reference an issue, job, plan, todo or workflow id.",
+	}, refsHandler(b))
+
 	registerScopedMemoryTools(s, b)
 	registerBriefTools(s, b)
 	registerMemoryCandidateTools(s, b) // gofer-3nxa.2 knowledge candidates

@@ -84,6 +84,7 @@ var registry = []Tool{
 
 	// Comments / issue and plan briefs.
 	{Name: "gofer_list_comments", Class: ReadOnly},
+	{Name: "gofer_refs", Class: ReadOnly},
 	{Name: "gofer_issue_brief", Class: ReadOnly},
 	{Name: "gofer_plan_brief", Class: ReadOnly},
 	{Name: "gofer_issue_list", Class: ReadOnly},

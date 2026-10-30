@@ -258,6 +258,9 @@ func (s *Service) comment(scope, scopeID, author, authorKind, asJob, body string
 	if err := s.meta.InsertComment(cm); err != nil {
 		return jobstore.Comment{}, nil, err
 	}
+	if err := s.meta.SyncTextRefs("comment", cm.ID, "body", body); err != nil {
+		return jobstore.Comment{}, nil, err
+	}
 	s.recordEvent(target.eventScope, EventCommentCreated, map[string]any{
 		"comment_id": cm.ID, "scope": scope, "scope_id": scopeID,
 		"author": author, "author_kind": authorKind, "mentions": mentions,
@@ -562,6 +565,7 @@ func (s *Service) insertSystemComment(scope, scopeID, body string) {
 	if err := s.meta.InsertComment(cm); err != nil {
 		return
 	}
+	_ = s.meta.SyncTextRefs("comment", cm.ID, "body", body)
 	s.recordEvent(s.commentEventScope(scope, scopeID), EventCommentCreated, map[string]any{
 		"comment_id": cm.ID, "scope": scope, "scope_id": scopeID,
 		"author": commentSystemAuthor, "author_kind": jobstore.CommentAuthorSystem,

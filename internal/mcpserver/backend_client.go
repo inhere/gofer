@@ -43,6 +43,10 @@ func (b *clientBackend) ListTemplates(project string) ([]template.Info, error) {
 	return b.cli.ListTemplates(project)
 }
 
+func (b *clientBackend) ListRefs(kind, id string) ([]client.Ref, error) {
+	return b.cli.ListRefs(kind, id)
+}
+
 func (b *clientBackend) GetJob(id string) (job.JobResult, error) {
 	return b.cli.GetJob(id)
 }

@@ -39,6 +39,9 @@ func (s *Service) SetTitle(id, title, operator string) (JobResult, error) {
 		if err := s.persist(out); err != nil {
 			return JobResult{}, err
 		}
+		if err := s.meta.SyncTextRefs("job", id, "title", title); err != nil {
+			return JobResult{}, err
+		}
 		s.recordEvent(id, EventJobTitleChanged, map[string]any{"old_title": old, "new_title": title, "operator": operator})
 		return out, nil
 	}
@@ -65,6 +68,9 @@ func (s *Service) SetTitle(id, title, operator string) (JobResult, error) {
 	rec.RequestJSON = string(b)
 	rec.UpdatedAt = s.nowFn().Unix()
 	if err := s.meta.UpsertJob(rec); err != nil {
+		return JobResult{}, err
+	}
+	if err := s.meta.SyncTextRefs("job", id, "title", title); err != nil {
 		return JobResult{}, err
 	}
 	s.recordEvent(id, EventJobTitleChanged, map[string]any{"old_title": old, "new_title": title, "operator": operator})

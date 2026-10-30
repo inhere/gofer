@@ -2,6 +2,9 @@ package job
 
 import (
 	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -28,7 +31,43 @@ func unmarshalUncommittedFiles(raw string) []string {
 func (s *Service) persist(snap JobResult) error {
 	snap.UpdatedAt = s.nowFn().Unix()
 	defer s.signalJob(snap.ID)
-	return s.meta.UpsertJob(toRecord(snap))
+	if err := s.meta.UpsertJob(toRecord(snap)); err != nil {
+		return err
+	}
+	if snap.EndedAt != 0 {
+		if report, err := readReportTail(snap.ResultDir); err == nil {
+			if err := s.meta.SyncTextRefs("job", snap.ID, "report", report); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+const reportRefMaxBytes = 64 * 1024
+
+func readReportTail(dir string) (string, error) {
+	if dir == "" {
+		return "", os.ErrNotExist
+	}
+	f, err := os.Open(filepath.Join(dir, "stdout.log"))
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	start := st.Size() - reportRefMaxBytes
+	if start < 0 {
+		start = 0
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return "", err
+	}
+	b, err := io.ReadAll(io.LimitReader(f, reportRefMaxBytes))
+	return string(b), err
 }
 
 // toRecord projects a JobResult onto the neutral jobstore.JobRecord written to
