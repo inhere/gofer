@@ -811,6 +811,8 @@ type runJobInput struct {
 	// Acceptance is the job's acceptance criteria (gofer-3nxa.4): appended to a
 	// non-exec agent's prompt as a 「## 验收标准」 section and shown in review.
 	Acceptance string `json:"acceptance,omitempty"`
+	// CheckPrompt is a delivery-check requirement, not a shell command.
+	CheckPrompt string `json:"check_prompt,omitempty"`
 	// Scope declares the path globs (relative to the repo root) the job is expected to
 	// change (gofer-3nxa.3); files outside them are marked in review (advisory).
 	Scope []string `json:"scope,omitempty"`
@@ -912,7 +914,8 @@ func runJobHandler(b Backend, scoped string) mcp.ToolHandlerFor[runJobInput, job
 			Uploads: xferUploadsFromMCP(in.Uploads),
 			Collect: in.Collect,
 			// gofer-3nxa.4：验收标准（注入任务书 + 验收面板显示）。
-			Acceptance: in.Acceptance,
+			Acceptance:  in.Acceptance,
+			CheckPrompt: in.CheckPrompt,
 			// gofer-3nxa.3：声明的改动范围 + 单次关闭交付约定。
 			Scope:             in.Scope,
 			NoScopeDiscipline: in.NoScopeDiscipline,

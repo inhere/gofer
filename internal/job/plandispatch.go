@@ -186,7 +186,8 @@ func (s *Service) normalTodoRequest(plan jobstore.Plan, todo jobstore.PlanTodo, 
 		Title:            todo.Title,
 		// gofer-3nxa.4: the item's acceptance criteria travel with its job, which
 		// appends them to the prompt and shows them in review.
-		Acceptance: todo.Acceptance,
+		Acceptance:  todo.Acceptance,
+		CheckPrompt: todo.CheckPrompt,
 		// gofer-3nxa.3: so is the declared change scope.
 		Scope:    todo.Scope,
 		ReadDirs: todo.ReadDirs,

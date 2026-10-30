@@ -116,6 +116,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	req.Runner = config.NormalizeRunnerName(req.Runner)
 	req.SourceSessionID = strings.TrimSpace(req.SourceSessionID)
 	req.FromSession = strings.TrimSpace(req.FromSession)
+	checkPrompt, checkErr := NormalizeCheckPrompt(req.CheckPrompt)
+	if checkErr != nil {
+		return JobResult{}, fmt.Errorf("%w: %s", ErrInvalidRequest, checkErr)
+	}
+	req.CheckPrompt = checkPrompt
 
 	// E35: resolve a role preset BEFORE validate so the role-filled agent/project
 	// are still allowlist-checked (and an empty agent does not fail validation

@@ -33,6 +33,7 @@ const PlanTodosFormat = "输出格式：方案末尾附一个 ```" + PlanTodosFe
 	"- `title`：步骤标题（必填）；\n" +
 	"- `after`：依赖的前序步骤（标题或从 1 起的序号，可写列表）；省略 = 依赖上一步，`[]` = 无依赖；\n" +
 	"- `acceptance`：验收标准；\n" +
+	"- `check_prompt`：交付核验要求（可选；不是 shell 命令）；\n" +
 	"- `scope`：改动范围（路径 glob 列表，相对仓库根）；\n" +
 	"- `check`：检查点命令（可选；生成一个 exec 复核项，后续步骤等它通过）。\n\n" +
 	"```" + PlanTodosFence + "\n" +
@@ -52,24 +53,26 @@ const PlannerGuidance = PlanRules + "\n\n" + PlanTodosFormat
 // (titles or 1-based step numbers); AfterSet distinguishes "omitted" (= the previous
 // step) from an explicit empty list (= no dependency).
 type PlanTodoSpec struct {
-	Title      string
-	After      []string
-	AfterSet   bool
-	Acceptance string
-	Scope      []string
-	Check      string
+	Title       string
+	After       []string
+	AfterSet    bool
+	Acceptance  string
+	CheckPrompt string
+	Scope       []string
+	Check       string
 }
 
 // ImportTodo is one todo `plan import` creates, in creation order. After are indexes
 // into the same slice (always earlier ones). A step's check becomes its own exec item
 // (Assignee exec, Cmd the command line) right after it.
 type ImportTodo struct {
-	Title      string   `json:"title"`
-	Assignee   string   `json:"assignee,omitempty"`
-	Cmd        string   `json:"cmd,omitempty"`
-	Acceptance string   `json:"acceptance,omitempty"`
-	Scope      []string `json:"scope,omitempty"`
-	After      []int    `json:"after,omitempty"`
+	Title       string   `json:"title"`
+	Assignee    string   `json:"assignee,omitempty"`
+	Cmd         string   `json:"cmd,omitempty"`
+	Acceptance  string   `json:"acceptance,omitempty"`
+	CheckPrompt string   `json:"check_prompt,omitempty"`
+	Scope       []string `json:"scope,omitempty"`
+	After       []int    `json:"after,omitempty"`
 	// Step is the 1-based gofer-todos step this item comes from.
 	Step int `json:"step"`
 }
@@ -132,8 +135,10 @@ func ParsePlanTodos(text string) ([]PlanTodoSpec, error) {
 				spec.Scope, err = yamlList(v, true)
 			case "check":
 				spec.Check, err = yamlText(v, false)
+			case "check_prompt":
+				spec.CheckPrompt, err = yamlText(v, false)
 			default:
-				err = fmt.Errorf("unknown key %q (title, after, acceptance, scope, check)", k)
+				err = fmt.Errorf("unknown key %q (title, after, acceptance, check_prompt, scope, check)", k)
 			}
 			if err != nil {
 				return nil, fmt.Errorf("step %d: %s: %w", n, k, err)
@@ -252,7 +257,7 @@ func BuildTodoImport(specs []PlanTodoSpec, assign string) ([]ImportTodo, error) 
 				after = append(after, g)
 			}
 		}
-		out = append(out, ImportTodo{Title: s.Title, Assignee: assign, Acceptance: s.Acceptance, Scope: s.Scope, After: after, Step: n})
+		out = append(out, ImportTodo{Title: s.Title, Assignee: assign, Acceptance: s.Acceptance, CheckPrompt: s.CheckPrompt, Scope: s.Scope, After: after, Step: n})
 		gate[i] = len(out) - 1
 		if check := strings.TrimSpace(s.Check); check != "" {
 			out = append(out, ImportTodo{Title: "检查点：" + s.Title, Assignee: agent.ExecAgentKey, Cmd: check, After: []int{gate[i]}, Step: n})

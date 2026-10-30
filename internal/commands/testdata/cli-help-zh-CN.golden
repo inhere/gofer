@@ -197,6 +197,7 @@ job run	flag agent-budget-cost-usd	soft USD cost budget handed to the agent, whi
 job run	flag agent-budget-tokens	soft token budget handed to the agent, which winds the run up itself once spent (accepts 50000 / 50k / 1.5m; only agents with an agent_budget mapping, e.g. suga — others are refused). Keep it below --max-tokens
 job run	flag branch	branch name for --worktree (overrides the project's worktree.branch template)
 job run	flag channel	submission channel recorded as provenance (cli/web/mcp/...)
+job run	flag check-prompt	delivery-check requirement for the server-side structured checker (not a shell command)
 job run	flag collect	glob collected from the job's cwd into its artifacts after the job ends (repeatable, e.g. 'tmp/out/*.csv')
 job run	flag cols	initial terminal columns for --interactive (0 = server default 80)
 job run	flag config	path to the gofer config file

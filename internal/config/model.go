@@ -824,9 +824,11 @@ type ServerConfig struct {
 	// and the caller's can_tunnel. Read per request (see
 	// ServerTunnelConfig.EffectiveForwarderTTL), so a hot edit applies to the next one.
 	Tunnel ServerTunnelConfig `yaml:"tunnel,omitempty"`
-	// Hold is the hold-for-approval timeout policy (gofer-9b1b): the timeout a held job
-	// gets when its request names none, and the largest one a request may ask for. Read
-	// per submit (EffectiveHoldTimeoutSec), so a reload applies to the NEXT held job.
+	// DeliveryCheck is the optional server-side structured delivery checker. Disabled by default.
+	DeliveryCheck DeliveryCheckConfig `yaml:"delivery_check,omitempty"`
+	// BackgroundAgents holds common session rotation defaults for server-owned agents.
+	BackgroundAgents BackgroundAgentsConfig `yaml:"background_agents,omitempty"`
+	// Hold is the hold-for-approval timeout policy.
 	Hold HoldConfig `yaml:"hold,omitempty"`
 }
 

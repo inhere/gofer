@@ -107,6 +107,7 @@ type jobRunFlags struct {
 	env             gcli.Strings
 	noSecretCheck   bool
 	acceptance      string
+	checkPrompt     string
 	scope           gcli.Strings
 	noScopeDisc     bool
 	hold            bool
@@ -1501,6 +1502,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.VarOpt(&jobRunOpts.scope, "scope", "", "declared change scope: path globs relative to the repo root (comma-separated and/or repeatable); changed files outside it are marked in review", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.noScopeDisc, "no-scope-discipline", cliText("cli.job.flag.no_scope_discipline"), gflag.WithCategory("Execution"))
 	c.StrOpt2(&jobRunOpts.acceptance, "acceptance", cliText("cli.job.flag.acceptance"), jobRunOptCategory("Execution", ""))
+	c.StrOpt2(&jobRunOpts.checkPrompt, "check-prompt", "delivery-check requirement for the server-side structured checker (not a shell command)", jobRunOptCategory("Execution", ""))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
 	c.BoolOpt2(&jobRunOpts.strictTimeout, "strict-timeout", "refuse a --timeout above the applicable limit with an error (naming the limit and its config key) instead of clamping it", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.session, "session", "keep an ACP agent in the same job across turns", gflag.WithCategory("Execution"))
@@ -2397,7 +2399,8 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		// GATE-01 S3：人工验收（正常完成 → needs_review，等人 accept/reject）。
 		Review: jobRunOpts.review,
 		// gofer-3nxa.4：验收标准（服务端追加进 prompt；exec job 只记录）。
-		Acceptance: strings.TrimSpace(jobRunOpts.acceptance),
+		Acceptance:  strings.TrimSpace(jobRunOpts.acceptance),
+		CheckPrompt: strings.TrimSpace(jobRunOpts.checkPrompt),
 		// gofer-3nxa.3：声明的改动范围 + 单次关闭交付约定。
 		Scope:             flattenPlanTags(jobRunOpts.scope),
 		NoScopeDiscipline: jobRunOpts.noScopeDisc,

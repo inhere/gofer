@@ -42,6 +42,9 @@ type JobRequest struct {
 	// injectPromptSections); the review panel shows it next to the report. Recorded in
 	// request_json and mirrored on JobResult.Acceptance.
 	Acceptance string `json:"acceptance,omitempty" yaml:"acceptance,omitempty"`
+	// CheckPrompt is the bounded delivery requirement consumed by the server-side checker.
+	// It is inherited by resumes and never means a shell command.
+	CheckPrompt string `json:"check_prompt,omitempty" yaml:"check_prompt,omitempty"`
 	// Scope are the path globs (relative to the repository root of the job's cwd) this
 	// job is expected to change (gofer-3nxa.3; `job run --scope`, a plan todo's scope,
 	// HTTP/MCP `scope`). They are named in the 「交付约定」 section, and the review marks
@@ -703,6 +706,8 @@ type JobResult struct {
 	// Acceptance mirrors JobRequest.Acceptance: the criteria the review checks the
 	// report against. Derived from request_json, so it needs no column.
 	Acceptance string `json:"acceptance,omitempty"`
+	// CheckPrompt mirrors JobRequest.CheckPrompt and is recovered from request_json.
+	CheckPrompt string `json:"check_prompt,omitempty"`
 	// Scope mirrors JobRequest.Scope: the declared change scope the review checks the
 	// diff's files against. Derived from request_json.
 	Scope []string `json:"scope,omitempty"`
@@ -971,12 +976,12 @@ type JobResult struct {
 	// note read them.
 	BaseSHA string   `json:"base_sha,omitempty"`
 	Commits []Commit `json:"commits,omitempty"`
+	// CheckJSON is the last structured delivery-check result (P0 persistence contract).
+	CheckJSON        string `json:"check_json,omitempty"`
+	CheckResumeCount int    `json:"check_resume_count,omitempty"`
+	CheckError       string `json:"check_error,omitempty"`
 	// Verify is the outcome of the job's verification step (SUP-01 B), nil when the
-	// job had none. A failed/timed-out step is why such a job is failed (or parked in
-	// needs_review when a human reviews it), so this is the field that explains the
-	// status; it is persisted as jobs.verify_json. The type is runner's — the step's
-	// result also travels on the remote Outcome channel, and one definition keeps the
-	// two in step.
+	// job had none. It is persisted as jobs.verify_json.
 	Verify *VerifyResult `json:"verify,omitempty"`
 	// FailureClass is why a FAILED job is classified the way it is (SUP-01 P3):
 	// "transient" (a provider error — the health aggregation counts it) or "other".

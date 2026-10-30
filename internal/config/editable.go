@@ -64,6 +64,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.max_job_timeout_sec": {Editable: true},
 	"server.auto_resume_max":     {Editable: true},
 	"server.stall_timeout_sec":   {Editable: true},
+	"server.delivery_check":      {Editable: true},
+	"server.background_agents":   {Editable: true},
 	// JOB-10 skills: the deployment's default binding list and the import size caps.
 	// Both are read where they are used (EffectiveSkills runs per dispatch, the store
 	// reads its limits at import), so a hot edit applies to the NEXT job/import —

@@ -96,6 +96,8 @@ type Meta struct {
 	Verify           []string `json:"verify,omitempty" yaml:"verify"`
 	VerifyTimeoutSec int      `json:"verify_timeout_sec,omitempty" yaml:"verify_timeout_sec"`
 	Review           bool     `json:"review,omitempty" yaml:"review"`
+	Acceptance       string   `json:"acceptance,omitempty" yaml:"acceptance"`
+	CheckPrompt      string   `json:"check_prompt,omitempty" yaml:"check_prompt"`
 	ReadOnly         bool     `json:"read_only,omitempty" yaml:"read_only"`
 	Worktree         bool     `json:"worktree,omitempty" yaml:"worktree"`
 	FallbackAgents   []string `json:"fallback_agents,omitempty" yaml:"fallback_agents"`
@@ -234,6 +236,8 @@ func Parse(src []byte) (Template, error) {
 		Verify:           f.Verify,
 		VerifyTimeoutSec: f.VerifyTimeoutSec,
 		Review:           f.Review,
+		Acceptance:       f.Acceptance,
+		CheckPrompt:      f.CheckPrompt,
 		ReadOnly:         f.ReadOnly,
 		Worktree:         f.Worktree,
 		FallbackAgents:   f.FallbackAgents,
@@ -257,6 +261,8 @@ type frontmatter struct {
 	Verify           []string       `yaml:"verify"`
 	VerifyTimeoutSec int            `yaml:"verify_timeout_sec"`
 	Review           bool           `yaml:"review"`
+	Acceptance       string         `yaml:"acceptance"`
+	CheckPrompt      string         `yaml:"check_prompt"`
 	ReadOnly         bool           `yaml:"read_only"`
 	Worktree         bool           `yaml:"worktree"`
 	FallbackAgents   []string       `yaml:"fallback_agents"`

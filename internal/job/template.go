@@ -121,6 +121,9 @@ func applyTemplateMeta(req *JobRequest, tpl *template.Template) {
 	if !req.Review {
 		req.Review = m.Review
 	}
+	if req.CheckPrompt == "" {
+		req.CheckPrompt = m.CheckPrompt
+	}
 	// An explicit --no-verify is an opt-OUT and wins over the template's default
 	// step (validate would reject carrying both).
 	if len(req.Verify) == 0 && !req.NoVerify {

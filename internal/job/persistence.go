@@ -374,6 +374,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Model:       request.Model,
 		FromSession: request.FromSession,
 		Acceptance:  request.Acceptance,
+		CheckPrompt: request.CheckPrompt,
 		Scope:       request.Scope,
 		// gofer-3nxa.2: whether the finish captures memory candidates.
 		KnowledgeCapture: request.KnowledgeCapture,
