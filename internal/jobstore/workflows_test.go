@@ -306,3 +306,70 @@ func tableExists(t *testing.T, s *Store, name string) bool {
 	assert.NoErr(t, err)
 	return n == name
 }
+
+// TestWorkflowTemplateRoundTrip covers the template attribution columns: a template run
+// reads back its name and source, a directly submitted spec reads back empty, and the
+// template filter keeps only that template's runs.
+func TestWorkflowTemplateRoundTrip(t *testing.T) {
+	s := openTest(t)
+	assert.True(t, tableHasColumn(t, s, "workflows", "template"))
+	assert.True(t, tableHasColumn(t, s, "workflows", "template_source"))
+	ins := func(id, tpl, src string, at int64) {
+		assert.NoErr(t, s.InsertWorkflow(Workflow{ID: id, Status: WorkflowDone, CurrentStep: 1, TotalSteps: 1,
+			SpecJSON: "{}", Template: tpl, TemplateSource: src, CreatedAt: at, UpdatedAt: at}))
+	}
+	ins("wf-a", "demo-a", "project", 100)
+	ins("wf-b", "demo-b", "builtin", 101)
+	ins("wf-direct", "", "", 102)
+
+	got, ok, err := s.GetWorkflow("wf-a")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "demo-a", got.Template)
+	assert.Eq(t, "project", got.TemplateSource)
+	direct, _, err := s.GetWorkflow("wf-direct")
+	assert.NoErr(t, err)
+	assert.Eq(t, "", direct.Template)
+	assert.Eq(t, "", direct.TemplateSource)
+
+	list, total, err := s.ListWorkflowsPage(WorkflowListFilter{Template: "demo-a"}, 10, 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, total)
+	assert.Eq(t, 1, len(list))
+	assert.Eq(t, "wf-a", list[0].ID)
+}
+
+// TestWorkflowTemplateStats covers the per-template run count and newest run, with the
+// caller visibility filter applied and unfinished runs reporting no end time.
+func TestWorkflowTemplateStats(t *testing.T) {
+	s := openTest(t)
+	ins := func(id, caller, tpl, status string, at int64) {
+		assert.NoErr(t, s.InsertWorkflow(Workflow{ID: id, Status: status, CallerID: caller, CurrentStep: 1, TotalSteps: 1,
+			SpecJSON: "{}", Template: tpl, TemplateSource: "global", CreatedAt: at, UpdatedAt: at + 7}))
+	}
+	ins("wf-1", "alice", "demo-a", WorkflowDone, 100)
+	ins("wf-2", "bob", "demo-a", WorkflowRunning, 200)
+	ins("wf-3", "alice", "demo-b", WorkflowFailed, 150)
+	ins("wf-4", "alice", "", WorkflowDone, 300)
+
+	all, err := s.WorkflowTemplateStats(WorkflowListFilter{})
+	assert.NoErr(t, err)
+	assert.Eq(t, 2, len(all))
+	a := all["demo-a"]
+	assert.Eq(t, 2, a.Runs)
+	assert.Eq(t, "wf-2", a.LastID)
+	assert.Eq(t, WorkflowRunning, a.LastStatus)
+	assert.Eq(t, int64(200), a.LastStartedAt)
+	assert.Eq(t, int64(0), a.LastEndedAt)
+
+	mine, err := s.WorkflowTemplateStats(WorkflowListFilter{CallerID: "alice", RestrictCaller: true})
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, mine["demo-a"].Runs)
+	assert.Eq(t, "wf-1", mine["demo-a"].LastID)
+	assert.Eq(t, int64(107), mine["demo-a"].LastEndedAt)
+	assert.Eq(t, 1, mine["demo-b"].Runs)
+
+	none, err := s.WorkflowTemplateStats(WorkflowListFilter{CallerID: "carol", RestrictCaller: true})
+	assert.NoErr(t, err)
+	assert.Eq(t, 0, len(none))
+}

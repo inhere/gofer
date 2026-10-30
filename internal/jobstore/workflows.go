@@ -84,6 +84,12 @@ type Workflow struct {
 	// an original submit; set when `wf rerun --failed / --from` trimmed the original
 	// spec into a fresh workflow (the original is never modified). 旧库行→"".
 	RerunOf string
+	// Template is the workflow template this run was submitted from (`wf run --template`,
+	// the web wizard, POST /v1/workflows {template}); "" for a spec submitted directly.
+	// TemplateSource is where that template came from at submit time: builtin / global /
+	// project ("" when Template is empty). 旧库行→"".
+	Template       string
+	TemplateSource string
 }
 
 // UpdateWorkflowSpec replaces the declarative spec while a workflow remains
@@ -111,7 +117,8 @@ const selectWorkflowCols = `SELECT id, COALESCE(title,''), status, current_step,
   created_at, updated_at,
   COALESCE(step_attempt,1), COALESCE(next_step_at,0),
   COALESCE(parent_workflow_id,''), COALESCE(parent_step_index,0),
-  COALESCE(rerun_of,''), COALESCE(project_key,'') FROM workflows`
+  COALESCE(rerun_of,''), COALESCE(project_key,''),
+  COALESCE(template,''), COALESCE(template_source,'') FROM workflows`
 
 // scanWorkflow reads one row (in selectWorkflowCols order) into a Workflow.
 func scanWorkflow(sc rowScanner) (Workflow, error) {
@@ -123,6 +130,7 @@ func scanWorkflow(sc rowScanner) (Workflow, error) {
 		&w.StepAttempt, &w.NextStepAt,
 		&w.ParentWorkflowID, &w.ParentStepIndex,
 		&w.RerunOf, &w.ProjectKey,
+		&w.Template, &w.TemplateSource,
 	)
 	return w, err
 }
@@ -152,14 +160,14 @@ func (s *Store) InsertWorkflow(w Workflow) error {
 	}
 	w.ProjectKey = workflowProjectKey(w.SpecJSON)
 	const q = `INSERT INTO workflows
-  (id, title, status, current_step, total_steps, spec_json, project_key, caller_id, error, created_at, updated_at, step_attempt, next_step_at, parent_workflow_id, parent_step_index, rerun_of)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+  (id, title, status, current_step, total_steps, spec_json, project_key, caller_id, error, created_at, updated_at, step_attempt, next_step_at, parent_workflow_id, parent_step_index, rerun_of, template, template_source)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		w.ID, w.Title, w.Status, w.CurrentStep, w.TotalSteps,
 		w.SpecJSON, w.ProjectKey, w.CallerID, w.Error, w.CreatedAt, w.UpdatedAt,
-		w.StepAttempt, w.NextStepAt, parentWf, parentStep, rerunOf(w.RerunOf),
+		w.StepAttempt, w.NextStepAt, parentWf, parentStep, rerunOf(w.RerunOf), rerunOf(w.Template), rerunOf(w.TemplateSource),
 	); err != nil {
 		return fmt.Errorf("jobstore: insert workflow %q: %w", w.ID, err)
 	}
@@ -270,6 +278,8 @@ type WorkflowListFilter struct {
 	CallerID       string
 	RestrictCaller bool
 	ProjectKeys    []string
+	// Template keeps only the runs submitted from this template name (exact match).
+	Template string
 }
 
 // workflowFilter builds the WHERE clause shared by ListWorkflowsPage's row query and its
@@ -282,6 +292,10 @@ func workflowFilter(f WorkflowListFilter) (string, []any) {
 	if f.Status != "" {
 		conds = append(conds, "status = ?")
 		args = append(args, f.Status)
+	}
+	if f.Template != "" {
+		conds = append(conds, "template = ?")
+		args = append(args, f.Template)
 	}
 	if f.RestrictCaller {
 		conds = append(conds, "COALESCE(caller_id,'') = ?")
@@ -338,6 +352,56 @@ func (s *Store) ListWorkflowsPage(f WorkflowListFilter, limit, offset int) ([]Wo
 		return nil, 0, fmt.Errorf("jobstore: list workflow page rows: %w", err)
 	}
 	return out, total, nil
+}
+
+// TemplateRunStat summarises the runs of one workflow template: how many, and the newest.
+// LastEndedAt is 0 while that newest run is still running.
+type TemplateRunStat struct {
+	Template      string
+	Runs          int
+	LastID        string
+	LastStatus    string
+	LastStartedAt int64
+	LastEndedAt   int64
+}
+
+// WorkflowTemplateStats groups the workflows submitted from a template (template <> ”)
+// by template name, applying f's visibility conditions (caller / project) so a run the
+// caller cannot see is not counted. f.Template and f.Status are ignored. The newest run
+// is by created_at, then id.
+func (s *Store) WorkflowTemplateStats(f WorkflowListFilter) (map[string]TemplateRunStat, error) {
+	f.Template, f.Status = "", ""
+	where, args := workflowFilter(f)
+	if where == "" {
+		where = " WHERE template <> ''"
+	} else {
+		where += " AND template <> ''"
+	}
+	rows, err := s.db.Query(`SELECT template, cnt, id, status, created_at, updated_at FROM (
+  SELECT template, id, status, created_at, updated_at,
+    ROW_NUMBER() OVER (PARTITION BY template ORDER BY created_at DESC, id DESC) AS rn,
+    COUNT(*) OVER (PARTITION BY template) AS cnt
+  FROM workflows`+where+`) WHERE rn = 1`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: workflow template stats: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]TemplateRunStat{}
+	for rows.Next() {
+		var st TemplateRunStat
+		var updated int64
+		if err := rows.Scan(&st.Template, &st.Runs, &st.LastID, &st.LastStatus, &st.LastStartedAt, &updated); err != nil {
+			return nil, fmt.Errorf("jobstore: scan workflow template stats: %w", err)
+		}
+		if st.LastStatus != WorkflowRunning {
+			st.LastEndedAt = updated
+		}
+		out[st.Template] = st
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: workflow template stats rows: %w", err)
+	}
+	return out, nil
 }
 
 // AdvanceStep is the推进幂等屏障 (SR303), upgraded for工作流 v2 retry (P1, plan

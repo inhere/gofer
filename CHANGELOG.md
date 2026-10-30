@@ -29,6 +29,7 @@
 
 ### 新增
 
+- **工作流执行记录关联来源模板**：`wf run --template`、`POST /v1/workflows {template}` 与 web 向导提交的执行记录会记下模板名与来源（`template` / `template_source`，直接提交 spec 的为空；workflows 表 additive 迁移）。`GET /v1/workflows` 支持 `?template=` 过滤，`gofer wf ls --template <name>` 同；`GET /v1/workflow-templates` 每项附带 `runs`（执行次数）与 `last_run`（最近一次的 id / 状态 / 开始 / 结束时间，只计调用方可见的执行），`gofer wf template ls` 显示次数与最近一次状态。
 - **交付核验闭环（P1）**：启用 `server.delivery_check` 后，job 正常结束且 `--verify` 未失败时，server 用汇报末尾、提交列表、diff 统计、未提交文件和验证结果请一个只读、无工具的核验 agent 对照要求判定。要求有三种来源并合并使用：`--check-prompt`、prompt / 任务文件里独占一行的 `<delivery-check>…</delivery-check>` 块（块保留在发给 agent 的 prompt 里）、以及 `--acceptance`（`include_acceptance` 默认 true）。不合格会按条目自动续接（`max_auto_resumes` 默认 2，独立计数），用完后停在 `needs_review`；核验 agent 自己出错则保持原状态并记 `check_error`。新增事件 `job.delivery_check.*`、job 评论结论，`job show` 与 job 详情显示核验结果；`plan add-todo` / `set-todo` 支持 `--check-prompt`。
 - **每日记忆综合 P1（gofer-gah7）**：新增可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏 / 字符与字节预算裁剪，以及 jobstore 运行记录。`GET /v1/memory-syntheses` 与详情接口只读查询记录；默认不启动模型、不保存材料快照、不建立候选队列。
 - **外部触发派活内核（P0）**：新增文件专属 `server.triggers` 配置、HMAC + 时间窗校验、受限输入映射、非 root owner ceiling 派活身份、SQLite 持久幂等 receipt、内存限流和脱敏审计。P0 尚未开放 HTTP/provider 入口，默认不监听外部请求。

@@ -213,9 +213,9 @@ gofer plan answer <decision-id> --answer "方案A"
 ```bash
 gofer workflow run <file.yaml> [-p <project>] [-w]     # 从 yaml / json 提交；-w 轮询到终态并打印每步
 gofer workflow run --template <name> --var k=v [-w]   # 从流程模板提交（-p 也可指模板所属项目）
-gofer workflow template ls|show <name> [-p <project>] # 看模板（含来源）与 vars
+gofer workflow template ls|show <name> [-p <project>] # 看模板（含来源）与 vars；ls 另显示执行次数与最近一次状态
 gofer workflow template show <name> --source          # 看模板自己的 YAML 与文件路径
-gofer workflow list / show <id> / events <id> / cancel <id>
+gofer workflow list [--status …] [--template <name>] / show <id> / events <id> / cancel <id>   # --template 只列该模板的执行记录
 gofer workflow rerun <id> --failed | --from <step> [-w] # 重跑失败的部分 / 从某步起重跑（新 workflow）
 gofer workflow export <id>                            # 导出 spec（去密钥），可再 run
 ```

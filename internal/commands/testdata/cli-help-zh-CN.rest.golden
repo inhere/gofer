@@ -1275,6 +1275,7 @@ workflow list	examples
 workflow list	flag config	path to the gofer config file
 workflow list	flag server	server address (overrides config server.addr)
 workflow list	flag status	filter by status (running/done/failed/cancelled)
+workflow list	flag template	only runs submitted from this workflow template
 workflow list	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 workflow pick	desc	Select a fan of a join=pick step and continue the workflow
 workflow pick	help	

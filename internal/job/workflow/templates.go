@@ -24,6 +24,20 @@ type WorkflowTemplate struct {
 	// Source is "project", "global" or "builtin" (set by the lookup, not authored).
 	Source string `json:"source,omitempty" yaml:"-"`
 	Spec   Spec   `json:"spec" yaml:"spec"`
+	// Runs and LastRun summarise the executions started from this template (filled by the
+	// list / show API for the caller's visible runs; never authored). Runs is 0 and LastRun
+	// nil when there is none.
+	Runs    int              `json:"runs" yaml:"-"`
+	LastRun *TemplateLastRun `json:"last_run,omitempty" yaml:"-"`
+}
+
+// TemplateLastRun is the newest execution of a template: its workflow id and status plus
+// the start time and, once it finished, the end time (unix seconds).
+type TemplateLastRun struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	StartedAt int64  `json:"started_at"`
+	EndedAt   int64  `json:"ended_at,omitempty"`
 }
 
 // Prompt heads of the built-in templates. Every built-in prompt is Chinese

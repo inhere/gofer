@@ -53,6 +53,14 @@ func TestOpenUpgradesPreviousReleaseSchema(t *testing.T) {
 			if _, _, err := s.ListWorkflowsPage(WorkflowListFilter{}, 10, 0); err != nil {
 				t.Fatalf("list workflows on the migrated database: %v", err)
 			}
+			// The migrated workflows table takes and returns the template attribution.
+			if err := s.InsertWorkflow(Workflow{ID: "wf-up", Status: WorkflowRunning, CurrentStep: 1, TotalSteps: 1, SpecJSON: "{}",
+				Template: "demo-tpl", TemplateSource: "global", CreatedAt: 1, UpdatedAt: 1}); err != nil {
+				t.Fatalf("insert a template workflow on the migrated database: %v", err)
+			}
+			if got, ok, err := s.GetWorkflow("wf-up"); err != nil || !ok || got.Template != "demo-tpl" || got.TemplateSource != "global" {
+				t.Fatalf("migrated workflow = %+v ok=%v err=%v, want template demo-tpl / global", got, ok, err)
+			}
 			_ = s.Close()
 		})
 	}

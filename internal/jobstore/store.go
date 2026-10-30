@@ -1939,6 +1939,14 @@ func (s *Store) migrateWorkflows() error {
 	if err := add("project_key", "project_key TEXT"); err != nil {
 		return err
 	}
+	// The template a run was submitted from and where that template came from (builtin /
+	// global / project). 旧行与直接提交 spec 的行为 NULL → "".
+	if err := add("template", "template TEXT"); err != nil {
+		return err
+	}
+	if err := add("template_source", "template_source TEXT"); err != nil {
+		return err
+	}
 	rows, err := s.db.Query(`SELECT id, COALESCE(spec_json,'') FROM workflows`)
 	if err != nil {
 		return fmt.Errorf("jobstore: migrate workflows read project: %w", err)
@@ -1958,6 +1966,9 @@ func (s *Store) migrateWorkflows() error {
 	}
 	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_workflows_project ON workflows(project_key)`); err != nil {
 		return fmt.Errorf("jobstore: migrate workflows project index: %w", err)
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_workflows_template ON workflows(template)`); err != nil {
+		return fmt.Errorf("jobstore: migrate workflows template index: %w", err)
 	}
 	return nil
 }
