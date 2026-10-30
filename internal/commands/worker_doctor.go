@@ -44,6 +44,11 @@ const workerDoctorExitErr = 1
 // flag (not the app-level -c) exactly like the rest of the `worker` group: the
 // doctor inspects a WORKER config, which has different semantics from config.yaml
 // (D-A1).
+// lookupHost resolves the hub host. A variable so a test can pin the answer:
+// a fake-ip DNS (TUN proxy) resolves even a .invalid name, which would make the
+// unresolvable-host case depend on the machine running it.
+var lookupHost = net.LookupHost
+
 var workerDoctorOpts = struct {
 	config  string
 	timeout string
@@ -278,7 +283,7 @@ func doctorURLRow(raw string, timeout time.Duration) workerDoctorRow {
 		row.Status, row.Detail = doctorFail, cliText("cli.worker.doctor.url_no_host", "url", trimmed)
 		return row
 	}
-	if _, err := net.LookupHost(host); err != nil {
+	if _, err := lookupHost(host); err != nil {
 		// The single most common container failure: worker.yaml still names
 		// host.docker.internal, which a Linux container cannot resolve. Say the IP
 		// instead of leaving the operator with a bare DNS error.

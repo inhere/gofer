@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -123,6 +124,12 @@ func TestWorkerDoctorReportsMissingConfig(t *testing.T) {
 // the detail must carry the container hint — this is the host.docker.internal
 // trap that left the container worker disconnected (CFG-09).
 func TestWorkerDoctorFlagsUnresolvableHost(t *testing.T) {
+	// Pin the resolver: a fake-ip DNS answers even for .invalid names.
+	old := lookupHost
+	lookupHost = func(host string) ([]string, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	t.Cleanup(func() { lookupHost = old })
 	dir := t.TempDir()
 	t.Setenv(config.EnvConfigDir, dir)
 	t.Setenv("GOFER_WORKER_TOKEN", "tok-doctor")
