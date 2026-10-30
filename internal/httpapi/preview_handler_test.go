@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -101,22 +103,38 @@ func TestPreviewOwnerLifecycle(t *testing.T) {
 		t.Fatalf("create answered %d (body %s)", resp.StatusCode, readBody(t, resp))
 	}
 	var created struct {
-		ID  string `json:"id"`
-		URL string `json:"url"`
+		ID         string `json:"id"`
+		URL        string `json:"url"`
+		Port       int    `json:"port"`
+		TargetPort int    `json:"target_port"`
 	}
 	decode(t, resp, &created)
 	if created.ID == "" || created.URL == "" {
 		t.Fatalf("created=%+v", created)
 	}
+	// port is the preview port the browser opens (it is in the URL), target_port the job's.
+	if u, _ := url.Parse(created.URL); u == nil || u.Port() != strconv.Itoa(created.Port) || created.TargetPort != appPort || created.Port == appPort {
+		t.Fatalf("created=%+v, want port = preview port in the URL and target_port = %d", created, appPort)
+	}
 
+	// The list uses the snake_case names the CLI client decodes.
 	var listed struct {
 		Previews []struct {
-			ID string `json:"ID"`
+			ID        string `json:"id"`
+			JobID     string `json:"job_id"`
+			CallerID  string `json:"caller_id"`
+			Port      int    `json:"port"`
+			State     string `json:"state"`
+			CreatedAt int64  `json:"created_at"`
+			ExpiresAt int64  `json:"expires_at"`
 		} `json:"previews"`
 	}
 	decode(t, do(t, s, http.MethodGet, "/v1/jobs/job-bob/previews", "tok-bob", nil), &listed)
 	if len(listed.Previews) != 1 {
 		t.Fatalf("listed=%+v", listed)
+	}
+	if p := listed.Previews[0]; p.ID != created.ID || p.JobID != "job-bob" || p.CallerID != "bob" || p.Port != created.Port || p.State != "active" || p.CreatedAt == 0 || p.ExpiresAt == 0 {
+		t.Fatalf("listed preview=%+v, want the lease under snake_case names", p)
 	}
 	// The list never carries the bearer URL or its token.
 	raw := readBody(t, do(t, s, http.MethodGet, "/v1/jobs/job-bob/previews", "tok-bob", nil))
@@ -216,4 +234,119 @@ func freePreviewPort(t *testing.T) int {
 	}
 	t.Fatal("no free port block for the preview pool")
 	return 0
+}
+
+func TestPreviewListDecodesInTheClient(t *testing.T) {
+	s, appPort := previewServer(t)
+	runningJob(t, s, "job-bob", "bob")
+	lease, _, err := s.preview.Create(t.Context(), "job-bob", "bob", "127.0.0.1", appPort, 60, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Previews []client.JobPreview `json:"previews"`
+	}
+	decode(t, do(t, s, http.MethodGet, "/v1/jobs/job-bob/previews", "tok-bob", nil), &out)
+	if len(out.Previews) != 1 || out.Previews[0].ID != lease.ID || out.Previews[0].Port != lease.Port || out.Previews[0].State != "active" || out.Previews[0].ExpiresAt != lease.ExpiresAt {
+		t.Fatalf("client view=%+v, want lease %+v", out.Previews, lease)
+	}
+}
+
+// Changing a lease: your own needs only read access to the job; someone else's needs the
+// job's owner or job.manage.others.
+func TestPreviewRevokeAndRenewPermissions(t *testing.T) {
+	s, appPort := previewServer(t)
+	s.setDBGrants(grantsFor([]string{authz.PermJobReadOthers}))
+	runningJob(t, s, "job-bob", "bob")
+
+	mk := func(caller string) string {
+		t.Helper()
+		l, _, err := s.preview.Create(t.Context(), "job-bob", caller, "127.0.0.1", appPort, 600, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l.ID
+	}
+	state := func(id string) string { g, _, _ := s.preview.Get(id); return g.State }
+	renew := func(tok, id string) int {
+		return do(t, s, http.MethodPost, "/v1/jobs/job-bob/previews/"+id+"/renew", tok, map[string]any{"ttl_sec": 120}).StatusCode
+	}
+	revoke := func(tok, id string) int {
+		return do(t, s, http.MethodDelete, "/v1/jobs/job-bob/previews/"+id, tok, nil).StatusCode
+	}
+
+	// alice can read bob's job (granted) but has no manage right: bob's lease is off limits.
+	bobLease := mk("bob")
+	if got := revoke("tok-alice", bobLease); got != http.StatusForbidden {
+		t.Fatalf("alice revoking bob's lease answered %d, want 403", got)
+	}
+	if got := renew("tok-alice", bobLease); got != http.StatusForbidden {
+		t.Fatalf("alice renewing bob's lease answered %d, want 403", got)
+	}
+	if state(bobLease) != "active" {
+		t.Fatal("a refused revoke changed the lease")
+	}
+	// ... her own lease on that job is hers to change.
+	aliceLease := mk("alice")
+	if got := renew("tok-alice", aliceLease); got != http.StatusOK {
+		t.Fatalf("alice renewing her own lease answered %d, want 200", got)
+	}
+	// The job owner may change a lease somebody else made on the job.
+	if got := renew("tok-bob", aliceLease); got != http.StatusOK {
+		t.Fatalf("owner renewing alice's lease answered %d, want 200", got)
+	}
+	if got := revoke("tok-bob", aliceLease); got != http.StatusOK || state(aliceLease) != "closed" {
+		t.Fatalf("owner revoking alice's lease answered %d state=%q", got, state(aliceLease))
+	}
+	// job.manage.others opens other people's leases too.
+	s.setDBGrants(grantsFor([]string{authz.PermJobReadOthers, authz.PermJobManageOthers}))
+	if got := revoke("tok-alice", bobLease); got != http.StatusOK || state(bobLease) != "closed" {
+		t.Fatalf("manage.others revoke answered %d state=%q", got, state(bobLease))
+	}
+	// Renewing a lease that is no longer active is a conflict, not a revival.
+	if got := renew("tok-bob", bobLease); got != http.StatusConflict {
+		t.Fatalf("renew of a closed lease answered %d, want 409", got)
+	}
+}
+
+func TestPreviewRevokeAndRenewRefuseCallerWhoCannotSeeTheJob(t *testing.T) {
+	s, appPort := previewServer(t)
+	runningJob(t, s, "job-bob", "bob")
+	lease, _, err := s.preview.Create(t.Context(), "job-bob", "bob", "127.0.0.1", appPort, 600, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := s.preview.Get(lease.ID)
+	if got := do(t, s, http.MethodPost, "/v1/jobs/job-bob/previews/"+lease.ID+"/renew", "tok-alice", map[string]any{"ttl_sec": 7000}).StatusCode; got != http.StatusForbidden {
+		t.Fatalf("renew by a stranger answered %d, want 403", got)
+	}
+	after, _, _ := s.preview.Get(lease.ID)
+	if after.ExpiresAt != before.ExpiresAt || after.State != "active" {
+		t.Fatalf("lease changed by a refused call: %+v -> %+v", before, after)
+	}
+}
+
+func TestPreviewRenewMovesExpiry(t *testing.T) {
+	s, appPort := previewServer(t)
+	runningJob(t, s, "job-bob", "bob")
+	var created struct {
+		ID string `json:"id"`
+	}
+	decode(t, do(t, s, http.MethodPost, "/v1/jobs/job-bob/previews", "tok-bob", map[string]any{"port": appPort, "ttl_sec": 30}), &created)
+	var renewed struct {
+		ID        string `json:"id"`
+		State     string `json:"state"`
+		ExpiresAt int64  `json:"expires_at"`
+	}
+	resp := do(t, s, http.MethodPost, "/v1/jobs/job-bob/previews/"+created.ID+"/renew", "tok-bob", map[string]any{"ttl_sec": 900})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("renew answered %d (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	decode(t, resp, &renewed)
+	if now := time.Now().Unix(); renewed.ID != created.ID || renewed.State != "active" || renewed.ExpiresAt < now+890 || renewed.ExpiresAt > now+910 {
+		t.Fatalf("renewed=%+v, want active with expiry about now+900", renewed)
+	}
+	if got := do(t, s, http.MethodPost, "/v1/jobs/job-bob2/previews/"+created.ID+"/renew", "tok-bob", nil).StatusCode; got != http.StatusNotFound {
+		t.Fatalf("renew via an unknown job answered %d, want 404", got)
+	}
 }

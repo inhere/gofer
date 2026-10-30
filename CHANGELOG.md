@@ -17,6 +17,7 @@
 - 交付核验：server 现在强制核验 agent 无工具（在 `server.delivery_check.args` 之后追加 claude/codex/suga 的无工具参数）；未知 agent 类型核验报错并 fail-open，不再带工具运行。
 - 交付核验：核验不合格而自动续接提交失败时，job 转 `needs_review` 并在 `check_error` 与评论写明原因，不再变成 `failed` 并补发 `job.terminal`。
 - MCP `check_prompt_source` 说明补上 `merged`；`gofer job show` 显示由核验触发的续接 job id。
+- **job 预览审计修复（gofer-ad2u）**：`gofer job preview ls` 现在能显示内容（列表响应改用 `id/job_id/port/state/expires_at` 等小写字段；创建响应的 `port` 是浏览器访问的预览端口，job 的端口改放 `target_port`）；撤销他人创建的租约需 job 所有者或 `job.manage.others`（此前只要能读该 job）；新增续租 `POST /v1/jobs/{id}/previews/{preview_id}/renew` 与 `gofer job preview renew`；`max_connections`（超出返回 503）与 `idle_timeout_sec`（无流量时关闭连接、租约保留）真正生效；URL 里的 token 改为真正一次性（换取 cookie 后再用 404，cookie 是独立的随机值）；WebSocket 要求 Origin 为该预览自己的 origin（否则 403）；应用响应里带 `Domain` 的 `Set-Cookie` 一律丢弃；创建、续租、撤销、到期、job 终态关闭、server 重启关闭和被拒绝的访问写入审计（不含 token 与 URL）。
 
 ## [0.204.0] - 2026-10-30
 

@@ -141,6 +141,13 @@ job preview open	flag port	任务所在机器上应用监听的本机端口
 job preview open	flag server	server address (overrides config server.addr)
 job preview open	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 job preview open	flag ttl	租约时长（如 30m、2h，受 server 上限约束）
+job preview renew	desc	续租任务的一个预览租约：到期时间改为当前时间加 --ttl（受 server 上限约束）
+job preview renew	help	
+job preview renew	examples	
+job preview renew	flag config	path to the gofer config file
+job preview renew	flag server	server address (overrides config server.addr)
+job preview renew	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job preview renew	flag ttl	租约时长（如 30m、2h，受 server 上限约束）
 job redact	desc	Redact literals or patterns from a terminal job
 job redact	help	
 job redact	examples	

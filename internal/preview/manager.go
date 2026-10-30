@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -21,12 +22,21 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
+// ErrNotActive is returned when an operation needs a live lease and the lease is gone.
+var ErrNotActive = errors.New("preview lease is not active")
+
+// Lease is the non-secret view of a preview lease. Port is the preview port the browser
+// opens (not the job's target port).
 type Lease struct {
-	ID, JobID, CallerID, WorkerID string
-	Port                          int
-	State                         string
-	CreatedAt, ExpiresAt          int64
-	CloseReason                   string
+	ID          string `json:"id"`
+	JobID       string `json:"job_id"`
+	CallerID    string `json:"caller_id"`
+	WorkerID    string `json:"worker_id"`
+	Port        int    `json:"port"`
+	State       string `json:"state"`
+	CreatedAt   int64  `json:"created_at"`
+	ExpiresAt   int64  `json:"expires_at"`
+	CloseReason string `json:"close_reason,omitempty"`
 }
 type Manager struct {
 	store     *jobstore.Store
@@ -39,16 +49,40 @@ type Manager struct {
 	// connections net/http no longer tracks once they are hijacked (WebSocket upgrades).
 	cancels map[string]context.CancelFunc
 	timers  map[string]*time.Timer
+	lives   map[string]*live
 	wg      sync.WaitGroup
+
+	// idle is how long a lease may see no traffic before its connections are reclaimed
+	// (0 = never). clock feeds the idle bookkeeping and authAuditEvery rate-limits the
+	// audit rows for refused requests; tests replace all three before creating a lease.
+	idle           time.Duration
+	clock          func() time.Time
+	authAuditEvery time.Duration
 }
 
 func New(store *jobstore.Store, cfg config.PreviewConfig) *Manager {
 	// Leases a previous serve left active have no listener in this process: close them
 	// so they neither look alive nor keep their ports out of the pool.
+	m := &Manager{store: store, cfg: cfg.Effective(), listeners: map[string]net.Listener{}, servers: map[string]*http.Server{}, ports: map[int]bool{}, cancels: map[string]context.CancelFunc{}, timers: map[string]*time.Timer{}, lives: map[string]*live{}, clock: time.Now, authAuditEvery: 10 * time.Second}
+	m.idle = time.Duration(m.cfg.IdleTimeoutSec) * time.Second
 	if store != nil {
+		stale, _ := store.ListActivePreviews()
 		_ = store.CloseActivePreviews("server_restart", time.Now().Unix())
+		for _, p := range stale {
+			m.audit("preview_server_restart", p, "system", "server_restart")
+		}
 	}
-	return &Manager{store: store, cfg: cfg.Effective(), listeners: map[string]net.Listener{}, servers: map[string]*http.Server{}, ports: map[int]bool{}, cancels: map[string]context.CancelFunc{}, timers: map[string]*time.Timer{}}
+	return m
+}
+
+// audit appends one audit row for a lease: ids, caller, worker, port and reason, never the
+// token, a cookie or the URL.
+func (m *Manager) audit(kind string, p jobstore.PreviewRecord, actor, reason string) {
+	if m.store == nil {
+		return
+	}
+	d, _ := json.Marshal(map[string]any{"job_id": p.JobID, "preview_id": p.ID, "caller_id": p.CallerID, "worker_id": p.WorkerID, "port": p.Port, "state": p.State, "reason": reason})
+	_, _ = m.store.AppendAuditEvent(kind, p.ID, actor, string(d))
 }
 func randomToken() (string, error) {
 	b := make([]byte, 32)
@@ -134,6 +168,8 @@ func (m *Manager) Create(ctx context.Context, jobID, caller, host string, port, 
 		delete(m.ports, p)
 		return Lease{}, "", e
 	}
+	lv := newLive(m, id, m.cfg.MaxConnections)
+	m.lives[id] = lv
 	m.listeners[id] = ln
 	target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 	rp := httputil.NewSingleHostReverseProxy(target)
@@ -141,9 +177,12 @@ func (m *Manager) Create(ctx context.Context, jobID, caller, host string, port, 
 		cookies := resp.Header.Values("Set-Cookie")
 		resp.Header.Del("Set-Cookie")
 		for _, v := range cookies {
-			if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(v)), "gofer_") {
-				resp.Header.Add("Set-Cookie", v)
+			// A gofer_ cookie would shadow the console's own; a Domain attribute would let
+			// the preview app plant a cookie for the parent domain, shared with the console.
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(v)), "gofer_") || cookieHasDomain(v) {
+				continue
 			}
+			resp.Header.Add("Set-Cookie", v)
 		}
 		return nil
 	}
@@ -157,21 +196,78 @@ func (m *Manager) Create(ctx context.Context, jobID, caller, host string, port, 
 		r.Header.Del("Authorization")
 		r.Header.Set("Cookie", stripPreviewCookie(r.Header.Get("Cookie")))
 	}
-	h := m.handler(id, tok, rp)
+	h := m.handler(id, tok, rp, lv)
 	baseCtx, cancel := context.WithCancel(context.Background())
 	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, BaseContext: func(net.Listener) context.Context { return baseCtx }}
 	m.servers[id] = srv
 	m.cancels[id] = cancel
 	// The lease ends on its own at expiry, so the port returns to the pool without
 	// anyone having to send a request to notice.
-	m.timers[id] = time.AfterFunc(time.Duration(ttl)*time.Second, func() { _ = m.Close(id, "expired") })
-	go func() { _ = srv.Serve(ln) }()
+	m.armExpiry(id, time.Duration(ttl)*time.Second)
+	go func() { _ = srv.Serve(&limitListener{Listener: ln, lv: lv}) }()
+	m.audit("preview_created", rec, caller, "created")
 	if strings.TrimSpace(host) == "" {
 		host = "127.0.0.1"
 	}
 	return Lease{ID: id, JobID: jobID, CallerID: caller, WorkerID: "local", Port: p, State: "active", CreatedAt: now, ExpiresAt: now + int64(ttl)}, fmt.Sprintf("http://%s:%d/?token=%s", host, p, tok), nil
 }
-func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy) http.Handler {
+
+// armExpiry (re)starts the lease's expiry timer. Caller holds m.mu.
+func (m *Manager) armExpiry(id string, d time.Duration) {
+	if t := m.timers[id]; t != nil {
+		t.Stop()
+	}
+	m.timers[id] = time.AfterFunc(d, func() { m.expireDue(id) })
+}
+
+// expireDue closes the lease if it is really due: a renew may have moved the expiry after
+// this timer was already running, in which case the renewed timer owns the lease.
+func (m *Manager) expireDue(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if p, ok, e := m.store.GetPreview(id); e == nil && ok && p.State == "active" && p.ExpiresAt > time.Now().Unix() {
+		return
+	}
+	_ = m.closeLocked(id, "expired", "system")
+}
+
+// cookieHasDomain reports whether a Set-Cookie value carries a Domain attribute.
+func cookieHasDomain(v string) bool {
+	parts := strings.Split(v, ";")
+	for _, a := range parts[1:] {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a == "domain" || strings.HasPrefix(a, "domain=") {
+			return true
+		}
+	}
+	return false
+}
+
+// originAllowed applies to WebSocket upgrades: a browser always sends Origin there, and it
+// must be this preview's own origin (scheme + host + preview port), or another site could
+// drive the socket with the visitor's cookie. A client that sends no Origin is not a
+// browser and still needs the cookie.
+func originAllowed(r *http.Request, port int) bool {
+	o := r.Header.Get("Origin")
+	if o == "" {
+		return true
+	}
+	u, err := url.Parse(o)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return u.Scheme == scheme && strings.EqualFold(u.Host, r.Host) && u.Port() == strconv.Itoa(port)
+}
+
+func isUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy, lv *live) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec, ok, e := m.store.GetPreview(id)
 		if e == nil && ok && rec.State == "active" && rec.ExpiresAt <= time.Now().Unix() {
@@ -184,28 +280,58 @@ func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy) http.Hand
 			http.NotFound(w, r)
 			return
 		}
-		// The one-time token in the URL is traded for a cookie scoped to this preview's
-		// origin, then the browser is sent to the same URL without it, so the token does
+		// The one-time token in the URL is traded, once, for a random cookie scoped to this preview's
+		// origin (the token itself is never the cookie, and stops working after that), then the browser is sent to the same URL without it, so the token does
 		// not stay in the address bar, the history or a bookmark. Compared in constant
 		// time: the token is the only thing guarding the preview.
+		deny := func(reason string) {
+			if lv.shouldAuditDenied() {
+				m.audit("preview_auth_failed", rec, "anonymous", reason)
+			}
+			http.NotFound(w, r)
+		}
 		if q := r.URL.Query(); q.Has("token") {
-			if !sameToken(q.Get("token"), token) {
-				http.NotFound(w, r)
+			session, reason, err := lv.exchange(q.Get("token"), token)
+			if err != nil {
+				http.Error(w, "preview unavailable", http.StatusInternalServerError)
+				return
+			}
+			if reason != "" {
+				deny(reason)
 				return
 			}
 			// Secure follows the transport: the default port mode serves plain HTTP on a LAN
 			// address, where a Secure cookie would never be sent back and the preview would
 			// break; behind TLS (a base_domain deployment) it is always Secure.
-			http.SetCookie(w, &http.Cookie{Name: "gofer_preview", Value: token, Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: int(rec.ExpiresAt - time.Now().Unix())})
+			http.SetCookie(w, &http.Cookie{Name: "gofer_preview", Value: session, Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: int(rec.ExpiresAt - time.Now().Unix())})
 			q.Del("token")
 			clean := *r.URL
 			clean.RawQuery = q.Encode()
 			http.Redirect(w, r, clean.RequestURI(), http.StatusSeeOther)
 			return
 		}
-		if c, _ := r.Cookie("gofer_preview"); c == nil || !sameToken(c.Value, token) {
-			http.NotFound(w, r)
+		c, _ := r.Cookie("gofer_preview")
+		if c == nil {
+			deny("no_cookie")
 			return
+		}
+		if !lv.validSession(c.Value) {
+			deny("bad_cookie")
+			return
+		}
+		upgrade := isUpgrade(r)
+		if upgrade && !originAllowed(r, rec.Port) {
+			if lv.shouldAuditDenied() {
+				m.audit("preview_auth_failed", rec, "anonymous", "bad_origin")
+			}
+			http.Error(w, "forbidden origin", http.StatusForbidden)
+			return
+		}
+		// A WebSocket stays inside this handler for as long as it lives; it is accounted
+		// by its connection's traffic instead, or it would never look idle.
+		if !upgrade {
+			lv.begin()
+			defer lv.end()
 		}
 		r.Header.Del("Authorization")
 		r.Header.Set("Cookie", stripPreviewCookie(r.Header.Get("Cookie")))
@@ -253,10 +379,26 @@ func (m *Manager) List(jobID string) ([]Lease, error) {
 func (m *Manager) Close(id, reason string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.closeLocked(id, reason, "system")
+}
+
+// Revoke closes a lease on behalf of a caller; the audit row names who did it.
+func (m *Manager) Revoke(id, actor string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closeLocked(id, "revoked", actor)
+}
+
+// closeLocked ends a lease. Caller holds m.mu.
+func (m *Manager) closeLocked(id, reason, actor string) error {
 	now := time.Now().Unix()
 	if t := m.timers[id]; t != nil {
 		t.Stop()
 		delete(m.timers, id)
+	}
+	if lv := m.lives[id]; lv != nil {
+		lv.stop()
+		delete(m.lives, id)
 	}
 	if cancel := m.cancels[id]; cancel != nil {
 		cancel()
@@ -285,7 +427,45 @@ func (m *Manager) Close(id, reason string) error {
 			return nil
 		}
 	}
-	return m.store.UpdatePreviewState(id, "closed", reason, now)
+	if err := m.store.UpdatePreviewState(id, "closed", reason, now); err != nil {
+		return err
+	}
+	if ok {
+		p.State = "closed"
+		m.audit("preview_"+reason, p, actor, reason)
+	}
+	return nil
+}
+
+// Renew moves an active lease's expiry to now + ttl (ttl defaults and is capped like on
+// create, so a lease never runs longer than max_ttl_sec from the renewal) and restarts its
+// timer.
+func (m *Manager) Renew(id string, ttl int, actor string) (Lease, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok, e := m.store.GetPreview(id)
+	if e != nil {
+		return Lease{}, e
+	}
+	if !ok || p.State != "active" || m.servers[id] == nil || p.ExpiresAt <= time.Now().Unix() {
+		return Lease{}, ErrNotActive
+	}
+	if ttl <= 0 {
+		ttl = m.cfg.DefaultTTLSec
+	}
+	if ttl > m.cfg.MaxTTLSec {
+		ttl = m.cfg.MaxTTLSec
+	}
+	exp := time.Now().Unix() + int64(ttl)
+	if done, e := m.store.UpdatePreviewExpiry(id, exp); e != nil {
+		return Lease{}, e
+	} else if !done {
+		return Lease{}, ErrNotActive
+	}
+	m.armExpiry(id, time.Duration(ttl)*time.Second)
+	p.ExpiresAt = exp
+	m.audit("preview_renewed", p, actor, "renewed")
+	return Lease{ID: p.ID, JobID: p.JobID, CallerID: p.CallerID, WorkerID: p.WorkerID, Port: p.Port, State: p.State, CreatedAt: p.CreatedAt, ExpiresAt: exp}, nil
 }
 func (m *Manager) CloseJob(jobID string) {
 	rs, e := m.store.ListPreviews(jobID)

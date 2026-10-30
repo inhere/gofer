@@ -258,7 +258,7 @@ func NewJobCmd() *gcli.Command {
 			{
 				Name: "preview",
 				Desc: cliText("cli.job.desc.preview"),
-				Subs: []*gcli.Command{newJobPreviewOpenCmd(), newJobPreviewListCmd(), newJobPreviewCloseCmd()},
+				Subs: []*gcli.Command{newJobPreviewOpenCmd(), newJobPreviewListCmd(), newJobPreviewCloseCmd(), newJobPreviewRenewCmd()},
 			},
 			{
 				Name: "show",

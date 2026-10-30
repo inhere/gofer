@@ -76,3 +76,28 @@ func newJobPreviewCloseCmd() *gcli.Command {
 		return nil
 	}}
 }
+func newJobPreviewRenewCmd() *gcli.Command {
+	var ttl string
+	return &gcli.Command{Name: "renew", Desc: cliText("cli.job.desc.preview_renew"), Config: func(c *gcli.Command) {
+		bindConfigFlag(c)
+		bindServerFlags(c)
+		c.StrOpt(&ttl, "ttl", "", "30m", cliText("cli.job.flag.preview_ttl"))
+		c.AddArg("job_id", "job id", true)
+		c.AddArg("preview_id", "preview id", true)
+	}, Func: func(c *gcli.Command, _ []string) error {
+		d, e := time.ParseDuration(ttl)
+		if e != nil || d <= 0 {
+			return errors.New(cliText("cli.job.preview.err_ttl", "value", ttl))
+		}
+		cli, e := previewClient()
+		if e != nil {
+			return e
+		}
+		v, e := cli.RenewJobPreview(argString(c, "job_id"), argString(c, "preview_id"), int(d/time.Second))
+		if e != nil {
+			return e
+		}
+		c.Printf("%s\t%s\t%s\n", v.ID, v.State, time.Unix(v.ExpiresAt, 0).Format(time.RFC3339))
+		return nil
+	}}
+}

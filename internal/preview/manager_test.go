@@ -79,8 +79,29 @@ func targetPort(t *testing.T, srv *httptest.Server) int {
 	return p
 }
 
-// create opens a lease for the given target port and splits the returned URL.
-func create(t *testing.T, m *Manager, jobID string, target int, ttl int) (lease Lease, base, token string) {
+// create opens a lease and trades its one-time token for the cookie value, which it returns
+// in place of the token: that is what every later request has to present.
+func create(t *testing.T, m *Manager, jobID string, target int, ttl int) (lease Lease, base, session string) {
+	t.Helper()
+	l, base, tok := createRaw(t, m, jobID, target, ttl)
+	return l, base, exchangeToken(t, base, tok)
+}
+
+// exchangeToken presents the one-time token once and returns the cookie value it is traded for.
+func exchangeToken(t *testing.T, base, tok string) string {
+	t.Helper()
+	resp := get(t, base+"/?token="+tok, nil)
+	for _, c := range resp.Cookies() {
+		if c.Name == "gofer_preview" {
+			return c.Value
+		}
+	}
+	t.Fatalf("token exchange status=%d set no gofer_preview cookie", resp.StatusCode)
+	return ""
+}
+
+// createRaw opens a lease for the given target port and splits the returned URL.
+func createRaw(t *testing.T, m *Manager, jobID string, target int, ttl int) (lease Lease, base, token string) {
 	t.Helper()
 	l, raw, err := m.Create(context.Background(), jobID, "caller-a", "127.0.0.1", target, ttl, true)
 	if err != nil {
@@ -178,7 +199,7 @@ func okTargetPort(t *testing.T) int { return targetPort(t, okTarget(t)) }
 
 func TestAuth(t *testing.T) {
 	m, _ := newManager(t, 1)
-	_, base, token := create(t, m, "job-1", targetPort(t, okTarget(t)), 60)
+	_, base, token := createRaw(t, m, "job-1", targetPort(t, okTarget(t)), 60)
 
 	cases := []struct {
 		name string
@@ -203,6 +224,7 @@ func TestAuth(t *testing.T) {
 		})
 	}
 
+	var session string
 	t.Run("right token redirects and sets cookie", func(t *testing.T) {
 		resp := get(t, base+"/app/page?token="+token+"&a=1&b=x%20y", nil)
 		if resp.StatusCode != http.StatusSeeOther {
@@ -227,13 +249,32 @@ func TestAuth(t *testing.T) {
 		if ck == nil {
 			t.Fatal("no gofer_preview cookie")
 		}
-		if !ck.HttpOnly || ck.SameSite != http.SameSiteStrictMode || ck.Path != "/" || ck.Value != token || ck.MaxAge <= 0 {
-			t.Fatalf("cookie=%+v, want HttpOnly, SameSite=Strict, Path=/, token value, positive MaxAge", ck)
+		if !ck.HttpOnly || ck.SameSite != http.SameSiteStrictMode || ck.Path != "/" || ck.Value == "" || ck.MaxAge <= 0 {
+			t.Fatalf("cookie=%+v, want HttpOnly, SameSite=Strict, Path=/, a value, positive MaxAge", ck)
+		}
+		if ck.Value == token {
+			t.Fatal("the cookie must be its own random value, not the URL token")
+		}
+		session = ck.Value
+	})
+
+	// The token is one-time: once traded, presenting it again is a 404 and sets nothing,
+	// while the cookie it produced keeps working. The token is also no cookie value.
+	t.Run("token works once", func(t *testing.T) {
+		resp := get(t, base+"/?token="+token, nil)
+		if resp.StatusCode != http.StatusNotFound || len(resp.Cookies()) != 0 {
+			t.Fatalf("second use: status=%d cookies=%v, want 404 and none", resp.StatusCode, resp.Cookies())
+		}
+		if resp := get(t, base+"/", map[string]string{"Cookie": "gofer_preview=" + token}); resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("token used as cookie: status=%d, want 404", resp.StatusCode)
+		}
+		if resp := get(t, base+"/", map[string]string{"Cookie": "gofer_preview=" + session}); resp.StatusCode != http.StatusOK {
+			t.Fatalf("session cookie: status=%d, want 200", resp.StatusCode)
 		}
 	})
 
 	t.Run("right cookie is forwarded", func(t *testing.T) {
-		resp := get(t, base+"/x", map[string]string{"Cookie": "gofer_preview=" + token})
+		resp := get(t, base+"/x", map[string]string{"Cookie": "gofer_preview=" + session})
 		b, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode != http.StatusOK || string(b) != "hello /x" {
 			t.Fatalf("status=%d body=%q, want the target's answer", resp.StatusCode, b)

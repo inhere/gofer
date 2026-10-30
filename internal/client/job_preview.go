@@ -16,6 +16,7 @@ type JobPreview struct {
 	ExpiresAt   int64  `json:"expires_at"`
 	CloseReason string `json:"close_reason,omitempty"`
 	URL         string `json:"url,omitempty"`
+	TargetPort  int    `json:"target_port,omitempty"`
 	WorkerID    string `json:"worker_id,omitempty"`
 }
 
@@ -35,5 +36,11 @@ func (c *Client) ListJobPreviews(id string) ([]JobPreview, error) {
 func (c *Client) CloseJobPreview(jobID, previewID string) (JobPreview, error) {
 	var out JobPreview
 	err := c.doJSON(http.MethodDelete, "/v1/jobs/"+url.PathEscape(jobID)+"/previews/"+url.PathEscape(previewID), nil, &out)
+	return out, err
+}
+func (c *Client) RenewJobPreview(jobID, previewID string, ttl int) (JobPreview, error) {
+	var out JobPreview
+	body, _ := json.Marshal(map[string]int{"ttl_sec": ttl})
+	err := c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(jobID)+"/previews/"+url.PathEscape(previewID)+"/renew", bytes.NewReader(body), &out)
 	return out, err
 }

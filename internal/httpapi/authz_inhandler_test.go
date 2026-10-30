@@ -165,9 +165,18 @@ var jobAuthzCases = []authzCase{
 	{key: "GET /v1/jobs/{id}/previews", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/previews", nil}
 	}},
+	// revoke / renew: the own half only needs to read the job; a lease somebody else made on
+	// a stranger's job also needs job.manage.others, which extraOwn drives with a seeded lease.
 	{key: "DELETE /v1/jobs/{id}/previews/{preview_id}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodDelete, "/v1/jobs/" + e.job.ID + "/previews/no-such-preview", nil}
-	}},
+	}, extraOwn: []func(e *authzCaseEnv) caseReq{func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/jobs/" + e.strangerJob.ID + "/previews/" + seedStrangerLease(e), nil}
+	}}},
+	{key: "POST /v1/jobs/{id}/previews/{preview_id}/renew", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/previews/no-such-preview/renew", map[string]any{"ttl_sec": 60}}
+	}, extraOwn: []func(e *authzCaseEnv) caseReq{func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.strangerJob.ID + "/previews/" + seedStrangerLease(e) + "/renew", map[string]any{"ttl_sec": 60}}
+	}}},
 	{key: "GET /v1/jobs/{id}/logs/stdout", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/logs/stdout", nil}
 	}},
@@ -1949,4 +1958,19 @@ func installCaseRecorder() func() {
 		caseDecisionMu.Unlock()
 	}
 	return func() { decisionHook = prev }
+}
+
+// seedStrangerLease stores an active preview lease made by a third caller on the case's
+// stranger job and returns its id. It has no listener: the permission decisions come first.
+func seedStrangerLease(e *authzCaseEnv) string {
+	e.t.Helper()
+	now := time.Now().Unix()
+	id := "pv-" + e.strangerJob.ID
+	if err := e.s.jobs.Meta().InsertPreview(jobstore.PreviewRecord{
+		ID: id, TokenHash: jobstore.PreviewTokenHash(id), JobID: e.strangerJob.ID, CallerID: "carol",
+		WorkerID: "local", WorkerInstanceID: "local", Port: 1, State: "active", CreatedAt: now, ExpiresAt: now + 600,
+	}); err != nil {
+		e.t.Fatalf("seed lease: %v", err)
+	}
+	return id
 }
