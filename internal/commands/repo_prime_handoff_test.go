@@ -59,6 +59,7 @@ func TestPrimeIncludesPlanHandoff(t *testing.T) {
 	if _, handoffErr := cli.GetPlanHandoff(plans.Plans[0].PlanID, 0); handoffErr != nil {
 		t.Fatalf("get handoff: %v", handoffErr)
 	}
+	widenPrimeServerBudget(t)
 	body, err := primeWithServerHandoffs(s, configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -108,4 +109,15 @@ func TestPrimeHandoffServerTimeoutIsSilent(t *testing.T) {
 	if strings.Contains(body, "## 进行中 plan") {
 		t.Fatalf("timeout should omit handoff section: %s", body)
 	}
+}
+
+// widenPrimeServerBudget gives the prime's server sections a budget far above what a
+// stub server needs even on a loaded runner, for tests that assert those sections are
+// PRESENT (the production 1.5s dropped them under the release verify's parallel load).
+// The test that pins the timeout itself keeps the production budget.
+func widenPrimeServerBudget(t *testing.T) {
+	t.Helper()
+	old := primeServerBudget
+	primeServerBudget = wait.Timeout(t, 10*time.Second)
+	t.Cleanup(func() { primeServerBudget = old })
 }

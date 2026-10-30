@@ -133,6 +133,7 @@ func TestPrimeUsesTrackerProjectKeyWithoutClientProjectsConfig(t *testing.T) {
 	configPath := filepath.Join(root, "config.yaml")
 	p3Write(t, root, "config.yaml", "server: {}\n")
 	t.Chdir(root)
+	widenPrimeServerBudget(t)
 	body, err := primeWithServerHandoffs(s, configPath)
 	if err != nil {
 		t.Fatal(err)

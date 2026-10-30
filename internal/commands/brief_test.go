@@ -66,6 +66,7 @@ func TestPrimePlanSectionListsTodos(t *testing.T) {
 	t.Setenv("GOFER_SERVER_ADDR", server.URL)
 	p3Write(t, root, "config.yaml", "server: {}\n")
 	t.Chdir(root)
+	widenPrimeServerBudget(t)
 	body, err := primeWithServerHandoffs(s, filepath.Join(root, "config.yaml"))
 	assert.Require(t, assert.NoErr(t, err))
 	assert.Contains(t, body, "## 进行中 plan\n\n- p1 work（接手：`gofer plan brief p1`）\n  - [doing] T1 do "+item.ID+" · "+item.ID+"\n  - [ready] T3 next\n")
