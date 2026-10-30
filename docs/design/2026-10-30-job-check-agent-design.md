@@ -1,7 +1,7 @@
 # job 结束后的检查 agent 与后台 agent 统一管理设计
 
 > issue：gofer-r29d、gofer-f3jr
-> 状态：0.1 草稿
+> 状态：0.2 已批准（2026-10-30，待确认项全部按推荐；名称定为「交付核验」）
 > 相关：`internal/job/execute.go`、`internal/job/review.go`、`internal/job/resume.go`、`internal/job/model.go`、`internal/work/summarize.go`、`internal/work/summarize_session.go`、`internal/config/model.go`、`internal/config/steward.go`、`internal/httpapi/config_write_handler.go`、`internal/httpapi/steward_handler.go`、`web/src/views/settings/WorkSettings.vue`、`docs/design/2026-09-18-supervision-loop-and-agent-reliability-design.md`
 
 ## 1. 背景与问题
@@ -384,6 +384,13 @@ POST /v1/background-agents/{kind}/session/reset
 - **配置迁移漂移**：旧整理器阈值和新统一阈值并存会导致页面与实际不同。只允许旧字段在新字段为空时回退，首次保存规范化，并在三版本内按 G032 删除兼容读取。
 - **管家会话丢失**：idle 后 provider 可能删除 session。先尝试原 id，失败再以 prime 重建；数据库里的 notes / work items 始终是事实来源，不依赖模型上下文恢复。
 - **权限扩大**：后台页是 server-wide 视图，错误地让受 ceiling 的 caller 读取会泄露全局 agent / cost。route declaration 和 handler 统一 NoProject / ceiling 规则，reset 仅 person caller。
+
+## 9a. 已定事项（2026-10-30）
+
+- 待确认 1–14 全部按推荐。
+- **名称（待确认 10）**：显示名「交付核验」，配置键 `delivery_check`（即正文中的 `server.job_check` 改名为 `server.delivery_check`），CLI `job run --check-prompt <text>`，wire / 模板 / 计划待办 / MCP 字段 `check_prompt`；正文里的 `verify_prompt` / `--verify-prompt` 一律按此改名，不保留别名。事件名前缀用 `job.delivery_check.*`（如 `job.delivery_check.failed`、`job.delivery_check.auto_resumed`）。与 `--verify`（执行命令）和 `needs_review`（人工验收）的区分写进用户文档。
+- 会话轮换：上下文占比（默认 0.7）为主、次数（默认 20）为辅，`max_age` 默认关闭；会话按 `kind + project + work_dir` 硬隔离，三类后台 agent 不跨类型复用。
+- 实施按 §7 的 P0 → P1 → P2 → P3 → P4 依次拆成独立任务，每个任务限时 45 分钟；P1（交付核验闭环）优先，P2 中 suga 上下文用量依赖 suga v0.52.0 的 `turn_end.context`，在其发布前只按次数轮换。
 
 ## 10. 待确认项
 
