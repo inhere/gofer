@@ -661,6 +661,11 @@ func TestMergeWorktreeCleanupOthers(t *testing.T) {
 // merge button keys off it).
 func TestWorktreeStatusMergedAfterSquash(t *testing.T) {
 	repo, _ := gitRepo(t)
+	// Production detects squash merges with `git merge-tree --write-tree` and, by
+	// design, degrades to "unmerged" on older git; only assert where it exists.
+	if out, err := exec.Command("git", "-C", repo, "merge-tree", "--write-tree", "HEAD", "HEAD").CombinedOutput(); err != nil {
+		t.Skipf("git merge-tree --write-tree needs git >= 2.38 (not available here): %v: %s", err, strings.TrimSpace(string(out)))
+	}
 	s := newWorktreeService(t, repo, t.TempDir())
 	j := submitAndWait(t, s, JobRequest{
 		ProjectKey: "repo", Agent: "exec", Runner: "local",

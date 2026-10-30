@@ -2,10 +2,10 @@ package agent
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // testConfig builds a config with codex (cli-agent) and an explicit exec entry.
@@ -237,23 +237,25 @@ func TestDetectMissingCLI(t *testing.T) {
 
 // TestDetectExistingCLI: a present command yields available + non-empty version.
 func TestDetectExistingCLI(t *testing.T) {
-	// Use `go version` which is guaranteed available in this environment.
+	// Probe the testcmd helper, not PATH's `go`: a shim (scoop etc.) can print
+	// nothing when run detached, which made this test depend on the machine.
+	helper := testcmd.Path(t)
 	cfg := &config.Config{
 		Agents: map[string]config.AgentConfig{
 			"goagent": {
 				Type:    TypeCLIAgent,
-				Command: "go",
-				Detect:  config.DetectConfig{Command: "go", Args: []string{"version"}},
+				Command: helper,
+				Detect:  config.DetectConfig{Command: helper, Args: []string{"version"}},
 			},
 		},
 	}
 	reg := NewRegistry(cfg)
 	res := reg.Detect("goagent")
 	if !res.Available {
-		t.Fatalf("go should be available: %+v", res)
+		t.Fatalf("helper should be available: %+v", res)
 	}
-	if !strings.Contains(res.Version, "go") {
-		t.Errorf("version = %q, expected to contain 'go'", res.Version)
+	if res.Version != "testcmd 1.2.3" {
+		t.Errorf("version = %q, want %q", res.Version, "testcmd 1.2.3")
 	}
 }
 

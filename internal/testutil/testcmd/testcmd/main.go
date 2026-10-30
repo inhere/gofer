@@ -96,6 +96,9 @@ func main() {
 		return
 	}
 	switch os.Args[1] {
+	case "version":
+		// version: prints a fixed one-line version, like `<cli> --version`.
+		fmt.Println("testcmd 1.2.3")
 	case "exit":
 		code, _ := strconv.Atoi(arg(2))
 		os.Exit(code)
