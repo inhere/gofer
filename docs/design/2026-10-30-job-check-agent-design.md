@@ -1,7 +1,7 @@
 # job 结束后的检查 agent 与后台 agent 统一管理设计
 
 > issue：gofer-r29d、gofer-f3jr
-> 状态：0.2 已批准（2026-10-30，待确认项全部按推荐；名称定为「交付核验」）
+> 状态：0.3 已批准（2026-10-30，待确认项全部按推荐；名称定为「交付核验」；0.3 补核验要求的三种来源）
 > 相关：`internal/job/execute.go`、`internal/job/review.go`、`internal/job/resume.go`、`internal/job/model.go`、`internal/work/summarize.go`、`internal/work/summarize_session.go`、`internal/config/model.go`、`internal/config/steward.go`、`internal/httpapi/config_write_handler.go`、`internal/httpapi/steward_handler.go`、`web/src/views/settings/WorkSettings.vue`、`docs/design/2026-09-18-supervision-loop-and-agent-reliability-design.md`
 
 ## 1. 背景与问题
@@ -391,6 +391,27 @@ POST /v1/background-agents/{kind}/session/reset
 - **名称（待确认 10）**：显示名「交付核验」，配置键 `delivery_check`（即正文中的 `server.job_check` 改名为 `server.delivery_check`），CLI `job run --check-prompt <text>`，wire / 模板 / 计划待办 / MCP 字段 `check_prompt`；正文里的 `verify_prompt` / `--verify-prompt` 一律按此改名，不保留别名。事件名前缀用 `job.delivery_check.*`（如 `job.delivery_check.failed`、`job.delivery_check.auto_resumed`）。与 `--verify`（执行命令）和 `needs_review`（人工验收）的区分写进用户文档。
 - 会话轮换：上下文占比（默认 0.7）为主、次数（默认 20）为辅，`max_age` 默认关闭；会话按 `kind + project + work_dir` 硬隔离，三类后台 agent 不跨类型复用。
 - 实施按 §7 的 P0 → P1 → P2 → P3 → P4 依次拆成独立任务，每个任务限时 45 分钟；P1（交付核验闭环）优先，P2 中 suga 上下文用量依赖 suga v0.52.0 的 `turn_end.context`，在其发布前只按次数轮换。
+
+### 9b. 核验要求的来源（0.3 补充，2026-10-30）
+
+交付核验的「验证要求」有三种来源，**合并使用**（都适用），而不是互相覆盖：
+
+1. **显式**：`job run --check-prompt "…"`（以及模板 / 计划待办 / MCP 的 `check_prompt` 字段）。
+2. **任务书里的标记块**：prompt 或 `-f` 任务文件的正文里写
+   ```
+   <delivery-check>
+   - 至少 3 个 git commit，每块一个
+   - 汇报列出未完成项
+   </delivery-check>
+   ```
+   提交时由 server 提取块内文本作为核验要求（可有多个块，按出现顺序拼接；块必须独占行；代码围栏里的同名标记不算）。**块保留在发给 agent 的 prompt 里**——这类要求本来就是给实施 agent 的交付说明，让它知道会被怎样核验；只是额外被 gofer 摘出来交给核验 agent。提取结果记入 job 的 `check_prompt`（来源标注 `prompt_block`），job 详情可见。
+3. **已有的验收标准 `--acceptance`**（现有功能：追加为 prompt 的「## 验收标准」并要求汇报逐条回答）：job 带 acceptance 时，核验 agent 也拿到这份清单，并对照汇报里的逐条回答与提交 / diff 证据判定；未满足或「无法验证」且没有合理依据的条目判为不合格。
+
+触发条件随之调整：job 有任一来源的核验要求、且 `server.delivery_check.enabled` 打开时才执行核验；只有 `--acceptance` 的 job 是否自动核验由 `server.delivery_check.include_acceptance`（默认 true）控制，便于先只在显式要求上灰度。
+
+长度上限对合并后的文本整体生效；三种来源在核验材料里分节呈现（显式 / 任务书标记 / 验收标准），判定结果的每个不合格条目标注它来自哪一节，续接 prompt 里原样给出。
+
+实施归属：标记块提取与 acceptance 合并放在 P1（DC1），P0 只需给 `check_prompt` 预留来源字段（`explicit|prompt_block`）。
 
 ## 10. 待确认项
 
