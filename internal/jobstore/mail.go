@@ -261,7 +261,6 @@ func (s *Store) InsertMail(in MailInput) (Mail, error) {
 	}
 	defer s.emit(Change{Kind: ChangeMail})
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(`INSERT INTO mail(thread_id, reply_to, from_kind, from_id, from_caller,
   to_address, to_kind, to_id, to_caller, job_id, urgent, body, state, attempts, created_at, deliver_by,
   capture_item_id, broadcast_id)
@@ -272,26 +271,29 @@ func (s *Store) InsertMail(in MailInput) (Mail, error) {
 		boolInt(in.Urgent), in.Body, MailPending, now, deliverBy, strings.TrimSpace(in.CaptureItemID),
 		in.BroadcastID)
 	if err != nil {
+		s.writeMu.Unlock()
 		return Mail{}, fmt.Errorf("jobstore: insert mail: %w", err)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
+		s.writeMu.Unlock()
 		return Mail{}, fmt.Errorf("jobstore: insert mail id: %w", err)
 	}
-	// A letter sent with no thread of its own OPENS one: the thread id is derived from the
-	// row's own id, so it can only be assigned after the insert (and never collides).
 	if strings.TrimSpace(in.ThreadID) == "" {
 		if _, err := s.db.Exec(`UPDATE mail SET thread_id=? WHERE id=?`, mailThreadID(id), id); err != nil {
+			s.writeMu.Unlock()
 			return Mail{}, fmt.Errorf("jobstore: open mail thread %d: %w", id, err)
 		}
 	}
-	m, ok, err := s.mailLocked(id)
+	s.writeMu.Unlock()
+	m, ok, err := s.GetMail(id)
 	if err != nil {
 		return Mail{}, err
 	}
 	if !ok {
 		return Mail{}, fmt.Errorf("jobstore: inserted mail %d vanished", id)
 	}
+	_ = s.SyncTextRefs("mail", strconv.FormatInt(id, 10), "body", in.Body)
 	return m, nil
 }
 

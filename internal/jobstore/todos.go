@@ -406,13 +406,17 @@ func (s *Store) InsertTodo(t PlanTodo) error {
    timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, scope_json, prime_keywords_json, read_dirs_json, continue_from, author_caller, created_at, updated_at)
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if _, err := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
+	_, execErr := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
 		t.StartedAt, t.DoneAt, t.Note, t.Sort, t.Assignee, t.ProjectKey, t.Template,
 		varsVal, verifyVal, review, t.Runner, t.Cwd, t.TimeoutSec, t.DispatchError,
-		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, scopeVal, primeKwVal, readDirsVal, t.ContinueFrom, t.AuthorCaller, t.CreatedAt, t.UpdatedAt); err != nil {
-		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, err)
+		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, scopeVal, primeKwVal, readDirsVal, t.ContinueFrom, t.AuthorCaller, t.CreatedAt, t.UpdatedAt)
+	s.writeMu.Unlock()
+	if execErr != nil {
+		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, execErr)
 	}
+	_ = s.SyncTextRefs("todo", t.TodoID, "title", t.Title)
+	_ = s.SyncTextRefs("todo", t.TodoID, "note", t.Note)
+	_ = s.SyncTextRefs("todo", t.TodoID, "acceptance", t.Acceptance)
 	return nil
 }
 

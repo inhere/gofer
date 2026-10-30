@@ -148,11 +148,14 @@ func (s *Store) InsertPlan(p Plan) error {
 	  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, tags_json, created_at, updated_at, supervisor_session_id, notify)
 	  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if _, err := s.db.Exec(q, p.PlanID, p.Title, p.Description, p.Status, p.Owner,
-		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, string(tagsJSON), p.CreatedAt, p.UpdatedAt, p.SupervisorSessionID, p.Notify); err != nil {
-		return fmt.Errorf("jobstore: insert plan %q: %w", p.PlanID, err)
+	_, execErr := s.db.Exec(q, p.PlanID, p.Title, p.Description, p.Status, p.Owner,
+		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, string(tagsJSON), p.CreatedAt, p.UpdatedAt, p.SupervisorSessionID, p.Notify)
+	s.writeMu.Unlock()
+	if execErr != nil {
+		return fmt.Errorf("jobstore: insert plan %q: %w", p.PlanID, execErr)
 	}
+	_ = s.SyncTextRefs("plan", p.PlanID, "title", p.Title)
+	_ = s.SyncTextRefs("plan", p.PlanID, "description", p.Description)
 	return nil
 }
 
