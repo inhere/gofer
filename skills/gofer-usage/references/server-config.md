@@ -318,6 +318,11 @@ server:
   #     projects: [demo]               #   只对这些项目弹(省略 = 全部)
   #     merge_sec: 10                  #   同类事件合并成一条("3 个 job 等待批准")，0 = 不合并
   #                                    #   这一段同样可在 web「设置 → 通知」里改（开关 / 事件 / 项目 / 合并窗口），并可发一条测试弹窗
+  # inbox:                         # Today 双栏投影（个人已读 / 清理状态独立保存）
+  #   enabled: true
+  #   rules:
+  #     - {id: action, column: action, kinds: [interaction, decision, review], priority: 100}
+  #     - {id: fyi, column: fyi, kinds: [job.terminal, work.digest, activity, comment], priority: 90}
   # event_hooks: [...]                 # 事件发生时在 server 主机上跑命令(见下「事件钩子」); 只能改文件
 session:                               # 终端会话中继; 0 = 关该判据
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 停下时在 web 等回复

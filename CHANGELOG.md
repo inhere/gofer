@@ -11,6 +11,13 @@
 
 ## [未发布]
 
+## Inbox projection
+
+- `GET /v1/inbox` returns the caller's two columns, `columns.action` and `columns.fyi`, with `unread`, `total_unread`, source revisions, and caller-local state. The action column contains Today items that need a decision; FYI contains terminal job summaries and other informational entries. State is not the source item's read/ack/review state.
+- `POST /v1/inbox/state` accepts `{action:"seen"|"clear"|"restore", keys:[...]}`. A `clear` request with no keys and optional `column` clears all currently stored seen items in that column. Worker and job credentials are rejected, and keys are revalidated against the current projection.
+- `server.inbox` optionally enables/configures structured `rules` (`column: action|fyi`, `kinds`, `projects`, `priority`). Empty rules use the built-in policy; notification switches do not hide Inbox items.
+
+
 ## [0.203.1] - 2026-10-29
 
 ### 修复

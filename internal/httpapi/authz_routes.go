@@ -192,6 +192,8 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/steward/notes":                            {user: Public(), jobCred: "GET /v1/steward/notes", scope: NoProject()},
 	"GET /v1/issues":                                   {user: Public(), jobCred: "GET /v1/issues", scope: Filter()},
 	"GET /v1/issues/{id}":                              {user: Public(), jobCred: "GET /v1/issues/*", scope: Resource("issue")},
+	"GET /v1/inbox":                                    {user: Public(), scope: Filter()},
+	"POST /v1/inbox/state":                             {user: Public(), scope: NoProject(), rw: ReadSafe()},
 	"GET /v1/today":                                    {user: Public(), jobCred: "GET /v1/today", scope: Filter()},
 	"GET /v1/memory-findings":                          {user: Public(), jobCred: "GET /v1/memory-findings", scope: Filter()},
 	"GET /v1/memory-suggestions":                       {user: Public(), jobCred: "GET /v1/memory-suggestions", scope: Filter()},
