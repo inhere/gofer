@@ -9,7 +9,7 @@
 gofer 已经有两种互补的监督能力：`job run --verify` 在执行机上直接运行验证命令，人工验收通过 `needs_review` 阻止实施 agent 自己签收；同时，工作项整理器和管家已经会由 server 发起后台 agent。当前仍有三处缺口：
 
 1. 命令验证只能证明命令的结果，不能检查任务书中「至少提交几次」「汇报必须列出未完成项」「必须补某类测试」等交付要求。监督者仍需逐个阅读汇报、提交列表和工作树。
-2. 整理器、管家和拟新增的 job 检查 agent 各自管理自己的配置、会话和状态；整理器虽已有按次数 / 年龄轮换的会话记录，另外两类没有统一的轮换和用量视图。
+2. 整理器、管家和拟新增的 job 检查 agent 各自管理自己的配置、会话和状态；整理器虽已有按次数 / 年龄轮换的会话记录，另外两类没有统一的轮换和用量视图，而且当前整理器的 24 小时默认轮换可能在上下文窗口仍很充足时产生不必要的新会话。
 3. Web 设置页目前把整理器和管家放在工作设置中，无法回答「后台 agent 是否启用、最近花费多少、正在复用哪个会话、何时会轮换、如何手动清空上下文」这些运维问题。
 
 本设计合并两个 issue，但实现方案保持两节独立：第 4 节定义 job 检查 agent 的一次性监督闭环，第 5 节定义三类后台 agent 的统一会话与管理页。两者共享会话轮换、NDJSON 用量和配置字段策略，但检查 agent 不依赖 Web 页面才能工作。
@@ -23,7 +23,7 @@ gofer 已经有两种互补的监督能力：`job run --verify` 在执行机上�
 - 不合格时自动续接原 job，默认最多 2 轮；每轮把具体不合格条目交给实施 agent 修复；超过上限后停在 `needs_review`，并保留检查结果和事件。
 - 检查 agent 的失败与「实施交付不合格」分开处理，不能因为检查基础设施故障而自动修改代码或无限重试。
 - 检查 agent、整理器、管家在 Web 的同一「后台 agent」页展示配置、运行次数、用量、当前会话和轮换状态，并能手动新开会话。
-- 尽量复用同一会话；支持清空上下文的 agent 使用 `suga run --sid <id> --clear-ctx` 语义，其他 agent 没有该能力时退化为新会话。
+- 尽量在**同一类型、同一项目 / 工作目录**内复用会话；三类后台 agent 的会话严格隔离，绝不跨类型复用。支持清空上下文的 agent 使用 `suga run --sid <id> --clear-ctx` 语义，其他 agent 没有该能力时退化为新会话。
 - 配置写入继续走现有配置写接口、字段策略和管理员权限；新增 HTTP 路由和权限全部按 G056 登记、生成参考文档。
 
 ### 非目标
@@ -68,25 +68,28 @@ type BackgroundRunResult struct {
 
 该接口不允许调用方传入 `cmd.Env`、工具列表、MCP 注册表或任意读目录；权限和安全约束在适配器内固定。测试通过这个接口注入 fake adapter，不启动真实 CLI，也不依赖 PATH 上的 gofer。
 
-### 3.2 一套会话记录、三种业务记录
+### 3.2 会话记录与类型隔离
 
 job 检查 agent 的每一次调用要有可关联的 `job_id`，整理器和管家也要保留自己的业务关联（整理 run、管家 review / ask）。建议增加通用 `background_agent_sessions` 与 `background_agent_runs` 表，字段只保存审计所需的元数据：
 
-- session：`kind`、`session_id`、`agent`、`project`、`created_at`、`last_used_at`、`runs`、`context_used`、`context_limit`、`last_usage_json`、`state`。
+- session：`kind`、`session_id`、`agent`、`project`、`work_dir`、`created_at`、`last_used_at`、`runs`、`context_used`、`context_limit`、`last_usage_json`、`state`。
 - run：`kind`、关联业务 id、session id、开始 / 结束时间、结果状态、输入 / 输出字节数、usage JSON、错误摘要；提示词和完整输出不入通用表，job 检查结果另存 job 的受限字段。
 
-所有 `context_*` 数值都允许为空：provider 没有报告上下文窗口时只按次数 / 年龄轮换，Web 显示「未知」，不能把未知当作 0。用量采用已有 `Usage` 的 token / cost 字段，并保留 `source`；一次 NDJSON 流中以最后一个合法 usage 为本轮快照，坏行只记 debug，不使业务运行失败。
+会话归属键是 `(kind, project, work_dir, agent, model)`；`kind` 是硬隔离维度，`job_check`、`summarizer`、`steward` 即使使用相同 agent、项目和模型也绝不复用同一个 session。整理器按其实际执行工作目录区分，管家按配置项目区分，job 检查按 job 的项目 / 工作目录区分。同一类型内只有归属键完全一致时才允许 resume / clear-context。
+
+所有 `context_*` 数值都允许为空：provider 没有报告上下文窗口时只按次数轮换，Web 显示「未知」，不能把未知当作 0。用量采用已有 `Usage` 的 token / cost 字段，并保留 `source`；一次 NDJSON 流中以最后一个合法 usage 为本轮快照，坏行只记 debug，不使业务运行失败。
 
 ### 3.3 统一轮换规则
 
 会话在一次运行前按下列顺序决定：
 
 1. 手动「新开会话」：结束并解绑当前记录，下一次必 fresh；不删除历史 run。
-2. `runs >= max_runs`、超过 `max_age`，或 `context_used / context_limit >= max_context_ratio`：尝试清空上下文；若 agent 不支持清空，则 fresh。
-3. agent / project / model / 运行模式变化，或上一轮会话不可继续：fresh。
-4. 其余情况 resume / continue。
+2. 上下文用量占比达到 / 超过 `max_context_ratio`，或 `runs >= max_runs`：执行一次会话轮换。优先调用 agent 的 clear-context 能力，在同一 session id 上开启干净的逻辑上下文；不支持时创建 fresh session。
+3. agent / project / work_dir / model / 运行模式变化，或上一轮会话不可继续：fresh。
+4. 若显式配置了 `max_age` 且超过该时长，作为最后的兜底轮换；未配置时不按时间轮换。
+5. 其余情况 resume / continue。
 
-默认建议 `max_runs=20`、`max_age=24h`、`max_context_ratio=0.75`。轮换判断在运行前执行并记录 `rotation_reason`；清空上下文成功后保留相同 session id 并把 `runs` 与上下文计数归零，无法清空时创建新 id。这样既满足「尽量复用同一会话」，又不会让长期上下文无限增长。
+默认建议 `max_runs=20`、`max_context_ratio=0.7`、`max_age` 关闭。轮换主因是上下文占比，次数是防止 provider 没有可靠 usage 时无限增长的辅因，时长只在管理员显式开启后兜底。轮换判断在运行前执行并记录 `rotation_reason`；清空上下文成功后保留相同 session id 并把 runs / context 计数归零，无法清空时创建新 id。
 
 ## 4. 方案一：job 结束后的检查 agent（gofer-r29d）
 
@@ -124,8 +127,8 @@ server:
     timeout_sec: 120
     max_auto_resumes: 2
     max_runs: 20
-    max_age: "24h"
-    max_context_ratio: 0.75
+    max_age: "" # 可选兜底；默认关闭，不按时长轮换
+    max_context_ratio: 0.7
     daily_limit: 50
     input_max_bytes: 65536
     report_tail_bytes: 16384
@@ -134,7 +137,7 @@ server:
 - `enabled` 默认 false；没有 `verify_prompt` 的 job 不触发，即使全局开启。
 - `agent` 必须是已解析、可执行一次性无工具调用的 agent；`model` 和 `args` 是后台调用参数，server 强制追加 / 覆盖无工具和只读约束。
 - `timeout_sec`、`max_auto_resumes`、`daily_limit` 是成本硬上限；0 表示关闭该限制只在字段文档明确允许时使用，默认值不靠 0 猜测。
-- `max_runs`、`max_age`、`max_context_ratio` 参与共同会话轮换。若 `max_context_ratio` 无法计算，只用其它阈值。
+- `max_runs`、`max_context_ratio` 参与默认轮换，前者是辅规则；`max_age` 只有显式配置时才作为时长兜底。若上下文用量无法计算，只用次数，不自动套用时长默认值。
 - `input_max_bytes` 和 `report_tail_bytes` 是防止任务输出放大费用的 server 限制，不由 job 请求覆盖。
 
 任务请求新增：
@@ -229,7 +232,7 @@ server 建立版本化的 `CheckInput`，检查 agent 只看到一个明确的�
       "session": {
         "id": "…", "runs": 4, "context_used_tokens": 12000,
         "context_limit_tokens": 200000, "created_at": 0, "last_used_at": 0,
-        "rotation": {"max_runs": 20, "max_age": "24h", "max_context_ratio": 0.75},
+        "rotation": {"max_runs": 20, "max_age": null, "max_context_ratio": 0.7},
         "rotation_reason": ""
       },
       "last_error": "…",
@@ -257,7 +260,7 @@ server 建立版本化的 `CheckInput`，检查 agent 只看到一个明确的�
 | summarizer | `work:` | 现有整理开关、agent、args、project、idle / interval / daily limit；增加显式 model 和统一 session 阈值字段 |
 | steward | `steward:` | 现有 enabled、agent、project、review_time、idle_end_min、review_max_items、event_wake、event_throttle_min；增加显式 model 和统一 session 阈值字段 |
 
-现有整理器字段 `summarizer_session_max_runs` / `summarizer_session_max_age` 作为一次性迁移的旧写入面：读取时若统一阈值未设置则作为回退，写入新页面时写统一字段，并标注 `// DEPRECATED(v<引入版本>): remove in v<+3>`；迁移记录写入本设计实施记录和配置文档。不要同时保留两套可写值，否则页面显示和实际轮换会漂移。管家此前没有会话轮换配置，使用共同默认值。
+现有整理器字段 `summarizer_session_max_runs` / `summarizer_session_max_age` 作为一次性迁移的旧写入面：读取时若统一阈值未设置则作为回退，但**未显式设置旧 age 时不再使用当前 24h 默认值**；写入新页面时写统一字段，并标注 `// DEPRECATED(v<引入版本>): remove in v<+3>`。不要同时保留两套可写值，否则页面显示和实际轮换会漂移。管家此前没有会话轮换配置，使用共同默认值。
 
 所有写入继续使用现有 `PUT /v1/config/work`、`PUT /v1/config/steward` 和 `PUT /v1/config/server` 的 clone → classify → apply → validate → save → reload 事务；不得在后台 agent handler 里直接改 config 或绕过 `config.FieldPolicyFor`。新增字段要登记 canonical path、类型、可编辑性、敏感性、restart requirement 和错误字段映射。Web 根据响应的 `fields`、`restart_required` 和 `error_fields` 显示结果，而不是本地假定保存成功。
 
@@ -265,20 +268,26 @@ server 建立版本化的 `CheckInput`，检查 agent 只看到一个明确的�
 
 ### 5.3 会话复用、上下文用量和管家 idle
 
-后台 runner 以 `(kind, agent, project, model)` 为会话归属键，不让检查 agent 和整理器意外共用同一个带不同系统提示的上下文；「统一管理」统一的是生命周期和视图，不是把三个角色混进一个上下文。一次性检查和整理器优先走 `clear_context`：
+后台 runner 以 `(kind, agent, project, work_dir, model)` 为会话归属键；`kind` 是第一层硬隔离，整理器、管家、job 检查各自维护会话，绝不跨类型复用。相同类型也必须按项目 / 工作目录分开。「统一管理」统一的是生命周期和视图，不是把三个角色混进一个上下文。一次性检查和整理器优先走 `clear_context`：
 
 1. agent adapter 声明 `clear_context` 能力时，调用 `suga run --sid <id> --clear-ctx` 等价的适配器接口，再发送本轮完整 prompt；保留 id，runs / context 从 0 计。
 2. adapter 没有该能力，或清空返回不支持 / 会话不存在，则记录原因并创建新会话；不会把清空失败当作本轮业务失败。
 3. 其他 agent 没有清空能力时始终 fresh，仍受次数 / 年龄限制。
 
-agent 用 NDJSON 报告用量，adapter 只认统一的 `usage` 事件并映射 provider 字段：
+agent 用 NDJSON 报告用量，adapter 只认统一的 `usage` / `turn_end` 事件并映射 provider 字段。suga stream-json 从 v0.52.0 起在 turn 结束事件报告：
+
+```json
+{"type":"turn_end","context":{"est_tokens":12000,"window":200000,"ratio":0.06}}
+```
+
+其中 `ratio` 是首选值，server 记录 `est_tokens`、`window` 和 ratio；若 ratio 缺失则由 `est_tokens / window` 计算。其他 agent 有 usage 时用 `input_tokens / 已知窗口` 估算上下文占比，没有已知窗口时只按次数轮换：不从模型名猜窗口，也不把单轮输出 token 当作完整上下文用量。通用 usage 仍可写成：
 
 ```json
 {"type":"usage","usage":{"input_tokens":1200,"output_tokens":400,
   "context_used_tokens":12000,"context_limit_tokens":200000,"cost_usd":0.01}}
 ```
 
-现有 claude / omp / codex / ACP 的 provider-specific usage 由各 adapter 转成该结构；若只报告 input / output 而没有上下文窗口，就保留 token / cost 并把 context ratio 标为 unknown。最后一个合法 usage 作为本轮结果，单调累计的 adapter 负责避免同一 NDJSON 行重复计数。usage 解析错误只影响用量与轮换信息，不影响已得到的业务 JSON；这与整理器当前「输出 JSON 失败才重试」的语义分开。
+现有 claude / omp / codex / ACP 的 provider-specific usage 由各 adapter 转成该结构；最后一个合法 usage / turn_end 作为本轮结果，单调累计的 adapter 负责避免同一 NDJSON 行重复计数。usage 解析错误只影响用量与轮换信息，不影响已得到的业务 JSON；这与整理器当前「输出 JSON 失败才重试」的语义分开。
 
 管家是 resident session，不能把每次 review 当成全新短对话。管家因 idle end 结束进程后，下一次事件 / review **优先尝试加载同一 session id**，如果 provider 支持 load / resume 就续接；会话已被删除、agent / project / model 变化或 resume 失败，再从 prime 重建。管家默认不执行 clear context，因为它需要保留角色与连续工作线索；若未来开启清空，必须先发送带语言无关 prime 标记的完整角色提示，并在事件中记录 `clear_context`。重建失败只让本次 wake 失败并显示错误，不循环拉起。
 
@@ -328,7 +337,7 @@ POST /v1/background-agents/{kind}/session/reset
 
 - 把整理器的 `SessionKeeper` / `SessionResumer` 适配到通用 session runner；先保持 `work.OneShot` 外部行为不变，再迁移其 session 记录。
 - 接入管家 idle 后 load / resume / rebuild；接入各 provider 的 NDJSON `usage` 归一化和上下文窗口字段。
-- 实现按次数、年龄、上下文占比和手动 reset 的轮换，加入 daily limit / timeout / budget 的硬停保护。
+- 实现按 context ratio（主规则）、次数（辅规则）、显式 max_age 兜底和手动 reset 的轮换，加入 daily limit / timeout / budget 的硬停保护。
 
 ### P3：管理接口与 Web
 
@@ -357,7 +366,7 @@ POST /v1/background-agents/{kind}/session/reset
 
 - fake agent adapter 覆盖：fresh、resume、clear-context 成功、clear-context 不支持、session 丢失、agent / model 变化、超时、daily limit、budget 和取消。
 - NDJSON fixture 覆盖一个或多个 usage、重复 usage、上下文窗口缺失、坏行、provider 映射；断言最后一个合法 usage、cost 来源、ratio unknown 和轮换原因。
-- 会话策略覆盖 max runs、max age、context ratio、手动 reset、整理器旧字段回退、管家 idle 后优先 resume / 失败 rebuild。整理器原有「坏 JSON 在同一会话重试、续接失败 fresh」行为必须保持。
+- **会话策略**：覆盖 max runs、context ratio 主规则、无 usage 时仅按次数、显式 max age 兜底、手动 reset、按 kind / project / work_dir 隔离、整理器旧字段回退、管家 idle 后优先 resume / 失败 rebuild。整理器原有「坏 JSON 在同一会话重试、续接失败 fresh」行为必须保持。
 - HTTP 测试覆盖聚合响应、无 session / unknown usage、受 ceiling caller 的拒绝、person-only reset、配置字段拒绝 / 类型错误 / reload 失败；路由声明覆盖测试和权限 reference 生成检查必须通过。
 - Web 单测覆盖三卡片字段、保存字段、reset 按钮、loading / error / unknown usage、响应的 `restart_required` / `error_fields`；设置导航和移动端布局回归既有测试。
 - schema 测试覆盖新库建表、上一个发布 schema 升级、旧行无 check / session 字段的读取，以及迁移后基础 schema 不引用后加列。
@@ -371,7 +380,7 @@ POST /v1/background-agents/{kind}/session/reset
 - **成本失控**：每个 job 额外一次调用，失败续接还会增加实施调用。daily limit、timeout、token / cost budget、max resume 和输入截断共同限制；后台页显示今日用量而不是只显示次数。
 - **终态竞态**：现有 `finish` 同时决定 needs_review、持久化、事件和自动续投。接入检查时若先让 `done` 可见再检查，会导致 watcher / todo / workflow 误推进；必须保持「检查结论 / 事件先于最终状态可见」，并用并发测试守住。
 - **worker 材料不完整**：远端日志、git 状态或 diff summary 可能没有回传。检查结果应标记检查错误或材料缺失，不允许 hub 读取错误的本机 checkout 代替 worker 的工作树。
-- **上下文计量不统一**：不同 agent 只报告 token、报告累计值或完全不报告 context window。adapter 只使用有来源的字段，缺失时退化到次数 / 年龄，不用猜测值触发清空。
+- **上下文计量不统一**：不同 agent 只报告 token、报告累计值或完全不报告 context window。优先使用 suga stream-json 的 `turn_end.context.ratio`，其他 agent 用输入 token / 已知窗口估算；缺失时只按次数，不用猜测值或默认时长触发清空。
 - **配置迁移漂移**：旧整理器阈值和新统一阈值并存会导致页面与实际不同。只允许旧字段在新字段为空时回退，首次保存规范化，并在三版本内按 G032 删除兼容读取。
 - **管家会话丢失**：idle 后 provider 可能删除 session。先尝试原 id，失败再以 prime 重建；数据库里的 notes / work items 始终是事实来源，不依赖模型上下文恢复。
 - **权限扩大**：后台页是 server-wide 视图，错误地让受 ceiling 的 caller 读取会泄露全局 agent / cost。route declaration 和 handler 统一 NoProject / ceiling 规则，reset 仅 person caller。
@@ -384,9 +393,16 @@ POST /v1/background-agents/{kind}/session/reset
 4. **检查续接中间源 job 的状态**：推荐沿用现有自动续投的 **失败型源记录 + `job.check_auto_resumed` 事件**，不新增 job 状态；上限后再转 `needs_review`。理由是复用 `ResumeJob` 和现有事件 / todo 语义，减少状态机分裂。
 5. **`max_auto_resumes: 0` 的含义**：推荐 **禁用自动修复、第一次 fail 直接 `needs_review`**，而不是无限制。理由是 0 是成本控制最安全的显式选择，且与「默认 2 轮」容易理解。
 6. **检查会话是否跨 job 复用**：推荐 **同一 checker agent / project / model 下复用，但与 summarizer / steward 隔离**。理由是短检查可减少启动成本；角色提示和材料不同，三类混用会造成上下文污染。
-7. **统一 session 阈值的配置归属**：推荐放在 `server.background_agents.session`，旧整理器字段只做三版本回退。理由是阈值是 server 生命周期策略，不应随某个 work item 改变；保留旧读取可平滑升级，写入新页则收口。
-8. **上下文用量的最低协议**：推荐 adapter 只要求可选 `usage` NDJSON，context 字段缺失就按次数 / 年龄轮换。理由是不能因为某个 provider 没有窗口 API 而让后台 agent 不可用；不应从字符串或模型名猜窗口大小。
-9. **管家 idle 后的策略**：推荐 **先 load / resume 原 session，失败再 rebuild prime**，不默认 clear context。理由是管家是持续角色，清空会丢连续线索；notes 和 work store 可在重建时提供可靠事实。
-10. **Web 的配置页形状**：推荐独立 `/settings/background-agents` 页面，三张卡聚合展示、保存仍走三套现有接口。理由是减少 `WorkSettings.vue` 继续膨胀，也避免为统一视觉重写已稳定的配置写事务。
-11. **模型字段规范化**：推荐新增显式 `model`，旧 args 中的已知 `--model` 只在读取时解析，首次保存再迁移。理由是卡片能稳定显示模型，未知 args 原样保留，避免静默改变现有 agent 参数。
-12. **手动新会话的语义**：推荐只标记当前会话为 reset、让下一次后台运行 fresh，不取消正在运行的 turn。理由是页面操作不应破坏正在执行的 job / review；若运维需要立即停止，继续使用管家现有 stop / restart。
+7. **统一 session 阈值的配置归属**：推荐放在 `server.background_agents.session`，默认只启用 context ratio（建议 0.7）和次数上限，`max_age` 默认关闭；旧整理器字段只做三版本回退。理由是当前模型窗口通常足够大，时长不应制造不必要的新会话；显式 age 仍可作为运维兜底。
+8. **上下文用量的最低协议**：推荐 suga 优先采用 `turn_end.context = {est_tokens, window, ratio}`；其他 agent 有 usage 且有已知窗口时用输入 token / 窗口估算，没有时只按次数轮换。理由是 ratio 比时间更接近真实上下文压力，又不阻断没有 context API 的 agent。
+9. **后台 agent 的类型隔离**：推荐以 `kind + project + work_dir` 作为硬隔离键，整理器、管家、job 检查永不跨类型复用。理由是三类 system prompt、业务事实和生命周期不同，跨类型复用会造成上下文污染。
+10. **名称与接口语义**：当前「检查 agent」只是暂称，候选如下：
+   - **交付核验**：配置键 `delivery_check`，CLI `job run --check-prompt <text>`；推荐。它明确表示核对交付证据，且与 `--verify`（执行命令）和 `needs_review`（人工验收）分层。
+   - **交付审计**：配置键 `delivery_audit`，CLI `job run --audit-prompt <text>`；适合强调留痕，但「审计」容易让人误解为只读历史审计而非触发自动修复。
+   - **完工门禁**：配置键 `completion_gate`，CLI `job run --completion-prompt <text>`；突出不合格会阻止完成，但名称偏强，容易与人工 `needs_review` 混淆。
+
+   推荐显示名 / 内部概念是「交付核验」，但当前 issue 已约定的 wire 字段 `verify_prompt` 与 CLI `--verify-prompt` 先保留在草案中，待确认后统一改名；不同时永久保留多个 CLI 别名。三者区别必须写入最终帮助文案：`--verify` 是执行机跑命令，交付核验是 server 用材料做结构化判断，`needs_review` 是人最终 accept / reject。
+11. **管家 idle 后的策略**：推荐 **先 load / resume 原 session，失败再 rebuild prime**，不默认 clear context。理由是管家是持续角色，清空会丢连续线索；notes 和 work store 可在重建时提供可靠事实。
+12. **Web 的配置页形状**：推荐独立 `/settings/background-agents` 页面，三张卡聚合展示、保存仍走三套现有接口。理由是减少 `WorkSettings.vue` 继续膨胀，也避免为统一视觉重写已稳定的配置写事务。
+13. **模型字段规范化**：推荐新增显式 `model`，旧 args 中的已知 `--model` 只在读取时解析，首次保存再迁移。理由是卡片能稳定显示模型，未知 args 原样保留，避免静默改变现有 agent 参数。
+14. **手动新会话的语义**：推荐只标记当前会话为 reset、让下一次后台运行 fresh，不取消正在运行的 turn。理由是页面操作不应破坏正在执行的 job / review；若运维需要立即停止，继续使用管家现有 stop / restart。
