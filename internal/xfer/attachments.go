@@ -21,10 +21,9 @@ import (
 // directory than the one the server writes to would either never clean up or delete
 // something else.
 
-// AttachmentsDirName is the directory placed attachments live in, under a project's
-// EXCHANGE directory (the same base a job's result dir is built from): the default
-// location is therefore <project root>/tmp/gofer-attachments, and a project that moved
-// its exchange_subdir keeps its attachments next to its transfer exchange dir.
+// AttachmentsDirName is the directory used by the legacy exchange-based attachment
+// layout. The current default is <project root>/.gofer/attachments; explicit
+// exchange_subdir projects retain <exchange>/gofer-attachments.
 const AttachmentsDirName = "gofer-attachments"
 
 // AttachmentRetention is how long a placed attachment's date directory survives on the

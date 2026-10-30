@@ -147,6 +147,11 @@ func TestPruneAttachmentsAfterPutOnlyInsideAttachmentsDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AttachmentsDir: %v", err)
 	}
+	legacyDir, err := LegacyAttachmentsDir(cfg, proj)
+	if err != nil {
+		t.Fatalf("LegacyAttachmentsDir: %v", err)
+	}
+	legacyStale := dateDir(t, legacyDir, time.Now().AddDate(0, 0, -30))
 	stale := dateDir(t, dir, time.Now().AddDate(0, 0, -30))
 
 	// A put that landed somewhere else in the project: nothing is pruned.
@@ -164,6 +169,9 @@ func TestPruneAttachmentsAfterPutOnlyInsideAttachmentsDir(t *testing.T) {
 	PruneAttachmentsAfterPut(cfg, proj, filepath.Join(dir, "20261019", "x.png"), "server")
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("an attachment placement left the stale date dir behind (err=%v)", err)
+	}
+	if _, err := os.Stat(legacyStale); !os.IsNotExist(err) {
+		t.Fatalf("the legacy attachment date dir survived the cleanup (err=%v)", err)
 	}
 }
 
@@ -196,6 +204,9 @@ func TestLocalRunnerPutPrunesAndReportsAbsPath(t *testing.T) {
 	}
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("the attachment was not placed at its absolute path: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".gofer", ".gitignore")); err != nil {
+		t.Fatalf("gofer .gitignore was not created: %v", err)
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("the stale date dir survived the placement (err=%v)", err)
