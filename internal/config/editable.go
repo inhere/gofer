@@ -148,8 +148,10 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.token_env":         {RestartRequired: true, SecretRef: true},
 	"server.allow_empty_token": {RestartRequired: true},
 	"server.path_view":         {RestartRequired: true},
-	"server.read_dir_allow":    {HotReload: true},
-	"server.callers":           {RestartRequired: true},
+	// The console's server form carries read_dir_allow on every save (gofer-x4h1), so
+	// it must be editable: with HotReload alone every server save answered 400.
+	"server.read_dir_allow": {Editable: true},
+	"server.callers":        {RestartRequired: true},
 	// Per-caller scope ceilings (上限): FILE-ONLY by decision — a ceiling is a limit the
 	// operator sets on a token, and the console write endpoint's vocabulary is
 	// server|agents, so no request can carry it. The judgment reads it from the live

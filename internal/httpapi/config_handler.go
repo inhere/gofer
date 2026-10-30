@@ -83,6 +83,10 @@ type serverConfigView struct {
 	// editable, so the console needs the value to prefill the input it writes back —
 	// and the clear-on-omit rule means an absent field would read as "no bindings".
 	Skills []string `json:"skills"`
+	// ReadDirAllow is server.read_dir_allow (gofer-x4h1): editable, and the console's
+	// server form writes it back on every save, so it must be published or a save would
+	// replace the configured allow list with an empty one.
+	ReadDirAllow []string `json:"read_dir_allow"`
 	// MCP is the server-wide registry MCP binding list (MCP-06).
 	MCP []string `json:"mcp"`
 	// Rules / RulesMaxBytes are the deployment-wide MANDATORY rule list and its total
@@ -579,6 +583,7 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 		JobRecoverWindowSec: sc.JobRecoverWindowSec,
 		Retry:               sc.Retry,
 		Skills:              nonNil(sc.Skills),
+		ReadDirAllow:        nonNil(sc.ReadDirAllow),
 		MCP:                 nonNil(sc.MCP),
 		Rules:               nonNil(sc.Rules),
 		RulesMaxBytes:       sc.RulesMaxBytes,

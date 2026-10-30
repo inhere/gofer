@@ -840,6 +840,34 @@ func TestServerPutAppliesEditableField(t *testing.T) {
 	}
 }
 
+// TestServerPutAcceptsConsoleFormFields pins the body the console's server form sends
+// on every save (web/src/views/Config.vue buildServerWrite). The policy table and the
+// write switch can each be right on their own and still disagree with the form: v0.203.0
+// handled read_dir_allow in applyServerField but kept it non-editable in the table, so
+// every server save from the console answered 400 "field not editable".
+func TestServerPutAcceptsConsoleFormFields(t *testing.T) {
+	t.Parallel()
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+
+	allow := t.TempDir()
+	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"max_job_timeout_sec": 120,
+		"stall_timeout_sec":   nil,
+		"auto_resume_max":     nil,
+		"runner_probe":        map[string]any{"interval_seconds": 0, "timeout_seconds": 0},
+		"read_dir_allow":      []string{allow},
+		"retry":               nil,
+		"skills":              []string{},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	if v := getConfigView(t, s, adminToken); len(v.Server.ReadDirAllow) != 1 || v.Server.ReadDirAllow[0] != allow {
+		t.Fatalf("read_dir_allow=%v, want [%s]", v.Server.ReadDirAllow, allow)
+	}
+}
+
 // TestConfigValidateDryRunDoesNotWrite pins the dry run: the same request shapes as
 // the write endpoints, the full validation, the impact list — and, above all, NO
 // write and NO reload (the file is compared byte for byte).
