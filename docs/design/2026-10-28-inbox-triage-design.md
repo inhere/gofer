@@ -1,7 +1,7 @@
 # Inbox Triage：今天页双栏分诊与个人状态设计
 
 > issue：gofer-addo
-> 状态：0.1 草稿
+> 状态：0.2 已批准（2026-10-29，两栏改为「要处理 / 仅知会」，其余待确认项按推荐）
 > 相关：`web/src/views/Today.vue`、`internal/today`、`docs/design/2026-10-09-n3-today-decision-home-design.md`、`docs/design/2026-10-16-session-topics-mailbox-and-inbox-design.md`、`internal/notify`、G045/G056
 
 ## 1. 背景与问题
@@ -250,6 +250,17 @@ CREATE INDEX idx_inbox_state_caller_updated
 - **汇总卡的 revision 不稳定**：汇总卡只使用 count、最新活动和有限摘要的稳定哈希，不把随机生成时间或心跳放入 revision；held mail 变化通过 mail state hook 触发刷新。
 - **手机双栏降低可发现性**：默认首屏固定「等你」，标题同时展示两栏未读数，待验收不藏在菜单；保留 `/review` 深链和 URL filter，返回时恢复栏位。
 - **通知过度打扰**：不把 Inbox 开关复用成通知总开关；IM / 桌面仍各有暂停、项目和事件过滤，只有公共事件词汇与源生命周期一致。
+
+## 6a. 已定事项（2026-10-29）
+
+- **待确认 1 改定：两栏为「要处理」与「仅知会」**，按「要不要你动手」划分，而不是按来源划分（与 issue gofer-addo 一致）。本节覆盖 §3.1 判定表与 §3.2 示例中的栏位名与归属：
+  - **要处理**（column `action`）：§3.1 表中原「等你」与「待验收」两栏的全部来源——提问与工具权限、OPEN decision 与未读 relay turn、可回复会话、`awaiting_approval`、work 的 `needs_me` / `needs_onsite` / 到期提醒、`plan_blocked`、`mail_held`、`needs_review`（exec 待验收仍由现有开关控制）、capture / suggestion / merge / memory 卡。卡片按来源显示类型标签（等你回答 / 待验收 / 待批准……），待验收卡的主按钮不变。
+  - **仅知会**（column `fyi`）：原表中「不进入双栏」的事件改为进入此栏——普通 `job.terminal`（成功完成、他人提交的 job 结束）、他人在我关注的 plan / issue / job 上的动态与评论、agent 的普通回复（无需回答的 relay turn）、`work.digest` 与泳道健康变化的摘要条目。这一栏默认折叠、不计入顶栏徽标，只显示未读数；支持「全部标已读」与按天清理。
+  - 失败的 job：需要人决定是否续接 / 重试时归「要处理」，已被自动续投或已有后续 job 时归「仅知会」。
+  - IM / 桌面推送与栏位一致：「仅知会」类默认不推送（待确认 7 的独立开关不变）。
+  - 顶栏徽标只统计「要处理」的未读；「要处理」栏内可再按类型分组显示。
+- 待确认 2–10 按推荐。
+- 实施按 §4 分阶段拆成独立任务（后端判定与个人状态 → Web 双栏与已读 / 清理 → 推送一致性），每个任务限时 45 分钟。
 
 ## 7. 待确认项
 
