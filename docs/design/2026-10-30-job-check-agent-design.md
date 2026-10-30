@@ -309,3 +309,84 @@ POST /v1/background-agents/{kind}/session/reset
 - **work summarizer**：保留 `SummarizerStatus`、`OneShot`、`SessionKeeper`、`SessionResumer` 的业务 seam；统一 runner 通过 adapter 接入，不把 `work` 反向依赖 `httpapi` 或后台管理页。
 - **steward**：保留现有 resident ACP、idle / review / notes / approval 语义；管理页只聚合状态和配置，手动 reset 不等于 `stop`，start / stop / restart 仍使用现有端点。
 - **用量与 schema**：复用 job / session 已有 Usage 投影格式；新增通用后台 run 表和 job check 字段需按 G057 做 additive migration，基础 schema 不能引用只在迁移中出现的列。
+
+## 7. 分阶段
+
+### P0：契约与持久化（先做测试）
+
+- 确认 `verify_prompt`、`CheckInput`、`CheckResult`、事件 detail、HTTP / MCP / 模板字段的 schema；给新增 JSON 字段加长度、枚举和空值规则。
+- 增加 job check 的 additive migration 与通用后台 session / run 表；用上一个发布 schema 建库运行升级测试，确保旧库能启动。
+- 补 `server.job_check`、统一会话阈值和字段策略；保留整理器旧 session 字段的有标记一次性回退。
+
+### P1：job 检查闭环
+
+- 在 job service 内增加材料快照、检查 adapter、严格 JSON parser 和检查决策模块；先用 fake adapter 覆盖状态矩阵。
+- 接入 `finish` 的时序：现有 `--verify` 完成后检查，成功 / 失败 / 基础设施错误分别进入第 4.1 节的路径；沿用 `ResumeJob`，但增加独立的 check 轮数和 prompt 传递。
+- 接通事件、job comment、job store、job view、CLI `show`、HTTP request 和 MCP `gofer_run_job`。
+
+### P2：统一后台 runner 与用量
+
+- 把整理器的 `SessionKeeper` / `SessionResumer` 适配到通用 session runner；先保持 `work.OneShot` 外部行为不变，再迁移其 session 记录。
+- 接入管家 idle 后 load / resume / rebuild；接入各 provider 的 NDJSON `usage` 归一化和上下文窗口字段。
+- 实现按次数、年龄、上下文占比和手动 reset 的轮换，加入 daily limit / timeout / budget 的硬停保护。
+
+### P3：管理接口与 Web
+
+- 增加聚合 GET 和 reset POST，登记路由声明，复用 `settings.read/write`，更新权限生成文档。
+- 把设置导航从现有工作页拆出后台 agent 页；三张卡先展示只读状态，再接入各自现有配置写接口和字段策略。
+- 增加响应版本 / unknown 字段处理；前端没有 usage 或 session 时不能渲染成虚假的 0 / 空会话。
+
+### P4：灰度与收尾
+
+- 默认关闭 job checker，只在显式 `verify_prompt` 且管理员开启时生效；先观察事件、成本和基础设施错误率。
+- 补用户可见的 CLI / job / Web 文档与 `skills/gofer-usage/references/` 对应主题；HTTP 字段细节同步 `docs/reference/http-api.md`，不把开发约定写进对外 skill。
+- 稳定后再评估项目默认 `verify_prompt`、更丰富的 diff evidence 和手动重跑检查；本设计不预先实现。
+
+## 8. 测试与守护
+
+### job 检查
+
+- **输入材料**：固定 fixture 覆盖完整材料、report / commit / path 截断、缺失 stdout、超限 prompt、敏感字段不出现在序列化结果；验证 schema 版本和未知字段策略。
+- **解析器**：pass、fail、空 items、重复 JSON、前后 markdown、缺字段、超长 evidence、非法 verdict、错误 JSON 各有用例；非法输出只能得到 `check_error`，不能得到 fail。
+- **时序矩阵**：无 `--verify`、verify passed / failed / timeout、原始 `review`、项目 `require_review`、未提交改动 review、检查 pass / fail / error、`max_auto_resumes` 为 0 / 1 / 2 / 达上限。断言事件顺序、最终状态、comment、check count 和 todo 状态。
+- **续接**：检查续接必须继承 runner / worktree / plan / todo / verify prompt，失败条目进入 prompt；连续续接不能超过上限，原有 transient auto-resume 预算不被消耗或增加。
+- **远端**：worker outcome 能提供的材料被使用；缺材料时显示 unavailable；hub 不在自己的 cwd 重跑 worker 的 verify 或 git 检查。
+- **生命周期**：检查 agent 是后台任务时，测试使用 job 服务的 Drain / Wait 语义，在关库与 TempDir 清理前停止并等待；不使用固定 sleep 判断终态。
+
+### 统一 runner 与 Web
+
+- fake agent adapter 覆盖：fresh、resume、clear-context 成功、clear-context 不支持、session 丢失、agent / model 变化、超时、daily limit、budget 和取消。
+- NDJSON fixture 覆盖一个或多个 usage、重复 usage、上下文窗口缺失、坏行、provider 映射；断言最后一个合法 usage、cost 来源、ratio unknown 和轮换原因。
+- 会话策略覆盖 max runs、max age、context ratio、手动 reset、整理器旧字段回退、管家 idle 后优先 resume / 失败 rebuild。整理器原有「坏 JSON 在同一会话重试、续接失败 fresh」行为必须保持。
+- HTTP 测试覆盖聚合响应、无 session / unknown usage、受 ceiling caller 的拒绝、person-only reset、配置字段拒绝 / 类型错误 / reload 失败；路由声明覆盖测试和权限 reference 生成检查必须通过。
+- Web 单测覆盖三卡片字段、保存字段、reset 按钮、loading / error / unknown usage、响应的 `restart_required` / `error_fields`；设置导航和移动端布局回归既有测试。
+- schema 测试覆盖新库建表、上一个发布 schema 升级、旧行无 check / session 字段的读取，以及迁移后基础 schema 不引用后加列。
+
+守护规则：默认关闭、结构化输出、输入输出有界、事件可追踪、失败 fail-open、所有配置写入走字段策略；任何新增 `/v1` route 必须在 `routeDecls` 登记并重生成权限参考文档。实施阶段每一步先跑最近包测试，再跑受影响的 HTTP / Web suite；发布前按项目全量验证约定执行。
+
+## 9. 风险
+
+- **误判要求**：自然语言要求可能含歧义，检查 agent 会把缺少证据当作「无法确认」。风险控制是要求用户写可观测条件、把 evidence 展示给人、默认最多两轮并最终 `needs_review`，不自动 accept。
+- **提示注入**：report 和 commit subject 可能包含命令式文本。严格分隔不可信材料、无工具 / 无 cwd、schema 输出和 server 决策能把影响限制在 verdict；解析器不执行任何 agent 输出。
+- **成本失控**：每个 job 额外一次调用，失败续接还会增加实施调用。daily limit、timeout、token / cost budget、max resume 和输入截断共同限制；后台页显示今日用量而不是只显示次数。
+- **终态竞态**：现有 `finish` 同时决定 needs_review、持久化、事件和自动续投。接入检查时若先让 `done` 可见再检查，会导致 watcher / todo / workflow 误推进；必须保持「检查结论 / 事件先于最终状态可见」，并用并发测试守住。
+- **worker 材料不完整**：远端日志、git 状态或 diff summary 可能没有回传。检查结果应标记检查错误或材料缺失，不允许 hub 读取错误的本机 checkout 代替 worker 的工作树。
+- **上下文计量不统一**：不同 agent 只报告 token、报告累计值或完全不报告 context window。adapter 只使用有来源的字段，缺失时退化到次数 / 年龄，不用猜测值触发清空。
+- **配置迁移漂移**：旧整理器阈值和新统一阈值并存会导致页面与实际不同。只允许旧字段在新字段为空时回退，首次保存规范化，并在三版本内按 G032 删除兼容读取。
+- **管家会话丢失**：idle 后 provider 可能删除 session。先尝试原 id，失败再以 prime 重建；数据库里的 notes / work items 始终是事实来源，不依赖模型上下文恢复。
+- **权限扩大**：后台页是 server-wide 视图，错误地让受 ceiling 的 caller 读取会泄露全局 agent / cost。route declaration 和 handler 统一 NoProject / ceiling 规则，reset 仅 person caller。
+
+## 10. 待确认项
+
+1. **检查 agent 基础设施失败的处理**：推荐 **fail-open，保留原 `done` / `needs_review` 并记 `check_error`**。理由是检查 agent 不是执行证据，故障不应阻断已完成工作；如果组织宁愿所有带 `verify_prompt` 的 job 都必须人工确认，可把错误状态强制映射为 `needs_review`，但不应自动 resume。
+2. **`--verify` 与检查 agent 的顺序**：推荐 **`--verify` 先执行且失败时不调用检查 agent**。理由是命令验证是低歧义、真实执行机上的前置证据；避免在命令已经失败时再花一次模型费用，也保持现有失败语义。
+3. **检查不合格但未开启 `--review` 的最终状态**：推荐 **达到自动续接上限后强制 `needs_review`**。理由是机器无法证明交付合格时不能自动 `done`，但也不应把它伪装成 provider 失败。
+4. **检查续接中间源 job 的状态**：推荐沿用现有自动续投的 **失败型源记录 + `job.check_auto_resumed` 事件**，不新增 job 状态；上限后再转 `needs_review`。理由是复用 `ResumeJob` 和现有事件 / todo 语义，减少状态机分裂。
+5. **`max_auto_resumes: 0` 的含义**：推荐 **禁用自动修复、第一次 fail 直接 `needs_review`**，而不是无限制。理由是 0 是成本控制最安全的显式选择，且与「默认 2 轮」容易理解。
+6. **检查会话是否跨 job 复用**：推荐 **同一 checker agent / project / model 下复用，但与 summarizer / steward 隔离**。理由是短检查可减少启动成本；角色提示和材料不同，三类混用会造成上下文污染。
+7. **统一 session 阈值的配置归属**：推荐放在 `server.background_agents.session`，旧整理器字段只做三版本回退。理由是阈值是 server 生命周期策略，不应随某个 work item 改变；保留旧读取可平滑升级，写入新页则收口。
+8. **上下文用量的最低协议**：推荐 adapter 只要求可选 `usage` NDJSON，context 字段缺失就按次数 / 年龄轮换。理由是不能因为某个 provider 没有窗口 API 而让后台 agent 不可用；不应从字符串或模型名猜窗口大小。
+9. **管家 idle 后的策略**：推荐 **先 load / resume 原 session，失败再 rebuild prime**，不默认 clear context。理由是管家是持续角色，清空会丢连续线索；notes 和 work store 可在重建时提供可靠事实。
+10. **Web 的配置页形状**：推荐独立 `/settings/background-agents` 页面，三张卡聚合展示、保存仍走三套现有接口。理由是减少 `WorkSettings.vue` 继续膨胀，也避免为统一视觉重写已稳定的配置写事务。
+11. **模型字段规范化**：推荐新增显式 `model`，旧 args 中的已知 `--model` 只在读取时解析，首次保存再迁移。理由是卡片能稳定显示模型，未知 args 原样保留，避免静默改变现有 agent 参数。
+12. **手动新会话的语义**：推荐只标记当前会话为 reset、让下一次后台运行 fresh，不取消正在运行的 turn。理由是页面操作不应破坏正在执行的 job / review；若运维需要立即停止，继续使用管家现有 stop / restart。
