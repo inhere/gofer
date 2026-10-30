@@ -23,17 +23,21 @@ type pickWorkflowRequest struct {
 // its per-step summary (the step chain). It keeps the header fields snake_case
 // and inlines the steps so the web/CLI can render the chain in one fetch.
 type workflowDetail struct {
-	ID          string          `json:"id"`
-	Title       string          `json:"title,omitempty"`
-	Status      string          `json:"status"`
-	CurrentStep int             `json:"current_step"`
-	TotalSteps  int             `json:"total_steps"`
-	CallerID    string          `json:"caller_id,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	CreatedAt   int64           `json:"created_at"`
-	UpdatedAt   int64           `json:"updated_at"`
-	RerunOf     string          `json:"rerun_of,omitempty"`
-	Steps       []workflow.Step `json:"steps"`
+	ID          string `json:"id"`
+	Title       string `json:"title,omitempty"`
+	Status      string `json:"status"`
+	CurrentStep int    `json:"current_step"`
+	TotalSteps  int    `json:"total_steps"`
+	CallerID    string `json:"caller_id,omitempty"`
+	Error       string `json:"error,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
+	RerunOf     string `json:"rerun_of,omitempty"`
+	// Template / TemplateSource: the template the run was submitted from (empty for a
+	// directly submitted spec) and its origin (builtin / global / project).
+	Template       string          `json:"template,omitempty"`
+	TemplateSource string          `json:"template_source,omitempty"`
+	Steps          []workflow.Step `json:"steps"`
 }
 
 // handleCreateWorkflow parses a WorkflowSpec, submits it and returns the created
@@ -48,6 +52,9 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 		return
 	}
 	var spec workflow.Spec
+	// templateName / templateSource are set when the spec was rendered from a template; a
+	// directly submitted spec leaves them empty.
+	var templateName, templateSource string
 	// The body's `project` field is the authoritative project key for this submit;
 	// vars.project (the template's own variable) stays supported as the fallback.
 	bodyProject := ""
@@ -93,6 +100,7 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 			writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
 			return
 		}
+		templateName, templateSource = name, templateSourceOf(name, projectDir, globalDir)
 		// A template taken from a project's `.gofer/workflows` (or resolving with a
 		// project var) runs in that project unless it states its own default.
 		if spec.Project == "" {
@@ -129,12 +137,29 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 			"this workflow runs a `uses: gofer/push` step: pushing a branch or tag needs the repo.push permission")
 		return
 	}
-	wf, err := s.workflow.SubmitWorkflow(spec, callerID)
+	var wf jobstore.Workflow
+	var err error
+	if templateName != "" {
+		wf, err = s.workflow.SubmitWorkflowFromTemplate(spec, callerID, templateName, templateSource)
+	} else {
+		wf, err = s.workflow.SubmitWorkflow(spec, callerID)
+	}
 	if err != nil {
 		writeError(c, submitStatus(err), "workflow rejected", err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, toWorkflowSummary(wf))
+}
+
+// templateSourceOf names the layer (project / global / builtin) a template name resolves
+// to, using the same lookup order as ResolveWorkflowTemplate.
+func templateSourceOf(name, projectDir, globalDir string) string {
+	for _, tpl := range workflow.LookupWorkflowTemplates(projectDir, globalDir) {
+		if tpl.Name == name {
+			return tpl.Source
+		}
+	}
+	return ""
 }
 
 func jsonBytes(payload map[string]json.RawMessage, out any) error {
@@ -169,6 +194,21 @@ func (s *Server) handleListWorkflowTemplates(c *rux.Context) {
 	}
 	projectDir, globalDir := s.workflowTemplateDirs(c.Query("project"))
 	templates := workflow.LookupWorkflowTemplates(projectDir, globalDir)
+	// Runs / last_run count only the runs this caller may list (own runs without
+	// job.read.others, inside the project ceiling).
+	stats, err := s.workflow.WorkflowTemplateStats(s.workflowVisibility(c))
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "workflow template stats failed", err.Error())
+		return
+	}
+	for i := range templates {
+		st, ok := stats[templates[i].Name]
+		if !ok {
+			continue
+		}
+		templates[i].Runs = st.Runs
+		templates[i].LastRun = &workflow.TemplateLastRun{ID: st.LastID, Status: st.LastStatus, StartedAt: st.LastStartedAt, EndedAt: st.LastEndedAt}
+	}
 	if name := c.Param("name"); name != "" {
 		for _, tpl := range templates {
 			if tpl.Name == name {
@@ -242,8 +282,8 @@ func (s *Server) handleGetWorkflow(c *rux.Context) {
 		CurrentStep: wf.CurrentStep, TotalSteps: wf.TotalSteps,
 		CallerID: wf.CallerID, Error: wf.Error,
 		CreatedAt: wf.CreatedAt, UpdatedAt: wf.UpdatedAt,
-		RerunOf: wf.RerunOf,
-		Steps:   steps,
+		RerunOf: wf.RerunOf, Template: wf.Template, TemplateSource: wf.TemplateSource,
+		Steps: steps,
 	})
 }
 
@@ -275,7 +315,7 @@ func (s *Server) handleExportWorkflow(c *rux.Context) {
 }
 
 // handleListWorkflows returns one page of workflow headers. Query params: status (exact
-// match) plus limit / offset (a non-numeric value falls back to 0; no limit keeps the
+// match), template (exact match: only runs submitted from that template) plus limit / offset (a non-numeric value falls back to 0; no limit keeps the
 // store default, so a caller that passes neither still gets the whole capped list). The
 // response always carries the non-nil page array plus total — how many rows the same
 // filter matches — so the web pager can render "page x of y" without fetching everything,
@@ -287,15 +327,9 @@ func (s *Server) handleExportWorkflow(c *rux.Context) {
 func (s *Server) handleListWorkflows(c *rux.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
-	filter := jobstore.WorkflowListFilter{Status: c.Query("status")}
-	if !s.mayListAllJobs(c) {
-		// 只看自己的：显式带上 CallerID（空 id 的调用方也只看空 id 的行，不等于不过滤）。
-		filter.CallerID = callerFromCtx(c)
-		filter.RestrictCaller = true
-	}
-	if ceil := s.ceilingOf(c); ceil != nil && len(ceil.Projects) > 0 {
-		filter.ProjectKeys = append(filter.ProjectKeys, ceil.Projects...)
-	}
+	filter := s.workflowVisibility(c)
+	filter.Status = c.Query("status")
+	filter.Template = c.Query("template")
 	list, total, err := s.workflow.ListWorkflowsPage(filter, limit, offset)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workflows failed", err.Error())
@@ -308,6 +342,21 @@ func (s *Server) handleListWorkflows(c *rux.Context) {
 		out = append(out, toWorkflowSummary(wf))
 	}
 	c.JSON(http.StatusOK, map[string]any{"workflows": out, "total": total})
+}
+
+// workflowVisibility is the caller-scope part of a workflow listing filter: without
+// job.read.others only the caller's own runs, and within the caller's project ceiling.
+func (s *Server) workflowVisibility(c *rux.Context) jobstore.WorkflowListFilter {
+	var filter jobstore.WorkflowListFilter
+	if !s.mayListAllJobs(c) {
+		// 只看自己的：显式带上 CallerID（空 id 的调用方也只看空 id 的行，不等于不过滤）。
+		filter.CallerID = callerFromCtx(c)
+		filter.RestrictCaller = true
+	}
+	if ceil := s.ceilingOf(c); ceil != nil && len(ceil.Projects) > 0 {
+		filter.ProjectKeys = append(filter.ProjectKeys, ceil.Projects...)
+	}
+	return filter
 }
 
 // handleListWorkflowEvents returns a workflow's append-only lifecycle events (P1)
@@ -393,6 +442,9 @@ type workflowSummary struct {
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
 	RerunOf     string `json:"rerun_of,omitempty"`
+	// Template / TemplateSource: see workflowDetail.
+	Template       string `json:"template,omitempty"`
+	TemplateSource string `json:"template_source,omitempty"`
 }
 
 // toWorkflowSummary projects a jobstore.Workflow onto the API summary shape.
@@ -402,7 +454,7 @@ func toWorkflowSummary(wf jobstore.Workflow) workflowSummary {
 		CurrentStep: wf.CurrentStep, TotalSteps: wf.TotalSteps,
 		CallerID: wf.CallerID, Error: wf.Error,
 		CreatedAt: wf.CreatedAt, UpdatedAt: wf.UpdatedAt,
-		RerunOf: wf.RerunOf,
+		RerunOf: wf.RerunOf, Template: wf.Template, TemplateSource: wf.TemplateSource,
 	}
 }
 

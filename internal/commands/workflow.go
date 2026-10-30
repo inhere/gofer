@@ -34,7 +34,8 @@ var wfRunOpts = struct {
 }{}
 
 var wfListOpts = struct {
-	status string
+	status   string
+	template string
 }{}
 
 // wfShowOpts holds `wf show` flags: -v also prints each step's working directory
@@ -228,6 +229,7 @@ func NewWorkflowCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.StrOpt(&wfListOpts.status, "status", "", "", "filter by status (running/done/failed/cancelled)")
+					c.StrOpt(&wfListOpts.template, "template", "t", "", "only runs submitted from this workflow template")
 				},
 				Func: runWorkflowList,
 			},
@@ -278,9 +280,18 @@ func runWorkflowTemplateList(c *gcli.Command, _ []string) error {
 		return err
 	}
 	for _, tpl := range templates {
-		c.Printf("%-20s %-8s %s\n", tpl.Name, tpl.Source, tpl.Desc)
+		c.Printf("%-20s %-8s %-18s %s\n", tpl.Name, tpl.Source, templateRunsText(tpl), tpl.Desc)
 	}
 	return nil
+}
+
+// templateRunsText renders a template's execution count and newest run for the list:
+// "0 runs" or "3 runs, last done".
+func templateRunsText(tpl workflow.WorkflowTemplate) string {
+	if tpl.Runs == 0 || tpl.LastRun == nil {
+		return "0 runs"
+	}
+	return fmt.Sprintf("%d runs, last %s", tpl.Runs, tpl.LastRun.Status)
 }
 
 func runWorkflowTemplateShow(c *gcli.Command, _ []string) error {
@@ -851,7 +862,7 @@ func runWorkflowList(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	list, err := cli.ListWorkflows(wfListOpts.status)
+	list, err := cli.ListWorkflowsFiltered(wfListOpts.status, wfListOpts.template)
 	if err != nil {
 		return err
 	}

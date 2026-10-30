@@ -29,6 +29,12 @@ func (e *Engine) ListWorkflowsPage(f jobstore.WorkflowListFilter, limit, offset 
 	return e.meta.ListWorkflowsPage(f, limit, offset)
 }
 
+// WorkflowTemplateStats groups the visible runs (per f's caller / project conditions) by
+// the template they were submitted from.
+func (e *Engine) WorkflowTemplateStats(f jobstore.WorkflowListFilter) (map[string]jobstore.TemplateRunStat, error) {
+	return e.meta.WorkflowTemplateStats(f)
+}
+
 // WorkflowSteps returns the per-step summary for a workflow's detail view, in
 // step order. It reads the started step-jobs (a step not yet reached has no job
 // row, so the list only contains started steps — the chain is strictly serial).

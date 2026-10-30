@@ -78,10 +78,10 @@ gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 ```bash
 gofer workflow run <file.yaml> [-w] | run --template <name> --var k=v [-w]
 gofer workflow init verify|release [--dir <仓库目录>] [--force]   # 生成起步文件
-gofer workflow template ls | show <name> [-p <project>] [--source]
+gofer workflow template ls | show <name> [-p <project>] [--source]   # ls 另显示执行次数与最近一次状态
 gofer workflow template save <name> -f <file> | rm <name> [--global | --project <p>]
 gofer workflow save-as-template <wf-id> <name> [--global | --project <p>]
-gofer workflow list / show <id> / events <id> / cancel <id> / export <id>
+gofer workflow list [--status …] [--template <name>] / show <id> / events <id> / cancel <id> / export <id>
 gofer workflow rerun <id> --failed | --from <step> [-w]
 gofer workflow pick <id> <step> <fan> [--merge [--squash] [--cleanup-others]]
 ```

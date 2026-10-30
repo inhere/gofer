@@ -1513,8 +1513,12 @@ type Workflow struct {
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
 	// RerunOf is the workflow this one was trimmed from by `wf rerun` (design §一·7).
-	RerunOf string         `json:"rerun_of,omitempty"`
-	Steps   []WorkflowStep `json:"steps,omitempty"`
+	RerunOf string `json:"rerun_of,omitempty"`
+	// Template / TemplateSource: the template the run was submitted from and its origin
+	// (builtin / global / project); empty for a directly submitted spec.
+	Template       string         `json:"template,omitempty"`
+	TemplateSource string         `json:"template_source,omitempty"`
+	Steps          []WorkflowStep `json:"steps,omitempty"`
 }
 
 // SubmitWorkflow POSTs a WorkflowSpec as JSON to /v1/workflows and returns the
@@ -1638,9 +1642,22 @@ func (c *Client) GetWorkflow(id string) (Workflow, error) {
 // ListWorkflows queries GET /v1/workflows, optionally filtered by status, and
 // returns the unwrapped header array (from the {"workflows":[...]} envelope).
 func (c *Client) ListWorkflows(status string) ([]Workflow, error) {
+	return c.ListWorkflowsFiltered(status, "")
+}
+
+// ListWorkflowsFiltered is ListWorkflows with an optional template filter (only the runs
+// submitted from that template name).
+func (c *Client) ListWorkflowsFiltered(status, template string) ([]Workflow, error) {
 	path := "/v1/workflows"
+	q := url.Values{}
 	if status != "" {
-		path += "?status=" + url.QueryEscape(status)
+		q.Set("status", status)
+	}
+	if template != "" {
+		q.Set("template", template)
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
 	}
 	var resp struct {
 		Workflows []Workflow `json:"workflows"`

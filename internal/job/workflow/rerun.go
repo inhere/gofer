@@ -82,7 +82,7 @@ func (e *Engine) rerunImpl(wfID, mode, step, callerID string) (jobstore.Workflow
 	if wf.ParentWorkflowID != "" {
 		return jobstore.Workflow{}, true, fmt.Errorf("%w: workflow %s is a sub-workflow (rerun its parent)", job.ErrInvalidRequest, wfID)
 	}
-	nw, err := e.submitWorkflowImpl(trimmed, callerID, "", 0, 0, wfID)
+	nw, err := e.submitWorkflowImpl(trimmed, callerID, "", 0, 0, wfID, wf.Template, wf.TemplateSource)
 	if err != nil {
 		return jobstore.Workflow{}, true, err
 	}

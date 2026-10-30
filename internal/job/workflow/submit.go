@@ -34,7 +34,19 @@ func (e *Engine) SubmitWorkflow(spec Spec, callerID string) (jobstore.Workflow, 
 		return jobstore.Workflow{}, err
 	}
 	defer release()
-	return view.submitWorkflowImpl(spec, callerID, "", 0, 0, "")
+	return view.submitWorkflowImpl(spec, callerID, "", 0, 0, "", "", "")
+}
+
+// SubmitWorkflowFromTemplate is SubmitWorkflow for a spec rendered from a named template:
+// it records the template name and where it came from (builtin / global / project) on the
+// execution record, so the workflow list can group runs by template.
+func (e *Engine) SubmitWorkflowFromTemplate(spec Spec, callerID, template, templateSource string) (jobstore.Workflow, error) {
+	view, release, err := e.admitted()
+	if err != nil {
+		return jobstore.Workflow{}, err
+	}
+	defer release()
+	return view.submitWorkflowImpl(spec, callerID, "", 0, 0, "", template, templateSource)
 }
 
 // SubmitWorkflowChild submits an inline sub-workflow bound to a parent step (P3, D19).
@@ -53,7 +65,7 @@ func (e *Engine) SubmitWorkflowChild(spec Spec, callerID, parentID string, paren
 		return jobstore.Workflow{}, err
 	}
 	defer release()
-	return view.submitWorkflowImpl(spec, callerID, parentID, parentStep, parentAtt, "")
+	return view.submitWorkflowImpl(spec, callerID, parentID, parentStep, parentAtt, "", "", "")
 }
 
 // childWorkflowID derives the deterministic sub-workflow id for a parent step's attempt
@@ -70,8 +82,9 @@ func childWorkflowID(parentID string, parentStep, parentAtt int) string {
 // (parentID!="") and rerun (rerunOf!="") workflows. parentID/parentStep/parentAtt bind
 // a sub-workflow to its parent step+attempt and drive a DETERMINISTIC child id
 // (childWorkflowID) so a re-submit is idempotent. rerunOf records the workflow id this
-// one was trimmed from (`wf rerun`, design §一·7); empty for an original submit.
-func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parentStep, parentAtt int, rerunOf string) (jobstore.Workflow, error) {
+// one was trimmed from (`wf rerun`, design §一·7); empty for an original submit. template /
+// templateSource name the template the spec was rendered from (empty for a direct spec).
+func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parentStep, parentAtt int, rerunOf, template, templateSource string) (jobstore.Workflow, error) {
 	if len(spec.Steps) == 0 {
 		return jobstore.Workflow{}, fmt.Errorf("%w: workflow has no steps", job.ErrInvalidRequest)
 	}
@@ -190,6 +203,8 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 		ParentWorkflowID: parentID,
 		ParentStepIndex:  parentStep,
 		RerunOf:          rerunOf,
+		Template:         template,
+		TemplateSource:   templateSource,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
