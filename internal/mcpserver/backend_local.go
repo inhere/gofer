@@ -111,6 +111,17 @@ func (b *localBackend) ListAgents() ([]agentEntry, error) {
 	return out, nil
 }
 
+func (b *localBackend) ListRefs(kind, id string) ([]client.Ref, error) {
+	rows, err := b.jobs.Meta().ListRefs(kind, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]client.Ref, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, client.Ref{SourceKind: row.SrcKind, SourceID: row.SrcID, Kind: row.DstKind, ID: row.DstID, Field: row.Field, CreatedAt: row.CreatedAt})
+	}
+	return out, nil
+}
 func (b *localBackend) RunJob(req job.JobRequest) (job.JobResult, error) {
 	if req.SourceSessionID != "" {
 		return job.JobResult{}, fmt.Errorf("source_session_id requires an authenticated HTTP backend; local MCP has no authenticated caller context")

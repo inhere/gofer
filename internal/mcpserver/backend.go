@@ -118,6 +118,7 @@ type Backend interface {
 	// author). ListComments reads a thread back, oldest first.
 	Comment(scope, id, body, asJob string) (commentView, error)
 	ListComments(scope, id string) ([]commentView, error)
+	ListRefs(kind, id string) ([]client.Ref, error)
 	// W1 work items (gofer_work_*) and the read-only session view (gofer_session_*). The
 	// work methods return the work package's view types (both ends share them); the
 	// session ones return the mcpserver view because local (jobstore) and client
