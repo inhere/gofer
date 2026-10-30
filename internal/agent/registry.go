@@ -655,14 +655,15 @@ func applyDeliverDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	if len(a.DeliverCommand) > 0 || a.DeliverStdin || a.Type == TypeExec || a.Type == TypeACPAgent {
 		return a
 	}
-	cmd, stdin, match := config.BuiltinDeliver(key)
+	cmd, imageArgs, stdin, match := config.BuiltinDeliver(key)
 	if cmd == nil {
-		cmd, stdin, match = config.BuiltinDeliver(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
+		cmd, imageArgs, stdin, match = config.BuiltinDeliver(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
 	}
 	if cmd == nil {
 		return a
 	}
 	a.DeliverCommand = cmd
+	a.DeliverImageArgs = imageArgs
 	a.DeliverStdin = stdin
 	if a.DeliverOfflineMatch == "" {
 		a.DeliverOfflineMatch = match

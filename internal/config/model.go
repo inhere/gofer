@@ -2872,6 +2872,9 @@ type AgentConfig struct {
 	// session's process is not running, anything else = failure (stderr is the
 	// reason). Unset = no live-process channel (tmux injection, then takeover).
 	DeliverCommand []string `yaml:"deliver_command,omitempty"`
+	// DeliverImageArgs is expanded once per image and appended to deliver_command.
+	// Each element must contain {{image}}; it is the absolute path on the executor.
+	DeliverImageArgs []string `yaml:"deliver_image_args,omitempty"`
 	// DeliverStdin sends the text on the command's stdin instead of a {{text}} argv
 	// placeholder (long text / special characters). Needs a worker at protocol v18+
 	// when the session runs on one.

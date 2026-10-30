@@ -249,6 +249,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.inject_process":        {Editable: true},
 	"agents.*.session_family":        {Editable: true},
 	"agents.*.deliver_command":       {Editable: true},
+	"agents.*.deliver_image_args":    {Editable: true},
 	"agents.*.deliver_stdin":         {Editable: true},
 	"agents.*.deliver_offline_match": {Editable: true},
 	"agents.*.ndjson_fields":         {Editable: true},

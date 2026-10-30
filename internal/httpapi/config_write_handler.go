@@ -663,6 +663,12 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.SessionFamily = v
+	case "deliver_image_args":
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		ac.DeliverImageArgs = v
 	case "deliver_offline_match":
 		v, err := fieldValue[string](f)
 		if err != nil {

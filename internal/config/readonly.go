@@ -113,22 +113,42 @@ func (c *Config) EffectiveImageInput(key string) string {
 //     in the chat window.
 var builtinDeliver = map[string]struct {
 	command      []string
+	imageArgs    []string
 	stdin        bool
 	offlineMatch string
 }{
 	"codex": {command: []string{"queue", "--thread", "{{session_id}}", "--message", "{{text}}"}, offlineMatch: "no rollout found"},
-	"suga":  {command: []string{"send", "--session", "{{session_id}}", "--source", "gofer"}, stdin: true},
+	"suga":  {command: []string{"send", "--session", "{{session_id}}", "--source", "gofer"}, imageArgs: []string{"--image", "{{image}}"}, stdin: true},
 }
 
-// BuiltinDeliver returns the built-in delivery argv, whether the text travels on
-// stdin, and the offline marker for an agent name; nil command when that name has
-// none. Copies — a caller must never be able to mutate the table.
-func BuiltinDeliver(name string) (command []string, stdin bool, offlineMatch string) {
+// BuiltinDeliver returns the built-in delivery argv, image argv template, whether the text
+// travels on stdin, and the offline marker for an agent name. Copies — a caller must never
+// be able to mutate the table.
+func BuiltinDeliver(name string) (command, imageArgs []string, stdin bool, offlineMatch string) {
 	def, ok := builtinDeliver[name]
 	if !ok || len(def.command) == 0 {
-		return nil, false, ""
+		return nil, nil, false, ""
 	}
-	return append([]string(nil), def.command...), def.stdin, def.offlineMatch
+	return append([]string(nil), def.command...), append([]string(nil), def.imageArgs...), def.stdin, def.offlineMatch
+}
+
+// EffectiveDeliverImageArgs returns the image argv template for a live-process delivery.
+func (c *Config) EffectiveDeliverImageArgs(key string) []string {
+	if c == nil {
+		return nil
+	}
+	ac, ok := c.Agents[key]
+	if !ok {
+		return nil
+	}
+	if len(ac.DeliverCommand) > 0 || ac.DeliverStdin {
+		return append([]string(nil), ac.DeliverImageArgs...)
+	}
+	if len(ac.DeliverImageArgs) > 0 {
+		return append([]string(nil), ac.DeliverImageArgs...)
+	}
+	_, imageArgs, _, _ := BuiltinDeliver(strings.ToLower(strings.TrimSpace(key)))
+	return imageArgs
 }
 
 // BuiltinModelArgs returns the built-in model_args for an agent name, or nil. A copy.
