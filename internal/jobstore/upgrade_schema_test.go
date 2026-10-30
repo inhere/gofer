@@ -19,7 +19,7 @@ import (
 // then write every sqlite_master.sql (tables first, then indexes) as one statement per
 // line, plus the work_kv rows (one-time migration markers) as INSERTs.
 func TestOpenUpgradesPreviousReleaseSchema(t *testing.T) {
-	for _, fixture := range []string{"schema-v0.201.0.sql", "schema-v0.203.0.sql"} {
+	for _, fixture := range []string{"schema-v0.201.0.sql", "schema-v0.203.0.sql", "schema-v0.204.0.sql"} {
 		t.Run(fixture, func(t *testing.T) {
 			ddl, err := os.ReadFile(filepath.Join("testdata", fixture))
 			if err != nil {
