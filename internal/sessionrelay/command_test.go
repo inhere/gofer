@@ -165,7 +165,34 @@ func TestDeliverCommandOfflineMatch(t *testing.T) {
 	assert.Eq(t, PathCommand, res.Path)
 }
 
-// An agent with no deliver_command keeps the old ladder untouched.
+func TestDeliverCommandImagesExpandInOrder(t *testing.T) {
+	s := newSvc(t)
+	inj := &scriptedInjector{}
+	s.SetInjector(inj)
+	s.SetDeliverPlanner(func(agentKey, sid, text string) CommandPlan {
+		return CommandPlan{Argv: []string{"suga", "send", "--session", sid}, Stdin: text, ImageArgs: []string{"--image", "{{image}}"}}
+	})
+	cmdSession(t, s, "sid-img", "%1")
+	_, err := s.DeliverWithImages(context.Background(), "sid-img", "hello", "alice", "alice", []string{"C:/tmp/a one.png", "C:/tmp/b.png"})
+	assert.NoErr(t, err)
+	assert.Eq(t, []string{"suga", "send", "--session", "sid-img", "--image", "C:/tmp/a one.png", "--image", "C:/tmp/b.png"}, inj.reqs[0].Cmd)
+	assert.Eq(t, "[来自 web 回复，alice] hello", inj.reqs[0].Stdin)
+}
+
+func TestDeliverCommandImageExitFiveIsNotRetried(t *testing.T) {
+	s := newSvc(t)
+	inj := &scriptedInjector{deliverExit: 5}
+	s.SetInjector(inj)
+	s.SetDeliverPlanner(func(agentKey, sid, text string) CommandPlan {
+		return CommandPlan{Argv: []string{"suga", "send", "--session", sid}, Stdin: text, ImageArgs: []string{"--image", "{{image}}"}}
+	})
+	cmdSession(t, s, "sid-img-old", "%1")
+	_, err := s.DeliverWithImages(context.Background(), "sid-img-old", "hello", "alice", "alice", []string{"C:/tmp/a.png"})
+	assert.Err(t, err)
+	assert.Eq(t, DeliverFailedPrefix+ReasonImagesNotSupported, DeliverReason(err))
+	assert.Contains(t, err.Error(), "目标会话进程版本过旧，不支持图片，请升级后重启该会话")
+	assert.Len(t, inj.reqs, 1)
+}
 func TestDeliverCommandAbsentUsesTmux(t *testing.T) {
 	s := newSvc(t)
 	inj := &scriptedInjector{}

@@ -255,6 +255,8 @@ gofer session mail redact <id> --literal-from-stdin [--pattern <RE2>]
 
 ## web 发消息（转达）与会话回复
 
+传话类 `r:<sid>` 会话也支持 web 附图，但前提是 agent 的送达命令声明了 `deliver_image_args`。附件会先放到会话所在执行机（有项目时放项目附件目录，无项目时放执行机自己的附件目录），然后按顺序把绝对路径展开到命令参数。内置 suga 使用 `suga send --image <path>`；旧版本会话进程返回退出码 5 时整条消息拒绝，不会降级成只发文字，升级 suga 后重启会话即可。
+
 - 会话不在等回复时，web 的「发消息」经**传话人**把话转给目标会话（在会话所在 runner 上用 `claude -p … --allowedTools SendMessage,ListAgents` 转发；server 本机与较新的 worker 用常驻传话进程）。需要目标是有会话间通信能力的 Claude Code 会话。
 - **接收方看到的发送方是 `gofer-web`**，正文以 `[来自 web，<用户>]` 开头：这是用户本人在 web 上发来的消息（由 gofer 起的传话人转达），按用户的话对待即可；但它不是终端里的审批操作——需要批准高风险操作时，仍等用户在中继里明确回复或在终端确认。
 - **gofer 自己的消息不穿这个前缀**：gofer 送进会话的系统消息一律以 `[gofer · <类型>]` 开头（`job 完成`、`唤醒`、`工作项交接`、`工作项汇报`、`管家带话`、`记忆`、`提示`），不论走传话人、Stop 等待还是补发都是同一张表。`[来自 web…]` 一律是**人**发的；`[gofer · …]` 是机器发的，不要当成用户回话或授权。前缀按会话所属项目的语言写，所以英文项目里可能是 `[gofer · job done]`、`[gofer · memory]`，人的消息是 `[from web, <user>]` / `[web reply, <user>]`；这两种语言是同一张表，识别时两种都认。

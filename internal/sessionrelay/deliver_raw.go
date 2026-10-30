@@ -46,7 +46,7 @@ func (s *Service) DeliverLetter(ctx context.Context, sid, text, by, origin strin
 	if _, err := s.ceilingOwner(origin, "a mailbox letter"); err != nil {
 		return RawResult{}, err
 	}
-	res, tried, err := s.runDeliverCommand(ctx, a, text, by, origin)
+	res, tried, err := s.runDeliverCommand(ctx, a, text, by, origin, nil)
 	if err != nil {
 		return RawResult{}, err
 	}
@@ -82,7 +82,7 @@ func (s *Service) Wake(ctx context.Context, sid, text, by, origin string) (RawRe
 	if strings.TrimSpace(text) == "" {
 		return RawResult{}, fmt.Errorf("%w: empty text", ErrInvalidInput)
 	}
-	res, tried, err := s.runDeliverCommand(ctx, a, text, by, origin)
+	res, tried, err := s.runDeliverCommand(ctx, a, text, by, origin, nil)
 	switch {
 	case tried && err == nil:
 		return RawResult{Path: PathCommand, JobID: res.JobID}, nil

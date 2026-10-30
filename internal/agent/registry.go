@@ -645,8 +645,8 @@ func applyMCPDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	return a
 }
 
-// applyDeliverDefaults fills an agent's unset deliver_command / deliver_stdin /
-// deliver_offline_match from the built-in table, by agent key first and then the base
+// applyDeliverDefaults fills an agent's unset deliver_command / deliver_image_args /
+// deliver_stdin / deliver_offline_match from the built-in table, by agent key first and then the base
 // name of Command, like applyModelDefaults. Each is filled only when unset, but only
 // while the operator declared no delivery setup at all: an explicit
 // deliver_command / deliver_stdin is used as written (no mixing a custom command with
@@ -655,14 +655,15 @@ func applyDeliverDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	if len(a.DeliverCommand) > 0 || a.DeliverStdin || a.Type == TypeExec || a.Type == TypeACPAgent {
 		return a
 	}
-	cmd, stdin, match := config.BuiltinDeliver(key)
+	cmd, imageArgs, stdin, match := config.BuiltinDeliver(key)
 	if cmd == nil {
-		cmd, stdin, match = config.BuiltinDeliver(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
+		cmd, imageArgs, stdin, match = config.BuiltinDeliver(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
 	}
 	if cmd == nil {
 		return a
 	}
 	a.DeliverCommand = cmd
+	a.DeliverImageArgs = imageArgs
 	a.DeliverStdin = stdin
 	if a.DeliverOfflineMatch == "" {
 		a.DeliverOfflineMatch = match

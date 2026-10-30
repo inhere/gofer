@@ -254,7 +254,62 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 	}
 }
 
-// localRunnerKey is the canonical key of the server's built-in runner (the
+// SendMessageWithImages delivers an already placed image list through the target agent's
+// deliver_command. It deliberately bypasses the open-turn answer path: image arguments are
+// part of the live process command, not of a hook answer.
+func (s *Service) SendMessageWithImages(ctx context.Context, sid, text, operator, origin string, imagePaths []string) (jobstore.SessionMessage, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return jobstore.SessionMessage{}, fmt.Errorf("%w: message required", ErrInvalidInput)
+	}
+	if _, err := s.ceilingOwner(origin, "a session message"); err != nil {
+		return jobstore.SessionMessage{}, err
+	}
+	a, err := s.Session(sid)
+	if err != nil {
+		return jobstore.SessionMessage{}, err
+	}
+	if a.State == jobstore.SessionEnded {
+		return jobstore.SessionMessage{}, fmt.Errorf("%w: session ended", ErrInvalidInput)
+	}
+	if !s.messagingEnabled {
+		return jobstore.SessionMessage{}, fmt.Errorf("%w: session messaging disabled", ErrInvalidInput)
+	}
+	lock := s.messageLock(sid)
+	lock.Lock()
+	defer lock.Unlock()
+	if strings.TrimSpace(a.Runner) == "" {
+		return jobstore.SessionMessage{}, undeliverable(ReasonNoRunner, errors.New("会话未登记执行机"))
+	}
+	now := time.Now().Unix()
+	m := jobstore.SessionMessage{ID: fmt.Sprintf("msg-%d", time.Now().UnixNano()), SessionID: sid, Text: text, Operator: operator, Status: jobstore.SessionMessageQueued, CreatedAt: now, UpdatedAt: now}
+	if err := s.store.AppendSessionOutbox(m); err != nil {
+		return jobstore.SessionMessage{}, err
+	}
+	res, err := s.DeliverWithImages(ctx, sid, text, operator, origin, imagePaths)
+	if err != nil {
+		reason := DeliverReason(err)
+		if reason == "" {
+			reason = err.Error()
+		}
+		var ue *UndeliverableError
+		detail := err.Error()
+		if errors.As(err, &ue) && ue.Err != nil {
+			detail = ue.Err.Error()
+		}
+		if deliveryNeverStarted(reason) {
+			return s.undeliveredMessage(m, reason+": "+detail)
+		}
+		return s.failMessage(m, reason+": "+detail)
+	}
+	m.Status, m.Channel, m.JobID, m.DecisionID, m.UpdatedAt = jobstore.SessionMessageDelivered, res.Path, res.JobID, res.DecisionID, time.Now().Unix()
+	if res.Delivering {
+		m.Status = jobstore.SessionMessageDelivering
+	}
+	_ = s.store.AppendSessionOutbox(m)
+	return m, nil
+}
+
 // resident messenger is keyed by it).
 const localRunnerKey = config.BuiltinLocalRunner
 

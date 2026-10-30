@@ -735,7 +735,7 @@ func (s *Server) deliverPlan(agentKey, sessionID, text string) sessionrelay.Comm
 	if !filepath.IsAbs(ac.DeliverCommand[0]) {
 		argv = append(append([]string{ac.Command}, agent.GlobalArgs(ac)...), argv...)
 	}
-	plan := sessionrelay.CommandPlan{Argv: argv}
+	plan := sessionrelay.CommandPlan{Argv: argv, ImageArgs: append([]string(nil), ac.DeliverImageArgs...)}
 	if ac.DeliverOfflineMatch != "" {
 		// An invalid pattern is rejected at config load; ignoring it here only matters
 		// for a snapshot that bypassed validation.

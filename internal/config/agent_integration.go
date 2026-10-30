@@ -76,6 +76,11 @@ func validateAgentIntegration(key string, ac AgentConfig) error {
 		if ac.Type != "" && ac.Type != "cli-agent" {
 			return fmt.Errorf("agent %q: deliver_command only applies to a cli-agent", key)
 		}
+		// deliver_image_args is the image half of the same command: each image expands it
+		// once, so a template that names no {{image}} could never carry one.
+		if len(ac.DeliverImageArgs) > 0 && !containsTemplate(ac.DeliverImageArgs, "{{image}}") {
+			return fmt.Errorf("agent %q: deliver_image_args must contain {{image}}", key)
+		}
 		all := strings.Join(ac.DeliverCommand, "\x00")
 		if !strings.Contains(all, "{{session_id}}") {
 			return fmt.Errorf("agent %q: deliver_command must contain {{session_id}}", key)
@@ -89,6 +94,8 @@ func validateAgentIntegration(key string, ac AgentConfig) error {
 		}
 	} else if ac.DeliverStdin {
 		return fmt.Errorf("agent %q: deliver_stdin needs deliver_command", key)
+	} else if len(ac.DeliverImageArgs) > 0 {
+		return fmt.Errorf("agent %q: deliver_image_args needs deliver_command", key)
 	}
 	if ac.DeliverOfflineMatch != "" {
 		if len(ac.DeliverCommand) == 0 {
@@ -102,6 +109,16 @@ func validateAgentIntegration(key string, ac AgentConfig) error {
 		return fmt.Errorf("agent %q: session_family %q must be letters, digits, '-', '_' or '.'", key, f)
 	}
 	return nil
+}
+
+// containsTemplate reports whether any template element carries token.
+func containsTemplate(args []string, token string) bool {
+	for _, arg := range args {
+		if strings.Contains(arg, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func validDottedPath(p string) bool {

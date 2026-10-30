@@ -42,6 +42,10 @@ const (
 	// ReasonNotRunning: the deliver_command ran and reported (exit 3) that no process
 	// of this session is running. Delivery continues down the ladder (tmux, takeover).
 	ReasonNotRunning = "not_running"
+	// ReasonImagesNotSupported: the target process predates image delivery (the deliver
+	// command exited 5 when given --image). Nothing was delivered, and the message is NOT
+	// retried without its images: the person asked for those images.
+	ReasonImagesNotSupported = "images_not_supported"
 	// DeliverFailedPrefix introduces a deliver_command failure (any other exit code,
 	// or the job could not run); the remainder is the command's stderr / job error.
 	// Delivery STOPS here — falling through to tmux could type the message twice.
@@ -52,7 +56,19 @@ const (
 	ReasonSessionAlive = "session_alive"
 	// deliverExitNotRunning is the deliver_command's "no such live process" exit code.
 	deliverExitNotRunning = 3
+	// deliverExitImagesNotSupported means the target process predates image delivery.
+	deliverExitImagesNotSupported = 5
 )
+
+func renderDeliverImageArgs(tmpl, paths []string) []string {
+	out := make([]string, 0, util.CapMul(len(tmpl), len(paths)))
+	for _, image := range paths {
+		for _, arg := range tmpl {
+			out = append(out, strings.ReplaceAll(arg, "{{image}}", image))
+		}
+	}
+	return out
+}
 
 // MaxDeliverText caps a reply delivered to a session (bytes). The tmux path
 // types it into a live terminal, so it is capped well below the hook's own
@@ -245,6 +261,8 @@ type InjectRequest struct {
 type CommandPlan struct {
 	Argv  []string
 	Stdin string
+	// ImageArgs is expanded once per image and appended to Argv; paths are absolute on the runner.
+	ImageArgs []string
 	// OfflineMatch (nil = none): a non-zero exit whose output matches it counts as
 	// exit 3 (not running). Judged here on the server from the finished job's result,
 	// so it covers remote workers without any protocol change.
@@ -517,6 +535,16 @@ type DeliverResult struct {
 // interactive_not_allowed, cwd_outside_project. An over-long or empty reply is
 // ErrInvalidInput.
 func (s *Service) Deliver(ctx context.Context, sid, text, by, origin string, allowTakeover bool) (DeliverResult, error) {
+	return s.deliver(ctx, sid, text, by, origin, allowTakeover, nil)
+}
+
+// DeliverWithImages sends a relay message through the live-process command with image paths.
+// The paths have already been placed on the session's execution machine.
+func (s *Service) DeliverWithImages(ctx context.Context, sid, text, by, origin string, imagePaths []string) (DeliverResult, error) {
+	return s.deliver(ctx, sid, text, by, origin, false, imagePaths)
+}
+
+func (s *Service) deliver(ctx context.Context, sid, text, by, origin string, allowTakeover bool, imagePaths []string) (DeliverResult, error) {
 	if strings.TrimSpace(text) == "" {
 		return DeliverResult{}, fmt.Errorf("%w: empty text", ErrInvalidInput)
 	}
@@ -534,21 +562,22 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by, origin string, all
 		return DeliverResult{}, ErrUnknownSession
 	}
 
-	// Phase 1 first: with a turn OPEN the agent is blocked on a question, and the
-	// hook's long poll is the delivery channel that reaches it.
-	open, err := s.store.ListOpenSessionTurns(sid, 1)
-	if err != nil {
-		return DeliverResult{}, err
-	}
-	if len(open) > 0 {
-		d, err := s.Say(sid, text, by)
-		switch {
-		case err == nil:
-			return DeliverResult{Path: PathTurn, DecisionID: d.ID}, nil
-		case !errors.Is(err, ErrNoOpenTurn):
+	if len(imagePaths) == 0 {
+		// Phase 1 first: with a turn OPEN the agent is blocked on a question, and the
+		// hook's long poll is the delivery channel that reaches it.
+		open, err := s.store.ListOpenSessionTurns(sid, 1)
+		if err != nil {
 			return DeliverResult{}, err
 		}
-		// The turn settled between the read and the answer: fall through to A.
+		if len(open) > 0 {
+			d, err := s.Say(sid, text, by)
+			switch {
+			case err == nil:
+				return DeliverResult{Path: PathTurn, DecisionID: d.ID}, nil
+			case !errors.Is(err, ErrNoOpenTurn):
+				return DeliverResult{}, err
+			}
+		}
 	}
 	// Path C: the agent's own live-process channel, when it has one. It is tried
 	// before tmux because it reaches the process directly (no pane, no foreground
@@ -557,11 +586,11 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by, origin string, all
 	//
 	// D5 hold: the message must not reach the terminal at all, so even the live-process
 	// channel stays silent and the message waits for the session's next hook.
-	if a.InjectMode == jobstore.InjectModeHold {
+	if a.InjectMode == jobstore.InjectModeHold && len(imagePaths) == 0 {
 		return s.holdMessage(a, text, by, ReasonHoldMode)
 	}
 	notRunning := false
-	if res, tried, err := s.deliverCommand(ctx, a, text, by, origin); tried {
+	if res, tried, err := s.deliverCommand(ctx, a, text, by, origin, imagePaths); tried {
 		switch {
 		case err == nil:
 			return res, nil
@@ -631,8 +660,8 @@ func (s *Service) takeoverAliveCheck(a jobstore.AgentSession, notRunning bool) e
 // deliverCommand is path C. tried=false means the agent has no deliver_command (or the
 // session cannot be reached by one) and the caller proceeds as before. A not-running
 // answer is returned as an UndeliverableError{ReasonNotRunning}.
-func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, text, by, origin string) (DeliverResult, bool, error) {
-	res, tried, err := s.runDeliverCommand(ctx, a, injectText(text, by), by, origin)
+func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, text, by, origin string, imagePaths []string) (DeliverResult, bool, error) {
+	res, tried, err := s.runDeliverCommand(ctx, a, injectText(text, by), by, origin, imagePaths)
 	if !tried || err != nil {
 		return DeliverResult{}, tried, err
 	}
@@ -656,7 +685,7 @@ func (s *Service) deliverCommand(ctx context.Context, a jobstore.AgentSession, t
 // runner and map its outcome. tried=false: the agent has no deliver_command (or the session
 // cannot be reached by one). A nil error with res.Status != "" means the job had begun but
 // outlived the wait window (it is on its way); a nil error with Status "" means exit 0.
-func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession, payload, by, origin string) (InjectResult, bool, error) {
+func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession, payload, by, origin string, imagePaths []string) (InjectResult, bool, error) {
 	if s.deliverPlan == nil || s.injector == nil {
 		return InjectResult{}, false, nil
 	}
@@ -669,6 +698,12 @@ func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession
 	plan := s.deliverPlan(a.Agent, a.SessionID, payload)
 	if len(plan.Argv) == 0 {
 		return InjectResult{}, false, nil
+	}
+	if len(imagePaths) > 0 {
+		if len(plan.ImageArgs) == 0 {
+			return InjectResult{}, true, undeliverable(DeliverFailedPrefix+ReasonImagesNotSupported, errors.New("目标会话进程版本过旧，不支持图片，请升级后重启该会话"))
+		}
+		plan.Argv = append(plan.Argv, renderDeliverImageArgs(plan.ImageArgs, imagePaths)...)
 	}
 	if strings.TrimSpace(a.Runner) == "" {
 		return InjectResult{}, true, undeliverable(DeliverFailedPrefix+ReasonNoRunner, errors.New(
@@ -707,6 +742,8 @@ func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession
 	}
 	switch exit {
 	case 0:
+	case deliverExitImagesNotSupported:
+		return InjectResult{}, true, undeliverable(DeliverFailedPrefix+ReasonImagesNotSupported, errors.New("目标会话进程版本过旧，不支持图片，请升级后重启该会话"))
 	case deliverExitNotRunning:
 		return InjectResult{}, true, undeliverable(ReasonNotRunning, fmt.Errorf("job %s: the session's process is not running", res.JobID))
 	default:

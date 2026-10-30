@@ -394,6 +394,7 @@ type configAgentView struct {
 	InjectProcess            []string            `json:"inject_process"`
 	SessionFamily            string              `json:"session_family"`
 	DeliverCommand           []string            `json:"deliver_command"`
+	DeliverImageArgs         []string            `json:"deliver_image_args"`
 	DeliverStdin             bool                `json:"deliver_stdin"`
 	DeliverOfflineMatch      string              `json:"deliver_offline_match"`
 	NDJSONFields             map[string][]string `json:"ndjson_fields"`
@@ -786,6 +787,7 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			InjectProcess:            nonNil(ac.InjectProcess),
 			SessionFamily:            ac.SessionFamily,
 			DeliverCommand:           nonNil(ac.DeliverCommand),
+			DeliverImageArgs:         nonNil(ac.DeliverImageArgs),
 			DeliverStdin:             ac.DeliverStdin,
 			DeliverOfflineMatch:      ac.DeliverOfflineMatch,
 			NDJSONFields:             ac.NDJSONFields,

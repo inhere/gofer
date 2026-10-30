@@ -55,6 +55,11 @@ type RelayMessenger interface {
 	FollowWeb(sid, actor string)
 }
 
+type RelayImageMessenger interface {
+	SendMessageWithImages(ctx context.Context, sid, text, operator, origin string, imagePaths []string) (jobstore.SessionMessage, error)
+	FollowWeb(sid, actor string)
+}
+
 type Service struct {
 	store Store
 	jobs  Jobs
@@ -685,6 +690,9 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 	if s.imageInputAgent(sess.Agent) == config.ImageInputPath {
 		in.FilePath = true
 	}
+	if len(s.deliverImageArgs(sess.Agent)) > 0 {
+		in.Arg = true
+	}
 	var result TurnResult
 	m := imageSend{
 		callerID: callerID, threadID: threadID, atts: atts, in: in, runner: sess.Runner, project: sess.ProjectKey,
@@ -711,6 +719,20 @@ func (s *Service) relayWithImages(callerID, threadID, sid, text string, atts []j
 			}
 			return RefKindMessage, msg.ID, nil
 		},
+	}
+	if imageRelay, ok := s.relay.(RelayImageMessenger); ok {
+		m.paths = func(t string, paths []string) (string, string, error) {
+			msg, err := imageRelay.SendMessageWithImages(context.Background(), sid, t, callerID, callerID, paths)
+			if err != nil {
+				return "", "", relaySendError(msg, err)
+			}
+			imageRelay.FollowWeb(sid, callerID)
+			result = relayTurnResult(threadID, msg)
+			if msg.DecisionID != "" {
+				return RefKindDecision, msg.DecisionID, nil
+			}
+			return RefKindMessage, msg.ID, nil
+		}
 	}
 	kind, ref, err := s.deliverWithImages(m, text)
 	if err != nil {
