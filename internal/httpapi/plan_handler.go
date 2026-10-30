@@ -148,6 +148,9 @@ type todoView struct {
 	Budget *job.Budget `json:"budget,omitempty"`
 	// Acceptance is the item's acceptance criteria (gofer-3nxa.4).
 	Acceptance string `json:"acceptance,omitempty"`
+	// CheckPrompt / CheckPromptSource are the item's delivery-check requirement and its source.
+	CheckPrompt       string `json:"check_prompt,omitempty"`
+	CheckPromptSource string `json:"check_prompt_source,omitempty"`
 	// Scope is the item's declared change scope (path globs, gofer-3nxa.3).
 	Scope []string `json:"scope,omitempty"`
 	// PrimeKeywords are the task keywords of the item's job (gofer-11tz): the job the
@@ -238,7 +241,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 		After: t.After, Auto: t.Auto, Cmd: t.Cmd, Model: t.Model, Budget: t.Budget,
-		Acceptance: t.Acceptance, Scope: t.Scope, PrimeKeywords: t.PrimeKeywords,
+		Acceptance: t.Acceptance, CheckPrompt: t.CheckPrompt, CheckPromptSource: t.CheckPromptSource, Scope: t.Scope, PrimeKeywords: t.PrimeKeywords,
 		ContinueFrom: t.ContinueFrom, ContinuedBy: t.ContinuedBy, ContinueNote: t.ContinueNote,
 	}
 }

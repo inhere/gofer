@@ -156,7 +156,10 @@ var schemaStmts = []string{
   hold_expires_at  INTEGER,
   hold_json        TEXT,
   mcp_json         TEXT,
-  delivery_json    TEXT
+  delivery_json    TEXT,
+  check_json       TEXT,
+  check_resume_count INTEGER NOT NULL DEFAULT 0,
+  check_error      TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -462,6 +465,9 @@ var schemaStmts = []string{
   budget_json    TEXT,
   -- acceptance criteria the dispatched job's prompt and review panel carry.
   acceptance     TEXT,
+  -- delivery-check requirement (not a command) carried by this plan item.
+  check_prompt   TEXT,
+  check_prompt_source TEXT,
   -- declared change scope (JSON []string of path globs) of the dispatched job.
   scope_json     TEXT,
   -- task keywords (JSON []string) of the item's job: the tracker-prime material the
@@ -1321,6 +1327,38 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_refs_dst ON refs(dst_kind, dst_id, created_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_refs_src ON refs(src_kind, src_id, field)`,
+	`CREATE TABLE IF NOT EXISTS background_agent_sessions (
+  kind TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  agent TEXT NOT NULL DEFAULT '',
+  project TEXT NOT NULL DEFAULT '',
+  work_dir TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER NOT NULL,
+  runs INTEGER NOT NULL DEFAULT 0,
+  context_used INTEGER,
+  context_limit INTEGER,
+  last_usage_json TEXT,
+  state TEXT NOT NULL DEFAULT 'active',
+  manual_reset INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (kind, session_id)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_background_agent_sessions_key ON background_agent_sessions(kind, project, work_dir, agent, model)`,
+	`CREATE TABLE IF NOT EXISTS background_agent_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  job_id TEXT NOT NULL DEFAULT '',
+  session_id TEXT NOT NULL DEFAULT '',
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  status TEXT NOT NULL,
+  input_bytes INTEGER NOT NULL DEFAULT 0,
+  output_bytes INTEGER NOT NULL DEFAULT 0,
+  usage_json TEXT,
+  error TEXT
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_background_agent_runs_kind_time ON background_agent_runs(kind, started_at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
@@ -1717,6 +1755,15 @@ func (s *Store) migrate() error {
 	if err := add("delivery_json", "delivery_json TEXT"); err != nil {
 		return err
 	}
+	if err := add("check_json", "check_json TEXT"); err != nil {
+		return err
+	}
+	if err := add("check_resume_count", "check_resume_count INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := add("check_error", "check_error TEXT"); err != nil {
+		return err
+	}
 	// 权限表与种入（设计「数据层」/§3，plan T1.3）：建表与种入同一个事务，见 migrateAuth。
 	if err := s.migrateAuth(); err != nil {
 		return err
@@ -2084,6 +2131,12 @@ func (s *Store) migratePlanTodos() error {
 		return err
 	}
 	if err := add("acceptance", "acceptance TEXT"); err != nil {
+		return err
+	}
+	if err := add("check_prompt", "check_prompt TEXT"); err != nil {
+		return err
+	}
+	if err := add("check_prompt_source", "check_prompt_source TEXT"); err != nil {
 		return err
 	}
 	if err := add("scope_json", "scope_json TEXT"); err != nil {

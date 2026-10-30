@@ -113,6 +113,10 @@ func runPlanImport(c *gcli.Command, _ []string) error {
 			acceptance := it.Acceptance
 			patch.Acceptance = &acceptance
 		}
+		if it.CheckPrompt != "" {
+			checkPrompt := it.CheckPrompt
+			patch.CheckPrompt = &checkPrompt
+		}
 		if len(it.Scope) > 0 {
 			scope := it.Scope
 			patch.Scope = &scope

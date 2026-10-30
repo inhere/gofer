@@ -112,7 +112,10 @@ type PlanTodo struct {
 	// Acceptance is the item's acceptance criteria (free text, usually a markdown
 	// list). Copied to JobRequest.Acceptance on dispatch, where Submit appends it to an
 	// agent's prompt and the review panel shows it next to the report.
-	Acceptance string
+	Acceptance  string
+	CheckPrompt string
+	// CheckPromptSource is "explicit" or "prompt_block" ("" = explicit); copied with CheckPrompt.
+	CheckPromptSource string
 	// PrimeKeywords are the subsystems / languages / modules this item's job is about
 	// (gofer-11tz). Copied to JobRequest.PrimeKeywords on dispatch, where they select
 	// and rank the tracker-prime material the job's agent receives.
@@ -161,7 +164,10 @@ type TodoPatch struct {
 	// Budget is the job's spend ceiling (N2 §B); a non-nil all-zero value clears it.
 	Budget *config.Budget `json:"budget,omitempty"`
 	// Acceptance is the item's acceptance criteria; a non-nil empty string clears it.
-	Acceptance *string `json:"acceptance,omitempty"`
+	Acceptance  *string `json:"acceptance,omitempty"`
+	CheckPrompt *string `json:"check_prompt,omitempty"`
+	// CheckPromptSource is the source tag of CheckPrompt ("explicit" | "prompt_block").
+	CheckPromptSource *string `json:"check_prompt_source,omitempty"`
 	// Scope is the item's declared change scope (path globs); a non-nil empty list
 	// clears it.
 	Scope *[]string `json:"scope,omitempty"`
@@ -181,7 +187,7 @@ func (p TodoPatch) Empty() bool {
 	return p.Assignee == nil && p.ProjectKey == nil && p.Template == nil && p.Vars == nil &&
 		p.Verify == nil && p.Review == nil && p.Runner == nil && p.Cwd == nil && p.TimeoutSec == nil &&
 		p.After == nil && p.Auto == nil && p.Cmd == nil && p.Model == nil && p.Budget == nil &&
-		p.Acceptance == nil && p.Scope == nil && p.PrimeKeywords == nil && p.ReadDirs == nil && p.ContinueFrom == nil
+		p.Acceptance == nil && p.CheckPrompt == nil && p.CheckPromptSource == nil && p.Scope == nil && p.PrimeKeywords == nil && p.ReadDirs == nil && p.ContinueFrom == nil
 }
 
 const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
@@ -193,7 +199,7 @@ const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
   COALESCE(timeout_sec,0), COALESCE(dispatch_error,''),
   created_at, updated_at,
   COALESCE(after_json,''), COALESCE(auto,1), COALESCE(cmd_json,''), COALESCE(model,''), COALESCE(budget_json,''),
-  COALESCE(acceptance,''), COALESCE(scope_json,''), COALESCE(prime_keywords_json,''), COALESCE(read_dirs_json,''),
+  COALESCE(acceptance,''), COALESCE(check_prompt,''), COALESCE(check_prompt_source,''), COALESCE(scope_json,''), COALESCE(prime_keywords_json,''), COALESCE(read_dirs_json,''),
   COALESCE(continue_from,''), COALESCE(continued_by,''), COALESCE(continue_note,''),
   COALESCE(author_caller,'')
   FROM plan_todos`
@@ -213,7 +219,7 @@ func scanTodo(sc rowScanner) (PlanTodo, error) {
 		&t.Template, &varsJSON, &verif, &review, &t.Runner, &t.Cwd,
 		&t.TimeoutSec, &t.DispatchError, &t.CreatedAt, &t.UpdatedAt,
 		&afterJSON, &auto, &cmdJSON, &t.Model, &budgetJSON,
-		&t.Acceptance, &scopeJSON, &primeKwJSON, &readDirsJSON,
+		&t.Acceptance, &t.CheckPrompt, &t.CheckPromptSource, &scopeJSON, &primeKwJSON, &readDirsJSON,
 		&t.ContinueFrom, &t.ContinuedBy, &t.ContinueNote, &t.AuthorCaller)
 	if err != nil {
 		return PlanTodo{}, err
@@ -403,13 +409,13 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	const q = `INSERT INTO plan_todos
   (todo_id, plan_id, job_id, title, done, status, started_at, done_at, note, sort,
    assignee, project_key, template, vars_json, verify_json, review, runner, cwd,
-   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, scope_json, prime_keywords_json, read_dirs_json, continue_from, author_caller, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   timeout_sec, dispatch_error, after_json, auto, cmd_json, model, budget_json, acceptance, check_prompt, check_prompt_source, scope_json, prime_keywords_json, read_dirs_json, continue_from, author_caller, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	_, execErr := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
 		t.StartedAt, t.DoneAt, t.Note, t.Sort, t.Assignee, t.ProjectKey, t.Template,
 		varsVal, verifyVal, review, t.Runner, t.Cwd, t.TimeoutSec, t.DispatchError,
-		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, scopeVal, primeKwVal, readDirsVal, t.ContinueFrom, t.AuthorCaller, t.CreatedAt, t.UpdatedAt)
+		afterVal, auto, cmdVal, t.Model, budgetVal, t.Acceptance, t.CheckPrompt, t.CheckPromptSource, scopeVal, primeKwVal, readDirsVal, t.ContinueFrom, t.AuthorCaller, t.CreatedAt, t.UpdatedAt)
 	s.writeMu.Unlock()
 	if execErr != nil {
 		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, execErr)
@@ -642,6 +648,12 @@ func (s *Store) UpdateTodoPatch(todoID string, p TodoPatch) (bool, error) {
 	if p.Acceptance != nil {
 		add("acceptance", *p.Acceptance)
 	}
+	if p.CheckPrompt != nil {
+		add("check_prompt", *p.CheckPrompt)
+	}
+	if p.CheckPromptSource != nil {
+		add("check_prompt_source", *p.CheckPromptSource)
+	}
 	if p.Scope != nil {
 		v, err := encodeTodoJSON(*p.Scope)
 		if err != nil {
@@ -760,6 +772,12 @@ func (t *PlanTodo) ApplyTodoPatch(p TodoPatch) {
 	}
 	if p.Acceptance != nil {
 		t.Acceptance = *p.Acceptance
+	}
+	if p.CheckPrompt != nil {
+		t.CheckPrompt = *p.CheckPrompt
+	}
+	if p.CheckPromptSource != nil {
+		t.CheckPromptSource = *p.CheckPromptSource
 	}
 	if p.Scope != nil {
 		t.Scope = *p.Scope

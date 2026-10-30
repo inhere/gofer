@@ -64,6 +64,11 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.max_job_timeout_sec": {Editable: true},
 	"server.auto_resume_max":     {Editable: true},
 	"server.stall_timeout_sec":   {Editable: true},
+	// Delivery check and shared background-session rotation: restart-required in P0 (the
+	// checker that reads them lands in P1/P2; the write switch and view come with the
+	// web page in P3).
+	"server.delivery_check":    {RestartRequired: true},
+	"server.background_agents": {RestartRequired: true},
 	// JOB-10 skills: the deployment's default binding list and the import size caps.
 	// Both are read where they are used (EffectiveSkills runs per dispatch, the store
 	// reads its limits at import), so a hot edit applies to the NEXT job/import —

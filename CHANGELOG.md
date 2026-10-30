@@ -25,6 +25,7 @@
 - **worktree 默认位置调整**：未显式配置 `worktree.dir` 时改为 `<git 顶层>/.worktrees/<name>`（未给 name 时使用 job id）；显式配置不受影响，已有 `tmp/gofer/wt` worktree 仍可列出、合并与清理。创建默认 worktree 时，gofer 会把 `/.worktrees/` 加入仓库公共 git 目录的本地 `info/exclude`，不修改用户跟踪的 `.gitignore`。
 - **传话类会话附图**（gofer-ioa1）：`r:<sid>` relay 会话如果 agent 的 `deliver_command` 配置了 `deliver_image_args`（每张图展开一次，必须含 `{{image}}`），web 附件会先放到执行机，再以绝对路径追加到送达命令；内置 suga 使用 `--image {{image}}`。旧版 suga 会话进程返回退出码 5 时会明确拒绝且不重试，请升级并重启该会话。
 - **job 与附件默认目录调整**：未显式配置存储路径时，job 结果改写入项目根 `.gofer/jobs/<job-id>`，工作台附件改写入 `.gofer/attachments/<日期>`；显式配置 `storage.root`、交换 / 结果子目录或项目 `exchange_subdir` / `result_subdir` 的行为不变。已有 job 的绝对 `result_dir` 不迁移；旧 `tmp/gofer-attachments` 附件会在后续 7 天清理周期内自然清空。
+- **交付核验契约（P0）**：`job run --check-prompt`、HTTP / MCP、任务书模板与计划待办可携带有界的交付核验要求；新增 `server.delivery_check` 与后台 agent 会话轮换配置，并为核验结果与后台会话记录准备可升级的存储结构。`check_prompt_source`（explicit / prompt_block）标记要求来源，`server.delivery_check.include_acceptance` 默认 true；当前版本仅定义契约与持久化，不会调用检查 agent。
 
 ### 新增
 

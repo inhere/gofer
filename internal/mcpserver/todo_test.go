@@ -133,6 +133,38 @@ func updateTodoSchema(t *testing.T, session *mcp.ClientSession) struct {
 	}{}
 }
 
+// TestTodoCheckPromptParam: gofer_add_todo / gofer_update_todo carry the delivery-check
+// requirement and its source, and the todo view echoes them.
+func TestTodoCheckPromptParam(t *testing.T) {
+	session, jobs := connect(t)
+	if err := jobs.Meta().InsertPlan(jobstore.Plan{PlanID: "plan-chk", Title: "plan-chk"}); err != nil {
+		t.Fatalf("insert plan: %v", err)
+	}
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_add_todo",
+		Arguments: map[string]any{"plan_id": "plan-chk", "title": "checked", "check_prompt": "lists changed files", "check_prompt_source": "prompt_block"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool add_todo: %v", err)
+	}
+	var tv todoView
+	structured(t, res, &tv)
+	if tv.CheckPrompt != "lists changed files" || tv.CheckPromptSource != "prompt_block" {
+		t.Fatalf("added check = %q/%q", tv.CheckPrompt, tv.CheckPromptSource)
+	}
+	res, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_update_todo",
+		Arguments: map[string]any{"todo_id": tv.TodoID, "check_prompt": "tests added"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool update_todo: %v", err)
+	}
+	structured(t, res, &tv)
+	if tv.CheckPrompt != "tests added" {
+		t.Fatalf("updated check = %q", tv.CheckPrompt)
+	}
+}
+
 // TestTodoAcceptanceParam (gofer-3nxa.4): gofer_add_todo / gofer_update_todo carry the
 // acceptance criteria and the todo view echoes them.
 func TestTodoAcceptanceParam(t *testing.T) {
