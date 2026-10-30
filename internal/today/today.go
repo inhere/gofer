@@ -212,7 +212,8 @@ type Card struct {
 	Refs         Refs         `json:"refs"`
 	Actions      []Action     `json:"actions"`
 	Advice       *Advice      `json:"advice"`
-	// Woke marks a card back from 「稍后」; WokeReason is time / job / activity (snooze.go).
+	// Column is the additive inbox projection column; empty keeps old clients unchanged.
+	Column     string `json:"column,omitempty"`
 	Woke       bool   `json:"woke,omitempty"`
 	WokeReason string `json:"woke_reason,omitempty"`
 }
