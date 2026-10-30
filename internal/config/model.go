@@ -650,6 +650,18 @@ func ValidateInbox(in *InboxConfig) error {
 			return fmt.Errorf("server.inbox.rules: duplicate or empty id %q", r.ID)
 		}
 		seen[r.ID] = true
+		for _, prior := range in.Rules {
+			if prior.ID == r.ID || prior.Priority != r.Priority || prior.Column == r.Column {
+				continue
+			}
+			for _, a := range prior.Kinds {
+				for _, b := range r.Kinds {
+					if a == b {
+						return fmt.Errorf("server.inbox.rules: priority %d has overlapping rules %q and %q", r.Priority, prior.ID, r.ID)
+					}
+				}
+			}
+		}
 		if !knownColumns[r.Column] {
 			return fmt.Errorf("server.inbox.rules[%s]: unknown column %q", r.ID, r.Column)
 		}
