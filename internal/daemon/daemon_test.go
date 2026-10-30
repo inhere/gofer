@@ -173,6 +173,10 @@ func TestSpawnDetachedRoundTrip(t *testing.T) {
 	saved := os.Args
 	defer func() { os.Args = saved }()
 	os.Args = []string{os.Args[0], "-test.run=^TestHelperDaemonChild$"}
+	// The child inherits this process's environment (Spawn adds only the sentinel), so
+	// this marker tells the helper it was started by THIS test, not merely run by a
+	// process that happens to carry the sentinel.
+	t.Setenv(helperChildEnv, "1")
 
 	dir := t.TempDir()
 	pidPath := filepath.Join(dir, "t.pid")
@@ -216,8 +220,13 @@ func TestSpawnDetachedRoundTrip(t *testing.T) {
 // TestHelperDaemonChild is the detached child of TestSpawnDetachedRoundTrip: it
 // only runs when re-executed with the EnvSentinel (otherwise it is skipped), and
 // exits on the stop signal the parent sends.
+// helperChildEnv marks the child TestSpawnDetachedRoundTrip started. Daemonized() alone
+// is not enough: a test run inside a job of a -d serve / worker inherited the sentinel
+// (v0.203.1 release verify), and the helper then waited 30s for a signal nobody sends.
+const helperChildEnv = "GOFER_DAEMON_TEST_HELPER_CHILD"
+
 func TestHelperDaemonChild(t *testing.T) {
-	if !Daemonized() {
+	if !Daemonized() || os.Getenv(helperChildEnv) != "1" {
 		t.Skip("helper for TestSpawnDetachedRoundTrip; runs only in the detached child")
 	}
 	os.Stdout.WriteString("child-ready\n")
@@ -317,7 +326,7 @@ func TestKillDetachedKillsChildren(t *testing.T) {
 // TestHelperDaemonExit is the fake child of the failed-start test: it logs an error
 // and exits non-zero at once, like a server that cannot start.
 func TestHelperDaemonExit(t *testing.T) {
-	if !Daemonized() {
+	if !Daemonized() || os.Getenv(helperChildEnv) != "1" {
 		t.Skip("helper for TestSpawnReportsChildExit; runs only in the detached child")
 	}
 	os.Stderr.WriteString("boom: managed server startup identity does not match its spec\n")
@@ -330,6 +339,7 @@ func TestSpawnReportsChildExit(t *testing.T) {
 	saved := os.Args
 	defer func() { os.Args = saved }()
 	os.Args = []string{os.Args[0], "-test.run=^TestHelperDaemonExit$"}
+	t.Setenv(helperChildEnv, "1") // see TestSpawnDetachedRoundTrip
 
 	dir := t.TempDir()
 	pidPath := filepath.Join(dir, "t.pid")
@@ -359,6 +369,10 @@ func TestSpawnReadyEndsWaitEarly(t *testing.T) {
 	saved := os.Args
 	defer func() { os.Args = saved }()
 	os.Args = []string{os.Args[0], "-test.run=^TestHelperDaemonChild$"}
+	// The child inherits this process's environment (Spawn adds only the sentinel), so
+	// this marker tells the helper it was started by THIS test, not merely run by a
+	// process that happens to carry the sentinel.
+	t.Setenv(helperChildEnv, "1")
 
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "t.out.log")
