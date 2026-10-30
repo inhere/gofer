@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 变更
+
+- **job 与附件默认目录调整**：未显式配置存储路径时，job 结果改写入项目根 `.gofer/jobs/<job-id>`，工作台附件改写入 `.gofer/attachments/<日期>`；显式配置 `storage.root`、交换 / 结果子目录或项目 `exchange_subdir` / `result_subdir` 的行为不变。已有 job 的绝对 `result_dir` 不迁移；旧 `tmp/gofer-attachments` 附件会在后续 7 天清理周期内自然清空。
+
 ## [0.203.0] - 2026-10-28
 
 ### 新增

@@ -471,11 +471,13 @@ log:
   max_backups: 10
 
 storage:
-  # 每个项目的数据交换子目录(默认 tmp)。
-  default_exchange_subdir: tmp
-  # 交换目录下的结果子目录(默认 gofer)。
-  default_result_subdir: gofer
-  # 可选的全局存储根目录。留空则结果放在各项目的交换目录下。设置后结果写到
+  # 每个项目的数据交换子目录默认为 tmp；不写结果子目录时结果放在
+  # <项目根>/.gofer/jobs/<job-id>。
+  # 显式配置 default_exchange_subdir / default_result_subdir，或项目的
+  # exchange_subdir / result_subdir 时保持原有交换目录布局。
+  # default_exchange_subdir: tmp
+  # default_result_subdir: gofer
+  # 可选的全局存储根目录。设置后结果写到
   # <root>/<project_key>/<job_id>，容器只能经 HTTP 读回结果(不能走共享挂载)。
   # root: "{config_dir}/results"
   # db_path：SQLite 元数据库的路径。留空时，设置了 root 则为 <root>/gofer.db，

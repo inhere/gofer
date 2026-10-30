@@ -201,8 +201,10 @@ projects:
 
 ```yaml
 storage:
-  default_exchange_subdir: tmp      # 交换目录(默认 tmp)
-  default_result_subdir: gofer      # 结果子目录(默认 gofer, 落项目 <cwd>/tmp/gofer)
+  default_exchange_subdir: tmp      # 交换目录默认 tmp；留空也会使用此默认
+  # default_result_subdir: gofer    # 显式设置时结果沿用旧布局 <项目>/tmp/gofer
+  # 未设置结果子目录时，默认结果目录为 <项目根>/.gofer/jobs/<job-id>；显式
+  # storage.root / 项目 exchange_subdir / result_subdir 不受影响。
   # root: <某挂载路径>              # 设了则结果落 <root>/<project>/<job>, 容器只能经 HTTP 取回
 ```
 
