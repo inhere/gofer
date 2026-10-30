@@ -287,6 +287,12 @@ func primeRefocusSource(source string) (enabled, resumed bool) {
 	return false, false
 }
 
+// primeServerBudget bounds the server sections of a prime (handoffs, plans, scoped
+// memories): a session start must not wait on a slow server, so whatever has not
+// answered by then is left out. A variable only so tests that assert the server
+// sections can give a loaded runner more than the production 1.5s (G052).
+var primeServerBudget = 1500 * time.Millisecond
+
 // primeHookStdinTimeout bounds how long prime waits for a hook payload on stdin. A
 // real hook writes it and closes at once; a stdin that never answers (an unusual
 // wrapper) must not delay the session start.
@@ -478,7 +484,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string, keyw
 	// The server budget starts after the local part: the focus line alone may take
 	// up to primeFocusTimeout on a slow machine, which used to leave nothing for the
 	// server sections and drop them silently.
-	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), primeServerBudget)
 	defer cancel()
 	// gofer-j6qn: the global memories come from this machine's copy, so they are
 	// in the prime whether or not the server answers. Within the same budget the copy
