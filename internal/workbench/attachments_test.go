@@ -115,10 +115,16 @@ func (p *fakePlacer) OwnAttachmentsSupported(string) bool { return p.ownSupport 
 
 type sessionRelay struct {
 	recordingRelay
-	session jobstore.AgentSession
+	session    jobstore.AgentSession
+	imagePaths []string
 }
 
 func (r *sessionRelay) Session(string) (jobstore.AgentSession, error) { return r.session, nil }
+func (r *sessionRelay) SendMessageWithImages(_ context.Context, sid, text, operator, origin string, imagePaths []string) (jobstore.SessionMessage, error) {
+	r.imagePaths = append([]string(nil), imagePaths...)
+	return jobstore.SessionMessage{ID: "image-message", SessionID: sid, Text: text, Operator: operator, Channel: "command", Status: jobstore.SessionMessageDelivered}, nil
+}
+func (r *sessionRelay) FollowWeb(string, string) {}
 
 type attFixture struct {
 	store   *jobstore.Store
@@ -355,6 +361,23 @@ func TestTurnAttachmentChecks(t *testing.T) {
 	assert.NoErr(t, err)
 	_, err = f.svc.TurnWithAttachments("alice", "r:t1", "", nil)
 	assert.True(t, errors.Is(err, ErrEmptyTurn))
+}
+
+func TestRelayAttachmentCapabilityAndArgDelivery(t *testing.T) {
+	f := newAttFixture(t, &fakePlacer{abs: `C:/executor/attachments/a one.png`})
+	f.cfg.Agents = map[string]config.AgentConfig{"suga": {
+		Type: "cli-agent", DeliverCommand: []string{"send", "--session", "{{session_id}}"},
+		DeliverStdin: true, DeliverImageArgs: []string{"--image", "{{image}}"},
+	}}
+	thread := Thread{Kind: KindRelay, Agent: "suga", Runner: "local", ProjectKey: "alpha", Resumable: true}
+	f.svc.annotateAttachments(&thread)
+	assert.Eq(t, AttachArg, thread.Attachments)
+	f.relay.session = jobstore.AgentSession{SessionID: "relay-image", Agent: "suga", Runner: "local", ProjectKey: "alpha"}
+	id := f.upload(t, "alice", "PNGDATA")
+	_, err := f.svc.TurnWithAttachments("alice", "r:relay-image", "look", []string{id})
+	assert.NoErr(t, err)
+	assert.Eq(t, []string{`C:/executor/attachments/a one.png`}, f.relay.imagePaths)
+	assert.Eq(t, "r:relay-image", f.bound(t, id).ThreadID)
 }
 
 func TestTurnUnsupportedReceiverSendsNothing(t *testing.T) {

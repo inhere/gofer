@@ -586,7 +586,7 @@ func (s *Service) deliver(ctx context.Context, sid, text, by, origin string, all
 	//
 	// D5 hold: the message must not reach the terminal at all, so even the live-process
 	// channel stays silent and the message waits for the session's next hook.
-	if a.InjectMode == jobstore.InjectModeHold {
+	if a.InjectMode == jobstore.InjectModeHold && len(imagePaths) == 0 {
 		return s.holdMessage(a, text, by, ReasonHoldMode)
 	}
 	notRunning := false

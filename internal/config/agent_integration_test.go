@@ -24,7 +24,6 @@ func TestValidateAgentIntegration(t *testing.T) {
 			a.DeliverOfflineMatch = "(unclosed"
 		},
 	}
-	// deliver_offline_match without a deliver_command is an error; with one it is fine.
 	a := ok
 	a.DeliverOfflineMatch = "gone"
 	if err := validateAgentIntegration("a", a); err == nil || !strings.Contains(err.Error(), "needs deliver_command") {
@@ -39,7 +38,17 @@ func TestValidateAgentIntegration(t *testing.T) {
 		mut(&a)
 		err := validateAgentIntegration("a", a)
 		if err == nil || !strings.Contains(err.Error(), strings.Fields(want)[0]) {
-			t.Fatalf("%s: err=%v", want, err)
+			t.Errorf("%s: err=%v", want, err)
 		}
+	}
+	a = ok
+	a.DeliverCommand = []string{"send", "{{session_id}}", "{{text}}"}
+	a.DeliverImageArgs = []string{"--image", "/tmp/fixed.png"}
+	if err := validateAgentIntegration("a", a); err == nil || !strings.Contains(err.Error(), "deliver_image_args") {
+		t.Fatalf("deliver_image_args without {{image}} accepted: %v", err)
+	}
+	a.DeliverImageArgs = []string{"--image", "{{image}}"}
+	if err := validateAgentIntegration("a", a); err != nil {
+		t.Fatalf("valid deliver_image_args rejected: %v", err)
 	}
 }

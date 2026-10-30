@@ -275,6 +275,9 @@ func (s *Service) SendMessageWithImages(ctx context.Context, sid, text, operator
 	if !s.messagingEnabled {
 		return jobstore.SessionMessage{}, fmt.Errorf("%w: session messaging disabled", ErrInvalidInput)
 	}
+	lock := s.messageLock(sid)
+	lock.Lock()
+	defer lock.Unlock()
 	if strings.TrimSpace(a.Runner) == "" {
 		return jobstore.SessionMessage{}, undeliverable(ReasonNoRunner, errors.New("会话未登记执行机"))
 	}
