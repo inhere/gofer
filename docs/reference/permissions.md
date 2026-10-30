@@ -172,6 +172,9 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/jobs/{id}/interactions/{interaction_id}/punt` | `Require` | `interaction.answer` | — | `Resource(job)` | 写 |
 | `GET` | `/v1/jobs/{id}/logs/stderr` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `GET` | `/v1/jobs/{id}/logs/stdout` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/previews` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `POST` | `/v1/jobs/{id}/previews` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 写 |
+| `DELETE` | `/v1/jobs/{id}/previews/{preview_id}` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 写 |
 | `GET` | `/v1/jobs/{id}/pty/recording` | `InHandler(deny)` | `job.attach.others`、`job.attach` | — | `Resource(job)` | 读 |
 | `GET` | `/v1/jobs/{id}/pty/sessions` | `InHandler(deny)` | `job.attach.others`、`job.attach` | — | `Resource(job)` | 读 |
 | `POST` | `/v1/jobs/{id}/rebuild` | `InHandler(deny)` | `job.manage.others`、`job.submit` | — | `Resource(job)` | 写 |

@@ -3,7 +3,11 @@
 > 配主机 server：project 目录映射、准入白名单、runner 名册、worker 绑定、agent 定义。全部 `<占位符>`，按实际替换。
 > 脚手架：`gofer init server`（`-g` 写全局 `~/.config/gofer/config.yaml`）。校验：`gofer config validate server`。改完用 `gofer serve reload -c <config>`（或 Unix SIGHUP、web 设置页「重新读取文件」）生效。 生成的配置不含示例项目（只有指向默认工作空间的 `default`；示例写在 `projects:` 下的注释里），接着 `gofer project add` 即可。
 
-## 目录
+
+## job 预览
+
+
+CLI：`gofer job preview open <job-id> --port <port> [--ttl 30m]` 创建并只打印一次 URL；`gofer job preview ls <job-id>` 列出租约；`gofer job preview close <job-id> <preview-id>` 撤销租约。
 
 - [结构总览](#结构总览)
 - [projects（配得最多）](#projects配得最多)

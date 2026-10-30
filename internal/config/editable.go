@@ -112,7 +112,8 @@ var fieldPolicies = map[string]FieldPolicy{
 	// TUN-03: the forwarder registration TTL. The httpapi forwarder registry reads it
 	// through a func on every read/write (Config.EffectiveForwarderTTL), so a hot edit
 	// applies to the NEXT registration or listing — nothing caches the duration.
-	"server.tunnel": {Editable: true},
+	"server.tunnel":  {Editable: true},
+	"server.preview": {RestartRequired: true},
 
 	// --- leader: read where it is used -----------------------------------------
 	// MCP-05 阶段 B: the leader block is resolved per wake (config.LeaderConfig, i.e.

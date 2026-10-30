@@ -151,6 +151,15 @@ var jobAuthzCases = []authzCase{
 	{key: "GET /v1/jobs/{id}/request", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/request", nil}
 	}},
+	{key: "POST /v1/jobs/{id}/previews", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/previews", map[string]any{"port": 80}}
+	}},
+	{key: "GET /v1/jobs/{id}/previews", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/previews", nil}
+	}},
+	{key: "DELETE /v1/jobs/{id}/previews/{preview_id}", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodDelete, "/v1/jobs/" + e.job.ID + "/previews/no-such-preview", nil}
+	}},
 	{key: "GET /v1/jobs/{id}/logs/stdout", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/logs/stdout", nil}
 	}},

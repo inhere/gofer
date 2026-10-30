@@ -349,6 +349,10 @@ func ApplyDefaults(cfg *Config) {
 	}
 	// Storage subdirs intentionally stay empty when omitted. Resolved* accessors
 	// distinguish an explicit legacy layout from the new project-root defaults.
+	if cfg.Server.Preview.PortRange == "" {
+		p := cfg.Server.Preview.Effective()
+		cfg.Server.Preview = p
+	}
 	if cfg.Log.MaxSizeMB == 0 {
 		cfg.Log.MaxSizeMB = 50
 	}
@@ -549,6 +553,9 @@ func validate(cfg *Config) error {
 		return err
 	}
 	if err := cfg.ValidateSecrets(); err != nil {
+		return err
+	}
+	if err := cfg.Server.Preview.Validate(); err != nil {
 		return err
 	}
 	if err := cfg.ValidateMCPServers(); err != nil {

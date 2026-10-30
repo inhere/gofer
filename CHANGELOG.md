@@ -30,6 +30,7 @@
 
 - **每日记忆综合 P1（gofer-gah7）**：新增可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏 / 字符与字节预算裁剪，以及 jobstore 运行记录。`GET /v1/memory-syntheses` 与详情接口只读查询记录；默认不启动模型、不保存材料快照、不建立候选队列。
 - **外部触发派活内核（P0）**：新增文件专属 `server.triggers` 配置、HMAC + 时间窗校验、受限输入映射、非 root owner ceiling 派活身份、SQLite 持久幂等 receipt、内存限流和脱敏审计。P0 尚未开放 HTTP/provider 入口，默认不监听外部请求。
+- **server 本机 job 预览**：启用 `server.preview` 后，可为运行中的本机 job 申请短期端口租约；预览端口只反向代理到执行机 `127.0.0.1:<port>`，支持 HTTP / WebSocket，job 终态或撤销后自动失效。
 
 ## [0.203.1] - 2026-10-29
 
