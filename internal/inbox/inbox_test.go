@@ -8,13 +8,18 @@ import (
 )
 
 func TestColumnDefaultsAndExplicitRules(t *testing.T) {
-	for _, kind := range []string{"interaction", "review", "capture"} {
+	for _, kind := range []string{"interaction", "decision", "relay", "permission", "approval", "work", "plan_blocked", "mail_held", "review", "capture", "suggestion", "merge", "memory"} {
 		if got := Column(today.Card{Kind: kind}, nil); got != ColumnAction {
 			t.Fatalf("%s = %q", kind, got)
 		}
 	}
 	if got := Column(today.Card{Kind: "job.terminal"}, nil); got != ColumnFYI {
 		t.Fatalf("terminal = %q", got)
+	}
+	for _, kind := range []string{"work.digest", "activity", "comment", "agent.reply", "lane"} {
+		if got := Column(today.Card{Kind: kind}, nil); got != ColumnFYI {
+			t.Fatalf("fyi %s = %q", kind, got)
+		}
 	}
 	cfg := &config.InboxConfig{Rules: []config.InboxRule{{ID: "only-fyi", Column: ColumnFYI, Kinds: []string{"review"}, Priority: 10}}}
 	if got := Column(today.Card{Kind: "review"}, cfg); got != ColumnFYI {

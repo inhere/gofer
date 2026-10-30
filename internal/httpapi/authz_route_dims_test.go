@@ -22,6 +22,7 @@ var reviewedReadSafe = map[string]string{
 	"POST /v1/attachments":                      "uploads an unsent image that belongs to the uploader alone until it is sent; touches no project state",
 	"DELETE /v1/attachments/{id}":               "the uploader deletes their own unsent image (personal file); a sent one is refused",
 	"POST /v1/mail/{id}/ack":                    "the recipient's own read mark of a letter (reading is delivery); changes nothing for anybody else",
+	"POST /v1/inbox/state":                      "marks or clears the caller's own inbox UI state; changes no source item",
 }
 
 // reviewedMutatingGET lists every GET route that is explicitly Mutating: data-plane
