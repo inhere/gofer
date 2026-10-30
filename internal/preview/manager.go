@@ -193,7 +193,10 @@ func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy) http.Hand
 				http.NotFound(w, r)
 				return
 			}
-			http.SetCookie(w, &http.Cookie{Name: "gofer_preview", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: int(rec.ExpiresAt - time.Now().Unix())})
+			// Secure follows the transport: the default port mode serves plain HTTP on a LAN
+			// address, where a Secure cookie would never be sent back and the preview would
+			// break; behind TLS (a base_domain deployment) it is always Secure.
+			http.SetCookie(w, &http.Cookie{Name: "gofer_preview", Value: token, Path: "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: int(rec.ExpiresAt - time.Now().Unix())})
 			q.Del("token")
 			clean := *r.URL
 			clean.RawQuery = q.Encode()
