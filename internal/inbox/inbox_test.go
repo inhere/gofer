@@ -8,7 +8,7 @@ import (
 )
 
 func TestColumnDefaultsAndExplicitRules(t *testing.T) {
-	for _, kind := range []string{"interaction", "decision", "relay", "permission", "approval", "work", "plan_blocked", "mail_held", "review", "capture", "suggestion", "merge", "memory"} {
+	for _, kind := range []string{"interaction", "decision", "relay", "permission", "approval", "work", "plan_blocked", "mail_held", "review", "capture", "suggestion", "merge", "memory", "job.failed"} {
 		if got := Column(today.Card{Kind: kind}, nil); got != ColumnAction {
 			t.Fatalf("%s = %q", kind, got)
 		}

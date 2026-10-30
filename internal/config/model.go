@@ -393,6 +393,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	out.WorkerEnrollment = sc.WorkerEnrollment.clone()
 	if sc.Inbox != nil {
 		i := *sc.Inbox
+		i.Enabled = clonePtr(sc.Inbox.Enabled)
 		i.Rules = slices.Clone(sc.Inbox.Rules)
 		for n := range i.Rules {
 			i.Rules[n].Kinds = slices.Clone(i.Rules[n].Kinds)
@@ -622,26 +623,40 @@ func EffectiveSubmitAgents(list []string) []string {
 
 // InboxRule is one structured server-side rule for the Today inbox projection.
 type InboxRule struct {
-	ID          string   `yaml:"id" json:"id"`
-	Column      string   `yaml:"column" json:"column"`
-	Kinds       []string `yaml:"kinds,omitempty" json:"kinds,omitempty"`
+	ID       string   `yaml:"id" json:"id"`
+	Column   string   `yaml:"column" json:"column"`
+	Kinds    []string `yaml:"kinds,omitempty" json:"kinds,omitempty"`
+	Projects []string `yaml:"projects,omitempty" json:"projects,omitempty"`
+	Priority int      `yaml:"priority" json:"priority"`
+	// Events and IncludeExec are reserved: cards carry no notify event key and no exec
+	// marker to match on, so ValidateInbox rejects them rather than accept a field that
+	// would never take effect. They stay in the struct so the rejection can name them.
 	Events      []string `yaml:"events,omitempty" json:"events,omitempty"`
-	Projects    []string `yaml:"projects,omitempty" json:"projects,omitempty"`
-	Priority    int      `yaml:"priority" json:"priority"`
 	IncludeExec bool     `yaml:"include_exec,omitempty" json:"include_exec,omitempty"`
 }
 
 // InboxConfig controls the personal inbox projection. Notification switches do not affect it.
 type InboxConfig struct {
-	Enabled bool        `yaml:"enabled,omitempty" json:"enabled"`
+	// Enabled is a pointer so "unset" (nil) means on: writing an inbox block with only
+	// rules must not silently turn the inbox off. Only an explicit false disables it.
+	Enabled *bool       `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	Rules   []InboxRule `yaml:"rules,omitempty" json:"rules,omitempty"`
+}
+
+// IsEnabled reports whether the inbox projection is on; a nil config or an unset
+// enabled both mean on.
+func (c *InboxConfig) IsEnabled() bool {
+	return c == nil || c.Enabled == nil || *c.Enabled
 }
 
 // DefaultInboxRules returns the shipped two-column policy.
 func DefaultInboxRules() []InboxRule {
 	return []InboxRule{
-		{ID: "action", Column: "action", Kinds: []string{"interaction", "decision", "relay", "permission", "approval", "work", "plan_blocked", "mail_held", "review", "capture", "suggestion", "merge", "memory"}, Priority: 100, IncludeExec: true},
-		{ID: "fyi", Column: "fyi", Kinds: []string{"job.terminal", "work.digest", "activity", "comment", "agent.reply", "lane"}, Priority: 90, IncludeExec: true},
+		{ID: "action", Column: "action", Kinds: []string{"interaction", "decision", "relay", "permission", "approval", "work", "plan_blocked", "mail_held", "review", "capture", "suggestion", "merge", "memory",
+			// job.failed: a failed / timed-out job nobody has continued yet; the person decides
+			// whether to resume or retry it. See the inbox handler's terminal-job classification.
+			"job.failed"}, Priority: 100},
+		{ID: "fyi", Column: "fyi", Kinds: []string{"job.terminal", "work.digest", "activity", "comment", "agent.reply", "lane"}, Priority: 90},
 	}
 }
 
@@ -652,7 +667,6 @@ func ValidateInbox(in *InboxConfig) error {
 	}
 	knownColumns := map[string]bool{"action": true, "fyi": true}
 	knownKinds := map[string]bool{}
-	knownEvents := map[string]bool{"interaction.created": true, "session.awaiting_reply": true, "job.awaiting_approval": true, "plan.blocked": true, "work.needs_me": true, "job.needs_review": true, "job.terminal": true, "work.digest": true, "activity.created": true, "comment.created": true, "agent.reply": true, "lane.health": true}
 	for _, r := range DefaultInboxRules() {
 		for _, k := range r.Kinds {
 			knownKinds[k] = true
@@ -687,10 +701,11 @@ func ValidateInbox(in *InboxConfig) error {
 				return fmt.Errorf("server.inbox.rules[%s]: unknown kind %q", r.ID, k)
 			}
 		}
-		for _, e := range r.Events {
-			if !knownEvents[e] {
-				return fmt.Errorf("server.inbox.rules[%s]: unknown event %q", r.ID, e)
-			}
+		if len(r.Events) > 0 {
+			return fmt.Errorf("server.inbox.rules[%s]: events is not supported yet (rules match on kinds and projects)", r.ID)
+		}
+		if r.IncludeExec {
+			return fmt.Errorf("server.inbox.rules[%s]: include_exec is not supported yet (use the include_exec query parameter)", r.ID)
 		}
 	}
 	return nil

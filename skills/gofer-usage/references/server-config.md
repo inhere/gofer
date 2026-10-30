@@ -336,11 +336,13 @@ server:
   #     project: <project>
   #     template: <template>
   #     auth: {kind: hmac-sha256, secret_env: GOFER_TRIGGER_<NAME>}
-  # inbox:                         # Today 双栏投影（个人已读 / 清理状态独立保存）
-  #   enabled: true
-  #   rules:
-  #     - {id: action, column: action, kinds: [interaction, decision, review], priority: 100}
+  # inbox:                         # Today 双栏投影（要处理 action / 仅知会 fyi；个人已读 / 清理状态独立保存）
+  #   enabled: true                #   不写 = 开；false 时 GET /v1/inbox 与 POST /v1/inbox/state 返回 404
+  #   rules:                       #   按 kinds / projects 匹配，priority 大者先；不写 rules = 内置默认
+  #     - {id: action, column: action, kinds: [interaction, decision, review, job.failed], priority: 100}
   #     - {id: fyi, column: fyi, kinds: [job.terminal, work.digest, activity, comment], priority: 90}
+  #   # job.failed = 失败 / 超时且无后续 job 的终态 job（要处理）；已被续接、完成或用户取消的是 job.terminal（仅知会）
+  #   # 规则里的 events / include_exec 暂不支持，写了会在加载时被拒绝；顶栏徽标 total_unread 只统计 action 栏
   # event_hooks: [...]                 # 事件发生时在 server 主机上跑命令(见下「事件钩子」); 只能改文件
 session:                               # 终端会话中继; 0 = 关该判据
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 停下时在 web 等回复
