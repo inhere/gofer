@@ -347,12 +347,8 @@ func ApplyDefaults(cfg *Config) {
 		t := true
 		cfg.Server.WebEnabled = &t
 	}
-	if cfg.Storage.DefaultExchangeSubdir == "" {
-		cfg.Storage.DefaultExchangeSubdir = DefaultExchangeSubdir
-	}
-	if cfg.Storage.DefaultResultSubdir == "" {
-		cfg.Storage.DefaultResultSubdir = DefaultResultSubdir
-	}
+	// Storage subdirs intentionally stay empty when omitted. Resolved* accessors
+	// distinguish an explicit legacy layout from the new project-root defaults.
 	if cfg.Log.MaxSizeMB == 0 {
 		cfg.Log.MaxSizeMB = 50
 	}

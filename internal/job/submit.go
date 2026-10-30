@@ -522,6 +522,12 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	if err != nil {
 		return JobResult{}, err
 	}
+	if cfg.UsesDefaultResultPath(proj) {
+		if err := project.EnsureGoferGitignore(cfg.ExecPath(proj)); err != nil {
+			slog.Warn("job.gofer_gitignore_failed", "event", "job.gofer_gitignore_failed", "component", "job",
+				"project_root", cfg.ExecPath(proj), "err", err)
+		}
+	}
 	st := s.newStore(base)
 	jobID := req.heldJobID
 	if jobID != "" {

@@ -30,11 +30,8 @@ func TestLoadDefaultsWhenMissing(t *testing.T) {
 	if cfg.Server.Addr != DefaultAddr {
 		t.Errorf("addr default = %q, want %q", cfg.Server.Addr, DefaultAddr)
 	}
-	if cfg.Storage.DefaultExchangeSubdir != DefaultExchangeSubdir {
-		t.Errorf("exchange default = %q", cfg.Storage.DefaultExchangeSubdir)
-	}
-	if cfg.Storage.DefaultResultSubdir != DefaultResultSubdir {
-		t.Errorf("result default = %q", cfg.Storage.DefaultResultSubdir)
+	if cfg.Storage.DefaultExchangeSubdir != "" || cfg.Storage.DefaultResultSubdir != "" {
+		t.Errorf("storage defaults must remain unset: %+v", cfg.Storage)
 	}
 	if cfg.Projects == nil || cfg.Agents == nil || cfg.Runners == nil {
 		t.Error("maps should be initialized")

@@ -90,27 +90,38 @@ func PruneOwnAttachmentsAfterPut(dst, component string) {
 	}
 }
 
-// AttachmentsDir returns the absolute attachment directory of a project:
-// <exchange dir>/gofer-attachments.
-//
-// The result is re-checked to be INSIDE the project's execution root, because its
-// caller DELETES directories in it: project.ExchangeDir already resolves the exchange
-// subdir with project.SafeJoin (so an escaping `exchange_subdir` is refused), and the
-// extra relative check keeps that guarantee explicit here instead of one import away.
+// AttachmentsDir returns the absolute attachment directory of a project. The default is
+// <project root>/.gofer/attachments; an explicit exchange_subdir keeps the historical
+// <exchange dir>/gofer-attachments location.
 func AttachmentsDir(cfg *config.Config, proj config.ProjectConfig) (string, error) {
-	exchange, err := project.ExchangeDir(cfg, proj)
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(exchange, AttachmentsDirName)
 	root := cfg.ExecPath(proj)
 	if root == "" {
 		return "", fmt.Errorf("project has no execution path")
+	}
+	var dir string
+	if cfg.HasExplicitExchangeSubdir(proj) {
+		exchange, err := project.ExchangeDir(cfg, proj)
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(exchange, AttachmentsDirName)
+	} else {
+		dir = filepath.Join(root, ".gofer", "attachments")
 	}
 	if !IsAttachmentPath(root, dir) {
 		return "", fmt.Errorf("attachments dir %q is outside the project root %q", dir, root)
 	}
 	return dir, nil
+}
+
+// LegacyAttachmentsDir returns the old exchange-based attachment directory so cleanup
+// can age out files created before the default moved.
+func LegacyAttachmentsDir(cfg *config.Config, proj config.ProjectConfig) (string, error) {
+	exchange, err := project.ExchangeDir(cfg, proj)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(exchange, AttachmentsDirName), nil
 }
 
 // IsAttachmentPath reports whether path lies strictly inside dir (the directory itself
@@ -176,21 +187,39 @@ func PruneAttachmentsAfterPut(cfg *config.Config, proj config.ProjectConfig, dst
 	if cfg == nil {
 		return
 	}
-	dir, err := AttachmentsDir(cfg, proj)
+	primary, err := AttachmentsDir(cfg, proj)
 	if err != nil {
 		return // no attachment dir for this project: nothing was placed there either
 	}
-	if !IsAttachmentPath(dir, dst) {
+	legacy, legacyErr := LegacyAttachmentsDir(cfg, proj)
+	dirs := []string{primary}
+	if legacyErr == nil && legacy != primary {
+		dirs = append(dirs, legacy)
+	}
+	inside := false
+	for _, dir := range dirs {
+		if IsAttachmentPath(dir, dst) {
+			inside = true
+			break
+		}
+	}
+	if !inside {
 		return // an ordinary transfer destination: not ours to clean
 	}
-	removed, err := PruneAttachments(dir, time.Now())
-	if err != nil {
-		slog.Warn("xfer.attachments_prune_failed", "event", "xfer.attachments_prune_failed", "component", component,
-			"dir", dir, "err", err)
-		return
+	if err := project.EnsureGoferGitignore(cfg.ExecPath(proj)); err != nil {
+		slog.Warn("xfer.gofer_gitignore_failed", "event", "xfer.gofer_gitignore_failed", "component", component,
+			"project_root", cfg.ExecPath(proj), "err", err)
 	}
-	if len(removed) > 0 {
-		slog.Info("xfer.attachments_pruned", "event", "xfer.attachments_pruned", "component", component,
-			"dir", dir, "count", len(removed), "removed", removed)
+	for _, dir := range dirs {
+		removed, err := PruneAttachments(dir, time.Now())
+		if err != nil {
+			slog.Warn("xfer.attachments_prune_failed", "event", "xfer.attachments_prune_failed", "component", component,
+				"dir", dir, "err", err)
+			continue
+		}
+		if len(removed) > 0 {
+			slog.Info("xfer.attachments_pruned", "event", "xfer.attachments_pruned", "component", component,
+				"dir", dir, "count", len(removed), "removed", removed)
+		}
 	}
 }

@@ -378,7 +378,10 @@ func (s *Service) placeImages(callerID string, recs []jobstore.Attachment, runne
 	}
 	// <exchange subdir>/gofer-attachments/<yyyymmdd>: the base xfer prunes on the executing
 	// machine (xfer.AttachmentsDir), as a project-relative path.
-	base := path.Join(cfg.ResolvedExchangeSubdir(proj), xfer.AttachmentsDirName, s.now().Format("20060102"))
+	base := path.Join(".gofer", "attachments", s.now().Format("20060102"))
+	if cfg.HasExplicitExchangeSubdir(proj) {
+		base = path.Join(cfg.ResolvedExchangeSubdir(proj), xfer.AttachmentsDirName, s.now().Format("20060102"))
+	}
 	deadline := s.now().Add(placeTimeout)
 	out := make([]placedImage, 0, len(recs))
 	for i, rec := range recs {
