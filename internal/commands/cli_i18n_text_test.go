@@ -206,6 +206,9 @@ func cliCatalogKeys(domain string) []string {
 			"cli.job.review.hints_head", "cli.job.review.hotspots", "cli.job.review.removed_comments",
 			"cli.job.review.verify_lines", "cli.job.review.report_verify",
 			"cli.job.findings.none",
+			"cli.job.desc.preview", "cli.job.desc.preview_open", "cli.job.desc.preview_ls", "cli.job.desc.preview_close",
+			"cli.job.flag.preview_port", "cli.job.flag.preview_ttl",
+			"cli.job.preview.err_port", "cli.job.preview.err_ttl",
 		}
 	case "cli.plan":
 		return []string{
@@ -234,5 +237,34 @@ func TestZhHelpDescriptionKeysAreTranslated(t *testing.T) {
 	}
 	if got := i18n.T(i18n.ZhCN, "cli.job.desc.findings"); !strings.Contains(got, "发现但不碰") {
 		t.Errorf("zh findings description = %q", got)
+	}
+}
+
+// TestJobPreviewHelpFollowsLanguage: the `job preview` group's descriptions and flag usages
+// come from the catalog, so each language reads in its own words (zh-CN carries Chinese,
+// en carries none).
+func TestJobPreviewHelpFollowsLanguage(t *testing.T) {
+	keys := []string{
+		"cli.job.desc.preview", "cli.job.desc.preview_open", "cli.job.desc.preview_ls", "cli.job.desc.preview_close",
+		"cli.job.flag.preview_port", "cli.job.flag.preview_ttl", "cli.job.preview.err_port",
+	}
+	hasHan := func(s string) bool {
+		for _, r := range s {
+			if r >= 0x4e00 && r <= 0x9fff {
+				return true
+			}
+		}
+		return false
+	}
+	for _, k := range keys {
+		if got := i18n.T(i18n.ZhCN, k); !hasHan(got) {
+			t.Errorf("zh-CN %s = %q, want Chinese", k, got)
+		}
+		if got := i18n.T(i18n.EN, k); hasHan(got) || got == k {
+			t.Errorf("en %s = %q, want plain English", k, got)
+		}
+	}
+	if got := i18n.T(i18n.ZhCN, "cli.job.preview.err_ttl", "value", "abc"); !strings.Contains(got, "abc") {
+		t.Errorf("err_ttl = %q, want the value filled in", got)
 	}
 }

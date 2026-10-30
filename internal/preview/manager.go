@@ -35,10 +35,20 @@ type Manager struct {
 	listeners map[string]net.Listener
 	servers   map[string]*http.Server
 	ports     map[int]bool
+	// cancels end the request contexts of one lease's server, which is what cuts the
+	// connections net/http no longer tracks once they are hijacked (WebSocket upgrades).
+	cancels map[string]context.CancelFunc
+	timers  map[string]*time.Timer
+	wg      sync.WaitGroup
 }
 
 func New(store *jobstore.Store, cfg config.PreviewConfig) *Manager {
-	return &Manager{store: store, cfg: cfg.Effective(), listeners: map[string]net.Listener{}, servers: map[string]*http.Server{}, ports: map[int]bool{}}
+	// Leases a previous serve left active have no listener in this process: close them
+	// so they neither look alive nor keep their ports out of the pool.
+	if store != nil {
+		_ = store.CloseActivePreviews("server_restart", time.Now().Unix())
+	}
+	return &Manager{store: store, cfg: cfg.Effective(), listeners: map[string]net.Listener{}, servers: map[string]*http.Server{}, ports: map[int]bool{}, cancels: map[string]context.CancelFunc{}, timers: map[string]*time.Timer{}}
 }
 func randomToken() (string, error) {
 	b := make([]byte, 32)
@@ -148,8 +158,13 @@ func (m *Manager) Create(ctx context.Context, jobID, caller, host string, port, 
 		r.Header.Set("Cookie", stripPreviewCookie(r.Header.Get("Cookie")))
 	}
 	h := m.handler(id, tok, rp)
-	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second}
+	baseCtx, cancel := context.WithCancel(context.Background())
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, BaseContext: func(net.Listener) context.Context { return baseCtx }}
 	m.servers[id] = srv
+	m.cancels[id] = cancel
+	// The lease ends on its own at expiry, so the port returns to the pool without
+	// anyone having to send a request to notice.
+	m.timers[id] = time.AfterFunc(time.Duration(ttl)*time.Second, func() { _ = m.Close(id, "expired") })
 	go func() { _ = srv.Serve(ln) }()
 	if strings.TrimSpace(host) == "" {
 		host = "127.0.0.1"
@@ -160,7 +175,10 @@ func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy) http.Hand
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rec, ok, e := m.store.GetPreview(id)
 		if e == nil && ok && rec.State == "active" && rec.ExpiresAt <= time.Now().Unix() {
-			_ = m.Close(id, "expired")
+			// Not synchronously: Close shuts this very server down, and a handler
+			// waiting for its own server to drain never returns.
+			m.wg.Add(1)
+			go func() { defer m.wg.Done(); _ = m.Close(id, "expired") }()
 		}
 		if e != nil || !ok || rec.State != "active" || rec.ExpiresAt <= time.Now().Unix() {
 			http.NotFound(w, r)
@@ -233,16 +251,36 @@ func (m *Manager) Close(id, reason string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now().Unix()
-	if srv := m.servers[id]; srv != nil {
-		_ = srv.Shutdown(context.Background())
+	if t := m.timers[id]; t != nil {
+		t.Stop()
+		delete(m.timers, id)
+	}
+	if cancel := m.cancels[id]; cancel != nil {
+		cancel()
+		delete(m.cancels, id)
+	}
+	// Close, not Shutdown: a revoked or expired preview must not wait for its open
+	// connections to go idle (and a handler may be what called us).
+	srv := m.servers[id]
+	live := srv != nil
+	if srv != nil {
+		_ = srv.Close()
 		delete(m.servers, id)
 	}
 	if ln := m.listeners[id]; ln != nil {
 		_ = ln.Close()
 		delete(m.listeners, id)
 	}
-	if p, ok, e := m.store.GetPreview(id); e == nil && ok {
-		delete(m.ports, p.Port)
+	p, ok, e := m.store.GetPreview(id)
+	if e == nil && ok {
+		if live {
+			delete(m.ports, p.Port)
+		}
+		if p.State != "active" {
+			// Already ended (expired, revoked): keep its recorded reason, and do not
+			// touch the port, which may belong to another lease by now.
+			return nil
+		}
 	}
 	return m.store.UpdatePreviewState(id, "closed", reason, now)
 }
@@ -268,6 +306,7 @@ func (m *Manager) CloseAll() {
 	for _, id := range ids {
 		_ = m.Close(id, "shutdown")
 	}
+	m.wg.Wait()
 }
 func (m *Manager) Sweep()         { rs, e := m.store.ListPreviews(""); _ = rs; _ = e }
 func (m *Manager) String() string { return strconv.Itoa(len(m.servers)) }
