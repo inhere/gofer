@@ -105,12 +105,10 @@ func TestExampleYAMLParses(t *testing.T) {
 		t.Errorf("server.token_env = %q", cfg.Server.TokenEnv)
 	}
 
-	// storage basics.
-	if cfg.Storage.DefaultExchangeSubdir != "tmp" {
-		t.Errorf("storage.default_exchange_subdir = %q", cfg.Storage.DefaultExchangeSubdir)
-	}
-	if cfg.Storage.DefaultResultSubdir != "gofer" {
-		t.Errorf("storage.default_result_subdir = %q", cfg.Storage.DefaultResultSubdir)
+	// The shipped default leaves storage subdirs unset so the resolver can distinguish
+	// the new project-root layout from an explicit legacy setting.
+	if cfg.Storage.DefaultExchangeSubdir != "" || cfg.Storage.DefaultResultSubdir != "" {
+		t.Errorf("storage subdirs should be unset: %+v", cfg.Storage)
 	}
 
 	// projects: keys present, host_path populated, capture_diff stays unset (nil).

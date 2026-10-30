@@ -42,7 +42,7 @@ func TestWorkbenchRelayTurnWithAttachmentsOnLadder(t *testing.T) {
 		t.Fatalf("turn = %d %v", status, out)
 	}
 	decisionID := out["decision_id"].(string)
-	matches, _ := filepath.Glob(filepath.Join(f.root, "tmp", "gofer-attachments", "*", id+".png"))
+	matches, _ := filepath.Glob(filepath.Join(f.root, ".gofer", "attachments", "*", id+".png"))
 	if len(matches) != 1 {
 		t.Fatalf("placed file not found under the project: %v", matches)
 	}
@@ -87,7 +87,7 @@ func TestWorkbenchRelayTurnUndeliverableSendsAndPlacesNothing(t *testing.T) {
 	if status != http.StatusConflict || !strings.Contains(detail, "会话当前无法接收消息") || strings.Contains(detail, "no open turn") {
 		t.Fatalf("turn = %d %v, want 409 with the friendly reason", status, out)
 	}
-	if _, err := os.Stat(filepath.Join(f.root, "tmp", "gofer-attachments")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(f.root, ".gofer", "attachments")); !os.IsNotExist(err) {
 		t.Fatalf("a file was placed for an undeliverable session (err=%v)", err)
 	}
 	if rec, _, _ := f.s.jobs.Meta().GetAttachment(id); rec.ThreadID != "" {
@@ -145,7 +145,7 @@ func TestWorkbenchRelayTurnViaMessengerWithAttachments(t *testing.T) {
 	if status != http.StatusOK || out["path"] != "messenger" || out["message_id"] == nil {
 		t.Fatalf("turn = %d %v, want 200 via the messenger with a message id", status, out)
 	}
-	matches, _ := filepath.Glob(filepath.Join(f.root, "tmp", "gofer-attachments", "*", id+".png"))
+	matches, _ := filepath.Glob(filepath.Join(f.root, ".gofer", "attachments", "*", id+".png"))
 	if len(matches) != 1 {
 		t.Fatalf("placed file not found: %v", matches)
 	}

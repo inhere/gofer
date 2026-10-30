@@ -24,7 +24,7 @@ gofer tool xfer rm <id>                                                  # 立�
 
 恰好一端是远端，写法 `<runner>:<project>/<项目内相对路径>`，runner 填 worker id 或 `server`。
 
-`xfer show` 在执行机回报了绝对路径时多一行 `abs_path`（推送完成时由执行机报它自己盘上的真实路径，例如 `/home/u/proj/tmp/gofer-attachments/20261019/xf-abc12345.png`）。拉取、失败的传输，以及版本较旧的 worker 不报这个字段：那时只有 `path`，按项目根目录拼。目标不是项目时多一行 `target: attachments`：那是往执行机自己的附件目录（`<该机 config-dir>/run/attachments/`）放文件，`path` 相对它、`project` 为空（工作台给无项目的会话送图就走这条路，需要 worker 协议 v27 以上）。
+`xfer show` 在执行机回报了绝对路径时多一行 `abs_path`（推送完成时由执行机报它自己盘上的真实路径，例如 `/home/u/proj/.gofer/attachments/20261019/xf-abc12345.png`）。拉取、失败的传输，以及版本较旧的 worker 不报这个字段：那时只有 `path`，按项目根目录拼。目标不是项目时多一行 `target: attachments`：那是往执行机自己的附件目录（`<该机 config-dir>/run/attachments/`）放文件，`path` 相对它、`project` 为空（工作台给无项目的会话送图就走这条路，需要 worker 协议 v27 以上）。
 
 ## 让 job 自己带文件：--upload / --collect
 
@@ -39,7 +39,7 @@ gofer tool xfer rm <id>                                                  # 立�
 - 路径按**执行机**的项目根解析，必须在项目根内（与 `job run --cwd` 同一边界）；目标目录不存在会自动创建。
 - 只传单文件、不续传。传目录先打包：`tar czf x.tgz dir/` 或 Windows `Compress-Archive -Path dir -DestinationPath x.zip`，传过去再解。
 - 推送前先预检（runner 在线、项目、路径、大小），通过才上传；两端都校验 sha256，拉取落本地前先写临时名再改名。
-- 执行机的 `tmp/gofer-attachments/`（项目改了 `exchange_subdir` 时是那个目录下的 `gofer-attachments/`）gofer 自己收拾：每次往它里面放文件时，删掉 7 天前的日期子目录（`YYYYMMDD`）；只删这一层、只在这个目录里，手工放进去的其他名字不会被动。
+- 执行机的项目附件默认放在项目根的 `.gofer/attachments/<YYYYMMDD>/`；显式配置 `exchange_subdir` 的项目仍放在对应交换目录的 `gofer-attachments/`。每次往新目录放文件时，gofer 同时清理新旧两处位置中 7 天前的日期子目录（只删这一层，其他名字不会动）。
 - 失败原样打印、退出码 1：`exists`（加 `--force`）、`path escapes project`、`worker offline`（不排队，重跑即可）、`too large`；worker 侧单次传输默认 600 秒超时（worker 配置 `xfer_timeout_sec`）。
 - **别传 `.env` / 私钥 / token**：gofer 不做内容审查。
 - **每条传输属于发起它的 caller**：非 owner、无 `schedule.manage.others` 的 `ls` 只列出自己的传输，`show`（读单条）/ `rm` / 下载他人 `get` 的结果都 403；换 token 后看不到之前那条（用带 `xfer.manage.others` 的 token 或切回原 token）。worker 自用的 `PUT .../content`（上传 get 结果）/ `GET .../content`（拉 put 源）不受影响，仍限分配给它的那条。

@@ -10,13 +10,13 @@ import (
 	"github.com/inhere/gofer/internal/config"
 )
 
-// attachmentsFixture is a project whose exchange dir is the default `tmp`, so the
-// attachment directory is <root>/tmp/gofer-attachments — the documented location.
+// attachmentsFixture is a project with no explicit exchange setting, so the default
+// attachment directory is <root>/.gofer/attachments.
 func attachmentsFixture(t *testing.T) (root string, cfg *config.Config) {
 	t.Helper()
 	root = t.TempDir()
 	cfg = &config.Config{
-		Storage: config.StorageConfig{DefaultExchangeSubdir: config.DefaultExchangeSubdir},
+		Storage: config.StorageConfig{},
 		Projects: map[string]config.ProjectConfig{
 			"alpha": {HostPath: root},
 		},
@@ -43,7 +43,7 @@ func TestAttachmentsDirResolvesUnderProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AttachmentsDir: %v", err)
 	}
-	if want := filepath.Join(root, "tmp", AttachmentsDirName); dir != want {
+	if want := filepath.Join(root, ".gofer", "attachments"); dir != want {
 		t.Fatalf("AttachmentsDir = %q, want %q", dir, want)
 	}
 
@@ -147,6 +147,11 @@ func TestPruneAttachmentsAfterPutOnlyInsideAttachmentsDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AttachmentsDir: %v", err)
 	}
+	legacyDir, err := LegacyAttachmentsDir(cfg, proj)
+	if err != nil {
+		t.Fatalf("LegacyAttachmentsDir: %v", err)
+	}
+	legacyStale := dateDir(t, legacyDir, time.Now().AddDate(0, 0, -30))
 	stale := dateDir(t, dir, time.Now().AddDate(0, 0, -30))
 
 	// A put that landed somewhere else in the project: nothing is pruned.
@@ -164,6 +169,9 @@ func TestPruneAttachmentsAfterPutOnlyInsideAttachmentsDir(t *testing.T) {
 	PruneAttachmentsAfterPut(cfg, proj, filepath.Join(dir, "20261019", "x.png"), "server")
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("an attachment placement left the stale date dir behind (err=%v)", err)
+	}
+	if _, err := os.Stat(legacyStale); !os.IsNotExist(err) {
+		t.Fatalf("the legacy attachment date dir survived the cleanup (err=%v)", err)
 	}
 }
 
@@ -186,21 +194,24 @@ func TestLocalRunnerPutPrunesAndReportsAbsPath(t *testing.T) {
 	if err := os.WriteFile(src, []byte("png-bytes"), 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-	absPath, err := mgr.PutAndWait(t.Context(), "tester", "server", "alpha", src, "tmp/gofer-attachments/"+today+"/shot.png", 30*time.Second)
+	absPath, err := mgr.PutAndWait(t.Context(), "tester", "server", "alpha", src, ".gofer/attachments/"+today+"/shot.png", 30*time.Second)
 	if err != nil {
 		t.Fatalf("PutAndWait: %v", err)
 	}
-	want := filepath.Join(root, "tmp", AttachmentsDirName, today, "shot.png")
+	want := filepath.Join(root, ".gofer", "attachments", today, "shot.png")
 	if absPath != want {
 		t.Fatalf("abs path = %q, want %q", absPath, want)
 	}
 	if _, err := os.Stat(want); err != nil {
 		t.Fatalf("the attachment was not placed at its absolute path: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(root, ".gofer", ".gitignore")); err != nil {
+		t.Fatalf("gofer .gitignore was not created: %v", err)
+	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("the stale date dir survived the placement (err=%v)", err)
 	}
-	if !strings.HasSuffix(absPath, filepath.Join(AttachmentsDirName, today, "shot.png")) {
+	if !strings.HasSuffix(filepath.ToSlash(absPath), filepath.ToSlash(filepath.Join(".gofer", "attachments", today, "shot.png"))) {
 		t.Fatalf("reported path %q is not the attachment layout", absPath)
 	}
 }

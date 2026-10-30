@@ -362,8 +362,8 @@ log:                                   # JSONL 文件日志(server 默认 <confi
   max_age_days: 14
   max_backups: 10
 storage:
-  default_exchange_subdir: tmp
-  default_result_subdir: gofer
+  # 交换目录默认 tmp；结果默认写入项目根的 .gofer/jobs/<job-id>。
+  # 显式设置 default_result_subdir / 项目 exchange_subdir / result_subdir 时保持旧布局。
   # root: "{config_dir}/results"       # 设了则结果落 <root>/<project>/<job>
   # db_path: "{config_dir}/gofer.db"   # 显式 SQLite 路径
   # retention: {...}                   # 终态 job 保留上限

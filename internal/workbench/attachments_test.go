@@ -242,7 +242,7 @@ func TestTurnFileDeliveryLocalRunnerWritesRealFile(t *testing.T) {
 	abs := strings.TrimPrefix(prompt, "see this\n\n[附图 1] ")
 	assert.True(t, filepath.IsAbs(abs), abs)
 	assert.True(t, strings.HasSuffix(abs, id+".png"), abs)
-	assert.True(t, strings.Contains(filepath.ToSlash(abs), "/gofer-attachments/"+time.Now().Format("20060102")+"/"), abs)
+	assert.True(t, strings.Contains(filepath.ToSlash(abs), "/.gofer/attachments/"+time.Now().Format("20060102")+"/"), abs)
 	data, err := os.ReadFile(abs)
 	assert.NoErr(t, err)
 	assert.Eq(t, "PNGDATA", string(data))
@@ -315,9 +315,9 @@ func TestTurnOldWorkerFallsBackToRelativePath(t *testing.T) {
 	res, err := f.svc.TurnWithAttachments("alice", "r:t1", "look", []string{id})
 	assert.NoErr(t, err)
 	assert.Eq(t, "answered-decision", res.DecisionID)
-	want := "look [附图 1] tmp/gofer-attachments/" + time.Now().Format("20060102") + "/" + id + ".png（相对于项目 alpha 根目录）"
+	want := "look [附图 1] .gofer/attachments/" + time.Now().Format("20060102") + "/" + id + ".png（相对于项目 alpha 根目录）"
 	assert.Eq(t, want, f.relay.answer)
-	assert.Eq(t, []string{"w-old|alpha|tmp/gofer-attachments/" + time.Now().Format("20060102") + "/" + id + ".png"}, placer.calls)
+	assert.Eq(t, []string{"w-old|alpha|.gofer/attachments/" + time.Now().Format("20060102") + "/" + id + ".png"}, placer.calls)
 	rec := f.bound(t, id)
 	assert.Eq(t, "r:t1", rec.ThreadID)
 	assert.Eq(t, RefKindDecision, rec.RefKind)

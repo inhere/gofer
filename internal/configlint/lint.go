@@ -155,6 +155,12 @@ func (s *session) equivalent(file string, lines []string) bool {
 func effective(cfg *config.Config) (string, error) {
 	c := cfg.Clone()
 	c.Include = nil
+	if c.Storage.DefaultExchangeSubdir == "" {
+		c.Storage.DefaultExchangeSubdir = config.DefaultExchangeSubdir
+	}
+	if c.Storage.DefaultResultSubdir == "" {
+		c.Storage.DefaultResultSubdir = config.DefaultResultSubdir
+	}
 	c.Agents = agent.EffectiveAgents(cfg)
 	projects := make(map[string]config.ProjectConfig, len(cfg.Projects))
 	for k, p := range cfg.Projects {

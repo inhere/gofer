@@ -20,7 +20,11 @@ import (
 const (
 	DefaultAddr           = "0.0.0.0:8765"
 	DefaultExchangeSubdir = "tmp"
-	DefaultResultSubdir   = "gofer"
+	// DefaultResultSubdir is the default result base relative to the project root.
+	// It is intentionally not joined below the exchange directory: exchange files remain
+	// in tmp, while durable job output lives under the project-managed .gofer directory.
+	DefaultResultSubdir = ".gofer/jobs"
+	legacyResultSubdir  = "gofer"
 )
 
 // Config is the top-level gofer configuration. Unknown top-level
@@ -3579,26 +3583,46 @@ func TimeoutLimitKey(source, projectKey string) string {
 	return ""
 }
 
+// HasExplicitExchangeSubdir reports whether this project uses the old exchange-based
+// layout because an exchange subdir was explicitly configured at either scope.
+func (c *Config) HasExplicitExchangeSubdir(p ProjectConfig) bool {
+	return p.ExchangeSubdir != "" || c != nil && c.Storage.DefaultExchangeSubdir != ""
+}
+
+// UsesDefaultResultPath reports whether result files use the new project-root layout.
+// Any explicit storage/project path setting preserves the historical exchange-based path.
+func (c *Config) UsesDefaultResultPath(p ProjectConfig) bool {
+	if c == nil {
+		return false
+	}
+	return c.Storage.Root == "" && !c.HasExplicitExchangeSubdir(p) &&
+		p.ResultSubdir == "" && c.Storage.DefaultResultSubdir == ""
+}
+
 // ResolvedExchangeSubdir returns the effective exchange subdir for a project,
 // falling back to the storage default (or the hard default) when unset.
 func (c *Config) ResolvedExchangeSubdir(p ProjectConfig) string {
 	if p.ExchangeSubdir != "" {
 		return p.ExchangeSubdir
 	}
-	if c.Storage.DefaultExchangeSubdir != "" {
+	if c != nil && c.Storage.DefaultExchangeSubdir != "" {
 		return c.Storage.DefaultExchangeSubdir
 	}
 	return DefaultExchangeSubdir
 }
 
-// ResolvedResultSubdir returns the effective result subdir for a project,
-// falling back to the storage default (or the hard default) when unset.
+// ResolvedResultSubdir returns the effective result subdir shown by config/project
+// commands. The new default is rooted at the project, while any explicit path setting
+// keeps the historical result subdir spelling.
 func (c *Config) ResolvedResultSubdir(p ProjectConfig) string {
 	if p.ResultSubdir != "" {
 		return p.ResultSubdir
 	}
-	if c.Storage.DefaultResultSubdir != "" {
+	if c != nil && c.Storage.DefaultResultSubdir != "" {
 		return c.Storage.DefaultResultSubdir
+	}
+	if c != nil && c.HasExplicitExchangeSubdir(p) {
+		return legacyResultSubdir
 	}
 	return DefaultResultSubdir
 }
