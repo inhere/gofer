@@ -90,10 +90,9 @@ func (s *Server) handleInbox(c *rux.Context) {
 		if j.Status != "done" && j.SourceJobID == "" {
 			col = "action"
 		}
-		card := terminalCard(j, col)
-		item, _ := inbox.NewItem(card, ic, inbox.State{})
-		if item.Column == "" {
-			item.Column = col
+		item, ok := inbox.NewItem(terminalCard(j, col), ic, inbox.State{})
+		if !ok {
+			continue
 		}
 		if st, exists := states[item.Key]; exists && st.SourceRevision == item.SourceRevision {
 			item.State = inboxState(st)
@@ -142,6 +141,22 @@ func (s *Server) currentInboxItems(c *rux.Context) (map[string]inbox.Item, error
 	out := make(map[string]inbox.Item, len(resp.Decisions))
 	for _, card := range resp.Decisions {
 		if item, ok := inbox.NewItem(card, ic, inbox.State{}); ok {
+			out[item.Key] = item
+		}
+	}
+	rows, _ := s.jobs.Meta().ListJobs(jobstore.ListQuery{Limit: 50})
+	for _, j := range rows {
+		if j.EndedAt == 0 || (j.Status != "done" && j.Status != "failed" && j.Status != "cancelled" && j.Status != "timed_out") {
+			continue
+		}
+		if s.ceilingActive(c) && !s.scopeFilter(c)(j.ProjectKey) {
+			continue
+		}
+		col := "fyi"
+		if j.Status != "done" && j.SourceJobID == "" {
+			col = "action"
+		}
+		if item, ok := inbox.NewItem(terminalCard(j, col), ic, inbox.State{}); ok {
 			out[item.Key] = item
 		}
 	}

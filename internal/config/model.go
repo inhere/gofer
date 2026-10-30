@@ -638,6 +638,7 @@ func ValidateInbox(in *InboxConfig) error {
 	}
 	knownColumns := map[string]bool{"action": true, "fyi": true}
 	knownKinds := map[string]bool{}
+	knownEvents := map[string]bool{"interaction.created": true, "session.awaiting_reply": true, "job.awaiting_approval": true, "plan.blocked": true, "work.needs_me": true, "job.needs_review": true, "job.terminal": true, "work.digest": true, "activity.created": true, "comment.created": true, "agent.reply": true, "lane.health": true}
 	for _, r := range DefaultInboxRules() {
 		for _, k := range r.Kinds {
 			knownKinds[k] = true
@@ -658,6 +659,11 @@ func ValidateInbox(in *InboxConfig) error {
 		for _, k := range r.Kinds {
 			if !knownKinds[k] {
 				return fmt.Errorf("server.inbox.rules[%s]: unknown kind %q", r.ID, k)
+			}
+		}
+		for _, e := range r.Events {
+			if !knownEvents[e] {
+				return fmt.Errorf("server.inbox.rules[%s]: unknown event %q", r.ID, e)
 			}
 		}
 	}
