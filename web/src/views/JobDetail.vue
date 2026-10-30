@@ -28,6 +28,7 @@ import FilePreview from '../components/FilePreview.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
 import ApprovalPanel from '../components/ApprovalPanel.vue'
 import MergeDialog from '../components/MergeDialog.vue'
+import RefsPanel from '../components/RefsPanel.vue'
 import AttachTerminal from '../components/AttachTerminal.vue'
 import {
   answerInteraction,
@@ -3056,6 +3057,9 @@ onUnmounted(() => {
     <!-- 页签内容结束：上面各区块用默认插槽的作用域变量 active 决定所在页签。 -->
       </template>
     </Tabs>
+
+    <!-- 反向链接：谁引用了这个 job（空则不渲染）。 -->
+    <RefsPanel v-if="job" kind="job" :id="job.id" />
 
     <!-- 产物预览弹层（E19a）：点击产物「预览」打开；md/图/json/文本经 FilePreview
          渲染（md 走 marked + DOMPurify sanitize）。点遮罩或「关闭」收起。 -->

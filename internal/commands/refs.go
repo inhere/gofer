@@ -1,7 +1,7 @@
 package commands
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/gookit/gcli/v3"
@@ -12,14 +12,17 @@ import (
 
 var _ = client.Client{}
 
-// NewRefsCmd implements `gofer refs <id>`; kind is inferred from the id prefix.
+// NewRefsCmd implements `gofer tool refs <id>`; kind is inferred from the id prefix.
 func NewRefsCmd() *gcli.Command {
 	return &gcli.Command{
-		Name: "refs", Desc: "List objects that reference an issue, job, plan, todo or workflow",
+		Name:     "refs",
+		Desc:     cliText("cli.refs.desc"),
+		Help:     cliText("cli.refs.help"),
+		Examples: cliText("cli.refs.examples"),
 		Config: func(c *gcli.Command) {
 			bindConfigFlag(c)
 			bindServerFlags(c)
-			c.AddArg("id", "destination object id", true)
+			c.AddArg("id", cliText("cli.refs.id_arg"), true)
 		},
 		Func: runRefs,
 	}
@@ -41,7 +44,7 @@ func runRefs(c *gcli.Command, _ []string) error {
 	id := argID(c)
 	kind := refKind(id)
 	if kind == "" {
-		return fmt.Errorf("refs requires an id beginning gofer-, job-, plan-, todo- or wf-")
+		return errors.New(cliText("cli.refs.bad_id"))
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -52,7 +55,7 @@ func runRefs(c *gcli.Command, _ []string) error {
 		return err
 	}
 	if len(rows) == 0 {
-		c.Printf("no references to %s\n", id)
+		c.Printf("%s\n", cliText("cli.refs.none", "id", id))
 		return nil
 	}
 	for _, row := range rows {

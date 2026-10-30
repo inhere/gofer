@@ -18,6 +18,7 @@ import StatusBadge from '../components/StatusBadge.vue'
 import InteractionCard from '../components/InteractionCard.vue'
 import PlanBoard from '../components/PlanBoard.vue'
 import TodoDrawer from '../components/TodoDrawer.vue'
+import RefsPanel from '../components/RefsPanel.vue'
 import CommentThread from '../components/CommentThread.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import PlanSupervisor from '../components/PlanSupervisor.vue'
@@ -1854,6 +1855,9 @@ onUnmounted(() => {
         </section>
       </template>
     </Tabs>
+
+    <!-- 反向链接：谁引用了这个计划（空则不渲染）。 -->
+    <RefsPanel v-if="plan" kind="plan" :id="plan.plan_id" />
 
     <p v-if="!plan && !error" class="loading mono">{{ t('plans.detail.loading') }}</p>
 

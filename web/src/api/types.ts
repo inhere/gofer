@@ -2890,6 +2890,21 @@ export interface ScopedMemory {
   updated_by?: string
   deleted?: boolean
 }
+// 反向链接（GET /v1/refs）：谁引用了某个对象。source_kind 目前有 job / plan / todo / comment / mail。
+export interface RefItem {
+  source_kind: string
+  source_id: string
+  kind: string
+  id: string
+  field: string
+  created_at: number
+  source_title?: string
+}
+
+export interface RefsResp {
+  refs: RefItem[]
+}
+
 export interface TrackerIssueView { parent?: string; deps?: Array<{ id: string; type: string }>; id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
 
 export interface TrackerBatchSet { status?: string; close_reason?: string; add_tags?: string[] }
