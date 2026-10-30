@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- **收件箱分栏后端审计修复**：失败的 job 现在进「要处理」（此前误进「仅知会」）：新增 kind `job.failed`，失败 / 超时且没有后续 job 的终态 job 归它；已被自动续投 / 回退或已有后续 job 的失败、完成和用户取消的 job 仍是 `job.terminal`（仅知会），是否「自己是续接出来的」不再影响归属；`timeout` 状态此前因状态名写错从未出现在收件箱。`total_unread` 只统计「要处理」未读（仅知会未读见 `unread.fyi`）。`server.inbox.enabled: false` 现在真正关闭收件箱（两个路由返回 404），只写 rules 不再误关；规则里的 `events` / `include_exec` 暂不支持，加载时明确拒绝而不是静默忽略。`POST /v1/inbox/state` 批量里有不存在的 key 时整批 404 且不写入，不带 keys 的 `seen` / `clear` 作用于全部当前项（可限 `column`），此前对从未标记过的项无效。补齐 `/v1/inbox*` 的 HTTP 测试。
+
 ## [0.204.0] - 2026-10-30
 
 ### 新增

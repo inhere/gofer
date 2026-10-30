@@ -8,6 +8,7 @@ import (
 	"github.com/gookit/rux/v2"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/inbox"
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/today"
 )
@@ -32,23 +33,42 @@ func (s *Server) inboxCaller(c *rux.Context) (string, bool) {
 	return id, true
 }
 
-// GET /v1/inbox returns the current two-column projection and caller-local state.
-func (s *Server) handleInbox(c *rux.Context) {
+// inboxConfig returns the effective inbox policy; nil means "built-in defaults, enabled".
+func (s *Server) inboxConfig() *config.InboxConfig {
+	if cfg := s.serverCfg(); cfg != nil {
+		return cfg.Inbox
+	}
+	return nil
+}
+
+// inboxReady runs the checks shared by both inbox routes: a user caller, a wired store and
+// an enabled projection. server.inbox.enabled=false answers 404 (the feature is absent, not
+// empty) so a client does not mistake "switched off" for "nothing to do".
+func (s *Server) inboxReady(c *rux.Context, needToday bool) (string, bool) {
 	caller, ok := s.inboxCaller(c)
+	if !ok {
+		return "", false
+	}
+	if s.jobs == nil || s.jobs.Meta() == nil || (needToday && s.today == nil) {
+		writeError(c, http.StatusServiceUnavailable, "inbox unavailable", "no job store wired on this server")
+		return "", false
+	}
+	if !s.inboxConfig().IsEnabled() {
+		writeError(c, http.StatusNotFound, "inbox disabled", "server.inbox.enabled is false")
+		return "", false
+	}
+	return caller, true
+}
+
+// GET /v1/inbox returns the current two-column projection and caller-local state.
+// total_unread is the top-bar badge and counts the "action" column only; unread.fyi is
+// reported separately.
+func (s *Server) handleInbox(c *rux.Context) {
+	caller, ok := s.inboxReady(c, true)
 	if !ok {
 		return
 	}
-	if s.today == nil || s.jobs == nil || s.jobs.Meta() == nil {
-		writeError(c, http.StatusServiceUnavailable, "inbox unavailable", "no job store wired on this server")
-		return
-	}
-	cfg := s.serverCfg()
-	var ic *config.InboxConfig
-	if cfg != nil {
-		ic = cfg.Inbox
-	}
-	q := todayQueryForInbox(s, c)
-	resp, err := s.today.Today(q)
+	current, err := s.currentInboxItems(c)
 	if err != nil {
 		writeError(c, 500, "build inbox failed", err.Error())
 		return
@@ -59,65 +79,51 @@ func (s *Server) handleInbox(c *rux.Context) {
 		return
 	}
 	out := inboxResponse{Columns: map[string][]inbox.Item{"action": {}, "fyi": {}}, Unread: map[string]int{"action": 0, "fyi": 0}, GeneratedAt: time.Now().Unix()}
-	for _, card := range resp.Decisions {
-		item, yes := inbox.NewItem(card, ic, inbox.State{})
-		if !yes {
-			continue
-		}
+	for _, item := range current {
 		if st, exists := states[item.Key]; exists && st.SourceRevision == item.SourceRevision {
 			item.State = inboxState(st)
 			if item.State == "cleared" && c.Query("include_cleared") != "1" {
 				continue
 			}
-			if item.State != "seen" && item.State != "cleared" {
-				out.Unread[item.Column]++
-			}
-		} else {
+		}
+		if item.State == "unread" {
 			out.Unread[item.Column]++
 		}
 		out.Columns[item.Column] = append(out.Columns[item.Column], item)
 	}
-	// Terminal jobs are FYI. A standalone failure is actionable; derived/continued failures are FYI.
-	rows, _ := s.jobs.Meta().ListJobs(jobstore.ListQuery{Limit: 50})
-	for _, j := range rows {
-		if j.EndedAt == 0 || (j.Status != "done" && j.Status != "failed" && j.Status != "cancelled" && j.Status != "timed_out") {
-			continue
-		}
-		if s.ceilingActive(c) && !s.scopeFilter(c)(j.ProjectKey) {
-			continue
-		}
-		col := "fyi"
-		if j.Status != "done" && j.SourceJobID == "" {
-			col = "action"
-		}
-		item, ok := inbox.NewItem(terminalCard(j, col), ic, inbox.State{})
-		if !ok {
-			continue
-		}
-		if st, exists := states[item.Key]; exists && st.SourceRevision == item.SourceRevision {
-			item.State = inboxState(st)
-			if item.State == "cleared" && c.Query("include_cleared") != "1" {
-				continue
-			}
-			if item.State == "seen" || item.State == "cleared" {
-			} else {
-				out.Unread[item.Column]++
-			}
-		} else {
-			out.Unread[item.Column]++
-		}
-		out.Columns[item.Column] = append(out.Columns[item.Column], item)
-	}
-	out.TotalUnread = out.Unread["action"] + out.Unread["fyi"]
+	out.TotalUnread = out.Unread[inbox.ColumnAction]
 	c.JSON(http.StatusOK, out)
 }
 
-func terminalCard(j jobstore.JobRecord, column string) today.Card {
+// terminalJobKind classifies a finished job for the inbox.
+//
+//   - done: job.terminal (fyi).
+//   - cancelled: job.terminal (fyi); somebody stopped it on purpose, nothing to decide.
+//   - failed / timeout that was already continued (AutoResumedBy, FellBackTo, or another job
+//     lists it as SourceJobID): job.terminal (fyi); the follow-up carries the decision.
+//   - failed / timeout with no continuation: job.failed (action); a person decides whether to
+//     resume or retry. Whether the failed job itself was derived from another one is
+//     irrelevant: a failed continuation with no successor still needs the decision.
+//
+// continued is the set of job ids that some other job names as its source.
+func terminalJobKind(j jobstore.JobRecord, continued map[string]bool) string {
+	if j.Status != job.StatusFailed && j.Status != job.StatusTimeout {
+		return "job.terminal"
+	}
+	if j.AutoResumedBy != "" || j.FellBackTo != "" || continued[j.ID] {
+		return "job.terminal"
+	}
+	return "job.failed"
+}
+
+func terminalCard(j jobstore.JobRecord, kind string) today.Card {
 	title := j.ID
 	if j.Error != "" {
 		title = j.ID + " 失败"
 	}
-	return today.Card{Key: "job.terminal:" + j.ID, Kind: "job.terminal", Title: title, Summary: j.Error, ProjectKey: j.ProjectKey, ActivityAt: j.EndedAt, WaitingSince: j.EndedAt, Refs: today.Refs{JobID: j.ID}, Column: column}
+	// The key is the same for both kinds so a job's read/cleared state follows it when a
+	// follow-up job turns an action item into an fyi one (the revision changes, so it resurfaces).
+	return today.Card{Key: "job.terminal:" + j.ID, Kind: kind, Title: title, Summary: j.Error, ProjectKey: j.ProjectKey, ActivityAt: j.EndedAt, WaitingSince: j.EndedAt, Refs: today.Refs{JobID: j.ID}}
 }
 
 func todayQueryForInbox(s *Server, c *rux.Context) (q today.Query) {
@@ -128,36 +134,40 @@ func todayQueryForInbox(s *Server, c *rux.Context) (q today.Query) {
 	}
 	return
 }
-func (s *Server) currentInboxItems(c *rux.Context) (map[string]inbox.Item, error) {
-	cfg := s.serverCfg()
-	var ic *config.InboxConfig
-	if cfg != nil {
-		ic = cfg.Inbox
-	}
+
+// currentInboxItems builds the caller-visible projection without personal state, in
+// display order (Today's decision order first, then terminal jobs newest first).
+func (s *Server) currentInboxItems(c *rux.Context) ([]inbox.Item, error) {
+	ic := s.inboxConfig()
 	resp, err := s.today.Today(todayQueryForInbox(s, c))
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]inbox.Item, len(resp.Decisions))
+	out := make([]inbox.Item, 0, len(resp.Decisions))
 	for _, card := range resp.Decisions {
 		if item, ok := inbox.NewItem(card, ic, inbox.State{}); ok {
-			out[item.Key] = item
+			out = append(out, item)
 		}
 	}
-	rows, _ := s.jobs.Meta().ListJobs(jobstore.ListQuery{Limit: 50})
+	rows, err := s.jobs.Meta().ListJobs(jobstore.ListQuery{Limit: 50})
+	if err != nil {
+		return nil, err
+	}
+	continued := map[string]bool{}
 	for _, j := range rows {
-		if j.EndedAt == 0 || (j.Status != "done" && j.Status != "failed" && j.Status != "cancelled" && j.Status != "timed_out") {
+		if j.SourceJobID != "" {
+			continued[j.SourceJobID] = true
+		}
+	}
+	for _, j := range rows {
+		if j.EndedAt == 0 || (j.Status != job.StatusDone && j.Status != job.StatusFailed && j.Status != job.StatusCancelled && j.Status != job.StatusTimeout) {
 			continue
 		}
 		if s.ceilingActive(c) && !s.scopeFilter(c)(j.ProjectKey) {
 			continue
 		}
-		col := "fyi"
-		if j.Status != "done" && j.SourceJobID == "" {
-			col = "action"
-		}
-		if item, ok := inbox.NewItem(terminalCard(j, col), ic, inbox.State{}); ok {
-			out[item.Key] = item
+		if item, ok := inbox.NewItem(terminalCard(j, terminalJobKind(j, continued)), ic, inbox.State{}); ok {
+			out = append(out, item)
 		}
 	}
 	return out, nil
@@ -173,14 +183,16 @@ func inboxState(st jobstore.InboxItemState) string {
 	return "unread"
 }
 
-// POST /v1/inbox/state {action, keys:[...], column?, expected_revision?}
+// POST /v1/inbox/state {action, keys:[...], column?}
+//
+// seen / clear / restore apply to the listed keys. Without keys, seen and clear apply to
+// every current item of the caller's inbox (limited to column when given) — the bulk
+// "mark all read" / "clear all" buttons. A batch is all-or-nothing on key validity: when
+// any key is not in the caller's current inbox the whole request is 404 and nothing is
+// written, so the stored state always matches the response.
 func (s *Server) handleInboxState(c *rux.Context) {
-	caller, ok := s.inboxCaller(c)
+	caller, ok := s.inboxReady(c, true)
 	if !ok {
-		return
-	}
-	if s.jobs == nil || s.jobs.Meta() == nil {
-		writeError(c, 503, "inbox unavailable", "no job store wired")
 		return
 	}
 	var req struct {
@@ -196,15 +208,12 @@ func (s *Server) handleInboxState(c *rux.Context) {
 		writeError(c, 400, "invalid inbox action", "action must be seen, clear, or restore")
 		return
 	}
-	if req.Action == "clear" && len(req.Keys) == 0 {
-		if err := s.jobs.Meta().ClearInboxItemStates(caller, req.Column, time.Now()); err != nil {
-			writeError(c, 500, "clear inbox failed", err.Error())
-			return
-		}
-		c.JSON(http.StatusOK, map[string]any{"updated": 0, "action": req.Action})
+	if req.Column != "" && req.Column != inbox.ColumnAction && req.Column != inbox.ColumnFYI {
+		writeError(c, 400, "invalid inbox column", "column must be action or fyi")
 		return
 	}
-	if len(req.Keys) == 0 {
+	bulk := len(req.Keys) == 0
+	if bulk && req.Action == "restore" {
 		writeError(c, 400, "empty item keys", "keys must contain at least one item key")
 		return
 	}
@@ -213,21 +222,46 @@ func (s *Server) handleInboxState(c *rux.Context) {
 		writeError(c, 500, "build inbox failed", err.Error())
 		return
 	}
-	updated := 0
-	for _, key := range req.Keys {
-		if strings.TrimSpace(key) == "" {
-			continue
-		}
-		item, exists := current[key]
-		if !exists {
-			writeError(c, http.StatusNotFound, "inbox item not found", key)
+	byKey := make(map[string]inbox.Item, len(current))
+	for _, item := range current {
+		byKey[item.Key] = item
+	}
+	var targets []inbox.Item
+	if bulk {
+		states, err := s.jobs.Meta().ListInboxItemStates(caller)
+		if err != nil {
+			writeError(c, 500, "read inbox state failed", err.Error())
 			return
 		}
-		if err := s.jobs.Meta().SetInboxItemState(caller, key, item.Column, item.SourceRevision, req.Action, time.Now()); err != nil {
+		for _, item := range current {
+			if req.Column != "" && item.Column != req.Column {
+				continue
+			}
+			if st, exists := states[item.Key]; exists && st.SourceRevision == item.SourceRevision {
+				if st.ClearedAt != nil || (req.Action == "seen" && st.SeenAt != nil) {
+					continue
+				}
+			}
+			targets = append(targets, item)
+		}
+	} else {
+		for _, key := range req.Keys {
+			if strings.TrimSpace(key) == "" {
+				continue
+			}
+			item, exists := byKey[key]
+			if !exists {
+				writeError(c, http.StatusNotFound, "inbox item not found", key)
+				return
+			}
+			targets = append(targets, item)
+		}
+	}
+	for _, item := range targets {
+		if err := s.jobs.Meta().SetInboxItemState(caller, item.Key, item.Column, item.SourceRevision, req.Action, time.Now()); err != nil {
 			writeError(c, 500, "write inbox state failed", err.Error())
 			return
 		}
-		updated++
 	}
-	c.JSON(http.StatusOK, map[string]any{"updated": updated, "action": req.Action})
+	c.JSON(http.StatusOK, map[string]any{"updated": len(targets), "action": req.Action})
 }
