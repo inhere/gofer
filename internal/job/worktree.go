@@ -161,6 +161,11 @@ func prepareTempWorktree(ctx context.Context, cwd, jobID, sha string, opts workt
 	if err != nil {
 		return nil, err
 	}
+	resolved, err := gitOut(ctx, top, "rev-parse", "--verify", sha+"^{commit}")
+	if err != nil {
+		return nil, fmt.Errorf("%w: ref commit %q is not in %s", ErrInvalidRequest, sha, top)
+	}
+	sha = resolved
 	ensureWorktreeIgnored(ctx, top, opts.Dir)
 	path := filepath.Join(top, filepath.FromSlash(opts.Dir))
 	if isDir(path) {

@@ -74,6 +74,22 @@ func TestEnsureWorktreeIgnoredIsLocalAndIdempotent(t *testing.T) {
 	}
 }
 
+// TestTempWorktreeRejectsUnknownCommit pins the ref-commit check of prepareTempWorktree:
+// a sha that is not in the repository is the caller's mistake (ErrInvalidRequest naming
+// the commit), not a raw `git worktree add` failure. The move of the default worktree
+// dir dropped this check once without any test noticing.
+func TestTempWorktreeRejectsUnknownCommit(t *testing.T) {
+	repo, _ := gitRepo(t)
+	const missing = "0123456789abcdef0123456789abcdef01234567"
+	_, err := prepareTempWorktree(context.Background(), repo, "job-ref-missing", missing, worktreeCreateOptions{})
+	if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), missing) {
+		t.Fatalf("err = %v, want ErrInvalidRequest naming %s", err, missing)
+	}
+	if isDir(filepath.Join(repo, ".worktrees", "job-ref-missing")) {
+		t.Fatal("a rejected ref must not leave a worktree dir behind")
+	}
+}
+
 // payloadCommit 在 repo 上从当前主干切一个临时分支，提交一个真实文件改动，再切回主干，
 // 返回该提交的 sha（HEAD 不变）。--worktree job 用它做 `git cherry-pick`：一条 argv 就能
 // "改文件 + 生成提交"，从而让分支上出现真实的已提交改动（跨平台，不依赖 shell）。
