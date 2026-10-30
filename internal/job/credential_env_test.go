@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/acp"
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -78,6 +79,29 @@ func parseEnvPrint(out string) map[string]string {
 		values[name] = value
 	}
 	return values
+}
+
+// TestJobEnvDropsDaemonSentinel pins that a job does not inherit the -d sentinel of the
+// serve / worker that runs it: with it, every gofer started inside the job (a test
+// binary of the daemon package, a nested serve) believed it was already the detached
+// child. A container worker restarted by the one-click update failed the release
+// verify's linux-race fan exactly so.
+func TestJobEnvDropsDaemonSentinel(t *testing.T) {
+	t.Setenv(daemon.EnvSentinel, "1")
+	root := t.TempDir()
+	s := newTestService(t, root)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd:        testcmd.Cmd(t, "env-print", daemon.EnvSentinel),
+		Cwd:        ".",
+		TimeoutSec: 60,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("job status = %s (err=%s)", final.Status, final.Error)
+	}
+	if v := parseEnvPrint(readJobLog(t, final, store.StdoutFile))[daemon.EnvSentinel]; v != "" {
+		t.Fatalf("%s=%q reached the job child", daemon.EnvSentinel, v)
+	}
 }
 
 // TestJobEnvHasNoServerToken is the SEC-01 acceptance across all four places a job

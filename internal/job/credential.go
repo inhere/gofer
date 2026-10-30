@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/util"
 )
@@ -76,6 +77,14 @@ const (
 // be resumed), nested-session detection, and the parent's messaging credentials in
 // the job. User settings such as CLAUDE_CODE_MAX_RETRIES are not markers and pass.
 //
+// daemon.EnvSentinel is here because a serve / worker started with -d (and every
+// managed restart of one: the upgrade handoff re-execs the detached child) carries it,
+// and a job that inherited it made every gofer run inside the job believe it was
+// already the detached child — the v0.203.1 verify's linux-race fan, run by a
+// container worker restarted by the one-click update, failed TestHelperDaemonChild
+// that way. Clearing it in serve / worker themselves is not an option: the upgrade
+// re-exec relies on it to not daemonize twice.
+//
 // The SESSION variables are here because a request can name a terminal session (design
 // 2026-10-14-db-capabilities-and-session-grants §4「会话 id 的携带」): the CLI attaches
 // `X-Gofer-Session-Id` from exactly these variables, and a session grant is judged by the
@@ -86,7 +95,8 @@ var DefaultJobEnvDeny = []string{"GOFER_TOKEN", "GOFER_SERVER_TOKEN", "GOFER_WOR
 	"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID",
 	"CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID", "CLAUDE_CODE_SESSION_ATTENDED",
 	"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP",
-	"GOFER_SESSION_ID", "SUGA_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID"}
+	"GOFER_SESSION_ID", "SUGA_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID",
+	daemon.EnvSentinel}
 
 // jobTokenRandomBytes is the entropy of a job token's random half (32 hex chars).
 const jobTokenRandomBytes = 16
