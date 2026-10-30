@@ -101,6 +101,36 @@ func (s *Store) CloseActivePreviews(reason string, at int64) error {
 	_, e := s.db.Exec(`UPDATE job_previews SET state='closed',close_reason=?,closed_at=? WHERE state='active'`, reason, at)
 	return e
 }
+
+// ListActivePreviews returns every lease still marked active, across jobs.
+func (s *Store) ListActivePreviews() ([]PreviewRecord, error) {
+	rows, e := s.db.Query(`SELECT id,token_hash,job_id,caller_id,worker_id,worker_instance_id,port,state,created_at,expires_at,last_used_at,closed_at,close_reason,connection_count FROM job_previews WHERE state='active' ORDER BY created_at`)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	var out []PreviewRecord
+	for rows.Next() {
+		p, e := scanPreview(rows)
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// UpdatePreviewExpiry moves an active lease's expiry; it reports false when the lease
+// is not active (so a renew racing a revoke cannot revive it).
+func (s *Store) UpdatePreviewExpiry(id string, expiresAt int64) (bool, error) {
+	res, e := s.db.Exec(`UPDATE job_previews SET expires_at=? WHERE id=? AND state='active'`, expiresAt, id)
+	if e != nil {
+		return false, e
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 func (s *Store) ExpirePreviews(at int64) error {
 	_, e := s.db.Exec(`UPDATE job_previews SET state='expired',close_reason='expired',closed_at=? WHERE state='active' AND expires_at<=?`, at, at)
 	return e

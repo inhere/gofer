@@ -7,7 +7,13 @@
 ## job 预览
 
 
-CLI：`gofer job preview open <job-id> --port <port> [--ttl 30m]` 创建并只打印一次 URL；`gofer job preview ls <job-id>` 列出租约；`gofer job preview close <job-id> <preview-id>` 撤销租约。
+CLI：`gofer job preview open <job-id> --port <port> [--ttl 30m]` 创建并只打印一次 URL；`gofer job preview ls <job-id>` 列出租约；`gofer job preview close <job-id> <preview-id>` 撤销租约；`gofer job preview renew <job-id> <preview-id> [--ttl 30m]` 续租（到期改为当前时间加 ttl，受 `max_ttl_sec` 约束）。
+
+- URL 里的 token 只能用一次：首次访问换成随机 cookie，之后同一个 token 再访问是 404；要重新打开请新建租约。创建响应的 `port` 是浏览器访问的预览端口，`target_port` 才是 job 的端口。
+- 撤销 / 续租自己创建的租约只需能读该 job；他人创建的租约需 job 所有者或 `job.manage.others`。
+- `max_connections` 是每租约并发连接上限（超出返回 503）；`idle_timeout_sec` 内无流量会关闭该租约的连接，租约本身到期才失效。
+- WebSocket 的 Origin 必须是该预览自己的 origin，否则 403；应用响应里带 `Domain` 属性的 `Set-Cookie` 一律丢弃。
+- 创建、续租、撤销、到期、job 终态关闭、server 重启关闭和被拒绝的访问都写入审计（`preview_*`），不含 token 与完整 URL。
 
 - [结构总览](#结构总览)
 - [projects（配得最多）](#projects配得最多)

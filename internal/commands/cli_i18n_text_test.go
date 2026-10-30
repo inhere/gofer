@@ -206,7 +206,7 @@ func cliCatalogKeys(domain string) []string {
 			"cli.job.review.hints_head", "cli.job.review.hotspots", "cli.job.review.removed_comments",
 			"cli.job.review.verify_lines", "cli.job.review.report_verify",
 			"cli.job.findings.none",
-			"cli.job.desc.preview", "cli.job.desc.preview_open", "cli.job.desc.preview_ls", "cli.job.desc.preview_close",
+			"cli.job.desc.preview", "cli.job.desc.preview_open", "cli.job.desc.preview_ls", "cli.job.desc.preview_close", "cli.job.desc.preview_renew",
 			"cli.job.flag.preview_port", "cli.job.flag.preview_ttl",
 			"cli.job.preview.err_port", "cli.job.preview.err_ttl",
 		}
@@ -245,7 +245,7 @@ func TestZhHelpDescriptionKeysAreTranslated(t *testing.T) {
 // en carries none).
 func TestJobPreviewHelpFollowsLanguage(t *testing.T) {
 	keys := []string{
-		"cli.job.desc.preview", "cli.job.desc.preview_open", "cli.job.desc.preview_ls", "cli.job.desc.preview_close",
+		"cli.job.desc.preview", "cli.job.desc.preview_open", "cli.job.desc.preview_ls", "cli.job.desc.preview_close", "cli.job.desc.preview_renew",
 		"cli.job.flag.preview_port", "cli.job.flag.preview_ttl", "cli.job.preview.err_port",
 	}
 	hasHan := func(s string) bool {
