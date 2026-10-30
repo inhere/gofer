@@ -62,6 +62,37 @@ func (d DeliveryCheckConfig) EffectiveReportTailBytes() int {
 	return posOr(d.ReportTailBytes, DefaultDeliveryCheckReportTailBytes)
 }
 
+// deliveryCheckNoToolsArgs is the argv the server forces onto the checker agent so it
+// runs without tools (design §4.2 / §4.6), keyed like builtinReadOnlyArgs. It rides
+// AFTER the operator's args, so a later duplicate flag cannot be undone by them.
+//
+//   - claude: `--tools ""` empties the built-in tool set (same preset as the
+//     summarizer); `--no-session-persistence` keeps the one-shot out of the history.
+//   - codex: it has no switch that removes every tool; the shell tool is turned off
+//     through its feature flag and the read-only sandbox (read_only_args, added by the
+//     job) bars any write.
+//   - suga: `run` has no tool-set switch either; without `--allow-write` the shell and
+//     workspace-write tools are off, and `--read-only` disables every mutating tool and
+//     wins over the template's `--allow-write`.
+var deliveryCheckNoToolsArgs = map[string][]string{
+	"claude": {"--tools", "", "--no-session-persistence"},
+	"codex":  {"-c", "features.shell_tool=false"},
+	"suga":   {"--read-only", "--no-project-rules"},
+}
+
+// DeliveryCheckNoToolsArgs returns the forced no-tools argv for an agent name (the
+// config key first, then the command base name), or nil when the agent is unknown:
+// the checker must then not run, since tool use could not be ruled out.
+func DeliveryCheckNoToolsArgs(names ...string) []string {
+	for _, n := range names {
+		n = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(n)), ".exe")
+		if args, ok := deliveryCheckNoToolsArgs[n]; ok {
+			return append([]string(nil), args...)
+		}
+	}
+	return nil
+}
+
 func (d DeliveryCheckConfig) validate() error {
 	if strings.TrimSpace(d.Agent) != d.Agent {
 		return fmt.Errorf("server.delivery_check.agent %q has surrounding whitespace", d.Agent)

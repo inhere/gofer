@@ -822,7 +822,7 @@ type runJobInput struct {
 	Acceptance string `json:"acceptance,omitempty"`
 	// CheckPrompt is a delivery-check requirement, not a shell command.
 	CheckPrompt string `json:"check_prompt,omitempty"`
-	// CheckPromptSource is "explicit" (default) or "prompt_block".
+	// CheckPromptSource is "explicit" (default), "prompt_block" or "merged".
 	CheckPromptSource string `json:"check_prompt_source,omitempty"`
 	// Scope declares the path globs (relative to the repo root) the job is expected to
 	// change (gofer-3nxa.3); files outside them are marked in review (advisory).
@@ -1129,7 +1129,7 @@ type addTodoToolInput struct {
 	// dispatched job's prompt and shown in review; "" clears it.
 	Acceptance *string `json:"acceptance,omitempty"`
 	// CheckPrompt is the item's delivery-check requirement (not a shell command); ""
-	// clears it. CheckPromptSource is "explicit" (default) or "prompt_block".
+	// clears it. CheckPromptSource is "explicit" (default), "prompt_block" or "merged".
 	CheckPrompt       *string `json:"check_prompt,omitempty"`
 	CheckPromptSource *string `json:"check_prompt_source,omitempty"`
 	// Scope is the item's declared change scope (path globs relative to the repo root,

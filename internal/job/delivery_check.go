@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -112,7 +113,9 @@ type checkDecision struct {
 	reason string // error text of the failed intermediate job (resume)
 	stored StoredCheck
 	err    string // checker infrastructure error ("" = none)
-	max    int
+	// resumeErr is why the automatic continuation could not be submitted ("" = it was).
+	resumeErr string
+	max       int
 }
 
 // checkRequirements assembles the requirement text the checker judges: the explicit
@@ -388,9 +391,13 @@ func (s *Service) runCheckAgent(pre JobResult, dc config.DeliveryCheckConfig, re
 	if checker == nil {
 		checker = serviceChecker{s: s}
 	}
+	args, err := s.checkAgentArgs(dc)
+	if err != nil {
+		return StoredCheck{}, err
+	}
 	out, err := checker.RunCheck(ctx, DeliveryCheckRequest{
 		SourceJobID: pre.ID, ProjectKey: pre.ProjectKey, OriginCaller: pre.OriginCaller, Prompt: prompt,
-		Agent: dc.Agent, Model: dc.Model, Args: append([]string(nil), dc.Args...), Timeout: timeout,
+		Agent: dc.Agent, Model: dc.Model, Args: args, Timeout: timeout,
 	})
 	if err != nil {
 		return StoredCheck{}, err
@@ -403,6 +410,23 @@ func (s *Service) runCheckAgent(pre JobResult, dc config.DeliveryCheckConfig, re
 		CheckResult: result, CheckedAt: s.nowFn().Unix(), Agent: dc.Agent, Model: dc.Model,
 		SessionID: out.SessionID, CheckJobID: out.JobID, Source: pre.CheckPromptSource, InputTruncated: truncated,
 	}, nil
+}
+
+// checkAgentArgs is the operator's server.delivery_check.args followed by the tool-less
+// argv the server forces for the agent type. An agent type without a known no-tools
+// argv is refused, so the checker never runs with tools by omission.
+func (s *Service) checkAgentArgs(dc config.DeliveryCheckConfig) ([]string, error) {
+	names := []string{dc.Agent}
+	if s.agents != nil {
+		if ac, ok := s.agents.Get(dc.Agent); ok {
+			names = append(names, filepath.Base(strings.ReplaceAll(ac.Command, "\\", "/")))
+		}
+	}
+	forced := config.DeliveryCheckNoToolsArgs(names...)
+	if forced == nil {
+		return nil, fmt.Errorf("server.delivery_check.agent %q has no known no-tools argv (supported: claude, codex, suga); the checker would run with tools", dc.Agent)
+	}
+	return append(append([]string(nil), dc.Args...), forced...), nil
 }
 
 // serviceChecker is the default DeliveryChecker: a one-shot, read-only job of the
@@ -455,7 +479,7 @@ func (c serviceChecker) RunCheck(ctx context.Context, r DeliveryCheckRequest) (D
 
 // resumeAfterCheck submits the continuation of a job whose delivery check failed. The
 // source row records it (AutoResumedBy) like the other automatic continuations.
-func (s *Service) resumeAfterCheck(snap JobResult, d checkDecision) bool {
+func (s *Service) resumeAfterCheck(snap JobResult, d checkDecision) error {
 	items := make([]prompts.DeliveryCheckResumeItem, 0, len(d.stored.Items))
 	for _, it := range d.stored.Items {
 		if it.Passed {
@@ -477,7 +501,7 @@ func (s *Service) resumeAfterCheck(snap JobResult, d checkDecision) bool {
 			s.recordCeilingDenied(snap.ID, "delivery-check-resume", err)
 		}
 		slog.Warn("delivery check resume not submitted", "job_id", snap.ID, "err", err)
-		return false
+		return err
 	}
 	snap.AutoResumedBy = res.ID
 	_ = s.persist(snap)
@@ -485,7 +509,7 @@ func (s *Service) resumeAfterCheck(snap JobResult, d checkDecision) bool {
 		Round: d.stored.Round, ResumeCount: snap.CheckResumeCount, MaxResumes: d.max, ResumedJobID: res.ID,
 		Agent: d.stored.Agent, Model: d.stored.Model, SessionID: d.stored.SessionID, Source: d.stored.Source,
 		Verdict: d.stored.Verdict, FailedItems: countFailedItems(d.stored.Items)})
-	return true
+	return nil
 }
 
 func countFailedItems(items []CheckItem) int {
@@ -511,11 +535,16 @@ func (s *Service) commentDeliveryCheck(snap JobResult, d checkDecision, resumedI
 		body = fmt.Sprintf("交付核验第 %d 轮：不合格（%d 项未满足），已自动续接 %s（第 %d/%d 次）。%s",
 			d.stored.Round, countFailedItems(d.stored.Items), resumedID, snap.CheckResumeCount, d.max, truncateUTF8(d.stored.Summary, checkCommentSummary))
 	case d.action == checkActionResume:
-		body = fmt.Sprintf("交付核验第 %d 轮：不合格（%d 项未满足），自动续接未能提交。%s",
-			d.stored.Round, countFailedItems(d.stored.Items), truncateUTF8(d.stored.Summary, checkCommentSummary))
+		body = fmt.Sprintf("交付核验第 %d 轮：不合格（%d 项未满足），自动续接未能提交（%s），转入待验收。%s",
+			d.stored.Round, countFailedItems(d.stored.Items), truncateUTF8(d.resumeErr, checkCommentSummary), truncateUTF8(d.stored.Summary, checkCommentSummary))
 	default:
 		body = fmt.Sprintf("交付核验第 %d 轮：不合格（%d 项未满足），不再自动续接，转入待验收。%s",
 			d.stored.Round, countFailedItems(d.stored.Items), truncateUTF8(d.stored.Summary, checkCommentSummary))
 	}
 	s.insertSystemComment("job", snap.ID, body)
+}
+
+func withCheckAction(c StoredCheck, action string) StoredCheck {
+	c.Action = action
+	return c
 }

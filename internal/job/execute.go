@@ -892,14 +892,23 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	}
 	autoResumed, fellBack := false, false
 	if persistErr == nil && chk.action == checkActionResume {
-		autoResumed = s.resumeAfterCheck(snap, chk)
+		rerr := s.resumeAfterCheck(snap, chk)
+		autoResumed = rerr == nil
 		resumedID := ""
 		if autoResumed {
-			if rec, ok, rerr := s.meta.GetJob(jobID); rerr == nil && ok {
+			if rec, ok, gerr := s.meta.GetJob(jobID); gerr == nil && ok {
 				resumedID = rec.AutoResumedBy
 			}
+		} else {
+			chk.resumeErr = truncateUTF8(rerr.Error(), checkErrorMaxBytes)
 		}
 		s.commentDeliveryCheck(snap, chk, resumedID)
+		if !autoResumed {
+			// The continuation could not be submitted: the job is not failed, its delivery
+			// is merely unmet — park it for a human instead of a late job.terminal.
+			s.parkAfterFailedCheckResume(entry, jobID, exitCode, chk)
+			return
+		}
 	}
 	if persistErr == nil && guardDecision == "resume" {
 		autoResumed = s.resumeUncommitted(snap)
@@ -910,7 +919,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	if persistErr == nil && dec.Fallback != "" {
 		fellBack = s.fallBack(snap, dec.Hit, dec.Fallback)
 	}
-	if (chk.action == checkActionResume && !autoResumed) || (guardDecision == "resume" && !autoResumed) || (dec.AutoResume && !autoResumed) || (dec.Fallback != "" && !fellBack) {
+	if (guardDecision == "resume" && !autoResumed) || (dec.AutoResume && !autoResumed) || (dec.Fallback != "" && !fellBack) {
 		// The takeover could not be submitted (or the row never landed): the failure
 		// IS terminal after all — record it now, late but never missing.
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
@@ -1219,4 +1228,33 @@ func classify(ctx context.Context, res runner.Result) (string, int, error) {
 		return StatusFailed, res.ExitCode, nil
 	}
 	return StatusDone, 0, nil
+}
+
+// parkAfterFailedCheckResume turns a job whose failed delivery check could not be
+// continued into a needs_review one: the row (already persisted as failed) is rewritten
+// with the reason in check_error, job.needs_review is recorded and the end-notification
+// goes out, exactly like the park of a check that never wanted a continuation.
+func (s *Service) parkAfterFailedCheckResume(entry *jobEntry, jobID string, exitCode int, chk checkDecision) {
+	entry.mu.Lock()
+	entry.result.Status = StatusNeedsReview
+	entry.result.Error = ""
+	entry.result.CheckError = "delivery check resume not submitted: " + chk.resumeErr
+	if chk.stored.Action == checkActionResume {
+		entry.result.CheckResumeCount = chk.stored.Round - 1
+		if raw, err := json.Marshal(withCheckAction(chk.stored, checkActionReview)); err == nil {
+			entry.result.CheckJSON = string(raw)
+		}
+	}
+	snap := entry.result
+	entry.mu.Unlock()
+	s.recordEvent(jobID, EventJobNeedsReview, map[string]any{"job_id": jobID, "exit_code": exitCode, "reason": "delivery check resume not submitted"})
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist job parked after a failed check resume", "job_id", jobID, "err", err)
+		return
+	}
+	s.maybeWakeLeader(snap)
+	s.mu.Lock()
+	delete(s.jobs, jobID)
+	s.mu.Unlock()
+	s.notifyJobEnded(snap)
 }
