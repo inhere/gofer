@@ -151,7 +151,10 @@ var fieldPolicies = map[string]FieldPolicy{
 	// The console's server form carries read_dir_allow on every save (gofer-x4h1), so
 	// it must be editable: with HotReload alone every server save answered 400.
 	"server.read_dir_allow": {Editable: true},
-	"server.callers":        {RestartRequired: true},
+	// Inbound triggers can keep submitting jobs: file-only, never console-writable
+	// (trigger design, decision 1).
+	"server.triggers": {HotReload: true},
+	"server.callers":  {RestartRequired: true},
 	// Per-caller scope ceilings (上限): FILE-ONLY by decision — a ceiling is a limit the
 	// operator sets on a token, and the console write endpoint's vocabulary is
 	// server|agents, so no request can carry it. The judgment reads it from the live

@@ -16,6 +16,7 @@
 - [故障转移与健康度](#故障转移与健康度)
 - [任务书模板目录](#任务书模板目录)
 - [同目录串行锁与输出停滞](#同目录串行锁与输出停滞)
+- [触发器（P0，文件专属）](#触发器p0文件专属)
 - [事件钩子](#事件钩子)
 - [决策 hook](#决策-hook)
 - [本机可用工具](#本机可用工具)
@@ -323,6 +324,13 @@ server:
   #     projects: [demo]               #   只对这些项目弹(省略 = 全部)
   #     merge_sec: 10                  #   同类事件合并成一条("3 个 job 等待批准")，0 = 不合并
   #                                    #   这一段同样可在 web「设置 → 通知」里改（开关 / 事件 / 项目 / 合并窗口），并可发一条测试弹窗
+  # triggers:                              # 外部事件到固定任务书的内核定义; 只能改文件
+  #   - name: <trigger-name>
+  #     enabled: false
+  #     owner_caller: <non-root-caller>
+  #     project: <project>
+  #     template: <template>
+  #     auth: {kind: hmac-sha256, secret_env: GOFER_TRIGGER_<NAME>}
   # event_hooks: [...]                 # 事件发生时在 server 主机上跑命令(见下「事件钩子」); 只能改文件
 session:                               # 终端会话中继; 0 = 关该判据
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 停下时在 web 等回复
@@ -423,6 +431,35 @@ agents:
 
 - **同目录串行锁**：两个可写 agent job（非只读、非交互）不能同时跑在重叠的目录上（同目录、祖先、子目录都算），后来的停在 `waiting_dir`，FIFO 排队；软链与 Windows 短名会归一化。exec 与只读 job 默认共享；`--exclusive-dir` / `--shared-dir` 单个反转；`--worktree` job 不取锁。
 - **输出停滞**：非交互 job N 秒没有任何输出即杀掉并按瞬时错误处理（自动续投 / 故障转移接管）。顺序 `--stall-timeout` > agent `stall_timeout_sec` > server `stall_timeout_sec`；exec job 默认关，交互 job 恒关；等人作答与 verify 阶段不计时。
+
+## 触发器（P0，文件专属）
+
+`server.triggers` 是默认关闭的、仅配置文件可写的外部事件派活定义。P0 只提供内核与测试调用 seam，尚未注册 HTTP 或 provider 入口；因此不会因为配置存在而监听新的网络路由。
+
+```yaml
+server:
+  triggers:
+    - name: source-update
+      enabled: true
+      owner_caller: automation       # 必须是已声明且非 root 的 caller
+      project: <project>
+      template: source-update
+      auth:
+        kind: hmac-sha256
+        secret_env: GOFER_TRIGGER_SOURCE_UPDATE
+        timestamp_header: X-Gofer-Trigger-Timestamp
+        signature_header: X-Gofer-Trigger-Signature
+        replay_window_sec: 300
+      input:
+        vars: {ref: body.ref, delivery: header.X-Provider-Delivery}
+      dedup: {key: header.X-Provider-Delivery, ttl_sec: 86400}
+      rate: {per_minute: 10, burst: 2, max_inflight: 2}
+      limits: {max_body_bytes: 262144, max_var_bytes: 32768}
+```
+
+认证使用 `HMAC-SHA256(secret, timestamp + "\\n" + 原始 body)`，签名头为 `sha256=<hex>`；时间戳必须在窗口内。`input.vars` 只允许 `body.<字段>`、`header.<名称>`、`message.<字段>` 引用。外部请求不能选择项目、模板、agent、runner 或命令；派活使用空 `CallerID`、`owner_caller` 作为 `OriginCaller`，所以 owner 的 ceiling 仍是硬上限。相同 trigger 与外部事件号由 SQLite receipt 持久去重，body 不同会拒绝。
+
+触发器 secret 只配置环境变量名，既不写入配置读视图、receipt，也不写入审计；修改文件后用 `gofer config validate` 检查，再 `gofer serve reload` 生效。
 
 ## 事件钩子
 
