@@ -1,0 +1,5 @@
+The recipient is a pty terminal job and cannot receive letters
+The sender is a job/caller without an injectable inbox; the bounce is recorded here only.
+custom
+not delivered before the deadline
+The recipient is a one-off run (no ACP session) and cannot receive letters

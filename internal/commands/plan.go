@@ -154,7 +154,7 @@ func (f *todoDispatchFlags) bind(c *gcli.Command) {
 	c.VarOpt(&f.scope, "scope", "", "declared change scope: path globs relative to the repo root, comma-separated and/or repeatable (e.g. 'internal/job/**,web/src/x.vue'); changed files outside it are marked in review. --scope \"\" clears it")
 	c.VarOpt(&f.readDirs, "read-dir", "", "extra read-only directory for this todo (project-relative or absolute; repeatable)")
 	c.VarOpt(&f.acceptance, "acceptance", "", "acceptance criteria (markdown list); appended to the job's prompt and shown in review. --acceptance \"\" clears them")
-	c.VarOpt(&f.checkPrompt, "check-prompt", "", "delivery-check requirement for the server-side checker (not a shell command); checked after the job ends when server.delivery_check is enabled. --check-prompt \"\" clears it")
+	c.VarOpt(&f.checkPrompt, "check-prompt", "", cliText("cli.plan.flag.check_prompt"))
 	c.VarOpt(&f.primeKeywords, "prime-keywords", "", "subsystems / languages / modules this item's job is about, comma-separated and/or repeatable: the dispatched job's tracker-prime injects the matching memories in full and first. --prime-keywords \"\" clears them")
 }
 

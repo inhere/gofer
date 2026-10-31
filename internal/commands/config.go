@@ -149,18 +149,15 @@ func NewInitCmd(info buildinfo.Info) *gcli.Command {
 }
 
 // initConfigLanguage rewrites the starter template's `server.language` to the
-// machine's language, so a fresh install starts in the operator's language instead
-// of the DEPRECATED default (design 2026-10-27-i18n-design.md §3). A template
-// without the line (or an unrecognized locale, which reads as the default) is
-// written unchanged.
+// explicit `auto` plus a comment, so a fresh install follows the server machine's
+// language (en when it cannot be detected) and the operator can see how to pin it
+// (design 2026-10-27-i18n-design.md, "Decided (2026-10-30): default auto"). A
+// template without the line is written unchanged.
 func initConfigLanguage(tmpl string) string {
-	lang := string(i18n.FromEnv())
-	if lang == "" {
-		return tmpl
-	}
+	const note = "\n  # auto = the server machine's system language (en when it is not zh-CN / en); set en or zh-CN to pin it\n  language: " + i18n.AutoValue + "\n"
 	for _, line := range []string{"\n  language: " + string(i18n.Default) + "\n", "\n  language: \"\"\n"} {
 		if strings.Contains(tmpl, line) {
-			return strings.Replace(tmpl, line, "\n  language: "+lang+"\n", 1)
+			return strings.Replace(tmpl, line, note, 1)
 		}
 	}
 	return tmpl
@@ -1190,15 +1187,13 @@ func validateServerConfig(c *gcli.Command) error {
 		c.Printf("[%s] config  %s\n", docStatusWarn, w)
 	}
 	printAgentInstallWarnings(c, reg.Config())
-	// server.language names no language: every generated text runs in the
-	// DEPRECATED default. Advisory only — the default keeps an existing install
-	// behaving as it did (design 2026-10-27-i18n-design.md §3).
+	// The effective language and where it came from. An unset language is advisory
+	// only: it reads as auto (the system language, else en).
 	if cfg := reg.Config(); cfg != nil {
 		if cfg.LanguageUnset() {
-			c.Printf("[%s] %s\n", docStatusWarn, i18n.LanguageDefaultNote)
-		} else {
-			c.Printf("[%s] server.language %s\n", docStatusOK, cfg.Language())
+			c.Printf("[%s] %s\n", docStatusWarn, i18n.LanguageDefaultNoteIn(cliLang()))
 		}
+		c.Printf("[%s] server.language %s (source: %s)\n", docStatusOK, cfg.Language(), cfg.LanguageSource())
 	}
 	// OBS-13: advisory only, never fails the command.
 	if w := notify.DigestNoSubscriberWarning(reg.Config()); w != "" {

@@ -24,7 +24,10 @@ func cliLang() i18n.Lang {
 	if l := i18n.FromEnvVar(); l != "" { // GOFER_LANG
 		return l
 	}
-	return i18n.FromSystem() // machine locale, else the default
+	if l := i18n.FromSystem(); l != "" { // machine locale
+		return l
+	}
+	return i18n.Auto() // nothing detected: en
 }
 
 // cliText returns the CLI text of key in cliLang(), its {name} placeholders filled

@@ -1,0 +1,7 @@
+## Tools available on this machine (injected by gofer, use as needed)
+
+The following tools are installed on the machine this task runs on and can be called directly:
+
+- `jq` — json
+- `rg`（`ripgrep`）
+

@@ -93,7 +93,7 @@ projects:
     # scope_discipline: auto                  # auto/on/off；agent job prompt 末尾追加「## 交付约定」
     # tracker_prime: nearest                  # 注入的 tracker-prime 来自哪个 tracker：nearest(默认，逐级向上找最近的)/repo(只找 cwd 所在 git 仓，不越仓顶层)/off(不注入)
     # knowledge_capture: auto                 # auto/on/off；要求汇报写「## 可复用经验」，交付时记为经验候选
-    # language: en                            # 本项目的文本语言(覆盖 server.language)；注入的提示词段落与交付正文用它
+    # language: en                            # 本项目的文本语言(en / zh-CN / auto；不写继承 server.language)；注入的提示词段落与交付正文用它
     # require_review: true                    # job 正常完成后停在 needs_review 等人验收
     # verify: [make, test]                    # 默认验证步骤：agent 正常结束后在同一 cwd/env 跑, 非 0 → failed；需要 allow_exec
     # verify_timeout_sec: 900                 # 验证步骤超时(不写=600s)
@@ -284,7 +284,7 @@ server:
   allow_empty_token: false             # 要显式 true 才能无 token 起
   # web_enabled: true                  # 不写=开
   # web_base_url: https://gofer.example.com   # 对外地址(通知 / 待批链接里用)
-  # language: zh-CN                    # gofer 生成文本的语言: en 或 zh-CN(也认 zh / zh_CN.UTF-8 / english 等别名，归一化为规范值)；影响注入给 agent 的提示词段落(验收标准 / 交付约定 / 时限提示)、交付请求正文、续接 / 自动续投 / 未提交续投的提示语、管家会话的首条简报与巡检提示里的动态部分，以及 agent 在 MCP tools/list 里读到的工具说明与报错(内建 MCP 读本机配置；瘦客户端暂用本机语言链)、`gofer repo init` / `repo migrate` 写进 AGENTS.md / CLAUDE.md 的托管说明块；项目可用 projects.<key>.language 覆盖；不写 = 暂用 zh-CN(以后版本默认改为 en，启动日志与 `gofer config validate` 会提示)；`gofer init` 按本机系统语言写入
+  # language: auto                     # gofer 生成文本的语言: en 或 zh-CN(也认 zh / zh_CN.UTF-8 / english 等别名，归一化为规范值)；影响注入给 agent 的提示词段落(验收标准 / 交付约定 / 时限提示)、交付请求正文、续接 / 自动续投 / 未提交续投的提示语、管家会话的首条简报与巡检提示里的动态部分，以及 agent 在 MCP tools/list 里读到的工具说明与报错(内建 MCP 读本机配置；瘦客户端暂用本机语言链)、`gofer repo init` / `repo migrate` 写进 AGENTS.md / CLAUDE.md 的托管说明块；项目可用 projects.<key>.language 覆盖；不写或写 auto = 按 server 所在机器的系统语言自动选择(LANG / LC_ALL / LC_MESSAGES；Windows 取系统区域设置)，是中文用 zh-CN，探测不到或不支持就用 en；项目没配 language 则继承 server；启动日志与 `gofer config validate` 会显示实际语言与来源；`gofer init` 写入 `language: auto`
 
   # path_view: host|container          # 执行视角(默认 host=用 host_path)
   # read_dir_allow: [D:/reference]      # 允许 job --read-dir 使用的额外绝对目录

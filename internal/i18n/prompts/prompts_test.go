@@ -34,6 +34,9 @@ var goldenData = map[string]any{
 		Lines: []string{"proj · k1（rule）：a, b"}, More: 3},
 	NameStewardQuestion: StewardQuestionData{By: "human:ann", Text: "what is still open?"},
 	NameRepoBlock:       RepoBlockData{CommitPolicy: "commit policy line", MemoryHint: "memory write hint"},
+	NamePlanRules:       struct{}{},
+	NamePlanTodosFormat: PlanTodosFormatData{Fence: "gofer-todos"},
+	NameResidentOpening: ResidentOpeningData{Project: "proj-a", Name: "helper", Tag: "gofer-mail", Idle: "30m0s"},
 }
 
 // TestRenderGolden pins the rendered text of every template in both languages.

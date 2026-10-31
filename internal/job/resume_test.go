@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -813,6 +814,11 @@ func TestResumeJobRerunStillGated(t *testing.T) {
 // fresh jobstore). Helper for resume tests that need a bespoke agent set.
 func newServiceFromCfg(t *testing.T, root string, cfg *config.Config) *Service {
 	t.Helper()
+	// The package's assertions on generated text are Chinese; an unset language reads
+	// as auto, i.e. the machine's, so the fixture pins zh-CN (en has its own tests).
+	if cfg.Server.Language == "" {
+		cfg.Server.Language = string(i18n.ZhCN)
+	}
 	projReg := project.NewRegistry(cfg, "")
 	agentReg := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}

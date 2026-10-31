@@ -39,9 +39,14 @@ func TestRepoInitManagedBlockLanguage(t *testing.T) {
 			want:   i18n.ZhCN,
 		},
 		{
-			name: "no readable config falls back to the default",
-			env:  map[string]string{"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "GOFER_LANG": "en"},
-			want: i18n.Default,
+			name: "no readable config reads as auto: the machine's language (an English one here)",
+			env:  map[string]string{"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "GOFER_LANG": ""},
+			want: i18n.EN,
+		},
+		{
+			name: "no readable config reads as auto: a Chinese machine gets zh-CN",
+			env:  map[string]string{"LANG": "zh_CN.UTF-8", "LC_ALL": "zh_CN.UTF-8", "GOFER_LANG": ""},
+			want: i18n.ZhCN,
 		},
 	}
 	for _, tc := range cases {

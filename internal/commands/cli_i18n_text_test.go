@@ -51,7 +51,8 @@ func TestCliLangChain(t *testing.T) {
 	if got := cliLang(); got != i18n.EN {
 		t.Errorf("GOFER_LANG: cliLang() = %q, want en", got)
 	}
-	// Nothing names a language: the DEPRECATED default. Windows reads the machine's
+	// Nothing names a language: the machine detection finds nothing, so it is auto's
+	// fallback, en (not the old zh-CN default). Windows reads the machine's
 	// language from the user's UI language, not from LANG / LC_ALL, so clearing the
 	// variables does not make it "nothing set" there (an English CI runner says en).
 	t.Setenv(i18n.EnvLanguageVar, "")
@@ -59,8 +60,8 @@ func TestCliLangChain(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		return
 	}
-	if got := cliLang(); got != i18n.Default {
-		t.Errorf("nothing set: cliLang() = %q, want the default %q", got, i18n.Default)
+	if got := cliLang(); got != i18n.EN {
+		t.Errorf("nothing set: cliLang() = %q, want en (auto with nothing detected)", got)
 	}
 }
 

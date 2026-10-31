@@ -9,6 +9,8 @@ import (
 	"github.com/goccy/go-yaml"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/i18n/prompts"
 )
 
 // Plan rules (gofer-3nxa.5, design 2026-10-10-handoff-brief-and-knowledge-loop §四):
@@ -16,38 +18,36 @@ import (
 // single source — the plan-implement workflow template injects PlannerGuidance into its
 // planner prompt, and the gofer-usage skill quotes the same text.
 
-// PlanRules are the six rules a plan follows.
-const PlanRules = `方案规则：
-1. 步骤按依赖自底向上（存储 / 模型 → 协议 / 接口 → 业务 → 调用方 / 前端），任何步骤不得使用后续步骤才创建的东西；
-2. 优先垂直切片，每片完成后可编译、可验证；
-3. 单步预计改动 > 5 个文件、跨 2 个以上子系统、或标题含「并且 / 同时」，拆开；
-4. 每 2~3 步一个检查点（可执行的验证命令）；
-5. 对跨模块、不可逆、并发 / 幂等 / 不变量类关键决策做一次「假设作者过度自信」自审，写出最可能错在哪；
-6. 不确定、需要人拍板的点收进「待确认问题」，不进入实现。`
-
 // PlanTodosFence is the info string of the fenced block a plan ends with.
 const PlanTodosFence = "gofer-todos"
 
-// PlanTodosFormat describes the gofer-todos block (`gofer plan import` reads it).
-const PlanTodosFormat = "输出格式：方案末尾附一个 ```" + PlanTodosFence + "``` 围栏块，内容是 YAML 列表，每个元素一步：\n" +
-	"- `title`：步骤标题（必填）；\n" +
-	"- `after`：依赖的前序步骤（标题或从 1 起的序号，可写列表）；省略 = 依赖上一步，`[]` = 无依赖；\n" +
-	"- `acceptance`：验收标准；\n" +
-	"- `check_prompt`：交付核验要求（可选；不是 shell 命令）；\n" +
-	"- `scope`：改动范围（路径 glob 列表，相对仓库根）；\n" +
-	"- `check`：检查点命令（可选；生成一个 exec 复核项，后续步骤等它通过）。\n\n" +
-	"```" + PlanTodosFence + "\n" +
-	"- title: 存储层加字段与迁移\n" +
-	"  acceptance: 迁移可重复执行；旧数据可读\n" +
-	"  scope: [src/storage/**]\n" +
-	"- title: 接口暴露新字段\n" +
-	"  scope: [src/api/**]\n" +
-	"  check: <项目的测试命令>\n" +
-	"```"
+// PlanRulesIn are the six rules a plan follows, in lang.
+func PlanRulesIn(lang i18n.Lang) string {
+	return prompts.MustRender(lang, prompts.NamePlanRules, struct{}{})
+}
 
-// PlannerGuidance is what the plan-implement planner prompt carries: the rules, then the
-// output format.
-const PlannerGuidance = PlanRules + "\n\n" + PlanTodosFormat
+// PlanTodosFormatIn describes the gofer-todos block (`gofer plan import` reads it),
+// in lang.
+func PlanTodosFormatIn(lang i18n.Lang) string {
+	return prompts.MustRender(lang, prompts.NamePlanTodosFormat, prompts.PlanTodosFormatData{Fence: PlanTodosFence})
+}
+
+// PlannerGuidanceIn is what the plan-implement planner prompt carries: the rules, then
+// the output format, in lang.
+func PlannerGuidanceIn(lang i18n.Lang) string {
+	return PlanRulesIn(lang) + "\n\n" + PlanTodosFormatIn(lang)
+}
+
+// The built-in workflow templates are static text (no job, so no project language to
+// follow) and are written in Chinese throughout, so they carry the zh-CN guidance.
+var (
+	// PlanRules are the six rules a plan follows (zh-CN).
+	PlanRules = PlanRulesIn(i18n.ZhCN)
+	// PlanTodosFormat describes the gofer-todos block (zh-CN).
+	PlanTodosFormat = PlanTodosFormatIn(i18n.ZhCN)
+	// PlannerGuidance is the rules then the output format (zh-CN).
+	PlannerGuidance = PlannerGuidanceIn(i18n.ZhCN)
+)
 
 // PlanTodoSpec is one step of a gofer-todos block. After holds the raw references
 // (titles or 1-based step numbers); AfterSet distinguishes "omitted" (= the previous
@@ -219,6 +219,11 @@ func yamlList(v any, csv bool) ([]string, error) {
 // everything after it. An omitted `after` means the previous step; a reference to the
 // step itself or a later one is refused (a step never uses what a later step creates).
 func BuildTodoImport(specs []PlanTodoSpec, assign string) ([]ImportTodo, error) {
+	return BuildTodoImportIn(i18n.Default, specs, assign)
+}
+
+// BuildTodoImportIn is BuildTodoImport with the title of a check item written in lang.
+func BuildTodoImportIn(lang i18n.Lang, specs []PlanTodoSpec, assign string) ([]ImportTodo, error) {
 	assign = strings.TrimSpace(assign)
 	if assign == agent.ExecAgentKey {
 		return nil, fmt.Errorf("--assign %s: steps are agent work; checks become exec items on their own", agent.ExecAgentKey)
@@ -260,7 +265,7 @@ func BuildTodoImport(specs []PlanTodoSpec, assign string) ([]ImportTodo, error) 
 		out = append(out, ImportTodo{Title: s.Title, Assignee: assign, Acceptance: s.Acceptance, CheckPrompt: s.CheckPrompt, Scope: s.Scope, After: after, Step: n})
 		gate[i] = len(out) - 1
 		if check := strings.TrimSpace(s.Check); check != "" {
-			out = append(out, ImportTodo{Title: "检查点：" + s.Title, Assignee: agent.ExecAgentKey, Cmd: check, After: []int{gate[i]}, Step: n})
+			out = append(out, ImportTodo{Title: i18n.T(lang, "job.plan.checkpoint_title", "title", s.Title), Assignee: agent.ExecAgentKey, Cmd: check, After: []int{gate[i]}, Step: n})
 			gate[i] = len(out) - 1
 		}
 	}

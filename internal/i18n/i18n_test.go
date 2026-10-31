@@ -3,6 +3,7 @@ package i18n
 import (
 	"io/fs"
 	"path"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -74,7 +75,7 @@ func TestFromAcceptLanguage(t *testing.T) {
 }
 
 // TestResolve: the first understood candidate wins, and nothing understood means
-// the DEPRECATED default.
+// the legacy Default.
 func TestResolve(t *testing.T) {
 	t.Parallel()
 	if got := Resolve("", "zh-CN", "en"); got != ZhCN {
@@ -205,19 +206,85 @@ func TestTReplacesNamedArgs(t *testing.T) {
 	}
 }
 
-// TestDefaultIsPinned: the DEPRECATED default is named in ONE place, so flipping it
-// (G032, three versions after v0.197) is a deliberate edit with this test's company.
-func TestDefaultIsPinned(t *testing.T) {
-	t.Parallel()
-	if Default != ZhCN {
-		t.Fatalf("Default = %q: update i18n.LanguageDefaultNote, the design's "+
-			"implementation record and the config hint together", Default)
+// TestDefaultIsNotTheUnsetLanguage: Default is only the baseline of code that
+// carries no language at all; a language nobody named is Auto(), and the note says so.
+func TestDefaultIsNotTheUnsetLanguage(t *testing.T) {
+	old := detectSystem
+	t.Cleanup(func() { detectSystem = old })
+	detectSystem = func() []Lang { return nil }
+	if got := Auto(); got != EN {
+		t.Errorf("Auto() with no system language = %q, want en", got)
 	}
 	if got := List(); got != "en, zh-CN" {
 		t.Errorf("List = %q", got)
 	}
-	if !strings.Contains(LanguageDefaultNote, string(Default)) {
-		t.Errorf("LanguageDefaultNote does not name the default: %q", LanguageDefaultNote)
+	for _, l := range Supported() {
+		note := LanguageDefaultNoteIn(l)
+		if note == "cli.setup.language.unset_note" || !strings.Contains(note, "server.language") {
+			t.Errorf("LanguageDefaultNoteIn(%s) = %q", l, note)
+		}
+	}
+	if !strings.Contains(LanguageDefaultNote, "auto") || strings.Contains(LanguageDefaultNote, "DEPRECATED") {
+		t.Errorf("LanguageDefaultNote = %q", LanguageDefaultNote)
+	}
+	if !strings.Contains(LanguageDefaultNoteIn(ZhCN), "系统语言") {
+		t.Errorf("zh-CN note = %q", LanguageDefaultNoteIn(ZhCN))
+	}
+}
+
+// TestAutoFollowsTheSystemLanguage: auto is the machine's language when gofer has
+// text for it, else en. The detector is injected so the Windows branch (UI
+// language) is covered on every platform.
+func TestAutoFollowsTheSystemLanguage(t *testing.T) {
+	old := detectSystem
+	t.Cleanup(func() { detectSystem = old })
+	cases := []struct {
+		name string
+		got  []Lang
+		want Lang
+	}{
+		{"chinese system", []Lang{ZhCN}, ZhCN},
+		{"english system", []Lang{EN}, EN},
+		{"first preference wins", []Lang{ZhCN, EN}, ZhCN},
+		{"nothing detected", nil, EN},
+	}
+	for _, tc := range cases {
+		detectSystem = func() []Lang { return tc.got }
+		if got := Auto(); got != tc.want {
+			t.Errorf("%s: Auto() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	detectSystem = func() []Lang { return nil }
+	if got := FromSystem(); got != "" {
+		t.Errorf("FromSystem() with nothing detected = %q, want empty", got)
+	}
+}
+
+// TestAutoFromLocaleVariables drives the real detector through the POSIX locale
+// variables: a Chinese locale is zh-CN; an unsupported one (or none) is en.
+func TestAutoFromLocaleVariables(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows also reads the UI language; covered by TestAutoFollowsTheSystemLanguage")
+	}
+	for _, tc := range []struct {
+		env  string
+		want Lang
+	}{{"zh_CN.UTF-8", ZhCN}, {"en_US.UTF-8", EN}, {"fr_FR.UTF-8", EN}, {"", EN}} {
+		t.Setenv("LC_ALL", tc.env)
+		t.Setenv("LC_MESSAGES", "")
+		t.Setenv("LANG", "")
+		if got := Auto(); got != tc.want {
+			t.Errorf("LC_ALL=%q: Auto() = %q, want %q", tc.env, got, tc.want)
+		}
+	}
+}
+
+func TestIsAuto(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]bool{"": true, "  ": true, "auto": true, "AUTO": true, " Auto ": true, "en": false, "zh-CN": false, "x": false} {
+		if got := IsAuto(in); got != want {
+			t.Errorf("IsAuto(%q) = %v, want %v", in, got, want)
+		}
 	}
 }
 

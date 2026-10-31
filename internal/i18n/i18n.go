@@ -22,13 +22,37 @@ const (
 	EN Lang = "en"
 	// ZhCN is Simplified Chinese.
 	ZhCN Lang = "zh-CN"
-	// Default is the language of a deployment that names none. It is zh-CN for
-	// now so that an existing deployment keeps the text it always had; see
-	// LanguageDefaultNote.
-	//
-	// DEPRECATED(v0.197): the default flips to en in v0.200 (G032).
+	// Default is the language of code that carries no language at all: the
+	// language-less compatibility wrappers (the XxxIn(lang, ...) functions' short
+	// forms), Resolve with nothing understood, and tests that pin one text.
+	// It is NOT what an unconfigured deployment gets: a language nobody named
+	// reads as AutoValue, resolved by Auto() (the server machine's language, else
+	// en) — design 2026-10-27-i18n-design.md, "Decided (2026-10-30): default auto".
 	Default = ZhCN
 )
+
+// AutoValue is the config value that asks for the machine's own language
+// (server.language / projects.<p>.language). An unset language reads as it too.
+const AutoValue = "auto"
+
+// IsAuto reports whether a configured language value means "pick it from the
+// machine": the explicit "auto" (any case) or nothing at all.
+func IsAuto(in string) bool {
+	s := strings.ToLower(strings.TrimSpace(in))
+	return s == "" || s == AutoValue
+}
+
+// detectSystem reads the machine's language preferences; tests replace it.
+var detectSystem = systemLanguages
+
+// Auto is the language an unconfigured (or "auto") deployment runs in: the
+// machine's language when it is one gofer has text for, else English.
+func Auto() Lang {
+	if l := FromSystem(); l != "" {
+		return l
+	}
+	return EN
+}
 
 // supported lists the canonical languages in documentation order.
 var supported = []Lang{EN, ZhCN}
@@ -121,7 +145,8 @@ func MustNormalize(in string) Lang {
 
 // Resolve picks the language of a text from its sources, highest priority
 // first: the first understood candidate wins, and an empty list (or one with
-// nothing understood) is Default. Callers pass the chain of §3 of the design —
+// nothing understood) is Default (a caller with no language at all; an
+// unconfigured deployment gets Config.Language(), which is auto). Callers pass the chain of §3 of the design —
 // e.g. a job: the project's language, then the server's.
 func Resolve(candidates ...Lang) Lang {
 	for _, c := range candidates {
@@ -174,9 +199,11 @@ func FromAcceptLanguage(header string) Lang {
 	return cands[0].lang
 }
 
-// LanguageDefaultNote explains what an unset language means right now: it is
-// what the startup log and `config validate` say. It is English-only on purpose
-// — it talks about the language setting itself, and CLI/service text is not
-// translated yet (phase 2 / 3 of the design).
-const LanguageDefaultNote = "server.language is not set: text defaults to zh-CN " +
-	"(DEPRECATED, the default flips to en in v0.200) — set server.language explicitly (available: en, zh-CN)"
+// LanguageDefaultNote explains what an unset language means: it is what the
+// startup log and `config validate` say. LanguageDefaultNoteIn renders it.
+const LanguageDefaultNote = "server.language is not set: the language is chosen automatically " +
+	"from the server machine's system language (en when it cannot be detected) — " +
+	"set server.language explicitly to pin it (available: auto, en, zh-CN)"
+
+// LanguageDefaultNoteIn is LanguageDefaultNote in lang.
+func LanguageDefaultNoteIn(lang Lang) string { return T(lang, "cli.setup.language.unset_note") }

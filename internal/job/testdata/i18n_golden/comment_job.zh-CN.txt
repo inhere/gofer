@@ -1,0 +1,2 @@
+被评论的 job：job-c1 "(无标题)"
+状态：failed（error: boom）

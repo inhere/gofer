@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/runner"
 )
 
@@ -80,11 +81,6 @@ const (
 	// wsproto.SkillsMinProtocolVersion would ignore it and write into the working
 	// tree, so the hub must never send one to such a worker.
 	SkillBaseResultDir = "result_dir"
-	// skillsPromptHeader opens the generated list. The manifest sits at the TOP of
-	// the prompt — the agent reads what it may read before it reads what to do.
-	skillsPromptHeader = "## 可用技能（gofer 挂载，按需阅读）"
-	// skillsPromptFooter is the one instruction that makes the list useful.
-	skillsPromptFooter = "先读与本任务相关的 SKILL.md，再动手。"
 	// goferSkillsDirEnv is the env var that lets an agent (or a wrapper script) find
 	// the mount without parsing the prompt.
 	goferSkillsDirEnv = "GOFER_SKILLS_DIR"
@@ -98,6 +94,13 @@ const (
 	// like the leader variable — and the credential enforces the same limits regardless.
 	goferStewardEnv = "GOFER_STEWARD"
 )
+
+// skillsPromptHeader opens the generated list, in lang. The manifest sits at the TOP of
+// the prompt — the agent reads what it may read before it reads what to do.
+func skillsPromptHeader(lang i18n.Lang) string { return i18n.T(lang, "job.skills.header") }
+
+// skillsPromptFooter is the one instruction that makes the list useful.
+func skillsPromptFooter(lang i18n.Lang) string { return i18n.T(lang, "job.skills.footer") }
 
 // SkillDest is the result-dir-relative destination of one skill file, e.g.
 // skills/house-rules/SKILL.md. It is exported because the STAGING side (which lives
@@ -176,12 +179,12 @@ func (s *Service) stageSkills(req *JobRequest, stage bool) error {
 // skillsManifest renders the prompt list for the resolved skills. dir is THIS
 // machine's mount root (<result_dir>/skills); each entry names the skill, what it is
 // for, and where its SKILL.md is.
-func skillsManifest(lib SkillLibrary, names []string, dir string) string {
+func skillsManifest(lang i18n.Lang, lib SkillLibrary, names []string, dir string) string {
 	if len(names) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(skillsPromptHeader)
+	b.WriteString(skillsPromptHeader(lang))
 	b.WriteString("\n")
 	for _, name := range names {
 		info, ok := lib.Get(name)
@@ -192,14 +195,14 @@ func skillsManifest(lib SkillLibrary, names []string, dir string) string {
 		b.WriteString("- ")
 		b.WriteString(name)
 		if desc != "" {
-			b.WriteString("：")
+			b.WriteString(i18n.T(lang, "job.skills.desc_sep"))
 			b.WriteString(desc)
 		}
 		b.WriteString(" → ")
 		b.WriteString(filepath.Join(dir, name, "SKILL.md"))
 		b.WriteString("\n")
 	}
-	b.WriteString(skillsPromptFooter)
+	b.WriteString(skillsPromptFooter(lang))
 	b.WriteString("\n\n")
 	return b.String()
 }
@@ -212,7 +215,7 @@ func (s *Service) skillsPromptPrefix(req *JobRequest, resultDir string) string {
 	if s.skills == nil || len(req.Skills) == 0 {
 		return ""
 	}
-	return skillsManifest(s.skills, req.Skills, filepath.Join(resultDir, skillsDirName))
+	return skillsManifest(promptLanguage(s.config(), req), s.skills, req.Skills, filepath.Join(resultDir, skillsDirName))
 }
 
 // mountSkills places the job's skills in ITS OWN result dir on THIS machine, before

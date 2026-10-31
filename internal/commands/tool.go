@@ -165,19 +165,19 @@ or delivered; the hook runs on this machine with this machine's config.
 	}
 	backfill := &gcli.Command{
 		Name: "stats-backfill",
-		Desc: "Compute the dashboard's per-job metrics for jobs that ended before they were recorded",
+		Desc: cliText("cli.tool.stats_backfill.desc"),
 		Config: func(c *gcli.Command) {
 			bindConfigFlag(c)
 			bindServerFlags(c)
-			c.StrOpt(&toolStatsBackfillOpts.since, "since", "", "", "only jobs that ended within this window (e.g. 30d, 12h) or since YYYY-MM-DD; default all")
-			c.IntOpt(&toolStatsBackfillOpts.limit, "limit", "", 100, "jobs per server batch (1-1000)")
-			c.BoolOpt(&toolStatsBackfillOpts.force, "force", "f", false, "recompute jobs that already have metrics")
+			c.StrOpt(&toolStatsBackfillOpts.since, "since", "", "", cliText("cli.tool.stats_backfill.since_flag"))
+			c.IntOpt(&toolStatsBackfillOpts.limit, "limit", "", 100, cliText("cli.tool.stats_backfill.limit_flag"))
+			c.BoolOpt(&toolStatsBackfillOpts.force, "force", "f", false, cliText("cli.tool.stats_backfill.force_flag"))
 		},
 		Func: runToolStatsBackfill,
 	}
 	return &gcli.Command{
 		Name: "tool",
-		Desc: "Small utilities: a raw API call, file copy to/from a worker, the transfer staging area, certificates and the stats backfill",
+		Desc: cliText("cli.tool.desc"),
 		Subs: []*gcli.Command{
 			cp,
 			cert,
@@ -187,7 +187,7 @@ or delivered; the hook runs on this machine with this machine's config.
 			NewToolApiCmd(),
 			NewRefsCmd(),
 			// GIT-02 plumbing: the internal job that delivers a worker's worktree job.
-			{Name: "deliver", Hidden: true, Desc: "Run a delivery plan read from stdin (internal)", Func: runToolDeliver},
+			{Name: "deliver", Hidden: true, Desc: cliText("cli.tool.deliver_desc"), Func: runToolDeliver},
 			// Built-in workflow steps (design §一·5): the internal job a `uses: gofer/<name>`
 			// step runs on its runner.
 			NewToolStepCmd(),

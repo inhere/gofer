@@ -10,6 +10,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -195,7 +196,7 @@ func TestSkillPromptListsPaths(t *testing.T) {
 		Skills: []string{"house-rules"},
 	})
 	prompt := executedPromptOf(t, final)
-	if !strings.HasPrefix(prompt, skillsPromptHeader) {
+	if !strings.HasPrefix(prompt, skillsPromptHeader(i18n.ZhCN)) {
 		t.Fatalf("the executed prompt does not start with the skills list:\n%s", prompt)
 	}
 	wantPath := filepath.Join(final.ResultDir, skillsDirName, "house-rules", "SKILL.md")
@@ -285,7 +286,7 @@ func TestPeerRunnerSkipsSkills(t *testing.T) {
 	}
 	// The peer receives the caller's text (plus gofer's own deadline line — gofer-s2er)
 	// and nothing else: no skills list, no rules list.
-	if got := peer.got.Prompt; !strings.HasPrefix(got, body) || strings.Contains(got, skillsPromptHeader) {
+	if got := peer.got.Prompt; !strings.HasPrefix(got, body) || strings.Contains(got, skillsPromptHeader(i18n.ZhCN)) {
 		t.Fatalf("the peer's prompt = %q, want the caller's text %q and no skills list", got, body)
 	}
 	// The peer's transport carries no files: nothing is staged for it and nothing is
@@ -336,7 +337,7 @@ func TestNoSkillsDisablesAll(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(final.ResultDir, "skills")); err == nil {
 			t.Fatal("--no-skills still mounted a skills dir")
 		}
-		if strings.HasPrefix(executedPromptOf(t, final), skillsPromptHeader) {
+		if strings.HasPrefix(executedPromptOf(t, final), skillsPromptHeader(i18n.ZhCN)) {
 			t.Fatal("--no-skills still rendered the skills list")
 		}
 	})

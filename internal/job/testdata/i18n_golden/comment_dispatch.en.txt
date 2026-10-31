@@ -1,0 +1,9 @@
+You were @-mentioned in a comment to take over some work (gofer comment dispatch).
+
+Commented todo: t-1 "first" (plan plan-g)
+Status: done
+Note: line1
+last note
+
+Comment text:
+please look

@@ -41,37 +41,25 @@ var toolApiOpts = struct {
 func NewToolApiCmd() *gcli.Command {
 	return &gcli.Command{
 		Name:    "api",
-		Desc:    "Call the server's HTTP API and print the response (address and token included)",
+		Desc:    cliText("cli.tool.api.desc"),
 		Aliases: []string{"curl"},
-		Help: `The path is relative to the server's /v1 API, so "jobs" and "/v1/jobs" are the
-same request. The address and token come from the same place as everywhere else in the
-CLI (-c / --server / --token, or $GOFER_CONFIG_DIR/.env), so nothing has to be typed
-twice.
-
-Fields build the body (` + "`application/json`" + `); on a GET they become query parameters
-instead. A value is read as JSON when it parses as one (10 → number, true → bool) and as
-a plain string otherwise:
-
-  gofer tool api jobs -f status=running -f limit=5
-  gofer tool api jobs -X POST --input job.json
-  gofer tool api settings/work.draft.min_prompts -X PUT -f value=3
-  gofer tool api prompt -F value=@prompt.md          # file content as a string
-  gofer tool api jobs -q 'jobs.*.id'
-
---query picks one value out of the JSON response by path (top.sub, jobs.0.id,
-jobs.*.id): a string prints as it is, anything else as indented JSON. A non-2xx answer
-exits non-zero and prints the body to stderr; --include also shows the status line and
-the response headers.`,
+		Help: cliText("cli.tool.api.help.p1") + "\n\n" + cliText("cli.tool.api.help.p2", "json", "`application/json`") + "\n\n" +
+			"  gofer tool api jobs -f status=running -f limit=5\n" +
+			"  gofer tool api jobs -X POST --input job.json\n" +
+			"  gofer tool api settings/work.draft.min_prompts -X PUT -f value=3\n" +
+			"  gofer tool api prompt -F value=@prompt.md          # " + cliText("cli.tool.api.help.file_comment") + "\n" +
+			"  gofer tool api jobs -q 'jobs.*.id'\n\n" +
+			cliText("cli.tool.api.help.p3"),
 		Config: func(c *gcli.Command) {
 			bindConfigFlag(c)
 			bindServerFlags(c)
-			c.StrOpt(&toolApiOpts.method, "request", "X", "", "HTTP method (default: GET, or POST when a body is given)")
-			c.VarOpt(&toolApiOpts.fields, "field", "f", "field as key=value (repeatable; query parameters on a GET)")
-			c.VarOpt(&toolApiOpts.files, "file-field", "F", "field as key=@file, the file's content as the string value (repeatable)")
-			c.StrOpt(&toolApiOpts.input, "input", "", "", "raw request body from this file ('-' reads stdin)")
-			c.StrOpt(&toolApiOpts.query, "query", "q", "", "print this value of the JSON response instead of the whole body")
-			c.BoolOpt(&toolApiOpts.showHeader, "include", "i", false, "print the status line and response headers")
-			c.AddArg("path", "API path, e.g. jobs or /v1/jobs/abc", true)
+			c.StrOpt(&toolApiOpts.method, "request", "X", "", cliText("cli.tool.api.request_flag"))
+			c.VarOpt(&toolApiOpts.fields, "field", "f", cliText("cli.tool.api.field_flag"))
+			c.VarOpt(&toolApiOpts.files, "file-field", "F", cliText("cli.tool.api.file_field_flag"))
+			c.StrOpt(&toolApiOpts.input, "input", "", "", cliText("cli.tool.api.input_flag"))
+			c.StrOpt(&toolApiOpts.query, "query", "q", "", cliText("cli.tool.api.query_flag"))
+			c.BoolOpt(&toolApiOpts.showHeader, "include", "i", false, cliText("cli.tool.api.include_flag"))
+			c.AddArg("path", cliText("cli.tool.api.path_arg"), true)
 		},
 		Func: runToolApi,
 	}

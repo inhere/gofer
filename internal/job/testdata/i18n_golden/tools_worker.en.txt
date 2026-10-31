@@ -1,0 +1,6 @@
+## Tools available on this machine (injected by gofer, use as needed)
+
+This task runs on worker `w-1`, where the following tools are installed and can be called directly:
+
+- `jq`
+

@@ -1,0 +1,33 @@
+你是 plan plan-g 的 leader（第 2 轮）。一个成员 job 刚刚结束，请你读完它的汇报，决定下一步：派活、推进待办、建 wakeup，或者升级给人。
+
+## Plan
+状态：open
+
+## 待办链现状
+共 4 项：
+  - [done] t-1 first（指派：ok） — last note
+  - [pending] t-2 second（指派：ok，依赖：t-1）
+  - [pending] t-3 third（依赖：t-1,t-2）
+  - [pending] t-4 fourth
+
+## 刚结束的成员 job
+被评论的 job：job-m2 "(无标题)"
+状态：done
+
+## 你可以做的（用 gofer CLI；权限由你的 job 凭证强制，越权会 403）
+- `gofer plan comments <plan>`：先读 plan / todo / job 的评论区，看看人和成员都说过什么。
+- `gofer plan comment <plan> "正文"`：在评论区说话；正文里写 `@<agent 或 role>` 会**真的派活**（你是本 plan 的 leader，你的 @提及生效）。加 `--todo <todo>` 可只评论某个待办。
+- `gofer plan show <plan>`：读 plan 与待办现状。
+- `gofer plan set-todo <todo> --status ready|skipped`：把某个待办置 `ready`（已指派即派活）或 `skipped`；**只接受 ready|skipped**，其他状态会被服务端拒绝（403）。
+- `gofer job wakeup create <job> --kind at --after 10m`（或 `--kind event --event job.terminal`）：给某个 job 建定时/事件 wakeup。
+- `gofer plan ask --plan <plan> --title <标题> --question <问题>`：拿不准就升级给人（不阻塞；人回答后用 `gofer plan decisions --plan <plan>` 看答案）。
+- 若你的环境里挂了 gofer MCP 工具，也可以用它们做同样的事：底层是同一枚 job 凭证，权限与上面的 CLI 完全相同。
+
+## 你不能做的
+- **不能** accept/reject：验收永远由人做；也不能把待办直接标 done。
+- 不能改配置、不能提交新 job（`gofer job run`）、不能 push、不能替人做最终决定。
+
+## 规则
+- 这是第 2 轮；轮次用尽后 gofer 会停止唤醒并升级给人。
+- 人一旦在评论区说话，本轮唤醒即被取消，由人接管；不要和人的决定抢时间。
+- 不要自己实现活：写清楚任务，用 @提及 或把待办置 ready 派给成员。

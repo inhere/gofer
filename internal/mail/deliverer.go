@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
@@ -456,6 +457,7 @@ func (d *Deliverer) sweepJobs(ctx context.Context, now time.Time, st Settings) {
 		slog.Warn("mail deliverer: list pending job mail failed", "error", err)
 		return
 	}
+	lang := d.svc.textLanguage()
 	for _, id := range ids {
 		if ctx.Err() != nil {
 			return
@@ -468,18 +470,18 @@ func (d *Deliverer) sweepJobs(ctx context.Context, now time.Time, st Settings) {
 		switch {
 		case !ok:
 			// The job row is gone (pruned, deleted): no later sweep can deliver these.
-			d.holdJobLetters(letters, "收件 job 不存在")
+			d.holdJobLetters(letters, i18n.T(lang, "mail.reason.job_missing"))
 		case rec.Interactive:
 			d.holdJobLetters(letters, PtyHoldReason)
 		case job.IsTerminal(rec.Status):
 			// The recipient ended while the letter was waiting: park it and tell the sender
 			// now instead of at the delivery deadline (gofer-0n6r).
-			d.holdJobLetters(letters, "收件 job 已结束（"+rec.Status+"），这封信没人读了")
+			d.holdJobLetters(letters, i18n.T(lang, "mail.reason.job_ended", "status", rec.Status))
 		case !d.svc.receivesJobMail(id):
 			// A one-off run has no ACP session, so no turn of it can ever take a letter. New
 			// sends are refused at the address (mail.Send); this catches letters stored
 			// before that rule existed.
-			d.holdJobLetters(letters, oneOffJobReason)
+			d.holdJobLetters(letters, oneOffJobReason(lang))
 		case rec.Status == job.StatusAwaitingInput:
 			d.sayToJob(ctx, id, letters[0], st)
 		}
@@ -489,7 +491,7 @@ func (d *Deliverer) sweepJobs(ctx context.Context, now time.Time, st Settings) {
 }
 
 // oneOffJobReason explains a hold of a letter to a job that can never receive mail.
-const oneOffJobReason = "收件是一次性作业（没有 ACP 会话），收不到信件"
+func oneOffJobReason(lang i18n.Lang) string { return i18n.T(lang, "mail.reason.one_off") }
 
 // receivesJobMail reports whether a job can take a letter at all (见 SessionJobCheck): the
 // deliverer's judgement when no seam is wired is the record's own state, i.e. "maybe".

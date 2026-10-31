@@ -29,7 +29,7 @@ func backendLang(b Backend) i18n.Lang {
 	if l := i18n.FromEnvVar(); l != "" {
 		return l
 	}
-	return i18n.Default
+	return i18n.Auto()
 }
 
 // text looks key up in b's language: the one way a description or an answer an agent

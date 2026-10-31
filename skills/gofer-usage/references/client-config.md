@@ -28,7 +28,7 @@ GOFER_RUN_MODE=client                                  # 节点角色: 不加载
 
 它是**这台机器 CLI 自己**的语言（`--help`、提示、错误），优先级：命令行已导出的 `GOFER_LANG` → 这个 `.env` → 系统语言（`LANG` / `LC_ALL`；Windows 取界面语言）→ `en`。`.env` 在命令组装前被导出，所以等效于直接导出环境变量。`--json` 等机器可读输出不翻译。
 
-注意：与 server 的 `server.language` / 项目的 `language` 是两回事——那两个决定**服务端生成、注入给 agent** 的文本（任务书、brief、通知），这里只决定本机 CLI 印给人看的字。已迁移的命令组：`job` / `plan` / `session` / `init` / `config` / `worker` / `project` / `serve`；其余命令组仍是中文。
+注意：与 server 的 `server.language` / 项目的 `language` 是两回事——那两个决定**服务端生成、注入给 agent** 的文本（任务书、brief、通知），这里只决定本机 CLI 印给人看的字。两者的 `language` 不写等同 `auto`：按所在机器的系统语言选（中文 → zh-CN，其余 → en）。已迁移的命令组：`job` / `plan` / `session` / `init` / `config` / `worker` / `project` / `serve`；其余命令组仍是中文。
 
 自检：
 

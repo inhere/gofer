@@ -63,6 +63,14 @@ const (
 	// NameRepoBlock is the instruction block `gofer repo init` keeps up to date in
 	// a repository's AGENTS.md / CLAUDE.md (tracker: repo_block.go).
 	NameRepoBlock = "repo_block"
+	// NamePlanRules is the six rules an implementation plan follows (job: plan_rules.go).
+	NamePlanRules = "plan-rules"
+	// NamePlanTodosFormat describes the fenced todos block a plan ends with
+	// (job: plan_rules.go).
+	NamePlanTodosFormat = "plan-todos-format"
+	// NameResidentOpening is the opening prompt of a mailbox resident session
+	// (mail: resident.go).
+	NameResidentOpening = "resident-opening"
 )
 
 // The templates' data. Each language of a name takes the same data type, so the
@@ -147,6 +155,19 @@ type (
 	RepoBlockData struct {
 		CommitPolicy string
 		MemoryHint   string
+	}
+	// PlanTodosFormatData feeds NamePlanTodosFormat: the info string of the fence.
+	PlanTodosFormatData struct {
+		Fence string
+	}
+	// ResidentOpeningData feeds NameResidentOpening: the project the session serves
+	// ("" = none), the configured agent name, the letter tag its letters arrive in and
+	// the idle limit as a person reads it.
+	ResidentOpeningData struct {
+		Project string
+		Name    string
+		Tag     string
+		Idle    string
 	}
 )
 

@@ -24,6 +24,11 @@
 
 - **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
 
+### 变更
+
+- **文本语言缺省改为 `auto`（i18n）**：`server.language` 与 `projects.<p>.language` 新增取值 `auto`，**不配置时等同 `auto`**：按 server 所在机器的系统语言选择（中文 → zh-CN，探测不到或不支持 → en）；项目没配则继承 server。`gofer init` 写入 `language: auto`；启动日志与 `gofer config validate` 显示实际语言与来源。**注意**：未配置语言、且 server 机器系统语言不是中文的部署，升级后注入给 agent 的提示词与服务端生成的文本会变成英文；要保持中文请显式写 `language: zh-CN`。
+- 注入给 agent 的提示词（leader 回合提示、计划规则与待办格式、技能清单、可用工具、评论派活、收尾原因、常驻收件会话）改为按项目 / server 语言选择中英两版，中文版内容不变；新增 Go 包级「不得新增中文字面量」守护测试。`plan --check-prompt` 与 `gofer tool api / deliver / stats-backfill / step` 的说明改为中英双语。
+
 ## [0.204.0] - 2026-10-30
 
 ### 新增

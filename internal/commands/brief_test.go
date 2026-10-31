@@ -15,6 +15,7 @@ import (
 
 // `gofer issue brief` works without a server: the server sections carry a note.
 func TestIssueBriefCLIOffline(t *testing.T) {
+	t.Setenv(i18n.EnvLanguageVar, string(i18n.ZhCN)) // the assertions below read the zh-CN text
 	t.Setenv("GOFER_SERVER_ADDR", "http://127.0.0.1:1")
 	root := t.TempDir()
 	trackerRunOK(t, root, "repo", "init")
@@ -43,6 +44,7 @@ func TestIssueBriefCLIOffline(t *testing.T) {
 // The prime 「进行中 plan」 section lists each plan with the brief hint and its doing /
 // ready todos plus the issues they name, even without a handoff note.
 func TestPrimePlanSectionListsTodos(t *testing.T) {
+	t.Setenv(i18n.EnvLanguageVar, string(i18n.ZhCN)) // the assertions below read the zh-CN text
 	root := t.TempDir()
 	s, _, err := tracker.Init(root, "pp", true)
 	assert.Require(t, assert.NoErr(t, err))

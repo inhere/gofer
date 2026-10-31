@@ -799,10 +799,10 @@ type ServerConfig struct {
 	WebBaseURL string `yaml:"web_base_url,omitempty"`
 	// Preview controls short-lived server-local reverse proxies for running jobs.
 	Preview PreviewConfig `yaml:"preview,omitempty"`
-	// `en` or `zh-CN`, any accepted alias is normalized on load (i18n.Normalize).
-	// A project overrides it in projects.<p>.language. Unset means zh-CN for now
-	// (DEPRECATED(v0.197): the default flips to en in v0.200 — see
-	// i18n.LanguageDefaultNote), so an existing deployment's prompts do not change.
+	// `auto`, `en` or `zh-CN`; any accepted alias is normalized on load
+	// (i18n.Normalize). A project overrides it in projects.<p>.language. Unset
+	// means `auto`: the server machine's system language when gofer has text for
+	// it, else en (i18n.Auto; see i18n.LanguageDefaultNote).
 	Language string `yaml:"language,omitempty"`
 	// SessionMessaging controls the web-to-agent session message bridge. It is
 	// intentionally server-scoped because the messenger job runs on the session's
@@ -2460,7 +2460,8 @@ type ProjectConfig struct {
 	KnowledgeCapture string `yaml:"knowledge_capture,omitempty"`
 	// Language overrides the language of the text gofer generates for THIS
 	// project's jobs and sessions (prompt sections, delivery request body):
-	// `en` or `zh-CN`, aliases normalized on load. Empty = server.language.
+	// `auto`, `en` or `zh-CN`, aliases normalized on load. Empty = server.language;
+	// `auto` = the server machine's system language, else en.
 	// See Config.LanguageFor.
 	Language string `yaml:"language,omitempty"`
 	// Approval is the project's run-time approval gate (GATE-01 §1): how an

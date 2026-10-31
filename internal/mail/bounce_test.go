@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
@@ -210,11 +211,11 @@ func TestBounceToAJobSenderIsParked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, ok, err := f.svc.Bounce(m, "why", captureWhere(""))
+	b, ok, err := f.svc.Bounce(m, "why", captureWhere(i18n.Default, ""))
 	if err != nil || !ok {
 		t.Fatalf("Bounce ok=%v err=%v", ok, err)
 	}
-	if b.State != jobstore.MailHeld || b.LastError != noInboxReason || b.ToKind != jobstore.MailKindJob || b.JobID != "job-pty" {
+	if b.State != jobstore.MailHeld || b.LastError != noInboxReason(i18n.Default) || b.ToKind != jobstore.MailKindJob || b.JobID != "job-pty" {
 		t.Fatalf("a job's bounce = %+v", b)
 	}
 	if b.CaptureItemID != "" {
@@ -227,7 +228,7 @@ func TestReplyToABounceIsRefused(t *testing.T) {
 	notice, ok, err := f.svc.Bounce(jobstore.Mail{
 		ID: 9, FromKind: jobstore.MailKindSession, FromID: "sess-b", FromCaller: "alice",
 		ToAddress: "session:sess-a", ToKind: jobstore.MailKindSession, ToID: "sess-a", Body: "hi",
-	}, "收件 job 已结束", captureWhere("wi-1"))
+	}, "收件 job 已结束", captureWhere(i18n.Default, "wi-1"))
 	if err != nil || !ok || notice.State != jobstore.MailPending {
 		t.Fatalf("Bounce = %+v ok=%v err=%v", notice, ok, err)
 	}
