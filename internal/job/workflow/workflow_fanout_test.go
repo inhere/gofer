@@ -226,15 +226,21 @@ func TestJoinAllOneFailsFailsStep(t *testing.T) {
 	if len(fanJobsAtStep(jobs, 2)) != 0 {
 		t.Fatal("step 2 ran despite join=all step failure")
 	}
-	// step 1 started all 3 fans; exactly one failed.
+	// step 1 started all 3 fans; exactly one failed. A sibling still running when the
+	// step fails fast is cancelled, not failed (slow CI runners hit this), so only
+	// `failed` is counted.
 	step1 := fanJobsAtStep(jobs, 1)
 	if len(step1) != 3 {
 		t.Fatalf("step 1 has %d fans, want 3", len(step1))
 	}
 	failed := 0
 	for _, j := range step1 {
-		if j.Status != job.StatusDone {
+		switch j.Status {
+		case job.StatusFailed:
 			failed++
+		case job.StatusDone, job.StatusCancelled:
+		default:
+			t.Fatalf("fan %s ended %s, want done / failed / cancelled", j.ID, j.Status)
 		}
 	}
 	if failed != 1 {

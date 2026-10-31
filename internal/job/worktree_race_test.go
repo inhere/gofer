@@ -158,3 +158,19 @@ func TestRetryWorktreeAddStopsOnCanceledContext(t *testing.T) {
 		t.Fatalf("attempts = %d, want 1 (no retry after cancellation)", attempts)
 	}
 }
+
+// TestGitOutEnvKeepsGitMessagesEnglish: the stderr gitOut hands back is matched against
+// git's English wording, so git must not follow a Chinese machine locale (a macOS runner
+// with git translations answered 「已经存在」 under the zh_CN locale the tests pin).
+func TestGitOutEnvKeepsGitMessagesEnglish(t *testing.T) {
+	env := gitOutEnv()
+	last := ""
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "LANGUAGE=") {
+			last = kv
+		}
+	}
+	if last != "LANGUAGE=en" {
+		t.Fatalf("the last LANGUAGE in gitOut's environment = %q, want LANGUAGE=en", last)
+	}
+}

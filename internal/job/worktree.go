@@ -456,11 +456,21 @@ func ensureWorktreeIgnored(ctx context.Context, top, rel string) {
 //
 // GIT_OPTIONAL_LOCKS=0 同 runGit：不因 refresh 去抢 .git/index.lock，避免并行 agent
 // job 之间以及与用户的手工 commit/rebase 互相阻塞（tools-3wc）。
+//
+// LANGUAGE=en keeps git's messages in English whatever the machine locale: the race
+// detection (isWorktreeRaceError) and callers match git's English stderr, and a
+// zh_CN machine with git translations installed would otherwise answer in Chinese.
+// LANGUAGE outranks LC_ALL for messages, so the locale (and its charset) is untouched.
+// gitOutEnv is the environment gitOut runs git with (see gitOut).
+func gitOutEnv() []string {
+	return append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "LANGUAGE=en")
+}
+
 func gitOut(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	procattr.Background(cmd)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	cmd.Env = gitOutEnv()
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
