@@ -71,7 +71,7 @@ func (s *Server) handleSetSessionOwner(c *rux.Context) {
 	// ended」— ownership moving is «the grants of the previous owner are over»).
 	s.invalidateDBGrants()
 	s.recheckLiveConns("session handed over")
-	c.JSON(http.StatusOK, s.toSessionView(a))
+	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), a))
 }
 
 // sessionCallerKnown reports whether callerID is a caller this server can

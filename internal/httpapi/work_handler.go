@@ -118,7 +118,7 @@ func (s *Server) handleListWorkItems(c *rux.Context) {
 			o.Limit = n
 		}
 	}
-	items, err := s.work.List(o)
+	items, err := s.work.ListIn(s.requestLang(c), o)
 	if err != nil {
 		writeWorkError(c, err, "list work items")
 		return
@@ -254,13 +254,13 @@ func (s *Server) handleWorkDispatchTargets(c *rux.Context) {
 	}
 	out := make([]sessionFindView, 0, len(res))
 	for _, r := range res {
-		out = append(out, sessionFindView{sessionView: s.toSessionView(r.Session), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
+		out = append(out, sessionFindView{sessionView: s.toSessionView(s.requestLang(c), r.Session), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
 	}
 	c.JSON(http.StatusOK, map[string]any{"targets": out})
 }
 
 func (s *Server) respondWorkDetail(c *rux.Context, id string, status int) {
-	d, err := s.work.Detail(id, 200)
+	d, err := s.work.DetailIn(s.requestLang(c), id, 200)
 	if err != nil {
 		writeWorkError(c, err, "get work item")
 		return
@@ -796,9 +796,9 @@ func (s *Server) handleWorkDigestPreview(c *rux.Context) {
 	var err error
 	if s.ceilingActive(c) {
 		// gofer-7798 第二期: the digest counts work items, so a restricted caller reads only its own.
-		d, err = s.work.BuildDigestScoped(time.Now(), s.scopeFilter(c))
+		d, err = s.work.BuildDigestScopedIn(s.requestLang(c), time.Now(), s.scopeFilter(c))
 	} else {
-		d, err = s.work.BuildDigest(time.Now())
+		d, err = s.work.BuildDigestScopedIn(s.requestLang(c), time.Now(), nil)
 	}
 	if err != nil {
 		writeWorkError(c, err, "build work digest")

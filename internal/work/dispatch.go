@@ -113,9 +113,9 @@ func (s *Service) DispatchClose(id, to, by string) (jobstore.WorkItem, error) {
 	}
 	switch to {
 	case DispatchArchive:
-		return s.FinishDispatch(c.Item.ID, jobstore.WorkDone, "", "", "归档", by)
+		return s.FinishDispatch(c.Item.ID, jobstore.WorkDone, "", "", i18n.T(s.lang(c.Item.ProjectKey), "work.journal.dispatch_archive"), by)
 	case DispatchDrop:
-		return s.FinishDispatch(c.Item.ID, jobstore.WorkDropped, "", "", "丢弃", by)
+		return s.FinishDispatch(c.Item.ID, jobstore.WorkDropped, "", "", i18n.T(s.lang(c.Item.ProjectKey), "work.journal.dispatch_drop"), by)
 	}
 	return jobstore.WorkItem{}, fmt.Errorf("%w: unknown close target %q", jobstore.ErrWorkInvalid, to)
 }

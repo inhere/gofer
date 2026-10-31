@@ -51,7 +51,7 @@ func (s *Server) handleWaitSession(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{
-		"session":    s.toSessionView(a),
+		"session":    s.toSessionView(s.requestLang(c), a),
 		"state":      a.State,
 		"until":      until,
 		"reached":    reached,

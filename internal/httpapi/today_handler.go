@@ -46,7 +46,7 @@ func (s *Server) handleToday(c *rux.Context) {
 		}
 		since = parsed
 	}
-	respHolder := today.Query{Since: since, IncludeExec: queryBool(c, "include_exec")}
+	respHolder := today.Query{Since: since, IncludeExec: queryBool(c, "include_exec"), Lang: s.requestLang(c)}
 	if s.ceilingActive(c) {
 		// gofer-7798 第二期: a caller whose ceiling bounds projects reads only the cards of its own —
 		// a card that names no project counts as outside (ceilingAllowsProject). The unrestricted
@@ -170,7 +170,7 @@ func (s *Server) appendWorkerEnrollCard(c *rux.Context, resp *today.Response) {
 			CreatedAt: e.CreatedAt, DecideUntil: e.DecideUntil,
 		})
 	}
-	card, ok := today.WorkerEnrollCard(pending)
+	card, ok := today.WorkerEnrollCardIn(s.requestLang(c), pending)
 	if !ok {
 		return
 	}

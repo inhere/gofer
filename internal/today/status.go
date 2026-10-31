@@ -3,6 +3,7 @@ package today
 import (
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/work"
@@ -52,7 +53,7 @@ type Runners struct {
 // digest renders the one-line digest. A query that carries the caller's项目范围 (gofer-7798
 // 第二期) gets the 「自上次打开」 counts summed over its own projects and the work digest built
 // from its own work items only; the unchanged query (nil restriction) is the historical path.
-func (s *Service) digest(now time.Time, q Query) (Digest, error) {
+func (s *Service) digest(lang i18n.Lang, now time.Time, q Query) (Digest, error) {
 	since := q.Since
 	if since <= 0 {
 		since = startOfDay(now).Unix()
@@ -70,7 +71,7 @@ func (s *Service) digest(now time.Time, q Query) (Digest, error) {
 	d := Digest{SinceLast: SinceLast{Since: since, JobsDone: counts.Done, JobsFailed: counts.Failed, Commits: counts.Commits}}
 	if s.d.Work != nil {
 		// BuildDigestScoped(nil) is BuildDigest: an unrestricted caller reads exactly what it did.
-		wd, err := s.d.Work.BuildDigestScoped(now, q.ProjectAllowed)
+		wd, err := s.d.Work.BuildDigestScopedIn(lang, now, q.ProjectAllowed)
 		if err != nil {
 			return Digest{}, err
 		}
@@ -79,7 +80,7 @@ func (s *Service) digest(now time.Time, q Query) (Digest, error) {
 	return d, nil
 }
 
-func (s *Service) status(now time.Time) (Status, error) {
+func (s *Service) status(lang i18n.Lang, now time.Time) (Status, error) {
 	st := Status{Alerts: []string{}, UsageToday: &UsageToday{}, StewardToday: &StewardToday{}}
 	midnight := startOfDay(now)
 	usage, err := s.d.Store.UsageStats(now.Unix(), []time.Duration{now.Sub(midnight) + time.Second}, 200*time.Millisecond)
@@ -103,11 +104,11 @@ func (s *Service) status(now time.Time) (Status, error) {
 		if ss.LastReview != nil && ss.LastReview.Day == now.Format("2006-01-02") {
 			st.StewardToday.Review = ss.LastReview.State
 			if ss.LastReview.State == jobstore.StewardReviewFailed {
-				st.Alerts = append(st.Alerts, "管家今日巡检失败")
+				st.Alerts = append(st.Alerts, i18n.T(lang, "today.status.review_failed"))
 			}
 		}
 		if ss.AgentError != "" && ss.Enabled {
-			st.Alerts = append(st.Alerts, "管家 agent 不可用")
+			st.Alerts = append(st.Alerts, i18n.T(lang, "today.status.agent_unavailable"))
 		}
 	}
 	journal, err := s.d.Store.ListRecentWorkJournal(midnight.Unix(), 2000)
@@ -129,7 +130,7 @@ func (s *Service) status(now time.Time) (Status, error) {
 	if s.d.Runners != nil {
 		st.Runners.RunnerStatus = s.d.Runners()
 		for _, name := range st.Runners.Offline {
-			st.Alerts = append([]string{"runner " + name + " 离线"}, st.Alerts...)
+			st.Alerts = append([]string{i18n.T(lang, "today.status.runner_offline", "name", name)}, st.Alerts...)
 		}
 	}
 	byStatus, err := s.d.Store.CountJobsByStatus()

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -116,7 +117,7 @@ func (s *Service) ToTodo(id string, in ToTodoInput) (ToTodoResult, error) {
 	res.TodoID = newID("todo-", now)
 	if err := s.store.InsertTodo(jobstore.PlanTodo{
 		TodoID: res.TodoID, PlanID: res.PlanID, Title: w.Title, Status: jobstore.TodoPending,
-		Note: todoNote(w), Auto: true, CreatedAt: now.Unix(), UpdatedAt: now.Unix(),
+		Note: todoNote(s.lang(w.ProjectKey), w), Auto: true, CreatedAt: now.Unix(), UpdatedAt: now.Unix(),
 	}); err != nil {
 		return ToTodoResult{}, err
 	}
@@ -131,7 +132,7 @@ func (s *Service) ToTodo(id string, in ToTodoInput) (ToTodoResult, error) {
 }
 
 // todoNote is the todo description: original capture, goal, then the next step.
-func todoNote(w jobstore.WorkItem) string {
+func todoNote(lang i18n.Lang, w jobstore.WorkItem) string {
 	var parts []string
 	text := strings.TrimSpace(w.CaptureText)
 	if text == "" {
@@ -144,8 +145,8 @@ func todoNote(w jobstore.WorkItem) string {
 		parts = append(parts, goal)
 	}
 	if n := strings.TrimSpace(w.NextStep); n != "" {
-		parts = append(parts, "下一步: "+n)
+		parts = append(parts, i18n.T(lang, "work.todo.next", "value", n))
 	}
-	parts = append(parts, "来源工作项: "+w.ID)
+	parts = append(parts, i18n.T(lang, "work.todo.source", "id", w.ID))
 	return strings.Join(parts, "\n\n")
 }

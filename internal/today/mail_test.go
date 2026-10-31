@@ -5,6 +5,7 @@ import (
 
 	"github.com/gookit/goutil/x/assert"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -79,11 +80,11 @@ func TestMailHeldSummaryCard(t *testing.T) {
 
 func TestMailHeldSummaryLineFallsBackWithoutAnAddress(t *testing.T) {
 	st := jobstore.Mail{}
-	assert.Eq(t, "未知来源 → （无地址）：", mailHeldSummary(st))
-	assert.Eq(t, "会话 s1 → session:s2：看这个", mailHeldSummary(jobstore.Mail{
+	assert.Eq(t, "未知来源 → （无地址）：", mailHeldSummary(i18n.ZhCN, st))
+	assert.Eq(t, "会话 s1 → session:s2：看这个", mailHeldSummary(i18n.ZhCN, jobstore.Mail{
 		FromKind: jobstore.MailKindSession, FromID: "s1", ToAddress: "session:s2", Body: " 看这个 ",
 	}))
-	assert.Eq(t, "job job-1 → job:j2：把这一行", mailHeldSummary(jobstore.Mail{
+	assert.Eq(t, "job job-1 → job:j2：把这一行", mailHeldSummary(i18n.ZhCN, jobstore.Mail{
 		FromKind: jobstore.MailKindJob, FromID: "job-1", ToAddress: "job:j2", Body: " 把这一行\n压成一行 ",
 	}))
 }

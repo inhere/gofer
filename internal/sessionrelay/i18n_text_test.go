@@ -20,10 +20,10 @@ var han = regexp.MustCompile(`\p{Han}`)
 // (design 2026-10-27-i18n-design.md §7). A string literal added to one of them must
 // not be Chinese: the text belongs in the catalogs.
 //
-// deliver.go / message.go / deliver_reconcile.go / nudge.go / origin_cwd.go are
-// deliberately absent: their remaining lines (delivery failure reasons, outbox
-// status text the web shows, the cwd basis sentence) are still Chinese.
-var migratedFiles = []string{"notify_job.go", "permission.go", "resume.go"}
+// deliver.go / message.go / deliver_reconcile.go / nudge.go are deliberately absent:
+// their remaining lines (delivery failure reasons, outbox status text the web
+// shows) are still Chinese.
+var migratedFiles = []string{"notify_job.go", "permission.go", "resume.go", "origin_cwd.go"}
 
 // TestZhSessionTextIsUnchanged pins the zh-CN output of every migrated text
 // CHARACTER FOR CHARACTER — the values are the text the source carried before the

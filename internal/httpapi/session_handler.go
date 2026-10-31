@@ -367,7 +367,7 @@ type sessionView struct {
 // toSessionView projects a stored session. Relay / WaitReason / AutoArmed are
 // derived from the relay service's single policy (the store only keeps the raw
 // mode and readings).
-func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
+func (s *Server) toSessionView(lang i18n.Lang, a jobstore.AgentSession) sessionView {
 	reason, detail, permReason := "", "", ""
 	budget, permBudget, subagents := 0, 0, 0
 	watchCount := 0
@@ -378,7 +378,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		budget, subagents = s.relay.WaitBudgetSec(reason), s.relay.SubagentCount(a.SessionID)
 		permReason = s.relay.PermissionWaitReason(a)
 		permBudget = s.relay.WaitBudgetSec(permReason)
-		resume = s.relay.PlanResumeFor(a)
+		resume = s.relay.PlanResumeForIn(lang, a)
 		if watches, err := s.relay.JobWatches(a.SessionID); err == nil {
 			watchCount = len(watches)
 			watchesView = make([]sessionWatchView, 0, len(watches))
@@ -598,7 +598,7 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 			"only the authenticated owner may refresh an existing session")
 		return
 	}
-	c.JSON(http.StatusOK, s.toSessionView(a))
+	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), a))
 }
 
 // handleListSessions lists sessions (GET /v1/sessions?project=&state=&agent=&cwd=&all=1).
@@ -645,7 +645,7 @@ func (s *Server) handleListSessions(c *rux.Context) {
 		if !all && a.CallerID != caller {
 			continue
 		}
-		out = append(out, s.toSessionView(a))
+		out = append(out, s.toSessionView(s.requestLang(c), a))
 	}
 	c.JSON(http.StatusOK, map[string]any{"sessions": out})
 }
@@ -675,7 +675,7 @@ func (s *Server) handleGetSession(c *rux.Context) {
 		v.Attachments = sent[t.ID]
 		turns = append(turns, v)
 	}
-	view := s.toSessionView(d.Session)
+	view := s.toSessionView(s.requestLang(c), d.Session)
 	view.RelayDemotedAt = s.relay.RelayDemotedAt(d.Session)
 	c.JSON(http.StatusOK, map[string]any{"session": view, "turns": turns, "has_more": d.HasMore, "next_before": d.NextBefore})
 }
@@ -919,7 +919,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, s.toSessionView(a))
+	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), a))
 }
 
 // sessionRelayReq is the POST /v1/sessions/{sid}/relay body: the three-state
@@ -962,7 +962,7 @@ func (s *Server) handleSetSessionRelay(c *rux.Context) {
 		writeError(c, relayStatus(err), "set relay failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, s.toSessionView(a))
+	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), a))
 }
 
 type openTurnReq struct {
@@ -1269,7 +1269,7 @@ func (s *Server) handleSetSessionInjectMode(c *rux.Context) {
 		writeError(c, relayStatus(err), "set delivery mode failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, s.toSessionView(a))
+	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), a))
 }
 
 // handleSendHeldSession is 「现在送」 (POST /v1/sessions/{sid}/held/send): the session's
@@ -1327,7 +1327,7 @@ func (s *Server) handleSessionReleaseTakeover(c *rux.Context) {
 		writeError(c, releaseTakeoverStatus(err), "release takeover failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, s.toSessionView(a))
+	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), a))
 }
 
 // releaseTakeoverStatus maps a failed release: everything the relay reports is a
@@ -1411,7 +1411,7 @@ func (s *Server) findSessions(c *rux.Context, opts jobstore.ListSessionsOpts, q,
 	}
 	out := make([]sessionFindView, 0, len(res))
 	for _, r := range res {
-		out = append(out, sessionFindView{sessionView: s.toSessionView(r.Session), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
+		out = append(out, sessionFindView{sessionView: s.toSessionView(s.requestLang(c), r.Session), Hits: r.Hits, MaybeOffline: r.MaybeOffline})
 	}
 	c.JSON(http.StatusOK, map[string]any{"sessions": out})
 }
@@ -1449,5 +1449,5 @@ func (s *Server) handlePatchSession(c *rux.Context) {
 		writeError(c, relayStatus(err), "patch session failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, s.toSessionView(updated))
+	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), updated))
 }

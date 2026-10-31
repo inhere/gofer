@@ -76,7 +76,7 @@ func (s *Service) PlanResumeForIn(lang i18n.Lang, a jobstore.AgentSession) Resum
 	if lang == "" {
 		lang = s.lang(a.ProjectKey)
 	}
-	tp, choice, cerr := s.takeoverCheck(a)
+	tp, choice, cerr := s.takeoverCheck(lang, a)
 	if cerr != nil {
 		plan.Reason = DeliverReason(cerr)
 		plan.Message = ExplainReasonIn(lang, plan.Reason, a, cerr)

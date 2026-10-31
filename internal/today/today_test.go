@@ -154,7 +154,7 @@ func TestScoringAndOrdering(t *testing.T) {
 
 func TestAgentScoreCap(t *testing.T) {
 	var b blockSet
-	b.agent("codex", "会话", 10*3600)
+	b.agent("codex", 10*3600)
 	assert.Eq(t, scoreAgentCap, b.result().Score)
 }
 

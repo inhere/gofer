@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/steward"
 	"github.com/inhere/gofer/internal/tracker"
@@ -181,7 +182,7 @@ func (s *Service) MemoryHygiene() (steward.MemoryHygiene, error) {
 			for _, fd := range f.Findings {
 				slugs = append(slugs, fd.Slug)
 			}
-			h.Lines = append(h.Lines, f.TrackerID+" · "+f.Key+"（"+f.Kind+"）："+strings.Join(slugs, ", "))
+			h.Lines = append(h.Lines, i18n.T(s.lang(""), "today.memory.hygiene_line", "tracker", f.TrackerID, "key", f.Key, "kind", f.Kind, "slugs", strings.Join(slugs, ", ")))
 		}
 	}
 	sort.Strings(h.Signatures)

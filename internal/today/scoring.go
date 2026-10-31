@@ -1,10 +1,10 @@
 package today
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -26,6 +26,7 @@ const (
 
 // blockSet accumulates a card's blocking sources.
 type blockSet struct {
+	lang         i18n.Lang
 	score, items int
 	text         []string
 }
@@ -39,7 +40,7 @@ func (b *blockSet) add(score, items int, text string) {
 }
 
 // agent scores a held agent session: 2 + 1 per 10 minutes, capped at 8.
-func (b *blockSet) agent(agent, what string, heldSec int64) {
+func (b *blockSet) agent(agent string, heldSec int64) {
 	if heldSec < 0 {
 		heldSec = 0
 	}
@@ -47,21 +48,29 @@ func (b *blockSet) agent(agent, what string, heldSec int64) {
 	if score > scoreAgentCap {
 		score = scoreAgentCap
 	}
-	b.add(score, 1, strings.TrimSpace(fmt.Sprintf("占着 %s %s %s", agent, what, durationText(heldSec))))
+	b.add(score, 1, strings.TrimSpace(i18n.T(b.lang, "today.blocks.holding", "agent", agent, "what", i18n.T(b.lang, "today.blocks.session"), "duration", durationText(b.lang, heldSec))))
 }
 
 // locks scores the worktree / directory lock a running job holds.
 func (b *blockSet) locks(rec jobstore.JobRecord) {
 	switch {
 	case rec.WorktreePath != "":
-		b.add(scoreLock, 1, "占着 worktree")
+		b.add(scoreLock, 1, i18n.T(b.lang, "today.blocks.lock_worktree"))
 	case rec.DirExclusive:
-		b.add(scoreLock, 1, "占着目录锁")
+		b.add(scoreLock, 1, i18n.T(b.lang, "today.blocks.lock_dir"))
 	}
 }
 
 func (b *blockSet) result() Blocks {
-	return Blocks{Score: b.score, Items: b.items, Text: strings.Join(b.text, "；")}
+	text := ""
+	for i, part := range b.text {
+		if i == 0 {
+			text = part
+			continue
+		}
+		text = i18n.T(b.lang, "today.blocks.join", "a", text, "b", part)
+	}
+	return Blocks{Score: b.score, Items: b.items, Text: text}
 }
 
 // addSuccessors scores the plan todos that (directly or transitively) wait on todoID
@@ -76,7 +85,7 @@ func (b *builder) addSuccessors(blk *blockSet, planID, todoID string) error {
 	}
 	n := countSuccessors(todos, todoID)
 	if n > 0 {
-		blk.add(n*scorePerTodo, n, fmt.Sprintf("plan %s 后面 %d 项在等", b.planName(planID), n))
+		blk.add(n*scorePerTodo, n, i18n.T(b.lang, "today.blocks.plan_after", "plan", b.planName(planID), "n", n))
 	}
 	return nil
 }
@@ -94,7 +103,7 @@ func (b *builder) addWaitingTodos(blk *blockSet, plan jobstore.Plan) error {
 		}
 	}
 	if n > 0 {
-		blk.add(n*scorePerTodo, n, fmt.Sprintf("plan %s 还有 %d 项没开始", firstNonEmpty(plan.Title, plan.PlanID), n))
+		blk.add(n*scorePerTodo, n, i18n.T(b.lang, "today.blocks.plan_pending", "plan", firstNonEmpty(plan.Title, plan.PlanID), "n", n))
 	}
 	return nil
 }
@@ -171,15 +180,15 @@ func SortCards(cards []Card) {
 	})
 }
 
-func durationText(sec int64) string {
+func durationText(lang i18n.Lang, sec int64) string {
 	switch {
 	case sec < 60:
 		return ""
 	case sec < 3600:
-		return fmt.Sprintf("%d 分钟", sec/60)
+		return i18n.T(lang, "today.duration.minutes", "n", sec/60)
 	case sec < 86400:
-		return fmt.Sprintf("%d 小时", sec/3600)
+		return i18n.T(lang, "today.duration.hours", "n", sec/3600)
 	default:
-		return fmt.Sprintf("%d 天", sec/86400)
+		return i18n.T(lang, "today.duration.days", "n", sec/86400)
 	}
 }

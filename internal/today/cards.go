@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
@@ -27,10 +28,15 @@ var suggestionFields = []string{jobstore.SuggestStatusHint, jobstore.SuggestGoal
 
 // Decisions builds the ordered card queue.
 func (s *Service) Decisions(includeExec bool) ([]Card, error) {
+	return s.DecisionsIn("", includeExec)
+}
+
+// DecisionsIn is Decisions with the card text in lang ("" = the server's language).
+func (s *Service) DecisionsIn(lang i18n.Lang, includeExec bool) ([]Card, error) {
 	if s == nil || s.d.Store == nil {
 		return nil, errors.New("today: no store")
 	}
-	b := &builder{s: s, now: s.d.Now().Unix(), cards: []Card{}, todos: map[string][]jobstore.PlanTodo{}, jobs: map[string]*jobstore.JobRecord{}}
+	b := &builder{s: s, lang: s.lang(lang), now: s.d.Now().Unix(), cards: []Card{}, todos: map[string][]jobstore.PlanTodo{}, jobs: map[string]*jobstore.JobRecord{}}
 	steps := []func() error{
 		b.interactions,
 		b.decisions,
@@ -61,6 +67,7 @@ func (s *Service) Decisions(includeExec bool) ([]Card, error) {
 
 type builder struct {
 	s     *Service
+	lang  i18n.Lang
 	now   int64
 	cards []Card
 	// workCards indexes the work cards by item id so a suggestion can fold into one.
@@ -70,6 +77,11 @@ type builder struct {
 }
 
 func (b *builder) store() *jobstore.Store { return b.s.d.Store }
+
+// blocks starts a blocking-sources accumulator whose text is in the card language.
+func (b *builder) blocks() blockSet { return blockSet{lang: b.lang} }
+
+func (b *builder) tr(key string, args ...any) string { return i18n.T(b.lang, "today."+key, args...) }
 
 // job reads (and caches) one job row; nil when it is gone.
 func (b *builder) job(id string) (*jobstore.JobRecord, error) {
@@ -120,7 +132,7 @@ func (b *builder) interactions() error {
 			return err
 		}
 		c := Card{
-			Key: KindInteraction + ":" + it.JobID + "/" + it.ID, Kind: KindInteraction, Tag: "提问",
+			Key: KindInteraction + ":" + it.JobID + "/" + it.ID, Kind: KindInteraction, Tag: b.tr("tag.interaction"),
 			WaitingSince: it.CreatedAt, ExpiresAt: it.ExpiresAt, ActivityAt: it.CreatedAt,
 			Summary: oneLine(it.Prompt, summaryRunes),
 			Refs:    Refs{JobID: it.JobID, InteractionID: it.ID},
@@ -135,12 +147,12 @@ func (b *builder) interactions() error {
 			}
 		}
 		if it.Type == job.InteractionTypePermission {
-			c.Tag = "工具审批"
-			what := "授权"
+			c.Tag = b.tr("tag.tool_approval")
+			what := b.tr("card.permission_what")
 			if hasTool && strings.TrimSpace(tc.Title) != "" {
 				what = strings.TrimSpace(tc.Title)
 			}
-			c.Title = oneLine(strings.TrimSpace(c.Agent+" 请求"+what), titleRunes)
+			c.Title = oneLine(strings.TrimSpace(b.tr("card.interaction_title", "agent", c.Agent, "what", what)), titleRunes)
 			if hasTool && tc.RawInputSummary != "" && c.Summary == "" {
 				c.Summary = oneLine(tc.RawInputSummary, summaryRunes)
 			}
@@ -150,10 +162,10 @@ func (b *builder) interactions() error {
 		if c.Title == "" {
 			c.Title = oneLine(it.Prompt, titleRunes)
 		}
-		c.Actions = interactionActions(it)
-		blk := blockSet{}
+		c.Actions = interactionActions(b.lang, it)
+		blk := b.blocks()
 		if rec != nil {
-			blk.agent(c.Agent, "会话", b.now-it.CreatedAt)
+			blk.agent(c.Agent, b.now-it.CreatedAt)
 			blk.locks(*rec)
 			if err := b.addSuccessors(&blk, rec.PlanID, rec.TodoID); err != nil {
 				return err
@@ -165,20 +177,20 @@ func (b *builder) interactions() error {
 	return nil
 }
 
-func interactionActions(it jobstore.InteractionRecord) []Action {
+func interactionActions(lang i18n.Lang, it jobstore.InteractionRecord) []Action {
 	var options []job.InteractionOption
 	if it.OptionsJSON != "" {
 		_ = json.Unmarshal([]byte(it.OptionsJSON), &options)
 	}
 	if len(options) == 0 && it.Type == job.InteractionTypeConfirmation {
-		options = []job.InteractionOption{{Value: "yes", Label: "确认"}, {Value: "no", Label: "取消"}}
+		options = []job.InteractionOption{{Value: "yes", Label: i18n.T(lang, "today.action.confirm")}, {Value: "no", Label: i18n.T(lang, "today.action.cancel")}}
 	}
 	// No "hand to the steward" action: the only API for that (POST …/punt) marks the
 	// interaction needs_human — "leave it for a person" — and the card is already in
 	// front of the person.
 	out := make([]Action, 0, 3)
 	if len(options) == 0 {
-		out = append(out, Action{ID: "reply", Label: "回复", Style: "primary", NeedsText: true})
+		out = append(out, Action{ID: "reply", Label: i18n.T(lang, "today.action.reply"), Style: "primary", NeedsText: true})
 	} else {
 		for _, opt := range pickOptions(options, 3) {
 			label := opt.Label
@@ -256,14 +268,14 @@ func (b *builder) decisions() error {
 			continue
 		}
 		c := Card{
-			Key: KindDecision + ":" + d.ID, Kind: KindDecision, Tag: "提问",
+			Key: KindDecision + ":" + d.ID, Kind: KindDecision, Tag: b.tr("tag.interaction"),
 			Title: firstNonEmpty(oneLine(d.Title, titleRunes), oneLine(d.Question, titleRunes)), WaitingSince: d.AskedAt,
 			ActivityAt: d.AskedAt, ExpiresAt: deadline(d.AskedAt, d.TimeoutSec), Summary: oneLine(d.Question, summaryRunes),
 			Refs: Refs{DecisionID: d.ID, PlanID: d.PlanID},
 		}
-		blk := blockSet{}
+		blk := b.blocks()
 		if d.PlanID != "" {
-			c.Tag = "计划提问"
+			c.Tag = b.tr("tag.plan_question")
 			plan, ok, err := b.store().GetPlan(d.PlanID)
 			if err != nil {
 				return err
@@ -282,7 +294,7 @@ func (b *builder) decisions() error {
 			_ = json.Unmarshal([]byte(d.OptionsJSON), &options)
 		}
 		if len(options) == 0 {
-			c.Actions = []Action{{ID: "reply", Label: "回复", Style: "primary", NeedsText: true}}
+			c.Actions = []Action{{ID: "reply", Label: b.tr("action.reply"), Style: "primary", NeedsText: true}}
 		} else {
 			for i, opt := range options {
 				if i >= 3 {
@@ -319,7 +331,7 @@ func (b *builder) permission(d *jobstore.PlanDecision) error {
 	det := sessionrelay.ParsePermissionDetail(d.Detail)
 	what := firstNonEmpty(oneLine(det.Summary, summaryRunes), oneLine(d.Question, summaryRunes))
 	c := Card{
-		Key: KindPermission + ":" + d.ID, Kind: KindPermission, Tag: "需要授权",
+		Key: KindPermission + ":" + d.ID, Kind: KindPermission, Tag: b.tr("tag.permission"),
 		WaitingSince: d.AskedAt, ActivityAt: d.AskedAt, ExpiresAt: deadline(d.AskedAt, d.TimeoutSec),
 		Title: oneLine(d.Title, titleRunes), Summary: what,
 		Refs: Refs{SessionID: d.SessionID, DecisionID: d.ID, ThreadID: "r:" + d.SessionID},
@@ -328,7 +340,7 @@ func (b *builder) permission(d *jobstore.PlanDecision) error {
 		// gofer-02fu: an AskUserQuestion relayed to the web. One single-choice question
 		// is answered right here (one button per option); anything richer opens the
 		// session, whose card has the full form.
-		c.Tag = "等你回答"
+		c.Tag = b.tr("tag.question")
 		if q := det.Questions[0]; len(det.Questions) == 1 && !q.MultiSelect {
 			for _, o := range q.Options {
 				raw, _ := json.Marshal(map[string]string{q.Question: o.Label})
@@ -338,21 +350,21 @@ func (b *builder) permission(d *jobstore.PlanDecision) error {
 		}
 		return b.addPermissionCard(c, d)
 	}
-	c.Actions = append(c.Actions, Action{ID: "answer", Label: "允许", Value: sessionrelay.PermissionAllow, Style: "ok"})
+	c.Actions = append(c.Actions, Action{ID: "answer", Label: b.tr("action.allow"), Value: sessionrelay.PermissionAllow, Style: "ok"})
 	for i, sg := range det.Suggestions {
 		if i >= maxPermissionAlways {
 			break
 		}
-		label := "总是允许"
+		label := b.tr("action.allow_always")
 		if sg.Label != "" {
-			label += "：" + oneLine(sg.Label, 40)
+			label = b.tr("action.allow_always_label", "label", oneLine(sg.Label, 40))
 		}
 		c.Actions = append(c.Actions, Action{ID: "answer", Label: label,
 			Value: sessionrelay.PermissionAlwaysPrefix + strconv.Itoa(i), Style: "ok"})
 	}
 	c.Actions = append(c.Actions,
-		Action{ID: "answer", Label: "拒绝", Value: sessionrelay.PermissionDeny, Style: "bad"},
-		Action{ID: "deny_note", Label: "附原因拒绝", NeedsText: true})
+		Action{ID: "answer", Label: b.tr("action.deny"), Value: sessionrelay.PermissionDeny, Style: "bad"},
+		Action{ID: "deny_note", Label: b.tr("action.deny_note"), NeedsText: true})
 	return b.addPermissionCard(c, d)
 }
 
@@ -369,8 +381,8 @@ func (b *builder) addPermissionCard(c Card, d *jobstore.PlanDecision) error {
 	if c.Title == "" {
 		c.Title = d.SessionID
 	}
-	blk := blockSet{}
-	blk.agent(c.Agent, "会话", b.now-d.AskedAt)
+	blk := b.blocks()
+	blk.agent(c.Agent, b.now-d.AskedAt)
 	c.Blocks = blk.result()
 	b.cards = append(b.cards, c)
 	return nil
@@ -381,14 +393,14 @@ func (b *builder) relay(sid string, turns []*jobstore.PlanDecision) error {
 	sort.SliceStable(turns, func(i, j int) bool { return turns[i].AskedAt < turns[j].AskedAt })
 	first := turns[0]
 	c := Card{
-		Key: KindRelay + ":" + sid, Kind: KindRelay, Tag: "会话等回复",
+		Key: KindRelay + ":" + sid, Kind: KindRelay, Tag: b.tr("tag.relay"),
 		// ActivityAt is the newest turn: session heartbeats must not wake a snoozed card (T3).
 		WaitingSince: first.AskedAt, ActivityAt: turns[len(turns)-1].AskedAt, ExpiresAt: deadline(first.AskedAt, first.TimeoutSec),
 		Title: oneLine(first.Title, titleRunes), Summary: oneLine(first.Question, summaryRunes),
 		Refs: Refs{SessionID: sid, DecisionID: first.ID, DecisionIDs: turnIDs(turns), ThreadID: "r:" + sid},
 		Actions: []Action{
-			{ID: "reply", Label: "回复", Style: "primary", NeedsText: true},
-			{ID: "ack", Label: "已读"},
+			{ID: "reply", Label: b.tr("action.reply"), Style: "primary", NeedsText: true},
+			{ID: "ack", Label: b.tr("action.ack")},
 		},
 	}
 	sess, ok, err := b.store().GetAgentSession(sid)
@@ -405,8 +417,8 @@ func (b *builder) relay(sid string, turns []*jobstore.PlanDecision) error {
 	if c.Title == "" {
 		c.Title = sid
 	}
-	blk := blockSet{}
-	blk.agent(c.Agent, "会话", b.now-first.AskedAt)
+	blk := b.blocks()
+	blk.agent(c.Agent, b.now-first.AskedAt)
 	c.Blocks = blk.result()
 	b.cards = append(b.cards, c)
 	return nil
@@ -432,22 +444,22 @@ func (b *builder) reviews(includeExec bool) error {
 			waited = rec.UpdatedAt
 		}
 		c := Card{
-			Key: KindReview + ":" + rec.ID, Kind: KindReview, Tag: "待验收", Title: jobTitle(rec),
+			Key: KindReview + ":" + rec.ID, Kind: KindReview, Tag: b.tr("tag.review"), Title: jobTitle(rec),
 			ProjectKey: rec.ProjectKey, Agent: rec.Agent, WaitingSince: waited, ActivityAt: rec.UpdatedAt,
 			Summary: reviewSummary(rec), Review: reviewFacts(rec),
 			Refs: Refs{JobID: rec.ID, PlanID: rec.PlanID, TodoID: rec.TodoID},
 			Actions: []Action{
-				{ID: "accept", Label: "通过", Style: "ok"},
-				{ID: "rerun", Label: "附意见重跑"},
-				{ID: "diff", Label: "看 diff", Style: "link"},
+				{ID: "accept", Label: b.tr("action.accept"), Style: "ok"},
+				{ID: "rerun", Label: b.tr("action.rerun")},
+				{ID: "diff", Label: b.tr("action.diff"), Style: "link"},
 			},
 		}
 		if rec.SessionID != "" || rec.Interactive || rec.SessionStateJSON != "" {
 			c.Refs.ThreadID = workbench.JobThreadID(rec.ID, rec.SessionID)
 		}
-		blk := blockSet{}
+		blk := b.blocks()
 		if rec.WorktreePath != "" {
-			blk.add(1, 1, "占着 worktree")
+			blk.add(1, 1, b.tr("blocks.lock_worktree"))
 		}
 		if err := b.addSuccessors(&blk, rec.PlanID, rec.TodoID); err != nil {
 			return err
@@ -481,22 +493,22 @@ func (b *builder) approvals() error {
 			expires = hold.ExpiresAt
 		}
 		c := Card{
-			Key: KindApproval + ":" + rec.ID, Kind: KindApproval, Tag: "待批准", Title: jobTitle(rec),
+			Key: KindApproval + ":" + rec.ID, Kind: KindApproval, Tag: b.tr("tag.approval"), Title: jobTitle(rec),
 			ProjectKey: rec.ProjectKey, Agent: rec.Agent, WaitingSince: rec.StartedAt, ExpiresAt: expires,
 			ActivityAt: rec.UpdatedAt, Summary: approvalSummary(hold),
 			Approval: &Approval{Reason: hold.Reason, Origin: hold.Origin, Command: hold.Command,
 				PromptPreview: hold.PromptPreview, TimeoutSec: hold.TimeoutSec},
 			Refs: Refs{JobID: rec.ID, PlanID: rec.PlanID, TodoID: rec.TodoID},
 			Actions: []Action{
-				{ID: "approve", Label: "批准", Style: "ok"},
-				{ID: "reject", Label: "拒绝", Style: "bad", OptionalText: true},
-				{ID: "open", Label: "看详情", Style: "link"},
+				{ID: "approve", Label: b.tr("action.approve"), Style: "ok"},
+				{ID: "reject", Label: b.tr("action.deny"), Style: "bad", OptionalText: true},
+				{ID: "open", Label: b.tr("action.details"), Style: "link"},
 			},
 		}
-		blk := blockSet{}
+		blk := b.blocks()
 		// gofer-5wvc: the held job itself is what waits — approving it is the only way
 		// it starts, so it outranks the cards that merely suggest something.
-		blk.add(scoreApprovalBase, 1, "等待批准才能开工")
+		blk.add(scoreApprovalBase, 1, b.tr("blocks.approval_wait"))
 		if err := b.addSuccessors(&blk, rec.PlanID, rec.TodoID); err != nil {
 			return err
 		}
@@ -594,12 +606,12 @@ func (b *builder) work() error {
 			continue
 		}
 		seen[v.ID] = true
-		tag := "等我"
+		tag := b.tr("tag.work_me")
 		switch {
 		case v.Status == jobstore.WorkNeedsOnsite:
-			tag = "需现场"
+			tag = b.tr("tag.work_onsite")
 		case v.Status != jobstore.WorkNeedsMe && v.Due:
-			tag = "到期"
+			tag = b.tr("tag.work_due")
 		}
 		waited := v.StatusAt
 		if v.Due && v.Status != jobstore.WorkNeedsMe && v.Status != jobstore.WorkNeedsOnsite {
@@ -619,9 +631,9 @@ func (b *builder) work() error {
 			Summary: oneLine(firstNonEmpty(v.BlockerText, v.Summary, v.NextStep, v.Goal), summaryRunes),
 			Refs:    Refs{WorkItemID: v.ID},
 			Actions: []Action{
-				{ID: "reply", Label: "回复", Style: "primary", NeedsText: true},
-				{ID: "report", Label: "请求汇报"},
-				{ID: "park", Label: "搁置"},
+				{ID: "reply", Label: b.tr("action.reply"), Style: "primary", NeedsText: true},
+				{ID: "report", Label: b.tr("action.report")},
+				{ID: "park", Label: b.tr("action.park")},
 			},
 		}
 		online := ""
@@ -635,9 +647,9 @@ func (b *builder) work() error {
 			}
 		}
 		c.Refs.SessionID = online
-		blk := blockSet{}
+		blk := b.blocks()
 		if v.Status == jobstore.WorkNeedsMe && online != "" {
-			blk.add(2, 1, strings.TrimSpace(c.Agent+" 会话在线等你答复"))
+			blk.add(2, 1, strings.TrimSpace(b.tr("card.work_online", "agent", c.Agent)))
 		}
 		c.Blocks = blk.result()
 		b.workCards[v.ID] = len(b.cards)
@@ -665,11 +677,11 @@ func (b *builder) captureBox() error {
 		}
 	}
 	b.cards = append(b.cards, Card{
-		Key: CaptureCardKey, Kind: KindCapture, Tag: "收集箱",
-		Title:        fmt.Sprintf("收集箱 %d 条待处理", len(items)),
+		Key: CaptureCardKey, Kind: KindCapture, Tag: b.tr("tag.capture"),
+		Title:        b.tr("card.capture_title", "n", len(items)),
 		WaitingSince: oldest, ActivityAt: newest,
 		Summary: oneLine(items[0].Title, summaryRunes),
-		Actions: []Action{{ID: "open", Label: "去整理", Style: "link", Value: CaptureBoxLink}},
+		Actions: []Action{{ID: "open", Label: b.tr("action.organize"), Style: "link", Value: CaptureBoxLink}},
 	})
 	return nil
 }
@@ -700,39 +712,39 @@ func (b *builder) mailHeld() error {
 		}
 	}
 	b.cards = append(b.cards, Card{
-		Key: MailHeldCardKey, Kind: KindMailHeld, Tag: "信箱",
-		Title:        fmt.Sprintf("信件 %d 封待指派", len(rows)),
+		Key: MailHeldCardKey, Kind: KindMailHeld, Tag: b.tr("tag.mail"),
+		Title:        b.tr("card.mail_title", "n", len(rows)),
 		WaitingSince: oldest, ActivityAt: newest,
-		Summary: oneLine(mailHeldSummary(rows[0]), summaryRunes),
-		Actions: []Action{{ID: "open", Label: "去指派", Style: "link", Value: MailHeldLink}},
+		Summary: oneLine(mailHeldSummary(b.lang, rows[0]), summaryRunes),
+		Actions: []Action{{ID: "open", Label: b.tr("action.assign"), Style: "link", Value: MailHeldLink}},
 	})
 	return nil
 }
 
 // mailHeldSummary is the line under the card: who sent the newest held letter, the address it
 // could not reach and the head of its body.
-func mailHeldSummary(m jobstore.Mail) string {
+func mailHeldSummary(lang i18n.Lang, m jobstore.Mail) string {
 	to := m.ToAddress
 	if to == "" {
-		to = "（无地址）"
+		to = i18n.T(lang, "today.card.mail_no_address")
 	}
-	return fmt.Sprintf("%s → %s：%s", mailOriginText(m), to, oneLine(m.Body, mailHeldSummaryRunes))
+	return i18n.T(lang, "today.card.mail_summary", "origin", mailOriginText(lang, m), "to", to, "body", oneLine(m.Body, mailHeldSummaryRunes))
 }
 
 // mailOriginText names a letter's sender without reaching into internal/mail (today only counts
 // letters; the mailbox's own OriginOf answers the same question for its views).
-func mailOriginText(m jobstore.Mail) string {
+func mailOriginText(lang i18n.Lang, m jobstore.Mail) string {
 	switch m.FromKind {
 	case jobstore.MailKindSession:
-		return "会话 " + shortMailID(m.FromID)
+		return i18n.T(lang, "today.card.mail_from_session", "id", shortMailID(m.FromID))
 	case jobstore.MailKindJob:
-		return "job " + shortMailID(m.FromID)
+		return i18n.T(lang, "today.card.mail_from_job", "id", shortMailID(m.FromID))
 	case jobstore.MailKindCaller:
 		if m.FromCaller != "" {
-			return "调用方 " + m.FromCaller
+			return i18n.T(lang, "today.card.mail_from_caller", "caller", m.FromCaller)
 		}
 	}
-	return "未知来源"
+	return i18n.T(lang, "today.card.mail_from_unknown")
 }
 
 // shortMailID shortens a session / job id the way the console shows them.
@@ -750,7 +762,7 @@ func (b *builder) suggestions() error {
 		return err
 	}
 	for _, sg := range rows {
-		text := suggestionText(sg)
+		text := suggestionText(b.lang, sg)
 		if i, ok := b.workCards[sg.WorkItemID]; ok {
 			// Same work item: one work card (design §2.1), the suggestion lives in its 「详情」.
 			b.cards[i].Suggestions = append(b.cards[i].Suggestions, Suggestion{Field: sg.Field, Value: sg.Value, Text: text})
@@ -764,21 +776,21 @@ func (b *builder) suggestions() error {
 			continue
 		}
 		b.cards = append(b.cards, Card{
-			Key: KindSuggestion + ":" + sg.WorkItemID + ":" + sg.Field, Kind: KindSuggestion, Tag: "整理建议",
+			Key: KindSuggestion + ":" + sg.WorkItemID + ":" + sg.Field, Kind: KindSuggestion, Tag: b.tr("tag.suggestion"),
 			Title: oneLine(w.Title, titleRunes), ProjectKey: w.ProjectKey, WaitingSince: sg.At, ActivityAt: sg.At,
 			Summary: oneLine(text, summaryRunes), Refs: Refs{WorkItemID: sg.WorkItemID, Field: sg.Field},
-			Actions: []Action{{ID: "adopt", Label: "采纳", Style: "ok"}, {ID: "dismiss", Label: "忽略"}},
+			Actions: []Action{{ID: "adopt", Label: b.tr("action.adopt"), Style: "ok"}, {ID: "dismiss", Label: b.tr("action.dismiss")}},
 		})
 	}
 	return nil
 }
 
-func suggestionText(sg jobstore.WorkSuggestion) string {
+func suggestionText(lang i18n.Lang, sg jobstore.WorkSuggestion) string {
 	switch sg.Field {
 	case jobstore.SuggestStatusHint:
-		return "建议把状态改为「" + workStatusLabel(sg.Value) + "」"
+		return i18n.T(lang, "today.card.suggestion_status", "status", workStatusLabel(lang, sg.Value))
 	case jobstore.SuggestGoal:
-		return "建议目标：" + sg.Value
+		return i18n.T(lang, "today.card.suggestion_goal", "value", sg.Value)
 	}
 	return sg.Value
 }
@@ -801,12 +813,12 @@ func (b *builder) merges() error {
 			continue
 		}
 		b.cards = append(b.cards, Card{
-			Key: fmt.Sprintf("%s:%d", KindMerge, g.ID), Kind: KindMerge, Tag: "合并建议",
-			Title:      oneLine("把「"+source.Title+"」并入「"+target.Title+"」", titleRunes),
+			Key: fmt.Sprintf("%s:%d", KindMerge, g.ID), Kind: KindMerge, Tag: b.tr("tag.merge"),
+			Title:      oneLine(b.tr("card.merge_title", "source", source.Title, "target", target.Title), titleRunes),
 			ProjectKey: target.ProjectKey, WaitingSince: g.At, ActivityAt: g.At,
-			Summary: oneLine(firstNonEmpty(g.Reason, "两张工作卡像是同一件事"), summaryRunes),
+			Summary: oneLine(firstNonEmpty(g.Reason, b.tr("card.merge_reason")), summaryRunes),
 			Refs:    Refs{WorkItemID: g.TargetID, MergeID: g.ID},
-			Actions: []Action{{ID: "adopt", Label: "采纳", Style: "ok"}, {ID: "dismiss", Label: "忽略"}},
+			Actions: []Action{{ID: "adopt", Label: b.tr("action.adopt"), Style: "ok"}, {ID: "dismiss", Label: b.tr("action.dismiss")}},
 		})
 	}
 	return nil
@@ -822,12 +834,12 @@ func (b *builder) blockedPlans() error {
 	for _, p := range plans {
 		title := firstNonEmpty(p.Title, p.PlanID)
 		c := Card{
-			Key: KindPlanBlocked + ":" + p.PlanID, Kind: KindPlanBlocked, Tag: "plan 阻塞",
+			Key: KindPlanBlocked + ":" + p.PlanID, Kind: KindPlanBlocked, Tag: b.tr("tag.plan_blocked"),
 			ProjectKey: p.ProjectKey, WaitingSince: p.UpdatedAt, ActivityAt: p.UpdatedAt,
 			Refs: Refs{PlanID: p.PlanID, TodoID: p.BlockedTodo},
 			Actions: []Action{
-				{ID: "resume", Label: "继续", Style: "primary"},
-				{ID: "open", Label: "打开 plan", Style: "link"},
+				{ID: "resume", Label: b.tr("action.resume"), Style: "primary"},
+				{ID: "open", Label: b.tr("action.open_plan"), Style: "link"},
 			},
 		}
 		summary := ""
@@ -853,8 +865,8 @@ func (b *builder) blockedPlans() error {
 			}
 		}
 		c.Title = oneLine(title, titleRunes)
-		c.Summary = oneLine(firstNonEmpty(summary, "plan 停在失败的一项上，等你决定继续或改 todo"), summaryRunes)
-		blk := blockSet{}
+		c.Summary = oneLine(firstNonEmpty(summary, b.tr("card.plan_stuck")), summaryRunes)
+		blk := b.blocks()
 		if err := b.addSuccessors(&blk, p.PlanID, p.BlockedTodo); err != nil {
 			return err
 		}
@@ -922,15 +934,11 @@ func capRunes(s string, limit int) string {
 	return string(r[:limit]) + "…"
 }
 
-var workStatusLabels = map[string]string{
-	jobstore.WorkActive: "进行中", jobstore.WorkNeedsMe: "等我", jobstore.WorkWaitingResource: "等资源",
-	jobstore.WorkNeedsOnsite: "需现场", jobstore.WorkReview: "待验收", jobstore.WorkParked: "搁置",
-	jobstore.WorkDone: "完成", jobstore.WorkDropped: "放弃",
-}
-
-func workStatusLabel(st string) string {
-	if l, ok := workStatusLabels[st]; ok {
-		return l
+func workStatusLabel(lang i18n.Lang, st string) string {
+	switch st {
+	case jobstore.WorkActive, jobstore.WorkNeedsMe, jobstore.WorkWaitingResource, jobstore.WorkNeedsOnsite,
+		jobstore.WorkReview, jobstore.WorkParked, jobstore.WorkDone, jobstore.WorkDropped:
+		return i18n.T(lang, "today.work_status."+st)
 	}
 	return st
 }

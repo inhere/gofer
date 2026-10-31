@@ -24,7 +24,7 @@ func (s *Server) handleTodayLanes(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) {
 		return
 	}
-	v, err := today.NewLanesBuilder(s.work).BuildFor(s.lanesScope(c))
+	v, err := today.NewLanesBuilder(s.work).BuildForIn(s.requestLang(c), s.lanesScope(c))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "build today lanes failed", err.Error())
 		return

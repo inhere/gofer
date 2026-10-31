@@ -143,7 +143,7 @@ func (s *Server) setSessionMailPaused(c *rux.Context, paused bool) {
 		writeError(c, http.StatusNotFound, "session not found", a.SessionID)
 		return
 	}
-	c.JSON(http.StatusOK, s.toSessionView(updated))
+	c.JSON(http.StatusOK, s.toSessionView(s.requestLang(c), updated))
 }
 
 func (s *Server) handleClaimSessionMail(c *rux.Context) {

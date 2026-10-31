@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/work/transcript"
 )
@@ -50,15 +51,16 @@ func (s *Service) StewardUpdate(id string, p jobstore.WorkItemPatch, expectedRev
 		if !ok {
 			return res, jobstore.ErrWorkItemNotFound
 		}
+		lang := s.lang(cur.ProjectKey)
 		switch {
 		case cur.Status == jobstore.WorkCaptured:
 			// Only the capture box moves a captured item's status.
-			res.Notes = append(res.Notes, "状态：想标为 "+st+"（收集箱条目，状态只能由收集箱入口改动，未采纳）")
+			res.Notes = append(res.Notes, i18n.T(lang, "work.report.status_captured", "status", st))
 			p.Status = nil
 		case st == cur.Status:
 			p.Status = nil
 		case cur.StatusSource == jobstore.WorkSourceHuman:
-			res.Notes = append(res.Notes, "状态：想标为 "+st+"（已被人手动设置的状态优先，未采纳）")
+			res.Notes = append(res.Notes, i18n.T(lang, "work.report.status_human", "status", st))
 			p.Status = nil
 		default:
 			src := jobstore.WorkSourceReport
@@ -70,7 +72,7 @@ func (s *Service) StewardUpdate(id string, p jobstore.WorkItemPatch, expectedRev
 	if err != nil {
 		return res, err
 	}
-	s.notifyEnteredNeedsMe(prev.Status, w, "管家把它标为「等我」")
+	s.notifyEnteredNeedsMe(prev.Status, w, i18n.T(s.lang(w.ProjectKey), "work.notify.steward_marked_needs_me"))
 	res.Item = w
 	return res, nil
 }
@@ -206,6 +208,6 @@ func (s *Service) SessionTail(ctx context.Context, sid string, maxBytes int64) (
 	return out, nil
 }
 
-// StatusLabel is the Chinese label of a work-item status (the steward prime and the digest
-// use the same words the board shows).
-func StatusLabel(st string) string { return statusLabel(st) }
+// StatusLabel is the label of a work-item status in the default language (the steward
+// prime and the digest use the same words the board shows).
+func StatusLabel(st string) string { return statusLabelIn("", st) }

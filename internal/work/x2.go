@@ -2,12 +2,12 @@ package work
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 )
@@ -19,7 +19,7 @@ import (
 // on: a plan linked to the item, or the plan a linked job belongs to. "" = none. Relay
 // turns (a terminal session's own question) are not plan decisions — the session state
 // already maps those.
-func (s *Service) planDecisionWait(id string, jobs map[string]JobState) string {
+func (s *Service) planDecisionWait(lang i18n.Lang, id string, jobs map[string]JobState) string {
 	seen := map[string]bool{}
 	var plans []string
 	add := func(p string) {
@@ -47,7 +47,7 @@ func (s *Service) planDecisionWait(id string, jobs map[string]JobState) string {
 			if d.Kind == jobstore.DecisionKindRelay {
 				continue
 			}
-			return "关联 plan " + p + " 有待应答的 decision：" + d.Title
+			return i18n.T(lang, "work.derived.plan_wait", "plan", p, "title", d.Title)
 		}
 	}
 	return ""
@@ -73,6 +73,7 @@ func (s *Service) checkLinkedCompletion(id string) {
 	if err != nil {
 		return
 	}
+	lang := s.lang(w.ProjectKey)
 	var done []string
 	hasIssue := false
 	for _, l := range links {
@@ -85,7 +86,7 @@ func (s *Service) checkLinkedCompletion(id string) {
 			if t.Status != jobstore.TodoDone {
 				return // something linked is still open
 			}
-			done = append(done, "todo "+l.Ref+" 已完成")
+			done = append(done, i18n.T(lang, "work.journal.completion_todo", "ref", l.Ref))
 		case jobstore.WorkLinkIssue:
 			closed, known := s.issueClosed(l.Ref)
 			if !known {
@@ -95,15 +96,15 @@ func (s *Service) checkLinkedCompletion(id string) {
 				return
 			}
 			hasIssue = true
-			done = append(done, "issue "+l.Ref+" 已关闭")
+			done = append(done, i18n.T(lang, "work.journal.completion_issue", "ref", l.Ref))
 		}
 	}
 	if len(done) == 0 {
 		return
 	}
-	want, label := jobstore.WorkReview, "待验收"
+	want, label := jobstore.WorkReview, i18n.T(lang, "work.journal.completion_label_review")
 	if hasIssue {
-		want, label = jobstore.WorkDone, "完成"
+		want, label = jobstore.WorkDone, i18n.T(lang, "work.journal.completion_label_done")
 	}
 	if w.Status == want {
 		return
@@ -118,7 +119,7 @@ func (s *Service) checkLinkedCompletion(id string) {
 		return
 	}
 	if _, err := s.store.AppendWorkJournal(id, jobstore.WorkJournalNote,
-		strings.Join(done, "；")+"，建议把状态改为「"+label+"」（在工作项详情的建议区采纳或忽略，状态未自动改变）", "system"); err != nil {
+		i18n.T(lang, "work.journal.completion_note", "done", joinLocalized(lang, "work.journal.completion_join", done), "label", label), "system"); err != nil {
 		slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", id, "err", err)
 	}
 }
@@ -175,17 +176,18 @@ func (s *Service) notifyNeedsMe(w jobstore.WorkItem, reason string) {
 	if err := s.store.SetWorkKV(key, strconv.FormatInt(now.Unix(), 10)); err != nil {
 		slog.Warn("work.needs_me_mark_failed", "event", "work.needs_me_mark_failed", "id", w.ID, "err", err)
 	}
+	lang := s.lang(w.ProjectKey)
 	var b strings.Builder
 	b.WriteString(reason)
 	if w.Goal != "" {
-		b.WriteString("\n目标：" + w.Goal)
+		b.WriteString("\n" + i18n.T(lang, "work.report.goal", "value", w.Goal))
 	}
 	if w.BlockerText != "" {
-		b.WriteString("\n阻塞：" + w.BlockerText)
+		b.WriteString("\n" + i18n.T(lang, "work.report.blocker", "value", w.BlockerText))
 	}
 	if w.NextStep != "" {
-		b.WriteString("\n下一步：" + w.NextStep)
+		b.WriteString("\n" + i18n.T(lang, "work.report.next", "value", w.NextStep))
 	}
-	s.notifier.NotifyWork(notify.EventWorkNeedsMe, w.ProjectKey, fmt.Sprintf("等我处理 · %s", w.Title), b.String(),
-		s.notifier.WebURL("/work?id="+w.ID), "打开工作项")
+	s.notifier.NotifyWork(notify.EventWorkNeedsMe, w.ProjectKey, i18n.T(lang, "work.notify.needs_me_title", "title", w.Title), b.String(),
+		s.notifier.WebURL("/work?id="+w.ID), i18n.T(lang, "work.notify.open_item"))
 }

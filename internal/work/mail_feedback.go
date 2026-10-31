@@ -1,10 +1,10 @@
 package work
 
 import (
-	"fmt"
 	"log/slog"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
 )
@@ -41,12 +41,13 @@ func (s *Service) noteMailState(next jobstore.Mail) {
 	if s == nil || s.store == nil || strings.TrimSpace(next.CaptureItemID) == "" {
 		return
 	}
+	lang := s.itemLang(next.CaptureItemID)
 	var line string
 	switch next.State {
 	case jobstore.MailDelivered:
-		line = fmt.Sprintf("信件 #%d 已送达（%s）", next.ID, mailTargetLabel(next))
+		line = i18n.T(lang, "work.journal.mail_delivered", "id", next.ID, "target", mailTargetLabel(lang, next))
 	case jobstore.MailAnswered:
-		line = fmt.Sprintf("信件 #%d 收到回复：%s", next.ID, s.replySummary(next))
+		line = i18n.T(lang, "work.journal.mail_answered", "id", next.ID, "summary", s.replySummary(lang, next))
 	default:
 		return
 	}
@@ -60,14 +61,14 @@ func (s *Service) noteMailState(next jobstore.Mail) {
 // stored with reply_to = m.ID (mail.Service.Reply writes it right before marking the original
 // answered, so it is there); a reply that cannot be read leaves the line without a summary
 // instead of inventing one.
-func (s *Service) replySummary(m jobstore.Mail) string {
+func (s *Service) replySummary(lang i18n.Lang, m jobstore.Mail) string {
 	rows, err := s.store.ListMail(jobstore.ListMailOpts{ReplyTo: m.ID, OldestFirst: true, Limit: 1})
 	if err != nil {
 		slog.Warn("work.mail_reply_read_failed", "event", "work.mail_reply_read_failed", "mail", m.ID, "err", err)
-		return "（回复内容未能读取）"
+		return i18n.T(lang, "work.journal.mail_reply_unreadable")
 	}
 	if len(rows) == 0 {
-		return "（回复内容未记录）"
+		return i18n.T(lang, "work.journal.mail_reply_missing")
 	}
 	return mail.Summarize(strings.Join(strings.Fields(rows[0].Body), " "), mail.MailSummaryRunes)
 }
@@ -75,12 +76,12 @@ func (s *Service) replySummary(m jobstore.Mail) string {
 // mailTargetLabel names a letter's recipient for the item's journal: 「会话 sess-a」 / 「job
 // job-7」, and the raw address when the kind is not one of them (a caller letter, or one whose
 // address resolved to nobody — an item's letter always has one, but the log must not lie).
-func mailTargetLabel(m jobstore.Mail) string {
+func mailTargetLabel(lang i18n.Lang, m jobstore.Mail) string {
 	switch m.ToKind {
 	case jobstore.MailKindSession:
-		return "会话 " + m.ToID
+		return i18n.T(lang, "work.journal.mail_target_session", "id", m.ToID)
 	case jobstore.MailKindJob:
-		return "job " + m.ToID
+		return i18n.T(lang, "work.journal.mail_target_job", "id", m.ToID)
 	}
 	return m.ToAddress
 }

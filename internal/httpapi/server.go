@@ -36,6 +36,7 @@ import (
 	"github.com/inhere/gofer/internal/castrec"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/desktop"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -963,6 +964,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.today = today.New(today.Deps{
 			Store: jobs.Meta(), Work: s.work, Steward: s.steward,
 			Runners: s.todayRunners, Version: func() string { return s.build.DisplayVersion() },
+			Language: func() i18n.Lang { return s.textLanguage("") },
 		})
 		// N3 T4: a review also advises on the 「今天」 cards that have no advice yet.
 		s.steward.SetTodayUnadvised(s.today.UnadvisedKeys)

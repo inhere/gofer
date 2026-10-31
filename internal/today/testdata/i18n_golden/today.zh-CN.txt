@@ -1,0 +1,178 @@
+## cards
+[approval:j-hold] kind=approval tag="待批准" urgency=blocking
+  title="job j-hold"
+  summary="push"
+  blocks=2/1 "等待批准才能开工"
+  action approve "批准" value=""
+  action reject "拒绝" value=""
+  action open "看详情" value=""
+[capture:box] kind=capture tag="收集箱" urgency=normal
+  title="收集箱 2 条待处理"
+  summary="idea"
+  blocks=0/0 ""
+  action open "去整理" value="/work?tab=capture"
+[decision:dg] kind=decision tag="提问" urgency=normal
+  title="Global"
+  summary="Free text?"
+  blocks=0/0 ""
+  action reply "回复" value=""
+[decision:dq] kind=decision tag="计划提问" urgency=blocking
+  title="Plan question"
+  summary="Which?"
+  blocks=3/1 "plan Export 还有 1 项没开始"
+  action reply "回复" value=""
+[interaction:j-dir/i2] kind=interaction tag="工具审批" urgency=blocking
+  title="claude 请求授权"
+  summary="x"
+  blocks=9/2 "占着 claude 会话 3 小时；占着目录锁"
+  action reply "回复" value=""
+[interaction:j-run/i1] kind=interaction tag="工具审批" urgency=blocking
+  title="codex 请求run tests"
+  summary="go test ./..."
+  blocks=8/3 "占着 codex 会话 25 分钟；占着 worktree；plan Export 后面 1 项在等"
+  action answer "Allow" value="a1"
+[interaction:j-day/i3] kind=interaction tag="提问" urgency=blocking
+  title="job j-day"
+  summary="Proceed?"
+  blocks=8/1 "占着 claude 会话 2 天"
+  action answer "确认" value="yes"
+  action answer "取消" value="no"
+[mail_held:box] kind=mail_held tag="信箱" urgency=normal
+  title="信件 3 封待指派"
+  summary="调用方 c2 → （无地址）：third"
+  blocks=0/0 ""
+  action open "去指派" value="/mail?state=held"
+[memory:2] kind=memory tag="记忆整理" urgency=normal
+  title="合并：记忆 release-b"
+  summary="建议合并到 release-a · reason"
+  blocks=0/0 ""
+  action adopt "采纳" value=""
+  action dismiss "忽略" value=""
+[memory:1] kind=memory tag="记忆整理" urgency=normal
+  title="归档：记忆 old-note"
+  summary="建议归档 · reason"
+  blocks=0/0 ""
+  action adopt "采纳" value=""
+  action dismiss "忽略" value=""
+[memory:5] kind=memory tag="记忆整理" urgency=normal
+  title="改类型：记忆 fresh"
+  summary="建议改为 rule · reason"
+  blocks=0/0 ""
+  action adopt "采纳" value=""
+  action dismiss "忽略" value=""
+[memory:3] kind=memory tag="记忆整理" urgency=normal
+  title="补摘要：记忆 fresh"
+  summary="建议补摘要：A new fact · reason"
+  blocks=0/0 ""
+  action adopt "采纳" value=""
+  action dismiss "忽略" value=""
+[memory:4] kind=memory tag="记忆整理" urgency=normal
+  title="补触发词：记忆 release-a"
+  summary="建议补触发词：ship, release · reason"
+  blocks=0/0 ""
+  action adopt "采纳" value=""
+  action dismiss "忽略" value=""
+[merge:1] kind=merge tag="合并建议" urgency=normal
+  title="把「Merge source」并入「Merge target」"
+  summary="两张工作卡像是同一件事"
+  blocks=0/0 ""
+  action adopt "采纳" value=""
+  action dismiss "忽略" value=""
+[permission:dform] kind=permission tag="等你回答" urgency=now
+  title="form"
+  summary="s"
+  blocks=2/1 "占着 claude 会话 1 分钟"
+  action answer "One" value="answers:{\"Pick\":\"One\"}"
+  action answer "Two" value="answers:{\"Pick\":\"Two\"}"
+[permission:dp] kind=permission tag="需要授权" urgency=now
+  title="repo: cleanup"
+  summary="Bash ls"
+  blocks=2/1 "占着 claude 会话 1 分钟"
+  action answer "允许" value="allow"
+  action answer "总是允许：rule" value="always:0"
+  action answer "总是允许" value="always:1"
+  action answer "拒绝" value="deny"
+  action deny_note "附原因拒绝" value=""
+[plan_blocked:p-1] kind=plan_blocked tag="plan 阻塞" urgency=blocking
+  title="Export · Backend"
+  summary="plan 停在失败的一项上，等你决定继续或改 todo"
+  blocks=3/1 "plan Export 后面 1 项在等"
+  action resume "继续" value=""
+  action open "打开 plan" value=""
+[relay:sid-3] kind=relay tag="会话等回复" urgency=blocking
+  title="relay s"
+  summary="q"
+  blocks=3/1 "占着 claude 会话 10 分钟"
+  action reply "回复" value=""
+  action ack "已读" value=""
+[review:j-rev] kind=review tag="待验收" urgency=blocking
+  title="job j-rev"
+  summary="job j-rev"
+  blocks=4/2 "占着 worktree；plan Export 后面 1 项在等"
+  action accept "通过" value=""
+  action rerun "附意见重跑" value=""
+  action diff "看 diff" value=""
+[suggestion:<ID>:status_hint] kind=suggestion tag="整理建议" urgency=normal
+  title="Status hint item"
+  summary="建议把状态改为「待验收」"
+  blocks=0/0 ""
+  action adopt "采纳" value=""
+  action dismiss "忽略" value=""
+[suggestion:<ID>:goal] kind=suggestion tag="整理建议" urgency=normal
+  title="Status hint item"
+  summary="建议目标：new goal"
+  blocks=0/0 ""
+  action adopt "采纳" value=""
+  action dismiss "忽略" value=""
+[work:<ID>] kind=work tag="到期" urgency=normal
+  title="Due parked"
+  summary=""
+  blocks=0/0 ""
+  action reply "回复" value=""
+  action report "请求汇报" value=""
+  action park "搁置" value=""
+[work:<ID>] kind=work tag="等我" urgency=blocking
+  title="Needs me item"
+  summary=""
+  blocks=2/1 "claude 会话在线等你答复"
+  action reply "回复" value=""
+  action report "请求汇报" value=""
+  action park "搁置" value=""
+  suggestion goal "建议目标：iframe"
+[work:<ID>] kind=work tag="需现场" urgency=normal
+  title="Onsite item"
+  summary=""
+  blocks=0/0 ""
+  action reply "回复" value=""
+  action report "请求汇报" value=""
+  action park "搁置" value=""
+## memory suggestions
+archive old-note => "建议归档"
+merge release-b => "建议合并到 release-a"
+summary fresh => "建议补摘要：A new fact"
+when release-a => "建议补触发词：ship, release"
+kind fresh => "建议改为 rule"
+## handled labels
+稍后到 10-09 11:00
+等 job j-run 结束
+## status alerts
+runner w-mac 离线
+## digest
+工作摘要 · 2026-10-09
+等我 1 · 等资源 0 · 需现场 1 · 待验收 0
+## steward alerts
+runner w-mac 离线
+管家今日巡检失败
+管家 agent 不可用
+## enroll card
+[worker_enroll:pending] kind=worker_enroll tag="Worker" urgency=now
+  title="4 个 worker 申请注册"
+  summary="h1 → w-1、h2、h3 等 4 个"
+  blocks=0/4 ""
+  action open "去处理" value="/runners#enrollments"
+## lanes
+plan:Export health=blocked reason="卡在「Backend」"
+work:Merge source health=ok reason=""
+work:Merge target health=ok reason=""
+work:Needs me item health=ok reason=""
+work:Onsite item health=ok reason=""

@@ -55,18 +55,6 @@ func TestZhWorkRequestIsUnchanged(t *testing.T) {
 	}
 }
 
-// TestZhStatusLabelsMatchTheCatalog keeps the two copies of the status labels in step:
-// [work.status] in the catalog (used by the request text) and statusLabels (used by
-// the digest and the card, which phase 3 translates).
-func TestZhStatusLabelsMatchTheCatalog(t *testing.T) {
-	t.Parallel()
-	for code, label := range statusLabels {
-		if got := i18n.T(i18n.ZhCN, "work.status."+code); got != label {
-			t.Errorf("work.status.%s = %q, statusLabels says %q", code, got, label)
-		}
-	}
-}
-
 // TestEnglishWorkRequestHasNoCJK: an item whose project speaks English asks for a
 // hand-over / report in English, under the English prefix.
 func TestEnglishWorkRequestHasNoCJK(t *testing.T) {
