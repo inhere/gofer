@@ -1,0 +1,5 @@
+gofer 有新版本 v1.1.0
+
+当前版本 v1.0.0，最新版本 v1.1.0
+
+查看更新：https://gofer.example.com/settings/about

@@ -1,0 +1,5 @@
+会话催办已暂停 · repo: fix
+
+催办 ng-1 已自动暂停：3 failures in a row。会话恢复可达后可在会话抽屉里继续。
+
+查看会话：https://gofer.example.com/sessions?sid=sid-123456789

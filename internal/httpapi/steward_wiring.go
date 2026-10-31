@@ -2,10 +2,10 @@ package httpapi
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/steward"
 )
@@ -17,6 +17,17 @@ import (
 type stewardHost struct {
 	jobs   *job.Service
 	agents *agent.Registry
+	// lang is the language of the reasons CheckAgent gives: the steward settings
+	// answer has no request behind it here, so it is the server's (nil = default).
+	lang func() i18n.Lang
+}
+
+func (h stewardHost) text(key string, args ...any) string {
+	var lang i18n.Lang
+	if h.lang != nil {
+		lang = h.lang()
+	}
+	return i18n.T(lang, key, args...)
 }
 
 // stewardTurnTimeoutSec bounds ONE steward turn (the session's idle end is separate).
@@ -78,21 +89,21 @@ func (h stewardHost) Job(jobID string) (steward.JobInfo, bool) {
 // (a resident session needs the ACP protocol) and installed on this machine.
 func (h stewardHost) CheckAgent(key string) error {
 	if h.agents == nil {
-		return errors.New("没有 agent 注册表")
+		return errors.New(h.text("err.steward_no_registry"))
 	}
 	ac, ok := h.agents.Get(key)
 	if !ok {
-		return fmt.Errorf("agent %q 不存在（在 steward.agent 里改成已安装的 acp-agent）", key)
+		return errors.New(h.text("err.steward_agent_missing", "agent", key))
 	}
 	if ac.Type != agent.TypeACPAgent {
-		return fmt.Errorf("agent %q 不是 acp-agent（管家需要常驻的 ACP 会话）", key)
+		return errors.New(h.text("err.steward_agent_not_acp", "agent", key))
 	}
 	if av, found := h.agents.Availability()[key]; found && !av.Available {
 		why := av.Error
 		if why == "" {
-			why = "本机没有找到该命令"
+			why = h.text("err.agent_command_not_found")
 		}
-		return fmt.Errorf("agent %q 不可用：%s", key, why)
+		return errors.New(h.text("err.steward_agent_unavailable", "agent", key, "why", why))
 	}
 	return nil
 }

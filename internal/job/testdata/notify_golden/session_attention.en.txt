@@ -1,0 +1,5 @@
+Session needs confirmation · sid-1234
+
+The session waits for a confirmation (permission or choice) and needs you back at the terminal.
+
+View session: https://gofer.example.com/sessions?sid=sid-123456789

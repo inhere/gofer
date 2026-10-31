@@ -72,9 +72,9 @@ func (s *Server) handleStartHostedForwarder(c *rux.Context) {
 	// the permission that was taken away.
 	s.trackHostedForwarder(rec.Name, s.requestLiveConnSpec(c, liveConnHosted, rec.Name))
 	if s.hub == nil {
-		resp["warning"] = fmt.Sprintf("worker %q 状态未知；监听已启动，首次连接时按现有转发行为拨号", rec.Worker)
+		resp["warning"] = s.errText(c, "tunnel_worker_unknown", "worker", rec.Worker)
 	} else if _, live := s.hub.LiveInstance(rec.Worker); !live {
-		resp["warning"] = fmt.Sprintf("worker %q 当前不在线；监听已启动，worker 重连后新连接才会拨号", rec.Worker)
+		resp["warning"] = s.errText(c, "tunnel_worker_offline", "worker", rec.Worker)
 	}
 	c.JSON(http.StatusOK, resp)
 }

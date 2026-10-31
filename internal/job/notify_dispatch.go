@@ -7,6 +7,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/desktop"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 )
@@ -64,6 +65,9 @@ func (s *Service) NotifyEvent(eventType, projectKey string, msg notify.Message) 
 	if msg.At == 0 {
 		msg.At = s.nowFn().Unix()
 	}
+	if msg.Lang == "" {
+		msg.Lang = s.notifyLang(projectKey)
+	}
 	s.notifyDesktop(cfg, eventType, projectKey, msg)
 	return s.notifyWebhooks(cfg, eventType, projectKey, msg) + s.notifyEventHooks(cfg, eventType, projectKey, msg)
 }
@@ -87,6 +91,7 @@ func (s *Service) notifyDesktop(cfg *config.Config, eventType, projectKey string
 		Text:      msg.Text,
 		Link:      msg.Link,
 		At:        msg.At,
+		Lang:      msg.Lang,
 	})
 }
 
@@ -115,6 +120,7 @@ func (s *Service) notifyDesktopJobEvent(cfg *config.Config, jr JobResult, eventT
 		Text:      msg.Text,
 		Link:      msg.Link,
 		At:        msg.At,
+		Lang:      msg.Lang,
 	})
 }
 
@@ -227,6 +233,13 @@ func (s *Service) notifyEventHooks(cfg *config.Config, eventType, projectKey str
 	return n
 }
 
+// notifyLang is the language of a notification's own words. A notification is built in
+// the background — no request carries a language — so it follows the project it
+// belongs to, else the server (config.LanguageFor); projectKey "" is the server's.
+func (s *Service) notifyLang(projectKey string) i18n.Lang {
+	return s.config().LanguageFor(projectKey)
+}
+
 // NotifySessionWaiting is the session-relay notifier (SESS-01 → OBS-07a): a
 // relayed session stopped and is waiting for a human reply. It satisfies the
 // sessionrelay.Notifier seam, so that package stays free of notification and
@@ -236,11 +249,13 @@ func (s *Service) NotifySessionWaiting(sessionID, projectKey, title, lastMessage
 	if label == "" {
 		label = shortID(sessionID)
 	}
+	lang := s.notifyLang(projectKey)
 	s.NotifyEvent(EventSessionWaiting, projectKey, notify.Message{
-		Title:     "会话等待回复 · " + label,
+		Title:     i18n.T(lang, "notify.session.waiting_title", "label", label),
 		Text:      lastMessage,
 		Link:      s.webURL("/sessions?sid=" + sessionID),
-		LinkLabel: "打开会话回复",
+		LinkLabel: i18n.T(lang, "notify.session.waiting_link"),
+		Lang:      lang,
 	})
 }
 
@@ -253,15 +268,17 @@ func (s *Service) NotifySessionAttention(sessionID, projectKey, title, detail st
 	if label == "" {
 		label = shortID(sessionID)
 	}
+	lang := s.notifyLang(projectKey)
 	text := strings.TrimSpace(detail)
 	if text == "" {
-		text = "会话在等待确认（权限或选择），需要回到终端处理。"
+		text = i18n.T(lang, "notify.session.attention_default")
 	}
 	s.NotifyEvent(EventSessionAttention, projectKey, notify.Message{
-		Title:     "会话需要确认 · " + label,
+		Title:     i18n.T(lang, "notify.session.attention_title", "label", label),
 		Text:      text,
 		Link:      s.webURL("/sessions?sid=" + sessionID),
-		LinkLabel: "查看会话",
+		LinkLabel: i18n.T(lang, "notify.common.link_session"),
+		Lang:      lang,
 	})
 }
 
@@ -274,11 +291,13 @@ func (s *Service) NotifySessionHandedOff(sessionID, projectKey, title, jobID str
 	if label == "" {
 		label = shortID(sessionID)
 	}
+	lang := s.notifyLang(projectKey)
 	s.NotifyEvent(EventSessionHandedOff, projectKey, notify.Message{
-		Title:     "会话已在 web 接管 · " + label,
-		Text:      "已用 `--resume` 起新进程接管该会话，请在该终端继续对话。",
+		Title:     i18n.T(lang, "notify.session.handed_off_title", "label", label),
+		Text:      i18n.T(lang, "notify.session.handed_off_text"),
 		Link:      s.webURL("/jobs/" + jobID + "?attach=1"),
-		LinkLabel: "打开接管终端",
+		LinkLabel: i18n.T(lang, "notify.session.handed_off_link"),
+		Lang:      lang,
 	})
 }
 
@@ -293,11 +312,13 @@ func (s *Service) NotifySessionTakeoverReleased(sessionID, projectKey, title, jo
 	if label == "" {
 		label = shortID(sessionID)
 	}
+	lang := s.notifyLang(projectKey)
 	s.NotifyEvent(EventSessionTakeoverReleased, projectKey, notify.Message{
-		Title:     "会话已释放接管 · " + label,
-		Text:      "接管该会话的 job " + shortID(jobID) + " 已结束（" + reason + "），会话回到原终端，可继续中继。",
+		Title:     i18n.T(lang, "notify.session.released_title", "label", label),
+		Text:      i18n.T(lang, "notify.session.released_text", "job", shortID(jobID), "reason", reason),
 		Link:      s.webURL("/sessions?sid=" + sessionID),
-		LinkLabel: "查看会话",
+		LinkLabel: i18n.T(lang, "notify.common.link_session"),
+		Lang:      lang,
 	})
 	// JOB-09: this event is part of the wakeup EVENT catalog (design §五.1), so it
 	// must be in the job's durable event stream too — the matcher, the timeline and
@@ -316,11 +337,13 @@ func (s *Service) NotifySessionNudgePaused(sessionID, projectKey, title, nudgeID
 	if label == "" {
 		label = shortID(sessionID)
 	}
+	lang := s.notifyLang(projectKey)
 	s.NotifyEvent(EventSessionNudgePaused, projectKey, notify.Message{
-		Title:     "会话催办已暂停 · " + label,
-		Text:      "催办 " + nudgeID + " 已自动暂停：" + reason + "。会话恢复可达后可在会话抽屉里继续。",
+		Title:     i18n.T(lang, "notify.session.nudge_title", "label", label),
+		Text:      i18n.T(lang, "notify.session.nudge_text", "nudge", nudgeID, "reason", reason),
 		Link:      s.webURL("/sessions?sid=" + sessionID),
-		LinkLabel: "查看会话",
+		LinkLabel: i18n.T(lang, "notify.common.link_session"),
+		Lang:      lang,
 	})
 }
 
@@ -346,13 +369,14 @@ func (s *Service) WebURL(path string) string { return s.webURL(path) }
 // NotifyUpdateAvailable sends update.available (gofer-29gi): a newer gofer release
 // was found. It is a server-wide event, so no project filter applies.
 func (s *Service) NotifyUpdateAvailable(current, latest, description string) int {
-	text := "当前版本 " + current + "，最新版本 " + latest
+	lang := s.notifyLang("")
+	text := i18n.T(lang, "notify.update.text", "current", current, "latest", latest)
 	if d := strings.TrimSpace(description); d != "" {
 		text += "\n" + d
 	}
 	return s.NotifyEvent(notify.EventUpdateAvailable, "", notify.Message{
-		Title: "gofer 有新版本 " + latest, Text: text,
-		Link: s.webURL("/settings/about"), LinkLabel: "查看更新",
+		Title: i18n.T(lang, "notify.update.title", "latest", latest), Text: text,
+		Link: s.webURL("/settings/about"), LinkLabel: i18n.T(lang, "notify.update.link"), Lang: lang,
 	})
 }
 

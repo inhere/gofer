@@ -1,0 +1,6 @@
+EventType: job.session_awaiting_reply
+Title: 会话等你回复：Fix it
+Text: 第 1 轮 · codex · project-a
+Link: https://x/s
+LinkLabel: 打开会话
+At: 10

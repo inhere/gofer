@@ -11,6 +11,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/today"
@@ -262,7 +263,8 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 	}
 	summary := req.SyncSummary
 	if summary == "" {
-		summary = fmt.Sprintf("同步完成：issues=%d memories=%d", len(issues), len(memories))
+		// Stored with the repo row: the project's language (else the server's).
+		summary = i18n.T(s.textLanguage(projectKey), "httpapi.tracker_sync_done", "issues", len(issues), "memories", len(memories))
 	}
 	syncAt := time.Now().Unix()
 	if err := s.trackerStore.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: req.TrackerID, ProjectKey: projectKey, RelPath: relPath, Prefix: prefix, LastSyncAt: syncAt, SyncSummary: summary, SourceRunner: sourceRunner}); err != nil {

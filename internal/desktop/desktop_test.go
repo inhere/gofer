@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // recordingNotifier captures what would have been shown; no popup is executed.
@@ -289,5 +291,36 @@ func TestToastXMLWithoutLink(t *testing.T) {
 	xml := toastXML(Notification{Title: "job 等待验收：a", Text: "project p"})
 	if strings.Contains(xml, "activationType") || strings.Contains(xml, "<actions>") {
 		t.Errorf("toast xml has an activation without a link:\n%s", xml)
+	}
+}
+
+// A merged popup and the toast's open button follow the notification's language; an
+// event type with no label of its own keeps its wire name in either language.
+func TestMergedPopupAndToastFollowLanguage(t *testing.T) {
+	rec := &recordingNotifier{}
+	d := NewDispatcher(rec, time.Hour)
+	for i := 0; i < maxMergedLines+3; i++ {
+		d.Push(Notification{EventType: "session.awaiting_reply", Title: "Session waits: s", Lang: i18n.EN})
+	}
+	for i := 0; i < 2; i++ {
+		d.Push(Notification{EventType: "x.custom", Title: "t", Lang: i18n.EN})
+	}
+	d.Flush()
+	got := rec.shown()
+	if len(got) != 2 {
+		t.Fatalf("shown = %d, want 2 merged popups", len(got))
+	}
+	if got[0].Title != "11 sessions wait for your reply" {
+		t.Errorf("title = %q", got[0].Title)
+	}
+	if last := strings.Split(got[0].Text, "\n"); !strings.Contains(last[len(last)-1], "and 3 more") {
+		t.Errorf("summary line = %q", last[len(last)-1])
+	}
+	if got[1].Title != "2 notifications (x.custom)" {
+		t.Errorf("custom title = %q", got[1].Title)
+	}
+	xml := toastXML(Notification{Title: "t", Link: "https://x/a", Lang: i18n.EN})
+	if !strings.Contains(xml, `<action content="Open" `) {
+		t.Errorf("toast xml has no English open button:\n%s", xml)
 	}
 }

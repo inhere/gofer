@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
 	"github.com/inhere/gofer/internal/util"
@@ -216,9 +217,9 @@ type mailBroadcastView struct {
 	Recipients []mailBroadcastRecipientView `json:"recipients"`
 }
 
-func (s *Server) toMailSendView(r mail.SendResult) mailSendView {
+func (s *Server) toMailSendView(lang i18n.Lang, r mail.SendResult) mailSendView {
 	v := toMailView(r.Mail)
-	s.newMailPersonas([]jobstore.Mail{r.Mail}).forView(&v)
+	s.newMailPersonas(lang, []jobstore.Mail{r.Mail}).forView(&v)
 	out := mailSendView{Mail: v, Held: r.Held, CaptureItemID: r.CaptureItemID}
 	for _, c := range r.Candidates {
 		out.Candidates = append(out.Candidates, mailCandidateView{
@@ -661,7 +662,7 @@ func (s *Server) handleMailSend(c *rux.Context) {
 			s.writeMailError(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, s.toMailBroadcastView(res))
+		c.JSON(http.StatusOK, s.toMailBroadcastView(s.requestLang(c), res))
 		return
 	}
 	res, err := s.mail.Send(mail.SendInput{
@@ -673,7 +674,7 @@ func (s *Server) handleMailSend(c *rux.Context) {
 		s.writeMailError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, s.toMailSendView(res))
+	c.JSON(http.StatusOK, s.toMailSendView(s.requestLang(c), res))
 }
 
 // cleanMailAddresses trims the given addresses and drops the empty ones; nothing left means the
@@ -713,14 +714,14 @@ func (s *Server) mailVisibleForAll(c *rux.Context, to []string) func(jobstore.Ag
 
 // toMailBroadcastView renders a broadcast's answer: the first copy as the letter, plus the group
 // id and the addressee table.
-func (s *Server) toMailBroadcastView(r mail.BroadcastResult) mailSendView {
+func (s *Server) toMailBroadcastView(lang i18n.Lang, r mail.BroadcastResult) mailSendView {
 	out := mailSendView{
 		BroadcastID: r.BroadcastID, ThreadID: r.ThreadID, Matched: r.Matched,
 		Delivered: len(r.Mails), Skipped: r.Skipped,
 	}
 	if len(r.Mails) > 0 {
 		v := toMailView(r.Mails[0])
-		s.newMailPersonas(r.Mails).forView(&v)
+		s.newMailPersonas(lang, r.Mails).forView(&v)
 		out.Mail = v
 		out.Held = r.Mails[0].State == jobstore.MailHeld
 		out.CaptureItemID = r.Mails[0].CaptureItemID
@@ -762,7 +763,7 @@ func (s *Server) handleMailGet(c *rux.Context) {
 		return
 	}
 	v := toMailView(m)
-	s.newMailPersonas([]jobstore.Mail{m}).forView(&v)
+	s.newMailPersonas(s.requestLang(c), []jobstore.Mail{m}).forView(&v)
 	if sum, err := s.mailBroadcastSummary(m); err != nil {
 		s.writeMailError(c, err)
 		return
@@ -802,7 +803,7 @@ func (s *Server) handleMailReply(c *rux.Context) {
 		s.writeMailError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, s.toMailSendView(res))
+	c.JSON(http.StatusOK, s.toMailSendView(s.requestLang(c), res))
 }
 
 // POST /v1/mail/{id}/ack — without a body this keeps the historical read acknowledgement;
@@ -861,7 +862,7 @@ func (s *Server) handleMailAck(c *rux.Context) {
 		}
 	}
 	v := toMailView(m)
-	s.newMailPersonas([]jobstore.Mail{m}).forView(&v)
+	s.newMailPersonas(s.requestLang(c), []jobstore.Mail{m}).forView(&v)
 	c.JSON(http.StatusOK, v)
 }
 
@@ -885,7 +886,7 @@ func (s *Server) handleMailCancel(c *rux.Context) {
 		return
 	}
 	v := toMailView(got)
-	s.newMailPersonas([]jobstore.Mail{got}).forView(&v)
+	s.newMailPersonas(s.requestLang(c), []jobstore.Mail{got}).forView(&v)
 	c.JSON(http.StatusOK, v)
 }
 
@@ -928,7 +929,7 @@ func (s *Server) handleMailReaddress(c *rux.Context) {
 		s.writeMailError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, s.toMailSendView(res))
+	c.JSON(http.StatusOK, s.toMailSendView(s.requestLang(c), res))
 }
 
 const (
@@ -1038,7 +1039,7 @@ func (s *Server) handleMailList(c *rux.Context) {
 	if hasMore {
 		kept = kept[:limit]
 	}
-	ps := s.newMailPersonas(kept)
+	ps := s.newMailPersonas(s.requestLang(c), kept)
 	result := make([]mailView, 0, len(kept))
 	// A broadcast's addressee table is read once per group, however many copies the page shows.
 	broadcasts := map[int64]*mailBroadcastView{}

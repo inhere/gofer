@@ -1,0 +1,5 @@
+Session nudge paused · repo: fix
+
+Nudge ng-1 paused itself automatically: 3 failures in a row. Resume it from the session drawer once the session is reachable again.
+
+View session: https://gofer.example.com/sessions?sid=sid-123456789

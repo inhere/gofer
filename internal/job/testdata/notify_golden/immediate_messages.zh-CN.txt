@@ -1,0 +1,35 @@
+job.awaiting_approval
+Title: 待批准：Deploy
+Text: 理由：needs review
+要执行：
+go test
+过期：2026-01-02 15:04（到时未批准即取消）
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: 去批准
+
+session.awaiting_reply
+Title: 会话等你回复：Fix it
+Text: 第 2 轮 · codex · self · runner server
+pick one
+空闲将在 15:04 自动结束
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: 打开会话
+
+interaction.created
+Title: 需要审批：agent 请求人工确认
+Text: agent 请求人工确认
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: 查看 job
+
+job.needs_review
+Title: job 等待验收：Deploy
+Text: project self · agent codex · runner server · job job-1
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: 查看 job
+
+job.terminal
+Title: job.terminal：Deploy
+Text: project self · agent codex · runner server · job job-1
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: 查看 job
+

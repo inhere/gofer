@@ -1,0 +1,5 @@
+会话已释放接管 · repo: fix
+
+接管该会话的 job 20261021 已结束（job_done），会话回到原终端，可继续中继。
+
+查看会话：https://gofer.example.com/sessions?sid=sid-123456789

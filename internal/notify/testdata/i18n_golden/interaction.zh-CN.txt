@@ -1,0 +1,45 @@
+EventType: job.interaction_created
+Title: 需要审批：Run the tests?
+选项：
+- yes
+- no
+Text: Run the tests?
+选项：
+- yes
+- no
+Link: https://x/jobs/j1
+LinkLabel: 查看 job
+At: 10
+--- dingtalk ---
+### 需要审批：Run the tests?
+选项：
+- yes
+- no
+
+> Run the tests?
+> 选项：
+> - yes
+> - no
+
+[查看 job](https://x/jobs/j1)
+--- feishu ---
+需要审批：Run the tests?
+选项：
+- yes
+- no
+
+Run the tests?
+选项：
+- yes
+- no
+
+查看 job：https://x/jobs/j1
+--- generic ---
+需要审批：Run the tests?
+选项：
+- yes
+- no
+Run the tests?
+选项：
+- yes
+- no

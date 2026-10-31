@@ -20,8 +20,7 @@ func (s *Server) handleTodayAdvice(c *rux.Context) {
 	jobID := ""
 	if jc, ok := jobCallerFromCtx(c); ok {
 		if !jc.isSteward() {
-			writeError(c, http.StatusForbidden, "job credential may not write home-page advice",
-				"only the steward (or a person) advises on 「今天」 cards")
+			s.writeErrorKey(c, http.StatusForbidden, "job credential may not write home-page advice", "today_advice_steward_only")
 			return
 		}
 		jobID = jc.JobID

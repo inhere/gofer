@@ -35,6 +35,7 @@ import (
 
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -245,15 +246,17 @@ type authPresetView struct {
 	Permissions []string `json:"permissions"`
 }
 
-// authPresets are design §2「预设」as written there (the console fills the patterns; what is
-// stored is still a pattern).
-var authPresets = []authPresetView{
-	{Key: "tunnel", Label: "隧道使用", Patterns: []string{authz.PermTunnelOpen}},
-	{Key: "release", Label: "发版升级", Patterns: []string{"update.*", authz.PermWorkerUpgrade}},
-	{Key: "answer", Label: "代答（人用）", Patterns: []string{authz.PermInteractionAnswer, authz.PermSessionReplyOthers}},
-	{Key: "readonly", Label: "只读他人", Patterns: []string{
-		authz.PermJobReadOthers, authz.PermSessionReadOthers, authz.PermConfigRead,
-	}},
+// authPresetsIn is design §2「预设」as written there (the console fills the patterns; what is
+// stored is still a pattern). The labels are shown text: they follow lang.
+func authPresetsIn(lang i18n.Lang) []authPresetView {
+	return []authPresetView{
+		{Key: "tunnel", Label: i18n.T(lang, "httpapi.preset_tunnel"), Patterns: []string{authz.PermTunnelOpen}},
+		{Key: "release", Label: i18n.T(lang, "httpapi.preset_release"), Patterns: []string{"update.*", authz.PermWorkerUpgrade}},
+		{Key: "answer", Label: i18n.T(lang, "httpapi.preset_answer"), Patterns: []string{authz.PermInteractionAnswer, authz.PermSessionReplyOthers}},
+		{Key: "readonly", Label: i18n.T(lang, "httpapi.preset_readonly"), Patterns: []string{
+			authz.PermJobReadOthers, authz.PermSessionReadOthers, authz.PermConfigRead,
+		}},
+	}
 }
 
 // handleAuthCatalog answers GET /v1/auth/catalog.
@@ -261,7 +264,7 @@ func (s *Server) handleAuthCatalog(c *rux.Context) {
 	perms := authz.Permissions()
 	out := authCatalogView{
 		Permissions: make([]authPermissionCatalogView, 0, len(perms)),
-		Presets:     append([]authPresetView(nil), authPresets...),
+		Presets:     authPresetsIn(s.requestLang(c)),
 	}
 	for _, p := range perms {
 		out.Permissions = append(out.Permissions, authPermissionCatalogView{

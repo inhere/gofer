@@ -1,0 +1,9 @@
+EventType: job.awaiting_approval
+Title: Awaiting approval: Deploy
+Text: Reason: needs review
+To run:
+go test ./...
+Expires: 2026-01-02 15:04 (cancelled if not approved by then)
+Link: https://x/jobs/j1
+LinkLabel: Approve
+At: 10

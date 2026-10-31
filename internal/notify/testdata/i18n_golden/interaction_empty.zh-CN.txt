@@ -1,0 +1,6 @@
+EventType: job.interaction_created
+Title: 需要审批：agent 请求人工确认
+Text: agent 请求人工确认
+Link: 
+LinkLabel: 查看 job
+At: 10

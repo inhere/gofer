@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Webhook kinds (OBS-07a). `generic` is the original gofer contract: the
@@ -50,19 +51,24 @@ type Message struct {
 	LinkLabel string
 	// At is the event time (unix seconds); 0 = omit from the generic body.
 	At int64
+	// Lang is the language of the renderer's own words (the default link label and
+	// the truncation marker); the title and text arrive already in their language. ""
+	// reads as i18n.Default. The job service fills it from the notification's project
+	// (else the server) — a notification has no request.
+	Lang i18n.Lang
 }
 
 // InteractionMessage is the compact IM-only rendering for an approval or
 // question event. The generic webhook keeps its durable {event, job} contract.
-func InteractionMessage(eventType, summary string, options []string, link string, at int64) Message {
+func InteractionMessage(lang i18n.Lang, eventType, summary string, options []string, link string, at int64) Message {
 	text := strings.TrimSpace(summary)
 	if text == "" {
-		text = "agent 请求人工确认"
+		text = i18n.T(lang, "notify.interaction.default_summary")
 	}
 	if len(options) > 0 {
-		text += "\n选项：\n- " + strings.Join(options, "\n- ")
+		text += "\n" + i18n.T(lang, "notify.interaction.options") + "\n- " + strings.Join(options, "\n- ")
 	}
-	return Message{EventType: eventType, Title: "需要审批：" + text, Text: text, Link: link, LinkLabel: "查看 job", At: at}
+	return Message{EventType: eventType, Title: i18n.T(lang, "notify.interaction.title", "text", text), Text: text, Link: link, LinkLabel: i18n.T(lang, "notify.common.link_job"), At: at, Lang: lang}
 }
 
 // ApprovalMessage renders job.awaiting_approval (gofer-9b1b) for an IM bot: a job held
@@ -70,29 +76,29 @@ func InteractionMessage(eventType, summary string, options []string, link string
 // line, or the first lines of an agent job's prompt), expires the local time the hold
 // lapses (the job is then cancelled). The link opens the job page, where the approval
 // panel is.
-func ApprovalMessage(eventType, title, reason, what, expires, link string, at int64) Message {
+func ApprovalMessage(lang i18n.Lang, eventType, title, reason, what, expires, link string, at int64) Message {
 	var lines []string
 	if r := strings.TrimSpace(reason); r != "" {
-		lines = append(lines, "理由："+r)
+		lines = append(lines, i18n.T(lang, "notify.approval.reason", "reason", r))
 	}
 	if w := strings.TrimSpace(what); w != "" {
-		lines = append(lines, "要执行：\n"+w)
+		lines = append(lines, i18n.T(lang, "notify.approval.what")+"\n"+w)
 	}
 	if expires != "" {
-		lines = append(lines, "过期："+expires+"（到时未批准即取消）")
+		lines = append(lines, i18n.T(lang, "notify.approval.expires", "time", expires))
 	}
 	text := strings.Join(lines, "\n")
 	if text == "" {
-		text = "一个 job 等你批准后才会执行"
+		text = i18n.T(lang, "notify.approval.default_text")
 	}
-	return Message{EventType: eventType, Title: "待批准：" + title, Text: text, Link: link, LinkLabel: "去批准", At: at}
+	return Message{EventType: eventType, Title: i18n.T(lang, "notify.approval.title", "title", title), Text: text, Link: link, LinkLabel: i18n.T(lang, "notify.approval.link"), At: at, Lang: lang}
 }
 
 // SessionAwaitingReplyMessage renders the delayed continuous-session reminder.
 // runner is the machine the session runs on (already a display name, see
 // config.RunnerDisplayName); "" drops the segment.
-func SessionAwaitingReplyMessage(eventType, title, body string, turn int, agent, project, runner, idleAt, link string, at int64) Message {
-	text := fmt.Sprintf("第 %d 轮 · %s · %s", turn, agent, project)
+func SessionAwaitingReplyMessage(lang i18n.Lang, eventType, title, body string, turn int, agent, project, runner, idleAt, link string, at int64) Message {
+	text := i18n.T(lang, "notify.session_reply.summary", "turn", turn, "agent", agent, "project", project)
 	if r := strings.TrimSpace(runner); r != "" {
 		text += " · runner " + r
 	}
@@ -100,13 +106,16 @@ func SessionAwaitingReplyMessage(eventType, title, body string, turn int, agent,
 		text += "\n" + strings.TrimSpace(body)
 	}
 	if idleAt != "" {
-		text += "\n空闲将在 " + idleAt + " 自动结束"
+		text += "\n" + i18n.T(lang, "notify.session_reply.idle", "time", idleAt)
 	}
-	return Message{EventType: eventType, Title: "会话等你回复：" + title, Text: text, Link: link, LinkLabel: "打开会话", At: at}
+	return Message{EventType: eventType, Title: i18n.T(lang, "notify.session_reply.title", "title", title), Text: text, Link: link, LinkLabel: i18n.T(lang, "notify.session_reply.link"), At: at, Lang: lang}
 }
 
 const DingTalkFeishuMaxBytes = 18000
-const truncationMarker = "…（已截断，完整内容见链接）"
+
+// truncationMarker is the note appended to a text cut to fit; it follows the
+// message's language.
+func (m Message) truncationMarker() string { return i18n.T(m.Lang, "notify.common.truncated") }
 
 // RenderMessage builds the POST body for kind. The provider signature is NOT
 // applied here (it is time-sensitive): call ApplyProviderAuth at post time.
@@ -335,19 +344,19 @@ func humanSize(n int64) string {
 	}
 }
 
-func clampText(s string, maxRunes int) string {
+func clampText(s string, maxRunes int, marker string) string {
 	rs := []rune(strings.TrimSpace(s))
 	if len(rs) <= maxRunes {
 		return string(rs)
 	}
-	return string(rs[:maxRunes]) + truncationMarker
+	return string(rs[:maxRunes]) + marker
 }
 
 func (m Message) linkLabel() string {
 	if strings.TrimSpace(m.LinkLabel) != "" {
 		return m.LinkLabel
 	}
-	return "在 gofer 打开"
+	return i18n.T(m.Lang, "notify.common.link_default")
 }
 
 // renderGeneric is the shape a plain HTTP endpoint receives for a non-job
@@ -378,7 +387,7 @@ func renderDingTalkWithLimit(m Message, maxRunes int) ([]byte, error) {
 		body.WriteString("### ")
 		body.WriteString(m.Title)
 		body.WriteString("\n\n")
-		if t := clampText(text, maxRunes); t != "" {
+		if t := clampText(text, maxRunes, m.truncationMarker()); t != "" {
 			body.WriteString("> ")
 			body.WriteString(strings.ReplaceAll(t, "\n", "\n> "))
 			body.WriteString("\n\n")
@@ -403,15 +412,13 @@ func renderFeishuWithLimit(m Message, maxRunes int) ([]byte, error) {
 	return fitProviderPayload(m, maxRunes, func(text string) ([]byte, error) {
 		var b strings.Builder
 		b.WriteString(m.Title)
-		if t := clampText(text, maxRunes); t != "" {
+		if t := clampText(text, maxRunes, m.truncationMarker()); t != "" {
 			b.WriteString("\n\n")
 			b.WriteString(t)
 		}
 		if m.Link != "" {
 			b.WriteString("\n\n")
-			b.WriteString(m.linkLabel())
-			b.WriteString("：")
-			b.WriteString(m.Link)
+			b.WriteString(i18n.T(m.Lang, "notify.common.link_line", "label", m.linkLabel(), "url", m.Link))
 		}
 		return json.Marshal(map[string]any{
 			"msg_type": "text",
@@ -428,7 +435,7 @@ func fitProviderPayload(m Message, maxRunes int, build func(string) ([]byte, err
 		mid := (lo + hi) / 2
 		candidateText := string(text[:mid])
 		if mid < len(text) && maxRunes > mid {
-			candidateText += truncationMarker
+			candidateText += m.truncationMarker()
 		}
 		candidate, err := build(candidateText)
 		if err != nil {

@@ -1,0 +1,29 @@
+EventType: job.session_awaiting_reply
+Title: 会话等你回复：Fix it
+Text: 第 3 轮 · codex · project-a · runner w-lab
+pick A or B
+空闲将在 15:04 自动结束
+Link: https://x/s
+LinkLabel: 打开会话
+At: 10
+--- dingtalk ---
+### 会话等你回复：Fix it
+
+> 第 3 轮 · codex · project-a · runner w-lab
+> pick A or B
+> 空闲将在 15:04 自动结束
+
+[打开会话](https://x/s)
+--- feishu ---
+会话等你回复：Fix it
+
+第 3 轮 · codex · project-a · runner w-lab
+pick A or B
+空闲将在 15:04 自动结束
+
+打开会话：https://x/s
+--- generic ---
+会话等你回复：Fix it
+第 3 轮 · codex · project-a · runner w-lab
+pick A or B
+空闲将在 15:04 自动结束

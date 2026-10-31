@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -35,6 +36,9 @@ type Notification struct {
 	Text      string
 	Link      string
 	At        int64
+	// Lang is the language of the dispatcher's own words (merged-popup titles, the
+	// toast's open button); Title and Text arrive already in theirs. "" = i18n.Default.
+	Lang i18n.Lang
 }
 
 // Notifier shows ONE notification on the local desktop. A platform that cannot show
@@ -57,13 +61,13 @@ func (e *SkipError) Error() string { return "desktop notification skipped: " + e
 // popup, not five.
 const DefaultMergeWindow = 10 * time.Second
 
-// MergeLabels names the thing a merged notification counts, per event type. A type
-// without an entry renders "<n> 条通知（<type>）".
-var MergeLabels = map[string]string{
-	"job.awaiting_approval":  "个 job 等待批准",
-	"job.needs_review":       "个 job 等待验收",
-	"interaction.created":    "个 job 等待确认",
-	"session.awaiting_reply": "个会话等你回复",
+// mergeLabelKeys maps an event type to the catalog key naming what a merged
+// notification counts. A type without an entry renders "<n> notifications (<type>)".
+var mergeLabelKeys = map[string]string{
+	"job.awaiting_approval":  "notify.desktop.merge_awaiting_approval",
+	"job.needs_review":       "notify.desktop.merge_needs_review",
+	"interaction.created":    "notify.desktop.merge_interaction",
+	"session.awaiting_reply": "notify.desktop.merge_session_reply",
 }
 
 // maxMergedLines bounds how many items a merged body lists before it summarises the
@@ -217,14 +221,15 @@ func mergeGroup(items []Notification) Notification {
 		return items[0]
 	}
 	first := items[0]
-	label, ok := MergeLabels[first.EventType]
-	if !ok {
-		label = "条通知（" + first.EventType + "）"
+	lang := first.Lang
+	label := i18n.T(lang, "notify.desktop.merge_other", "type", first.EventType)
+	if key, ok := mergeLabelKeys[first.EventType]; ok {
+		label = i18n.T(lang, key)
 	}
 	lines := make([]string, 0, util.CapSum(len(items), 1))
 	for i, it := range items {
 		if i == maxMergedLines {
-			lines = append(lines, fmt.Sprintf("…另有 %d 条", len(items)-i))
+			lines = append(lines, i18n.T(lang, "notify.desktop.merge_more", "n", len(items)-i))
 			break
 		}
 		lines = append(lines, mergeLine(it))
@@ -235,6 +240,7 @@ func mergeGroup(items []Notification) Notification {
 		Text:      strings.Join(lines, "\n"),
 		Link:      first.Link,
 		At:        items[len(items)-1].At,
+		Lang:      lang,
 	}
 }
 

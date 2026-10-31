@@ -1,0 +1,5 @@
+会话已在 web 接管 · repo: fix
+
+已用 `--resume` 起新进程接管该会话，请在该终端继续对话。
+
+打开接管终端：https://gofer.example.com/jobs/job-1?attach=1

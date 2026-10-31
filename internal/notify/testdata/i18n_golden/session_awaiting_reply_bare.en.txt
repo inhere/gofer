@@ -1,0 +1,6 @@
+EventType: job.session_awaiting_reply
+Title: Session waits for your reply: Fix it
+Text: Turn 1 · codex · project-a
+Link: https://x/s
+LinkLabel: Open session
+At: 10

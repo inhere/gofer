@@ -3,6 +3,7 @@
 
 import { getToken, triggerUnauthorized } from '../store/auth'
 import { t } from '../i18n'
+import { localizeErrorDetail } from './errorText'
 import { acceptLanguageHeaders } from '../store/locale'
 import { setServerTZOffset } from './time'
 import { permissionDeniedMessage } from '../utils/permissions'
@@ -139,12 +140,20 @@ interface ErrorBody {
   // error_fields：配置写入（WEB-04③ V1.1）在 400 里带回的字段路径，控制台据此把
   // 校验错误高亮到对应输入框。
   error_fields?: string[]
+  // code / params：稳定的错误码与占位符取值。有 code 的错误，控制台优先用前端字典的
+  // err.<code> 渲染 detail（api/errorText.ts），没有再用服务端的 detail。
+  code?: string
+  params?: Record<string, unknown>
 }
 
 export class ApiError extends Error {
   status: number
   detail?: string
   code?: string
+  // errCode / errParams：错误体里稳定的 `code` 与占位符取值（服务端的键值错误才有）。
+  // 注意 code 字段存的是 error 短语（历史用法），不要和 errCode 混用。
+  errCode?: string
+  errParams?: Record<string, unknown>
   fields?: string[]
   // 错误响应的原始 JSON（409 冲突带 current 等附加字段）。
   body?: unknown
@@ -183,6 +192,8 @@ async function raiseForStatus(res: Response): Promise<never> {
   let msg = t('util.err.requestFailed', { status: res.status })
   let detail = ''
   let code = ''
+  let errCode = ''
+  let errParams: Record<string, unknown> | undefined
   let fields: string[] | undefined
   let raw: unknown
   try {
@@ -191,8 +202,12 @@ async function raiseForStatus(res: Response): Promise<never> {
     detail = body.detail ?? ''
     code = body.error ?? ''
     fields = body.error_fields
-    if (body.error || body.detail) {
-      msg = [body.error, body.detail].filter(Boolean).join(' - ')
+    errCode = body.code ?? ''
+    errParams = body.params
+    // 有稳定错误码且字典里有这句话：按当前界面语言渲染，否则沿用服务端 detail。
+    detail = localizeErrorDetail(errCode || undefined, errParams, detail) ?? ''
+    if (body.error || detail) {
+      msg = [body.error, detail].filter(Boolean).join(' - ')
     }
   } catch {
     // 非 JSON 错误体，沿用默认
@@ -201,6 +216,8 @@ async function raiseForStatus(res: Response): Promise<never> {
   msg = permissionDeniedMessage(res.status, code) ?? msg
   const err = new ApiError(res.status, msg, detail || undefined, code || undefined, fields)
   err.body = raw
+  err.errCode = errCode || undefined
+  err.errParams = errParams
   throw err
 }
 

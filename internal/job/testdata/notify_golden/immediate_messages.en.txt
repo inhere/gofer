@@ -1,0 +1,35 @@
+job.awaiting_approval
+Title: Awaiting approval: Deploy
+Text: Reason: needs review
+To run:
+go test
+Expires: 2026-01-02 15:04 (cancelled if not approved by then)
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: Approve
+
+session.awaiting_reply
+Title: Session waits for your reply: Fix it
+Text: Turn 2 · codex · self · runner server
+pick one
+Ends automatically when idle at 15:04
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: Open session
+
+interaction.created
+Title: Approval needed: The agent asks for a human decision
+Text: The agent asks for a human decision
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: View job
+
+job.needs_review
+Title: Job awaits review: Deploy
+Text: project self · agent codex · runner server · job job-1
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: View job
+
+job.terminal
+Title: job.terminal: Deploy
+Text: project self · agent codex · runner server · job job-1
+Link: https://gofer.example.com/jobs/job-1
+LinkLabel: View job
+
