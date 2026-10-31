@@ -68,7 +68,8 @@ func agentTextOutputs(t *testing.T, lang i18n.Lang) map[string]string {
 	tdo, _, _ := s.Meta().GetTodo("t-1")
 	out["comment_todo"] = s.commentTodoContext(lang, tdo)
 	out["comment_dispatch"] = commentDispatchPrompt(lang, out["comment_todo"], "  please look  ")
-	out["skills_manifest"] = skillsManifest(lang, goldenSkillLib{}, []string{"alpha", "beta"}, "/r/skills")
+	// Paths are joined with the OS separator; the golden is written with slashes.
+	out["skills_manifest"] = filepath.ToSlash(skillsManifest(lang, goldenSkillLib{}, []string{"alpha", "beta"}, "/r/skills"))
 	out["tools_plain"] = renderToolsSection(lang, []config.Tool{{Name: "jq", Desc: "json"}, {Name: "rg", Bin: "ripgrep"}}, "")
 	out["tools_worker"] = renderToolsSection(lang, []config.Tool{{Name: "jq"}}, "w-1")
 	out["fallback_prompt"] = fallbackPrompt(lang, "codex", "  at capacity ", "do the thing")
