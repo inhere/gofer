@@ -290,7 +290,7 @@ server:
   allow_empty_token: false             # 要显式 true 才能无 token 起
   # web_enabled: true                  # 不写=开
   # web_base_url: https://gofer.example.com   # 对外地址(通知 / 待批链接里用)
-  # language: auto                     # gofer 生成文本的语言: en 或 zh-CN(也认 zh / zh_CN.UTF-8 / english 等别名，归一化为规范值)；影响注入给 agent 的提示词段落(验收标准 / 交付约定 / 时限提示)、交付请求正文、续接 / 自动续投 / 未提交续投的提示语、管家会话的首条简报与巡检提示里的动态部分，以及 agent 在 MCP tools/list 里读到的工具说明与报错(内建 MCP 读本机配置；瘦客户端暂用本机语言链)、`gofer repo init` / `repo migrate` 写进 AGENTS.md / CLAUDE.md 的托管说明块；项目可用 projects.<key>.language 覆盖；不写或写 auto = 按 server 所在机器的系统语言自动选择(LANG / LC_ALL / LC_MESSAGES；Windows 取系统区域设置)，是中文用 zh-CN，探测不到或不支持就用 en；项目没配 language 则继承 server；启动日志与 `gofer config validate` 会显示实际语言与来源；`gofer init` 写入 `language: auto`
+  # language: auto                     # gofer 生成文本的语言: en 或 zh-CN(也认 zh / zh_CN.UTF-8 / english 等别名，归一化为规范值)；影响注入给 agent 的提示词段落(验收标准 / 交付约定 / 时限提示)、交付请求正文、续接 / 自动续投 / 未提交续投的提示语、管家会话的首条简报与巡检提示里的动态部分，以及 agent 在 MCP tools/list 里读到的工具说明与报错(内建 MCP 读本机配置；瘦客户端暂用本机语言链)、`gofer repo init` / `repo migrate` 写进 AGENTS.md / CLAUDE.md 的托管说明块；项目可用 projects.<key>.language 覆盖；web 控制台显示的服务端文本(如会话的唤醒计划说明)优先按请求头 Accept-Language(web 随界面语言发送)，没带或认不得时才用 server.language；不写或写 auto = 按 server 所在机器的系统语言自动选择(LANG / LC_ALL / LC_MESSAGES；Windows 取系统区域设置)，是中文用 zh-CN，探测不到或不支持就用 en；项目没配 language 则继承 server；启动日志与 `gofer config validate` 会显示实际语言与来源；`gofer init` 写入 `language: auto`
 
   # path_view: host|container          # 执行视角(默认 host=用 host_path)
   # read_dir_allow: [D:/reference]      # 允许 job --read-dir 使用的额外绝对目录

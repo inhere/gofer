@@ -3,6 +3,7 @@
 
 import { t } from '../i18n'
 import { getToken, triggerUnauthorized } from '../store/auth'
+import { acceptLanguageHeaders } from '../store/locale'
 import type { SSEEvent, SSEEventType } from './types'
 
 export interface ParsedSSE {
@@ -149,7 +150,7 @@ async function streamSSE(
   onOpen?: () => void,
 ): Promise<void> {
   const token = getToken()
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...acceptLanguageHeaders() }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }

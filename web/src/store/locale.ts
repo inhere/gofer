@@ -14,6 +14,13 @@ export const SUPPORTED_LOCALES: readonly Locale[] = ['zh-CN', 'en-US']
 // 全局共享的当前语言
 export const locale = ref<Locale>('zh-CN')
 
+// acceptLanguageHeaders：每个发往服务端的请求带当前界面语言（设计稿 §3 / S3a），
+// 服务端生成的人读文本据此选中英文；切换语言后下一个请求自然带新值。
+// WebSocket 构造器带不了请求头，WS 通道不走这里（见 api/live.ts）。
+export function acceptLanguageHeaders(): Record<string, string> {
+  return { 'Accept-Language': locale.value }
+}
+
 function isLocale(v: unknown): v is Locale {
   return v === 'zh-CN' || v === 'en-US'
 }

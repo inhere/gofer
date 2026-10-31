@@ -11,6 +11,7 @@
 // 主题名都是普通字符串；需要与后端常量对齐的主题在这里集中声明。
 import { ref } from 'vue'
 import { getToken, triggerUnauthorized } from '../store/auth'
+import { acceptLanguageHeaders } from '../store/locale'
 import { noteServerVersion } from '../store/staleBuild'
 
 export type LiveStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'paused'
@@ -391,7 +392,7 @@ async function fetchTicketHttp(): Promise<string> {
   const token = getToken()
   const res = await fetch('/v1/ws-ticket', {
     method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: token ? { ...acceptLanguageHeaders(), Authorization: `Bearer ${token}` } : acceptLanguageHeaders(),
   })
   if (!res.ok) throw new TicketError(res.status)
   const body = (await res.json()) as { ticket: string }

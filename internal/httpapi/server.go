@@ -1138,6 +1138,7 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 func (s *Server) buildRouter() *rux.Router {
 	r := rux.New()
 	r.Use(s.httpErrorMiddleware)
+	r.Use(s.requestLangMiddleware)
 
 	r.GET("/health", s.handleHealth)
 

@@ -15,6 +15,7 @@
 
 - **群发邮件的收件人表补「送达时间」与「是否已回复」**：`GET /v1/mail/{id}` 的 `broadcast.recipients[]` 每行新增 `delivered_at` 与 `replied`；`gofer session mail read` 与 web 信箱的收件人状态条据此显示每个收件人的送达时间和是否已回复（中英文案）。表的拼装从 httpapi 移到 mail 服务层（`Service.BroadcastSummary`）。
 - **Web 控制台状态徽标、提示条与开关统一**：任务、计划、对比、会话卡片等处的旧状态徽标全部换成同一套状态 pill（形状 + 颜色 + 文字，文案走中英字典；「等目录」的悬停提示仍写明持有目录锁的 job）；撤销提示、「待我处理」与 agent 探测提示合并为同一个提示条组件（撤销倒计时、关闭按钮、手机上自动收起行为不变，读屏按状态播报）；「设置 → 扩展设置」的开关与导航显隐改用统一的开关控件（键盘可切换，读屏读出开 / 关）。
+- **服务端生成的显示文本按请求语言（i18n 阶段 3 之一）**：httpapi 解析请求头 `Accept-Language`（按 q 值取第一个认得的语言），认不得或没带时用 `server.language`（未配置即 auto），结果放进请求 context（`i18n.WithLang` / `i18n.FromContext`）；web 的所有请求（API、SSE、附件、换 ws ticket）带上当前界面语言。首个接线的是 `GET /v1/sessions/{sid}/takeover-plan` 的说明文字：web 切到英文就是英文；WebSocket 连接本身带不了请求头，暂不带语言。其余服务端文本逐步迁移。
 
 ### 修复
 
@@ -30,6 +31,7 @@
 
 - **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
 - **定时任务编辑弹窗的 cron 试算**：web「定时任务」编辑弹窗里改 cron 表达式，停手片刻后显示按新表达式的下 5 次运行时间，表达式不合法则显示解析器的错误原话，保存前就能看到结果。新增接口 `POST /v1/schedules/cron-preview`（body `{cron, count?}`，`count` 默认 5、最多 10，返回 `{cron, next_runs}`，表达式不合法 400；只计算不写入，登录即可用）。
+- **服务端生成的显示文本按请求语言（i18n 阶段 3 之一）**：httpapi 解析请求头 `Accept-Language`（按 q 值取第一个认得的语言），认不得或没带时用 `server.language`（未配置即 auto），结果放进请求 context（`i18n.WithLang` / `i18n.FromContext`）；web 的所有请求（API、SSE、附件、换 ws ticket）带上当前界面语言。首个接线的是 `GET /v1/sessions/{sid}/takeover-plan` 的说明文字：web 切到英文就是英文；WebSocket 连接本身带不了请求头，暂不带语言。其余服务端文本逐步迁移。
 
 ### 变更
 
@@ -48,6 +50,11 @@
 - **hook 用量状态文件的旧格式（`seen`）**：不再读取；升级后正在进行的会话最多把已统计过的消息重算一次。
 - **`gofer repo init` 对无 agent 限定的旧 prime hook（`gofer repo prime --hook-json`）的原地升级**：不再识别；这类旧 hook 会和新写入的带 `--agent` 的 hook 并存，手工删掉旧的一条即可。
 - 嵌入用的内部接口收窄（不影响命令行与 HTTP 行为）：`ConfigWriter` 必须实现 `ReloadConfigReport`，`serve.Opts.ReloadPath` 删除（用 `CfgPath`），默认语言包装函数 `RenderRefocus` / `RefocusHead` / `PrimePlanLines` / `ExplainReason` 删除（用带语言的 `…In` 形式）。
+
+### 新增
+
+- **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
+- **定时任务编辑弹窗的 cron 试算**：web「定时任务」编辑弹窗里改 cron 表达式，停手片刻后显示按新表达式的下 5 次运行时间，表达式不合法则显示解析器的错误原话，保存前就能看到结果。新增接口 `POST /v1/schedules/cron-preview`（body `{cron, count?}`，`count` 默认 5、最多 10，返回 `{cron, next_runs}`，表达式不合法 400；只计算不写入，登录即可用）。
 
 ## [0.204.0] - 2026-10-30
 
