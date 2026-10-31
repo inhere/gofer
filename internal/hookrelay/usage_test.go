@@ -1,7 +1,6 @@
 package hookrelay
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -314,36 +313,6 @@ func TestUsageClaudeMainConsistentRowsNotRecounted(t *testing.T) {
 	assert.Eq(t, int64(34), d.Main.TotalTokens)
 	e.appendTo(e.transcript, claudeRow("c1", "claude-opus", 1, 10, 20, 3, false)+"\n")
 	assert.Nil(t, e.beat("Stop"))
-}
-
-func TestUsageLegacySeenStateIsNotRecounted(t *testing.T) {
-	e := newUsageEnv(t, AgentClaude)
-	e.write(e.transcript, claudeRow("old", "claude-opus", 1, 10, 0, 0, false))
-	assert.NotNil(t, e.beat("Stop"))
-	// rewrite the state in the old format: only the id hash list
-	sp := filepath.Join(e.stateDir, usageStateName(e.sid)+".json")
-	b, err := os.ReadFile(sp)
-	assert.NoErr(t, err)
-	var st usageState
-	assert.NoErr(t, json.Unmarshal(b, &st))
-	assert.Eq(t, 1, len(st.Msgs))
-	st.Seen, st.Msgs = []string{st.Msgs[0].K}, nil
-	b, err = json.Marshal(st)
-	assert.NoErr(t, err)
-	assert.NoErr(t, os.WriteFile(sp, b, 0o600))
-
-	// the old id, even with a larger value, is not topped up; a new id counts fully
-	e.appendTo(e.transcript, claudeRow("old", "claude-opus", 1, 99, 0, 0, false)+"\n"+claudeRow("new", "claude-opus", 1, 7, 0, 0, false)+"\n")
-	d := e.beat("Stop")
-	assert.NotNil(t, d)
-	assert.Eq(t, int64(8), d.Main.TotalTokens)
-	// and the new id is now exact: growth is reported
-	e.appendTo(e.transcript, claudeRow("new", "claude-opus", 1, 17, 0, 0, false)+"\n")
-	d = e.beat("Stop")
-	assert.NotNil(t, d)
-	assert.Eq(t, int64(10), d.Main.TotalTokens)
-	b, _ = os.ReadFile(sp)
-	assert.False(t, strings.Contains(string(b), `"seen"`))
 }
 
 // The throttled PostToolUse progress beat carries the usage delta too, so a long turn

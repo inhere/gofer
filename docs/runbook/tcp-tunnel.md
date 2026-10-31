@@ -240,20 +240,10 @@ gofer tun forget hw-win11
 预设不再只属于"执行 `save` 的那台机器"，而是存在 **server 的 `tunnel_presets` 表**里，因此：
 
 - 任何能连到 hub 的机器 `tun saved` 看到同一份预设，换机器不必重存一遍；web 的「设置 → Tunnels」页也编辑同一份数据。
-- `tun forward -n` / `tun check -n` **先查 server**；server 上没有同名预设（或 hub 连不上）才回落本机旧的 `<config-dir>/tunnels.yaml`，并打印提示让你上传。
-- `tun save` 连不上 server 时写本地并提示（server 明确拒绝的错误不会被吞掉）；server 可达时只写 server。
-
-把本机历史预设迁移上去：
-
-```bash
-gofer tun presets push            # 同名冲突默认跳过并列出
-gofer tun presets push --force    # 覆盖 server 上的同名预设
-gofer tun saved                   # 末尾会提示 "local: N preset(s) not on the server: ..."
-```
-
-`tun saved` 只列 server 的预设，并在末尾提示本机还有几个没上传。本地 `tunnels.yaml` 的**读取路径**已标记弃用（`DEPRECATED(v0.60.2): remove in v0.63`，见 G032）：v0.63 起只认 server；文件本身在过渡期仍是离线兜底与 `presets push` 的来源，权限 0600。
-
-`tun forget <name>` 会把 **server 与本机两份都删掉**（报告 `deleted preset demo (server and local)`）：只删 server 的话，残留的本地副本仍会被 `tun forward -n` 解析出来，等于没忘掉。两份都不存在时按错误报告。
+- `tun forward -n` / `tun check -n` 只查 server：server 上没有同名预设、或 hub 连不上，都直接报错，不再回落本机 `<config-dir>/tunnels.yaml`。
+- `tun save` 只写 server；连不上 server 时报错，不再写本地副本。`tun saved` 只列 server 的预设。
+- `tun forget <name>` 只删 server 上的预设，不存在时按错误报告。
+- 本机旧 `tunnels.yaml` 里的预设不再被 CLI 读取；要迁移上去，用 web「设置 → Tunnels」页的「导入本机预设」（读 server 所在机器的 `tunnels.yaml`），或用 `tun save` 重新保存。`gofer tun presets push` 已移除。
 
 `forward`/`check` 显式给出的 worker 或规格优先于预设，便于临时改端口而不必先改预设。
 

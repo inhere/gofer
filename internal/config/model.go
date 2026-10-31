@@ -2526,15 +2526,12 @@ func (p *ProjectConfig) UnmarshalYAML(data []byte) error {
 	return nil
 }
 
-// decodeCaptureDiff is the temporary G032 compatibility boundary for the old
-// bool setting. Remove the bool branch after the documented migration window.
+// decodeCaptureDiff parses capture_diff: auto, on or off. The old boolean spelling
+// (capture_diff: true / false as a YAML boolean) is refused with the replacement named.
 func decodeCaptureDiff(value any) (*bool, error) {
 	switch v := value.(type) {
 	case nil:
 		return nil, nil
-	case bool:
-		// DEPRECATED(v0.78): remove legacy boolean capture_diff in v0.81.
-		return &v, nil
 	case string:
 		switch strings.ToLower(strings.TrimSpace(v)) {
 		case "", "auto":
@@ -2548,6 +2545,8 @@ func decodeCaptureDiff(value any) (*bool, error) {
 		default:
 			return nil, fmt.Errorf("capture_diff must be auto, on, or off (got %q)", v)
 		}
+	case bool:
+		return nil, fmt.Errorf("capture_diff no longer accepts a boolean; use capture_diff: %s (auto|on|off)", map[bool]string{true: "on", false: "off"}[v])
 	default:
 		return nil, fmt.Errorf("capture_diff must be auto, on, or off (got %T)", value)
 	}

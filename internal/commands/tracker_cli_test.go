@@ -73,10 +73,7 @@ func TestRepoInitIdempotent(t *testing.T) {
 	if err := os.WriteFile(agents, []byte(beads), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	first := trackerRunOK(t, root, "repo", "init", "--prefix", "sample")
-	if !strings.Contains(first, "repo migrate --from-bd") {
-		t.Fatalf("missing BEADS migration hint: %s", first)
-	}
+	trackerRunOK(t, root, "repo", "init", "--prefix", "sample")
 	paths := []string{filepath.Join(root, ".gofer", "tracker", "config.yaml"), filepath.Join(root, ".gofer", ".gitignore"), agents}
 	before := make([]string, len(paths))
 	for i, p := range paths {

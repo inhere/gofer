@@ -12,7 +12,7 @@ import (
 
 // tunnel_presets.go is the TUN-03 client for the two tunnel visibility surfaces:
 // the forwarder registry (`gofer tun forward` announcing itself) and the server-side
-// forward presets (`tun save` / `tun saved` / `tun forward -n` / `tun presets push`).
+// forward presets (`tun save` / `tun saved` / `tun forward -n`).
 //
 // The CLI talks to these over HTTP in both modes — a client node reaches the hub, and
 // a machine-local `tun forward` registers with the same hub — so a preset is now the

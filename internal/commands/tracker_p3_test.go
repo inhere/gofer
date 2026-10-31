@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -208,80 +207,6 @@ func TestMemoryTags(t *testing.T) {
 	out := trackerRunOK(t, root, "memory", "ls", "needle", "--tag", "beta", "--json")
 	if !strings.Contains(out, "first") || strings.Contains(out, "second") {
 		t.Fatalf("memory tag+keyword filter: %s", out)
-	}
-}
-
-func p3BdFixture(t *testing.T, root string) {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "tracker", "testdata", "bd-issues.jsonl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	p3Write(t, root, ".beads/issues.jsonl", string(b))
-}
-
-func TestMigrateFromBdFixture(t *testing.T) {
-	root := t.TempDir()
-	p3BdFixture(t, root)
-	before := p3File(t, root, ".beads/issues.jsonl")
-	if out := trackerRunOK(t, root, "repo", "migrate", "--from-bd"); !strings.Contains(strings.ToLower(out), "dry") {
-		t.Fatalf("dry-run plan missing: %s", out)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".gofer")); !os.IsNotExist(err) || p3File(t, root, ".beads/issues.jsonl") != before {
-		t.Fatalf("dry-run wrote files: %v", err)
-	}
-	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply", "--force")
-	first := p3File(t, root, ".gofer/tracker/issues.jsonl")
-	if !strings.Contains(first, `"tags":["alpha","beta","bd:reviewing"]`) || strings.Contains(first, `"labels"`) || !strings.Contains(first, `"parent":"demo-a"`) || !strings.Contains(first, `"deps"`) || !strings.Contains(first, `"close_reason":"done"`) {
-		t.Fatalf("bd field mapping incomplete: %s", first)
-	}
-	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply", "--force")
-	if second := p3File(t, root, ".gofer/tracker/issues.jsonl"); second != first {
-		t.Fatalf("repeat migration changed issue data: before=%q after=%q", first, second)
-	}
-}
-
-func TestMigrateStripsBeadsBlock(t *testing.T) {
-	root := t.TempDir()
-	p3BdFixture(t, root)
-	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
-		p3Write(t, root, name, "header\n<!-- BEGIN BEADS INTEGRATION v:1 -->\nUse bd.\n<!-- END BEADS INTEGRATION -->\nfooter\n")
-	}
-	p3Write(t, root, ".claude/settings.json", `{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"bd prime --hook-json"},{"type":"command","command":"other-tool"}]}]}}`)
-	p3Write(t, root, ".codex/hooks.json", `{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"bd prime --hook-json"}]}]}}`)
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v %s", err, out)
-	}
-	cmd = exec.Command("git", "config", "core.hooksPath", ".beads/hooks")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git config: %v %s", err, out)
-	}
-	trackerRunOK(t, root, "repo", "migrate", "--from-bd", "--apply", "--force")
-	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
-		body := p3File(t, root, name)
-		if strings.Contains(body, "BEGIN BEADS INTEGRATION") || strings.Count(body, "BEGIN GOFER TRACKER") != 1 || !strings.Contains(body, "footer") {
-			t.Fatalf("managed block replacement %s: %s", name, body)
-		}
-	}
-	for _, rel := range []string{".claude/settings.json", ".codex/hooks.json"} {
-		body := p3File(t, root, rel)
-		if strings.Contains(body, "bd prime --hook-json") || strings.Count(body, "gofer repo prime --hook-json") != 1 {
-			t.Fatalf("hook migration %s: %s", rel, body)
-		}
-		if rel == ".claude/settings.json" && !strings.Contains(body, "other-tool") {
-			t.Fatalf("foreign hook lost: %s", body)
-		}
-	}
-	cmd = exec.Command("git", "config", "--local", "--get", "core.hooksPath")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err == nil || len(strings.TrimSpace(string(out))) != 0 {
-		t.Fatalf("core.hooksPath remains: %q err=%v", out, err)
-	}
-	if p3File(t, root, ".beads/issues.jsonl") == "" {
-		t.Fatal(".beads archive removed")
 	}
 }
 

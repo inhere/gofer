@@ -270,11 +270,10 @@ func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		AllowEmptyTok: serveOpts.allowEmptyTok,
 		NoWeb:         serveOpts.noWeb,
 		WebDir:        serveOpts.webDir,
-		CfgPath:       cfgPath,
 		// cfgPath is the path actually selected by config.Load (including
-		// discovery). The reload loop must use that same path, not the raw -c
+		// discovery). The reload loop uses that same path, not the raw -c
 		// input which may be empty or relative.
-		ReloadPath: cfgPath,
-		Build:      info,
+		CfgPath: cfgPath,
+		Build:   info,
 	})
 }

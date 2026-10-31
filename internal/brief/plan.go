@@ -241,15 +241,8 @@ func relatedIssueSection(opts Options, links *planLinks) Section {
 	return sec
 }
 
-// PrimePlanLines renders one open plan for the prime 「进行中 plan」 section: the plan
-// line with the brief hint, then its doing / ready todos with the issues they name.
-//
-// DEPRECATED(v0.198): PrimePlanLinesIn(lang, …) is the language-aware form.
-func PrimePlanLines(p client.Plan, issues []tracker.Issue) []string {
-	return PrimePlanLinesIn(i18n.Default, p, issues)
-}
-
-// PrimePlanLinesIn is PrimePlanLines in lang.
+// PrimePlanLinesIn renders one open plan for the prime 「进行中 plan」 section in lang: the
+// plan line with the brief hint, then its doing / ready todos with the issues they name.
 func PrimePlanLinesIn(lang i18n.Lang, p client.Plan, issues []tracker.Issue) []string {
 	links := newPlanLinks(p, issues)
 	out := []string{briefText(lang, "brief.prime.plan", "id", p.PlanID, "title", p.Title)}

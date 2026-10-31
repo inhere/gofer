@@ -15,7 +15,6 @@ import (
 	"time"
 
 	rusage "github.com/inhere/gofer/internal/runner"
-	"github.com/inhere/gofer/internal/util"
 )
 
 // Terminal-session usage collection (N2 §A, OBS-14). On Stop / SubagentStop /
@@ -82,10 +81,6 @@ type usageFile struct {
 type usageState struct {
 	V     int                   `json:"v"`
 	Files map[string]*usageFile `json:"files"`
-	// Seen is the pre-v0.125 format: bare id hashes, counted by their first row only.
-	// It is read once (loadState folds it into Msgs as Legacy entries) and never written.
-	// DEPRECATED(v0.125): remove in v0.128.
-	Seen []string `json:"seen,omitempty"`
 	// Msgs is the FIFO window (oldest first, usageSeenCap entries) of message ids with
 	// the usage already counted for each.
 	Msgs []*usageSeenMsg `json:"msgs,omitempty"`
@@ -100,11 +95,6 @@ type usageSeenMsg struct {
 	O int64  `json:"o,omitempty"`
 	R int64  `json:"r,omitempty"`
 	W int64  `json:"w,omitempty"`
-	// Legacy: migrated from the old Seen list, whose counted amounts were not stored.
-	// Treating them as 0 would re-count the whole message, so a legacy id is never
-	// topped up: it keeps its first-row figure (the pre-fix behaviour) and only ids
-	// first seen after the upgrade get exact accounting.
-	Legacy bool `json:"l,omitempty"`
 }
 
 type usageCollector struct {
@@ -250,14 +240,6 @@ func (c *usageCollector) loadState() {
 			c.log("usage: state unreadable, starting over")
 		}
 	}
-	if len(c.state.Seen) > 0 { // old format: fold in as legacy entries (older first)
-		legacy := make([]*usageSeenMsg, 0, util.CapSum(len(c.state.Seen), len(c.state.Msgs)))
-		for _, k := range c.state.Seen {
-			legacy = append(legacy, &usageSeenMsg{K: k, Legacy: true})
-		}
-		c.state.Msgs = append(legacy, c.state.Msgs...)
-		c.state.Seen = nil
-	}
 	c.seen = make(map[string]*usageSeenMsg, len(c.state.Msgs))
 	for _, m := range c.state.Msgs {
 		c.seen[m.K] = m
@@ -307,7 +289,7 @@ func (c *usageCollector) markSeen(id string) bool {
 
 // claimUsage returns the part of u not yet counted for message id: all of it the first
 // time, afterwards the per-component excess over the largest value counted so far
-// (smaller or equal repeats count nothing). Legacy entries are never topped up.
+// (smaller or equal repeats count nothing).
 func (c *usageCollector) claimUsage(id string, u rusage.Usage) rusage.Usage {
 	k := seenKey(id)
 	m, ok := c.seen[k]
@@ -315,9 +297,6 @@ func (c *usageCollector) claimUsage(id string, u rusage.Usage) rusage.Usage {
 		c.remember(&usageSeenMsg{K: k, I: u.InputTokens, O: u.OutputTokens,
 			R: u.CacheReadTokens, W: u.CacheWriteTokens})
 		return u
-	}
-	if m.Legacy {
-		return rusage.Usage{}
 	}
 	d := rusage.Usage{Source: u.Source,
 		InputTokens:      max(u.InputTokens-m.I, 0),

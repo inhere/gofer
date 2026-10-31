@@ -575,20 +575,6 @@ git config, which every worktree of the clone shares. Each new clone runs --inst
 repo merge-driver	examples	
 repo merge-driver	flag config	path to the gofer config file
 repo merge-driver	flag install	configure the driver for this repository (.gitattributes + git config) instead of merging
-repo migrate	desc	Migrate a bd (beads) repository to the gofer tracker (dry-run unless --apply)
-repo migrate	help	Reads the live bd database (`bd export`, read-only; .beads/issues.jsonl only as a fallback) and
-imports issues + memories into .gofer/tracker, then swaps the bd integration points: the BEADS
-blocks in AGENTS.md/CLAUDE.md become the gofer block, `bd prime` / `bd codex-hook` hooks become
-`gofer repo prime --hook-json`, and core.hooksPath is unset when it points at .beads/hooks and
-that directory holds only bd's own hooks. .beads/ is kept. Anything else that mentions bd is
-listed for a human. --apply refuses while bd looks active (locks, processes, writes in the last
-minutes, unexpired claim leases); --force overrides.
-repo migrate	examples	
-repo migrate	flag apply	apply changes (default: dry-run)
-repo migrate	flag config	path to the gofer config file
-repo migrate	flag force	apply even though bd looks active
-repo migrate	flag from-bd	migrate from bd (required)
-repo migrate	flag json	print the report as JSON
 repo mirror	desc	List or remove tracker mirrors on the server
 repo mirror	help	
 repo mirror	examples	
@@ -1010,16 +996,6 @@ tunnel ls	examples
 tunnel ls	flag config	path to the gofer config file
 tunnel ls	flag server	server address (overrides config server.addr)
 tunnel ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-tunnel presets	desc	Manage the presets stored on the server.
-tunnel presets	help	
-tunnel presets	examples	
-tunnel presets push	desc	Upload local presets to the server (names it already has are skipped).
-tunnel presets push	help	
-tunnel presets push	examples	
-tunnel presets push	flag config	path to the gofer config file
-tunnel presets push	flag force	overwrite a preset the server already has
-tunnel presets push	flag server	server address (overrides config server.addr)
-tunnel presets push	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 tunnel save	desc	Save a forward preset for reuse with --name (stored on the server).
 tunnel save	help	
 tunnel save	examples	
@@ -1029,7 +1005,7 @@ tunnel save	flag note	free-form remark shown by `tunnel saved`
 tunnel save	flag server	server address (overrides config server.addr)
 tunnel save	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 tunnel save	flag worker	worker id
-tunnel saved	desc	List saved forward presets (the server's, plus local ones not uploaded).
+tunnel saved	desc	List the forward presets saved on the server.
 tunnel saved	help	
 tunnel saved	examples	
 tunnel saved	flag config	path to the gofer config file

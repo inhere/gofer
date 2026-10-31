@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -12,10 +13,10 @@ func TestTunnelCmdRegistered(t *testing.T) {
 	if c.Name != "tunnel" {
 		t.Fatal(c.Name)
 	}
-	if len(c.Subs) != 8 {
+	if len(c.Subs) != 7 {
 		t.Fatalf("subs=%d", len(c.Subs))
 	}
-	want := map[string]bool{"forward": false, "check": false, "ls": false, "save": false, "saved": false, "forget": false, "presets": false, "stop": false}
+	want := map[string]bool{"forward": false, "check": false, "ls": false, "save": false, "saved": false, "forget": false, "stop": false}
 	for _, s := range c.Subs {
 		want[s.Name] = true
 	}
@@ -26,17 +27,22 @@ func TestTunnelCmdRegistered(t *testing.T) {
 	}
 }
 
+// stubPresetClient is a client for a stub hub that holds one saved preset.
+func stubPresetClient(t *testing.T, name, worker string, specs []string) *client.Client {
+	t.Helper()
+	st := newTunnelStub(t)
+	st.presets[name] = map[string]any{"name": name, "worker": worker, "specs": specs}
+	return client.New(st.URL, "")
+}
+
 // TestForwardResolvesSavedProfile drives the resolution a `--name` forward runs
 // through: the preset supplies both the worker and every spec, and a name nobody
 // saved is an error rather than a silent forward of nothing.
 func TestForwardResolvesSavedProfile(t *testing.T) {
-	t.Setenv(config.EnvConfigDir, t.TempDir())
 	saved := []string{"udp/21845:192.168.0.200:21845", "1502:10.0.0.5:502"}
-	if e := config.UpsertTunnel("hw", config.TunnelProfile{Worker: "w-hw", Specs: saved}, false); e != nil {
-		t.Fatal(e)
-	}
+	cli := stubPresetClient(t, "hw", "w-hw", saved)
 
-	got, err := resolveForward(nil, "hw", "", nil)
+	got, err := resolveForward(cli, "hw", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +53,7 @@ func TestForwardResolvesSavedProfile(t *testing.T) {
 		t.Fatalf("specs=%v want %v", got.specs, saved)
 	}
 
-	if _, err := resolveForward(nil, "nope", "", nil); err == nil {
+	if _, err := resolveForward(cli, "nope", "", nil); err == nil {
 		t.Fatal("an unknown preset name must fail, not resolve to nothing")
 	}
 }
@@ -56,12 +62,9 @@ func TestForwardResolvesSavedProfile(t *testing.T) {
 // typed wins, and a preset only fills what was left out — so a one-off override
 // never has to edit the preset first.
 func TestForwardExplicitOverridesProfile(t *testing.T) {
-	t.Setenv(config.EnvConfigDir, t.TempDir())
-	if e := config.UpsertTunnel("hw", config.TunnelProfile{Worker: "saved-worker", Specs: []string{"1502:10.0.0.5:502"}}, false); e != nil {
-		t.Fatal(e)
-	}
+	cli := stubPresetClient(t, "hw", "saved-worker", []string{"1502:10.0.0.5:502"})
 
-	got, err := resolveForward(nil, "hw", "explicit-worker", []string{"1600:10.0.0.9:502"})
+	got, err := resolveForward(cli, "hw", "explicit-worker", []string{"1600:10.0.0.9:502"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +73,7 @@ func TestForwardExplicitOverridesProfile(t *testing.T) {
 	}
 
 	// Partial override: only the worker is given, so the specs still come from the preset.
-	got, err = resolveForward(nil, "hw", "explicit-worker", nil)
+	got, err = resolveForward(cli, "hw", "explicit-worker", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,15 +133,12 @@ func TestParseCheckTarget(t *testing.T) {
 // TestPresetWorker covers the lookup `check <target> -n <preset>` uses: the target
 // is typed on the command line, so only the worker comes from the preset.
 func TestPresetWorker(t *testing.T) {
-	t.Setenv(config.EnvConfigDir, t.TempDir())
-	if e := config.UpsertTunnel("hw", config.TunnelProfile{Worker: "w-hw", Specs: []string{"1502:10.0.0.5:502"}}, false); e != nil {
-		t.Fatal(e)
-	}
-	w, _, err := presetWorker(nil, "hw")
+	cli := stubPresetClient(t, "hw", "w-hw", []string{"1502:10.0.0.5:502"})
+	w, err := presetWorker(cli, "hw")
 	if err != nil || w != "w-hw" {
 		t.Fatalf("worker=%q err=%v", w, err)
 	}
-	if _, _, err := presetWorker(nil, "nope"); err == nil {
+	if _, err := presetWorker(cli, "nope"); err == nil {
 		t.Fatal("an unknown preset name must fail, not resolve to an empty worker")
 	}
 }

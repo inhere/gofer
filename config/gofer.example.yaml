@@ -556,9 +556,9 @@ projects:
   #   # 达到后下一项开新会话。默认 3；0 = 不限；最大 10。
   #   # continue_max_chain: 3
 
-  #   # capture_diff：是否在 job 结果里记录 git diff。未写时默认「cwd 是 git 工作树就记录」；
-  #   # 设为 false 彻底关闭。
-  #   # capture_diff: true
+  #   # capture_diff：是否在 job 结果里记录 git diff：auto（默认）/ on / off。
+  #   # auto 在 cwd 是 git 工作树时记录；off 彻底关闭。
+  #   # capture_diff: auto
 
   #   # tracker_prime：job 注入的 `tracker-prime` 规则（提交策略 + 规则全文 + 记忆索引）取自哪个 tracker。
   #   #   nearest (默认) 从 job cwd 逐级向上找最近的 .gofer/tracker：工作区里的项目彼此相关，

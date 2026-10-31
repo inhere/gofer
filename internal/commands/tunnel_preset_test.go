@@ -11,9 +11,8 @@ import (
 	"github.com/inhere/gofer/internal/config"
 )
 
-// TUN-03 acceptance for the CLI: presets come from the SERVER first (with the local
-// file as a documented fallback), `tun presets push` migrates them, and `tun ls`
-// shows the forwarding processes next to the connections.
+// TUN-03 acceptance for the CLI: presets come from the SERVER, and `tun ls` shows the
+// forwarding processes next to the connections.
 
 // tunnelStub is a stub hub for the tunnel CLI tests: presets, online forwarders and
 // active connections, plus the request log the assertions read.
@@ -114,11 +113,10 @@ func pointTunnelCLIAt(t *testing.T, url string) {
 	})
 }
 
-// TestCLIPresetPrefersServerFallsBackLocal: the server is the source of truth after
-// TUN-03, so a same-named preset there wins; a preset only the LOCAL file knows is
-// still honoured, with the nudge that `gofer tun presets push` would upload it. An
-// unreachable server falls back the same way instead of failing the command.
-func TestCLIPresetPrefersServerFallsBackLocal(t *testing.T) {
+// TestCLIPresetComesFromServerOnly: the server is the only place presets live. A name
+// it has resolves; a name it does not have, or a server that cannot answer, is an error
+// even when a legacy local tunnels.yaml still holds the name.
+func TestCLIPresetComesFromServerOnly(t *testing.T) {
 	pointTunnelCLIAt(t, "")
 	if err := config.SaveTunnels(&config.Tunnels{Forwards: map[string]config.TunnelProfile{
 		"demo":  {Worker: "local-w", Specs: []string{"1502:10.0.0.5:502"}},
@@ -134,7 +132,6 @@ func TestCLIPresetPrefersServerFallsBackLocal(t *testing.T) {
 	}
 	cli := client.New(st.URL, "")
 
-	// The server's copy wins, silently.
 	got, err := resolveForward(cli, "demo", "", nil)
 	if err != nil {
 		t.Fatalf("resolveForward(server preset): %v", err)
@@ -142,101 +139,31 @@ func TestCLIPresetPrefersServerFallsBackLocal(t *testing.T) {
 	if got.worker != "srv-w" || len(got.specs) != 2 {
 		t.Fatalf("resolveForward(server preset) = %+v, want the server's worker and rules", got)
 	}
-	if got.note != "" {
-		t.Errorf("a server preset must not print a fallback hint, got %q", got.note)
-	}
 
-	// Only the local file knows this one: honour it and say how to upload it.
-	got, err = resolveForward(cli, "field", "", nil)
-	if err != nil {
-		t.Fatalf("resolveForward(local preset): %v", err)
+	// Only the local file knows this one: it is not consulted any more.
+	if _, err := resolveForward(cli, "field", "", nil); err == nil {
+		t.Fatal("a preset only the local file knows must not resolve")
 	}
-	if got.worker != "local-w" || len(got.specs) != 1 {
-		t.Fatalf("resolveForward(local preset) = %+v, want the local worker and rules", got)
-	}
-	if !strings.Contains(got.note, "gofer tun presets push") {
-		t.Errorf("a local fallback must point at `gofer tun presets push`, got %q", got.note)
-	}
-
-	// An unreachable server degrades to the same local answer rather than an error.
+	// An unreachable server is an error, not a silent local answer.
 	dead := client.New("http://127.0.0.1:1", "")
-	got, err = resolveForward(dead, "field", "", nil)
-	if err != nil {
-		t.Fatalf("resolveForward with an unreachable server: %v", err)
+	if _, err := resolveForward(dead, "field", "", nil); err == nil {
+		t.Fatal("an unreachable server must fail the lookup")
 	}
-	if got.worker != "local-w" || !strings.Contains(got.note, "gofer tun presets push") {
-		t.Fatalf("unreachable server fallback = %+v", got)
+	// No server configured at all.
+	if _, err := resolveForward(nil, "field", "", nil); err == nil {
+		t.Fatal("no server must fail the lookup")
 	}
-
-	// A name nobody knows is still an error.
 	if _, err := resolveForward(cli, "ghost", "", nil); err == nil {
 		t.Fatal("an unknown preset must fail")
 	}
 }
 
-// TestPresetsPushSkipsConflicts: `tun presets push` uploads the local file and, by
-// default, SKIPS a name the server already has — listing it rather than overwriting a
-// preset somebody else may be using. --force is the deliberate overwrite.
-func TestPresetsPushSkipsConflicts(t *testing.T) {
-	st := newTunnelStub(t)
-	st.presets["demo"] = map[string]any{"name": "demo", "worker": "old-w", "specs": []string{"1502:10.0.0.5:502"}}
-	// Point the CLI at the stub FIRST: it also pins the config directory, so the local
-	// file below lands where LoadTunnels will look for it.
-	pointTunnelCLIAt(t, st.URL)
-	if err := config.SaveTunnels(&config.Tunnels{Forwards: map[string]config.TunnelProfile{
-		"demo":  {Worker: "w-hw", Specs: []string{"1502:192.168.0.205:502"}},
-		"field": {Worker: "w-hw", Specs: []string{"1600:10.0.0.9:502"}},
-	}}); err != nil {
-		t.Fatalf("save local presets: %v", err)
-	}
-
-	push := bindCmd(findSub(t, findSub(t, NewTunnelCmd(), "presets"), "push"))
-	out := captureOutput(t, func() {
-		tunnelOpts.force = false
-		if err := runTunnelPresetsPush(push, nil); err != nil {
-			t.Fatalf("presets push: %v", err)
-		}
-	})
-	if !strings.Contains(out, "pushed 1") {
-		t.Errorf("push must report the uploaded count, got:\n%s", out)
-	}
-	if !strings.Contains(out, "demo") || !strings.Contains(out, "force") {
-		t.Errorf("push must list the skipped conflict and how to force it, got:\n%s", out)
-	}
-	if st.presets["demo"]["worker"] != "old-w" {
-		t.Errorf("a conflicting preset must not be overwritten without --force, got %#v", st.presets["demo"])
-	}
-	if _, ok := st.presets["field"]; !ok {
-		t.Error("the non-conflicting preset must be uploaded")
-	}
-
-	// --force overwrites the conflict.
-	out = captureOutput(t, func() {
-		tunnelOpts.force = true
-		if err := runTunnelPresetsPush(push, nil); err != nil {
-			t.Fatalf("presets push --force: %v", err)
-		}
-	})
-	if st.presets["demo"]["worker"] != "w-hw" {
-		t.Errorf("--force must overwrite the server's preset, got %#v", st.presets["demo"])
-	}
-	if strings.Contains(out, "skipped") {
-		t.Errorf("--force must not skip anything, got:\n%s", out)
-	}
-}
-
-// TestTunnelForgetRemovesBothCopies: `tun forget` must leave the preset unresolvable.
-// Deleting only the server's copy would leave the local fallback to answer
-// `tun forward -n <name>` — the opposite of forgetting it.
-func TestTunnelForgetRemovesBothCopies(t *testing.T) {
+// TestTunnelForgetDeletesOnServer: `tun forget` removes the server's preset and reports
+// a name that is not there.
+func TestTunnelForgetDeletesOnServer(t *testing.T) {
 	st := newTunnelStub(t)
 	st.presets["demo"] = map[string]any{"name": "demo", "worker": "srv-w", "specs": []string{"1502:10.0.0.5:502"}}
 	pointTunnelCLIAt(t, st.URL)
-	if err := config.SaveTunnels(&config.Tunnels{Forwards: map[string]config.TunnelProfile{
-		"demo": {Worker: "local-w", Specs: []string{"1502:10.0.0.5:502"}},
-	}}); err != nil {
-		t.Fatalf("save local presets: %v", err)
-	}
 
 	forget := bindCmd(findSub(t, NewTunnelCmd(), "forget"))
 	forget.Arg("name").WithValue("demo")
@@ -245,23 +172,30 @@ func TestTunnelForgetRemovesBothCopies(t *testing.T) {
 			t.Fatalf("tun forget: %v", err)
 		}
 	})
-	if !strings.Contains(out, "server and local") {
-		t.Errorf("forget must report both copies, got:\n%s", out)
+	if !strings.Contains(out, "deleted preset demo") {
+		t.Errorf("forget must report the deletion, got:\n%s", out)
 	}
 	if _, ok := st.presets["demo"]; ok {
 		t.Error("the server's copy must be gone")
 	}
-	local, err := config.LoadTunnels()
-	if err != nil {
-		t.Fatalf("load local presets: %v", err)
-	}
-	if _, ok := local.Forwards["demo"]; ok {
-		t.Error("a leftover local copy would still answer `tun forward -n demo`")
-	}
-
-	// Nothing left anywhere is an error, not a silent success.
 	if err := runTunnelForget(forget, nil); err == nil {
 		t.Fatal("forgetting a preset that no longer exists must report it")
+	}
+}
+
+// TestTunnelSaveNeedsServer: `tun save` writes to the server; with none reachable it
+// fails instead of keeping a local copy.
+func TestTunnelSaveNeedsServer(t *testing.T) {
+	pointTunnelCLIAt(t, "http://127.0.0.1:1")
+	save := bindCmd(findSub(t, NewTunnelCmd(), "save"))
+	save.Arg("name").WithValue("demo")
+	save.Arg("spec").WithValue([]string{"1502:10.0.0.5:502"})
+	tunnelOpts.worker = "w-hw"
+	if err := runTunnelSave(save, nil); err == nil {
+		t.Fatal("save with an unreachable server must fail")
+	}
+	if local, err := config.LoadTunnels(); err != nil || len(local.Forwards) != 0 {
+		t.Fatalf("save must not write a local copy: %v %+v", err, local)
 	}
 }
 

@@ -54,24 +54,30 @@ func NormalizeTunnelProfile(p TunnelProfile) (TunnelProfile, error) {
 	return p, nil
 }
 
-// Tunnels is the whole preset file.
+// Tunnels is the whole local preset file.
 //
 // It deliberately lives in its OWN user-level file (<config-dir>/tunnels.yaml,
 // alongside worker.yaml) rather than inside config.yaml: Save() re-emits every
 // managed top-level key wholesale, so writing a preset through it would risk
 // freezing runtime overlays and one-off CLI flags into the user's config, and
 // Config.Clone would have to be widened first (D-MED-7).
+//
+// The server's tunnel_presets table is the source of truth; this file is only read by
+// the hosted-tunnel import (`GET /v1/tunnels/presets/local` and its import route).
 type Tunnels struct {
 	Forwards map[string]TunnelProfile `yaml:"forwards"`
 }
 
-// LoadTunnels reads the preset file. A missing file is an empty set, not an error:
-// presets are optional and the CLI must work on a machine that never saved one.
-//
-// DEPRECATED(v0.60.2): remove in v0.63 — TUN-03 moved the source of truth to the server
-// (`gofer tun presets`, the tunnel_presets table); the local file is now read only as a
-// fallback for a preset the server does not have, and as the source `gofer tun presets
-// push` uploads. New code reads the server.
+// UserTunnelsPath returns the user-level tunnel presets path.
+func UserTunnelsPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "tunnels.yaml"), nil
+}
+
+// LoadTunnels reads the preset file. A missing file is an empty set, not an error.
 func LoadTunnels() (*Tunnels, error) {
 	p, err := UserTunnelsPath()
 	if err != nil {
@@ -141,9 +147,9 @@ func ValidateTunnelProfile(name string, p TunnelProfile) error {
 	return nil
 }
 
-// UpsertTunnel stores a preset, refusing to replace an existing one unless force. The
-// stored rule list is the SPLIT one (design §三): a preset is a set of rules, and the
-// comma form is only a way to write it.
+// UpsertTunnel stores a preset in the local file, refusing to replace an existing one
+// unless force. The stored rule list is the SPLIT one (design §三): a preset is a set of
+// rules, and the comma form is only a way to write it.
 func UpsertTunnel(name string, profile TunnelProfile, force bool) error {
 	flat, err := NormalizeTunnelProfile(profile)
 	if err != nil {
@@ -168,7 +174,7 @@ func UpsertTunnel(name string, profile TunnelProfile, force bool) error {
 	return SaveTunnels(t)
 }
 
-// DeleteTunnel removes a preset, reporting a name that was never saved.
+// DeleteTunnel removes a preset from the local file, reporting a name that was never saved.
 func DeleteTunnel(name string) error {
 	t, err := LoadTunnels()
 	if err != nil {

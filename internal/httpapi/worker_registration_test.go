@@ -19,7 +19,9 @@ func (w *registrationWriter) Update(mut func(*config.Config) error) error {
 	return nil
 }
 
-func (w *registrationWriter) ReloadConfig() error { return nil }
+func (w *registrationWriter) ReloadConfigReport() (config.ReloadResult, error) {
+	return config.ReloadResult{}, nil
+}
 
 func TestRegisterWorkerConflict(t *testing.T) {
 	cfg := &config.Config{Server: config.ServerConfig{

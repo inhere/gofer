@@ -15,7 +15,6 @@
 - [只装「记忆注入」](#只装记忆注入)
 - [多 worktree 与合并驱动](#多-worktree-与合并驱动)
 - [web 的 Issues / Memories 页](#web-的-issues--memories-页)
-- [附录：从 bd 迁移](#附录从-bd-迁移)
 
 ## 初始化与同步
 
@@ -29,7 +28,7 @@ gofer repo prime [--agent claude|codex] [--keywords 任务关键词] [--hook-jso
 ```
 
 - 提交策略：新仓库默认 `local-commit`（按功能点本地提交已授权、push 需用户授权），`ask` = 提交前先问，`none` = 不提交；托管块与会话开场注入的提交说明都按它生成，`repo init` 会打印当前取值。
-- 托管块的语言跟项目走：`gofer repo init` / `repo migrate` 写进 AGENTS.md / CLAUDE.md 的说明按该仓库所属项目的 `language` 生成（`projects.<p>.language` 覆盖 `server.language`，都不写就用缺省 `zh-CN`），不看机器语言环境；项目换了语言后重跑 `repo init` 会把托管块就地重写成新语言（起止标记与语言无关，块外内容不动）。
+- 托管块的语言跟项目走：`gofer repo init` 写进 AGENTS.md / CLAUDE.md 的说明按该仓库所属项目的 `language` 生成（`projects.<p>.language` 覆盖 `server.language`，都不写就用缺省 `zh-CN`），不看机器语言环境；项目换了语言后重跑 `repo init` 会把托管块就地重写成新语言（起止标记与语言无关，块外内容不动）。
 - `repo init` 会打印匹配到的 gofer 项目 key 与依据（最长路径前缀）；本地没有项目配置的机器（如容器）会向 server 查项目列表来匹配，匹配不到才提示如何填写 `.gofer/tracker/config.yaml` 的 `project_key`。当前目录是嵌套在同项目里的独立仓库时会提示可注册单独项目。
 - 写命令后会自动尝试同步（短超时，失败只警告）；手动 `repo sync` 首次同步大 tracker 可能要几秒。同步对 tags / deps 做三方合并，评论取并集；本地与 server 并发改同一条时自动合并重推，仍未落定的列为 `unresolved`，下次同步继续。
 - 提交 tracker 前用 `gofer repo status --changed` 看 issue / memory 相对 git HEAD 的变化（`+` 新增、`~` 变化、`-` 删除，末行汇总），**不要** `git diff` 原始 jsonl；jsonl 的变化随功能点一起提交。
@@ -112,7 +111,7 @@ gofer memory rm <key>
   - 只在**新建**时自动标注；更新已有记忆一律不动它的 `when`；cwd 在 tracker 根所在的仓里、cwd 未知、或写 `--global` / `--project`（没有 cwd 概念）时都不标。
   - 存量记忆（历史遗留、没适用路径）用 `gofer memory scope` 批量建议 / 补标，见下「给存量记忆补适用路径」。
 - `source` 不给时，在 gofer job 里自动填 `job:$GOFER_JOB_ID`，否则有 `GOFER_SESSION_ID` 时填 `session:<id>`。
-- 从 bd 迁移来的记忆（`source: bd`）**没有原始时间**：bd 导出与 `bd memories --json` 只有 key / value。这类记忆带 `created_unknown: true`，`memory ls` / `show` 与 web 记忆页的时间列显示「导入于 <时间>」（英文 `Imported <时间>`），不是创建时间；写操作不会清掉这个标记。早于该标记的迁移结果无法与真实创建时间区分，`gofer repo migrate --from-bd` 的报告只会提示一句，不做猜测性改写。
+- 从 bd 迁移来的记忆（`source: bd`）**没有原始时间**：bd 导出与 `bd memories --json` 只有 key / value。这类记忆带 `created_unknown: true`，`memory ls` / `show` 与 web 记忆页的时间列显示「导入于 <时间>」（英文 `Imported <时间>`），不是创建时间；写操作不会清掉这个标记。早于该标记的迁移结果无法与真实创建时间区分，不做猜测性改写。
 
 ## 按提问关键字 / 执行命令注入记忆
 
@@ -226,17 +225,3 @@ gofer init hooks --remove --prime-only --global --agent all
   - **分页**：与 Issues 页同一套控件（每页 50 / 100 / 200，选择记在本机），页码写进 `?page=`（第 1 页不写）；换作用域 / 仓库 / 项目 / 搜索 / 类型 chip / 每页条数都回到第 1 页。
   - **详情是右侧抽屉**（手机全屏）：key、摘要、类型、来源、更新时间、创建时间（原始时间未知的迁移记忆显示「导入于 <时间>」）、过期时间、作者、失效报告；可就地改内容与摘要、增删标签 chip，保存 / 删除（点两次确认）/ 标记失效（必填理由；只有 server 存的全局 / 项目记忆能标记，仓库记忆的那一份没有这个接口）。
   - 深链 `?memory=<key>` 仍会打开那一条（现在开的是抽屉）。
-
-## 附录：从 bd 迁移
-
-```bash
-gofer repo migrate --from-bd            # 默认 dry-run（只读）
-gofer repo migrate --from-bd --apply    # 写入；--force 在 bd 看起来仍在使用时强行继续；--json 结构化报告
-```
-
-1. **读数据**：优先 `bd --readonly export --include-memories`（实时库，含 memory），失败才退回 `.beads/issues.jsonl`；dry-run 报告两者条数差异。
-2. **导入**：issue 全字段（类型 / 优先级 / 描述 / design / 验收 / 指派 / 标签 / 依赖 / 评论 / notes / 关闭原因等），parent-child 依赖变成 `parent`，id 前缀写进 tracker 配置；memory 导入（已存在的 key 保留）。不带走 bd 的 claim 租约与心跳。**bd 记忆没有原始时间**（导出只有 key / value），导入时 `created_at` / `updated_at` 都取迁移时间，并打上 `source: bd` 与 `created_unknown: true`，`memory ls` / `show` 与 web 记忆页因此显示「导入于 <时间>」而不是创建时间；早先迁移过、没有 `source` 标记的记忆不改写，报告里会提示一句。
-3. **防分叉**：apply 前检查 bd / dolt 进程、被占用的锁、最近 5 分钟的写入、未过期的 claim；任一命中即拒绝，`--force` 才继续。
-4. **切换接入点**：AGENTS.md / CLAUDE.md 里的 bd 块换成 gofer 块（块外内容不变）；`.claude/settings.json` / `.codex/hooks.json` 里的 `bd prime` 换成 `gofer repo prime --hook-json --agent <名>`；`core.hooksPath` 只在指向 bd 自己的脚本时 unset。`.beads/` 保留不删。
-5. **人工清单**：其它文件里提到 bd 的行、`Bash(bd …)` 许可、bd 的 skill 目录，只列出不改。
-6. **安全网**：改写前备份到 `.gofer/tracker/.local/migrate-backup/<时间戳>/`；apply 后逐条比对，不一致报错。重复执行幂等。

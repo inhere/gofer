@@ -31,6 +31,19 @@
 - **文本语言缺省改为 `auto`（i18n）**：`server.language` 与 `projects.<p>.language` 新增取值 `auto`，**不配置时等同 `auto`**：按 server 所在机器的系统语言选择（中文 → zh-CN，探测不到或不支持 → en）；项目没配则继承 server。`gofer init` 写入 `language: auto`；启动日志与 `gofer config validate` 显示实际语言与来源。**注意**：未配置语言、且 server 机器系统语言不是中文的部署，升级后注入给 agent 的提示词与服务端生成的文本会变成英文；要保持中文请显式写 `language: zh-CN`。
 - 注入给 agent 的提示词（leader 回合提示、计划规则与待办格式、技能清单、可用工具、评论派活、收尾原因、常驻收件会话）改为按项目 / server 语言选择中英两版，中文版内容不变；新增 Go 包级「不得新增中文字面量」守护测试。`plan --check-prompt` 与 `gofer tool api / deliver / stats-backfill / step` 的说明改为中英双语。
 
+### 移除
+
+清理已过移除期限的兼容分支（G032）。下列几项会让旧写法直接报错或不再生效，升级前请先改配置：
+
+- **顶层 `supervisor:` / `presence:` 配置段**：此前加载时只告警并忽略，现在配置加载直接报错（`gofer config validate` 同样）。迁移：删掉这两段；`supervisor.leader` 的内容原样移到顶层 `leader:`。
+- **`projects.<key>.capture_diff` 的布尔写法**（`true` / `false`）：现在加载报错并提示改写法。迁移：`true` 改 `on`，`false` 改 `off`（`auto` 仍是默认）。
+- **本机 `tunnels.yaml` 预设回退与 `gofer tunnel presets push`**：`tun forward -n` / `tun check -n` 只认 server 上的预设（没有或 server 连不上都报错）；`tun save` 只写 server，连不上时报错而不再写本地副本；`tun saved` / `tun forget` 只处理 server 的预设。迁移：用 web「设置 → Tunnels」的「导入本机预设」把旧文件里的预设导入 server，或重新 `tun save`。
+- **`gofer repo migrate --from-bd`（bd / beads 迁移工具）**：已移除；`repo init` 遇到 BEADS 块也不再提示迁移命令。迁移已完成的仓库不受影响。
+- **请求体里被忽略的 `as_job` 字段**（评论与验收 / 拒绝接口）：不再声明；旧客户端仍可发送，会被当作未知字段忽略，行为不变。
+- **hook 用量状态文件的旧格式（`seen`）**：不再读取；升级后正在进行的会话最多把已统计过的消息重算一次。
+- **`gofer repo init` 对无 agent 限定的旧 prime hook（`gofer repo prime --hook-json`）的原地升级**：不再识别；这类旧 hook 会和新写入的带 `--agent` 的 hook 并存，手工删掉旧的一条即可。
+- 嵌入用的内部接口收窄（不影响命令行与 HTTP 行为）：`ConfigWriter` 必须实现 `ReloadConfigReport`，`serve.Opts.ReloadPath` 删除（用 `CfgPath`），默认语言包装函数 `RenderRefocus` / `RefocusHead` / `PrimePlanLines` / `ExplainReason` 删除（用带语言的 `…In` 形式）。
+
 ## [0.204.0] - 2026-10-30
 
 ### 新增

@@ -99,7 +99,7 @@ gofer memory set <key> "…" [--kind rule|note|handoff] [--title …] [--summary
 gofer memory sync --global                                 # 本机全局记忆副本与 server 双向同步（写后会自动同步）
 gofer memory ls [关键字] | show <key>... | rm <key> | flag / unflag <key> | doctor | archive / restore / promote
 gofer memory candidates | accept <id> --key k | reject <id>
-gofer repo init | sync | status [--changed] | prime [--keywords a,b] | merge-driver [--install] | changelog-merge [--install [--file f]] | migrate --from-bd [--apply]
+gofer repo init | sync | status [--changed] | prime [--keywords a,b] | merge-driver [--install] | changelog-merge [--install [--file f]]
 ```
 
 细节见 [tracker.md](tracker.md)。
@@ -260,7 +260,6 @@ gofer tunnel forward -w <worker> socks/1080                       # 本机 SOCKS
 gofer tunnel forward -w <worker> =<ip>:<port>                     # 同地址转发：本机 <ip>:<port> → 远端同一地址（先把 <ip> 挂到本机环回网卡）
 gofer tunnel forward --name <preset>                              # 用保存的预设
 gofer tunnel save <name> -w <worker> <spec…> [--note …] | saved | forget <name>
-gofer tunnel presets push                                         # 上传本机 tunnels.yaml 里尚未上传的预设
 gofer tunnel check -w <worker> [udp/]host:port                    # 只验 worker 能否建到目标的连接
 gofer tunnel ls                                                   # 在线转发进程 + 活动隧道
 gofer tunnel stop <forwarder-id>                                  # 让任意机器上的 forward 进程退出（下次心跳内，≤30 秒）
