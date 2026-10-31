@@ -3,12 +3,12 @@ package job
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 )
@@ -300,7 +300,7 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 	// An exec-shaped request keeps its argv verbatim (there is no prompt to prefix and
 	// the command IS the work); a prompt-shaped one gets the handover note.
 	if !src.ExecShaped {
-		req.Prompt = fallbackPrompt(src.Snapshot.Agent, hit, req.Prompt)
+		req.Prompt = fallbackPrompt(s.config().LanguageFor(req.ProjectKey), src.Snapshot.Agent, hit, req.Prompt)
 	}
 
 	// gofer-3db4: a failover replays the failed run's request on another agent — the
@@ -332,9 +332,8 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 // error, and that it should look at what is already committed instead of starting
 // over. The matched error text is quoted (bounded to the same 120 chars the event
 // carries) so the new agent can recognise the failure mode.
-func fallbackPrompt(fromAgent, hit, prompt string) string {
-	return fmt.Sprintf("上一次由 %s 执行，因供应商错误（%s）中断；先 git status / git log 看进度，只做剩余部分，不要重做已提交的工作，然后按原要求汇报。\n\n%s",
-		fromAgent, strings.TrimSpace(hit), prompt)
+func fallbackPrompt(lang i18n.Lang, fromAgent, hit, prompt string) string {
+	return i18n.T(lang, "job.fallback.resume", "agent", fromAgent, "hit", strings.TrimSpace(hit)) + "\n\n" + prompt
 }
 
 // fallbackTitle marks a takeover in the title ("<title> (→omp)") so a plan or board

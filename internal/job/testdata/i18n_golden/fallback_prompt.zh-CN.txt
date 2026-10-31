@@ -1,0 +1,3 @@
+上一次由 codex 执行，因供应商错误（at capacity）中断；先 git status / git log 看进度，只做剩余部分，不要重做已提交的工作，然后按原要求汇报。
+
+do the thing

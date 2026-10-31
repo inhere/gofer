@@ -1025,8 +1025,8 @@ onUnmounted(() => {
                     v-for="r in m.broadcast.recipients"
                     :key="r.mail_id || r.address"
                     class="broadcast-dot mono"
-                    :title="`${r.address}${r.skipped ? ' · ' + t('mail.broadcast.skipReason') : r.state ? ' · ' + stateLabel(r.state) : ''}`"
-                  >{{ r.id || r.address }} · {{ r.skipped ? t('mail.broadcast.skipped') : stateLabel(r.state || '') }}</span>
+                    :title="`${r.address}${r.skipped ? ' · ' + t('mail.broadcast.skipReason') : r.state ? ' · ' + stateLabel(r.state) : ''}${r.delivered_at ? ' · ' + t('mail.broadcast.deliveredAt', { time: fmtDateTime(r.delivered_at) }) : ''}`"
+                  >{{ r.id || r.address }} · {{ r.skipped ? t('mail.broadcast.skipped') : stateLabel(r.state || '') }}<template v-if="!r.skipped"> · {{ r.delivered_at ? t('mail.broadcast.deliveredAt', { time: fmtDateTime(r.delivered_at) }) : t('mail.broadcast.notDelivered') }} · {{ r.replied ? t('mail.broadcast.replied') : t('mail.broadcast.unreplied') }}</template></span>
                 </div>
                 <!-- 正文是别的 agent 会话写的 markdown：走 MarkdownBlock（marked + DOMPurify 消毒）。 -->
                 <div class="bubble-body" data-test="mail-letter-body">

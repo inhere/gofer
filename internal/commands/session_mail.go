@@ -547,7 +547,15 @@ func formatMail(m client.Mail) string {
 			if r.Skipped {
 				state = "skipped: " + r.Reason
 			}
-			fmt.Fprintf(&b, "  #%d %s %s (%s)\n", r.MailID, r.Kind, who, state)
+			fmt.Fprintf(&b, "  #%d %s %s (%s)", r.MailID, r.Kind, who, state)
+			if !r.Skipped {
+				replied := cliText("cli.mail.rcpt_unreplied")
+				if r.Replied {
+					replied = cliText("cli.mail.rcpt_replied")
+				}
+				fmt.Fprintf(&b, "  %s  %s", cliText("cli.mail.rcpt_delivered", "time", mailTime(r.DeliveredAt)), replied)
+			}
+			b.WriteString("\n")
 		}
 	}
 	if m.AckKind != "" {

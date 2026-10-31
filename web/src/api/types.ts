@@ -3770,6 +3770,9 @@ export interface MailBroadcastRecipient {
   state?: string
   skipped?: boolean
   reason?: string
+  // 仅 GET /v1/mail/{id} 的整组收件人表带：该副本的送达时间（unix 秒，缺省=未送达）与收件方是否已回复。
+  delivered_at?: number
+  replied?: boolean
 }
 
 // 待指派信件的候选收件方（发信 / 改投的回答里带回；列表接口不带）。

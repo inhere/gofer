@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -242,7 +243,7 @@ func (s *Service) normalTodoRequest(plan jobstore.Plan, todo jobstore.PlanTodo, 
 		req.Cmd = todo.Cmd
 		req.Prompt = ""
 	} else if todo.Template == "" {
-		req.Prompt = defaultTodoPrompt(plan, todo)
+		req.Prompt = defaultTodoPrompt(s.config().LanguageFor(projectKey), plan, todo)
 	}
 	return req, ""
 }
@@ -383,13 +384,13 @@ func notifyTargetForPlan(plan jobstore.Plan) string {
 // plan says WHAT the work is and why, the item says which piece of it this run owns.
 // Empty sections are dropped rather than left as blank headings — a plan with no
 // description must not hand the agent an empty paragraph to interpret.
-func defaultTodoPrompt(plan jobstore.Plan, todo jobstore.PlanTodo) string {
+func defaultTodoPrompt(lang i18n.Lang, plan jobstore.Plan, todo jobstore.PlanTodo) string {
 	var b strings.Builder
 	b.WriteString("# " + plan.Title)
 	if plan.Description != "" {
 		b.WriteString("\n\n" + plan.Description)
 	}
-	b.WriteString("\n\n## 本任务\n" + todo.Title)
+	b.WriteString("\n\n## " + i18n.T(lang, "job.plan.todo_heading") + "\n" + todo.Title)
 	if todo.Note != "" {
 		b.WriteString("\n\n" + todo.Note)
 	}

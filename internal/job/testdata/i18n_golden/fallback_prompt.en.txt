@@ -1,0 +1,3 @@
+The previous run was executed by codex and was interrupted by a provider error (at capacity); first check git status / git log for progress, do only the remaining part, do not redo work that is already committed, then report as originally requested.
+
+do the thing

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -110,5 +111,49 @@ func TestMailBroadcastExplicitRefusalIsWhole(t *testing.T) {
 	}
 	if len(rows) != 0 {
 		t.Fatalf("%d letters stored by a refused broadcast", len(rows))
+	}
+}
+
+// TestMailBroadcastGroupTableDeliveredAndReplied: GET /v1/mail/{id} says per copy when it was
+// delivered and whether it was answered (设计 2026-10-22「D3」).
+func TestMailBroadcastGroupTableDeliveredAndReplied(t *testing.T) {
+	e := newMailEnv(t)
+	e.grant()
+	status, body := e.req(t, mailTokAlice, "", "POST", "/v1/mail", map[string]any{
+		"to": []string{"session:" + e.sA, "session:" + e.sSup}, "body": "群发",
+	})
+	if status != http.StatusOK {
+		t.Fatalf("broadcast = %d (%s)", status, body)
+	}
+	sent := decodeSent(t, body)
+	first := sent.Recipients[0].MailID
+	store := e.s.jobs.Meta()
+	if _, ok, err := store.ClaimMail(first, "hook:test", time.Minute); err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := store.ConfirmMail(first); err != nil || !ok {
+		t.Fatalf("confirm: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := store.MarkMailAnswered(first); err != nil || !ok {
+		t.Fatalf("answered: ok=%v err=%v", ok, err)
+	}
+	status, body = e.req(t, mailTokAlice, "", "GET", fmt.Sprintf("/v1/mail/%d", sent.Mail.ID), nil)
+	if status != http.StatusOK {
+		t.Fatalf("get = %d (%s)", status, body)
+	}
+	var view mailView
+	if err := json.Unmarshal([]byte(body), &view); err != nil {
+		t.Fatalf("decode %q: %v", body, err)
+	}
+	if view.Broadcast == nil || len(view.Broadcast.Recipients) != 2 {
+		t.Fatalf("broadcast section = %+v, want 2 recipients", view.Broadcast)
+	}
+	for _, r := range view.Broadcast.Recipients {
+		if r.MailID == first && (!r.Replied || r.DeliveredAt <= 0) {
+			t.Fatalf("answered copy = %+v, want replied with delivered_at", r)
+		}
+		if r.MailID != first && (r.Replied || r.DeliveredAt != 0) {
+			t.Fatalf("untouched copy = %+v, want neither", r)
+		}
 	}
 }
