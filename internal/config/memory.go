@@ -49,6 +49,16 @@ func (s SynthesisConfig) TimeoutDuration() time.Duration {
 func (s SynthesisConfig) RetryAfterDuration() time.Duration {
 	return parsePositiveOr(s.RetryAfter, DefaultSynthesisRetryAfter)
 }
+
+// RetentionDuration is how long finished synthesis run records are kept (retain_days, default 90).
+func (s SynthesisConfig) RetentionDuration() time.Duration {
+	days := s.RetainDays
+	if days <= 0 {
+		days = DefaultSynthesisRetainDays
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
 func (s SynthesisConfig) InputLimit() int {
 	if s.MaxInputBytes > 0 {
 		return s.MaxInputBytes

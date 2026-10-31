@@ -1771,6 +1771,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateWorkflows(); err != nil {
 		return err
 	}
+	if err := s.migrateMemorySynthesis(); err != nil {
+		return err
+	}
 	if err := s.migrateInteractions(); err != nil {
 		return err
 	}

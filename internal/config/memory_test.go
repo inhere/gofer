@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestSynthesisConfigValidation(t *testing.T) {
 	cfg := &Config{Projects: map[string]ProjectConfig{"p": {}}, Agents: map[string]AgentConfig{"claude": {}}}
@@ -18,5 +21,17 @@ func TestSynthesisConfigValidation(t *testing.T) {
 	}
 	if err := (MemoryConfig{Synthesis: SynthesisConfig{Enabled: true, Agent: "claude", Projects: []string{"p"}}}).validate(cfg); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSynthesisRetentionDuration(t *testing.T) {
+	day := 24 * time.Hour
+	for _, tc := range []struct {
+		days int
+		want time.Duration
+	}{{0, 90 * day}, {-1, 90 * day}, {30, 30 * day}} {
+		if got := (SynthesisConfig{RetainDays: tc.days}).RetentionDuration(); got != tc.want {
+			t.Errorf("retain_days=%d: %v, want %v", tc.days, got, tc.want)
+		}
 	}
 }

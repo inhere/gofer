@@ -497,6 +497,27 @@ memory sync	flag project	use server project memory scope
 memory sync	flag server	server address (overrides config server.addr)
 memory sync	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 memory sync	flag tracker	explicit .gofer/tracker directory
+memory synthesis	desc	每日记忆综合的运行记录（只读；当前阶段只准备材料，不调用模型）
+memory synthesis	help	
+memory synthesis	examples	
+memory synthesis ls	desc	列出每日记忆综合的运行记录（仅元数据）
+memory synthesis ls	help	
+memory synthesis ls	examples	
+memory synthesis ls	flag config	path to the gofer config file
+memory synthesis ls	flag day	only this day (YYYY-MM-DD)
+memory synthesis ls	flag json	print JSON
+memory synthesis ls	flag limit	max rows (default 100)
+memory synthesis ls	flag project	only this project's runs
+memory synthesis ls	flag server	server address (overrides config server.addr)
+memory synthesis ls	flag state	running | succeeded | failed | skipped | all
+memory synthesis ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory synthesis show	desc	查看一条每日记忆综合运行记录
+memory synthesis show	help	
+memory synthesis show	examples	
+memory synthesis show	flag config	path to the gofer config file
+memory synthesis show	flag json	print JSON
+memory synthesis show	flag server	server address (overrides config server.addr)
+memory synthesis show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 memory unflag	desc	Clear the flags of a memory after reviewing it (rewriting the content with `memory set` clears them too)
 memory unflag	help	
 memory unflag	examples	

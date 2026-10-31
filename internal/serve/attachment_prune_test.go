@@ -49,7 +49,7 @@ func TestPruneLoopSweepsExpiredAttachments(t *testing.T) {
 
 	stop := make(chan struct{})
 	defer close(stop)
-	startPruneLoop(gcli.NewCommand("t", ""), cr.Jobs, config.RetentionConfig{}, false, 0, 0, svc.Prune, stop)
+	startPruneLoop(gcli.NewCommand("t", ""), cr.Jobs, config.RetentionConfig{}, false, 0, 0, svc.Prune, nil, stop)
 
 	wait.Until(t, 10*time.Second, "expired attachment file removed", func() bool {
 		_, err := os.Stat(file)
