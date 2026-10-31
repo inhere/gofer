@@ -27,3 +27,87 @@ Workflow fan-out worktrees can be merged after a human pick (`gofer workflow pic
 
 `serve` embeds a static SPA (the page itself needs no auth; its `/v1/*` calls do). Build and embed it with `make web build`; a bare `go build` serves a placeholder page without affecting the API. Pages: Home (service health, runners, escalations, jobs by status, schedules, projects, plus two metadata-db cards — **Server DB**: file + WAL size, page geometry, the busiest tables by row count; **Sessions**: totals by state, relay mode split, turns still waiting for a reply, the card links through to Sessions) / board (the plan filter is a free-text plan-id input — prefix match — with a one-click "recent open plans" hint, and `?plan=` in the URL) / **review queue (`/review`, REV-01)** — jobs parked in `needs_review` with their acceptance material in one row (verify badge, commit count, usage, wait time; longest wait first), inline accept/reject and a top-bar count badge / job detail (live logs, diff, artifacts, pty attach; a job in `needs_review`, `rejected`, or `done` with `require_review` opens on a five-tab **review panel** — report / commits / diff / verify / usage — with accept/reject at the bottom) / Plans (todos, decisions; **plan board** — five-column kanban, drag a card to `ready` to dispatch it; the list filters by status/project/keyword and pages 20 at a time, all carried in the URL) / Sessions (relay switch, `auto (idle Xm)`) / Workflows / Schedules / Agents (configured agents and their detect status) / Runners / Projects (including "allow interactive jobs") / Skills (the skill library: list, SKILL.md body, import/update/remove/export) / New job. The left rail groups the observing pages as Board, Review, Plans, Sessions, Workflows, Schedules and the fleet pages as Agents, Runners, Projects, Skills. Disable with `serve --no-web` or `server.web_enabled: false`.
 
+
+
+## 外壳与导航
+
+外壳由 `web/src/ui/AppShell.vue` 提供（`web/src/App.vue` 只决定壳内 / 壳外：`/access` 登录页没有外壳，只有 token 输入、主题与语言开关）。形态完全由视口宽度决定，逻辑在 `web/src/utils/shell.ts`：
+
+| 宽度 | 形态 |
+|---|---|
+| ≥ 1100px | 236px 完整侧栏；底部按钮可收起成图标栏（`localStorage gofer.shell`，同时记节点区是否展开） |
+| 761–1099px | 64px 图标栏（强制收起，不读收起偏好）；顶栏「新建任务」只留图标 |
+| ≤ 760px | 无侧栏；底部标签栏「今天 · 工作台 · 任务 · 计划 · 更多」；顶栏左侧是品牌标与连接状态点 |
+
+导航分组（`SHELL_NAV_GROUPS`）：
+
+- 核心：今天 `/today` · 工作台 `/workbench` · 工作项 `/work` · 计划 `/plans` · 任务 `/jobs` · 会话 `/sessions`
+- 协作：信箱 `/mail` · 待验收 `/review` · Issues `/issues` · 记忆 `/memory` · 统计 `/dashboard`
+- 自动化：工作流 `/workflows` · 定时 `/schedules`
+- 基础设施：运行节点 `/runners` · Agents `/agents` · 项目 `/projects` · 设置 `/settings`
+
+旧路径 `/board` 重定向到 `/jobs`（带原 query），`/cluster` 到 `/runners`，`/config` 与 `/skills` 到 `/settings/*`。「设置 → 扩展」里的 `web.nav_hidden` 可按项隐藏导航，今天与设置始终保留；隐藏项仍可直接 URL 或命令面板访问。
+
+侧栏顶部是品牌标（点击回 `/today`）与连接状态（已连接 / 重连中 / 已暂停 / 已断开 / 离线，来自 `api/live.ts`）；侧栏底部是运行节点摘要（`n/m` 在线，点开列出各节点，30 秒刷新）。徽标：「今天」显示待决策数，「工作项」显示「等我」数。
+
+顶栏从左到右：搜索 / 命令面板（`Ctrl/⌘K`，也可在非输入状态按 `/`）、「待我决策」按钮、「只读」徽标（只读 token）、新版本提示（点击进 设置 › 关于；构建过期时改为「刷新」按钮）、「新建任务」（只读时隐藏）、「随手记」、信箱按钮（待指派数量）、主题开关、语言开关。
+
+手机宽度（≤ 760px）的行为：
+
+- 「更多」打开底部抽屉：其余页面的宫格（「工作项」排第一）、主题与语言开关、退出登录；换路由时自动关闭。顶栏不再放语言开关。
+- 标签栏有「隐藏项」过滤：被 `nav_hidden` 隐藏的项由后面的项补位，仍凑满 4 个标签。
+- 连接状态并入顶栏，缩成一个点。
+
+## 界面语言
+
+- 支持 `zh-CN` 与 `en-US` 两种，不做第三种、不做 RTL。顶栏（手机在「更多」里）的开关直接切换，按钮显示“要切到的语言”（中文界面显示 `EN`）。
+- 选择存在浏览器 `localStorage gofer.locale`，同时写 `<html lang>`。优先级：URL `?lang=`（`en` / `zh` 等宽松写法均可，只用于调试与分享，**不写入存储**）> localStorage > 浏览器 `navigator.languages`（以 `en` 开头取英文，其余一律中文）。
+- 文案是前端内置字典（`web/src/i18n`，平铺 key；缺 key 回退到中文），切换后立即重绘，不重载页面。
+- 服务端显示文本：S3a 起 web 请求会带 `Accept-Language`，服务端生成的显示文本随界面语言返回；阶段 3 逐步覆盖，尚未覆盖的接口仍返回中文。TODO（请核）：当前源码的 `web/src/api/client.ts` 里还没有设置 `Accept-Language` 的代码，这条按 S3a 的计划写，合并前确认 S3a 是否已进本分支。
+- 服务端 CLI / 日志语言（`GOFER_LANG`、`LANG`）是另一套机制（`internal/i18n`），与 web 的界面语言互不影响。
+
+## 项目筛选
+
+gofer 是多项目的，没有全局“当前项目”：
+
+- **按页，不是全局**：适用的列表页（今天、工作项、工作台、任务、计划、会话、信箱、待验收、工作流、定时、Issues、记忆、统计，以实际页面为准）在列表头放“项目”筛选，默认“全部项目”。侧栏没有项目选择器。
+- **URL 是唯一真源**：选择写进 `?project=<key>`（`web/src/ui/projectFilter.ts`），可分享、前进 / 后退可复原；换项目时去掉 `offset`，回到第一页。命令面板的 `p:<项目>` 前缀会跳到当前页的过滤版本。
+- **记忆**：只有一处——选过的项目写入 `localStorage gofer.lastProject`，仅作新建表单（新建任务 / 会话 / 计划 / 定时 / 工作流 / 随手记）的默认值：来源列表带筛选时用筛选值，否则用上次的项目。列表页本身不会因为这个记忆自动加筛选。
+- **详情页**：显示所属项目的 tag，点击跳到该项目的任务列表，详情页本身不提供筛选。TODO（请核）：各详情页是否都已带项目 tag，我只核对了筛选与 URL 同步的实现。
+
+## 截图检查脚本
+
+`web/scripts/shots.mjs` 对 6 个代表页（今天、工作台、任务、计划、会话、工作流）加各自的详情页（任务、计划、工作流；id 取列表接口第一条，没有数据或没有 token 则跳过详情），按 4 种宽度（1440 / 1024 / 800 / 390）× 2 种主题 × 2 种语言拍整页截图，默认共 `9 个页面（6 列表 + 3 详情）× 16 = 144` 张。截图给人审阅，不做像素比对，也不进 CI。
+
+依赖：Playwright 不在 `web/package.json` 里，脚本运行时才 `import`，缺失会打印安装提示并以退出码 2 结束。临时安装（不改 package.json / lock）：
+
+```bash
+cd web
+npm install --no-save playwright && npx playwright install chromium
+# 已有系统浏览器时只装库：npm install --no-save playwright-core，运行时加 --channel msedge|chrome
+```
+
+运行（需要一个已启动的 `gofer serve`，或 `pnpm dev` 的 vite 开发服务器，后者代理到 `127.0.0.1:8765`）：
+
+```bash
+export GOFER_TOKEN=<token>          # token 只从环境变量读，不接受命令行明文
+node web/scripts/shots.mjs                                   # 全量
+node web/scripts/shots.mjs --pages jobs,plans --widths 390,800 --langs en --themes dark
+node web/scripts/shots.mjs --base http://127.0.0.1:5173 --out /tmp/shots --no-detail
+```
+
+参数：`--base`（默认 `http://127.0.0.1:8765`）、`--token-env <NAME>`（默认 `GOFER_TOKEN`）、`--out`（默认 `web/shots/`，已被 `web/.gitignore` 忽略）、`--pages` / `--widths` / `--themes` / `--langs` 过滤、`--no-detail`、`--channel`、`--settle <ms>`、`--fail-on-warn`。主题与语言通过预置 `localStorage`（`gofer.theme`、`gofer.locale`）切换，登录 token 预置为 `gofer-token`。
+
+输出：`<out>/<页>[-detail]__<宽>__<主题>__<语言>.png` 与 `<out>/report.json`（含参数、每张的问题列表、汇总；不含 token）。终端逐张打印并汇总；有 error 级问题退出码 1，参数错误或缺依赖退出码 2。
+
+自动检查（设计稿 §13）：
+
+| 检查 | 级别 | 规则 |
+|---|---|---|
+| `horizontal-overflow` | error | 页面 `scrollWidth` 超过 `clientWidth` 1px 以上 |
+| `oversize-svg` | error | 可见行内 SVG 任一边超过 40px（祖先带 `data-shots-allow-svg` 的豁免） |
+| `wrapped-label` | error | 徽标 / chip / pill / tag / 标签栏文字 / 导航文字 / tab 等被断成 ≥2 行（`white-space: nowrap` 的不算） |
+| `navigation` | error | 被重定向走（多为 token 缺失或无效而落到 `/access`） |
+| `residual-cjk` | warn | 仅英文界面：可见文本或 title / aria-label / placeholder 含中文（用户数据本身含中文会误报，可加 `data-shots-allow-cjk` 豁免；`--fail-on-warn` 让它也算失败） |
+
+纯函数部分（参数解析、组合展开、判定规则）在 `web/scripts/shots.lib.mjs`，测试 `shots.lib.test.mjs` 随 `vitest run` 执行。
