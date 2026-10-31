@@ -2,8 +2,11 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
+
+	"github.com/inhere/gofer/internal/template"
 )
 
 // TriggerConfig is a file-only inbound dispatch definition. An enabled trigger
@@ -30,8 +33,11 @@ type TriggerAuthConfig struct {
 }
 
 type TriggerInputConfig struct {
-	Vars    map[string]string `yaml:"vars,omitempty"`
-	Message string            `yaml:"message,omitempty"`
+	Vars map[string]string `yaml:"vars,omitempty"`
+	// Message is NOT supported in P0: the IM message mapping belongs to the provider
+	// adapters (design phase P2). The key is still decoded so validateTriggers can refuse
+	// it — a field that parses but does nothing would read as a working mapping.
+	Message string `yaml:"message,omitempty"`
 }
 
 type TriggerDedupConfig struct {
@@ -161,8 +167,11 @@ func validateTriggers(cfg *Config) error {
 				return fmt.Errorf("%s.input.vars.%s: invalid reference %q", where, name, ref)
 			}
 		}
-		if t.Input.Message != "" && !triggerRefRE.MatchString(t.Input.Message) {
-			return fmt.Errorf("%s.input.message: invalid reference %q", where, t.Input.Message)
+		if t.Input.Message != "" {
+			return fmt.Errorf("%s.input.message is not supported yet: map the message through input.vars (e.g. input.vars.text: body.message)", where)
+		}
+		if err := validateTriggerOwnerCeiling(cfg, t, owner, where); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -178,4 +187,96 @@ func (c *Config) Triggers() []TriggerConfig {
 		out[i] = c.Server.Triggers[i].Clone()
 	}
 	return out
+}
+
+// validateTriggerOwnerCeiling refuses a trigger whose owner can never submit its fixed
+// request, judged from the configuration file alone (so the verdict is the same on every
+// machine and a reload that breaks it fails atomically): a read-only ceiling refuses every
+// state-changing request, and a projects list that does not admit the fixed project would
+// make every invocation fail at admission. Facts that depend on the environment (the
+// secret variable, the template file) are NOT checked here; see TriggerStatuses.
+func validateTriggerOwnerCeiling(cfg *Config, t *TriggerConfig, owner, where string) error {
+	ceil, ok := cfg.Server.CallerCeiling(owner)
+	if !ok {
+		return nil
+	}
+	if ceil.IsReadOnly() {
+		return fmt.Errorf("%s.owner_caller %q has a read_only ceiling and cannot submit jobs", where, owner)
+	}
+	if !ceil.AllowsProject(strings.TrimSpace(t.Project)) {
+		return fmt.Errorf("%s.project %q is outside the ceiling of owner_caller %q", where, strings.TrimSpace(t.Project), owner)
+	}
+	return nil
+}
+
+// Machine-readable reasons a trigger is declared but cannot work on THIS machine.
+const (
+	TriggerIssueSecretEnvUnset   = "secret_env_unset"
+	TriggerIssueTemplateNotFound = "template_not_found"
+)
+
+// TriggerIssue is one reason an enabled trigger is unavailable. Code is stable
+// (TriggerIssue*); Arg is the value it is about (the variable or template name) — the CLI
+// renders both through its localized text.
+type TriggerIssue struct {
+	Code string
+	Arg  string
+}
+
+// TriggerStatus is the operator's view of one trigger: its fixed resources and, for an
+// enabled one, why it cannot be used right now.
+type TriggerStatus struct {
+	Name, Owner, Project, Template string
+	Enabled                        bool
+	Issues                         []TriggerIssue
+}
+
+// Available reports whether an enabled trigger has no issue.
+func (s TriggerStatus) Available() bool { return s.Enabled && len(s.Issues) == 0 }
+
+// TriggerStatuses evaluates every trigger. Unlike validateTriggers it looks at the
+// environment (the secret variable) and the file system (the task-book template), so it
+// is a REPORT, not a load gate: a load that failed on a missing variable would break every
+// CLI command run on a machine that does not hold the server's secrets (the same reason
+// `config validate` only warns about unset job secrets). The design's "must not start" is
+// honored where it matters at runtime: an unresolvable secret authenticates nothing (the
+// engine refuses the request), and an unknown template fails the fixed-request preflight
+// before any job exists.
+func (c *Config) TriggerStatuses() []TriggerStatus {
+	if c == nil {
+		return nil
+	}
+	out := make([]TriggerStatus, 0, len(c.Server.Triggers))
+	for _, t := range c.Server.Triggers {
+		st := TriggerStatus{Name: t.Name, Owner: strings.TrimSpace(t.OwnerCaller), Project: strings.TrimSpace(t.Project), Template: strings.TrimSpace(t.Template), Enabled: t.Enabled}
+		if t.Enabled {
+			if os.Getenv(t.Auth.SecretEnv) == "" {
+				st.Issues = append(st.Issues, TriggerIssue{Code: TriggerIssueSecretEnvUnset, Arg: t.Auth.SecretEnv})
+			}
+			if !c.triggerTemplateExists(st.Project, st.Template) {
+				st.Issues = append(st.Issues, TriggerIssue{Code: TriggerIssueTemplateNotFound, Arg: st.Template})
+			}
+		}
+		out = append(out, st)
+	}
+	return out
+}
+
+// triggerTemplateExists resolves the template the way the job layer does: the project's
+// own directory first, then the global templates directory.
+func (c *Config) triggerTemplateExists(project, name string) bool {
+	globalDir, err := ConfigDir()
+	if err != nil {
+		globalDir = ""
+	}
+	projectDir := ""
+	if proj, ok := c.Projects[project]; ok {
+		if dir := c.ExecPath(proj); dir != "" {
+			if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+				projectDir = dir
+			}
+		}
+	}
+	_, err = template.Resolve(name, projectDir, globalDir)
+	return err == nil
 }

@@ -1236,6 +1236,9 @@ func validateServerConfig(c *gcli.Command) error {
 			c.Printf("[%s] decision_hook/%-9s %s [%s]\n", status, h.Name, info, strings.Join(h.Points, ", "))
 		}
 	}
+	// Inbound triggers: structural errors already failed the load; what is left depends on
+	// this machine (secret variable, template file) and is a WARN, like job secrets above.
+	printTriggerStatuses(c, reg.Config())
 	// CFG-16: the format was checked by Load; a bin this machine cannot find is only
 	// a warning (the declaration may describe another environment).
 	if w := toolsBinWarning(reg.Config().Tools); w != "" {
@@ -1272,6 +1275,39 @@ func validateServerConfig(c *gcli.Command) error {
 		return nil
 	}
 	return errorx.Failf(configExitErr, "config validation failed")
+}
+
+// printTriggerStatuses lists every server.triggers entry with its fixed resources and, for
+// an enabled one, why it cannot be used on this machine. Advisory only (never fails the
+// command): the serve host may hold the secret variable and templates this machine lacks.
+func printTriggerStatuses(c *gcli.Command, cfg *config.Config) {
+	for _, st := range cfg.TriggerStatuses() {
+		line := cliText("cli.config.trigger.line", "owner", st.Owner, "project", st.Project, "template", st.Template)
+		status := docStatusOK
+		switch {
+		case !st.Enabled:
+			status, line = docStatusInfo, line+" — "+cliText("cli.config.trigger.disabled")
+		case len(st.Issues) > 0:
+			reasons := make([]string, 0, len(st.Issues))
+			for _, is := range st.Issues {
+				reasons = append(reasons, triggerIssueText(is))
+			}
+			status, line = docStatusWarn, line+" — "+cliText("cli.config.trigger.unavailable", "reasons", strings.Join(reasons, "; "))
+		}
+		c.Printf("[%s] trigger/%-12s %s\n", status, st.Name, line)
+	}
+}
+
+// triggerIssueText renders one TriggerStatus issue. Each code names its catalog key
+// literally so TestSetupCatalogCoversEveryKey can see it; an unknown code prints as is.
+func triggerIssueText(is config.TriggerIssue) string {
+	switch is.Code {
+	case config.TriggerIssueSecretEnvUnset:
+		return cliText("cli.config.trigger.secret_env_unset", "name", is.Arg)
+	case config.TriggerIssueTemplateNotFound:
+		return cliText("cli.config.trigger.template_not_found", "name", is.Arg)
+	}
+	return is.Code
 }
 
 // eventHookCheck reports whether a hook's command[0] resolves on this machine: a

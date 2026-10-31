@@ -42,6 +42,7 @@ import (
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/servicemgr"
 	"github.com/inhere/gofer/internal/settings"
+	"github.com/inhere/gofer/internal/trigger"
 	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/webpush"
 	"github.com/inhere/gofer/internal/workerupgrade"
@@ -540,6 +541,17 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// The mailbox: the instance core assembled, so the HTTP routes and the delivery paths
 	// share one service (one set of sender limits).
 	srv.SetMail(cr.Mail)
+	// Inbound triggers (P0): the engine is assembled over the live config and the owner's
+	// effective permissions; no HTTP route reaches it yet. The loop settles interrupted
+	// claims at startup and then prunes / reconciles receipts periodically.
+	trig := trigger.NewServerEngine(cr.Config, cr.Jobs, srv.CallerHasPermission)
+	srv.SetTriggerEngine(trig)
+	stopTrigger := make(chan struct{})
+	defer close(stopTrigger)
+	logTriggerStatuses(c, cfg)
+	go trig.Run(triggerMaintainInterval, stopTrigger, func(err error) {
+		slog.Warn("serve.trigger_maintain", "event", "serve.trigger_maintain", "err", err)
+	})
 	// Workbench image attachments: the same service the prune loop sweeps.
 	srv.SetAttachments(attachments)
 	// JOB-10: mount the skill library the CLI/web read from (list / show / import /
@@ -656,6 +668,18 @@ func shutdownResidentSessions(jobs *job.Service) {
 // enough to keep an abandoned 256MB payload from sitting for a day, and cheap enough
 // (one indexed SELECT + one directory walk) to be irrelevant to the process.
 const xferPruneInterval = 10 * time.Minute
+
+// triggerMaintainInterval is the cadence of the trigger receipt reconciler / pruner.
+const triggerMaintainInterval = time.Minute
+
+// logTriggerStatuses prints one line per enabled trigger that cannot work on this machine.
+func logTriggerStatuses(c *gcli.Command, cfg *config.Config) {
+	for _, st := range cfg.TriggerStatuses() {
+		for _, is := range st.Issues {
+			c.Printf("gofer: trigger %s is unavailable: %s %s\n", st.Name, is.Code, is.Arg)
+		}
+	}
+}
 
 // tempCheckoutSweepInterval is how often the stale `ref:` checkout sweeper runs. The
 // finish path removes a job's own temporary checkout; this loop only catches what a

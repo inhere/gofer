@@ -453,6 +453,10 @@ The four applicant routes are registered outside the `/v1` auth group (like `/he
 | `429` | rate limit (`per_source_per_min`), a blocked source, or the global pending cap; carries `Retry-After` |
 | `500` | store failure (`detail` is generic) |
 
+## Inbound triggers (`server.triggers`): no HTTP entry yet
+
+`server.triggers` (file-only configuration, see the server-config reference) currently has **no HTTP route**: there is no `/v1/triggers/...` endpoint, no provider webhook and no read view, so declaring a trigger does not open any network surface. The dispatch core runs in process only; the invoke / management routes arrive with a later phase and will be declared here.
+
 ## Schedule ownership and trigger tokens
 
 A schedule records the caller that created it (the `caller_id` stamped into its stored request).

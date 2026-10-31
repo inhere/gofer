@@ -15,6 +15,7 @@ import (
 	configtmpl "github.com/inhere/gofer/config"
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/skills"
 )
 
@@ -873,5 +874,35 @@ func TestConfigValidateFreshInitHasNoWarnings(t *testing.T) {
 	out = captureOutput(t, func() { err = runConfigValidate(c, nil) })
 	if err != nil || !strings.Contains(out, "metrics") || !strings.Contains(out, "WARN") {
 		t.Fatalf("expected a metrics warning (err=%v):\n%s", err, out)
+	}
+}
+
+// TestConfigValidateShowsTriggers: every trigger is listed with owner / project / template;
+// a disabled one says so, an enabled one that cannot work on this machine names the reason
+// in the CLI language, and none of it fails the command.
+func TestConfigValidateShowsTriggers(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	t.Setenv("GOFER_TRIGGER_VALIDATE_TEST", "")
+	cfgPath := writeRawConfig(t, "server:\n  callers:\n    - {id: automation, token: tok}\n  triggers:\n"+
+		"    - {name: live, enabled: true, owner_caller: automation, project: demo, template: nightly, auth: {secret_env: GOFER_TRIGGER_VALIDATE_TEST}}\n"+
+		"    - {name: parked, owner_caller: automation, project: demo, template: nightly, auth: {secret_env: GOFER_TRIGGER_VALIDATE_TEST}}\n")
+	c := bindCmd(NewConfigCmd().Subs[0])
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	for lang, want := range map[string][]string{
+		"en":    {"trigger/live", "owner=automation project=demo template=nightly", "unavailable on this machine", "GOFER_TRIGGER_VALIDATE_TEST is not set", "template nightly was not found", "trigger/parked", "disabled"},
+		"zh-CN": {"trigger/live", "owner=automation project=demo template=nightly", "在这台机器上不可用", "GOFER_TRIGGER_VALIDATE_TEST 未设置", "找不到模板 nightly", "trigger/parked", "已禁用"},
+	} {
+		t.Setenv(i18n.EnvLanguageVar, lang)
+		out := captureOutput(t, func() {
+			if err := runConfigValidate(c, nil); err != nil {
+				t.Fatalf("%s: unavailable triggers must only warn, got: %v", lang, err)
+			}
+		})
+		for _, w := range want {
+			if !strings.Contains(out, w) {
+				t.Errorf("%s: output lacks %q:\n%s", lang, w, out)
+			}
+		}
 	}
 }
