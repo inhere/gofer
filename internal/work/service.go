@@ -422,21 +422,21 @@ func (s *Service) Run(stop <-chan struct{}) {
 //
 // planWait is the (non-empty) description of an open plan decision the item is waiting
 // on (see planDecisionWait); it ranks with a pending job interaction.
-func derivedStatus(sessions []jobstore.AgentSession, jobs map[string]JobState, planWait string) (status, reason string, ok bool) {
+func derivedStatus(lang i18n.Lang, sessions []jobstore.AgentSession, jobs map[string]JobState, planWait string) (status, reason string, ok bool) {
 	running := false
 	for _, a := range sessions {
 		switch a.State {
 		case jobstore.SessionWaitingReply:
-			return jobstore.WorkNeedsMe, "会话等待回复", true
+			return jobstore.WorkNeedsMe, i18n.T(lang, "work.derived.waiting_reply"), true
 		case jobstore.SessionNeedsAttention:
-			return jobstore.WorkNeedsMe, "会话需要处理（终端对话框）", true
+			return jobstore.WorkNeedsMe, i18n.T(lang, "work.derived.needs_attention"), true
 		case jobstore.SessionRunning, jobstore.SessionHandedOff:
 			running = true
 		}
 	}
 	for _, j := range jobs {
 		if j.PendingInteraction {
-			return jobstore.WorkNeedsMe, "关联 job 有待应答交互", true
+			return jobstore.WorkNeedsMe, i18n.T(lang, "work.derived.job_interaction"), true
 		}
 	}
 	if planWait != "" {
@@ -444,11 +444,11 @@ func derivedStatus(sessions []jobstore.AgentSession, jobs map[string]JobState, p
 	}
 	for _, j := range jobs {
 		if j.Status == statusNeedsReview {
-			return jobstore.WorkReview, "关联 job 待验收", true
+			return jobstore.WorkReview, i18n.T(lang, "work.derived.job_review"), true
 		}
 	}
 	if running {
-		return jobstore.WorkActive, "会话运行中", true
+		return jobstore.WorkActive, i18n.T(lang, "work.derived.running"), true
 	}
 	return "", "", false
 }
@@ -517,7 +517,8 @@ func (s *Service) SyncItem(id string) {
 			jobs = s.probe.JobStates(jids)
 		}
 	}
-	status, reason, ok := derivedStatus(sess, jobs, s.planDecisionWait(id, jobs))
+	lang := s.lang(w.ProjectKey)
+	status, reason, ok := derivedStatus(lang, sess, jobs, s.planDecisionWait(lang, id, jobs))
 	if !ok {
 		return
 	}
@@ -594,12 +595,13 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 	if err := s.checkRequest(id, in.RequestID); err != nil {
 		return jobstore.WorkItem{}, err
 	}
+	lang := s.lang(cur.ProjectKey)
 	var p jobstore.WorkItemPatch
 	p.Quiet = true
 	var notes []string
 	if in.Goal != "" {
 		p.Goal = &in.Goal
-		notes = append(notes, "目标："+in.Goal)
+		notes = append(notes, i18n.T(lang, "work.report.goal", "value", in.Goal))
 		if cur.Unsorted {
 			f := false
 			p.Unsorted = &f
@@ -607,24 +609,24 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 	}
 	if in.Blocker != "" {
 		p.BlockerText = &in.Blocker
-		notes = append(notes, "阻塞："+in.Blocker)
+		notes = append(notes, i18n.T(lang, "work.report.blocker", "value", in.Blocker))
 	}
 	if in.Next != "" {
 		p.NextStep = &in.Next
-		notes = append(notes, "下一步："+in.Next)
+		notes = append(notes, i18n.T(lang, "work.report.next", "value", in.Next))
 	}
 	if in.Summary != "" {
 		p.Summary = &in.Summary
-		notes = append(notes, "摘要："+in.Summary)
+		notes = append(notes, i18n.T(lang, "work.report.summary", "value", in.Summary))
 	}
 	resync := false
 	if in.Status != "" {
 		switch {
 		case cur.Status == jobstore.WorkCaptured:
 			// Capture-box items only leave captured through the capture box.
-			notes = append(notes, "状态：想标为 "+in.Status+"（收集箱条目，状态只能由收集箱入口改动，未采纳）")
+			notes = append(notes, i18n.T(lang, "work.report.status_captured", "status", in.Status))
 		case jobstore.WorkStatusFinal(in.Status):
-			notes = append(notes, "状态：想标为 "+in.Status+"（完成/放弃由人确认，未采纳）")
+			notes = append(notes, i18n.T(lang, "work.report.status_final", "status", in.Status))
 		case in.Status == jobstore.WorkActive:
 			// An explicit "unblocked": the human lock is released and the session
 			// mapping takes over again.
@@ -634,14 +636,14 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 				st := jobstore.WorkActive
 				p.Status = &st
 			}
-			notes = append(notes, "状态：进行中（阻塞已解除）")
+			notes = append(notes, i18n.T(lang, "work.report.status_unblocked"))
 			resync = true
 		case cur.StatusSource == jobstore.WorkSourceHuman:
-			notes = append(notes, "状态：想标为 "+in.Status+"（已被人手动设置的状态优先，未采纳）")
+			notes = append(notes, i18n.T(lang, "work.report.status_human", "status", in.Status))
 		default:
 			st, src := in.Status, jobstore.WorkSourceReport
 			p.Status, p.StatusSource = &st, &src
-			notes = append(notes, "状态："+in.Status)
+			notes = append(notes, i18n.T(lang, "work.report.status_set", "status", in.Status))
 		}
 	}
 	by := s.normalizeBy(strings.TrimSpace(in.By))
@@ -652,7 +654,7 @@ func (s *Service) Report(id string, in ReportInput) (jobstore.WorkItem, error) {
 	if err != nil {
 		return jobstore.WorkItem{}, err
 	}
-	s.notifyEnteredNeedsMe(cur.Status, w, by+" 汇报需要你处理")
+	s.notifyEnteredNeedsMe(cur.Status, w, i18n.T(lang, "work.notify.reported", "by", by))
 	if _, err := s.store.AppendWorkJournal(id, jobstore.WorkJournalReport, strings.Join(notes, "\n"), by); err != nil {
 		return jobstore.WorkItem{}, err
 	}
@@ -674,7 +676,7 @@ func (s *Service) Park(id string, until int64, note, by string) (jobstore.WorkIt
 	w, _, err := s.store.UpdateWorkItem(id, p, 0, by)
 	if err == nil {
 		s.maybeAutoHandoff(id, prev.Status, w.Status, by)
-		s.notifyEnteredNeedsMe(prev.Status, w, "被 "+by+" 标为「等我」")
+		s.notifyEnteredNeedsMe(prev.Status, w, i18n.T(s.lang(w.ProjectKey), "work.notify.marked_needs_me", "by", by))
 	}
 	return w, err
 }
@@ -697,7 +699,7 @@ func (s *Service) Update(id string, p jobstore.WorkItemPatch, expectedRev int64,
 	}
 	if err == nil && p.Status != nil {
 		s.maybeAutoHandoff(id, prev.Status, w.Status, by)
-		s.notifyEnteredNeedsMe(prev.Status, w, "被 "+by+" 标为「等我」")
+		s.notifyEnteredNeedsMe(prev.Status, w, i18n.T(s.lang(w.ProjectKey), "work.notify.marked_needs_me", "by", by))
 	}
 	return w, err
 }
@@ -806,7 +808,10 @@ func brief(a jobstore.AgentSession, role string) SessionBrief {
 	}
 }
 
-func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemView, error) {
+func (s *Service) view(lang i18n.Lang, w jobstore.WorkItem, now int64, includePast bool) (ItemView, error) {
+	if lang == "" {
+		lang = s.lang(w.ProjectKey)
+	}
 	rows, err := s.store.ListWorkItemSessions(w.ID)
 	if err != nil {
 		return ItemView{}, err
@@ -876,12 +881,18 @@ func (s *Service) view(w jobstore.WorkItem, now int64, includePast bool) (ItemVi
 	if v.Suggestions, err = s.store.ListWorkSuggestions(w.ID); err != nil {
 		return ItemView{}, err
 	}
-	s.fillHealth(&v, now)
+	s.fillHealth(lang, &v, now)
 	return v, nil
 }
 
 // List returns the item views for the filter, most recently active first.
 func (s *Service) List(o jobstore.WorkListOpts) ([]ItemView, error) {
+	return s.ListIn("", o)
+}
+
+// ListIn is List with the read-time text (health reasons) in lang; "" renders each item
+// in its project's language.
+func (s *Service) ListIn(lang i18n.Lang, o jobstore.WorkListOpts) ([]ItemView, error) {
 	now := s.nowFn().Unix()
 	if o.Now == 0 {
 		o.Now = now
@@ -892,7 +903,7 @@ func (s *Service) List(o jobstore.WorkListOpts) ([]ItemView, error) {
 	}
 	out := make([]ItemView, 0, len(items))
 	for _, w := range items {
-		v, err := s.view(w, now, false)
+		v, err := s.view(lang, w, now, false)
 		if err != nil {
 			return nil, err
 		}
@@ -904,6 +915,11 @@ func (s *Service) List(o jobstore.WorkListOpts) ([]ItemView, error) {
 
 // Detail returns one item with its full journal and all sessions.
 func (s *Service) Detail(id string, journalLimit int) (DetailView, error) {
+	return s.DetailIn("", id, journalLimit)
+}
+
+// DetailIn is Detail with the read-time text in lang ("" = the project's language).
+func (s *Service) DetailIn(lang i18n.Lang, id string, journalLimit int) (DetailView, error) {
 	w, ok, err := s.store.GetWorkItem(id)
 	if err != nil {
 		return DetailView{}, err
@@ -911,7 +927,7 @@ func (s *Service) Detail(id string, journalLimit int) (DetailView, error) {
 	if !ok {
 		return DetailView{}, jobstore.ErrWorkItemNotFound
 	}
-	v, err := s.view(w, s.nowFn().Unix(), true)
+	v, err := s.view(lang, w, s.nowFn().Unix(), true)
 	if err != nil {
 		return DetailView{}, err
 	}
@@ -973,11 +989,12 @@ func (s *Service) fireReminders(now time.Time) {
 		parkDue := w.Status == jobstore.WorkParked && w.ParkUntil > 0 && w.ParkUntil <= nowUnix && w.RemindedAt < w.ParkUntil
 		// Both can be due at once; announce once and record the LATER deadline so
 		// neither fires again.
-		reason, at := "到了设置的提醒时间", w.RemindAt
+		lang := s.lang(w.ProjectKey)
+		reason, at := i18n.T(lang, "work.journal.remind_time"), w.RemindAt
 		if parkDue && (!remindDue || w.ParkUntil >= w.RemindAt) {
-			reason, at = "搁置到期", w.ParkUntil
+			reason, at = i18n.T(lang, "work.journal.remind_park"), w.ParkUntil
 		}
-		if err := s.store.MarkWorkItemReminded(w.ID, at, "已发送到期提醒（"+reason+"）"); err != nil {
+		if err := s.store.MarkWorkItemReminded(w.ID, at, i18n.T(lang, "work.journal.reminder_sent", "reason", reason)); err != nil {
 			slog.Warn("work.remind_mark_failed", "event", "work.remind_mark_failed", "id", w.ID, "err", err)
 			continue
 		}
@@ -990,19 +1007,19 @@ func (s *Service) fireReminders(now time.Time) {
 		var b strings.Builder
 		b.WriteString(reason)
 		if w.ParkNote != "" && w.Status == jobstore.WorkParked {
-			b.WriteString("\n搁置条件：" + w.ParkNote)
+			b.WriteString("\n" + i18n.T(lang, "work.report.park_note", "value", w.ParkNote))
 		}
 		if w.Goal != "" {
-			b.WriteString("\n目标：" + w.Goal)
+			b.WriteString("\n" + i18n.T(lang, "work.report.goal", "value", w.Goal))
 		}
 		if w.BlockerText != "" {
-			b.WriteString("\n阻塞：" + w.BlockerText)
+			b.WriteString("\n" + i18n.T(lang, "work.report.blocker", "value", w.BlockerText))
 		}
 		if w.NextStep != "" {
-			b.WriteString("\n下一步：" + w.NextStep)
+			b.WriteString("\n" + i18n.T(lang, "work.report.next", "value", w.NextStep))
 		}
-		s.notifier.NotifyWork(notify.EventWorkRemind, w.ProjectKey, "工作项提醒 · "+w.Title, b.String(),
-			s.notifier.WebURL("/work?id="+w.ID), "打开工作项")
+		s.notifier.NotifyWork(notify.EventWorkRemind, w.ProjectKey, i18n.T(lang, "work.notify.remind_title", "title", w.Title), b.String(),
+			s.notifier.WebURL("/work?id="+w.ID), i18n.T(lang, "work.notify.open_item"))
 	}
 }
 
@@ -1060,6 +1077,16 @@ func (s *Service) BuildDigest(now time.Time) (Digest, error) {
 // over the kept items. The steward's commentary is a server-global text, so it is left out of a
 // scoped digest. nil = every item, the unchanged digest.
 func (s *Service) BuildDigestScoped(now time.Time, allow func(string) bool) (Digest, error) {
+	return s.BuildDigestScopedIn("", now, allow)
+}
+
+// BuildDigestScopedIn is BuildDigestScoped with the digest text in lang. "" is the
+// server's language (the digest has no single project): the notification path uses it,
+// a read for the web passes the request language.
+func (s *Service) BuildDigestScopedIn(lang i18n.Lang, now time.Time, allow func(string) bool) (Digest, error) {
+	if lang == "" {
+		lang = s.lang("")
+	}
 	items, err := s.store.ListWorkItems(jobstore.WorkListOpts{IncludeClosed: true, Limit: 2000})
 	if err != nil {
 		return Digest{}, err
@@ -1073,7 +1100,7 @@ func (s *Service) BuildDigestScoped(now time.Time, allow func(string) bool) (Dig
 		}
 		items = kept
 	}
-	d := Digest{Title: "工作摘要 · " + now.Format("2006-01-02")}
+	d := Digest{Title: i18n.T(lang, "work.digest.title", "date", now.Format("2006-01-02"))}
 	startToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	startYesterday := startToday.AddDate(0, 0, -1)
 	link := func(w jobstore.WorkItem) string {
@@ -1111,36 +1138,36 @@ func (s *Service) BuildDigestScoped(now time.Time, allow func(string) bool) (Dig
 	sort.SliceStable(parked, func(i, j int) bool { return parked[i].ID < parked[j].ID })
 	sort.SliceStable(yest, func(i, j int) bool { return yest[i].ID < yest[j].ID })
 	var b strings.Builder
-	fmt.Fprintf(&b, "等我 %d · 等资源 %d · 需现场 %d · 待验收 %d", d.NeedsMe, d.Waiting, d.Onsite, d.Review)
+	b.WriteString(i18n.T(lang, "work.digest.counts", "needs_me", d.NeedsMe, "waiting", d.Waiting, "onsite", d.Onsite, "review", d.Review))
 	if d.ParkedOver > 0 {
-		fmt.Fprintf(&b, "\n\n搁置超过 7 天（%d）：", d.ParkedOver)
+		b.WriteString("\n\n" + i18n.T(lang, "work.digest.parked_head", "n", d.ParkedOver))
 		for i, w := range parked {
 			if i >= 10 {
-				fmt.Fprintf(&b, "\n- …另外 %d 项", len(parked)-i)
+				b.WriteString("\n" + i18n.T(lang, "work.digest.more", "n", len(parked)-i))
 				break
 			}
 			b.WriteString("\n- " + link(w))
 		}
 	}
 	if d.Yesterday > 0 {
-		fmt.Fprintf(&b, "\n\n昨日有进展（%d）：", d.Yesterday)
+		b.WriteString("\n\n" + i18n.T(lang, "work.digest.yesterday_head", "n", d.Yesterday))
 		for i, w := range yest {
 			if i >= 10 {
-				fmt.Fprintf(&b, "\n- …另外 %d 项", len(yest)-i)
+				b.WriteString("\n" + i18n.T(lang, "work.digest.more", "n", len(yest)-i))
 				break
 			}
-			b.WriteString("\n- " + link(w) + "（" + statusLabel(w.Status) + "）")
+			b.WriteString("\n- " + i18n.T(lang, "work.digest.item_status", "link", link(w), "status", statusLabelIn(lang, w.Status)))
 		}
 	}
 	if d.NeedsMe+d.Waiting+d.Onsite+d.Review+d.ParkedOver+d.Yesterday == 0 {
-		b.WriteString("\n\n今天没有需要关注的工作项。")
+		b.WriteString("\n\n" + i18n.T(lang, "work.digest.empty"))
 	}
 	// W2b: the steward's review of today adds its own point of view. The digest itself stays
 	// deterministic — this is only appended when the review wrote one.
 	if allow == nil {
 		if c, err := s.store.StewardReviewComment(now.Format("2006-01-02")); err == nil && strings.TrimSpace(c) != "" {
 			d.Commentary = strings.TrimSpace(c)
-			fmt.Fprintf(&b, "\n\n管家点评：%s", d.Commentary)
+			b.WriteString("\n\n" + i18n.T(lang, "work.digest.commentary", "text", d.Commentary))
 		}
 	}
 	d.Text = b.String()
@@ -1163,7 +1190,7 @@ func (s *Service) SendDigest(now time.Time) (Digest, int, error) {
 	}
 	n := 0
 	if s.notifier != nil {
-		n = s.notifier.NotifyWork(notify.EventWorkDigest, "", d.Title, d.Text, s.notifier.WebURL("/work"), "打开工作页")
+		n = s.notifier.NotifyWork(notify.EventWorkDigest, "", d.Title, d.Text, s.notifier.WebURL("/work"), i18n.T(s.lang(""), "work.notify.open_work"))
 	}
 	return d, n, nil
 }
@@ -1178,27 +1205,12 @@ func (s *Service) sendDigest(now time.Time) int {
 	return n
 }
 
-var statusLabels = map[string]string{
-	jobstore.WorkActive: "进行中", jobstore.WorkNeedsMe: "等我", jobstore.WorkWaitingResource: "等资源",
-	jobstore.WorkNeedsOnsite: "需现场", jobstore.WorkReview: "待验收", jobstore.WorkParked: "已搁置",
-	jobstore.WorkDone: "已完成", jobstore.WorkDropped: "已放弃",
-}
-
-func statusLabel(st string) string {
-	if l, ok := statusLabels[st]; ok {
-		return l
-	}
-	return st
-}
-
-// statusLabelIn is statusLabel in lang. The catalog's [work.status] entries carry the
-// same labels as statusLabels for zh-CN (a test pins that), so a text composed for an
-// existing deployment keeps the words it had. An unknown status code (a caller's own
-// value) passes through, exactly as statusLabel leaves it.
+// statusLabelIn is the display name of a work status in lang ([work.status] in the
+// catalog). An unknown status code (a caller's own value) passes through unchanged.
 func statusLabelIn(lang i18n.Lang, st string) string {
 	key := "work.status." + st
 	if l := i18n.T(lang, key); l != key {
 		return l
 	}
-	return statusLabel(st)
+	return st
 }

@@ -1,9 +1,10 @@
 package today
 
 import (
-	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // KindWorkerEnroll is the single summary card for worker self-enrollment requests that
@@ -32,6 +33,11 @@ type EnrollPending struct {
 // WorkerEnrollCard builds the one summary card for pending requests, or false when there
 // are none. ExpiresAt is the earliest decide deadline.
 func WorkerEnrollCard(pending []EnrollPending) (Card, bool) {
+	return WorkerEnrollCardIn("", pending)
+}
+
+// WorkerEnrollCardIn is WorkerEnrollCard with the card text in lang ("" = the default).
+func WorkerEnrollCardIn(lang i18n.Lang, pending []EnrollPending) (Card, bool) {
 	if len(pending) == 0 {
 		return Card{}, false
 	}
@@ -59,16 +65,23 @@ func WorkerEnrollCard(pending []EnrollPending) (Card, bool) {
 	}
 	sort.Strings(names)
 	const shown = 3
-	summary := strings.Join(names[:min(shown, len(names))], "、")
+	summary := ""
+	for i, n := range names[:min(shown, len(names))] {
+		if i == 0 {
+			summary = n
+			continue
+		}
+		summary = i18n.T(lang, "today.card.enroll_join", "a", summary, "b", n)
+	}
 	if len(names) > shown {
-		summary += fmt.Sprintf(" 等 %d 个", len(names))
+		summary = i18n.T(lang, "today.card.enroll_more", "names", summary, "n", len(names))
 	}
 	return Card{
 		Key: WorkerEnrollCardKey, Kind: KindWorkerEnroll, Tag: "Worker", Urgency: UrgencyNow,
-		Title:        fmt.Sprintf("%d 个 worker 申请注册", len(pending)),
+		Title:        i18n.T(lang, "today.card.enroll_title", "n", len(pending)),
 		Blocks:       Blocks{Items: len(pending)},
 		WaitingSince: oldest, ActivityAt: oldest, ExpiresAt: earliest,
 		Summary: oneLine(summary, summaryRunes),
-		Actions: []Action{{ID: "open", Label: "去处理", Style: "link", Value: WorkerEnrollLink}},
+		Actions: []Action{{ID: "open", Label: i18n.T(lang, "today.action.handle"), Style: "link", Value: WorkerEnrollLink}},
 	}, true
 }

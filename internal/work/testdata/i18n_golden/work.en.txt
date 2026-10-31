@@ -1,0 +1,159 @@
+## status labels
+active => active
+needs_me => needs me
+waiting_resource => waiting on a resource
+needs_onsite => needs me on site
+review => awaiting review
+parked => parked
+done => done
+dropped => dropped
+custom => custom
+## outcome lines
+milestone | job 12345678 (codex) "export csv" finished, 3 commit(s)
+detail | job j1 finished
+milestone | job j1 finished, awaiting review, 1 commit(s)
+milestone | job j1 failed: exit 1 boom
+milestone | job j1 failed
+milestone | job j1 hit its budget limit
+detail | job j1 was cancelled
+milestone | job j1 was rejected in review
+milestone | job j1 passed review
+detail | job j1 ended (weird)
+## health reasons
+blocked | plan p1 is blocked
+blocked | plan 「Quoted」 is blocked
+blocked | blocked: waiting for the device
+stalled | no activity for 3 days
+stalled | no activity for 5 hours
+stalled | no activity for 3 hours
+at_risk | the latest job abcdefgh failed
+at_risk | the latest job abcdefgh hit its budget limit
+ok | 
+## mail target
+session sess-a
+job job-7
+topic:x
+## derived status reasons
+needs_me | the session is waiting for a reply
+needs_me | the session needs attention (terminal dialog)
+needs_me | a linked job has an interaction waiting for an answer
+needs_me | WAIT
+review | a linked job is awaiting review
+active | the session is running
+## suggestion labels
+goal => goal
+blocker => blocker
+blocker_kind => blocker type
+next => next step
+summary => summary
+status_hint => status
+custom => custom
+## todo note
+capture
+
+goal
+
+Next step: step
+
+Source work item: <ID>
+## report captured
+Goal: G
+Status: wanted active (capture-box item; only the capture box changes its status; not adopted)
+## report final
+Status: wanted done (done / dropped are confirmed by a person; not adopted)
+## report unblocked
+Summary: S
+Status: active (blocker cleared)
+## report human
+Status: wanted waiting_resource (a status a person set takes precedence; not adopted)
+## report default
+Goal: G
+Blocker: B
+Next step: N
+Summary: S
+Status: needs_me
+## needs_me notifications
+work.needs_me | Needs you · report d | session:s1 reported that it needs you\nGoal: G\nBlocker: B\nNext step: N
+## steward notes
+Status: wanted active (capture-box item; only the capture box changes its status; not adopted)
+Status: wanted waiting_resource (a status a person set takes precedence; not adopted)
+work.needs_me | Needs you · steward needs me | the steward marked it "needs me"
+## update needs_me notification
+work.needs_me | Needs you · park me | marked "needs me" by human:bob
+## dispatch close
+Archived
+Dropped
+## ask log
+Relayed to session sess-abc: please look at this
+## reminders
+work.remind | Work item reminder · park due | the park period ended\nPark condition: arrives
+work.remind | Work item reminder · remind me | the reminder time you set arrived\nPark condition: after arrival\nGoal: confirm\nBlocker: no stock\nNext step: call
+the park period ended
+the reminder time you set arrived
+Due reminder sent (the reminder time you set arrived)
+Due reminder sent (the park period ended)
+## request job session
+kind= sent=false reason=An ACP / terminal job session cannot be asked to report; talk to it on its job page
+## request gone
+kind= sent=false reason=The session record no longer exists
+## request denied
+kind= sent=false reason=You may not relay to this session
+## request not running
+kind=summarize sent=false reason=The session is not running (ended); falling back to a tidy-up
+## request delivery failed
+kind=summarize sent=false reason=Delivery failed (no address); fell back to a tidy-up
+Request <ID> could not be delivered to session sess-fai: no address; falling back to a tidy-up
+## request sent handoff
+kind=handoff sent=true reason=
+Asked session sess-sen to write a hand-over (request <ID>, reply within 30 min)
+## request sent report
+kind=report sent=true reason=
+Asked session sess-sen to report (request <ID>, reply within 30 min)
+## request answered
+Asked session sess-sen to report (request <ID>, reply within 30 min)
+Summary: done
+The session answered request <ID> (report)
+## request expired
+report expired the session did not answer
+Asked session sess-sen to report (request <ID>, reply within 30 min)
+Session sess-sen did not answer request <ID>; falling back to a tidy-up
+## completion
+todo todo-g is done; suggest changing the status to "awaiting review" (adopt or ignore it in the suggestions of the work item; the status was not changed)
+issue g-9 is closed; todo todo-g is done; suggest changing the status to "done" (adopt or ignore it in the suggestions of the work item; the status was not changed)
+## suggestions
+<nil> <nil>
+Adopted tidy-up suggestion: goal (from summarizer)
+Dismissed tidy-up suggestion: next step (from summarizer)
+## job outcome journal
+job 77 (codex) finished, 2 commit(s)
+## digest
+Work digest · 2027-02-14
+needs me 3 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
+
+Parked for more than 7 days (5):
+- [human item](http://gofer.test/work?id=<ID>)
+- [old parked](http://gofer.test/work?id=<ID>)
+- [park due](http://gofer.test/work?id=<ID>)
+- [remind me](http://gofer.test/work?id=<ID>)
+- [report c](http://gofer.test/work?id=<ID>)
+## digest empty
+needs me 0 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
+
+Nothing needs your attention today.
+## digest yesterday
+needs me 0 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
+
+Progress yesterday (12):
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- [yday](http://gofer.test/work?id=<ID>) (active)
+- ... and 2 more
+
+Steward's comment: all calm

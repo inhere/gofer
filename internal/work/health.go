@@ -1,11 +1,11 @@
 package work
 
 import (
-	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -62,36 +62,42 @@ type HealthInput struct {
 // stalled (in progress and quiet for stallAfter) > at_risk (the latest linked job
 // failed or hit its budget) > ok. reason is a short human sentence ("" for ok).
 func ComputeHealth(in HealthInput, now int64, stallAfter time.Duration) (health, reason string) {
+	return ComputeHealthIn("", in, now, stallAfter)
+}
+
+// ComputeHealthIn is ComputeHealth with the reason sentence in lang ("" = the default
+// language).
+func ComputeHealthIn(lang i18n.Lang, in HealthInput, now int64, stallAfter time.Duration) (health, reason string) {
 	if in.BlockedPlan != "" {
-		return HealthBlocked, "plan " + in.BlockedPlan + " 阻塞"
+		return HealthBlocked, i18n.T(lang, "work.health.plan_blocked", "plan", in.BlockedPlan)
 	}
 	if b := strings.TrimSpace(in.Blocker); b != "" && in.NeedsPerson {
-		return HealthBlocked, "阻塞：" + clipRunes(strings.Join(strings.Fields(b), " "), 60)
+		return HealthBlocked, i18n.T(lang, "work.health.blocked", "blocker", clipRunes(strings.Join(strings.Fields(b), " "), 60))
 	}
 	if in.InProgress && !in.AgentRunning && stallAfter > 0 && in.LastActivity > 0 {
 		if quiet := time.Duration(now-in.LastActivity) * time.Second; quiet >= stallAfter {
-			return HealthStalled, quietText(quiet) + "没有活动"
+			return HealthStalled, i18n.T(lang, "work.health.stalled", "quiet", quietText(lang, quiet))
 		}
 	}
 	if j := in.LatestJob; j != nil {
 		switch {
 		case j.FailureClass == failureClassBudget:
-			return HealthAtRisk, "最近的 job " + shortID(j.ID) + " 预算熔断"
+			return HealthAtRisk, i18n.T(lang, "work.health.job_budget", "id", shortID(j.ID))
 		case j.Status == "failed" || j.Status == "timeout":
-			return HealthAtRisk, "最近的 job " + shortID(j.ID) + " 失败"
+			return HealthAtRisk, i18n.T(lang, "work.health.job_failed", "id", shortID(j.ID))
 		}
 	}
 	return HealthOK, ""
 }
 
-func quietText(d time.Duration) string {
+func quietText(lang i18n.Lang, d time.Duration) string {
 	if d >= 48*time.Hour {
-		return fmt.Sprintf("%d 天", int(d/(24*time.Hour)))
+		return i18n.T(lang, "work.health.quiet_days", "n", int(d/(24*time.Hour)))
 	}
 	if d >= time.Hour {
-		return fmt.Sprintf("%d 小时", int(d/time.Hour))
+		return i18n.T(lang, "work.health.quiet_hours", "n", int(d/time.Hour))
 	}
-	return fmt.Sprintf("%d 分钟", int(d/time.Minute))
+	return i18n.T(lang, "work.health.quiet_minutes", "n", int(d/time.Minute))
 }
 
 // jobActive reports whether a job status means an agent is (or is about to be) at work.
@@ -132,7 +138,7 @@ func (s *Service) linkedJobs(id string) []jobstore.JobRecord {
 // linked jobs and plans, and the health. Errors degrade to "no data", never fail the read.
 // A finished item is always ok and nothing reads its plans / jobs (closed items are the
 // bulk of an all-items list).
-func (s *Service) fillHealth(v *ItemView, now int64) {
+func (s *Service) fillHealth(lang i18n.Lang, v *ItemView, now int64) {
 	v.Milestones = []jobstore.WorkJournalEntry{}
 	if ms, err := s.store.ListWorkJournalLevel(v.ID, milestonesInView, 0, jobstore.WorkLevelMilestone); err == nil {
 		v.Milestones = ms
@@ -154,7 +160,7 @@ func (s *Service) fillHealth(v *ItemView, now int64) {
 			if p.Status == jobstore.PlanBlocked && blockedPlan == "" {
 				blockedPlan = l.Ref
 				if t := strings.TrimSpace(p.Title); t != "" {
-					blockedPlan = "「" + clipRunes(t, 40) + "」"
+					blockedPlan = i18n.T(lang, "work.health.plan_quoted", "title", clipRunes(t, 40))
 				}
 			}
 		}
@@ -195,7 +201,7 @@ func (s *Service) fillHealth(v *ItemView, now int64) {
 	if len(v.LinkedJobs) > 0 {
 		in.LatestJob = &v.LinkedJobs[0]
 	}
-	v.Health, v.HealthReason = ComputeHealth(in, now, s.cfg().StallAfterDuration())
+	v.Health, v.HealthReason = ComputeHealthIn(lang, in, now, s.cfg().StallAfterDuration())
 }
 
 func hasJobLink(links []jobstore.WorkLink) bool {
@@ -230,40 +236,43 @@ type JobOutcome struct {
 // OutcomeLine renders a job outcome as one journal line and its level (WORK-06 §3.3: a
 // success with commits, a failure and a budget stop are milestones; the rest — a
 // success without commits, a cancel — are details; a review verdict is a milestone).
-func OutcomeLine(o JobOutcome) (text, level string) {
-	who := "job " + shortID(o.ID)
+func OutcomeLine(o JobOutcome) (text, level string) { return OutcomeLineIn("", o) }
+
+// OutcomeLineIn is OutcomeLine in lang ("" = the default language).
+func OutcomeLineIn(lang i18n.Lang, o JobOutcome) (text, level string) {
+	who := i18n.T(lang, "work.outcome.who", "id", shortID(o.ID))
 	if a := strings.TrimSpace(o.Agent); a != "" {
-		who += "（" + a + "）"
+		who = i18n.T(lang, "work.outcome.who_agent", "who", who, "agent", a)
 	}
 	if t := strings.TrimSpace(o.Title); t != "" {
-		who += "「" + clipRunes(t, 40) + "」"
+		who = i18n.T(lang, "work.outcome.who_title", "who", who, "title", clipRunes(t, 40))
 	}
 	level = jobstore.WorkLevelDetail
 	switch {
 	case o.FailureClass == failureClassBudget:
-		text, level = who+" 预算熔断", jobstore.WorkLevelMilestone
+		text, level = i18n.T(lang, "work.outcome.budget", "who", who), jobstore.WorkLevelMilestone
 	case o.Status == "failed" || o.Status == "timeout":
-		text, level = who+" 失败", jobstore.WorkLevelMilestone
+		text, level = i18n.T(lang, "work.outcome.failed", "who", who), jobstore.WorkLevelMilestone
 		if e := strings.TrimSpace(o.Error); e != "" {
-			text += "：" + clipRunes(strings.Join(strings.Fields(e), " "), 120)
+			text = i18n.T(lang, "work.outcome.failed_error", "text", text, "error", clipRunes(strings.Join(strings.Fields(e), " "), 120))
 		}
 	case o.Status == "rejected":
-		text, level = who+" 验收未通过", jobstore.WorkLevelMilestone
+		text, level = i18n.T(lang, "work.outcome.rejected", "who", who), jobstore.WorkLevelMilestone
 	case o.Status == "done" && o.Reviewed:
-		text, level = who+" 验收通过", jobstore.WorkLevelMilestone
+		text, level = i18n.T(lang, "work.outcome.accepted", "who", who), jobstore.WorkLevelMilestone
 	case o.Status == "done" || o.Status == statusNeedsReview:
-		text = who + " 完成"
+		text = i18n.T(lang, "work.outcome.done", "who", who)
 		if o.Status == statusNeedsReview {
-			text += "，待验收"
+			text = i18n.T(lang, "work.outcome.done_review", "text", text)
 		}
 		if o.Commits > 0 {
-			text += fmt.Sprintf("，%d 个提交", o.Commits)
+			text = i18n.T(lang, "work.outcome.done_commits", "text", text, "n", o.Commits)
 			level = jobstore.WorkLevelMilestone
 		}
 	case o.Status == "cancelled":
-		text = who + " 已取消"
+		text = i18n.T(lang, "work.outcome.cancelled", "who", who)
 	default:
-		text = who + " 结束（" + o.Status + "）"
+		text = i18n.T(lang, "work.outcome.ended", "who", who, "status", o.Status)
 	}
 	return text, level
 }
@@ -280,8 +289,8 @@ func (s *Service) NoteJobOutcome(o JobOutcome) {
 		slog.Warn("work.job_outcome_failed", "event", "work.job_outcome_failed", "job", o.ID, "err", err)
 		return
 	}
-	text, level := OutcomeLine(o)
 	for _, id := range ids {
+		text, level := OutcomeLineIn(s.itemLang(id), o)
 		if _, err := s.store.AppendWorkJournalLevel(id, jobstore.WorkJournalNote, text, "job:"+o.ID, level); err != nil {
 			slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", id, "err", err)
 		}

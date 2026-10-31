@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/settings"
 	"github.com/inhere/gofer/internal/work/transcript"
@@ -453,26 +454,14 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	res.JobID = jobID
 	if perr != nil {
 		finish(jobstore.SummaryFailed, jobID, perr.Error())
-		s.journalSteward(w.ID, SummarizerBy(agentName), "整理失败："+perr.Error())
+		s.journalSteward(w.ID, SummarizerBy(agentName), i18n.T(s.lang(w.ProjectKey), "work.journal.summary_failed", "error", perr.Error()))
 		return fail("整理失败：" + perr.Error())
 	}
 	s.commitSummarizerSession(session, project, jobID, last.SessionID)
 	applied, suggested, hint := s.applySummary(w.ID, out, SummarizerBy(agentName), jobID)
 	res.Applied, res.Suggested, res.StatusHint, res.Confidence = applied, suggested, hint, out.Confidence
 	finish(jobstore.SummaryOK, jobID, "")
-	text := "整理完成"
-	if degraded {
-		text += "（会话记录读不到，依据最后一条消息与进度）"
-	}
-	if len(applied) > 0 {
-		text += "；已更新：" + strings.Join(applied, "、")
-	}
-	if len(suggested) > 0 {
-		text += "；待采纳建议：" + strings.Join(suggested, "、")
-	}
-	if len(applied) == 0 && len(suggested) == 0 {
-		text += "；没有新内容"
-	}
+	text := summaryDoneText(s.lang(w.ProjectKey), degraded, applied, suggested)
 	s.journalSteward(w.ID, SummarizerBy(agentName), text)
 	// WORK-06: the one thing since the last tidy-up worth a line on the lane.
 	if out.Milestone != "" {
@@ -723,6 +712,7 @@ func (s *Service) applySummary(id string, out SummaryOut, by, jobID string) (app
 	// lines would only repeat it.
 	patch := jobstore.WorkItemPatch{Quiet: true}
 	changed := false
+	lang := s.lang(w.ProjectKey)
 	type field struct {
 		name, label string
 		cur         string
@@ -738,10 +728,10 @@ func (s *Service) applySummary(id string, out SummaryOut, by, jobID string) (app
 		}
 	}
 	fields := []field{
-		{jobstore.WorkFieldGoal, "目标", w.Goal, out.Goal, func(v string) { patch.Goal = &v }, false},
-		{jobstore.WorkFieldBlocker, "阻塞", w.BlockerText, out.Blocker, func(v string) { patch.BlockerText = &v }, true},
-		{jobstore.WorkFieldNext, "下一步", w.NextStep, out.Next, func(v string) { patch.NextStep = &v }, false},
-		{jobstore.WorkFieldSummary, "摘要", w.Summary, out.Progress, func(v string) { patch.Summary = &v }, false},
+		{jobstore.WorkFieldGoal, suggestionLabel(lang, jobstore.SuggestGoal), w.Goal, out.Goal, func(v string) { patch.Goal = &v }, false},
+		{jobstore.WorkFieldBlocker, suggestionLabel(lang, jobstore.SuggestBlocker), w.BlockerText, out.Blocker, func(v string) { patch.BlockerText = &v }, true},
+		{jobstore.WorkFieldNext, suggestionLabel(lang, jobstore.SuggestNext), w.NextStep, out.Next, func(v string) { patch.NextStep = &v }, false},
+		{jobstore.WorkFieldSummary, suggestionLabel(lang, jobstore.SuggestSummary), w.Summary, out.Progress, func(v string) { patch.Summary = &v }, false},
 	}
 	for _, f := range fields {
 		src, known := srcs[f.name]
@@ -754,7 +744,7 @@ func (s *Service) applySummary(id string, out SummaryOut, by, jobID string) (app
 				k := ""
 				patch.BlockerKind = &k
 			}
-			applied = append(applied, f.label+"（已清除）")
+			applied = append(applied, i18n.T(lang, "work.journal.summary_cleared", "label", f.label))
 			changed = true
 		case f.val == "" || f.val == f.cur:
 			// Nothing new; a stale suggestion for the same field no longer applies.
@@ -773,7 +763,7 @@ func (s *Service) applySummary(id string, out SummaryOut, by, jobID string) (app
 		default:
 			suggest(suggestionField(f.name), f.val, f.label)
 			if f.name == jobstore.WorkFieldBlocker && out.BlockerK != "" && out.BlockerK != w.BlockerKind {
-				suggest(jobstore.SuggestBlockerKind, out.BlockerK, "阻塞类型")
+				suggest(jobstore.SuggestBlockerKind, out.BlockerK, suggestionLabel(lang, jobstore.SuggestBlockerKind))
 			}
 		}
 	}
@@ -785,7 +775,7 @@ func (s *Service) applySummary(id string, out SummaryOut, by, jobID string) (app
 	}
 	if h := out.StatusHint; h != "" && w.Status != jobstore.WorkCaptured && jobstore.ValidWorkStatus(h) && !jobstore.WorkStatusFinal(h) && h != w.Status {
 		hint = h
-		suggest(jobstore.SuggestStatusHint, h, "状态建议")
+		suggest(jobstore.SuggestStatusHint, h, suggestionLabel(lang, jobstore.SuggestStatusHint))
 	}
 	sort.Strings(applied)
 	return
@@ -855,7 +845,8 @@ func (s *Service) AcceptSuggestion(id, field, by string) (jobstore.WorkItem, err
 	if err := s.store.DeleteWorkSuggestion(id, field); err != nil {
 		return jobstore.WorkItem{}, err
 	}
-	if _, err := s.store.AppendWorkJournalLevel(id, jobstore.WorkJournalNote, "采纳整理建议："+suggestionLabel(field)+"（来自 "+sg.By+"）", by, jobstore.WorkLevelDetail); err != nil {
+	lang := s.itemLang(id)
+	if _, err := s.store.AppendWorkJournalLevel(id, jobstore.WorkJournalNote, i18n.T(lang, "work.journal.suggestion_adopted", "field", suggestionLabel(lang, field), "by", sg.By), by, jobstore.WorkLevelDetail); err != nil {
 		slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", id, "err", err)
 	}
 	return w, nil
@@ -874,26 +865,36 @@ func (s *Service) DismissSuggestion(id, field, by string) error {
 	if err := s.store.DismissWorkSuggestion(id, field); err != nil {
 		return err
 	}
-	_, _ = s.store.AppendWorkJournalLevel(id, jobstore.WorkJournalNote, "忽略整理建议："+suggestionLabel(field)+"（来自 "+sg.By+"）", by, jobstore.WorkLevelDetail)
+	lang := s.itemLang(id)
+	_, _ = s.store.AppendWorkJournalLevel(id, jobstore.WorkJournalNote, i18n.T(lang, "work.journal.suggestion_dismissed", "field", suggestionLabel(lang, field), "by", sg.By), by, jobstore.WorkLevelDetail)
 	return nil
 }
 
-func suggestionLabel(field string) string {
+func suggestionLabel(lang i18n.Lang, field string) string {
 	switch field {
-	case jobstore.SuggestGoal:
-		return "目标"
-	case jobstore.SuggestBlocker:
-		return "阻塞"
-	case jobstore.SuggestBlockerKind:
-		return "阻塞类型"
-	case jobstore.SuggestNext:
-		return "下一步"
-	case jobstore.SuggestSummary:
-		return "摘要"
-	case jobstore.SuggestStatusHint:
-		return "状态建议"
+	case jobstore.SuggestGoal, jobstore.SuggestBlocker, jobstore.SuggestBlockerKind,
+		jobstore.SuggestNext, jobstore.SuggestSummary, jobstore.SuggestStatusHint:
+		return i18n.T(lang, "work.suggestion_label."+field)
 	}
 	return field
+}
+
+// summaryDoneText is the journal line of a finished tidy-up.
+func summaryDoneText(lang i18n.Lang, degraded bool, applied, suggested []string) string {
+	text := i18n.T(lang, "work.journal.summary_done")
+	if degraded {
+		text = i18n.T(lang, "work.journal.summary_degraded", "text", text)
+	}
+	if len(applied) > 0 {
+		text = i18n.T(lang, "work.journal.summary_applied", "text", text, "list", joinLocalized(lang, "work.journal.summary_list_join", applied))
+	}
+	if len(suggested) > 0 {
+		text = i18n.T(lang, "work.journal.summary_suggested", "text", text, "list", joinLocalized(lang, "work.journal.summary_list_join", suggested))
+	}
+	if len(applied) == 0 && len(suggested) == 0 {
+		text = i18n.T(lang, "work.journal.summary_nothing", "text", text)
+	}
+	return text
 }
 
 // ---------------------------------------------------------------- passive scan

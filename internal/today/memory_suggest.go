@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -68,12 +69,14 @@ var (
 	ErrMemorySuggestionStale = errors.New("记忆在建议之后被改过，请重新整理")
 )
 
-var memoryActLabels = map[string]string{
-	MemoryActArchive: "归档", MemoryActMerge: "合并", MemoryActKind: "改类型", MemoryActSummary: "补摘要", MemoryActWhen: "补触发词",
+// memoryActLabelKeys maps an action to the catalog key of its label.
+var memoryActLabelKeys = map[string]string{
+	MemoryActArchive: "today.memory.act_archive", MemoryActMerge: "today.memory.act_merge", MemoryActKind: "today.memory.act_kind",
+	MemoryActSummary: "today.memory.act_summary", MemoryActWhen: "today.memory.act_when",
 }
 
 // ValidMemoryAction reports whether action is a known memory suggestion action.
-func ValidMemoryAction(action string) bool { _, ok := memoryActLabels[action]; return ok }
+func ValidMemoryAction(action string) bool { _, ok := memoryActLabelKeys[action]; return ok }
 
 // MemoryPayload is the proposed value of a memory suggestion (only the field of its action).
 type MemoryPayload struct {
@@ -126,27 +129,27 @@ type MemoryCard struct {
 	Content        string        `json:"content,omitempty"`
 }
 
-func memorySuggestionText(action string, p MemoryPayload) string {
+func memorySuggestionText(lang i18n.Lang, action string, p MemoryPayload) string {
 	switch action {
 	case MemoryActArchive:
-		return "建议归档"
+		return i18n.T(lang, "today.memory.proposal_archive")
 	case MemoryActMerge:
-		return "建议合并到 " + p.Into
+		return i18n.T(lang, "today.memory.proposal_merge", "into", p.Into)
 	case MemoryActKind:
-		return "建议改为 " + p.Kind
+		return i18n.T(lang, "today.memory.proposal_kind", "kind", p.Kind)
 	case MemoryActSummary:
-		return "建议补摘要：" + p.Summary
+		return i18n.T(lang, "today.memory.proposal_summary", "summary", p.Summary)
 	case MemoryActWhen:
-		return "建议补触发词：" + strings.Join(p.Keywords, ", ")
+		return i18n.T(lang, "today.memory.proposal_when", "keywords", strings.Join(p.Keywords, ", "))
 	}
 	return action
 }
 
-func toMemorySuggestion(r jobstore.MemorySuggestion, projectKey string) MemorySuggestion {
+func toMemorySuggestion(lang i18n.Lang, r jobstore.MemorySuggestion, projectKey string) MemorySuggestion {
 	var p MemoryPayload
 	_ = json.Unmarshal([]byte(r.PayloadJSON), &p)
 	return MemorySuggestion{ID: r.ID, TrackerID: r.TrackerID, ProjectKey: projectKey, Key: r.MemoryKey, Action: r.Action, Payload: p,
-		Text: memorySuggestionText(r.Action, p), Reason: r.Reason, State: r.State, By: r.By, CreatedAt: r.CreatedAt,
+		Text: memorySuggestionText(lang, r.Action, p), Reason: r.Reason, State: r.State, By: r.By, CreatedAt: r.CreatedAt,
 		DecidedAt: r.DecidedAt, DecidedBy: r.DecidedBy, Note: r.Note}
 }
 
@@ -298,7 +301,7 @@ func (s *Service) SuggestMemory(in MemorySuggestInput, by, jobID string) (Memory
 	}
 	for _, p := range pending {
 		if p.TrackerID == in.TrackerID && p.MemoryKey == in.Key && p.Action == in.Action {
-			return toMemorySuggestion(p, project), false, nil
+			return toMemorySuggestion(s.lang(""), p, project), false, nil
 		}
 	}
 	dismissed, err := st.MemorySuggestionDismissedSince(in.TrackerID, in.Key, in.Action, now.Add(-MemorySuggestCooldown).Unix())
@@ -322,11 +325,17 @@ func (s *Service) SuggestMemory(in MemorySuggestInput, by, jobID string) (Memory
 	if err != nil {
 		return MemorySuggestion{}, false, err
 	}
-	return toMemorySuggestion(row, project), recorded, nil
+	return toMemorySuggestion(s.lang(""), row, project), recorded, nil
 }
 
 // ListMemorySuggestions lists suggestions in one state ("" = pending).
 func (s *Service) ListMemorySuggestions(state string) ([]MemorySuggestion, error) {
+	return s.ListMemorySuggestionsIn("", state)
+}
+
+// ListMemorySuggestionsIn is ListMemorySuggestions with the proposal text in lang.
+func (s *Service) ListMemorySuggestionsIn(lang i18n.Lang, state string) ([]MemorySuggestion, error) {
+	lang = s.lang(lang)
 	if state == "" {
 		state = jobstore.MemorySuggestPending
 	}
@@ -345,7 +354,7 @@ func (s *Service) ListMemorySuggestions(state string) ([]MemorySuggestion, error
 	}
 	out := make([]MemorySuggestion, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, toMemorySuggestion(r, projects[r.TrackerID]))
+		out = append(out, toMemorySuggestion(lang, r, projects[r.TrackerID]))
 	}
 	return out, nil
 }
@@ -372,7 +381,7 @@ func (s *Service) DismissMemorySuggestion(id int64, by string) (MemorySuggestion
 	if err != nil {
 		return MemorySuggestion{}, err
 	}
-	return toMemorySuggestion(row, s.trackerProject(row.TrackerID)), nil
+	return toMemorySuggestion(s.lang(""), row, s.trackerProject(row.TrackerID)), nil
 }
 
 // AdoptMemorySuggestion applies a pending suggestion to the server copy of the memory and
@@ -396,11 +405,11 @@ func (s *Service) AdoptMemorySuggestion(id int64, by string) (MemorySuggestion, 
 		}
 		return MemorySuggestion{}, err
 	}
-	out, err := s.d.Store.DecideMemorySuggestion(id, jobstore.MemorySuggestAdopted, by, memorySuggestionText(row.Action, p))
+	out, err := s.d.Store.DecideMemorySuggestion(id, jobstore.MemorySuggestAdopted, by, memorySuggestionText(s.lang(""), row.Action, p))
 	if err != nil {
 		return MemorySuggestion{}, err
 	}
-	return toMemorySuggestion(out, s.trackerProject(out.TrackerID)), nil
+	return toMemorySuggestion(s.lang(""), out, s.trackerProject(out.TrackerID)), nil
 }
 
 // memoryTombstone is the body of the tombstone an adoption writes. SuggestionID marks it
@@ -458,7 +467,7 @@ func (s *Service) applyMemorySuggestion(row jobstore.MemorySuggestion, p MemoryP
 		_, err := st.TombstoneTrackerMemoryAt(row.TrackerID, row.MemoryKey, row.BaseRev, b, now, tracker.ArchiveTombstonePrefix+by)
 		return err
 	}
-	reason := "管家建议（今天卡采纳）：" + row.Reason
+	reason := i18n.T(s.lang(""), "today.memory.archive_reason", "reason", row.Reason)
 	switch row.Action {
 	case MemoryActArchive:
 		return tombstone(memoryTombstone{ArchiveReason: reason})
@@ -485,7 +494,7 @@ func (s *Service) applyMemorySuggestion(row jobstore.MemorySuggestion, p MemoryP
 				return err
 			}
 		}
-		return tombstone(memoryTombstone{ArchiveReason: "已合并到 " + p.Into + "；" + reason, MergedInto: p.Into})
+		return tombstone(memoryTombstone{ArchiveReason: i18n.T(s.lang(""), "today.memory.merged_into", "into", p.Into, "reason", reason), MergedInto: p.Into})
 	case MemoryActKind:
 		fields := map[string]any{"kind": p.Kind}
 		if p.Kind != tracker.MemoryKindHandoff && cur.ExpiresAt != "" {
@@ -538,7 +547,7 @@ func (b *builder) memoryCards() error {
 		if err != nil {
 			return err
 		}
-		sg := toMemorySuggestion(r, projects[r.TrackerID])
+		sg := toMemorySuggestion(b.lang, r, projects[r.TrackerID])
 		if sg.Action == MemoryActMerge {
 			if _, _, err := b.s.liveMemory(r.TrackerID, sg.Payload.Into); err != nil {
 				if errors.Is(err, ErrMemoryNotFound) {
@@ -548,15 +557,15 @@ func (b *builder) memoryCards() error {
 			}
 		}
 		b.cards = append(b.cards, Card{
-			Key: KindMemory + ":" + strconv.FormatInt(r.ID, 10), Kind: KindMemory, Tag: "记忆整理",
-			Title:      oneLine(memoryActLabels[sg.Action]+"：记忆 "+sg.Key, titleRunes),
+			Key: KindMemory + ":" + strconv.FormatInt(r.ID, 10), Kind: KindMemory, Tag: b.tr("tag.memory"),
+			Title:      oneLine(b.tr("memory.card_title", "act", i18n.T(b.lang, memoryActLabelKeys[sg.Action]), "key", sg.Key), titleRunes),
 			ProjectKey: sg.ProjectKey, WaitingSince: r.CreatedAt, ActivityAt: r.CreatedAt,
 			Summary: oneLine(sg.Text+" · "+sg.Reason, summaryRunes),
 			Refs:    Refs{MemorySuggestionID: r.ID, TrackerID: r.TrackerID, MemoryKey: r.MemoryKey},
 			Memory: &MemoryCard{TrackerID: r.TrackerID, Key: r.MemoryKey, Action: sg.Action, Payload: sg.Payload,
 				CurrentKind: cur.EffectiveKind(), CurrentSummary: tracker.DisplayMemorySummary(cur.MemoryMeta, cur.Content),
 				Age: tracker.AgeText(cur.UpdatedAt, now), Content: capRunes(strings.TrimSpace(cur.Content), memoryCardContentRunes)},
-			Actions: []Action{{ID: "adopt", Label: "采纳", Style: "ok"}, {ID: "dismiss", Label: "忽略"}},
+			Actions: []Action{{ID: "adopt", Label: b.tr("action.adopt"), Style: "ok"}, {ID: "dismiss", Label: b.tr("action.dismiss")}},
 		})
 	}
 	return nil

@@ -989,7 +989,7 @@ func truncateBytes(s string, n int) string {
 //
 // An `ended` session passes: a closed terminal is exactly what a takeover is for —
 // `--resume <sid>` reopens the CLI conversation in a new process.
-func (s *Service) takeoverCheck(a jobstore.AgentSession) (TakeoverPlan, CwdChoice, error) {
+func (s *Service) takeoverCheck(lang i18n.Lang, a jobstore.AgentSession) (TakeoverPlan, CwdChoice, error) {
 	if a.State == jobstore.SessionHandedOff {
 		return TakeoverPlan{}, CwdChoice{}, undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
 			"the session is already taken over by job %s", a.HandedOffJobID))
@@ -1021,7 +1021,7 @@ func (s *Service) takeoverCheck(a jobstore.AgentSession) (TakeoverPlan, CwdChoic
 		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonInteractiveNotAllowed, fmt.Errorf(
 			"project %q does not allow interactive jobs (allow_interactive)", a.ProjectKey))
 	}
-	choice, ok := ChooseResumeCwd(a, plan)
+	choice, ok := ChooseResumeCwdIn(lang, a, plan)
 	if !ok {
 		return TakeoverPlan{}, CwdChoice{}, undeliverable(ReasonCwdOutsideProject, fmt.Errorf(
 			"session cwd %q is not under the project root %q as runner %q sees it", a.Cwd, plan.ExecRoot, a.Runner))
@@ -1033,7 +1033,7 @@ func (s *Service) takeoverCheck(a jobstore.AgentSession) (TakeoverPlan, CwdChoic
 // session's CLI conversation and prime it with the reply (text may be empty for a
 // plain wake-up: the new terminal then just opens on the resumed conversation).
 func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, text, by, origin string) (DeliverResult, error) {
-	plan, choice, err := s.takeoverCheck(a)
+	plan, choice, err := s.takeoverCheck(s.lang(a.ProjectKey), a)
 	if err != nil {
 		return DeliverResult{}, err
 	}

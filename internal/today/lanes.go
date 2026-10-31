@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
@@ -148,8 +149,14 @@ func (b *LanesBuilder) Build() (LanesView, error) {
 // keeps only lanes whose project_key it accepts, and the header counts are summed
 // over the kept lanes (not over the whole server). nil = every lane, unchanged.
 func (b *LanesBuilder) BuildFor(allow func(string) bool) (LanesView, error) {
+	return b.BuildForIn("", allow)
+}
+
+// BuildForIn is BuildFor with the lane text (health reasons) in lang; "" renders each
+// work lane in its project's language and a plan lane in the default language.
+func (b *LanesBuilder) BuildForIn(lang i18n.Lang, allow func(string) bool) (LanesView, error) {
 	now := b.now().Unix()
-	items, err := b.work.List(jobstore.WorkListOpts{Limit: 2000, Now: now})
+	items, err := b.work.ListIn(lang, jobstore.WorkListOpts{Limit: 2000, Now: now})
 	if err != nil {
 		return LanesView{}, err
 	}
@@ -177,7 +184,7 @@ func (b *LanesBuilder) BuildFor(allow func(string) bool) (LanesView, error) {
 		if folded[p.PlanID] {
 			continue
 		}
-		if l, ok := b.planLane(p, now); ok {
+		if l, ok := b.planLane(lang, p, now); ok {
 			lanes = append(lanes, l)
 		}
 	}
@@ -387,7 +394,7 @@ func jobUsage(raw string) (runner.Usage, bool) {
 // planLane builds a lane for a plan no work item holds. An open plan only counts as
 // running when it is not paused and its checklist has started but not finished (or a
 // job of it is live); a blocked plan always shows.
-func (b *LanesBuilder) planLane(p jobstore.Plan, now int64) (Lane, bool) {
+func (b *LanesBuilder) planLane(lang i18n.Lang, p jobstore.Plan, now int64) (Lane, bool) {
 	todos, err := b.store.ListTodosByPlan(p.PlanID)
 	if err != nil {
 		return Lane{}, false
@@ -429,17 +436,17 @@ func (b *LanesBuilder) planLane(p jobstore.Plan, now int64) (Lane, bool) {
 	if p.Status == jobstore.PlanBlocked {
 		in.BlockedPlan = p.PlanID
 		if t := strings.TrimSpace(p.Title); t != "" {
-			in.BlockedPlan = "「" + t + "」"
+			in.BlockedPlan = i18n.T(lang, "today.lane.plan_quoted", "title", t)
 		}
 	}
 	if len(jobs) > 0 {
 		in.LatestJob = &jobs[0]
 	}
-	l.Health, l.HealthReason = work.ComputeHealth(in, now, b.work.StallAfter())
+	l.Health, l.HealthReason = work.ComputeHealthIn(lang, in, now, b.work.StallAfter())
 	if p.Status == jobstore.PlanBlocked && p.BlockedTodo != "" {
 		for _, t := range todos {
 			if t.TodoID == p.BlockedTodo {
-				l.HealthReason = "卡在「" + t.Title + "」"
+				l.HealthReason = i18n.T(lang, "today.lane.stuck_on", "todo", t.Title)
 			}
 		}
 	}

@@ -38,7 +38,7 @@ func (s *Server) handleListMemorySuggestions(c *rux.Context) {
 	if !s.todayReady(c) {
 		return
 	}
-	items, err := s.today.ListMemorySuggestions(c.Req.URL.Query().Get("state"))
+	items, err := s.today.ListMemorySuggestionsIn(s.requestLang(c), c.Req.URL.Query().Get("state"))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list memory suggestions failed", err.Error())
 		return

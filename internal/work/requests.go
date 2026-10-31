@@ -88,6 +88,30 @@ func shortID(sid string) string {
 	return sid
 }
 
+// itemLang is the language of the text written for the item id: its project's (the
+// server's when the item is gone). Journal lines are persisted, so they follow the item
+// and not the reader.
+func (s *Service) itemLang(id string) i18n.Lang {
+	if w, ok, err := s.store.GetWorkItem(id); err == nil && ok {
+		return s.lang(w.ProjectKey)
+	}
+	return s.lang("")
+}
+
+// joinLocalized folds items with the catalog's two-argument join key ({a} / {b}), so a
+// language chooses its own separator (INI values keep no trailing space).
+func joinLocalized(lang i18n.Lang, key string, items []string) string {
+	out := ""
+	for i, it := range items {
+		if i == 0 {
+			out = it
+			continue
+		}
+		out = i18n.T(lang, key, "a", out, "b", it)
+	}
+	return out
+}
+
 func (s *Service) journalSystem(id, text string) {
 	if _, err := s.store.AppendWorkJournal(id, jobstore.WorkJournalNote, text, "system"); err != nil {
 		slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", id, "err", err)
@@ -122,6 +146,9 @@ func (s *Service) RequestSessions(ctx context.Context, itemID string, o RequestO
 	if by == "" {
 		by = "system"
 	}
+	// The outcome reasons go back to the caller (request language); the lines written
+	// into the journal and the ledger below follow the item's project.
+	lang := i18n.FromContextOr(ctx, s.lang(w.ProjectKey))
 	var out []RequestOutcome
 	for _, r := range rows {
 		if r.Role != jobstore.WorkSessionCurrent || (o.SessionID != "" && o.SessionID != r.SessionID) {
@@ -133,19 +160,19 @@ func (s *Service) RequestSessions(ctx context.Context, itemID string, o RequestO
 		case gerr != nil:
 			oc.Reason = gerr.Error()
 		case !found && s.isJobSession(r.SessionID):
-			oc.Reason = "ACP / 终端 job 会话不能被请求汇报，请在它的 job 页面里对话"
+			oc.Reason = i18n.T(lang, "work.request_outcome.job_session")
 		case !found:
-			oc.Reason = "会话记录已不存在"
+			oc.Reason = i18n.T(lang, "work.request_outcome.session_gone")
 		case o.Allow != nil && !o.Allow(r.SessionID):
-			oc.Reason = "无权向该会话传话"
+			oc.Reason = i18n.T(lang, "work.request_outcome.not_allowed")
 		case !sessionRunning(a.State) || s.messenger == nil:
-			why := "会话未在运行（" + a.State + "），改为整理"
+			why := i18n.T(lang, "work.request_outcome.not_running", "state", a.State)
 			if s.messenger == nil {
-				why = "未配置会话传话通道，改为整理"
+				why = i18n.T(lang, "work.request_outcome.no_channel")
 			}
 			oc = s.fallbackToSummarize(w, r.SessionID, by, "", why)
 		default:
-			oc = s.deliverRequest(ctx, w, a, kind, by)
+			oc = s.deliverRequest(ctx, lang, w, a, kind, by)
 		}
 		out = append(out, oc)
 	}
@@ -156,7 +183,7 @@ func (s *Service) RequestSessions(ctx context.Context, itemID string, o RequestO
 }
 
 // deliverRequest records and sends one request to a running session.
-func (s *Service) deliverRequest(ctx context.Context, w jobstore.WorkItem, a jobstore.AgentSession, kind, by string) RequestOutcome {
+func (s *Service) deliverRequest(ctx context.Context, lang i18n.Lang, w jobstore.WorkItem, a jobstore.AgentSession, kind, by string) RequestOutcome {
 	oc := RequestOutcome{SessionID: a.SessionID, Kind: kind}
 	timeout := s.cfg().RequestTimeout()
 	req, err := s.store.CreateWorkRequest(jobstore.WorkRequestInput{
@@ -171,20 +198,23 @@ func (s *Service) deliverRequest(ctx context.Context, w jobstore.WorkItem, a job
 	channel, serr := s.messenger.SendRequest(ctx, a.SessionID, text, by)
 	if serr != nil {
 		_, _, _ = s.store.MarkWorkRequest(req.ID, jobstore.WorkRequestFailed, "", serr.Error())
-		s.journalSystem(w.ID, fmt.Sprintf("请求 %s 未能送达会话 %s：%s，改为整理", req.ID, shortID(a.SessionID), serr.Error()))
-		fb := s.fallbackToSummarize(w, a.SessionID, by, req.ID, "送达失败："+serr.Error())
-		fb.Reason = "送达失败（" + serr.Error() + "），已改为整理"
+		pl := s.lang(w.ProjectKey)
+		s.journalSystem(w.ID, i18n.T(pl, "work.journal.req_undelivered", "request", req.ID, "session", shortID(a.SessionID), "error", serr.Error()))
+		reason := i18n.T(lang, "work.request_outcome.delivery_failed", "error", serr.Error())
+		fb := s.fallbackToSummarize(w, a.SessionID, by, req.ID, reason)
+		fb.Reason = reason
 		return fb
 	}
 	if _, _, err := s.store.MarkWorkRequest(req.ID, jobstore.WorkRequestSent, channel, "", jobstore.WorkRequestPending); err != nil {
 		slog.Warn("work.request_mark_failed", "event", "work.request_mark_failed", "id", req.ID, "err", err)
 	}
-	what := "汇报"
+	pl := s.lang(w.ProjectKey)
+	what := i18n.T(pl, "work.journal.req_what_report")
 	if kind == jobstore.WorkRequestHandoff {
-		what = "写交接"
+		what = i18n.T(pl, "work.journal.req_what_handoff")
 	}
 	if _, err := s.store.AppendWorkJournalLevel(w.ID, jobstore.WorkJournalNote,
-		fmt.Sprintf("已请会话 %s %s（请求 %s，%d 分钟内回复）", shortID(a.SessionID), what, req.ID, int(timeout/time.Minute)), by, jobstore.WorkLevelDetail); err != nil {
+		i18n.T(pl, "work.journal.req_asked", "session", shortID(a.SessionID), "what", what, "request", req.ID, "minutes", int(timeout/time.Minute)), by, jobstore.WorkLevelDetail); err != nil {
 		slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", w.ID, "err", err)
 	}
 	oc.State, oc.Sent, oc.Channel = jobstore.WorkRequestSent, true, channel
@@ -255,7 +285,7 @@ func (s *Service) answerRequest(itemID, rid string) {
 	if err != nil || !changed {
 		return
 	}
-	s.journalSystem(itemID, fmt.Sprintf("会话已回复请求 %s（%s）", r.ID, r.Kind))
+	s.journalSystem(itemID, i18n.T(s.itemLang(itemID), "work.journal.req_answered", "request", r.ID, "kind", r.Kind))
 }
 
 // advanceRequests moves overdue requests along: an unanswered report / hand-over
@@ -273,13 +303,15 @@ func (s *Service) advanceRequests(now time.Time) {
 			if s.summarizing(r.ID) {
 				continue
 			}
-			if _, ch, _ := s.store.MarkWorkRequest(r.ID, jobstore.WorkRequestFailed, "", "整理超时或被中断",
+			pl := s.itemLang(r.WorkItemID)
+			if _, ch, _ := s.store.MarkWorkRequest(r.ID, jobstore.WorkRequestFailed, "", i18n.T(pl, "work.ledger.summarize_interrupted"),
 				jobstore.WorkRequestPending); ch {
-				s.journalSystem(r.WorkItemID, fmt.Sprintf("整理请求 %s 超时未完成", r.ID))
+				s.journalSystem(r.WorkItemID, i18n.T(pl, "work.journal.req_summarize_timeout", "request", r.ID))
 			}
 			continue
 		}
-		if _, ch, _ := s.store.MarkWorkRequest(r.ID, jobstore.WorkRequestExpired, "", "会话未回应",
+		pl := s.itemLang(r.WorkItemID)
+		if _, ch, _ := s.store.MarkWorkRequest(r.ID, jobstore.WorkRequestExpired, "", i18n.T(pl, "work.ledger.no_response"),
 			jobstore.WorkRequestPending, jobstore.WorkRequestSent); !ch {
 			continue
 		}
@@ -287,8 +319,8 @@ func (s *Service) advanceRequests(now time.Time) {
 		if err != nil || !ok {
 			continue
 		}
-		s.journalSystem(r.WorkItemID, fmt.Sprintf("会话 %s 未回应请求 %s，已改为整理", shortID(r.SessionID), r.ID))
-		s.fallbackToSummarize(w, r.SessionID, r.By, r.ID, "请求超时")
+		s.journalSystem(r.WorkItemID, i18n.T(pl, "work.journal.req_no_response", "session", shortID(r.SessionID), "request", r.ID))
+		s.fallbackToSummarize(w, r.SessionID, r.By, r.ID, i18n.T(pl, "work.ledger.request_timeout"))
 	}
 }
 

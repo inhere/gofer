@@ -4,6 +4,7 @@ import (
 	"strings"
 	"unicode/utf16"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/util"
 )
@@ -182,6 +183,12 @@ func execJoin(execRoot, rel string) string {
 // ok is false when the registered cwd is not under the project at all and nothing
 // verified (the relay refuses with cwd_outside_project rather than guess).
 func ChooseResumeCwd(a jobstore.AgentSession, plan TakeoverPlan) (CwdChoice, bool) {
+	return ChooseResumeCwdIn("", a, plan)
+}
+
+// ChooseResumeCwdIn is ChooseResumeCwd with the basis sentence (CwdChoice.Reason) in
+// lang; "" is the default language.
+func ChooseResumeCwdIn(lang i18n.Lang, a jobstore.AgentSession, plan TakeoverPlan) (CwdChoice, bool) {
 	roots := make([]string, 0, util.CapSum(1, len(plan.AltRoots)))
 	for _, r := range append([]string{plan.ExecRoot}, plan.AltRoots...) {
 		if strings.TrimSpace(r) != "" {
@@ -209,9 +216,9 @@ func ChooseResumeCwd(a jobstore.AgentSession, plan TakeoverPlan) (CwdChoice, boo
 	}
 	verb := func(abs string) string {
 		if _, known := state(abs); !known {
-			return "（执行机在远端，未核对该目录是否存在）"
+			return i18n.T(lang, "sessionrelay.cwd.remote_unverified")
 		}
-		return "（已确认存在）"
+		return i18n.T(lang, "sessionrelay.cwd.confirmed")
 	}
 
 	tdir := TranscriptProjectDirName(a.Transcript)
@@ -234,17 +241,17 @@ func ChooseResumeCwd(a jobstore.AgentSession, plan TakeoverPlan) (CwdChoice, boo
 			}
 			// The reason is one short basis sentence: the chosen absolute path is
 			// already in the plan message, so it is not repeated here.
-			reason := "会话文件所在目录名验证了会话启动时的目录" + verb(abs)
+			reason := i18n.T(lang, "sessionrelay.cwd.transcript", "state", verb(abs))
 			if cwd != "" && cand != cwd {
-				reason += "；登记的目录与它不同（可能是中途换的临时目录），已忽略"
+				reason = i18n.T(lang, "sessionrelay.cwd.registered_mismatch", "reason", reason)
 			}
 			return CwdChoice{Rel: rel, Abs: abs, Source: CwdSourceTranscript, Reason: reason}, true
 		}
 	}
 
-	why := "会话没有登记会话文件路径，无法验证原始启动目录"
+	why := i18n.T(lang, "sessionrelay.cwd.no_transcript")
 	if tdir != "" {
-		why = "会话文件目录名与登记目录、项目根都对不上，无法验证原始启动目录"
+		why = i18n.T(lang, "sessionrelay.cwd.transcript_mismatch")
 	}
 	rel, inProject := relOf(cwd)
 	if !inProject {
@@ -253,9 +260,9 @@ func ChooseResumeCwd(a jobstore.AgentSession, plan TakeoverPlan) (CwdChoice, boo
 	abs := execJoin(plan.ExecRoot, rel)
 	if exists, known := state(abs); !known || exists {
 		return CwdChoice{Rel: rel, Abs: abs, Source: CwdSourceRegistered,
-			Reason: why + "，改用登记的目录" + verb(abs)}, true
+			Reason: i18n.T(lang, "sessionrelay.cwd.use_registered", "why", why, "state", verb(abs))}, true
 	}
 	root := execJoin(plan.ExecRoot, ".")
 	return CwdChoice{Rel: ".", Abs: root, Source: CwdSourceProjectRoot,
-		Reason: why + "，且登记的目录在执行机上已不存在，回落到项目根"}, true
+		Reason: i18n.T(lang, "sessionrelay.cwd.fallback_root", "why", why)}, true
 }

@@ -1,0 +1,178 @@
+## cards
+[approval:j-hold] kind=approval tag="Awaiting approval" urgency=blocking
+  title="job j-hold"
+  summary="push"
+  blocks=2/1 "cannot start until approved"
+  action approve "Approve" value=""
+  action reject "Deny" value=""
+  action open "View details" value=""
+[capture:box] kind=capture tag="Capture box" urgency=normal
+  title="2 item(s) in the capture box"
+  summary="idea"
+  blocks=0/0 ""
+  action open "Sort out" value="/work?tab=capture"
+[decision:dg] kind=decision tag="Question" urgency=normal
+  title="Global"
+  summary="Free text?"
+  blocks=0/0 ""
+  action reply "Reply" value=""
+[decision:dq] kind=decision tag="Plan question" urgency=blocking
+  title="Plan question"
+  summary="Which?"
+  blocks=3/1 "plan Export has 1 item(s) not started"
+  action reply "Reply" value=""
+[interaction:j-dir/i2] kind=interaction tag="Tool approval" urgency=blocking
+  title="claude requests permission"
+  summary="x"
+  blocks=9/2 "holding claude session 3 h; holding the directory lock"
+  action reply "Reply" value=""
+[interaction:j-run/i1] kind=interaction tag="Tool approval" urgency=blocking
+  title="codex requests run tests"
+  summary="go test ./..."
+  blocks=8/3 "holding codex session 25 min; holding a worktree; 1 item(s) behind plan Export waiting"
+  action answer "Allow" value="a1"
+[interaction:j-day/i3] kind=interaction tag="Question" urgency=blocking
+  title="job j-day"
+  summary="Proceed?"
+  blocks=8/1 "holding claude session 2 d"
+  action answer "Confirm" value="yes"
+  action answer "Cancel" value="no"
+[mail_held:box] kind=mail_held tag="Mailbox" urgency=normal
+  title="3 letter(s) waiting to be assigned"
+  summary="caller c2 -> (no address): third"
+  blocks=0/0 ""
+  action open "Assign" value="/mail?state=held"
+[memory:3] kind=memory tag="Memory tidy-up" urgency=normal
+  title="Add summary: memory fresh"
+  summary="Suggest adding the summary: A new fact · reason"
+  blocks=0/0 ""
+  action adopt "Adopt" value=""
+  action dismiss "Ignore" value=""
+[memory:4] kind=memory tag="Memory tidy-up" urgency=normal
+  title="Add triggers: memory release-a"
+  summary="Suggest adding the triggers: ship, release · reason"
+  blocks=0/0 ""
+  action adopt "Adopt" value=""
+  action dismiss "Ignore" value=""
+[memory:1] kind=memory tag="Memory tidy-up" urgency=normal
+  title="Archive: memory old-note"
+  summary="Suggest archiving · reason"
+  blocks=0/0 ""
+  action adopt "Adopt" value=""
+  action dismiss "Ignore" value=""
+[memory:5] kind=memory tag="Memory tidy-up" urgency=normal
+  title="Change kind: memory fresh"
+  summary="Suggest changing the kind to rule · reason"
+  blocks=0/0 ""
+  action adopt "Adopt" value=""
+  action dismiss "Ignore" value=""
+[memory:2] kind=memory tag="Memory tidy-up" urgency=normal
+  title="Merge: memory release-b"
+  summary="Suggest merging into release-a · reason"
+  blocks=0/0 ""
+  action adopt "Adopt" value=""
+  action dismiss "Ignore" value=""
+[merge:1] kind=merge tag="Merge suggestion" urgency=normal
+  title="Merge \"Merge source\" into \"Merge target\""
+  summary="The two work items look like the same thing"
+  blocks=0/0 ""
+  action adopt "Adopt" value=""
+  action dismiss "Ignore" value=""
+[permission:dform] kind=permission tag="Your answer needed" urgency=now
+  title="form"
+  summary="s"
+  blocks=2/1 "holding claude session 1 min"
+  action answer "One" value="answers:{\"Pick\":\"One\"}"
+  action answer "Two" value="answers:{\"Pick\":\"Two\"}"
+[permission:dp] kind=permission tag="Permission needed" urgency=now
+  title="repo: cleanup"
+  summary="Bash ls"
+  blocks=2/1 "holding claude session 1 min"
+  action answer "Allow" value="allow"
+  action answer "Always allow: rule" value="always:0"
+  action answer "Always allow" value="always:1"
+  action answer "Deny" value="deny"
+  action deny_note "Deny with a reason" value=""
+[plan_blocked:p-1] kind=plan_blocked tag="Plan blocked" urgency=blocking
+  title="Export · Backend"
+  summary="The plan stopped on a failed item; decide whether to resume or edit the todo"
+  blocks=3/1 "1 item(s) behind plan Export waiting"
+  action resume "Resume" value=""
+  action open "Open plan" value=""
+[relay:sid-3] kind=relay tag="Session awaiting reply" urgency=blocking
+  title="relay s"
+  summary="q"
+  blocks=3/1 "holding claude session 10 min"
+  action reply "Reply" value=""
+  action ack "Mark read" value=""
+[review:j-rev] kind=review tag="Awaiting review" urgency=blocking
+  title="job j-rev"
+  summary="job j-rev"
+  blocks=4/2 "holding a worktree; 1 item(s) behind plan Export waiting"
+  action accept "Accept" value=""
+  action rerun "Re-run with notes" value=""
+  action diff "View diff" value=""
+[suggestion:<ID>:status_hint] kind=suggestion tag="Tidy-up suggestion" urgency=normal
+  title="Status hint item"
+  summary="Suggest changing the status to \"awaiting review\""
+  blocks=0/0 ""
+  action adopt "Adopt" value=""
+  action dismiss "Ignore" value=""
+[suggestion:<ID>:goal] kind=suggestion tag="Tidy-up suggestion" urgency=normal
+  title="Status hint item"
+  summary="Suggested goal: new goal"
+  blocks=0/0 ""
+  action adopt "Adopt" value=""
+  action dismiss "Ignore" value=""
+[work:<ID>] kind=work tag="Due" urgency=normal
+  title="Due parked"
+  summary=""
+  blocks=0/0 ""
+  action reply "Reply" value=""
+  action report "Ask for a report" value=""
+  action park "Park" value=""
+[work:<ID>] kind=work tag="Needs me" urgency=blocking
+  title="Needs me item"
+  summary=""
+  blocks=2/1 "claude session is online, waiting for your answer"
+  action reply "Reply" value=""
+  action report "Ask for a report" value=""
+  action park "Park" value=""
+  suggestion goal "Suggested goal: iframe"
+[work:<ID>] kind=work tag="On site" urgency=normal
+  title="Onsite item"
+  summary=""
+  blocks=0/0 ""
+  action reply "Reply" value=""
+  action report "Ask for a report" value=""
+  action park "Park" value=""
+## memory suggestions
+archive old-note => "Suggest archiving"
+merge release-b => "Suggest merging into release-a"
+summary fresh => "Suggest adding the summary: A new fact"
+when release-a => "Suggest adding the triggers: ship, release"
+kind fresh => "Suggest changing the kind to rule"
+## handled labels
+Snoozed until 10-09 11:00
+Waiting for job j-run to end
+## status alerts
+runner w-mac is offline
+## digest
+Work digest · 2026-10-09
+needs me 1 · waiting on a resource 0 · needs me on site 1 · awaiting review 0
+## steward alerts
+runner w-mac is offline
+The steward's review failed today
+The steward agent is unavailable
+## enroll card
+[worker_enroll:pending] kind=worker_enroll tag="Worker" urgency=now
+  title="4 worker(s) asking to register"
+  summary="h1 → w-1, h2, h3 and 4 in all"
+  blocks=0/4 ""
+  action open "Handle" value="/runners#enrollments"
+## lanes
+plan:Export health=blocked reason="stuck on \"Backend\""
+work:Merge source health=ok reason=""
+work:Merge target health=ok reason=""
+work:Needs me item health=ok reason=""
+work:Onsite item health=ok reason=""

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -79,7 +80,7 @@ func (s *Service) Snooze(in SnoozeInput, actor string) (SnoozedCard, error) {
 		if in.UntilAt <= now.Unix() || in.UntilAt > now.Unix()+MaxSnoozeSec {
 			return SnoozedCard{}, fmt.Errorf("%w: until_at must be in the next 30 days", ErrInvalidSnooze)
 		}
-		label = "稍后到 " + time.Unix(in.UntilAt, 0).In(now.Location()).Format("01-02 15:04")
+		label = i18n.T(s.lang(""), "today.snooze.until_time", "time", time.Unix(in.UntilAt, 0).In(now.Location()).Format("01-02 15:04"))
 	} else {
 		rec, ok, err := s.d.Store.GetJob(in.UntilJobID)
 		if err != nil {
@@ -91,7 +92,7 @@ func (s *Service) Snooze(in SnoozeInput, actor string) (SnoozedCard, error) {
 		if job.IsTerminal(rec.Status) {
 			return SnoozedCard{}, fmt.Errorf("%w: job %s already ended", ErrInvalidSnooze, in.UntilJobID)
 		}
-		label = "等 job " + in.UntilJobID + " 结束"
+		label = i18n.T(s.lang(""), "today.snooze.until_job", "id", in.UntilJobID)
 	}
 	cards, err := s.Decisions(true)
 	if err != nil {
@@ -131,7 +132,12 @@ func (s *Service) Snoozed(includeExec bool) ([]SnoozedCard, error) {
 // SnoozedScoped is Snoozed narrowed to the caller's项目范围 (gofer-7798 第二期): only the rows
 // whose card belongs to an allowed project are returned. nil = every row, unchanged.
 func (s *Service) SnoozedScoped(includeExec bool, allow func(string) bool) ([]SnoozedCard, error) {
-	cards, err := s.Decisions(includeExec)
+	return s.SnoozedScopedIn("", includeExec, allow)
+}
+
+// SnoozedScopedIn is SnoozedScoped with the card text (tag, title) in lang.
+func (s *Service) SnoozedScopedIn(lang i18n.Lang, includeExec bool, allow func(string) bool) ([]SnoozedCard, error) {
+	cards, err := s.DecisionsIn(lang, includeExec)
 	if err != nil {
 		return nil, err
 	}

@@ -15,7 +15,6 @@ var relayCjkExempt = map[string]cjkscan.Exempt{
 	"deliver_reconcile.go": {Max: 6, Why: "reconcile outcome lines recorded as the delivery detail; stage 3 server display text"},
 	"message.go":           {Max: 9, Why: "message dispatch failure reasons and the sent note; stage 3 server display text"},
 	"nudge.go":             {Max: 1, Why: "the pause reason of a nudge after consecutive failures; stage 3 server display text"},
-	"origin_cwd.go":        {Max: 8, Why: "notes explaining how the original start directory was verified; stage 3 server display text"},
 	"reply.go":             {Max: 1, Why: "truncation marker appended to a long reply; stage 3 server display text"},
 }
 

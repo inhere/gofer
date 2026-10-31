@@ -128,6 +128,7 @@ func terminalCard(j jobstore.JobRecord, kind string) today.Card {
 
 func todayQueryForInbox(s *Server, c *rux.Context) (q today.Query) {
 	q.IncludeExec = queryBool(c, "include_exec")
+	q.Lang = s.requestLang(c)
 	if s.ceilingActive(c) {
 		q.ProjectAllowed = s.scopeFilter(c)
 		q.Projects = s.scopedProjectKeys(q.ProjectAllowed)

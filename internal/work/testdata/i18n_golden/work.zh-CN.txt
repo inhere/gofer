@@ -1,0 +1,159 @@
+## status labels
+active => 进行中
+needs_me => 等我
+waiting_resource => 等资源
+needs_onsite => 需现场
+review => 待验收
+parked => 已搁置
+done => 已完成
+dropped => 已放弃
+custom => custom
+## outcome lines
+milestone | job 12345678（codex）「export csv」 完成，3 个提交
+detail | job j1 完成
+milestone | job j1 完成，待验收，1 个提交
+milestone | job j1 失败：exit 1 boom
+milestone | job j1 失败
+milestone | job j1 预算熔断
+detail | job j1 已取消
+milestone | job j1 验收未通过
+milestone | job j1 验收通过
+detail | job j1 结束（weird）
+## health reasons
+blocked | plan p1 阻塞
+blocked | plan 「Quoted」 阻塞
+blocked | 阻塞：waiting for the device
+stalled | 3 天没有活动
+stalled | 5 小时没有活动
+stalled | 3 小时没有活动
+at_risk | 最近的 job abcdefgh 失败
+at_risk | 最近的 job abcdefgh 预算熔断
+ok | 
+## mail target
+会话 sess-a
+job job-7
+topic:x
+## derived status reasons
+needs_me | 会话等待回复
+needs_me | 会话需要处理（终端对话框）
+needs_me | 关联 job 有待应答交互
+needs_me | WAIT
+review | 关联 job 待验收
+active | 会话运行中
+## suggestion labels
+goal => 目标
+blocker => 阻塞
+blocker_kind => 阻塞类型
+next => 下一步
+summary => 摘要
+status_hint => 状态建议
+custom => custom
+## todo note
+capture
+
+goal
+
+下一步: step
+
+来源工作项: <ID>
+## report captured
+目标：G
+状态：想标为 active（收集箱条目，状态只能由收集箱入口改动，未采纳）
+## report final
+状态：想标为 done（完成/放弃由人确认，未采纳）
+## report unblocked
+摘要：S
+状态：进行中（阻塞已解除）
+## report human
+状态：想标为 waiting_resource（已被人手动设置的状态优先，未采纳）
+## report default
+目标：G
+阻塞：B
+下一步：N
+摘要：S
+状态：needs_me
+## needs_me notifications
+work.needs_me | 等我处理 · report d | session:s1 汇报需要你处理\n目标：G\n阻塞：B\n下一步：N
+## steward notes
+状态：想标为 active（收集箱条目，状态只能由收集箱入口改动，未采纳）
+状态：想标为 waiting_resource（已被人手动设置的状态优先，未采纳）
+work.needs_me | 等我处理 · steward needs me | 管家把它标为「等我」
+## update needs_me notification
+work.needs_me | 等我处理 · park me | 被 human:bob 标为「等我」
+## dispatch close
+归档
+丢弃
+## ask log
+已向会话 sess-abc 带话：please look at this
+## reminders
+work.remind | 工作项提醒 · park due | 搁置到期\n搁置条件：arrives
+work.remind | 工作项提醒 · remind me | 到了设置的提醒时间\n搁置条件：after arrival\n目标：confirm\n阻塞：no stock\n下一步：call
+到了设置的提醒时间
+搁置到期
+已发送到期提醒（到了设置的提醒时间）
+已发送到期提醒（搁置到期）
+## request job session
+kind= sent=false reason=ACP / 终端 job 会话不能被请求汇报，请在它的 job 页面里对话
+## request gone
+kind= sent=false reason=会话记录已不存在
+## request denied
+kind= sent=false reason=无权向该会话传话
+## request not running
+kind=summarize sent=false reason=会话未在运行（ended），改为整理
+## request delivery failed
+kind=summarize sent=false reason=送达失败（no address），已改为整理
+请求 <ID> 未能送达会话 sess-fai：no address，改为整理
+## request sent handoff
+kind=handoff sent=true reason=
+已请会话 sess-sen 写交接（请求 <ID>，30 分钟内回复）
+## request sent report
+kind=report sent=true reason=
+已请会话 sess-sen 汇报（请求 <ID>，30 分钟内回复）
+## request answered
+已请会话 sess-sen 汇报（请求 <ID>，30 分钟内回复）
+摘要：done
+会话已回复请求 <ID>（report）
+## request expired
+report expired 会话未回应
+已请会话 sess-sen 汇报（请求 <ID>，30 分钟内回复）
+会话 sess-sen 未回应请求 <ID>，已改为整理
+## completion
+todo todo-g 已完成，建议把状态改为「待验收」（在工作项详情的建议区采纳或忽略，状态未自动改变）
+issue g-9 已关闭；todo todo-g 已完成，建议把状态改为「完成」（在工作项详情的建议区采纳或忽略，状态未自动改变）
+## suggestions
+<nil> <nil>
+采纳整理建议：目标（来自 summarizer）
+忽略整理建议：下一步（来自 summarizer）
+## job outcome journal
+job 77（codex） 完成，2 个提交
+## digest
+工作摘要 · 2027-02-14
+等我 3 · 等资源 0 · 需现场 0 · 待验收 0
+
+搁置超过 7 天（5）：
+- [human item](http://gofer.test/work?id=<ID>)
+- [old parked](http://gofer.test/work?id=<ID>)
+- [park due](http://gofer.test/work?id=<ID>)
+- [remind me](http://gofer.test/work?id=<ID>)
+- [report c](http://gofer.test/work?id=<ID>)
+## digest empty
+等我 0 · 等资源 0 · 需现场 0 · 待验收 0
+
+今天没有需要关注的工作项。
+## digest yesterday
+等我 0 · 等资源 0 · 需现场 0 · 待验收 0
+
+昨日有进展（12）：
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- [yday](http://gofer.test/work?id=<ID>)（进行中）
+- …另外 2 项
+
+管家点评：all calm

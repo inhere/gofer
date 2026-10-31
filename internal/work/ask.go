@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -140,9 +141,9 @@ func (s *Service) logAsk(workID, sid, text, by string) []string {
 			ids = append(ids, w.ID)
 		}
 	}
-	line := fmt.Sprintf("已向会话 %s 带话：%s", shortID(sid), clipRunes(text, 200))
 	logged := ids[:0]
 	for _, id := range ids {
+		line := i18n.T(s.itemLang(id), "work.journal.ask_sent", "session", shortID(sid), "text", clipRunes(text, 200))
 		if _, err := s.store.AppendWorkJournal(id, jobstore.WorkJournalNote, line, by); err != nil {
 			slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", id, "err", err)
 			continue

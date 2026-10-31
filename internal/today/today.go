@@ -12,6 +12,7 @@ package today
 import (
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/steward"
 	"github.com/inhere/gofer/internal/work"
@@ -83,6 +84,9 @@ type Query struct {
 	// these literal project keys — the same restriction ProjectAllowed expresses as a
 	// predicate, in the form the store's count query needs. nil = the whole server.
 	Projects []string
+	// Lang is the language of the generated text (a request's Accept-Language);
+	// "" = the server's language.
+	Lang i18n.Lang
 }
 
 // Response is the GET /v1/today payload (design §2.1).
@@ -239,6 +243,10 @@ type Deps struct {
 	Runners func() RunnerStatus
 	Version func() string
 	Now     func() time.Time
+	// Language is the server's text language (server.language, auto resolved); nil
+	// reads as the default language. It is the language of text that gets stored and of
+	// reads that carry no request language.
+	Language func() i18n.Lang
 }
 
 // Service builds the home page payloads.
@@ -254,6 +262,14 @@ func New(d Deps) *Service {
 	return &Service{d: d}
 }
 
+// lang resolves the language of a text: the request's, else the server's.
+func (s *Service) lang(l i18n.Lang) i18n.Lang {
+	if l == "" && s.d.Language != nil {
+		l = s.d.Language()
+	}
+	return i18n.Resolve(l)
+}
+
 // Store exposes the underlying store (sibling aggregations reuse it).
 func (s *Service) Store() *jobstore.Store { return s.d.Store }
 
@@ -263,7 +279,8 @@ func (s *Service) Now() time.Time { return s.d.Now() }
 // Today builds the GET /v1/today payload.
 func (s *Service) Today(q Query) (Response, error) {
 	now := s.d.Now()
-	cards, err := s.Decisions(q.IncludeExec)
+	lang := s.lang(q.Lang)
+	cards, err := s.DecisionsIn(lang, q.IncludeExec)
 	if err != nil {
 		return Response{}, err
 	}
@@ -275,11 +292,11 @@ func (s *Service) Today(q Query) (Response, error) {
 		return Response{}, err
 	}
 	cards, snoozed = filterScope(cards, snoozed, q.ProjectAllowed)
-	digest, err := s.digest(now, q)
+	digest, err := s.digest(lang, now, q)
 	if err != nil {
 		return Response{}, err
 	}
-	status, err := s.status(now)
+	status, err := s.status(lang, now)
 	if err != nil {
 		return Response{}, err
 	}
