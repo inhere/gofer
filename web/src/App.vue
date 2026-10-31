@@ -8,6 +8,7 @@ import DecisionOverlay from './components/today/DecisionOverlay.vue'
 import HandledDrawer from './components/today/HandledDrawer.vue'
 import UndoToast from './components/today/UndoToast.vue'
 import { installTodayGlobals, startToday, stopToday } from './store/today'
+import { startInbox, stopInbox } from './store/inbox'
 import { startWorkNeedsMe, stopWorkNeedsMe } from './store/workNeedsMe'
 import { startUpdateAvailable, stopUpdateAvailable } from './store/updateAvailable'
 
@@ -24,10 +25,12 @@ watch(
     if (on) {
       startWorkNeedsMe()
       startToday()
+      startInbox()
       startUpdateAvailable()
     } else {
       stopWorkNeedsMe()
       stopToday()
+      stopInbox()
       stopUpdateAvailable()
     }
   },

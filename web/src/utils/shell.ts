@@ -134,6 +134,8 @@ export const SHELL_NAV_GROUPS: readonly ShellNavGroup[] = [
   {
     key: 'nav.group.collab',
     items: [
+      // 收件箱（design 2026-10-28）：要处理 / 仅知会两栏，排在协作组第一位。
+      { to: '/inbox', key: 'nav.inbox', icon: 'inbox' },
       { to: '/mail', key: 'nav.mail', icon: 'mail' },
       { to: '/review', key: 'nav.review', icon: 'review' },
       { to: '/issues', key: 'nav.issues', icon: 'issues' },

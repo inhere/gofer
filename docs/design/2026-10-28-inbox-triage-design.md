@@ -275,3 +275,12 @@ CREATE INDEX idx_inbox_state_caller_updated
 9. **HTTP 路由权限**：推荐沿用 Today 的 user-class `Public` + caller 隔离，拒绝 worker / job credential；配置写仍走现有 `config.write`。理由是个人状态不是跨用户资源，新增独立 permission 会增加授予面而没有额外安全收益；实施时仍按 G056 登记每条路由。
 10. **是否首期改造 `/v1/today` 而新建 `/v1/inbox`**：推荐先新建 `/v1/inbox` 并给 `/v1/today` additive 字段，稳定后再考虑前端合并请求。理由是旧客户端兼容、回滚和分阶段验证成本更低，也避免把 Today 的既有聚合契约变成强制个人状态依赖。
 
+## 8. 实施记录
+
+### INB2（Web 双栏与已读 / 清理，2026-10-31）
+
+- 新页面 `/inbox`（`web/src/views/Inbox.vue`），数据与状态在 `web/src/store/inbox.ts`，纯函数在 `web/src/utils/inbox.ts`，接口封装在 `web/src/api/inbox.ts`；文案在 `web/src/i18n/pages/inbox.ts`（中英齐全）。没有改 Go。
+- 双栏按 §6a：「要处理」`action` / 「仅知会」`fyi`，各显示「未读 N · 共 M」；宽屏并排，≤ 760px 用 `ui/Tabs`（`?tab=fyi` 深链，默认要处理）。条目类型用 `StatusPill`（失败 = fail 族、仅知会 = idle、其余要处理 = need），提示条用 `ui/Toast`，页头开关用 `ui/Switch`。
+- 已读 / 清理 / 恢复调用 `POST /v1/inbox/state`：单条带 `keys`；「全部已读」不带 `keys`、带 `column`；「清理已读」只带本栏 `seen` 条目的 `keys`（和 `column`），未读不会被清走。写成功后本地先改列表与计数，再防抖重拉以服务端为准；订阅主题与 Today 相同（`pending` / `jobs` / `work` / `sessions` / `plans`）。
+- 徽标口径：侧栏「收件箱」徽标 = 响应的 `total_unread`（只算 `action`），`unread.fyi` 不进徽标。
+- 与设计稿的差异（后续再做）：未实现 §3.1 的「可视区 800ms 自动标已读」（目前只有显式点击）、仅知会栏默认折叠与「按天清理」、按类型分组；顶栏「待我决策」按钮与今天页仍沿用 `/v1/today` 的决策队列口径，未并入收件箱计数；卡片上的业务动作（回答、批准、验收）仍在今天页 / 各源页面，收件箱只给「打开」跳转。

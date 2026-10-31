@@ -18,9 +18,10 @@ import { memory } from './memory'
 import { jobs } from './jobs'
 import { plans } from './plans'
 import { today } from './today'
+import { inbox } from './inbox'
 import { workbench } from './workbench'
 import { refs } from './refs'
 import { shared } from './shared'
 import { errors } from './errors'
 
-export const pages: PageDict[] = [today, jobs, plans, workbench, sessions, review, mail, work, workflows, schedules, issues, memory, stats, newjob, runners, agents, projects, settings, access, refs, shared, errors]
+export const pages: PageDict[] = [today, inbox, jobs, plans, workbench, sessions, review, mail, work, workflows, schedules, issues, memory, stats, newjob, runners, agents, projects, settings, access, refs, shared, errors]

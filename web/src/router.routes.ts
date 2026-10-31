@@ -12,6 +12,8 @@ export const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   { path: '/today', name: 'today', component: () => import('./views/Today.vue') },
+  // 收件箱分栏（design 2026-10-28）：「要处理」「仅知会」两栏 + 已读 / 清理；手机用页签切换。
+  { path: '/inbox', name: 'inbox', component: () => import('./views/Inbox.vue') },
   { path: '/dashboard', name: 'dashboard', component: () => import('./views/Dashboard.vue') },
   { path: '/workbench', name: 'workbench', component: () => import('./views/Workbench.vue') },
   // 任务列表（设计稿 §7.1 / §16-3）：旧路径是 /board，视觉上它不是看板而是一张表，

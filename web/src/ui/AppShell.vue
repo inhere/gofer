@@ -25,6 +25,7 @@ import { listRunners } from '../api/client'
 import { getMetaCached, onMetaInvalidated } from '../api/metaCache'
 import { liveStatus } from '../api/live'
 import { decisionCount } from '../store/today'
+import { inboxBadgeCount } from '../store/inbox'
 import { createPoller } from '../utils/poller'
 import { runnerOnline } from '../utils/runners'
 import { t } from '../i18n'
@@ -208,6 +209,14 @@ onUnmounted(() => {
               :title="t('shell.needsYou', { n: decisionCount })"
               data-testid="today-needs-badge"
               >{{ decisionCount }}</span
+            >
+            <!-- 收件箱徽标只算「要处理」栏的未读（= /v1/inbox 的 total_unread），仅知会不进。 -->
+            <span
+              v-if="expanded && item.to === '/inbox' && inboxBadgeCount > 0"
+              class="side-count"
+              :title="t('inbox.badgeTitle', { n: inboxBadgeCount })"
+              data-testid="inbox-badge"
+              >{{ inboxBadgeCount }}</span
             >
             <span
               v-if="expanded && item.to === '/work' && shouldShowWorkBadge(workNeedsMeCount)"

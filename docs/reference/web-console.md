@@ -42,7 +42,7 @@ Workflow fan-out worktrees can be merged after a human pick (`gofer workflow pic
 导航分组（`SHELL_NAV_GROUPS`）：
 
 - 核心：今天 `/today` · 工作台 `/workbench` · 工作项 `/work` · 计划 `/plans` · 任务 `/jobs` · 会话 `/sessions`
-- 协作：信箱 `/mail` · 待验收 `/review` · Issues `/issues` · 记忆 `/memory` · 统计 `/dashboard`
+- 协作：收件箱 `/inbox` · 信箱 `/mail` · 待验收 `/review` · Issues `/issues` · 记忆 `/memory` · 统计 `/dashboard`
 - 自动化：工作流 `/workflows` · 定时 `/schedules`
 - 基础设施：运行节点 `/runners` · Agents `/agents` · 项目 `/projects` · 设置 `/settings`
 
@@ -51,6 +51,13 @@ Workflow fan-out worktrees can be merged after a human pick (`gofer workflow pic
 侧栏顶部是品牌标（点击回 `/today`）与连接状态（已连接 / 重连中 / 已暂停 / 已断开 / 离线，来自 `api/live.ts`）；侧栏底部是运行节点摘要（`n/m` 在线，点开列出各节点，30 秒刷新）。徽标：「今天」显示待决策数，「工作项」显示「等我」数。
 
 顶栏从左到右：搜索 / 命令面板（`Ctrl/⌘K`，也可在非输入状态按 `/`）、「待我决策」按钮、「只读」徽标（只读 token）、新版本提示（点击进 设置 › 关于；构建过期时改为「刷新」按钮）、「新建任务」（只读时隐藏）、「随手记」、信箱按钮（待指派数量）、主题开关、语言开关。
+
+收件箱 `/inbox`（`web/src/views/Inbox.vue`，数据 `GET /v1/inbox`，状态 `POST /v1/inbox/state`，见 [http-api.md](http-api.md) 的 Inbox 段）按「要不要你动手」分两栏：
+
+- **要处理**（`action`）：提问、授权、待批准、待验收、工作项、阻塞的计划、失败且没人续接的任务等；**仅知会**（`fyi`）：普通结束的任务、已续接的失败等。栏标题显示「未读 N · 共 M」。侧栏「收件箱」的徽标只算「要处理」的未读（等于接口的 `total_unread`），仅知会的未读不进徽标。
+- 每条有类型标签（`StatusPill`）、标题、摘要，以及「打开」（去源事项）、「已读」、「清理」。**已读 / 清理只改你自己的收件箱状态，不执行任何源事项的动作**；清理的条目在来源变化后会重新出现。每栏有「全部已读」（带 `column` 批量）和「清理已读」（只清本栏已读的条目，未读不动）。
+- 页头开关：「含 exec 待验收」（与今天页共用同一偏好）和「显示已清理」（打开后已清理的条目带「恢复」）。操作后列表与计数立刻更新，随后按推送主题（`pending` / `jobs` / `work` / `sessions` / `plans`）防抖重拉，断线回落 30s 轮询。
+- 宽屏两栏并排；≤ 760px 改为页签切换（`?tab=fyi` 可深链，默认「要处理」）。`server.inbox.enabled: false` 或 worker / job 凭据访问时页面提示「收件箱未启用」。顶栏「待我决策」按钮仍是今天页的决策队列，口径不变。
 
 手机宽度（≤ 760px）的行为：
 

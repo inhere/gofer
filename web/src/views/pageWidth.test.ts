@@ -31,6 +31,7 @@ const PAGE_ROOTS: Record<string, string> = {
   './Sessions.vue': 'page',
   './Mail.vue': 'page page--full',
   './Work.vue': 'page',
+  './Inbox.vue': 'page',
   './NewJob.vue': 'page',
   './JobsView.vue': 'page',
   './Workflows.vue': 'page',
