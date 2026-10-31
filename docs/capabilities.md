@@ -2,7 +2,7 @@
 
 > 一句话定位：把 codex / claude 等 agent 与普通命令桥接成可追踪、可验收的异步任务（job）的控制平面，提供 CLI / HTTP / MCP / Web 四种入口；自身不内置模型。
 >
-> **适用版本：截至 v0.204.0**（CHANGELOG 最新已发布版本，2026-10-30）。
+> **适用版本：截至 v0.205.0**（CHANGELOG 最新已发布版本，2026-10-31）。
 
 ## 维护说明
 
@@ -80,7 +80,7 @@
 | workflow | 有依赖的多步 YAML 编排，含扇出 / 汇合、子工作流、内置步骤、`if: always`、失败重跑；执行记录会记下来源模板名与来源（`template` / `template_source`），可按模板过滤 | CLI `workflow run` / `list`（`wf ls --template` 按模板过滤）/ `show` / `events` / `cancel` / `export` / `rerun`；HTTP `GET /v1/workflows?template=`；Web「工作流」 | 变化中（stability.md 标实验） | plans-workflows.md「workflow」 |
 | workflow 模板 | 模板库、变量、保存为模板；`workflow init verify\|release` 生成起步文件；模板列表附带每个模板的执行次数与最近一次执行 | CLI `workflow template ls\|show\|save\|rm`（`wf template ls` 显示执行次数与最近执行）、`workflow save-as-template`、`workflow init`；Web 模板向导 | 变化中 | plans-workflows.md「模板的查看与保存」「verify / release 起步 workflow」 |
 | 多 agent 对比与择优 | 同一任务扇出给多个 agent，人工挑选并可合并 worktree | CLI `workflow pick <id> <step> <fan> [--merge]` | 变化中 | plans-workflows.md「多 agent 对比与择优」 |
-| 定时任务 schedule | cron、一次性（`--delay` / `--at`）、webhook 触发；参数声明与立即运行 | CLI `schedule add` / `list` / `show` / `edit` / `enable` / `disable` / `run` / `rm` / `rotate-token`；HTTP `/v1/schedules`；Web `/schedules` | 稳定 | [runbook/2026-06-30-cron-schedule-runbook.md](runbook/2026-06-30-cron-schedule-runbook.md) |
+| 定时任务 schedule | cron、一次性（`--delay` / `--at`）、webhook 触发；参数声明与立即运行；Web 编辑时试算下几次运行（`POST /v1/schedules/cron-preview`） | CLI `schedule add` / `list` / `show` / `edit` / `enable` / `disable` / `run` / `rm` / `rotate-token`；HTTP `/v1/schedules`；Web `/schedules` | 稳定 | [runbook/2026-06-30-cron-schedule-runbook.md](runbook/2026-06-30-cron-schedule-runbook.md) |
 | 计划看板 | plan 总览（分段进度条）、自动驾驶看板；详情页任务页签分页；总览默认筛选「进行中 + 受阻」，受阻计划不再从默认列表消失 | Web「计划」 | 变化中（部分 Web 页面） | [design/2026-09-22-plan-autopilot-board-and-container-worker-design.md](design/2026-09-22-plan-autopilot-board-and-container-worker-design.md)、web-console.md |
 | 决策点问人 | agent 阻塞提问，人在 Web 作答 | MCP `gofer_ask_human`；CLI `plan ask` / `decisions` / `answer` | 稳定（随 plan） | plans-workflows.md「决策点问人」 |
 
@@ -116,7 +116,7 @@
 | tracker 同步与合并 | 初始化、与 server 镜像同步、状态查看、多 worktree 合并驱动、changelog 合并驱动 | CLI `repo init\|sync\|status\|merge-driver\|changelog-merge` | 稳定 | tracker.md；[runbook/tracker-transfer.md](runbook/tracker-transfer.md) |
 | 每日摘要 | 工作项摘要事件 `work.digest` 与 `work digest` | CLI `work digest`；事件 `work.digest` | 未标注 | work-items.md |
 | 反向链接 | issue / job / 计划 / 待办 / 信件 / 评论里提到的对象 id 自动记入引用索引，可查「被哪些对象引用」（按调用方可见范围过滤）；job 详情、计划详情与 issue 抽屉显示「被引用」面板 | CLI `tool refs <id>`；HTTP `GET /v1/refs`；MCP `gofer_refs`；Web 详情页 | 实验（v0.204.0 新增） | [commands.md](../skills/gofer-usage/references/commands.md)、[reference/http-api.md](reference/http-api.md) |
-| 每日记忆综合（P1） | 可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏与预算裁剪，以及运行记录和只读查询。本版本不调用模型，默认关闭 | 配置 `memory.synthesis`；HTTP `GET /v1/memory-syntheses` | 实验（v0.204.0 新增，默认关闭） | [memory-synthesis.md](../skills/gofer-usage/references/memory-synthesis.md)、[design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md) |
+| 每日记忆综合（P1） | 可选 `memory.synthesis` 配置；从工作项日志、当天 job 汇报、plan / todo 结论、memory doctor 与上一份综合取材料，脱敏后按预算裁剪并算稳定指纹；运行记录同日同指纹复用、按 `retain_days` 清理、重启时收尾。本版本不调用模型，默认关闭 | 配置 `memory.synthesis`；CLI `memory synthesis ls` / `show`；HTTP `GET /v1/memory-syntheses` | 实验（v0.204.0 新增，v0.205.0 补齐材料与运行记录；默认关闭） | [memory-synthesis.md](../skills/gofer-usage/references/memory-synthesis.md)、[design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md) |
 
 ## 执行机与网络
 
@@ -141,7 +141,7 @@
 | 浏览器推送与 PWA | Web Push、可安装为应用，审批通知可直接允许 / 拒绝 | Web 设置 → 通知；HTTP `/v1/ws` 实时推送 | 未标注 | [runbook/web-push.md](runbook/web-push.md)、[runbook/https-pwa.md](runbook/https-pwa.md) |
 | event hooks | 事件发生时在 server 主机跑命令，只读旁路；只能改配置文件 | 配置 `server.event_hooks`；改后 `serve reload` | 未标注 | [design/2026-10-11-event-hooks-design.md](design/2026-10-11-event-hooks-design.md)、im-notification.md「事件钩子」 |
 | 决策 hook | 提交前 `job.submit` / 交付前 `job.deliver` 外部判定，只能否决或收紧 | 配置 `server.decision_hooks`；CLI `tool hook-test` | 变化中（D1 已落地，D2 / D3 未做） | [runbook/decision-hooks.md](runbook/decision-hooks.md) |
-| 入站触发内核（P0） | 外部系统按事件派受约束 job 的内核：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限、持久幂等、内存限流与审计。尚未开放 HTTP / provider 入口，暂无法从外部实际触发 | 配置 `server.triggers`（仅文件） | 实验（v0.204.0 新增，无对外入口） | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md) |
+| 入站触发内核（P0） | 外部系统按事件派受约束 job 的内核：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限（每次派活按 owner 当前权限准入）、按 `dedup.key` / `Idempotency-Key` 持久去重、令牌桶限流、receipt 清理与恢复、审计；`config validate` 列出各 trigger 状态。尚未开放 HTTP / provider 入口，暂无法从外部实际触发 | 配置 `server.triggers`（仅文件）；`gofer config validate` | 实验（v0.204.0 新增，v0.205.0 补齐 P0；无对外入口） | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md) |
 
 ## 权限与安全
 
@@ -193,7 +193,8 @@
 
 | 子项 | 说明 | 主要入口 | 稳定程度 | 文档 |
 |---|---|---|---|---|
-| 生成文本语言 | `server.language` / 项目 `language` 决定注入 agent 的提示词段落、交付正文、信件提示的语言 | 配置 `server.language`、项目 `language` | 稳定 | [../skills/gofer-usage/references/server-config.md](../skills/gofer-usage/references/server-config.md) |
+| 生成文本语言 | `server.language` / 项目 `language`（`auto` 或不配置 = 按 server 机器系统语言，探测不到用 en）决定注入 agent 的提示词、交付正文、信件提示、通知正文与落库说明的语言 | 配置 `server.language`、项目 `language` | 稳定（v0.205.0 缺省改为 auto） | [../skills/gofer-usage/references/server-config.md](../skills/gofer-usage/references/server-config.md) |
+| 服务端显示文本语言 | web 请求带 `Accept-Language`，今天页、工作项、会话页与已迁移的 HTTP 错误 `detail` 按它出中英文，否则用 `server.language`；错误体带稳定 `code`，web 按 `err.<code>` 本地化 | Web 界面语言；HTTP 头 `Accept-Language` | 阶段 3 进行中（v0.205.0 起，部分文本未迁移） | [design/2026-10-27-i18n-design.md](design/2026-10-27-i18n-design.md) |
 | CLI 语言 | `--help` 与提示按调用方语言显示：`GOFER_LANG` > 系统语言 > 缺省 | 环境变量 `GOFER_LANG` | 阶段 3（server 与 web 文本）仍在变化 | [design/2026-10-27-i18n-design.md](design/2026-10-27-i18n-design.md) |
 | Web 界面 | 中文 / 英文切换 | Web 设置 | 变化中 | web-console.md |
 

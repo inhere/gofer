@@ -11,13 +11,24 @@
 
 ## [未发布]
 
+## [0.205.0] - 2026-10-31
+
 ### 新增
 
+- **服务端生成的显示文本按请求语言（i18n 阶段 3 之一）**：httpapi 解析请求头 `Accept-Language`（按 q 值取第一个认得的语言），认不得或没带时用 `server.language`（未配置即 auto），结果放进请求 context（`i18n.WithLang` / `i18n.FromContext`）；web 的所有请求（API、SSE、附件、换 ws ticket）带上当前界面语言。首个接线的是 `GET /v1/sessions/{sid}/takeover-plan` 的说明文字：web 切到英文就是英文；WebSocket 连接本身带不了请求头，暂不带语言。其余服务端文本逐步迁移。
+- **「今天」页、工作项与会话页的服务端文本按请求语言（i18n 阶段 3 之二）**：「今天」页的卡片（标签、标题、摘要、「占着…」卡住说明、按钮文字）、状态告警、摘要、泳道健康原因，工作项的摘要 / 健康原因 / 请求汇报结果，会话列表与详情的 `resume_message`（及接管计划里的「依据」句）随 `Accept-Language`（否则 `server.language`）出中英文；工作项日志里服务端生成的说明（汇报备注、请求记录、邮件回写、提醒、完成回写、整理结果、作业结果行）、稍后记录与记忆整理的归档原因落库，按项目 / server 语言生成一次，已有的中文历史不回写。中文输出与此前逐字一致。
+- **通知正文与 HTTP 错误 detail 按语言出文（i18n 阶段 3 之三）**：IM / webhook / 桌面通知的标题、正文、链接标签、「已截断」提示和桌面合并弹窗的词（`会话等你回复` / `待批准` / `需要审批` / 会话接管与催办通知 / 新版本通知等）从代码迁入 `internal/i18n`；通知没有请求，语言取所属项目的 `language`，没有项目（新版本通知）用 `server.language`，中文输出逐字不变。HTTP 错误体新增稳定 `code`（有可变部分时带 `params`）：已迁移的错误（runner 传话人 / worker 版本、workbench 会话投递失败、session_approval 拒绝、今天页建议权限、steward 的 agent 检查等）的 `detail` 随请求语言（`Accept-Language`，否则 `server.language`），`error` 短语不变（脚本依赖）；web 优先用 `err.<code>` 字典渲染，找不到再显示服务端 detail。权限预设标签、收集箱名、通知测试消息、tunnel 警告等显示文本同样跟随请求语言。
+- **入站触发内核 P0 补齐（gofer-rztq）**：每次派活按 owner 的当前 `job.submit` 权限与 ceiling 准入（撤权立即生效）；`dedup.key` / `Idempotency-Key` 真正用于去重（取不到则至少一次放行），事件号只存哈希；限流改为带 `Retry-After` 计算的令牌桶并与 owner 限额取更严者；过期 receipt 定期清理、中断的 claim 在重投时接管或由 reconciler 结算；审计补 provider / project 字段；`gofer config validate` 列出每个 trigger 的 owner / project / template 与本机不可用原因；`input.message` 暂不支持并在加载时拒绝；owner 的 ceiling 为只读或不含该项目时加载失败。
+- **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
+- **定时任务编辑弹窗的 cron 试算**：web「定时任务」编辑弹窗里改 cron 表达式，停手片刻后显示按新表达式的下 5 次运行时间，表达式不合法则显示解析器的错误原话，保存前就能看到结果。新增接口 `POST /v1/schedules/cron-preview`（body `{cron, count?}`，`count` 默认 5、最多 10，返回 `{cron, next_runs}`，表达式不合法 400；只计算不写入，登录即可用）。
 - **群发邮件的收件人表补「送达时间」与「是否已回复」**：`GET /v1/mail/{id}` 的 `broadcast.recipients[]` 每行新增 `delivered_at` 与 `replied`；`gofer session mail read` 与 web 信箱的收件人状态条据此显示每个收件人的送达时间和是否已回复（中英文案）。表的拼装从 httpapi 移到 mail 服务层（`Service.BroadcastSummary`）。
 - **Web 控制台状态徽标、提示条与开关统一**：任务、计划、对比、会话卡片等处的旧状态徽标全部换成同一套状态 pill（形状 + 颜色 + 文字，文案走中英字典；「等目录」的悬停提示仍写明持有目录锁的 job）；撤销提示、「待我处理」与 agent 探测提示合并为同一个提示条组件（撤销倒计时、关闭按钮、手机上自动收起行为不变，读屏按状态播报）；「设置 → 扩展设置」的开关与导航显隐改用统一的开关控件（键盘可切换，读屏读出开 / 关）。
-- **服务端生成的显示文本按请求语言（i18n 阶段 3 之一）**：httpapi 解析请求头 `Accept-Language`（按 q 值取第一个认得的语言），认不得或没带时用 `server.language`（未配置即 auto），结果放进请求 context（`i18n.WithLang` / `i18n.FromContext`）；web 的所有请求（API、SSE、附件、换 ws ticket）带上当前界面语言。首个接线的是 `GET /v1/sessions/{sid}/takeover-plan` 的说明文字：web 切到英文就是英文；WebSocket 连接本身带不了请求头，暂不带语言。其余服务端文本逐步迁移。
-- **通知正文与 HTTP 错误 detail 按语言出文（i18n 阶段 3 之三）**：IM / webhook / 桌面通知的标题、正文、链接标签、「已截断」提示和桌面合并弹窗的词（`会话等你回复` / `待批准` / `需要审批` / 会话接管与催办通知 / 新版本通知等）从代码迁入 `internal/i18n`；通知没有请求，语言取所属项目的 `language`，没有项目（新版本通知）用 `server.language`，中文输出逐字不变。HTTP 错误体新增稳定 `code`（有可变部分时带 `params`）：已迁移的错误（runner 传话人 / worker 版本、workbench 会话投递失败、session_approval 拒绝、今天页建议权限、steward 的 agent 检查等）的 `detail` 随请求语言（`Accept-Language`，否则 `server.language`），`error` 短语不变（脚本依赖）；web 优先用 `err.<code>` 字典渲染，找不到再显示服务端 detail。权限预设标签、收集箱名、通知测试消息、tunnel 警告等显示文本同样跟随请求语言。
-- **「今天」页、工作项与会话页的服务端文本按请求语言（i18n 阶段 3 之二）**：「今天」页的卡片（标签、标题、摘要、「占着…」卡住说明、按钮文字）、状态告警、摘要、泳道健康原因，工作项的摘要 / 健康原因 / 请求汇报结果，会话列表与详情的 `resume_message`（及接管计划里的「依据」句）随 `Accept-Language`（否则 `server.language`）出中英文；工作项日志里服务端生成的说明（汇报备注、请求记录、邮件回写、提醒、完成回写、整理结果、作业结果行）、稍后记录与记忆整理的归档原因落库，按项目 / server 语言生成一次，已有的中文历史不回写。中文输出与此前逐字一致。
+- **Web 截图检查脚本 `web/scripts/shots.mjs`**：对代表页及详情页按 4 种宽度 × 2 种主题 × 2 种语言截图，并检查横向溢出、图标过大、标签断行、被重定向与英文界面残留中文（警告），结果写 `report.json`；Playwright 在运行时加载、不是项目依赖，token 只从环境变量读。用法见 `docs/reference/web-console.md`。
+
+### 变更
+
+- **文本语言缺省改为 `auto`（i18n）**：`server.language` 与 `projects.<p>.language` 新增取值 `auto`，**不配置时等同 `auto`**：按 server 所在机器的系统语言选择（中文 → zh-CN，探测不到或不支持 → en）；项目没配则继承 server。`gofer init` 写入 `language: auto`；启动日志与 `gofer config validate` 显示实际语言与来源。**注意**：未配置语言、且 server 机器系统语言不是中文的部署，升级后注入给 agent 的提示词与服务端生成的文本会变成英文；要保持中文请显式写 `language: zh-CN`。
+- 注入给 agent 的提示词（leader 回合提示、计划规则与待办格式、技能清单、可用工具、评论派活、收尾原因、常驻收件会话）改为按项目 / server 语言选择中英两版，中文版内容不变；新增 Go 包级「不得新增中文字面量」守护测试。`plan --check-prompt` 与 `gofer tool api / deliver / stats-backfill / step` 的说明改为中英双语。
 
 ### 修复
 
@@ -28,18 +39,7 @@
 - **job 预览审计修复（gofer-ad2u）**：`gofer job preview ls` 现在能显示内容（列表响应改用 `id/job_id/port/state/expires_at` 等小写字段；创建响应的 `port` 是浏览器访问的预览端口，job 的端口改放 `target_port`）；撤销他人创建的租约需 job 所有者或 `job.manage.others`（此前只要能读该 job）；新增续租 `POST /v1/jobs/{id}/previews/{preview_id}/renew` 与 `gofer job preview renew`；`max_connections`（超出返回 503）与 `idle_timeout_sec`（无流量时关闭连接、租约保留）真正生效；URL 里的 token 改为真正一次性（换取 cookie 后再用 404，cookie 是独立的随机值）；WebSocket 要求 Origin 为该预览自己的 origin（否则 403）；应用响应里带 `Domain` 的 `Set-Cookie` 一律丢弃；创建、续租、撤销、到期、job 终态关闭、server 重启关闭和被拒绝的访问写入审计（不含 token 与 URL）。
 - **每日记忆综合脱敏**：此前先截断再脱敏，横跨长度上限的密钥会留下无法识别的前缀；现在先脱敏再截断。同时补齐此前漏掉的类别：`Authorization: Basic/Bearer/Token …` 头（旧规则要求多一个冒号，几乎不会命中）、裸 `Bearer xxx`、`sk-` / `ghp_` / `github_pat_` / `glpat-` / `xox*-` / `AKIA…` / JWT 形态的裸令牌、argv 里的 `--token xxx` / `--password=xxx`、`api_key`/`my_token` 这类带前后缀的键、JSON 形式的键值、邮件地址，以及未闭合的私钥块。
 - **`mail.agents.<名字>.agent` 在加载配置时校验类型**：常驻收件 agent 指向的 agent 已定义但不是 `acp-agent` 时，配置加载（`gofer config validate` 同样）直接报错并点出 `mail.agents.<名字>.agent`，不再拖到启动常驻会话时失败并反复重试。
-
-### 新增
-
-- **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
-- **定时任务编辑弹窗的 cron 试算**：web「定时任务」编辑弹窗里改 cron 表达式，停手片刻后显示按新表达式的下 5 次运行时间，表达式不合法则显示解析器的错误原话，保存前就能看到结果。新增接口 `POST /v1/schedules/cron-preview`（body `{cron, count?}`，`count` 默认 5、最多 10，返回 `{cron, next_runs}`，表达式不合法 400；只计算不写入，登录即可用）。
-- **服务端生成的显示文本按请求语言（i18n 阶段 3 之一）**：httpapi 解析请求头 `Accept-Language`（按 q 值取第一个认得的语言），认不得或没带时用 `server.language`（未配置即 auto），结果放进请求 context（`i18n.WithLang` / `i18n.FromContext`）；web 的所有请求（API、SSE、附件、换 ws ticket）带上当前界面语言。首个接线的是 `GET /v1/sessions/{sid}/takeover-plan` 的说明文字：web 切到英文就是英文；WebSocket 连接本身带不了请求头，暂不带语言。其余服务端文本逐步迁移。
-- **「今天」页、工作项与会话页的服务端文本按请求语言（i18n 阶段 3 之二）**：「今天」页的卡片（标签、标题、摘要、「占着…」卡住说明、按钮文字）、状态告警、摘要、泳道健康原因，工作项的摘要 / 健康原因 / 请求汇报结果，会话列表与详情的 `resume_message`（及接管计划里的「依据」句）随 `Accept-Language`（否则 `server.language`）出中英文；工作项日志里服务端生成的说明（汇报备注、请求记录、邮件回写、提醒、完成回写、整理结果、作业结果行）、稍后记录与记忆整理的归档原因落库，按项目 / server 语言生成一次，已有的中文历史不回写。中文输出与此前逐字一致。
-
-### 变更
-
-- **文本语言缺省改为 `auto`（i18n）**：`server.language` 与 `projects.<p>.language` 新增取值 `auto`，**不配置时等同 `auto`**：按 server 所在机器的系统语言选择（中文 → zh-CN，探测不到或不支持 → en）；项目没配则继承 server。`gofer init` 写入 `language: auto`；启动日志与 `gofer config validate` 显示实际语言与来源。**注意**：未配置语言、且 server 机器系统语言不是中文的部署，升级后注入给 agent 的提示词与服务端生成的文本会变成英文；要保持中文请显式写 `language: zh-CN`。
-- 注入给 agent 的提示词（leader 回合提示、计划规则与待办格式、技能清单、可用工具、评论派活、收尾原因、常驻收件会话）改为按项目 / server 语言选择中英两版，中文版内容不变；新增 Go 包级「不得新增中文字面量」守护测试。`plan --check-prompt` 与 `gofer tool api / deliver / stats-backfill / step` 的说明改为中英双语。
+- 「现在送」（`POST /v1/sessions/{sid}/held/send`）在没有等待中的消息时返回 409，此前是 500。
 
 ### 移除
 
@@ -54,22 +54,6 @@
 - **`gofer repo init` 对无 agent 限定的旧 prime hook（`gofer repo prime --hook-json`）的原地升级**：不再识别；这类旧 hook 会和新写入的带 `--agent` 的 hook 并存，手工删掉旧的一条即可。
 - 嵌入用的内部接口收窄（不影响命令行与 HTTP 行为）：`ConfigWriter` 必须实现 `ReloadConfigReport`，`serve.Opts.ReloadPath` 删除（用 `CfgPath`），默认语言包装函数 `RenderRefocus` / `RefocusHead` / `PrimePlanLines` / `ExplainReason` 删除（用带语言的 `…In` 形式）。
 
-### 新增
-
-- **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
-- **定时任务编辑弹窗的 cron 试算**：web「定时任务」编辑弹窗里改 cron 表达式，停手片刻后显示按新表达式的下 5 次运行时间，表达式不合法则显示解析器的错误原话，保存前就能看到结果。新增接口 `POST /v1/schedules/cron-preview`（body `{cron, count?}`，`count` 默认 5、最多 10，返回 `{cron, next_runs}`，表达式不合法 400；只计算不写入，登录即可用）。
-- **「今天」页、工作项与会话页的服务端文本按请求语言（i18n 阶段 3 之二）**：「今天」页的卡片（标签、标题、摘要、「占着…」卡住说明、按钮文字）、状态告警、摘要、泳道健康原因，工作项的摘要 / 健康原因 / 请求汇报结果，会话列表与详情的 `resume_message`（及接管计划里的「依据」句）随 `Accept-Language`（否则 `server.language`）出中英文；工作项日志里服务端生成的说明（汇报备注、请求记录、邮件回写、提醒、完成回写、整理结果、作业结果行）、稍后记录与记忆整理的归档原因落库，按项目 / server 语言生成一次，已有的中文历史不回写。中文输出与此前逐字一致。
-
-### 新增
-
-- **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
-- **定时任务编辑弹窗的 cron 试算**：web「定时任务」编辑弹窗里改 cron 表达式，停手片刻后显示按新表达式的下 5 次运行时间，表达式不合法则显示解析器的错误原话，保存前就能看到结果。新增接口 `POST /v1/schedules/cron-preview`（body `{cron, count?}`，`count` 默认 5、最多 10，返回 `{cron, next_runs}`，表达式不合法 400；只计算不写入，登录即可用）。
-
-### 新增
-
-- **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
-- **定时任务编辑弹窗的 cron 试算**：web「定时任务」编辑弹窗里改 cron 表达式，停手片刻后显示按新表达式的下 5 次运行时间，表达式不合法则显示解析器的错误原话，保存前就能看到结果。新增接口 `POST /v1/schedules/cron-preview`（body `{cron, count?}`，`count` 默认 5、最多 10，返回 `{cron, next_runs}`，表达式不合法 400；只计算不写入，登录即可用）。
-
 ## [0.204.0] - 2026-10-30
 
 ### 新增
@@ -81,7 +65,7 @@
 - **工作流执行记录关联来源模板**：从模板提交的执行记录会记下模板名与来源（`template` / `template_source`）；`GET /v1/workflows?template=` 与 `gofer wf ls --template` 按模板过滤；`GET /v1/workflow-templates` 每项附带执行次数与最近一次执行，`gofer wf template ls` 同步显示。
 - **传话类会话附图（gofer-ioa1）**：在执行机上直接启动并登记的终端会话（relay）现在能在 web 聊天里附图：agent 的送达模板配置 `deliver_image_args`（必须含 `{{image}}`）后，附件先放到执行机，再以绝对路径加到送达命令；内置 suga 使用 `--image {{image}}`。会话进程版本过旧（退出码 5）时明确拒绝且不重试。
 - **每日记忆综合 P1（gofer-gah7）**：可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏与预算裁剪，以及运行记录与只读查询接口 `GET /v1/memory-syntheses`；本版本不调用模型。默认关闭。
-- **入站触发内核 P0（gofer-rztq）**：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限、持久幂等、内存限流与审计；尚未开放 HTTP / provider 入口。补齐项：每次派活按 owner 的当前 `job.submit` 权限与 ceiling 准入（撤权立即生效）；`dedup.key` / `Idempotency-Key` 真正用于去重（取不到则至少一次放行），事件号只存哈希；限流改为带 `Retry-After` 计算的令牌桶并与 owner 限额取更严者；过期 receipt 定期清理、中断的 claim 在重投时接管或由 reconciler 结算；审计补 provider / project 字段；`gofer config validate` 列出每个 trigger 的 owner / project / template 与本机不可用原因；`input.message` 暂不支持并在加载时拒绝；owner 的 ceiling 为只读或不含该项目时加载失败。
+- **入站触发内核 P0（gofer-rztq）**：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限、持久幂等、内存限流与审计；尚未开放 HTTP / provider 入口。
 - **能力清单**：新增 `docs/capabilities.md`，按板块列出 gofer 当前能做什么、入口与文档去向。
 
 ### 变更
