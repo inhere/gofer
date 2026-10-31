@@ -11,6 +11,11 @@
 
 ## [未发布]
 
+### 修复
+
+- **hub 的临时检出清扫不再删除 worker 正在跑的 `ref:` 检出**：hub 与 worker 共用同一个仓库目录（如容器 worker 挂载 hub 的检出）但各有自己的 job 库，hub 的定时清扫看不到 worker 的 job 行，把它当成「已被清理的遗留」删掉，运行中的 job 报 `no such file`。现在临时检出会记下创建它的服务（git 管理目录内的 `gofer-owner`，不进工作树），清扫只处理自己创建的或没有记录的旧检出。
+- **交互记录的终态不再被迟到的 pending 覆盖**：job 已结束、已答复，列表里的交互偶发仍显示 `pending`。交互状态只往前走，answered / expired / cancelled 不会被 pending 写回。
+
 ## [0.205.1] - 2026-10-31
 
 ### 修复

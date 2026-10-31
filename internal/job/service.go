@@ -257,6 +257,10 @@ type Service struct {
 	// nowFn yields the current time; overridable in tests.
 	nowFn func() time.Time
 
+	// ownerOnce / owner cache checkoutOwner (the database's instance id).
+	ownerOnce sync.Once
+	owner     string
+
 	// stallTick is how often the AUTO-05 stall watchdog samples a running job's last
 	// output (default defaultStallTick). Overridable in tests so a 1s window can be
 	// observed in test time.

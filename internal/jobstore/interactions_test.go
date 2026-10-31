@@ -233,3 +233,29 @@ func TestConcurrentInteractionUpserts(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, writers*perWriter+1, len(list))
 }
+
+// TestUpsertInteractionStatusIsMonotonic is the gofer-2xaz regression. The job service
+// persists each interaction snapshot outside its lock, so the writer of the earlier
+// `pending` snapshot (create / inject) can land AFTER the answer's (or the job finish's
+// cancel) write; the late `pending` used to overwrite the terminal row and the job listed
+// a done job's interaction as pending. A terminal status is final.
+func TestUpsertInteractionStatusIsMonotonic(t *testing.T) {
+	for _, terminal := range []string{"answered", "expired", "cancelled"} {
+		t.Run(terminal, func(t *testing.T) {
+			s := openTest(t)
+			done := sampleInteraction("i1", "job-1", 1000)
+			done.Status, done.Answer, done.AnsweredAt = terminal, "yes", 1005
+			assert.NoErr(t, s.UpsertInteraction(done))
+
+			// The stale pending snapshot arrives late.
+			assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i1", "job-1", 1000)))
+
+			list, err := s.ListInteractions("job-1")
+			assert.NoErr(t, err)
+			assert.Len(t, list, 1)
+			assert.Eq(t, terminal, list[0].Status)
+			assert.Eq(t, "yes", list[0].Answer)
+			assert.Eq(t, int64(1005), list[0].AnsweredAt)
+		})
+	}
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
@@ -331,4 +332,45 @@ func TestSweepStaleTempCheckoutsKeepsForeignNames(t *testing.T) {
 	if isDir(pruned) {
 		t.Fatalf("leftover of a pruned job %s survived the sweep", pruned)
 	}
+}
+
+// TestSweepSkipsCheckoutOfAnotherServiceLiveJob is the gofer-0eks regression. A hub and a
+// worker that share one checkout (a docker worker bind-mounting the hub's repository) each
+// own a SEPARATE job store: the hub's periodic sweep reads a RUNNING worker job's `ref:`
+// checkout as "generated id, no row here, so a pruned leftover" and deleted it under the job
+// (every test needing <worktree>/tmp/... then failed with "no such file"). The checkout names
+// who created it, and a sweep by anyone else leaves it alone — while the creating service's
+// own sweep still reclaims it once its job is over.
+func TestSweepSkipsCheckoutOfAnotherServiceLiveJob(t *testing.T) {
+	repo, head := gitRepo(t)
+	hub := newWorktreeService(t, repo, t.TempDir())
+	worker := newWorktreeService(t, repo, t.TempDir())
+
+	res, err := worker.Submit(JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "sleep", "60s"), Cwd: ".", TimeoutSec: 120, Ref: head,
+	})
+	if err != nil {
+		t.Fatalf("worker Submit: %v", err)
+	}
+	waitStatus(t, worker, res.ID, wait.Timeout(t, 20*time.Second), StatusRunning)
+	checkout := filepath.Join(repo, filepath.FromSlash(worktreeSubdir), res.ID)
+	if !isDir(checkout) {
+		t.Fatalf("fixture: the worker job's checkout %s is missing", checkout)
+	}
+
+	if n := hub.SweepStaleTempCheckouts(t.Context()); n != 0 {
+		t.Fatalf("the hub's sweep removed %d checkout(s), want 0: it is another service's live job", n)
+	}
+	if !isDir(checkout) {
+		t.Fatal("the hub's sweep deleted a running worker job's checkout")
+	}
+
+	if err := worker.Cancel(res.ID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if _, ok := worker.Wait(res.ID); !ok {
+		t.Fatalf("Wait: job %s not found", res.ID)
+	}
+	assertTempCheckoutGone(t, repo)
 }

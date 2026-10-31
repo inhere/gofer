@@ -593,6 +593,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 				return JobResult{}, ferr
 			}
 			wt, err = prepareTempWorktree(wtCtx, workDir, jobID, req.Ref, wtOpts)
+			if err == nil {
+				s.stampCheckoutOwner(wtCtx, wt.Path)
+			}
 		} else {
 			wt, err = prepareJobWorktree(wtCtx, workDir, jobID, req.WorktreeBase, wtOpts)
 		}
