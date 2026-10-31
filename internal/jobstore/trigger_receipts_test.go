@@ -124,3 +124,25 @@ func TestPruneAndSettleTriggerReceipts(t *testing.T) {
 		t.Fatalf("settle ok=%v err=%v", ok, err)
 	}
 }
+
+func TestListTriggerReceiptsIsNewestFirstAndScopedToTheTrigger(t *testing.T) {
+	s := openTest(t)
+	for i, id := range []string{"a", "b", "c"} {
+		if _, _, err := s.ClaimTriggerReceipt(TriggerReceipt{TriggerName: "push", ExternalEventID: id, RequestID: "r" + id, BodyHash: "h", ReceivedAt: int64(10 + i), ExpiresAt: 1000}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := s.ClaimTriggerReceipt(TriggerReceipt{TriggerName: "other", ExternalEventID: "z", RequestID: "rz", BodyHash: "h", ReceivedAt: 99, ExpiresAt: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.ListTriggerReceipts("push", 0)
+	if err != nil || len(rows) != 3 || rows[0].ExternalEventID != "c" || rows[2].ExternalEventID != "a" {
+		t.Fatalf("rows = %+v err=%v", rows, err)
+	}
+	if rows, _ := s.ListTriggerReceipts("push", 2); len(rows) != 2 {
+		t.Fatalf("limit 2 returned %d", len(rows))
+	}
+	if rows, _ := s.ListTriggerReceipts("nope", 5); len(rows) != 0 {
+		t.Fatalf("unknown trigger returned %+v", rows)
+	}
+}

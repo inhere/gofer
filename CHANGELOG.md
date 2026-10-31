@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **入站触发 HTTP 入口与观测（gofer-rztq）**：`POST /v1/triggers/{name}/invoke`（不走 bearer，HMAC-SHA256(secret, 时间戳 + "\n" + 原始 body)，时间窗外拒绝；202 / 重复 200 / 401 / 403 / 404 / 409 / 429 + `Retry-After` / 503，稳定 `code`，未知与禁用统一 404，响应与日志不含 secret / payload / 签名）；新权限 `trigger.read`（仅根管理员默认持有、不可授予会话、job 凭据拒绝）和只读 `GET /v1/triggers`、`/v1/triggers/{name}`、`/v1/triggers/{name}/deliveries`（secret 只显示变量名与是否已设置，事件号只显示哈希前 16 位）；CLI `gofer tool trigger ls|show|invoke`（invoke 的密钥来自显式环境变量或 stdin）；MCP 只读 `gofer_trigger_list` / `gofer_trigger_show`。触发器仍默认 `enabled: false`，仍只能改配置文件。
+
 ## [0.206.0] - 2026-10-31
 
 ### 新增

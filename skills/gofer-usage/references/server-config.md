@@ -456,9 +456,9 @@ agents:
 - **同目录串行锁**：两个可写 agent job（非只读、非交互）不能同时跑在重叠的目录上（同目录、祖先、子目录都算），后来的停在 `waiting_dir`，FIFO 排队；软链与 Windows 短名会归一化。exec 与只读 job 默认共享；`--exclusive-dir` / `--shared-dir` 单个反转；`--worktree` job 不取锁。
 - **输出停滞**：非交互 job N 秒没有任何输出即杀掉并按瞬时错误处理（自动续投 / 故障转移接管）。顺序 `--stall-timeout` > agent `stall_timeout_sec` > server `stall_timeout_sec`；exec job 默认关，交互 job 恒关；等人作答与 verify 阶段不计时。
 
-## 触发器（P0，文件专属）
+## 触发器（文件专属）
 
-`server.triggers` 是默认关闭的、仅配置文件可写的外部事件派活定义。P0 只提供内核与测试调用 seam，尚未注册 HTTP 或 provider 入口；因此不会因为配置存在而监听新的网络路由。
+`server.triggers` 是默认关闭（`enabled` 缺省 false）、仅配置文件可写的外部事件派活定义。启用的 trigger 通过 `POST /v1/triggers/{name}/invoke` 接收外部请求（HMAC 签名即凭据，不走 bearer），并有脱敏只读视图 `gofer tool trigger ls|show` / `GET /v1/triggers`（需要 `trigger.read`）；一个 trigger 都没启用时 invoke 对任何名字都答 404。HTTP 细节、状态码与签名示例见 `docs/reference/http-api.md`。
 
 ```yaml
 server:
@@ -491,7 +491,9 @@ server:
 - **限流**：令牌桶（`per_minute` + `burst`，未写 `burst` 时容量为 `per_minute`）加 `max_inflight`，并与 owner 的 `rate_limit` / `rate_burst` / `max_concurrent_jobs` 同时生效，取更严者。
 - `input.message` 暂不支持，写了会使配置加载失败；请用 `input.vars` 映射。
 
-触发器 secret 只配置环境变量名，既不写入配置读视图、receipt，也不写入审计；修改文件后用 `gofer config validate` 检查，再 `gofer serve reload` 生效。
+- **自测与观测**：`gofer tool trigger invoke <name> --body event.json --id <事件号> --secret-env <变量名>`（或 `--secret-stdin`）按 trigger 的签名算法发一次请求，不带 gofer token；`gofer tool trigger ls` / `show <name>` 看 owner、项目、模板、限流 / 去重策略、是否可用和最近投递（事件号只显示哈希前 16 位，不显示 payload）。trigger 不是安全边界：外部正文是不可信输入，高风险项目请用只读 / 非 exec 的 owner。
+
+触发器 secret 只配置环境变量名，既不写入配置读视图、receipt，也不写入审计，也不出现在任何响应或日志里；修改文件后用 `gofer config validate` 检查，再 `gofer serve reload` 生效。
 
 ## 事件钩子
 

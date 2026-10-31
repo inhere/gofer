@@ -146,6 +146,31 @@ func (s *Store) GetTriggerReceipt(triggerName, eventID string) (TriggerReceipt, 
 	return r, true, nil
 }
 
+// ListTriggerReceipts returns the newest receipts of one trigger (by received_at, newest
+// first). limit <= 0 means 50; the store never returns more than 500.
+func (s *Store) ListTriggerReceipts(triggerName string, limit int) ([]TriggerReceipt, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := s.db.Query(`SELECT trigger_name,external_event_id,request_id,body_hash,source,received_at,status,job_id,last_error,expires_at FROM trigger_receipts WHERE trigger_name=? ORDER BY received_at DESC, external_event_id LIMIT ?`, triggerName, limit)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list trigger receipts: %w", err)
+	}
+	defer rows.Close()
+	var out []TriggerReceipt
+	for rows.Next() {
+		var r TriggerReceipt
+		if err := rows.Scan(&r.TriggerName, &r.ExternalEventID, &r.RequestID, &r.BodyHash, &r.Source, &r.ReceivedAt, &r.Status, &r.JobID, &r.LastError, &r.ExpiresAt); err != nil {
+			return nil, fmt.Errorf("jobstore: scan trigger receipt: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // PruneTriggerReceipts deletes receipts whose dedup window has passed. A receipt is
 // never deleted before expires_at, so an event inside its window cannot be reinterpreted
 // as a new one; a claimed receipt that expired is deleted too (the reconciler normally

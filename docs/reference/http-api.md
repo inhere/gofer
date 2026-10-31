@@ -454,9 +454,56 @@ The four applicant routes are registered outside the `/v1` auth group (like `/he
 | `429` | rate limit (`per_source_per_min`), a blocked source, or the global pending cap; carries `Retry-After` |
 | `500` | store failure (`detail` is generic) |
 
-## Inbound triggers (`server.triggers`): no HTTP entry yet
+## Inbound triggers (`server.triggers`)
 
-`server.triggers` (file-only configuration, see the server-config reference) currently has **no HTTP route**: there is no `/v1/triggers/...` endpoint, no provider webhook and no read view, so declaring a trigger does not open any network surface. The dispatch core runs in process only; the invoke / management routes arrive with a later phase and will be declared here.
+`server.triggers` (file-only configuration, see the server-config reference) defines fixed "external event -> one job" mappings. An enabled trigger exposes one external route and three redacted read routes; with no trigger configured (or none enabled) the invoke route answers `404` for every name and the read routes list nothing.
+
+### `POST /v1/triggers/{name}/invoke` (external)
+
+Registered **outside** the `/v1` bearer group (declared `NoUserSurface` + `External("trigger secret")`): the sender is some other system's automation with no gofer token, and the trigger's HMAC secret is the whole credential. The job it starts has an empty `caller_id`, channel `trigger`, and `origin_caller` = the trigger's `owner_caller`, so the owner's permissions and ceiling bound it (checked again on every call; revoking the owner's `job.submit` stops the next invocation).
+
+Signature: `sha256=` + hex of `HMAC-SHA256(secret, timestamp + "\n" + raw_body)`, where `timestamp` is the exact text of the timestamp header (Unix seconds) and `raw_body` the request body bytes as sent. Default headers (renamable per trigger with `auth.timestamp_header` / `auth.signature_header`):
+
+```text
+X-Gofer-Trigger-Timestamp: 1730000000
+X-Gofer-Trigger-Signature: sha256=<hex>
+Idempotency-Key: evt-123            # optional external event id (or the header named by dedup.key)
+```
+
+```bash
+body='{"ref":"main"}'
+ts=$(date +%s)
+sig=$(printf '%s\n%s' "$ts" "$body" | openssl dgst -sha256 -hmac "$GOFER_TRIGGER_SECRET" -hex | sed 's/^.* //')
+curl -sS -X POST "http://<server>/v1/triggers/<name>/invoke" \
+  -H "X-Gofer-Trigger-Timestamp: $ts" -H "X-Gofer-Trigger-Signature: sha256=$sig" \
+  -H "Idempotency-Key: evt-123" --data-binary "$body"
+```
+
+`gofer tool trigger invoke` does the same from the CLI. The body must be a JSON object, at most `limits.max_body_bytes`; every request header the trigger reads is at most 4096 bytes.
+
+Success: `202` `{"trigger","request_id","job_id","duplicate":false}`. A repeated external event id with the same body returns `200` with `"duplicate":true`, the original `job_id` and the first delivery's `status` (the sender can stop retrying); an event the owner was permanently refused returns `200` duplicate with no `job_id`.
+
+| Status | `code` | Meaning |
+|---|---|---|
+| `400` | `trigger_body_not_json` / `trigger_body_too_large` / `trigger_header_too_large` / `trigger_input_invalid` / `trigger_event_id_invalid` / `trigger_request_invalid` | body is not a JSON object / over the limit / a header over the limit / a declared input field is missing or too large / external event id longer than 512 bytes / the fixed job the trigger would start is invalid (operator must fix the trigger) |
+| `401` | `trigger_unauthenticated` / `trigger_replay_window` | missing, malformed or wrong signature (or no secret configured on the server) / timestamp outside `replay_window_sec` (past or future) |
+| `403` | `trigger_owner_denied` / `trigger_ceiling_denied` | the owner may not submit jobs now / the owner's ceiling refuses the fixed job |
+| `404` | `trigger_not_found` | unknown **or disabled** trigger, or no trigger engine: one identical answer, produced before the body or signature is looked at, so it does not reveal whether a trigger exists |
+| `409` | `trigger_event_conflict` / `trigger_event_in_flight` | the external event id was used with a different body / the same event is being processed by another request (`Retry-After: 1`) |
+| `429` | `trigger_rate_limited` | per-trigger or owner rate / concurrency limit; carries `Retry-After` (seconds) |
+| `503` | `trigger_unavailable` | any other failure (the reason stays in the server log and audit trail) |
+
+Errors use the standard `{error, detail, code, params}` body; `detail` follows `Accept-Language`. Responses and server logs never contain the payload, the secret, the signature, the raw event id or the rendered prompt; the event id is stored only as a hash.
+
+### Read routes (`trigger.read`)
+
+`trigger.read` is a medium-risk permission held by root administrators and grantable on the permissions page; it cannot be granted to a session, and a **job credential is refused** (`403`, `trigger_read_job_credential`) even though it may read the rest of the GET surface. MCP exposes the same views as read-only `gofer_trigger_list` / `gofer_trigger_show` (same permission, enforced by these routes).
+
+- `GET /v1/triggers` -> `{triggers:[View]}`, configuration order, disabled ones included.
+- `GET /v1/triggers/{name}` -> `View`: `name`, `enabled`, `owner_caller`, `project`, `template`, `provider` (`generic`), `auth` (`kind`, `secret_env`, `secret_configured`, header names, `replay_window_sec`), `dedup` (`key`, `ttl_sec`), `rate`, `limits`, `inputs` (variable -> payload reference), `available` + `issues[]` (`secret_env_unset` / `template_not_found` with the name) and `last_delivery`. The secret appears only as its variable name and whether it is set. Unknown name: `404`.
+- `GET /v1/triggers/{name}/deliveries?limit=N` (default 50, max 500) -> `{trigger, deliveries:[{event_hash, status, job_id, request_id, received_at, error}]}`, newest first. `event_hash` is the first 16 hex characters of the stored hash; `status` is `claimed|submitted|rejected|failed`; deliveries without an external event id are not recorded (no dedup receipt). No payload is shown.
+
+There is no HTTP route that creates, edits, rotates or deletes a trigger: edit the file and `gofer serve reload`.
 
 ## Schedule ownership and trigger tokens
 

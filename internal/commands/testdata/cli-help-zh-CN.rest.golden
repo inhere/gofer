@@ -939,6 +939,38 @@ tool step	help
 tool step	examples	
 tool step	flag dir	工作目录（缺省：当前目录）
 tool step	flag with	JSON 形式的 with: 块（缺省：读标准输入）
+tool trigger	desc	入站触发器：查看（已脱敏）并自测外部 invoke 入口
+tool trigger	help	
+tool trigger	examples	
+tool trigger invoke	desc	给请求体签名并 POST 到触发器的 invoke 入口（自测用；不发送 gofer token）
+tool trigger invoke	help	请求体用触发器的密钥按 HMAC-SHA256 对 "<时间戳>\n<请求体>" 签名。密钥来自你指定的环境变量（--secret-env）或 stdin 的第一行（--secret-stdin），不会从命令行参数取，也不会打印。请求不带 gofer token：签名就是凭据。
+
+  GOFER_TRIGGER_SECRET=... gofer tool trigger invoke source-update --body event.json --id evt-1 --secret-env GOFER_TRIGGER_SECRET
+  printf '%s' "$SECRET" | gofer tool trigger invoke source-update --body event.json --secret-stdin
+tool trigger invoke	examples	
+tool trigger invoke	flag body	JSON 请求体文件（'-' 读 stdin）
+tool trigger invoke	flag config	path to the gofer config file
+tool trigger invoke	flag header	额外请求头 Name=Value（可重复），例如触发器的 dedup.key 或 input.vars 读取的头
+tool trigger invoke	flag id	外部事件号，作为 Idempotency-Key 请求头发送（重复的事件号返回第一次的结果）
+tool trigger invoke	flag secret-env	存放触发器密钥的环境变量名
+tool trigger invoke	flag secret-stdin	从 stdin 第一行读取触发器密钥
+tool trigger invoke	flag server	server address (overrides config server.addr)
+tool trigger invoke	flag signature-header	签名请求头名（触发器的 auth.signature_header）
+tool trigger invoke	flag timestamp-header	时间戳请求头名（触发器的 auth.timestamp_header）
+tool trigger invoke	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tool trigger ls	desc	列出 server 的触发器及其状态、最近一次投递
+tool trigger ls	help	
+tool trigger ls	examples	
+tool trigger ls	flag config	path to the gofer config file
+tool trigger ls	flag server	server address (overrides config server.addr)
+tool trigger ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tool trigger show	desc	查看一个触发器（已脱敏：只显示密钥变量名和是否已设置，不显示值）及其最近的投递
+tool trigger show	help	
+tool trigger show	examples	
+tool trigger show	flag config	path to the gofer config file
+tool trigger show	flag deliveries	列出最近多少条投递（0 为不列）
+tool trigger show	flag server	server address (overrides config server.addr)
+tool trigger show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 tool xfer	desc	Manage staged file transfers
 tool xfer	help	
 tool xfer	examples	

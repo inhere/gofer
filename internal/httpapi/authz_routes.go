@@ -251,6 +251,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/jobs/{id}/attach":            {user: NoUserSurface(), external: "attach ticket", scope: Resource("job"), rw: Mutating()},
 	"GET /v1/ws":                          {user: NoUserSurface(), external: "ws ticket", scope: NoProject()},
 	"POST /v1/schedules/{id}/trigger":     {user: NoUserSurface(), external: "trigger_token", scope: Resource("schedule")},
+	"POST /v1/triggers/{name}/invoke":     {user: NoUserSurface(), external: "trigger secret", scope: NoProject()},
 	"POST /v1/push/actions":               {user: NoUserSurface(), external: "push action token", scope: NoProject()},
 	"POST /v1/worker-enroll":              {user: NoUserSurface(), external: "none", scope: NoProject()},
 	"GET /v1/worker-enroll/{id}":          {user: NoUserSurface(), external: "enroll secret", scope: NoProject()},
@@ -780,6 +781,12 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/config/reload":         {user: Require(authz.PermConfigWrite), scope: NoProject()},
 	"GET /v1/mcp-servers":            {user: Require(authz.PermConfigRead), scope: NoProject()},
 	"GET /v1/mcp-servers/{name}":     {user: Require(authz.PermConfigRead), scope: NoProject()},
+	// Inbound triggers (design 2026-10-28-trigger-design.md 3.3): the redacted views are a
+	// trigger.read of their own (medium risk, never granted to a session). A job credential
+	// is refused in the handler (jobcredential reads pass the whole GET surface).
+	"GET /v1/triggers":                   {user: Require(authz.PermTriggerRead), scope: NoProject()},
+	"GET /v1/triggers/{name}":            {user: Require(authz.PermTriggerRead), scope: NoProject()},
+	"GET /v1/triggers/{name}/deliveries": {user: Require(authz.PermTriggerRead), scope: NoProject()},
 	// Extension settings: reading is seeded to `users`, writing is not. Both are
 	// server-global (the keys change the whole deployment), so a restricted caller keeps
 	// the read and the ceiling gate refuses its write.

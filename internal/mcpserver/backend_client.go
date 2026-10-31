@@ -12,6 +12,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/template"
+	"github.com/inhere/gofer/internal/trigger"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -45,6 +46,14 @@ func (b *clientBackend) ListTemplates(project string) ([]template.Info, error) {
 
 func (b *clientBackend) ListRefs(kind, id string) ([]client.Ref, error) {
 	return b.cli.ListRefs(kind, id)
+}
+
+func (b *clientBackend) ListTriggers() ([]trigger.View, error) { return b.cli.ListTriggers() }
+
+func (b *clientBackend) GetTrigger(name string) (trigger.View, error) { return b.cli.GetTrigger(name) }
+
+func (b *clientBackend) TriggerDeliveries(name string, limit int) ([]trigger.DeliveryView, error) {
+	return b.cli.TriggerDeliveries(name, limit)
 }
 
 func (b *clientBackend) GetJob(id string) (job.JobResult, error) {

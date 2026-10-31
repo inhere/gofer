@@ -276,6 +276,11 @@ func newServer(b Backend, scoped string) *mcp.Server {
 
 	registerScopedMemoryTools(s, b)
 	registerBriefTools(s, b)
+	// Inbound trigger views are an operator concern (trigger.read); a project-scoped MCP
+	// does not register them.
+	if scoped == "" {
+		registerTriggerTools(s, b)
+	}
 	registerMemoryCandidateTools(s, b) // gofer-3nxa.2 knowledge candidates
 	registerWorkTools(s, b, scoped)
 

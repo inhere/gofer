@@ -93,6 +93,10 @@ var registry = []Tool{
 	// Wakeups.
 	{Name: "gofer_wakeup_list", Class: ReadOnly},
 
+	// Inbound triggers (redacted views).
+	{Name: "gofer_trigger_list", Class: ReadOnly},
+	{Name: "gofer_trigger_show", Class: ReadOnly},
+
 	// Memories.
 	{Name: "gofer_memory_list", Class: ReadOnly},
 	{Name: "gofer_memory_get", Class: ReadOnly},

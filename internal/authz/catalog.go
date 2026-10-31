@@ -270,6 +270,7 @@ const (
 	PermMcpTest       = "mcp.test"
 	PermSettingsRead  = "settings.read"
 	PermSettingsWrite = "settings.write"
+	PermTriggerRead   = "trigger.read"
 	PermConfigWrite   = "config.write"
 	PermProjectWrite  = "project.write"
 	PermRulesWrite    = "rules.write"
@@ -478,6 +479,11 @@ var catalog = []Permission{
 		Name: PermSettingsWrite, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceRoot,
 		Description: "写扩展设置（PUT / DELETE 单个键、导入）：提示词、阈值与排除名单；每次写入记审计",
+	},
+	{
+		Name: PermTriggerRead, Risk: RiskMedium, SessionGrantable: false,
+		Scope: ScopeNo, Source: SourceRoot,
+		Description: "读入站触发器的脱敏视图（`GET /v1/triggers`、单个触发器、投递记录；MCP `gofer_trigger_list` / `gofer_trigger_show`）：名称、owner、项目、模板、限流 / 去重策略与最近状态，不含密钥与 payload；job 凭据不可读",
 	},
 	{
 		Name: PermConfigWrite, Risk: RiskDangerous, SessionGrantable: false,
