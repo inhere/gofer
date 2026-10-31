@@ -302,3 +302,12 @@ issue `gofer-rztq` 在本工作区关联的 tracker / 本机 `gofer issue show` 
 - **崩溃恢复**：receipt 保存首次 request id，job 层按 request id 幂等；重投时 `failed` 或超过 claim 超时的 `claimed` 由单条条件 UPDATE 接管并复用该 request id；reconciler 只能查「是否已建 job」（receipt 不保存 payload，无法重建请求）：已建则标 submitted，否则标 failed 等待重投。永久拒绝（ceiling / 无效请求 / owner 失效）标 rejected，重投返回原结果。
 - **事件号**：receipt 主键与审计都只存 `sha256(trigger \0 event_id)`（审计截断 16 位）。
 - `input.message` 不实现，配置里出现即加载失败。
+
+### P1a 实施记录（generic HTTP 与观测，TRG1a）
+
+- **路由**：`POST /v1/triggers/{name}/invoke` 注册在 `/v1` bearer 组之外，声明 `NoUserSurface` + `External("trigger secret")`；`GET /v1/triggers`、`/{name}`、`/{name}/deliveries` 声明 `Require(trigger.read)`。`trigger.read`：中风险、不可授予会话、`SourceRoot`（仅根管理员默认持有，可由权限页授予）、不种入；`go generate` 已更新 `docs/reference/permissions.md`。
+- **分层**：`internal/httpapi/trigger_handler.go` 只做绑定与状态码映射（读受限 body、收集白名单请求头、`errors.Is` 映射到稳定 `code`，文案在 `err.ini` 中英）；验签、时间窗、去重、限流、owner 准入、派活仍全在 `internal/trigger`。trigger 包新增：`Sign`（算法唯一出处，VerifyHMAC / CLI / 测试共用）、`Endpoint` / `CollectHeaders`（body 与请求头大小上限、只收集该 trigger 读取的头）、脱敏视图 `View` / `DeliveryView`（`List` / `Show` / `Deliveries`，HTTP 与 MCP 共用同一份）、错误哨兵 `ErrBodyNotJSON` / `ErrInvalidInput` / `ErrHeaderTooLarge`、随机 request id（job 层把它当幂等键，原来的纳秒时间戳在并发下可能撞号）。`jobstore` 增加 `ListTriggerReceipts`（只读，用主键前缀，不改 schema）。
+- **存在性**：未知、已禁用、server 没装 engine 三种情况在读 body / 验签之前答同一个 `404 trigger_not_found`；读路由对已配置但禁用的 trigger 照常显示（需要 `trigger.read`）。job 凭据按 SEC-01 可读全部 GET，因此读路由在 handler 里显式拒绝 job 凭据（`trigger_read_job_credential`）。
+- **CLI / MCP**：`gofer tool trigger ls|show|invoke`（invoke 的密钥只来自 `--secret-env` 命名的环境变量或 `--secret-stdin`，不回显，请求不带 gofer token；`--header` / `--timestamp-header` / `--signature-header` 用于 `dedup.key` 引用请求头或自定义头名的 trigger）；MCP 只读 `gofer_trigger_list` / `gofer_trigger_show`（operator 会话才注册，经 HTTP 读路由，所以权限与 job 凭据拒绝只有一份实现；独立 MCP 的 local backend 报 needs-server）。
+- **已知限制**：exec agent 需要 `cmd`，而任务书模板与 trigger 都不能提供 `cmd`（外部值不得填命令），所以 trigger 只能驱动 cli-agent / ACP 类 agent；deliveries 只记录有外部事件号的请求（无事件号的请求本来就不去重）。
+- **留给 TRG1b**：`Engine.Invoke` 目前把认证写死为 generic HMAC；GitHub 兼容 provider 需要把「认证 + 事件号提取 + 事件过滤 + 变量白名单」抽成 provider 适配器接口（请求 `Provider` 字段、`ExternalEventID` 由适配器优先提供、审计 `Provider` 字段均已就位），`Endpoint.Headers` 要并入 provider 的头（`X-Hub-Signature-256` / `X-GitHub-Delivery` / `X-GitHub-Event`），`View.Provider` 目前恒为 `generic`。

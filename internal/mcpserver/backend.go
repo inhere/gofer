@@ -8,6 +8,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/today"
+	"github.com/inhere/gofer/internal/trigger"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -119,6 +120,11 @@ type Backend interface {
 	Comment(scope, id, body, asJob string) (commentView, error)
 	ListComments(scope, id string) ([]commentView, error)
 	ListRefs(kind, id string) ([]client.Ref, error)
+	// Inbound triggers (gofer_trigger_list / gofer_trigger_show): the redacted views of
+	// GET /v1/triggers. They need a running server (trigger.read is judged there).
+	ListTriggers() ([]trigger.View, error)
+	GetTrigger(name string) (trigger.View, error)
+	TriggerDeliveries(name string, limit int) ([]trigger.DeliveryView, error)
 	// W1 work items (gofer_work_*) and the read-only session view (gofer_session_*). The
 	// work methods return the work package's view types (both ends share them); the
 	// session ones return the mcpserver view because local (jobstore) and client

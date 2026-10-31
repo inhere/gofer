@@ -6,6 +6,7 @@ package trigger
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -30,6 +31,13 @@ var (
 	// ErrEventInFlight: the same event is being handled by another request right now. The
 	// sender should retry later; no job id exists yet.
 	ErrEventInFlight = errors.New("trigger event is already being processed")
+	// ErrBodyNotJSON: the body is not a JSON object.
+	ErrBodyNotJSON = errors.New("trigger body must be a JSON object")
+	// ErrInvalidInput: a declared input variable is missing or too large. The error text
+	// names the variable, never its value.
+	ErrInvalidInput = errors.New("trigger input is invalid")
+	// ErrHeaderTooLarge: a header the trigger reads is longer than MaxHeaderValueBytes.
+	ErrHeaderTooLarge = errors.New("trigger header exceeds limit")
 )
 
 // RateLimitedError is the 429 case. RetryAfter is what a Retry-After header is made of.
@@ -203,7 +211,7 @@ func (e *Engine) Invoke(ctx context.Context, req TriggerRequest) (Result, error)
 	}
 	if req.Payload == nil {
 		if err := json.Unmarshal(req.RawBody, &req.Payload); err != nil {
-			return out, fmt.Errorf("trigger body must be JSON: %w", err)
+			return out, ErrBodyNotJSON
 		}
 	}
 	eventID, err := ExternalEventID(*tc, req)
@@ -225,7 +233,7 @@ func (e *Engine) Invoke(ctx context.Context, req TriggerRequest) (Result, error)
 	}
 	defer release()
 	if req.RequestID == "" {
-		req.RequestID = fmt.Sprintf("trigger-%d", e.now().UnixNano())
+		req.RequestID = newRequestID()
 	}
 	out.RequestID = req.RequestID
 	e.writeAudit("trigger.received", *tc, req, "", nil)
@@ -322,6 +330,16 @@ func (e *Engine) claim(tc config.TriggerConfig, req *TriggerRequest, out *Result
 	return false, nil
 }
 
+// newRequestID makes a request id that is unique per request: the job layer treats it as
+// an idempotency key, so two requests must never share one.
+func newRequestID() string {
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("trigger-%d", time.Now().UnixNano())
+	}
+	return "trigger-" + hex.EncodeToString(b[:])
+}
+
 // permanent reports whether a submit error will repeat on redelivery.
 func permanent(err error) bool {
 	return errors.Is(err, ErrOwnerDenied) || errors.Is(err, job.ErrCeilingDenied) ||
@@ -395,13 +413,24 @@ func VerifyHMAC(tc config.TriggerConfig, body []byte, headers map[string]string,
 	if err != nil {
 		return ErrUnauthenticated
 	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(timestamp + "\n"))
-	_, _ = mac.Write(body)
-	if !hmac.Equal(decoded, mac.Sum(nil)) {
+	if !hmac.Equal(decoded, signMAC(secret, timestamp, body)) {
 		return ErrUnauthenticated
 	}
 	return nil
+}
+
+func signMAC(secret, timestamp string, body []byte) []byte {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(timestamp + "\n"))
+	_, _ = mac.Write(body)
+	return mac.Sum(nil)
+}
+
+// Sign returns the signature header value of the generic scheme: "sha256=" followed by the
+// hex HMAC-SHA256 of timestamp + "\n" + body, with timestamp the exact header text. It is the
+// one place the algorithm is written, shared by VerifyHMAC, the CLI self-test and tests.
+func Sign(secret, timestamp string, body []byte) string {
+	return "sha256=" + hex.EncodeToString(signMAC(secret, timestamp, body))
 }
 func header(h map[string]string, name string) string {
 	for k, v := range h {
@@ -427,14 +456,14 @@ func resolveVars(tc config.TriggerConfig, req TriggerRequest) (map[string]string
 	for name, ref := range tc.Input.Vars {
 		value, ok := lookup(ref, req)
 		if !ok {
-			return nil, fmt.Errorf("trigger input %q is missing", name)
+			return nil, fmt.Errorf("%w: %q is missing", ErrInvalidInput, name)
 		}
 		raw, err := stringify(value)
 		if err != nil {
 			return nil, err
 		}
 		if maxVar > 0 && len(raw) > maxVar {
-			return nil, fmt.Errorf("trigger variable %q exceeds limit", name)
+			return nil, fmt.Errorf("%w: %q exceeds limit", ErrInvalidInput, name)
 		}
 		out[name] = raw
 	}

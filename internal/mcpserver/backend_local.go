@@ -21,6 +21,7 @@ import (
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/tracker"
+	"github.com/inhere/gofer/internal/trigger"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -122,6 +123,16 @@ func (b *localBackend) ListRefs(kind, id string) ([]client.Ref, error) {
 	}
 	return out, nil
 }
+func (b *localBackend) ListTriggers() ([]trigger.View, error) { return nil, errNeedsServer }
+
+func (b *localBackend) GetTrigger(string) (trigger.View, error) {
+	return trigger.View{}, errNeedsServer
+}
+
+func (b *localBackend) TriggerDeliveries(string, int) ([]trigger.DeliveryView, error) {
+	return nil, errNeedsServer
+}
+
 func (b *localBackend) RunJob(req job.JobRequest) (job.JobResult, error) {
 	if req.SourceSessionID != "" {
 		return job.JobResult{}, fmt.Errorf("source_session_id requires an authenticated HTTP backend; local MCP has no authenticated caller context")

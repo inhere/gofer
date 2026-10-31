@@ -61,6 +61,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `mcp.test` | 测试 MCP server 连接（会在 server 上起进程） | 中 | 否 | 否 | 种入 |
 | `settings.read` | 读取扩展设置（`GET /v1/settings`、单个键、导出）：键表、默认值、当前值、说明 | 低 | 是 | 是 | 种入 |
 | `settings.write` | 写扩展设置（PUT / DELETE 单个键、导入）：提示词、阈值与排除名单；每次写入记审计 | 中 | 否 | 是 | 仅根 |
+| `trigger.read` | 读入站触发器的脱敏视图（`GET /v1/triggers`、单个触发器、投递记录；MCP `gofer_trigger_list` / `gofer_trigger_show`）：名称、owner、项目、模板、限流 / 去重策略与最近状态，不含密钥与 payload；job 凭据不可读 | 中 | 否 | 否 | 仅根 |
 | `config.write` | 写配置（含 steward / work）、校验、重载 | 危险 | 否 | 否 | 配置 |
 | `project.write` | 项目增删改 | 危险 | 否 | 否 | 配置 |
 | `rules.write` | 规则库写入 | 危险 | 否 | 否 | 配置 |
@@ -381,6 +382,10 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/tracker/repos/{tracker_id}/rename` | `Require` | `tracker.sync` | `job` | `Resource(tracker_repo)` | 写 |
 | `POST` | `/v1/tracker/repos/{tracker_id}/sync` | `Require` | `tracker.sync` | — | `Resource(tracker_repo)` | 写 |
 | `POST` | `/v1/tracker/sync` | `Require` | `tracker.sync` | `job` | `Resource(tracker_repo)` | 写 |
+| `GET` | `/v1/triggers` | `Require` | `trigger.read` | — | `NoProject` | 读 |
+| `GET` | `/v1/triggers/{name}` | `Require` | `trigger.read` | — | `NoProject` | 读 |
+| `GET` | `/v1/triggers/{name}/deliveries` | `Require` | `trigger.read` | — | `NoProject` | 读 |
+| `POST` | `/v1/triggers/{name}/invoke` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 写 |
 | `GET` | `/v1/tunnels` | `Public` | — | — | `NoProject` | 读 |
 | `GET` | `/v1/tunnels/connect` | `InHandler(deny)` | `tunnel.open` | `自身凭据` | `NoProject` | 写（Mutating） |
 | `GET` | `/v1/tunnels/forwarders` | `Public` | — | — | `NoProject` | 读 |

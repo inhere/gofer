@@ -218,6 +218,9 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_issue_list":          false,
 		"gofer_issue_get":           false,
 		"gofer_refs":                false,
+		// Inbound trigger views (2 read-only tools).
+		"gofer_trigger_list": false,
+		"gofer_trigger_show": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {

@@ -75,6 +75,7 @@ var addedRows = []struct {
 	{PermJobReview, designRow{PermJobReviewOthers, RiskMedium, false, ScopeYes, SourceSeed, SeedV2}},
 	{PermMcpTest, designRow{PermSettingsRead, RiskLow, true, ScopeYes, SourceSeed, SeedV3}},
 	{PermMcpTest, designRow{PermSettingsWrite, RiskMedium, false, ScopeYes, SourceRoot, NotSeeded}},
+	{PermMcpTest, designRow{PermTriggerRead, RiskMedium, false, ScopeNo, SourceRoot, NotSeeded}},
 }
 
 // expectedCatalog returns the design table with addedRows spliced in where the catalog puts
@@ -151,7 +152,7 @@ func TestPermissionConstantsMatchCatalog(t *testing.T) {
 		PermTunnelOpen, PermTunnelHosted, PermTunnelManageOthers,
 		PermXferWrite, PermXferManageOthers, PermSecretScanAll,
 		PermUpdateCheck, PermUpdateApply, PermWorkerUpgrade, PermWorkerUpgradeUpload,
-		PermWorkerManage, PermConfigRead, PermMcpTest, PermSettingsRead, PermSettingsWrite,
+		PermWorkerManage, PermConfigRead, PermMcpTest, PermSettingsRead, PermSettingsWrite, PermTriggerRead,
 		PermConfigWrite, PermProjectWrite,
 		PermRulesWrite, PermSkillsWrite, PermAuthManage,
 	}

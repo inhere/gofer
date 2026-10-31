@@ -95,6 +95,9 @@ var registry = []Tool{
 
 	// Job previews (the list never carries the URL).
 	{Name: "gofer_job_preview_list", Class: ReadOnly},
+	// Inbound triggers (redacted views).
+	{Name: "gofer_trigger_list", Class: ReadOnly},
+	{Name: "gofer_trigger_show", Class: ReadOnly},
 
 	// Memories.
 	{Name: "gofer_memory_list", Class: ReadOnly},

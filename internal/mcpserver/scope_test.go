@@ -67,9 +67,9 @@ func TestScopedToolRegistration(t *testing.T) {
 		t.Fatalf("scoped MCP: the mailbox crosses sessions (absent): %+v", sc)
 	}
 	// plan authoring (2), session ask (1), session topic tools (2), the mailbox (8) and
-	// wait / screen (2).
-	if len(sc) != len(op)-15 {
-		t.Fatalf("scoped tool count = %d, want operator(%d)-15", len(sc), len(op))
+	// wait / screen (2) and the inbound trigger views (2).
+	if len(sc) != len(op)-17 {
+		t.Fatalf("scoped tool count = %d, want operator(%d)-17", len(sc), len(op))
 	}
 	// 放行类 (by-id / list) tools stay registered under scope.
 	for _, n := range []string{"gofer_get_job", "gofer_get_plan", "gofer_run_job", "gofer_list_projects"} {

@@ -1177,6 +1177,10 @@ func (s *Server) buildRouter() *rux.Router {
 	// this route is registered OUTSIDE the /v1 auth group — exactly like the WS and
 	// attach paths above. The handler does its own constant-time token check.
 	r.POST("/v1/schedules/{id}/trigger", s.handleScheduleTrigger)
+	// Inbound trigger (design 2026-10-28-trigger-design.md 3.3): the sender is some other
+	// system's automation with no gofer bearer; the trigger's HMAC secret is the credential,
+	// checked inside internal/trigger. Outside the /v1 auth group for the same reason.
+	r.POST("/v1/triggers/{name}/invoke", s.handleTriggerInvoke)
 	r.POST("/v1/push/actions", s.handlePushAction)
 	// Worker self-enrollment: the applicant has no gofer credential yet, so these four routes
 	// sit OUTSIDE the /v1 auth group like the schedule trigger above; the per-request enroll
@@ -1303,6 +1307,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/mcp-servers", s.handleListMCPServers)
 		r.GET("/mcp-servers/{name}", s.handleGetMCPServer)
 		r.POST("/mcp-servers/{name}/test", s.handleTestMCPServer)
+		// Inbound triggers: redacted read views (trigger.read; a job credential is refused).
+		r.GET("/triggers", s.handleTriggerList)
+		r.GET("/triggers/{name}", s.handleTriggerGet)
+		r.GET("/triggers/{name}/deliveries", s.handleTriggerDeliveries)
 		r.POST("/skills/import", s.handleImportSkill)
 		r.GET("/skills/{name}", s.handleGetSkill)
 		r.POST("/skills/{name}/update", s.handleUpdateSkill)

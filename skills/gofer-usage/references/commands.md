@@ -287,6 +287,8 @@ gofer tool xfer ls | show <id> | rm <id>                 # 传输暂存区
 gofer tool cert [--out-dir <dir>] --hosts <DNS或IP,…>     # 本地 CA + HTTPS 证书
 gofer tool stats-backfill [--since 30d] [--force]        # 给老 job 补算 Dashboard 指标（管理员）
 gofer tool hook-test <name> [--point job.submit|job.deliver] [--input sample.json]   # 用样例输入试跑一个决策 hook（本机配置，不提交任何东西）
+gofer tool trigger ls | show <name> [-n 5]               # 入站触发器的脱敏视图与最近投递（需要 trigger.read；也可用 MCP gofer_trigger_list / gofer_trigger_show）
+gofer tool trigger invoke <name> --body <file|-> [--id <事件号>] (--secret-env <变量名> | --secret-stdin) [-H Name=Value]…   # 给请求体签名并调 invoke 入口自测（密钥不进参数、不回显）
 gofer tool api [-X METHOD] <path> [-f key=value]… [-F key=@file]… [--input file|-] [-q <路径>] [-i]   # 直接调 server 的 HTTP API
 ```
 

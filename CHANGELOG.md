@@ -14,6 +14,7 @@
 ### 新增
 
 - **job 预览的 MCP 工具与 web 入口（job-preview P3）**：新增 MCP 工具 `gofer_job_preview_create` / `gofer_job_preview_list` / `gofer_job_preview_revoke` / `gofer_job_preview_renew`，与 HTTP 接口对齐并返回结构化字段；创建的一次性 URL 只出现在 create 的工具结果里，不进 list、日志或错误文案；权限同 HTTP（job 凭据创建 / 撤销 / 续租被拒），错误文案按 MCP 的语言出。web job 详情「概览」新增「预览」块：创建（端口、有效期）、列表（状态、到期、截断的 host:端口，不显示 token）、续租、撤销（二次确认）、在新标签页打开创建时返回的一次性 URL（只在内存里，不写 localStorage、不加 Bearer）。
+- **入站触发 HTTP 入口与观测（gofer-rztq）**：`POST /v1/triggers/{name}/invoke`（不走 bearer，HMAC-SHA256(secret, 时间戳 + "\n" + 原始 body)，时间窗外拒绝；202 / 重复 200 / 401 / 403 / 404 / 409 / 429 + `Retry-After` / 503，稳定 `code`，未知与禁用统一 404，响应与日志不含 secret / payload / 签名）；新权限 `trigger.read`（仅根管理员默认持有、不可授予会话、job 凭据拒绝）和只读 `GET /v1/triggers`、`/v1/triggers/{name}`、`/v1/triggers/{name}/deliveries`（secret 只显示变量名与是否已设置，事件号只显示哈希前 16 位）；CLI `gofer tool trigger ls|show|invoke`（invoke 的密钥来自显式环境变量或 stdin）；MCP 只读 `gofer_trigger_list` / `gofer_trigger_show`。触发器仍默认 `enabled: false`，仍只能改配置文件。
 
 ### 变更
 
