@@ -294,3 +294,11 @@ issue `gofer-rztq` 在本工作区关联的 tracker / 本机 `gofer issue show` 
 - `internal/trigger` 提供 provider-neutral `TriggerRequest`、HMAC-SHA256 + timestamp 认证、受限变量解析、owner ceiling 派活请求构造、内存限流和测试调用 seam；未注册 HTTP/provider 路由。
 - `internal/jobstore` 增加 `trigger_receipts` 基础 schema、原子 claim / 状态更新与脱敏审计写入；不改变既有 job schema，旧库可由基础 schema安全升级。
 - 更新 server 配置 reference、HTTP API 的 P0 边界说明和未发布 CHANGELOG；P1 路由与权限目录尚未实施。
+
+### P0 补齐（b33-b2）
+
+- **owner 准入**：`trigger.Admission`（`internal/trigger/admission.go`）按 owner 当前有效权限判定 `job.submit`（权限函数由 serve 注入 `httpapi.Server.CallerHasPermission`，含 DB 授权），并要求 owner 仍为已声明的非 root caller；固定请求先经 `job.Service.PreflightFixedRequest`（渲染模板后做 ceiling / 项目 / agent / runner 校验，无副作用）再认领 receipt，`Submit` 时再检查一次。serve 用 `trigger.NewServerEngine` 组装并 `SetTriggerEngine`，仍无 HTTP 路由。
+- **reload 校验的取舍**：只依赖配置文件的事实（owner 声明 / 非 root / ceiling 只读 / ceiling 项目）在加载时失败；依赖本机环境的事实（`secret_env` 变量、模板文件）做成「不可用 + 原因」（`Config.TriggerStatuses`），由 `config validate` 与 serve 启动日志展示，避免没有服务端密钥的 CLI 机器因加载失败整体不可用；运行时不可用的 trigger 拒绝所有请求（无 secret 则认证失败，无模板则预检失败）。
+- **崩溃恢复**：receipt 保存首次 request id，job 层按 request id 幂等；重投时 `failed` 或超过 claim 超时的 `claimed` 由单条条件 UPDATE 接管并复用该 request id；reconciler 只能查「是否已建 job」（receipt 不保存 payload，无法重建请求）：已建则标 submitted，否则标 failed 等待重投。永久拒绝（ceiling / 无效请求 / owner 失效）标 rejected，重投返回原结果。
+- **事件号**：receipt 主键与审计都只存 `sha256(trigger \0 event_id)`（审计截断 16 位）。
+- `input.message` 不实现，配置里出现即加载失败。

@@ -477,6 +477,14 @@ server:
 
 认证使用 `HMAC-SHA256(secret, timestamp + "\\n" + 原始 body)`，签名头为 `sha256=<hex>`；时间戳必须在窗口内。`input.vars` 只允许 `body.<字段>`、`header.<名称>`、`message.<字段>` 引用。外部请求不能选择项目、模板、agent、runner 或命令；派活使用空 `CallerID`、`owner_caller` 作为 `OriginCaller`，所以 owner 的 ceiling 仍是硬上限。相同 trigger 与外部事件号由 SQLite receipt 持久去重，body 不同会拒绝。
 
+启动与 reload 之外的行为（P0）：
+
+- **owner 准入**：每次派活都按 owner 的**当前**有效权限判定（需要 `job.submit`，且 owner 必须仍是已声明的非 root caller），再把固定请求（项目 / 模板展开后的 agent / runner）交给 owner 的 ceiling 校验；owner 被撤权或 ceiling 收紧后，下一次触发就被拒绝（不消耗去重名额）。`owner_caller` 的 ceiling 为 `read_only`，或 `projects` 不含该 trigger 的项目，配置加载直接失败。
+- **本机可用性**：`gofer config validate` 对每个 trigger 列出 owner / project / template；启用的 trigger 若 `secret_env` 变量未设置或模板找不到，标 WARN 并说明原因（只告警不使加载失败，因为 validate 可能跑在没有这些密钥的机器上；运行时这样的 trigger 会拒绝所有请求）。
+- **去重键**：`dedup.key`（`header.<名>` / `body.<路径>`）取外部事件号，其次取请求头 `Idempotency-Key`；都取不到就不去重（至少一次投递）。事件号只以哈希存入 receipt 与审计。receipt 超过 `dedup.ttl_sec` 后被定期清理；处理中途崩溃（`claimed` 超过 5 分钟）或暂时失败的事件，在重投时接管并用同一 request id 重新提交（job 层按 request id 幂等，不会双投）；被 ceiling / 权限永久拒绝的事件重投返回原结果。
+- **限流**：令牌桶（`per_minute` + `burst`，未写 `burst` 时容量为 `per_minute`）加 `max_inflight`，并与 owner 的 `rate_limit` / `rate_burst` / `max_concurrent_jobs` 同时生效，取更严者。
+- `input.message` 暂不支持，写了会使配置加载失败；请用 `input.vars` 映射。
+
 触发器 secret 只配置环境变量名，既不写入配置读视图、receipt，也不写入审计；修改文件后用 `gofer config validate` 检查，再 `gofer serve reload` 生效。
 
 ## 事件钩子

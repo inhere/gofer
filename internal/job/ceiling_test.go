@@ -2,6 +2,8 @@ package job
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
@@ -324,5 +326,39 @@ func TestCeilingOwnersCollectsEveryOwner(t *testing.T) {
 	}
 	if got := ceilingOwners(JobRequest{}); len(got) != 0 {
 		t.Fatalf("no owner: %v, want none", got)
+	}
+}
+
+// TestPreflightFixedRequest: the side-effect-free check a trigger runs before it claims an
+// event renders the template and judges the owner's ceiling on what the template decided.
+func TestPreflightFixedRequest(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	s := newTestService(t, root)
+	dir := filepath.Join(root, ".gofer", "templates")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tpl.md"), []byte("---\nagent: exec\nrunner: local\n---\nrun\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	req := JobRequest{ProjectKey: "self", Template: "tpl", Channel: "trigger", OriginCaller: "bot", Cmd: []string{"true"}}
+	if err := s.PreflightFixedRequest(req); err != nil {
+		t.Fatalf("no ceiling: %v", err)
+	}
+	if err := s.PreflightFixedRequest(JobRequest{ProjectKey: "self", Template: "missing"}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("unknown template: %v", err)
+	}
+	// A ceiling that excludes the template's agent refuses before anything exists.
+	s.config().Server.Callers = []config.CallerConfig{{ID: "bot", Ceiling: &config.CallerCeiling{Agents: []string{"claude"}, Runners: []string{"local"}}}}
+	if err := s.PreflightFixedRequest(req); !errors.Is(err, ErrCeilingDenied) {
+		t.Fatalf("agent ceiling: %v", err)
+	}
+	s.config().Server.Callers = []config.CallerConfig{{ID: "bot", Ceiling: &config.CallerCeiling{Projects: []string{"other"}, Runners: []string{"local"}}}}
+	if err := s.PreflightFixedRequest(req); !errors.Is(err, ErrCeilingDenied) {
+		t.Fatalf("project ceiling: %v", err)
+	}
+	if all, _ := s.ListJobs(ListOpts{Project: "self"}); len(all) != 0 {
+		t.Fatalf("preflight created %d job(s)", len(all))
 	}
 }

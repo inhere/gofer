@@ -30,7 +30,7 @@
 - **工作流执行记录关联来源模板**：从模板提交的执行记录会记下模板名与来源（`template` / `template_source`）；`GET /v1/workflows?template=` 与 `gofer wf ls --template` 按模板过滤；`GET /v1/workflow-templates` 每项附带执行次数与最近一次执行，`gofer wf template ls` 同步显示。
 - **传话类会话附图（gofer-ioa1）**：在执行机上直接启动并登记的终端会话（relay）现在能在 web 聊天里附图：agent 的送达模板配置 `deliver_image_args`（必须含 `{{image}}`）后，附件先放到执行机，再以绝对路径加到送达命令；内置 suga 使用 `--image {{image}}`。会话进程版本过旧（退出码 5）时明确拒绝且不重试。
 - **每日记忆综合 P1（gofer-gah7）**：可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏与预算裁剪，以及运行记录与只读查询接口 `GET /v1/memory-syntheses`；本版本不调用模型。默认关闭。
-- **入站触发内核 P0（gofer-rztq）**：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限、持久幂等、内存限流与审计；尚未开放 HTTP / provider 入口。
+- **入站触发内核 P0（gofer-rztq）**：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限、持久幂等、内存限流与审计；尚未开放 HTTP / provider 入口。补齐项：每次派活按 owner 的当前 `job.submit` 权限与 ceiling 准入（撤权立即生效）；`dedup.key` / `Idempotency-Key` 真正用于去重（取不到则至少一次放行），事件号只存哈希；限流改为带 `Retry-After` 计算的令牌桶并与 owner 限额取更严者；过期 receipt 定期清理、中断的 claim 在重投时接管或由 reconciler 结算；审计补 provider / project 字段；`gofer config validate` 列出每个 trigger 的 owner / project / template 与本机不可用原因；`input.message` 暂不支持并在加载时拒绝；owner 的 ceiling 为只读或不含该项目时加载失败。
 - **能力清单**：新增 `docs/capabilities.md`，按板块列出 gofer 当前能做什么、入口与文档去向。
 
 ### 变更

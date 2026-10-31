@@ -53,6 +53,7 @@ import (
 	"github.com/inhere/gofer/internal/skill"
 	"github.com/inhere/gofer/internal/steward"
 	"github.com/inhere/gofer/internal/today"
+	"github.com/inhere/gofer/internal/trigger"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/webui"
@@ -370,6 +371,9 @@ type Server struct {
 	// mail is the gofer 信箱 (internal/mail) behind /v1/mail*; built next to the relay (it
 	// resolves topic: / path: addresses through it) and nil only for a store-less server.
 	mail *mail.Service
+	// triggers is the inbound trigger engine (P0: assembled and reachable in process, no
+	// HTTP route yet).
+	triggers *trigger.Engine
 	// work is the work-item service (W1) behind /v1/work-items/*; built in New next to the
 	// relay (it needs the same job store) and nil only for a store-less server.
 	work *work.Service
@@ -600,6 +604,19 @@ func (s *Server) SetMail(m *mail.Service) {
 	if m != nil {
 		s.mail = m
 	}
+}
+
+// SetTriggerEngine installs the inbound trigger engine serve assembled.
+func (s *Server) SetTriggerEngine(e *trigger.Engine) { s.triggers = e }
+
+// TriggerEngine returns the inbound trigger engine (nil when none was installed).
+func (s *Server) TriggerEngine() *trigger.Engine { return s.triggers }
+
+// CallerHasPermission reports whether the user-class caller currently holds perm in the
+// live effective-permission model (config-derived grants plus database grants). The
+// trigger owner admission asks it on every invocation.
+func (s *Server) CallerHasPermission(callerID, perm string) bool {
+	return s.effective(callerID, "").Has(perm)
 }
 
 // Mail returns the mailbox the routes use (nil without a job store).

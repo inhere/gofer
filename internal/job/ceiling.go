@@ -270,3 +270,23 @@ func inheritCeilingOwner(cfg *config.Config, src *JobResult, chainCaller string)
 	}
 	return "", nil
 }
+
+// PreflightFixedRequest judges a request whose resources are fixed by configuration (an
+// inbound trigger) the way Submit would, without any side effect: the task-book template
+// is rendered and its defaults (agent, runner, read-only, exec shape) are folded in, then
+// the request goes through the caller-ceiling admission and the project / agent / runner
+// validation. It exists so a trigger can refuse a request its owner may not run — and say
+// why — BEFORE it takes the dedup claim, while Submit remains the single place that
+// admits for real (it repeats every check). A refusal is the same error Submit gives:
+// ErrCeilingDenied, ErrInvalidRequest, ErrUnknownProject.
+func (s *Service) PreflightFixedRequest(req JobRequest) error {
+	cfg := s.config()
+	req.Runner = config.NormalizeRunnerName(req.Runner)
+	tpl, err := s.renderTemplate(cfg, &req)
+	if err != nil {
+		return err
+	}
+	applyTemplateMeta(&req, tpl)
+	_, err = s.validate(cfg, req, IsRemoteRunner(cfg, req.Runner))
+	return err
+}
