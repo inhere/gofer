@@ -33,6 +33,9 @@ type Exempt struct {
 	Max int
 	// Why says why they stay (what they are and where they get migrated).
 	Why string
+	// Class is the category of the exemption (only the tree-wide table in
+	// guard_all_test.go fills it; the per-directory Check ignores it).
+	Class string
 }
 
 // Hit is one string literal carrying CJK.
@@ -74,10 +77,50 @@ func Hits(t *testing.T, dir string) map[string][]Hit {
 	return out
 }
 
+// TreeHits returns the CJK string literals of every non-test .go file under root,
+// keyed by the slash-separated path relative to root ("job/model.go"). Directories
+// named in skip (relative to root, slash-separated, whole subtree) and testdata /
+// hidden directories are not scanned.
+func TreeHits(t *testing.T, root string, skip ...string) map[string][]Hit {
+	t.Helper()
+	skipSet := map[string]bool{}
+	for _, s := range skip {
+		skipSet[s] = true
+	}
+	out := map[string][]Hit{}
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		if skipSet[rel] || (rel != "." && (d.Name() == "testdata" || strings.HasPrefix(d.Name(), "."))) {
+			return filepath.SkipDir
+		}
+		for name, hs := range Hits(t, path) {
+			key := name
+			if rel != "." {
+				key = rel + "/" + name
+			}
+			out[key] = hs
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 // Check runs the guard for the package in dir against its exemption table.
 func Check(t *testing.T, dir string, exempt map[string]Exempt) {
 	t.Helper()
-	hits := Hits(t, dir)
+	CheckHits(t, Hits(t, dir), exempt)
+}
+
+// CheckHits compares scan results with an exemption table (see the package comment).
+func CheckHits(t *testing.T, hits map[string][]Hit, exempt map[string]Exempt) {
+	t.Helper()
 	names := make([]string, 0, len(hits))
 	for name := range hits {
 		names = append(names, name)
