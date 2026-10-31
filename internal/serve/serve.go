@@ -217,7 +217,12 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	if attachments != nil && cfg.Storage.AttachmentRetention() > 0 {
 		attachPrune = attachments.Prune
 	}
-	startPruneLoop(c, cr.Jobs, cfg.Storage.Retention, castEnabled, castTTLSec, cfg.Storage.MailRetention(), attachPrune, stopPrune)
+	// Daily memory synthesis run records: a run left `running` by the previous process can
+	// never finish, so fail the timed-out ones now; finished records follow retain_days in
+	// the prune loop. Both are no-ops on an empty table (the feature is off by default).
+	recoverMemorySynthesisRuns(c, cr.Jobs, cfg.Memory.Synthesis, time.Now())
+	startPruneLoop(c, cr.Jobs, cfg.Storage.Retention, castEnabled, castTTLSec, cfg.Storage.MailRetention(), attachPrune,
+		memorySynthesisPrune(cr.Jobs, cfg.Memory.Synthesis), stopPrune)
 
 	// E14 webhook delivery sweeper (design §5.6). Only started when notification is
 	// configured (at least one webhook); with no config it does nothing (regression
@@ -733,13 +738,13 @@ func startXferPruneLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 // (MaxAgeDays/MaxCount) DO take effect on reload because jobs.Prune reads the
 // atomic cfg snapshot fresh each tick. Enabling retention from a disabled state,
 // or changing the interval, needs a process restart.
-func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, castEnabled bool, castTTLSec int64, mailRetention time.Duration, attachPrune func() (int, error), stop <-chan struct{}) {
+func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, castEnabled bool, castTTLSec int64, mailRetention time.Duration, attachPrune func() (int, error), synthPrune func() (int64, error), stop <-chan struct{}) {
 	// The loop runs when job/workflow retention is configured, cast recording is
 	// enabled — the cast TTL sweep (jobs.Prune) rides this same loop (D-P3-6) — or
 	// the mailbox has a retention window (M8: it defaults to 90 days, so the letter
 	// sweep runs unless mail_retention_days says otherwise). With none of them
 	// configured it does nothing (zero behaviour change, G023).
-	if !ret.Enabled() && !castEnabled && mailRetention <= 0 && attachPrune == nil {
+	if !ret.Enabled() && !castEnabled && mailRetention <= 0 && attachPrune == nil && synthPrune == nil {
 		return
 	}
 	interval := ret.PruneInterval()
@@ -763,6 +768,14 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 					c.Printf("gofer: pruned %d terminal letter(s)\n", n)
 				}
 			}
+			// Daily memory synthesis run records past memory.synthesis.retain_days.
+			if synthPrune != nil {
+				if n, err := synthPrune(); err != nil {
+					c.Errorf("gofer: prune memory synthesis runs failed: %v\n", err)
+				} else if n > 0 {
+					c.Printf("gofer: pruned %d memory synthesis run(s)\n", n)
+				}
+			}
 			// Workbench image attachments past their expires_at (rows and files).
 			if attachPrune != nil {
 				if n, err := attachPrune(); err != nil {
@@ -784,6 +797,31 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 			}
 		}
 	}()
+}
+
+// recoverMemorySynthesisRuns fails the `running` synthesis records that outlived the
+// configured timeout. Nothing in a freshly started process can still be executing them, and
+// the design forbids silently resubmitting, so they just become failed ("server restart").
+func recoverMemorySynthesisRuns(c *gcli.Command, jobs *job.Service, syn config.SynthesisConfig, now time.Time) {
+	if jobs == nil || jobs.Meta() == nil {
+		return
+	}
+	n, err := jobs.Meta().FailStaleMemorySynthesisRuns(now.Add(-syn.TimeoutDuration()).Unix(), now.Unix(), "server restart")
+	if err != nil {
+		c.Errorf("gofer: recover memory synthesis runs failed: %v\n", err)
+	} else if n > 0 {
+		c.Printf("gofer: failed %d memory synthesis run(s) left running by a restart\n", n)
+	}
+}
+
+// memorySynthesisPrune returns the retention step for synthesis run records (nil without a store).
+func memorySynthesisPrune(jobs *job.Service, syn config.SynthesisConfig) func() (int64, error) {
+	if jobs == nil || jobs.Meta() == nil {
+		return nil
+	}
+	return func() (int64, error) {
+		return jobs.Meta().PruneMemorySynthesisRuns(time.Now().Add(-syn.RetentionDuration()).Unix())
+	}
 }
 
 // buildCastRecorder resolves the WEB-03 P3 cast recording factory from cfg at serve

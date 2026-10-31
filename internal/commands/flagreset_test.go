@@ -60,6 +60,7 @@ func flagGlobals() map[string]any {
 		"manageOpts":            &manageOpts,
 		"mcpOpts":               &mcpOpts,
 		"memoryCandidateOpts":   &memoryCandidateOpts,
+		"memorySynthesisOpts":   &memorySynthesisOpts,
 		"planAddTodoOpts":       &planAddTodoOpts,
 		"planAnswerOpts":        &planAnswerOpts,
 		"planAskOpts":           &planAskOpts,

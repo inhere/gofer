@@ -339,8 +339,9 @@ Two stable columns for the Today page: `action` (needs a person: questions, appr
 
 ### Daily memory synthesis runs (P1, read-only)
 
-- `GET /v1/memory-syntheses?project=&day=&state=&limit=` lists persisted material / run records. It returns only bounded metadata, status, input digest, source counts and timestamps; it never starts a model.
-- `GET /v1/memory-syntheses/{id}` returns one run, including the stored material snapshot only when `memory.synthesis.keep_material_snapshot` was enabled. The snapshot is already scrubbed and bounded; candidates and adoption are not part of P1.
+- `GET /v1/memory-syntheses?project=&day=&state=&limit=` lists persisted run records, newest first. It returns only bounded metadata (status, input digest, source counts, omitted counts, timestamps, `attempt`, `last_checked_at`); `result_json` and the material snapshot are always stripped from the list. It never starts a model.
+- `GET /v1/memory-syntheses/{id}` returns one run with its stored result. The material snapshot is included only when `memory.synthesis.keep_material_snapshot` was enabled for that run, and is never returned to a job credential. The snapshot is already scrubbed and bounded; candidates and adoption are not part of P1.
+- Permission is the same as the other memory read routes (`memory-findings`, `memory-suggestions`): any authenticated caller, narrowed by the caller's project ceiling. Records are written by the server (`BeginIfChanged` / `Finish` in one transaction: an unchanged input digest reuses the succeeded record, a live run for the same project and day is never duplicated); there is no HTTP route that writes or triggers a run in this phase.
 - Results are project-scoped. A job credential may read only through the same project scope it owns; an unknown run is `404`.
 
 

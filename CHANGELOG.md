@@ -11,8 +11,13 @@
 
 ## [未发布]
 
+### 新增
+
+- **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
+
 ### 修复
 
+- **每日记忆综合脱敏**：此前先截断再脱敏，横跨长度上限的密钥会留下无法识别的前缀；现在先脱敏再截断。同时补齐此前漏掉的类别：`Authorization: Basic/Bearer/Token …` 头（旧规则要求多一个冒号，几乎不会命中）、裸 `Bearer xxx`、`sk-` / `ghp_` / `github_pat_` / `glpat-` / `xox*-` / `AKIA…` / JWT 形态的裸令牌、argv 里的 `--token xxx` / `--password=xxx`、`api_key`/`my_token` 这类带前后缀的键、JSON 形式的键值、邮件地址，以及未闭合的私钥块。
 - **收件箱分栏后端审计修复**：失败的 job 现在进「要处理」（此前误进「仅知会」）：新增 kind `job.failed`，失败 / 超时且没有后续 job 的终态 job 归它；已被自动续投 / 回退或已有后续 job 的失败、完成和用户取消的 job 仍是 `job.terminal`（仅知会），是否「自己是续接出来的」不再影响归属；`timeout` 状态此前因状态名写错从未出现在收件箱。`total_unread` 只统计「要处理」未读（仅知会未读见 `unread.fyi`）。`server.inbox.enabled: false` 现在真正关闭收件箱（两个路由返回 404），只写 rules 不再误关；规则里的 `events` / `include_exec` 暂不支持，加载时明确拒绝而不是静默忽略。`POST /v1/inbox/state` 批量里有不存在的 key 时整批 404 且不写入，不带 keys 的 `seen` / `clear` 作用于全部当前项（可限 `column`），此前对从未标记过的项无效。补齐 `/v1/inbox*` 的 HTTP 测试。
 - 交付核验：server 现在强制核验 agent 无工具（在 `server.delivery_check.args` 之后追加 claude/codex/suga 的无工具参数）；未知 agent 类型核验报错并 fail-open，不再带工具运行。
 - 交付核验：核验不合格而自动续接提交失败时，job 转 `needs_review` 并在 `check_error` 与评论写明原因，不再变成 `failed` 并补发 `job.terminal`。

@@ -1,7 +1,9 @@
 // Package memorysynthesis contains the bounded, privacy-filtered material envelope used by
-// daily memory synthesis. It deliberately has no database or agent dependency: callers provide
-// already structured source items and this package performs the common ordering, de-duplication,
-// secret scrubbing, budget enforcement, and digest calculation.
+// daily memory synthesis. The envelope (materials.go) has no database or agent dependency:
+// callers provide already structured source items and Build performs the common ordering,
+// de-duplication, secret scrubbing, budget enforcement, and digest calculation. service.go
+// coordinates one run record through the jobstore; concrete material adapters live in the
+// sources subpackage.
 package memorysynthesis
 
 import (
@@ -10,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -93,17 +96,34 @@ func Collect(ctx context.Context, project, day string, sources ...Source) ([]Ite
 }
 
 var (
-	privateKeyRE = regexp.MustCompile(`(?is)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----`)
-	secretRE     = regexp.MustCompile(`(?i)\b(authorization\s*:\s*bearer|bearer|token|api[_-]?key|password|passwd|secret)\s*[:=]\s*[^\s,;]+`)
+	privateKeyRE = regexp.MustCompile(`(?is)-----BEGIN [^-]*PRIVATE KEY-----.*?(?:-----END [^-]*PRIVATE KEY-----|$)`)
+	// authHeaderRE covers `Authorization: <scheme> <credential>` for any scheme.
+	authHeaderRE = regexp.MustCompile(`(?i)\bauthorization["']?\s*[:=]\s*(?:(?:bearer|basic|token|digest)\s+)?["']?[^\s,;"']+`)
+	bearerRE     = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}`)
+	// bareTokenRE matches well-known credential shapes that appear without any key name.
+	bareTokenRE = regexp.MustCompile(`\b(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_-]{12,}|xox[abprs]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{12,}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,})`)
+	secretRE    = regexp.MustCompile(`(?i)\b[\w-]*(?:token|api[_-]?key|password|passwd|secret)[\w-]*["']?\s*[:=]\s*["']?[^\s,;"']+`)
+	// argvSecretRE covers `--token xxx` / `--password=xxx` style command-line options.
+	argvSecretRE = regexp.MustCompile(`(?i)(--?(?:[\w-]*(?:token|password|passwd|secret|api[_-]?key))(?:=|\s+))[^\s]+`)
 	envRE        = regexp.MustCompile(`\b[A-Z][A-Z0-9_]{2,}\s*=\s*[^\s,;]+`)
+	emailRE      = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}`)
 )
+
+// Scrub replaces every secret-shaped fragment of s with [redacted] and reports whether it
+// changed anything. Callers must scrub BEFORE truncating: a cut through the middle of a
+// secret would otherwise leave an unrecognisable (and still sensitive) prefix behind.
+func Scrub(s string) (string, bool) { return scrub(s) }
 
 func scrub(s string) (string, bool) {
 	matched := false
-	for _, re := range []*regexp.Regexp{privateKeyRE, secretRE, envRE} {
+	for _, re := range []*regexp.Regexp{privateKeyRE, authHeaderRE, bearerRE, bareTokenRE, secretRE, argvSecretRE, envRE, emailRE} {
 		if re.MatchString(s) {
 			matched = true
-			s = re.ReplaceAllString(s, "[redacted]")
+			if re == argvSecretRE {
+				s = re.ReplaceAllString(s, "${1}[redacted]")
+			} else {
+				s = re.ReplaceAllString(s, "[redacted]")
+			}
 		}
 	}
 	return s, matched
@@ -166,12 +186,13 @@ func Build(project, day, timezone string, input []Item, opts Options) (Materials
 			omitted.Reasons = addReason(omitted.Reasons, "count")
 			continue
 		}
-		item.Title = trimRunes(strings.TrimSpace(item.Title), opts.MaxRunesPerText)
-		item.Text = trimRunes(strings.TrimSpace(item.Text), opts.MaxRunesPerText)
-		var redacted bool
-		item.Title, redacted = scrub(item.Title)
-		var textRedacted bool
-		item.Text, textRedacted = scrub(item.Text)
+		// Scrub first, truncate second: truncating first could cut a secret in half and let
+		// the surviving prefix slip past every pattern.
+		var redacted, textRedacted bool
+		item.Title, redacted = scrub(strings.TrimSpace(item.Title))
+		item.Text, textRedacted = scrub(strings.TrimSpace(item.Text))
+		item.Title = trimRunes(item.Title, opts.MaxRunesPerText)
+		item.Text = trimRunes(item.Text, opts.MaxRunesPerText)
 		if redacted || textRedacted {
 			item.Sensitivity = "redacted"
 			omitted.Reasons = addReason(omitted.Reasons, "secret")
@@ -204,6 +225,12 @@ func Build(project, day, timezone string, input []Item, opts Options) (Materials
 		}
 		return items[i].SourceRef < items[j].SourceRef
 	})
+	for i := range items {
+		// Stable per-envelope handles ("m-001") for items whose adapter did not name one.
+		if items[i].ID == "" {
+			items[i].ID = fmt.Sprintf("m-%03d", i+1)
+		}
+	}
 	e := Envelope{Schema: SchemaV1, Project: project, Day: day, Timezone: timezone, Items: items, Omitted: omitted}
 	for len(e.Items) > 0 && len(canonicalBytes(e)) > opts.MaxInputBytes {
 		last := e.Items[len(e.Items)-1]
