@@ -2502,6 +2502,8 @@ type serverError struct {
 	ErrMsg string `json:"error"`
 	Detail string `json:"detail"`
 	Code   string `json:"code"`
+	// Params fills the {name} placeholders of the err.<code> text (keyed errors only).
+	Params map[string]any `json:"params"`
 }
 
 // errorFor returns a friendly Go error for a non-2xx response, preferring the
@@ -2516,7 +2518,7 @@ func errorFor(status int, body []byte) error {
 		if (status == http.StatusUnauthorized || status == http.StatusForbidden) && strings.TrimSpace(os.Getenv(job.EnvJobToken)) != "" {
 			msg += "；当前使用的是 job 凭据，作用域仅限本 job 相关操作；如需用用户身份，取消 GOFER_JOB_TOKEN 并配置用户 token；GOFER_CONFIG_DIR 不会注入 job，请显式配置用户 token"
 		}
-		return &StatusError{Status: status, Msg: msg, Code: se.Code}
+		return &StatusError{Status: status, Msg: msg, Code: se.Code, Params: se.Params}
 	}
 	if json.Unmarshal(body, &se) == nil && se.ErrMsg != "" {
 		if se.Detail != "" {
@@ -2539,6 +2541,8 @@ type StatusError struct {
 	Msg    string
 	// Code is the server's stable error code when the body carried one ("" otherwise).
 	Code string
+	// Params are the values of the placeholders of the err.<Code> text.
+	Params map[string]any
 }
 
 func (e *StatusError) Error() string { return e.Msg }

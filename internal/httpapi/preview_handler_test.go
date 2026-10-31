@@ -350,3 +350,102 @@ func TestPreviewRenewMovesExpiry(t *testing.T) {
 		t.Fatalf("renew via an unknown job answered %d, want 404", got)
 	}
 }
+
+// errorCode decodes the code and params of a keyed error body.
+func errorCode(t *testing.T, resp *http.Response) (code string, params map[string]any) {
+	t.Helper()
+	var body struct {
+		Code   string         `json:"code"`
+		Params map[string]any `json:"params"`
+	}
+	decode(t, resp, &body)
+	return body.Code, body.Params
+}
+
+// The refusals a client branches on carry stable codes, so the console (err.<code>) and the
+// MCP tools render them in their own language.
+func TestPreviewRefusalsCarryErrorCodes(t *testing.T) {
+	s, appPort := previewServer(t)
+	now := time.Now().Unix()
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "job-done", ProjectKey: "self", Agent: "exec", Runner: "local", Status: job.StatusDone,
+		Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, EndedAt: now, UpdatedAt: now, CallerID: "bob",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A running job on a worker runner: forwarding (design P2) does not exist yet.
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "job-remote", ProjectKey: "self", Agent: "exec", Runner: "w-box", WorkerID: "w-box", Status: job.StatusRunning,
+		Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, UpdatedAt: now, CallerID: "bob",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runningJob(t, s, "job-run", "bob")
+
+	cases := []struct {
+		name, jobID string
+		body        map[string]any
+		status      int
+		code        string
+	}{
+		{"not running", "job-done", map[string]any{"port": appPort}, http.StatusConflict, "preview_job_not_running"},
+		{"remote runner", "job-remote", map[string]any{"port": appPort}, http.StatusConflict, "preview_runner_unsupported"},
+		{"bad port", "job-run", map[string]any{"port": 0}, http.StatusConflict, "preview_port_invalid"},
+	}
+	for _, tc := range cases {
+		resp := do(t, s, http.MethodPost, "/v1/jobs/"+tc.jobID+"/previews", "tok-bob", tc.body)
+		if resp.StatusCode != tc.status {
+			t.Fatalf("%s answered %d, want %d", tc.name, resp.StatusCode, tc.status)
+		}
+		code, params := errorCode(t, resp)
+		if code != tc.code {
+			t.Fatalf("%s code = %q, want %q", tc.name, code, tc.code)
+		}
+		if tc.code == "preview_runner_unsupported" && params["runner"] != "w-box" {
+			t.Fatalf("%s params = %v, want runner w-box", tc.name, params)
+		}
+	}
+	if vs, _ := s.preview.List("job-remote"); len(vs) != 0 {
+		t.Fatalf("a refused remote create left leases: %+v", vs)
+	}
+
+	lease, _, err := s.preview.Create(t.Context(), "job-run", "bob", "127.0.0.1", appPort, 60, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := do(t, s, http.MethodDelete, "/v1/jobs/job-run/previews/"+lease.ID, "tok-bob", nil); r.StatusCode != http.StatusOK {
+		t.Fatalf("revoke answered %d", r.StatusCode)
+	}
+	resp := do(t, s, http.MethodPost, "/v1/jobs/job-run/previews/"+lease.ID+"/renew", "tok-bob", map[string]any{"ttl_sec": 60})
+	if code, _ := errorCode(t, resp); resp.StatusCode != http.StatusConflict || code != "preview_not_active" {
+		t.Fatalf("renew of a revoked lease answered %d code %q", resp.StatusCode, code)
+	}
+
+	s.preview = nil
+	resp = do(t, s, http.MethodPost, "/v1/jobs/job-run/previews", "tok-bob", map[string]any{"port": appPort})
+	if code, _ := errorCode(t, resp); resp.StatusCode != http.StatusNotFound || code != "preview_disabled" {
+		t.Fatalf("disabled answered %d code %q", resp.StatusCode, code)
+	}
+}
+
+// A job credential is not on the preview routes' whitelist: an agent inside a job cannot
+// open a bearer URL for itself (the MCP tools surface this refusal as is).
+func TestPreviewRoutesRefuseJobCredential(t *testing.T) {
+	s, appPort := previewServer(t)
+	tok := seedCredentialJob(t, s, "cred-job", "self", "bob")
+	for _, tc := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodPost, "/v1/jobs/cred-job/previews", map[string]any{"port": appPort}},
+		{http.MethodDelete, "/v1/jobs/cred-job/previews/x", nil},
+		{http.MethodPost, "/v1/jobs/cred-job/previews/x/renew", map[string]any{"ttl_sec": 60}},
+	} {
+		if got := do(t, s, tc.method, tc.path, tok, tc.body).StatusCode; got != http.StatusForbidden {
+			t.Fatalf("%s %s with a job credential answered %d, want 403", tc.method, tc.path, got)
+		}
+	}
+	if vs, _ := s.preview.List("cred-job"); len(vs) != 0 {
+		t.Fatalf("a refused job-credential call left leases: %+v", vs)
+	}
+}

@@ -183,6 +183,13 @@ type Backend interface {
 	ReplyMail(id int64, body string, urgent bool) (client.MailSent, error)
 	CancelMail(id int64) (client.Mail, error)
 
+	// Job preview (gofer_job_preview_*): the HTTP control plane's four calls. They need a
+	// running server (the lease proxy lives there); the local backend refuses.
+	CreateJobPreview(jobID string, port, ttlSec int) (client.JobPreview, error)
+	ListJobPreviews(jobID string) ([]client.JobPreview, error)
+	CloseJobPreview(jobID, previewID string) (client.JobPreview, error)
+	RenewJobPreview(jobID, previewID string, ttlSec int) (client.JobPreview, error)
+
 	ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]jobstore.ScopedMemory, error)
 	GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error)
 	PutScopedMemory(scope, scopeKey, key, content string, tags []string, title string) (jobstore.ScopedMemory, error)

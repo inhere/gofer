@@ -170,6 +170,11 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_wakeup_create":  false,
 		"gofer_wakeup_list":    false,
 		"gofer_wakeup_disable": false,
+		// Job preview (create | list | revoke | renew).
+		"gofer_job_preview_create": false,
+		"gofer_job_preview_list":   false,
+		"gofer_job_preview_revoke": false,
+		"gofer_job_preview_renew":  false,
 		// MCP-05 阶段 A comment threads (1 write + 1 read).
 		"gofer_comment":       false,
 		"gofer_list_comments": false,

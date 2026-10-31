@@ -258,3 +258,13 @@ server 通过控制 WebSocket 下发 `preview_open`；worker 仅在本地仍有�
 7. **MCP 是否返回完整 URL：推荐返回，但仅在 create 的单次工具结果中返回。**
    - 推荐理由：MCP agent 可以把 URL 交给人或调用方；list / 日志 / prompt 不重复暴露 secret，降低持久化泄露面。
    - 若部署策略禁止 agent 接触 bearer URL，则 MCP create 应只返回 preview id，由人通过 Web/CLI 创建，需同步修改 MCP 工具的产品定位。
+
+## 9. 实施记录
+
+- **P1（server 本机端口模式）**：已发布。租约管理、端口池、loopback 反向代理、WebSocket、控制面 REST 与 CLI（`gofer job preview open|ls|close|renew`）见 `internal/preview`、`internal/httpapi/preview_handler.go`、`docs/reference/http-api.md`。
+- **P2（worker runner 转发）：仍未做。** 没有 `preview_open` 帧、协议 v29 与 worker 回连端点。在此之前，runner 不是本机的 job（`worker_id` 非空，或 runner 不是内置 local）创建预览会被 `409 preview_runner_unsupported` 明确拒绝，而不是误拨 server 自己的 loopback。
+- **P3（MCP / Web，2026-10-31）**：
+  - MCP：`gofer_job_preview_create|list|revoke|renew`（`internal/mcpserver/preview.go`），只做绑定——经 `Backend` 走 `internal/client` 调同一组 HTTP 接口，权限与租约逻辑全在服务端；本机 standalone 后端拒绝（需要 server）。create 的 URL 只在该次工具结果里；校验失败与带码的服务端拒绝按 MCP 语言（`mcp.error.preview_*` / `err.*`）出文案。工具在 `internal/mcptools` 分类：list 只读，create / renew 写，revoke 破坏性且幂等。
+  - Web：job 详情「概览」的「预览」块（`web/src/components/JobPreviews.vue`，逻辑在 `web/src/utils/jobPreviews.ts`，接口在 `web/src/api/preview.ts`）：创建、列表、续租、撤销（二次确认）、打开一次性 URL（内存保存、用过即丢、不写 storage、不经 API client）。
+  - 错误码：服务端拒绝补稳定 `code`（`preview_disabled` / `preview_job_not_running` / `preview_runner_unsupported` / `preview_port_invalid` / `preview_pool_exhausted` / `preview_not_active`），Go 目录 `err.ini` 与 web `errors.ts` 逐字一致；`client.StatusError` 增加 `Params`，MCP 据此渲染占位符。
+  - 未做：浏览器级 smoke（需要主机浏览器环境）；web 测试尚未在主机跑过（vitest / vue-tsc）。

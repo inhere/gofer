@@ -760,3 +760,19 @@ func (b *clientBackend) IssueList(o client.IssueListOpts) (client.IssueListResp,
 func (b *clientBackend) IssueGet(id, trackerID string) (client.IssueGetResp, error) {
 	return b.cli.IssueGet(id, trackerID)
 }
+
+func (b *clientBackend) CreateJobPreview(jobID string, port, ttlSec int) (client.JobPreview, error) {
+	return b.cli.CreateJobPreview(jobID, port, ttlSec)
+}
+
+func (b *clientBackend) ListJobPreviews(jobID string) ([]client.JobPreview, error) {
+	return b.cli.ListJobPreviews(jobID)
+}
+
+func (b *clientBackend) CloseJobPreview(jobID, previewID string) (client.JobPreview, error) {
+	return b.cli.CloseJobPreview(jobID, previewID)
+}
+
+func (b *clientBackend) RenewJobPreview(jobID, previewID string, ttlSec int) (client.JobPreview, error) {
+	return b.cli.RenewJobPreview(jobID, previewID, ttlSec)
+}

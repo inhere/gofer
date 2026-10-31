@@ -93,6 +93,9 @@ var registry = []Tool{
 	// Wakeups.
 	{Name: "gofer_wakeup_list", Class: ReadOnly},
 
+	// Job previews (the list never carries the URL).
+	{Name: "gofer_job_preview_list", Class: ReadOnly},
+
 	// Memories.
 	{Name: "gofer_memory_list", Class: ReadOnly},
 	{Name: "gofer_memory_get", Class: ReadOnly},
@@ -144,6 +147,11 @@ var registry = []Tool{
 	{Name: "gofer_comment", Class: Write},
 	{Name: "gofer_wakeup_create", Class: Write},
 	{Name: "gofer_wakeup_disable", Class: Write, Idempotent: true},
+
+	// Job preview writes: create hands out a bearer URL, revoke cuts connections.
+	{Name: "gofer_job_preview_create", Class: Write},
+	{Name: "gofer_job_preview_renew", Class: Write, Idempotent: true},
+	{Name: "gofer_job_preview_revoke", Class: Destructive, Idempotent: true},
 
 	// Memory writes.
 	{Name: "gofer_memory_set", Class: Destructive},

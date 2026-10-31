@@ -25,6 +25,14 @@ import (
 // ErrNotActive is returned when an operation needs a live lease and the lease is gone.
 var ErrNotActive = errors.New("preview lease is not active")
 
+// Refusals Create answers with, as values so the HTTP layer can attach a stable error
+// code instead of matching message text.
+var (
+	ErrDisabled      = errors.New("job preview is disabled")
+	ErrBadPort       = errors.New("port must be between 1 and 65535")
+	ErrPoolExhausted = errors.New("preview port pool exhausted")
+)
+
 // Lease is the non-secret view of a preview lease. Port is the preview port the browser
 // opens (not the job's target port).
 type Lease struct {
@@ -121,17 +129,17 @@ func (m *Manager) allocPort() (int, error) {
 			return p, nil
 		}
 	}
-	return 0, errors.New("preview port pool exhausted")
+	return 0, ErrPoolExhausted
 }
 func (m *Manager) Create(ctx context.Context, jobID, caller, host string, port, ttl int, jobRunning bool) (Lease, string, error) {
 	if !m.cfg.Enabled {
-		return Lease{}, "", errors.New("job preview is disabled")
+		return Lease{}, "", ErrDisabled
 	}
 	if !jobRunning {
 		return Lease{}, "", errors.New("job is not running")
 	}
 	if port < 1 || port > 65535 {
-		return Lease{}, "", errors.New("port must be between 1 and 65535")
+		return Lease{}, "", ErrBadPort
 	}
 	if ttl <= 0 {
 		ttl = m.cfg.DefaultTTLSec
