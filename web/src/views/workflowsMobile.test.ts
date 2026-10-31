@@ -3,13 +3,13 @@
 import { describe, expect, it } from 'vitest'
 
 const source = Object.values(
-  import.meta.glob('./Workflows.vue', { eager: true, query: '?raw', import: 'default' }),
+  import.meta.glob('./WorkflowRuns.vue', { eager: true, query: '?raw', import: 'default' }),
 )[0] as string
 
 // 页面里所有 @media (max-width: Npx) 的 N 值。
 const breakpoints = [...source.matchAll(/@media \(max-width: (\d+)px\)/g)].map((m) => Number(m[1]))
 
-describe('Workflows 列表的窄屏与基元', () => {
+describe('Workflows 执行记录的窄屏与基元', () => {
   it('手机断点用冻结的 760px（设计稿 §4.3）', () => {
     expect(breakpoints).toContain(760)
   })

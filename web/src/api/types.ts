@@ -2541,6 +2541,9 @@ export interface Workflow {
   steps?: WorkflowStep[]
   // 由 rerun 产生时是原 workflow id（后端 omitempty）
   rerun_of?: string
+  // 来自哪个模板（直接提交 spec 的没有；rerun 继承原件）与该模板当时的来源层
+  template?: string
+  template_source?: 'builtin' | 'global' | 'project' | string
 }
 
 export interface WorkflowsResp {
@@ -2948,6 +2951,17 @@ export interface WorkflowTemplateInfo {
   desc?: string
   source?: 'builtin' | 'global' | 'project' | string
   spec: WorkflowSpec
+  // 按这个名字提交过的执行次数（调用方可见的范围内；没有为 0）
+  runs?: number
+  // 最近一次执行；没有执行过时省略。ended_at 在仍运行时省略（Unix 秒）
+  last_run?: WorkflowTemplateLastRun
+}
+
+export interface WorkflowTemplateLastRun {
+  id: string
+  status: WorkflowStatus
+  started_at: number
+  ended_at?: number
 }
 
 export interface WorkflowTemplatesResp {

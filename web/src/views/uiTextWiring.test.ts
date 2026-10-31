@@ -90,7 +90,7 @@ describe('面包屑用中文', () => {
 describe('状态显示集中映射', () => {
   it('plan / workflow 的筛选选项从 statusText 取', () => {
     expect(view('Plans')).toContain('planStatusOptions()')
-    expect(view('Workflows')).toContain('workflowStatusOptions()')
+    expect(view('WorkflowRuns')).toContain('workflowStatusOptions()')
     expect(view('Board')).toContain('jobStatusOptions()')
     // 旧的英文选项字面量已删。
     expect(view('Plans')).not.toContain("{ value: 'open', label: 'open' }")

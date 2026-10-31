@@ -301,7 +301,7 @@ onUnmounted(() => {
 <template>
   <div class="page" data-test="workflow-detail">
     <div class="detail-head">
-      <BackLink list="workflows" to="/workflows" :label="t('workflows.detail.back')" />
+      <BackLink list="workflows" to="/workflows/runs" :label="t('workflows.detail.back')" />
       <div v-if="workflow" class="head-status">
         <StatusPill :status="workflow.status" size="md" />
         <button
@@ -325,6 +325,12 @@ onUnmounted(() => {
         <div class="meta-row">
           <dt>id</dt>
           <dd class="mono">{{ workflow.id }}</dd>
+        </div>
+        <div v-if="workflow.template" class="meta-row" data-test="meta-template">
+          <dt>{{ t('workflows.detail.template') }}</dt>
+          <dd class="mono">
+            <RouterLink :to="`/workflows/templates/${encodeURIComponent(workflow.template)}`">{{ workflow.template }}</RouterLink>
+          </dd>
         </div>
         <div class="meta-row">
           <dt>{{ t('workflows.detail.step') }}</dt>

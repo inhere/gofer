@@ -4,10 +4,10 @@
 import { describe, expect, it } from 'vitest'
 
 const source = Object.values(
-  import.meta.glob('./Workflows.vue', { eager: true, query: '?raw', import: 'default' }),
+  import.meta.glob('./WorkflowRuns.vue', { eager: true, query: '?raw', import: 'default' }),
 )[0] as string
 
-describe('Workflows 列表分页', () => {
+describe('Workflows 执行记录分页', () => {
   it('每页 50 条，limit / offset 交给服务端', () => {
     expect(source).toContain('const PAGE_SIZE = 50')
     expect(source).toContain('limit: PAGE_SIZE')

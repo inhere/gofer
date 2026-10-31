@@ -35,6 +35,8 @@ const PAGE_ROOTS: Record<string, string> = {
   './NewJob.vue': 'page',
   './JobsView.vue': 'page',
   './Workflows.vue': 'page',
+  './WorkflowRuns.vue': 'page',
+  './WorkflowTemplate.vue': 'page',
   './NewWorkflow.vue': 'page',
   './WorkflowDetail.vue': 'page',
   './Plans.vue': 'page',

@@ -36,7 +36,15 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('./views/JobsView.vue'),
     props: true,
   },
+  // 工作流列表（模板：内置 / 全局 / 项目）；执行记录列表在 /workflows/runs（?template= 过滤），
+  // 单次执行详情 /workflows/:id 保持不变。静态段先于 :id 匹配，runs / new / templates 不会被当成 id。
   { path: '/workflows', name: 'workflows', component: () => import('./views/Workflows.vue') },
+  { path: '/workflows/runs', name: 'workflow-runs', component: () => import('./views/WorkflowRuns.vue') },
+  {
+    path: '/workflows/templates/:name',
+    name: 'workflow-template',
+    component: () => import('./views/WorkflowTemplate.vue'),
+  },
   {
     path: '/workflows/new',
     name: 'new-workflow',
