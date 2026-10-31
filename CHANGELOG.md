@@ -19,10 +19,12 @@
 - MCP `check_prompt_source` 说明补上 `merged`；`gofer job show` 显示由核验触发的续接 job id。
 - **job 预览审计修复（gofer-ad2u）**：`gofer job preview ls` 现在能显示内容（列表响应改用 `id/job_id/port/state/expires_at` 等小写字段；创建响应的 `port` 是浏览器访问的预览端口，job 的端口改放 `target_port`）；撤销他人创建的租约需 job 所有者或 `job.manage.others`（此前只要能读该 job）；新增续租 `POST /v1/jobs/{id}/previews/{preview_id}/renew` 与 `gofer job preview renew`；`max_connections`（超出返回 503）与 `idle_timeout_sec`（无流量时关闭连接、租约保留）真正生效；URL 里的 token 改为真正一次性（换取 cookie 后再用 404，cookie 是独立的随机值）；WebSocket 要求 Origin 为该预览自己的 origin（否则 403）；应用响应里带 `Domain` 的 `Set-Cookie` 一律丢弃；创建、续租、撤销、到期、job 终态关闭、server 重启关闭和被拒绝的访问写入审计（不含 token 与 URL）。
 - **每日记忆综合脱敏**：此前先截断再脱敏，横跨长度上限的密钥会留下无法识别的前缀；现在先脱敏再截断。同时补齐此前漏掉的类别：`Authorization: Basic/Bearer/Token …` 头（旧规则要求多一个冒号，几乎不会命中）、裸 `Bearer xxx`、`sk-` / `ghp_` / `github_pat_` / `glpat-` / `xox*-` / `AKIA…` / JWT 形态的裸令牌、argv 里的 `--token xxx` / `--password=xxx`、`api_key`/`my_token` 这类带前后缀的键、JSON 形式的键值、邮件地址，以及未闭合的私钥块。
+- **`mail.agents.<名字>.agent` 在加载配置时校验类型**：常驻收件 agent 指向的 agent 已定义但不是 `acp-agent` 时，配置加载（`gofer config validate` 同样）直接报错并点出 `mail.agents.<名字>.agent`，不再拖到启动常驻会话时失败并反复重试。
 
 ### 新增
 
 - **每日记忆综合 P1 补齐材料来源与运行记录**：新增只读材料来源（工作项与里程碑日志、当天结束的 job 的汇报末尾、plan / todo 结论、memory doctor 的发现与待处理建议、上一份成功综合的摘要），按 server 时区与 `memory.synthesis.lookback` 取 `[当日 00:00, 次日 00:00)` 窗口并只取当前项目的数据；运行记录有了写入路径：同项目同日同输入摘要已成功则直接复用（只更新 `last_checked_at`），已有进行中的运行则不再新建，`keep_material_snapshot` 为真才保存脱敏后的快照；`gofer memory synthesis ls|show <id>` 查看运行记录；`memory.synthesis.retain_days`（默认 90 天）清理过期记录；server 重启时把超时仍在 `running` 的记录转 `failed`（原因 `server restart`）。仍不调用模型，默认关闭，没有任何调度。
+- **定时任务编辑弹窗的 cron 试算**：web「定时任务」编辑弹窗里改 cron 表达式，停手片刻后显示按新表达式的下 5 次运行时间，表达式不合法则显示解析器的错误原话，保存前就能看到结果。新增接口 `POST /v1/schedules/cron-preview`（body `{cron, count?}`，`count` 默认 5、最多 10，返回 `{cron, next_runs}`，表达式不合法 400；只计算不写入，登录即可用）。
 
 ### 变更
 
@@ -504,7 +506,7 @@
   - 权限逐个收件人按单封规则：显式列出的收件人只要有一个没权限，整封拒绝并说明是哪个；`each:` 按权限过滤，并在结果里写「匹配 N 个、投递 M 个、略过 K 个」（略过的只报地址与原因，不回报会话 id）。job / steward 凭据不能发广播（403），急件不能广播（400），0 个收件人 400。
   - 限流：每个调用方 `mail.broadcast_rate`（默认 `5/10m`，超出 429）；单次最多 `mail.broadcast_max_recipients`（默认 20）个收件人。两个配置项都可热加载。
   - 收件人看到的注入标签多两个属性：`<gofer-mail ... broadcast="b12" recipients="5">`；广播副本过期只标 `expired`，不进收集箱。
-  - 接口：`POST /v1/mail` 的 `to` 接受字符串或数组，响应新增 `broadcast_id` / `thread_id` / `matched` / `delivered_count` / `skipped_count` / `recipients[]`；`GET /v1/mail/{id}` 对广播返回 `broadcast` 汇总段（列表里的广播副本也带）；`gofer session mail send --to <地址> [--to …]`；MCP 发信工具的 `to` 接受数组；web 写信框可直接写多个地址（空格 / 逗号分隔）或 `each:` 选择器，并预览「将投递 N 个会话」，对话里广播副本卡带收件人状态条。
+  - 接口：`POST /v1/mail` 的 `to` 接受字符串或数组，响应新增 `broadcast_id` / `thread_id` / `matched` / `delivered_count` / `skipped_count` / `recipients[]`；`GET /v1/mail/{id}` 对广播返回 `broadcast` 汇总段（列表里的广播副本也带）；`gofer session mail send --to <地址> [--to …]`；MCP 发信工具的 `to` 接受数组；web 写信框用勾选会话或「按项目 / 主题 / agent / 子路径全部」选器生成收件人（手写多个地址——空格 / 逗号分隔——收在「高级」折叠里），并预览「将投递 N 个会话」，对话里广播副本卡带收件人状态条。
 
 ## [0.183.1] - 2026-10-22
 

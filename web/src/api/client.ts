@@ -89,6 +89,7 @@ import type {
   WorkerRegistrationResp,
   Schedule,
   PatchScheduleReq,
+  CronPreviewResp,
   SchedulesResp,
   Stats,
   UpdateApply,
@@ -1834,6 +1835,16 @@ export function patchSchedule(id: string, req: PatchScheduleReq): Promise<Schedu
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
+  })
+}
+
+// cron 试算：POST /v1/schedules/cron-preview，返回表达式接下来几次的运行时间（unix 秒），
+// 不写任何数据；表达式非法时服务端 400（ApiError.detail 是解析器的原话）。
+export function previewCron(cron: string, count?: number): Promise<CronPreviewResp> {
+  return request<CronPreviewResp>('/v1/schedules/cron-preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(count ? { cron, count } : { cron }),
   })
 }
 

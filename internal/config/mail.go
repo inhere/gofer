@@ -218,6 +218,22 @@ func (m MailConfig) AgentNames() []string {
 	return names
 }
 
+// validateAgentTypes refuses a `mail.agents.<名字>.agent` that names a defined agent which is
+// not an acp-agent: the resident session is an ACP continuous session, so anything else would
+// only fail (and be retried) when the session starts. A name with no definition here is left
+// alone (the runtime reports it); only a definite type mismatch is an error.
+func (m MailConfig) validateAgentTypes(agents map[string]AgentConfig) error {
+	for _, name := range m.AgentNames() {
+		id := m.Agents[name].Identity()
+		ac, ok := agents[id]
+		if !ok || ac.Type == "acp-agent" {
+			continue
+		}
+		return fmt.Errorf("mail.agents.%s.agent %q must be an acp-agent (type: acp-agent), but it is type %q", name, id, ac.Type)
+	}
+	return nil
+}
+
 func (m MailConfig) validate() error {
 	if _, _, err := ParseBroadcastRate(m.BroadcastRate); err != nil {
 		return err

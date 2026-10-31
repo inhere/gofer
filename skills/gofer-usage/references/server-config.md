@@ -219,6 +219,10 @@ agents:
     # ndjson_usage_path: usage          # ndjson 结果行里的用量对象(点路径)
     # transcript_dialect: generic       # claude|codex|omp|generic; 会话记录方言
     # inject_process: [myagent]         # tmux 送话的前台进程名
+    # inject_guard:                     # 往 tmux 窗格打字前的输入区识别(逐行 Go 正则，匹配窗格最后 30 行里的每个非空行)；内置 claude / codex 有默认规则，写了的列表整项替换该列表，没写的列表沿用内置
+    #   selecting: ['❯ \d+\.']          # 选择/提问对话框(此时回车会替人作答)；最先判断
+    #   empty: ['^> *$']                 # 输入区确认是空的(只有它让 auto 模式往里打字)
+    #   has_input: ['^> \S']             # 输入区已有人敲了一半的字
     # session_family: myfam             # 同族 cli/acp agent 可互相续接
     # deliver_command: [send, --session, "{{session_id}}"]   # 在线送话命令；退出码 0=送达 3=进程不在 其它=失败
     # deliver_image_args: [--image, "{{image}}"]              # 传话类会话附图；每张图展开一次，必须含 {{image}}
@@ -227,6 +231,8 @@ agents:
   exec:
     type: exec                          # 内置; 跑请求给的 argv, 不用模板
 ```
+
+**`inject_guard`（往 tmux 窗格送话前的输入区识别）**：会话为 `auto` 投递模式时，gofer 先 `tmux capture-pane` 取窗格最后 30 行，按本 agent 的规则判断输入区，只有确认「输入区是空的」才打字；有人写了一半的字（`has_input`）或停在提问对话框里（`selecting`，此时回车会替人作答）都不打，消息留在信箱里等着。三个列表 `empty` / `has_input` / `selecting` 都是 Go 正则，逐行匹配去掉空行后的窗格内容；判断顺序是 `selecting` → `empty` → `has_input`。识别不出（没有任何规则匹配，如画面只画了一半、TUI 升级后改了样式）一律视为「不确定」，不当作空、不打字。内置 `claude` / `codex` 有默认规则（claude：`│ > ` 输入框与 `❯ 1.` 选项列表；codex：`›` 提示行与 `› 1.` 选项列表），写了 `inject_guard` 时只有你写了的列表替换内置的同名列表，没写的列表沿用内置（所以只补一个新的 `selecting` 不会丢掉 `empty` 规则）；没有内置规则的自研 agent 不写规则时 `auto` 永远判不出空，等同 `hold`。不合法的正则加载时报错。
 
 🔴 **一个 key 两种模式**：`args` = 批处理，`interactive_args` = pty；两者都写就是双模（内置 claude / codex 模板已默认双模，但**自定义同名 agent 是整体覆盖**，要自己写 `interactive_args`）。写了 `interactive: true` 的 agent = 仅交互（`args` 即 pty argv），普通 `job run` 会被拒 `has no batch mode`；`interactive: true` 配 `{{prompt}}` 是配置错误，serve 启动即拒。
 

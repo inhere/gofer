@@ -499,6 +499,7 @@ var routeDecls = map[string]routeDecl{
 	// 读划给该权限，但「附录 A 的『建议权限』列以正文为准」。
 	"POST /v1/schedules":                   {user: Require(authz.PermJobSubmit), scope: BodyProject()},
 	"GET /v1/schedules":                    {user: Public(), scope: Filter()},
+	"POST /v1/schedules/cron-preview":      {user: Public(), scope: NoProject(), rw: ReadSafe()},
 	"GET /v1/schedules/{id}":               {user: Public(), scope: Resource("schedule")},
 	"GET /v1/schedules/{id}/events":        {user: Public(), scope: Resource("schedule")},
 	"DELETE /v1/schedules/{id}":            {user: InHandler(permDeny, authz.PermScheduleManageOthers), scope: Resource("schedule")},

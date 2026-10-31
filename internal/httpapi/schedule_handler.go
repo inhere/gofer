@@ -586,6 +586,62 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 	}
 }
 
+// cronPreviewReq is the POST /v1/schedules/cron-preview body.
+type cronPreviewReq struct {
+	Cron  string `json:"cron"`
+	Count int    `json:"count,omitempty"`
+}
+
+// Defaults / ceiling of the number of upcoming runs a cron preview returns.
+const (
+	cronPreviewDefault = 5
+	cronPreviewMax     = 10
+)
+
+// handleCronPreview is the editor's trial run (POST /v1/schedules/cron-preview): it
+// parses the expression exactly as a schedule would (jobstore.NextCronRun, the same
+// parser the sweeper uses) and answers the next few run times, so the web can show them
+// while a cron is being typed. Nothing is stored; a bad expression is a 400 whose
+// message is the parser's.
+func (s *Server) handleCronPreview(c *rux.Context) {
+	var req cronPreviewReq
+	if err := c.BindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	expr := strings.TrimSpace(req.Cron)
+	if expr == "" {
+		writeError(c, http.StatusBadRequest, "invalid cron", "cron is required")
+		return
+	}
+	count := req.Count
+	if count <= 0 {
+		count = cronPreviewDefault
+	}
+	if count > cronPreviewMax {
+		count = cronPreviewMax
+	}
+	runs := make([]int64, 0, count)
+	after := s.jobs.Now()
+	for len(runs) < count {
+		next, err := jobstore.NextCronRun(expr, after)
+		if err != nil {
+			writeError(c, http.StatusBadRequest, "invalid cron", err.Error())
+			return
+		}
+		if next <= 0 { // the expression can never fire again (e.g. 31 Feb)
+			break
+		}
+		runs = append(runs, next)
+		after = time.Unix(next, 0).In(after.Location())
+	}
+	if len(runs) == 0 {
+		writeError(c, http.StatusBadRequest, "invalid cron", "the expression never fires")
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"cron": expr, "next_runs": runs})
+}
+
 func nextScheduleRun(scheduleType, cronExpr string, delaySec, runAt int64, now time.Time) (int64, error) {
 	switch scheduleType {
 	case "cron":

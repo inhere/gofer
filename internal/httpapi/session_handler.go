@@ -494,7 +494,8 @@ func relayStatus(err error) int {
 	case errors.Is(err, sessionrelay.ErrUnknownSession), errors.Is(err, sessionrelay.ErrUnknownTurn):
 		return http.StatusNotFound
 	case errors.Is(err, sessionrelay.ErrNoOpenTurn), errors.Is(err, sessionrelay.ErrRelayOff),
-		errors.Is(err, sessionrelay.ErrNotHandedOff), errors.Is(err, sessionrelay.ErrSessionEnded):
+		errors.Is(err, sessionrelay.ErrNotHandedOff), errors.Is(err, sessionrelay.ErrSessionEnded),
+		errors.Is(err, sessionrelay.ErrNothingHeld):
 		return http.StatusConflict
 	case errors.Is(err, sessionrelay.ErrInvalidInput):
 		return http.StatusBadRequest

@@ -306,3 +306,40 @@ func createTestSchedule(t *testing.T, s *Server) scheduleView {
 	decode(t, resp, &out)
 	return out
 }
+
+func TestScheduleCronPreview(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+
+	resp := do(t, s, http.MethodPost, "/v1/schedules/cron-preview", testToken, cronPreviewReq{Cron: "*/5 * * * *", Count: 3})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview status=%d, want 200", resp.StatusCode)
+	}
+	var got struct {
+		NextRuns []int64 `json:"next_runs"`
+	}
+	decode(t, resp, &got)
+	if len(got.NextRuns) != 3 {
+		t.Fatalf("next_runs=%v, want 3 entries", got.NextRuns)
+	}
+	for i := 1; i < len(got.NextRuns); i++ {
+		if got.NextRuns[i]-got.NextRuns[i-1] != 300 {
+			t.Fatalf("runs not 5 minutes apart: %v", got.NextRuns)
+		}
+	}
+
+	// No count = the default; a huge count is capped.
+	resp = do(t, s, http.MethodPost, "/v1/schedules/cron-preview", testToken, cronPreviewReq{Cron: "@hourly", Count: 999})
+	decode(t, resp, &got)
+	if len(got.NextRuns) != cronPreviewMax {
+		t.Fatalf("capped next_runs=%d, want %d", len(got.NextRuns), cronPreviewMax)
+	}
+
+	for _, bad := range []string{"", "not a cron", "61 * * * *", "0 0 31 2 *"} {
+		resp := do(t, s, http.MethodPost, "/v1/schedules/cron-preview", testToken, cronPreviewReq{Cron: bad})
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("cron %q: status=%d, want 400", bad, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+}

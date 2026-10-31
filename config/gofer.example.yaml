@@ -693,6 +693,12 @@ agents:
     detect:
       command: claude
       args: [--version]
+    # inject_guard:                   # 往 tmux 窗格送话(auto 模式)前的输入区识别；逐行 Go 正则，匹配窗格最后 30 行的每个非空行
+    #   selecting: ['❯ \d+\.']        # 提问/选择对话框(回车会替人作答)，最先判断
+    #   empty: ['^> *$']               # 输入区确认是空的；只有它让 auto 往里打字
+    #   has_input: ['^> \S']           # 输入区已有人敲了一半的字
+    # 内置 claude / codex 已有默认规则；写了的列表整项替换内置的同名列表，没写的列表沿用内置；
+    # 窗格内容什么规则都不匹配 = 不确定，不打字，消息留在信箱等待。
   # omp：结构化(ndjson)采集。`--mode json` 每行输出一个 JSON 事件，其中逐 token 的增量事件
   # (message_update / tool_execution_update)会让日志膨胀 10-30 倍。`output_format: ndjson`
   # 在采集时投影事件流：
