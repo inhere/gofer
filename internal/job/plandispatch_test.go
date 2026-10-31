@@ -154,10 +154,12 @@ func TestTodoDispatchOnReadyWithAssignee(t *testing.T) {
 		t.Fatalf("dispatched job provenance = %q/%q, want plan/alice", job.Channel, job.CallerID)
 	}
 
-	// The submit-time linkage marks it doing and points it at the new job.
+	// The submit-time linkage marks it doing and points it at the new job. The omp job
+	// echoes and exits at once, so under a loaded run (the -race suite) it may already
+	// have finished and written the todo back to done; either way it is linked.
 	td := getTodo(t, s, "todo-d")
-	if td.Status != jobstore.TodoDoing {
-		t.Fatalf("todo status = %q, want doing once its job is running", td.Status)
+	if td.Status != jobstore.TodoDoing && td.Status != jobstore.TodoDone {
+		t.Fatalf("todo status = %q, want doing once its job is running (or done once it ended)", td.Status)
 	}
 	if td.JobID != job.ID {
 		t.Fatalf("todo job_id = %q, want %q", td.JobID, job.ID)
