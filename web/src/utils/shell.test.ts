@@ -101,7 +101,7 @@ describe('local prefs (gofer.shell)', () => {
 describe('navigation groups', () => {
   it('has the four groups of §6.1, each with the pages it names', () => {
     expect(SHELL_NAV_GROUPS.map((g) => g.key)).toEqual(['nav.group.core', 'nav.group.collab', 'nav.group.auto', 'nav.group.infra'])
-    expect(SHELL_NAV_GROUPS[1].items.map((i) => i.key)).toEqual(['nav.mail', 'nav.review', 'nav.issues', 'nav.memory', 'nav.dashboard'])
+    expect(SHELL_NAV_GROUPS[1].items.map((i) => i.key)).toEqual(['nav.inbox', 'nav.mail', 'nav.review', 'nav.issues', 'nav.memory', 'nav.dashboard'])
     expect(SHELL_NAV_GROUPS[2].items.map((i) => i.key)).toEqual(['nav.workflows', 'nav.schedules'])
     expect(SHELL_NAV_GROUPS[3].items.map((i) => i.key)).toEqual(['nav.runners', 'nav.agents', 'nav.projects', 'nav.settings'])
   })

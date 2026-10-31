@@ -17,6 +17,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Ellipsis,
+  Inbox,
   FolderKanban,
   LayoutGrid,
   ListChecks,
@@ -51,6 +52,7 @@ export type NavIcon =
   | 'plans'
   | 'jobs'
   | 'sessions'
+  | 'inbox'
   | 'mail'
   | 'review'
   | 'issues'
@@ -71,6 +73,7 @@ export const NAV_ICONS: Record<NavIcon, LucideIcon> = {
   plans: Milestone, // 计划：里程碑
   jobs: ClipboardList, // 任务：任务清单
   sessions: MessagesSquare, // 会话：对话
+  inbox: Inbox, // 收件箱：要处理 / 仅知会
   mail: Mail, // 信箱
   review: ClipboardCheck, // 待验收
   issues: CircleDot, // Issues：议题圆点
