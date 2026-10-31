@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -446,7 +447,7 @@ func TestRulesInjectedAtPromptTop(t *testing.T) {
 		t.Fatalf("the executed prompt does not start with the rules section:\n%s", prompt)
 	}
 	rulesAt := strings.Index(prompt, rulesPromptHeader)
-	skillsAt := strings.Index(prompt, skillsPromptHeader)
+	skillsAt := strings.Index(prompt, skillsPromptHeader(i18n.ZhCN))
 	bodyAt := strings.Index(prompt, body)
 	if skillsAt < 0 {
 		t.Fatalf("the skills list is missing from the executed prompt:\n%s", prompt)
@@ -469,7 +470,7 @@ func TestRulesInjectedAtPromptTop(t *testing.T) {
 	if !strings.HasPrefix(stored, rulesPromptHeader) || !strings.Contains(stored, "NEVER push.") {
 		t.Fatalf("request_json prompt must carry the injected rules:\n%s", stored)
 	}
-	if strings.Contains(stored, skillsPromptHeader) {
+	if strings.Contains(stored, skillsPromptHeader(i18n.ZhCN)) {
 		t.Fatalf("request_json must not carry the machine-rendered skills list:\n%s", stored)
 	}
 }

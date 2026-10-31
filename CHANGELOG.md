@@ -11,6 +11,11 @@
 
 ## [未发布]
 
+### 变更
+
+- **文本语言缺省改为 `auto`（i18n）**：`server.language` 与 `projects.<p>.language` 新增取值 `auto`，**不配置时等同 `auto`**：按 server 所在机器的系统语言选择（中文 → zh-CN，探测不到或不支持 → en）；项目没配则继承 server。`gofer init` 写入 `language: auto`；启动日志与 `gofer config validate` 显示实际语言与来源。**注意**：未配置语言、且 server 机器系统语言不是中文的部署，升级后注入给 agent 的提示词与服务端生成的文本会变成英文；要保持中文请显式写 `language: zh-CN`。
+- 注入给 agent 的提示词（leader 回合提示、计划规则与待办格式、技能清单、可用工具、评论派活、收尾原因、常驻收件会话）改为按项目 / server 语言选择中英两版，中文版内容不变；新增 Go 包级「不得新增中文字面量」守护测试。`plan --check-prompt` 与 `gofer tool api / deliver / stats-backfill / step` 的说明改为中英双语。
+
 ### 修复
 
 - **收件箱分栏后端审计修复**：失败的 job 现在进「要处理」（此前误进「仅知会」）：新增 kind `job.failed`，失败 / 超时且没有后续 job 的终态 job 归它；已被自动续投 / 回退或已有后续 job 的失败、完成和用户取消的 job 仍是 `job.terminal`（仅知会），是否「自己是续接出来的」不再影响归属；`timeout` 状态此前因状态名写错从未出现在收件箱。`total_unread` 只统计「要处理」未读（仅知会未读见 `unread.fyi`）。`server.inbox.enabled: false` 现在真正关闭收件箱（两个路由返回 404），只写 rules 不再误关；规则里的 `events` / `include_exec` 暂不支持，加载时明确拒绝而不是静默忽略。`POST /v1/inbox/state` 批量里有不存在的 key 时整批 404 且不写入，不带 keys 的 `seen` / `clear` 作用于全部当前项（可限 `column`），此前对从未标记过的项无效。补齐 `/v1/inbox*` 的 HTTP 测试。

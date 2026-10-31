@@ -15,7 +15,10 @@ func FromEnv() Lang {
 	if l, ok := Normalize(os.Getenv(EnvLanguageVar)); ok {
 		return l
 	}
-	return Resolve(FromSystem())
+	if l := FromSystem(); l != "" {
+		return l
+	}
+	return Auto()
 }
 
 // FromEnvVar reads only an explicit GOFER_LANG, "" when it is unset or unrecognized.
@@ -37,7 +40,12 @@ func FromEnvVar() Lang {
 // names a language gofer has text for, so the caller falls back to its next
 // source.
 func FromSystem() Lang {
-	return Resolve(systemLanguages()...)
+	for _, l := range detectSystem() {
+		if l != "" {
+			return l
+		}
+	}
+	return ""
 }
 
 // envLanguages are the POSIX locale variables, highest priority first.

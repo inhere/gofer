@@ -35,6 +35,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -308,14 +309,15 @@ func (s *Service) leaderJobRequest(cfg *config.Config, leader *config.LeaderConf
 		return JobRequest{}, fmt.Errorf("plan %s has no project", plan.PlanID)
 	}
 	member, _ := s.Get(w.MemberJobID)
+	lang := cfg.LanguageFor(projectKey)
 	req := JobRequest{
 		ProjectKey: projectKey,
 		Runner:     builtinLocalRunner,
 		// gofer-3db4: gofer's own round job — an end-notification it cannot address is
 		// dropped with an event, never a reason to skip the round.
 		NotifyDegradable: true,
-		Title:            "leader 回合 " + strconv.Itoa(w.Round) + "：" + leaderTitle(plan),
-		Prompt:           s.leaderPrompt(plan, member, w),
+		Title:            i18n.T(lang, "job.leader.title", "round", w.Round, "title", leaderTitle(plan)),
+		Prompt:           s.leaderPrompt(lang, plan, member, w),
 		PlanID:           plan.PlanID,
 		Tags: []string{
 			leaderTag,
@@ -356,52 +358,47 @@ func (s *Service) leaderJobRequest(cfg *config.Config, leader *config.LeaderConf
 // checklist + the finished job's report + the action list). It is built at FIRE time,
 // not when the round was armed, so it describes the plan as it stands NOW — the delay
 // is a window a human (or the chain itself) may have changed things in.
-func (s *Service) leaderPrompt(plan jobstore.Plan, member JobResult, w jobstore.LeaderWake) string {
+func (s *Service) leaderPrompt(lang i18n.Lang, plan jobstore.Plan, member JobResult, w jobstore.LeaderWake) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "你是 plan %s 的 leader（第 %d 轮）。一个成员 job 刚刚结束，请你读完它的汇报，决定下一步："+
-		"派活、推进待办、建 wakeup，或者升级给人。\n\n", plan.PlanID, w.Round)
+	b.WriteString(i18n.T(lang, "job.leader.intro", "plan", plan.PlanID, "round", w.Round) + "\n\n")
 
-	b.WriteString("## Plan\n")
+	b.WriteString(i18n.T(lang, "job.leader.h_plan") + "\n")
 	if t := strings.TrimSpace(plan.Title); t != "" {
-		fmt.Fprintf(&b, "标题：%s\n", t)
+		b.WriteString(i18n.T(lang, "job.leader.plan_title", "title", t) + "\n")
 	}
-	fmt.Fprintf(&b, "状态：%s", plan.Status)
+	b.WriteString(i18n.T(lang, "job.leader.plan_status", "status", plan.Status))
 	if plan.Paused {
-		b.WriteString("（已暂停）")
+		b.WriteString(i18n.T(lang, "job.leader.paused"))
 	}
 	if plan.BlockedTodo != "" {
-		fmt.Fprintf(&b, "（阻塞在 %s）", plan.BlockedTodo)
+		b.WriteString(i18n.T(lang, "job.leader.blocked", "todo", plan.BlockedTodo))
 	}
 	b.WriteString("\n")
 	if d := strings.TrimSpace(plan.Description); d != "" {
-		fmt.Fprintf(&b, "目标：%s\n", d)
+		b.WriteString(i18n.T(lang, "job.leader.plan_goal", "goal", d) + "\n")
 	}
 
-	b.WriteString("\n## 待办链现状\n")
-	b.WriteString(s.leaderTodoTable(plan.PlanID))
+	b.WriteString("\n" + i18n.T(lang, "job.leader.h_todos") + "\n")
+	b.WriteString(s.leaderTodoTable(lang, plan.PlanID))
 
-	b.WriteString("\n## 刚结束的成员 job\n")
+	b.WriteString("\n" + i18n.T(lang, "job.leader.h_member") + "\n")
 	if member.ID == "" {
-		fmt.Fprintf(&b, "（job %s 已不在库里，只知状态 %s）\n", w.MemberJobID, w.MemberStatus)
+		b.WriteString(i18n.T(lang, "job.leader.member_gone", "job", w.MemberJobID, "status", w.MemberStatus) + "\n")
 	} else {
-		b.WriteString(s.commentJobContext(member))
+		b.WriteString(s.commentJobContext(lang, member))
 	}
 
-	b.WriteString("\n## 你可以做的（用 gofer CLI；权限由你的 job 凭证强制，越权会 403）\n")
-	b.WriteString("- `gofer plan comments <plan>`：先读 plan / todo / job 的评论区，看看人和成员都说过什么。\n")
-	b.WriteString("- `gofer plan comment <plan> \"正文\"`：在评论区说话；正文里写 `@<agent 或 role>` 会**真的派活**（你是本 plan 的 leader，你的 @提及生效）。加 `--todo <todo>` 可只评论某个待办。\n")
-	b.WriteString("- `gofer plan show <plan>`：读 plan 与待办现状。\n")
-	b.WriteString("- `gofer plan set-todo <todo> --status ready|skipped`：把某个待办置 `ready`（已指派即派活）或 `skipped`；**只接受 ready|skipped**，其他状态会被服务端拒绝（403）。\n")
-	b.WriteString("- `gofer job wakeup create <job> --kind at --after 10m`（或 `--kind event --event job.terminal`）：给某个 job 建定时/事件 wakeup。\n")
-	b.WriteString("- `gofer plan ask --plan <plan> --title <标题> --question <问题>`：拿不准就升级给人（不阻塞；人回答后用 `gofer plan decisions --plan <plan>` 看答案）。\n")
-	b.WriteString("- 若你的环境里挂了 gofer MCP 工具，也可以用它们做同样的事：底层是同一枚 job 凭证，权限与上面的 CLI 完全相同。\n")
-	b.WriteString("\n## 你不能做的\n")
-	b.WriteString("- **不能** accept/reject：验收永远由人做；也不能把待办直接标 done。\n")
-	b.WriteString("- 不能改配置、不能提交新 job（`gofer job run`）、不能 push、不能替人做最终决定。\n")
-	b.WriteString("\n## 规则\n")
-	fmt.Fprintf(&b, "- 这是第 %d 轮；轮次用尽后 gofer 会停止唤醒并升级给人。\n", w.Round)
-	b.WriteString("- 人一旦在评论区说话，本轮唤醒即被取消，由人接管；不要和人的决定抢时间。\n")
-	b.WriteString("- 不要自己实现活：写清楚任务，用 @提及 或把待办置 ready 派给成员。\n")
+	b.WriteString("\n" + i18n.T(lang, "job.leader.h_can") + "\n")
+	for _, key := range []string{"can_comments", "can_comment", "can_show", "can_set_todo", "can_wakeup", "can_ask", "can_mcp"} {
+		b.WriteString(i18n.T(lang, "job.leader."+key) + "\n")
+	}
+	b.WriteString("\n" + i18n.T(lang, "job.leader.h_cannot") + "\n")
+	b.WriteString(i18n.T(lang, "job.leader.cannot_accept") + "\n")
+	b.WriteString(i18n.T(lang, "job.leader.cannot_other") + "\n")
+	b.WriteString("\n" + i18n.T(lang, "job.leader.h_rules") + "\n")
+	b.WriteString(i18n.T(lang, "job.leader.rule_round", "round", w.Round) + "\n")
+	b.WriteString(i18n.T(lang, "job.leader.rule_human") + "\n")
+	b.WriteString(i18n.T(lang, "job.leader.rule_no_self") + "\n")
 	return b.String()
 }
 
@@ -409,30 +406,30 @@ func (s *Service) leaderPrompt(plan jobstore.Plan, member JobResult, w jobstore.
 // item with its status, id, assignee, dependencies and the tail of its note (the note
 // is where a member's outcome line lands). It is bounded like the comment context, so a
 // 200-item plan does not become the prompt.
-func (s *Service) leaderTodoTable(planID string) string {
+func (s *Service) leaderTodoTable(lang i18n.Lang, planID string) string {
 	todos, err := s.meta.ListTodosByPlan(planID)
 	if err != nil {
-		return "（待办读取失败）\n"
+		return i18n.T(lang, "job.leader.todos_failed") + "\n"
 	}
 	if len(todos) == 0 {
-		return "（这个 plan 还没有待办）\n"
+		return i18n.T(lang, "job.leader.todos_empty") + "\n"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "共 %d 项：\n", len(todos))
+	b.WriteString(i18n.T(lang, "job.leader.todos_count", "n", len(todos)) + "\n")
 	for i, t := range todos {
 		if i == commentPlanContextTodos {
-			fmt.Fprintf(&b, "  … 还有 %d 项\n", len(todos)-i)
+			b.WriteString("  " + i18n.T(lang, "job.leader.todos_more", "n", len(todos)-i) + "\n")
 			break
 		}
 		fmt.Fprintf(&b, "  - [%s] %s %s", t.Status, t.TodoID, strings.TrimSpace(t.Title))
-		if t.Assignee != "" {
-			fmt.Fprintf(&b, "（指派：%s", t.Assignee)
-			if len(t.After) > 0 {
-				fmt.Fprintf(&b, "，依赖：%s", strings.Join(t.After, ","))
-			}
-			b.WriteString("）")
-		} else if len(t.After) > 0 {
-			fmt.Fprintf(&b, "（依赖：%s）", strings.Join(t.After, ","))
+		after := strings.Join(t.After, ",")
+		switch {
+		case t.Assignee != "" && len(t.After) > 0:
+			b.WriteString(i18n.T(lang, "job.leader.todo_assigned_after", "assignee", t.Assignee, "after", after))
+		case t.Assignee != "":
+			b.WriteString(i18n.T(lang, "job.leader.todo_assigned", "assignee", t.Assignee))
+		case len(t.After) > 0:
+			b.WriteString(i18n.T(lang, "job.leader.todo_after", "after", after))
 		}
 		if note := lastNoteLine(t.Note); note != "" {
 			fmt.Fprintf(&b, " — %s", note)
@@ -468,15 +465,15 @@ func lastNoteLine(note string) string {
 // an OPEN decision, which is the same 待人处理 item gofer_ask_human raises and the web
 // plan page surfaces.
 func (s *Service) exhaustLeaderRounds(plan jobstore.Plan, member JobResult, spent int) {
+	lang := s.config().LanguageFor(plan.ProjectKey)
 	s.RecordScopedEvent(PlanEventScope(plan.PlanID), EventPlanLeaderExhausted, plan.ProjectKey, map[string]any{
 		"plan_id": plan.PlanID, "job": member.ID, "rounds": spent,
 	})
 	d := jobstore.PlanDecision{
-		PlanID: plan.PlanID,
-		Title:  "leader 轮次已用尽：" + leaderTitle(plan),
-		Question: fmt.Sprintf("plan %s 的 leader 已用满轮次，最近一次成员 job 是 %s（%s）。请接手：继续推进这个 plan，或把它停下。",
-			plan.PlanID, member.ID, member.Status),
-		State: jobstore.DecisionOpen,
+		PlanID:   plan.PlanID,
+		Title:    i18n.T(lang, "job.leader.exhausted_title", "title", leaderTitle(plan)),
+		Question: i18n.T(lang, "job.leader.exhausted_question", "plan", plan.PlanID, "job", member.ID, "status", member.Status),
+		State:    jobstore.DecisionOpen,
 	}
 	if err := s.meta.InsertDecision(&d); err != nil {
 		slog.Warn("leader exhausted: raise decision", "plan_id", plan.PlanID, "err", err)

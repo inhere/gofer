@@ -1,0 +1,8 @@
+Commented plan: plan-g "Golden plan"
+Status: open (paused) (blocked on t-2)
+Goal: ship the thing
+Todos (4):
+  - [done] t-1 first
+  - [pending] t-2 second
+  - [pending] t-3 third
+  - [pending] t-4 fourth

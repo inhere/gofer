@@ -5,12 +5,13 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
-// toolsPromptHeader opens the declared-tools section (CFG-16). Like the rules and
+// toolsPromptHeader opens the declared-tools section (CFG-16), in lang. Like the rules and
 // skills headers it is written for any project: it names what the list is and that
 // using it is optional, nothing about gofer's own repository.
-const toolsPromptHeader = "## 本机可用工具（gofer 注入，按需使用）"
+func toolsPromptHeader(lang i18n.Lang) string { return i18n.T(lang, "job.tools.header") }
 
 // toolsPromptSection is the declared-tools section for a job THIS machine runs, or
 // "" when the job gets none. It is rendered by the executing machine only (the
@@ -43,22 +44,22 @@ func toolsPromptSection(cfg *config.Config, req *JobRequest) string {
 	if req.CredentialExternal {
 		workerID = strings.TrimSpace(req.Env[EnvWorkerID])
 	}
-	return renderToolsSection(cfg.Tools, workerID)
+	return renderToolsSection(promptLanguage(cfg, req), cfg.Tools, workerID)
 }
 
 // renderToolsSection renders the header, one intro line (naming the worker when
 // there is one) and one line per tool (config.ToolLine, the same text the config's
 // size cap measured).
-func renderToolsSection(tools []config.Tool, workerID string) string {
+func renderToolsSection(lang i18n.Lang, tools []config.Tool, workerID string) string {
 	var b strings.Builder
-	b.WriteString(toolsPromptHeader)
+	b.WriteString(toolsPromptHeader(lang))
 	b.WriteString("\n\n")
 	if workerID != "" {
-		b.WriteString("本任务运行在 worker `")
-		b.WriteString(workerID)
-		b.WriteString("` 上，以下工具已安装，可直接调用：\n\n")
+		b.WriteString(i18n.T(lang, "job.tools.intro_worker", "worker", workerID))
+		b.WriteString("\n\n")
 	} else {
-		b.WriteString("本任务运行的机器上已安装以下工具，可直接调用：\n\n")
+		b.WriteString(i18n.T(lang, "job.tools.intro_local"))
+		b.WriteString("\n\n")
 	}
 	for _, t := range tools {
 		b.WriteString(config.ToolLine(t))

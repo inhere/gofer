@@ -50,7 +50,7 @@ func (s *Service) Bounce(m jobstore.Mail, reason, where string) (jobstore.Mail, 
 	// A job / caller sender has no inbox: the notice is recorded (the sender's listing shows it)
 	// but there is no path to push it through, so it is parked instead of waiting for a delivery
 	// that will never happen.
-	held, ok, err := s.store.HoldMail(b.ID, noInboxReason)
+	held, ok, err := s.store.HoldMail(b.ID, noInboxReason(s.textLanguage()))
 	if err != nil || !ok {
 		return b, true, err
 	}
@@ -58,10 +58,10 @@ func (s *Service) Bounce(m jobstore.Mail, reason, where string) (jobstore.Mail, 
 }
 
 // noInboxReason explains a bounce parked because its addressee cannot take letters at all.
-const noInboxReason = "发件方是 job / 调用方，没有可注入的信箱：退信只在此记录"
+func noInboxReason(lang i18n.Lang) string { return i18n.T(lang, "mail.bounce.no_inbox") }
 
 // overdueReasonText is the bounce reason of a letter that passed its delivery deadline.
-const overdueReasonText = "超过送达期限仍没有送到"
+func overdueReasonText(lang i18n.Lang) string { return i18n.T(lang, "mail.bounce.overdue") }
 
 // bounceExcerptRunes is how much of the returned letter's body the notice quotes back.
 const bounceExcerptRunes = MailSummaryRunes
@@ -74,7 +74,7 @@ func BounceText(m jobstore.Mail, reason, where string) string {
 // BounceTextLang renders a returned letter in lang.
 func BounceTextLang(lang i18n.Lang, m jobstore.Mail, reason, where string) string {
 	var b strings.Builder
-	b.WriteString(msgprefix.BounceOpen)
+	b.WriteString(msgprefix.Open(lang, msgprefix.Bounce))
 	fmt.Fprintf(&b, " %s", i18n.T(lang, "mail.bounce.letter", "id", m.ID))
 	if m.ToAddress != "" {
 		b.WriteString(i18n.T(lang, "mail.bounce.for", "address", m.ToAddress))
@@ -84,9 +84,9 @@ func BounceTextLang(lang i18n.Lang, m jobstore.Mail, reason, where string) strin
 	}
 	b.WriteString(i18n.T(lang, "mail.bounce.not_delivered"))
 	if reason = strings.TrimSpace(reason); reason != "" {
-		b.WriteString("：" + bounceReason(reason))
+		b.WriteString(i18n.T(lang, "mail.bounce.sep") + bounceReason(lang, reason))
 	}
-	b.WriteString("。")
+	b.WriteString(i18n.T(lang, "mail.bounce.end"))
 	if where = strings.TrimSpace(where); where != "" {
 		b.WriteString("\n" + i18n.T(lang, "mail.bounce.where") + where)
 	}
@@ -97,21 +97,33 @@ func BounceTextLang(lang i18n.Lang, m jobstore.Mail, reason, where string) strin
 }
 
 // captureWhere says the returned letter is waiting in the capture box (item id when it has one).
-func captureWhere(itemID string) string {
+func captureWhere(lang i18n.Lang, itemID string) string {
 	if itemID == "" {
-		return "已转入收集箱待指派"
+		return i18n.T(lang, "mail.bounce.capture_where")
 	}
-	return "已转入收集箱待指派（条目 " + itemID + "）"
+	return i18n.T(lang, "mail.bounce.capture_where_item", "item", itemID)
 }
 
 // bounceReason renders a hold reason for its sender: the store keeps the machine's wording, a
-// person reads a sentence.
-func bounceReason(reason string) string {
-	switch strings.TrimSpace(reason) {
-	case PtyHoldReason:
-		return "收件方是 pty 终端作业，收不到信件"
-	case noInboxReason:
-		return noInboxReason
+// person reads a sentence. A stored reason may have been written in any supported language
+// (the language was the deployment's at the time), so it is recognized in all of them.
+func bounceReason(lang i18n.Lang, reason string) string {
+	reason = strings.TrimSpace(reason)
+	switch {
+	case reason == PtyHoldReason:
+		return i18n.T(lang, "mail.bounce.pty")
+	case reasonIs(reason, "mail.bounce.no_inbox"):
+		return i18n.T(lang, "mail.bounce.no_inbox")
 	}
-	return strings.TrimSpace(reason)
+	return reason
+}
+
+// reasonIs reports whether a stored reason is the catalog text of key in any language.
+func reasonIs(reason, key string) bool {
+	for _, l := range i18n.Supported() {
+		if reason == i18n.T(l, key) {
+			return true
+		}
+	}
+	return false
 }

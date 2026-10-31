@@ -99,14 +99,14 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	}
 	slog.Info("server.config_loaded", "event", "server.config_loaded", "component", "server", "path", opts.CfgPath)
 	// Which language gofer writes the text it generates in (prompt sections, agent
-	// guidance, delivery descriptions). An unset server.language means the DEPRECATED
-	// default; say so once at startup so the eventual flip to en is not a surprise
+	// guidance, delivery descriptions). An unset server.language reads as auto (the
+	// system language, else en); say so once at startup, with the language picked
 	// (design 2026-10-27-i18n-design.md §3).
 	if cfg.LanguageUnset() {
 		slog.Warn("server.language_not_set", "event", "server.language_not_set", "component", "server",
-			"default", string(cfg.Language()), "note", i18n.LanguageDefaultNote)
+			"language", string(cfg.Language()), "source", cfg.LanguageSource(), "note", i18n.LanguageDefaultNote)
 	} else {
-		slog.Info("server.language", "event", "server.language", "component", "server", "language", string(cfg.Language()))
+		slog.Info("server.language", "event", "server.language", "component", "server", "language", string(cfg.Language()), "source", cfg.LanguageSource())
 	}
 	logLoadWarnings(c, cfg)
 	logCallerCeilings(c, cfg)

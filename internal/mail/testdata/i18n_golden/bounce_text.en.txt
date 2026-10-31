@@ -1,0 +1,3 @@
+[gofer · bounce] Letter #7 (to agent:x) (urgent) was not delivered: reason x.
+Now: where x
+Original excerpt: hello body

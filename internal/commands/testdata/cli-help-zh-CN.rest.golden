@@ -860,37 +860,29 @@ template show	flag project	project key (default: the project detected from the c
 template show	flag server	server address (overrides config server.addr)
 template show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 template show	flag var	template variable k=v (repeatable)
-tool	desc	Small utilities: a raw API call, file copy to/from a worker, the transfer staging area, certificates and the stats backfill
+tool	desc	小工具集：直接调用 API、与 worker 之间复制文件、传输暂存区、证书和统计回填
 tool	help	
 tool	examples	
-tool api	desc	Call the server's HTTP API and print the response (address and token included)
-tool api	help	The path is relative to the server's /v1 API, so "jobs" and "/v1/jobs" are the
-same request. The address and token come from the same place as everywhere else in the
-CLI (-c / --server / --token, or $GOFER_CONFIG_DIR/.env), so nothing has to be typed
-twice.
+tool api	desc	调用 server 的 HTTP API 并打印响应（自动带上地址和 token）
+tool api	help	路径相对于 server 的 /v1 API，因此 "jobs" 与 "/v1/jobs" 是同一个请求。地址和 token 的来源与 CLI 其他命令一致（-c / --server / --token，或 $GOFER_CONFIG_DIR/.env），不必重复输入。
 
-Fields build the body (`application/json`); on a GET they become query parameters
-instead. A value is read as JSON when it parses as one (10 → number, true → bool) and as
-a plain string otherwise:
+字段用来组装请求体（`application/json`）；GET 请求里改作查询参数。值能按 JSON 解析时按 JSON 读取（10 → 数字，true → 布尔），否则按普通字符串：
 
   gofer tool api jobs -f status=running -f limit=5
   gofer tool api jobs -X POST --input job.json
   gofer tool api settings/work.draft.min_prompts -X PUT -f value=3
-  gofer tool api prompt -F value=@prompt.md          # file content as a string
+  gofer tool api prompt -F value=@prompt.md          # 文件内容作为字符串
   gofer tool api jobs -q 'jobs.*.id'
 
---query picks one value out of the JSON response by path (top.sub, jobs.0.id,
-jobs.*.id): a string prints as it is, anything else as indented JSON. A non-2xx answer
-exits non-zero and prints the body to stderr; --include also shows the status line and
-the response headers.
+--query 按路径（top.sub、jobs.0.id、jobs.*.id）取出 JSON 响应里的一个值：字符串原样打印，其他类型按缩进 JSON 打印。非 2xx 响应以非零状态退出，并把响应体打印到 stderr；--include 同时显示状态行和响应头。
 tool api	examples	
 tool api	flag config	path to the gofer config file
-tool api	flag field	field as key=value (repeatable; query parameters on a GET)
-tool api	flag file-field	field as key=@file, the file's content as the string value (repeatable)
-tool api	flag include	print the status line and response headers
-tool api	flag input	raw request body from this file ('-' reads stdin)
-tool api	flag query	print this value of the JSON response instead of the whole body
-tool api	flag request	HTTP method (default: GET, or POST when a body is given)
+tool api	flag field	key=value 形式的字段（可重复；GET 时作为查询参数）
+tool api	flag file-field	key=@file 形式的字段，取文件内容作为字符串值（可重复）
+tool api	flag include	同时打印状态行和响应头
+tool api	flag input	从该文件读取原始请求体（'-' 表示读标准输入）
+tool api	flag query	只打印 JSON 响应中该路径的值，而不是整个响应体
+tool api	flag request	HTTP 方法（缺省：GET；带请求体时为 POST）
 tool api	flag server	server address (overrides config server.addr)
 tool api	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 tool cert	desc	Generate a local CA and HTTPS server certificate
@@ -907,7 +899,7 @@ tool cp	flag force	push: overwrite the file that already exists at the remote pa
 tool cp	flag server	server address (overrides config server.addr)
 tool cp	flag timeout	seconds to wait for the transfer to finish
 tool cp	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-tool deliver	desc	Run a delivery plan read from stdin (internal)
+tool deliver	desc	运行从标准输入读取的交付计划（内部使用）
 tool deliver	help	
 tool deliver	examples	
 tool hook-test	desc	Run a decision hook once with a sample input and show how gofer would read its answer
@@ -926,20 +918,20 @@ tool refs	examples	gofer tool refs gofer-abcd
 tool refs	flag config	path to the gofer config file
 tool refs	flag server	server address (overrides config server.addr)
 tool refs	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-tool stats-backfill	desc	Compute the dashboard's per-job metrics for jobs that ended before they were recorded
+tool stats-backfill	desc	为记录统计之前就已结束的 job 补算看板的逐 job 指标
 tool stats-backfill	help	
 tool stats-backfill	examples	
 tool stats-backfill	flag config	path to the gofer config file
-tool stats-backfill	flag force	recompute jobs that already have metrics
-tool stats-backfill	flag limit	jobs per server batch (1-1000)
+tool stats-backfill	flag force	重新计算已有指标的 job
+tool stats-backfill	flag limit	每批向 server 请求的 job 数（1-1000）
 tool stats-backfill	flag server	server address (overrides config server.addr)
-tool stats-backfill	flag since	only jobs that ended within this window (e.g. 30d, 12h) or since YYYY-MM-DD; default all
+tool stats-backfill	flag since	只处理在该时间窗口内（如 30d、12h）或自 YYYY-MM-DD 起结束的 job；缺省全部
 tool stats-backfill	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-tool step	desc	Run a built-in workflow step reading its with: block from stdin (internal)
+tool step	desc	运行内置工作流步骤，从标准输入读取其 with: 块（内部使用）
 tool step	help	
 tool step	examples	
-tool step	flag dir	working directory (default: the current one)
-tool step	flag with	with: block as JSON (default: read stdin)
+tool step	flag dir	工作目录（缺省：当前目录）
+tool step	flag with	JSON 形式的 with: 块（缺省：读标准输入）
 tool xfer	desc	Manage staged file transfers
 tool xfer	help	
 tool xfer	examples	

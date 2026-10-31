@@ -1,0 +1,16 @@
+Output format: end the plan with a ```gofer-todos``` fenced block holding a YAML list, one element per step:
+- `title`: the step title (required);
+- `after`: the earlier steps it depends on (a title or a 1-based number; a list is allowed); omitted = depends on the previous step, `[]` = no dependency;
+- `acceptance`: the acceptance criteria;
+- `check_prompt`: the delivery-check requirement (optional; not a shell command);
+- `scope`: the change scope (a list of path globs, relative to the repository root);
+- `check`: the checkpoint command (optional; creates an exec check item that later steps wait for).
+
+```gofer-todos
+- title: Add the field and migration in the storage layer
+  acceptance: the migration can run repeatedly; old data stays readable
+  scope: [src/storage/**]
+- title: Expose the new field in the API
+  scope: [src/api/**]
+  check: <the project's test command>
+```

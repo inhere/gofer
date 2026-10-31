@@ -1,0 +1,1 @@
+常驻会话已达上限 3（mail.agents_max_resident），信件转待指派

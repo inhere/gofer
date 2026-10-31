@@ -1,0 +1,5 @@
+## 可用技能（gofer 挂载，按需阅读）
+- alpha：house rules → /r/skills/alpha/SKILL.md
+- beta → /r/skills/beta/SKILL.md
+先读与本任务相关的 SKILL.md，再动手。
+

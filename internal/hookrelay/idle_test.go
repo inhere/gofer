@@ -1,6 +1,7 @@
 package hookrelay
 
 import (
+	"github.com/inhere/gofer/internal/testutil/machinelang"
 	"os"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ func idleUnknown() int64 { return -1 }
 // TestMain keeps every test off the real system idle API.
 func TestMain(m *testing.M) {
 	probeIdle = idleUnknown
+	machinelang.PinZh()
 	os.Exit(m.Run())
 }
 

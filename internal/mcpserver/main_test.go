@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"github.com/inhere/gofer/internal/testutil/machinelang"
 	"os"
 	"testing"
 
@@ -16,5 +17,6 @@ func TestMain(m *testing.M) {
 		_ = os.Unsetenv(k)
 	}
 	_ = os.Unsetenv("GOFER_JOB_ID")
+	machinelang.PinZh()
 	os.Exit(m.Run())
 }

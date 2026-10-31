@@ -1,0 +1,6 @@
+[step limit (the agent wrapped up by itself; the task may be unfinished)]
+[usage limit (the agent wrapped up by itself; the task may be unfinished)]
+[budget exhausted (the agent wrapped up by itself; the task may be unfinished)]
+[time limit (the agent wrapped up by itself; the task may be unfinished)]
+[]
+[wall_clock (the agent wrapped up by itself; the task may be unfinished)]

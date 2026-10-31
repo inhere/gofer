@@ -429,7 +429,7 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 func managedBlockLanguage(root string) i18n.Lang {
 	cfg, _, err := config.Load(config.InputCfgFile)
 	if err != nil || cfg == nil {
-		return i18n.Default
+		return i18n.Auto()
 	}
 	if key, ok := cfg.ProjectForPath(root); ok {
 		return cfg.LanguageFor(key)

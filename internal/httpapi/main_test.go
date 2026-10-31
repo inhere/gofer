@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"github.com/inhere/gofer/internal/testutil/machinelang"
 	"os"
 	"testing"
 
@@ -14,5 +15,6 @@ import (
 func TestMain(m *testing.M) {
 	gitenv.DisableAutoMaintenance()
 	installDecisionRecorder()
+	machinelang.PinZh()
 	os.Exit(m.Run())
 }

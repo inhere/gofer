@@ -1,0 +1,1 @@
+The resident session limit 3 is reached (mail.agents_max_resident); the letter moves to the capture box

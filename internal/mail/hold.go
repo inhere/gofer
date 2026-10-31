@@ -26,7 +26,7 @@ func (s *Service) HoldLetter(id int64, reason string) (jobstore.Mail, bool, erro
 func (s *Service) RecordHeld(held []jobstore.Mail) error {
 	var first error
 	for _, m := range held {
-		if err := s.recordHeldAndBounce(m, overdueReasonText); err != nil && first == nil {
+		if err := s.recordHeldAndBounce(m, overdueReasonText(s.textLanguage())); err != nil && first == nil {
 			first = err
 		}
 	}
@@ -44,7 +44,7 @@ func (s *Service) recordHeldAndBounce(m jobstore.Mail, reason string) error {
 			item = row.CaptureItemID
 		}
 	}
-	_, _, err := s.Bounce(m, reason, captureWhere(item))
+	_, _, err := s.Bounce(m, reason, captureWhere(s.textLanguage(), item))
 	return err
 }
 

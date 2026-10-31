@@ -1,0 +1,5 @@
+## Available skills (mounted by gofer, read as needed)
+- alpha: house rules → /r/skills/alpha/SKILL.md
+- beta → /r/skills/beta/SKILL.md
+Read the SKILL.md files relevant to this task first, then start working.
+

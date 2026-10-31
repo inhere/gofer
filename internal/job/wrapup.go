@@ -1,6 +1,9 @@
 package job
 
-import "github.com/inhere/gofer/internal/runner/ndjsonfilter"
+import (
+	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/runner/ndjsonfilter"
+)
 
 // wrapup.go is gofer-gk74: the AGENT's own reason for ending a run early, and how it is
 // shown. The signal is read out of the agent's structured stream by the ndjson capture
@@ -15,19 +18,22 @@ import "github.com/inhere/gofer/internal/runner/ndjsonfilter"
 // WrapUpText renders a wrap-up reason as the human line `job show` / `job review` / the
 // web detail print. An unknown reason is shown verbatim: a future agent ceiling must
 // still be visible.
-func WrapUpText(reason string) string {
+func WrapUpText(reason string) string { return WrapUpTextIn(i18n.Default, reason) }
+
+// WrapUpTextIn is WrapUpText in lang.
+func WrapUpTextIn(lang i18n.Lang, reason string) string {
 	switch reason {
 	case ndjsonfilter.WrapUpMaxSteps:
-		return "步数上限（agent 自己收尾，任务可能未完成）"
+		return i18n.T(lang, "job.wrapup.max_steps")
 	case ndjsonfilter.WrapUpMaxTokens:
-		return "用量上限（agent 自己收尾，任务可能未完成）"
+		return i18n.T(lang, "job.wrapup.max_tokens")
 	case ndjsonfilter.WrapUpBudget:
-		return "预算耗尽收尾（agent 自己收尾，任务可能未完成）"
+		return i18n.T(lang, "job.wrapup.budget")
 	case ndjsonfilter.WrapUpTimeout:
-		return "时限（agent 自己收尾，任务可能未完成）"
+		return i18n.T(lang, "job.wrapup.timeout")
 	case "":
 		return ""
 	default:
-		return reason + "（agent 自己收尾，任务可能未完成）"
+		return i18n.T(lang, "job.wrapup.other", "reason", reason)
 	}
 }

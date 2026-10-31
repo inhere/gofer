@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -46,11 +47,11 @@ func (d *Deliverer) deliverToAgent(ctx context.Context, key string, letters []jo
 	name, project := jobstore.SplitResidentKey(key)
 	spec, configured := d.svc.Residents().Agent(name)
 	if !configured {
-		d.holdAgentLetters(letters, fmt.Sprintf("mail.agents 里没有 %q（地址 agent:%s）", name, key))
+		d.holdAgentLetters(letters, i18n.T(d.svc.textLanguage(), "mail.reason.agent_unknown", "name", fmt.Sprintf("%q", name), "key", key))
 		return
 	}
 	if spec.Identity() == "" {
-		d.holdAgentLetters(letters, fmt.Sprintf("mail.agents.%s.agent 未配置，无法启动会话", spec.Name))
+		d.holdAgentLetters(letters, i18n.T(d.svc.textLanguage(), "mail.reason.agent_unset", "name", spec.Name))
 		return
 	}
 	row, hasRow, err := d.svc.store.GetResidentAgent(spec.Name, project)
@@ -71,7 +72,7 @@ func (d *Deliverer) deliverToAgent(ctx context.Context, key string, letters []jo
 					slog.Warn("mail deliverer: recording the resident session id failed", "resident", key, "error", err)
 				}
 			}
-			if why := rotationReason(row, spec, now); why != "" {
+			if why := rotationReason(d.svc.textLanguage(), row, spec, now); why != "" {
 				d.rotateResident(row, spec, why)
 				d.startResident(ctx, key, project, spec, "", "", d.letterOrigin(letters[0]), letters[0], now)
 				return
@@ -84,10 +85,10 @@ func (d *Deliverer) deliverToAgent(ctx context.Context, key string, letters []jo
 		}
 		// The session died (idle timeout, crash, restart): note it, then carry the conversation
 		// over to a new job when the agent allows it.
-		if err := d.svc.store.EndResidentAgent(spec.Name, project, jobstore.MailResidentEnded, "会话已结束"); err != nil {
+		if err := d.svc.store.EndResidentAgent(spec.Name, project, jobstore.MailResidentEnded, i18n.T(d.svc.textLanguage(), "mail.reason.session_ended")); err != nil {
 			slog.Warn("mail deliverer: end resident agent failed", "resident", key, "error", err)
 		}
-		d.svc.residentEvent("ended", key, "会话已结束", map[string]any{"job": row.JobID})
+		d.svc.residentEvent("ended", key, i18n.T(d.svc.textLanguage(), "mail.reason.session_ended"), map[string]any{"job": row.JobID})
 	}
 	// A start that just failed keeps the letters pending until its retry window passes.
 	if hasRow && row.Status == jobstore.MailResidentFailed && row.EndedAt > 0 &&
@@ -101,7 +102,7 @@ func (d *Deliverer) deliverToAgent(ctx context.Context, key string, letters []jo
 			return
 		}
 		if n >= max {
-			d.holdAgentLetters(letters, residentLimitReason(max))
+			d.holdAgentLetters(letters, residentLimitReason(d.svc.textLanguage(), max))
 			return
 		}
 	}
@@ -118,7 +119,7 @@ func (d *Deliverer) deliverToAgent(ctx context.Context, key string, letters []jo
 func (d *Deliverer) startResident(ctx context.Context, key, project string, spec ResidentAgentSpec, resume, resumeFrom, originCaller string, m jobstore.Mail, now time.Time) {
 	_ = ctx
 	host := d.svc.residentHost
-	specPrompt := OpeningPrompt(spec, project)
+	specPrompt := OpeningPrompt(d.svc.textLanguage(), spec, project)
 	idle := int(spec.Idle / time.Second)
 	if idle <= 0 {
 		idle = 1800
@@ -269,7 +270,7 @@ func (s *Service) EndResident(name, project, reason string) (string, error) {
 		}
 	}
 	if reason == "" {
-		reason = "手动结束"
+		reason = i18n.T(s.textLanguage(), "mail.reason.manual_end")
 	}
 	if err := s.store.EndResidentAgent(name, project, jobstore.MailResidentEnded, reason); err != nil {
 		return jobID, err

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"errors"
+	"github.com/inhere/gofer/internal/testutil/machinelang"
 	"os"
 	"strings"
 	"testing"
@@ -60,6 +61,7 @@ func TestMain(m *testing.M) {
 	// language sources; a test that exercises English or the language chain sets
 	// GOFER_LANG itself with t.Setenv.
 	_ = os.Setenv(i18n.EnvLanguageVar, string(i18n.ZhCN))
+	machinelang.PinZh()
 	_ = os.Unsetenv("LANGUAGE") // glibc's message list: never a language source of ours
 	// The developer's config directory and server stay out of the tests: commands
 	// that open <config-dir>/tracker (the global memory copy) or sync it would

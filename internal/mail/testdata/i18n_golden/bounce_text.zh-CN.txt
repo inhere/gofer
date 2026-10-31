@@ -1,0 +1,3 @@
+[gofer · 退信] 信件 #7（发给 agent:x）（加急）没有送到：reason x。
+现在：where x
+原文摘录：hello body

@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -192,6 +193,9 @@ type commentTarget struct {
 	// pending round, and a leader job's @-comment is only admitted on its own plan.
 	ownerPlan string
 	context   string
+	// lang is the language of the text a dispatch from this target writes: the
+	// commented object's project language (config.LanguageFor).
+	lang i18n.Lang
 }
 
 // Comment records a comment on a job, plan or plan-todo and, when a HUMAN wrote it,
@@ -328,11 +332,13 @@ func (s *Service) commentTarget(scope, scopeID string) (commentTarget, error) {
 		if !ok {
 			return commentTarget{}, fmt.Errorf("%w: no job %q", ErrUnknownCommentTarget, scopeID)
 		}
+		lang := s.config().LanguageFor(res.ProjectKey)
 		return commentTarget{
 			scope: scope, scopeID: scopeID, eventScope: res.ID,
 			projectKey: res.ProjectKey, cwd: commentJobCwd(res), runner: res.Runner,
 			ownerPlan: res.PlanID,
-			context:   s.commentJobContext(res),
+			context:   s.commentJobContext(lang, res),
+			lang:      lang,
 		}, nil
 	case jobstore.CommentScopePlan:
 		p, ok, err := s.meta.GetPlan(scopeID)
@@ -342,10 +348,12 @@ func (s *Service) commentTarget(scope, scopeID string) (commentTarget, error) {
 		if !ok {
 			return commentTarget{}, fmt.Errorf("%w: no plan %q", ErrUnknownCommentTarget, scopeID)
 		}
+		lang := s.config().LanguageFor(p.ProjectKey)
 		return commentTarget{
 			scope: scope, scopeID: scopeID, eventScope: PlanEventScope(p.PlanID),
 			projectKey: p.ProjectKey, planID: p.PlanID, ownerPlan: p.PlanID,
-			context: s.commentPlanContext(p),
+			context: s.commentPlanContext(lang, p),
+			lang:    lang,
 		}, nil
 	case jobstore.CommentScopeTodo:
 		t, ok, err := s.meta.GetTodo(scopeID)
@@ -356,7 +364,6 @@ func (s *Service) commentTarget(scope, scopeID string) (commentTarget, error) {
 			return commentTarget{}, fmt.Errorf("%w: no todo %q", ErrUnknownCommentTarget, scopeID)
 		}
 		projectKey := t.ProjectKey
-		ctx := s.commentTodoContext(t)
 		if p, ok, err := s.meta.GetPlan(t.PlanID); err == nil && ok {
 			if projectKey == "" {
 				// A todo inherits the plan's project (PLAN-02 P2), exactly like the
@@ -364,11 +371,13 @@ func (s *Service) commentTarget(scope, scopeID string) (commentTarget, error) {
 				projectKey = p.ProjectKey
 			}
 		}
+		lang := s.config().LanguageFor(projectKey)
 		return commentTarget{
 			scope: scope, scopeID: scopeID, eventScope: PlanEventScope(t.PlanID),
 			projectKey: projectKey, cwd: t.Cwd, runner: t.Runner,
 			planID: t.PlanID, todoID: t.TodoID, ownerPlan: t.PlanID,
-			context: ctx,
+			context: s.commentTodoContext(lang, t),
+			lang:    lang,
 		}, nil
 	}
 	return commentTarget{}, fmt.Errorf("%w: unknown scope %q", ErrInvalidComment, scope)
@@ -550,7 +559,7 @@ func (s *Service) rejectCommentMention(target commentTarget, cm *jobstore.Commen
 	s.recordEvent(target.eventScope, EventCommentMentionRejected, map[string]any{
 		"comment_id": cm.ID, "mention": mention, "reason": reason, "error": detail,
 	})
-	s.insertSystemComment(target.scope, target.scopeID, fmt.Sprintf("@%s 没有派发：%s", mention, detail))
+	s.insertSystemComment(target.scope, target.scopeID, i18n.T(target.lang, "job.comment.reject", "mention", mention, "detail", detail))
 }
 
 // insertSystemComment appends gofer's own explanation to a thread. It goes through the
@@ -660,7 +669,7 @@ func (t commentTarget) dispatchRequest(cm *jobstore.Comment, mention, kind, owne
 	req := JobRequest{
 		ProjectKey: t.projectKey,
 		Runner:     runner,
-		Prompt:     commentDispatchPrompt(t.context, cm.Body),
+		Prompt:     commentDispatchPrompt(t.lang, t.context, cm.Body),
 		Cwd:        t.cwd,
 		PlanID:     t.planID,
 		TodoID:     t.todoID,
@@ -691,13 +700,14 @@ const (
 // commentDispatchPrompt renders the prompt a mention hands over: the commented
 // object's context, then the comment body verbatim (the human's own words are the
 // instruction — never rewritten).
-func commentDispatchPrompt(context, body string) string {
+func commentDispatchPrompt(lang i18n.Lang, context, body string) string {
 	var b strings.Builder
-	b.WriteString("你在一条评论里被 @ 点名接手工作（gofer 评论派活）。\n\n")
+	b.WriteString(i18n.T(lang, "job.comment.dispatch_intro"))
+	b.WriteString("\n\n")
 	if context != "" {
 		b.WriteString(context)
 	}
-	b.WriteString("\n评论正文：\n")
+	b.WriteString("\n" + i18n.T(lang, "job.comment.body_label") + "\n")
 	b.WriteString(strings.TrimSpace(body))
 	b.WriteString("\n")
 	return b.String()
@@ -705,20 +715,20 @@ func commentDispatchPrompt(context, body string) string {
 
 // commentJobContext summarises the commented job: what it is, how it ended and how its
 // own report ended — the three things a handover needs.
-func (s *Service) commentJobContext(res JobResult) string {
+func (s *Service) commentJobContext(lang i18n.Lang, res JobResult) string {
 	var b strings.Builder
 	title := strings.TrimSpace(res.Title)
 	if title == "" {
-		title = "(无标题)"
+		title = i18n.T(lang, "job.comment.untitled")
 	}
-	fmt.Fprintf(&b, "被评论的 job：%s %q\n", res.ID, title)
-	fmt.Fprintf(&b, "状态：%s", res.Status)
+	b.WriteString(i18n.T(lang, "job.comment.job_head", "id", res.ID, "title", fmt.Sprintf("%q", title)) + "\n")
+	b.WriteString(i18n.T(lang, "job.comment.status", "status", res.Status))
 	if res.Error != "" {
-		fmt.Fprintf(&b, "（error: %s）", res.Error)
+		b.WriteString(i18n.T(lang, "job.comment.job_error", "error", res.Error))
 	}
 	b.WriteString("\n")
 	if tail := s.commentReportTail(res); tail != "" {
-		fmt.Fprintf(&b, "最近一次汇报（stdout 末尾 %d 行）：\n%s\n", commentReportTailLines, tail)
+		b.WriteString(i18n.T(lang, "job.comment.report", "n", commentReportTailLines) + "\n" + tail + "\n")
 	}
 	return b.String()
 }
@@ -739,29 +749,29 @@ func (s *Service) commentReportTail(res JobResult) string {
 
 // commentPlanContext summarises the commented plan: its goal, its state and the
 // checklist as it stands (bounded, so a 200-item plan does not become the prompt).
-func (s *Service) commentPlanContext(p jobstore.Plan) string {
+func (s *Service) commentPlanContext(lang i18n.Lang, p jobstore.Plan) string {
 	var b strings.Builder
 	title := strings.TrimSpace(p.Title)
 	if title == "" {
-		title = "(无标题)"
+		title = i18n.T(lang, "job.comment.untitled")
 	}
-	fmt.Fprintf(&b, "被评论的 plan：%s %q\n", p.PlanID, title)
-	fmt.Fprintf(&b, "状态：%s", p.Status)
+	b.WriteString(i18n.T(lang, "job.comment.plan_head", "id", p.PlanID, "title", fmt.Sprintf("%q", title)) + "\n")
+	b.WriteString(i18n.T(lang, "job.comment.status", "status", p.Status))
 	if p.Paused {
-		b.WriteString("（已暂停）")
+		b.WriteString(i18n.T(lang, "job.leader.paused"))
 	}
 	if p.BlockedTodo != "" {
-		fmt.Fprintf(&b, "（阻塞在 %s）", p.BlockedTodo)
+		b.WriteString(i18n.T(lang, "job.leader.blocked", "todo", p.BlockedTodo))
 	}
 	b.WriteString("\n")
 	if d := strings.TrimSpace(p.Description); d != "" {
-		fmt.Fprintf(&b, "目标：%s\n", d)
+		b.WriteString(i18n.T(lang, "job.comment.goal", "goal", d) + "\n")
 	}
 	if todos, err := s.meta.ListTodosByPlan(p.PlanID); err == nil && len(todos) > 0 {
-		fmt.Fprintf(&b, "待办（%d 项）：\n", len(todos))
+		b.WriteString(i18n.T(lang, "job.comment.todos_head", "n", len(todos)) + "\n")
 		for i, t := range todos {
 			if i == commentPlanContextTodos {
-				fmt.Fprintf(&b, "  … 还有 %d 项\n", len(todos)-i)
+				b.WriteString("  " + i18n.T(lang, "job.leader.todos_more", "n", len(todos)-i) + "\n")
 				break
 			}
 			fmt.Fprintf(&b, "  - [%s] %s %s\n", t.Status, t.TodoID, strings.TrimSpace(t.Title))
@@ -774,16 +784,16 @@ func (s *Service) commentPlanContext(p jobstore.Plan) string {
 const commentPlanContextTodos = 20
 
 // commentTodoContext summarises the commented checklist item.
-func (s *Service) commentTodoContext(t jobstore.PlanTodo) string {
+func (s *Service) commentTodoContext(lang i18n.Lang, t jobstore.PlanTodo) string {
 	var b strings.Builder
 	title := strings.TrimSpace(t.Title)
 	if title == "" {
-		title = "(无标题)"
+		title = i18n.T(lang, "job.comment.untitled")
 	}
-	fmt.Fprintf(&b, "被评论的 todo：%s %q（plan %s）\n", t.TodoID, title, t.PlanID)
-	fmt.Fprintf(&b, "状态：%s\n", t.Status)
+	b.WriteString(i18n.T(lang, "job.comment.todo_head", "id", t.TodoID, "title", fmt.Sprintf("%q", title), "plan", t.PlanID) + "\n")
+	b.WriteString(i18n.T(lang, "job.comment.status", "status", t.Status) + "\n")
 	if n := strings.TrimSpace(t.Note); n != "" {
-		fmt.Fprintf(&b, "备注：%s\n", n)
+		b.WriteString(i18n.T(lang, "job.comment.note", "note", n) + "\n")
 	}
 	return b.String()
 }

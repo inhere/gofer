@@ -38,11 +38,11 @@ var toolStepOpts = struct {
 func NewToolStepCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "step",
-		Desc: "Run a built-in workflow step reading its with: block from stdin (internal)",
+		Desc: cliText("cli.tool.step.desc"),
 		Config: func(c *gcli.Command) {
-			c.StrOpt(&toolStepOpts.with, "with", "", "", "with: block as JSON (default: read stdin)")
-			c.StrOpt(&toolStepOpts.dir, "dir", "", "", "working directory (default: the current one)")
-			c.AddArg("name", "built-in step name (push, wait-ci, wait-assets)", true)
+			c.StrOpt(&toolStepOpts.with, "with", "", "", cliText("cli.tool.step.with_flag"))
+			c.StrOpt(&toolStepOpts.dir, "dir", "", "", cliText("cli.tool.step.dir_flag"))
+			c.AddArg("name", cliText("cli.tool.step.name_arg"), true)
 		},
 		Func: runToolStep,
 	}

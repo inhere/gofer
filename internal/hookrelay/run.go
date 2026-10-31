@@ -443,7 +443,7 @@ func (r *runner) lang() i18n.Lang {
 	if l := i18n.FromEnvVar(); l != "" {
 		return l
 	}
-	return i18n.Default
+	return i18n.Auto()
 }
 
 // learnLanguage takes the language the server named for the session (an older

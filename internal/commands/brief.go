@@ -56,7 +56,7 @@ func briefLanguage(project string) i18n.Lang {
 	if l := i18n.FromEnvVar(); l != "" {
 		return l
 	}
-	return i18n.Default
+	return i18n.Auto()
 }
 
 func printBrief(c *gcli.Command, b brief.Brief) error {

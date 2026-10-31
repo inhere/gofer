@@ -8,6 +8,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/runner"
 )
 
@@ -46,8 +47,8 @@ func TestToolsSectionFollowsRulesAndSkills(t *testing.T) {
 	}
 	prompt := executedPromptOf(t, final)
 	iRules := strings.Index(prompt, rulesPromptEnd)
-	iSkills := strings.Index(prompt, skillsPromptHeader)
-	iTools := strings.Index(prompt, toolsPromptHeader)
+	iSkills := strings.Index(prompt, skillsPromptHeader(i18n.ZhCN))
+	iTools := strings.Index(prompt, toolsPromptHeader(i18n.ZhCN))
 	iBody := strings.Index(prompt, body)
 	if iRules < 0 || iSkills < 0 || iTools < 0 || iBody < 0 || !(iRules < iSkills && iSkills < iTools && iTools < iBody) {
 		t.Fatalf("want rules < skills < tools < body, got %d/%d/%d/%d:\n%s", iRules, iSkills, iTools, iBody, prompt)
@@ -60,7 +61,7 @@ func TestToolsSectionFollowsRulesAndSkills(t *testing.T) {
 	if strings.Contains(prompt, "worker `") {
 		t.Fatalf("a server-local job must not name a worker:\n%s", prompt)
 	}
-	if got := promptOf(t, final); strings.Contains(got, toolsPromptHeader) {
+	if got := promptOf(t, final); strings.Contains(got, toolsPromptHeader(i18n.ZhCN)) {
 		t.Fatalf("request_json must keep the caller's text, got %q", got)
 	}
 }
@@ -82,7 +83,7 @@ func TestToolsSectionOnWorkerReentry(t *testing.T) {
 		t.Fatalf("job status = %s (err=%s)", final.Status, final.Error)
 	}
 	prompt := executedPromptOf(t, final)
-	if !strings.HasPrefix(prompt, toolsPromptHeader) || !strings.Contains(prompt, "本任务运行在 worker `w-test` 上") {
+	if !strings.HasPrefix(prompt, toolsPromptHeader(i18n.ZhCN)) || !strings.Contains(prompt, "本任务运行在 worker `w-test` 上") {
 		t.Fatalf("worker re-entry prompt should open with the tools section naming the worker:\n%s", prompt)
 	}
 	if !strings.HasSuffix(prompt, "worker body") {
@@ -112,7 +113,7 @@ func TestToolsSectionHubForwardsWithout(t *testing.T) {
 	if final.Status != StatusDone {
 		t.Fatalf("job status = %s (err=%s)", final.Status, final.Error)
 	}
-	if strings.Contains(stub.got.Prompt, toolsPromptHeader) {
+	if strings.Contains(stub.got.Prompt, toolsPromptHeader(i18n.ZhCN)) {
 		t.Fatalf("the hub must not render its tools into a forwarded prompt:\n%s", stub.got.Prompt)
 	}
 	if !stub.got.NoRules {
@@ -129,7 +130,7 @@ func TestToolsPromptSectionSkips(t *testing.T) {
 		Agents: map[string]config.AgentConfig{"ok": {Type: agent.TypeCLIAgent, Command: "ok"}},
 	}
 	base := JobRequest{Agent: "ok"}
-	if got := toolsPromptSection(cfg, &base); !strings.HasPrefix(got, toolsPromptHeader) {
+	if got := toolsPromptSection(cfg, &base); !strings.HasPrefix(got, toolsPromptHeader(i18n.ZhCN)) {
 		t.Fatalf("plain agent job: section = %q", got)
 	}
 	cases := map[string]func(r *JobRequest){
