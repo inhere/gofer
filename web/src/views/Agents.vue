@@ -8,7 +8,9 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ChevronDown, ChevronRight } from '@lucide/vue'
 import Icon from '../ui/Icon.vue'
 import { getConfig, listAgents, probeAgent } from '../api/client'
-import InteractionToast from '../components/InteractionToast.vue'
+import Toast from '../ui/Toast.vue'
+import { toastDuration } from '../ui/toast'
+import { useRouter } from 'vue-router'
 import StatusGlyph from '../ui/StatusGlyph.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import { t } from '../i18n'
@@ -23,6 +25,14 @@ const error = ref('')
 // 探针（SUP-01 P3）：正在探测的 agent key + 结果提示条（可跳承载它的 job）。
 const probing = ref('')
 const probeToast = ref<{ title: string; text: string; to?: string } | null>(null)
+const router = useRouter()
+
+// 点提示条正文：先收起，有跳转目标再跳（无目标时只关闭）。
+function gotoProbeToast(): void {
+  const to = probeToast.value?.to
+  probeToast.value = null
+  if (to) void router.push(to)
+}
 
 const configByKey = computed(() => {
   const out = new Map<string, ConfigAgentView>()
@@ -262,13 +272,17 @@ function listValue(v?: string[]): string {
       <div v-if="loading && agents.length === 0" class="empty">{{ t('agents.loading') }}</div>
     </div>
 
-    <InteractionToast
+    <Toast
       v-if="probeToast"
+      placement="corner"
+      tone="danger"
+      closable
+      body-action
       :title="probeToast.title"
       :text="probeToast.text"
-      :to="probeToast.to"
+      :duration="toastDuration()"
       @close="probeToast = null"
-      @goto="probeToast = null"
+      @body="gotoProbeToast"
     />
   </div>
 </template>

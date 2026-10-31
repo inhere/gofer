@@ -2,6 +2,7 @@
 // 以 zh 为回退；没有登记的状态原样显示。
 import type { AgentSessionState } from '../api/types'
 import { t, te } from '../i18n'
+import type { StatusFamily } from './statusFamily'
 
 // ACP 持续会话 / 终端 job 关联到工作项时，状态是 job 状态（SessionBrief.kind = job）。
 // 两个前缀分开：agent 会话状态 util.session.state.*，job 状态 util.session.job.*，
@@ -46,4 +47,21 @@ export function agentStateTone(s: AgentSessionState | string | undefined): 'live
 // 进程不在了（离线 / 已结束）：卡片整体变淡，操作区保持清晰。
 export function agentStateDim(s: AgentSessionState | string | undefined): boolean {
   return s === 'ended' || s === 'offline'
+}
+
+// 卡片色条的 tone → 状态族：卡片上的状态徽标（StatusPill）与色条保持同一口径。
+export function toneFamily(tone: 'live' | 'hot' | 'warn' | 'fail' | 'ok' | 'idle' | 'off' | ''): StatusFamily {
+  switch (tone) {
+    case 'live':
+      return 'run'
+    case 'hot':
+    case 'warn':
+      return 'need'
+    case 'fail':
+      return 'fail'
+    case 'ok':
+      return 'done'
+    default:
+      return 'idle'
+  }
 }

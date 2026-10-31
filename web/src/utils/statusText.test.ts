@@ -7,6 +7,7 @@ import {
   WORKFLOW_STATUS_VALUES,
   issueStatusText,
   jobStatusOptions,
+  jobStatusTitle,
   jobStatusText,
   planStatusOptions,
   planStatusText,
@@ -72,5 +73,13 @@ describe('statusText 状态映射', () => {
 
   it('issue 状态值集合与页面筛选一致', () => {
     expect(ISSUE_STATUS_VALUES).toEqual(['open', 'in_progress', 'blocked', 'closed'])
+  })
+})
+
+describe('jobStatusTitle', () => {
+  it('names the lock holder only for waiting_dir', () => {
+    expect(jobStatusTitle('waiting_dir', 'job-x')).toContain('job-x')
+    expect(jobStatusTitle('waiting_dir')).toBeUndefined()
+    expect(jobStatusTitle('running', 'job-x')).toBeUndefined()
   })
 })

@@ -3,7 +3,7 @@
 //  - 默认只显示关键信息：标题 / badges / meta 一两行 / 主要操作按钮；
 //  - 其余放 details 插槽，点「详情」展开（expanded 由父级控制，见 utils/cardExpand）；
 //  - 本组件不依赖 router，也不拿业务数据，方便单测（SSR 渲染）。
-//  - 末尾的非 scoped <style> 是卡片 / 徽标 / 网格的公共样式（.icard* / .sbadge* / .icard-grid），
+//  - 末尾的非 scoped <style> 是卡片 / 徽标 / 网格的公共样式（.icard* / .icard-grid），
 //    谁用到 InfoCard 谁就带上，页面里不要再复制一份。
 import { t } from '../i18n'
 withDefaults(
@@ -282,26 +282,6 @@ const emit = defineEmits<{
   max-height: 180px;
   overflow: auto;
 }
-
-/* 状态 / 标签徽标 */
-.sbadge {
-  display: inline-block;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 1px 7px;
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-.sbadge--live { color: var(--accent); border-color: var(--accent); }
-.sbadge--granted { color: var(--accent); border-color: var(--accent); border-style: dashed; }
-.sbadge--hot,
-.sbadge--warn { color: var(--run); border-color: var(--run); }
-.sbadge--fail { color: var(--fail); border-color: var(--fail); }
-.sbadge--ok { color: var(--done); border-color: var(--done); }
-.sbadge--idle,
-.sbadge--off { color: var(--ink-3); border-color: var(--ink-3); }
 
 .icard-chip {
   display: inline-block;

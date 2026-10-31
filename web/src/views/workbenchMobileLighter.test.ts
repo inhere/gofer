@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 const workbench = Object.values(import.meta.glob('./Workbench.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
 const sidebar = Object.values(import.meta.glob('../components/workbench/WorkbenchSidebar.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
 const drawer = Object.values(import.meta.glob('../components/SessionDrawer.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
-const toast = Object.values(import.meta.glob('../components/InteractionToast.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+const toast = Object.values(import.meta.glob('../ui/Toast.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+const toastHelper = Object.values(import.meta.glob('../ui/toast.ts', { eager: true, query: '?raw', import: 'default' }))[0] as string
 
 // 手机版工作台「更轻」的接线断言（纯逻辑在同名的 utils 单测里）。
 describe('mobile workbench first paint', () => {
@@ -92,8 +93,8 @@ describe('mobile session header', () => {
 
 describe('mobile interaction toast', () => {
   it('auto-dismisses after a few seconds and stays one line', () => {
-    expect(toast).toContain('isMobileWidth(window.innerWidth)')
-    expect(toast).toContain('toastDwellMs(mobile)')
+    expect(toastHelper).toContain('isMobileWidth(window.innerWidth)')
+    expect(toastHelper).toContain('toastDwellMs(mobile)')
     expect(toast).toContain("emit('close')")
     expect(toast).toMatch(/@media \(max-width: 760px\) \{[\s\S]*\.tx \{[\s\S]*font-size: 11px/)
   })

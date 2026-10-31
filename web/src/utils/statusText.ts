@@ -40,6 +40,12 @@ export function jobStatusText(status: JobStatus): string {
   return statusText(status)
 }
 
+// jobStatusTitle：状态徽标的悬停提示。waiting_dir 点名持有目录锁的 job（徽标只有两三个字，
+// 说不清「在等谁」）；其余状态没有提示。
+export function jobStatusTitle(status: string | undefined | null, holder?: string): string | undefined {
+  return status === 'waiting_dir' && holder ? t('util.statusBadge.holder', { holder }) : undefined
+}
+
 export function workflowStatusText(status: WorkflowStatus): string {
   return statusText(status)
 }

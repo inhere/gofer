@@ -3,7 +3,7 @@
 // 可并排展开 diff（复用 UnifiedDiff 与 /v1/jobs/{id}/diff）；join=pick 的步停在"待择优"时
 // 每列有「选这个并合并」，选定后标出已选列与合并结果。手机宽度下改为一次一张纵向卡片，可左右切换。
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import StatusBadge from './StatusBadge.vue'
+import StatusPill from '../ui/StatusPill.vue'
 import UnifiedDiff from './UnifiedDiff.vue'
 import MergeDialog from './MergeDialog.vue'
 import { fetchDiffText, getJob, getJobWorktree, logsTail } from '../api/client'
@@ -214,7 +214,7 @@ const hint = computed(() => {
           <span class="col-agent mono">{{ col.agent || `fan ${col.fanIndex}` }}</span>
           <span class="col-fan mono">f{{ col.fanIndex }}</span>
           <span v-if="col.picked" class="col-badge mono" data-test="picked-badge">{{ t('util.compare.pickedBadge') }}</span>
-          <StatusBadge v-if="col.status !== 'pending'" :status="col.status" />
+          <StatusPill v-if="col.status !== 'pending'" :status="col.status" />
           <span v-else class="col-pending mono">pending</span>
         </header>
 

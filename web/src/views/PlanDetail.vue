@@ -13,8 +13,8 @@ import { runnerLabel } from '../utils/runnerDisplay'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
 import { useRoute, useRouter } from 'vue-router'
-import PlanStatusBadge from '../components/PlanStatusBadge.vue'
-import StatusBadge from '../components/StatusBadge.vue'
+import StatusPill from '../ui/StatusPill.vue'
+import { jobStatusTitle } from '../utils/statusText'
 import InteractionCard from '../components/InteractionCard.vue'
 import PlanBoard from '../components/PlanBoard.vue'
 import TodoDrawer from '../components/TodoDrawer.vue'
@@ -1075,7 +1075,7 @@ onUnmounted(() => {
     <div class="detail-head">
       <BackLink list="plans" to="/plans" :label="t('plans.detail.back')" />
       <div v-if="plan" class="head-status">
-        <PlanStatusBadge :status="plan.status" />
+        <StatusPill :status="plan.status" />
         <div class="status-actions mono">
           <button
             v-if="plan.status === 'open'"
@@ -1152,7 +1152,7 @@ onUnmounted(() => {
         </div>
         <div class="meta-row">
           <dt>{{ t('plans.detail.status') }}</dt>
-          <dd><PlanStatusBadge :status="plan.status" /></dd>
+          <dd><StatusPill :status="plan.status" /></dd>
         </div>
         <div v-if="plan.owner" class="meta-row">
           <dt>{{ t('plans.detail.owner') }}</dt>
@@ -1409,7 +1409,7 @@ onUnmounted(() => {
               type="button"
               @click="openJob(j.id)"
             >
-              <span class="job-status"><StatusBadge :status="j.status" :holder="j.waiting_on_job" /></span>
+              <span class="job-status"><StatusPill :status="j.status" :title="jobStatusTitle(j.status, j.waiting_on_job)" /></span>
               <span class="job-main" :class="{ 'job-main--titled': j.title }">
                 <span v-if="j.title" class="job-title" :title="j.title">{{ j.title }}</span>
                 <span class="job-id mono" :title="j.id">{{ shortId(j.id) }}</span>

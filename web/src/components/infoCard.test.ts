@@ -6,7 +6,7 @@ import InfoCard from './InfoCard.vue'
 async function render(props: Record<string, unknown>, withDetails = true): Promise<string> {
   const slots: Record<string, () => unknown> = {
     title: () => '修登录页',
-    badges: () => h('span', { class: 'sbadge' }, '执行中'),
+    badges: () => h('span', { class: 'status-slot' }, '执行中'),
     meta: () => 'claude · self · 3m',
     actions: () => h('button', { 'data-test': 'main-action' }, '打开'),
   }
