@@ -63,6 +63,10 @@ export const mail: PageDict = {
     'mail.broadcast.pending': ' · 待送达 {n}',
     'mail.broadcast.skipped': '略过',
     'mail.broadcast.skipReason': '因权限略过',
+    'mail.broadcast.deliveredAt': '送达 {time}',
+    'mail.broadcast.notDelivered': '未送达',
+    'mail.broadcast.replied': '已回复',
+    'mail.broadcast.unreplied': '未回复',
     // 待指派
     'mail.held.title': '待指派',
     'mail.held.item': '在收集箱处理',
@@ -221,6 +225,10 @@ export const mail: PageDict = {
     'mail.broadcast.pending': ' · {n} pending',
     'mail.broadcast.skipped': 'skipped',
     'mail.broadcast.skipReason': 'skipped (permission)',
+    'mail.broadcast.deliveredAt': 'delivered {time}',
+    'mail.broadcast.notDelivered': 'not delivered',
+    'mail.broadcast.replied': 'replied',
+    'mail.broadcast.unreplied': 'not replied',
     // 待指派
     'mail.held.title': 'Held',
     'mail.held.item': 'Handle in the capture box',

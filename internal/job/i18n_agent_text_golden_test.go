@@ -71,6 +71,8 @@ func agentTextOutputs(t *testing.T, lang i18n.Lang) map[string]string {
 	out["skills_manifest"] = skillsManifest(lang, goldenSkillLib{}, []string{"alpha", "beta"}, "/r/skills")
 	out["tools_plain"] = renderToolsSection(lang, []config.Tool{{Name: "jq", Desc: "json"}, {Name: "rg", Bin: "ripgrep"}}, "")
 	out["tools_worker"] = renderToolsSection(lang, []config.Tool{{Name: "jq"}}, "w-1")
+	out["fallback_prompt"] = fallbackPrompt(lang, "codex", "  at capacity ", "do the thing")
+	out["todo_default_prompt"] = defaultTodoPrompt(lang, jobstore.Plan{Title: "Golden plan", Description: "ship the thing"}, jobstore.PlanTodo{Title: "first", Note: "line1\nlast note"})
 	all := ""
 	for _, r := range []string{ndjsonfilter.WrapUpMaxSteps, ndjsonfilter.WrapUpMaxTokens, ndjsonfilter.WrapUpBudget, ndjsonfilter.WrapUpTimeout, "", "wall_clock"} {
 		all += "[" + WrapUpTextIn(lang, r) + "]\n"

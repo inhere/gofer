@@ -199,6 +199,9 @@ type mailBroadcastRecipientView struct {
 	State   string `json:"state,omitempty"`
 	Skipped bool   `json:"skipped,omitempty"`
 	Reason  string `json:"reason,omitempty"`
+	// DeliveredAt / Replied are set on the group table of GET /v1/mail/{id} only.
+	DeliveredAt int64 `json:"delivered_at,omitempty"`
+	Replied     bool  `json:"replied,omitempty"`
 }
 
 // mailBroadcastView is the `broadcast` section of GET /v1/mail/{id}: one broadcast's addressee
@@ -731,30 +734,19 @@ func (s *Server) toMailBroadcastView(r mail.BroadcastResult) mailSendView {
 	return out
 }
 
-// mailBroadcastSummary reads one broadcast's copies (the addressee table of GET /v1/mail/{id}).
+// mailBroadcastSummary renders one broadcast's addressee table (GET /v1/mail/{id}); the rows
+// come from the mailbox service.
 func (s *Server) mailBroadcastSummary(m jobstore.Mail) (*mailBroadcastView, error) {
-	if m.BroadcastID <= 0 {
-		return nil, nil
-	}
-	rows, err := s.jobs.Meta().ListMail(jobstore.ListMailOpts{BroadcastID: m.BroadcastID, Limit: jobstore.MailListMaxLimit, OldestFirst: true})
-	if err != nil {
+	sum, err := s.mail.BroadcastSummary(m.BroadcastID)
+	if err != nil || sum == nil {
 		return nil, err
 	}
-	v := &mailBroadcastView{ID: m.BroadcastID, Count: len(rows), Recipients: make([]mailBroadcastRecipientView, 0, len(rows))}
-	for _, row := range rows {
-		switch row.State {
-		case jobstore.MailAnswered:
-			v.Answered++
-			v.Delivered++
-		case jobstore.MailDelivered:
-			v.Delivered++
-		case jobstore.MailExpired:
-			v.Expired++
-		case jobstore.MailPending, jobstore.MailDelivering:
-			v.Pending++
-		}
+	v := &mailBroadcastView{ID: sum.ID, Count: sum.Count, Delivered: sum.Delivered, Answered: sum.Answered,
+		Expired: sum.Expired, Pending: sum.Pending, Recipients: make([]mailBroadcastRecipientView, 0, len(sum.Recipients))}
+	for _, r := range sum.Recipients {
 		v.Recipients = append(v.Recipients, mailBroadcastRecipientView{
-			Address: row.ToAddress, Kind: row.ToKind, ID: row.ToID, MailID: row.ID, State: row.State,
+			Address: r.Address, Kind: r.Kind, ID: r.ID, MailID: r.MailID, State: r.State,
+			DeliveredAt: r.DeliveredAt, Replied: r.Replied,
 		})
 	}
 	return v, nil

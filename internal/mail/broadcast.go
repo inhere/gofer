@@ -56,6 +56,10 @@ type BroadcastRecipient struct {
 	// Skipped marks a selector match the sender may not deliver to; Reason says why.
 	Skipped bool
 	Reason  string
+	// DeliveredAt (unix seconds, 0 = not delivered yet) and Replied (the recipient answered this
+	// copy) are filled by BroadcastSummary only, the sender's later view of the group.
+	DeliveredAt int64
+	Replied     bool
 }
 
 // BroadcastResult is what a broadcast produced: the copies (one letter each) and the addressee
@@ -320,4 +324,47 @@ func (s *Service) resolveEach(in resolveInput) ([]Target, error) {
 		return out, nil
 	}
 	return nil, fmt.Errorf("%w: each:%s: is not a selector", ErrInvalidAddress, in.addr.Scheme)
+}
+
+// BroadcastSummary is one broadcast's addressee table as the sender reads it afterwards: the
+// state counts of the group and one row per copy (设计 2026-10-22「D3」).
+type BroadcastSummary struct {
+	ID         int64
+	Count      int
+	Delivered  int
+	Answered   int
+	Expired    int
+	Pending    int
+	Recipients []BroadcastRecipient
+}
+
+// BroadcastSummary reads the copies of broadcast id, oldest first. A broadcast id <= 0 (a single
+// letter) has no summary and returns nil. A copy counts as replied once its state is answered.
+func (s *Service) BroadcastSummary(id int64) (*BroadcastSummary, error) {
+	if id <= 0 {
+		return nil, nil
+	}
+	rows, err := s.store.ListMail(jobstore.ListMailOpts{BroadcastID: id, Limit: jobstore.MailListMaxLimit, OldestFirst: true})
+	if err != nil {
+		return nil, err
+	}
+	sum := &BroadcastSummary{ID: id, Count: len(rows), Recipients: make([]BroadcastRecipient, 0, len(rows))}
+	for _, row := range rows {
+		switch row.State {
+		case jobstore.MailAnswered:
+			sum.Answered++
+			sum.Delivered++
+		case jobstore.MailDelivered:
+			sum.Delivered++
+		case jobstore.MailExpired:
+			sum.Expired++
+		case jobstore.MailPending, jobstore.MailDelivering:
+			sum.Pending++
+		}
+		sum.Recipients = append(sum.Recipients, BroadcastRecipient{
+			Address: row.ToAddress, Kind: row.ToKind, ID: row.ToID, MailID: row.ID, State: row.State,
+			DeliveredAt: row.DeliveredAt, Replied: row.State == jobstore.MailAnswered,
+		})
+	}
+	return sum, nil
 }

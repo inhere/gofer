@@ -176,6 +176,54 @@ func TestFormatMailBroadcastRecipients(t *testing.T) {
 	}
 }
 
+// TestFormatMailBroadcastDeliveredAndReplied: each recipient row says when it was delivered and
+// whether it was answered, in both languages; a skipped row has neither.
+func TestFormatMailBroadcastDeliveredAndReplied(t *testing.T) {
+	m := client.Mail{
+		ID: 12, ThreadID: "m12", State: "pending", Body: "群发", CreatedAt: 1760000000, BroadcastID: 12,
+		Broadcast: &client.MailBroadcast{
+			ID: 12, Count: 3, Delivered: 2, Answered: 1,
+			Recipients: []client.MailBroadcastRecipient{
+				{Kind: "session", ID: "sess-a", MailID: 12, State: "answered", DeliveredAt: 1760000100, Replied: true},
+				{Kind: "session", ID: "sess-b", MailID: 13, State: "pending"},
+				{Address: "each:project:p1", Kind: "session", Skipped: true, Reason: "no permission"},
+			},
+		},
+	}
+	for _, tc := range []struct {
+		lang                       string
+		delivered, replied, unrepl string
+	}{
+		{"en", "delivered " + mailTime(1760000100), "replied", "not replied"},
+		{"zh-CN", "送达 " + mailTime(1760000100), "已回复", "未回复"},
+	} {
+		t.Run(tc.lang, func(t *testing.T) {
+			t.Setenv("GOFER_LANG", tc.lang)
+			lines := strings.Split(formatMail(m), "\n")
+			var a, b, c string
+			for _, l := range lines {
+				switch {
+				case strings.Contains(l, "#12 session"):
+					a = l
+				case strings.Contains(l, "#13 session"):
+					b = l
+				case strings.Contains(l, "skipped:"):
+					c = l
+				}
+			}
+			if !strings.Contains(a, tc.delivered) || !strings.HasSuffix(a, tc.replied) {
+				t.Fatalf("answered row = %q, want %q and %q", a, tc.delivered, tc.replied)
+			}
+			if !strings.Contains(b, "送达 -") && !strings.Contains(b, "delivered -") || !strings.HasSuffix(b, tc.unrepl) {
+				t.Fatalf("pending row = %q, want no delivery time and %q", b, tc.unrepl)
+			}
+			if strings.Contains(c, tc.replied) || strings.Contains(c, tc.unrepl) {
+				t.Fatalf("skipped row = %q, want no delivered / replied columns", c)
+			}
+		})
+	}
+}
+
 func TestSessionMailConvCLI(t *testing.T) {
 	var calls []mailCall
 	mailServer(t, &calls)

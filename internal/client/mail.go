@@ -99,6 +99,9 @@ type MailBroadcastRecipient struct {
 	State   string `json:"state,omitempty"`
 	Skipped bool   `json:"skipped,omitempty"`
 	Reason  string `json:"reason,omitempty"`
+	// DeliveredAt / Replied come with the group table of `mail read` (0 / false = not yet).
+	DeliveredAt int64 `json:"delivered_at,omitempty"`
+	Replied     bool  `json:"replied,omitempty"`
 }
 
 // MailListOpts filters a listing (GET /v1/mail): Box is in | out | all ("" = all). Conv is a

@@ -363,3 +363,47 @@ func TestBroadcastRejectedStoresNothing(t *testing.T) {
 		t.Fatalf("%d letters stored by refused broadcasts", n)
 	}
 }
+
+// TestBroadcastSummaryDeliveredAtAndReplied: the sender's table says, per copy, when it was
+// delivered and whether the recipient answered it; a single letter has no summary.
+func TestBroadcastSummaryDeliveredAtAndReplied(t *testing.T) {
+	f := threeSessionMailbox(t)
+	res, err := f.svc.Broadcast(BroadcastInput{
+		To: []string{"session:sess-a", "session:sess-off"}, Body: "群发", Origin: sender(),
+	})
+	if err != nil {
+		t.Fatalf("broadcast: %v", err)
+	}
+	first, second := res.Mails[0].ID, res.Mails[1].ID
+	if _, ok, err := f.store.ClaimMail(first, "hook:sess-a", time.Minute); err != nil || !ok {
+		t.Fatalf("claim: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := f.store.ConfirmMail(first); err != nil || !ok {
+		t.Fatalf("confirm: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := f.store.MarkMailAnswered(first); err != nil || !ok {
+		t.Fatalf("answered: ok=%v err=%v", ok, err)
+	}
+	sum, err := f.svc.BroadcastSummary(res.BroadcastID)
+	if err != nil || sum == nil {
+		t.Fatalf("summary = %v, %v", sum, err)
+	}
+	if sum.Count != 2 || sum.Answered != 1 || sum.Pending != 1 {
+		t.Fatalf("counts = %+v, want 2 copies, 1 answered, 1 pending", sum)
+	}
+	for _, r := range sum.Recipients {
+		switch r.MailID {
+		case first:
+			if !r.Replied || r.DeliveredAt <= 0 {
+				t.Fatalf("answered copy = %+v, want replied with a delivery time", r)
+			}
+		case second:
+			if r.Replied || r.DeliveredAt != 0 {
+				t.Fatalf("untouched copy = %+v, want not replied, no delivery time", r)
+			}
+		}
+	}
+	if one, err := f.svc.BroadcastSummary(0); err != nil || one != nil {
+		t.Fatalf("summary of a single letter = %v, %v, want nil", one, err)
+	}
+}

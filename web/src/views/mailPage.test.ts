@@ -138,6 +138,17 @@ describe('页面接线（源码断言）', () => {
     expect(pageSrc).toContain("t('mail.broadcast.head'")
   })
 
+  it('广播收件人状态条带送达时间与是否已回复（设计 D3），中英词条齐全', () => {
+    expect(pageSrc).toContain('r.delivered_at')
+    expect(pageSrc).toContain("t('mail.broadcast.deliveredAt'")
+    expect(pageSrc).toContain("r.replied ? t('mail.broadcast.replied') : t('mail.broadcast.unreplied')")
+    for (const k of ['deliveredAt', 'notDelivered', 'replied', 'unreplied']) {
+      const key = `mail.broadcast.${k}`
+      expect(mailDict.zh[key] ?? '').not.toBe('')
+      expect(mailDict.en[key] ?? '').not.toBe('')
+    }
+  })
+
   it('手机（≤760）两级：列表 → 线程用 BackLink 返回', () => {
     expect(pageSrc).toContain('@media (max-width: 760px)')
     expect(pageSrc).toContain('.split--detail .mail-list {')
