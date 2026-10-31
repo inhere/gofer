@@ -1795,6 +1795,8 @@ func (s *Server) buildRouter() *rux.Router {
 
 		// AUTO-02 cron schedules: store a prepared JobRequest behind a cron expr.
 		r.POST("/schedules", s.handleCreateSchedule)
+		// The editor's cron trial run: the next few run times of an expression, nothing stored.
+		r.POST("/schedules/cron-preview", s.handleCronPreview)
 		r.GET("/schedules", s.handleListSchedules)
 		r.GET("/schedules/{id}", s.handleGetSchedule)
 		// PATCH edits the schedule in place (cron/at, title, params, enabled, timeout_sec);

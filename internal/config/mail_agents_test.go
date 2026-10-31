@@ -114,3 +114,18 @@ func TestMailAgentsValidation(t *testing.T) {
 		}
 	}
 }
+
+// mail.agents.<名字>.agent must name an acp-agent: refused at load, not at the first start.
+func TestMailAgentsAgentMustBeACP(t *testing.T) {
+	agents := func(typ string) string {
+		return "agents:\n  worker-x:\n    type: " + typ + "\n    command: echo\n"
+	}
+	body := mailAgentBase + "mail:\n  agents:\n    suga:\n      agent: worker-x\n"
+	_, err := loadMailCfg(t, agents("cli-agent")+body)
+	if err == nil || !strings.Contains(err.Error(), "mail.agents.suga.agent") || !strings.Contains(err.Error(), "acp-agent") {
+		t.Fatalf("cli-agent: err=%v, want it to name mail.agents.suga.agent and acp-agent", err)
+	}
+	if _, err := loadMailCfg(t, agents("acp-agent")+body); err != nil {
+		t.Fatalf("acp-agent must load: %v", err)
+	}
+}

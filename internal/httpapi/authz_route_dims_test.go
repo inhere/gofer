@@ -10,6 +10,7 @@ import (
 // reviewedReadSafe lists every non-GET route that is explicitly ReadSafe. A new override
 // must be added here on purpose, so it shows up in review.
 var reviewedReadSafe = map[string]string{
+	"POST /v1/schedules/cron-preview":           "pure computation: parses a cron expression and returns upcoming run times; stores nothing",
 	"POST /v1/ws-ticket":                        "mints a ticket for the caller's own live connection; stores nothing about a project",
 	"POST /v1/push/subscriptions":               "the caller's own browser push subscription (personal preference)",
 	"DELETE /v1/push/subscriptions":             "the caller's own browser push subscription (personal preference)",

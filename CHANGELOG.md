@@ -11,8 +11,13 @@
 
 ## [未发布]
 
+### 新增
+
+- **定时任务编辑弹窗的 cron 试算**：web「定时任务」编辑弹窗里改 cron 表达式，停手片刻后显示按新表达式的下 5 次运行时间，表达式不合法则显示解析器的错误原话，保存前就能看到结果。新增接口 `POST /v1/schedules/cron-preview`（body `{cron, count?}`，`count` 默认 5、最多 10，返回 `{cron, next_runs}`，表达式不合法 400；只计算不写入，登录即可用）。
+
 ### 修复
 
+- **`mail.agents.<名字>.agent` 在加载配置时校验类型**：常驻收件 agent 指向的 agent 已定义但不是 `acp-agent` 时，配置加载（`gofer config validate` 同样）直接报错并点出 `mail.agents.<名字>.agent`，不再拖到启动常驻会话时失败并反复重试。
 - **收件箱分栏后端审计修复**：失败的 job 现在进「要处理」（此前误进「仅知会」）：新增 kind `job.failed`，失败 / 超时且没有后续 job 的终态 job 归它；已被自动续投 / 回退或已有后续 job 的失败、完成和用户取消的 job 仍是 `job.terminal`（仅知会），是否「自己是续接出来的」不再影响归属；`timeout` 状态此前因状态名写错从未出现在收件箱。`total_unread` 只统计「要处理」未读（仅知会未读见 `unread.fyi`）。`server.inbox.enabled: false` 现在真正关闭收件箱（两个路由返回 404），只写 rules 不再误关；规则里的 `events` / `include_exec` 暂不支持，加载时明确拒绝而不是静默忽略。`POST /v1/inbox/state` 批量里有不存在的 key 时整批 404 且不写入，不带 keys 的 `seen` / `clear` 作用于全部当前项（可限 `column`），此前对从未标记过的项无效。补齐 `/v1/inbox*` 的 HTTP 测试。
 - 交付核验：server 现在强制核验 agent 无工具（在 `server.delivery_check.args` 之后追加 claude/codex/suga 的无工具参数）；未知 agent 类型核验报错并 fail-open，不再带工具运行。
 - 交付核验：核验不合格而自动续接提交失败时，job 转 `needs_review` 并在 `check_error` 与评论写明原因，不再变成 `failed` 并补发 `job.terminal`。
@@ -494,7 +499,7 @@
   - 权限逐个收件人按单封规则：显式列出的收件人只要有一个没权限，整封拒绝并说明是哪个；`each:` 按权限过滤，并在结果里写「匹配 N 个、投递 M 个、略过 K 个」（略过的只报地址与原因，不回报会话 id）。job / steward 凭据不能发广播（403），急件不能广播（400），0 个收件人 400。
   - 限流：每个调用方 `mail.broadcast_rate`（默认 `5/10m`，超出 429）；单次最多 `mail.broadcast_max_recipients`（默认 20）个收件人。两个配置项都可热加载。
   - 收件人看到的注入标签多两个属性：`<gofer-mail ... broadcast="b12" recipients="5">`；广播副本过期只标 `expired`，不进收集箱。
-  - 接口：`POST /v1/mail` 的 `to` 接受字符串或数组，响应新增 `broadcast_id` / `thread_id` / `matched` / `delivered_count` / `skipped_count` / `recipients[]`；`GET /v1/mail/{id}` 对广播返回 `broadcast` 汇总段（列表里的广播副本也带）；`gofer session mail send --to <地址> [--to …]`；MCP 发信工具的 `to` 接受数组；web 写信框可直接写多个地址（空格 / 逗号分隔）或 `each:` 选择器，并预览「将投递 N 个会话」，对话里广播副本卡带收件人状态条。
+  - 接口：`POST /v1/mail` 的 `to` 接受字符串或数组，响应新增 `broadcast_id` / `thread_id` / `matched` / `delivered_count` / `skipped_count` / `recipients[]`；`GET /v1/mail/{id}` 对广播返回 `broadcast` 汇总段（列表里的广播副本也带）；`gofer session mail send --to <地址> [--to …]`；MCP 发信工具的 `to` 接受数组；web 写信框用勾选会话或「按项目 / 主题 / agent / 子路径全部」选器生成收件人（手写多个地址——空格 / 逗号分隔——收在「高级」折叠里），并预览「将投递 N 个会话」，对话里广播副本卡带收件人状态条。
 
 ## [0.183.1] - 2026-10-22
 

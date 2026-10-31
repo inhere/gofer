@@ -2439,6 +2439,12 @@ export interface CreateScheduleReq {
   params?: ScheduleParam[]
 }
 
+// POST /v1/schedules/cron-preview 的响应：表达式接下来几次的运行时间（unix 秒）。
+export interface CronPreviewResp {
+  cron: string
+  next_runs: number[]
+}
+
 // PATCH /v1/schedules/{id}（设计 2026-10-22 §D4）：只能改调度自身的设置，命令 /
 // agent / runner / project 在服务端直接被拒（要换就删掉重建）。
 export interface PatchScheduleReq {

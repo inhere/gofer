@@ -14,11 +14,13 @@ import {
   deleteSchedule,
   listSchedules,
   patchSchedule,
+  previewCron,
   runSchedule,
   setScheduleEnabled,
 } from '../api/client'
 import { fmtDateTime } from '../api/time'
 import { formatRelative } from '../utils/format'
+import { CRON_PREVIEW_DELAY_MS, runCronPreview, type CronPreviewState } from '../utils/cronPreview'
 import { boolValue, envPreview, hasParams, paramControl, paramDefaults } from '../utils/scheduleParams'
 import { t } from '../i18n'
 import ProjectFilter from '../ui/ProjectFilter.vue'
@@ -138,6 +140,33 @@ const editAt = ref('')
 const editTimeout = ref('')
 const editEnabled = ref(true)
 const editParams = ref<ScheduleParam[]>([])
+// 编辑 cron 时的试算：停手 CRON_PREVIEW_DELAY_MS 后向服务端要「下几次运行」；
+// cronPreviewSeq 丢弃过期的响应（输入比请求快时只认最后一次）。
+const cronPreview = ref<CronPreviewState>({ kind: 'empty' })
+let cronPreviewTimer: ReturnType<typeof setTimeout> | undefined
+let cronPreviewSeq = 0
+
+function resetCronPreview(): void {
+  cronPreviewSeq++
+  if (cronPreviewTimer !== undefined) clearTimeout(cronPreviewTimer)
+  cronPreviewTimer = undefined
+  cronPreview.value = { kind: 'empty' }
+}
+
+watch(editCron, (expr) => {
+  if (!editOpen.value || editTarget.value?.type === 'once') return
+  if (cronPreviewTimer !== undefined) clearTimeout(cronPreviewTimer)
+  const seq = ++cronPreviewSeq
+  if (expr.trim() === '') {
+    cronPreview.value = { kind: 'empty' }
+    return
+  }
+  cronPreviewTimer = setTimeout(async () => {
+    const state = await runCronPreview(expr, previewCron)
+    if (seq === cronPreviewSeq) cronPreview.value = state
+  }, CRON_PREVIEW_DELAY_MS)
+})
+
 const editLabel = computed(() => t('schedules.editForm.title', { name: editTarget.value?.name ?? '' }))
 
 function openEdit(s: Schedule): void {
@@ -145,6 +174,7 @@ function openEdit(s: Schedule): void {
   notice.value = ''
   editTarget.value = s
   editTitle.value = s.name
+  resetCronPreview()
   editCron.value = s.type === 'once' ? '' : s.cron
   editAt.value = s.type === 'once' ? toLocalInput(s.next_run_at) : ''
   editTimeout.value = String(s.request.timeout_sec ?? 0)
@@ -291,6 +321,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   liveSchedules.stop()
+  resetCronPreview()
 })
 </script>
 
@@ -561,6 +592,20 @@ onUnmounted(() => {
         <span class="ekey">{{ t('schedules.editForm.cron') }}</span>
         <input v-model="editCron" type="text" data-test="edit-cron" />
       </label>
+      <div
+        v-if="editTarget?.type !== 'once' && cronPreview.kind !== 'empty'"
+        class="cron-preview mono"
+        :class="{ 'cron-preview--err': cronPreview.kind === 'error' }"
+        data-test="edit-cron-preview"
+      >
+        <template v-if="cronPreview.kind === 'ok'">
+          <div class="cron-preview-head">{{ t('schedules.editForm.cronNext') }}</div>
+          <div v-for="r in cronPreview.runs" :key="r" class="cron-preview-row">{{ fmtDateTime(r) }}</div>
+        </template>
+        <template v-else-if="cronPreview.kind === 'error'">
+          {{ t('schedules.editForm.cronInvalid', { msg: cronPreview.message }) }}
+        </template>
+      </div>
       <label v-else class="erow">
         <span class="ekey">{{ t('schedules.editForm.at') }}</span>
         <input v-model="editAt" type="datetime-local" data-test="edit-at" />
@@ -991,6 +1036,18 @@ onUnmounted(() => {
   color: var(--ink-3);
   font-size: var(--fs-sm);
   line-height: 1.6;
+}
+.cron-preview {
+  margin: 0 0 var(--s3);
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+.cron-preview--err {
+  color: var(--fail);
+}
+.cron-preview-head {
+  color: var(--ink-2, var(--ink-3));
 }
 .pfield {
   margin-bottom: var(--s2);
