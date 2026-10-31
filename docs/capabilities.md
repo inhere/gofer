@@ -2,7 +2,7 @@
 
 > 一句话定位：把 codex / claude 等 agent 与普通命令桥接成可追踪、可验收的异步任务（job）的控制平面，提供 CLI / HTTP / MCP / Web 四种入口；自身不内置模型。
 >
-> **适用版本：截至 v0.205.1**（CHANGELOG 最新已发布版本，2026-10-31）。
+> **适用版本：截至 v0.206.0**（CHANGELOG 最新已发布版本，2026-10-31）。
 
 ## 维护说明
 
@@ -97,7 +97,7 @@
 | 会话提问 | 终端会话里的 AskUserQuestion 转到 Web 作答；会话间提问 | MCP `gofer_session_ask`；Web 今天 | 未标注 | [design/2026-10-12-session-question-relay-design.md](design/2026-10-12-session-question-relay-design.md) |
 | Web 消息转达与附图 | 在 Web 向会话发消息，输入框可带图片 | HTTP `/v1/attachments*`；Web 工作台 / 会话抽屉 | 未标注 | [design/2026-10-19-workbench-image-attachments-design.md](design/2026-10-19-workbench-image-attachments-design.md) |
 | 传话类会话附图 | 在执行机上直接启动并登记的终端会话（relay）可在 Web 聊天里附图：agent 送达模板配置 `deliver_image_args`（必须含 `{{image}}`）后，附件先放到执行机，再以绝对路径加到送达命令；内置 suga 使用 `--image {{image}}`；会话进程版本过旧（退出码 5）时明确拒绝且不重试 | 配置 `deliver_image_args`；HTTP `/v1/attachments*`；Web 工作台 / 会话抽屉 | 未标注（v0.204.0 新增） | [sessions-relay.md](../skills/gofer-usage/references/sessions-relay.md)、[design/2026-10-19-workbench-image-attachments-design.md](design/2026-10-19-workbench-image-attachments-design.md) |
-| 收件箱分栏（后端） | 按调用方汇总「要处理（action）/ 仅知会（fyi）」两栏与未读数，已读 / 清理 / 恢复状态按调用方记录；`server.inbox` 可配置结构化归栏规则。Web 双栏界面尚未发布 | HTTP `GET /v1/inbox`、`POST /v1/inbox/state`；配置 `server.inbox` | 实验（v0.204.0 新增，仅后端） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md) |
+| 收件箱分栏（后端） | 按调用方汇总「要处理（action）/ 仅知会（fyi）」两栏与未读数，已读 / 清理 / 恢复状态按调用方记录；`server.inbox` 可配置结构化归栏规则；Web `/inbox` 双栏（手机页签）、单条 / 整栏已读、清理与恢复，侧栏徽标只算「要处理」 | HTTP `GET /v1/inbox`、`POST /v1/inbox/state`；配置 `server.inbox`；Web `/inbox` | 实验（v0.204.0 后端，v0.206.0 Web） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md) |
 | 今天与待我决策 | 汇总等人的事（审批、提问、验收、等回复、记忆、worker 申请）为卡片队列 | Web `/today`；HTTP `/v1/today`；MCP `gofer_today_list` / `gofer_today_card` | 稳定 | [../skills/gofer-usage/references/web-console.md](../skills/gofer-usage/references/web-console.md) |
 | 工作项与收集箱 | 长期工作项、随手记收集箱与分派、会话汇报进度 | CLI `work capture\|ls\|show\|new\|set\|note\|report\|...`；MCP `gofer_work_*`；Web `/work` | 稳定性速览未列（收集箱 / 管家 stability.md 标实验） | [../skills/gofer-usage/references/work-items.md](../skills/gofer-usage/references/work-items.md) |
 | 管家 steward | 自动整理工作项、提示建议；默认关闭 | CLI `steward status\|start\|restart\|stop\|ask\|notes\|review\|merges` | 变化中 | work-items.md |
@@ -165,8 +165,9 @@
 | 今天 `/today` | 待我决策队列、专注处理、并行泳道 | 稳定 |
 | 工作台 `/workbench` | 会话中枢：ACP 对话、持续会话、交互 PTY、改动与评审，多标签分屏 | 稳定 |
 | 任务 / 待验收 `/review` | job 列表与详情、验收面板、待批准 | 稳定 |
-| 计划 / 工作流 / 定时 `/schedules` | plan 总览与详情（默认筛选「进行中 + 受阻」）、workflow 与模板、定时任务 | 计划稳定，工作流变化中 |
+| 计划 / 工作流 / 定时 `/schedules` | plan 总览与详情（默认筛选「进行中 + 受阻」）；`/workflows` 工作流（模板）列表与详情（YAML 查看 / 编辑、最近执行），执行记录 `/workflows/runs`；定时任务 | 计划稳定，工作流变化中 |
 | 会话 | 终端会话列表与抽屉（回复、接管、唤醒、催办） | 稳定 |
+| 收件箱 `/inbox` | 「要处理 / 仅知会」两栏、已读与清理 | 变化中 |
 | 信箱 `/mail` | 按对话显示的信件、写信、待指派 | 变化中 |
 | 工作项 `/work` | 工作项与收集箱 | 变化中 |
 | Issues / 记忆 `/memory` | tracker 的 issue 与记忆浏览编辑，跨项目搜索 | 稳定 |
@@ -207,6 +208,5 @@
 | 入站触发 HTTP / GitHub / IM 入口 | 开发中，未发布 | 内核（配置、签名校验、幂等、限流、审计）已在 v0.204.0 发布；HTTP 入站路由、GitHub 兼容 provider 与 IM 入口尚未开放 | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md)（0.2 已批准） |
 | job 预览的 worker 转发 | 开发中，未发布 | 目前只支持 server 本机运行的 job；经 worker 暴露其上运行的服务尚未提供 | [design/2026-10-28-job-preview-design.md](design/2026-10-28-job-preview-design.md)（0.2 已批准） |
 | 每日记忆综合的模型调用与每日调度 | 开发中，未发布 | P1 的配置、指纹、运行记录与查询已发布；调用模型生成每日记忆、每日定时调度、候选队列尚未提供 | [design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md)（0.2 已批准） |
-| 收件箱 Web 双栏界面 | 开发中，未发布（gofer-addo 后续） | 后端接口已发布；Web 双栏页面、与 IM / 桌面推送规则对齐尚未发布 | [design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md) |
 | 后台 agent 管理页与会话轮换 | 开发中，未发布 | 会话轮换配置 `server.background_agents.session`（按上下文用量与次数，默认不按时长）目前只有存储结构，轮换行为与管理页尚未提供 | [design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md)（方案二） |
 | 工作流页改为工作流列表（gofer-sg61） | 后端已完成，Web 页面开发中 | 工作流页将改为工作流列表视图 | — |
