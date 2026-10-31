@@ -12,7 +12,8 @@ import Icon from '../ui/Icon.vue'
 import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import StatusBadge from '../components/StatusBadge.vue'
+import StatusPill from '../ui/StatusPill.vue'
+import { jobStatusTitle } from '../utils/statusText'
 import { useWhoami } from '../store/whoami'
 import Signal from '../components/Signal.vue'
 import UncommittedBadge from '../components/UncommittedBadge.vue'
@@ -2007,7 +2008,7 @@ onUnmounted(() => {
     <div class="detail-head">
       <BackLink v-if="!embedded" list="jobs" to="/jobs" :label="t('jobs.detail.back')" />
       <div class="head-right">
-        <StatusBadge v-if="job" :status="status" :holder="job.waiting_on_job" />
+        <StatusPill v-if="job" :status="status" :title="jobStatusTitle(status, job.waiting_on_job)" />
         <UncommittedBadge v-if="job" :count="job.uncommitted_count" :files="job.uncommitted_files" />
         <Signal v-if="job" :status="status" :rate="logRate" :duration-sec="durationSec" />
         <RouterLink
@@ -2255,7 +2256,7 @@ onUnmounted(() => {
             :to="`/jobs/${encodeURIComponent(sj.id)}`"
           >{{ sj.id }}</RouterLink>
           <span v-else class="chain-self mono">{{ sj.id }}{{ t('jobs.detail.current') }}</span>
-          <StatusBadge :status="sj.status" />
+          <StatusPill :status="sj.status" />
         </li>
       </ol>
       <div class="meta-item">

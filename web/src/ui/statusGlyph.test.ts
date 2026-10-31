@@ -101,12 +101,20 @@ describe('StatusPill', () => {
     })
   })
 
-  it('falls back to the legacy status text for values without an i18n key', async () => {
+  it('shows an unregistered status value as-is, and the family name when there is no status', async () => {
     await withLocale('zh-CN', async () => {
-      // status.draft 还没进字典，旧映射表里有「草稿」
-      const html = await render(StatusPill, { status: 'draft' })
-      expect(html).toContain('草稿')
+      const html = await render(StatusPill, { status: 'brand_new_state' })
+      expect(html).toContain('brand_new_state')
+      expect(html).toContain('k-idle')
+      const empty = await render(StatusPill, { status: null })
+      expect(empty).toContain('pill-text')
     })
+  })
+
+  it('passes title and data attributes through to the root element', async () => {
+    const html = await render(StatusPill, { status: 'waiting_dir', title: '等待目录锁', 'data-test': 'x' })
+    expect(html).toContain('title="等待目录锁"')
+    expect(html).toContain('data-test="x"')
   })
 
   it('can render the glyph only, and always keeps the label for screen readers', async () => {

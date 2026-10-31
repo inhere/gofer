@@ -32,9 +32,19 @@ import {
   type PendingSeen,
   type PendingToast,
 } from '../utils/pendingAlert'
-import InteractionToast from '../components/InteractionToast.vue'
+import Toast from './Toast.vue'
+import { toastDuration } from './toast'
+import { useRouter } from 'vue-router'
 
+const router = useRouter()
 const toast = ref<PendingToast | null>(null)
+
+// 点提示条正文：先收起，有跳转目标再跳（无目标时只关闭）。
+function gotoToast(): void {
+  const to = toast.value?.to
+  toast.value = null
+  if (to) void router.push(to)
+}
 // 已弹过提示的待办（needs_human 交互 / 决策 / 待批准 job）；条目从快照里消失就被 forget。
 let seen: PendingSeen = emptySeen()
 
@@ -151,13 +161,17 @@ function toggleOpen(): void {
       <span class="nm-n" data-test="needs-me-count">{{ total }}</span>
     </button>
 
-    <InteractionToast
+    <Toast
       v-if="toast"
+      placement="corner"
+      tone="danger"
+      closable
+      body-action
       :title="toast.title"
       :text="toast.text"
-      :to="toast.to"
+      :duration="toastDuration()"
       @close="toast = null"
-      @goto="toast = null"
+      @body="gotoToast"
     />
   </div>
 </template>

@@ -536,7 +536,7 @@ export const shared = {
     // utils/logPlaceholder.ts：日志空态占位
     'util.log.emptyStream': '（无 {stream} 输出）',
 
-    // components/InteractionToast.vue / ThemeToggle.vue
+    // ui/Toast.vue / ThemeToggle.vue
     'util.toast.close': '关闭提示',
     'util.theme.toLight': '切换到浅色模式',
     'util.theme.toDark': '切换到深色模式',

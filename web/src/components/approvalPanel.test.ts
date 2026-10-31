@@ -5,7 +5,7 @@ import { ApiError } from '../api/client'
 import type { Job } from '../api/types'
 import { approvalErrorText, commandLine, countdownText, createApprovalActions, shellQuote } from '../utils/approval'
 import ApprovalPanel from './ApprovalPanel.vue'
-import StatusBadge from './StatusBadge.vue'
+import StatusPill from '../ui/StatusPill.vue'
 
 const raw = (glob: Record<string, unknown>) => Object.values(glob)[0] as string
 const panelSrc = raw(import.meta.glob('./ApprovalPanel.vue', { eager: true, query: '?raw', import: 'default' }))
@@ -175,10 +175,10 @@ describe('job detail hosts the approval panel', () => {
   })
 })
 
-describe('status badge for held jobs', () => {
-  it('reads 「⏸ 待批准」 and pulses like the other wait-for-a-person states', async () => {
-    const html = await render(StatusBadge, { status: 'awaiting_approval' })
-    expect(html).toContain('⏸ 待批准')
-    expect(html).toContain('badge--attn')
+describe('status pill for held jobs', () => {
+  it('reads 「待批准」 in the need-a-person family', async () => {
+    const html = await render(StatusPill, { status: 'awaiting_approval' })
+    expect(html).toContain('待批准')
+    expect(html).toContain('k-need')
   })
 })

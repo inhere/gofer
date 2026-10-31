@@ -99,12 +99,10 @@ describe('状态显示集中映射', () => {
   })
 
   it('徽标 / issue 芯片 / issue 编辑框都走同一份映射', () => {
-    expect(raw(import.meta.glob('../components/StatusBadge.vue', { eager: true, query: '?raw', import: 'default' }))).toContain(
-      'statusText(props.status)',
+    // 徽标统一为 StatusPill：文案取字典 status.<值>，与 statusText 同一份词
+    expect(raw(import.meta.glob('../ui/StatusPill.vue', { eager: true, query: '?raw', import: 'default' }))).toContain(
+      '`status.${status}`',
     )
-    expect(
-      raw(import.meta.glob('../components/PlanStatusBadge.vue', { eager: true, query: '?raw', import: 'default' })),
-    ).toContain('planStatusText(props.status)')
     expect(view('Issues')).toContain('issueStatusText(status)')
     expect(
       raw(import.meta.glob('../components/IssueDrawer.vue', { eager: true, query: '?raw', import: 'default' })),

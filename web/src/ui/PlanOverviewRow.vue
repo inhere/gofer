@@ -3,7 +3,7 @@
 // 卡点、主会话、最近活动。手机上一行变成一张卡片（CSS 决定，模板同一份）。
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import PlanStatusBadge from '../components/PlanStatusBadge.vue'
+import StatusPill from './StatusPill.vue'
 import { t } from '../i18n'
 import type { Plan } from '../api/types'
 import { formatRelative } from '../utils/format'
@@ -56,7 +56,7 @@ function open(): void {
     @keydown.enter="open"
     @keydown.space.prevent="open"
   >
-    <span class="prow-status"><PlanStatusBadge :status="plan.status" /></span>
+    <span class="prow-status"><StatusPill :status="plan.status" /></span>
 
     <span class="prow-main">
       <span v-if="plan.title" class="prow-title" :title="plan.title">{{ plan.title }}</span>

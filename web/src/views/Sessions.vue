@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import InfoCard from '../components/InfoCard.vue'
 import { toggleExpanded } from '../utils/cardExpand'
-import { agentStateDim, agentStateLabel, agentStateTone } from '../utils/sessionState'
+import { agentStateDim, agentStateLabel, agentStateTone, toneFamily } from '../utils/sessionState'
 import { workspaceLabel } from '../utils/work'
 import { sessionUsageRows } from '../utils/sessionUsage'
 import { createLiveTopic } from '../utils/useLiveTopic'
@@ -32,6 +32,7 @@ import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLa
 import { buildFindParams, findSummary, hitReasons, topicDisplay } from '../utils/sessionTopic'
 import { t } from '../i18n'
 import Tabs from '../ui/Tabs.vue'
+import StatusPill from '../ui/StatusPill.vue'
 import ProjectFilter from '../ui/ProjectFilter.vue'
 import FilterChips from '../ui/FilterChips.vue'
 import NewSessionSheet from '../ui/NewSessionSheet.vue'
@@ -753,23 +754,25 @@ onUnmounted(() => {
         >
           <template #title><span :title="`${sessionDisplayName(s)}\n${s.session_id}`">{{ sessionDisplayName(s) }}</span></template>
           <template #badges>
-            <span
-              class="sbadge mono"
-              :class="`sbadge--${agentStateTone(s.state)}`"
+            <StatusPill
+              :family="toneFamily(agentStateTone(s.state))"
+              :label="stateText(s.state)"
               :title="s.state === 'offline' ? t('sessions.card.offlineTitle', { time: fmtTime(s.last_seen_at) }) : undefined"
-            >{{ stateText(s.state) }}</span>
-            <span
+            />
+            <StatusPill
               v-if="whoMode.canManage && grantBadgeOf(s).granted"
-              class="sbadge mono sbadge--granted"
+              family="done"
+              :label="t('sessions.card.granted')"
               data-test="session-granted-badge"
               :title="grantBadgeTitle(s)"
-            >{{ t('sessions.card.granted') }}</span>
-            <span
+            />
+            <StatusPill
               v-if="s.refused_caller_id"
-              class="sbadge mono sbadge--warn"
+              family="need"
+              :label="t('sessions.card.ownerRefused')"
               data-test="refused-owner-badge"
               :title="refusedOwnerHelp(s)"
-            >{{ t('sessions.card.ownerRefused') }}</span>
+            />
           </template>
           <template #meta>
             <button
@@ -795,8 +798,8 @@ onUnmounted(() => {
               data-test="card-topic"
               :title="topicDisplay(s).title || t('sessions.card.inferredTitle')"
             >{{ topicDisplay(s).text }}<em v-if="topicDisplay(s).inferred" class="a-topic-tag">{{ t('sessions.card.inferred') }}</em></span>
-            <span v-if="s.mail_paused" class="sbadge mono sbadge--off" data-test="mail-paused">{{ t('sessions.card.mailPaused') }}</span>
-            <span v-if="s.maybe_offline" class="sbadge mono sbadge--off" data-test="maybe-offline">{{ t('sessions.card.maybeOffline') }}</span>
+            <StatusPill v-if="s.mail_paused" family="idle" :label="t('sessions.card.mailPaused')" data-test="mail-paused" />
+            <StatusPill v-if="s.maybe_offline" family="idle" :label="t('sessions.card.maybeOffline')" data-test="maybe-offline" />
             <span v-for="(r, i) in hitReasons(s.hits)" :key="i" class="icard-chip mono" data-test="hit-reason">{{ r }}</span>
             <span v-if="s.cwd" class="mono" :title="s.cwd">{{ workspaceLabel(s.cwd) }}</span>
             <span class="a-seen mono" :title="fmtTime(s.last_seen_at)">{{ fmtAgo(s.last_seen_at, nowSec) }}</span>
@@ -947,7 +950,7 @@ onUnmounted(() => {
           @toggle="expandedAcp = toggleExpanded(expandedAcp, item.id)"
         >
           <template #title>{{ item.title || item.id }}</template>
-          <template #badges><span class="sbadge mono" :class="`sbadge--${acpTone(item)}`">{{ acpStatusLabel(item) }}</span></template>
+          <template #badges><StatusPill :family="toneFamily(acpTone(item))" :label="acpStatusLabel(item)" /></template>
           <template #meta>
             <span class="mono">{{ item.agent }}</span>
             <span class="mono">{{ item.project_key }}</span>
@@ -1011,7 +1014,7 @@ onUnmounted(() => {
         @toggle="expandedPty = toggleExpanded(expandedPty, s.pty_session_id)"
       >
         <template #title>{{ t('sessions.tab.pty') }} · {{ shortId(s.job_id) }}</template>
-        <template #badges><span class="sbadge mono" :class="canAttachSession(s) ? 'sbadge--live' : 'sbadge--off'">{{ s.state }}</span></template>
+        <template #badges><StatusPill :family="canAttachSession(s) ? 'run' : 'idle'" :label="s.state" /></template>
         <template #meta>
           <span class="size mono">{{ s.cols }}×{{ s.rows }}</span>
           <span class="duration mono">{{ duration(s) }}</span>

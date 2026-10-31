@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// StatusPill：状态族的字形 + 文字，可带底色（设计稿 §5）。替换 StatusBadge /
-// PlanStatusBadge / InfoCard 的 .sbadge / statusPresentation 的圆点。P0 只新增。
+// StatusPill：状态族的字形 + 文字，可带底色（设计稿 §5）。已取代旧的 StatusBadge /
+// PlanStatusBadge / InfoCard 的 .sbadge / statusPresentation 的圆点；页面里的状态徽标都用它。
 //
-// 文字优先级：label > status.<状态值>（i18n）> statusText（旧的中文映射）> statusText(status.family.<族>)。
-// 旧的 statusText 表在 P5 删除，届时只剩 i18n。
+// 文字优先级：label > status.<状态值>（i18n）> 原样显示状态值（后端新增的状态不会变成空白）
+// > 无状态值时用 status.family.<族>。
+// 悬停提示等其余属性（title、data-test …）直接落在根元素上。
 import { computed } from 'vue'
 import {
   statusFamily,
   statusFamilyClass,
   type StatusFamily,
 } from '../utils/statusFamily'
-import { statusText } from '../utils/statusText'
 import { t, te } from '../i18n'
 import StatusGlyph from './StatusGlyph.vue'
 
@@ -34,9 +34,7 @@ const text = computed<string>(() => {
   const status = props.status
   if (!status) return t(`status.family.${fam.value}`)
   const key = `status.${status}`
-  if (te(key)) return t(key)
-  const legacy = statusText(status)
-  return legacy || t(`status.family.${fam.value}`)
+  return te(key) ? t(key) : status
 })
 </script>
 

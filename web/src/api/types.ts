@@ -2457,7 +2457,7 @@ export interface PatchScheduleReq {
 }
 
 // 工作流（job 链）。状态取值是 JobStatus 的子集（running/done/failed/cancelled），
-// 复用 StatusBadge 渲染。与 internal/httpapi/workflow_handler.go 的
+// 复用 StatusPill 渲染。与 internal/httpapi/workflow_handler.go 的
 // workflowSummary（列表/提交/取消，仅头部）/ workflowDetail（详情，头部+steps）对齐。
 export type WorkflowStatus = 'running' | 'done' | 'failed' | 'cancelled'
 

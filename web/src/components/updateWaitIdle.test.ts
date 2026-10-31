@@ -11,7 +11,6 @@ const aboutZh = settingsDict.zh
 // 筛选里的登记。渲染断言只看 SSR 出的 HTML，源码断言用于 pin 住与后端字段/事件的对应关系。
 const raw = (glob: Record<string, unknown>) => Object.values(glob)[0] as string
 const dialogSrc = raw(import.meta.glob('./UpdateApplyDialog.vue', { eager: true, query: '?raw', import: 'default' }))
-const badgeSrc = raw(import.meta.glob('./StatusBadge.vue', { eager: true, query: '?raw', import: 'default' }))
 const aboutSrc = raw(import.meta.glob('../views/settings/About.vue', { eager: true, query: '?raw', import: 'default' }))
 const boardSrc = raw(import.meta.glob('../views/Board.vue', { eager: true, query: '?raw', import: 'default' }))
 const statusSrc = raw(import.meta.glob('../utils/statusText.ts', { eager: true, query: '?raw', import: 'default' }))
@@ -77,14 +76,14 @@ describe('一键更新：空闲时更新（gofer-dzv3）', () => {
     // 符号前缀留在代码里（符号是状态本身的信号，不是文案）。
     expect(statusSrc).toMatch(/paused_for_update: '⏳ '/)
     expect(statusSrc).toMatch(/t\(key\)/)
-    expect(badgeSrc).toMatch(/statusText\(props\.status\)/)
+    expect(statusSrc).toMatch(/export function statusText/)
     // 颜色走状态族（唯一一份映射在 utils/statusFamily.ts，绘制在 styles/status.css）。
     expect(familySrc).toMatch(/paused_for_update: 'idle'/)
     expect(statusSrc).toMatch(/'paused_for_update',/)
     expect(boardSrc).toMatch(/jobStatusOptions\(\)/)
     expect(boardSrc).toMatch(/paused_for_update: 0/)
-    // 它不是「等人」的状态：徽标不脉冲（不需要人做任何事）。
-    expect(badgeSrc).not.toMatch(/attention[\s\S]*paused_for_update/)
+    // 它不是「等人」的状态：归 idle 族（不需要人做任何事）。
+    expect(familySrc).not.toMatch(/paused_for_update: 'need'/)
   })
 
   it('UpdateApply 类型带上等空闲的报告字段', () => {

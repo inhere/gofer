@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agentStateDim, agentStateLabel, agentStateTone } from './sessionState'
+import { agentStateDim, agentStateLabel, agentStateTone, toneFamily } from './sessionState'
 
 describe('agent session state presentation', () => {
   it('labels every state in Chinese and falls back to the raw value', () => {
@@ -16,5 +16,18 @@ describe('agent session state presentation', () => {
     expect(agentStateDim('ended')).toBe(true)
     expect(agentStateDim('offline')).toBe(true)
     expect(agentStateDim('running')).toBe(false)
+  })
+})
+
+describe('toneFamily', () => {
+  it('maps card tones to the status family used by the card pill', () => {
+    expect(toneFamily('live')).toBe('run')
+    expect(toneFamily('hot')).toBe('need')
+    expect(toneFamily('warn')).toBe('need')
+    expect(toneFamily('fail')).toBe('fail')
+    expect(toneFamily('ok')).toBe('done')
+    expect(toneFamily('idle')).toBe('idle')
+    expect(toneFamily('off')).toBe('idle')
+    expect(toneFamily('')).toBe('idle')
   })
 })

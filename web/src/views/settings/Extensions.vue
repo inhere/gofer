@@ -40,6 +40,7 @@ import {
 import type { Draft } from '../../utils/extensionSettings'
 import { invalidateMetaCache } from '../../api/metaCache'
 import { t } from '../../i18n'
+import Switch from '../../ui/Switch.vue'
 import { SHELL_NAV_GROUPS } from '../../utils/shell'
 
 const { readOnly, can } = useWhoami()
@@ -140,10 +141,6 @@ function setDraft(key: string, value: Draft): void {
 
 function textOf(e: Event): string {
   return (e.target as HTMLInputElement | HTMLTextAreaElement).value
-}
-
-function checkedOf(e: Event): boolean {
-  return (e.target as HTMLInputElement).checked
 }
 
 function isDirty(it: SettingItem): boolean {
@@ -310,10 +307,9 @@ onMounted(() => {
       <section v-for="group in navGroups" :key="group.key" class="nav-group">
         <h4 class="nav-group-title mono">{{ t(group.key) }}</h4>
         <div v-for="item in group.items" :key="item.key" class="nav-setting">
-          <label>
-            <input type="checkbox" :checked="!navHidden.has(item.key)" :disabled="!canWrite || item.key === 'nav.today' || item.key === 'nav.settings'" @change="toggleNav(item.key)" />
+          <Switch :model-value="!navHidden.has(item.key)" :disabled="!canWrite || item.key === 'nav.today' || item.key === 'nav.settings'" @update:model-value="toggleNav(item.key)">
             {{ t(item.key) }}
-          </label>
+          </Switch>
           <span v-if="item.key === 'nav.today' || item.key === 'nav.settings'" class="hint mono">{{ t('settings.ext.navLocked') }}</span>
         </div>
       </section>
@@ -379,15 +375,15 @@ onMounted(() => {
 
         <div class="edit">
           <!-- 开关 -->
-          <label v-if="controlFor(it) === 'bool'" class="switch">
-            <input
-              type="checkbox"
-              :checked="draft(it.key) === true"
-              :disabled="!canWrite"
-              @change="setDraft(it.key, checkedOf($event))"
-            />
-            <span class="mono">{{ draft(it.key) === true ? t('settings.ext.on') : t('settings.ext.off') }}</span>
-          </label>
+          <Switch
+            v-if="controlFor(it) === 'bool'"
+            class="mono"
+            :model-value="draft(it.key) === true"
+            :disabled="!canWrite"
+            @update:model-value="setDraft(it.key, $event)"
+          >
+            {{ draft(it.key) === true ? t('settings.ext.on') : t('settings.ext.off') }}
+          </Switch>
 
           <!-- 整数：带上限提示 -->
           <div v-else-if="controlFor(it) === 'int'" class="int-row">
@@ -602,14 +598,6 @@ onMounted(() => {
 }
 .edit {
   min-width: 0;
-}
-.switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--ink);
-  cursor: pointer;
 }
 .int-row {
   display: flex;
