@@ -1,0 +1,5 @@
+id job-1 · project self · status done · agent codex · runner local
+id job-1 · project self · status done · agent codex · runner local · 结束原因 手动结束
+id job-1 · project self · status done · agent codex · runner local · 结束原因 空闲超时
+id job-1 · project self · status done · agent codex · runner local · 结束原因 超过会话总时长
+id job-1 · project self · status done · agent codex · runner local · 结束原因 失败：boom

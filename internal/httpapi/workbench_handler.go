@@ -10,6 +10,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
@@ -291,7 +292,11 @@ func (s *Server) handleWorkbenchTurn(c *rux.Context) {
 	}
 	result, err := s.workbench.TurnWithAttachments(callerFromCtx(c), threadID, body.Text, body.Attachments)
 	if err != nil {
-		writeError(c, workbenchHTTPStatus(err), "continue workbench thread failed", workbenchTurnDetail(err))
+		if code, args, ok := workbenchTurnError(s.requestLang(c), err); ok {
+			s.writeErrorKey(c, workbenchHTTPStatus(err), "continue workbench thread failed", code, args...)
+			return
+		}
+		writeError(c, workbenchHTTPStatus(err), "continue workbench thread failed", err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -367,45 +372,46 @@ func validWorkbenchStatus(status workbench.Status) bool {
 	}
 }
 
-// workbenchTurnDetail is the human sentence for a failed turn: a terminal session that cannot
-// be reached says why in plain words instead of the relay's sentinel text.
-func workbenchTurnDetail(err error) string {
+// workbenchTurnError is the keyed error for a failed turn: a terminal session that cannot
+// be reached says why in plain words instead of the relay's sentinel text. ok=false means
+// the error has no sentence of its own (the caller reports err.Error() as it is).
+func workbenchTurnError(lang i18n.Lang, err error) (code string, args []any, ok bool) {
 	switch {
 	case errors.Is(err, workbench.ErrRelayDelivery):
 		if reason := sessionrelay.DeliverReason(err); reason != "" {
-			return "会话当前无法接收消息：" + undeliverableReasonText(reason) + "（" + err.Error() + "）"
+			return "workbench_turn_undeliverable", []any{"reason", undeliverableReasonText(lang, reason), "cause", err.Error()}, true
 		}
-		return "会话当前无法接收消息：" + err.Error()
+		return "workbench_turn_undeliverable_plain", []any{"cause", err.Error()}, true
 	case errors.Is(err, sessionrelay.ErrUndeliverable):
-		return "会话当前无法接收消息：" + undeliverableReasonText(sessionrelay.DeliverReason(err)) + "（" + err.Error() + "）"
+		return "workbench_turn_undeliverable", []any{"reason", undeliverableReasonText(lang, sessionrelay.DeliverReason(err)), "cause", err.Error()}, true
 	case errors.Is(err, sessionrelay.ErrNoOpenTurn):
-		return "会话当前无法接收消息：它没有在等待回复"
+		return "workbench_turn_no_open_turn", nil, true
 	case errors.Is(err, sessionrelay.ErrSessionEnded):
-		return "会话当前无法接收消息：会话已结束"
+		return "workbench_turn_ended", nil, true
 	}
-	return err.Error()
+	return "", nil, false
 }
 
-func undeliverableReasonText(reason string) string {
+func undeliverableReasonText(lang i18n.Lang, reason string) string {
 	switch {
 	case reason == sessionrelay.ReasonEnded:
-		return "会话已结束"
+		return i18n.T(lang, "err.undeliverable_ended")
 	case reason == sessionrelay.ReasonNoRunner, reason == sessionrelay.DeliverFailedPrefix+sessionrelay.ReasonNoRunner:
-		return "会话没有登记执行机"
+		return i18n.T(lang, "err.undeliverable_no_runner")
 	case reason == sessionrelay.ReasonNoProject:
-		return "会话所在目录不属于任何已配置项目，无法派发传话人"
+		return i18n.T(lang, "err.undeliverable_no_project")
 	case reason == sessionrelay.ReasonNoMessenger:
-		return "传话人执行器未配置"
+		return i18n.T(lang, "err.undeliverable_no_messenger")
 	case reason == sessionrelay.ReasonNoTmux:
-		return "会话不在 tmux 里，也没有其他可用的投递方式"
+		return i18n.T(lang, "err.undeliverable_no_tmux")
 	case strings.HasPrefix(reason, sessionrelay.HandedOffPrefix):
-		return "会话已被接管，请先释放接管"
+		return i18n.T(lang, "err.undeliverable_handed_off")
 	case strings.HasPrefix(reason, sessionrelay.InjectFailedPrefix):
-		return "无法把消息输入终端（" + strings.TrimPrefix(reason, sessionrelay.InjectFailedPrefix) + "）"
+		return i18n.T(lang, "err.undeliverable_inject_failed", "cause", strings.TrimPrefix(reason, sessionrelay.InjectFailedPrefix))
 	case strings.HasPrefix(reason, sessionrelay.DeliverFailedPrefix):
-		return "投递命令失败"
+		return i18n.T(lang, "err.undeliverable_deliver_failed")
 	case reason == "":
-		return "未知原因"
+		return i18n.T(lang, "err.undeliverable_unknown")
 	}
 	return reason
 }

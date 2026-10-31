@@ -106,11 +106,11 @@ func TestMailLetterPersonas(t *testing.T) {
 
 	// A server without named callers still names the box by the caller id; no caller at all is
 	// just the box.
-	box := callerBoxPersona("", "")
+	box := callerBoxPersona("", "", "")
 	if box.Name != "收集箱" {
 		t.Errorf("anonymous box persona = %q, want 收集箱", box.Name)
 	}
-	named := callerBoxPersona("admin", "default")
+	named := callerBoxPersona("", "admin", "default")
 	if named.Name != "admin 的收集箱" {
 		t.Errorf("named box persona = %q, want 「admin 的收集箱」", named.Name)
 	}

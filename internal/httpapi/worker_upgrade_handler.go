@@ -16,6 +16,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/pushhub"
 	"github.com/inhere/gofer/internal/updatecheck"
 	"github.com/inhere/gofer/internal/workerupgrade"
@@ -221,8 +222,11 @@ func (s *Server) startWorkerUpgrade(ctx context.Context, id string, req workerUp
 		return workerupgrade.Record{}, failUpgrade(http.StatusConflict, "worker offline", "worker "+id+" is not connected")
 	}
 	if !wsproto.SupportsUpgrade(ws.ProtocolVersion) {
+		// The detail is shown to the person who asked: their language, else the server's
+		// (the one-click update runs without a request).
+		lang := i18n.FromContextOr(ctx, s.textLanguage(""))
 		return workerupgrade.Record{}, failUpgrade(http.StatusConflict, "worker too old",
-			fmt.Sprintf("该 worker 版本过旧，需要手动升级一次 (worker %s speaks protocol v%d, remote upgrade needs v%d)", id, ws.ProtocolVersion, wsproto.UpgradeMinProtocolVersion))
+			i18n.T(lang, "err.worker_upgrade_too_old", "worker", id, "have", ws.ProtocolVersion, "need", wsproto.UpgradeMinProtocolVersion))
 	}
 
 	var staged workerupgrade.Staged

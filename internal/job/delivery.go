@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 )
@@ -218,24 +219,27 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil && !isHook {
 		webhook := s.webhookForTarget(cfg.Server.Notification, d.Target)
 		if kind := notify.NormalizeKind(webhook.Kind); kind != notify.KindGeneric {
+			// Background text: the job's project language, else the server's.
+			lang := s.notifyLang(summary.Project)
 			msg := notify.Message{
 				EventType: ev.Type,
 				Title:     "job " + ev.Type,
-				Text:      jobEventText(summary),
+				Text:      jobEventText(lang, summary),
 				Link:      s.webURL("/jobs/" + summary.ID),
-				LinkLabel: "查看 job",
+				LinkLabel: i18n.T(lang, "notify.common.link_job"),
 				At:        ev.At,
+				Lang:      lang,
 			}
 			if ev.Type == EventInteractionCreated {
-				msg = s.interactionIMMessage(ev, summary)
+				msg = s.interactionIMMessage(lang, ev, summary)
 			}
 			if ev.Type == EventSessionAwaitingReply {
-				msg = s.sessionAwaitingReplyIMMessage(ev, summary)
+				msg = s.sessionAwaitingReplyIMMessage(lang, ev, summary)
 			}
 			// gofer-9b1b: normally pre-rendered at enqueue; this covers a row that was not.
 			if ev.Type == EventJobAwaitingApproval {
 				if jr, ok := s.Get(d.JobID); ok {
-					msg = s.approvalIMMessage(jr, ev.Type, ev.At)
+					msg = s.approvalIMMessage(lang, jr, ev.Type, ev.At)
 				}
 			}
 			// XFER-01 X2: a transfer event has no job behind it (`xfer:<id>` names a
@@ -243,27 +247,31 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 			// where, how big — instead of an empty job line.
 			if tmsg, ok := notify.TransferMessage(ev.Type, ev.Detail, ev.At); ok {
 				msg = tmsg
+				msg.Lang = lang
 			}
 			// PLAN-03: a plan-scope event (`plan:<id>`) has no job either, and the page
 			// a reader must open is the plan's — plan.blocked is in the default trigger
 			// set, so this is the common case for a chain subscriber.
 			if pmsg, ok := notify.PlanMessage(ev.Type, ev.Detail, ev.At); ok {
 				msg = pmsg
+				msg.Lang = lang
 				msg.Link = s.webURL("/plans/" + strings.TrimPrefix(d.JobID, planScopePrefix))
-				msg.LinkLabel = "查看 plan"
+				msg.LinkLabel = i18n.T(lang, "notify.common.link_plan")
 			}
 			// R2/AUTO-03: a retry that ran out of budget is a default trigger, so its
 			// message names the attempts and the last exit code instead of the plain
 			// job line — the numbers the person taking over needs.
 			if rmsg, ok := notify.RetryMessage(ev.Type, ev.Detail, summary, ev.At); ok {
 				rmsg.Link = s.webURL("/jobs/" + summary.ID)
-				rmsg.LinkLabel = "查看 job"
+				rmsg.LinkLabel = i18n.T(lang, "notify.common.link_job")
+				rmsg.Lang = lang
 				msg = rmsg
 			}
 			// N2 §B GATE-02: a budget kill names the limit and the value that crossed it.
 			if bmsg, ok := notify.BudgetMessage(ev.Type, ev.Detail, summary, ev.At); ok {
 				bmsg.Link = s.webURL("/jobs/" + summary.ID)
-				bmsg.LinkLabel = "查看 job"
+				bmsg.LinkLabel = i18n.T(lang, "notify.common.link_job")
+				bmsg.Lang = lang
 				msg = bmsg
 			}
 			// gofer-map1: the keyword is what makes a 自定义关键词 robot accept the message.
@@ -310,7 +318,7 @@ func (s *Service) webhookForTarget(nconf *config.NotificationConfig, target stri
 }
 
 // jobEventText is the human line an IM notification shows for a job event.
-func jobEventText(j notify.JobSummary) string {
+func jobEventText(lang i18n.Lang, j notify.JobSummary) string {
 	parts := []string{"id " + j.ID}
 	if j.Project != "" {
 		parts = append(parts, "project "+j.Project)
@@ -325,25 +333,25 @@ func jobEventText(j notify.JobSummary) string {
 		parts = append(parts, "runner "+j.Runner)
 	}
 	if j.SessionEndReason != "" {
-		parts = append(parts, "结束原因 "+sessionEndReasonText(j.SessionEndReason))
+		parts = append(parts, i18n.T(lang, "notify.job.end_reason", "reason", sessionEndReasonText(lang, j.SessionEndReason)))
 	}
 	return strings.Join(parts, " · ")
 }
 
-func sessionEndReasonText(reason string) string {
+func sessionEndReasonText(lang i18n.Lang, reason string) string {
 	switch reason {
 	case "manual_end":
-		return "手动结束"
+		return i18n.T(lang, "notify.job.end_manual")
 	case "idle_timeout":
-		return "空闲超时"
+		return i18n.T(lang, "notify.job.end_idle")
 	case "max_session_timeout", "max_session":
-		return "超过会话总时长"
+		return i18n.T(lang, "notify.job.end_max_session")
 	default:
-		return "失败：" + reason
+		return i18n.T(lang, "notify.job.end_failed", "reason", reason)
 	}
 }
 
-func (s *Service) interactionIMMessage(ev jobstore.JobEvent, summary notify.JobSummary) notify.Message {
+func (s *Service) interactionIMMessage(lang i18n.Lang, ev jobstore.JobEvent, summary notify.JobSummary) notify.Message {
 	var d struct {
 		InteractionID string `json:"interaction_id"`
 		Prompt        string `json:"prompt"`
@@ -368,12 +376,12 @@ func (s *Service) interactionIMMessage(ev jobstore.JobEvent, summary notify.JobS
 		}
 	}
 	if prompt == "" {
-		prompt = "agent 请求人工确认"
+		prompt = i18n.T(lang, "notify.interaction.default_summary")
 	}
-	return notify.InteractionMessage(ev.Type, prompt, options, s.webURL("/jobs/"+summary.ID), ev.At)
+	return notify.InteractionMessage(lang, ev.Type, prompt, options, s.webURL("/jobs/"+summary.ID), ev.At)
 }
 
-func (s *Service) sessionAwaitingReplyIMMessage(ev jobstore.JobEvent, summary notify.JobSummary) notify.Message {
+func (s *Service) sessionAwaitingReplyIMMessage(lang i18n.Lang, ev jobstore.JobEvent, summary notify.JobSummary) notify.Message {
 	var d struct {
 		Turn    int    `json:"turn_no"`
 		Idle    int64  `json:"idle_deadline_at"`
@@ -400,7 +408,7 @@ func (s *Service) sessionAwaitingReplyIMMessage(ev jobstore.JobEvent, summary no
 	if summary.SessionID != "" {
 		link = s.webURL("/workbench?thread=" + url.QueryEscape("s:"+summary.SessionID))
 	}
-	return notify.SessionAwaitingReplyMessage(ev.Type, d.Title, d.Preview, d.Turn, d.Agent, d.Project, config.RunnerDisplayName(summary.Runner), idle, link, ev.At)
+	return notify.SessionAwaitingReplyMessage(lang, ev.Type, d.Title, d.Preview, d.Turn, d.Agent, d.Project, config.RunnerDisplayName(summary.Runner), idle, link, ev.At)
 }
 
 // approvalPreviewLines caps how much of a held job's command / prompt an IM message
@@ -410,7 +418,7 @@ const approvalPreviewLines = 5
 // approvalIMMessage is the IM rendering of job.awaiting_approval (gofer-9b1b): the
 // job's title, the submitter's reason, the head of what it would run and when the hold
 // lapses, linking to the job page where it is approved.
-func (s *Service) approvalIMMessage(jr JobResult, eventType string, at int64) notify.Message {
+func (s *Service) approvalIMMessage(lang i18n.Lang, jr JobResult, eventType string, at int64) notify.Message {
 	reason, what, expires := "", "", ""
 	if h := jr.Hold; h != nil {
 		reason = h.Reason
@@ -427,7 +435,7 @@ func (s *Service) approvalIMMessage(jr JobResult, eventType string, at int64) no
 		}
 	}
 	title := deliveryFirstNonEmpty(jr.Title, jr.ID)
-	return notify.ApprovalMessage(eventType, title, reason, what, expires, s.webURL("/jobs/"+jr.ID), at)
+	return notify.ApprovalMessage(lang, eventType, title, reason, what, expires, s.webURL("/jobs/"+jr.ID), at)
 }
 
 func deliveryFirstNonEmpty(values ...string) string {

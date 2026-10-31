@@ -20,6 +20,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/desktop"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/notify"
 )
 
@@ -100,11 +101,12 @@ func (s *Server) handleNotifyTest(c *rux.Context) {
 	}
 	msg := notify.Message{
 		EventType: EventNotifyTest,
-		Title:     "gofer 通知测试",
-		Text:      "这是一条来自 gofer 的测试消息（设置 · 通知 → 发送测试）。",
+		Title:     i18n.T(s.requestLang(c), "httpapi.notify_test_title"),
+		Text:      i18n.T(s.requestLang(c), "httpapi.notify_test_text"),
 		Link:      link,
-		LinkLabel: "打开设置",
+		LinkLabel: i18n.T(s.requestLang(c), "httpapi.notify_test_link"),
 		At:        time.Now().Unix(),
+		Lang:      s.requestLang(c),
 	}
 
 	switch strings.ToLower(strings.TrimSpace(req.Target)) {

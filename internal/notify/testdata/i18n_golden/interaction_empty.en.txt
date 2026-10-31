@@ -1,0 +1,6 @@
+EventType: job.interaction_created
+Title: Approval needed: The agent asks for a human decision
+Text: The agent asks for a human decision
+Link: 
+LinkLabel: View job
+At: 10

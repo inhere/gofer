@@ -1,0 +1,6 @@
+EventType: job.awaiting_approval
+Title: Awaiting approval: Deploy
+Text: A job waits for your approval before it runs
+Link: https://x/jobs/j1
+LinkLabel: Approve
+At: 10

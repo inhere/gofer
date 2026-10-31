@@ -1,0 +1,5 @@
+id job-1 · project self · status done · agent codex · runner local
+id job-1 · project self · status done · agent codex · runner local · End reason ended manually
+id job-1 · project self · status done · agent codex · runner local · End reason idle timeout
+id job-1 · project self · status done · agent codex · runner local · End reason exceeded the session time limit
+id job-1 · project self · status done · agent codex · runner local · End reason failed: boom

@@ -1,0 +1,6 @@
+New gofer version v1.1.0
+
+Current version v1.0.0, latest version v1.1.0
+notes here
+
+View update: https://gofer.example.com/settings/about

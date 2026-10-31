@@ -1,0 +1,5 @@
+Session takeover released · repo: fix
+
+Job 20261021, which held the session, has ended (job_done); the session is back in its original terminal and can be relayed again.
+
+View session: https://gofer.example.com/sessions?sid=sid-123456789

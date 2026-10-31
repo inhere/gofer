@@ -1,0 +1,29 @@
+EventType: job.session_awaiting_reply
+Title: Session waits for your reply: Fix it
+Text: Turn 3 · codex · project-a · runner w-lab
+pick A or B
+Ends automatically when idle at 15:04
+Link: https://x/s
+LinkLabel: Open session
+At: 10
+--- dingtalk ---
+### Session waits for your reply: Fix it
+
+> Turn 3 · codex · project-a · runner w-lab
+> pick A or B
+> Ends automatically when idle at 15:04
+
+[Open session](https://x/s)
+--- feishu ---
+Session waits for your reply: Fix it
+
+Turn 3 · codex · project-a · runner w-lab
+pick A or B
+Ends automatically when idle at 15:04
+
+Open session: https://x/s
+--- generic ---
+Session waits for your reply: Fix it
+Turn 3 · codex · project-a · runner w-lab
+pick A or B
+Ends automatically when idle at 15:04

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 )
@@ -413,11 +414,13 @@ func (s *Service) renderImmediateNotification(w config.WebhookConfig, jobID, eve
 // The renderer's keyword is a per-webhook field (gofer-map1), so it stays with the
 // CALLER (renderImmediateNotification): this function only builds the Message.
 func (s *Service) immediateMessage(result JobResult, eventType, detailJSON string, at int64) (notify.Message, bool) {
+	// Background text: the job's project language, else the server's.
+	lang := s.notifyLang(result.ProjectKey)
 	switch eventType {
 	case EventJobAwaitingApproval:
 		// gofer-9b1b: rendered NOW, from the held job as the approver will see it — by
 		// the time the sweeper posts it the job may already be approved and running.
-		return s.approvalIMMessage(result, eventType, at), true
+		return s.approvalIMMessage(lang, result, eventType, at), true
 	case EventSessionAwaitingReply:
 		var d struct {
 			Turn    int    `json:"turn_no"`
@@ -445,7 +448,7 @@ func (s *Service) immediateMessage(result JobResult, eventType, detailJSON strin
 		if result.SessionID != "" {
 			link = s.webURL("/workbench?thread=s:" + url.QueryEscape(result.SessionID))
 		}
-		return notify.SessionAwaitingReplyMessage(eventType, d.Title, d.Preview, d.Turn, d.Agent, d.Project, config.RunnerDisplayName(result.Runner), idle, link, at), true
+		return notify.SessionAwaitingReplyMessage(lang, eventType, d.Title, d.Preview, d.Turn, d.Agent, d.Project, config.RunnerDisplayName(result.Runner), idle, link, at), true
 	case EventInteractionCreated:
 		var d struct {
 			InteractionID string `json:"interaction_id"`
@@ -466,22 +469,23 @@ func (s *Service) immediateMessage(result JobResult, eventType, detailJSON strin
 				}
 			}
 		}
-		return notify.InteractionMessage(eventType, d.Prompt, options, s.webURL("/jobs/"+result.ID), at), true
+		return notify.InteractionMessage(lang, eventType, d.Prompt, options, s.webURL("/jobs/"+result.ID), at), true
 	}
-	return s.jobHeadlineMessage(result, eventType, at), true
+	return s.jobHeadlineMessage(lang, result, eventType, at), true
 }
 
 // jobHeadlineMessage is the fallback notification for an event with no dedicated
 // shape: who/what/where, plus the job page as the click target.
-func (s *Service) jobHeadlineMessage(result JobResult, eventType string, at int64) notify.Message {
+func (s *Service) jobHeadlineMessage(lang i18n.Lang, result JobResult, eventType string, at int64) notify.Message {
 	title := deliveryFirstNonEmpty(result.Title, result.ID)
 	return notify.Message{
 		EventType: eventType,
-		Title:     jobEventLabel(eventType) + "：" + title,
+		Title:     i18n.T(lang, "notify.job.headline", "label", jobEventLabel(lang, eventType), "title", title),
 		Text:      jobHeadlineText(result),
 		Link:      s.webURL("/jobs/" + result.ID),
-		LinkLabel: "查看 job",
+		LinkLabel: i18n.T(lang, "notify.common.link_job"),
 		At:        at,
+		Lang:      lang,
 	}
 }
 
@@ -508,16 +512,16 @@ func jobHeadlineText(result JobResult) string {
 
 // jobEventLabel names a job event for a person (a notification title). An event with
 // no label of its own keeps its wire name — better a raw type than no notification.
-func jobEventLabel(eventType string) string {
+func jobEventLabel(lang i18n.Lang, eventType string) string {
 	switch eventType {
 	case EventJobNeedsReview:
-		return "job 等待验收"
+		return i18n.T(lang, "notify.job.label_needs_review")
 	case EventJobAwaitingApproval:
-		return "job 等待批准"
+		return i18n.T(lang, "notify.job.label_awaiting_approval")
 	case EventInteractionCreated:
-		return "job 等待确认"
+		return i18n.T(lang, "notify.job.label_interaction")
 	case EventSessionAwaitingReply:
-		return "会话等你回复"
+		return i18n.T(lang, "notify.job.label_session_reply")
 	}
 	return eventType
 }

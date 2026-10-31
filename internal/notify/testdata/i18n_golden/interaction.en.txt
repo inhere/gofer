@@ -1,0 +1,45 @@
+EventType: job.interaction_created
+Title: Approval needed: Run the tests?
+Options:
+- yes
+- no
+Text: Run the tests?
+Options:
+- yes
+- no
+Link: https://x/jobs/j1
+LinkLabel: View job
+At: 10
+--- dingtalk ---
+### Approval needed: Run the tests?
+Options:
+- yes
+- no
+
+> Run the tests?
+> Options:
+> - yes
+> - no
+
+[View job](https://x/jobs/j1)
+--- feishu ---
+Approval needed: Run the tests?
+Options:
+- yes
+- no
+
+Run the tests?
+Options:
+- yes
+- no
+
+View job: https://x/jobs/j1
+--- generic ---
+Approval needed: Run the tests?
+Options:
+- yes
+- no
+Run the tests?
+Options:
+- yes
+- no

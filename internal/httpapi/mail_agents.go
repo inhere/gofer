@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
 )
@@ -88,7 +89,8 @@ func (s *Server) handleMailAgentEnd(c *rux.Context) {
 	}
 	name := c.Param("name")
 	project := c.Query("project")
-	jobID, err := s.mail.EndResident(name, project, "手动结束（web / CLI）")
+	// The reason is recorded on the job: stored text, so the project's language (else the server's).
+	jobID, err := s.mail.EndResident(name, project, i18n.T(s.textLanguage(project), "httpapi.mail_agent_ended_by_hand"))
 	if err != nil {
 		if errors.Is(err, mail.ErrAgentNotResident) {
 			writeError(c, http.StatusNotFound, "no resident session", err.Error())

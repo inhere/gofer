@@ -58,8 +58,7 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// REFUSED rather than ignored, so a caller cannot believe its own gate took effect —
 	// and cannot use the field to widen one either.
 	if req.SessionApproval != nil {
-		writeError(c, http.StatusBadRequest, "session_approval is server-internal",
-			"a submitted job cannot carry its own approval policy; configure it per 收件 agent (mail.agents.<name>.approval) or per project (projects.<key>.approval)")
+		s.writeErrorKey(c, http.StatusBadRequest, "session_approval is server-internal", "session_approval_internal")
 		return
 	}
 

@@ -1,12 +1,16 @@
 package desktop
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
+)
 
 // Windows toast document (portable file on purpose: it is pure text, so it is unit
 // tested on every platform, not only on a Windows host).
 //
 // The document is a ToastGeneric template with a protocol activation: clicking the
-// toast (or its 打开 action) hands the URL to the shell's default handler, i.e. the
+// toast (or its open action) hands the URL to the shell's default handler, i.e. the
 // browser. activationType="protocol" is what makes a click open the console page
 // without gofer registering a COM notification activator of its own.
 const toastXMLEnv = "GOFER_TOAST_XML"
@@ -41,7 +45,9 @@ func toastXML(n Notification) string {
 	}
 	b.WriteString(`</binding></visual>`)
 	if link := strings.TrimSpace(n.Link); link != "" {
-		b.WriteString(`<actions><action content="打开" activationType="protocol" arguments="`)
+		b.WriteString(`<actions><action content="`)
+		b.WriteString(xmlAttr(i18n.T(n.Lang, "notify.desktop.open")))
+		b.WriteString(`" activationType="protocol" arguments="`)
 		b.WriteString(xmlAttr(link))
 		b.WriteString(`"/></actions>`)
 	}

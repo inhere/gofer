@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"fmt"
+	"github.com/inhere/gofer/internal/i18n"
 	"io"
 	"net/http"
 	"strings"
@@ -227,10 +228,11 @@ func (s *Server) handleStopTunnelForwarder(c *rux.Context) {
 	case errors.Is(err, tunnel.ErrForwarderStopUnsupported):
 		host := stored.Host
 		if host == "" {
-			host = "该机器"
+			host = i18n.T(s.requestLang(c), "httpapi.tunnel_this_machine")
 		}
+		// The `error` phrase was never a fixed English one: it tells the person what to do.
 		writeError(c, http.StatusConflict,
-			fmt.Sprintf("该转发进程版本过旧，不支持远程停止，请在 %s 上 Ctrl+C", host),
+			s.errText(c, "tunnel_forwarder_too_old", "host", host),
 			"the forwarder did not advertise the \"stop\" capability; a newer `gofer tunnel forward` does")
 		return
 	case errors.Is(err, tunnel.ErrForwarderHosted):

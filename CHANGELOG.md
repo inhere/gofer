@@ -17,6 +17,8 @@
 - **Web 控制台状态徽标、提示条与开关统一**：任务、计划、对比、会话卡片等处的旧状态徽标全部换成同一套状态 pill（形状 + 颜色 + 文字，文案走中英字典；「等目录」的悬停提示仍写明持有目录锁的 job）；撤销提示、「待我处理」与 agent 探测提示合并为同一个提示条组件（撤销倒计时、关闭按钮、手机上自动收起行为不变，读屏按状态播报）；「设置 → 扩展设置」的开关与导航显隐改用统一的开关控件（键盘可切换，读屏读出开 / 关）。
 - **服务端生成的显示文本按请求语言（i18n 阶段 3 之一）**：httpapi 解析请求头 `Accept-Language`（按 q 值取第一个认得的语言），认不得或没带时用 `server.language`（未配置即 auto），结果放进请求 context（`i18n.WithLang` / `i18n.FromContext`）；web 的所有请求（API、SSE、附件、换 ws ticket）带上当前界面语言。首个接线的是 `GET /v1/sessions/{sid}/takeover-plan` 的说明文字：web 切到英文就是英文；WebSocket 连接本身带不了请求头，暂不带语言。其余服务端文本逐步迁移。
 
+- **通知正文与 HTTP 错误 detail 按语言出文（i18n 阶段 3 之三）**：IM / webhook / 桌面通知的标题、正文、链接标签、「已截断」提示和桌面合并弹窗的词（`会话等你回复` / `待批准` / `需要审批` / 会话接管与催办通知 / 新版本通知等）从代码迁入 `internal/i18n`；通知没有请求，语言取所属项目的 `language`，没有项目（新版本通知）用 `server.language`，中文输出逐字不变。HTTP 错误体新增稳定 `code`（有可变部分时带 `params`）：已迁移的错误（runner 传话人 / worker 版本、workbench 会话投递失败、session_approval 拒绝、今天页建议权限、steward 的 agent 检查等）的 `detail` 随请求语言（`Accept-Language`，否则 `server.language`），`error` 短语不变（脚本依赖）；web 优先用 `err.<code>` 字典渲染，找不到再显示服务端 detail。权限预设标签、收集箱名、通知测试消息、tunnel 警告等显示文本同样跟随请求语言。
+
 ### 修复
 
 - **收件箱分栏后端审计修复**：失败的 job 现在进「要处理」（此前误进「仅知会」）：新增 kind `job.failed`，失败 / 超时且没有后续 job 的终态 job 归它；已被自动续投 / 回退或已有后续 job 的失败、完成和用户取消的 job 仍是 `job.terminal`（仅知会），是否「自己是续接出来的」不再影响归属；`timeout` 状态此前因状态名写错从未出现在收件箱。`total_unread` 只统计「要处理」未读（仅知会未读见 `unread.fyi`）。`server.inbox.enabled: false` 现在真正关闭收件箱（两个路由返回 404），只写 rules 不再误关；规则里的 `events` / `include_exec` 暂不支持，加载时明确拒绝而不是静默忽略。`POST /v1/inbox/state` 批量里有不存在的 key 时整批 404 且不写入，不带 keys 的 `seen` / `clear` 作用于全部当前项（可限 `column`），此前对从未标记过的项无效。补齐 `/v1/inbox*` 的 HTTP 测试。

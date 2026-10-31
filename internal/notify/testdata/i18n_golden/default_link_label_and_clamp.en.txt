@@ -1,0 +1,15 @@
+--- dingtalk ---
+### T
+
+> abcde… (truncated, see the link for the full text)
+
+[Open in gofer](https://x/y)
+--- feishu ---
+T
+
+abcde… (truncated, see the link for the full text)
+
+Open in gofer: https://x/y
+--- generic ---
+T
+abcdefghijklmnopqrstuvwxyz

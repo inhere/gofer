@@ -14,6 +14,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/messenger"
 	runnerpkg "github.com/inhere/gofer/internal/runner"
@@ -89,34 +90,39 @@ func (s *Server) handleRunnerMessengerAgents(c *rux.Context) {
 	}
 	name := strings.TrimSpace(c.Param("name"))
 	refresh := c.Query("refresh") == "1" || c.Query("refresh") == "true"
-	view, status, msg, detail := s.messengerAgents(c.Req.Context(), name, refresh)
-	if status != http.StatusOK {
-		writeError(c, status, msg, detail)
+	view, fail := s.messengerAgents(c.Req.Context(), s.requestLang(c), name, refresh)
+	if fail != nil {
+		writeAPIError(c, fail)
 		return
 	}
 	c.JSON(http.StatusOK, view)
 }
 
-func (s *Server) messengerAgents(ctx context.Context, name string, refresh bool) (view messengerAgentsView, status int, msg, detail string) {
+func (s *Server) messengerAgents(ctx context.Context, lang i18n.Lang, name string, refresh bool) (view messengerAgentsView, fail *apiError) {
+	// Both the `error` phrase and the detail follow the request language: the phrases
+	// here were never fixed English ones.
+	failf := func(status int, phrase, code string, args ...any) *apiError {
+		return newAPIError(lang, status, i18n.T(lang, errKeyPrefix+phrase), code, args...)
+	}
 	if s.msgr == nil || s.residentMessenger == nil {
-		return view, http.StatusConflict, "传话人不可用", "该 server 没有启用会话传话（没有任务存储或传话配置）"
+		return view, failf(http.StatusConflict, "messenger_unavailable_error", "messenger_unavailable")
 	}
 	key := s.resolveRunnerName(name)
 	var rc config.RunnerConfig
 	if key != config.BuiltinLocalRunner {
 		var ok bool
 		if rc, ok = s.runners[key]; !ok {
-			return view, http.StatusNotFound, "unknown runner", "runner " + name + " is not configured"
+			return view, &apiError{Status: http.StatusNotFound, Msg: "unknown runner", Detail: "runner " + name + " is not configured"}
 		}
 		if rc.Type != runnerTypeWorker {
-			return view, http.StatusConflict, "该 runner 没有传话人", "只有本机和 worker 类型的 runner 有常驻传话人"
+			return view, failf(http.StatusConflict, "messenger_no_resident_error", "messenger_no_resident")
 		}
 	}
 	lock := s.agentsCache.lockFor(key)
 	lock.Lock()
 	defer lock.Unlock()
 	if e, ok := s.agentsCache.get(key); ok && !refresh && time.Since(e.at) < messengerAgentsTTL {
-		return agentsView(key, e, true), http.StatusOK, "", ""
+		return agentsView(key, e, true), nil
 	}
 	var list messenger.AgentList
 	var err error
@@ -126,25 +132,26 @@ func (s *Server) messengerAgents(ctx context.Context, name string, refresh bool)
 		list, err = s.residentMessenger.ListAgents(callCtx, config.BuiltinLocalRunner, "", []string{s.residentMessenger.Command()})
 	} else {
 		if s.workers == nil {
-			return view, http.StatusConflict, "worker 不在线", "server 没有接入 worker 注册表"
+			return view, failf(http.StatusConflict, "worker_offline_error", "messenger_no_worker_registry")
 		}
 		ws, ok := s.workers.WorkerStatus(rc.WorkerID)
 		if !ok || !ws.Connected {
-			return view, http.StatusConflict, "worker 不在线", "worker " + rc.WorkerID + " 当前没有连接，无法列出它的会话"
+			return view, failf(http.StatusConflict, "worker_offline_error", "messenger_worker_offline", "worker", rc.WorkerID)
 		}
 		if !wsproto.SupportsMessengerList(ws.ProtocolVersion) {
-			return view, http.StatusConflict, "worker 版本过旧",
-				fmt.Sprintf("worker %s 的协议版本是 v%d，列出会话需要 v%d 及以上；请先升级该 worker（gofer worker upgrade）",
-					rc.WorkerID, ws.ProtocolVersion, wsproto.MessengerListMinProtocolVersion)
+			return view, failf(http.StatusConflict, "worker_too_old_error", "messenger_worker_too_old",
+				"worker", rc.WorkerID, "have", ws.ProtocolVersion, "need", wsproto.MessengerListMinProtocolVersion)
 		}
-		list, err = s.msgr.listWorkerAgents(ctx, key, ws.Projects, s.residentMessenger.Command())
+		list, err = s.msgr.listWorkerAgents(i18n.WithLang(ctx, lang), key, ws.Projects, s.residentMessenger.Command())
 	}
 	if err != nil {
-		return view, http.StatusBadGateway, "列出会话失败", err.Error()
+		// The cause was rendered in lang by listWorkerAgents (it reads the language off
+		// ctx), so it goes out as the detail unkeyed.
+		return view, &apiError{Status: http.StatusBadGateway, Msg: i18n.T(lang, errKeyPrefix+"messenger_list_failed_error"), Detail: err.Error()}
 	}
 	e := agentsCacheEntry{at: time.Now(), list: list}
 	s.agentsCache.put(key, e)
-	return agentsView(key, e, false), http.StatusOK, "", ""
+	return agentsView(key, e, false), nil
 }
 
 func agentsView(runner string, e agentsCacheEntry, cached bool) messengerAgentsView {
@@ -168,8 +175,10 @@ func (x sessionInjector) timeout() time.Duration {
 // plumbing as a message delivery) and returns the parsed listing. The job needs a
 // project the worker serves; the first one that accepts it wins.
 func (x sessionInjector) listWorkerAgents(ctx context.Context, runner string, projects []string, command string) (messenger.AgentList, error) {
+	// The failure reasons go out as the response's detail: they follow the request language.
+	lang := i18n.FromContext(ctx)
 	if len(projects) == 0 {
-		return messenger.AgentList{}, errors.New("该 worker 当前没有可用项目，无法派发列出会话的任务（先给它分配一个项目）")
+		return messenger.AgentList{}, errors.New(i18n.T(lang, "err.messenger_worker_no_project"))
 	}
 	keys := append([]string(nil), projects...)
 	sort.Strings(keys)
@@ -195,7 +204,7 @@ func (x sessionInjector) listWorkerAgents(ctx context.Context, runner string, pr
 		lastErr = err
 	}
 	if jobID == "" {
-		return messenger.AgentList{}, fmt.Errorf("派发列出会话任务失败: %w", lastErr)
+		return messenger.AgentList{}, fmt.Errorf("%s: %w", i18n.T(lang, "err.messenger_dispatch_failed"), lastErr)
 	}
 	deadline := time.Now().Add(timeout + 5*time.Second)
 	for {
@@ -206,14 +215,14 @@ func (x sessionInjector) listWorkerAgents(ctx context.Context, runner string, pr
 		if done {
 			if status != job.StatusDone || code != 0 {
 				if strings.TrimSpace(output) == "" {
-					output = fmt.Sprintf("任务 %s 状态=%s exit=%d", jobID, status, code)
+					output = i18n.T(lang, "err.messenger_job_status", "job", jobID, "status", status, "exit", code)
 				}
 				return messenger.AgentList{}, errors.New(strings.TrimSpace(output))
 			}
 			return messenger.ParseAgents(output), nil
 		}
 		if !time.Now().Before(deadline) {
-			return messenger.AgentList{}, fmt.Errorf("列出会话任务 %s 超时", jobID)
+			return messenger.AgentList{}, errors.New(i18n.T(lang, "err.messenger_list_timeout", "job", jobID))
 		}
 		select {
 		case <-ctx.Done():

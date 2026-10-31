@@ -1,0 +1,5 @@
+Session taken over on the web · repo: fix
+
+A new process took the session over with `--resume`; continue the conversation in that terminal.
+
+Open takeover terminal: https://gofer.example.com/jobs/job-1?attach=1

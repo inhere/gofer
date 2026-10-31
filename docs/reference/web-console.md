@@ -63,7 +63,7 @@ Workflow fan-out worktrees can be merged after a human pick (`gofer workflow pic
 - 支持 `zh-CN` 与 `en-US` 两种，不做第三种、不做 RTL。顶栏（手机在「更多」里）的开关直接切换，按钮显示“要切到的语言”（中文界面显示 `EN`）。
 - 选择存在浏览器 `localStorage gofer.locale`，同时写 `<html lang>`。优先级：URL `?lang=`（`en` / `zh` 等宽松写法均可，只用于调试与分享，**不写入存储**）> localStorage > 浏览器 `navigator.languages`（以 `en` 开头取英文，其余一律中文）。
 - 文案是前端内置字典（`web/src/i18n`，平铺 key；缺 key 回退到中文），切换后立即重绘，不重载页面。
-- 服务端显示文本：S3a 起 web 请求会带 `Accept-Language`，服务端生成的显示文本随界面语言返回；阶段 3 逐步覆盖，尚未覆盖的接口仍返回中文。TODO（请核）：当前源码的 `web/src/api/client.ts` 里还没有设置 `Accept-Language` 的代码，这条按 S3a 的计划写，合并前确认 S3a 是否已进本分支。
+- 服务端显示文本：S3a 起 web 请求会带 `Accept-Language`，服务端生成的显示文本随界面语言返回；阶段 3 逐步覆盖，尚未覆盖的接口仍返回中文。S3c：错误体的 `error` 是固定短语（不翻译），`detail` 随请求语言；已迁移的错误另带稳定 `code` 与占位符取值 `params`，`web/src/api/client.ts` 的 `raiseForStatus` 优先用 `err.<code>`（`web/src/i18n/pages/errors.ts`，与服务端 `internal/i18n/lang/*/err.ini` 逐字一致）渲染 `detail`，字典里没有再显示服务端 detail；`ApiError.errCode` / `errParams` 暴露这两个字段（`ApiError.code` 仍是 `error` 短语的历史用法）。TODO（请核）：当前源码的 `web/src/api/client.ts` 里还没有设置 `Accept-Language` 的代码，这条按 S3a 的计划写，合并前确认 S3a 是否已进本分支。
 - 服务端 CLI / 日志语言（`GOFER_LANG`、`LANG`）是另一套机制（`internal/i18n`），与 web 的界面语言互不影响。
 
 ## 项目筛选

@@ -1,0 +1,9 @@
+EventType: job.awaiting_approval
+Title: 待批准：Deploy
+Text: 理由：needs review
+要执行：
+go test ./...
+过期：2026-01-02 15:04（到时未批准即取消）
+Link: https://x/jobs/j1
+LinkLabel: 去批准
+At: 10

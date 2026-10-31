@@ -1,0 +1,5 @@
+Session needs confirmation · repo: fix
+
+needs a choice
+
+View session: https://gofer.example.com/sessions?sid=sid-123456789

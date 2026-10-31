@@ -8,6 +8,7 @@ import (
 
 func TestInteractionCreatedIMMessage(t *testing.T) {
 	body, err := RenderMessage(KindDingTalk, InteractionMessage(
+		"",
 		"interaction.created", "允许 agent 执行 shell 命令", []string{"允许", "拒绝"}, "https://gofer.example/jobs/j1", 1,
 	), "")
 	if err != nil {

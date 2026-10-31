@@ -1,0 +1,5 @@
+会话需要确认 · repo: fix
+
+needs a choice
+
+查看会话：https://gofer.example.com/sessions?sid=sid-123456789

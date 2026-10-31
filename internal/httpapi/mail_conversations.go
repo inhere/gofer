@@ -11,6 +11,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
@@ -50,7 +51,7 @@ type mailPersonas struct {
 
 // newMailPersonas resolves the parties of rows. It never fails: a lookup error counts as a party
 // nobody can describe (the console then shows its id).
-func (s *Server) newMailPersonas(rows []jobstore.Mail) *mailPersonas {
+func (s *Server) newMailPersonas(lang i18n.Lang, rows []jobstore.Mail) *mailPersonas {
 	p := &mailPersonas{
 		s: s, sessions: make(map[string]*mailPersonaView), jobs: make(map[string]*mailPersonaView),
 		callers: make(map[string]*mailPersonaView),
@@ -109,7 +110,7 @@ func (s *Server) newMailPersonas(rows []jobstore.Mail) *mailPersonas {
 	}
 	names := s.callerNames()
 	for id := range callerIDs {
-		p.callers[id] = callerBoxPersona(names[id], id)
+		p.callers[id] = callerBoxPersona(lang, names[id], id)
 	}
 	return p
 }
@@ -183,15 +184,15 @@ func jobPersona(rec job.JobResult, title string) *mailPersonaView {
 
 // callerBoxPersona describes a caller's capture box: 「<display name> 的收集箱」, with the id when
 // the caller has no configured display name.
-func callerBoxPersona(displayName, caller string) *mailPersonaView {
+func callerBoxPersona(lang i18n.Lang, displayName, caller string) *mailPersonaView {
 	name := strings.TrimSpace(displayName)
 	if name == "" {
 		name = strings.TrimSpace(caller)
 	}
 	if name == "" {
-		return &mailPersonaView{Name: "收集箱"}
+		return &mailPersonaView{Name: i18n.T(lang, "httpapi.mail_box")}
 	}
-	return &mailPersonaView{Name: name + " 的收集箱"}
+	return &mailPersonaView{Name: i18n.T(lang, "httpapi.mail_box_of", "name", name)}
 }
 
 // shortMailID is the 8-char prefix a title-less job is named by.
@@ -629,7 +630,7 @@ func (s *Server) handleMailConversations(c *rux.Context) {
 	for _, agg := range list {
 		rows = append(rows, agg.last)
 	}
-	ps := s.newMailPersonas(rows)
+	ps := s.newMailPersonas(s.requestLang(c), rows)
 	out := make([]mailConversationView, 0, len(list))
 	for _, agg := range list {
 		av, bv := agg.a.view(), agg.b.view()
