@@ -42,7 +42,7 @@ func (s *Service) settingString(key string) string {
 // promptText composes one prompt from its two setting keys: the replacement (else def), then
 // the operator's extra block (settings.ComposePrompt).
 func (s *Service) promptText(replaceKey, extraKey, def string) string {
-	return settings.ComposePrompt(settings.ChoosePrompt(def, s.settingString(replaceKey)), s.settingString(extraKey))
+	return settings.ComposePrompt(s.language(), settings.ChoosePrompt(def, s.settingString(replaceKey)), s.settingString(extraKey))
 }
 
 // roleText is the standing instruction of the steward session.

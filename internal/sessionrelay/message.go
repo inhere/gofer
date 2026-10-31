@@ -183,16 +183,16 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 		return s.failMessage(m, reason+": "+detail)
 	}
 	if strings.TrimSpace(a.ProjectKey) == "" {
-		return s.failMessage(m, "该会话所在目录不属于任何已配置项目，无法派发传话人；请把目录加入项目，或在会话所在 runner 上配置项目")
+		return s.failMessage(m, i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.no_project"))
 	}
 	if s.messenger == nil {
-		return s.failMessage(m, "传话人执行器未配置")
+		return s.failMessage(m, i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.no_messenger"))
 	}
 	if strings.TrimSpace(a.PeerName) == "" || !a.PeerMessaging {
-		return s.failMessage(m, "会话没有可用的 Claude SendMessage 地址")
+		return s.failMessage(m, i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.no_address"))
 	}
 	if strings.TrimSpace(a.Runner) == "" {
-		return s.failMessage(m, "会话未登记执行机")
+		return s.failMessage(m, i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.no_runner"))
 	}
 	lang := s.lang(a.ProjectKey)
 	if resident, ok := s.messenger.(ResidentMessenger); ok && s.IsServerLocalRunner(a.Runner) {
@@ -239,12 +239,12 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 			}
 			reason := strings.TrimSpace(output)
 			if reason == "" {
-				reason = fmt.Sprintf("传话人 job %s 状态=%s exit=%d", jobID, status, code)
+				reason = i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.messenger_job_state", "job", jobID, "status", status, "code", code)
 			}
 			return s.failMessage(m, reason)
 		}
 		if !time.Now().Before(deadline) {
-			return s.settleTimedOutMessenger(m, jobID)
+			return s.settleTimedOutMessenger(s.lang(a.ProjectKey), m, jobID)
 		}
 		select {
 		case <-ctx.Done():
@@ -279,7 +279,7 @@ func (s *Service) SendMessageWithImages(ctx context.Context, sid, text, operator
 	lock.Lock()
 	defer lock.Unlock()
 	if strings.TrimSpace(a.Runner) == "" {
-		return jobstore.SessionMessage{}, undeliverable(ReasonNoRunner, errors.New("会话未登记执行机"))
+		return jobstore.SessionMessage{}, undeliverable(ReasonNoRunner, errors.New(i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.no_runner")))
 	}
 	now := time.Now().Unix()
 	m := jobstore.SessionMessage{ID: fmt.Sprintf("msg-%d", time.Now().UnixNano()), SessionID: sid, Text: text, Operator: operator, Status: jobstore.SessionMessageQueued, CreatedAt: now, UpdatedAt: now}
@@ -400,15 +400,15 @@ func messengerSaidSent(output string) bool {
 // writes the outcome back; a job that never began is cancelled by the host and the
 // message is 「未送达」 — a retry cannot deliver it twice. Only a messenger that cannot
 // tell (no MessengerAbandoner) falls back to the old plain failure.
-func (s *Service) settleTimedOutMessenger(m jobstore.SessionMessage, jobID string) (jobstore.SessionMessage, error) {
-	timeout := fmt.Sprintf("传话人 job %s 超时", jobID)
+func (s *Service) settleTimedOutMessenger(lang i18n.Lang, m jobstore.SessionMessage, jobID string) (jobstore.SessionMessage, error) {
+	timeout := i18n.T(lang, "sessionrelay.reason.messenger_timeout", "job", jobID)
 	ab, ok := s.messenger.(MessengerAbandoner)
 	if !ok {
 		return s.failMessage(m, timeout)
 	}
 	res, err := ab.AbandonMessengerJob(jobID)
 	if err != nil {
-		return s.failMessage(m, timeout+"："+err.Error())
+		return s.failMessage(m, i18n.T(lang, "sessionrelay.reason.messenger_timeout_error", "timeout", timeout, "error", err.Error()))
 	}
 	switch {
 	case res.Running:
@@ -419,7 +419,7 @@ func (s *Service) settleTimedOutMessenger(m jobstore.SessionMessage, jobID strin
 		s.notePendingDelivery(m.SessionID, jobID)
 		return m, nil
 	case strings.TrimSpace(res.Status) != "":
-		return s.undeliveredMessage(m, notStarted(res).Error())
+		return s.undeliveredMessage(m, notStarted(lang, res).Error())
 	case res.ExitCode == 0 && messengerSaidSent(res.Output):
 		m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, s.nowFn().Unix()
 		_ = s.store.AppendSessionOutbox(m)
@@ -427,7 +427,7 @@ func (s *Service) settleTimedOutMessenger(m jobstore.SessionMessage, jobID strin
 	}
 	reason := strings.TrimSpace(res.Output)
 	if reason == "" {
-		reason = fmt.Sprintf("%s，结束时 exit=%d", timeout, res.ExitCode)
+		reason = i18n.T(lang, "sessionrelay.reason.messenger_timeout_exit", "timeout", timeout, "code", res.ExitCode)
 	}
 	return s.failMessage(m, reason)
 }

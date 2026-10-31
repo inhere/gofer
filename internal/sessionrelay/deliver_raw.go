@@ -147,12 +147,12 @@ func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd, pe
 			}
 			reason := strings.TrimSpace(output)
 			if reason == "" {
-				reason = fmt.Sprintf("传话人 job %s 状态=%s exit=%d", jobID, status, code)
+				reason = i18n.T(s.lang(projectKey), "sessionrelay.reason.messenger_job_state", "job", jobID, "status", status, "code", code)
 			}
 			return RawResult{}, errors.New(reason)
 		}
 		if !time.Now().Before(deadline) {
-			return RawResult{}, fmt.Errorf("传话人 job %s 超时未完成", jobID)
+			return RawResult{}, errors.New(i18n.T(s.lang(projectKey), "sessionrelay.reason.messenger_unfinished", "job", jobID))
 		}
 		select {
 		case <-ctx.Done():

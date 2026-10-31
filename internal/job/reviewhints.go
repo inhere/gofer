@@ -1,10 +1,11 @@
 package job
 
 import (
-	"fmt"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Review hints (gofer-hjj1): the parts of a job's review material a supervisor
@@ -89,12 +90,18 @@ type RemovedComment struct {
 // agent's final report (stdout tail). Both may be empty: the result then has no
 // sections at all rather than an error — a job without a diff is not a failed review.
 func BuildReviewHints(diff, report string) ReviewHints {
+	return BuildReviewHintsIn(i18n.Default, diff, report)
+}
+
+// BuildReviewHintsIn is BuildReviewHints with the truncation marker of a report's
+// verification block in lang (the reader's language: the hints are read-time text).
+func BuildReviewHintsIn(lang i18n.Lang, diff, report string) ReviewHints {
 	files := scanDiff(diff)
 	return ReviewHints{
 		DeletionHotspots: deletionHotspots(files),
 		RemovedComments:  removedComments(files),
 		VerifyLines:      verifyLines(report),
-		ReportVerify:     reportVerify(report),
+		ReportVerify:     reportVerify(lang, report),
 	}
 }
 
@@ -338,7 +345,7 @@ func isVerifyLine(s string) bool {
 // every fenced code block under a 「验证」/Verification heading, in report order. The
 // blocks are the agent's own account (Source "agent") — a reference for a job whose
 // own verify step was not configured, not a substitute for it.
-func reportVerify(report string) []ReportVerify {
+func reportVerify(lang i18n.Lang, report string) []ReportVerify {
 	var out []ReportVerify
 	heading, level := "", 0 // the verify section currently open
 	var body []string
@@ -354,7 +361,7 @@ func reportVerify(report string) []ReportVerify {
 			return
 		}
 		out = append(out, ReportVerify{
-			Heading: heading, Text: markedTailLines(text, reviewReportVerifyLineLimit), Source: VerifySourceAgent,
+			Heading: heading, Text: markedTailLines(lang, text, reviewReportVerifyLineLimit), Source: VerifySourceAgent,
 		})
 	}
 
@@ -428,10 +435,10 @@ func isVerifyHeading(text string) bool {
 
 // markedTailLines keeps the last n lines of s, prefixed with a marker line naming how
 // many were dropped (a verification block ends with its verdict).
-func markedTailLines(s string, n int) string {
+func markedTailLines(lang i18n.Lang, s string, n int) string {
 	lines := strings.Split(s, "\n")
 	if len(lines) <= n {
 		return s
 	}
-	return fmt.Sprintf("…（前面 %d 行已省略）\n%s", len(lines)-n, strings.Join(lines[len(lines)-n:], "\n"))
+	return i18n.T(lang, "job.review_hint.elided", "n", len(lines)-n) + "\n" + strings.Join(lines[len(lines)-n:], "\n")
 }

@@ -272,7 +272,7 @@ func (s *Service) reviewInstruction(slim bool, todayPending int, mem *MemoryHygi
 	}
 	b.WriteString(stewardText(s.language(), "review.summary_step", "step", step) + "\n")
 	b.WriteString("\n" + stewardText(s.language(), "review.closing"))
-	return settings.ComposePrompt(b.String(), s.settingString(settings.KeyPromptStewardReviewExtra))
+	return settings.ComposePrompt(s.language(), b.String(), s.settingString(settings.KeyPromptStewardReviewExtra))
 }
 
 // reviewTriggerLabel names a review trigger (daily / manual / event) in lang.

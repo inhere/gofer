@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gookit/goutil/x/assert"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 func TestMemoryFlagUnflagAndContentClears(t *testing.T) {
@@ -71,13 +73,13 @@ func TestMemoryFlagInjectionAndDoctor(t *testing.T) {
 	body := primeWith(t, s, "")
 	assert.Contains(t, body, "- ⚠ 待复核（make test 已改名 make check） r-verify: RULE FULL TEXT\n")
 	assert.Contains(t, body, "⚠ 待复核（路径已变） n-web")
-	assert.Contains(t, body, MemoryFlagHint)
+	assert.Contains(t, body, MemoryFlagHintIn(i18n.Default))
 
 	// Dispatched-job rules.
 	rule := renderPrimeRule("POLICY", items, "", false, PrimeSelection{}, time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC))
 	assert.Contains(t, rule, "- ⚠ 待复核（make test 已改名 make check） r-verify: RULE FULL TEXT\n")
 	assert.Contains(t, rule, "- ⚠ 待复核（路径已变） n-web")
-	assert.Contains(t, rule, MemoryFlagHint)
+	assert.Contains(t, rule, MemoryFlagHintIn(i18n.Default))
 
 	// Scoped sections use the same view.
 	scoped := RenderScopedPrimeSection("全局记忆", items, ScopedPrimeOptions{Budget: -1, SummaryLimit: -1})
@@ -106,3 +108,12 @@ func TestSyncMergesMemoryFlags(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+// TestMemoryFlagHintTexts pins the zh-CN hint to the constant it was before it moved into
+// the catalog; the English one carries no CJK.
+func TestMemoryFlagHintTexts(t *testing.T) {
+	assert.Eq(t, "发现注入的记忆 / 规则与实际不符时运行 `gofer memory flag <key> --reason \"…\"`（全局 / 项目记忆加 `--global` / `--project <p>`），不要静默绕过。", MemoryFlagHintIn(i18n.ZhCN))
+	for _, r := range MemoryFlagHintIn(i18n.EN) {
+		assert.False(t, r >= 0x4e00 && r <= 0x9fff, "CJK in the English hint")
+	}
+}

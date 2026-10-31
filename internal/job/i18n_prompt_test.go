@@ -84,8 +84,8 @@ func TestZhPromptIsUnchanged(t *testing.T) {
 	}
 	// The memory-flag line is the tracker hint verbatim: one text, two places — a
 	// change to either must be a change to both.
-	if !strings.Contains(text, tracker.MemoryFlagHint) {
-		t.Errorf("contract template no longer carries tracker.MemoryFlagHint:\n%s", text)
+	if !strings.Contains(text, tracker.MemoryFlagHintIn(i18n.ZhCN)) {
+		t.Errorf("contract template no longer carries tracker.MemoryFlagHintIn:\n%s", text)
 	}
 }
 

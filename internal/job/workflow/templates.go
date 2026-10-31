@@ -11,6 +11,8 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/i18n/prompts"
 	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
 	gotemplate "github.com/inhere/gofer/internal/template"
@@ -40,18 +42,18 @@ type TemplateLastRun struct {
 	EndedAt   int64  `json:"ended_at,omitempty"`
 }
 
-// Prompt heads of the built-in templates. Every built-in prompt is Chinese
-// throughout, like the planner guidance it carries.
-const (
-	planPromptPrefix      = "为下面的任务写一份实施方案（只读，不要修改文件）：\n"
-	implementPromptPrefix = "按下面已审核的实施方案完成改动：\n\n"
-	reviewPromptPrefix    = "评审下面的对象：逐条列出发现的问题，每条附 文件:行 证据；不要修改任何文件。\n\n评审对象："
-)
-
-// BuiltinWorkflowTemplates returns the first-party recipes. Agents, runner and
-// project are all template variables; an empty runner means "the project default"
-// (the same selection rule as an ordinary job submit).
+// BuiltinWorkflowTemplates is BuiltinWorkflowTemplatesIn in the default language, for
+// callers that only need the names, variables and structure.
 func BuiltinWorkflowTemplates() []WorkflowTemplate {
+	return BuiltinWorkflowTemplatesIn(i18n.Default)
+}
+
+// BuiltinWorkflowTemplatesIn returns the first-party recipes. Agents, runner and
+// project are all template variables; an empty runner means "the project default"
+// (the same selection rule as an ordinary job submit). The step prompts are written for
+// an agent, in lang (the prompts templates workflow_*); the descriptions and variable
+// docs are English everywhere.
+func BuiltinWorkflowTemplatesIn(lang i18n.Lang) []WorkflowTemplate {
 	review := true
 	runnerVar := gotemplate.Var{Desc: "runner key; empty = project default / allowed_runners rule"}
 	return []WorkflowTemplate{
@@ -73,8 +75,8 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 				"implementer": {Default: "codex", Desc: "implementing agent key"},
 				"runner":      runnerVar,
 			}, Steps: []StepSpec{
-				{Name: "plan", ProjectKey: "${vars.project}", Agent: "${vars.planner}", Runner: "${vars.runner}", Prompt: planPromptPrefix + "${vars.task}\n\n" + job.PlannerGuidance, ReadOnly: true, Review: &review},
-				{Name: "implement", ProjectKey: "${vars.project}", Agent: "${vars.implementer}", Runner: "${vars.runner}", Prompt: implementPromptPrefix + "${steps.plan.stdout}", Worktree: true},
+				{Name: "plan", ProjectKey: "${vars.project}", Agent: "${vars.planner}", Runner: "${vars.runner}", Prompt: prompts.MustRender(lang, prompts.NameWorkflowPlan, prompts.WorkflowPlanData{Task: "${vars.task}", Guidance: job.PlannerGuidanceIn(lang)}), ReadOnly: true, Review: &review},
+				{Name: "implement", ProjectKey: "${vars.project}", Agent: "${vars.implementer}", Runner: "${vars.runner}", Prompt: prompts.MustRender(lang, prompts.NameWorkflowImplement, prompts.WorkflowImplementData{Plan: "${steps.plan.stdout}"}), Worktree: true},
 			}},
 		},
 		{
@@ -85,13 +87,11 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 				"verifier": {Default: "claude", Desc: "verifier agent key"},
 				"runner":   runnerVar,
 			}, Steps: []StepSpec{
-				{Name: "reviews", ProjectKey: "${vars.project}", Agents: []string{"${vars.agent_a}", "${vars.agent_b}"}, Runner: "${vars.runner}", Prompt: reviewPromptPrefix + "${vars.task}", ReadOnly: true},
+				{Name: "reviews", ProjectKey: "${vars.project}", Agents: []string{"${vars.agent_a}", "${vars.agent_b}"}, Runner: "${vars.runner}", Prompt: prompts.MustRender(lang, prompts.NameWorkflowReview, prompts.WorkflowReviewData{Task: "${vars.task}"}), ReadOnly: true},
 				// The review reports reach the verifier as FILE PATHS (result_dir), never
 				// interpolated into a command line.
 				{Name: "summary", ProjectKey: "${vars.project}", Agent: "${vars.verifier}", Runner: "${vars.runner}", ReadOnly: true,
-					Prompt: "你是评审委员会的核验人。各位评审的独立报告是下列结果目录（每行一个）中的 " + store.StdoutFile + " 文件：\n${steps.reviews.result_dir}\n" +
-						"完整阅读每一份报告。对每条发现，打开当前项目里真实的源代码确认是否成立；不成立的剔除并说明原因。" +
-						"输出一份汇总报告：已确认的发现（附 文件:行 证据）、被否决的发现（附原因），以及评审遗漏的问题。不要修改任何文件。"},
+					Prompt: prompts.MustRender(lang, prompts.NameWorkflowVerify, prompts.WorkflowVerifyData{StdoutFile: store.StdoutFile, ResultDir: "${steps.reviews.result_dir}"})},
 			}},
 		},
 		{
@@ -127,10 +127,16 @@ func BuiltinWorkflowTemplates() []WorkflowTemplate {
 	}
 }
 
-// LookupWorkflowTemplates lists the available templates in lookup order (project
-// `.gofer/workflows`, global `<config-dir>/workflows`, builtin); a name found in an
-// earlier source shadows later ones. Unparseable files are skipped.
+// LookupWorkflowTemplates is LookupWorkflowTemplatesIn in the default language.
 func LookupWorkflowTemplates(projectDir, globalDir string) []WorkflowTemplate {
+	return LookupWorkflowTemplatesIn(i18n.Default, projectDir, globalDir)
+}
+
+// LookupWorkflowTemplatesIn lists the available templates in lookup order (project
+// `.gofer/workflows`, global `<config-dir>/workflows`, builtin); a name found in an
+// earlier source shadows later ones. Unparseable files are skipped. The builtin prompts
+// are in lang.
+func LookupWorkflowTemplatesIn(lang i18n.Lang, projectDir, globalDir string) []WorkflowTemplate {
 	var out []WorkflowTemplate
 	seen := map[string]bool{}
 	add := func(dir, source string) {
@@ -162,7 +168,7 @@ func LookupWorkflowTemplates(projectDir, globalDir string) []WorkflowTemplate {
 		add(filepath.Join(projectDir, ".gofer", "workflows"), "project")
 	}
 	add(globalDir, "global")
-	for _, tpl := range BuiltinWorkflowTemplates() {
+	for _, tpl := range BuiltinWorkflowTemplatesIn(lang) {
 		if !seen[tpl.Name] {
 			tpl.Source = "builtin"
 			out = append(out, tpl)
@@ -185,9 +191,15 @@ func readWorkflowTemplateFile(path string) (Spec, error) {
 	return spec, err
 }
 
-// ResolveBuiltinWorkflowTemplate applies vars/defaults and returns an executable spec.
+// ResolveBuiltinWorkflowTemplate is ResolveBuiltinWorkflowTemplateIn in the default language.
 func ResolveBuiltinWorkflowTemplate(name string, vars map[string]string) (Spec, error) {
-	for _, tpl := range BuiltinWorkflowTemplates() {
+	return ResolveBuiltinWorkflowTemplateIn(i18n.Default, name, vars)
+}
+
+// ResolveBuiltinWorkflowTemplateIn applies vars/defaults and returns an executable spec
+// whose prompts are in lang.
+func ResolveBuiltinWorkflowTemplateIn(lang i18n.Lang, name string, vars map[string]string) (Spec, error) {
+	for _, tpl := range BuiltinWorkflowTemplatesIn(lang) {
 		if tpl.Name == name {
 			return renderWorkflowTemplate(tpl.Spec, vars)
 		}
@@ -195,9 +207,15 @@ func ResolveBuiltinWorkflowTemplate(name string, vars map[string]string) (Spec, 
 	return Spec{}, fmt.Errorf("workflow template %q not found", name)
 }
 
-// ResolveWorkflowTemplate applies the documented project, global, then builtin
-// lookup order. Files are YAML workflow specs with the same vars declaration.
+// ResolveWorkflowTemplate is ResolveWorkflowTemplateIn in the default language.
 func ResolveWorkflowTemplate(name string, vars map[string]string, projectDir, globalDir string) (Spec, error) {
+	return ResolveWorkflowTemplateIn(i18n.Default, name, vars, projectDir, globalDir)
+}
+
+// ResolveWorkflowTemplateIn applies the documented project, global, then builtin
+// lookup order. Files are YAML workflow specs with the same vars declaration; a builtin
+// template's prompts are in lang (the language of the project whose agents read them).
+func ResolveWorkflowTemplateIn(lang i18n.Lang, name string, vars map[string]string, projectDir, globalDir string) (Spec, error) {
 	if filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
 		return Spec{}, fmt.Errorf("invalid workflow template name %q", name)
 	}
@@ -217,7 +235,7 @@ func ResolveWorkflowTemplate(name string, vars map[string]string, projectDir, gl
 			return renderWorkflowTemplate(spec, vars)
 		}
 	}
-	return ResolveBuiltinWorkflowTemplate(name, vars)
+	return ResolveBuiltinWorkflowTemplateIn(lang, name, vars)
 }
 
 var unresolvedVarRe = regexp.MustCompile(`\$\{vars\.[^}]*\}`)

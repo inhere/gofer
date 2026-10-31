@@ -1,0 +1,3 @@
+## Output format (fixed, not replaceable)
+Output a single JSON object and no other text. Except confidence, which is a number from 0 to 1, every value is a string:
+{"goal":"what this work is meant to achieve (one sentence)","progress":"how far it has got (one or two sentences)","blocker_kind":"kind of blocker, such as device/account/onsite/person/decision; empty when there is none","blocker":"what exactly it is stuck on; empty when there is no blocker","next":"what to do next (one sentence)","status_hint":"one of active|needs_me|waiting_resource|needs_onsite|review|parked; empty when unsure","milestone":"something worth a line since the last summary (at most 40 characters); empty when there is none","confidence":0.0}

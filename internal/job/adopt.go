@@ -373,7 +373,7 @@ func (a *AdoptedJob) Resume() {
 // row and workflow advancement all behave identically.
 func (a *AdoptedJob) OnDisconnect(err error) {
 	if a.entry.snapshot().Session && err != nil && (strings.Contains(err.Error(), "worker lost") || strings.Contains(err.Error(), "worker restarted")) {
-		err = remoteSessionWorkerRestartError(a.jobID)
+		err = remoteSessionWorkerRestartError(a.s.notifyLang(a.entry.snapshot().ProjectKey), a.jobID)
 	}
 	a.finishTerminal(-1, err)
 }

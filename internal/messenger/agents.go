@@ -7,12 +7,28 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
-// ListAgentsPrompt is what the resident process is asked to run. The listing is
-// read from the ListAgents tool_result, so the wording only has to make the
-// model call the tool once.
-const ListAgentsPrompt = "调用 ListAgents 并原样输出结果。不要调用其他工具，不要添加解释。"
+// ListAgentsPromptIn is what the resident process is asked to run, in lang. The listing
+// is read from the ListAgents tool_result, so the wording only has to make the model
+// call the tool once.
+func ListAgentsPromptIn(lang i18n.Lang) string { return i18n.T(lang, "messenger.agents.prompt") }
+
+// ListAgentsPrompt is ListAgentsPromptIn in the language SetLanguage supplied (else the
+// default language).
+func (m *Manager) ListAgentsPrompt() string {
+	var lang i18n.Lang
+	if m != nil {
+		m.mu.Lock()
+		fn := m.langFn
+		m.mu.Unlock()
+		if fn != nil {
+			lang = fn()
+		}
+	}
+	return ListAgentsPromptIn(lang)
+}
 
 // Agent is one session ListAgents reports. Claude's listing carries a name,
 // a short id, a kind, a status and a relative start time; it has NO directory
@@ -49,7 +65,7 @@ func (m *Manager) ListAgents(ctx context.Context, runner, cwd string, command []
 		command = []string{m.command}
 	}
 	done := m.begin(runner, "list_agents", "", "")
-	ev, err := m.roundTrip(ctx, runner, cwd, command, ListAgentsPrompt)
+	ev, err := m.roundTrip(ctx, runner, cwd, command, m.ListAgentsPrompt())
 	done(err)
 	if err != nil {
 		return AgentList{}, err

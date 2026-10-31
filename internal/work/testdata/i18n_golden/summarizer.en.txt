@@ -1,0 +1,129 @@
+## material degraded
+true
+The session's last message:
+last msg
+
+Session progress line: progress line
+
+Session title (latest question): the title
+
+Work item journal (recent):
+- human:alice: <created>
+- human:alice: a journal line
+## material empty
+Work item journal (recent):
+- human:alice: <created>
+- human:alice: a journal line
+## prompt fresh
+You are a read-only "work summarizer". Below is what is currently recorded for one work item, plus the recent conversation of the terminal session it belongs to (or, when the conversation cannot be read, the session's last message). Distill the true state of this piece of work from it. Do not call any tool, do not ask questions, do not explain.
+
+## Recording rules
+- Record only what is substantive progress: the goal moved forward, code or documents changed, a conclusion was reached, a decision was made, a problem surfaced.
+- Trying things out, testing and demonstrating do not count as progress: running a command to see what it does, trying a feature, checking the environment, running an example. Do not record those, and do not suggest a next step from them; only when they produced a conclusion, write that conclusion into progress.
+- When the material is not enough, say "insufficient information" plainly. Do not guess, speculate or invent; leave a field without evidence as an empty string.
+- next is one concrete, executable step; leave it empty when there is no basis, and do not restate the goal.
+- milestone is one thing that has already happened and is worth a line (such as "CSV export finished and tests pass"); leave it empty when there is no new progress, and do not restate the goal or the next step.
+- status_hint is only a suggestion; leave it empty when unsure.
+- Write in English.
+
+[Current record of the work item]
+Title: Order export
+Goal: G
+Status: active
+Blocker: person wait
+Next step: N
+Summary: S
+
+[Recent conversation of the session (oldest first)]
+MATERIAL
+
+## Output format (fixed, not replaceable)
+Output a single JSON object and no other text. Except confidence, which is a number from 0 to 1, every value is a string:
+{"goal":"what this work is meant to achieve (one sentence)","progress":"how far it has got (one or two sentences)","blocker_kind":"kind of blocker, such as device/account/onsite/person/decision; empty when there is none","blocker":"what exactly it is stuck on; empty when there is no blocker","next":"what to do next (one sentence)","status_hint":"one of active|needs_me|waiting_resource|needs_onsite|review|parked; empty when unsure","milestone":"something worth a line since the last summary (at most 40 characters); empty when there is none","confidence":0.0}
+
+## prompt resumed degraded
+[This is a new piece of work] Ignore the other work items this session summarized before and answer from the content of this one only.
+
+You are a read-only "work summarizer". Below is what is currently recorded for one work item, plus the recent conversation of the terminal session it belongs to (or, when the conversation cannot be read, the session's last message). Distill the true state of this piece of work from it. Do not call any tool, do not ask questions, do not explain.
+
+## Recording rules
+- Record only what is substantive progress: the goal moved forward, code or documents changed, a conclusion was reached, a decision was made, a problem surfaced.
+- Trying things out, testing and demonstrating do not count as progress: running a command to see what it does, trying a feature, checking the environment, running an example. Do not record those, and do not suggest a next step from them; only when they produced a conclusion, write that conclusion into progress.
+- When the material is not enough, say "insufficient information" plainly. Do not guess, speculate or invent; leave a field without evidence as an empty string.
+- next is one concrete, executable step; leave it empty when there is no basis, and do not restate the goal.
+- milestone is one thing that has already happened and is worth a line (such as "CSV export finished and tests pass"); leave it empty when there is no new progress, and do not restate the goal or the next step.
+- status_hint is only a suggestion; leave it empty when unsure.
+- Write in English.
+
+[Current record of the work item]
+Title: Order export
+Goal: G
+Status: active
+Blocker: person wait
+Next step: N
+Summary: S
+
+[Session material (the full conversation could not be read, only the following)]
+MATERIAL
+
+## Output format (fixed, not replaceable)
+Output a single JSON object and no other text. Except confidence, which is a number from 0 to 1, every value is a string:
+{"goal":"what this work is meant to achieve (one sentence)","progress":"how far it has got (one or two sentences)","blocker_kind":"kind of blocker, such as device/account/onsite/person/decision; empty when there is none","blocker":"what exactly it is stuck on; empty when there is no blocker","next":"what to do next (one sentence)","status_hint":"one of active|needs_me|waiting_resource|needs_onsite|review|parked; empty when unsure","milestone":"something worth a line since the last summary (at most 40 characters); empty when there is none","confidence":0.0}
+
+## prompt empty fields
+You are a read-only "work summarizer". Below is what is currently recorded for one work item, plus the recent conversation of the terminal session it belongs to (or, when the conversation cannot be read, the session's last message). Distill the true state of this piece of work from it. Do not call any tool, do not ask questions, do not explain.
+
+## Recording rules
+- Record only what is substantive progress: the goal moved forward, code or documents changed, a conclusion was reached, a decision was made, a problem surfaced.
+- Trying things out, testing and demonstrating do not count as progress: running a command to see what it does, trying a feature, checking the environment, running an example. Do not record those, and do not suggest a next step from them; only when they produced a conclusion, write that conclusion into progress.
+- When the material is not enough, say "insufficient information" plainly. Do not guess, speculate or invent; leave a field without evidence as an empty string.
+- next is one concrete, executable step; leave it empty when there is no basis, and do not restate the goal.
+- milestone is one thing that has already happened and is worth a line (such as "CSV export finished and tests pass"); leave it empty when there is no new progress, and do not restate the goal or the next step.
+- status_hint is only a suggestion; leave it empty when unsure.
+- Write in English.
+
+[Current record of the work item]
+Title: Order export
+Goal: (empty)
+Status: active
+Blocker: (empty)
+Next step: (empty)
+Summary: (empty)
+
+[Recent conversation of the session (oldest first)]
+MATERIAL
+
+## Output format (fixed, not replaceable)
+Output a single JSON object and no other text. Except confidence, which is a number from 0 to 1, every value is a string:
+{"goal":"what this work is meant to achieve (one sentence)","progress":"how far it has got (one or two sentences)","blocker_kind":"kind of blocker, such as device/account/onsite/person/decision; empty when there is none","blocker":"what exactly it is stuck on; empty when there is no blocker","next":"what to do next (one sentence)","status_hint":"one of active|needs_me|waiting_resource|needs_onsite|review|parked; empty when unsure","milestone":"something worth a line since the last summary (at most 40 characters); empty when there is none","confidence":0.0}
+
+## session tail fallback
+The session's last message:
+last msg
+
+Session progress line: progress line
+## retry nudge
+
+
+The previous output was not valid JSON. This time output a single JSON object and no other text.
+## status no oneshot
+Summarizing is not wired in (the server provides no one-shot job channel)
+## status unusable project
+The project "default" used for summarizing is not usable (it does not exist, or does not allow agent claude / the local runner)
+## fail no oneshot
+ERR The summarizer is not wired in | ledger The summarizer is not wired in
+## fail agent unavailable
+ERR The summarizer is unavailable: agent x gone | ledger The summarizer is unavailable: agent x gone
+## fail no session
+ERR The work item has no session that can be read | ledger The work item has no session that can be read
+## fail daily limit
+ERR The daily summarize limit is reached (1 per day) | ledger The daily summarize limit is reached (1 per day)
+## fail session busy
+ERR A summarize is already running for this session | ledger A summarize is already running for this session
+## fail project busy
+ERR A summarize is already running in this project's summarizer session | ledger A summarize is already running in this project's summarizer session
+## fail bad output
+ERR Summarize failed: summarizer output is not the fixed JSON: The output holds no parseable JSON object | ledger Summarize failed: summarizer output is not the fixed JSON: The output holds no parseable JSON object
+run log: summarizer output is not the fixed JSON: The output holds no parseable JSON object
+## fail bad output journal
+Tidy-up failed: summarizer output is not the fixed JSON: The output holds no parseable JSON object

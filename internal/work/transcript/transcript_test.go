@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/gookit/goutil/x/assert"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 func load(t *testing.T, name string) []byte {
@@ -144,5 +146,27 @@ func TestResolvePrefersConfiguredDialect(t *testing.T) {
 	}
 	if got := Resolve("bogus", "myagent"); got != "" {
 		t.Fatalf("unknown stays sniffed: %q", got)
+	}
+}
+
+// TestFormatLabelsFollowLanguage: the zero Lang keeps the Chinese labels and elision marker
+// the summarizer prompt always had; English is a separate, CJK-free text.
+func TestFormatLabelsFollowLanguage(t *testing.T) {
+	turns := []Turn{
+		{Role: RoleUser, Text: "q"},
+		{Role: RoleAssistant, Text: strings.Repeat("a", 300)},
+		{Role: RoleTool, Text: "[tool Read: x]"},
+	}
+	zh := Format(turns, FormatOpts{MaxTurnRunes: 100})
+	assert.Eq(t, zh, Format(turns, FormatOpts{MaxTurnRunes: 100, Lang: i18n.ZhCN}))
+	assert.True(t, strings.HasPrefix(zh, "用户：\nq\n\n助手：\n"))
+	assert.True(t, strings.Contains(zh, "\n…（中间省略）…\n"))
+	assert.True(t, strings.Contains(zh, "\n\n工具：\n[tool Read: x]"))
+	en := Format(turns, FormatOpts{MaxTurnRunes: 100, Lang: i18n.EN})
+	assert.True(t, strings.HasPrefix(en, "User:\nq\n\nAssistant:\n"))
+	assert.True(t, strings.Contains(en, "\n…(middle omitted)…\n"))
+	assert.True(t, strings.Contains(en, "\n\nTool:\n[tool Read: x]"))
+	for _, r := range en {
+		assert.False(t, r >= 0x4e00 && r <= 0x9fff, "CJK in the English rendering")
 	}
 }

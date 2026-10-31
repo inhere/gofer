@@ -170,7 +170,7 @@ func (s *Service) RequestSessions(ctx context.Context, itemID string, o RequestO
 			if s.messenger == nil {
 				why = i18n.T(lang, "work.request_outcome.no_channel")
 			}
-			oc = s.fallbackToSummarize(w, r.SessionID, by, "", why)
+			oc = s.fallbackToSummarize(ctx, w, r.SessionID, by, "", why)
 		default:
 			oc = s.deliverRequest(ctx, lang, w, a, kind, by)
 		}
@@ -201,7 +201,7 @@ func (s *Service) deliverRequest(ctx context.Context, lang i18n.Lang, w jobstore
 		pl := s.lang(w.ProjectKey)
 		s.journalSystem(w.ID, i18n.T(pl, "work.journal.req_undelivered", "request", req.ID, "session", shortID(a.SessionID), "error", serr.Error()))
 		reason := i18n.T(lang, "work.request_outcome.delivery_failed", "error", serr.Error())
-		fb := s.fallbackToSummarize(w, a.SessionID, by, req.ID, reason)
+		fb := s.fallbackToSummarize(ctx, w, a.SessionID, by, req.ID, reason)
 		fb.Reason = reason
 		return fb
 	}
@@ -223,7 +223,7 @@ func (s *Service) deliverRequest(ctx context.Context, lang i18n.Lang, w jobstore
 
 // fallbackToSummarize records a summarize request (child of parent when set) and starts
 // the tidy-up in the background.
-func (s *Service) fallbackToSummarize(w jobstore.WorkItem, sid, by, parent, reason string) RequestOutcome {
+func (s *Service) fallbackToSummarize(ctx context.Context, w jobstore.WorkItem, sid, by, parent, reason string) RequestOutcome {
 	oc := RequestOutcome{SessionID: sid, Kind: jobstore.WorkRequestSummarize, Reason: reason}
 	req, err := s.store.CreateWorkRequest(jobstore.WorkRequestInput{
 		WorkItemID: w.ID, SessionID: sid, Kind: jobstore.WorkRequestSummarize, By: by, ParentID: parent,
@@ -234,7 +234,7 @@ func (s *Service) fallbackToSummarize(w jobstore.WorkItem, sid, by, parent, reas
 		return oc
 	}
 	oc.RequestID, oc.State = req.ID, req.State
-	s.StartSummarize(w.ID, SummarizeOpts{Cause: CauseRequest, RequestID: req.ID, SessionID: sid, By: by})
+	s.StartSummarize(ctx, w.ID, SummarizeOpts{Cause: CauseRequest, RequestID: req.ID, SessionID: sid, By: by})
 	return oc
 }
 
@@ -320,7 +320,7 @@ func (s *Service) advanceRequests(now time.Time) {
 			continue
 		}
 		s.journalSystem(r.WorkItemID, i18n.T(pl, "work.journal.req_no_response", "session", shortID(r.SessionID), "request", r.ID))
-		s.fallbackToSummarize(w, r.SessionID, r.By, r.ID, i18n.T(pl, "work.ledger.request_timeout"))
+		s.fallbackToSummarize(context.Background(), w, r.SessionID, r.By, r.ID, i18n.T(pl, "work.ledger.request_timeout"))
 	}
 }
 

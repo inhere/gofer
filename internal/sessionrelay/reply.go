@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
 )
@@ -66,7 +67,7 @@ func (s *Service) RecordReply(sid, text, peer, source, caller string) (m jobstor
 	default:
 		return jobstore.SessionMessage{}, false, fmt.Errorf("%w: unknown reply source %q", ErrInvalidInput, source)
 	}
-	text = capReply(text)
+	text = capReply(s.sessionLang(sid), text)
 	replyMu.Lock()
 	defer replyMu.Unlock()
 	list, err := s.store.ReadSessionOutbox(sid)
@@ -141,11 +142,11 @@ func (s *Service) now() time.Time {
 	return time.Now()
 }
 
-func capReply(text string) string {
+func capReply(lang i18n.Lang, text string) string {
 	if len(text) <= maxReplyBytes {
 		return text
 	}
-	const suffix = "\n[已截断]"
+	suffix := "\n" + i18n.T(lang, "sessionrelay.reason.reply_truncated")
 	limit := maxReplyBytes - len(suffix)
 	for limit > 0 && !utf8.RuneStart(text[limit]) {
 		limit--

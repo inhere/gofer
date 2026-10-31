@@ -110,6 +110,13 @@ func TestRecordReplyCapsText(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.True(t, len(m.Text) <= maxReplyBytes)
 	assert.True(t, strings.HasSuffix(m.Text, "[已截断]"))
+
+	// The marker is stored with the reply: it follows the session's project language.
+	s.SetLanguageFor(func(string) i18n.Lang { return i18n.EN })
+	registerReplySession(t, s, "sid-e", "server", "p2", "o")
+	m, _, err = s.RecordReply("sid-e", strings.Repeat("x", maxReplyBytes+10), "", jobstore.SessionReplySourceSession, "o")
+	assert.NoErr(t, err)
+	assert.True(t, strings.HasSuffix(m.Text, "\n[truncated]"))
 }
 
 // The messenger prompt keeps the delivered line recognisable by the target's hook.

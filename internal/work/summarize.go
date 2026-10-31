@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/i18n/prompts"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/settings"
 	"github.com/inhere/gofer/internal/work/transcript"
@@ -192,8 +193,10 @@ type SummarizerStatus struct {
 	TimeoutMin  int    `json:"request_timeout_min"`
 }
 
-// SummarizerStatus reports the effective summarizer configuration and availability.
-func (s *Service) SummarizerStatus() SummarizerStatus {
+// SummarizerStatus reports the effective summarizer configuration and availability. The
+// Reason text is shown in the settings page, so it follows ctx's request language (else
+// the server's).
+func (s *Service) SummarizerStatus(ctx context.Context) SummarizerStatus {
 	c := s.cfg()
 	st := SummarizerStatus{
 		Enabled: c.SummarizeOn(), Agent: c.SummarizerAgentName(), Args: c.SummarizerArgsOrDefault(), Project: c.SummarizerProject,
@@ -209,12 +212,13 @@ func (s *Service) SummarizerStatus() SummarizerStatus {
 	}
 	switch {
 	case s.oneShot == nil:
-		st.Reason = "整理功能未接入（server 没有提供一次性 job 通道）"
+		st.Reason = i18n.T(i18n.FromContextOr(ctx, s.lang("")), "work.summarize.not_wired")
 	default:
 		if err := s.oneShot.Check(st.Agent); err != nil {
 			st.Reason = err.Error()
 		} else if ch, ok := s.oneShot.(ProjectChooser); ok && !ch.ProjectUsable(st.EffectiveProject, st.Agent) {
-			st.Reason = fmt.Sprintf("整理用的项目 %q 不可用（不存在，或不允许 agent %s / 本机 runner）", st.EffectiveProject, st.Agent)
+			st.Reason = i18n.T(i18n.FromContextOr(ctx, s.lang("")), "work.summarize.project_unusable",
+				"project", fmt.Sprintf("%q", st.EffectiveProject), "agent", st.Agent)
 		} else {
 			st.Available = true
 		}
@@ -259,8 +263,11 @@ type SummarizeResult struct {
 	Degraded bool `json:"degraded,omitempty"`
 }
 
-// StartSummarize runs a tidy-up in the background and settles its request when done.
-func (s *Service) StartSummarize(itemID string, o SummarizeOpts) {
+// StartSummarize runs a tidy-up in the background and settles its request when done. ctx
+// is only read for the language of whoever asked (the background run does not inherit its
+// cancellation): the run's failure reasons that exist before the item is known use it.
+func (s *Service) StartSummarize(ctx context.Context, itemID string, o SummarizeOpts) {
+	lang := i18n.FromContext(ctx)
 	if o.RequestID != "" {
 		s.markReqInflight(o.RequestID, true)
 	}
@@ -270,9 +277,9 @@ func (s *Service) StartSummarize(itemID string, o SummarizeOpts) {
 				s.markReqInflight(o.RequestID, false)
 			}
 		}()
-		ctx, cancel := context.WithTimeout(s.BackgroundContext(), summarizeTimeout+time.Minute)
+		bg, cancel := context.WithTimeout(i18n.WithLang(s.BackgroundContext(), lang), summarizeTimeout+time.Minute)
 		defer cancel()
-		if _, err := s.RunSummarize(ctx, itemID, o); err != nil {
+		if _, err := s.RunSummarize(bg, itemID, o); err != nil {
 			slog.Info("work.summarize_failed", "event", "work.summarize_failed", "id", itemID, "cause", o.Cause, "err", err)
 		}
 	}) && o.RequestID != "" {
@@ -370,28 +377,37 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	if !ok {
 		return fail(jobstore.ErrWorkItemNotFound.Error())
 	}
+	// A failure reason is stored in the request ledger (written once, in the item's
+	// project language — design S3a rule 3) and returned to the caller (in the caller's
+	// language when ctx carries one). failKey writes both.
+	lang := s.lang(w.ProjectKey)
+	callerLang := i18n.FromContextOr(ctx, lang)
+	failKey := func(key string, args ...any) (SummarizeResult, error) {
+		s.failRequest(o.RequestID, i18n.T(lang, key, args...))
+		return res, errors.New(i18n.T(callerLang, key, args...))
+	}
 	c := s.cfg()
 	agentName := c.SummarizerAgentName()
 	if s.oneShot == nil {
-		return fail("整理器未接入")
+		return failKey("work.summarize.engine_missing")
 	}
 	if err := s.oneShot.Check(agentName); err != nil {
-		return fail("整理器不可用：" + err.Error())
+		return failKey("work.summarize.engine_unavailable", "error", err.Error())
 	}
 	a, haveSession := s.pickSession(w.ID, o.SessionID)
 	if !haveSession {
-		return fail("工作项没有可读取的会话")
+		return failKey("work.summarize.no_session")
 	}
 	res.SessionID = a.SessionID
 	if o.Cause != CauseManual {
 		if lim := c.SummarizeDaily(); lim > 0 {
 			if n, _ := s.store.CountAutoWorkSummaries(s.startOfDay()); n >= lim {
-				return fail(fmt.Sprintf("已达每日整理上限（%d 次）", lim))
+				return failKey("work.summarize.daily_limit", "limit", lim)
 			}
 		}
 	}
 	if !s.claimSession(a.SessionID) {
-		return fail("该会话已有整理在进行")
+		return failKey("work.summarize.session_busy")
 	}
 	defer s.releaseSession(a.SessionID)
 
@@ -418,7 +434,7 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	session, resumed := s.summarizerSession(project, c, canResume)
 	// One tidy-up at a time in a project: two runs sharing the session would interleave.
 	if !s.claimSession(summarizerProjectKey(project)) {
-		return fail("该项目的整理器会话已有整理在进行")
+		return failKey("work.summarize.project_busy")
 	}
 	defer s.releaseSession(summarizerProjectKey(project))
 
@@ -454,14 +470,14 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	res.JobID = jobID
 	if perr != nil {
 		finish(jobstore.SummaryFailed, jobID, perr.Error())
-		s.journalSteward(w.ID, SummarizerBy(agentName), i18n.T(s.lang(w.ProjectKey), "work.journal.summary_failed", "error", perr.Error()))
-		return fail("整理失败：" + perr.Error())
+		s.journalSteward(w.ID, SummarizerBy(agentName), i18n.T(lang, "work.journal.summary_failed", "error", perr.Error()))
+		return failKey("work.summarize.failed", "error", perr.Error())
 	}
 	s.commitSummarizerSession(session, project, jobID, last.SessionID)
 	applied, suggested, hint := s.applySummary(w.ID, out, SummarizerBy(agentName), jobID)
 	res.Applied, res.Suggested, res.StatusHint, res.Confidence = applied, suggested, hint, out.Confidence
 	finish(jobstore.SummaryOK, jobID, "")
-	text := summaryDoneText(s.lang(w.ProjectKey), degraded, applied, suggested)
+	text := summaryDoneText(lang, degraded, applied, suggested)
 	s.journalSteward(w.ID, SummarizerBy(agentName), text)
 	// WORK-06: the one thing since the last tidy-up worth a line on the lane.
 	if out.Milestone != "" {
@@ -486,13 +502,14 @@ func (s *Service) journalSteward(id, by, text string) {
 // gatherMaterial builds the model's input: the transcript tail when it can be read,
 // otherwise the session's last message and progress line plus the journal.
 func (s *Service) gatherMaterial(ctx context.Context, w jobstore.WorkItem, a jobstore.AgentSession) (text string, degraded bool) {
+	lang := s.lang(w.ProjectKey)
 	if s.transcripts != nil && strings.TrimSpace(a.Transcript) != "" {
 		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		raw, err := s.transcripts.ReadTail(rctx, a, transcriptBytes)
 		cancel()
 		if err == nil {
 			turns := transcript.Parse(s.dialectFor(a.Agent), raw)
-			if t := transcript.Format(turns, transcript.FormatOpts{}); strings.TrimSpace(t) != "" {
+			if t := transcript.Format(turns, transcript.FormatOpts{Lang: lang}); strings.TrimSpace(t) != "" {
 				return t, false
 			}
 		} else {
@@ -501,18 +518,18 @@ func (s *Service) gatherMaterial(ctx context.Context, w jobstore.WorkItem, a job
 	}
 	var b strings.Builder
 	if m := strings.TrimSpace(a.LastMessage); m != "" {
-		b.WriteString("会话最后一条消息：\n" + clipRunes(m, 3000) + "\n\n")
+		b.WriteString(i18n.T(lang, "work.prompt.last_message") + "\n" + clipRunes(m, 3000) + "\n\n")
 	}
 	if p := strings.TrimSpace(a.ProgressText); p != "" {
-		b.WriteString("会话进度行：" + clipRunes(p, 500) + "\n\n")
+		b.WriteString(i18n.T(lang, "work.prompt.progress", "text", clipRunes(p, 500)) + "\n\n")
 	}
 	if title := strings.TrimSpace(a.Title); title != "" {
-		b.WriteString("会话标题（最近一次提问）：" + clipRunes(title, 300) + "\n\n")
+		b.WriteString(i18n.T(lang, "work.prompt.session_title", "text", clipRunes(title, 300)) + "\n\n")
 	}
 	if j, err := s.store.ListWorkJournal(w.ID, journalContextN, 0); err == nil && len(j) > 0 {
-		b.WriteString("工作项日志（最近）：\n")
+		b.WriteString(i18n.T(lang, "work.prompt.journal_head") + "\n")
 		for _, e := range j {
-			b.WriteString("- " + e.By + "：" + clipRunes(strings.ReplaceAll(e.Text, "\n", " "), 200) + "\n")
+			b.WriteString(i18n.T(lang, "work.prompt.journal_line", "by", e.By, "text", clipRunes(strings.ReplaceAll(e.Text, "\n", " "), 200)) + "\n")
 		}
 	}
 	return strings.TrimSpace(b.String()), true
@@ -526,26 +543,21 @@ func clipRunes(s string, n int) string {
 }
 
 // defaultSummarizerPrompt is the instruction the summarizer gets when the
-// prompt.work.summarizer setting holds nothing. It says nothing about the output format on
-// purpose: summaryFormatSpec is always appended by the code, so a replacement cannot break
+// prompt.work.summarizer setting holds nothing, in lang (the prompts template
+// summarizer_instruction). It says nothing about the output format on purpose:
+// summaryFormatSpec is always appended by the code, so a replacement cannot break
 // parsing (design 2026-10-20 决策 4 / 7).
-const defaultSummarizerPrompt = `你是一个只读的“工作整理器”。下面给出一个工作项当前已记录的内容，以及它所属终端会话的最近对话（或在读不到对话时的最后一条消息）。请据此提炼这件工作的真实状况。不要调用任何工具，不要提问，不要解释。
+func defaultSummarizerPrompt(lang i18n.Lang) string {
+	return prompts.MustRender(lang, prompts.NameSummarizerInstruction, struct{}{})
+}
 
-## 记录原则
-- 只记录有实质进展的东西：目标推进、代码或文档改动、得出了结论、做出了决定、暴露了问题。
-- 试用、测试、演示性质的操作不算工作进展：试一下某条命令、实测某个功能、验证环境、跑个例子，这些不记进展，也不要据此给下一步建议；只有它们得出了结论，才把结论写进 progress。
-- 材料不足就如实写「信息不足」，不臆测、不推测、不编造；没有依据的字段留空字符串。
-- next 只写具体、可执行的一步；没有依据就留空，不要复述目标。
-- milestone 只写一件已经发生、值得记一笔的事（如“CSV 导出完成并通过测试”），没有新进展就留空，不要复述目标或下一步。
-- status_hint 只是建议，拿不准就留空。
-- 用中文。`
-
-// summaryFormatSpec is the fixed output contract: the JSON object ParseSummary reads. It is
-// appended after everything else — material and the operator's extra included — whatever
-// the prompt settings say, so replacing the instruction can never break parsing.
-const summaryFormatSpec = `## 输出格式（固定，不可替换）
-只输出一个 JSON 对象，不要任何其它文字。除 confidence 是 0 到 1 的数字外，其余值都是字符串：
-{"goal":"这件事要达成什么（一句话）","progress":"做到哪了（一两句话）","blocker_kind":"卡点类别，如 device/account/onsite/person/decision，没有卡点留空","blocker":"具体卡在什么上，没有卡点留空","next":"下一步该做什么（一句话）","status_hint":"active|needs_me|waiting_resource|needs_onsite|review|parked 之一，拿不准留空","milestone":"自上次整理以来值得留一笔的事（不超过 40 字），没有就留空","confidence":0.0}`
+// summaryFormatSpec is the fixed output contract: the JSON object ParseSummary reads (the
+// prompts template summarizer_format). It is appended after everything else — material and
+// the operator's extra included — whatever the prompt settings say, so replacing the
+// instruction can never break parsing. The keys inside the JSON are not translated.
+func summaryFormatSpec(lang i18n.Lang) string {
+	return prompts.MustRender(lang, prompts.NameSummarizerFormat, struct{}{})
+}
 
 // buildPrompt renders the summarizer prompt: the instruction (the prompt.work.summarizer
 // setting, else defaultSummarizerPrompt), the operator's extra block, the material, and the
@@ -553,29 +565,39 @@ const summaryFormatSpec = `## 输出格式（固定，不可替换）
 // living in the replaceable instruction. resumed says the run continues the project's
 // summarizer session, which opens with a note that the earlier tidy-ups are done with.
 func (s *Service) buildPrompt(w jobstore.WorkItem, material string, degraded, resumed bool) string {
+	lang := s.lang(w.ProjectKey)
 	var b strings.Builder
 	if resumed {
-		b.WriteString("【这是新的一件工作】忽略本会话之前整理过的其它工作项，只依据下面这一件的内容作答。\n\n")
+		b.WriteString(i18n.T(lang, "work.prompt.new_item") + "\n\n")
 	}
-	b.WriteString(strings.TrimRight(s.promptText(settings.KeyPromptWorkSummarizer, settings.KeyPromptWorkSummarizerExtra, defaultSummarizerPrompt), "\n"))
-	b.WriteString("\n\n【工作项当前记录】\n")
-	fmt.Fprintf(&b, "标题：%s\n目标：%s\n状态：%s\n阻塞：%s\n下一步：%s\n摘要：%s\n\n",
-		clipRunes(w.Title, 200), orNone(w.Goal), w.Status, orNone(strings.TrimSpace(w.BlockerKind+" "+w.BlockerText)), orNone(w.NextStep), orNone(w.Summary))
+	b.WriteString(strings.TrimRight(s.promptText(lang, settings.KeyPromptWorkSummarizer, settings.KeyPromptWorkSummarizerExtra, defaultSummarizerPrompt(lang)), "\n"))
+	b.WriteString("\n\n" + i18n.T(lang, "work.prompt.record_head") + "\n")
+	for _, f := range []struct{ key, value string }{
+		{"record_title", clipRunes(w.Title, 200)},
+		{"record_goal", orNone(lang, w.Goal)},
+		{"record_status", w.Status},
+		{"record_blocker", orNone(lang, strings.TrimSpace(w.BlockerKind+" "+w.BlockerText))},
+		{"record_next", orNone(lang, w.NextStep)},
+		{"record_summary", orNone(lang, w.Summary)},
+	} {
+		b.WriteString(i18n.T(lang, "work.prompt."+f.key, "value", f.value) + "\n")
+	}
+	b.WriteString("\n")
 	if degraded {
-		b.WriteString("【会话材料（读不到完整对话，只有以下信息）】\n")
+		b.WriteString(i18n.T(lang, "work.prompt.material_degraded") + "\n")
 	} else {
-		b.WriteString("【会话最近对话（旧的在前）】\n")
+		b.WriteString(i18n.T(lang, "work.prompt.material_full") + "\n")
 	}
 	b.WriteString(material)
 	b.WriteString("\n\n")
-	b.WriteString(summaryFormatSpec)
+	b.WriteString(summaryFormatSpec(lang))
 	b.WriteString("\n")
 	return b.String()
 }
 
-func orNone(s string) string {
+func orNone(lang i18n.Lang, s string) string {
 	if strings.TrimSpace(s) == "" {
-		return "（空）"
+		return i18n.T(lang, "work.prompt.none")
 	}
 	return clipRunes(s, 600)
 }
@@ -607,6 +629,10 @@ func capMilestone(s string) string {
 	return s
 }
 
+// ErrNoSummaryObject is what ParseSummary returns for an output without a summary object;
+// the tidy-up writes its own-language words for it (work.summarize.no_json_object).
+var ErrNoSummaryObject = errors.New("no parseable JSON object in the output")
+
 // ParseSummary extracts the summary object from a job's output. It is forgiving about
 // what surrounds the object (code fences, a stream-json result envelope, chatter) but
 // not about its content: an output without any recognised key is an error.
@@ -632,7 +658,7 @@ func ParseSummary(output string) (SummaryOut, error) {
 			return summaryFromMap(m), nil
 		}
 	}
-	return SummaryOut{}, errors.New("输出里没有可解析的 JSON 对象")
+	return SummaryOut{}, ErrNoSummaryObject
 }
 
 var summaryKeys = []string{"goal", "progress", "blocker_kind", "blocker", "next", "status_hint", "summary", "milestone"}
@@ -974,7 +1000,7 @@ func (s *Service) scanSummarize(now time.Time) {
 			}
 			started[a.SessionID] = true
 			used++
-			s.StartSummarize(w.ID, SummarizeOpts{Cause: CauseAuto, SessionID: a.SessionID, By: SummarizerBy(c.SummarizerAgentName())})
+			s.StartSummarize(context.Background(), w.ID, SummarizeOpts{Cause: CauseAuto, SessionID: a.SessionID, By: SummarizerBy(c.SummarizerAgentName())})
 		}
 	}
 }
@@ -993,13 +1019,13 @@ func quietEnough(a jobstore.AgentSession, now, idleSec int64) bool {
 
 // TidyNow is the manual trigger (the 「整理」 button, `gofer work summarize`): it records
 // a summarize request, runs the tidy-up in the background and returns the request id.
-func (s *Service) TidyNow(itemID, by string) (jobstore.WorkRequest, error) {
-	return s.TidyNowFor(itemID, by, "")
+func (s *Service) TidyNow(ctx context.Context, itemID, by string) (jobstore.WorkRequest, error) {
+	return s.TidyNowFor(ctx, itemID, by, "")
 }
 
 // TidyNowFor is TidyNow for a request made by a caller with a ceiling owner: the tidy-up
 // job is submitted under `origin` (see SummarizeOpts.Origin).
-func (s *Service) TidyNowFor(itemID, by, origin string) (jobstore.WorkRequest, error) {
+func (s *Service) TidyNowFor(ctx context.Context, itemID, by, origin string) (jobstore.WorkRequest, error) {
 	w, ok, err := s.store.GetWorkItem(itemID)
 	if err != nil {
 		return jobstore.WorkRequest{}, err
@@ -1011,7 +1037,7 @@ func (s *Service) TidyNowFor(itemID, by, origin string) (jobstore.WorkRequest, e
 	if !have {
 		return jobstore.WorkRequest{}, ErrNoSession
 	}
-	if st := s.SummarizerStatus(); !st.Available {
+	if st := s.SummarizerStatus(ctx); !st.Available {
 		return jobstore.WorkRequest{}, fmt.Errorf("%w: %s", ErrSummarizerUnavailable, st.Reason)
 	}
 	req, err := s.store.CreateWorkRequest(jobstore.WorkRequestInput{
@@ -1021,7 +1047,7 @@ func (s *Service) TidyNowFor(itemID, by, origin string) (jobstore.WorkRequest, e
 	if err != nil {
 		return jobstore.WorkRequest{}, err
 	}
-	s.StartSummarize(w.ID, SummarizeOpts{Cause: CauseManual, RequestID: req.ID, SessionID: a.SessionID, By: by, Origin: origin})
+	s.StartSummarize(ctx, w.ID, SummarizeOpts{Cause: CauseManual, RequestID: req.ID, SessionID: a.SessionID, By: by, Origin: origin})
 	return req, nil
 }
 

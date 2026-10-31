@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -271,7 +272,7 @@ func (s *Service) fireNudge(ctx context.Context, a jobstore.AgentSession, n jobs
 	if paused {
 		if nn, ok := s.notifier.(NudgeNotifier); ok {
 			nn.NotifySessionNudgePaused(a.SessionID, a.ProjectKey, a.Title, n.ID,
-				fmt.Sprintf("%d 次连续送达失败：%s", upd.FailCount, upd.LastError))
+				i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.nudge_paused", "n", upd.FailCount, "error", upd.LastError))
 		}
 	}
 	return serr == nil

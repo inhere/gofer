@@ -47,16 +47,8 @@ var guardAllExempt = map[string]Exempt{
 	"httpapi/agent_probe_handler.go":      {Max: 1, Class: classProtocol, Why: "the probe prompt sent to the agent under test, a fixed protocol line whose reply (\"OK\") is matched; not shown to a person"},
 	"httpapi/runner_messenger_handler.go": {Max: 2, Class: classStored, Why: "title / target of the session-listing job recorded in the job store (stored text, not a response); the job service has no per-request language"},
 
-	"job/config.go":           {Max: 1, Class: classResidue, Why: "operator-facing config error (worker policy pending)"},
-	"job/delivery_check.go":   {Max: 5, Class: classResidue, Why: "delivery-check progress lines recorded in the job's events for people"},
-	"job/model.go":            {Max: 15, Class: classResidue, Why: "status labels shown to people (StatusLabel)"},
-	"job/reviewhints.go":      {Max: 2, Class: classProtocol, Why: "\"验证\" is a keyword matched against todo text (recognition, not output) and the truncation note of a review hint"},
-	"job/rules.go":            {Max: 1, Class: classProtocol, Why: "rulesPromptHeader: fixed literal recognised structurally by the skills-manifest insertion and by older stored prompts; changing it breaks recognition"},
-	"job/session_recovery.go": {Max: 1, Class: classResidue, Why: "error text returned to the operator after a worker restart"},
-	"job/submit.go":           {Max: 2, Class: classResidue, Why: "submit validation errors returned to the caller"},
-	"job/todo_continue.go":    {Max: 23, Class: classResidue, Why: "reasons why a todo could not continue its predecessor's session, stored as a note for people"},
-	"job/todolink.go":         {Max: 1, Class: classResidue, Why: "todo note appended when the linked job awaits review"},
-	"job/worktree.go":         {Max: 2, Class: classResidue, Why: "worktree check error and the merge note"},
+	"job/reviewhints.go": {Max: 1, Class: classProtocol, Why: "\"验证\" is a keyword matched against report headings (recognition, not output; the English words \"verif\" / \"verify\" sit beside it)"},
+	"job/rules.go":       {Max: 1, Class: classProtocol, Why: "rulesPromptHeader: fixed literal recognised structurally by the skills-manifest insertion and by older stored prompts; changing it breaks recognition"},
 
 	"mail/address.go": {Max: 2, Class: classResidue, Why: "an address parse error returned to the sender and the offline hint of a recipient label"},
 	"mail/origin.go":  {Max: 1, Class: classResidue, Why: "the \"(caller ...)\" suffix of a sender label shown in the console"},
@@ -64,20 +56,12 @@ var guardAllExempt = map[string]Exempt{
 
 	"notify/catalog.go": {Max: 46, Class: classData, Why: "the event catalog is bilingual data: every entry carries its Zh and En text side by side (the console picks one by language), so the Chinese literals are one half of a translation table, not untranslated output"},
 
-	"sessionrelay/deliver.go":           {Max: 4, Class: classResidue, Why: "delivery failure reasons reported to the caller"},
-	"sessionrelay/deliver_raw.go":       {Max: 2, Class: classResidue, Why: "relay-job outcome lines recorded as the delivery detail"},
-	"sessionrelay/deliver_reconcile.go": {Max: 6, Class: classResidue, Why: "reconcile outcome lines recorded as the delivery detail"},
-	"sessionrelay/message.go":           {Max: 9, Class: classResidue, Why: "message dispatch failure reasons and the sent note"},
-	"sessionrelay/nudge.go":             {Max: 1, Class: classResidue, Why: "the pause reason of a nudge after consecutive failures"},
-	"sessionrelay/reply.go":             {Max: 1, Class: classResidue, Why: "truncation marker appended to a long reply"},
+	"sessionrelay/message.go": {Max: 1, Class: classProtocol, Why: "messengerSentMarkers[0]: the \"已发送\" receipt the zh messenger prompt asks the messenger agent to print; matched anywhere in its output (an English messenger prints \"sent\"), so the literal is recognition, not output"},
 
 	"today/memory_suggest.go": {Max: 1, Class: classResidue, Why: "ErrMemorySuggestionStale: an error sentinel whose text httpapi returns as the error detail and stores in the suggestion note; error detail text is a separate migration"},
 
-	"work/noise.go":             {Max: 4, Class: classResidue, Why: "draft-exclusion reasons that only reach the server log (slog), never a person or the web"},
-	"work/steward.go":           {Max: 2, Class: classPrompt, Why: "labels inside the prompt material handed to the steward agent"},
-	"work/summarize.go":         {Max: 22, Class: classPrompt, Why: "the summarizer agent's prompt and material labels, plus summarize status / failure reasons returned to the caller and stored in the request ledger (the reasons need the ctx plumbed through StartSummarize first)"},
-	"work/summarize_session.go": {Max: 3, Class: classPrompt, Why: "retry nudge sent to the summarizer agent and its session errors"},
-	"work/x2.go":                {Max: 1, Class: classProtocol, Why: "completionBy is the stored author identifier of the completion write-back suggestion; changing it would split old and new rows"},
+	"work/noise.go": {Max: 4, Class: classResidue, Why: "draft-exclusion reasons that only reach the server log (slog), never a person or the web"},
+	"work/x2.go":    {Max: 1, Class: classProtocol, Why: "completionBy is the stored author identifier of the completion write-back suggestion; changing it would split old and new rows"},
 
 	// ---- protocol constants -----------------------------------------------------------
 	"msgprefix/msgprefix.go": {Max: 27, Class: classProtocol, Why: "the message-prefix alias table: zh-CN forms of [gofer · …] / [来自 web …] prefixes that older stored messages and agents carry; recognised byte-exactly (design §5)"},
@@ -114,15 +98,10 @@ var guardAllExempt = map[string]Exempt{
 	"wshub/hub.go":                     {Max: 1, Class: classDisplay, Why: "protocol-version refusal reason shown to the operator"},
 	"wshub/upgrade.go":                 {Max: 1, Class: classDisplay, Why: "upgrade-unsupported error"},
 	"tracker/sync.go":                  {Max: 1, Class: classDisplay, Why: "sync-conflict note written into a memory entry"},
-	"work/transcript/transcript.go":    {Max: 4, Class: classPrompt, Why: "role labels and the elision marker of the transcript text handed to the summarizer agent"},
 
 	// ---- not migrated: agent prompts -----------------------------------------------------
-	"messenger/agents.go":    {Max: 1, Class: classPrompt, Why: "ListAgentsPrompt: the prompt sent to the agent to list agents (its reply format is parsed)"},
-	"settings/prompt.go":     {Max: 1, Class: classPrompt, Why: "ExtraHeading separating the default prompt from the user's addition"},
-	"tracker/memory_flag.go": {Max: 1, Class: classPrompt, Why: "MemoryFlagHint injected into the agent's context"},
 
-	"job/workflow/submit.go":    {Max: 1, Class: classDisplay, Why: "unsupported-step error returned on workflow submit"},
-	"job/workflow/templates.go": {Max: 7, Class: classPrompt, Why: "prompts of the built-in workflow templates (plan / implement / review / reviewer-committee verifier steps)"},
+	"job/workflow/submit.go": {Max: 1, Class: classDisplay, Why: "unsupported-step error returned on workflow submit"},
 
 	// ---- CLI text ------------------------------------------------------------------------
 	"client/client.go":         {Max: 1, Class: classCLI, Why: "token-scope hint appended to a client error"},

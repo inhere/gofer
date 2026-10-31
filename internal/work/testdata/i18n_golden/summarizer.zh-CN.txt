@@ -1,0 +1,129 @@
+## material degraded
+true
+会话最后一条消息：
+last msg
+
+会话进度行：progress line
+
+会话标题（最近一次提问）：the title
+
+工作项日志（最近）：
+- human:alice：<created>
+- human:alice：a journal line
+## material empty
+工作项日志（最近）：
+- human:alice：<created>
+- human:alice：a journal line
+## prompt fresh
+你是一个只读的“工作整理器”。下面给出一个工作项当前已记录的内容，以及它所属终端会话的最近对话（或在读不到对话时的最后一条消息）。请据此提炼这件工作的真实状况。不要调用任何工具，不要提问，不要解释。
+
+## 记录原则
+- 只记录有实质进展的东西：目标推进、代码或文档改动、得出了结论、做出了决定、暴露了问题。
+- 试用、测试、演示性质的操作不算工作进展：试一下某条命令、实测某个功能、验证环境、跑个例子，这些不记进展，也不要据此给下一步建议；只有它们得出了结论，才把结论写进 progress。
+- 材料不足就如实写「信息不足」，不臆测、不推测、不编造；没有依据的字段留空字符串。
+- next 只写具体、可执行的一步；没有依据就留空，不要复述目标。
+- milestone 只写一件已经发生、值得记一笔的事（如“CSV 导出完成并通过测试”），没有新进展就留空，不要复述目标或下一步。
+- status_hint 只是建议，拿不准就留空。
+- 用中文。
+
+【工作项当前记录】
+标题：Order export
+目标：G
+状态：active
+阻塞：person wait
+下一步：N
+摘要：S
+
+【会话最近对话（旧的在前）】
+MATERIAL
+
+## 输出格式（固定，不可替换）
+只输出一个 JSON 对象，不要任何其它文字。除 confidence 是 0 到 1 的数字外，其余值都是字符串：
+{"goal":"这件事要达成什么（一句话）","progress":"做到哪了（一两句话）","blocker_kind":"卡点类别，如 device/account/onsite/person/decision，没有卡点留空","blocker":"具体卡在什么上，没有卡点留空","next":"下一步该做什么（一句话）","status_hint":"active|needs_me|waiting_resource|needs_onsite|review|parked 之一，拿不准留空","milestone":"自上次整理以来值得留一笔的事（不超过 40 字），没有就留空","confidence":0.0}
+
+## prompt resumed degraded
+【这是新的一件工作】忽略本会话之前整理过的其它工作项，只依据下面这一件的内容作答。
+
+你是一个只读的“工作整理器”。下面给出一个工作项当前已记录的内容，以及它所属终端会话的最近对话（或在读不到对话时的最后一条消息）。请据此提炼这件工作的真实状况。不要调用任何工具，不要提问，不要解释。
+
+## 记录原则
+- 只记录有实质进展的东西：目标推进、代码或文档改动、得出了结论、做出了决定、暴露了问题。
+- 试用、测试、演示性质的操作不算工作进展：试一下某条命令、实测某个功能、验证环境、跑个例子，这些不记进展，也不要据此给下一步建议；只有它们得出了结论，才把结论写进 progress。
+- 材料不足就如实写「信息不足」，不臆测、不推测、不编造；没有依据的字段留空字符串。
+- next 只写具体、可执行的一步；没有依据就留空，不要复述目标。
+- milestone 只写一件已经发生、值得记一笔的事（如“CSV 导出完成并通过测试”），没有新进展就留空，不要复述目标或下一步。
+- status_hint 只是建议，拿不准就留空。
+- 用中文。
+
+【工作项当前记录】
+标题：Order export
+目标：G
+状态：active
+阻塞：person wait
+下一步：N
+摘要：S
+
+【会话材料（读不到完整对话，只有以下信息）】
+MATERIAL
+
+## 输出格式（固定，不可替换）
+只输出一个 JSON 对象，不要任何其它文字。除 confidence 是 0 到 1 的数字外，其余值都是字符串：
+{"goal":"这件事要达成什么（一句话）","progress":"做到哪了（一两句话）","blocker_kind":"卡点类别，如 device/account/onsite/person/decision，没有卡点留空","blocker":"具体卡在什么上，没有卡点留空","next":"下一步该做什么（一句话）","status_hint":"active|needs_me|waiting_resource|needs_onsite|review|parked 之一，拿不准留空","milestone":"自上次整理以来值得留一笔的事（不超过 40 字），没有就留空","confidence":0.0}
+
+## prompt empty fields
+你是一个只读的“工作整理器”。下面给出一个工作项当前已记录的内容，以及它所属终端会话的最近对话（或在读不到对话时的最后一条消息）。请据此提炼这件工作的真实状况。不要调用任何工具，不要提问，不要解释。
+
+## 记录原则
+- 只记录有实质进展的东西：目标推进、代码或文档改动、得出了结论、做出了决定、暴露了问题。
+- 试用、测试、演示性质的操作不算工作进展：试一下某条命令、实测某个功能、验证环境、跑个例子，这些不记进展，也不要据此给下一步建议；只有它们得出了结论，才把结论写进 progress。
+- 材料不足就如实写「信息不足」，不臆测、不推测、不编造；没有依据的字段留空字符串。
+- next 只写具体、可执行的一步；没有依据就留空，不要复述目标。
+- milestone 只写一件已经发生、值得记一笔的事（如“CSV 导出完成并通过测试”），没有新进展就留空，不要复述目标或下一步。
+- status_hint 只是建议，拿不准就留空。
+- 用中文。
+
+【工作项当前记录】
+标题：Order export
+目标：（空）
+状态：active
+阻塞：（空）
+下一步：（空）
+摘要：（空）
+
+【会话最近对话（旧的在前）】
+MATERIAL
+
+## 输出格式（固定，不可替换）
+只输出一个 JSON 对象，不要任何其它文字。除 confidence 是 0 到 1 的数字外，其余值都是字符串：
+{"goal":"这件事要达成什么（一句话）","progress":"做到哪了（一两句话）","blocker_kind":"卡点类别，如 device/account/onsite/person/decision，没有卡点留空","blocker":"具体卡在什么上，没有卡点留空","next":"下一步该做什么（一句话）","status_hint":"active|needs_me|waiting_resource|needs_onsite|review|parked 之一，拿不准留空","milestone":"自上次整理以来值得留一笔的事（不超过 40 字），没有就留空","confidence":0.0}
+
+## session tail fallback
+会话最后一条消息：
+last msg
+
+会话进度行：progress line
+## retry nudge
+
+
+上一次的输出不是合法的 JSON。这一次只输出一个 JSON 对象，不要任何其它文字。
+## status no oneshot
+整理功能未接入（server 没有提供一次性 job 通道）
+## status unusable project
+整理用的项目 "default" 不可用（不存在，或不允许 agent claude / 本机 runner）
+## fail no oneshot
+ERR 整理器未接入 | ledger 整理器未接入
+## fail agent unavailable
+ERR 整理器不可用：agent x gone | ledger 整理器不可用：agent x gone
+## fail no session
+ERR 工作项没有可读取的会话 | ledger 工作项没有可读取的会话
+## fail daily limit
+ERR 已达每日整理上限（1 次） | ledger 已达每日整理上限（1 次）
+## fail session busy
+ERR 该会话已有整理在进行 | ledger 该会话已有整理在进行
+## fail project busy
+ERR 该项目的整理器会话已有整理在进行 | ledger 该项目的整理器会话已有整理在进行
+## fail bad output
+ERR 整理失败：summarizer output is not the fixed JSON: 输出里没有可解析的 JSON 对象 | ledger 整理失败：summarizer output is not the fixed JSON: 输出里没有可解析的 JSON 对象
+run log: summarizer output is not the fixed JSON: 输出里没有可解析的 JSON 对象
+## fail bad output journal
+整理失败：summarizer output is not the fixed JSON: 输出里没有可解析的 JSON 对象

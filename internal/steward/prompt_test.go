@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/goutil/x/assert"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/settings"
 	"github.com/inhere/gofer/internal/work"
@@ -41,7 +42,7 @@ func TestStewardRolePromptDefault(t *testing.T) {
 	assert.True(t, strings.HasPrefix(text, rolePrompt))
 	// The rewritten role tells the person where to put their own preferences (K4).
 	assert.True(t, strings.Contains(text, "使用者可以在「设置 → 扩展设置」里补充偏好"))
-	assert.False(t, strings.Contains(text, settings.ExtraHeading))
+	assert.False(t, strings.Contains(text, settings.ExtraHeadingIn(i18n.ZhCN)))
 }
 
 func TestStewardRolePromptReplacementAndExtra(t *testing.T) {
@@ -52,10 +53,10 @@ func TestStewardRolePromptReplacementAndExtra(t *testing.T) {
 	assert.NoErr(t, err)
 
 	text := primeText(t, e, time.Now())
-	assert.True(t, strings.HasPrefix(text, "# 你是我的调度助手\n只做整理，不干活。\n\n"+settings.ExtraHeading+"\n偏好：列表按「等我」在前。"))
+	assert.True(t, strings.HasPrefix(text, "# 你是我的调度助手\n只做整理，不干活。\n\n"+settings.ExtraHeadingIn(i18n.ZhCN)+"\n偏好：列表按「等我」在前。"))
 	assert.False(t, strings.Contains(text, "# 你是工作管家"))
 	// The sections that follow the role are still the code's.
-	assert.True(t, strings.Index(text, settings.ExtraHeading) < strings.Index(text, "## 现在"))
+	assert.True(t, strings.Index(text, settings.ExtraHeadingIn(i18n.ZhCN)) < strings.Index(text, "## 现在"))
 	assert.True(t, strings.Contains(text, "## 未结工作项"))
 }
 
@@ -67,7 +68,7 @@ func TestStewardRolePromptExtraOnly(t *testing.T) {
 
 	text := primeText(t, e, time.Now())
 	assert.True(t, strings.HasPrefix(text, rolePrompt))
-	assert.True(t, strings.Contains(text, rolePrompt+"\n\n"+settings.ExtraHeading+"\n偏好：现场的事周三处理。"))
+	assert.True(t, strings.Contains(text, rolePrompt+"\n\n"+settings.ExtraHeadingIn(i18n.ZhCN)+"\n偏好：现场的事周三处理。"))
 }
 
 func TestReviewPromptDefaultHasTheNoiseRule(t *testing.T) {
@@ -83,7 +84,7 @@ func TestReviewPromptDefaultHasTheNoiseRule(t *testing.T) {
 		assert.True(t, strings.Contains(p, want), want)
 	}
 	assert.True(t, strings.Contains(p, "最后调用 gofer_steward_notes"))
-	assert.False(t, strings.Contains(p, settings.ExtraHeading))
+	assert.False(t, strings.Contains(p, settings.ExtraHeadingIn(i18n.ZhCN)))
 }
 
 func TestStewardReviewPromptReplacementForEveryTrigger(t *testing.T) {
@@ -108,7 +109,7 @@ func TestStewardReviewPromptReplacementForEveryTrigger(t *testing.T) {
 		assert.True(t, strings.Index(p, "等设备") < strings.Index(p, "自己写的巡检指令。"), trigger)
 		assert.True(t, strings.Contains(p, "会话已离线"), trigger)
 		assert.True(t, strings.Contains(p, "最后调用 gofer_steward_notes"), trigger)
-		assert.True(t, strings.HasSuffix(p, settings.ExtraHeading+"\n补充：只看卡住的项。"), trigger)
+		assert.True(t, strings.HasSuffix(p, settings.ExtraHeadingIn(i18n.ZhCN)+"\n补充：只看卡住的项。"), trigger)
 	}
 }
 
@@ -130,9 +131,9 @@ func TestStewardPromptSettingsFailureFallsBack(t *testing.T) {
 
 	text := primeText(t, e, time.Now())
 	assert.True(t, strings.HasPrefix(text, rolePrompt))
-	assert.False(t, strings.Contains(text, settings.ExtraHeading))
+	assert.False(t, strings.Contains(text, settings.ExtraHeadingIn(i18n.ZhCN)))
 
 	p := e.svc.reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), -1, nil)
 	assert.True(t, strings.Contains(p, "你要做的（只整理，不替用户决定）"))
-	assert.False(t, strings.Contains(p, settings.ExtraHeading))
+	assert.False(t, strings.Contains(p, settings.ExtraHeadingIn(i18n.ZhCN)))
 }

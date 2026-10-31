@@ -234,8 +234,8 @@ func TestSummarizeUnavailableAgentAndDailyLimit(t *testing.T) {
 	r, _, _ := st.GetWorkRequest(req.ID)
 	assert.Eq(t, jobstore.WorkRequestFailed, r.State)
 	assert.True(t, strings.Contains(r.Error, "agent claude 不存在"))
-	assert.False(t, svc.SummarizerStatus().Available)
-	_, err = svc.TidyNow(w.ID, "human:alice")
+	assert.False(t, svc.SummarizerStatus(context.Background()).Available)
+	_, err = svc.TidyNow(context.Background(), w.ID, "human:alice")
 	assert.True(t, errors.Is(err, ErrSummarizerUnavailable))
 
 	os.checkEr = nil
@@ -246,12 +246,12 @@ func TestSummarizeUnavailableAgentAndDailyLimit(t *testing.T) {
 	assert.Err(t, err) // cap reached
 	_, err = svc.RunSummarize(context.Background(), w.ID, SummarizeOpts{Cause: CauseManual})
 	assert.NoErr(t, err) // the manual action ignores the cap
-	assert.Eq(t, 1, svc.SummarizerStatus().DailyUsed)
+	assert.Eq(t, 1, svc.SummarizerStatus(context.Background()).DailyUsed)
 }
 
 func TestTidyNowRunsInBackgroundAndAnswersRequest(t *testing.T) {
 	svc, st, w, _ := sumFixture(t, goodJSON)
-	req, err := svc.TidyNow(w.ID, "human:alice")
+	req, err := svc.TidyNow(context.Background(), w.ID, "human:alice")
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.WorkRequestSummarize, req.Kind)
 	svc.WaitIdle()
@@ -374,7 +374,7 @@ func TestSummarizerProjectResolutionThreeTiers(t *testing.T) {
 		if fake.callCount() != 1 {
 			t.Fatalf("calls = %d", fake.callCount())
 		}
-		return fake.calls[0], svc.SummarizerStatus()
+		return fake.calls[0], svc.SummarizerStatus(context.Background())
 	}
 
 	// 1. the configured project wins even when the session's own project is usable.
@@ -399,11 +399,11 @@ func TestSummarizerProjectResolutionThreeTiers(t *testing.T) {
 func TestSummarizerStatusFlagsUnusableProject(t *testing.T) {
 	svc, _, _, fake := sumFixture(t, goodJSON)
 	svc.SetOneShot(choosyOneShot{fakeOneShot: fake, usable: map[string]bool{}})
-	st := svc.SummarizerStatus()
+	st := svc.SummarizerStatus(context.Background())
 	assert.False(t, st.Available)
 	assert.True(t, strings.Contains(st.Reason, "default"))
 	svc.SetOneShot(choosyOneShot{fakeOneShot: fake, usable: map[string]bool{"default": true}})
-	assert.True(t, svc.SummarizerStatus().Available)
+	assert.True(t, svc.SummarizerStatus(context.Background()).Available)
 }
 
 type dialectTranscripts struct {

@@ -362,10 +362,10 @@ func TestPlanImplementPlannerCarriesPlanRules(t *testing.T) {
 		t.Fatalf("resolve: %v", err)
 	}
 	plan := spec.Steps[0].Prompt
-	if !strings.HasPrefix(plan, planPromptPrefix+"add a flag\n\n") || !strings.HasSuffix(plan, job.PlannerGuidance) {
+	if !strings.HasPrefix(plan, "为下面的任务写一份实施方案（只读，不要修改文件）：\nadd a flag\n\n") || !strings.HasSuffix(plan, job.PlannerGuidance) {
 		t.Fatalf("planner prompt = %q", plan)
 	}
-	if spec.Steps[1].Prompt != implementPromptPrefix+"${steps.plan.stdout}" {
+	if spec.Steps[1].Prompt != "按下面已审核的实施方案完成改动：\n\n${steps.plan.stdout}" {
 		t.Fatalf("implement prompt = %q", spec.Steps[1].Prompt)
 	}
 }
