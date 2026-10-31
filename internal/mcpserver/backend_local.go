@@ -893,3 +893,19 @@ func (b *localBackend) IssueList(client.IssueListOpts) (client.IssueListResp, er
 func (b *localBackend) IssueGet(string, string) (client.IssueGetResp, error) {
 	return client.IssueGetResp{}, errNeedsServer
 }
+
+func (b *localBackend) CreateJobPreview(string, int, int) (client.JobPreview, error) {
+	return client.JobPreview{}, errNeedsServer
+}
+
+func (b *localBackend) ListJobPreviews(string) ([]client.JobPreview, error) {
+	return nil, errNeedsServer
+}
+
+func (b *localBackend) CloseJobPreview(string, string) (client.JobPreview, error) {
+	return client.JobPreview{}, errNeedsServer
+}
+
+func (b *localBackend) RenewJobPreview(string, string, int) (client.JobPreview, error) {
+	return client.JobPreview{}, errNeedsServer
+}

@@ -11,6 +11,14 @@
 
 ## [未发布]
 
+### 新增
+
+- **job 预览的 MCP 工具与 web 入口（job-preview P3）**：新增 MCP 工具 `gofer_job_preview_create` / `gofer_job_preview_list` / `gofer_job_preview_revoke` / `gofer_job_preview_renew`，与 HTTP 接口对齐并返回结构化字段；创建的一次性 URL 只出现在 create 的工具结果里，不进 list、日志或错误文案；权限同 HTTP（job 凭据创建 / 撤销 / 续租被拒），错误文案按 MCP 的语言出。web job 详情「概览」新增「预览」块：创建（端口、有效期）、列表（状态、到期、截断的 host:端口，不显示 token）、续租、撤销（二次确认）、在新标签页打开创建时返回的一次性 URL（只在内存里，不写 localStorage、不加 Bearer）。
+
+### 变更
+
+- **job 预览的拒绝带稳定错误码**：`preview_disabled`、`preview_job_not_running`、`preview_runner_unsupported`、`preview_port_invalid`、`preview_pool_exhausted`、`preview_not_active`（中英文案，web 与 MCP 按各自语言渲染）。在 worker runner 上的 job 创建预览现在被明确拒绝（`409 preview_runner_unsupported`），不再按本机 loopback 处理；worker 转发（P2）仍未做。
+
 ## [0.206.0] - 2026-10-31
 
 ### 新增

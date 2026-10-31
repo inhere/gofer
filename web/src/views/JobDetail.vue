@@ -28,6 +28,7 @@ import CommentThread from '../components/CommentThread.vue'
 import FilePreview from '../components/FilePreview.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
 import ApprovalPanel from '../components/ApprovalPanel.vue'
+import JobPreviews from '../components/JobPreviews.vue'
 import MergeDialog from '../components/MergeDialog.vue'
 import RefsPanel from '../components/RefsPanel.vue'
 import AttachTerminal from '../components/AttachTerminal.vue'
@@ -2458,6 +2459,9 @@ onUnmounted(() => {
       @updated="applyStatus"
       @resumed="onReviewResumed"
     />
+
+    <!-- 预览（job preview）：对运行中 job 的本机端口开一个短期浏览器预览；逻辑在 utils/jobPreviews.ts。 -->
+    <JobPreviews v-if="active === 'overview' && job" :job-id="job.id" :status="status" />
 
     <!-- 渲染命令：独立于「产出与审计」，running 态只要后端给出 rendered_command 即展示。 -->
     <section v-if="active === 'overview' && renderedCommand" class="rendered-command">

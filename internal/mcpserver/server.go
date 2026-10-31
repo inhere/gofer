@@ -274,6 +274,7 @@ func newServer(b Backend, scoped string) *mcp.Server {
 		Description: "List visible jobs, plans, todos and comments that reference an issue, job, plan, todo or workflow id.",
 	}, refsHandler(b))
 
+	registerPreviewTools(s, b)
 	registerScopedMemoryTools(s, b)
 	registerBriefTools(s, b)
 	registerMemoryCandidateTools(s, b) // gofer-3nxa.2 knowledge candidates

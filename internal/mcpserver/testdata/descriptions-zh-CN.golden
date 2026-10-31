@@ -16,6 +16,10 @@ gofer_issue_get	Read one tracker issue in full from the server's mirror (read-on
 gofer_issue_list	List tracker issues from the server's mirror (read-only). Filters: project, tracker_id / repo (rel path), status (open|in_progress|closed…), type, tags[] (all must match), query (id / title / description substring), limit (default 50, max 200). Returns brief rows plus total / truncated.
 gofer_job_end	End a resident ACP session job and release its lock.
 gofer_job_follow_up	Queue, list, or drop follow-up requests for a running job; queued requests continue its session when it ends.
+gofer_job_preview_create	Open a short-lived browser preview of a web application a RUNNING job serves on a local port (job_id, port, optional ttl_sec). Returns {id, url, port, target_port, expires_at, worker_id}: url is a one-time bearer URL for a person to open, shown only in this result — do not write it into prompts, comments or files. Only jobs on the server's own local runner are supported; a finished job, a disabled feature or a worker job is refused with an explanation.
+gofer_job_preview_list	List a job's previews {id, job_id, port, state, created_at, expires_at, close_reason} (never the URL or token).
+gofer_job_preview_renew	Renew an active preview of a job: the expiry becomes now + ttl_sec (capped at the server maximum). Returns {id, state, expires_at, port}; an expired or revoked preview is refused — create a new one.
+gofer_job_preview_revoke	Revoke a job's preview by preview_id: the lease closes and its open connections are cut. You may revoke your own previews; someone else's needs the job's owner or job.manage.others.
 gofer_job_say	Send another message to the same resident ACP session job.
 gofer_job_set	Set or clear a job title. A job credential may only change its own job.
 gofer_list_agents	List the configured/built-in agents with their availability probe.

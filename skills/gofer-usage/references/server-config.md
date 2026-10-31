@@ -9,6 +9,9 @@
 
 CLI：`gofer job preview open <job-id> --port <port> [--ttl 30m]` 创建并只打印一次 URL；`gofer job preview ls <job-id>` 列出租约；`gofer job preview close <job-id> <preview-id>` 撤销租约；`gofer job preview renew <job-id> <preview-id> [--ttl 30m]` 续租（到期改为当前时间加 ttl，受 `max_ttl_sec` 约束）。
 
+- MCP：`gofer_job_preview_create`（`job_id`、`port`、可选 `ttl_sec`；返回 `{id, url, port, target_port, expires_at, worker_id}`，**URL 只出现在这一次工具结果里**，别写进 prompt / 评论 / 文件）、`gofer_job_preview_list`（不含 URL）、`gofer_job_preview_revoke`（`job_id`、`preview_id`）、`gofer_job_preview_renew`（再加 `ttl_sec`）。需连着 server（`--standalone` 模式拒绝）；权限与 HTTP 相同，job 凭据（agent 在 job 里用的 token）创建 / 撤销 / 续租会被 server 拒绝。错误文案按 MCP 自己的语言（`GOFER_LANG` / 默认）出。
+- web：job 详情「概览」里的「预览」块——填端口和有效期创建，列表显示状态 / 到期 / host:port，续租，撤销（要再点一次确认），「打开」在新标签页打开**创建当时**返回的一次性 URL（只存在内存里，用过即丢，刷新页面后要重新创建）。
+- 只支持在 server 本机运行的 job：worker 上的 job 创建预览会得到明确拒绝（`preview_runner_unsupported`），worker 转发（P2）还没做。
 - URL 里的 token 只能用一次：首次访问换成随机 cookie，之后同一个 token 再访问是 404；要重新打开请新建租约。创建响应的 `port` 是浏览器访问的预览端口，`target_port` 才是 job 的端口。
 - 撤销 / 续租自己创建的租约只需能读该 job；他人创建的租约需 job 所有者或 `job.manage.others`。
 - `max_connections` 是每租约并发连接上限（超出返回 503）；`idle_timeout_sec` 内无流量会关闭该租约的连接，租约本身到期才失效。

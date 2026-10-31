@@ -8,6 +8,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/preview"
 )
@@ -19,7 +20,7 @@ type previewCreateRequest struct {
 
 func (s *Server) handleCreateJobPreview(c *rux.Context) {
 	if s.preview == nil {
-		writeError(c, http.StatusNotFound, "preview disabled", "")
+		s.writeErrorKey(c, http.StatusNotFound, "preview disabled", "preview_disabled")
 		return
 	}
 	res, ok := s.jobForAccess(c.Param("id"))
@@ -32,7 +33,13 @@ func (s *Server) handleCreateJobPreview(c *rux.Context) {
 		return
 	}
 	if !previewRunning(res) {
-		writeError(c, http.StatusConflict, "job is not running", "")
+		s.writeErrorKey(c, http.StatusConflict, "job is not running", "preview_job_not_running")
+		return
+	}
+	// Forwarding to a worker (design P2) is not built: refuse it by name rather than
+	// dialling this server's loopback for a job that runs somewhere else.
+	if !previewLocal(res) {
+		s.writeErrorKey(c, http.StatusConflict, "preview runner unsupported", "preview_runner_unsupported", "runner", previewRunnerLabel(res))
 		return
 	}
 	var req previewCreateRequest
@@ -45,12 +52,37 @@ func (s *Server) handleCreateJobPreview(c *rux.Context) {
 		host = h
 	}
 	lease, url, err := s.preview.Create(c.Req.Context(), res.ID, callerFromCtx(c), host, req.Port, req.TTLSec, true)
-	if err != nil {
+	switch {
+	case errors.Is(err, preview.ErrDisabled):
+		s.writeErrorKey(c, http.StatusNotFound, "preview disabled", "preview_disabled")
+		return
+	case errors.Is(err, preview.ErrBadPort):
+		s.writeErrorKey(c, http.StatusConflict, "preview unavailable", "preview_port_invalid")
+		return
+	case errors.Is(err, preview.ErrPoolExhausted):
+		s.writeErrorKey(c, http.StatusConflict, "preview unavailable", "preview_pool_exhausted")
+		return
+	case err != nil:
 		writeError(c, http.StatusConflict, "preview unavailable", err.Error())
 		return
 	}
 	c.JSON(http.StatusCreated, map[string]any{"id": lease.ID, "url": url, "port": lease.Port, "target_port": req.Port, "expires_at": lease.ExpiresAt, "worker_id": "local"})
 }
+
+// previewLocal reports whether the job runs on this server (the only place the lease
+// proxy can reach): the built-in local runner and no worker recorded.
+func previewLocal(r job.JobResult) bool {
+	return r.WorkerID == "" && config.IsLocalRunnerName(r.Runner)
+}
+
+// previewRunnerLabel names the job's runner for the refusal text.
+func previewRunnerLabel(r job.JobResult) string {
+	if r.WorkerID != "" {
+		return r.WorkerID
+	}
+	return r.Runner
+}
+
 func previewRunning(r job.JobResult) bool {
 	switch strings.ToLower(r.Status) {
 	case "queued", "running", "awaiting_input", "waiting_input", "recovering":
@@ -61,7 +93,7 @@ func previewRunning(r job.JobResult) bool {
 }
 func (s *Server) handleListJobPreviews(c *rux.Context) {
 	if s.preview == nil {
-		writeError(c, http.StatusNotFound, "preview disabled", "")
+		s.writeErrorKey(c, http.StatusNotFound, "preview disabled", "preview_disabled")
 		return
 	}
 	res, ok := s.jobForAccess(c.Param("id"))
@@ -87,7 +119,7 @@ func (s *Server) handleListJobPreviews(c *rux.Context) {
 // itself and returns false when it refused.
 func (s *Server) previewLeaseForChange(c *rux.Context) (preview.Lease, bool) {
 	if s.preview == nil {
-		writeError(c, http.StatusNotFound, "preview disabled", "")
+		s.writeErrorKey(c, http.StatusNotFound, "preview disabled", "preview_disabled")
 		return preview.Lease{}, false
 	}
 	res, ok := s.jobForAccess(c.Param("id"))
@@ -141,7 +173,7 @@ func (s *Server) handleRenewJobPreview(c *rux.Context) {
 	}
 	renewed, err := s.preview.Renew(lease.ID, req.TTLSec, callerFromCtx(c))
 	if errors.Is(err, preview.ErrNotActive) {
-		writeError(c, http.StatusConflict, "preview is not active", "")
+		s.writeErrorKey(c, http.StatusConflict, "preview is not active", "preview_not_active")
 		return
 	}
 	if err != nil {
