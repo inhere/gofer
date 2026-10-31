@@ -1,0 +1,7 @@
+{
+  "zen": "Keep it logically awesome.",
+  "hook_id": 12345,
+  "hook": {"type": "Repository", "events": ["pull_request"], "config": {"content_type": "json", "insecure_ssl": "0"}},
+  "repository": {"full_name": "acme-org/widgets"},
+  "sender": {"login": "octo-user"}
+}

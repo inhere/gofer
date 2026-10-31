@@ -8,9 +8,6 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
-// ProviderGeneric is the provider name of the generic HMAC + timestamp scheme.
-const ProviderGeneric = "generic"
-
 // MaxHeaderValueBytes bounds every request header the trigger reads (signature,
 // timestamp, idempotency key and the headers input.vars / dedup.key refer to).
 const MaxHeaderValueBytes = 4096
@@ -61,22 +58,8 @@ func endpointOf(tc config.TriggerConfig) Endpoint {
 	if ep.MaxBodyBytes == 0 {
 		ep.MaxBodyBytes = config.DefaultTriggerMaxBodyBytes
 	}
-	add := func(h string) {
-		if h = strings.TrimSpace(h); h != "" {
-			ep.Headers = append(ep.Headers, h)
-		}
-	}
-	add(orDefault(tc.Auth.TimestampHeader, "X-Gofer-Trigger-Timestamp"))
-	add(orDefault(tc.Auth.SignatureHeader, "X-Gofer-Trigger-Signature"))
-	add("Idempotency-Key")
-	refHeader := func(ref string) {
-		if name, ok := strings.CutPrefix(ref, "header."); ok {
-			add(name)
-		}
-	}
-	refHeader(tc.Dedup.Key)
-	for _, ref := range tc.Input.Vars {
-		refHeader(ref)
+	if ad, ok := adapterFor(tc); ok {
+		ep.Headers = ad.headers(tc)
 	}
 	return ep
 }
@@ -110,16 +93,18 @@ func (ep Endpoint) CollectHeaders(get func(string) string) (map[string]string, e
 // policies, and whether the secret is configured. The secret value, the signature and any
 // payload never appear.
 type View struct {
-	Name     string     `json:"name"`
-	Enabled  bool       `json:"enabled"`
-	Owner    string     `json:"owner_caller"`
-	Project  string     `json:"project"`
-	Template string     `json:"template"`
-	Provider string     `json:"provider"`
-	Auth     AuthView   `json:"auth"`
-	Dedup    DedupView  `json:"dedup"`
-	Rate     RateView   `json:"rate"`
-	Limits   LimitsView `json:"limits"`
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	Owner    string `json:"owner_caller"`
+	Project  string `json:"project"`
+	Template string `json:"template"`
+	Provider string `json:"provider"`
+	// GitHub is the event filter summary of a github trigger (no secret, no payload).
+	GitHub *GitHubView `json:"github,omitempty"`
+	Auth   AuthView    `json:"auth"`
+	Dedup  DedupView   `json:"dedup"`
+	Rate   RateView    `json:"rate"`
+	Limits LimitsView  `json:"limits"`
 	// Inputs are the declared template variables and the payload field each is read from.
 	Inputs map[string]string `json:"inputs,omitempty"`
 	// Available is false while an enabled trigger cannot work on this server (see Issues).
@@ -127,6 +112,19 @@ type View struct {
 	Issues    []IssueView `json:"issues,omitempty"`
 	// Last is the newest delivery, nil when none is on record.
 	Last *DeliveryView `json:"last_delivery,omitempty"`
+}
+
+// GitHubView summarizes the github provider's event filter.
+type GitHubView struct {
+	Events     []string        `json:"events"`
+	Conditions []ConditionView `json:"conditions,omitempty"`
+	MaxAgeSec  int             `json:"max_age_sec,omitempty"`
+}
+
+type ConditionView struct {
+	Event  string   `json:"event"`
+	Field  string   `json:"field"`
+	Equals []string `json:"equals"`
 }
 
 // AuthView shows how a request is authenticated, never the secret.
@@ -251,7 +249,7 @@ func (e *Engine) view(tc config.TriggerConfig, st config.TriggerStatus) View {
 	}
 	v := View{
 		Name: tc.Name, Enabled: tc.Enabled, Owner: strings.TrimSpace(tc.OwnerCaller),
-		Project: strings.TrimSpace(tc.Project), Template: strings.TrimSpace(tc.Template), Provider: ProviderGeneric,
+		Project: strings.TrimSpace(tc.Project), Template: strings.TrimSpace(tc.Template), Provider: tc.EffectiveProvider(),
 		Auth: AuthView{Kind: kind, SecretEnv: tc.Auth.SecretEnv, SecretConfigured: tc.Auth.SecretEnv != "" && secretSet(tc.Auth.SecretEnv),
 			TimestampHeader: orDefault(tc.Auth.TimestampHeader, "X-Gofer-Trigger-Timestamp"),
 			SignatureHeader: orDefault(tc.Auth.SignatureHeader, "X-Gofer-Trigger-Signature"), ReplayWindowSec: window},
@@ -259,6 +257,16 @@ func (e *Engine) view(tc config.TriggerConfig, st config.TriggerStatus) View {
 		Rate:      RateView{PerMinute: tc.Rate.PerMinute, Burst: tc.Rate.Burst, MaxInflight: tc.Rate.MaxInflight},
 		Limits:    LimitsView{MaxBodyBytes: endpointOf(tc).MaxBodyBytes, MaxVarBytes: maxVar},
 		Available: st.Available(),
+	}
+	if tc.EffectiveProvider() == ProviderGitHub {
+		v.Auth.TimestampHeader, v.Auth.ReplayWindowSec = "", 0
+		v.Auth.SignatureHeader = GitHubSignatureHeader
+		v.Dedup.Key = "header." + GitHubDeliveryHeader
+		g := &GitHubView{Events: append([]string(nil), tc.GitHub.Events...), MaxAgeSec: tc.GitHub.MaxAgeSec}
+		for _, c := range tc.GitHub.Conditions {
+			g.Conditions = append(g.Conditions, ConditionView{Event: c.Event, Field: c.Field, Equals: append([]string(nil), c.Equals...)})
+		}
+		v.GitHub = g
 	}
 	if len(tc.Input.Vars) > 0 {
 		v.Inputs = make(map[string]string, len(tc.Input.Vars))

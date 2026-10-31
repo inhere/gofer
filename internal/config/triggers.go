@@ -12,8 +12,11 @@ import (
 // TriggerConfig is a file-only inbound dispatch definition. An enabled trigger
 // can create jobs, so it is intentionally not writable through the API.
 type TriggerConfig struct {
-	Name        string              `yaml:"name,omitempty"`
-	Enabled     bool                `yaml:"enabled,omitempty"`
+	Name    string `yaml:"name,omitempty"`
+	Enabled bool   `yaml:"enabled,omitempty"`
+	// Provider selects the inbound adapter: "generic" (default; HMAC + timestamp) or
+	// "github" (GitHub-compatible webhooks). See TriggerProvider*.
+	Provider    string              `yaml:"provider,omitempty"`
 	OwnerCaller string              `yaml:"owner_caller,omitempty"`
 	Project     string              `yaml:"project,omitempty"`
 	Template    string              `yaml:"template,omitempty"`
@@ -22,6 +25,51 @@ type TriggerConfig struct {
 	Dedup       TriggerDedupConfig  `yaml:"dedup,omitempty"`
 	Rate        TriggerRateConfig   `yaml:"rate,omitempty"`
 	Limits      TriggerLimitsConfig `yaml:"limits,omitempty"`
+	// GitHub holds the event filter of provider "github"; it must be empty otherwise.
+	GitHub TriggerGitHubConfig `yaml:"github,omitempty"`
+}
+
+// Provider names accepted by server.triggers[].provider.
+const (
+	TriggerProviderGeneric = "generic"
+	TriggerProviderGitHub  = "github"
+)
+
+// EffectiveProvider is the provider with the "" default applied.
+func (t TriggerConfig) EffectiveProvider() string {
+	if t.Provider == "" {
+		return TriggerProviderGeneric
+	}
+	return t.Provider
+}
+
+// TriggerGitHubConfig is the event filter of the github provider.
+//
+// Events lists what is dispatched; every other event (and the ping) is acknowledged with
+// 200 "ignored" and starts nothing. An entry is an event name ("pull_request") or an event
+// name plus action ("pull_request.opened"): the first matches every action of the event,
+// the second only that action (the payload's top-level "action").
+//
+// Conditions narrow an entry down by one payload field. A condition applies to the
+// deliveries its Event matches (same two forms as an events entry, and it must equal an
+// entry of Events); all applying conditions must hold (AND), and a condition holds when the
+// payload field Field (a dotted path of object keys and array indexes) is a string, number
+// or boolean whose text equals one of Equals (OR). A missing field fails the condition.
+// There is no other operator or expression.
+//
+// MaxAgeSec, when > 0, refuses (as stale) a delivery whose payload carries a recognizable
+// time older than that many seconds; see the github adapter for the fields it reads. A
+// payload without any of them is not refused.
+type TriggerGitHubConfig struct {
+	Events     []string                 `yaml:"events,omitempty"`
+	Conditions []TriggerGitHubCondition `yaml:"conditions,omitempty"`
+	MaxAgeSec  int                      `yaml:"max_age_sec,omitempty"`
+}
+
+type TriggerGitHubCondition struct {
+	Event  string   `yaml:"event"`
+	Field  string   `yaml:"field"`
+	Equals []string `yaml:"equals"`
 }
 
 type TriggerAuthConfig struct {
@@ -64,12 +112,50 @@ func (t TriggerConfig) Clone() TriggerConfig {
 			out.Input.Vars[k] = v
 		}
 	}
+	out.GitHub.Events = append([]string(nil), t.GitHub.Events...)
+	out.GitHub.Conditions = make([]TriggerGitHubCondition, len(t.GitHub.Conditions))
+	for i, c := range t.GitHub.Conditions {
+		c.Equals = append([]string(nil), c.Equals...)
+		out.GitHub.Conditions[i] = c
+	}
+	if len(t.GitHub.Events) == 0 {
+		out.GitHub.Events = nil
+	}
+	if len(t.GitHub.Conditions) == 0 {
+		out.GitHub.Conditions = nil
+	}
 	return out
 }
 
 var triggerNameRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9._-]{0,63}$`)
 var triggerEnvRE = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
 var triggerRefRE = regexp.MustCompile(`^(body|message)\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$|^header\.[A-Za-z0-9-]+$`)
+
+// triggerGitHubEventRE is an events / conditions entry: event, or event.action.
+var triggerGitHubEventRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}(\.[a-z][a-z0-9_]{0,63})?$`)
+
+// triggerGitHubFieldRE is a condition field: dotted object keys / array indexes.
+var triggerGitHubFieldRE = regexp.MustCompile(`^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$`)
+
+const (
+	MaxTriggerGitHubEvents     = 64
+	MaxTriggerGitHubConditions = 32
+	MaxTriggerGitHubEquals     = 16
+	MaxTriggerGitHubValueBytes = 256
+)
+
+// GitHubVarFields are the whitelisted payload facts a github trigger may map to template
+// variables (input.vars: name: github.<field>). Nothing else of the payload can reach a prompt.
+var GitHubVarFields = []string{"repository", "number", "title", "url", "sender", "branch", "base_branch", "sha", "event", "action", "conclusion"}
+
+func validGitHubVarField(f string) bool {
+	for _, v := range GitHubVarFields {
+		if v == f {
+			return true
+		}
+	}
+	return false
+}
 
 const (
 	DefaultTriggerReplayWindowSec = 300
@@ -121,6 +207,15 @@ func validateTriggers(cfg *Config) error {
 		if strings.TrimSpace(t.Template) == "" {
 			return fmt.Errorf("%s.template is required", where)
 		}
+		provider := t.Provider
+		switch provider {
+		case "", TriggerProviderGeneric, TriggerProviderGitHub:
+		default:
+			return fmt.Errorf("%s.provider: unsupported %q (want generic or github)", where, provider)
+		}
+		if err := validateTriggerProvider(t, where); err != nil {
+			return err
+		}
 		kind := t.Auth.Kind
 		if kind == "" {
 			kind = "hmac-sha256"
@@ -137,6 +232,9 @@ func validateTriggers(cfg *Config) error {
 		}
 		if replayWindow < 1 || replayWindow > MaxTriggerReplayWindowSec {
 			return fmt.Errorf("%s.auth.replay_window_sec out of range", where)
+		}
+		if t.EffectiveProvider() == TriggerProviderGitHub && t.Dedup.Key != "" {
+			return fmt.Errorf("%s.dedup.key is not allowed with provider github (X-GitHub-Delivery is always the dedup key)", where)
 		}
 		if t.Dedup.Key != "" && t.Dedup.Key != "Idempotency-Key" && !triggerRefRE.MatchString(t.Dedup.Key) {
 			return fmt.Errorf("%s.dedup.key: invalid reference %q", where, t.Dedup.Key)
@@ -163,6 +261,13 @@ func validateTriggers(cfg *Config) error {
 			return fmt.Errorf("%s.limits exceed server bounds", where)
 		}
 		for name, ref := range t.Input.Vars {
+			if t.EffectiveProvider() == TriggerProviderGitHub {
+				field, ok := strings.CutPrefix(ref, "github.")
+				if !ok || !validGitHubVarField(field) {
+					return fmt.Errorf("%s.input.vars.%s: provider github accepts only github.<field> references (%s), got %q", where, name, strings.Join(GitHubVarFields, ", "), ref)
+				}
+				continue
+			}
 			if !triggerRefRE.MatchString(ref) {
 				return fmt.Errorf("%s.input.vars.%s: invalid reference %q", where, name, ref)
 			}
@@ -173,6 +278,55 @@ func validateTriggers(cfg *Config) error {
 		if err := validateTriggerOwnerCeiling(cfg, t, owner, where); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// validateTriggerProvider checks the provider-specific blocks: github needs its events and
+// forbids the generic-only auth fields; generic forbids the github block.
+func validateTriggerProvider(t *TriggerConfig, where string) error {
+	g := t.GitHub
+	if t.EffectiveProvider() != TriggerProviderGitHub {
+		if len(g.Events) > 0 || len(g.Conditions) > 0 || g.MaxAgeSec != 0 {
+			return fmt.Errorf("%s.github is only valid with provider: github", where)
+		}
+		return nil
+	}
+	if t.Auth.TimestampHeader != "" || t.Auth.SignatureHeader != "" || t.Auth.ReplayWindowSec != 0 {
+		return fmt.Errorf("%s.auth: timestamp_header, signature_header and replay_window_sec do not apply to provider github (X-Hub-Signature-256 is fixed; replay is stopped by X-GitHub-Delivery dedup, see github.max_age_sec)", where)
+	}
+	if len(g.Events) == 0 {
+		return fmt.Errorf("%s.github.events is required (e.g. [\"pull_request.opened\"])", where)
+	}
+	if len(g.Events) > MaxTriggerGitHubEvents || len(g.Conditions) > MaxTriggerGitHubConditions {
+		return fmt.Errorf("%s.github: too many events or conditions", where)
+	}
+	listed := make(map[string]struct{}, len(g.Events))
+	for i, ev := range g.Events {
+		if !triggerGitHubEventRE.MatchString(ev) {
+			return fmt.Errorf("%s.github.events[%d]: invalid entry %q (want event or event.action)", where, i, ev)
+		}
+		listed[ev] = struct{}{}
+	}
+	for i, c := range g.Conditions {
+		cw := fmt.Sprintf("%s.github.conditions[%d]", where, i)
+		if _, ok := listed[c.Event]; !ok {
+			return fmt.Errorf("%s.event %q is not one of github.events", cw, c.Event)
+		}
+		if !triggerGitHubFieldRE.MatchString(c.Field) {
+			return fmt.Errorf("%s.field: invalid path %q", cw, c.Field)
+		}
+		if len(c.Equals) == 0 || len(c.Equals) > MaxTriggerGitHubEquals {
+			return fmt.Errorf("%s.equals needs 1..%d values", cw, MaxTriggerGitHubEquals)
+		}
+		for _, v := range c.Equals {
+			if len(v) > MaxTriggerGitHubValueBytes {
+				return fmt.Errorf("%s.equals: value too long", cw)
+			}
+		}
+	}
+	if g.MaxAgeSec < 0 || g.MaxAgeSec > MaxTriggerDedupTTLSec {
+		return fmt.Errorf("%s.github.max_age_sec out of range", where)
 	}
 	return nil
 }
@@ -227,8 +381,10 @@ type TriggerIssue struct {
 // enabled one, why it cannot be used right now.
 type TriggerStatus struct {
 	Name, Owner, Project, Template string
-	Enabled                        bool
-	Issues                         []TriggerIssue
+	// Provider is the effective adapter name (generic / github).
+	Provider string
+	Enabled  bool
+	Issues   []TriggerIssue
 }
 
 // Available reports whether an enabled trigger has no issue.
@@ -248,7 +404,7 @@ func (c *Config) TriggerStatuses() []TriggerStatus {
 	}
 	out := make([]TriggerStatus, 0, len(c.Server.Triggers))
 	for _, t := range c.Server.Triggers {
-		st := TriggerStatus{Name: t.Name, Owner: strings.TrimSpace(t.OwnerCaller), Project: strings.TrimSpace(t.Project), Template: strings.TrimSpace(t.Template), Enabled: t.Enabled}
+		st := TriggerStatus{Name: t.Name, Owner: strings.TrimSpace(t.OwnerCaller), Project: strings.TrimSpace(t.Project), Template: strings.TrimSpace(t.Template), Provider: t.EffectiveProvider(), Enabled: t.Enabled}
 		if t.Enabled {
 			if os.Getenv(t.Auth.SecretEnv) == "" {
 				st.Issues = append(st.Issues, TriggerIssue{Code: TriggerIssueSecretEnvUnset, Arg: t.Auth.SecretEnv})

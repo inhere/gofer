@@ -138,3 +138,88 @@ func TestTriggerStatuses(t *testing.T) {
 		t.Fatalf("disabled status=%+v", st)
 	}
 }
+
+func ghTrigger(mut func(*TriggerConfig)) *Config {
+	return validTrigger(func(tc *TriggerConfig) {
+		tc.Provider = TriggerProviderGitHub
+		tc.GitHub = TriggerGitHubConfig{
+			Events:     []string{"pull_request.opened", "check_run.completed", "push"},
+			Conditions: []TriggerGitHubCondition{{Event: "check_run.completed", Field: "check_run.conclusion", Equals: []string{"failure"}}},
+			MaxAgeSec:  3600,
+		}
+		tc.Input.Vars = map[string]string{"repo": "github.repository", "n": "github.number"}
+		if mut != nil {
+			mut(tc)
+		}
+	})
+}
+
+func TestValidateTriggersProvider(t *testing.T) {
+	if err := validateTriggers(ghTrigger(nil)); err != nil {
+		t.Fatalf("valid github trigger: %v", err)
+	}
+	if err := validateTriggers(validTrigger(func(tc *TriggerConfig) { tc.Provider = "generic" })); err != nil {
+		t.Fatalf("explicit generic: %v", err)
+	}
+	if got := validTrigger(nil).Server.Triggers[0].EffectiveProvider(); got != TriggerProviderGeneric {
+		t.Fatalf("default provider = %q", got)
+	}
+	// An unknown provider names the offending key.
+	err := validateTriggers(validTrigger(func(tc *TriggerConfig) { tc.Provider = "gitlab" }))
+	if err == nil || !strings.Contains(err.Error(), "server.triggers[0].provider") || !strings.Contains(err.Error(), "gitlab") {
+		t.Fatalf("unknown provider err = %v", err)
+	}
+	cases := map[string]func(*TriggerConfig){
+		"no events":                   func(tc *TriggerConfig) { tc.GitHub.Events = nil },
+		"bad event entry":             func(tc *TriggerConfig) { tc.GitHub.Events = []string{"Pull Request"} },
+		"too deep event":              func(tc *TriggerConfig) { tc.GitHub.Events = []string{"a.b.c"} },
+		"condition on unlisted event": func(tc *TriggerConfig) { tc.GitHub.Conditions[0].Event = "issues.opened" },
+		"condition bad field":         func(tc *TriggerConfig) { tc.GitHub.Conditions[0].Field = "a..b" },
+		"condition no values":         func(tc *TriggerConfig) { tc.GitHub.Conditions[0].Equals = nil },
+		"negative max age":            func(tc *TriggerConfig) { tc.GitHub.MaxAgeSec = -1 },
+		"max age over":                func(tc *TriggerConfig) { tc.GitHub.MaxAgeSec = MaxTriggerDedupTTLSec + 1 },
+		"dedup key":                   func(tc *TriggerConfig) { tc.Dedup.Key = "header.X-GitHub-Delivery" },
+		"replay window":               func(tc *TriggerConfig) { tc.Auth.ReplayWindowSec = 60 },
+		"signature header":            func(tc *TriggerConfig) { tc.Auth.SignatureHeader = "X-Sig" },
+		"timestamp header":            func(tc *TriggerConfig) { tc.Auth.TimestampHeader = "X-Ts" },
+		"body reference":              func(tc *TriggerConfig) { tc.Input.Vars = map[string]string{"x": "body.pull_request.body"} },
+		"header reference":            func(tc *TriggerConfig) { tc.Input.Vars = map[string]string{"x": "header.X-Anything"} },
+		"unknown github field":        func(tc *TriggerConfig) { tc.Input.Vars = map[string]string{"x": "github.body"} },
+		"no secret env":               func(tc *TriggerConfig) { tc.Auth.SecretEnv = "" },
+	}
+	for name, mut := range cases {
+		if err := validateTriggers(ghTrigger(mut)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// The github block does not belong to a generic trigger.
+	if err := validateTriggers(validTrigger(func(tc *TriggerConfig) { tc.GitHub.Events = []string{"push"} })); err == nil || !strings.Contains(err.Error(), "provider: github") {
+		t.Fatalf("github block on generic trigger: %v", err)
+	}
+	// Every documented variable is accepted.
+	all := ghTrigger(func(tc *TriggerConfig) {
+		tc.Input.Vars = map[string]string{}
+		for _, f := range GitHubVarFields {
+			tc.Input.Vars[f] = "github." + f
+		}
+	})
+	if err := validateTriggers(all); err != nil {
+		t.Fatalf("whitelist fields: %v", err)
+	}
+}
+
+func TestTriggerGitHubCloneAndStatusProvider(t *testing.T) {
+	cfg := ghTrigger(nil)
+	cp := cfg.Server.Triggers[0].Clone()
+	cp.GitHub.Events[0] = "mutated"
+	cp.GitHub.Conditions[0].Equals[0] = "mutated"
+	if cfg.Server.Triggers[0].GitHub.Events[0] == "mutated" || cfg.Server.Triggers[0].GitHub.Conditions[0].Equals[0] == "mutated" {
+		t.Fatal("Clone shares the github filter with the original")
+	}
+	if st := cfg.TriggerStatuses(); st[0].Provider != "github" {
+		t.Fatalf("status provider = %q", st[0].Provider)
+	}
+	if st := validTrigger(nil).TriggerStatuses(); st[0].Provider != "generic" {
+		t.Fatalf("generic status provider = %q", st[0].Provider)
+	}
+}

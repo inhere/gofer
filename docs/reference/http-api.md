@@ -496,12 +496,31 @@ Success: `202` `{"trigger","request_id","job_id","duplicate":false}`. A repeated
 
 Errors use the standard `{error, detail, code, params}` body; `detail` follows `Accept-Language`. Responses and server logs never contain the payload, the secret, the signature, the raw event id or the rendered prompt; the event id is stored only as a hash.
 
+### GitHub provider (`provider: github`)
+
+A trigger with `provider: github` accepts GitHub (and GitHub-compatible) webhooks on the same route, `POST /v1/triggers/{name}/invoke`. Differences from the generic scheme:
+
+- **Authentication**: `X-Hub-Signature-256: sha256=<hex>`, the HMAC-SHA256 of the **raw body** with the secret (constant-time comparison). GitHub sends no timestamp, so there is no replay window; the generic headers are not accepted. A missing, malformed, `sha1=` or wrong signature is `401 trigger_unauthenticated`.
+- **Replay and redelivery**: `X-GitHub-Delivery` is the durable dedup key (the same receipt table as the generic `dedup.key`, stored only as a hash). The same delivery id with the same body is `200` `"duplicate":true` with the original `job_id` (GitHub's "Redeliver" button is therefore safe); the same id with another body is `409 trigger_event_conflict`. A request without `X-GitHub-Delivery` or `X-GitHub-Event` is `400 trigger_input_invalid`. Optional `github.max_age_sec` additionally refuses events whose payload time (`check_run.completed_at`, `comment.updated_at`, `pull_request.updated_at`, ...) is older than that, as `401 trigger_replay_window`; the dedup TTL (`dedup.ttl_sec`, default 24 h) bounds how long a delivery id is remembered.
+- **Event filter**: `github.events` lists `event` or `event.action` entries; `github.conditions` narrows an event by one payload field (`field` dotted path, `equals` allowed texts). A delivery that does not match - an unlisted event or action, a failed condition, or GitHub's `ping` - is acknowledged with **`200 {"trigger","request_id","ignored":true,"reason":"event_not_listed|condition_not_met|ping"}`**: no job, no dedup receipt, no rate-limit token, an audit row `trigger.ignored`. It is 2xx on purpose so GitHub does not mark the delivery failed or retry it.
+- **Template variables**: `input.vars` maps names to `github.<field>` only (`body.` / `header.` references are rejected when the config loads). The whitelist: `repository` (full name), `number`, `title`, `url` (html link), `sender` (login), `branch` (head ref; the branch of a push), `base_branch`, `sha`, `event`, `action`, `conclusion`. A field the event lacks is the empty string. Nothing else of the payload (comment text, PR description, installation data) can reach a prompt. Each value is bounded by `limits.max_var_bytes`.
+
+GitHub setup (Repository or Organization -> Settings -> Webhooks -> Add webhook):
+
+1. **Payload URL**: `https://<server>/v1/triggers/<name>/invoke` (the server must be reachable from GitHub; put it behind a TLS reverse proxy).
+2. **Content type**: `application/json` (`application/x-www-form-urlencoded` wraps the JSON in a form field and is refused with `400 trigger_body_not_json`).
+3. **Secret**: a long random value; export the same value in the server's environment under the variable named by the trigger's `auth.secret_env`.
+4. **Which events**: "Let me select individual events" and tick only the ones listed in `github.events` (others would only produce ignored `200`s).
+5. Save; GitHub sends a `ping`, answered `200` with `"ignored":true,"reason":"ping"`. "Recent Deliveries" shows the status and body of each delivery.
+
+The read views show `provider`, and for github a `github` object (`events`, `conditions`, `max_age_sec`); the signature header shown is `X-Hub-Signature-256`, the dedup key `header.X-GitHub-Delivery`.
+
 ### Read routes (`trigger.read`)
 
 `trigger.read` is a medium-risk permission held by root administrators and grantable on the permissions page; it cannot be granted to a session, and a **job credential is refused** (`403`, `trigger_read_job_credential`) even though it may read the rest of the GET surface. MCP exposes the same views as read-only `gofer_trigger_list` / `gofer_trigger_show` (same permission, enforced by these routes).
 
 - `GET /v1/triggers` -> `{triggers:[View]}`, configuration order, disabled ones included.
-- `GET /v1/triggers/{name}` -> `View`: `name`, `enabled`, `owner_caller`, `project`, `template`, `provider` (`generic`), `auth` (`kind`, `secret_env`, `secret_configured`, header names, `replay_window_sec`), `dedup` (`key`, `ttl_sec`), `rate`, `limits`, `inputs` (variable -> payload reference), `available` + `issues[]` (`secret_env_unset` / `template_not_found` with the name) and `last_delivery`. The secret appears only as its variable name and whether it is set. Unknown name: `404`.
+- `GET /v1/triggers/{name}` -> `View`: `name`, `enabled`, `owner_caller`, `project`, `template`, `provider` (`generic` or `github`; github adds a `github` object with `events`, `conditions`, `max_age_sec`), `auth` (`kind`, `secret_env`, `secret_configured`, header names, `replay_window_sec`), `dedup` (`key`, `ttl_sec`), `rate`, `limits`, `inputs` (variable -> payload reference), `available` + `issues[]` (`secret_env_unset` / `template_not_found` with the name) and `last_delivery`. The secret appears only as its variable name and whether it is set. Unknown name: `404`.
 - `GET /v1/triggers/{name}/deliveries?limit=N` (default 50, max 500) -> `{trigger, deliveries:[{event_hash, status, job_id, request_id, received_at, error}]}`, newest first. `event_hash` is the first 16 hex characters of the stored hash; `status` is `claimed|submitted|rejected|failed`; deliveries without an external event id are not recorded (no dedup receipt). No payload is shown.
 
 There is no HTTP route that creates, edits, rotates or deletes a trigger: edit the file and `gofer serve reload`.

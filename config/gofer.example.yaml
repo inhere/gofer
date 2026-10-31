@@ -176,6 +176,26 @@ server:
     token: ""                      # 空 = 免认证抓取；非空 = 要求 Authorization: Bearer <token>
     # 开启示例：enabled: true + token: "<长随机串>"
 
+  # triggers：外部事件 -> 固定任务书的一次性 job；默认关闭、只能改文件(详见 docs/reference/http-api.md)。
+  # provider 缺省 generic(HMAC + 时间戳)；github 兼容 GitHub webhook(X-Hub-Signature-256，
+  # X-GitHub-Delivery 持久去重)。github 只能用 github.<字段> 引用白名单变量：repository / number /
+  # title / url / sender / branch / base_branch / sha / event / action / conclusion。
+  # triggers:
+  #   - name: pr-review
+  #     enabled: false
+  #     provider: github
+  #     owner_caller: <non-root-caller>
+  #     project: <project>
+  #     template: <template>
+  #     auth: {secret_env: GOFER_TRIGGER_PR_REVIEW}   # 与 GitHub webhook 的 Secret 相同
+  #     github:
+  #       events: [pull_request.opened, issue_comment.created, check_run.completed]
+  #       conditions:                                  # 命中事件后再按 payload 字段收窄(全部满足)
+  #         - {event: check_run.completed, field: check_run.conclusion, equals: [failure]}
+  #       max_age_sec: 3600                            # 可选: 拒绝 payload 时间早于该秒数的事件
+  #     input:
+  #       vars: {repo: github.repository, number: github.number, title: github.title, url: github.url}
+
   # governance：调用方配额 / 限流的全局默认值(caller 没单独配置时生效)。整段未写或全为 0
   # 表示不限。每个 caller 可在 callers 里用同名字段覆盖(见上)。
   #   default_caller_max_concurrent  caller 默认同时在跑的 job 上限(超出的排队，不拒绝)
