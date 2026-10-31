@@ -30,7 +30,7 @@ func (s *Server) handleWorkSummarize(c *rux.Context) {
 		writeError(c, http.StatusForbidden, "caller ceiling", oerr.Error())
 		return
 	}
-	req, err := s.work.TidyNowFor(c.Param("id"), workBy(c), owner)
+	req, err := s.work.TidyNowFor(c.Req.Context(), c.Param("id"), workBy(c), owner)
 	if err != nil {
 		switch {
 		case errors.Is(err, work.ErrNoSession):
@@ -132,7 +132,7 @@ func (s *Server) handleWorkSummarizerStatus(c *rux.Context) {
 	if !s.workReady(c) || !workNotAWorker(c) {
 		return
 	}
-	st := s.work.SummarizerStatus()
+	st := s.work.SummarizerStatus(c.Req.Context())
 	cfg := config.WorkConfig{}
 	if s.projects != nil {
 		if live := s.projects.Config(); live != nil {

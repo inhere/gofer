@@ -12,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/testutil/wait"
@@ -415,8 +416,8 @@ func TestTodoContinueClaim(t *testing.T) {
 		if ok, err := s.meta.ClaimTodoContinuation(contPred, "other-item"); err != nil || !ok {
 			t.Fatalf("claim: ok=%v err=%v", ok, err)
 		}
-		if got := continueDecision(t, s, contSucc); got != continueClaimedByOther {
-			t.Fatalf("reason = %q, want %q", got, continueClaimedByOther)
+		if got := continueDecision(t, s, contSucc); got != i18n.T(i18n.ZhCN, continueClaimedByOther) {
+			t.Fatalf("reason = %q, want %q", got, i18n.T(i18n.ZhCN, continueClaimedByOther))
 		}
 		if holder := continuedBy(t, s, contPred); holder != "other-item" {
 			t.Fatalf("continued_by = %q, the other item's claim must survive", holder)
@@ -428,8 +429,8 @@ func TestTodoContinueClaim(t *testing.T) {
 		if ok, err := s.meta.ClaimTodoContinuation(contPred, contSucc); err != nil || !ok {
 			t.Fatalf("claim: ok=%v err=%v", ok, err)
 		}
-		if got := continueDecision(t, s, contSucc); got != continueClaimedBySelf {
-			t.Fatalf("reason = %q, want %q", got, continueClaimedBySelf)
+		if got := continueDecision(t, s, contSucc); got != i18n.T(i18n.ZhCN, continueClaimedBySelf) {
+			t.Fatalf("reason = %q, want %q", got, i18n.T(i18n.ZhCN, continueClaimedBySelf))
 		}
 		if holder := continuedBy(t, s, contPred); holder != contSucc {
 			t.Fatalf("continued_by = %q, the earlier continuation's claim must survive", holder)
@@ -472,11 +473,11 @@ func TestTodoContinueClaim(t *testing.T) {
 		if winners[0] == contSucc {
 			loser = "ts2"
 		}
-		if got := continueDecision(t, s, loser); got != continueClaimedByOther {
-			t.Fatalf("loser reason = %q, want %q", got, continueClaimedByOther)
+		if got := continueDecision(t, s, loser); got != i18n.T(i18n.ZhCN, continueClaimedByOther) {
+			t.Fatalf("loser reason = %q, want %q", got, i18n.T(i18n.ZhCN, continueClaimedByOther))
 		}
-		if got := continueDecision(t, s, winners[0]); got != continueClaimedBySelf {
-			t.Fatalf("winner reason = %q, want %q", got, continueClaimedBySelf)
+		if got := continueDecision(t, s, winners[0]); got != i18n.T(i18n.ZhCN, continueClaimedBySelf) {
+			t.Fatalf("winner reason = %q, want %q", got, i18n.T(i18n.ZhCN, continueClaimedBySelf))
 		}
 	})
 }

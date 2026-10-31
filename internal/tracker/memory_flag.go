@@ -20,9 +20,10 @@ const MemoryFlagsMax = 5
 // memoryFlagReasonRunes caps the reason shown inside the 待复核 prefix.
 const memoryFlagReasonRunes = 60
 
-// MemoryFlagHint is the one-line prompt hint (prime rules area, dispatched-job rules)
-// that tells an agent to flag a stale memory rather than bypass it.
-const MemoryFlagHint = "发现注入的记忆 / 规则与实际不符时运行 `gofer memory flag <key> --reason \"…\"`（全局 / 项目记忆加 `--global` / `--project <p>`），不要静默绕过。"
+// MemoryFlagHintIn is the one-line prompt hint (prime rules area, dispatched-job rules)
+// that tells an agent to flag a stale memory rather than bypass it, in lang (the catalog
+// key prime.memory.flag_hint, shared with the prime).
+func MemoryFlagHintIn(lang i18n.Lang) string { return memoryFlagHint(lang) }
 
 // MemoryFlag is one "this memory looks wrong" report.
 type MemoryFlag struct {

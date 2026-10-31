@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/util"
@@ -204,7 +205,7 @@ func ResolveCommitRef(ctx context.Context, dir, ref string) (string, error) {
 // When both fail the job fails with the actionable reason instead of silently checking
 // out something else: the commit has not been pushed (D3: the worker only ever sees
 // commits the remote already has).
-func fetchCommit(ctx context.Context, dir, sha string) error {
+func fetchCommit(ctx context.Context, lang i18n.Lang, dir, sha string) error {
 	if commitPresent(ctx, dir, sha) {
 		return nil
 	}
@@ -222,7 +223,7 @@ func fetchCommit(ctx context.Context, dir, sha string) error {
 	if firstErr != nil {
 		reason = ": " + firstErr.Error()
 	}
-	return fmt.Errorf("%w: commit %s 不在远端 %q，先推送该提交，或改在 server 本机检查%s", ErrInvalidRequest, sha, remote, reason)
+	return fmt.Errorf("%w: %s", ErrInvalidRequest, i18n.T(lang, "job.errors.commit_not_remote", "sha", sha, "remote", fmt.Sprintf("%q", remote), "reason", reason))
 }
 
 // commitPresent reports whether the checkout at dir has the commit object sha.
@@ -736,7 +737,7 @@ func (s *Service) markMergeTodoDone(ctx context.Context, res JobResult, branch, 
 		if v, err := gitOut(ctx, main, "rev-parse", "--short", "HEAD"); err == nil {
 			sha = v
 		}
-		note = strings.TrimSpace(branch + " 合入 " + sha)
+		note = strings.TrimSpace(i18n.T(s.notifyLang(res.ProjectKey), "job.todo_note.merged", "branch", branch, "sha", sha))
 	}
 	if s.meta == nil {
 		out.Warnings = append(out.Warnings, "--todo-done: no metadata store")

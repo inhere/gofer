@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -114,7 +115,7 @@ func (s *Service) linkTodoOutcome(snap JobResult) {
 		}
 		s.appendTodoNote(snap, todoDoneLine(snap))
 	case StatusNeedsReview:
-		s.appendTodoNote(snap, snap.ID+" 待验收")
+		s.appendTodoNote(snap, i18n.T(s.notifyLang(snap.ProjectKey), "job.todo_note.needs_review", "job", snap.ID))
 	default: // failed / timeout / cancelled / rejected
 		s.appendTodoNote(snap, todoFailureLine(snap))
 	}

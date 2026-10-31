@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -79,16 +80,16 @@ func (s *Service) pendingDelivery(sid, jobID, path string) DeliverResult {
 // notStarted wraps "the job had NOT started when gofer gave up waiting" as an
 // undeliverable error. The text is not in the session and cannot arrive later — the host
 // cancelled that job — so this reason is one a retry is safe against.
-func notStarted(res InjectResult) error {
+func notStarted(lang i18n.Lang, res InjectResult) error {
 	detail := strings.TrimSpace(res.StatusDetail)
 	if detail == "" {
 		detail = strings.TrimSpace(res.Status)
 	}
 	if detail == "" {
-		detail = "未开始"
+		detail = i18n.T(lang, "sessionrelay.reason.not_started_detail")
 	}
-	return undeliverable(NotDeliveredPrefix+res.Status, fmt.Errorf(
-		"job %s 未启动（%s），已取消：未送达", res.JobID, detail))
+	return undeliverable(NotDeliveredPrefix+res.Status, errors.New(
+		i18n.T(lang, "sessionrelay.reason.not_started", "job", res.JobID, "detail", detail)))
 }
 
 // ReconcileDeliveryJob resolves ONE finished injection job (the assembly's terminal
@@ -125,6 +126,8 @@ func (s *Service) ReconcileDeliveries(sid string) error {
 	if err != nil {
 		return err
 	}
+	// The outcome lines are stored on the message: the session's project language.
+	lang := s.sessionLang(sid)
 	var errs []error // at most one per message
 	for _, m := range list {
 		if m.Status != jobstore.SessionMessageDelivering || strings.TrimSpace(m.JobID) == "" {
@@ -138,7 +141,7 @@ func (s *Service) ReconcileDeliveries(sid string) error {
 		if state.Known && !state.Done {
 			continue // still carrying the message; the terminal event comes later
 		}
-		next := s.deliveryOutcome(m, state)
+		next := s.deliveryOutcome(lang, m, state)
 		if next.Status == m.Status {
 			continue
 		}
@@ -159,7 +162,7 @@ func (s *Service) ReconcileDeliveries(sid string) error {
 // offline-match (a code that means "no such live process") is still read as "not
 // running" rather than as a failure. Everything else is `failed` — a delivery that was
 // ATTEMPTED and whose outcome is unknown, which is deliberately NOT offered for retry.
-func (s *Service) deliveryOutcome(m jobstore.SessionMessage, state InjectState) jobstore.SessionMessage {
+func (s *Service) deliveryOutcome(lang i18n.Lang, m jobstore.SessionMessage, state InjectState) jobstore.SessionMessage {
 	next := m
 	switch {
 	case m.Channel == messengerChannel:
@@ -168,17 +171,17 @@ func (s *Service) deliveryOutcome(m jobstore.SessionMessage, state InjectState) 
 			messengerSaidSent(state.Output) {
 			next.Status, next.Error = jobstore.SessionMessageDelivered, ""
 		} else {
-			next.Status, next.Error = jobstore.SessionMessageFailed, deliveryFailureReason(m, state)
+			next.Status, next.Error = jobstore.SessionMessageFailed, deliveryFailureReason(lang, m, state)
 		}
 	case state.Known && state.Done && state.Status == deliveryDoneStatus && state.ExitCode == 0:
 		next.Status, next.Error = jobstore.SessionMessageDelivered, ""
 	case state.Known && state.Done && state.ExitCode == deliverExitNotRunning:
-		next.Status, next.Error = jobstore.SessionMessageUndelivered, deliveryNotRunningReason(m)
+		next.Status, next.Error = jobstore.SessionMessageUndelivered, deliveryNotRunningReason(lang, m)
 	case state.Known && state.Done && m.Channel == PathCommand && s.deliverPlan != nil &&
 		s.offlineMatch(m, state.Output):
-		next.Status, next.Error = jobstore.SessionMessageUndelivered, deliveryNotRunningReason(m)
+		next.Status, next.Error = jobstore.SessionMessageUndelivered, deliveryNotRunningReason(lang, m)
 	default:
-		next.Status, next.Error = jobstore.SessionMessageFailed, deliveryFailureReason(m, state)
+		next.Status, next.Error = jobstore.SessionMessageFailed, deliveryFailureReason(lang, m, state)
 	}
 	return next
 }
@@ -198,22 +201,22 @@ func (s *Service) offlineMatch(m jobstore.SessionMessage, output string) bool {
 
 // deliveryNotRunningReason is the 「未送达」 reason of a job that reported the session's
 // process is gone: nothing was handed over, so resending is safe.
-func deliveryNotRunningReason(m jobstore.SessionMessage) string {
-	return ReasonNotRunning + ": job " + m.JobID + " 报告会话进程已不在运行（未送达，可重试）"
+func deliveryNotRunningReason(lang i18n.Lang, m jobstore.SessionMessage) string {
+	return ReasonNotRunning + ": " + i18n.T(lang, "sessionrelay.reason.not_running", "job", m.JobID)
 }
 
 // deliveryFailureReason explains a failed delivery with the JOB's state first: the old
 // text ("deliver_failed:exit code -1: job X") said nothing about why nothing arrived —
 // the job had not even started in the case that motivated this (gofer-qzv5).
-func deliveryFailureReason(m jobstore.SessionMessage, state InjectState) string {
+func deliveryFailureReason(lang i18n.Lang, m jobstore.SessionMessage, state InjectState) string {
 	if !state.Known {
-		return fmt.Sprintf("job %s 已不在（服务重启或已清理），无法确认是否送达", m.JobID)
+		return i18n.T(lang, "sessionrelay.reason.job_gone", "job", m.JobID)
 	}
-	reason := fmt.Sprintf("job %s 状态 %s exit=%d", m.JobID, statusText(state.Status), state.ExitCode)
+	reason := i18n.T(lang, "sessionrelay.reason.job_state", "job", m.JobID, "status", statusText(state.Status), "code", state.ExitCode)
 	if detail := strings.TrimSpace(state.Output); detail != "" {
-		return reason + "：" + truncateRunes(detail, 200)
+		return i18n.T(lang, "sessionrelay.reason.with_output", "reason", reason, "output", truncateRunes(detail, 200))
 	}
-	return reason + "（无输出）"
+	return i18n.T(lang, "sessionrelay.reason.no_output", "reason", reason)
 }
 
 // statusText is a job status for a human reading a reason line.

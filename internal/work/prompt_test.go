@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/goutil/x/assert"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/settings"
 )
@@ -23,7 +24,7 @@ func promptItem(t *testing.T, st *jobstore.Store) jobstore.WorkItem {
 // prompt settings must never break (ParseSummary reads that JSON).
 func endsWithSpec(t *testing.T, p string) {
 	t.Helper()
-	if got := strings.TrimRight(p, "\n"); !strings.HasSuffix(got, summaryFormatSpec) {
+	if got := strings.TrimRight(p, "\n"); !strings.HasSuffix(got, summaryFormatSpec(i18n.Default)) {
 		t.Fatalf("prompt does not end with the JSON format spec:\n%s", p)
 	}
 }
@@ -33,8 +34,8 @@ func TestSummarizerPromptDefaults(t *testing.T) {
 	w := promptItem(t, st)
 
 	p := svc.buildPrompt(w, "MATERIAL-1", false, false)
-	assert.True(t, strings.HasPrefix(p, defaultSummarizerPrompt))
-	assert.False(t, strings.Contains(p, settings.ExtraHeading))
+	assert.True(t, strings.HasPrefix(p, defaultSummarizerPrompt(i18n.Default)))
+	assert.False(t, strings.Contains(p, settings.ExtraHeadingIn(i18n.Default)))
 	// The rewritten default says what the noise rule wants and keeps the parse keys.
 	for _, want := range []string{"试用、测试、演示性质的操作不算工作进展", "信息不足", "milestone"} {
 		assert.True(t, strings.Contains(p, want), want)
@@ -67,10 +68,10 @@ func TestSummarizerPromptExtraIsAppended(t *testing.T) {
 
 	p := svc.buildPrompt(w, "MATERIAL-3", true, false)
 	// The extra follows the default instruction it was appended to.
-	assert.True(t, strings.HasPrefix(p, defaultSummarizerPrompt))
-	assert.True(t, strings.Contains(p, settings.ExtraHeading+"\n少说废话；不确定的字段一律留空。"))
-	assert.True(t, strings.Index(p, settings.ExtraHeading) > strings.Index(p, "记录原则"))
-	assert.True(t, strings.Index(p, settings.ExtraHeading) < strings.Index(p, "【工作项当前记录】"))
+	assert.True(t, strings.HasPrefix(p, defaultSummarizerPrompt(i18n.Default)))
+	assert.True(t, strings.Contains(p, settings.ExtraHeadingIn(i18n.Default)+"\n少说废话；不确定的字段一律留空。"))
+	assert.True(t, strings.Index(p, settings.ExtraHeadingIn(i18n.Default)) > strings.Index(p, "记录原则"))
+	assert.True(t, strings.Index(p, settings.ExtraHeadingIn(i18n.Default)) < strings.Index(p, "【工作项当前记录】"))
 	endsWithSpec(t, p)
 }
 
@@ -83,7 +84,7 @@ func TestSummarizerPromptReplacementAndExtra(t *testing.T) {
 	assert.NoErr(t, err)
 
 	p := svc.buildPrompt(w, "MATERIAL-4", false, false)
-	assert.True(t, strings.HasPrefix(p, "自己写的指令。\n\n"+settings.ExtraHeading+"\n补充一条偏好。"))
+	assert.True(t, strings.HasPrefix(p, "自己写的指令。\n\n"+settings.ExtraHeadingIn(i18n.Default)+"\n补充一条偏好。"))
 	assert.False(t, strings.Contains(p, "你是一个只读的"))
 	endsWithSpec(t, p)
 }
@@ -98,7 +99,7 @@ func TestReplacementCannotRemoveTheFormatSpec(t *testing.T) {
 
 	p := svc.buildPrompt(w, "MATERIAL-5", false, false)
 	endsWithSpec(t, p)
-	assert.True(t, strings.Index(p, "不要输出 JSON。") < strings.Index(p, summaryFormatSpec))
+	assert.True(t, strings.Index(p, "不要输出 JSON。") < strings.Index(p, summaryFormatSpec(i18n.Default)))
 }
 
 // A settings read failure falls back to the code default (and never blocks a tidy-up).
@@ -108,7 +109,7 @@ func TestSummarizerPromptSettingsFailureFallsBack(t *testing.T) {
 	w := promptItem(t, st)
 
 	p := svc.buildPrompt(w, "MATERIAL-6", false, false)
-	assert.True(t, strings.HasPrefix(p, defaultSummarizerPrompt))
-	assert.False(t, strings.Contains(p, settings.ExtraHeading))
+	assert.True(t, strings.HasPrefix(p, defaultSummarizerPrompt(i18n.Default)))
+	assert.False(t, strings.Contains(p, settings.ExtraHeadingIn(i18n.Default)))
 	endsWithSpec(t, p)
 }

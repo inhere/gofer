@@ -701,7 +701,7 @@ func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession
 	}
 	if len(imagePaths) > 0 {
 		if len(plan.ImageArgs) == 0 {
-			return InjectResult{}, true, undeliverable(DeliverFailedPrefix+ReasonImagesNotSupported, errors.New("目标会话进程版本过旧，不支持图片，请升级后重启该会话"))
+			return InjectResult{}, true, undeliverable(DeliverFailedPrefix+ReasonImagesNotSupported, errors.New(i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.images_old")))
 		}
 		plan.Argv = append(plan.Argv, renderDeliverImageArgs(plan.ImageArgs, imagePaths)...)
 	}
@@ -734,7 +734,7 @@ func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession
 		if res.Running {
 			return res, true, nil
 		}
-		return InjectResult{}, true, notStarted(res)
+		return InjectResult{}, true, notStarted(s.lang(a.ProjectKey), res)
 	}
 	exit := res.ExitCode
 	if exit != 0 && exit != deliverExitNotRunning && plan.OfflineMatch != nil && plan.OfflineMatch.MatchString(res.Output) {
@@ -743,7 +743,7 @@ func (s *Service) runDeliverCommand(ctx context.Context, a jobstore.AgentSession
 	switch exit {
 	case 0:
 	case deliverExitImagesNotSupported:
-		return InjectResult{}, true, undeliverable(DeliverFailedPrefix+ReasonImagesNotSupported, errors.New("目标会话进程版本过旧，不支持图片，请升级后重启该会话"))
+		return InjectResult{}, true, undeliverable(DeliverFailedPrefix+ReasonImagesNotSupported, errors.New(i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.images_old")))
 	case deliverExitNotRunning:
 		return InjectResult{}, true, undeliverable(ReasonNotRunning, fmt.Errorf("job %s: the session's process is not running", res.JobID))
 	default:
@@ -878,7 +878,7 @@ func (s *Service) runTmuxInject(ctx context.Context, a jobstore.AgentSession, pa
 		if res.Running {
 			return res, nil
 		}
-		return InjectResult{}, notStarted(res)
+		return InjectResult{}, notStarted(s.lang(a.ProjectKey), res)
 	}
 	if reason := injectResultReason(res); reason != "" {
 		detail := strings.TrimSpace(res.Output)
@@ -1340,9 +1340,9 @@ func (s *Service) CheckDeliverable(sid string) error {
 		// gofer-vin1). Refusing here was the second half of that bug.
 		switch {
 		case s.messenger == nil:
-			return undeliverable(ReasonNoMessenger, errors.New("传话人执行器未配置"))
+			return undeliverable(ReasonNoMessenger, errors.New(i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.no_messenger")))
 		case strings.TrimSpace(a.Runner) == "":
-			return undeliverable(ReasonNoRunner, errors.New("会话未登记执行机"))
+			return undeliverable(ReasonNoRunner, errors.New(i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.no_runner")))
 		}
 		return nil
 	}

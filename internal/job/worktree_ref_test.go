@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/testutil/wait"
 )
@@ -62,7 +63,7 @@ func TestFetchCommitFetchesFromRemote(t *testing.T) {
 	if commitPresent(t.Context(), clone, sha) {
 		t.Fatal("fixture: the clone must not have the commit before the fetch")
 	}
-	if err := fetchCommit(t.Context(), clone, sha); err != nil {
+	if err := fetchCommit(t.Context(), i18n.ZhCN, clone, sha); err != nil {
 		t.Fatalf("fetchCommit = %v, want nil", err)
 	}
 	if !commitPresent(t.Context(), clone, sha) {
@@ -84,7 +85,7 @@ func TestFetchCommitReportsUnpushedCommit(t *testing.T) {
 
 	clone := t.TempDir()
 	gitOutIn(t, clone, "clone", "-q", remote, ".")
-	err := fetchCommit(t.Context(), clone, sha)
+	err := fetchCommit(t.Context(), i18n.ZhCN, clone, sha)
 	if err == nil {
 		t.Fatal("fetchCommit of an unpushed commit = nil, want a refusal")
 	}

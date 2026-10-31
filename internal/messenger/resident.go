@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/util"
 )
@@ -33,6 +34,7 @@ type Manager struct {
 	maxAge      time.Duration // rotate it after this long (0 = unlimited)
 	processes   map[string]*process
 	stats       map[string]*runnerStats
+	langFn      func() i18n.Lang // the language of the prompts sent to the process (nil = default)
 
 	// replies is what a resident process learns when another Claude session
 	// messages IT (a target answering a web message with SendMessage): see reply.go.
@@ -50,6 +52,14 @@ func New(command string, idle time.Duration) *Manager {
 	return &Manager{command: strings.TrimSpace(command), idle: idle,
 		maxMessages: config.DefaultMessengerMaxMessages, maxAge: time.Duration(config.DefaultMessengerMaxAgeSec) * time.Second,
 		processes: make(map[string]*process), stats: make(map[string]*runnerStats)}
+}
+
+// SetLanguage sets where the language of the prompts sent to the resident process comes
+// from (the server's text language). Unset, the default language is used.
+func (m *Manager) SetLanguage(fn func() i18n.Lang) {
+	m.mu.Lock()
+	m.langFn = fn
+	m.mu.Unlock()
 }
 
 // SetRotation sets the rotation limits: a resident process that has handled

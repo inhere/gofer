@@ -32,11 +32,17 @@ var goldenData = map[string]any{
 	NameStewardToday:  StewardTodayData{Step: 2, Pending: 3},
 	NameStewardMemory: StewardMemoryData{Step: 3, Findings: 4, Remaining: 2,
 		Lines: []string{"proj · k1（rule）：a, b"}, More: 3},
-	NameStewardQuestion: StewardQuestionData{By: "human:ann", Text: "what is still open?"},
-	NameRepoBlock:       RepoBlockData{CommitPolicy: "commit policy line", MemoryHint: "memory write hint"},
-	NamePlanRules:       struct{}{},
-	NamePlanTodosFormat: PlanTodosFormatData{Fence: "gofer-todos"},
-	NameResidentOpening: ResidentOpeningData{Project: "proj-a", Name: "helper", Tag: "gofer-mail", Idle: "30m0s"},
+	NameStewardQuestion:       StewardQuestionData{By: "human:ann", Text: "what is still open?"},
+	NameRepoBlock:             RepoBlockData{CommitPolicy: "commit policy line", MemoryHint: "memory write hint"},
+	NamePlanRules:             struct{}{},
+	NamePlanTodosFormat:       PlanTodosFormatData{Fence: "gofer-todos"},
+	NameResidentOpening:       ResidentOpeningData{Project: "proj-a", Name: "helper", Tag: "gofer-mail", Idle: "30m0s"},
+	NameSummarizerInstruction: struct{}{},
+	NameSummarizerFormat:      struct{}{},
+	NameWorkflowPlan:          WorkflowPlanData{Task: "${vars.task}", Guidance: "planner guidance"},
+	NameWorkflowImplement:     WorkflowImplementData{Plan: "${steps.plan.stdout}"},
+	NameWorkflowReview:        WorkflowReviewData{Task: "${vars.task}"},
+	NameWorkflowVerify:        WorkflowVerifyData{StdoutFile: "stdout.txt", ResultDir: "${steps.reviews.result_dir}"},
 }
 
 // TestRenderGolden pins the rendered text of every template in both languages.

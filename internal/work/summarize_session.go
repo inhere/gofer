@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -98,14 +99,14 @@ func (s *Service) runSummaryAttempt(ctx context.Context, w jobstore.WorkItem, ma
 	for attempt := 0; attempt < 2; attempt++ {
 		prompt := s.buildPrompt(w, material, degraded, resumed)
 		if attempt > 0 {
-			prompt += "\n\n上一次的输出不是合法的 JSON。这一次只输出一个 JSON 对象，不要任何其它文字。"
+			prompt += "\n\n" + i18n.T(s.lang(w.ProjectKey), "work.prompt.retry_json")
 		}
 		var r OneShotResult
 		var err error
 		if resumed {
 			resumer, ok := s.oneShot.(SessionResumer)
 			if !ok {
-				return last, SummaryOut{}, errors.New("整理器没有续用会话的通道")
+				return last, SummaryOut{}, errors.New(i18n.T(s.lang(w.ProjectKey), "work.summarize.no_resume_channel"))
 			}
 			r, err = resumer.Resume(ctx, ResumeRequest{
 				JobID: session.LastJobID, Prompt: prompt, ProjectKey: project, Title: title,
@@ -130,10 +131,13 @@ func (s *Service) runSummaryAttempt(ctx context.Context, w jobstore.WorkItem, ma
 		if perr == nil {
 			return last, out, nil
 		}
+		if errors.Is(perr, ErrNoSummaryObject) {
+			perr = errors.New(i18n.T(s.lang(w.ProjectKey), "work.summarize.no_json_object"))
+		}
 		lastErr := fmt.Errorf("%w: %v", errSummaryOutput, perr)
 		if attempt == 1 {
 			return last, SummaryOut{}, lastErr
 		}
 	}
-	return last, SummaryOut{}, fmt.Errorf("%w: 没有拿到输出", errSummaryOutput)
+	return last, SummaryOut{}, fmt.Errorf("%w: %s", errSummaryOutput, i18n.T(s.lang(w.ProjectKey), "work.summarize.no_output"))
 }

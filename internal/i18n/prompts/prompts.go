@@ -71,6 +71,21 @@ const (
 	// NameResidentOpening is the opening prompt of a mailbox resident session
 	// (mail: resident.go).
 	NameResidentOpening = "resident-opening"
+	// NameSummarizerInstruction is the default instruction of the work summarizer agent
+	// (work: summarize.go).
+	NameSummarizerInstruction = "summarizer_instruction"
+	// NameSummarizerFormat is the fixed JSON output contract appended to the summarizer
+	// prompt (work: summarize.go).
+	NameSummarizerFormat = "summarizer_format"
+	// NameWorkflowPlan is the plan step of the built-in plan-implement workflow
+	// (job/workflow: templates.go).
+	NameWorkflowPlan = "workflow_plan"
+	// NameWorkflowImplement is its implement step.
+	NameWorkflowImplement = "workflow_implement"
+	// NameWorkflowReview is the review step of the built-in review-committee workflow.
+	NameWorkflowReview = "workflow_review"
+	// NameWorkflowVerify is its verifier (summary) step.
+	NameWorkflowVerify = "workflow_verify"
 )
 
 // The templates' data. Each language of a name takes the same data type, so the
@@ -159,6 +174,24 @@ type (
 	// PlanTodosFormatData feeds NamePlanTodosFormat: the info string of the fence.
 	PlanTodosFormatData struct {
 		Fence string
+	}
+	// WorkflowPlanData feeds NameWorkflowPlan: the task text (a workflow variable
+	// reference at template time) and the planner guidance that closes the prompt.
+	WorkflowPlanData struct {
+		Task, Guidance string
+	}
+	// WorkflowImplementData feeds NameWorkflowImplement: the plan the previous step wrote.
+	WorkflowImplementData struct {
+		Plan string
+	}
+	// WorkflowReviewData feeds NameWorkflowReview: the review target.
+	WorkflowReviewData struct {
+		Task string
+	}
+	// WorkflowVerifyData feeds NameWorkflowVerify: the file name each reviewer's report
+	// has and the (multi-line) result directories that hold them.
+	WorkflowVerifyData struct {
+		StdoutFile, ResultDir string
 	}
 	// ResidentOpeningData feeds NameResidentOpening: the project the session serves
 	// ("" = none), the configured agent name, the letter tag its letters arrive in and

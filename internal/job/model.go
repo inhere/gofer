@@ -5,6 +5,7 @@ package job
 
 import (
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/runner"
 )
 
@@ -1144,43 +1145,16 @@ const (
 	StatusPausedForUpdate = "paused_for_update"
 )
 
-// StatusLabelZH is a short Chinese label of a job status, for places that show the
-// status inside a sentence to a person — a delivery that never happened says WHY the
-// machine was not running its job («升级等待（新任务暂停启动）») instead of quoting a
-// status token nobody can read. Unknown values pass through unchanged.
-func StatusLabelZH(status string) string {
-	switch status {
-	case StatusQueued:
-		return "排队中"
-	case StatusRunning:
-		return "运行中"
-	case StatusAwaitingInput:
-		return "等待输入"
-	case StatusPendingInteraction:
-		return "等待交互"
-	case StatusDone:
-		return "已完成"
-	case StatusFailed:
-		return "失败"
-	case StatusCancelled:
-		return "已取消"
-	case StatusTimeout:
-		return "超时"
-	case StatusRecovering:
-		return "重启恢复中"
-	case StatusNeedsReview:
-		return "等待验收"
-	case StatusRejected:
-		return "已拒绝"
-	case StatusWaitingDir:
-		return "等待目录锁"
-	case StatusAwaitingApproval:
-		return "等待批准"
-	case StatusPausedForUpdate:
-		return "升级等待（新任务暂停启动）"
-	}
+// StatusLabelIn is a short label of a job status in lang, for places that show the status
+// inside a sentence to a person — a delivery that never happened says WHY the machine was
+// not running its job («升级等待（新任务暂停启动）» in zh-CN) instead of quoting a status
+// token nobody can read. Unknown values pass through unchanged; "" reads as unknown.
+func StatusLabelIn(lang i18n.Lang, status string) string {
 	if status == "" {
-		return "未知状态"
+		return i18n.T(lang, "job.status_blank.label")
+	}
+	if key := "job.status." + status; i18n.HasKey(lang, key) {
+		return i18n.T(lang, key)
 	}
 	return status
 }

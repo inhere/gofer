@@ -10,6 +10,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/project"
 )
 
@@ -382,7 +383,7 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 				// caps is never affected, so an in-flight/pending worker keeps taking jobs (no
 				// availability regression on workflow fan-out / cron).
 				if caps.PolicyPending {
-					return config.ProjectConfig{}, fmt.Errorf("%w: worker %q 尚未应用策略（policy_pending, rev=%d）", ErrUnknownProjectOnRunner, caps.WorkerID, caps.PolicyRev)
+					return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrUnknownProjectOnRunner, i18n.T(s.notifyLang(req.ProjectKey), "job.errors.policy_pending", "worker", fmt.Sprintf("%q", caps.WorkerID), "rev", caps.PolicyRev))
 				}
 				return config.ProjectConfig{}, fmt.Errorf("%w: project %q not on worker for runner %q", ErrUnknownProjectOnRunner, req.ProjectKey, req.Runner)
 			}

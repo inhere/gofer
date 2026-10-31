@@ -54,6 +54,6 @@ func (s *Server) handleGetReviewHints(c *rux.Context) {
 
 	c.JSON(http.StatusOK, map[string]any{
 		"id":           res.ID,
-		"review_hints": job.BuildReviewHints(diff, report),
+		"review_hints": job.BuildReviewHintsIn(s.requestLang(c), diff, report),
 	})
 }

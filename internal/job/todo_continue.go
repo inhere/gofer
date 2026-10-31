@@ -24,6 +24,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/delivery"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -36,13 +37,20 @@ const (
 
 	// Reasons of the claim step (condition 7), distinguished on purpose: a human fixing a
 	// plan needs to know whether another item took the session or this one already did.
-	continueClaimedByOther = "已被其他项续接"
-	continueClaimedBySelf  = "已由本项占用"
+	// They are catalog keys (job.continue.*): the reason text is stored as a note for
+	// people, so it is written in the plan's project language (design S3a rule 3).
+	continueClaimedByOther = "job.continue.claimed_by_other"
+	continueClaimedBySelf  = "job.continue.claimed_by_self"
 )
 
-// continueFallbackNote is what continue_note stores for a reason.
-func continueFallbackNote(reason string) string {
-	return "未接续：" + reason + "，已开新会话"
+// continueFallbackNote is what continue_note stores for a reason, in lang.
+func continueFallbackNote(lang i18n.Lang, reason string) string {
+	return i18n.T(lang, "job.continue.note", "reason", reason)
+}
+
+// continueText is the catalog text job.continue.<name> in lang.
+func continueText(lang i18n.Lang, name string, args ...any) string {
+	return i18n.T(lang, "job.continue."+name, args...)
 }
 
 // continueSubmitError reports whether a refused submit of a continuation request is of
@@ -61,7 +69,7 @@ func continueSubmitError(err error) bool {
 // baseNote is what basePredecessorBranch said about the new worktree ("" = nothing): it
 // follows the reason in the note, and the branch rides the event.
 func (s *Service) recordContinueFallback(todo jobstore.PlanTodo, projectKey, reason, baseNote, baseBranch string) {
-	if err := s.meta.SetTodoContinueNote(todo.TodoID, continueFallbackNote(reason)+baseNote); err != nil {
+	if err := s.meta.SetTodoContinueNote(todo.TodoID, continueFallbackNote(s.notifyLang(projectKey), reason)+baseNote); err != nil {
 		slog.Warn("store todo continue note", "todo_id", todo.TodoID, "err", err)
 	}
 	detail := map[string]any{"todo_id": todo.TodoID, "reason": reason}
@@ -111,7 +119,7 @@ func (s *Service) basePredecessorBranch(todo jobstore.PlanTodo, req *JobRequest)
 		return "", ""
 	}
 	req.WorktreeBase = predJob.WorktreeBranch
-	return fmt.Sprintf("；新 worktree 以前序分支 %s 为基", predJob.WorktreeBranch), predJob.WorktreeBranch
+	return continueText(s.notifyLang(req.ProjectKey), "worktree_base", "branch", predJob.WorktreeBranch), predJob.WorktreeBranch
 }
 
 // predecessorEndPoint is where the predecessor's work ended: the head of its worktree
@@ -182,72 +190,74 @@ func (s *Service) continueMaxChain(projectKey string) int {
 // slot if the submit does not stand. On any failure the slot is NOT held.
 func (s *Service) todoContinuationRequest(plan jobstore.Plan, todo jobstore.PlanTodo, normalReq JobRequest) (JobRequest, string) {
 	cfg := s.config()
+	// The reasons are stored (continue_note, the fallback event): the plan's project language.
+	lang := s.notifyLang(plan.ProjectKey)
 
 	// 1
 	pred, ok, err := s.meta.GetTodo(todo.ContinueFrom)
 	if err != nil {
-		return JobRequest{}, "读取前序项失败：" + err.Error()
+		return JobRequest{}, continueText(lang, "pred_read_failed", "error", err.Error())
 	}
 	if !ok || pred.PlanID != todo.PlanID {
-		return JobRequest{}, "前序项不存在"
+		return JobRequest{}, continueText(lang, "pred_missing")
 	}
 	if pred.Status != jobstore.TodoDone {
-		return JobRequest{}, fmt.Sprintf("前序项状态为 %s，未完成", pred.Status)
+		return JobRequest{}, continueText(lang, "pred_not_done", "status", pred.Status)
 	}
 
 	// 2
 	predJob, found, err := s.continuationPredecessorJob(pred.TodoID)
 	if err != nil {
-		return JobRequest{}, "读取前序 job 失败：" + err.Error()
+		return JobRequest{}, continueText(lang, "pred_job_read_failed", "error", err.Error())
 	}
 	if !found {
-		return JobRequest{}, "前序项没有已完成且带会话的 job"
+		return JobRequest{}, continueText(lang, "pred_no_job")
 	}
 
 	// 3
 	if todo.Assignee == agent.ExecAgentKey {
-		return JobRequest{}, "exec 不能续接会话"
+		return JobRequest{}, continueText(lang, "exec_no_resume")
 	}
 	if _, err := s.checkResume(predJob.ID, "", ResumeOptions{Agent: todo.Assignee}); err != nil {
-		return JobRequest{}, "前序会话不可续接：" + err.Error()
+		return JobRequest{}, continueText(lang, "session_not_resumable", "error", err.Error())
 	}
 
 	// 4
 	runner := config.NormalizeRunnerName(normalReq.Runner)
 	if !config.IsLocalRunnerName(runner) || config.NormalizeRunnerName(predJob.Runner) != runner || predJob.WorkerID != "" {
-		return JobRequest{}, fmt.Sprintf("runner 不同或非本机（本项 %q，前序 %q）", normalReq.Runner, predJob.Runner)
+		return JobRequest{}, continueText(lang, "runner_differs", "own", fmt.Sprintf("%q", normalReq.Runner), "pred", fmt.Sprintf("%q", predJob.Runner))
 	}
 
 	// 5
 	if todo.Cwd != "" && cleanCwd(todo.Cwd) != cleanCwd(s.resumeCwd(predJob)) {
-		return JobRequest{}, fmt.Sprintf("本项 cwd %q 与前序 job 的 %q 不同", todo.Cwd, s.resumeCwd(predJob))
+		return JobRequest{}, continueText(lang, "cwd_differs", "own", fmt.Sprintf("%q", todo.Cwd), "pred", fmt.Sprintf("%q", s.resumeCwd(predJob)))
 	}
 
 	// 6
 	if predJob.WorktreePath != "" {
 		if st, err := os.Stat(predJob.WorktreePath); err != nil || !st.IsDir() {
-			return JobRequest{}, "前序 job 的 worktree 已不存在"
+			return JobRequest{}, continueText(lang, "worktree_gone")
 		}
 		if EffectiveDeliveryMode(cfg, requestOfJob(predJob)) != delivery.ModeNone {
-			return JobRequest{}, "前序 job 需要自动交付"
+			return JobRequest{}, continueText(lang, "needs_delivery")
 		}
 	}
 
 	// 7
 	claimed, err := s.meta.ClaimTodoContinuation(pred.TodoID, todo.TodoID)
 	if err != nil {
-		return JobRequest{}, "占用续接位失败：" + err.Error()
+		return JobRequest{}, continueText(lang, "claim_failed", "error", err.Error())
 	}
 	if !claimed {
 		if fresh, ok, gerr := s.meta.GetTodo(pred.TodoID); gerr == nil && ok && fresh.ContinuedBy == todo.TodoID {
-			return JobRequest{}, continueClaimedBySelf
+			return JobRequest{}, i18n.T(lang, continueClaimedBySelf)
 		}
-		return JobRequest{}, continueClaimedByOther
+		return JobRequest{}, i18n.T(lang, continueClaimedByOther)
 	}
 	// Every condition below can still fail: give the slot back when one does.
-	cp, reason := s.continuationRemainder(cfg, todo, normalReq, predJob)
+	cp, reason := s.continuationRemainder(lang, cfg, todo, normalReq, predJob)
 	if reason == "" {
-		req, why := s.assembleContinuation(cfg, pred, predJob, cp)
+		req, why := s.assembleContinuation(lang, cfg, pred, predJob, cp)
 		if why == "" {
 			return req, ""
 		}
@@ -267,11 +277,11 @@ type continuationPlan struct {
 
 // continuationRemainder evaluates conditions 8 to 10, which come after the slot is
 // claimed. It returns the reason one fails, or "" with the plan for the assembly.
-func (s *Service) continuationRemainder(cfg *config.Config, todo jobstore.PlanTodo, normalReq JobRequest, predJob JobResult) (continuationPlan, string) {
+func (s *Service) continuationRemainder(lang i18n.Lang, cfg *config.Config, todo jobstore.PlanTodo, normalReq JobRequest, predJob JobResult) (continuationPlan, string) {
 	// 8
 	if limit := s.continueMaxChain(normalReq.ProjectKey); limit > 0 {
 		if n := s.continuationChainLength(predJob); n >= limit {
-			return continuationPlan{}, fmt.Sprintf("已连续接续 %d 次", n)
+			return continuationPlan{}, continueText(lang, "chain_limit", "n", n)
 		}
 	}
 
@@ -281,21 +291,21 @@ func (s *Service) continuationRemainder(cfg *config.Config, todo jobstore.PlanTo
 	if eff.Template != "" {
 		tpl, err := s.renderTemplate(cfg, &eff)
 		if err != nil {
-			return continuationPlan{}, "任务书渲染失败：" + err.Error()
+			return continuationPlan{}, continueText(lang, "template_failed", "error", err.Error())
 		}
 		applyTemplateMeta(&eff, tpl)
 	}
 	chk, err := s.checkResume(predJob.ID, "", ResumeOptions{Agent: todo.Assignee, Model: eff.Model, Budget: eff.Budget})
 	if err != nil {
-		return continuationPlan{}, "配置不支持续接：" + err.Error()
+		return continuationPlan{}, continueText(lang, "config_unsupported", "error", err.Error())
 	}
 	if !resumable(chk.Agent) {
-		return continuationPlan{}, fmt.Sprintf("agent %q 没有可用的会话续接方式", chk.TargetAgent)
+		return continuationPlan{}, continueText(lang, "agent_no_resume", "agent", fmt.Sprintf("%q", chk.TargetAgent))
 	}
 
 	// 10
 	if eff.ReadOnly != predJob.ReadOnly {
-		return continuationPlan{}, fmt.Sprintf("只读设置不一致（本项 %t，前序 %t）", eff.ReadOnly, predJob.ReadOnly)
+		return continuationPlan{}, continueText(lang, "readonly_mismatch", "own", fmt.Sprint(eff.ReadOnly), "pred", fmt.Sprint(predJob.ReadOnly))
 	}
 	return continuationPlan{eff: eff, chk: chk}, ""
 }
@@ -315,7 +325,7 @@ func (s *Service) continuationRemainder(cfg *config.Config, todo jobstore.PlanTo
 // default prompt) and the item's own acceptance, delivery contract and time-limit line.
 // Rules, tracker-prime, the tools section and the skills list are not repeated — the
 // session has them. A non-empty reason means the request could not be built.
-func (s *Service) assembleContinuation(cfg *config.Config, pred jobstore.PlanTodo, predJob JobResult, cp continuationPlan) (JobRequest, string) {
+func (s *Service) assembleContinuation(lang i18n.Lang, cfg *config.Config, pred jobstore.PlanTodo, predJob JobResult, cp continuationPlan) (JobRequest, string) {
 	req, chk := cp.eff, cp.chk
 
 	// The task book is rendered into the prompt already; Submit must not render it again.
@@ -374,7 +384,7 @@ func (s *Service) assembleContinuation(cfg *config.Config, pred jobstore.PlanTod
 		req, err = s.cliCarrierRequest(req, predJob, chk.Agent, chk.TargetAgent, prompt, nil, false, false)
 	}
 	if err != nil {
-		return JobRequest{}, "续接请求组装失败：" + err.Error()
+		return JobRequest{}, continueText(lang, "assemble_failed", "error", err.Error())
 	}
 	return req, ""
 }

@@ -2,6 +2,7 @@ package job
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -146,8 +148,8 @@ func sessionRecordWasAwaiting(raw string) bool {
 	return state.IdleDeadlineAt > 0
 }
 
-func remoteSessionWorkerRestartError(jobID string) error {
-	return fmt.Errorf("worker 重启，持续会话已结束；可用 gofer job resume %s 以 session/load 接续上下文", jobID)
+func remoteSessionWorkerRestartError(lang i18n.Lang, jobID string) error {
+	return errors.New(i18n.T(lang, "job.errors.worker_restarted", "job", jobID))
 }
 
 func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJob, replayed bool) {

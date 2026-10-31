@@ -1526,3 +1526,12 @@ func cutOnRune(s string, n int) string {
 	}
 	return s[:n]
 }
+
+// sessionLang is the language of the text stored on a session's messages: the session's
+// project language (else the server's when the session or its project is unknown).
+func (s *Service) sessionLang(sid string) i18n.Lang {
+	if a, ok, err := s.store.GetAgentSession(sid); err == nil && ok {
+		return s.lang(a.ProjectKey)
+	}
+	return s.lang("")
+}

@@ -185,13 +185,15 @@ func (s *Service) SessionTail(ctx context.Context, sid string, maxBytes int64) (
 	}
 	maxBytes = min(maxBytes, MaxSessionTailBytes)
 	out := SessionTailResult{SessionID: a.SessionID, Agent: a.Agent, Source: "fallback"}
+	// The text is read by the steward agent, so it follows the session's project language.
+	lang := s.lang(a.ProjectKey)
 	if s.transcripts != nil && strings.TrimSpace(a.Transcript) != "" {
 		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		raw, rerr := s.transcripts.ReadTail(rctx, a, maxBytes)
 		cancel()
 		if rerr == nil {
 			turns := transcript.Parse(s.dialectFor(a.Agent), raw)
-			if t := transcript.Format(turns, transcript.FormatOpts{}); strings.TrimSpace(t) != "" {
+			if t := transcript.Format(turns, transcript.FormatOpts{Lang: lang}); strings.TrimSpace(t) != "" {
 				out.Source, out.Text = "transcript", clipRunes(t, tailTextMaxRunes)
 				return out, nil
 			}
@@ -199,10 +201,10 @@ func (s *Service) SessionTail(ctx context.Context, sid string, maxBytes int64) (
 	}
 	var b strings.Builder
 	if m := strings.TrimSpace(a.LastMessage); m != "" {
-		b.WriteString("会话最后一条消息：\n" + clipRunes(m, 3000) + "\n\n")
+		b.WriteString(i18n.T(lang, "work.prompt.last_message") + "\n" + clipRunes(m, 3000) + "\n\n")
 	}
 	if p := strings.TrimSpace(a.ProgressText); p != "" {
-		b.WriteString("会话进度行：" + clipRunes(p, 500) + "\n")
+		b.WriteString(i18n.T(lang, "work.prompt.progress", "text", clipRunes(p, 500)) + "\n")
 	}
 	out.Text = strings.TrimSpace(b.String())
 	return out, nil

@@ -16,6 +16,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -263,7 +264,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	tm.mark("validate")
 	if req.Session {
 		if remote && !isWorkerRunner(cfg, req.Runner) {
-			return JobResult{}, fmt.Errorf("%w: 持续会话目前仅支持本机 runner", ErrInvalidRequest)
+			return JobResult{}, fmt.Errorf("%w: %s", ErrInvalidRequest, i18n.T(s.notifyLang(req.ProjectKey), "job.errors.session_local_only"))
 		}
 		if req.Interactive || req.IdleTimeoutSec < 0 || req.MaxSessionSec < 0 {
 			return JobResult{}, fmt.Errorf("%w: ACP session requires non-interactive mode and non-negative session timeouts", ErrInvalidRequest)
@@ -417,7 +418,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		}
 		if workerID != "" && s.workers != nil {
 			if caps, online := s.workers.Candidate(workerID); online && caps.ProtocolKnown && caps.ProtocolVersion < wsproto.SessionJobMinProtocolVersion {
-				return JobResult{}, fmt.Errorf("%w: worker %s 协议 v%d 不支持持续会话，请升级", ErrInvalidRequest, workerID, caps.ProtocolVersion)
+				return JobResult{}, fmt.Errorf("%w: %s", ErrInvalidRequest, i18n.T(s.notifyLang(req.ProjectKey), "job.errors.session_protocol", "worker", workerID, "version", caps.ProtocolVersion))
 			}
 		}
 	}
@@ -587,7 +588,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// (typically a worker) has never seen it, and fail with the reason when the
 			// remote does not have it either (D3: only pushed commits can be checked out
 			// remotely).
-			if ferr := fetchCommit(wtCtx, workDir, req.Ref); ferr != nil {
+			if ferr := fetchCommit(wtCtx, s.notifyLang(req.ProjectKey), workDir, req.Ref); ferr != nil {
 				wtCancel()
 				dropDir()
 				return JobResult{}, ferr

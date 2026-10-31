@@ -874,6 +874,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// gofer-li3t: bound the resident process's context — the next message after
 		// messenger_max_messages / messenger_max_age_sec starts a fresh one.
 		resident.SetRotation(messaging.MaxMessages(), messaging.MaxAge())
+		resident.SetLanguage(func() i18n.Lang { return s.textLanguage("") })
 		// gofer-6er0 fallback: a session that answers a web message with SendMessage
 		// reaches this resident messenger; its verbatim text becomes the session's
 		// reply unless the session's own hook already reported it (deduped).

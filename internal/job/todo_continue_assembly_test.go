@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/wait"
 )
@@ -329,7 +330,7 @@ func TestTodoContinueNoteClearedOnSuccess(t *testing.T) {
 	s, _ := newContinueService(t)
 	seedContinuePlan(t, s, nil)
 	seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, nil)
-	if err := s.meta.SetTodoContinueNote(contSucc, continueFallbackNote("old reason")); err != nil {
+	if err := s.meta.SetTodoContinueNote(contSucc, continueFallbackNote(i18n.ZhCN, "old reason")); err != nil {
 		t.Fatal(err)
 	}
 	d, err := s.DispatchTodo(contSucc, "")

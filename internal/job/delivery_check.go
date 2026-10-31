@@ -22,6 +22,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/i18n/prompts"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -525,23 +526,35 @@ func countFailedItems(items []CheckItem) int {
 // commentDeliveryCheck leaves one short conclusion on the job. resumedID is the
 // continuation of a failed check ("" = none was started).
 func (s *Service) commentDeliveryCheck(snap JobResult, d checkDecision, resumedID string) {
+	// The comment is stored on the job: it speaks the project's language (design S3a rule 3).
+	s.insertSystemComment("job", snap.ID, checkCommentBody(s.notifyLang(snap.ProjectKey), snap, d, resumedID))
+}
+
+// checkCommentBody is the text of the conclusion comment, in lang.
+func checkCommentBody(lang i18n.Lang, snap JobResult, d checkDecision, resumedID string) string {
+	t := func(key string, args ...any) string { return i18n.T(lang, "job.check_comment."+key, args...) }
+	summary := truncateUTF8(d.stored.Summary, checkCommentSummary)
+	failed := countFailedItems(d.stored.Items)
 	var body string
 	switch {
 	case d.err != "":
-		body = fmt.Sprintf("交付核验未完成（保持原状态）：%s", d.err)
+		body = t("unfinished", "error", d.err)
 	case d.stored.Verdict == "pass":
-		body = fmt.Sprintf("交付核验第 %d 轮：合格。%s", d.stored.Round, truncateUTF8(d.stored.Summary, checkCommentSummary))
+		body = t("pass", "round", d.stored.Round, "summary", summary)
 	case resumedID != "":
-		body = fmt.Sprintf("交付核验第 %d 轮：不合格（%d 项未满足），已自动续接 %s（第 %d/%d 次）。%s",
-			d.stored.Round, countFailedItems(d.stored.Items), resumedID, snap.CheckResumeCount, d.max, truncateUTF8(d.stored.Summary, checkCommentSummary))
+		body = t("resumed", "round", d.stored.Round, "failed", failed, "job", resumedID,
+			"n", snap.CheckResumeCount, "max", d.max, "summary", summary)
 	case d.action == checkActionResume:
-		body = fmt.Sprintf("交付核验第 %d 轮：不合格（%d 项未满足），自动续接未能提交（%s），转入待验收。%s",
-			d.stored.Round, countFailedItems(d.stored.Items), truncateUTF8(d.resumeErr, checkCommentSummary), truncateUTF8(d.stored.Summary, checkCommentSummary))
+		body = t("resume_failed", "round", d.stored.Round, "failed", failed,
+			"error", truncateUTF8(d.resumeErr, checkCommentSummary), "summary", summary)
 	default:
-		body = fmt.Sprintf("交付核验第 %d 轮：不合格（%d 项未满足），不再自动续接，转入待验收。%s",
-			d.stored.Round, countFailedItems(d.stored.Items), truncateUTF8(d.stored.Summary, checkCommentSummary))
+		body = t("failed", "round", d.stored.Round, "failed", failed, "summary", summary)
 	}
-	s.insertSystemComment("job", snap.ID, body)
+	if summary == "" && d.err == "" {
+		// A language that puts a space before the summary must not leave it dangling.
+		body = strings.TrimRight(body, " ")
+	}
+	return body
 }
 
 func withCheckAction(c StoredCheck, action string) StoredCheck {

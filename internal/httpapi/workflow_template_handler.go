@@ -40,7 +40,7 @@ func (s *Server) handleWorkflowTemplateSource(c *rux.Context) {
 		return
 	}
 	projectDir, globalDir := s.workflowTemplateDirs(c.Query("project"))
-	src, err := workflow.ReadWorkflowTemplateSource(c.Param("name"), projectDir, globalDir)
+	src, err := workflow.ReadWorkflowTemplateSourceIn(s.requestLang(c), c.Param("name"), projectDir, globalDir)
 	if err != nil {
 		writeTemplateError(c, "workflow template not readable", err)
 		return

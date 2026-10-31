@@ -16,6 +16,8 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Turn roles.
@@ -404,6 +406,9 @@ type FormatOpts struct {
 	// MaxTurnRunes caps one turn's text (default 2000); an over-long turn keeps its head
 	// and its tail (the conclusion is usually at the end).
 	MaxTurnRunes int
+	// Lang is the language of the role labels and the elision marker (the text is read
+	// by an agent). The zero value is i18n.Default.
+	Lang i18n.Lang
 }
 
 func (o FormatOpts) withDefaults() FormatOpts {
@@ -419,14 +424,14 @@ func (o FormatOpts) withDefaults() FormatOpts {
 	return o
 }
 
-func clip(s string, max int) string {
+func clip(lang i18n.Lang, s string, max int) string {
 	r := []rune(s)
 	if len(r) <= max {
 		return s
 	}
 	head := max * 2 / 5
 	tail := max - head
-	return string(r[:head]) + "\n…（中间省略）…\n" + string(r[len(r)-tail:])
+	return string(r[:head]) + "\n" + i18n.T(lang, "work.transcript.elided") + "\n" + string(r[len(r)-tail:])
 }
 
 // Format renders the newest turns as plain text, oldest first, within the bounds.
@@ -435,16 +440,20 @@ func Format(turns []Turn, o FormatOpts) string {
 	if len(turns) > o.MaxTurns {
 		turns = turns[len(turns)-o.MaxTurns:]
 	}
-	labels := map[string]string{RoleUser: "用户", RoleAssistant: "助手", RoleTool: "工具"}
+	labels := map[string]string{
+		RoleUser:      i18n.T(o.Lang, "work.transcript.role_user"),
+		RoleAssistant: i18n.T(o.Lang, "work.transcript.role_assistant"),
+		RoleTool:      i18n.T(o.Lang, "work.transcript.role_tool"),
+	}
 	parts := make([]string, 0, len(turns))
 	for _, t := range turns {
 		txt := t.Text
 		if t.Role == RoleTool {
 			txt = oneLine(txt, 400)
 		} else {
-			txt = clip(txt, o.MaxTurnRunes)
+			txt = clip(o.Lang, txt, o.MaxTurnRunes)
 		}
-		parts = append(parts, labels[t.Role]+"：\n"+txt)
+		parts = append(parts, labels[t.Role]+"\n"+txt)
 	}
 	// Drop the oldest until it fits.
 	for len(parts) > 1 {

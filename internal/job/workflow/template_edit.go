@@ -9,6 +9,7 @@ import (
 
 	"github.com/goccy/go-yaml"
 
+	"github.com/inhere/gofer/internal/i18n"
 	job "github.com/inhere/gofer/internal/job"
 )
 
@@ -76,9 +77,15 @@ type TemplateWriteResult struct {
 	FallsBackTo      string `json:"falls_back_to,omitempty"`
 }
 
-// BuiltinWorkflowTemplate returns the builtin template of that name.
+// BuiltinWorkflowTemplate returns the builtin template of that name (prompts in the
+// default language; callers that show or run the prompts use BuiltinWorkflowTemplateIn).
 func BuiltinWorkflowTemplate(name string) (WorkflowTemplate, bool) {
-	for _, tpl := range BuiltinWorkflowTemplates() {
+	return BuiltinWorkflowTemplateIn(i18n.Default, name)
+}
+
+// BuiltinWorkflowTemplateIn returns the builtin template of that name, its prompts in lang.
+func BuiltinWorkflowTemplateIn(lang i18n.Lang, name string) (WorkflowTemplate, bool) {
+	for _, tpl := range BuiltinWorkflowTemplatesIn(lang) {
 		if tpl.Name == name {
 			return tpl, true
 		}
@@ -121,8 +128,13 @@ func findTemplateFile(dir, name string) string {
 
 // ReadWorkflowTemplateSource returns the raw text of the named template, resolved in the
 // same order a run uses: project `.gofer/workflows`, global `<config-dir>/workflows`,
-// builtin.
+// builtin. A builtin's prompts are in the default language (ReadWorkflowTemplateSourceIn).
 func ReadWorkflowTemplateSource(name, projectDir, globalDir string) (TemplateSource, error) {
+	return ReadWorkflowTemplateSourceIn(i18n.Default, name, projectDir, globalDir)
+}
+
+// ReadWorkflowTemplateSourceIn is ReadWorkflowTemplateSource with the builtin's prompts in lang.
+func ReadWorkflowTemplateSourceIn(lang i18n.Lang, name, projectDir, globalDir string) (TemplateSource, error) {
 	if err := CheckTemplateName(name); err != nil {
 		return TemplateSource{}, err
 	}
@@ -140,7 +152,7 @@ func ReadWorkflowTemplateSource(name, projectDir, globalDir string) (TemplateSou
 			Shadows: ShadowedTemplateSources(name, projectDir, globalDir)[i],
 		}, nil
 	}
-	tpl, ok := BuiltinWorkflowTemplate(name)
+	tpl, ok := BuiltinWorkflowTemplateIn(lang, name)
 	if !ok {
 		return TemplateSource{}, fmt.Errorf("%w: %q", ErrTemplateNotFound, name)
 	}

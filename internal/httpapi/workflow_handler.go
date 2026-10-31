@@ -95,7 +95,7 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 				}
 			}
 		}
-		spec, err = workflow.ResolveWorkflowTemplate(name, vars, projectDir, globalDir)
+		spec, err = workflow.ResolveWorkflowTemplateIn(s.textLanguage(projectKey), name, vars, projectDir, globalDir)
 		if err != nil {
 			writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
 			return
@@ -193,7 +193,7 @@ func (s *Server) handleListWorkflowTemplates(c *rux.Context) {
 		return
 	}
 	projectDir, globalDir := s.workflowTemplateDirs(c.Query("project"))
-	templates := workflow.LookupWorkflowTemplates(projectDir, globalDir)
+	templates := workflow.LookupWorkflowTemplatesIn(s.requestLang(c), projectDir, globalDir)
 	// Runs / last_run count only the runs this caller may list (own runs without
 	// job.read.others, inside the project ceiling).
 	stats, err := s.workflow.WorkflowTemplateStats(s.workflowVisibility(c))
@@ -243,7 +243,7 @@ func (s *Server) handleRenderWorkflowTemplate(c *rux.Context) {
 		return
 	}
 	projectDir, globalDir := s.workflowTemplateDirs(req.Vars["project"])
-	spec, err := workflow.ResolveWorkflowTemplate(c.Param("name"), req.Vars, projectDir, globalDir)
+	spec, err := workflow.ResolveWorkflowTemplateIn(s.textLanguage(req.Vars["project"]), c.Param("name"), req.Vars, projectDir, globalDir)
 	if err != nil {
 		writeError(c, http.StatusBadRequest, "workflow template rejected", err.Error())
 		return

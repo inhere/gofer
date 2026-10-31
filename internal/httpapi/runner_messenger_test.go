@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/messenger"
@@ -278,7 +279,7 @@ func TestRunnerMessengerAgentsWorkerDispatchesListOp(t *testing.T) {
 	}
 	select {
 	case d := <-lr.got:
-		if d == nil || d.Op != "list_agents" || len(d.Command) != 3 || d.Command[2] != messenger.ListAgentsPrompt {
+		if d == nil || d.Op != "list_agents" || len(d.Command) != 3 || d.Command[2] != messenger.ListAgentsPromptIn(i18n.Default) {
 			t.Fatalf("forwarded messenger dispatch = %+v", d)
 		}
 	default:

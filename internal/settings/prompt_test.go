@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/gookit/goutil/x/assert"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 func TestChoosePrompt(t *testing.T) {
@@ -16,10 +18,22 @@ func TestChoosePrompt(t *testing.T) {
 }
 
 func TestComposePrompt(t *testing.T) {
-	assert.Eq(t, "base", ComposePrompt("base", ""))
-	assert.Eq(t, "base", ComposePrompt("base", "  \n"))
-	assert.Eq(t, "base\n\n"+ExtraHeading+"\nmore", ComposePrompt("base", "\nmore\n"))
+	assert.Eq(t, "base", ComposePrompt(i18n.ZhCN, "base", ""))
+	assert.Eq(t, "base", ComposePrompt(i18n.ZhCN, "base", "  \n"))
+	assert.Eq(t, "base\n\n"+ExtraHeadingIn(i18n.ZhCN)+"\nmore", ComposePrompt(i18n.ZhCN, "base", "\nmore\n"))
 	// A trailing newline of the body does not leave a blank line under it.
-	assert.Eq(t, "base\n\n"+ExtraHeading+"\nmore", ComposePrompt("base\n", "more"))
-	assert.True(t, strings.HasSuffix(ComposePrompt("base", "more"), "more"))
+	assert.Eq(t, "base\n\n"+ExtraHeadingIn(i18n.ZhCN)+"\nmore", ComposePrompt(i18n.ZhCN, "base\n", "more"))
+	assert.True(t, strings.HasSuffix(ComposePrompt(i18n.ZhCN, "base", "more"), "more"))
+}
+
+// TestExtraHeadingFollowsLanguage pins the zh-CN heading to the literal it was before it
+// moved into the catalog, and checks the English one carries no CJK.
+func TestExtraHeadingFollowsLanguage(t *testing.T) {
+	assert.Eq(t, "## 使用者补充", ExtraHeadingIn(i18n.ZhCN))
+	en := ExtraHeadingIn(i18n.EN)
+	assert.True(t, strings.HasPrefix(en, "## ") && en != ExtraHeadingIn(i18n.ZhCN))
+	for _, r := range en {
+		assert.False(t, r >= 0x4e00 && r <= 0x9fff, "CJK in the English heading")
+	}
+	assert.Eq(t, "base\n\n"+en+"\nmore", ComposePrompt(i18n.EN, "base", "more"))
 }

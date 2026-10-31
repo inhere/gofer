@@ -12,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/project"
@@ -285,20 +286,29 @@ func (x sessionInjector) gaveUp(initial job.JobResult) sessionrelay.InjectResult
 		return sessionrelay.InjectResult{JobID: cur.ID, ExitCode: -1, Running: true, Status: cur.Status}
 	}
 	return sessionrelay.InjectResult{JobID: cur.ID, ExitCode: -1, Status: cur.Status,
-		StatusDetail: unstartedDetail(cur)}
+		StatusDetail: unstartedDetail(x.textLang(cur.ProjectKey), cur)}
 }
 
 // unstartedDetail explains a job that never started in one line for the message's
-// 「未送达」 reason: its status in the human's language, plus the job's own error text when
-// it has one. The status carries the answer a reader needs — a delivery job parked by an
-// update waiting for idle reads 「升级等待（新任务暂停启动）」，not an exit code nobody
-// produced.
-func unstartedDetail(out job.JobResult) string {
-	detail := job.StatusLabelZH(out.Status)
+// 「未送达」 reason: its status in the human's language (lang), plus the job's own error
+// text when it has one. The status carries the answer a reader needs — a delivery job
+// parked by an update waiting for idle reads 「升级等待（新任务暂停启动）」 in zh-CN, not an
+// exit code nobody produced.
+func unstartedDetail(lang i18n.Lang, out job.JobResult) string {
+	detail := job.StatusLabelIn(lang, out.Status)
 	if reason := strings.TrimSpace(out.Error); reason != "" {
-		return detail + "：" + reason
+		return i18n.T(lang, "httpapi.relay_status_detail", "status", detail, "reason", reason)
 	}
 	return detail
+}
+
+// textLang is the language of the delivery detail stored on a message of projectKey: the
+// project's, else the server's (the detail is stored, so no request language applies).
+func (x sessionInjector) textLang(projectKey string) i18n.Lang {
+	if x.projects != nil {
+		return x.projects.Config().LanguageFor(projectKey)
+	}
+	return i18n.Default
 }
 
 // deliveryProject resolves the project a session delivery runs in: the session's own

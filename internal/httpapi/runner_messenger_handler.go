@@ -183,17 +183,18 @@ func (x sessionInjector) listWorkerAgents(ctx context.Context, runner string, pr
 	keys := append([]string(nil), projects...)
 	sort.Strings(keys)
 	timeout := x.timeout()
+	listPrompt := x.resident.ListAgentsPrompt()
 	var lastErr error
 	var jobID string
 	for _, project := range keys {
 		out, err := x.jobs.Submit(job.JobRequest{
 			ProjectKey: project, Agent: agent.ExecAgentKey, Runner: runner,
-			Cmd: []string{command, "-p", messenger.ListAgentsPrompt}, Cwd: ".", Title: "messenger · 列出可见会话",
+			Cmd: []string{command, "-p", listPrompt}, Cwd: ".", Title: "messenger · 列出可见会话",
 			Tags: []string{job.MessengerJobTag}, Env: map[string]string{"GOFER_MESSENGER": "1"},
 			MessengerMeta: &job.MessengerMeta{TargetSession: "(列出可见会话)", Channel: "resident"},
 			TimeoutSec:    int(timeout / time.Second), EnvDenyExtra: []string{"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"},
 			Messenger: &runnerpkg.MessengerDispatch{
-				Op: "list_agents", Command: []string{command, "-p", messenger.ListAgentsPrompt},
+				Op: "list_agents", Command: []string{command, "-p", listPrompt},
 				TimeoutSec: int(timeout / time.Second), IdleSec: int(x.messengerIdle / time.Second),
 			},
 		})

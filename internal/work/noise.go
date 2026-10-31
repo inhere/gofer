@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/settings"
 )
@@ -161,8 +162,8 @@ func (s *Service) ShortSession(a jobstore.AgentSession, now time.Time) (string, 
 
 // promptText composes one prompt from its two setting keys: the replacement (else def),
 // then the operator's extra block (settings.ComposePrompt).
-func (s *Service) promptText(replaceKey, extraKey, def string) string {
-	return settings.ComposePrompt(settings.ChoosePrompt(def, s.settingString(replaceKey)), s.settingString(extraKey))
+func (s *Service) promptText(lang i18n.Lang, replaceKey, extraKey, def string) string {
+	return settings.ComposePrompt(lang, settings.ChoosePrompt(def, s.settingString(replaceKey)), s.settingString(extraKey))
 }
 
 // DropShortItems removes the items whose current sessions are ALL short-lived: the steward

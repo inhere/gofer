@@ -50,7 +50,7 @@ func TestInjectSessionGivesUpOnAnUnstartedJob(t *testing.T) {
 	if res.Status != job.StatusPausedForUpdate {
 		t.Fatalf("res.Status = %q, want %q", res.Status, job.StatusPausedForUpdate)
 	}
-	if !strings.HasPrefix(res.StatusDetail, job.StatusLabelZH(job.StatusPausedForUpdate)) {
+	if !strings.HasPrefix(res.StatusDetail, job.StatusLabelIn(s.textLanguage(""), job.StatusPausedForUpdate)) {
 		t.Fatalf("res.StatusDetail = %q, want the status in the human's language", res.StatusDetail)
 	}
 	// Withdrawn: nothing can arrive later.
