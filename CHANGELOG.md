@@ -19,6 +19,11 @@
 
 - **web 工作流页改为「工作流列表」（gofer-sg61）**：`/workflows` 列出内置 / 全局 / 项目模板，每项显示来源徽标、说明、变量、最近一次执行的状态与时间、累计执行次数，可运行、查看 YAML（带文件路径）、看执行记录。`/workflows/templates/<名>` 是工作流详情（有 `config.write` 时可编辑 / 删除全局 / 项目模板，删除二次确认并说明回落到哪一层），内嵌最近的执行记录。原执行记录列表迁到 `/workflows/runs`，支持 `?template=<名>` 过滤；`/workflows/<id>` 单次执行详情不变，并标出来源工作流。
 
+### 修复
+
+- **hub 的临时检出清扫不再删除 worker 正在跑的 `ref:` 检出**：hub 与 worker 共用同一个仓库目录（如容器 worker 挂载 hub 的检出）但各有自己的 job 库，hub 的定时清扫看不到 worker 的 job 行，把它当成「已被清理的遗留」删掉，运行中的 job 报 `no such file`。现在临时检出会记下创建它的服务（git 管理目录内的 `gofer-owner`，不进工作树），清扫只处理自己创建的或没有记录的旧检出。
+- **交互记录的终态不再被迟到的 pending 覆盖**：job 已结束、已答复，列表里的交互偶发仍显示 `pending`。交互状态只往前走，answered / expired / cancelled 不会被 pending 写回。
+
 ## [0.205.1] - 2026-10-31
 
 ### 修复

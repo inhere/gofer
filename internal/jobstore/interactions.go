@@ -74,6 +74,11 @@ func scanInteraction(sc rowScanner) (InteractionRecord, error) {
 // so the table keeps a single, latest row per interaction — the DB equivalent of
 // folding interactions.jsonl. Writes go through s.writeMu (like UpsertJob) so
 // SQLite never sees two concurrent writers and cannot return SQLITE_BUSY.
+//
+// Status only moves forward: a `pending` snapshot never overwrites a row that already left
+// pending (answered / expired / cancelled). The job service persists snapshots outside its
+// lock, so a stale pending write can arrive after the answer's (gofer-2xaz); the guard
+// lives here because every writer shares it.
 func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 	defer s.emit(Change{Kind: ChangeInteraction, ID: rec.JobID})
 	if rec.ID == "" {
@@ -98,7 +103,8 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
     needs_human=excluded.needs_human,
     tool_call_json=excluded.tool_call_json,
     policy_hint=excluded.policy_hint,
-    expires_at=excluded.expires_at`
+    expires_at=excluded.expires_at
+  WHERE interactions.status = 'pending' OR excluded.status <> 'pending'`
 	noted := false
 	defer func() { // after the unlock below
 		if noted {

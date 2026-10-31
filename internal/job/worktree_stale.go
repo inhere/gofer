@@ -160,6 +160,11 @@ func (s *Service) sweepProjectTempCheckouts(ctx context.Context, projectKey, top
 			if branch, isRepo := checkoutBranch(ctx, path); isRepo && branch != "" {
 				continue
 			}
+			if s.foreignCheckout(ctx, top, path) {
+				// Another service (a worker sharing this repository) created it and its
+				// job rows are not in our store: its sweep reclaims it, not ours.
+				continue
+			}
 			cctx, cancel := context.WithTimeout(ctx, worktreeTimeout)
 			rmErr := removeTempCheckout(cctx, &worktreeRef{Path: path, Top: top, Temp: true})
 			cancel()
