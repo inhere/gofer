@@ -13,6 +13,7 @@
 
 ### 新增
 
+- **服务端生成的显示文本按请求语言（i18n 阶段 3 之一）**：httpapi 解析请求头 `Accept-Language`（按 q 值取第一个认得的语言），认不得或没带时用 `server.language`（未配置即 auto），结果放进请求 context（`i18n.WithLang` / `i18n.FromContext`）；web 的所有请求（API、SSE、附件、换 ws ticket）带上当前界面语言。首个接线的是 `GET /v1/sessions/{sid}/takeover-plan` 的说明文字：web 切到英文就是英文；WebSocket 连接本身带不了请求头，暂不带语言。其余服务端文本逐步迁移。
 - **群发邮件的收件人表补「送达时间」与「是否已回复」**：`GET /v1/mail/{id}` 的 `broadcast.recipients[]` 每行新增 `delivered_at` 与 `replied`；`gofer session mail read` 与 web 信箱的收件人状态条据此显示每个收件人的送达时间和是否已回复（中英文案）。表的拼装从 httpapi 移到 mail 服务层（`Service.BroadcastSummary`）。
 
 ### 修复

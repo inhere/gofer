@@ -12,7 +12,7 @@ import (
 
 // handleSessionTakeoverPlan is the dry run of a wake-up (GET
 // /v1/sessions/{sid}/takeover-plan): can a new process continue this session, and
-// if not, why — in plain Chinese. The answer is always 200 for a known session;
+// if not, why — in the request's language (Accept-Language, else server.language). The answer is always 200 for a known session;
 // "cannot" is data (can=false + reason), not an error.
 func (s *Server) handleSessionTakeoverPlan(c *rux.Context) {
 	if !s.relayReady(c) {
@@ -22,7 +22,7 @@ func (s *Server) handleSessionTakeoverPlan(c *rux.Context) {
 		s.denySessionAction(c, authz.PermSessionReadOthers)
 		return
 	}
-	plan, err := s.relay.PlanResume(c.Param("sid"))
+	plan, err := s.relay.PlanResumeIn(s.requestLang(c), c.Param("sid"))
 	if err != nil {
 		writeError(c, relayStatus(err), "takeover plan failed", err.Error())
 		return

@@ -1,6 +1,7 @@
 package i18n
 
 import (
+	"context"
 	"io/fs"
 	"path"
 	"runtime"
@@ -66,6 +67,8 @@ func TestFromAcceptLanguage(t *testing.T) {
 		"de-DE":                          "",
 		"":                               "",
 		"en-GB;q=0.4,en-US;q=0.6,zh;q=0": EN,
+		"zh-CN;q=0":                      "",
+		"zh-CN;q=0,en;q=0.1":             EN,
 	}
 	for in, want := range cases {
 		if got := FromAcceptLanguage(in); got != want {
@@ -300,5 +303,37 @@ func TestFromEnvVarIgnoresTheSystemLocale(t *testing.T) {
 	t.Setenv(EnvLanguageVar, "english")
 	if got := FromEnvVar(); got != EN {
 		t.Fatalf("FromEnvVar() = %q with GOFER_LANG=english, want %q", got, EN)
+	}
+}
+
+// TestLangContext pins the request-language carrier: a stored language comes
+// back canonical, an empty / unknown one stores nothing, and a bare ctx answers "".
+func TestLangContext(t *testing.T) {
+	t.Parallel()
+	bg := context.Background()
+	if got := FromContext(bg); got != "" {
+		t.Errorf("FromContext(bare) = %q, want empty", got)
+	}
+	if got := FromContext(nil); got != "" { //nolint:staticcheck // nil ctx is tolerated on purpose
+		t.Errorf("FromContext(nil) = %q, want empty", got)
+	}
+	if got := FromContext(WithLang(bg, "en_US")); got != EN {
+		t.Errorf("FromContext(WithLang(en_US)) = %q, want %q", got, EN)
+	}
+	if got := FromContext(WithLang(bg, ZhCN)); got != ZhCN {
+		t.Errorf("FromContext(WithLang(zh-CN)) = %q, want %q", got, ZhCN)
+	}
+	if got := FromContext(WithLang(bg, "klingon")); got != "" {
+		t.Errorf("an unknown language must store nothing, got %q", got)
+	}
+	// An unknown language does not erase an earlier one.
+	if got := FromContext(WithLang(WithLang(bg, EN), "")); got != EN {
+		t.Errorf("WithLang(empty) overrode the stored language: %q", got)
+	}
+	if got := FromContextOr(bg, ZhCN); got != ZhCN {
+		t.Errorf("FromContextOr(bare, zh-CN) = %q", got)
+	}
+	if got := FromContextOr(WithLang(bg, EN), ZhCN); got != EN {
+		t.Errorf("FromContextOr(en, zh-CN) = %q, want en", got)
 	}
 }

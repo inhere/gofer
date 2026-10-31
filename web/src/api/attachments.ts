@@ -6,6 +6,7 @@ import { getToken, triggerUnauthorized } from '../store/auth'
 import { request } from './client'
 import type { AttachmentInfo } from './types'
 import { t } from '../i18n'
+import { acceptLanguageHeaders } from '../store/locale'
 
 function unauthorizedMessage(): string {
   return t('util.attach.unauthorized')
@@ -13,7 +14,7 @@ function unauthorizedMessage(): string {
 
 function authHeader(): Record<string, string> {
   const token = getToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
+  return token ? { ...acceptLanguageHeaders(), Authorization: `Bearer ${token}` } : acceptLanguageHeaders()
 }
 
 // uploadErrorMessage 把服务端的 {error, detail} 翻成一句话；413 / 415 / 429 有专门说法。

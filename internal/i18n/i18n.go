@@ -187,7 +187,7 @@ func FromAcceptLanguage(header string) Lang {
 			}
 		}
 		l, ok := Normalize(tag)
-		if !ok {
+		if !ok || q <= 0 { // q=0 means "not acceptable" (RFC 9110 §12.4.2)
 			continue
 		}
 		cands = append(cands, cand{lang: l, q: q, pos: pos})

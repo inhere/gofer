@@ -46,6 +46,12 @@ type ResumePlan struct {
 // unknown session is ErrUnknownSession; every other "no" is a normal answer
 // (Can=false with a reason), not an error.
 func (s *Service) PlanResume(sid string) (ResumePlan, error) {
+	return s.PlanResumeIn("", sid)
+}
+
+// PlanResumeIn is PlanResume with the text in lang (a request's language, for
+// the web); "" keeps the session project's language.
+func (s *Service) PlanResumeIn(lang i18n.Lang, sid string) (ResumePlan, error) {
 	a, ok, err := s.store.GetAgentSession(sid)
 	if err != nil {
 		return ResumePlan{}, err
@@ -53,15 +59,23 @@ func (s *Service) PlanResume(sid string) (ResumePlan, error) {
 	if !ok {
 		return ResumePlan{}, ErrUnknownSession
 	}
-	return s.PlanResumeFor(a), nil
+	return s.PlanResumeForIn(lang, a), nil
 }
 
 // PlanResumeFor is PlanResume for a session row already in hand (the session list
 // annotates every row with it, so it must not touch the store).
 func (s *Service) PlanResumeFor(a jobstore.AgentSession) ResumePlan {
+	return s.PlanResumeForIn("", a)
+}
+
+// PlanResumeForIn is PlanResumeFor with the text in lang; "" keeps the session
+// project's language (s.lang), which is what a request without a language gets.
+func (s *Service) PlanResumeForIn(lang i18n.Lang, a jobstore.AgentSession) ResumePlan {
 	plan := ResumePlan{State: a.State, Ended: a.State == jobstore.SessionEnded,
 		Runner: a.Runner, Agent: a.Agent, ProjectKey: a.ProjectKey}
-	lang := s.lang(a.ProjectKey)
+	if lang == "" {
+		lang = s.lang(a.ProjectKey)
+	}
 	tp, choice, cerr := s.takeoverCheck(a)
 	if cerr != nil {
 		plan.Reason = DeliverReason(cerr)

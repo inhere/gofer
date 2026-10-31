@@ -3,6 +3,7 @@
 
 import { getToken, triggerUnauthorized } from '../store/auth'
 import { t } from '../i18n'
+import { acceptLanguageHeaders } from '../store/locale'
 import { setServerTZOffset } from './time'
 import { permissionDeniedMessage } from '../utils/permissions'
 import { streamJob } from './sse'
@@ -170,7 +171,7 @@ export class UnauthorizedError extends Error {
 }
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = { ...extra }
+  const headers: Record<string, string> = { ...acceptLanguageHeaders(), ...extra }
   const token = getToken()
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
