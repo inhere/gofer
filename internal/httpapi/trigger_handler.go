@@ -30,6 +30,10 @@ type triggerInvokeResponse struct {
 	Duplicate bool   `json:"duplicate"`
 	// Status is the receipt status of the first delivery, set for a duplicate only.
 	Status string `json:"status,omitempty"`
+	// Ignored / Reason: the delivery was authenticated and acknowledged but starts nothing
+	// (an event the trigger does not subscribe to, a failed condition, a ping).
+	Ignored bool   `json:"ignored,omitempty"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // handleTriggerInvoke is POST /v1/triggers/{name}/invoke, the EXTERNAL entry. It is
@@ -63,10 +67,10 @@ func (s *Server) handleTriggerInvoke(c *rux.Context) {
 		s.writeTriggerInvokeError(c, name, res.RequestID, err)
 		return
 	}
-	out := triggerInvokeResponse{Trigger: name, RequestID: res.RequestID, JobID: res.JobID, Duplicate: res.Duplicate, Status: res.Status}
+	out := triggerInvokeResponse{Trigger: name, RequestID: res.RequestID, JobID: res.JobID, Duplicate: res.Duplicate, Status: res.Status, Ignored: res.Ignored, Reason: res.Reason}
 	status := http.StatusAccepted
-	if res.Duplicate {
-		// A known result: 200 lets the sender stop retrying.
+	if res.Duplicate || res.Ignored {
+		// A known result (or nothing to do): 200 lets the sender stop retrying.
 		status = http.StatusOK
 	}
 	c.JSON(status, out)

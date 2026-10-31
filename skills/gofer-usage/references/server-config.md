@@ -486,6 +486,35 @@ server:
 
 认证使用 `HMAC-SHA256(secret, timestamp + "\\n" + 原始 body)`，签名头为 `sha256=<hex>`；时间戳必须在窗口内。`input.vars` 只允许 `body.<字段>`、`header.<名称>`、`message.<字段>` 引用。外部请求不能选择项目、模板、agent、runner 或命令；派活使用空 `CallerID`、`owner_caller` 作为 `OriginCaller`，所以 owner 的 ceiling 仍是硬上限。相同 trigger 与外部事件号由 SQLite receipt 持久去重，body 不同会拒绝。
 
+### GitHub 兼容 provider（`provider: github`）
+
+`provider` 缺省 `generic`（上面的 HMAC + 时间戳）；写 `github` 则按 GitHub webhook 的约定认证，未知值加载时报错并点出 `server.triggers[N].provider`。
+
+```yaml
+server:
+  triggers:
+    - name: pr-review
+      enabled: false                 # 先配好 secret 与任务书再打开
+      provider: github
+      owner_caller: automation
+      project: <project>
+      template: pr-review
+      auth: {secret_env: GOFER_TRIGGER_PR_REVIEW}   # 值 = GitHub webhook 里填的 Secret
+      github:
+        events: [pull_request.opened, issue_comment.created, check_run.completed]
+        conditions:
+          - {event: check_run.completed, field: check_run.conclusion, equals: [failure]}
+        max_age_sec: 3600            # 可选，0 / 不写 = 不检查
+      input:
+        vars: {repo: github.repository, number: github.number, title: github.title, url: github.url, who: github.sender}
+```
+
+- 认证：`X-Hub-Signature-256: sha256=<hex>`，原始 body 的 HMAC-SHA256，常量时间比较；没有时间戳头，所以不能写 `auth.timestamp_header` / `signature_header` / `replay_window_sec`，也不能写 `dedup.key`（固定用 `X-GitHub-Delivery`）。缺少 `X-GitHub-Delivery` 的请求被拒（400），不会放行一个无法去重的重放。
+- `github.events`（必填）：`event` 或 `event.action`（payload 顶层 `action`）；前者匹配该事件的所有 action。没列出的事件、`ping` 都回 200 `{"ignored":true,"reason":...}`，不派活、不占去重名额、不占限流额度，审计记 `trigger.ignored`。
+- `github.conditions`（可选）：`event` 必须是 `events` 里的某一项；`field` 是 payload 的点路径（对象键 / 数组下标，如 `check_run.conclusion`）；`equals` 是允许的文本值（字符串 / 数字 / 布尔的文本，任一相等即可）。适用于同一事件的条件全部满足才派活；字段缺失视为不满足。没有别的运算符或表达式。
+- `github.max_age_sec`（可选）：payload 里有可识别的事件时间（`check_run.completed_at`、`workflow_run.updated_at`、`comment.updated_at`、`review.submitted_at`、`pull_request.updated_at`、`issue.updated_at`、`check_suite.updated_at`、`head_commit.timestamp`）且早于该秒数时按过旧拒绝（401 `trigger_replay_window`）；找不到时间的事件不拒绝。
+- `input.vars` 只能写 `github.<字段>`，白名单：`repository`（全名）、`number`、`title`、`url`（html 链接）、`sender`（login）、`branch`（head ref / push 的分支）、`base_branch`、`sha`、`event`、`action`、`conclusion`。事件里没有的字段为空串；评论正文、PR 描述等其余 payload 内容不可引用。受 `limits.max_var_bytes` 约束。
+
 启动与 reload 之外的行为（P0）：
 
 - **owner 准入**：每次派活都按 owner 的**当前**有效权限判定（需要 `job.submit`，且 owner 必须仍是已声明的非 root caller），再把固定请求（项目 / 模板展开后的 agent / runner）交给 owner 的 ceiling 校验；owner 被撤权或 ceiling 收紧后，下一次触发就被拒绝（不消耗去重名额）。`owner_caller` 的 ceiling 为 `read_only`，或 `projects` 不含该 trigger 的项目，配置加载直接失败。

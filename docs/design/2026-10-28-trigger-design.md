@@ -311,3 +311,12 @@ issue `gofer-rztq` 在本工作区关联的 tracker / 本机 `gofer issue show` 
 - **CLI / MCP**：`gofer tool trigger ls|show|invoke`（invoke 的密钥只来自 `--secret-env` 命名的环境变量或 `--secret-stdin`，不回显，请求不带 gofer token；`--header` / `--timestamp-header` / `--signature-header` 用于 `dedup.key` 引用请求头或自定义头名的 trigger）；MCP 只读 `gofer_trigger_list` / `gofer_trigger_show`（operator 会话才注册，经 HTTP 读路由，所以权限与 job 凭据拒绝只有一份实现；独立 MCP 的 local backend 报 needs-server）。
 - **已知限制**：exec agent 需要 `cmd`，而任务书模板与 trigger 都不能提供 `cmd`（外部值不得填命令），所以 trigger 只能驱动 cli-agent / ACP 类 agent；deliveries 只记录有外部事件号的请求（无事件号的请求本来就不去重）。
 - **留给 TRG1b**：`Engine.Invoke` 目前把认证写死为 generic HMAC；GitHub 兼容 provider 需要把「认证 + 事件号提取 + 事件过滤 + 变量白名单」抽成 provider 适配器接口（请求 `Provider` 字段、`ExternalEventID` 由适配器优先提供、审计 `Provider` 字段均已就位），`Endpoint.Headers` 要并入 provider 的头（`X-Hub-Signature-256` / `X-GitHub-Delivery` / `X-GitHub-Event`），`View.Provider` 目前恒为 `generic`。
+
+### P1b 实施记录（GitHub 兼容 provider，TRG1b）
+
+- **适配器接口**：`internal/trigger/provider.go` 的 `adapter`（包内）把 provider 差异收成 `authenticate` / `eventID` / `filter` / `vars` / `headers` 五个方法；`Engine.Invoke` 按 `TriggerConfig.EffectiveProvider()` 选择，其余（限流、预检、去重 claim、owner 准入、派活、审计）仍是同一条路径。`generic` 适配器原样包住 `VerifyHMAC` / `ExternalEventID` / `resolveVars`，行为与错误码不变；`github` 适配器在 `github.go`。
+- **配置**：`provider: generic|github`；`github: {events, conditions[{event, field, equals}], max_age_sec}`。加载时拒绝：未知 provider（点出 `server.triggers[N].provider`）、github 缺 `events`、非法 events / 条件（条件的 `event` 必须在 `events` 里）、github 下的 `auth.timestamp_header` / `signature_header` / `replay_window_sec` / `dedup.key`、github 下非 `github.<白名单字段>` 的 `input.vars`，以及 generic 下的 `github` 块。
+- **忽略事件约定**：未命中事件 / 条件与 `ping` 回 `200 {"trigger","request_id","ignored":true,"reason":"event_not_listed|condition_not_met|ping"}`；不建 receipt（之后同 delivery id 在配置放开后仍可派活）、不占限流令牌，审计 `trigger.ignored`。过旧事件走 `401 trigger_replay_window`（审计 `trigger.replay_rejected`）；缺 `X-GitHub-Delivery` / `X-GitHub-Event` 为 `400 trigger_input_invalid`。
+- **取舍**：`max_age_sec` 找不到可识别时间的事件放行（delivery 去重是主要的重放防线，时间检查是补充）；白名单里事件没有的字段取空串而不是 400，因为重投不能修好它；评论正文、PR 描述不在白名单（不可信长文本）。
+- **读视图**：`View.Provider` 显示实际 provider，github 另有 `github` 摘要（events / conditions / max_age_sec），不含 secret。
+

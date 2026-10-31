@@ -80,6 +80,11 @@ type Result struct {
 	Duplicate        bool
 	// Status is the receipt status for a duplicate (submitted / rejected).
 	Status string
+	// Ignored is true when an authenticated delivery was acknowledged without dispatching
+	// (an event the trigger does not subscribe to, a failed condition, a ping); Reason says
+	// why (Ignored* constants). No receipt exists for it and no job was created.
+	Ignored bool
+	Reason  string
 }
 
 type SubmitFunc func(context.Context, job.JobRequest) (string, error)
@@ -201,7 +206,15 @@ func (e *Engine) Invoke(ctx context.Context, req TriggerRequest) (Result, error)
 	if len(req.RawBody) > maxBody {
 		return out, ErrBodyTooLarge
 	}
-	if err := VerifyHMAC(*tc, req.RawBody, req.Headers, e.now()); err != nil {
+	ad, ok := adapterFor(*tc)
+	if !ok {
+		return out, ErrUnknownTrigger
+	}
+	if req.Provider == "" {
+		// The HTTP entry never sets it; an in-process caller may label its own origin.
+		req.Provider = ad.name()
+	}
+	if err := ad.authenticate(*tc, req, e.now()); err != nil {
 		kind := "trigger.auth_failed"
 		if errors.Is(err, ErrReplay) {
 			kind = "trigger.replay_rejected"
@@ -214,7 +227,7 @@ func (e *Engine) Invoke(ctx context.Context, req TriggerRequest) (Result, error)
 			return out, ErrBodyNotJSON
 		}
 	}
-	eventID, err := ExternalEventID(*tc, req)
+	eventID, err := ad.eventID(*tc, req)
 	if err != nil {
 		return out, err
 	}
@@ -224,6 +237,25 @@ func (e *Engine) Invoke(ctx context.Context, req TriggerRequest) (Result, error)
 	if eventID != "" {
 		eventKey = jobstore.HashTriggerEventID(tc.Name, eventID)
 		req.ExternalEventID = eventKey
+	}
+	// An ignored delivery is neither limited nor claimed: it starts nothing, so it must not
+	// use the rate budget or the dedup slot a dispatching delivery needs.
+	reason, err := ad.filter(*tc, req, e.now())
+	if err != nil {
+		kind := "trigger.rejected"
+		if errors.Is(err, ErrReplay) {
+			kind = "trigger.replay_rejected"
+		}
+		e.writeAudit(kind, *tc, req, "", err)
+		return out, err
+	}
+	if reason != "" {
+		if req.RequestID == "" {
+			req.RequestID = newRequestID()
+		}
+		out.RequestID, out.Ignored, out.Reason = req.RequestID, true, reason
+		e.writeAudit("trigger.ignored", *tc, req, "", errors.New("ignored: "+reason))
+		return out, nil
 	}
 	release, dec := e.limiter.Acquire(EffectiveLimits(*tc, &cfg.Server)...)
 	if !dec.OK {
@@ -238,7 +270,7 @@ func (e *Engine) Invoke(ctx context.Context, req TriggerRequest) (Result, error)
 	out.RequestID = req.RequestID
 	e.writeAudit("trigger.received", *tc, req, "", nil)
 
-	vars, err := resolveVars(*tc, req)
+	vars, err := ad.vars(*tc, req)
 	if err != nil {
 		e.writeAudit("trigger.rejected", *tc, req, "", err)
 		return out, err
@@ -447,11 +479,16 @@ func abs(v int64) int64 {
 	return v
 }
 
-func resolveVars(tc config.TriggerConfig, req TriggerRequest) (map[string]string, error) {
-	maxVar := tc.Limits.MaxVarBytes
-	if maxVar == 0 {
-		maxVar = config.DefaultTriggerMaxVarBytes
+// varLimit is the byte bound of one template variable.
+func varLimit(tc config.TriggerConfig) int {
+	if tc.Limits.MaxVarBytes == 0 {
+		return config.DefaultTriggerMaxVarBytes
 	}
+	return tc.Limits.MaxVarBytes
+}
+
+func resolveVars(tc config.TriggerConfig, req TriggerRequest) (map[string]string, error) {
+	maxVar := varLimit(tc)
 	out := make(map[string]string, len(tc.Input.Vars))
 	for name, ref := range tc.Input.Vars {
 		value, ok := lookup(ref, req)

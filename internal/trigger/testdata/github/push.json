@@ -1,0 +1,7 @@
+{
+  "ref": "refs/heads/main",
+  "after": "4444444444444444444444444444444444444444",
+  "repository": {"full_name": "acme-org/widgets", "html_url": "https://github.example/acme-org/widgets"},
+  "head_commit": {"id": "4444444444444444444444444444444444444444", "timestamp": "2026-10-30T13:00:00Z"},
+  "sender": {"login": "octo-user"}
+}

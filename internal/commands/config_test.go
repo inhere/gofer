@@ -902,3 +902,34 @@ func TestConfigValidateShowsTriggers(t *testing.T) {
 		}
 	}
 }
+
+// TestConfigValidateShowsTriggerProvider: the provider is listed per trigger, a github
+// trigger loads from YAML, and an unknown provider fails validation naming the config key.
+func TestConfigValidateShowsTriggerProvider(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	t.Setenv("GOFER_TRIGGER_VALIDATE_TEST", "")
+	head := "server:\n  callers:\n    - {id: automation, token: tok}\n  triggers:\n"
+	good := writeRawConfig(t, head+
+		"    - name: hook\n      provider: github\n      owner_caller: automation\n      project: demo\n      template: review\n      auth: {secret_env: GOFER_TRIGGER_VALIDATE_TEST}\n"+
+		"      github:\n        events: [pull_request.opened, check_run.completed]\n        conditions:\n          - {event: check_run.completed, field: check_run.conclusion, equals: [failure]}\n"+
+		"      input: {vars: {repo: github.repository}}\n"+
+		"    - {name: plain, owner_caller: automation, project: demo, template: nightly, auth: {secret_env: GOFER_TRIGGER_VALIDATE_TEST}}\n")
+	c := bindCmd(NewConfigCmd().Subs[0])
+	config.InputCfgFile = good
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	var err error
+	out := captureOutput(t, func() { err = runConfigValidate(c, nil) })
+	if err != nil {
+		t.Fatalf("validate: %v\n%s", err, out)
+	}
+	for _, w := range []string{"trigger/hook", "provider=github", "trigger/plain", "provider=generic"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("output lacks %q:\n%s", w, out)
+		}
+	}
+	config.InputCfgFile = writeRawConfig(t, head+"    - {name: hook, provider: gitlab, owner_caller: automation, project: demo, template: t, auth: {secret_env: GOFER_TRIGGER_VALIDATE_TEST}}\n")
+	out = captureOutput(t, func() { err = runConfigValidate(c, nil) })
+	if err == nil || !strings.Contains(out+err.Error(), "server.triggers[0].provider") {
+		t.Fatalf("unknown provider must fail naming the key: err=%v\n%s", err, out)
+	}
+}

@@ -1277,7 +1277,7 @@ func validateServerConfig(c *gcli.Command) error {
 // command): the serve host may hold the secret variable and templates this machine lacks.
 func printTriggerStatuses(c *gcli.Command, cfg *config.Config) {
 	for _, st := range cfg.TriggerStatuses() {
-		line := cliText("cli.config.trigger.line", "owner", st.Owner, "project", st.Project, "template", st.Template)
+		line := cliText("cli.config.trigger.line", "owner", st.Owner, "project", st.Project, "template", st.Template, "provider", st.Provider)
 		status := docStatusOK
 		switch {
 		case !st.Enabled:
