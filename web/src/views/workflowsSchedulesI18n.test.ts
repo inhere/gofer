@@ -7,7 +7,16 @@ import { workflows } from '../i18n/pages/workflows'
 
 const sources = Object.values(
   import.meta.glob(
-    ['./Workflows.vue', './NewWorkflow.vue', './WorkflowDetail.vue', './Schedules.vue', './NewSchedule.vue'],
+    [
+      './Workflows.vue',
+      './WorkflowRuns.vue',
+      './WorkflowTemplate.vue',
+      '../components/TemplateRuns.vue',
+      './NewWorkflow.vue',
+      './WorkflowDetail.vue',
+      './Schedules.vue',
+      './NewSchedule.vue',
+    ],
     { eager: true, query: '?raw', import: 'default' },
   ),
 ) as string[]

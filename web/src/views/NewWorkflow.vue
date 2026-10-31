@@ -149,6 +149,10 @@ function optionsFor(f: VarField) {
   return runnerPickOptions(selectedProject.value, runners.value, runnerBlocks.value, tplValues[f.name] ?? '', (r) => runnerOptionText(r))
 }
 
+// 深链 /workflows/new?template=<名>&project=<项目>：列表页「运行」带来的预选，各用一次。
+let wantTemplate = typeof route.query.template === 'string' ? route.query.template : ''
+const wantProject = typeof route.query.project === 'string' ? route.query.project : ''
+
 async function loadTemplates(): Promise<void> {
   tplLoading.value = true
   tplError.value = ''
@@ -156,7 +160,10 @@ async function loadTemplates(): Promise<void> {
     const resp = await listWorkflowTemplates(tplProject.value || undefined)
     templates.value = resp.templates ?? []
     if (!templates.value.some((t) => t.name === tplName.value)) {
-      pickTemplate(templates.value[0]?.name ?? '')
+      // 工作流列表的「运行」带 ?template=：首次选中它（只用一次，之后用户自己换）。
+      const wanted = wantTemplate
+      wantTemplate = ''
+      pickTemplate(templates.value.find((t) => t.name === wanted)?.name ?? templates.value[0]?.name ?? '')
     }
   } catch (e) {
     templates.value = []
@@ -518,7 +525,7 @@ async function loadMeta() {
       (a) => ceilingAllowsAgent(ceil.value, a.key) && (ceilingAllowsExec(ceil.value) || a.type !== 'exec'),
     )
     runners.value = runners.value.filter((r) => ceilingAllowsRunner(ceil.value, r.name))
-    tplProject.value = projects.value[0]?.key ?? ''
+    tplProject.value = projects.value.find((p) => p.key === wantProject)?.key ?? projects.value[0]?.key ?? ''
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
   } finally {

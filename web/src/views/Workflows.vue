@@ -1,148 +1,94 @@
 <script setup lang="ts">
-// Workflows 列表（job 链）：轮询 listWorkflows（2.5s），Page Visibility 暂停/恢复，
-// 状态 chip 过滤 + 服务端分页（每页 50 条，页码写 ?page=），行点击进详情。
-// UI 重设计 P5：ui/FilterChips + ui/StatusPill + 分段 ProgressBar（设计稿 §7.2）。
+// 工作流列表（/workflows）：列出内置 / 全局 / 项目三类工作流模板（GET /v1/workflow-templates），
+// 每项显示来源徽标、说明、变量、最近一次执行与累计次数。操作：运行（进模板向导）、
+// 查看 YAML（行内展开，只读；编辑 / 删除在详情页）、执行记录（/workflows/runs?template=）。
+// 单次执行的列表在 /workflows/runs，详情仍是 /workflows/:id。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { createLiveTopic } from '../utils/useLiveTopic'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
-import { listWorkflows } from '../api/client'
-import { fmtDateTime, fmtDuration } from '../api/time'
-import { workflowStatusOptions, statusText } from '../utils/statusText'
-import { clampPage, pageCountOf, pageQueryUpdate, pageWindow, readPageQuery } from '../utils/issuePaging'
-import { t, te } from '../i18n'
-import FilterChips from '../ui/FilterChips.vue'
+import { getWorkflowTemplateSource, listWorkflowTemplates } from '../api/client'
+import { fmtDateTime } from '../api/time'
+import { t } from '../i18n'
 import StatusPill from '../ui/StatusPill.vue'
-import ProgressBar from '../ui/ProgressBar.vue'
+import ProjectFilter from '../ui/ProjectFilter.vue'
 import { useListReturn } from '../ui/useListReturn'
+import { useProjectFilter } from '../ui/projectFilter'
+import { createLiveTopic } from '../utils/useLiveTopic'
+import { sourceLabel } from '../utils/workflowTemplate'
+import { groupTemplates, runCount, runLink, runsLink, templateLink, varNames } from '../utils/workflowList'
 import { useWhoami } from '../store/whoami'
-import type { FilterChipItem } from '../ui/filterChips'
-import type { Workflow, WorkflowStatus } from '../api/types'
+import type { WorkflowTemplateInfo, WorkflowTemplateSource } from '../api/types'
 
-const route = useRoute()
-const router = useRouter()
-// 调用方上限只读时，创建入口一律不摆出来（服务端也会 403）。
+// 调用方上限只读时，运行入口不摆出来（服务端也会 403）。
 const { readOnly } = useWhoami()
 
-// 详情页的「← 工作流」回到这里（带筛选、页码与滚动位置）。
-useListReturn('workflows', '/workflows')
+// 项目是筛选条件：值在 URL 的 ?project=，项目目录里的模板只有选了项目才列得出。
+const { project, setProject, options: projectOptions, loadOptions: loadProjectOptions, loadError: projectLoadError } =
+  useProjectFilter('/workflows')
 
-// 每页 50 条：limit / offset 交给服务端切页，total 是同一过滤条件下的总条数。
-const PAGE_SIZE = 50
+// 模板详情页的「← 工作流」回到这里（带项目筛选与滚动位置）。
+useListReturn('workflow-templates', '/workflows')
 
-const workflows = ref<Workflow[]>([])
+const templates = ref<WorkflowTemplateInfo[]>([])
 const loading = ref(false)
 const error = ref('')
-const statusFilter = ref<'' | WorkflowStatus>('')
-const total = ref(0)
-const page = ref(readPageQuery(route.query))
-const pageCount = computed(() => pageCountOf(total.value, PAGE_SIZE))
-const currentPage = computed(() => clampPage(page.value, pageCount.value))
-const tableEl = ref<HTMLElement | null>(null)
+const groups = computed(() => groupTemplates(templates.value))
 
-// 状态 chip 的文案走 i18n；没有 status.<值> 时回退到旧的中文映射（P5 之后只剩 i18n）。
-const statusOptions = workflowStatusOptions().filter((o) => o.value !== '')
-
-// 服务端分页后拿到的是当前页，按状态计数要扫全量才能给出，所以 chip 只做筛选、不再带计数
-// （全部条数在页头副标题与页脚的「共 N 条」上）。
-const statusItems = computed<FilterChipItem[]>(() => [
-  { value: '', label: t('workflows.filterAll') },
-  ...statusOptions.map((o) => ({
-    value: o.value,
-    label: te(`status.${o.value}`) ? t(`status.${o.value}`) : statusText(o.value),
-  })),
-])
-
-const filtered = computed(() => statusFilter.value !== '')
-
-async function fetchWorkflows(): Promise<void> {
+async function fetchTemplates(): Promise<void> {
   loading.value = true
   try {
-    const resp = await listWorkflows({
-      status: statusFilter.value || undefined,
-      limit: PAGE_SIZE,
-      offset: (currentPage.value - 1) * PAGE_SIZE,
-    })
-    workflows.value = resp.workflows ?? []
-    total.value = resp.total ?? workflows.value.length
+    const resp = await listWorkflowTemplates(project.value || undefined)
+    templates.value = resp.templates ?? []
     error.value = ''
-    // 当前页已越界（行被删、或别人改小了这个过滤下的总数）：退回最后一页重拉，URL 跟着修。
-    if (page.value > pageCount.value) {
-      page.value = pageCount.value
-      writeQuery(pageQueryUpdate(route.query, page.value))
-      void fetchWorkflows()
-    }
   } catch (e) {
-    // 401 已由 client 处理（跳转登录）；其余显示错误条
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
   }
 }
 
-// 页码写进 ?page=（第 1 页不写），可分享、后退可复原。
-function writeQuery(next: Record<string, string>): void {
-  void router.replace({ query: next })
-}
-
-function gotoPage(p: number): void {
-  page.value = clampPage(p, pageCount.value)
-  writeQuery(pageQueryUpdate(route.query, page.value))
-  tableEl.value?.scrollIntoView?.({ block: 'start' })
-  void fetchWorkflows()
-}
-
-// 换 chip 立即回到第 1 页并重拉（WS 失效通知也会触发）。
-watch(statusFilter, () => {
-  page.value = 1
-  writeQuery(pageQueryUpdate(route.query, 1))
-  void fetchWorkflows()
+watch(project, () => {
+  opened.value = ''
+  void fetchTemplates()
 })
 
-// 后退 / 前进改 URL 时页码跟着走（自己换页时 page 已是新值，不重复拉一次）。
-watch(
-  () => route.query.page,
-  (value) => {
-    const next = readPageQuery({ page: value })
-    if (next === page.value) return
-    page.value = next
-    void fetchWorkflows()
-  },
-)
+// ---- 行内查看 YAML（只读）----
+// 一次只展开一个；展开时才拉 /source（带路径与盖住的层）。
+const opened = ref('')
+const source = ref<WorkflowTemplateSource | null>(null)
+const sourceLoading = ref(false)
+const sourceError = ref('')
 
-// 工作流耗时：created_at -> updated_at（运行中按 now）。
-function rowDuration(wf: Workflow): string {
-  const end = wf.status === 'running' ? Math.floor(Date.now() / 1000) : wf.updated_at
-  return fmtDuration(Math.max(0, end - wf.created_at))
+async function toggleYaml(tpl: WorkflowTemplateInfo): Promise<void> {
+  if (opened.value === tpl.name) {
+    opened.value = ''
+    return
+  }
+  opened.value = tpl.name
+  source.value = null
+  sourceError.value = ''
+  sourceLoading.value = true
+  try {
+    const got = await getWorkflowTemplateSource(tpl.name, project.value || undefined)
+    // 展开期间用户切到了别的行：丢掉迟到的响应
+    if (opened.value === tpl.name) source.value = got
+  } catch (e) {
+    if (opened.value === tpl.name) sourceError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    sourceLoading.value = false
+  }
 }
 
-// 步骤进度：done 之后后端的 current_step 会越过 total_steps，显示层夹到 total。
-function stepsDone(wf: Workflow): number {
-  return wf.total_steps > 0 && wf.current_step > wf.total_steps ? wf.total_steps : wf.current_step
+function projectOf(tpl: WorkflowTemplateInfo): string {
+  return tpl.source === 'project' ? project.value : ''
 }
 
-function stepsText(wf: Workflow): string {
-  return t('workflows.stepsOf', { cur: stepsDone(wf), total: wf.total_steps })
-}
-
-// 列表里的分段进度条只用「已完成 / 未开始」两段（列表拿不到每步状态）。
-function stepParts(wf: Workflow) {
-  const done = stepsDone(wf)
-  return [
-    { family: 'done' as const, count: done },
-    { family: 'todo' as const, count: Math.max(0, wf.total_steps - done) },
-  ]
-}
-
-function openWorkflow(wf: Workflow): void {
-  void router.push(`/workflows/${encodeURIComponent(wf.id)}`)
-}
-
-// Q3：`workflows` 主题的失效通知触发重拉；WS 断开超过 15s 才由 30s 一次的兜底轮询接手（恢复后自动停）。
-const liveWorkflows = createLiveTopic('workflows', { initial: false, fetch: fetchWorkflows })
+// 工作流的 WS 主题：有新执行 / 状态变化时刷新「最近一次」与次数。
+const liveWorkflows = createLiveTopic('workflows', { initial: false, fetch: fetchTemplates })
 
 onMounted(() => {
-  void fetchWorkflows()
+  void fetchTemplates()
+  void loadProjectOptions()
   liveWorkflows.start()
 })
 
@@ -154,13 +100,15 @@ onUnmounted(() => {
 <template>
   <div class="page" data-test="workflows-page">
     <header class="page-head">
-      <!-- 工作流 / 模板库在 docs/guide/stability.md 里属实验性，标题旁挂标注。 -->
       <div class="head-main">
         <h1 class="title">{{ t('workflows.title') }}<ExperimentalBadge /></h1>
-        <p class="sub">{{ total ? t('workflows.subtitle', { n: total }) : t('workflows.subtitleEmpty') }}</p>
+        <p class="sub">
+          {{ templates.length ? t('workflows.list.subtitle', { n: templates.length }) : t('workflows.list.subtitleEmpty') }}
+        </p>
       </div>
       <div class="head-actions">
         <span class="poll-dot" :class="{ 'poll-dot--on': loading }" aria-hidden="true">●</span>
+        <RouterLink to="/workflows/runs" class="btn" data-test="all-runs">{{ t('workflows.list.allRuns') }}</RouterLink>
         <RouterLink v-if="!readOnly" to="/workflows/new" class="btn btn--primary" data-test="new-workflow">
           {{ t('workflows.new') }}
         </RouterLink>
@@ -170,66 +118,74 @@ onUnmounted(() => {
     <p v-if="error" class="error">{{ error }}</p>
 
     <div class="list-bar">
-      <FilterChips v-model="statusFilter" :items="statusItems" :label="t('workflows.col.status')" />
-      <button v-if="filtered" class="link-btn" type="button" data-test="clear-filters" @click="statusFilter = ''">
-        {{ t('workflows.clearFilters') }}
-      </button>
+      <ProjectFilter
+        :model-value="project"
+        :options="projectOptions"
+        :loading="false"
+        :error="projectLoadError"
+        @update:model-value="setProject"
+      />
+      <span v-if="!project" class="hint" data-test="project-hint">{{ t('workflows.list.projectHint') }}</span>
     </div>
 
-    <div ref="tableEl" class="table" role="table">
-      <div class="thead" role="row">
-        <span class="col-status">{{ t('workflows.col.status') }}</span>
-        <span class="col-wf">{{ t('workflows.col.name') }}</span>
-        <span class="col-step">{{ t('workflows.col.steps') }}</span>
-        <span class="col-started">{{ t('workflows.col.started') }}</span>
-        <span class="col-dur">{{ t('workflows.col.duration') }}</span>
-      </div>
+    <section v-for="g in groups" :key="g.layer" class="group" :data-test="`group-${g.layer}`">
+      <h2 class="group-title">{{ sourceLabel(g.layer) }}<span class="group-n">{{ g.items.length }}</span></h2>
 
-      <div
-        v-for="wf in workflows"
-        :key="wf.id"
-        class="trow"
-        role="row"
-        tabindex="0"
-        @click="openWorkflow(wf)"
-        @keydown.enter="openWorkflow(wf)"
-      >
-        <span class="col-status"><StatusPill :status="wf.status" /></span>
-        <span class="col-wf" :class="{ 'col-wf--titled': wf.title }">
-          <span v-if="wf.title" class="wf-title" :title="wf.title">{{ wf.title }}</span>
-          <span class="wf-id mono" :title="wf.id">{{ wf.id }}</span>
-        </span>
-        <span class="col-step">
-          <template v-if="wf.total_steps > 0">
-            <ProgressBar
-              :parts="stepParts(wf)"
-              :total="wf.total_steps"
-              :done="stepsDone(wf)"
-              :label="stepsText(wf)"
-              :legend="false"
-              size="sm"
-            />
+      <article v-for="tpl in g.items" :key="tpl.name" class="card" :data-test="`tpl-${tpl.name}`">
+        <div class="card-head">
+          <RouterLink class="card-name mono" :to="templateLink(tpl.name, projectOf(tpl))" data-test="tpl-open">
+            {{ tpl.name }}
+          </RouterLink>
+          <span class="badge" :class="`badge--${g.layer}`" data-test="source-badge">{{ sourceLabel(tpl.source) }}</span>
+        </div>
+        <p v-if="tpl.desc" class="card-desc">{{ tpl.desc }}</p>
+
+        <div v-if="varNames(tpl).length" class="vars" data-test="tpl-vars">
+          <span class="vars-label">{{ t('workflows.list.vars') }}</span>
+          <span v-for="v in varNames(tpl)" :key="v.name" class="var mono">{{ v.name }}<b v-if="v.required">*</b></span>
+        </div>
+
+        <div class="runinfo" data-test="tpl-lastrun">
+          <template v-if="tpl.last_run">
+            <span class="runinfo-label">{{ t('workflows.list.lastRun') }}</span>
+            <RouterLink :to="`/workflows/${encodeURIComponent(tpl.last_run.id)}`" class="runinfo-link">
+              <StatusPill :status="tpl.last_run.status" />
+            </RouterLink>
+            <span class="dim">{{ fmtDateTime(tpl.last_run.started_at) }}</span>
           </template>
-          <span v-else class="dim">{{ stepsText(wf) }}</span>
-        </span>
-        <span class="col-started" :title="fmtDateTime(wf.created_at)">{{ fmtDateTime(wf.created_at) }}</span>
-        <span class="col-dur mono">{{ rowDuration(wf) }}</span>
-      </div>
+          <span v-else class="dim" data-test="tpl-never">{{ t('workflows.list.neverRun') }}</span>
+          <span class="dim runinfo-count" data-test="tpl-runs">{{ t('workflows.list.runCount', { n: runCount(tpl) }) }}</span>
+        </div>
 
-      <div v-if="workflows.length === 0 && !error" class="empty">
-        <p>{{ t('workflows.empty') }}</p>
-        <p class="empty-hint">{{ t('workflows.emptyHint') }}</p>
-        <RouterLink v-if="!readOnly" to="/workflows/new" class="btn btn--primary">{{ t('workflows.new') }}</RouterLink>
-      </div>
+        <div class="actions">
+          <RouterLink v-if="!readOnly" class="btn btn--primary" :to="runLink(tpl.name, projectOf(tpl))" data-test="tpl-run">
+            {{ t('workflows.list.run') }}
+          </RouterLink>
+          <button class="btn" type="button" :aria-expanded="opened === tpl.name" data-test="tpl-yaml" @click="toggleYaml(tpl)">
+            {{ opened === tpl.name ? t('workflows.list.hideYaml') : t('workflows.list.viewYaml') }}
+          </button>
+          <RouterLink class="btn" :to="runsLink(tpl.name)" data-test="tpl-runs-link">{{ t('workflows.list.runs') }}</RouterLink>
+          <RouterLink class="btn" :to="templateLink(tpl.name, projectOf(tpl))" data-test="tpl-detail">
+            {{ t('workflows.list.detail') }}
+          </RouterLink>
+        </div>
+
+        <div v-if="opened === tpl.name" class="yaml" data-test="tpl-yaml-panel">
+          <p v-if="sourceLoading" class="dim">{{ t('workflows.new.readingSource') }}</p>
+          <p v-else-if="sourceError" class="error" data-test="tpl-yaml-error">{{ sourceError }}</p>
+          <template v-else-if="source">
+            <p class="yaml-path mono" data-test="tpl-path">{{ source.path || t('workflows.list.builtinPath') }}</p>
+            <pre class="yaml-body mono" data-test="tpl-yaml-body">{{ source.content }}</pre>
+          </template>
+        </div>
+      </article>
+    </section>
+
+    <div v-if="groups.length === 0 && !error && !loading" class="empty" data-test="workflows-empty">
+      <p>{{ t('workflows.list.empty') }}</p>
+      <p class="empty-hint">{{ t('workflows.emptyHint') }}</p>
+      <RouterLink v-if="!readOnly" to="/workflows/new" class="btn btn--primary">{{ t('workflows.new') }}</RouterLink>
     </div>
-
-    <!-- 服务端分页（每页 50 条）：页码进 ?page=，切筛选回第 1 页。 -->
-    <nav v-if="total > 0" class="pager" data-test="pager" :aria-label="t('workflows.pager.label')">
-      <span class="pager-count" data-test="page-summary">{{ t('workflows.pageSummary', { total, page: currentPage, pages: pageCount }) }}</span>
-      <button type="button" class="page-btn" :disabled="currentPage <= 1" data-test="page-prev" @click="gotoPage(currentPage - 1)">{{ t('workflows.pager.prev') }}</button>
-      <template v-for="(p, i) in pageWindow(currentPage, pageCount)" :key="i"><span v-if="p === null" class="pager-gap">…</span><button v-else type="button" class="page-btn" :class="{ 'page-btn--on': p === currentPage }" :data-test="`page-${p}`" :aria-label="t('workflows.pager.page', { page: p })" @click="gotoPage(p)">{{ p }}</button></template>
-      <button type="button" class="page-btn" :disabled="currentPage >= pageCount" data-test="page-next" @click="gotoPage(currentPage + 1)">{{ t('workflows.pager.next') }}</button>
-    </nav>
   </div>
 </template>
 
@@ -299,19 +255,6 @@ onUnmounted(() => {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
-.link-btn {
-  background: none;
-  border: 0;
-  padding: 0 2px;
-  color: var(--ink-3);
-  font: inherit;
-  font-size: var(--fs-sm);
-  text-decoration: underline;
-  cursor: pointer;
-}
-.link-btn:hover {
-  color: var(--ink);
-}
 .error {
   color: var(--fail);
   font-size: var(--fs-sm);
@@ -324,85 +267,129 @@ onUnmounted(() => {
 .list-bar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--s3);
   margin-bottom: var(--s3);
-  min-width: 0;
 }
-.table {
-  border: 1px solid var(--line);
-  border-radius: var(--r-panel);
-  overflow: hidden;
-  background: var(--surface);
+.hint,
+.dim {
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
 }
-.thead,
-.trow {
-  display: grid;
-  grid-template-columns: 124px minmax(200px, 1fr) 150px 150px 110px;
+.group {
+  margin-bottom: var(--s4);
+}
+.group-title {
+  display: flex;
   align-items: center;
-  gap: var(--s3);
-  padding: 10px var(--s3);
-}
-.thead {
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--line);
-  font-size: var(--fs-xs);
+  gap: var(--s2);
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-sm);
   letter-spacing: 0.06em;
   color: var(--ink-3);
   text-transform: uppercase;
 }
-.trow {
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-  font-size: var(--fs-sm);
-  outline: none;
+.group-n {
+  font-size: var(--fs-xs);
 }
-.trow:last-child {
-  border-bottom: none;
-}
-.trow:hover {
-  background: var(--surface-2);
-}
-.trow:focus-visible {
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-.col-wf {
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--surface);
+  padding: var(--s3);
+  margin-bottom: var(--s2);
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--s2);
   min-width: 0;
 }
-.wf-title {
-  color: var(--ink);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wf-id {
-  color: var(--accent);
-  font-size: var(--fs-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.col-wf:not(.col-wf--titled) .wf-id {
-  font-size: var(--fs-sm);
-}
-.col-started {
-  color: var(--ink-3);
-  white-space: nowrap;
-}
-.col-dur {
-  color: var(--ink-3);
-}
-.col-step {
+.card-head {
   display: flex;
   align-items: center;
   gap: var(--s2);
   min-width: 0;
 }
-.dim {
+.card-name {
+  color: var(--accent);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.badge {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  padding: 0 6px;
+  font-size: var(--fs-xs);
   color: var(--ink-3);
+  white-space: nowrap;
+}
+.badge--project {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.card-desc {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+.vars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  font-size: var(--fs-xs);
+}
+.vars-label {
+  color: var(--ink-3);
+}
+.var {
+  background: var(--surface-2);
+  border-radius: var(--r-ctl);
+  padding: 0 6px;
+}
+.var b {
+  color: var(--fail);
+  margin-left: 2px;
+}
+.runinfo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-sm);
+}
+.runinfo-label {
+  color: var(--ink-3);
+}
+.runinfo-count {
+  margin-left: auto;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.yaml {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s2);
+  min-width: 0;
+}
+.yaml-path {
+  margin: 0 0 var(--s1);
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+  word-break: break-all;
+}
+.yaml-body {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  background: var(--surface-2);
+  border-radius: var(--r-ctl);
+  padding: var(--s2);
+  font-size: var(--fs-xs);
+  white-space: pre;
 }
 .empty {
   padding: var(--s6) var(--s3);
@@ -413,95 +400,16 @@ onUnmounted(() => {
 .empty p {
   margin: 0 0 var(--s2);
 }
-.empty-hint {
-  color: var(--ink-3);
-}
-.empty .btn {
-  margin-top: var(--s1);
-}
-/* 分页条（与 Issues / 记忆页同一套写法）：可换行，手机上按钮够大。 */
-.pager {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--s1);
-  margin-top: var(--s3);
-  font-size: var(--fs-sm);
-}
-.pager-count {
-  color: var(--ink-3);
-  margin-right: var(--s2);
-  font-size: var(--fs-xs);
-}
-.page-btn {
-  border: 1px solid var(--line);
-  border-radius: var(--r-ctl);
-  background: transparent;
-  color: var(--ink);
-  padding: 3px 9px;
-  font: inherit;
-  font-size: var(--fs-xs);
-  min-width: 30px;
-  min-height: 30px;
-}
-.page-btn--on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
-  font-weight: 600;
-}
-.page-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.pager-gap {
-  color: var(--ink-3);
-}
 @media (max-width: 760px) {
   .page-head {
     flex-direction: column;
     gap: var(--s2);
   }
-  .btn,
-  .page-btn,
-  .link-btn {
+  .btn {
     min-height: 40px;
   }
-  /* 手机：一行压成两行卡片——标题/id 一行，状态与步骤 / 耗时排列在下面。 */
-  .thead {
-    display: none;
-  }
-  .trow {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px 0;
-    padding: var(--s2) var(--s3);
-  }
-  .col-wf {
-    order: 1;
-    flex: 1 0 calc(100% - 96px);
-    min-width: 0;
-  }
-  .col-status {
-    order: 2;
-    flex: 0 0 96px;
-    display: flex;
-    justify-content: flex-end;
-  }
-  .col-step {
-    order: 3;
-    flex: 1 1 120px;
-  }
-  .col-started,
-  .col-dur {
-    order: 4;
-    font-size: var(--fs-xs);
-    white-space: nowrap;
-  }
-  .col-dur::before {
-    content: ' · ';
-    white-space: pre;
+  .runinfo-count {
+    margin-left: 0;
   }
 }
 </style>

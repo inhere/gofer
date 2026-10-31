@@ -1300,9 +1300,12 @@ export function queueFollowUp(id: string, prompt: string, reviewEach = false): P
 
 
 // 与同一过滤条件下的总条数 total。
-export function listWorkflows(opts: { status?: WorkflowStatus; limit?: number; offset?: number } = {}): Promise<WorkflowsResp> {
+export function listWorkflows(
+  opts: { status?: WorkflowStatus; template?: string; limit?: number; offset?: number } = {},
+): Promise<WorkflowsResp> {
   const qs = new URLSearchParams()
   if (opts.status) qs.set('status', opts.status)
+  if (opts.template) qs.set('template', opts.template)
   if (opts.limit && opts.limit > 0) qs.set('limit', String(opts.limit))
   if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset))
   const query = qs.toString()
