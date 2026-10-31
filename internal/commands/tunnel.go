@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -54,19 +53,12 @@ func NewTunnelCmd() *gcli.Command {
 		c.AddArg("name", "preset name", true, false)
 		c.AddArg("spec", "forward spec: [udp/][bind:]lport:host:port, [udp/]=ip:port or socks/[bind:]port (one or more)", true, true)
 	}, Func: runTunnelSave}
-	saved := &gcli.Command{Name: "saved", Aliases: []string{"profiles"}, Desc: "List saved forward presets (the server's, plus local ones not uploaded).", Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c) }, Func: runTunnelSaved}
+	saved := &gcli.Command{Name: "saved", Aliases: []string{"profiles"}, Desc: "List the forward presets saved on the server.", Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c) }, Func: runTunnelSaved}
 	forget := &gcli.Command{Name: "forget", Desc: "Delete a saved forward preset.", Config: func(c *gcli.Command) {
 		bindConfigFlag(c)
 		bindServerFlags(c)
 		c.AddArg("name", "preset name", true, false)
 	}, Func: runTunnelForget}
-	presets := &gcli.Command{Name: "presets", Desc: "Manage the presets stored on the server.", Subs: []*gcli.Command{
-		{Name: "push", Desc: "Upload local presets to the server (names it already has are skipped).", Config: func(c *gcli.Command) {
-			bindConfigFlag(c)
-			bindServerFlags(c)
-			c.BoolOpt(&tunnelOpts.force, "force", "", false, "overwrite a preset the server already has")
-		}, Func: runTunnelPresetsPush},
-	}}
 	ch := &gcli.Command{Name: "check", Desc: "Check connectivity to a worker tunnel target.", Config: func(c *gcli.Command) {
 		bindConfigFlag(c)
 		bindServerFlags(c)
@@ -80,56 +72,31 @@ func NewTunnelCmd() *gcli.Command {
 		bindServerFlags(c)
 		c.AddArg("id", "forwarder id, as listed by `gofer tun ls`", true, false)
 	}, Func: runTunnelStop}
-	return &gcli.Command{Name: "tunnel", Aliases: []string{"tun"}, Desc: "Manage TCP/UDP tunnels.", Subs: []*gcli.Command{f, ch, ls, stopFw, save, saved, forget, presets}}
+	return &gcli.Command{Name: "tunnel", Aliases: []string{"tun"}, Desc: "Manage TCP/UDP tunnels.", Subs: []*gcli.Command{f, ch, ls, stopFw, save, saved, forget}}
 }
 func tunnelClient() (*client.Client, error) {
 	return newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 }
 
-// resolvedForward is what a forward/check run resolved: the worker and rules to run,
-// plus the note to print when the answer came from the LOCAL file (TUN-03 — the server
-// is the source of truth, the file is the fallback).
+// resolvedForward is what a forward/check run resolved: the worker and rules to run.
 type resolvedForward struct {
 	worker string
 	specs  []string
-	note   string
 }
 
-// lookupPreset resolves a preset NAME: the server first, then the local
-// tunnels.yaml. A local answer carries the note telling the operator how to upload it;
-// a name neither end knows is an error.
-//
-// The local read exists only as a fallback for a preset the server does not have (or
-// cannot answer about at all). DEPRECATED(v0.60.2): remove in v0.63 — with the local
-// file gone there is one answer, and this fallback goes with it.
-func lookupPreset(cli *client.Client, name string) (config.TunnelProfile, string, error) {
+// lookupPreset resolves a preset NAME against the server, the only place presets live.
+func lookupPreset(cli *client.Client, name string) (config.TunnelProfile, error) {
 	if cli == nil {
-		return localPreset(name, "no server configured; ")
+		return config.TunnelProfile{}, fmt.Errorf("tunnel preset %q: no server configured", name)
 	}
 	p, err := cli.GetTunnelPreset(name)
-	if err == nil {
-		return config.TunnelProfile{Worker: p.Worker, Specs: p.Specs, Note: p.Note}, "", nil
-	}
-	if client.StatusOf(err) != http.StatusNotFound {
-		// The hub could not answer (down, unreachable, or an error on its side). The
-		// local file still works, and the note says which of the two happened.
-		return localPreset(name, fmt.Sprintf("server unavailable (%v); ", err))
-	}
-	return localPreset(name, "the server has no such preset; ")
-}
-
-// localPreset reads the fallback preset file and returns the profile plus the nudge to
-// upload it.
-func localPreset(name, why string) (config.TunnelProfile, string, error) {
-	t, err := config.LoadTunnels()
 	if err != nil {
-		return config.TunnelProfile{}, "", err
+		if client.StatusOf(err) == http.StatusNotFound {
+			return config.TunnelProfile{}, fmt.Errorf("tunnel preset %q not found (gofer tun saved)", name)
+		}
+		return config.TunnelProfile{}, err
 	}
-	p, ok := t.Forwards[name]
-	if !ok {
-		return config.TunnelProfile{}, "", fmt.Errorf("tunnel preset %q not found (gofer tun saved)", name)
-	}
-	return p, fmt.Sprintf("using local preset %q (%s`gofer tun presets push` uploads it)", name, why), nil
+	return config.TunnelProfile{Worker: p.Worker, Specs: p.Specs, Note: p.Note}, nil
 }
 
 // resolveForward decides which worker and forward specs a command runs with.
@@ -138,7 +105,7 @@ func localPreset(name, why string) (config.TunnelProfile, string, error) {
 func resolveForward(cli *client.Client, name, worker string, specs []string) (resolvedForward, error) {
 	out := resolvedForward{worker: worker, specs: specs}
 	if name != "" {
-		p, note, err := lookupPreset(cli, name)
+		p, err := lookupPreset(cli, name)
 		if err != nil {
 			return resolvedForward{}, err
 		}
@@ -148,7 +115,6 @@ func resolveForward(cli *client.Client, name, worker string, specs []string) (re
 		if len(out.specs) == 0 {
 			out.specs = p.Specs
 		}
-		out.note = note
 	}
 	if out.worker == "" {
 		return resolvedForward{}, fmt.Errorf("worker required")
@@ -161,12 +127,12 @@ func resolveForward(cli *client.Client, name, worker string, specs []string) (re
 
 // presetWorker returns just the worker a preset names, for commands that take
 // their target from the command line but still want `--name` to say where.
-func presetWorker(cli *client.Client, name string) (string, string, error) {
-	p, note, err := lookupPreset(cli, name)
+func presetWorker(cli *client.Client, name string) (string, error) {
+	p, err := lookupPreset(cli, name)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return p.Worker, note, nil
+	return p.Worker, nil
 }
 
 // checkTarget is one device address to probe, with the network to reach it on.
@@ -222,9 +188,6 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 	rf, err := resolveForward(cli, tunnelOpts.name, tunnelOpts.worker, c.Arg("spec").Array())
 	if err != nil {
 		return err
-	}
-	if rf.note != "" {
-		c.Printf("%s\n", rf.note)
 	}
 	// TUN-04: one argument may carry several comma-separated rules; the parse error
 	// names the offending entry instead of reporting a bare "invalid spec".
@@ -424,14 +387,11 @@ func runTunnelCheck(c *gcli.Command, _ []string) error {
 		// An explicit target wins over the preset's, same as an explicit -w; the
 		// preset is then only consulted for the worker.
 		if worker == "" {
-			w, note, err := presetWorker(cli, tunnelOpts.name)
+			w, err := presetWorker(cli, tunnelOpts.name)
 			if err != nil {
 				return err
 			}
 			worker = w
-			if note != "" {
-				c.Printf("%s\n", note)
-			}
 		}
 		targets = []checkTarget{parseCheckTarget(explicit)}
 	} else {
@@ -440,9 +400,6 @@ func runTunnelCheck(c *gcli.Command, _ []string) error {
 			return err
 		}
 		worker = rf.worker
-		if rf.note != "" {
-			c.Printf("%s\n", rf.note)
-		}
 		if targets, err = presetCheckTargets(rf.specs); err != nil {
 			return err
 		}
@@ -484,28 +441,14 @@ func runTunnelSave(c *gcli.Command, _ []string) error {
 	if err := config.ValidateTunnelProfile(name, profile); err != nil {
 		return err
 	}
-	cli, cerr := tunnelClient()
-	if cerr == nil {
-		_, err := cli.PutTunnelPreset(name, client.TunnelPreset{Worker: profile.Worker, Specs: profile.Specs, Note: profile.Note}, tunnelOpts.force)
-		if err == nil {
-			c.Printf("saved preset %s on the server (%s: %s)\n", name, profile.Worker, strings.Join(profile.Specs, " "))
-			return nil
-		}
-		if client.StatusOf(err) != 0 {
-			// The server ANSWERED and refused (a name conflict without --force, a rejected
-			// profile). That is a real error: writing a local copy the server refuses would
-			// leave the two ends disagreeing about the same name.
-			return err
-		}
-		c.Printf("warning: server unreachable (%v); saving the preset locally\n", err)
-	} else {
-		c.Printf("warning: no server configured (%v); saving the preset locally\n", cerr)
-	}
-	if err := config.UpsertTunnel(name, profile, tunnelOpts.force); err != nil {
+	cli, err := tunnelClient()
+	if err != nil {
 		return err
 	}
-	c.Printf("saved preset %s locally (%s: %s)\n", name, profile.Worker, strings.Join(profile.Specs, " "))
-	c.Println("upload it to the server with `gofer tun presets push`")
+	if _, err := cli.PutTunnelPreset(name, client.TunnelPreset{Worker: profile.Worker, Specs: profile.Specs, Note: profile.Note}, tunnelOpts.force); err != nil {
+		return err
+	}
+	c.Printf("saved preset %s on the server (%s: %s)\n", name, profile.Worker, strings.Join(profile.Specs, " "))
 	return nil
 }
 
@@ -526,102 +469,22 @@ func runTunnelSaved(c *gcli.Command, _ []string) error {
 			c.Printf("%s %s %s %s\n", p.Name, p.Worker, strings.Join(p.Specs, ","), p.Note)
 		}
 	}
-	// The local file is only a fallback now, so a preset that lives ONLY there is worth
-	// reporting: it is invisible to every other machine until it is uploaded.
-	local, lerr := config.LoadTunnels()
-	if lerr != nil {
-		return lerr
-	}
-	onServer := make(map[string]bool, len(presets))
-	for _, p := range presets {
-		onServer[p.Name] = true
-	}
-	missing := make([]string, 0, len(local.Forwards))
-	for name := range local.Forwards {
-		if !onServer[name] {
-			missing = append(missing, name)
-		}
-	}
-	if len(missing) > 0 {
-		sort.Strings(missing)
-		c.Printf("local: %d preset(s) not on the server: %s (upload with `gofer tun presets push`)\n",
-			len(missing), strings.Join(missing, " "))
-	}
 	return nil
 }
 
 func runTunnelForget(c *gcli.Command, _ []string) error {
 	name := c.Arg("name").String()
-	deleted := make([]string, 0, 2)
-	if cli, cerr := tunnelClient(); cerr == nil {
-		switch err := cli.DeleteTunnelPreset(name); client.StatusOf(err) {
-		case 0:
-			deleted = append(deleted, "server")
-		case http.StatusNotFound:
-			// Not on the server: the local fallback copy may be the one.
-		default:
-			return err
-		}
-	}
-	// The local copy goes too. It is only a fallback, but a leftover one would still
-	// answer `tun forward -n <name>` — that is the opposite of forgetting it.
-	local, lerr := config.LoadTunnels()
-	if lerr != nil {
-		return lerr
-	}
-	if _, ok := local.Forwards[name]; ok {
-		if err := config.DeleteTunnel(name); err != nil {
-			return err
-		}
-		deleted = append(deleted, "local")
-	}
-	if len(deleted) == 0 {
-		return fmt.Errorf("tunnel preset %q not found", name)
-	}
-	c.Printf("deleted preset %s (%s)\n", name, strings.Join(deleted, " and "))
-	return nil
-}
-
-// runTunnelPresetsPush uploads the local preset file to the server (TUN-03's migration
-// path: presets used to live only on the machine that saved them). A name the server
-// already has is SKIPPED and listed — overwriting a preset another machine may be using
-// is a decision for `--force`, not a side effect of a migration.
-func runTunnelPresetsPush(c *gcli.Command, _ []string) error {
 	cli, err := tunnelClient()
 	if err != nil {
 		return err
 	}
-	local, err := config.LoadTunnels()
-	if err != nil {
+	if err := cli.DeleteTunnelPreset(name); err != nil {
+		if client.StatusOf(err) == http.StatusNotFound {
+			return fmt.Errorf("tunnel preset %q not found", name)
+		}
 		return err
 	}
-	if len(local.Forwards) == 0 {
-		c.Println("no local presets to upload")
-		return nil
-	}
-	names := make([]string, 0, len(local.Forwards))
-	for name := range local.Forwards {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	pushed, skipped := 0, make([]string, 0)
-	for _, name := range names {
-		p := local.Forwards[name]
-		_, err := cli.PutTunnelPreset(name, client.TunnelPreset{Worker: p.Worker, Specs: p.Specs, Note: p.Note, Autostart: p.Autostart}, tunnelOpts.force)
-		if err != nil {
-			if client.StatusOf(err) == http.StatusConflict {
-				skipped = append(skipped, name)
-				continue
-			}
-			return fmt.Errorf("upload preset %q: %w", name, err)
-		}
-		pushed++
-	}
-	c.Printf("pushed %d preset(s)\n", pushed)
-	if len(skipped) > 0 {
-		c.Printf("skipped %d already on the server (use --force to overwrite): %s\n",
-			len(skipped), strings.Join(skipped, " "))
-	}
+	c.Printf("deleted preset %s\n", name)
 	return nil
 }
 

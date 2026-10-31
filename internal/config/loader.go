@@ -253,18 +253,6 @@ func UserWorkerConfigPath() (string, error) {
 	return filepath.Join(dir, WorkerConfigFileName), nil
 }
 
-// UserTunnelsPath returns the user-level tunnel presets path.
-//
-// DEPRECATED(v0.60.2): remove in v0.63 — see LoadTunnels. The file remains the offline
-// fallback and the source of `gofer tun presets push`.
-func UserTunnelsPath() (string, error) {
-	dir, err := ConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "tunnels.yaml"), nil
-}
-
 // DBFileName is the SQLite metadata database file name used when db_path is
 // resolved from storage.root or the config dir (see ResolveDBPath, design §11).
 const DBFileName = "gofer.db"
@@ -402,6 +390,18 @@ func RejectRemovedKeys(raw []byte) error {
 		return nil
 	}
 	var problems []string
+	if sup, found := doc["supervisor"]; found {
+		msg := "the `supervisor:` section has been removed; delete it"
+		if m, ok := sup.(map[string]any); ok {
+			if _, hasLeader := m["leader"]; hasLeader {
+				msg = "the `supervisor:` section has been removed, including `supervisor.leader` (no longer read); delete it and move the leader block to the top-level `leader:` key, same fields"
+			}
+		}
+		problems = append(problems, msg)
+	}
+	if _, found := doc["presence"]; found {
+		problems = append(problems, "the `presence:` section has been removed; delete it")
+	}
 	if srv, ok := doc["server"].(map[string]any); ok {
 		if _, found := srv["session_auto_relay_idle_sec"]; found {
 			problems = append(problems,

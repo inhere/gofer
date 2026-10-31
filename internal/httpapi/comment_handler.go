@@ -22,15 +22,6 @@ const commentAnonymousAuthor = "anonymous"
 // commentReq is the POST body of every comment route.
 type commentReq struct {
 	Body string `json:"body"`
-	// AsJob is the retired in-job identity field (MCP-05 阶段 A: the caller declared
-	// which job's agent was speaking, and the server resolved it to that job's agent
-	// key). Identity now comes from the CREDENTIAL — a job authenticates with its own
-	// GOFER_JOB_TOKEN (SEC-01), so there is nothing to declare — and the field is
-	// accepted but IGNORED for every caller. It stays in the struct only so an old
-	// client that still sends it does not get a 400.
-	//
-	// DEPRECATED(v0.58): remove in v0.61
-	AsJob string `json:"as_job,omitempty"`
 }
 
 // commentDispatchView is one job an @-mention started, as the thread renders it.
@@ -149,7 +140,7 @@ func (s *Server) postComment(c *rux.Context, scope, scopeID string) {
 	// speaks as that job's agent through CommentAsJob (which also feeds the 阶段 B
 	// leader gate the job id it needs — a leader's mention may dispatch inside its own
 	// plan, a member's is recorded), and every other caller speaks as itself.
-	// body.AsJob is deliberately NOT read; see the field's DEPRECATED note.
+	// The body carries no identity field: an old client's as_job is simply not decoded.
 	var cm jobstore.Comment
 	var dispatched []job.CommentDispatch
 	var err error

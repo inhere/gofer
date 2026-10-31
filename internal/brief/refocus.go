@@ -68,26 +68,12 @@ func (r Refocus) Empty() bool {
 		len(r.Jobs) == 0 && len(r.Mail) == 0
 }
 
-// RefocusHead is the sentence after the prefix: why the section appeared, in the
-// default language.
-//
-// DEPRECATED(v0.198): RenderRefocusIn / RefocusHeadIn take the language; this keeps
-// the default-language form for the caller that has none yet.
-func RefocusHead(resumed bool) string { return RefocusHeadIn(i18n.Default, resumed) }
-
-// RefocusHeadIn is RefocusHead in lang.
+// RefocusHeadIn is the sentence after the prefix in lang: why the section appeared.
 func RefocusHeadIn(lang i18n.Lang, resumed bool) string {
 	if resumed {
 		return briefText(lang, "brief.refocus.head_resumed")
 	}
 	return briefText(lang, "brief.refocus.head_compacted")
-}
-
-// RenderRefocus renders the section in the default language.
-//
-// DEPRECATED(v0.198): RenderRefocusIn(lang, …) is the language-aware form.
-func RenderRefocus(r Refocus, resumed bool, budget int) string {
-	return RenderRefocusIn(i18n.Default, r, resumed, budget)
 }
 
 // RenderRefocusIn renders the section in lang, or "" when there is nothing to say, it

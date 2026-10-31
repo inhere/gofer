@@ -653,22 +653,16 @@ func (c *Core) ReloadWithReport(cfg *config.Config, path string) (config.ReloadR
 	return result, nil
 }
 
-// ReloadConfig re-reads the config file this Core OWNS — the same path its write
+// ReloadConfigReport re-reads the config file this Core OWNS — the same path its write
 // transaction saves to (WithConfigPath, or the lazily resolved user-level config when
-// none was configured) — and hot-swaps it in. It is the manual reload behind
-// POST /v1/config/reload (WEB-04③ V1.1): Windows has no SIGHUP, so an operator who
-// edited the file by hand has no other way to apply it short of a restart.
+// none was configured) — and hot-swaps it in, returning the same structured result as
+// ReloadDetailed. It is the manual reload behind POST /v1/config/reload (WEB-04③ V1.1):
+// Windows has no SIGHUP, so an operator who edited the file by hand has no other way to
+// apply it short of a restart.
 //
 // The path resolution is deliberately the SAME code path as saveConfig, so "the file
 // the console writes" and "the file a reload re-reads" can never be two different
 // files (serve passes -c; a mismatch would make an edit vanish on the next reload).
-func (c *Core) ReloadConfig() error {
-	_, err := c.ReloadConfigReport()
-	return err
-}
-
-// ReloadConfigReport reloads the startup-resolved config path and returns the
-// same structured result as ReloadDetailed.
 func (c *Core) ReloadConfigReport() (config.ReloadResult, error) {
 	c.updateMu.Lock()
 	if c.cfgPath == "" {

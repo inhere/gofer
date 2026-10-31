@@ -112,12 +112,12 @@ func (s *Service) Resume(ctx context.Context, sid, initialInput, by, origin stri
 		return DeliverResult{}, ErrUnknownSession
 	}
 	if err := s.takeoverAliveCheck(a, false); err != nil {
-		return DeliverResult{}, &UndeliverableError{Reason: ReasonSessionAlive, Err: errors.New(ExplainReason(ReasonSessionAlive, a, err))}
+		return DeliverResult{}, &UndeliverableError{Reason: ReasonSessionAlive, Err: errors.New(ExplainReasonIn(s.lang(a.ProjectKey), ReasonSessionAlive, a, err))}
 	}
 	res, err := s.deliverTakeover(ctx, a, initialInput, by, origin)
 	if err != nil {
 		if reason := DeliverReason(err); reason != "" {
-			return DeliverResult{}, &UndeliverableError{Reason: reason, Err: errors.New(ExplainReason(reason, a, err))}
+			return DeliverResult{}, &UndeliverableError{Reason: reason, Err: errors.New(ExplainReasonIn(s.lang(a.ProjectKey), reason, a, err))}
 		}
 		return DeliverResult{}, err
 	}
@@ -170,13 +170,4 @@ func ExplainReasonIn(lang i18n.Lang, reason string, a jobstore.AgentSession, cau
 	default:
 		return i18n.T(lang, "sessionrelay.resume.unknown", "reason", reason)
 	}
-}
-
-// ExplainReason is ExplainReasonIn in the DEFAULT language, for a caller that has
-// no session row (and so no project) in hand.
-//
-// DEPRECATED(v0.198): a caller holding a session uses ExplainReasonIn; remove this
-// form once every caller does (design 2026-10-27-i18n §6).
-func ExplainReason(reason string, a jobstore.AgentSession, cause error) string {
-	return ExplainReasonIn(i18n.Default, reason, a, cause)
 }

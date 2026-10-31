@@ -38,7 +38,7 @@ func TestMergeProjectConfig_AllNilNoChange(t *testing.T) {
 
 func TestCaptureDiffModesDecode(t *testing.T) {
 	var cfg Config
-	err := yaml.Unmarshal([]byte("projects:\n  auto: {capture_diff: auto}\n  on: {capture_diff: on}\n  off: {capture_diff: off}\n  old: {capture_diff: false}\n"), &cfg)
+	err := yaml.Unmarshal([]byte("projects:\n  auto: {capture_diff: auto}\n  on: {capture_diff: on}\n  off: {capture_diff: off}\n"), &cfg)
 	if err != nil {
 		t.Fatalf("decode capture_diff modes: %v", err)
 	}
@@ -51,8 +51,16 @@ func TestCaptureDiffModesDecode(t *testing.T) {
 	if cfg.Projects["off"].CaptureDiff == nil || *cfg.Projects["off"].CaptureDiff {
 		t.Fatalf("off should resolve to false, got %v", cfg.Projects["off"].CaptureDiff)
 	}
-	if cfg.Projects["old"].CaptureDiff == nil || *cfg.Projects["old"].CaptureDiff {
-		t.Fatalf("legacy false should remain false, got %v", cfg.Projects["old"].CaptureDiff)
+}
+
+// The old boolean spelling is refused with the replacement named.
+func TestCaptureDiffBooleanRejected(t *testing.T) {
+	for in, want := range map[string]string{"false": "capture_diff: off", "true": "capture_diff: on"} {
+		var cfg Config
+		err := yaml.Unmarshal([]byte("projects:\n  old: {capture_diff: "+in+"}\n"), &cfg)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("capture_diff: %s err = %v, want to name %q", in, err, want)
+		}
 	}
 }
 

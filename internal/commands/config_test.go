@@ -473,9 +473,9 @@ func TestConfigValidateGoodConfig(t *testing.T) {
 	}
 }
 
-// TestConfigValidatePrintsRetiredSectionWarnings: a config still carrying the retired
-// supervisor / presence sections validates (no error) and prints the ignore warnings.
-func TestConfigValidatePrintsRetiredSectionWarnings(t *testing.T) {
+// TestConfigValidateRejectsRetiredSections: a config still carrying the removed
+// supervisor / presence sections fails validation and says what to change.
+func TestConfigValidateRejectsRetiredSections(t *testing.T) {
 	t.Setenv(config.EnvWorkspace, filepath.Join(t.TempDir(), "missing-workspace"))
 	host := t.TempDir()
 	cfgYAML := "" +
@@ -494,13 +494,9 @@ func TestConfigValidatePrintsRetiredSectionWarnings(t *testing.T) {
 	c := bindCmd(NewConfigCmd().Subs[0])
 	config.InputCfgFile = cfgPath
 	t.Cleanup(func() { config.InputCfgFile = "" })
-	out := captureOutput(t, func() {
-		if err := runConfigValidate(c, nil); err != nil {
-			t.Fatalf("retired sections must not fail validation, got: %v", err)
-		}
-	})
-	if !strings.Contains(out, "top-level `leader:`") || !strings.Contains(out, "`presence:` section has been retired") {
-		t.Fatalf("validate output lacks the warnings:\n%s", out)
+	err := runConfigValidate(c, nil)
+	if err == nil || !strings.Contains(err.Error(), "top-level `leader:`") || !strings.Contains(err.Error(), "`presence:` section has been removed") {
+		t.Fatalf("validate error = %v", err)
 	}
 }
 

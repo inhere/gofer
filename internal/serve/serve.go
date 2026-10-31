@@ -57,8 +57,8 @@ const ExitErr = 2
 // Opts collects the serve flags + resolved config paths the commands layer
 // passes into Start. The config itself is loaded by the caller (so it can print
 // the discovered path and apply overlays before assembling Core); CfgPath is the
-// loaded config file (empty = defaults + discovery), ReloadPath is the path the
-// SIGHUP reload loop re-loads from (config.InputCfgFile).
+// path actually selected by config.Load (empty = defaults + discovery); the SIGHUP,
+// Windows-event and HTTP reloads all re-read that same file.
 type Opts struct {
 	Addr          string
 	Token         string
@@ -66,21 +66,7 @@ type Opts struct {
 	NoWeb         bool
 	WebDir        string
 	CfgPath       string
-	// DEPRECATED(v0.94): remove in v0.97; callers should pass the resolved
-	// startup path in CfgPath. Kept temporarily for embedded callers.
-	ReloadPath string
-	Build      buildinfo.Info
-}
-
-// reloadPath is the single path chosen at startup for every later config read.
-// ReloadPath remains in Opts for source compatibility with embedders, but a
-// discovered CfgPath always wins so SIGHUP, Windows events and HTTP reloads do
-// not drift onto a different file.
-func reloadPath(opts Opts) string {
-	if opts.CfgPath != "" {
-		return opts.CfgPath
-	}
-	return opts.ReloadPath
+	Build         buildinfo.Info
 }
 
 // Start runs the serve process: assemble Core, start the sweeper / probe /
@@ -315,7 +301,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// effect on in-flight jobs). The goroutine stops cleanly when serve returns.
 	stopReload := make(chan struct{})
 	defer close(stopReload)
-	startReloadLoop(c, cr, reloadPath(opts), stopReload)
+	startReloadLoop(c, cr, opts.CfgPath, stopReload)
 
 	// ws-worker hub graceful shutdown (WP3 §5.6): when serve returns, stopHub
 	// closes so the hub gracefully closes every live worker connection (going-away),

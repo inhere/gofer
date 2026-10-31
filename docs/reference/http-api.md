@@ -128,12 +128,12 @@ Restart the managed serve without downloading anything — the one-click update'
 - Phases: `waiting_idle`, `restarting`, then `done` (recorded by the restarted process at startup) / `failed` / `cancelled`. A `waiting_idle` state a new process finds is failed, since its waiter is gone.
 - Permissions: `GET` needs `config.read`; `POST` / `DELETE` need `config.write` and refuse worker / job credentials (same tier as the config writes).
 
-## Config view: `leader` and retired-section `warnings`
+## Config view: `leader` and `warnings`
 
 - `GET /v1/config` reports the plan leader block as a top-level `leader` (`{enabled, agent?, scopes[], max_rounds_per_scope, wake_delay_sec, on_member_done}`, resolved values with defaults applied; absent when the config has no `leader:` section). The view no longer has `supervisor` or `presence`.
-- `warnings` (omitted when empty): load-time notices that a retired top-level `supervisor:` or `presence:` section was found and is **ignored**. The same list is returned on `PUT /v1/config/server`, `PUT /v1/config/agents/{key}` and `DELETE /v1/config/agents/{key}` responses, printed in the `serve` log and by `gofer config validate`.
+- `warnings` (omitted when empty): load-time notices (for example caller ceiling notices). The same list is returned on `PUT /v1/config/server`, `PUT /v1/config/agents/{key}` and `DELETE /v1/config/agents/{key}` responses, printed in the `serve` log and by `gofer config validate`.
 - The plan leader setting is read **only** from top-level `leader:`; the old `leader` block nested under `supervisor:` is not read, so a deployment that had the leader enabled must move the block.
-- Deprecated shim (G032): ignoring a retired `supervisor:` / `presence:` section with a warning is a temporary compatibility path, to be removed in v0.168.0 (after which the sections are silently ignored, like any unknown key).
+- A config that still has a top-level `supervisor:` or `presence:` section fails to load (the error names what to change); both sections were removed.
 - `GET /v1/stats` no longer has `drivers`. Interaction answers (`POST /v1/jobs/{id}/interactions/{iid}/answer`) take `{answer}` only; there is no `responder`. Jobs have no `origin_agent` / `escalate_to`.
 
 ## MCP registry

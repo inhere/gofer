@@ -113,7 +113,7 @@
 | 经验候选 | 交付后知识回流为候选记忆，人确认采纳或拒绝 | CLI `memory candidates` / `accept` / `reject`；MCP `gofer_memory_candidates` 等 | 未标注 | tracker.md「经验候选」 |
 | 记忆体检与整理建议 | 过时检测、反馈、整理建议卡 | CLI `memory doctor` / `memory flag`；MCP `gofer_memory_findings` / `gofer_memory_suggest` / `gofer_memory_flag`；Web 今天 | 未标注 | [design/2026-10-09-prime-memory-quality-design.md](design/2026-10-09-prime-memory-quality-design.md) |
 | prime 开场注入 | 会话开场注入提交策略、当前重点、ready issue、rule 记忆与记忆索引；`--prime-keywords` 提高相关记忆优先级 | CLI `repo prime [--keywords]`、`init hooks --prime-only` | 稳定 | tracker.md「prime」 |
-| tracker 同步与合并 | 初始化、与 server 镜像同步、状态查看、多 worktree 合并驱动、changelog 合并驱动、从 bd 迁移 | CLI `repo init\|sync\|status\|merge-driver\|changelog-merge\|migrate` | 稳定 | tracker.md；[runbook/tracker-transfer.md](runbook/tracker-transfer.md) |
+| tracker 同步与合并 | 初始化、与 server 镜像同步、状态查看、多 worktree 合并驱动、changelog 合并驱动 | CLI `repo init\|sync\|status\|merge-driver\|changelog-merge` | 稳定 | tracker.md；[runbook/tracker-transfer.md](runbook/tracker-transfer.md) |
 | 每日摘要 | 工作项摘要事件 `work.digest` 与 `work digest` | CLI `work digest`；事件 `work.digest` | 未标注 | work-items.md |
 | 反向链接 | issue / job / 计划 / 待办 / 信件 / 评论里提到的对象 id 自动记入引用索引，可查「被哪些对象引用」（按调用方可见范围过滤）；job 详情、计划详情与 issue 抽屉显示「被引用」面板 | CLI `tool refs <id>`；HTTP `GET /v1/refs`；MCP `gofer_refs`；Web 详情页 | 实验（v0.204.0 新增） | [commands.md](../skills/gofer-usage/references/commands.md)、[reference/http-api.md](reference/http-api.md) |
 | 每日记忆综合（P1） | 可选 `memory.synthesis` 配置、结构化材料的稳定摘要指纹、脱敏与预算裁剪，以及运行记录和只读查询。本版本不调用模型，默认关闭 | 配置 `memory.synthesis`；HTTP `GET /v1/memory-syntheses` | 实验（v0.204.0 新增，默认关闭） | [memory-synthesis.md](../skills/gofer-usage/references/memory-synthesis.md)、[design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md) |
@@ -127,7 +127,7 @@
 | 容器 worker | 容器内运行 worker | CLI `worker` | 稳定（随 worker） | [runbook/container-worker.md](runbook/container-worker.md) |
 | 配置重载 | worker / server 不重启重读配置 | CLI `worker reload`、`serve reload`；Web 设置「重新读取文件」 | 稳定 | [../skills/gofer-usage/references/operations.md](../skills/gofer-usage/references/operations.md)「重载配置」 |
 | 自升级 | 从控制台或命令升级整个 worker 舰队，任意 OS / 架构 | CLI `worker upgrade <id>`；HTTP `POST /v1/workers/{id}/upgrade`；Web Runners | 稳定 | operations.md「远程升级 worker」；[runbook/release-and-binary-swap.md](runbook/release-and-binary-swap.md) |
-| TCP 隧道 | 本机端口转发到 worker 所在网络；SOCKS5 / HTTP CONNECT 代理；同地址转发；预设；UDP | CLI `tunnel forward\|save\|saved\|forget\|check\|ls\|stop`、`tunnel presets push`；Web Tunnels | 未标注（运维类稳定项含隧道） | [runbook/tcp-tunnel.md](runbook/tcp-tunnel.md) |
+| TCP 隧道 | 本机端口转发到 worker 所在网络；SOCKS5 / HTTP CONNECT 代理；同地址转发；预设；UDP | CLI `tunnel forward\|save\|saved\|forget\|check\|ls\|stop`；Web Tunnels | 未标注（运维类稳定项含隧道） | [runbook/tcp-tunnel.md](runbook/tcp-tunnel.md) |
 | 文件传输 | 单文件在 server 与 runner 之间对拷；job 自带文件上传 / 收集；传输暂存区 | CLI `tool cp`、`tool xfer ls\|show\|rm`、`job run --upload` / `--collect` | 稳定 | [../skills/gofer-usage/references/files-and-wakeup.md](../skills/gofer-usage/references/files-and-wakeup.md) |
 | 工作区附件 | Web 工作台 / 会话抽屉附图；未显式配置存储路径时默认存到项目根 `.gofer/attachments/<日期>` | HTTP `/v1/attachments*` | 未标注 | web-console.md |
 

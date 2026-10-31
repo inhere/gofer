@@ -189,7 +189,7 @@ func (s *Server) handleImportLocalTunnelPreset(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "read tunnel preset failed", err.Error())
 		return
 	} else if exists {
-		writeError(c, http.StatusConflict, "tunnel preset already exists", "same-name import follows `tun presets push` and is skipped")
+		writeError(c, http.StatusConflict, "tunnel preset already exists", "a same-name import is skipped; delete the server preset first to replace it")
 		return
 	}
 	b, err := json.Marshal(profile.Specs)

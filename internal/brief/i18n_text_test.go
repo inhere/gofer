@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -149,11 +150,11 @@ func goldenCases() []goldenCase {
 					{TodoID: "td-2", Title: "next", Status: "ready", After: []string{"td-1"}},
 					{TodoID: "td-3", Title: "docs", Status: "done"},
 				}}
-			return strings.Join(PrimePlanLines(plan, issues), "\n")
+			return strings.Join(PrimePlanLinesIn(i18n.Default, plan, issues), "\n")
 		}},
 		// The post-compact re-injection of what the session was doing.
 		{"refocus.txt", func(t *testing.T, _ Options) string {
-			return RenderRefocus(fullRefocus(), false, 4000)
+			return RenderRefocusIn(i18n.Default, fullRefocus(), false, 4000)
 		}},
 	}
 }

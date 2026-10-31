@@ -666,16 +666,6 @@ type reviewJobReq struct {
 	// Reason is accepted as a synonym of Note (gofer-9b1b: "reject a held job with a
 	// reason" reads naturally that way); Note wins when both are given.
 	Reason string `json:"reason,omitempty"`
-	// AsJob is the retired in-job identity field (MCP-05 阶段 B used it to tell a
-	// LEADER job apart from the human it ran beside). A leader can no longer ask for a
-	// verdict at all: it authenticates with its own job credential, and the SEC-01
-	// permission table refuses accept/reject for every job caller before the handler
-	// runs — a stronger rule than the field ever expressed, because it does not depend
-	// on what the body claims. The field stays accepted-and-ignored so an old client
-	// does not get a 400.
-	//
-	// DEPRECATED(v0.58): remove in v0.61
-	AsJob string `json:"as_job,omitempty"`
 	// Resume asks a REJECT to continue the work: a new job is started with the note as
 	// its prompt. Ignored by accept.
 	Resume bool `json:"resume,omitempty"`

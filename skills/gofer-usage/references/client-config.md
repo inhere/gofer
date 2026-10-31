@@ -51,7 +51,7 @@ gofer agent list           # server 的 agents, 带 batch/interactive 能力位
 
 ## client 模式下能用 / 不能用
 
-- **照常**：`job`（run/list/show/logs/watch/resume/cancel/worktree）、`plan`、`workflow`、`schedule`、`session`（含 `init hooks`、relay）、`tunnel`（forward/check/save/saved/ls，预设存在 `<config-dir>/tunnels.yaml`）、`project list/show/validate`（远程）、`agent list`（远程；`--local` 看内置模板）、`worker list`、`mcp`（连 `--server` 的模式）、`config info`。
+- **照常**：`job`（run/list/show/logs/watch/resume/cancel/worktree）、`plan`、`workflow`、`schedule`、`session`（含 `init hooks`、relay）、`tunnel`（forward/check/save/saved/ls，预设存在 server 上）、`project list/show/validate`（远程）、`agent list`（远程；`--local` 看内置模板）、`worker list`、`mcp`（连 `--server` 的模式）、`config info`。
 - **明确拒绝**（错误文案 `run mode is client: … unset GOFER_RUN_MODE or use server/worker on that node`）：`serve`、`worker`、`project add/remove`、`config validate server|worker`、`config edit`、`mcp --standalone`。
 - 显式 `--config <path>` / `GOFER_CONFIG` 仍按指定文件加载（显式优先于角色默认）。
 

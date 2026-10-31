@@ -1700,22 +1700,11 @@ func (s *Server) handleReloadConfig(c *rux.Context) {
 	if !ok {
 		return
 	}
-	if reporter, ok := cw.(ConfigReloadReporter); ok {
-		result, err := reporter.ReloadConfigReport()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, configWriteErrorBody{Error: "config reload failed", Detail: err.Error()})
-			return
-		}
-		slog.Info("config reloaded", "caller_id", caller, "path", result.Path, "rev", result.Rev)
-		c.JSON(http.StatusOK, configReloadResp{Status: "ok", Reloaded: true, Rev: result.Rev, Path: result.Path, Changed: result.Changed, RestartRequired: result.RestartRequired})
-		return
-	}
-	// DEPRECATED(v0.94): remove in v0.97 after all ConfigWriter implementations
-	// expose ConfigReloadReporter; this keeps lightweight embedders source-compatible.
-	if err := cw.ReloadConfig(); err != nil {
+	result, err := cw.ReloadConfigReport()
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, configWriteErrorBody{Error: "config reload failed", Detail: err.Error()})
 		return
 	}
-	slog.Info("config reloaded", "caller_id", caller)
-	c.JSON(http.StatusOK, configReloadResp{Status: "ok", Reloaded: true})
+	slog.Info("config reloaded", "caller_id", caller, "path", result.Path, "rev", result.Rev)
+	c.JSON(http.StatusOK, configReloadResp{Status: "ok", Reloaded: true, Rev: result.Rev, Path: result.Path, Changed: result.Changed, RestartRequired: result.RestartRequired})
 }

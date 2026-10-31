@@ -261,7 +261,7 @@ func TestPlanBriefAndPrimeLines(t *testing.T) {
 	assert.Contains(t, related, "- t-ep.2 [closed]")
 
 	issues, _ := s.ReadIssues()
-	lines := PrimePlanLines(plan, issues)
+	lines := PrimePlanLinesIn(i18n.Default, plan, issues)
 	assert.Eq(t, []string{
 		"- plan-a flow work (t-ep)（接手：`gofer plan brief plan-a`）",
 		"  - [doing] T2 next .3 · t-ep.3",

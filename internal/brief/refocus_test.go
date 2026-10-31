@@ -3,6 +3,8 @@ package brief
 import (
 	"strings"
 	"testing"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 func fullRefocus() Refocus {
@@ -19,7 +21,7 @@ func fullRefocus() Refocus {
 }
 
 func TestRenderRefocusAllSections(t *testing.T) {
-	out := RenderRefocus(fullRefocus(), false, 4000)
+	out := RenderRefocusIn(i18n.Default, fullRefocus(), false, 4000)
 	for _, want := range []string{
 		"[gofer · 提示] 上下文刚被压缩",
 		"主题：会话压缩后重注入",
@@ -37,7 +39,7 @@ func TestRenderRefocusAllSections(t *testing.T) {
 
 func TestRenderRefocusResumeWordingAndBlocked(t *testing.T) {
 	r := Refocus{Plans: []RefocusPlan{{PlanID: "p-2", Status: "blocked", Progress: 1, Total: 3, Blocked: "t-9"}}}
-	out := RenderRefocus(r, true, 4000)
+	out := RenderRefocusIn(i18n.Default, r, true, 4000)
 	if !strings.Contains(out, "会话刚恢复") {
 		t.Fatalf("resume wording missing:\n%s", out)
 	}
@@ -47,27 +49,27 @@ func TestRenderRefocusResumeWordingAndBlocked(t *testing.T) {
 }
 
 func TestRenderRefocusEmptyAndNoBudget(t *testing.T) {
-	if out := RenderRefocus(Refocus{}, false, 4000); out != "" {
+	if out := RenderRefocusIn(i18n.Default, Refocus{}, false, 4000); out != "" {
 		t.Fatalf("a session with nothing in flight must render nothing, got:\n%s", out)
 	}
-	if out := RenderRefocus(fullRefocus(), false, 0); out != "" {
+	if out := RenderRefocusIn(i18n.Default, fullRefocus(), false, 0); out != "" {
 		t.Fatalf("no budget must render nothing, got:\n%s", out)
 	}
 }
 
 func TestRenderRefocusDropsWholeHeaderWhenNothingFits(t *testing.T) {
 	// A header that does not fit the remaining budget must not leave a dangling line.
-	out := RenderRefocus(fullRefocus(), false, 40)
+	out := RenderRefocusIn(i18n.Default, fullRefocus(), false, 40)
 	if out != "" {
 		t.Fatalf("section should be dropped, got %q", out)
 	}
 }
 
 func TestRenderRefocusTruncatesAtBudgetBoundary(t *testing.T) {
-	full := RenderRefocus(fullRefocus(), false, 4000)
+	full := RenderRefocusIn(i18n.Default, fullRefocus(), false, 4000)
 	// A budget between the topic and the whole section keeps the head and drops the
 	// tail instead of returning nothing.
-	cut := RenderRefocus(fullRefocus(), false, len(full)-40)
+	cut := RenderRefocusIn(i18n.Default, fullRefocus(), false, len(full)-40)
 	if cut == "" || len(cut) > len(full) {
 		t.Fatalf("unexpected cut section: %q", cut)
 	}

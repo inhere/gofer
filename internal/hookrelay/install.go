@@ -24,8 +24,7 @@ func trackerPrimeCommandFor(agent string) string {
 }
 
 // InstallTrackerPrime merges only the tracker SessionStart command, leaving
-// every other hook alone. (Replacing bd's hooks is the migration's job:
-// internal/bdmigrate.)
+// every other hook alone.
 func InstallTrackerPrime(agent, root string) (bool, error) {
 	path, err := ConfigFileFor(agent, root)
 	if err != nil {
@@ -55,10 +54,6 @@ func InstallTrackerPrime(agent, root string) (bool, error) {
 			item, _ := hook.(map[string]any)
 			if cmd, _ := item["command"].(string); cmd == trackerPrimeCommandFor(agent) {
 				found = true
-			} else if cmd == trackerPrimePrefix {
-				// DEPRECATED(v0.81.0): remove upgrade of unqualified prime in v0.84.0.
-				item["command"] = trackerPrimeCommandFor(agent)
-				found, changed = true, true
 			}
 		}
 	}
@@ -171,8 +166,7 @@ func HasTrackerPrime(agent, root string) bool {
 		hooks, _ := group["hooks"].([]any)
 		for _, hook := range hooks {
 			item, _ := hook.(map[string]any)
-			// DEPRECATED(v0.81.0): recognize the old command once so upgrades stay idempotent; remove in v0.84.0.
-			if cmd, _ := item["command"].(string); cmd == trackerPrimeCommandFor(agent) || cmd == trackerPrimePrefix {
+			if cmd, _ := item["command"].(string); cmd == trackerPrimeCommandFor(agent) {
 				return true
 			}
 		}

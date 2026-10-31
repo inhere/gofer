@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/gookit/gcli/v3"
-	"github.com/inhere/gofer/internal/bdmigrate"
 	"github.com/inhere/gofer/internal/brief"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
@@ -27,7 +26,7 @@ func NewRepoCmd() *gcli.Command {
 	var prefix, initTracker, statusTracker, syncServer, primeAgent, primeKeywords, syncRemote, commitPolicy string
 	var primeSession, primeSource string
 	var syncTimeout time.Duration
-	var noAgents, noHooks, asJSON, fromBD, applyMigration, forceMigration bool
+	var noAgents, noHooks, asJSON bool
 	return &gcli.Command{
 		Name: "repo", Desc: "Manage this repository's local tracker",
 		Subs: []*gcli.Command{
@@ -72,54 +71,6 @@ func NewRepoCmd() *gcli.Command {
 					if report.Summary != "" {
 						c.Printf("sync: %s\n", report.Summary)
 					}
-					return nil
-				},
-			},
-			{
-				Name: "migrate", Desc: "Migrate a bd (beads) repository to the gofer tracker (dry-run unless --apply)",
-				Help: "Reads the live bd database (`bd export`, read-only; .beads/issues.jsonl only as a fallback) and\n" +
-					"imports issues + memories into .gofer/tracker, then swaps the bd integration points: the BEADS\n" +
-					"blocks in AGENTS.md/CLAUDE.md become the gofer block, `bd prime` / `bd codex-hook` hooks become\n" +
-					"`gofer repo prime --hook-json`, and core.hooksPath is unset when it points at .beads/hooks and\n" +
-					"that directory holds only bd's own hooks. .beads/ is kept. Anything else that mentions bd is\n" +
-					"listed for a human. --apply refuses while bd looks active (locks, processes, writes in the last\n" +
-					"minutes, unexpired claim leases); --force overrides.",
-				Config: func(c *gcli.Command) {
-					bindConfigFlag(c)
-					c.BoolOpt(&fromBD, "from-bd", "", false, "migrate from bd (required)")
-					c.BoolOpt(&applyMigration, "apply", "", false, "apply changes (default: dry-run)")
-					c.BoolOpt(&forceMigration, "force", "", false, "apply even though bd looks active")
-					c.BoolOpt(&asJSON, "json", "", false, "print the report as JSON")
-				},
-				Func: func(c *gcli.Command, _ []string) error {
-					if !fromBD {
-						return fmt.Errorf("specify --from-bd")
-					}
-					root, err := os.Getwd()
-					if err != nil {
-						return err
-					}
-					report, err := bdmigrate.Run(bdmigrate.Options{Root: root, Apply: applyMigration, Force: forceMigration, Language: managedBlockLanguage(root)})
-					if err != nil {
-						if asJSON {
-							_ = printTrackerJSON(c, report)
-						} else if report.Root != "" {
-							c.Print(report.Format())
-						}
-						return err
-					}
-					var keyNotes []string
-					if applyMigration {
-						if s, discoverErr := tracker.Discover(root, ""); discoverErr == nil {
-							keyNotes = bindTrackerProjectKey(s, root)
-							keyNotes = append(keyNotes, installMergeDriverNotes(root)...)
-						}
-					}
-					if asJSON {
-						return printTrackerJSON(c, report)
-					}
-					c.Print(report.Format())
-					printNotes(c, keyNotes)
 					return nil
 				},
 			},
@@ -193,16 +144,13 @@ func NewRepoCmd() *gcli.Command {
 						}
 						root = filepath.Dir(filepath.Dir(initTracker))
 					}
-					s, beads, err := tracker.InitWith(root, tracker.InitOptions{Prefix: prefix, NoAgentsMD: noAgents, CommitPolicy: commitPolicy, Language: managedBlockLanguage(root)})
+					s, _, err := tracker.InitWith(root, tracker.InitOptions{Prefix: prefix, NoAgentsMD: noAgents, CommitPolicy: commitPolicy, Language: managedBlockLanguage(root)})
 					if err != nil {
 						return err
 					}
 					c.Printf("tracker initialized: %s\n", s.Dir)
 					if cfg, err := s.ReadConfig(); err == nil {
 						c.Printf("commit_policy: %s (change with --commit-policy local-commit|ask|none)\n", cfg.CommitPolicy)
-					}
-					if beads {
-						c.Println("BEADS integration remains; use gofer repo migrate --from-bd")
 					}
 					if !noHooks {
 						for _, agent := range []string{hookrelay.AgentClaude, hookrelay.AgentCodex} {
@@ -373,7 +321,21 @@ func primeRefocusSection(s *tracker.Store, configPath, session, source string, b
 		r.Mail = append(r.Mail, brief.RefocusMail{ID: m.ID, From: m.From, Subject: m.Subject})
 	}
 	r.Claims = refocusClaims(s, focus)
-	return brief.RenderRefocus(r, resumed, budget)
+	cwd, _ := os.Getwd()
+	return brief.RenderRefocusIn(deploymentLang(configPath, cwd, i18n.Resolve(i18n.FromEnvVar())), r, resumed, budget)
+}
+
+// deploymentLang is the language of the text gofer writes for an agent working in cwd:
+// the project's language, then the server's, else fallback when no config is readable.
+func deploymentLang(configPath, cwd string, fallback i18n.Lang) i18n.Lang {
+	appCfg, _, err := config.Load(configPath)
+	if err != nil {
+		return fallback
+	}
+	if key, ok := appCfg.ProjectForPath(cwd); ok {
+		return appCfg.LanguageFor(key)
+	}
+	return appCfg.Language()
 }
 
 // refocusClaimsLimit caps how many claimed issues the section reminds about.
@@ -421,7 +383,7 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 }
 
 // managedBlockLanguage is the language of the instruction block a repository gets
-// (`repo init` / `repo migrate`). It is the repository's project language, else
+// (`repo init`). It is the repository's project language, else
 // `server.language`, else the deployment default (design 2026-10-27-i18n-design.md
 // §3). The machine's locale is deliberately not a source: the block is written for
 // the repository, so running init on an English-locale machine must not flip a
@@ -458,14 +420,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string, keyw
 		}
 		primeCfg = localCfg.Prime
 		cwd, _ := os.Getwd()
-		lang := primeLang
-		if appCfg, _, cfgErr := config.Load(configPath); cfgErr == nil {
-			if key, ok := appCfg.ProjectForPath(cwd); ok {
-				lang = appCfg.LanguageFor(key)
-			} else {
-				lang = appCfg.Language()
-			}
-		}
+		lang := deploymentLang(configPath, cwd, primeLang)
 		primeLang = lang
 		opts := tracker.PrimeOptions{Cwd: cwd, Now: time.Now(), Language: lang, Keywords: keywords}
 		workHint := make(chan bool, 1)
@@ -574,7 +529,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string, keyw
 			if full, getErr := cli.GetPlan(plan.PlanID); getErr == nil {
 				plan = full
 			}
-			for _, line := range brief.PrimePlanLines(plan, issues) {
+			for _, line := range brief.PrimePlanLinesIn(primeLang, plan, issues) {
 				planOut.WriteString(line + "\n")
 			}
 			if h, getErr := cli.GetPlanHandoff(plan.PlanID, 0); getErr == nil && h.Version > 0 {

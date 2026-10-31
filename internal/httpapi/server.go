@@ -120,13 +120,6 @@ func callerKindFromCtx(c *rux.Context) string {
 // degradation /v1/xfer uses — so the router never has to be rebuilt for it.
 type ConfigWriter interface {
 	Update(mut func(*config.Config) error) error
-	ReloadConfig() error
-}
-
-// ConfigReloadReporter is an optional extension implemented by the server core.
-// Keeping it separate preserves the narrow writer seam used by lightweight tests
-// and MCP callers while allowing the HTTP response to expose generation details.
-type ConfigReloadReporter interface {
 	ReloadConfigReport() (config.ReloadResult, error)
 }
 
@@ -1022,7 +1015,11 @@ func (s *Server) StartHostedAutostart() {
 			slog.Warn("tunnel.hosted_autostart_failed", "event", "tunnel.hosted_autostart_failed", "preset", rec.Name, "error", err)
 			continue
 		}
-		starter := s.autostartStarter(rec)
+		// The starter is the preset's updated_by, recorded exactly as written: when it is
+		// not a live caller, no caller id equals it, so the stop rule's ownership
+		// comparison sends the forwarder down its tunnel.manage.others branch, which only
+		// a root administrator holds.
+		starter := rec.UpdatedBy
 		if _, err := s.hostedForwarders.Start(rec.Name, starter, rec.Worker, specs); err != nil {
 			slog.Warn("tunnel.hosted_autostart_failed", "event", "tunnel.hosted_autostart_failed", "preset", rec.Name, "error", err)
 			continue
@@ -1033,50 +1030,6 @@ func (s *Server) StartHostedAutostart() {
 		// forwarder started from the route.
 		s.trackHostedForwarder(rec.Name, liveConnSpec{caller: starter})
 	}
-}
-
-// autostartStarter resolves WHO STARTED a hosted forwarder that is restored at startup from an
-// autostart preset (plan T1.5f): the starter is the preset's updated_by — the caller that wrote
-// the preset, i.e. the one that asked for it to come up with the server.
-//
-// A starter that is not a live user-class caller (a row written before the permission model, or
-// one whose caller was removed from the configuration since) is 「按根管理员处理」: it is
-// reported once, and because no caller id equals it any more, the stop route's ownership
-// comparison sends such a forwarder down the tunnel.manage.others branch — which only a root
-// administrator holds.
-//
-// DEPRECATED(v0.161): remove in v0.164 — the updated_by-as-starter fallback (and this
-// warning) only exists for autostart presets written before the permission model. A preset
-// written by a grantee records a live caller, so once those rows are gone the starter is a
-// known caller by construction.
-func (s *Server) autostartStarter(rec jobstore.TunnelPresetRecord) string {
-	if !s.isUserCaller(rec.UpdatedBy) {
-		slog.Warn("tunnel.hosted_autostart_starter_unknown", "event", "tunnel.hosted_autostart_starter_unknown",
-			"preset", rec.Name, "updated_by", rec.UpdatedBy,
-			"reason", "the autostart preset's updated_by is not a configured user-class caller; the forwarder is treated as started by the root administrator (only a root may stop it)")
-	}
-	// The starter is recorded exactly as written: when it is not a live caller, no caller id
-	// equals it any more, so the stop rule's ownership comparison sends the forwarder down its
-	// tunnel.manage.others branch — which only a root administrator holds. That IS the design's
-	// 按根管理员处理; nothing has to be rewritten here.
-	return rec.UpdatedBy
-}
-
-// isUserCaller reports whether id belongs to a configured user-class caller — the callers of
-// server.callers plus the singleton server token (authz.DefaultCallerID). An allow_empty_token
-// deployment has no configured caller at all, so its anonymous caller (the empty id) is one:
-// that is the caller every ownership comparison in this package already sees there.
-func (s *Server) isUserCaller(id string) bool {
-	entries := s.callerEntries()
-	if len(entries) == 0 {
-		return id == ""
-	}
-	for _, ce := range entries {
-		if ce.kind == callerKindUser && ce.id == id {
-			return true
-		}
-	}
-	return false
 }
 
 // hasTag reports whether a job carries a tag — the terminal hook's filter below.
