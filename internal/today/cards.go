@@ -3,7 +3,6 @@ package today
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -38,12 +37,8 @@ func (s *Service) DecisionsIn(lang i18n.Lang, includeExec bool) ([]Card, error) 
 		b.decisions,
 		func() error { return b.reviews(includeExec) },
 		b.approvals,
-		b.work,
-		b.captureBox,
 		b.mailHeld,
-		b.merges,
 		b.blockedPlans,
-		b.memoryCards,
 	}
 	for _, step := range steps {
 		if err := step(); err != nil {
@@ -65,10 +60,8 @@ type builder struct {
 	lang  i18n.Lang
 	now   int64
 	cards []Card
-	// workCards indexes the work cards by item id.
-	workCards map[string]int
-	todos     map[string][]jobstore.PlanTodo
-	jobs      map[string]*jobstore.JobRecord
+	todos map[string][]jobstore.PlanTodo
+	jobs  map[string]*jobstore.JobRecord
 }
 
 func (b *builder) store() *jobstore.Store { return b.s.d.Store }
@@ -586,107 +579,6 @@ func reviewSummary(rec jobstore.JobRecord) string {
 	return jobTitle(rec)
 }
 
-// ---------------------------------------------------------------- work
-
-func (b *builder) work() error {
-	b.workCards = map[string]int{}
-	if b.s.d.Work == nil {
-		return nil
-	}
-	items, err := b.s.d.Work.List(jobstore.WorkListOpts{Statuses: []string{jobstore.WorkNeedsMe, jobstore.WorkNeedsOnsite}, Limit: 500})
-	if err != nil {
-		return err
-	}
-	due, err := b.s.d.Work.List(jobstore.WorkListOpts{Due: true, Now: b.now, Limit: 500})
-	if err != nil {
-		return err
-	}
-	seen := map[string]bool{}
-	for _, v := range append(items, due...) {
-		if seen[v.ID] {
-			continue
-		}
-		seen[v.ID] = true
-		tag := b.tr("tag.work_me")
-		switch {
-		case v.Status == jobstore.WorkNeedsOnsite:
-			tag = b.tr("tag.work_onsite")
-		case v.Status != jobstore.WorkNeedsMe && v.Due:
-			tag = b.tr("tag.work_due")
-		}
-		waited := v.StatusAt
-		if v.Due && v.Status != jobstore.WorkNeedsMe && v.Status != jobstore.WorkNeedsOnsite {
-			waited = v.RemindAt
-			if v.Status == jobstore.WorkParked && v.ParkUntil > 0 {
-				waited = v.ParkUntil
-			}
-		}
-		if waited == 0 {
-			waited = v.UpdatedAt
-		}
-		c := Card{
-			Key: KindWork + ":" + v.ID, Kind: KindWork, Tag: tag, Title: oneLine(v.Title, titleRunes),
-			// The stored activity (journal / status / links), not ItemView's session-heartbeat
-			// shadow: a heartbeat must not wake a snoozed card (T3).
-			ProjectKey: v.ProjectKey, WaitingSince: waited, ActivityAt: v.WorkItem.LastActivityAt,
-			Summary: oneLine(firstNonEmpty(v.BlockerText, v.Summary, v.NextStep, v.Goal), summaryRunes),
-			Refs:    Refs{WorkItemID: v.ID},
-			Actions: []Action{
-				{ID: "reply", Label: b.tr("action.reply"), Style: "primary", NeedsText: true},
-				{ID: "report", Label: b.tr("action.report")},
-				{ID: "park", Label: b.tr("action.park")},
-			},
-		}
-		online := ""
-		for _, sb := range v.Sessions {
-			if sb.Role == jobstore.WorkSessionCurrent && !sb.Offline && !sb.Missing {
-				online = sb.SessionID
-				if c.Agent == "" {
-					c.Agent = sb.Agent
-				}
-				break
-			}
-		}
-		c.Refs.SessionID = online
-		blk := b.blocks()
-		if v.Status == jobstore.WorkNeedsMe && online != "" {
-			blk.add(2, 1, strings.TrimSpace(b.tr("card.work_online", "agent", c.Agent)))
-		}
-		c.Blocks = blk.result()
-		b.workCards[v.ID] = len(b.cards)
-		b.cards = append(b.cards, c)
-	}
-	return nil
-}
-
-// captureBox adds the one summary card 「收集箱 N 条待处理」 (no card per captured item).
-func (b *builder) captureBox() error {
-	items, err := b.store().ListWorkItems(jobstore.WorkListOpts{Statuses: []string{jobstore.WorkCaptured}, Limit: 2000})
-	if err != nil {
-		return err
-	}
-	if len(items) == 0 {
-		return nil
-	}
-	oldest, newest := items[0].CreatedAt, items[0].LastActivityAt
-	for _, w := range items {
-		if w.CreatedAt < oldest {
-			oldest = w.CreatedAt
-		}
-		if w.LastActivityAt > newest {
-			newest = w.LastActivityAt
-		}
-	}
-	b.cards = append(b.cards, Card{
-		Key: CaptureCardKey, Kind: KindCapture, Tag: b.tr("tag.capture"),
-		Title:        b.tr("card.capture_title", "n", len(items)),
-		WaitingSince: oldest, ActivityAt: newest,
-		Summary: oneLine(items[0].Title, summaryRunes),
-		Actions: []Action{{ID: "open", Label: b.tr("action.organize"), Style: "link", Value: CaptureBoxLink}},
-	})
-	return nil
-}
-
 // mailHeldSummaryRunes bounds the body excerpt in the held-mail card's summary line.
 const mailHeldSummaryRunes = 40
 
@@ -754,39 +646,6 @@ func shortMailID(id string) string {
 		return id[:12]
 	}
 	return id
-}
-
-// ---------------------------------------------------------------- merges
-// (The model's tidy-up suggestions no longer make cards: design 2026-11-01 §4.2 keeps them as a
-// collapsed reference inside the work item's detail, nothing on the home page.)
-
-func (b *builder) merges() error {
-	rows, err := b.store().ListWorkMergeSuggestions(jobstore.MergeSuggestPending)
-	if err != nil {
-		return err
-	}
-	for _, g := range rows {
-		target, tok, err := b.store().GetWorkItem(g.TargetID)
-		if err != nil {
-			return err
-		}
-		source, sok, err := b.store().GetWorkItem(g.SourceID)
-		if err != nil {
-			return err
-		}
-		if !tok || !sok || target.Status == jobstore.WorkCaptured || source.Status == jobstore.WorkCaptured {
-			continue
-		}
-		b.cards = append(b.cards, Card{
-			Key: fmt.Sprintf("%s:%d", KindMerge, g.ID), Kind: KindMerge, Tag: b.tr("tag.merge"),
-			Title:      oneLine(b.tr("card.merge_title", "source", source.Title, "target", target.Title), titleRunes),
-			ProjectKey: target.ProjectKey, WaitingSince: g.At, ActivityAt: g.At,
-			Summary: oneLine(firstNonEmpty(g.Reason, b.tr("card.merge_reason")), summaryRunes),
-			Refs:    Refs{WorkItemID: g.TargetID, MergeID: g.ID},
-			Actions: []Action{{ID: "adopt", Label: b.tr("action.adopt"), Style: "ok"}, {ID: "dismiss", Label: b.tr("action.dismiss")}},
-		})
-	}
-	return nil
 }
 
 // ---------------------------------------------------------------- blocked plans
@@ -897,13 +756,4 @@ func capRunes(s string, limit int) string {
 		return s
 	}
 	return string(r[:limit]) + "…"
-}
-
-func workStatusLabel(lang i18n.Lang, st string) string {
-	switch st {
-	case jobstore.WorkActive, jobstore.WorkNeedsMe, jobstore.WorkWaitingResource, jobstore.WorkNeedsOnsite,
-		jobstore.WorkReview, jobstore.WorkParked, jobstore.WorkDone, jobstore.WorkDropped:
-		return i18n.T(lang, "today.work_status."+st)
-	}
-	return st
 }

@@ -57,17 +57,17 @@ func TestTodayTextFollowsAcceptLanguage(t *testing.T) {
 				Digest struct {
 					Title string `json:"title"`
 				} `json:"digest"`
-				Decisions []card `json:"decisions"`
+				Waiting []card `json:"waiting"`
 			}
 			read := func(h string) (card, string) {
-				resp.Decisions = nil
+				resp.Waiting = nil
 				getWithLang(t, s, "/v1/today", h, &resp)
-				for _, c := range resp.Decisions {
+				for _, c := range resp.Waiting {
 					if c.Key == "review:j-lang" {
 						return c, resp.Digest.Title
 					}
 				}
-				t.Fatalf("no review card for %q: %+v", h, resp.Decisions)
+				t.Fatalf("no review card for %q: %+v", h, resp.Waiting)
 				return card{}, ""
 			}
 			zh, zhTitle := read("zh-CN")

@@ -128,7 +128,7 @@ func TestSuggestMemoryValidationCooldownAndCap(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrMemorySuggestCap))
 }
 
-func TestMemoryCardsAndAdopt(t *testing.T) {
+func TestMemorySuggestionsAdopt(t *testing.T) {
 	svc, st := newTestService(t)
 	seedMemories(t, st)
 	suggest := func(key, action string, p MemoryPayload) MemorySuggestion {
@@ -143,30 +143,13 @@ func TestMemoryCardsAndAdopt(t *testing.T) {
 	when := suggest("release-a", MemoryActWhen, MemoryPayload{Keywords: []string{"发版", "release"}})
 	kind := suggest("fresh", MemoryActKind, MemoryPayload{Kind: "rule"})
 
-	cards, err := svc.Decisions(false)
-	assert.NoErr(t, err)
-	c, ok := find(cards, "memory:1")
-	assert.True(t, ok)
-	assert.Eq(t, KindMemory, c.Kind)
-	assert.Eq(t, UrgencyNormal, c.Urgency)
-	assert.Eq(t, "p1", c.ProjectKey)
-	assert.Eq(t, arc.ID, c.Refs.MemorySuggestionID)
-	assert.NotNil(t, c.Memory)
-	assert.Eq(t, "note", c.Memory.CurrentKind)
-	assert.Eq(t, []string{"adopt", "dismiss"}, []string{c.Actions[0].ID, c.Actions[1].ID})
-	alive, err := svc.cardAlive("memory:1")
-	assert.NoErr(t, err)
-	assert.True(t, alive)
-
 	// archive → an archive tombstone the clones turn into a local archive entry.
-	_, err = svc.AdoptMemorySuggestion(arc.ID, "human:me")
+	_, err := svc.AdoptMemorySuggestion(arc.ID, "human:me")
 	assert.NoErr(t, err)
 	rec, _, _ := st.GetTrackerMemory("trk", "old-note")
 	assert.True(t, rec.Deleted)
 	assert.True(t, tracker.IsArchiveTombstone(rec.DeletedBy))
 	assert.Contains(t, string(rec.Body), "archive_reason")
-	alive, _ = svc.cardAlive("memory:1")
-	assert.False(t, alive)
 
 	// merge → target gets both bodies, source gets an ARCHIVE tombstone (clones keep it).
 	_, err = svc.AdoptMemorySuggestion(mrg.ID, "human:me")
@@ -199,11 +182,6 @@ func TestMemoryCardsAndAdopt(t *testing.T) {
 
 	_, err = svc.AdoptMemorySuggestion(kind.ID, "human:me")
 	assert.True(t, errors.Is(err, jobstore.ErrMemorySuggestionDecided))
-	cards, err = svc.Decisions(false)
-	assert.NoErr(t, err)
-	for _, c := range cards {
-		assert.NotEq(t, KindMemory, c.Kind)
-	}
 }
 
 // TestAdoptMemorySuggestionRevChecks: a sync that changed the memory or the merge target
@@ -296,10 +274,6 @@ func TestAdoptMemorySuggestionGoneMarksStale(t *testing.T) {
 		Payload: MemoryPayload{Into: "release-a"}}, "s", "")
 	assert.NoErr(t, err)
 	assert.NoErr(t, st.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: "trk", ID: "release-a", Body: json.RawMessage("{}"), Rev: 9, Deleted: true}))
-	cards, err := svc.Decisions(false)
-	assert.NoErr(t, err)
-	_, ok := find(cards, "memory:1")
-	assert.False(t, ok)
 	_, err = svc.AdoptMemorySuggestion(sg.ID, "human:me")
 	assert.True(t, errors.Is(err, ErrMemoryNotFound))
 	row, err := st.GetMemorySuggestion(sg.ID)

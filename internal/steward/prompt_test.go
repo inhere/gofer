@@ -120,7 +120,7 @@ func TestReviewInstructionContinuesTheStepNumbers(t *testing.T) {
 	assert.NoErr(t, err)
 
 	p := e.svc.reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), 2, nil)
-	assert.True(t, strings.Contains(p, "3. 「今天」待决策队列里有 2 张卡"))
+	assert.True(t, strings.Contains(p, "3. 「等我」列表里有 2 张卡"))
 	assert.True(t, strings.Contains(p, "4. 最后调用 gofer_steward_notes"))
 }
 

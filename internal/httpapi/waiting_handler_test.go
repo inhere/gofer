@@ -23,8 +23,7 @@ type waitingCard struct {
 }
 
 type todayWaitingResp struct {
-	Decisions []waitingCard `json:"decisions"`
-	Waiting   []waitingCard `json:"waiting"`
+	Waiting []waitingCard `json:"waiting"`
 }
 
 func keysSorted(cs []waitingCard) []string {
@@ -74,7 +73,7 @@ func TestWaitingListIsOneSource(t *testing.T) {
 
 	want := []string{"approval:j-held", "job.terminal:j-own-failed", "review:j-review"}
 	if got := keysSorted(td.Waiting); !equalStrings(got, want) {
-		t.Fatalf("today waiting = %v, want %v (decisions=%v)", got, want, keysSorted(td.Decisions))
+		t.Fatalf("today waiting = %v, want %v", got, want)
 	}
 	var inKeys []string
 	for _, it := range in.Columns["action"] {

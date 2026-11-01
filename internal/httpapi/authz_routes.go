@@ -588,7 +588,6 @@ var routeDecls = map[string]routeDecl{
 	// person's own view rows, so every route asks nothing of a user-class caller.
 	"POST /v1/today/actions":        {user: Public(), scope: Resource("today_card")},
 	"GET /v1/today/handled":         {user: Public(), scope: Filter()},
-	"GET /v1/today/lanes":           {user: Public(), scope: Filter()},
 	"POST /v1/today/snooze":         {user: Public(), scope: NoProject(), rw: ReadSafe()},
 	"DELETE /v1/today/snooze/{key}": {user: Public(), scope: NoProject(), rw: ReadSafe()},
 	"GET /v1/today/snoozed":         {user: Public(), scope: NoProject()},

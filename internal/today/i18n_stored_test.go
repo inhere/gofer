@@ -8,6 +8,7 @@ import (
 	"github.com/gookit/goutil/x/assert"
 
 	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -60,18 +61,13 @@ func hanInText(s string) bool {
 func TestDecisionsInExplicitLanguageBeatsServerLanguage(t *testing.T) {
 	svc, st := newTestService(t)
 	svc.d.Language = func() i18n.Lang { return i18n.ZhCN }
-	_, err := st.CaptureWorkItem(jobstoreCapture("x"))
-	assert.NoErr(t, err)
+	putJob(t, st, jobstore.JobRecord{ID: "j-rev", ProjectKey: "p1", Agent: "codex", Status: job.StatusNeedsReview, EndedAt: ago(30)})
 	cards, err := svc.DecisionsIn(i18n.EN, false)
 	assert.NoErr(t, err)
-	c, ok := find(cards, CaptureCardKey)
+	c, ok := find(cards, "review:j-rev")
 	assert.True(t, ok)
-	assert.Eq(t, "Capture box", c.Tag)
+	assert.Eq(t, "Awaiting review", c.Tag)
 	cards, _ = svc.DecisionsIn("", false)
-	c, _ = find(cards, CaptureCardKey)
-	assert.Eq(t, "收集箱", c.Tag)
-}
-
-func jobstoreCapture(text string) jobstore.CaptureInput {
-	return jobstore.CaptureInput{Text: text, Kind: jobstore.WorkKindIdea, By: "human:t"}
+	c, _ = find(cards, "review:j-rev")
+	assert.Eq(t, "待验收", c.Tag)
 }

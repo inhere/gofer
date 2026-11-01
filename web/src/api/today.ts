@@ -110,7 +110,6 @@ export interface TodayCard {
   summary: string
   review?: { commits: number; adds: number; dels: number; verify?: string; digest?: string }
   approval?: TodayApproval
-  suggestions?: Array<{ field: string; value: string; text: string }>
   memory?: TodayMemoryCard
   refs: TodayRefs
   actions: TodayAction[]
@@ -144,9 +143,6 @@ export interface TodayResponse {
     title: string
     text: string
   }
-  // 旧的全量队列（含工作项 / 合并建议等卡）：server 仍给（MCP 的 today 工具与管家建议读它），
-  // 今天页与顶栏都不读，只读 waiting
-  decisions?: TodayCard[]
   // 「等我」唯一列表：收件箱「要处理」栏、顶栏徽标、今天页决策区同源
   waiting: TodayCard[]
   // 正在跑的终端会话数 / job 数（今天页的一行，链到工作台）

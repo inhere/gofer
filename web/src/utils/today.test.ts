@@ -337,12 +337,11 @@ describe('action labels follow the interface language', () => {
 })
 
 describe('the one waiting list', () => {
-  it('reads waiting only: neither an empty waiting list nor a missing one is filled from the legacy queue', () => {
-    const legacy = [card({ key: 'work:w1', kind: 'work' })]
+  it('reads waiting only: an empty or a missing list is empty', () => {
     const waiting = [card({ key: 'approval:j1', kind: 'approval', waiting: 'approval', waiting_label: '待你批准' })]
-    expect(waitingCards({ waiting, decisions: legacy } as never)).toEqual(waiting)
-    expect(waitingCards({ waiting: [], decisions: legacy } as never)).toEqual([])
-    expect(waitingCards({ decisions: legacy } as never)).toEqual([])
+    expect(waitingCards({ waiting })).toEqual(waiting)
+    expect(waitingCards({ waiting: [] })).toEqual([])
+    expect(waitingCards({})).toEqual([])
   })
 
   it('tolerates no data', () => {

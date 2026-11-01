@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -52,7 +51,6 @@ const (
 	memoryMergeContentRunes = 8000
 	memoryWhenMaxKeywords   = 8
 	memoryKeywordRunes      = 32
-	memoryCardContentRunes  = 600
 )
 
 var (
@@ -115,18 +113,6 @@ type MemorySuggestion struct {
 	DecidedAt int64  `json:"decided_at,omitempty"`
 	DecidedBy string `json:"decided_by,omitempty"`
 	Note      string `json:"note,omitempty"`
-}
-
-// MemoryCard is the 「详情」 of a memory card: the proposal and the memory as it is now.
-type MemoryCard struct {
-	TrackerID      string        `json:"tracker_id"`
-	Key            string        `json:"key"`
-	Action         string        `json:"action"`
-	Payload        MemoryPayload `json:"payload"`
-	CurrentKind    string        `json:"current_kind,omitempty"`
-	CurrentSummary string        `json:"current_summary,omitempty"`
-	Age            string        `json:"age,omitempty"`
-	Content        string        `json:"content,omitempty"`
 }
 
 func memorySuggestionText(lang i18n.Lang, action string, p MemoryPayload) string {
@@ -520,75 +506,4 @@ func (s *Service) applyMemorySuggestion(row jobstore.MemorySuggestion, p MemoryP
 		return patch(row.TrackerID, row.MemoryKey, row.BaseRev, map[string]any{"when": when})
 	}
 	return fmt.Errorf("%w: unknown action %q", ErrInvalidMemorySuggestion, row.Action)
-}
-
-// ---------------------------------------------------------------- cards
-
-// memoryCards adds one card per pending suggestion whose memory is still live.
-func (b *builder) memoryCards() error {
-	rows, err := b.store().ListMemorySuggestions(jobstore.MemorySuggestPending)
-	if err != nil || len(rows) == 0 {
-		return err
-	}
-	projects := map[string]string{}
-	repos, err := b.store().ListTrackerRepos()
-	if err != nil {
-		return err
-	}
-	for _, r := range repos {
-		projects[r.TrackerID] = r.ProjectKey
-	}
-	now := b.s.d.Now()
-	for _, r := range rows {
-		_, cur, err := b.s.liveMemory(r.TrackerID, r.MemoryKey)
-		if errors.Is(err, ErrMemoryNotFound) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		sg := toMemorySuggestion(b.lang, r, projects[r.TrackerID])
-		if sg.Action == MemoryActMerge {
-			if _, _, err := b.s.liveMemory(r.TrackerID, sg.Payload.Into); err != nil {
-				if errors.Is(err, ErrMemoryNotFound) {
-					continue
-				}
-				return err
-			}
-		}
-		b.cards = append(b.cards, Card{
-			Key: KindMemory + ":" + strconv.FormatInt(r.ID, 10), Kind: KindMemory, Tag: b.tr("tag.memory"),
-			Title:      oneLine(b.tr("memory.card_title", "act", i18n.T(b.lang, memoryActLabelKeys[sg.Action]), "key", sg.Key), titleRunes),
-			ProjectKey: sg.ProjectKey, WaitingSince: r.CreatedAt, ActivityAt: r.CreatedAt,
-			Summary: oneLine(sg.Text+" · "+sg.Reason, summaryRunes),
-			Refs:    Refs{MemorySuggestionID: r.ID, TrackerID: r.TrackerID, MemoryKey: r.MemoryKey},
-			Memory: &MemoryCard{TrackerID: r.TrackerID, Key: r.MemoryKey, Action: sg.Action, Payload: sg.Payload,
-				CurrentKind: cur.EffectiveKind(), CurrentSummary: tracker.DisplayMemorySummary(cur.MemoryMeta, cur.Content),
-				Age: tracker.AgeText(cur.UpdatedAt, now), Content: capRunes(strings.TrimSpace(cur.Content), memoryCardContentRunes)},
-			Actions: []Action{{ID: "adopt", Label: b.tr("action.adopt"), Style: "ok"}, {ID: "dismiss", Label: b.tr("action.dismiss")}},
-		})
-	}
-	return nil
-}
-
-// memoryCardAlive is cardAlive for a memory card.
-func (s *Service) memoryCardAlive(ref string) (bool, error) {
-	id, err := strconv.ParseInt(ref, 10, 64)
-	if err != nil {
-		return false, nil
-	}
-	row, err := s.d.Store.GetMemorySuggestion(id)
-	if errors.Is(err, jobstore.ErrMemorySuggestionNotFound) {
-		return false, nil
-	}
-	if err != nil || row.State != jobstore.MemorySuggestPending {
-		return false, err
-	}
-	if _, _, err := s.liveMemory(row.TrackerID, row.MemoryKey); err != nil {
-		if errors.Is(err, ErrMemoryNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
 }

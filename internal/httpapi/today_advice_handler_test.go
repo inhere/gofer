@@ -49,7 +49,7 @@ func TestTodayAdviceEndpoint(t *testing.T) {
 	todayCall(t, s, http.MethodPost, "/v1/today/advice", testToken, map[string]any{"card_key": "review:j-adv", "text": strings.Repeat("字", 61)}, 400, nil)
 
 	var raw struct {
-		Decisions []struct {
+		Waiting []struct {
 			Key    string `json:"key"`
 			Review struct {
 				Digest string `json:"digest"`
@@ -60,7 +60,7 @@ func TestTodayAdviceEndpoint(t *testing.T) {
 				Digest   string `json:"digest"`
 				At       int64  `json:"at"`
 			} `json:"advice"`
-		} `json:"decisions"`
+		} `json:"waiting"`
 		Status struct {
 			StewardToday struct {
 				Advice int `json:"advice"`
@@ -68,8 +68,8 @@ func TestTodayAdviceEndpoint(t *testing.T) {
 		} `json:"status"`
 	}
 	todayCall(t, s, http.MethodGet, "/v1/today", testToken, nil, 200, &raw)
-	if len(raw.Decisions) != 1 || raw.Decisions[0].Advice == nil || raw.Decisions[0].Advice.ActionID != "accept" ||
-		raw.Decisions[0].Advice.Digest != "改动：导出\n风险：低" || raw.Decisions[0].Review.Digest != "改动：导出\n风险：低" ||
+	if len(raw.Waiting) != 1 || raw.Waiting[0].Advice == nil || raw.Waiting[0].Advice.ActionID != "accept" ||
+		raw.Waiting[0].Advice.Digest != "改动：导出\n风险：低" || raw.Waiting[0].Review.Digest != "改动：导出\n风险：低" ||
 		raw.Status.StewardToday.Advice != 1 {
 		t.Fatalf("today = %+v", raw)
 	}

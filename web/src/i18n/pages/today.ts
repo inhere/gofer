@@ -93,24 +93,12 @@ export const today: PageDict = {
     'today.card.proposal': '提议',
     'today.card.current': '现状',
     'today.card.merged': '合并后',
-    'today.card.suggestion': '建议',
-    'today.card.adopt': '采纳',
-    'today.card.dismiss': '忽略',
     'today.card.send': '发送',
     'today.card.confirm': '确认{label}',
     'today.card.replyPlaceholder': '{label}…（Enter 发送，Esc 取消）',
     'today.card.optionalPlaceholder': '{label}理由（可不填，Enter 发送，Esc 取消）',
 
     // 右栏
-    'today.lanes': '并行中',
-    'today.lanes.meta': '{n} 条',
-    'today.lanes.empty': '没有并行中的工作',
-    'today.lanes.loading': '加载中…',
-    'today.lanes.fold': '还有 {n} 条正常运行中',
-    'today.lanes.unfold': '收起正常运行的',
-    'today.recent': '刚处理过',
-    'today.recent.empty': '还没处理卡片',
-    'today.recent.count': '今天 {n} 张',
 
     // 贴底状态条
     'today.status.label': '状态',
@@ -236,7 +224,6 @@ export const today: PageDict = {
     'today.decision.hint': '任何页面按 g d',
     'today.decision.includeExec': '含 exec 待验收',
     'today.decision.handled': '已处理',
-    'today.lane.startedAt': '开始于 {time}',
   },
   en: {
     'today.title.n': '{n} things need you',
@@ -323,23 +310,11 @@ export const today: PageDict = {
     'today.card.proposal': 'Proposal',
     'today.card.current': 'Now',
     'today.card.merged': 'Merged',
-    'today.card.suggestion': 'Suggestion',
-    'today.card.adopt': 'Adopt',
-    'today.card.dismiss': 'Ignore',
     'today.card.send': 'Send',
     'today.card.confirm': 'Confirm {label}',
     'today.card.replyPlaceholder': '{label}… (Enter to send, Esc to cancel)',
     'today.card.optionalPlaceholder': 'Reason for {label} (optional, Enter to send, Esc to cancel)',
 
-    'today.lanes': 'In parallel',
-    'today.lanes.meta': '{n} lanes',
-    'today.lanes.empty': 'Nothing running in parallel',
-    'today.lanes.loading': 'Loading…',
-    'today.lanes.fold': '{n} more running normally',
-    'today.lanes.unfold': 'Hide the healthy ones',
-    'today.recent': 'Just handled',
-    'today.recent.empty': 'Nothing handled yet',
-    'today.recent.count': '{n} today',
 
     'today.status.label': 'Status',
     'today.status.running': '{n} running',
@@ -458,6 +433,5 @@ export const today: PageDict = {
     'today.decision.hint': 'Press g d on any page',
     'today.decision.includeExec': 'Include exec jobs awaiting review',
     'today.decision.handled': 'Handled',
-    'today.lane.startedAt': 'Started at {time}',
   },
 }

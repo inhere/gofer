@@ -6,11 +6,6 @@
   action approve "批准" value=""
   action reject "拒绝" value=""
   action open "看详情" value=""
-[capture:box] kind=capture tag="收集箱" urgency=normal
-  title="收集箱 2 条待处理"
-  summary="idea"
-  blocks=0/0 ""
-  action open "去整理" value="/work?tab=capture"
 [decision:dg] kind=decision tag="提问" urgency=normal
   title="Global"
   summary="Free text?"
@@ -42,42 +37,6 @@
   summary="调用方 c2 → （无地址）：third"
   blocks=0/0 ""
   action open "去指派" value="/mail?state=held"
-[memory:2] kind=memory tag="记忆整理" urgency=normal
-  title="合并：记忆 release-b"
-  summary="建议合并到 release-a · reason"
-  blocks=0/0 ""
-  action adopt "采纳" value=""
-  action dismiss "忽略" value=""
-[memory:1] kind=memory tag="记忆整理" urgency=normal
-  title="归档：记忆 old-note"
-  summary="建议归档 · reason"
-  blocks=0/0 ""
-  action adopt "采纳" value=""
-  action dismiss "忽略" value=""
-[memory:5] kind=memory tag="记忆整理" urgency=normal
-  title="改类型：记忆 fresh"
-  summary="建议改为 rule · reason"
-  blocks=0/0 ""
-  action adopt "采纳" value=""
-  action dismiss "忽略" value=""
-[memory:3] kind=memory tag="记忆整理" urgency=normal
-  title="补摘要：记忆 fresh"
-  summary="建议补摘要：A new fact · reason"
-  blocks=0/0 ""
-  action adopt "采纳" value=""
-  action dismiss "忽略" value=""
-[memory:4] kind=memory tag="记忆整理" urgency=normal
-  title="补触发词：记忆 release-a"
-  summary="建议补触发词：ship, release · reason"
-  blocks=0/0 ""
-  action adopt "采纳" value=""
-  action dismiss "忽略" value=""
-[merge:1] kind=merge tag="合并建议" urgency=normal
-  title="把「Merge source」并入「Merge target」"
-  summary="两张工作卡像是同一件事"
-  blocks=0/0 ""
-  action adopt "采纳" value=""
-  action dismiss "忽略" value=""
 [permission:dform] kind=permission tag="等你回答" urgency=now
   title="form"
   summary="s"
@@ -112,27 +71,6 @@
   action accept "通过" value=""
   action rerun "附意见重跑" value=""
   action diff "看 diff" value=""
-[work:<ID>] kind=work tag="到期" urgency=normal
-  title="Due parked"
-  summary=""
-  blocks=0/0 ""
-  action reply "回复" value=""
-  action report "请求汇报" value=""
-  action park "搁置" value=""
-[work:<ID>] kind=work tag="等我" urgency=blocking
-  title="Needs me item"
-  summary=""
-  blocks=2/1 "claude 会话在线等你答复"
-  action reply "回复" value=""
-  action report "请求汇报" value=""
-  action park "搁置" value=""
-[work:<ID>] kind=work tag="需现场" urgency=normal
-  title="Onsite item"
-  summary=""
-  blocks=0/0 ""
-  action reply "回复" value=""
-  action report "请求汇报" value=""
-  action park "搁置" value=""
 ## memory suggestions
 archive old-note => "建议归档"
 merge release-b => "建议合并到 release-a"
@@ -146,20 +84,10 @@ kind fresh => "建议改为 rule"
 runner w-mac 离线
 ## digest
 工作摘要 · 2026-10-09
-等我 1 · 等资源 0 · 需现场 1 · 待验收 0
+等我 0 · 等资源 0 · 需现场 0 · 待验收 0
+
+今天没有需要关注的工作项。
 ## steward alerts
 runner w-mac 离线
 管家今日巡检失败
 管家 agent 不可用
-## enroll card
-[worker_enroll:pending] kind=worker_enroll tag="Worker" urgency=now
-  title="4 个 worker 申请注册"
-  summary="h1 → w-1、h2、h3 等 4 个"
-  blocks=0/4 ""
-  action open "去处理" value="/runners#enrollments"
-## lanes
-plan:Export health=blocked reason="卡在「Backend」"
-work:Merge source health=ok reason=""
-work:Merge target health=ok reason=""
-work:Needs me item health=ok reason=""
-work:Onsite item health=ok reason=""

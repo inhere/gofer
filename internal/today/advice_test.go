@@ -84,13 +84,13 @@ func TestTodayFillsAdviceAndPrunesGoneCards(t *testing.T) {
 
 	resp, err := svc.Today(Query{})
 	assert.NoErr(t, err)
-	rev, ok := find(resp.Decisions, "review:j-rev")
+	rev, ok := find(resp.Cards, "review:j-rev")
 	assert.True(t, ok)
 	assert.NotNil(t, rev.Advice)
 	assert.Eq(t, "accept", rev.Advice.ActionID)
 	assert.Eq(t, "steward(codex)", rev.Advice.By)
 	assert.Eq(t, "改动：导出分页\n风险：低\n测试：已补", rev.Review.Digest)
-	dec, _ := find(resp.Decisions, "decision:d1")
+	dec, _ := find(resp.Cards, "decision:d1")
 	assert.Nil(t, dec.Advice)
 	assert.Eq(t, 2, resp.Status.StewardToday.Advice) // the steward's two; the person's advice is not counted
 	_, gone, _ := st.GetDecisionAdvice("plan_blocked:p-gone")

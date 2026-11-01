@@ -8,8 +8,7 @@ import (
 )
 
 // The home page's new shape (design 2026-11-01 §4.3): the 「等我」 list, what is running, and no
-// card made of a model's tidy-up suggestion. The legacy `decisions` superset is still answered
-// (the MCP today tools and the steward's advice read it).
+// card made of a model's tidy-up suggestion. There is no legacy `decisions` superset any more.
 func TestTodayShapeWaitingRunningAndNoSuggestionCards(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	registerSessionInProject(t, s, "sess-run-1", "/ws/a", "p1")
@@ -44,11 +43,6 @@ func TestTodayShapeWaitingRunningAndNoSuggestionCards(t *testing.T) {
 	}
 	if got.Digest.Commentary != "" {
 		t.Fatalf("digest still carries a model commentary: %q", got.Digest.Commentary)
-	}
-	for _, c := range got.Decisions {
-		if c.Kind == "suggestion" {
-			t.Fatalf("a model suggestion made a card: %+v", c)
-		}
 	}
 	for _, c := range got.Waiting {
 		if c.Kind == "suggestion" || c.Kind == "work" {

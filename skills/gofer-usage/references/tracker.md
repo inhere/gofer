@@ -139,7 +139,7 @@ gofer memory set <key> "…" --doctor-ignore path-missing,commit-missing   # 对
 - doctor 检查项：`flagged`、`handoff-expired`、`note-stale`（90 天未更新）、`path-missing`（正文提到的路径不存在）、`commit-missing`（提到的提交不存在）、`summary-missing`、`duplicate`，以及超过 30 天仍待处理的经验候选。全局与项目作用域记忆（`--global` / `--project`）不查路径与提交。
 - 仓库级静默：`.gofer/tracker/config.yaml` 的 `prime.doctor.suppress: [path-missing, …]`。
 - doctor 只建议、不改记忆；归档 / 转正由人执行。归档文件只走 git，不参与同步。
-- 开了管家时，「今天」页会出现「记忆整理」卡（归档 / 合并 / 改类型 / 补摘要 / 补触发词的建议），人采纳才生效，见 [work-items.md](work-items.md)「管家」。
+- 开了管家时，管家可以记下「记忆整理」建议（归档 / 合并 / 改类型 / 补摘要 / 补触发词），人经 `/v1/memory-suggestions/{id}/adopt` 采纳才生效（今天页已不再出这张卡），见 [work-items.md](work-items.md)「管家」。
 
 ## 给存量记忆补适用路径
 

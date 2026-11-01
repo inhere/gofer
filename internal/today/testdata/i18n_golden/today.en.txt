@@ -6,11 +6,6 @@
   action approve "Approve" value=""
   action reject "Deny" value=""
   action open "View details" value=""
-[capture:box] kind=capture tag="Capture box" urgency=normal
-  title="2 item(s) in the capture box"
-  summary="idea"
-  blocks=0/0 ""
-  action open "Sort out" value="/work?tab=capture"
 [decision:dg] kind=decision tag="Question" urgency=normal
   title="Global"
   summary="Free text?"
@@ -42,42 +37,6 @@
   summary="caller c2 -> (no address): third"
   blocks=0/0 ""
   action open "Assign" value="/mail?state=held"
-[memory:3] kind=memory tag="Memory tidy-up" urgency=normal
-  title="Add summary: memory fresh"
-  summary="Suggest adding the summary: A new fact · reason"
-  blocks=0/0 ""
-  action adopt "Adopt" value=""
-  action dismiss "Ignore" value=""
-[memory:4] kind=memory tag="Memory tidy-up" urgency=normal
-  title="Add triggers: memory release-a"
-  summary="Suggest adding the triggers: ship, release · reason"
-  blocks=0/0 ""
-  action adopt "Adopt" value=""
-  action dismiss "Ignore" value=""
-[memory:1] kind=memory tag="Memory tidy-up" urgency=normal
-  title="Archive: memory old-note"
-  summary="Suggest archiving · reason"
-  blocks=0/0 ""
-  action adopt "Adopt" value=""
-  action dismiss "Ignore" value=""
-[memory:5] kind=memory tag="Memory tidy-up" urgency=normal
-  title="Change kind: memory fresh"
-  summary="Suggest changing the kind to rule · reason"
-  blocks=0/0 ""
-  action adopt "Adopt" value=""
-  action dismiss "Ignore" value=""
-[memory:2] kind=memory tag="Memory tidy-up" urgency=normal
-  title="Merge: memory release-b"
-  summary="Suggest merging into release-a · reason"
-  blocks=0/0 ""
-  action adopt "Adopt" value=""
-  action dismiss "Ignore" value=""
-[merge:1] kind=merge tag="Merge suggestion" urgency=normal
-  title="Merge \"Merge source\" into \"Merge target\""
-  summary="The two work items look like the same thing"
-  blocks=0/0 ""
-  action adopt "Adopt" value=""
-  action dismiss "Ignore" value=""
 [permission:dform] kind=permission tag="Your answer needed" urgency=now
   title="form"
   summary="s"
@@ -112,27 +71,6 @@
   action accept "Accept" value=""
   action rerun "Re-run with notes" value=""
   action diff "View diff" value=""
-[work:<ID>] kind=work tag="Due" urgency=normal
-  title="Due parked"
-  summary=""
-  blocks=0/0 ""
-  action reply "Reply" value=""
-  action report "Ask for a report" value=""
-  action park "Park" value=""
-[work:<ID>] kind=work tag="Needs me" urgency=blocking
-  title="Needs me item"
-  summary=""
-  blocks=2/1 "claude session is online, waiting for your answer"
-  action reply "Reply" value=""
-  action report "Ask for a report" value=""
-  action park "Park" value=""
-[work:<ID>] kind=work tag="On site" urgency=normal
-  title="Onsite item"
-  summary=""
-  blocks=0/0 ""
-  action reply "Reply" value=""
-  action report "Ask for a report" value=""
-  action park "Park" value=""
 ## memory suggestions
 archive old-note => "Suggest archiving"
 merge release-b => "Suggest merging into release-a"
@@ -146,20 +84,10 @@ Waiting for job j-run to end
 runner w-mac is offline
 ## digest
 Work digest · 2026-10-09
-needs me 1 · waiting on a resource 0 · needs me on site 1 · awaiting review 0
+needs me 0 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
+
+Nothing needs your attention today.
 ## steward alerts
 runner w-mac is offline
 The steward's review failed today
 The steward agent is unavailable
-## enroll card
-[worker_enroll:pending] kind=worker_enroll tag="Worker" urgency=now
-  title="4 worker(s) asking to register"
-  summary="h1 → w-1, h2, h3 and 4 in all"
-  blocks=0/4 ""
-  action open "Handle" value="/runners#enrollments"
-## lanes
-plan:Export health=blocked reason="stuck on \"Backend\""
-work:Merge source health=ok reason=""
-work:Merge target health=ok reason=""
-work:Needs me item health=ok reason=""
-work:Onsite item health=ok reason=""

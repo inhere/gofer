@@ -68,11 +68,11 @@ func card(kind, key string, refs today.Refs, subtype string) today.Card {
 func TestWaitingFiltersGroupsAndLabels(t *testing.T) {
 	t.Parallel()
 	cards := []today.Card{
-		card(today.KindWork, "work:w1", today.Refs{WorkItemID: "w1"}, ""),
-		card("suggestion", "suggestion:w1:goal", today.Refs{WorkItemID: "w1"}, ""), // a legacy kind no builder makes any more
-		card(today.KindMerge, "merge:1", today.Refs{}, ""),
-		card(today.KindMemory, "memory:1", today.Refs{}, ""),
-		card(today.KindCapture, today.CaptureCardKey, today.Refs{}, ""),
+		card("work", "work:w1", today.Refs{}, ""),                  // kinds no builder makes any more stay out of the list
+		card("suggestion", "suggestion:w1:goal", today.Refs{}, ""), // a legacy kind no builder makes any more
+		card("merge", "merge:1", today.Refs{}, ""),
+		card("memory", "memory:1", today.Refs{}, ""),
+		card("capture", "capture:box", today.Refs{}, ""),
 		card("worker_enroll", "worker_enroll:box", today.Refs{}, ""),
 		// the same job needs review and has a pending approval interaction: one entry, approval
 		card(today.KindReview, "review:j1", today.Refs{JobID: "j1"}, ""),
