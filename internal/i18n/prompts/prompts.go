@@ -51,6 +51,9 @@ const (
 	// NameMemorySynthesisRequest is the request a daily memory synthesis agent answers
 	// (memorysynthesis: synth.go).
 	NameMemorySynthesisRequest = "memory-synthesis-request"
+	// NameMemorySynthesisPrime is the short reference to the latest daily memory synthesis
+	// that `gofer repo prime` appends to a session opening (brief: synthesis.go).
+	NameMemorySynthesisPrime = "memory-synthesis-prime"
 	// NameFollowUp is the bridge prompt for queued follow-up requests.
 	NameFollowUp = "follow-up"
 	// NameStewardRole is the standing role prompt for a steward session.
@@ -137,6 +140,13 @@ type (
 	MemorySynthesisRequestData struct {
 		Materials      string
 		MaxOutputBytes int
+	}
+	// MemorySynthesisPrimeData feeds NameMemorySynthesisPrime: the synthesized day, the run
+	// id and the (already shortened, single-line) summary.
+	MemorySynthesisPrimeData struct {
+		Day     string
+		ID      string
+		Summary string
 	}
 	// DeliveryCheckResumeData feeds NameDeliveryCheckResume: the check round and the
 	// unmet items, each labelled with the requirement section it came from.

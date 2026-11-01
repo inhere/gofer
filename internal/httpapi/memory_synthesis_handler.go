@@ -24,6 +24,10 @@ func (s *Server) synthesisStore() *jobstore.Store {
 	return nil
 }
 
+// SynthesisEngine is the engine behind the explicit run, also driven by serve's built-in daily
+// trigger. nil when the server has no job store; callers treat nil as "no trigger".
+func (s *Server) SynthesisEngine() *engine.Engine { return s.synthesis }
+
 func (s *Server) handleListMemorySyntheses(c *rux.Context) {
 	store := s.synthesisStore()
 	if store == nil {

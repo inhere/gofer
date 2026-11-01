@@ -27,6 +27,7 @@ var goldenData = map[string]any{
 		{Source: "explicit", Requirement: "at least 2 commits", Evidence: "found 1", Action: "commit the rest"},
 		{Source: "acceptance", Requirement: "tests added"}}},
 	NameMemorySynthesisRequest: MemorySynthesisRequestData{Materials: `{"schema":"daily-memory-materials.v1","items":[{"id":"m-001","source_ref":"job:j1#report"}]}`, MaxOutputBytes: 12000},
+	NameMemorySynthesisPrime:   MemorySynthesisPrimeData{Day: "2026-10-30", ID: "ms-0123456789abcdef", Summary: "the project shipped the feature"},
 	NameFollowUp:               FollowUpData{Requests: "1. check the thing"},
 	NameStewardRole:            struct{}{},
 	NameStewardReview:          struct{ Slim bool }{Slim: false},

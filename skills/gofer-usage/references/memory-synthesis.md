@@ -1,6 +1,6 @@
 # 每日记忆综合（材料、显式运行与查询）
 
-`memory.synthesis` 是可选的 server 侧每日综合能力，默认关闭。它收集结构化材料、按预算裁剪并脱敏，计算稳定的 `input_digest`，保存运行记录；**显式 `run`**（P2）才会让一个只读、无工具的模型把脱敏后的材料综合成一份「项目动态」摘要，写进运行记录的 `result_json`。不会自动写入长期记忆；候选队列（采纳 / 拒绝）暂缓，没有每日定时调度、也不进会话开场（P3 未做）：不 `run` 就不会调用模型。
+`memory.synthesis` 是可选的 server 侧每日综合能力，默认关闭。它收集结构化材料、按预算裁剪并脱敏，计算稳定的 `input_digest`，保存运行记录；**显式 `run`** 或每日定时触发才会让一个只读、无工具的模型把脱敏后的材料综合成一份「项目动态」摘要，写进运行记录的 `result_json`。不会自动写入长期记忆；候选队列（采纳 / 拒绝）暂缓。`enabled` 为假（默认）时既不定时运行也拒绝 `run`，会话开场不变。
 
 配置示例：
 
@@ -8,6 +8,9 @@
 memory:
   synthesis:
     enabled: false
+    time: ""               # 每日触发时刻 HH:MM（server 时区）；空 = work.digest_time 前 15 分钟
+    daily_limit: 1          # 定时运行每项目每天最多调用模型的次数；-1 不限
+    retry_after: 30m        # 定时运行失败后的最短重试间隔
     projects: []            # 空 = 所有项目；非空时只允许列出的项目
     agent: ""               # 空 = work.summarizer_agent（默认 claude）；须是 cli-agent，且是 claude / codex / suga（有已知的无工具参数）
     model_args: []          # 模型参数，如 ["--model", "haiku"]；空且 agent 是 work 的整理器时用整理器的低成本预设；不能含 tools / shell / mcp 开关
@@ -32,6 +35,15 @@ server 严格校验：schema、`summary` 非空且 ≤ 600 字、`highlights` �
 
 同一项目同一天输入摘要不变时复用已成功的记录（只更新 `last_checked_at`）；同一天已有进行中的运行时不再新建；材料为空不建记录。`retain_days`（默认 90）之外的已结束记录由 server 的清理循环删除；server 重启时超时仍是 `running` 的记录转 `failed`（`server restart`）。
 
+每日定时（server 内置循环，不创建用户可见的 schedule，也不暴露触发令牌）：每分钟看一次时钟，到 `time` 后对每个项目（`projects` 为空 = 全部）综合**前一个本地日**（server 时区），所以窗口是完整的一天。规则全部从运行记录读回，重启不会重复：
+- 同日已有进行中的运行、已达 `daily_limit`（成功 / 进行中 / 被 `--force` 取代的运行计数，失败不计）、距当天最近一次失败不足 `retry_after`：跳过；
+- 材料为空不建记录，输入没变复用已有成功记录（都不调用模型）；
+- 错过时刻：server 当天稍后启动 / 恢复会补跑；整个日期都没运行则不回补更早的日期；
+- 手动 `run`（含 `--force`）不受 `retry_after` 约束，也不受 `daily_limit` 限制到不可用：每项目每天最多 `max(daily_limit, 5)` 次调用模型（`daily_limit: -1` 时不限），超出回 `limited`；它与定时运行共用当天的记录，当天已手动成功过则定时不再重复；
+- 修改配置在下一分钟生效；运行中的综合不受影响。
+
+会话开场（`gofer repo prime`，含 SessionStart hook）：**默认不引用**；配置 `memory.synthesis.prime_citation: true`（读本机能读到的配置，纯客户端节点读不到即视为关闭）后，项目有一份**最近 3 个本地日内**的成功综合时，在末尾追加一小段（≤ 600 字节）：标题含综合的日期与 run id、一句摘要（`summary`，多行折成一行，超长按字符截断加 `…`）、「机器归纳的建议，不是事实」提示和 `gofer memory synthesis show <run-id>`；不含 highlights、来源材料或完整结果。没有近期成功综合、读取失败或开场剩余预算放不下时整段不出现，不挤占核心规则。文案随项目语言。
+
 命令行：
 
 ```text
@@ -40,7 +52,7 @@ gofer memory synthesis show <run-id> [--json]
 gofer memory synthesis run [-p <project>] [--day <YYYY-MM-DD>] [--force] [--json]
 ```
 
-`run` 是同步的：模型返回（或失败 / 超时）后才输出结果。`-p` 缺省取 `$GOFER_PROJECT`；`--day` 缺省是 server 时区的今天。输出结局之一：`succeeded`（新综合，打印摘要、要点与来源引用）、`failed`（记录了失败原因）、`reused`（同项目同日输入摘要没变且已有成功记录，没调用模型；加 `--force` 才重跑，旧记录标 `skipped`）、`running`（同一天已有进行中的运行）、`empty`（那天没有材料，不建记录）。`memory.synthesis.enabled` 为假时拒绝并提示要改的配置项。需要权限 `memory.synthesis.run`（仅根管理员默认持有，可显式授予；不可授予 job 会话，job 凭据一律拒绝），受调用方项目范围限制。显式 run 不受 `daily_limit` / `retry_after` 约束（它们属于 P3 的定时调度）。
+`run` 是同步的：模型返回（或失败 / 超时）后才输出结果。`-p` 缺省取 `$GOFER_PROJECT`；`--day` 缺省是 server 时区的今天。输出结局之一：`succeeded`（新综合，打印摘要、要点与来源引用）、`failed`（记录了失败原因）、`reused`（同项目同日输入摘要没变且已有成功记录，没调用模型；加 `--force` 才重跑，旧记录标 `skipped`）、`running`（同一天已有进行中的运行）、`empty`（那天没有材料，不建记录）、`limited`（当天手动运行次数已达上限）。`memory.synthesis.enabled` 为假时拒绝并提示要改的配置项。需要权限 `memory.synthesis.run`（仅根管理员默认持有，可显式授予；不可授予 job 会话，job 凭据一律拒绝），受调用方项目范围限制。显式 run 不受 `daily_limit` / `retry_after` 约束（它们属于 P3 的定时调度）。
 
 `show` 默认只提示快照是否保存，不打印快照正文；`--json` 给有权限的人看完整记录。
 
@@ -52,6 +64,6 @@ GET /v1/memory-syntheses/<run-id>
 POST /v1/memory-syntheses/run      body {"project": "...", "day": "YYYY-MM-DD", "force": false}
 ```
 
-`POST .../run` 返回 `{"outcome": "succeeded|failed|reused|running|empty", "run": {...}}`（`empty` 没有 `run`）；模型失败是 200 + `failed` 记录，不是 HTTP 错误；功能关闭 409、agent 不可用 409、项目 / 日期非法 400、缺权限或越过调用方项目范围被拒。结果在 `run.result_json`，也可用 `GET /v1/memory-syntheses/<run-id>` 取回。
+`POST .../run` 返回 `{"outcome": "succeeded|failed|reused|running|empty|limited", "run": {...}}`（`empty` / `limited` 没有 `run`）；模型失败是 200 + `failed` 记录，不是 HTTP 错误；功能关闭 409、agent 不可用 409、项目 / 日期非法 400、缺权限或越过调用方项目范围被拒。结果在 `run.result_json`，也可用 `GET /v1/memory-syntheses/<run-id>` 取回。
 
 默认只保存 digest、计数、状态和来源元数据。启用 `keep_material_snapshot` 时，详情中的快照仍只包含白名单字段、长度受限且已做 `[redacted]` 脱敏；它不包含 prompt、完整命令行、环境变量、日志或附件。把摘要当作有界建议，事实核对仍应回到 job、work、plan 或 finding 的原始记录。

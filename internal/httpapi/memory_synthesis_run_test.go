@@ -123,6 +123,23 @@ func TestRunMemorySynthesisEndpointRunsReusesAndForces(t *testing.T) {
 	}
 }
 
+// Explicit runs are not held by daily_limit (default 1: force stays usable) but by the
+// manual ceiling; past it the answer is outcome "limited" with no run, not an HTTP error.
+func TestRunMemorySynthesisEndpointManualCeiling(t *testing.T) {
+	r := synthServer(t, true, synthAnswer)
+	grantAll(r.s)
+	for i := 0; i < config.DefaultSynthesisManualRuns; i++ {
+		status, body := r.post(t, ceilTokPlain, map[string]any{"project": "p1", "force": true})
+		if out := decodeSynthRun(t, body); status != http.StatusOK || out.Outcome != "succeeded" {
+			t.Fatalf("forced run #%d = %d %s", i+1, status, body)
+		}
+	}
+	status, body := r.post(t, ceilTokPlain, map[string]any{"project": "p1", "force": true})
+	if status != http.StatusOK || decodeSynthRun(t, body).Outcome != "limited" || strings.Contains(body, `"run"`) {
+		t.Fatalf("past the ceiling = %d %s", status, body)
+	}
+}
+
 // A model answer that cannot be parsed is a recorded failed run with the reason, not an HTTP error.
 func TestRunMemorySynthesisEndpointRecordsFailure(t *testing.T) {
 	r := synthServer(t, true, "no json here")

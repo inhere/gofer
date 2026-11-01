@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **每日记忆综合的每日调度与开场引用（MEM3，gofer-gah7 P3）**：`memory.synthesis.enabled` 为真时，server 内置每分钟一次的触发（不创建 schedule 记录），到 `memory.synthesis.time`（空 = `work.digest_time` 前 15 分钟，server 时区）后为每个项目综合前一个本地日；按运行记录判断，重启不重复，当天稍后启动会补跑，整日未运行不回补更早日期，材料为空 / 输入没变不调用模型。`daily_limit`（默认 1，`-1` 不限）限定定时运行每天调用模型的次数，`retry_after`（默认 30m）限定当天失败后的重试间隔。手动 `run`（含 `--force`）不受 `retry_after` 约束，每项目每天最多 `max(daily_limit, 5)` 次，超出回新的结局 `limited`（无 `run`）。`gofer repo prime`（含 SessionStart hook）在项目有最近 3 个本地日内的成功综合时追加一小段（≤ 600 字节）：日期、run id、一句摘要和 `gofer memory synthesis show <id>`，不含要点与来源材料；没有时不出现，文案随项目语言。默认仍关闭。
+
 ## [0.207.0] - 2026-11-01
 
 ### 新增
