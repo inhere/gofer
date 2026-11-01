@@ -457,9 +457,14 @@ func TestExplicitCloseRefusesFurtherRequests(t *testing.T) {
 	}
 }
 
+// expiryTTL is the lease TTL of the expiry tests. Expiry is kept in whole seconds, so a 1s
+// lease created just before a second boundary could expire before its token is exchanged —
+// under -race load it did (G052: give the success path room).
+const expiryTTL = 3
+
 func TestLeaseExpiry(t *testing.T) {
 	m, _ := newManager(t, 1)
-	l, base, token := create(t, m, "job-1", okTargetPort(t), 1)
+	l, base, token := create(t, m, "job-1", okTargetPort(t), expiryTTL)
 
 	// The lease is valid while it lasts.
 	if resp := get(t, base+"/", map[string]string{"Cookie": "gofer_preview=" + token}); resp.StatusCode != http.StatusOK {
@@ -468,7 +473,7 @@ func TestLeaseExpiry(t *testing.T) {
 
 	// After the TTL the lease is closed by the manager itself: no request is needed to
 	// notice, so the port goes back to the pool.
-	wait.For(t, 10*time.Second, "lease to be closed after its ttl", func() (bool, any) {
+	wait.For(t, 15*time.Second, "lease to be closed after its ttl", func() (bool, any) {
 		got, _, _ := m.Get(l.ID)
 		return got.State != "active", got.State
 	})
@@ -487,10 +492,10 @@ func TestLeaseExpiry(t *testing.T) {
 
 func TestExpiredLeaseRequestIs404(t *testing.T) {
 	m, _ := newManager(t, 1)
-	l, base, token := create(t, m, "job-1", okTargetPort(t), 1)
+	l, base, token := create(t, m, "job-1", okTargetPort(t), expiryTTL)
 	// Wait for the lease's wall-clock expiry, then hit it straight away: whether the
 	// manager's own timer or this request notices first, the answer is a 404 (not a hang).
-	wait.Until(t, 10*time.Second, "lease expiry time to pass", func() bool { return time.Now().Unix() >= l.ExpiresAt })
+	wait.Until(t, 15*time.Second, "lease expiry time to pass", func() bool { return time.Now().Unix() >= l.ExpiresAt })
 	done := make(chan *http.Response, 1)
 	go func() {
 		req, _ := http.NewRequest(http.MethodGet, base+"/", nil)
