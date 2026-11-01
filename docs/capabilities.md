@@ -2,7 +2,7 @@
 
 > 一句话定位：把 codex / claude 等 agent 与普通命令桥接成可追踪、可验收的异步任务（job）的控制平面，提供 CLI / HTTP / MCP / Web 四种入口；自身不内置模型。
 >
-> **适用版本：截至 v0.208.1**（CHANGELOG 最新已发布版本，2026-11-01）。
+> **适用版本：截至 v0.209.0**（CHANGELOG 最新已发布版本，2026-11-01）。
 
 ## 维护说明
 
@@ -111,7 +111,7 @@
 | brief 接手简报 | 一次拿齐字段、方案评论、设计稿、相关提交与代码入口、相关 job、验证命令、适用记忆 | CLI `issue brief <id>` / `plan brief <plan>`；MCP `gofer_issue_brief` / `gofer_plan_brief` | 稳定 | tracker.md「接手：先跑 brief」 |
 | memory | 记忆（rule / note / handoff），按适用路径、关键词、命令条件注入；全局 / 项目 / 仓库作用域 | CLI `memory set` / `ls` / `show` / `rm` / `flag` / `unflag` / `doctor` / `archive` / `restore` / `promote` / `sync --global`；MCP `gofer_memory_*`；Web `/memory` | 稳定 | tracker.md；[design/2026-10-12-local-global-memory-design.md](design/2026-10-12-local-global-memory-design.md) |
 | 经验候选 | 交付后知识回流为候选记忆，人确认采纳或拒绝 | CLI `memory candidates` / `accept` / `reject`；MCP `gofer_memory_candidates` 等 | 未标注 | tracker.md「经验候选」 |
-| 记忆体检与整理建议 | 过时检测、反馈、整理建议 | CLI `memory doctor` / `memory flag`；MCP `gofer_memory_findings` / `gofer_memory_suggest` / `gofer_memory_flag`；HTTP `/v1/memory-suggestions*`（今天页不再出建议卡） | 未标注 | [design/2026-10-09-prime-memory-quality-design.md](design/2026-10-09-prime-memory-quality-design.md) |
+| 记忆体检与整理 | 过时检测与反馈；`gofer repo sync` 时按证据自动归档（过期超过 7 天的 handoff、引用全部失效的 note；rule 不自动归档，可 `memory restore`，`prime.doctor.auto_archive` 可关）；需判断的项集中在记忆页「待整理」（保留 / 改写 / 归档），不提醒 | CLI `memory doctor` / `memory flag` / `memory archive` / `memory restore`；MCP `gofer_memory_findings` / `gofer_memory_flag`；Web `/memory?view=tidy` | 未标注 | [design/2026-10-09-prime-memory-quality-design.md](design/2026-10-09-prime-memory-quality-design.md) |
 | prime 开场注入 | 会话开场注入提交策略、当前重点、ready issue、rule 记忆与记忆索引；`--prime-keywords` 提高相关记忆优先级 | CLI `repo prime [--keywords]`、`init hooks --prime-only` | 稳定 | tracker.md「prime」 |
 | tracker 同步与合并 | 初始化、与 server 镜像同步、状态查看、多 worktree 合并驱动、changelog 合并驱动 | CLI `repo init\|sync\|status\|merge-driver\|changelog-merge` | 稳定 | tracker.md；[runbook/tracker-transfer.md](runbook/tracker-transfer.md) |
 | 每日摘要 | 工作项摘要事件 `work.digest` 与 `work digest` | CLI `work digest`；事件 `work.digest` | 未标注 | work-items.md |
@@ -170,7 +170,7 @@
 | 收件箱 `/inbox` | 「要处理 / 仅知会」两栏、已读与清理 | 变化中 |
 | 信箱 `/mail` | 按对话显示的信件、写信、待指派 | 变化中 |
 | 工作项 `/work` | 工作项与收集箱 | 变化中 |
-| Issues / 记忆 `/memory` | tracker 的 issue 与记忆浏览编辑，跨项目搜索 | 稳定 |
+| Issues / 记忆 `/memory` | tracker 的 issue 与记忆浏览编辑，跨项目搜索；记忆「待整理」视图 | 稳定 |
 | 统计 `/dashboard` | 任务、耗时、用量等统计 | 未标注 |
 | Runners / Agents / 项目 / Tunnels | 执行机、agent 健康度与探针、项目表单、隧道 | 稳定 |
 | 设置 | 配置编辑与重读 / 重启 server、通知、权限、扩展（菜单隐藏 `web.nav_hidden`） | 稳定 |
