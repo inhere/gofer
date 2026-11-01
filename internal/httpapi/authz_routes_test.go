@@ -166,16 +166,17 @@ func TestJobCredKeysMatchSEC01Tables(t *testing.T) {
 	}
 }
 
-// workerHandshakeRoutes are the three WebSocket handshakes a worker dials
+// workerHandshakeRoutes are the four WebSocket handshakes a worker dials
 // (buildRouter registers them OUTSIDE the /v1 group: a WS upgrade cannot use the JSON error
 // envelope, so the worker middleware — and with it workercredential.go's whitelist — never sees
-// them). The declaration table marks all three WorkerSelf, because they ARE the worker's own
+// them). The declaration table marks all four WorkerSelf, because they ARE the worker's own
 // surface, and this test's expected value is the whitelist UNION them: the whitelist itself is
 // unchanged, it simply cannot express a route its middleware never matches.
 var workerHandshakeRoutes = []workerSelfRoute{
 	{http.MethodGet, "/v1/workers/connect"},
 	{http.MethodGet, "/v1/workers/tunnel-connect"},
 	{http.MethodGet, "/v1/workers/pty-connect"},
+	{http.MethodGet, "/v1/workers/preview-connect"},
 }
 
 // TestWorkerSelfRoutesMatchWhitelist is the WorkerSelf half of the snapshot: the declared

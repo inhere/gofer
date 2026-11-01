@@ -358,7 +358,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	}
 	defer enroll.Close() // before cr.Close (LIFO): the sweeper must not outlive the store
 	srv.SetWorkerEnrollment(enroll.svc)
-	wireLivePush(live, cr.Store, cr.Jobs, cr.Hub, srv.Work(), enroll.collector.Observe)
+	wireLivePush(live, cr.Store, cr.Jobs, cr.Hub, srv.Work(), enroll.collector.Observe, srv.NotePreviewPresence)
 	// W1 work items: status follows the sessions (debounced on store changes), due
 	// reminders and the daily digest are swept on a timer; the digest settings are read
 	// per tick so a hot reload applies.

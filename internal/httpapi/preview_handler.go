@@ -2,15 +2,18 @@ package httpapi
 
 import (
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 
+	"github.com/coder/websocket"
 	"github.com/gookit/rux/v2"
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/preview"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 type previewCreateRequest struct {
@@ -36,9 +39,10 @@ func (s *Server) handleCreateJobPreview(c *rux.Context) {
 		s.writeErrorKey(c, http.StatusConflict, "job is not running", "preview_job_not_running")
 		return
 	}
-	// Forwarding to a worker (design P2) is not built: refuse it by name rather than
+	local := previewLocal(res)
+	// Anything that is neither this server nor a worker is refused by name rather than
 	// dialling this server's loopback for a job that runs somewhere else.
-	if !previewLocal(res) {
+	if !local && res.WorkerID == "" {
 		s.writeErrorKey(c, http.StatusConflict, "preview runner unsupported", "preview_runner_unsupported", "runner", previewRunnerLabel(res))
 		return
 	}
@@ -51,8 +55,23 @@ func (s *Server) handleCreateJobPreview(c *rux.Context) {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	lease, url, err := s.preview.Create(c.Req.Context(), res.ID, callerFromCtx(c), host, req.Port, req.TTLSec, true)
+	var (
+		lease preview.Lease
+		url   string
+		err   error
+	)
+	if local {
+		lease, url, err = s.preview.Create(c.Req.Context(), res.ID, callerFromCtx(c), host, req.Port, req.TTLSec, true)
+	} else {
+		lease, url, err = s.preview.CreateOnWorker(c.Req.Context(), res.WorkerID, res.ID, callerFromCtx(c), host, req.Port, req.TTLSec, true)
+	}
 	switch {
+	case errors.Is(err, preview.ErrWorkerOutdated):
+		s.writeErrorKey(c, http.StatusConflict, "preview worker outdated", "preview_worker_outdated", "worker", res.WorkerID, "version", wsproto.PreviewMinProtocolVersion)
+		return
+	case errors.Is(err, preview.ErrWorkerOffline):
+		s.writeErrorKey(c, http.StatusConflict, "preview worker offline", "preview_worker_offline", "worker", res.WorkerID)
+		return
 	case errors.Is(err, preview.ErrDisabled):
 		s.writeErrorKey(c, http.StatusNotFound, "preview disabled", "preview_disabled")
 		return
@@ -66,7 +85,7 @@ func (s *Server) handleCreateJobPreview(c *rux.Context) {
 		writeError(c, http.StatusConflict, "preview unavailable", err.Error())
 		return
 	}
-	c.JSON(http.StatusCreated, map[string]any{"id": lease.ID, "url": url, "port": lease.Port, "target_port": req.Port, "expires_at": lease.ExpiresAt, "worker_id": "local"})
+	c.JSON(http.StatusCreated, map[string]any{"id": lease.ID, "url": url, "port": lease.Port, "target_port": req.Port, "expires_at": lease.ExpiresAt, "worker_id": lease.WorkerID})
 }
 
 // previewLocal reports whether the job runs on this server (the only place the lease
@@ -181,4 +200,30 @@ func (s *Server) handleRenewJobPreview(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{"id": renewed.ID, "state": renewed.State, "expires_at": renewed.ExpiresAt, "port": renewed.Port})
+}
+
+// handleWorkerPreviewConnect is the worker's callback for one preview data connection. It
+// authenticates the worker itself (outside the /v1 caller group, like the tunnel callback)
+// and hands the WebSocket to the preview manager, which owns the nonce / lease / instance
+// checks and the relay.
+func (s *Server) handleWorkerPreviewConnect(c *rux.Context) {
+	ce, ok := s.tunnelAuth(c.Req)
+	if !ok || ce.kind != callerKindWorker {
+		slog.Warn("preview.rejected", "event", "preview.rejected", "component", "server", "reason", "unauthorized")
+		http.Error(c.Resp, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	conn, err := websocket.Accept(c.Resp, c.Req, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
+	if err != nil {
+		return
+	}
+	s.preview.AcceptWorker(c.Req.Context(), ce.id, conn)
+}
+
+// NotePreviewPresence forwards worker presence changes to the preview manager, which closes
+// the leases bound to a worker process that went away.
+func (s *Server) NotePreviewPresence(workerID string, online bool) {
+	if s.preview != nil {
+		s.preview.NotePresence(workerID, online)
+	}
 }

@@ -373,9 +373,16 @@ func TestPreviewRefusalsCarryErrorCodes(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// A running job on a worker runner: forwarding (design P2) does not exist yet.
+	// A running job on a runner that is neither this server nor a worker.
 	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
-		ID: "job-remote", ProjectKey: "self", Agent: "exec", Runner: "w-box", WorkerID: "w-box", Status: job.StatusRunning,
+		ID: "job-remote", ProjectKey: "self", Agent: "exec", Runner: "w-box", Status: job.StatusRunning,
+		Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, UpdatedAt: now, CallerID: "bob",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A running job on a worker the server has no connection to.
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "job-worker", ProjectKey: "self", Agent: "exec", Runner: "w-gone", WorkerID: "w-gone", Status: job.StatusRunning,
 		Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, UpdatedAt: now, CallerID: "bob",
 	}); err != nil {
 		t.Fatal(err)
@@ -390,6 +397,7 @@ func TestPreviewRefusalsCarryErrorCodes(t *testing.T) {
 	}{
 		{"not running", "job-done", map[string]any{"port": appPort}, http.StatusConflict, "preview_job_not_running"},
 		{"remote runner", "job-remote", map[string]any{"port": appPort}, http.StatusConflict, "preview_runner_unsupported"},
+		{"worker offline", "job-worker", map[string]any{"port": appPort}, http.StatusConflict, "preview_worker_offline"},
 		{"bad port", "job-run", map[string]any{"port": 0}, http.StatusConflict, "preview_port_invalid"},
 	}
 	for _, tc := range cases {

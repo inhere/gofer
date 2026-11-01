@@ -38,8 +38,8 @@ import (
 //	                                     because the handler refuses anyone but the
 //	                                     worker itself)
 //
-// The three WebSocket connects a worker dials — /v1/workers/connect,
-// /v1/workers/pty-connect and /v1/workers/tunnel-connect — are registered OUTSIDE the
+// The WebSocket connects a worker dials — /v1/workers/connect,
+// /v1/workers/pty-connect, /v1/workers/tunnel-connect and /v1/workers/preview-connect — are registered OUTSIDE the
 // /v1 group (a WS handshake cannot use the JSON error envelope), so they never reach
 // this middleware; they are listed here for completeness only.
 //

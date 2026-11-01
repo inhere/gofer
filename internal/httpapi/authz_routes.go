@@ -839,6 +839,7 @@ var routeDecls = map[string]routeDecl{
 	"PUT /v1/workers/{id}/upgrade/file":       {user: Require(authz.PermWorkerUpgradeUpload), scope: Resource("worker")},
 	"GET /v1/workers/connect":                 {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating()},
 	"GET /v1/workers/tunnel-connect":          {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating()},
+	"GET /v1/workers/preview-connect":         {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating()},
 	"GET /v1/workers/pty-connect":             {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating()},
 
 	// ---- plan T1.5i: the rest (agents, runners, meta, stats) ----

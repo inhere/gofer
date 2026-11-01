@@ -29,11 +29,12 @@ var reviewedReadSafe = map[string]string{
 // reviewedMutatingGET lists every GET route that is explicitly Mutating: data-plane
 // connections that can carry writes.
 var reviewedMutatingGET = map[string]string{
-	"GET /v1/jobs/{id}/attach":       "pty attach: the connection can type into the job's terminal",
-	"GET /v1/tunnels/connect":        "tunnel data plane: opens a forwarded connection",
-	"GET /v1/workers/connect":        "worker control channel",
-	"GET /v1/workers/tunnel-connect": "worker side of the tunnel data plane",
-	"GET /v1/workers/pty-connect":    "worker side of the pty data plane",
+	"GET /v1/jobs/{id}/attach":        "pty attach: the connection can type into the job's terminal",
+	"GET /v1/tunnels/connect":         "tunnel data plane: opens a forwarded connection",
+	"GET /v1/workers/connect":         "worker control channel",
+	"GET /v1/workers/tunnel-connect":  "worker side of the tunnel data plane",
+	"GET /v1/workers/pty-connect":     "worker side of the pty data plane",
+	"GET /v1/workers/preview-connect": "worker side of the job-preview data plane",
 }
 
 // TestEveryRouteDeclaresScope: the coverage rule of the project-scope dimension — no

@@ -461,6 +461,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/worker-enrollments/{id}/reject` | `Require` | `worker.manage` | — | `NoProject` | 写 |
 | `POST` | `/v1/workers` | `Require` | `worker.manage` | — | `NoProject` | 写 |
 | `GET` | `/v1/workers/connect` | `NoUserSurface` | — | `worker` | `NoProject` | 写（Mutating） |
+| `GET` | `/v1/workers/preview-connect` | `NoUserSurface` | — | `worker` | `NoProject` | 写（Mutating） |
 | `GET` | `/v1/workers/pty-connect` | `NoUserSurface` | — | `worker` | `NoProject` | 写（Mutating） |
 | `GET` | `/v1/workers/tunnel-connect` | `NoUserSurface` | — | `worker` | `NoProject` | 写（Mutating） |
 | `DELETE` | `/v1/workers/{id}` | `Require` | `worker.manage` | — | `Resource(worker)` | 写 |

@@ -1050,6 +1050,19 @@ func (h *Hub) OpenTunnel(workerID, tunnelID, network, target, relayNonce string)
 	return wc.writeFrame(context.Background(), wsproto.TypeTunnelOpen, "", wsproto.TunnelOpen{TunnelID: tunnelID, Target: target, RelayNonce: relayNonce, Network: network})
 }
 
+// OpenPreview sends a preview_open control frame (protocol v29) without consuming job
+// capacity. A worker below v29 is refused here, never sent a frame it cannot read.
+func (h *Hub) OpenPreview(workerID string, o wsproto.PreviewOpen) error {
+	wc, ok := h.reg.Get(workerID)
+	if !ok {
+		return fmt.Errorf("%w: %w", ErrWorkerOffline, tunnel.ErrWorkerOffline)
+	}
+	if !wsproto.SupportsPreview(wc.protocolVersion()) {
+		return fmt.Errorf("%w: worker protocol %d", tunnel.ErrUnsupported, wc.protocolVersion())
+	}
+	return wc.writeFrame(context.Background(), wsproto.TypePreviewOpen, o.JobID, o)
+}
+
 // Dispatch sends a dispatch frame to the target worker. It errors when the
 // worker is offline (ErrWorkerOffline) or already at its advertised
 // max_concurrent (ErrWorkerAtCapacity, §5.4) — Dispatch never blocks; DispatchWait is
