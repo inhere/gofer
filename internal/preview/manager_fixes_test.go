@@ -162,14 +162,17 @@ func TestIdleDecisionUsesActivityAndInflight(t *testing.T) {
 	l, base, _ := create(t, m, "job-1", okTargetPort(t), 600)
 	lv := m.liveOf(l.ID)
 
+	// Whatever the earlier requests left open (the token-exchange keep-alive connection)
+	// is the baseline; the dialed connection is tracked only once Accept has run, so wait
+	// for exactly one more than the baseline instead of "at least one".
+	before := lv.openConns()
 	c, err := net.Dial("tcp", strings.TrimPrefix(base, "http://"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	wait.For(t, 10*time.Second, "connection to be tracked", func() (bool, any) { n := lv.openConns(); return n >= 1, n })
-	// Whatever the earlier requests left open is the baseline the checks compare against.
-	n := lv.openConns()
+	wait.For(t, 10*time.Second, "connection to be tracked", func() (bool, any) { n := lv.openConns(); return n == before+1, n })
+	n := before + 1
 
 	clk.add(30 * time.Second)
 	lv.idleCheck()

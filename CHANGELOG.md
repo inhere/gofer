@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 修复
+
+- 任务库事务改为 BEGIN IMMEDIATE（DSN `_txlock=immediate`）：先读后写的事务（如 plan handoff 写入）在另有写入者持有 SQLite 写锁时，不再因「读事务升级写锁」立即报 `database is locked` 而返回 500，改为按 busy_timeout 等待。
+
 ## [0.208.0] - 2026-11-01
 
 ### 新增
