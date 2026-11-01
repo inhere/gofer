@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -66,10 +67,12 @@ type workbenchTestAttention struct {
 }
 
 type workbenchTestResponse struct {
-	Projects  []workbenchTestProject   `json:"projects"`
-	Attention []workbenchTestAttention `json:"attention"`
-	Total     int                      `json:"total"`
-	Since     int64                    `json:"since"`
+	Projects   []workbenchTestProject   `json:"projects"`
+	Attention  []workbenchTestAttention `json:"attention"`
+	Total      int                      `json:"total"`
+	Since      int64                    `json:"since"`
+	HasMore    bool                     `json:"has_more"`
+	NextCursor string                   `json:"next_cursor"`
 }
 
 type workbenchTestTurnResult struct {
@@ -781,6 +784,11 @@ func TestWorkbenchValidationAndWorkerWrites(t *testing.T) {
 
 	for _, path := range []string{
 		"/v1/workbench/threads?since=bad",
+		"/v1/workbench/threads?active_within=-1",
+		"/v1/workbench/threads?active_within=x",
+		"/v1/workbench/threads?limit=x",
+		"/v1/workbench/threads?limit=-3",
+		"/v1/workbench/threads?cursor=!!!",
 		"/v1/workbench/threads?status=unknown",
 	} {
 		resp := do(t, s, http.MethodGet, path, testToken, nil)
@@ -902,5 +910,55 @@ func TestThreadsDetailSummary(t *testing.T) {
 	}
 	if resp := do(t, s, http.MethodGet, "/v1/workbench/threads?detail=bogus", testToken, nil); resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("detail=bogus status=%d, want 400", resp.StatusCode)
+	}
+}
+
+// limit / cursor page the thread list by activity: the first page is the 7 day window plus
+// the pinned / live threads, next_cursor walks to older ones without repeats, and the
+// summary form keeps the paging fields. Without the new parameters nothing changes.
+func TestThreadsPagingWindowAndCursor(t *testing.T) {
+	t.Parallel()
+	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
+	now := time.Now().Unix()
+	for i := 0; i < 5; i++ {
+		seedWorkbenchJob(t, s, jobstore.JobRecord{ID: fmt.Sprintf("new-%d", i), SessionID: fmt.Sprintf("new-%d", i), Status: job.StatusDone, StartedAt: now - int64(100*(i+1))}, "new", "p")
+	}
+	for i := 0; i < 4; i++ {
+		seedWorkbenchJob(t, s, jobstore.JobRecord{ID: fmt.Sprintf("old-%d", i), SessionID: fmt.Sprintf("old-%d", i), Status: job.StatusDone, StartedAt: now - 20*86400 - int64(i)}, "old", "p")
+	}
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "old-pin", SessionID: "old-pin", Status: job.StatusDone, StartedAt: now - 25*86400}, "pin", "p")
+	patchWorkbenchThread(t, s, testToken, "s:old-pin", map[string]any{"pinned": true})
+
+	legacy := getWorkbenchThreads(t, s, testToken, "")
+	if legacy.Total != 5 || legacy.HasMore || legacy.NextCursor != "" {
+		t.Fatalf("default listing changed: total=%d has_more=%v cursor=%q", legacy.Total, legacy.HasMore, legacy.NextCursor)
+	}
+
+	page := getWorkbenchThreads(t, s, testToken, "limit=3&detail=summary")
+	findWorkbenchThread(t, page, "s:old-pin") // pinned: outside the window, still listed
+	if page.Total != 4 || !page.HasMore || page.NextCursor == "" {
+		t.Fatalf("first page total=%d has_more=%v cursor=%q, want 4 (3 + pinned) / true / set", page.Total, page.HasMore, page.NextCursor)
+	}
+	seen := map[string]int{}
+	for _, p := range page.Projects {
+		for _, th := range p.Threads {
+			seen[th.ID]++
+		}
+	}
+	for guard := 0; page.HasMore && guard < 10; guard++ {
+		page = getWorkbenchThreads(t, s, testToken, "limit=3&cursor="+url.QueryEscape(page.NextCursor))
+		for _, p := range page.Projects {
+			for _, th := range p.Threads {
+				seen[th.ID]++
+			}
+		}
+	}
+	if len(seen) != 10 {
+		t.Fatalf("paging covered %d threads, want 10: %v", len(seen), seen)
+	}
+	for id, n := range seen {
+		if n != 1 {
+			t.Errorf("thread %s delivered %d times", id, n)
+		}
 	}
 }

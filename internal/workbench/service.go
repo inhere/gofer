@@ -3,10 +3,12 @@ package workbench
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,8 +21,15 @@ import (
 
 const defaultWindow = 7 * 24 * time.Hour
 
+// Paged listing bounds: defaultPageLimit applies to a cursor request that names no limit.
+const (
+	defaultPageLimit = 50
+	maxPageLimit     = 500
+)
+
 type Store interface {
 	LoadWorkbenchSnapshot(callerID string, since int64, includeInternal bool) (jobstore.WorkbenchSnapshot, error)
+	LoadWorkbenchPage(callerID string, q jobstore.WorkbenchPageQuery) (jobstore.WorkbenchPage, error)
 	ListWorkbenchThreadPrefs(callerID string) ([]jobstore.WorkbenchThreadPref, error)
 	UpsertWorkbenchThreadPref(pref jobstore.WorkbenchThreadPref) error
 	GetOrCreateWorkbenchSeenBaseline(callerID string, observedAt int64) (int64, error)
@@ -131,7 +140,13 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 		return Response{}, ErrUnavailable
 	}
 	callerID = normalizeCaller(callerID)
+	if query.Limit > 0 || query.Cursor != "" {
+		return s.listPage(callerID, query)
+	}
 	since := query.Since
+	if since <= 0 && query.ActiveWithin > 0 {
+		since = s.now().Add(-time.Duration(query.ActiveWithin) * time.Second).Unix()
+	}
 	if since <= 0 {
 		since = s.now().Add(-defaultWindow).Unix()
 	}
@@ -143,8 +158,140 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
-	projections := projectThreads(snapshot, seenBaseline)
+	resp := s.buildResponse(projectThreads(snapshot, seenBaseline), snapshot, query, true)
+	resp.Since = since
+	return resp, nil
+}
 
+// pageScanBatch is how many ordinary threads one storage round reads while a page is
+// being filled (a caller-visibility or status / search filter can drop most of a round).
+const pageScanBatch = 100
+
+// listPage is List in paged mode (Limit > 0 or a Cursor): a keyset page over thread
+// activity. The window (since / active_within, default 7 days on the first page) and the
+// cursor are applied by the storage query; live and pinned threads ride along on the first
+// page whatever their age. The page is filled with threads that pass every filter
+// (project, status, q, Keep), so a filtered page is not sparse, and the cursor always
+// points at a thread that is part of the page (never at one the caller may not see).
+func (s *Service) listPage(callerID string, query Query) (Response, error) {
+	curAt, curID, err := decodeCursor(query.Cursor)
+	if err != nil {
+		return Response{}, err
+	}
+	limit := query.Limit
+	if limit <= 0 {
+		limit = defaultPageLimit
+	}
+	if limit > maxPageLimit {
+		limit = maxPageLimit
+	}
+	since := query.Since
+	if since <= 0 && query.ActiveWithin > 0 {
+		since = s.now().Add(-time.Duration(query.ActiveWithin) * time.Second).Unix()
+	}
+	if since <= 0 && query.Cursor == "" {
+		since = s.now().Add(-defaultWindow).Unix()
+	}
+	seenBaseline, err := s.store.GetOrCreateWorkbenchSeenBaseline(callerID, s.now().Unix())
+	if err != nil {
+		return Response{}, err
+	}
+	prefs, err := s.store.ListWorkbenchThreadPrefs(callerID)
+	if err != nil {
+		return Response{}, err
+	}
+	var pinned []string
+	for _, pref := range prefs {
+		if pref.Pinned {
+			pinned = append(pinned, pref.ThreadID)
+		}
+	}
+	needle := strings.ToLower(strings.TrimSpace(query.Q))
+	match := func(thread *Thread) bool {
+		if query.Project != "" && thread.ProjectKey != query.Project {
+			return false
+		}
+		if query.Status != "" && thread.Status != query.Status {
+			return false
+		}
+		if needle != "" && !threadMatches(*thread, needle) {
+			return false
+		}
+		return query.Keep == nil || query.Keep(*thread)
+	}
+
+	var (
+		selected []projection
+		ordinary []projection
+		ordKeys  []jobstore.WorkbenchThreadKey
+		first    jobstore.WorkbenchSnapshot
+		firstSet bool
+		more     bool
+		below    bool
+	)
+	for {
+		page, err := s.store.LoadWorkbenchPage(callerID, jobstore.WorkbenchPageQuery{
+			Since: since, CursorAt: curAt, CursorID: curID, Limit: max(limit, pageScanBatch),
+			Project: query.Project, PinnedIDs: pinned, IncludeInternal: query.IncludeInternal,
+		})
+		if err != nil {
+			return Response{}, err
+		}
+		if !firstSet {
+			first, firstSet = page.Snapshot, true
+		}
+		byID := make(map[string]projection)
+		for _, p := range projectThreads(page.Snapshot, seenBaseline) {
+			byID[p.thread.ID] = p
+		}
+		for _, key := range page.Keys {
+			p, ok := byID[key.ID]
+			if !ok {
+				continue
+			}
+			if !match(&p.thread) {
+				continue
+			}
+			if key.Exception {
+				selected = append(selected, p)
+				continue
+			}
+			ordinary = append(ordinary, p)
+			ordKeys = append(ordKeys, key)
+		}
+		if len(ordinary) > limit {
+			more = true
+			break
+		}
+		if !page.HasMore {
+			below = page.BelowFloor
+			break
+		}
+		last := page.Keys[len(page.Keys)-1]
+		curAt, curID = last.Activity, last.ID
+	}
+	resp := Response{Since: since}
+	if more {
+		ordinary, ordKeys = ordinary[:limit], ordKeys[:limit]
+		resp.HasMore = true
+		resp.NextCursor = encodeCursor(ordKeys[limit-1].Activity, ordKeys[limit-1].ID)
+	} else if below {
+		// The window is exhausted but older threads exist: the next page starts just
+		// below the window floor.
+		resp.HasMore = true
+		resp.NextCursor = encodeCursor(since, "")
+	}
+	selected = append(selected, ordinary...)
+	built := s.buildResponse(selected, first, query, query.Cursor == "")
+	built.Since, built.HasMore, built.NextCursor = resp.Since, resp.HasMore, resp.NextCursor
+	return built, nil
+}
+
+// buildResponse groups the selected threads by project and folds in the orphan plan
+// counts (orphans=false skips them: they belong to the first page of a paged listing).
+// The project / status / q / Keep filters apply here too, so a legacy listing and a paged
+// one share one filtering rule.
+func (s *Service) buildResponse(projections []projection, snapshot jobstore.WorkbenchSnapshot, query Query, orphans bool) Response {
 	groups := make(map[string]*ProjectGroup)
 	attention := make([]AttentionItem, 0)
 	needle := strings.ToLower(strings.TrimSpace(query.Q))
@@ -160,6 +307,9 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 		if needle != "" && !threadMatches(thread, needle) {
 			continue
 		}
+		if query.Keep != nil && !query.Keep(thread) {
+			continue
+		}
 		group := ensureGroup(groups, thread.ProjectKey)
 		group.Threads = append(group.Threads, thread)
 		addThreadCount(&group.Counts, thread.Status)
@@ -170,6 +320,9 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 	}
 
 	planByID := make(map[string]jobstore.Plan)
+	if !orphans {
+		snapshot.BlockedPlans, snapshot.DecisionPlans, snapshot.OpenPlanDecisions = nil, nil, nil
+	}
 	for _, plan := range snapshot.BlockedPlans {
 		planByID[plan.PlanID] = plan
 		if query.Project != "" && plan.ProjectKey != query.Project {
@@ -217,7 +370,7 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 		}
 		return attention[i].ThreadID < attention[j].ThreadID
 	})
-	return Response{Projects: projects, Attention: attention, Total: total, Since: since}, nil
+	return Response{Projects: projects, Attention: attention, Total: total}
 }
 
 func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64) []projection {
@@ -943,4 +1096,26 @@ func higherStatus(left, right Status) Status {
 		return right
 	}
 	return left
+}
+
+// encodeCursor / decodeCursor are the opaque keyset cursor of a paged listing: the
+// activity and id of the last thread of the previous page.
+func encodeCursor(at int64, id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.FormatInt(at, 10) + ":" + id))
+}
+
+func decodeCursor(cursor string) (int64, string, error) {
+	if cursor == "" {
+		return 0, "", nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return 0, "", ErrInvalidCursor
+	}
+	head, id, ok := strings.Cut(string(raw), ":")
+	at, perr := strconv.ParseInt(head, 10, 64)
+	if !ok || perr != nil || at < 0 {
+		return 0, "", ErrInvalidCursor
+	}
+	return at, id, nil
 }

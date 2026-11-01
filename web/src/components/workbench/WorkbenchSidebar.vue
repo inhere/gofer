@@ -24,6 +24,9 @@ const props = defineProps<{
   // 服务端 counts.orphan_blocked / orphan_review：项目组里不在会话列表上的待处理项
   // （受阻计划 / 待决策）。0 = 不显示提示行。
   orphanWaiting: number
+  // 服务端还有更早的会话（分页模式的 has_more）；loadingMore = 正在拉下一页。
+  hasMore?: boolean
+  loadingMore?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -34,11 +37,18 @@ const emit = defineEmits<{
   (e: 'update:showExec', value: boolean): void
   (e: 'new'): void
   (e: 'openOrphans'): void
+  (e: 'loadMore'): void
 }>()
 
 // 已结束分组默认折叠（上百条历史会话不一次进场全建 DOM）。
 const endedOpen = ref(false)
 const searchInput = ref<HTMLInputElement | null>(null)
+
+// 更早的会话多半是已结束的：点「加载更多」时顺手展开已结束分组，否则点完看不到变化。
+function loadMore(): void {
+  endedOpen.value = true
+  emit('loadMore')
+}
 
 // nowSec 每分钟刷新一次，让「最近活跃」的会话到时自动移到「空闲与离线」。
 const nowSec = ref(Math.floor(Date.now() / 1000))
@@ -210,11 +220,45 @@ defineExpose({ focusSearch })
         </template>
       </section>
       <p v-if="threads.length === 0" class="empty">{{ t('workbench.list.empty') }}</p>
+      <button
+        v-if="hasMore"
+        class="load-more"
+        type="button"
+        :disabled="loadingMore"
+        data-test="load-more"
+        @click="loadMore"
+      >
+        {{ loadingMore ? t('workbench.list.loadingMore') : t('workbench.list.loadMore') }}
+      </button>
     </div>
   </aside>
 </template>
 
 <style scoped>
+.load-more {
+  display: block;
+  width: calc(100% - var(--s3) * 2);
+  margin: var(--s2) auto var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.load-more:hover:not(:disabled) {
+  background: var(--sunken);
+  color: var(--ink);
+}
+.load-more:focus-visible {
+  outline: 2px solid var(--focus);
+}
+.load-more:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .wb-sidebar {
   min-width: 0;
   height: 100%;

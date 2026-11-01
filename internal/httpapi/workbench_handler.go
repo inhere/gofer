@@ -115,6 +115,24 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		}
 		since = parsed
 	}
+	var activeWithin int64
+	if raw := strings.TrimSpace(c.Query("active_within")); raw != "" {
+		parsed, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || parsed < 0 {
+			writeError(c, http.StatusBadRequest, "invalid active_within", "active_within must be a non-negative number of seconds")
+			return
+		}
+		activeWithin = parsed
+	}
+	var limit int
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			writeError(c, http.StatusBadRequest, "invalid limit", "limit must be a non-negative integer")
+			return
+		}
+		limit = parsed
+	}
 	detail := strings.TrimSpace(c.Query("detail"))
 	if detail != "" && detail != "full" && detail != "summary" {
 		writeError(c, http.StatusBadRequest, "invalid detail", "detail must be full|summary")
@@ -130,11 +148,20 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		Status:  status,
 		Q:       c.Query("q"),
 		Since:   since,
+		// Paging (limit / cursor) and the relative window; see workbench.Query.
+		ActiveWithin: activeWithin,
+		Limit:        limit,
+		Cursor:       strings.TrimSpace(c.Query("cursor")),
+		Keep:         s.workbenchKeep(c, restricted, caller),
 		// all=1 lifts the internal-job filter, like the job list does. (The projection
 		// still only builds threads from interactive / session jobs, so a one-shot
 		// messenger job never becomes a thread; the switch matters for session-bound ones.)
 		IncludeInternal: c.Query("all") == "1" || c.Query("all") == "true",
 	})
+	if errors.Is(err, workbench.ErrInvalidCursor) {
+		writeError(c, http.StatusBadRequest, "invalid cursor", "cursor must be a next_cursor value from a previous response")
+		return
+	}
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workbench threads failed", err.Error())
 		return
@@ -159,6 +186,30 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// workbenchKeep is the visibility predicate the service applies before cutting a page:
+// the same ownership rule filterWorkbenchThreads applies to a restricted caller plus the
+// project ceiling. Nil (no restriction) keeps the listing path untouched.
+func (s *Server) workbenchKeep(c *rux.Context, restricted bool, caller string) func(workbench.Thread) bool {
+	var in func(string) bool
+	if s.ceilingActive(c) {
+		in = s.scopeFilter(c)
+	}
+	if !restricted && in == nil {
+		return nil
+	}
+	return func(th workbench.Thread) bool {
+		if in != nil && !in(th.ProjectKey) {
+			return false
+		}
+		if restricted {
+			if owner, ok := s.workbenchThreadOwnerOf(th); !ok || owner != caller {
+				return false
+			}
+		}
+		return true
+	}
+}
+
 // filterWorkbenchThreads narrows a workbench listing to the threads caller owns: the ones
 // whose job (an agent / one-shot thread) or relay session carries its caller id. The
 // attention list follows — an entry pointing at a thread that is no longer listed would
@@ -166,7 +217,7 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 // and is dropped, which fails closed instead of leaking it.
 func (s *Server) filterWorkbenchThreads(res workbench.Response, caller string) workbench.Response {
 	kept := make(map[string]bool, len(res.Projects))
-	out := workbench.Response{Since: res.Since, Projects: make([]workbench.ProjectGroup, 0, len(res.Projects))}
+	out := workbench.Response{Since: res.Since, HasMore: res.HasMore, NextCursor: res.NextCursor, Projects: make([]workbench.ProjectGroup, 0, len(res.Projects))}
 	total := 0
 	for _, group := range res.Projects {
 		threads := make([]workbench.Thread, 0, len(group.Threads))

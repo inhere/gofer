@@ -23,6 +23,7 @@
 
 - **job 预览的拒绝带稳定错误码**：`preview_disabled`、`preview_job_not_running`、`preview_runner_unsupported`、`preview_port_invalid`、`preview_pool_exhausted`、`preview_not_active`（中英文案，web 与 MCP 按各自语言渲染）。在 worker runner 上的 job 创建预览现在被明确拒绝（`409 preview_runner_unsupported`），不再按本机 loopback 处理；worker 转发（P2）仍未做。
 - **job 预览支持 worker 上的 job（job-preview P2，协议 v29）**：server 通过新的 `preview_open` 帧与 `GET /v1/workers/preview-connect` 回连端点，把预览转发到 worker 机器的 `127.0.0.1:<port>`（HTTP 与 WebSocket 都按字节流转发）；worker 只接受自己仍在运行的 job 与自己的进程实例，job 结束 / 租约关闭 / worker 断线时关闭全部预览连接，租约绑定 worker 进程，掉线或重启后以 `worker_lost` 关闭。**worker 需升级到协议 v29 及以上**才能被预览：旧 worker 照常注册与跑 job（注册下限不变），创建预览返回 409 `preview_worker_outdated`；worker 离线返回 409 `preview_worker_offline`；非 server 本机、非 worker 的 runner 仍是 `preview_runner_unsupported`。连接上限、闲置回收、一次性 token、Origin 校验、Cookie 过滤与审计对 worker 租约同样生效。
+- **工作台会话列表分页，手机端不再一次拉全（gofer-s160）**：`GET /v1/workbench/threads` 新增 `active_within`（只看最近 N 秒有活动的会话）、`limit`（每页会话数，默认 50、上限 500）、`cursor`（上一页的 `next_cursor`），响应在分页模式下带 `has_more` / `next_cursor`；窗口与游标都在存储查询里完成（按会话活动时间的 keyset 游标，不是取全量再过滤）。置顶、进行中（含等你回复 / 待处理）的会话不受窗口限制，随第一页返回且不占 `limit`；带 `cursor` 的请求没有窗口下限。不传新参数时响应与之前完全一致（仍是默认 7 天窗口，兼容旧客户端 / CLI / MCP）。web 工作台（手机与桌面）默认请求最近 7 天、每页 30 个，列表底部「加载更早的会话」按游标追加；live 推送 / 轮询只刷新最新一页，已追加的更早会话保留；搜索不受窗口限制。`cursor` / `limit` / `active_within` 非法时 400。
 
 ## [0.206.0] - 2026-10-31
 
