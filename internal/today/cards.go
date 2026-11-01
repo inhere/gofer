@@ -136,6 +136,7 @@ func (b *builder) interactions() error {
 			WaitingSince: it.CreatedAt, ExpiresAt: it.ExpiresAt, ActivityAt: it.CreatedAt,
 			Summary: oneLine(it.Prompt, summaryRunes),
 			Refs:    Refs{JobID: it.JobID, InteractionID: it.ID},
+			Subtype: it.Type,
 		}
 		var tc job.InteractionToolCall
 		hasTool := it.ToolCallJSON != "" && json.Unmarshal([]byte(it.ToolCallJSON), &tc) == nil
@@ -322,6 +323,10 @@ func turnIDs(turns []*jobstore.PlanDecision) []string {
 	return out
 }
 
+// PermissionSubtypeQuestion is the Card.Subtype of a terminal permission card that carries an
+// AskUserQuestion (an answer is wanted, not an approval).
+const PermissionSubtypeQuestion = "question"
+
 // maxPermissionAlways caps the 「总是允许」 buttons (one per permission suggestion).
 const maxPermissionAlways = 2
 
@@ -341,6 +346,7 @@ func (b *builder) permission(d *jobstore.PlanDecision) error {
 		// is answered right here (one button per option); anything richer opens the
 		// session, whose card has the full form.
 		c.Tag = b.tr("tag.question")
+		c.Subtype = PermissionSubtypeQuestion
 		if q := det.Questions[0]; len(det.Questions) == 1 && !q.MultiSelect {
 			for _, o := range q.Options {
 				raw, _ := json.Marshal(map[string]string{q.Question: o.Label})

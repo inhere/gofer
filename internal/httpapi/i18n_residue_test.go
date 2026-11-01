@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/inbox"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -22,7 +23,7 @@ func TestHandlerResidueTextFollowsLanguage(t *testing.T) {
 		name, zh, en string
 		got          func(i18n.Lang) string
 	}{
-		{"failed inbox card", "job-1 失败", "job-1 failed", func(l i18n.Lang) string { return terminalCard(l, failed, "job.failed").Title }},
+		{"failed inbox card", "job-1 失败", "job-1 failed", func(l i18n.Lang) string { return inbox.TerminalCard(l, failed, "job.failed").Title }},
 		{"handed-off notice (now)", "该会话已于 刚刚 在 web 接管（job job-9），继续请在 web 终端或 --resume；本终端的中继已停用",
 			"This session was taken over on the web at just now (job job-9); continue in the web terminal or with --resume. The relay of this terminal is now off",
 			func(l i18n.Lang) string { return handedOffNotice(l, handed) }},

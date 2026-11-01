@@ -91,8 +91,14 @@ type Query struct {
 
 // Response is the GET /v1/today payload (design §2.1).
 type Response struct {
-	Digest    Digest `json:"digest"`
+	Digest Digest `json:"digest"`
+	// Decisions is the legacy superset queue (every card kind). The home page's first
+	// screen reads Waiting instead.
 	Decisions []Card `json:"decisions"`
+	// Waiting is the one 「等我」 list (inbox.Waiting): the inbox's action column, the
+	// top-bar badge and the home page's decision area are all taken from it. It is filled
+	// by the HTTP layer, which owns the caller's scope and the failed-job source.
+	Waiting []Card `json:"waiting"`
 	// Snoozed counts the cards held back by an active 「稍后」 (T3, snooze.go).
 	Snoozed     int    `json:"snoozed"`
 	Status      Status `json:"status"`
@@ -216,6 +222,15 @@ type Card struct {
 	Refs         Refs         `json:"refs"`
 	Actions      []Action     `json:"actions"`
 	Advice       *Advice      `json:"advice"`
+	// Subtype is a structured fact of the card's source that the 「等我」 judgement needs and
+	// the kind alone does not carry: an interaction card's type (permission / confirmation /
+	// question / choice), "question" on a terminal permission card that is really an
+	// AskUserQuestion. Never model output.
+	Subtype string `json:"subtype,omitempty"`
+	// Waiting / WaitingLabel are the 「等我」 category (inbox.Category) and its label in the
+	// request language; only the cards of Response.Waiting carry them.
+	Waiting      string `json:"waiting,omitempty"`
+	WaitingLabel string `json:"waiting_label,omitempty"`
 	// Column is the additive inbox projection column; empty keeps old clients unchanged.
 	Column     string `json:"column,omitempty"`
 	Woke       bool   `json:"woke,omitempty"`

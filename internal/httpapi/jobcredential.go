@@ -557,7 +557,7 @@ func (s *Server) submitGrant(asking job.JobResult) (bool, []string) {
 // submittedByJobTag is the provenance tag a job-started job carries: the tag
 // vocabulary is a flat `key:value` list, so the submitting job's id rides in the
 // value half and `job list --tag submitted_by_job:<id>` finds the work a job started.
-func submittedByJobTag(jobID string) string { return "submitted_by_job:" + jobID }
+func submittedByJobTag(jobID string) string { return job.TagSubmittedByJob + jobID }
 
 // slicesContains is a tiny membership test used by the submit rule (the allowlists
 // here are a handful of agent names).

@@ -13,6 +13,8 @@
 
 ### 新增
 
+- **「等我」唯一列表（注意力面收敛 AT1）**：新增按结构化事实、第一个命中归类的判定表（待你批准 → 待你回答 → 待你验收 → 计划卡住 → 你提交的任务失败了 → 投递待你确认），不读任何模型摘要 / 推断的工作项状态。`GET /v1/today` 新增 `waiting`（卡带 `waiting` / `waiting_label` / `subtype`），今天页首屏决策区、顶栏「待我决策」徽标与收件箱「要处理」栏同源同数（徽标 = 该列表的未读数，worker 申请不再并入）；工作项摘要、建议、合并、记忆整理、收集箱卡不再进入「等我」（`decisions` 旧字段保留）。
+- **收件箱降噪（AT2）**：agent / 终端会话 / job 凭据 / 系统（定时、计划派发、自动续接）派出的 job 的终态不再进入收件箱任何一栏；「仅知会」只收你本人提交的 job 的完成，失败仅当你本人提交且无后续 job 时进「等我」。CLI 在 agent 会话里提交 job 时服务端按 `X-Gofer-Session-Id` 给 job 打 `submitted_by_session:<id>` 标签用于区分。webhook / desktop 的默认推送事件集合不变。
 - **收件箱规则校验与规则目录（INB3）**：`server.inbox.rules` 支持 `events`（notify 事件 key，等价于选中该事件对应的 kind，与 `kinds` 取并集）；加载 / 写入时校验并点出配置项（`server.inbox.rules[<id>].events`）：未知或不进收件箱的事件、未知 kind、非法 column、重复 id / 重复项、priority 为 0、同 priority 把同一 kind 放进不同栏。`gofer config validate` 列出生效规则。新增 `GET /v1/inbox/rules`（仅用户调用方）返回每个 kind 的默认栏位、生效栏位与来源（默认 / 配置）以及带 kind 归属的事件目录；`GET /v1/inbox` 增加 `rules_version`。webhook / desktop 的默认事件集合不变，并新增测试锁定；notify 事件目录与收件箱 kind 的归属有双向覆盖测试。
 
 ## [0.207.0] - 2026-11-01

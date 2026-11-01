@@ -1,27 +1,23 @@
 <script setup lang="ts">
-// 顶栏「待我决策 N」（设计稿 §6.1 / §16-4）：合并原来的 EscalationBell（决策队列）
-// 与 EnrollmentBell（worker 申请），申请作为一种决策卡片；信箱待指派仍是独立入口（MailButton）。
+// 顶栏「待我决策 N」（设计稿 §6.1 / §16-4）；信箱待指派仍是独立入口（MailButton）。
 //
-//  - 计数 = store/today 的决策队列（含待批准 job / needs_human 交互）+ worker 申请数；
+//  - 计数 = 「等我」列表的未读数（收件箱 total_unread，同源同数；收件箱不可用时回落为 store/today 的「等我」列表长度）；
 //  - 点它或任何页面按 g d 打开右侧全局决策浮层（components/today/DecisionOverlay.vue）；
 //  - 顶栏常驻的 `meta` / `stats` 订阅照旧：配置热重载失效缓存、服务端时区、新版本提示（F8）；
 //  - `pending` 快照仍接 utils/pendingAlert 弹提示条（新的人工介入请求 / 决策 / 待批准 job）；
-//  - worker 申请只对持有 worker.manage 的人订阅（无权限订阅该主题会被服务端拒）。
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { Bell } from '@lucide/vue'
 import Icon from './Icon.vue'
-import { getStats, listEnrollments, listJobs, listOpenDecisions, listPendingInteractions } from '../api/client'
+import { getStats, listJobs, listOpenDecisions, listPendingInteractions } from '../api/client'
 import type { PendingSnapshot, Stats } from '../api/types'
 import { noteServerVersion } from '../store/staleBuild'
 import { decisionCount, overlayOpen, visibleCards } from '../store/today'
 import { t } from '../i18n'
-import { needsMeTotal } from '../utils/shell'
+import { needsMeBadge } from '../utils/shell'
+import { inboxData } from '../store/inbox'
 import { useLiveTopic } from '../utils/useLiveTopic'
 import { invalidateMetaCache } from '../api/metaCache'
 import { setServerTZOffset } from '../api/time'
-import { TOPIC_WORKER_ENROLLMENTS } from '../api/live'
-import { useWhoami } from '../store/whoami'
-import { createLiveTopic } from '../utils/useLiveTopic'
 import {
   PENDING_APPROVAL_LIMIT,
   approvalFromJob,
@@ -94,49 +90,13 @@ function applyPending(lists: PendingLists): void {
   toast.value = r.toast
 }
 
-// ---- worker 申请（原 EnrollmentBell）：并入「待我决策」的计数 ----
-const { can } = useWhoami()
-const allowed = computed(() => can('worker.manage'))
-const enrollments = ref(0)
-
-async function fetchEnrollments(): Promise<void> {
-  if (!allowed.value) {
-    enrollments.value = 0
-    return
-  }
-  try {
-    const resp = await listEnrollments()
-    // 功能关闭时列表恒为空，也不该有提醒。
-    enrollments.value = resp.enabled ? resp.pending_count : 0
-  } catch {
-    // 只是提醒：拉不到就保留上一帧；Runners 页有完整错误信息与重试。
-  }
-}
-
-const enrollLive = createLiveTopic(TOPIC_WORKER_ENROLLMENTS, { initial: false, fetch: fetchEnrollments })
-
 // 顶栏常驻组件顺带订阅 `meta`：配置热重载 / agent 降级恢复时失效 agents、meta 缓存。
 useLiveTopic('meta', { fetch: invalidateMetaCache, initial: false })
 useLiveTopic('stats', { fetch: refreshStats, onSnap: onStatsSnap, initial: false })
 useLiveTopic('pending', { fetch: fetchPending, onSnap: onPendingSnap, initial: false })
 
-watch(
-  allowed,
-  (on) => {
-    if (on) {
-      void fetchEnrollments()
-      enrollLive.start()
-    } else {
-      enrollLive.stop()
-      enrollments.value = 0
-    }
-  },
-  { immediate: true },
-)
-
-onUnmounted(() => enrollLive.stop())
-
-const total = computed(() => needsMeTotal(decisionCount.value, enrollments.value))
+// 徽标 = 「等我」列表的未读数（= 收件箱 total_unread）；worker 申请不在「等我」六类里，不再并入计数。
+const total = computed(() => needsMeBadge(inboxData.value?.total_unread, decisionCount.value))
 const label = computed(() => t('act.needsMe'))
 
 function toggleOpen(): void {

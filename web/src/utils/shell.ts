@@ -219,6 +219,13 @@ export function moreActive(path: string, items: readonly ShellNavItem[] = TAB_BA
 //
 // EscalationBell 的决策数 + EnrollmentBell 的 worker 申请数合成一个数字（§16-4）。
 // 负数/NaN 当 0，避免接口异常时显示「待我决策 -1」。
+// needsMeBadge：顶栏「待我决策」徽标 = 「等我」列表的未读数（GET /v1/inbox 的 total_unread，
+// 与侧栏收件箱徽标同一个数）；收件箱不可用（关闭 / 无权限）时回落为列表长度。
+export function needsMeBadge(inboxUnread: number | null | undefined, listLength: number): number {
+  const pick = typeof inboxUnread === 'number' ? inboxUnread : listLength
+  return Number.isFinite(pick) && pick > 0 ? Math.floor(pick) : 0
+}
+
 export function needsMeTotal(decisions: number, enrollments: number): number {
   const a = Number.isFinite(decisions) && decisions > 0 ? Math.floor(decisions) : 0
   const b = Number.isFinite(enrollments) && enrollments > 0 ? Math.floor(enrollments) : 0

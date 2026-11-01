@@ -27,6 +27,7 @@ const GROUP_OF: Record<TodayCardKind, TodayTypeGroup | ''> = {
   plan_blocked: '',
   capture: '',
   mail_held: '',
+  'job.failed': '',
 }
 
 export function typeGroupOf(card: Pick<TodayCard, 'kind'>): TodayTypeGroup | '' {

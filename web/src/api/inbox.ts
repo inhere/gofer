@@ -3,7 +3,7 @@
 // POST /v1/inbox/state 写个人的已读 / 清理 / 恢复状态（不改源事项）。
 // 卡片上的业务动作不走这里，仍调用各自现有的写接口。
 import { request } from './client'
-import type { TodayAction, TodayRefs } from './today'
+import type { TodayAction, TodayRefs, WaitingCategory } from './today'
 
 export type InboxColumn = 'action' | 'fyi'
 export type InboxItemState = 'unread' | 'seen' | 'cleared'
@@ -11,7 +11,7 @@ export type InboxItemState = 'unread' | 'seen' | 'cleared'
 export interface InboxItem {
   key: string
   column: InboxColumn
-  // Today 卡的 kind，另有 job.terminal（普通结束，fyi）与 job.failed（失败待决定，action）
+  // Today 卡的 kind，另有 job.terminal（你本人提交的任务完成，fyi）与 job.failed（你提交的任务失败，action）
   kind: string
   title: string
   summary: string
@@ -22,6 +22,9 @@ export interface InboxItem {
   deep_link?: string
   project_key?: string
   activity_at: number
+  // 「等我」类别与文案（仅 action 栏条目）
+  waiting?: WaitingCategory
+  waiting_label?: string
 }
 
 export interface InboxResponse {

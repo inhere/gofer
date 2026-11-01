@@ -14,8 +14,8 @@ export const inbox: PageDict = {
 
     'inbox.col.action': '要处理',
     'inbox.col.fyi': '仅知会',
-    'inbox.col.action.hint': '需要你动手：回答、批准、验收、决定是否续接失败的任务',
-    'inbox.col.fyi.hint': '只是让你知道，不需要动手；不计入侧栏徽标',
+    'inbox.col.action.hint': '等你处理（与今天页、顶栏徽标同一个列表）：批准、回答、验收、卡住的计划、你提交而失败的任务、待确认的投递',
+    'inbox.col.fyi.hint': '你本人提交的任务完成了，只是让你知道；agent / 会话 / job 凭据派出的任务不在这里；不计入侧栏徽标',
     'inbox.col.count': '未读 {unread} · 共 {total}',
 
     'inbox.opt.exec': '含 exec 待验收',
@@ -67,8 +67,8 @@ export const inbox: PageDict = {
 
     'inbox.col.action': 'To act on',
     'inbox.col.fyi': 'FYI',
-    'inbox.col.action.hint': 'Needs you: answer, approve, review, or decide whether to continue a failed job',
-    'inbox.col.fyi.hint': 'For your information only; not counted in the sidebar badge',
+    'inbox.col.action.hint': 'Waiting on you (the same list as the Today page and the top-bar badge): approvals, answers, reviews, stuck plans, your own failed jobs, held deliveries',
+    'inbox.col.fyi.hint': 'Jobs you submitted yourself that finished; jobs started by an agent, a session or a job credential are not listed; not counted in the sidebar badge',
     'inbox.col.count': '{unread} unread · {total} total',
 
     'inbox.opt.exec': 'Include exec reviews',

@@ -172,7 +172,7 @@ onUnmounted(() => {
                   data-test="inbox-item"
                 >
                   <div class="inb-item-top">
-                    <StatusPill :family="itemFamily(it)" :label="t(kindLabelKey(it.kind))" />
+                    <StatusPill :family="itemFamily(it)" :label="it.waiting_label || t(kindLabelKey(it.kind))" />
                     <span v-if="it.project_key" class="inb-proj mono">{{ it.project_key }}</span>
                     <span v-if="it.activity_at" class="inb-ago">{{ fmtAgo(it.activity_at) }}</span>
                   </div>

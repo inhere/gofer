@@ -16,6 +16,8 @@ type inboxItemResp struct {
 	Kind           string `json:"kind"`
 	State          string `json:"state"`
 	SourceRevision string `json:"source_revision"`
+	Waiting        string `json:"waiting"`
+	WaitingLabel   string `json:"waiting_label"`
 }
 
 type inboxRespBody struct {
@@ -50,6 +52,9 @@ func seedInboxJob(t *testing.T, s *Server, rec jobstore.JobRecord) {
 	now := time.Now().Unix()
 	rec.ProjectKey, rec.Agent, rec.Runner, rec.Cwd = "self", "exec", "local", "."
 	rec.ResultDir = t.TempDir()
+	if rec.Channel == "" {
+		rec.Channel = "cli" // a person's own submission unless the test says otherwise
+	}
 	rec.StartedAt, rec.UpdatedAt = now-10, now
 	if rec.EndedAt == 0 {
 		rec.EndedAt = now
@@ -66,9 +71,10 @@ func getInbox(t *testing.T, s *Server, token, query string) inboxRespBody {
 	return out
 }
 
-// A terminal job's column comes from the kind rules, not from a column the handler
-// put on the card: a failure nobody continued is "action" (the person decides), a
-// success, a user cancel, or a failure already continued is "fyi".
+// A terminal job's column comes from the kind rules: a failure of a job the person submitted
+// that nobody continued is "action" (the person decides), the person's own success is "fyi";
+// a user cancel, a failure already continued or a continuation with an auto-resume leave the
+// inbox altogether (the follow-up carries the decision, nobody needs telling).
 func TestInboxTerminalJobColumns(t *testing.T) {
 	s := inboxTestServer(t, nil)
 	seedInboxJob(t, s, jobstore.JobRecord{ID: "j-done", Status: "done"})
@@ -86,9 +92,6 @@ func TestInboxTerminalJobColumns(t *testing.T) {
 		"job.terminal:j-done":           "fyi",
 		"job.terminal:j-failed":         "action",
 		"job.terminal:j-timeout":        "action",
-		"job.terminal:j-cancelled":      "fyi",
-		"job.terminal:j-autoresumed":    "fyi",
-		"job.terminal:j-followed":       "fyi",
 		"job.terminal:j-derived-failed": "action",
 	}
 	for key, col := range want {
@@ -97,11 +100,16 @@ func TestInboxTerminalJobColumns(t *testing.T) {
 			t.Errorf("%s = %+v (found %v), want column %s", key, it, ok, col)
 		}
 	}
-	if len(got.Columns["action"]) != 3 || len(got.Columns["fyi"]) != 4 {
+	for _, key := range []string{"job.terminal:j-cancelled", "job.terminal:j-autoresumed", "job.terminal:j-followed"} {
+		if _, ok := got.find(key); ok {
+			t.Errorf("%s must not be in the inbox", key)
+		}
+	}
+	if len(got.Columns["action"]) != 3 || len(got.Columns["fyi"]) != 1 {
 		t.Errorf("columns = action %d fyi %d", len(got.Columns["action"]), len(got.Columns["fyi"]))
 	}
-	if it, _ := got.find("job.terminal:j-failed"); it.Kind != "job.failed" {
-		t.Errorf("failed kind = %q", it.Kind)
+	if it, _ := got.find("job.terminal:j-failed"); it.Kind != "job.failed" || it.Waiting != "failed" || it.WaitingLabel == "" {
+		t.Errorf("failed item = %+v", it)
 	}
 	if it, _ := got.find("job.terminal:j-done"); it.Kind != "job.terminal" {
 		t.Errorf("done kind = %q", it.Kind)
