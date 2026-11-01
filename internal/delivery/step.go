@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -319,7 +320,7 @@ func platformClient(ctx context.Context, dir, remote string, env Env) (*Client, 
 	switch provider {
 	case ProviderGitHub:
 	case ProviderGitLab, ProviderGitea:
-		return nil, fmt.Errorf("%s: 暂不支持（内置步骤目前只支持 GitHub）", provider)
+		return nil, errors.New(i18n.T(env.Lang, "delivery.step.unsupported_provider", "provider", provider))
 	default:
 		return nil, fmt.Errorf("cannot tell the platform of %s (want a GitHub remote)", raw)
 	}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Work-item statuses (design §5). active/needs_me/review can be derived from the
@@ -374,7 +376,7 @@ func (s *Store) CaptureWorkItem(in CaptureInput) (WorkItem, error) {
 	defer s.writeMu.Unlock()
 	w, err := s.createWorkItemLocked(s.db, WorkItemInput{
 		Title: title, Status: WorkActive, ProjectKey: in.ProjectKey, Workspace: in.Workspace,
-		Source: WorkOriginHuman, By: in.By, Note: "收集：" + in.Kind,
+		Source: WorkOriginHuman, By: in.By, Note: i18n.T(s.textLang(strings.TrimSpace(in.ProjectKey)), "jobstore.work.captured", "kind", in.Kind),
 	}, title, WorkCaptured, WorkOriginHuman)
 	if err != nil {
 		return WorkItem{}, err
@@ -424,7 +426,7 @@ func (s *Store) createWorkItemLocked(q execer, in WorkItemInput, title, status, 
 	}
 	note := in.Note
 	if note == "" {
-		note = "创建工作项"
+		note = i18n.T(s.textLang(strings.TrimSpace(in.ProjectKey)), "jobstore.work.created")
 	}
 	if _, err := s.appendWorkJournalOn(q, id, WorkJournalStatus, note, in.By, now, ""); err != nil {
 		return WorkItem{}, err
@@ -469,7 +471,7 @@ func (s *Store) EnsureDraftWorkItemForSession(a AgentSession, prompt string) (Wo
 	w, err := s.createWorkItemLocked(s.db, WorkItemInput{
 		Title: title, ProjectKey: a.ProjectKey, Workspace: a.Cwd, Source: WorkOriginAuto, Unsorted: true,
 		SessionIDs: []string{sid}, By: "system",
-		Note: "自动创建草稿（会话 " + shortSID(sid) + " 首次提问）",
+		Note: i18n.T(s.textLang(strings.TrimSpace(a.ProjectKey)), "jobstore.work.draft", "sid", shortSID(sid)),
 	}, capText(title, maxWorkTitle), WorkActive, WorkOriginAuto)
 	s.writeMu.Unlock()
 	if err != nil {
@@ -614,11 +616,33 @@ type WorkItemPatch struct {
 	FromCapture bool
 }
 
-func fmtWorkTime(t int64) string {
+func fmtWorkTime(lang i18n.Lang, t int64) string {
 	if t <= 0 {
-		return "无"
+		return i18n.T(lang, "jobstore.work.time_none")
 	}
 	return time.Unix(t, 0).Format("2006-01-02 15:04")
+}
+
+// joinChanges joins the change segments of one update into its one-line summary: the
+// language's own separator is a catalog entry (an INI value cannot end in a space).
+func joinChanges(lang i18n.Lang, changes []string) string {
+	return joinWith(lang, "jobstore.work.change.join", changes)
+}
+
+// joinParts joins the merged sources of one merge line.
+func joinParts(lang i18n.Lang, parts []string) string {
+	return joinWith(lang, "jobstore.work.journal.parts_join", parts)
+}
+
+func joinWith(lang i18n.Lang, key string, parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	out := parts[0]
+	for _, p := range parts[1:] {
+		out = i18n.T(lang, key, "a", out, "b", p)
+	}
+	return out
 }
 
 // UpdateWorkItem applies a patch under optimistic locking (expectedRev 0 = skip the
@@ -642,7 +666,8 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 	next := cur
 	var changes []string
 	now := s.unixNow()
-	setStr := func(dst *string, v *string, label string, max int, show bool) {
+	lang := s.textLang(cur.ProjectKey)
+	setStr := func(dst *string, v *string, field string, max int, show bool) {
 		if v == nil {
 			return
 		}
@@ -652,47 +677,48 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 		}
 		old := *dst
 		*dst = nv
+		label := i18n.T(lang, "jobstore.work.field."+field)
 		switch {
 		case show && nv == "":
-			changes = append(changes, label+"：已清除")
+			changes = append(changes, i18n.T(lang, "jobstore.work.change.cleared", "label", label))
 		case show && old != "":
-			changes = append(changes, fmt.Sprintf("%s：%s → %s", label, capText(old, 60), capText(nv, 60)))
+			changes = append(changes, i18n.T(lang, "jobstore.work.change.from_to", "label", label, "old", capText(old, 60), "new", capText(nv, 60)))
 		case show:
-			changes = append(changes, fmt.Sprintf("%s：%s", label, capText(nv, 60)))
+			changes = append(changes, i18n.T(lang, "jobstore.work.change.set", "label", label, "new", capText(nv, 60)))
 		default:
-			changes = append(changes, label+"已更新")
+			changes = append(changes, i18n.T(lang, "jobstore.work.change.updated", "label", label))
 		}
 	}
 	if p.Title != nil && strings.TrimSpace(*p.Title) == "" {
 		return cur, "", fmt.Errorf("%w: title must not be empty", ErrWorkInvalid)
 	}
-	setStr(&next.Title, p.Title, "标题", maxWorkTitle, true)
-	setStr(&next.Goal, p.Goal, "目标", maxWorkField, false)
-	setStr(&next.BlockerKind, p.BlockerKind, "阻塞类型", 100, true)
-	setStr(&next.BlockerText, p.BlockerText, "阻塞", maxWorkField, true)
-	setStr(&next.NextStep, p.NextStep, "下一步", maxWorkField, true)
-	setStr(&next.Summary, p.Summary, "摘要", maxWorkField, false)
-	setStr(&next.ProjectKey, p.ProjectKey, "项目", 200, true)
-	setStr(&next.Workspace, p.Workspace, "工作区", 1000, true)
-	setStr(&next.ParkNote, p.ParkNote, "搁置条件", maxWorkField, true)
+	setStr(&next.Title, p.Title, "title", maxWorkTitle, true)
+	setStr(&next.Goal, p.Goal, "goal", maxWorkField, false)
+	setStr(&next.BlockerKind, p.BlockerKind, "blocker_kind", 100, true)
+	setStr(&next.BlockerText, p.BlockerText, "blocker", maxWorkField, true)
+	setStr(&next.NextStep, p.NextStep, "next", maxWorkField, true)
+	setStr(&next.Summary, p.Summary, "summary", maxWorkField, false)
+	setStr(&next.ProjectKey, p.ProjectKey, "project", 200, true)
+	setStr(&next.Workspace, p.Workspace, "workspace", 1000, true)
+	setStr(&next.ParkNote, p.ParkNote, "park_note", maxWorkField, true)
 	if p.Priority != nil && *p.Priority != next.Priority {
 		next.Priority = *p.Priority
-		changes = append(changes, fmt.Sprintf("优先级：%d", next.Priority))
+		changes = append(changes, i18n.T(lang, "jobstore.work.change.priority", "n", next.Priority))
 	}
 	if p.ParkUntil != nil && *p.ParkUntil != next.ParkUntil {
 		next.ParkUntil = *p.ParkUntil
-		changes = append(changes, "搁置至："+fmtWorkTime(next.ParkUntil))
+		changes = append(changes, i18n.T(lang, "jobstore.work.change.park_until", "time", fmtWorkTime(lang, next.ParkUntil)))
 	}
 	if p.RemindAt != nil && *p.RemindAt != next.RemindAt {
 		next.RemindAt = *p.RemindAt
-		changes = append(changes, "提醒时间："+fmtWorkTime(next.RemindAt))
+		changes = append(changes, i18n.T(lang, "jobstore.work.change.remind_at", "time", fmtWorkTime(lang, next.RemindAt)))
 	}
 	if p.Unsorted != nil && *p.Unsorted != next.Unsorted {
 		next.Unsorted = *p.Unsorted
 		if next.Unsorted {
-			changes = append(changes, "标为未整理")
+			changes = append(changes, i18n.T(lang, "jobstore.work.change.unsorted_on"))
 		} else {
-			changes = append(changes, "已整理")
+			changes = append(changes, i18n.T(lang, "jobstore.work.change.unsorted_off"))
 		}
 	}
 	if p.Status != nil {
@@ -704,7 +730,7 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 			return cur, "", fmt.Errorf("%w: a captured item can only leave captured through the capture box", ErrWorkInvalid)
 		}
 		if st != next.Status {
-			changes = append(changes, fmt.Sprintf("状态：%s → %s", next.Status, st))
+			changes = append(changes, i18n.T(lang, "jobstore.work.change.status", "from", next.Status, "to", st))
 			next.Status = st
 			next.StatusAt = now
 			if WorkStatusFinal(st) {
@@ -721,7 +747,7 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 		switch *p.StatusSource {
 		case WorkSourceAuto, WorkSourceHuman, WorkSourceReport:
 			if p.Status == nil || *p.Status == cur.Status {
-				changes = append(changes, "状态来源："+*p.StatusSource)
+				changes = append(changes, i18n.T(lang, "jobstore.work.change.status_source", "source", *p.StatusSource))
 			}
 			next.StatusSource = *p.StatusSource
 		default:
@@ -748,7 +774,7 @@ func (s *Store) UpdateWorkItem(id string, p WorkItemPatch, expectedRev int64, by
 	if err := s.recordFieldSources(id, cur, next, by, now); err != nil {
 		return cur, "", err
 	}
-	summary := strings.Join(changes, "；")
+	summary := joinChanges(lang, changes)
 	if !p.Quiet {
 		// WORK-06 §3.3: a status change made by a person, a report or the steward is a
 		// milestone — whatever status_source it leaves behind (a report that clears a
@@ -875,7 +901,7 @@ func (s *Store) AttachWorkSession(id, sid, by string) error {
 		id, sid, WorkSessionCurrent, now); err != nil {
 		return fmt.Errorf("jobstore: attach work session: %w", err)
 	}
-	if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalLink, "关联会话 "+shortSID(sid), by, now, ""); err != nil {
+	if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalLink, i18n.T(s.workLang(id), "jobstore.work.journal.link_session", "sid", shortSID(sid)), by, now, ""); err != nil {
 		return err
 	}
 	_, err := s.db.Exec(`UPDATE work_items SET last_activity_at=?, rev=rev+1 WHERE id=?`, now, id)
@@ -901,7 +927,7 @@ func (s *Store) DetachWorkSession(id, sid, by string) error {
 		}
 		return nil
 	}
-	if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalLink, "取消关联会话 "+shortSID(sid), by, now, ""); err != nil {
+	if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalLink, i18n.T(s.workLang(id), "jobstore.work.journal.unlink_session", "sid", shortSID(sid)), by, now, ""); err != nil {
 		return err
 	}
 	_, err = s.db.Exec(`UPDATE work_items SET last_activity_at=?, rev=rev+1 WHERE id=?`, now, id)
@@ -936,7 +962,7 @@ func (s *Store) AddWorkLink(id, kind, ref, by string) (WorkLink, error) {
 		return WorkLink{}, fmt.Errorf("jobstore: add work link: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
-		if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalLink, "关联 "+kind+" "+ref, by, now, ""); err != nil {
+		if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalLink, i18n.T(s.workLang(id), "jobstore.work.journal.link", "kind", kind, "ref", ref), by, now, ""); err != nil {
 			return WorkLink{}, err
 		}
 		if _, err := s.db.Exec(`UPDATE work_items SET last_activity_at=?, rev=rev+1 WHERE id=?`, now, id); err != nil {
@@ -961,7 +987,7 @@ func (s *Store) RemoveWorkLink(id, kind, ref, by string) (bool, error) {
 		return false, nil
 	}
 	now := s.unixNow()
-	if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalLink, "取消关联 "+kind+" "+ref, by, now, ""); err != nil {
+	if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalLink, i18n.T(s.workLang(id), "jobstore.work.journal.unlink", "kind", kind, "ref", ref), by, now, ""); err != nil {
 		return false, err
 	}
 	_, err = s.db.Exec(`UPDATE work_items SET last_activity_at=?, rev=rev+1 WHERE id=?`, now, id)
@@ -1084,12 +1110,12 @@ func (s *Store) MergeWorkItems(targetID string, sourceIDs []string, by string) (
 			targetID, WorkDropped, WorkSourceHuman, now, now, now, by, now, src.ID); err != nil {
 			return WorkItem{}, fmt.Errorf("jobstore: close merged source: %w", err)
 		}
-		if _, err := s.appendWorkJournalOn(tx, src.ID, WorkJournalStatus, "已合并到 "+targetID, by, now, ""); err != nil {
+		if _, err := s.appendWorkJournalOn(tx, src.ID, WorkJournalStatus, i18n.T(s.textLang(src.ProjectKey), "jobstore.work.journal.merged_into", "target", targetID), by, now, ""); err != nil {
 			return WorkItem{}, err
 		}
-		parts = append(parts, fmt.Sprintf("%s「%s」（%d 个会话，%d 条日志）", src.ID, capText(src.Title, 40), nSess, nJournal))
+		parts = append(parts, i18n.T(s.textLang(target.ProjectKey), "jobstore.work.journal.merged_part", "id", src.ID, "title", capText(src.Title, 40), "sessions", nSess, "journal", nJournal))
 	}
-	if _, err := s.appendWorkJournalOn(tx, targetID, WorkJournalStatus, "合并了 "+strings.Join(parts, "、"), by, now, ""); err != nil {
+	if _, err := s.appendWorkJournalOn(tx, targetID, WorkJournalStatus, i18n.T(s.textLang(target.ProjectKey), "jobstore.work.journal.merged", "parts", joinParts(s.textLang(target.ProjectKey), parts)), by, now, ""); err != nil {
 		return WorkItem{}, err
 	}
 	if _, err := tx.Exec(`UPDATE work_items SET rev=rev+1, updated_at=?, updated_by=?, last_activity_at=?, unsorted=0 WHERE id=?`, now, by, now, targetID); err != nil {
@@ -1151,7 +1177,7 @@ func (s *Store) SplitWorkItem(id string, in SplitWorkItemInput) (WorkItem, WorkI
 	defer func() { _ = tx.Rollback() }()
 	nw, err := s.createWorkItemLocked(tx, WorkItemInput{
 		Title: title, Goal: in.Goal, ProjectKey: src.ProjectKey, Workspace: src.Workspace,
-		Source: WorkOriginHuman, SessionIDs: in.SessionIDs, By: in.By, Note: "从 " + id + "「" + capText(src.Title, 40) + "」拆分出",
+		Source: WorkOriginHuman, SessionIDs: in.SessionIDs, By: in.By, Note: i18n.T(s.textLang(src.ProjectKey), "jobstore.work.journal.split_from", "id", id, "title", capText(src.Title, 40)),
 	}, title, WorkActive, WorkOriginHuman)
 	if err != nil {
 		return WorkItem{}, WorkItem{}, err
@@ -1164,13 +1190,14 @@ func (s *Store) SplitWorkItem(id string, in SplitWorkItemInput) (WorkItem, WorkI
 			}
 		}
 	}
-	note := "拆分出 " + nw.ID + "「" + capText(title, 40) + "」"
+	splitLang := s.textLang(src.ProjectKey)
+	note := i18n.T(splitLang, "jobstore.work.journal.split", "id", nw.ID, "title", capText(title, 40))
 	if len(in.SessionIDs) > 0 {
-		verb := "移走"
+		key := "jobstore.work.journal.split_moved"
 		if in.KeepSessions {
-			verb = "同时保留"
+			key = "jobstore.work.journal.split_kept"
 		}
-		note += fmt.Sprintf("（%d 个会话%s）", len(in.SessionIDs), verb)
+		note = i18n.T(splitLang, key, "note", note, "n", len(in.SessionIDs))
 	}
 	if _, err := s.appendWorkJournalOn(tx, id, WorkJournalStatus, note, in.By, now, ""); err != nil {
 		return WorkItem{}, WorkItem{}, err
@@ -1241,7 +1268,7 @@ func (s *Store) SetWorkItemAutoStatus(id, status, reason string) (bool, error) {
 		status, now, now, now, id, cur.Rev); err != nil {
 		return false, fmt.Errorf("jobstore: auto status: %w", err)
 	}
-	text := fmt.Sprintf("状态：%s → %s（自动：%s）", cur.Status, status, reason)
+	text := i18n.T(s.textLang(cur.ProjectKey), "jobstore.work.journal.auto_status", "from", cur.Status, "to", status, "reason", reason)
 	_, err = s.appendWorkJournalOn(s.db, id, WorkJournalStatus, text, "system", now, "")
 	return true, err
 }

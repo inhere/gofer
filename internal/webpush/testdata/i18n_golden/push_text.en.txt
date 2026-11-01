@@ -1,0 +1,16 @@
+interaction | Waiting for your approval or answer | Run the tests?
+needs review | Needs review | Fix login
+approval | Needs approval | Fix login · needs sign-off
+terminal job | Job finished | Fix login · runner server
+terminal session manual_end | Session ended: Ended manually | Ended manually · runner server
+terminal session idle_timeout | Session ended: Idle timeout | Idle timeout · runner server
+terminal session max_session_timeout | Session ended: Exceeded the session's total time limit | Exceeded the session's total time limit · runner server
+terminal session max_session | Session ended: Exceeded the session's total time limit | Exceeded the session's total time limit · runner server
+terminal session  | Session ended: Failure reason not recorded | Fix login · runner server
+terminal session boom | Session ended: Failed: boom | Failed: boom · runner server
+awaiting reply | Session waiting for your reply: Fix login | Turn 3 · claude · proj · runner server\ndone?\nEnds automatically at 22:13 if it stays idle
+awaiting reply bare | Session waiting for your reply: Fix login | Turn 1 · claude · proj · runner server
+plan blocked | Plan blocked | no worker
+test | gofer test notification | Web Push is connected on this device.
+action allow Allow
+action reject Reject

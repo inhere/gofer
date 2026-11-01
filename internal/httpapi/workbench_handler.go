@@ -144,6 +144,7 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		return
 	}
 	result, err := s.workbench.List(callerFromCtx(c), workbench.Query{
+		Lang:    s.requestLang(c),
 		Project: strings.TrimSpace(c.Query("project")),
 		Status:  status,
 		Q:       c.Query("q"),

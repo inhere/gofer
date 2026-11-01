@@ -22,6 +22,9 @@ type fixture struct {
 	now   time.Time
 }
 
+// bodyLabel is the zh-CN label of a capture item's body preview (mail.capture.body).
+const bodyLabel = "\n正文摘录："
+
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	store, err := jobstore.Open(filepath.Join(t.TempDir(), "mail.db"))

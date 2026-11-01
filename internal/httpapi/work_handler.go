@@ -12,6 +12,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
@@ -354,7 +355,8 @@ func (s *Server) handlePatchWorkItem(c *rux.Context) {
 		return
 	}
 	if archived {
-		if _, jerr := s.work.Store().AppendWorkJournal(id, jobstore.WorkJournalNote, "从收集箱归档（状态改为 "+strings.TrimSpace(*patch.Status)+"）", workBy(c)); jerr != nil {
+		item, _, _ := s.work.Store().GetWorkItem(id)
+		if _, jerr := s.work.Store().AppendWorkJournal(id, jobstore.WorkJournalNote, i18n.T(s.textLanguage(item.ProjectKey), "work.journal.archived_from_capture", "status", strings.TrimSpace(*patch.Status)), workBy(c)); jerr != nil {
 			slog.Warn("work.journal_failed", "event", "work.journal_failed", "id", id, "err", jerr)
 		}
 	}

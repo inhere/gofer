@@ -2,7 +2,6 @@ package webpush
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/workbench"
 )
@@ -54,7 +54,7 @@ func (s *Service) run() {
 
 func (s *Service) dispatch(event queuedEvent) {
 	if event.kind == "test" {
-		s.dispatchTest(event.caller)
+		s.dispatchTest(event.caller, event.lang)
 		return
 	}
 	if event.kind != job.EventInteractionCreated &&
@@ -98,26 +98,19 @@ func (s *Service) dispatch(event queuedEvent) {
 			return
 		}
 		interaction = found
-		base.Title = "等你审批/回答"
-		base.Body = truncateRunes(found.Prompt, 120)
+		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, found)
 		urgency = "high"
 		if found.Type == job.InteractionTypePermission {
-			base.Actions = permissionActions(found.Options)
+			base.Actions = permissionActions(s.lang(result.ProjectKey), found.Options)
 		}
 	case job.EventJobNeedsReview:
-		base.Title = "待评审"
-		base.Body = truncateRunes(firstNonEmpty(result.Title, result.Error, result.ID), 120)
+		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
 		status = job.StatusNeedsReview
 	case job.EventJobAwaitingApproval:
 		// gofer-9b1b: a held job waits for a person; the tap opens the job page, where the
 		// approval panel is. Not filtered by the review rules (status stays empty): every
 		// hold is a call to action.
-		base.Title = "待批准"
-		reason := ""
-		if result.Hold != nil {
-			reason = result.Hold.Reason
-		}
-		base.Body = truncateRunes(holdPushBody(result.Title, reason, result.ID), 120)
+		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
 		base.URL = "/jobs/" + url.PathEscape(result.ID)
 		urgency = "high"
 	case job.EventJobTerminal:
@@ -125,15 +118,12 @@ func (s *Service) dispatch(event queuedEvent) {
 		if status == "" {
 			status = result.Status
 		}
-		base.Title = terminalPushTitle(result)
-		base.Body = truncateRunes(terminalPushBody(result), 120)
+		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
 	case job.EventSessionAwaitingReply:
-		base.Title, base.Body = sessionAwaitingReplyPush(result, event.detail)
+		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
 		urgency = "high"
 	case job.EventPlanBlocked:
-		base.Title = "计划已阻塞"
-		base.Body, _ = stringDetail(event.detail, "reason")
-		base.Body = truncateRunes(base.Body, 120)
+		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
 		urgency = "high"
 	}
 
@@ -154,14 +144,43 @@ func (s *Service) dispatch(event queuedEvent) {
 	}
 }
 
-func (s *Service) dispatchTest(callerID string) {
-	payload := PushPayload{
-		Title: "gofer 测试通知",
-		Body:  "此设备的 Web Push 已连通。",
+// pushTitleBody is the title and body of the push for one event kind: the text the person
+// reads in the OS notification. found is the interaction of an interaction event.
+func pushTitleBody(lang i18n.Lang, kind string, result job.JobResult, detail map[string]any, found *job.Interaction) (string, string) {
+	switch kind {
+	case job.EventInteractionCreated:
+		return i18n.T(lang, "webpush.title.interaction"), truncateRunes(found.Prompt, 120)
+	case job.EventJobNeedsReview:
+		return i18n.T(lang, "webpush.title.review"), truncateRunes(firstNonEmpty(result.Title, result.Error, result.ID), 120)
+	case job.EventJobAwaitingApproval:
+		reason := ""
+		if result.Hold != nil {
+			reason = result.Hold.Reason
+		}
+		return i18n.T(lang, "webpush.title.approval"), truncateRunes(holdPushBody(result.Title, reason, result.ID), 120)
+	case job.EventJobTerminal:
+		return terminalPushTitle(lang, result), truncateRunes(terminalPushBody(lang, result), 120)
+	case job.EventSessionAwaitingReply:
+		return sessionAwaitingReplyPush(lang, result, detail)
+	case job.EventPlanBlocked:
+		reason, _ := stringDetail(detail, "reason")
+		return i18n.T(lang, "webpush.title.plan_blocked"), truncateRunes(reason, 120)
+	}
+	return "", ""
+}
+
+func (s *Service) dispatchTest(callerID string, lang i18n.Lang) {
+	s.dispatchPayload(normalizeCaller(callerID), "", testPayload(lang), nil, "normal")
+}
+
+// testPayload is the push the "send a test notification" button queues.
+func testPayload(lang i18n.Lang) PushPayload {
+	return PushPayload{
+		Title: i18n.T(lang, "webpush.title.test"),
+		Body:  i18n.T(lang, "webpush.body.test"),
 		URL:   "/workbench",
 		Tag:   "gofer-test",
 	}
-	s.dispatchPayload(normalizeCaller(callerID), "", payload, nil, "normal")
 }
 
 func (s *Service) dispatchPayload(callerID, _ string, base PushPayload, interaction *job.Interaction, urgency string) {
@@ -282,7 +301,7 @@ func (s *Service) pruneMergeWindows() {
 	s.sentMu.Unlock()
 }
 
-func permissionActions(options []job.InteractionOption) []NotificationAction {
+func permissionActions(lang i18n.Lang, options []job.InteractionOption) []NotificationAction {
 	var allow, reject *job.InteractionOption
 	for i := range options {
 		option := &options[i]
@@ -311,10 +330,10 @@ func permissionActions(options []job.InteractionOption) []NotificationAction {
 	}
 	out := make([]NotificationAction, 0, 2)
 	if allow != nil {
-		out = append(out, NotificationAction{Action: "allow", Title: "允许", Option: allow.Value})
+		out = append(out, NotificationAction{Action: "allow", Title: i18n.T(lang, "webpush.action.allow"), Option: allow.Value})
 	}
 	if reject != nil {
-		out = append(out, NotificationAction{Action: "reject", Title: "拒绝", Option: reject.Value})
+		out = append(out, NotificationAction{Action: "reject", Title: i18n.T(lang, "webpush.action.reject"), Option: reject.Value})
 	}
 	return out
 }
@@ -344,18 +363,18 @@ func endpointHost(raw string) string {
 	return parsed.Host
 }
 
-func terminalPushTitle(result job.JobResult) string {
+func terminalPushTitle(lang i18n.Lang, result job.JobResult) string {
 	if result.Session {
-		return "会话已结束：" + sessionEndReason(result.SessionEndReason)
+		return i18n.T(lang, "webpush.title.terminal_session", "reason", sessionEndReason(lang, result.SessionEndReason))
 	}
-	return "任务已结束"
+	return i18n.T(lang, "webpush.title.terminal_job")
 }
 
 // terminalPushBody is the body of a finished-job / finished-session push: where it ran,
 // then the title (or the session's end reason).
-func terminalPushBody(result job.JobResult) string {
+func terminalPushBody(lang i18n.Lang, result job.JobResult) string {
 	if result.Session && result.SessionEndReason != "" {
-		return withRunner(sessionEndReason(result.SessionEndReason), result.Runner)
+		return withRunner(sessionEndReason(lang, result.SessionEndReason), result.Runner)
 	}
 	return withRunner(firstNonEmpty(result.Title, result.Error, result.ID), result.Runner)
 }
@@ -370,27 +389,27 @@ func withRunner(body, runner string) string {
 	return body + " · runner " + name
 }
 
-func sessionEndReason(reason string) string {
+func sessionEndReason(lang i18n.Lang, reason string) string {
 	switch reason {
 	case "manual_end":
-		return "手动结束"
+		return i18n.T(lang, "webpush.end_reason.manual_end")
 	case "idle_timeout":
-		return "空闲超时"
+		return i18n.T(lang, "webpush.end_reason.idle_timeout")
 	case "max_session_timeout", "max_session":
-		return "超过会话总时长"
+		return i18n.T(lang, "webpush.end_reason.max_session")
 	default:
 		if reason == "" {
-			return "失败原因未记录"
+			return i18n.T(lang, "webpush.end_reason.unrecorded")
 		}
-		return "失败：" + reason
+		return i18n.T(lang, "webpush.end_reason.failed", "reason", reason)
 	}
 }
 
-func sessionAwaitingReplyPush(result job.JobResult, detail map[string]any) (string, string) {
+func sessionAwaitingReplyPush(lang i18n.Lang, result job.JobResult, detail map[string]any) (string, string) {
 	turn := intDetail(detail, "turn_no")
 	preview, _ := detail["reply_preview"].(string)
 	idleAt := int64Detail(detail, "idle_deadline_at")
-	body := fmt.Sprintf("第 %d 轮 · %s · %s", turn, result.Agent, result.ProjectKey)
+	body := i18n.T(lang, "webpush.body.turn", "turn", turn, "agent", result.Agent, "project", result.ProjectKey)
 	if runner := config.RunnerDisplayName(result.Runner); runner != "" {
 		body += " · runner " + runner
 	}
@@ -398,9 +417,9 @@ func sessionAwaitingReplyPush(result job.JobResult, detail map[string]any) (stri
 		body += "\n" + truncateRunes(preview, 200)
 	}
 	if idleAt > 0 {
-		body += "\n空闲将在 " + time.Unix(idleAt, 0).In(time.Local).Format("15:04") + " 自动结束"
+		body += "\n" + i18n.T(lang, "webpush.body.idle_end", "time", time.Unix(idleAt, 0).In(time.Local).Format("15:04"))
 	}
-	return "会话等你回复：" + firstNonEmpty(result.Title, result.ID), body
+	return i18n.T(lang, "webpush.title.awaiting_reply", "title", firstNonEmpty(result.Title, result.ID)), body
 }
 
 func intDetail(detail map[string]any, key string) int {

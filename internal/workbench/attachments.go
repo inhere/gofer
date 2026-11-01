@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/xfer"
@@ -78,6 +79,8 @@ type RouteInput struct {
 	// project of that machine needs. True for the server itself and for a remote worker that
 	// declared the capability (xfer.Manager.OwnAttachmentsSupported).
 	OwnDir bool
+	// Lang is the language of the reasons (zero = the default language).
+	Lang i18n.Lang
 }
 
 // Route is the delivery decision; Reason is set only for AttachNone.
@@ -104,19 +107,19 @@ type Route struct {
 func RouteAttachments(in RouteInput) Route {
 	switch {
 	case in.Pty:
-		return Route{Mode: AttachNone, Reason: "pty 会话不支持附图"}
+		return Route{Mode: AttachNone, Reason: i18n.T(in.Lang, "workbench.attach.pty")}
 	case in.ACPAccepts:
 		return Route{Mode: AttachInline}
 	case !in.FilePath && !in.Arg:
 		name := strings.TrimSpace(in.Agent)
 		if name == "" {
-			name = "该 agent"
+			name = i18n.T(in.Lang, "workbench.attach.agent_unnamed")
 		}
-		return Route{Mode: AttachNone, Reason: name + " 暂不支持读取图片"}
+		return Route{Mode: AttachNone, Reason: i18n.T(in.Lang, "workbench.attach.no_image", "agent", name)}
 	case strings.TrimSpace(in.Runner) == "":
-		return Route{Mode: AttachNone, Reason: "会话没有执行机信息"}
+		return Route{Mode: AttachNone, Reason: i18n.T(in.Lang, "workbench.attach.no_runner")}
 	case strings.TrimSpace(in.Project) == "" && !in.OwnDir:
-		return Route{Mode: AttachNone, Reason: ownDirReason(in.Runner)}
+		return Route{Mode: AttachNone, Reason: ownDirReason(in.Lang, in.Runner)}
 	case in.Arg:
 		return Route{Mode: AttachArg}
 	default:
@@ -128,12 +131,12 @@ func RouteAttachments(in RouteInput) Route {
 // a remote worker that did not declare its own attachment directory, which an operator
 // fixes by upgrading (and restarting) that worker — or by connecting it, since an offline
 // worker cannot declare anything either.
-func ownDirReason(runner string) string {
+func ownDirReason(lang i18n.Lang, runner string) string {
 	name := strings.TrimSpace(runner)
 	if name == "" {
-		name = "执行机"
+		name = i18n.T(lang, "workbench.attach.runner_default")
 	}
-	return "会话没有项目，worker " + name + " 不能接收附件（未连接或版本过旧，请升级并重启该 worker）"
+	return i18n.T(lang, "workbench.attach.own_dir", "runner", name)
 }
 
 // AttachmentStore is the slice of jobstore.Store the send path uses.
@@ -248,16 +251,30 @@ func (s *Service) deliverImageArgs(agent string) []string {
 	return cfg.EffectiveDeliverImageArgs(agent)
 }
 
+// projectLang is the language of text that goes to the agent of a session in projectKey:
+// the project's language, else the server's (the config the attachment deps carry; none =
+// the default language).
+func (s *Service) projectLang(projectKey string) i18n.Lang {
+	if cfg := s.att.Config(); cfg != nil {
+		return cfg.LanguageFor(projectKey)
+	}
+	return i18n.Default
+}
+
+// serverLang is projectLang for text no project owns.
+func (s *Service) serverLang() i18n.Lang { return s.projectLang("") }
+
 // annotateAttachments fills a listed thread's attachment capability bit.
-func (s *Service) annotateAttachments(t *Thread) {
+func (s *Service) annotateAttachments(lang i18n.Lang, t *Thread) {
 	if !s.attachmentsReady() {
 		return
 	}
 	if !t.Resumable {
-		t.Attachments, t.AttachmentsReason = AttachNone, "该会话已结束，不能继续发送"
+		t.Attachments, t.AttachmentsReason = AttachNone, i18n.T(lang, "workbench.attach.ended")
 		return
 	}
 	in := RouteInput{
+		Lang: lang,
 		Kind: t.Kind, Agent: t.Agent, Runner: t.Runner, Project: t.ProjectKey,
 		Pty:    t.Kind != KindRelay && t.Interactive,
 		OwnDir: s.ownDir(t.Runner),
@@ -426,7 +443,7 @@ func (s *Service) placeOwnImages(callerID string, recs []jobstore.Attachment, ru
 		return nil, fmt.Errorf("%w: 会话没有项目，无法把附图放到执行机", ErrAttachmentDelivery)
 	}
 	if !placer.OwnAttachmentsSupported(runner) {
-		return nil, fmt.Errorf("%w: %s", ErrAttachmentDelivery, ownDirReason(runner))
+		return nil, fmt.Errorf("%w: %s", ErrAttachmentDelivery, ownDirReason(s.serverLang(), runner))
 	}
 	base := s.now().Format("20060102")
 	deadline := s.now().Add(placeTimeout)
@@ -465,16 +482,22 @@ func (s *Service) placeFiles(callerID string, recs []jobstore.Attachment, runner
 	if oneLine {
 		sep = " "
 	}
+	lang := s.projectLang(projectKey)
 	var b strings.Builder
 	for i, p := range placed {
-		if p.abs != "" {
-			fmt.Fprintf(&b, "%s[附图 %d] %s", sep, i+1, p.abs)
-		} else {
-			// A worker below protocol v25 cannot report where it wrote the file.
-			fmt.Fprintf(&b, "%s[附图 %d] %s（相对于项目 %s 根目录）", sep, i+1, p.dest, projectKey)
-		}
+		b.WriteString(sep + attachMarker(lang, i+1, p.abs, p.dest, projectKey))
 	}
 	return b.String(), nil
+}
+
+// attachMarker is the line that names placed image n in the message the agent reads. A
+// worker below protocol v25 cannot report where it wrote the file (abs == ""): the marker
+// then names the path relative to the project root.
+func attachMarker(lang i18n.Lang, n int, abs, dest, projectKey string) string {
+	if abs != "" {
+		return i18n.T(lang, "workbench.attach.marker", "n", n, "path", abs)
+	}
+	return i18n.T(lang, "workbench.attach.marker_relative", "n", n, "path", dest, "project", projectKey)
 }
 
 // readImages loads the original bytes for an inline send.

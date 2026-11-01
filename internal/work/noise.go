@@ -156,7 +156,7 @@ func pathHasPrefix(cwd, prefix string) bool {
 // steward skip, with the reason (design §关键流程). The thresholds are the extension
 // settings; a settings read failure falls back to the registry defaults.
 func (s *Service) ShortSession(a jobstore.AgentSession, now time.Time) (string, bool) {
-	return jobstore.ShortSession(a, s.settingInt(settings.KeyWorkShortSessionMaxMinutes),
+	return jobstore.ShortSessionIn(s.lang(a.ProjectKey), a, s.settingInt(settings.KeyWorkShortSessionMaxMinutes),
 		s.settingInt(settings.KeyWorkShortSessionMaxPrompts), now.Unix())
 }
 

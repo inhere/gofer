@@ -68,6 +68,8 @@ type Store struct {
 	mailStateHook atomic.Pointer[MailStateHook]
 	// clock overrides unixNow (SetClock; tests).
 	clock atomic.Pointer[func() time.Time]
+	// languageFor picks the language of the text the store writes (SetLanguageFor).
+	languageFor atomic.Pointer[LanguageFor]
 	// statsGen is the dashboard overview's invalidation counter (StatsGen): bumped when
 	// a job ends / is reviewed / is deleted, when terminal-session usage lands and when
 	// a job_metrics row is written.

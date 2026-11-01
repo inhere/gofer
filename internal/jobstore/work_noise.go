@@ -3,6 +3,8 @@ package jobstore
 import (
 	"fmt"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Noise reduction (docs/design/2026-10-20-work-noise-and-db-settings-design.md §总体方案 1):
@@ -50,9 +52,14 @@ func (s *Store) IncrementSessionHumanPrompts(sid string) (int, error) {
 // A threshold of 0 disables its half of the rule (nothing is ever "short"), which is what
 // the default 0 on a setting means: the operator turned it off.
 //
-// The reason (second result) is the one-line Chinese explanation the summarizer records in
+// The reason (second result) is the one-line explanation (in the default language; ShortSessionIn takes one) the summarizer records in
 // its run log; it is empty when the session is not short.
 func ShortSession(a AgentSession, maxMinutes, maxPrompts int, now int64) (string, bool) {
+	return ShortSessionIn(i18n.Default, a, maxMinutes, maxPrompts, now)
+}
+
+// ShortSessionIn is ShortSession with the reason in lang.
+func ShortSessionIn(lang i18n.Lang, a AgentSession, maxMinutes, maxPrompts int, now int64) (string, bool) {
 	if maxMinutes <= 0 || maxPrompts <= 0 {
 		return "", false
 	}
@@ -73,6 +80,5 @@ func ShortSession(a AgentSession, maxMinutes, maxPrompts int, now int64) (string
 	if lived >= int64(maxMinutes)*60 || a.HumanPrompts >= maxPrompts {
 		return "", false
 	}
-	return fmt.Sprintf("短命会话：存活 %d 分钟 < %d 分钟，人工提问 %d < %d 次",
-		lived/60, maxMinutes, a.HumanPrompts, maxPrompts), true
+	return i18n.T(lang, "jobstore.session.short", "lived", lived/60, "max", maxMinutes, "prompts", a.HumanPrompts, "max_prompts", maxPrompts), true
 }

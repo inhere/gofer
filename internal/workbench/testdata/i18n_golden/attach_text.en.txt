@@ -1,0 +1,13 @@
+route 0 -> none "A pty session cannot take images"
+route 1 -> inline ""
+route 2 -> none "suga cannot read images yet"
+route 3 -> none "This agent cannot read images yet"
+route 4 -> none "The session has no executing machine recorded"
+route 5 -> none "The session has no project, and worker w-lab cannot receive attachments (not connected or too old; upgrade and restart that worker)"
+route 6 -> arg ""
+The session has ended and cannot be sent to
+The session has no project, and worker w-lab cannot receive attachments (not connected or too old; upgrade and restart that worker)
+The session has no project, and worker the executing machine cannot receive attachments (not connected or too old; upgrade and restart that worker)
+[Image 1] /abs/x.png
+[Image 2] .gofer/a/x.png (relative to the root of project alpha)
+Only the captured result of the latest turn

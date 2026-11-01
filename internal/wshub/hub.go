@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/wsproto"
 )
@@ -87,6 +88,8 @@ type Hub struct {
 	bindMu   sync.RWMutex
 	nowFn    func() time.Time
 	hb       HeartbeatConfig
+	// languageFn picks the language of the hub's own text (SetLanguageFn).
+	languageFn func() i18n.Lang
 
 	// dqMu guards queues, the per-worker FIFO of dispatches parked on a worker's
 	// max_concurrent (gofer-y05q, see dispatch_queue.go). Each queue has its own leaf
@@ -269,6 +272,19 @@ func New(bindings map[string]string) *Hub {
 // defaults apply for any unset field). Must be called before Accept handles any
 // connection (i.e. at assemble time, single-threaded).
 func (h *Hub) SetHeartbeat(hc HeartbeatConfig) { h.hb = hc.withDefaults() }
+
+// SetLanguageFn supplies the language of the text the hub itself sends a worker (the
+// reason of a refused registration): the server's language. Nil = the default language.
+// Call before the hub serves connections.
+func (h *Hub) SetLanguageFn(fn func() i18n.Lang) { h.languageFn = fn }
+
+// lang is the language of the hub's own text.
+func (h *Hub) lang() i18n.Lang {
+	if h.languageFn == nil {
+		return i18n.Default
+	}
+	return i18n.Resolve(h.languageFn())
+}
 
 // SetStop wires the serve-level shutdown channel and starts the shutdown watcher
 // goroutine: when stop closes, every live connection is gracefully closed (close
@@ -531,7 +547,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 			"worker_id", reg.WorkerID, "worker_proto", reg.ProtocolVersion, "min", wsproto.MinProtocolVersion)
 		_ = writeEnvelope(ctx, conn, wsproto.TypeRegistered, "", wsproto.Registered{
 			Accepted:   false,
-			Reason:     fmt.Sprintf("worker 协议版本过旧(v%d)，请升级 worker 到 v%d 后重连", reg.ProtocolVersion, wsproto.MinProtocolVersion),
+			Reason:     i18n.T(h.lang(), "wshub.protocol_too_old", "have", reg.ProtocolVersion, "need", wsproto.MinProtocolVersion),
 			ServerTime: h.nowMillis(),
 		})
 		_ = conn.Close(websocket.StatusPolicyViolation, "protocol version too old")

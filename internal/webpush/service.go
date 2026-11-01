@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -55,7 +56,10 @@ type Options struct {
 	// token is REDEEMED, because a permission can be revoked between the two (design §6).
 	// A nil MayAct means "no permission plumbing", which fails CLOSED: no action button is
 	// ever minted and no token is ever redeemed.
-	MayAct                func(callerID string) bool
+	MayAct func(callerID string) bool
+	// LanguageFor picks the language of a push for a project (config.LanguageFor); nil =
+	// the default language. A push belongs to a job, so it follows the job's project.
+	LanguageFor           func(project string) i18n.Lang
 	AllowInsecureLoopback bool
 }
 
@@ -75,6 +79,8 @@ type queuedEvent struct {
 	kind   string
 	detail map[string]any
 	caller string
+	// lang is the language of a test notification (the request that asked for it).
+	lang i18n.Lang
 }
 
 // Service owns process-lifetime transient state. Subscription rows and job
@@ -88,6 +94,7 @@ type Service struct {
 	userCallers func() []string
 	visible     func(string, string) bool
 	mayActFn    func(string) bool
+	languageFor func(project string) i18n.Lang
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -128,13 +135,21 @@ func NewService(opts Options) (*Service, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
 		store: opts.Store, jobs: opts.Jobs, sender: sender, actions: actions,
-		now: opts.Now, userCallers: opts.UserCallers, visible: opts.Visible, mayActFn: opts.MayAct,
+		now: opts.Now, userCallers: opts.UserCallers, visible: opts.Visible, mayActFn: opts.MayAct, languageFor: opts.LanguageFor,
 		ctx: ctx, cancel: cancel, queue: make(chan queuedEvent, eventQueueSize),
 		sentAt: make(map[string]time.Time),
 	}
 	s.wg.Add(1)
 	go s.run()
 	return s, nil
+}
+
+// lang is the language of a push for project ("" = the server's).
+func (s *Service) lang(project string) i18n.Lang {
+	if s.languageFor == nil {
+		return i18n.Default
+	}
+	return i18n.Resolve(s.languageFor(project))
 }
 
 func (s *Service) Close() {
@@ -221,10 +236,10 @@ func (s *Service) hasUserCaller(callerID string) bool {
 	return false
 }
 
-// QueueTest enqueues one non-action notification to the caller's current
-// subscriptions. The return value is the number of endpoints accepted for async
-// processing, not a delivery receipt.
-func (s *Service) QueueTest(callerID string) (int, error) {
+// QueueTestIn enqueues one non-action test notification, in lang (the requester's
+// language; "" = the server's), to the caller's current subscriptions. The return value
+// is the number of endpoints accepted for async processing, not a delivery receipt.
+func (s *Service) QueueTestIn(lang i18n.Lang, callerID string) (int, error) {
 	callerID = normalizeCaller(callerID)
 	rows, err := s.store.ListPushSubscriptions(callerID)
 	if err != nil {
@@ -233,7 +248,10 @@ func (s *Service) QueueTest(callerID string) (int, error) {
 	if len(rows) == 0 {
 		return 0, ErrNoSubscriptions
 	}
-	if !s.enqueue(queuedEvent{kind: "test", caller: callerID}) {
+	if lang == "" {
+		lang = s.lang("")
+	}
+	if !s.enqueue(queuedEvent{kind: "test", caller: callerID, lang: lang}) {
 		return 0, errors.New("webpush: event queue is full")
 	}
 	return len(rows), nil

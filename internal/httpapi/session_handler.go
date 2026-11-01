@@ -411,7 +411,7 @@ func (s *Server) toSessionView(lang i18n.Lang, a jobstore.AgentSession) sessionV
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
-		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView, MailPaused: a.MailPaused, MailPending: s.mailPendingOf(a.SessionID),
+		Notice: handedOffNotice(lang, a), WatchCount: watchCount, Watches: watchesView, MailPaused: a.MailPaused, MailPending: s.mailPendingOf(a.SessionID),
 		PeerName: a.PeerName, PeerNameSource: a.PeerNameSource, PeerStatus: a.PeerStatus, PeerMessaging: a.PeerMessaging,
 		ProgressText: a.ProgressText, ProgressAt: a.ProgressAt, LastCwd: lastCwdForView(a),
 		CanResume: resume.Can, ResumeReason: resume.Reason, ResumeMessage: resume.Message,
@@ -473,17 +473,15 @@ func sessionUsageViewOf(raw string) *sessionUsageView {
 // to a takeover job (design §9.1 B): why its relay stopped, where the
 // conversation continues, and how to get back — printed by the hook on stderr,
 // where the person at the keyboard actually sees it. "" for every other state.
-func handedOffNotice(a jobstore.AgentSession) string {
+func handedOffNotice(lang i18n.Lang, a jobstore.AgentSession) string {
 	if a.State != jobstore.SessionHandedOff {
 		return ""
 	}
-	when := "刚刚"
+	when := i18n.T(lang, "httpapi.handed_off_just_now")
 	if a.HandedOffAt > 0 {
 		when = time.Unix(a.HandedOffAt, 0).Format("2006-01-02 15:04")
 	}
-	return fmt.Sprintf(
-		"该会话已于 %s 在 web 接管（job %s），继续请在 web 终端或 --resume；本终端的中继已停用",
-		when, a.HandedOffJobID)
+	return i18n.T(lang, "httpapi.handed_off_notice", "when", when, "job", a.HandedOffJobID)
 }
 
 // relayStatus maps sessionrelay sentinel errors to HTTP statuses.

@@ -124,5 +124,7 @@ func (c *Config) MutateProjects(mut func(map[string]ProjectConfig) error) error 
 	return nil
 }
 
-// ErrBuiltinProject is returned when a write would delete a built-in project.
-var ErrBuiltinProject = errors.New("内置项目不能删除（可在配置里显式声明同名项目来覆盖）")
+// ErrBuiltinProject is returned when a write would delete a built-in project. Its text is
+// the English baseline; what a person reads is the catalog's err.builtin_project (the HTTP
+// handler and the CLI both render it in their own language).
+var ErrBuiltinProject = errors.New("built-in project cannot be deleted (declare a project with the same name in the config to override it)")

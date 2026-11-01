@@ -1,0 +1,64 @@
+job.read.others	读他人的 job、workflow、workbench 线程、interaction 列表（含 `GET /v1/interactions`）、wakeup / retry、SSE 流；过滤型
+job.submit	一切产生 job 的入口：jobs、workflows、schedules 创建 / run-now / enable、plan run / resume / PATCH 开启 leader、todo dispatch 与 PATCH（改为 ready 或改 assignee 即派发）、resume / rebuild、`reject?resume=true`、会话 resume、deliver（允许接管时起 pty job）、wakeups 创建与修改、agent probe、评论 @ 派发、workbench agent 线程。这些入口只在「这次请求会产生 job」时另需本权限（InHandler）
+job.cancel.others	取消他人 job、workflow、retry
+job.manage.others	他人 job 的 resume / rebuild / say / end / title / worktree 删除与合并 / deliver / workflow pick / 注入 interaction，以及对**会话 job**（ACP / pty）说话：session-ask / report-request / workbench 线程中目标为会话 job 的（产生 job 的另需 `job.submit`）
+job.delete.others	删除、脱敏他人 job
+job.attach	attach 自己的交互 job、看自己的 pty 录像与会话
+job.attach.others	attach 他人 job、他人录像；全局 pty 会话列表（过滤型）
+job.review	验收、拒绝、批准 hold（只有人签收）
+repo.push	推送分支与 tag：提交含 `uses: gofer/push` 步骤的 workflow（分支推 `refs/heads/`、tag 推 `refs/tags/`，永不强推，推后 `ls-remote` 核对）；另需项目 `delivery.allow_push`
+job.review.others	审阅（accept / reject / approve）**他人提交的** job；自己的 job 仍只需 `job.review`
+job.wake.others	唤醒他人 job
+interaction.answer	回答 job 的工具审批与提问、punt、非中继类决策、推送通知按钮
+session.read.others	他人会话的列表 / 详情 / 消息 / tail / turn / nudge / 收件箱（过滤型；outbox 不在此列）
+session.reply.others	向他人**终端会话**说话或读其待发内容：say / messages / ack / deliver / relay / outbox / 中继类决策回答 / workbench 终端会话线程 / 目标为终端会话的 session-ask 与 report-request
+session.manage.others	删除他人会话、开 / 释放 turn、release-takeover
+session.permission.answer	回答**他人**终端的工具权限提示（会话 owner 自己不需要）
+session.transfer	转移会话归属
+plan.manage.others	他人 plan 的修改 / run / pause / resume / attach / todo 增改与派发 / handoff
+plan.supervise.others	给他人 plan 绑定 supervisor，或绑定他人会话
+schedule.manage.others	他人 schedule 的删除 / 启停 / 轮换 token / run-now（run-now 另需 `job.submit`）
+steward.manage	steward start / stop / restart / ask / review，以及 notes 写入
+memory.write	写、删 tracker 记忆与 scoped 记忆（会注入所有 job 的 prompt），采纳记忆建议
+memory.synthesis.run	手动触发每日记忆综合（`POST /v1/memory-syntheses/run`，含 `force` 重跑）：会按 `memory.synthesis` 配置调用一次只读、无工具的模型并产生费用；另需 `memory.synthesis.enabled`
+tracker.sync	推快照、repo sync
+tracker.delete	删除 tracker 镜像
+tunnel.open	开隧道连接
+tunnel.hosted	托管转发启停、写或删预设、导入预设、autostart（另需 `tunnel.open`）
+tunnel.manage.others	停他人的转发与托管转发（隧道与转发的列表为 Public，保持现状）
+xfer.write	创建传输（在执行主机读写文件）
+xfer.manage.others	读取、下载、删除他人的传输
+secret.scan.all	跨调用方秘密扫描与脱敏（过滤型）
+update.check	触发检查新版本（`GET /v1/update` 为 Public）
+update.apply	一键更新执行与取消；带 workers 时另需 `worker.upgrade`
+worker.upgrade	用 server 自身二进制升级 worker
+worker.upgrade.upload	上传二进制；`source=staged` 也需要
+worker.manage	注册、删除、重载 worker
+config.read	`GET /v1/config`、MCP 注册表读取（`/meta`、`/agents`、`/runners` 为 Public）
+mcp.test	测试 MCP server 连接（会在 server 上起进程）
+settings.read	读取扩展设置（`GET /v1/settings`、单个键、导出）：键表、默认值、当前值、说明
+settings.write	写扩展设置（PUT / DELETE 单个键、导入）：提示词、阈值与排除名单；每次写入记审计
+trigger.read	读入站触发器的脱敏视图（`GET /v1/triggers`、单个触发器、投递记录；MCP `gofer_trigger_list` / `gofer_trigger_show`）：名称、owner、项目、模板、限流 / 去重策略与最近状态，不含密钥与 payload；job 凭据不可读
+config.write	写配置（含 steward / work）、校验、重载
+project.write	项目增删改
+rules.write	规则库写入
+skills.write	skills 导入、更新、删除
+auth.manage	管理授权（仅根管理员，任何授权都匹配不到）
+risk low	低
+risk medium	中
+risk high	高
+risk dangerous	危险
+risk root	根
+risk x	x
+source seed	种入
+source config	配置
+source root	仅根
+source x	x
+scope no	否
+scope yes	是
+scope phase2	第二期
+scope x	x
+subject users	全体用户
+subject caller	调用方
+subject session	会话
+subject x	x

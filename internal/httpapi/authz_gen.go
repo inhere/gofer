@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 //go:generate go run ./authzgen -out ../../docs/reference/permissions.md
@@ -115,7 +116,7 @@ func writeCatalogSection(b *strings.Builder) {
 	b.WriteString("|---|---|---|---|---|---|\n")
 	for _, p := range authz.Permissions() {
 		b.WriteString("| " + markdownCode(p.Name) +
-			" | " + markdownCell(p.Description) +
+			" | " + markdownCell(p.DescriptionIn(i18n.ZhCN)) +
 			" | " + p.Risk.Label() +
 			" | " + yesNo(p.SessionGrantable) +
 			" | " + p.Scope.Label() +

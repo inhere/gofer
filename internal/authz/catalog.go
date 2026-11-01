@@ -4,7 +4,8 @@
 // docs/design/2026-10-14-db-capabilities-and-session-grants-design.md.
 //
 // The package is leaf logic: it depends on the standard library, on internal/util and on
-// internal/config (whose server configuration the §3 derivation reads) — nothing else, and
+// internal/config (whose server configuration the §3 derivation reads) and internal/i18n
+// (the text catalog behind the labels and descriptions) — nothing else, and
 // no entry layer, job layer or storage ever grows into it. That is what lets the httpapi
 // entry layer, the job layer (which receives a decision instead of reading caller config)
 // and the offline documentation generator all use it without an import cycle (G022).
@@ -20,6 +21,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Risk grades what a permission lets its holder do if it ends up in the wrong hands
@@ -36,22 +39,17 @@ const (
 	RiskRoot      Risk = "root"      // 根
 )
 
-// Label is the label the design table and the generated permission reference use.
-func (r Risk) Label() string {
-	switch r {
-	case RiskLow:
-		return "低"
-	case RiskMedium:
-		return "中"
-	case RiskHigh:
-		return "高"
-	case RiskDangerous:
-		return "危险"
-	case RiskRoot:
-		return "根"
-	default:
+// Label is the label the design table and the generated permission reference use: the
+// zh-CN text, the language of that document. Shown text follows a language: LabelIn.
+func (r Risk) Label() string { return r.LabelIn(i18n.ZhCN) }
+
+// LabelIn is the label in lang (the catalog's authz.risk.*); a value outside the
+// catalog is returned as it is.
+func (r Risk) LabelIn(lang i18n.Lang) string {
+	if !r.Valid() {
 		return string(r)
 	}
+	return i18n.T(lang, "authz.risk."+string(r))
 }
 
 // Valid reports whether r is one of the levels the catalog may use.
@@ -78,18 +76,17 @@ const (
 	SourceRoot Source = "root"
 )
 
-// Label is the label the design table and the generated permission reference use.
-func (s Source) Label() string {
-	switch s {
-	case SourceSeed:
-		return "种入"
-	case SourceConfig:
-		return "配置"
-	case SourceRoot:
-		return "仅根"
-	default:
+// Label is the label the design table and the generated permission reference use: the
+// zh-CN text, the language of that document. Shown text follows a language: LabelIn.
+func (s Source) Label() string { return s.LabelIn(i18n.ZhCN) }
+
+// LabelIn is the label in lang (the catalog's authz.source.*); a value outside the
+// catalog is returned as it is.
+func (s Source) LabelIn(lang i18n.Lang) string {
+	if !s.Valid() {
 		return string(s)
 	}
+	return i18n.T(lang, "authz.source."+string(s))
 }
 
 // Valid reports whether s is one of the sources the catalog may use.
@@ -113,18 +110,17 @@ const (
 	ScopePhase2 Scope = "phase2" // 第二期
 )
 
-// Label is the label the design table and the generated permission reference use.
-func (s Scope) Label() string {
-	switch s {
-	case ScopeNo:
-		return "否"
-	case ScopeYes:
-		return "是"
-	case ScopePhase2:
-		return "第二期"
-	default:
+// Label is the label the design table and the generated permission reference use: the
+// zh-CN text, the language of that document. Shown text follows a language: LabelIn.
+func (s Scope) Label() string { return s.LabelIn(i18n.ZhCN) }
+
+// LabelIn is the label in lang (the catalog's authz.scope.*); a value outside the
+// catalog is returned as it is.
+func (s Scope) LabelIn(lang i18n.Lang) string {
+	if !s.Valid() {
 		return string(s)
 	}
+	return i18n.T(lang, "authz.scope."+string(s))
 }
 
 // Valid reports whether s is one of the scopes the catalog may use.
@@ -161,9 +157,6 @@ type Permission struct {
 	// Name is the fixed permission name, `<resource>.<action>[.others]`. A published
 	// name never changes (design decision 1).
 	Name string
-	// Description is what the permission covers (the design table's「覆盖」column): the
-	// routes and entry points it stands for.
-	Description string
 	// Risk grades the damage the permission can do.
 	Risk Risk
 	// SessionGrantable reports whether the permission may be granted to a session
@@ -184,6 +177,27 @@ func errInvalid(format string, args ...any) error {
 	return fmt.Errorf("authz: invalid catalog entry: "+format, args...)
 }
 
+// DescriptionKey is the catalog key of the permission's description (authz.perm.*): the
+// name with its dots written as underscores, since an INI key cannot carry the section's dots.
+func (p Permission) DescriptionKey() string {
+	return "authz.perm." + strings.ReplaceAll(p.Name, ".", "_")
+}
+
+// DescriptionIn is what the permission covers (the design table's「覆盖」column): the routes
+// and entry points it stands for, in lang. The generated reference uses i18n.ZhCN.
+func (p Permission) DescriptionIn(lang i18n.Lang) string { return i18n.T(lang, p.DescriptionKey()) }
+
+// hasDescription reports whether every supported language describes the permission.
+func hasDescription(name string) bool {
+	key := Permission{Name: name}.DescriptionKey()
+	for _, l := range i18n.Supported() {
+		if !i18n.HasKey(l, key) {
+			return false
+		}
+	}
+	return true
+}
+
 // Validate reports whether the entry is internally consistent. It is the invariant the
 // catalog test enforces on every row, including the seeding rule: only a seeded row
 // carries a seed version.
@@ -193,8 +207,8 @@ func (p Permission) Validate() error {
 		return errInvalid("empty permission name")
 	case strings.ContainsAny(p.Name, " \t*"):
 		return errInvalid("permission name %q must be literal (no space, tab or wildcard)", p.Name)
-	case p.Description == "":
-		return errInvalid("permission %s has no description", p.Name)
+	case !hasDescription(p.Name):
+		return errInvalid("permission %s has no description in every language", p.Name)
 	case !p.Risk.Valid():
 		return errInvalid("permission %s has unknown risk %q", p.Name, string(p.Risk))
 	case !p.Scope.Valid():
@@ -290,232 +304,186 @@ var catalog = []Permission{
 	{
 		Name: PermJobReadOthers, Risk: RiskMedium, SessionGrantable: true,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "读他人的 job、workflow、workbench 线程、interaction 列表（含 `GET /v1/interactions`）、wakeup / retry、SSE 流；过滤型",
 	},
 	{
 		Name: PermJobSubmit, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "一切产生 job 的入口：jobs、workflows、schedules 创建 / run-now / enable、plan run / resume / PATCH 开启 leader、todo dispatch 与 PATCH（改为 ready 或改 assignee 即派发）、resume / rebuild、`reject?resume=true`、会话 resume、deliver（允许接管时起 pty job）、wakeups 创建与修改、agent probe、评论 @ 派发、workbench agent 线程。这些入口只在「这次请求会产生 job」时另需本权限（InHandler）",
 	},
 	{
 		Name: PermJobCancelOthers, Risk: RiskMedium, SessionGrantable: true,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "取消他人 job、workflow、retry",
 	},
 	{
 		Name: PermJobManageOthers, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "他人 job 的 resume / rebuild / say / end / title / worktree 删除与合并 / deliver / workflow pick / 注入 interaction，以及对**会话 job**（ACP / pty）说话：session-ask / report-request / workbench 线程中目标为会话 job 的（产生 job 的另需 `job.submit`）",
 	},
 	{
 		Name: PermJobDeleteOthers, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceRoot,
-		Description: "删除、脱敏他人 job",
 	},
 	{
 		Name: PermJobAttach, Risk: RiskMedium, SessionGrantable: true,
 		Scope: ScopeYes, Source: SourceConfig,
-		Description: "attach 自己的交互 job、看自己的 pty 录像与会话",
 	},
 	{
 		Name: PermJobAttachOthers, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceRoot,
-		Description: "attach 他人 job、他人录像；全局 pty 会话列表（过滤型）",
 	},
 	{
 		Name: PermJobReview, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceConfig,
-		Description: "验收、拒绝、批准 hold（只有人签收）",
 	},
 	{
 		Name: PermRepoPush, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceRoot,
-		Description: "推送分支与 tag：提交含 `uses: gofer/push` 步骤的 workflow（分支推 `refs/heads/`、tag 推 `refs/tags/`，永不强推，推后 `ls-remote` 核对）；另需项目 `delivery.allow_push`",
 	},
 	{
 		Name: PermJobReviewOthers, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV2,
-		Description: "审阅（accept / reject / approve）**他人提交的** job；自己的 job 仍只需 `job.review`",
 	},
 	{
 		Name: PermJobWakeOthers, Risk: RiskMedium, SessionGrantable: true,
 		Scope: ScopeYes, Source: SourceConfig,
-		Description: "唤醒他人 job",
 	},
 	{
 		Name: PermInteractionAnswer, Risk: RiskMedium, SessionGrantable: true,
 		Scope: ScopeYes, Source: SourceConfig,
-		Description: "回答 job 的工具审批与提问、punt、非中继类决策、推送通知按钮",
 	},
 	{
 		Name: PermSessionReadOthers, Risk: RiskMedium, SessionGrantable: true,
 		Scope: ScopeNo, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "他人会话的列表 / 详情 / 消息 / tail / turn / nudge / 收件箱（过滤型；outbox 不在此列）",
 	},
 	{
 		Name: PermSessionReplyOthers, Risk: RiskHigh, SessionGrantable: true,
 		Scope: ScopeNo, Source: SourceConfig,
-		Description: "向他人**终端会话**说话或读其待发内容：say / messages / ack / deliver / relay / outbox / 中继类决策回答 / workbench 终端会话线程 / 目标为终端会话的 session-ask 与 report-request",
 	},
 	{
 		Name: PermSessionManageOthers, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "删除他人会话、开 / 释放 turn、release-takeover",
 	},
 	{
 		Name: PermSessionPermissionAnswer, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceRoot,
-		Description: "回答**他人**终端的工具权限提示（会话 owner 自己不需要）",
 	},
 	{
 		Name: PermSessionTransfer, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceRoot,
-		Description: "转移会话归属",
 	},
 	{
 		Name: PermPlanManageOthers, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "他人 plan 的修改 / run / pause / resume / attach / todo 增改与派发 / handoff",
 	},
 	{
 		Name: PermPlanSuperviseOthers, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceRoot,
-		Description: "给他人 plan 绑定 supervisor，或绑定他人会话",
 	},
 	{
 		Name: PermScheduleManageOthers, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "他人 schedule 的删除 / 启停 / 轮换 token / run-now（run-now 另需 `job.submit`）",
 	},
 	{
 		Name: PermStewardManage, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "steward start / stop / restart / ask / review，以及 notes 写入",
 	},
 	{
 		Name: PermMemoryWrite, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "写、删 tracker 记忆与 scoped 记忆（会注入所有 job 的 prompt），采纳记忆建议",
 	},
 	{
 		Name: PermMemorySynthesisRun, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceRoot,
-		Description: "手动触发每日记忆综合（`POST /v1/memory-syntheses/run`，含 `force` 重跑）：会按 `memory.synthesis` 配置调用一次只读、无工具的模型并产生费用；另需 `memory.synthesis.enabled`",
 	},
 	{
 		Name: PermTrackerSync, Risk: RiskLow, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "推快照、repo sync",
 	},
 	{
 		Name: PermTrackerDelete, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceConfig,
-		Description: "删除 tracker 镜像",
 	},
 	{
 		Name: PermTunnelOpen, Risk: RiskMedium, SessionGrantable: true,
 		Scope: ScopePhase2, Source: SourceConfig,
-		Description: "开隧道连接",
 	},
 	{
 		Name: PermTunnelHosted, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "托管转发启停、写或删预设、导入预设、autostart（另需 `tunnel.open`）",
 	},
 	{
 		Name: PermTunnelManageOthers, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceRoot,
-		Description: "停他人的转发与托管转发（隧道与转发的列表为 Public，保持现状）",
 	},
 	{
 		Name: PermXferWrite, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "创建传输（在执行主机读写文件）",
 	},
 	{
 		Name: PermXferManageOthers, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceRoot,
-		Description: "读取、下载、删除他人的传输",
 	},
 	{
 		Name: PermSecretScanAll, Risk: RiskHigh, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceRoot,
-		Description: "跨调用方秘密扫描与脱敏（过滤型）",
 	},
 	{
 		Name: PermUpdateCheck, Risk: RiskLow, SessionGrantable: true,
 		Scope: ScopeNo, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "触发检查新版本（`GET /v1/update` 为 Public）",
 	},
 	{
 		Name: PermUpdateApply, Risk: RiskHigh, SessionGrantable: true,
 		Scope: ScopeNo, Source: SourceConfig,
-		Description: "一键更新执行与取消；带 workers 时另需 `worker.upgrade`",
 	},
 	{
 		Name: PermWorkerUpgrade, Risk: RiskHigh, SessionGrantable: true,
 		Scope: ScopeNo, Source: SourceConfig,
-		Description: "用 server 自身二进制升级 worker",
 	},
 	{
 		Name: PermWorkerUpgradeUpload, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceConfig,
-		Description: "上传二进制；`source=staged` 也需要",
 	},
 	{
 		Name: PermWorkerManage, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceConfig,
-		Description: "注册、删除、重载 worker",
 	},
 	{
 		Name: PermConfigRead, Risk: RiskLow, SessionGrantable: true,
 		Scope: ScopeNo, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "`GET /v1/config`、MCP 注册表读取（`/meta`、`/agents`、`/runners` 为 Public）",
 	},
 	{
 		Name: PermMcpTest, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceSeed, SeedVersion: SeedV1,
-		Description: "测试 MCP server 连接（会在 server 上起进程）",
 	},
 	{
 		Name: PermSettingsRead, Risk: RiskLow, SessionGrantable: true,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV3,
-		Description: "读取扩展设置（`GET /v1/settings`、单个键、导出）：键表、默认值、当前值、说明",
 	},
 	{
 		Name: PermSettingsWrite, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceRoot,
-		Description: "写扩展设置（PUT / DELETE 单个键、导入）：提示词、阈值与排除名单；每次写入记审计",
 	},
 	{
 		Name: PermTriggerRead, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceRoot,
-		Description: "读入站触发器的脱敏视图（`GET /v1/triggers`、单个触发器、投递记录；MCP `gofer_trigger_list` / `gofer_trigger_show`）：名称、owner、项目、模板、限流 / 去重策略与最近状态，不含密钥与 payload；job 凭据不可读",
 	},
 	{
 		Name: PermConfigWrite, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceConfig,
-		Description: "写配置（含 steward / work）、校验、重载",
 	},
 	{
 		Name: PermProjectWrite, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceConfig,
-		Description: "项目增删改",
 	},
 	{
 		Name: PermRulesWrite, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceConfig,
-		Description: "规则库写入",
 	},
 	{
 		Name: PermSkillsWrite, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceConfig,
-		Description: "skills 导入、更新、删除",
 	},
 	{
 		Name: PermAuthManage, Risk: RiskRoot, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceRoot,
-		Description: "管理授权（仅根管理员，任何授权都匹配不到）",
 	},
 }
 

@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // 保密 (design 2026-10-16-session-topics-mailbox-and-inbox-design.md 「安全、数据、运维与回滚」的
@@ -49,26 +51,32 @@ type SecretBatchMailRedact struct {
 // here and a mailbox test keeps the two in step. An unknown kind (an address that resolved to
 // nobody) yields "" — the caller shows the raw address instead.
 func MailPartyLabel(kind, id, caller string) string {
+	return MailPartyLabelIn(i18n.Default, kind, id, caller)
+}
+
+// MailPartyLabelIn is MailPartyLabel in lang. The words are the mailbox's own catalog
+// entries (mail.origin.*), so the two cannot drift.
+func MailPartyLabelIn(lang i18n.Lang, kind, id, caller string) string {
 	caller = strings.TrimSpace(caller)
 	switch strings.TrimSpace(kind) {
 	case MailKindSession:
-		return mailWithCaller("会话 "+strings.TrimSpace(id), caller)
+		return mailWithCaller(lang, i18n.T(lang, "mail.origin.session", "id", strings.TrimSpace(id)), caller)
 	case MailKindJob:
-		return mailWithCaller("job "+strings.TrimSpace(id), caller)
+		return mailWithCaller(lang, "job "+strings.TrimSpace(id), caller)
 	case MailKindCaller:
 		if caller == "" {
-			return "调用方"
+			return i18n.T(lang, "mail.origin.caller")
 		}
-		return "调用方 " + caller
+		return i18n.T(lang, "mail.origin.caller") + " " + caller
 	}
 	return ""
 }
 
-func mailWithCaller(label, caller string) string {
+func mailWithCaller(lang i18n.Lang, label, caller string) string {
 	if caller == "" {
 		return label
 	}
-	return label + "（调用方 " + caller + "）"
+	return i18n.T(lang, "mail.origin.with_caller", "label", label, "caller", caller)
 }
 
 // mailScanTexts are the letter columns a scan reads and a redaction rewrites: the free text a
@@ -120,6 +128,7 @@ func (s *Store) scanMailSecrets(literals []string, compiled []*regexp.Regexp, fi
 		return nil, fmt.Errorf("jobstore: secret scan mail: %w", err)
 	}
 	defer rows.Close()
+	lang := s.textLang(filter.ProjectKey)
 	var out []SecretScanMail
 	for rows.Next() {
 		var (
@@ -146,12 +155,12 @@ func (s *Store) scanMailSecrets(literals []string, compiled []*regexp.Regexp, fi
 		if len(locations) == 0 {
 			continue
 		}
-		to := MailPartyLabel(toKind, toID, toCaller)
+		to := MailPartyLabelIn(lang, toKind, toID, toCaller)
 		if to == "" {
 			to = toAddr
 		}
 		out = append(out, SecretScanMail{
-			MailID: id, ThreadID: thread, From: MailPartyLabel(fromKind, fromID, fromCaller), To: to,
+			MailID: id, ThreadID: thread, From: MailPartyLabelIn(lang, fromKind, fromID, fromCaller), To: to,
 			State: state, Project: firstNonEmptyMailProject(toSessionProject, toJobProject, fromSessionProject, fromJobProject),
 			Locations: locations,
 		})

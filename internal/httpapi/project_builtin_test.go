@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
@@ -67,6 +68,30 @@ func TestBuiltinDefaultProjectCannotBeDeleted(t *testing.T) {
 	}
 	if _, err := s.projects.Get("default"); err != nil {
 		t.Fatalf("default vanished after a refused delete: %v", err)
+	}
+}
+
+// TestBuiltinProjectDeleteRefusalFollowsRequestLanguage: the 409 detail is the catalog's
+// err.builtin_project in the request language (zh-CN is the sentence the sentinel carried
+// before it became the English baseline), with a stable code.
+func TestBuiltinProjectDeleteRefusalFollowsRequestLanguage(t *testing.T) {
+	s, _ := builtinDefaultServer(t)
+	del := func(lang string) errorBody {
+		req := httptest.NewRequest(http.MethodDelete, "/v1/projects/default", nil)
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		req.Header.Set("Accept-Language", lang)
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		var body errorBody
+		decode(t, rec.Result(), &body)
+		return body
+	}
+	zh, en := del("zh-CN"), del("en")
+	if zh.Code != "builtin_project" || zh.Detail != "内置项目不能删除（可在配置里显式声明同名项目来覆盖）" {
+		t.Errorf("zh = %+v", zh)
+	}
+	if en.Code != "builtin_project" || en.Detail == "" || errKeyCJK.MatchString(en.Detail) {
+		t.Errorf("en = %+v", en)
 	}
 }
 

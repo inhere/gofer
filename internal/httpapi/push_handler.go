@@ -7,6 +7,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/webpush"
@@ -17,7 +18,7 @@ type WebPushService interface {
 	Subscribe(callerID string, input webpush.SubscriptionInput, userAgent string) (jobstore.PushSubscription, error)
 	ListSubscriptions(callerID string) ([]jobstore.PushSubscription, error)
 	DeleteSubscription(callerID, endpoint string) (bool, error)
-	QueueTest(callerID string) (int, error)
+	QueueTestIn(lang i18n.Lang, callerID string) (int, error)
 	Act(token, option string) (job.Interaction, error)
 }
 
@@ -133,7 +134,7 @@ func (s *Server) handleTestPush(c *rux.Context) {
 		writeError(c, http.StatusServiceUnavailable, "web push unavailable", "web push service is not wired")
 		return
 	}
-	queued, err := s.push.QueueTest(callerFromCtx(c))
+	queued, err := s.push.QueueTestIn(s.requestLang(c), callerFromCtx(c))
 	if err != nil {
 		if errors.Is(err, webpush.ErrNoSubscriptions) {
 			writeError(c, http.StatusConflict, "no push subscription", err.Error())

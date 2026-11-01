@@ -1,0 +1,13 @@
+route 0 -> none "pty 会话不支持附图"
+route 1 -> inline ""
+route 2 -> none "suga 暂不支持读取图片"
+route 3 -> none "该 agent 暂不支持读取图片"
+route 4 -> none "会话没有执行机信息"
+route 5 -> none "会话没有项目，worker w-lab 不能接收附件（未连接或版本过旧，请升级并重启该 worker）"
+route 6 -> arg ""
+该会话已结束，不能继续发送
+会话没有项目，worker w-lab 不能接收附件（未连接或版本过旧，请升级并重启该 worker）
+会话没有项目，worker 执行机 不能接收附件（未连接或版本过旧，请升级并重启该 worker）
+[附图 1] /abs/x.png
+[附图 2] .gofer/a/x.png（相对于项目 alpha 根目录）
+只含最新一轮采集结果

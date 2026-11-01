@@ -394,7 +394,7 @@ func (s *Service) CancelMail(id int64, reason string) (jobstore.Mail, bool, erro
 		return got, changed, err
 	}
 	if found && prev.State == jobstore.MailHeld && prev.CaptureItemID != "" {
-		s.dropCaptureItem(prev.CaptureItemID, fmt.Sprintf("信件 #%d 已撤回，条目随之丢弃", id))
+		s.dropCaptureItem(prev.CaptureItemID, i18n.T(s.textLanguage(), "mail.capture.withdrawn", "id", id))
 	}
 	return got, true, nil
 }
@@ -473,10 +473,6 @@ func (s *Service) recordCapture(m jobstore.Mail, cands []Candidate) (string, err
 // Everything a captured item says has to fit inside it, so the body preview is shortened to the
 // room the header leaves instead of being cut off by the store mid-summary.
 const captureTextBudgetBytes = 200
-
-// bodyLabel is retained for the package characterization tests; production rendering uses the
-// localized catalog value below.
-const bodyLabel = "\n正文摘录："
 
 // CaptureText renders a capture-box item in the default language.
 func CaptureText(m jobstore.Mail, cands []Candidate) string {

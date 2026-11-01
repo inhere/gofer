@@ -299,6 +299,7 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// runner references the same hub instance). Its token→worker bindings come
 	// from cfg.Server.Workers (review #1: worker_id is its own caller id).
 	hub := wshub.New(workerBindings(cfg))
+	hub.SetLanguageFn(func() i18n.Lang { return cfg.Language() })
 	repushTimeout, repushAttempts := cfg.PolicyRepush()
 	hub.SetPolicyRepush(repushTimeout, repushAttempts)
 	// RECOV-01: hand the hub the worker reconnect window (server.job_recover_window_sec;
@@ -321,7 +322,8 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 		case "worker":
 			runners[name] = workerrunner.New(name, rc.WorkerID, hub,
 				workerrunner.WithPtyRelay(relayNonces, ptyRelays),
-				workerrunner.WithQueueMaxWait(workerQueueMaxWait(cfg)))
+				workerrunner.WithQueueMaxWait(workerQueueMaxWait(cfg)),
+				workerrunner.WithLanguageFor(cfg.LanguageFor))
 		}
 	}
 	dbPath, err := cfg.ResolveDBPathChecked()
@@ -332,6 +334,9 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open metadata store: %w", err)
 	}
+	// Text the store writes (work journal lines, ...) is in the project's language; the
+	// serve process replaces this with the live, reloadable resolution.
+	store.SetLanguageFor(cfg.LanguageFor)
 	if cfg.Storage.Root != "" {
 		root, err := cfg.ResolveStorageRoot()
 		if err != nil {
@@ -816,7 +821,8 @@ func (c *Core) reloadWorkerRunners(oldCfg, newCfg *config.Config) {
 		}
 		next[name] = workerrunner.New(name, rc.WorkerID, c.Hub,
 			workerrunner.WithPtyRelay(c.RelayNonces, c.PtyRelays),
-			workerrunner.WithQueueMaxWait(workerQueueMaxWait(newCfg)))
+			workerrunner.WithQueueMaxWait(workerQueueMaxWait(newCfg)),
+			workerrunner.WithLanguageFor(newCfg.LanguageFor))
 	}
 	c.Runners = next
 	c.Jobs.ReloadRunners(next)

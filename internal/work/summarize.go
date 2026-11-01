@@ -124,6 +124,21 @@ type OneShot interface {
 	Run(ctx context.Context, r OneShotRequest) (OneShotResult, error)
 }
 
+// LangChecker is the optional language-aware face of a OneShot: Check with the reason in
+// lang. The service asks for the language of the text it is about to show or store; a
+// OneShot without it answers in its own (default) language.
+type LangChecker interface {
+	CheckIn(lang i18n.Lang, agent string) error
+}
+
+// checkAgent is oneShot.Check with the reason in lang when the OneShot can do that.
+func (s *Service) checkAgent(lang i18n.Lang, agent string) error {
+	if c, ok := s.oneShot.(LangChecker); ok {
+		return c.CheckIn(lang, agent)
+	}
+	return s.oneShot.Check(agent)
+}
+
 // ProjectChooser is the optional second face of a OneShot: it lets the service pick the
 // project the summarizer job runs in. A OneShot without it keeps the plain order (the
 // first non-empty candidate, else `default`) without checking anything.
@@ -214,7 +229,7 @@ func (s *Service) SummarizerStatus(ctx context.Context) SummarizerStatus {
 	case s.oneShot == nil:
 		st.Reason = i18n.T(i18n.FromContextOr(ctx, s.lang("")), "work.summarize.not_wired")
 	default:
-		if err := s.oneShot.Check(st.Agent); err != nil {
+		if err := s.checkAgent(i18n.FromContextOr(ctx, s.lang("")), st.Agent); err != nil {
 			st.Reason = err.Error()
 		} else if ch, ok := s.oneShot.(ProjectChooser); ok && !ch.ProjectUsable(st.EffectiveProject, st.Agent) {
 			st.Reason = i18n.T(i18n.FromContextOr(ctx, s.lang("")), "work.summarize.project_unusable",
@@ -386,13 +401,25 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 		s.failRequest(o.RequestID, i18n.T(lang, key, args...))
 		return res, errors.New(i18n.T(callerLang, key, args...))
 	}
+	// failCheck is failKey for an agent check that failed: the check's own reason is in the
+	// language of each of the two texts.
+	failCheck := func(agentName string, first error) (SummarizeResult, error) {
+		reason := func(l i18n.Lang) string {
+			if err := s.checkAgent(l, agentName); err != nil {
+				return err.Error()
+			}
+			return first.Error()
+		}
+		s.failRequest(o.RequestID, i18n.T(lang, "work.summarize.engine_unavailable", "error", reason(lang)))
+		return res, errors.New(i18n.T(callerLang, "work.summarize.engine_unavailable", "error", reason(callerLang)))
+	}
 	c := s.cfg()
 	agentName := c.SummarizerAgentName()
 	if s.oneShot == nil {
 		return failKey("work.summarize.engine_missing")
 	}
 	if err := s.oneShot.Check(agentName); err != nil {
-		return failKey("work.summarize.engine_unavailable", "error", err.Error())
+		return failCheck(agentName, err)
 	}
 	a, haveSession := s.pickSession(w.ID, o.SessionID)
 	if !haveSession {

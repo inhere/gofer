@@ -463,6 +463,8 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 				return err == nil
 			},
 			MayAct: srv.MayAnswerInteraction,
+			// A push follows its job's project language, else the server's (live config).
+			LanguageFor: func(project string) i18n.Lang { return cr.Config().LanguageFor(project) },
 		})
 		if err != nil {
 			slog.Warn("webpush unavailable", "error", err)

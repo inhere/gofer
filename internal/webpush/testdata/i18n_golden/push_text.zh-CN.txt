@@ -1,0 +1,16 @@
+interaction | 等你审批/回答 | Run the tests?
+needs review | 待评审 | Fix login
+approval | 待批准 | Fix login · needs sign-off
+terminal job | 任务已结束 | Fix login · runner server
+terminal session manual_end | 会话已结束：手动结束 | 手动结束 · runner server
+terminal session idle_timeout | 会话已结束：空闲超时 | 空闲超时 · runner server
+terminal session max_session_timeout | 会话已结束：超过会话总时长 | 超过会话总时长 · runner server
+terminal session max_session | 会话已结束：超过会话总时长 | 超过会话总时长 · runner server
+terminal session  | 会话已结束：失败原因未记录 | Fix login · runner server
+terminal session boom | 会话已结束：失败：boom | 失败：boom · runner server
+awaiting reply | 会话等你回复：Fix login | 第 3 轮 · claude · proj · runner server\ndone?\n空闲将在 22:13 自动结束
+awaiting reply bare | 会话等你回复：Fix login | 第 1 轮 · claude · proj · runner server
+plan blocked | 计划已阻塞 | no worker
+test | gofer 测试通知 | 此设备的 Web Push 已连通。
+action allow 允许
+action reject 拒绝

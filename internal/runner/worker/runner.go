@@ -29,6 +29,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
@@ -265,6 +266,9 @@ type Runner struct {
 	// against the job's own timeout, which a remote job starts at the worker's started
 	// frame (same rule as the hub-side directory lock).
 	queueMaxWait time.Duration
+	// languageFor picks the language of the errors a job ends with (WithLanguageFor); nil =
+	// the default language.
+	languageFor func(project string) i18n.Lang
 }
 
 // Option configures a Runner.
@@ -277,6 +281,20 @@ func WithPtyRelay(nonces nonceIssuer, relays relayPreparer) Option {
 		r.nonceStore = nonces
 		r.relayRegistry = relays
 	}
+}
+
+// WithLanguageFor sets how the runner picks the language of the error text it hands a
+// job (config.LanguageFor: the job's project language, else the server's).
+func WithLanguageFor(f func(project string) i18n.Lang) Option {
+	return func(r *Runner) { r.languageFor = f }
+}
+
+// lang is the language of a job's error text in project.
+func (r *Runner) lang(project string) i18n.Lang {
+	if r.languageFor == nil {
+		return i18n.Default
+	}
+	return i18n.Resolve(r.languageFor(project))
 }
 
 // WithQueueMaxWait bounds how long a dispatch may wait for a free slot on a worker at
@@ -399,7 +417,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	if req.Forward != nil && req.Forward.Session {
 		sessionJobID = req.JobID
 	}
-	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered, req.OnStarted, req.OnStartedAt, req.OnSessionStatus, sessionJobID)
+	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered, req.OnStarted, req.OnStartedAt, req.OnSessionStatus, sessionJobID, r.lang(f.ProjectKey))
 	// RECOV-01: the hub holds this job in `recovering` while the worker's connection
 	// is down (Suspend) and returns it to `running` when the same worker process
 	// proves it still runs it (Resume). Both are nil for a local job.
@@ -849,6 +867,8 @@ type boundedSink struct {
 	onResume        func()
 	onSessionStatus func(wsproto.Status)
 	sessionJobID    string
+	// lang is the language of the error a worker restart leaves the persistent session.
+	lang i18n.Lang
 	// onJobEvent (nil-safe) records a worker-raised job event (SUP-01 G) on the HOST
 	// job, tagged with the origin the runner stamps. Set from req.OnJobEvent.
 	onJobEvent func(eventType string, detail map[string]any)
@@ -883,6 +903,7 @@ func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), callbacks
 	var onStartedAt func(int64)
 	var onSessionStatus func(wsproto.Status)
 	var sessionJobID string
+	var lang i18n.Lang
 	for _, callback := range callbacks {
 		switch typed := callback.(type) {
 		case func():
@@ -893,6 +914,8 @@ func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), callbacks
 			onSessionStatus = typed
 		case string:
 			sessionJobID = typed
+		case i18n.Lang:
+			lang = typed
 		}
 	}
 	return &boundedSink{
@@ -905,6 +928,7 @@ func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), callbacks
 		onStartedAt:     onStartedAt,
 		onSessionStatus: onSessionStatus,
 		sessionJobID:    sessionJobID,
+		lang:            lang,
 	}
 }
 
@@ -1114,7 +1138,7 @@ func (s *boundedSink) Finish(res wsproto.Result) {
 // disconnect arriving after a completed job never overrides its true outcome.
 func (s *boundedSink) OnDisconnect(err error) {
 	if s.sessionJobID != "" && err != nil && (strings.Contains(err.Error(), "worker lost") || strings.Contains(err.Error(), "worker restarted")) {
-		err = fmt.Errorf("worker 重启，持续会话已结束；可用 gofer job resume %s 以 session/load 接续上下文", s.sessionJobID)
+		err = errors.New(i18n.T(s.lang, "job.errors.worker_restarted", "job", s.sessionJobID))
 	}
 	select {
 	case s.lostCh <- err:

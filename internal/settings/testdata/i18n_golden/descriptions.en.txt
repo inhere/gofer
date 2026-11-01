@@ -1,0 +1,13 @@
+web.nav_hidden	Menu keys hidden from the web navigation (Today and Settings are always shown)
+work.draft.min_prompts	Which human prompt of a session creates a work-item draft (1 = the first one)
+work.draft.exclude_projects	Project keys that get no draft (exact match)
+work.draft.exclude_cwds	Directories that get no draft (a session whose cwd starts with any entry matches)
+work.draft.exclude_title_patterns	Title regexes that get no draft (a session whose title matches any of them is skipped)
+work.short_session.max_minutes	Duration threshold of a short-lived session, in minutes (an ended session that lived shorter than this and had fewer prompts than the prompt threshold is left out of the summarizer and the steward)
+work.short_session.max_prompts	Prompt-count threshold of a short-lived session (a session with fewer human prompts than this that also lived briefly is left out of the summarizer and the steward)
+prompt.steward.role	Full replacement of the steward role prompt (empty = the built-in default)
+prompt.steward.role.extra	Extra requirements appended after the steward role prompt (the recommended way to state preferences; it keeps up with default prompt updates)
+prompt.steward.review	Full replacement of the steward review prompt (empty = the built-in default)
+prompt.steward.review.extra	Extra requirements appended after the steward review prompt
+prompt.work.summarizer	Full replacement of the summarizer prompt (empty = the built-in default; the required JSON output format is always appended by the code and cannot be replaced)
+prompt.work.summarizer.extra	Extra requirements appended after the summarizer prompt (the recommended way to adjust it)

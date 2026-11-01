@@ -39,7 +39,7 @@ func (s *Server) handleSettingsList(c *rux.Context) {
 	if !s.settingsReady(c) {
 		return
 	}
-	items, err := s.settings.List()
+	items, err := s.settings.ListIn(s.requestLang(c))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list settings failed", err.Error())
 		return
@@ -53,7 +53,7 @@ func (s *Server) handleSettingsGet(c *rux.Context) {
 		return
 	}
 	key := c.Param("key")
-	items, err := s.settings.List()
+	items, err := s.settings.ListIn(s.requestLang(c))
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "read setting failed", err.Error())
 		return
@@ -86,7 +86,7 @@ func (s *Server) handleSettingsPut(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	item, _, err := s.settings.Set(key, body.Value, callerFromCtx(c))
+	item, _, err := s.settings.SetIn(s.requestLang(c), key, body.Value, callerFromCtx(c))
 	if err != nil {
 		s.writeSettingsError(c, "write setting failed", err)
 		return

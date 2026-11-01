@@ -2,13 +2,13 @@ package httpapi
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
@@ -145,7 +145,7 @@ func (s *Server) dispatchToSession(c *rux.Context, item work.CapturedItem, sid, 
 		return false
 	}
 	if _, err := s.work.FinishDispatch(item.Item.ID, jobstore.WorkActive, "", "",
-		fmt.Sprintf("已送出到会话 %s（信件 #%d）", sid, res.Mail.ID), by); err != nil {
+		i18n.T(s.textLanguage(item.Item.ProjectKey), "work.journal.dispatch_session", "sid", sid, "mail", res.Mail.ID), by); err != nil {
 		s.writeDispatchError(c, err)
 		return false
 	}
@@ -167,7 +167,7 @@ func (s *Server) dispatchToJob(c *rux.Context, item work.CapturedItem, jobID, by
 		return false
 	}
 	if _, err := s.work.FinishDispatch(item.Item.ID, jobstore.WorkActive, jobstore.WorkLinkJob, jobID,
-		fmt.Sprintf("已关联 job %s（%s）", jobID, res.Status), by); err != nil {
+		i18n.T(s.textLanguage(item.Item.ProjectKey), "work.journal.dispatch_job", "job", jobID, "status", res.Status), by); err != nil {
 		s.writeDispatchError(c, err)
 		return false
 	}

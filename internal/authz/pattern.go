@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Errors returned by Expand and NewSince. Callers (the grant API and the web form) match
@@ -45,15 +47,15 @@ const (
 	SubjectSession SubjectKind = "session" // session:<sid>
 )
 
-// Label is the label the permission reference and the web UI use.
-func (k SubjectKind) Label() string {
+// Label is the label the permission reference uses: the zh-CN text. The web UI follows
+// the request language: LabelIn.
+func (k SubjectKind) Label() string { return k.LabelIn(i18n.ZhCN) }
+
+// LabelIn is the label in lang (authz.subject.*); an unknown kind is returned as it is.
+func (k SubjectKind) LabelIn(lang i18n.Lang) string {
 	switch k {
-	case SubjectUsers:
-		return "全体用户"
-	case SubjectCaller:
-		return "调用方"
-	case SubjectSession:
-		return "会话"
+	case SubjectUsers, SubjectCaller, SubjectSession:
+		return i18n.T(lang, "authz.subject."+string(k))
 	default:
 		return string(k)
 	}

@@ -166,10 +166,7 @@ func (c Candidate) DisplayLang(lang i18n.Lang) string {
 		return label + "）"
 	}
 	if c.Offline {
-		if i18n.Resolve(lang) == i18n.EN {
-			return label + " (possibly offline)"
-		}
-		return label + "（可能不在线）"
+		return label + i18n.T(lang, "mail.candidate.offline_only")
 	}
 	return label
 }

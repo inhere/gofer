@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/inbox"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -94,7 +95,7 @@ func (s *Server) scopeTodayStatus(c *rux.Context, resp *today.Response) {
 	resp.Status.Runners.RunnerStatus = s.todayRunnersFor(ceil)
 	resp.Status.Alerts = nil
 	for _, name := range resp.Status.Runners.Offline {
-		resp.Status.Alerts = append([]string{"runner " + name + " 离线"}, resp.Status.Alerts...)
+		resp.Status.Alerts = append([]string{i18n.T(s.requestLang(c), "today.status.runner_offline", "name", name)}, resp.Status.Alerts...)
 	}
 	if len(ceil.Projects) == 0 || s.jobs == nil {
 		return

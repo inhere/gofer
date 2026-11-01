@@ -3,6 +3,8 @@ package authz
 import (
 	"slices"
 	"testing"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // designRow is one row of the design table (§1), typed. Column order matches the table:
@@ -128,7 +130,7 @@ func TestCatalogMatchesDesignTable(t *testing.T) {
 		if p.SeedVersion != expected.seedVersion {
 			t.Errorf("%s: seed version = %d, want %d", p.Name, p.SeedVersion, expected.seedVersion)
 		}
-		if p.Description == "" {
+		if p.DescriptionIn(i18n.ZhCN) == "" {
 			t.Errorf("%s: description is empty", p.Name)
 		}
 		if err := p.Validate(); err != nil {

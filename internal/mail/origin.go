@@ -103,8 +103,5 @@ func withCaller(label, caller string, lang i18n.Lang) string {
 	if caller == "" {
 		return label
 	}
-	if i18n.Resolve(lang) == i18n.EN {
-		return label + " (caller " + caller + ")"
-	}
-	return label + "（调用方 " + caller + "）"
+	return i18n.T(lang, "mail.origin.with_caller", "label", label, "caller", caller)
 }

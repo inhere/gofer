@@ -122,7 +122,7 @@ func (r *runner) reportWebReply() {
 		return
 	}
 	if len(text) > r.opts.MaxMessage {
-		text = truncate(text, r.opts.MaxMessage)
+		text = truncate(r.lang(), text, r.opts.MaxMessage)
 	}
 	if _, err := r.api.PostSessionReply(r.p.SessionID, text, to); err != nil {
 		r.log("report web reply failed: %v", err)

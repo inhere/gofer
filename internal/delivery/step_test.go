@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // writeFile writes content (or a fresh line when empty) to path.
@@ -290,5 +292,13 @@ func TestWaitCIUnsupportedProvider(t *testing.T) {
 	git(t, dir, "remote", "add", "origin", "https://gitlab.com/o/r.git")
 	if _, err := WaitCI(context.Background(), dir, WaitCIOptions{Ref: "v1"}); err == nil || !strings.Contains(err.Error(), "暂不支持") {
 		t.Fatalf("err = %v, want a not-supported error", err)
+	}
+	// zh-CN is the sentence the step always returned; Env.Lang selects English.
+	if _, err := WaitCI(context.Background(), dir, WaitCIOptions{Ref: "v1"}); err == nil || err.Error() != "gitlab: 暂不支持（内置步骤目前只支持 GitHub）" {
+		t.Fatalf("default err = %v", err)
+	}
+	_, err := WaitCI(context.Background(), dir, WaitCIOptions{Ref: "v1", Env: Env{Lang: i18n.EN}})
+	if err == nil || err.Error() != "gitlab: not supported yet (the built-in steps only support GitHub)" {
+		t.Fatalf("english err = %v", err)
 	}
 }
