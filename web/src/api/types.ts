@@ -2224,6 +2224,10 @@ export interface WorkbenchThreadsResp {
   attention: WorkbenchAttentionItem[]
   total: number
   since: number
+  // 分页模式（带 limit / cursor）才有：还有更早的会话可拉，next_cursor 原样传回 cursor。
+  // 老服务端没有这两个字段 = 没有更多。
+  has_more?: boolean
+  next_cursor?: string
 }
 
 export interface WorkbenchThreadPatch {

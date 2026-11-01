@@ -48,6 +48,15 @@ import { createThreadAutoFocus } from '../components/workbench/threadAutoFocus'
 import { listRunners } from '../api/client'
 import { createPoller } from '../utils/poller'
 import { fleetNotice, type FleetNotice } from '../utils/fleetNotice'
+import {
+  appendOlderPage,
+  filtersKey,
+  firstPageQuery,
+  mergeOlderThreads,
+  morePageQuery,
+  threadsOf,
+  type ThreadListFilters,
+} from '../components/workbench/threadPaging'
 
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
@@ -55,7 +64,17 @@ interface FocusedThreadActions {
   showView(view: 'process' | 'changes'): void
 }
 
-const response = ref<WorkbenchThreadsResp>({ projects: [], attention: [], total: 0, since: 0 })
+// 最新一页（默认最近 7 天 + 置顶 / 进行中 / 等你的）；「加载更多」追加的更早会话放在 olderThreads，
+// 刷新（live 推送 / 轮询 / 筛选）只重拉最新一页再合并，不会把更早的重新全拉回来。
+const firstPage = ref<WorkbenchThreadsResp>({ projects: [], attention: [], total: 0, since: 0 })
+const olderThreads = ref<WorkbenchThread[]>([])
+const olderIDs = computed(() => new Set(olderThreads.value.map((thread) => thread.id)))
+const response = computed(() => mergeOlderThreads(firstPage.value, olderThreads.value))
+const hasMoreThreads = ref(false)
+const moreCursor = ref('')
+const loadingMore = ref(false)
+let loadedFiltersKey = ''
+let tailAdvanced = false
 const route = useRoute()
 const router = useRouter()
 const selectedID = ref('')
@@ -76,6 +95,8 @@ const showExec = ref(readShowExec())
 const DONE_WINDOW_SEC = 3 * 86400
 function isVisibleThread(thread: WorkbenchThread, now: number, withExec: boolean): boolean {
   if (thread.id === selectedID.value) return true
+  // 「加载更多」点出来的更早会话就是用户要看的，不再套 3 天的已完成窗口。
+  if (olderIDs.value.has(thread.id)) return true
   if (thread.status === 'done' && now - thread.updated_at > DONE_WINDOW_SEC) return false
   if (!withExec && thread.agent === 'exec' && thread.status !== 'blocked' && thread.status !== 'working') return false
   return true
@@ -247,17 +268,28 @@ async function loadThreads(): Promise<void> {
   const full = wantedFullIDs()
   const summary = threadsLoaded
   try {
+    const filters = currentFilters()
     const next = await listWorkbenchThreads({
-      project: projectFilter.value || undefined,
-      status: statusFilter.value,
-      q: query.value.trim() || undefined,
+      ...firstPageQuery(filters),
       detail: summary ? 'summary' : undefined,
       full: summary ? full : undefined,
     })
     // 较早发出的请求晚到：丢掉，别盖掉后发的（选中变化会触发一次新拉取）。
     if (seq !== loadSeq) return
     fullCovered = summary ? new Set(full) : 'all'
-    response.value = next
+    // 筛选条件变了：之前追加的更早页是按旧条件拉的，作废。
+    const key = filtersKey(filters)
+    if (key !== loadedFiltersKey) {
+      loadedFiltersKey = key
+      olderThreads.value = []
+      tailAdvanced = false
+    }
+    firstPage.value = next
+    // 没追加过更早页时，「更多」的游标跟着最新一页走；追加过就保留已走到的位置。
+    if (!tailAdvanced) {
+      hasMoreThreads.value = !!next.has_more
+      moreCursor.value = next.next_cursor ?? ''
+    }
     threadsLoaded = true
     const keys = new Set(projectOptions.value)
     next.projects.forEach((project) => keys.add(project.project_key))
@@ -269,6 +301,39 @@ async function loadThreads(): Promise<void> {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+function currentFilters(): ThreadListFilters {
+  return { project: projectFilter.value || undefined, status: statusFilter.value, q: query.value }
+}
+
+// 「加载更多」：按游标追加更早的会话（摘要即可，打开着的会话用 full 要完整的）。
+async function loadMoreThreads(): Promise<void> {
+  if (!hasMoreThreads.value || loadingMore.value || !moreCursor.value) return
+  const key = filtersKey(currentFilters())
+  const cursor = moreCursor.value
+  loadingMore.value = true
+  try {
+    const next = await listWorkbenchThreads({
+      ...morePageQuery(currentFilters(), cursor),
+      detail: 'summary',
+      full: wantedFullIDs(),
+    })
+    // 期间换了筛选或已有别的更新：这一页作废。
+    if (key !== filtersKey(currentFilters()) || cursor !== moreCursor.value) return
+    olderThreads.value = appendOlderPage(
+      olderThreads.value,
+      next,
+      new Set(threadsOf(firstPage.value).map((thread) => thread.id)),
+    )
+    tailAdvanced = true
+    hasMoreThreads.value = !!next.has_more
+    moreCursor.value = next.next_cursor ?? ''
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loadingMore.value = false
   }
 }
 
@@ -834,6 +899,9 @@ onUnmounted(() => {
         :project-filter="projectFilter"
         :status-filter="statusFilter"
         :project-options="projectOptions"
+        :has-more="hasMoreThreads"
+        :loading-more="loadingMore"
+        @load-more="loadMoreThreads"
         @select="selectThread"
         @update:query="query = $event; refreshFilter()"
         @update:project-filter="setProject"
@@ -862,6 +930,9 @@ onUnmounted(() => {
           :project-filter="projectFilter"
           :status-filter="statusFilter"
           :project-options="projectOptions"
+          :has-more="hasMoreThreads"
+          :loading-more="loadingMore"
+          @load-more="loadMoreThreads"
           @select="selectThread"
           @update:query="query = $event; refreshFilter()"
           @update:project-filter="setProject"

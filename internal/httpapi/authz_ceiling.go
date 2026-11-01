@@ -872,7 +872,7 @@ func (s *Server) scopeWorkbench(c *rux.Context, res workbench.Response) workbenc
 		return res
 	}
 	in := s.scopeFilter(c)
-	out := workbench.Response{Since: res.Since, Projects: make([]workbench.ProjectGroup, 0, len(res.Projects))}
+	out := workbench.Response{Since: res.Since, HasMore: res.HasMore, NextCursor: res.NextCursor, Projects: make([]workbench.ProjectGroup, 0, len(res.Projects))}
 	for _, g := range res.Projects {
 		if !in(g.ProjectKey) {
 			continue

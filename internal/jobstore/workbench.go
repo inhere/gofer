@@ -277,15 +277,27 @@ func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64, includeInter
 	if err != nil {
 		return WorkbenchSnapshot{}, err
 	}
+	sessions, err := s.listWorkbenchSessions(since)
+	if err != nil {
+		return WorkbenchSnapshot{}, err
+	}
+	snap, err := s.loadWorkbenchShared(callerID)
+	if err != nil {
+		return WorkbenchSnapshot{}, err
+	}
+	snap.Jobs, snap.Sessions = jobs, sessions
+	return snap, nil
+}
+
+// loadWorkbenchShared loads the snapshot parts that do not depend on the thread window:
+// pending interactions, stalled jobs, open decisions, blocked plans and the caller's prefs.
+// Jobs and Sessions are left for the caller to fill.
+func (s *Store) loadWorkbenchShared(callerID string) (WorkbenchSnapshot, error) {
 	pending, err := s.ListPendingInteractions()
 	if err != nil {
 		return WorkbenchSnapshot{}, err
 	}
 	stalled, err := s.listWorkbenchStalledJobs()
-	if err != nil {
-		return WorkbenchSnapshot{}, err
-	}
-	sessions, err := s.listWorkbenchSessions(since)
 	if err != nil {
 		return WorkbenchSnapshot{}, err
 	}
@@ -315,10 +327,8 @@ func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64, includeInter
 		return WorkbenchSnapshot{}, err
 	}
 	return WorkbenchSnapshot{
-		Jobs:                jobs,
 		PendingInteractions: pending,
 		StalledJobIDs:       stalled,
-		Sessions:            sessions,
 		RelayDecisions:      relayDecisions,
 		BlockedPlans:        blockedPlans,
 		OpenPlanDecisions:   openPlanDecisions,
@@ -386,13 +396,19 @@ func (s *Store) listWorkbenchStalledJobs() (map[string]bool, error) {
 	return out, nil
 }
 
-func (s *Store) listWorkbenchSessions(since int64) ([]AgentSession, error) {
-	selectCols := strings.Replace(selectSessionCols, "state,", `(CASE WHEN state='waiting_reply'
+// workbenchSessionSelect is the relay-session select list with the waiting_reply state
+// folded to idle when every open turn is already acknowledged.
+func workbenchSessionSelect() string {
+	return strings.Replace(selectSessionCols, "state,", `(CASE WHEN state='waiting_reply'
   AND EXISTS (SELECT 1 FROM plan_decisions d WHERE d.session_id=agent_sessions.session_id
     AND d.kind='relay' AND d.state='OPEN' AND COALESCE(d.acked_at,0)<>0)
   AND NOT EXISTS (SELECT 1 FROM plan_decisions d WHERE d.session_id=agent_sessions.session_id
     AND d.kind='relay' AND d.state='OPEN' AND COALESCE(d.acked_at,0)=0)
   THEN 'idle' ELSE state END),`, 1)
+}
+
+func (s *Store) listWorkbenchSessions(since int64) ([]AgentSession, error) {
+	selectCols := workbenchSessionSelect()
 	rows, err := s.db.Query(selectCols+`
   WHERE (last_seen_at >= ? OR state <> ?) AND `+internalSessionSQL+`
   ORDER BY started_at ASC, session_id ASC`, since, SessionEnded)

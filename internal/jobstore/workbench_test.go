@@ -173,3 +173,67 @@ func TestWorkbenchSnapshotInternalMessengerJobsOptIn(t *testing.T) {
 	assert.True(t, shown["normal"])
 	assert.True(t, shown["msgr"])
 }
+
+func TestLoadWorkbenchPageKeysWindowCursorAndExceptions(t *testing.T) {
+	s := openTest(t)
+	sess := func(id string, updated int64, state string) {
+		rec := sampleJob("job-"+id, "alpha", updated-1)
+		rec.Status, rec.SessionID, rec.UpdatedAt, rec.Interactive = state, id, updated, true
+		assert.NoErr(t, s.UpsertJob(rec))
+	}
+	sess("new-a", 5000, "done")
+	sess("new-b", 4000, "done")
+	sess("old-a", 100, "done")
+	sess("old-live", 90, "running")
+	sess("old-legacy", 80, "done")
+	// A batch job (neither interactive nor a resident session) is never a thread key.
+	batch := sampleJob("batch", "alpha", 4500)
+	batch.Status, batch.UpdatedAt = "done", 4500
+	assert.NoErr(t, s.UpsertJob(batch))
+	// An ended relay session outside the window; a live one inside it.
+	_, err := s.UpsertAgentSession(AgentSession{SessionID: "relay-old", Agent: "claude", State: SessionEnded, RelayMode: RelayModeOn, StartedAt: 10, LastSeenAt: 50})
+	assert.NoErr(t, err)
+	_, err = s.UpsertAgentSession(AgentSession{SessionID: "relay-new", Agent: "claude", State: SessionIdle, RelayMode: RelayModeOn, StartedAt: 10, LastSeenAt: 4500})
+	assert.NoErr(t, err)
+	// UpsertAgentSession stamps last_seen_at with the clock; pin the fixtures' activity.
+	for sid, seen := range map[string]int64{"relay-old": 50, "relay-new": 4500} {
+		_, err := s.db.Exec(`UPDATE agent_sessions SET last_seen_at=? WHERE session_id=?`, seen, sid)
+		assert.NoErr(t, err)
+	}
+	// The pin of a session thread may still be recorded on its first job ("j:<id>").
+	assert.NoErr(t, s.UpsertWorkbenchThreadPref(WorkbenchThreadPref{CallerID: "alice", ThreadID: "j:job-old-legacy", Pinned: true}))
+
+	ids := func(p WorkbenchPage) []string {
+		var out []string
+		for _, k := range p.Keys {
+			out = append(out, k.ID)
+		}
+		return out
+	}
+	q := WorkbenchPageQuery{Since: 1000, Limit: 2, PinnedIDs: []string{"j:job-old-legacy"}}
+	first, err := s.LoadWorkbenchPage("alice", q)
+	assert.NoErr(t, err)
+	// Exceptions first (a relay session that is not ended, a running job, the legacy-pinned
+	// chain), newest first; then the ordinary threads inside the window.
+	assert.Eq(t, []string{"r:relay-new", "s:old-live", "s:old-legacy", "s:new-a", "s:new-b"}, ids(first))
+	assert.False(t, first.HasMore)
+	assert.True(t, first.BelowFloor) // old-a and the ended relay session sit below the floor
+	assert.Len(t, first.Snapshot.Jobs, 4)
+	assert.Len(t, first.Snapshot.Sessions, 1)
+
+	// A one-thread page reports more, and the cursor continues strictly after it.
+	q.Limit = 1
+	p1, err := s.LoadWorkbenchPage("alice", q)
+	assert.NoErr(t, err)
+	assert.True(t, p1.HasMore)
+	assert.Eq(t, "s:new-a", p1.Keys[len(p1.Keys)-1].ID)
+	// With a cursor and no floor: older ordinary threads only, no exceptions again.
+	p2, err := s.LoadWorkbenchPage("alice", WorkbenchPageQuery{CursorAt: 4000, CursorID: "s:new-b", Limit: 10, PinnedIDs: q.PinnedIDs})
+	assert.NoErr(t, err)
+	assert.Eq(t, []string{"s:old-a", "r:relay-old"}, ids(p2))
+	assert.False(t, p2.HasMore)
+	// Project narrowing happens in the query.
+	none, err := s.LoadWorkbenchPage("alice", WorkbenchPageQuery{Limit: 10, Project: "nope"})
+	assert.NoErr(t, err)
+	assert.Len(t, none.Keys, 0)
+}

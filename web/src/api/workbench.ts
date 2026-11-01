@@ -26,6 +26,11 @@ export interface WorkbenchThreadQuery {
   status?: WorkbenchStatus | ''
   q?: string
   since?: number
+  // 只看最近 N 秒内有活动的会话（置顶 / 进行中 / 等你的不受限）；与 limit 配合分页。
+  active_within?: number
+  // limit>0 或带 cursor = 分页模式：每页 limit 个会话，响应带 has_more / next_cursor。
+  limit?: number
+  cursor?: string
   // 'summary' trims every thread to its list fields; `full` names the threads (the
   // ones open in the console) that must stay complete.
   detail?: 'summary'
@@ -38,6 +43,9 @@ export function listWorkbenchThreads(query: WorkbenchThreadQuery = {}): Promise<
   if (query.status) params.set('status', query.status)
   if (query.q) params.set('q', query.q)
   if (query.since != null && query.since >= 0) params.set('since', String(query.since))
+  if (query.active_within != null && query.active_within > 0) params.set('active_within', String(query.active_within))
+  if (query.limit != null && query.limit > 0) params.set('limit', String(query.limit))
+  if (query.cursor) params.set('cursor', query.cursor)
   if (query.detail) params.set('detail', query.detail)
   for (const id of query.full ?? []) params.append('full', id)
   const suffix = params.size > 0 ? `?${params.toString()}` : ''

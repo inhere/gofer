@@ -19,6 +19,7 @@
 
 ### 变更
 
+- **工作台会话列表分页，手机端不再一次拉全（gofer-s160）**：`GET /v1/workbench/threads` 新增 `active_within`（只看最近 N 秒有活动的会话）、`limit`（每页会话数，默认 50、上限 500）、`cursor`（上一页的 `next_cursor`），响应在分页模式下带 `has_more` / `next_cursor`；窗口与游标都在存储查询里完成（按会话活动时间的 keyset 游标，不是取全量再过滤）。置顶、进行中（含等你回复 / 待处理）的会话不受窗口限制，随第一页返回且不占 `limit`；带 `cursor` 的请求没有窗口下限。不传新参数时响应与之前完全一致（仍是默认 7 天窗口，兼容旧客户端 / CLI / MCP）。web 工作台（手机与桌面）默认请求最近 7 天、每页 30 个，列表底部「加载更早的会话」按游标追加；live 推送 / 轮询只刷新最新一页，已追加的更早会话保留；搜索不受窗口限制。`cursor` / `limit` / `active_within` 非法时 400。
 - **job 预览的拒绝带稳定错误码**：`preview_disabled`、`preview_job_not_running`、`preview_runner_unsupported`、`preview_port_invalid`、`preview_pool_exhausted`、`preview_not_active`（中英文案，web 与 MCP 按各自语言渲染）。在 worker runner 上的 job 创建预览现在被明确拒绝（`409 preview_runner_unsupported`），不再按本机 loopback 处理；worker 转发（P2）仍未做。
 
 ## [0.206.0] - 2026-10-31

@@ -49,6 +49,7 @@ var (
 	ErrDiffUnavailable = errors.New("workbench: thread diff unavailable")
 	ErrDiffTimeout     = errors.New("workbench: thread diff timed out")
 	ErrInvalidReview   = errors.New("workbench: invalid review")
+	ErrInvalidCursor   = errors.New("workbench: invalid cursor")
 )
 
 const MaxLayoutBodyBytes = 64 * 1024
@@ -73,6 +74,19 @@ type Query struct {
 	Status  Status
 	Q       string
 	Since   int64
+	// ActiveWithin is a relative activity window in seconds (an alternative to Since;
+	// Since wins when both are set).
+	ActiveWithin int64
+	// Limit > 0 or a Cursor switches to paged mode: a keyset page of Limit ordinary
+	// threads (default 50, at most 500) ordered by activity, newest first. Live and pinned
+	// threads ride along on the first page whatever their age and do not count to Limit.
+	// Cursor is a previous response's NextCursor; a cursor request has no window unless
+	// Since / ActiveWithin is set explicitly.
+	Limit  int
+	Cursor string
+	// Keep, when set, is an extra visibility filter (the caller's ownership / ceiling)
+	// applied before a page is cut, so a page fills with visible threads only.
+	Keep func(Thread) bool
 	// IncludeInternal also lists web session-messenger delivery jobs (all=1).
 	IncludeInternal bool
 }
@@ -214,6 +228,11 @@ type Response struct {
 	Attention []AttentionItem `json:"attention"`
 	Total     int             `json:"total"`
 	Since     int64           `json:"since"`
+	// HasMore / NextCursor are set in paged mode: older threads can be fetched by passing
+	// NextCursor back as the cursor. HasMore may be true while the next page comes back
+	// empty (the older threads are all filtered out).
+	HasMore    bool   `json:"has_more,omitempty"`
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 type TurnResult struct {

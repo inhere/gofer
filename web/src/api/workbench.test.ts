@@ -29,4 +29,15 @@ describe('listWorkbenchThreads query', () => {
     await listWorkbenchThreads({ detail: 'summary', full: [] })
     expect(requested).toEqual(['/v1/workbench/threads?detail=summary'])
   })
+
+  it('sends the activity window and paging parameters only when set', async () => {
+    await listWorkbenchThreads({ active_within: 604800, limit: 30 })
+    await listWorkbenchThreads({ cursor: 'abc_-', limit: 30, detail: 'summary' })
+    await listWorkbenchThreads({ active_within: 0, limit: 0, cursor: '' })
+    expect(requested).toEqual([
+      '/v1/workbench/threads?active_within=604800&limit=30',
+      '/v1/workbench/threads?limit=30&cursor=abc_-&detail=summary',
+      '/v1/workbench/threads',
+    ])
+  })
 })
