@@ -28,6 +28,10 @@ type SynthesisConfig struct {
 	RetryAfter           string   `yaml:"retry_after,omitempty"`
 	RetainDays           int      `yaml:"retain_days,omitempty"`
 	KeepMaterialSnapshot bool     `yaml:"keep_material_snapshot,omitempty"`
+	// PrimeCitation lets `gofer repo prime` (the session opening) cite the latest
+	// successful synthesis. Off by default: the opening is an attention surface, and a
+	// machine summary there is opt-in (design 2026-11-01-attention-surfaces-review §7).
+	PrimeCitation bool `yaml:"prime_citation,omitempty"`
 }
 
 const (
@@ -48,6 +52,50 @@ func (s SynthesisConfig) TimeoutDuration() time.Duration {
 }
 func (s SynthesisConfig) RetryAfterDuration() time.Duration {
 	return parsePositiveOr(s.RetryAfter, DefaultSynthesisRetryAfter)
+}
+
+// DefaultSynthesisManualRuns is the per-project-day ceiling of explicit runs (a person asking,
+// force included) when daily_limit is smaller: daily_limit bounds the automatic runs, and
+// a person must still be able to re-run after new material arrives.
+const DefaultSynthesisManualRuns = 5
+
+// DefaultSynthesisLeadBeforeDigest is how long before work.digest_time the daily run starts
+// when memory.synthesis.time is empty.
+const DefaultSynthesisLeadBeforeDigest = 15 * time.Minute
+
+// ScheduledRunLimit is the most model-calling runs the built-in daily trigger allows per
+// project day: daily_limit (0 = default 1), or 0 for unlimited (-1).
+func (s SynthesisConfig) ScheduledRunLimit() int {
+	switch {
+	case s.DailyLimit < 0:
+		return 0
+	case s.DailyLimit == 0:
+		return DefaultSynthesisDailyLimit
+	}
+	return s.DailyLimit
+}
+
+// ManualRunLimit is the ceiling of explicit runs per project day: at least
+// DefaultSynthesisManualRuns, or daily_limit when that is larger; 0 = unlimited (-1).
+func (s SynthesisConfig) ManualRunLimit() int {
+	if s.DailyLimit < 0 {
+		return 0
+	}
+	return max(s.ScheduledRunLimit(), DefaultSynthesisManualRuns)
+}
+
+// TriggerClock resolves the daily trigger time of day to (hour, minute): memory.synthesis.time
+// when set, else DefaultSynthesisLeadBeforeDigest before the work digest time.
+func (s SynthesisConfig) TriggerClock(work WorkConfig) (hour, minute int) {
+	var h, m int
+	if v := strings.TrimSpace(s.Time); v != "" {
+		if n, err := fmt.Sscanf(v, "%d:%d", &h, &m); err == nil && n == 2 && h >= 0 && h < 24 && m >= 0 && m < 60 {
+			return h, m
+		}
+	}
+	dh, dm := work.DigestClock()
+	total := (dh*60 + dm - int(DefaultSynthesisLeadBeforeDigest/time.Minute) + 24*60) % (24 * 60)
+	return total / 60, total % 60
 }
 
 // RetentionDuration is how long finished synthesis run records are kept (retain_days, default 90).

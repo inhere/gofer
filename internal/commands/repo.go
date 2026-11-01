@@ -18,6 +18,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/hookrelay"
 	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/memorysynthesis"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -115,6 +116,9 @@ func NewRepoCmd() *gcli.Command {
 					}
 					if section := primeRefocusSection(s, config.InputCfgFile, primeSession, primeSource, tracker.PrimeMaxBytes-len(body)); section != "" {
 						body = tracker.AppendPrimeSections(body, section)
+					}
+					if section := primeSynthesisSection(s, config.InputCfgFile, time.Now(), tracker.PrimeMaxBytes-len(body)); section != "" {
+						body += section
 					}
 					if asJSON {
 						return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": body}})
@@ -323,6 +327,50 @@ func primeRefocusSection(s *tracker.Store, configPath, session, source string, b
 	r.Claims = refocusClaims(s, focus)
 	cwd, _ := os.Getwd()
 	return brief.RenderRefocusIn(deploymentLang(configPath, cwd, i18n.Resolve(i18n.FromEnvVar())), r, resumed, budget)
+}
+
+// primeSynthesisSection renders the short reference to the project's latest successful daily
+// memory synthesis, or "". Server unreachable, no successful run, a run older than
+// brief.SynthesisPrimeMaxAgeDays, an unreadable result and a block that does not fit the
+// remaining budget all yield "": the rest of the prime is never affected, and a deployment
+// that never ran a synthesis sees no change.
+func primeSynthesisSection(s *tracker.Store, configPath string, now time.Time, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	root, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	if !primeSynthesisCitationEnabled(configPath) {
+		return ""
+	}
+	addr, projectKey, err := primeServerTarget(s, configPath, root)
+	if err != nil || addr == "" || projectKey == "" {
+		return ""
+	}
+	cli := client.NewWithTimeout(addr, os.Getenv("GOFER_SERVER_TOKEN"), primeClientTimeout)
+	runs, err := cli.ListMemorySyntheses(client.MemorySynthesisListOpts{Project: projectKey, State: "succeeded", Limit: 1})
+	if err != nil || len(runs) == 0 || !brief.SynthesisFresh(runs[0].Day, now) {
+		return ""
+	}
+	run, err := cli.GetMemorySynthesis(runs[0].ID)
+	if err != nil {
+		return ""
+	}
+	var result memorysynthesis.Result
+	if json.Unmarshal([]byte(run.ResultJSON), &result) != nil {
+		return ""
+	}
+	return brief.RenderSynthesisIn(deploymentLang(configPath, root, i18n.Resolve(i18n.FromEnvVar())),
+		brief.SynthesisRef{Day: run.Day, ID: run.ID, Summary: result.Summary}, budget)
+}
+
+// primeSynthesisCitationEnabled reports memory.synthesis.prime_citation from the readable
+// config; an unreadable config (a client-only node) means off.
+func primeSynthesisCitationEnabled(configPath string) bool {
+	appCfg, _, err := config.Load(configPath)
+	return err == nil && appCfg.Memory.Synthesis.PrimeCitation
 }
 
 // deploymentLang is the language of the text gofer writes for an agent working in cwd:

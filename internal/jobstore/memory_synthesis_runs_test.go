@@ -236,3 +236,71 @@ func TestBeginMemorySynthesisForceSupersedesSucceeded(t *testing.T) {
 	kept, _, _ := s.GetMemorySynthesisRun("r2")
 	assert.Eq(t, "succeeded", kept.Status)
 }
+
+// MaxRuns counts the runs of the day that called the model (running, succeeded, superseded);
+// failed runs are not counted, and unchanged input is reused before the limit is looked at.
+func TestBeginMemorySynthesisMaxRuns(t *testing.T) {
+	s := openTest(t)
+	begin := func(id, digest string, now int64, max int) (MemorySynthesisBeginOutcome, error) {
+		in := beginIn(id, digest, now)
+		in.MaxRuns = max
+		_, out, err := s.BeginMemorySynthesisIfChanged(in)
+		return out, err
+	}
+	finish := func(id, status string, now int64) {
+		t.Helper()
+		if _, err := s.FinishMemorySynthesisRun(id, MemorySynthesisFinish{Status: status, Now: now, ResultJSON: "{}"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := begin("a", "d1", 1000, 1); err != nil || out != MemorySynthesisStarted {
+		t.Fatalf("a: %v %v", out, err)
+	}
+	finish("a", MemorySynthesisFailed, 1001)
+	if out, err := begin("b", "d1", 1002, 1); err != nil || out != MemorySynthesisStarted {
+		t.Fatalf("a failed run must not count: %v %v", out, err)
+	}
+	if out, _ := begin("c", "d2", 1003, 1); out != MemorySynthesisAlreadyRunning {
+		t.Fatalf("running wins: %v", out)
+	}
+	finish("b", MemorySynthesisSucceeded, 1004)
+	if out, _ := begin("c", "d2", 1005, 1); out != MemorySynthesisLimited {
+		t.Fatalf("limit 1 used up: %v", out)
+	}
+	if out, _ := begin("c", "d1", 1005, 1); out != MemorySynthesisReused {
+		t.Fatalf("unchanged input is reused, not limited: %v", out)
+	}
+	if out, _ := begin("c", "d2", 1006, 2); out != MemorySynthesisStarted {
+		t.Fatalf("limit 2: %v", out)
+	}
+	if out, _ := begin("d", "d3", 1007, 0); out != MemorySynthesisAlreadyRunning {
+		t.Fatalf("running still wins: %v", out)
+	}
+}
+
+// RetryAfterSec holds a new run back after the day's latest failure, from the stored time.
+func TestBeginMemorySynthesisRetryAfter(t *testing.T) {
+	s := openTest(t)
+	in := beginIn("a", "d1", 1000)
+	if _, _, err := s.BeginMemorySynthesisIfChanged(in); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FinishMemorySynthesisRun("a", MemorySynthesisFinish{Status: MemorySynthesisFailed, Now: 1100, Error: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	try := func(now, after int64) MemorySynthesisBeginOutcome {
+		in := beginIn("b", "d1", now)
+		in.RetryAfterSec = after
+		_, out, err := s.BeginMemorySynthesisIfChanged(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if out := try(1100+599, 600); out != MemorySynthesisBackoff {
+		t.Fatalf("inside the pause: %v", out)
+	}
+	if out := try(1100+599, 0); out != MemorySynthesisStarted {
+		t.Fatalf("no pause configured: %v", out)
+	}
+}

@@ -40,6 +40,10 @@ const (
 	OutcomeRunning = "running"
 	// OutcomeEmpty: the window has no material, so no record was created.
 	OutcomeEmpty = "empty"
+	// OutcomeLimited: the day already holds RunOptions.MaxRuns runs that called the model.
+	OutcomeLimited = "limited"
+	// OutcomeBackoff: the latest failure of the day is younger than RunOptions.RetryAfter.
+	OutcomeBackoff = "backoff"
 )
 
 // Outcome is the result of one Service.Run call. Run is zero for OutcomeEmpty.
@@ -110,6 +114,10 @@ type RunOptions struct {
 	// exists (the old record is retired as skipped once the new run succeeds). It never
 	// bypasses a live run of the same project and day.
 	Force bool
+	// MaxRuns and RetryAfter are the cost limits of the day (see jobstore.MemorySynthesisBegin);
+	// zero means no limit / no pause.
+	MaxRuns    int
+	RetryAfter time.Duration
 }
 
 // RunWith is Run with options.
@@ -134,6 +142,7 @@ func (s *Service) RunWith(ctx context.Context, o RunOptions) (Outcome, error) {
 	in := jobstore.MemorySynthesisBegin{
 		ID: s.newID(), ProjectKey: project, Day: day, InputDigest: m.InputDigest, MaterialSchema: m.Schema,
 		MaterialCountsJSON: string(countsJSON), OmittedJSON: string(omittedJSON), CreatedBy: createdBy, Now: s.now().Unix(), Force: o.Force,
+		MaxRuns: o.MaxRuns, RetryAfterSec: int64(o.RetryAfter / time.Second),
 	}
 	if s.Timeout > 0 {
 		in.StaleBefore = s.now().Add(-s.Timeout).Unix()
@@ -152,6 +161,10 @@ func (s *Service) RunWith(ctx context.Context, o RunOptions) (Outcome, error) {
 		return Outcome{State: OutcomeReused, Run: run}, nil
 	case jobstore.MemorySynthesisAlreadyRunning:
 		return Outcome{State: OutcomeRunning, Run: run}, nil
+	case jobstore.MemorySynthesisLimited:
+		return Outcome{State: OutcomeLimited}, nil
+	case jobstore.MemorySynthesisBackoff:
+		return Outcome{State: OutcomeBackoff}, nil
 	}
 	res, synthErr := s.runSynth(ctx, m)
 	fin := jobstore.MemorySynthesisFinish{Now: s.now().Unix(), Status: jobstore.MemorySynthesisSucceeded,

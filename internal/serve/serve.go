@@ -418,6 +418,13 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	stopNudge := make(chan struct{})
 	defer close(stopNudge)
 	srv.StartNudgeSweeper(stopNudge)
+	// Daily memory synthesis (memory.synthesis.enabled, off by default): the built-in trigger
+	// of the same engine the explicit run uses. Stopped and waited for before the store closes.
+	if synthesis := srv.SynthesisEngine(); synthesis != nil {
+		stopSynthesis := make(chan struct{})
+		waitSynthesis := startMemorySynthesisLoop(c, cr.Jobs, synthesis, memorySynthesisTickEvery, stopSynthesis)
+		defer func() { close(stopSynthesis); waitSynthesis() }()
+	}
 	// Small runtime policies are refreshed from the same Core reload transaction,
 	// so session preferences and an existing peer prober never remain stuck at the
 	// startup snapshot. Hub bindings and worker admission are updated by core.

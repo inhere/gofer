@@ -366,3 +366,12 @@ MCP 描述中明确：daily synthesis 是建议，不是事实数据库；agent 
 - **代码**：`internal/memorysynthesis/synth.go`（`Synthesizer` 构造、`OneShot` 接缝、输出解析与校验）；`internal/memorysynthesis/engine`（读取实时配置、组装材料源与 synthesizer、`JobOneShot` 适配 `job.Service`）；`httpapi` 只绑定请求并转发；`jobstore.BeginMemorySynthesisIfChanged` 增加 `Force`，成功收尾时把同 digest 的旧成功记录转 `skipped`。
 - **输出 `daily-memory-synthesis.v1`**：`summary` / `highlights[{text, source_refs}]` / `open_questions`；`source_refs` 必须来自输入；回答与材料双向扫描密钥；失败原因以 `agent call failed` / `invalid output` / `unsafe output` / `unsafe input` 开头记入运行记录。
 - **入口**：CLI `memory synthesis run`；HTTP `POST /v1/memory-syntheses/run`（权限 `memory.synthesis.run`，新增）；同步返回。MCP 工具未做。
+
+### P3：每日调度与开场引用（2026-11-01，gofer-gah7）
+
+- **调度接入**：按 §3.2 / §6 选「内置每日触发」，不用 schedule 记录。`engine.Engine.Tick`（`internal/memorysynthesis/engine/schedule.go`）是无状态的每分钟检查：启用且已过 `time`（空 = `work.digest_time` 前 15 分钟，`SynthesisConfig.TriggerClock`）后，对 `projects`（空 = 全部）综合**前一个本地日**；`serve` 里 `startMemorySynthesisLoop`（`internal/serve/memory_synthesis_loop.go`）单 goroutine 驱动，启动时先 tick 一次（重启补跑），每次持有升级工作许可，停机时取消 ctx 并等待；`httpapi.Server.SynthesisEngine()` 把与显式 run 同一个 engine 交给 serve（入口层只转发）。时钟与时区（`Deps.Now` / `Deps.Loc`）可注入。
+- **限额**：判定由 `jobstore.BeginMemorySynthesisIfChanged` 在同一事务里做（新增 `MaxRuns` / `RetryAfterSec` 与结局 `limited` / `backoff`），顺序为：同 digest 已成功则复用 → 已有进行中 → `MaxRuns`（计成功 / 进行中 / 被取代的 `skipped`，失败不计）→ `retry_after`（当天最近一次失败的 `finished_at`）→ 新建。定时运行：`MaxRuns = daily_limit`（默认 1，`-1` 不限）+ `retry_after`。引擎另做只读预检（不读材料）并用内存节流避免每分钟重读材料。
+- **显式 run 与 force（P2 遗留）**：`daily_limit` 默认 1 会让 force 不可用，因此改为：`daily_limit` 约束定时运行；显式 run（含 force）不受 `retry_after`，每项目每天最多 `max(daily_limit, 5)` 次（常量 `DefaultSynthesisManualRuns`），`daily_limit: -1` 不限，超出返回结局 `limited`（HTTP 200，无 `run`；CLI 有对应文案）。不受限的 force 仍不能绕过「进行中」的并发 CAS 与权限。
+- **错过与重启**：规则无内存状态依赖，重启后从运行记录读回；server 当天晚些时候才起来会补跑前一日，整个日期都没开则跳过、不回补更早日期；重启时超时的 `running` 由已有恢复逻辑转 `failed`。
+- **开场引用**：`gofer repo prime` 的 `primeSynthesisSection`（`commands` 只取数：列最近成功运行 → 取详情 → 解析 `summary`）调用 `brief.RenderSynthesisIn`；模板是 prompts `memory-synthesis-prime`（en / zh-CN）。块 ≤ 600 字节（`brief.SynthesisPrimeMaxBytes`），且不超过开场剩余预算，放不下整段省略；摘要折成一行、超长按字符截断加 `…`；只引用最近 3 个本地日内的成功综合（`SynthesisPrimeMaxAgeDays`）；含日期、run id 与 `gofer memory synthesis show <id>`，不含 highlights / 来源材料。issue / plan brief 与 steward 的引用未做（本任务范围是开场）。
+- **未做 / 说明**：prime 读的是 server 上的运行记录，不查 `enabled`（功能关闭但 3 日内有过显式运行时仍会引用）；MCP 工具仍未做。

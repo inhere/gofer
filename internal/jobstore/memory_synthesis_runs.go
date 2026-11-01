@@ -26,6 +26,10 @@ const (
 	MemorySynthesisReused MemorySynthesisBeginOutcome = "reused"
 	// MemorySynthesisAlreadyRunning: another live run exists for the same project and day.
 	MemorySynthesisAlreadyRunning MemorySynthesisBeginOutcome = "running"
+	// MemorySynthesisLimited: the project already has MaxRuns started runs on that day.
+	MemorySynthesisLimited MemorySynthesisBeginOutcome = "limited"
+	// MemorySynthesisBackoff: the latest failed run of the day is younger than RetryAfter.
+	MemorySynthesisBackoff MemorySynthesisBeginOutcome = "backoff"
 )
 
 // ErrMemorySynthesisNotRunning is returned by FinishMemorySynthesisRun when the record is
@@ -52,6 +56,13 @@ type MemorySynthesisBegin struct {
 	// live running record still wins. When the forced run succeeds, the older succeeded
 	// record of the same digest is marked skipped (superseded) in the same transaction.
 	Force bool
+	// MaxRuns caps the runs of the project day that started a model call (running,
+	// succeeded, or superseded as skipped); 0 = unlimited. Failed runs do not count: they
+	// are paced by RetryAfter. An unchanged-input reuse is decided first and never counted.
+	MaxRuns int
+	// RetryAfterSec holds a new run back until that many seconds passed since the latest
+	// failed run of the day finished; 0 = no pause.
+	RetryAfterSec int64
 }
 
 // MemorySynthesisFinish is the terminal update of a running record.
@@ -129,6 +140,26 @@ func (s *Store) BeginMemorySynthesisIfChanged(in MemorySynthesisBegin) (MemorySy
 		return r, MemorySynthesisAlreadyRunning, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return MemorySynthesisRun{}, "", fmt.Errorf("jobstore: find running memory synthesis: %w", err)
+	}
+	if in.MaxRuns > 0 {
+		var started int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM memory_synthesis_runs WHERE project_key=? AND day=? AND status IN ('running','succeeded','skipped')`,
+			in.ProjectKey, in.Day).Scan(&started); err != nil {
+			return MemorySynthesisRun{}, "", fmt.Errorf("jobstore: count started memory synthesis runs: %w", err)
+		}
+		if started >= in.MaxRuns {
+			return MemorySynthesisRun{}, MemorySynthesisLimited, nil
+		}
+	}
+	if in.RetryAfterSec > 0 {
+		var lastFail int64
+		if err := tx.QueryRow(`SELECT COALESCE(MAX(COALESCE(finished_at,0)),0) FROM memory_synthesis_runs WHERE project_key=? AND day=? AND status='failed'`,
+			in.ProjectKey, in.Day).Scan(&lastFail); err != nil {
+			return MemorySynthesisRun{}, "", fmt.Errorf("jobstore: find failed memory synthesis run: %w", err)
+		}
+		if lastFail > 0 && in.Now < lastFail+in.RetryAfterSec {
+			return MemorySynthesisRun{}, MemorySynthesisBackoff, nil
+		}
 	}
 	var prior int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM memory_synthesis_runs WHERE project_key=? AND day=?`, in.ProjectKey, in.Day).Scan(&prior); err != nil {

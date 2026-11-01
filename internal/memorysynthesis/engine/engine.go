@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
@@ -39,6 +40,8 @@ type Deps struct {
 	Config  func() *config.Config
 	OneShot OneShot
 	Now     func() time.Time
+	// Loc is the server time zone of the business day (nil = time.Local).
+	Loc *time.Location
 }
 
 // OneShot is memorysynthesis.OneShot plus the up-front usability check.
@@ -47,8 +50,13 @@ type OneShot interface {
 	Check(agent string) error
 }
 
-// Engine runs explicit synthesis requests.
-type Engine struct{ d Deps }
+// Engine runs explicit synthesis requests and the built-in daily trigger (Tick).
+type Engine struct {
+	d Deps
+	// nextTry throttles Tick per project day (see schedule.go).
+	mu      sync.Mutex
+	nextTry map[string]time.Time
+}
 
 // New builds an Engine.
 func New(d Deps) *Engine { return &Engine{d: d} }
@@ -62,6 +70,16 @@ type Request struct {
 	// Origin is the ceiling owner of the model call (the calling person).
 	Origin string
 	Force  bool
+	// Scheduled marks the built-in daily trigger: it is held to daily_limit and
+	// retry_after, while an explicit run only to the (larger) manual ceiling.
+	Scheduled bool
+}
+
+func (e *Engine) loc() *time.Location {
+	if e.d.Loc != nil {
+		return e.d.Loc
+	}
+	return time.Local
 }
 
 func (e *Engine) now() time.Time {
@@ -98,7 +116,7 @@ func (e *Engine) Run(ctx context.Context, r Request) (memorysynthesis.Outcome, e
 	}
 	day := strings.TrimSpace(r.Day)
 	if day == "" {
-		day = e.now().In(time.Local).Format(memorysynthesis.DayLayout)
+		day = e.now().In(e.loc()).Format(memorysynthesis.DayLayout)
 	} else if _, err := time.Parse(memorysynthesis.DayLayout, day); err != nil {
 		return memorysynthesis.Outcome{}, ErrDay
 	}
@@ -114,7 +132,7 @@ func (e *Engine) Run(ctx context.Context, r Request) (memorysynthesis.Outcome, e
 		// Default to the work summarizer's cheap-model preset, but only for its own agent.
 		args = cfg.Work.SummarizerArgsOrDefault()
 	}
-	scfg := sources.Config{Loc: time.Local, Lookback: syn.LookbackDuration()}
+	scfg := sources.Config{Loc: e.loc(), Lookback: syn.LookbackDuration()}
 	var doctor memorysynthesis.Source
 	if e.d.Doctor != nil {
 		doctor = sources.Doctor{Config: scfg, Reader: e.d.Doctor}
@@ -130,7 +148,7 @@ func (e *Engine) Run(ctx context.Context, r Request) (memorysynthesis.Outcome, e
 	}
 	svc := &memorysynthesis.Service{
 		Store: e.d.Store, Sources: srcs, Options: memorysynthesis.Options{MaxInputBytes: syn.InputLimit()},
-		Loc: time.Local, Lookback: syn.LookbackDuration(),
+		Loc: e.loc(), Lookback: syn.LookbackDuration(),
 		// A run record older than the model timeout plus the job wait margin is stale.
 		Timeout: syn.TimeoutDuration() + time.Minute, KeepSnapshot: syn.KeepMaterialSnapshot, Now: e.d.Now,
 		Synth: memorysynthesis.NewSynthesizer(e.d.OneShot, memorysynthesis.SynthConfig{
@@ -138,7 +156,11 @@ func (e *Engine) Run(ctx context.Context, r Request) (memorysynthesis.Outcome, e
 			MaxOutputBytes: syn.OutputLimit(), Origin: r.Origin, Lang: cfg.LanguageFor(project),
 		}),
 	}
-	return svc.RunWith(ctx, memorysynthesis.RunOptions{Project: project, Day: day, CreatedBy: r.CreatedBy, Force: r.Force})
+	opts := memorysynthesis.RunOptions{Project: project, Day: day, CreatedBy: r.CreatedBy, Force: r.Force, MaxRuns: syn.ManualRunLimit()}
+	if r.Scheduled {
+		opts.MaxRuns, opts.RetryAfter = syn.ScheduledRunLimit(), syn.RetryAfterDuration()
+	}
+	return svc.RunWith(ctx, opts)
 }
 
 // modelOf reads the model name out of the operator's argv (--model X / --model=X / -m X).

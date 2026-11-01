@@ -44,11 +44,14 @@ CLI：`gofer job preview open <job-id> --port <port> [--ttl 30m]` 创建并只�
 
 ## memory.synthesis（可选每日记忆综合）
 
-每日记忆综合默认关闭（`memory.synthesis.enabled: false`）。开启后，只有显式 `gofer memory synthesis run`（或 `POST /v1/memory-syntheses/run`）才会调用一次只读、无工具的模型；没有定时调度，也不自动写入长期记忆。
+每日记忆综合默认关闭（`memory.synthesis.enabled: false`）。开启后，server 每天在 `time` 为每个项目综合前一天（内置定时，不创建 schedule 记录），也可显式 `gofer memory synthesis run`（或 `POST /v1/memory-syntheses/run`）；每次调用一次只读、无工具的模型，不自动写入长期记忆。最近一份成功综合会以一小段摘要出现在 `gofer repo prime` 的会话开场里。
 
 | 配置项 | 默认 | 说明 |
 |---|---|---|
-| `enabled` | `false` | 假时 run 被拒绝并提示本项 |
+| `enabled` | `false` | 假时 run 被拒绝、也不定时运行，并提示本项 |
+| `time` | 空 | 每日触发时刻 `HH:MM`（server 时区）；空 = `work.digest_time`（默认 09:00）前 15 分钟 |
+| `daily_limit` | `1` | 定时运行每项目每天最多调用模型的次数（成功 / 进行中 / 被强制重跑取代的都计数，失败不计）；`-1` 不限；显式 run 另按下面的手动上限 |
+| `retry_after` | `30m` | 定时运行：当天最近一次失败后至少隔这么久才重试 |
 | `projects` | 空（全部） | 非空时只允许这些项目 |
 | `agent` | `work.summarizer_agent` | 须是 cli-agent，且 claude / codex / suga 之一（有已知无工具参数） |
 | `model_args` | 空 | 模型参数（如 `--model haiku`）；不能含 tools / shell / mcp 开关；空且 agent 是整理器的 agent 时用整理器的低成本预设 |
@@ -57,9 +60,10 @@ CLI：`gofer job preview open <job-id> --port <port> [--ttl 30m]` 创建并只�
 | `max_output_bytes` | `12000` | 模型回答上限，超出记 `failed` |
 | `lookback` | `24h` | 材料窗口 |
 | `keep_material_snapshot` | `false` | 是否在运行记录里保存脱敏后的材料快照 |
+| `prime_citation` | `false` | 会话开场（`gofer repo prime`）是否引用最近一份成功综合的一句摘要；开场是注意力面，默认不引用 |
 | `retain_days` | `90` | 运行记录保留天数 |
 
-`time` / `daily_limit` / `retry_after` 属于每日调度（P3，未实现）。详情、输出结构与 HTTP / CLI 见 [memory-synthesis.md](memory-synthesis.md)。
+定时规则：到 `time` 之后目标日是「前一个本地日」，只在当天内补跑（server 当天晚些时候才启动会补跑，整日都没开则不回补更早的日期）；材料没变不调用模型；重启不会重复。手动 `run`（含 `--force`）不受 `retry_after` 约束，每项目每天最多 `max(daily_limit, 5)` 次（`daily_limit: -1` 时不限），超出回 `limited`。详情、输出结构与 HTTP / CLI 见 [memory-synthesis.md](memory-synthesis.md)。
 
 ## 结构总览
 

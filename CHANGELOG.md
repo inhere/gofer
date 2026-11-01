@@ -14,6 +14,7 @@
 ### 新增
 
 - **收件箱规则校验与规则目录（INB3）**：`server.inbox.rules` 支持 `events`（notify 事件 key，等价于选中该事件对应的 kind，与 `kinds` 取并集）；加载 / 写入时校验并点出配置项（`server.inbox.rules[<id>].events`）：未知或不进收件箱的事件、未知 kind、非法 column、重复 id / 重复项、priority 为 0、同 priority 把同一 kind 放进不同栏。`gofer config validate` 列出生效规则。新增 `GET /v1/inbox/rules`（仅用户调用方）返回每个 kind 的默认栏位、生效栏位与来源（默认 / 配置）以及带 kind 归属的事件目录；`GET /v1/inbox` 增加 `rules_version`。webhook / desktop 的默认事件集合不变，并新增测试锁定；notify 事件目录与收件箱 kind 的归属有双向覆盖测试。
+- **每日记忆综合的每日调度与开场引用（MEM3，gofer-gah7 P3）**：`memory.synthesis.enabled` 为真时，server 内置每分钟一次的触发（不创建 schedule 记录），到 `memory.synthesis.time`（空 = `work.digest_time` 前 15 分钟，server 时区）后为每个项目综合前一个本地日；按运行记录判断，重启不重复，当天稍后启动会补跑，整日未运行不回补更早日期，材料为空 / 输入没变不调用模型。`daily_limit`（默认 1，`-1` 不限）限定定时运行每天调用模型的次数，`retry_after`（默认 30m）限定当天失败后的重试间隔。手动 `run`（含 `--force`）不受 `retry_after` 约束，每项目每天最多 `max(daily_limit, 5)` 次，超出回新的结局 `limited`（无 `run`）。`gofer repo prime`（含 SessionStart hook）在项目有最近 3 个本地日内的成功综合时追加一小段（≤ 600 字节）：日期、run id、一句摘要和 `gofer memory synthesis show <id>`，不含要点与来源材料；没有时不出现，文案随项目语言。默认仍关闭。
 
 ## [0.207.0] - 2026-11-01
 
