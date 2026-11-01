@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.207.0] - 2026-11-01
+
 ### 新增
 
 - **入站触发 GitHub 兼容 provider（TRG1b）**：`server.triggers.<name>.provider: generic|github`（缺省 generic，未知值加载时报错并点出配置项；`config validate`、读视图显示 provider）。github provider 校验 `X-Hub-Signature-256`（原始 body 的 HMAC-SHA256，常量时间比较），以 `X-GitHub-Delivery` 作持久去重键（重投 200 duplicate、同 id 不同 body 409），按 `github.events`（`event` / `event.action`）与 `github.conditions`（单个 payload 字段取值）过滤，未命中的事件与 `ping` 回 `200 {"ignored":true,"reason":...}`（不派活、不占去重与限流名额，审计 `trigger.ignored`），可选 `github.max_age_sec` 拒绝过旧事件；模板变量只能用 `github.<字段>` 白名单（repository / number / title / url / sender / branch / base_branch / sha / event / action / conclusion），其余 payload 不进 prompt。generic 行为与错误码不变。

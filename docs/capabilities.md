@@ -2,7 +2,7 @@
 
 > 一句话定位：把 codex / claude 等 agent 与普通命令桥接成可追踪、可验收的异步任务（job）的控制平面，提供 CLI / HTTP / MCP / Web 四种入口；自身不内置模型。
 >
-> **适用版本：截至 v0.206.0**（CHANGELOG 最新已发布版本，2026-10-31）。
+> **适用版本：截至 v0.207.0**（CHANGELOG 最新已发布版本，2026-11-01）。
 
 ## 维护说明
 
@@ -66,7 +66,7 @@
 | 评论 | 在 job 上留痕；人的评论中 `@agent` 会真的派出 job | CLI `job comment` / `job comments`；MCP `gofer_comment` / `gofer_list_comments` | 未标注 | [runbook/2026-09-23-comments-runbook.md](runbook/2026-09-23-comments-runbook.md) |
 | 凭据与 job 环境 | job 用仅作用于本 job 的凭据，默认清洗父环境中的 token | 配置 `job_env_denylist` / `job_env_allow` | 未标注 | [../skills/gofer-usage/references/operations.md](../skills/gofer-usage/references/operations.md)「job 的环境清洗」；[runbook/2026-09-23-job-credentials-runbook.md](runbook/2026-09-23-job-credentials-runbook.md) |
 | 交付核验 | 启用 `server.delivery_check` 后，job 正常结束且 `--verify` 未失败时，由只读、无工具的核验 agent 对照要求判定；要求来自 `--check-prompt`、prompt 中独占一行的 `<delivery-check>…</delivery-check>` 块、`--acceptance`；不合格按条目自动续接（`max_auto_resumes` 默认 2），用完停在 `needs_review`；核验 agent 出错则保持原状态并记 `check_error`。结论写入 job 评论与事件 `job.delivery_check.*`，`job show` 显示结果；HTTP / MCP / 任务书模板 / 计划待办均可携带要求。默认关闭 | CLI `job run --check-prompt`、`plan add-todo` / `set-todo --check-prompt`；配置 `server.delivery_check` | 实验（v0.204.0 新增，默认关闭） | [job-advanced.md](../skills/gofer-usage/references/job-advanced.md)、[design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md) |
-| job 预览 | 启用 `server.preview` 后，为 server 本机运行中的 job 申请短期端口租约；预览端口只反向代理到 `127.0.0.1:<port>`，支持 HTTP / WebSocket；首次访问用一次性 token 换只对该预览有效的 cookie，转发时剥掉 gofer 自己的凭据；租约到期、撤销或 job 终态自动关闭，server 重启关闭遗留租约。仅限 server 本机 job，worker 转发开发中。默认关闭 | CLI `job preview open\|ls\|close`；HTTP；配置 `server.preview` | 实验（v0.204.0 新增，默认关闭） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-job-preview-design.md](design/2026-10-28-job-preview-design.md) |
+| job 预览 | 启用 `server.preview` 后，为运行中的 job（server 本机或协议 ≥ v29 的 worker）申请短期端口租约；预览端口只反向代理到 `127.0.0.1:<port>`，支持 HTTP / WebSocket；首次访问用一次性 token 换只对该预览有效的 cookie，转发时剥掉 gofer 自己的凭据；租约到期、撤销或 job 终态自动关闭，server 重启关闭遗留租约。旧协议 worker 返回 409 提示升级。默认关闭 | CLI `job preview open\|ls\|close\|renew`；HTTP；MCP `gofer_job_preview_*`；Web 任务详情「预览」；配置 `server.preview` | 实验（v0.204.0 新增，v0.207.0 支持 worker 与 Web / MCP；默认关闭） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-job-preview-design.md](design/2026-10-28-job-preview-design.md) |
 
 ## 编排（plan / workflow / schedule）
 
@@ -141,7 +141,7 @@
 | 浏览器推送与 PWA | Web Push、可安装为应用，审批通知可直接允许 / 拒绝 | Web 设置 → 通知；HTTP `/v1/ws` 实时推送 | 未标注 | [runbook/web-push.md](runbook/web-push.md)、[runbook/https-pwa.md](runbook/https-pwa.md) |
 | event hooks | 事件发生时在 server 主机跑命令，只读旁路；只能改配置文件 | 配置 `server.event_hooks`；改后 `serve reload` | 未标注 | [design/2026-10-11-event-hooks-design.md](design/2026-10-11-event-hooks-design.md)、im-notification.md「事件钩子」 |
 | 决策 hook | 提交前 `job.submit` / 交付前 `job.deliver` 外部判定，只能否决或收紧 | 配置 `server.decision_hooks`；CLI `tool hook-test` | 变化中（D1 已落地，D2 / D3 未做） | [runbook/decision-hooks.md](runbook/decision-hooks.md) |
-| 入站触发内核（P0） | 外部系统按事件派受约束 job 的内核：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限（每次派活按 owner 当前权限准入）、按 `dedup.key` / `Idempotency-Key` 持久去重、令牌桶限流、receipt 清理与恢复、审计；`config validate` 列出各 trigger 状态。尚未开放 HTTP / provider 入口，暂无法从外部实际触发 | 配置 `server.triggers`（仅文件）；`gofer config validate` | 实验（v0.204.0 新增，v0.205.0 补齐 P0；无对外入口） | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md) |
+| 入站触发 | 外部系统按事件派受约束 job：文件专属的 `server.triggers` 配置、HMAC + 时间窗校验、非 root owner 的派活身份与权限上限（每次派活按 owner 当前权限准入）、按 `dedup.key` / `Idempotency-Key` 持久去重、令牌桶限流、receipt 清理与恢复、审计；`config validate` 列出各 trigger 状态。入口 `POST /v1/triggers/{name}/invoke`，provider：generic（HMAC + 时间戳）、github（`X-Hub-Signature-256`、delivery 去重、事件过滤）、dingtalk、feishu（IM 文本消息，过滤机器人自身与非文本）；不匹配的事件 200 ignored；只读管理路由需 `trigger.read` | 配置 `server.triggers`（仅文件）；HTTP invoke 与读路由；CLI `tool trigger ls\|show\|invoke`；MCP `gofer_trigger_list\|show` | 实验（v0.204.0 内核，v0.207.0 开放 HTTP / GitHub / IM 入口；默认 disabled） | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md) |
 
 ## 权限与安全
 
@@ -163,7 +163,7 @@
 | 页面 | 作用 | 稳定程度 |
 |---|---|---|
 | 今天 `/today` | 待我决策队列、专注处理、并行泳道 | 稳定 |
-| 工作台 `/workbench` | 会话中枢：ACP 对话、持续会话、交互 PTY、改动与评审，多标签分屏 | 稳定 |
+| 工作台 `/workbench` | 会话中枢：ACP 对话、持续会话、交互 PTY、改动与评审，多标签分屏；会话列表默认最近 7 天、「加载更早的会话」分页 | 稳定 |
 | 任务 / 待验收 `/review` | job 列表与详情、验收面板、待批准 | 稳定 |
 | 计划 / 工作流 / 定时 `/schedules` | plan 总览与详情（默认筛选「进行中 + 受阻」）；`/workflows` 工作流（模板）列表与详情（YAML 查看 / 编辑、最近执行），执行记录 `/workflows/runs`；定时任务 | 计划稳定，工作流变化中 |
 | 会话 | 终端会话列表与抽屉（回复、接管、唤醒、催办） | 稳定 |
@@ -195,7 +195,7 @@
 | 子项 | 说明 | 主要入口 | 稳定程度 | 文档 |
 |---|---|---|---|---|
 | 生成文本语言 | `server.language` / 项目 `language`（`auto` 或不配置 = 按 server 机器系统语言，探测不到用 en）决定注入 agent 的提示词、交付正文、信件提示、通知正文与落库说明的语言 | 配置 `server.language`、项目 `language` | 稳定（v0.205.0 缺省改为 auto） | [../skills/gofer-usage/references/server-config.md](../skills/gofer-usage/references/server-config.md) |
-| 服务端显示文本语言 | web 请求带 `Accept-Language`，今天页、工作项、会话页与已迁移的 HTTP 错误 `detail` 按它出中英文，否则用 `server.language`；错误体带稳定 `code`，web 按 `err.<code>` 本地化 | Web 界面语言；HTTP 头 `Accept-Language` | 阶段 3 进行中（v0.205.0 起，部分文本未迁移） | [design/2026-10-27-i18n-design.md](design/2026-10-27-i18n-design.md) |
+| 服务端显示文本语言 | web 请求带 `Accept-Language`，今天页、工作项、会话页、权限目录、设置说明与已迁移的 HTTP 错误 `detail` 按它出中英文；通知、Web Push 与落库说明按项目语言，否则用 `server.language`；错误体带稳定 `code`，web 按 `err.<code>` 本地化 | Web 界面语言；HTTP 头 `Accept-Language` | 阶段 3 基本完成（v0.207.0；少量业务层错误未迁移） | [design/2026-10-27-i18n-design.md](design/2026-10-27-i18n-design.md) |
 | CLI 语言 | `--help` 与提示按调用方语言显示：`GOFER_LANG` > 系统语言 > 缺省 | 环境变量 `GOFER_LANG` | 阶段 3（server 与 web 文本）仍在变化 | [design/2026-10-27-i18n-design.md](design/2026-10-27-i18n-design.md) |
 | Web 界面 | 中文 / 英文切换 | Web 设置 | 变化中 | web-console.md |
 
@@ -205,8 +205,5 @@
 
 | 能力 | 状态 | 说明 | 设计稿 |
 |---|---|---|---|
-| 入站触发 HTTP / GitHub / IM 入口 | 开发中，未发布 | 内核（配置、签名校验、幂等、限流、审计）已在 v0.204.0 发布；HTTP 入站路由、GitHub 兼容 provider 与 IM 入口尚未开放 | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md)（0.2 已批准） |
-| job 预览的 worker 转发 | 开发中，未发布 | 目前只支持 server 本机运行的 job；经 worker 暴露其上运行的服务尚未提供 | [design/2026-10-28-job-preview-design.md](design/2026-10-28-job-preview-design.md)（0.2 已批准） |
-| 每日记忆综合的模型调用与每日调度 | 开发中，未发布 | P1 的配置、指纹、运行记录与查询、P2 的显式 `run`（模型摘要）已完成；每日定时调度与开场引用（P3）、候选队列（暂缓）尚未提供 | [design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md)（0.2 已批准） |
+| 每日记忆综合的每日调度 | 开发中，未发布 | P1 与 P2（显式 `run` 调模型）已发布；每日定时调度与开场引用（P3）、候选队列（暂缓）尚未提供 | [design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md)（0.2 已批准） |
 | 后台 agent 管理页与会话轮换 | 开发中，未发布 | 会话轮换配置 `server.background_agents.session`（按上下文用量与次数，默认不按时长）目前只有存储结构，轮换行为与管理页尚未提供 | [design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md)（方案二） |
-| 工作流页改为工作流列表（gofer-sg61） | 后端已完成，Web 页面开发中 | 工作流页将改为工作流列表视图 | — |
