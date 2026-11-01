@@ -51,7 +51,6 @@ func TestAutoApprovedTools(t *testing.T) {
 		"gofer_session_mail_read":      true, // read-only bookkeeping
 		"gofer_today_advise":           true, // advisory
 		"gofer_work_merge_suggest":     true, // advisory
-		"gofer_memory_suggest":         true, // advisory
 		"gofer_run_job":                false,
 		"gofer_work_note":              false, // a write that changes state
 		"gofer_steward_notes":          false,

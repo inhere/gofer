@@ -135,11 +135,14 @@ gofer memory promote <key> --kind rule|note [--summary …] # 交接转长期记
 gofer memory set <key> "…" --doctor-ignore path-missing,commit-missing   # 对这条静默某些检查
 ```
 
-- **发现注入的记忆 / 规则与实际不符时不要静默绕过**，用 `memory flag` 上报（MCP `gofer_memory_flag`）。之后注入处带「⚠ 待复核（原因）」，rule 仍给全文；人复核后 `unflag`，或用 `memory set` 改正文（同样清除 flag）。
+- **发现注入的记忆 / 规则与实际不符时不要静默绕过，也不必等人**：
+  - 已确认它过时：直接 `memory set <key> "改正后的正文"`（改正文即视为复核，清除 flag），或 `memory archive <key> --reason "…"`（移出 prime，可 `restore`）。
+  - 无法确认（拿不准是记忆错了还是环境暂时不同）：`memory flag <key> --reason "…"`（MCP `gofer_memory_flag`）。之后注入处带「⚠ 待复核（原因）」，rule 仍给全文；人复核后 `unflag`，或用 `memory set` 改正文（同样清除 flag）。
 - doctor 检查项：`flagged`、`handoff-expired`、`note-stale`（90 天未更新）、`path-missing`（正文提到的路径不存在）、`commit-missing`（提到的提交不存在）、`summary-missing`、`duplicate`，以及超过 30 天仍待处理的经验候选。全局与项目作用域记忆（`--global` / `--project`）不查路径与提交。
 - 仓库级静默：`.gofer/tracker/config.yaml` 的 `prime.doctor.suppress: [path-missing, …]`。
-- doctor 只建议、不改记忆；归档 / 转正由人执行。归档文件只走 git，不参与同步。
-- 开了管家时，管家可以记下「记忆整理」建议（归档 / 合并 / 改类型 / 补摘要 / 补触发词），人经 `/v1/memory-suggestions/{id}/adopt` 采纳才生效（今天页已不再出这张卡），见 [work-items.md](work-items.md)「管家」。
+- doctor 只建议、不改记忆；转正由人执行。归档文件只走 git，不参与同步。
+- **确凿过时的自动归档**：`gofer repo sync` 在推送前归档两类记忆——过期超过 7 天的 handoff，以及引用了路径、且引用的路径与提交**全部**已不存在的 note（只在有仓库检出时判断；只引用提交的不动，全局记忆没有路径检查也不动）。**rule 永不自动归档**；7 天内改动过的记忆（包括刚 `restore` 的）不动；记忆自己的 `doctor_ignore`、仓库的 `prime.doctor.suppress` 对应的检查被静默时也不动。归档不推送、不进「等我」、不进每日摘要；`memory doctor` 输出（`--json` 的 `auto_archived`）列出近 30 天的自动归档，写错了 `memory restore <key>` 找回。关闭：`.gofer/tracker/config.yaml` 写 `prime: {doctor: {auto_archive: false}}`。
+- **需要判断的**（被 flag 的、重复的、久未更新的）不推送，攒在 web 记忆页的「待整理」视图和 `memory doctor` 里等人拉取：每条保留（清除标记）/ 改写 / 归档三选一。
 
 ## 给存量记忆补适用路径
 

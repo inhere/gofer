@@ -61,6 +61,14 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						return err
 					}
+					// Settled memories are archived before the snapshot goes out, so the
+					// archive tombstones reach the server in this very sync. A failure
+					// here never blocks the sync.
+					if archived, aerr := s.AutoArchiveMemories(time.Now()); aerr != nil {
+						fmt.Fprintln(os.Stderr, "auto-archive warning:", aerr)
+					} else if len(archived) > 0 {
+						c.Printf("auto-archived %d memories (restore with `gofer memory restore <key>`; list: `gofer memory doctor`)\n", len(archived))
+					}
 					ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
 					defer cancel()
 					report, err := tracker.SyncHTTPWithToken(ctx, s, cli.BaseURL(), cli.Token())

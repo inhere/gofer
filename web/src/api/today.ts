@@ -66,33 +66,9 @@ export interface TodayRefs {
   todo_id?: string
   field?: string
   merge_id?: number
-  // memory 卡（P4 记忆整理建议）：建议 id 与它针对的仓库 tracker 记忆
-  memory_suggestion_id?: number
+  // memory 卡：它针对的仓库 tracker 记忆（旧版本的记忆整理卡；服务端已不再产生）
   tracker_id?: string
   memory_key?: string
-}
-
-// 记忆整理建议的提议值：只有对应动作的字段
-export interface MemoryPayload {
-  into?: string
-  content?: string
-  kind?: string
-  summary?: string
-  keywords?: string[]
-}
-
-export type MemoryAction = 'archive' | 'merge' | 'kind' | 'summary' | 'when'
-
-// memory 卡的「详情」：提议 + 记忆现状
-export interface TodayMemoryCard {
-  tracker_id: string
-  key: string
-  action: MemoryAction
-  payload: MemoryPayload
-  current_kind?: string
-  current_summary?: string
-  age?: string
-  content?: string
 }
 
 export interface TodayCard {
@@ -110,7 +86,6 @@ export interface TodayCard {
   summary: string
   review?: { commits: number; adds: number; dels: number; verify?: string; digest?: string }
   approval?: TodayApproval
-  memory?: TodayMemoryCard
   refs: TodayRefs
   actions: TodayAction[]
   // 来源的结构化事实（interaction 卡的类型；终端权限卡里的 AskUserQuestion 为 question）
@@ -225,13 +200,4 @@ export function unsnoozeTodayCard(cardKey: string): Promise<{ card_key: string; 
 
 export function listTodaySnoozed(includeExec = false): Promise<{ snoozed: TodaySnoozed[] }> {
   return request<{ snoozed: TodaySnoozed[] }>(`/v1/today/snoozed${includeExec ? '?include_exec=1' : ''}`)
-}
-
-// P4 记忆整理建议：采纳 = 把改动写到 server 上的记忆副本（各仓库下次 repo sync 时拿到）；忽略后 30 天内不再提。
-export function adoptMemorySuggestion(id: number): Promise<unknown> {
-  return request(`/v1/memory-suggestions/${id}/adopt`, { method: 'POST' })
-}
-
-export function dismissMemorySuggestion(id: number): Promise<unknown> {
-  return request(`/v1/memory-suggestions/${id}/dismiss`, { method: 'POST' })
 }

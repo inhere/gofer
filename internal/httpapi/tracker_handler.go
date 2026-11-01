@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -574,6 +575,69 @@ func (s *Server) handleTrackerMemoryEdit(c *rux.Context) {
 	if _, err := s.trackerStore.PatchTrackerMemory(id, c.Param("id"), expected, body, now, callerFromCtx(c)); err != nil {
 		if errors.Is(err, jobstore.ErrTrackerConflict) {
 			c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleTrackerMemoryArchive archives one mirrored memory (the 「待整理」 archive): an archive
+// tombstone, so every clone moves its copy into memories-archive.jsonl on its next sync
+// (`memory restore` brings it back). Person only, like the other tracker memory writes.
+func (s *Server) handleTrackerMemoryArchive(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "tracker mirror unavailable"})
+		return
+	}
+	if callerKindFromCtx(c) == callerKindJob {
+		c.JSON(http.StatusForbidden, map[string]string{"error": "job caller may not archive tracker memories"})
+		return
+	}
+	id := c.Req.URL.Query().Get("tracker_id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	var body struct {
+		Reason      string `json:"reason"`
+		ExpectedRev int64  `json:"expected_rev"`
+	}
+	_ = c.BindJSON(&body)
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := s.trackerStore.ArchiveTrackerMemory(id, c.Param("id"), body.ExpectedRev, strings.TrimSpace(body.Reason), callerFromCtx(c), now); err != nil {
+		if errors.Is(err, jobstore.ErrTrackerConflict) {
+			c.JSON(http.StatusConflict, map[string]string{"error": "memory changed or is gone; reload and retry"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]string{"status": "archived"})
+}
+
+// handleTrackerMemoryUnflag clears the flags of a mirrored memory: the human review (keep),
+// so a job credential may not.
+func (s *Server) handleTrackerMemoryUnflag(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "tracker mirror unavailable"})
+		return
+	}
+	if callerKindFromCtx(c) == callerKindJob {
+		c.JSON(http.StatusForbidden, map[string]string{"error": "job caller may not clear memory flags"})
+		return
+	}
+	id := c.Req.URL.Query().Get("tracker_id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	patch := map[string]json.RawMessage{"flags": json.RawMessage("null")}
+	if _, err := s.trackerStore.PatchTrackerMemory(id, c.Param("id"), 0, patch, now, callerFromCtx(c)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, map[string]string{"error": "memory not found"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})

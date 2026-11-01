@@ -32,14 +32,11 @@ func (c *Client) TodayAdvise(in today.AdviceInput) (today.Advice, error) {
 }
 
 // MemoryFindings reads GET /v1/memory-findings: the server-side memory doctor over the
-// tracker mirror (open findings only unless all).
-func (c *Client) MemoryFindings(trackerID string, all bool) ([]today.MemoryFinding, error) {
+// tracker mirror.
+func (c *Client) MemoryFindings(trackerID string) ([]today.MemoryFinding, error) {
 	q := url.Values{}
 	if trackerID != "" {
 		q.Set("tracker_id", trackerID)
-	}
-	if all {
-		q.Set("all", "1")
 	}
 	path := "/v1/memory-findings"
 	if len(q) > 0 {
@@ -50,18 +47,4 @@ func (c *Client) MemoryFindings(trackerID string, all bool) ([]today.MemoryFindi
 	}
 	err := c.doJSON(http.MethodGet, path, nil, &out)
 	return out.Findings, err
-}
-
-// SuggestMemory records a memory cleanup suggestion (POST /v1/memory-suggestions).
-func (c *Client) SuggestMemory(in today.MemorySuggestInput) (today.MemorySuggestion, bool, error) {
-	body, err := jsonBody(in)
-	if err != nil {
-		return today.MemorySuggestion{}, false, err
-	}
-	var out struct {
-		Suggestion today.MemorySuggestion `json:"suggestion"`
-		Recorded   bool                   `json:"recorded"`
-	}
-	err = c.doJSON(http.MethodPost, "/v1/memory-suggestions", body, &out)
-	return out.Suggestion, out.Recorded, err
 }

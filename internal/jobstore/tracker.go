@@ -258,6 +258,25 @@ func (s *Store) ListTrackerMemories(trackerID string, sinceRev int64) ([]Tracker
 	return out, rows.Err()
 }
 
+// GetTrackerMemory reads one mirrored memory (a tombstone included: Deleted is set).
+func (s *Store) GetTrackerMemory(trackerID, key string) (TrackerRecord, bool, error) {
+	var r TrackerRecord
+	var body string
+	var deleted int
+	err := s.db.QueryRow(`SELECT memory_key,body_json,rev,updated_at,deleted,deleted_at,deleted_by,changed_seq FROM tracker_memories WHERE tracker_id=? AND memory_key=?`, trackerID, key).
+		Scan(&r.ID, &body, &r.Rev, &r.UpdatedAt, &deleted, &r.DeletedAt, &r.DeletedBy, &r.ChangedSeq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TrackerRecord{}, false, nil
+	}
+	if err != nil {
+		return TrackerRecord{}, false, err
+	}
+	r.TrackerID = trackerID
+	r.Body = json.RawMessage(body)
+	r.Deleted = deleted != 0
+	return r, true, nil
+}
+
 func boolInt(v bool) int {
 	if v {
 		return 1
@@ -423,6 +442,26 @@ func (s *Store) TombstoneTrackerMemoryAt(trackerID, key string, expected int64, 
 	}
 	return TrackerRecord{TrackerID: trackerID, ID: key, Body: body, Rev: rev, UpdatedAt: now, Deleted: true,
 		DeletedAt: now, DeletedBy: deletedBy, ChangedSeq: seq}, nil
+}
+
+// ArchiveTrackerMemory archives one mirrored memory (the web 「待整理」 archive): an archive
+// tombstone (deleted_by "archive:<actor>", tracker.ArchiveTombstonePrefix) with the reason
+// in its body, so a clone that syncs it moves its copy into memories-archive.jsonl
+// (restorable) instead of dropping it. expected is the rev the person saw (0 = whatever is
+// live now); a moved rev, a missing or an already-deleted memory returns ErrTrackerConflict.
+func (s *Store) ArchiveTrackerMemory(trackerID, key string, expected int64, reason, actor, now string) (TrackerRecord, error) {
+	if expected <= 0 {
+		rec, ok, err := s.GetTrackerMemory(trackerID, key)
+		if err != nil {
+			return TrackerRecord{}, err
+		}
+		if !ok || rec.Deleted {
+			return TrackerRecord{}, ErrTrackerConflict
+		}
+		expected = rec.Rev
+	}
+	body, _ := json.Marshal(map[string]string{"archive_reason": reason})
+	return s.TombstoneTrackerMemoryAt(trackerID, key, expected, body, now, tracker.ArchiveTombstonePrefix+actor)
 }
 
 // ErrTrackerRenameConflict means both the old and the new tracker id already exist.

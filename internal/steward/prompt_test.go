@@ -73,7 +73,7 @@ func TestStewardRolePromptExtraOnly(t *testing.T) {
 
 func TestReviewPromptDefaultHasTheNoiseRule(t *testing.T) {
 	e, _ := promptEnv(t)
-	p := e.svc.reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), -1, nil)
+	p := e.svc.reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), -1)
 	// The rewritten default (2026-10-20 决策 7): no advice for try-out work, and a
 	// suggestion names a next action.
 	for _, want := range []string{
@@ -101,7 +101,7 @@ func TestStewardReviewPromptReplacementForEveryTrigger(t *testing.T) {
 	events := []jobstore.StewardEvent{{Kind: "session", Detail: "会话已离线"}}
 
 	for _, trigger := range []string{TriggerDaily, TriggerManual, TriggerEvent} {
-		p := e.svc.reviewPrompt(trigger, "2026-10-06", items, 1, events, false, now, -1, nil)
+		p := e.svc.reviewPrompt(trigger, "2026-10-06", items, 1, events, false, now, -1)
 		assert.True(t, strings.Contains(p, "自己写的巡检指令。"), trigger)
 		assert.False(t, strings.Contains(p, "你要做的（只整理"), trigger)
 		// The dynamic material (picked items, events) is still appended by the code, before
@@ -119,7 +119,7 @@ func TestReviewInstructionContinuesTheStepNumbers(t *testing.T) {
 	_, _, err := set.Set(settings.KeyPromptStewardReview, "1. 看工作项。\n2. 记笔记。", "human:me")
 	assert.NoErr(t, err)
 
-	p := e.svc.reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), 2, nil)
+	p := e.svc.reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), 2)
 	assert.True(t, strings.Contains(p, "3. 「等我」列表里有 2 张卡"))
 	assert.True(t, strings.Contains(p, "4. 最后调用 gofer_steward_notes"))
 }
@@ -133,7 +133,7 @@ func TestStewardPromptSettingsFailureFallsBack(t *testing.T) {
 	assert.True(t, strings.HasPrefix(text, rolePrompt))
 	assert.False(t, strings.Contains(text, settings.ExtraHeadingIn(i18n.ZhCN)))
 
-	p := e.svc.reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), -1, nil)
+	p := e.svc.reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, nil, false, time.Now(), -1)
 	assert.True(t, strings.Contains(p, "你要做的（只整理，不替用户决定）"))
 	assert.False(t, strings.Contains(p, settings.ExtraHeadingIn(i18n.ZhCN)))
 }

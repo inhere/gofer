@@ -203,3 +203,35 @@ describe('Issues 页的记忆入口（不重复维护第二份列表）', () => 
     expect(tabsSource).toContain('void router.push(target)')
   })
 })
+
+describe('待整理视图', () => {
+  it('adds the view chips (list / tidy) without any badge, and keeps the list as the default view', async () => {
+    setLocale('zh-CN')
+    const html = await render(Memory, '/memory?memory_scope=global')
+    expect(html).toContain('data-test="memory-view"')
+    expect(html).toContain('data-value="tidy"')
+    expect(html).toContain('待整理')
+    // 默认是列表视图：筛选在，待整理区不在
+    expect(html).toContain('data-test="memory-kind-filter"')
+    expect(html).not.toContain('data-test="tidy-panel"')
+    // 视图 chip 上没有数字徽标
+    expect(html).not.toMatch(/待整理\s*[（(]?\d/)
+  })
+
+  it('opens the tidy area from ?view=tidy (shareable) and hides the list filters', async () => {
+    setLocale('zh-CN')
+    const html = await render(Memory, '/memory?memory_scope=global&view=tidy')
+    // SSR 只跑到 setup（还没取数）：待整理区在、是空态，列表筛选不渲染
+    expect(html).toContain('data-test="tidy-panel"')
+    expect(html).toContain('data-test="tidy-empty"')
+    expect(html).not.toContain('data-test="memory-kind-filter"')
+  })
+
+  it('wires the three actions to the existing read / write interfaces', () => {
+    expect(MemorySource).toContain('<MemoryTidy')
+    expect(MemorySource).toContain('unflagTrackerMemory')
+    expect(MemorySource).toContain('unflagScopedMemory')
+    expect(MemorySource).toContain('archiveTrackerMemory')
+    expect(MemorySource).toContain('@rewrite="tidyRewrite"')
+  })
+})

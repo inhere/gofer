@@ -23,8 +23,16 @@ import {
   readMemoryProject,
   readMemoryScope,
   readMemorySearch,
+  readMemoryView,
   removeMemoryTag,
   searchQueryUpdate,
+  tidyCanArchive,
+  tidyFindingsOf,
+  tidyIgnoreSlugs,
+  tidyItems,
+  tidyNeedsIgnore,
+  viewQueryUpdate,
+  type SourcedMemoryRow,
 } from './memories'
 import { setLocale } from '../store/locale'
 
@@ -246,5 +254,76 @@ describe('文案随语言切', () => {
     } finally {
       setLocale('zh-CN')
     }
+  })
+})
+
+describe('待整理（doctor 里需要人判断的项）', () => {
+  const repoSource = { scope: 'repo', trackerId: 'trk', label: 'gofer / gofer' } as const
+  function row(key: string, source: SourcedMemoryRow['source'], data: SourcedMemoryRow['data'] = {}): SourcedMemoryRow {
+    const body = { key, content: `content of ${key}`, ...data }
+    return { id: key, rev: 2, updated_at: '2026-10-20T00:00:00Z', body, data: body, source }
+  }
+  const doctor = (rows: Array<[SourcedMemoryRow, Array<{ slug: string; detail?: string }>]>) =>
+    Object.fromEntries(rows.map(([r, f]) => [memorySourceKey(r), f]))
+
+  it('lists flagged, duplicate and long-untouched memories, flagged first', () => {
+    const stale = row('b-stale', repoSource)
+    const dup = row('a-dup', repoSource)
+    const flagged = row('z-flagged', repoSource)
+    const fine = row('fine', repoSource)
+    const d = doctor([
+      [stale, [{ slug: 'note-stale', detail: 'updated 120 days ago' }]],
+      [dup, [{ slug: 'duplicate' }]],
+      [flagged, [{ slug: 'flagged', detail: 'no longer true' }]],
+    ])
+    const items = tidyItems([stale, dup, flagged, fine], d)
+    expect(items.map((i) => i.row.id)).toEqual(['z-flagged', 'a-dup', 'b-stale'])
+    expect(items[0]?.findings[0]?.slug).toBe('flagged')
+  })
+
+  it('leaves out findings that are only housekeeping (summary-missing)', () => {
+    const r = row('long', repoSource)
+    expect(tidyItems([r], doctor([[r, [{ slug: 'summary-missing' }]]]))).toEqual([])
+  })
+
+  it('treats a server memory with flags as flagged even though its list has no doctor', () => {
+    const r = row('proj-rule', { scope: 'project', project: 'gofer' }, { kind: 'rule', flags: [{ at: '2026-10-21T00:00:00Z', reason: 'command renamed' }] })
+    const found = tidyFindingsOf(r, {})
+    expect(found).toEqual([{ slug: 'flagged', detail: 'command renamed' }])
+    expect(tidyItems([r], {})).toHaveLength(1)
+    // 没有标记的 server 记忆不在其中
+    expect(tidyItems([row('plain', { scope: 'global' })], {})).toEqual([])
+  })
+
+  it('does not double the flagged finding when the doctor already reports it', () => {
+    const r = row('k', repoSource, { flags: [{ at: '2026-10-21T00:00:00Z', reason: 'x' }] })
+    expect(tidyFindingsOf(r, doctor([[r, [{ slug: 'flagged', detail: 'x' }]]]))).toHaveLength(1)
+  })
+
+  it('archives repository memories only', () => {
+    expect(tidyCanArchive(row('k', repoSource))).toBe(true)
+    expect(tidyCanArchive(row('k', { scope: 'project', project: 'gofer' }))).toBe(false)
+    expect(tidyCanArchive(row('k', { scope: 'global' }))).toBe(false)
+  })
+
+  it('keeps by silencing the non-flag findings, merged with the existing doctor_ignore', () => {
+    const r = row('k', repoSource, { doctor_ignore: ['duplicate'] })
+    const [item] = tidyItems([r], doctor([[r, [{ slug: 'flagged' }, { slug: 'note-stale' }, { slug: 'duplicate' }]]]))
+    expect(item).toBeTruthy()
+    if (!item) return
+    expect(tidyIgnoreSlugs(item)).toEqual(['duplicate', 'note-stale'])
+    expect(tidyNeedsIgnore(item)).toBe(true)
+    // 只有标记：清除标记就够了，不写 doctor_ignore
+    const f = row('f', repoSource)
+    const [flaggedOnly] = tidyItems([f], doctor([[f, [{ slug: 'flagged' }]]]))
+    expect(flaggedOnly && tidyNeedsIgnore(flaggedOnly)).toBe(false)
+  })
+
+  it('reads and writes the ?view= contract and keeps the other parameters', () => {
+    expect(readMemoryView({ view: 'tidy' })).toBe('tidy')
+    expect(readMemoryView({ view: 'nope' })).toBe('list')
+    expect(readMemoryView({})).toBe('list')
+    expect(viewQueryUpdate({ memory_scope: 'repo', q: 'x' }, 'tidy')).toEqual({ memory_scope: 'repo', q: 'x', view: 'tidy' })
+    expect(viewQueryUpdate({ memory_scope: 'repo', view: 'tidy' }, 'list')).toEqual({ memory_scope: 'repo' })
   })
 })

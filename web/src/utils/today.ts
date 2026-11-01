@@ -21,8 +21,7 @@ import { acceptMergeSuggestion, dismissMergeSuggestion } from '../api/steward'
 import { CAPTURE_BOX_LINK } from './capture'
 import { ENROLLMENTS_LINK } from './enrollments'
 import { MAIL_HELD_LINK } from './mail'
-import { adoptMemorySuggestion, dismissMemorySuggestion } from '../api/today'
-import type { MemoryAction, TodayAction, TodayCard } from '../api/today'
+import type { TodayAction, TodayCard } from '../api/today'
 import { t } from '../i18n'
 
 export const TOP_N = 5
@@ -265,9 +264,6 @@ export function runCardAction(card: TodayCard, a: TodayAction, text = ''): () =>
       return () => acceptMergeSuggestion(r.merge_id ?? 0)
     case 'plan_blocked':
       return () => planResume(r.plan_id ?? '')
-    case 'memory':
-      if (a.id === 'dismiss') return () => dismissMemorySuggestion(r.memory_suggestion_id ?? 0)
-      return () => adoptMemorySuggestion(r.memory_suggestion_id ?? 0)
   }
   return () => Promise.resolve(null)
 }
@@ -339,36 +335,4 @@ export function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(n)
-}
-
-// memory 卡「详情」里的提议文案（P4）。
-export const MEMORY_ACTION_LABEL: Record<MemoryAction, string> = {
-  get archive() { return t('today.memory.archive') },
-  get merge() { return t('today.memory.merge') },
-  get kind() { return t('today.memory.kind') },
-  get summary() { return t('today.memory.summary') },
-  get when() { return t('today.memory.when') },
-}
-
-export function memoryProposalText(card: TodayCard): string {
-  const m = card.memory
-  if (!m) return ''
-  const p = m.payload ?? {}
-  switch (m.action) {
-    case 'archive':
-      return t('today.memoryText.archive', { key: m.key })
-    case 'merge':
-      return t('today.memoryText.merge', {
-        key: m.key,
-        into: p.into ?? '',
-        how: p.content ? t('today.memoryText.mergeWithContent') : t('today.memoryText.mergeAppend'),
-      })
-    case 'kind':
-      return t('today.memoryText.kind', { from: m.current_kind ?? '—', to: p.kind ?? '' })
-    case 'summary':
-      return t('today.memoryText.summary', { summary: p.summary ?? '' })
-    case 'when':
-      return t('today.memoryText.when', { keywords: (p.keywords ?? []).join(', ') })
-  }
-  return ''
 }

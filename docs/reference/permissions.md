@@ -222,10 +222,6 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/memory-candidates/{n}/accept` | `Require` | `memory.write` | — | `Resource(memory_candidate)` | 写 |
 | `POST` | `/v1/memory-candidates/{n}/reject` | `Public` | — | — | `Resource(memory_candidate)` | 写 |
 | `GET` | `/v1/memory-findings` | `Public` | — | `job` | `Filter` | 读 |
-| `GET` | `/v1/memory-suggestions` | `Public` | — | `job` | `Filter` | 读 |
-| `POST` | `/v1/memory-suggestions` | `Public` | — | `job` | `BodyProject` | 写 |
-| `POST` | `/v1/memory-suggestions/{n}/adopt` | `Require` | `memory.write` | — | `Resource(memory_suggestion)` | 写 |
-| `POST` | `/v1/memory-suggestions/{n}/dismiss` | `Public` | — | — | `Resource(memory_suggestion)` | 写 |
 | `GET` | `/v1/memory-syntheses` | `Public` | — | `job` | `Filter` | 读 |
 | `POST` | `/v1/memory-syntheses/run` | `Require` | `memory.synthesis.run` | — | `BodyProject` | 写 |
 | `GET` | `/v1/memory-syntheses/{id}` | `Public` | — | `job` | `Filter` | 读 |
@@ -380,6 +376,8 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/tracker/memories` | `Public` | — | — | `Resource(tracker_repo)` | 读 |
 | `DELETE` | `/v1/tracker/memories/{id}` | `Require` | `memory.write` | — | `Resource(tracker_repo)` | 写 |
 | `PUT` | `/v1/tracker/memories/{id}` | `Require` | `memory.write` | — | `Resource(tracker_repo)` | 写 |
+| `POST` | `/v1/tracker/memories/{id}/archive` | `Require` | `memory.write` | — | `Resource(tracker_repo)` | 写 |
+| `DELETE` | `/v1/tracker/memories/{id}/flag` | `Require` | `memory.write` | — | `Resource(tracker_repo)` | 写 |
 | `GET` | `/v1/tracker/repos` | `Public` | — | — | `Filter` | 读 |
 | `DELETE` | `/v1/tracker/repos/{tracker_id}` | `Require` | `tracker.delete` | — | `Resource(tracker_repo)` | 写 |
 | `GET` | `/v1/tracker/repos/{tracker_id}/clients` | `Public` | — | — | `Resource(tracker_repo)` | 读 |

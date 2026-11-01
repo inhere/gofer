@@ -7,10 +7,11 @@ import (
 
 	"github.com/gookit/goutil/x/assert"
 
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
-func TestStewardMemoryFindingsAndSuggest(t *testing.T) {
+func TestStewardMemoryFindings(t *testing.T) {
 	call, meta, _ := newStewardSession(t)
 	old := time.Now().Add(-200 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	assert.NoErr(t, meta.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: "trk-1", ProjectKey: "self"}))
@@ -20,26 +21,24 @@ func TestStewardMemoryFindingsAndSuggest(t *testing.T) {
 	isErr, out, text := call("gofer_memory_findings", map[string]any{})
 	assert.False(t, isErr, text)
 	findings, _ := out["findings"].([]any)
-	assert.Len(t, findings, 1)
 	assert.Require(t, len(findings) == 1)
 	f := findings[0].(map[string]any)
 	assert.Eq(t, "old-note", f["key"])
-	assert.Eq(t, []any{"archive"}, f["actions"])
+	_, hasActions := f["actions"]
+	assert.False(t, hasActions)
+}
 
-	isErr, out, text = call("gofer_memory_suggest", map[string]any{"tracker_id": "trk-1", "key": "old-note", "action": "archive", "reason": "200 天未更新"})
-	assert.False(t, isErr, text)
-	assert.Eq(t, true, out["recorded"])
-
-	// Proposed: no longer an open finding. It is no card of the 「等我」 list (CL1).
-	_, out, _ = call("gofer_memory_findings", map[string]any{})
-	findings, _ = out["findings"].([]any)
-	assert.Len(t, findings, 0)
-	isErr, out, text = call("gofer_today_list", map[string]any{"kind": "memory"})
-	assert.False(t, isErr, text)
-	cards, _ := out["cards"].([]any)
-	assert.Len(t, cards, 0)
-
-	// Invalid action is refused.
-	isErr, _, _ = call("gofer_memory_suggest", map[string]any{"tracker_id": "trk-1", "key": "old-note", "action": "delete", "reason": "x"})
-	assert.True(t, isErr)
+// The model-written memory suggestion queue is gone: the tool is not registered.
+func TestMemorySuggestToolIsGone(t *testing.T) {
+	t.Setenv(envSteward, "1")
+	t.Setenv(envJobID, "steward-job")
+	session := connectTo(t, newServer(NewClientBackend(client.New("http://127.0.0.1:1", "tok")), ""))
+	res, err := session.ListTools(t.Context(), nil)
+	assert.NoErr(t, err)
+	names := map[string]bool{}
+	for _, tool := range res.Tools {
+		names[tool.Name] = true
+	}
+	assert.False(t, names["gofer_memory_suggest"])
+	assert.True(t, names["gofer_memory_findings"])
 }

@@ -20,7 +20,7 @@ var kindParam = map[string]string{
 	"session": "sid", "work_item": "id", "tracker_repo": "tracker_id", "worker": "id",
 	"xfer": "id", "wakeup": "wid", "retry": "rid", "decision": "id", "nudge": "id",
 	"workbench_thread": "id", "merge_suggestion": "n", "memory_candidate": "n",
-	"memory_suggestion": "n", "issue": "id", "mail": "id", "attachment": "id",
+	"issue": "id", "mail": "id", "attachment": "id",
 }
 
 // kindID is the id of the world's record of `kind`.
@@ -63,8 +63,6 @@ func (w ceilWorld) kindID(kind string) string {
 		return w.mergeSugID
 	case "memory_candidate":
 		return w.candidateID
-	case "memory_suggestion":
-		return w.suggestionID
 	case "issue":
 		return w.issueID
 	case "mail":
@@ -140,8 +138,6 @@ func (w ceilWorld) bodyFor(key string) any {
 		return exec
 	case "POST /v1/work-items/capture":
 		return map[string]any{"text": "x", "project": p}
-	case "POST /v1/memory-suggestions":
-		return map[string]any{"tracker_id": w.trackerID, "key": "mem-key", "action": "archive"}
 	case "POST /v1/memory-syntheses/run":
 		return map[string]any{"project": p}
 	case "POST /v1/workflows":
@@ -307,7 +303,6 @@ var ceilingStateCases = []struct {
 	{"nudge", "DELETE /v1/nudges/{id}", true},
 	{"workbench_thread", "POST /v1/workbench/threads/{id}/review", true},
 	{"memory_candidate", "POST /v1/memory-candidates/{n}/accept", true},
-	{"memory_suggestion", "POST /v1/memory-suggestions/{n}/adopt", true},
 	{"merge_suggestion", "POST /v1/work-items/merge-suggestions/{n}/accept", false},
 	{"mail", "POST /v1/mail/{id}/cancel", true},
 	// A sent attachment is judged by the handler (thread visibility), which answers 404 — not a
@@ -440,7 +435,7 @@ func TestCeilingWorkerKind(t *testing.T) {
 // ceiling. The handler must call requireProjectScope (or requireResourceScope for the one
 // that names a tracker) after binding, which is what makes these 404.
 var bodyProjectKeys = []string{
-	"POST /v1/jobs", "POST /v1/work-items/capture", "POST /v1/memory-suggestions", "POST /v1/workflows",
+	"POST /v1/jobs", "POST /v1/work-items/capture", "POST /v1/workflows",
 	"POST /v1/workflow-templates/{name}/render", "POST /v1/jobs/secret-scan", "POST /v1/sessions",
 	"GET /v1/workflow-templates/{name}/source", "PUT /v1/workflow-templates/{name}", "DELETE /v1/workflow-templates/{name}",
 	"POST /v1/schedules", "POST /v1/plans", "POST /v1/work-items", "POST /v1/xfer", "POST /v1/xfer/precheck",

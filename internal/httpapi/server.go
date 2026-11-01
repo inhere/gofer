@@ -983,8 +983,6 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		})
 		// N3 T4: a review also advises on the 「今天」 cards that have no advice yet.
 		s.steward.SetTodayUnadvised(s.today.UnadvisedKeys)
-		// P4: a review also proposes repo-memory cleanup when the server-side doctor has new findings.
-		s.steward.SetMemoryHygiene(s.today.MemoryHygiene)
 		s.wireWorkJobOutcomes(jobs) // WORK-06: linked job outcomes on the work journal
 	}
 	s.live = s.newPushHub()
@@ -1288,6 +1286,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/tracker/memories", s.handleTrackerMemories)
 		r.PUT("/tracker/memories/{id}", s.handleTrackerMemoryEdit)
 		r.DELETE("/tracker/memories/{id}", s.handleTrackerMemoryDelete)
+		r.POST("/tracker/memories/{id}/archive", s.handleTrackerMemoryArchive)
+		r.DELETE("/tracker/memories/{id}/flag", s.handleTrackerMemoryUnflag)
 		r.GET("/memories", s.handleScopedMemories)
 		r.POST("/memories", s.handleScopedMemoryCreate)
 		r.GET("/memories/{scope}/{scope_key}/{key}", s.handleScopedMemoryGet)
@@ -1437,16 +1437,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/today/snooze", s.handleTodaySnooze) // N3 T3 「稍后」
 		r.DELETE("/today/snooze/{key:.+}", s.handleTodayUnsnooze)
 		r.GET("/today/snoozed", s.handleTodaySnoozed)
-		// P4 memory hygiene: server-side doctor over the tracker mirror and the steward's
-		// cleanup suggestions (adopt / dismiss are a person's).
+		// P4 memory hygiene: server-side doctor over the tracker mirror.
 		r.GET("/memory-findings", s.handleMemoryFindings)
-		r.GET("/memory-suggestions", s.handleListMemorySuggestions)
 		r.GET("/memory-syntheses", s.handleListMemorySyntheses)
 		r.GET("/memory-syntheses/{id}", s.handleGetMemorySynthesis)
 		r.POST("/memory-syntheses/run", s.handleRunMemorySynthesis)
-		r.POST("/memory-suggestions", s.handleAddMemorySuggestion)
-		r.POST("/memory-suggestions/{n}/adopt", s.handleDecideMemorySuggestion(true))
-		r.POST("/memory-suggestions/{n}/dismiss", s.handleDecideMemorySuggestion(false))
 		// gofer-3nxa.2: the 「## 可复用经验」 items of delivered jobs (accept / reject are a person's).
 		r.GET("/memory-candidates", s.handleListMemoryCandidates)
 		r.POST("/memory-candidates/{n}/accept", s.handleDecideMemoryCandidate(true))

@@ -159,8 +159,7 @@ type Backend interface {
 	TodayQueue(includeExec bool) (today.Response, error)
 	TodayAdvise(in today.AdviceInput) (today.Advice, error)
 	// P4 memory hygiene: the server-side doctor findings and a cleanup proposal (server only).
-	MemoryFindings(trackerID string, all bool) ([]today.MemoryFinding, error)
-	SuggestMemory(in today.MemorySuggestInput) (today.MemorySuggestion, bool, error)
+	MemoryFindings(trackerID string) ([]today.MemoryFinding, error)
 	// gofer-3nxa.2 knowledge candidates: list them, accept one (it becomes a scoped
 	// memory) or reject one. The server refuses a decision from a job credential.
 	ListMemoryCandidates(f jobstore.MemoryCandidateFilter) ([]jobstore.MemoryCandidate, error)

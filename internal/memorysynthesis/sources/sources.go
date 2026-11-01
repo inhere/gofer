@@ -33,7 +33,6 @@ const (
 	KindPlan        = "plan"
 	KindPlanTodo    = "plan_todo"
 	KindMemoryFind  = "memory_finding"
-	KindMemorySugg  = "memory_suggestion"
 	KindPrevious    = "previous_synthesis"
 )
 

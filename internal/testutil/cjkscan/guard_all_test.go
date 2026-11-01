@@ -50,8 +50,6 @@ var guardAllExempt = map[string]Exempt{
 
 	"sessionrelay/message.go": {Max: 1, Class: classProtocol, Why: "messengerSentMarkers[0]: the \"已发送\" receipt the zh messenger prompt asks the messenger agent to print; matched anywhere in its output (an English messenger prints \"sent\"), so the literal is recognition, not output"},
 
-	"today/memory_suggest.go": {Max: 1, Class: classResidue, Why: "ErrMemorySuggestionStale: an error sentinel whose text httpapi returns as the error detail and stores in the suggestion note; error detail text is a separate migration"},
-
 	"work/x2.go": {Max: 1, Class: classProtocol, Why: "completionBy is the stored author identifier of the completion write-back suggestion; changing it would split old and new rows"},
 
 	// ---- protocol constants -----------------------------------------------------------

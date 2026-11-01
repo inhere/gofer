@@ -11,11 +11,9 @@ import (
 // DoctorReader is the part of *today.Service the memory doctor adapter reads.
 type DoctorReader interface {
 	MemoryFindings(today.MemoryFindingsQuery) ([]today.MemoryFinding, error)
-	ListMemorySuggestions(state string) ([]today.MemorySuggestion, error)
 }
 
-// Doctor collects the memory doctor's findings (slug, key, kind, summary, open actions) and
-// the pending maintenance suggestions of the project. It never forwards a memory body:
+// Doctor collects the memory doctor's findings (slug, key, kind, summary) of the project. It never forwards a memory body:
 // today.MemoryFinding.Content is deliberately ignored.
 type Doctor struct {
 	Config
@@ -23,11 +21,10 @@ type Doctor struct {
 }
 
 func (s Doctor) Collect(_ context.Context, project, day string) ([]memorysynthesis.Item, error) {
-	w, err := s.window(day)
-	if err != nil {
+	if _, err := s.window(day); err != nil {
 		return nil, err
 	}
-	findings, err := s.Reader.MemoryFindings(today.MemoryFindingsQuery{All: true})
+	findings, err := s.Reader.MemoryFindings(today.MemoryFindingsQuery{})
 	if err != nil {
 		return nil, err
 	}
@@ -42,21 +39,7 @@ func (s Doctor) Collect(_ context.Context, project, day string) ([]memorysynthes
 		}
 		out = append(out, memorysynthesis.Item{
 			Kind: KindMemoryFind, Title: f.Key, SourceRef: "memory:" + f.TrackerID + "/" + f.Key,
-			Text: kv("kind", f.Kind, "summary", f.Summary, "findings", strings.Join(slugs, "; "), "open_actions", strings.Join(f.Actions, ",")),
-		})
-	}
-	sugs, err := s.Reader.ListMemorySuggestions("")
-	if err != nil {
-		return nil, err
-	}
-	for _, sg := range sugs {
-		if sg.ProjectKey != project {
-			continue
-		}
-		out = append(out, memorysynthesis.Item{
-			Kind: KindMemorySugg, OccurredAt: stamp(w, sg.CreatedAt), Title: sg.Key,
-			SourceRef: "memory-suggestion:" + itoa(sg.ID),
-			Text:      kv("action", sg.Action, "state", sg.State, "text", sg.Text, "reason", sg.Reason),
+			Text: kv("kind", f.Kind, "summary", f.Summary, "findings", strings.Join(slugs, "; ")),
 		})
 	}
 	return out, nil

@@ -608,18 +608,6 @@ func memoryCandidateProjects(s *Server, id string) ([]string, bool, error) {
 	return []string{cand.ProjectKey}, true, nil
 }
 
-func memorySuggestionScope(s *Server, ceil *config.CallerCeiling, id string) (bool, bool, error) {
-	n, ok := parseInt64(id)
-	if !ok || s.trackerStore == nil {
-		return false, false, nil
-	}
-	sug, err := s.trackerStore.GetMemorySuggestion(n)
-	if err != nil {
-		return false, false, nil
-	}
-	return trackerRepoScope(s, ceil, sug.TrackerID)
-}
-
 // workerScope: a worker is infrastructure, not a project record; the ceiling's `workers`
 // list decides what a restricted caller may see of it.
 func workerScope(_ *Server, ceil *config.CallerCeiling, id string) (bool, bool, error) {
@@ -654,19 +642,18 @@ var resourceKinds = map[string]resourceKind{
 		},
 		scope: trackerRepoScope,
 	},
-	"memory":            {id: memoryID, scope: memoryScope},
-	"mail":              {id: intParam("id"), scope: mailScope},
-	"worker":            {id: paramID("id"), scope: workerScope},
-	"xfer":              {id: paramID("id"), scope: projectScope(xferProjects)},
-	"wakeup":            {id: paramID("wid"), scope: projectScope(wakeupProjects)},
-	"retry":             {id: paramID("rid"), scope: projectScope(retryProjects)},
-	"decision":          {id: paramID("id"), scope: projectScope(decisionProjects)},
-	"nudge":             {id: paramID("id"), scope: projectScope(nudgeProjects)},
-	"workbench_thread":  {id: paramID("id"), scope: projectScope(workbenchThreadProjects)},
-	"attachment":        {id: paramID("id"), scope: attachmentScope},
-	"merge_suggestion":  {id: intParam("n"), scope: projectScope(mergeSuggestionProjects)},
-	"memory_candidate":  {id: intParam("n"), scope: projectScope(memoryCandidateProjects)},
-	"memory_suggestion": {id: intParam("n"), scope: memorySuggestionScope},
+	"memory":           {id: memoryID, scope: memoryScope},
+	"mail":             {id: intParam("id"), scope: mailScope},
+	"worker":           {id: paramID("id"), scope: workerScope},
+	"xfer":             {id: paramID("id"), scope: projectScope(xferProjects)},
+	"wakeup":           {id: paramID("wid"), scope: projectScope(wakeupProjects)},
+	"retry":            {id: paramID("rid"), scope: projectScope(retryProjects)},
+	"decision":         {id: paramID("id"), scope: projectScope(decisionProjects)},
+	"nudge":            {id: paramID("id"), scope: projectScope(nudgeProjects)},
+	"workbench_thread": {id: paramID("id"), scope: projectScope(workbenchThreadProjects)},
+	"attachment":       {id: paramID("id"), scope: attachmentScope},
+	"merge_suggestion": {id: intParam("n"), scope: projectScope(mergeSuggestionProjects)},
+	"memory_candidate": {id: intParam("n"), scope: projectScope(memoryCandidateProjects)},
 	// today_card: the cards are an aggregate over every project and carry no project of
 	// their own; the id is always "-" so the gate answers 404 for a restricted caller.
 	"today_card": {id: func(*rux.Context) string { return "-" }, scope: alwaysOutside},

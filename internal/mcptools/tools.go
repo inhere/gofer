@@ -42,7 +42,7 @@ type Tool struct {
 	// idempotent and do not need it.
 	Idempotent bool
 	// Advisory marks a WRITE that only records a suggestion for a person to accept or
-	// ignore (gofer_today_advise, gofer_work_merge_suggest, gofer_memory_suggest). It is
+	// ignore (gofer_today_advise, gofer_work_merge_suggest). It is
 	// still a Write — it stores a row — but it changes no state a caller has to confirm
 	// and executes nothing, so the approval gate may run it without a human.
 	Advisory bool
@@ -164,7 +164,6 @@ var registry = []Tool{
 	{Name: "gofer_memory_candidate_reject", Class: Write},
 	// Advisory: it only proposes a tidying (archive / merge / retype / summary), which
 	// becomes a 「今天」 card the person adopts or ignores.
-	{Name: "gofer_memory_suggest", Class: Write, Advisory: true},
 
 	// Work-item / session writes.
 	//
