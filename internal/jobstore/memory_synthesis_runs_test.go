@@ -187,3 +187,52 @@ func TestMigrateMemorySynthesisNormalisesLegacyDuplicates(t *testing.T) {
 	rows, _ = s.ListMemorySynthesisRuns(MemorySynthesisRunFilter{ProjectKey: "p2", Status: "succeeded"})
 	assert.Eq(t, 1, len(rows))
 }
+
+// A forced begin skips the reuse of an unchanged succeeded run; a live run still wins, and
+// when the forced run succeeds the earlier record of the same digest is retired as skipped
+// (the unique succeeded index would otherwise reject it).
+func TestBeginMemorySynthesisForceSupersedesSucceeded(t *testing.T) {
+	s := openTest(t)
+	_, _, err := s.BeginMemorySynthesisIfChanged(beginIn("r1", "d1", 100))
+	assert.NoErr(t, err)
+	_, err = s.FinishMemorySynthesisRun("r1", MemorySynthesisFinish{Status: "succeeded", ResultJSON: `{"v":1}`, Now: 110})
+	assert.NoErr(t, err)
+
+	in := beginIn("r2", "d1", 200)
+	in.Force = true
+	r2, out, err := s.BeginMemorySynthesisIfChanged(in)
+	assert.NoErr(t, err)
+	assert.Eq(t, MemorySynthesisStarted, out)
+	assert.Eq(t, 2, r2.Attempt)
+
+	// While the forced run is live, even another forced begin returns it.
+	in3 := beginIn("r3", "d1", 201)
+	in3.Force = true
+	r3, out, err := s.BeginMemorySynthesisIfChanged(in3)
+	assert.NoErr(t, err)
+	assert.Eq(t, MemorySynthesisAlreadyRunning, out)
+	assert.Eq(t, "r2", r3.ID)
+
+	done, err := s.FinishMemorySynthesisRun("r2", MemorySynthesisFinish{Status: "succeeded", ResultJSON: `{"v":2}`, Now: 210})
+	assert.NoErr(t, err)
+	assert.Eq(t, "succeeded", done.Status)
+	old, _, _ := s.GetMemorySynthesisRun("r1")
+	assert.Eq(t, "skipped", old.Status)
+	assert.True(t, strings.Contains(old.Error, "r2"))
+
+	// A later unforced begin reuses the new record, not the retired one.
+	r4, out, err := s.BeginMemorySynthesisIfChanged(beginIn("r4", "d1", 300))
+	assert.NoErr(t, err)
+	assert.Eq(t, MemorySynthesisReused, out)
+	assert.Eq(t, "r2", r4.ID)
+
+	// A forced run that FAILS leaves the earlier success untouched.
+	in5 := beginIn("r5", "d1", 400)
+	in5.Force = true
+	_, _, err = s.BeginMemorySynthesisIfChanged(in5)
+	assert.NoErr(t, err)
+	_, err = s.FinishMemorySynthesisRun("r5", MemorySynthesisFinish{Status: "failed", Error: "boom", Now: 410})
+	assert.NoErr(t, err)
+	kept, _, _ := s.GetMemorySynthesisRun("r2")
+	assert.Eq(t, "succeeded", kept.Status)
+}

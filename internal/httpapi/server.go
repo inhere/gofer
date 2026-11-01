@@ -41,6 +41,7 @@ import (
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/mail"
+	"github.com/inhere/gofer/internal/memorysynthesis/engine"
 	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/overview"
@@ -379,6 +380,8 @@ type Server struct {
 	workbench *workbench.Service
 	// today is the N3 「今天」 decision-home aggregation (nil without a job store).
 	today *today.Service
+	// synthesis runs explicit daily memory syntheses (nil without a job store).
+	synthesis *engine.Engine
 	// overview is the dashboard statistics wall (GET /v1/stats/overview, cached).
 	overview *overview.Service
 	// push owns W2b browser subscriptions, encryption, dispatch and one-time
@@ -967,6 +970,10 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 			Runners: s.todayRunners, Version: func() string { return s.build.DisplayVersion() },
 			Language: func() i18n.Lang { return s.textLanguage("") },
 		})
+		s.synthesis = engine.New(engine.Deps{
+			Store: jobs.Meta(), Doctor: s.today, OneShot: engine.JobOneShot{Jobs: jobs, Agents: agents},
+			Config: func() *config.Config { return s.projects.Config() },
+		})
 		// N3 T4: a review also advises on the 「今天」 cards that have no advice yet.
 		s.steward.SetTodayUnadvised(s.today.UnadvisedKeys)
 		// P4: a review also proposes repo-memory cleanup when the server-side doctor has new findings.
@@ -1422,6 +1429,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/memory-suggestions", s.handleListMemorySuggestions)
 		r.GET("/memory-syntheses", s.handleListMemorySyntheses)
 		r.GET("/memory-syntheses/{id}", s.handleGetMemorySynthesis)
+		r.POST("/memory-syntheses/run", s.handleRunMemorySynthesis)
 		r.POST("/memory-suggestions", s.handleAddMemorySuggestion)
 		r.POST("/memory-suggestions/{n}/adopt", s.handleDecideMemorySuggestion(true))
 		r.POST("/memory-suggestions/{n}/dismiss", s.handleDecideMemorySuggestion(false))

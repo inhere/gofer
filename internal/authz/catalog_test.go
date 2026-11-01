@@ -73,6 +73,7 @@ var addedRows = []struct {
 }{
 	{PermJobReview, designRow{PermRepoPush, RiskMedium, false, ScopeYes, SourceRoot, NotSeeded}},
 	{PermJobReview, designRow{PermJobReviewOthers, RiskMedium, false, ScopeYes, SourceSeed, SeedV2}},
+	{PermMemoryWrite, designRow{PermMemorySynthesisRun, RiskDangerous, false, ScopeYes, SourceRoot, NotSeeded}},
 	{PermMcpTest, designRow{PermSettingsRead, RiskLow, true, ScopeYes, SourceSeed, SeedV3}},
 	{PermMcpTest, designRow{PermSettingsWrite, RiskMedium, false, ScopeYes, SourceRoot, NotSeeded}},
 	{PermMcpTest, designRow{PermTriggerRead, RiskMedium, false, ScopeNo, SourceRoot, NotSeeded}},
@@ -148,7 +149,7 @@ func TestPermissionConstantsMatchCatalog(t *testing.T) {
 		PermSessionReadOthers, PermSessionReplyOthers, PermSessionManageOthers,
 		PermSessionPermissionAnswer, PermSessionTransfer,
 		PermPlanManageOthers, PermPlanSuperviseOthers, PermScheduleManageOthers,
-		PermStewardManage, PermMemoryWrite, PermTrackerSync, PermTrackerDelete,
+		PermStewardManage, PermMemoryWrite, PermMemorySynthesisRun, PermTrackerSync, PermTrackerDelete,
 		PermTunnelOpen, PermTunnelHosted, PermTunnelManageOthers,
 		PermXferWrite, PermXferManageOthers, PermSecretScanAll,
 		PermUpdateCheck, PermUpdateApply, PermWorkerUpgrade, PermWorkerUpgradeUpload,

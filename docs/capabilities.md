@@ -116,7 +116,7 @@
 | tracker 同步与合并 | 初始化、与 server 镜像同步、状态查看、多 worktree 合并驱动、changelog 合并驱动 | CLI `repo init\|sync\|status\|merge-driver\|changelog-merge` | 稳定 | tracker.md；[runbook/tracker-transfer.md](runbook/tracker-transfer.md) |
 | 每日摘要 | 工作项摘要事件 `work.digest` 与 `work digest` | CLI `work digest`；事件 `work.digest` | 未标注 | work-items.md |
 | 反向链接 | issue / job / 计划 / 待办 / 信件 / 评论里提到的对象 id 自动记入引用索引，可查「被哪些对象引用」（按调用方可见范围过滤）；job 详情、计划详情与 issue 抽屉显示「被引用」面板 | CLI `tool refs <id>`；HTTP `GET /v1/refs`；MCP `gofer_refs`；Web 详情页 | 实验（v0.204.0 新增） | [commands.md](../skills/gofer-usage/references/commands.md)、[reference/http-api.md](reference/http-api.md) |
-| 每日记忆综合（P1） | 可选 `memory.synthesis` 配置；从工作项日志、当天 job 汇报、plan / todo 结论、memory doctor 与上一份综合取材料，脱敏后按预算裁剪并算稳定指纹；运行记录同日同指纹复用、按 `retain_days` 清理、重启时收尾。本版本不调用模型，默认关闭 | 配置 `memory.synthesis`；CLI `memory synthesis ls` / `show`；HTTP `GET /v1/memory-syntheses` | 实验（v0.204.0 新增，v0.205.0 补齐材料与运行记录；默认关闭） | [memory-synthesis.md](../skills/gofer-usage/references/memory-synthesis.md)、[design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md) |
+| 每日记忆综合（P1 + P2） | 可选 `memory.synthesis` 配置；从工作项日志、当天 job 汇报、plan / todo 结论、memory doctor 与上一份综合取材料，脱敏后按预算裁剪并算稳定指纹；运行记录同日同指纹复用、按 `retain_days` 清理、重启时收尾。显式 `run` 才调用一次只读、无工具的模型，产出「项目动态」摘要与来源引用写进运行记录（候选队列暂缓、无定时调度），默认关闭 | 配置 `memory.synthesis`；CLI `memory synthesis ls` / `show` / `run`；HTTP `GET /v1/memory-syntheses`、`POST /v1/memory-syntheses/run`（权限 `memory.synthesis.run`） | 实验（v0.204.0 新增，v0.205.0 补齐材料与运行记录；默认关闭） | [memory-synthesis.md](../skills/gofer-usage/references/memory-synthesis.md)、[design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md) |
 
 ## 执行机与网络
 
@@ -207,6 +207,6 @@
 |---|---|---|---|
 | 入站触发 HTTP / GitHub / IM 入口 | 开发中，未发布 | 内核（配置、签名校验、幂等、限流、审计）已在 v0.204.0 发布；HTTP 入站路由、GitHub 兼容 provider 与 IM 入口尚未开放 | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md)（0.2 已批准） |
 | job 预览的 worker 转发 | 开发中，未发布 | 目前只支持 server 本机运行的 job；经 worker 暴露其上运行的服务尚未提供 | [design/2026-10-28-job-preview-design.md](design/2026-10-28-job-preview-design.md)（0.2 已批准） |
-| 每日记忆综合的模型调用与每日调度 | 开发中，未发布 | P1 的配置、指纹、运行记录与查询已发布；调用模型生成每日记忆、每日定时调度、候选队列尚未提供 | [design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md)（0.2 已批准） |
+| 每日记忆综合的模型调用与每日调度 | 开发中，未发布 | P1 的配置、指纹、运行记录与查询、P2 的显式 `run`（模型摘要）已完成；每日定时调度与开场引用（P3）、候选队列（暂缓）尚未提供 | [design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md)（0.2 已批准） |
 | 后台 agent 管理页与会话轮换 | 开发中，未发布 | 会话轮换配置 `server.background_agents.session`（按上下文用量与次数，默认不按时长）目前只有存储结构，轮换行为与管理页尚未提供 | [design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md)（方案二） |
 | 工作流页改为工作流列表（gofer-sg61） | 后端已完成，Web 页面开发中 | 工作流页将改为工作流列表视图 | — |

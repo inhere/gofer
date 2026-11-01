@@ -98,6 +98,23 @@ func (s *Service) Prepare(ctx context.Context, project, day string) (Materials, 
 // succeeded record, a live run for the same day is left alone, and otherwise the synthesizer
 // runs once and the record is finished as succeeded or failed.
 func (s *Service) Run(ctx context.Context, project, day, createdBy string) (Outcome, error) {
+	return s.RunWith(ctx, RunOptions{Project: project, Day: day, CreatedBy: createdBy})
+}
+
+// RunOptions is the input of RunWith.
+type RunOptions struct {
+	Project   string
+	Day       string
+	CreatedBy string
+	// Force runs the synthesizer even when a succeeded record with the same input digest
+	// exists (the old record is retired as skipped once the new run succeeds). It never
+	// bypasses a live run of the same project and day.
+	Force bool
+}
+
+// RunWith is Run with options.
+func (s *Service) RunWith(ctx context.Context, o RunOptions) (Outcome, error) {
+	project, day, createdBy := o.Project, o.Day, o.CreatedBy
 	if s.Store == nil || s.Synth == nil {
 		return Outcome{}, errors.New("memorysynthesis: store and synthesizer are required")
 	}
@@ -116,7 +133,7 @@ func (s *Service) Run(ctx context.Context, project, day, createdBy string) (Outc
 	omittedJSON, _ := json.Marshal(m.Omitted)
 	in := jobstore.MemorySynthesisBegin{
 		ID: s.newID(), ProjectKey: project, Day: day, InputDigest: m.InputDigest, MaterialSchema: m.Schema,
-		MaterialCountsJSON: string(countsJSON), OmittedJSON: string(omittedJSON), CreatedBy: createdBy, Now: s.now().Unix(),
+		MaterialCountsJSON: string(countsJSON), OmittedJSON: string(omittedJSON), CreatedBy: createdBy, Now: s.now().Unix(), Force: o.Force,
 	}
 	if s.Timeout > 0 {
 		in.StaleBefore = s.now().Add(-s.Timeout).Unix()

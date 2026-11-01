@@ -44,6 +44,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `schedule.manage.others` | 他人 schedule 的删除 / 启停 / 轮换 token / run-now（run-now 另需 `job.submit`） | 中 | 否 | 是 | 种入 |
 | `steward.manage` | steward start / stop / restart / ask / review，以及 notes 写入 | 高 | 否 | 否 | 种入 |
 | `memory.write` | 写、删 tracker 记忆与 scoped 记忆（会注入所有 job 的 prompt），采纳记忆建议 | 危险 | 否 | 是 | 种入 |
+| `memory.synthesis.run` | 手动触发每日记忆综合（`POST /v1/memory-syntheses/run`，含 `force` 重跑）：会按 `memory.synthesis` 配置调用一次只读、无工具的模型并产生费用；另需 `memory.synthesis.enabled` | 危险 | 否 | 是 | 仅根 |
 | `tracker.sync` | 推快照、repo sync | 低 | 否 | 是 | 种入 |
 | `tracker.delete` | 删除 tracker 镜像 | 高 | 否 | 是 | 配置 |
 | `tunnel.open` | 开隧道连接 | 中 | 是 | 第二期 | 配置 |
@@ -223,6 +224,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/memory-suggestions/{n}/adopt` | `Require` | `memory.write` | — | `Resource(memory_suggestion)` | 写 |
 | `POST` | `/v1/memory-suggestions/{n}/dismiss` | `Public` | — | — | `Resource(memory_suggestion)` | 写 |
 | `GET` | `/v1/memory-syntheses` | `Public` | — | `job` | `Filter` | 读 |
+| `POST` | `/v1/memory-syntheses/run` | `Require` | `memory.synthesis.run` | — | `BodyProject` | 写 |
 | `GET` | `/v1/memory-syntheses/{id}` | `Public` | — | `job` | `Filter` | 读 |
 | `GET` | `/v1/meta` | `Public` | — | — | `NoProject` | 读 |
 | `GET` | `/v1/notify/events` | `Require` | `config.read` | — | `NoProject` | 读 |

@@ -497,7 +497,7 @@ memory sync	flag project	use server project memory scope
 memory sync	flag server	server address (overrides config server.addr)
 memory sync	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 memory sync	flag tracker	explicit .gofer/tracker directory
-memory synthesis	desc	每日记忆综合的运行记录（只读；当前阶段只准备材料，不调用模型）
+memory synthesis	desc	每日记忆综合：运行记录，以及显式的 `run`——让一个只读、无工具的模型给出项目动态摘要
 memory synthesis	help	
 memory synthesis	examples	
 memory synthesis ls	desc	列出每日记忆综合的运行记录（仅元数据）
@@ -511,6 +511,16 @@ memory synthesis ls	flag project	only this project's runs
 memory synthesis ls	flag server	server address (overrides config server.addr)
 memory synthesis ls	flag state	running | succeeded | failed | skipped | all
 memory synthesis ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+memory synthesis run	desc	立即运行一次每日记忆综合（需 memory.synthesis.enabled；当天输入没变就不再调用模型）
+memory synthesis run	help	
+memory synthesis run	examples	
+memory synthesis run	flag config	path to the gofer config file
+memory synthesis run	flag day	business day YYYY-MM-DD in the server time zone (default: today)
+memory synthesis run	flag force	run the model again even when this day's input is unchanged
+memory synthesis run	flag json	print JSON
+memory synthesis run	flag project	project to synthesize (default: $GOFER_PROJECT)
+memory synthesis run	flag server	server address (overrides config server.addr)
+memory synthesis run	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 memory synthesis show	desc	查看一条每日记忆综合运行记录
 memory synthesis show	help	
 memory synthesis show	examples	

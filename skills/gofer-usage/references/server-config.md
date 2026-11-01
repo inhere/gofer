@@ -44,7 +44,22 @@ CLI：`gofer job preview open <job-id> --port <port> [--ttl 30m]` 创建并只�
 
 ## memory.synthesis（可选每日记忆综合）
 
-每日记忆综合默认关闭。P1 只做结构化材料的脱敏、预算裁剪、稳定 digest 与运行记录，不启动模型，也不自动写入长期记忆。详情与只读 HTTP 查询见 [memory-synthesis.md](memory-synthesis.md)。
+每日记忆综合默认关闭（`memory.synthesis.enabled: false`）。开启后，只有显式 `gofer memory synthesis run`（或 `POST /v1/memory-syntheses/run`）才会调用一次只读、无工具的模型；没有定时调度，也不自动写入长期记忆。
+
+| 配置项 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | `false` | 假时 run 被拒绝并提示本项 |
+| `projects` | 空（全部） | 非空时只允许这些项目 |
+| `agent` | `work.summarizer_agent` | 须是 cli-agent，且 claude / codex / suga 之一（有已知无工具参数） |
+| `model_args` | 空 | 模型参数（如 `--model haiku`）；不能含 tools / shell / mcp 开关；空且 agent 是整理器的 agent 时用整理器的低成本预设 |
+| `timeout` | `5m` | 一次模型调用上限（≤ 1h），超时记 `failed` |
+| `max_input_bytes` | `24000` | 发给模型的脱敏材料上限 |
+| `max_output_bytes` | `12000` | 模型回答上限，超出记 `failed` |
+| `lookback` | `24h` | 材料窗口 |
+| `keep_material_snapshot` | `false` | 是否在运行记录里保存脱敏后的材料快照 |
+| `retain_days` | `90` | 运行记录保留天数 |
+
+`time` / `daily_limit` / `retry_after` 属于每日调度（P3，未实现）。详情、输出结构与 HTTP / CLI 见 [memory-synthesis.md](memory-synthesis.md)。
 
 ## 结构总览
 
