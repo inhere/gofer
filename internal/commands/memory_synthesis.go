@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -10,21 +11,23 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/memorysynthesis"
 )
 
-// memorySynthesisFlags holds the flags of `memory synthesis ls | show`.
+// memorySynthesisFlags holds the flags of `memory synthesis ls | show | run`.
 type memorySynthesisFlags struct {
 	project string
 	day     string
 	state   string
 	limit   int
+	force   bool
 	asJSON  bool
 }
 
 var memorySynthesisOpts memorySynthesisFlags
 
-// withMemorySynthesisCmds appends the `memory synthesis` group (read-only, P1). The runs live
-// in the server's store, so both subcommands always talk to the server.
+// withMemorySynthesisCmds appends the `memory synthesis` group. The runs live in the
+// server's store, so every subcommand talks to the server.
 func withMemorySynthesisCmds(cmd *gcli.Command) *gcli.Command {
 	o := &memorySynthesisOpts
 	bind := func(c *gcli.Command) {
@@ -40,6 +43,12 @@ func withMemorySynthesisCmds(cmd *gcli.Command) *gcli.Command {
 			c.StrOpt(&o.state, "state", "", "", "running | succeeded | failed | skipped | all")
 			c.IntOpt(&o.limit, "limit", "n", 0, "max rows (default 100)")
 		}, Func: runMemorySynthesisLs},
+		{Name: "run", Desc: cliText("cli.memory.synthesis.run.desc"), Config: func(c *gcli.Command) {
+			bind(c)
+			c.StrOpt(&o.project, "project", "p", "${GOFER_PROJECT}", "project to synthesize (default: $GOFER_PROJECT)")
+			c.StrOpt(&o.day, "day", "", "", "business day YYYY-MM-DD in the server time zone (default: today)")
+			c.BoolOpt(&o.force, "force", "", false, "run the model again even when this day's input is unchanged")
+		}, Func: runMemorySynthesisRun},
 		{Name: "show", Desc: cliText("cli.memory.synthesis.show.desc"), Config: func(c *gcli.Command) {
 			bind(c)
 			c.AddArg("id", "synthesis run id (from `memory synthesis ls`)", true)
@@ -69,6 +78,52 @@ func runMemorySynthesisLs(c *gcli.Command, _ []string) error {
 		c.Println(memorySynthesisLine(r))
 	}
 	return nil
+}
+
+func runMemorySynthesisRun(c *gcli.Command, _ []string) error {
+	o := &memorySynthesisOpts
+	project := strings.TrimSpace(o.project)
+	if project == "" {
+		return fmt.Errorf("%s", cliText("cli.memory.synthesis.run.no_project"))
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.RunMemorySynthesis(client.MemorySynthesisRunOpts{Project: project, Day: o.day, Force: o.force})
+	if err != nil {
+		return fmt.Errorf("run memory synthesis: %w", err)
+	}
+	if o.asJSON {
+		return printTrackerJSON(c, res)
+	}
+	c.Println(cliText("cli.memory.synthesis.run.outcome."+res.Outcome, "id", res.Run.ID, "day", res.Run.Day, "project", project, "error", res.Run.Error))
+	if res.Run.ResultJSON != "" {
+		c.Println(memorySynthesisResultText(res.Run.ResultJSON))
+	}
+	return nil
+}
+
+// memorySynthesisResultText renders the stored result for a person: the summary, then the
+// highlights with their source refs and the open questions. Anything that does not parse is
+// printed as stored.
+func memorySynthesisResultText(raw string) string {
+	var r memorysynthesis.Result
+	if json.Unmarshal([]byte(raw), &r) != nil || r.Summary == "" {
+		return raw
+	}
+	var b strings.Builder
+	b.WriteString(r.Summary)
+	for _, h := range r.Highlights {
+		b.WriteString("\n- " + h.Text)
+		if len(h.SourceRefs) > 0 {
+			b.WriteString(" [" + strings.Join(h.SourceRefs, ", ") + "]")
+		}
+	}
+	for _, q := range r.OpenQuestions {
+		b.WriteString("\n? " + q)
+	}
+	return b.String()
 }
 
 func runMemorySynthesisShow(c *gcli.Command, _ []string) error {

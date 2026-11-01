@@ -1,9 +1,13 @@
 package client
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -47,5 +51,39 @@ func (c *Client) ListMemorySyntheses(o MemorySynthesisListOpts) ([]jobstore.Memo
 func (c *Client) GetMemorySynthesis(id string) (jobstore.MemorySynthesisRun, error) {
 	var out jobstore.MemorySynthesisRun
 	err := c.doJSON(http.MethodGet, "/v1/memory-syntheses/"+url.PathEscape(id), nil, &out)
+	return out, err
+}
+
+// MemorySynthesisRunOpts is the body of POST /v1/memory-syntheses/run.
+type MemorySynthesisRunOpts struct {
+	Project string `json:"project"`
+	Day     string `json:"day,omitempty"`
+	Force   bool   `json:"force,omitempty"`
+}
+
+// MemorySynthesisRunResult is the answer of a run: the outcome (succeeded | failed | reused |
+// running | empty) and the run record (zero for "empty").
+type MemorySynthesisRunResult struct {
+	Outcome string                      `json:"outcome"`
+	Run     jobstore.MemorySynthesisRun `json:"run"`
+}
+
+// memorySynthesisRunTimeout covers the longest model call the server allows
+// (memory.synthesis.timeout is capped at one hour) plus its own job wait margin.
+const memorySynthesisRunTimeout = time.Hour + 5*time.Minute
+
+// RunMemorySynthesis posts an explicit run and waits for it: the server answers when the
+// model call has finished, so this request outlives the default client deadline.
+func (c *Client) RunMemorySynthesis(o MemorySynthesisRunOpts) (MemorySynthesisRunResult, error) {
+	body, err := json.Marshal(o)
+	if err != nil {
+		return MemorySynthesisRunResult{}, fmt.Errorf("encode request: %w", err)
+	}
+	long := *c
+	hc := *c.http
+	hc.Timeout = memorySynthesisRunTimeout
+	long.http = &hc
+	var out MemorySynthesisRunResult
+	err = long.doJSON(http.MethodPost, "/v1/memory-syntheses/run", bytes.NewReader(body), &out)
 	return out, err
 }

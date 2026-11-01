@@ -73,7 +73,7 @@ var guardAllExempt = map[string]Exempt{
 	"jobstore/work_dispatch_migrate.go": {Max: 1, Class: classStored, Why: "Chinese text inside a one-off UPDATE migration statement; historical data rewrite"},
 
 	// ---- not migrated: server display text -----------------------------------------------
-	"authz/catalog.go":                 {Max: 56, Class: classDisplay, Why: "risk / kind labels and permission descriptions shown in the console and the generated permissions doc"},
+	"authz/catalog.go":                 {Max: 57, Class: classDisplay, Why: "risk / kind labels and permission descriptions shown in the console and the generated permissions doc"},
 	"authz/pattern.go":                 {Max: 3, Class: classDisplay, Why: "subject-kind labels shown in the console"},
 	"config/default_project.go":        {Max: 1, Class: classDisplay, Why: "ErrBuiltinProject error text"},
 	"config/mail.go":                   {Max: 1, Class: classDisplay, Why: "config validation error with a Chinese placeholder name"},

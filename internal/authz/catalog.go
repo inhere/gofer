@@ -247,8 +247,10 @@ const (
 	// steward, memories, tracker.
 	PermStewardManage = "steward.manage"
 	PermMemoryWrite   = "memory.write"
-	PermTrackerSync   = "tracker.sync"
-	PermTrackerDelete = "tracker.delete"
+	// PermMemorySynthesisRun runs a daily memory synthesis (a model call that costs money).
+	PermMemorySynthesisRun = "memory.synthesis.run"
+	PermTrackerSync        = "tracker.sync"
+	PermTrackerDelete      = "tracker.delete"
 
 	// tunnels and file transfers.
 	PermTunnelOpen         = "tunnel.open"
@@ -394,6 +396,11 @@ var catalog = []Permission{
 		Name: PermMemoryWrite, Risk: RiskDangerous, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
 		Description: "写、删 tracker 记忆与 scoped 记忆（会注入所有 job 的 prompt），采纳记忆建议",
+	},
+	{
+		Name: PermMemorySynthesisRun, Risk: RiskDangerous, SessionGrantable: false,
+		Scope: ScopeYes, Source: SourceRoot,
+		Description: "手动触发每日记忆综合（`POST /v1/memory-syntheses/run`，含 `force` 重跑）：会按 `memory.synthesis` 配置调用一次只读、无工具的模型并产生费用；另需 `memory.synthesis.enabled`",
 	},
 	{
 		Name: PermTrackerSync, Risk: RiskLow, SessionGrantable: false,

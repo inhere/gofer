@@ -356,3 +356,13 @@ MCP 描述中明确：daily synthesis 是建议，不是事实数据库；agent 
 - 待确认 1–6、8 按推荐：默认关闭；复用 `work.summarizer_agent` 的配置但每次独立一次性 job；运行记录存 jobstore，不直接写 tracker；开场只放摘要 + 日期 + `show` 命令；默认不保存材料快照；先做显式 run，再接内置每日触发；每次只综合一个项目。
 - 待确认 7 **改为暂缓**：第一版不做候选队列（不建候选表、不做采纳 / 拒绝流程）。agent 输出只包含「项目动态」摘要（及其来源引用），落在运行记录里；§3.4、§3.5、§4 中与候选相关的字段、接口与状态机在第一版不实现。用一段时间、看清摘要质量后再决定是否加候选。
 - 实施按 §7 的 P1（材料与持久化）→ P2（显式 run 产出摘要，去掉候选部分）→ P3（每日调度与开场引用）拆成独立任务，每个任务限时 45 分钟。
+
+## 12. 实施记录
+
+### P2：显式 run 产出摘要（2026-10-31，gofer-gah7）
+
+- **范围**：按 §11，候选队列暂缓——没有候选表、候选接口、采纳 / 拒绝；输出只有「项目动态」摘要及来源引用。每日调度（P3）与开场引用未做；显式 run 不受 `daily_limit` / `retry_after` 约束（它们留给 P3 的调度）。
+- **模型调用方式**：一次性、隐藏、只读、无工具的 cli-agent job，沿用工作项整理器的形态（`summarizer` 内部身份与标签、`read_only`、`NoRules`、本机 runner），而不是 delivery check 的专用身份；无工具参数复用 delivery check 的强制表（`config.DeliveryCheckNoToolsArgs`），没有已知无工具参数的 agent 拒绝运行。理由：设计 §3.5 / §6 指定复用 `work.summarizer_agent` 与 `summarizer` actor；无工具由强制参数保证。
+- **代码**：`internal/memorysynthesis/synth.go`（`Synthesizer` 构造、`OneShot` 接缝、输出解析与校验）；`internal/memorysynthesis/engine`（读取实时配置、组装材料源与 synthesizer、`JobOneShot` 适配 `job.Service`）；`httpapi` 只绑定请求并转发；`jobstore.BeginMemorySynthesisIfChanged` 增加 `Force`，成功收尾时把同 digest 的旧成功记录转 `skipped`。
+- **输出 `daily-memory-synthesis.v1`**：`summary` / `highlights[{text, source_refs}]` / `open_questions`；`source_refs` 必须来自输入；回答与材料双向扫描密钥；失败原因以 `agent call failed` / `invalid output` / `unsafe output` / `unsafe input` 开头记入运行记录。
+- **入口**：CLI `memory synthesis run`；HTTP `POST /v1/memory-syntheses/run`（权限 `memory.synthesis.run`，新增）；同步返回。MCP 工具未做。

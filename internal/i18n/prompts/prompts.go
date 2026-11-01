@@ -48,6 +48,9 @@ const (
 	// NameDeliveryCheckResume is the prompt of the continuation a failed delivery
 	// check starts (job: delivery_check.go).
 	NameDeliveryCheckResume = "delivery-check-resume"
+	// NameMemorySynthesisRequest is the request a daily memory synthesis agent answers
+	// (memorysynthesis: synth.go).
+	NameMemorySynthesisRequest = "memory-synthesis-request"
 	// NameFollowUp is the bridge prompt for queued follow-up requests.
 	NameFollowUp = "follow-up"
 	// NameStewardRole is the standing role prompt for a steward session.
@@ -128,6 +131,12 @@ type (
 	// DeliveryCheckRequestData feeds NameDeliveryCheckRequest: the evidence JSON.
 	DeliveryCheckRequestData struct {
 		Evidence string
+	}
+	// MemorySynthesisRequestData feeds NameMemorySynthesisRequest: the scrubbed, bounded
+	// materials envelope JSON and the output budget in bytes.
+	MemorySynthesisRequestData struct {
+		Materials      string
+		MaxOutputBytes int
 	}
 	// DeliveryCheckResumeData feeds NameDeliveryCheckResume: the check round and the
 	// unmet items, each labelled with the requirement section it came from.

@@ -200,6 +200,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/memory-suggestions":                       {user: Public(), jobCred: "GET /v1/memory-suggestions", scope: Filter()},
 	"GET /v1/memory-syntheses":                         {user: Public(), jobCred: "GET /v1/memory-syntheses", scope: Filter()},
 	"GET /v1/memory-syntheses/{id}":                    {user: Public(), jobCred: "GET /v1/memory-syntheses/*", scope: Filter()},
+	"POST /v1/memory-syntheses/run":                    {user: Require(authz.PermMemorySynthesisRun), scope: BodyProject()},
 	"PATCH /v1/work-items/{id}":                        {user: Public(), jobCred: "PATCH /v1/work-items/*", scope: Resource("work_item")},
 	"POST /v1/work-items/capture":                      {user: Public(), jobCred: "POST /v1/work-items/capture", scope: BodyProject()},
 	"POST /v1/work-items/{id}/journal":                 {user: Public(), jobCred: "POST /v1/work-items/*/journal", scope: Resource("work_item")},

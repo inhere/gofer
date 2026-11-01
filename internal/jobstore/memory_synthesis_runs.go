@@ -48,6 +48,10 @@ type MemorySynthesisBegin struct {
 	Agent            string
 	Now              int64
 	StaleBefore      int64
+	// Force skips the "same digest already succeeded" reuse and starts a new run anyway; a
+	// live running record still wins. When the forced run succeeds, the older succeeded
+	// record of the same digest is marked skipped (superseded) in the same transaction.
+	Force bool
 }
 
 // MemorySynthesisFinish is the terminal update of a running record.
@@ -100,15 +104,19 @@ func (s *Store) BeginMemorySynthesisIfChanged(in MemorySynthesisBegin) (MemorySy
 	row := tx.QueryRow(`SELECT `+memorySynthesisRunColumns+` FROM memory_synthesis_runs
  WHERE project_key=? AND day=? AND input_digest=? AND status='succeeded' ORDER BY started_at DESC, id DESC LIMIT 1`,
 		in.ProjectKey, in.Day, in.InputDigest)
-	if r, err := scanMemorySynthesisRun(row); err == nil {
-		if _, err := tx.Exec(`UPDATE memory_synthesis_runs SET last_checked_at=? WHERE id=?`, in.Now, r.ID); err != nil {
+	prev, err := scanMemorySynthesisRun(row)
+	if in.Force {
+		err = sql.ErrNoRows // a forced run never reuses an existing succeeded record
+	}
+	if err == nil {
+		if _, err := tx.Exec(`UPDATE memory_synthesis_runs SET last_checked_at=? WHERE id=?`, in.Now, prev.ID); err != nil {
 			return MemorySynthesisRun{}, "", fmt.Errorf("jobstore: touch memory synthesis run: %w", err)
 		}
-		r.LastCheckedAt = in.Now
+		prev.LastCheckedAt = in.Now
 		if err := tx.Commit(); err != nil {
 			return MemorySynthesisRun{}, "", fmt.Errorf("jobstore: commit memory synthesis run: %w", err)
 		}
-		return r, MemorySynthesisReused, nil
+		return prev, MemorySynthesisReused, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return MemorySynthesisRun{}, "", fmt.Errorf("jobstore: find memory synthesis run: %w", err)
 	}
@@ -154,20 +162,56 @@ func (s *Store) FinishMemorySynthesisRun(id string, f MemorySynthesisFinish) (Me
 	if f.Now <= 0 {
 		f.Now = s.unixNow()
 	}
+	id = strings.TrimSpace(id)
 	s.writeMu.Lock()
-	res, err := s.db.Exec(`UPDATE memory_synthesis_runs SET status=?, agent=CASE WHEN ?<>'' THEN ? ELSE agent END,
- model=?, output_digest=?, result_json=?, error=?, finished_at=?, last_checked_at=?
- WHERE id=? AND status='running'`,
-		f.Status, f.Agent, f.Agent, f.Model, f.OutputDigest, f.ResultJSON, f.Error, f.Now, f.Now, strings.TrimSpace(id))
+	err := s.finishMemorySynthesisLocked(id, f)
 	s.writeMu.Unlock()
 	if err != nil {
-		return MemorySynthesisRun{}, fmt.Errorf("jobstore: finish memory synthesis run: %w", err)
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return MemorySynthesisRun{}, ErrMemorySynthesisNotRunning
+		return MemorySynthesisRun{}, err
 	}
 	r, _, err := s.GetMemorySynthesisRun(id)
 	return r, err
+}
+
+// finishMemorySynthesisLocked runs the terminal update in one transaction. A succeeded
+// finish first retires an earlier succeeded record of the same (project, day, digest)
+// (left by a forced re-run) so the unique succeeded index never rejects the new result.
+func (s *Store) finishMemorySynthesisLocked(id string, f MemorySynthesisFinish) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("jobstore: finish memory synthesis run: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var running int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM memory_synthesis_runs WHERE id=? AND status='running'`, id).Scan(&running); err != nil {
+		return fmt.Errorf("jobstore: finish memory synthesis run: %w", err)
+	}
+	if running == 0 {
+		return ErrMemorySynthesisNotRunning
+	}
+	if f.Status == MemorySynthesisSucceeded {
+		if _, err := tx.Exec(`UPDATE memory_synthesis_runs SET status='skipped', error='superseded by '||?
+ WHERE status='succeeded' AND id<>?
+ AND project_key=(SELECT project_key FROM memory_synthesis_runs WHERE id=?)
+ AND day=(SELECT day FROM memory_synthesis_runs WHERE id=?)
+ AND input_digest=(SELECT input_digest FROM memory_synthesis_runs WHERE id=?)`, id, id, id, id, id); err != nil {
+			return fmt.Errorf("jobstore: supersede memory synthesis run: %w", err)
+		}
+	}
+	res, err := tx.Exec(`UPDATE memory_synthesis_runs SET status=?, agent=CASE WHEN ?<>'' THEN ? ELSE agent END,
+ model=?, output_digest=?, result_json=?, error=?, finished_at=?, last_checked_at=?
+ WHERE id=? AND status='running'`,
+		f.Status, f.Agent, f.Agent, f.Model, f.OutputDigest, f.ResultJSON, f.Error, f.Now, f.Now, id)
+	if err != nil {
+		return fmt.Errorf("jobstore: finish memory synthesis run: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrMemorySynthesisNotRunning
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("jobstore: finish memory synthesis run: %w", err)
+	}
+	return nil
 }
 
 // FailStaleMemorySynthesisRuns turns every running record started before `before` into

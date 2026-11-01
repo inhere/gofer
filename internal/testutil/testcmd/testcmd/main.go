@@ -149,6 +149,11 @@ func main() {
 		code, _ := strconv.Atoi(arg(2))
 		fmt.Fprintln(os.Stderr, arg(3))
 		os.Exit(code)
+	case "prompt-capture":
+		// prompt-capture <file> <answer> <prompt>: write the prompt to <file> and print the
+		// answer on stdout — a stand-in for a one-shot model call whose input a test inspects.
+		must(os.WriteFile(arg(2), []byte(arg(4)), 0o644))
+		fmt.Print(arg(3))
 	case "stream-json-fake":
 		// A tiny resident-messenger stand-in: accept one or more NDJSON requests
 		// and return a Claude-shaped result for each. Tests use it to prove the
