@@ -2,6 +2,8 @@ package wshub
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -193,5 +196,30 @@ func TestRegisterVersionGateRunsAfterBinding(t *testing.T) {
 	}
 	if strings.Contains(reg.Reason, "升级") {
 		t.Fatalf("binding mismatch must be reported before the version gate, got %q", reg.Reason)
+	}
+}
+
+// TestRefusalReasonFollowsHubLanguage: the reason of a refused registration is the catalog's
+// wshub.protocol_too_old in the hub's language (default zh-CN is verbatim the old sentence;
+// English carries no CJK).
+func TestRefusalReasonFollowsHubLanguage(t *testing.T) {
+	reasonIn := func(lang i18n.Lang) string {
+		hub := New(map[string]string{"w1": "w1"})
+		if lang != "" {
+			hub.SetLanguageFn(func() i18n.Lang { return lang })
+		}
+		_, wsURL := hubServer(t, hub, "w1")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, reg := dialAndRegisterProto(t, ctx, wsURL, "w1", 0)
+		return reg.Reason
+	}
+	want := fmt.Sprintf("worker 协议版本过旧(v0)，请升级 worker 到 v%d 后重连", wsproto.MinProtocolVersion)
+	if got := reasonIn(""); got != want {
+		t.Errorf("default reason = %q, want %q", got, want)
+	}
+	en := reasonIn(i18n.EN)
+	if en == "" || regexp.MustCompile(`\p{Han}`).MatchString(en) || !strings.Contains(en, "upgrade") {
+		t.Errorf("english reason = %q", en)
 	}
 }

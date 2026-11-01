@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // DeleteJob permanently removes one terminal job and its job-owned records.
@@ -19,8 +21,8 @@ func (s *Store) DeleteJob(jobID, actor string) error {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	var status, resultDir string
-	if err := s.db.QueryRow(`SELECT status, COALESCE(result_dir,'') FROM jobs WHERE id=?`, jobID).Scan(&status, &resultDir); err != nil {
+	var status, resultDir, project string
+	if err := s.db.QueryRow(`SELECT status, COALESCE(result_dir,''), COALESCE(project_key,'') FROM jobs WHERE id=?`, jobID).Scan(&status, &resultDir, &project); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("jobstore: delete: job %q not found", jobID)
 		}
@@ -60,7 +62,7 @@ func (s *Store) DeleteJob(jobID, actor string) error {
 		_ = tx.Rollback()
 		return fmt.Errorf("jobstore: delete job %q: %w", jobID, err)
 	}
-	detail, _ := json.Marshal(map[string]string{"actor": actor, "title": "已删除"})
+	detail, _ := json.Marshal(map[string]string{"actor": actor, "title": i18n.T(s.textLang(project), "jobstore.job.deleted_title")})
 	if _, err := tx.Exec(`INSERT INTO job_events (job_id,type,detail_json,at) VALUES (?,?,?,strftime('%s','now'))`, jobID, "job.deleted", string(detail)); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("jobstore: delete audit %q: %w", jobID, err)

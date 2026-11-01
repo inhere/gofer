@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/procattr"
@@ -32,6 +33,11 @@ const (
 // still exists; remote and vanished working directories use the latest captured
 // artifact.
 func (s *Service) Diff(threadID string) (ThreadDiff, error) {
+	return s.DiffIn(i18n.Default, threadID)
+}
+
+// DiffIn is Diff with the diff's notice in lang (the request language).
+func (s *Service) DiffIn(lang i18n.Lang, threadID string) (ThreadDiff, error) {
 	if s == nil || s.store == nil {
 		return ThreadDiff{}, ErrUnavailable
 	}
@@ -48,7 +54,7 @@ func (s *Service) Diff(threadID string) (ThreadDiff, error) {
 	if config.IsBuiltinLocalRunnerName(latest.Runner) && isDirectory(latest.Cwd) {
 		return liveThreadDiff(latest.Cwd, base)
 	}
-	return capturedThreadDiff(latest, base)
+	return capturedThreadDiff(lang, latest, base)
 }
 
 // threadDiffBase resolves the commit the thread diff is measured from. A
@@ -166,7 +172,7 @@ func liveThreadDiff(cwd, base string) (ThreadDiff, error) {
 	}, nil
 }
 
-func capturedThreadDiff(latest jobstore.JobRecord, base string) (ThreadDiff, error) {
+func capturedThreadDiff(lang i18n.Lang, latest jobstore.JobRecord, base string) (ThreadDiff, error) {
 	patch, truncated, err := readCappedFile(filepath.Join(latest.ResultDir, "changes.diff"), maxThreadDiffBytes)
 	if err != nil && !os.IsNotExist(err) {
 		return ThreadDiff{}, fmt.Errorf("%w: read captured changes.diff: %v", ErrDiffUnavailable, err)
@@ -183,7 +189,7 @@ func capturedThreadDiff(latest jobstore.JobRecord, base string) (ThreadDiff, err
 	return ThreadDiff{
 		Source: DiffSourceCaptured, Base: base, Head: head,
 		Files: parsePatchFiles(string(patch)), Patch: string(patch), Truncated: truncated,
-		Commits: commits, Notice: "只含最新一轮采集结果",
+		Commits: commits, Notice: i18n.T(lang, "workbench.diff.captured_notice"),
 	}, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -299,7 +300,7 @@ func (s *Store) renameWorkLinksTx(tx *sql.Tx, oldID, newID, createdAt, now strin
 			return nil, err
 		}
 		if _, err := s.appendWorkJournalOn(tx, id, WorkJournalNote,
-			fmt.Sprintf("issue id 已改名 %s -> %s：仓库同步时推送了同 id 的新 issue", oldID, newID), "system", at, ""); err != nil {
+			i18n.T(s.workLang(id), "jobstore.work.journal.issue_renamed", "old", oldID, "new", newID), "system", at, ""); err != nil {
 			return nil, err
 		}
 		if _, err := tx.Exec(`UPDATE work_items SET last_activity_at=?, rev=rev+1 WHERE id=?`, at, id); err != nil {

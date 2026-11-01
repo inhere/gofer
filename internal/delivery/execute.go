@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/procattr"
 )
 
@@ -86,6 +87,9 @@ type Env struct {
 	// RunTokenCLI runs a token helper (`gh auth token`); nil = exec it.
 	RunTokenCLI func(ctx context.Context, name string, args ...string) (string, error)
 	HTTPBase    string // API base override (tests)
+	// Lang is the language of the errors a built-in step returns (zero = the default
+	// language): a step runs inside a workflow and carries no request language of its own.
+	Lang i18n.Lang
 }
 
 // Execute performs plan. It never force-pushes; any failure is a Result with

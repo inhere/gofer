@@ -297,7 +297,7 @@ func (s *Service) buildResponse(projections []projection, snapshot jobstore.Work
 	needle := strings.ToLower(strings.TrimSpace(query.Q))
 	for _, p := range projections {
 		thread := p.thread
-		s.annotateAttachments(&thread)
+		s.annotateAttachments(query.Lang, &thread)
 		if query.Project != "" && thread.ProjectKey != query.Project {
 			continue
 		}

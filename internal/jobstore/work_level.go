@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Journal levels (WORK-06, design 2026-10-09 §3.3). A milestone is a line worth seeing
@@ -275,7 +277,7 @@ func (s *Store) noteDecisionAnsweredLocked(id, answer, answeredByID string) bool
 	if strings.TrimSpace(what) == "" {
 		what = d.Question
 	}
-	text := "已回答 decision「" + clipLine(what, 60) + "」：" + clipLine(answer, 120)
+	text := i18n.T(s.textLang(""), "jobstore.work.journal.decision_answered", "what", clipLine(what, 60), "answer", clipLine(answer, 120))
 	by, level := answeredBy(answeredByID)
 	return s.noteWorkItemsLocked(WorkRefs{PlanID: d.PlanID, SessionID: d.SessionID}, text, by, level)
 }
@@ -285,7 +287,7 @@ func (s *Store) noteDecisionAnsweredLocked(id, answer, answeredByID string) bool
 func (s *Store) noteInteractionAnsweredLocked(rec InteractionRecord) bool {
 	var planID string
 	_ = s.db.QueryRow(`SELECT COALESCE(plan_id,'') FROM jobs WHERE id = ?`, rec.JobID).Scan(&planID)
-	text := "已应答 job " + shortSID(rec.JobID) + " 的交互「" + clipLine(rec.Prompt, 60) + "」：" + clipLine(rec.Answer, 120)
+	text := i18n.T(s.textLang(""), "jobstore.work.journal.interaction_answered", "job", shortSID(rec.JobID), "prompt", clipLine(rec.Prompt, 60), "answer", clipLine(rec.Answer, 120))
 	by, level := answeredBy(rec.AnsweredBy)
 	return s.noteWorkItemsLocked(WorkRefs{JobID: rec.JobID, PlanID: planID}, text, by, level)
 }

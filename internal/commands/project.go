@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -596,6 +597,9 @@ func runProjectRemove(c *gcli.Command, _ []string) error {
 		return err
 	}
 	if err := reg.Remove(key); err != nil {
+		if errors.Is(err, config.ErrBuiltinProject) {
+			return errors.New(cliText("err.builtin_project"))
+		}
 		return err
 	}
 	c.Printf("project %q removed from %s\n", key, reg.Path())

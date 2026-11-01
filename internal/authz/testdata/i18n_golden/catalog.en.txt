@@ -1,0 +1,64 @@
+job.read.others	Read other callers' jobs, workflows, workbench threads, the interaction list (incl. `GET /v1/interactions`), wakeup / retry, SSE streams; filtered
+job.submit	Every entry point that produces a job: jobs, workflows, schedules create / run-now / enable, plan run / resume / PATCH enabling the leader, todo dispatch and PATCH (setting ready or changing the assignee dispatches), resume / rebuild, `reject?resume=true`, session resume, deliver (starts a pty job when takeover is allowed), wakeup create and update, agent probe, comment @ dispatch, workbench agent threads. These entries need this permission only when the request would produce a job (InHandler)
+job.cancel.others	Cancel other callers' jobs, workflows, retries
+job.manage.others	Other callers' job resume / rebuild / say / end / title / worktree delete and merge / deliver / workflow pick / injected interactions, and talking to a **session job** (ACP / pty): session-ask / report-request / workbench threads that target a session job (those that produce a job also need `job.submit`)
+job.delete.others	Delete or redact other callers' jobs
+job.attach	Attach to your own interactive jobs, view your own pty recordings and sessions
+job.attach.others	Attach to other callers' jobs and recordings; the global pty session list (filtered)
+job.review	Accept, reject and approve holds (only a person signs off)
+repo.push	Push branches and tags: submit a workflow with a `uses: gofer/push` step (branches go to `refs/heads/`, tags to `refs/tags/`, never forced, verified with `ls-remote` afterwards); the project also needs `delivery.allow_push`
+job.review.others	Review (accept / reject / approve) a job **submitted by someone else**; your own jobs still need only `job.review`
+job.wake.others	Wake other callers' jobs
+interaction.answer	Answer a job's tool approvals and questions, punt, non-relay decisions, push-notification buttons
+session.read.others	Other callers' session list / detail / messages / tail / turn / nudge / inbox (filtered; the outbox is not included)
+session.reply.others	Talk to or read the pending output of someone else's **terminal session**: say / messages / ack / deliver / relay / outbox / relay-type decision answers / workbench terminal-session threads / session-ask and report-request that target a terminal session
+session.manage.others	Delete other callers' sessions, open / release a turn, release-takeover
+session.permission.answer	Answer the tool permission prompts of **someone else's** terminal (the session owner does not need it)
+session.transfer	Transfer session ownership
+plan.manage.others	Other callers' plan edit / run / pause / resume / attach / todo add, edit and dispatch / handoff
+plan.supervise.others	Bind a supervisor to someone else's plan, or bind someone else's session
+schedule.manage.others	Other callers' schedule delete / enable-disable / rotate token / run-now (run-now also needs `job.submit`)
+steward.manage	steward start / stop / restart / ask / review, and writing notes
+memory.write	Write and delete tracker memories and scoped memories (injected into every job's prompt), adopt memory suggestions
+memory.synthesis.run	Trigger the daily memory synthesis by hand (`POST /v1/memory-syntheses/run`, incl. a `force` rerun): calls a read-only, tool-less model once according to the `memory.synthesis` config and costs money; also needs `memory.synthesis.enabled`
+tracker.sync	Push snapshots, repo sync
+tracker.delete	Delete a tracker mirror
+tunnel.open	Open a tunnel connection
+tunnel.hosted	Start / stop hosted forwards, write or delete presets, import presets, autostart (also needs `tunnel.open`)
+tunnel.manage.others	Stop other callers' forwards and hosted forwards (the tunnel and forward lists are Public and stay as they are)
+xfer.write	Create a transfer (read and write files on the execution host)
+xfer.manage.others	Read, download and delete other callers' transfers
+secret.scan.all	Cross-caller secret scan and redaction (filtered)
+update.check	Trigger a check for a new version (`GET /v1/update` is Public)
+update.apply	Run and cancel a one-click update; with workers it also needs `worker.upgrade`
+worker.upgrade	Upgrade a worker with the server's own binary
+worker.upgrade.upload	Upload a binary; `source=staged` needs it too
+worker.manage	Register, delete and reload workers
+config.read	`GET /v1/config` and reading the MCP registry (`/meta`, `/agents`, `/runners` are Public)
+mcp.test	Test an MCP server connection (starts a process on the server)
+settings.read	Read extension settings (`GET /v1/settings`, a single key, export): key table, defaults, current values, descriptions
+settings.write	Write extension settings (PUT / DELETE a single key, import): prompts, thresholds and exclusion lists; every write is audited
+trigger.read	Read the redacted view of inbound triggers (`GET /v1/triggers`, a single trigger, delivery records; MCP `gofer_trigger_list` / `gofer_trigger_show`): name, owner, project, template, rate-limit / dedupe policy and latest status, without secrets or payloads; job credentials cannot read it
+config.write	Write the config (incl. steward / work), validate, reload
+project.write	Add, edit and delete projects
+rules.write	Write the rules library
+skills.write	Import, update and delete skills
+auth.manage	Manage grants (root administrator only; no grant can ever match it)
+risk low	Low
+risk medium	Medium
+risk high	High
+risk dangerous	Dangerous
+risk root	Root
+risk x	x
+source seed	Seeded
+source config	Config
+source root	Root only
+source x	x
+scope no	No
+scope yes	Yes
+scope phase2	Phase 2
+scope x	x
+subject users	All users
+subject caller	Caller
+subject session	Session
+subject x	x

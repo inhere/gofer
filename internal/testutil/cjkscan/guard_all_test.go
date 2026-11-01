@@ -36,13 +36,6 @@ var guardAllExempt = map[string]Exempt{
 	// ---- migrated packages: leftovers -------------------------------------------------
 	"desktop/toastps.go": {Max: 1, Class: classResidue, Why: "toastDisabledHint is an operator hint carried by a SkipError reason (logged once per cause, never shown in a popup), naming the Windows settings page in the Windows UI language of the pilot deployment; no language reaches the notifier's skip path yet"},
 
-	"httpapi/inbox_handler.go":            {Max: 1, Class: classResidue, Why: "home-page card title suffix (today cards): S3b scope (today / work / session page text)"},
-	"httpapi/today_handler.go":            {Max: 1, Class: classResidue, Why: "home-page lane label suffix: S3b scope (today / work / session page text)"},
-	"httpapi/session_handler.go":          {Max: 2, Class: classResidue, Why: "the session page's handed-off notice and its \"just now\": S3b scope (toSessionView / session page text)"},
-	"httpapi/session_inject.go":           {Max: 1, Class: classResidue, Why: "status detail of an injected message whose job record is gone: S3b scope (session page text)"},
-	"httpapi/work_dispatch_handler.go":    {Max: 2, Class: classResidue, Why: "work-item journal lines (dispatch results): S3b scope (work journal)"},
-	"httpapi/work_handler.go":             {Max: 1, Class: classResidue, Why: "work-item journal line (archived from the capture box): S3b scope (work journal)"},
-	"httpapi/work_wiring.go":              {Max: 10, Class: classResidue, Why: "the work summarizer host's refusal reasons, shown in the work settings: S3b scope (work)"},
 	"httpapi/authz_gen.go":                {Max: 51, Class: classStored, Why: "the template of the generated docs/reference/permissions.md (go generate): a Chinese reference document, not a response; the document language is an authoring choice"},
 	"httpapi/agent_probe_handler.go":      {Max: 1, Class: classProtocol, Why: "the probe prompt sent to the agent under test, a fixed protocol line whose reply (\"OK\") is matched; not shown to a person"},
 	"httpapi/runner_messenger_handler.go": {Max: 2, Class: classStored, Why: "title / target of the session-listing job recorded in the job store (stored text, not a response); the job service has no per-request language"},
@@ -50,9 +43,8 @@ var guardAllExempt = map[string]Exempt{
 	"job/reviewhints.go": {Max: 1, Class: classProtocol, Why: "\"验证\" is a keyword matched against report headings (recognition, not output; the English words \"verif\" / \"verify\" sit beside it)"},
 	"job/rules.go":       {Max: 1, Class: classProtocol, Why: "rulesPromptHeader: fixed literal recognised structurally by the skills-manifest insertion and by older stored prompts; changing it breaks recognition"},
 
-	"mail/address.go": {Max: 2, Class: classResidue, Why: "an address parse error returned to the sender and the offline hint of a recipient label"},
-	"mail/origin.go":  {Max: 1, Class: classResidue, Why: "the \"(caller ...)\" suffix of a sender label shown in the console"},
-	"mail/service.go": {Max: 3, Class: classResidue, Why: "a send error returned to the caller, the withdrawn-letter log line and the excerpt label of a notice"},
+	"mail/address.go": {Max: 1, Class: classResidue, Why: "agent:<名字>[@<项目>] inside an English address parse error: the placeholders are the address grammar as the docs and the CLI help spell it (ParseAddress has no language; the error is returned to the sender through err.Error())"},
+	"mail/service.go": {Max: 1, Class: classResidue, Why: "the term \"退信\" inside the English ErrNotAnswerable message (an error returned to the caller through err.Error(); sentinel + code is a separate migration)"},
 
 	"notify/catalog.go": {Max: 46, Class: classData, Why: "the event catalog is bilingual data: every entry carries its Zh and En text side by side (the console picks one by language), so the Chinese literals are one half of a translation table, not untranslated output"},
 
@@ -70,38 +62,19 @@ var guardAllExempt = map[string]Exempt{
 
 	// ---- stored / generated ------------------------------------------------------------
 	"jobstore/store.go":                 {Max: 2, Class: classStored, Why: "Chinese comments inside the CREATE TABLE DDL strings (schema text, G057)"},
+	"jobstore/work_level.go":            {Max: 1, Class: classStored, Why: "the one-off UPDATE that classifies journal lines written by an older binary: its LIKE patterns match the Chinese text those binaries stored (\"状态：\", \"拆分出 \", \"已合并到 \", \"合并了 \"), so they must stay Chinese"},
 	"jobstore/work_dispatch_migrate.go": {Max: 1, Class: classStored, Why: "Chinese text inside a one-off UPDATE migration statement; historical data rewrite"},
+	"tracker/sync.go":                   {Max: 1, Class: classStored, Why: "the note a sync conflict writes into the merged issue / memory: it lands in the repository files two machines merge, so its text must be byte-identical whatever each machine's language is"},
 
-	// ---- not migrated: server display text -----------------------------------------------
-	"authz/catalog.go":                 {Max: 57, Class: classDisplay, Why: "risk / kind labels and permission descriptions shown in the console and the generated permissions doc"},
-	"authz/pattern.go":                 {Max: 3, Class: classDisplay, Why: "subject-kind labels shown in the console"},
-	"config/default_project.go":        {Max: 1, Class: classDisplay, Why: "ErrBuiltinProject error text"},
-	"config/mail.go":                   {Max: 1, Class: classDisplay, Why: "config validation error with a Chinese placeholder name"},
-	"config/overlay.go":                {Max: 1, Class: classDisplay, Why: "config overlay warning with a Chinese aside"},
-	"delivery/step.go":                 {Max: 1, Class: classDisplay, Why: "unsupported-provider error of a built-in delivery step"},
-	"hookrelay/transcript.go":          {Max: 1, Class: classDisplay, Why: "truncation marker of a relayed transcript message"},
-	"jobstore/delete.go":               {Max: 1, Class: classDisplay, Why: "event title \"deleted\" stored in the delete event detail"},
-	"jobstore/mail_secret.go":          {Max: 4, Class: classDisplay, Why: "caller / session labels of a mail sender"},
-	"jobstore/sessions.go":             {Max: 1, Class: classDisplay, Why: "truncation suffix of a stored session message"},
-	"jobstore/steward.go":              {Max: 2, Class: classDisplay, Why: "steward merge-suggestion note lines"},
-	"jobstore/tracker_server_issue.go": {Max: 1, Class: classDisplay, Why: "issue-id-renamed comment written to the issue"},
-	"jobstore/work.go":                 {Max: 37, Class: classDisplay, Why: "work-item journal / change-summary lines written by the store (stored, no language plumbed to the store)"},
-	"jobstore/work_level.go":           {Max: 4, Class: classDisplay, Why: "work journal lines for answered decisions / interactions"},
-	"jobstore/work_noise.go":           {Max: 1, Class: classDisplay, Why: "short-lived-session exclusion reason"},
-	"runner/worker/runner.go":          {Max: 1, Class: classDisplay, Why: "error after a worker restart ended a persistent session"},
-	"settings/settings.go":             {Max: 13, Class: classDisplay, Why: "setting descriptions shown in the settings page"},
-	"webpush/dispatch.go":              {Max: 19, Class: classDisplay, Why: "Web Push notification titles / bodies / action labels"},
-	"workbench/attachments.go":         {Max: 15, Class: classDisplay, Why: "attachment routing reasons shown in the console"},
-	"workbench/diff.go":                {Max: 3, Class: classDisplay, Why: "diff errors and notice"},
-	"workbench/review.go":              {Max: 1, Class: classDisplay, Why: "review turn error"},
-	"workbench/service.go":             {Max: 2, Class: classDisplay, Why: "turn errors"},
-	"wshub/hub.go":                     {Max: 1, Class: classDisplay, Why: "protocol-version refusal reason shown to the operator"},
-	"wshub/upgrade.go":                 {Max: 1, Class: classDisplay, Why: "upgrade-unsupported error"},
-	"tracker/sync.go":                  {Max: 1, Class: classDisplay, Why: "sync-conflict note written into a memory entry"},
-
-	// ---- not migrated: agent prompts -----------------------------------------------------
-
-	"job/workflow/submit.go": {Max: 1, Class: classDisplay, Why: "unsupported-step error returned on workflow submit"},
+	// ---- not migrated: server display text (S3f: what is left is the error text returned through err.Error(), and config-load diagnostics) -----------------------------------------------
+	"config/mail.go":           {Max: 1, Class: classDisplay, Why: "config validation error: English text carrying the agent:<名字> address-grammar placeholder; config validates before any language is known and every other config error is English (not migrated)"},
+	"config/overlay.go":        {Max: 1, Class: classDisplay, Why: "config-load warning: English log line with a developer aside; config loads before any language is known (not migrated)"},
+	"workbench/attachments.go": {Max: 5, Class: classDisplay, Why: "ErrAttachmentDelivery / ErrAttachmentsUnsupported error text returned as the HTTP detail through err.Error(): needs sentinel + code (separate migration); the routing reasons, the marker lines and the own-dir reason are in the catalog"},
+	"workbench/diff.go":        {Max: 2, Class: classDisplay, Why: "ErrMissingDiffBase / ErrNotResumable error text returned as the HTTP detail through err.Error(): needs sentinel + code (separate migration); the diff notice is in the catalog"},
+	"workbench/review.go":      {Max: 1, Class: classDisplay, Why: "ErrNotResumable error text returned as the HTTP detail through err.Error(): needs sentinel + code (separate migration)"},
+	"workbench/service.go":     {Max: 2, Class: classDisplay, Why: "ErrNotResumable error text returned as the HTTP detail through err.Error(): needs sentinel + code (separate migration)"},
+	"wshub/upgrade.go":         {Max: 1, Class: classDisplay, Why: "ErrUpgradeUnsupported tail returned as the upgrade error detail through err.Error() (httpapi wraps it): needs a typed error + code (separate migration)"},
+	"job/workflow/submit.go":   {Max: 1, Class: classDisplay, Why: "unsupported-step error returned on workflow submit as the HTTP detail through err.Error(): needs sentinel + code (separate migration)"},
 
 	// ---- CLI text ------------------------------------------------------------------------
 	"client/client.go":         {Max: 1, Class: classCLI, Why: "token-scope hint appended to a client error"},

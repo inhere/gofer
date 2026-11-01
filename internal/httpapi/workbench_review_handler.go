@@ -22,7 +22,7 @@ func (s *Server) handleGetWorkbenchThreadDiff(c *rux.Context) {
 		writeError(c, http.StatusServiceUnavailable, "workbench unavailable", "job metadata service is not wired")
 		return
 	}
-	result, err := s.workbench.Diff(c.Param("id"))
+	result, err := s.workbench.DiffIn(s.requestLang(c), c.Param("id"))
 	if err != nil {
 		status := http.StatusInternalServerError
 		switch {

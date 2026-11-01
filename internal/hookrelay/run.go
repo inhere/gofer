@@ -286,7 +286,7 @@ func (r *runner) postToolUse() Result {
 	r.resolvePendingPermission()
 	r.reportWebReply()
 	if r.opts.ProgressInterval > 0 && strings.TrimSpace(r.p.TranscriptPath) != "" && r.p.dialect() != DialectGeneric && r.progressDue() {
-		text, err := LastAssistantText(r.p.TranscriptPath, r.opts.MaxMessage)
+		text, err := LastAssistantTextIn(r.lang(), r.p.TranscriptPath, r.opts.MaxMessage)
 		if err == nil && strings.TrimSpace(text) != "" {
 			r.usageOnBeat = true
 			if _, ok := r.heartbeat(client.SessionHeartbeat{
@@ -1035,10 +1035,10 @@ func (r *runner) releasedOnUserReturn(turnID string) bool {
 // stdin, Claude keeps it in the transcript.
 func (r *runner) lastMessage() string {
 	if msg := strings.TrimSpace(r.p.LastAssistantMessage); msg != "" {
-		return truncate(msg, r.opts.MaxMessage)
+		return truncate(r.lang(), msg, r.opts.MaxMessage)
 	}
 	if r.p.TranscriptPath != "" && r.p.dialect() != DialectGeneric {
-		text, err := LastAssistantText(r.p.TranscriptPath, r.opts.MaxMessage)
+		text, err := LastAssistantTextIn(r.lang(), r.p.TranscriptPath, r.opts.MaxMessage)
 		if err != nil {
 			r.log("transcript read failed: %v", err)
 		} else if text != "" {

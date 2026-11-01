@@ -1,0 +1,72 @@
+## captured
+status/human:a/milestone: Captured: idea
+## draft
+status/system/detail: Draft created automatically (session sess-abc, first question)
+## summary 1
+Title: Alpha → Alpha 2; Goal updated; Blocker type: person; Blocker: waiting; Next step: go; Summary updated; Project: proj; Workspace: /w; Park condition: later; Priority: 2; Parked until: 2023-11-14 22:13; Remind at: 2023-11-14 23:13; Marked unsorted
+## summary 2
+Title: Alpha 2 → Alpha 3; Goal updated; Blocker: cleared; Next step: go → next; Parked until: none; Sorted; Status: active → parked
+## summary 3
+Status source: human
+## updated
+status/human:a/detail: Status source: human
+status/human:a/milestone: Title: Alpha 2 → Alpha 3; Goal updated; Blocker: cleared; Next step: go → next; Parked until: none; Sorted; Status: active → parked
+status/human:a/detail: Title: Alpha → Alpha 2; Goal updated; Blocker type: person; Blocker: waiting; Next step: go; Summary updated; Project: proj; Workspace: /w; Park condition: later; Priority: 2; Parked until: 2023-11-14 22:13; Remind at: 2023-11-14 23:13; Marked unsorted
+status/human:a/milestone: Work item created
+## links
+link/human:a/detail: Unlinked issue gofer-1
+link/human:a/detail: Linked issue gofer-1
+link/human:a/detail: Unlinked session sess-aaa
+link/human:a/detail: Linked session sess-aaa
+status/human:a/detail: Status source: human
+status/human:a/milestone: Title: Alpha 2 → Alpha 3; Goal updated; Blocker: cleared; Next step: go → next; Parked until: none; Sorted; Status: active → parked
+status/human:a/detail: Title: Alpha → Alpha 2; Goal updated; Blocker type: person; Blocker: waiting; Next step: go; Summary updated; Project: proj; Workspace: /w; Park condition: later; Priority: 2; Parked until: 2023-11-14 22:13; Remind at: 2023-11-14 23:13; Marked unsorted
+status/human:a/milestone: Work item created
+## merge target
+status/human:a/milestone: Merged W5 "Gamma" (1 session(s), 2 journal line(s))
+link/human:a/detail: Linked session sess-ccc
+status/human:a/milestone: Work item created
+status/human:a/milestone: Work item created
+## merge source
+status/human:a/milestone: Merged into W4
+## split source
+status/human:a/milestone: Split out W7 "Delta part" (1 session(s) moved)
+link/human:a/detail: Linked session sess-ddd
+status/human:a/milestone: Work item created
+## split new
+status/human:a/milestone: Split out of W6 "Delta"
+## split keep source
+status/human:a/milestone: Split out W9 "Epsilon part" (1 session(s) kept as well)
+link/human:a/detail: Linked session sess-eee
+status/human:a/milestone: Work item created
+## split bare source
+status/human:a/milestone: Split out W10 "Epsilon bare"
+status/human:a/milestone: Split out W9 "Epsilon part" (1 session(s) kept as well)
+link/human:a/detail: Linked session sess-eee
+status/human:a/milestone: Work item created
+## auto status true
+## auto status
+steward/steward/detail: Merge suggestion (pending): W12 into W11; reason: same topic
+status/system/detail: Status: active → needs_me (auto: a session waits)
+status/human:a/milestone: Work item created
+## suggest with reason
+steward/steward/detail: Merge suggestion (pending): W12 into W11; reason: same topic
+status/human:a/milestone: Work item created
+## suggest bare
+steward/steward/detail: Merge suggestion (pending): W14 into W13
+status/human:a/milestone: Work item created
+## answered
+note/human/milestone: Answered job job-i1 interaction "run tests?": allow
+note/human:alice/milestone: Answered decision "pick": A
+link/human:a/detail: Linked plan plan-abc12345
+status/human:a/milestone: Work item created
+## issue renamed
+note/system/detail: issue id renamed old-1 -> new-1: a new issue with the same id was pushed on repository sync
+link/human:a/detail: Linked issue old-1
+status/human:a/milestone: Work item created
+## delete events
+job.deleted {"actor":"alice","title":"Deleted"}
+## extras
+session sess-a (caller alice) | job job-7 | caller | caller alice | 
+Short-lived session: lived 2 min < 10 min, 1 human prompt(s) < 3
+"aaaaaaaa\n[truncated]"

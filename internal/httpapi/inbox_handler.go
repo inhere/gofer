@@ -7,6 +7,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/inbox"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -116,10 +117,10 @@ func terminalJobKind(j jobstore.JobRecord, continued map[string]bool) string {
 	return "job.failed"
 }
 
-func terminalCard(j jobstore.JobRecord, kind string) today.Card {
+func terminalCard(lang i18n.Lang, j jobstore.JobRecord, kind string) today.Card {
 	title := j.ID
 	if j.Error != "" {
-		title = j.ID + " 失败"
+		title = i18n.T(lang, "httpapi.inbox_job_failed", "id", j.ID)
 	}
 	// The key is the same for both kinds so a job's read/cleared state follows it when a
 	// follow-up job turns an action item into an fyi one (the revision changes, so it resurfaces).
@@ -140,6 +141,7 @@ func todayQueryForInbox(s *Server, c *rux.Context) (q today.Query) {
 // display order (Today's decision order first, then terminal jobs newest first).
 func (s *Server) currentInboxItems(c *rux.Context) ([]inbox.Item, error) {
 	ic := s.inboxConfig()
+	lang := s.requestLang(c)
 	resp, err := s.today.Today(todayQueryForInbox(s, c))
 	if err != nil {
 		return nil, err
@@ -167,7 +169,7 @@ func (s *Server) currentInboxItems(c *rux.Context) ([]inbox.Item, error) {
 		if s.ceilingActive(c) && !s.scopeFilter(c)(j.ProjectKey) {
 			continue
 		}
-		if item, ok := inbox.NewItem(terminalCard(j, terminalJobKind(j, continued)), ic, inbox.State{}); ok {
+		if item, ok := inbox.NewItem(terminalCard(lang, j, terminalJobKind(j, continued)), ic, inbox.State{}); ok {
 			out = append(out, item)
 		}
 	}

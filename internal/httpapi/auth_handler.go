@@ -262,17 +262,18 @@ func authPresetsIn(lang i18n.Lang) []authPresetView {
 // handleAuthCatalog answers GET /v1/auth/catalog.
 func (s *Server) handleAuthCatalog(c *rux.Context) {
 	perms := authz.Permissions()
+	lang := s.requestLang(c)
 	out := authCatalogView{
 		Permissions: make([]authPermissionCatalogView, 0, len(perms)),
-		Presets:     authPresetsIn(s.requestLang(c)),
+		Presets:     authPresetsIn(lang),
 	}
 	for _, p := range perms {
 		out.Permissions = append(out.Permissions, authPermissionCatalogView{
-			Name: p.Name, Description: p.Description,
-			Risk: string(p.Risk), RiskLabel: p.Risk.Label(),
+			Name: p.Name, Description: p.DescriptionIn(lang),
+			Risk: string(p.Risk), RiskLabel: p.Risk.LabelIn(lang),
 			SessionGrantable: p.SessionGrantable,
-			Scope:            string(p.Scope), ScopeLabel: p.Scope.Label(),
-			Source: string(p.Source), SourceLabel: p.Source.Label(),
+			Scope:            string(p.Scope), ScopeLabel: p.Scope.LabelIn(lang),
+			Source: string(p.Source), SourceLabel: p.Source.LabelIn(lang),
 			SeedVersion: p.SeedVersion,
 		})
 	}
@@ -363,6 +364,7 @@ func (s *Server) handleAuthExpand(c *rux.Context) {
 		return
 	}
 	exp, excluded, err := authz.Explain(pattern, kind)
+	lang := s.requestLang(c)
 	out := authExpandView{
 		Pattern: pattern, Subject: authz.SubjectOf(kind, id), Kind: string(kind),
 		Permissions: []authExpandPermView{}, Excluded: make([]authExpandExcludedView, 0, len(excluded)),
@@ -383,8 +385,8 @@ func (s *Server) handleAuthExpand(c *rux.Context) {
 	}
 	for _, p := range exp.Permissions {
 		out.Permissions = append(out.Permissions, authExpandPermView{
-			Name: p.Name, Description: p.Description, Risk: string(p.Risk),
-			RiskLabel: p.Risk.Label(), SessionGrantable: p.SessionGrantable,
+			Name: p.Name, Description: p.DescriptionIn(lang), Risk: string(p.Risk),
+			RiskLabel: p.Risk.LabelIn(lang), SessionGrantable: p.SessionGrantable,
 		})
 	}
 	c.JSON(http.StatusOK, out)

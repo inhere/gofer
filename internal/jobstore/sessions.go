@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // Agent-session states (session relay, design SESS-01 §5). A session is
@@ -77,17 +78,25 @@ func ValidSessionState(s string) bool {
 const maxSessionLastMessage = 64 * 1024
 const maxSessionMessageLog = 1 << 20
 const maxSessionOutbox = 1 << 20
-const truncatedMessageSuffix = "\n[已截断]"
 
-func capSessionMessage(msg string) string {
+// truncatedMessageSuffix is the marker appended to a stored session message cut at the cap:
+// a newline and the catalog's marker (jobstore.session.truncated) in the store's language.
+func (s *Store) truncatedMessageSuffix(sid string) string {
+	var project string
+	_ = s.db.QueryRow(`SELECT COALESCE(project_key,'') FROM agent_sessions WHERE session_id = ?`, sid).Scan(&project)
+	return "\n" + i18n.T(s.textLang(project), "jobstore.session.truncated")
+}
+
+func (s *Store) capSessionMessage(sid, msg string) string {
 	if len(msg) <= maxSessionLastMessage {
 		return msg
 	}
-	limit := maxSessionLastMessage - len(truncatedMessageSuffix)
+	suffix := s.truncatedMessageSuffix(sid)
+	limit := maxSessionLastMessage - len(suffix)
 	for limit > 0 && !utf8.RuneStart(msg[limit]) {
 		limit--
 	}
-	return msg[:limit] + truncatedMessageSuffix
+	return msg[:limit] + suffix
 }
 
 // SetSessionMessageLogRoot selects storage.root independently of a custom db_path.
@@ -761,7 +770,7 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 	if hb.State != "" && !ValidSessionState(hb.State) {
 		return AgentSession{}, false, fmt.Errorf("jobstore: TouchAgentSession: invalid state %q", hb.State)
 	}
-	msg := capSessionMessage(hb.LastMessage)
+	msg := s.capSessionMessage(sid, hb.LastMessage)
 	now := s.unixNow()
 	sets := []string{"last_seen_at=?"}
 	args := []any{now}
@@ -807,7 +816,7 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 			progressAt = now
 		}
 		sets = append(sets, "progress_text=?", "progress_at=?")
-		args = append(args, capSessionMessage(hb.ProgressText), progressAt)
+		args = append(args, s.capSessionMessage(sid, hb.ProgressText), progressAt)
 	}
 	if strings.TrimSpace(hb.Title) != "" {
 		// The hook only sends a title on a HUMAN prompt (makeTitle in hookrelay),

@@ -12,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
@@ -65,28 +66,43 @@ func (o workOneShot) ProjectDir(key string) string {
 
 // Check says why the agent cannot summarize ("" nil = usable): it must exist as a
 // cli-agent (the prompt is an argv, there is no session to keep) and be installed.
-func (o workOneShot) Check(agentKey string) error {
+func (o workOneShot) Check(agentKey string) error { return o.CheckIn(i18n.Default, agentKey) }
+
+// CheckIn implements work.LangChecker: Check with the reason in lang (the work service passes
+// the language of the text it is about to show or store).
+func (o workOneShot) CheckIn(lang i18n.Lang, agentKey string) error {
+	quoted := fmt.Sprintf("%q", agentKey)
 	if o.agents == nil {
-		return errors.New("没有 agent 注册表")
+		return errors.New(i18n.T(lang, "httpapi.summarizer.no_registry"))
 	}
 	ac, ok := o.agents.Get(agentKey)
 	if !ok {
-		return fmt.Errorf("整理器 agent %q 不存在（在 work.summarizer_agent 里改成已配置的 cli-agent）", agentKey)
+		return errors.New(i18n.T(lang, "httpapi.summarizer.agent_missing", "agent", quoted))
 	}
 	if ac.Type != agent.TypeCLIAgent {
-		return fmt.Errorf("整理器 agent %q 不是 cli-agent（一次性只读整理需要 cli-agent）", agentKey)
+		return errors.New(i18n.T(lang, "httpapi.summarizer.not_cli_agent", "agent", quoted))
 	}
 	if len(ac.ReadOnlyArgs) == 0 {
-		return fmt.Errorf("整理器 agent %q 没有只读模式（给它配 agents.%s.read_only_args；claude / codex 已内置）", agentKey, agentKey)
+		return errors.New(i18n.T(lang, "httpapi.summarizer.no_read_only", "agent", quoted, "key", agentKey))
 	}
 	if av, found := o.agents.Availability()[agentKey]; found && !av.Available {
 		why := av.Error
 		if why == "" {
-			why = "本机没有找到该命令"
+			why = i18n.T(lang, "httpapi.summarizer.command_not_found")
 		}
-		return fmt.Errorf("整理器 agent %q 不可用：%s", agentKey, why)
+		return errors.New(i18n.T(lang, "httpapi.summarizer.unavailable", "agent", quoted, "why", why))
 	}
 	return nil
+}
+
+// lang is the language of the errors the one-shot returns for project: the project's, else
+// the server's (the failure reason is stored in the request ledger, so it follows the item's
+// project, not a request).
+func (o workOneShot) lang(project string) i18n.Lang {
+	if o.projects != nil {
+		return o.projects.Config().LanguageFor(project)
+	}
+	return i18n.Default
 }
 
 // summarizerJobRequest is the one-shot tidy-up job: read-only on the local runner, and
@@ -119,13 +135,13 @@ func (o workOneShot) CanContinueSession(agentKey string) bool {
 
 func (o workOneShot) Run(ctx context.Context, r work.OneShotRequest) (work.OneShotResult, error) {
 	if strings.TrimSpace(r.ProjectKey) == "" {
-		return work.OneShotResult{}, errors.New("整理 job 没有可用的项目：在 work.summarizer_project 里指定一个项目，或在配置里保留 default 项目")
+		return work.OneShotResult{}, errors.New(i18n.T(o.lang(""), "httpapi.summarizer.no_project"))
 	}
 	res, err := o.jobs.Submit(summarizerJobRequest(r))
 	if err != nil {
 		return work.OneShotResult{}, err
 	}
-	return o.finish(ctx, res.ID, r.TimeoutSec)
+	return o.finish(ctx, res.ID, r.TimeoutSec, o.lang(r.ProjectKey))
 }
 
 // Resume continues the session of r.JobID. The continuation is a normal `job resume`:
@@ -133,18 +149,18 @@ func (o workOneShot) Run(ctx context.Context, r work.OneShotRequest) (work.OneSh
 // bounded like the run it continues.
 func (o workOneShot) Resume(ctx context.Context, r work.ResumeRequest) (work.OneShotResult, error) {
 	if strings.TrimSpace(r.ProjectKey) == "" {
-		return work.OneShotResult{}, errors.New("整理 job 没有可用的项目：在 work.summarizer_project 里指定一个项目，或在配置里保留 default 项目")
+		return work.OneShotResult{}, errors.New(i18n.T(o.lang(""), "httpapi.summarizer.no_project"))
 	}
 	res, err := o.jobs.ResumeJob(r.JobID, r.Prompt, "", "")
 	if err != nil {
 		return work.OneShotResult{JobID: res.ID}, err
 	}
-	return o.finish(ctx, res.ID, r.TimeoutSec)
+	return o.finish(ctx, res.ID, r.TimeoutSec, o.lang(r.ProjectKey))
 }
 
 // finish waits for a submitted summarizer job and reads its output: both the fresh run and
 // the continuation end here.
-func (o workOneShot) finish(ctx context.Context, jobID string, timeoutSec int) (work.OneShotResult, error) {
+func (o workOneShot) finish(ctx context.Context, jobID string, timeoutSec int, lang i18n.Lang) (work.OneShotResult, error) {
 	out := work.OneShotResult{JobID: jobID}
 	wait := time.Duration(timeoutSec+30) * time.Second
 	if dl, ok := ctx.Deadline(); ok && time.Until(dl) < wait {
@@ -153,14 +169,14 @@ func (o workOneShot) finish(ctx context.Context, jobID string, timeoutSec int) (
 	final, ok := o.jobs.WaitFor(jobID, wait)
 	if !ok || !job.IsTerminal(final.Status) {
 		_ = o.jobs.Cancel(jobID)
-		return out, errors.New("整理 job 超时")
+		return out, errors.New(i18n.T(lang, "httpapi.summarizer.timeout"))
 	}
 	if final.Status != job.StatusDone {
 		msg := final.Error
 		if msg == "" {
 			msg = final.Status
 		}
-		return out, fmt.Errorf("整理 job 未成功（%s）", msg)
+		return out, errors.New(i18n.T(lang, "httpapi.summarizer.failed", "reason", msg))
 	}
 	stdout, _ := o.jobs.TailLog(jobID, store.StreamStdout, 64*1024)
 	out.Output = string(stdout)

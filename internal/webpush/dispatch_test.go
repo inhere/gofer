@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/wait"
@@ -451,14 +452,14 @@ func TestPushBodiesNameTheRunner(t *testing.T) {
 		{"unknown runner keeps the suffix off", "", "t"},
 	}
 	for _, tc := range cases {
-		if got := terminalPushBody(job.JobResult{ID: "job-1", Title: "t", Runner: tc.runner}); got != tc.want {
+		if got := terminalPushBody(i18n.ZhCN, job.JobResult{ID: "job-1", Title: "t", Runner: tc.runner}); got != tc.want {
 			t.Errorf("%s: terminalPushBody = %q, want %q", tc.name, got, tc.want)
 		}
 	}
-	if got := terminalPushBody(job.JobResult{ID: "job-s", Session: true, SessionEndReason: "idle_timeout", Runner: "w-lab"}); got != "空闲超时 · runner w-lab" {
+	if got := terminalPushBody(i18n.ZhCN, job.JobResult{ID: "job-s", Session: true, SessionEndReason: "idle_timeout", Runner: "w-lab"}); got != "空闲超时 · runner w-lab" {
 		t.Errorf("terminalPushBody(session) = %q", got)
 	}
-	title, body := sessionAwaitingReplyPush(job.JobResult{ID: "job-2", Title: "fix", Agent: "codex", ProjectKey: "project-a", Runner: "local"}, map[string]any{"turn_no": 3})
+	title, body := sessionAwaitingReplyPush(i18n.ZhCN, job.JobResult{ID: "job-2", Title: "fix", Agent: "codex", ProjectKey: "project-a", Runner: "local"}, map[string]any{"turn_no": 3})
 	if !strings.Contains(title, "会话等你回复") || !strings.Contains(body, "第 3 轮 · codex · project-a · runner server") {
 		t.Errorf("sessionAwaitingReplyPush = %q / %q", title, body)
 	}

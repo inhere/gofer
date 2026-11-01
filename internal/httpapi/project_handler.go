@@ -227,7 +227,7 @@ func (s *Server) handleDeleteProject(c *rux.Context) {
 	key := strings.TrimSpace(c.Param("key"))
 	if err := s.projects.Remove(key); err != nil {
 		if errors.Is(err, config.ErrBuiltinProject) {
-			writeError(c, http.StatusConflict, "built-in project", err.Error())
+			s.writeErrorKey(c, http.StatusConflict, "built-in project", "builtin_project")
 			return
 		}
 		if strings.Contains(err.Error(), "unknown project") {

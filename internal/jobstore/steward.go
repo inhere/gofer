@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // W2b storage for the steward (design §14.4): the job marker, the event inbox, the review
@@ -336,11 +338,12 @@ func (s *Store) AddWorkMergeSuggestion(targetID, sourceID, reason, by string) (W
 		return WorkMergeSuggestion{}, false, fmt.Errorf("jobstore: add merge suggestion: %w", err)
 	}
 	sg.ID, _ = res.LastInsertId()
-	line := fmt.Sprintf("合并建议（待确认）：%s 并入 %s", sourceID, targetID)
-	if sg.Reason != "" {
-		line += "；理由：" + sg.Reason
-	}
 	for _, id := range []string{targetID, sourceID} {
+		lang := s.workLang(id)
+		line := i18n.T(lang, "jobstore.work.journal.suggest", "source", sourceID, "target", targetID)
+		if sg.Reason != "" {
+			line = i18n.T(lang, "jobstore.work.journal.suggest_reason", "line", line, "reason", sg.Reason)
+		}
 		if _, err := s.appendWorkJournalOn(s.db, id, WorkJournalSteward, line, by, now, ""); err != nil {
 			return WorkMergeSuggestion{}, false, err
 		}

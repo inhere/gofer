@@ -1,0 +1,72 @@
+## captured
+status/human:a/milestone: 收集：idea
+## draft
+status/system/detail: 自动创建草稿（会话 sess-abc 首次提问）
+## summary 1
+标题：Alpha → Alpha 2；目标已更新；阻塞类型：person；阻塞：waiting；下一步：go；摘要已更新；项目：proj；工作区：/w；搁置条件：later；优先级：2；搁置至：2023-11-14 22:13；提醒时间：2023-11-14 23:13；标为未整理
+## summary 2
+标题：Alpha 2 → Alpha 3；目标已更新；阻塞：已清除；下一步：go → next；搁置至：无；已整理；状态：active → parked
+## summary 3
+状态来源：human
+## updated
+status/human:a/detail: 状态来源：human
+status/human:a/milestone: 标题：Alpha 2 → Alpha 3；目标已更新；阻塞：已清除；下一步：go → next；搁置至：无；已整理；状态：active → parked
+status/human:a/detail: 标题：Alpha → Alpha 2；目标已更新；阻塞类型：person；阻塞：waiting；下一步：go；摘要已更新；项目：proj；工作区：/w；搁置条件：later；优先级：2；搁置至：2023-11-14 22:13；提醒时间：2023-11-14 23:13；标为未整理
+status/human:a/milestone: 创建工作项
+## links
+link/human:a/detail: 取消关联 issue gofer-1
+link/human:a/detail: 关联 issue gofer-1
+link/human:a/detail: 取消关联会话 sess-aaa
+link/human:a/detail: 关联会话 sess-aaa
+status/human:a/detail: 状态来源：human
+status/human:a/milestone: 标题：Alpha 2 → Alpha 3；目标已更新；阻塞：已清除；下一步：go → next；搁置至：无；已整理；状态：active → parked
+status/human:a/detail: 标题：Alpha → Alpha 2；目标已更新；阻塞类型：person；阻塞：waiting；下一步：go；摘要已更新；项目：proj；工作区：/w；搁置条件：later；优先级：2；搁置至：2023-11-14 22:13；提醒时间：2023-11-14 23:13；标为未整理
+status/human:a/milestone: 创建工作项
+## merge target
+status/human:a/milestone: 合并了 W5「Gamma」（1 个会话，2 条日志）
+link/human:a/detail: 关联会话 sess-ccc
+status/human:a/milestone: 创建工作项
+status/human:a/milestone: 创建工作项
+## merge source
+status/human:a/milestone: 已合并到 W4
+## split source
+status/human:a/milestone: 拆分出 W7「Delta part」（1 个会话移走）
+link/human:a/detail: 关联会话 sess-ddd
+status/human:a/milestone: 创建工作项
+## split new
+status/human:a/milestone: 从 W6「Delta」拆分出
+## split keep source
+status/human:a/milestone: 拆分出 W9「Epsilon part」（1 个会话同时保留）
+link/human:a/detail: 关联会话 sess-eee
+status/human:a/milestone: 创建工作项
+## split bare source
+status/human:a/milestone: 拆分出 W10「Epsilon bare」
+status/human:a/milestone: 拆分出 W9「Epsilon part」（1 个会话同时保留）
+link/human:a/detail: 关联会话 sess-eee
+status/human:a/milestone: 创建工作项
+## auto status true
+## auto status
+steward/steward/detail: 合并建议（待确认）：W12 并入 W11；理由：same topic
+status/system/detail: 状态：active → needs_me（自动：a session waits）
+status/human:a/milestone: 创建工作项
+## suggest with reason
+steward/steward/detail: 合并建议（待确认）：W12 并入 W11；理由：same topic
+status/human:a/milestone: 创建工作项
+## suggest bare
+steward/steward/detail: 合并建议（待确认）：W14 并入 W13
+status/human:a/milestone: 创建工作项
+## answered
+note/human/milestone: 已应答 job job-i1 的交互「run tests?」：allow
+note/human:alice/milestone: 已回答 decision「pick」：A
+link/human:a/detail: 关联 plan plan-abc12345
+status/human:a/milestone: 创建工作项
+## issue renamed
+note/system/detail: issue id 已改名 old-1 -> new-1：仓库同步时推送了同 id 的新 issue
+link/human:a/detail: 关联 issue old-1
+status/human:a/milestone: 创建工作项
+## delete events
+job.deleted {"actor":"alice","title":"已删除"}
+## extras
+会话 sess-a（调用方 alice） | job job-7 | 调用方 | 调用方 alice | 
+短命会话：存活 2 分钟 < 10 分钟，人工提问 1 < 3 次
+"aaaaaaaa\n[已截断]"

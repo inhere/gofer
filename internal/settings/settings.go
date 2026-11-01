@@ -32,6 +32,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -87,8 +88,6 @@ type Definition struct {
 	// Default is the value used when the key has no database row (same Go type as Kind:
 	// string, int, bool, []string).
 	Default any
-	// Description says what the setting does, in Chinese, in one sentence.
-	Description string
 	// Min / Max bound an int setting (inclusive).
 	Min int
 	Max int
@@ -96,6 +95,12 @@ type Definition struct {
 	MaxLen int
 	// Multiline marks a long text (a prompt) the editors open in a textarea.
 	Multiline bool
+}
+
+// DescriptionIn says what the setting does, in one sentence, in lang (the catalog's
+// settings.desc.*: the key with its dots written as underscores).
+func (d Definition) DescriptionIn(lang i18n.Lang) string {
+	return i18n.T(lang, "settings.desc."+strings.ReplaceAll(d.Key, ".", "_"))
 }
 
 // Registry keys. Handlers, planners and tests spell keys through these constants rather
@@ -124,64 +129,51 @@ const (
 var registry = []Definition{
 	{
 		Key: KeyWebNavHidden, Group: GroupWeb, Kind: KindStrings, Default: []string{},
-		Description: "Web 导航中隐藏的菜单 key（今天和设置始终显示）",
 	},
 	{
 		Key: KeyWorkDraftMinPrompts, Group: GroupWork, Kind: KindInt, Default: 2,
 		Min: 1, Max: 20,
-		Description: "同一会话第几次人工提问才建工作项草稿（1 = 第一次就建）",
 	},
 	{
 		Key: KeyWorkDraftExcludeProjects, Group: GroupWork, Kind: KindStrings, Default: []string{},
-		Description: "不建草稿的项目 key 名单（精确匹配）",
 	},
 	{
 		Key: KeyWorkDraftExcludeCwds, Group: GroupWork, Kind: KindStrings, Default: []string{},
-		Description: "不建草稿的目录名单（会话 cwd 以其中某一项为前缀即命中）",
 	},
 	{
 		Key: KeyWorkDraftExcludeTitlePatterns, Group: GroupWork, Kind: KindPatterns, Default: []string{},
-		Description: "不建草稿的标题正则（会话标题匹配任意一条即命中）",
 	},
 	{
 		Key: KeyWorkShortSessionMaxMinutes, Group: GroupWork, Kind: KindInt, Default: 10,
 		Min: 0, Max: 1440,
-		Description: "短命会话的时长阈值（分钟；已结束且存活短于此、提问次数也少于此的会话不进整理与管家）",
 	},
 	{
 		Key: KeyWorkShortSessionMaxPrompts, Group: GroupWork, Kind: KindInt, Default: 3,
 		Min: 0, Max: 100,
-		Description: "短命会话的提问次数阈值（人工提问少于此且存活时间也短的会话不进整理与管家）",
 	},
 	{
 		Key: KeyPromptStewardRole, Group: GroupPrompt, Kind: KindString, Default: "",
 		MaxLen: MaxPromptLen, Multiline: true,
-		Description: "管家角色提示词的整段替换（为空 = 用代码里的默认）",
 	},
 	{
 		Key: KeyPromptStewardRoleExtra, Group: GroupPrompt, Kind: KindString, Default: "",
 		MaxLen: MaxPromptLen, Multiline: true,
-		Description: "追加在管家角色提示词之后的额外要求（推荐用它写偏好，跟得上默认提示词更新）",
 	},
 	{
 		Key: KeyPromptStewardReview, Group: GroupPrompt, Kind: KindString, Default: "",
 		MaxLen: MaxPromptLen, Multiline: true,
-		Description: "管家巡检提示词的整段替换（为空 = 用代码里的默认）",
 	},
 	{
 		Key: KeyPromptStewardReviewExtra, Group: GroupPrompt, Kind: KindString, Default: "",
 		MaxLen: MaxPromptLen, Multiline: true,
-		Description: "追加在管家巡检提示词之后的额外要求",
 	},
 	{
 		Key: KeyPromptWorkSummarizer, Group: GroupPrompt, Kind: KindString, Default: "",
 		MaxLen: MaxPromptLen, Multiline: true,
-		Description: "整理器提示词的整段替换（为空 = 用代码里的默认；要求的 JSON 输出格式说明总由代码追加在最后，替换不掉）",
 	},
 	{
 		Key: KeyPromptWorkSummarizerExtra, Group: GroupPrompt, Kind: KindString, Default: "",
 		MaxLen: MaxPromptLen, Multiline: true,
-		Description: "追加在整理器提示词之后的额外要求（推荐的调整方式）",
 	},
 }
 
@@ -416,6 +408,11 @@ func (s *Service) get(key string) (Definition, any, error) {
 // Set validates v against key's definition and stores it. It returns the item as a listing
 // shows it (effective value, modified=true) and the new generation.
 func (s *Service) Set(key string, v any, by string) (Item, int64, error) {
+	return s.SetIn(i18n.Default, key, v, by)
+}
+
+// SetIn is Set with the returned item's description in lang.
+func (s *Service) SetIn(lang i18n.Lang, key string, v any, by string) (Item, int64, error) {
 	d, err := s.def(key)
 	if err != nil {
 		return Item{}, 0, err
@@ -432,7 +429,7 @@ func (s *Service) Set(key string, v any, by string) (Item, int64, error) {
 		return Item{}, 0, err
 	}
 	s.refresh()
-	item, err := s.item(d)
+	item, err := s.item(lang, d)
 	if err != nil {
 		return Item{}, ver, err
 	}
@@ -461,6 +458,11 @@ func (s *Service) Reset(key string) (bool, error) {
 // List returns every registered key with its effective and stored values, in registry
 // order.
 func (s *Service) List() ([]Item, error) {
+	return s.ListIn(i18n.Default)
+}
+
+// ListIn is List with the descriptions in lang (the request language of the settings page).
+func (s *Service) ListIn(lang i18n.Lang) ([]Item, error) {
 	rows, err := s.stored()
 	if err != nil {
 		return nil, err
@@ -468,7 +470,7 @@ func (s *Service) List() ([]Item, error) {
 	out := make([]Item, 0, len(registry))
 	for _, d := range registry {
 		item := Item{
-			Key: d.Key, Group: d.Group, Kind: d.Kind, Description: d.Description,
+			Key: d.Key, Group: d.Group, Kind: d.Kind, Description: d.DescriptionIn(lang),
 			Default: d.Default, Multiline: d.Multiline, MaxLen: d.MaxLen,
 		}
 		if d.Kind == KindInt {
@@ -556,7 +558,7 @@ func (s *Service) importKey(key string, value any, dryRun bool, by string) Chang
 	if !ok {
 		return Change{Key: key, Action: "unchanged", Error: fmt.Sprintf("unknown key %q", key)}
 	}
-	item, err := s.item(d)
+	item, err := s.item(i18n.Default, d)
 	if err != nil {
 		return Change{Key: key, Action: "unchanged", Error: err.Error()}
 	}
@@ -643,8 +645,8 @@ func isClear(v any) bool {
 }
 
 // item renders one key as a listing shows it.
-func (s *Service) item(d Definition) (Item, error) {
-	items, err := s.List()
+func (s *Service) item(lang i18n.Lang, d Definition) (Item, error) {
+	items, err := s.ListIn(lang)
 	if err != nil {
 		return Item{}, err
 	}

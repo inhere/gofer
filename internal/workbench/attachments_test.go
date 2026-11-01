@@ -34,7 +34,7 @@ func TestRouteAttachmentsTruthTable(t *testing.T) {
 		{"agent cannot read images", RouteInput{Kind: KindRelay, Agent: "suga", Runner: "local", Project: "p"}, AttachNone, "suga 暂不支持读取图片"},
 		{"unnamed agent cannot", RouteInput{Runner: "local", Project: "p"}, AttachNone, "该 agent 暂不支持读取图片"},
 		{"no runner", RouteInput{Agent: "claude", Project: "p", FilePath: true}, AttachNone, "会话没有执行机信息"},
-		{"no project and no own dir", RouteInput{Agent: "claude", Runner: "w-old", FilePath: true}, AttachNone, ownDirReason("w-old")},
+		{"no project and no own dir", RouteInput{Agent: "claude", Runner: "w-old", FilePath: true}, AttachNone, ownDirReason("", "w-old")},
 		// A session that belongs to no project: the images go into the EXECUTING machine's own
 		// attachment directory, which the server always has and a remote worker only when it
 		// declared the capability.
@@ -141,7 +141,7 @@ type attFixture struct {
 func newAttFixture(t *testing.T, placer Placer) *attFixture {
 	t.Helper()
 	f := &attFixture{store: openWorkbenchStore(t), jobs: &imageJobs{}, relay: &sessionRelay{}, root: t.TempDir(), srcDir: t.TempDir(), maxPer: 3}
-	f.cfg = &config.Config{Projects: map[string]config.ProjectConfig{"alpha": {HostPath: f.root}}}
+	f.cfg = &config.Config{Server: config.ServerConfig{Language: "zh-CN"}, Projects: map[string]config.ProjectConfig{"alpha": {HostPath: f.root}}}
 	f.svc = NewService(f.store, f.jobs, f.relay)
 	f.svc.SetAttachments(AttachmentDeps{
 		Store: f.store, Files: fakeFiles{dir: f.srcDir}, Xfer: placer, Jobs: f.jobs,
@@ -370,7 +370,7 @@ func TestRelayAttachmentCapabilityAndArgDelivery(t *testing.T) {
 		DeliverStdin: true, DeliverImageArgs: []string{"--image", "{{image}}"},
 	}}
 	thread := Thread{Kind: KindRelay, Agent: "suga", Runner: "local", ProjectKey: "alpha", Resumable: true}
-	f.svc.annotateAttachments(&thread)
+	f.svc.annotateAttachments("", &thread)
 	assert.Eq(t, AttachArg, thread.Attachments)
 	f.relay.session = jobstore.AgentSession{SessionID: "relay-image", Agent: "suga", Runner: "local", ProjectKey: "alpha"}
 	id := f.upload(t, "alice", "PNGDATA")

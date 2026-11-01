@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -34,7 +35,7 @@ func TestRegistryIsWellFormed(t *testing.T) {
 		if !d.Kind.Valid() {
 			t.Errorf("%s: unknown kind %q", d.Key, d.Kind)
 		}
-		if d.Group == "" || d.Description == "" {
+		if d.Group == "" || d.DescriptionIn(i18n.ZhCN) == "" {
 			t.Errorf("%s: group / description must be set", d.Key)
 		}
 		if d.Kind == KindInt && d.Min > d.Max {

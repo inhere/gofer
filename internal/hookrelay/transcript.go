@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // transcriptTail is how much of the transcript's end is scanned for the last
@@ -24,13 +26,18 @@ const transcriptTail = 512 * 1024
 // blocks of one message are joined by blank lines. maxBytes > 0 truncates the
 // result.
 func LastAssistantText(path string, maxBytes int) (string, error) {
+	return LastAssistantTextIn(i18n.Default, path, maxBytes)
+}
+
+// LastAssistantTextIn is LastAssistantText with the truncation marker in lang.
+func LastAssistantTextIn(lang i18n.Lang, path string, maxBytes int) (string, error) {
 	lines, err := transcriptTailLines(path, transcriptTail)
 	if err != nil {
 		return "", err
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		if text, ok := assistantTextOf(lines[i]); ok {
-			return truncate(text, maxBytes), nil
+			return truncate(lang, text, maxBytes), nil
 		}
 	}
 	return "", nil
@@ -179,11 +186,11 @@ func assistantTextOf(line []byte) (string, bool) {
 }
 
 // truncate cuts s to at most n bytes (n <= 0 = no limit) on a rune boundary.
-func truncate(s string, n int) string {
+func truncate(lang i18n.Lang, s string, n int) string {
 	if n <= 0 || len(s) <= n {
 		return s
 	}
-	const marker = "\n[已截断]"
+	marker := "\n" + i18n.T(lang, "hook.transcript.truncated")
 	limit := n - len(marker)
 	if limit <= 0 {
 		cut := s[:n]

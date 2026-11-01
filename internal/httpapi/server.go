@@ -959,6 +959,9 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// typed a first prompt, job.Service sends its reminders / digest.
 		s.work = work.New(jobs.Meta())
 		s.work.SetLanguageFor(s.textLanguage)
+		// The store writes work-item journal lines in the item's project language: the same
+		// live resolution (a config reload applies to the next line).
+		jobs.Meta().SetLanguageFor(s.textLanguage)
 		s.work.SetNotifier(jobs)
 		s.work.SetJobProbe(workJobProbe{jobs: jobs})
 		s.work.SetMessenger(workMessenger{relay: s.relay})

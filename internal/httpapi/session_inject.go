@@ -250,7 +250,7 @@ func (x sessionInjector) gaveUp(initial job.JobResult) sessionrelay.InjectResult
 	cur, ok := x.jobs.Get(initial.ID)
 	if !ok {
 		return sessionrelay.InjectResult{JobID: initial.ID, ExitCode: -1, Status: "unknown",
-			StatusDetail: "job 记录已不存在"}
+			StatusDetail: i18n.T(x.textLang(""), "httpapi.inject_job_gone")}
 	}
 	if job.IsFinished(cur.Status) {
 		res := x.injectResult(cur)

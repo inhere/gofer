@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 )
 
@@ -70,6 +71,9 @@ func (e *LayoutVersionConflict) Error() string {
 }
 
 type Query struct {
+	// Lang is the language of the display text of the threads (the request language;
+	// zero = the default language).
+	Lang    i18n.Lang
 	Project string
 	Status  Status
 	Q       string
