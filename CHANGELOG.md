@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 移除
+
+- **删除 `work.draft.*` 四个设置**（`min_prompts` / `exclude_projects` / `exclude_cwds` / `exclude_title_patterns`）：它们自 v0.208.0 起已不起作用（会话不再自动建工作项）。读写这些键现在返回「未知设置」；`gofer settings import` 遇到它们也按未知键报错（不影响其它键）；数据库里残留的旧值不再显示、不再导出，也无需手动清理。
+
 ## [0.208.1] - 2026-11-01
 
 ### 修复

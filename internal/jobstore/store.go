@@ -570,7 +570,7 @@ var schemaStmts = []string{
   topic_source      TEXT NOT NULL DEFAULT '',
   topic_at          INTEGER NOT NULL DEFAULT 0,
   -- human_prompts（降噪设计 2026-10-20 §总体方案 1）：这个会话里人一共提问了几次。草稿工作项
-  -- 等到第 work.draft.min_prompts 次才建，短命会话的判据也看它。additive，旧库经
+  -- 短命会话的判据读它（曾用于决定第几次提问才建工作项草稿）。additive，旧库经
   -- migrateAgentSessions 补列，旧行读回 0（= 没记过，按「还没有提问」算）。
   human_prompts     INTEGER NOT NULL DEFAULT 0,
   -- stop_park_until (gofer-fv6a) is the unix second until which the session's Stop

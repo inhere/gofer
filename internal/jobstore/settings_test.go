@@ -21,21 +21,21 @@ func openSettingsTestStore(t *testing.T) *Store {
 func TestSettingsRoundTrip(t *testing.T) {
 	st := openSettingsTestStore(t)
 
-	if _, ok, err := st.GetSetting("work.draft.min_prompts"); err != nil || ok {
+	if _, ok, err := st.GetSetting("work.short_session.max_prompts"); err != nil || ok {
 		t.Fatalf("GetSetting(unwritten) = ok %t, err %v; want ok false, no error", ok, err)
 	}
 	if ver, err := st.SettingsVersion(); err != nil || ver != 0 {
 		t.Fatalf("SettingsVersion(fresh) = %d, %v; want 0", ver, err)
 	}
 
-	ver, err := st.PutSetting("work.draft.min_prompts", "3", "alice")
+	ver, err := st.PutSetting("work.short_session.max_prompts", "3", "alice")
 	if err != nil {
 		t.Fatalf("PutSetting: %v", err)
 	}
 	if ver != 1 {
 		t.Fatalf("generation after the first write = %d, want 1", ver)
 	}
-	got, ok, err := st.GetSetting("work.draft.min_prompts")
+	got, ok, err := st.GetSetting("work.short_session.max_prompts")
 	if err != nil || !ok {
 		t.Fatalf("GetSetting after put: ok %t, err %v", ok, err)
 	}
@@ -44,7 +44,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 
 	// An overwrite bumps the generation again and keeps one row per key.
-	if _, err := st.PutSetting("work.draft.min_prompts", "4", "bob"); err != nil {
+	if _, err := st.PutSetting("work.short_session.max_prompts", "4", "bob"); err != nil {
 		t.Fatalf("PutSetting overwrite: %v", err)
 	}
 	rows, err := st.ListSettings()
@@ -60,18 +60,18 @@ func TestSettingsRoundTrip(t *testing.T) {
 
 	// Deleting the row brings the default back; deleting it again changes nothing and does
 	// not bump the generation.
-	existed, ver, err := st.DeleteSetting("work.draft.min_prompts")
+	existed, ver, err := st.DeleteSetting("work.short_session.max_prompts")
 	if err != nil || !existed {
 		t.Fatalf("DeleteSetting = existed %t, err %v; want true, no error", existed, err)
 	}
 	if ver != 3 {
 		t.Fatalf("generation after delete = %d, want 3", ver)
 	}
-	existed, ver, err = st.DeleteSetting("work.draft.min_prompts")
+	existed, ver, err = st.DeleteSetting("work.short_session.max_prompts")
 	if err != nil || existed || ver != 3 {
 		t.Fatalf("second DeleteSetting = existed %t, ver %d, err %v; want false, 3, no error", existed, ver, err)
 	}
-	if _, ok, err := st.GetSetting("work.draft.min_prompts"); err != nil || ok {
+	if _, ok, err := st.GetSetting("work.short_session.max_prompts"); err != nil || ok {
 		t.Fatalf("GetSetting after delete: ok %t, err %v", ok, err)
 	}
 }
@@ -80,7 +80,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 // listing rely on for a stable rendering.
 func TestSettingsListOrdered(t *testing.T) {
 	st := openSettingsTestStore(t)
-	for _, key := range []string{"prompt.work.summarizer", "work.draft.min_prompts", "work.short_session.max_prompts"} {
+	for _, key := range []string{"prompt.work.summarizer", "web.nav_hidden", "work.short_session.max_prompts"} {
 		if _, err := st.PutSetting(key, "x", "alice"); err != nil {
 			t.Fatalf("PutSetting(%s): %v", key, err)
 		}
@@ -89,7 +89,7 @@ func TestSettingsListOrdered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSettings: %v", err)
 	}
-	want := []string{"prompt.work.summarizer", "work.draft.min_prompts", "work.short_session.max_prompts"}
+	want := []string{"prompt.work.summarizer", "web.nav_hidden", "work.short_session.max_prompts"}
 	if len(rows) != len(want) {
 		t.Fatalf("rows = %+v, want %d", rows, len(want))
 	}

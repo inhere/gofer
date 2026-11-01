@@ -368,7 +368,7 @@ type AgentSession struct {
 	TopicSource string
 	TopicAt     int64
 	// HumanPrompts counts the HUMAN prompts this session saw (design 2026-10-20 §总体方案 1):
-	// the draft work item waits for the work.draft.min_prompts-th one, and the short-session
+	// the short-session
 	// rule reads it. It is only grown by IncrementSessionHumanPrompts; 0 = never counted
 	// (a row written before the column existed).
 	HumanPrompts int

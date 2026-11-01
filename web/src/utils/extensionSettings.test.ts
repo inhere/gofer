@@ -32,7 +32,7 @@ function item(over: Partial<SettingItem>): SettingItem {
 }
 
 const minPrompts = item({
-  key: 'work.draft.min_prompts',
+  key: 'work.example_count',
   group: 'work',
   kind: 'int',
   default: 2,
@@ -42,7 +42,7 @@ const minPrompts = item({
 })
 
 const excludeProjects = item({
-  key: 'work.draft.exclude_projects',
+  key: 'work.example_list',
   group: 'work',
   kind: 'strings',
   default: [],
@@ -50,7 +50,7 @@ const excludeProjects = item({
 })
 
 const titlePatterns = item({
-  key: 'work.draft.exclude_title_patterns',
+  key: 'work.example_patterns',
   group: 'work',
   kind: 'patterns',
   default: [],
@@ -82,8 +82,8 @@ describe('groupSettings', () => {
     expect(groups[0].label).toBe('工作项降噪')
     expect(groups[1].label).toBe('提示词')
     expect(groups[0].items.map((i) => i.key)).toEqual([
-      'work.draft.min_prompts',
-      'work.draft.exclude_projects',
+      'work.example_count',
+      'work.example_list',
       'work.short_session.max_minutes',
     ])
   })

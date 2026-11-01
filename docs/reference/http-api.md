@@ -172,10 +172,6 @@ Registered keys (first batch; consumers land in later work):
 
 | Key | Type | Default | Bounds | Meaning |
 |---|---|---|---|---|
-| `work.draft.min_prompts` | int | 2 | 1–20 | human prompts before a work-item draft is created |
-| `work.draft.exclude_projects` | strings | — | — | project keys that never get a draft |
-| `work.draft.exclude_cwds` | strings | — | — | cwd prefixes that never get a draft |
-| `work.draft.exclude_title_patterns` | patterns | — | compiled on save | session-title patterns that never get a draft |
 | `work.short_session.max_minutes` | int | 10 | 0–1440 | short-session lifetime threshold |
 | `work.short_session.max_prompts` | int | 3 | 0–100 | short-session human-prompt threshold |
 | `prompt.steward.role` / `.extra` | string | empty | 32 KiB | steward role prompt: replacement / appended text |
