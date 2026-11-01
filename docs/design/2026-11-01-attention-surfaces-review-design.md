@@ -1,7 +1,7 @@
 # 注意力面复盘：今天 / 工作项 / 收件箱为什么没人用，以及怎么收
 
 > issue：gofer-cnxy
-> 状态：0.1 草稿（待确认项见 §6）
+> 状态：0.2 已批准（见 §7）
 > 相关：`docs/design/2026-10-09-dashboard-redesign-design.md`、`2026-10-23-ui-redesign-design.md`、`2026-10-28-inbox-triage-design.md`；外部参照 dsh-superagent-prototype 的 `docs/000-philosophy.md`、`docs/005-panel.md`（本地副本在 WP `local/dsh-superagent-prototype/`），以及 xhen 的调研 `inhere-tools/xhen/docs/research/2026-10-31-dsh-superagent-prototype.md`。
 
 ## 1. 背景
@@ -88,3 +88,7 @@ dsh-superagent 的核心原则正好对着这个问题：
 3. **收件箱是否与今天页合并**：推荐先不合并，收件箱只保留「等我」同源的一栏 + 人本人提交任务的完成记录；用一周后再看。
 4. **4.5 的暂停**：推荐 DC3 只做只读接口、MEM3 开场引用默认关闭、管家主动行为改为只记录。
 5. **实施顺序**：推荐先做 4.1（等我判定表 + 一致性测试）和 4.4（agent 派的 job 不进收件箱），这两项改动小、效果最直接；再做 4.2 / 4.3。
+
+## 7. 已定事项（2026-11-01）
+
+- §6 的 1–5 全部按推荐：worker 掉线不单列；工作项的模型推断保留为详情里的折叠参考、不驱动提醒；收件箱暂不与今天页合并；DC3 只做只读接口、MEM3 开场引用默认关闭、管家主动行为改为只记录；先做 4.1（「等我」判定表 + 一致性测试）与 4.4（agent / 会话 / job 凭据派出的 job 不进收件箱），再做 4.2 / 4.3。
