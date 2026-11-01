@@ -902,6 +902,22 @@ tool api	flag query	只打印 JSON 响应中该路径的值，而不是整个响
 tool api	flag request	HTTP 方法（缺省：GET；带请求体时为 POST）
 tool api	flag server	server address (overrides config server.addr)
 tool api	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tool bg-agent	desc	后台 agent（整理器、管家、交付核验）：查看会话与当日统计，手动新开会话
+tool bg-agent	help	
+tool bg-agent	examples	
+tool bg-agent ls	desc	查看每类后台 agent 的会话与当日统计
+tool bg-agent ls	help	只读。“context”是会话上下文窗口的占用比例；agent 没有上报窗口时显示“未知”。统计只计入上报了用量的运行。
+tool bg-agent ls	examples	
+tool bg-agent ls	flag config	path to the gofer config file
+tool bg-agent ls	flag json	以 JSON 输出带版本号的响应
+tool bg-agent ls	flag server	server address (overrides config server.addr)
+tool bg-agent ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+tool bg-agent reset	desc	让某类后台 agent 的下一次运行新开会话
+tool bg-agent reset	help	结束该类型已记录的会话（所有项目）。不改配置，保留历史与用量，也不会中断正在进行的运行：新会话从下一次运行开始。
+tool bg-agent reset	examples	
+tool bg-agent reset	flag config	path to the gofer config file
+tool bg-agent reset	flag server	server address (overrides config server.addr)
+tool bg-agent reset	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 tool cert	desc	Generate a local CA and HTTPS server certificate
 tool cert	help	
 tool cert	examples	

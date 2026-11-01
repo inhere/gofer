@@ -103,6 +103,7 @@ func flagGlobals() map[string]any {
 		"templateShowOpts":      &templateShowOpts,
 		"toolCertOpts":          &toolCertOpts,
 		"toolApiOpts":           &toolApiOpts,
+		"toolBgAgentLsOpts":     &toolBgAgentLsOpts,
 		"toolHookTestOpts":      &toolHookTestOpts,
 		"toolCpOpts":            &toolCpOpts,
 		"toolStatsBackfillOpts": &toolStatsBackfillOpts,

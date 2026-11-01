@@ -468,6 +468,7 @@ func TestDeliveryCheckSkipRules(t *testing.T) {
 		state string
 	}{
 		{"disabled", config.DeliveryCheckConfig{Agent: "checker"}, nil, 0, StatusDone},
+		{"default config (nothing configured) never checks", config.DeliveryCheckConfig{}, nil, 0, StatusDone},
 		{"no requirement", enabledCheck(2), func(r *JobRequest) { r.CheckPrompt = "" }, 0, StatusDone},
 		{"acceptance only, included", enabledCheck(2), func(r *JobRequest) { r.CheckPrompt, r.Acceptance = "", "- a" }, 1, StatusDone},
 		{"acceptance only, excluded", config.DeliveryCheckConfig{Enabled: true, Agent: "checker", IncludeAcceptance: &off},

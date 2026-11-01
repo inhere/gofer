@@ -1237,6 +1237,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/settings/{key}", s.handleSettingsGet)
 		r.PUT("/settings/{key}", s.handleSettingsPut)
 		r.DELETE("/settings/{key}", s.handleSettingsDelete)
+		r.GET("/background-agents", s.handleBackgroundAgentsList)
+		r.POST("/background-agents/{kind}/session/reset", s.handleBackgroundAgentSessionReset)
 		// WEB-04③ V1.1: the config WRITE surface (agents + a whitelisted server slice).
 		// Always mounted, can_admin-gated per handler; answer 503 without SetConfigWriter.
 		// The field policy table (config.FieldPolicyFor) is the whitelist: a field it

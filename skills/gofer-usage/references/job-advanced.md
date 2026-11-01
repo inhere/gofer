@@ -464,3 +464,5 @@ server:
 ```
 
 **硬停**：整理器与管家当天（UTC）已报告的花费 / token 达到 `daily_cost_usd` / `daily_tokens`，新的运行被拒绝（整理器本次整理失败并说明原因，管家本次唤醒失败并显示原因；没有报告用量的运行不计入预算）；整理器原有的每日整理次数上限 `work.summarize_daily` 照旧。轮换与硬停都写审计事件（`background_agent.rotated`、`background_agent.hard_stop`），详情含类型、项目、原因与阈值。整理器的 `work.summarizer_session_max_runs` / `summarizer_session_max_age` 显式写了仍优先于统一值。
+
+**查看与手动新开会话**：`gofer tool bg-agent ls [--json]` 列出每类后台 agent（整理器 `summarizer`、管家 `steward`、交付核验 `job_check`）当前的会话（项目、agent、运行次数、上下文占比；agent 没报告窗口时显示「未知」而不是 0%）和当天的运行 / 拒绝 / token / 花费；没有会话的类型显示为空。`gofer tool bg-agent reset <kind>` 结束该类型已记录的会话（所有项目），下一次运行新开会话；它不改配置、不删历史与用量、不中断正在进行的运行。两者只对人的凭据开放（读需要 `settings.read`，reset 需要 `settings.write`），job 凭据、worker token 与带项目 ceiling 的调用者被拒绝；reset 写审计。接口见 `docs/reference/http-api.md` 的 Background agents 一节。

@@ -467,3 +467,24 @@ POST /v1/background-agents/{kind}/session/reset
 **配置**：`server.background_agents` 增 `daily_cost_usd` / `daily_tokens`（≥ 0，0 = 不限）；整理器的 `work.summarizer_session_max_runs` / `summarizer_session_max_age` 显式写了优先于统一值（一次性回退，同样打了移除标记）。**与设计稿 §5.2 的差异**：现有整理器测试固定了「未配置旧 age 时 24h 后换会话」，本步保持该行为；它和「未显式设置旧 age 时不再用 24h」冲突，待旧字段移除时一并改为不按时间轮换。
 
 **给 DC3 的状态读取**：`bgagent.Runner.Status(kind, policy) KindStatus{Sessions[]{ID, LastJobID, Runs, CreatedAt, LastUsedAt, ContextUsed/Limit, ContextRatio *float64（未知为 nil）, RotationReason, LastUsage, Agent, Project, WorkDir, Model}, Today{Runs, Blocked, Input/Output/TotalTokens, CostUSD, UsageRuns, LastStatus, LastError, LastJobID, LastAt}, Policy}`；手动新开会话是 `Runner.Reset(kind, project, workDir, actor)`。
+
+### P3：管理接口（DC3，只读接口与手动 reset；Web 页不做）
+
+**范围裁剪**：按用户 2026-11-01 的决定（[`2026-11-01-attention-surfaces-review-design.md`](2026-11-01-attention-surfaces-review-design.md) §4.5 / §7：先暂停扩面，DC3 只做只读接口），§7 P3 里「设置导航拆出后台 agent 页、三张卡、前端 unknown 字段处理」**不做**，不新增 `SettingsLayout.vue` 导航与 `/settings/background-agents` 页；后台 agent 的配置仍走现有的 `config.write` 三个写接口。该决定解除后再做页面，接口形状已按页面需要预留（`version`、`null` 表示未知、空列表）。
+
+**HTTP**（`internal/httpapi/background_agent_handler.go`，只绑定）：
+
+- `GET /v1/background-agents` → `{version:1, kinds:[{kind, sessions[], today{}, policy{}}]}`；`kinds` 固定按 `summarizer` / `steward` / `job_check` 排列；没有会话是 `sessions: []`，上下文用量 / 占比 / 最近用量未知时为 `null`（不是 0）。整理器的状态走 `work.Service.BackgroundStatus()`（保留旧阈值回退与本地日界），其余类型用 `server.background_agents.session` 的统一阈值。
+- `POST /v1/background-agents/{kind}/session/reset` → `{version, reset, kind{...}}`：调用 `Runner.ResetKind`（对该类型每个 project / work_dir 调 `Reset`，各写 `background_agent.reset` 审计事件），handler 另写 `auth_audit`（`background_agent.reset`，`sessions=<n>`）；未知类型 404。不改配置、不删历史、不中断进行中的运行。
+- 权限：复用 `settings.read` / `settings.write`（不新增权限名），`routeDecls` 声明 `Require(...)` + `NoProject()`；handler 另拒绝非人凭据（job 凭据、worker token）与带项目 ceiling 的调用者。`docs/reference/permissions.md` 已由 `go generate` 更新。
+- wire 形状与转换放在 `internal/bgagent/view.go`（`View` / `KindView` / `SessionView` / `ResetView`，`ViewVersion = 1`），HTTP 与 CLI 客户端共用。
+
+**CLI**（G033：小工具类，放 `gofer tool`）：`gofer tool bg-agent ls [--json]`、`gofer tool bg-agent reset <kind>`（`internal/commands/tool_bgagent.go`，cliText 中英在 `cli_misc.ini`，Opts 已在 `flagGlobals` 登记，zh-CN help golden 已更新）。**MCP 不加**：§5.4 明确「MCP 不新增管理工具」，后台 agent 管理是运维面，不让 job 凭据自己重置会话。
+
+**仍未做 / 注意**：`job_check` 还没接到 runner（P2 记录的状态不变），所以它的 `sessions` 与 `today` 目前恒为空；切换后接口无需改动。
+
+### P4：灰度与收尾（DC4）
+
+- **默认关闭已核实**：`server.delivery_check.enabled` 零值为 false，没有任何默认值或示例配置把它打开；`deliveryCheckApplies` 在未开启时直接返回不核验，job 带 `check_prompt` / `<delivery-check>` 块 / `--acceptance` 也不会调用核验 agent。测试：`TestDeliveryCheckSkipRules`（新增「默认配置从不核验」用例，与原 `disabled` 用例并列）、`TestDeliveryCheckDefaultsAndValidation`（`Enabled` 默认 false）。注意：设计稿 §9b 后来把「显式 `verify_prompt`」放宽为三种来源合并（显式 `check_prompt`、任务书标记块、`--acceptance`，后者受 `include_acceptance` 控制），故「生效条件」是「管理员开启 + 任一来源的要求」，代码按 §9b 实现，未改。
+- **文档**：交付核验的 CLI / job / 配置说明早已在 `skills/gofer-usage/references/job-advanced.md`「交付核验」一节，HTTP 字段在 `docs/reference/http-api.md`（job 请求字段 `check_prompt` 等）；本步补了后台 agent 状态 / reset 的说明（`job-advanced.md` 后台 agent 一节、`commands.md` 命令速查、`http-api.md` 新增 Background agents 一节）与 CHANGELOG「未发布」。
+- **明确不做**（按本设计 §7 P4 与 §4.5）：项目默认 `check_prompt`、手动重跑检查、更丰富的 diff evidence。
