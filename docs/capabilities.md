@@ -206,4 +206,4 @@
 | 能力 | 状态 | 说明 | 设计稿 |
 |---|---|---|---|
 | 每日记忆综合的每日调度 | 开发中，未发布 | P1 与 P2（显式 `run` 调模型）已发布；每日定时调度与开场引用（P3）、候选队列（暂缓）尚未提供 | [design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md)（0.2 已批准） |
-| 后台 agent 管理页与会话轮换 | 开发中，未发布 | 会话轮换配置 `server.background_agents.session`（按上下文用量与次数，默认不按时长）目前只有存储结构，轮换行为与管理页尚未提供 | [design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md)（方案二） |
+| 后台 agent 管理页与会话轮换 | 开发中，未发布 | 整理器与管家已按 `server.background_agents.session`（上下文用量、次数、显式 `max_age`）轮换会话，并有每日花费 / token 硬停与审计事件（未发布）；交付核验接入同一 runner、管理页与手动新开会话尚未提供 | [design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md)（方案二） |

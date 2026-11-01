@@ -63,6 +63,21 @@ func (h stewardHost) StartSession(sp steward.StartSpec) (string, error) {
 	return res.ID, nil
 }
 
+// ResumeSession implements steward.SessionResumer: the idle-ended steward session is
+// loaded again (an ACP session/load of the same session) as a new resident steward job
+// that drives the prompt as its turn. The continuation keeps the source's approval gate
+// (SessionApproval is inherited) and is stamped as the steward's, so it gets the steward
+// credential and the injected gofer MCP again.
+func (h stewardHost) ResumeSession(sp steward.ResumeSpec) (string, error) {
+	res, err := h.jobs.ResumeJobWith(sp.JobID, sp.Prompt, "", "gofer", job.ResumeOptions{
+		Mode: job.ResumeModeSession, Steward: true, Internal: true,
+	})
+	if err != nil {
+		return "", err
+	}
+	return res.ID, nil
+}
+
 func (h stewardHost) Say(jobID, text string) error { return h.jobs.SaySession(jobID, text) }
 
 func (h stewardHost) End(jobID string) error {
@@ -82,6 +97,7 @@ func (h stewardHost) Job(jobID string) (steward.JobInfo, bool) {
 		ID: r.ID, Agent: r.Agent, Status: r.Status, Live: !job.IsTerminal(r.Status),
 		AwaitingInput: r.Status == job.StatusAwaitingInput && !r.SessionEnding,
 		TurnNo:        r.TurnNo, StartedAt: r.StartedAt,
+		SessionID: r.SessionID, Usage: r.Usage,
 	}, true
 }
 

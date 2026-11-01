@@ -364,6 +364,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// per tick so a hot reload applies.
 	if ws := srv.Work(); ws != nil {
 		ws.SetConfigFn(func() config.WorkConfig { return cr.Config().Work })
+		ws.SetBackgroundAgentsFn(func() config.BackgroundAgentsConfig { return cr.Config().Server.BackgroundAgents })
 		// Noise reduction (design 2026-10-20 §总体方案 1) reads its thresholds and lists from
 		// the extension settings: the same process-wide instance the HTTP API serves, so a
 		// write through /v1/settings applies to the next prompt / tick.
@@ -392,6 +393,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 			c := cr.Config()
 			return c.Steward, c.Work
 		})
+		st.SetBackgroundAgentsFn(func() config.BackgroundAgentsConfig { return cr.Config().Server.BackgroundAgents })
 		st.SetLanguageFn(func() i18n.Lang {
 			c := cr.Config()
 			return c.LanguageFor(c.Steward.Project)

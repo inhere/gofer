@@ -11,10 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/bgagent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/i18n/prompts"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/settings"
 	"github.com/inhere/gofer/internal/work/transcript"
 )
@@ -115,6 +117,9 @@ type OneShotResult struct {
 	// layer); recorded so the next tidy-up knows what it is continuing.
 	SessionID string
 	Output    string
+	// Usage is what the agent reported for the job (nil = nothing): the common runner
+	// records it and reads the context fill from it.
+	Usage *runner.Usage
 }
 
 // OneShot runs the summarizer job (the entry layer adapts job.Service).
@@ -458,7 +463,12 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	if keeper, ok := s.oneShot.(SessionKeeper); ok {
 		canResume = keeper.CanContinueSession(agentName)
 	}
-	session, resumed := s.summarizerSession(project, c, canResume)
+	// The hard stops of the common runner (daily cost / token budget of the kind): a
+	// tripped one refuses the tidy-up and is audited. The daily run limit above stays as is.
+	if gerr := s.bgRunner().Guard(summarizerKey(project, agentName, c), bgagent.LimitsFromConfig(s.bgConfig())); gerr != nil {
+		return failKey("work.summarize.budget_stopped", "reason", gerr.Error())
+	}
+	plan, resumed := s.summarizerPlan(project, agentName, c, canResume)
 	// One tidy-up at a time in a project: two runs sharing the session would interleave.
 	if !s.claimSession(summarizerProjectKey(project)) {
 		return failKey("work.summarize.project_busy")
@@ -470,12 +480,16 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	var last OneShotResult
 	var perr error
 	for round := 0; round < 2; round++ {
-		r, o2, rerr := s.runSummaryAttempt(ctx, w, material, degraded, agentName, c, project, title, session, resumed, o.Origin)
+		r, o2, rerr := s.runSummaryAttempt(ctx, w, material, degraded, agentName, c, project, title, plan, resumed, o.Origin)
 		if r.JobID != "" {
 			last.JobID = r.JobID
 		}
 		if r.SessionID != "" {
 			last.SessionID = r.SessionID
+		}
+		last.Output = r.Output
+		if r.Usage != nil {
+			last.Usage = r.Usage
 		}
 		if rerr == nil {
 			out, perr = o2, nil
@@ -484,10 +498,7 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 		if resumed && !errors.Is(rerr, errSummaryOutput) {
 			// The session cannot be continued (gone, or the agent refused): start a new
 			// one instead of failing the tidy-up, and record why.
-			s.resetSummarizerSession(project, agentName, rerr)
-			session, resumed = jobstore.SummarizerSession{
-				ProjectKey: project, CreatedAt: s.nowFn().Unix(), UpdatedAt: s.nowFn().Unix(),
-			}, false
+			plan, resumed = s.resetSummarizerSession(plan, project, agentName, rerr), false
 			continue
 		}
 		perr = rerr
@@ -496,11 +507,12 @@ func (s *Service) RunSummarize(ctx context.Context, itemID string, o SummarizeOp
 	jobID := last.JobID
 	res.JobID = jobID
 	if perr != nil {
+		s.bgRunner().Fail(plan, perr, false)
 		finish(jobstore.SummaryFailed, jobID, perr.Error())
 		s.journalSteward(w.ID, SummarizerBy(agentName), i18n.T(lang, "work.journal.summary_failed", "error", perr.Error()))
 		return failKey("work.summarize.failed", "error", perr.Error())
 	}
-	s.commitSummarizerSession(session, project, jobID, last.SessionID)
+	s.commitSummarizerSession(plan, resumed, project, last, len(material))
 	applied, suggested, hint := s.applySummary(w.ID, out, SummarizerBy(agentName), jobID)
 	res.Applied, res.Suggested, res.StatusHint, res.Confidence = applied, suggested, hint, out.Confidence
 	finish(jobstore.SummaryOK, jobID, "")

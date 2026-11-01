@@ -440,4 +440,27 @@ gofer job comments <job-id>
 
 `gofer job show` 显示 `check_req`（是否带要求及来源）、`check`（裁决、轮次与不合格条目）、`check_resumes`、`check_error`，以及由核验触发的续接 job id（`continued by:`）。事件：`job.delivery_check.started|passed|failed|auto_resumed|error`。
 
-配置在 `server.delivery_check`（默认关闭）：`agent`（需是带只读模式的 cli-agent）、`model`、`args`、`timeout_sec`、`max_auto_resumes`、`daily_limit`、`input_max_bytes`、`report_tail_bytes`、`include_acceptance`。核验以隐藏的只读 job 运行（`gofer job ls --all` 可见）。要求写成可观测的条件（数量、文件、汇报内容），不要写成模糊的评价。后台 agent 会话轮换的默认值在 `server.background_agents.session`（上下文占比 0.7、20 次运行，未配置 `max_age` 时不按时间轮换）。
+配置在 `server.delivery_check`（默认关闭）：`agent`（需是带只读模式的 cli-agent）、`model`、`args`、`timeout_sec`、`max_auto_resumes`、`daily_limit`、`input_max_bytes`、`report_tail_bytes`、`include_acceptance`。核验以隐藏的只读 job 运行（`gofer job ls --all` 可见）。要求写成可观测的条件（数量、文件、汇报内容），不要写成模糊的评价。后台 agent 的会话轮换与硬停见下一节。
+
+### 后台 agent 的会话轮换与硬停
+
+工作项整理器和管家共用一个会话 runner：每类按「类型 + 项目 + 工作目录 + agent + model」各记一个会话，**类型之间绝不复用**，同一类型内只有键完全一致才续用；换 agent / model 就开新会话。每次运行前按固定顺序决定：
+
+1. 上下文用量占比达到 `max_context_ratio`（主规则，默认 0.7），或本会话已运行 `max_runs` 次（辅规则，默认 20，也覆盖不报告用量的 agent）：换新会话；
+2. 显式配置了 `max_age` 且会话已超时：同样换新会话（兜底，默认关闭，未配置时**不按时间轮换**）；
+3. 其余情况续用（agent 自己的 resume / load）；续用失败（会话没了、agent 拒绝）回退成新会话并记原因，不算这次运行失败。
+
+上下文占比来自 agent 在 NDJSON 里报告的数据：suga 的 `turn_end.context`（`est_tokens` / `window` / `ratio`）、claude 的 `result.modelUsage.<model>.contextWindow`、ACP 的 `usage_update`（`used` / `size`）、以及通用的 `context_used_tokens` / `context_limit_tokens`；取流里最后一个合法值。agent 没有报告窗口（如 omp、codex）时占比是「未知」而不是 0，只按次数轮换，不会从模型名猜窗口。
+
+```yaml
+server:
+  background_agents:
+    session:
+      max_context_ratio: 0.7   # 0~1，主规则
+      max_runs: 20             # 辅规则
+      max_age: ""              # 如 "24h"；空 = 不按时间轮换
+    daily_cost_usd: 0          # 每类后台 agent 当天（UTC）累计花费上限，0 = 不限
+    daily_tokens: 0            # 同上，按 token
+```
+
+**硬停**：整理器与管家当天（UTC）已报告的花费 / token 达到 `daily_cost_usd` / `daily_tokens`，新的运行被拒绝（整理器本次整理失败并说明原因，管家本次唤醒失败并显示原因；没有报告用量的运行不计入预算）；整理器原有的每日整理次数上限 `work.summarize_daily` 照旧。轮换与硬停都写审计事件（`background_agent.rotated`、`background_agent.hard_stop`），详情含类型、项目、原因与阈值。整理器的 `work.summarizer_session_max_runs` / `summarizer_session_max_age` 显式写了仍优先于统一值。

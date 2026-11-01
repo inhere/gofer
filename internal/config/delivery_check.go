@@ -114,7 +114,24 @@ func (d DeliveryCheckConfig) validate() error {
 // BackgroundAgentsConfig contains shared session rotation policy.
 type BackgroundAgentsConfig struct {
 	Session BackgroundAgentSessionConfig `yaml:"session,omitempty"`
+	// DailyCostUSD / DailyTokens are hard stops per background agent kind (job_check,
+	// summarizer, steward): once a kind's reported usage of the day reaches them, its runs
+	// are refused until the next UTC day. 0 = no cap (runs that report no usage add
+	// nothing, so a cap only counts what is known).
+	DailyCostUSD float64 `yaml:"daily_cost_usd,omitempty"`
+	DailyTokens  int64   `yaml:"daily_tokens,omitempty"`
 }
+
+func (b BackgroundAgentsConfig) validate() error {
+	if b.DailyCostUSD < 0 {
+		return fmt.Errorf("server.background_agents.daily_cost_usd must not be negative")
+	}
+	if b.DailyTokens < 0 {
+		return fmt.Errorf("server.background_agents.daily_tokens must not be negative")
+	}
+	return b.Session.validate()
+}
+
 type BackgroundAgentSessionConfig struct {
 	MaxContextRatio float64 `yaml:"max_context_ratio,omitempty"`
 	MaxRuns         int     `yaml:"max_runs,omitempty"`

@@ -1819,6 +1819,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateWorkDeletedAudit(); err != nil {
 		return err
 	}
+	if err := s.migrateBackgroundAgents(); err != nil {
+		return err
+	}
 	if err := s.migrateWorkJournalLevel(); err != nil { // WORK-06
 		return err
 	}

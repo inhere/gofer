@@ -33,6 +33,9 @@ type Usage struct {
 	// (agent_tokens / agent_cost_usd): limit, used and whether it ran out. Additive —
 	// nil unless the agent reports it (suga's usage_update _meta / result `budget`).
 	AgentBudget *AgentBudgetUsage `json:"agent_budget,omitempty"`
+	// Context is how full the agent's context window ended up (a level, not a counter);
+	// nil unless the agent reports it. Additive.
+	Context *ContextUsage `json:"context,omitempty"`
 }
 
 // AgentBudgetUsage is the last soft-budget snapshot an agent reported. A zero Limit
@@ -143,6 +146,10 @@ func (u *Usage) Add(o *Usage) {
 	if o.AgentBudget != nil {
 		b := *o.AgentBudget
 		u.AgentBudget = &b
+	}
+	if o.Context != nil {
+		c := *o.Context
+		u.Context = &c
 	}
 	if u.Source == "" {
 		u.Source = o.Source

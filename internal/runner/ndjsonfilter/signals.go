@@ -31,7 +31,11 @@ type Signals struct {
 	// `budget` object on suga's usage / result rows), nil when the agent was not given
 	// one. Like WrapUp it is independent of Known.
 	AgentBudget *runner.AgentBudgetUsage
-	Known       bool
+	// Context is the last context-window level a row of the stream reported (suga's
+	// turn_end.context, the common context_* usage keys, claude's result modelUsage), nil
+	// when none did. Like AgentBudget it is independent of Known.
+	Context *runner.ContextUsage
+	Known   bool
 }
 
 // Wrap-up reasons an agent reports about itself, and the spellings it uses. suga's
@@ -92,10 +96,15 @@ type signalCounter struct {
 	wrapUp string
 	// agentBudget is the latest soft-budget snapshot seen on any row.
 	agentBudget *runner.AgentBudgetUsage
+	// context is the latest context-window level seen on any row (the last one wins).
+	context *runner.ContextUsage
 }
 
 func (c *signalCounter) observe(typ string, obj map[string]any) {
 	c.observeWrapUp(typ, obj)
+	if cu := runner.ContextFromLine(obj); cu != nil {
+		c.context = cu
+	}
 	if b := runner.AgentBudgetFromLine(obj); b != nil {
 		c.agentBudget = b
 	}
@@ -198,9 +207,9 @@ func (c *signalCounter) observeOMP(typ string, obj map[string]any) {
 
 func (c *signalCounter) result() Signals {
 	if !c.seen {
-		return Signals{Model: c.model, WrapUp: c.wrapUp, AgentBudget: c.agentBudget}
+		return Signals{Model: c.model, WrapUp: c.wrapUp, AgentBudget: c.agentBudget, Context: c.context}
 	}
-	out := Signals{ToolCalls: c.tools, Model: c.model, WrapUp: c.wrapUp, AgentBudget: c.agentBudget, Known: true}
+	out := Signals{ToolCalls: c.tools, Model: c.model, WrapUp: c.wrapUp, AgentBudget: c.agentBudget, Context: c.context, Known: true}
 	switch c.kind {
 	case ProjectorClaude:
 		out.Turns = c.resultTurns

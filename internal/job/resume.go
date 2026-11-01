@@ -118,6 +118,11 @@ type ResumeOptions struct {
 	// `job resume` keeps its notification strict — their mistake is reported to them.
 	Internal   bool
 	ReviewEach bool
+	// Steward marks the continuation as the steward's resident session (it gets the steward
+	// credential and the injected gofer MCP, like the session it continues): `Steward` is
+	// not a request field a continuation inherits, so the steward's idle-end resume asks
+	// for it here. Local runner only (the steward never runs remotely).
+	Steward bool
 	// checkRound is set by a delivery-check continuation: the chain's check-resume
 	// count the new job carries. It also makes an ACP continuation one-shot.
 	checkRound int
@@ -345,6 +350,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		base.NotifyDegradable = true
 	}
 	base.admissionPermit = opts.admissionPermit
+	base.Steward = opts.Steward
 	base.CheckResumeCount = opts.checkRound
 	// N1 §B / N2 §B: the model and budget checkResume settled (inherited unless
 	// overridden, dropped when the target cannot honour an inherited one).
