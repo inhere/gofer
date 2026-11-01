@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **后台 agent 统一会话 runner 与用量轮换（DC2）**：工作项整理器与管家接入同一个后台会话 runner（`internal/bgagent`）。会话按「类型 + 项目 + 工作目录 + agent + model」记录，类型之间不复用；运行前按固定规则决定续用 / 换新会话：上下文用量达到 `server.background_agents.session.max_context_ratio`（主规则，默认 0.7）、累计 `max_runs`（辅规则，默认 20）、显式配置的 `max_age`（兜底，默认不按时间轮换）；agent 没报告上下文窗口时占比为「未知」，只按次数轮换。上下文占比从 NDJSON 里读：suga 的 `turn_end.context`、claude 的 `result.modelUsage` 窗口、ACP `usage_update` 的 `used` / `size`、通用的 `context_used_tokens` / `context_limit_tokens`，随 job 用量保存（`usage.context`）。管家空闲结束后先加载同一会话续用，失败再从简报重建。新增整理器 / 管家每日用量硬停 `server.background_agents.daily_cost_usd` / `daily_tokens`；轮换与硬停写审计事件 `background_agent.rotated` / `background_agent.hard_stop`。整理器的 `work.summarizer_session_max_runs` / `summarizer_session_max_age` 显式写了仍优先于统一值，旧的整理器会话记录升级时自动导入并在首次整理时续用。管理页与手动新开会话入口尚未提供。
+
 ## [0.207.0] - 2026-11-01
 
 ### 新增

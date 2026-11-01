@@ -18,6 +18,13 @@ func usageFromUpdate(raw json.RawMessage) *runner.Usage {
 		return nil
 	}
 	usage := runner.UsageFromObject(obj, runner.UsageSourceACP)
+	// `used` / `size` are the standard context-window fields: a level of its own.
+	if ctx := runner.ContextFromACPUpdate(obj); ctx != nil {
+		if usage == nil {
+			usage = &runner.Usage{Source: runner.UsageSourceACP}
+		}
+		usage.Context = ctx
+	}
 	meta, ok := obj["_meta"].(map[string]any)
 	if !ok {
 		return usage
@@ -90,6 +97,10 @@ func overlayUsage(cur, next *runner.Usage) *runner.Usage {
 	if next.AgentBudget != nil {
 		b := *next.AgentBudget
 		cur.AgentBudget = &b
+	}
+	if next.Context != nil {
+		c := *next.Context
+		cur.Context = &c
 	}
 	return cur
 }

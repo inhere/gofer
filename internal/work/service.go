@@ -79,7 +79,10 @@ type Service struct {
 	sumSessions map[string]bool // sessions with a tidy-up in flight
 	reqInflight map[string]bool // summarize requests with a tidy-up in flight
 	cfgFn       func() config.WorkConfig
-	nowFn       func() time.Time
+	// bgCfgFn reads server.background_agents (the unified session rotation thresholds
+	// and the budget hard stops of the background agents); nil = the defaults.
+	bgCfgFn func() config.BackgroundAgentsConfig
+	nowFn   func() time.Time
 	// settings is the extension-settings seam the noise rules read (noise.go); nil = the
 	// registry defaults.
 	settings Settings
@@ -204,6 +207,10 @@ func (s *Service) SetJobProbe(p JobProbe) { s.probe = p }
 // SetConfigFn supplies the live work: config block (read on every tick, so a hot
 // reload applies to the next one). nil keeps the defaults.
 func (s *Service) SetConfigFn(fn func() config.WorkConfig) { s.cfgFn = fn }
+
+// SetBackgroundAgentsFn supplies the live server.background_agents config block (read
+// on every tidy-up). nil keeps the defaults.
+func (s *Service) SetBackgroundAgentsFn(fn func() config.BackgroundAgentsConfig) { s.bgCfgFn = fn }
 
 // SetDueHook installs the observer of announced reminders / park deadlines (nil = none).
 func (s *Service) SetDueHook(fn func(w jobstore.WorkItem, reason string, at int64)) { s.dueHook = fn }

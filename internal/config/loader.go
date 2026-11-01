@@ -552,7 +552,7 @@ func validate(cfg *Config) error {
 	if err := cfg.Server.DeliveryCheck.validate(); err != nil {
 		return err
 	}
-	if err := cfg.Server.BackgroundAgents.Session.validate(); err != nil {
+	if err := cfg.Server.BackgroundAgents.validate(); err != nil {
 		return err
 	}
 	if err := ValidateTools(cfg.Tools); err != nil {

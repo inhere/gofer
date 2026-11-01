@@ -142,6 +142,15 @@ func (s *Service) recordNDJSONCapture(entry *jobEntry, jobID string, w io.WriteC
 		b := *signals.AgentBudget
 		entry.result.Usage.AgentBudget = &b
 	}
+	// The context-window level (suga turn_end.context, claude modelUsage, context_* keys)
+	// rides the same usage; the background-agent rotation reads it from there.
+	if signals.Context != nil {
+		if entry.result.Usage == nil {
+			entry.result.Usage = &Usage{Source: runner.UsageSourceNDJSONPrefix + effectiveOutputAgent(entry.result)}
+		}
+		cu := *signals.Context
+		entry.result.Usage.Context = &cu
+	}
 	agentKey := effectiveOutputAgent(entry.result)
 	entry.mu.Unlock()
 	slog.Info("job.ndjson_capture", "job_id", jobID, "agent", agentKey,

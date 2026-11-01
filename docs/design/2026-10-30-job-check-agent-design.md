@@ -435,3 +435,35 @@ POST /v1/background-agents/{kind}/session/reset
 12. **Web 的配置页形状**：推荐独立 `/settings/background-agents` 页面，三张卡聚合展示、保存仍走三套现有接口。理由是减少 `WorkSettings.vue` 继续膨胀，也避免为统一视觉重写已稳定的配置写事务。
 13. **模型字段规范化**：推荐新增显式 `model`，旧 args 中的已知 `--model` 只在读取时解析，首次保存再迁移。理由是卡片能稳定显示模型，未知 args 原样保留，避免静默改变现有 agent 参数。
 14. **手动新会话的语义**：推荐只标记当前会话为 reset、让下一次后台运行 fresh，不取消正在运行的 turn。理由是页面操作不应破坏正在执行的 job / review；若运维需要立即停止，继续使用管家现有 stop / restart。
+
+## 实施记录
+
+### P2：统一后台 runner 与用量（DC2）
+
+**落点**：新包 `internal/bgagent`（深模块）。依赖只到数据层（`config` / `jobstore` / `runner`），不 import `job`、`httpapi`、`serve`、`core` 等；job 层通过 `Executor` 接口接入，由入口层适配。
+
+**对外接口（少量）**：`New(store, Options)` 得到 `Runner`：
+
+- `Plan(key, policy, caps) Plan`：读会话记录并按统一规则 `Decide` 出 `fresh | resume | clear_context` 与原因；
+- `Commit(plan, outcome)` / `Fail(plan, err, dropSession)` / `Fallback(plan, cause, reason)`：记账（会话记录、run 日志、轮换审计）、续用失败回退新会话；
+- `Guard(key, limits)`：每日次数 / 花费 / token 硬停；`Observe(...)`：结束后的 job 才知道的用量与 agent 侧 session id 补记；
+- `Run(ctx, Executor, Request)`：一次性适配器用的整套流程（Guard → Plan → Execute（resume / clear 因会话不可用回退 fresh）→ Commit / 硬停）；
+- `Reset(...)` / `Status(kind, policy)`：手动新开会话与状态读取（给 DC3）。
+
+`Executor`（`Caps` + `Execute`）是唯一接缝；调用方不能传 env / 工具 / MCP / 目录。`ErrSessionLost` / `ErrClearUnsupported` 让 runner 回退 fresh。
+
+**适配器**：
+
+- 整理器：`work.OneShot` / `SessionKeeper` / `SessionResumer` 外部行为与现有测试不变；`oneShotExecutor`（`internal/work/summarize_session.go`）把它们适配为 `Executor`，会话的选择 / 提交 / 重置走 runner；`OneShotResult` 增加 `Usage`（由 httpapi 的 `workOneShot` 从 job 用量带回）。
+- 管家：`steward` 在 `ensureSession` 里先 `Observe` 上一个会话 job 的用量，再 `Guard` / `Plan`；计划为 resume 时经可选接口 `SessionResumer.ResumeSession` 加载同一会话（`stewardHost` 用 `ResumeJobWith(..., Steward: true)`），失败 `Fallback` 后从简报重建。job 层新增 `ResumeOptions.Steward`（续接不继承 `Steward` 标记，需显式带上）。管家不做 clear-context。
+- 交付核验（job_check）：本阶段**未**切到 runner（P1 的 `serviceChecker` 与进程内日计数不变），runner 已按 kind 支持它；切换留待后续。
+
+**用量归一化**：复用 `runner.UsageFromObject` 与 `ndjsonfilter`，新增 `runner.ContextUsage`（`Usage.Context`，additive）与 `ContextFromLine` / `ContextFromACPUpdate`；`ndjsonfilter.Signals.Context` 在原始行上取最后一个合法值，`job` 的 `recordNDJSONCapture` 并入 job 用量。覆盖：suga（`turn_end.context`，ratio 优先，缺 ratio 用 est_tokens / window）、claude（`result.modelUsage.<model>.contextWindow` + 该模型输入计数，标估算）、ACP（`usage_update.used / size`）、通用 `context_used_tokens` / `context_limit_tokens`；omp / codex 没有窗口字段，占比为未知。窗口缺失 = 未知（不是 0），不从模型名猜。
+
+**轮换与硬停**：见 §3.3；顺序为手动 reset → 上下文占比（`>=`）→ 次数（`>=`）→ 显式 `max_age`（`>=`，未配置不按时间）→ 续用；agent / model / project / work_dir 不同则 fresh（同 kind + project + work_dir 只保留一个活动会话，换 agent / model 时旧的被替换）。clear-context 仅在 `Caps.CanClearContext` 时使用；现有生产 `Executor` 都不声明该能力（job 层还没有 `--clear-ctx` 模板），所以实际是换新会话。硬停：`daily_runs`（调用方给）、`server.background_agents.daily_cost_usd` / `daily_tokens`（按 kind、UTC 日、只统计已报告用量）、单次 `Timeout`；均写 `audit_events`（`background_agent.rotated` / `background_agent.hard_stop` / `background_agent.reset`）并在 `background_agent_runs` 记 `blocked` / `timeout` / `canceled`。
+
+**schema（additive，G057）**：`background_agent_sessions` 增 `last_job_id`、`rotation_reason`；`background_agent_runs` 增 `project`、`mode`、`rotation_reason`——都只在迁移里加（`migrateBackgroundAgents`），基础 schema 不引用。整理器旧表 `summarizer_sessions` 的行在迁移里一次性导入为 `kind=summarizer`、未绑定 agent / model 的会话（work_kv 标记），首次整理时由 runner 绑定并续用；`GetSummarizerSession` / `SaveSummarizerSession` / `DeleteSummarizerSession` / `ListSummarizerSessionIDs` 改为这张通用表的 per-project 视图。旧表不再写入，`// DEPRECATED(v0.208): remove in v0.211`。
+
+**配置**：`server.background_agents` 增 `daily_cost_usd` / `daily_tokens`（≥ 0，0 = 不限）；整理器的 `work.summarizer_session_max_runs` / `summarizer_session_max_age` 显式写了优先于统一值（一次性回退，同样打了移除标记）。**与设计稿 §5.2 的差异**：现有整理器测试固定了「未配置旧 age 时 24h 后换会话」，本步保持该行为；它和「未显式设置旧 age 时不再用 24h」冲突，待旧字段移除时一并改为不按时间轮换。
+
+**给 DC3 的状态读取**：`bgagent.Runner.Status(kind, policy) KindStatus{Sessions[]{ID, LastJobID, Runs, CreatedAt, LastUsedAt, ContextUsed/Limit, ContextRatio *float64（未知为 nil）, RotationReason, LastUsage, Agent, Project, WorkDir, Model}, Today{Runs, Blocked, Input/Output/TotalTokens, CostUSD, UsageRuns, LastStatus, LastError, LastJobID, LastAt}, Policy}`；手动新开会话是 `Runner.Reset(kind, project, workDir, actor)`。

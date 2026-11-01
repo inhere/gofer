@@ -25,6 +25,7 @@ import (
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/i18n/prompts"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/work"
 )
 
@@ -61,6 +62,10 @@ type JobInfo struct {
 	AwaitingInput bool // between turns: a message can be sent
 	TurnNo        int
 	StartedAt     int64
+	// SessionID / Usage are what the (ended) job reported: the agent-side session and its
+	// usage with the context level. Optional; the common runner records them.
+	SessionID string
+	Usage     *runner.Usage
 }
 
 // SessionHost is the seam to the job layer (httpapi adapts job.Service).
@@ -116,7 +121,9 @@ type Service struct {
 
 	langFn func() i18n.Lang
 	cfgFn  func() (config.StewardConfig, config.WorkConfig)
-	nowFn  func() time.Time
+	// bgCfgFn reads server.background_agents (unified rotation + budget hard stops).
+	bgCfgFn func() config.BackgroundAgentsConfig
+	nowFn   func() time.Time
 
 	// mu serialises lifecycle changes (start / stop / reconcile); askMu serialises asks
 	// (an ask may wait for the previous turn to end); tickMu serialises Tick.
@@ -395,12 +402,30 @@ func (s *Service) ensureSession(firstTurn string) (jobID string, started bool, e
 	if err := s.host.CheckAgent(c.AgentName()); err != nil {
 		return "", false, fmt.Errorf("steward agent %q cannot run: %w", c.AgentName(), err)
 	}
-	prime, err := s.BuildPrime(s.nowFn())
+	// The common runner decides how this (re)start uses the previous session: continue it
+	// (load the same session) or rebuild from the prime — see background.go.
+	bg := s.bgRunner()
+	plan, err := s.bgBegin(c)
 	if err != nil {
 		return "", false, err
 	}
 	if strings.TrimSpace(firstTurn) == "" {
 		firstTurn = readyLine(s.language())
+	}
+	var id string
+	var resumed bool
+	if plan, id, resumed = s.tryResume(bg, plan, c, firstTurn); resumed {
+		now := strconv.FormatInt(s.nowFn().Unix(), 10)
+		s.setKV(kvJobID, id)
+		s.setKV(kvAgent, c.AgentName())
+		s.setKV(kvStartedAt, now)
+		s.setKV(kvLastActive, now)
+		return id, true, nil
+	}
+	prime, err := s.BuildPrime(s.nowFn())
+	if err != nil {
+		s.failBackground(bg, plan, err)
+		return "", false, err
 	}
 	// gofer-j0aq: the steward job carries its OWN approval gate. Its work is gofer writes
 	// (note / remind / ask a session to report), so the project's policy would park every
@@ -415,15 +440,18 @@ func (s *Service) ensureSession(firstTurn string) (jobID string, started bool, e
 		pol := c.ApprovalPolicy()
 		approval = &pol
 	}
-	id, err := s.host.StartSession(StartSpec{
+	startPrompt := prime.Text + "\n\n---\n\n" + firstTurn
+	id, err = s.host.StartSession(StartSpec{
 		Agent: c.AgentName(), Project: c.ProjectKey(),
 		Title:  stewardText(s.language(), "session.title", "agent", c.AgentName()),
-		Prompt: prime.Text + "\n\n---\n\n" + firstTurn, IdleSec: int(c.IdleEnd().Seconds()),
+		Prompt: startPrompt, IdleSec: int(c.IdleEnd().Seconds()),
 		Approval: approval,
 	})
 	if err != nil {
+		s.failBackground(bg, plan, err)
 		return "", false, err
 	}
+	s.commitRebuild(bg, plan, id, len(startPrompt))
 	now := strconv.FormatInt(s.nowFn().Unix(), 10)
 	s.setKV(kvJobID, id)
 	s.setKV(kvAgent, c.AgentName())

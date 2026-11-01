@@ -181,6 +181,7 @@ func (o workOneShot) finish(ctx context.Context, jobID string, timeoutSec int, l
 	stdout, _ := o.jobs.TailLog(jobID, store.StreamStdout, 64*1024)
 	out.Output = string(stdout)
 	out.SessionID = final.SessionID
+	out.Usage = final.Usage
 	return out, nil
 }
 
