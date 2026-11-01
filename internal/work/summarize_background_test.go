@@ -235,3 +235,23 @@ func TestOneShotExecutorThroughTheRunner(t *testing.T) {
 	assert.Eq(t, bgagent.ModeFresh, res.Mode)
 	assert.Eq(t, bgagent.ReasonSessionLost, res.Reason)
 }
+
+// TestSummarizerBackgroundStatus: the status reads the summarizer's own policy (with the
+// legacy age default) and shows the recorded session; without one it is empty.
+func TestSummarizerBackgroundStatus(t *testing.T) {
+	svc, st, _, _ := sumFixture(t, goodJSON)
+	got, err := svc.BackgroundStatus()
+	assert.NoErr(t, err)
+	assert.Eq(t, bgagent.KindSummarizer, got.Kind)
+	assert.Eq(t, 0, len(got.Sessions))
+	assert.Eq(t, config.DefaultWorkSummarizerSessionAge, got.Policy.MaxAge)
+
+	assert.NoErr(t, st.ReplaceBackgroundSession(jobstore.BackgroundSession{
+		Kind: bgagent.KindSummarizer, SessionID: "s1", Project: "p1", Runs: 1, State: "active",
+		CreatedAt: 1, LastUsedAt: 1,
+	}))
+	got, err = svc.BackgroundStatus()
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, len(got.Sessions))
+	assert.Nil(t, got.Sessions[0].ContextRatio)
+}

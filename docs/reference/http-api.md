@@ -145,6 +145,16 @@ Restart the managed serve without downloading anything — the one-click update'
 - Jobs: request field `mcp` (names, added to the server / agent / project bindings) and `no_mcp`; the job carries the decided list as `mcp`. Events `job.mcp_injected {servers, notes}` and `job.mcp_skipped {reason, names}` (a worker below protocol v23).
 - Config view: `server.mcp`; agent rows `mcp` / `mcp_format` / `mcp_args`. All editable through the config write API (an agent PUT replaces the editable set, so a console must send them back).
 
+## Background agents (`/v1/background-agents`)
+
+A read-only, server-wide view of the sessions and today's totals of the server-owned background agents, plus a manual "start a new session". Both routes reuse the settings permissions (`GET` needs `settings.read`, the reset `settings.write`) and are a person's: a job credential and a worker token answer `403`, and so does a caller with a project ceiling (the agents belong to no project).
+
+- `GET /v1/background-agents` -> `{version, kinds:[{kind, sessions:[...], today:{...}, policy:{...}}]}`. `version` is `1`; a reader ignores fields it does not know. `kinds` always lists `summarizer`, `steward` and `job_check` in that order; a kind with no recorded session has `sessions: []` (never `null`, never a placeholder session).
+  - `sessions[]`: `{id, last_job_id?, agent?, project?, work_dir?, model?, runs, created_at, last_used_at, context_used_tokens, context_limit_tokens, context_ratio, rotation_reason?, last_usage}`. Times are unix seconds. The three `context_*` fields and `last_usage` are `null` when the agent never reported them: an unknown context is not `0`.
+  - `today`: `{runs, blocked, input_tokens, output_tokens, total_tokens, cost_usd, usage_runs, last_status?, last_error?, last_job_id?, last_at?}` for the runs since the start of the kind's day. Tokens and cost only cover the `usage_runs` runs that reported usage.
+  - `policy`: `{max_runs, max_context_ratio, max_age_sec}` as applied to that kind (`0` = that rule is off).
+- `POST /v1/background-agents/{kind}/session/reset` (no body) -> `{version, reset, kind:{...}}`: ends the active sessions of `kind` (every project / work dir) so the next run is fresh, and returns the kind as it reads afterwards (`reset` = how many sessions were ended, possibly `0`). It changes no configuration, keeps history and usage and does not stop a run in flight. `404` for an unknown kind. Audited (`auth_audit` action `background_agent.reset`, plus the runner's own `background_agent.reset` event).
+
 ## Extension settings (`/v1/settings`)
 
 Runtime-adjustable knobs stored in the database (prompts, thresholds, exclusion lists); `config.yaml` keeps everything that affects startup, security, connectivity or permissions. Reading needs `settings.read` (seeded to `users`), writing needs `settings.write` (medium risk, not seeded). Both are server-global: a caller with a scope ceiling keeps the read and its writes are refused by the ceiling.

@@ -212,3 +212,9 @@ func (s *Service) runSummaryAttempt(ctx context.Context, w jobstore.WorkItem, ma
 	}
 	return last, SummaryOut{}, fmt.Errorf("%w: %s", errSummaryOutput, i18n.T(s.lang(w.ProjectKey), "work.summarize.no_output"))
 }
+
+// BackgroundStatus is the common-runner status of the tidy-up kind (sessions, today's totals
+// on this service's day, and the policy its runs use, including the legacy overrides).
+func (s *Service) BackgroundStatus() (bgagent.KindStatus, error) {
+	return s.bgRunner().Status(bgagent.KindSummarizer, summarizerPolicy(s.cfg(), s.bgConfig()))
+}
