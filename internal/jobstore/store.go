@@ -1397,8 +1397,12 @@ func Open(path string) (*Store, error) {
 	// instead of ~22ms and dominated the test suite.
 	// secure_delete zeroes freed cell space, so a redacted or deleted value does not
 	// linger in the page images (job redact/delete then checkpoint the WAL away).
+	// _txlock=immediate: every transaction takes the write lock at BEGIN, where the busy
+	// handler applies. A deferred one that reads first and writes later (SELECT version,
+	// then INSERT) fails at once with "database is locked" when any other writer holds the
+	// lock, because SQLite never waits on a read-to-write upgrade.
 	dsn := fmt.Sprintf(
-		"file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)&_pragma=secure_delete(1)",
+		"file:%s?_txlock=immediate&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)&_pragma=secure_delete(1)",
 		path, busyTimeoutMS,
 	)
 	db, err := sql.Open("sqlite", dsn)

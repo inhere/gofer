@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -135,7 +136,9 @@ func TestPlanHandoffPermissions(t *testing.T) {
 	resp = do(t, s, http.MethodPut, "/v1/plans/"+attachedPlan+"/handoff", jobToken,
 		map[string]any{"body": "attached job", "expected_version": 0})
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("attached job handoff write status=%d, want 200", resp.StatusCode)
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("attached job handoff write status=%d, want 200; body=%s", resp.StatusCode, raw)
 	}
 	resp.Body.Close()
 
