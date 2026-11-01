@@ -109,7 +109,6 @@ gofer work rm --status dropped|done [--dry-run] [--yes]
 
 | 键 | 默认 | 作用 |
 |---|---|---|
-| `work.draft.min_prompts` / `exclude_projects` / `exclude_cwds` / `exclude_title_patterns` | — | **已不起作用**（会话不再自动建工作项）；键暂时保留，免得旧的设置导出 / 导入报错，v0.211 移除 |
 | `work.short_session.max_minutes` | 10 | 短命会话的时长阈值 |
 | `work.short_session.max_prompts` | 3 | 短命会话的人工提问次数阈值 |
 

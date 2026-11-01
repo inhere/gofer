@@ -79,7 +79,7 @@ const MaxPromptLen = 32 * 1024
 // Definition registers one setting. It is the single description of a key: the default,
 // the validation, and everything the listings show.
 type Definition struct {
-	// Key is `<subsystem>.<name>`, e.g. `work.draft.min_prompts`.
+	// Key is `<subsystem>.<name>`, e.g. `work.short_session.max_prompts`.
 	Key string
 	// Group is the subsystem the key is listed under.
 	Group string
@@ -106,23 +106,16 @@ func (d Definition) DescriptionIn(lang i18n.Lang) string {
 // Registry keys. Handlers, planners and tests spell keys through these constants rather
 // than repeating string literals (the names are published, they never change).
 const (
-	KeyWebNavHidden = "web.nav_hidden"
-	// The four work.draft.* keys have no consumer since sessions stopped creating work items
-	// (design 2026-11-01 §4.2); they stay readable so an old settings export still imports.
-	// DEPRECATED(v0.208): remove in v0.211
-	KeyWorkDraftMinPrompts           = "work.draft.min_prompts"
-	KeyWorkDraftExcludeProjects      = "work.draft.exclude_projects"
-	KeyWorkDraftExcludeCwds          = "work.draft.exclude_cwds"
-	KeyWorkDraftExcludeTitlePatterns = "work.draft.exclude_title_patterns"
-	KeyWorkShortSessionMaxMinutes    = "work.short_session.max_minutes"
-	KeyWorkShortSessionMaxPrompts    = "work.short_session.max_prompts"
-	KeyStewardActProactively         = "steward.act_proactively"
-	KeyPromptStewardRole             = "prompt.steward.role"
-	KeyPromptStewardRoleExtra        = "prompt.steward.role.extra"
-	KeyPromptStewardReview           = "prompt.steward.review"
-	KeyPromptStewardReviewExtra      = "prompt.steward.review.extra"
-	KeyPromptWorkSummarizer          = "prompt.work.summarizer"
-	KeyPromptWorkSummarizerExtra     = "prompt.work.summarizer.extra"
+	KeyWebNavHidden               = "web.nav_hidden"
+	KeyWorkShortSessionMaxMinutes = "work.short_session.max_minutes"
+	KeyWorkShortSessionMaxPrompts = "work.short_session.max_prompts"
+	KeyStewardActProactively      = "steward.act_proactively"
+	KeyPromptStewardRole          = "prompt.steward.role"
+	KeyPromptStewardRoleExtra     = "prompt.steward.role.extra"
+	KeyPromptStewardReview        = "prompt.steward.review"
+	KeyPromptStewardReviewExtra   = "prompt.steward.review.extra"
+	KeyPromptWorkSummarizer       = "prompt.work.summarizer"
+	KeyPromptWorkSummarizerExtra  = "prompt.work.summarizer.extra"
 )
 
 // registry is the key table, in listing order. The first batch is the noise-reduction
@@ -133,19 +126,6 @@ const (
 var registry = []Definition{
 	{
 		Key: KeyWebNavHidden, Group: GroupWeb, Kind: KindStrings, Default: []string{},
-	},
-	{
-		Key: KeyWorkDraftMinPrompts, Group: GroupWork, Kind: KindInt, Default: 2,
-		Min: 1, Max: 20,
-	},
-	{
-		Key: KeyWorkDraftExcludeProjects, Group: GroupWork, Kind: KindStrings, Default: []string{},
-	},
-	{
-		Key: KeyWorkDraftExcludeCwds, Group: GroupWork, Kind: KindStrings, Default: []string{},
-	},
-	{
-		Key: KeyWorkDraftExcludeTitlePatterns, Group: GroupWork, Kind: KindPatterns, Default: []string{},
 	},
 	{
 		Key: KeyWorkShortSessionMaxMinutes, Group: GroupWork, Kind: KindInt, Default: 10,

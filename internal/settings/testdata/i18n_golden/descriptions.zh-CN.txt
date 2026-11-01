@@ -1,8 +1,4 @@
 web.nav_hidden	Web 导航中隐藏的菜单 key（今天和设置始终显示）
-work.draft.min_prompts	（已不起作用：会话不再自动建工作项；v0.211 移除）同一会话第几次人工提问才建工作项草稿（1 = 第一次就建）
-work.draft.exclude_projects	（已不起作用：会话不再自动建工作项；v0.211 移除）不建草稿的项目 key 名单（精确匹配）
-work.draft.exclude_cwds	（已不起作用：会话不再自动建工作项；v0.211 移除）不建草稿的目录名单（会话 cwd 以其中某一项为前缀即命中）
-work.draft.exclude_title_patterns	（已不起作用：会话不再自动建工作项；v0.211 移除）不建草稿的标题正则（会话标题匹配任意一条即命中）
 work.short_session.max_minutes	短命会话的时长阈值（分钟；已结束且存活短于此、提问次数也少于此的会话不进整理与管家）
 work.short_session.max_prompts	短命会话的提问次数阈值（人工提问少于此且存活时间也短的会话不进整理与管家）
 steward.act_proactively	是否让管家自行动手（每日巡检与事件唤醒）：关闭（默认）= 只记录，把它本来会做的事记下来（gofer steward observations），不改状态、不发消息、不推送；开启 = 照常动手。你自己发起的巡检和提问始终动手

@@ -61,7 +61,7 @@ func (s *settingsStub) server(t *testing.T) (*httptest.Server, func()) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"settings": s.items})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/settings/export":
 			w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
-			_, _ = w.Write([]byte("work.draft.min_prompts: 3\n"))
+			_, _ = w.Write([]byte("work.short_session.max_prompts: 3\n"))
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/settings/import":
 			_ = json.NewEncoder(w).Encode(s.setImport)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/settings/"):
@@ -95,8 +95,8 @@ func (s *settingsStub) server(t *testing.T) (*httptest.Server, func()) {
 // prompt key, i.e. the three shapes the CLI renders differently.
 func settingsStubItems() []map[string]any {
 	return []map[string]any{
-		{"key": "work.draft.min_prompts", "kind": "int", "default": 2, "value": 2, "modified": false, "description": "prompts before a draft", "min": 1, "max": 20},
-		{"key": "work.draft.exclude_projects", "kind": "strings", "default": []string{}, "value": []string{"demo", "sandbox"}, "modified": true},
+		{"key": "work.short_session.max_prompts", "kind": "int", "default": 2, "value": 2, "modified": false, "description": "prompts before a session counts", "min": 1, "max": 20},
+		{"key": "web.nav_hidden", "kind": "strings", "default": []string{}, "value": []string{"demo", "sandbox"}, "modified": true},
 		{"key": "prompt.work.summarizer", "kind": "string", "default": "summarize", "value": "line one\nline two", "modified": true, "multiline": true},
 	}
 }
@@ -130,17 +130,17 @@ func TestSettingsLsTableAndJSON(t *testing.T) {
 			t.Fatalf("settings ls: %v", err)
 		}
 	})
-	for _, want := range []string{"KEY", "TYPE", "CHANGED", "work.draft.min_prompts", "strings", `line one\nline two`} {
+	for _, want := range []string{"KEY", "TYPE", "CHANGED", "work.short_session.max_prompts", "strings", `line one\nline two`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ls output missing %q:\n%s", want, out)
 		}
 	}
 	// A modified key is flagged, an unchanged one is not.
 	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "work.draft.min_prompts") && strings.Contains(line, "yes") {
+		if strings.HasPrefix(line, "work.short_session.max_prompts") && strings.Contains(line, "yes") {
 			t.Errorf("unchanged key reported as changed: %q", line)
 		}
-		if strings.HasPrefix(line, "work.draft.exclude_projects") && !strings.Contains(line, "yes") {
+		if strings.HasPrefix(line, "web.nav_hidden") && !strings.Contains(line, "yes") {
 			t.Errorf("modified key not flagged: %q", line)
 		}
 	}
@@ -156,7 +156,7 @@ func TestSettingsLsTableAndJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("ls --json is not a JSON array: %v\n%s", err, out)
 	}
-	if len(got) != 3 || got[0]["key"] != "work.draft.min_prompts" {
+	if len(got) != 3 || got[0]["key"] != "work.short_session.max_prompts" {
 		t.Fatalf("unexpected json entries: %+v", got)
 	}
 }
@@ -167,7 +167,7 @@ func TestSettingsGetPrintsValueAsWritten(t *testing.T) {
 	group := NewSettingsCmd()
 	c := bindCmd(group.Subs[1]) // get
 
-	c.Arg("key").WithValue("work.draft.exclude_projects")
+	c.Arg("key").WithValue("web.nav_hidden")
 	out := captureOutput(t, func() {
 		if err := runSettingsGet(c, nil); err != nil {
 			t.Fatalf("settings get list: %v", err)
@@ -178,7 +178,7 @@ func TestSettingsGetPrintsValueAsWritten(t *testing.T) {
 	}
 
 	c = bindCmd(group.Subs[1])
-	c.Arg("key").WithValue("work.draft.min_prompts")
+	c.Arg("key").WithValue("work.short_session.max_prompts")
 	out = captureOutput(t, func() {
 		if err := runSettingsGet(c, nil); err != nil {
 			t.Fatalf("settings get int: %v", err)
@@ -194,7 +194,7 @@ func TestSettingsGetPrintsValueAsWritten(t *testing.T) {
 	// to be set after it (this is what --json does on the command line).
 	settingsGetOpts.jsonOut = true
 	t.Cleanup(func() { settingsGetOpts.jsonOut = false })
-	c.Arg("key").WithValue("work.draft.min_prompts")
+	c.Arg("key").WithValue("work.short_session.max_prompts")
 	out = captureOutput(t, func() {
 		if err := runSettingsGet(c, nil); err != nil {
 			t.Fatalf("settings get --json: %v", err)
@@ -216,20 +216,20 @@ func TestSettingsGetPrintsValueAsWritten(t *testing.T) {
 
 func TestSettingsSetConvertsByKind(t *testing.T) {
 	stub := &settingsStub{items: settingsStubItems(), putItem: map[string]any{
-		"key": "work.draft.min_prompts", "kind": "int", "value": 3, "modified": true,
+		"key": "work.short_session.max_prompts", "kind": "int", "value": 3, "modified": true,
 	}}
 	stub.server(t)
 	group := NewSettingsCmd()
 
 	c := bindCmd(group.Subs[2]) // set
-	c.Arg("key").WithValue("work.draft.min_prompts")
+	c.Arg("key").WithValue("work.short_session.max_prompts")
 	c.Arg("value").WithValue("3")
 	out := captureOutput(t, func() {
-		if err := runSettingsSet(c, []string{"work.draft.min_prompts", "3"}); err != nil {
+		if err := runSettingsSet(c, []string{"work.short_session.max_prompts", "3"}); err != nil {
 			t.Fatalf("settings set int: %v", err)
 		}
 	})
-	if !strings.Contains(out, "set work.draft.min_prompts = 3") {
+	if !strings.Contains(out, "set work.short_session.max_prompts = 3") {
 		t.Fatalf("unexpected set output: %q", out)
 	}
 	// The value must reach the server as a NUMBER: a string would be refused by the
@@ -241,9 +241,9 @@ func TestSettingsSetConvertsByKind(t *testing.T) {
 	// A list key keeps its items: comma-separated on the command line, an array on the wire.
 	stub.items = settingsStubItems()
 	c = bindCmd(group.Subs[2])
-	c.Arg("key").WithValue("work.draft.exclude_projects")
+	c.Arg("key").WithValue("web.nav_hidden")
 	c.Arg("value").WithValue("demo, sandbox")
-	if err := runSettingsSet(c, []string{"work.draft.exclude_projects", "demo, sandbox"}); err != nil {
+	if err := runSettingsSet(c, []string{"web.nav_hidden", "demo, sandbox"}); err != nil {
 		t.Fatalf("settings set list: %v", err)
 	}
 	if body := stub.last().Body; !strings.Contains(body, `["demo","sandbox"]`) {
@@ -304,9 +304,9 @@ func TestSettingsSetFromFileOrStdin(t *testing.T) {
 	// A value that does not match the key's kind is refused before the request.
 	c = bindCmd(group.Subs[2])
 	settingsSetOpts.file = ""
-	c.Arg("key").WithValue("work.draft.min_prompts")
+	c.Arg("key").WithValue("work.short_session.max_prompts")
 	c.Arg("value").WithValue("many")
-	err = runSettingsSet(c, []string{"work.draft.min_prompts", "many"})
+	err = runSettingsSet(c, []string{"work.short_session.max_prompts", "many"})
 	if err == nil || !strings.Contains(err.Error(), "not an integer") {
 		t.Fatalf("a non-numeric int value should be refused locally, got %v", err)
 	}
@@ -316,16 +316,16 @@ func TestSettingsResetReportsDefault(t *testing.T) {
 	stub := &settingsStub{items: settingsStubItems()}
 	stub.server(t)
 	c := bindCmd(NewSettingsCmd().Subs[3]) // reset
-	c.Arg("key").WithValue("work.draft.min_prompts")
+	c.Arg("key").WithValue("work.short_session.max_prompts")
 	out := captureOutput(t, func() {
 		if err := runSettingsReset(c, nil); err != nil {
 			t.Fatalf("settings reset: %v", err)
 		}
 	})
-	if !strings.Contains(out, "reset work.draft.min_prompts") || !strings.Contains(out, "default 2") {
+	if !strings.Contains(out, "reset work.short_session.max_prompts") || !strings.Contains(out, "default 2") {
 		t.Fatalf("unexpected reset output: %q", out)
 	}
-	if req := stub.last(); req.Method != http.MethodDelete || req.Path != "/v1/settings/work.draft.min_prompts" {
+	if req := stub.last(); req.Method != http.MethodDelete || req.Path != "/v1/settings/work.short_session.max_prompts" {
 		t.Fatalf("reset should DELETE the key, got %s %s", req.Method, req.Path)
 	}
 }
@@ -340,7 +340,7 @@ func TestSettingsExportWritesYAML(t *testing.T) {
 			t.Fatalf("settings export: %v", err)
 		}
 	})
-	if !strings.Contains(out, "work.draft.min_prompts: 3") {
+	if !strings.Contains(out, "work.short_session.max_prompts: 3") {
 		t.Fatalf("export should print the YAML verbatim, got %q", out)
 	}
 
@@ -357,7 +357,7 @@ func TestSettingsExportWritesYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read exported file: %v", err)
 	}
-	if !strings.Contains(string(data), "work.draft.min_prompts: 3") {
+	if !strings.Contains(string(data), "work.short_session.max_prompts: 3") {
 		t.Fatalf("exported file content: %q", data)
 	}
 }
@@ -366,16 +366,16 @@ func TestSettingsImportPreviewThenWrite(t *testing.T) {
 	stub := &settingsStub{items: settingsStubItems(), setImport: map[string]any{
 		"dry_run": true, "applied": false, "errors": 0,
 		"changes": []map[string]any{
-			{"key": "work.draft.min_prompts", "action": "set", "old": 2, "new": 3},
-			{"key": "work.draft.exclude_projects", "action": "unchanged", "old": []string{"demo"}, "new": []string{"demo"}},
-			{"key": "work.draft.exclude_cwds", "action": "reset", "old": []string{"/tmp/x"}, "new": nil},
+			{"key": "work.short_session.max_prompts", "action": "set", "old": 2, "new": 3},
+			{"key": "web.nav_hidden", "action": "unchanged", "old": []string{"demo"}, "new": []string{"demo"}},
+			{"key": "work.short_session.max_minutes", "action": "reset", "old": []string{"/tmp/x"}, "new": nil},
 		},
 	}}
 	stub.server(t)
 	group := NewSettingsCmd()
 
 	path := filepath.Join(t.TempDir(), "import.yaml")
-	if err := os.WriteFile(path, []byte("work.draft.min_prompts: 3\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("work.short_session.max_prompts: 3\n"), 0o644); err != nil {
 		t.Fatalf("write import file: %v", err)
 	}
 	c := bindCmd(group.Subs[5]) // import
@@ -389,7 +389,7 @@ func TestSettingsImportPreviewThenWrite(t *testing.T) {
 	if req := stub.last(); !strings.Contains(req.Query, "dry_run=1") {
 		t.Fatalf("import without --yes must ask for a dry run, got query %q", req.Query)
 	}
-	for _, want := range []string{"set", "work.draft.min_prompts", "2 → 3", "unchanged", "reset", "(default)", "nothing written", "--yes"} {
+	for _, want := range []string{"set", "work.short_session.max_prompts", "2 → 3", "unchanged", "reset", "(default)", "nothing written", "--yes"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("preview output missing %q:\n%s", want, out)
 		}
@@ -418,12 +418,12 @@ func TestSettingsImportReportsRefusedKeys(t *testing.T) {
 	stub := &settingsStub{items: settingsStubItems(), setImport: map[string]any{
 		"dry_run": true, "applied": false, "errors": 1,
 		"changes": []map[string]any{
-			{"key": "work.draft.min_prompts", "action": "set", "old": 2, "new": 99, "error": "99 is above the maximum 20"},
+			{"key": "work.short_session.max_prompts", "action": "set", "old": 2, "new": 99, "error": "99 is above the maximum 20"},
 		},
 	}}
 	stub.server(t)
 	path := filepath.Join(t.TempDir(), "import.yaml")
-	if err := os.WriteFile(path, []byte("work.draft.min_prompts: 99\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("work.short_session.max_prompts: 99\n"), 0o644); err != nil {
 		t.Fatalf("write import file: %v", err)
 	}
 	c := bindCmd(NewSettingsCmd().Subs[5])

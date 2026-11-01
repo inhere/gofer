@@ -768,8 +768,8 @@ settings set	desc	Write one setting (value argument, or --file for a multi-line 
 settings set	help	The value is converted to the key's registered type, so a list key takes a
 comma-separated value and an int key a number:
 
-  gofer settings set work.draft.min_prompts 3
-  gofer settings set work.draft.exclude_projects "demo,sandbox"
+  gofer settings set work.short_session.max_prompts 3
+  gofer settings set web.nav_hidden "demo,sandbox"
   gofer settings set prompt.work.summarizer --file prompt.md
   cat prompt.md | gofer settings set prompt.work.summarizer --file -
 
@@ -895,7 +895,7 @@ tool api	help	路径相对于 server 的 /v1 API，因此 "jobs" 与 "/v1/jobs" 
 
   gofer tool api jobs -f status=running -f limit=5
   gofer tool api jobs -X POST --input job.json
-  gofer tool api settings/work.draft.min_prompts -X PUT -f value=3
+  gofer tool api settings/work.short_session.max_prompts -X PUT -f value=3
   gofer tool api prompt -F value=@prompt.md          # 文件内容作为字符串
   gofer tool api jobs -q 'jobs.*.id'
 

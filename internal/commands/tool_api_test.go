@@ -218,7 +218,7 @@ func TestToolApiPassesErrorsThrough(t *testing.T) {
 	stderr := captureToolApiStderr(t)
 
 	var err error
-	out := captureOutput(t, func() { err = runToolApi(c, []string{"/v1/settings/work.draft.min_prompts"}) })
+	out := captureOutput(t, func() { err = runToolApi(c, []string{"/v1/settings/work.short_session.max_prompts"}) })
 	if err == nil {
 		t.Fatal("a non-2xx answer must exit non-zero")
 	}

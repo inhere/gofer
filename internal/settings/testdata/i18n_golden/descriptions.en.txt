@@ -1,8 +1,4 @@
 web.nav_hidden	Menu keys hidden from the web navigation (Today and Settings are always shown)
-work.draft.min_prompts	(No effect any more: sessions no longer create work items automatically; removed in v0.211) Which human prompt of a session creates a work-item draft (1 = the first one)
-work.draft.exclude_projects	(No effect any more: sessions no longer create work items automatically; removed in v0.211) Project keys that get no draft (exact match)
-work.draft.exclude_cwds	(No effect any more: sessions no longer create work items automatically; removed in v0.211) Directories that get no draft (a session whose cwd starts with any entry matches)
-work.draft.exclude_title_patterns	(No effect any more: sessions no longer create work items automatically; removed in v0.211) Title regexes that get no draft (a session whose title matches any of them is skipped)
 work.short_session.max_minutes	Duration threshold of a short-lived session, in minutes (an ended session that lived shorter than this and had fewer prompts than the prompt threshold is left out of the summarizer and the steward)
 work.short_session.max_prompts	Prompt-count threshold of a short-lived session (a session with fewer human prompts than this that also lived briefly is left out of the summarizer and the steward)
 steward.act_proactively	Let the steward ACT on its own (the daily review and event wake-ups): off (default) = observe only, what it would have done is recorded (gofer steward observations) and nothing is changed, sent or pushed; on = it acts. Reviews you start yourself and questions you ask always act

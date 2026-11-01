@@ -20,26 +20,26 @@ func TestSettingsClientRoutes(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/settings":
 			_ = json.NewEncoder(w).Encode(map[string]any{"settings": []any{
-				map[string]any{"key": "work.draft.min_prompts", "kind": "int", "default": 2, "value": 2, "modified": false},
-				map[string]any{"key": "work.draft.exclude_projects", "kind": "strings", "default": []string{}, "value": []string{"demo"}, "modified": true},
+				map[string]any{"key": "work.short_session.max_prompts", "kind": "int", "default": 2, "value": 2, "modified": false},
+				map[string]any{"key": "web.nav_hidden", "kind": "strings", "default": []string{}, "value": []string{"demo"}, "modified": true},
 			}})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/settings/export":
 			w.Header().Set("Content-Type", "application/yaml")
-			_, _ = w.Write([]byte("work.draft.min_prompts: 3\n"))
+			_, _ = w.Write([]byte("work.short_session.max_prompts: 3\n"))
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/settings/import":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"dry_run": true, "applied": false, "errors": 0,
-				"changes": []any{map[string]any{"key": "work.draft.min_prompts", "action": "set", "old": 2, "new": 3}},
+				"changes": []any{map[string]any{"key": "work.short_session.max_prompts", "action": "set", "old": 2, "new": 3}},
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/settings/work.draft.min_prompts":
-			_ = json.NewEncoder(w).Encode(map[string]any{"key": "work.draft.min_prompts", "kind": "int", "value": 2, "default": 2})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/settings/work.short_session.max_prompts":
+			_ = json.NewEncoder(w).Encode(map[string]any{"key": "work.short_session.max_prompts", "kind": "int", "value": 2, "default": 2})
 		case r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": "unknown setting", "detail": "no setting named nope"})
 		case r.Method == http.MethodDelete:
-			_ = json.NewEncoder(w).Encode(map[string]any{"key": "work.draft.min_prompts", "modified": false, "value": 2, "reset": true})
+			_ = json.NewEncoder(w).Encode(map[string]any{"key": "work.short_session.max_prompts", "modified": false, "value": 2, "reset": true})
 		default:
-			_ = json.NewEncoder(w).Encode(map[string]any{"key": "work.draft.min_prompts", "kind": "int", "value": 3, "modified": true})
+			_ = json.NewEncoder(w).Encode(map[string]any{"key": "work.short_session.max_prompts", "kind": "int", "value": 3, "modified": true})
 		}
 	}))
 	defer srv.Close()
@@ -49,14 +49,14 @@ func TestSettingsClientRoutes(t *testing.T) {
 	if err != nil || len(items) != 2 || items[1].Value.([]any)[0] != "demo" {
 		t.Fatalf("ListSettings: %+v %v", items, err)
 	}
-	item, err := c.GetSetting("work.draft.min_prompts")
+	item, err := c.GetSetting("work.short_session.max_prompts")
 	if err != nil || item.Kind != "int" || item.Value.(float64) != 2 {
 		t.Fatalf("GetSetting: %+v %v", item, err)
 	}
 	if _, err := c.GetSetting("nope"); err == nil || !strings.Contains(err.Error(), "unknown setting") {
 		t.Fatalf("GetSetting unknown key should surface the server error, got %v", err)
 	}
-	set, err := c.SetSetting("work.draft.min_prompts", 3)
+	set, err := c.SetSetting("work.short_session.max_prompts", 3)
 	if err != nil || !set.Modified || set.Value.(float64) != 3 {
 		t.Fatalf("SetSetting: %+v %v", set, err)
 	}
@@ -64,12 +64,12 @@ func TestSettingsClientRoutes(t *testing.T) {
 	if last := calls[len(calls)-1]; last.method != http.MethodPut || last.body != `{"value":3}` {
 		t.Fatalf("SetSetting request: %+v", last)
 	}
-	reset, err := c.ResetSetting("work.draft.min_prompts")
-	if err != nil || !reset.Reset || reset.Key != "work.draft.min_prompts" {
+	reset, err := c.ResetSetting("work.short_session.max_prompts")
+	if err != nil || !reset.Reset || reset.Key != "work.short_session.max_prompts" {
 		t.Fatalf("ResetSetting: %+v %v", reset, err)
 	}
 	// A list value keeps its shape.
-	if _, err := c.SetSetting("work.draft.exclude_projects", []string{"demo", "sandbox"}); err != nil {
+	if _, err := c.SetSetting("web.nav_hidden", []string{"demo", "sandbox"}); err != nil {
 		t.Fatalf("SetSetting list: %v", err)
 	}
 	if last := calls[len(calls)-1]; last.body != `{"value":["demo","sandbox"]}` {
@@ -77,10 +77,10 @@ func TestSettingsClientRoutes(t *testing.T) {
 	}
 
 	doc, err := c.ExportSettings()
-	if err != nil || string(doc) != "work.draft.min_prompts: 3\n" {
+	if err != nil || string(doc) != "work.short_session.max_prompts: 3\n" {
 		t.Fatalf("ExportSettings: %q %v", doc, err)
 	}
-	imp, err := c.ImportSettings([]byte("work.draft.min_prompts: 3\n"), true)
+	imp, err := c.ImportSettings([]byte("work.short_session.max_prompts: 3\n"), true)
 	if err != nil || !imp.DryRun || len(imp.Changes) != 1 || imp.Changes[0].Action != "set" {
 		t.Fatalf("ImportSettings: %+v %v", imp, err)
 	}

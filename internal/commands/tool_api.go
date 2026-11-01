@@ -46,7 +46,7 @@ func NewToolApiCmd() *gcli.Command {
 		Help: cliText("cli.tool.api.help.p1") + "\n\n" + cliText("cli.tool.api.help.p2", "json", "`application/json`") + "\n\n" +
 			"  gofer tool api jobs -f status=running -f limit=5\n" +
 			"  gofer tool api jobs -X POST --input job.json\n" +
-			"  gofer tool api settings/work.draft.min_prompts -X PUT -f value=3\n" +
+			"  gofer tool api settings/work.short_session.max_prompts -X PUT -f value=3\n" +
 			"  gofer tool api prompt -F value=@prompt.md          # " + cliText("cli.tool.api.help.file_comment") + "\n" +
 			"  gofer tool api jobs -q 'jobs.*.id'\n\n" +
 			cliText("cli.tool.api.help.p3"),

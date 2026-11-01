@@ -86,7 +86,7 @@ or bool as written. Use --json for the whole entry (default, type, bounds, who c
 			bindConfigFlag(c)
 			bindServerFlags(c)
 			c.BoolOpt(&settingsGetOpts.jsonOut, "json", "", false, "print the whole entry as JSON")
-			c.AddArg("key", "setting key, e.g. work.draft.min_prompts", true)
+			c.AddArg("key", "setting key, e.g. work.short_session.max_prompts", true)
 		},
 		Func: runSettingsGet,
 	}
@@ -96,8 +96,8 @@ or bool as written. Use --json for the whole entry (default, type, bounds, who c
 		Help: `The value is converted to the key's registered type, so a list key takes a
 comma-separated value and an int key a number:
 
-  gofer settings set work.draft.min_prompts 3
-  gofer settings set work.draft.exclude_projects "demo,sandbox"
+  gofer settings set work.short_session.max_prompts 3
+  gofer settings set web.nav_hidden "demo,sandbox"
   gofer settings set prompt.work.summarizer --file prompt.md
   cat prompt.md | gofer settings set prompt.work.summarizer --file -
 

@@ -55,7 +55,7 @@ func TestSettingsCrud(t *testing.T) {
 		}
 	}
 
-	resp = do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, testToken, map[string]any{"value": 4})
+	resp = do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, testToken, map[string]any{"value": 4})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("put = %d, want 200", resp.StatusCode)
 	}
@@ -66,15 +66,15 @@ func TestSettingsCrud(t *testing.T) {
 	}
 
 	// The audit trail names the key, the old default and the new value.
-	rows, err := s.jobs.Meta().ListAuthAudit(jobstore.AuthAuditFilter{Subject: settings.KeyWorkDraftMinPrompts})
+	rows, err := s.jobs.Meta().ListAuthAudit(jobstore.AuthAuditFilter{Subject: settings.KeyWorkShortSessionMaxPrompts})
 	if err != nil {
 		t.Fatalf("list audit: %v", err)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("audit rows = %d, want 1", len(rows))
 	}
-	if rows[0].Action != "settings.set" || !strings.Contains(rows[0].Reason, "new=4") || !strings.Contains(rows[0].Reason, "old=2") {
-		t.Fatalf("audit row = %+v, want action settings.set with old=2 new=4", rows[0])
+	if rows[0].Action != "settings.set" || !strings.Contains(rows[0].Reason, "new=4") || !strings.Contains(rows[0].Reason, "old=3") {
+		t.Fatalf("audit row = %+v, want action settings.set with old=3 new=4", rows[0])
 	}
 
 	// A prompt write keeps only its length and head in the audit trail.
@@ -91,31 +91,32 @@ func TestSettingsCrud(t *testing.T) {
 		t.Fatalf("prompt audit = %+v, want a length + head digest, not the whole text", rows)
 	}
 
-	resp = do(t, s, http.MethodDelete, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, testToken, nil)
+	resp = do(t, s, http.MethodDelete, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("delete = %d, want 200", resp.StatusCode)
 	}
-	resp = do(t, s, http.MethodGet, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, testToken, nil)
+	resp = do(t, s, http.MethodGet, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get after delete = %d, want 200", resp.StatusCode)
 	}
 	decode(t, resp, &item)
-	if item.Modified || item.Value != float64(2) {
-		t.Fatalf("after delete = %+v, want the default 2, not modified", item)
+	if item.Modified || item.Value != float64(3) {
+		t.Fatalf("after delete = %+v, want the default 3, not modified", item)
 	}
 
 	// An unknown key is a 404, an invalid value a 400 with the reason.
 	if resp := do(t, s, http.MethodGet, "/v1/settings/work.nope", testToken, nil); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("unknown key = %d, want 404", resp.StatusCode)
 	}
-	resp = do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, testToken, map[string]any{"value": 99})
+	resp = do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, testToken, map[string]any{"value": 101})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("out-of-range put = %d, want 400", resp.StatusCode)
 	}
-	// A regex that does not compile is refused with the reason.
-	resp = do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkDraftExcludeTitlePatterns, testToken, map[string]any{"value": []string{"("}})
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("broken regex = %d, want 400", resp.StatusCode)
+	// The work.draft.* settings were removed (no consumer since v0.208.0): unknown now.
+	for _, removed := range []string{"work.draft.min_prompts", "work.draft.exclude_title_patterns"} {
+		if resp := do(t, s, http.MethodPut, "/v1/settings/"+removed, testToken, map[string]any{"value": 3}); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("put removed key %s = %d, want 404", removed, resp.StatusCode)
+		}
 	}
 }
 
@@ -123,7 +124,7 @@ func TestSettingsCrud(t *testing.T) {
 // reports the differences without writing, and the real import writes the valid keys.
 func TestSettingsExportImport(t *testing.T) {
 	s := settingsTestServer(t)
-	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, testToken, map[string]any{"value": 3}); resp.StatusCode != http.StatusOK {
+	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, testToken, map[string]any{"value": 3}); resp.StatusCode != http.StatusOK {
 		t.Fatalf("put = %d", resp.StatusCode)
 	}
 
@@ -136,13 +137,13 @@ func TestSettingsExportImport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read export: %v", err)
 	}
-	if !strings.Contains(string(doc), "work.draft.min_prompts: 3") {
+	if !strings.Contains(string(doc), "work.short_session.max_prompts: 3") {
 		t.Fatalf("export = %q, want the modified key", doc)
 	}
 
 	// Import preview with a raw YAML body: the harness JSON-encodes a body, so send the
 	// document as a JSON string is not valid YAML for the filter — use the raw helper.
-	preview := doRawYAML(t, s, http.MethodPost, "/v1/settings/import?dry_run=1", testToken, "work.draft.min_prompts: 7\n")
+	preview := doRawYAML(t, s, http.MethodPost, "/v1/settings/import?dry_run=1", testToken, "work.short_session.max_prompts: 7\n")
 	if preview.StatusCode != http.StatusOK {
 		t.Fatalf("preview = %d, want 200", preview.StatusCode)
 	}
@@ -151,7 +152,7 @@ func TestSettingsExportImport(t *testing.T) {
 	if !result.DryRun || result.Applied || len(result.Changes) != 1 || result.Changes[0].Action != "set" {
 		t.Fatalf("preview = %+v, want one set change, dry run", result)
 	}
-	resp = do(t, s, http.MethodGet, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, testToken, nil)
+	resp = do(t, s, http.MethodGet, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, testToken, nil)
 	var item settings.Item
 	decode(t, resp, &item)
 	if item.Value != float64(3) {
@@ -159,7 +160,7 @@ func TestSettingsExportImport(t *testing.T) {
 	}
 
 	applied := doRawYAML(t, s, http.MethodPost, "/v1/settings/import", testToken,
-		"work.draft.min_prompts: 7\nwork.short_session.max_prompts: 500\n")
+		"work.short_session.max_prompts: 7\nwork.short_session.max_minutes: 5000\n")
 	if applied.StatusCode != http.StatusOK {
 		t.Fatalf("import = %d, want 200", applied.StatusCode)
 	}
@@ -167,7 +168,7 @@ func TestSettingsExportImport(t *testing.T) {
 	if result.Applied || result.Errors != 1 {
 		t.Fatalf("import = %+v, want one refused key", result)
 	}
-	resp = do(t, s, http.MethodGet, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, testToken, nil)
+	resp = do(t, s, http.MethodGet, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, testToken, nil)
 	decode(t, resp, &item)
 	if item.Value != float64(7) {
 		t.Fatalf("imported value = %v, want 7", item.Value)
@@ -200,7 +201,7 @@ func TestSettingsPermissions(t *testing.T) {
 	if resp := do(t, s, http.MethodGet, "/v1/settings", "tok-alice", nil); resp.StatusCode != http.StatusOK {
 		t.Errorf("seeded read = %d, want 200 (settings.read is seeded to users)", resp.StatusCode)
 	}
-	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, "tok-alice", map[string]any{"value": 4}); resp.StatusCode != http.StatusForbidden {
+	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, "tok-alice", map[string]any{"value": 4}); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("unseeded write = %d, want 403", resp.StatusCode)
 	}
 	// The root administrator holds every permission.
@@ -219,13 +220,13 @@ func TestSettingsPermissions(t *testing.T) {
 	if resp := do(t, s, http.MethodGet, "/v1/settings", "tok-alice", nil); resp.StatusCode != http.StatusOK {
 		t.Errorf("read with settings.read = %d, want 200", resp.StatusCode)
 	}
-	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, "tok-alice", map[string]any{"value": 5}); resp.StatusCode != http.StatusForbidden {
+	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, "tok-alice", map[string]any{"value": 5}); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("write without settings.write = %d, want 403", resp.StatusCode)
 	}
 
 	// settings.write too: the write passes.
 	s.setDBGrants(grantsFor([]string{authz.PermSettingsRead, authz.PermSettingsWrite}))
-	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, "tok-alice", map[string]any{"value": 5}); resp.StatusCode != http.StatusOK {
+	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, "tok-alice", map[string]any{"value": 5}); resp.StatusCode != http.StatusOK {
 		t.Errorf("write with settings.write = %d, want 200", resp.StatusCode)
 	}
 
@@ -235,7 +236,7 @@ func TestSettingsPermissions(t *testing.T) {
 	if resp := do(t, s, http.MethodGet, "/v1/settings", "tok-ro", nil); resp.StatusCode != http.StatusOK {
 		t.Errorf("restricted read = %d, want 200", resp.StatusCode)
 	}
-	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkDraftMinPrompts, "tok-ro", map[string]any{"value": 6}); resp.StatusCode != http.StatusForbidden {
+	if resp := do(t, s, http.MethodPut, "/v1/settings/"+settings.KeyWorkShortSessionMaxPrompts, "tok-ro", map[string]any{"value": 6}); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("restricted write = %d, want 403", resp.StatusCode)
 	}
 }
