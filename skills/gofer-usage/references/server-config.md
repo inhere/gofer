@@ -906,7 +906,7 @@ server:
   - **列表**会丢掉范围外的行；聚合与计数见下面的已知限制。
   - 上限拒绝是**永久**的，不会排队等下一次：gofer 自己替它发起的后续动作——自动续投、失败转移、唤醒续跑、重试、plan/todo 派发、定时到点——一律**到此为止**：重试行被取消、todo 上写「派发失败：原因」、唤醒被消费掉不再重复触发、定时那一次运行丢掉（**定时本身保留**，下次到点照常）。源 job 的失败原因不变，它的时间线（web job 详情）多一条 `job.ceiling_denied`，写明是哪条路径被拒和原因；定时丢掉的那次运行记在定时自己的事件流（作用域 `schedule:<id>`）上的 `schedule.run_failed`（到点、webhook 触发与 run-now 都记；`gofer schedule events <id>` 或 `GET /v1/schedules/{id}/events` 查看），serve 日志里同时有一条 `schedule <id> submit failed: caller ceiling denied: …`。所以「上限收紧后旧任务不再自动往下跑」是预期行为，不是卡住。
 - **受限调用方看到什么**（聚合与推送按范围）：
-  - `GET /v1/today`、`/v1/today/handled`、`/v1/today/lanes` 只含范围内项目的卡片、已处理行与 lanes，lanes 表头计数按留下来的行重算；顶部 digest（标题 / 正文与「自上次打开」的完成 / 失败 / 提交计数）也只基于范围内的 job 与工作项；状态条的 runner / worker 行按 `runners` / `workers`，正在运行的 job 数按范围重算，**当天用量与管家那一块不返回**（字段省略）。`GET /v1/today/snoozed` 同样只列范围内的「已稍后」卡片。
+  - `GET /v1/today`、`/v1/today/handled` 只含范围内项目的卡片与已处理行；顶部 digest（标题 / 正文与「自上次打开」的完成 / 失败 / 提交计数）也只基于范围内的 job 与工作项；状态条的 runner / worker 行按 `runners` / `workers`，正在运行的 job 数按范围重算，**当天用量与管家那一块不返回**（字段省略）。`GET /v1/today/snoozed` 同样只列范围内的「已稍后」卡片。
   - `GET /v1/stats` 只统计范围内的 job / 定时 / 待处理升级，`projects` 是范围内的项目数；`db` / `sessions` / `usage` / `session_usage` 这四个服务器级块**整体省略**（不是给 0）。`GET /v1/stats/overview` 同样只统计范围内的 job。
   - `GET /v1/meta` 的项目、worker 与 runner 列表只含范围内 / 允许的条目；`GET /v1/work-items/digest` 只统计范围内的工作项（管家点评不返回），**POST**（会向服务器级 webhook 发送）对受限调用方 **403**。
   - 管家相关路由（`GET /v1/steward`、`GET|PUT /v1/steward/notes`、`POST /v1/steward/review-summary`、`POST /v1/steward/ask`、`POST /v1/steward/review`、`start` / `stop` / `restart`）都作用于服务器级的那一个管家，没有项目归属，对受限调用方一律 **403**。

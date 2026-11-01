@@ -88,9 +88,9 @@ describe('Today page (design 2026-11-01 §4.3)', () => {
     expect(html).not.toContain('自上次打开')
   })
 
-  it('reads the 「等我」 list only: the legacy decisions queue never fills the page', async () => {
+  it('shows only the empty line when the 「等我」 list is empty', async () => {
     hiddenKeys.value = new Set()
-    todayData.value = { ...data([]), decisions: [card(1), card(2)] }
+    todayData.value = data([])
     const html = await render(Today)
     expect(html).toContain('今天没有等你的事')
     expect(html).not.toContain('data-test="decision-card"')

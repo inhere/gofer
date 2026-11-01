@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -31,15 +30,14 @@ func TestStewardMemoryFindingsAndSuggest(t *testing.T) {
 	assert.False(t, isErr, text)
 	assert.Eq(t, true, out["recorded"])
 
-	// Proposed: no longer an open finding, and a 「今天」 memory card.
+	// Proposed: no longer an open finding. It is no card of the 「等我」 list (CL1).
 	_, out, _ = call("gofer_memory_findings", map[string]any{})
 	findings, _ = out["findings"].([]any)
 	assert.Len(t, findings, 0)
 	isErr, out, text = call("gofer_today_list", map[string]any{"kind": "memory"})
 	assert.False(t, isErr, text)
 	cards, _ := out["cards"].([]any)
-	assert.Len(t, cards, 1)
-	assert.True(t, strings.HasPrefix(cards[0].(map[string]any)["key"].(string), "memory:"))
+	assert.Len(t, cards, 0)
 
 	// Invalid action is refused.
 	isErr, _, _ = call("gofer_memory_suggest", map[string]any{"tracker_id": "trk-1", "key": "old-note", "action": "delete", "reason": "x"})

@@ -20,7 +20,7 @@ func TestFilterScope(t *testing.T) {
 	cards := []Card{
 		{Key: "review:j1", ProjectKey: "p-a"},
 		{Key: "review:j2", ProjectKey: "p-b"},
-		{Key: CaptureCardKey},
+		{Key: MailHeldCardKey},
 	}
 	snoozed := []SnoozedCard{
 		{CardKey: "review:j1", ProjectKey: "p-a"},
@@ -28,7 +28,7 @@ func TestFilterScope(t *testing.T) {
 	}
 
 	keptCards, keptSnoozed := filterScope(cards, snoozed, nil)
-	assert.Eq(t, []string{"review:j1", "review:j2", CaptureCardKey}, keys(keptCards))
+	assert.Eq(t, []string{"review:j1", "review:j2", MailHeldCardKey}, keys(keptCards))
 	assert.Len(t, keptSnoozed, 2)
 
 	keptCards, keptSnoozed = filterScope(cards, snoozed, onlyProject("p-a"))
@@ -48,13 +48,13 @@ func TestTodayScopedCards(t *testing.T) {
 
 	all, err := svc.Today(Query{})
 	assert.NoErr(t, err)
-	assert.True(t, hasKey(all.Decisions, KindReview+":j-a"))
-	assert.True(t, hasKey(all.Decisions, KindReview+":j-b"))
+	assert.True(t, hasKey(all.Cards, KindReview+":j-a"))
+	assert.True(t, hasKey(all.Cards, KindReview+":j-b"))
 
 	scoped, err := svc.Today(Query{ProjectAllowed: onlyProject("p-a")})
 	assert.NoErr(t, err)
-	assert.True(t, hasKey(scoped.Decisions, KindReview+":j-a"))
-	assert.False(t, hasKey(scoped.Decisions, KindReview+":j-b"))
+	assert.True(t, hasKey(scoped.Cards, KindReview+":j-a"))
+	assert.False(t, hasKey(scoped.Cards, KindReview+":j-b"))
 }
 
 func hasKey(cards []Card, key string) bool {
@@ -69,7 +69,7 @@ func TestHandledScoped(t *testing.T) {
 	for _, in := range []ActionInput{
 		{CardKey: KindReview + ":j-a", ActionID: "accept", Project: "p-a"},
 		{CardKey: KindReview + ":j-b", ActionID: "accept", Project: "p-b"},
-		{CardKey: CaptureCardKey, ActionID: "open"},
+		{CardKey: MailHeldCardKey, ActionID: "open"},
 	} {
 		_, err := svc.RecordAction(in, "u1")
 		assert.NoErr(t, err)
@@ -83,27 +83,6 @@ func TestHandledScoped(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, scoped, 1)
 	assert.Eq(t, "p-a", scoped[0].Project)
-}
-
-// TestLanesScoped: the lanes list and its header summary are both restricted — the
-// summary is recomputed over the kept lanes, never over every lane the server knows.
-func TestLanesScoped(t *testing.T) {
-	f := newFixture(t)
-	for _, p := range []struct{ id, project string }{{"pl-a", "p-a"}, {"pl-b", "p-b"}} {
-		assert.NoErr(t, f.st.InsertPlan(jobstore.Plan{PlanID: p.id, Title: p.id, Status: jobstore.PlanBlocked,
-			ProjectKey: p.project, CreatedAt: f.now.Unix(), UpdatedAt: f.now.Unix()}))
-	}
-
-	all, err := f.b.Build()
-	assert.NoErr(t, err)
-	assert.Len(t, all.Lanes, 2)
-	assert.Eq(t, 2, all.Summary.Total)
-
-	scoped, err := f.b.BuildFor(onlyProject("p-a"))
-	assert.NoErr(t, err)
-	assert.Len(t, scoped.Lanes, 1)
-	assert.Eq(t, "pl-a", scoped.Lanes[0].ID)
-	assert.Eq(t, 1, scoped.Summary.Total)
 }
 
 // TestHandledProjectPersisted guards the stored shape: the project travels in the

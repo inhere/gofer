@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 type todayResp struct {
@@ -16,7 +18,7 @@ type todayResp struct {
 		} `json:"since_last"`
 		Title string `json:"title"`
 	} `json:"digest"`
-	Decisions []struct {
+	Waiting []struct {
 		Key     string `json:"key"`
 		Kind    string `json:"kind"`
 		Urgency string `json:"urgency"`
@@ -27,7 +29,7 @@ type todayResp struct {
 			ID string `json:"id"`
 		} `json:"actions"`
 		Advice *json.RawMessage `json:"advice"`
-	} `json:"decisions"`
+	} `json:"waiting"`
 	Snoozed int `json:"snoozed"`
 	Status  struct {
 		Runners struct {
@@ -57,17 +59,25 @@ func todayCall(t *testing.T, s *Server, method, path, token string, body any, wa
 
 func TestTodayEndpoint(t *testing.T) {
 	s := newTestServer(t, testToken, false)
+	// A work item that "needs me" is not a waiting fact; a job in needs_review is.
 	w := workCall(t, s, http.MethodPost, "/v1/work-items", testToken, map[string]any{"title": "等我拍板"}, 200)
 	workCall(t, s, http.MethodPatch, "/v1/work-items/"+w.ID, testToken, map[string]any{"status": "needs_me", "rev": w.Rev}, 200)
+	seedAgentJob(t, s, jobstore.JobRecord{ID: "j-rev", Status: "needs_review", EndedAt: time.Now().Unix()})
 
 	var got todayResp
 	todayCall(t, s, http.MethodGet, "/v1/today?since=1", testToken, nil, 200, &got)
 	if got.Digest.SinceLast.Since != 1 || got.Digest.Title == "" || got.GeneratedAt == 0 || got.Snoozed != 0 {
 		t.Fatalf("today = %+v", got)
 	}
-	if len(got.Decisions) != 1 || got.Decisions[0].Key != "work:"+w.ID || got.Decisions[0].Kind != "work" ||
-		got.Decisions[0].Urgency != "normal" || got.Decisions[0].Advice != nil || len(got.Decisions[0].Actions) != 3 {
-		t.Fatalf("decisions = %+v", got.Decisions)
+	if len(got.Waiting) != 1 || got.Waiting[0].Key != "review:j-rev" || got.Waiting[0].Kind != "review" ||
+		got.Waiting[0].Advice != nil || len(got.Waiting[0].Actions) != 3 {
+		t.Fatalf("waiting = %+v", got.Waiting)
+	}
+	// The legacy full queue is gone from the payload.
+	var raw map[string]json.RawMessage
+	todayCall(t, s, http.MethodGet, "/v1/today", testToken, nil, 200, &raw)
+	if _, ok := raw["decisions"]; ok {
+		t.Fatalf("/v1/today still carries decisions: %v", raw)
 	}
 	if got.Status.Runners.Total < 1 || got.Status.Runners.Online < 1 || got.Status.Alerts == nil {
 		t.Fatalf("status = %+v", got.Status)

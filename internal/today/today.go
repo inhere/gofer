@@ -1,9 +1,9 @@
 // Package today is the N3 「今天」 decision home (design
-// docs/design/2026-10-09-n3-today-decision-home-design.md §1/§2): it folds every
-// "a person must decide" signal — pending interactions, OPEN decisions, relay turns,
-// needs_review jobs, jobs held for approval, work items that wait for the person, the status / goal tidy-up
-// suggestions, merge suggestions and blocked plans — into one ordered card queue, plus
-// the one-line digest and the status bar. It only READS existing sources: every card
+// docs/design/2026-10-09-n3-today-decision-home-design.md §1/§2): it folds the structured
+// "a person must decide" signals — pending interactions, OPEN decisions, relay turns,
+// needs_review jobs, jobs held for approval, held mail and blocked plans — into one ordered
+// card queue (the candidates of the 「等我」 list, see internal/inbox), plus the digest counts
+// and the status bar. It only READS existing sources: every card
 // action maps to an existing write API, which the console calls directly.
 //
 // The httpapi layer binds / validates and forwards here (G021).
@@ -30,25 +30,14 @@ const (
 	// KindApproval is a job held for a person's approval (gofer-9b1b, status
 	// awaiting_approval): approve it (it then runs) or reject it (cancelled, never run).
 	KindApproval    = "approval"
-	KindWork        = "work"
-	KindMerge       = "merge"
 	KindPlanBlocked = "plan_blocked"
-	// KindMemory is a steward's memory hygiene suggestion (memory_suggest.go).
-	KindMemory = "memory"
-	// KindCapture is the single summary card for the capture box (design 2026-10-16 §3):
-	// captured items never get a per-item KindWork card.
-	KindCapture = "capture"
 	// KindMailHeld is the single summary card for letters nobody could receive (the gofer
 	// mailbox, plan M7): they wait as held until somebody readdresses or cancels them.
 	KindMailHeld = "mail_held"
-)
-
-// CaptureCardKey is the stable key of the capture-box summary card; CaptureBoxLink is
-// the web target its 「去整理」 action opens (the capture tab lands with the web
-// capture box; until then /work simply loads).
-const (
-	CaptureCardKey = KindCapture + ":box"
-	CaptureBoxLink = "/work?tab=capture"
+	// KindJobFailed is the card of a failed job a person submitted (inbox.TerminalCards builds
+	// it outside this package). It enters the 「等我」 list but is not a queue card: advice
+	// cannot be written for it.
+	KindJobFailed = "job.failed"
 )
 
 // MailHeldCardKey is the stable key of the held-mail summary card; MailHeldLink is the web
@@ -91,12 +80,14 @@ type Query struct {
 // Response is the GET /v1/today payload (design §2.1).
 type Response struct {
 	Digest Digest `json:"digest"`
-	// Decisions is the legacy superset queue (every card kind). The home page's first
-	// screen reads Waiting instead.
-	Decisions []Card `json:"decisions"`
+	// Cards is the ordered card queue (snooze, advice and scope applied) behind Waiting. It is
+	// not part of the wire payload: the HTTP layer folds it, with the failed-job source, into
+	// Waiting (inbox.Waiting) and the MCP tools read Waiting.
+	Cards []Card `json:"-"`
 	// Waiting is the one 「等我」 list (inbox.Waiting): the inbox's action column, the
-	// top-bar badge and the home page's decision area are all taken from it. It is filled
-	// by the HTTP layer, which owns the caller's scope and the failed-job source.
+	// top-bar badge, the home page's decision area and the MCP gofer_today_* tools are all
+	// taken from it. It is filled by the HTTP layer, which owns the caller's scope and the
+	// failed-job source.
 	Waiting []Card `json:"waiting"`
 	// Snoozed counts the cards held back by an active 「稍后」 (T3, snooze.go).
 	Snoozed int `json:"snoozed"`
@@ -166,15 +157,8 @@ type Refs struct {
 	DecisionIDs []string `json:"decision_ids,omitempty"`
 	SessionID   string   `json:"session_id,omitempty"`
 	ThreadID    string   `json:"thread_id,omitempty"`
-	WorkItemID  string   `json:"work_item_id,omitempty"`
 	PlanID      string   `json:"plan_id,omitempty"`
 	TodoID      string   `json:"todo_id,omitempty"`
-	Field       string   `json:"field,omitempty"`
-	MergeID     int64    `json:"merge_id,omitempty"`
-	// Memory cards: the suggestion id and the repo-tracker memory it is about.
-	MemorySuggestionID int64  `json:"memory_suggestion_id,omitempty"`
-	TrackerID          string `json:"tracker_id,omitempty"`
-	MemoryKey          string `json:"memory_key,omitempty"`
 }
 
 // Action is one card button. ID names the existing write API the console calls
@@ -203,24 +187,23 @@ type Advice struct {
 
 // Card is one DecisionCard.
 type Card struct {
-	Key          string      `json:"key"`
-	Kind         string      `json:"kind"`
-	Tag          string      `json:"tag"`
-	Urgency      string      `json:"urgency"`
-	Blocks       Blocks      `json:"blocks"`
-	Title        string      `json:"title"`
-	ProjectKey   string      `json:"project_key,omitempty"`
-	Agent        string      `json:"agent,omitempty"`
-	WaitingSince int64       `json:"waiting_since"`
-	ExpiresAt    int64       `json:"expires_at,omitempty"`
-	ActivityAt   int64       `json:"activity_at"`
-	Summary      string      `json:"summary"`
-	Review       *Review     `json:"review,omitempty"`
-	Approval     *Approval   `json:"approval,omitempty"`
-	Memory       *MemoryCard `json:"memory,omitempty"`
-	Refs         Refs        `json:"refs"`
-	Actions      []Action    `json:"actions"`
-	Advice       *Advice     `json:"advice"`
+	Key          string    `json:"key"`
+	Kind         string    `json:"kind"`
+	Tag          string    `json:"tag"`
+	Urgency      string    `json:"urgency"`
+	Blocks       Blocks    `json:"blocks"`
+	Title        string    `json:"title"`
+	ProjectKey   string    `json:"project_key,omitempty"`
+	Agent        string    `json:"agent,omitempty"`
+	WaitingSince int64     `json:"waiting_since"`
+	ExpiresAt    int64     `json:"expires_at,omitempty"`
+	ActivityAt   int64     `json:"activity_at"`
+	Summary      string    `json:"summary"`
+	Review       *Review   `json:"review,omitempty"`
+	Approval     *Approval `json:"approval,omitempty"`
+	Refs         Refs      `json:"refs"`
+	Actions      []Action  `json:"actions"`
+	Advice       *Advice   `json:"advice"`
 	// Subtype is a structured fact of the card's source that the 「等我」 judgement needs and
 	// the kind alone does not carry: an interaction card's type (permission / confirmation /
 	// question / choice), "question" on a terminal permission card that is really an
@@ -318,7 +301,7 @@ func (s *Service) Today(q Query) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
-	return Response{Digest: digest, Decisions: cards, Snoozed: len(snoozed), Running: running, Status: status, GeneratedAt: now.Unix()}, nil
+	return Response{Digest: digest, Cards: cards, Snoozed: len(snoozed), Running: running, Status: status, GeneratedAt: now.Unix()}, nil
 }
 
 func startOfDay(now time.Time) time.Time {

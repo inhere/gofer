@@ -25,7 +25,7 @@ const (
 var Categories = []Category{CatApproval, CatAnswer, CatReview, CatPlanStuck, CatFailed, CatDelivery}
 
 // KindJobFailed is the card kind of a failed job a person submitted.
-const KindJobFailed = "job.failed"
+const KindJobFailed = today.KindJobFailed
 
 // Signals are the structured facts about ONE subject (a job, a session, a plan, a decision).
 // Every field is read from a store row or a server-stamped marker, never from a model's

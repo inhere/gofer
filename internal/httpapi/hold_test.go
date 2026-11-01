@@ -193,7 +193,7 @@ func TestTodayListsHeldJob(t *testing.T) {
 	held := submitHeld(t, s, testToken)
 
 	var out struct {
-		Decisions []struct {
+		Waiting []struct {
 			Key       string `json:"key"`
 			Kind      string `json:"kind"`
 			Tag       string `json:"tag"`
@@ -209,10 +209,10 @@ func TestTodayListsHeldJob(t *testing.T) {
 				ID           string `json:"id"`
 				OptionalText bool   `json:"optional_text"`
 			} `json:"actions"`
-		} `json:"decisions"`
+		} `json:"waiting"`
 	}
 	todayCall(t, s, http.MethodGet, "/v1/today", testToken, nil, http.StatusOK, &out)
-	for _, c := range out.Decisions {
+	for _, c := range out.Waiting {
 		if c.Kind != "approval" {
 			continue
 		}
@@ -234,5 +234,5 @@ func TestTodayListsHeldJob(t *testing.T) {
 		}
 		return
 	}
-	t.Fatalf("no approval card in /v1/today: %+v", out.Decisions)
+	t.Fatalf("no approval card in /v1/today: %+v", out.Waiting)
 }

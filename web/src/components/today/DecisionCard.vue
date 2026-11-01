@@ -14,7 +14,6 @@ import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
 import { cardActionBlock } from '../../utils/todayGate'
 import { cardKeyFromEvent } from '../../utils/todayKeys'
-import { ceilingReadOnlyNotice } from '../../utils/ceiling'
 import { t } from '../../i18n'
 import { useWhoami } from '../../store/whoami'
 
@@ -56,7 +55,7 @@ const snoozeOpts = computed(() => (snoozeOpen.value ? snoozeOptions(props.card) 
 const snoozeTips = computed(() => snoozeHints(props.card, props.nowSec))
 
 // 只读身份 / 缺权限时按钮灰显并说明原因（gofer-darr，判定见 utils/todayGate.ts）。
-const { whoami, readOnly } = useWhoami()
+const { whoami } = useWhoami()
 function actionBlock(a: TodayAction): string {
   return cardActionBlock(whoami.value, props.card, a)
 }
@@ -86,8 +85,7 @@ const hasInfo = computed(
     !!adviceDigest.value ||
     !!review.value ||
     !!approval.value ||
-    !!memory.value ||
-    (props.card.suggestions?.length ?? 0) > 0,
+    !!memory.value,
 )
 
 function styleClass(a: TodayAction): string {
@@ -147,11 +145,6 @@ function onRerun(note: string, resume: boolean): void {
   rerunOpen.value = false
   const a = props.card.actions.find((x) => x.id === 'rerun')
   if (a) emit('act', { ...a, value: resume ? '1' : '0' }, note, rerunViaAdvice.value)
-}
-
-function suggestionAct(field: string, adopt: boolean): void {
-  if (readOnly.value) return
-  emit('act', { id: `${adopt ? 'adopt' : 'dismiss'}:${field}`, label: adopt ? t('today.suggestion.adopt') : t('today.suggestion.dismiss') }, '', false)
 }
 
 function pickSnooze(opt: SnoozeOption): void {
@@ -397,23 +390,6 @@ function linkFor(a: TodayAction): string {
           <p v-if="memory.payload?.content" class="dc-digest" data-test="dc-memory-merged"><b>{{ t('today.card.merged') }}</b>{{ memory.payload.content }}</p>
           <p v-if="memory.content" class="dc-digest dc-mem-body">{{ memory.content }}</p>
         </template>
-        <div v-for="sg in card.suggestions ?? []" :key="sg.field" class="dc-sg">
-          <span><b>{{ t('today.card.suggestion') }}</b>{{ sg.text }}</span>
-          <button
-            class="dc-btn dc-btn--ok"
-            type="button"
-            :disabled="readOnly"
-            :title="readOnly ? ceilingReadOnlyNotice() : undefined"
-            @click="suggestionAct(sg.field, true)"
-          >{{ t('today.card.adopt') }}</button>
-          <button
-            class="dc-btn"
-            type="button"
-            :disabled="readOnly"
-            :title="readOnly ? ceilingReadOnlyNotice() : undefined"
-            @click="suggestionAct(sg.field, false)"
-          >{{ t('today.card.dismiss') }}</button>
-        </div>
       </div>
     </div>
     <RejectDialog v-if="rerunOpen" :submitting="false" error="" @close="rerunOpen = false" @confirm="onRerun" />
@@ -680,17 +656,6 @@ function linkFor(a: TodayAction): string {
 }
 .dc-del {
   color: var(--fail);
-}
-.dc-sg {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s1);
-  margin-top: var(--s1);
-}
-.dc-sg span {
-  flex: 1 1 200px;
-  min-width: 0;
 }
 /* 手机：主操作铺满，点按目标 ≥40px（§6.3、§10）。 */
 @media (max-width: 760px) {

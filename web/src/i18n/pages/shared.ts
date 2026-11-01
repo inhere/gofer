@@ -125,13 +125,10 @@ export const shared = {
     'util.mail.filter.out': '发件',
     'util.mail.unknownSender': '未知发件方',
 
-    // utils/todayLanes.ts：并行泳道
-    'util.lane.health.at_risk': '有风险',
-    'util.lane.health.stalled': '停滞',
-    'util.lane.health.blocked': '阻塞',
-    'util.lane.summary': '{total} 条 · {agents} 个 agent 在跑',
-    'util.lane.attention': '{n} 条要留意',
-    'util.lane.state.awaiting_input': '等输入',
+    // utils/workHealth.ts：工作项健康度
+    'util.workHealth.at_risk': '有风险',
+    'util.workHealth.stalled': '停滞',
+    'util.workHealth.blocked': '阻塞',
 
     // utils/sessionState.ts：agent 会话状态
     'util.session.state.idle': '空闲',
@@ -1249,12 +1246,9 @@ export const shared = {
     'util.mail.filter.out': 'Sent',
     'util.mail.unknownSender': 'Unknown sender',
 
-    'util.lane.health.at_risk': 'At risk',
-    'util.lane.health.stalled': 'Stalled',
-    'util.lane.health.blocked': 'Blocked',
-    'util.lane.summary': '{total} lanes · {agents} agents running',
-    'util.lane.attention': '{n} need attention',
-    'util.lane.state.awaiting_input': 'awaiting input',
+    'util.workHealth.at_risk': 'At risk',
+    'util.workHealth.stalled': 'Stalled',
+    'util.workHealth.blocked': 'Blocked',
 
     'util.session.state.idle': 'Idle',
     'util.session.state.running': 'Running',

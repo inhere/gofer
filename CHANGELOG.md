@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 移除
+
+- **`/v1/today` 的旧字段 `decisions` 与 `GET /v1/today/lanes`（注意力面收敛 CL1 / CL2，行为变化）**：`/v1/today` 不再返回 `decisions`（含工作项 / 合并建议 / 记忆整理 / 收集箱 / worker 申请等卡的全量超集），只返回 `waiting`（「等我」唯一列表）；服务端不再为工作项、合并建议、记忆整理建议、收集箱和 worker 注册申请生成今天卡（worker 申请到运行节点页看，记忆整理建议只留 `/v1/memory-suggestions*` 接口）。`GET /v1/today/lanes`（并行中泳道）连同 web 的泳道 / 刚处理过组件一并删除，`docs/reference/permissions.md` 同步。**MCP 行为变化**：`gofer_today_list` / `gofer_today_card` / `gofer_today_advise` 与管家的「今天建议」改以「等我」列表为输入——`kind` 不再有 `work|merge|memory|capture`，新增 `waiting` 类别过滤，卡片多 `waiting` / `waiting_label`；`job.failed` 卡只读（不能写建议）；`gofer_memory_suggest` 记下的建议不再变成今天卡。收件箱「要处理」栏仍与今天页同源，判定与顺序不变。
+
 ## [0.208.0] - 2026-11-01
 
 ### 新增

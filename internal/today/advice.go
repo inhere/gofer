@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -54,6 +53,10 @@ func ActionKey(a Action) string {
 func Advisable(kind string, a Action) bool {
 	return kind != KindDecision && !a.NeedsText && a.ID != "diff" && a.ID != "open"
 }
+
+// CanAdvise reports whether advice can be written for a card of this kind: every card of the
+// queue, but not the failed-job card the 「等我」 list adds from outside it.
+func CanAdvise(kind string) bool { return kind != KindJobFailed }
 
 // Advise validates and stores the advice for one card of the current queue. by is the
 // speaker label (steward(<agent>) or human:<id>), jobID the steward's job when it wrote it.
@@ -239,33 +242,9 @@ func (s *Service) cardAlive(key string) (bool, error) {
 	case KindReview:
 		rec, ok, err := st.GetJob(ref)
 		return ok && rec.Status == job.StatusNeedsReview, err
-	case KindWork:
-		w, ok, err := st.GetWorkItem(ref)
-		if err != nil || !ok || jobstore.WorkStatusFinal(w.Status) || w.Status == jobstore.WorkCaptured || w.MergedInto != "" {
-			return false, err
-		}
-		now := s.d.Now().Unix()
-		return w.Status == jobstore.WorkNeedsMe || w.Status == jobstore.WorkNeedsOnsite ||
-			(w.RemindAt > 0 && w.RemindAt <= now) ||
-			(w.Status == jobstore.WorkParked && w.ParkUntil > 0 && w.ParkUntil <= now), nil
-	case KindMerge:
-		id, err := strconv.ParseInt(ref, 10, 64)
-		if err != nil {
-			return false, nil
-		}
-		g, err := st.GetWorkMergeSuggestion(id)
-		if errors.Is(err, jobstore.ErrMergeSuggestionNotFound) {
-			return false, nil
-		}
-		return err == nil && g.State == jobstore.MergeSuggestPending, err
 	case KindPlanBlocked:
 		p, ok, err := st.GetPlan(ref)
 		return ok && p.Status == jobstore.PlanBlocked, err
-	case KindMemory:
-		return s.memoryCardAlive(ref)
-	case KindCapture:
-		items, err := st.ListWorkItems(jobstore.WorkListOpts{Statuses: []string{jobstore.WorkCaptured}, Limit: 1})
-		return len(items) > 0, err
 	case KindMailHeld:
 		rows, err := st.ListMail(jobstore.ListMailOpts{States: []string{jobstore.MailHeld}, Limit: 1})
 		return len(rows) > 0, err
@@ -275,7 +254,7 @@ func (s *Service) cardAlive(key string) (bool, error) {
 
 // adviceKinds are the card kinds the steward is asked to advise on (design §5; decision
 // cards get background only).
-var adviceKinds = map[string]bool{KindReview: true, KindMerge: true, KindInteraction: true, KindDecision: true}
+var adviceKinds = map[string]bool{KindReview: true, KindInteraction: true, KindDecision: true}
 
 // UnadvisedKeys lists the keys of the queue's cards of the advised kinds that have no
 // advice yet (the steward's review trigger and its prompt count).

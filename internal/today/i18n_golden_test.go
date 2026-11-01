@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -85,41 +84,7 @@ func todayTextOutputs(t *testing.T, lang i18n.Lang) string {
 	putJob(t, st, jobstore.JobRecord{ID: "j-hold", ProjectKey: "p1", Agent: "codex", Status: job.StatusAwaitingApproval, HoldExpiresAt: testNow.Unix() + 86400,
 		HoldJSON: `{"reason":"push","timeout_sec":86400,"expires_at":` + itoa(testNow.Unix()+86400) + `}`})
 
-	// --- work cards: needs_me with an online session, needs_onsite, a due parked item
-	_, err = st.UpsertAgentSession(jobstore.AgentSession{SessionID: "s-w", Agent: "claude", ProjectKey: "p1", State: jobstore.SessionIdle})
-	must(err)
-	w1, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "Needs me item", Status: jobstore.WorkNeedsMe, SessionIDs: []string{"s-w"}, By: "me"})
-	must(err)
-	w2, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "Onsite item", Status: jobstore.WorkNeedsOnsite, By: "me"})
-	must(err)
-	w3, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "Due parked", Status: jobstore.WorkParked, By: "me"})
-	must(err)
-	past := ago(5)
-	_, _, err = st.UpdateWorkItem(w3.ID, jobstore.WorkItemPatch{RemindAt: &past}, 0, "me")
-	must(err)
-	w4, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "Status hint item", Status: jobstore.WorkParked, By: "me"})
-	must(err)
-	w5, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "Merge target", Status: jobstore.WorkActive, By: "me"})
-	must(err)
-	w6, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: "Merge source", Status: jobstore.WorkActive, By: "me"})
-	must(err)
-	_ = w2
-	for _, sg := range []jobstore.WorkSuggestion{
-		{WorkItemID: w1.ID, Field: jobstore.SuggestGoal, Value: "iframe", By: "summarizer"},
-		{WorkItemID: w4.ID, Field: jobstore.SuggestStatusHint, Value: jobstore.WorkReview, By: "summarizer"},
-		{WorkItemID: w4.ID, Field: jobstore.SuggestGoal, Value: "new goal", By: "summarizer"},
-	} {
-		_, err := st.UpsertWorkSuggestion(sg)
-		must(err)
-	}
-	_, _, err = st.AddWorkMergeSuggestion(w5.ID, w6.ID, "", "steward")
-	must(err)
-
-	// --- capture box, held mail
-	for _, text := range []string{"idea", "idea"} {
-		_, err := st.CaptureWorkItem(jobstore.CaptureInput{Text: text, Kind: jobstore.WorkKindIdea, By: "human:t"})
-		must(err)
-	}
+	// --- held mail
 	for _, in := range []jobstore.MailInput{
 		{FromKind: jobstore.MailKindSession, FromID: "s-abcdef1234567", FromCaller: "c1", ToAddress: "topic:nobody", Body: "first"},
 		{FromKind: jobstore.MailKindJob, FromID: "job-1", ToAddress: "path:nowhere", Body: "second"},
@@ -196,28 +161,9 @@ func todayTextOutputs(t *testing.T, lang i18n.Lang) string {
 	must(err)
 	sb.WriteString("## steward alerts\n" + strings.Join(resp2.Status.Alerts, "\n") + "\n")
 
-	// --- worker enroll card
-	ec, _ := shimEnrollCard(lang, []EnrollPending{
-		{Hostname: "h1", RequestedID: "w-1", CreatedAt: 1, DecideUntil: 100}, {Hostname: "h2", CreatedAt: 2, DecideUntil: 90},
-		{Hostname: "h3", CreatedAt: 3}, {Hostname: "h4", CreatedAt: 4}})
-	sb.WriteString("## enroll card\n")
-	dumpCard(&sb, ec)
-
-	// --- lanes
-	lv, err := shimLanes(lang, svc.d.Work)
-	must(err)
-	sb.WriteString("## lanes\n")
-	var laneLines []string
-	for _, l := range lv.Lanes {
-		laneLines = append(laneLines, fmt.Sprintf("%s health=%s reason=%q", l.Kind+":"+l.Title, l.Health, l.HealthReason))
-	}
-	sort.Strings(laneLines)
-	sb.WriteString(strings.Join(laneLines, "\n") + "\n")
-
 	out := sb.String()
 	// ids the store generates are masked
 	out = regexp.MustCompile(`\b(?:w|wm)-[0-9a-f]{6,}\b`).ReplaceAllString(out, "<ID>")
-	out = regexp.MustCompile(`"(?:work|suggestion|merge):[^"]*"`).ReplaceAllStringFunc(out, func(m string) string { return m })
 	return out
 }
 

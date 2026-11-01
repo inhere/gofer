@@ -34,7 +34,7 @@ import {
 import { fmtAgo, fmtDateTime } from '../api/time'
 import { runnerLabel } from '../utils/runnerDisplay'
 import { agentStateLabel } from '../utils/sessionState'
-import { healthText } from '../utils/todayLanes'
+import { healthText } from '../utils/workHealth'
 import { resumeLabel, resumeTitle } from '../utils/sessionResume'
 import { copyText } from '../utils/sessionMessaging'
 import {

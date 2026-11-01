@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/pushhub"
-	"github.com/inhere/gofer/internal/today"
 	"github.com/inhere/gofer/internal/workerenroll"
 )
 
@@ -135,105 +133,36 @@ func TestWSDefaultConnectionHasNoEnrollmentTopic(t *testing.T) {
 	}
 }
 
-type todayCards struct {
-	Snoozed   int `json:"snoozed"`
-	Decisions []struct {
-		Key       string `json:"key"`
-		Kind      string `json:"kind"`
-		Urgency   string `json:"urgency"`
-		Title     string `json:"title"`
-		Summary   string `json:"summary"`
-		ExpiresAt int64  `json:"expires_at"`
-		Actions   []struct {
-			ID    string `json:"id"`
-			Label string `json:"label"`
-			Value string `json:"value"`
-		} `json:"actions"`
-	} `json:"decisions"`
-}
-
-func (e *enrollEnv) todayRaw(token string) (todayCards, string) {
-	e.t.Helper()
-	rec := e.do(enrollReq{method: http.MethodGet, path: "/v1/today", token: token})
-	if rec.Code != http.StatusOK {
-		e.t.Fatalf("today = %d: %s", rec.Code, rec.Body.String())
-	}
-	var out todayCards
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		e.t.Fatal(err)
-	}
-	return out, rec.Body.String()
-}
-
-func (c todayCards) enrollCards() (n int) {
-	for _, d := range c.Decisions {
-		if d.Kind == today.KindWorkerEnroll {
-			n++
-		}
-	}
-	return n
-}
-
-func TestTodayEnrollCardOnlyForWorkerManageWithPending(t *testing.T) {
+// The pending worker enrollments are not a card of /v1/today (CL1): the Runners page and the
+// top-bar count read GET /v1/worker-enrollments themselves, and the today payload carries
+// neither a `decisions` queue nor an enrollment card for anybody.
+func TestTodayCarriesNoEnrollCard(t *testing.T) {
 	e := gatedEnroll(t, true)
-
-	// A person without worker.manage never sees it.
-	if got, _ := e.todayRaw("tok-op"); got.enrollCards() != 0 {
-		t.Fatalf("op sees the enrollment card: %+v", got.Decisions)
-	}
-	// A holder sees exactly one, with the documented shape.
-	got, raw := e.todayRaw("tok-root")
-	if got.enrollCards() != 1 {
-		t.Fatalf("root cards = %+v", got.Decisions)
-	}
-	var card = got.Decisions[len(got.Decisions)-1]
-	if card.Kind != "worker_enroll" || card.Urgency != "now" || card.Title != "1 个 worker 申请注册" ||
-		card.ExpiresAt == 0 || len(card.Actions) != 1 || card.Actions[0].Label != "去处理" || card.Actions[0].Value != "/runners#enrollments" {
-		t.Fatalf("card = %+v", card)
-	}
-	if !strings.Contains(card.Summary, "box-1") || !strings.Contains(card.Summary, "gpu1") {
-		t.Fatalf("summary = %q", card.Summary)
-	}
-	// No secret material: not the pairing code, the secret hash nor its source.
 	rows, err := e.store.ListWorkerEnrollmentsAdmin(0)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows=%v err=%v", rows, err)
 	}
-	for _, secret := range []string{rows[0].PairingCode, rows[0].SecretHash, sha256Hex(enrollSecret1), enrollSecret1} {
-		if secret != "" && strings.Contains(raw, secret) {
-			t.Fatalf("today response leaks %q", secret)
+	for _, token := range []string{"tok-op", "tok-root"} {
+		rec := e.do(enrollReq{method: http.MethodGet, path: "/v1/today", token: token})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("today = %d: %s", rec.Code, rec.Body.String())
 		}
-	}
-	// It never entered the snooze / advice paths.
-	if got.Snoozed != 0 {
-		t.Fatalf("snoozed = %d", got.Snoozed)
-	}
-	key := url.PathEscape(card.Key)
-	if rec := e.do(enrollReq{method: http.MethodPost, path: "/v1/today/snooze", token: "tok-root",
-		body: map[string]any{"card_key": card.Key, "until_at": time.Now().Add(time.Hour).Unix()}}); rec.Code != http.StatusNotFound {
-		t.Fatalf("snooze of the enrollment card = %d, want 404 (%s)", rec.Code, key)
-	}
-	if rec := e.do(enrollReq{method: http.MethodPost, path: "/v1/today/advice", token: "tok-root",
-		body: map[string]any{"card_key": card.Key, "text": "x"}}); rec.Code != http.StatusNotFound {
-		t.Fatalf("advice on the enrollment card = %d, want 404", rec.Code)
-	}
-
-	// Once nothing is pending, the card is gone.
-	if rec := e.do(enrollReq{method: http.MethodPost, path: "/v1/worker-enrollments/" + rows[0].ID + "/reject",
-		token: "tok-root", body: map[string]any{}}); rec.Code != http.StatusNoContent {
-		t.Fatalf("reject = %d: %s", rec.Code, rec.Body.String())
-	}
-	if got, _ := e.todayRaw("tok-root"); got.enrollCards() != 0 {
-		t.Fatalf("card with nothing pending: %+v", got.Decisions)
-	}
-}
-
-func TestTodayEnrollCardAbsentWhenDisabled(t *testing.T) {
-	e := gatedEnroll(t, true)
-	e.mu.Lock()
-	e.enabled = false
-	e.mu.Unlock()
-	if got, _ := e.todayRaw("tok-root"); got.enrollCards() != 0 {
-		t.Fatalf("disabled feature still shows a card: %+v", got.Decisions)
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := raw["decisions"]; ok {
+			t.Fatalf("%s: /v1/today still carries decisions: %s", token, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if strings.Contains(body, "worker_enroll") {
+			t.Fatalf("%s: /v1/today carries an enrollment card: %s", token, body)
+		}
+		// No secret material either.
+		for _, secret := range []string{rows[0].PairingCode, rows[0].SecretHash, sha256Hex(enrollSecret1), enrollSecret1} {
+			if secret != "" && strings.Contains(body, secret) {
+				t.Fatalf("today response leaks %q", secret)
+			}
+		}
 	}
 }

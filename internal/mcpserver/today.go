@@ -12,14 +12,17 @@ import (
 	"github.com/inhere/gofer/internal/today"
 )
 
-// N3 T4: the steward's view of the 「今天」 decision queue and its one write there — advice.
-// Advice never executes anything: the person clicks 「按建议」. The server re-checks that the
-// caller is the steward (or a person) and validates the card / action.
+// N3 T4: the steward's view of the 「等我」 list (GET /v1/today waiting, the one list the home page,
+// the inbox and the badge share) and its one write there — advice. Advice never executes
+// anything: the person clicks 「按建议」. The server re-checks that the caller is the steward (or a
+// person) and validates the card / action.
 
 type todayListInput struct {
-	// Kind filters by card kind (interaction|decision|relay|review|work|suggestion|merge|plan_blocked).
+	// Kind filters by card kind (approval|interaction|permission|decision|relay|review|plan_blocked|mail_held|job.failed).
 	Kind string `json:"kind,omitempty"`
-	// Unadvised lists only the cards without advice yet.
+	// Waiting filters by 「等我」 category (approval|answer|review|plan_stuck|failed|delivery).
+	Waiting string `json:"waiting,omitempty"`
+	// Unadvised lists only the cards without advice yet (and that can take advice).
 	Unadvised bool `json:"unadvised,omitempty"`
 	// IncludeExec also lists needs_review jobs of the exec agent.
 	IncludeExec bool `json:"include_exec,omitempty"`
@@ -34,14 +37,17 @@ type todayActionView struct {
 }
 
 type todayCardView struct {
-	Key          string            `json:"key"`
-	Kind         string            `json:"kind"`
-	Tag          string            `json:"tag"`
-	Urgency      string            `json:"urgency"`
-	Title        string            `json:"title"`
-	ProjectKey   string            `json:"project_key,omitempty"`
-	Agent        string            `json:"agent,omitempty"`
-	WaitingSince int64             `json:"waiting_since"`
+	Key          string `json:"key"`
+	Kind         string `json:"kind"`
+	Tag          string `json:"tag"`
+	Urgency      string `json:"urgency"`
+	Title        string `json:"title"`
+	ProjectKey   string `json:"project_key,omitempty"`
+	Agent        string `json:"agent,omitempty"`
+	WaitingSince int64  `json:"waiting_since"`
+	// Waiting / WaitingLabel are the 「等我」 category of the card and its label.
+	Waiting      string            `json:"waiting,omitempty"`
+	WaitingLabel string            `json:"waiting_label,omitempty"`
 	Summary      string            `json:"summary"`
 	Blocks       string            `json:"blocks,omitempty"`
 	Review       *today.Review     `json:"review,omitempty"`
@@ -89,15 +95,15 @@ type todayAdviseOutput struct {
 func registerTodayTools(s *mcp.Server, b Backend) {
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_today_list",
-		Description: "List the person's " + text(b, "mcp.term.today") + " decision queue (read-only): each card's key, kind, title, one-line summary, actions (id = what gofer_today_advise action_id takes), refs (job_id / work_item_id / interaction_id / …) and current advice. Filters: kind, unadvised (only cards without advice), include_exec.",
+		Description: "List the person's " + text(b, "mcp.term.waiting") + " list (read-only) — what is waiting on a person, taken from structured facts only (approvals, questions, reviews, blocked plans, failed jobs the person submitted, held mail; work items, model suggestions and merge / memory suggestions are not in it): each card's key, kind, waiting category and label, title, one-line summary, actions (id = what gofer_today_advise action_id takes), refs (job_id / interaction_id / session_id / …) and current advice. Filters: kind, waiting (category), unadvised (only cards without advice that can take advice), include_exec.",
 	}, todayListHandler(b))
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_today_card",
-		Description: "Read one " + text(b, "mcp.term.today") + " card by key (read-only). A card tied to a job (review / interaction / plan_blocked) also returns the job's report, diff stat, commits and verify outcome — what a review digest is written from.",
+		Description: "Read one " + text(b, "mcp.term.waiting") + " card by key (read-only). A card tied to a job (review / interaction / plan_blocked) also returns the job's report, diff stat, commits and verify outcome — what a review digest is written from.",
 	}, todayCardHandler(b))
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_today_advise",
-		Description: "Advise on one " + text(b, "mcp.term.today") + " card: text (one line, <=60 characters; your reasoning), optional action_id (one of the card's advisable action ids — the person sees it as the leading " + text(b, "mcp.term.as_advised") + " button and decides; nothing is executed), optional digest (<=5 lines, for review cards: " + text(b, "mcp.term.digest_sections") + "). A decision card takes background only — no action_id. Writing again replaces the card's advice.",
+		Description: "Advise on one " + text(b, "mcp.term.waiting") + " card: text (one line, <=60 characters; your reasoning), optional action_id (one of the card's advisable action ids — the person sees it as the leading " + text(b, "mcp.term.as_advised") + " button and decides; nothing is executed), optional digest (<=5 lines, for review cards: " + text(b, "mcp.term.digest_sections") + "). A decision card takes background only — no action_id. A failed-job card (kind job.failed) cannot take advice. Writing again replaces the card's advice.",
 	}, todayAdviseHandler(b))
 }
 
@@ -107,10 +113,11 @@ func todayListHandler(b Backend) mcp.ToolHandlerFor[todayListInput, todayListOut
 		if err != nil {
 			return nil, todayListOutput{}, err
 		}
-		kind := strings.TrimSpace(in.Kind)
-		out := todayListOutput{Cards: make([]todayCardView, 0, len(resp.Decisions)), Total: len(resp.Decisions)}
-		for _, c := range resp.Decisions {
-			if (kind != "" && c.Kind != kind) || (in.Unadvised && c.Advice != nil) {
+		kind, waiting := strings.TrimSpace(in.Kind), strings.TrimSpace(in.Waiting)
+		out := todayListOutput{Cards: make([]todayCardView, 0, len(resp.Waiting)), Total: len(resp.Waiting)}
+		for _, c := range resp.Waiting {
+			if (kind != "" && c.Kind != kind) || (waiting != "" && c.Waiting != waiting) ||
+				(in.Unadvised && (c.Advice != nil || !today.CanAdvise(c.Kind))) {
 				continue
 			}
 			out.Cards = append(out.Cards, toTodayCardView(c))
@@ -129,7 +136,7 @@ func todayCardHandler(b Backend) mcp.ToolHandlerFor[todayCardInput, todayCardOut
 		if err != nil {
 			return nil, todayCardOutput{}, err
 		}
-		for _, c := range resp.Decisions {
+		for _, c := range resp.Waiting {
 			if c.Key != key {
 				continue
 			}
@@ -144,7 +151,7 @@ func todayCardHandler(b Backend) mcp.ToolHandlerFor[todayCardInput, todayCardOut
 			}
 			return nil, out, nil
 		}
-		return nil, todayCardOutput{}, fmt.Errorf("no card %s in the current queue (it may have been handled already)", key)
+		return nil, todayCardOutput{}, fmt.Errorf("no card %s in the current waiting list (it may have been handled already)", key)
 	}
 }
 
@@ -172,10 +179,10 @@ func jobReport(resultJSON string) string {
 
 func toTodayCardView(c today.Card) todayCardView {
 	v := todayCardView{Key: c.Key, Kind: c.Kind, Tag: c.Tag, Urgency: c.Urgency, Title: c.Title, ProjectKey: c.ProjectKey,
-		Agent: c.Agent, WaitingSince: c.WaitingSince, Summary: c.Summary, Blocks: c.Blocks.Text, Review: c.Review,
+		Agent: c.Agent, WaitingSince: c.WaitingSince, Waiting: c.Waiting, WaitingLabel: c.WaitingLabel, Summary: c.Summary, Blocks: c.Blocks.Text, Review: c.Review,
 		Refs: c.Refs, Advice: c.Advice, Actions: make([]todayActionView, 0, len(c.Actions))}
 	for _, a := range c.Actions {
-		v.Actions = append(v.Actions, todayActionView{ID: today.ActionKey(a), Label: a.Label, Advisable: today.Advisable(c.Kind, a)})
+		v.Actions = append(v.Actions, todayActionView{ID: today.ActionKey(a), Label: a.Label, Advisable: today.CanAdvise(c.Kind) && today.Advisable(c.Kind, a)})
 	}
 	return v
 }

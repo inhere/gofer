@@ -193,7 +193,6 @@ func (w ceilWorld) bodyFor(key string) any {
 var unfilteredAggregates = map[string]string{
 	"GET /v1/today":              "cross-project aggregate (phase 2)",
 	"GET /v1/today/handled":      "cross-project aggregate (phase 2)",
-	"GET /v1/today/lanes":        "cross-project aggregate (phase 2)",
 	"GET /v1/stats":              "cross-project counts (phase 2)",
 	"GET /v1/stats/overview":     "cross-project counts (phase 2)",
 	"GET /v1/work-items/digest":  "cross-project digest (phase 2)",

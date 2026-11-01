@@ -365,7 +365,6 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/today/actions` | `Public` | — | — | `Resource(today_card)` | 写 |
 | `POST` | `/v1/today/advice` | `Public` | — | `job` | `Resource(today_card)` | 写 |
 | `GET` | `/v1/today/handled` | `Public` | — | — | `Filter` | 读 |
-| `GET` | `/v1/today/lanes` | `Public` | — | — | `Filter` | 读 |
 | `POST` | `/v1/today/snooze` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
 | `DELETE` | `/v1/today/snooze/{key}` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
 | `GET` | `/v1/today/snoozed` | `Public` | — | — | `NoProject` | 读 |

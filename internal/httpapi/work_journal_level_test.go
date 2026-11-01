@@ -3,11 +3,9 @@ package httpapi
 import (
 	"net/http"
 	"testing"
-
-	"github.com/inhere/gofer/internal/today"
 )
 
-func TestTodayLanesAndJournalLevel(t *testing.T) {
+func TestWorkJournalLevelAndHealth(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	registerSessionInProject(t, s, "sess-lane-1", "/ws/a", "p1")
 	id := workCall(t, s, http.MethodPost, "/v1/work-items", testToken,
@@ -56,28 +54,5 @@ func TestTodayLanesAndJournalLevel(t *testing.T) {
 	decode(t, resp, &d)
 	if d.Health != "ok" || len(d.Milestones) == 0 || d.Milestones[len(d.Milestones)-1].Text != "分页方案定了" {
 		t.Fatalf("view = %+v", d)
-	}
-
-	resp = do(t, s, http.MethodGet, "/v1/today/lanes", testToken, nil)
-	if resp.StatusCode != 200 {
-		t.Fatalf("lanes = %d", resp.StatusCode)
-	}
-	var v today.LanesView
-	decode(t, resp, &v)
-	if v.Summary.Total != 1 || len(v.Lanes) != 1 {
-		t.Fatalf("lanes = %+v", v)
-	}
-	l := v.Lanes[0]
-	if l.Kind != today.LaneWork || l.ID != id || l.Progress.Current != "分页方案定了" || l.Health != "ok" || l.Links.WorkItemID != id {
-		t.Fatalf("lane = %+v", l)
-	}
-}
-
-func TestTodayLanesWorkerTokenRefused(t *testing.T) {
-	s := newTestServer(t, testToken, false)
-	resp := do(t, s, http.MethodGet, "/v1/today/lanes", "", nil)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("no token = %d, want 401", resp.StatusCode)
 	}
 }

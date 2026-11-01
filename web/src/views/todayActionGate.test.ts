@@ -22,11 +22,6 @@ describe('今天页：卡片写操作按权限灰显', () => {
   it('灰显的动作不发请求（专注模式的数字键 / a / r 也走同一条路）', () => {
     expect(card).toContain('if (actionBlock(a)) return')
   })
-  it('建议的采纳 / 忽略在只读身份下也灰显（这两条路由是 Public，只被只读上限拦）', () => {
-    expect(card).toContain('if (readOnly.value) return')
-    expect(card).toContain(':disabled="readOnly"')
-    expect(card).toContain(':title="readOnly ? ceilingReadOnlyNotice() : undefined"')
-  })
   it('纯查看的链接（看 diff / 打开 plan）不受影响', () => {
     expect(card).toContain("v-if=\"a.id === 'diff' || a.id === 'open'\"")
   })

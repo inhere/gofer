@@ -193,7 +193,10 @@ func TestRelayOneCardPerSessionAndAckedSkipped(t *testing.T) {
 	assert.Eq(t, []string{"A", "B"}, []string{dec.Actions[0].Value, dec.Actions[1].Value})
 }
 
-func TestModelSuggestionsMakeNoCardsAndMergesStay(t *testing.T) {
+// The queue holds only the cards that stand for a structured 「等我」 fact (CL1, design
+// 2026-11-01 AT3): work items, the model's tidy-up suggestions, merge suggestions, memory
+// suggestions and the capture box make no card, however they are spelled.
+func TestOnlyStructuredWaitingCards(t *testing.T) {
 	svc, st := newTestService(t)
 	_, err := st.UpsertAgentSession(jobstore.AgentSession{SessionID: "s-w", Agent: "claude", ProjectKey: "p1", State: jobstore.SessionIdle})
 	assert.NoErr(t, err)
@@ -206,7 +209,6 @@ func TestModelSuggestionsMakeNoCardsAndMergesStay(t *testing.T) {
 	for _, sg := range []jobstore.WorkSuggestion{
 		{WorkItemID: w1.ID, Field: jobstore.SuggestGoal, Value: "支持 iframe", By: "summarizer"},
 		{WorkItemID: w2.ID, Field: jobstore.SuggestStatusHint, Value: jobstore.WorkReview, By: "summarizer"},
-		// next suggestions stay in Works.
 		{WorkItemID: w3.ID, Field: jobstore.SuggestNext, Value: "x", By: "summarizer"},
 	} {
 		_, err := st.UpsertWorkSuggestion(sg)
@@ -214,35 +216,24 @@ func TestModelSuggestionsMakeNoCardsAndMergesStay(t *testing.T) {
 	}
 	_, _, err = st.AddWorkMergeSuggestion(w2.ID, w3.ID, "同一件事", "steward")
 	assert.NoErr(t, err)
-
-	cards, err := svc.Decisions(false)
+	_, err = st.CaptureWorkItem(jobstore.CaptureInput{Text: "想法", Kind: jobstore.WorkKindIdea, By: "human:t"})
 	assert.NoErr(t, err)
-	wc, ok := find(cards, "work:"+w1.ID)
-	assert.True(t, ok)
-	assert.Eq(t, "等我", wc.Tag)
-	assert.Eq(t, Blocks{Score: 2, Items: 1, Text: "claude 会话在线等你答复"}, wc.Blocks)
-	assert.Eq(t, "s-w", wc.Refs.SessionID)
-	// The model's tidy-up suggestions (design 2026-11-01 §4.2) make no card of their own, however
-	// the field is spelled: they stay in the work item's detail.
-	for _, c := range cards {
-		assert.NotEq(t, "suggestion", c.Kind)
-	}
-	_, ok = find(cards, "suggestion:"+w1.ID+":goal")
-	assert.False(t, ok)
-	_, ok = find(cards, "suggestion:"+w2.ID+":status_hint")
-	assert.False(t, ok)
-	_, ok = find(cards, "suggestion:"+w3.ID+":next")
-	assert.False(t, ok)
+	seedMemories(t, st)
+	_, _, err = svc.SuggestMemory(MemorySuggestInput{TrackerID: "trk", Key: "old-note", Action: MemoryActArchive, Reason: "reason"}, "s", "")
+	assert.NoErr(t, err)
 
-	var merge Card
-	for _, c := range cards {
-		if c.Kind == KindMerge {
-			merge = c
-		}
-	}
-	assert.Eq(t, "同一件事", merge.Summary)
-	assert.True(t, merge.Refs.MergeID > 0)
-	assert.Len(t, cards, 2) // the work card and the merge card, no suggestion cards
+	cards, err := svc.Decisions(true)
+	assert.NoErr(t, err)
+	assert.Len(t, cards, 0)
+	resp, err := svc.Today(Query{IncludeExec: true})
+	assert.NoErr(t, err)
+	assert.Len(t, resp.Cards, 0)
+
+	// A structured fact still makes its card next to them.
+	putJob(t, st, jobstore.JobRecord{ID: "j-rev", ProjectKey: "p1", Agent: "codex", Status: job.StatusNeedsReview, EndedAt: ago(30)})
+	cards, err = svc.Decisions(false)
+	assert.NoErr(t, err)
+	assert.Eq(t, []string{"review:j-rev"}, keys(cards))
 }
 
 func TestTodayDigestStatusAndHandled(t *testing.T) {
@@ -262,7 +253,7 @@ func TestTodayDigestStatusAndHandled(t *testing.T) {
 	assert.Eq(t, 1, resp.Status.Runners.RunningJobs)
 	assert.Eq(t, []string{"runner w-mac 离线"}, resp.Status.Alerts)
 	assert.True(t, resp.Status.UsageToday.Jobs >= 3)
-	assert.NotNil(t, resp.Decisions)
+	assert.NotNil(t, resp.Cards)
 
 	// since=0 falls back to local midnight.
 	resp, err = svc.Today(Query{})

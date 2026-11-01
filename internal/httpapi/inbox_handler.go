@@ -107,11 +107,12 @@ func (s *Server) handleInboxRules(c *rux.Context) {
 	c.JSON(http.StatusOK, inbox.Directory(s.inboxConfig()))
 }
 
-// waitingFor is the one 「等我」 list of a request: the structured-fact cards of decisions plus
-// the caller-visible failures of jobs a person submitted (inbox.Waiting / inbox.TerminalCards).
+// waitingFor is the one 「等我」 list of a request: the structured-fact cards of the today queue
+// (cards: today.Response.Cards, built only from store rows) plus the caller-visible failures of
+// jobs a person submitted (inbox.Waiting / inbox.TerminalCards).
 // The home page, the inbox's action column and the top-bar badge all read what this returns,
 // so they cannot disagree. fyi is the person's own finished jobs (the inbox's second column).
-func (s *Server) waitingFor(c *rux.Context, decisions []today.Card) (waiting, fyi []today.Card, err error) {
+func (s *Server) waitingFor(c *rux.Context, queue []today.Card) (waiting, fyi []today.Card, err error) {
 	var failed []today.Card
 	if s.jobs != nil && s.jobs.Meta() != nil {
 		var allow func(string) bool
@@ -122,8 +123,8 @@ func (s *Server) waitingFor(c *rux.Context, decisions []today.Card) (waiting, fy
 			return nil, nil, err
 		}
 	}
-	cards := make([]today.Card, 0, len(decisions)+len(failed))
-	cards = append(append(cards, decisions...), failed...)
+	cards := make([]today.Card, 0, len(queue)+len(failed))
+	cards = append(append(cards, queue...), failed...)
 	return inbox.Waiting(s.requestLang(c), cards), fyi, nil
 }
 
@@ -146,7 +147,7 @@ func (s *Server) currentInboxItems(c *rux.Context) ([]inbox.Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	waiting, fyi, err := s.waitingFor(c, resp.Decisions)
+	waiting, fyi, err := s.waitingFor(c, resp.Cards)
 	if err != nil {
 		return nil, err
 	}

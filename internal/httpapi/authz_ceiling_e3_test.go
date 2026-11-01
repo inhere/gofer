@@ -14,7 +14,7 @@ import (
 
 // 调用方上限第二期 E3：聚合与计数按范围（gofer-7798，计划 E3、决策 2）。
 //
-//   - /v1/today（含 handled、lanes、状态条）、/v1/stats、/v1/stats/overview、work-items digest、
+//   - /v1/today（含 handled、状态条）、/v1/stats、/v1/stats/overview、work-items digest、
 //     /v1/meta 对受限调用方只含范围内项目，全局数字（用量、DB、会话、管家）不返回；
 //   - /v1/steward 与 digest 的 POST 对受限调用方 403；
 //   - 未受限调用方的响应逐字节不变（回归断言）。
@@ -46,7 +46,7 @@ func decodeJSON(t *testing.T, body string) map[string]any {
 func cardKeys(t *testing.T, body string) []string {
 	t.Helper()
 	m := decodeJSON(t, body)
-	raw, _ := m["decisions"].([]any)
+	raw, _ := m["waiting"].([]any)
 	out := make([]string, 0, len(raw))
 	for _, r := range raw {
 		if card, ok := r.(map[string]any); ok {
@@ -58,7 +58,7 @@ func cardKeys(t *testing.T, body string) []string {
 	return out
 }
 
-// TestCeilingTodayIsScoped: the Today queue, the handled rows, the lanes and the status bar of a
+// TestCeilingTodayIsScoped: the Today queue, the handled rows and the status bar of a
 // restricted caller cover its projects only; the unrestricted caller keeps everything, byte for
 // byte the payload the shared builder produces.
 func TestCeilingTodayIsScoped(t *testing.T) {
@@ -108,17 +108,6 @@ func TestCeilingTodayIsScoped(t *testing.T) {
 	handled, _ := decodeJSON(t, hbody)["handled"].([]any)
 	if len(handled) != 1 {
 		t.Fatalf("restricted handled rows = %d, want the single row of p1: %s", len(handled), hbody)
-	}
-
-	status, lbody := ceilReq(t, s, ceilTokLim, http.MethodGet, "/v1/today/lanes", nil)
-	if status != http.StatusOK {
-		t.Fatalf("GET /v1/today/lanes as lim = %d: %s", status, lbody)
-	}
-	lanes, _ := decodeJSON(t, lbody)["lanes"].([]any)
-	for _, raw := range lanes {
-		if lane, ok := raw.(map[string]any); ok && lane["project_key"] != "p1" {
-			t.Errorf("restricted lane of project %v, want only p1", lane["project_key"])
-		}
 	}
 
 	// Unrestricted: both cards, both handled rows, and the global blocks are present — the

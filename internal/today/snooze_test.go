@@ -3,6 +3,7 @@ package today
 import (
 	"errors"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -31,27 +32,29 @@ func newClockService(t *testing.T) (*Service, *jobstore.Store, *time.Time) {
 	return svc, st, &now
 }
 
-func needsMe(t *testing.T, st *jobstore.Store, title string) jobstore.WorkItem {
+// needsMe stores a needs_review job (a structured 「等我」 fact) titled title and returns its id
+// and card key.
+func needsMe(t *testing.T, st *jobstore.Store, title string) (id, key string) {
 	t.Helper()
-	w, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: title, Status: jobstore.WorkNeedsMe, By: "me"})
-	assert.NoErr(t, err)
-	return w
+	id = "j-" + strconv.Itoa(len(title))
+	putJob(t, st, jobstore.JobRecord{ID: id, ProjectKey: "p1", Agent: "codex", Status: job.StatusNeedsReview,
+		RequestJSON: `{"title":"` + title + `"}`, EndedAt: ago(10)})
+	return id, KindReview + ":" + id
 }
 
 func TestSnoozeHidesUntilTimeThenWakes(t *testing.T) {
 	svc, st, now := newClockService(t)
-	w := needsMe(t, st, "等我拍板")
-	key := KindWork + ":" + w.ID
+	_, key := needsMe(t, st, "等我拍板")
 
 	sc, err := svc.Snooze(SnoozeInput{CardKey: key, UntilAt: now.Unix() + 3600}, "me")
 	assert.NoErr(t, err)
 	assert.Eq(t, "等我拍板", sc.Title)
-	assert.Eq(t, KindWork, sc.Kind)
+	assert.Eq(t, KindReview, sc.Kind)
 
 	resp, err := svc.Today(Query{})
 	assert.NoErr(t, err)
 	assert.Eq(t, 1, resp.Snoozed)
-	assert.Len(t, resp.Decisions, 0)
+	assert.Len(t, resp.Cards, 0)
 	list, err := svc.Snoozed(false)
 	assert.NoErr(t, err)
 	assert.Len(t, list, 1)
@@ -70,38 +73,37 @@ func TestSnoozeHidesUntilTimeThenWakes(t *testing.T) {
 	resp, err = svc.Today(Query{})
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, resp.Snoozed)
-	assert.Eq(t, []string{key}, keys(resp.Decisions))
-	assert.True(t, resp.Decisions[0].Woke)
-	assert.Eq(t, WokeTime, resp.Decisions[0].WokeReason)
+	assert.Eq(t, []string{key}, keys(resp.Cards))
+	assert.True(t, resp.Cards[0].Woke)
+	assert.Eq(t, WokeTime, resp.Cards[0].WokeReason)
 	// The flag stays on the next read, then ages out after a day (row cleaned).
 	resp, _ = svc.Today(Query{})
-	assert.True(t, resp.Decisions[0].Woke)
+	assert.True(t, resp.Cards[0].Woke)
 	*now = now.Add(25 * time.Hour)
 	resp, _ = svc.Today(Query{})
-	assert.False(t, resp.Decisions[0].Woke)
+	assert.False(t, resp.Cards[0].Woke)
 	_, ok, _ := st.GetTodaySnooze(key)
 	assert.False(t, ok)
 }
 
 func TestSnoozeWakesOnActivity(t *testing.T) {
 	svc, st, now := newClockService(t)
-	w := needsMe(t, st, "等我")
-	key := KindWork + ":" + w.ID
+	id, key := needsMe(t, st, "等我")
 	_, err := svc.Snooze(SnoozeInput{CardKey: key, UntilAt: now.Unix() + 86400}, "me")
 	assert.NoErr(t, err)
 
-	// A session heartbeat is not activity (the work card reads the stored activity).
+	// The clock moving is not activity (the review card reads the job's stored update time).
 	*now = now.Add(time.Minute)
 	resp, _ := svc.Today(Query{})
 	assert.Eq(t, 1, resp.Snoozed)
 
-	_, err = st.AppendWorkJournal(w.ID, jobstore.WorkJournalReport, "进展：卡在权限", "agent")
-	assert.NoErr(t, err)
+	putJob(t, st, jobstore.JobRecord{ID: id, ProjectKey: "p1", Agent: "codex", Status: job.StatusNeedsReview,
+		RequestJSON: `{"title":"等我"}`, EndedAt: ago(10), UpdatedAt: now.Unix()})
 	resp, err = svc.Today(Query{})
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, resp.Snoozed)
-	assert.Len(t, resp.Decisions, 1)
-	assert.Eq(t, WokeActivity, resp.Decisions[0].WokeReason)
+	assert.Len(t, resp.Cards, 1)
+	assert.Eq(t, WokeActivity, resp.Cards[0].WokeReason)
 
 	// Re-snoozing records the new activity and clears the flag.
 	_, err = svc.Snooze(SnoozeInput{CardKey: key, UntilAt: now.Unix() + 3600}, "me")
@@ -129,25 +131,22 @@ func TestSnoozeWakesWhenJobEnds(t *testing.T) {
 	resp, err = svc.Today(Query{})
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, resp.Snoozed)
-	assert.Eq(t, []string{key}, keys(resp.Decisions))
-	assert.Eq(t, WokeJob, resp.Decisions[0].WokeReason)
+	assert.Eq(t, []string{key}, keys(resp.Cards))
+	assert.Eq(t, WokeJob, resp.Cards[0].WokeReason)
 }
 
 func TestSnoozeCleansGoneCardsAndKeepsHiddenExec(t *testing.T) {
 	svc, st, now := newClockService(t)
-	w := needsMe(t, st, "会被处理")
-	key := KindWork + ":" + w.ID
+	id, key := needsMe(t, st, "会被处理")
 	putJob(t, st, jobstore.JobRecord{ID: "j-exec", ProjectKey: "p1", Agent: "exec", Status: job.StatusNeedsReview, EndedAt: ago(5)})
 	_, err := svc.Snooze(SnoozeInput{CardKey: key, UntilAt: now.Unix() + 3600}, "me")
 	assert.NoErr(t, err)
 	_, err = svc.Snooze(SnoozeInput{CardKey: "review:j-exec", UntilAt: now.Unix() + 3600}, "me")
 	assert.NoErr(t, err)
 
-	// The work item stops waiting: its card is gone, so is the row. The exec review is only
+	// The job stops waiting: its card is gone, so is the row. The exec review is only
 	// left out of this read, so its row stays (and is not counted).
-	active := jobstore.WorkActive
-	_, _, err = st.UpdateWorkItem(w.ID, jobstore.WorkItemPatch{Status: &active}, w.Rev, "me")
-	assert.NoErr(t, err)
+	putJob(t, st, jobstore.JobRecord{ID: id, ProjectKey: "p1", Agent: "codex", Status: job.StatusDone, EndedAt: ago(5)})
 	resp, err := svc.Today(Query{})
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, resp.Snoozed)
@@ -167,8 +166,7 @@ func TestSnoozeCleansGoneCardsAndKeepsHiddenExec(t *testing.T) {
 
 func TestSnoozeValidationAndUnsnooze(t *testing.T) {
 	svc, st, now := newClockService(t)
-	w := needsMe(t, st, "等我")
-	key := KindWork + ":" + w.ID
+	_, key := needsMe(t, st, "等我")
 	putJob(t, st, jobstore.JobRecord{ID: "j-done", ProjectKey: "p1", Agent: "codex", Status: job.StatusDone, EndedAt: ago(1)})
 
 	for _, in := range []SnoozeInput{
@@ -183,7 +181,7 @@ func TestSnoozeValidationAndUnsnooze(t *testing.T) {
 		_, err := svc.Snooze(in, "me")
 		assert.True(t, errors.Is(err, ErrInvalidSnooze), "%+v: %v", in, err)
 	}
-	_, err := svc.Snooze(SnoozeInput{CardKey: "work:missing", UntilAt: now.Unix() + 60}, "me")
+	_, err := svc.Snooze(SnoozeInput{CardKey: "review:missing", UntilAt: now.Unix() + 60}, "me")
 	assert.True(t, errors.Is(err, ErrCardNotQueued))
 
 	_, err = svc.Snooze(SnoozeInput{CardKey: key, UntilAt: now.Unix() + 60}, "me")
@@ -196,6 +194,6 @@ func TestSnoozeValidationAndUnsnooze(t *testing.T) {
 	assert.False(t, ok)
 	resp, _ := svc.Today(Query{})
 	assert.Eq(t, 0, resp.Snoozed)
-	assert.Len(t, resp.Decisions, 1)
-	assert.False(t, resp.Decisions[0].Woke)
+	assert.Len(t, resp.Cards, 1)
+	assert.False(t, resp.Cards[0].Woke)
 }

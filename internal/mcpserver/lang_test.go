@@ -113,9 +113,8 @@ func TestMcpTextFollowsLanguage(t *testing.T) {
 		wantRef string
 	}{
 		{"mcp.term.today", "「今天」", "Today"},
+		{"mcp.term.waiting", "「等我」", "waiting-on-me"},
 		{"mcp.term.as_advised", "「按建议：X」", "Do as advised: X"},
-		{"mcp.term.adopt", "「采纳」", "Adopt"},
-		{"mcp.term.dismiss", "「忽略」", "Dismiss"},
 		{"mcp.term.knowledge_section", "「## 可复用经验」", "## Reusable lessons"},
 		{"mcp.term.needs_review", "「⚠ 待复核（reason）」", "needs review (reason)"},
 		{"mcp.term.leave_to_human", "(高危/拿不准, 留给人处理)", "high risk or unsure, leave it to a person"},
