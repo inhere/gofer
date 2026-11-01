@@ -107,3 +107,13 @@ dsh-superagent 的核心原则正好对着这个问题：
   - **今天页新形状**：`/v1/today` 新增 `running {sessions, jobs}`（`today.Service.running`）；`work-items` 的 `summary` 新增 `captured`（顶栏「收集箱 N」入口的数据源）。web 今天页 = 等我队列 + `TodayPlans`（读 `GET /v1/plans?status=open`，进度走 `planProgress` 唯一口径）+ 一行正在跑；删 digest / 一行摘要 / 筛选 / 并行中泳道 / 刚处理过，状态条只在有告警时出现，等我为空时只有一句空态。
   - **`decisions` 的去留**：保留，不标 DEPRECATED。web 不再读（`waitingCards` 去掉对它的回落），但 MCP `gofer_today_list|card|advise` 与管家对「今天」卡的建议、收件箱的 `waitingFor` 仍以它为输入；等这两处改读 `waiting` 后再按 G032 标记并删除。`internal/today` 的 `TodayLanes` 组件与 `/v1/today/lanes` 暂留（页面已不挂载），留待后续清理。
 - **CL1 / CL2 遗留清理**：`/v1/today` 的 `decisions` 字段已删除（按 G032 不留兼容层）。`internal/today` 仍用同一条结构化卡管线，但只剩 interaction / decision / permission / relay / review / approval / plan_blocked / mail_held 八种由存储行直接产生的卡，`Response.Cards`（`json:"-"`）只给 HTTP 层折进 `inbox.Waiting`；工作项、合并建议、记忆整理、收集箱与 worker 申请不再建卡。MCP `gofer_today_list|card|advise` 与管家的今天建议改读 `waiting`（`job.failed` 卡只读），inbox 的 `waitingFor` 以同一份队列加 `inbox.TerminalCards` 组装。`TodayLanes` / `TodayRecentHandled` 组件、`/v1/today/lanes` 路由与 `today.LanesBuilder` 一并删除。遗留：记忆整理建议（`gofer_memory_suggest` 与管家记忆体检步骤）已无任何人看得到的界面，只能走 `/v1/memory-suggestions*` 接口，待决定删除还是补页面。
+
+## 8. 记忆整理（2026-11-01 已定）
+
+管家的「模型记忆建议 → 人采纳」队列（`gofer_memory_suggest`、`/v1/memory-suggestions*`、巡检的「仓库记忆整理」步骤）在 AT1 之后已无人可见，改为按证据强弱三层处理，不新增注意力面：
+
+1. **确凿的自动归档**（不问、不推送、可 `restore`、写审计并在 `memory doctor` 列出）：过期超过 7 天的 handoff；引用的路径与提交全部不存在的笔记（note）。**rule 永不自动归档。**
+2. **需判断的攒着等人拉**：被 agent flag 的 rule、重复、长期未用——不进「等我」、不推送、不在每日摘要加计数；集中在现有记忆页 `/memory` 的「待整理」区与 `gofer memory doctor`，每条三选一：保留（unflag）/ 改写（set）/ 归档。
+3. **使用中顺手修**：注入时被 flag 的记忆已带「⚠ 需复核」；skill 写明 agent 确认过时即 `memory set` 改写或 `memory archive`，不必等人。
+
+删除管家的模型记忆建议队列及其 MCP 工具、HTTP 路由与巡检步骤。
