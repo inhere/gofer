@@ -67,6 +67,11 @@ func (s *Server) handleTriggerInvoke(c *rux.Context) {
 		s.writeTriggerInvokeError(c, name, res.RequestID, err)
 		return
 	}
+	if res.Challenge != "" {
+		// A platform endpoint-verification handshake wants exactly this body back.
+		c.JSON(http.StatusOK, map[string]string{"challenge": res.Challenge})
+		return
+	}
 	out := triggerInvokeResponse{Trigger: name, RequestID: res.RequestID, JobID: res.JobID, Duplicate: res.Duplicate, Status: res.Status, Ignored: res.Ignored, Reason: res.Reason}
 	status := http.StatusAccepted
 	if res.Duplicate || res.Ignored {

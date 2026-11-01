@@ -15,7 +15,8 @@ type TriggerConfig struct {
 	Name    string `yaml:"name,omitempty"`
 	Enabled bool   `yaml:"enabled,omitempty"`
 	// Provider selects the inbound adapter: "generic" (default; HMAC + timestamp) or
-	// "github" (GitHub-compatible webhooks). See TriggerProvider*.
+	// "github" (GitHub-compatible webhooks), "dingtalk" or "feishu" (IM inbound adapters).
+	// See TriggerProvider*.
 	Provider    string              `yaml:"provider,omitempty"`
 	OwnerCaller string              `yaml:"owner_caller,omitempty"`
 	Project     string              `yaml:"project,omitempty"`
@@ -27,12 +28,63 @@ type TriggerConfig struct {
 	Limits      TriggerLimitsConfig `yaml:"limits,omitempty"`
 	// GitHub holds the event filter of provider "github"; it must be empty otherwise.
 	GitHub TriggerGitHubConfig `yaml:"github,omitempty"`
+	// IM holds the message filter of the IM providers (dingtalk / feishu); it must be empty
+	// for the other providers.
+	IM TriggerIMConfig `yaml:"im,omitempty"`
 }
 
 // Provider names accepted by server.triggers[].provider.
 const (
 	TriggerProviderGeneric = "generic"
 	TriggerProviderGitHub  = "github"
+	// TriggerProviderDingTalk and TriggerProviderFeishu are the IM inbound adapters
+	// (design P2): the adapter verifies the platform signature and normalizes the message
+	// into an envelope; dispatch still goes through the shared trigger path.
+	TriggerProviderDingTalk = "dingtalk"
+	TriggerProviderFeishu   = "feishu"
+)
+
+// IsIM reports whether the provider is an IM inbound adapter.
+func (t TriggerConfig) IsIM() bool {
+	p := t.EffectiveProvider()
+	return p == TriggerProviderDingTalk || p == TriggerProviderFeishu
+}
+
+// TriggerIMConfig narrows which IM messages dispatch. Everything is optional; an empty
+// block dispatches every text message the platform delivers to the bot.
+//
+// CommandPrefix, when set, makes only messages that start with it (after @mentions and
+// leading blanks are removed) dispatch; the prefix is removed from the text variable.
+// AllowConversations / AllowSenders, when non-empty, are exact-match allowlists of the
+// conversation id and the sender id; a message outside them is acknowledged and ignored.
+type TriggerIMConfig struct {
+	CommandPrefix      string   `yaml:"command_prefix,omitempty"`
+	AllowConversations []string `yaml:"allow_conversations,omitempty"`
+	AllowSenders       []string `yaml:"allow_senders,omitempty"`
+}
+
+func (c TriggerIMConfig) isZero() bool {
+	return c.CommandPrefix == "" && len(c.AllowConversations) == 0 && len(c.AllowSenders) == 0
+}
+
+// IMVarFields are the whitelisted envelope facts an IM trigger may map to template
+// variables (input.vars: name: im.<field>). Nothing else of the message can reach a prompt.
+var IMVarFields = []string{"provider", "sender_id", "sender_name", "conversation_id", "text", "timestamp"}
+
+func validIMVarField(f string) bool {
+	for _, v := range IMVarFields {
+		if v == f {
+			return true
+		}
+	}
+	return false
+}
+
+// MaxTriggerIMList bounds the IM allowlists; MaxTriggerIMValueBytes bounds one entry and
+// the command prefix.
+const (
+	MaxTriggerIMList       = 256
+	MaxTriggerIMValueBytes = 256
 )
 
 // EffectiveProvider is the provider with the "" default applied.
@@ -78,6 +130,10 @@ type TriggerAuthConfig struct {
 	TimestampHeader string `yaml:"timestamp_header,omitempty"`
 	SignatureHeader string `yaml:"signature_header,omitempty"`
 	ReplayWindowSec int    `yaml:"replay_window_sec,omitempty"`
+	// VerificationTokenEnv names the environment variable that holds the platform's
+	// verification token (feishu only: it authenticates the URL-verification handshake and
+	// every event body).
+	VerificationTokenEnv string `yaml:"verification_token_env,omitempty"`
 }
 
 type TriggerInputConfig struct {
@@ -123,6 +179,14 @@ func (t TriggerConfig) Clone() TriggerConfig {
 	}
 	if len(t.GitHub.Conditions) == 0 {
 		out.GitHub.Conditions = nil
+	}
+	out.IM.AllowConversations = append([]string(nil), t.IM.AllowConversations...)
+	out.IM.AllowSenders = append([]string(nil), t.IM.AllowSenders...)
+	if len(t.IM.AllowConversations) == 0 {
+		out.IM.AllowConversations = nil
+	}
+	if len(t.IM.AllowSenders) == 0 {
+		out.IM.AllowSenders = nil
 	}
 	return out
 }
@@ -209,9 +273,9 @@ func validateTriggers(cfg *Config) error {
 		}
 		provider := t.Provider
 		switch provider {
-		case "", TriggerProviderGeneric, TriggerProviderGitHub:
+		case "", TriggerProviderGeneric, TriggerProviderGitHub, TriggerProviderDingTalk, TriggerProviderFeishu:
 		default:
-			return fmt.Errorf("%s.provider: unsupported %q (want generic or github)", where, provider)
+			return fmt.Errorf("%s.provider: unsupported %q (want generic, github, dingtalk or feishu)", where, provider)
 		}
 		if err := validateTriggerProvider(t, where); err != nil {
 			return err
@@ -235,6 +299,9 @@ func validateTriggers(cfg *Config) error {
 		}
 		if t.EffectiveProvider() == TriggerProviderGitHub && t.Dedup.Key != "" {
 			return fmt.Errorf("%s.dedup.key is not allowed with provider github (X-GitHub-Delivery is always the dedup key)", where)
+		}
+		if t.IsIM() && t.Dedup.Key != "" {
+			return fmt.Errorf("%s.dedup.key is not allowed with provider %s (the platform message / event id is always the dedup key)", where, t.EffectiveProvider())
 		}
 		if t.Dedup.Key != "" && t.Dedup.Key != "Idempotency-Key" && !triggerRefRE.MatchString(t.Dedup.Key) {
 			return fmt.Errorf("%s.dedup.key: invalid reference %q", where, t.Dedup.Key)
@@ -268,6 +335,13 @@ func validateTriggers(cfg *Config) error {
 				}
 				continue
 			}
+			if t.IsIM() {
+				field, ok := strings.CutPrefix(ref, "im.")
+				if !ok || !validIMVarField(field) {
+					return fmt.Errorf("%s.input.vars.%s: provider %s accepts only im.<field> references (%s), got %q", where, name, t.EffectiveProvider(), strings.Join(IMVarFields, ", "), ref)
+				}
+				continue
+			}
 			if !triggerRefRE.MatchString(ref) {
 				return fmt.Errorf("%s.input.vars.%s: invalid reference %q", where, name, ref)
 			}
@@ -285,6 +359,15 @@ func validateTriggers(cfg *Config) error {
 // validateTriggerProvider checks the provider-specific blocks: github needs its events and
 // forbids the generic-only auth fields; generic forbids the github block.
 func validateTriggerProvider(t *TriggerConfig, where string) error {
+	if t.IsIM() {
+		return validateTriggerIM(t, where)
+	}
+	if !t.IM.isZero() {
+		return fmt.Errorf("%s.im is only valid with provider dingtalk or feishu", where)
+	}
+	if t.Auth.VerificationTokenEnv != "" {
+		return fmt.Errorf("%s.auth.verification_token_env is only valid with provider feishu", where)
+	}
 	g := t.GitHub
 	if t.EffectiveProvider() != TriggerProviderGitHub {
 		if len(g.Events) > 0 || len(g.Conditions) > 0 || g.MaxAgeSec != 0 {
@@ -367,6 +450,8 @@ func validateTriggerOwnerCeiling(cfg *Config, t *TriggerConfig, owner, where str
 const (
 	TriggerIssueSecretEnvUnset   = "secret_env_unset"
 	TriggerIssueTemplateNotFound = "template_not_found"
+	// TriggerIssueVerificationTokenUnset: a feishu trigger's verification token variable is empty.
+	TriggerIssueVerificationTokenUnset = "verification_token_env_unset"
 )
 
 // TriggerIssue is one reason an enabled trigger is unavailable. Code is stable
@@ -381,7 +466,7 @@ type TriggerIssue struct {
 // enabled one, why it cannot be used right now.
 type TriggerStatus struct {
 	Name, Owner, Project, Template string
-	// Provider is the effective adapter name (generic / github).
+	// Provider is the effective adapter name (generic / github / dingtalk / feishu).
 	Provider string
 	Enabled  bool
 	Issues   []TriggerIssue
@@ -409,6 +494,9 @@ func (c *Config) TriggerStatuses() []TriggerStatus {
 			if os.Getenv(t.Auth.SecretEnv) == "" {
 				st.Issues = append(st.Issues, TriggerIssue{Code: TriggerIssueSecretEnvUnset, Arg: t.Auth.SecretEnv})
 			}
+			if t.Auth.VerificationTokenEnv != "" && os.Getenv(t.Auth.VerificationTokenEnv) == "" {
+				st.Issues = append(st.Issues, TriggerIssue{Code: TriggerIssueVerificationTokenUnset, Arg: t.Auth.VerificationTokenEnv})
+			}
 			if !c.triggerTemplateExists(st.Project, st.Template) {
 				st.Issues = append(st.Issues, TriggerIssue{Code: TriggerIssueTemplateNotFound, Arg: st.Template})
 			}
@@ -435,4 +523,41 @@ func (c *Config) triggerTemplateExists(project, name string) bool {
 	}
 	_, err = template.Resolve(name, projectDir, globalDir)
 	return err == nil
+}
+
+// validateTriggerIM checks an IM provider's blocks. The signature scheme of each platform is
+// fixed, so the generic header overrides are refused rather than silently ignored.
+func validateTriggerIM(t *TriggerConfig, where string) error {
+	g := t.GitHub
+	if len(g.Events) > 0 || len(g.Conditions) > 0 || g.MaxAgeSec != 0 {
+		return fmt.Errorf("%s.github is only valid with provider: github", where)
+	}
+	if t.Auth.TimestampHeader != "" || t.Auth.SignatureHeader != "" {
+		return fmt.Errorf("%s.auth: timestamp_header and signature_header do not apply to provider %s (the platform headers are fixed)", where, t.EffectiveProvider())
+	}
+	switch t.EffectiveProvider() {
+	case TriggerProviderDingTalk:
+		if t.Auth.VerificationTokenEnv != "" {
+			return fmt.Errorf("%s.auth.verification_token_env is only valid with provider feishu", where)
+		}
+	case TriggerProviderFeishu:
+		if !triggerEnvRE.MatchString(t.Auth.VerificationTokenEnv) {
+			return fmt.Errorf("%s.auth.verification_token_env: provider feishu needs the environment variable name of the verification token", where)
+		}
+	}
+	im := t.IM
+	if len(im.CommandPrefix) > MaxTriggerIMValueBytes {
+		return fmt.Errorf("%s.im.command_prefix is too long", where)
+	}
+	for field, list := range map[string][]string{"allow_conversations": im.AllowConversations, "allow_senders": im.AllowSenders} {
+		if len(list) > MaxTriggerIMList {
+			return fmt.Errorf("%s.im.%s: too many entries (max %d)", where, field, MaxTriggerIMList)
+		}
+		for _, v := range list {
+			if v == "" || len(v) > MaxTriggerIMValueBytes {
+				return fmt.Errorf("%s.im.%s: entries must be 1..%d bytes", where, field, MaxTriggerIMValueBytes)
+			}
+		}
+	}
+	return nil
 }

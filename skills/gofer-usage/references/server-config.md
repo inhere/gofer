@@ -515,7 +515,37 @@ server:
 - `github.max_age_sec`（可选）：payload 里有可识别的事件时间（`check_run.completed_at`、`workflow_run.updated_at`、`comment.updated_at`、`review.submitted_at`、`pull_request.updated_at`、`issue.updated_at`、`check_suite.updated_at`、`head_commit.timestamp`）且早于该秒数时按过旧拒绝（401 `trigger_replay_window`）；找不到时间的事件不拒绝。
 - `input.vars` 只能写 `github.<字段>`，白名单：`repository`（全名）、`number`、`title`、`url`（html 链接）、`sender`（login）、`branch`（head ref / push 的分支）、`base_branch`、`sha`、`event`、`action`、`conclusion`。事件里没有的字段为空串；评论正文、PR 描述等其余 payload 内容不可引用。受 `limits.max_var_bytes` 约束。
 
-启动与 reload 之外的行为（P0）：
+### IM provider（`provider: dingtalk` / `feishu`）
+
+把群聊文本消息变成一次固定任务书的 job；适配器只验签并归一化，之后和其他 trigger 走同一套限流、持久去重、owner 准入与审计。入站不回 IM、不接 session / mail。
+
+```yaml
+server:
+  triggers:
+    - name: chat-run
+      enabled: false
+      provider: feishu                # 或 dingtalk
+      owner_caller: automation
+      project: <project>
+      template: chat-task
+      auth:
+        secret_env: GOFER_TRIGGER_CHAT_KEY          # 飞书 = Encrypt Key；钉钉 = 机器人 app secret
+        verification_token_env: GOFER_TRIGGER_CHAT_TOKEN   # 仅飞书，必填
+        replay_window_sec: 300
+      im:
+        command_prefix: /run          # 可选：只有以它开头的消息派活，前缀从 text 中去掉
+        allow_conversations: [<chat-id>]   # 可选：精确匹配的会话 id
+        allow_senders: [<sender-id>]       # 可选：精确匹配的发送者 id
+      input:
+        vars: {who: im.sender_id, room: im.conversation_id, text: im.text}
+```
+
+- 变量只能写 `im.<字段>`：`provider` / `sender_id` / `sender_name` / `conversation_id` / `text` / `timestamp`；超过 `limits.max_var_bytes` 拒绝（400）。不能写 `dedup.key`、`auth.timestamp_header` / `signature_header`、`github` 块；`im` 块与 `verification_token_env` 只对 IM provider 有效（加载时报错）。
+- 只处理文本消息；机器人自身消息、非文本、飞书的其他事件类型、不在白名单或前缀不符、去前缀后为空的消息回 `200 {"ignored":true,"reason":...}`，不派活。消息 id / event id 持久去重，平台重试回 200 duplicate。
+- 钉钉：`timestamp`（毫秒）+ `sign`（base64 的 HMAC-SHA256，key 与消息尾都含 app secret），不覆盖 body，所以靠时间窗与 msgId 去重防重放，务必走 TLS。飞书：`X-Lark-Signature`（SHA-256(时间戳 + nonce + Encrypt Key + body)）、AES 解密、verification token 校验，`url_verification` 握手回 `{"challenge":...}`（握手只验 token）。平台侧配置步骤见 http-api 参考。
+- 结果反馈用既有出站通知（终态通知带 job id，job channel 为 `trigger`），`gofer tool trigger show` / deliveries 可由事件对应到 job id。
+
+启动与 reload 之外的行为（P0）：启动与 reload 之外的行为（P0）：
 
 - **owner 准入**：每次派活都按 owner 的**当前**有效权限判定（需要 `job.submit`，且 owner 必须仍是已声明的非 root caller），再把固定请求（项目 / 模板展开后的 agent / runner）交给 owner 的 ceiling 校验；owner 被撤权或 ceiling 收紧后，下一次触发就被拒绝（不消耗去重名额）。`owner_caller` 的 ceiling 为 `read_only`，或 `projects` 不含该 trigger 的项目，配置加载直接失败。
 - **本机可用性**：`gofer config validate` 对每个 trigger 列出 owner / project / template；启用的 trigger 若 `secret_env` 变量未设置或模板找不到，标 WARN 并说明原因（只告警不使加载失败，因为 validate 可能跑在没有这些密钥的机器上；运行时这样的 trigger 会拒绝所有请求）。

@@ -11,6 +11,10 @@ import (
 const (
 	ProviderGeneric = config.TriggerProviderGeneric
 	ProviderGitHub  = config.TriggerProviderGitHub
+	// The IM inbound adapters (im.go): they verify the platform signature and normalize the
+	// message into an Envelope.
+	ProviderDingTalk = config.TriggerProviderDingTalk
+	ProviderFeishu   = config.TriggerProviderFeishu
 )
 
 // adapter is the provider seam of Engine.Invoke: everything that differs between a generic
@@ -35,6 +39,19 @@ type adapter interface {
 	vars(tc config.TriggerConfig, req TriggerRequest) (map[string]string, error)
 }
 
+// handshaker is implemented by an adapter whose platform verifies the endpoint with a
+// challenge (Feishu url_verification). It runs first, before authenticate: handled means
+// "answer the challenge and stop"; an error refuses the request.
+type handshaker interface {
+	handshake(tc config.TriggerConfig, req TriggerRequest) (challenge string, handled bool, err error)
+}
+
+// payloadDecoder is implemented by an adapter whose body is not plain JSON (Feishu
+// encryption). It runs after authenticate; ErrUnauthenticated from it is an auth failure.
+type payloadDecoder interface {
+	decode(tc config.TriggerConfig, req TriggerRequest) (map[string]any, error)
+}
+
 // adapterFor selects the adapter of a trigger; ok is false for a provider this build does
 // not know (load-time validation makes that unreachable, the engine still refuses it).
 func adapterFor(tc config.TriggerConfig) (adapter, bool) {
@@ -43,6 +60,10 @@ func adapterFor(tc config.TriggerConfig) (adapter, bool) {
 		return genericAdapter{}, true
 	case ProviderGitHub:
 		return githubAdapter{}, true
+	case ProviderDingTalk:
+		return dingtalkAdapter{}, true
+	case ProviderFeishu:
+		return feishuAdapter{}, true
 	}
 	return nil, false
 }

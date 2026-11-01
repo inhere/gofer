@@ -1,0 +1,1 @@
+{"schema":"2.0","header":{"event_id":"evt-fs-0004","event_type":"im.chat.member.bot.added_v1","create_time":"1700000000000","token":"verify-token-demo","app_id":"app-demo"},"event":{"chat_id":"oc_demo_room"}}

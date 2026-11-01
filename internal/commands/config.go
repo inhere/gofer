@@ -1299,6 +1299,8 @@ func triggerIssueText(is config.TriggerIssue) string {
 	switch is.Code {
 	case config.TriggerIssueSecretEnvUnset:
 		return cliText("cli.config.trigger.secret_env_unset", "name", is.Arg)
+	case config.TriggerIssueVerificationTokenUnset:
+		return cliText("cli.config.trigger.verification_token_env_unset", "name", is.Arg)
 	case config.TriggerIssueTemplateNotFound:
 		return cliText("cli.config.trigger.template_not_found", "name", is.Arg)
 	}

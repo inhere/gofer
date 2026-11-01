@@ -320,3 +320,12 @@ issue `gofer-rztq` 在本工作区关联的 tracker / 本机 `gofer issue show` 
 - **取舍**：`max_age_sec` 找不到可识别时间的事件放行（delivery 去重是主要的重放防线，时间检查是补充）；白名单里事件没有的字段取空串而不是 400，因为重投不能修好它；评论正文、PR 描述不在白名单（不可信长文本）。
 - **读视图**：`View.Provider` 显示实际 provider，github 另有 `github` 摘要（events / conditions / max_age_sec），不含 secret。
 
+### P2 实施记录（IM 入站适配器，TRG2）
+
+- **envelope**：`internal/trigger/im.go` 的 `Envelope{Provider, EventID, Timestamp, SenderID, SenderName, ConversationID, Text, BodyHash}`。适配器只验签并归一化（`imNormalizer`），白名单 / 前缀 / 非文本 / 机器人自身过滤在共享的 `imEnvelope`；派活仍走 P0/P1 的限流、receipt、owner admission 与审计，不新增派活路径。
+- **provider**：`dingtalk`（机器人 HTTP 回调：`timestamp`（毫秒）+ `sign` = base64(HMAC-SHA256(key=secret, msg=timestamp+"\n"+secret))，窗口 `auth.replay_window_sec`，msgId 去重）、`feishu`（事件订阅 2.0：`X-Lark-Signature` = hex(SHA256(timestamp+nonce+EncryptKey+body))，AES-256-CBC 解密，`header.token` 校验，`url_verification` 握手，`header.event_id` 去重）。适配器接口新增两个可选能力：`handshaker`（先于验签，回 challenge）与 `payloadDecoder`（验签后解密 / 解析 body）；`Result.Challenge` 由 HTTP 入口原样回 `{"challenge":...}`。
+- **过滤**：非文本、机器人自身（钉钉 `senderId == chatbotUserId`；飞书 `sender_type != user`）、其他飞书事件类型、不在 `im.allow_conversations` / `allow_senders` 内、不以 `im.command_prefix` 开头、去前缀后为空，均回 `200 ignored`（reason：`not_text` / `from_bot` / `unsupported_event` / `not_allowed` / `prefix_not_matched` / `empty_text`），不派活、不占去重与限流名额。
+- **模板变量**：只能写 `im.<字段>`：`provider` / `sender_id` / `sender_name` / `conversation_id` / `text` / `timestamp`；其余回调内容（如钉钉 `sessionWebhook`）不可引用；标识类字段的控制字符变空格；超出 `limits.max_var_bytes` 拒绝（400）而不是截断。
+- **不回 IM**：入站不读也不使用 `sessionWebhook`，不调用 messenger / session / mail。结果反馈沿用既有出站 notification：job 终态通知带 job id，job 的 channel 为 `trigger`；`gofer tool trigger show` / `GET .../deliveries` 能用事件哈希对应到 job id。回复 IM 另立设计。
+- **配置**：`provider: dingtalk|feishu`，`im: {command_prefix, allow_conversations, allow_senders}`，feishu 另需 `auth.verification_token_env`（`auth.secret_env` 在飞书里是 Encrypt Key，必填）。加载时拒绝：header 覆盖、`dedup.key`、`github` 块、`body.`/`header.` 引用、非 feishu 的 `verification_token_env`、非 IM 的 `im` 块。`TriggerStatuses` 对未设置的 token 变量给出 `verification_token_env_unset`。
+- **待对照官方文档核实**：钉钉 `sign` 的消息格式与是否 URL 编码、钉钉时间窗（官方为 1 小时，这里沿用 `replay_window_sec`，默认 300 秒）、钉钉 `senderStaffId` / `chatbotUserId` 字段；飞书握手请求是否带签名头（实现按官方 SDK：握手不验签、只验 token）、事件 2.0 之外的 1.0 schema（当前忽略）、加密 IV 与填充细节。

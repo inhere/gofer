@@ -101,10 +101,12 @@ type View struct {
 	Provider string `json:"provider"`
 	// GitHub is the event filter summary of a github trigger (no secret, no payload).
 	GitHub *GitHubView `json:"github,omitempty"`
-	Auth   AuthView    `json:"auth"`
-	Dedup  DedupView   `json:"dedup"`
-	Rate   RateView    `json:"rate"`
-	Limits LimitsView  `json:"limits"`
+	// IM is the message filter summary of an IM trigger (no ids, no secret).
+	IM     *IMView    `json:"im,omitempty"`
+	Auth   AuthView   `json:"auth"`
+	Dedup  DedupView  `json:"dedup"`
+	Rate   RateView   `json:"rate"`
+	Limits LimitsView `json:"limits"`
 	// Inputs are the declared template variables and the payload field each is read from.
 	Inputs map[string]string `json:"inputs,omitempty"`
 	// Available is false while an enabled trigger cannot work on this server (see Issues).
@@ -127,6 +129,14 @@ type ConditionView struct {
 	Equals []string `json:"equals"`
 }
 
+// IMView summarizes the IM provider's message filter: the prefix and how many allowlist
+// entries exist (the ids themselves are not shown).
+type IMView struct {
+	CommandPrefix        string `json:"command_prefix,omitempty"`
+	AllowedConversations int    `json:"allowed_conversations"`
+	AllowedSenders       int    `json:"allowed_senders"`
+}
+
 // AuthView shows how a request is authenticated, never the secret.
 type AuthView struct {
 	Kind             string `json:"kind"`
@@ -135,6 +145,9 @@ type AuthView struct {
 	TimestampHeader  string `json:"timestamp_header"`
 	SignatureHeader  string `json:"signature_header"`
 	ReplayWindowSec  int    `json:"replay_window_sec"`
+	// VerificationTokenEnv / VerificationTokenConfigured: feishu only (the token value never appears).
+	VerificationTokenEnv        string `json:"verification_token_env,omitempty"`
+	VerificationTokenConfigured bool   `json:"verification_token_configured,omitempty"`
 }
 
 type DedupView struct {
@@ -267,6 +280,19 @@ func (e *Engine) view(tc config.TriggerConfig, st config.TriggerStatus) View {
 			g.Conditions = append(g.Conditions, ConditionView{Event: c.Event, Field: c.Field, Equals: append([]string(nil), c.Equals...)})
 		}
 		v.GitHub = g
+	}
+	if tc.IsIM() {
+		v.IM = &IMView{CommandPrefix: tc.IM.CommandPrefix, AllowedConversations: len(tc.IM.AllowConversations), AllowedSenders: len(tc.IM.AllowSenders)}
+		switch tc.EffectiveProvider() {
+		case ProviderDingTalk:
+			v.Auth.TimestampHeader, v.Auth.SignatureHeader = DingTalkTimestampHeader, DingTalkSignHeader
+			v.Dedup.Key = "body.msgId"
+		case ProviderFeishu:
+			v.Auth.TimestampHeader, v.Auth.SignatureHeader = FeishuTimestampHeader, FeishuSignatureHeader
+			v.Dedup.Key = "body.header.event_id"
+			v.Auth.VerificationTokenEnv = tc.Auth.VerificationTokenEnv
+			v.Auth.VerificationTokenConfigured = tc.Auth.VerificationTokenEnv != "" && secretSet(tc.Auth.VerificationTokenEnv)
+		}
 	}
 	if len(tc.Input.Vars) > 0 {
 		v.Inputs = make(map[string]string, len(tc.Input.Vars))
