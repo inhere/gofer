@@ -20,6 +20,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/tunnel"
 )
 
 // ErrNotActive is returned when an operation needs a live lease and the lease is gone.
@@ -60,6 +61,11 @@ type Manager struct {
 	lives   map[string]*live
 	wg      sync.WaitGroup
 
+	// hub reaches worker-run jobs (AttachWorkers); relay pairs each proxied connection
+	// with the worker's callback.
+	hub   WorkerHub
+	relay *tunnel.Registry
+
 	// idle is how long a lease may see no traffic before its connections are reclaimed
 	// (0 = never). clock feeds the idle bookkeeping and authAuditEvery rate-limits the
 	// audit rows for refused requests; tests replace all three before creating a lease.
@@ -71,7 +77,7 @@ type Manager struct {
 func New(store *jobstore.Store, cfg config.PreviewConfig) *Manager {
 	// Leases a previous serve left active have no listener in this process: close them
 	// so they neither look alive nor keep their ports out of the pool.
-	m := &Manager{store: store, cfg: cfg.Effective(), listeners: map[string]net.Listener{}, servers: map[string]*http.Server{}, ports: map[int]bool{}, cancels: map[string]context.CancelFunc{}, timers: map[string]*time.Timer{}, lives: map[string]*live{}, clock: time.Now, authAuditEvery: 10 * time.Second}
+	m := &Manager{store: store, cfg: cfg.Effective(), listeners: map[string]net.Listener{}, servers: map[string]*http.Server{}, ports: map[int]bool{}, cancels: map[string]context.CancelFunc{}, timers: map[string]*time.Timer{}, lives: map[string]*live{}, relay: tunnel.NewRegistry(), clock: time.Now, authAuditEvery: 10 * time.Second}
 	m.idle = time.Duration(m.cfg.IdleTimeoutSec) * time.Second
 	if store != nil {
 		stale, _ := store.ListActivePreviews()
@@ -131,7 +137,27 @@ func (m *Manager) allocPort() (int, error) {
 	}
 	return 0, ErrPoolExhausted
 }
+
+// Create makes a lease for a job that runs on this server.
 func (m *Manager) Create(ctx context.Context, jobID, caller, host string, port, ttl int, jobRunning bool) (Lease, string, error) {
+	return m.create(ctx, endpoint{worker: localWorker, instance: localWorker}, jobID, caller, host, port, ttl, jobRunning)
+}
+
+// CreateOnWorker makes a lease for a job that runs on workerID: the proxy reaches the job's
+// port through that worker. It refuses a worker that is offline (ErrWorkerOffline) or too
+// old to serve previews (ErrWorkerOutdated) before anything is allocated.
+func (m *Manager) CreateOnWorker(ctx context.Context, workerID, jobID, caller, host string, port, ttl int, jobRunning bool) (Lease, string, error) {
+	if !m.cfg.Enabled {
+		return Lease{}, "", ErrDisabled
+	}
+	ep, err := m.workerEndpoint(workerID)
+	if err != nil {
+		return Lease{}, "", err
+	}
+	return m.create(ctx, ep, jobID, caller, host, port, ttl, jobRunning)
+}
+
+func (m *Manager) create(ctx context.Context, ep endpoint, jobID, caller, host string, port, ttl int, jobRunning bool) (Lease, string, error) {
 	if !m.cfg.Enabled {
 		return Lease{}, "", ErrDisabled
 	}
@@ -165,7 +191,7 @@ func (m *Manager) Create(ctx context.Context, jobID, caller, host string, port, 
 		return Lease{}, "", e
 	}
 	now := time.Now().Unix()
-	rec := jobstore.PreviewRecord{ID: id, TokenHash: jobstore.PreviewTokenHash(tok), JobID: jobID, CallerID: caller, WorkerID: "local", WorkerInstanceID: "local", Port: p, State: "active", CreatedAt: now, ExpiresAt: now + int64(ttl)}
+	rec := jobstore.PreviewRecord{ID: id, TokenHash: jobstore.PreviewTokenHash(tok), JobID: jobID, CallerID: caller, WorkerID: ep.worker, WorkerInstanceID: ep.instance, Port: p, State: "active", CreatedAt: now, ExpiresAt: now + int64(ttl)}
 	if e = m.store.InsertPreview(rec); e != nil {
 		delete(m.ports, p)
 		return Lease{}, "", e
@@ -197,6 +223,9 @@ func (m *Manager) Create(ctx context.Context, jobID, caller, host string, port, 
 	rp.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
 		http.Error(w, "preview target unavailable", http.StatusBadGateway)
 	}
+	if ep.remote() {
+		rp.Transport = m.workerTransport(lv, ep, jobID, id, port)
+	}
 	rp.Director = func(r *http.Request) {
 		r.URL.Scheme = target.Scheme
 		r.URL.Host = target.Host
@@ -217,7 +246,7 @@ func (m *Manager) Create(ctx context.Context, jobID, caller, host string, port, 
 	if strings.TrimSpace(host) == "" {
 		host = "127.0.0.1"
 	}
-	return Lease{ID: id, JobID: jobID, CallerID: caller, WorkerID: "local", Port: p, State: "active", CreatedAt: now, ExpiresAt: now + int64(ttl)}, fmt.Sprintf("http://%s:%d/?token=%s", host, p, tok), nil
+	return Lease{ID: id, JobID: jobID, CallerID: caller, WorkerID: ep.worker, Port: p, State: "active", CreatedAt: now, ExpiresAt: now + int64(ttl)}, fmt.Sprintf("http://%s:%d/?token=%s", host, p, tok), nil
 }
 
 // armExpiry (re)starts the lease's expiry timer. Caller holds m.mu.
@@ -285,6 +314,14 @@ func (m *Manager) handler(id, token string, rp *httputil.ReverseProxy, lv *live)
 			go func() { defer m.wg.Done(); _ = m.Close(id, "expired") }()
 		}
 		if e != nil || !ok || rec.State != "active" || rec.ExpiresAt <= time.Now().Unix() {
+			http.NotFound(w, r)
+			return
+		}
+		if e == nil && ok && rec.State == "active" && !m.workerAlive(rec.WorkerID, rec.WorkerInstanceID) {
+			// The worker process the lease was bound to is gone (or replaced): never
+			// send this request to whatever runs there now.
+			m.wg.Add(1)
+			go func() { defer m.wg.Done(); _ = m.Close(id, "worker_lost") }()
 			http.NotFound(w, r)
 			return
 		}

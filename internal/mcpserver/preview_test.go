@@ -187,7 +187,7 @@ func TestPreviewErrorsFollowLanguage(t *testing.T) {
 		wantSame string // when set, both languages show this text instead
 	}{
 		{"not running", 409, map[string]any{"error": "job is not running", "code": "preview_job_not_running"}, "不在运行", "not running", ""},
-		{"remote runner", 409, map[string]any{"error": "preview runner unsupported", "code": "preview_runner_unsupported", "params": map[string]any{"runner": "w-box"}, "detail": "server text"}, "暂不支持 runner w-box", "runner w-box is not supported yet", ""},
+		{"remote runner", 409, map[string]any{"error": "preview runner unsupported", "code": "preview_runner_unsupported", "params": map[string]any{"runner": "w-box"}, "detail": "server text"}, "暂不支持 runner w-box", "runner w-box is not supported", ""},
 		{"disabled", 404, map[string]any{"error": "preview disabled", "code": "preview_disabled"}, "没有启用", "not enabled", ""},
 		{"pool full", 409, map[string]any{"error": "preview unavailable", "code": "preview_pool_exhausted"}, "端口池已满", "port pool is full", ""},
 		{"not active", 409, map[string]any{"error": "preview is not active", "code": "preview_not_active"}, "已失效", "no longer active", ""},

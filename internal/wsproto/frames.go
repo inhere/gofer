@@ -63,7 +63,10 @@ const (
 	// v27 adds the optional file_xfer.target (see WorkerAttachMinProtocolVersion): a put
 	// into the executing WORKER's own attachment directory, for a session that belongs to
 	// no project of that machine.
-	CurrentProtocolVersion = 28
+	// v28 adds the optional dispatch.read_dirs (see ReadDirsMinProtocolVersion).
+	// v29 adds the preview_open frame and the preview-connect data endpoint (see
+	// PreviewMinProtocolVersion).
+	CurrentProtocolVersion = 29
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a

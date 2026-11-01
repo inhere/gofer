@@ -46,6 +46,7 @@ type hubSide struct {
 	store *jobstore.Store
 	hub   *wshub.Hub
 	root  string
+	srv   *httpapi.Server
 }
 
 // buildHubSide stands up the serve side: a real Core (job service + hub) with a
@@ -73,6 +74,7 @@ func buildHubSideSel(t *testing.T, host, root string, newSel func(*wshub.Hub) jo
 		Server: config.ServerConfig{
 			Token:   "server-default-token",
 			Workers: map[string]config.WorkerAuthConfig{e2eWorkerID: {Token: e2eToken}},
+			Preview: config.PreviewConfig{Enabled: true, PortRange: "28100-28163"},
 		},
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
@@ -118,9 +120,11 @@ func buildHubSideSel(t *testing.T, host, root string, newSel func(*wshub.Hub) jo
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	srv := httpapi.New(&cfg.Server, "server-default-token", false, jobs, jobsEng, projReg, agentReg, hub, nil, nil, nil)
+	// The same wiring serve does: worker presence reaches the preview manager.
+	hub.SetPresenceObserver(srv.NotePreviewPresence)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return &hubSide{ts: ts, jobs: jobs, store: st, hub: hub, root: root}
+	return &hubSide{ts: ts, jobs: jobs, store: st, hub: hub, root: root, srv: srv}
 }
 
 // buildWorkerSide builds the worker's own local job service (project alpha with

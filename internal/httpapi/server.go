@@ -62,6 +62,7 @@ import (
 	"github.com/inhere/gofer/internal/workbench"
 	"github.com/inhere/gofer/internal/workerenroll"
 	"github.com/inhere/gofer/internal/workerupgrade"
+	"github.com/inhere/gofer/internal/wsproto"
 	"github.com/inhere/gofer/internal/xfer"
 )
 
@@ -801,6 +802,9 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	if jobs != nil && jobs.Meta() != nil {
 		s.preview = preview.New(jobs.Meta(), serverCfg.Preview)
 		jobs.OnTerminal(func(r job.JobResult) { s.preview.CloseJob(r.ID) })
+		if ph, ok := hub.(preview.WorkerHub); ok {
+			s.preview.AttachWorkers(ph)
+		}
 	}
 	s.snap.Store(newServerSnapshot(serverCfg, buildCallers(serverCfg, token), token != ""))
 	// 权限设计第一批 (plan T1.4) + 第二批 T2.1: the database half of the effective permissions
@@ -1163,6 +1167,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/v1/workers/connect", s.handleWorkerConnect)
 		r.GET(tunnel.ConnectPath, s.handleTunnelConnect)
 		r.GET(tunnel.WorkerConnectPath, s.handleWorkerTunnelConnect)
+	}
+	if s.hub != nil && s.preview != nil {
+		r.GET(wsproto.PreviewConnectPath, s.handleWorkerPreviewConnect)
 	}
 	if s.hub != nil && s.relayNonces != nil && s.ptyRelays != nil {
 		r.GET("/v1/workers/pty-connect", s.handlePtyConnect)

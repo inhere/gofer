@@ -23,10 +23,11 @@ type live struct {
 	idleTimer  *time.Timer
 	closed     bool
 	lastDenied time.Time
+	upstream   map[net.Conn]struct{}
 }
 
 func newLive(m *Manager, id string, max int) *live {
-	return &live{m: m, id: id, max: max, conns: map[*trackedConn]struct{}{}, lastActive: m.clock()}
+	return &live{m: m, id: id, max: max, conns: map[*trackedConn]struct{}{}, upstream: map[net.Conn]struct{}{}, lastActive: m.clock()}
 }
 
 // exchange trades the one-time URL token for the cookie value. The token works exactly
@@ -121,7 +122,45 @@ func (lv *live) stop() {
 		lv.idleTimer.Stop()
 		lv.idleTimer = nil
 	}
+	ups := make([]net.Conn, 0, len(lv.upstream))
+	for c := range lv.upstream {
+		ups = append(ups, c)
+	}
 	lv.mu.Unlock()
+	for _, c := range ups {
+		_ = c.Close()
+	}
+}
+
+// trackUpstream registers a connection to the job's port (worker leases only) so closing
+// the lease closes it; a lease that is already closed refuses it.
+func (lv *live) trackUpstream(c net.Conn) (net.Conn, error) {
+	lv.mu.Lock()
+	if lv.closed {
+		lv.mu.Unlock()
+		_ = c.Close()
+		return nil, ErrNotActive
+	}
+	t := &upstreamConn{Conn: c, lv: lv}
+	lv.upstream[t] = struct{}{}
+	lv.mu.Unlock()
+	return t, nil
+}
+
+type upstreamConn struct {
+	net.Conn
+	lv   *live
+	once sync.Once
+}
+
+func (c *upstreamConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() {
+		c.lv.mu.Lock()
+		delete(c.lv.upstream, c)
+		c.lv.mu.Unlock()
+	})
+	return err
 }
 
 func (lv *live) openConns() int {

@@ -131,6 +131,8 @@ type Client struct {
 	tunnelPolicy atomic.Pointer[tunnelPolicy]
 	tunnelMu     sync.Mutex
 	tunnelActive int
+	// previews are the open job-preview data connections (see preview.go).
+	previews previewRelays
 
 	// caps is the config-derived capability snapshot this worker advertises
 	// (labels / projects / agents / typed agent caps / max_concurrent). It is what
@@ -752,6 +754,7 @@ func (cl *Client) inflightCacheResult(remoteID string, res wsproto.Result) {
 	r := res
 	f.result, f.resultAt, f.status = &r, time.Now(), res.Status
 	cl.inflMu.Unlock()
+	cl.previews.closeJob(remoteID)
 }
 
 // inflightResult returns the cached, not-yet-delivered terminal Result. An entry
@@ -777,6 +780,7 @@ func (cl *Client) inflightDrop(remoteID string) {
 	cl.inflMu.Lock()
 	delete(cl.inflight, remoteID)
 	cl.inflMu.Unlock()
+	cl.previews.closeJob(remoteID)
 }
 
 // inflightIDs lists the job ids this process currently tracks.
@@ -1202,6 +1206,8 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 
 	err = cl.recvLoop(ctx, url, gen)
 	cl.notify("disconnected")
+	// A preview connection belongs to the connection it was opened through: cut them all.
+	cl.previews.closeAll()
 	// RECOV-01: the connection is gone, the jobs it carried are NOT. Each one keeps
 	// running under its own (process-scoped) dispatch ctx and will be re-announced in
 	// the next register frame's `inflight` list; the hub mirrors these events with its
@@ -1307,6 +1313,11 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 			t, derr := wsproto.As[wsproto.TunnelOpen](env)
 			if derr == nil {
 				go cl.handleTunnelOpen(ctx, url, t)
+			}
+		case wsproto.TypePreviewOpen:
+			po, derr := wsproto.As[wsproto.PreviewOpen](env)
+			if derr == nil {
+				go cl.handlePreviewOpen(ctx, url, po)
 			}
 		case wsproto.TypeFileXfer:
 			// XFER-01: a transfer instruction for THIS worker. Handled in its own
