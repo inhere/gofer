@@ -2,7 +2,7 @@
 
 > 一句话定位：把 codex / claude 等 agent 与普通命令桥接成可追踪、可验收的异步任务（job）的控制平面，提供 CLI / HTTP / MCP / Web 四种入口；自身不内置模型。
 >
-> **适用版本：截至 v0.207.0**（CHANGELOG 最新已发布版本，2026-11-01）。
+> **适用版本：截至 v0.208.0**（CHANGELOG 最新已发布版本，2026-11-01）。
 
 ## 维护说明
 
@@ -97,10 +97,10 @@
 | 会话提问 | 终端会话里的 AskUserQuestion 转到 Web 作答；会话间提问 | MCP `gofer_session_ask`；Web 今天 | 未标注 | [design/2026-10-12-session-question-relay-design.md](design/2026-10-12-session-question-relay-design.md) |
 | Web 消息转达与附图 | 在 Web 向会话发消息，输入框可带图片 | HTTP `/v1/attachments*`；Web 工作台 / 会话抽屉 | 未标注 | [design/2026-10-19-workbench-image-attachments-design.md](design/2026-10-19-workbench-image-attachments-design.md) |
 | 传话类会话附图 | 在执行机上直接启动并登记的终端会话（relay）可在 Web 聊天里附图：agent 送达模板配置 `deliver_image_args`（必须含 `{{image}}`）后，附件先放到执行机，再以绝对路径加到送达命令；内置 suga 使用 `--image {{image}}`；会话进程版本过旧（退出码 5）时明确拒绝且不重试 | 配置 `deliver_image_args`；HTTP `/v1/attachments*`；Web 工作台 / 会话抽屉 | 未标注（v0.204.0 新增） | [sessions-relay.md](../skills/gofer-usage/references/sessions-relay.md)、[design/2026-10-19-workbench-image-attachments-design.md](design/2026-10-19-workbench-image-attachments-design.md) |
-| 收件箱分栏（后端） | 按调用方汇总「要处理（action）/ 仅知会（fyi）」两栏与未读数，已读 / 清理 / 恢复状态按调用方记录；`server.inbox` 可配置结构化归栏规则；Web `/inbox` 双栏（手机页签）、单条 / 整栏已读、清理与恢复，侧栏徽标只算「要处理」 | HTTP `GET /v1/inbox`、`POST /v1/inbox/state`；配置 `server.inbox`；Web `/inbox` | 实验（v0.204.0 后端，v0.206.0 Web） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md) |
+| 收件箱与「等我」 | 「要处理」= 唯一的「等我」列表：只由结构化事实按顺序判定（待你批准 / 待你回答 / 待你验收 / 计划卡住 / 你本人提交的任务失败 / 投递待确认），不读模型摘要，今天页首屏与顶栏徽标同源；agent / 会话 / job 凭据派出的 job 不进收件箱；「仅知会」只有你本人提交的 job 的完成。按调用方汇总两栏与未读数，已读 / 清理 / 恢复状态按调用方记录；`server.inbox` 规则加载时校验，`GET /v1/inbox/rules` 列出生效归栏；Web `/inbox` 双栏（手机页签）、单条 / 整栏已读、清理与恢复，侧栏徽标只算「要处理」 | HTTP `GET /v1/inbox`、`POST /v1/inbox/state`；配置 `server.inbox`；Web `/inbox` | 实验（v0.204.0 后端，v0.206.0 Web，v0.208.0 改为「等我」） | [server-config.md](../skills/gofer-usage/references/server-config.md)、[design/2026-10-28-inbox-triage-design.md](design/2026-10-28-inbox-triage-design.md) |
 | 今天与待我决策 | 汇总等人的事（审批、提问、验收、等回复、记忆、worker 申请）为卡片队列 | Web `/today`；HTTP `/v1/today`；MCP `gofer_today_list` / `gofer_today_card` | 稳定 | [../skills/gofer-usage/references/web-console.md](../skills/gofer-usage/references/web-console.md) |
-| 工作项与收集箱 | 长期工作项、随手记收集箱与分派、会话汇报进度 | CLI `work capture\|ls\|show\|new\|set\|note\|report\|...`；MCP `gofer_work_*`；Web `/work` | 稳定性速览未列（收集箱 / 管家 stability.md 标实验） | [../skills/gofer-usage/references/work-items.md](../skills/gofer-usage/references/work-items.md) |
-| 管家 steward | 自动整理工作项、提示建议；默认关闭 | CLI `steward status\|start\|restart\|stop\|ask\|notes\|review\|merges` | 变化中 | work-items.md |
+| 工作项与收集箱 | 显式创建的长期工作项（控制台 / CLI、计划绑定、会话首次 `work report`；不再按会话自动生成，旧自动项可 `work archive-auto` 一键归档）、随手记收集箱与分派、会话汇报进度；模型推断的字段只作折叠参考，不驱动提醒 | CLI `work capture\|ls\|show\|new\|set\|note\|report\|...`；MCP `gofer_work_*`；Web `/work` | 稳定性速览未列（收集箱 / 管家 stability.md 标实验） | [../skills/gofer-usage/references/work-items.md](../skills/gofer-usage/references/work-items.md) |
+| 管家 steward | 整理工作项；主动巡检默认只记录（`steward observations` 查看，`steward.act_proactively` 开启后才执行），人显式触发照常；会话按统一 runner 续接与轮换；默认关闭 | CLI `steward status\|start\|restart\|stop\|ask\|notes\|review\|merges\|observations`；`gofer tool bg-agent ls\|reset` | 变化中 | work-items.md |
 | 评论 | issue / plan / job 上的评论 | CLI `issue comment`、`plan comment`、`job comment` | 稳定（issue、plan） | tracker.md、plans-workflows.md |
 
 ## 任务跟踪与记忆
@@ -116,7 +116,7 @@
 | tracker 同步与合并 | 初始化、与 server 镜像同步、状态查看、多 worktree 合并驱动、changelog 合并驱动 | CLI `repo init\|sync\|status\|merge-driver\|changelog-merge` | 稳定 | tracker.md；[runbook/tracker-transfer.md](runbook/tracker-transfer.md) |
 | 每日摘要 | 工作项摘要事件 `work.digest` 与 `work digest` | CLI `work digest`；事件 `work.digest` | 未标注 | work-items.md |
 | 反向链接 | issue / job / 计划 / 待办 / 信件 / 评论里提到的对象 id 自动记入引用索引，可查「被哪些对象引用」（按调用方可见范围过滤）；job 详情、计划详情与 issue 抽屉显示「被引用」面板 | CLI `tool refs <id>`；HTTP `GET /v1/refs`；MCP `gofer_refs`；Web 详情页 | 实验（v0.204.0 新增） | [commands.md](../skills/gofer-usage/references/commands.md)、[reference/http-api.md](reference/http-api.md) |
-| 每日记忆综合（P1 + P2） | 可选 `memory.synthesis` 配置；从工作项日志、当天 job 汇报、plan / todo 结论、memory doctor 与上一份综合取材料，脱敏后按预算裁剪并算稳定指纹；运行记录同日同指纹复用、按 `retain_days` 清理、重启时收尾。显式 `run` 才调用一次只读、无工具的模型，产出「项目动态」摘要与来源引用写进运行记录（候选队列暂缓、无定时调度），默认关闭 | 配置 `memory.synthesis`；CLI `memory synthesis ls` / `show` / `run`；HTTP `GET /v1/memory-syntheses`、`POST /v1/memory-syntheses/run`（权限 `memory.synthesis.run`） | 实验（v0.204.0 新增，v0.205.0 补齐材料与运行记录；默认关闭） | [memory-synthesis.md](../skills/gofer-usage/references/memory-synthesis.md)、[design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md) |
+| 每日记忆综合（P1–P3） | 可选 `memory.synthesis` 配置；从工作项日志、当天 job 汇报、plan / todo 结论、memory doctor 与上一份综合取材料，脱敏后按预算裁剪并算稳定指纹；运行记录同日同指纹复用、按 `retain_days` 清理、重启时收尾。显式 `run` 才调用一次只读、无工具的模型，产出「项目动态」摘要与来源引用写进运行记录；每日在 `time`（默认摘要前 15 分钟）为前一日定时运行，受 `daily_limit` / `retry_after` 约束；会话开场引用需 `prime_citation: true`（候选队列暂缓），默认关闭 | 配置 `memory.synthesis`；CLI `memory synthesis ls` / `show` / `run`；HTTP `GET /v1/memory-syntheses`、`POST /v1/memory-syntheses/run`（权限 `memory.synthesis.run`） | 实验（v0.204.0 新增，v0.205.0 补齐材料与运行记录；默认关闭） | [memory-synthesis.md](../skills/gofer-usage/references/memory-synthesis.md)、[design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md) |
 
 ## 执行机与网络
 
@@ -162,7 +162,7 @@
 
 | 页面 | 作用 | 稳定程度 |
 |---|---|---|
-| 今天 `/today` | 待我决策队列、专注处理、并行泳道 | 稳定 |
+| 今天 `/today` | 「等我」列表、进行中的计划、正在跑的会话 / job 数；无事时只一句空态 | 稳定 |
 | 工作台 `/workbench` | 会话中枢：ACP 对话、持续会话、交互 PTY、改动与评审，多标签分屏；会话列表默认最近 7 天、「加载更早的会话」分页 | 稳定 |
 | 任务 / 待验收 `/review` | job 列表与详情、验收面板、待批准 | 稳定 |
 | 计划 / 工作流 / 定时 `/schedules` | plan 总览与详情（默认筛选「进行中 + 受阻」）；`/workflows` 工作流（模板）列表与详情（YAML 查看 / 编辑、最近执行），执行记录 `/workflows/runs`；定时任务 | 计划稳定，工作流变化中 |
@@ -205,5 +205,5 @@
 
 | 能力 | 状态 | 说明 | 设计稿 |
 |---|---|---|---|
-| 每日记忆综合的每日调度 | 开发中，未发布 | P1 与 P2（显式 `run` 调模型）已发布；每日定时调度与开场引用（P3）、候选队列（暂缓）尚未提供 | [design/2026-10-28-daily-memory-synthesis-design.md](design/2026-10-28-daily-memory-synthesis-design.md)（0.2 已批准） |
-| 后台 agent 管理页与会话轮换 | 开发中，未发布 | 整理器与管家已按 `server.background_agents.session`（上下文用量、次数、显式 `max_age`）轮换会话，并有每日花费 / token 硬停与审计事件（未发布）；交付核验接入同一 runner、管理页与手动新开会话尚未提供 | [design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md)（方案二） |
+| IM 入站的自动回复 | 未排期 | 入站只派一次性 job，结果经已有出站通知反馈；回复会话、回答交互、发信另立设计 | [design/2026-10-28-trigger-design.md](design/2026-10-28-trigger-design.md) |
+| 交付核验接入统一后台 runner | 未排期 | 交付核验仍用 P1 的检查器；后台 agent 状态接口里它的会话与统计暂为空 | [design/2026-10-30-job-check-agent-design.md](design/2026-10-30-job-check-agent-design.md) |
