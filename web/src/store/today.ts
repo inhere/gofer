@@ -21,6 +21,7 @@ import {
   runCardAction,
   sendImmediately,
   settleHidden,
+  waitingCards,
 } from '../utils/today'
 import { createUndoQueue } from '../utils/undoQueue'
 import { isNextCardKey, nextQueueIndex } from '../utils/todayQueueJump'
@@ -64,7 +65,7 @@ export const handledTodayCount = ref(0)
 export const undoQueue = createUndoQueue(UNDO_MS)
 
 export const visibleCards = computed<TodayCard[]>(() =>
-  (todayData.value?.decisions ?? []).filter((c) => !hiddenKeys.value.has(c.key)),
+  waitingCards(todayData.value).filter((c) => !hiddenKeys.value.has(c.key)),
 )
 export const decisionCount = computed(() => visibleCards.value.length)
 
@@ -116,7 +117,7 @@ export async function refreshToday(): Promise<void> {
   const seq = ++refreshSeq
   try {
     const data = await getToday({ since: todaySince.value, includeExec: includeExec.value })
-    const keys = new Set(data.decisions.map((c) => c.key))
+    const keys = new Set(waitingCards(data).map((c) => c.key))
     hiddenKeys.value = settleHidden(hiddenKeys.value, committedKeys, keys, undoQueue.current.value?.key, seq)
     todayData.value = data
     todayError.value = ''

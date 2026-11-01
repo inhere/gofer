@@ -30,6 +30,10 @@ type Item struct {
 	DeepLink       string         `json:"deep_link,omitempty"`
 	ProjectKey     string         `json:"project_key,omitempty"`
 	ActivityAt     int64          `json:"activity_at"`
+	// Waiting / WaitingLabel are the 「等我」 category of an action item (see Category) and its
+	// label in the request language; empty on a fyi item.
+	Waiting      string `json:"waiting,omitempty"`
+	WaitingLabel string `json:"waiting_label,omitempty"`
 }
 
 type State struct {
@@ -83,7 +87,7 @@ func NewItem(card today.Card, cfg *config.InboxConfig, state State) (Item, bool)
 	} else if state.Seen {
 		st = "seen"
 	}
-	return Item{Key: card.Key, Column: column, Kind: card.Kind, Title: card.Title, Summary: card.Summary, SourceRevision: hex.EncodeToString(h[:]), State: st, Actions: card.Actions, Refs: card.Refs, ProjectKey: card.ProjectKey, ActivityAt: card.ActivityAt}, true
+	return Item{Key: card.Key, Column: column, Kind: card.Kind, Title: card.Title, Summary: card.Summary, SourceRevision: hex.EncodeToString(h[:]), State: st, Actions: card.Actions, Refs: card.Refs, ProjectKey: card.ProjectKey, ActivityAt: card.ActivityAt, Waiting: card.Waiting, WaitingLabel: card.WaitingLabel}, true
 }
 
 func contains(xs []string, v string) bool {

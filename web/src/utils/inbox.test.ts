@@ -146,3 +146,20 @@ describe('labels, families and links', () => {
     expect(itemLink({ kind: 'interaction', refs: {} })).toBe('')
   })
 })
+
+describe('waiting categories on items', () => {
+  it('keeps the server category and label on an action item through local state changes', () => {
+    const it = (key: string, state: InboxItem['state']): InboxItem => ({
+      key, column: 'action', kind: 'approval', title: 't', summary: '', source_revision: 'r', state,
+      actions: [], refs: {}, activity_at: 1, waiting: 'approval', waiting_label: '待你批准',
+    })
+    const data = normalizeInbox({ columns: { action: [it('a', 'unread'), it('b', 'unread')], fyi: [] } })
+    expect(data.total_unread).toBe(2)
+    const next = applyStateLocally(data, 'seen', { keys: ['a'] })
+    expect(next.total_unread).toBe(1)
+    expect(next.columns.action[0].waiting).toBe('approval')
+    expect(next.columns.action[0].waiting_label).toBe('待你批准')
+    // the badge is the unread length of the list it links to
+    expect(inboxBadge(next)).toBe(next.columns.action.filter((x) => x.state === 'unread').length)
+  })
+})

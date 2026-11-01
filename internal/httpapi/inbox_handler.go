@@ -7,9 +7,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 	"github.com/inhere/gofer/internal/config"
-	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/inbox"
-	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/today"
 )
@@ -109,35 +107,24 @@ func (s *Server) handleInboxRules(c *rux.Context) {
 	c.JSON(http.StatusOK, inbox.Directory(s.inboxConfig()))
 }
 
-// terminalJobKind classifies a finished job for the inbox.
-//
-//   - done: job.terminal (fyi).
-//   - cancelled: job.terminal (fyi); somebody stopped it on purpose, nothing to decide.
-//   - failed / timeout that was already continued (AutoResumedBy, FellBackTo, or another job
-//     lists it as SourceJobID): job.terminal (fyi); the follow-up carries the decision.
-//   - failed / timeout with no continuation: job.failed (action); a person decides whether to
-//     resume or retry. Whether the failed job itself was derived from another one is
-//     irrelevant: a failed continuation with no successor still needs the decision.
-//
-// continued is the set of job ids that some other job names as its source.
-func terminalJobKind(j jobstore.JobRecord, continued map[string]bool) string {
-	if j.Status != job.StatusFailed && j.Status != job.StatusTimeout {
-		return "job.terminal"
+// waitingFor is the one 「等我」 list of a request: the structured-fact cards of decisions plus
+// the caller-visible failures of jobs a person submitted (inbox.Waiting / inbox.TerminalCards).
+// The home page, the inbox's action column and the top-bar badge all read what this returns,
+// so they cannot disagree. fyi is the person's own finished jobs (the inbox's second column).
+func (s *Server) waitingFor(c *rux.Context, decisions []today.Card) (waiting, fyi []today.Card, err error) {
+	var failed []today.Card
+	if s.jobs != nil && s.jobs.Meta() != nil {
+		var allow func(string) bool
+		if s.ceilingActive(c) {
+			allow = s.scopeFilter(c)
+		}
+		if failed, fyi, err = inbox.TerminalCards(s.jobs.Meta(), s.requestLang(c), allow); err != nil {
+			return nil, nil, err
+		}
 	}
-	if j.AutoResumedBy != "" || j.FellBackTo != "" || continued[j.ID] {
-		return "job.terminal"
-	}
-	return "job.failed"
-}
-
-func terminalCard(lang i18n.Lang, j jobstore.JobRecord, kind string) today.Card {
-	title := j.ID
-	if j.Error != "" {
-		title = i18n.T(lang, "httpapi.inbox_job_failed", "id", j.ID)
-	}
-	// The key is the same for both kinds so a job's read/cleared state follows it when a
-	// follow-up job turns an action item into an fyi one (the revision changes, so it resurfaces).
-	return today.Card{Key: "job.terminal:" + j.ID, Kind: kind, Title: title, Summary: j.Error, ProjectKey: j.ProjectKey, ActivityAt: j.EndedAt, WaitingSince: j.EndedAt, Refs: today.Refs{JobID: j.ID}}
+	cards := make([]today.Card, 0, len(decisions)+len(failed))
+	cards = append(append(cards, decisions...), failed...)
+	return inbox.Waiting(s.requestLang(c), cards), fyi, nil
 }
 
 func todayQueryForInbox(s *Server, c *rux.Context) (q today.Query) {
@@ -150,39 +137,22 @@ func todayQueryForInbox(s *Server, c *rux.Context) (q today.Query) {
 	return
 }
 
-// currentInboxItems builds the caller-visible projection without personal state, in
-// display order (Today's decision order first, then terminal jobs newest first).
+// currentInboxItems builds the caller-visible projection without personal state, in display
+// order: the 「等我」 list (inbox.Waiting) first, then the person's own finished jobs newest
+// first.
 func (s *Server) currentInboxItems(c *rux.Context) ([]inbox.Item, error) {
 	ic := s.inboxConfig()
-	lang := s.requestLang(c)
 	resp, err := s.today.Today(todayQueryForInbox(s, c))
 	if err != nil {
 		return nil, err
 	}
-	out := make([]inbox.Item, 0, len(resp.Decisions))
-	for _, card := range resp.Decisions {
-		if item, ok := inbox.NewItem(card, ic, inbox.State{}); ok {
-			out = append(out, item)
-		}
-	}
-	rows, err := s.jobs.Meta().ListJobs(jobstore.ListQuery{Limit: 50})
+	waiting, fyi, err := s.waitingFor(c, resp.Decisions)
 	if err != nil {
 		return nil, err
 	}
-	continued := map[string]bool{}
-	for _, j := range rows {
-		if j.SourceJobID != "" {
-			continued[j.SourceJobID] = true
-		}
-	}
-	for _, j := range rows {
-		if j.EndedAt == 0 || (j.Status != job.StatusDone && j.Status != job.StatusFailed && j.Status != job.StatusCancelled && j.Status != job.StatusTimeout) {
-			continue
-		}
-		if s.ceilingActive(c) && !s.scopeFilter(c)(j.ProjectKey) {
-			continue
-		}
-		if item, ok := inbox.NewItem(terminalCard(lang, j, terminalJobKind(j, continued)), ic, inbox.State{}); ok {
+	out := make([]inbox.Item, 0, len(waiting)+len(fyi))
+	for _, card := range append(waiting, fyi...) {
+		if item, ok := inbox.NewItem(card, ic, inbox.State{}); ok {
 			out = append(out, item)
 		}
 	}

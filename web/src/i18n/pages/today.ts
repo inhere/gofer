@@ -28,6 +28,7 @@ export const today: PageDict = {
     'today.filter.worker': 'worker 申请',
 
     // 卡片类型 pill（按接口里的 kind 一一对应）
+    'today.kind.job.failed': '任务失败',
     'today.kind.interaction': '提问',
     'today.kind.decision': '决策',
     'today.kind.relay': '等回复',
@@ -255,6 +256,7 @@ export const today: PageDict = {
     'today.filter.memory': 'Memory',
     'today.filter.worker': 'Worker requests',
 
+    'today.kind.job.failed': 'Job failed',
     'today.kind.interaction': 'Question',
     'today.kind.decision': 'Decision',
     'today.kind.relay': 'Reply',

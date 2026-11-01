@@ -38,6 +38,12 @@ export const TIER_LABEL: Record<Tier, string> = {
   get normal() { return t('today.tier.normal') },
 }
 
+// waitingCards：今天页首屏决策区 / 全局浮层 / 顶栏计数读的唯一列表（服务端 `waiting`，与收件箱
+// 「要处理」栏同源）。旧 server 没有 waiting 字段时回落到旧的全量 decisions。
+export function waitingCards(data: { waiting?: TodayCard[]; decisions?: TodayCard[] } | null | undefined): TodayCard[] {
+  return data?.waiting ?? data?.decisions ?? []
+}
+
 export function tierOf(card: TodayCard): Tier {
   if (card.urgency === 'now') return 'now'
   return card.blocks.score > 0 ? 'block' : 'normal'
@@ -152,6 +158,7 @@ export function cardLink(card: TodayCard): string {
       break
     case 'review':
     case 'approval':
+    case 'job.failed':
       if (r.job_id) return `/jobs/${encodeURIComponent(r.job_id)}`
       break
     case 'work':

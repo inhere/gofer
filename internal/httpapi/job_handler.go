@@ -91,6 +91,14 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	if !s.jobMaySubmit(c, &req) {
 		return
 	}
+	// A user-identity request that names a terminal agent session (the CLI attaches the header
+	// whenever its environment does) came from that agent, not from the person: stamp it so the
+	// 「等我」 list and the inbox can tell the two apart (job.HumanSubmitted).
+	if callerKindFromCtx(c) == callerKindUser {
+		if sid := requestSessionID(c); sid != "" {
+			req.Tags = append(req.Tags, job.TagSubmittedBySession+sid)
+		}
+	}
 	if req.IssueID != "" && callerKindFromCtx(c) == callerKindJob {
 		asking, ok := s.jobs.Get(callerFromCtx(c))
 		if !ok || asking.IssueID != req.IssueID || asking.TrackerID != req.TrackerID {

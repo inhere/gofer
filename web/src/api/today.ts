@@ -25,6 +25,11 @@ export type TodayCardKind =
   // worker 自助注册：有 worker 申请注册等管理员接受（只有持有 worker.manage 的人会收到这张卡），
   // 点「去处理」跳 Runners 页的「待接受」区（/runners#enrollments）。
   | 'worker_enroll'
+  // 「等我」第 5 类：你本人提交、已失败 / 超时且没有后续 job 的任务（服务端生成，不是 today 的原生卡）
+  | 'job.failed'
+
+// 「等我」六类（互斥、穷尽，按此顺序第一个命中）：待批准 / 待回答 / 待验收 / 计划卡住 / 你提交的任务失败 / 投递待确认
+export type WaitingCategory = 'approval' | 'answer' | 'review' | 'plan_stuck' | 'failed' | 'delivery'
 
 export type TodayUrgency = 'now' | 'blocking' | 'normal'
 
@@ -109,6 +114,11 @@ export interface TodayCard {
   memory?: TodayMemoryCard
   refs: TodayRefs
   actions: TodayAction[]
+  // 来源的结构化事实（interaction 卡的类型；终端权限卡里的 AskUserQuestion 为 question）
+  subtype?: string
+  // 「等我」类别与它的文案（服务端按请求语言生成，只有 TodayResponse.waiting 里的卡带）
+  waiting?: WaitingCategory
+  waiting_label?: string
   // 管家建议（T4）：action_id 是某个操作的 actionKey；digest ≤5 行，进「详情」
   advice: { text: string; action_id?: string; digest?: string; by?: string; at?: number } | null
   // 从「稍后」回来的卡（T3）：到点 / 相关 job 结束 / 有新动静
@@ -135,7 +145,10 @@ export interface TodayResponse {
     text: string
     commentary?: string
   }
+  // 旧的全量队列（含工作项 / 建议 / 收集箱等卡）；首屏与顶栏改读 waiting
   decisions: TodayCard[]
+  // 「等我」唯一列表：收件箱「要处理」栏、顶栏徽标、今天页决策区同源；旧 server 没有此字段
+  waiting?: TodayCard[]
   snoozed: number
   status: TodayStatus
   generated_at: number

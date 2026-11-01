@@ -10,6 +10,7 @@ import {
   moreActive,
   moreItems,
   navItemActive,
+  needsMeBadge,
   needsMeTotal,
   paletteHits,
   parsePaletteQuery,
@@ -159,8 +160,13 @@ describe('navigation groups', () => {
   })
 })
 
-describe('needs-me count (merged decision queue + worker requests)', () => {
-  it('adds both sources', () => {
+describe('needs-me count (the one waiting list)', () => {
+  it('uses the inbox unread, else the list length; legacy sum helper unchanged', () => {
+    expect(needsMeBadge(2, 5)).toBe(2) // the inbox unread wins: same number as the sidebar badge
+    expect(needsMeBadge(0, 5)).toBe(0)
+    expect(needsMeBadge(null, 5)).toBe(5) // inbox unavailable: the list length
+    expect(needsMeBadge(undefined, -1)).toBe(0)
+    expect(needsMeBadge(Number.NaN, 3)).toBe(0)
     expect(needsMeTotal(3, 2)).toBe(5)
     expect(needsMeTotal(0, 0)).toBe(0)
     expect(needsMeTotal(4, 0)).toBe(4)

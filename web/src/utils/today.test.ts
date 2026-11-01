@@ -64,6 +64,7 @@ const {
   sendImmediately,
   settleHidden,
   tierOf,
+  waitingCards,
 } = await import('./today')
 
 function card(over: Partial<TodayCard>): TodayCard {
@@ -332,5 +333,25 @@ describe('action labels follow the interface language', () => {
     expect(handledActionLabel('approve', '批准')).toBe('Approve')
     expect(handledActionLabel('whatever', '原文')).toBe('原文')
     setLocale('zh-CN')
+  })
+})
+
+describe('the one waiting list', () => {
+  it('reads waiting, an empty waiting list is not replaced by the legacy queue', () => {
+    const legacy = [card({ key: 'work:w1', kind: 'work' })]
+    const waiting = [card({ key: 'approval:j1', kind: 'approval', waiting: 'approval', waiting_label: '待你批准' })]
+    expect(waitingCards({ waiting, decisions: legacy })).toEqual(waiting)
+    expect(waitingCards({ waiting: [], decisions: legacy })).toEqual([])
+  })
+
+  it('falls back to decisions for a server without waiting, and tolerates no data', () => {
+    const legacy = [card({ key: 'work:w1', kind: 'work' })]
+    expect(waitingCards({ decisions: legacy })).toEqual(legacy)
+    expect(waitingCards(null)).toEqual([])
+    expect(waitingCards(undefined)).toEqual([])
+  })
+
+  it('links a failed own job to its job page', () => {
+    expect(cardLink(card({ kind: 'job.failed', refs: { job_id: 'j 1' } }))).toBe('/jobs/j%201')
   })
 })

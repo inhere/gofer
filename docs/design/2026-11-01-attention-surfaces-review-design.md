@@ -92,3 +92,9 @@ dsh-superagent 的核心原则正好对着这个问题：
 ## 7. 已定事项（2026-11-01）
 
 - §6 的 1–5 全部按推荐：worker 掉线不单列；工作项的模型推断保留为详情里的折叠参考、不驱动提醒；收件箱暂不与今天页合并；DC3 只做只读接口、MEM3 开场引用默认关闭、管家主动行为改为只记录；先做 4.1（「等我」判定表 + 一致性测试）与 4.4（agent / 会话 / job 凭据派出的 job 不进收件箱），再做 4.2 / 4.3。
+
+## 实施记录
+
+- **AT1「等我」判定表**：判定与列表在 `internal/inbox/waiting.go`（`Classify` 纯函数 + `Waiting` 折叠 + `TerminalCards`），留在 inbox 包而不新建包：它只在已有的 today 卡与 jobstore 之上加一层归类，不增加反向依赖（G024：域不独立）。来源事实：job 状态 / 待处理交互类型 / 会话 relay 的 open turn / plan blocked / held 信件，卡上新增结构化 `subtype`。`GET /v1/today` 新增 `waiting`，收件箱「要处理」栏由同一函数（httpapi `waitingFor`）生成，`total_unread` 即其未读数；web 顶栏徽标取 `total_unread`（收件箱不可用时回落为列表长度）。被移出的 work / suggestion / merge / memory / capture 卡不再在首屏出现，`decisions` 旧字段保留给 AT3 取舍。「todo needs_review」在数据里就是其 job 的 `needs_review`，与第 3 类同源，同一 job 取第 3 类。退信不单列（只判 held）。
+- **AT2 收件箱降噪**：「人本人提交」的判据在 `job.HumanSubmitted`：channel 为 cli / web / mcp，且无 `submitted_by_job:` 标签（job 凭据）、无 `submitted_by_session:` 标签（带 `X-Gofer-Session-Id` 的用户请求，由服务端在提交时新盖章）、无 `source_session_id`、请求里无 `notify_session`、非自动续接 / failover 接管；空 channel 视为非人。已知局限：agent 在没有会话环境变量的环境里用用户 token 提交，与人无法区分。
+

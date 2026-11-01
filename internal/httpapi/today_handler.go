@@ -68,13 +68,18 @@ func (s *Server) handleToday(c *rux.Context) {
 		// does not get it (计划决策 2).
 		s.appendWorkerEnrollCard(c, &resp)
 	}
+	waiting, _, err := s.waitingFor(c, resp.Decisions)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "build today failed", err.Error())
+		return
+	}
+	resp.Waiting = waiting
+	ic := s.inboxConfig()
 	for i := range resp.Decisions {
-		resp.Decisions[i].Column = inbox.Column(resp.Decisions[i], func() *config.InboxConfig {
-			if cfg := s.serverCfg(); cfg != nil {
-				return cfg.Inbox
-			}
-			return nil
-		}())
+		resp.Decisions[i].Column = inbox.Column(resp.Decisions[i], ic)
+	}
+	for i := range resp.Waiting {
+		resp.Waiting[i].Column = inbox.Column(resp.Waiting[i], ic)
 	}
 	s.scopeTodayStatus(c, &resp)
 	c.JSON(http.StatusOK, resp)

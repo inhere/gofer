@@ -1,23 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
-// 「待我决策」合并后的接线（设计稿 §16-4）：决策队列 + worker 申请一个按钮、一个计数。
+// 「待我决策」的接线：「等我」列表一个按钮、一个计数（与收件箱徽标同源）。
 const raw = (g: Record<string, unknown>): string => Object.values(g)[0] as string
 const needsMe = raw(import.meta.glob('./NeedsMeButton.vue', { eager: true, query: '?raw', import: 'default' }))
 const shell = raw(import.meta.glob('./AppShell.vue', { eager: true, query: '?raw', import: 'default' }))
 const alerts = raw(import.meta.glob('../utils/pendingAlert.ts', { eager: true, query: '?raw', import: 'default' }))
 
-describe('NeedsMeButton (merged decision + worker-request bell)', () => {
-  it('merges the decision queue with the pending worker requests', () => {
-    expect(needsMe).toContain('needsMeTotal(decisionCount.value, enrollments.value)')
-    expect(needsMe).toContain('await listEnrollments()')
-    expect(needsMe).toContain('enrollments.value = resp.enabled ? resp.pending_count : 0')
-    expect(needsMe).toContain('createLiveTopic(TOPIC_WORKER_ENROLLMENTS')
+describe('NeedsMeButton (waiting-on-me badge)', () => {
+  it('counts the unread of the one waiting list, same as the inbox badge', () => {
+    expect(needsMe).toContain('needsMeBadge(inboxData.value?.total_unread, decisionCount.value)')
   })
 
-  it('only subscribes the enrollment topic for worker.manage holders', () => {
-    expect(needsMe).toContain("const allowed = computed(() => can('worker.manage'))")
-    expect(needsMe).toContain('enrollLive.start()')
-    expect(needsMe).toContain('enrollLive.stop()')
+  it('no longer adds worker requests: they are not one of the six waiting categories', () => {
+    expect(needsMe).not.toContain('listEnrollments')
+    expect(needsMe).not.toContain('enrollments')
   })
 
   it('opens the global decision overlay', () => {
