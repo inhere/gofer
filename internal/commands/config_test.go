@@ -933,3 +933,33 @@ func TestConfigValidateShowsTriggerProvider(t *testing.T) {
 		t.Fatalf("unknown provider must fail naming the key: err=%v\n%s", err, out)
 	}
 }
+
+// TestConfigValidateShowsIMTriggers: IM triggers load from YAML, list their provider, and a
+// feishu trigger whose verification token variable is unset only warns (localized).
+func TestConfigValidateShowsIMTriggers(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	t.Setenv("GOFER_TRIGGER_VALIDATE_TEST", "secret-value")
+	t.Setenv("GOFER_TRIGGER_VALIDATE_TOKEN", "")
+	cfgPath := writeRawConfig(t, "server:\n  callers:\n    - {id: automation, token: tok}\n  triggers:\n"+
+		"    - name: ding\n      enabled: true\n      provider: dingtalk\n      owner_caller: automation\n      project: demo\n      template: chat\n      auth: {secret_env: GOFER_TRIGGER_VALIDATE_TEST}\n      im: {command_prefix: /run}\n      input: {vars: {text: im.text}}\n"+
+		"    - name: lark\n      enabled: true\n      provider: feishu\n      owner_caller: automation\n      project: demo\n      template: chat\n      auth: {secret_env: GOFER_TRIGGER_VALIDATE_TEST, verification_token_env: GOFER_TRIGGER_VALIDATE_TOKEN}\n")
+	c := bindCmd(NewConfigCmd().Subs[0])
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	for lang, want := range map[string][]string{
+		"en":    {"trigger/ding", "provider=dingtalk", "trigger/lark", "provider=feishu", "GOFER_TRIGGER_VALIDATE_TOKEN is not set"},
+		"zh-CN": {"provider=dingtalk", "provider=feishu", "GOFER_TRIGGER_VALIDATE_TOKEN 未设置"},
+	} {
+		t.Setenv(i18n.EnvLanguageVar, lang)
+		out := captureOutput(t, func() {
+			if err := runConfigValidate(c, nil); err != nil {
+				t.Fatalf("%s: validate: %v", lang, err)
+			}
+		})
+		for _, w := range want {
+			if !strings.Contains(out, w) {
+				t.Errorf("%s: output lacks %q:\n%s", lang, w, out)
+			}
+		}
+	}
+}

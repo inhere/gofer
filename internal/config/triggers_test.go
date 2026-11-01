@@ -223,3 +223,92 @@ func TestTriggerGitHubCloneAndStatusProvider(t *testing.T) {
 		t.Fatalf("generic status provider = %q", st[0].Provider)
 	}
 }
+
+func imTrigger(provider string, mut func(*TriggerConfig)) *Config {
+	return validTrigger(func(tc *TriggerConfig) {
+		tc.Provider = provider
+		tc.Input.Vars = map[string]string{"who": "im.sender_name", "text": "im.text"}
+		tc.IM = TriggerIMConfig{CommandPrefix: "/run", AllowConversations: []string{"room-1"}}
+		if provider == TriggerProviderFeishu {
+			tc.Auth.VerificationTokenEnv = "GOFER_TRIGGER_PUSH_TOKEN"
+		}
+		if mut != nil {
+			mut(tc)
+		}
+	})
+}
+
+func TestValidateTriggersIMProviders(t *testing.T) {
+	for _, p := range []string{TriggerProviderDingTalk, TriggerProviderFeishu} {
+		if err := validateTriggers(imTrigger(p, nil)); err != nil {
+			t.Fatalf("valid %s trigger: %v", p, err)
+		}
+		all := imTrigger(p, func(tc *TriggerConfig) {
+			tc.Input.Vars = map[string]string{}
+			for _, f := range IMVarFields {
+				tc.Input.Vars[f] = "im." + f
+			}
+		})
+		if err := validateTriggers(all); err != nil {
+			t.Fatalf("%s: every whitelisted field must be accepted: %v", p, err)
+		}
+		bad := map[string]func(*TriggerConfig){
+			"body reference":        func(tc *TriggerConfig) { tc.Input.Vars = map[string]string{"x": "body.sessionWebhook"} },
+			"unknown im field":      func(tc *TriggerConfig) { tc.Input.Vars = map[string]string{"x": "im.raw"} },
+			"header override":       func(tc *TriggerConfig) { tc.Auth.SignatureHeader = "X-Sig" },
+			"dedup key":             func(tc *TriggerConfig) { tc.Dedup.Key = "body.msgId" },
+			"github block":          func(tc *TriggerConfig) { tc.GitHub.Events = []string{"push"} },
+			"empty allowlist entry": func(tc *TriggerConfig) { tc.IM.AllowSenders = []string{""} },
+			"long prefix":           func(tc *TriggerConfig) { tc.IM.CommandPrefix = strings.Repeat("p", MaxTriggerIMValueBytes+1) },
+			"bad secret env":        func(tc *TriggerConfig) { tc.Auth.SecretEnv = "lower" },
+		}
+		for name, mut := range bad {
+			if err := validateTriggers(imTrigger(p, mut)); err == nil {
+				t.Errorf("%s: %s must be rejected", p, name)
+			}
+		}
+	}
+	// feishu needs its verification token variable; dingtalk and the others refuse it
+	if err := validateTriggers(imTrigger(TriggerProviderFeishu, func(tc *TriggerConfig) { tc.Auth.VerificationTokenEnv = "" })); err == nil || !strings.Contains(err.Error(), "verification_token_env") {
+		t.Fatalf("feishu without token env: %v", err)
+	}
+	if err := validateTriggers(imTrigger(TriggerProviderDingTalk, func(tc *TriggerConfig) { tc.Auth.VerificationTokenEnv = "GOFER_X" })); err == nil {
+		t.Fatal("dingtalk with verification_token_env must be rejected")
+	}
+	// the im block and the token belong to IM providers only
+	if err := validateTriggers(validTrigger(func(tc *TriggerConfig) { tc.IM.CommandPrefix = "/run" })); err == nil || !strings.Contains(err.Error(), "im is only valid") {
+		t.Fatalf("im block on generic trigger: %v", err)
+	}
+	if err := validateTriggers(ghTrigger(func(tc *TriggerConfig) { tc.IM.AllowSenders = []string{"a"} })); err == nil {
+		t.Fatal("im block on github trigger must be rejected")
+	}
+	if err := validateTriggers(validTrigger(func(tc *TriggerConfig) { tc.Auth.VerificationTokenEnv = "GOFER_X" })); err == nil {
+		t.Fatal("verification_token_env on generic trigger must be rejected")
+	}
+	// im.<field> is not a generic reference
+	if err := validateTriggers(validTrigger(func(tc *TriggerConfig) { tc.Input.Vars = map[string]string{"x": "im.text"} })); err == nil {
+		t.Fatal("im.text on a generic trigger must be rejected")
+	}
+}
+
+func TestTriggerIMCloneAndStatuses(t *testing.T) {
+	t.Setenv("GOFER_TRIGGER_PUSH", "s")
+	t.Setenv("GOFER_TRIGGER_PUSH_TOKEN", "")
+	cfg := imTrigger(TriggerProviderFeishu, nil)
+	clone := cfg.Server.Triggers[0].Clone()
+	clone.IM.AllowConversations[0] = "changed"
+	if cfg.Server.Triggers[0].IM.AllowConversations[0] != "room-1" {
+		t.Fatal("Clone shares the im allowlist")
+	}
+	st := cfg.TriggerStatuses()
+	if st[0].Provider != "feishu" {
+		t.Fatalf("provider = %q", st[0].Provider)
+	}
+	found := false
+	for _, is := range st[0].Issues {
+		found = found || (is.Code == TriggerIssueVerificationTokenUnset && is.Arg == "GOFER_TRIGGER_PUSH_TOKEN")
+	}
+	if !found {
+		t.Fatalf("issues = %+v, want the unset verification token", st[0].Issues)
+	}
+}

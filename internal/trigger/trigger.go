@@ -85,6 +85,9 @@ type Result struct {
 	// why (Ignored* constants). No receipt exists for it and no job was created.
 	Ignored bool
 	Reason  string
+	// Challenge is the answer of a platform endpoint-verification handshake (Feishu); the
+	// HTTP entry returns it instead of the usual body.
+	Challenge string
 }
 
 type SubmitFunc func(context.Context, job.JobRequest) (string, error)
@@ -214,6 +217,21 @@ func (e *Engine) Invoke(ctx context.Context, req TriggerRequest) (Result, error)
 		// The HTTP entry never sets it; an in-process caller may label its own origin.
 		req.Provider = ad.name()
 	}
+	if hs, ok := ad.(handshaker); ok {
+		challenge, handled, err := hs.handshake(*tc, req)
+		if err != nil {
+			e.writeAudit("trigger.auth_failed", *tc, req, "", err)
+			return out, err
+		}
+		if handled {
+			if req.RequestID == "" {
+				req.RequestID = newRequestID()
+			}
+			out.RequestID, out.Ignored, out.Reason, out.Challenge = req.RequestID, true, IgnoredHandshake, challenge
+			e.writeAudit("trigger.ignored", *tc, req, "", errors.New("ignored: "+IgnoredHandshake))
+			return out, nil
+		}
+	}
 	if err := ad.authenticate(*tc, req, e.now()); err != nil {
 		kind := "trigger.auth_failed"
 		if errors.Is(err, ErrReplay) {
@@ -223,7 +241,16 @@ func (e *Engine) Invoke(ctx context.Context, req TriggerRequest) (Result, error)
 		return out, err
 	}
 	if req.Payload == nil {
-		if err := json.Unmarshal(req.RawBody, &req.Payload); err != nil {
+		if dec, ok := ad.(payloadDecoder); ok {
+			payload, err := dec.decode(*tc, req)
+			if err != nil {
+				if errors.Is(err, ErrUnauthenticated) {
+					e.writeAudit("trigger.auth_failed", *tc, req, "", err)
+				}
+				return out, err
+			}
+			req.Payload = payload
+		} else if err := json.Unmarshal(req.RawBody, &req.Payload); err != nil {
 			return out, ErrBodyNotJSON
 		}
 	}

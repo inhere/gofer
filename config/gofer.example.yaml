@@ -196,6 +196,20 @@ server:
   #     input:
   #       vars: {repo: github.repository, number: github.number, title: github.title, url: github.url}
 
+  # IM 入站(provider: dingtalk | feishu)：群聊文本消息 -> 一次性 job，不回 IM。变量只能写 im.<字段>：
+  # provider / sender_id / sender_name / conversation_id / text / timestamp。
+  # feishu 的 secret_env 是 Encrypt Key，另需 verification_token_env；dingtalk 的 secret_env 是机器人 app secret。
+  #   - name: chat-run
+  #     enabled: false
+  #     provider: feishu
+  #     owner_caller: <non-root-caller>
+  #     project: <project>
+  #     template: <template>
+  #     auth: {secret_env: GOFER_TRIGGER_CHAT_KEY, verification_token_env: GOFER_TRIGGER_CHAT_TOKEN}
+  #     im: {command_prefix: /run, allow_conversations: [<chat-id>]}
+  #     input:
+  #       vars: {who: im.sender_id, text: im.text}
+
   # governance：调用方配额 / 限流的全局默认值(caller 没单独配置时生效)。整段未写或全为 0
   # 表示不限。每个 caller 可在 callers 里用同名字段覆盖(见上)。
   #   default_caller_max_concurrent  caller 默认同时在跑的 job 上限(超出的排队，不拒绝)
