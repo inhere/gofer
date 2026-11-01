@@ -27,7 +27,7 @@ vi.mock('../api/client', () => ({
 }))
 vi.mock('../api/steward', () => ({}))
 vi.mock('../api/today', () => ({
-  getToday: () => Promise.resolve({ decisions: serverCards, generated_at: 1 } as unknown as TodayResponse),
+  getToday: () => Promise.resolve({ waiting: serverCards, generated_at: 1 } as unknown as TodayResponse),
   listTodayHandled: () => Promise.resolve({ handled: [] }),
   recordTodayAction: (b: { card_key: string }) => {
     audits.push(b)

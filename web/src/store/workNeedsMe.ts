@@ -7,6 +7,12 @@ import { listWorkItems } from '../api/client'
 import { createLiveTopic, type LiveTopicHandle } from '../utils/useLiveTopic'
 
 export const workNeedsMeCount = ref(0)
+// 收集箱里还没整理的条目数（summary.captured）：顶栏的收集箱入口只在它大于 0 时出现。
+export const workCapturedCount = ref(0)
+
+export function shouldShowCaptureEntry(count: number): boolean {
+  return count > 0
+}
 
 export function shouldShowWorkBadge(count: number): boolean {
   return count > 0
@@ -20,6 +26,7 @@ export async function refreshWorkNeedsMe(): Promise<void> {
   // 只要 summary，不要条目：limit=1 的最小负载（summary 是全局计数，与 limit 无关）。
   const r = await listWorkItems({ status: ['needs_me'], limit: 1 })
   workNeedsMeCount.value = r.summary?.needs_me ?? 0
+  workCapturedCount.value = r.summary?.captured ?? 0
 }
 
 let handle: LiveTopicHandle | null = null
@@ -33,4 +40,5 @@ export function startWorkNeedsMe(): void {
 export function stopWorkNeedsMe(): void {
   handle?.stop()
   workNeedsMeCount.value = 0
+  workCapturedCount.value = 0
 }

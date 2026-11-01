@@ -384,6 +384,11 @@ func (s *Server) jobCredentialMiddleware(c *rux.Context) {
 	if jc.isSteward() {
 		// The steward: default-deny both ways (see the table above).
 		if stewardRouteAllowed(key) {
+			// Observe-only (design 2026-11-01 §4.5): an effectful write of a proactive review is
+			// recorded for a person to read instead of applied.
+			if stewardObservedWrites[key] && s.observeStewardWrite(c) {
+				return
+			}
 			c.Next()
 			return
 		}
@@ -629,6 +634,22 @@ var stewardWriteAllow = map[string]bool{
 	"POST /v1/mail/*/reply":  true,
 	"POST /v1/mail/*/ack":    true,
 	"POST /v1/mail/*/cancel": true,
+}
+
+// stewardObservedWrites are the steward writes an observe-only review records instead of applying:
+// everything that changes a work item, makes a card or a suggestion, or sends something to a
+// session or a mailbox. Its own notes and the review summary are records already and stay
+// applied, and so does answering its own letters (mail reply / ack / cancel).
+var stewardObservedWrites = map[string]bool{
+	"PATCH /v1/work-items/*":                  true,
+	"POST /v1/work-items/*/journal":           true,
+	"POST /v1/work-items/*/report-request":    true,
+	"POST /v1/work-items/*/summarize":         true,
+	"POST /v1/work-items/*/merge-suggestions": true,
+	"POST /v1/session-ask":                    true,
+	"POST /v1/today/advice":                   true,
+	"POST /v1/memory-suggestions":             true,
+	"POST /v1/mail":                           true,
 }
 
 func stewardRouteAllowed(key string) bool { return stewardReadAllow[key] || stewardWriteAllow[key] }

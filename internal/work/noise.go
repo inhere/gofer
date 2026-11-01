@@ -1,16 +1,13 @@
 package work
 
 // Noise reduction (docs/design/2026-10-20-work-noise-and-db-settings-design.md §总体方案 1):
-// the draft gate, the exclusion lists and the short-session rule. The thresholds and lists
+// the short-session rule (the draft gate and its exclusion lists went with the auto draft,
+// design 2026-11-01 §4.2). The thresholds and lists
 // are extension settings (internal/settings, applied through SetSettings); the rules do not
 // touch items that already exist.
 
 import (
 	"log/slog"
-	"path/filepath"
-	"regexp"
-	"runtime"
-	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/i18n"
@@ -24,8 +21,6 @@ import (
 type Settings interface {
 	GetInt(key string) (int, error)
 	GetString(key string) (string, error)
-	GetStrings(key string) ([]string, error)
-	Patterns(key string) ([]*regexp.Regexp, error)
 }
 
 // SetSettings injects the extension settings. nil (or a nil service) means "registry
@@ -66,90 +61,6 @@ func (s *Service) settingString(key string) string {
 		}
 	}
 	return ""
-}
-
-// settingStrings reads a string-list setting (default on any read failure).
-func (s *Service) settingStrings(key string) []string {
-	if s.settings != nil {
-		v, err := s.settings.GetStrings(key)
-		if err == nil {
-			return v
-		}
-		slog.Warn("work.settings_read_failed", "event", "work.settings_read_failed", "key", key, "err", err)
-	}
-	if d, ok := settings.Lookup(key); ok {
-		if v, ok := d.Default.([]string); ok {
-			return v
-		}
-	}
-	return nil
-}
-
-// settingPatterns reads a regex-list setting; a value that does not compile (only a
-// registry default can be wrong here — the service validates on write) is dropped with a
-// warning rather than silencing the rule.
-func (s *Service) settingPatterns(key string) []*regexp.Regexp {
-	if s.settings != nil {
-		v, err := s.settings.Patterns(key)
-		if err == nil {
-			return v
-		}
-		slog.Warn("work.settings_read_failed", "event", "work.settings_read_failed", "key", key, "err", err)
-	}
-	var out []*regexp.Regexp
-	for _, p := range s.settingStrings(key) {
-		re, err := regexp.Compile(p)
-		if err != nil {
-			slog.Warn("work.settings_bad_pattern", "event", "work.settings_bad_pattern", "key", key, "pattern", p, "err", err)
-			continue
-		}
-		out = append(out, re)
-	}
-	return out
-}
-
-// draftExclusion says why the session must not get a draft, "" when it may (design
-// §关键流程: 无项目不建；项目 / 目录 / 标题命中的不建).
-func (s *Service) draftExclusion(a jobstore.AgentSession, title string) string {
-	if strings.TrimSpace(a.ProjectKey) == "" {
-		return "会话不属于任何项目"
-	}
-	for _, p := range s.settingStrings(settings.KeyWorkDraftExcludeProjects) {
-		if p = strings.TrimSpace(p); p != "" && strings.EqualFold(p, strings.TrimSpace(a.ProjectKey)) {
-			return "项目在排除名单里：" + p
-		}
-	}
-	for _, p := range s.settingStrings(settings.KeyWorkDraftExcludeCwds) {
-		if pathHasPrefix(a.Cwd, p) {
-			return "目录在排除名单里：" + strings.TrimSpace(p)
-		}
-	}
-	for _, re := range s.settingPatterns(settings.KeyWorkDraftExcludeTitlePatterns) {
-		if re.MatchString(title) {
-			return "标题命中排除正则：" + re.String()
-		}
-	}
-	return ""
-}
-
-// pathHasPrefix reports whether cwd is prefix itself or below it. Separators and case are
-// normalised for the platform: Windows compares case-insensitively and both spellings of
-// the separator mean the same directory.
-func pathHasPrefix(cwd, prefix string) bool {
-	cwd, prefix = strings.TrimSpace(cwd), strings.TrimSpace(prefix)
-	if cwd == "" || prefix == "" {
-		return false
-	}
-	cwd = filepath.ToSlash(filepath.Clean(cwd))
-	prefix = filepath.ToSlash(filepath.Clean(prefix))
-	if runtime.GOOS == "windows" {
-		cwd, prefix = strings.ToLower(cwd), strings.ToLower(prefix)
-	}
-	prefix = strings.TrimSuffix(prefix, "/")
-	if cwd == prefix {
-		return true
-	}
-	return strings.HasPrefix(cwd, prefix+"/")
 }
 
 // ShortSession reports whether the session is a short-lived one the summarizer and the

@@ -58,19 +58,11 @@ func workTextDump(t *testing.T, s *Store) string {
 	}
 	str := func(v string) *string { return &v }
 
-	// capture, create, draft
+	// capture, create
 	cap, err := s.CaptureWorkItem(CaptureInput{Text: "buy milk\nand eggs", Kind: WorkKindIdea, By: "human:a"})
 	must(err)
 	name(cap.ID)
 	journal("captured", cap)
-	draft, created, err := s.EnsureDraftWorkItemForSession(AgentSession{SessionID: "sess-abcdef123456", ProjectKey: "p"}, "first prompt")
-	must(err)
-	if !created {
-		t.Fatal("draft not created")
-	}
-	name(draft.ID)
-	journal("draft", draft)
-
 	// update: every field kind
 	a := mkItem("Alpha")
 	prio, park, remind, unsorted := 2, int64(1_700_000_000), int64(1_700_003_600), true

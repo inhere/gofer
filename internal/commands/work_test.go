@@ -408,3 +408,72 @@ func TestWorkCaptureCLI(t *testing.T) {
 		t.Fatalf("%d captured items, want 2", len(l))
 	}
 }
+
+// `work report` without an id: the session's first report creates its item (titled by the
+// report's own --title / --goal), and `work archive-auto` previews until --yes (design
+// 2026-11-01 §4.2). The assertions go through cliText so they hold in both locales.
+func TestWorkCLIReportWithoutIDAndArchiveAuto(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	server, st := newPlanTestServerStore(t)
+	for _, sid := range []string{"sess-cli-r1", "sess-cli-r2"} {
+		if _, err := st.UpsertAgentSession(jobstore.AgentSession{SessionID: sid, Agent: "claude", ProjectKey: "self", Cwd: "/ws", State: jobstore.SessionRunning}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := workCLIOK(t, server, "report", "--session", "sess-cli-r1", "--title", "导出订单", "--goal", "导出为 xlsx")
+	id := workIDFrom(t, out)
+	if !strings.Contains(out, "created "+id) || !strings.Contains(out, "导出订单") || !strings.Contains(out, "reported on "+id) {
+		t.Fatalf("first report:\n%s", out)
+	}
+	if out := workCLIOK(t, server, "ls"); !strings.Contains(out, id) || !strings.Contains(out, "导出订单") {
+		t.Fatalf("ls:\n%s", out)
+	}
+	// The same session again reports on the same item.
+	out = workCLIOK(t, server, "report", "--session", "sess-cli-r1", "--summary", "写完了")
+	if strings.Contains(out, "created") || !strings.Contains(out, "reported on "+id) {
+		t.Fatalf("second report:\n%s", out)
+	}
+	// Nothing to name a new item by: refused, nothing created.
+	if out, code := workCLI(t, server, "report", "--session", "sess-cli-r2", "--summary", "x"); code == 0 || !strings.Contains(out, "title") {
+		t.Fatalf("report with no title / goal must fail:\n%s", out)
+	}
+	// An explicit id still works as before.
+	workCLIOK(t, server, "report", id, "--next", "补测试")
+
+	// archive-auto: two untouched auto items and one a person made.
+	var autos []string
+	for _, title := range []string{"auto-1", "auto-2"} {
+		w, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: title, Source: jobstore.WorkOriginAuto, By: "system"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		autos = append(autos, w.ID)
+	}
+	out, code := workCLI(t, server, "archive-auto")
+	if code == 0 || !strings.Contains(out, autos[0]) || !strings.Contains(out, cliText("cli.work.archive_preview", "n", 2)) {
+		t.Fatalf("archive-auto without --yes must list and fail (exit %d):\n%s", code, out)
+	}
+	if w, _, _ := st.GetWorkItem(autos[0]); w.Status != jobstore.WorkActive {
+		t.Fatalf("preview archived %s", autos[0])
+	}
+	if out := workCLIOK(t, server, "archive-auto", "--dry-run"); !strings.Contains(out, cliText("cli.work.archive_preview", "n", 2)) {
+		t.Fatalf("--dry-run:\n%s", out)
+	}
+	if out := workCLIOK(t, server, "archive-auto", "--yes"); !strings.Contains(out, cliText("cli.work.archive_done", "n", 2)) {
+		t.Fatalf("--yes:\n%s", out)
+	}
+	for _, id := range autos {
+		if w, _, _ := st.GetWorkItem(id); w.Status != jobstore.WorkDropped {
+			t.Fatalf("%s status = %s, want dropped", id, w.Status)
+		}
+	}
+	if w, _, _ := st.GetWorkItem(id); w.Status == jobstore.WorkDropped {
+		t.Fatalf("a session-reported item was archived")
+	}
+	if out := workCLIOK(t, server, "archive-auto", "--yes"); !strings.Contains(out, cliText("cli.work.archive_none")) {
+		t.Fatalf("second --yes (idempotent):\n%s", out)
+	}
+}

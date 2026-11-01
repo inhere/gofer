@@ -143,12 +143,14 @@ export interface TodayResponse {
     since_last: { since: number; jobs_done: number; jobs_failed: number; commits: number }
     title: string
     text: string
-    commentary?: string
   }
-  // 旧的全量队列（含工作项 / 建议 / 收集箱等卡）；首屏与顶栏改读 waiting
-  decisions: TodayCard[]
-  // 「等我」唯一列表：收件箱「要处理」栏、顶栏徽标、今天页决策区同源；旧 server 没有此字段
-  waiting?: TodayCard[]
+  // 旧的全量队列（含工作项 / 合并建议等卡）：server 仍给（MCP 的 today 工具与管家建议读它），
+  // 今天页与顶栏都不读，只读 waiting
+  decisions?: TodayCard[]
+  // 「等我」唯一列表：收件箱「要处理」栏、顶栏徽标、今天页决策区同源
+  waiting: TodayCard[]
+  // 正在跑的终端会话数 / job 数（今天页的一行，链到工作台）
+  running: { sessions: number; jobs: number }
   snoozed: number
   status: TodayStatus
   generated_at: number

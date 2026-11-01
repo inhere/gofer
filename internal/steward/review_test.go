@@ -110,7 +110,7 @@ func TestReviewRefusesWhenDisabledOrBusy(t *testing.T) {
 	e.svc.WaitIdle()
 }
 
-func TestReviewSummaryBecomesTheDigestComment(t *testing.T) {
+func TestReviewSummaryStaysWithTheReviewRecord(t *testing.T) {
 	e := newEnv(t)
 	e.item(t, "等设备")
 	res, err := e.svc.RunReview(context.Background(), ReviewOpts{Trigger: TriggerManual})
@@ -120,9 +120,14 @@ func TestReviewSummaryBecomesTheDigestComment(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, res.ReviewID, r.ID)
 	e.svc.WaitIdle()
+	// The point of view lives on the review record; it no longer rides into the digest (§4.2).
 	d, err := e.work.BuildDigest(time.Now())
 	assert.NoErr(t, err)
-	assert.Eq(t, "三件都在等同一批设备", d.Commentary)
+	assert.False(t, strings.Contains(d.Text, "三件都在等同一批设备"))
+	last, ok, err := e.st.LastStewardReview()
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "三件都在等同一批设备", last.Summary)
 }
 
 func TestReviewPromptNamesTheTasksAndTheLimits(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -150,6 +151,45 @@ func (c *Client) ReportWork(id string, fields map[string]any) (work.DetailView, 
 	}
 	var out work.DetailView
 	err = c.doJSON(http.MethodPost, workPath(id, "report"), body, &out)
+	return out, err
+}
+
+// ReportWorkBySession is ReportWork without an item id (POST /v1/work-items/report): the
+// session (fields["session_id"], else the client's own session header) reports on its work
+// item; a session without one gets it created by this first report, titled by
+// fields["title"] (else its goal). created tells the two apart.
+func (c *Client) ReportWorkBySession(fields map[string]any) (out work.DetailView, created bool, err error) {
+	body, err := jsonBody(fields)
+	if err != nil {
+		return work.DetailView{}, false, err
+	}
+	resp, err := c.do(http.MethodPost, "/v1/work-items/report", body)
+	if err != nil {
+		return work.DetailView{}, false, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return work.DetailView{}, false, fmt.Errorf("read response: %w", err)
+	}
+	if err := errorFor(resp.StatusCode, data); err != nil {
+		return work.DetailView{}, false, err
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return work.DetailView{}, false, fmt.Errorf("decode response: %w", err)
+	}
+	return out, resp.StatusCode == http.StatusCreated, nil
+}
+
+// ArchiveAutoWork archives every auto-generated work item nobody touched (POST
+// /v1/work-items/archive-auto) and reports how many; dryRun only lists what would go.
+func (c *Client) ArchiveAutoWork(dryRun bool) (work.ArchiveResult, error) {
+	var out work.ArchiveResult
+	path := "/v1/work-items/archive-auto"
+	if dryRun {
+		path += "?dry_run=1"
+	}
+	err := c.doJSON(http.MethodPost, path, nil, &out)
 	return out, err
 }
 

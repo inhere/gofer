@@ -20,7 +20,6 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
 	"github.com/inhere/gofer/internal/runner"
-	"github.com/inhere/gofer/internal/settings"
 )
 
 // Notifier is the outbound seam (job.Service implements it): the service knows WHEN a
@@ -247,11 +246,11 @@ func (s *Service) cfg() config.WorkConfig {
 // ---------------------------------------------------------------- session hooks
 
 // OnHumanPrompt is called when a HUMAN typed a prompt in a session (the hook's title
-// is the prompt's first line): the prompt is counted, and the work.draft.min_prompts-th
-// one creates the auto draft work item — unless the session has no project or the
-// exclusion lists say no (design 2026-10-20 §总体方案 1: 第 2 次才建、无项目不建、命中排除不建).
-// Errors are logged, never returned — the session relay must not fail because of work
-// items.
+// is the prompt's first line): the prompt is counted (the short-session rule reads the
+// count). It no longer creates a work item: since design 2026-11-01 §4.2 an item is
+// explicit — a person creates it, a plan binds it, or a session reports it with `gofer
+// work report`. Errors are logged, never returned — the session relay must not fail
+// because of work items.
 func (s *Service) OnHumanPrompt(a jobstore.AgentSession, prompt string) {
 	if s == nil || s.store == nil {
 		return
@@ -260,25 +259,8 @@ func (s *Service) OnHumanPrompt(a jobstore.AgentSession, prompt string) {
 	if title == "" || !s.firstReportOf(a.SessionID, title) {
 		return
 	}
-	n, err := s.store.IncrementSessionHumanPrompts(a.SessionID)
-	if err != nil {
+	if _, err := s.store.IncrementSessionHumanPrompts(a.SessionID); err != nil {
 		slog.Warn("work.prompt_count_failed", "event", "work.prompt_count_failed", "session", a.SessionID, "err", err)
-		return
-	}
-	if min := s.settingInt(settings.KeyWorkDraftMinPrompts); n < min {
-		return // still in the "就试一下" range
-	}
-	if why := s.draftExclusion(a, title); why != "" {
-		slog.Info("work.draft_skipped", "event", "work.draft_skipped", "session", a.SessionID, "reason", why)
-		return
-	}
-	w, created, err := s.store.EnsureDraftWorkItemForSession(a, prompt)
-	if err != nil {
-		slog.Warn("work.draft_failed", "event", "work.draft_failed", "session", a.SessionID, "err", err)
-		return
-	}
-	if created {
-		s.SyncItem(w.ID)
 	}
 }
 
@@ -950,6 +932,9 @@ type Summary struct {
 	NeedsMe int `json:"needs_me"`
 	Due     int `json:"due"`
 	Open    int `json:"open"`
+	// Captured is the number of capture-box items nobody sorted yet (they are not in Open): the
+	// top bar shows a count entry only while it is above zero.
+	Captured int `json:"captured"`
 }
 
 // Summarize returns the header counts.
@@ -968,7 +953,11 @@ func (s *Service) Summarize() (Summary, error) {
 			open += n
 		}
 	}
-	return Summary{NeedsMe: counts[jobstore.WorkNeedsMe], Due: len(due), Open: open}, nil
+	captured, err := s.store.CountCapturedWorkItems()
+	if err != nil {
+		return Summary{}, err
+	}
+	return Summary{NeedsMe: counts[jobstore.WorkNeedsMe], Due: len(due), Open: open, Captured: captured}, nil
 }
 
 // ---------------------------------------------------------------- tick: reminders + digest
@@ -1069,9 +1058,6 @@ type Digest struct {
 	Review     int    `json:"review"`
 	ParkedOver int    `json:"parked_over_7d"`
 	Yesterday  int    `json:"yesterday"`
-	// Commentary is the steward's point of view for today (W2b): the text its review wrote,
-	// already appended to Text. Empty without a steward or before its review finished.
-	Commentary string `json:"commentary,omitempty"`
 }
 
 // BuildDigest renders the digest for now (no side effects).
@@ -1081,8 +1067,8 @@ func (s *Service) BuildDigest(now time.Time) (Digest, error) {
 
 // BuildDigestScoped is BuildDigest restricted to the caller's项目范围 (gofer-7798 第二期): a
 // non-nil allow keeps only the work items whose project it accepts, and every count is summed
-// over the kept items. The steward's commentary is a server-global text, so it is left out of a
-// scoped digest. nil = every item, the unchanged digest.
+// over the kept items. nil = every item, the unchanged digest. The digest is structured counts
+// only: the steward's model commentary no longer rides along (design 2026-11-01 §4.2).
 func (s *Service) BuildDigestScoped(now time.Time, allow func(string) bool) (Digest, error) {
 	return s.BuildDigestScopedIn("", now, allow)
 }
@@ -1168,14 +1154,6 @@ func (s *Service) BuildDigestScopedIn(lang i18n.Lang, now time.Time, allow func(
 	}
 	if d.NeedsMe+d.Waiting+d.Onsite+d.Review+d.ParkedOver+d.Yesterday == 0 {
 		b.WriteString("\n\n" + i18n.T(lang, "work.digest.empty"))
-	}
-	// W2b: the steward's review of today adds its own point of view. The digest itself stays
-	// deterministic — this is only appended when the review wrote one.
-	if allow == nil {
-		if c, err := s.store.StewardReviewComment(now.Format("2006-01-02")); err == nil && strings.TrimSpace(c) != "" {
-			d.Commentary = strings.TrimSpace(c)
-			b.WriteString("\n\n" + i18n.T(lang, "work.digest.commentary", "text", d.Commentary))
-		}
 	}
 	d.Text = b.String()
 	return d, nil

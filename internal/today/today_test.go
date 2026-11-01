@@ -193,7 +193,7 @@ func TestRelayOneCardPerSessionAndAckedSkipped(t *testing.T) {
 	assert.Eq(t, []string{"A", "B"}, []string{dec.Actions[0].Value, dec.Actions[1].Value})
 }
 
-func TestWorkAndSuggestionMerge(t *testing.T) {
+func TestModelSuggestionsMakeNoCardsAndMergesStay(t *testing.T) {
 	svc, st := newTestService(t)
 	_, err := st.UpsertAgentSession(jobstore.AgentSession{SessionID: "s-w", Agent: "claude", ProjectKey: "p1", State: jobstore.SessionIdle})
 	assert.NoErr(t, err)
@@ -222,15 +222,15 @@ func TestWorkAndSuggestionMerge(t *testing.T) {
 	assert.Eq(t, "等我", wc.Tag)
 	assert.Eq(t, Blocks{Score: 2, Items: 1, Text: "claude 会话在线等你答复"}, wc.Blocks)
 	assert.Eq(t, "s-w", wc.Refs.SessionID)
-	assert.Len(t, wc.Suggestions, 1)
-	assert.Eq(t, "建议目标：支持 iframe", wc.Suggestions[0].Text)
+	// The model's tidy-up suggestions (design 2026-11-01 §4.2) make no card of their own, however
+	// the field is spelled: they stay in the work item's detail.
+	for _, c := range cards {
+		assert.NotEq(t, "suggestion", c.Kind)
+	}
 	_, ok = find(cards, "suggestion:"+w1.ID+":goal")
 	assert.False(t, ok)
-
-	sc, ok := find(cards, "suggestion:"+w2.ID+":status_hint")
-	assert.True(t, ok)
-	assert.Eq(t, "建议把状态改为「待验收」", sc.Summary)
-	assert.Eq(t, []string{"adopt", "dismiss"}, actionIDs(sc.Actions))
+	_, ok = find(cards, "suggestion:"+w2.ID+":status_hint")
+	assert.False(t, ok)
 	_, ok = find(cards, "suggestion:"+w3.ID+":next")
 	assert.False(t, ok)
 
@@ -242,7 +242,7 @@ func TestWorkAndSuggestionMerge(t *testing.T) {
 	}
 	assert.Eq(t, "同一件事", merge.Summary)
 	assert.True(t, merge.Refs.MergeID > 0)
-	assert.Len(t, cards, 3)
+	assert.Len(t, cards, 2) // the work card and the merge card, no suggestion cards
 }
 
 func TestTodayDigestStatusAndHandled(t *testing.T) {

@@ -79,8 +79,10 @@ const (
 
 // Work-item origins (work_items.source).
 const (
-	WorkOriginAuto    = "auto"
-	WorkOriginHuman   = "human"
+	WorkOriginAuto  = "auto"
+	WorkOriginHuman = "human"
+	// WorkOriginReport is an item created by a session's first `gofer work report`.
+	WorkOriginReport  = "report"
 	WorkOriginSteward = "steward"
 )
 
@@ -444,41 +446,6 @@ func (s *Store) createWorkItemLocked(q execer, in WorkItemInput, title, status, 
 	}
 	w, _, err := s.getWorkItemOn(q, id)
 	return w, err
-}
-
-// EnsureDraftWorkItemForSession creates the auto draft for a session's first human
-// prompt (design §4: "新会话第一次有人工提问时，自动生成一张草稿工作项"). It does
-// nothing (created=false) when the session already belongs to any work item — even a
-// past or merged one — so a prompt never spawns duplicates and a merge/split decision
-// is never undone. The check and the insert are one transaction under the writer lock.
-func (s *Store) EnsureDraftWorkItemForSession(a AgentSession, prompt string) (WorkItem, bool, error) {
-	sid := strings.TrimSpace(a.SessionID)
-	title := FirstLine(prompt, 120)
-	if sid == "" || title == "" {
-		return WorkItem{}, false, nil
-	}
-	s.writeMu.Lock()
-	var exists int
-	err := s.db.QueryRow(`SELECT 1 FROM work_item_sessions WHERE session_id = ? LIMIT 1`, sid).Scan(&exists)
-	if err == nil {
-		s.writeMu.Unlock()
-		return WorkItem{}, false, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		s.writeMu.Unlock()
-		return WorkItem{}, false, fmt.Errorf("jobstore: check work item for session: %w", err)
-	}
-	w, err := s.createWorkItemLocked(s.db, WorkItemInput{
-		Title: title, ProjectKey: a.ProjectKey, Workspace: a.Cwd, Source: WorkOriginAuto, Unsorted: true,
-		SessionIDs: []string{sid}, By: "system",
-		Note: i18n.T(s.textLang(strings.TrimSpace(a.ProjectKey)), "jobstore.work.draft", "sid", shortSID(sid)),
-	}, capText(title, maxWorkTitle), WorkActive, WorkOriginAuto)
-	s.writeMu.Unlock()
-	if err != nil {
-		return WorkItem{}, false, err
-	}
-	s.emit(Change{Kind: ChangeWork, ID: w.ID})
-	return w, true, nil
 }
 
 func shortSID(sid string) string {
@@ -1289,6 +1256,15 @@ func (s *Store) SetWorkKV(k, v string) error {
 	defer s.writeMu.Unlock()
 	_, err := s.db.Exec(`INSERT INTO work_kv(k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, k, v)
 	return err
+}
+
+// CountCapturedWorkItems counts the capture-box items still waiting to be sorted.
+func (s *Store) CountCapturedWorkItems() (int, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM work_items WHERE status = 'captured' AND merged_into = ''`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("jobstore: count captured work items: %w", err)
+	}
+	return n, nil
 }
 
 // WorkCounts is the dashboard count per status for open items.

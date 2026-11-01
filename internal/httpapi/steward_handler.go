@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -560,4 +561,44 @@ func (s *Server) handlePutConfigSteward(c *rux.Context) {
 		s.steward.Reconcile()
 	}
 	c.JSON(http.StatusOK, configWriteResp{Status: "ok", Section: "steward", Reloaded: true, Fields: applied})
+}
+
+// observeStewardWrite answers a steward write that an observe-only review must not apply: the
+// request is recorded (steward.Observe) and the steward gets 202 saying so. It reports false
+// when the steward is not observing, so the middleware lets the write through.
+func (s *Server) observeStewardWrite(c *rux.Context) bool {
+	if s.steward == nil || !s.steward.Observing() {
+		return false
+	}
+	var body []byte
+	if c.Req.Body != nil {
+		body, _ = io.ReadAll(io.LimitReader(c.Req.Body, 16<<10))
+	}
+	if !s.steward.Observe(c.Req.Method, c.Req.URL.Path, string(body)) {
+		return false
+	}
+	c.JSON(http.StatusAccepted, map[string]any{
+		"observed": true,
+		"note":     "recorded only: the steward is in observe mode (steward.act_proactively is off), nothing was changed or sent",
+	})
+	c.Abort()
+	return true
+}
+
+// GET /v1/steward/observations[?limit=N] — what the steward's proactive reviews would have done
+// (observe mode), newest first. A person's read, like the rest of the steward surface.
+func (s *Server) handleStewardObservations(c *rux.Context) {
+	if !s.stewardNoCeiling(c, "read the steward observations") {
+		return
+	}
+	if !s.stewardReady(c) {
+		return
+	}
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	rows, err := s.steward.Observations(limit)
+	if err != nil {
+		writeStewardError(c, err, "list steward observations")
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"observations": rows})
 }

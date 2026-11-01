@@ -155,5 +155,3 @@ Progress yesterday (12):
 - [yday](http://gofer.test/work?id=<ID>) (active)
 - [yday](http://gofer.test/work?id=<ID>) (active)
 - ... and 2 more
-
-Steward's comment: all calm

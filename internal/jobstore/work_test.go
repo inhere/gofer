@@ -72,37 +72,6 @@ func TestWorkItemCreateUpdateAndRevConflict(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrWorkItemNotFound))
 }
 
-func TestEnsureDraftWorkItemForSessionIsIdempotent(t *testing.T) {
-	s := openTest(t)
-	a := mustSession(t, s, "sess-1111-2222")
-	w, created, err := s.EnsureDraftWorkItemForSession(a, "\n  帮我看看登录为什么失败\n第二行")
-	assert.NoErr(t, err)
-	assert.True(t, created)
-	assert.Eq(t, "帮我看看登录为什么失败", w.Title)
-	assert.Eq(t, WorkOriginAuto, w.Source)
-	assert.True(t, w.Unsorted)
-	assert.Eq(t, "p1", w.ProjectKey)
-	assert.Eq(t, "/ws/a", w.Workspace)
-
-	_, created, err = s.EnsureDraftWorkItemForSession(a, "再问一个问题")
-	assert.NoErr(t, err)
-	assert.False(t, created)
-	items, err := s.ListWorkItems(WorkListOpts{})
-	assert.NoErr(t, err)
-	assert.Eq(t, 1, len(items))
-
-	// A session that was split off / merged away from its draft never gets a new one.
-	assert.NoErr(t, s.DetachWorkSession(w.ID, "sess-1111-2222", "x"))
-	_, created, _ = s.EnsureDraftWorkItemForSession(a, "again")
-	assert.False(t, created)
-
-	// Empty prompt -> nothing.
-	b := mustSession(t, s, "sess-b")
-	_, created, err = s.EnsureDraftWorkItemForSession(b, "  \n ")
-	assert.NoErr(t, err)
-	assert.False(t, created)
-}
-
 func TestWorkItemListFilters(t *testing.T) {
 	s := openTest(t)
 	a, _ := s.CreateWorkItem(WorkItemInput{Title: "alpha", ProjectKey: "p1", Workspace: "/w1", Unsorted: true, Source: WorkOriginAuto})

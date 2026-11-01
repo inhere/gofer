@@ -52,8 +52,7 @@ var guardAllExempt = map[string]Exempt{
 
 	"today/memory_suggest.go": {Max: 1, Class: classResidue, Why: "ErrMemorySuggestionStale: an error sentinel whose text httpapi returns as the error detail and stores in the suggestion note; error detail text is a separate migration"},
 
-	"work/noise.go": {Max: 4, Class: classResidue, Why: "draft-exclusion reasons that only reach the server log (slog), never a person or the web"},
-	"work/x2.go":    {Max: 1, Class: classProtocol, Why: "completionBy is the stored author identifier of the completion write-back suggestion; changing it would split old and new rows"},
+	"work/x2.go": {Max: 1, Class: classProtocol, Why: "completionBy is the stored author identifier of the completion write-back suggestion; changing it would split old and new rows"},
 
 	// ---- protocol constants -----------------------------------------------------------
 	"msgprefix/msgprefix.go": {Max: 27, Class: classProtocol, Why: "the message-prefix alias table: zh-CN forms of [gofer · …] / [来自 web …] prefixes that older stored messages and agents carry; recognised byte-exactly (design §5)"},

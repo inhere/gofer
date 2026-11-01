@@ -59,6 +59,8 @@ export const en: Dict = {
 
   'shell.nav': 'Main navigation',
   'shell.home': 'Back to Today',
+  'shell.captureCount': 'Capture box {n}',
+  'shell.captureCountTitle': '{n} captured item(s) not sorted yet',
   'shell.search': 'Search pages',
   'shell.readonly': 'Read-only',
   'shell.stale': 'The server was updated; click to reload',

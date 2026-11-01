@@ -28,7 +28,7 @@ import {
   statusTone,
   workspaceLabel,
 } from '../utils/work'
-import { dueLabelKey, laneClass, stalledDays, suggestionLabelKey, workLane, workRequestLine } from '../utils/workBoard'
+import { dueLabelKey, laneClass, sourceLabelKey, stalledDays, suggestionLabelKey, workLane, workRequestLine } from '../utils/workBoard'
 import type { AgentSession, WorkItem, WorkStatus } from '../api/types'
 
 const props = withDefaults(
@@ -202,7 +202,7 @@ function whenText(sec: number | undefined): string {
           <dt>{{ t('work.card.parked') }}</dt><dd>{{ [item.park_until ? t('work.card.parkedUntil', { time: whenText(item.park_until) }) : '', item.park_note].filter(Boolean).join(' · ') }}</dd>
         </template>
         <template v-if="item.remind_at"><dt>{{ t('work.card.remind') }}</dt><dd>{{ whenText(item.remind_at) }}</dd></template>
-        <dt>{{ t('work.card.source') }}</dt><dd>{{ item.source === 'auto' ? t('work.d.sourceAuto') : item.source === 'steward' ? t('work.d.sourceSteward') : t('work.d.sourceHuman') }}</dd>
+        <dt>{{ t('work.card.source') }}</dt><dd>{{ t(sourceLabelKey(item.source)) }}</dd>
         <dt>{{ t('work.card.status') }}</dt><dd>{{ item.status_source === 'auto' ? t('work.d.statusSrcAuto') : item.status_source === 'human' ? t('work.d.statusSrcHuman') : t('work.d.statusSrcReport') }}</dd>
         <dt>{{ t('work.card.id') }}</dt><dd>{{ item.id }}</dd>
       </dl>

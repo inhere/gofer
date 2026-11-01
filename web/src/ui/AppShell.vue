@@ -33,7 +33,7 @@ import { staleBuild } from '../store/staleBuild'
 import { updateLatest } from '../store/updateAvailable'
 import { useWhoami } from '../store/whoami'
 import { ceilingReadOnlyNotice } from '../utils/ceiling'
-import { shouldShowWorkBadge, workBadgeLabel, workNeedsMeCount } from '../store/workNeedsMe'
+import { shouldShowCaptureEntry, shouldShowWorkBadge, workBadgeLabel, workCapturedCount, workNeedsMeCount } from '../store/workNeedsMe'
 import {
   DEFAULT_SHELL_PREFS,
   hasSidebar,
@@ -314,6 +314,15 @@ onUnmounted(() => {
             <span class="new-job-label">{{ t('act.newJob') }}</span>
           </RouterLink>
           <QuickCapture />
+          <!-- 收集箱入口：只在有未处理条目时出现（设计稿 2026-11-01 §4.3） -->
+          <RouterLink
+            v-if="shouldShowCaptureEntry(workCapturedCount)"
+            to="/work?tab=capture"
+            class="capture-count"
+            :title="t('shell.captureCountTitle', { n: workCapturedCount })"
+            data-testid="capture-count"
+            >{{ t('shell.captureCount', { n: workCapturedCount }) }}</RouterLink
+          >
           <MailButton />
           <ThemeToggle />
           <LangToggle v-if="!hasTabBar(form)" />
@@ -697,6 +706,20 @@ onUnmounted(() => {
   font-size: var(--fs-xs);
   font-weight: 600;
 }
+.capture-count {
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  border-radius: var(--r-ctl);
+  padding: 3px 8px;
+  font-size: var(--fs-xs);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.capture-count:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .update-avail {
   border: 1px solid var(--done);
   color: var(--done);

@@ -31,9 +31,6 @@ func dumpCard(sb *strings.Builder, c Card) {
 	for _, a := range c.Actions {
 		fmt.Fprintf(sb, "  action %s %q value=%q\n", a.ID, a.Label, a.Value)
 	}
-	for _, sg := range c.Suggestions {
-		fmt.Fprintf(sb, "  suggestion %s %q\n", sg.Field, sg.Text)
-	}
 	if c.Woke {
 		fmt.Fprintf(sb, "  woke=%q\n", c.WokeReason)
 	}

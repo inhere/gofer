@@ -166,3 +166,18 @@ func TestLastTurnText(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// `steward observations` lists what the proactive reviews would have done; nothing yet reads
+// as the empty line, in both locales.
+func TestStewardCLIObservationsEmpty(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	server := newStewardCLIServer(t, true)
+	if out := stewardCLIOK(t, server, "observations"); !strings.Contains(out, cliText("cli.steward.observations_none")) {
+		t.Fatalf("observations:\n%s", out)
+	}
+	if out := stewardCLIOK(t, server, "observations", "--json"); !strings.Contains(out, "[]") {
+		t.Fatalf("observations --json:\n%s", out)
+	}
+}

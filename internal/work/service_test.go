@@ -65,13 +65,34 @@ func session(t *testing.T, st *jobstore.Store, sid, state string) jobstore.Agent
 	return a
 }
 
-func TestFirstHumanPromptCreatesOneDraftAndMapsStatus(t *testing.T) {
+// draftFor makes the unsorted auto-source item the old per-session draft used to be: the
+// fixture other tests build their scenarios on now that no prompt creates one.
+func draftFor(t *testing.T, st *jobstore.Store, sid, title string) jobstore.WorkItem {
+	t.Helper()
+	w, err := st.CreateWorkItem(jobstore.WorkItemInput{Title: title, ProjectKey: "p1", Workspace: "/ws", Unsorted: true,
+		SessionIDs: []string{sid}, Source: jobstore.WorkOriginAuto, By: "system"})
+	assert.NoErr(t, err)
+	return w
+}
+
+func TestHumanPromptsNeverCreateWorkItems(t *testing.T) {
 	svc, st, _ := newSvc(t)
-	a := session(t, st, "sess-aaaa1111", jobstore.SessionRunning)
-	// The draft waits for the second human prompt (work.draft.min_prompts, default 2) and
-	// takes the title of the prompt that triggered it.
-	svc.OnHumanPrompt(a, "给订单页加导出按钮\n细节...")
-	svc.OnHumanPrompt(a, "再问点别的")
+	a := session(t, st, "sess-aaaa0000", jobstore.SessionRunning)
+	for _, p := range []string{"给订单页加导出按钮\n细节...", "再问点别的", "继续", "提交 + push"} {
+		svc.OnHumanPrompt(a, p)
+	}
+	items, err := svc.List(jobstore.WorkListOpts{IncludeClosed: true, IncludeMerged: true})
+	assert.NoErr(t, err)
+	assert.Eq(t, 0, len(items))
+	// The prompts are still counted: the short-session rule reads the count.
+	got, _, _ := st.GetAgentSession("sess-aaaa0000")
+	assert.Eq(t, 4, got.HumanPrompts)
+}
+
+func TestSessionStatusMapsOntoAnExistingItem(t *testing.T) {
+	svc, st, _ := newSvc(t)
+	session(t, st, "sess-aaaa1111", jobstore.SessionRunning)
+	draftFor(t, st, "sess-aaaa1111", "再问点别的")
 	items, err := svc.List(jobstore.WorkListOpts{})
 	assert.NoErr(t, err)
 	assert.Eq(t, 1, len(items))
@@ -104,9 +125,8 @@ func TestFirstHumanPromptCreatesOneDraftAndMapsStatus(t *testing.T) {
 
 func TestHumanStatusWinsUntilReportUnblocks(t *testing.T) {
 	svc, st, _ := newSvc(t)
-	a := session(t, st, "sess-bbbb2222", jobstore.SessionRunning)
-	svc.OnHumanPrompt(a, "ask")
-	svc.OnHumanPrompt(a, "ask again") // the draft starts on the second prompt
+	session(t, st, "sess-bbbb2222", jobstore.SessionRunning)
+	draftFor(t, st, "sess-bbbb2222", "ask again")
 	items, _ := svc.List(jobstore.WorkListOpts{})
 	id := items[0].ID
 
@@ -155,9 +175,8 @@ func TestHumanStatusWinsUntilReportUnblocks(t *testing.T) {
 
 func TestReportFillsGoalAndSortsDraftAndRejectsEmpty(t *testing.T) {
 	svc, st, _ := newSvc(t)
-	a := session(t, st, "sess-cccc3333", jobstore.SessionRunning)
-	svc.OnHumanPrompt(a, "ask")
-	svc.OnHumanPrompt(a, "ask again") // the draft starts on the second prompt
+	session(t, st, "sess-cccc3333", jobstore.SessionRunning)
+	draftFor(t, st, "sess-cccc3333", "ask again")
 	items, _ := svc.List(jobstore.WorkListOpts{})
 	id := items[0].ID
 	assert.True(t, items[0].Unsorted)
@@ -176,9 +195,8 @@ func TestReportFillsGoalAndSortsDraftAndRejectsEmpty(t *testing.T) {
 	assert.Eq(t, "缺测试账号", w.BlockerText)
 
 	// Setting a draft's goal through Update also marks it sorted.
-	b := session(t, st, "sess-dddd4444", jobstore.SessionRunning)
-	svc.OnHumanPrompt(b, "other")
-	svc.OnHumanPrompt(b, "other again")
+	session(t, st, "sess-dddd4444", jobstore.SessionRunning)
+	draftFor(t, st, "sess-dddd4444", "other again")
 	list, _ := svc.List(jobstore.WorkListOpts{SessionID: "sess-dddd4444"})
 	goal := "g"
 	u, err := svc.Update(list[0].ID, jobstore.WorkItemPatch{Goal: &goal}, 0, "human:a")

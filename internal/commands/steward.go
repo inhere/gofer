@@ -31,6 +31,7 @@ type stewardOptions struct {
 	version       int
 	setFile       string
 	timeoutSec    int
+	limit         int
 }
 
 var stewardOpts stewardOptions
@@ -95,6 +96,14 @@ func NewStewardCmd() *gcli.Command {
 					c.BoolOpt(&stewardOpts.force, "force", "", false, "review even when nothing changed")
 				},
 				Func: runStewardReview,
+			},
+			{
+				Name: "observations", Desc: cliText("cli.steward.observations_desc"),
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.IntOpt(&stewardOpts.limit, "limit", "", 0, cliText("cli.steward.observations_limit_flag"))
+				},
+				Func: runStewardObservations,
 			},
 			{
 				Name: "merges", Desc: "List the merge suggestions the steward recorded (a person confirms them: `merge-accept` / `merge-dismiss`)",
@@ -440,6 +449,30 @@ func runStewardReview(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	c.Printf("review %d started on job %s: %d work item(s), %d event(s) — see `gofer steward status`\n", res.ReviewID, res.JobID, len(res.Items), res.Events)
+	return nil
+}
+
+// runStewardObservations prints what the steward's proactive reviews would have done.
+func runStewardObservations(c *gcli.Command, _ []string) error {
+	cli, err := stewardClient()
+	if err != nil {
+		return err
+	}
+	rows, err := cli.StewardObservations(stewardOpts.limit)
+	if err != nil {
+		return err
+	}
+	if stewardOpts.asJSON {
+		return workPrintJSON(c, rows)
+	}
+	if len(rows) == 0 {
+		c.Println(cliText("cli.steward.observations_none"))
+		return nil
+	}
+	c.Printf("%-6s %-6s %-7s %-44s %s\n", "ID", "AGE", "METHOD", "PATH", "BODY")
+	for _, o := range rows {
+		c.Printf("%-6d %-6s %-7s %-44s %s\n", o.ID, ago(o.At), o.Method, o.Path, oneLine(o.Body, 80))
+	}
 	return nil
 }
 

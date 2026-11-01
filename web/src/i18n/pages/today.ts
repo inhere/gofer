@@ -10,6 +10,9 @@ export const today: PageDict = {
     'today.sum.running': '{n} 个 agent 在跑',
     'today.sum.idle': '{n} 个空闲会话',
     'today.sum.done': '今天完成 {n}',
+    'today.running': '{sessions} 个会话 · {jobs} 个 job 在跑',
+    'today.plans.title': '进行中的计划',
+    'today.plans.more': '还有 {n} 个计划 · 全部计划',
 
     // 「自上次打开」摘要
     'today.digest': '自上次打开',
@@ -241,6 +244,9 @@ export const today: PageDict = {
     'today.sum.running': '{n} agents running',
     'today.sum.idle': '{n} idle sessions',
     'today.sum.done': '{n} done today',
+    'today.running': '{sessions} sessions · {jobs} jobs running',
+    'today.plans.title': 'Plans in progress',
+    'today.plans.more': '{n} more · all plans',
 
     'today.digest': 'Since your last visit',
     'today.digest.done': 'done',

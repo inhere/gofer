@@ -75,7 +75,7 @@ func (s *Service) digest(lang i18n.Lang, now time.Time, q Query) (Digest, error)
 		if err != nil {
 			return Digest{}, err
 		}
-		d.Title, d.Text, d.Commentary = wd.Title, wd.Text, wd.Commentary
+		d.Title, d.Text = wd.Title, wd.Text
 	}
 	return d, nil
 }
@@ -142,4 +142,31 @@ func (s *Service) status(lang i18n.Lang, now time.Time) (Status, error) {
 		st.Version = s.d.Version()
 	}
 	return st, nil
+}
+
+// running counts the terminal sessions in the running state and the jobs running now, within the
+// caller's projects when the query carries a restriction (the same predicate / literal list the
+// cards and the digest use).
+func (s *Service) running(q Query) (Running, error) {
+	var r Running
+	sessions, err := s.d.Store.ListAgentSessions(jobstore.ListSessionsOpts{State: jobstore.SessionRunning, Limit: 5000})
+	if err != nil {
+		return Running{}, err
+	}
+	for _, a := range sessions {
+		if q.ProjectAllowed == nil || q.ProjectAllowed(a.ProjectKey) {
+			r.Sessions++
+		}
+	}
+	var byStatus map[string]int
+	if q.Projects != nil {
+		byStatus, err = s.d.Store.CountJobsByStatusProjects(q.Projects)
+	} else {
+		byStatus, err = s.d.Store.CountJobsByStatus()
+	}
+	if err != nil {
+		return Running{}, err
+	}
+	r.Jobs = byStatus[job.StatusRunning]
+	return r, nil
 }

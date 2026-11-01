@@ -158,3 +158,31 @@ describe('session cards <-> work items', () => {
     expect(work).toContain('router.push(`/jobs/')
   })
 })
+
+describe('explicit work items (design 2026-11-01 §4.2)', () => {
+  it('offers a confirmed one-shot archive of the auto-generated items, only while some are loaded', () => {
+    expect(work).toContain('data-test="archive-auto"')
+    expect(work).toContain('v-if="autoCount > 0"')
+    expect(work).toContain('autoItemCount(items.value)')
+    // dry-run first, the confirm names the count, the real archive only after it
+    expect(work).toContain('archiveAutoFlow({')
+    expect(work).toContain('preview: () => archiveAutoWorkItems(true)')
+    expect(work).toContain('run: () => archiveAutoWorkItems(false)')
+    expect(work).toContain("window.confirm(t('work.archiveAuto.confirm', { n }))")
+    // a write: greyed out for a read-only identity, like the other work writes
+    expect(work).toContain(':disabled="archiving || !!writeBlock"')
+  })
+
+  it('keeps the model\'s suggestions in a collapsed 模型参考 block of the drawer, not an open section', () => {
+    expect(drawer).toContain('<details v-if="suggestions.length" class="sec modelref" data-test="drawer-suggestions">')
+    expect(drawer).not.toMatch(/<details[^>]*data-test="drawer-suggestions"[^>]*\sopen[\s>]/)
+    expect(drawer).toContain("t('work.d.modelRef')")
+    expect(drawer).toContain('data-test="drawer-modelref-note"')
+  })
+
+  it('shows the capture-box entry in the top bar only for a non-zero count', () => {
+    expect(app).toContain('v-if="shouldShowCaptureEntry(workCapturedCount)"')
+    expect(app).toContain('data-testid="capture-count"')
+    expect(app).toContain('to="/work?tab=capture"')
+  })
+})

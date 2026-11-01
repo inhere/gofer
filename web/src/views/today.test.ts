@@ -19,7 +19,6 @@ const workbenchSrc = raw(import.meta.glob('./Workbench.vue', { eager: true, quer
 const cardSrc = raw(import.meta.glob('../components/today/DecisionCard.vue', { eager: true, query: '?raw', import: 'default' }))
 const overlaySrc = raw(import.meta.glob('../components/today/DecisionOverlay.vue', { eager: true, query: '?raw', import: 'default' }))
 const statusSrc = raw(import.meta.glob('../components/today/TodayStatusBar.vue', { eager: true, query: '?raw', import: 'default' }))
-const recentSrc = raw(import.meta.glob('../components/today/TodayRecentHandled.vue', { eager: true, query: '?raw', import: 'default' }))
 const storeSrc = raw(import.meta.glob('../store/today.ts', { eager: true, query: '?raw', import: 'default' }))
 
 function card(i: number, over: Partial<TodayCard> = {}): TodayCard {
@@ -43,7 +42,8 @@ function card(i: number, over: Partial<TodayCard> = {}): TodayCard {
 function data(cards: TodayCard[]): TodayResponse {
   return {
     digest: { since_last: { since: 1, jobs_done: 12, jobs_failed: 1, commits: 9 }, title: '工作摘要 · 2026-10-09', text: '等我 2 · 等资源 1' },
-    decisions: cards,
+    waiting: cards,
+    running: { sessions: 0, jobs: 0 },
     snoozed: 0,
     status: {
       usage_today: { jobs: 41, total_tokens: 1_200_000, cost_usd: 4.86, session_tokens: 300_000 },
@@ -64,24 +64,14 @@ async function render(component: unknown): Promise<string> {
   return renderToString(app)
 }
 
-describe('Today page (design §7.1)', () => {
-  it('renders the hero count, the one-line summary, the digest and the top 5 cards', async () => {
+describe('Today page (design 2026-11-01 §4.3)', () => {
+  it('renders the hero count and the top 5 waiting cards, with no digest, summary line, filters or lanes', async () => {
     hiddenKeys.value = new Set(['work:w7'])
     todayData.value = data([1, 2, 3, 4, 5, 6, 7, 8].map((i) => card(i)))
     const html = await render(Today)
-    // 首屏：日期 + 「N 件事在等你」（8 张，1 张在撤销窗口里已收起 → 7 张可见）
+    // 首屏：「N 件事在等你」（8 张，1 张在撤销窗口里已收起 → 7 张可见）
     expect(html).toContain('data-test="today-title"')
     expect(html).toContain('7 件事在等你')
-    // 一行摘要：agent 在跑 / 空闲会话 / 今天完成（泳道数据未加载时为 0，完成了 12 个）
-    expect(html).toContain('data-test="today-summary"')
-    expect(html).toContain('0 个 agent 在跑')
-    expect(html).toContain('0 个空闲会话')
-    expect(html).toContain('今天完成 12')
-    // 「自上次打开」摘要：完成 / 失败 / 新提交
-    expect(html).toContain('data-test="today-digest"')
-    expect(html).toMatch(/<b[^>]*>12<\/b> 完成/)
-    expect(html).toMatch(/<b[^>]*>1<\/b> 失败/)
-    expect(html).toMatch(/<b[^>]*>9<\/b> 新提交/)
     // 队列只展开前 5 张，其余折成「还有 N 张」
     expect(html.match(/data-test="decision-card"/g)?.length).toBe(5)
     expect(html).toContain('还有 2 张')
@@ -91,9 +81,42 @@ describe('Today page (design §7.1)', () => {
     expect(html).toContain('data-test="open-snoozed"')
     expect(html).toContain('data-test="open-handled"')
     expect(html).toContain('含 exec 待验收')
+    // 收缩掉的东西不再出现：digest、一行摘要、类型 / 项目筛选、并行中泳道、刚处理过
+    for (const gone of ['today-digest', 'today-summary', 'filter-chips', 'project-filter', 'today-lanes', 'today-recent']) {
+      expect(html).not.toContain(`data-test="${gone}"`)
+    }
+    expect(html).not.toContain('自上次打开')
   })
 
-  it('puts the status bar at the bottom with the alerting node first and the same links as before', async () => {
+  it('reads the 「等我」 list only: the legacy decisions queue never fills the page', async () => {
+    hiddenKeys.value = new Set()
+    todayData.value = { ...data([]), decisions: [card(1), card(2)] }
+    const html = await render(Today)
+    expect(html).toContain('今天没有等你的事')
+    expect(html).not.toContain('data-test="decision-card"')
+  })
+
+  it('shows what is running as one line linking to the workbench, only when something runs', async () => {
+    hiddenKeys.value = new Set()
+    todayData.value = { ...data([card(1)]), running: { sessions: 2, jobs: 3 } }
+    const html = await render(Today)
+    expect(html).toContain('data-test="today-running"')
+    expect(html).toContain('2 个会话 · 3 个 job 在跑')
+    expect(html).toMatch(/<a[^>]*href="\/workbench"[^>]*>2 个会话/)
+
+    todayData.value = data([card(1)])
+    expect(await render(Today)).not.toContain('data-test="today-running"')
+  })
+
+  it('mounts the plans-in-progress block and no lanes / recent-handled column', () => {
+    expect(todaySrc).toContain("import TodayPlans from '../components/today/TodayPlans.vue'")
+    expect(todaySrc).toContain('<TodayPlans />')
+    for (const gone of ['TodayLanes', 'TodayRecentHandled', 'FilterChips', 'ProjectFilter', 'today-digest']) {
+      expect(todaySrc).not.toContain(gone)
+    }
+  })
+
+  it('puts the status bar at the bottom only when there is an alert, alerting node first, same links as before', async () => {
     hiddenKeys.value = new Set()
     todayData.value = data([1, 2].map((i) => card(i)))
     const html = await render(Today)
@@ -111,16 +134,30 @@ describe('Today page (design §7.1)', () => {
     for (const to of ['/runners', '/dashboard', '/settings/work', '/settings/about']) {
       expect(bar).toContain(`href="${to}"`)
     }
+
+    // 健康时状态条不占地方
+    const healthy = data([1, 2].map((i) => card(i)))
+    todayData.value = { ...healthy, status: { ...healthy.status, alerts: [] } }
+    expect(await render(Today)).not.toContain('data-test="today-status"')
   })
 
-  it('shows the one-line empty state with 专注处理 disabled (T3)', async () => {
+  it('shows one empty sentence when nothing waits: no queue, no focus button, no readable extras', async () => {
     hiddenKeys.value = new Set()
-    todayData.value = data([])
+    todayData.value = { ...data([]), status: { ...data([]).status, alerts: [] } }
     const html = await render(Today)
-    expect(html).toContain('没有等你的事 · 今天处理了 0 张')
-    expect(html).toMatch(/<button[^>]*data-test="open-focus"[^>]*disabled/)
-    expect(html).toContain('已稍后 0')
+    expect(html).toContain('今天没有等你的事')
+    // 空态是一句话：没有队列、没有「没有等你的事 · 今天处理了 N 张」第二句、没有专注处理、没有状态条
+    expect(html).not.toContain('data-test="decision-queue"')
+    expect(html).not.toContain('今天处理了')
+    expect(html).not.toContain('data-test="open-focus"')
+    expect(html).not.toContain('data-test="today-status"')
+    expect(html).not.toContain('data-test="today-running"')
     expect(html).not.toContain('data-test="focus-mode"')
+    // 页面主体的可读文字只有标题那一句（脚部的入口是控件，不是正文）
+    const start = html.indexOf('>', html.indexOf('class="today-main"')) + 1
+    const main = html.slice(start, html.lastIndexOf('<', html.indexOf('class="today-foot"')))
+    const text = main.replace(/<[^>]*>/g, '').replace(/<!--[\s\S]*?-->/g, '').trim()
+    expect(text).toBe('今天没有等你的事')
   })
 
   it('offers 专注处理 in the header and on the 「还有 N 张」 row, and 「已稍后 N」 in the footer (T3)', async () => {
@@ -133,47 +170,6 @@ describe('Today page (design §7.1)', () => {
     expect(todaySrc).toContain('<FocusMode v-if="focusOpen"')
     expect(todaySrc).toContain('<SnoozedDrawer />')
     expect(todaySrc).toContain('@snooze="snoozeCard"')
-  })
-
-  it('filters the queue by decision type and by project chip', async () => {
-    hiddenKeys.value = new Set()
-    todayData.value = data([
-      card(1, { key: 'approval:j1', kind: 'approval', project_key: 'p1' }),
-      card(2, { key: 'review:j2', kind: 'review', project_key: 'p2' }),
-      card(3, { key: 'interaction:j3', kind: 'interaction', project_key: 'p1' }),
-      card(4, { key: 'relay:j4', kind: 'relay' }),
-    ])
-    const html = await render(Today)
-    // 类型 chip 带计数（六个类型 + 全部），项目 chip 显示「全部项目」
-    expect(html).toContain('data-test="filter-chips"')
-    expect(html).toContain('data-test="project-filter"')
-    expect(html).toContain('全部项目')
-    for (const label of ['全部', '审批', '提问', '验收', '等回复', '记忆', 'worker 申请']) {
-      expect(html).toContain(`>${label}<`)
-    }
-    // 卡片上的类型 pill（按接口 kind 翻译）
-    expect(html).toContain('data-test="dc-kind"')
-    expect(html).toContain('待批准')
-    expect(html).toContain('验收')
-    // chip 的计数来自 utils/todayFilters（不把筛选逻辑写在模板里）
-    expect(todaySrc).toContain("from '../utils/todayFilters'")
-    expect(todaySrc).toContain('filterByType(projectCards.value, typeFilter.value)')
-    // 项目筛选写进 URL（唯一真源，§6.4）
-    expect(todaySrc).toContain("useProjectFilter('/today')")
-  })
-
-  it('mounts the parallel lanes and the recently-handled list in the right column', async () => {
-    hiddenKeys.value = new Set()
-    todayData.value = data([1, 2].map((i) => card(i)))
-    const html = await render(Today)
-    expect(html).toContain('data-test="today-lanes"')
-    expect(html).toContain('data-test="today-recent"')
-    expect(html).toContain('并行中')
-    expect(html).toContain('刚处理过')
-    // 泳道数据回传给页面算首屏摘要
-    expect(todaySrc).toContain('<TodayLanes @loaded="lanes = $event" />')
-    expect(recentSrc).toContain('listTodayHandled')
-    expect(recentSrc).toContain('watch(handledTodayCount')
   })
 
   it('subscribes the five live topics and keeps the undo window global', () => {
@@ -242,12 +238,10 @@ describe('navigation (design §6)', () => {
 })
 
 describe('Today narrow layout (≤760)', () => {
-  it('stacks the right column, wraps the card actions and scrolls the chips inside their own row', () => {
-    // 单列：右栏在窄屏下换到主栏下面，不出横向滚动
-    expect(todaySrc).toMatch(/\.today \{\s*display: grid;\s*grid-template-columns: minmax\(0, 1fr\) 340px/)
-    expect(todaySrc).toMatch(/@media \(max-width: 1099px\) \{\s*\.today \{\s*grid-template-columns: minmax\(0, 1fr\)/)
-    // 类型 / 项目 chip 在手机上框内横向滑动
-    expect(todaySrc).toMatch(/\.today-filters \{\s*flex-wrap: nowrap;\s*overflow-x: auto/)
+  it('is one column, wraps the card actions and keeps the status bar and overlay inside the viewport', () => {
+    // 单列：没有右栏，主栏限宽但不撑破视口
+    expect(todaySrc).toMatch(/\.today-main \{\s*min-width: 0;\s*max-width: 880px/)
+    expect(todaySrc).not.toContain('grid-template-columns')
     // 卡片主操作换行、点按目标够大
     expect(cardSrc).toMatch(/\.dc-acts \{[^}]*flex-wrap: wrap/)
     expect(cardSrc).toMatch(/\.dc-title \{[^}]*overflow-wrap: anywhere/)

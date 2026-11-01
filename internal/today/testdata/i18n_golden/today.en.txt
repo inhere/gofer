@@ -112,18 +112,6 @@
   action accept "Accept" value=""
   action rerun "Re-run with notes" value=""
   action diff "View diff" value=""
-[suggestion:<ID>:status_hint] kind=suggestion tag="Tidy-up suggestion" urgency=normal
-  title="Status hint item"
-  summary="Suggest changing the status to \"awaiting review\""
-  blocks=0/0 ""
-  action adopt "Adopt" value=""
-  action dismiss "Ignore" value=""
-[suggestion:<ID>:goal] kind=suggestion tag="Tidy-up suggestion" urgency=normal
-  title="Status hint item"
-  summary="Suggested goal: new goal"
-  blocks=0/0 ""
-  action adopt "Adopt" value=""
-  action dismiss "Ignore" value=""
 [work:<ID>] kind=work tag="Due" urgency=normal
   title="Due parked"
   summary=""
@@ -138,7 +126,6 @@
   action reply "Reply" value=""
   action report "Ask for a report" value=""
   action park "Park" value=""
-  suggestion goal "Suggested goal: iframe"
 [work:<ID>] kind=work tag="On site" urgency=normal
   title="Onsite item"
   summary=""

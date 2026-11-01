@@ -823,6 +823,14 @@ steward notes	flag server	server address (overrides config server.addr)
 steward notes	flag set-file	replace the notes with this file's content (- = stdin)
 steward notes	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 steward notes	flag version	show this version instead of the latest
+steward observations	desc	列出管家的主动巡检本来会做的事（只记录模式：没有改任何状态、没有发任何消息）
+steward observations	help	
+steward observations	examples	
+steward observations	flag config	path to the gofer config file
+steward observations	flag json	print JSON
+steward observations	flag limit	最多几行（默认 50）
+steward observations	flag server	server address (overrides config server.addr)
+steward observations	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 steward restart	desc	End the session and open a fresh one from the prime (nothing is lost: it lives in the database)
 steward restart	help	
 steward restart	examples	
@@ -1069,6 +1077,15 @@ work accept	flag config	path to the gofer config file
 work accept	flag json	print JSON
 work accept	flag server	server address (overrides config server.addr)
 work accept	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work archive-auto	desc	归档所有自动生成且没人动过的工作项（一次性清理旧的会话草稿）；不加 --yes 只预览
+work archive-auto	help	
+work archive-auto	examples	
+work archive-auto	flag config	path to the gofer config file
+work archive-auto	flag dry-run	只列出将被归档的工作项
+work archive-auto	flag json	print JSON
+work archive-auto	flag server	server address (overrides config server.addr)
+work archive-auto	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+work archive-auto	flag yes	确认归档（不加则只列出并报错）
 work capture	desc	Jot an idea / issue / request / note into the capture box (status captured; sort it later from `work ls --status captured`)
 work capture	help	
 work capture	examples	
@@ -1197,6 +1214,7 @@ work report	flag server	server address (overrides config server.addr)
 work report	flag session	reporting session id (journal author)
 work report	flag status	active|needs_me|waiting_resource|needs_onsite|review|parked (active = the blocker is gone)
 work report	flag summary	how far it got
+work report	flag title	首次汇报时创建的工作项标题（默认取 --goal 的第一行）
 work report	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 work requests	desc	Show the request ledger (report / hand-over / tidy-up asks and what became of them); with no id, every item
 work requests	help	

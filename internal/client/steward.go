@@ -114,6 +114,20 @@ func (c *Client) StewardNotes(version int) (StewardNotesResp, error) {
 	return out, err
 }
 
+// StewardObservations lists what the steward's proactive reviews would have done (observe
+// mode), newest first; limit <= 0 = the server's default.
+func (c *Client) StewardObservations(limit int) ([]jobstore.StewardObservation, error) {
+	path := "/v1/steward/observations"
+	if limit > 0 {
+		path += "?limit=" + strconv.Itoa(limit)
+	}
+	var out struct {
+		Observations []jobstore.StewardObservation `json:"observations"`
+	}
+	err := c.doJSON(http.MethodGet, path, nil, &out)
+	return out.Observations, err
+}
+
 // StewardNotesHistory lists every version, newest first.
 func (c *Client) StewardNotesHistory() ([]steward.Notes, error) {
 	var out struct {
