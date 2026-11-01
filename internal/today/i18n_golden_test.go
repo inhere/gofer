@@ -93,18 +93,6 @@ func todayTextOutputs(t *testing.T, lang i18n.Lang) string {
 		heldMail(t, st, in)
 	}
 
-	// --- memory suggestions
-	seedMemories(t, st)
-	sugg := func(key, action string, p MemoryPayload) {
-		_, _, err := svc.SuggestMemory(MemorySuggestInput{TrackerID: "trk", Key: key, Action: action, Reason: "reason", Payload: p}, "s", "")
-		must(err)
-	}
-	sugg("old-note", MemoryActArchive, MemoryPayload{})
-	sugg("release-b", MemoryActMerge, MemoryPayload{Into: "release-a"})
-	sugg("fresh", MemoryActSummary, MemoryPayload{Summary: "A new fact"})
-	sugg("release-a", MemoryActWhen, MemoryPayload{Keywords: []string{"ship", "release"}})
-	sugg("fresh", MemoryActKind, MemoryPayload{Kind: "rule"})
-
 	cards, err := shimDecisions(lang, svc)
 	must(err)
 	sortedByKey := append([]Card(nil), cards...)
@@ -119,13 +107,6 @@ func todayTextOutputs(t *testing.T, lang i18n.Lang) string {
 	sb.WriteString("## cards\n")
 	for _, c := range sortedByKey {
 		dumpCard(&sb, c)
-	}
-
-	sb.WriteString("## memory suggestions\n")
-	list, err := shimMemorySuggestions(lang, svc)
-	must(err)
-	for _, m := range list {
-		fmt.Fprintf(&sb, "%s %s => %q\n", m.Action, m.Key, m.Text)
 	}
 
 	// --- snooze labels (recorded in the handled audit) and the handled rows

@@ -199,7 +199,6 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/inbox/state":                             {user: Public(), scope: NoProject(), rw: ReadSafe()},
 	"GET /v1/today":                                    {user: Public(), jobCred: "GET /v1/today", scope: Filter()},
 	"GET /v1/memory-findings":                          {user: Public(), jobCred: "GET /v1/memory-findings", scope: Filter()},
-	"GET /v1/memory-suggestions":                       {user: Public(), jobCred: "GET /v1/memory-suggestions", scope: Filter()},
 	"GET /v1/memory-syntheses":                         {user: Public(), jobCred: "GET /v1/memory-syntheses", scope: Filter()},
 	"GET /v1/memory-syntheses/{id}":                    {user: Public(), jobCred: "GET /v1/memory-syntheses/*", scope: Filter()},
 	"POST /v1/memory-syntheses/run":                    {user: Require(authz.PermMemorySynthesisRun), scope: BodyProject()},
@@ -244,7 +243,6 @@ var routeDecls = map[string]routeDecl{
 	"PUT /v1/steward/notes":               {user: Require(authz.PermStewardManage), jobCred: "PUT /v1/steward/notes", scope: NoProject()},
 	"POST /v1/steward/review-summary":     {user: Require(authz.PermStewardManage), jobCred: "POST /v1/steward/review-summary", scope: NoProject()},
 	"POST /v1/today/advice":               {user: Public(), jobCred: "POST /v1/today/advice", scope: Resource("today_card")},
-	"POST /v1/memory-suggestions":         {user: Public(), jobCred: "POST /v1/memory-suggestions", scope: BodyProject()},
 	"GET /v1/workers/{id}/assignable":     {user: Public(), workerSelf: true, scope: Resource("worker")},
 	"GET /v1/workers/{id}/upgrade/file":   {user: NoUserSurface(), workerSelf: true, scope: Resource("worker")},
 	"GET /v1/xfer/{id}/content":           {user: InHandler(permDeny, authz.PermXferManageOthers), workerSelf: true, scope: Resource("xfer")},
@@ -653,7 +651,7 @@ var routeDecls = map[string]routeDecl{
 	//                  wildcard never reaches a dangerous permission anyway). Both create routes
 	//                  ask it: the precheck validates exactly what the create validates, so a
 	//                  caller that may not create a transfer must not be told a target is fine.
-	//   memory.write   写、删 tracker 记忆与 scoped 记忆，采纳记忆建议 — 危险级 (the memories reach
+	//   memory.write   写、删、归档 tracker 记忆与 scoped 记忆 — 危险级 (the memories reach
 	//                  every job's prompt). The design's 0.5 revision moved tracker 记忆删除 into
 	//                  this row (the appendix's draft column said tracker.delete; 附录 A 的「建议
 	//                  权限」列以正文为准).
@@ -672,8 +670,8 @@ var routeDecls = map[string]routeDecl{
 	// Everything else the domain owns asks NOTHING of a user-class caller (Public): the tracker
 	// issue reads and writes (design §1 gives the tracker only tracker.sync / tracker.delete,
 	// and an issue edit is neither), the tracker and scoped memory READS, the documents the
-	// steward reads, and the two 「not a write」 decisions (rejecting a knowledge candidate,
-	// dismissing a memory suggestion — design §1's memory.write row covers 采纳, not 丢弃). The
+	// steward reads, and the 「not a write」 decision of rejecting a knowledge candidate
+	// (design §1's memory.write row covers 采纳, not 丢弃). The
 	// plain 「person only」 refusals of the handlers (stewardUserOnly, workNotAWorker,
 	// scopedMemoryUserWrite, the tracker repo delete's user-only half) stay where they were: they
 	// are about the caller KIND, not about a permission.
@@ -700,6 +698,8 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/tracker/memories":                      {user: Public(), scope: Resource("tracker_repo")},
 	"PUT /v1/tracker/memories/{id}":                 {user: Require(authz.PermMemoryWrite), scope: Resource("tracker_repo")},
 	"DELETE /v1/tracker/memories/{id}":              {user: Require(authz.PermMemoryWrite), scope: Resource("tracker_repo")},
+	"POST /v1/tracker/memories/{id}/archive":        {user: Require(authz.PermMemoryWrite), scope: Resource("tracker_repo")},
+	"DELETE /v1/tracker/memories/{id}/flag":         {user: Require(authz.PermMemoryWrite), scope: Resource("tracker_repo")},
 	"GET /v1/tracker/repos":                         {user: Public(), scope: Filter()},
 	"GET /v1/tracker/repos/{tracker_id}/clients":    {user: Public(), scope: Resource("tracker_repo")},
 	"GET /v1/memories":                              {user: Public(), scope: Filter()},
@@ -713,8 +713,6 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/memory-candidates":                          {user: Public(), scope: Filter()},
 	"POST /v1/memory-candidates/{n}/accept":              {user: Require(authz.PermMemoryWrite), scope: Resource("memory_candidate")},
 	"POST /v1/memory-candidates/{n}/reject":              {user: Public(), scope: Resource("memory_candidate")},
-	"POST /v1/memory-suggestions/{n}/adopt":              {user: Require(authz.PermMemoryWrite), scope: Resource("memory_suggestion")},
-	"POST /v1/memory-suggestions/{n}/dismiss":            {user: Public(), scope: Resource("memory_suggestion")},
 	"POST /v1/steward/start":                             {user: Require(authz.PermStewardManage), scope: NoProject()},
 	"POST /v1/steward/stop":                              {user: Require(authz.PermStewardManage), scope: NoProject()},
 	"POST /v1/steward/restart":                           {user: Require(authz.PermStewardManage), scope: NoProject()},

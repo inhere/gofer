@@ -11,7 +11,17 @@
 
 ## [未发布]
 
+### 变更
+
+- **记忆整理改为三层，不再有「模型提建议、人采纳」的队列**（注意力面收敛，记忆整理）：
+  - **确凿过时的自动归档**：`gofer repo sync` 在推送前归档两类记忆——过期超过 7 天的 handoff，以及引用了路径、且引用的路径与提交全部不存在的 note（只在有仓库检出时判断；只引用提交的 note 和全局记忆不动）。**rule 永不自动归档**；7 天内改动过（含刚 `restore` 的）、或用 `doctor_ignore` / `prime.doctor.suppress` 静默了对应检查的记忆不动。归档写进 `memories-archive.jsonl`（`archived_by: auto-archive` 加原因），`memory restore <key>` 找回；`memory doctor`（及 `--json` 的 `auto_archived`）列出近 30 天的自动归档。不推送、不进「等我」、不进每日摘要。默认开启，`.gofer/tracker/config.yaml` 写 `prime: {doctor: {auto_archive: false}}` 关闭。
+  - **需判断的攒着等人拉**：web 记忆页新增「待整理」视图（`?view=tidy`），列出被标记失效的、疑似重复的、久未更新的记忆，每条保留（清除标记）/ 改写 / 归档；没有提醒、没有徽标。新增接口 `POST /v1/tracker/memories/{id}/archive`（镜像记忆的归档墓碑，clone 同步后移入归档文件）与 `DELETE /v1/tracker/memories/{id}/flag`（清除镜像记忆的标记）。项目 / 全局记忆没有归档，只能保留 / 改写。
+  - **使用中顺手修**：skill 写明 agent 确认注入的记忆过时后直接 `memory set` 改写（清除标记）或 `memory archive`，无法确认时 `memory flag`，不必等人。
+- `GET /v1/memory-findings` / `gofer_memory_findings` 不再带 `actions` 与 `daily_cap`，也没有 `all` 参数（它们只为建议队列服务）。
+
 ### 移除
+
+- **管家的模型记忆建议队列**：删除 MCP 工具 `gofer_memory_suggest`、`/v1/memory-suggestions*` 四条路由（`GET` / `POST` 以及 `{n}/adopt`、`{n}/dismiss`）、管家巡检的「仓库记忆整理」步骤及其提示词模板（`steward_memory`）、web 里已无用的记忆建议卡文案与接口调用。`memory_suggestions` 表不再被读写，按 G057 保留不删（随其仓库镜像一起清理）。
 
 - **删除 `work.draft.*` 四个设置**（`min_prompts` / `exclude_projects` / `exclude_cwds` / `exclude_title_patterns`）：它们自 v0.208.0 起已不起作用（会话不再自动建工作项）。读写这些键现在返回「未知设置」；`gofer settings import` 遇到它们也按未知键报错（不影响其它键）；数据库里残留的旧值不再显示、不再导出，也无需手动清理。
 - **`/v1/today` 的旧字段 `decisions` 与 `GET /v1/today/lanes`（注意力面收敛 CL1 / CL2，行为变化）**：`/v1/today` 不再返回 `decisions`（含工作项 / 合并建议 / 记忆整理 / 收集箱 / worker 申请等卡的全量超集），只返回 `waiting`（「等我」唯一列表）；服务端不再为工作项、合并建议、记忆整理建议、收集箱和 worker 注册申请生成今天卡（worker 申请到运行节点页看，记忆整理建议只留 `/v1/memory-suggestions*` 接口）。`GET /v1/today/lanes`（并行中泳道）连同 web 的泳道 / 刚处理过组件一并删除，`docs/reference/permissions.md` 同步。**MCP 行为变化**：`gofer_today_list` / `gofer_today_card` / `gofer_today_advise` 与管家的「今天建议」改以「等我」列表为输入——`kind` 不再有 `work|merge|memory|capture`，新增 `waiting` 类别过滤，卡片多 `waiting` / `waiting_label`；`job.failed` 卡只读（不能写建议）；`gofer_memory_suggest` 记下的建议不再变成今天卡。收件箱「要处理」栏仍与今天页同源，判定与顺序不变。

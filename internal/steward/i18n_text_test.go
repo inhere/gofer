@@ -24,7 +24,7 @@ var han = regexp.MustCompile(`\p{Han}`)
 // the event summaries and the session's title / first turn / question wrapper. A string
 // literal added to one of them must not be Chinese.
 var migratedFiles = []string{
-	"prime.go", "review.go", "today.go", "memory.go", "events.go", "steward.go",
+	"prime.go", "review.go", "today.go", "events.go", "steward.go",
 }
 
 // primeClock is the fixed clock every prime / review test renders at.
@@ -102,8 +102,6 @@ func TestZhStewardTextIsUnchanged(t *testing.T) {
 		{"unknown kind reads as itself", requestKindLabel(zh, "future_kind"), "future_kind"},
 		{"today section", todaySection(zh, 2, 3), zhGolden(t, "today-pending.txt") + "\n"},
 		{"today section, unknown count", todaySection(zh, 2, -1), zhGolden(t, "today-unknown.txt") + "\n"},
-		{"memory section", memorySection(zh, 3, &MemoryHygiene{Findings: 10, Remaining: 2,
-			Lines: []string{"proj · k1（rule）：a"}}), zhGolden(t, "memory.txt") + "\n"},
 		{"question", wrapQuestion(zh, "还有什么没完成", "human:a"), zhGolden(t, "question.txt")},
 		{"question, anonymous", wrapQuestion(zh, "还有什么没完成", ""), zhGolden(t, "question-anon.txt")},
 		{"session title", stewardText(zh, "session.title", "agent", "claude-acp"), "管家 · claude-acp"},
@@ -141,12 +139,11 @@ func TestZhStewardReviewPromptIsUnchanged(t *testing.T) {
 		{ID: 1, Kind: jobstore.StewardEventDue, Detail: "工作项 W-1「修登录页」3 天后到期"},
 		{ID: 2, Kind: jobstore.StewardEventSession, Detail: "工作项 W-2「整理线路」的会话 abcdef 已离线"},
 	}
-	mem := &MemoryHygiene{Findings: 4, Remaining: 2, Lines: []string{"proj · k1（rule）：a, b"}}
-	got := e.svc.reviewPrompt(TriggerDaily, "2026-11-05", fixtureItems(), 2, events, true, primeClock, 3, mem)
+	got := e.svc.reviewPrompt(TriggerDaily, "2026-11-05", fixtureItems(), 2, events, true, primeClock, 3)
 	if want := zhGolden(t, "review-daily.txt"); got != want {
 		t.Errorf("review prompt changed\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
-	empty := e.svc.reviewPrompt(TriggerManual, "2026-11-05", nil, 0, nil, false, primeClock, 0, nil)
+	empty := e.svc.reviewPrompt(TriggerManual, "2026-11-05", nil, 0, nil, false, primeClock, 0)
 	if want := zhGolden(t, "review-empty.txt"); empty != want {
 		t.Errorf("review prompt without material changed\n--- got ---\n%s\n--- want ---\n%s", empty, want)
 	}
@@ -155,7 +152,7 @@ func TestZhStewardReviewPromptIsUnchanged(t *testing.T) {
 		TriggerManual: "## 手动巡检（2026-11-05）\n\n",
 		TriggerEvent:  "## 事件整理（2026-11-05）\n\n",
 	} {
-		if p := e.svc.reviewPrompt(trigger, "2026-11-05", nil, 0, nil, false, primeClock, 0, nil); !strings.HasPrefix(p, heading) {
+		if p := e.svc.reviewPrompt(trigger, "2026-11-05", nil, 0, nil, false, primeClock, 0); !strings.HasPrefix(p, heading) {
 			t.Errorf("%s review heading: got %q, want prefix %q", trigger, firstLineOf(p), heading)
 		}
 	}
@@ -207,7 +204,6 @@ func TestEnglishStewardTextHasNoCJK(t *testing.T) {
 	e := newEnv(t)
 	e.svc.SetLanguageFn(func() i18n.Lang { return i18n.EN })
 	items := enItems()
-	mem := &MemoryHygiene{Findings: 4, Remaining: 2, Lines: []string{"proj · k1 (rule): a, b"}}
 	texts := map[string]string{
 		"item line":     itemLine(i18n.EN, items[0], primeClock),
 		"item line 2":   itemLine(i18n.EN, items[1], primeClock),
@@ -215,13 +211,12 @@ func TestEnglishStewardTextHasNoCJK(t *testing.T) {
 		"weekday":       weekday(i18n.EN, 3),
 		"today":         todaySection(i18n.EN, 2, 3),
 		"today (none)":  todaySection(i18n.EN, 2, -1),
-		"memory":        memorySection(i18n.EN, 3, mem),
 		"question":      wrapQuestion(i18n.EN, "what is left?", "human:ann"),
 		"ready":         readyLine(i18n.EN),
 		"session title": stewardText(i18n.EN, "session.title", "agent", "claude-acp"),
 		"review": e.svc.reviewPrompt(TriggerDaily, "2026-11-05", items, 2,
 			[]jobstore.StewardEvent{{ID: 1, Kind: jobstore.StewardEventDue, Detail: "work item W-1 is due"}},
-			true, primeClock, 3, mem),
+			true, primeClock, 3),
 	}
 	for name, text := range texts {
 		if m := han.FindString(text); m != "" {

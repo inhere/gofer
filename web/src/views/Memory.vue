@@ -7,10 +7,12 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MemoryList from '../components/MemoryList.vue'
 import MemoryDrawer from '../components/MemoryDrawer.vue'
+import MemoryTidy from '../components/MemoryTidy.vue'
 import FilterChips from '../ui/FilterChips.vue'
 import TrackerRepoPath from '../ui/TrackerRepoPath.vue'
 import TrackerRepoPicker from '../ui/TrackerRepoPicker.vue'
 import {
+  archiveTrackerMemory,
   deleteScopedMemory,
   deleteTrackerMemory,
   flagScopedMemory,
@@ -19,6 +21,8 @@ import {
   listTrackerMemories,
   listTrackerRepos,
   listTrackerSyncClients,
+  unflagScopedMemory,
+  unflagTrackerMemory,
   updateScopedMemory,
   updateTrackerMemory,
 } from '../api/client'
@@ -38,7 +42,13 @@ import {
   readMemoryProject,
   readMemoryScope,
   readMemorySearch,
+  readMemoryView,
   searchQueryUpdate,
+  tidyIgnoreSlugs,
+  tidyIsFlagged,
+  tidyItems,
+  tidyNeedsIgnore,
+  viewQueryUpdate,
   memoryQueryUpdate,
   memoryRowKey,
   memoryRowsOf,
@@ -46,7 +56,9 @@ import {
   type MemoryEdit,
   type MemoryScope,
   type MemorySource,
+  type MemoryView,
   type SourcedMemoryRow,
+  type TidyItem,
 } from '../utils/memories'
 import { clampPage, normalizePageSize, PAGE_SIZES } from '../utils/issuePaging'
 import { useRepoSync } from '../utils/useRepoSync'
@@ -73,6 +85,10 @@ const memories = ref<SourcedMemoryRow[]>([])
 const doctor = ref<Record<string, MemoryDoctorFinding[]>>({})
 const kinds = ref<string[]>([])
 const flaggedOnly = ref(false)
+// 视图：全部记忆 / 待整理（?view=tidy）。待整理由已取回的记忆 + doctor 现算，不另取数。
+const view = ref<MemoryView>(readMemoryView(route.query))
+const tidyBusy = ref('')
+const tidyError = ref('')
 const search = ref(readMemorySearch(route.query))
 const selected = ref<SourcedMemoryRow | null>(null)
 const flagged = ref(false)
@@ -88,6 +104,11 @@ const canLoad = computed(() => {
   return true
 })
 const filtered = computed(() => filterMemories(memories.value, search.value, kinds.value, flaggedOnly.value, doctor.value))
+const tidy = computed(() => tidyItems(memories.value, doctor.value))
+const viewItems = computed<FilterChipItem[]>(() => [
+  { value: 'list', label: t('memory.view.all') },
+  { value: 'tidy', label: t('memory.view.tidy') },
+])
 const repo = computed(() => repos.value.find((item) => item.tracker_id === trackerId.value))
 
 // 分页（前端切页：接口本就整仓 / 整项目返回，筛选与 doctor 也要全量）。
@@ -132,6 +153,14 @@ const kindItems = computed<FilterChipItem[]>(() => MEMORY_KINDS.map((kind) => ({
 // 同步状态：作用域 / 项目 / 仓库 / 关键字 / 页码都写进 URL（可分享、后退可复原）。
 function writeQuery(next: Record<string, string>): void {
   void router.replace({ query: { ...next } })
+}
+
+function pickView(value: string): void {
+  const next: MemoryView = value === 'tidy' ? 'tidy' : 'list'
+  if (next === view.value) return
+  view.value = next
+  tidyError.value = ''
+  writeQuery(viewQueryUpdate(route.query, next))
 }
 
 function pickScope(value: string): void {
@@ -287,6 +316,46 @@ async function syncRepo(): Promise<void> {
   } else {
     syncMsg.value = { ok: false, text: t('memory.syncFailed', { err: out.message }), jobId: out.jobId }
   }
+}
+
+// ---- 待整理：保留 / 改写 / 归档 ----
+// 保留 = 确认仍成立：清除标记；仓库记忆的其它发现（久未更新、疑似重复…）写进 doctor_ignore，doctor 不再提。
+// 改写 = 打开详情抽屉（保存即复核，标记随内容改动清除）。归档只有仓库记忆（归档墓碑，clone 同步后移入归档文件）。
+async function runTidy(item: TidyItem, work: () => Promise<unknown>): Promise<void> {
+  tidyBusy.value = item.key
+  tidyError.value = ''
+  try {
+    await work()
+    await load()
+  } catch (e) {
+    tidyError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    tidyBusy.value = ''
+  }
+}
+
+function tidyKeep(item: TidyItem): Promise<void> {
+  const source = item.row.source
+  if (!source) return Promise.resolve()
+  const key = item.row.data.key || item.row.id
+  return runTidy(item, async () => {
+    if (source.scope === 'repo') {
+      if (tidyIsFlagged(item)) await unflagTrackerMemory(source.trackerId, item.row.id)
+      if (tidyNeedsIgnore(item)) await updateTrackerMemory(source.trackerId, item.row.id, { doctor_ignore: tidyIgnoreSlugs(item) })
+    } else {
+      await unflagScopedMemory(source.scope, source.scope === 'project' ? source.project : '', key)
+    }
+  })
+}
+
+function tidyArchive(item: TidyItem): Promise<void> {
+  const source = item.row.source
+  if (!source || source.scope !== 'repo') return Promise.resolve()
+  return runTidy(item, () => archiveTrackerMemory(source.trackerId, item.row.id, t('memory.tidy.archiveReason'), item.row.rev))
+}
+
+function tidyRewrite(item: TidyItem): void {
+  openMemory(item.row)
 }
 
 function openMemory(row: SourcedMemoryRow): void {
@@ -454,6 +523,23 @@ onMounted(async () => {
     <p v-else-if="scope === 'project' && !projectKey" class="empty-line" data-test="memory-no-project">{{ t('memory.empty.noProject') }}</p>
 
     <template v-else>
+      <section class="scope-row view-row">
+        <span class="field-label">{{ t('memory.view.label') }}</span>
+        <FilterChips :model-value="view" :items="viewItems" :label="t('memory.view.label')" data-test="memory-view" @update:model-value="pickView(String($event))" />
+      </section>
+      <p v-if="error" class="err panel-err" data-test="memory-error">{{ error }}</p>
+      <p v-else-if="loading" class="dim">{{ t('memory.loading') }}</p>
+      <MemoryTidy
+        v-else-if="view === 'tidy'"
+        :items="tidy"
+        :busy-key="tidyBusy"
+        :error="tidyError"
+        :show-source="scope === 'all'"
+        @keep="tidyKeep"
+        @rewrite="tidyRewrite"
+        @archive="tidyArchive"
+      />
+      <template v-if="view === 'list'">
       <section class="filter-panel">
         <div class="kind-chips" data-test="memory-kind-filter">
           <FilterChips v-model="kinds" multiple :items="kindItems" :label="t('memory.filter.type')" />
@@ -464,9 +550,7 @@ onMounted(async () => {
           <input v-model="search" class="in" type="search" data-test="memory-search" :placeholder="t('memory.filter.keywordPlaceholder')" @keydown.esc="clearSearch" />
         </label>
       </section>
-      <p v-if="error" class="err panel-err" data-test="memory-error">{{ error }}</p>
-      <p v-else-if="loading" class="dim">{{ t('memory.loading') }}</p>
-      <template v-else>
+      <template v-if="!error && !loading">
         <div ref="listEl">
           <MemoryList :doctor="doctor" :rows="pageRows" :show-source="scope === 'all'" :active-key="selected ? memorySourceKey(selected) : ''" @open="openMemory" />
         </div>
@@ -478,6 +562,7 @@ onMounted(async () => {
           <span class="pager-gap">/ {{ pageCount }}</span>
           <button type="button" class="page-btn" :disabled="currentPage >= pageCount" data-test="memory-page-next" @click="gotoPage(currentPage + 1)">{{ t('memory.pager.next') }}</button>
         </nav>
+      </template>
       </template>
     </template>
 

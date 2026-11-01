@@ -83,6 +83,9 @@ type DoctorReport struct {
 	Flagged     int           `json:"flagged"`
 	Suppressed  int           `json:"suppressed"`
 	Memories    []DoctorEntry `json:"memories"`
+	// AutoArchived lists the memories archived automatically in the last 30 days
+	// (AutoArchiveMemories) and still in the archive file; omitted when there are none.
+	AutoArchived []AutoArchived `json:"auto_archived,omitempty"`
 }
 
 // DoctorOptions are the inputs of DiagnoseMemories.
@@ -585,7 +588,9 @@ func (s *Store) Doctor(now time.Time) (DoctorReport, error) {
 	if data, err := json.Marshal(cache); err == nil {
 		_ = atomicWrite(filepath.Join(s.Dir, ".local", doctorCacheFile), append(data, '\n'))
 	}
-	return buildDoctorReport(items, raw, opts), nil
+	report := buildDoctorReport(items, raw, opts)
+	report.AutoArchived = s.recentAutoArchived(now)
+	return report, nil
 }
 
 // cachedDoctorFindings returns the reference findings (path / commit /
@@ -657,6 +662,7 @@ func FormatDoctorReportIn(lang i18n.Lang, r DoctorReport) string {
 			b.WriteString("\n")
 		}
 	}
+	b.WriteString(formatAutoArchived(r.AutoArchived))
 	fmt.Fprintf(&b, "checked %d, with findings %d, suppressed %d (advisory; silence with `memory set <key> … --doctor-ignore <slug>` or prime.doctor.suppress)\n", r.Checked, r.Flagged, r.Suppressed)
 	return b.String()
 }

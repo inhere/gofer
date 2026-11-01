@@ -71,12 +71,6 @@
   action accept "Accept" value=""
   action rerun "Re-run with notes" value=""
   action diff "View diff" value=""
-## memory suggestions
-archive old-note => "Suggest archiving"
-merge release-b => "Suggest merging into release-a"
-summary fresh => "Suggest adding the summary: A new fact"
-when release-a => "Suggest adding the triggers: ship, release"
-kind fresh => "Suggest changing the kind to rule"
 ## handled labels
 Snoozed until 10-09 11:00
 Waiting for job j-run to end

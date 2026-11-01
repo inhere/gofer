@@ -1509,6 +1509,15 @@ export function updateTrackerMemory(trackerId: string, id: string, body: unknown
 export function deleteTrackerMemory(trackerId: string, id: string): Promise<unknown> {
   return request(`/v1/tracker/memories/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`, { method: 'DELETE' })
 }
+// 「待整理」的写操作：保留 = 清除标记；归档 = 归档墓碑（各仓库同步后移入 memories-archive.jsonl，可 restore）。
+export function unflagTrackerMemory(trackerId: string, id: string): Promise<unknown> {
+  return request(`/v1/tracker/memories/${encodeURIComponent(id)}/flag?tracker_id=${encodeURIComponent(trackerId)}`, { method: 'DELETE' })
+}
+export function archiveTrackerMemory(trackerId: string, id: string, reason: string, expectedRev: number): Promise<unknown> {
+  return request(`/v1/tracker/memories/${encodeURIComponent(id)}/archive?tracker_id=${encodeURIComponent(trackerId)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason, expected_rev: expectedRev }),
+  })
+}
 export function listScopedMemories(scope: 'global' | 'project', scopeKey = '', keyword = ''): Promise<{ memories: import('./types').ScopedMemory[] }> {
   const qs = new URLSearchParams({ scope }); if (scopeKey) qs.set('scope_key', scopeKey); if (keyword) qs.set('q', keyword)
   return request(`/v1/memories?${qs}`)
@@ -1524,6 +1533,10 @@ export function flagScopedMemory(scope: string, scopeKey: string, key: string, r
   return request(`/v1/memories/${encodeURIComponent(scope)}/${encodeURIComponent(scope === 'global' ? '_' : scopeKey)}/${encodeURIComponent(key)}/flag`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
   })
+}
+// unflagScopedMemory：清除 server 记忆（项目 / 全局）上的标记。
+export function unflagScopedMemory(scope: string, scopeKey: string, key: string): Promise<import('./types').ScopedMemory> {
+  return request(`/v1/memories/${encodeURIComponent(scope)}/${encodeURIComponent(scope === 'global' ? '_' : scopeKey)}/${encodeURIComponent(key)}/flag`, { method: 'DELETE' })
 }
 
 export function getPlan(id: string): Promise<PlanDetail> {

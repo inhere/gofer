@@ -162,8 +162,8 @@ var jobRouteWords = map[string]bool{
 	"snooze": true, "snoozed": true,
 	// N3 T4: the steward's advice on a card (steward / person only).
 	"advice": true,
-	// P4 memory hygiene: findings / suggestions (adopt / dismiss stay a person's).
-	"memory-findings": true, "memory-suggestions": true, "adopt": true, "dismiss": true,
+	// P4 memory hygiene: the server-side doctor's findings (a read).
+	"memory-findings": true, "adopt": true, "dismiss": true,
 	// gofer-3nxa.2 knowledge candidates (accept / reject stay a person's).
 	"memory-candidates": true,
 	// The mailbox (plan M3): a job writes / answers its own letters; readdress is a person's.
@@ -343,8 +343,6 @@ var jobCallerActions = map[string]string{
 	"POST /v1/work-items/*/suggestions/*/dismiss":     "dismiss a work suggestion",
 	"POST /v1/work-items/merge-suggestions/*/accept":  "accept a merge suggestion",
 	"POST /v1/work-items/merge-suggestions/*/dismiss": "dismiss a merge suggestion",
-	"POST /v1/memory-suggestions/*/adopt":             "adopt a memory suggestion",
-	"POST /v1/memory-suggestions/*/dismiss":           "dismiss a memory suggestion",
 	"POST /v1/memory-candidates/*/accept":             "accept a memory candidate",
 	"POST /v1/memory-candidates/*/reject":             "reject a memory candidate",
 	"POST /v1/steward/start":                          "start the steward",
@@ -598,9 +596,8 @@ var stewardReadAllow = map[string]bool{
 	"GET /v1/issues/*": true,
 	// N3 T4: the 「今天」 queue it advises on.
 	"GET /v1/today": true,
-	// P4: the server-side memory doctor it proposes cleanup from, and its suggestions.
+	// P4: the server-side memory doctor findings it reads.
 	"GET /v1/memory-findings":    true,
-	"GET /v1/memory-suggestions": true,
 	"GET /v1/memory-syntheses":   true,
 	"GET /v1/memory-syntheses/*": true,
 	// The mailbox: the steward's own letters (the handler narrows to its job).
@@ -627,8 +624,6 @@ var stewardWriteAllow = map[string]bool{
 	"POST /v1/steward/review-summary": true,
 	// N3 T4: advice on a 「今天」 card — only advice; the person clicks 「按建议」.
 	"POST /v1/today/advice": true,
-	// P4: a memory cleanup PROPOSAL only — adopt / dismiss are a person's.
-	"POST /v1/memory-suggestions": true,
 	// The mailbox: it writes and answers like any job, as itself.
 	"POST /v1/mail":          true,
 	"POST /v1/mail/*/reply":  true,
@@ -648,7 +643,6 @@ var stewardObservedWrites = map[string]bool{
 	"POST /v1/work-items/*/merge-suggestions": true,
 	"POST /v1/session-ask":                    true,
 	"POST /v1/today/advice":                   true,
-	"POST /v1/memory-suggestions":             true,
 	"POST /v1/mail":                           true,
 }
 

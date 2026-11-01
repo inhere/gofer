@@ -115,6 +115,7 @@ export function memoryAge(updatedAt: string | undefined, nowMs = Date.now()): st
 }
 
 const DOCTOR_LABEL: Record<string, string> = {
+  flagged: 'memory.doctor.flagged',
   'handoff-expired': 'memory.doctor.handoffExpired',
   'note-stale': 'memory.doctor.noteStale',
   'summary-missing': 'memory.doctor.summaryMissing',

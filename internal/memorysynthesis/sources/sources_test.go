@@ -140,34 +140,24 @@ func TestPlansSourceGolden(t *testing.T) {
 
 type fakeDoctor struct {
 	findings []today.MemoryFinding
-	sugs     []today.MemorySuggestion
 }
 
 func (f fakeDoctor) MemoryFindings(today.MemoryFindingsQuery) ([]today.MemoryFinding, error) {
 	return f.findings, nil
-}
-func (f fakeDoctor) ListMemorySuggestions(string) ([]today.MemorySuggestion, error) {
-	return f.sugs, nil
 }
 
 func TestDoctorSourceGolden(t *testing.T) {
 	store := fakeDoctor{
 		findings: []today.MemoryFinding{
 			{TrackerID: "tr-1", ProjectKey: "proj", Key: "note-a", Kind: "note", Summary: "about a", Age: "9d", Content: "FULL-BODY-TEXT",
-				Findings: []tracker.DoctorFinding{{Slug: "note-stale", Detail: "old"}}, Actions: []string{"archive"}},
+				Findings: []tracker.DoctorFinding{{Slug: "note-stale", Detail: "old"}}},
 			{TrackerID: "tr-2", ProjectKey: "other", Key: "note-b"},
-		},
-		sugs: []today.MemorySuggestion{
-			{ID: 4, ProjectKey: "proj", Key: "note-a", Action: "archive", State: "pending", Text: "suggest archive", Reason: "stale", CreatedAt: at(0, 7, 0)},
-			{ID: 5, ProjectKey: "other", Key: "x"},
 		},
 	}
 	got := collect(t, Doctor{Config: cfg(), Reader: store}, "proj")
 	assertItems(t, got, []memorysynthesis.Item{
 		{Kind: KindMemoryFind, Title: "note-a", SourceRef: "memory:tr-1/note-a",
-			Text: "kind: note\nsummary: about a\nfindings: note-stale old\nopen_actions: archive"},
-		{Kind: KindMemorySugg, OccurredAt: "2026-10-28T07:00:00+08:00", Title: "note-a", SourceRef: "memory-suggestion:4",
-			Text: "action: archive\nstate: pending\ntext: suggest archive\nreason: stale"},
+			Text: "kind: note\nsummary: about a\nfindings: note-stale old"},
 	})
 	for _, it := range got {
 		if strings.Contains(it.Text, "FULL-BODY-TEXT") || strings.Contains(it.Text, "9d") {

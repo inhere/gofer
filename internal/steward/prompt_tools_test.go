@@ -24,8 +24,8 @@ var goferToolRef = regexp.MustCompile(`gofer_[a-z0-9]+(?:_[a-z0-9]+)*`)
 // tool in a prompt is a deliberate change: classify it in internal/mcptools first.
 //
 // The scan reads the package's own sources, which is where every prompt lives (prime.go /
-// review.go / today.go / memory.go / noise.go / notes.go), so a new prompt file is covered
-// without touching this test.
+// review.go / today.go / noise.go / notes.go) plus the steward templates under
+// internal/i18n/prompts, so a new prompt file is covered without touching this test.
 func TestPromptsOnlyNameAllowedGoferTools(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -44,6 +44,21 @@ func TestPromptsOnlyNameAllowedGoferTools(t *testing.T) {
 		for _, tool := range goferToolRef.FindAllString(string(b), -1) {
 			if _, ok := seen[tool]; !ok {
 				seen[tool] = name
+			}
+		}
+	}
+	tmpls, err := filepath.Glob(filepath.Join("..", "i18n", "prompts", "*", "steward_*.md.tmpl"))
+	if err != nil || len(tmpls) == 0 {
+		t.Fatalf("steward prompt templates not found: %v", err)
+	}
+	for _, path := range tmpls {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		for _, tool := range goferToolRef.FindAllString(string(b), -1) {
+			if _, ok := seen[tool]; !ok {
+				seen[tool] = filepath.Base(path)
 			}
 		}
 	}

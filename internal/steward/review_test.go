@@ -131,7 +131,7 @@ func TestReviewSummaryStaysWithTheReviewRecord(t *testing.T) {
 }
 
 func TestReviewPromptNamesTheTasksAndTheLimits(t *testing.T) {
-	p := (&Service{}).reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, []jobstore.StewardEvent{{Kind: "session", Detail: "会话已离线"}}, false, time.Now(), -1, nil)
+	p := (&Service{}).reviewPrompt(TriggerDaily, "2026-10-06", nil, 0, []jobstore.StewardEvent{{Kind: "session", Detail: "会话已离线"}}, false, time.Now(), -1)
 	for _, want := range []string{"gofer_work_summarize", "gofer_work_request_report", "gofer_work_merge_suggest", "review_summary",
 		"不要标完成 / 放弃", "会话已离线", "gofer_session_tail"} {
 		assert.True(t, strings.Contains(p, want), want)

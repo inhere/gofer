@@ -117,6 +117,10 @@ type PrimeConfig struct {
 // PrimeDoctorConfig silences doctor finding slugs repository-wide (`prime.doctor.suppress`).
 type PrimeDoctorConfig struct {
 	Suppress []string `yaml:"suppress,omitempty" json:"suppress,omitempty"`
+	// AutoArchive switches the automatic archiving of settled memories done by
+	// `gofer repo sync` (expired handoffs, notes whose every path / commit is gone;
+	// never a rule). Default on; `auto_archive: false` turns it off.
+	AutoArchive *bool `yaml:"auto_archive,omitempty" json:"auto_archive,omitempty"`
 }
 
 // DoctorSuppress is the repository-wide list of silenced doctor slugs.

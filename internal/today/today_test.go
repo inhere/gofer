@@ -194,8 +194,8 @@ func TestRelayOneCardPerSessionAndAckedSkipped(t *testing.T) {
 }
 
 // The queue holds only the cards that stand for a structured 「等我」 fact (CL1, design
-// 2026-11-01 AT3): work items, the model's tidy-up suggestions, merge suggestions, memory
-// suggestions and the capture box make no card, however they are spelled.
+// 2026-11-01 AT3): work items, the model's tidy-up suggestions, merge suggestions
+// and the capture box make no card, however they are spelled.
 func TestOnlyStructuredWaitingCards(t *testing.T) {
 	svc, st := newTestService(t)
 	_, err := st.UpsertAgentSession(jobstore.AgentSession{SessionID: "s-w", Agent: "claude", ProjectKey: "p1", State: jobstore.SessionIdle})
@@ -217,9 +217,6 @@ func TestOnlyStructuredWaitingCards(t *testing.T) {
 	_, _, err = st.AddWorkMergeSuggestion(w2.ID, w3.ID, "同一件事", "steward")
 	assert.NoErr(t, err)
 	_, err = st.CaptureWorkItem(jobstore.CaptureInput{Text: "想法", Kind: jobstore.WorkKindIdea, By: "human:t"})
-	assert.NoErr(t, err)
-	seedMemories(t, st)
-	_, _, err = svc.SuggestMemory(MemorySuggestInput{TrackerID: "trk", Key: "old-note", Action: MemoryActArchive, Reason: "reason"}, "s", "")
 	assert.NoErr(t, err)
 
 	cards, err := svc.Decisions(true)

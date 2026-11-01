@@ -12,7 +12,3 @@ func shimToday(lang i18n.Lang, svc *Service, q Query) (Response, error) {
 	q.Lang = lang
 	return svc.Today(q)
 }
-
-func shimMemorySuggestions(lang i18n.Lang, svc *Service) ([]MemorySuggestion, error) {
-	return svc.ListMemorySuggestionsIn(lang, "all")
-}

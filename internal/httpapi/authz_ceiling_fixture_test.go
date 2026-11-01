@@ -34,7 +34,7 @@ type ceilWorld struct {
 	trackerID, issueID                            string
 	xferID, wakeupID, retryID, decisionID         string
 	nudgeID                                       string
-	mergeSugID, candidateID, suggestionID         string
+	mergeSugID, candidateID                       string
 	mailID                                        string
 	attachmentID                                  string
 }
@@ -193,11 +193,6 @@ func seedCeilingWorld(t *testing.T, s *Server, project string) ceilWorld {
 		t.Fatalf("seed memory candidate (%s): none listed", project)
 	}
 	w.candidateID = fmt.Sprint(cands[0].ID)
-	ms, _, err := st.AddMemorySuggestion(jobstore.MemorySuggestion{
-		TrackerID: w.trackerID, MemoryKey: "mem-key", Action: "archive", By: ceilOwner,
-	})
-	must("memory suggestion", err)
-	w.suggestionID = fmt.Sprint(ms.ID)
 
 	m, err := st.InsertMail(jobstore.MailInput{
 		FromKind: jobstore.MailKindCaller, FromCaller: ceilOwner,

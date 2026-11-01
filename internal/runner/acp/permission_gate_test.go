@@ -106,7 +106,6 @@ func TestGoferAdviceToolIsAutoAllowed(t *testing.T) {
 		"gofer_today_advise",
 		"mcp__gofer__gofer_today_advise",
 		"gofer_work_merge_suggest",
-		"gofer_memory_suggest",
 	} {
 		t.Run(title, func(t *testing.T) {
 			sink := &recordingSink{}

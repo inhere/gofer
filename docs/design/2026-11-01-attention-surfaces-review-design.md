@@ -117,3 +117,9 @@ dsh-superagent 的核心原则正好对着这个问题：
 3. **使用中顺手修**：注入时被 flag 的记忆已带「⚠ 需复核」；skill 写明 agent 确认过时即 `memory set` 改写或 `memory archive`，不必等人。
 
 删除管家的模型记忆建议队列及其 MCP 工具、HTTP 路由与巡检步骤。
+
+- **MH1 记忆整理三层**：
+  - **自动归档**：`internal/tracker/memory_autoarchive.go`（`Store.AutoArchiveMemories`，判定 `autoArchiveReason` 复用 doctor 的 `memoryPathRefs` / `memoryCommitRefs` / `pathExistsUnder` / `gitCommitsMissing`）。规则：handoff 过期超过 7 天；note 至少引用一个路径，且全部路径与提交都不存在（只引用提交的不动：浅克隆会把老提交也报成缺失）；rule 永不；7 天内改过的不动（刚 `restore` 的因此有一周宽限，不会被立刻再归档）；`doctor_ignore` / `prime.doctor.suppress` 静默了对应检查的不动；没有仓库检出的存储（全局记忆）不判 note。决定在快照上做，归档时在锁内复核记忆仍在且 `updated_at` 未变。归档条目 `archived_by=auto-archive` + 原因；`Store.Doctor` 的 `auto_archived` 列出近 30 天仍在归档文件里的条目。
+  - **触发时机**：`gofer repo sync` 推送之前（`commands/repo.go` 只转发一次调用）。理由：它在仓库检出里跑，路径 / 提交检查才有意义；归档产生的墓碑在同一次同步里到达 server 与其它 clone；不放在写后自动同步（`tryAutoSync`）里，否则 `restore` 一个过期 handoff 会被立刻再归档；不放在 prime（读热路径，不改数据、不跑 git）。开关 `prime.doctor.auto_archive`，默认开（设计 §8 已批准，且可 `restore`）。
+  - **待整理**：web 记忆页 `?view=tidy`。列表由已取回的记忆 + doctor 现算（`utils/memories.ts` 的 `tidyItems`；server 项目 / 全局记忆没有 doctor，按自带 `flags` 补 `flagged`），不新增读接口。保留 = 清除标记（仓库记忆另把其它发现写进 `doctor_ignore`）；改写 = 打开详情抽屉；归档只有仓库记忆。新增写接口 `POST /v1/tracker/memories/{id}/archive`、`DELETE /v1/tracker/memories/{id}/flag`（`memory.write`，人凭据；已登记 `routeDecls`，permissions.md 已重生成）。
+  - **删除**：`gofer_memory_suggest`、`/v1/memory-suggestions*`、巡检「仓库记忆整理」步骤与 `steward_memory` 模板、`today.MemoryHygiene` / 建议存取 / 采纳逻辑、web 的建议卡文案；`memory_suggestions` 表按 G057 保留不删。

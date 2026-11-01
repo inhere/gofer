@@ -119,8 +119,7 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		ids = append(ids, it.ID)
 	}
 	pending, fresh, todayKeys := s.todayPending()
-	mem, memFresh := s.memoryPending()
-	if len(items) == 0 && !o.Force && !fresh && !memFresh {
+	if len(items) == 0 && !o.Force && !fresh {
 		release()
 		id, berr := s.store.BeginStewardReview(day, o.Trigger, nil)
 		if berr == nil {
@@ -129,7 +128,7 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		return ReviewResult{ReviewID: id, Skipped: true, Reason: s.reviewText("review.skipped")}, nil
 	}
 	notes, _ := s.NotesStatus()
-	prompt := s.reviewPrompt(o.Trigger, day, items, more, events, notes.NeedSlim, now, pending, mem)
+	prompt := s.reviewPrompt(o.Trigger, day, items, more, events, notes.NeedSlim, now, pending)
 
 	rid, err := s.store.BeginStewardReview(day, o.Trigger, ids)
 	if err != nil {
@@ -140,7 +139,6 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 	s.reviewID = rid
 	s.reviewMu.Unlock()
 	s.rememberTodayPresented(todayKeys)
-	s.rememberMemoryPresented(mem)
 	turnBefore := 0
 	s.askMu.Lock()
 	s.mu.Lock()
@@ -224,7 +222,7 @@ func (s *Service) SetReviewSummary(text string) (jobstore.StewardReview, error) 
 // reviewPrompt is one review's whole message: the dynamic material the code always appends
 // (which items, which events) and then the instruction (reviewInstruction). Only the
 // instruction is replaceable — the material must keep matching what was picked.
-func (s *Service) reviewPrompt(trigger, day string, items []work.ItemView, more int, events []jobstore.StewardEvent, slim bool, now time.Time, todayPending int, mem *MemoryHygiene) string {
+func (s *Service) reviewPrompt(trigger, day string, items []work.ItemView, more int, events []jobstore.StewardEvent, slim bool, now time.Time, todayPending int) string {
 	lang := s.language()
 	var b strings.Builder
 	b.WriteString(stewardText(lang, "review.heading", "label", reviewTriggerLabel(lang, trigger), "day", day) + "\n\n")
@@ -251,25 +249,21 @@ func (s *Service) reviewPrompt(trigger, day string, items []work.ItemView, more 
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(s.reviewInstruction(slim, todayPending, mem))
+	b.WriteString(s.reviewInstruction(slim, todayPending))
 	return b.String()
 }
 
 // reviewInstruction is the instruction part of a review: the prompt.steward.review setting
 // (else defaultReviewSteps), the step-numbered sections the code owns (the 「今天」 advice
-// and the memory hygiene step), the closing step, and then the operator's extra block
+// step), the closing step, and then the operator's extra block
 // (prompt.steward.review.extra).
-func (s *Service) reviewInstruction(slim bool, todayPending int, mem *MemoryHygiene) string {
+func (s *Service) reviewInstruction(slim bool, todayPending int) string {
 	body := strings.TrimRight(settings.ChoosePrompt(prompts.MustRender(s.language(), prompts.NameStewardReview, struct{ Slim bool }{Slim: slim}), s.settingString(settings.KeyPromptStewardReview)), "\n")
 	var b strings.Builder
 	b.WriteString(body)
 	b.WriteString("\n")
 	step := nextStepNumber(body)
 	if sec := todaySection(s.language(), step, todayPending); sec != "" {
-		b.WriteString(sec)
-		step++
-	}
-	if sec := memorySection(s.language(), step, mem); sec != "" {
 		b.WriteString(sec)
 		step++
 	}

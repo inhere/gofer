@@ -15,7 +15,8 @@ func TestDeleteTracker(t *testing.T) {
 	defer s.Close()
 	seedTracker(t, s, "gone")
 	seedTracker(t, s, "kept")
-	if _, _, err := s.AddMemorySuggestion(MemorySuggestion{TrackerID: "gone", MemoryKey: "m1", Action: "update", PayloadJSON: `{}`, By: "steward"}); err != nil {
+	// A row an older version wrote into the (now unused) memory_suggestions table.
+	if _, err := s.db.Exec(`INSERT INTO memory_suggestions (tracker_id, memory_key, action, created_at) VALUES ('gone', 'm1', 'update', 1)`); err != nil {
 		t.Fatal(err)
 	}
 	res, err := s.DeleteTracker("gone")

@@ -62,8 +62,6 @@ const (
 	NameStewardReview = "steward_review"
 	// NameStewardToday is the review step that asks for advice on the Today queue.
 	NameStewardToday = "steward_today"
-	// NameStewardMemory is the review step that proposes memory cleanup.
-	NameStewardMemory = "steward_memory"
 	// NameStewardQuestion is the heading a question from a person is wrapped in.
 	NameStewardQuestion = "steward_question"
 	// NameRepoBlock is the instruction block `gofer repo init` keeps up to date in
@@ -167,16 +165,6 @@ type (
 	StewardTodayData struct {
 		Step    int
 		Pending int
-	}
-	// StewardMemoryData feeds NameStewardMemory: the step number, the number of open
-	// findings, how many suggestions today still allows, the finding lines to quote and
-	// how many more there are (More = 0 shows none).
-	StewardMemoryData struct {
-		Step      int
-		Findings  int
-		Remaining int
-		Lines     []string
-		More      int
 	}
 	// StewardQuestionData feeds NameStewardQuestion: who asks and what.
 	StewardQuestionData struct {

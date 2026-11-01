@@ -639,7 +639,7 @@ projects:
   #   #   remember_allow_always: true   # 有人选了 allow_always，本 job 内同类请求不再问(默认 true)
   #   #   # 按工具名放行 / 必问（不论 agent 报的 kind）。不写 auto_allow_tools = 默认名单：gofer
   #   #   # 自己的只读 MCP 工具 + 只写建议的工具（gofer_work_list、gofer_today_list、
-  #   #   # gofer_today_advise、gofer_work_merge_suggest、gofer_memory_suggest 等，名单见
+  #   #   # gofer_today_advise、gofer_work_merge_suggest 等，名单见
   #   #   # internal/mcptools）。写了就替换默认名单（含 gofer 只读工具，想保留请一并列出）。
   #   #   # 名字可写裸名或 MCP 限定名(mcp__gofer__gofer_today_advise)，大小写不敏感；ask_tools
   #   #   # 优先（两边都写就问人）；也可以写别的 MCP server 的工具名（如 mcp__docs__search）。

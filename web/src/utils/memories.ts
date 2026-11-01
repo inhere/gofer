@@ -267,3 +267,79 @@ export function searchQueryUpdate(base: Record<string, unknown> | undefined, tex
   if (text) next.q = text
   return next
 }
+
+// ---- 「待整理」：doctor 里需要人判断的项（不提醒、不进「等我」，只在记忆页按需查看）----
+
+// 需判断的发现：被标记失效、疑似重复、久未更新、交接已过期（宽限期内还没自动归档的）、路径 / 提交不存在
+// （确凿的那部分由 `gofer repo sync` 自动归档，剩下的才会来到这里）。summary-missing 只是补摘要，不在此列。
+export const TIDY_SLUGS = ['flagged', 'duplicate', 'note-stale', 'handoff-expired', 'path-missing', 'commit-missing']
+
+export interface TidyItem {
+  row: SourcedMemoryRow
+  key: string
+  findings: MemoryDoctorFinding[]
+}
+
+// tidyFindingsOf：一行记忆的待整理发现。server 记忆（项目 / 全局）的列表响应没有 doctor，
+// 它们只靠记忆自带的 flags 判断，所以没有 flagged 发现时按 flags 补一条。
+export function tidyFindingsOf(row: SourcedMemoryRow, doctor: Record<string, MemoryDoctorFinding[]>): MemoryDoctorFinding[] {
+  const found = (doctor[memorySourceKey(row)] ?? []).filter((f) => TIDY_SLUGS.includes(f.slug))
+  const flags = row.data.flags ?? []
+  if (flags.length > 0 && !found.some((f) => f.slug === 'flagged')) {
+    found.unshift({ slug: 'flagged', detail: flags[0]?.reason })
+  }
+  return found
+}
+
+// tidyItems：有待整理发现的记忆；被标记的排前面，其余按 key，顺序稳定。
+export function tidyItems(rows: SourcedMemoryRow[], doctor: Record<string, MemoryDoctorFinding[]>): TidyItem[] {
+  const out: TidyItem[] = []
+  for (const row of rows) {
+    const findings = tidyFindingsOf(row, doctor)
+    if (findings.length > 0) out.push({ row, key: memorySourceKey(row), findings })
+  }
+  const flaggedFirst = (item: TidyItem): number => (item.findings.some((f) => f.slug === 'flagged') ? 0 : 1)
+  return out.sort((a, b) => flaggedFirst(a) - flaggedFirst(b) || a.key.localeCompare(b.key))
+}
+
+// tidyCanArchive：只有仓库记忆能归档（归档文件在仓库里，可 `memory restore`）；
+// server 上的项目 / 全局记忆没有归档，只能保留 / 改写。
+export function tidyCanArchive(row: SourcedMemoryRow): boolean {
+  return row.source?.scope === 'repo'
+}
+
+// tidyIgnoreSlugs：「保留」要让 doctor 不再提的发现（flagged 由清除标记解决，不进 doctor_ignore）；
+// 合并该记忆已有的 doctor_ignore，保序去重。
+export function tidyIgnoreSlugs(item: TidyItem): string[] {
+  const out = [...(item.row.data.doctor_ignore ?? [])]
+  for (const f of item.findings) {
+    if (f.slug !== 'flagged' && !out.includes(f.slug)) out.push(f.slug)
+  }
+  return out
+}
+
+// tidyNeedsIgnore：保留时是否还要写 doctor_ignore（只有仓库记忆的 doctor 发现需要；
+// server 记忆没有 doctor 发现，只有标记）。
+export function tidyNeedsIgnore(item: TidyItem): boolean {
+  return item.row.source?.scope === 'repo' && item.findings.some((f) => f.slug !== 'flagged')
+}
+
+export function tidyIsFlagged(item: TidyItem): boolean {
+  return item.findings.some((f) => f.slug === 'flagged')
+}
+
+// 记忆页的视图：全部记忆 / 待整理（?view=tidy，可分享）。
+export type MemoryView = 'list' | 'tidy'
+
+export function readMemoryView(query: Record<string, unknown> | undefined): MemoryView {
+  return queryValue(query?.view) === 'tidy' ? 'tidy' : 'list'
+}
+
+export function viewQueryUpdate(base: Record<string, unknown> | undefined, view: MemoryView): Record<string, string> {
+  const next: Record<string, string> = {}
+  for (const [k, v] of Object.entries(base ?? {})) {
+    if (typeof v === 'string' && v && k !== 'view') next[k] = v
+  }
+  if (view === 'tidy') next.view = 'tidy'
+  return next
+}

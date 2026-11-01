@@ -8,7 +8,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import RejectDialog from '../RejectDialog.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
-import { actionKey, actionLabel, actionLink, adviceAction, blockShort, cardLink, expiresText, memoryProposalText, waitText } from '../../utils/today'
+import { actionKey, actionLabel, actionLink, adviceAction, blockShort, cardLink, expiresText, waitText } from '../../utils/today'
 import { approveAction, focusActions, replyAction as replyActionOf } from '../../utils/todayFocus'
 import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
@@ -73,9 +73,6 @@ const review = computed(() => props.card.review)
 // 待批卡（gofer-9b1b）：理由、来源与批了会跑什么进「详情」（完整内容在 job 详情页的待批面板）
 const approval = computed(() => props.card.approval)
 const approvalCmd = computed(() => commandLine(approval.value?.command))
-// 记忆整理卡（P4）：提议 + 记忆现状进「详情」
-const memory = computed(() => props.card.memory)
-const memoryProposal = computed(() => memoryProposalText(props.card))
 // 管家摘要（≤5 行）：待验收卡在改动数据下面（后端已拷进 review.digest），其余卡跟在管家理由后
 const adviceDigest = computed(() => (review.value ? '' : (props.card.advice?.digest ?? '')))
 const hasInfo = computed(
@@ -84,8 +81,7 @@ const hasInfo = computed(
     !!props.card.advice?.text ||
     !!adviceDigest.value ||
     !!review.value ||
-    !!approval.value ||
-    !!memory.value,
+    !!approval.value,
 )
 
 function styleClass(a: TodayAction): string {
@@ -381,15 +377,6 @@ function linkFor(a: TodayAction): string {
           <p v-if="approvalCmd" class="dc-digest mono" data-test="dc-approval-command"><b>{{ t('today.card.command') }}</b>{{ approvalCmd }}</p>
           <p v-else-if="approval.prompt_preview" class="dc-digest" data-test="dc-approval-prompt"><b>{{ t('today.card.task') }}</b>{{ approval.prompt_preview }}</p>
         </template>
-        <template v-if="memory">
-          <p data-test="dc-memory-proposal"><b>{{ t('today.card.proposal') }}</b>{{ memoryProposal }}</p>
-          <p class="mono dc-mem-now" data-test="dc-memory-now">
-            <b>{{ t('today.card.current') }}</b>{{ memory.key }} · {{ memory.current_kind || '—' }}<template v-if="memory.age"> · {{ memory.age }}</template>
-            <template v-if="memory.current_summary"> · {{ memory.current_summary }}</template>
-          </p>
-          <p v-if="memory.payload?.content" class="dc-digest" data-test="dc-memory-merged"><b>{{ t('today.card.merged') }}</b>{{ memory.payload.content }}</p>
-          <p v-if="memory.content" class="dc-digest dc-mem-body">{{ memory.content }}</p>
-        </template>
       </div>
     </div>
     <RejectDialog v-if="rerunOpen" :submitting="false" error="" @close="rerunOpen = false" @confirm="onRerun" />
@@ -397,14 +384,6 @@ function linkFor(a: TodayAction): string {
 </template>
 
 <style scoped>
-.dc-mem-now {
-  overflow-wrap: anywhere;
-}
-.dc-mem-body {
-  max-height: 10em;
-  overflow: auto;
-  color: var(--ink-3);
-}
 /* 卡片（设计稿 §7.1）：黄色左边线标「需要人」，面板圆角，不加阴影。 */
 .dc {
   position: relative;
