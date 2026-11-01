@@ -75,3 +75,30 @@ func TestInitConfigLanguageWritesAuto(t *testing.T) {
 		t.Errorf("a template without the line changed: %q", out)
 	}
 }
+
+// TestConfigValidateShowsInboxRules: validate lists the effective inbox rules and says
+// whether they come from the config or the built-in table.
+func TestConfigValidateShowsInboxRules(t *testing.T) {
+	out := validateLanguageOutput(t, "")
+	if !strings.Contains(out, "server.inbox on (built-in default rules, 2 rules)") || !strings.Contains(out, "rule action -> action priority=100") {
+		t.Errorf("default rules missing:\n%s", out)
+	}
+	out = validateLanguageOutput(t, "server:\n  inbox:\n    rules:\n      - {id: only-review, column: fyi, events: [job.needs_review], priority: 7}\n")
+	if !strings.Contains(out, "server.inbox on (server.inbox.rules, 1 rules)") || !strings.Contains(out, "rule only-review -> fyi priority=7 kinds=[review]") {
+		t.Errorf("custom rules missing:\n%s", out)
+	}
+}
+
+// TestConfigValidateRejectsBadInboxRule: a bad rule fails the load and names the entry.
+func TestConfigValidateRejectsBadInboxRule(t *testing.T) {
+	t.Setenv(cfgpkg.EnvWorkspace, t.TempDir()+"/missing-workspace")
+	body := "server:\n  inbox:\n    rules:\n      - {id: bad-one, column: fyi, events: [no.such.event], priority: 1}\nprojects:\n  ok:\n    host_path: " + t.TempDir() + "\n    allowed_runners: [local]\n"
+	c := bindCmd(NewConfigCmd().Subs[0])
+	cfgpkg.InputCfgFile = writeRawConfig(t, body)
+	t.Cleanup(func() { cfgpkg.InputCfgFile = "" })
+	var err error
+	captureOutput(t, func() { err = runConfigValidate(c, nil) })
+	if err == nil || !strings.Contains(err.Error(), "server.inbox.rules[bad-one].events") {
+		t.Fatalf("err = %v", err)
+	}
+}

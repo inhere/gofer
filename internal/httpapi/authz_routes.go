@@ -194,6 +194,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/refs":                                     {user: InHandler(permFilter, authz.PermJobReadOthers), scope: Filter()},
 	"GET /v1/issues/{id}":                              {user: Public(), jobCred: "GET /v1/issues/*", scope: Resource("issue")},
 	"GET /v1/inbox":                                    {user: Public(), scope: Filter()},
+	"GET /v1/inbox/rules":                              {user: Public(), scope: NoProject()},
 	"POST /v1/inbox/state":                             {user: Public(), scope: NoProject(), rw: ReadSafe()},
 	"GET /v1/today":                                    {user: Public(), jobCred: "GET /v1/today", scope: Filter()},
 	"GET /v1/memory-findings":                          {user: Public(), jobCred: "GET /v1/memory-findings", scope: Filter()},

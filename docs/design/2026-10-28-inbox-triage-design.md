@@ -284,3 +284,10 @@ CREATE INDEX idx_inbox_state_caller_updated
 - 已读 / 清理 / 恢复调用 `POST /v1/inbox/state`：单条带 `keys`；「全部已读」不带 `keys`、带 `column`；「清理已读」只带本栏 `seen` 条目的 `keys`（和 `column`），未读不会被清走。写成功后本地先改列表与计数，再防抖重拉以服务端为准；订阅主题与 Today 相同（`pending` / `jobs` / `work` / `sessions` / `plans`）。
 - 徽标口径：侧栏「收件箱」徽标 = 响应的 `total_unread`（只算 `action`），`unread.fyi` 不进徽标。
 - 与设计稿的差异（后续再做）：未实现 §3.1 的「可视区 800ms 自动标已读」（目前只有显式点击）、仅知会栏默认折叠与「按天清理」、按类型分组；顶栏「待我决策」按钮与今天页仍沿用 `/v1/today` 的决策队列口径，未并入收件箱计数；卡片上的业务动作（回答、批准、验收）仍在今天页 / 各源页面，收件箱只给「打开」跳转。
+
+### INB3（配置与渠道对齐，2026-11-01）
+
+- **规则校验**：`config.ValidateInbox` 在加载与 `PUT /v1/config/server` 写入时校验，错误点出 `server.inbox.rules[<id>].<字段>`：空 / 重复 id、未知 column、priority 为 0、未知 kind、未知或不进收件箱的事件、`kinds` / `events` / `projects` 内的重复项、同 priority 把同一 kind（含由 `events` 推出的 kind，无选择器的规则视为全部 kind）放进不同栏、`include_exec`（仍不支持）。`events` 现在生效：规则选中 `kinds` 加上这些事件对应的 kind（`internal/config/inbox.go` 的 kind→事件映射），与设计稿 §3.2 的 `events` 语义一致；不写 kinds 与 events 的规则匹配全部 kind。`gofer config validate` 打印生效规则摘要。
+- **规则目录**：`GET /v1/inbox/rules`（`Public`、`NoProject`，仅用户调用方；权限参考已由 `go generate` 更新）返回 `{enabled, version, source, rules, defaults, kinds[], events[]}`；`kinds[]` 给出默认栏位、生效栏位、来源（default / config）与对应事件，`events[]` 是 notify 目录全表加 kind 归属与各渠道默认标志。`GET /v1/inbox` 增加 `rules_version`。实现在 `internal/inbox/rules.go`，handler 只做校验与转发。
+- **渠道对齐**：不改 webhook / desktop 默认集合，也没有按栏位过滤推送：设计稿 §6a 的「仅知会类默认不推送」与现有 webhook 默认集合冲突（`job.terminal`、`work.digest` 属于仅知会，却在 `DefaultTriggerEvents` 里），按「不改变既有默认集合」的约束未接线。`notify.TestDefaultEventSetsAreLocked` 逐字锁定两个默认集合；`internal/inbox` 的覆盖测试保证 notify 事件目录每个事件要么映射到收件箱 kind，要么在带理由的白名单里，且反向每个收件箱事件都在 notify 目录中；另有测试固定「desktop 默认事件都对应要处理类 kind」「webhook 默认里可成为仅知会的只有 `job.terminal` / `work.digest`」。
+- 与设计稿的差异（后续再做）：`include_exec` 规则字段未实现；按栏位过滤 IM / 桌面推送未接线（见上）；Web 设置页未展示规则目录（设计稿 P3 未要求）。

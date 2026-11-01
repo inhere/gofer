@@ -628,9 +628,10 @@ type InboxRule struct {
 	Kinds    []string `yaml:"kinds,omitempty" json:"kinds,omitempty"`
 	Projects []string `yaml:"projects,omitempty" json:"projects,omitempty"`
 	Priority int      `yaml:"priority" json:"priority"`
-	// Events and IncludeExec are reserved: cards carry no notify event key and no exec
-	// marker to match on, so ValidateInbox rejects them rather than accept a field that
-	// would never take effect. They stay in the struct so the rejection can name them.
+	// Events are notify event keys; a rule selects the kinds those events announce (see
+	// InboxEventKinds) in addition to Kinds. IncludeExec is reserved: cards carry no exec
+	// marker to match on, so ValidateInbox rejects it rather than accept a field that
+	// would never take effect. It stays in the struct so the rejection can name it.
 	Events      []string `yaml:"events,omitempty" json:"events,omitempty"`
 	IncludeExec bool     `yaml:"include_exec,omitempty" json:"include_exec,omitempty"`
 }
@@ -660,55 +661,82 @@ func DefaultInboxRules() []InboxRule {
 	}
 }
 
-// ValidateInbox checks the declarative rule vocabulary and deterministic ordering.
+// ValidateInbox checks the declarative rule vocabulary and deterministic ordering. Every
+// error names the offending server.inbox.rules entry.
 func ValidateInbox(in *InboxConfig) error {
 	if in == nil {
 		return nil
 	}
 	knownColumns := map[string]bool{"action": true, "fyi": true}
-	knownKinds := map[string]bool{}
-	for _, r := range DefaultInboxRules() {
-		for _, k := range r.Kinds {
-			knownKinds[k] = true
-		}
-	}
+	knownKinds := InboxKinds()
+	knownEvents := InboxEvents()
 	seen := map[string]bool{}
-	for _, r := range in.Rules {
-		if strings.TrimSpace(r.ID) == "" || seen[r.ID] {
-			return fmt.Errorf("server.inbox.rules: duplicate or empty id %q", r.ID)
+	for i, r := range in.Rules {
+		if strings.TrimSpace(r.ID) == "" {
+			return fmt.Errorf("server.inbox.rules[%d]: id must not be empty", i)
+		}
+		if seen[r.ID] {
+			return fmt.Errorf("server.inbox.rules: duplicate id %q", r.ID)
 		}
 		seen[r.ID] = true
-		for _, prior := range in.Rules {
-			if prior.ID == r.ID || prior.Priority != r.Priority || prior.Column == r.Column {
-				continue
-			}
-			for _, a := range prior.Kinds {
-				for _, b := range r.Kinds {
-					if a == b {
-						return fmt.Errorf("server.inbox.rules: priority %d has overlapping rules %q and %q", r.Priority, prior.ID, r.ID)
-					}
-				}
-			}
-		}
 		if !knownColumns[r.Column] {
-			return fmt.Errorf("server.inbox.rules[%s]: unknown column %q", r.ID, r.Column)
+			return fmt.Errorf("server.inbox.rules[%s]: unknown column %q (want action or fyi)", r.ID, r.Column)
 		}
 		if r.Priority == 0 {
 			return fmt.Errorf("server.inbox.rules[%s]: priority must not be zero", r.ID)
 		}
-		for _, k := range r.Kinds {
-			if !knownKinds[k] {
-				return fmt.Errorf("server.inbox.rules[%s]: unknown kind %q", r.ID, k)
+		for _, f := range []struct {
+			name string
+			vals []string
+		}{{"kinds", r.Kinds}, {"events", r.Events}, {"projects", r.Projects}} {
+			dup := map[string]bool{}
+			for _, v := range f.vals {
+				if dup[v] {
+					return fmt.Errorf("server.inbox.rules[%s].%s: duplicate entry %q", r.ID, f.name, v)
+				}
+				dup[v] = true
 			}
 		}
-		if len(r.Events) > 0 {
-			return fmt.Errorf("server.inbox.rules[%s]: events is not supported yet (rules match on kinds and projects)", r.ID)
+		for _, k := range r.Kinds {
+			if !slices.Contains(knownKinds, k) {
+				return fmt.Errorf("server.inbox.rules[%s].kinds: unknown kind %q", r.ID, k)
+			}
+		}
+		for _, e := range r.Events {
+			if !slices.Contains(knownEvents, e) {
+				return fmt.Errorf("server.inbox.rules[%s].events: unknown or non-inbox event %q (GET /v1/inbox/rules lists the events that reach the inbox)", r.ID, e)
+			}
 		}
 		if r.IncludeExec {
 			return fmt.Errorf("server.inbox.rules[%s]: include_exec is not supported yet (use the include_exec query parameter)", r.ID)
 		}
 	}
+	// Two rules of the same priority that put an overlapping kind in different columns have
+	// no deterministic winner.
+	for i, r := range in.Rules {
+		for _, prior := range in.Rules[:i] {
+			if prior.Priority != r.Priority || prior.Column == r.Column {
+				continue
+			}
+			if kindsOverlap(prior, r, knownKinds) {
+				return fmt.Errorf("server.inbox.rules: priority %d has overlapping rules %q and %q", r.Priority, prior.ID, r.ID)
+			}
+		}
+	}
 	return nil
+}
+
+// kindsOverlap reports whether two rules can select the same kind; a rule without a
+// selector selects every kind.
+func kindsOverlap(a, b InboxRule, all []string) bool {
+	ka, kb := a.EffectiveKinds(), b.EffectiveKinds()
+	if !a.HasSelector() {
+		ka = all
+	}
+	if !b.HasSelector() {
+		kb = all
+	}
+	return slices.ContainsFunc(ka, func(k string) bool { return slices.Contains(kb, k) })
 }
 
 // ServerConfig holds HTTP server and auth settings.

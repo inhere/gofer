@@ -1231,6 +1231,10 @@ func validateServerConfig(c *gcli.Command) error {
 			c.Printf("[%s] decision_hook/%-9s %s [%s]\n", status, h.Name, info, strings.Join(h.Points, ", "))
 		}
 	}
+	// Inbox rules: structural errors already failed the load (ValidateInbox); show what is in force.
+	if cfg := reg.Config(); cfg != nil {
+		printInboxRules(c, cfg)
+	}
 	// Inbound triggers: structural errors already failed the load; what is left depends on
 	// this machine (secret variable, template file) and is a WARN, like job secrets above.
 	printTriggerStatuses(c, reg.Config())
@@ -1270,6 +1274,23 @@ func validateServerConfig(c *gcli.Command) error {
 		return nil
 	}
 	return errorx.Failf(configExitErr, "config validation failed")
+}
+
+// printInboxRules prints the effective server.inbox rules, one line per rule.
+func printInboxRules(c *gcli.Command, cfg *config.Config) {
+	lines, custom := config.InboxRulesSummary(cfg.Server.Inbox)
+	src := "built-in default rules"
+	if custom {
+		src = "server.inbox.rules"
+	}
+	state := "on"
+	if !cfg.Server.Inbox.IsEnabled() {
+		state = "off"
+	}
+	c.Printf("[%s] server.inbox %s (%s, %d rules)\n", docStatusOK, state, src, len(lines))
+	for _, l := range lines {
+		c.Printf("       rule %s\n", l)
+	}
 }
 
 // printTriggerStatuses lists every server.triggers entry with its fixed resources and, for
