@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- **收件箱规则校验与规则目录（INB3）**：`server.inbox.rules` 支持 `events`（notify 事件 key，等价于选中该事件对应的 kind，与 `kinds` 取并集）；加载 / 写入时校验并点出配置项（`server.inbox.rules[<id>].events`）：未知或不进收件箱的事件、未知 kind、非法 column、重复 id / 重复项、priority 为 0、同 priority 把同一 kind 放进不同栏。`gofer config validate` 列出生效规则。新增 `GET /v1/inbox/rules`（仅用户调用方）返回每个 kind 的默认栏位、生效栏位与来源（默认 / 配置）以及带 kind 归属的事件目录；`GET /v1/inbox` 增加 `rules_version`。webhook / desktop 的默认事件集合不变，并新增测试锁定；notify 事件目录与收件箱 kind 的归属有双向覆盖测试。
+
 ## [0.207.0] - 2026-11-01
 
 ### 新增

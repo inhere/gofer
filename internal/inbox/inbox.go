@@ -39,21 +39,28 @@ type State struct {
 
 // Column applies first-match-wins rules. Empty rules mean the built-in policy.
 func Column(card today.Card, cfg *config.InboxConfig) string {
-	rules := config.DefaultInboxRules()
+	r, _ := matchRule(card.Kind, card.ProjectKey, cfg)
+	return r.Column
+}
+
+// matchRule returns the rule that classifies a card, and whether the built-in table (false)
+// or server.inbox.rules (true) supplied it. A zero rule means nothing matched.
+func matchRule(kind, project string, cfg *config.InboxConfig) (config.InboxRule, bool) {
+	rules, custom := config.DefaultInboxRules(), false
 	if cfg != nil && len(cfg.Rules) > 0 {
-		rules = append([]config.InboxRule(nil), cfg.Rules...)
+		rules, custom = append([]config.InboxRule(nil), cfg.Rules...), true
 	}
 	sort.SliceStable(rules, func(i, j int) bool { return rules[i].Priority > rules[j].Priority })
 	for _, r := range rules {
-		if len(r.Kinds) > 0 && !contains(r.Kinds, card.Kind) {
+		if r.HasSelector() && !contains(r.EffectiveKinds(), kind) {
 			continue
 		}
-		if len(r.Projects) > 0 && !contains(r.Projects, card.ProjectKey) {
+		if len(r.Projects) > 0 && !contains(r.Projects, project) {
 			continue
 		}
-		return r.Column
+		return r, custom
 	}
-	return ""
+	return config.InboxRule{}, custom
 }
 
 func NewItem(card today.Card, cfg *config.InboxConfig, state State) (Item, bool) {

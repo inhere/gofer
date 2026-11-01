@@ -19,6 +19,8 @@ type inboxResponse struct {
 	Unread      map[string]int          `json:"unread"`
 	TotalUnread int                     `json:"total_unread"`
 	GeneratedAt int64                   `json:"generated_at"`
+	// RulesVersion changes when the effective rules change (see GET /v1/inbox/rules).
+	RulesVersion string `json:"rules_version"`
 }
 
 func (s *Server) inboxCaller(c *rux.Context) (string, bool) {
@@ -79,7 +81,7 @@ func (s *Server) handleInbox(c *rux.Context) {
 		writeError(c, 500, "read inbox state failed", err.Error())
 		return
 	}
-	out := inboxResponse{Columns: map[string][]inbox.Item{"action": {}, "fyi": {}}, Unread: map[string]int{"action": 0, "fyi": 0}, GeneratedAt: time.Now().Unix()}
+	out := inboxResponse{Columns: map[string][]inbox.Item{"action": {}, "fyi": {}}, Unread: map[string]int{"action": 0, "fyi": 0}, GeneratedAt: time.Now().Unix(), RulesVersion: inbox.RulesVersion(s.inboxConfig())}
 	for _, item := range current {
 		if st, exists := states[item.Key]; exists && st.SourceRevision == item.SourceRevision {
 			item.State = inboxState(st)
@@ -94,6 +96,17 @@ func (s *Server) handleInbox(c *rux.Context) {
 	}
 	out.TotalUnread = out.Unread[inbox.ColumnAction]
 	c.JSON(http.StatusOK, out)
+}
+
+// GET /v1/inbox/rules is the rule directory: effective and built-in rules, per kind the
+// default and effective column with their source, and the notify events that announce each
+// kind. It is global configuration, not personal state, so it answers even when the inbox is
+// switched off (enabled=false in the body) and needs no job store.
+func (s *Server) handleInboxRules(c *rux.Context) {
+	if _, ok := s.inboxCaller(c); !ok {
+		return
+	}
+	c.JSON(http.StatusOK, inbox.Directory(s.inboxConfig()))
 }
 
 // terminalJobKind classifies a finished job for the inbox.

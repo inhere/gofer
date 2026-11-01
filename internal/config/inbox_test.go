@@ -15,8 +15,8 @@ func TestValidateInboxRules(t *testing.T) {
 	if err := ValidateInbox(&InboxConfig{Rules: []InboxRule{{ID: "a", Column: "action", Kinds: []string{"review"}, Priority: 5}, {ID: "b", Column: "fyi", Kinds: []string{"review"}, Priority: 5}}}); err == nil {
 		t.Fatal("ambiguous priority accepted")
 	}
-	if err := ValidateInbox(&InboxConfig{Rules: []InboxRule{{ID: "x", Column: "action", Events: []string{"job.terminal"}, Priority: 1}}}); err == nil {
-		t.Fatal("events accepted although classification does not read it")
+	if err := ValidateInbox(&InboxConfig{Rules: []InboxRule{{ID: "x", Column: "action", Events: []string{"job.reviewed"}, Priority: 1}}}); err == nil {
+		t.Fatal("non-inbox event accepted")
 	}
 	if err := ValidateInbox(&InboxConfig{Rules: []InboxRule{{ID: "x", Column: "action", Kinds: []string{"review"}, Priority: 1, IncludeExec: true}}}); err == nil {
 		t.Fatal("include_exec accepted although classification does not read it")

@@ -372,7 +372,12 @@ server:
   #     - {id: action, column: action, kinds: [interaction, decision, review, job.failed], priority: 100}
   #     - {id: fyi, column: fyi, kinds: [job.terminal, work.digest, activity, comment], priority: 90}
   #   # job.failed = 失败 / 超时且无后续 job 的终态 job（要处理）；已被续接、完成或用户取消的是 job.terminal（仅知会）
-  #   # 规则里的 events / include_exec 暂不支持，写了会在加载时被拒绝；顶栏徽标 total_unread 只统计 action 栏
+  #   # 规则也可用 events（notify 事件 key）选 kind：events: [job.needs_review] 等价于选 review；kinds 与 events 取并集，
+  #   #   都不写 = 匹配所有 kind。例：{id: review-quiet, column: fyi, events: [job.needs_review], projects: [<project>], priority: 120}
+  #   # 加载 / 写入时校验并点出配置项（server.inbox.rules[<id>].events ...）：未知 / 不进收件箱的事件、未知 kind、非法 column、
+  #   #   重复 id 或重复项、priority 为 0、同 priority 把同一 kind 放进不同栏；include_exec 不支持（用 include_exec 查询参数）
+  #   # `gofer config validate` 列出生效规则；GET /v1/inbox/rules 列出每个 kind 的默认栏 / 生效栏 / 来源与事件目录
+  #   # inbox 规则只决定网页收件箱的栏位，不改变 webhook / desktop 的默认事件集合；顶栏徽标 total_unread 只统计 action 栏
   # event_hooks: [...]                 # 事件发生时在 server 主机上跑命令(见下「事件钩子」); 只能改文件
 session:                               # 终端会话中继; 0 = 关该判据
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 停下时在 web 等回复

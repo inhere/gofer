@@ -73,3 +73,23 @@ func assertCatalogHas(t *testing.T, key string) {
 		t.Errorf("default event %q has no catalog entry", key)
 	}
 }
+
+// The default subscriptions are a compatibility surface: a webhook or desktop channel with
+// no `events` filter receives exactly these. The inbox rules (server.inbox.rules) must never
+// move them, so they are pinned literally; changing a set is a deliberate act that edits
+// this test and the CHANGELOG.
+func TestDefaultEventSetsAreLocked(t *testing.T) {
+	wantWebhook := []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", "work.remind", "work.digest", "work.needs_me", "job.delivery_failed", "update.available"}
+	wantDesktop := []string{"job.awaiting_approval", "interaction.created", "session.awaiting_reply", "job.needs_review"}
+	if !slices.Equal(DefaultTriggerEvents, wantWebhook) {
+		t.Fatalf("DefaultTriggerEvents = %v, want %v", DefaultTriggerEvents, wantWebhook)
+	}
+	if !slices.Equal(DefaultDesktopEvents, wantDesktop) {
+		t.Fatalf("DefaultDesktopEvents = %v, want %v", DefaultDesktopEvents, wantDesktop)
+	}
+	for _, e := range EventCatalog() {
+		if e.Default != slices.Contains(wantWebhook, e.Key) || e.DesktopDefault != slices.Contains(wantDesktop, e.Key) {
+			t.Errorf("catalog flags of %q drifted: default=%v desktop=%v", e.Key, e.Default, e.DesktopDefault)
+		}
+	}
+}

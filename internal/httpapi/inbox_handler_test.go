@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/inbox"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -18,9 +19,10 @@ type inboxItemResp struct {
 }
 
 type inboxRespBody struct {
-	Columns     map[string][]inboxItemResp `json:"columns"`
-	Unread      map[string]int             `json:"unread"`
-	TotalUnread int                        `json:"total_unread"`
+	Columns      map[string][]inboxItemResp `json:"columns"`
+	Unread       map[string]int             `json:"unread"`
+	RulesVersion string                     `json:"rules_version"`
+	TotalUnread  int                        `json:"total_unread"`
 }
 
 func (r inboxRespBody) find(key string) (inboxItemResp, bool) {
@@ -242,4 +244,32 @@ func TestInboxStateBulkWithoutKeys(t *testing.T) {
 		t.Fatalf("updated=%d columns=%v", res.Updated, got.Columns)
 	}
 	todayCall(t, s, http.MethodPost, "/v1/inbox/state", "tok-alice", map[string]any{"action": "clear", "column": "nope"}, 400, nil)
+}
+
+// GET /v1/inbox/rules: the directory reflects server.inbox.rules, rules_version on
+// /v1/inbox tracks it, and workers are refused.
+func TestInboxRulesDirectory(t *testing.T) {
+	s := inboxTestServer(t, nil)
+	var def inbox.RuleDirectory
+	todayCall(t, s, http.MethodGet, "/v1/inbox/rules", "tok-alice", nil, http.StatusOK, &def)
+	if !def.Enabled || def.Source != inbox.SourceDefault || def.Version == "" || len(def.Kinds) == 0 || len(def.Events) == 0 {
+		t.Fatalf("default directory = %+v", def)
+	}
+	if got := getInbox(t, s, "tok-alice", ""); got.RulesVersion != def.Version {
+		t.Fatalf("rules_version = %q, want %q", got.RulesVersion, def.Version)
+	}
+	todayCall(t, s, http.MethodGet, "/v1/inbox/rules", "tok-w1", nil, http.StatusForbidden, nil)
+
+	off := false
+	s2 := inboxTestServer(t, &config.InboxConfig{Enabled: &off, Rules: []config.InboxRule{{ID: "all-fyi", Column: "fyi", Kinds: []string{"review"}, Priority: 1}}})
+	var custom inbox.RuleDirectory
+	todayCall(t, s2, http.MethodGet, "/v1/inbox/rules", "tok-alice", nil, http.StatusOK, &custom)
+	if custom.Enabled || custom.Source != inbox.SourceConfig || custom.Version == def.Version || len(custom.Rules) != 1 {
+		t.Fatalf("custom directory = %+v", custom)
+	}
+	for _, k := range custom.Kinds {
+		if k.Kind == "review" && (k.Column != "fyi" || k.DefaultColumn != "action" || k.Source != inbox.SourceConfig) {
+			t.Fatalf("review = %+v", k)
+		}
+	}
 }
