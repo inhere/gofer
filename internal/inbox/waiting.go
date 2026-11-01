@@ -172,6 +172,43 @@ type TerminalSource interface {
 	ListJobs(q jobstore.ListQuery) ([]jobstore.JobRecord, error)
 }
 
+// provenanceSource is implemented by a store that knows from when job provenance is
+// recorded (jobstore.Store.ProvenanceSince). Jobs started before that carry no stamp telling
+// a person's submission from an agent's, so they never count as the person's own.
+type provenanceSource interface {
+	ProvenanceSince() int64
+}
+
+// failedWindowSec bounds how old a failed job of the person's may be and still wait for
+// them: an older failure is history, not something to act on now.
+const failedWindowSec = 72 * 3600
+
+// clockSource is implemented by a store with a clock (jobstore.Store.UnixNow); the failure
+// window applies only then, so a source without one keeps every failure.
+type clockSource interface {
+	UnixNow() int64
+}
+
+// tooOld reports whether a failure that ended at endedAt is past the window.
+func tooOld(src TerminalSource, endedAt int64) bool {
+	c, ok := src.(clockSource)
+	return ok && c.UnixNow()-endedAt > failedWindowSec
+}
+
+// ownTerminal reports whether j is a terminal job of the person's own that the inbox
+// may show: human-submitted, started after provenance is recorded, visible to the caller.
+func ownTerminal(src TerminalSource, j jobstore.JobRecord, allow func(string) bool) bool {
+	if j.EndedAt == 0 || !job.HumanSubmitted(j) || (allow != nil && !allow(j.ProjectKey)) {
+		return false
+	}
+	if ps, ok := src.(provenanceSource); ok {
+		if since := ps.ProvenanceSince(); since > 0 && j.StartedAt < since {
+			return false
+		}
+	}
+	return true
+}
+
 // terminalScan bounds how many newest rows of one status are considered.
 const terminalScan = 100
 
@@ -194,7 +231,7 @@ func TerminalCards(src TerminalSource, lang i18n.Lang, allow func(string) bool) 
 			return nil, nil, err
 		}
 		for _, j := range rows {
-			if j.EndedAt == 0 || !job.HumanSubmitted(j) || (allow != nil && !allow(j.ProjectKey)) {
+			if !ownTerminal(src, j, allow) || tooOld(src, j.EndedAt) {
 				continue
 			}
 			if j.AutoResumedBy != "" || j.FellBackTo != "" {
@@ -216,7 +253,7 @@ func TerminalCards(src TerminalSource, lang i18n.Lang, allow func(string) bool) 
 		return nil, nil, err
 	}
 	for _, j := range rows {
-		if j.EndedAt == 0 || !job.HumanSubmitted(j) || (allow != nil && !allow(j.ProjectKey)) {
+		if !ownTerminal(src, j, allow) {
 			continue
 		}
 		fyi = append(fyi, TerminalCard(lang, j, "job.terminal"))

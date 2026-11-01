@@ -47,7 +47,7 @@ func seedAgentJob(t *testing.T, s *Server, rec jobstore.JobRecord) {
 		rec.Channel = "cli"
 	}
 	rec.ResultDir = t.TempDir()
-	rec.StartedAt, rec.UpdatedAt = now-10, now
+	rec.StartedAt, rec.UpdatedAt = now, now // after the store's provenance start
 	if err := s.jobs.Meta().UpsertJob(rec); err != nil {
 		t.Fatalf("seed job %s: %v", rec.ID, err)
 	}

@@ -55,7 +55,9 @@ func seedInboxJob(t *testing.T, s *Server, rec jobstore.JobRecord) {
 	if rec.Channel == "" {
 		rec.Channel = "cli" // a person's own submission unless the test says otherwise
 	}
-	rec.StartedAt, rec.UpdatedAt = now-10, now
+	// Started now: jobs started before the store recorded provenance never count as the
+	// person's own (jobstore.ProvenanceSince).
+	rec.StartedAt, rec.UpdatedAt = now, now
 	if rec.EndedAt == 0 {
 		rec.EndedAt = now
 	}

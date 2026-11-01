@@ -198,3 +198,49 @@ func TestTerminalCardsOnlyThePersonsOwn(t *testing.T) {
 		t.Errorf("fyi = %v", gotY)
 	}
 }
+
+// clockedJobs is fakeJobs with a clock and a provenance start, like jobstore.Store.
+type clockedJobs struct {
+	fakeJobs
+	now, since int64
+}
+
+func (c clockedJobs) UnixNow() int64         { return c.now }
+func (c clockedJobs) ProvenanceSince() int64 { return c.since }
+
+// TestTerminalCardsSkipUnprovenancedAndOldFailures: a job started before provenance was
+// recorded carries no stamp telling a person from an agent, so it is never "yours"; a
+// failure older than the window is history, not something waiting for you (a v0.208.0
+// deployment listed 141 old agent failures as the person's own).
+func TestTerminalCardsSkipUnprovenancedAndOldFailures(t *testing.T) {
+	t.Parallel()
+	const now, since = int64(10_000_000), int64(9_000_000)
+	mk := func(id, status string, started, ended int64) jobstore.JobRecord {
+		return jobstore.JobRecord{ID: id, Status: status, Channel: job.ChannelCLI, ProjectKey: "p", StartedAt: started, EndedAt: ended, Error: "boom"}
+	}
+	rows := []jobstore.JobRecord{
+		mk("recent-failed", job.StatusFailed, now-600, now-60),
+		mk("before-provenance", job.StatusFailed, since-1, now-60),
+		mk("old-failed", job.StatusFailed, since+10, now-failedWindowSec-1),
+		mk("recent-done", job.StatusDone, now-600, now-60),
+		mk("done-before-provenance", job.StatusDone, since-1, now-60),
+	}
+	failed, fyi, err := TerminalCards(clockedJobs{fakeJobs{rows}, now, since}, i18n.EN, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(failed) != 1 || failed[0].Refs.JobID != "recent-failed" {
+		t.Errorf("failed = %v, want only recent-failed", cardIDs(failed))
+	}
+	if len(fyi) != 1 || fyi[0].Refs.JobID != "recent-done" {
+		t.Errorf("fyi = %v, want only recent-done", cardIDs(fyi))
+	}
+}
+
+func cardIDs(cards []today.Card) []string {
+	out := make([]string, 0, len(cards))
+	for _, c := range cards {
+		out = append(out, c.Refs.JobID)
+	}
+	return out
+}
