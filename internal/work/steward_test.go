@@ -129,26 +129,20 @@ func TestSessionTailReadsTranscriptWithABoundAndFallsBack(t *testing.T) {
 	assert.True(t, strings.Contains(got.Text, "最后一句") && strings.Contains(got.Text, "进度 40%"))
 }
 
-func TestDigestAppendsTheStewardsComment(t *testing.T) {
+func TestDigestIgnoresTheStewardsComment(t *testing.T) {
 	svc, st, _ := newSvc(t)
 	now := time.Date(2026, 10, 6, 9, 0, 0, 0, time.Local)
-	d, err := svc.BuildDigest(now)
+	before, err := svc.BuildDigest(now)
 	assert.NoErr(t, err)
-	assert.Eq(t, "", d.Commentary)
-	assert.False(t, strings.Contains(d.Text, "管家点评"))
 
+	// A finished review with a model commentary: the digest is structured counts only, so the
+	// text (and so the push built from it) is byte-for-byte what it was (design 2026-11-01 §4.2).
 	id, _ := st.BeginStewardReview("2026-10-06", "daily", []string{"w1"})
 	_, err = st.SetStewardReviewSummary("2026-10-06", "三件都在等同一批设备")
 	assert.NoErr(t, err)
-	// Still running: no comment yet.
-	d, _ = svc.BuildDigest(now)
-	assert.Eq(t, "", d.Commentary)
 	assert.NoErr(t, st.FinishStewardReview(id, jobstore.StewardReviewDone, "", "j1", ""))
-	d, _ = svc.BuildDigest(now)
-	assert.Eq(t, "三件都在等同一批设备", d.Commentary)
-	assert.True(t, strings.HasSuffix(d.Text, "管家点评：三件都在等同一批设备"))
-
-	// Another day's comment never leaks into today's digest.
-	d, _ = svc.BuildDigest(now.AddDate(0, 0, 1))
-	assert.Eq(t, "", d.Commentary)
+	after, err := svc.BuildDigest(now)
+	assert.NoErr(t, err)
+	assert.Eq(t, before.Text, after.Text)
+	assert.False(t, strings.Contains(after.Text, "三件都在等同一批设备"))
 }

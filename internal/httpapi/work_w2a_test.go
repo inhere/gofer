@@ -39,10 +39,7 @@ func w2aServer(t *testing.T) (*Server, string) {
 	s.work.SetOneShot(stubOneShot{out: stubSummary})
 	s.work.SetTranscriptSource(noTranscript{})
 	registerSessionInProject(t, s, "sess-w2a-0001", "/ws/a", "p1")
-	humanPrompt(t, s, "sess-w2a-0001", "导出订单")
-	humanPrompt(t, s, "sess-w2a-0001", "导出订单再问一句") // the draft starts on the second prompt
-	items, _ := workList(t, s, "")
-	return s, items[0].ID
+	return s, explicitItem(t, s, "sess-w2a-0001", "导出订单再问一句")
 }
 
 func TestWorkSummarizeEndpointFillsFieldsAndSuggestions(t *testing.T) {

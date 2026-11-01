@@ -653,7 +653,7 @@ func TestPutConfigStewardWritesHotAppliesAndEndsTheSessionOnAgentSwitch(t *testi
 	}
 }
 
-func TestStewardReviewSummaryReachesTheDigest(t *testing.T) {
+func TestStewardReviewSummaryStaysOutOfTheDigest(t *testing.T) {
 	s := newStewardServer(t)
 	workCall(t, s, http.MethodPost, "/v1/work-items", testToken, map[string]any{"title": "待巡检的事"}, 200)
 	resp := do(t, s, http.MethodPost, "/v1/steward/review", testToken, map[string]any{"force": true})
@@ -678,13 +678,26 @@ func TestStewardReviewSummaryReachesTheDigest(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("review-summary = %d", resp.StatusCode)
 	}
+	// The point of view is kept with the review record (design 2026-11-01 §4.2); the digest (and so
+	// the push built from it) carries counts only.
 	var d struct {
 		Commentary string `json:"commentary"`
 		Text       string `json:"text"`
 	}
 	decode(t, do(t, s, http.MethodGet, "/v1/work-items/digest", testToken, nil), &d)
-	if d.Commentary != "今天只有一件事，别忘了设备" || !strings.Contains(d.Text, "管家点评") {
+	if d.Commentary != "" || strings.Contains(d.Text, "别忘了设备") {
 		t.Fatalf("digest = %+v", d)
+	}
+	var st struct {
+		Status struct {
+			LastReview *struct {
+				Summary string `json:"summary"`
+			} `json:"last_review"`
+		} `json:"status"`
+	}
+	decode(t, do(t, s, http.MethodGet, "/v1/steward", testToken, nil), &st)
+	if st.Status.LastReview == nil || st.Status.LastReview.Summary != "今天只有一件事，别忘了设备" {
+		t.Fatalf("review record = %+v", st.Status.LastReview)
 	}
 }
 

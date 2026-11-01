@@ -297,6 +297,8 @@ function src(field: string): string {
 function srcKind(field: string): string {
   return detail.value ? fieldSourceKind(detail.value, field) : ''
 }
+// 目标 / 卡点 / 下一步 / 摘要里有整理用的模型写的：表单上方提示它们只是参考，不触发提醒
+const hasModelFields = computed(() => ['goal', 'blocker', 'next', 'summary'].some((f) => srcKind(f) === 'summarizer'))
 
 const note = ref('')
 async function addNote(text?: string): Promise<void> {
@@ -595,8 +597,10 @@ onUnmounted(() => live.stop())
           </div>
         </section>
 
-        <section v-if="suggestions.length" class="sec" data-test="drawer-suggestions">
-          <h4 class="sec-title">{{ t('work.d.suggestions') }}</h4>
+        <!-- 模型参考（设计稿 2026-11-01 §4.2）：整理用的模型给的建议默认折起，不驱动任何提醒 -->
+        <details v-if="suggestions.length" class="sec modelref" data-test="drawer-suggestions">
+          <summary class="sec-title">{{ t('work.d.modelRef') }} · {{ t('work.d.suggestions') }} ({{ suggestions.length }})</summary>
+          <p class="hint">{{ t('work.d.modelRefHint') }}</p>
           <p class="hint">{{ t('work.d.suggestionsHint') }}</p>
           <article v-for="sg in suggestions" :key="sg.field" class="srow" :data-field="sg.field">
             <div class="srow-main">
@@ -609,10 +613,11 @@ onUnmounted(() => live.stop())
               <Button size="sm" :disabled="busy" data-test="drawer-dismiss" @click="onSuggestion(sg.field, false)">{{ t('work.card.dismiss') }}</Button>
             </div>
           </article>
-        </section>
+        </details>
 
         <section class="sec">
           <h4 class="sec-title">{{ t('work.d.content') }}</h4>
+          <p v-if="hasModelFields" class="hint" data-test="drawer-modelref-note">{{ t('work.d.modelRefHint') }}</p>
           <div class="form">
             <label class="field">{{ t('work.d.title') }}<input v-model="form.title" type="text" data-test="f-title" /></label>
             <label class="field">{{ t('work.card.goal') }}<span v-if="src('goal')" class="src" :class="`src--${srcKind('goal')}`" data-test="drawer-src-goal">{{ src('goal') }}</span><textarea v-model="form.goal" rows="2" data-test="f-goal"></textarea></label>
@@ -909,6 +914,7 @@ onUnmounted(() => live.stop())
 .srow-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: var(--fs-sm); }
 .past { border: 1px solid var(--line); border-radius: var(--r-panel); padding: 6px 8px; }
 .past summary { cursor: pointer; font-size: var(--fs-xs); color: var(--ink-3); }
+.modelref > summary { cursor: pointer; }
 .check { display: flex; align-items: center; gap: 6px; font-size: var(--fs-sm); padding: 3px 0; }
 .check input { accent-color: var(--accent); }
 .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }

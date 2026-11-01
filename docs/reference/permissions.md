@@ -355,6 +355,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/steward/ask` | `Require` | `steward.manage` | — | `NoProject` | 写 |
 | `GET` | `/v1/steward/notes` | `Public` | — | `job` | `NoProject` | 读 |
 | `PUT` | `/v1/steward/notes` | `Require` | `steward.manage` | `job` | `NoProject` | 写 |
+| `GET` | `/v1/steward/observations` | `Public` | — | — | `NoProject` | 读 |
 | `POST` | `/v1/steward/restart` | `Require` | `steward.manage` | — | `NoProject` | 写 |
 | `POST` | `/v1/steward/review` | `Require` | `steward.manage` | — | `NoProject` | 写 |
 | `POST` | `/v1/steward/review-summary` | `Require` | `steward.manage` | `job` | `NoProject` | 写 |
@@ -415,6 +416,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `PATCH` | `/v1/wakeups/{wid}` | `InHandler(deny)` | `job.wake.others`、`job.submit` | — | `Resource(wakeup)` | 写 |
 | `GET` | `/v1/work-items` | `Public` | — | `job` | `Filter` | 读 |
 | `POST` | `/v1/work-items` | `Public` | — | — | `BodyProject` | 写 |
+| `POST` | `/v1/work-items/archive-auto` | `Public` | — | — | `Filter` | 写 |
 | `POST` | `/v1/work-items/capture` | `Public` | — | `job` | `BodyProject` | 写 |
 | `POST` | `/v1/work-items/delete` | `Public` | — | — | `Resource(work_item)` | 写 |
 | `GET` | `/v1/work-items/digest` | `Public` | — | — | `Filter` | 读 |
@@ -422,6 +424,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/work-items/merge-suggestions` | `Public` | — | `job` | `Filter` | 读 |
 | `POST` | `/v1/work-items/merge-suggestions/{n}/accept` | `Public` | — | — | `Resource(merge_suggestion)` | 写 |
 | `POST` | `/v1/work-items/merge-suggestions/{n}/dismiss` | `Public` | — | — | `Resource(merge_suggestion)` | 写 |
+| `POST` | `/v1/work-items/report` | `Public` | — | — | `BodyProject` | 写 |
 | `GET` | `/v1/work-items/requests` | `Public` | — | `job` | `Filter` | 读 |
 | `GET` | `/v1/work-items/summarizer` | `Public` | — | — | `NoProject` | 读 |
 | `DELETE` | `/v1/work-items/{id}` | `Public` | — | — | `Resource(work_item)` | 写 |

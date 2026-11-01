@@ -20,6 +20,13 @@
 - **收件箱降噪（AT2）**：agent / 终端会话 / job 凭据 / 系统（定时、计划派发、自动续接）派出的 job 的终态不再进入收件箱任何一栏；「仅知会」只收你本人提交的 job 的完成，失败仅当你本人提交且无后续 job 时进「等我」。CLI 在 agent 会话里提交 job 时服务端按 `X-Gofer-Session-Id` 给 job 打 `submitted_by_session:<id>` 标签用于区分。webhook / desktop 的默认推送事件集合不变。
 - **后台 agent 只读状态与手动新开会话（DC3）**：`GET /v1/background-agents` 返回整理器、管家、交付核验各自的会话（上下文占比未知时为 `null`，不是 0）、当天运行 / 拒绝 / token / 花费与轮换阈值，带 `version` 字段，没有会话时返回空列表；`POST /v1/background-agents/{kind}/session/reset` 让该类型下一次运行新开会话（不改配置、不中断进行中的运行，写审计）。复用 `settings.read` / `settings.write`，仅人的凭据、不带项目 ceiling 的调用者可用。CLI：`gofer tool bg-agent ls [--json]` / `reset <kind>`。按用户决定（见 `docs/design/2026-11-01-attention-surfaces-review-design.md` §7）暂不做 Web 管理页。交付核验保持默认关闭，只在管理员开启 `server.delivery_check` 且 job 带核验要求时生效（DC4 核对）。
 
+### 变更
+
+- **工作项改为显式创建，旧的自动生成项可一键归档（注意力面收敛 AT3，行为变化）**：终端会话**不再**自动生成工作项（此前每个会话的第 `work.draft.min_prompts` 次提问会建一张草稿，标题取会话里的一句话、状态靠模型推断）。工作项现在只来自：你在 web「工作项」页 / `gofer work new` 创建、plan 绑定，或会话用 `gofer work report` 明确声明。`gofer work report` 的 `<id>` 改为可省略：省略时会话汇报自己的工作项，会话还没有时**首次汇报创建它**，标题取汇报里显式给的 `--title`（省略取 `--goal` 第一行，都没有则拒绝），不取会话首条消息；新增 `POST /v1/work-items/report`，来源记为 `report`（web 显示「会话汇报创建」）。会话提问仍会计数（短命会话判据在用），`work.draft.min_prompts` / `exclude_projects` / `exclude_cwds` / `exclude_title_patterns` 四个设置**已不起作用**，键暂时保留，v0.211 移除。**迁移**：升级前留下的 `source=auto` 草稿不会自己消失——在「工作项」页点「归档自动生成的（N）」（先数出会动几项、确认后才归档），或 `gofer work archive-auto --yes`（不带 `--yes` 只预览，`--dry-run` 只列出），接口 `POST /v1/work-items/archive-auto[?dry_run=1]`（只有人能调、受项目范围限制，返回 `{archived, ids}`）。只归档没人动过的 auto 项（状态从没被人设过、日志与字段来源里没有人的发言）为 `dropped`，写日志与审计（`work.archived_auto`），重复执行返回 0；你建的、会话汇报建的、你改过的都不动。MCP `gofer_work_report` 仍需工作项 id。
+- **模型推断不再驱动任何提醒（AT3）**：整理用的模型写的目标 / 卡点 / 下一步 / 摘要与它的建议只作参考——不进「等我」、「今天」不再生成「整理建议」卡（`/v1/today` 的卡与 `Card.suggestions` 字段随之去掉，`kind: suggestion` 不再出现）、`work.needs_me` 推送正文不带整理器写的字段、每日摘要不再附管家点评（`digest.commentary` 字段去掉；点评只记在巡检记录里，`gofer steward status` 看）。工作项详情里整理建议折叠进「模型参考」，默认收起。
+- **管家的主动行为默认只记录（AT3）**：每日巡检与事件唤醒仍会跑，但这一轮里管家有后果的写（改工作项、日志、请汇报、触发整理、合并 / 记忆建议、给「今天」卡写建议、带话、发信）服务端不执行，记成「本来会做」的观察并回 202；新增 `gofer steward observations [--limit N]` / `GET /v1/steward/observations` 查看，新设置 `steward.act_proactively`（默认关）打开后恢复主动整理。你自己发起的巡检（`gofer steward review`）、提问、web 的「问管家」和你自己的写始终照常。
+- **今天页收缩为「等我」+ 进行中的计划 + 正在跑（AT3）**：今天页只有「等我」列表、进行中的计划（done/total 进度，点了去计划页）、一行「N 个会话 · M 个 job 在跑」（点了去工作台）；去掉 digest、「自上次打开」、类型 / 项目筛选、并行中泳道与「刚处理过」；等我为空时首屏只有一句「今天没有等你的事」，状态条只在有告警时出现；收集箱只在有未整理条目时在顶栏显示一个「收集箱 N」入口。`GET /v1/today` 新增 `running {sessions, jobs}`；`GET /v1/work-items` 的 `summary` 新增 `captured`。旧字段 `decisions`（全量队列）仍然返回——MCP 的 `gofer_today_*` 与管家建议还在读它——但控制台改为只读 `waiting`。
+
 ## [0.207.0] - 2026-11-01
 
 ### 新增

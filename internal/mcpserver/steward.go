@@ -186,7 +186,7 @@ func registerStewardTools(s *mcp.Server, b Backend) {
 	}, workSummarizeHandler(b, ""))
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_steward_notes",
-		Description: "Your long-term notes (versioned Markdown). action=get (default; version=0 is the latest) | history (versions, no bodies) | set (text = the whole new notes, version = the version you read; a conflict means someone wrote since — get again and merge) | review_summary (text = your <=300-character point of view for today's digest, during a review). Keep the notes under 8KB; every set keeps the old version.",
+		Description: "Your long-term notes (versioned Markdown). action=get (default; version=0 is the latest) | history (versions, no bodies) | set (text = the whole new notes, version = the version you read; a conflict means someone wrote since — get again and merge) | review_summary (text = your <=300-character point of view, kept with the review's record, during a review). Keep the notes under 8KB; every set keeps the old version.",
 	}, stewardNotesHandler(b))
 	registerTodayTools(s, b)         // N3 T4: read the 「今天」 queue, advise on a card
 	registerMemoryHygieneTools(s, b) // P4: propose repo-memory cleanup cards

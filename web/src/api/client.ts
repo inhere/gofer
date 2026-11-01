@@ -2054,6 +2054,15 @@ export function requestWorkReport(id: string, sessionId = '', kind: 'report' | '
 }
 
 // 「整理」：马上整理这个工作项（后台一次性只读 job），返回追踪它的账本请求。
+// 一次性归档所有「自动生成且没人动过」的工作项（POST /v1/work-items/archive-auto）。
+// dryRun 只列出会被归档的 id，什么都不改；服务端写审计，重复调用返回 0。
+export function archiveAutoWorkItems(dryRun = false): Promise<{ archived: number; ids: string[]; dry_run?: boolean }> {
+  return request<{ archived: number; ids: string[]; dry_run?: boolean }>(
+    `/v1/work-items/archive-auto${dryRun ? '?dry_run=1' : ''}`,
+    { method: 'POST' },
+  )
+}
+
 export function summarizeWorkItem(id: string): Promise<{ request: WorkRequest }> {
   return request<{ request: WorkRequest }>(`/v1/work-items/${encodeURIComponent(id)}/summarize`, { method: 'POST' })
 }

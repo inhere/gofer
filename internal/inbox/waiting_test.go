@@ -69,7 +69,7 @@ func TestWaitingFiltersGroupsAndLabels(t *testing.T) {
 	t.Parallel()
 	cards := []today.Card{
 		card(today.KindWork, "work:w1", today.Refs{WorkItemID: "w1"}, ""),
-		card(today.KindSuggestion, "suggestion:w1:goal", today.Refs{WorkItemID: "w1"}, ""),
+		card("suggestion", "suggestion:w1:goal", today.Refs{WorkItemID: "w1"}, ""), // a legacy kind no builder makes any more
 		card(today.KindMerge, "merge:1", today.Refs{}, ""),
 		card(today.KindMemory, "memory:1", today.Refs{}, ""),
 		card(today.KindCapture, today.CaptureCardKey, today.Refs{}, ""),

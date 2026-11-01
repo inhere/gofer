@@ -179,13 +179,20 @@ func (s *Service) notifyNeedsMe(w jobstore.WorkItem, reason string) {
 	lang := s.lang(w.ProjectKey)
 	var b strings.Builder
 	b.WriteString(reason)
-	if w.Goal != "" {
+	// A person's or a session's own words ride along; what the model inferred (the summarizer's
+	// goal / blocker / next) never does (design 2026-11-01 §4.2: model inference drives no push).
+	srcs, _ := s.store.WorkFieldSources(w.ID)
+	own := func(field string) bool {
+		src, known := srcs[field]
+		return !isSummarizerOwned(src, known)
+	}
+	if w.Goal != "" && own(jobstore.WorkFieldGoal) {
 		b.WriteString("\n" + i18n.T(lang, "work.report.goal", "value", w.Goal))
 	}
-	if w.BlockerText != "" {
+	if w.BlockerText != "" && own(jobstore.WorkFieldBlocker) {
 		b.WriteString("\n" + i18n.T(lang, "work.report.blocker", "value", w.BlockerText))
 	}
-	if w.NextStep != "" {
+	if w.NextStep != "" && own(jobstore.WorkFieldNext) {
 		b.WriteString("\n" + i18n.T(lang, "work.report.next", "value", w.NextStep))
 	}
 	s.notifier.NotifyWork(notify.EventWorkNeedsMe, w.ProjectKey, i18n.T(lang, "work.notify.needs_me_title", "title", w.Title), b.String(),

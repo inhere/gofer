@@ -39,9 +39,9 @@ export const TIER_LABEL: Record<Tier, string> = {
 }
 
 // waitingCards：今天页首屏决策区 / 全局浮层 / 顶栏计数读的唯一列表（服务端 `waiting`，与收件箱
-// 「要处理」栏同源）。旧 server 没有 waiting 字段时回落到旧的全量 decisions。
-export function waitingCards(data: { waiting?: TodayCard[]; decisions?: TodayCard[] } | null | undefined): TodayCard[] {
-  return data?.waiting ?? data?.decisions ?? []
+// 「要处理」栏同源）。旧的全量 `decisions` 不再读：它含工作项 / 合并建议等不归「等我」的卡。
+export function waitingCards(data: { waiting?: TodayCard[] } | null | undefined): TodayCard[] {
+  return data?.waiting ?? []
 }
 
 export function tierOf(card: TodayCard): Tier {

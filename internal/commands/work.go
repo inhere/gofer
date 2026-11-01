@@ -146,7 +146,8 @@ func NewWorkCmd() *gcli.Command {
 				Name: "report", Desc: "Report where you are (a session runs this when asked): goal / status / blocker / next step / summary",
 				Config: func(c *gcli.Command) {
 					bind(c)
-					c.AddArg("id", "work item id", true)
+					c.AddArg("id", cliText("cli.work.report_id_arg"), false)
+					c.StrOpt(&workOpts.title, "title", "", "", cliText("cli.work.report_title_flag"))
 					c.StrOpt(&workOpts.goal, "goal", "", "", "what this work is for")
 					c.StrOpt(&workOpts.status, "status", "", "", "active|needs_me|waiting_resource|needs_onsite|review|parked (active = the blocker is gone)")
 					c.StrOpt(&workOpts.blocker, "blocker", "", "", "what is blocking")
@@ -156,6 +157,15 @@ func NewWorkCmd() *gcli.Command {
 					c.StrOpt(&workOpts.request, "request", "", "", "the request id you were asked to answer (from the request text; marks it answered)")
 				},
 				Func: runWorkReport,
+			},
+			{
+				Name: "archive-auto", Desc: cliText("cli.work.archive_desc"),
+				Config: func(c *gcli.Command) {
+					bind(c)
+					c.BoolOpt(&workOpts.yes, "yes", "y", false, cliText("cli.work.archive_yes_flag"))
+					c.BoolOpt(&workOpts.dryRun, "dry-run", "", false, cliText("cli.work.archive_dry_flag"))
+				},
+				Func: runWorkArchiveAuto,
 			},
 			{
 				Name: "summarize", Aliases: []string{"tidy"},
@@ -769,10 +779,6 @@ func runWorkReport(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	id, err := resolveWorkID(cli, c.Arg("id").String())
-	if err != nil {
-		return err
-	}
 	f := map[string]any{"goal": workOpts.goal, "status": workOpts.status, "blocker": workOpts.blocker,
 		"next": workOpts.next, "summary": workOpts.summary}
 	if rid := strings.TrimSpace(workOpts.request); rid != "" {
@@ -788,14 +794,62 @@ func runWorkReport(c *gcli.Command, _ []string) error {
 		}
 		f["session_id"] = sid
 	}
-	d, err := cli.ReportWork(id, f)
+	var d work.DetailView
+	created := false
+	if strings.TrimSpace(c.Arg("id").String()) == "" {
+		// No item id: the session reports on its own item; its first report creates it, titled by
+		// --title (else --goal), never by its first message (design 2026-11-01 §4.2).
+		f["title"] = workOpts.title
+		d, created, err = cli.ReportWorkBySession(f)
+	} else {
+		var id string
+		if id, err = resolveWorkID(cli, c.Arg("id").String()); err != nil {
+			return err
+		}
+		d, err = cli.ReportWork(id, f)
+	}
 	if err != nil {
 		return err
 	}
 	if workOpts.asJSON {
 		return workPrintJSON(c, d)
 	}
+	if created {
+		c.Printf("created %s  %s\n", d.ID, d.Title)
+	}
 	c.Printf("reported on %s (%s)\n", d.ID, d.Status)
+	return nil
+}
+
+// runWorkArchiveAuto archives the old auto-generated work items nobody touched. Like `work rm`
+// it only previews until --yes confirms.
+func runWorkArchiveAuto(c *gcli.Command, _ []string) error {
+	cli, err := workClient()
+	if err != nil {
+		return err
+	}
+	dry := workOpts.dryRun || !workOpts.yes
+	res, err := cli.ArchiveAutoWork(dry)
+	if err != nil {
+		return err
+	}
+	if workOpts.asJSON {
+		return workPrintJSON(c, res)
+	}
+	switch {
+	case len(res.IDs) == 0:
+		c.Println(cliText("cli.work.archive_none"))
+	case dry:
+		for _, id := range res.IDs {
+			c.Println(id)
+		}
+		c.Println(cliText("cli.work.archive_preview", "n", len(res.IDs)))
+		if !workOpts.dryRun {
+			return fmt.Errorf("%s", cliText("cli.work.archive_confirm"))
+		}
+	default:
+		c.Println(cliText("cli.work.archive_done", "n", res.Archived))
+	}
 	return nil
 }
 

@@ -22,10 +22,6 @@ const (
 	titleRunes   = 60
 )
 
-// suggestionFields are the only tidy-up suggestions the home page lists (§2.1, §9.3);
-// the rest stay in Works.
-var suggestionFields = []string{jobstore.SuggestStatusHint, jobstore.SuggestGoal}
-
 // Decisions builds the ordered card queue.
 func (s *Service) Decisions(includeExec bool) ([]Card, error) {
 	return s.DecisionsIn("", includeExec)
@@ -45,7 +41,6 @@ func (s *Service) DecisionsIn(lang i18n.Lang, includeExec bool) ([]Card, error) 
 		b.work,
 		b.captureBox,
 		b.mailHeld,
-		b.suggestions,
 		b.merges,
 		b.blockedPlans,
 		b.memoryCards,
@@ -70,7 +65,7 @@ type builder struct {
 	lang  i18n.Lang
 	now   int64
 	cards []Card
-	// workCards indexes the work cards by item id so a suggestion can fold into one.
+	// workCards indexes the work cards by item id.
 	workCards map[string]int
 	todos     map[string][]jobstore.PlanTodo
 	jobs      map[string]*jobstore.JobRecord
@@ -761,45 +756,9 @@ func shortMailID(id string) string {
 	return id
 }
 
-// ---------------------------------------------------------------- suggestions / merges
-func (b *builder) suggestions() error {
-	rows, err := b.store().ListPendingWorkSuggestionsFor(suggestionFields)
-	if err != nil {
-		return err
-	}
-	for _, sg := range rows {
-		text := suggestionText(b.lang, sg)
-		if i, ok := b.workCards[sg.WorkItemID]; ok {
-			// Same work item: one work card (design §2.1), the suggestion lives in its 「详情」.
-			b.cards[i].Suggestions = append(b.cards[i].Suggestions, Suggestion{Field: sg.Field, Value: sg.Value, Text: text})
-			continue
-		}
-		w, ok, err := b.store().GetWorkItem(sg.WorkItemID)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
-		}
-		b.cards = append(b.cards, Card{
-			Key: KindSuggestion + ":" + sg.WorkItemID + ":" + sg.Field, Kind: KindSuggestion, Tag: b.tr("tag.suggestion"),
-			Title: oneLine(w.Title, titleRunes), ProjectKey: w.ProjectKey, WaitingSince: sg.At, ActivityAt: sg.At,
-			Summary: oneLine(text, summaryRunes), Refs: Refs{WorkItemID: sg.WorkItemID, Field: sg.Field},
-			Actions: []Action{{ID: "adopt", Label: b.tr("action.adopt"), Style: "ok"}, {ID: "dismiss", Label: b.tr("action.dismiss")}},
-		})
-	}
-	return nil
-}
-
-func suggestionText(lang i18n.Lang, sg jobstore.WorkSuggestion) string {
-	switch sg.Field {
-	case jobstore.SuggestStatusHint:
-		return i18n.T(lang, "today.card.suggestion_status", "status", workStatusLabel(lang, sg.Value))
-	case jobstore.SuggestGoal:
-		return i18n.T(lang, "today.card.suggestion_goal", "value", sg.Value)
-	}
-	return sg.Value
-}
+// ---------------------------------------------------------------- merges
+// (The model's tidy-up suggestions no longer make cards: design 2026-11-01 §4.2 keeps them as a
+// collapsed reference inside the work item's detail, nothing on the home page.)
 
 func (b *builder) merges() error {
 	rows, err := b.store().ListWorkMergeSuggestions(jobstore.MergeSuggestPending)

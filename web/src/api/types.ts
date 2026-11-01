@@ -3469,7 +3469,8 @@ export interface WorkItem {
   park_note?: string
   remind_at?: number
   reminded_at?: number
-  source: 'auto' | 'human' | 'steward'
+  // auto = 旧版每个会话自动生成的草稿；report = 会话首次 `gofer work report` 创建；human = 人（Web / CLI / plan 绑定）
+  source: 'auto' | 'human' | 'steward' | 'report'
   // 自动生成、还没人整理的草稿
   unsorted: boolean
   // 收集箱条目的类型、完整正文与来源（仅 captured 条目有）
@@ -3614,6 +3615,8 @@ export interface WorkSummary {
   needs_me: number
   due: number
   open: number
+  // 收集箱里还没整理的条目数（不计入 open）；顶栏的收集箱入口只在它大于 0 时出现
+  captured?: number
 }
 
 export interface WorkListResp {

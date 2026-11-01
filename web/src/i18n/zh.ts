@@ -44,6 +44,8 @@ export const zh: Dict = {
 
   'shell.nav': '主导航',
   'shell.home': '回到今天',
+  'shell.captureCount': '收集箱 {n}',
+  'shell.captureCountTitle': '收集箱里有 {n} 条还没整理',
   'shell.search': '搜索页面',
   'shell.readonly': '只读',
   'shell.stale': '服务端已更新，点击刷新',

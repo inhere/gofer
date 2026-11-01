@@ -8,6 +8,7 @@
 - [被要求汇报 / 写交接时](#被要求汇报--写交接时)
 - [状态与自动映射](#状态与自动映射)
 - [命令](#命令)
+- [归档旧的自动生成项](#归档旧的自动生成项)
 - [请求账本与被动整理](#请求账本与被动整理)
 - [降噪（短命会话与排除名单）](#降噪短命会话与排除名单)
 - [里程碑、健康度与「今天」泳道](#里程碑健康度与今天泳道)
@@ -17,7 +18,8 @@
 
 ## 什么时候会碰到工作项
 
-- 新会话第 `work.draft.min_prompts` 次人工提问（默认 2，第 1 次多半只是试一下）时自动建一张草稿（标题取触发它的那次提问首行，进 web「工作项」页的「待整理」泳道）；补上目标或点「已整理」后进入看板。没有项目的会话、命中排除名单的会话不建（见 [降噪](#降噪短命会话与排除名单)）；已经建出来的草稿不受影响。
+- **工作项是显式的**：终端会话**不再**自动生成工作项（旧版会按每个会话的第 N 次提问自动建草稿，已停用）。工作项只来自：人在 web「工作项」页 / `gofer work new` 创建、plan 绑定，或会话用 `gofer work report` 明确声明（见下节）。不想用可以不管。
+- 升级前留下的旧自动草稿（`source=auto`）不会自己消失：在 web「工作项」页点「归档自动生成的」，或 `gofer work archive-auto --yes`，一次性把其中**没人动过**的归档（见 [归档旧的自动生成项](#归档旧的自动生成项)）。
 - web「请它汇报」「请它写交接」，或人把卡搁置 / 标「需现场」时，你的会话会收到一段固定请求（含工作项 id 和请求 id）——照下一节回复。
 - 不想用可以不管：不影响 job / plan / issue 的使用。
 
@@ -30,6 +32,8 @@ gofer work report <id> --request <请求id> --goal "这件事为了什么" --sta
 #   --request <id> = 回填请求账本；MCP gofer_work_report 的 request 参数同义
 #   --session <sid>（或环境变量 GOFER_SESSION_ID）= 发言者；job 凭据也能 report
 ```
+
+**不带 id 的汇报 = 会话自己的工作项**：`gofer work report --title "导出订单" --goal "…"`（省略 `<id>`，会话取 `--session` / 环境变量）。这个会话已有未结束的工作项就汇报到它上面；还没有，这**第一次**汇报就创建它——标题取汇报里显式给的 `--title`（省略则取 `--goal` 的第一行），**不会**取会话的第一条消息；两者都没有就拒绝，什么也不建。新建的项来源是 `report`（web 上显示「会话汇报创建」），归档旧自动项时不会动它。MCP 的 `gofer_work_report` 仍需要工作项 id。
 
 SessionStart prime 里也有这行提示。
 请求文本按**工作项所属项目的语言**写（`projects.<p>.language` → `server.language`，见 [server-config.md](server-config.md)）：英文项目里是 `[gofer · work handoff] Work item wr-1 …`，命令与参数不变（`--request`、`--status` 这些值是标识符，不翻译）。
@@ -68,6 +72,8 @@ gofer work summarize <id>                  # 立即整理（别名 tidy）
 gofer work accept|dismiss <id> <field>     # 采纳 / 忽略整理建议（goal|blocker|blocker_kind|next|summary|status_hint）
 gofer work requests [<id>] [--all]
 gofer work digest [--send]
+gofer work report [<id>] [--title ..] [--goal ..] ...   # 省略 <id> = 会话汇报自己的项，首次汇报会创建它（见上）
+gofer work archive-auto [--yes] [--dry-run]   # 一次性归档旧的自动生成项（不带 --yes 只预览）
 gofer work rm <id>... [--yes]              # 永久删除 done / dropped 的项（不带 --yes 只列出）
 gofer work rm --status dropped|done [--dry-run] [--yes]
 ```
@@ -75,6 +81,14 @@ gofer work rm --status dropped|done [--dry-run] [--yes]
 - 时间写法：`2h` `90m` `3d` `1w` `tomorrow`（次日 09:00）、`YYYY-MM-DD`、`"YYYY-MM-DD HH:MM"`（本地时间）、RFC3339、unix 秒。
 - `--acp <job-id>`：ACP 持续会话 / 终端 pty job 也能挂到工作项上（它们不参与「请它汇报」）。
 - 删除只允许 `done` / `dropped` 的项，是人的决定：没有 MCP 工具，job / 管家凭据不能删。
+
+## 归档旧的自动生成项
+
+旧版会为每个终端会话自动生成工作项（标题是会话的第一句话，状态靠模型推断）。这些项（`source=auto`）升级后留在列表里，可一次性清理：
+
+- web「工作项」页的「归档自动生成的（N）」按钮（只在有这类项时出现；先数出会动几项、弹确认，确认后才归档），或 `gofer work archive-auto`（不带 `--yes` 只列出 id 并报错，`--dry-run` 只列出，`--yes` 才归档）。接口 `POST /v1/work-items/archive-auto[?dry_run=1]`，返回 `{archived, ids}`；只有人能调（job / 管家凭据 403），受调用方的项目范围限制。
+- **只动**：`source=auto`、还没结束、不在收集箱、没被合并走，且**没人动过**——状态从没被人设过，日志与字段来源里也没有人的发言。人建的、会话汇报建的（`source=report`）、你改过的都不动。
+- 归档 = 状态变 `dropped`，写一条日志，每项记一条审计（`work.archived_auto`，只记 id 和操作者）；`dropped` 的项照旧可用 `gofer work rm` 永久删除。**幂等**：再跑一次返回 0。
 
 ## 请求账本与被动整理
 
@@ -84,24 +98,21 @@ gofer work rm --status dropped|done [--dry-run] [--yes]
 - **整理器自己只有一个会话**：每个项目保留一个整理器会话并续用，不再每整理一件就新开一个 agent 会话——第一次整理照旧由 job 层给 agent 分配会话（agent 的 `session_inject`，如 `suga run --session-id` / `claude --session-id`），gofer 记下这次 job 的会话 id；之后每次整理续在这个会话里（agent 的 `session_resume`，即 `job resume` 那套，`suga --resume` / `claude --resume` / `codex exec resume`）。续用时提示开头会说明「这是新的一件工作，忽略之前的工作项」，每次提示仍自带完整上下文、仍只输出 JSON。累计整理 `work.summarizer_session_max_runs`（20）次、上下文用量达到 `server.background_agents.session.max_context_ratio`（默认 0.7，agent 报告了上下文窗口时才算；没报告就只按次数）、或会话存在超过 `work.summarizer_session_max_age`（24h）后自动换新会话（统一阈值见 [job-advanced.md](job-advanced.md)「后台 agent 的会话轮换与硬停」；整理器的两个 `work.summarizer_session_*` 字段显式写了就优先于统一值）；续接失败（会话不存在 / agent 报错）时回退成新会话并记一条 `work.summarizer_session_reset` 事件，整理本身不失败。整理器所用 model（`summarizer_args` 里的 `--model X`）变了也不会续用旧会话。没有 `session_resume` 的 agent 维持旧行为（每次新会话）。
 - **整理器会话是内部会话**：`gofer session ls`、web 工作台的会话列表与会话搜索默认不显示整理器产生的会话；`--all`（或接口的 `all=1` / `internal=1`）才列出来。旧版本产生的整理器会话只要能认出来（带整理 job 的会话 id，或在整理 job 运行期间登记的空会话）也一并隐藏。
 - **写回规则**：只填空字段或覆盖上次也是整理器写的字段；人或会话写过的字段不覆盖，改存为「整理建议」，卡上一键采纳 / 忽略；状态建议只有采纳才改状态。
+- **模型推断只是参考，不驱动提醒**：整理器写的目标 / 卡点 / 下一步 / 摘要和它的建议不进「等我」、不产生「今天」的建议卡、不进推送；web 工作项详情里建议折叠在「模型参考」里。
 - **成本控制**：每会话两次整理最少间隔 `work.summarize_min_interval_min`（30），每日自动整理上限 `work.summarize_daily_limit`（50，-1 不限）；手动「整理」不受限。没有可用整理器 agent（需 cli-agent 且有只读模式）时自动整理关闭，设置页说明原因。整理 job 不注入 rules（agent / 项目的规则只用于正式任务）。
 - **换整理器 agent**：`work.summarizer_agent` 填任一 cli-agent，它要有只读模式——claude / codex 内置，其他 agent 在定义里配 `read_only_args`（如某个 CLI 的「禁用全部工具」开关），否则整理器不可用。prompt 走 agent 自己 `args` 里的 `{{prompt}}`，`work.summarizer_args` 只是追加在后面的参数（便宜模型、不留会话、关思考之类），不需要写占位符；默认参数只适用于 claude，换 agent 时自己写。
 - 设置：web 设置 →「工作项」页（管理员），对应配置的 `work:` 块，热生效。
 
 ## 降噪（短命会话与排除名单）
 
-测试 / 试一试的会话不再变成工作项、也不进整理与管家。阈值与名单都是扩展设置（web 设置 →「扩展设置」，或 `gofer settings set <键> <值>`），改了立即生效：
+测试 / 试一试的会话不进整理与管家。阈值与名单都是扩展设置（web 设置 →「扩展设置」，或 `gofer settings set <键> <值>`），改了立即生效：
 
 | 键 | 默认 | 作用 |
 |---|---|---|
-| `work.draft.min_prompts` | 2 | 同一会话第几次人工提问才建草稿（1 = 第一次就建，回到旧行为） |
-| `work.draft.exclude_projects` | 空 | 不建草稿的项目 key 名单（精确匹配） |
-| `work.draft.exclude_cwds` | 空 | 不建草稿的目录名单（会话 cwd 以其中一项为前缀即命中；Windows 下不分大小写、`/` 与 `\` 等价） |
-| `work.draft.exclude_title_patterns` | 空 | 不建草稿的标题正则 |
+| `work.draft.min_prompts` / `exclude_projects` / `exclude_cwds` / `exclude_title_patterns` | — | **已不起作用**（会话不再自动建工作项）；键暂时保留，免得旧的设置导出 / 导入报错，v0.211 移除 |
 | `work.short_session.max_minutes` | 10 | 短命会话的时长阈值 |
 | `work.short_session.max_prompts` | 3 | 短命会话的人工提问次数阈值 |
 
-- **无项目不建**：会话不属于任何项目（hook 没报 `project_key`）时，提问不建草稿。
 - **短命会话**：已结束或离线，且存活时间短于 `work.short_session.max_minutes`、人工提问少于 `work.short_session.max_prompts` 的会话，整理器跳过（在整理记录里留一条 `skipped` 和原因，不占每日额度），管家巡检、首条摘要里的未结列表、会话离线 / 结束事件也都跳过。两个阈值任一设为 0 即关闭该判据。
 - 阈值只影响之后的判断：已经存在的草稿、已经发生的整理不受影响。
 - 读设置失败（数据库错误）时退回默认值并在日志里记一条，整理与巡检不停摆。
@@ -132,8 +143,8 @@ gofer work rm --status dropped|done [--dry-run] [--yes]
 
 - **收集箱条目（`captured`）**：不在按状态的列表里占普通状态的位置，只在「收集箱」泳道（web 工作项页的状态 chip 可只看它）；汇报 / 整理器 / 管家 / job 凭据都不能把条目改成或改出该状态，也不改动它的状态；日报、整理扫描、健康检查、到期提醒、合并建议、Today 泳道都不含它，Today 只出一张「收集箱 N 条待处理」汇总卡。人通过 `PATCH` 把状态改出 `captured` 视同归档（写日志）。
 - **搁置 / 提醒**：`work park --until`、`work remind`；server 每 30 秒扫描，到点发一次 `work.remind` 事件，卡片进「到期提醒」。
-- **每日摘要** `work.digest`：默认每天 09:00（`work.digest_time`，`work.digest_enabled: false` 关闭）：等我 / 等资源 / 需现场 / 待验收计数、搁置超 7 天、昨日有进展的列表，带链接。`gofer work digest` 预览，`--send` 立即发。开了管家时附管家点评。
-- **「等我」通知** `work.needs_me`：卡进入等我时发一次，默认关（`work.needs_me_notify`），同一张卡最小间隔 `work.needs_me_throttle_min`（30 分钟）。
+- **每日摘要** `work.digest`：默认每天 09:00（`work.digest_time`，`work.digest_enabled: false` 关闭）：等我 / 等资源 / 需现场 / 待验收计数、搁置超 7 天、昨日有进展的列表，带链接。`gofer work digest` 预览，`--send` 立即发。摘要只含结构化计数与列表；管家的点评不再附在里面（只记在巡检记录里）。
+- **「等我」通知** `work.needs_me`：卡进入等我时发一次，默认关（`work.needs_me_notify`），同一张卡最小间隔 `work.needs_me_throttle_min`（30 分钟）。推送正文只带原因和人 / 会话自己写的目标、卡点、下一步；整理用的模型推断出来的字段不进推送。
 - `work.remind` 与 `work.digest` 在默认订阅集里。没有任何 webhook 订阅时，`gofer steward status` 与 `gofer config validate` 会给出提示（`work.digest_enabled` 不写时不提示，显式写 `true` 或开了管家才提示）。通知配置见 <https://github.com/inhere/gofer/blob/main/docs/runbook/im-notification.md>。
 
 ## 管家（steward）
@@ -147,6 +158,7 @@ gofer steward ask "我手上还有什么没完成？" [--no-wait] [--timeout 180
 gofer steward notes [--version N | --history | --edit | --set-file <f|->]
 gofer steward review [--force]         # 立即巡检（没变化的项不起会话，--force 强制）
 gofer steward merges | merge-accept <n> | merge-dismiss <n>
+gofer steward observations [--limit N]   # 主动巡检「本来会做」的事（只记录模式下的记录）
 ```
 
 - 配置（`steward:` 块，web 设置 →「工作项」页的「管家」区）：`enabled`、`agent`（任意已装的 acp-agent）、`project`（默认内置 `default`）、`review_time`（每日巡检，默认 08:50）、`idle_end_min`（空闲多久结束会话，默认 30）、`review_max_items`（默认 20）、`event_wake`（会话离线 / 到期 / 草稿多时是否唤醒，默认 false）、`event_throttle_min`（默认 30）、`approval`（会话自己的工具审批策略，见下条）。
@@ -154,7 +166,8 @@ gofer steward merges | merge-accept <n> | merge-dismiss <n>
 - **管家会话自己的审批策略** `steward.approval`（结构与项目 `approval` 一样）：缺省 = `mode: ask` 并自动放行 gofer 只读 / 只提建议的工具**与管家本职的写工具**（`gofer_work_update` / `gofer_work_note` / `gofer_work_remind` / `gofer_work_request_report` / `gofer_work_summarize` / `gofer_steward_notes` / `gofer_session_ask`），所以记备注、设提醒、请会话汇报不会停下来等人；写文件 / 执行命令 / 其他 MCP server 的工具仍然问人，`mode: strict` 则一律问人。它**只**替代管家这一条会话的策略（以 job 的 `session_approval` 随 job 保存，`job resume`、会话续接、重启恢复都照旧），项目里其他 ACP 会话不受影响；只写 `mode` 时保留上面的默认工具名单，显式写 `auto_allow_tools` 才替换它。审批记录里这类自动放行的 `reason` 是 `gofer_steward_tool`。
 - 工作项整理器（summarizer）发给 agent 的指令、材料标签与 JSON 输出要求同样按**工作项所属项目的语言**出文（英文项目里整理器用英文写 progress / next）；设置页的整理状态说明跟请求语言，整理失败原因落请求账本用项目语言。
 - 配置里的 `projects.<key>.language`（未设置则使用 `server.language`）也决定该项目管家会话收到的全部文本：角色 / 巡检提示词、首条简报（`## 现在`、笔记、未结工作项、在途请求账本、最近 24 小时日志）、巡检里由代码拼出的部分（工作项与事件清单、`「今天」` 待决策步骤、仓库记忆整理步骤）、工作项行里的状态与时间说法、事件摘要、会话标题与首轮指令、提问包装语。提示词首行带 `<!-- gofer:steward-prime -->` 标记。旧版以 `# 你是工作管家` 开头的首轮提示仍可被 Web 识别；Web 管家面板同时认中文与英文的巡检标题 / 提问包装语。
-- 每日巡检只处理自上次巡检后有变化的项与还没看过的「今天」卡；没变化就不起会话。巡检末尾写一段点评附在当天的摘要里。短命会话的项既不巡检、也不进首条摘要的未结列表、也不产生会话离线 / 结束事件（见 [降噪](#降噪短命会话与排除名单)）。
+- **主动行为默认只记录**（设置 `steward.act_proactively`，默认关，web 设置 →「扩展设置」或 `gofer settings set steward.act_proactively true`）：每日巡检与事件唤醒仍会跑，但在它们进行的这一轮里，管家那些**有后果的写**——改工作项、记日志、请会话汇报、触发整理、提合并 / 记忆整理建议、给「今天」卡写建议、给会话带话、发信——服务端不执行，记成一条「本来会做」的记录（`gofer steward observations`，`GET /v1/steward/observations`，保留最近 500 条）并回 202 告诉它「只记录了」。它自己的笔记和巡检点评照常写。**人自己发起的**（`gofer steward review`、`ask`、web 的「问管家」）始终照常动手，人的写也不受影响。确认记录有价值后再把开关打开，管家就恢复主动整理。
+- 每日巡检只处理自上次巡检后有变化的项与还没看过的「今天」卡；没变化就不起会话。巡检末尾写一段点评，只记在这次巡检的记录里（`gofer steward status` 看），不再附在摘要里、也不推送。短命会话的项既不巡检、也不进首条摘要的未结列表、也不产生会话离线 / 结束事件（见 [降噪](#降噪短命会话与排除名单)）。
 - 问管家：Works 页右下角「问管家」面板（手机可用），或 `gofer steward ask`。
 - 权限提醒：管家的 gofer 凭据只能读写工作项相关数据、提建议；server 无 token 运行时这层限制不生效。管家 agent 自带的 shell / 文件工具不受 gofer 凭据约束。
 

@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -115,47 +117,83 @@ func humanPrompt(t *testing.T, s *Server, sid, title string) {
 	}
 }
 
-func TestWorkItemsFirstHumanPromptDraftsOnceAndShowsUnsorted(t *testing.T) {
+// explicitItem makes the work item a person would have made for the session (no prompt creates
+// one any more): POST /v1/work-items naming the session. It returns the item id.
+func explicitItem(t *testing.T, s *Server, sid, title string) string {
+	t.Helper()
+	return workCall(t, s, http.MethodPost, "/v1/work-items", testToken,
+		map[string]any{"title": title, "project_key": "p1", "session_ids": []string{sid}}, 200).ID
+}
+
+func TestWorkItemsPromptsNeverCreateOneAndTheFirstReportDoes(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	registerSessionInProject(t, s, "sess-w1-aaaa", "/ws/a", "p1")
-	// Register alone (SessionStart) makes nothing; the SECOND human prompt makes one
-	// (work.draft.min_prompts, default 2) and the title is the prompt that triggered it.
-	if items, _ := workList(t, s, ""); len(items) != 0 {
-		t.Fatalf("items before prompt = %d", len(items))
+	for _, p := range []string{"ws: 修登录页", "ws: 另一个问题", "继续", "提交 + push"} {
+		humanPrompt(t, s, "sess-w1-aaaa", p)
 	}
-	humanPrompt(t, s, "sess-w1-aaaa", "ws: 修登录页")
 	if items, _ := workList(t, s, ""); len(items) != 0 {
-		t.Fatalf("items after one prompt = %d", len(items))
+		t.Fatalf("prompts made %d work items, want none (design 2026-11-01 §4.2)", len(items))
 	}
-	humanPrompt(t, s, "sess-w1-aaaa", "ws: 另一个问题")
+
+	// The first explicit report creates the item (201), titled by the report's own title.
+	created := workCall(t, s, http.MethodPost, "/v1/work-items/report", testToken,
+		map[string]any{"session_id": "sess-w1-aaaa", "title": "登录页修复", "goal": "让登录页不再丢 session", "next": "补测试"}, 201)
+	if created.ID == "" || created.Title != "登录页修复" || created.Goal != "让登录页不再丢 session" || created.Unsorted {
+		t.Fatalf("created = %+v", created)
+	}
 	items, sum := workList(t, s, "")
-	if len(items) != 1 || items[0].Title != "ws: 另一个问题" || !items[0].Unsorted || items[0].Status != "active" {
-		t.Fatalf("items = %+v", items)
-	}
-	if sum["open"] != 1 || sum["needs_me"] != 0 {
-		t.Fatalf("summary = %v", sum)
-	}
-	if got, _ := workList(t, s, "?unsorted=1"); len(got) != 1 {
-		t.Fatalf("unsorted filter = %d", len(got))
-	}
-	if got, _ := workList(t, s, "?unsorted=0"); len(got) != 0 {
-		t.Fatalf("sorted filter = %d", len(got))
+	if len(items) != 1 || items[0].ID != created.ID || sum["open"] != 1 {
+		t.Fatalf("items = %+v summary = %v", items, sum)
 	}
 	if got, _ := workList(t, s, "?session=sess-w1-aaaa"); len(got) != 1 {
 		t.Fatalf("session filter = %d", len(got))
 	}
-	d := workGet(t, s, "/v1/work-items/"+items[0].ID)
+	d := workGet(t, s, "/v1/work-items/"+created.ID)
 	if len(d.Sessions) != 1 || d.Sessions[0].Agent != "claude" || len(d.Journal) == 0 {
 		t.Fatalf("detail = %+v", d)
+	}
+
+	// The same session reporting again reports on that item (200), creating nothing.
+	again := workCall(t, s, http.MethodPost, "/v1/work-items/report", testToken,
+		map[string]any{"session_id": "sess-w1-aaaa", "summary": "测试补完了"}, 200)
+	if again.ID != created.ID {
+		t.Fatalf("second report = %+v, want item %s", again, created.ID)
+	}
+	if items, _ := workList(t, s, ""); len(items) != 1 {
+		t.Fatalf("items after second report = %d", len(items))
+	}
+
+	// The session may also come from the request's own session header, like every other route.
+	registerSessionInProject(t, s, "sess-w1-bbbb", "/ws/b", "p1")
+	rb, _ := json.Marshal(map[string]any{"goal": "第二件事"})
+	req := httptest.NewRequest(http.MethodPost, "/v1/work-items/report", bytes.NewReader(rb))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(sessionHeader, "sess-w1-bbbb")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	resp := rec.Result()
+	resp.Body.Close()
+	if resp.StatusCode != 201 {
+		t.Fatalf("report via session header = %d, want 201", resp.StatusCode)
+	}
+
+	// Refusals: no session, an unknown session, nothing to say, nothing to name the item by.
+	workCall(t, s, http.MethodPost, "/v1/work-items/report", testToken, map[string]any{"goal": "g"}, 400)
+	workCall(t, s, http.MethodPost, "/v1/work-items/report", testToken, map[string]any{"session_id": "sess-nope", "goal": "g"}, 404)
+	workCall(t, s, http.MethodPost, "/v1/work-items/report", testToken, map[string]any{"session_id": "sess-w1-aaaa"}, 400)
+	registerSessionInProject(t, s, "sess-w1-cccc", "/ws/c", "p1")
+	workCall(t, s, http.MethodPost, "/v1/work-items/report", testToken, map[string]any{"session_id": "sess-w1-cccc", "status": "needs_me"}, 400)
+	if items, _ := workList(t, s, ""); len(items) != 2 {
+		t.Fatalf("refused reports created items: %d", len(items))
 	}
 }
 
 func TestWorkItemsStatusFollowsSessionAndHumanWins(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	registerSessionInProject(t, s, "sess-w2", "/ws/a", "p1")
-	humanPrompt(t, s, "sess-w2", "ws: t")
-	humanPrompt(t, s, "sess-w2", "ws: t2") // the draft starts on the second prompt
-	id := func() string { items, _ := workList(t, s, ""); return items[0].ID }()
+	id := workCall(t, s, http.MethodPost, "/v1/work-items", testToken,
+		map[string]any{"title": "ws: t", "project_key": "p1", "session_ids": []string{"sess-w2"}}, 200).ID
 
 	resp := do(t, s, http.MethodPost, "/v1/sessions/sess-w2/heartbeat", testToken, map[string]any{"event": "Stop", "state": "waiting_reply"})
 	resp.Body.Close()
@@ -214,10 +252,8 @@ func TestWorkItemsJournalLinksSessionsMergeSplit(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	registerSessionInProject(t, s, "sess-m1", "/ws/a", "p1")
 	registerSessionInProject(t, s, "sess-m2", "/ws/a", "p1")
-	humanPrompt(t, s, "sess-m1", "ws: 一")
-	humanPrompt(t, s, "sess-m1", "ws: 一续") // the draft starts on the second prompt
-	humanPrompt(t, s, "sess-m2", "ws: 二")
-	humanPrompt(t, s, "sess-m2", "ws: 二续")
+	explicitItem(t, s, "sess-m1", "ws: 一续")
+	explicitItem(t, s, "sess-m2", "ws: 二续")
 	items, _ := workList(t, s, "")
 	if len(items) != 2 {
 		t.Fatalf("items = %d", len(items))
@@ -322,10 +358,7 @@ func TestWorkItemsWorkerTokenRefused(t *testing.T) {
 func TestWorkItemsReportRequestOnlyReachesRunningSessions(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	registerSessionInProject(t, s, "sess-rr1", "/ws/a", "p1")
-	humanPrompt(t, s, "sess-rr1", "ws: t")
-	humanPrompt(t, s, "sess-rr1", "ws: t2") // the draft starts on the second prompt
-	items, _ := workList(t, s, "")
-	id := items[0].ID
+	id := explicitItem(t, s, "sess-rr1", "ws: t2")
 
 	// Running session without a project: the message channel reports why it cannot deliver,
 	// and the response says so instead of pretending.
@@ -398,10 +431,7 @@ func TestWorkItemsFollowHookHeartbeatsLive(t *testing.T) {
 	defer close(stop)
 	go s.work.Run(stop)
 	registerSessionInProject(t, s, "sess-live-0001", "/ws/a", "p1")
-	humanPrompt(t, s, "sess-live-0001", "ws: live")
-	humanPrompt(t, s, "sess-live-0001", "ws: live 2") // the draft starts on the second prompt
-	items, _ := workList(t, s, "")
-	id := items[0].ID
+	id := explicitItem(t, s, "sess-live-0001", "ws: live 2")
 
 	resp := do(t, s, http.MethodPost, "/v1/sessions/sess-live-0001/heartbeat", testToken, map[string]any{"event": "Stop", "state": "waiting_reply"})
 	resp.Body.Close()

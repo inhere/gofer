@@ -691,6 +691,74 @@ func (s *Server) handleReportWorkItem(c *rux.Context) {
 	s.respondWorkDetail(c, c.Param("id"), http.StatusOK)
 }
 
+type workSessionReportReq struct {
+	workReportReq
+	// Title names the item a session's FIRST report creates (explicit, never the prompt).
+	Title string `json:"title"`
+}
+
+// POST /v1/work-items/report — `gofer work report` without an item id: the session (the body's
+// session_id, else the request's X-Gofer-Session-Id) reports on its own work item, and its first
+// report creates that item (201) titled by the report's own title / goal. A person's route:
+// a job credential reports through POST /v1/work-items/{id}/report.
+func (s *Server) handleReportBySession(c *rux.Context) {
+	if !s.workReady(c) || !workNotAWorker(c) {
+		return
+	}
+	var body workSessionReportReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	sid := strings.TrimSpace(body.SessionID)
+	if sid == "" {
+		sid = requestSessionID(c)
+	}
+	if !s.requireResourceScopes(c, "session", []string{sid}) {
+		return
+	}
+	w, created, err := s.work.ReportBySession(sid, work.SessionReportInput{
+		ReportInput: work.ReportInput{
+			Goal: body.Goal, Status: body.Status, Blocker: body.Blocker, Next: body.Next, Summary: body.Summary,
+			By: s.work.SessionBy(sid), RequestID: body.RequestID,
+		},
+		Title: body.Title,
+	})
+	if err != nil {
+		if errors.Is(err, work.ErrSessionNotFound) {
+			writeError(c, http.StatusNotFound, "report work item failed", err.Error())
+			return
+		}
+		writeWorkError(c, err, "report work item")
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	s.respondWorkDetail(c, w.ID, status)
+}
+
+// POST /v1/work-items/archive-auto[?dry_run=1] — the one-shot cleanup of the old auto-generated work
+// items: archives every open item with source=auto that no person ever touched, within the
+// caller's projects, and answers {archived, ids} (dry_run lists ids and archives nothing). A person only; the permission is the work
+// item write rule (every person caller, like the other work writes).
+func (s *Server) handleArchiveAutoWorkItems(c *rux.Context) {
+	if !s.workReady(c) || !workDeleteAllowed(c) {
+		return
+	}
+	var allow func(string) bool
+	if s.ceilingActive(c) {
+		allow = s.scopeFilter(c)
+	}
+	res, err := s.work.ArchiveAuto(callerFromCtx(c), allow, queryBool(c, "dry_run"))
+	if err != nil {
+		writeWorkError(c, err, "archive auto work items")
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
 // workMessenger adapts the session relay to the work service's delivery seam: a session
 // waiting for a reply gets the text through the relay, anything else through the
 // one-shot messenger — exactly what the 传话 button does.

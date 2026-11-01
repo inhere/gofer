@@ -106,13 +106,17 @@ func (d Definition) DescriptionIn(lang i18n.Lang) string {
 // Registry keys. Handlers, planners and tests spell keys through these constants rather
 // than repeating string literals (the names are published, they never change).
 const (
-	KeyWebNavHidden                  = "web.nav_hidden"
+	KeyWebNavHidden = "web.nav_hidden"
+	// The four work.draft.* keys have no consumer since sessions stopped creating work items
+	// (design 2026-11-01 §4.2); they stay readable so an old settings export still imports.
+	// DEPRECATED(v0.208): remove in v0.211
 	KeyWorkDraftMinPrompts           = "work.draft.min_prompts"
 	KeyWorkDraftExcludeProjects      = "work.draft.exclude_projects"
 	KeyWorkDraftExcludeCwds          = "work.draft.exclude_cwds"
 	KeyWorkDraftExcludeTitlePatterns = "work.draft.exclude_title_patterns"
 	KeyWorkShortSessionMaxMinutes    = "work.short_session.max_minutes"
 	KeyWorkShortSessionMaxPrompts    = "work.short_session.max_prompts"
+	KeyStewardActProactively         = "steward.act_proactively"
 	KeyPromptStewardRole             = "prompt.steward.role"
 	KeyPromptStewardRoleExtra        = "prompt.steward.role.extra"
 	KeyPromptStewardReview           = "prompt.steward.review"
@@ -150,6 +154,9 @@ var registry = []Definition{
 	{
 		Key: KeyWorkShortSessionMaxPrompts, Group: GroupWork, Kind: KindInt, Default: 3,
 		Min: 0, Max: 100,
+	},
+	{
+		Key: KeyStewardActProactively, Group: GroupWork, Kind: KindBool, Default: false,
 	},
 	{
 		Key: KeyPromptStewardRole, Group: GroupPrompt, Kind: KindString, Default: "",

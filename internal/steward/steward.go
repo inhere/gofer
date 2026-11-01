@@ -132,6 +132,10 @@ type Service struct {
 	tickMu   sync.Mutex
 	reviewMu sync.Mutex
 	reviewOn bool
+	// reviewTrigger / reviewID describe the review in flight (valid while reviewOn): the
+	// observe-only gate reads them (observe.go).
+	reviewTrigger string
+	reviewID      int64
 
 	askWait       time.Duration
 	pollEvery     time.Duration

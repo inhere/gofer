@@ -116,6 +116,8 @@ func TestRemindersHealthAndSummaryExcludeCaptured(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, sum.Due)
 	assert.Eq(t, 0, sum.Open)
+	// ...but the capture box has its own count: the top bar entry shows while it is above zero.
+	assert.Eq(t, 1, sum.Captured)
 	list, err := svc.List(jobstore.WorkListOpts{Due: true})
 	assert.NoErr(t, err)
 	assert.Len(t, list, 0)

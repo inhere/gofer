@@ -1,18 +1,14 @@
 <script setup lang="ts">
-// P3 今天页（设计稿 §7.1）：首屏「N 件事在等你」+ 一行摘要 → 「自上次打开」摘要 → 类型 / 项目 chip
-// → 决策卡片队列（前 5 张，其余进全局浮层）→ 卡片底部入口；右栏并行中 + 刚处理过；贴底状态条。
-// 数据与撤销窗口在 store/today.ts，与顶栏「待我决策」浮层共用。
+// 今天页（设计稿 2026-11-01 §4.3）= 「等我」列表 + 进行中的计划（链到计划页）+ 正在跑的会话 / job 数
+// （链到工作台）。没有 digest、整理建议、收集箱这类卡；等我为空时首屏只有一句空态（健康状态不占地方）；
+// 状态条只在有告警时出现。数据与撤销窗口在 store/today.ts，与顶栏「待我决策」浮层共用。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import DecisionQueue from '../components/today/DecisionQueue.vue'
 import TodayStatusBar from '../components/today/TodayStatusBar.vue'
-import TodayLanes from '../components/today/TodayLanes.vue'
-import TodayRecentHandled from '../components/today/TodayRecentHandled.vue'
+import TodayPlans from '../components/today/TodayPlans.vue'
 import FocusMode from '../components/today/FocusMode.vue'
 import SnoozedDrawer from '../components/today/SnoozedDrawer.vue'
-import FilterChips from '../ui/FilterChips.vue'
-import ProjectFilter from '../ui/ProjectFilter.vue'
-import { useProjectFilter } from '../ui/projectFilter'
-import StatusGlyph from '../ui/StatusGlyph.vue'
 import { t } from '../i18n'
 import {
   actOnCard,
@@ -34,9 +30,6 @@ import {
   visibleCards,
 } from '../store/today'
 import { TOP_N } from '../utils/today'
-import { filterByProject, filterByType, laneAgentStats, typeCounts, TODAY_TYPE_GROUPS } from '../utils/todayFilters'
-import type { TodayLanesResp } from '../api/todayLanes'
-import { formatDate } from '../utils/format'
 import { ceilingReadOnlyNotice } from '../utils/ceiling'
 import { useWhoami } from '../store/whoami'
 
@@ -46,35 +39,16 @@ const { readOnly } = useWhoami()
 const nowSec = ref(Math.floor(Date.now() / 1000))
 let clock: ReturnType<typeof setInterval> | null = null
 
-// 项目是筛选条件（§6.4）：值的真源是 URL 的 ?project=。
-const { project, setProject, options: projectKeys, loadOptions: loadProjectOptions, loadError: projectError } =
-  useProjectFilter('/today')
-const typeFilter = ref('')
-
-const digest = computed(() => todayData.value?.digest)
-const since = computed(() => digest.value?.since_last)
-const dateText = computed(() => formatDate(nowSec.value * 1000))
-const doneToday = computed(() => since.value?.jobs_done ?? 0)
-
-// 首屏一行摘要：agent 在跑 / 空闲会话来自并行中的泳道，今天完成来自 digest。
-const lanes = ref<TodayLanesResp | null>(null)
-const stats = computed(() => laneAgentStats(lanes.value?.lanes))
-
-// 队列先按项目、再按类型过滤；卡片底部与空态用过滤后的数量。
-const projectCards = computed(() => filterByProject(visibleCards.value, project.value))
-const counts = computed(() => typeCounts(projectCards.value))
-const shownCards = computed(() => filterByType(projectCards.value, typeFilter.value))
+// 「等我」唯一列表（服务端 waiting）；前 5 张直接展开，其余进全局浮层。
+const shownCards = visibleCards
 // Ctrl/⌘+J 跳过前 5 张后也要能看见高亮的那张：按光标把渲染张数撑开（issue gofer-okz3 ①）。
 const queueLimit = computed(() => Math.max(TOP_N, queueCursor.value + 1))
-const typeItems = computed(() => [
-  { value: '', label: t('today.filter.all'), count: projectCards.value.length },
-  ...TODAY_TYPE_GROUPS.map((g) => ({ value: g, label: t(`today.filter.${g}`), count: counts.value[g] })),
-])
-const emptyText = computed(() =>
-  typeFilter.value || project.value
-    ? t('today.queue.emptyHint')
-    : t('today.queue.empty', { n: handledTodayCount.value }),
-)
+// 正在跑的会话 / job（服务端数，链到工作台）；都是 0 时这一行不出现。
+const running = computed(() => todayData.value?.running ?? { sessions: 0, jobs: 0 })
+const showRunning = computed(() => running.value.sessions + running.value.jobs > 0)
+// 状态条只在有告警时占地方（runner 离线、巡检失败……）。
+const showStatus = computed(() => (todayData.value?.status.alerts.length ?? 0) > 0)
+const failedToday = computed(() => todayData.value?.digest?.since_last?.jobs_failed ?? 0)
 
 function openOverlay(): void {
   overlayOpen.value = true
@@ -91,8 +65,8 @@ function openFocus(): void {
 }
 const snoozedCount = computed(() => todayData.value?.snoozed ?? 0)
 
-// 「自上次打开」：页面可见时开始一次访问，切走 / 关页 / 离开路由时结束（看够久才推进水位）；
-// 切回来是新的一次访问，水位换成上一次访问的开始时间并重拉。
+// 页面可见时开始一次访问，切走 / 关页 / 离开路由时结束（看够久才推进水位）；
+// 切回来是新的一次访问并重拉。
 function onVisibility(): void {
   if (document.visibilityState === 'hidden') {
     endTodayVisit()
@@ -111,7 +85,6 @@ onMounted(() => {
   window.addEventListener('pagehide', onPageHide)
   void refreshToday()
   void loadHandledToday()
-  void loadProjectOptions()
   clock = setInterval(() => {
     nowSec.value = Math.floor(Date.now() / 1000)
   }, 30_000)
@@ -130,58 +103,36 @@ onUnmounted(() => {
       <p v-if="todayError" class="today-err mono">{{ todayError }}</p>
 
       <header class="today-hero">
-        <p class="date mono">{{ dateText }}</p>
         <h1 data-test="today-title">
           {{ shownCards.length ? t('today.title.n', { n: shownCards.length }) : t('today.title.0') }}
         </h1>
       </header>
-      <div class="today-summary" data-test="today-summary">
-        <span><StatusGlyph status="running" :size="13" />{{ t('today.sum.running', { n: stats.running }) }}</span>
-        <span><StatusGlyph status="idle" :size="13" />{{ t('today.sum.idle', { n: stats.idle }) }}</span>
-        <span><StatusGlyph status="done" :size="13" />{{ t('today.sum.done', { n: doneToday }) }}</span>
-      </div>
-
-      <details v-if="digest" class="digest" data-test="today-digest">
-        <summary>
-          {{ t('today.digest') }}
-          <span class="dg-n"><b>{{ since?.jobs_done ?? 0 }}</b> {{ t('today.digest.done') }}</span>
-          <span class="dg-n" :class="{ 'k-fail': (since?.jobs_failed ?? 0) > 0 }"><b>{{ since?.jobs_failed ?? 0 }}</b> {{ t('today.digest.failed') }}</span>
-          <span class="dg-n"><b>{{ since?.commits ?? 0 }}</b> {{ t('today.digest.commits') }}</span>
-        </summary>
-        <div class="digest-full">
-          <p class="digest-title mono">{{ digest.title }}</p>
-          <p class="digest-text">{{ digest.text }}</p>
-        </div>
-      </details>
-
-      <div class="today-filters">
-        <FilterChips v-model="typeFilter" :items="typeItems" :label="t('today.filter.type')" />
-        <ProjectFilter
-          :model-value="project"
-          :options="projectKeys"
-          :error="projectError"
-          @update:model-value="setProject"
-        />
-      </div>
 
       <DecisionQueue
+        v-if="shownCards.length"
         :cards="shownCards"
         :now-sec="nowSec"
         :limit="queueLimit"
         :highlight-key="highlightedCardKey"
-        :empty-text="emptyText"
         @act="actOnCard"
         @snooze="snoozeCard"
         @more="openOverlay"
         @focus="openFocus"
       />
 
+      <TodayPlans />
+
+      <p v-if="showRunning" class="today-running" data-test="today-running">
+        <RouterLink to="/workbench">{{ t('today.running', { sessions: running.sessions, jobs: running.jobs }) }}</RouterLink>
+      </p>
+
       <div class="today-foot">
         <button
+          v-if="shownCards.length"
           class="btn-focus"
           type="button"
           data-test="open-focus"
-          :disabled="!shownCards.length || readOnly"
+          :disabled="readOnly"
           :title="readOnly ? ceilingReadOnlyNotice() : undefined"
           @click="openFocus"
         >{{ t('today.focus') }}</button>
@@ -189,7 +140,7 @@ onUnmounted(() => {
           <input type="checkbox" :checked="includeExec" @change="setIncludeExec(($event.target as HTMLInputElement).checked)" />
           {{ t('today.inclExec') }}
         </label>
-        <span class="keys mono">{{ t('today.card.keys') }}</span>
+        <span v-if="shownCards.length" class="keys mono">{{ t('today.card.keys') }}</span>
         <span class="grow"></span>
         <button type="button" class="foot-link" data-test="open-snoozed" @click="snoozedOpen = true">
           {{ t('today.snoozed', { n: snoozedCount }) }}
@@ -200,12 +151,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <aside class="today-aside">
-      <TodayLanes @loaded="lanes = $event" />
-      <TodayRecentHandled />
-    </aside>
-
-    <TodayStatusBar v-if="todayData" :status="todayData.status" :failed="since?.jobs_failed ?? 0" />
+    <TodayStatusBar v-if="todayData && showStatus" :status="todayData.status" :failed="failedToday" />
 
     <SnoozedDrawer />
     <FocusMode v-if="focusOpen" :now-sec="nowSec" @close="focusOpen = false" />
@@ -214,13 +160,11 @@ onUnmounted(() => {
 
 <style scoped>
 .today {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: var(--s5);
   min-width: 0;
 }
 .today-main {
   min-width: 0;
+  max-width: 880px;
 }
 .today-err {
   margin: 0 0 var(--s2);
@@ -228,16 +172,7 @@ onUnmounted(() => {
   font-size: var(--fs-xs);
 }
 .today-hero {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--s2) var(--s3);
-}
-.today-hero .date {
-  width: 100%;
-  margin: 0;
-  color: var(--ink-3);
-  font-size: var(--fs-sm);
+  margin: 0 0 var(--s4);
 }
 .today-hero h1 {
   margin: 0;
@@ -247,75 +182,16 @@ onUnmounted(() => {
   letter-spacing: -0.03em;
   overflow-wrap: anywhere;
 }
-.today-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s1) var(--s3);
-  margin: var(--s2) 0 var(--s4);
-  color: var(--ink-2);
-  font-size: var(--fs-sm);
-}
-.today-summary span {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s1);
-}
-.digest {
+.today-running {
   margin: 0 0 var(--s3);
-  color: var(--ink-2);
   font-size: var(--fs-sm);
 }
-.digest summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s1) var(--s3);
-  cursor: pointer;
-  list-style: none;
+.today-running a {
+  color: var(--ink-2);
+  text-decoration: none;
 }
-.digest summary::-webkit-details-marker {
-  display: none;
-}
-.digest summary::before {
-  content: '';
-  width: 0;
-  height: 0;
-  border-left: 5px solid var(--ink-3);
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  transition: transform 0.2s var(--ease);
-}
-.digest[open] summary::before {
-  transform: rotate(90deg);
-}
-.digest .dg-n b {
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-.digest .dg-n.k-fail b {
-  color: var(--fail);
-}
-.digest-full {
-  margin-top: var(--s2);
-  padding-left: var(--s3);
-}
-.digest-title {
-  margin: 0 0 var(--s1);
-  color: var(--ink-3);
-  font-size: var(--fs-xs);
-}
-.digest-text {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.today-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s1) var(--s2);
-  margin-bottom: var(--s3);
-  min-width: 0;
+.today-running a:hover {
+  color: var(--accent);
 }
 .today-foot {
   display: flex;
@@ -380,34 +256,9 @@ onUnmounted(() => {
 .foot-link:hover {
   color: var(--accent);
 }
-.today-aside {
-  min-width: 0;
-}
-@media (max-width: 1279px) {
-  .today {
-    grid-template-columns: minmax(0, 1fr) 300px;
-    gap: var(--s4);
-  }
-}
-@media (max-width: 1099px) {
-  .today {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 @media (max-width: 760px) {
   .today-hero h1 {
     font-size: 27px;
-  }
-  .today-summary {
-    gap: var(--s1) var(--s2);
-  }
-  .today-filters {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .today-filters::-webkit-scrollbar {
-    display: none;
   }
   .btn-focus,
   .foot-link {

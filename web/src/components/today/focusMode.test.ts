@@ -48,7 +48,7 @@ async function render(): Promise<string> {
 describe('FocusMode', () => {
   it('shows one card at a time with 「1 / N」, the progress bar and the key hints', async () => {
     store.hiddenKeys.value = new Set()
-    store.todayData.value = { decisions: [card('a'), card('b'), card('c')] } as unknown as TodayResponse
+    store.todayData.value = { waiting: [card('a'), card('b'), card('c')] } as unknown as TodayResponse
     const html = await render()
     expect(html).toContain('data-test="focus-mode"')
     expect(html).toContain('1 / 3')
@@ -62,7 +62,7 @@ describe('FocusMode', () => {
   })
 
   it('ends with 「全部处理完」 and a way back, never forcing the queue clear', async () => {
-    store.todayData.value = { decisions: [] } as unknown as TodayResponse
+    store.todayData.value = { waiting: [] } as unknown as TodayResponse
     const html = await render()
     expect(html).toContain('全部处理完')
     expect(html).toContain('本轮处理 0 张 · 按建议 0 张')

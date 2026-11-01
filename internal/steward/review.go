@@ -98,11 +98,11 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		s.reviewMu.Unlock()
 		return ReviewResult{}, ErrBusy
 	}
-	s.reviewOn = true
+	s.reviewOn, s.reviewTrigger, s.reviewID = true, o.Trigger, 0
 	s.reviewMu.Unlock()
 	release := func() {
 		s.reviewMu.Lock()
-		s.reviewOn = false
+		s.reviewOn, s.reviewTrigger, s.reviewID = false, "", 0
 		s.reviewMu.Unlock()
 	}
 
@@ -136,6 +136,9 @@ func (s *Service) RunReview(ctx context.Context, o ReviewOpts) (ReviewResult, er
 		release()
 		return ReviewResult{}, err
 	}
+	s.reviewMu.Lock()
+	s.reviewID = rid
+	s.reviewMu.Unlock()
 	s.rememberTodayPresented(todayKeys)
 	s.rememberMemoryPresented(mem)
 	turnBefore := 0

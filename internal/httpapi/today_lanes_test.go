@@ -10,13 +10,8 @@ import (
 func TestTodayLanesAndJournalLevel(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	registerSessionInProject(t, s, "sess-lane-1", "/ws/a", "p1")
-	humanPrompt(t, s, "sess-lane-1", "ws: 导出接口")
-	humanPrompt(t, s, "sess-lane-1", "ws: 导出接口第二问") // the draft starts on the second prompt
-	items, _ := workList(t, s, "")
-	if len(items) != 1 {
-		t.Fatalf("items = %+v", items)
-	}
-	id := items[0].ID
+	id := workCall(t, s, http.MethodPost, "/v1/work-items", testToken,
+		map[string]any{"title": "ws: 导出接口", "project_key": "p1", "session_ids": []string{"sess-lane-1"}}, 200).ID
 
 	// A person's note is a milestone; ?level=milestone filters; a bad level is a 400.
 	note := func(body map[string]any, want int) {

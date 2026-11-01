@@ -1255,6 +1255,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/steward/ask", s.handleStewardAsk)
 		r.POST("/steward/review", s.handleStewardReview)
 		r.GET("/steward/notes", s.handleStewardNotesGet)
+		r.GET("/steward/observations", s.handleStewardObservations)
 		r.PUT("/steward/notes", s.handleStewardNotesPut)
 		r.POST("/steward/review-summary", s.handleStewardReviewSummary)
 		// Dry run: the same classify→apply→validate chain, on a clone, without saving.
@@ -1730,6 +1731,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/work-items", s.handleCreateWorkItem)
 		r.POST("/work-items/delete", s.handleDeleteWorkItems)
 		r.POST("/work-items/capture", s.handleCaptureWorkItem)
+		r.POST("/work-items/report", s.handleReportBySession)
+		r.POST("/work-items/archive-auto", s.handleArchiveAutoWorkItems)
 		r.GET("/work-items/requests", s.handleListAllWorkRequests)
 		r.GET("/work-items/merge-suggestions", s.handleListMergeSuggestions)
 		r.POST("/work-items/merge-suggestions/{n}/accept", s.handleAcceptMergeSuggestion)

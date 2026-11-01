@@ -95,6 +95,7 @@ describe('label keys', () => {
     expect(sourceLabelKey('auto')).toBe('work.d.sourceAuto')
     expect(sourceLabelKey('steward')).toBe('work.d.sourceSteward')
     expect(sourceLabelKey('human')).toBe('work.d.sourceHuman')
+    expect(sourceLabelKey('report')).toBe('work.d.sourceReport')
     expect(statusSourceLabelKey('auto')).toBe('work.d.statusSrcAuto')
     expect(statusSourceLabelKey('human')).toBe('work.d.statusSrcHuman')
     expect(statusSourceLabelKey('report')).toBe('work.d.statusSrcReport')

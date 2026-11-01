@@ -1193,6 +1193,16 @@ var schemaStmts = []string{
   error      TEXT NOT NULL DEFAULT ''
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_steward_reviews_day ON steward_reviews(day, id)`,
+	// The steward's observe-only record (design 2026-11-01 §4.5): what a proactive review asked
+	// for and the server did NOT do.
+	`CREATE TABLE IF NOT EXISTS steward_observations (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  review_id INTEGER NOT NULL DEFAULT 0,
+  at        INTEGER NOT NULL,
+  method    TEXT NOT NULL,
+  path      TEXT NOT NULL,
+  body      TEXT NOT NULL DEFAULT ''
+)`,
 	`CREATE TABLE IF NOT EXISTS work_merge_suggestions (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
   target_id TEXT NOT NULL,

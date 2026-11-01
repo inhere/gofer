@@ -13,6 +13,7 @@ import { createLiveTopic } from '../utils/useLiveTopic'
 import {
   acceptWorkSuggestion,
   ApiError,
+  archiveAutoWorkItems,
   createWorkItem,
   dismissWorkSuggestion,
   listAgentSessions,
@@ -38,6 +39,7 @@ import { fmtAgo } from '../api/time'
 import { pruneExpanded, toggleExpanded } from '../utils/cardExpand'
 import { resumeConfirmText, resumeFailText } from '../utils/sessionResume'
 import { pageWriteBlock } from '../utils/pageGate'
+import { archiveAutoFlow, autoItemCount } from '../utils/workArchive'
 import { useWhoami } from '../store/whoami'
 import { groupByWorkspace, isClosed, matchesQuery, sortCards, unsortedItems, type WorkFilter } from '../utils/work'
 import {
@@ -351,6 +353,28 @@ async function create(): Promise<void> {
   }
 }
 
+// 归档旧的自动生成项（设计稿 2026-11-01 §4.2）：先 dry-run 数一数，确认后才真归档。
+const archiving = ref(false)
+const autoCount = computed(() => autoItemCount(items.value))
+async function archiveAuto(): Promise<void> {
+  if (archiving.value) return
+  archiving.value = true
+  actionError.value = ''
+  try {
+    const r = await archiveAutoFlow({
+      preview: () => archiveAutoWorkItems(true),
+      run: () => archiveAutoWorkItems(false),
+      confirm: (n) => window.confirm(t('work.archiveAuto.confirm', { n })),
+    })
+    if (r.state === 'none') actionError.value = t('work.archiveAuto.none')
+    if (r.state === 'done') await load({ silent: true })
+  } catch (e) {
+    actionError.value = e instanceof ApiError ? (e.detail ? `${e.message}：${e.detail}` : e.message) : e instanceof Error ? e.message : String(e)
+  } finally {
+    archiving.value = false
+  }
+}
+
 function clearFilters(): void {
   flag.value = 'all'
   q.value = ''
@@ -385,6 +409,14 @@ onUnmounted(() => {
         </div>
         <label class="check"><input v-model="showClosed" type="checkbox" /> {{ t('work.h.showClosed') }}</label>
         <Button size="sm" :disabled="loading" data-test="refresh" @click="load()">{{ loading ? t('work.h.refreshing') : t('act.refresh') }}</Button>
+        <Button
+          v-if="autoCount > 0"
+          size="sm"
+          :disabled="archiving || !!writeBlock"
+          :title="writeBlock || t('work.archiveAuto.hint')"
+          data-test="archive-auto"
+          @click="archiveAuto"
+        >{{ t('work.archiveAuto.button', { n: autoCount }) }}</Button>
         <Button variant="primary" size="sm" data-test="new-toggle" @click="createOpen = !createOpen">{{ createOpen ? t('work.c.collapse') : t('work.c.open') }}</Button>
       </div>
     </header>

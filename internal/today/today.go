@@ -31,7 +31,6 @@ const (
 	// awaiting_approval): approve it (it then runs) or reject it (cancelled, never run).
 	KindApproval    = "approval"
 	KindWork        = "work"
-	KindSuggestion  = "suggestion"
 	KindMerge       = "merge"
 	KindPlanBlocked = "plan_blocked"
 	// KindMemory is a steward's memory hygiene suggestion (memory_suggest.go).
@@ -100,9 +99,18 @@ type Response struct {
 	// by the HTTP layer, which owns the caller's scope and the failed-job source.
 	Waiting []Card `json:"waiting"`
 	// Snoozed counts the cards held back by an active 「稍后」 (T3, snooze.go).
-	Snoozed     int    `json:"snoozed"`
-	Status      Status `json:"status"`
-	GeneratedAt int64  `json:"generated_at"`
+	Snoozed int `json:"snoozed"`
+	// Running is the 「正在跑」 line of the home page: terminal sessions in the running state
+	// and jobs in the running status (the two numbers link to the workbench).
+	Running     Running `json:"running"`
+	Status      Status  `json:"status"`
+	GeneratedAt int64   `json:"generated_at"`
+}
+
+// Running counts what is executing right now.
+type Running struct {
+	Sessions int `json:"sessions"`
+	Jobs     int `json:"jobs"`
 }
 
 // SinceLast is the 「自上次打开：完成 N · 失败 M · 新提交 K」 line.
@@ -115,10 +123,9 @@ type SinceLast struct {
 
 // Digest is the folded one-line digest plus today's work digest (work.BuildDigest).
 type Digest struct {
-	SinceLast  SinceLast `json:"since_last"`
-	Title      string    `json:"title"`
-	Text       string    `json:"text"`
-	Commentary string    `json:"commentary,omitempty"`
+	SinceLast SinceLast `json:"since_last"`
+	Title     string    `json:"title"`
+	Text      string    `json:"text"`
 }
 
 // Blocks says what a card holds up (design §2.2). Score drives the ordering, Items is
@@ -194,34 +201,26 @@ type Advice struct {
 	At       int64  `json:"at,omitempty"`
 }
 
-// Suggestion is a pending tidy-up suggestion folded into a work card.
-type Suggestion struct {
-	Field string `json:"field"`
-	Value string `json:"value"`
-	Text  string `json:"text"`
-}
-
 // Card is one DecisionCard.
 type Card struct {
-	Key          string       `json:"key"`
-	Kind         string       `json:"kind"`
-	Tag          string       `json:"tag"`
-	Urgency      string       `json:"urgency"`
-	Blocks       Blocks       `json:"blocks"`
-	Title        string       `json:"title"`
-	ProjectKey   string       `json:"project_key,omitempty"`
-	Agent        string       `json:"agent,omitempty"`
-	WaitingSince int64        `json:"waiting_since"`
-	ExpiresAt    int64        `json:"expires_at,omitempty"`
-	ActivityAt   int64        `json:"activity_at"`
-	Summary      string       `json:"summary"`
-	Review       *Review      `json:"review,omitempty"`
-	Approval     *Approval    `json:"approval,omitempty"`
-	Suggestions  []Suggestion `json:"suggestions,omitempty"`
-	Memory       *MemoryCard  `json:"memory,omitempty"`
-	Refs         Refs         `json:"refs"`
-	Actions      []Action     `json:"actions"`
-	Advice       *Advice      `json:"advice"`
+	Key          string      `json:"key"`
+	Kind         string      `json:"kind"`
+	Tag          string      `json:"tag"`
+	Urgency      string      `json:"urgency"`
+	Blocks       Blocks      `json:"blocks"`
+	Title        string      `json:"title"`
+	ProjectKey   string      `json:"project_key,omitempty"`
+	Agent        string      `json:"agent,omitempty"`
+	WaitingSince int64       `json:"waiting_since"`
+	ExpiresAt    int64       `json:"expires_at,omitempty"`
+	ActivityAt   int64       `json:"activity_at"`
+	Summary      string      `json:"summary"`
+	Review       *Review     `json:"review,omitempty"`
+	Approval     *Approval   `json:"approval,omitempty"`
+	Memory       *MemoryCard `json:"memory,omitempty"`
+	Refs         Refs        `json:"refs"`
+	Actions      []Action    `json:"actions"`
+	Advice       *Advice     `json:"advice"`
 	// Subtype is a structured fact of the card's source that the 「等我」 judgement needs and
 	// the kind alone does not carry: an interaction card's type (permission / confirmation /
 	// question / choice), "question" on a terminal permission card that is really an
@@ -315,7 +314,11 @@ func (s *Service) Today(q Query) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
-	return Response{Digest: digest, Decisions: cards, Snoozed: len(snoozed), Status: status, GeneratedAt: now.Unix()}, nil
+	running, err := s.running(q)
+	if err != nil {
+		return Response{}, err
+	}
+	return Response{Digest: digest, Decisions: cards, Snoozed: len(snoozed), Running: running, Status: status, GeneratedAt: now.Unix()}, nil
 }
 
 func startOfDay(now time.Time) time.Time {

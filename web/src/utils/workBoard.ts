@@ -184,6 +184,7 @@ export function dueLabelKey(it: WorkItem): string {
 export function sourceLabelKey(source: WorkItem['source']): string {
   if (source === 'auto') return 'work.d.sourceAuto'
   if (source === 'steward') return 'work.d.sourceSteward'
+  if (source === 'report') return 'work.d.sourceReport'
   return 'work.d.sourceHuman'
 }
 

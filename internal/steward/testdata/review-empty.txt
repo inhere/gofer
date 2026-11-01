@@ -10,6 +10,6 @@
    关联了 issue 的项可用 gofer_issue_get 核对 issue 当前状态（只读）；等的资源已到、会话在线时，用 gofer_session_ask 带话让它继续（离线会报错，别重试）。
 3. 发现同一件事被拆成多个工作项，用 gofer_work_merge_suggest 记合并建议（只记建议，由用户确认）。
 4. 有新的长期有效的偏好或约定，用 gofer_steward_notes 更新笔记（set 要带 version）。
-5. 最后调用 gofer_steward_notes，action 填 review_summary，text 写一段 300 字以内的点评（重点、风险、这些事的共同点；不要复述数字），它会附在今天的每日摘要里。
+5. 最后调用 gofer_steward_notes，action 填 review_summary，text 写一段 300 字以内的点评（重点、风险、这些事的共同点；不要复述数字），它只记在这次巡检的记录里，不会推送。
 
 不要标完成 / 放弃，不要合并，不要提交 job，不要替用户执行「今天」卡上的任何动作。做完后只回复一行总结。

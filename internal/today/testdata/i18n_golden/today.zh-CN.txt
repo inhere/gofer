@@ -112,18 +112,6 @@
   action accept "通过" value=""
   action rerun "附意见重跑" value=""
   action diff "看 diff" value=""
-[suggestion:<ID>:status_hint] kind=suggestion tag="整理建议" urgency=normal
-  title="Status hint item"
-  summary="建议把状态改为「待验收」"
-  blocks=0/0 ""
-  action adopt "采纳" value=""
-  action dismiss "忽略" value=""
-[suggestion:<ID>:goal] kind=suggestion tag="整理建议" urgency=normal
-  title="Status hint item"
-  summary="建议目标：new goal"
-  blocks=0/0 ""
-  action adopt "采纳" value=""
-  action dismiss "忽略" value=""
 [work:<ID>] kind=work tag="到期" urgency=normal
   title="Due parked"
   summary=""
@@ -138,7 +126,6 @@
   action reply "回复" value=""
   action report "请求汇报" value=""
   action park "搁置" value=""
-  suggestion goal "建议目标：iframe"
 [work:<ID>] kind=work tag="需现场" urgency=normal
   title="Onsite item"
   summary=""

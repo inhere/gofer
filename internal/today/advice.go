@@ -248,10 +248,6 @@ func (s *Service) cardAlive(key string) (bool, error) {
 		return w.Status == jobstore.WorkNeedsMe || w.Status == jobstore.WorkNeedsOnsite ||
 			(w.RemindAt > 0 && w.RemindAt <= now) ||
 			(w.Status == jobstore.WorkParked && w.ParkUntil > 0 && w.ParkUntil <= now), nil
-	case KindSuggestion:
-		wid, field, _ := strings.Cut(ref, ":")
-		sg, ok, err := st.GetWorkSuggestion(wid, field)
-		return ok && sg.State == jobstore.SuggestionPending, err
 	case KindMerge:
 		id, err := strconv.ParseInt(ref, 10, 64)
 		if err != nil {
@@ -279,7 +275,7 @@ func (s *Service) cardAlive(key string) (bool, error) {
 
 // adviceKinds are the card kinds the steward is asked to advise on (design §5; decision
 // cards get background only).
-var adviceKinds = map[string]bool{KindReview: true, KindSuggestion: true, KindMerge: true, KindInteraction: true, KindDecision: true}
+var adviceKinds = map[string]bool{KindReview: true, KindMerge: true, KindInteraction: true, KindDecision: true}
 
 // UnadvisedKeys lists the keys of the queue's cards of the advised kinds that have no
 // advice yet (the steward's review trigger and its prompt count).
