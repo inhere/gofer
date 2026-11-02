@@ -10,6 +10,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -76,6 +77,15 @@ func TestWorkerUpgradeRejectsOldProtocol(t *testing.T) {
 	_, err := hub.UpgradeWorker(ctx, "w1", wsproto.Upgrade{SHA256: "abc", Size: 1, URLPath: "/x"})
 	if !errors.Is(err, ErrUpgradeUnsupported) {
 		t.Fatalf("err = %v, want ErrUpgradeUnsupported", err)
+	}
+	code, args, ok := i18n.CodeOf(err)
+	if !ok || code != "worker_upgrade_too_old" || len(args) != 6 || args[1] != "w1" || args[3] != wsproto.UpgradeMinProtocolVersion-1 || args[5] != wsproto.UpgradeMinProtocolVersion {
+		t.Fatalf("code=%q args=%v ok=%v, want worker_upgrade_too_old with worker / have / need", code, args, ok)
+	}
+	for _, r := range err.Error() {
+		if r > 0x2fff {
+			t.Fatalf("Error() = %q: the log text must be English", err.Error())
+		}
 	}
 	snap, _ := hub.WorkerSnapshot("w1")
 	if snap.Draining {

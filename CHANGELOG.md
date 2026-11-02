@@ -16,6 +16,12 @@
 - **自写的投递配置不再因与内置相同而丢掉附图能力，`extends: builtin` 也不必重写整组投递字段**：agent 自己写的 `deliver_command`（及 `deliver_stdin`）与内置投递命令完全相同、且没写 `deliver_image_args` 时，现在继承内置的图片参数（此前被判为不支持图片）；命令不同仍不继承。内置 `suga` 补上离线标记 `session process is not online`；`extends: builtin` 的 agent 在内置模板有投递命令时，可以只写 `deliver_offline_match`，不再报 `deliver_offline_match needs deliver_command`。
 - **`gofer serve reload` 遇到过期 pidfile 不再直接失败**：pidfile 指向的进程已不在（或 pidfile 缺失 / 读不了）时，若本机 server 仍能连上，改走 `POST /v1/config/reload` 并打印同样的回执（此前报 `pid=N is not running`，而 server 实际在运行）；两条路都不通时报错说明 pidfile 已过期，并给出 `gofer tool api config/reload -X POST` 作替代。
 - **工作台会话列表的 7 天窗口不再被离线会话绕过**：已离线（停止心跳、未正式结束）的终端会话此前被当成「进行中」，总出现在第一页，实测把 17–30 天前的会话拉了出来；现在只有在线的会话、运行中的 job 与置顶会话不受窗口限制，离线会话按最后活动时间进「加载更早的会话」。
+
+### 变更
+
+- **业务层中文错误带稳定错误码并按请求语言出文（i18n 阶段 3 余量第三批）**：工作台与 worker 升级里原先把中文句子直接塞进 `detail` 的错误，现在返回 `{error, detail, code, params}`：`detail` 按 `Accept-Language`（否则 `server.language`）渲染，`error` 短语不变，web 控制台按 `code` 用自己的 `err.<code>` 字典显示。新增 code：`attachment_place_failed`（`params.n`、`params.cause`，502）、`attachment_no_project`（502）、`attachment_arg_unsupported`（`params.agent`，400）、`attachment_path_unknown`（`params.n`，502）、`diff_base_missing`（409）、`diff_relay_no_job`（409）、`thread_not_waiting`（409）、`oneshot_no_session`（409）、`thread_no_agent_session`（409）、`worker_upgrade_too_old`（`params.worker` / `have` / `need`，409）。中文 `detail` 是原来那句中文，只是去掉了前面的英文哨兵前缀（`workbench: thread is not resumable: …`），英文 `detail` 不含中文。内置工作流步骤（`uses: gofer/wait-ci` 等）的报错改按项目语言出文：job 服务给这类 job 的环境加 `GOFER_LANG`（取项目语言，步骤自己 `env:` 写了 `GOFER_LANG` 则以步骤的为准）。
+- 清理：删除无调用方的 `unsupportedStepField`（工作流「暂不支持」报错）与旧形式 `jobstore.MailPartyLabel`（保留带语言的 `MailPartyLabelIn`）。
+
 ## [0.209.0] - 2026-11-02
 
 ### 变更

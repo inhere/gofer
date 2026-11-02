@@ -48,7 +48,7 @@ func (s *Service) DiffIn(lang i18n.Lang, threadID string) (ThreadDiff, error) {
 	first, latest := records[0], records[len(records)-1]
 	base := threadDiffBase(first, latest)
 	if base == "" {
-		return ThreadDiff{}, fmt.Errorf("%w: 首轮作业没有 base_sha/worktree_base_sha，无法建立会话改动基线", ErrMissingDiffBase)
+		return ThreadDiff{}, i18n.Coded(ErrMissingDiffBase, "diff_base_missing", "the first-turn job has no base_sha/worktree_base_sha, so no baseline for the thread's changes can be built")
 	}
 
 	if config.IsBuiltinLocalRunnerName(latest.Runner) && isDirectory(latest.Cwd) {
@@ -105,7 +105,7 @@ func (s *Service) threadJobRecords(threadID string) ([]jobstore.JobRecord, error
 			return nil, ErrUnknownThread
 		}
 	case KindRelay:
-		return nil, fmt.Errorf("%w: relay 会话没有可审阅的 job 改动", ErrNotResumable)
+		return nil, i18n.Coded(ErrNotResumable, "diff_relay_no_job", "this relay session has no job changes to review")
 	default:
 		return nil, ErrInvalidThreadID
 	}

@@ -184,7 +184,11 @@ func (s *Server) handleWorkerUpgrade(c *rux.Context) {
 	if err != nil {
 		var f *upgradeFailure
 		if errors.As(err, &f) {
-			writeError(c, f.status, f.title, f.detail)
+			if f.cause != nil {
+				s.writeErrorFrom(c, f.status, f.title, f.cause)
+			} else {
+				writeError(c, f.status, f.title, f.detail)
+			}
 		} else {
 			writeError(c, http.StatusInternalServerError, "worker upgrade failed", err.Error())
 		}
@@ -198,6 +202,9 @@ func (s *Server) handleWorkerUpgrade(c *rux.Context) {
 type upgradeFailure struct {
 	status        int
 	title, detail string
+	// cause is the error the failure was built from; when it carries a catalog code
+	// (i18n.Coded) the handler answers in the keyed form.
+	cause error
 }
 
 func (f *upgradeFailure) Error() string { return f.title + ": " + f.detail }
@@ -302,7 +309,8 @@ func (s *Server) startWorkerUpgrade(ctx context.Context, id string, req workerUp
 		case errors.Is(err, ErrUpgradeWorkerOffline), errors.Is(err, ErrUpgradeTooOld):
 			status = http.StatusConflict
 		}
-		return workerupgrade.Record{}, failUpgrade(status, "worker upgrade failed", err.Error())
+		uf := &upgradeFailure{status: status, title: "worker upgrade failed", detail: err.Error(), cause: err}
+		return workerupgrade.Record{}, uf
 	}
 	s.upgrades.SetTargetVersion(id, upgradeID, version)
 	rec, _ = s.upgrades.Latest(id)

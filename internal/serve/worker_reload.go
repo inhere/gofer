@@ -32,7 +32,7 @@ func (a hubWorkerReloader) UpgradeWorker(ctx context.Context, workerID string, r
 	case errors.Is(err, wshub.ErrWorkerOffline):
 		return "", fmt.Errorf("%w: %v", httpapi.ErrUpgradeWorkerOffline, err)
 	case errors.Is(err, wshub.ErrUpgradeUnsupported):
-		return "", fmt.Errorf("%w: %v", httpapi.ErrUpgradeTooOld, err)
+		return "", fmt.Errorf("%w: %w", httpapi.ErrUpgradeTooOld, err)
 	case errors.Is(err, wshub.ErrUpgradeTimeout):
 		return "", fmt.Errorf("%w: %v", httpapi.ErrUpgradeTimeout, err)
 	}

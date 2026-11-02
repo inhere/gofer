@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/util"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -11,6 +13,20 @@ import (
 // (`uses: gofer/<name>`, design 2026-10-21 §一·5). It is gofer's own tag, like the
 // delivery job's, so the step job is recognisable in the job list.
 const WorkflowStepJobTag = "workflow-step"
+
+// stampWorkflowStepLang gives a built-in workflow step's job the project's language as
+// GOFER_LANG (i18n.EnvLanguageVar): the step runs inside a workflow (no request language)
+// as `gofer tool step`, possibly on a worker that has no server config, so the language
+// travels in the job's env. A value the step itself set (a spec `env:`) wins.
+func stampWorkflowStepLang(cfg *config.Config, req *JobRequest) {
+	if req.InternalExec != InternalExecWorkflowStep {
+		return
+	}
+	if _, set := req.Env[i18n.EnvLanguageVar]; set {
+		return
+	}
+	req.Env = util.EnvWith(req.Env, map[string]string{i18n.EnvLanguageVar: string(cfg.LanguageFor(req.ProjectKey))})
+}
 
 // checkWorkflowStepWorker refuses a built-in workflow step headed for a worker whose
 // protocol predates `gofer tool step` (G032: the worker binary has no such sub-command, so

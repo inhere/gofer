@@ -105,6 +105,7 @@ func TestReviewCommentsBecomeNextTurn(t *testing.T) {
 		if !errors.Is(err, ErrNotResumable) {
 			t.Fatalf("err=%v, want ErrNotResumable", err)
 		}
+		assertCoded(t, err, "thread_no_agent_session")
 	})
 
 	t.Run("limits_and_validation", func(t *testing.T) {

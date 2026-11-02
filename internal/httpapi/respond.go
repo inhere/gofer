@@ -68,6 +68,18 @@ func (s *Server) writeErrorKey(c *rux.Context, status int, msg, code string, arg
 	writeAPIError(c, newAPIError(s.requestLang(c), status, msg, code, args...))
 }
 
+// writeErrorFrom is writeError for an error returned by the business layer: one that
+// carries a catalog code (i18n.Coded) is answered in the keyed form (detail in the
+// request language, code + params in the body), any other keeps err.Error() as the
+// detail. msg stays the fixed short phrase either way.
+func (s *Server) writeErrorFrom(c *rux.Context, status int, msg string, err error) {
+	if code, args, ok := i18n.CodeOf(err); ok {
+		s.writeErrorKey(c, status, msg, code, args...)
+		return
+	}
+	writeError(c, status, msg, err.Error())
+}
+
 // errText is the catalog text err.<name> in the request language, for the parts of
 // a response that are not the detail (a Chinese-era `error` phrase, a warning, a
 // label).

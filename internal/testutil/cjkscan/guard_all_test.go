@@ -63,15 +63,9 @@ var guardAllExempt = map[string]Exempt{
 	"jobstore/work_dispatch_migrate.go": {Max: 1, Class: classStored, Why: "Chinese text inside a one-off UPDATE migration statement; historical data rewrite"},
 	"tracker/sync.go":                   {Max: 1, Class: classStored, Why: "the note a sync conflict writes into the merged issue / memory: it lands in the repository files two machines merge, so its text must be byte-identical whatever each machine's language is"},
 
-	// ---- not migrated: server display text (S3f: what is left is the error text returned through err.Error(), and config-load diagnostics) -----------------------------------------------
-	"config/mail.go":           {Max: 1, Class: classDisplay, Why: "config validation error: English text carrying the agent:<名字> address-grammar placeholder; config validates before any language is known and every other config error is English (not migrated)"},
-	"config/overlay.go":        {Max: 1, Class: classDisplay, Why: "config-load warning: English log line with a developer aside; config loads before any language is known (not migrated)"},
-	"workbench/attachments.go": {Max: 5, Class: classDisplay, Why: "ErrAttachmentDelivery / ErrAttachmentsUnsupported error text returned as the HTTP detail through err.Error(): needs sentinel + code (separate migration); the routing reasons, the marker lines and the own-dir reason are in the catalog"},
-	"workbench/diff.go":        {Max: 2, Class: classDisplay, Why: "ErrMissingDiffBase / ErrNotResumable error text returned as the HTTP detail through err.Error(): needs sentinel + code (separate migration); the diff notice is in the catalog"},
-	"workbench/review.go":      {Max: 1, Class: classDisplay, Why: "ErrNotResumable error text returned as the HTTP detail through err.Error(): needs sentinel + code (separate migration)"},
-	"workbench/service.go":     {Max: 2, Class: classDisplay, Why: "ErrNotResumable error text returned as the HTTP detail through err.Error(): needs sentinel + code (separate migration)"},
-	"wshub/upgrade.go":         {Max: 1, Class: classDisplay, Why: "ErrUpgradeUnsupported tail returned as the upgrade error detail through err.Error() (httpapi wraps it): needs a typed error + code (separate migration)"},
-	"job/workflow/submit.go":   {Max: 1, Class: classDisplay, Why: "unsupported-step error returned on workflow submit as the HTTP detail through err.Error(): needs sentinel + code (separate migration)"},
+	// ---- not migrated: server display text (S3g: what is left is config-load diagnostics, which run before any language is known) -----------------------------------------------
+	"config/mail.go":    {Max: 1, Class: classDisplay, Why: "config validation error: English text carrying the agent:<名字> address-grammar placeholder; config validates before any language is known and every other config error is English (not migrated)"},
+	"config/overlay.go": {Max: 1, Class: classDisplay, Why: "config-load warning: English log line with a developer aside; config loads before any language is known (not migrated)"},
 
 	// ---- CLI text ------------------------------------------------------------------------
 	"client/client.go":         {Max: 1, Class: classCLI, Why: "token-scope hint appended to a client error"},

@@ -3,6 +3,7 @@ package mail
 import (
 	"testing"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -19,10 +20,12 @@ func TestMailPartyLabelMatchesOriginDisplay(t *testing.T) {
 		{jobstore.MailKindCaller, "", ""},
 	} {
 		m := jobstore.Mail{FromKind: tc.kind, FromID: tc.id, FromCaller: tc.caller}
-		want := OriginOf(m).Display()
-		if got := jobstore.MailPartyLabel(tc.kind, tc.id, tc.caller); got != want {
-			t.Errorf("MailPartyLabel(%q, %q, %q) = %q, want the mailbox's own label %q",
-				tc.kind, tc.id, tc.caller, got, want)
+		for _, lang := range i18n.Supported() {
+			want := OriginOf(m).DisplayLang(lang)
+			if got := jobstore.MailPartyLabelIn(lang, tc.kind, tc.id, tc.caller); got != want {
+				t.Errorf("MailPartyLabelIn(%s, %q, %q, %q) = %q, want the mailbox's own label %q",
+					lang, tc.kind, tc.id, tc.caller, got, want)
+			}
 		}
 	}
 }

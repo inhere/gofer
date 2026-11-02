@@ -433,6 +433,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	if err := s.checkWorkflowStepWorker(cfg, req); err != nil {
 		return JobResult{}, err
 	}
+	stampWorkflowStepLang(cfg, &req)
 
 	// WT-01: resolve the project-level worktree_default into the request NOW, so the
 	// Forward, request_json and the executing machine all act on one explicit

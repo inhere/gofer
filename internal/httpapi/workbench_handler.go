@@ -267,7 +267,7 @@ func (s *Server) handlePatchWorkbenchThread(c *rux.Context) {
 		Title: body.Title, Seen: body.Seen, Pinned: body.Pinned,
 	})
 	if err != nil {
-		writeError(c, workbenchHTTPStatus(err), "patch workbench thread failed", err.Error())
+		s.writeErrorFrom(c, workbenchHTTPStatus(err), "patch workbench thread failed", err)
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{
@@ -348,7 +348,7 @@ func (s *Server) handleWorkbenchTurn(c *rux.Context) {
 			s.writeErrorKey(c, workbenchHTTPStatus(err), "continue workbench thread failed", code, args...)
 			return
 		}
-		writeError(c, workbenchHTTPStatus(err), "continue workbench thread failed", err.Error())
+		s.writeErrorFrom(c, workbenchHTTPStatus(err), "continue workbench thread failed", err)
 		return
 	}
 	c.JSON(http.StatusOK, result)

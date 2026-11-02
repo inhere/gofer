@@ -516,13 +516,6 @@ func validateFanName(stepNo, fanIdx int, name string, seen map[string]bool) erro
 	return nil
 }
 
-// unsupportedStepField is the shape of the error a spec field whose execution lands in
-// a later stage returns: an explicit "not supported yet" instead of a silent ignore
-// (a step that quietly drops ref / uses / with would run the WRONG command).
-func unsupportedStepField(stepNo int, field string) error {
-	return fmt.Errorf("%w: step %d: 暂不支持：%s（后续版本提供）", job.ErrInvalidRequest, stepNo, field)
-}
-
 // validateStepFeatures validates the S1-parsed spec fields whose execution lands in a
 // later stage and the built-in steps that are implemented (S3: `uses` / `with`). `ref`
 // and `env` are implemented since S2 (a temporary detached checkout, and the v26
