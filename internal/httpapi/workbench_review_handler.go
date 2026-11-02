@@ -37,7 +37,7 @@ func (s *Server) handleGetWorkbenchThreadDiff(c *rux.Context) {
 		case errors.Is(err, workbench.ErrUnavailable):
 			status = http.StatusServiceUnavailable
 		}
-		writeError(c, status, "get workbench thread diff failed", err.Error())
+		s.writeErrorFrom(c, status, "get workbench thread diff failed", err)
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -74,7 +74,7 @@ func (s *Server) handleReviewWorkbenchThread(c *rux.Context) {
 		} else if errors.Is(err, workbench.ErrDiffUnavailable) {
 			status = http.StatusInternalServerError
 		}
-		writeError(c, status, "review workbench thread failed", err.Error())
+		s.writeErrorFrom(c, status, "review workbench thread failed", err)
 		return
 	}
 	c.JSON(http.StatusOK, result)

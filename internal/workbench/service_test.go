@@ -178,4 +178,5 @@ func TestTurnDispatchesToExistingOwners(t *testing.T) {
 
 	_, err = service.Turn("alice", "j:source", "cannot")
 	assert.True(t, errors.Is(err, ErrNotResumable))
+	assertCoded(t, err, "oneshot_no_session")
 }

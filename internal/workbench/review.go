@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -21,7 +22,7 @@ func (s *Service) Review(callerID, threadID string, input ReviewInput) (TurnResu
 		return TurnResult{}, err
 	}
 	if kind != KindAgent {
-		return TurnResult{}, fmt.Errorf("%w: 该会话没有可续接的 agent session", ErrNotResumable)
+		return TurnResult{}, i18n.Coded(ErrNotResumable, "thread_no_agent_session", "this session has no agent session to continue")
 	}
 	normalized, err := normalizeReviewInput(input)
 	if err != nil {

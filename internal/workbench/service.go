@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
@@ -661,7 +662,7 @@ func (s *Service) TurnWithAttachments(callerID, threadID, text string, attachmen
 				continue
 			}
 			if row.Status != job.StatusAwaitingInput {
-				return TurnResult{}, fmt.Errorf("%w: 持续会话当前未等待输入", ErrNotResumable)
+				return TurnResult{}, i18n.Coded(ErrNotResumable, "thread_not_waiting", "the persistent session is not waiting for input right now")
 			}
 			if len(atts) > 0 {
 				return s.sayWithImages(callerID, threadID, row, text, atts)
@@ -708,7 +709,7 @@ func (s *Service) TurnWithAttachments(callerID, threadID, text string, attachmen
 		} else if !ok {
 			return TurnResult{}, ErrUnknownThread
 		}
-		return TurnResult{}, fmt.Errorf("%w: 该一次性批处理没有 session，无法续接", ErrNotResumable)
+		return TurnResult{}, i18n.Coded(ErrNotResumable, "oneshot_no_session", "this one-shot batch has no session, so it cannot be continued")
 	default:
 		return TurnResult{}, ErrInvalidThreadID
 	}

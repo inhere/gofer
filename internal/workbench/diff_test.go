@@ -132,7 +132,7 @@ func TestThreadDiffSpansChain(t *testing.T) {
 		t.Fatalf("clear base: %v", err)
 	}
 	_, err = service.Diff("s:diff-chain")
-	if !errors.Is(err, ErrMissingDiffBase) || !strings.Contains(err.Error(), "首轮") {
+	if !errors.Is(err, ErrMissingDiffBase) || !hasCode(err, "diff_base_missing") {
 		t.Fatalf("missing base err=%v", err)
 	}
 }

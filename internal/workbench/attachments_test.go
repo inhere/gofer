@@ -288,7 +288,7 @@ func TestTurnArgDeliveryNeedsAbsolutePath(t *testing.T) {
 
 	_, err := f.svc.TurnWithAttachments("alice", "s:sid-su2", "look", []string{id})
 	assert.True(t, errors.Is(err, ErrAttachmentDelivery), err)
-	assert.True(t, strings.Contains(err.Error(), "绝对路径未知"), err)
+	assertCoded(t, err, "attachment_path_unknown", "n", 1)
 	assert.Eq(t, "", f.jobs.prompt)
 	assert.Eq(t, "", f.bound(t, id).ThreadID)
 }

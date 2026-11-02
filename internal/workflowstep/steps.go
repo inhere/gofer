@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/delivery"
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -262,6 +263,7 @@ func runWaitCI(ctx context.Context, raw any, dir string) (any, error) {
 	res, err := delivery.WaitCI(ctx, dir, delivery.WaitCIOptions{
 		Ref: a.Ref, Required: a.Required, CodeScanning: a.CodeScanning,
 		TimeoutMin: a.TimeoutMin, IntervalSec: a.IntervalSec, Remote: a.Remote,
+		Env: delivery.Env{Lang: i18n.FromContext(ctx)},
 	})
 	if err != nil {
 		return nil, err
@@ -304,6 +306,7 @@ func runWaitAssets(ctx context.Context, raw any, dir string) (any, error) {
 	a := raw.(WaitAssetsArgs)
 	res, err := delivery.WaitAssets(ctx, dir, delivery.WaitAssetsOptions{
 		Tag: a.Tag, Assets: a.Assets, TimeoutMin: a.TimeoutMin, IntervalSec: a.IntervalSec, Remote: a.Remote,
+		Env: delivery.Env{Lang: i18n.FromContext(ctx)},
 	})
 	if err != nil {
 		return nil, err

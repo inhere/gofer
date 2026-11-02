@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // git runs git in dir (test helper; the push step is the only thing that needs a repo).
@@ -132,5 +134,36 @@ func TestRunPush(t *testing.T) {
 	}
 	if _, err := Run(context.Background(), "nope", nil, work); err == nil {
 		t.Fatal("an unknown step must fail")
+	}
+}
+
+// TestWaitCIErrorFollowsContextLanguage: the language the step process was given (the
+// job service stamps the project's GOFER_LANG, `gofer tool step` puts it in ctx) reaches
+// the built-in step's own errors; without one the sentence stays zh-CN.
+func TestWaitCIErrorFollowsContextLanguage(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-q", dir)
+	git(t, dir, "remote", "add", "origin", "https://gitlab.com/o/r.git")
+	step, ok := Lookup(NameWaitCI)
+	if !ok {
+		t.Fatal("wait-ci step missing")
+	}
+	args, err := step.Decode(map[string]any{"ref": "v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{"no language", context.Background(), "gitlab: 暂不支持（内置步骤目前只支持 GitHub）"},
+		{"en", i18n.WithLang(context.Background(), i18n.EN), "gitlab: not supported yet (the built-in steps only support GitHub)"},
+		{"zh-CN", i18n.WithLang(context.Background(), i18n.ZhCN), "gitlab: 暂不支持（内置步骤目前只支持 GitHub）"},
+	}
+	for _, tc := range cases {
+		if _, err := step.Run(tc.ctx, args, dir); err == nil || err.Error() != tc.want {
+			t.Errorf("%s: err = %v, want %q", tc.name, err, tc.want)
+		}
 	}
 }

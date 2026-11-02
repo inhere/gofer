@@ -45,17 +45,11 @@ type SecretBatchMailRedact struct {
 	Report RedactReport `json:"report"`
 }
 
-// MailPartyLabel is the human label of one end of a letter: 「会话 sess-a（调用方 alice）」 /
-// 「job job-7（调用方 alice）」 / 「调用方 alice」. The wording is internal/mail's Origin.Display
-// (internal/mail/origin.go); the store cannot import the mailbox (G022), so the wording lives
-// here and a mailbox test keeps the two in step. An unknown kind (an address that resolved to
-// nobody) yields "" — the caller shows the raw address instead.
-func MailPartyLabel(kind, id, caller string) string {
-	return MailPartyLabelIn(i18n.Default, kind, id, caller)
-}
-
-// MailPartyLabelIn is MailPartyLabel in lang. The words are the mailbox's own catalog
-// entries (mail.origin.*), so the two cannot drift.
+// MailPartyLabelIn is the human label of one end of a letter in lang: 「会话 sess-a（调用方 alice）」 /
+// 「job job-7（调用方 alice）」 / 「调用方 alice」 in zh-CN. The wording is internal/mail's
+// Origin.DisplayLang: the words are the mailbox's own catalog entries (mail.origin.*), so the
+// two cannot drift (the store cannot import the mailbox, G022). An unknown kind (an address
+// that resolved to nobody) yields "" — the caller shows the raw address instead.
 func MailPartyLabelIn(lang i18n.Lang, kind, id, caller string) string {
 	caller = strings.TrimSpace(caller)
 	switch strings.TrimSpace(kind) {

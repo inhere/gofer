@@ -426,7 +426,7 @@ func (s *Service) placeImages(callerID string, recs []jobstore.Attachment, runne
 		}
 		abs, err := s.att.Xfer.PutAndWait(context.Background(), callerID, runner, projectKey, src, dest, remaining)
 		if err != nil {
-			return nil, fmt.Errorf("%w: 附图 %d: %v", ErrAttachmentDelivery, i+1, err)
+			return nil, i18n.Coded(ErrAttachmentDelivery, "attachment_place_failed", fmt.Sprintf("image %d: %v", i+1, err), "n", i+1, "cause", err.Error())
 		}
 		out = append(out, placedImage{abs: abs, dest: dest})
 	}
@@ -440,7 +440,7 @@ func (s *Service) placeImages(callerID string, recs []jobstore.Attachment, runne
 func (s *Service) placeOwnImages(callerID string, recs []jobstore.Attachment, runner string) ([]placedImage, error) {
 	placer, ok := s.att.Xfer.(OwnDirPlacer)
 	if !ok {
-		return nil, fmt.Errorf("%w: 会话没有项目，无法把附图放到执行机", ErrAttachmentDelivery)
+		return nil, i18n.Coded(ErrAttachmentDelivery, "attachment_no_project", "the session has no project, so the images cannot be placed on the executing machine")
 	}
 	if !placer.OwnAttachmentsSupported(runner) {
 		return nil, fmt.Errorf("%w: %s", ErrAttachmentDelivery, ownDirReason(s.serverLang(), runner))
@@ -462,7 +462,7 @@ func (s *Service) placeOwnImages(callerID string, recs []jobstore.Attachment, ru
 		}
 		abs, err := placer.PutAttachmentsAndWait(context.Background(), callerID, runner, src, dest, remaining)
 		if err != nil {
-			return nil, fmt.Errorf("%w: 附图 %d: %v", ErrAttachmentDelivery, i+1, err)
+			return nil, i18n.Coded(ErrAttachmentDelivery, "attachment_place_failed", fmt.Sprintf("image %d: %v", i+1, err), "n", i+1, "cause", err.Error())
 		}
 		out = append(out, placedImage{abs: abs, dest: dest})
 	}
@@ -601,7 +601,7 @@ func (s *Service) deliverWithImages(m imageSend, body string) (refKind, refID st
 	if route.Mode == AttachArg {
 		if m.paths == nil {
 			release()
-			return "", "", fmt.Errorf("%w: %s 的附图还不能随这条消息送出", ErrAttachmentsUnsupported, m.in.Agent)
+			return "", "", i18n.Coded(ErrAttachmentsUnsupported, "attachment_arg_unsupported", fmt.Sprintf("images for %s cannot be sent with this message yet", m.in.Agent), "agent", m.in.Agent)
 		}
 		placed, err := s.placeImages(m.callerID, m.atts, m.runner, m.project)
 		if err != nil {
@@ -614,7 +614,7 @@ func (s *Service) deliverWithImages(m imageSend, body string) (refKind, refID st
 				// The argv needs an absolute path; a project-relative one would be resolved
 				// against the agent's cwd, which is not where the image was placed.
 				release()
-				return "", "", fmt.Errorf("%w: 附图 %d 的绝对路径未知（执行机 worker 版本过旧，无法作为参数送出）", ErrAttachmentDelivery, i+1)
+				return "", "", i18n.Coded(ErrAttachmentDelivery, "attachment_path_unknown", fmt.Sprintf("the absolute path of image %d is unknown (the executing machine's worker is too old to pass it as an argument)", i+1), "n", i+1)
 			}
 			paths = append(paths, p.abs)
 		}

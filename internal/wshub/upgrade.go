@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -49,7 +50,7 @@ func (h *Hub) UpgradeWorker(ctx context.Context, workerID string, req wsproto.Up
 		return "", ErrWorkerOffline
 	}
 	if !wc.supportsUpgrade() {
-		return "", fmt.Errorf("%w: worker %s speaks protocol v%d, upgrade needs v%d (该 worker 版本过旧，需要手动升级一次)", ErrUpgradeUnsupported, workerID, wc.protocolVersion(), wsproto.UpgradeMinProtocolVersion)
+		return "", i18n.Coded(ErrUpgradeUnsupported, "worker_upgrade_too_old", fmt.Sprintf("worker %s speaks protocol v%d, upgrade needs v%d (this worker is too old and needs a manual upgrade once)", workerID, wc.protocolVersion(), wsproto.UpgradeMinProtocolVersion), "worker", workerID, "have", wc.protocolVersion(), "need", wsproto.UpgradeMinProtocolVersion)
 	}
 	if req.RequestID == "" {
 		req.RequestID = upgradeRequestID()

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gookit/gcli/v3"
 
+	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/workflowstep"
 )
 
@@ -83,6 +84,10 @@ func runToolStep(c *gcli.Command, args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), toolStepTimeout)
 	defer cancel()
+	// The job that runs this step carries the project's language as GOFER_LANG (the job
+	// service stamps it), so the step's errors read in the language of the workflow's
+	// project; run by hand without it, they stay in the default language.
+	ctx = i18n.WithLang(ctx, i18n.FromEnvVar())
 	res, err := workflowstep.Run(ctx, name, with, dir)
 	if err != nil {
 		b, _ := json.Marshal(map[string]any{"ok": false, "step": name, "error": err.Error()})
