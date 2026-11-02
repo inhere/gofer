@@ -122,10 +122,11 @@ func TestSugaBuiltinTemplate(t *testing.T) {
 		t.Errorf("suga add_dir_args = %v, want [--add-dir {{dir}}:ro]", cli.AddDirArgs)
 	}
 	// Live delivery to a running `suga chat`: the text goes on stdin and `suga send`
-	// exits 3 by itself when the session's process is gone, so no offline_match is
-	// needed (gofer's exit-code contract is suga's own).
+	// exits 3 by itself when the session's process is gone; the offline marker is
+	// suga's own "not online" text, kept so an `extends: builtin` agent that
+	// overrides the command still maps it.
 	if !equalStringSlices(cli.DeliverCommand, []string{"send", "--session", "{{session_id}}", "--source", "gofer"}) ||
-		!cli.DeliverStdin || cli.DeliverOfflineMatch != "" {
+		!cli.DeliverStdin || cli.DeliverOfflineMatch != "session process is not online" {
 		t.Errorf("suga delivery = (cmd %v, stdin %v, offline %q)", cli.DeliverCommand, cli.DeliverStdin, cli.DeliverOfflineMatch)
 	}
 

@@ -248,7 +248,7 @@ agents:
     # session_family: myfam             # 同族 cli/acp agent 可互相续接
     # deliver_command: [send, --session, "{{session_id}}"]   # 在线送话命令；退出码 0=送达 3=进程不在 其它=失败
     # deliver_image_args: [--image, "{{image}}"]              # 传话类会话附图；每张图展开一次，必须含 {{image}}
-    # deliver_offline_match: "no rollout found"   # 命令非 0 且输出匹配 → 按 exit 3 处理
+    # deliver_offline_match: "no rollout found"   # 命令非 0 且输出匹配 → 按 exit 3 处理；`extends: builtin` 且内置模板有投递命令（codex / suga）时可单独写它，命令沿用内置
     # deliver_stdin: true               # 文本走 stdin（argv 不含 {{text}}）
   exec:
     type: exec                          # 内置; 跑请求给的 argv, 不用模板
@@ -258,6 +258,7 @@ agents:
 
 🔴 **一个 key 两种模式**：`args` = 批处理，`interactive_args` = pty；两者都写就是双模（内置 claude / codex 模板已默认双模，但**自定义同名 agent 是整体覆盖**，要自己写 `interactive_args`）。写了 `interactive: true` 的 agent = 仅交互（`args` 即 pty argv），普通 `job run` 会被拒 `has no batch mode`；`interactive: true` 配 `{{prompt}}` 是配置错误，serve 启动即拒。
 
+- 投递配置的继承：内置 `suga` 的离线标记是 `session process is not online`；自己写的 `deliver_command` + `deliver_stdin` 与该 agent 的内置投递命令完全相同、且没写 `deliver_image_args` 时，继承内置的图片参数（web 附图可用）；命令不同则不继承，需自己写 `deliver_image_args`。
 - 从内置模板注入的 agent（本机 PATH 上装了对应 CLI 才注入，如 `claude-acp`）在 `agent list` / web 上标「内置」；同名声明整条覆盖模板。
 - 会话文件扫描（`session_store_glob`）：在开跑后与终态前各扫一次，只认开跑后创建、且元数据里 `cwd` 等于执行目录的文件。内置：claude 用 `session_inject`，codex 扫 `~/.codex/sessions`，omp 扫 `~/.omp/agent/sessions`。CLI 自定了存储根时覆盖 glob。内置 `exit_keys` 需在目标环境确认能打出退出横幅。
 - 在 web 改项目或执行 `project add` 只会重写改动的顶级块，`agents:` 等未改动的块（含注释与 `interactive_args: []`）原样保留。

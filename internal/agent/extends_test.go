@@ -38,3 +38,26 @@ func TestExtendsBuiltinUsesRealTemplate(t *testing.T) {
 		t.Fatalf("ResolveAgent = %+v, %v", ra, ok)
 	}
 }
+
+// An extends: builtin suga agent that writes only deliver_offline_match loads (the
+// "needs deliver_command" check sees the built-in command) and resolves to the built-in
+// delivery with its own marker.
+func TestExtendsBuiltinOfflineMatchOnly(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.yaml")
+	src := "agents:\n  suga:\n    extends: builtin\n    deliver_offline_match: custom gone\n"
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := config.Load(p)
+	if err != nil {
+		t.Fatalf("extends builtin with only deliver_offline_match: %v", err)
+	}
+	ra, ok := ResolveAgent(cfg, "suga")
+	if !ok {
+		t.Fatal("suga not resolved")
+	}
+	if !equalStringSlices(ra.DeliverCommand, []string{"send", "--session", "{{session_id}}", "--source", "gofer"}) ||
+		!ra.DeliverStdin || ra.DeliverOfflineMatch != "custom gone" {
+		t.Fatalf("delivery = (cmd %v, stdin %v, offline %q)", ra.DeliverCommand, ra.DeliverStdin, ra.DeliverOfflineMatch)
+	}
+}
