@@ -16,6 +16,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	"github.com/inhere/gofer/internal/buildinfo"
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/logx"
@@ -99,10 +100,10 @@ func runServeReload(c *gcli.Command, _ []string) error {
 	resultPath := filepath.Join(filepath.Dir(servePIDFile()), "serve.reload.json")
 	pid, err := daemon.ReadPIDFile(servePIDFile())
 	if err != nil {
-		return errorx.Failf(serve.ExitErr, "serve reload: %v", err)
+		return reloadServeOverHTTP(c, fmt.Sprintf("pidfile %s is unreadable (%v)", servePIDFile(), err))
 	}
 	if !daemon.PIDAlive(pid) {
-		return errorx.Failf(serve.ExitErr, "serve reload: pid=%d is not running", pid)
+		return reloadServeOverHTTP(c, fmt.Sprintf("pidfile %s names pid=%d, which is not running", servePIDFile(), pid))
 	}
 	since := time.Now()
 	if err := daemon.RequestReload(pid); err != nil {
@@ -117,6 +118,25 @@ func runServeReload(c *gcli.Command, _ []string) error {
 	if result.Error != "" {
 		return errorx.Failf(serve.ExitErr, "serve reload (pid=%d): %s", pid, result.Error)
 	}
+	return nil
+}
+
+// reloadServeOverHTTP is the fallback when the pidfile cannot name a live serve process
+// (stale after a crash or a managed-service restart, or missing): a server that still
+// answers on the configured address is reloaded through POST /v1/config/reload and
+// the receipt printed like the signal path does. Only when no server answers either
+// is it an error, which says the pidfile is stale and what to try instead.
+func reloadServeOverHTTP(c *gcli.Command, why string) error {
+	cli, err := newClient(config.InputCfgFile, "", "")
+	var res client.ConfigReload
+	if err == nil {
+		res, err = cli.ReloadConfig()
+	}
+	if err != nil {
+		return errorx.Failf(serve.ExitErr, "serve reload: %s and the local server did not answer over HTTP either (%v); "+
+			"the pidfile is stale — start the server, or reload a running one with `gofer tool api config/reload -X POST`", why, err)
+	}
+	printReloadResult(c, config.ReloadResult{Rev: res.Rev, Path: res.Path, Changed: res.Changed, RestartRequired: res.RestartRequired})
 	return nil
 }
 

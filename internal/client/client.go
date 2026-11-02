@@ -337,6 +337,23 @@ func (c *Client) RemoveJobWorktree(id string, force, deleteBranch bool) (job.Wor
 
 // MergeJobWorktree merges a local managed worktree branch into its main checkout;
 // cleanupOthers also removes the sibling fan worktrees of the same workflow step.
+// ConfigReload is the receipt of POST /v1/config/reload.
+type ConfigReload struct {
+	Status          string   `json:"status"`
+	Reloaded        bool     `json:"reloaded"`
+	Rev             int64    `json:"rev"`
+	Path            string   `json:"path"`
+	Changed         []string `json:"changed"`
+	RestartRequired []string `json:"restart_required"`
+}
+
+// ReloadConfig asks the server to re-read its config file (POST /v1/config/reload).
+func (c *Client) ReloadConfig() (ConfigReload, error) {
+	var out ConfigReload
+	err := c.doJSON(http.MethodPost, "/v1/config/reload", nil, &out)
+	return out, err
+}
+
 // DeliverJob hands a done worktree job's branch over now (POST /v1/jobs/{id}/deliver).
 func (c *Client) DeliverJob(id, mode string, draft *bool, branch string) (job.DeliveryResult, error) {
 	in := map[string]any{}

@@ -13,6 +13,8 @@
 
 ### 修复
 
+- **自写的投递配置不再因与内置相同而丢掉附图能力，`extends: builtin` 也不必重写整组投递字段**：agent 自己写的 `deliver_command`（及 `deliver_stdin`）与内置投递命令完全相同、且没写 `deliver_image_args` 时，现在继承内置的图片参数（此前被判为不支持图片）；命令不同仍不继承。内置 `suga` 补上离线标记 `session process is not online`；`extends: builtin` 的 agent 在内置模板有投递命令时，可以只写 `deliver_offline_match`，不再报 `deliver_offline_match needs deliver_command`。
+- **`gofer serve reload` 遇到过期 pidfile 不再直接失败**：pidfile 指向的进程已不在（或 pidfile 缺失 / 读不了）时，若本机 server 仍能连上，改走 `POST /v1/config/reload` 并打印同样的回执（此前报 `pid=N is not running`，而 server 实际在运行）；两条路都不通时报错说明 pidfile 已过期，并给出 `gofer tool api config/reload -X POST` 作替代。
 - **工作台会话列表的 7 天窗口不再被离线会话绕过**：已离线（停止心跳、未正式结束）的终端会话此前被当成「进行中」，总出现在第一页，实测把 17–30 天前的会话拉了出来；现在只有在线的会话、运行中的 job 与置顶会话不受窗口限制，离线会话按最后活动时间进「加载更早的会话」。
 ## [0.209.0] - 2026-11-02
 

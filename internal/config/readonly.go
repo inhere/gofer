@@ -1,6 +1,10 @@
 package config
 
-import "strings"
+import (
+	"path/filepath"
+	"slices"
+	"strings"
+)
 
 // builtinReadOnlyArgs is the read-only argv each well-known agent CLI accepts, keyed
 // by agent name (bd h-aii-0ql3 / docs/design/2026-09-17-acp-agent-and-approval-gate-
@@ -107,10 +111,12 @@ func (c *Config) EffectiveImageInput(key string) string {
 //   - codex: `codex queue --thread <sid> --message <text>`; an unknown thread exits 1
 //     with "no rollout found for thread id", which offlineMatch maps to not-running so
 //     the relay ladder continues.
-//   - suga: `suga send --session <sid>` reads the text on stdin and already reports
-//     the outcomes in gofer's own exit-code contract (0 delivered, 3 the session's
-//     process is not online, 4 stdin too large), so no offline marker is needed — the
-//     exit code itself says the session is gone. `--source gofer` labels the message
+//   - suga: `suga send --session <sid>` reads the text on stdin and reports the
+//     outcomes in gofer's own exit-code contract (0 delivered, 3 the session's
+//     process is not online, 4 stdin too large). Exit 3 prints suga's ErrNotOnline text
+//     "session process is not online", which offlineMatch also carries so an agent that
+//     extends the template and overrides the command keeps the same mapping.
+//     `--source gofer` labels the message
 //     in the chat window. It accepts one `--image <path>` per attachment; exit 5 means
 //     the target process is too old for images and is a terminal failure — the
 //     workbench does not retry without the images.
@@ -121,7 +127,7 @@ var builtinDeliver = map[string]struct {
 	offlineMatch string
 }{
 	"codex": {command: []string{"queue", "--thread", "{{session_id}}", "--message", "{{text}}"}, offlineMatch: "no rollout found"},
-	"suga":  {command: []string{"send", "--session", "{{session_id}}", "--source", "gofer"}, imageArgs: []string{"--image", "{{image}}"}, stdin: true},
+	"suga":  {command: []string{"send", "--session", "{{session_id}}", "--source", "gofer"}, imageArgs: []string{"--image", "{{image}}"}, stdin: true, offlineMatch: "session process is not online"},
 }
 
 // BuiltinDeliver returns the built-in delivery argv, image argv template, whether the text
@@ -145,6 +151,13 @@ func (c *Config) EffectiveDeliverImageArgs(key string) []string {
 		return nil
 	}
 	if len(ac.DeliverCommand) > 0 || ac.DeliverStdin {
+		if len(ac.DeliverImageArgs) == 0 && sameAsBuiltinDeliver(key, ac) {
+			// The agent spelled out exactly the built-in delivery (command and stdin
+			// mode): it still gets the built-in image half. A different command is not
+			// guessed at.
+			_, imageArgs, _, _ := BuiltinDeliver(builtinDeliverName(key, ac))
+			return imageArgs
+		}
 		return append([]string(nil), ac.DeliverImageArgs...)
 	}
 	if len(ac.DeliverImageArgs) > 0 {
@@ -152,6 +165,24 @@ func (c *Config) EffectiveDeliverImageArgs(key string) []string {
 	}
 	_, imageArgs, _, _ := BuiltinDeliver(strings.ToLower(strings.TrimSpace(key)))
 	return imageArgs
+}
+
+// builtinDeliverName is the built-in delivery table name an agent resolves to: its key
+// first, then the base name of its command (like the registry's applyDeliverDefaults).
+func builtinDeliverName(key string, ac AgentConfig) string {
+	name := strings.ToLower(strings.TrimSpace(key))
+	if cmd, _, _, _ := BuiltinDeliver(name); cmd != nil {
+		return name
+	}
+	base := strings.ToLower(filepath.Base(strings.ReplaceAll(strings.TrimSpace(ac.Command), "\\", "/")))
+	return strings.TrimSuffix(base, ".exe")
+}
+
+// sameAsBuiltinDeliver reports whether the agent's deliver_command and deliver_stdin are
+// exactly its built-in delivery.
+func sameAsBuiltinDeliver(key string, ac AgentConfig) bool {
+	cmd, _, stdin, _ := BuiltinDeliver(builtinDeliverName(key, ac))
+	return cmd != nil && stdin == ac.DeliverStdin && slices.Equal(cmd, ac.DeliverCommand)
 }
 
 // BuiltinModelArgs returns the built-in model_args for an agent name, or nil. A copy.

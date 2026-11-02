@@ -98,7 +98,7 @@ func validateAgentIntegration(key string, ac AgentConfig) error {
 		return fmt.Errorf("agent %q: deliver_image_args needs deliver_command", key)
 	}
 	if ac.DeliverOfflineMatch != "" {
-		if len(ac.DeliverCommand) == 0 {
+		if len(ac.DeliverCommand) == 0 && !extendsBuiltinDeliver(key, ac) {
 			return fmt.Errorf("agent %q: deliver_offline_match needs deliver_command", key)
 		}
 		if _, err := regexp.Compile(ac.DeliverOfflineMatch); err != nil {
@@ -109,6 +109,23 @@ func validateAgentIntegration(key string, ac AgentConfig) error {
 		return fmt.Errorf("agent %q: session_family %q must be letters, digits, '-', '_' or '.'", key, f)
 	}
 	return nil
+}
+
+// extendsBuiltinDeliver reports whether an `extends: builtin[:<template>]` agent starts
+// from a template that has a built-in delivery command: extends is merged before
+// validation, but the built-in command is only filled in when the agent is registered,
+// so deliver_offline_match alone is valid there and applies to that command.
+func extendsBuiltinDeliver(key string, ac AgentConfig) bool {
+	name := key
+	switch {
+	case ac.Extends == ExtendsBuiltin:
+	case strings.HasPrefix(ac.Extends, extendsBuiltinPrefix):
+		name = strings.TrimSpace(strings.TrimPrefix(ac.Extends, extendsBuiltinPrefix))
+	default:
+		return false
+	}
+	cmd, _, _, _ := BuiltinDeliver(strings.ToLower(name))
+	return cmd != nil
 }
 
 // containsTemplate reports whether any template element carries token.
