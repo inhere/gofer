@@ -178,7 +178,9 @@ func executeAcceptedUpgrade(ctx context.Context, m *Manager, spec Spec, receipt 
 	if err != nil {
 		return rollbackStoppedService(ctx, m, spec, receipt, nil, restoreSupervisor, err)
 	}
-	if err := refreshSupervisorForUpgrade(m, spec); err != nil {
+	// The stopped old supervisor may still hold its image open for a moment
+	// (Windows: "Access is denied" on the rename), so retry like the restore.
+	if err := retryRestore(ctx, func() error { return refreshSupervisorForUpgrade(m, spec) }); err != nil {
 		return rollbackStoppedService(ctx, m, spec, receipt, rollbackBinary, restoreSupervisor, err)
 	}
 	nextSpec := spec
