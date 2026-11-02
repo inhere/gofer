@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.209.1] - 2026-11-02
+
 ### 修复
 
 - **自写的投递配置不再因与内置相同而丢掉附图能力，`extends: builtin` 也不必重写整组投递字段**：agent 自己写的 `deliver_command`（及 `deliver_stdin`）与内置投递命令完全相同、且没写 `deliver_image_args` 时，现在继承内置的图片参数（此前被判为不支持图片）；命令不同仍不继承。内置 `suga` 补上离线标记 `session process is not online`；`extends: builtin` 的 agent 在内置模板有投递命令时，可以只写 `deliver_offline_match`，不再报 `deliver_offline_match needs deliver_command`。
