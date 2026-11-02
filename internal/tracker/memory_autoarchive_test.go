@@ -80,9 +80,13 @@ func TestAutoArchiveHandoffRule(t *testing.T) {
 
 func TestAutoArchiveNoteRule(t *testing.T) {
 	s, root, now := autoArchiveFixture(t)
-	head, err := exec.Command("git", "-C", root, "rev-parse", "--short=10", "HEAD").Output()
+	// The full hash: a 10-char short hash is all digits about 1% of the time, and
+	// looksLikeCommit (digits AND a-f letters) then does not see it as a commit — the note
+	// would read as paths-only and be archived (seen once on a CI runner).
+	head, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
 	assert.Require(t, assert.NoErr(t, err))
 	realCommit := strings.TrimSpace(string(head))
+	assert.True(t, looksLikeCommit(realCommit), realCommit)
 	old := ago(now, 30*day)
 	note := func(key, content string) Memory { return Memory{Key: key, Content: content, UpdatedAt: old} }
 	putMemories(t, s,
