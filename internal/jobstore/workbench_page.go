@@ -12,7 +12,8 @@ import (
 //
 // A thread is a session chain of jobs (id "s:<session>"), a lone interactive job ("j:<id>")
 // or a relay session ("r:<session>"); its activity is the newest updated_at of its rows.
-// Threads that are live (a non-terminal job, a relay session that is not ended) or pinned
+// Threads that are live (a non-terminal job, a relay session that is neither ended nor
+// offline — an offline one stopped heart-beating and may be long dead) or pinned
 // are exceptions: they are returned on the first page (no cursor) whatever their activity
 // and never count towards Limit; later pages carry ordinary threads only.
 type WorkbenchPageQuery struct {
@@ -68,7 +69,7 @@ func workbenchThreadCTE(includeInternal bool) string {
     AND (?2='' OR project_key=?2)
   GROUP BY tid
   UNION ALL
-  SELECT 'r:' || session_id, last_seen_at, CASE WHEN state<>'` + SessionEnded + `' THEN 1 ELSE 0 END, 0
+  SELECT 'r:' || session_id, last_seen_at, CASE WHEN state NOT IN ('` + SessionEnded + `','` + SessionOffline + `') THEN 1 ELSE 0 END, 0
   FROM agent_sessions
   WHERE ` + internalSessionSQL + ` AND (?2='' OR project_key=?2)
 ), t AS (

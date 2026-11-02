@@ -237,3 +237,25 @@ func TestLoadWorkbenchPageKeysWindowCursorAndExceptions(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, none.Keys, 0)
 }
+
+// TestLoadWorkbenchPageOfflineSessionStaysInItsWindow: an offline relay session stopped
+// heart-beating and was never ended; it is not live, so outside the window it waits for
+// "load more" instead of riding the first page (a deployment listed sessions offline for
+// up to 30 days by default).
+func TestLoadWorkbenchPageOfflineSessionStaysInItsWindow(t *testing.T) {
+	s := openTest(t)
+	for sid, st := range map[string]string{"relay-offline": SessionOffline, "relay-idle": SessionIdle} {
+		_, err := s.UpsertAgentSession(AgentSession{SessionID: sid, Agent: "claude", State: st, RelayMode: RelayModeOn, StartedAt: 10, LastSeenAt: 50})
+		assert.NoErr(t, err)
+		_, err = s.db.Exec(`UPDATE agent_sessions SET last_seen_at=50, state=? WHERE session_id=?`, st, sid)
+		assert.NoErr(t, err)
+	}
+	first, err := s.LoadWorkbenchPage("alice", WorkbenchPageQuery{Since: 1000, Limit: 10})
+	assert.NoErr(t, err)
+	var got []string
+	for _, k := range first.Keys {
+		got = append(got, k.ID)
+	}
+	assert.Eq(t, []string{"r:relay-idle"}, got)
+	assert.True(t, first.BelowFloor)
+}
