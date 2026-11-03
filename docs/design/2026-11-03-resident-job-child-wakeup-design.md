@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 常驻 ACP job 的子 job 回执设计
 
-> 状态：Draft 0.1 / 已批准（用户 2026-11-03：“R1 设计 按建议”，三个待确认项按建议），待独立审核后写计划
+> 状态：Draft 0.2 / 待人工计划批准（0.1 经用户批准；0.2 依审核改了两处已定内容，见“待确认事项”，需重新确认）
 > issue：gofer-rt3z
 
 ## 修订记录
@@ -9,10 +9,11 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-11-03 | Claude（gofer 监督会话） | 初稿 |
+| 0.2 | 2026-11-03 | Claude（gofer 监督会话） | 按独立审核修订：增加待送扫描与两条进入路径、子 job 接管链、提交时登记、结果落定后发送、远程送达确认；取消暂停空闲超时，改为超时后 resume；第一版只回执结束和待验收；新增标记列 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
-思考模式：RIGOROUS。核心目标：常驻 job 派出的子 job 有结果时，gofer 自动给它开下一轮。Scope freeze：只做下文“范围”所列。Review budget：一轮独立审核。停止条件：待确认项由用户定下、独立审核无阻塞项。
+思考模式：RIGOROUS。核心目标：常驻 job 派出的子 job 有结果时，gofer 自动给它开下一轮。Scope freeze：只做下文“范围”所列。Review budget：一轮独立审核（已完成，4 个阻塞项、17 个重要项，均已吸收）加一轮 closure 复核。停止条件：待确认项由用户定下、独立审核无阻塞项。
 
 ## 背景与目标
 
@@ -26,7 +27,9 @@
 
 - 常驻 job：`--session` 的 ACP job，一轮结束后停在 awaiting_input，`job say` 开下一轮。
 - 父 job / 子 job：子 job 由父 job 用自己的 job 凭据提交，带 `submitted_by_job:<父 id>` 标签。
-- 开新一轮：对活着的常驻 job 走 say。resume 是另一回事：它为已结束的 job 新建 continuation job。
+- 开新一轮：对活着的常驻 job 走 say。
+- 续接：对已结束的常驻 job 走 resume，新建 continuation job，用 `session/load` 接回同一会话。
+- 待送：回执已触发，但父 job 这一轮还没结束，等它进入 awaiting_input 再发。
 
 ## 范围与非目标
 
@@ -35,12 +38,16 @@
 2. 常驻 job 用自己的凭据提交子 job 时，自动登记回执。
 3. 失败不再显示为触发成功。
 4. 给有提交权限的常驻 job 注入一段提示，告诉它派完结束本轮。
+5. 子 job 被自动续跑、换 agent 或重试时，回执跟到最终那个 job。
 
 非目标：
 - say 记录发送者、独立 caller（R2、R4）；caller 范围事件订阅（R3）。
 - 子 job 经 plan 待办派发时的回执。
 - 非 ACP 的 job：行为不变，仍走 resume。
 - 不默认放开 can_submit。
+- 第一版不回执 `interaction.created`、`job.awaiting_approval`（见待确认 1）。
+- 不暂停空闲超时（见待确认 2）。
+- 定时类 wakeup（at / every / cron）对活着的常驻 job 的行为不变。
 
 ## 已确认事实与规范
 
@@ -57,6 +64,14 @@
 | say 只接受 awaiting_input；已有排队输入时报 `session input already queued`；worker 离线时报错 | `saySession` |
 | 常驻 job 有空闲超时（实测 1800s、3600s），子 job 可能比它长 | job 记录 |
 | wakeup 已持久化，有 TTL、列表、停用入口 | `internal/jobstore/wakeups.go` |
+| 没有对 event wakeup 的扫描重试：`DueWakeups` 只选到期定时和过期行；事件在关停窗口内会丢 | `wakeups.go` `DueWakeups`；`wakeup.go` `dispatchWakeup` |
+| 进入 awaiting_input 有两条路径：本机在 `awaitSessionInput`，worker 父 job 在 hub 的 `applyRemoteSessionState`，后者同一轮不重复记事件 | `session_state.go`；`session_recovery.go` |
+| 子 job 被接管时原 job 不记 `job.terminal`，新 job 是新 id；重试则先记 terminal 再另起 | `execute.go` `finish`、`maybeRetryJob` |
+| 常驻 job 到 `execute` 返回前一直占目录锁和项目槽位，可写 ACP / CLI agent 默认独占目录；排队默认最多等 1 小时 | `execute.go`；`submit.go`；`config/model.go` |
+| 空闲回收是执行机上 runner 的本地计时器，worker 没有延长命令 | `runner/acp/runner.go`；`worker/client.go` |
+| job 凭据不能回答 interaction、批准 hold、验收 | `jobcredential.go` 白名单 |
+| 子 job 可用自己的凭据改标题，标题不过滤换行 | `jobcredential.go`；`job/title.go` |
+| `fired_count` 在提交前就累加，失败不回退 | `wakeups.go` `ClaimWakeupFire` |
 
 规范：G021–G024 分层；G046 提示词按语言；G056 路由登记；SR1410 最小充分；SR1301 安全；SR1402.1 真实验证。
 
@@ -66,24 +81,32 @@
 
 | 目标 job 状态 | 触发时做什么 |
 |---|---|
-| 已结束 | 按现状走 resume / rebuild（不变） |
+| 已结束（手动登记） | 按现状走 resume / rebuild（不变） |
 | 活着的常驻 job，awaiting_input | say 开新一轮 |
 | 活着的常驻 job，一轮进行中 | 记为待送，等它进入 awaiting_input 再 say |
+| 常驻 job 因空闲超时结束 | 走现有 resume，从同一会话续一轮 |
+| 常驻 job 被人结束、失败或取消 | 停用 wakeup，记 `job.wakeup_failed`，不复活 |
 | 非常驻且未结束 | 按现状等终态（不变） |
 
 同一时刻多个子 job 有结果时合并成一条 say，因为 say 同时只能排一条。
 
-say 内容是固定模板：子 job id、标题、状态、退出码、查看命令。不转述子 job 的输出，父 job 自己用 `gofer job logs` 读。
+say 内容是固定模板：子 job id、状态、退出码、查看命令，前缀用已有的 `msgprefix.Wakeup`。不放标题（子 job 能改自己的标题，可借此注入），不转述输出，父 job 自己用 `gofer job logs` 读。手动 wakeup 的 instruction 附在模板后，按调用方输入对待。
+
+**空闲与资源：** 父 job 等子 job 期间不特殊处理。超时就结束，释放进程、目录锁和项目槽位；子 job 结束后 resume 接回同一会话。这样既没有长期占用，也不会有“父等子、子等父”：子 job 排在父 job 的锁后面时，最迟等父 job 超时也能跑。提示词建议父 job 用 `--shared-dir`、可写子 job 用 `--worktree`，避免干等。
 
 ## 架构
 
 代码组织：
-- `internal/job/wakeup.go`：`fireWakeup` 按目标状态分支；超过 1000 行的部分放新文件 `internal/job/wakeup_session.go`（待送、合并、发送）。
-- `internal/job/session_state.go`：进入 awaiting_input 时检查待送。
-- 自动登记放 `internal/job`，由提交流程调用；`internal/httpapi` 只把“这是哪个 job 的凭据”传进去（G021）。
-- `internal/commands`：`job run --no-parent-wake`；`wakeup ls` 显示待送状态。
-- 待送状态：沿用 `continuation_job_id` 的哨兵做法，新增值 `await_input`，不改 Schema。子 job 的结果在发送时读当前状态，不存快照。
-- 提示词进 `internal/i18n/lang/*/job_prompts.ini`，在 `prompt_sections.go` 里对“常驻且有提交权限”的 job 注入。
+- `internal/job/wakeup_session.go`（新）：待送、合并、发送、扫描、对账。`dispatchWakeup` 和 `fireWakeup` 在现有分支之前先判断“目标是活着的常驻 job 且 wakeup 是 event 类”。
+- 检查待送的函数由 `awaitSessionInput` 和 `applyRemoteSessionState` 共用，条件是状态为 awaiting_input，不依赖事件是否新记。
+- `internal/serve`：tick 调用待送扫描；启动时对账一次（投递遗留待送；子 job 已结束而 wakeup 未触发的补 fire）。
+- 自动登记在 `Submit` 内部、job id 确定之后执行。父 job id 由 handler 从 `jobCallerFromCtx` 取，经 `json:"-"` 字段传入，不信请求体和标签；hold 批准、retry、rebuild 不重复登记。`--sync` 不登记（这一轮已拿到结果）。`submitGrant` 下沉到 job 层，httpapi 调用它（G021）。
+- `internal/commands`：`job run --no-parent-wake`；`wakeup ls`、HTTP、MCP 三处把 `await_input` 显示为待送，不当 job id。
+- Schema：`job_wakeups` 增加 additive 列 `auto_child`（G057），区分自动登记和手动。待送用 `continuation_job_id` 的新哨兵 `await_input`。
+- store：`fired_count` 改到成功后累加；新增不计数的待送写入。接管和重试成功时 CAS 把 `filter_job_id` 改到新 job。
+- `session_commands.go`：把“轮次进行中”“已有排队”“worker 离线”“会话结束中”拆成可区分的错误；前三种保持待送，最后一种按父 job 结束处理。
+- 提示词：模板在 `internal/i18n/prompts/<lang>/`，标题标记在 `protocol.go`；`prompt_sections.go` 增加独立分支，因为现有判断排除 Session；空 prompt 不注入，否则空启动的常驻 job 会立刻开一轮。
+- 文档：G045（gofer-usage 的 wakeup、job run、can_submit）、G058 能力清单。
 
 ## 关键流程
 
@@ -109,33 +132,49 @@ sequenceDiagram
 
 异常：
 - say 报 `already queued`（人刚好也说了话）：保持待送，下次 awaiting_input 再发。
-- worker 离线：保持待送，由现有 wakeup 扫描重试。server 重启后同样由扫描接上。
-- 父 job 已结束：停用 wakeup，记 `job.wakeup_failed`，不复活父 job。
-- 监听的事件：`job.terminal`、`job.needs_review`，以及需要输入类事件（`interaction.created`、`job.awaiting_approval`）。后两者要进 wakeup 事件目录，计划阶段核对它们是否落在子 job 自己的事件流上。
+- worker 离线、升级排空中：保持待送，由新增的待送扫描重试。
+- 写入待送后再读一次父 job 状态，已是 awaiting_input 就立刻投递，避免“检查后再写”的竞态；扫描兜底。
+- 发送前等子 job 状态落定（事件先于状态翻转），放后台执行，不阻塞子 job 的 finish。
+- worker 父 job：say 成功只代表帧写出去了。TurnNo 超过发送时的 turn 才算送达并清待送；超时重发，同时解开 pending。
+- 父 job 空闲超时结束：走 resume。父 job 被人结束或失败：把它名下的待送和自动 wakeup 全部停用并记录。这个处理挂在父 job 的终态上，因为待送行的 `filter_job_id` 是子 job，匹配不到。
+- 子 job 接管链：自动续跑、换 agent、核验续跑、重试成功时把 wakeup 改到新 job；提交失败时原 job 补记 terminal，照常回执。
+- 自动登记用 continuous，处理完 `job.terminal` 后在代码里停用；只监听 `job.terminal`、`job.needs_review`。TTL 取 `max(wakeup.ttl_sec, 子 job 时限 + 排队余量)`。
 
 ## 安全、数据、运维与回滚
 
-- 权限：不放宽。只有已获 can_submit 的常驻 job 才会触发自动登记；子 job 仍受同项目与 `submit_agents` 约束。放开 can_submit 是用户配置，只给片段，不代改。
-- 内容：say 只含元数据，不把子 job 输出当指令注入父 job。
+- 权限：不放宽。只有已获 can_submit 的常驻 job 才会触发自动登记；子 job 仍受同项目与 `submit_agents` 约束。放开 can_submit 是用户配置（用户已自行给 claude-acp 打开）。手动 event wakeup 走 say 时，要求调用方有向该 job say 的权限，实现时核实 `job.wake.others` 不能借此绕过 `job.manage.others`。
+- 内容：say 只含 id、状态、退出码，不含标题和输出，不把子 job 的文本注入父 job。
 - 循环：一个子 job 的回执不会再触发同一条 wakeup。父 job 被叫醒后再派子 job 是正常工作，由 token 用量和 TTL 兜底，本次不加轮数上限。
-- 数据：无 Schema 变更。
+- 数据：一个 additive 列（`auto_child`）。
 - 日志：依赖 gofer-j8oh 的事件；本次补 `wakeup.say_pending`、`wakeup.say_sent`。
-- 回滚：回退版本即可，遗留的 `await_input` 由旧版本当作“continuation 已不存在”释放（计划阶段写测试确认）。
+- 回滚：回退版本可用，但遗留待送会丢：旧版本只有再来一次触发才会释放 `await_input`，且会显示成 job id。降级前先确认没有待送，发版说明写明。
+- 凭据：worker 父 job 的令牌只在 worker 侧续期，hub 不续，醒来后可能 401（读代码所得，未实测）。hub 在 `applyRemoteSessionState` 看到新 turn 时续期。
 
 ## 决策
 
 - 复用 wakeup，不新建父子回执机制：已有持久化、TTL、列表、权限；只缺一条路径。
 - 用 say 不用 resume：常驻 job 活着，resume 语义不对，还会多出 continuation job。
 - 回执不走 messenger 或信箱：job 凭据发信被拒，且信箱解决的是另一类投递。
+- 不暂停空闲超时：暂停要新增 worker 协议和 runner 改动，还会让父 job 一直占锁，造成互等；超时后 resume 用现成路径就能到达同样结果。
+- 待送单独扫描，不借用 `next_run_at`：`sweepDueWakeups` 会在触发后停用 once 行。
 
 ## 待确认事项
 
-1. **自动登记还是靠 agent 自己注册？** 建议自动登记，可用 `--no-parent-wake` 关闭。这次的问题正是 agent 没注册；靠提示词不可靠。
-2. **can_submit 怎么放开？** 不放开，这个功能对监督 job 就没有意义。建议用 role 限定：只给监督角色开，`submit_agents` 列出 exec 和实施用的 agent，而不是给 claude-acp 全局开。由用户决定并自己改配置。
-3. **有未完成子 job 时，父 job 的空闲超时是否暂停？** 建议暂停，否则长子 job 结束时父 job 已被回收，回执送不到；上限是 wakeup TTL。代价是父 job 进程多占资源。
+0.1 的“自动登记”“can_submit 按 role 放开”不变（用户已给 claude-acp 按 agent 打开，role 方式作为后续收窄选项）。以下两项因审核结果改变了已批准内容，需要重新确认：
+
+1. **第一版回执哪些事件？** 建议只回执“结束”和“待验收”。`interaction.created`、`job.awaiting_approval` 暂不回执：父 job 没有权限回答或批准，只能转告；人已经能从现有通知收到；工具审批可能连续叫醒父 job、白耗 token。代价是子 job 卡在审批时父 job 不知情，直到人处理完或超时。
+2. **取消“暂停空闲超时”，改为超时后 resume？** 建议取消（0.1 建议的是暂停）。好处：无需新 worker 协议，不长期占进程和锁，避免父子互等。代价：父 job 的 job id 会变（续接产生新 job），外部客户端要跟 `resumed_from`；续接时重新起进程，上下文靠 `session/load` 恢复，第一次回执会慢几秒。
 
 ## 结论与人工计划 Gate
 
-建议按上述方案做。需要用户定下三个待确认项并批准本设计，之后才写实施计划；批准设计不等于授权实施。
+建议按上述方案做。需要用户确认上述两项，并通过一轮 closure 复核，之后才写实施计划；批准设计不等于授权实施。
 
-验收：真实 claude-acp 常驻 job 用 job 凭据派一个 exec 子 job 后结束本轮，子 job 结束后父 job 自动开新一轮并读到结果；子 job 在父 job 一轮进行中结束时同样能送达；父 job 已结束时有失败记录。
+验收（真实 claude-acp，本机与 worker 父 job 各一遍）：
+- 派 exec 子 job 后结束本轮，子 job 结束后父 job 自动开新一轮并读到结果。
+- 子 job 在父 job 一轮进行中结束，等这轮结束后送达；多个子 job 合并成一条。
+- 父 job 空闲超时后子 job 才结束：resume 接回同一会话并读到结果。
+- 父 job 被人结束：有失败记录，不复活。
+- 子 job 被重试或换 agent：回执指向最终结果。
+- 可写 agent 子 job（`--worktree`）能跑通。
+- server 在待送期间重启，重启后仍能送达。
+- 改了多行标题的子 job，say 内容不受影响。
