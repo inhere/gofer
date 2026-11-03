@@ -213,7 +213,9 @@ flowchart LR
 
 ## 待确认事项
 
-无。第二轮审核新增的三项，用户已于 2026-11-03 按建议确认：
+待用户决定：第 8 轮审核仍有阻塞项（`init server` 的 `--force` 能抹掉存储标记、探测失败没有分支），已到审核上限（`REVIEW_LIMIT_REACHED`）。0.10 修了这几处但未复核。用户可以按 0.9 批准、点名接受 0.10 的未复核修订后批准，或重置范围。
+
+第二轮审核新增的三项，用户已于 2026-11-03 按建议确认：
 
 1. 高危权限范围扩大：除 hooks、triggers 外，`update`、`mcp_servers`、`http_proxy`、`worker_enrollment.trusted_proxies` 也归 `config.exec.write`。
 2. 新增用户必须明确上限：`caller add` 要带 `--ceiling-*` 或 `--no-ceiling`；不改 `require_admin_capability` 的默认值。
