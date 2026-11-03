@@ -161,6 +161,7 @@ func (s *Store) ConfirmSessionMail(sid string, ids []int64) ([]Mail, error) {
 		}
 		if ok {
 			out = append(out, m)
+			logHookDelivered(m, now)
 		}
 	}
 	return out, nil

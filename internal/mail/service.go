@@ -422,6 +422,7 @@ func (s *Service) storeLetter(mi jobstore.MailInput, res resolution, org Origin)
 	if err != nil {
 		return SendResult{}, err
 	}
+	logSent(m)
 	out := SendResult{Mail: m, Target: res.target, Candidates: res.candidates}
 	if res.target.Deliver {
 		return out, nil
@@ -436,6 +437,7 @@ func (s *Service) storeLetter(mi jobstore.MailInput, res resolution, org Origin)
 	}
 	if ok {
 		out.Mail = held
+		logHeld(held, reason)
 	}
 	out.Held = true
 	itemID, err := s.recordCapture(out.Mail, res.candidates)
