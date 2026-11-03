@@ -253,3 +253,104 @@ func insertRetry(t *testing.T, s *Service, sourceJobID, requestJSON string, dueI
 	}
 	return rec
 }
+
+// jobCount is how many job rows the store holds — the "nothing new was submitted" measure
+// a negative assertion needs (a fired wakeup either submits a continuation or records
+// job.wakeup_failed, and both are visible this way).
+func jobCount(t *testing.T, s *Service) int {
+	t.Helper()
+	jobs, err := s.Meta().ListJobs(jobstore.ListQuery{})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	return len(jobs)
+}
+
+// TestChildWakeRetargetLeavesManualWakeupOnPlainJob: a manually registered wakeup whose
+// target is an ORDINARY job (not a resident session) is not a receipt — it already fired
+// for the child's own failure, and neither the takeover nor a cancelled retry may fire it
+// again (that would resume a job nobody asked about).
+func TestChildWakeRetargetLeavesManualWakeupOnPlainJob(t *testing.T) {
+	t.Parallel()
+	s, _, gate := retargetService(t)
+	// The wakeup's target: a plain (non-session) job that has ended.
+	target := mustSubmit(t, s, JobRequest{
+		ProjectKey: "self", Agent: "gated", Runner: "local",
+		Prompt: "an unrelated job", Cwd: ".", TimeoutSec: 30,
+	})
+	gate.Release(t)
+	settled(t, s, target.ID)
+	if got, _ := s.Get(target.ID); got.Session {
+		t.Fatalf("fixture: %s is a resident session, want a plain job", target.ID)
+	}
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{JobID: target.ID, FilterJobID: "child-plain"})
+
+	s.retargetChildWakes("child-plain", "child-moved")
+	assert.Eq(t, "child-plain", childWakeRow(t, s, w.ID).FilterJobID,
+		"a manual wakeup on a plain job followed the work")
+
+	jobsBefore := jobCount(t, s)
+	s.deliverRetryCancelledReceipts("child-plain")
+	assert.Eq(t, jobsBefore, jobCount(t, s), "a cancelled retry fired a manual wakeup a second time")
+	types := eventTypes(t, s, target.ID)
+	assert.False(t, contains(types, EventJobWakeupFired) || contains(types, EventJobWakeupFailed),
+		"a cancelled retry fired the manual wakeup: %v", types)
+	assert.Eq(t, int64(0), childWakeRow(t, s, w.ID).FiredCount)
+}
+
+// TestChildWakeRetargetLeavesSelfWatchingWakeup: a manual wakeup registered ON the job it
+// watches keeps watching that job. Following the work would point the receipt at the new
+// job while the target stays the old, ended one — the next result would resume a dead job.
+func TestChildWakeRetargetLeavesSelfWatchingWakeup(t *testing.T) {
+	t.Parallel()
+	s, _, gate := retargetService(t)
+	child := mustSubmit(t, s, gatedParentReq("codex"))
+	// The shape `job wakeup add <job> --event job.terminal` produces: filter defaults to the
+	// job itself, and it is not an automatic receipt.
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{JobID: child.ID, FilterJobID: child.ID})
+	gate.Release(t)
+
+	waitAutoResumed(t, s, child.ID, true)
+	row := childWakeRow(t, s, w.ID)
+	assert.Eq(t, child.ID, row.FilterJobID, "a self-watching manual wakeup followed the work")
+	assert.Eq(t, 1, row.Enabled)
+	assert.Eq(t, int64(0), row.FiredCount)
+}
+
+// TestChildWakeRetargetCarriesManualWakeupOnResidentParent: a manual wakeup on ANOTHER job
+// whose target is a live resident session IS answered by a receipt (T5 routing), so it keeps
+// the receipt behaviour: it follows a takeover and is delivered when a retry is cancelled.
+func TestChildWakeRetargetCarriesManualWakeupOnResidentParent(t *testing.T) {
+	t.Parallel()
+	t.Run("follows a takeover", func(t *testing.T) {
+		s, sender, gate := retargetService(t)
+		parent := addRemoteSaySession(t, s, "parent-job", StatusAwaitingInput, 1)
+		child := mustSubmit(t, s, gatedParentReq("codex"))
+		w := addChildReceipt(t, s, jobstore.WakeupRecord{JobID: parent.result.ID, FilterJobID: child.ID})
+		gate.Release(t)
+
+		waitAutoResumed(t, s, child.ID, true)
+		var row jobstore.WakeupRecord
+		wait.For(t, 15*time.Second, "the manual wakeup moved onto the continuation", func() (bool, any) {
+			got, _ := s.Get(child.ID)
+			row = childWakeRow(t, s, w.ID)
+			return got.AutoResumedBy != "" && row.FilterJobID == got.AutoResumedBy, row.FilterJobID
+		})
+		texts := waitForSay(t, sender)
+		assert.True(t, strings.Contains(texts[0], row.FilterJobID), "say = %q", texts[0])
+	})
+	t.Run("delivered on a cancelled retry", func(t *testing.T) {
+		s, sender, _ := retargetService(t)
+		parent := addRemoteSaySession(t, s, "parent-job", StatusAwaitingInput, 1)
+		addFailedChild(t, s, "child-manual", "ci-bot")
+		addChildReceipt(t, s, jobstore.WakeupRecord{JobID: parent.result.ID, FilterJobID: "child-manual"})
+		rec := insertRetry(t, s, "child-manual",
+			`{"project_key":"self","agent":"exec","runner":"local","cmd":["go","version"],"cwd":"."}`, 3600)
+
+		if err := s.CancelRetry(rec.ID); err != nil {
+			t.Fatalf("CancelRetry(%s): %v", rec.ID, err)
+		}
+		texts := waitForSay(t, sender)
+		assert.True(t, strings.Contains(texts[0], "child-manual"), "say = %q", texts[0])
+	})
+}

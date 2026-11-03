@@ -551,6 +551,10 @@ func (s *Service) endParentChildWakes(parentJobID, reason string) {
 // job id, and a receipt left on the old one would never fire again: that job ends without
 // a job.terminal event (a takeover) or with one that was already spent.
 //
+// Only rows the receipt path owns move (see childWakeFollows): a manual event wakeup keeps
+// the resume semantics it always had, so moving its filter — or re-firing it — would wake a
+// target nobody asked again.
+//
 // The move is a per-row CAS (RetargetWakeupFilter): the event path and the retry sweep can
 // both arrive here for the same row, and exactly one move is the truth. Right after a row
 // moves, the new job is read once more — Submit starts it immediately, so it may have
@@ -566,6 +570,9 @@ func (s *Service) retargetChildWakes(fromJobID, toJobID string) {
 		return
 	}
 	for _, w := range rows {
+		if !s.childWakeFollows(w, fromJobID) {
+			continue
+		}
 		moved, merr := s.meta.RetargetWakeupFilter(w.ID, fromJobID, toJobID)
 		if merr != nil {
 			slog.Warn("child wake: retarget receipt", "wakeup_id", w.ID,
@@ -614,11 +621,41 @@ func (s *Service) hasPendingRetry(childJobID string) bool {
 	return false
 }
 
+// childWakeFollows reports whether w is a row the RECEIPT path owns, i.e. one that follows
+// the work into a new job when it is taken over and is re-delivered when a retry of the
+// watched job is cancelled. Two kinds qualify:
+//
+//   - an automatic child receipt (`auto_child=1`): registered because a resident parent
+//     submitted the job, and answered by a say, never by a resume;
+//   - a MANUAL event wakeup registered on ANOTHER job whose target is a live resident
+//     session: T5 routes that one through the say path too, so its receipt has the same
+//     fate (a receipt for a finished turn is what the caller asked for). A manual wakeup on
+//     an ordinary / ended job keeps the resume behaviour it always had and must not be
+//     touched — moving its filter or re-firing it would resume a target nobody asked again.
+//
+// A wakeup registered on the WATCHED job itself (`job_id == filter_job_id`, the default
+// shape of `job wakeup add` on a job) never qualifies: following the work would leave the
+// old, ended job id as the resume target.
+func (s *Service) childWakeFollows(w jobstore.WakeupRecord, watchedJobID string) bool {
+	if w.AutoChild == 1 {
+		return true
+	}
+	if watchedJobID == "" || w.JobID == watchedJobID {
+		return false
+	}
+	parent, resident := s.residentWakeupTarget(w)
+	return resident && !IsFinished(parent.Status)
+}
+
 // deliverRetryCancelledReceipts reports a child whose retry was CANCELLED: the retry will
 // never run, so the failure it was going to replace is the child's last word after all and
 // its receipt goes out now. The four cancelling paths call this (an undecodable request, a
 // missing ceiling owner, a refused admission and `job retry cancel`); a retry that could
 // not be SUBMITTED is merely late and must stay quiet (design 关键流程: 子 job 重试).
+//
+// Only rows the receipt path owns are re-delivered (see childWakeFollows): a manual event
+// wakeup on an ordinary job already fired for the failure itself, and firing it again would
+// resume that target a second time.
 func (s *Service) deliverRetryCancelledReceipts(sourceJobID string) {
 	if sourceJobID == "" {
 		return
@@ -629,6 +666,9 @@ func (s *Service) deliverRetryCancelledReceipts(sourceJobID string) {
 		return
 	}
 	for _, w := range rows {
+		if !s.childWakeFollows(w, sourceJobID) {
+			continue
+		}
 		s.dispatchWakeup(w, EventJobTerminal)
 	}
 }
