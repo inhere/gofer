@@ -39,6 +39,15 @@ const (
 // still looked free would let one wakeup fire (and re-fire) itself.
 const WakeupClaimPending = "pending"
 
+// WakeupPendingSay is the continuation_job_id SENTINEL of a "tell the resident job
+// when it is idle again" wakeup: the trigger already happened but its target is a
+// resident ACP session whose current turn has not ended, so the receipt waits for
+// the session to come back to awaiting_input (see Store.MarkWakeupPendingSay). It is
+// not a job id — every reader that shows continuation_job_id as a job must show it
+// as "pending delivery" instead — and it is cleared by Store.CompleteWakeupSay,
+// which is also where such a wakeup's fire is counted.
+const WakeupPendingSay = "await_input"
+
 // WakeupRecord is the SQLite-persisted projection of one JOB-09 wakeup: an event
 // subscription or timer registered on a job that starts a CONTINUATION of that job
 // when it fires. The JSON columns are opaque strings to this package — jobstore
@@ -72,9 +81,14 @@ type WakeupRecord struct {
 	// it set and non-terminal only bumps CoalescedCount — one wakeup never stacks
 	// continuations (design §五 决策 6).
 	ContinuationJobID string
-	CreatedBy         string
-	CreatedAt         int64
-	ExpiresAt         int64
+	// AutoChild marks a registration the SERVER created for a child job a resident
+	// job submitted with its own job credential (0 = registered by a caller, the
+	// JOB-09 case). It is what the parent-end / reconcile paths scan for, and it is
+	// never writable from a caller's WakeupSpec.
+	AutoChild int
+	CreatedBy string
+	CreatedAt int64
+	ExpiresAt int64
 }
 
 const selectWakeupCols = `SELECT id, job_id, kind, COALESCE(at,0), COALESCE(every_sec,0),
@@ -82,7 +96,8 @@ const selectWakeupCols = `SELECT id, job_id, kind, COALESCE(at,0), COALESCE(ever
   COALESCE(filter_job_id,''), COALESCE(filter_status_json,''), COALESCE(mode,'once'),
   COALESCE(instruction,''), COALESCE(enabled,0), COALESCE(revision,1), COALESCE(next_run_at,0),
   COALESCE(last_fired_at,0), COALESCE(fired_count,0), COALESCE(coalesced_count,0),
-  COALESCE(continuation_job_id,''), COALESCE(created_by,''), created_at, COALESCE(expires_at,0)
+  COALESCE(continuation_job_id,''), COALESCE(created_by,''), created_at, COALESCE(expires_at,0),
+  COALESCE(auto_child,0)
   FROM job_wakeups`
 
 func scanWakeup(sc rowScanner) (WakeupRecord, error) {
@@ -94,6 +109,7 @@ func scanWakeup(sc rowScanner) (WakeupRecord, error) {
 		&r.Instruction, &r.Enabled, &r.Revision, &r.NextRunAt,
 		&r.LastFiredAt, &r.FiredCount, &r.CoalescedCount,
 		&r.ContinuationJobID, &r.CreatedBy, &r.CreatedAt, &r.ExpiresAt,
+		&r.AutoChild,
 	)
 	return r, err
 }
@@ -122,15 +138,16 @@ func (s *Store) InsertWakeup(r WakeupRecord) error {
 	const q = `INSERT INTO job_wakeups
   (id, job_id, kind, at, every_sec, cron_expr, timezone, event_types_json, filter_job_id,
    filter_status_json, mode, instruction, enabled, revision, next_run_at, last_fired_at,
-   fired_count, coalesced_count, continuation_job_id, created_by, created_at, expires_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   fired_count, coalesced_count, continuation_job_id, created_by, created_at, expires_at,
+   auto_child)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		r.ID, r.JobID, r.Kind, r.At, r.EverySec, r.CronExpr, r.Timezone, r.EventTypesJSON,
 		r.FilterJobID, r.FilterStatusJSON, r.Mode, r.Instruction, r.Enabled, r.Revision,
 		r.NextRunAt, r.LastFiredAt, r.FiredCount, r.CoalescedCount, r.ContinuationJobID,
-		r.CreatedBy, r.CreatedAt, r.ExpiresAt,
+		r.CreatedBy, r.CreatedAt, r.ExpiresAt, r.AutoChild,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert wakeup %q: %w", r.ID, err)
 	}
@@ -234,16 +251,22 @@ func (s *Store) AdvanceWakeup(id string, oldNext, newNext, now int64) (bool, err
 }
 
 // ClaimWakeupFire takes the wakeup's single continuation slot: it writes
-// continuationJobID (normally WakeupClaimPending — see that constant) and bumps
-// the fire counters, but ONLY when the wakeup is enabled and its slot is free. The
+// continuationJobID (normally WakeupClaimPending — see that constant) and stamps
+// last_fired_at, but ONLY when the wakeup is enabled and its slot is free. The
 // boolean reports whether THIS call won the slot; a caller that loses must not
 // submit a continuation (and counts a coalesce instead).
+//
+// It deliberately does NOT count the fire: a trigger that cannot deliver a
+// continuation used to leave fired_count raised, so `wakeup ls` showed a failing
+// wakeup as "fired" (design 2026-11-03 范围 3). The count moves in
+// SetWakeupContinuation / CompleteWakeupSay — the points where the continuation
+// actually started (or the receipt was actually delivered).
 func (s *Store) ClaimWakeupFire(id, continuationJobID string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(
 		`UPDATE job_wakeups
-     SET continuation_job_id = ?, last_fired_at = ?, fired_count = COALESCE(fired_count,0) + 1
+     SET continuation_job_id = ?, last_fired_at = ?
      WHERE id = ? AND enabled = 1 AND COALESCE(continuation_job_id,'') = ''`,
 		continuationJobID, time.Now().Unix(), id,
 	)
@@ -257,14 +280,114 @@ func (s *Store) ClaimWakeupFire(id, continuationJobID string) (bool, error) {
 	return n == 1, nil
 }
 
+// MarkWakeupPendingSay parks a wakeup in the "receipt triggered, target not idle
+// yet" state without counting a fire (see WakeupPendingSay). It is the write behind
+// `wakeup.say_pending`: the trigger is durable, so a restart or a busy turn cannot
+// lose it, and it carries no dedup CAS — the caller owns the per-parent receipt lock.
+func (s *Store) MarkWakeupPendingSay(id string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(
+		`UPDATE job_wakeups SET continuation_job_id = ? WHERE id = ?`, WakeupPendingSay, id,
+	); err != nil {
+		return fmt.Errorf("jobstore: mark wakeup %q pending say: %w", id, err)
+	}
+	return nil
+}
+
+// CompleteWakeupSay clears the pending-say sentinel of one DELIVERED receipt and
+// counts its fire (the sentinel path's counterpart of SetWakeupContinuation). It
+// only writes while the sentinel still holds, so a confirmation that races with a
+// re-arm cannot double count; disable consumes a once-mode row in the same write.
+func (s *Store) CompleteWakeupSay(id string, disable bool) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	set := `continuation_job_id = '', last_fired_at = ?, fired_count = COALESCE(fired_count,0) + 1`
+	if disable {
+		set += ", enabled = 0"
+	}
+	if _, err := s.db.Exec(
+		`UPDATE job_wakeups SET `+set+` WHERE id = ? AND continuation_job_id = ?`,
+		time.Now().Unix(), id, WakeupPendingSay,
+	); err != nil {
+		return fmt.Errorf("jobstore: complete wakeup %q say: %w", id, err)
+	}
+	return nil
+}
+
+// ListPendingSay returns the ENABLED wakeups whose receipt is waiting for its
+// target to become idle again (the sweep and the awaiting_input hooks read it).
+func (s *Store) ListPendingSay() ([]WakeupRecord, error) {
+	return s.listWakeups(
+		selectWakeupCols+` WHERE enabled = 1 AND continuation_job_id = ?
+     ORDER BY created_at ASC, id ASC`,
+		WakeupPendingSay,
+	)
+}
+
+// ListAutoChildByParent returns every child receipt registered on parentJobID
+// (enabled or not: the parent-end path reports the ones still armed and disables
+// them, and a row it already disabled must not look like a missing one).
+func (s *Store) ListAutoChildByParent(parentJobID string) ([]WakeupRecord, error) {
+	return s.listWakeups(
+		selectWakeupCols+` WHERE auto_child = 1 AND job_id = ?
+     ORDER BY created_at ASC, id ASC`,
+		parentJobID,
+	)
+}
+
+// wakeupTerminalStatusSQL is the SQL spelling of job's IsTerminal set. jobstore must
+// not import internal/job (G022), so the five values are repeated here — the same
+// trade-off overviewEndStatuses already makes.
+const wakeupTerminalStatusSQL = `('done','failed','cancelled','timeout','rejected')`
+
+// ListAutoChildFinishedBefore returns the ENABLED child receipts whose child job has
+// reached a TERMINAL state at or before endedBefore. Awaiting review is not terminal
+// (the child process is gone but a human still owes a decision), so its receipt is
+// not swept — otherwise the parent would be woken again on every idle window.
+func (s *Store) ListAutoChildFinishedBefore(endedBefore int64) ([]WakeupRecord, error) {
+	return s.listWakeups(
+		selectWakeupCols+` WHERE enabled = 1 AND auto_child = 1 AND filter_job_id IN (
+       SELECT id FROM jobs WHERE status IN `+wakeupTerminalStatusSQL+`
+         AND COALESCE(ended_at,0) > 0 AND ended_at <= ?)
+     ORDER BY created_at ASC, id ASC`,
+		endedBefore,
+	)
+}
+
+// RetargetWakeupFilter moves a wakeup's watched job from one job to another (the
+// child job was taken over / retried and a NEW job id now carries the result). It is
+// a compare-and-swap on the old value: two paths racing (a retry submit and the
+// event path) both aim at the same row, and exactly one move is the truth. The bool
+// reports whether this call moved it.
+func (s *Store) RetargetWakeupFilter(id, fromJobID, toJobID string) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(
+		`UPDATE job_wakeups SET filter_job_id = ? WHERE id = ? AND filter_job_id = ?`,
+		toJobID, id, fromJobID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: retarget wakeup %q: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("jobstore: retarget wakeup %q rows: %w", id, err)
+	}
+	return n == 1, nil
+}
+
 // SetWakeupContinuation replaces the in-flight claim with the real continuation
-// job id. It CASes on the pending sentinel, so a fire that had already lost its
-// slot can never overwrite the winner's continuation.
+// job id and COUNTS the fire (the submit succeeded: this is the first moment the
+// wakeup is known to have delivered). It CASes on the pending sentinel, so a fire
+// that had already lost its slot can never overwrite the winner's continuation.
 func (s *Store) SetWakeupContinuation(id, jobID string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(
-		`UPDATE job_wakeups SET continuation_job_id = ? WHERE id = ? AND continuation_job_id = ?`,
+		`UPDATE job_wakeups
+     SET continuation_job_id = ?, fired_count = COALESCE(fired_count,0) + 1
+     WHERE id = ? AND continuation_job_id = ?`,
 		jobID, id, WakeupClaimPending,
 	)
 	if err != nil {
