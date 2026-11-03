@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/acp/acptest"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // lifecycleSink collects the JSON records of the default logger. It is safe for the
@@ -106,6 +107,33 @@ func TestJobSubmittedAndTerminalLogs(t *testing.T) {
 	}
 	if bytes.Contains([]byte(logs.String()), []byte(secretPrompt)) {
 		t.Fatalf("prompt text leaked into the log: %s", logs.String())
+	}
+}
+
+// TestWakeupCreatedLog registers a wakeup through the real CreateWakeup path and
+// asserts the registration line: which wakeup on which job, of which kind — and no
+// instruction text (it is the continuation's prompt).
+func TestWakeupCreatedLog(t *testing.T) {
+	s := newWakeupService(t, t.TempDir(), &fakeClock{})
+	src := finishedSessionJob(t, s, "codex", "first turn")
+	logs := captureLifecyclePoints(t)
+	const secretInstruction = "TOP-SECRET-INSTRUCTION-TEXT"
+	if _, err := s.CreateWakeup(WakeupSpec{
+		JobID: src.ID, Kind: jobstore.WakeupKindEvery, EverySec: 60,
+		Instruction: secretInstruction,
+	}, "alice", nil); err != nil {
+		t.Fatalf("CreateWakeup: %v", err)
+	}
+	rows := logs.rows(t, "wakeup.created")
+	if len(rows) != 1 {
+		t.Fatalf("wakeup.created rows=%d, want 1: %s", len(rows), logs.String())
+	}
+	row := rows[0]
+	if row["job_id"] != src.ID || row["kind"] != jobstore.WakeupKindEvery || row["wakeup_id"] == nil {
+		t.Fatalf("wakeup.created row=%v", row)
+	}
+	if bytes.Contains([]byte(logs.String()), []byte(secretInstruction)) {
+		t.Fatalf("the wakeup instruction leaked into the log: %s", logs.String())
 	}
 }
 
