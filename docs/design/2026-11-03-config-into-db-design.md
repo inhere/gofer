@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 配置入库与最小配置文件设计
 
-> 状态：Draft 0.4 / 待人工计划批准（0.4 的三项待确认经用户 2026-11-03 确认，原话“配置 0.4 按建议”；批准设计不等于授权实施）
+> 状态：Draft 0.5 / 待人工计划批准（0.4 的三项待确认经用户 2026-11-03 确认，原话“配置 0.4 按建议”；0.5 依 0.4 改动项复核修订，未改已确认的决定；批准设计不等于授权实施）
 > issue：gofer-nhh7
 
 ## 修订记录
@@ -12,6 +12,7 @@
 | 0.2 | 2026-11-03 | Claude（gofer 监督会话） | 按用户决定：`event_hooks`、`decision_hooks`、`triggers` 入库并有 web 入口，专用高危权限与审计；env、proxy_url 入库打码；手动迁移 |
 | 0.3 | 2026-11-03 | Claude（gofer 监督会话） | 按第一轮审核修订（8 阻塞、17 重要）：根只由文件判定；用户物化进配置快照；按条目来源写入；校验拆两段；坏条目进安全模式；迁移放 server；存 YAML；独立审计表；扩大高危字段范围；新用户须明确上限 |
 | 0.4 | 2026-11-03 | Claude（gofer 监督会话） | 按第二轮审核修订（3 阻塞、9 重要）：文件模式与存储模式；坏条目改为拒绝启动加离线修复；存储标记带 id；需重启字段单独暂存；写入事务；停用用户语义 |
+| 0.5 | 2026-11-03 | Claude（gofer 监督会话） | 按 0.4 改动项复核修订（4 阻塞、4 纠正）：未绑定标记解决新装建库；升级预检用只读开库；写入先写齐临时文件再 rename；停用在准入公共点判断；离线修复去掉 `entry disable`、补用户修复；P1 见到标记拒绝启动 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -95,7 +96,7 @@
 | 留文件：密钥来源 | `secrets`（只存“去哪读”，且由执行机解析）、`server.metrics.token` |
 | 留文件：根管理员 | `server.callers` 中 `can_admin` 的项，以及 `server.token` |
 | 进用户表 | `server.callers`（根管理员除外）及其 ceiling、限流、并发 |
-| 进 DB：可热载 | `agents`、`roles`、`projects`、`runners`（`worker` 类型）、`leader`、`wakeup`、`session`、`work`、`steward`、`memory`、`mail`、`tools`、`pricing`、`server.notification`、`inbox`、`retry`、`skills`、`mcp`、`skill_limits`、`rules`、`rules_max_bytes`、`runner_probe`、`comment_trigger`、`dir_lock*`、`agent_health`、`job_env_denylist`、`tunnel`、`language`、`read_dir_allow`、`max_job_timeout_sec`、`auto_resume_max`、`stall_timeout_sec`、`worker_enrollment`（除 `trusted_proxies`）、`hold`、`attachments`、`workers`（token 改存哈希，P3） |
+| 进 DB：可热载 | `agents`、`roles`、`projects`、`runners`（`worker` 类型）、`leader`、`wakeup`、`session`、`work`、`steward`、`memory`、`mail`、`tools`、`pricing`、`server.notification`、`inbox`、`retry`、`skills`、`mcp`、`skill_limits`、`rules`、`rules_max_bytes`、`runner_probe`（`interval_seconds` 除外，探测周期启动时固定，单列为需重启）、`comment_trigger`、`dir_lock*`、`agent_health`、`job_env_denylist`、`tunnel`、`language`、`read_dir_allow`、`max_job_timeout_sec`、`auto_resume_max`、`stall_timeout_sec`、`worker_enrollment`（除 `trusted_proxies`）、`hold`、`attachments`、`workers`（token 改存哈希，P3） |
 | 进 DB：高危，专用权限 `config.exec.write` | `server.event_hooks`、`server.decision_hooks`、`server.triggers`、`server.update`、`mcp_servers`、`http_proxy`、`server.worker_enrollment.trusted_proxies` |
 | 进 DB：改了要重启 | `schedule`、`pty`、`runners`（`peer-http`）、`server.session_messaging`、`governance`、`metrics`、`web_base_url`、`job_recover_window_sec`、`policy_repush`、`agent_fallback`、`push`、`xfer`、`preview`、`delivery_check`、`background_agents`、`worker_queue_max_wait_sec`。入库不要求热载：启动时读 DB，界面标“需重启” |
 
@@ -117,7 +118,7 @@ hooks 和 triggers 原定只写文件，用户决定入库，理由是：有权�
 文件来源的用户：`rotate`、`disable` 拒绝并提示迁移（轮换会把明文写进文件，`token_env` 也轮换不了）；`set-ceiling` 写文件。
 
 **新旧部署：**
-- 新装：`gofer init` 只写核心配置和存储标记，其余默认值 + DB。
+- 新装：`gofer init` 只写核心配置和不带 id 的标记 `config_store: {}`（未绑定），其余默认值 + DB。首次 serve 建库、生成 `config_store_id`，把 id 回写文件后才算绑定；回写失败就退出，下次重来。未绑定时库里已有 `config_store_id` 也拒绝启动（文件被换过或路径写错）。
 - 已有部署：不自动迁移，升级后一切照旧；想迁就执行 `gofer config migrate`。
 
 ## 架构
@@ -126,15 +127,15 @@ hooks 和 triggers 原定只写文件，用户决定入库，理由是：有权�
 - `internal/jobstore`：`config_entries(path PK, value_yaml, generation, updated_by, updated_at)`；`auth_callers(id PK, name, token_hash, token_hint, limits_json, ceiling_yaml, disabled_at, created_by, created_at, rotated_at)`，`token_hash` 是十六进制 sha256；`config_audit(id, actor, path, before_masked, after_masked, at)`，与写入同事务，有保留期。均为增量加表（G057），发版后补 `schema-v*.sql`。
 - 值存 YAML 文本，走现有解码、严格校验和已移除键检查。`encoding/json` 会改键名、丢 `ArgList` 的 `[]` 语义和 `extends` 差异。
 - `internal/config`：`validate` 加 `refs` 开关，只跳过跨条目引用类检查（fallback、leader、memory、mcp、triggers、能力位），CLI 路径关闭，合并后打开；`extends` 引用缺失推迟到合并后判断；能调 `agent.ValidateConfig` 的完整校验放编排层。`config validate` 优先调 server，server 不在时只读开库合并校验。`ApplyEntries` 放在 `loadFile` 之后，再跑一次 `ApplyDefaults`，否则会污染 `authored`。来源标记用未导出字段加访问器（与 `injectedAgents` 同款），条目来源 map 放 `Config` 并在 `Clone` 复制。新增 `ApplyEntries`（叠加，记录来源）和 `SplitForStore`（走 `authored` 投影，默认值、overlay、注入项不入库）。字段策略表拆成“归属”和“生效时机”两列，覆盖全部顶层节，用反射测试守护，并加 secret 标记。`Clone` 先对所有入库字段做深拷贝，加 race 测试。config 不依赖 jobstore（G021–G024）。
-- `internal/serve`、`internal/core`：`serve.Start` 开头先开库、合并，再 `core.WithStore` 注入；叠加是显式选项，worker 不启用，standalone mcp 走合并。`saveConfig` 只写本次 diff 出的条目，并按来源分流：开 DB 事务写入和审计，文件走临时文件加 rename，成功后才提交事务，文件失败就回滚。`reloadFromPathLocked` 也走同样的合并。写文件用新的 `fileProjection()`（按来源过滤），`CanonicalConfig` 保留全部；有 DB 用户时 Save 不改变文件字节。`server.callers` 改标热载。
+- `internal/serve`、`internal/core`：`serve.Start` 开头先开库、合并，再 `core.WithStore` 注入；叠加是显式选项，worker 不启用，standalone mcp 走合并。`saveConfig` 只写本次 diff 出的条目，并按来源分流：开 DB 事务写入和审计，文件先写齐所有临时文件（复制原权限，符号链接写到其目标），保留旧字节，全部 rename 后才提交事务；任一步失败，已 rename 的用旧字节恢复，事务回滚。include 拆分时 `saveSplit` 同样整批处理。进程在 rename 和提交之间崩溃的窗口不覆盖，下次启动由合并校验发现。`reloadFromPathLocked` 也走同样的合并。写文件用新的 `fileProjection()`（按来源过滤），`CanonicalConfig` 保留全部；有 DB 用户时 Save 不改变文件字节。`server.callers` 改标热载。
 - 需重启的字段：不走 `Core.Update`（它存和发布的是同一个对象，保留旧值会让下一次写入改回去）。新增 `StagePending`：持 `updateMu` 只写 DB、不发布；reload 合并时这批路径用进程启动时的值；界面对比 DB 值和启动值，显示“重启后生效”。来源是文件的继续拒绝 web 写入。`server.governance` 现在实际写入即生效，归入这一类后要一并修正。
 - `internal/httpapi`：
   - 用户物化进 `cfg.Server.Callers`（带来源标记），ceiling、限流、授权声明不用改。要改的读取方：`TokenSet` 增加哈希判断；`callerCeilingWarnings` 改在合并后生成，`caller add` 也返回；并发上限信号量按 callerID 缓存、容量固定，取用时比较容量，否则改上限要重启。
-  - `callerEntry` 增加哈希字段，比较保持恒定时间。长连接指纹改由哈希推出（等于 `token_hash[:16]`），否则 DB 用户会在巡检时被断开。所有 DB 用户都停用后 `callersEmpty` 不能算真，否则 `allow_empty_token` 部署会回到匿名。
+  - `callerEntry` 增加哈希字段，比较保持恒定时间。长连接指纹改由哈希推出（等于 `token_hash[:16]`），否则 DB 用户会在巡检时被断开。所有 DB 用户都停用后也不能算“没有用户”，否则 `allow_empty_token` 部署会回到匿名：快照里放“已声明用户数”，`callersEmpty`、`tunnelAuth`、`liveCallerIdentity` 三处共用。`UserCallerIDs` 和 `sessionCallerKnown` 不含停用用户（不能把新东西归给它）。
   - 根判定只看文件：`HasRootAdmin` 只数文件来源的用户。
   - 读 `auth_callers` 失败时整次 reload 失败、保留旧快照，绝不当作空集；孤儿扫描只在拿到完整用户集时运行。
   - 新路由登记 `routeDecls`（G056）：`/v1/callers*`（根）、roles、`/v1/config/exec/*`（`config.exec.write`）。高危字段不进通用 `PUT /v1/config/server` 词表，预览和校验接口也不接收。
-- `internal/commands`：`gofer auth caller add|ls|rotate|disable|set-ceiling`（G033，放在已有的 `auth` 下）；`config migrate`、`config export` 都是瘦客户端，经 server 执行。离线修复是“CLI 不直接写库”的唯一例外：`config doctor --offline`、`config entry rm|disable <path> --offline`、`config export --offline`，用 pid 文件确认 server 未运行，写 `config_audit`，actor 记 `offline:<用户>`。
+- `internal/commands`：`gofer auth caller add|ls|rotate|disable|set-ceiling`（G033，放在已有的 `auth` 下）；`config migrate`、`config export` 都是瘦客户端，经 server 执行。离线修复是“CLI 不直接写库”的唯一例外：`config doctor --offline`、`config entry rm <path> --offline`（先打印旧值）、`auth caller repair <id> --offline`（用户行字段损坏时：停用该用户，坏的 `ceiling_yaml` 改成最严上限，坏的 `limits_json` 清空，不删行）、`config export --offline`，用 pid 文件确认 server 未运行，写 `config_audit`，actor 记 `offline:<用户>`。
 - 非 serve 的 `config.Load` 调用：必须叠加的（`serve.go:256`、`core.go:701`、`mcp.go:135`）走合并；会静默答错的（`job.go:1987`、`hook.go`、`repo.go`、`project.go`、`agent*.go` 等）改为经 server 读，读不到就明确报错。`gofer project add` 改走 API。计划阶段列全并逐项改，这是工作量最大的部分。
 - `internal/settings` 保留：放提示词、阈值这类有注册表的值；`config_entries` 放配置结构。修改其包注释，写清边界。
 - web：用户管理；agent 表单补 `can_submit`；roles 编辑；高危配置页；所有字段显示来源。打码字段 PUT 时能保留原值。
@@ -161,7 +162,7 @@ flowchart LR
 3. 即时可用；权限照旧用 grants 发。
 4. 轮换或停用时断开长连接（复用 `authz_live_conn`），记审计。
 
-用户生命周期：不做硬删除，id 永不复用。停用的用户留在快照里（ceiling 继续约束它在跑的 job），但不能认证；`effective` 对它返回空权限；它名下的 trigger、schedule、retry 不再起 job。`default` 等 id 保留。文件后来新增同 id 时，DB 条目整体隐藏（含 token），合并后校验报告。
+用户生命周期：不做硬删除，id 永不复用。停用的用户留在快照里（ceiling 继续约束它在跑的 job），但不能认证；`effective` 对它返回空权限；它名下的 job 不再起，判断放在 `admitCeiling`，这样 trigger、schedule、retry、计划派发、leader 轮次、@ 触发、续跑、接管、放行 hold 都覆盖。拒绝用 `ErrCeilingDenied`（永久，不重试）。系统 job 没有 owner，不受影响；带 owner 的内部 exec 里，只放行交付收尾类（具体清单在计划里列）。`default` 等 id 保留。文件后来新增同 id 时，DB 条目整体隐藏（含 token），合并后校验报告。
 
 鉴权：保持现有匹配优先级，DB 用户排在文件用户之后。
 
@@ -175,10 +176,10 @@ flowchart LR
 5. 对比前后有效配置（排除 token，单独核对身份集合、能力位、ceiling），不一致就回滚。
 
 启动：
-- 有标记时，开库之前先 stat 库文件（`Open` 会静默建空库）；开库后比对 `config_store_id`。库丢失或路径写错都拒绝启动，不以空配置运行。
+- 带 id 的标记，开库之前先 stat 库文件（`Open` 会静默建空库）；开库后比对 `config_store_id`。库丢失或路径写错都拒绝启动，不以空配置运行。
 - 开库失败：进程退出（现状）。
-- DB 条目非法（写入时已校验，通常来自版本变化或手动改库）：退出非零，打印坏条目路径，用 `config doctor --offline` 和 `config entry rm|disable --offline` 修复。不做在线安全模式，也不跳过坏条目：跳过 `governance`、`job_env_denylist`、`decision_hooks` 等于放开限制。worker 断线会一直重连，所以 server 短暂起不来不影响 worker。
-- 受管升级：候选二进制先做一次合并校验，在旧 server 还活着时拦下坏配置。
+- DB 条目非法（写入时已校验，通常来自版本变化或手动改库）：退出非零，打印坏条目路径，用 `config doctor --offline`、`config entry rm --offline`、`auth caller repair --offline` 修复。不做在线安全模式，也不跳过坏条目：跳过 `governance`、`job_env_denylist`、`decision_hooks` 等于放开限制。worker 断线会一直重连，所以 server 短暂起不来不影响 worker。
+- 受管升级：候选二进制先做一次合并校验，在旧 server 还活着时拦下坏配置。现有 `Open` 必跑迁移，这时跑会改线上库，所以新增只读开库（不迁移）。预检查询只用 `config_entries(path, value_yaml)` 和 `auth_callers` 首版就有的列，后续版本加列不影响；缺表时无标记按空集，有标记报错。配置路径由 `spec.ConfigFile`、`spec.ConfigDir` 算出。
 
 ## 安全、数据、运维与回滚
 
@@ -190,7 +191,7 @@ flowchart LR
 - 恢复：DB 条目坏了或库打不开时 server 都起不来，靠离线命令和恢复备份，需要能登录主机。不承诺在线恢复。
 - 备份：配置进 DB 后，备份 DB 就等于备份配置；用 SQLite 一致性备份，不要直接拷文件（WAL）。发版说明要提示。
 - 损失：DB 里的配置不能用 git 管、不能直接 diff，靠审计和 export 补；要版本管理的条目可以留在文件。
-- 版本回退：旧版本解码不严格，读到迁移后的文件不会报错，会以“只有核心项”静默启动，hooks、`governance` 全部消失，DB 用户的授权被标孤儿（读代码所得，未实跑）。所以回退必须先用迁移前备份恢复文件；回退目标不低于首个支持标记的版本（P1）。迁移后新建的 DB 用户只有哈希，回退后要重新发 token。未迁移部署只有 DB 用户受影响。计划里要做真实回退测试。
+- 版本回退：旧版本解码不严格，读到迁移后的文件不会报错，会以“只有核心项”静默启动，hooks、`governance` 全部消失，DB 用户的授权被标孤儿（读代码所得，未实跑）。所以回退必须先用迁移前备份恢复文件；回退目标不低于首个支持标记的版本（P1）：P1 不懂合并，见到标记就拒绝启动，提示恢复备份或升级。迁移后新建的 DB 用户只有哈希，回退后要重新发 token。未迁移部署只有 DB 用户受影响。计划里要做真实回退测试。
 - 跨进程：用户和配置的写入都只经 server，CLI 不直接写库，撤销即时生效。
 
 ## 决策
@@ -203,7 +204,7 @@ flowchart LR
 - 整条目归属，不做字段级合并：同一个 agent 一部分在文件、一部分在 DB 很难看懂。
 - 旧配置不自动迁移，由用户执行 `config migrate`（用户已批准）：自动迁移一旦判断错，升级时文件就被改了。
 - 迁移放 server 侧：CLI 改文件时，运行中的 server 可能把配置写回文件。
-- 分阶段：P1 用户入库（价值最大，独立可发）；P2 存储、迁移、最小 init、补 web 入口；P3 把“进 DB：改了要重启”这批和 hooks、triggers 搬完并清理文档。
+- 分阶段：P1 用户入库（价值最大，独立可发），含“见到标记拒绝启动”；P2 存储、迁移、最小 init、补 web 入口；P3 把“进 DB：改了要重启”这批和 hooks、triggers 搬完并清理文档。
 
 ## 待确认事项
 
@@ -221,7 +222,7 @@ flowchart LR
 - 新装：只写核心配置启动，web 上完成新增用户、发 token、开 `can_submit`，全程不改文件、不重启。
 - 已有部署：升级后不迁移，有效配置与升级前逐项一致。
 - 迁移：前后有效配置一致；文件只剩核心项；回退按文档能恢复；迁移期间控制台写入不会写回文件。
-- 启动：库丢失或路径写错时拒绝启动；坏条目拒绝启动并能离线修好；DB 用户读失败时授权不被标孤儿。
-- 写入：跨 DB 和文件的写入失败时两边都不生效；需重启字段重启后才生效，其间其他写入不会把它改回去。
-- 停用：停用后 trigger、schedule 不再起 job；改并发上限不用重启。
+- 启动：新装 init 后首次 serve 能起来并完成绑定；库丢失或路径写错时拒绝启动；坏条目和损坏的用户行拒绝启动并能离线修好；DB 用户读失败时授权不被标孤儿。
+- 写入：跨 DB 和文件的写入失败时两边都不生效（含 include 拆分，进程崩溃窗口除外），文件权限不变；需重启字段重启后才生效，其间其他写入不会把它改回去。
+- 停用：停用后 trigger、schedule、计划派发、leader 轮次不再起 job；改并发上限不用重启。
 - 安全：DB 和日志里查不到用户 token；普通用户调用用户管理接口被拒；停用后长连接断开；无专用权限的调用方改高危字段被拒，且不能经通用接口绕过；改动在审计里可查且不含密钥；DB 用户的 ceiling、配额生效，长连接不被误断。

@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 常驻 ACP job 的子 job 回执设计
 
-> 状态：Draft 0.4 / 待人工计划批准（“超时后 resume 拆第二期”经用户 2026-11-03 确认，原话“R1 拆第二期”；批准设计不等于授权实施）
+> 状态：Draft 0.5 / 待人工计划批准（“超时后 resume 拆第二期”经用户 2026-11-03 确认，原话“R1 拆第二期”；0.5 依窄范围复核修订，未改方向；批准设计不等于授权实施）
 > issue：gofer-rt3z
 
 ## 修订记录
@@ -12,6 +12,7 @@
 | 0.2 | 2026-11-03 | Claude（gofer 监督会话） | 按独立审核修订：增加待送扫描与两条进入路径、子 job 接管链、提交时登记、结果落定后发送、远程送达确认；取消暂停空闲超时，改为超时后 resume；第一版只回执结束和待验收；新增标记列 |
 | 0.3 | 2026-11-03 | Claude（gofer 监督会话） | 按用户要求：回执事件可配置，默认结束与待验收，可选工具审批与 hold；取消暂停空闲超时定稿 |
 | 0.4 | 2026-11-03 | Claude（gofer 监督会话） | 按 closure 复核修订（5 阻塞、11 重要）：超时后 resume 拆到第二期；第一期父 job 结束即告警；补重试回执顺序、更新暂停登记点、批次确认、限频哨兵 |
+| 0.5 | 2026-11-03 | Claude（gofer 监督会话） | 按窄范围复核修订（7 阻塞、4 纠正）：`job.wakeup_failed` 进默认通知；tick 对账已结束子 job；确认时比对子 job 状态；parked `--sync` 也登记；父 job needs_review 按结束处理；重试 CAS 后补查、只在取消时补发；本机不重发 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -86,7 +87,7 @@
 | 已结束（手动登记，`auto_child=0`） | 按现状走 resume / rebuild（不变） |
 | 活着的常驻 job，awaiting_input | say 开新一轮 |
 | 活着的常驻 job，一轮进行中 | 记为待送，等它进入 awaiting_input 再 say |
-| 常驻 job 已结束（超时、被人结束、失败，`auto_child=1`） | 第一期：停用 wakeup，记 `job.wakeup_failed` 并通知人，不复活 |
+| 常驻 job 已结束（超时、被人结束、失败、进入 needs_review，`auto_child=1`） | 第一期：停用 wakeup，记 `job.wakeup_failed` 并通知人，不复活 |
 | 非常驻且未结束 | 按现状等终态（不变） |
 
 同一时刻多个子 job 有结果时合并成一条 say，因为 say 同时只能排一条。
@@ -106,9 +107,9 @@ say 内容是固定模板：子 job id、状态、退出码、查看命令，前
 - 回执模板写明“你不能代答，请转告人”。
 - 工具审批可能连续发生，同一子 job 的“需要输入”类回执最多 1 分钟一条（常量）。限频内写待送哨兵，由 tick 补发，否则子 job 卡住后就再没有下一条；最后发送时间放内存，重启最多多发一条。`job.terminal` 不受限。
 
-**空闲与资源：** 父 job 等子 job 期间不特殊处理。第一期父 job 必须活到子 job 结束，所以监督类 job 要显式设够长的 `--idle-timeout`（默认只有 1800 秒），提示词和文档都写明。父 job 先结束时回执送不到，但不会静默：记 `job.wakeup_failed`，走现有通知告诉人。
+**空闲与资源：** 父 job 等子 job 期间不特殊处理。第一期父 job 必须活到子 job 结束，所以监督类 job 要显式设够长的 `--idle-timeout`（默认只有 1800 秒），提示词和文档都写明。父 job 先结束时回执送不到，但不会静默：记 `job.wakeup_failed`，走通知告诉人。`job.wakeup_failed` 今天只是可订阅，不在默认集合里（`internal/notify/match.go` 的 webhook 和桌面默认、`internal/webpush/dispatch.go` 的白名单），要加进这三处，否则默认配置下人收不到；这是全局变化，要写进发版说明。
 
-资源：父 job 在等待期间占进程和项目槽位。提示词建议父 job 用 `--shared-dir`、可写子 job 用 `--worktree`。子 job 排在父 job 的目录锁后面时不会死锁：排队最多 1 小时（`dir_lock_max_wait_sec`）后失败，父 job 会收到失败回执。
+资源：父 job 在等待期间占进程和项目槽位。提示词建议父 job 用 `--shared-dir`、可写子 job 用 `--worktree`。子 job 排在父 job 的目录锁后面时不会死锁：排队最多 1 小时（`dir_lock_max_wait_sec`）后失败，父 job 会收到失败回执。项目、caller、agent 并发槽位的等待没有时限：上限为 1 时，子 job 要排到父 job 退出，长 `--idle-timeout` 下可达一天且没有回执。提示词和文档要写明槽位留余量。
 
 **分期：**
 - 第一期：上述 say 主路径。解决的场景：父 job 活着，子 job 有结果就开新一轮。
@@ -125,15 +126,15 @@ say 内容是固定模板：子 job id、状态、退出码、查看命令，前
 代码组织：
 - `internal/job/wakeup_session.go`（新）：待送、合并、发送、扫描、对账。`dispatchWakeup` 和 `fireWakeup` 在现有分支之前先判断“目标是活着的常驻 job 且 wakeup 是 event 类”。
 - 检查待送的函数由 `awaitSessionInput` 和 `applyRemoteSessionState` 共用，条件是状态为 awaiting_input，不依赖事件是否新记。
-- `internal/serve`：`startScheduleLoop` 的 `run()` 里紧随 `sweepDueWakeups` 调待送扫描；启动对账排在 `ReconcileOrphanJobs` 之后（投递遗留待送；子 job 已结束而 wakeup 未触发的补 fire）。
-- 自动登记放在普通路径和 `parkJob` 共用的函数里（持久化之后、记事件之前），这样 hold 和更新暂停都覆盖，`job.awaiting_approval` 的登记也早于事件；用 `req.heldJobID == ""` 防放行时重复。父 job id 由 handler 从 `jobCallerFromCtx` 取，经 `json:"-"` 字段传入，不信请求体和标签；retry、rebuild 不重复登记。`--sync` 不登记（这一轮已拿到结果）。`CreatedBy` 用父 job 的 CallerID，不用 job 凭据身份。`submitGrant` 下沉到 job 层，httpapi 调用它（G021）。
+- `internal/serve`：`startScheduleLoop` 的 `run()` 里紧随 `sweepDueWakeups` 调待送扫描；启动对账排在 `ReconcileOrphanJobs` 之后（投递遗留待送）。待送扫描同时对账 `auto_child=1`、启用、子 job 已结束的行，经重试和接管判断后补发：恢复窗口到期的 worker 子 job 由 `FailRecoveringJobs` 直接改库，不记 `job.terminal`，只在启动时对账会漏，回执就丢了。不改成补记事件：那会让重启后的每个丢失 job 都发一轮通知。自动行 TTL 到期记 `job.wakeup_failed`，不记 `job.wakeup_expired`（后者不在通知目录）。
+- 自动登记写成一个新 helper，由普通路径和 `parkJob` 两处调用（今天两处各自落库，没有共用函数；持久化之后、记事件之前），这样 hold 和更新暂停都覆盖，`job.awaiting_approval` 的登记也早于事件；用 `req.heldJobID == ""` 防放行时重复。父 job id 由 handler 从 `jobCallerFromCtx` 取，经 `json:"-"` 字段传入，不信请求体和标签；retry、rebuild 不重复登记。`--sync` 不登记（这一轮已拿到结果），但 hold 和更新暂停的 job 对 `--sync` 也是立即按异步返回，所以 `parkJob` 路径一律登记。`CreatedBy` 用父 job 的 CallerID，不用 job 凭据身份。`submitGrant` 下沉到 job 层，httpapi 调用它（G021）。
 - `internal/commands`：`job run --no-parent-wake`；`wakeup ls`、HTTP、MCP 三处把 `await_input` 显示为待送，不当 job id。
 - Schema：`job_wakeups` 增加 additive 列 `auto_child INTEGER NOT NULL DEFAULT 0`，走迁移（G057）；同步 `selectWakeupCols`、`scanWakeup`、`InsertWakeup` 和 schema 校验数据。待送用 `continuation_job_id` 的新哨兵 `await_input`。
 - store：`fired_count` 改到成功后累加；新增不计数的待送写入。接管和重试成功时 CAS 把 `filter_job_id` 改到新 job。
-- `session_commands.go`：把“轮次进行中”“已有排队”“worker 离线”“会话结束中”拆成可区分的错误；前三种保持待送，最后一种按父 job 结束处理。
+- `session_commands.go`：把“轮次进行中”“已有排队”“worker 离线”“会话结束中”拆成可区分的错误；前三种保持待送，最后一种按父 job 结束处理。再加第五种“job 未终态且无活会话”：recovering 时保持待送，needs_review 按父 job 结束处理。路由判断“父 job 已结束”用 `IsFinished`，不用 `IsTerminal`（needs_review 不算 terminal，但进程已退出）。
 - 提示词：模板在 `internal/i18n/prompts/<lang>/`，标题标记在 `protocol.go`；`prompt_sections.go` 增加独立分支，因为现有判断排除 Session；空 prompt 不注入，否则空启动的常驻 job 会立刻开一轮。
 - 配置：`config.WakeupConfig` 增加 `ChildEvents`，校验放在 config 层。web 上改依赖配置入库设计，第一期只能写文件或用单次参数。
-- 事件：`interaction.created`、`job.awaiting_approval` 进 wakeup 事件目录。worker 子 job 的 interaction 经 `injectInteraction` 桥接时不记事件，要在其非幂等分支补记；这是全局变化：IM、桌面、webpush 都会开始收到 worker 和 peer job 的 interaction 通知，实际上修了一个缺口，要写进发版说明。事件形状沿用 `{interaction_id,type,prompt}`；补记前查 DB，避免 hub 重启后重复记（是否会重发未确认）。`job.awaiting_approval` 在 `parkJob` 内同步记录，自动登记要放在它之前（hold 路径单独一个登记点）。
+- 事件：`interaction.created`、`job.awaiting_approval` 进 wakeup 事件目录。worker 子 job 的 interaction 经 `injectInteraction` 桥接时不记事件，要在其非幂等分支补记；这是全局变化：IM、桌面、webpush 都会开始收到 worker 和 peer job 的 interaction 通知，实际上修了一个缺口，要写进发版说明。事件形状沿用 `{interaction_id,type,prompt}`；补记前查 DB，避免 hub 重启后重复记（是否会重发未确认）。`job.awaiting_approval` 在 `parkJob` 内同步记录，自动登记要放在它之前。
 - 文档：G045（gofer-usage 的 wakeup、job run、can_submit）、G058 能力清单。
 
 ## 关键流程
@@ -162,11 +163,11 @@ sequenceDiagram
 - say 报 `already queued`（人刚好也说了话）：保持待送，下次 awaiting_input 再发。
 - worker 离线、升级排空中：保持待送，由新增的待送扫描重试。
 - 写入待送后再读一次父 job 状态，已是 awaiting_input 就立刻投递，避免“检查后再写”的竞态；扫描兜底。
-- 发送放后台（含目标已终态的分支），不阻塞子 job 的 finish，也不阻塞 hub 读循环。终态和待验收类事件等 `entry.done` 后再读状态（事件先于状态翻转）；`interaction.created`、`job.awaiting_approval` 不翻状态，不等。
-- 送达确认：say 成功只代表写出去了（worker 是帧，本机是写进缓冲 channel，空闲计时器到期的窗口内也会丢）。两种父 job 都以 TurnNo 超过发送时的 turn 算送达并清待送，只清这一批（发送时记下批次的行 id，内存即可，重启后重发无害）；超时重发，用稳定 CmdID，同时解开 pending。父 job 结束时未确认的按“父 job 已结束”处理。
-- 父 job 结束（含被接管，接管分支不记 terminal，要单独挂）：把它名下的待送和自动 wakeup 全部停用，记 `job.wakeup_failed` 并通知人。这个处理挂在父 job 的结束上，因为待送行的 `filter_job_id` 是子 job，匹配不到。
-- 子 job 接管链：自动续跑、换 agent、核验续跑、未提交续跑成功时 CAS 把 wakeup 改到新 job，CAS 后补查一次（新 job 可能已经结束）；提交失败时原 job 补记 terminal，照常回执。
-- 子 job 重试：普通失败先记 terminal，重试行在 finish 末尾才写。所以回执放到 `entry.done` 之后，先查有没有待执行的重试：有就不发也不停用，重试提交成功时 CAS；重试被取消或提交失败时补发回执。
+- 发送放后台（含目标已终态的分支），不阻塞子 job 的 finish，也不阻塞 hub 读循环。终态和待验收类事件等 `entry.done` 后再读状态（事件先于状态翻转）；entry 要在 observer 内同步取到再进后台，否则已驱逐时取不到，会查不到重试而误发、误停用；`interaction.created`、`job.awaiting_approval` 不翻状态，不等。
+- 送达确认：say 成功只代表写出去了（worker 是帧，本机是写进缓冲 channel，空闲计时器到期的窗口内也会丢）。两种父 job 都以 TurnNo 超过发送时的 turn 算送达并清待送，只清这一批（发送时记下批次的行 id 和当时的子 job 状态，内存即可，重启后重发无害）。确认时子 job 状态已变就保留哨兵：同一行会再次触发，比如 interaction 回执未确认时子 job 结束，直接清会丢掉 terminal 回执。超时重发只限 worker 父 job，用稳定 CmdID，同时解开 pending。本机父 job 只确认、不重发：重发要持 `entry.mu` 写容量 1 的 channel，空闲到期后没人读，会卡住 finish。父 job 结束时未确认的按“父 job 已结束”处理。
+- 父 job 结束（含被接管和进入 needs_review，这两个分支不记 terminal，要单独挂；核验失败转 needs_review 的 `parkAfterFailedCheckResume` 也要挂）：把它名下的待送和自动 wakeup 全部停用，记 `job.wakeup_failed` 并通知人。这个处理挂在父 job 的结束上，因为待送行的 `filter_job_id` 是子 job，匹配不到。
+- 子 job 接管链：自动续跑、换 agent、核验续跑、未提交续跑成功时 CAS 把 wakeup 改到新 job，CAS 后补查一次（新 job 可能已经结束）；提交失败时原 job 补记 terminal，照常回执。核验续跑例外：提交失败会转 needs_review，只配 `job.terminal` 的子 job 要等人裁决后才有回执。
+- 子 job 重试：普通失败先记 terminal，重试行在 finish 末尾才写。所以回执放到 `entry.done` 之后，先查有没有待执行的重试：有就不发也不停用，重试提交成功时 CAS，CAS 后同样补查（`Submit` 返回前新 job 已启动，可能已经结束，之后再无事件）。只在重试走到取消这个终局时补发回执（权限拒绝、请求解不开、`job retry cancel` 三处都要挂，它们有的不记事件）；可重试的提交失败只是退避再来，不算结束。
 - 自动登记用 continuous，处理完 `job.terminal` 后在代码里停用；监听的事件取上文配置的结果。TTL 取 `max(wakeup.ttl_sec, 子 job 时限 + 排队余量)`。
 
 ## 安全、数据、运维与回滚
