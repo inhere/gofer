@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -101,6 +102,39 @@ func (s *Service) injectInteraction(jobID string, it Interaction) error {
 	if err := s.meta.UpsertInteraction(toInteractionRecord(it)); err != nil {
 		slog.Warn("upsert injected interaction", "job_id", jobID, "interaction_id", it.ID, "err", err)
 	}
+	// E13: a bridged (worker / peer) interaction records the same lifecycle event the
+	// local path records. It used to be missing, so neither the notification channels
+	// nor a supervising parent job ever learned that a remote child needed a person
+	// (design 2026-11-03 事件). The id guard above already makes the IN-MEMORY bridge
+	// once-only; the DB check covers a serve that restarted and re-bridged the same id.
+	s.recordInteractionCreatedOnce(jobID, it)
 
 	return nil
+}
+
+// recordInteractionCreatedOnce records interaction.created unless the job's timeline
+// already carries an event for this interaction id, so a re-bridge after a restart
+// does not tell the notification channels (and a supervising parent) twice.
+func (s *Service) recordInteractionCreatedOnce(jobID string, it Interaction) {
+	events, err := s.meta.ListJobEvents(jobID, 0)
+	if err != nil {
+		slog.Warn("list job events before recording interaction.created", "job_id", jobID, "err", err)
+		return
+	}
+	for _, ev := range events {
+		if ev.Type != EventInteractionCreated {
+			continue
+		}
+		var detail struct {
+			InteractionID string `json:"interaction_id"`
+		}
+		if json.Unmarshal([]byte(ev.Detail), &detail) == nil && detail.InteractionID == it.ID {
+			return
+		}
+	}
+	s.recordEvent(jobID, EventInteractionCreated, map[string]any{
+		"interaction_id": it.ID,
+		"type":           it.Type,
+		"prompt":         it.Prompt,
+	})
 }

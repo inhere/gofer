@@ -65,6 +65,11 @@ var wakeupEventCatalog = map[string]bool{
 	EventJobStalled:              true,
 	EventInteractionAnswered:     true,
 	EventSessionTakeoverReleased: true,
+	// The two "the job needs a person" events a supervising job relays (design
+	// 2026-11-03 回执事件): the parent cannot answer or approve for its child, it can
+	// only tell someone, so they are off by default and cost one receipt each when on.
+	EventInteractionCreated:  true,
+	EventJobAwaitingApproval: true,
 }
 
 // WakeupEventTypes returns the v1 event catalog in a stable order (for error
@@ -74,6 +79,7 @@ func WakeupEventTypes() []string {
 		EventJobTerminal, EventJobVerifyFinished, EventJobNeedsReview,
 		EventJobReviewed, EventJobFellBack, EventJobStalled,
 		EventInteractionAnswered, EventSessionTakeoverReleased,
+		EventInteractionCreated, EventJobAwaitingApproval,
 	}
 }
 

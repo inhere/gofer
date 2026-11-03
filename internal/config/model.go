@@ -281,6 +281,8 @@ func (c *Config) Clone() *Config {
 	clone.Memory = c.Memory
 	clone.Memory.Synthesis.Projects = slices.Clone(c.Memory.Synthesis.Projects)
 	clone.Memory.Synthesis.ModelArgs = slices.Clone(c.Memory.Synthesis.ModelArgs)
+	clone.Wakeup = c.Wakeup
+	clone.Wakeup.ChildEvents = slices.Clone(c.Wakeup.ChildEvents)
 	clone.Tools = slices.Clone(c.Tools)
 	if c.Projects != nil {
 		p := make(map[string]ProjectConfig, len(c.Projects))
@@ -461,13 +463,59 @@ type ScheduleConfig struct {
 }
 
 // WakeupConfig is the top-level `wakeup:` block (JOB-09, design §五.1). Only the
-// TTL lives here: a wakeup's shape is per-registration, and the sweeper rides the
-// existing `schedule:` cadence rather than owning a second interval.
+// TTL and the child-receipt event set live here: a wakeup's shape is per-registration,
+// and the sweeper rides the existing `schedule:` cadence rather than owning a second
+// interval.
 type WakeupConfig struct {
 	// TTLSec is how long a wakeup stays armed before the sweeper disables it
 	// (0/unset => DefaultWakeupTTLSec, 7 days). A wakeup nobody consumed is a leak
 	// in the sweeper's query set, so it expires on its own.
 	TTLSec int `yaml:"ttl_sec,omitempty"`
+	// ChildEvents is which lifecycle events of a child job wake the resident job that
+	// submitted it (design 2026-11-03 回执事件; empty => DefaultWakeupChildEvents).
+	// job.terminal is always included — it is the receipt floor and the point where an
+	// automatic registration retires; ResolveChildEvents adds it back.
+	ChildEvents []string `yaml:"child_events,omitempty"`
+}
+
+// The event types a child receipt may subscribe to (design 2026-11-03 回执事件). The
+// literals repeat internal/job's event names because that package imports this one
+// (G022); a test in internal/job pins them to the real constants.
+const (
+	// WakeupChildEventTerminal is the child job's terminal transition — always armed.
+	WakeupChildEventTerminal = "job.terminal"
+	// WakeupChildEventNeedsReview is the child delivered but waiting for a human.
+	WakeupChildEventNeedsReview = "job.needs_review"
+	// WakeupChildEventAwaitingApproval is the child parked on a hold (tool approval /
+	// a manual hold); the parent can only relay it to a person.
+	WakeupChildEventAwaitingApproval = "job.awaiting_approval"
+	// WakeupChildEventInteractionCreated is the child raising a tool approval or a
+	// question; the parent can only relay it to a person.
+	WakeupChildEventInteractionCreated = "interaction.created"
+)
+
+// WakeupChildEvents returns the supported child-receipt event types in
+// documentation order (validation errors, CLI help, config docs).
+func WakeupChildEvents() []string {
+	return []string{
+		WakeupChildEventTerminal, WakeupChildEventNeedsReview,
+		WakeupChildEventAwaitingApproval, WakeupChildEventInteractionCreated,
+	}
+}
+
+// DefaultWakeupChildEvents is what a resident job's child receipt subscribes to when
+// `wakeup.child_events` is unset: the two outcomes a supervising job must react to,
+// and nothing that would spend tokens on every tool approval.
+var DefaultWakeupChildEvents = []string{WakeupChildEventTerminal, WakeupChildEventNeedsReview}
+
+// IsWakeupChildEvent reports whether eventType is a supported child-receipt event.
+func IsWakeupChildEvent(eventType string) bool {
+	for _, e := range WakeupChildEvents() {
+		if e == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultWakeupTTLSec is the 7-day wakeup lifetime used when `wakeup.ttl_sec` is
@@ -481,6 +529,38 @@ func (c *Config) WakeupTTL() time.Duration {
 		return DefaultWakeupTTLSec * time.Second
 	}
 	return time.Duration(c.Wakeup.TTLSec) * time.Second
+}
+
+// ResolveChildEvents answers which events a child receipt subscribes to (design
+// 2026-11-03 回执事件): override (one submission's `--parent-wake-events`) wins over
+// `wakeup.child_events`, which wins over DefaultWakeupChildEvents. An unknown or empty
+// entry is refused (the same rule the per-registration event list follows: subscribing
+// to a typo would arm a receipt that can never fire), duplicates collapse, and
+// job.terminal is always present — it is the receipt floor and the point where an
+// automatic registration retires, so a caller cannot turn it off.
+func (c *Config) ResolveChildEvents(override []string) ([]string, error) {
+	events := override
+	if len(events) == 0 && c != nil {
+		events = c.Wakeup.ChildEvents
+	}
+	if len(events) == 0 {
+		events = DefaultWakeupChildEvents
+	}
+	out := []string{WakeupChildEventTerminal}
+	seen := map[string]bool{WakeupChildEventTerminal: true}
+	for _, e := range events {
+		e = strings.TrimSpace(e)
+		if e == "" || seen[e] {
+			continue
+		}
+		if !IsWakeupChildEvent(e) {
+			return nil, fmt.Errorf("wakeup child event %q is not supported (want one of %s)",
+				e, strings.Join(WakeupChildEvents(), "|"))
+		}
+		seen[e] = true
+		out = append(out, e)
+	}
+	return out, nil
 }
 
 // LeaderConfig is the top-level `leader` block (MCP-05 阶段 B, design §二.B). The

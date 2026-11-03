@@ -1455,6 +1455,16 @@ const (
 	EventJobWakeupCoalesced = "job.wakeup_coalesced"
 	EventJobWakeupExpired   = "job.wakeup_expired"
 	EventJobWakeupFailed    = "job.wakeup_failed"
+	// EventJobChildWakeFailed is recorded ON A RESIDENT PARENT job when a child job it
+	// submitted with its own credential can no longer be reported to it: the parent
+	// ended (idle timeout, a person ended it, a failure, a takeover, needs_review) or
+	// the receipt's TTL passed before the child produced an outcome. It is the alert a
+	// human acts on, so — unlike the four events above — it IS in the default
+	// notification set (webhook, desktop, webpush) and in the inbox action column.
+	// {wakeup_id, child_job_id, reason}: reason says which of the two happened
+	// (parent_ended | expired). Only the automatic child-wakeup path records it; the
+	// caller-registered path keeps reporting job.wakeup_failed.
+	EventJobChildWakeFailed = "job.child_wake_failed"
 	// EventJobCeilingDenied is recorded on the SOURCE job when a submission gofer
 	// starts on that job's behalf is refused by the ceiling of the caller the chain
 	// belongs to (design 2026-10-18 §准入): an automatic continuation, a failover, a
