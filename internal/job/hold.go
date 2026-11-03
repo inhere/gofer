@@ -520,6 +520,14 @@ func (s *Service) parkJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 		"caller_id": req.CallerID,
 		"tags":      req.Tags,
 	})
+	// A resident parent's credential submitted this job: its receipt is registered here —
+	// after the parked row exists and before the job.awaiting_approval event below, so a
+	// tool approval parked before the child ever ran already has a recipient. The park
+	// path registers for --sync submits too: they are answered asynchronously at once.
+	if err := s.registerChildWakeup(req.ParentJobID, snap, *req); err != nil {
+		slog.Warn("job.child_wake_register_failed", "event", "job.child_wake_register_failed",
+			"job_id", jobID, "parent_job_id", req.ParentJobID, "err", err)
+	}
 	// A held job is submitted (it has an id and a caller waiting for a decision) but
 	// does not run until someone approves it; the log says so on the machine that took it.
 	logJobSubmitted(jobID, *req)

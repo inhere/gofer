@@ -203,6 +203,24 @@ type JobRequest struct {
 	// record (digest + decision) the re-entry checks and keeps on the row.
 	heldJobID string
 	held      *holdRecord
+	// ParentJobID is the RESIDENT job whose job credential submitted this request. The
+	// receipt of its children is registered on it (see registerChildWakeup). Internal:
+	// json/yaml "-" keeps it off the wire and out of request_json, so a body can never
+	// nominate somebody else's job as the parent and the parent id cannot survive the
+	// hold / update round trip (which would register the same receipt twice).
+	ParentJobID string `json:"-" yaml:"-"`
+	// NoParentWake turns the automatic child receipt off for this submission
+	// (`job run --no-parent-wake`). Only a job credential's submit can carry it; every
+	// other caller is refused by the HTTP entry instead of being silently ignored.
+	NoParentWake bool `json:"no_parent_wake,omitempty" yaml:"no_parent_wake,omitempty"`
+	// ParentWakeEvents overrides which child events wake the parent for THIS child
+	// (`--parent-wake-events`), on top of `wakeup.child_events`; job.terminal is always
+	// included. Same entry rule as NoParentWake.
+	ParentWakeEvents []string `json:"parent_wake_events,omitempty" yaml:"parent_wake_events,omitempty"`
+	// ParentWakeSync marks a submission the parent WAITED for (?wait=1 / body sync): it
+	// already has the result, so no receipt is registered. Internal — the sync decision
+	// belongs to the entry, which is the only layer that can see the query parameter.
+	ParentWakeSync bool `json:"-" yaml:"-"`
 	// decisions are the job.submit decision hook outcomes (AUTO-04b), recorded as
 	// job.decision_hook events once the job exists. Internal, never on the wire.
 	decisions []decisionRecord

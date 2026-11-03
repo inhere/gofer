@@ -1336,6 +1336,14 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		return JobResult{}, fmt.Errorf("persist watched job: %w", persistErr)
 	}
 
+	// A resident parent's own credential submitted this job: register its receipt now that
+	// the child is a fact and before its first event is recorded (so a hold that parks the
+	// child already has a recipient).
+	if err := s.registerChildWakeup(req.ParentJobID, entry.snapshot(), req); err != nil {
+		slog.Warn("job.child_wake_register_failed", "event", "job.child_wake_register_failed",
+			"job_id", jobID, "parent_job_id", req.ParentJobID, "err", err)
+	}
+
 	// SUP-01 P3: the submit-time substitution is recorded once the job is a fact, and
 	// the row's requested_agent keeps the caller's original choice visible.
 	if substitutedFrom != "" {
