@@ -180,6 +180,16 @@ type Client struct {
 	// older hub would write it into the job's stdout.
 	serverProto atomic.Int64
 
+	// Connection-timing bookkeeping for the lifecycle events (LG3).
+	// connectAttempt is this attempt's 1-based number since the last successful
+	// registration — reported as `attempts` on worker.registered, which answers
+	// "did it take one try or ten?" during a flapping hub. lastDownAtMillis is
+	// when the previous REGISTERED session ended, so the connect line can also
+	// report how long the worker had been away (`downtime_ms`); 0 = never
+	// disconnected, so the field stays 0 on a first connect.
+	connectAttempt   atomic.Int64
+	lastDownAtMillis atomic.Int64
+
 	// policyMode is true when this worker sources its projects from server-pushed
 	// Policy (worker.yaml has `roots`, T5-A modePolicy). LEGACY/EMPTY workers set it
 	// false: they never apply a pushed Policy, only reply an Applied{legacy_local_projects}
@@ -1077,6 +1087,10 @@ func (cl *Client) Run(ctx context.Context) error {
 // error, register rejection, or recv-loop disconnect). The connection is always
 // closed before returning.
 func (cl *Client) runSession(ctx context.Context, url string) (registered bool, err error) {
+	// 1-based: the first dial for this worker is attempt 1. Reset by a successful
+	// registration below, so `attempts` on worker.registered always counts the
+	// attempts that led to THAT connection.
+	attempt := cl.connectAttempt.Add(1)
 	header := http.Header{}
 	if cl.token != "" {
 		header.Set("Authorization", "Bearer "+cl.token)
@@ -1166,10 +1180,12 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		return false, fmt.Errorf("register rejected: %s", reg.Reason)
 	}
 	cl.notify("registered")
+	cl.connectAttempt.Store(0)
 	sess := daemon.SessionInfo()
 	slog.Info("worker.registered", "event", "worker.registered", "component", "worker",
 		"worker_id", cl.workerID, "url", url, "labels", caps.Labels, "max_concurrent", caps.MaxConc,
-		"session", sess.ID, "interactive", sess.Interactive, "console", sess.Console)
+		"session", sess.ID, "interactive", sess.Interactive, "console", sess.Console,
+		"attempts", attempt, "downtime_ms", cl.downtimeMillis())
 
 	// RECOV-01: the hub's resume ack is the FIRST thing applied to the new session —
 	// still on the raw connection, so no frame can carry a pre-rewind offset — and
@@ -1217,7 +1233,11 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	if err != nil {
 		reason = err.Error()
 	}
-	slog.Info("worker.disconnected", "event", "worker.disconnected", "component", "worker", "worker_id", cl.workerID, "reason", reason)
+	// Mark the moment the worker became hub-less: the next worker.registered
+	// reports the gap as downtime_ms.
+	cl.lastDownAtMillis.Store(time.Now().UnixMilli())
+	slog.Info("worker.disconnected", "event", "worker.disconnected", "component", "worker",
+		"worker_id", cl.workerID, "reason", reason, "close_code", closeCodeOf(err))
 	return true, err
 }
 
@@ -1246,6 +1266,11 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 		case wsproto.TypeDispatch:
 			d, derr := wsproto.As[wsproto.Dispatch](env)
 			if derr != nil {
+				// A dispatch this worker cannot decode never reaches handleDispatch, so
+				// this is the ONLY trace of it: log it with the envelope's job id rather
+				// than dropping it silently (the hub is left waiting for a Result).
+				slog.Warn("worker.dispatch_rejected", "event", "worker.dispatch_rejected", "component", "worker",
+					"worker_id", cl.workerID, "job_id", env.JobID, "reason", "undecodable dispatch frame", "error", derr)
 				continue
 			}
 			cl.dispatchWG.Add(1)
@@ -1426,6 +1451,31 @@ func (cl *Client) notify(event string) {
 	if cl.onSession != nil {
 		cl.onSession(event)
 	}
+}
+
+// downtimeMillis is how long this worker had been without a hub when the current
+// connection registered: the gap since the previous registered session ended.
+// 0 means "no previous disconnect" (a first connect, or a process that never
+// registered before), so the reader can tell the two apart.
+func (cl *Client) downtimeMillis() int64 {
+	last := cl.lastDownAtMillis.Load()
+	if last <= 0 {
+		return 0
+	}
+	return time.Since(time.UnixMilli(last)).Milliseconds()
+}
+
+// closeCodeOf reports the websocket close code that ended a session, or 0 when it
+// ended some other way (dial/register failure, read deadline, ctx cancel). The
+// code is the operator's signal for "the hub replaced us" (1000 +
+// "replaced by new registration") vs "the network died" vs "we were shut down",
+// which the reason string alone does not make greppable.
+func closeCodeOf(err error) int {
+	var ce websocket.CloseError
+	if errors.As(err, &ce) {
+		return int(ce.Code)
+	}
+	return 0
 }
 
 // writeFrame marshals a typed payload into an envelope and writes it under
