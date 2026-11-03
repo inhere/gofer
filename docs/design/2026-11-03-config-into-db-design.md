@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 配置入库与最小配置文件设计
 
-> 状态：Draft 0.8 / 待人工计划批准（0.4 的三项待确认经用户 2026-11-03 确认，原话“配置 0.4 按建议”；0.5–0.8 依复核修订，未改已确认的决定；批准设计不等于授权实施）
+> 状态：Draft 0.9 / 待人工计划批准（0.4 的三项待确认经用户 2026-11-03 确认，原话“配置 0.4 按建议”；0.5–0.9 依复核修订，未改已确认的决定；批准设计不等于授权实施）
 > issue：gofer-nhh7
 
 ## 修订记录
@@ -16,6 +16,7 @@
 | 0.6 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（2 阻塞、5 纠正）：去掉未绑定状态，由 `init` 建库；判空不改用用户数；明确最严上限，补 `auth caller enable`；取到槽位后重判停用；更正崩溃窗口的说法 |
 | 0.7 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（1 阻塞、2 纠正）：重建空库用专门的离线命令，不复用 `init --force`；`init` 建库列为例外并要求 server 未运行；停用重判落在目录锁之后 |
 | 0.8 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（1 阻塞、2 纠正）：`init server` 以目标库为准判断，不靠 pid 文件；例外范围限定为用户和配置的写入；停用拒绝不进重试 |
+| 0.9 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（1 阻塞）：`init server` 遇到已绑定且有数据的库时拒绝，不写文件 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -138,7 +139,7 @@ hooks 和 triggers 原定只写文件，用户决定入库，理由是：有权�
   - 根判定只看文件：`HasRootAdmin` 只数文件来源的用户。
   - 读 `auth_callers` 失败时整次 reload 失败、保留旧快照，绝不当作空集；孤儿扫描只在拿到完整用户集时运行。
   - 新路由登记 `routeDecls`（G056）：`/v1/callers*`（根）、roles、`/v1/config/exec/*`（`config.exec.write`）。高危字段不进通用 `PUT /v1/config/server` 词表，预览和校验接口也不接收。
-- `internal/commands`：`gofer auth caller add|ls|rotate|disable|enable|set-ceiling`（G033，放在已有的 `auth` 下）；`config migrate`、`config export` 都是瘦客户端，经 server 执行。用户和配置的写入，“CLI 不直接写库”只有两个例外。`init server` 建库：只读探测目标库，库不存在才建；已存在且只含 `config_store_id` 时复用；已有其他数据时不跑 `Open`、不碰库，只写不带标记的文件模式配置并提示。不能只靠 pid 文件判断：pid 路径跟 `-c` 走，库路径不跟，查错位置时会让新 CLI 迁移线上库。另一个是离线修复：`config doctor --offline`、`config entry rm <path> --offline`（先打印旧值）、`auth caller repair <id> --offline`（用户行字段损坏时：停用该用户，坏的 `ceiling_yaml` 改成最严上限（空列表表示不限，不能用零值：`projects`、`runners`、`workers`、`agents` 都放一个保留的不匹配 glob，`read_only: true`，`allow_exec`、`global_memory` 为 false），坏的 `limits_json` 清空，不删行）、`config store rebuild --offline`、`config export --offline`，用 pid 文件确认 server 未运行，写 `config_audit`，actor 记 `offline:<用户>`。
+- `internal/commands`：`gofer auth caller add|ls|rotate|disable|enable|set-ceiling`（G033，放在已有的 `auth` 下）；`config migrate`、`config export` 都是瘦客户端，经 server 执行。用户和配置的写入，“CLI 不直接写库”只有两个例外。`init server` 建库：只读探测目标库，库不存在才建；已存在且只含 `config_store_id` 时复用；已有其他数据时不跑 `Open`、不碰库：库里没有 `config_store_id`（旧库）就只写不带标记的文件模式配置并提示；库里有 id 就拒绝且不写文件，`--force` 也一样，否则标记被抹掉后 server 走文件模式，DB 里的 `governance`、`decision_hooks` 全部失效。不能只靠 pid 文件判断：pid 路径跟 `-c` 走，库路径不跟，查错位置时会让新 CLI 迁移线上库。另一个是离线修复：`config doctor --offline`、`config entry rm <path> --offline`（先打印旧值）、`auth caller repair <id> --offline`（用户行字段损坏时：停用该用户，坏的 `ceiling_yaml` 改成最严上限（空列表表示不限，不能用零值：`projects`、`runners`、`workers`、`agents` 都放一个保留的不匹配 glob，`read_only: true`，`allow_exec`、`global_memory` 为 false），坏的 `limits_json` 清空，不删行）、`config store rebuild --offline`、`config export --offline`，用 pid 文件确认 server 未运行，写 `config_audit`，actor 记 `offline:<用户>`。
 - 非 serve 的 `config.Load` 调用：必须叠加的（`serve.go:256`、`core.go:701`、`mcp.go:135`）走合并；会静默答错的（`job.go:1987`、`hook.go`、`repo.go`、`project.go`、`agent*.go` 等）改为经 server 读，读不到就明确报错。`gofer project add` 改走 API。计划阶段列全并逐项改，这是工作量最大的部分。
 - `internal/settings` 保留：放提示词、阈值这类有注册表的值；`config_entries` 放配置结构。修改其包注释，写清边界。
 - web：用户管理；agent 表单补 `can_submit`；roles 编辑；高危配置页；所有字段显示来源。打码字段 PUT 时能保留原值。
