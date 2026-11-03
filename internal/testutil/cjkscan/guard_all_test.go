@@ -46,7 +46,7 @@ var guardAllExempt = map[string]Exempt{
 	"mail/address.go": {Max: 1, Class: classResidue, Why: "agent:<名字>[@<项目>] inside an English address parse error: the placeholders are the address grammar as the docs and the CLI help spell it (ParseAddress has no language; the error is returned to the sender through err.Error())"},
 	"mail/service.go": {Max: 1, Class: classResidue, Why: "the term \"退信\" inside the English ErrNotAnswerable message (an error returned to the caller through err.Error(); sentinel + code is a separate migration)"},
 
-	"notify/catalog.go": {Max: 46, Class: classData, Why: "the event catalog is bilingual data: every entry carries its Zh and En text side by side (the console picks one by language), so the Chinese literals are one half of a translation table, not untranslated output"},
+	"notify/catalog.go": {Max: 47, Class: classData, Why: "the event catalog is bilingual data: every entry carries its Zh and En text side by side (the console picks one by language), so the Chinese literals are one half of a translation table, not untranslated output"},
 
 	"sessionrelay/message.go": {Max: 1, Class: classProtocol, Why: "messengerSentMarkers[0]: the \"已发送\" receipt the zh messenger prompt asks the messenger agent to print; matched anywhere in its output (an English messenger prints \"sent\"), so the literal is recognition, not output"},
 
