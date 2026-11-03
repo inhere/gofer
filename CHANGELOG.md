@@ -14,6 +14,10 @@
 ### 变更
 
 - **投递问题可以从 server 日志查到了**：信件与会话原先几乎没有日志（只有真正发出唤醒时一行），「发给空闲会话的信为什么晚了 3 分钟」只能靠读代码反推。现在信件生命周期各有事件（`mail.sent` / `mail.delivered` / `mail.claim_released` / `mail.held` / `mail.bounced` / `mail.expired`），投递器每次扫描不刷屏，只在「开始等待」或「等待原因变化」时打一行 `mail.wake_waiting`（带会话状态、积压封数、原因和预计最早唤醒时间），会话状态变化打 `session.state_changed`、每次投递结果打一行 `session.deliver`（走了哪条路径、放弃了哪些路径及原因、承载的 job）。事件只记 id、状态、耗时与原因，不记正文。
+- **出问题能查到经过：客户端请求日志与 worker 连接细节**：
+  - 新增 `<config-dir>/run/client.log`（JSONL，滚动与 `serve.log` / `worker-<id>.log` 同一套上限）：CLI 的 HTTP 请求失败时记一条 `client.request_failed`（`method` / 去掉 query 的 `path` / `status` / `elapsed_ms` / `error` / 连续失败次数 `retry`；`status=0` 表示没拿到响应），5xx 与网络错误为 ERROR、401/403 为 WARN，业务 4xx（如 404）不记；`GOFER_LOG_LEVEL=debug` 时成功请求也记 `client.request_succeeded`（DEBUG）。不记 header / token / 请求体 / query，也不改 stdout/stderr 输出。配置目录解析不出来时不启用（不会在当前目录建 `run/client.log`）。覆盖所有请求，包括 `gofer tool api` 的原始请求与 `trigger invoke`。以前 `gofer session topic` 报 `context deadline exceeded (Client.Timeout exceeded while awaiting headers)` 时两侧都没有任何记录。
+  - worker 生命周期日志补齐字段：`worker.registered` 带 `attempts`（这次连上是第几次尝试）与 `downtime_ms`（距上次断开多久），`worker.disconnected` 带 `close_code`（websocket 关闭码，如 1000 表示对端正常关闭 / `replaced by new registration`）；收到但解析不了的 dispatch、以及 resident messenger 派发的失败，现在都有带 `job_id` 的日志。
+  - 「连接到旧连接导致 applied 回执发不出去」从 WARN 降为 DEBUG 并命名为 `worker.applied_frame_undelivered`：配置已在本地生效，下一次连接到时会把 caps 重新上报、hub 会重新下发策略，这行只是重连瞬间的正常现象（一个 worker 两周里刷了 4973 条）。
 
 ## [0.209.2] - 2026-11-02
 

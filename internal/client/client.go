@@ -76,15 +76,19 @@ func (c *Client) DialTunnel(ctx context.Context, workerID, target string, networ
 	u.RawQuery = q.Encode()
 	h := http.Header{}
 	c.applyAuth(h)
+	start := time.Now()
 	ws, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{HTTPHeader: h, CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		if resp != nil {
+			c.logRequest(http.MethodGet, tunnel.ConnectPath, resp.StatusCode, start, err)
 			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 			resp.Body.Close()
 			return TunnelConn{}, &TunnelError{Status: resp.StatusCode, Msg: strings.TrimSpace(string(b))}
 		}
+		c.logRequest(http.MethodGet, tunnel.ConnectPath, 0, start, err)
 		return TunnelConn{}, err
 	}
+	c.logRequest(http.MethodGet, tunnel.ConnectPath, http.StatusSwitchingProtocols, start, nil)
 	ws.SetReadLimit(tunnel.ReadLimit)
 	return TunnelConn{Conn: ws, TunnelID: resp.Header.Get(tunnel.HeaderTunnelID)}, nil
 }
@@ -261,10 +265,13 @@ func (c *Client) submit(contentType string, body io.Reader, timeout time.Duratio
 		clone.Timeout = timeout
 		hc = &clone
 	}
+	start := time.Now()
 	resp, err := hc.Do(req)
 	if err != nil {
+		c.logRequest(http.MethodPost, "/v1/jobs", 0, start, err)
 		return SubmitResult{}, fmt.Errorf("request POST /v1/jobs: %w", err)
 	}
+	c.logRequest(http.MethodPost, "/v1/jobs", resp.StatusCode, start, nil)
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -2496,8 +2503,11 @@ func (c *Client) explainSugaSession(err error) error {
 }
 
 // do builds and sends the HTTP request, attaching the bearer token (when set)
-// and a JSON content type for bodies.
+// and a JSON content type for bodies. Both outcomes end up in the client request
+// log (see reqlog.go) — the failure with its transport cause, the success only
+// under GOFER_LOG_LEVEL=debug.
 func (c *Client) do(method, path string, body io.Reader) (*http.Response, error) {
+	start := time.Now()
 	req, err := http.NewRequest(method, c.baseURL+path, body)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
@@ -2508,8 +2518,10 @@ func (c *Client) do(method, path string, body io.Reader) (*http.Response, error)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		c.logRequest(method, path, 0, start, err)
 		return nil, fmt.Errorf("request %s %s: %w", method, path, err)
 	}
+	c.logRequest(method, path, resp.StatusCode, start, nil)
 	return resp, nil
 }
 
