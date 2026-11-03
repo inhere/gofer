@@ -412,6 +412,12 @@ func (s *Service) DeleteWakeup(id, by string, gate WakeupGate) error {
 // ExpireWakeup disables a wakeup whose TTL has passed and records job.wakeup_expired
 // on the target job. The schedule sweep calls it for every expired row it finds
 // (design §五.1 到期).
+//
+// An automatic child receipt is the exception: its target is a parent job waiting to be
+// woken, so expiry means the receipt never reached it. That is reported as
+// job.child_wake_failed with the machine reason "expired" — the event the notification
+// channels carry — instead of job.wakeup_expired, which is not in the notification
+// catalog and would leave the loss silent (design 2026-11-03 架构: 自动行 TTL 到期).
 func (s *Service) ExpireWakeup(id string) {
 	w, ok, err := s.meta.GetWakeup(id)
 	if err != nil {
@@ -423,6 +429,12 @@ func (s *Service) ExpireWakeup(id string) {
 	}
 	if err := s.meta.SetWakeupEnabled(id, 0); err != nil {
 		slog.Warn("wakeup expire: disable", "wakeup_id", id, "err", err)
+		return
+	}
+	if w.AutoChild == 1 {
+		s.recordEvent(w.JobID, EventJobChildWakeFailed, map[string]any{
+			"wakeup_id": w.ID, "child_job_id": w.FilterJobID, "reason": childWakeReasonExpired,
+		})
 		return
 	}
 	s.recordEvent(w.JobID, EventJobWakeupExpired, map[string]any{"wakeup_id": w.ID, "kind": w.Kind})
