@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 配置入库 P1：用户入库 实施计划
 
-> 状态：Draft 0.3 / 待人工计划批准
+> 状态：Draft 0.4 / 待人工计划批准
 > issue：gofer-nhh7
 
 ## 修订记录
@@ -11,6 +11,7 @@
 | 0.1 | 2026-11-03 | Claude（gofer 监督会话） | 初稿 |
 | 0.2 | 2026-11-03 | Claude（gofer 监督会话） | 按两路审核修订（5 阻塞、15 纠正）：同 id 接管时停用 DB 行并标孤儿；隐藏行的 owner 按停用拒绝；合并时跑完整字段校验，名字冲突清空名字；拒绝空上限；回退风险写入发版说明并实测；修正测试名、清理路径和任务细节 |
 | 0.3 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（1 阻塞、6 纠正）：启用被接管的行要先轮换，并清除接管标记；用户写入后按当前行重新合并；接管事务放在校验之后；事务内标孤儿；standalone mcp 只读；重判和继承也判封锁；丢弃的行不进封锁集合 |
+| 0.4 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮的 2 条纠正修订（确认轮无阻塞项，这两条未再复核）：启动和 standalone mcp 在开库前查标记；接管和轮换的时间戳保证先后 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -54,7 +55,7 @@
 | D7 | 内部 exec 放行清单（设计留给计划） | 只放行 `delivery`、`delivery-check`（在跑 job 的收尾）。`relay`、`tracker-sync`、`summarizer`、`workflow-step` 都是新动作，拒绝 |
 | D8 | `config_audit` 没有读入口，保留期没定 | 加 `GET /v1/callers/audit` 和 `gofer auth caller audit`，web 用户页显示。保留 90 天，同 `auth_audit`。清理放在 `PruneJobs` 的 `policy.IsZero()` 判断之前（否则没配 retention 的部署永远不清） |
 | D9 | 设计 CLI 清单没有改配额的命令，而验收要求“改并发上限不用重启” | 加 `auth caller set-limits` 和 `PUT /v1/callers/{id}/limits` |
-| D10（方向） | DB 用户与文件用户或 worker 同 id：设计只说隐藏，但隐藏后旧授权被新身份继承，文件条目删除后旧 token 复活，名下 schedule 变成无上限 | `RegisterWorkerInto` 拒绝与用户同 id。文件改出同 id 时不拒绝启动，按“身份更换”处理：首次发现就在合并的同一步把 DB 行标 `superseded_at` 并停用、把 `caller:<id>` 授权标孤儿、写审计（actor `system:file-takeover`）。任一步失败就算合并失败。之后删掉文件条目，旧 token 不复活：启用被接管的行要求 `rotated_at` 晚于 `superseded_at`，否则 409 要求先轮换；启用成功才清除 `superseded_at`，所以再次接管会再走一遍停用、标孤儿。孤儿授权用现有 activate 恢复。与 worker 同 id 时该 id 记入快照的“封锁 owner”集合，准入按停用拒绝。被文件用户接管时，名下 schedule 按文件用户的上限运行（根管理员亲手声明的身份，写进文档） |
+| D10（方向） | DB 用户与文件用户或 worker 同 id：设计只说隐藏，但隐藏后旧授权被新身份继承，文件条目删除后旧 token 复活，名下 schedule 变成无上限 | `RegisterWorkerInto` 拒绝与用户同 id。文件改出同 id 时不拒绝启动，按“身份更换”处理：首次发现就在合并的同一步把 DB 行标 `superseded_at` 并停用、把 `caller:<id>` 授权标孤儿、写审计（actor `system:file-takeover`）。任一步失败就算合并失败。之后删掉文件条目，旧 token 不复活：启用被接管的行要求 `rotated_at` 晚于 `superseded_at`，否则 409 要求先轮换；时间戳是秒级，写入时保证先后，不加列：接管取 `max(now, rotated_at)`，轮换取 `max(now, superseded_at+1)`。启用成功才清除 `superseded_at`，所以再次接管会再走一遍停用、标孤儿。孤儿授权用现有 activate 恢复。与 worker 同 id 时该 id 记入快照的“封锁 owner”集合，准入按停用拒绝。被文件用户接管时，名下 schedule 按文件用户的上限运行（根管理员亲手声明的身份，写进文档） |
 | D11 | 标记拒绝放进 loader 会让 34 处 `config.Load` 全失败 | 只拦三处：`serve.Start`、standalone mcp、`reloadFromPathLocked`（reload 失败保留旧快照）。其他 CLI 不拦，服务管理命令还能用 |
 | D12 | `set-ceiling` 改文件用户时，文件和审计没有原子性 | 先 `Core.Update` 写文件，再写审计。审计失败记 ERROR，响应带 warning，改动不回退。`server:` 块注释会丢，与今天所有 server 配置写入一样，CLI 和界面提示 |
 | D13 | `callerCeilingWarnings` 不能简单挪到合并后（`config validate` 还要用） | 文件用户的告警保持原位。DB 用户的告警单独存一个切片，读时拼接，label 为 `db`，写入时重算 |
@@ -143,9 +144,9 @@ Fail-closed：
 - 文件: `internal/core/core.go`、`internal/core/callers.go`（新）、`internal/serve/serve.go`、`internal/commands/mcp.go`、测试。
 - 动作:
   - `core.WithStore(st *jobstore.Store)` 选项：`Build` 不再自己开库，store 仍由 Core 的 `Close` 关闭；`serve.Start` 在 `logLoadWarnings` 之前按 `core.go:329-333` 同样的路径开库、读用户、合并，失败就退出；`Build` 返回错误时由 `Start` 关 store。没传 `WithStore` 的调用方走原路径，不合并（worker 属于这类）。
-  - 合并 helper `mergeStoredCallers(cfg, store, mode) error`（可单测）。顺序固定：标记检查；`ListStoredCallers`，失败就返回错误，绝不当作空集；`ApplyStoredCallers`（不写库）；`config.Validate`（D17）；最后才是接管事务：对 `Superseded` 里 `superseded_at` 为空的行，在一个事务内设 `superseded_at`、`disabled_at`，用 `CallerTx.OrphanGrants` 标 `caller:<id>` 授权孤儿，写审计（actor `system:file-takeover`），失败就返回错误（D10）。这样前面任一步失败都不会留下半截接管。`mode` 为 server（`serve.Start`、reload）才写接管事务；为只读（standalone mcp）时跳过，只在内存隐藏，不写库（设计：CLI 不直接写库），由下次 server 启动处理。
+  - `serve.Start` 和 standalone mcp 在开库之前查标记（否则会留下空库，或把 P2 的线上库迁移掉）；reload 在 `config.Load` 之后查，库已开着。合并 helper `mergeStoredCallers(cfg, store, mode) error`（可单测）。顺序固定：`ListStoredCallers`，失败就返回错误，绝不当作空集；`ApplyStoredCallers`（不写库）；`config.Validate`（D17）；最后才是接管事务：对 `Superseded` 里 `superseded_at` 为空的行，在一个事务内设 `superseded_at`、`disabled_at`，用 `CallerTx.OrphanGrants` 标 `caller:<id>` 授权孤儿，写审计（actor `system:file-takeover`），失败就返回错误（D10）。这样前面任一步失败都不会留下半截接管。`mode` 为 server（`serve.Start`、reload）才写接管事务；为只读（standalone mcp）时跳过，只在内存隐藏，不写库（设计：CLI 不直接写库），由下次 server 启动处理。
   - `reloadFromPathLocked`：`config.Load` 成功后（`core.go:705` 之后、overlay 之前）调用 helper，失败按 `:702-705` 同样返回，保留旧快照。不放进 `reloadLocked`。
-  - 标记检查（D11）放在这三处的 `Load` 之后。文案：“这份配置已迁移到 DB，当前版本不支持，请恢复迁移前备份或升级。”
+  - 标记检查（D11）的文案：“这份配置已迁移到 DB，当前版本不支持，请恢复迁移前备份或升级。”
   - standalone mcp（`commands/mcp.go:135`）开库合并；不跑孤儿扫描。
   - `Core.UpdateCallers(fn func(next *config.Config, tx jobstore.CallerTx) error) (*ConfigSnapshot, error)`：持 `updateMu`，Clone，开事务，`fn` 写行，在同一事务读全部行，把 next 的 DB 用户和封锁集合按当前行重新合并（这样启用被隐藏的行立刻生效，非法行报错回滚），校验 next（`config.Validate` 加 `agent.ValidateConfig`，Core 不依赖 httpapi 的 `validateCandidate`），提交，`reloadLocked` 发布。全程不调 saveConfig。校验失败回滚。
 - 验证: `go test ./internal/core ./internal/serve ./internal/commands -run 'WithStore|MergeStoredCallers|StoreMarker|UpdateCallers|Takeover'`。
