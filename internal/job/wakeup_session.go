@@ -276,6 +276,16 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 				"job_id", parentID, "child_job_id", child.ID, "reason", "rate_limited")
 			continue
 		}
+		if s.hasPendingRetry(child.ID) {
+			// A durable retry is on its way: this outcome is not the child's last word, so the
+			// parent is not woken for it and the row stays armed. retargetChildWakes moves the
+			// row onto the retry's own job, whose outcome then fires (or is reported by
+			// reportAlreadyEndedChild when it was already over).
+			deferred = true
+			slog.Info("wakeup.say_pending", "event", "wakeup.say_pending", "wakeup_id", w.ID,
+				"job_id", parentID, "child_job_id", child.ID, "reason", "retry_pending")
+			continue
+		}
 		items = append(items, wakeupSayItem{
 			wakeupID:   w.ID,
 			childJobID: child.ID,
@@ -532,6 +542,95 @@ func (s *Service) endParentChildWakes(parentJobID, reason string) {
 	lock.Lock()
 	defer lock.Unlock()
 	s.endParentChildWakesLocked(parentJobID, reason)
+}
+
+// retargetChildWakes moves every receipt that watches fromJobID onto toJobID, the job
+// that now carries the child's outcome (design 2026-11-03 关键流程: 子 job 接管链). A
+// takeover — the same agent's continuation, a transfer to another agent, a delivery-check
+// continuation, an uncommitted-work continuation — and a durable retry all submit a NEW
+// job id, and a receipt left on the old one would never fire again: that job ends without
+// a job.terminal event (a takeover) or with one that was already spent.
+//
+// The move is a per-row CAS (RetargetWakeupFilter): the event path and the retry sweep can
+// both arrive here for the same row, and exactly one move is the truth. Right after a row
+// moves, the new job is read once more — Submit starts it immediately, so it may have
+// ENDED before the CAS landed, and no further event will fire for it then. That is the one
+// case this function has to report itself.
+func (s *Service) retargetChildWakes(fromJobID, toJobID string) {
+	if fromJobID == "" || toJobID == "" || fromJobID == toJobID {
+		return
+	}
+	rows, err := s.meta.ListEventWakeupsByChild(fromJobID)
+	if err != nil {
+		slog.Warn("child wake: list receipts to retarget", "job_id", fromJobID, "to_job_id", toJobID, "err", err)
+		return
+	}
+	for _, w := range rows {
+		moved, merr := s.meta.RetargetWakeupFilter(w.ID, fromJobID, toJobID)
+		if merr != nil {
+			slog.Warn("child wake: retarget receipt", "wakeup_id", w.ID,
+				"job_id", fromJobID, "to_job_id", toJobID, "err", merr)
+			continue
+		}
+		if !moved {
+			continue // another path already moved (or consumed) this row
+		}
+		w.FilterJobID = toJobID
+		s.reportAlreadyEndedChild(w)
+	}
+}
+
+// reportAlreadyEndedChild is the 补查 after a retarget: when the job the receipt now
+// watches has already finished, its own events are in the past and nothing else would
+// wake the parent. dispatchWakeup re-reads the state and routes the receipt exactly as a
+// live event would (say when the parent is a resident session, the parent-end report when
+// it is gone), which is why this path invents no reporting of its own.
+func (s *Service) reportAlreadyEndedChild(w jobstore.WakeupRecord) {
+	child, ok := s.Get(w.FilterJobID)
+	if !ok || !IsFinished(child.Status) {
+		return // still running: its own events will report it
+	}
+	slog.Info("wakeup.say_pending", "event", "wakeup.say_pending", "wakeup_id", w.ID,
+		"job_id", w.JobID, "child_job_id", child.ID, "reason", "retargeted_child_ended")
+	s.dispatchWakeup(w, EventJobTerminal)
+}
+
+// hasPendingRetry reports whether a durable retry of childJobID is still waiting to run
+// (pending, or claimed by a sweeper). While one is, the child's outcome is not the last
+// word: its receipt is held back instead of waking the parent for a result the retry
+// replaces (design 关键流程: 子 job 重试 先查有没有待执行的重试：有就不发也不停用).
+func (s *Service) hasPendingRetry(childJobID string) bool {
+	rows, err := s.meta.ListRetriesByJob(childJobID)
+	if err != nil {
+		// A failed read must not swallow a receipt: report the child instead.
+		slog.Warn("child wake: list retries", "job_id", childJobID, "err", err)
+		return false
+	}
+	for _, r := range rows {
+		if r.State == jobstore.RetryPending || r.State == jobstore.RetryClaimed {
+			return true
+		}
+	}
+	return false
+}
+
+// deliverRetryCancelledReceipts reports a child whose retry was CANCELLED: the retry will
+// never run, so the failure it was going to replace is the child's last word after all and
+// its receipt goes out now. The four cancelling paths call this (an undecodable request, a
+// missing ceiling owner, a refused admission and `job retry cancel`); a retry that could
+// not be SUBMITTED is merely late and must stay quiet (design 关键流程: 子 job 重试).
+func (s *Service) deliverRetryCancelledReceipts(sourceJobID string) {
+	if sourceJobID == "" {
+		return
+	}
+	rows, err := s.meta.ListEventWakeupsByChild(sourceJobID)
+	if err != nil {
+		slog.Warn("child wake: list receipts of a cancelled retry", "job_id", sourceJobID, "err", err)
+		return
+	}
+	for _, w := range rows {
+		s.dispatchWakeup(w, EventJobTerminal)
+	}
 }
 
 // endParentChildWakesLocked is endParentChildWakes' body; callers hold the parent's

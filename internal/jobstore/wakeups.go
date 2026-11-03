@@ -336,6 +336,18 @@ func (s *Store) ListAutoChildByParent(parentJobID string) ([]WakeupRecord, error
 	)
 }
 
+// ListEventWakeupsByChild returns the ENABLED event wakeups that WATCH childJobID
+// (filter_job_id = the child). The takeover and retry paths read them to carry a
+// receipt to the job that finally holds the child's outcome (see
+// job.retargetChildWakes) — kind=event only, because a timer is not a receipt.
+func (s *Store) ListEventWakeupsByChild(childJobID string) ([]WakeupRecord, error) {
+	return s.listWakeups(
+		selectWakeupCols+` WHERE enabled = 1 AND kind = ? AND filter_job_id = ?
+     ORDER BY created_at ASC, id ASC`,
+		WakeupKindEvent, childJobID,
+	)
+}
+
 // wakeupTerminalStatusSQL is the SQL spelling of job's IsTerminal set. jobstore must
 // not import internal/job (G022), so the five values are repeated here — the same
 // trade-off overviewEndStatuses already makes.

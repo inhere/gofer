@@ -319,6 +319,9 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 	}
 	snap.FellBackTo = res.ID
 	_ = s.persist(snap)
+	// The work continues in a NEW job id on another agent: a child receipt watching this
+	// one follows it (design 2026-11-03 关键流程: 子 job 接管链).
+	s.retargetChildWakes(snap.ID, res.ID)
 	s.recordEvent(snap.ID, EventJobFellBack, map[string]any{
 		"to_job": res.ID,
 		"agent":  nextAgent,
