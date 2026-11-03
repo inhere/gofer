@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 配置入库与最小配置文件设计
 
-> 状态：Draft 0.4 / 待人工计划批准（0.2 经用户批准；0.3、0.4 依两轮审核修订，待确认项见下）
+> 状态：Draft 0.4 / 待人工计划批准（0.4 的三项待确认经用户 2026-11-03 确认，原话“配置 0.4 按建议”；批准设计不等于授权实施）
 > issue：gofer-nhh7
 
 ## 修订记录
@@ -207,15 +207,15 @@ flowchart LR
 
 ## 待确认事项
 
-0.2 的决定不变。以下三项因审核而新增，涉及权限和运行行为，需要确认：
+无。第二轮审核新增的三项，用户已于 2026-11-03 按建议确认：
 
-1. **高危权限的范围是否扩大？** 建议扩大：除 hooks、triggers 外，`update`（能换二进制来源）、`mcp_servers`（含命令）、`http_proxy`、`worker_enrollment.trusted_proxies` 也归 `config.exec.write`。它们原本只写文件，入库后若只要普通 `config.write`，就等于放宽了。
-2. **新增用户必须明确上限吗？** 建议必须：`caller add` 要带 `--ceiling-*` 或 `--no-ceiling`。因为未开 `require_admin_capability` 时，新用户默认能写 `agents.*.command`。代价是多打一个参数。另一个选择是默认开 `require_admin_capability`，但会改变现有部署的权限。
-3. **DB 里有非法条目时怎么办？** 建议拒绝启动，提供离线修复命令（0.3 建议的是安全模式，审核后改了）。代价是要能登录主机才能修；写入时已校验，正常操作进不到这一步，受管升级也会提前拦下。
+1. 高危权限范围扩大：除 hooks、triggers 外，`update`、`mcp_servers`、`http_proxy`、`worker_enrollment.trusted_proxies` 也归 `config.exec.write`。
+2. 新增用户必须明确上限：`caller add` 要带 `--ceiling-*` 或 `--no-ceiling`；不改 `require_admin_capability` 的默认值。
+3. DB 里有非法条目时拒绝启动，提供离线修复命令，不做安全模式。
 
 ## 结论与人工计划 Gate
 
-用户确认上述三项、0.4 改动项复核无阻塞后写实施计划，计划另需批准；批准设计不等于授权实施。
+0.4 改动项复核无阻塞后写实施计划，计划另需批准；批准设计不等于授权实施。
 
 验收：
 - 新装：只写核心配置启动，web 上完成新增用户、发 token、开 `can_submit`，全程不改文件、不重启。
