@@ -2,6 +2,7 @@ package mail
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/inhere/gofer/internal/i18n"
@@ -44,6 +45,8 @@ func (s *Service) Bounce(m jobstore.Mail, reason, where string) (jobstore.Mail, 
 	if err != nil {
 		return jobstore.Mail{}, false, err
 	}
+	slog.Info(EventBounced, "mail_id", b.ID, "original_mail_id", m.ID,
+		"to_kind", b.ToKind, "to_id", b.ToID, "reason", reason)
 	if m.FromKind == jobstore.MailKindSession {
 		return b, true, nil
 	}

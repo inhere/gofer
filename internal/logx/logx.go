@@ -21,10 +21,12 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// timeLayout is the log timestamp format. It drops slog's default RFC3339 zone
+// TimeLayout is the log timestamp format. It drops slog's default RFC3339 zone
 // offset (the trailing "+08:00") — local time with millis is enough and far
-// shorter to scan: 2026-06-27T15:09:21.473.
-const timeLayout = "2006-01-02T15:04:05.000"
+// shorter to scan: 2026-06-27T15:09:21.473. It is exported so a value written INTO a
+// log line (a deadline, an expected wake time) is formatted like the line's own
+// timestamp and can be read as a time, not as a unix number.
+const TimeLayout = "2006-01-02T15:04:05.000"
 
 // Setup installs the default slog logger. The level comes from GOFER_LOG_LEVEL
 // (debug | info | warn | error; default info); an unrecognised value falls back
@@ -73,13 +75,9 @@ var stderrHandler slog.Handler
 var operationID string
 var fileSink *lumberjack.Logger
 
-// ConfigureFile adds a rotating JSONL sink while retaining the text stderr
-// sink. Explicit paths fail startup when they cannot be opened; implicit
-// defaults warn and continue with stderr only.
-func ConfigureFile(o FileOptions) error {
-	if strings.TrimSpace(o.Path) == "" {
-		return nil
-	}
+// fillDefaults applies the rotation defaults shared by ConfigureFile and
+// OpenFileSink (50MB / 14 days / 10 backups).
+func fillDefaults(o *FileOptions) {
 	if o.MaxSizeMB <= 0 {
 		o.MaxSizeMB = 50
 	}
@@ -89,6 +87,20 @@ func ConfigureFile(o FileOptions) error {
 	if o.MaxBackups <= 0 {
 		o.MaxBackups = 10
 	}
+}
+
+// ConfigureFile adds a rotating JSONL sink while retaining the text stderr
+// sink. Explicit paths fail startup when they cannot be opened; implicit
+// defaults warn and continue with stderr only.
+func ConfigureFile(o FileOptions) error {
+	if strings.TrimSpace(o.Path) == "" {
+		return nil
+	}
+	fillDefaults(&o)
+	// Mint the operation id BEFORE taking setupMu: ensureOperationID takes the same
+	// lock, so asking for it while holding it would deadlock (the id itself is
+	// process-wide and set at most once).
+	opID := ensureOperationID()
 	if err := os.MkdirAll(filepath.Dir(o.Path), 0755); err != nil {
 		return sinkFailure(o, err)
 	}
@@ -107,13 +119,75 @@ func ConfigureFile(o FileOptions) error {
 	if stderrHandler == nil {
 		stderrHandler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLevel(os.Getenv("GOFER_LOG_LEVEL")), ReplaceAttr: replaceAttr})
 	}
+	fileSink = w
+	attrs := []slog.Attr{slog.String("operation_id", opID), slog.String("component", o.Component)}
+	slog.SetDefault(slog.New(dedupeHandler{Handler: multiHandler{handlers: []slog.Handler{stderrHandler.WithAttrs(attrs), file.WithAttrs(attrs)}}, keys: attrKeys(attrs)}))
+	return nil
+}
+
+// FileSink is a standalone rotating JSONL sink: a logger that writes only to its
+// own file. Unlike ConfigureFile it installs NOTHING globally — the process
+// default logger (usually the stderr text handler) is left exactly as it was, so
+// adding a component log can never change a command's stdout/stderr contract.
+// Rotation, redaction, time layout and the level (GOFER_LOG_LEVEL) are the same
+// as ConfigureFile's file sink.
+//
+// A sink is meant to be closed after a batch of records (the client request log
+// closes after every line): writes are synchronous, so nothing is lost, and a
+// component log never keeps a handle on the user's file — or on a temp config dir
+// in a test — between lines.
+type FileSink struct {
+	lg *slog.Logger
+	w  *lumberjack.Logger
+}
+
+// OpenFileSink opens the rotating JSONL file o.Path and returns a sink writing to
+// it only. It fails when the path cannot be created — the caller decides whether
+// that is fatal (the client's request log treats it as "log disabled").
+func OpenFileSink(o FileOptions) (*FileSink, error) {
+	if strings.TrimSpace(o.Path) == "" {
+		return nil, fmt.Errorf("logx: empty log path")
+	}
+	fillDefaults(&o)
+	if err := os.MkdirAll(filepath.Dir(o.Path), 0755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(o.Path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return nil, err
+	}
+	_ = f.Close()
+	w := &lumberjack.Logger{Filename: o.Path, MaxSize: o.MaxSizeMB, MaxAge: o.MaxAgeDays, MaxBackups: o.MaxBackups, LocalTime: true}
+	var attrs []any
+	if id := ensureOperationID(); id != "" {
+		attrs = append(attrs, "operation_id", id)
+	}
+	if o.Component != "" {
+		attrs = append(attrs, "component", o.Component)
+	}
+	h := slog.NewJSONHandler(w, &slog.HandlerOptions{Level: parseLevel(os.Getenv("GOFER_LOG_LEVEL")), ReplaceAttr: replaceAttr})
+	return &FileSink{lg: slog.New(h).With(attrs...), w: w}, nil
+}
+
+// Logger is the sink's logger; every record it accepts lands in the file (the
+// underlying write is synchronous, so a short-lived process loses nothing on
+// exit).
+func (s *FileSink) Logger() *slog.Logger { return s.lg }
+
+// Close releases the file handle. The sink stays USABLE: lumberjack reopens the
+// file on the next write (and re-checks the rotation size), so closing after each
+// line is the way a component sink keeps from holding a handle it does not need.
+func (s *FileSink) Close() error { return s.w.Close() }
+
+// ensureOperationID returns this process's operation id, minting one when no
+// Setup/ConfigureFile ran yet (a component sink opened before the default one).
+func ensureOperationID() string {
+	setupMu.Lock()
+	defer setupMu.Unlock()
 	if operationID == "" {
 		operationID = runID()
 	}
-	fileSink = w
-	attrs := []slog.Attr{slog.String("operation_id", operationID), slog.String("component", o.Component)}
-	slog.SetDefault(slog.New(dedupeHandler{Handler: multiHandler{handlers: []slog.Handler{stderrHandler.WithAttrs(attrs), file.WithAttrs(attrs)}}, keys: attrKeys(attrs)}))
-	return nil
+	return operationID
 }
 
 // attrKeys is the key set of the handler-level attrs ConfigureFile stamps on
@@ -139,6 +213,11 @@ func attrKeys(as []slog.Attr) map[string]struct{} {
 //
 // Only top-level record attrs are deduplicated: a key inside a group is a
 // different key path and is left alone.
+//
+// OpenFileSink does not wrap its handler in this: it prepends the same
+// operation_id / component once (via With) and the only writer it serves — the
+// client request log — never passes a component of its own (internal/client
+// reqlog.go).
 type dedupeHandler struct {
 	slog.Handler
 	keys map[string]struct{}
@@ -178,6 +257,7 @@ func (d dedupeHandler) WithAttrs(as []slog.Attr) slog.Handler {
 	}
 	return dedupeHandler{Handler: d.Handler.WithAttrs(as), keys: keys}
 }
+
 func sinkFailure(o FileOptions, e error) error {
 	if o.Explicit {
 		fmt.Fprintf(os.Stderr, "gofer log file %s: %v\n", o.Path, e)
@@ -194,7 +274,7 @@ func runID() string {
 	return fmt.Sprint(time.Now().UnixNano())
 }
 
-// shortenTime reformats the top-level time attribute to timeLayout (dropping the
+// shortenTime reformats the top-level time attribute to TimeLayout (dropping the
 // zone offset). Group-nested time values and non-time attrs pass through.
 func shortenTime(groups []string, a slog.Attr) slog.Attr {
 	return replaceAttr(groups, a)
@@ -209,7 +289,7 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	}
 	if len(groups) == 0 && a.Key == slog.TimeKey {
 		if t, ok := a.Value.Any().(time.Time); ok {
-			a.Value = slog.StringValue(t.Format(timeLayout))
+			a.Value = slog.StringValue(t.Format(TimeLayout))
 		}
 	}
 	return a

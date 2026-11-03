@@ -650,6 +650,9 @@ func (s *Store) ExpireOverdue(now int64) ([]Mail, error) {
 		if err != nil {
 			return out, err
 		}
+		if exists && m.State == MailExpired {
+			logMailExpired(m, reason)
+		}
 		// Only the letters that actually went to the capture box are returned: an expired
 		// broadcast copy is finished, not something a person has to record and assign.
 		if exists && m.State == MailHeld {

@@ -361,6 +361,10 @@ func (cl *Client) handleMessengerDispatch(ctx context.Context, d wsproto.Dispatc
 		if errors.Is(callCtx.Err(), context.DeadlineExceeded) {
 			result.Status = job.StatusTimeout
 		}
+		// The failure only travels back on the Result frame; log it here too, or a
+		// dispatch that never ran has no trace on the worker side.
+		slog.Warn("worker.job_finished", "event", "worker.job_finished", "component", "worker",
+			"worker_id", cl.workerID, "job_id", d.JobID, "status", result.Status, "exit_code", result.ExitCode, "error", result.Error)
 	}
 	_ = cl.sendResult(ctx, d.JobID, result)
 }

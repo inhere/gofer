@@ -219,14 +219,23 @@ func (cl *Client) replyLegacyApplied(ctx context.Context, rev int64) {
 }
 
 // writeAppliedFrame sends one applied frame (no job id) under the bounded reload
-// write deadline. Like a caps frame, a write failure while disconnected is benign —
-// the config IS applied locally and the next register re-reports it.
+// write deadline. A write failure while disconnected is benign — the config IS
+// applied locally and the next register re-reports it — so it is logged at DEBUG
+// with an event name, not as a WARN.
+//
+// Why DEBUG (LG3): the write lands on whatever connection cl.conn points at when
+// the apply FINISHES, and applying a policy takes ~2s. Any session that was
+// closed in that window (reconnect, upgrade handover, or two processes fighting
+// over one worker id — each handshake evicts the other with 1000 "replaced by new
+// registration") produces "use of closed network connection" here. One such
+// flapping worker logged this line 4973 times in two weeks, hunting nothing: the
+// next handshake re-registers the caps and the hub re-pushes the policy anyway.
 func (cl *Client) writeAppliedFrame(ctx context.Context, a wsproto.Applied) {
 	wctx, cancel := context.WithTimeout(ctx, reloadWriteTimeout)
 	defer cancel()
 	if err := cl.writeFrame(wctx, wsproto.TypeApplied, "", a); err != nil {
-		slog.Warn("worker could not send applied frame",
-			"worker_id", cl.workerID, "rev", a.Rev, "err", err)
+		slog.Debug("applied frame not delivered", "event", "worker.applied_frame_undelivered", "component", "worker",
+			"worker_id", cl.workerID, "rev", a.Rev, "error", err)
 	}
 }
 
