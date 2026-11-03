@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 配置入库 P1：用户入库 实施计划
 
-> 状态：Draft 0.2 / 待人工计划批准
+> 状态：Draft 0.3 / 待人工计划批准
 > issue：gofer-nhh7
 
 ## 修订记录
@@ -10,6 +10,7 @@
 |---|---|---|---|
 | 0.1 | 2026-11-03 | Claude（gofer 监督会话） | 初稿 |
 | 0.2 | 2026-11-03 | Claude（gofer 监督会话） | 按两路审核修订（5 阻塞、15 纠正）：同 id 接管时停用 DB 行并标孤儿；隐藏行的 owner 按停用拒绝；合并时跑完整字段校验，名字冲突清空名字；拒绝空上限；回退风险写入发版说明并实测；修正测试名、清理路径和任务细节 |
+| 0.3 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（1 阻塞、6 纠正）：启用被接管的行要先轮换，并清除接管标记；用户写入后按当前行重新合并；接管事务放在校验之后；事务内标孤儿；standalone mcp 只读；重判和继承也判封锁；丢弃的行不进封锁集合 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -53,7 +54,7 @@
 | D7 | 内部 exec 放行清单（设计留给计划） | 只放行 `delivery`、`delivery-check`（在跑 job 的收尾）。`relay`、`tracker-sync`、`summarizer`、`workflow-step` 都是新动作，拒绝 |
 | D8 | `config_audit` 没有读入口，保留期没定 | 加 `GET /v1/callers/audit` 和 `gofer auth caller audit`，web 用户页显示。保留 90 天，同 `auth_audit`。清理放在 `PruneJobs` 的 `policy.IsZero()` 判断之前（否则没配 retention 的部署永远不清） |
 | D9 | 设计 CLI 清单没有改配额的命令，而验收要求“改并发上限不用重启” | 加 `auth caller set-limits` 和 `PUT /v1/callers/{id}/limits` |
-| D10（方向） | DB 用户与文件用户或 worker 同 id：设计只说隐藏，但隐藏后旧授权被新身份继承，文件条目删除后旧 token 复活，名下 schedule 变成无上限 | `RegisterWorkerInto` 拒绝与用户同 id。文件改出同 id 时不拒绝启动，按“身份更换”处理：首次发现就在合并的同一步把 DB 行标 `superseded_at` 并停用、把 `caller:<id>` 授权标孤儿、写审计（actor `system:file-takeover`）。任一步失败就算合并失败。之后删掉文件条目，旧 token 不复活，要显式轮换加启用；孤儿授权用现有 activate 恢复。与 worker 同 id 时该 id 记入快照的“封锁 owner”集合，准入按停用拒绝。被文件用户接管时，名下 schedule 按文件用户的上限运行（根管理员亲手声明的身份，写进文档） |
+| D10（方向） | DB 用户与文件用户或 worker 同 id：设计只说隐藏，但隐藏后旧授权被新身份继承，文件条目删除后旧 token 复活，名下 schedule 变成无上限 | `RegisterWorkerInto` 拒绝与用户同 id。文件改出同 id 时不拒绝启动，按“身份更换”处理：首次发现就在合并的同一步把 DB 行标 `superseded_at` 并停用、把 `caller:<id>` 授权标孤儿、写审计（actor `system:file-takeover`）。任一步失败就算合并失败。之后删掉文件条目，旧 token 不复活：启用被接管的行要求 `rotated_at` 晚于 `superseded_at`，否则 409 要求先轮换；启用成功才清除 `superseded_at`，所以再次接管会再走一遍停用、标孤儿。孤儿授权用现有 activate 恢复。与 worker 同 id 时该 id 记入快照的“封锁 owner”集合，准入按停用拒绝。被文件用户接管时，名下 schedule 按文件用户的上限运行（根管理员亲手声明的身份，写进文档） |
 | D11 | 标记拒绝放进 loader 会让 34 处 `config.Load` 全失败 | 只拦三处：`serve.Start`、standalone mcp、`reloadFromPathLocked`（reload 失败保留旧快照）。其他 CLI 不拦，服务管理命令还能用 |
 | D12 | `set-ceiling` 改文件用户时，文件和审计没有原子性 | 先 `Core.Update` 写文件，再写审计。审计失败记 ERROR，响应带 warning，改动不回退。`server:` 块注释会丢，与今天所有 server 配置写入一样，CLI 和界面提示 |
 | D13 | `callerCeilingWarnings` 不能简单挪到合并后（`config validate` 还要用） | 文件用户的告警保持原位。DB 用户的告警单独存一个切片，读时拼接，label 为 `db`，写入时重算 |
@@ -113,8 +114,8 @@ Fail-closed：
 
 ### T1 存储
 
-- 文件: `internal/jobstore/callers.go`（新）、`internal/jobstore/prune.go`、`internal/jobstore/*_test.go`。
-- 动作: 用 `init()` 追加 schema，不碰 `store.go`（G057）。`auth_callers(id PK, name, token_hash, token_hint, limits_json, ceiling_yaml, disabled_at, superseded_at, created_by, created_at, rotated_at, updated_at)`，`token_hash` 不设唯一约束。`config_audit(id PK AUTOINCREMENT, actor, path, before_masked, after_masked, at)` 加 `at` 索引。这批列是后续只读预检的契约，之后只增不改。`auth_callers` 另加 `superseded_at`（D10）。类型 `StoredCaller`（行的原样字段，`ceiling_yaml`、`limits_json` 不解析）。方法：`ListStoredCallers() ([]StoredCaller, error)`；`InsertCallerTx`、`UpdateCallerTx`（统一 `func (s *Store) WithCallerTx(fn func(tx CallerTx) error) error`，写审计同事务，用 `writeMu` + `Begin`，照 `auth.go`）；`InsertConfigAudit`（给 D12 用）；`ListConfigAudit(prefix string, limit int)`；`PruneJobs` 在 `policy.IsZero()` 判断之前清 90 天前的 `config_audit`（D8）。`OpenExistingForRepair(path string) (*Store, error)`：先 stat，不存在报错，不建库、不跑 `applySchema`、不跑 `migrate`；`auth_callers` 表不存在也报错。`RepairCaller(id, actor string, opts RepairOptions) (RepairResult, error)`，`RepairOptions{ValidCeiling func(string) error; ValidLimits func(string) error; ValidName func(string) error; LockedCeilingYAML string}` 由调用方传入，jobstore 不依赖 config 的新符号。只做这些修复：停用；坏的 `ceiling_yaml` 换成 `LockedCeilingYAML`；坏的 `limits_json` 清空；坏的 name 清空；不删行。
+- 文件: `internal/jobstore/callers.go`（新）、`internal/jobstore/auth.go`、`internal/jobstore/prune.go`、`internal/jobstore/*_test.go`。
+- 动作: 用 `init()` 追加 schema，不碰 `store.go`（G057）。`auth_callers(id PK, name, token_hash, token_hint, limits_json, ceiling_yaml, disabled_at, superseded_at, created_by, created_at, rotated_at, updated_at)`，`token_hash` 不设唯一约束。`config_audit(id PK AUTOINCREMENT, actor, path, before_masked, after_masked, at)` 加 `at` 索引。这批列是后续只读预检的契约，之后只增不改。`auth_callers` 另加 `superseded_at`（D10）。类型 `StoredCaller`（行的原样字段，`ceiling_yaml`、`limits_json` 不解析）。方法：`ListStoredCallers() ([]StoredCaller, error)`；`InsertCallerTx`、`UpdateCallerTx`（统一 `func (s *Store) WithCallerTx(fn func(tx CallerTx) error) error`，写审计同事务，用 `writeMu` + `Begin`，照 `auth.go`）；`CallerTx` 提供 `ListStoredCallers`、`OrphanGrants(ids)`：把 `OrphanAuthGrants` 的事务体抽成 `orphanAuthGrantsTx`，原方法调用它，不在事务里再取 `writeMu`；`InsertConfigAudit`（给 D12 用）；`ListConfigAudit(prefix string, limit int)`；`PruneJobs` 在 `policy.IsZero()` 判断之前清 90 天前的 `config_audit`（D8）。`OpenExistingForRepair(path string) (*Store, error)`：先 stat，不存在报错，不建库、不跑 `applySchema`、不跑 `migrate`；`auth_callers` 表不存在也报错。`RepairCaller(id, actor string, opts RepairOptions) (RepairResult, error)`，`RepairOptions{ValidCeiling func(string) error; ValidLimits func(string) error; ValidName func(string) error; LockedCeilingYAML string}` 由调用方传入，jobstore 不依赖 config 的新符号。只做这些修复：停用；坏的 `ceiling_yaml` 换成 `LockedCeilingYAML`；坏的 `limits_json` 清空；坏的 name 清空；不删行。
 - 验证: 在 `inhere-tools/gofer` 运行 `go test ./internal/jobstore -run 'Caller|ConfigAudit|OpenUpgrades|OpenExistingForRepair'`。
 - 完成标准: 旧库能升级；`OpenExistingForRepair` 对不存在的路径不产生文件；审计和用户写入同事务（中途失败两边都没有）；超期审计被清（含零 retention 策略的用例）。
 - 依赖: 无。
@@ -124,7 +125,7 @@ Fail-closed：
 - 文件: `internal/config/model.go`、`internal/config/callers_store.go`（新）、`internal/config/ceiling.go`、`internal/config/writer.go`、`internal/config/include.go`、`internal/config/triggers.go`、`internal/config/worker_register.go`、`internal/config/editable.go`、`internal/core/reload_report_test.go`、`internal/core/reload_diff_test.go`、`internal/core/core.go:931-968`（只为 restart 列表存在的分支）、测试。
 - 动作:
   - `CallerConfig` 加 `yaml:"-"` 字段：`Source`（零值为文件，常量 `CallerSourceDB`）、`TokenHash`、`TokenHint`、`Disabled bool`，零值保持现有夹具不用改。
-  - `ApplyStoredCallers(cfg *Config, rows []StoredCallerInput) (MergeResult, error)`：只追加，不改文件用户。`StoredCallerInput` 是 config 自己的类型。非法行（启用行 hash 不是 64 位十六进制；id 非法或保留；ceiling 严格解码失败、为空或 glob 非法；limits 解码失败或为负；name 超长或含控制字符）返回错误，错误带用户 id（D17）。已停用且 id 非法或保留的行丢弃并告警，并记入封锁 owner 集合；停用行不校验 hash。名字与其他用户重复：清空名字并告警。与文件用户或 worker 同 id 的行不进 `Callers`，返回在 `MergeResult.Superseded`，由 T3 处理；与 worker 同 id 的进封锁集合（D10）。封锁集合放 `Config` 未导出字段加访问器 `IsBlockedOwner(id)`，`Clone` 复制。
+  - `ApplyStoredCallers(cfg *Config, rows []StoredCallerInput) (MergeResult, error)`：只追加，不改文件用户。`StoredCallerInput` 是 config 自己的类型。非法行（启用行 hash 不是 64 位十六进制；id 非法或保留；ceiling 严格解码失败、为空或 glob 非法；limits 解码失败或为负；name 超长或含控制字符）返回错误，错误带用户 id（D17）。已停用且 id 非法或保留的行丢弃并告警，不进封锁集合（这种行只能来自手改库，不可能有名下任务；保留 id 如 `default` 进集合会封住真实身份）；启用这种行时重新合并会报错，事务回滚。停用行不校验 hash。名字与其他用户重复：清空名字并告警。与文件用户或 worker 同 id 的行不进 `Callers`，返回在 `MergeResult.Superseded`，由 T3 处理；与 worker 同 id 的进封锁集合（D10）。封锁集合放 `Config` 未导出字段，`Clone` 复制。访问器 `OwnerBlocked(id)`：id 对应停用用户或在封锁集合里都返回 true，准入、重判、继承三处共用。
   - `DecodeCallerCeiling`（严格解码）、`LockedCallerCeiling()`（repair 用：`projects`、`runners`、`workers`、`agents` 各放保留 glob `__gofer_locked_no_match__`，`read_only: true`，`allow_exec`、`global_memory` 显式 false）、`ValidCallerID`。
   - `HasRootAdmin`（`model.go:2178`）只数文件来源。`HasRootAdmin` 和 `Derive` 只拿 `*ServerConfig`，所以来源放 `CallerConfig` 内。
   - `fileProjection(cfg)`：把 `Server.Callers` 滤成文件来源，结果为空时和 baseline 的 nil 或空保持一致。`Save`、`render`、`saveSplit` 先过 `fileProjection` 再进 `withoutRuntimeValues`（放在它之前，这样 `authored == nil` 分支也覆盖）；`CanonicalConfig` 不过滤，reload 差异仍能看到 DB 用户。
@@ -142,13 +143,13 @@ Fail-closed：
 - 文件: `internal/core/core.go`、`internal/core/callers.go`（新）、`internal/serve/serve.go`、`internal/commands/mcp.go`、测试。
 - 动作:
   - `core.WithStore(st *jobstore.Store)` 选项：`Build` 不再自己开库，store 仍由 Core 的 `Close` 关闭；`serve.Start` 在 `logLoadWarnings` 之前按 `core.go:329-333` 同样的路径开库、读用户、合并，失败就退出；`Build` 返回错误时由 `Start` 关 store。没传 `WithStore` 的调用方走原路径，不合并（worker 属于这类）。
-  - 合并 helper `mergeStoredCallers(cfg, store) error`（可单测，`serve.Start` 和 reload 共用）：`ListStoredCallers` 失败就返回错误，绝不当作空集；调 `ApplyStoredCallers`；对 `Superseded` 里 `superseded_at` 为空的行，在一个事务内设 `superseded_at`、`disabled_at`，标 `caller:<id>` 授权孤儿，写审计（actor `system:file-takeover`），任一步失败就返回错误（D10）；最后 `config.Validate`（D17）。
+  - 合并 helper `mergeStoredCallers(cfg, store, mode) error`（可单测）。顺序固定：标记检查；`ListStoredCallers`，失败就返回错误，绝不当作空集；`ApplyStoredCallers`（不写库）；`config.Validate`（D17）；最后才是接管事务：对 `Superseded` 里 `superseded_at` 为空的行，在一个事务内设 `superseded_at`、`disabled_at`，用 `CallerTx.OrphanGrants` 标 `caller:<id>` 授权孤儿，写审计（actor `system:file-takeover`），失败就返回错误（D10）。这样前面任一步失败都不会留下半截接管。`mode` 为 server（`serve.Start`、reload）才写接管事务；为只读（standalone mcp）时跳过，只在内存隐藏，不写库（设计：CLI 不直接写库），由下次 server 启动处理。
   - `reloadFromPathLocked`：`config.Load` 成功后（`core.go:705` 之后、overlay 之前）调用 helper，失败按 `:702-705` 同样返回，保留旧快照。不放进 `reloadLocked`。
   - 标记检查（D11）放在这三处的 `Load` 之后。文案：“这份配置已迁移到 DB，当前版本不支持，请恢复迁移前备份或升级。”
   - standalone mcp（`commands/mcp.go:135`）开库合并；不跑孤儿扫描。
-  - `Core.UpdateCallers(fn func(next *config.Config, tx jobstore.CallerTx) error) (*ConfigSnapshot, error)`：持 `updateMu`，Clone，开事务，`fn` 改 next 并写行，校验 next（`config.Validate` 加 `agent.ValidateConfig`，Core 不依赖 httpapi 的 `validateCandidate`），提交，`reloadLocked` 发布。全程不调 saveConfig。校验失败回滚。
+  - `Core.UpdateCallers(fn func(next *config.Config, tx jobstore.CallerTx) error) (*ConfigSnapshot, error)`：持 `updateMu`，Clone，开事务，`fn` 写行，在同一事务读全部行，把 next 的 DB 用户和封锁集合按当前行重新合并（这样启用被隐藏的行立刻生效，非法行报错回滚），校验 next（`config.Validate` 加 `agent.ValidateConfig`，Core 不依赖 httpapi 的 `validateCandidate`），提交，`reloadLocked` 发布。全程不调 saveConfig。校验失败回滚。
 - 验证: `go test ./internal/core ./internal/serve ./internal/commands -run 'WithStore|MergeStoredCallers|StoreMarker|UpdateCallers|Takeover'`。
-- 完成标准: 读用户失败时启动退出、reload 保留旧快照且孤儿扫描不运行；标记在三处都拒绝，`gofer job ls` 这类客户端命令不受影响；无配置文件部署 `UpdateCallers` 后不产生文件；接管用例：文件新增同 id 后 DB 行停用、授权孤儿、审计一条，再 reload 不重复；删掉文件条目后旧 token 仍 401。现在没有测试调用 `serve.Start`，所以开库合并那段抽成函数单测（读失败退出、标记拒绝且不建库），真实启动由 T10 覆盖。反向验证：把 helper 改成读失败返回空集，用例要失败。
+- 完成标准: 读用户失败时启动退出、reload 保留旧快照且孤儿扫描不运行；标记在三处都拒绝，`gofer job ls` 这类客户端命令不受影响；无配置文件部署 `UpdateCallers` 后不产生文件；接管用例：文件新增同 id 后 DB 行停用、授权孤儿、审计一条，再 reload 不重复；删掉文件条目后旧 token 仍 401；校验失败时 DB 不变；轮换加启用后再次接管，再次停用并标孤儿（反向验证：启用不清 `superseded_at`，这条失败）；standalone mcp 路径不写库。现在没有测试调用 `serve.Start`，所以开库合并那段抽成函数单测（读失败退出、标记拒绝且不建库），真实启动由 T10 覆盖。反向验证：把 helper 改成读失败返回空集，用例要失败。
 - 依赖: T1、T2。
 
 ### T4 鉴权
@@ -162,7 +163,7 @@ Fail-closed：
 ### T5 停用语义与配额
 
 - 文件: `internal/job/ceiling.go`、`internal/job/execute.go`、`internal/job/fallback.go`、`internal/job/submit.go`、`internal/job/session_recovery.go`、`internal/job/model.go`、`internal/job/concurrency.go`、测试。
-- 动作: `admitCeiling` 在 `CallerCeiling` 取值之前判停用和 `IsBlockedOwner`，返回包住 `ErrCeilingDenied` 的错误（内部 exec 放行 D7）。helper `disabledRecheckOwners(req) []string` 复用准入的 owner 计算，系统 job 和放行的内部 exec 返回空。`execGates.recheckOwners` 在 `submit.go:1408` 赋值，恢复路径留空（D2）。`execute.go` 在目录锁块结束后（`:202` 和 `:204` 之间）用当前快照重判，停用就 `releaseDir` 后 `finish(StatusFailed)`，错误用固定文本的哨兵，`failureDecision`（`fallback.go`）照 budget 的先例识别成新的 `FailureClassCallerDisabled`（`finish` 里 `execute.go:776` 会覆盖事先设置的类别，不能提前设）；`maybeRetryJob` 对它不重试。`inheritCeilingOwner` 判停用。`callerSemaphore` 取用时比较容量，不同就换新 channel，在途 job 释放旧 channel。
+- 动作: `admitCeiling` 在 `CallerCeiling` 取值之前用 `OwnerBlocked` 判断，返回包住 `ErrCeilingDenied` 的错误（内部 exec 放行 D7）。helper `disabledRecheckOwners(req) []string` 复用准入的 owner 计算，系统 job 和放行的内部 exec 返回空。`execGates.recheckOwners` 在 `submit.go:1408` 赋值，恢复路径留空（D2）。`execute.go` 在目录锁块结束后（`:202` 和 `:204` 之间）用当前快照的 `OwnerBlocked` 重判，命中就 `releaseDir` 后 `finish(StatusFailed)`，错误用固定文本的哨兵，`failureDecision`（`fallback.go`）照 budget 的先例识别成新的 `FailureClassCallerDisabled`（`finish` 里 `execute.go:776` 会覆盖事先设置的类别，不能提前设）；`maybeRetryJob` 对它不重试。`inheritCeilingOwner` 用 `OwnerBlocked` 判断。`callerSemaphore` 取用时比较容量，不同就换新 channel，在途 job 释放旧 channel。
 - 验证: `go test ./internal/job -run 'Disabled|CallerSemaphore|InheritCeilingOwner'`。
 - 完成标准: 停用后 trigger、schedule、计划派发、leader、@ 触发、resume、接管、hold 放行都起不来（至少 schedule、计划派发、hold 放行各一条经真实入口的用例，其他入口列出经 `admitCeiling` 的证据）；排队中的 job 拿到槽位后失败且不重试；恢复的常驻会话继续；`delivery` 放行、`workflow-step` 被拒；worker 同 id 隐藏后 schedule 触发被拒；改并发上限后新 job 按新值排队。反向验证两条：去掉 `CallerCeiling` 取值前的停用判断，无 ceiling 用户用例失败；去掉容量比较，改上限用例失败。
 - 依赖: T3。
@@ -175,9 +176,9 @@ Fail-closed：
   - `POST /v1/callers/{id}/rotate`（返回 `token`）、`/disable`、`/enable`
   - `PUT /v1/callers/{id}/ceiling`、`/limits`
   - `GET /v1/callers/audit?limit=`
-  文件来源用户：`rotate`、`disable`、`enable` 返回 409 并提示；`ceiling`、`limits` 走 `Core.Update` 写文件并按 D12 写审计，mut 内跑 `config.Validate` 加 `agent.ValidateConfig` 和 D16 的规则。列表显示被接管的行（状态 `superseded`）；启用时 id 仍和文件用户或 worker 冲突就 409。`no_ceiling` 且未开 `require_admin_capability` 时，`warnings` 提示无上限用户能写 `agents.*.command`；`warnings` 同时带该用户的 `callerCeilingWarnings`（如本机 runner 不是安全边界）。token 用 `crypto/rand`，不进日志、审计、错误。审计前后值只有 name、limits、ceiling、disabled、token_hint。启用时 hash 非法要求先轮换。轮换允许对停用用户做，不改变停用状态。id 不复用：`auth_callers`、文件用户、worker 任一已有就 409（含停用，否则能给根管理员 id 再发一个 token）。
+  文件来源用户：`rotate`、`disable`、`enable` 返回 409 并提示；`ceiling`、`limits` 走 `Core.Update` 写文件并按 D12 写审计，mut 内跑 `config.Validate` 加 `agent.ValidateConfig` 和 D16 的规则。列表显示被接管的行（状态 `superseded`）；启用时 id 仍和文件用户或 worker 冲突就 409；被接管过的行要求已轮换（D10）；启用清除 `superseded_at`。`no_ceiling` 且未开 `require_admin_capability` 时，`warnings` 提示无上限用户能写 `agents.*.command`；`warnings` 同时带该用户的 `callerCeilingWarnings`（如本机 runner 不是安全边界）。token 用 `crypto/rand`，不进日志、审计、错误。审计前后值只有 name、limits、ceiling、disabled、token_hint。启用时 hash 非法要求先轮换。轮换允许对停用用户做，不改变停用状态。id 不复用：`auth_callers`、文件用户、worker 任一已有就 409（含停用，否则能给根管理员 id 再发一个 token）。
 - 验证: `go test ./internal/httpapi ./internal/core -run 'Callers|CallerAudit|TestAuthzReferenceIsUpToDate|TestEveryRouteIsDeclaredOrPending'`。
-- 完成标准: 非根调用方、job 凭据（GET 和审计路由也断言 403）、worker 凭据、带 ceiling 的调用方都被拒；空上限 400；新用户不重启可用；响应之外查不到 token（DB、日志、审计，用例扫描）；并发 add 同 id 只有一个成功；`TestEveryRouteIsDeclaredOrPending` 通过。SR1301 五项在汇报里逐项写。
+- 完成标准: 非根调用方、job 凭据（GET 和审计路由也断言 403）、worker 凭据、带 ceiling 的调用方都被拒；空上限 400；未轮换就启用被接管的行 409；经 API 删除 worker 后轮换加启用，token 立刻可用（不等 reload）；新用户不重启可用；响应之外查不到 token（DB、日志、审计，用例扫描）；并发 add 同 id 只有一个成功；`TestEveryRouteIsDeclaredOrPending` 通过。SR1301 五项在汇报里逐项写。
 - 依赖: T4、T5。
 
 ### T7 CLI 与离线修复
