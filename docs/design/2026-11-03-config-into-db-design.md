@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 配置入库与最小配置文件设计
 
-> 状态：Draft 0.7 / 待人工计划批准（0.4 的三项待确认经用户 2026-11-03 确认，原话“配置 0.4 按建议”；0.5–0.7 依复核修订，未改已确认的决定；批准设计不等于授权实施）
+> 状态：Draft 0.8 / 待人工计划批准（0.4 的三项待确认经用户 2026-11-03 确认，原话“配置 0.4 按建议”；0.5–0.8 依复核修订，未改已确认的决定；批准设计不等于授权实施）
 > issue：gofer-nhh7
 
 ## 修订记录
@@ -15,6 +15,7 @@
 | 0.5 | 2026-11-03 | Claude（gofer 监督会话） | 按 0.4 改动项复核修订（4 阻塞、4 纠正）：未绑定标记解决新装建库；升级预检用只读开库；写入先写齐临时文件再 rename；停用在准入公共点判断；离线修复去掉 `entry disable`、补用户修复；P1 见到标记拒绝启动 |
 | 0.6 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（2 阻塞、5 纠正）：去掉未绑定状态，由 `init` 建库；判空不改用用户数；明确最严上限，补 `auth caller enable`；取到槽位后重判停用；更正崩溃窗口的说法 |
 | 0.7 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（1 阻塞、2 纠正）：重建空库用专门的离线命令，不复用 `init --force`；`init` 建库列为例外并要求 server 未运行；停用重判落在目录锁之后 |
+| 0.8 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（1 阻塞、2 纠正）：`init server` 以目标库为准判断，不靠 pid 文件；例外范围限定为用户和配置的写入；停用拒绝不进重试 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -120,7 +121,7 @@ hooks 和 triggers 原定只写文件，用户决定入库，理由是：有权�
 文件来源的用户：`rotate`、`disable` 拒绝并提示迁移（轮换会把明文写进文件，`token_env` 也轮换不了）；`set-ceiling` 写文件。
 
 **新旧部署：**
-- 新装：`gofer init server` 建库并写入 `config_store_id`，再原子写核心配置和标记 `config_store: {id: <uuid>}`，其余默认值 + DB。这样没有“未绑定”状态，serve 也不用回写文件（文件和 DB 无法同时提交，回写会出现崩溃后永久起不来）。崩溃在两步之间时，重跑 init 复用库里已有的 id；库里已有配置条目或用户时拒绝。
+- 新装：`gofer init server` 建库并写入 `config_store_id`，再原子写核心配置和标记 `config_store: {id: <uuid>}`，其余默认值 + DB。这样没有“未绑定”状态，serve 也不用回写文件（文件和 DB 无法同时提交，回写会出现崩溃后永久起不来）。崩溃在两步之间时，重跑 init 复用库里已有的 id；库里已有其他数据时的处理见“代码组织”。
 - 已有部署：不自动迁移，升级后一切照旧；想迁就执行 `gofer config migrate`。
 
 ## 架构
@@ -137,7 +138,7 @@ hooks 和 triggers 原定只写文件，用户决定入库，理由是：有权�
   - 根判定只看文件：`HasRootAdmin` 只数文件来源的用户。
   - 读 `auth_callers` 失败时整次 reload 失败、保留旧快照，绝不当作空集；孤儿扫描只在拿到完整用户集时运行。
   - 新路由登记 `routeDecls`（G056）：`/v1/callers*`（根）、roles、`/v1/config/exec/*`（`config.exec.write`）。高危字段不进通用 `PUT /v1/config/server` 词表，预览和校验接口也不接收。
-- `internal/commands`：`gofer auth caller add|ls|rotate|disable|enable|set-ceiling`（G033，放在已有的 `auth` 下）；`config migrate`、`config export` 都是瘦客户端，经 server 执行。“CLI 不直接写库”只有两个例外。`init server` 建库：用 pid 文件确认 server 未运行，在跑就拒绝，否则只想生成模板的人会让新 CLI 迁移线上库。另一个是离线修复：`config doctor --offline`、`config entry rm <path> --offline`（先打印旧值）、`auth caller repair <id> --offline`（用户行字段损坏时：停用该用户，坏的 `ceiling_yaml` 改成最严上限（空列表表示不限，不能用零值：`projects`、`runners`、`workers`、`agents` 都放一个保留的不匹配 glob，`read_only: true`，`allow_exec`、`global_memory` 为 false），坏的 `limits_json` 清空，不删行）、`config store rebuild --offline`、`config export --offline`，用 pid 文件确认 server 未运行，写 `config_audit`，actor 记 `offline:<用户>`。
+- `internal/commands`：`gofer auth caller add|ls|rotate|disable|enable|set-ceiling`（G033，放在已有的 `auth` 下）；`config migrate`、`config export` 都是瘦客户端，经 server 执行。用户和配置的写入，“CLI 不直接写库”只有两个例外。`init server` 建库：只读探测目标库，库不存在才建；已存在且只含 `config_store_id` 时复用；已有其他数据时不跑 `Open`、不碰库，只写不带标记的文件模式配置并提示。不能只靠 pid 文件判断：pid 路径跟 `-c` 走，库路径不跟，查错位置时会让新 CLI 迁移线上库。另一个是离线修复：`config doctor --offline`、`config entry rm <path> --offline`（先打印旧值）、`auth caller repair <id> --offline`（用户行字段损坏时：停用该用户，坏的 `ceiling_yaml` 改成最严上限（空列表表示不限，不能用零值：`projects`、`runners`、`workers`、`agents` 都放一个保留的不匹配 glob，`read_only: true`，`allow_exec`、`global_memory` 为 false），坏的 `limits_json` 清空，不删行）、`config store rebuild --offline`、`config export --offline`，用 pid 文件确认 server 未运行，写 `config_audit`，actor 记 `offline:<用户>`。
 - 非 serve 的 `config.Load` 调用：必须叠加的（`serve.go:256`、`core.go:701`、`mcp.go:135`）走合并；会静默答错的（`job.go:1987`、`hook.go`、`repo.go`、`project.go`、`agent*.go` 等）改为经 server 读，读不到就明确报错。`gofer project add` 改走 API。计划阶段列全并逐项改，这是工作量最大的部分。
 - `internal/settings` 保留：放提示词、阈值这类有注册表的值；`config_entries` 放配置结构。修改其包注释，写清边界。
 - web：用户管理；agent 表单补 `can_submit`；roles 编辑；高危配置页；所有字段显示来源。打码字段 PUT 时能保留原值。
@@ -164,7 +165,7 @@ flowchart LR
 3. 即时可用；权限照旧用 grants 发。
 4. 轮换或停用时断开长连接（复用 `authz_live_conn`），记审计。
 
-用户生命周期：不做硬删除，id 永不复用。停用的用户留在快照里（ceiling 继续约束它在跑的 job），但不能认证；`effective` 对它返回空权限；它名下的 job 不再起，判断放在 `admitCeiling`，且在“没有 ceiling 就跳过”之前，否则无上限的用户会漏判。这样 trigger、schedule、retry、计划派发、leader 轮次、@ 触发、续跑、接管、放行 hold 都覆盖。两个缺口单独补：取到所有并发槽位和目录锁之后、开始执行之前重判停用，拒绝时 `finish(StatusFailed)` 且错误包 `ErrCeilingDenied`（否则停用前已排队的 job 之后仍会启动）；已转发到 worker 本地队列的 job 重判不到，这个残留接受；`inheritCeilingOwner` 也判停用（源 job 已清理时它可能返回空 owner，job 变成无主）。拒绝用 `ErrCeilingDenied`（永久，不重试）。系统 job 没有 owner，不受影响；带 owner 的内部 exec 里，只放行交付收尾类（具体清单在计划里列）。`default` 等 id 保留。文件后来新增同 id 时，DB 条目整体隐藏（含 token），合并后校验报告。
+用户生命周期：不做硬删除，id 永不复用。停用的用户留在快照里（ceiling 继续约束它在跑的 job），但不能认证；`effective` 对它返回空权限；它名下的 job 不再起，判断放在 `admitCeiling`，且在“没有 ceiling 就跳过”之前，否则无上限的用户会漏判。这样 trigger、schedule、retry、计划派发、leader 轮次、@ 触发、续跑、接管、放行 hold 都覆盖。两个缺口单独补：取到所有并发槽位和目录锁之后、开始执行之前重判停用，拒绝时 `finish(StatusFailed)`，并用结构化标记跳过 `maybeRetryJob`（`finish` 只留错误字符串，包装错误判断不了；否则停用前已排队的 job 之后仍会启动）；已转发到 worker 本地队列的 job 重判不到，这个残留接受；`inheritCeilingOwner` 也判停用（源 job 已清理时它可能返回空 owner，job 变成无主）。拒绝用 `ErrCeilingDenied`（永久，不重试）。系统 job 没有 owner，不受影响；带 owner 的内部 exec 里，只放行交付收尾类（具体清单在计划里列）。`default` 等 id 保留。文件后来新增同 id 时，DB 条目整体隐藏（含 token），合并后校验报告。
 
 鉴权：保持现有匹配优先级，DB 用户排在文件用户之后。
 
@@ -194,7 +195,7 @@ flowchart LR
 - 备份：配置进 DB 后，备份 DB 就等于备份配置；用 SQLite 一致性备份，不要直接拷文件（WAL）。发版说明要提示。
 - 损失：DB 里的配置不能用 git 管、不能直接 diff，靠审计和 export 补；要版本管理的条目可以留在文件。
 - 版本回退：旧版本解码不严格，读到迁移后的文件不会报错，会以“只有核心项”静默启动，hooks、`governance` 全部消失，DB 用户的授权被标孤儿（读代码所得，未实跑）。所以回退必须先用迁移前备份恢复文件；回退目标不低于首个支持标记的版本（P1）：P1 不懂合并，见到标记就拒绝启动，提示恢复备份或升级。迁移后新建的 DB 用户只有哈希，回退后要重新发 token。未迁移部署只有 DB 用户受影响。计划里要做真实回退测试。
-- 跨进程：用户和配置的写入都只经 server，CLI 不直接写库（`init server` 和离线修复除外，都要求 server 未运行），撤销即时生效。
+- 跨进程：用户和配置的写入都只经 server，CLI 不直接写库（`init server` 和离线修复除外），撤销即时生效。
 
 ## 决策
 
