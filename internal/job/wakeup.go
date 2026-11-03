@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
 	"github.com/inhere/gofer/internal/util"
@@ -120,6 +121,44 @@ type WakeupSpec struct {
 	Instruction string `json:"instruction,omitempty"`
 	// ExpiresAt overrides the configured TTL (0 = now + wakeup.ttl_sec).
 	ExpiresAt int64 `json:"expires_at,omitempty"`
+}
+
+// SubmitGrant resolves a job's submit permission: the job's ROLE and its AGENT each
+// carry can_submit/submit_agents, and either opening the gate is enough (the role is the
+// natural unit for "this preset is a supervisor", while the agent covers a plain
+// `--agent` job). The allowlist is the union of the two so a role that names extra agents
+// does not silently drop the agent-level default.
+//
+// It lives here rather than in the HTTP entry (G021) because two layers ask it: the entry
+// before admitting a job credential's submit, and the automatic child receipt, which only
+// arms for a parent that could have submitted at all (registerChildWakeup).
+func (s *Service) SubmitGrant(asking JobResult) (bool, []string) {
+	cfg := s.config()
+	if cfg == nil {
+		return false, nil
+	}
+	var (
+		can    bool
+		agents []string
+	)
+	if ac, ok := cfg.Agents[asking.Agent]; ok {
+		can = can || ac.CanSubmit
+		if len(ac.SubmitAgents) > 0 {
+			agents = append(agents, ac.SubmitAgents...)
+		}
+	}
+	if asking.Role != "" {
+		if rc, ok := cfg.Roles[asking.Role]; ok {
+			can = can || rc.CanSubmit
+			if len(rc.SubmitAgents) > 0 {
+				agents = append(agents, rc.SubmitAgents...)
+			}
+		}
+	}
+	if len(agents) == 0 {
+		agents = config.EffectiveSubmitAgents(nil)
+	}
+	return can, agents
 }
 
 // CreateWakeup validates and stores a wakeup on spec.JobID (design §五.1). `by` is
@@ -462,6 +501,12 @@ func wakeupCronNext(expr, tz string, after time.Time) (int64, error) {
 // covers a job that never becomes terminal (needs_review parks until a human
 // rules), where the fire then reports why.
 func (s *Service) dispatchWakeup(w jobstore.WakeupRecord, reason string) {
+	// A wakeup on a LIVE resident ACP job is spoken into its session instead of being
+	// continued (design 2026-11-03 总体方案 选路). Only event wakeups take this path: a
+	// timer on a live session behaves exactly as it always has.
+	if parent, resident := s.residentWakeupTarget(w); resident && s.routeChildReceipt(w, reason, parent) {
+		return
+	}
 	if res, ok := s.Get(w.JobID); ok && IsTerminal(res.Status) {
 		s.FireWakeup(w.ID, reason)
 		return

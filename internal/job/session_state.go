@@ -122,5 +122,8 @@ func (s *Service) awaitSessionInput(entry *jobEntry) error {
 	})
 	slog.Info("job.awaiting_input", "event", "job.awaiting_input", "job_id", snap.ID,
 		"turn_no", snap.TurnNo, "idle_deadline_at", snap.IdleDeadlineAt)
+	// A child receipt that had to wait for this turn is delivered now (and the batch
+	// the session just worked through is confirmed). Cheap for a parent with none.
+	s.onParentAwaitingInput(snap.ID)
 	return nil
 }

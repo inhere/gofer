@@ -192,6 +192,12 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 		slog.Warn("persist remote session state", "job_id", snap.ID, "err", err)
 	}
 	s.reconcileSessionEvents(snap.ID, snap.TurnNo, status, snap.IdleDeadlineAt, replayed)
+	if status == StatusAwaitingInput {
+		// The worker side's counterpart of awaitSessionInput: a child receipt waiting for
+		// this session is delivered here, and the batch it just worked through is
+		// confirmed (design 2026-11-03 两条进入路径).
+		s.onParentAwaitingInput(snap.ID)
+	}
 }
 
 func (s *Service) reconcileSessionEvents(jobID string, turnNo int, status string, idleDeadlineAt int64, replayed bool) {
