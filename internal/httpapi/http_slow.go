@@ -39,6 +39,12 @@ var neverSlowRoutes = map[string]struct{}{
 	"/v1/worker-enroll/:id":       {},
 }
 
+// ctxSlowExempt marks a request whose handler is EXPECTED to wait by the request's
+// own parameters, so its duration says nothing about server health. A handler sets it
+// before it starts waiting (the slow middleware reads it after the chain returns); the
+// decision itself stays in the handler, next to the code that does the waiting.
+const ctxSlowExempt = "slow_exempt"
+
 // httpSlowMiddleware logs the requests that took too long, so a hung or
 // throttling datastore shows up as a line naming the route instead of as a
 // client-side timeout with no server trace.
@@ -54,6 +60,11 @@ func (s *Server) httpSlowMiddleware(c *rux.Context) {
 	}
 	route := routeTemplate(c)
 	if _, skip := neverSlowRoutes[route]; skip {
+		return
+	}
+	// A handler that waited ON PURPOSE (a synchronous job submit blocks until the job
+	// ends) marks the request: its duration is the job's, not the server's.
+	if exempt, _ := c.Get(ctxSlowExempt); exempt != nil {
 		return
 	}
 	attrs := []any{"event", "server.http_slow", "method", c.Req.Method, "route", route,

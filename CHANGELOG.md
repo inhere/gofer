@@ -13,7 +13,7 @@
 
 ### 变更
 
-- **日志能查出「发生了什么」**：job 生命周期补齐结构化日志——提交（`job.submitted`：job、agent、runner、项目、调用方、plan、是否持续会话）与终态（`job.terminal`：状态、退出码、耗时、错误摘要），本机执行与 worker 执行的 job 都覆盖；常驻会话补 `job.say`（只记消息长度，不记内容）、`job.awaiting_input`、`job.turn_ended`；定时续跑登记补 `wakeup.created`。超过 2 秒的 HTTP 请求记一条 WARN `server.http_slow`（方法、路由模板、状态、耗时、调用方；SSE / WebSocket / 长轮询除外）。隧道（tunnel）的打开过程事件（`tunnel.requested` / `rendezvous_started` / `worker_connected` / `first_up` / `first_down`）降到 DEBUG，只留 `tunnel.opened` 与 `tunnel.closed`（含时长、收发字节、关闭原因）为 INFO，失败照旧记录。同一行日志不再出现两个 `component` 键。
+- **日志能查出「发生了什么」**：job 生命周期补齐结构化日志——提交（`job.submitted`：job、agent、runner、项目、调用方、plan、是否持续会话）与终态（`job.terminal`：状态、退出码、耗时、错误摘要），本机执行与 worker 执行的 job 都覆盖；常驻会话补 `job.say`（只记消息长度，不记内容）、`job.awaiting_input`、`job.turn_ended`；定时续跑登记补 `wakeup.created`。超过 2 秒的 HTTP 请求记一条 WARN `server.http_slow`（方法、路由模板、状态、耗时、调用方；SSE / WebSocket / 长轮询与同步提交这类本来就要等结果的请求除外）。隧道（tunnel）的打开过程事件（`tunnel.requested` / `rendezvous_started` / `worker_connected` / `first_up` / `first_down`）降到 DEBUG，只留 `tunnel.opened` 与 `tunnel.closed`（含时长、收发字节、关闭原因）为 INFO，失败照旧记录。同一行日志不再出现两个 `component` 键。
 
 ## [0.209.2] - 2026-11-02
 

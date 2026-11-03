@@ -148,7 +148,17 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// The wantSync decision (?wait=1 / ?wait=true query param) is an HTTP-transport
 	// concern; the submit + sync-wait + clamp + async-fallback policy lives in
 	// job.Service.SubmitSync. The handler only maps the outcome to HTTP表现.
-	res, async, err := s.jobs.SubmitSync(req, wantSync(c, req))
+	sync := wantSync(c, req)
+	// A synchronous submit (`gofer job run --sync`, POST /v1/jobs?wait=1, or sync in the
+	// body) blocks until the job reaches a terminal state, so its duration is the JOB's
+	// duration and would always read as a slow request (server.http_slow). The decision is
+	// the one above and is stamped here, before the wait starts, for the middleware that
+	// measures the request (http_slow.go). An async submit that happens to be slow still
+	// logs.
+	if sync {
+		c.Set(ctxSlowExempt, true)
+	}
+	res, async, err := s.jobs.SubmitSync(req, sync)
 	if err != nil {
 		if errors.Is(err, job.ErrNotifyTargetRejected) {
 			c.JSON(submitStatus(err), errorBody{Error: "job rejected", Detail: err.Error(), Code: job.ErrCodeNotifyTargetRejected})

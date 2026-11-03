@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gookit/rux/v2"
+
+	"github.com/inhere/gofer/internal/job"
 )
 
 // withSlowThreshold lowers slowRequestThreshold for one test and restores it.
@@ -111,6 +113,63 @@ func TestHTTPSlowMiddlewareSkipsStreamingRoutes(t *testing.T) {
 	if len(events) != 1 || events[0]["route"] != "/fast" {
 		t.Fatalf("events=%#v", events)
 	}
+}
+
+// TestHTTPSlowMiddlewareSkipsSyncSubmit: a request that waits ON PURPOSE is not slow
+// even when it takes longer than the threshold. A synchronous job submit blocks until
+// the job ends (`gofer job run --sync` / ?wait=1 / sync in the body), so the reason it
+// takes long is the job, not the server. Driving the real router proves the handler's
+// decision reaches the middleware through the request context.
+func TestHTTPSlowMiddlewareSkipsSyncSubmit(t *testing.T) {
+	// 0ns: every request counts as slow, so no test has to sleep.
+	withSlowThreshold(t, 0)
+	s := newTestServer(t, testToken, false)
+	events := captureSlowEvents(t, func() {
+		for _, path := range []string{"/v1/jobs?wait=1", "/v1/jobs?wait=true"} {
+			resp := do(t, s, http.MethodPost, path, testToken, job.JobRequest{
+				ProjectKey: "self", Agent: "exec", Runner: "local",
+				Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+			})
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("%s status=%d", path, resp.StatusCode)
+			}
+			_ = resp.Body.Close()
+		}
+		// sync=true in the body is the same decision, taken from the parsed request.
+		resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local", Sync: true,
+			Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("sync body status=%d", resp.StatusCode)
+		}
+		_ = resp.Body.Close()
+	})
+	if len(events) != 0 {
+		t.Fatalf("synchronous submits logged as slow: %#v", events)
+	}
+}
+
+// TestHTTPSlowMiddlewareLogsAsyncSubmit: the SAME route without the sync decision
+// keeps logging, so the exemption above is the sync flag and not the route.
+func TestHTTPSlowMiddlewareLogsAsyncSubmit(t *testing.T) {
+	withSlowThreshold(t, 0)
+	s := newTestServer(t, testToken, false)
+	events := captureSlowEvents(t, func() {
+		resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status=%d", resp.StatusCode)
+		}
+		_ = resp.Body.Close()
+	})
+	if len(events) != 1 || events[0]["route"] != "/v1/jobs" || events[0]["method"] != http.MethodPost {
+		t.Fatalf("events=%#v", events)
+	}
+	// The async job is still running: drain it before the temp store goes away.
+	drainJobs(t, s.jobs)
 }
 
 // TestHTTPSlowMiddlewareIgnoresFastRequests: under the threshold nothing is logged
