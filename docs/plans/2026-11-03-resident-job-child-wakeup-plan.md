@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 常驻 ACP job 的子 job 回执第一期 实施计划
 
-> 状态：Draft 0.2 / 待人工计划批准
+> 状态：Draft 0.3 / 待人工计划批准
 > issue：gofer-rt3z
 
 ## 修订记录
@@ -10,6 +10,7 @@
 |---|---|---|---|
 | 0.1 | 2026-11-03 | Claude（gofer 监督会话） | 初稿 |
 | 0.2 | 2026-11-03 | Claude（gofer 监督会话） | 按计划审核修订（5 阻塞、6 纠正）：terminal 回执确认后停用；补收件箱卡片落点；重发与限频补发由 tick 驱动，CmdID 按批次；更新暂停验收改用集成测试加真实 hold；通知证据加 webhook；手动待送行、错误分类、依赖顺序 |
+| 0.3 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（3 阻塞、2 纠正）：卡片取告警事件，走收件箱 terminal 卡片路径；更新暂停替代验证要断言 say，覆盖本机和 worker 重启；手动 once 行确认后也消费 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -33,7 +34,7 @@
 
 需要的主机动作只有 T12：经 `gofer job --runner local` 在主机起临时 server、worker 和本地 webhook 接收端，跑真实 claude-acp 父 job，产物只写 `tmp/`，消耗少量模型 token。
 
-验收例外（批准本计划即接受）：“更新暂停期间提交的子 job 也有回执”不用真实更新。更新暂停的两个入口都要求已注册的 server（否则 409），为验收注册服务会改主机。改用 `PauseStartsForUpdate` 集成测试，加真实 hold 走同一条 `parkJob` 路径。
+验收例外（批准本计划即接受）：“更新暂停期间提交的子 job 也有回执”不用真实更新。更新暂停的两个入口都要求已注册的 server（否则 409），为验收注册服务会改主机。改用 T9 的两条集成测试（本机放行、worker 父 job 重启后放行，都断言 say 内容），加 T12 真实 hold 走同一条 `parkJob` 路径。
 
 ## 输入与批准证据
 
@@ -80,7 +81,7 @@ Fail-closed：
 
 | 波次 | 任务 | 依赖 | 说明 |
 |---|---|---|---|
-| W1 | T1、T2、T3→T4 | T4 依赖 T3，其余无 | 地基，单独都不改变现有用户路径（T3 的 interaction 补记、T4 的默认集合除外） |
+| W1 | T1、T2、T3、T4 | T4 依赖 T1、T3，其余无 | 地基，单独都不改变现有用户路径（T3 的 interaction 补记、T4 的默认集合除外） |
 | W2 | T5、T6、T7、T8、T9 | W1 | 主路径，顺序执行 |
 | W3 | T10、T11 | W2 | 收口和文档 |
 | W4 | T12 | W3 | 真实环境验收 |
@@ -90,7 +91,7 @@ Fail-closed：
 ### T1 wakeup 存储
 
 - 文件: `internal/jobstore/wakeups.go`、jobstore schema 与迁移、`internal/jobstore/*_test.go`。
-- 动作: 加 `auto_child INTEGER NOT NULL DEFAULT 0`，走迁移（G057），基础 schema 不引用它；同步 `selectWakeupCols`、`scanWakeup`、`InsertWakeup`。常量 `WakeupPendingSay = "await_input"`。新增 `MarkWakeupPendingSay(id)`（不累加 `fired_count`）、`ListPendingSay()`、`ListAutoChildByParent(parentJobID)`、`ListAutoChildFinishedBefore(ts)`、`RetargetWakeupFilter(id, fromJobID, toJobID) (bool, error)`（CAS）、`CompleteWakeupSay(id, disable bool)`（清哨兵并累加 `fired_count`，`disable` 时同时停用）。`fired_count` 改到成功后累加，失败不回退的旧行为去掉。
+- 动作: 加 `auto_child INTEGER NOT NULL DEFAULT 0`，走迁移（G057），基础 schema 不引用它；同步 `selectWakeupCols`、`scanWakeup`、`InsertWakeup`。常量 `WakeupPendingSay = "await_input"`。新增 `MarkWakeupPendingSay(id)`（不累加 `fired_count`）、`ListPendingSay()`、`ListAutoChildByParent(parentJobID)`、`ListAutoChildFinishedBefore(ts)`、`RetargetWakeupFilter(id, fromJobID, toJobID) (bool, error)`（CAS）、`CompleteWakeupSay(id, disable bool)`（清哨兵并累加 `fired_count`，`disable` 时同时停用）、`ListJobEventsByType(eventType string, sinceAt int64)`（给 T4 的卡片用）。`fired_count` 改到成功后累加，失败不回退的旧行为去掉。
 - 验证: 在 `inhere-tools/gofer` 运行 `go test ./internal/jobstore -run 'Wakeup|OpenUpgrades'`；`go test ./internal/job -run WakeupFiredCount`（续接失败发生在 `fireWakeup`）。
 - 完成标准: 旧库能升级；CAS 只有一方成功；续接失败的 wakeup `fired_count` 不增加。
 - 依赖: 无。
@@ -113,17 +114,17 @@ Fail-closed：
 
 ### T4 告警通知
 
-- 文件: `internal/notify/match.go`、`internal/notify/catalog.go`、`internal/webpush/dispatch.go`、`internal/webpush/sender.go`（如需要）、`internal/config/inbox.go`、`internal/config/model.go`、`internal/inbox/waiting.go`、`internal/today/cards.go`、`internal/today/today.go`、`web/src/utils/inbox.ts`、`web/src/api/today.ts`、`web/src/utils/today.ts`、i18n 文案、相关测试。
-- 动作: 新事件进 webhook 和桌面默认集合、通知目录。webpush 加白名单和标题正文分支，`ThreadID` 留空、`Tag` 为 `child-wake:<wakeup_id>`，这样同时不走合并窗口和线程 Topic；`URL` 另设为父 job 页面。新增 action 类 inbox kind 及卡片：数据源是 `auto_child=1`、已停用且记过告警的行（实施时若现有 today 查询接不上，按 discovery 分类），人打开或确认后消失，沿用现有卡片的已读机制。`job.wakeup_failed` 的默认集合不变。
-- 验证: `go test ./internal/notify ./internal/webpush ./internal/inbox ./internal/config`；`web` 下跑类型检查。
+- 文件: `internal/notify/match.go`、`internal/notify/catalog.go`、`internal/webpush/dispatch.go`、`internal/webpush/sender.go`（如需要）、`internal/config/inbox.go`、`internal/config/model.go`、`internal/inbox/waiting.go`、`internal/httpapi/inbox_handler.go`、`web/src/utils/inbox.ts`、i18n 文案、相关测试。
+- 动作: 新事件进 webhook 和桌面默认集合、通知目录。webpush 加白名单和标题正文分支，`ThreadID` 留空、`Tag` 为 `child-wake:<wakeup_id>`，这样同时不走合并窗口和线程 Topic；`URL` 另设为父 job 页面。新增 action 类 inbox kind 及卡片：照 `job.failed` 的做法，在 `inbox.TerminalCards` 旁构建，经 `waitingFor` 合入；数据源是 `ListJobEventsByType("job.child_wake_failed", …)`，窗口 72 小时。收件箱 clear 隐藏，首页到期消失（首页一点就消失要新增持久 dismiss，不在范围内）。不改 `internal/today/cards.go`。`job.wakeup_failed` 的默认集合不变。
+- 验证: `go test ./internal/notify ./internal/webpush ./internal/inbox ./internal/config ./internal/httpapi`；`web` 下跑类型检查。
 - 完成标准: 默认配置下三个渠道都会发；默认配置下收件箱 action 列出现卡片；同线程后续推送不替换告警；断言旧事件仍不在默认集合。
-- 依赖: T3。
+- 依赖: T1、T3。
 
 ### T5 选路、待送、发送、确认
 
 - 文件: `internal/job/wakeup_session.go`（新）、`internal/job/wakeup.go`、`internal/job/session_state.go`、`internal/job/session_recovery.go`、`internal/i18n/prompts/<lang>/`、测试。
-- 动作: 按设计“总体方案”的表选路，只拦 event 类。路由用 `IsFinished` 判父 job 已结束。每个父 job 一把回执锁（`sync.Map`，顺序固定为回执锁在前、`entry.mu` 在后），覆盖读待送、合并、发送、记批次。回执模板只含子 job id、状态、退出码、查看命令，前缀 `msgprefix.Wakeup`；手动 wakeup 的 instruction 附在模板后；需要输入类写明“你不能代答，请转告人”。写入待送后再读一次父 job 状态，已是 awaiting_input 就立刻投递。`ErrSessionTurnBusy`、`ErrSessionInputQueued`、`ErrWorkerOffline`、`ErrUpgradeDraining`、未分类的发送错误都保持待送；`ErrSessionEnding` 按父 job 结束处理；`ErrNoLiveSession` 时 recovering 保持待送、needs_review 按父 job 结束处理。父 job 结束处理函数 `endParentChildWakes(parentJobID, reason)` 在这里创建，T7 只负责把它挂到各路径。发送放后台，终态和待验收事件在 observer 内同步取 entry，等 `entry.done` 后再读状态。确认条件：回到 awaiting_input 且 TurnNo 超过发送值，只清这一批，子 job 状态已变就保留哨兵；确认的是 `job.terminal` 回执时调 `CompleteWakeupSay(id, true)` 停用该行。限频：同一子 job 需要输入类 1 分钟一条，限频内写哨兵。重发和限频补发由 T9 的 tick 驱动。`awaitSessionInput`、`applyRemoteSessionState` 共用待送检查。日志 `wakeup.say_pending`、`wakeup.say_sent`，不含正文。
-- 验证: `go test ./internal/job -run 'WakeupSession'`，覆盖：awaiting_input 直发、进行中待送、多子 job 合并、already queued、离线、升级排空、手动 instruction 附加、terminal 回执确认后停用、确认后不重发、这一轮中途死掉不算送达、标题不入 say、定时 wakeup 走旧路径。
+- 动作: 按设计“总体方案”的表选路，只拦 event 类。路由用 `IsFinished` 判父 job 已结束。每个父 job 一把回执锁（`sync.Map`，顺序固定为回执锁在前、`entry.mu` 在后），覆盖读待送、合并、发送、记批次。回执模板只含子 job id、状态、退出码、查看命令，前缀 `msgprefix.Wakeup`；手动 wakeup 的 instruction 附在模板后；需要输入类写明“你不能代答，请转告人”。写入待送后再读一次父 job 状态，已是 awaiting_input 就立刻投递。`ErrSessionTurnBusy`、`ErrSessionInputQueued`、`ErrWorkerOffline`、`ErrUpgradeDraining`、未分类的发送错误都保持待送；`ErrSessionEnding` 按父 job 结束处理；`ErrNoLiveSession` 时 recovering 保持待送、needs_review 按父 job 结束处理。父 job 结束处理函数 `endParentChildWakes(parentJobID, reason)` 在这里创建，T7 只负责把它挂到各路径。发送放后台，终态和待验收事件在 observer 内同步取 entry，等 `entry.done` 后再读状态。确认条件：回到 awaiting_input 且 TurnNo 超过发送值，只清这一批，子 job 状态已变就保留哨兵；确认的是 `job.terminal` 回执，或该行 `Mode` 是 once（手动 event wakeup 默认如此）时，调 `CompleteWakeupSay(id, true)` 消费该行。限频：同一子 job 需要输入类 1 分钟一条，限频内写哨兵。重发和限频补发由 T9 的 tick 驱动。`awaitSessionInput`、`applyRemoteSessionState` 共用待送检查。日志 `wakeup.say_pending`、`wakeup.say_sent`，不含正文。
+- 验证: `go test ./internal/job -run 'WakeupSession'`，覆盖：awaiting_input 直发、进行中待送、多子 job 合并、already queued、离线、升级排空、手动 instruction 附加、terminal 回执确认后停用、手动 once 行确认后不再触发、确认后不重发、这一轮中途死掉不算送达、标题不入 say、定时 wakeup 走旧路径。
 - 完成标准: 上述用例通过；手动登记且目标已结束的 wakeup 行为与基线一致。
 - 依赖: T1、T2、T3。
 
@@ -155,7 +156,7 @@ Fail-closed：
 
 - 文件: `internal/job/wakeup_session.go`、`internal/serve/serve.go`、`internal/job/wakeup.go`、`internal/job/session_recovery.go`、测试。
 - 动作: `run()` 里紧随 `sweepDueWakeups` 调 `SweepPendingSays(now)`，启动时在 `ReconcileOrphanJobs` 之后再调一次。对账只看 `auto_child=1`、启用、子 job `IsTerminal`、`ended_at` 超过宽限期（常量 2 分钟）的行；已停用或已回执的不再处理；有重试行或接管标记走 T8，重试行 done 且有 `new_job_id` 时补 CAS。tick 同时驱动：worker 父 job 发送超过 60 秒未确认的批次调 `resendSessionSay`；限频到期的哨兵补发。自动行 TTL 到期记 `job.child_wake_failed`。`applyRemoteSessionState` 看到新 turn 时续期 worker 父 job 令牌（先按读代码实现，T12 实测）。
-- 验证: `go test ./internal/job ./internal/serve -run 'PendingSay|ChildWakeReconcile'`，覆盖 `FailRecoveringJobs` 改库后的补发、宽限期内不发、等验收不重复发、已回执不再补发、重启后投递、worker 丢帧后重发、限频到期补发。
+- 验证: `go test ./internal/job ./internal/serve -run 'PendingSay|ChildWakeReconcile'`，覆盖 `FailRecoveringJobs` 改库后的补发、宽限期内不发、等验收不重复发、已回执不再补发、重启后投递、worker 丢帧后重发、限频到期补发；更新暂停两条：本机父 job（暂停→子 job parked→`ResumeStartsForUpdate`→父 job 收到 say）；worker 父 job（照 `TestUpdatePausedSurvivesRestart` 建第二个 Service，对账、放行后送达）。都断言 say 内容。
 - 完成标准: 上述用例通过；同一行在 tick 和事件路径并发时只发一次。
 - 依赖: T7、T8。
 
@@ -208,7 +209,7 @@ Fail-closed：
 | 验收：一轮进行中待送、合并 | T5 | T12 |
 | 验收：父 job 先结束有告警、不复活 | T4、T7 | T12 |
 | 验收：重试、换 agent、取消补发 | T8 | T12 |
-| 验收：更新暂停期间提交 | T6 | T6 集成测试加 T12 真实 hold（已列例外） |
+| 验收：更新暂停期间提交 | T6、T9 | T9 两条集成测试加 T12 真实 hold（已列例外） |
 | 验收：可写子 job | T10 | T12 |
 | 验收：待送期间重启 | T9 | T12 |
 | 验收：多行标题不影响 say | T5 | T5 用例；T12 |
