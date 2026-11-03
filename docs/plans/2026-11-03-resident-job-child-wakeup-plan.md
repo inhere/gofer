@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 常驻 ACP job 的子 job 回执第一期 实施计划
 
-> 状态：Draft 0.4 / 已批准（用户 2026-11-03：“批准 R1 计划 0.4 并开始实施”）
+> 状态：Draft 0.4 / 已批准（用户 2026-11-03：“批准 R1 计划 0.4 并开始实施”）；已完成（2026-11-03）
 > issue：gofer-rt3z
 
 ## 修订记录
@@ -221,3 +221,13 @@ Fail-closed：
 完成条件：T1–T12 通过；对合并后的 `main` 跑 `gofer-verify` 全绿；`gofer issue close gofer-rt3z`。进入 `COMPLETE` 时在 progress 写不超过 8 行的完成总结。
 
 剩余工作：第二期（超时后 resume）、`gofer-xmit`、R2、R3、R4。
+
+### 完成总结
+
+主旨：常驻 ACP job 自动收到所派子 job 的回执，不再靠 xhen 在线盯。
+最终状态：COMPLETE，T1–T12 完成；本地 main `54aed801`，未 push、未发版。
+自主决策：W2 拆 3 个 job（单 job 90 分钟上限）；告警接收端用 `event_hooks`；W4 修限频窗口内的无意义回执；放宽 CJK 守卫的事件目录上限 46→47。
+提交：区间 `f94a181f..54aed801` 共 43 个，含同期配置入库设计提交；耗时 2026-11-03 03:04–12:58（首末提交，提交时区 -0800）。
+验证：`gofer-verify` 全绿（`wf-20261104-045801-1d942fb8`）；真实验收证据在工作区 `tmp/gofer-wt-check/r1-t12/evidence/`。
+UNVERIFIED_REAL_ENV：真实 webhook、桌面、webpush 投递只有单测（复现：配置非 loopback webhook 后让父 job 结束触发 job.child_wake_failed）；限频修复未在 worker 子 job 上实跑；Windows 全量随发版跑。
+剩余：`gofer-73l5`、`gofer-geyu`、`gofer-ehvd`、`gofer-6q5z`、`gofer-8hlc`；第二期 R2–R4 另行排期。
