@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 常驻 ACP job 的子 job 回执第一期 实施计划
 
-> 状态：Draft 0.3 / 待人工计划批准
+> 状态：Draft 0.4 / 待人工计划批准
 > issue：gofer-rt3z
 
 ## 修订记录
@@ -11,6 +11,7 @@
 | 0.1 | 2026-11-03 | Claude（gofer 监督会话） | 初稿 |
 | 0.2 | 2026-11-03 | Claude（gofer 监督会话） | 按计划审核修订（5 阻塞、6 纠正）：terminal 回执确认后停用；补收件箱卡片落点；重发与限频补发由 tick 驱动，CmdID 按批次；更新暂停验收改用集成测试加真实 hold；通知证据加 webhook；手动待送行、错误分类、依赖顺序 |
 | 0.3 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（3 阻塞、2 纠正）：卡片取告警事件，走收件箱 terminal 卡片路径；更新暂停替代验证要断言 say，覆盖本机和 worker 重启；手动 once 行确认后也消费 |
+| 0.4 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮的 2 条纠正补 T4（确认轮无阻塞项，这两条未再复核）：kind 常量放 `today`，新卡不可写建议；首页卡片链接到父 job |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -114,9 +115,9 @@ Fail-closed：
 
 ### T4 告警通知
 
-- 文件: `internal/notify/match.go`、`internal/notify/catalog.go`、`internal/webpush/dispatch.go`、`internal/webpush/sender.go`（如需要）、`internal/config/inbox.go`、`internal/config/model.go`、`internal/inbox/waiting.go`、`internal/httpapi/inbox_handler.go`、`web/src/utils/inbox.ts`、i18n 文案、相关测试。
-- 动作: 新事件进 webhook 和桌面默认集合、通知目录。webpush 加白名单和标题正文分支，`ThreadID` 留空、`Tag` 为 `child-wake:<wakeup_id>`，这样同时不走合并窗口和线程 Topic；`URL` 另设为父 job 页面。新增 action 类 inbox kind 及卡片：照 `job.failed` 的做法，在 `inbox.TerminalCards` 旁构建，经 `waitingFor` 合入；数据源是 `ListJobEventsByType("job.child_wake_failed", …)`，窗口 72 小时。收件箱 clear 隐藏，首页到期消失（首页一点就消失要新增持久 dismiss，不在范围内）。不改 `internal/today/cards.go`。`job.wakeup_failed` 的默认集合不变。
-- 验证: `go test ./internal/notify ./internal/webpush ./internal/inbox ./internal/config ./internal/httpapi`；`web` 下跑类型检查。
+- 文件: `internal/notify/match.go`、`internal/notify/catalog.go`、`internal/webpush/dispatch.go`、`internal/webpush/sender.go`（如需要）、`internal/config/inbox.go`、`internal/config/model.go`、`internal/inbox/waiting.go`、`internal/httpapi/inbox_handler.go`、`internal/today/today.go`（只放 kind 常量，`inbox` 依赖 `today`）、`internal/today/advice.go`、`web/src/utils/inbox.ts`、`web/src/utils/today.ts`、`web/src/api/today.ts`、i18n 文案、相关测试。
+- 动作: 新事件进 webhook 和桌面默认集合、通知目录。webpush 加白名单和标题正文分支，`ThreadID` 留空、`Tag` 为 `child-wake:<wakeup_id>`，这样同时不走合并窗口和线程 Topic；`URL` 另设为父 job 页面。新增 action 类 inbox kind 及卡片：照 `job.failed` 的做法，在 `inbox.TerminalCards` 旁构建，经 `waitingFor` 合入；数据源是 `ListJobEventsByType("job.child_wake_failed", …)`，窗口 72 小时。收件箱 clear 隐藏，首页到期消失（首页一点就消失要新增持久 dismiss，不在范围内）。不改 `internal/today/cards.go`。`CanAdvise` 对新 kind 返回 false（新卡不在 `Decisions` 队列，否则 steward 写建议会报错）。前端 `cardLink` 加新 kind，首页标题能跳到父 job。`job.wakeup_failed` 的默认集合不变。
+- 验证: `go test ./internal/notify ./internal/webpush ./internal/inbox ./internal/config ./internal/httpapi ./internal/today`；`web` 下跑类型检查。
 - 完成标准: 默认配置下三个渠道都会发；默认配置下收件箱 action 列出现卡片；同线程后续推送不替换告警；断言旧事件仍不在默认集合。
 - 依赖: T1、T3。
 
