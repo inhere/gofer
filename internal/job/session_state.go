@@ -70,11 +70,21 @@ func (s *Service) beginSessionTurn(entry *jobEntry) error {
 		return err
 	}
 	entry.mu.Unlock()
-	if err := s.meta.ExtendJobTokenExpiry(snap.ID, s.nowFn().Unix()+int64(snap.TimeoutSec)+int64(snap.IdleTimeoutSec)+int64(jobTokenFallbackGrace.Seconds())); err != nil {
-		slog.Warn("extend ACP session credential", "job_id", snap.ID, "err", err)
-	}
+	s.extendSessionCredential(snap)
 	s.recordEvent(snap.ID, EventJobTurnStarted, map[string]any{"turn_no": snap.TurnNo})
 	return nil
+}
+
+// extendSessionCredential keeps a resident job's credential usable for another turn
+// without rotating the secret its live agent process already holds. It is the HUB's
+// half: a local turn start reaches it directly, and a worker's turn is reported back to
+// applyRemoteSessionState, which calls it too — the worker renews what it holds, the
+// hub's row would otherwise expire on its own.
+func (s *Service) extendSessionCredential(snap JobResult) {
+	expires := s.nowFn().Unix() + int64(snap.TimeoutSec) + int64(snap.IdleTimeoutSec) + int64(jobTokenFallbackGrace.Seconds())
+	if err := s.meta.ExtendJobTokenExpiry(snap.ID, expires); err != nil {
+		slog.Warn("extend ACP session credential", "job_id", snap.ID, "err", err)
+	}
 }
 
 // endSessionTurn closes one prompt without making the job terminal.

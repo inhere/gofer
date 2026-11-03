@@ -166,6 +166,7 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 	if entry.sessionCommandPending && !entry.sessionEnding && state.TurnNo > entry.sessionCommandTurn {
 		entry.sessionCommandPending = false
 	}
+	newTurn := state.TurnNo > entry.result.TurnNo
 	if state.TurnNo > 0 {
 		entry.result.TurnNo = state.TurnNo
 	}
@@ -190,6 +191,13 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 	entry.mu.Unlock()
 	if err := s.persist(snap); err != nil {
 		slog.Warn("persist remote session state", "job_id", snap.ID, "err", err)
+	}
+	if newTurn {
+		// A resident session outlives its credential: the worker renews what IT holds, but
+		// the hub's row for the same token expires on its own, and a session woken after a
+		// long idle would come back 401 (design 2026-11-03 安全: hub 在 applyRemoteSessionState
+		// 看到新 turn 时续期). Same extension the local turn start makes.
+		s.extendSessionCredential(snap)
 	}
 	s.reconcileSessionEvents(snap.ID, snap.TurnNo, status, snap.IdleDeadlineAt, replayed)
 	if status == StatusAwaitingInput {

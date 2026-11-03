@@ -79,6 +79,13 @@ type wakeupSayBatch struct {
 	// turnNo is the session's turn number when the say was sent. Coming back to
 	// awaiting_input with a HIGHER number is the delivery proof.
 	turnNo int
+	// cmdID / text / sentAt are what a re-send needs (design 2026-11-03 送达确认:
+	// 超时重发只限 worker 父 job，用稳定 CmdID): a frame the worker never consumed is
+	// written out again with the SAME command id and the SAME text, and sentAt says
+	// when that last attempt was, so the tick does not repeat it every second.
+	cmdID  string
+	text   string
+	sentAt int64
 	items  []wakeupSayItem
 }
 
@@ -329,7 +336,8 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 	}
 
 	text := s.childReceiptText(parentID, items, instruction)
-	if err := s.saySessionCommand(parentID, text, nil, sessionCommandID(parentID)); err != nil {
+	cmdID := sessionCommandID(parentID)
+	if err := s.saySessionCommand(parentID, text, nil, cmdID); err != nil {
 		if errors.Is(err, ErrSessionEnding) {
 			s.endParentChildWakesLocked(parentID, childWakeReasonParentEnded)
 			return false
@@ -347,7 +355,7 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 
 	now := s.nowFn().Unix()
 	st.mu.Lock()
-	st.batch = &wakeupSayBatch{turnNo: turnNo, items: items}
+	st.batch = &wakeupSayBatch{turnNo: turnNo, cmdID: cmdID, text: text, sentAt: now, items: items}
 	st.pending = deferred
 	// A new batch starts a new confirmation window: only triggers that arrive AFTER it
 	// was spoken are protected from its confirmation.

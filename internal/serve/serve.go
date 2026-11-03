@@ -270,6 +270,12 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	} else if n > 0 {
 		c.Printf("gofer: reconciled %d orphan non-terminal job(s) left by a prior serve/worker\n", n)
 	}
+	// Child receipts left waiting by the previous process (design 2026-11-03 T9): the
+	// receipt state is process-local, so the rows are read back from the store and
+	// delivered (or reconciled) once here, before the schedule loop's first tick. It runs
+	// after the orphan reconcile, so a parent that reconcile just ended is already
+	// finished and its receipts are reported instead of being spoken to nobody.
+	cr.Jobs.SweepPendingSays(time.Now())
 
 	// Temporary `ref:` checkouts are removed when their job ends; a crash, a kill or a
 	// directory a process still held (Windows) can leave one behind (design 2026-10-21
@@ -1249,6 +1255,13 @@ func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 				func(f string, a ...any) { c.Printf(f, a...) },
 				func(f string, a ...any) { c.Errorf(f, a...) },
 			)
+			// Child receipts (design 2026-11-03 T9): deliver what the receipt path left
+			// waiting — the sentinels a previous process parked, the ones a rate window
+			// held back — re-send a worker frame nothing confirmed, and reconcile the
+			// automatic receipts whose child ended unobserved. The pass starts from the
+			// DATABASE: the in-process receipt state is empty after a restart, so the idle
+			// hooks alone would never see those rows.
+			cr.Jobs.SweepPendingSays(time.Now())
 		}
 
 		run()
