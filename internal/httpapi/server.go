@@ -1152,6 +1152,9 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 // clean way to keep /health open — plan §7).
 func (s *Server) buildRouter() *rux.Router {
 	r := rux.New()
+	// Slow-request observation runs OUTSIDE the error middleware so it still measures a
+	// request whose handler panicked (httpErrorMiddleware recovers the panic below it).
+	r.Use(s.httpSlowMiddleware)
 	r.Use(s.httpErrorMiddleware)
 	r.Use(s.requestLangMiddleware)
 
