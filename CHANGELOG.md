@@ -35,6 +35,7 @@
   - 新增两个只对 job 凭据提交生效的参数：`job run --no-parent-wake`（这个子 job 不登记回执）与 `job run --parent-wake-events a,b`（本子 job 只回执这些事件，`job.terminal` 始终包含）；HTTP 对应 `no_parent_wake` / `parent_wake_events`，其他调用方传了直接 `400`。
   - 回执还没送出（父 job 这一轮还没结束）时，`job wakeup list` / `job wakeup show`、HTTP 列表与单条读取的 `pending_delivery`、MCP `gofer_wakeup_list` 都把它显示为「待送」，不再把内部的 `await_input` 当 job id 打印。
   - 权限收紧：手动 event wakeup 挂在活着的常驻 job 上时，它的 `-m` 指令会被 say 进那个会话，所以除 `job.wake.others` + `job.submit` 外还要求对该 job 的 say 权限（`job.manage.others`）。定时类 wakeup 与已结束的常驻 job 不变。
+  - 回执内容：子 job 还没结束时只写状态（`running` / `pending_interaction`），不写退出码——运行中的 job 没有结果可读。人在限频窗口内把审批答了、子 job 又跑起来且当下不需要人时，那条待送回执直接作废（不发、不占父 job 一轮），子 job 结束时照常回执；手动 wakeup 不受影响。
   - 降级提醒：回退到本条目之前的版本前，先确认没有待送回执（`job wakeup list` 里没有「pending delivery」）；旧版本不会释放它们，还会把内部的 `await_input` 显示成 job id。
 
 ## [0.209.3] - 2026-11-03

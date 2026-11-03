@@ -1,6 +1,6 @@
 A child job you submitted has a result:
 {{range .Children}}
-- {{.JobID}}: {{.Status}} (exit code {{.ExitCode}}); read its output: gofer job logs {{.JobID}}{{if .NeedsInput}}. It needs your input, but you cannot answer for it — tell a person{{end}}
+- {{.JobID}}: {{.Status}}{{if .Finished}} (exit code {{.ExitCode}}){{end}}; read its output: gofer job logs {{.JobID}}{{if .NeedsInput}}. It needs your input, but you cannot answer for it — tell a person{{end}}
 {{end}}{{if .NeedsInput}}
 The items that need input are a person's to decide; you cannot answer or approve them.
 {{end}}{{if .Instruction}}

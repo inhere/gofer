@@ -1,6 +1,6 @@
 你派出的子 job 有了结果：
 {{range .Children}}
-- {{.JobID}}：{{.Status}}（退出码 {{.ExitCode}}）；查看输出：gofer job logs {{.JobID}}{{if .NeedsInput}}。它需要你的输入，但你不能代答，请转告人{{end}}
+- {{.JobID}}：{{.Status}}{{if .Finished}}（退出码 {{.ExitCode}}）{{end}}；查看输出：gofer job logs {{.JobID}}{{if .NeedsInput}}。它需要你的输入，但你不能代答，请转告人{{end}}
 {{end}}{{if .NeedsInput}}
 需要输入的条目由人决定；你无法代替人回答或批准。
 {{end}}{{if .Instruction}}

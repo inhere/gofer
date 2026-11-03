@@ -108,6 +108,8 @@ say 内容是固定模板：子 job id、状态、退出码、查看命令，前
 默认不开后两个：父 job 没有权限回答或批准，只能转告，而人能从现有通知收到（worker 子 job 的 interaction 目前收不到，本次一并修）。打开后：
 - 回执模板写明“你不能代答，请转告人”。
 - 工具审批可能连续发生，同一子 job 的“需要输入”类回执最多 1 分钟一条（常量）。限频内写待送哨兵，由 tick 补发，否则子 job 卡住后就再没有下一条；最后发送时间放内存，重启最多多发一条。`job.terminal` 不受限。
+- 限频窗口内人把审批答了、子 job 回到运行且当下不需要人：这条待送回执已经没有意义（父 job 被叫醒也只能看到一个还在跑的 job），哨兵直接清掉、不发 say、不计 `fired_count`、不停用行——子 job 自己的结束还欠父 job 一条回执。判据是子 job 的现状而不是触发事件。手动 wakeup 不走这条：它可能订阅 `job.stalled` 之类不关于输入的事件。
+- 子 job 还没结束时，回执行只写状态、不写退出码（运行中的 job 那个默认的 0 会读成“结果”）。
 
 **空闲与资源：** 父 job 等子 job 期间不特殊处理。第一期父 job 必须活到子 job 结束，所以监督类 job 要显式设够长的 `--idle-timeout`（默认只有 1800 秒），提示词和文档都写明。父 job 先结束时回执送不到，但不会静默：记 `job.child_wake_failed`，走通知告诉人。告警用新事件 `job.child_wake_failed`，只由 `auto_child` 路径记录，进 webhook、桌面默认集合、webpush 和通知目录。不把旧事件 `job.wakeup_failed` 加进默认：重复定时的 wakeup 挂在未结束的 job 上时每分钟失败一次，今天只写时间线，进默认就成了通知风暴。webpush 只加白名单不够：要补标题和正文分支与 i18n；绕过 30 秒合并窗口（既不检查也不占用），否则告警紧跟父 job 结束的推送，会被丢掉；用独立 Tag（`child-wake:<id>`）且不设线程 Topic，否则同线程的下一条推送会把它替换。桌面默认事件必须映射到 action 类收件箱 kind（`internal/inbox/rules_test.go` 约束），现有 kind 语义不符，所以新增一个 kind 及其卡片。通知目录、默认集合的测试同步改，并写进发版说明和 CHANGELOG。
 
@@ -176,7 +178,7 @@ sequenceDiagram
 ## 安全、数据、运维与回滚
 
 - 权限：不放宽。只有已获 can_submit 的常驻 job 才会触发自动登记；子 job 仍受同项目与 `submit_agents` 约束。放开 can_submit 是用户配置（用户已自行给 claude-acp 打开）。手动 event wakeup 走 say 时，要求调用方有向该 job say 的权限，实现时核实 `job.wake.others` 不能借此绕过 `job.manage.others`。
-- 内容：say 只含 id、状态、退出码，不含标题和输出，不把子 job 的文本注入父 job。
+- 内容：say 只含 id、状态、退出码（子 job 未结束时只有状态），不含标题和输出，不把子 job 的文本注入父 job。
 - 循环：一个子 job 的回执不会再触发同一条 wakeup。父 job 被叫醒后再派子 job 是正常工作，由 token 用量和 TTL 兜底，本次不加轮数上限。
 - 数据：一个 additive 列（`auto_child`）。
 - 日志：依赖 gofer-j8oh 的事件；本次补 `wakeup.say_pending`、`wakeup.say_sent`。
@@ -223,4 +225,5 @@ sequenceDiagram
   - 待送的对外表示：`continuation_job_id` 置空 + 新字段 `pending_delivery`（CLI 另显示“pending delivery”），不是把 `await_input` 透出去。
   - 提示词注入的判据：`Submit` 用 `SubmitGrantFor(agent, role)`（与 job 凭据提交同一个判定函数）决定是否注入，且只对有非空 prompt 的常驻 job 注入。
 - 第一期未做（同设计）：父 job 结束后的自动续接、R2 / R3 / R4。
+- W4 真实验收（2026-11-04）发现并修的第一处回执行为：人在限频窗口内答了审批、子 job 回到 `running` 时，这条待送回执不再算“需要输入”，于是当作普通回执发了出去（`running（退出码 0）`），白叫父 job 一轮且读着像结果。现在自动回执在“子 job 未结束且当下不需要人”时清哨兵、不发、不计、不停用（`jobstore.DropPendingSay`，日志 `wakeup.say_dropped reason=no_longer_needs_input`），手动行不受影响；同时回执模板对未结束的子 job 只写状态、不写退出码。
 

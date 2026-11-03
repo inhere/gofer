@@ -223,12 +223,14 @@ type (
 		Instruction string
 	}
 	// ChildReceiptLine is one child of a receipt: identity, state, exit code and whether
-	// the parent can only relay it to a person.
+	// the parent can only relay it to a person. Finished says whether the child has ENDED:
+	// a running child has no exit code yet, so the line prints only its state.
 	ChildReceiptLine struct {
 		JobID      string
 		Status     string
 		ExitCode   int
 		NeedsInput bool
+		Finished   bool
 	}
 )
 
