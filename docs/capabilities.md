@@ -185,7 +185,7 @@
 | 配置热重载 | 见「执行机与网络」配置重载；server 也可 `SIGHUP` | CLI `serve reload`、`worker reload` | 稳定 | operations.md |
 | 受管 server 服务 | Windows 登录任务 / Linux systemd 注册、启停、状态、日志、升级二进制 | CLI `serve register\|start\|stop\|restart\|status\|logs\|uninstall\|upgrade`；Web 设置「重启 server」 | 稳定 | [runbook/2026-10-08-serve-management-runbook.md](runbook/2026-10-08-serve-management-runbook.md) |
 | 一键更新 | 检查并应用更新，等待空闲后升级 | CLI `serve upgrade`、`worker upgrade`（更新检查与应用的具体命令以设计稿为准） | 未标注 | [design/2026-10-13-update-apply-design.md](design/2026-10-13-update-apply-design.md)、[design/2026-10-14-update-wait-idle-design.md](design/2026-10-14-update-wait-idle-design.md) |
-| 日志 | server 日志 `<config-dir>/run/serve.log`；hook 日志 `run/hook.log`；job 的 stdout / stderr 分流 | CLI `serve logs`、`job logs` | 稳定 | troubleshooting.md；job-advanced.md「日志」 |
+| 日志 | server 日志 `<config-dir>/run/serve.log`（可按 job / 信件 / 会话 id 查经过）；CLI 请求失败日志 `run/client.log`；hook 日志 `run/hook.log`；job 的 stdout / stderr 分流 | CLI `serve logs`、`job logs` | 稳定 | troubleshooting.md；job-advanced.md「日志」 |
 | 直接调 API | 用同一套地址与 token 调任意 `/v1` 路由 | CLI `tool api` | 稳定 | commands.md「tool」 |
 | 指标与统计 | `/metrics`、`/v1/stats`、Dashboard | HTTP `/metrics`、`/v1/stats` | 稳定 | [guide/stability.md](guide/stability.md) |
 | 证书 | 本地 CA 与 HTTPS 证书（手机 PWA 需要 HTTPS） | CLI `tool cert` | 未标注 | [runbook/https-pwa.md](runbook/https-pwa.md) |

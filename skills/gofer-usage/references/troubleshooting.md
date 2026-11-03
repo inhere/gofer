@@ -56,7 +56,14 @@
 - 后台运行（`-d`）另有 `.out.log`（如 `run/worker-<id>.out.log`），只承接 panic 和非结构化输出；worker 远程升级后新进程继续追加它。排障时与结构化 `.log` 分开看。
 - 受管服务：`gofer serve logs [--lines N] [--follow]`（Linux `--journal` 读 systemd 日志）。
 - hook：`<config-dir>/run/hook.log`（中继、记忆注入命中都记在这里）。
-- worker 日志按 `event` 字段筛：`worker.registered` / `worker.reconnecting` / `worker.policy_applied` / `worker.job_started|finished|rejected` / `worker.job_recovering|resumed` / `tunnel.*`。
+- CLI：`<config-dir>/run/client.log`（JSONL）。只记请求失败（网络错误、超时、5xx、401/403），字段有路径、状态、耗时、错误摘要，不含 token、请求体和 query；`GOFER_LOG_LEVEL=debug` 时成功请求也记。job 里的 CLI 读不到 `GOFER_CONFIG_DIR`，日志在该机器用户目录的 `~/.config/gofer/run/client.log`，要两处都看。
+- server 日志按 id 查经过（`msg` 即事件名）：
+  - 信件：按 `mail_id` 查 `mail.sent` / `mail.delivered` / `mail.claim_released` / `mail.held` / `mail.bounced` / `mail.expired`。信迟迟没到，按 `session` 查 `mail.wake_waiting`，`reason` 是等待原因，`earliest_wake_at` 是预计最早唤醒时间（被心跳推后时会再记一条）。
+  - 会话：按 `session` 查 `session.state_changed`、`session.deliver`（投递路径与失败原因）。
+  - job：按 `job_id` 查 `job.submitted` / `job.terminal` / `job.say` / `job.turn_ended` / `job.awaiting_input` / `wakeup.*`。`duration_ms` 精度到秒。
+  - 慢请求：`server.http_slow`（超过 2 秒；流式、长轮询和同步提交不计）。
+- 日志里不记信件正文、prompt 和回复内容；内容看信箱或 job 记录。tunnel 的建连过程事件是 DEBUG，平时只有 `tunnel.opened` / `tunnel.closed`，查建连问题时设 `GOFER_LOG_LEVEL=debug`。
+- worker 日志按 `event` 字段筛：`worker.registered` / `worker.reconnecting` / `worker.policy_applied` / `worker.job_started|finished|rejected` / `worker.job_recovering|resumed` / `tunnel.*`。`worker.registered` 带 `attempts`、`downtime_ms`，`worker.disconnected` 带 `reason`、`close_code`。
 - Windows 上 `-d` 后台进程启动的子进程不会弹出 cmd 窗口。
 
 ## 隧道慢 / 不通
