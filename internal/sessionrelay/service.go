@@ -236,6 +236,10 @@ type Service struct {
 	// (config.LanguageFor, design 2026-10-27-i18n-design.md §3). nil = the
 	// DEPRECATED default, which is what a bare test service reads.
 	languageFor func(project string) i18n.Lang
+	// stateMu / stateSeen are the state memory behind session.state_changed
+	// (log_events.go): the last state this process observed per session.
+	stateMu   sync.Mutex
+	stateSeen map[string]stateStamp
 }
 
 // SetLanguageFor injects the config's language resolution (config.LanguageFor):
@@ -538,6 +542,7 @@ func (s *Service) register(in RegisterInput, enforceOwner bool) (jobstore.AgentS
 	if err == nil && s.workHook != nil && in.Event == EventUserPromptSubmit && strings.TrimSpace(in.Title) != "" {
 		s.workHook.OnHumanPrompt(a, in.Title)
 	}
+	s.noteStateChange(a, in.Event)
 	return a, true, nil
 }
 
@@ -759,6 +764,7 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 			s.notifier.NotifySessionAttention(sid, a.ProjectKey, a.Title, in.LastMessage)
 		}
 	}
+	s.noteStateChange(a, in.Event)
 	return a, nil
 }
 
@@ -1365,6 +1371,7 @@ func (s *Service) CompleteMailTurn(sid, turnID string, opts jobstore.TakeMailOpt
 		if rerr := s.store.ReleaseSessionMail(sid, ids); rerr != nil && err == nil {
 			err = rerr
 		}
+		s.logMailClaimsReleased(sid, ids, "turn already answered")
 		return false, nil, err
 	}
 	confirmed, err := s.store.ConfirmSessionMail(sid, ids)

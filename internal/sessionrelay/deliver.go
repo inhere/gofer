@@ -545,6 +545,16 @@ func (s *Service) DeliverWithImages(ctx context.Context, sid, text, by, origin s
 }
 
 func (s *Service) deliver(ctx context.Context, sid, text, by, origin string, allowTakeover bool, imagePaths []string) (DeliverResult, error) {
+	var skipped []string
+	res, err := s.deliverLadder(ctx, sid, text, by, origin, allowTakeover, imagePaths, &skipped)
+	s.logDeliver(sid, by, res, err, skipped)
+	return res, err
+}
+
+// deliverLadder is the ladder itself (design §9.1 选路); deliver wraps it with the one
+// session.deliver line per attempt. skipped collects the transports that were tried and then
+// abandoned, so the log says WHY a later path carried the text.
+func (s *Service) deliverLadder(ctx context.Context, sid, text, by, origin string, allowTakeover bool, imagePaths []string, skipped *[]string) (DeliverResult, error) {
 	if strings.TrimSpace(text) == "" {
 		return DeliverResult{}, fmt.Errorf("%w: empty text", ErrInvalidInput)
 	}
@@ -596,6 +606,7 @@ func (s *Service) deliver(ctx context.Context, sid, text, by, origin string, all
 			return res, nil
 		case DeliverReason(err) == ReasonNotRunning:
 			notRunning = true
+			*skipped = append(*skipped, PathCommand+":"+ReasonNotRunning)
 		default:
 			return DeliverResult{}, err
 		}
@@ -616,6 +627,7 @@ func (s *Service) deliver(ctx context.Context, sid, text, by, origin string, all
 	if err == nil {
 		return res, nil
 	}
+	*skipped = append(*skipped, PathTmux+":"+DeliverReason(err))
 	// Path B is the fallback for the failures A cannot fix: the session has no
 	// usable tmux pane, or the INJECTION ITSELF could not run (the runner refused
 	// the job / the script died before it could look at a pane). Anything else (an
@@ -958,6 +970,7 @@ func (s *Service) DeliverHeld(ctx context.Context, sid, by, origin string) (Deli
 	}
 	if err != nil {
 		_ = s.store.ReleaseSessionMail(sid, ids)
+		s.logMailClaimsReleased(sid, ids, PathTmux+":"+DeliverReason(err))
 		return DeliverResult{}, err
 	}
 	if _, err := s.store.ConfirmSessionMail(sid, ids); err != nil {
