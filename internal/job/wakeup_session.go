@@ -283,6 +283,19 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 				"job_id", parentID, "child_job_id", child.ID, "reason", "rate_limited")
 			continue
 		}
+		if w.AutoChild == 1 && !needsInput && !IsFinished(child.Status) {
+			// The trigger was a "needs a person" one (a tool approval, a question) and a person
+			// answered it inside the rate window: the child is running again and nothing it does
+			// needs a human right now, so this receipt carries nothing the parent can act on.
+			// Saying it would cost the parent a whole turn and — as the real run showed — read
+			// like a result ("running (exit code 0)"), which is worse than silence.
+			//
+			// The sentinel goes, the row stays ARMED and uncounted: the child's own end still
+			// owes the parent a receipt. A MANUAL row is never dropped this way — it may subscribe
+			// to events that are not about input (job.stalled) and must be delivered as asked.
+			s.dropMeaninglessReceipt(st, w, child.ID)
+			continue
+		}
 		if s.hasPendingRetry(child.ID) {
 			// A durable retry is on its way: this outcome is not the child's last word, so the
 			// parent is not woken for it and the row stays armed. retargetChildWakes moves the
@@ -376,6 +389,27 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 	slog.Info("wakeup.say_sent", "event", "wakeup.say_sent", "job_id", parentID,
 		"count", len(items), "turn_no", turnNo, "reason", reason)
 	return delivered
+}
+
+// dropMeaninglessReceipt retires the SENTINEL of an automatic receipt that has nothing
+// left to say (see flushPendingSaysLocked). It does not count a fire, move last_fired_at
+// or disable the row: the child is still running, and its end has to reach the parent.
+// Callers hold the parent's receipt lock.
+func (s *Service) dropMeaninglessReceipt(st *wakeupSayState, w jobstore.WakeupRecord, childJobID string) {
+	dropped, err := s.meta.DropPendingSay(w.ID)
+	if err != nil {
+		slog.Warn("wakeup say: drop receipt", "wakeup_id", w.ID, "job_id", w.JobID, "err", err)
+		return
+	}
+	if dropped {
+		// A retrigger marker belongs to the sentinel just cleared: the current batch (if any)
+		// would otherwise treat the row as still armed and keep the parent "pending" forever.
+		st.mu.Lock()
+		delete(st.retriggered, w.ID)
+		st.mu.Unlock()
+	}
+	slog.Info("wakeup.say_dropped", "event", "wakeup.say_dropped", "wakeup_id", w.ID,
+		"job_id", w.JobID, "child_job_id", childJobID, "reason", "no_longer_needs_input")
 }
 
 // settlePendingWithoutSessionLocked handles the pending receipts of a parent whose
@@ -525,6 +559,9 @@ func (s *Service) childReceiptText(parentJobID string, items []wakeupSayItem, in
 		}
 		lines = append(lines, prompts.ChildReceiptLine{
 			JobID: it.childJobID, Status: it.status, ExitCode: it.exitCode, NeedsInput: it.needsInput,
+			// A child that has not ended has no exit code yet: printing the default 0 would read
+			// as a result the parent can act on.
+			Finished: IsFinished(it.status),
 		})
 	}
 	body := prompts.MustRender(lang, prompts.NameChildReceipt, prompts.ChildReceiptData{

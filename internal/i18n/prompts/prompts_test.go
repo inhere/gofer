@@ -40,8 +40,10 @@ var goldenData = map[string]any{
 	NameResidentDispatch:       struct{}{},
 	NameChildReceipt: ChildReceiptData{
 		Children: []ChildReceiptLine{
-			{JobID: "job-child-a", Status: "done", ExitCode: 0},
-			{JobID: "job-child-b", Status: "failed", ExitCode: 1, NeedsInput: true},
+			// One ended child (it has an exit code) and one still running on an approval
+			// (it does not): both shapes of line are pinned here.
+			{JobID: "job-child-a", Status: "done", ExitCode: 0, Finished: true},
+			{JobID: "job-child-b", Status: "pending_interaction", NeedsInput: true},
 		},
 		NeedsInput:  true,
 		Instruction: "then merge the results",

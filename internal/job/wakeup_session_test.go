@@ -531,6 +531,30 @@ func seedPendingInteraction(t *testing.T, s *Service, id, childID string) {
 	}
 }
 
+// answerInteraction marks a seeded interaction as answered by a person, so the child no
+// longer needs input (the job itself runs on).
+func answerInteraction(t *testing.T, s *Service, childID, interactionID string) {
+	t.Helper()
+	now := s.nowFn().Unix()
+	if err := s.meta.UpsertInteraction(jobstore.InteractionRecord{
+		ID: interactionID, JobID: childID, Type: InteractionTypePermission, Prompt: "allow?",
+		Status: InteractionAnswered, Answer: "allow-once", CreatedAt: now, AnsweredAt: now,
+		AnsweredBy: "human",
+	}); err != nil {
+		t.Fatalf("answer interaction %s: %v", interactionID, err)
+	}
+}
+
+// setChildStatus rewrites the stored state of a child job (what the child does between two
+// receipts).
+func setChildStatus(t *testing.T, s *Service, child JobResult, status string) {
+	t.Helper()
+	child.Status = status
+	if err := s.persist(child); err != nil {
+		t.Fatalf("persist child %s as %s: %v", child.ID, status, err)
+	}
+}
+
 // TestWakeupSessionRateLimitKeepsSentinel: a second "needs a person" receipt for the same
 // child inside the one-minute window is NOT spoken, and — the point of the test — it stays
 // durable as the pending sentinel. Without the sentinel the receipt would be lost for
@@ -692,4 +716,175 @@ func TestWakeupSessionTriggerDuringSendSurvivesConfirm(t *testing.T) {
 	got := childWakeRow(t, s, w.ID)
 	assert.Eq(t, jobstore.WakeupPendingSay, got.ContinuationJobID,
 		"the confirmation cleared the receipt that arrived during the send")
+}
+
+// TestWakeupSessionDropsReceiptAnsweredInsideTheWindow: a person answered the approval, the
+// child runs on and needs nobody — so the receipt parked by the rate window says nothing
+// the parent can act on. It is DROPPED (sentinel cleared, no say, no fire, row still armed)
+// instead of being delivered by the tick, and the child's own end is still receipted.
+func TestWakeupSessionDropsReceiptAnsweredInsideTheWindow(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	clk := &fakeClock{unix: 1_800_000_000}
+	s.nowFn = clk.now
+	child := addChildJob(t, s, "child-answered", StatusPendingInteraction, 0, "")
+	seedPendingInteraction(t, s, "int-ans-1", "child-answered")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-answered", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventInteractionCreated}),
+	})
+
+	// The first approval wakes the parent; the parent works it through.
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	assert.Eq(t, 1, len(sayTexts(sender)))
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 2,
+	}, false)
+	assert.Eq(t, int64(1), childWakeRow(t, s, w.ID).FiredCount)
+
+	// The same child raises a second approval inside the window: held back, still pending.
+	seedPendingInteraction(t, s, "int-ans-2", "child-answered")
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	assert.Eq(t, 1, len(sayTexts(sender)), "a second approval inside the window woke the parent")
+	assert.Eq(t, jobstore.WakeupPendingSay, childWakeRow(t, s, w.ID).ContinuationJobID)
+
+	// A person answers both approvals: the child is running again and needs nobody now.
+	answerInteraction(t, s, "child-answered", "int-ans-1")
+	answerInteraction(t, s, "child-answered", "int-ans-2")
+	setChildStatus(t, s, child, StatusRunning)
+
+	// The tick finds nothing left to say: no say, sentinel gone, no fire, row still armed.
+	clk.advance(5)
+	s.SweepPendingSays(clk.now())
+	says := sayTexts(sender)
+	assert.Eq(t, 1, len(says), "the tick woke the parent for a receipt nobody needs: %v", says)
+	got := childWakeRow(t, s, w.ID)
+	assert.Eq(t, "", got.ContinuationJobID, "the meaningless receipt kept its sentinel")
+	assert.Eq(t, int64(1), got.FiredCount, "dropping a receipt counted a fire")
+	assert.Eq(t, 1, got.Enabled, "dropping a receipt retired the row")
+	assert.False(t, s.hasWakeupSayWork(parent.result.ID),
+		"the parent is still marked as having a receipt waiting")
+
+	// The child ends later: its terminal receipt goes out as usual.
+	setChildStatus(t, s, child, StatusDone)
+	s.deliverChildReceipt(childWakeRow(t, s, w.ID), EventJobTerminal)
+	texts := sayTexts(sender)
+	assert.Eq(t, 2, len(texts), "the terminal receipt of the same child was lost: %v", texts)
+	assert.True(t, strings.Contains(texts[1], StatusDone), "say = %q, want the child's end", texts[1])
+	assert.True(t, strings.Contains(texts[1], "0"), "say = %q, want the exit code of an ended child", texts[1])
+}
+
+// TestWakeupSessionRateLimitedApprovalSweptAfterTheWindow: nobody answers the approval, so
+// the receipt held back by the rate window is still owed to the parent — the tick delivers
+// it once the window is over, and the line says the child needs a person (and nothing about
+// an exit code it does not have).
+func TestWakeupSessionRateLimitedApprovalSweptAfterTheWindow(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	clk := &fakeClock{unix: 1_800_000_000}
+	s.nowFn = clk.now
+	addChildJob(t, s, "child-unanswered", StatusPendingInteraction, 0, "")
+	seedPendingInteraction(t, s, "int-un-1", "child-unanswered")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-unanswered", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventInteractionCreated}),
+	})
+
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	assert.Eq(t, 1, len(sayTexts(sender)))
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 2,
+	}, false)
+
+	// The second approval arrives inside the window and is held back.
+	seedPendingInteraction(t, s, "int-un-2", "child-unanswered")
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	assert.Eq(t, 1, len(sayTexts(sender)), "a receipt inside the window woke the parent")
+	assert.Eq(t, jobstore.WakeupPendingSay, childWakeRow(t, s, w.ID).ContinuationJobID,
+		"the rate-limited receipt is not pending delivery")
+
+	// Still inside the window: the tick respects it.
+	clk.advance(30)
+	s.SweepPendingSays(clk.now())
+	assert.Eq(t, 1, len(sayTexts(sender)), "the tick ignored the rate window")
+
+	// The window is over and the child still waits for a person: the receipt goes out.
+	clk.advance(childWakeNeedsInputEverySec)
+	s.SweepPendingSays(clk.now())
+	texts := sayTexts(sender)
+	assert.Eq(t, 2, len(texts), "the held receipt was never delivered: %v", texts)
+	say := texts[1]
+	assert.True(t, strings.Contains(say, "child-unanswered"), "say = %q", say)
+	assert.True(t, strings.Contains(say, StatusPendingInteraction), "say = %q, want the child's state", say)
+	// The child has not ended: no exit code, and the parent is told it cannot answer.
+	assert.False(t, strings.Contains(say, "退出码"), "say = %q, want no exit code before the child ends", say)
+	assert.False(t, strings.Contains(say, "exit code"), "say = %q, want no exit code before the child ends", say)
+	relay := "请转告人"
+	if s.notifyLang("self") == i18n.EN {
+		relay = "tell a person"
+	}
+	assert.True(t, strings.Contains(say, relay), "say = %q, want the relay line", say)
+}
+
+// TestWakeupSessionManualReceiptDeliveredWhileChildRuns: the drop rule is for AUTOMATIC
+// receipts only. A manual wakeup may subscribe to something that is not about input
+// (job.stalled) and must be delivered even though its child is still running.
+func TestWakeupSessionManualReceiptDeliveredWhileChildRuns(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	addChildJob(t, s, "child-stalled", StatusRunning, 0, "")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-stalled",
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobStalled}),
+		Instruction:    "check whether it is stuck",
+	})
+
+	s.deliverChildReceipt(w, EventJobStalled)
+
+	texts := sayTexts(sender)
+	assert.Eq(t, 1, len(texts), "a manual receipt was dropped because its child is still running")
+	for _, want := range []string{"child-stalled", StatusRunning, "check whether it is stuck"} {
+		assert.True(t, strings.Contains(texts[0], want), "say = %q, want %q", texts[0], want)
+	}
+	assert.False(t, strings.Contains(texts[0], "退出码"),
+		"say = %q, want no exit code before the child ends", texts[0])
+	if row := childWakeRow(t, s, w.ID); row.ContinuationJobID != jobstore.WakeupPendingSay {
+		t.Fatalf("continuation = %q, want the delivered receipt parked for confirmation", row.ContinuationJobID)
+	}
+}
+
+// TestWakeupSessionOmitsExitCodeOfARunningChild: a receipt line of a child that has not
+// ended carries its state only — the default exit code 0 of a running job reads as a result
+// the parent can act on (the real run said "running (exit code 0)"). Once the child ends,
+// the exit code is part of the line again.
+func TestWakeupSessionOmitsExitCodeOfARunningChild(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	child := addChildJob(t, s, "child-ask-code", StatusPendingInteraction, 0, "")
+	seedPendingInteraction(t, s, "int-code-1", "child-ask-code")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-ask-code", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventInteractionCreated}),
+	})
+
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	texts := sayTexts(sender)
+	assert.Eq(t, 1, len(texts))
+	line := texts[0]
+	assert.True(t, strings.Contains(line, StatusPendingInteraction), "say = %q, want the child's state", line)
+	assert.False(t, strings.Contains(line, "退出码") || strings.Contains(line, "exit code"),
+		"say = %q, want no exit code while the child runs", line)
+
+	// The child answers, runs to its end: the same row now reports its outcome.
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 2,
+	}, false)
+	answerInteraction(t, s, "child-ask-code", "int-code-1")
+	setChildStatus(t, s, child, StatusDone)
+	s.deliverChildReceipt(childWakeRow(t, s, w.ID), EventJobTerminal)
+	texts = sayTexts(sender)
+	assert.Eq(t, 2, len(texts), "the terminal receipt was not delivered: %v", texts)
+	assert.True(t, strings.Contains(texts[1], StatusDone) &&
+		(strings.Contains(texts[1], "退出码") || strings.Contains(texts[1], "exit code")),
+		"say = %q, want the state and the exit code of an ended child", texts[1])
 }

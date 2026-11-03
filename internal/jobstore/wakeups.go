@@ -322,6 +322,30 @@ func (s *Store) CompleteWakeupSay(id string, disable bool) error {
 	return nil
 }
 
+// DropPendingSay clears the pending-say sentinel of a receipt that has nothing left to
+// say, WITHOUT counting a fire, moving last_fired_at or disabling the row: the receipt
+// turned out to be meaningless (an automatic receipt whose child is still running and no
+// longer needs a person), while the child's own end may still owe the parent a receipt,
+// so the row has to stay armed. It is the counterpart of CompleteWakeupSay for a receipt
+// abandoned instead of delivered; the CAS on the sentinel keeps a newer trigger (or a
+// confirmation) from being overwritten, and the bool reports whether this call cleared it.
+func (s *Store) DropPendingSay(id string) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(
+		`UPDATE job_wakeups SET continuation_job_id = '' WHERE id = ? AND continuation_job_id = ?`,
+		id, WakeupPendingSay,
+	)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: drop wakeup %q pending say: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("jobstore: drop wakeup %q pending say rows: %w", id, err)
+	}
+	return n == 1, nil
+}
+
 // ListPendingSay returns the ENABLED wakeups whose receipt is waiting for its
 // target to become idle again (the sweep and the awaiting_input hooks read it).
 func (s *Store) ListPendingSay() ([]WakeupRecord, error) {
