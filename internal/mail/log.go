@@ -2,6 +2,7 @@ package mail
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
@@ -65,7 +66,7 @@ func logDelivered(m jobstore.Mail, path string, now time.Time, extra ...any) {
 // logClaimReleased reports a letter handed back to pending: it waits for the next path, and
 // the reason says whether the recipient was unreachable or the path failed.
 func logClaimReleased(id int64, reason string) {
-	slog.Info(EventClaimReleased, "mail_id", id, "reason", reason)
+	slog.Info(EventClaimReleased, "mail_id", id, "reason", logReason(reason))
 }
 
 // logHeld reports a letter parked in the capture box, with the reason.
@@ -73,6 +74,18 @@ func logHeld(m jobstore.Mail, reason string) {
 	slog.Info(EventHeld,
 		"mail_id", m.ID, "reason", reason, "from_kind", m.FromKind, "from_id", m.FromID,
 		"to_kind", m.ToKind, "to_id", m.ToID, "to_address", m.ToAddress)
+}
+
+// maxLogReasonRunes bounds a delivery failure written to the log: a deliver_command's failure
+// carries the subprocess' stderr, which can be a multi-line blob of arbitrary length. The value
+// STORED on the letter (last_error) keeps the full text; only the log line is compressed.
+const maxLogReasonRunes = 300
+
+// logReason makes a failure reason safe for one log line: every run of whitespace (newlines,
+// tabs included) becomes a single space, and the result is cut to maxLogReasonRunes on a rune
+// boundary with an ellipsis (SR1301: a reason may quote a command's stderr, never a body).
+func logReason(reason string) string {
+	return Summarize(strings.Join(strings.Fields(reason), " "), maxLogReasonRunes)
 }
 
 // mailLatencySec is how long a letter waited between being stored and being delivered.
