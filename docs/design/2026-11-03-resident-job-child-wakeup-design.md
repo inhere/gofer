@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 常驻 ACP job 的子 job 回执设计
 
-> 状态：Draft 0.6 / 待人工计划批准（“超时后 resume 拆第二期”经用户 2026-11-03 确认，原话“R1 拆第二期”；0.5、0.6 依复核修订，未改方向；批准设计不等于授权实施）
+> 状态：Draft 0.7 / 待人工计划批准（“超时后 resume 拆第二期”经用户 2026-11-03 确认，原话“R1 拆第二期”；0.5–0.7 依复核修订，未改方向；批准设计不等于授权实施）
 > issue：gofer-rt3z
 
 ## 修订记录
@@ -14,6 +14,7 @@
 | 0.4 | 2026-11-03 | Claude（gofer 监督会话） | 按 closure 复核修订（5 阻塞、11 重要）：超时后 resume 拆到第二期；第一期父 job 结束即告警；补重试回执顺序、更新暂停登记点、批次确认、限频哨兵 |
 | 0.5 | 2026-11-03 | Claude（gofer 监督会话） | 按窄范围复核修订（7 阻塞、4 纠正）：`job.wakeup_failed` 进默认通知；tick 对账已结束子 job；确认时比对子 job 状态；parked `--sync` 也登记；父 job needs_review 按结束处理；重试 CAS 后补查、只在取消时补发；本机不重发 |
 | 0.6 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（5 阻塞、1 纠正）：告警改用新事件 `job.child_wake_failed`，webpush 补分支并绕过合并窗口；tick 对账加宽限期，只看 terminal；送达确认要求回到 awaiting_input |
+| 0.7 | 2026-11-03 | Claude（gofer 监督会话） | 按确认轮修订（2 阻塞、1 纠正）：webpush 告警用独立 Tag、不设线程 Topic；每个父 job 一把回执锁，worker say 发送前先占 pending；补收件箱 kind 和发版说明要求 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -108,7 +109,7 @@ say 内容是固定模板：子 job id、状态、退出码、查看命令，前
 - 回执模板写明“你不能代答，请转告人”。
 - 工具审批可能连续发生，同一子 job 的“需要输入”类回执最多 1 分钟一条（常量）。限频内写待送哨兵，由 tick 补发，否则子 job 卡住后就再没有下一条；最后发送时间放内存，重启最多多发一条。`job.terminal` 不受限。
 
-**空闲与资源：** 父 job 等子 job 期间不特殊处理。第一期父 job 必须活到子 job 结束，所以监督类 job 要显式设够长的 `--idle-timeout`（默认只有 1800 秒），提示词和文档都写明。父 job 先结束时回执送不到，但不会静默：记 `job.child_wake_failed`，走通知告诉人。告警用新事件 `job.child_wake_failed`，只由 `auto_child` 路径记录，进 webhook、桌面默认集合、webpush 和通知目录。不把旧事件 `job.wakeup_failed` 加进默认：重复定时的 wakeup 挂在未结束的 job 上时每分钟失败一次，今天只写时间线，进默认就成了通知风暴。webpush 只加白名单不够：要补标题和正文分支与 i18n，并绕过 30 秒合并窗口，否则告警紧跟父 job 结束的推送，会被丢掉。
+**空闲与资源：** 父 job 等子 job 期间不特殊处理。第一期父 job 必须活到子 job 结束，所以监督类 job 要显式设够长的 `--idle-timeout`（默认只有 1800 秒），提示词和文档都写明。父 job 先结束时回执送不到，但不会静默：记 `job.child_wake_failed`，走通知告诉人。告警用新事件 `job.child_wake_failed`，只由 `auto_child` 路径记录，进 webhook、桌面默认集合、webpush 和通知目录。不把旧事件 `job.wakeup_failed` 加进默认：重复定时的 wakeup 挂在未结束的 job 上时每分钟失败一次，今天只写时间线，进默认就成了通知风暴。webpush 只加白名单不够：要补标题和正文分支与 i18n；绕过 30 秒合并窗口（既不检查也不占用），否则告警紧跟父 job 结束的推送，会被丢掉；用独立 Tag（`child-wake:<id>`）且不设线程 Topic，否则同线程的下一条推送会把它替换。桌面默认事件必须映射到 action 类收件箱 kind（`internal/inbox/rules_test.go` 约束），现有 kind 语义不符，所以新增一个 kind 及其卡片。通知目录、默认集合的测试同步改，并写进发版说明和 CHANGELOG。
 
 资源：父 job 在等待期间占进程和项目槽位。提示词建议父 job 用 `--shared-dir`、可写子 job 用 `--worktree`。子 job 排在父 job 的目录锁后面时不会死锁：排队最多 1 小时（`dir_lock_max_wait_sec`）后失败，父 job 会收到失败回执。项目、caller、agent 并发槽位的等待没有时限：上限为 1 时，子 job 要排到父 job 退出，长 `--idle-timeout` 下可达一天且没有回执。提示词和文档要写明槽位留余量。
 
@@ -163,6 +164,7 @@ sequenceDiagram
 异常：
 - say 报 `already queued`（人刚好也说了话）：保持待送，下次 awaiting_input 再发。
 - worker 离线、升级排空中：保持待送，由新增的待送扫描重试。
+- 每个父 job 一把回执锁，覆盖“读待送、合并、发送、记批次”，tick 和事件路径共用。worker 分支的 say 今天先解锁发送、发送后才置 pending，两路可同时通过，第二帧被 worker 拒收时 hub 不知道，那条回执会被下一轮的确认清掉且没有告警；改为发送前在 `entry.mu` 内占 pending，发送失败回滚（人手动 say 的路径也受益）。
 - 写入待送后再读一次父 job 状态，已是 awaiting_input 就立刻投递，避免“检查后再写”的竞态；扫描兜底。
 - 发送放后台（含目标已终态的分支），不阻塞子 job 的 finish，也不阻塞 hub 读循环。终态和待验收类事件等 `entry.done` 后再读状态（事件先于状态翻转）；entry 要在 observer 内同步取到再进后台，否则已驱逐时取不到，会查不到重试而误发、误停用；`interaction.created`、`job.awaiting_approval` 不翻状态，不等。
 - 送达确认：say 成功只代表写出去了（worker 是帧，本机是写进缓冲 channel，空闲计时器到期的窗口内也会丢）。两种父 job 都以“回到 awaiting_input 且 TurnNo 超过发送时的 turn”算送达并清待送（TurnNo 在 prompt 发给 agent 之前就加一，只看它，这一轮中途死掉就算成送达了，人收不到告警），只清这一批（发送时记下批次的行 id 和当时的子 job 状态，内存即可，重启后重发无害）。确认时子 job 状态已变就保留哨兵：同一行会再次触发，比如 interaction 回执未确认时子 job 结束，直接清会丢掉 terminal 回执。超时重发只限 worker 父 job，用稳定 CmdID，同时解开 pending。本机父 job 只确认、不重发：重发要持 `entry.mu` 写容量 1 的 channel，空闲到期后没人读，会卡住 finish。父 job 结束时未确认的按“父 job 已结束”处理。
