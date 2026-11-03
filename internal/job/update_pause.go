@@ -233,6 +233,7 @@ func (s *Service) failReleasedPause(jobID string, cause error) {
 	s.signalJob(jobID)
 	s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": StatusFailed, "exit_code": 0, "error": msg})
 	if snap, ok := s.Get(jobID); ok {
+		logJobTerminal(snap)
 		s.finishUnrun(snap)
 	}
 }

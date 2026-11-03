@@ -31,6 +31,9 @@ func (s *Service) failLocalSessionRecovery(id string, cause error) {
 	reason := fmt.Sprintf("ACP session/load recovery failed: %v; start a new session", cause)
 	if n, err := s.meta.FailRecoveringJob(id, s.nowFn().Unix(), reason); err == nil && n > 0 {
 		s.recordEvent(id, EventJobTerminal, map[string]any{"status": StatusFailed, "error": reason})
+		if snap, ok := s.Get(id); ok {
+			logJobTerminal(snap)
+		}
 	}
 }
 

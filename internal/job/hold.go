@@ -520,6 +520,9 @@ func (s *Service) parkJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 		"caller_id": req.CallerID,
 		"tags":      req.Tags,
 	})
+	// A held job is submitted (it has an id and a caller waiting for a decision) but
+	// does not run until someone approves it; the log says so on the machine that took it.
+	logJobSubmitted(jobID, *req)
 	s.recordDecisions(jobID, req.decisions)
 	s.recordEvent(jobID, park.Event, park.Detail)
 	if req.TodoID != "" && !req.TodoForeign {
@@ -631,6 +634,7 @@ func (s *Service) failApprovedHold(jobID string, hr holdRecord, cause error) {
 	s.signalJob(jobID)
 	s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": StatusFailed, "exit_code": 0, "error": msg})
 	if snap, ok := s.Get(jobID); ok {
+		logJobTerminal(snap)
 		s.finishUnrun(snap)
 	}
 }
@@ -721,6 +725,7 @@ func (s *Service) endUnrun(jobID, from, holdJSON, errMsg, eventType string, deta
 	if !ok {
 		return JobResult{}, false, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 	}
+	logJobTerminal(snap)
 	s.finishUnrun(snap)
 	return snap, true, nil
 }

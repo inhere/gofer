@@ -159,6 +159,11 @@ func (s *Service) reviewJob(jobID, by, note, verdict string, resume, skipDeliver
 	}
 	s.recordEvent(jobID, EventJobReviewed, detail)
 	s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": newStatus, "exit_code": snap.ExitCode})
+	// A human's verdict is this job's terminal state; the log names the status it
+	// produced, so "ended" is visible without reading the event timeline.
+	term := snap
+	term.Status = newStatus
+	logJobTerminal(term)
 	// SUP-01 C: the human's verdict is the job's real outcome for the checklist — an
 	// accepted item is done (the note gets its commit line now), a rejected one
 	// appends the rejection. Best-effort, like every other todo write.
