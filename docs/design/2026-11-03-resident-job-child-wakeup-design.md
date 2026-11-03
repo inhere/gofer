@@ -226,4 +226,5 @@ sequenceDiagram
   - 提示词注入的判据：`Submit` 用 `SubmitGrantFor(agent, role)`（与 job 凭据提交同一个判定函数）决定是否注入，且只对有非空 prompt 的常驻 job 注入。
 - 第一期未做（同设计）：父 job 结束后的自动续接、R2 / R3 / R4。
 - W4 真实验收（2026-11-04）发现并修的第一处回执行为：人在限频窗口内答了审批、子 job 回到 `running` 时，这条待送回执不再算“需要输入”，于是当作普通回执发了出去（`running（退出码 0）`），白叫父 job 一轮且读着像结果。现在自动回执在“子 job 未结束且当下不需要人”时清哨兵、不发、不计、不停用（`jobstore.DropPendingSay`，日志 `wakeup.say_dropped reason=no_longer_needs_input`），手动行不受影响；同时回执模板对未结束的子 job 只写状态、不写退出码。
+- W4 真实验证（本机子 job，临时实例）：第一条审批答复后第二条超 60 秒不答 → `pending delivery` + `rate_limited`，满 60 秒（04:15:07 → 04:16:07）后 `wakeup.say_sent reason=sweep`，say 带“你不能代答”且无退出码；第二条在窗口内答复 → 无 say、父 job 不开新一轮（`say_dropped`），子 job 结束后 terminal 回执照常送达。证据见临时实例的 `evidence/round3-a.md`、`round3-b.md`。
 
