@@ -893,6 +893,11 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		// gofer-3db4: this delivery HAS ended as far as its sender is concerned, and it is
 		// the one ending the terminal hooks below never see — so the end-notification is
 		// dispatched here, after the row is durable and the entry evicted.
+		// A parent parked for review is GONE as far as its child receipts are concerned (the
+		// process exited): they are retired and reported here, once — a later verdict only
+		// re-records job.terminal, which no longer finds an armed receipt to report
+		// (design 2026-11-03 关键流程: 父 job 结束).
+		s.endParentChildWakes(jobID, childWakeReasonParentEnded)
 		s.notifyJobEnded(snap)
 		return
 	}
@@ -942,6 +947,13 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// BEFORE the workflow/retry branches below, because those return early and the
 	// outcome is already final: neither of them un-terminals THIS job (a retry runs
 	// as a new one).
+	//
+	// The child receipts of THIS job end here, on every way out of the block above: the
+	// plain terminal outcome, a takeover (the work continues in a NEW job id, and a
+	// receipt must not go looking for a session that has moved on) and a takeover whose
+	// submission failed (the late terminal). None of them is a resume of the parent
+	// (design 2026-11-03 关键流程: 父 job 结束).
+	s.endParentChildWakes(jobID, childWakeReasonParentEnded)
 	s.notifyTerminalHooks(snap)
 	// gofer-3db4: the end-notification to the session that sent this job rides the wider
 	// seam — it must fire for a delivery parked for review too (handled above).
@@ -1112,6 +1124,9 @@ func (s *Service) autoResume(snap JobResult, hit string) bool {
 	}
 	snap.AutoResumedBy = res.ID
 	_ = s.persist(snap)
+	// The work continues in a NEW job id: a child receipt watching this one follows it
+	// (design 2026-11-03 关键流程: 子 job 接管链).
+	s.retargetChildWakes(snap.ID, res.ID)
 	s.recordEvent(snap.ID, "job.auto_resumed", map[string]any{"job_id": res.ID})
 	return true
 }
@@ -1264,5 +1279,9 @@ func (s *Service) parkAfterFailedCheckResume(entry *jobEntry, jobID string, exit
 	s.mu.Lock()
 	delete(s.jobs, jobID)
 	s.mu.Unlock()
+	// The failed delivery-check continuation is not a takeover: this job is parked for a
+	// human, so it has ENDED as a parent too and its child receipts are retired and
+	// reported here (design 2026-11-03 关键流程: 核验失败转 needs_review 也要挂).
+	s.endParentChildWakes(jobID, childWakeReasonParentEnded)
 	s.notifyJobEnded(snap)
 }
