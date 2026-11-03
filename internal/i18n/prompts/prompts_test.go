@@ -46,12 +46,12 @@ var goldenData = map[string]any{
 		NeedsInput:  true,
 		Instruction: "then merge the results",
 	},
-	NameSummarizerInstruction:  struct{}{},
-	NameSummarizerFormat:       struct{}{},
-	NameWorkflowPlan:           WorkflowPlanData{Task: "${vars.task}", Guidance: "planner guidance"},
-	NameWorkflowImplement:      WorkflowImplementData{Plan: "${steps.plan.stdout}"},
-	NameWorkflowReview:         WorkflowReviewData{Task: "${vars.task}"},
-	NameWorkflowVerify:         WorkflowVerifyData{StdoutFile: "stdout.txt", ResultDir: "${steps.reviews.result_dir}"},
+	NameSummarizerInstruction: struct{}{},
+	NameSummarizerFormat:      struct{}{},
+	NameWorkflowPlan:          WorkflowPlanData{Task: "${vars.task}", Guidance: "planner guidance"},
+	NameWorkflowImplement:     WorkflowImplementData{Plan: "${steps.plan.stdout}"},
+	NameWorkflowReview:        WorkflowReviewData{Task: "${vars.task}"},
+	NameWorkflowVerify:        WorkflowVerifyData{StdoutFile: "stdout.txt", ResultDir: "${steps.reviews.result_dir}"},
 }
 
 // TestRenderGolden pins the rendered text of every template in both languages.
