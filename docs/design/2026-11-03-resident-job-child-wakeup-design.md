@@ -212,3 +212,15 @@ sequenceDiagram
 - server 在待送期间重启，重启后仍能送达。
 - 改了多行标题的子 job，say 内容不受影响。
 - 配置 `--parent-wake-events job.terminal,interaction.created` 的子 job 触发工具审批：父 job 收到回执（本机与 worker 子 job 各一遍），连续审批被限频；默认配置下不收到。
+
+## 实施记录
+
+- 实施：2026-11-03 起分四批（W1 地基、W2 主路径三次合并、W3 提示词与文档），提交区间 `f94a181f..cb112500`。真实环境验收（计划 T12）在 W4 单独做。
+- 与设计 / 计划的差异（均为实现细节，未改语义）：
+  - 计划 W2 的三个 job 拆分为 T5–T6、T7–T8、T9 三批合并，批次边界不影响任务内容。
+  - 手动（`auto_child=0`）event wakeup 只有目标是**活着的常驻 job** 时才走 say；目标已结束时保持原有的 resume / rebuild，不跟随接管链的 CAS（对应“总体方案”表首行）。手动行确认后按计划 `CompleteWakeupSay(id, true)` 消费。
+  - 手动 event wakeup 注册在活着的常驻 job 上时，除 `job.wake.others` + `job.submit` 外追加要求 `job.manage.others`（say 等价权限）。设计只写了「实现时核实」，判定放在 httpapi 入口（G021），job 层仍只管归属。
+  - 待送的对外表示：`continuation_job_id` 置空 + 新字段 `pending_delivery`（CLI 另显示“pending delivery”），不是把 `await_input` 透出去。
+  - 提示词注入的判据：`Submit` 用 `SubmitGrantFor(agent, role)`（与 job 凭据提交同一个判定函数）决定是否注入，且只对有非空 prompt 的常驻 job 注入。
+- 第一期未做（同设计）：父 job 结束后的自动续接、R2 / R3 / R4。
+

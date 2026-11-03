@@ -31,6 +31,11 @@
     的子 job、重试已提交但回执没跟到新 job 的情况，扫描会补做这次迁移。自动回执的 TTL 到期记
     `job.child_wake_failed`（原因 `expired`），而不是不通知人的 `job.wakeup_expired`。
   - worker 父 job 的凭据随新回合续期：会话空闲超过令牌寿命后被唤醒，agent 调用 gofer 不再收到 401。
+  - 拿到提交权限（`can_submit`）的常驻 ACP job，prompt 末尾会多一段「## 派发子 job」提示：派完子 job 就结束本轮（不要轮询）、`--idle-timeout` 设得足够长、会话用 `--shared-dir`、会写文件的子 job 用 `--worktree`、并发槽位留余量。用空 prompt 启动的常驻 job 不注入。
+  - 新增两个只对 job 凭据提交生效的参数：`job run --no-parent-wake`（这个子 job 不登记回执）与 `job run --parent-wake-events a,b`（本子 job 只回执这些事件，`job.terminal` 始终包含）；HTTP 对应 `no_parent_wake` / `parent_wake_events`，其他调用方传了直接 `400`。
+  - 回执还没送出（父 job 这一轮还没结束）时，`job wakeup list` / `job wakeup show`、HTTP 列表与单条读取的 `pending_delivery`、MCP `gofer_wakeup_list` 都把它显示为「待送」，不再把内部的 `await_input` 当 job id 打印。
+  - 权限收紧：手动 event wakeup 挂在活着的常驻 job 上时，它的 `-m` 指令会被 say 进那个会话，所以除 `job.wake.others` + `job.submit` 外还要求对该 job 的 say 权限（`job.manage.others`）。定时类 wakeup 与已结束的常驻 job 不变。
+  - 降级提醒：回退到本条目之前的版本前，先确认没有待送回执（`job wakeup list` 里没有「pending delivery」）；旧版本不会释放它们，还会把内部的 `await_input` 显示成 job id。
 
 ## [0.209.3] - 2026-11-03
 
