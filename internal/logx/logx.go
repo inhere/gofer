@@ -128,6 +128,11 @@ func ConfigureFile(o FileOptions) error {
 // adding a component log can never change a command's stdout/stderr contract.
 // Rotation, redaction, time layout and the level (GOFER_LOG_LEVEL) are the same
 // as ConfigureFile's file sink.
+//
+// A sink is meant to be closed after a batch of records (the client request log
+// closes after every line): writes are synchronous, so nothing is lost, and a
+// component log never keeps a handle on the user's file — or on a temp config dir
+// in a test — between lines.
 type FileSink struct {
 	lg *slog.Logger
 	w  *lumberjack.Logger
@@ -166,7 +171,9 @@ func OpenFileSink(o FileOptions) (*FileSink, error) {
 // exit).
 func (s *FileSink) Logger() *slog.Logger { return s.lg }
 
-// Close releases the file handle; the sink is unusable afterwards.
+// Close releases the file handle. The sink stays USABLE: lumberjack reopens the
+// file on the next write (and re-checks the rotation size), so closing after each
+// line is the way a component sink keeps from holding a handle it does not need.
 func (s *FileSink) Close() error { return s.w.Close() }
 
 // ensureOperationID returns this process's operation id, minting one when no

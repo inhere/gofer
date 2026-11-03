@@ -129,6 +129,22 @@ func (r *requestRecorder) clear(key string) {
 	}
 }
 
+// release drops the file handle after a line has been written. The record is
+// already on disk (the sink writes synchronously) and lumberjack reopens the file
+// on the next write, so this loses nothing — but a request log must not keep a
+// handle on the user's file, nor lock a temp config dir in a test against removal
+// on Windows, between two failures.
+func (r *requestRecorder) release() {
+	r.mu.Lock()
+	sink := r.sink
+	r.mu.Unlock()
+	if sink != nil {
+		// The line is written; a close error has no reader (the request outcome is
+		// the caller's) and the next write reopens the file anyway.
+		_ = sink.Close()
+	}
+}
+
 // logRequest records one finished HTTP request (or tunnel dial). It is a no-op
 // unless the log is configured and the outcome is worth a line: a transport
 // failure or a 5xx (ERROR), a 401/403 (WARN) — a business 4xx is an answer, not
@@ -187,6 +203,7 @@ func (c *Client) logRequest(method, path string, status int, start time.Time, er
 	default:
 		lg.Log(ctx, level, "client request failed", attrs...)
 	}
+	reqLog.release()
 }
 
 // requestPath is the path as the log carries it: no query string (SR1301 — a
