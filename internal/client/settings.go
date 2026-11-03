@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Extension settings (docs/design/2026-10-20-work-noise-and-db-settings-design.md):
@@ -164,10 +165,15 @@ func (c *Client) DoRaw(method, path string, body []byte, contentType string) (AP
 		req.Header.Set("Content-Type", contentType)
 	}
 	req.Header.Set("Accept", "application/json, application/yaml, text/plain;q=0.9, */*;q=0.5")
+	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
+		c.logRequest(method, path, 0, start, err)
 		return APIResponse{}, fmt.Errorf("request %s %s: %w", method, path, err)
 	}
+	// A non-2xx answer is data for a raw caller, but a 5xx / 401 / 403 is still
+	// worth the request log's line (the request log decides which statuses count).
+	c.logRequest(method, path, resp.StatusCode, start, nil)
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {

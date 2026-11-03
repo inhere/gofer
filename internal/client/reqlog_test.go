@@ -243,3 +243,89 @@ func assertNoSecrets(t *testing.T, row map[string]any) {
 		}
 	}
 }
+
+// TestRawRequestFailureIsLogged: DoRaw sends its own request (it must hand back
+// non-2xx as data), so it needs its own request-log hook — a 5xx from
+// `gofer tool api` used to leave no trace.
+func TestRawRequestFailureIsLogged(t *testing.T) {
+	rows := requestLogRows(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	resp, err := New(srv.URL, "secret-token").DoRaw(http.MethodPost, "/v1/settings/x", []byte(`{}`), "application/json")
+	if err != nil {
+		t.Fatalf("DoRaw: %v", err)
+	}
+	if resp.Status != http.StatusBadGateway {
+		t.Fatalf("status = %d", resp.Status)
+	}
+	got := rows()
+	if len(got) != 1 {
+		t.Fatalf("want one client log row, got %v", got)
+	}
+	row := got[0]
+	if row["event"] != "client.request_failed" || row["path"] != "/v1/settings/x" || row["status"] != float64(502) {
+		t.Fatalf("row = %v", row)
+	}
+	assertNoSecrets(t, row)
+}
+
+// TestTriggerInvokeFailureIsLogged: the invoke endpoint is authenticated by a
+// signature, not a gofer token, and builds its own request — a refused invoke is
+// exactly the kind of failure nobody could trace before.
+func TestTriggerInvokeFailureIsLogged(t *testing.T) {
+	rows := requestLogRows(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":"bad signature"}`))
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, "").InvokeTrigger("ci", []byte(`{}`), map[string]string{"X-Gofer-Signature": "v1=deadbeef"}); err == nil {
+		t.Fatal("want an error from the 403")
+	}
+	got := rows()
+	if len(got) != 1 {
+		t.Fatalf("want one client log row, got %v", got)
+	}
+	row := got[0]
+	if row["event"] != "client.request_failed" || row["path"] != "/v1/triggers/ci/invoke" || row["status"] != float64(403) {
+		t.Fatalf("row = %v", row)
+	}
+	if row["level"] != "WARN" {
+		t.Fatalf("level = %v", row["level"])
+	}
+	for k, v := range row {
+		if s, ok := v.(string); ok && strings.Contains(s, "deadbeef") {
+			t.Fatalf("field %q leaks the signature header: %q", k, s)
+		}
+	}
+}
+
+// TestRequestLogReleasesTheFile: the line is on disk and the handle is gone, so a
+// temp config dir can be removed right after a failure (on Windows an open handle
+// blocks it) — a short CLI must not keep the user's file open between failures.
+func TestRequestLogReleasesTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run", "client.log")
+	SetRequestLogPath(path)
+	t.Cleanup(func() { SetRequestLogPath("") })
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	if _, err := New(srv.URL, "").GetJob("job-1"); err == nil {
+		t.Fatal("want an error from the 500")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read client log: %v", err)
+	}
+	if !strings.Contains(string(raw), "client.request_failed") {
+		t.Fatalf("client log content = %q", raw)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("client log still held open after the line: %v", err)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/inhere/gofer/internal/trigger"
 )
@@ -71,10 +72,15 @@ func (c *Client) InvokeTrigger(name string, body []byte, headers map[string]stri
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
+		c.logRequest(http.MethodPost, "/v1/triggers/"+url.PathEscape(name)+"/invoke", 0, start, err)
 		return out, fmt.Errorf("request POST /v1/triggers/%s/invoke: %w", name, err)
 	}
+	// The signature (not a gofer token) authenticates this request, so a 401 here is
+	// a real incident: leave it in the client request log like any other call.
+	c.logRequest(http.MethodPost, "/v1/triggers/"+url.PathEscape(name)+"/invoke", resp.StatusCode, start, nil)
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
