@@ -220,6 +220,39 @@ func TestConfigureFileRebuildsFromStderrBase(t *testing.T) {
 	}
 }
 
+// TestConfigureFileSingleComponentKey: ConfigureFile stamps `component` on every
+// record, and a call site that passes its own `component` must not turn one line
+// into two `component` keys ("component":"serve",...,"component":"server", which
+// is what serve.log showed). The process component wins; the duplicate is dropped.
+func TestConfigureFileSingleComponentKey(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(closeFileSink)
+	path := filepath.Join(dir, "run.log")
+	Setup()
+	if err := ConfigureFile(FileOptions{Path: path, Explicit: true, Component: "serve"}); err != nil {
+		t.Fatal(err)
+	}
+	slog.Info("tunnel.opened", "component", "server", "tunnel_id", "t1")
+	slog.Info("job.started", "job_id", "j1")
+	closeFileSink()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(data, []byte(`"component"`)); n != 2 {
+		t.Fatalf("component appears %d times in 2 records: %s", n, data)
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(data), []byte{'\n'}) {
+		var row map[string]any
+		if err := json.Unmarshal(line, &row); err != nil {
+			t.Fatalf("invalid JSONL %q: %v", line, err)
+		}
+		if row["component"] != "serve" {
+			t.Fatalf("component=%v, want the process component: %s", row["component"], line)
+		}
+	}
+}
+
 // TestParseLevel covers the GOFER_LOG_LEVEL mapping including the default.
 func TestParseLevel(t *testing.T) {
 	cases := map[string]slog.Level{
