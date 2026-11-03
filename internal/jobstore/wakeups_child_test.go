@@ -111,13 +111,21 @@ func TestListAutoChildFinishedBefore(t *testing.T) {
 	s := openTest(t)
 	const ended = int64(1000)
 	for _, rec := range []JobRecord{
-		func() JobRecord { r := sampleJob("child-done", "self", 1); r.Status, r.EndedAt, r.UpdatedAt = "done", ended, ended; return r }(),
+		func() JobRecord {
+			r := sampleJob("child-done", "self", 1)
+			r.Status, r.EndedAt, r.UpdatedAt = "done", ended, ended
+			return r
+		}(),
 		func() JobRecord {
 			r := sampleJob("child-review", "self", 1)
 			r.Status, r.EndedAt, r.UpdatedAt = "needs_review", ended, ended
 			return r
 		}(),
-		func() JobRecord { r := sampleJob("child-running", "self", 1); r.Status, r.UpdatedAt = "running", 1; return r }(),
+		func() JobRecord {
+			r := sampleJob("child-running", "self", 1)
+			r.Status, r.UpdatedAt = "running", 1
+			return r
+		}(),
 	} {
 		assert.NoErr(t, s.UpsertJob(rec))
 	}
