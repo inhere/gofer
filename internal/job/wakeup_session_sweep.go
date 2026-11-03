@@ -81,7 +81,7 @@ func (s *Service) sweepParentSays(parentID string, now time.Time) {
 	lock.Lock()
 	defer lock.Unlock()
 	s.confirmSayBatchLocked(parentID)
-	s.resendUnconfirmedLocked(parentID, now)
+	s.resendUnconfirmedLocked(parentID)
 	s.flushPendingSaysLocked(parentID, nil, childWakeReasonSweep)
 }
 
@@ -95,7 +95,7 @@ func (s *Service) sweepParentSays(parentID string, now time.Time) {
 // resendSessionSay decides whether the batch still owns the say slot and whether a turn
 // has started since: a batch the worker already consumed (or that a newer batch
 // replaced) is left alone, and the confirmation clears it on the next idle transition.
-func (s *Service) resendUnconfirmedLocked(parentID string, now time.Time) {
+func (s *Service) resendUnconfirmedLocked(parentID string) {
 	st := s.wakeupSayOf(parentID)
 	st.mu.Lock()
 	batch := st.batch
@@ -171,18 +171,19 @@ func (s *Service) reconcileChildWakeReceipts(now time.Time) {
 			s.retargetChildWakes(child.ID, target)
 			continue
 		}
-		if retry, ok := s.lastRetryRow(child.ID); ok {
-			if retry.State == jobstore.RetryDone && retry.NewJobID != "" {
-				// The retry was submitted but the CAS that moves the receipt never landed:
-				// finish it here, then re-check the new job like any other retarget.
-				slog.Info("wakeup.say_pending", "event", "wakeup.say_pending", "wakeup_id", w.ID,
-					"job_id", w.JobID, "child_job_id", child.ID, "to_job_id", retry.NewJobID, "reason", "reconcile_retry")
-				s.retargetChildWakes(child.ID, retry.NewJobID)
-				continue
-			}
-			if retry.State == jobstore.RetryPending || retry.State == jobstore.RetryClaimed {
-				continue // the retry will speak for this child
-			}
+		if s.hasPendingRetry(child.ID) {
+			// A durable retry is still to run (pending, or claimed by a sweeper): the
+			// failure is not the child's last word, so nothing is said now.
+			continue
+		}
+		if to := s.committedRetryTarget(child.ID); to != "" {
+			// The retry was SUBMITTED and left a job id, but the CAS that moves the receipt
+			// never landed (a crash between the two): finish it here, and re-check the new job
+			// like every other retarget does.
+			slog.Info("wakeup.say_pending", "event", "wakeup.say_pending", "wakeup_id", w.ID,
+				"job_id", w.JobID, "child_job_id", child.ID, "to_job_id", to, "reason", "reconcile_retry")
+			s.retargetChildWakes(child.ID, to)
+			continue
 		}
 		slog.Info("wakeup.say_pending", "event", "wakeup.say_pending", "wakeup_id", w.ID,
 			"job_id", w.JobID, "child_job_id", child.ID, "reason", "reconcile_lost_receipt")
@@ -190,39 +191,25 @@ func (s *Service) reconcileChildWakeReceipts(now time.Time) {
 	}
 }
 
-// lastRetryRow returns the most advanced durable retry of childJobID (the row that
-// decides what the child's outcome means now). It reads the same rows hasPendingRetry
-// does, so the two answers cannot disagree about "a retry is on its way".
-func (s *Service) lastRetryRow(childJobID string) (jobstore.RetryRecord, bool) {
+// committedRetryTarget returns the job a SUBMITTED retry of childJobID created, or ""
+// when the child holds no such row. The highest attempt wins: a row that ran later is
+// the one that carries the result.
+func (s *Service) committedRetryTarget(childJobID string) string {
 	rows, err := s.meta.ListRetriesByJob(childJobID)
 	if err != nil {
 		slog.Warn("child wake: list retries", "job_id", childJobID, "err", err)
-		return jobstore.RetryRecord{}, false
+		return ""
 	}
-	var (
-		best    jobstore.RetryRecord
-		bestSeen bool
-	)
+	target, attempt := "", 0
 	for _, r := range rows {
-		if !bestSeen || retryRank(r.State) > retryRank(best.State) || (retryRank(r.State) == retryRank(best.State) && r.Attempt > best.Attempt) {
-			best, bestSeen = r, true
+		if r.State != jobstore.RetryDone || r.NewJobID == "" {
+			continue
+		}
+		if r.Attempt > attempt {
+			target, attempt = r.NewJobID, r.Attempt
 		}
 	}
-	return best, bestSeen
-}
-
-// retryRank orders the retry states by how final they are: a pending or claimed row is
-// still going to run (rank 0), a cancelled one ends the story without a new job, and a
-// done one already has the job id that carries the result.
-func retryRank(state string) int {
-	switch state {
-	case jobstore.RetryDone:
-		return 2
-	case jobstore.RetryCancelled:
-		return 1
-	default:
-		return 0
-	}
+	return target
 }
 
 // childWakeTakeoverTarget reports the job that carries child's work after a takeover:

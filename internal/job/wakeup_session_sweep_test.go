@@ -331,6 +331,46 @@ func TestChildWakeReconcileExpiredRowReportsToAPerson(t *testing.T) {
 	assert.Eq(t, 0, len(sayTexts(sender)), "an expired receipt was spoken")
 }
 
+// TestSweepPendingSaysHoldsTheReceiptLock: the tick takes the per-parent receipt lock
+// before it confirms, re-sends or delivers, so it can never interleave with the event
+// path for the same parent. The lock is held by the test here: the tick must WAIT, and
+// the receipt goes out only once it is released.
+func TestSweepPendingSaysHoldsTheReceiptLock(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	// The child ended a moment ago: inside the reconcile grace window, so only the delivery
+	// scan has work and the lock under test is the one it takes.
+	addFinishedChild(t, s, "child-locked", StatusDone, s.nowFn().Unix())
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-locked", AutoChild: 1,
+	})
+	// What a restart leaves behind: the sentinel in the store, nothing in memory.
+	if err := s.meta.MarkWakeupPendingSay(w.ID); err != nil {
+		t.Fatalf("park the receipt: %v", err)
+	}
+
+	lock := s.wakeupSayLock(parent.result.ID)
+	lock.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.SweepPendingSays(s.nowFn())
+	}()
+	select {
+	case <-done:
+		lock.Unlock()
+		t.Fatal("the tick finished while another holder had the receipt lock")
+	case <-time.After(300 * time.Millisecond):
+	}
+	assert.Eq(t, 0, len(sayTexts(sender)), "the tick spoke while the receipt lock was held")
+
+	lock.Unlock()
+	<-done
+	texts := sayTexts(sender)
+	assert.Eq(t, 1, len(texts), "the receipt was not delivered once the lock was free: %v", texts)
+	assert.True(t, strings.Contains(texts[0], "child-locked"), "say = %q", texts[0])
+}
+
 // TestSweepPendingSaysSharesTheLockWithATrigger: the tick and the event path run at the
 // same moment for one child. The receipt lock makes it ONE say — the loser finds the say
 // slot taken and leaves the receipt pending instead of writing a second frame.
