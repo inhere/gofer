@@ -15,6 +15,42 @@ import (
 // Nothing was sent: the caller falls back to delivering the images as files.
 var ErrImagesNotSupported = errors.New("session does not accept image blocks")
 
+// The say refusal reasons (design 2026-11-03 架构: 把“轮次进行中”“已有排队”“worker 离线”
+// “会话结束中”拆成可区分的错误). Each one is reachable with errors.Is while the
+// historical error (ErrJobNotRunning / ErrInvalidRequest) and the rendered message
+// stay exactly what the HTTP/CLI/MCP surfaces already report — callers that only
+// check the old error keep working, the receipt path can tell "retry this later"
+// (busy / queued / offline) from "the session is gone" (ending / no live session).
+var (
+	// ErrSessionTurnBusy: a turn is in progress, so the say cannot be queued now.
+	ErrSessionTurnBusy = errors.New("session turn in progress")
+	// ErrSessionInputQueued: a say is already waiting for the worker to consume it.
+	ErrSessionInputQueued = errors.New("session input already queued")
+	// ErrWorkerOffline: the session lives on a worker that is not connected.
+	ErrWorkerOffline = errors.New("session worker offline")
+	// ErrSessionEnding: the session is on its way out; nothing will consume a say.
+	ErrSessionEnding = errors.New("session is ending")
+	// ErrNoLiveSession: the job is not a resident session this server can reach.
+	ErrNoLiveSession = errors.New("job has no live session")
+)
+
+// sessionCommandError attaches one of the reasons above to a refusal WITHOUT
+// touching its message or the error it wraps: Error and Unwrap keep the historical
+// text and classification, Is adds the specific reason.
+type sessionCommandError struct {
+	reason error
+	cause  error
+}
+
+func (e *sessionCommandError) Error() string        { return e.cause.Error() }
+func (e *sessionCommandError) Unwrap() error        { return e.cause }
+func (e *sessionCommandError) Is(target error) bool { return target == e.reason }
+
+// sayRefused wraps a refusal's historical error with its specific reason.
+func sayRefused(reason, cause error) error {
+	return &sessionCommandError{reason: reason, cause: cause}
+}
+
 // ImageInput is one image of a say: its media type and raw bytes.
 type ImageInput = runner.ImageInput
 
@@ -52,6 +88,15 @@ func (s *Service) SessionAcceptsImages(id string) (bool, error) {
 }
 
 func (s *Service) saySession(id, message string, images []ImageInput) error {
+	return s.saySessionCommand(id, message, images, "")
+}
+
+// saySessionCommand is saySession with a caller-chosen command id: an empty cmdID
+// starts a NEW batch (its own id), while a non-empty one re-sends that batch. The
+// worker drops a command id it has already seen and never recycles them, so a
+// re-send must reuse the batch's id and a new batch must get a fresh one (design
+// 2026-11-03 T2).
+func (s *Service) saySessionCommand(id, message string, images []ImageInput, cmdID string) error {
 	permit, err := s.BeginUpgradeWork()
 	if err != nil {
 		return err
@@ -64,10 +109,10 @@ func (s *Service) saySession(id, message string, images []ImageInput) error {
 	entry := s.entry(id)
 	if entry == nil {
 		if result, ok := s.Get(id); ok && result.Session && isTerminal(result.Status) {
-			return fmt.Errorf("%w: session is ending or ended", ErrJobNotRunning)
+			return sayRefused(ErrSessionEnding, fmt.Errorf("%w: session is ending or ended", ErrJobNotRunning))
 		}
 		if _, ok := s.Get(id); ok {
-			return fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id)
+			return sayRefused(ErrNoLiveSession, fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id))
 		}
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
 	}
@@ -77,34 +122,59 @@ func (s *Service) saySession(id, message string, images []ImageInput) error {
 		return fmt.Errorf("%w: job %s", ErrImagesNotSupported, id)
 	}
 	if entry.result.Session && entry.sessionCommands == nil && isWorkerRemoteSession(s.cfg.Load(), entry.result) {
+		if entry.sessionEnding {
+			entry.mu.Unlock()
+			return sayRefused(ErrSessionEnding, fmt.Errorf("%w: session is ending", ErrJobNotRunning))
+		}
 		if entry.result.Status != StatusAwaitingInput {
 			entry.mu.Unlock()
-			return fmt.Errorf("%w: job %s is not awaiting ACP session input", ErrJobNotRunning, id)
+			return sayRefused(ErrSessionTurnBusy, fmt.Errorf("%w: job %s is not awaiting ACP session input", ErrJobNotRunning, id))
 		}
 		if entry.sessionCommandPending {
 			entry.mu.Unlock()
-			return fmt.Errorf("%w: session input already queued", ErrInvalidRequest)
+			return sayRefused(ErrSessionInputQueued, fmt.Errorf("%w: session input already queued", ErrInvalidRequest))
 		}
 		sender, ok := s.workers.(SessionCommandSender)
 		workerID := entry.result.WorkerID
-		entry.mu.Unlock()
 		if !ok || !sender.IsWorkerOnline(workerID) {
-			return fmt.Errorf("%w: worker offline, retry later", ErrJobNotRunning)
+			entry.mu.Unlock()
+			return sayRefused(ErrWorkerOffline, fmt.Errorf("%w: worker offline, retry later", ErrJobNotRunning))
 		}
+		// Reserve the single in-flight slot BEFORE sending (design 2026-11-03 异常): two
+		// racers used to pass the check together and the worker dropped the second
+		// frame without the host ever learning it, so the receipt vanished silently.
+		// The command id belongs to the batch, so a re-send can reuse it.
+		if cmdID == "" {
+			cmdID = sessionCommandID(id)
+		}
+		entry.sessionCommandID = cmdID
+		entry.sessionCommandPending = true
+		entry.sessionCommandTurn = entry.result.TurnNo
+		entry.mu.Unlock()
+		var sendErr error
 		if len(images) > 0 {
 			imgSender, ok := s.workers.(SessionSayImageSender)
 			if !ok {
-				return fmt.Errorf("%w: job %s (worker transport lacks image say)", ErrImagesNotSupported, id)
+				sendErr = fmt.Errorf("%w: job %s (worker transport lacks image say)", ErrImagesNotSupported, id)
+			} else {
+				sendErr = imgSender.SendSessionSay(workerID, id, cmdID, message, images)
 			}
-			if err := imgSender.SendSessionSay(workerID, id, sessionCommandID(id), message, images); err != nil {
-				return err
+		} else {
+			sendErr = sender.SendSessionCommand(workerID, id, cmdID, "say", message)
+		}
+		if sendErr != nil {
+			entry.mu.Lock()
+			// A worker that answered by ending the session keeps the reservation: the
+			// session is gone, not the say's fault (design 2026-11-03 T2).
+			if !entry.sessionEnding {
+				entry.sessionCommandPending = false
+				entry.sessionCommandTurn = 0
+				entry.sessionCommandID = ""
 			}
-		} else if err := sender.SendSessionCommand(workerID, id, sessionCommandID(id), "say", message); err != nil {
-			return err
+			entry.mu.Unlock()
+			return sendErr
 		}
 		entry.mu.Lock()
-		entry.sessionCommandPending = true
-		entry.sessionCommandTurn = entry.result.TurnNo
 		s.cancelSessionReplyTimerLocked(entry)
 		snap := entry.result
 		_ = s.persist(snap)
@@ -114,18 +184,64 @@ func (s *Service) saySession(id, message string, images []ImageInput) error {
 	}
 	defer entry.mu.Unlock()
 	if entry.sessionEnding {
-		return fmt.Errorf("%w: session is ending", ErrJobNotRunning)
+		return sayRefused(ErrSessionEnding, fmt.Errorf("%w: session is ending", ErrJobNotRunning))
 	}
 	if !entry.result.Session || entry.sessionCommands == nil || entry.result.Status != StatusAwaitingInput {
-		return fmt.Errorf("%w: job %s is not awaiting ACP session input", ErrJobNotRunning, id)
+		return sayRefused(ErrSessionTurnBusy, fmt.Errorf("%w: job %s is not awaiting ACP session input", ErrJobNotRunning, id))
 	}
 	if entry.sessionCommandPending {
-		return fmt.Errorf("%w: session input already queued", ErrInvalidRequest)
+		return sayRefused(ErrSessionInputQueued, fmt.Errorf("%w: session input already queued", ErrInvalidRequest))
 	}
 	s.cancelSessionReplyTimerLocked(entry)
 	entry.sessionCommandPending = true
 	entry.sessionCommands <- runner.SessionCommand{Prompt: message, Images: images}
 	logJobSay(id, message, len(images))
+	return nil
+}
+
+// resendSessionSay re-sends ONE batch of a worker say that is already reserved
+// (design 2026-11-03 送达确认: 超时重发只限 worker 父 job，用稳定 CmdID). It sends only
+// while that exact batch still owns the slot, the session is still awaiting input
+// and no turn has started since it was reserved — otherwise the first attempt was
+// consumed (or superseded) and a second frame would only confuse the worker. The
+// caller (the tick, T9) decides when an unconfirmed batch is worth re-sending.
+func (s *Service) resendSessionSay(id, cmdID, message string) error {
+	entry := s.entry(id)
+	if entry == nil {
+		return sayRefused(ErrNoLiveSession, fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id))
+	}
+	entry.mu.Lock()
+	if entry.sessionEnding {
+		entry.mu.Unlock()
+		return sayRefused(ErrSessionEnding, fmt.Errorf("%w: session is ending", ErrJobNotRunning))
+	}
+	if !entry.result.Session || entry.sessionCommands != nil {
+		entry.mu.Unlock()
+		return sayRefused(ErrNoLiveSession, fmt.Errorf("%w: job %s has no live ACP session", ErrJobNotRunning, id))
+	}
+	if !entry.sessionCommandPending || entry.sessionCommandID != cmdID {
+		entry.mu.Unlock()
+		return sayRefused(ErrSessionInputQueued, fmt.Errorf("%w: session input already queued", ErrInvalidRequest))
+	}
+	if entry.result.Status != StatusAwaitingInput || entry.sessionCommandTurn != entry.result.TurnNo {
+		entry.mu.Unlock()
+		return sayRefused(ErrSessionTurnBusy, fmt.Errorf("%w: job %s is not awaiting ACP session input", ErrJobNotRunning, id))
+	}
+	sender, ok := s.workers.(SessionCommandSender)
+	workerID := entry.result.WorkerID
+	entry.mu.Unlock()
+	if !ok || !sender.IsWorkerOnline(workerID) {
+		return sayRefused(ErrWorkerOffline, fmt.Errorf("%w: worker offline, retry later", ErrJobNotRunning))
+	}
+	if err := sender.SendSessionCommand(workerID, id, cmdID, "say", message); err != nil {
+		return err
+	}
+	entry.mu.Lock()
+	s.cancelSessionReplyTimerLocked(entry)
+	snap := entry.result
+	_ = s.persist(snap)
+	entry.mu.Unlock()
+	logJobSay(id, message, 0)
 	return nil
 }
 

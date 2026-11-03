@@ -440,7 +440,12 @@ type jobEntry struct {
 	sessionCommandPending bool // guarded by mu; rejects concurrent say/end
 	// sessionCommandTurn is the turn a pending REMOTE say was sent after; a worker
 	// report of a later turn proves the worker consumed it. Guarded by mu.
-	sessionCommandTurn   int
+	sessionCommandTurn int
+	// sessionCommandID is the command id of the pending batch (empty for a local
+	// session, which needs no wire id). A re-send must reuse it — the worker drops an
+	// id it has already seen and never recycles them — so it also tells a re-send
+	// whether its batch is still the one holding the slot. Guarded by mu.
+	sessionCommandID     string
 	sessionEnding        bool // guarded by mu; cancel/end closes admission before runner exits
 	manualEndRequested   bool // guarded by mu; shutdown must honor an accepted end request
 	awaitReplyTimer      *time.Timer
