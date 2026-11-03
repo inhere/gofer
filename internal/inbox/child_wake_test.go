@@ -1,6 +1,7 @@
 package inbox
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/i18n"
@@ -93,5 +94,42 @@ func TestChildWakeCards(t *testing.T) {
 	}
 	if len(cards) != 1 || cards[0].Refs.JobID != "parent-2" {
 		t.Fatalf("scoped cards = %+v, want only the allowed project's alert", cards)
+	}
+}
+
+// TestChildWakeCardReasonText: a known reason is shown as its translated sentence, an
+// unknown one as the raw machine value. It must NEVER be the i18n key: i18n.T answers an
+// unknown key with the key itself, so a "text != empty" check would print
+// httpapi.inbox_child_wake_reason_<x> to a person.
+func TestChildWakeCardReasonText(t *testing.T) {
+	const now = int64(1_900_000_000)
+	src := &fakeChildWakeSource{
+		now:  now,
+		jobs: map[string]jobstore.JobRecord{"parent-1": {ID: "parent-1", ProjectKey: "self"}},
+		events: []jobstore.JobEvent{
+			{Seq: 2, JobID: "parent-1", Type: "job.child_wake_failed",
+				Detail: `{"wakeup_id":"wk-known","child_job_id":"child-1","reason":"parent_ended"}`, At: now - 10},
+			{Seq: 1, JobID: "parent-1", Type: "job.child_wake_failed",
+				Detail: `{"wakeup_id":"wk-unknown","child_job_id":"child-2","reason":"brand_new_reason"}`, At: now - 20},
+		},
+	}
+	cards, err := ChildWakeCards(src, i18n.ZhCN, nil)
+	if err != nil {
+		t.Fatalf("ChildWakeCards: %v", err)
+	}
+	if len(cards) != 2 {
+		t.Fatalf("cards = %+v, want one per alert", cards)
+	}
+
+	known, unknown := cards[0], cards[1]
+	wantKnown := i18n.T(i18n.ZhCN, "httpapi.inbox_child_wake_reason_parent_ended")
+	if known.Summary != wantKnown {
+		t.Fatalf("known reason summary = %q, want the translated %q", known.Summary, wantKnown)
+	}
+	if unknown.Summary != "brand_new_reason" {
+		t.Fatalf("unknown reason summary = %q, want the raw %q", unknown.Summary, "brand_new_reason")
+	}
+	if strings.Contains(unknown.Summary, "httpapi.inbox_child_wake_reason") {
+		t.Fatalf("unknown reason summary = %q, want no i18n key", unknown.Summary)
 	}
 }

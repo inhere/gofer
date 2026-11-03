@@ -91,12 +91,19 @@ func ChildWakeCards(src ChildWakeSource, lang i18n.Lang, allow func(string) bool
 
 // childWakeReason renders the machine reason of an alert; an unknown one shows as-is
 // rather than as an empty summary.
+//
+// The presence check has to go through HasKey: i18n.T returns the KEY ITSELF for an
+// unknown key (it only falls back to English, then gives up), so a "text != empty" test is
+// always true and an unmapped reason would be shown to a person as
+// httpapi.inbox_child_wake_reason_x. T also falls back to English, so the key counts as
+// known when either the request's language or English carries it.
 func childWakeReason(lang i18n.Lang, reason string) string {
 	if reason == "" {
 		return ""
 	}
-	if text := i18n.T(lang, "httpapi.inbox_child_wake_reason_"+reason); text != "" {
-		return text
+	key := "httpapi.inbox_child_wake_reason_" + reason
+	if i18n.HasKey(lang, key) || i18n.HasKey(i18n.EN, key) {
+		return i18n.T(lang, key)
 	}
 	return reason
 }

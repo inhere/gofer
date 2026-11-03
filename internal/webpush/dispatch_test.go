@@ -438,6 +438,106 @@ func TestWebPushAwaitingApproval(t *testing.T) {
 	}
 }
 
+// TestWebPushChildWakeFailedBypassesTheThread (gofer-rt3z): the child-receipt alert is
+// deliberately OUTSIDE the job's thread — no thread id, its own tag, no Topic header —
+// so it neither checks nor consumes the 30-second merge window. That is what makes an
+// alert that arrives right behind the parent's own terminal push (same caller, same
+// thread, window just claimed) still reach the person: a swallowed alert would mean
+// nobody ever learns the child's result. The text names ids, never the child's title.
+func TestWebPushChildWakeFailedBypassesTheThread(t *testing.T) {
+	store, err := jobstore.Open(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	receiverPrivate, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := bytes.Repeat([]byte{0x54}, 16)
+	gotCh := make(chan capturedPush, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotCh <- capturedPush{body: body, headers: r.Header.Clone()}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+	if err := store.UpsertPushSubscription(jobstore.PushSubscription{CallerID: "alice", Endpoint: server.URL, P256DH: base64.RawURLEncoding.EncodeToString(receiverPrivate.PublicKey().Bytes()), Auth: base64.RawURLEncoding.EncodeToString(auth), CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	// A frozen clock keeps the merge window OPEN for the whole test: on real time the 30s
+	// window could expire and the "same thread is merged" control would pass for the wrong
+	// reason.
+	clock := time.Unix(1_800_000_000, 0)
+	jobs := &dispatchJobs{result: job.JobResult{
+		ID: "job-parent", ProjectKey: "project-a", SessionID: "sess-p", Title: "监督本轮",
+		Agent: "codex", Status: job.StatusFailed,
+	}}
+	service, err := NewService(Options{
+		Store: store, Jobs: jobs, ConfigDir: t.TempDir(),
+		Now:                   func() time.Time { return clock },
+		UserCallers:           func() []string { return []string{"alice"} },
+		Visible:               func(_, _ string) bool { return true },
+		AllowInsecureLoopback: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer service.Close()
+
+	// 1) The parent's own terminal push goes out ON the job thread and claims the window.
+	service.ObserveEvent("job-parent", job.EventJobTerminal, map[string]any{"status": job.StatusFailed})
+	terminal := waitPush(t, gotCh)
+	var terminalPayload PushPayload
+	if err := json.Unmarshal(decryptPushPayload(t, terminal.body, receiverPrivate, auth), &terminalPayload); err != nil {
+		t.Fatal(err)
+	}
+	if terminalPayload.ThreadID != "s:sess-p" {
+		t.Fatalf("terminal thread_id = %q, want the job thread", terminalPayload.ThreadID)
+	}
+	if terminal.headers.Get("Topic") == "" {
+		t.Fatal("the terminal push carried no Topic header, so the control below proves nothing")
+	}
+
+	// 2) Control: another push in the same thread, inside the window, is merged away.
+	service.ObserveEvent("job-parent", job.EventSessionAwaitingReply, map[string]any{"turn_no": 2})
+	select {
+	case got := <-gotCh:
+		t.Fatalf("a same-thread push inside the merge window was delivered: %#v", got.headers)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// 3) The alert is delivered anyway, outside every thread.
+	service.ObserveEvent("job-parent", job.EventJobChildWakeFailed, map[string]any{
+		"wakeup_id": "wk-9", "child_job_id": "child-9", "reason": "parent_ended",
+		// Free text a child could put in its own title: it must reach nobody.
+		"title": "child injected title",
+	})
+	alert := waitPush(t, gotCh)
+	var payload PushPayload
+	if err := json.Unmarshal(decryptPushPayload(t, alert.body, receiverPrivate, auth), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ThreadID != "" {
+		t.Fatalf("alert thread_id = %q, want none (outside the merge window and the thread topic)", payload.ThreadID)
+	}
+	if payload.Tag != "child-wake:wk-9" {
+		t.Fatalf("alert tag = %q, want child-wake:wk-9", payload.Tag)
+	}
+	if payload.URL != "/jobs/job-parent" {
+		t.Fatalf("alert url = %q, want the parent job page", payload.URL)
+	}
+	if got := alert.headers.Get("Topic"); got != "" {
+		t.Fatalf("alert carried Topic %q, want none (a later push in that thread would replace it)", got)
+	}
+	if strings.Contains(payload.Title, "child injected title") || strings.Contains(payload.Body, "child injected title") {
+		t.Fatalf("alert text carries the child's free text: title=%q body=%q", payload.Title, payload.Body)
+	}
+	if !strings.Contains(payload.Body, "child-9") || !strings.Contains(payload.Body, "job-parent") {
+		t.Fatalf("alert body = %q, want both job ids", payload.Body)
+	}
+}
+
 // TestPushBodiesNameTheRunner (gofer-okz3 ④): a push about a finished job / a
 // waiting session says which machine it ran on. The built-in runner shows its
 // public spelling `server` (G043); an unknown runner drops the suffix.
