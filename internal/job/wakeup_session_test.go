@@ -377,6 +377,26 @@ func TestWakeupSessionTurnDiedIsNotDelivered(t *testing.T) {
 	assert.Eq(t, 1, len(sayTexts(sender)), "the undelivered receipt was sent again")
 }
 
+// TestWakeupSessionSameTurnIsNotADelivery: a session that comes back to awaiting_input on
+// the SAME turn the say was sent on did not consume it (the frame was dropped, the turn
+// ended for another reason). Being idle is not the proof — the turn number is.
+func TestWakeupSessionSameTurnIsNotADelivery(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	addChildJob(t, s, "child-same-turn", StatusDone, 0, "")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{JobID: parent.result.ID, FilterJobID: "child-same-turn", AutoChild: 1})
+	s.deliverChildReceipt(w, EventJobTerminal)
+	assert.Eq(t, 1, len(sayTexts(sender)))
+
+	// Idle again without a turn: nothing was consumed.
+	s.onParentAwaitingInput(parent.result.ID)
+
+	got := childWakeRow(t, s, w.ID)
+	assert.Eq(t, jobstore.WakeupPendingSay, got.ContinuationJobID,
+		"an idle session on the same turn was counted as a delivery")
+	assert.Eq(t, 1, got.Enabled)
+}
+
 // TestWakeupSessionTimerKeepsOldPath: routing only intercepts EVENT wakeups. A timer on
 // a live session keeps the historical behaviour (a continuation, never a say).
 func TestWakeupSessionTimerKeepsOldPath(t *testing.T) {
@@ -561,20 +581,18 @@ func TestWakeupSessionRateLimitHoldsAcrossIdleTurns(t *testing.T) {
 	s.deliverChildReceipt(w, EventInteractionCreated)
 	assert.Eq(t, 1, len(sayTexts(sender)))
 
-	// A short turn: the batch is confirmed and the session is idle again.
-	parent.mu.Lock()
-	parent.result.Status = StatusRunning
-	parent.result.TurnNo = 2
-	parent.mu.Unlock()
+	// A short turn: the batch is confirmed and the session is idle again. The worker reports
+	// the turn start (which releases the say slot) and then the next idle transition.
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusRunning, TurnNo: 2,
+	}, false)
 	// The child raises another approval while the parent works.
 	seedPendingInteraction(t, s, "int-w2", "child-window")
 	s.deliverChildReceipt(w, EventInteractionCreated)
 
-	parent.mu.Lock()
-	parent.result.Status = StatusAwaitingInput
-	parent.result.TurnNo = 3
-	parent.mu.Unlock()
-	s.onParentAwaitingInput(parent.result.ID)
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 3,
+	}, false)
 
 	assert.Eq(t, 1, len(sayTexts(sender)), "the idle flush ignored the rate window")
 	if got := childWakeRow(t, s, w.ID); got.ContinuationJobID != jobstore.WakeupPendingSay {
@@ -634,4 +652,44 @@ func TestWakeupSessionConfirmKeepsRetriggeredReceipt(t *testing.T) {
 	assert.Eq(t, jobstore.WakeupPendingSay, got.ContinuationJobID,
 		"the confirmation swallowed the interaction that arrived after the batch")
 	assert.Eq(t, 1, got.Enabled)
+}
+
+// TestWakeupSessionTriggerDuringSendSurvivesConfirm pins the RECEIPT LOCK itself: a receipt
+// that fires while the batch is being written out must be recorded as a retrigger BEFORE the
+// batch is remembered, or the confirmation resets that record and clears a sentinel the
+// parent never saw. The sender's onSend hook stands in for the event arriving mid-send.
+func TestWakeupSessionTriggerDuringSendSurvivesConfirm(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	addChildJob(t, s, "child-mid", StatusRunning, 0, "")
+	seedPendingInteraction(t, s, "int-mid-1", "child-mid")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-mid", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventInteractionCreated}),
+	})
+
+	done := make(chan struct{})
+	sender.onSend = func() {
+		// A second approval lands exactly while the receipt is being written out.
+		go func() { defer close(done); s.deliverChildReceipt(w, EventInteractionCreated) }()
+		select {
+		case <-done: // no receipt lock: the trigger slipped into the send window
+		case <-time.After(300 * time.Millisecond): // the lock held it off until the batch was recorded
+		}
+	}
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	<-done
+	sender.mu.Lock()
+	sender.onSend = nil
+	sender.mu.Unlock()
+	assert.Eq(t, 1, len(sayTexts(sender)))
+
+	// The session works the first batch through.
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 2,
+	}, false)
+
+	got := childWakeRow(t, s, w.ID)
+	assert.Eq(t, jobstore.WakeupPendingSay, got.ContinuationJobID,
+		"the confirmation cleared the receipt that arrived during the send")
 }
