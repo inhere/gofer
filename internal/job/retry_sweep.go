@@ -58,6 +58,9 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 			if cerr := s.meta.CancelRetry(rec.ID); cerr != nil {
 				slog.Warn("retry sweep: cancel undecodable retry", "retry_id", rec.ID, "err", cerr)
 			}
+			// The retry will never run: the failure it was going to replace is the child's
+			// last word, so its receipt goes out now.
+			s.deliverRetryCancelledReceipts(rec.SourceJobID)
 			failed++
 			continue
 		}
@@ -90,6 +93,8 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 				}
 				s.recordEvent(rec.SourceJobID, EventJobRetryCancelled,
 					map[string]any{"retry_id": rec.ID, "reason": oerr.Error()})
+				// Cancelled: the child's failure is final, so its receipt goes out now.
+				s.deliverRetryCancelledReceipts(rec.SourceJobID)
 				failed++
 				continue
 			}
@@ -107,6 +112,8 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 				}
 				s.recordEvent(rec.SourceJobID, EventJobRetryCancelled,
 					map[string]any{"retry_id": rec.ID, "reason": serr.Error()})
+				// Cancelled: the child's failure is final, so its receipt goes out now.
+				s.deliverRetryCancelledReceipts(rec.SourceJobID)
 				failed++
 				continue
 			}
@@ -126,6 +133,9 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 		if merr := s.meta.MarkRetryDone(rec.ID, res.ID); merr != nil {
 			slog.Warn("retry sweep: mark done", "retry_id", rec.ID, "new_job_id", res.ID, "err", merr)
 		}
+		// The retry runs as a NEW job: a child receipt watching the failed attempt follows it
+		// (design 2026-11-03 关键流程: 子 job 重试).
+		s.retargetChildWakes(rec.SourceJobID, res.ID)
 		s.recordEvent(rec.SourceJobID, EventJobRetryStarted,
 			map[string]any{"retry_id": rec.ID, "new_job_id": res.ID})
 		started++
@@ -168,8 +178,21 @@ func (s *Service) GetRetry(id string) (jobstore.RetryRecord, bool, error) {
 // submit it — the `job retry cancel <retry-id>` path. A row that already ran or was
 // already cancelled is terminal and reports an error rather than pretending to have
 // cancelled something.
+//
+// A cancelled retry is one of the four ways a child's retry stops for good, so the child
+// receipt that was held back for it (see flushPendingSaysLocked) is delivered here.
 func (s *Service) CancelRetry(id string) error {
-	return s.meta.CancelRetry(id)
+	rec, ok, err := s.meta.GetRetry(id)
+	if err != nil {
+		return err
+	}
+	if cerr := s.meta.CancelRetry(id); cerr != nil {
+		return cerr
+	}
+	if ok {
+		s.deliverRetryCancelledReceipts(rec.SourceJobID)
+	}
+	return nil
 }
 
 // RetryMaxAttempts returns the attempt ceiling a retry row was scheduled under — the

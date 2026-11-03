@@ -143,6 +143,26 @@ func main() {
 		}
 		fmt.Fprintln(os.Stderr, "wait-file: timed out")
 		os.Exit(1)
+	case "wait-file-exit":
+		// wait-file-exit <path> <max> <code> [text]: wait-file, then exit with code (and
+		// optionally print text to stderr). A test uses it to register what it needs on a
+		// RUNNING job and only then decide how that job ends.
+		d, err := time.ParseDuration(arg(3))
+		if err != nil {
+			fatal(err)
+		}
+		deadline := time.Now().Add(d)
+		for time.Now().Before(deadline) {
+			if _, serr := os.Stat(arg(2)); serr == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		code, _ := strconv.Atoi(arg(4))
+		if len(os.Args) > 5 && os.Args[5] != "" {
+			fmt.Fprintln(os.Stderr, os.Args[5])
+		}
+		os.Exit(code)
 	case "stderr-exit":
 		// stderr-exit <code> <text>: print text to stderr, exit with code — a
 		// stand-in for an agent CLI dying with a provider error.

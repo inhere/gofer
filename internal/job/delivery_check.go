@@ -506,6 +506,8 @@ func (s *Service) resumeAfterCheck(snap JobResult, d checkDecision) error {
 	}
 	snap.AutoResumedBy = res.ID
 	_ = s.persist(snap)
+	// A child receipt watching this job follows the work into its continuation.
+	s.retargetChildWakes(snap.ID, res.ID)
 	s.recordEvent(snap.ID, EventDeliveryCheckAutoResumed, DeliveryCheckEventDetail{
 		Round: d.stored.Round, ResumeCount: snap.CheckResumeCount, MaxResumes: d.max, ResumedJobID: res.ID,
 		Agent: d.stored.Agent, Model: d.stored.Model, SessionID: d.stored.SessionID, Source: d.stored.Source,

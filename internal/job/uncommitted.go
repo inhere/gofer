@@ -325,6 +325,8 @@ func (s *Service) resumeUncommitted(snap JobResult) bool {
 	}
 	snap.AutoResumedBy = res.ID
 	_ = s.persist(snap)
+	// A child receipt watching this job follows the work into its continuation.
+	s.retargetChildWakes(snap.ID, res.ID)
 	s.recordEvent(snap.ID, "job.auto_resumed", map[string]any{"job_id": res.ID, "reason": "uncommitted"})
 	return true
 }
