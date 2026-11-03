@@ -759,6 +759,12 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		// job.terminal is recorded late instead when it does not.
 	default:
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
+		// The decided outcome, for the log file: the finishing process (server for a local
+		// job, the same process for a worker-executed one — its result comes back over the
+		// runner) names the job, its status and how long it ran.
+		term := pre
+		term.Status, term.ExitCode, term.Error, term.EndedAt = status, exitCode, errStr, s.nowFn().Unix()
+		logJobTerminal(term)
 	}
 	entry.mu.Lock()
 	entry.result.Status = status
@@ -923,6 +929,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		// The takeover could not be submitted (or the row never landed): the failure
 		// IS terminal after all — record it now, late but never missing.
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
+		logJobTerminal(snap)
 	}
 	if persistErr == nil && isFinished(status) {
 		s.mu.Lock()
@@ -1199,6 +1206,7 @@ func (s *Service) maybeRetryJob(snap JobResult) {
 		s.recordEvent(snap.ID, EventJobTerminal, map[string]any{
 			"retry_schedule_error": err.Error(), "attempt": next.Attempt,
 		})
+		logJobTerminal(snap)
 		return
 	}
 	s.recordEvent(snap.ID, EventJobRetryScheduled, map[string]any{

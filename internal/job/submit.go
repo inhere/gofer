@@ -1355,6 +1355,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			"caller_id": req.CallerID,
 			"tags":      req.Tags,
 		})
+		// The same submission, for the log file (job.submitted): the event log answers
+		// "what did gofer do", the log file answers "what did THIS process do" — an
+		// operator watching serve.log needs the job id without opening the DB.
+		logJobSubmitted(jobID, req)
 		s.recordDecisions(jobID, req.decisions)
 		// gofer-3db4: an internal producer asked to be told when this job ends and its
 		// target could not be addressed — the work runs anyway, and this event is where

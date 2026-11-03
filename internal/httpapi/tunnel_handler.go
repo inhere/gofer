@@ -93,9 +93,9 @@ func (s *Server) tunnelConnect(c *rux.Context) {
 	p, nonce := s.tunnels.Begin(tunnel.Binding{WorkerID: worker, InstanceID: inst, CallerID: ce.id, Target: target, ClientRemote: r.RemoteAddr}, tunnelRendezvousTimeout)
 	tunnelID := p.TunnelID()
 	w.Header().Set(tunnel.HeaderTunnelID, tunnelID)
-	slog.Info("tunnel.requested", "event", "tunnel.requested", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "worker_id", worker, "caller", ce.id, "client_remote", r.RemoteAddr)
+	slog.Debug("tunnel.requested", "event", "tunnel.requested", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "worker_id", worker, "caller", ce.id, "client_remote", r.RemoteAddr)
 	rendezvousStart := time.Now()
-	slog.Info("tunnel.rendezvous_started", "event", "tunnel.rendezvous_started", "component", "server", "tunnel_id", tunnelID, "worker_id", worker)
+	slog.Debug("tunnel.rendezvous_started", "event", "tunnel.rendezvous_started", "component", "server", "tunnel_id", tunnelID, "worker_id", worker)
 	if err := s.hub.OpenTunnel(worker, tunnelID, network, target, nonce); err != nil {
 		p.Cancel()
 		code := http.StatusBadGateway
@@ -145,14 +145,14 @@ func (s *Server) tunnelConnect(c *rux.Context) {
 	releaseConn := s.registerLiveConn(spec)
 	defer releaseConn.release()
 	started := time.Now()
-	slog.Info("tunnel.worker_connected", "event", "tunnel.worker_connected", "component", "server", "tunnel_id", tunnelID, "worker_id", worker, "rendezvous_ms", time.Since(rendezvousStart).Milliseconds())
+	slog.Debug("tunnel.worker_connected", "event", "tunnel.worker_connected", "component", "server", "tunnel_id", tunnelID, "worker_id", worker, "rendezvous_ms", time.Since(rendezvousStart).Milliseconds())
 	slog.Info("tunnel.opened", "event", "tunnel.opened", "component", "server", "tunnel_id", tunnelID, "network", network, "caller", ce.id, "worker_id", worker, "target", target, "client_remote", r.RemoteAddr)
 	res := tunnel.Splice(spliceCtx, conn, a.Conn, tunnel.SpliceOptions{OnProgress: upd,
 		OnFirstUp: func() {
-			slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "first_byte_ms", time.Since(started).Milliseconds())
+			slog.Debug("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "first_byte_ms", time.Since(started).Milliseconds())
 		},
 		OnFirstDown: func() {
-			slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "first_byte_ms", time.Since(started).Milliseconds())
+			slog.Debug("tunnel.first_down", "event", "tunnel.first_down", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "first_byte_ms", time.Since(started).Milliseconds())
 		},
 	})
 	slog.Info("tunnel.closed", "event", "tunnel.closed", "component", "server", "tunnel_id", tunnelID, "caller", ce.id, "worker_id", worker, "target", target, "client_remote", r.RemoteAddr, "bytes_up", res.Up, "bytes_down", res.Down, "close_reason", res.Reason, "duration_ms", time.Since(started).Milliseconds(), "error", res.Err)
@@ -263,7 +263,7 @@ func (s *Server) dialHostedTunnel(ctx context.Context, callerID, worker, network
 	}
 	p, nonce := s.tunnels.Begin(tunnel.Binding{WorkerID: worker, InstanceID: inst, CallerID: callerID, Target: target, ClientRemote: "hosted"}, tunnelRendezvousTimeout)
 	tunnelID := p.TunnelID()
-	slog.Info("tunnel.requested", "event", "tunnel.requested", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "worker_id", worker, "caller", callerID, "hosted", true)
+	slog.Debug("tunnel.requested", "event", "tunnel.requested", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "worker_id", worker, "caller", callerID, "hosted", true)
 	if err := s.hub.OpenTunnel(worker, tunnelID, network, target, nonce); err != nil {
 		p.Cancel()
 		closePipePair(client, server)
@@ -302,10 +302,10 @@ func (s *Server) dialHostedTunnel(ctx context.Context, callerID, worker, network
 		defer func() { _ = a.Conn.Close(websocket.StatusNormalClosure, "closed") }()
 		res := tunnel.Splice(spliceCtx, server, a.Conn, tunnel.SpliceOptions{OnProgress: upd,
 			OnFirstUp: func() {
-				slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "caller", callerID, "hosted", true)
+				slog.Debug("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "caller", callerID, "hosted", true)
 			},
 			OnFirstDown: func() {
-				slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "caller", callerID, "hosted", true)
+				slog.Debug("tunnel.first_down", "event", "tunnel.first_down", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "caller", callerID, "hosted", true)
 			},
 		})
 		slog.Info("tunnel.closed", "event", "tunnel.closed", "component", "server", "tunnel_id", tunnelID, "caller", callerID, "worker_id", worker, "target", target, "hosted", true, "bytes_up", res.Up, "bytes_down", res.Down, "close_reason", res.Reason, "duration_ms", time.Since(started).Milliseconds(), "error", res.Err)

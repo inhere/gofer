@@ -97,6 +97,10 @@ func ConfigureFile(o FileOptions) error {
 		return nil
 	}
 	fillDefaults(&o)
+	// Mint the operation id BEFORE taking setupMu: ensureOperationID takes the same
+	// lock, so asking for it while holding it would deadlock (the id itself is
+	// process-wide and set at most once).
+	opID := ensureOperationID()
 	if err := os.MkdirAll(filepath.Dir(o.Path), 0755); err != nil {
 		return sinkFailure(o, err)
 	}
@@ -115,12 +119,9 @@ func ConfigureFile(o FileOptions) error {
 	if stderrHandler == nil {
 		stderrHandler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLevel(os.Getenv("GOFER_LOG_LEVEL")), ReplaceAttr: replaceAttr})
 	}
-	if operationID == "" {
-		operationID = runID()
-	}
 	fileSink = w
-	attrs := []slog.Attr{slog.String("operation_id", operationID), slog.String("component", o.Component)}
-	slog.SetDefault(slog.New(multiHandler{handlers: []slog.Handler{stderrHandler.WithAttrs(attrs), file.WithAttrs(attrs)}}))
+	attrs := []slog.Attr{slog.String("operation_id", opID), slog.String("component", o.Component)}
+	slog.SetDefault(slog.New(dedupeHandler{Handler: multiHandler{handlers: []slog.Handler{stderrHandler.WithAttrs(attrs), file.WithAttrs(attrs)}}, keys: attrKeys(attrs)}))
 	return nil
 }
 
@@ -187,6 +188,74 @@ func ensureOperationID() string {
 		operationID = runID()
 	}
 	return operationID
+}
+
+// attrKeys is the key set of the handler-level attrs ConfigureFile stamps on
+// every record.
+func attrKeys(as []slog.Attr) map[string]struct{} {
+	keys := make(map[string]struct{}, len(as))
+	for _, a := range as {
+		keys[a.Key] = struct{}{}
+	}
+	return keys
+}
+
+// dedupeHandler keeps one record free of duplicate keys.
+//
+// ConfigureFile stamps operation_id and component on every record, but call
+// sites still pass their own "component" ("server", "worker", ...) — the same
+// key twice in one JSONL line is invalid for strict parsers and ambiguous for a
+// reader (
+// "component":"serve",...,"component":"server"). The HANDLER value wins: it
+// names the process that actually wrote the line, which is what an operator
+// filtering serve.log / worker-<id>.log is after. A call site therefore cannot
+// override the component; it drops the duplicate instead of the authority.
+//
+// Only top-level record attrs are deduplicated: a key inside a group is a
+// different key path and is left alone.
+//
+// OpenFileSink does not wrap its handler in this: it prepends the same
+// operation_id / component once (via With) and the only writer it serves — the
+// client request log — never passes a component of its own (internal/client
+// reqlog.go).
+type dedupeHandler struct {
+	slog.Handler
+	keys map[string]struct{}
+}
+
+func (d dedupeHandler) Handle(ctx context.Context, r slog.Record) error {
+	n := 0
+	r.Attrs(func(a slog.Attr) bool {
+		if _, ok := d.keys[a.Key]; ok {
+			n++
+		}
+		return true
+	})
+	if n == 0 {
+		return d.Handler.Handle(ctx, r)
+	}
+	out := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
+	r.Attrs(func(a slog.Attr) bool {
+		if _, ok := d.keys[a.Key]; !ok {
+			out.AddAttrs(a)
+		}
+		return true
+	})
+	return d.Handler.Handle(ctx, out)
+}
+
+func (d dedupeHandler) WithAttrs(as []slog.Attr) slog.Handler {
+	if len(as) == 0 {
+		return d
+	}
+	keys := make(map[string]struct{}, len(d.keys)+len(as))
+	for k := range d.keys {
+		keys[k] = struct{}{}
+	}
+	for _, a := range as {
+		keys[a.Key] = struct{}{}
+	}
+	return dedupeHandler{Handler: d.Handler.WithAttrs(as), keys: keys}
 }
 
 func sinkFailure(o FileOptions, e error) error {
