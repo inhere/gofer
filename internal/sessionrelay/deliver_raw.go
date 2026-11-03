@@ -38,7 +38,8 @@ type RawResult struct {
 // by is the display label of the delivery ("gofer-mail"); origin is its ceiling owner —
 // the letter's sender — so the internal job stays bounded by that caller (see
 // ceiling_origin.go).
-func (s *Service) DeliverLetter(ctx context.Context, sid, text, by, origin string) (RawResult, error) {
+func (s *Service) DeliverLetter(ctx context.Context, sid, text, by, origin string) (res RawResult, err error) {
+	defer func() { s.logRaw(sid, by, res, err) }()
 	a, err := s.Session(sid)
 	if err != nil {
 		return RawResult{}, err
@@ -46,14 +47,14 @@ func (s *Service) DeliverLetter(ctx context.Context, sid, text, by, origin strin
 	if _, err := s.ceilingOwner(origin, "a mailbox letter"); err != nil {
 		return RawResult{}, err
 	}
-	res, tried, err := s.runDeliverCommand(ctx, a, text, by, origin, nil)
+	inj, tried, err := s.runDeliverCommand(ctx, a, text, by, origin, nil)
 	if err != nil {
 		return RawResult{}, err
 	}
 	if !tried {
 		return RawResult{}, undeliverable(ReasonNoDeliverCommand, errors.New("the session's agent has no deliver_command"))
 	}
-	return RawResult{Path: PathCommand, JobID: res.JobID}, nil
+	return RawResult{Path: PathCommand, JobID: inj.JobID}, nil
 }
 
 // ReasonNoDeliverCommand: DeliverLetter was asked for an agent that declares no deliver_command.
@@ -71,7 +72,8 @@ const ReasonNoDeliverCommand = "no_deliver_command"
 //
 // by is the display label of the wake ("gofer-mail"); origin is the ceiling owner behind the
 // letters that caused it (see ceiling_origin.go).
-func (s *Service) Wake(ctx context.Context, sid, text, by, origin string) (RawResult, error) {
+func (s *Service) Wake(ctx context.Context, sid, text, by, origin string) (res RawResult, err error) {
+	defer func() { s.logRaw(sid, by, res, err) }()
 	if _, err := s.ceilingOwner(origin, "a mailbox wake"); err != nil {
 		return RawResult{}, err
 	}
@@ -82,10 +84,10 @@ func (s *Service) Wake(ctx context.Context, sid, text, by, origin string) (RawRe
 	if strings.TrimSpace(text) == "" {
 		return RawResult{}, fmt.Errorf("%w: empty text", ErrInvalidInput)
 	}
-	res, tried, err := s.runDeliverCommand(ctx, a, text, by, origin, nil)
+	inj, tried, err := s.runDeliverCommand(ctx, a, text, by, origin, nil)
 	switch {
 	case tried && err == nil:
-		return RawResult{Path: PathCommand, JobID: res.JobID}, nil
+		return RawResult{Path: PathCommand, JobID: inj.JobID}, nil
 	case tried && DeliverReason(err) != ReasonNotRunning:
 		return RawResult{}, err
 	}
@@ -100,7 +102,7 @@ func (s *Service) Wake(ctx context.Context, sid, text, by, origin string) (RawRe
 		}
 		return s.wakeMessenger(ctx, a.ProjectKey, a.Runner, cwd, a.PeerName, text, by, origin)
 	}
-	inj, err := s.runTmuxInject(ctx, a, text, by, origin)
+	inj, err = s.runTmuxInject(ctx, a, text, by, origin)
 	if err != nil {
 		return RawResult{}, err
 	}

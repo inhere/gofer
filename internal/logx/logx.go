@@ -21,10 +21,12 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-// timeLayout is the log timestamp format. It drops slog's default RFC3339 zone
+// TimeLayout is the log timestamp format. It drops slog's default RFC3339 zone
 // offset (the trailing "+08:00") — local time with millis is enough and far
-// shorter to scan: 2026-06-27T15:09:21.473.
-const timeLayout = "2006-01-02T15:04:05.000"
+// shorter to scan: 2026-06-27T15:09:21.473. It is exported so a value written INTO a
+// log line (a deadline, an expected wake time) is formatted like the line's own
+// timestamp and can be read as a time, not as a unix number.
+const TimeLayout = "2006-01-02T15:04:05.000"
 
 // Setup installs the default slog logger. The level comes from GOFER_LOG_LEVEL
 // (debug | info | warn | error; default info); an unrecognised value falls back
@@ -131,7 +133,7 @@ func runID() string {
 	return fmt.Sprint(time.Now().UnixNano())
 }
 
-// shortenTime reformats the top-level time attribute to timeLayout (dropping the
+// shortenTime reformats the top-level time attribute to TimeLayout (dropping the
 // zone offset). Group-nested time values and non-time attrs pass through.
 func shortenTime(groups []string, a slog.Attr) slog.Attr {
 	return replaceAttr(groups, a)
@@ -146,7 +148,7 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	}
 	if len(groups) == 0 && a.Key == slog.TimeKey {
 		if t, ok := a.Value.Any().(time.Time); ok {
-			a.Value = slog.StringValue(t.Format(timeLayout))
+			a.Value = slog.StringValue(t.Format(TimeLayout))
 		}
 	}
 	return a

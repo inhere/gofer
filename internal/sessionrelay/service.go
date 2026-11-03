@@ -236,6 +236,10 @@ type Service struct {
 	// (config.LanguageFor, design 2026-10-27-i18n-design.md §3). nil = the
 	// DEPRECATED default, which is what a bare test service reads.
 	languageFor func(project string) i18n.Lang
+	// stateMu / stateSeen are the state memory behind session.state_changed
+	// (log_events.go): the last state this process observed per session.
+	stateMu   sync.Mutex
+	stateSeen map[string]stateStamp
 }
 
 // SetLanguageFor injects the config's language resolution (config.LanguageFor):
@@ -538,6 +542,7 @@ func (s *Service) register(in RegisterInput, enforceOwner bool) (jobstore.AgentS
 	if err == nil && s.workHook != nil && in.Event == EventUserPromptSubmit && strings.TrimSpace(in.Title) != "" {
 		s.workHook.OnHumanPrompt(a, in.Title)
 	}
+	s.noteStateChange(a, in.Event)
 	return a, true, nil
 }
 
@@ -759,6 +764,7 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 			s.notifier.NotifySessionAttention(sid, a.ProjectKey, a.Title, in.LastMessage)
 		}
 	}
+	s.noteStateChange(a, in.Event)
 	return a, nil
 }
 
@@ -960,6 +966,7 @@ func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDec
 	}); err != nil {
 		return jobstore.PlanDecision{}, err
 	}
+	s.noteState(sid, jobstore.SessionWaitingReply, EventStop)
 	// Tell the human their session is waiting (best-effort, never blocks the
 	// hook: the notifier only enqueues, the delivery sweeper does the posting).
 	if s.notifier != nil {
@@ -1166,7 +1173,9 @@ func (s *Service) ReleaseTurn(sid, turnID string, idleSec int64) (bool, error) {
 		return false, err
 	}
 	if a.State == jobstore.SessionWaitingReply {
-		_, _ = s.store.SetSessionState(sid, jobstore.SessionIdle)
+		if _, err := s.store.SetSessionState(sid, jobstore.SessionIdle); err == nil {
+			s.noteState(sid, jobstore.SessionIdle, "turn_released")
+		}
 	}
 	return true, nil
 }
@@ -1214,7 +1223,9 @@ func (s *Service) OnAnswered(d jobstore.PlanDecision) {
 		return
 	}
 	if a, ok, _ := s.store.GetAgentSession(d.SessionID); ok && a.State == jobstore.SessionWaitingReply {
-		_, _ = s.store.SetSessionState(d.SessionID, jobstore.SessionRunning)
+		if _, err := s.store.SetSessionState(d.SessionID, jobstore.SessionRunning); err == nil {
+			s.noteState(d.SessionID, jobstore.SessionRunning, "answered")
+		}
 	}
 }
 
@@ -1332,6 +1343,7 @@ func (s *Service) CompleteWatchedTurn(sid, turnID string, jobIDs []string) (bool
 	if _, err := s.store.SetSessionState(sid, jobstore.SessionRunning); err != nil {
 		return false, err
 	}
+	s.noteState(sid, jobstore.SessionRunning, "watched_job")
 	return true, nil
 }
 
@@ -1365,6 +1377,7 @@ func (s *Service) CompleteMailTurn(sid, turnID string, opts jobstore.TakeMailOpt
 		if rerr := s.store.ReleaseSessionMail(sid, ids); rerr != nil && err == nil {
 			err = rerr
 		}
+		s.logMailClaimsReleased(sid, ids, "turn already answered")
 		return false, nil, err
 	}
 	confirmed, err := s.store.ConfirmSessionMail(sid, ids)
@@ -1384,6 +1397,7 @@ func (s *Service) CompleteMailTurn(sid, turnID string, opts jobstore.TakeMailOpt
 	if _, err := s.store.SetSessionState(sid, jobstore.SessionRunning); err != nil {
 		return false, nil, err
 	}
+	s.noteState(sid, jobstore.SessionRunning, "mail_turn")
 	return true, out, nil
 }
 
@@ -1501,6 +1515,7 @@ func (s *Service) releaseTakeover(ctx context.Context, a jobstore.AgentSession, 
 	if !ok {
 		return jobstore.AgentSession{}, ErrUnknownSession
 	}
+	s.noteStateChange(after, "takeover_released")
 	return after, nil
 }
 

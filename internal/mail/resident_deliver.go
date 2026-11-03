@@ -186,14 +186,17 @@ func (d *Deliverer) sayResident(ctx context.Context, key, jobID string, m jobsto
 		return
 	}
 	if err := d.jobs.SaySession(jobID, d.renderFor(claimed)); err != nil {
-		if _, _, rerr := store.ReleaseMailClaim(m.ID, jobstore.MailDelivererClaimer, "job say: "+err.Error()); rerr != nil {
+		reason := "job say: " + err.Error()
+		if _, _, rerr := store.ReleaseMailClaim(m.ID, jobstore.MailDelivererClaimer, reason); rerr != nil {
 			slog.Warn("mail deliverer: release claim failed", "mail", m.ID, "error", rerr)
 		}
+		logClaimReleased(m.ID, reason)
 		return
 	}
 	if _, _, err := store.ConfirmMailClaim(m.ID, jobstore.MailDelivererClaimer); err != nil {
 		slog.Warn("mail deliverer: confirm failed (the letter may be sent again)", "mail", m.ID, "error", err)
 	}
+	logDelivered(claimed, PathResidentSay, d.now(), "job_id", jobID, "resident", key)
 	name, project := jobstore.SplitResidentKey(key)
 	row, hasRow, err := store.GetResidentAgent(name, project)
 	if err == nil && hasRow {

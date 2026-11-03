@@ -35,6 +35,7 @@ func (s *Service) RecordHeld(held []jobstore.Mail) error {
 
 // recordHeldAndBounce completes a hold: the capture-box item, then the notice to the sender.
 func (s *Service) recordHeldAndBounce(m jobstore.Mail, reason string) error {
+	logHeld(m, reason)
 	if err := s.recordHeld(m); err != nil {
 		return err
 	}

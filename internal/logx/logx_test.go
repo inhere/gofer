@@ -26,7 +26,7 @@ func closeFileSink() {
 	}
 }
 
-// TestShortenTimeDropsZone: the time attr is reformatted to timeLayout with no
+// TestShortenTimeDropsZone: the time attr is reformatted to TimeLayout with no
 // zone offset (the trailing "+08:00" the user wanted gone).
 func TestShortenTimeDropsZone(t *testing.T) {
 	var buf bytes.Buffer
@@ -45,7 +45,7 @@ func TestShortenTimeDropsZone(t *testing.T) {
 	// Timestamp matches timeLayout: 2006-01-02T15:04:05.000
 	layout := regexp.MustCompile(`time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\b`)
 	if !layout.MatchString(out) {
-		t.Fatalf("time not in expected layout %q: %q", timeLayout, out)
+		t.Fatalf("time not in expected layout %q: %q", TimeLayout, out)
 	}
 }
 

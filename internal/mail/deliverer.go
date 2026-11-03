@@ -131,10 +131,11 @@ type Deliverer struct {
 	isSuga func(string) bool
 	now    func() time.Time
 
-	mu       sync.Mutex
-	settings Settings
-	wokeAt   map[string]time.Time // session id → last wake attempt
-	sugaNext map[string]time.Time // session id → earliest next suga attempt
+	mu        sync.Mutex
+	settings  Settings
+	wokeAt    map[string]time.Time // session id → last wake attempt
+	sugaNext  map[string]time.Time // session id → earliest next suga attempt
+	wakeWaits map[string]wakeWait  // session id → why its letters are still waiting (wake_wait.go)
 
 	// tickMu serialises sweeps (the loop's and a direct Tick's).
 	tickMu sync.Mutex
@@ -151,6 +152,7 @@ func NewDeliverer(o DelivererOptions) *Deliverer {
 		svc: o.Svc, sender: o.Sender, jobs: o.Jobs, isSuga: o.IsSuga, now: o.Now,
 		settings: o.Settings.withDefaults(),
 		wokeAt:   map[string]time.Time{}, sugaNext: map[string]time.Time{},
+		wakeWaits: map[string]wakeWait{},
 	}
 	if d.now == nil {
 		d.now = time.Now
@@ -291,26 +293,39 @@ func (d *Deliverer) sweepSessions(ctx context.Context, now time.Time, st Setting
 		slog.Warn("mail deliverer: list pending session mail failed", "error", err)
 		return
 	}
+	waiting := make(map[string]bool, len(ids))
 	for _, sid := range ids {
 		if ctx.Err() != nil {
 			return
 		}
+		waiting[sid] = true
 		a, ok, err := d.svc.store.GetAgentSession(sid)
 		if err != nil || !ok {
 			continue
 		}
+		letters := byID[sid]
 		if a.MailPaused {
+			d.noteWakeWaiting(a, len(letters), WaitPaused, time.Time{}, now)
 			continue
 		}
-		letters := byID[sid]
 		if d.isSuga(a.Agent) {
 			d.deliverToSuga(ctx, a, letters, now, st)
 			continue
 		}
-		if WakeDue(a, letters, now, st.WakeIdle) && d.wakeAllowed(sid, now, st) {
-			d.wake(ctx, a, letters, now)
+		if !WakeDue(a, letters, now, st.WakeIdle) {
+			d.noteWakeWaiting(a, len(letters), wakeWaitReason(a), wakeWaitEarliest(a, now, st), now)
+			continue
 		}
+		if !d.wakeAllowed(sid, now, st) {
+			d.noteWakeWaiting(a, len(letters), WaitWakeInterval, d.lastWakeAttempt(sid).Add(st.WakeInterval), now)
+			continue
+		}
+		d.dropWakeWait(sid)
+		d.wake(ctx, a, letters, now)
 	}
+	// A session that was delivered / cancelled / expired since the last sweep is not in `ids`
+	// any more: forget why it used to wait.
+	d.retainWakeWaits(waiting)
 }
 
 // letterOrigin is the caller-scope ceiling owner of a letter's delivery: the caller that sent
@@ -382,10 +397,21 @@ func (d *Deliverer) wake(ctx context.Context, a jobstore.AgentSession, letters [
 	}
 	res, err := d.sender.Wake(sctx, a.SessionID, RenderWake(count), delivererBy, origin)
 	if err != nil {
-		slog.Info("mail deliverer: wake not delivered", "session", a.SessionID, "pending", count, "error", err)
+		slog.Info("mail deliverer: wake not delivered", "session", a.SessionID, "pending", count,
+			"reason", sessionrelay.DeliverReason(err), "error", err)
 		return
 	}
-	slog.Info("mail deliverer: woke session", "session", a.SessionID, "pending", count, "path", res.Path)
+	slog.Info("mail deliverer: woke session", "session", a.SessionID, "pending", count,
+		"path", res.Path, "job_id", res.JobID, "mails", mailIDs(letters), "state", a.State)
+}
+
+// mailIDs lists the letters a delivery or a wake was about (ids only).
+func mailIDs(letters []jobstore.Mail) []int64 {
+	ids := make([]int64, len(letters))
+	for i, m := range letters {
+		ids[i] = m.ID
+	}
+	return ids
 }
 
 // renderFor renders a letter the way the hook does (the shared renderer), body cut to the
@@ -429,16 +455,17 @@ func (d *Deliverer) deliverToSuga(ctx context.Context, a jobstore.AgentSession, 
 			continue
 		}
 		sctx, cancel := context.WithTimeout(ctx, sendTimeout)
-		_, err = d.sender.DeliverLetter(sctx, a.SessionID, d.renderFor(claimed), delivererBy, d.letterOrigin(claimed))
+		res, derr := d.sender.DeliverLetter(sctx, a.SessionID, d.renderFor(claimed), delivererBy, d.letterOrigin(claimed))
 		cancel()
-		if err != nil {
-			reason := "suga send: " + err.Error()
-			if sessionrelay.DeliverReason(err) == sessionrelay.ReasonNotRunning {
+		if derr != nil {
+			reason := "suga send: " + derr.Error()
+			if sessionrelay.DeliverReason(derr) == sessionrelay.ReasonNotRunning {
 				reason = "session not online"
 			}
 			if _, _, rerr := store.ReleaseMailClaim(m.ID, jobstore.MailDelivererClaimer, reason); rerr != nil {
 				slog.Warn("mail deliverer: release claim failed", "mail", m.ID, "error", rerr)
 			}
+			logClaimReleased(m.ID, reason)
 			d.mu.Lock()
 			d.sugaNext[a.SessionID] = now.Add(sugaRetryAfter)
 			d.mu.Unlock()
@@ -448,6 +475,7 @@ func (d *Deliverer) deliverToSuga(ctx context.Context, a jobstore.AgentSession, 
 		if _, _, err := store.ConfirmMailClaim(m.ID, jobstore.MailDelivererClaimer); err != nil {
 			slog.Warn("mail deliverer: confirm failed (the letter may be sent again)", "mail", m.ID, "error", err)
 		}
+		logDelivered(claimed, PathSugaSend, now, "session", a.SessionID, "job_id", res.JobID)
 	}
 }
 
@@ -483,7 +511,7 @@ func (d *Deliverer) sweepJobs(ctx context.Context, now time.Time, st Settings) {
 			// before that rule existed.
 			d.holdJobLetters(letters, oneOffJobReason(lang))
 		case rec.Status == job.StatusAwaitingInput:
-			d.sayToJob(ctx, id, letters[0], st)
+			d.sayToJob(ctx, id, letters[0], now, st)
 		}
 		// Anything else (queued / running session job) waits: a job that reaches
 		// awaiting_input gets its letters at a later sweep.
@@ -514,7 +542,7 @@ func (d *Deliverer) holdJobLetters(letters []jobstore.Mail, reason string) {
 
 // sayToJob delivers ONE letter to an ACP session job awaiting input (the job accepts one
 // pending input at a time): claim → say → confirm.
-func (d *Deliverer) sayToJob(ctx context.Context, jobID string, m jobstore.Mail, st Settings) {
+func (d *Deliverer) sayToJob(ctx context.Context, jobID string, m jobstore.Mail, now time.Time, st Settings) {
 	if d.jobs == nil {
 		return
 	}
@@ -528,6 +556,7 @@ func (d *Deliverer) sayToJob(ctx context.Context, jobID string, m jobstore.Mail,
 		if _, _, rerr := store.ReleaseMailClaim(m.ID, jobstore.MailDelivererClaimer, reason); rerr != nil {
 			slog.Warn("mail deliverer: release claim failed", "mail", m.ID, "error", rerr)
 		}
+		logClaimReleased(m.ID, reason)
 		if !errors.Is(err, job.ErrJobNotRunning) && !errors.Is(err, job.ErrInvalidRequest) {
 			slog.Info("mail deliverer: job say failed", "mail", m.ID, "job", jobID, "error", err)
 		}
@@ -536,4 +565,5 @@ func (d *Deliverer) sayToJob(ctx context.Context, jobID string, m jobstore.Mail,
 	if _, _, err := store.ConfirmMailClaim(m.ID, jobstore.MailDelivererClaimer); err != nil {
 		slog.Warn("mail deliverer: confirm failed (the letter may be sent again)", "mail", m.ID, "error", err)
 	}
+	logDelivered(claimed, PathJobSay, now, "job_id", jobID)
 }
