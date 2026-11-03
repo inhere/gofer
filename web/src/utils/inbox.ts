@@ -84,7 +84,7 @@ export function applyStateLocally(
 
 // itemFamily：条目标签的状态族——失败待决定 = fail，仅知会 = idle（不抢注意力），其余要处理 = need。
 export function itemFamily(item: Pick<InboxItem, 'kind' | 'column'>): StatusFamily {
-  if (item.kind === 'job.failed') return 'fail'
+  if (item.kind === 'job.failed' || item.kind === 'job.child_wake_failed') return 'fail'
   if (item.column === 'fyi') return 'idle'
   return 'need'
 }
@@ -107,6 +107,8 @@ export const INBOX_KINDS: readonly string[] = [
   'worker_enroll',
   'job.terminal',
   'job.failed',
+  // 子 job 有结果但回执送不到常驻父 job（父 job 已结束 / 回执过期）
+  'job.child_wake_failed',
 ]
 
 export function kindLabelKey(kind: string): string {

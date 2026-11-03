@@ -158,6 +158,7 @@ export function cardLink(card: TodayCard): string {
     case 'review':
     case 'approval':
     case 'job.failed':
+    case 'job.child_wake_failed':
       if (r.job_id) return `/jobs/${encodeURIComponent(r.job_id)}`
       break
     case 'work':

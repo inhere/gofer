@@ -119,6 +119,10 @@ func signalsOf(c today.Card) (subject string, s Signals, ok bool) {
 		return c.Key, Signals{DeliveryHeld: true}, true
 	case KindJobFailed:
 		return "job:" + c.Refs.JobID, Signals{FailedBySelf: true}, true
+	case KindChildWakeFailed:
+		// The stranded child receipt is a job of the parent's that needs a person now: it
+		// shares the parent's subject, so one parent never appears twice.
+		return "job:" + c.Refs.JobID, Signals{FailedBySelf: true}, true
 	}
 	return "", Signals{}, false
 }

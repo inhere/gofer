@@ -11,6 +11,17 @@
 
 ## [未发布]
 
+### 变更
+
+- 常驻 ACP job 的子 job 回执（gofer-rt3z，分批实施中）：
+  - 新增配置 `wakeup.child_events`（默认 `[job.terminal, job.needs_review]`），可选 `job.awaiting_approval`、
+    `interaction.created`；`job.terminal` 始终包含，未知值拒绝。
+  - 新增事件 `job.child_wake_failed`（子 job 有结果但回执送不到常驻父 job：父 job 已结束或回执过期），
+    默认进入 webhook、桌面通知、Web Push 与收件箱「待我处理」列。旧的 `job.wakeup_failed` 默认集合不变。
+  - worker / peer 子 job 的 `interaction.created` 事件现在也会记录（此前只有本机 job 记录），因此 IM、桌面、
+    Web Push 会开始收到远端子 job 的工具审批 / 提问通知。
+  - 唤醒失败不再显示为「已触发」：`fired_count` 只在续接或回执真的送出后累加。
+
 ## [0.209.3] - 2026-11-03
 
 ### 变更

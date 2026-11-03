@@ -117,6 +117,41 @@ func (s *Store) ListJobEventsDesc(scope string, before int64, limit int) ([]JobE
 	return out, nil
 }
 
+// ListJobEventsByType returns every event of ONE type recorded at or after sinceAt
+// (sinceAt <= 0 = no time bound), NEWEST first. It serves the cross-job readers that
+// ask about an event type rather than about a job — the inbox card of
+// job.child_wake_failed is the first (the card is about the parent job, but the
+// source rows are the alerts). Ordered by seq DESC so a card builder that keeps only
+// the newest per job reads them in one pass.
+func (s *Store) ListJobEventsByType(eventType string, sinceAt int64) ([]JobEvent, error) {
+	q := selectEventCols + " WHERE type = ?"
+	args := []any{eventType}
+	if sinceAt > 0 {
+		q += " AND at >= ?"
+		args = append(args, sinceAt)
+	}
+	q += " ORDER BY seq DESC"
+
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list job events by type %q: %w", eventType, err)
+	}
+	defer rows.Close()
+
+	out := make([]JobEvent, 0)
+	for rows.Next() {
+		ev, scanErr := scanEvent(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("jobstore: scan job event row: %w", scanErr)
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list job events by type %q rows: %w", eventType, err)
+	}
+	return out, nil
+}
+
 // ListJobEvents returns a job's events in insertion order (seq ASC). When
 // sinceSeq > 0 only events strictly after it are returned (the incremental cursor
 // for SSE/poll). A job with no events yields an empty slice and no error.

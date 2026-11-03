@@ -1137,6 +1137,15 @@ func validate(cfg *Config) error {
 	if cfg.Wakeup.TTLSec < 0 {
 		return fmt.Errorf("wakeup.ttl_sec must be >= 0")
 	}
+	// A child receipt's event set is validated here but NOT normalized: validate never
+	// mutates the config, and ResolveChildEvents adds job.terminal back at the moment
+	// the set is used (design 2026-11-03 回执事件).
+	for i, ev := range cfg.Wakeup.ChildEvents {
+		if !IsWakeupChildEvent(strings.TrimSpace(ev)) {
+			return fmt.Errorf("wakeup.child_events[%d] %q is not supported (want one of %s)",
+				i, ev, strings.Join(WakeupChildEvents(), "|"))
+		}
+	}
 	if err := cfg.Mail.validate(); err != nil {
 		return err
 	}

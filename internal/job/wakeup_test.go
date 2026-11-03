@@ -664,6 +664,66 @@ func TestWakeupOnFinishedJobFiresAtOnce(t *testing.T) {
 	}
 }
 
+// TestWakeupFiredCountOnlyOnSuccess: a trigger that cannot start its continuation
+// leaves fired_count untouched (design 2026-11-03 范围 3: a failing wakeup used to
+// read as `fired=1`) and frees the slot, recording job.wakeup_failed instead; a
+// trigger that DOES start one counts exactly one fire.
+func TestWakeupFiredCountOnlyOnSuccess(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	clk := &fakeClock{}
+	s := newWakeupService(t, root, clk)
+
+	// A wakeup whose target job does not exist: checkResume refuses it, so this is a
+	// continuation failure inside fireWakeup (not a coalesce, not a rebuild path).
+	ghost := jobstore.WakeupRecord{
+		ID: "wk-ghost", JobID: "no-such-job", Kind: jobstore.WakeupKindEvent,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal}),
+		FilterJobID:    "no-such-job", Mode: jobstore.WakeupModeContinuous, Enabled: 1,
+		CreatedBy: "alice", CreatedAt: clk.unix, ExpiresAt: clk.unix + 3600,
+	}
+	if err := s.Meta().InsertWakeup(ghost); err != nil {
+		t.Fatalf("InsertWakeup: %v", err)
+	}
+	s.FireWakeup(ghost.ID, EventJobTerminal)
+
+	row, ok, err := s.GetWakeup(ghost.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetWakeup(%s) = ok=%v err=%v", ghost.ID, ok, err)
+	}
+	if row.FiredCount != 0 {
+		t.Fatalf("fired_count = %d, want a failed continuation not to count", row.FiredCount)
+	}
+	if row.ContinuationJobID != "" {
+		t.Fatalf("continuation_job_id = %q, want the slot released after the failure", row.ContinuationJobID)
+	}
+	if row.Enabled != 1 {
+		t.Fatalf("wakeup = %+v, want a repeatable failure left armed", row)
+	}
+	detail := eventDetailOf(t, s, ghost.JobID, EventJobWakeupFailed)
+	if detail["wakeup_id"] != ghost.ID {
+		t.Fatalf("job.wakeup_failed detail = %+v, want the wakeup named", detail)
+	}
+
+	// The same trigger on a target that CAN be continued counts exactly one fire.
+	src := finishedSessionJob(t, s, "codex", "first turn")
+	w, err := s.CreateWakeup(WakeupSpec{
+		JobID: src.ID, Kind: jobstore.WakeupKindAt, At: clk.unix + 60,
+		Instruction: "check the result",
+	}, "alice", nil)
+	if err != nil {
+		t.Fatalf("CreateWakeup: %v", err)
+	}
+	s.FireWakeup(w.ID, jobstore.WakeupKindAt)
+	fired := waitWakeupFired(t, s, w.ID, 1)
+	if fired.FiredCount != 1 {
+		t.Fatalf("fired_count = %d, want the successful continuation counted once", fired.FiredCount)
+	}
+	if _, ok := s.Wait(fired.ContinuationJobID); !ok {
+		t.Fatalf("continuation job %s not found", fired.ContinuationJobID)
+	}
+}
+
 // TestWakeupCreateRequiresResumePermission: registering (or switching) a wakeup is the
 // same privilege as resuming the job — its own caller, or a caller that the ENTRY layer's
 // gate admits (the permission job.wake.others; design §五.1 权限, plan T1.5a: the service no

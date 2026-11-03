@@ -120,7 +120,8 @@ func TestWakeupRoundTripDueAndAdvance(t *testing.T) {
 // TestClaimWakeupFireIsExclusive: the continuation slot is taken exactly once. A
 // second claim (a concurrent trigger, or a trigger that arrives while the submit is
 // in flight) loses, which is what makes coalescing possible at all; the slot is only
-// released by the value that holds it.
+// released by the value that holds it. Taking the slot does NOT count a fire — the
+// count moves when the trigger actually delivered (SetWakeupContinuation).
 func TestClaimWakeupFireIsExclusive(t *testing.T) {
 	s := openTest(t)
 	assert.NoErr(t, s.InsertWakeup(WakeupRecord{
@@ -133,8 +134,8 @@ func TestClaimWakeupFireIsExclusive(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	row, _, _ := s.GetWakeup("wk-1")
-	if !row.IsContinuationPending() || row.FiredCount != 1 || row.LastFiredAt == 0 {
-		t.Fatalf("row = %+v, want the slot claimed and counted", row)
+	if !row.IsContinuationPending() || row.FiredCount != 0 || row.LastFiredAt == 0 {
+		t.Fatalf("row = %+v, want the slot claimed, stamped and NOT yet counted", row)
 	}
 
 	// A second claim loses while the slot is held.
@@ -144,17 +145,17 @@ func TestClaimWakeupFireIsExclusive(t *testing.T) {
 		t.Fatalf("a second claim won a slot that was already taken")
 	}
 	row, _, _ = s.GetWakeup("wk-1")
-	if row.ContinuationJobID != WakeupClaimPending || row.FiredCount != 1 {
+	if row.ContinuationJobID != WakeupClaimPending || row.FiredCount != 0 {
 		t.Fatalf("row = %+v, want the loser to change nothing", row)
 	}
 
-	// The submit resolves the claim into the real job id.
+	// The submit resolves the claim into the real job id and counts the fire.
 	ok, err = s.SetWakeupContinuation("wk-1", "job-2")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	row, _, _ = s.GetWakeup("wk-1")
-	if row.ContinuationJobID != "job-2" {
-		t.Fatalf("row = %+v, want the continuation recorded", row)
+	if row.ContinuationJobID != "job-2" || row.FiredCount != 1 {
+		t.Fatalf("row = %+v, want the continuation recorded and counted once", row)
 	}
 	// ...and only once: a fire that lost its slot cannot overwrite the winner's.
 	ok, err = s.SetWakeupContinuation("wk-1", "job-3")

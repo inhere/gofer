@@ -710,7 +710,11 @@ var schemaStmts = []string{
   continuation_job_id TEXT,
   created_by          TEXT,
   created_at          INTEGER NOT NULL,
-  expires_at          INTEGER
+  expires_at          INTEGER,
+  -- auto_child marks a receipt registration the server created for a child job a
+  -- resident job submitted with its own credential (0 = caller-registered, JOB-09).
+  -- Additive: a database written before it is upgraded by migrateWakeups.
+  auto_child          INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_wakeups_due ON job_wakeups(enabled, next_run_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_wakeups_job ON job_wakeups(job_id)`,
@@ -1842,6 +1846,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateCapturedDispatchFinalizes(); err != nil {
 		return err
 	}
+	if err := s.migrateWakeups(); err != nil {
+		return err
+	}
 	if err := s.markProvenanceSince(); err != nil {
 		return err
 	}
@@ -1883,6 +1890,23 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_jobs_session_id ON jobs(session_id) WHERE session_id <> ''`,
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate session_id index: %w", err)
+	}
+	return nil
+}
+
+// migrateWakeups adds the columns job_wakeups gained after JOB-09 (probe PRAGMA
+// first, then ALTER ADD once, so it is idempotent). auto_child is additive and
+// defaults to 0, so every caller-registered wakeup of an older database reads back
+// exactly as it behaved before (only the server's own child receipts set it).
+func (s *Store) migrateWakeups() error {
+	cols, err := s.tableColumns("job_wakeups")
+	if err != nil {
+		return err
+	}
+	if _, ok := cols["auto_child"]; !ok {
+		if _, err := s.db.Exec("ALTER TABLE job_wakeups ADD COLUMN auto_child INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return fmt.Errorf("jobstore: migrate wakeups add auto_child: %w", err)
+		}
 	}
 	return nil
 }

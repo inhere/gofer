@@ -55,8 +55,9 @@ func Advisable(kind string, a Action) bool {
 }
 
 // CanAdvise reports whether advice can be written for a card of this kind: every card of the
-// queue, but not the failed-job card the 「等我」 list adds from outside it.
-func CanAdvise(kind string) bool { return kind != KindJobFailed }
+// queue, but not the two kinds the 「等我」 list adds from outside it (a failed job, a child
+// receipt that can no longer reach its resident parent).
+func CanAdvise(kind string) bool { return kind != KindJobFailed && kind != KindChildWakeFailed }
 
 // Advise validates and stores the advice for one card of the current queue. by is the
 // speaker label (steward(<agent>) or human:<id>), jobID the steward's job when it wrote it.

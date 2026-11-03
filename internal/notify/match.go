@@ -54,7 +54,13 @@ import (
 // update.available (gofer-29gi) joins them: a newer gofer release was found, and only
 // an administrator decides when to upgrade. It fires once per version, and never when
 // the update check is off.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe, "job.delivery_failed", EventUpdateAvailable}
+//
+// job.child_wake_failed (gofer-rt3z) joins them: a resident job's child finished but the
+// receipt can never reach it (the parent ended, or the receipt expired), so somebody has
+// to look at the child's result. The older job.wakeup_failed stays OUT of every default:
+// it also counts failures of a repeating timer parked on a live job, which would be a
+// notification every tick.
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe, "job.delivery_failed", EventUpdateAvailable, "job.child_wake_failed"}
 
 // EventUpdateAvailable fires once per newly found gofer release (server.update).
 const EventUpdateAvailable = "update.available"
@@ -177,8 +183,10 @@ func eventMatchesAny(filter []string, eventType string, defaults []string) bool 
 // default: a desktop notification is an interruption on the machine's own screen, so
 // only "this waits for a person right now" belongs in it — a job held for approval, an
 // interaction (a question / permission) the agent raised, a continuous session waiting
-// for a reply, and a job parked for human review.
-var DefaultDesktopEvents = []string{"job.awaiting_approval", "interaction.created", "session.awaiting_reply", "job.needs_review"}
+// for a reply, a job parked for human review, and a child receipt that will never reach
+// its resident parent (job.child_wake_failed: the parent ended or the receipt expired,
+// so only a person can pick the child's result up now).
+var DefaultDesktopEvents = []string{"job.awaiting_approval", "interaction.created", "session.awaiting_reply", "job.needs_review", "job.child_wake_failed"}
 
 // MatchDesktop reports whether an event should pop a desktop notification on the
 // server's own machine (gofer-3wce): the notification block is not paused, the desktop

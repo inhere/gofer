@@ -38,6 +38,11 @@ const (
 	// it outside this package). It enters the 「等我」 list but is not a queue card: advice
 	// cannot be written for it.
 	KindJobFailed = "job.failed"
+	// KindChildWakeFailed is the card of a child job whose result can no longer reach the
+	// resident parent job that submitted it (inbox.ChildWakeCards builds it outside this
+	// package from the job.child_wake_failed events). Like KindJobFailed it enters the 「等我」
+	// list but is not a queue card: advice cannot be written for it.
+	KindChildWakeFailed = "job.child_wake_failed"
 )
 
 // MailHeldCardKey is the stable key of the held-mail summary card; MailHeldLink is the web

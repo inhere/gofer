@@ -62,7 +62,8 @@ func (s *Service) dispatch(event queuedEvent) {
 		event.kind != job.EventJobAwaitingApproval &&
 		event.kind != job.EventJobTerminal &&
 		event.kind != job.EventPlanBlocked &&
-		event.kind != job.EventSessionAwaitingReply {
+		event.kind != job.EventSessionAwaitingReply &&
+		event.kind != job.EventJobChildWakeFailed {
 		return
 	}
 
@@ -125,6 +126,20 @@ func (s *Service) dispatch(event queuedEvent) {
 	case job.EventPlanBlocked:
 		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
 		urgency = "high"
+	case job.EventJobChildWakeFailed:
+		// gofer-rt3z: the receipt of a resident job's child can never be delivered (the
+		// parent ended, or the receipt expired) — the alert is the ONLY thing that tells
+		// a person. It is deliberately outside every thread: no ThreadID (so the 30s
+		// merge window is neither checked nor occupied — an alert right behind the
+		// parent's own terminal push must not be swallowed), no thread Topic (a later
+		// push in that thread would replace it) and its own Tag. The tap opens the
+		// PARENT job, which is where the child list lives.
+		wakeupID, _ := stringDetail(event.detail, "wakeup_id")
+		base.ThreadID = ""
+		base.Tag = "child-wake:" + wakeupID
+		base.URL = "/jobs/" + url.PathEscape(result.ID)
+		base.Title, base.Body = pushTitleBody(s.lang(result.ProjectKey), event.kind, result, event.detail, nil)
+		urgency = "high"
 	}
 
 	seenCallers := make(map[string]struct{})
@@ -165,8 +180,18 @@ func pushTitleBody(lang i18n.Lang, kind string, result job.JobResult, detail map
 	case job.EventPlanBlocked:
 		reason, _ := stringDetail(detail, "reason")
 		return i18n.T(lang, "webpush.title.plan_blocked"), truncateRunes(reason, 120)
+	case job.EventJobChildWakeFailed:
+		childID, _ := stringDetail(detail, "child_job_id")
+		return i18n.T(lang, "webpush.title.child_wake_failed"), truncateRunes(childWakePushBody(lang, childID, result.ID), 120)
 	}
 	return "", ""
+}
+
+// childWakePushBody is the body of a job.child_wake_failed push: which child job's
+// result is stranded and on which parent. No title, no output, no prompt (SR1301: the
+// child can rename itself freely, so its title is untrusted text).
+func childWakePushBody(lang i18n.Lang, childJobID, parentJobID string) string {
+	return i18n.T(lang, "webpush.body.child_wake_failed", "child", childJobID, "parent", parentJobID)
 }
 
 func (s *Service) dispatchTest(callerID string, lang i18n.Lang) {
