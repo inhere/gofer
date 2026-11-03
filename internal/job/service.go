@@ -336,6 +336,13 @@ type Service struct {
 	// Injected at assemble time; nil means the deployment has no rule library, and a
 	// job that binds a rule is rejected rather than run without it.
 	rules RuleLibrary
+
+	// wakeupSayLocks holds one receipt lock per parent job, and wakeupSayStates its
+	// delivery state (see wakeup_session.go). Both are keyed by a PARENT job id, so
+	// the set grows with the resident sessions of this process, never with the jobs
+	// they supervise.
+	wakeupSayLocks  sync.Map
+	wakeupSayStates sync.Map
 }
 
 func (s *Service) SetIssueLinker(linker IssueLinker) { s.issueLinker = linker }

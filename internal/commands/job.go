@@ -67,6 +67,8 @@ type jobRunFlags struct {
 	session         bool
 	idleTimeout     int
 	maxSession      int
+	noParentWake    bool
+	parentWakeEv    gcli.Strings
 	cols            int
 	rows            int
 	worktree        bool
@@ -1513,6 +1515,12 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.BoolOpt2(&jobRunOpts.session, "session", "keep an ACP agent in the same job across turns", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.idleTimeout, "idle-timeout", "seconds to await the next session message (0 = 1800)", jobRunOptCategory("Execution", 0))
 	c.IntOpt2(&jobRunOpts.maxSession, "max-session", "whole session ceiling in seconds (0 = unlimited)", jobRunOptCategory("Execution", 0))
+	// Resi dent-job child receipts (design 2026-11-03): a resident job that submits a job
+	// with its own credential is woken when that job has a result. These two shape or turn
+	// off that receipt for THIS submission; only a job credential's submit can carry them
+	// (the server refuses them for any other caller).
+	c.BoolOpt2(&jobRunOpts.noParentWake, "no-parent-wake", "do not wake the resident job that submits this job when it ends (only a job credential's submit registers a receipt)", gflag.WithCategory("Execution"))
+	c.VarOpt(&jobRunOpts.parentWakeEv, "parent-wake-events", "", "with a resident parent: which child events wake it, comma-separated (job.terminal,job.needs_review,job.awaiting_approval,interaction.created; job.terminal is always included)", gflag.WithCategory("Execution"))
 	// SUP-01 P2：验证步骤——agent 正常结束（exit 0）后在同一个 cwd/env 里跑的验收命令；
 	// 失败即 job failed。CLI 收一整条命令行（shell-words 拆 argv；gofer 不经过 shell，
 	// 需要 shell 就写成 --verify 'bash -lc "…"'）。
@@ -2357,33 +2365,37 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		return job.JobRequest{}, err
 	}
 	req := job.JobRequest{
-		ProjectKey:      jobRunOpts.project,
-		Agent:           jobRunOpts.agent,
-		Runner:          runner,
-		Prompt:          jobRunOpts.prompt,
-		AgentArgs:       []string(jobRunOpts.agentArgs),
-		ReadDirs:        []string(jobRunOpts.readDirs),
-		LockPaths:       []string(jobRunOpts.lock),
-		LockWaitSec:     lockWait,
-		Cmd:             cmd, // tokens after `--`, e.g. ["go","version"]
-		Cwd:             jobRunOpts.cwd,
-		Worktree:        jobRunOpts.worktree,
-		WorktreeBase:    jobRunOpts.worktreeBase,
-		WorktreeName:    jobRunOpts.worktreeName,
-		WorktreeBranch:  jobRunOpts.worktreeBranch,
-		TimeoutSec:      jobRunOpts.timeout,
-		StrictTimeout:   jobRunOpts.strictTimeout,
-		Session:         jobRunOpts.session,
-		IdleTimeoutSec:  jobRunOpts.idleTimeout,
-		MaxSessionSec:   jobRunOpts.maxSession,
-		Title:           jobRunOpts.title,
-		Sync:            jobRunOpts.sync,
-		WaitTimeoutSec:  jobRunOpts.waitTimeout,
-		WorkerID:        jobRunOpts.workerID,
-		WorkerLabels:    splitLabels(jobRunOpts.workerLabels),
-		Tags:            splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
-		PlanID:          jobRunOpts.plan,
-		SourceSessionID: jobRunOpts.sourceSessionID,
+		ProjectKey:     jobRunOpts.project,
+		Agent:          jobRunOpts.agent,
+		Runner:         runner,
+		Prompt:         jobRunOpts.prompt,
+		AgentArgs:      []string(jobRunOpts.agentArgs),
+		ReadDirs:       []string(jobRunOpts.readDirs),
+		LockPaths:      []string(jobRunOpts.lock),
+		LockWaitSec:    lockWait,
+		Cmd:            cmd, // tokens after `--`, e.g. ["go","version"]
+		Cwd:            jobRunOpts.cwd,
+		Worktree:       jobRunOpts.worktree,
+		WorktreeBase:   jobRunOpts.worktreeBase,
+		WorktreeName:   jobRunOpts.worktreeName,
+		WorktreeBranch: jobRunOpts.worktreeBranch,
+		TimeoutSec:     jobRunOpts.timeout,
+		StrictTimeout:  jobRunOpts.strictTimeout,
+		Session:        jobRunOpts.session,
+		IdleTimeoutSec: jobRunOpts.idleTimeout,
+		MaxSessionSec:  jobRunOpts.maxSession,
+		// Child receipt of the resident job that submits this one (server-side: the parent
+		// id comes from the job credential, never from here).
+		NoParentWake:     jobRunOpts.noParentWake,
+		ParentWakeEvents: flattenPlanTags(jobRunOpts.parentWakeEv),
+		Title:            jobRunOpts.title,
+		Sync:             jobRunOpts.sync,
+		WaitTimeoutSec:   jobRunOpts.waitTimeout,
+		WorkerID:         jobRunOpts.workerID,
+		WorkerLabels:     splitLabels(jobRunOpts.workerLabels),
+		Tags:             splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
+		PlanID:           jobRunOpts.plan,
+		SourceSessionID:  jobRunOpts.sourceSessionID,
 		// gofer-3db4: who to tell when this job ends (--notify / --notify-session, the
 		// latter implying the former). Resolved above, so a --notify with nobody to tell
 		// fails before a job exists.

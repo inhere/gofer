@@ -256,6 +256,7 @@ job run	flag model	model for the agent (cli-agent: its model_args, built in for 
 job run	flag no-fallback	do not hand this job to a fallback agent (overrides every configured list)
 job run	flag no-mcp	give this job no registry MCP servers (overrides every configured binding)
 job run	flag no-notify	do not notify the submitting session when this job ends (a --hold job run from an agent session notifies that session by default)
+job run	flag no-parent-wake	do not wake the resident job that submits this job when it ends (only a job credential's submit registers a receipt)
 job run	flag no-retry	never re-run this job after a failure (overrides every configured policy)
 job run	flag no-rules	inject no rules for this job (overrides every configured binding; a job credential may not use this)
 job run	flag no-scope-discipline	do not append the project's 「交付约定」 (scope discipline) section to this job's prompt
@@ -265,6 +266,7 @@ job run	flag no-stall	never kill this job for silence (overrides --stall-timeout
 job run	flag no-verify	do not run the project's default verify step for this job
 job run	flag notify	tell the submitting session through the gofer messenger when this job ends (a system notice; off by default because each notice starts a messenger process)
 job run	flag notify-session	session id to notify when this job ends (implies --notify); default: the source session, else the agent session this command runs in ($GOFER_SESSION_ID / $CLAUDE_CODE_SESSION_ID)
+job run	flag parent-wake-events	with a resident parent: which child events wake it, comma-separated (job.terminal,job.needs_review,job.awaiting_approval,interaction.created; job.terminal is always included)
 job run	flag plan	attach the job to a plan (grouping key)
 job run	flag prime-keywords	comma-separated subsystems / languages / modules this task touches: the injected tracker-prime matches them (with the title and the prompt head) against the memories' keywords, keys, tags and summaries, injecting the matching ones in full and first (default: $GOFER_PRIME_KEYWORDS)
 job run	flag project	project key (required)

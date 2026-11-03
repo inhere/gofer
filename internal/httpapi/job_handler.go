@@ -91,6 +91,29 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	if !s.jobMaySubmit(c, &req) {
 		return
 	}
+	// Child receipts (design 2026-11-03): only a RESIDENT job's own credential can be the
+	// parent of a receipt, so the parent id comes from the credential and never from the
+	// body (req.ParentJobID is off the wire). The two switches that shape the receipt are
+	// refused for every other caller rather than ignored: a person who sends them must not
+	// believe a receipt was registered.
+	if jc, isJob := jobCallerFromCtx(c); isJob {
+		req.ParentJobID = jc.JobID
+		// An unknown event name would arm a receipt that can never fire, so the parent
+		// would wait for a result that never comes. Refused here, where the caller can
+		// still fix it, instead of being logged and half-forgotten at registration time.
+		if len(req.ParentWakeEvents) > 0 {
+			if cfg := s.projects.Config(); cfg != nil {
+				if _, err := cfg.ResolveChildEvents(req.ParentWakeEvents); err != nil {
+					writeError(c, http.StatusBadRequest, "unknown parent wake event", err.Error())
+					return
+				}
+			}
+		}
+	} else if req.NoParentWake || len(req.ParentWakeEvents) > 0 {
+		writeError(c, http.StatusBadRequest, "parent wake options are for job credentials",
+			"no_parent_wake / parent_wake_events describe the receipt a resident job gets for the jobs it submits; only a job credential's submit can carry them")
+		return
+	}
 	// A user-identity request that names a terminal agent session (the CLI attaches the header
 	// whenever its environment does) came from that agent, not from the person: stamp it so the
 	// 「等我」 list and the inbox can tell the two apart (job.HumanSubmitted).
@@ -158,6 +181,9 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	if sync {
 		c.Set(ctxSlowExempt, true)
 	}
+	// The parent waited for the result, so it needs no receipt for it. The decision is the
+	// handler's (?wait=1 is a transport detail the job layer never sees).
+	req.ParentWakeSync = sync
 	res, async, err := s.jobs.SubmitSync(req, sync)
 	if err != nil {
 		if errors.Is(err, job.ErrNotifyTargetRejected) {

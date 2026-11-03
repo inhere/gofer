@@ -90,6 +90,9 @@ const (
 	NameWorkflowReview = "workflow_review"
 	// NameWorkflowVerify is its verifier (summary) step.
 	NameWorkflowVerify = "workflow_verify"
+	// NameChildReceipt is the receipt gofer speaks into a resident job whose child job
+	// produced a result (job: wakeup_session.go).
+	NameChildReceipt = "child-receipt"
 )
 
 // The templates' data. Each language of a name takes the same data type, so the
@@ -208,6 +211,21 @@ type (
 		Name    string
 		Tag     string
 		Idle    string
+	}
+	// ChildReceiptData feeds NameChildReceipt: the children that produced a result, the
+	// ones a person has to answer for, and a manually registered wakeup's instruction.
+	ChildReceiptData struct {
+		Children    []ChildReceiptLine
+		NeedsInput  bool
+		Instruction string
+	}
+	// ChildReceiptLine is one child of a receipt: identity, state, exit code and whether
+	// the parent can only relay it to a person.
+	ChildReceiptLine struct {
+		JobID      string
+		Status     string
+		ExitCode   int
+		NeedsInput bool
 	}
 )
 

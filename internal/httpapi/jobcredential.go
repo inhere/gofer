@@ -6,7 +6,6 @@ import (
 
 	"github.com/gookit/rux/v2"
 
-	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -510,7 +509,7 @@ func (s *Server) jobMaySubmit(c *rux.Context, req *job.JobRequest) bool {
 		return deny("submit outside its project",
 			"this credential belongs to project "+asking.ProjectKey+", the request targets "+req.ProjectKey)
 	}
-	canSubmit, submitAgents := s.submitGrant(asking)
+	canSubmit, submitAgents := s.jobs.SubmitGrant(asking)
 	if !canSubmit {
 		return deny("submit a job",
 			"agent "+asking.Agent+" has not been granted can_submit; an operator must set it on the agent (or its role) first")
@@ -521,40 +520,6 @@ func (s *Server) jobMaySubmit(c *rux.Context, req *job.JobRequest) bool {
 	}
 	req.Tags = append(req.Tags, submittedByJobTag(jc.JobID))
 	return true
-}
-
-// submitGrant resolves the asking job's submit permission: the job's ROLE and its
-// AGENT each carry can_submit/submit_agents, and either opening the gate is enough
-// (the role is the natural unit for "this preset is a supervisor", while the agent
-// covers a plain `--agent` job). The allowlist is the union of the two so a role that
-// names extra agents does not silently drop the agent-level default.
-func (s *Server) submitGrant(asking job.JobResult) (bool, []string) {
-	cfg := s.projects.Config()
-	if cfg == nil {
-		return false, nil
-	}
-	var (
-		can    bool
-		agents []string
-	)
-	if ac, ok := cfg.Agents[asking.Agent]; ok {
-		can = can || ac.CanSubmit
-		if len(ac.SubmitAgents) > 0 {
-			agents = append(agents, ac.SubmitAgents...)
-		}
-	}
-	if asking.Role != "" {
-		if rc, ok := cfg.Roles[asking.Role]; ok {
-			can = can || rc.CanSubmit
-			if len(rc.SubmitAgents) > 0 {
-				agents = append(agents, rc.SubmitAgents...)
-			}
-		}
-	}
-	if len(agents) == 0 {
-		agents = config.EffectiveSubmitAgents(nil)
-	}
-	return can, agents
 }
 
 // submittedByJobTag is the provenance tag a job-started job carries: the tag

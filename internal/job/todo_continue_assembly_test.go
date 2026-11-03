@@ -72,6 +72,10 @@ var continuationFieldClasses = map[string]string{
 	"Template": fieldCleared, "TemplateVars": fieldCleared, "Worktree": fieldCleared, "WorktreeBase": fieldCleared,
 	"WorktreeName": fieldCleared, "WorktreeBranch": fieldCleared, "Ref": fieldCleared,
 	"ExclusiveDir": fieldCleared, "Env": fieldCleared,
+	// a continuation of a plan item is nobody's child receipt: the parent id comes from
+	// the credential of the submitting job and the sync marker from the HTTP entry, so
+	// neither is ever inherited from (or set for) the predecessor.
+	"ParentJobID": fieldCleared, "ParentWakeSync": fieldCleared,
 	// the ordinary request of the item
 	"ProjectKey": fieldTodo, "Title": fieldTodo, "Acceptance": fieldTodo, "CheckPrompt": fieldTodo, "CheckPromptSource": fieldTodo, "Scope": fieldTodo, "NoScopeDiscipline": fieldTodo,
 	"Budget": fieldTodo, "BudgetFixed": fieldTodo, "Verify": fieldTodo, "VerifyTimeoutSec": fieldTodo, "NoVerify": fieldTodo,
@@ -83,6 +87,9 @@ var continuationFieldClasses = map[string]string{
 	"FallbackAgents": fieldTodo, "AgentArgs": fieldTodo, "FromSession": fieldTodo, "Skills": fieldTodo, "NoSkills": fieldTodo,
 	"NoMCP": fieldTodo, "MCPResolved": fieldTodo, "MCPSpecs": fieldTodo, "Uploads": fieldTodo, "Collect": fieldTodo,
 	"Session": fieldTodo, "IdleTimeoutSec": fieldTodo, "MaxSessionSec": fieldTodo, "Interactive": fieldTodo,
+	// the receipt switches a job credential's submit may carry ride the item's request
+	// like any other caller field.
+	"NoParentWake": fieldTodo, "ParentWakeEvents": fieldTodo,
 	"StallTimeoutSec": fieldTodo, "LockWaitSec": fieldTodo, "DirWaitMaxSec": fieldTodo, "Cols": fieldTodo, "Rows": fieldTodo,
 	"InitialInput": fieldTodo, "InitialInputQuietMs": fieldTodo, "Stdin": fieldTodo, "RecordPty": fieldTodo,
 	"Role": fieldTodo, "SystemPrompt": fieldTodo, "Messenger": fieldTodo, "MessengerMeta": fieldTodo,
