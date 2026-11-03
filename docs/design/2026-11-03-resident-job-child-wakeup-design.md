@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 常驻 ACP job 的子 job 回执设计
 
-> 状态：Draft 0.1 / 待人工计划批准
+> 状态：Draft 0.1 / 已批准（用户 2026-11-03：“R1 设计 按建议”，三个待确认项按建议），待独立审核后写计划
 > issue：gofer-rt3z
 
 ## 修订记录
