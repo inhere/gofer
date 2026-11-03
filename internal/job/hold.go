@@ -522,9 +522,12 @@ func (s *Service) parkJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 	})
 	// A resident parent's credential submitted this job: its receipt is registered here —
 	// after the parked row exists and before the job.awaiting_approval event below, so a
-	// tool approval parked before the child ever ran already has a recipient. The park
-	// path registers for --sync submits too: they are answered asynchronously at once.
-	if err := s.registerChildWakeup(req.ParentJobID, snap, *req); err != nil {
+	// tool approval parked before the child ever ran already has a recipient. A parked job
+	// is answered ASYNCHRONOUSLY even when the caller asked to wait (?wait=1), so the park
+	// path always registers — the sync marker is cleared on the copy we hand over.
+	wakeReq := *req
+	wakeReq.ParentWakeSync = false
+	if err := s.registerChildWakeup(req.ParentJobID, snap, wakeReq); err != nil {
 		slog.Warn("job.child_wake_register_failed", "event", "job.child_wake_register_failed",
 			"job_id", jobID, "parent_job_id", req.ParentJobID, "err", err)
 	}

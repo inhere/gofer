@@ -435,9 +435,9 @@ func TestWakeupSessionParentEndReportsOnce(t *testing.T) {
 		t.Fatalf("park the manual receipt: %v", err)
 	}
 
-	s.endParentChildWakes(parent.result.ID, "parent ended")
+	s.endParentChildWakes(parent.result.ID, childWakeReasonParentEnded)
 	// A second end (a review decision after needs_review, a takeover) must not repeat it.
-	s.endParentChildWakes(parent.result.ID, "parent ended")
+	s.endParentChildWakes(parent.result.ID, childWakeReasonParentEnded)
 
 	assert.Eq(t, 2, countEvents(eventTypes(t, s, parent.result.ID), EventJobChildWakeFailed),
 		"one report per automatic receipt, not one per row")
@@ -459,6 +459,10 @@ func TestWakeupSessionParentEndReportsOnce(t *testing.T) {
 		}
 		assert.True(t, strings.Contains(ev.Detail, "child_job_id"), "detail = %q", ev.Detail)
 		assert.False(t, strings.Contains(ev.Detail, "title"), "detail carried a title: %q", ev.Detail)
+		// The reason is a MACHINE value the inbox and the notification text map to their own
+		// wording; a gofer sentence here would surface verbatim in the card.
+		assert.True(t, strings.Contains(ev.Detail, `"reason":"`+childWakeReasonParentEnded+`"`),
+			"detail = %q, want reason %q", ev.Detail, childWakeReasonParentEnded)
 	}
 }
 
@@ -494,4 +498,140 @@ func TestWakeupSessionConcurrentTriggersSendOneBatch(t *testing.T) {
 			t.Fatalf("wakeup %s continuation = %q, want delivered or pending", w.ID, got.ContinuationJobID)
 		}
 	}
+}
+
+// seedPendingInteraction stores one unanswered interaction on a child job.
+func seedPendingInteraction(t *testing.T, s *Service, id, childID string) {
+	t.Helper()
+	if err := s.meta.UpsertInteraction(jobstore.InteractionRecord{
+		ID: id, JobID: childID, Type: InteractionTypePermission, Prompt: "allow?",
+		Status: InteractionPending, CreatedAt: s.nowFn().Unix(),
+	}); err != nil {
+		t.Fatalf("seed interaction %s: %v", id, err)
+	}
+}
+
+// TestWakeupSessionRateLimitKeepsSentinel: a second "needs a person" receipt for the same
+// child inside the one-minute window is NOT spoken, and — the point of the test — it stays
+// durable as the pending sentinel. Without the sentinel the receipt would be lost for
+// good: the first one was confirmed, so nothing is left to retry (plan T5 限频).
+func TestWakeupSessionRateLimitKeepsSentinel(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	addChildJob(t, s, "child-rate", StatusRunning, 0, "")
+	seedPendingInteraction(t, s, "int-1", "child-rate")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-rate", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventInteractionCreated}),
+	})
+
+	// The first approval wakes the parent and is confirmed by its next turn.
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	assert.Eq(t, 1, len(sayTexts(sender)))
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 2,
+	}, false)
+	if got := childWakeRow(t, s, w.ID); got.ContinuationJobID != "" {
+		t.Fatalf("the confirmed receipt kept its sentinel: %q", got.ContinuationJobID)
+	}
+
+	// The same child raises another approval inside the window.
+	seedPendingInteraction(t, s, "int-2", "child-rate")
+	s.deliverChildReceipt(w, EventInteractionCreated)
+
+	assert.Eq(t, 1, len(sayTexts(sender)), "a second approval inside the window woke the parent")
+	if got := childWakeRow(t, s, w.ID); got.ContinuationJobID != jobstore.WakeupPendingSay {
+		t.Fatalf("continuation = %q, want the rate-limited receipt to stay a sentinel", got.ContinuationJobID)
+	}
+	assert.Eq(t, 1, childWakeRow(t, s, w.ID).Enabled)
+}
+
+// TestWakeupSessionRateLimitHoldsAcrossIdleTurns: coming back to awaiting_input flushes the
+// pending receipts, and that flush must respect the window too — otherwise the minute is
+// meaningless: one quick turn and the second approval goes out immediately.
+func TestWakeupSessionRateLimitHoldsAcrossIdleTurns(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	addChildJob(t, s, "child-window", StatusRunning, 0, "")
+	seedPendingInteraction(t, s, "int-w1", "child-window")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-window", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventInteractionCreated}),
+	})
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	assert.Eq(t, 1, len(sayTexts(sender)))
+
+	// A short turn: the batch is confirmed and the session is idle again.
+	parent.mu.Lock()
+	parent.result.Status = StatusRunning
+	parent.result.TurnNo = 2
+	parent.mu.Unlock()
+	// The child raises another approval while the parent works.
+	seedPendingInteraction(t, s, "int-w2", "child-window")
+	s.deliverChildReceipt(w, EventInteractionCreated)
+
+	parent.mu.Lock()
+	parent.result.Status = StatusAwaitingInput
+	parent.result.TurnNo = 3
+	parent.mu.Unlock()
+	s.onParentAwaitingInput(parent.result.ID)
+
+	assert.Eq(t, 1, len(sayTexts(sender)), "the idle flush ignored the rate window")
+	if got := childWakeRow(t, s, w.ID); got.ContinuationJobID != jobstore.WakeupPendingSay {
+		t.Fatalf("continuation = %q, want the window to keep the sentinel", got.ContinuationJobID)
+	}
+}
+
+// TestWakeupSessionNeedsInputFollowsChildState: what a receipt SAYS about "needs a person"
+// comes from the child's state, not from the events the row subscribes to. A row that also
+// listens to interaction.created still reports a finished child as just finished.
+func TestWakeupSessionNeedsInputFollowsChildState(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	addChildJob(t, s, "child-state", StatusDone, 0, "")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-state", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventInteractionCreated}),
+	})
+
+	s.deliverChildReceipt(w, EventJobTerminal)
+
+	texts := sayTexts(sender)
+	assert.Eq(t, 1, len(texts))
+	for _, phrase := range []string{"请转告人", "tell a person", "无法代替人"} {
+		assert.False(t, strings.Contains(texts[0], phrase),
+			"say = %q, want no needs-input line for a finished child", texts[0])
+	}
+}
+
+// TestWakeupSessionConfirmKeepsRetriggeredReceipt: a receipt that fires again AFTER its
+// batch was spoken keeps its sentinel even when the child's state did not change — a second
+// tool approval on a running job looks exactly like the first.
+func TestWakeupSessionConfirmKeepsRetriggeredReceipt(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	addChildJob(t, s, "child-again", StatusRunning, 0, "")
+	seedPendingInteraction(t, s, "int-a1", "child-again")
+	w := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-again", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventInteractionCreated}),
+	})
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	assert.Eq(t, 1, len(sayTexts(sender)))
+
+	// A second interaction lands after the batch was spoken; the child is still running, so
+	// the receipt cannot go out yet (the say slot is taken).
+	seedPendingInteraction(t, s, "int-a2", "child-again")
+	s.deliverChildReceipt(w, EventInteractionCreated)
+	assert.Eq(t, 1, len(sayTexts(sender)))
+
+	// The session consumed the first batch.
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 2,
+	}, false)
+
+	got := childWakeRow(t, s, w.ID)
+	assert.Eq(t, jobstore.WakeupPendingSay, got.ContinuationJobID,
+		"the confirmation swallowed the interaction that arrived after the batch")
+	assert.Eq(t, 1, got.Enabled)
 }

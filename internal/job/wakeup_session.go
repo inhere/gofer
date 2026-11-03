@@ -49,6 +49,12 @@ const (
 	// flips (execute's E13 note), so reading the row without waiting would read the
 	// state from before the job ended.
 	childWakeEntryWait = wakeupTerminalWait
+	// childWakeReasonParentEnded / childWakeReasonExpired are the MACHINE values a receipt
+	// reports when it could not reach its parent (the alert's detail.reason): the inbox and
+	// the notification text map them to their own wording, so a reader never sees a gofer
+	// sentence in place of a cause. expired is the TTL sweep's reason (T9 uses it).
+	childWakeReasonParentEnded = "parent_ended"
+	childWakeReasonExpired     = "expired"
 )
 
 // wakeupSayItem is one child receipt inside a delivered batch.
@@ -88,6 +94,11 @@ type wakeupSayState struct {
 	// input" receipt (the rate window). In memory by design: a restart may send one
 	// extra receipt, which is harmless, while a lost window is not.
 	lastNeedsInput map[string]int64
+	// retriggered holds the receipt rows that fired again AFTER the current batch was
+	// spoken. Their sentinel must survive that batch's confirmation: the child's state
+	// may not have changed (a second tool approval on a running job looks identical), so
+	// a status comparison alone would silently swallow the newer receipt.
+	retriggered map[string]bool
 }
 
 // wakeupSayLock returns the receipt lock of one parent job, creating it on first use.
@@ -103,7 +114,7 @@ func (s *Service) wakeupSayLock(parentJobID string) *sync.Mutex {
 
 // wakeupSayOf returns the receipt state of one parent job, creating it on first use.
 func (s *Service) wakeupSayOf(parentJobID string) *wakeupSayState {
-	fresh := &wakeupSayState{lastNeedsInput: make(map[string]int64, 2)}
+	fresh := &wakeupSayState{lastNeedsInput: make(map[string]int64, 2), retriggered: map[string]bool{}}
 	if v, ok := s.wakeupSayStates.LoadOrStore(parentJobID, fresh); ok {
 		return v.(*wakeupSayState)
 	}
@@ -155,7 +166,7 @@ func (s *Service) routeChildReceipt(w jobstore.WakeupRecord, reason string, pare
 			return false // a manual wakeup on an ended job: resume / rebuild, unchanged
 		}
 		// The parent is gone: the receipt cannot be spoken. Report it once, to a person.
-		s.GoBackground(func() { s.endParentChildWakes(w.JobID, "parent job ended") })
+		s.GoBackground(func() { s.endParentChildWakes(w.JobID, childWakeReasonParentEnded) })
 		return true
 	}
 	var child *jobEntry
@@ -191,7 +202,8 @@ func (s *Service) waitChildEntry(entry *jobEntry) {
 }
 
 // isNeedsInputReason reports whether reason belongs to the "the child needs a person"
-// class (a tool approval or a question), which the parent cannot answer for the child.
+// class (a tool approval or a question). It is the TRIGGER side of that class only; what
+// a receipt SAYS about it is decided from the child's own state (see childNeedsInput).
 func isNeedsInputReason(reason string) bool {
 	return reason == EventInteractionCreated || reason == EventJobAwaitingApproval
 }
@@ -199,6 +211,11 @@ func isNeedsInputReason(reason string) bool {
 // deliverChildReceipt parks the trigger durably and delivers it as soon as the parent
 // session is idle. It runs on its own goroutine (see routeChildReceipt): a receipt must
 // never block the child's finish or the hub's read loop.
+//
+// The sentinel is written FIRST, before the parent is looked at and before any rate
+// limit: a receipt that is refused now (a turn in progress, a burst of approvals, an
+// offline worker) must be durable, or the next confirmation would clear a slot nothing
+// ever filled.
 func (s *Service) deliverChildReceipt(w jobstore.WakeupRecord, reason string) {
 	lock := s.wakeupSayLock(w.JobID)
 	lock.Lock()
@@ -206,17 +223,12 @@ func (s *Service) deliverChildReceipt(w jobstore.WakeupRecord, reason string) {
 
 	st := s.wakeupSayOf(w.JobID)
 	st.mu.Lock()
-	if isNeedsInputReason(reason) {
-		if at, ok := st.lastNeedsInput[w.FilterJobID]; ok && s.nowFn().Unix()-at < childWakeNeedsInputEverySec {
-			// Rate limited: the receipt stays a sentinel and the tick re-delivers it.
-			st.pending = true
-			st.mu.Unlock()
-			slog.Info("wakeup.say_pending", "event", "wakeup.say_pending", "wakeup_id", w.ID,
-				"job_id", w.JobID, "child_job_id", w.FilterJobID, "reason", "rate_limited")
-			return
-		}
-	}
 	st.pending = true
+	if st.batch != nil {
+		// A batch is already spoken and not yet confirmed: this trigger arrived after it,
+		// so the confirmation of that batch must not clear THIS row's sentinel.
+		st.retriggered[w.ID] = true
+	}
 	st.mu.Unlock()
 
 	// Write the receipt BEFORE looking at the parent again: a parent that goes idle in
@@ -244,6 +256,7 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 	items := make([]wakeupSayItem, 0, len(rows))
 	instruction := ""
 	delivered := false
+	deferred := false
 	for _, w := range rows {
 		if w.JobID != parentID {
 			continue
@@ -253,12 +266,22 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 			// The child row is gone (pruned): nothing truthful to report.
 			continue
 		}
+		needsInput := s.childNeedsInput(child)
+		if needsInput && s.withinNeedsInputWindow(st, child.ID) {
+			// Rate limited: this child already woke the parent for a "needs a person"
+			// receipt inside the window. The sentinel stays, and the tick re-delivers it
+			// once the window is over (terminal / needs_review receipts are never limited).
+			deferred = true
+			slog.Info("wakeup.say_pending", "event", "wakeup.say_pending", "wakeup_id", w.ID,
+				"job_id", parentID, "child_job_id", child.ID, "reason", "rate_limited")
+			continue
+		}
 		items = append(items, wakeupSayItem{
 			wakeupID:   w.ID,
 			childJobID: child.ID,
 			status:     child.Status,
 			exitCode:   child.ExitCode,
-			needsInput: wakeupWantsNeedsInput(w),
+			needsInput: needsInput,
 			mode:       w.Mode,
 		})
 		if strings.TrimSpace(instruction) == "" && strings.TrimSpace(w.Instruction) != "" {
@@ -269,7 +292,7 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 	}
 	if len(items) == 0 {
 		st.mu.Lock()
-		st.pending = false
+		st.pending = deferred // a deferred receipt is still work waiting for its window
 		st.mu.Unlock()
 		return false
 	}
@@ -285,7 +308,7 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 	turnNo := entry.result.TurnNo
 	entry.mu.Unlock()
 	if ending {
-		s.endParentChildWakesLocked(parentID, "session is ending")
+		s.endParentChildWakesLocked(parentID, childWakeReasonParentEnded)
 		return false
 	}
 	if status != StatusAwaitingInput {
@@ -298,7 +321,7 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 	text := s.childReceiptText(parentID, items, instruction)
 	if err := s.saySessionCommand(parentID, text, nil, sessionCommandID(parentID)); err != nil {
 		if errors.Is(err, ErrSessionEnding) {
-			s.endParentChildWakesLocked(parentID, "session is ending")
+			s.endParentChildWakesLocked(parentID, childWakeReasonParentEnded)
 			return false
 		}
 		if errors.Is(err, ErrNoLiveSession) {
@@ -315,7 +338,10 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 	now := s.nowFn().Unix()
 	st.mu.Lock()
 	st.batch = &wakeupSayBatch{turnNo: turnNo, items: items}
-	st.pending = false
+	st.pending = deferred
+	// A new batch starts a new confirmation window: only triggers that arrive AFTER it
+	// was spoken are protected from its confirmation.
+	st.retriggered = map[string]bool{}
 	for _, it := range items {
 		if it.needsInput {
 			st.lastNeedsInput[it.childJobID] = now
@@ -342,7 +368,7 @@ func (s *Service) flushPendingSaysLocked(parentID string, trigger *jobstore.Wake
 func (s *Service) settlePendingWithoutSessionLocked(parentID string) {
 	res, ok := s.Get(parentID)
 	if !ok {
-		s.endParentChildWakesLocked(parentID, "parent job is gone")
+		s.endParentChildWakesLocked(parentID, childWakeReasonParentEnded)
 		return
 	}
 	if res.Status == StatusRecovering {
@@ -351,18 +377,45 @@ func (s *Service) settlePendingWithoutSessionLocked(parentID string) {
 		return
 	}
 	if IsFinished(res.Status) {
-		s.endParentChildWakesLocked(parentID, "parent job ended")
+		s.endParentChildWakesLocked(parentID, childWakeReasonParentEnded)
 		return
 	}
 	slog.Info("wakeup.say_pending", "event", "wakeup.say_pending", "job_id", parentID,
 		"reason", "no_live_session", "status", res.Status)
 }
 
-// wakeupWantsNeedsInput reports whether a receipt row subscribes to the events a parent
-// can only relay to a person (design 回执事件: 需要输入类).
-func wakeupWantsNeedsInput(w jobstore.WakeupRecord) bool {
-	types := jobstore.DecodeStringList(w.EventTypesJSON)
-	return contains(types, EventInteractionCreated) || contains(types, EventJobAwaitingApproval)
+// childNeedsInput reports whether the child needs a PERSON right now (design 回执事件
+// 需要输入类): it is still alive, not waiting for review, and either parked on a hold or
+// carrying an unanswered interaction. The trigger REASON is deliberately not part of the
+// test — a row that subscribes to interaction.created still gets terminal receipts for a
+// child that then finished, and those must not claim the parent could not answer for it.
+func (s *Service) childNeedsInput(child JobResult) bool {
+	if IsFinished(child.Status) {
+		return false // terminal or needs_review: the receipt reports the outcome, not a question
+	}
+	if child.Status == StatusAwaitingApproval {
+		return true
+	}
+	recs, err := s.meta.ListInteractions(child.ID)
+	if err != nil {
+		slog.Warn("child wake: list interactions", "job_id", child.ID, "err", err)
+		return false
+	}
+	for _, rec := range recs {
+		if rec.Status == InteractionPending {
+			return true
+		}
+	}
+	return false
+}
+
+// withinNeedsInputWindow reports whether childID already woke this parent for a
+// "needs a person" receipt inside the rate window (design 回执事件 限频).
+func (s *Service) withinNeedsInputWindow(st *wakeupSayState, childJobID string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	at, ok := st.lastNeedsInput[childJobID]
+	return ok && s.nowFn().Unix()-at < childWakeNeedsInputEverySec
 }
 
 // onParentAwaitingInput is the idle-transition hook shared by both ways a resident
@@ -410,6 +463,17 @@ func (s *Service) confirmSayBatchLocked(parentJobID string) {
 		return
 	}
 	for _, it := range batch.items {
+		st.mu.Lock()
+		again := st.retriggered[it.wakeupID]
+		st.mu.Unlock()
+		if again {
+			// The row fired again after this batch was spoken: its sentinel belongs to that
+			// newer receipt, which the parent has not seen yet.
+			st.mu.Lock()
+			st.pending = true
+			st.mu.Unlock()
+			continue
+		}
 		child, ok := s.Get(it.childJobID)
 		if !ok || child.Status != it.status {
 			continue // the child moved on: keep the sentinel so the new state fires again
@@ -421,6 +485,7 @@ func (s *Service) confirmSayBatchLocked(parentJobID string) {
 	}
 	st.mu.Lock()
 	st.batch = nil
+	st.retriggered = map[string]bool{}
 	st.mu.Unlock()
 }
 

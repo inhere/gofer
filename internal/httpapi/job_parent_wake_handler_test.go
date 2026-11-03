@@ -102,3 +102,31 @@ func TestChildWakeOptionsRefusedForNonJobCallers(t *testing.T) {
 		}
 	}
 }
+
+// TestChildWakeRejectsUnknownParentWakeEvent: an event name the server does not know can
+// never fire, so the receipt would arm and the parent would wait for something that never
+// comes. The submit is refused while the caller can still fix it.
+func TestChildWakeRejectsUnknownParentWakeEvent(t *testing.T) {
+	t.Parallel()
+	const userTok = "tok-user"
+	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: userTok}}},
+		map[string]config.AgentConfig{"exec": {Type: agent.TypeExec, CanSubmit: true, SubmitAgents: []string{"exec"}}}, nil)
+	parent := seedResidentParent(t, s, "job-parent", "alice")
+	tok := seedJobToken(t, s, parent, jobstore.JobCredentialMember, "")
+
+	resp := do(t, s, http.MethodPost, "/v1/jobs", tok, map[string]any{
+		"project_key": "self", "agent": "exec", "runner": "local",
+		"cmd": []string{"go", "version"}, "cwd": ".", "timeout_sec": 60,
+		"parent_wake_events": []string{"job.typo"},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown parent wake event = %d, want 400", resp.StatusCode)
+	}
+	rows, err := s.jobs.ListWakeups(parent)
+	if err != nil {
+		t.Fatalf("ListWakeups: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("a refused submit armed %d receipts", len(rows))
+	}
+}

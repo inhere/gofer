@@ -98,6 +98,17 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// believe a receipt was registered.
 	if jc, isJob := jobCallerFromCtx(c); isJob {
 		req.ParentJobID = jc.JobID
+		// An unknown event name would arm a receipt that can never fire, so the parent
+		// would wait for a result that never comes. Refused here, where the caller can
+		// still fix it, instead of being logged and half-forgotten at registration time.
+		if len(req.ParentWakeEvents) > 0 {
+			if cfg := s.projects.Config(); cfg != nil {
+				if _, err := cfg.ResolveChildEvents(req.ParentWakeEvents); err != nil {
+					writeError(c, http.StatusBadRequest, "unknown parent wake event", err.Error())
+					return
+				}
+			}
+		}
 	} else if req.NoParentWake || len(req.ParentWakeEvents) > 0 {
 		writeError(c, http.StatusBadRequest, "parent wake options are for job credentials",
 			"no_parent_wake / parent_wake_events describe the receipt a resident job gets for the jobs it submits; only a job credential's submit can carry them")

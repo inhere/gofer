@@ -162,3 +162,24 @@ func TestChildWakeParkPathRegistersOnce(t *testing.T) {
 	assert.Eq(t, 1, len(childReceipts(t, s, parent.result.ID)),
 		"the approval re-entry registered the receipt a second time")
 }
+
+// TestChildWakeParkRegistersEvenForSyncSubmit: a parked job (a hold, or an update waiting
+// for idle) is answered ASYNCHRONOUSLY even when the parent asked to wait, so its receipt
+// must be registered — the wait marker only suppresses the receipt for a job that really
+// runs to its result in that call.
+func TestChildWakeParkRegistersEvenForSyncSubmit(t *testing.T) {
+	t.Parallel()
+	s, _, parent := wakeupSessionFixture(t)
+	grantSubmitToExec(t, s)
+
+	child := submitChild(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 60,
+		Hold: true, HoldReason: "release gate",
+		ParentJobID: parent.result.ID, ParentWakeSync: true,
+	})
+
+	assert.Eq(t, StatusAwaitingApproval, child.Status)
+	assert.Eq(t, 1, len(childReceipts(t, s, parent.result.ID)),
+		"a waited, parked submit registered no receipt")
+}
