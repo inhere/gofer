@@ -92,6 +92,10 @@ func (s *Service) endSessionTurn(entry *jobEntry, stopReason string) error {
 	}
 	entry.mu.Unlock()
 	s.recordEvent(snap.ID, EventJobTurnEnded, map[string]any{"turn_no": snap.TurnNo, "stop_reason": stopReason})
+	// The resident session's turn boundary, for the log file: a hung or slow turn shows
+	// as ended-without-a-following job.awaiting_input instead of as silence.
+	slog.Info("job.turn_ended", "event", "job.turn_ended", "job_id", snap.ID,
+		"turn_no", snap.TurnNo, "stop_reason", stopReason)
 	return nil
 }
 
@@ -116,5 +120,7 @@ func (s *Service) awaitSessionInput(entry *jobEntry) error {
 	s.recordEvent(snap.ID, EventJobAwaitingInput, map[string]any{
 		"turn_no": snap.TurnNo, "idle_deadline_at": snap.IdleDeadlineAt,
 	})
+	slog.Info("job.awaiting_input", "event", "job.awaiting_input", "job_id", snap.ID,
+		"turn_no", snap.TurnNo, "idle_deadline_at", snap.IdleDeadlineAt)
 	return nil
 }

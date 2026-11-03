@@ -139,6 +139,11 @@ func (s *Service) CreateWakeup(spec WakeupSpec, by string, gate WakeupGate) (job
 	if err := s.meta.InsertWakeup(w); err != nil {
 		return jobstore.WakeupRecord{}, err
 	}
+	// The registration is a fact now; without this line a scheduled continuation that
+	// never fires has no registration to compare against (wakeup.fire failures exist,
+	// the registration itself was invisible).
+	slog.Info("wakeup.created", "event", "wakeup.created", "wakeup_id", w.ID,
+		"job_id", w.JobID, "kind", w.Kind, "filter_job_id", w.FilterJobID)
 	s.catchUpTerminalWakeup(w)
 	return w, nil
 }

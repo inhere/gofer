@@ -109,6 +109,7 @@ func (s *Service) saySession(id, message string, images []ImageInput) error {
 		snap := entry.result
 		_ = s.persist(snap)
 		entry.mu.Unlock()
+		logJobSay(id, message, len(images))
 		return nil
 	}
 	defer entry.mu.Unlock()
@@ -124,6 +125,7 @@ func (s *Service) saySession(id, message string, images []ImageInput) error {
 	s.cancelSessionReplyTimerLocked(entry)
 	entry.sessionCommandPending = true
 	entry.sessionCommands <- runner.SessionCommand{Prompt: message, Images: images}
+	logJobSay(id, message, len(images))
 	return nil
 }
 
