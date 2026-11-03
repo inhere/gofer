@@ -241,6 +241,34 @@ func containsSectionTitle(prompt string, section i18n.Section) bool {
 	return false
 }
 
+// injectResidentDispatchSection appends the child-dispatch guidance to a RESIDENT job's
+// prompt (design 2026-11-03-resident-job-child-wakeup-design.md 「范围」4): a session job
+// whose agent or role holds the submit permission may dispatch children with its own job
+// credential, and gofer brings their results back by speaking into the session. The section
+// tells it how to be woken (end the turn, do not poll) and what to arrange before that
+// (a long enough --idle-timeout, --shared-dir for the session, --worktree for a writing
+// child, spare concurrency slots).
+//
+// canSubmit is the caller's SubmitGrant decision for this job's agent and role. Skipped for:
+// a non-resident job (it is woken by a continuation, not by a say), a job without the submit
+// permission (nothing to tell it), an EMPTY prompt (a resident job started with no prompt
+// stays idle; adding a section would start a turn nobody asked for), gofer's own plumbing
+// (the steward, a messenger relay), a re-entering / continuation request that already carries
+// what the submitting side decided, and a prompt that already carries the heading.
+func injectResidentDispatchSection(cfg *config.Config, req *JobRequest, canSubmit bool) {
+	if !canSubmit || !req.Session || req.Steward || req.MessengerMeta != nil || req.Messenger != nil {
+		return
+	}
+	if req.RulesResolved || req.ResumedFrom != "" || req.ResumeSourceAgent != "" {
+		return
+	}
+	if strings.TrimSpace(req.Prompt) == "" || hasPromptSection(req.Prompt, i18n.SectionResidentDispatch) {
+		return
+	}
+	section := prompts.MustRender(promptLanguage(cfg, req), prompts.NameResidentDispatch, struct{}{})
+	req.Prompt = appendPromptSection(req.Prompt, section)
+}
+
 // appendJobDeadlineLine appends the job's own time limit as the LAST line of the prompt
 // the executing machine runs with (gofer-s2er). An agent has no other way to learn how
 // long the run has: without this line the field reported a step-limit wrap-up as

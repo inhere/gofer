@@ -133,6 +133,13 @@ type WakeupSpec struct {
 // before admitting a job credential's submit, and the automatic child receipt, which only
 // arms for a parent that could have submitted at all (registerChildWakeup).
 func (s *Service) SubmitGrant(asking JobResult) (bool, []string) {
+	return s.SubmitGrantFor(asking.Agent, asking.Role)
+}
+
+// SubmitGrantFor is SubmitGrant for an agent / role pair that is not a job row yet: the
+// submit-time prompt decides whether the resident job about to run may dispatch children
+// (injectResidentDispatchSection), from the same request fields the row will be built with.
+func (s *Service) SubmitGrantFor(agentKey, role string) (bool, []string) {
 	cfg := s.config()
 	if cfg == nil {
 		return false, nil
@@ -141,14 +148,14 @@ func (s *Service) SubmitGrant(asking JobResult) (bool, []string) {
 		can    bool
 		agents []string
 	)
-	if ac, ok := cfg.Agents[asking.Agent]; ok {
+	if ac, ok := cfg.Agents[agentKey]; ok {
 		can = can || ac.CanSubmit
 		if len(ac.SubmitAgents) > 0 {
 			agents = append(agents, ac.SubmitAgents...)
 		}
 	}
-	if asking.Role != "" {
-		if rc, ok := cfg.Roles[asking.Role]; ok {
+	if role != "" {
+		if rc, ok := cfg.Roles[role]; ok {
 			can = can || rc.CanSubmit
 			if len(rc.SubmitAgents) > 0 {
 				agents = append(agents, rc.SubmitAgents...)

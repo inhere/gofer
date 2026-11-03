@@ -26,6 +26,9 @@ const (
 	// SectionDeadline is the opening of the time-limit line appended to a
 	// batch job's prompt; it also marks the line as already present.
 	SectionDeadline Section = "deadline"
+	// SectionResidentDispatch is the heading of the child-dispatch guidance a
+	// resident job with the submit permission gets.
+	SectionResidentDispatch Section = "resident_dispatch"
 )
 
 // sectionTitles are the known spellings of each section: the localized heading
@@ -33,11 +36,12 @@ const (
 // carry (an already-injected prompt, a peer re-submit, a report written before
 // the language changed).
 var sectionTitles = map[Section]map[Lang]string{
-	SectionAcceptance: {EN: "## Acceptance criteria", ZhCN: "## 验收标准"},
-	SectionContract:   {EN: "## Delivery contract", ZhCN: "## 交付约定"},
-	SectionFindings:   {EN: "Out-of-scope findings", ZhCN: "发现但不碰"},
-	SectionKnowledge:  {EN: "Reusable lessons", ZhCN: "可复用经验"},
-	SectionDeadline:   {EN: "This job's time limit", ZhCN: "本 job 时限"},
+	SectionAcceptance:       {EN: "## Acceptance criteria", ZhCN: "## 验收标准"},
+	SectionContract:         {EN: "## Delivery contract", ZhCN: "## 交付约定"},
+	SectionFindings:         {EN: "Out-of-scope findings", ZhCN: "发现但不碰"},
+	SectionKnowledge:        {EN: "Reusable lessons", ZhCN: "可复用经验"},
+	SectionDeadline:         {EN: "This job's time limit", ZhCN: "本 job 时限"},
+	SectionResidentDispatch: {EN: "## Dispatching child jobs", ZhCN: "## 派发子 job"},
 }
 
 // sectionAliases are further accepted spellings that are not the current text

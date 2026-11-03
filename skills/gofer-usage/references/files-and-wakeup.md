@@ -72,3 +72,27 @@ gofer job wakeup show|enable|disable|rm <wid>
 - 权限同 `job resume`：只能给自己提交的 job（或有回答权限的 caller）登记。
 - 续投 job 带 tag `wakeup:<wid>`；触发、合并、过期、失败都记成目标 job 的事件，失败不会静默。默认通知集不含这些事件，要 IM 提醒就显式订阅 `job.wakeup_*`。
 - MCP：`gofer_wakeup_create` / `gofer_wakeup_list` / `gofer_wakeup_disable`。web job 详情页的「唤醒」块可看列表、开关、触发历史、直接新建。
+
+## 常驻 job 的子 job 回执
+
+常驻（`--session`）job 用自己的 job 凭据派子 job 时，gofer 会自动登记一条回执：子 job 有结果时给父 job 开新一轮（`job say`），不需要外部客户端盯着。
+
+```bash
+# 父 job：有提交权限（agent 或 role 上 can_submit: true）才会自动登记
+#   启动时设够长的空闲时限；默认 1800 秒，子 job 比它长就送不到
+gofer job run -p <project> -a <agent> --session --idle-timeout 86400 \
+  --shared-dir --prompt "监督这件事：派子 job，然后结束本轮"
+
+# 子 job：正常提交即可；会写文件就加 --worktree
+gofer job run -p <project> -a <agent> --worktree --prompt "做第一部分"
+```
+
+- **父 job 一句就够**：拿到 `can_submit` 的常驻 job，prompt 末尾会自动带一段「## 派发子 job」提示——派完子 job 就结束本轮、不要轮询；`--idle-timeout` 设够长；会话用 `--shared-dir`（常驻会话默认整段生命周期独占目录，同目录的子 job 会排在它后面）；会写文件的子 job 用 `--worktree`；并发槽位留余量（槽位上限为 1 且被父 job 占着时，子 job 要等会话结束）。用空 prompt 启动的常驻 job 不注入。
+- **回执内容**：只含子 job id、状态、退出码和查看命令（`gofer job logs <子 job>`），不含标题和输出——父 job 自己去读日志。
+- **回执哪些事件**：默认 `job.terminal` + `job.needs_review`。server 配置 `wakeup.child_events` 改全局默认，单次提交用 `job run --parent-wake-events job.terminal,interaction.created` 覆盖；`job.terminal` 始终包含（写别的会补上，未知值直接拒绝）。可选项：`job.awaiting_approval`（hold 待批准）、`interaction.created`（工具审批与提问）。父 job 没有权限代答或批准，「需要输入」类回执要转告人；同一子 job 的这类回执最多 1 分钟一条。
+- **关掉回执**：`job run --no-parent-wake`（这个子 job 不登记）。
+- **待送**：父 job 这一轮还没结束时触发，回执先记为「待送」，等它回到空闲再送，多个子 job 合并成一条。`job wakeup list` / `job wakeup show`（以及 HTTP / MCP 的 `pending_delivery`）会显示「待送」，不要把它当成 job id。`job.terminal` 回执送达后该自动回执即停用。
+- **父 job 先结束**（空闲超时、被人 `job end`、失败、进入待验收）：回执送不到，gofer 记 `job.child_wake_failed` 并通知人（webhook / 桌面 / Web Push / 收件箱「待我处理」），不会复活父 job。所以监督类 job 必须显式设长 `--idle-timeout`。
+- **子 job 被接管或重试**：回执跟到真正承载结果的那个 job；重试还在退避期时父 job 不被打扰，重试被取消时补发。
+- **权限**：手动 event wakeup 挂在活着的常驻 job 上时，它的 `-m` 指令会被 say 进那个会话，所以除 `job.wake.others` + `job.submit` 外还要求对该 job 的 say 权限（`job.manage.others`）。定时类 wakeup、已结束的常驻 job 不变。
+- **降级提醒**：回退到「待送」功能之前的版本前，先确认没有待送回执（`job wakeup list` 里没有 `pending delivery`）；旧版本不会释放它，还会把内部的 `await_input` 显示成 job id。

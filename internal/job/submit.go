@@ -170,6 +170,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		req.Language = string(cfg.LanguageFor(req.ProjectKey))
 	}
 	injectPromptSections(cfg, &req)
+	// 常驻 job 的派发提示（design 2026-11-03-resident-job-child-wakeup-design.md 「范围」4）:
+	// 只有拿得到提交权限的会话 job 才会派子 job，也就只有它需要这段。权限按 job 的 agent /
+	// role 判定，与 job 凭据提交时用的是同一个 SubmitGrant。
+	if req.Session {
+		canSubmit, _ := s.SubmitGrantFor(req.Agent, req.Role)
+		injectResidentDispatchSection(cfg, &req, canSubmit)
+	}
 	if req.Interactive && req.InitialInput == "" {
 		req.InitialInput = interactiveInitialInput(req.Prompt)
 	}

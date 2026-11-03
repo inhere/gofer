@@ -718,9 +718,13 @@ type Wakeup struct {
 	FiredCount        int64    `json:"fired_count"`
 	CoalescedCount    int64    `json:"coalesced_count"`
 	ContinuationJobID string   `json:"continuation_job_id,omitempty"`
-	CreatedBy         string   `json:"created_by,omitempty"`
-	CreatedAt         int64    `json:"created_at"`
-	ExpiresAt         int64    `json:"expires_at,omitempty"`
+	// PendingDelivery marks a receipt that already triggered and waits for its resident
+	// target to come back to idle; ContinuationJobID is empty then, because the wakeup
+	// started no job yet.
+	PendingDelivery bool   `json:"pending_delivery,omitempty"`
+	CreatedBy       string `json:"created_by,omitempty"`
+	CreatedAt       int64  `json:"created_at"`
+	ExpiresAt       int64  `json:"expires_at,omitempty"`
 }
 
 // WakeupsResp is the `{wakeups: [...]}` envelope of the list endpoint.

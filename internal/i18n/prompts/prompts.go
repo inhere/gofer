@@ -93,6 +93,9 @@ const (
 	// NameChildReceipt is the receipt gofer speaks into a resident job whose child job
 	// produced a result (job: wakeup_session.go).
 	NameChildReceipt = "child-receipt"
+	// NameResidentDispatch is the guidance a resident job with the submit permission
+	// gets: dispatch child jobs, then end the turn (job: prompt_sections.go).
+	NameResidentDispatch = "resident-dispatch"
 )
 
 // The templates' data. Each language of a name takes the same data type, so the

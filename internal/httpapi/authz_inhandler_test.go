@@ -54,6 +54,9 @@ type authzCaseEnv struct {
 	// owner: a route whose answer branches on "someone else's resource" can drive that
 	// branch while the caller holds the declared permissions (extraOwn).
 	strangerJob job.JobResult
+	// liveSessionJob is a LIVE resident (session) job of a stranger: the child-wakeup route
+	// answers differently for one whose instruction would be spoken into its session.
+	liveSessionJob job.JobResult
 
 	wakeupID   string
 	retryID    string
@@ -333,7 +336,14 @@ var jobAuthzCases = []authzCase{
 		return caseReq{http.MethodPost, "/v1/jobs/" + e.job.ID + "/wakeups", job.WakeupSpec{
 			Kind: jobstore.WakeupKindAt, At: time.Now().Add(time.Hour).Unix(),
 		}}
-	}},
+	}, extraOwn: []func(e *authzCaseEnv) caseReq{func(e *authzCaseEnv) caseReq {
+		// An EVENT wakeup on someone else's LIVE resident job: its instruction is spoken
+		// into that session, so the route also decides job.manage.others.
+		return caseReq{http.MethodPost, "/v1/jobs/" + e.liveSessionJob.ID + "/wakeups", job.WakeupSpec{
+			Kind: jobstore.WakeupKindEvent, EventTypes: []string{job.EventJobTerminal},
+			Instruction: "look at the queue",
+		}}
+	}}},
 	{key: "PATCH /v1/wakeups/{wid}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodPatch, "/v1/wakeups/" + e.wakeup(), map[string]bool{"enabled": false}}
 	}},
@@ -1883,7 +1893,21 @@ func newAuthzCaseEnv(t *testing.T, s *Server, caller, owner string, i int) *auth
 	if !ok {
 		t.Fatalf("the stranger job %s is not resolvable", strangerID)
 	}
-	return &authzCaseEnv{t: t, s: s, caller: caller, owner: owner, job: res, strangerJob: stranger}
+	// A LIVE resident job of a third party: the child-wakeup route speaks a manual event
+	// wakeup's instruction into such a session, so it decides job.manage.others there.
+	sessionID := fmt.Sprintf("job-session-%d", i)
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: sessionID, ProjectKey: "self", Agent: "exec", Runner: "worker",
+		Status: job.StatusAwaitingInput, Cwd: ".", ResultDir: t.TempDir(), StartedAt: now,
+		UpdatedAt: now, CallerID: "stranger", SessionStateJSON: `{"session":true,"turn_no":1}`,
+	}); err != nil {
+		t.Fatalf("upsert live session job: %v", err)
+	}
+	liveSession, ok := s.jobs.Get(sessionID)
+	if !ok {
+		t.Fatalf("the live session job %s is not resolvable", sessionID)
+	}
+	return &authzCaseEnv{t: t, s: s, caller: caller, owner: owner, job: res, strangerJob: stranger, liveSessionJob: liveSession}
 }
 
 // grantsFor is the database half of a decision that holds exactly perms.

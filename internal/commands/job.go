@@ -814,10 +814,20 @@ func runJobWakeupList(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	for _, w := range ws {
-		c.Printf("%s  %-8s %s  %s  fired=%d coalesced=%d\n",
-			w.ID, wakeupState(w), formatWakeupTrigger(w), shortInstruction(w.Instruction), w.FiredCount, w.CoalescedCount)
+		c.Printf("%s  %-8s %s%s  %s  fired=%d coalesced=%d\n",
+			w.ID, wakeupState(w), formatWakeupTrigger(w), wakeupPendingSuffix(w), shortInstruction(w.Instruction), w.FiredCount, w.CoalescedCount)
 	}
 	return nil
+}
+
+// wakeupPendingSuffix marks a wakeup whose receipt already triggered and waits for its
+// resident target to come back to idle. Without it such a line reads as "armed, never
+// fired" while the result is already sitting in the pending-delivery state.
+func wakeupPendingSuffix(w client.Wakeup) string {
+	if !w.PendingDelivery {
+		return ""
+	}
+	return " (pending delivery)"
 }
 
 func runJobWakeupShow(c *gcli.Command, _ []string) error {
@@ -851,6 +861,11 @@ func runJobWakeupShow(c *gcli.Command, _ []string) error {
 	c.Printf("fired:       %d (coalesced %d)\n", w.FiredCount, w.CoalescedCount)
 	if w.ContinuationJobID != "" {
 		c.Printf("continuation: %s\n", w.ContinuationJobID)
+	}
+	// A pending delivery is NOT a job id: the receipt already triggered and waits for the
+	// resident target to come back to idle, so it gets its own line.
+	if w.PendingDelivery {
+		c.Printf("pending:     delivery (the receipt waits for the session to be idle)\n")
 	}
 	if w.CreatedBy != "" {
 		c.Printf("created_by:  %s\n", w.CreatedBy)

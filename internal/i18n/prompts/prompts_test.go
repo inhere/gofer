@@ -37,12 +37,21 @@ var goldenData = map[string]any{
 	NamePlanRules:              struct{}{},
 	NamePlanTodosFormat:        PlanTodosFormatData{Fence: "gofer-todos"},
 	NameResidentOpening:        ResidentOpeningData{Project: "proj-a", Name: "helper", Tag: "gofer-mail", Idle: "30m0s"},
-	NameSummarizerInstruction:  struct{}{},
-	NameSummarizerFormat:       struct{}{},
-	NameWorkflowPlan:           WorkflowPlanData{Task: "${vars.task}", Guidance: "planner guidance"},
-	NameWorkflowImplement:      WorkflowImplementData{Plan: "${steps.plan.stdout}"},
-	NameWorkflowReview:         WorkflowReviewData{Task: "${vars.task}"},
-	NameWorkflowVerify:         WorkflowVerifyData{StdoutFile: "stdout.txt", ResultDir: "${steps.reviews.result_dir}"},
+	NameResidentDispatch:       struct{}{},
+	NameChildReceipt: ChildReceiptData{
+		Children: []ChildReceiptLine{
+			{JobID: "job-child-a", Status: "done", ExitCode: 0},
+			{JobID: "job-child-b", Status: "failed", ExitCode: 1, NeedsInput: true},
+		},
+		NeedsInput:  true,
+		Instruction: "then merge the results",
+	},
+	NameSummarizerInstruction: struct{}{},
+	NameSummarizerFormat:      struct{}{},
+	NameWorkflowPlan:          WorkflowPlanData{Task: "${vars.task}", Guidance: "planner guidance"},
+	NameWorkflowImplement:     WorkflowImplementData{Plan: "${steps.plan.stdout}"},
+	NameWorkflowReview:        WorkflowReviewData{Task: "${vars.task}"},
+	NameWorkflowVerify:        WorkflowVerifyData{StdoutFile: "stdout.txt", ResultDir: "${steps.reviews.result_dir}"},
 }
 
 // TestRenderGolden pins the rendered text of every template in both languages.
@@ -132,9 +141,10 @@ func TestUnknownTemplate(t *testing.T) {
 func TestMarkerIsTheTemplateHeading(t *testing.T) {
 	t.Parallel()
 	markers := map[string]i18n.Section{
-		NameAcceptance: i18n.SectionAcceptance,
-		NameContract:   i18n.SectionContract,
-		NameDeadline:   i18n.SectionDeadline,
+		NameAcceptance:       i18n.SectionAcceptance,
+		NameContract:         i18n.SectionContract,
+		NameDeadline:         i18n.SectionDeadline,
+		NameResidentDispatch: i18n.SectionResidentDispatch,
 	}
 	for name, section := range markers {
 		for _, lang := range i18n.Supported() {

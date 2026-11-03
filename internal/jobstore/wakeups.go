@@ -120,6 +120,13 @@ func (r WakeupRecord) IsContinuationPending() bool {
 	return r.ContinuationJobID == WakeupClaimPending
 }
 
+// IsSayPending reports whether the row carries the pending-delivery sentinel: the
+// trigger already happened and the receipt waits for its resident target to become idle
+// (see WakeupPendingSay). It is not a job id either.
+func (r WakeupRecord) IsSayPending() bool {
+	return r.ContinuationJobID == WakeupPendingSay
+}
+
 // InsertWakeup records a new wakeup. It refuses a half-built row (no id / target
 // job / kind) and defaults the mode to once so a row never reads back as "unset".
 func (s *Store) InsertWakeup(r WakeupRecord) error {

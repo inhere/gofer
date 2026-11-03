@@ -46,7 +46,9 @@ func (s *Server) mayWakeByID(c *rux.Context, wakeupID string, submit bool) bool 
 //
 // continuation_job_id is cleared while a fire is in flight (the store holds the
 // "pending" sentinel there): that is an internal claim, not a job the caller could
-// look up.
+// look up. The same goes for the pending-delivery sentinel: the receipt already
+// triggered and waits for its resident target to come back to idle, which
+// pending_delivery reports (it is not a job id either).
 type wakeupView struct {
 	ID                string   `json:"id"`
 	JobID             string   `json:"job_id"`
@@ -67,9 +69,12 @@ type wakeupView struct {
 	FiredCount        int64    `json:"fired_count"`
 	CoalescedCount    int64    `json:"coalesced_count"`
 	ContinuationJobID string   `json:"continuation_job_id,omitempty"`
-	CreatedBy         string   `json:"created_by,omitempty"`
-	CreatedAt         int64    `json:"created_at"`
-	ExpiresAt         int64    `json:"expires_at,omitempty"`
+	// PendingDelivery marks a receipt that already triggered and waits for its resident
+	// target to come back to idle. Set with an EMPTY continuation_job_id.
+	PendingDelivery bool   `json:"pending_delivery,omitempty"`
+	CreatedBy       string `json:"created_by,omitempty"`
+	CreatedAt       int64  `json:"created_at"`
+	ExpiresAt       int64  `json:"expires_at,omitempty"`
 }
 
 // wakeupsResp is the list envelope (`{wakeups: [...]}`), matching the other list
@@ -85,9 +90,9 @@ type wakeupEnabledReq struct {
 }
 
 func toWakeupView(w jobstore.WakeupRecord) wakeupView {
-	cont := w.ContinuationJobID
-	if w.IsContinuationPending() {
-		cont = "" // an in-flight claim, not a job id
+	cont, pending := w.ContinuationJobID, w.IsSayPending()
+	if w.IsContinuationPending() || pending {
+		cont = "" // an in-flight claim / a pending delivery, not a job id
 	}
 	return wakeupView{
 		ID:                w.ID,
@@ -109,6 +114,7 @@ func toWakeupView(w jobstore.WakeupRecord) wakeupView {
 		FiredCount:        w.FiredCount,
 		CoalescedCount:    w.CoalescedCount,
 		ContinuationJobID: cont,
+		PendingDelivery:   pending,
 		CreatedBy:         w.CreatedBy,
 		CreatedAt:         w.CreatedAt,
 		ExpiresAt:         w.ExpiresAt,
@@ -156,9 +162,21 @@ func (s *Server) handleCreateWakeup(c *rux.Context) {
 	// 权限（设计 §1：wakeups 创建与修改是 job.submit 入口；wakeup 的归属走 job.wake.others）。
 	// 两个权限都在这里判定：job 层接着会用 wakeupGate 再问一次 job.wake.others（设计 架构：
 	// 「wakeup.go 不再读配置，由入口层传入判定」），这里先给出 403 文案。
-	if res, ok := s.jobForAccess(spec.JobID); ok && !s.mayWakeJob(c, res, true) {
-		s.denyJobAction(c, authz.PermJobWakeOthers, authz.PermJobSubmit)
-		return
+	//
+	// 手动 event wakeup 挂在一个活着的常驻 job 上时，它的 instruction 是 say 进那个会话的
+	// （设计「总体方案」：目标是活着的常驻 job 就走 say），等于对那个 job 说话，所以还要过
+	// say 的那条规则：只有 job.wake.others 的调用方不能借 wakeup 往别人的会话里塞文字。
+	// 定时类 wakeup 对活着的常驻 job 行为不变（仍走 resume），不需要它。
+	if res, ok := s.jobForAccess(spec.JobID); ok {
+		if !s.mayWakeJob(c, res, true) {
+			s.denyJobAction(c, authz.PermJobWakeOthers, authz.PermJobSubmit)
+			return
+		}
+		if spec.Kind == jobstore.WakeupKindEvent && res.Session && !job.IsFinished(res.Status) &&
+			!s.mayManageJob(c, res, false) {
+			s.denyJobAction(c, authz.PermJobManageOthers)
+			return
+		}
 	}
 	w, err := s.jobs.CreateWakeup(spec, callerFromCtx(c), s.wakeupGate(c))
 	if err != nil {

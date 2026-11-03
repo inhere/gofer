@@ -162,7 +162,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/plans/{id}/todos/{todo_id}/comments":     {user: InHandler(permDeny, authz.PermJobSubmit), jobCred: "POST /v1/plans/*/todos/*/comments", scope: Resource("plan")},
 	"POST /v1/todos/{todo_id}/comments":                {user: InHandler(permDeny, authz.PermJobSubmit), jobCred: "POST /v1/todos/*/comments", scope: Resource("todo")},
 	"POST /v1/decisions":                               {user: Public(), jobCred: "POST /v1/decisions", scope: Resource("plan")},
-	"POST /v1/jobs/{id}/wakeups":                       {user: InHandler(permDeny, authz.PermJobWakeOthers, authz.PermJobSubmit), jobCred: "POST /v1/jobs/*/wakeups", scope: Resource("job")},
+	"POST /v1/jobs/{id}/wakeups":                       {user: InHandler(permDeny, authz.PermJobWakeOthers, authz.PermJobSubmit, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/wakeups", scope: Resource("job")},
 	"POST /v1/jobs/{id}/say":                           {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/say", scope: Resource("job")},
 	"POST /v1/jobs/{id}/end":                           {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/end", scope: Resource("job")},
 	"POST /v1/sessions/{sid}/watches":                  {user: InHandler(permDeny, authz.PermSessionReplyOthers), jobCred: "POST /v1/sessions/*/watches", scope: Resource("session")},
