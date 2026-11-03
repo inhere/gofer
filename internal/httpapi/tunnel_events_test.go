@@ -35,12 +35,13 @@ func (l *lockedBuffer) Write(p []byte) (int, error) {
 }
 
 // captureTunnelEvents runs fn with the default logger swapped for a JSON
-// handler and returns every record that carries an event attribute, in order.
+// handler at DEBUG level (the opening steps of a tunnel are DEBUG records) and
+// returns every record that carries an event attribute, in order.
 func captureTunnelEvents(t *testing.T, fn func()) []map[string]any {
 	t.Helper()
 	buf := &lockedBuffer{}
 	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	defer slog.SetDefault(old)
 	fn()
 	buf.mu.Lock()
@@ -176,6 +177,19 @@ func TestTunnelServerEventSequence(t *testing.T) {
 	got := eventNames(events, "tunnel.")
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("server tunnel events:\n got %v\nwant %v", got, want)
+	}
+	// Levels: the steps of opening one tunnel are DEBUG (one tunnel per local
+	// connection would otherwise bury the log), the two lines that describe the
+	// tunnel stay INFO at WARN or above visibility.
+	for _, name := range []string{"tunnel.requested", "tunnel.rendezvous_started", "tunnel.worker_connected", "tunnel.first_up", "tunnel.first_down"} {
+		if lvl := findEvent(events, name)["level"]; lvl != "DEBUG" {
+			t.Errorf("%s level=%v, want DEBUG", name, lvl)
+		}
+	}
+	for _, name := range []string{"tunnel.opened", "tunnel.closed"} {
+		if lvl := findEvent(events, name)["level"]; lvl != "INFO" {
+			t.Errorf("%s level=%v, want INFO", name, lvl)
+		}
 	}
 	for _, name := range want {
 		e := findEvent(events, name)

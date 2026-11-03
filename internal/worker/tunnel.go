@@ -27,7 +27,7 @@ func outTunnel(c config.WorkerTunnelConfig) *tunnelPolicy {
 }
 func (cl *Client) applyTunnel(p *tunnelPolicy) { cl.tunnelPolicy.Store(p) }
 func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsproto.TunnelOpen) {
-	slog.Info("tunnel.requested", "event", "tunnel.requested", "component", "worker", "tunnel_id", t.TunnelID, "network", t.Network, "target", t.Target, "worker_id", cl.workerID)
+	slog.Debug("tunnel.requested", "event", "tunnel.requested", "component", "worker", "tunnel_id", t.TunnelID, "network", t.Network, "target", t.Target, "worker_id", cl.workerID)
 	dialStarted := time.Now()
 	p := cl.tunnelPolicy.Load()
 	code, msg := "", ""
@@ -119,10 +119,10 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	var reason string
 	var e error
 	firstUp := func() {
-		slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "first_byte_ms", time.Since(started).Milliseconds())
+		slog.Debug("tunnel.first_up", "event", "tunnel.first_up", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "first_byte_ms", time.Since(started).Milliseconds())
 	}
 	firstDown := func() {
-		slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "first_byte_ms", time.Since(started).Milliseconds())
+		slog.Debug("tunnel.first_down", "event", "tunnel.first_down", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "first_byte_ms", time.Since(started).Milliseconds())
 	}
 	var packets []any // udp only: datagram counts ride along on tunnel.closed
 	if network == "udp" {

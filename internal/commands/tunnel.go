@@ -367,10 +367,12 @@ func configureForwardLogging(quiet bool, logFile, logDir string, now time.Time, 
 
 // forwardEventSink turns Forwarder events into slog records tagged with the
 // worker; the Forwarder already supplies event-specific attrs such as
-// session_id, tunnel_id, first_byte_ms and close_reason.
+// session_id, tunnel_id, first_byte_ms and close_reason. The level comes from
+// tunnel.LogLevel: the steps of opening one tunnel are DEBUG, the two lines that
+// describe a tunnel on their own are INFO.
 func forwardEventSink(worker string) func(string, ...any) {
 	return func(event string, attrs ...any) {
-		slog.Info(event, append([]any{"event", event, "worker", worker}, attrs...)...)
+		slog.Log(context.Background(), tunnel.LogLevel(event), event, append([]any{"event", event, "worker", worker}, attrs...)...)
 	}
 }
 
