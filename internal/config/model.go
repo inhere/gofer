@@ -736,7 +736,10 @@ func DefaultInboxRules() []InboxRule {
 		{ID: "action", Column: "action", Kinds: []string{"interaction", "decision", "relay", "permission", "approval", "work", "plan_blocked", "mail_held", "review", "capture", "suggestion", "merge", "memory",
 			// job.failed: a failed / timed-out job nobody has continued yet; the person decides
 			// whether to resume or retry it. See the inbox handler's terminal-job classification.
-			"job.failed"}, Priority: 100},
+			// job.child_wake_failed: a child job's result can no longer reach the resident parent
+			// that submitted it (the parent ended or the receipt expired) — only a person can
+			// pick it up now.
+			"job.failed", "job.child_wake_failed"}, Priority: 100},
 		{ID: "fyi", Column: "fyi", Kinds: []string{"job.terminal", "work.digest", "activity", "comment", "agent.reply", "lane"}, Priority: 90},
 	}
 }

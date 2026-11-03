@@ -27,6 +27,9 @@ export type TodayCardKind =
   | 'worker_enroll'
   // 「等我」第 5 类：你本人提交、已失败 / 超时且没有后续 job 的任务（服务端生成，不是 today 的原生卡）
   | 'job.failed'
+  // 子 job 有结果但回执送不到常驻父 job（父 job 已结束 / 回执过期），卡片指向父 job
+  // （服务端生成，不是 today 的原生卡）
+  | 'job.child_wake_failed'
 
 // 「等我」六类（互斥、穷尽，按此顺序第一个命中）：待批准 / 待回答 / 待验收 / 计划卡住 / 你提交的任务失败 / 投递待确认
 export type WaitingCategory = 'approval' | 'answer' | 'review' | 'plan_stuck' | 'failed' | 'delivery'

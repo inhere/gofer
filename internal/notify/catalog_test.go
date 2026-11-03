@@ -79,8 +79,8 @@ func assertCatalogHas(t *testing.T, key string) {
 // move them, so they are pinned literally; changing a set is a deliberate act that edits
 // this test and the CHANGELOG.
 func TestDefaultEventSetsAreLocked(t *testing.T) {
-	wantWebhook := []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", "work.remind", "work.digest", "work.needs_me", "job.delivery_failed", "update.available"}
-	wantDesktop := []string{"job.awaiting_approval", "interaction.created", "session.awaiting_reply", "job.needs_review"}
+	wantWebhook := []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", "work.remind", "work.digest", "work.needs_me", "job.delivery_failed", "update.available", "job.child_wake_failed"}
+	wantDesktop := []string{"job.awaiting_approval", "interaction.created", "session.awaiting_reply", "job.needs_review", "job.child_wake_failed"}
 	if !slices.Equal(DefaultTriggerEvents, wantWebhook) {
 		t.Fatalf("DefaultTriggerEvents = %v, want %v", DefaultTriggerEvents, wantWebhook)
 	}

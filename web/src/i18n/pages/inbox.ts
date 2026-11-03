@@ -50,6 +50,7 @@ export const inbox: PageDict = {
     'inbox.kind.worker_enroll': 'worker 申请',
     'inbox.kind.job.terminal': '任务结束',
     'inbox.kind.job.failed': '任务失败',
+    'inbox.kind.job.child_wake_failed': '回执送不到',
     'inbox.kind.other': '其他',
 
     'inbox.toast.seen': '已标为已读（{n}）',
@@ -103,6 +104,7 @@ export const inbox: PageDict = {
     'inbox.kind.worker_enroll': 'Worker request',
     'inbox.kind.job.terminal': 'Job finished',
     'inbox.kind.job.failed': 'Job failed',
+    'inbox.kind.job.child_wake_failed': 'Receipt stranded',
     'inbox.kind.other': 'Other',
 
     'inbox.toast.seen': 'Marked read ({n})',

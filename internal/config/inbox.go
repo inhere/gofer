@@ -13,15 +13,16 @@ import (
 // notify event (decision, mail_held, ...). One event may announce several kinds
 // (job.terminal is a fyi job.terminal or an action job.failed, told apart by the job).
 var inboxKindEvents = map[string][]string{
-	"interaction":  {"interaction.created"},
-	"relay":        {"session.awaiting_reply"},
-	"approval":     {"job.awaiting_approval"},
-	"work":         {"work.needs_me", "work.remind"},
-	"plan_blocked": {"plan.blocked"},
-	"review":       {"job.needs_review"},
-	"job.failed":   {"job.terminal"},
-	"job.terminal": {"job.terminal"},
-	"work.digest":  {"work.digest"},
+	"interaction":           {"interaction.created"},
+	"relay":                 {"session.awaiting_reply"},
+	"approval":              {"job.awaiting_approval"},
+	"work":                  {"work.needs_me", "work.remind"},
+	"plan_blocked":          {"plan.blocked"},
+	"review":                {"job.needs_review"},
+	"job.failed":            {"job.terminal"},
+	"job.terminal":          {"job.terminal"},
+	"work.digest":           {"work.digest"},
+	"job.child_wake_failed": {"job.child_wake_failed"},
 }
 
 // InboxKinds lists every inbox kind of the built-in policy, default column order.

@@ -113,7 +113,7 @@ func (s *Server) handleInboxRules(c *rux.Context) {
 // The home page, the inbox's action column and the top-bar badge all read what this returns,
 // so they cannot disagree. fyi is the person's own finished jobs (the inbox's second column).
 func (s *Server) waitingFor(c *rux.Context, queue []today.Card) (waiting, fyi []today.Card, err error) {
-	var failed []today.Card
+	var failed, stranded []today.Card
 	if s.jobs != nil && s.jobs.Meta() != nil {
 		var allow func(string) bool
 		if s.ceilingActive(c) {
@@ -122,9 +122,14 @@ func (s *Server) waitingFor(c *rux.Context, queue []today.Card) (waiting, fyi []
 		if failed, fyi, err = inbox.TerminalCards(s.jobs.Meta(), s.requestLang(c), allow); err != nil {
 			return nil, nil, err
 		}
+		// A child receipt that can no longer reach its resident parent is a call to action
+		// too: only a person can pick the child's result up now.
+		if stranded, err = inbox.ChildWakeCards(s.jobs.Meta(), s.requestLang(c), allow); err != nil {
+			return nil, nil, err
+		}
 	}
-	cards := make([]today.Card, 0, len(queue)+len(failed))
-	cards = append(append(cards, queue...), failed...)
+	cards := make([]today.Card, 0, len(queue)+len(failed)+len(stranded))
+	cards = append(append(append(cards, queue...), failed...), stranded...)
 	return inbox.Waiting(s.requestLang(c), cards), fyi, nil
 }
 
