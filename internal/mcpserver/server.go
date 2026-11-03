@@ -245,7 +245,7 @@ func newServer(b Backend, scoped string) *mcp.Server {
 
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_wakeup_list",
-		Description: "List a job's wakeups with their state (enabled, next_run_at, fired_count, coalesced_count, continuation_job_id).",
+		Description: "List a job's wakeups with their state (enabled, next_run_at, fired_count, coalesced_count, continuation_job_id, pending_delivery). pending_delivery means the receipt already triggered and waits for the resident session to be idle; continuation_job_id is empty then.",
 	}, wakeupListHandler(b))
 
 	addGoferTool(s, &mcp.Tool{
@@ -596,9 +596,12 @@ type wakeupView struct {
 	FiredCount        int64    `json:"fired_count"`
 	CoalescedCount    int64    `json:"coalesced_count"`
 	ContinuationJobID string   `json:"continuation_job_id,omitempty"`
-	CreatedBy         string   `json:"created_by,omitempty"`
-	CreatedAt         int64    `json:"created_at"`
-	ExpiresAt         int64    `json:"expires_at,omitempty"`
+	// PendingDelivery marks a receipt that already triggered and waits for its resident
+	// target to come back to idle (ContinuationJobID is empty then).
+	PendingDelivery bool   `json:"pending_delivery,omitempty"`
+	CreatedBy       string `json:"created_by,omitempty"`
+	CreatedAt       int64  `json:"created_at"`
+	ExpiresAt       int64  `json:"expires_at,omitempty"`
 }
 
 // wakeupsView is the gofer_wakeup_list envelope.
@@ -608,9 +611,9 @@ type wakeupsView struct {
 
 // toWakeupView projects a stored wakeup (the local backend's shape).
 func toWakeupView(w jobstore.WakeupRecord) wakeupView {
-	cont := w.ContinuationJobID
-	if w.IsContinuationPending() {
-		cont = "" // an in-flight fire claim, not a job id
+	cont, pending := w.ContinuationJobID, w.IsSayPending()
+	if w.IsContinuationPending() || pending {
+		cont = "" // an in-flight fire claim / a pending delivery, not a job id
 	}
 	return wakeupView{
 		ID: w.ID, JobID: w.JobID, Kind: w.Kind, At: w.At, EverySec: w.EverySec,
@@ -621,7 +624,7 @@ func toWakeupView(w jobstore.WakeupRecord) wakeupView {
 		Mode:         w.Mode, Instruction: w.Instruction, Enabled: w.Enabled == 1,
 		Revision: w.Revision, NextRunAt: w.NextRunAt, LastFiredAt: w.LastFiredAt,
 		FiredCount: w.FiredCount, CoalescedCount: w.CoalescedCount,
-		ContinuationJobID: cont, CreatedBy: w.CreatedBy, CreatedAt: w.CreatedAt,
+		ContinuationJobID: cont, PendingDelivery: pending, CreatedBy: w.CreatedBy, CreatedAt: w.CreatedAt,
 		ExpiresAt: w.ExpiresAt,
 	}
 }

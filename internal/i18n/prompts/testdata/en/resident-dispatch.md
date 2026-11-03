@@ -1,0 +1,8 @@
+## Dispatching child jobs
+
+You hold the submit permission, so you can dispatch child jobs with your own job credential; gofer brings their results back into this session.
+- Submit the child jobs with `gofer job run` and END this turn once they are submitted. Do not wait, poll or sleep for them: gofer speaks the result into this session and starts the next turn.
+- Start this session with an idle limit long enough for the whole batch (`--idle-timeout`, in seconds; the default 1800 is usually too short). A session that goes idle before a child job finishes cannot be woken any more: the result is not delivered and gofer tells a person instead.
+- Start this session with `--shared-dir`: a resident session otherwise holds the directory exclusively for its whole life, and a child job that needs the same tree queues behind it until the session ends.
+- Run a child job that writes files with `--worktree`, so it works on its own copy of the checkout.
+- Leave room in the concurrency slots: a child job that waits for a slot runs late or fails outright, and when a slot is limited to one and this session already holds it, the child waits until the session ends.
