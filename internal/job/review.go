@@ -175,6 +175,10 @@ func (s *Service) reviewJob(jobID, by, note, verdict string, resume, skipDeliver
 	// SUP-02 R1: the verdict is this job's terminal state, so the terminal hooks run
 	// here exactly as they do at the end of finish (a takeover job that was gated on
 	// review is only finished once a human ruled on it).
+	// A parent parked for review already had its child receipts retired and reported when
+	// it was parked (the process was gone then); the verdict only re-records job.terminal,
+	// and the report skips receipts that are no longer armed — one report, never two.
+	s.endParentChildWakes(jobID, childWakeReasonParentEnded)
 	s.notifyTerminalHooks(snap)
 	// gofer-3db4: the human's verdict is the job's real ENDING — a job parked in
 	// needs_review already told its sender once, so this second dispatch is a no-op
