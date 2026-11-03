@@ -40,7 +40,13 @@ type stateStamp struct {
 // this process has not seen yet is only remembered, so nothing is claimed about a state we
 // did not observe.
 func (s *Service) noteStateChange(a jobstore.AgentSession, event string) {
-	if a.SessionID == "" || a.State == "" {
+	s.noteState(a.SessionID, a.State, event)
+}
+
+// noteState is noteStateChange for the relay's own transitions, where only the id and the new
+// state are at hand (a wait released, a takeover started, a Stop take closed a turn).
+func (s *Service) noteState(sid, state, event string) {
+	if sid == "" || state == "" {
 		return
 	}
 	now := s.nowFn()
@@ -48,16 +54,16 @@ func (s *Service) noteStateChange(a jobstore.AgentSession, event string) {
 	if s.stateSeen == nil {
 		s.stateSeen = make(map[string]stateStamp)
 	}
-	prev, seen := s.stateSeen[a.SessionID]
-	if _, ok := s.stateSeen[a.SessionID]; !ok && len(s.stateSeen) >= maxTrackedStates {
+	prev, seen := s.stateSeen[sid]
+	if _, ok := s.stateSeen[sid]; !ok && len(s.stateSeen) >= maxTrackedStates {
 		s.evictOldestStateLocked()
 	}
-	s.stateSeen[a.SessionID] = stateStamp{state: a.State, at: now}
+	s.stateSeen[sid] = stateStamp{state: state, at: now}
 	s.stateMu.Unlock()
-	if !seen || prev.state == a.State {
+	if !seen || prev.state == state {
 		return
 	}
-	slog.Info(EventStateChanged, "session", a.SessionID, "from", prev.state, "to", a.State, "event", event)
+	slog.Info(EventStateChanged, "session", sid, "from", prev.state, "to", state, "event", event)
 }
 
 // evictOldestStateLocked drops the longest-untouched session (s.stateMu held).

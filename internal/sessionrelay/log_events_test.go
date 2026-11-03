@@ -118,6 +118,69 @@ func TestHeartbeatLogsStateChange(t *testing.T) {
 	}
 }
 
+// TestTakeoverLogsTheHandoffStateChange: a relay action (not a hook beat) that moves the
+// session's state is reported the same way — the original terminal stops being delivered to
+// from here, and that has to be visible.
+func TestTakeoverLogsTheHandoffStateChange(t *testing.T) {
+	s := newSvc(t)
+	tmuxSession(t, s, "sid-log-0004")
+	if _, err := s.Heartbeat("sid-log-0004", HeartbeatInput{Event: EventStop}); err != nil {
+		t.Fatal(err)
+	}
+	rec := newLogRecorder(t)
+	handed, err := s.store.SetSessionHandedOff("sid-log-0004", "job-takeover-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.noteStateChange(handed, "handoff")
+	got := rec.find(EventStateChanged)
+	if len(got) != 1 || got[0].attr("session") != "sid-log-0004" ||
+		got[0].attr("from") != jobstore.SessionIdle ||
+		got[0].attr("to") != jobstore.SessionHandedOff || got[0].attr("event") != "handoff" {
+		t.Fatalf("session.state_changed = %+v (%d): %s", got, len(got), rec.text())
+	}
+}
+
+// TestOpenTurnAndMailTurnLogTheStateChange: the turn cycle the hook drives end to end — a Stop
+// parks the session in waiting_reply (where mail.wake_waiting reports it), and the Stop take
+// that carries letters out of it moves it back to running.
+func TestOpenTurnAndMailTurnLogTheStateChange(t *testing.T) {
+	s := newSvc(t)
+	if _, err := s.Register(RegisterInput{SessionID: "sid-log-0005", Agent: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Heartbeat("sid-log-0005", HeartbeatInput{Event: EventStop}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetRelayMode("sid-log-0005", jobstore.RelayModeOn); err != nil {
+		t.Fatal(err)
+	}
+	rec := newLogRecorder(t)
+	turn, err := s.OpenTurn("sid-log-0005", "which one?", 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := rec.find(EventStateChanged)
+	if len(got) != 1 || got[0].attr("to") != jobstore.SessionWaitingReply {
+		t.Fatalf("open turn = %+v (%d): %s", got, len(got), rec.text())
+	}
+	if _, err := s.store.InsertMail(jobstore.MailInput{
+		FromKind: jobstore.MailKindCaller, FromCaller: "alice",
+		ToAddress: "session:sid-log-0005", ToKind: jobstore.MailKindSession, ToID: "sid-log-0005", Body: "letter",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	completed, taken, err := s.CompleteMailTurn("sid-log-0005", turn.ID, jobstore.TakeMailOpts{})
+	if err != nil || !completed || len(taken) != 1 {
+		t.Fatalf("complete mail turn = %v %d err=%v", completed, len(taken), err)
+	}
+	got = rec.find(EventStateChanged)
+	if len(got) != 2 || got[1].attr("from") != jobstore.SessionWaitingReply ||
+		got[1].attr("to") != jobstore.SessionRunning || got[1].attr("event") != "mail_turn" {
+		t.Fatalf("session.state_changed = %+v (%d): %s", got, len(got), rec.text())
+	}
+}
+
 // TestDeliverLogsPathAndFailure: one session.deliver line per attempt — the path that carried
 // the text, and the reason a failed attempt had none. The text itself never reaches the log.
 func TestDeliverLogsPathAndFailure(t *testing.T) {

@@ -966,6 +966,7 @@ func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDec
 	}); err != nil {
 		return jobstore.PlanDecision{}, err
 	}
+	s.noteState(sid, jobstore.SessionWaitingReply, EventStop)
 	// Tell the human their session is waiting (best-effort, never blocks the
 	// hook: the notifier only enqueues, the delivery sweeper does the posting).
 	if s.notifier != nil {
@@ -1172,7 +1173,9 @@ func (s *Service) ReleaseTurn(sid, turnID string, idleSec int64) (bool, error) {
 		return false, err
 	}
 	if a.State == jobstore.SessionWaitingReply {
-		_, _ = s.store.SetSessionState(sid, jobstore.SessionIdle)
+		if _, err := s.store.SetSessionState(sid, jobstore.SessionIdle); err == nil {
+			s.noteState(sid, jobstore.SessionIdle, "turn_released")
+		}
 	}
 	return true, nil
 }
@@ -1220,7 +1223,9 @@ func (s *Service) OnAnswered(d jobstore.PlanDecision) {
 		return
 	}
 	if a, ok, _ := s.store.GetAgentSession(d.SessionID); ok && a.State == jobstore.SessionWaitingReply {
-		_, _ = s.store.SetSessionState(d.SessionID, jobstore.SessionRunning)
+		if _, err := s.store.SetSessionState(d.SessionID, jobstore.SessionRunning); err == nil {
+			s.noteState(d.SessionID, jobstore.SessionRunning, "answered")
+		}
 	}
 }
 
@@ -1338,6 +1343,7 @@ func (s *Service) CompleteWatchedTurn(sid, turnID string, jobIDs []string) (bool
 	if _, err := s.store.SetSessionState(sid, jobstore.SessionRunning); err != nil {
 		return false, err
 	}
+	s.noteState(sid, jobstore.SessionRunning, "watched_job")
 	return true, nil
 }
 
@@ -1391,6 +1397,7 @@ func (s *Service) CompleteMailTurn(sid, turnID string, opts jobstore.TakeMailOpt
 	if _, err := s.store.SetSessionState(sid, jobstore.SessionRunning); err != nil {
 		return false, nil, err
 	}
+	s.noteState(sid, jobstore.SessionRunning, "mail_turn")
 	return true, out, nil
 }
 
@@ -1508,6 +1515,7 @@ func (s *Service) releaseTakeover(ctx context.Context, a jobstore.AgentSession, 
 	if !ok {
 		return jobstore.AgentSession{}, ErrUnknownSession
 	}
+	s.noteStateChange(after, "takeover_released")
 	return after, nil
 }
 

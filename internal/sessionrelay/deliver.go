@@ -1084,9 +1084,11 @@ func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, 
 
 	// The session now belongs to the new process: from here its original terminal
 	// stops relaying (WaitReason) and refuses new turns (OpenTurn).
-	if _, err := s.store.SetSessionHandedOff(a.SessionID, res.JobID); err != nil {
-		return DeliverResult{}, err
+	handed, herr := s.store.SetSessionHandedOff(a.SessionID, res.JobID)
+	if herr != nil {
+		return DeliverResult{}, herr
 	}
+	s.noteStateChange(handed, "handoff")
 	d, err := s.recordTakeover(a, text, by, res.JobID)
 	if err != nil {
 		return DeliverResult{}, err

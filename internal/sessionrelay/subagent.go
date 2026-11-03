@@ -253,7 +253,9 @@ func (s *Service) noteSubagent(sid string, in HeartbeatInput) error {
 		s.subagents.markReleased(sid, s.nowFn().Unix())
 	}
 	if released && a.State == jobstore.SessionWaitingReply {
-		_, _ = s.store.SetSessionState(sid, jobstore.SessionIdle)
+		if _, err := s.store.SetSessionState(sid, jobstore.SessionIdle); err == nil {
+			s.noteState(sid, jobstore.SessionIdle, "subagents_released")
+		}
 	}
 	return nil
 }
