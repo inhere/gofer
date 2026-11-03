@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/logx"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
@@ -233,6 +235,9 @@ func TestWakeWaitingOncePerReasonAndCleanup(t *testing.T) {
 	if waiting[0].attr("earliest_wake_at") == "" || waiting[0].attr("earliest_wake_at") == "0" {
 		t.Fatalf("the wait has no expected wake time: %+v", waiting[0].attrs)
 	}
+	if _, err := time.Parse(logx.TimeLayout, waiting[0].attr("earliest_wake_at")); err != nil {
+		t.Fatalf("earliest_wake_at is not a readable local time (%q): %v", waiting[0].attr("earliest_wake_at"), err)
+	}
 
 	// The sweep runs every tick: the same wait is not news.
 	d.Tick(ctx)
@@ -267,6 +272,112 @@ func TestWakeWaitingOncePerReasonAndCleanup(t *testing.T) {
 	d.mu.Unlock()
 	if left != 0 {
 		t.Fatalf("wake-waiting memory kept %d sessions after the letters were gone", left)
+	}
+}
+
+// TestWakeWaitingReportsAPushedBackEarliestTime: an agent that keeps working beats the hook,
+// every beat pushes last_seen_at — and with it the expected wake time — while the reason stays
+// not_idle_long_enough. The line has to follow the expected time, or the log points at a wake
+// time that already passed.
+func TestWakeWaitingReportsAPushedBackEarliestTime(t *testing.T) {
+	f := newFixture(t)
+	f.sessionSeenAt(t, "sess-busy", "claude", jobstore.SessionIdle, time.Minute)
+	f.send(t, "session:sess-busy", "hi", false)
+	rec := newLogRecorder(t)
+	d, _, _ := newDeliverer(f)
+	ctx := context.Background()
+
+	d.Tick(ctx)
+	first := rec.find(EventWakeWaiting)
+	if len(first) != 1 {
+		t.Fatalf("mail.wake_waiting lines = %d: %s", len(first), rec.text())
+	}
+
+	// The hook beats again: last_seen moves, so the idle deadline moves with it.
+	f.now = f.now.Add(20 * time.Second)
+	if _, ok, err := f.store.TouchAgentSession("sess-busy", jobstore.SessionHeartbeat{
+		Event: "UserPromptSubmit", State: jobstore.SessionRunning,
+	}); err != nil || !ok {
+		t.Fatalf("beat: ok=%v err=%v", ok, err)
+	}
+	if _, err := f.store.SetSessionState("sess-busy", jobstore.SessionIdle); err != nil {
+		t.Fatal(err)
+	}
+	d.Tick(ctx)
+	got := rec.find(EventWakeWaiting)
+	if len(got) != 2 {
+		t.Fatalf("a pushed-back expected time was not reported: %d lines: %s", len(got), rec.text())
+	}
+	if got[1].attr("reason") != WaitNotIdleLongEnough {
+		t.Fatalf("reason = %q, want the unchanged %q", got[1].attr("reason"), WaitNotIdleLongEnough)
+	}
+	before, err := time.Parse(logx.TimeLayout, got[0].attr("earliest_wake_at"))
+	if err != nil {
+		t.Fatalf("first earliest_wake_at %q: %v", got[0].attr("earliest_wake_at"), err)
+	}
+	after, err := time.Parse(logx.TimeLayout, got[1].attr("earliest_wake_at"))
+	if err != nil {
+		t.Fatalf("second earliest_wake_at %q: %v", got[1].attr("earliest_wake_at"), err)
+	}
+	if !after.After(before) {
+		t.Fatalf("earliest_wake_at went from %v to %v, want it later", before, after)
+	}
+
+	// Nothing moved (no beat since): the same wait is not repeated again.
+	d.Tick(ctx)
+	if n := len(rec.find(EventWakeWaiting)); n != 2 {
+		t.Fatalf("an unchanged wait was repeated: %d lines", n)
+	}
+}
+
+// TestLogReasonIsSingleLineAndBounded: a deliver_command's failure can be a multi-line stderr
+// blob; the log line must stay one bounded line while the stored reason keeps the full text.
+func TestLogReasonIsSingleLineAndBounded(t *testing.T) {
+	long := strings.Repeat("x", 500) + "\n"
+	got := logReason("deliver_failed:boom\r\n\tsecond line\n" + long)
+	if strings.ContainsAny(got, "\r\n\t") {
+		t.Fatalf("the reason is not one line: %q", got)
+	}
+	if n := len([]rune(got)); n > maxLogReasonRunes+1 {
+		t.Fatalf("the reason is %d runes, want at most %d plus the ellipsis", n, maxLogReasonRunes)
+	}
+	if !strings.HasPrefix(got, "deliver_failed:boom second line ") {
+		t.Fatalf("the reason lost its head: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("a cut reason needs the ellipsis: %q", got)
+	}
+}
+
+// TestSugaFailureLogsACompressedReason: the reason a claim was released with reaches the log
+// compressed, while the letter's stored last_error keeps what the failure said.
+func TestSugaFailureLogsACompressedReason(t *testing.T) {
+	f := newFixture(t)
+	f.sessionSeenAt(t, "sess-suga", "suga", jobstore.SessionIdle, time.Minute)
+	m := f.send(t, "session:sess-suga", "hi", false)
+	rec := newLogRecorder(t)
+	d, snd, _ := newDeliverer(f)
+	snd.sendErr = &sessionrelay.UndeliverableError{Reason: sessionrelay.DeliverFailedPrefix + "runner_error", Err: errors.New(
+		"job j1: stderr line one\nstderr line two\n" + strings.Repeat("z", 500))}
+
+	d.Tick(context.Background())
+	released := rec.find(EventClaimReleased)
+	if len(released) != 1 {
+		t.Fatalf("mail.claim_released lines = %d: %s", len(released), rec.text())
+	}
+	reason := released[0].attr("reason")
+	if strings.ContainsAny(reason, "\r\n\t") {
+		t.Fatalf("the logged reason is not one line: %q", reason)
+	}
+	if n := len([]rune(reason)); n > maxLogReasonRunes+1 {
+		t.Fatalf("the logged reason is %d runes", n)
+	}
+
+	// The letter keeps the full failure text: ReleaseMailClaim's stored reason is unchanged.
+	st := f.mailState(t, m.ID)
+	if st.State != jobstore.MailPending || !strings.Contains(st.LastError, "stderr line two") ||
+		len(st.LastError) <= maxLogReasonRunes {
+		t.Fatalf("the stored last_error was changed by the logging: %+v", st.LastError)
 	}
 }
 

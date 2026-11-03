@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/logx"
 )
 
 // Why a session with pending letters is still waiting for its wake (mail.wake_waiting). The
@@ -36,7 +37,10 @@ const maxWakeWaits = 1024
 // wakeWait is what one session was last reported waiting for.
 type wakeWait struct {
 	reason string
-	at     time.Time
+	// earliest is the expected wake time that was reported with reason: a wait whose
+	// expected time moved LATER is news even when the reason did not change.
+	earliest time.Time
+	at       time.Time
 }
 
 // wakeWaitReason explains why a session with pending letters is not woken now.
@@ -66,7 +70,13 @@ func wakeWaitEarliest(a jobstore.AgentSession, now time.Time, st Settings) time.
 
 // noteWakeWaiting reports that a session's letters are still waiting — ONCE per state: a sweep
 // runs every tick and "nothing changed" is not news. The entry is replaced when the reason
-// changes, so an operator sees the sequence (not_idle_long_enough → wake_interval → woke).
+// changes OR when the expected wake time moves, so an operator sees the sequence
+// (not_idle_long_enough → wake_interval → woke).
+//
+// The expected time has to be compared on its own: a hook keeps beating while the agent is
+// active, every beat pushes last_seen_at (and with it the idle deadline) later, and the reason
+// stays not_idle_long_enough the whole time. Reporting only once would leave the log pointing
+// at a wake time that has long passed without a wake.
 func (d *Deliverer) noteWakeWaiting(a jobstore.AgentSession, pending int, reason string, earliest, now time.Time) {
 	if reason == "" || a.SessionID == "" {
 		return
@@ -75,19 +85,19 @@ func (d *Deliverer) noteWakeWaiting(a jobstore.AgentSession, pending int, reason
 	if d.wakeWaits == nil {
 		d.wakeWaits = make(map[string]wakeWait)
 	}
-	if prev, ok := d.wakeWaits[a.SessionID]; ok && prev.reason == reason {
-		d.wakeWaits[a.SessionID] = wakeWait{reason: reason, at: now}
+	if prev, ok := d.wakeWaits[a.SessionID]; ok && prev.reason == reason && prev.earliest.Equal(earliest) {
+		d.wakeWaits[a.SessionID] = wakeWait{reason: reason, earliest: earliest, at: now}
 		d.mu.Unlock()
 		return
 	}
 	if _, ok := d.wakeWaits[a.SessionID]; !ok && len(d.wakeWaits) >= maxWakeWaits {
 		d.evictOldestWakeWaitLocked()
 	}
-	d.wakeWaits[a.SessionID] = wakeWait{reason: reason, at: now}
+	d.wakeWaits[a.SessionID] = wakeWait{reason: reason, earliest: earliest, at: now}
 	d.mu.Unlock()
 	attrs := []any{"session", a.SessionID, "pending", pending, "state", a.State, "reason", reason}
 	if !earliest.IsZero() {
-		attrs = append(attrs, "earliest_wake_at", earliest.Unix())
+		attrs = append(attrs, "earliest_wake_at", earliest.Format(logx.TimeLayout))
 	}
 	slog.Info(EventWakeWaiting, attrs...)
 }
