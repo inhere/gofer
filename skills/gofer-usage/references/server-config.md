@@ -872,7 +872,7 @@ gofer auth caller audit --limit 20                                            # 
 
 ### 配置文件里的用户
 
-`server.callers` 里声明的用户能力相同，但**不能在 web / CLI 上轮换、停用或启用**（409）——轮换会把明文 token 写回配置文件，`token_env` 也写不回。它的上限与配额可以改，写的是文件（`server:` 块的注释会丢，与配置页所有 server 写入一致），改完立即生效。要换成入库方式，就在配置文件里删掉该条目，再用 `caller add` 建同 id 的用户。
+`server.callers` 里声明的用户能力相同，但**不能在 web / CLI 上轮换、停用或启用**（409）——轮换会把明文 token 写回配置文件，`token_env` 也写不回。它的上限与配额可以改，写的是文件（`server:` 块的注释会丢，与配置页所有 server 写入一致；CLI 改完也会打印这条提示），改完立即生效。要换成入库方式，就在配置文件里删掉该条目，再用 `caller add` 建同 id 的用户。
 
 **文件用户接管同 id 的入库用户**（写入配置并 reload 时发生）：
 
@@ -892,7 +892,7 @@ gofer auth caller repair ci --offline
 
 ### 备份与回退
 
-配置与用户都在数据库里时，**备份数据库就是备份配置**：用 SQLite 的一致性备份（`.backup` / `VACUUM INTO`），不要直接拷文件（有 WAL）。回退到不认识入库用户的旧版本前：先取消这些用户名下的 schedule、计划与排队 job——旧版本查不到这些用户，上限就不再生效，这些自动化会无上限地跑。回退后这些用户的 token 一律 401、它们的授权被标孤儿；重新升级回来再用 `gofer auth grant activate` 恢复。没用用户入库的部署不受影响。
+配置与用户都在数据库里时，**备份数据库就是备份配置**：用 SQLite 的一致性备份（`.backup` / `VACUUM INTO`），不要直接拷文件（有 WAL）。回退到不认识入库用户的旧版本前：先取消这些用户名下的 schedule、计划与排队 job——旧版本查不到这些用户，上限就不再生效，这些自动化会无上限地跑。回退后这些用户的 token 一律 401、它们的授权被标孤儿；重新升级回来后在 web「设置 → 权限」里逐条重新启用，或对每条调 `POST /v1/auth/grants/{id}/activate`（CLI 没有 `auth grant activate`，`auth grant` 只有 `renew`）。没用用户入库的部署不受影响。
 
 ## 出站代理（http_proxy）
 

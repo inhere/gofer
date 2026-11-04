@@ -518,6 +518,12 @@ func runCallerSetCeiling(c *gcli.Command, cli *client.Client) error {
 		return printTrackerJSON(c, change)
 	}
 	printCallerChange(c, change, false)
+	// D12: a file caller's ceiling is written to the configuration file, whose `server:` block is
+	// re-rendered — the comments in it are lost. A stored caller's write touches no file, so it
+	// gets no such note.
+	if config.CallerSourceLabel(change.Caller.Source) == config.CallerSourceFile {
+		c.Println(cliText("cli.auth.caller.ceiling_file_note"))
+	}
 	return nil
 }
 

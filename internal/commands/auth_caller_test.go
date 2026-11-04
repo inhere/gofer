@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/inhere/gofer/internal/i18n"
 )
 
 // callerStubServer serves the caller routes: it records every request and answers a fixed
@@ -157,6 +159,53 @@ func TestAuthCallerNoCeilingSendsTheFlag(t *testing.T) {
 	}
 	if len(stub.requests) != 1 || !strings.Contains(stub.requests[0].body, `"no_ceiling":true`) {
 		t.Fatalf("the request must carry no_ceiling: %+v", stub.requests)
+	}
+}
+
+// TestAuthCallerSetCeilingNotesFileCommentLoss (D12): a ceiling written for a caller declared in the
+// configuration file loses that file's `server:` block comments, so the CLI says so; a stored
+// caller's write never touches the file and must stay silent. Both cases run through app.Run, so
+// the flag binding, the request and the printing are the ones a user gets (GR110).
+func TestAuthCallerSetCeilingNotesFileCommentLoss(t *testing.T) {
+	note := i18n.T(i18n.EN, "cli.auth.caller.ceiling_file_note")
+	if !strings.Contains(note, "comments") {
+		t.Fatalf("the en note must name the lost comments: %q", note)
+	}
+	for _, tc := range []struct {
+		source string
+		want   bool
+	}{
+		{"file", true},
+		{"db", false},
+	} {
+		t.Run(tc.source, func(t *testing.T) {
+			isolateAgentSessionEnv(t)
+			isolateCallerFlags(t)
+			t.Setenv(i18n.EnvLanguageVar, string(i18n.EN))
+			stub := &callerStubServer{body: map[string]any{
+				"caller": map[string]any{"id": "ci", "source": tc.source, "state": "active"},
+			}}
+			srv := httptest.NewServer(stub.handler())
+			t.Cleanup(srv.Close)
+
+			var code int
+			out := captureOutput(t, func() {
+				code = NewApp("test").Run([]string{
+					"auth", "caller", "set-ceiling", "ci",
+					"--server", srv.URL, "--token", "tok-root", "--ceiling-project", "p1",
+				})
+			})
+			if code != 0 {
+				t.Fatalf("set-ceiling exit code=%d, out=%s", code, out)
+			}
+			if len(stub.requests) != 1 || stub.requests[0].method != http.MethodPut ||
+				stub.requests[0].path != "/v1/callers/ci/ceiling" {
+				t.Fatalf("requests = %+v, want one PUT /v1/callers/ci/ceiling", stub.requests)
+			}
+			if got := strings.Contains(out, note); got != tc.want {
+				t.Fatalf("source %s: note printed=%v, want %v; out=%s", tc.source, got, tc.want, out)
+			}
+		})
 	}
 }
 
