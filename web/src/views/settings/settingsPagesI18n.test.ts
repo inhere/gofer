@@ -17,6 +17,7 @@ const sources = {
     raw(import.meta.glob('./Extensions.vue', { eager: true, query: '?raw', import: 'default' })),
     raw(import.meta.glob('../Skills.vue', { eager: true, query: '?raw', import: 'default' })),
     raw(import.meta.glob('./Tunnels.vue', { eager: true, query: '?raw', import: 'default' })),
+    raw(import.meta.glob('./Callers.vue', { eager: true, query: '?raw', import: 'default' })),
   ],
   'access.': [raw(import.meta.glob('../Access.vue', { eager: true, query: '?raw', import: 'default' }))],
 }

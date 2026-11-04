@@ -6,11 +6,14 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { t } from '../../i18n'
+import { useWhoami } from '../../store/whoami'
 
 interface SettingsSection {
   to: string
   /** 导航文案的 i18n key（settings.nav.*）。 */
   key: string
+  /** 只给根管理员看的分区（用户管理要 auth.manage，其余人调用一律 403）。 */
+  rootOnly?: boolean
 }
 
 const sections: SettingsSection[] = [
@@ -23,6 +26,8 @@ const sections: SettingsSection[] = [
   { to: '/settings/notifications', key: 'settings.nav.notifications' },
   // 权限目录 / 授权 / 会话授权 / 审计（根管理员可写，其余只读）。
   { to: '/settings/permissions', key: 'settings.nav.permissions' },
+  // 配置入库 P1：用户管理（新增 / 发 token / 轮换 / 停用 / 改上限），只给根管理员。
+  { to: '/settings/callers', key: 'settings.nav.callers', rootOnly: true },
   // W2a：工作项的被动整理 / 请求超时 / 自动交接 / 每日摘要
   { to: '/settings/work', key: 'settings.nav.work' },
   // K5：扩展设置（数据库里的降噪阈值 / 排除名单 / 提示词覆盖）。
@@ -33,13 +38,16 @@ const sections: SettingsSection[] = [
 
 const route = useRoute()
 const router = useRouter()
+// whoami 取不到时按「不是根管理员」处理：这类分区对非根用户既没入口也没权限。
+const { isRoot } = useWhoami()
+const visibleSections = computed(() => sections.filter((s) => !s.rootOnly || isRoot.value))
 
 // 子路径也算命中（/settings/tunnels 下若将来有详情页，菜单项仍高亮）。
 function isActive(to: string): boolean {
   return route.path === to || route.path.startsWith(to + '/')
 }
 
-const active = computed(() => sections.find((s) => isActive(s.to)))
+const active = computed(() => visibleSections.value.find((s) => isActive(s.to)))
 const activeLabel = computed(() => (active.value ? t(active.value.key) : ''))
 
 // 手机下拉框：选中即跳转（replace 不堆历史，与点导航等价）。
@@ -61,7 +69,7 @@ const selected = computed(() => active.value?.to ?? '')
 
     <div class="settings-body">
       <nav class="set-nav" :aria-label="t('settings.navLabel')">
-        <RouterLink v-for="s in sections" :key="s.to" :to="s.to" class="nav-item">
+        <RouterLink v-for="s in visibleSections" :key="s.to" :to="s.to" class="nav-item">
           {{ t(s.key) }}
         </RouterLink>
       </nav>
@@ -75,7 +83,7 @@ const selected = computed(() => active.value?.to ?? '')
             data-testid="settings-nav-select"
             @change="onPick"
           >
-            <option v-for="s in sections" :key="s.to" :value="s.to">{{ t(s.key) }}</option>
+            <option v-for="s in visibleSections" :key="s.to" :value="s.to">{{ t(s.key) }}</option>
           </select>
         </label>
         <RouterView />

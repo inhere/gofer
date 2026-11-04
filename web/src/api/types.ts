@@ -1005,7 +1005,13 @@ export interface CallerConfigView {
   id: string
   // 显示名（callers[].name，可选）；id 仍是身份。
   name?: string
+  // 来源：缺省 = 配置文件里声明的；db = 存在数据库里的（控制台新建）。
+  source?: string
+  // 已停用的存储用户：无法认证，名下新任务不再启动。
+  disabled?: boolean
   token_set: boolean
+  // token_hint：`gct_…1234`，只够区分两个 token。
+  token_hint?: string
   can_answer: boolean
   can_admin: boolean
   can_attach?: boolean
@@ -1013,12 +1019,91 @@ export interface CallerConfigView {
   max_concurrent_jobs?: number
   rate_limit?: number
   rate_burst?: number
+  ceiling?: CallerCeilingView
 }
 
 export interface WorkerConfigView {
   id: string
   token_set: boolean
   labels: string[]
+}
+
+// ---- 用户管理接口（/v1/callers*，配置入库 P1）----
+// 字段与后端 internal/config/caller_admin.go 的 CallerView / CallerChange 一一对应；
+// token 只在 CallerChange 里出现一次。
+
+// CallerCeilingView 是一个用户的上限。三个开关是 *操作员写没写* 而不是已生效值：
+// 缺省 = 不允许（allow_exec / global_memory）、不是只读（read_only），与后端 ceiling.go 一致。
+export interface CallerCeilingView {
+  projects?: string[]
+  runners?: string[]
+  workers?: string[]
+  agents?: string[]
+  allow_exec?: boolean
+  global_memory?: boolean
+  read_only?: boolean
+}
+
+export interface CallerLimits {
+  max_concurrent_jobs: number
+  rate_limit: number
+  rate_burst: number
+}
+
+export interface CallerView {
+  id: string
+  name?: string
+  // file = 配置文件里声明的（操作员自己的条目），db = 控制台新建、存在数据库里的。
+  source: string
+  // active | disabled | superseded（被同 id 的文件用户接管，需要先轮换才能启用）。
+  state: string
+  token_set: boolean
+  // token_hint 形如 `gct_…a1b2`：只够区分两个 token，拿不回原值。
+  token_hint?: string
+  max_concurrent_jobs?: number
+  rate_limit?: number
+  rate_burst?: number
+  ceiling?: CallerCeilingView
+  created_by?: string
+  created_at?: number
+  rotated_at?: number
+  updated_at?: number
+  warnings?: string[]
+}
+
+export interface CallerChange {
+  caller: CallerView
+  // 只有新增与轮换的响应带它，且只此一次。
+  token?: string
+  warnings?: string[]
+}
+
+export interface CallersResp {
+  callers: CallerView[]
+  count: number
+}
+
+export interface CallerAddReq extends CallerLimits {
+  id: string
+  name?: string
+  // ceiling 与 no_ceiling 二选一：上限块，或者明确「不设上限」。
+  ceiling?: CallerCeilingView
+  no_ceiling?: boolean
+}
+
+// CallerAuditEntry 是 config_audit 的一行：谁、什么时候、改了哪个条目、打码后的前后值。
+export interface CallerAuditEntry {
+  id?: number
+  actor: string
+  path: string
+  before_masked?: string
+  after_masked?: string
+  at: number
+}
+
+export interface CallerAuditResp {
+  entries: CallerAuditEntry[]
+  count: number
 }
 
 export interface RunnerProbeConfigView {

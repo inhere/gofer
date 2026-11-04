@@ -61,6 +61,7 @@ const NESTED_OR_NARROW = [
   './settings/Extensions.vue',
   './settings/McpServers.vue',
   './settings/Notifications.vue',
+  './settings/Callers.vue',
   './settings/Permissions.vue',
   './settings/Rules.vue',
   './settings/Tunnels.vue',

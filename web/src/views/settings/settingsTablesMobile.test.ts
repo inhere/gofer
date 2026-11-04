@@ -7,6 +7,7 @@ const raw = (glob: Record<string, unknown>): string => Object.values(glob)[0] as
 const rules = raw(import.meta.glob('./Rules.vue', { eager: true, query: '?raw', import: 'default' }))
 const config = raw(import.meta.glob('../Config.vue', { eager: true, query: '?raw', import: 'default' }))
 const layout = raw(import.meta.glob('./SettingsLayout.vue', { eager: true, query: '?raw', import: 'default' }))
+const callers = raw(import.meta.glob('./Callers.vue', { eager: true, query: '?raw', import: 'default' }))
 
 describe('设置页表格在手机档的处理', () => {
   it('规则库的表包在可横向滚动的容器里', () => {
@@ -30,5 +31,11 @@ describe('设置页表格在手机档的处理', () => {
   it('设置区的二级导航在手机上变成下拉框（竖排导航隐藏）', () => {
     const block = layout.slice(layout.indexOf('@media (max-width: 760px)'))
     expect(block).toMatch(/\.set-select-wrap \{\s*display: block/)
+  })
+
+  it('用户页的用户表也在 wrapper 里横向滚动，900px 手机档有最小宽度', () => {
+    expect(callers).toMatch(/\.table-wrap \{\s*overflow-x: auto;/)
+    const block = callers.slice(callers.indexOf(`@media (max-width: ${MOBILE_MAX_WIDTH}px)`))
+    expect(block).toMatch(/\.table-wrap \.table \{[^}]*min-width: \d+px/)
   })
 })

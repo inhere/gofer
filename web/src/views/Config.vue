@@ -8,6 +8,7 @@ import { createLiveTopic } from '../utils/useLiveTopic'
 import { refreshWhoami, useWhoami } from '../store/whoami'
 import { extendsBase, extendsLabel } from '../utils/agentExtends'
 import { leaderRows, warningsSuffix } from '../utils/configLeader'
+import { sourceText } from '../utils/callers'
 import { PAGE } from '../utils/uiText'
 import { ChevronRight, Power, RefreshCw } from '@lucide/vue'
 import Icon from '../ui/Icon.vue'
@@ -1035,6 +1036,8 @@ onUnmounted(() => {
                 <tr>
                   <th>ID</th>
                   <th>{{ t('settings.config.col.name') }}</th>
+                  <th>{{ t('settings.config.col.source') }}</th>
+                  <th>{{ t('settings.config.col.state') }}</th>
                   <th>token</th>
                   <th>{{ t('settings.config.col.canAnswer') }}</th>
                   <th>{{ t('settings.config.col.canAdmin') }}</th>
@@ -1045,12 +1048,18 @@ onUnmounted(() => {
                 <tr v-for="c in callers" :key="c.id">
                   <td>{{ c.id }}</td>
                   <td>{{ c.name || '-' }}</td>
-                  <td><span class="flag" :class="c.token_set ? 'flag--yes' : 'flag--no'">{{ setText(c.token_set) }}</span></td>
+                  <td>{{ sourceText(c.source ?? '') }}</td>
+                  <td>
+                    <span class="flag" :class="c.disabled ? 'flag--no' : 'flag--yes'">
+                      {{ c.disabled ? t('settings.callers.state.disabled') : t('settings.callers.state.active') }}
+                    </span>
+                  </td>
+                  <td><span class="flag" :class="c.token_set ? 'flag--yes' : 'flag--no'">{{ c.token_hint || setText(c.token_set) }}</span></td>
                   <td><span class="flag" :class="c.can_answer ? 'flag--yes' : 'flag--no'">{{ yesNo(c.can_answer) }}</span></td>
                   <td><span class="flag" :class="c.can_admin ? 'flag--yes' : 'flag--no'">{{ yesNo(c.can_admin) }}</span></td>
                   <td>{{ c.max_concurrent_jobs || '-' }} / {{ c.rate_limit || '-' }} / {{ c.rate_burst || '-' }}</td>
                 </tr>
-                <tr v-if="callers.length === 0"><td colspan="6">{{ t('settings.config.noCallers') }}</td></tr>
+                <tr v-if="callers.length === 0"><td colspan="8">{{ t('settings.config.noCallers') }}</td></tr>
               </tbody>
             </table>
           </div>
