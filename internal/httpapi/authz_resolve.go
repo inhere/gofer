@@ -481,6 +481,14 @@ func (s *Server) effective(callerID, sessionID string) *decision {
 		}
 		return d
 	}
+	// A DISABLED caller keeps no permission at all, whatever the configuration derived or the
+	// database granted before it was switched off: disabling is the operator's "this identity
+	// may not act any more", and it must not wait for the grants to be revoked one by one. The
+	// refusal is decided after the root check (a root administrator is a file caller and cannot
+	// be disabled) and before any grant is folded in.
+	if s.callerDisabled(callerID) {
+		return d
+	}
 	if derived != nil {
 		for _, p := range derived.Effective(callerID) {
 			d.perms[p] = struct{}{}

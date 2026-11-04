@@ -85,12 +85,22 @@ const (
 	callerKindJob = "job"
 )
 
-// callerEntry pairs a known bearer token with the caller id stamped onto jobs
+// callerEntry pairs a known bearer credential with the caller id stamped onto jobs
 // that authenticate with it (C2). The token is held in memory only.
+//
+// A caller declared in the configuration FILE carries its plaintext token; a caller
+// stored in the database (config.CallerSourceDB) carries only the sha256 of its token,
+// which is all the database holds (design 2026-11-03 §token). Exactly one of the two
+// fields is set, and the scan in lookupCallerIn honours both in constant time.
 type callerEntry struct {
 	id    string
 	token string
-	kind  string
+	// tokenHash is the lowercase hex sha256 of the token, set for a stored caller.
+	tokenHash string
+	// fingerprint is what a long connection is recognised by (see tokenFingerprint):
+	// resolved with the entry so a re-judgment never has to hash again.
+	fingerprint string
+	kind        string
 }
 
 // callerFromCtx returns the authenticated caller id stored by authMiddleware,
@@ -524,6 +534,15 @@ type serverSnapshot struct {
 	cfg     *config.ServerConfig
 	callers []callerEntry
 	authz   *authz.Derivation
+	// disabledCallers counts the configured callers that are switched off (a stored
+	// caller an operator disabled). They authenticate nothing, so they are absent from
+	// callers — but they are NOT evidence that this deployment runs without tokens: a
+	// deployment whose only callers are disabled must answer 401, not fall back to the
+	// anonymous caller (see callerSetEmpty).
+	disabledCallers int
+	// disabledCallerIDs are those callers by id, so a permission resolution can refuse
+	// one without walking the caller list on every request.
+	disabledCallerIDs map[string]bool
 }
 
 // newServerSnapshot projects a configuration and its resolved caller set into the
@@ -531,7 +550,31 @@ type serverSnapshot struct {
 func newServerSnapshot(cfg *config.ServerConfig, callers []callerEntry, legacyToken bool) *serverSnapshot {
 	derived := authz.Derive(cfg, legacyToken)
 	logSnapshotHints(slog.Default(), derived)
-	return &serverSnapshot{cfg: cfg, callers: callers, authz: derived}
+	disabled, disabledIDs := countDisabledCallers(cfg)
+	return &serverSnapshot{
+		cfg: cfg, callers: callers, authz: derived,
+		disabledCallers: disabled, disabledCallerIDs: disabledIDs,
+	}
+}
+
+// countDisabledCallers reports how many configured callers are disabled, and which.
+func countDisabledCallers(cfg *config.ServerConfig) (int, map[string]bool) {
+	if cfg == nil {
+		return 0, nil
+	}
+	var ids map[string]bool
+	n := 0
+	for _, cc := range cfg.Callers {
+		if !cc.Disabled || cc.ID == "" {
+			continue
+		}
+		n++
+		if ids == nil {
+			ids = make(map[string]bool, 1)
+		}
+		ids[cc.ID] = true
+	}
+	return n, ids
 }
 
 // logSnapshotHints writes the two hints of design §3「配置推出」 to log: a deployment
@@ -569,6 +612,25 @@ func (s *Server) callerEntries() []callerEntry {
 		return snap.callers
 	}
 	return nil
+}
+
+// callerSetEmpty reports whether this deployment has NO caller at all — the state that
+// decides whether an empty bearer may pass as the anonymous caller. A caller that is
+// merely DISABLED still counts as a caller: the operator configured identities, it just
+// switched them off, so the deployment must keep answering 401 instead of silently
+// falling back to the anonymous caller (which allow_empty_token would otherwise admit).
+func (s *Server) callerSetEmpty() bool {
+	snap := s.snap.Load()
+	if snap == nil {
+		return true
+	}
+	return len(snap.callers) == 0 && snap.disabledCallers == 0
+}
+
+// callerDisabled reports whether callerID names a caller that is switched off.
+func (s *Server) callerDisabled(callerID string) bool {
+	snap := s.snap.Load()
+	return snap != nil && snap.disabledCallerIDs[callerID]
 }
 
 // authzDerivation returns the config-derived grants and root administrators of the live
@@ -1101,7 +1163,7 @@ func (s *Server) UserCallerIDs() []string {
 		seen[id] = struct{}{}
 		out = append(out, id)
 	}
-	if len(out) == 0 && s.allowEmptyToken {
+	if len(out) == 0 && s.callerSetEmpty() && s.allowEmptyToken {
 		out = append(out, authz.DefaultCallerID)
 	}
 	return out
@@ -1112,10 +1174,17 @@ func (s *Server) UserCallerIDs() []string {
 // the legacy effective token as caller id "default" (only when non-empty). The
 // legacy token is appended last so an explicit caller entry that happens to
 // share the same token wins the id (first match in the constant-time scan).
+//
+// STORED callers (config.CallerSourceDB) are appended after all of those: they carry
+// only the sha256 of their token, never the token itself, and a disabled one carries no
+// credential at all (it is counted in the snapshot instead, see callerSetEmpty).
 func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 	var out []callerEntry
 	if serverCfg != nil {
 		for _, cc := range serverCfg.Callers {
+			if cc.IsStoredCaller() {
+				continue // resolved below, after the file callers and the legacy token
+			}
 			tok := cc.Token
 			if tok == "" && cc.TokenEnv != "" {
 				tok = os.Getenv(cc.TokenEnv)
@@ -1123,7 +1192,7 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 			if tok == "" {
 				continue // a caller with no resolvable token cannot authenticate
 			}
-			out = append(out, callerEntry{id: cc.ID, token: tok, kind: callerKindUser})
+			out = append(out, callerEntry{id: cc.ID, token: tok, fingerprint: tokenFingerprint(tok), kind: callerKindUser})
 		}
 		// ws-worker (review #1): each registered worker authenticates with its own
 		// token; its caller id IS its worker_id, so lookupCaller returns worker_id
@@ -1137,11 +1206,23 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 			if tok == "" {
 				continue
 			}
-			out = append(out, callerEntry{id: workerID, token: tok, kind: callerKindWorker})
+			out = append(out, callerEntry{id: workerID, token: tok, fingerprint: tokenFingerprint(tok), kind: callerKindWorker})
 		}
 	}
 	if token != "" {
-		out = append(out, callerEntry{id: authz.DefaultCallerID, token: token, kind: callerKindUser})
+		out = append(out, callerEntry{id: authz.DefaultCallerID, token: token, fingerprint: tokenFingerprint(token), kind: callerKindUser})
+	}
+	if serverCfg != nil {
+		for _, cc := range serverCfg.Callers {
+			if !cc.IsStoredCaller() || cc.Disabled {
+				continue
+			}
+			hash := strings.ToLower(strings.TrimSpace(cc.TokenHash))
+			if hash == "" {
+				continue // nothing to authenticate against (the merge refuses this row)
+			}
+			out = append(out, callerEntry{id: cc.ID, tokenHash: hash, fingerprint: tokenFingerprintOfHash(hash), kind: callerKindUser})
+		}
 	}
 	return out
 }

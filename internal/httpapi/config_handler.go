@@ -189,9 +189,17 @@ type governanceView struct {
 }
 
 type callerConfigView struct {
-	ID                string  `json:"id"`
-	Name              string  `json:"name,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	// Source says where the caller is declared: "file" (omitted, the configuration file —
+	// the operator's own entry) or "db" (a caller stored in the database, created from the
+	// console). The console uses it to tell an entry it may not edit in the file apart.
+	Source string `json:"source,omitempty"`
+	// Disabled marks a stored caller that is switched off: it authenticates nothing and every
+	// permission resolution of it is empty.
+	Disabled          bool    `json:"disabled,omitempty"`
 	TokenSet          bool    `json:"token_set"`
+	TokenHint         string  `json:"token_hint,omitempty"`
 	CanAnswer         bool    `json:"can_answer"`
 	CanAdmin          bool    `json:"can_admin"`
 	CanAttach         bool    `json:"can_attach"`
@@ -638,10 +646,14 @@ func buildAgentHealthView(h *config.AgentHealthConfig) *serverAgentHealthView {
 func buildCallerViews(in []config.CallerConfig) []callerConfigView {
 	out := make([]callerConfigView, 0, len(in))
 	for _, cc := range in {
-		out = append(out, callerConfigView{
-			ID:                cc.ID,
-			Name:              cc.Name,
-			TokenSet:          cc.Token != "" || cc.TokenEnv != "",
+		v := callerConfigView{
+			ID:     cc.ID,
+			Name:   cc.Name,
+			Source: callerSourceOf(cc),
+			// A stored caller has no plaintext token, only its hash: it still HAS a credential.
+			TokenSet:          cc.Token != "" || cc.TokenEnv != "" || cc.TokenHash != "",
+			TokenHint:         cc.TokenHint,
+			Disabled:          cc.Disabled,
 			CanAnswer:         cc.CanAnswer,
 			CanAdmin:          cc.CanAdmin,
 			CanAttach:         cc.CanAttach,
@@ -650,9 +662,20 @@ func buildCallerViews(in []config.CallerConfig) []callerConfigView {
 			RateLimit:         cc.RateLimit,
 			RateBurst:         cc.RateBurst,
 			Ceiling:           authCeilingViewOf(cc.Ceiling),
-		})
+		}
+		out = append(out, v)
 	}
 	return out
+}
+
+// callerSourceOf is the view's `source`: "db" for a caller stored in the database, empty
+// for a caller declared in the configuration file (the wire keeps the file case absent, as
+// it always was).
+func callerSourceOf(cc config.CallerConfig) string {
+	if cc.IsStoredCaller() {
+		return config.CallerSourceDB
+	}
+	return ""
 }
 
 func buildWorkerViews(in map[string]config.WorkerAuthConfig) []workerConfigView {

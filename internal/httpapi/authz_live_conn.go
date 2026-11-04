@@ -200,6 +200,19 @@ func tokenFingerprint(token string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
+// tokenFingerprintOfHash is tokenFingerprint for a caller that only exists as its token
+// hash (a stored caller): the stored value IS sha256 of the token, so its first 16 hex
+// digits are exactly the fingerprint the same token would produce. Taking them from the
+// stored hash keeps a stored caller's long connections recognised across a reload —
+// recomputing from `ce.token` (empty for such a caller) would fingerprint the empty
+// string and drop every one of them on the next sweep.
+func tokenFingerprintOfHash(tokenHash string) string {
+	if len(tokenHash) < 16 {
+		return ""
+	}
+	return tokenHash[:16]
+}
+
 // requestLiveConnSpec builds the registration of a connection opened by a user-class REQUEST: who
 // the request authenticated as, the session it named, the token it presented and the database
 // grants its decision rested on.
@@ -525,7 +538,7 @@ func (s *Server) liveConnCeiling(e liveConn) (ceil *config.CallerCeiling, known 
 // such a starter can never match a caller id again.
 func (s *Server) liveCallerIdentity(e liveConn) bool {
 	entries := s.callerEntries()
-	if len(entries) == 0 {
+	if s.callerSetEmpty() {
 		// The tokenless deployment: the anonymous caller is the only one there is.
 		return e.caller == "" && s.allowEmptyToken
 	}
@@ -534,7 +547,7 @@ func (s *Server) liveCallerIdentity(e liveConn) bool {
 	}
 	for _, ce := range entries {
 		if ce.id == e.caller && ce.kind == callerKindUser {
-			return tokenFingerprint(ce.token) == e.tokenFP
+			return ce.fingerprint == e.tokenFP
 		}
 	}
 	return false
