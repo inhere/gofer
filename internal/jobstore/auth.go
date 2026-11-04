@@ -430,12 +430,6 @@ func (s *Store) OrphanAuthGrants(ids []string) (int, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
-	args := make([]any, 0, len(ids)+1)
-	args = append(args, s.unixNow())
-	for _, id := range ids {
-		args = append(args, id)
-	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	tx, err := s.db.Begin()
@@ -443,21 +437,14 @@ func (s *Store) OrphanAuthGrants(ids []string) (int, error) {
 		return 0, fmt.Errorf("jobstore: begin orphan auth grants: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.Exec(`UPDATE auth_grants SET orphaned_at=? WHERE id IN (`+placeholders+`)
-  AND orphaned_at IS NULL AND revoked_at IS NULL`, args...)
+	changed, err := orphanAuthGrantsTx(tx, s.unixNow(), ids)
 	if err != nil {
-		return 0, fmt.Errorf("jobstore: orphan auth grants: %w", err)
-	}
-	changed, _ := res.RowsAffected()
-	if changed > 0 {
-		if _, err := bumpAuthGrantsVersion(tx); err != nil {
-			return 0, err
-		}
+		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("jobstore: commit orphan auth grants: %w", err)
 	}
-	return int(changed), nil
+	return changed, nil
 }
 
 // 续期（RenewAuthGrant）的哨兵错误：调用方要按原因分别作答 —— 已撤销 / 已过期意味着「这条授权不再
