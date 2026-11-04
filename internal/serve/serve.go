@@ -95,6 +95,15 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	} else {
 		slog.Info("server.language", "event", "server.language", "component", "server", "language", string(cfg.Language()), "source", cfg.LanguageSource())
 	}
+	// P1: open the metadata store and merge the callers stored in it BEFORE the warnings are
+	// printed (a stored caller can produce one) and before core.Build assembles anything from
+	// cfg. A failure exits: a callers read that failed is never treated as "no stored
+	// callers", and a configuration carrying the P2 store marker is refused here, before a
+	// database is opened.
+	store, err := core.PrepareCallerStore(cfg, core.CallerMergeServer)
+	if err != nil {
+		return errorx.Failf(ExitErr, "%v", err)
+	}
 	logLoadWarnings(c, cfg)
 	logCallerCeilings(c, cfg)
 
@@ -132,8 +141,10 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		"env_file", tokenSrc.EnvFile, "scope", tokenSrc.Scope, "set", tokenSrc.Set,
 		"length", tokenSrc.Length, "masked", tokenSrc.Masked)
 
-	cr, err := core.Build(cfg, core.WithConfigPath(opts.CfgPath), core.WithBuiltinDefaultProject())
+	cr, err := core.Build(cfg, core.WithConfigPath(opts.CfgPath), core.WithBuiltinDefaultProject(), core.WithStore(store))
 	if err != nil {
+		// Build did not take the store over: close it here (G051).
+		_ = store.Close()
 		return errorx.Failf(ExitErr, "%v", err)
 	}
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when serve
