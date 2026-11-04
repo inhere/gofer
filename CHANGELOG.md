@@ -21,6 +21,16 @@
     只有「交付」与「交付核验」这两个收尾动作允许完成。重启后恢复的常驻会话照常运行到结束。
   - `GET /v1/config` 的用户列表新增 `source`（`db` 表示来自数据库）、`disabled`、`token_hint`，
     并且 `token_set` 对只有哈希的用户也为 `true`。
+  - 新增用户管理接口与命令，新增、发 token、轮换、停用、启用、改上限和配额都不用改配置文件、
+    不用重启：`GET/POST /v1/callers`、`POST /v1/callers/{id}/rotate|disable|enable`、
+    `PUT /v1/callers/{id}/ceiling|limits`、`GET /v1/callers/audit`（全部只限根管理员；
+    CLI 为 `gofer auth caller add|ls|rotate|disable|enable|set-ceiling|set-limits|audit`）。
+    token 只在创建与轮换的响应里出现一次，库里只有哈希；每次改动写一条 `config_audit`（打码后的前后值）。
+    上限必须二选一：`ceiling` 块或 `no_ceiling`，空上限返回 400；不给 `--ceiling-runner` 表示不允许
+    本机 runner。id 不复用（已有用户、文件用户或 worker 用过的都拒绝）。
+  - 配置文件里声明的用户不能被 API / CLI 轮换、停用、启用（返回 409），但可以改上限与配额（写回文件）。
+  - 新增离线修复 `gofer auth caller repair <id> --offline`：server 起不来时把手改坏的存储用户行
+    改到能启动（坏上限换成最严上限、坏配额清空、坏名字清空，行转停用），不建库、不迁移、不动 token 哈希。
 
 ## [0.210.0] - 2026-11-03
 

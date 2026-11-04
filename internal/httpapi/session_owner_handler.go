@@ -56,7 +56,7 @@ func (s *Server) handleSetSessionOwner(c *rux.Context) {
 	}
 	if !s.sessionCallerKnown(target) {
 		writeError(c, http.StatusBadRequest, "unknown caller",
-			"no caller "+target+" on this server: list them in server.callers (an owner nobody can authenticate as would lock the session for everybody)")
+			"no caller "+target+" on this server: see `gofer auth caller ls` / the callers of `server.callers` (an owner nobody can authenticate as would lock the session for everybody)")
 		return
 	}
 	a, from, err := s.relay.SetSessionOwner(c.Param("sid"), target, by)
