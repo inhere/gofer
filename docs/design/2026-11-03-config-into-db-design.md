@@ -233,3 +233,24 @@ flowchart LR
 - 写入：跨 DB 和文件的写入失败时两边都不生效（含 include 拆分，进程崩溃窗口除外），文件权限不变；需重启字段重启后才生效，其间其他写入不会把它改回去。
 - 停用：停用后 trigger、schedule、计划派发、leader 轮次不再起 job；改并发上限不用重启。
 - 安全：DB 和日志里查不到用户 token；普通用户调用用户管理接口被拒；停用后长连接断开；无专用权限的调用方改高危字段被拒，且不能经通用接口绕过；改动在审计里可查且不含密钥；DB 用户的 ceiling、配额生效，长连接不被误断。
+
+## 实施记录（P1）
+
+> 本节按计划 T1–T9 的实际交付写；T10 的真实环境验收与发版另记。
+
+已落地（实现位置）：
+
+- 存储（T1）：`auth_callers`（token 只存 sha256 + `token_hint`）与 `config_audit` 两张表，`init()` 追加 schema；`OpenExistingForRepair` 只打开已存在的库；`RepairCaller` 只把行改得更严。
+- 合并（T2/T3）：`ApplyStoredCallers` 把入库用户追加进配置快照并带来源标记；`HasRootAdmin` 只数文件来源；`fileProjection` 让配置写回不落入库用户；接管（见 D10）与写入事务在 `internal/core/callers.go`。
+- 鉴权与停用（T4/T5）：`callerEntry` 加哈希，判空改为「无条目且无停用用户」；停用在准入公共点判断，排队 job 拿到槽位后重新判定、失败不重试。
+- 接口与命令（T6/T7）：`/v1/callers*`（全部 `auth.manage` + `grantAdminOnly`）；`gofer auth caller add|ls|rotate|disable|enable|set-ceiling|set-limits|audit` 与离线修复 `repair --offline`。
+- 控制台（T8）：`web/src/views/settings/Callers.vue`（设置 → 用户，只对根管理员显示）、`web/src/api/callers.ts`、`web/src/utils/callers.ts`；配置页的用户表补来源与状态。
+- 文档（T9）：`skills/gofer-usage/references/{server-config,web-console,commands}.md`、`docs/reference/http-api.md`、`docs/capabilities.md`、`docs/guide/en/security.md`、`config/gofer.example.yaml`、`CHANGELOG.md`。
+
+对设计说法的收窄（实现比设计稿更窄的地方，以本节为准）：
+
+- **D1（trigger owner）**：P1 里 trigger 的 owner 只能是配置文件里的用户；错误文案写明原因。P2 用 `refs` 开关解除。
+- **D3（工作流重试）**：设计说「停用用户的 job 跳过重试」，但工作流 job 不走 `maybeRetryJob`。P1 不为它加逻辑：下一步 `Submit` 被准入拒绝，工作流失败；会多跑一轮退避，但能终止。
+- **D10（文件接管入库行）**：入库行被同 id 的文件用户接管时**不拒绝启动**，而是标 `superseded_at` + 停用、`caller:<id>` 授权标孤儿、写审计（`system:file-takeover`），与合并同一步做；启用被接管的行要求先轮换（`rotated_at` 晚于 `superseded_at`），时间戳写入时保证先后；与 worker 同 id 的 id 进快照的「封锁 owner」集合，准入按停用拒绝。被文件用户接管期间，该 id 名下的 schedule 按文件用户的上限运行。
+- **D18（回退）**：回退到不认识入库用户的版本时，这些用户名下的自动化（schedule、计划派发、排队 job）仍会照跑，但**不再受上限约束**（旧版本查不到用户，上限判定直接跳过，已发布的旧版改不了）。发版说明要求：回退前先取消它们名下的 schedule、计划与排队 job。回退后这些用户的 token 401、授权被标孤儿，重新升级后用 `activate` 恢复。「回退目标不低于首个支持标记的版本」从 P2 起才适用。
+

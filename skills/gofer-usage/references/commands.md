@@ -246,11 +246,21 @@ gofer serve register -c <config> [--start] | start | stop | restart | status [--
 gofer auth whoami [--json]     # 本 token 是哪个调用方、是否根管理员、持有哪些权限及来源
 gofer auth routes [--json]     # 服务端每条路由的声明与需要的权限
 gofer auth grant renew <grant-id> --for 4h   # 把一条仍然生效的会话授权往后延（最长 24h）
+
+gofer auth caller add <id> (--ceiling-* … | --no-ceiling)   # 新增用户，token 只打印一次
+gofer auth caller ls [--json]                               # 来源 / 状态 / token 提示 / 上限 / 配额
+gofer auth caller rotate <id>                               # 换 token（旧 token 立刻失效）
+gofer auth caller disable <id> | enable <id>                # 停用 / 启用
+gofer auth caller set-ceiling <id> (--ceiling-* … | --no-ceiling)
+gofer auth caller set-limits <id> [--max-concurrent-jobs N] [--rate-limit N] [--rate-burst N]
+gofer auth caller audit [--limit 20]                        # 谁改了什么（打码后的前后值）
+gofer auth caller repair <id> --offline [--force]           # server 起不来时修坏行（先停 server）
 ```
 
 - `whoami` 报的是**服务端**的判定结果：每项权限的来源是 `root`（根管理员）/ `config`（由配置推出，只读）/ `db`（数据库授权，并给出是哪条授权给的）；`--json` 给脚本用。权限不够时的 403 正文让人跑的就是它。它还会打印这个请求附带的**会话 id 与来源环境变量**（`GOFER_SESSION_ID` 或唯一那个 agent 会话变量；多个不一致就不带），靠会话授权拿到的权限就在同一份列表里（见 [sessions-relay.md](sessions-relay.md)「会话授权」）。
 - `routes` 与生成文档 `docs/reference/permissions.md` 同一份数据，但来自正在跑的那个二进制。详见 [server-config.md](server-config.md) 末尾的权限段。
-- `grant renew` 是这组里唯一的**写**操作（新增与撤销授权在 web 上做）：授权快到期时把同一条授权的到期时间往后挪，不重新发一条，所以范围不会变。用法与生效条件见 [sessions-relay.md](sessions-relay.md)「会话授权」。
+- `grant renew` 是这组里唯一的授权**写**操作（新增与撤销授权在 web 上做）：授权快到期时把同一条授权的到期时间往后挪，不重新发一条，所以范围不会变。用法与生效条件见 [sessions-relay.md](sessions-relay.md)「会话授权」。
+- `auth caller` 是**瘦客户端**，全部经 server（不直接写库、不改配置文件），需根管理员；新用户下一个请求就能用，不用重启。`add` / `set-ceiling` 必须给一块 `--ceiling-project` / `--ceiling-runner` / `--ceiling-worker` / `--ceiling-agent`（可重复，glob）加上 `--ceiling-allow-exec` / `--ceiling-global-memory` / `--ceiling-read-only`，或明确 `--no-ceiling`；给空上限块或两样都给都报错。**不写 `--ceiling-runner` = 不允许本机 runner**（只允许远程 worker）。`repair` 必须带 `--offline`，且只在 server 停着时用：它只把这一行改得更严（坏上限 —— 最严上限、坏配额清空、坏名字清空、行转停用），不删行、不动 token 哈希。详见 [server-config.md](server-config.md)「用户入库」。
 
 ## tunnel（别名 tun）
 

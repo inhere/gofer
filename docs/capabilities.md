@@ -147,10 +147,11 @@
 
 | 子项 | 说明 | 主要入口 | 稳定程度 | 文档 |
 |---|---|---|---|---|
-| caller 与 token | 基于 token 的调用方；worker / job / steward 各有受限凭据 | 配置 `server.callers`；CLI `auth whoami` | 稳定 | [guide/en/security.md](guide/en/security.md) |
+| caller 与 token | 基于 token 的调用方；worker / job / steward 各有受限凭据；调用方可以只存在数据库里（不写配置文件），token 只存 sha256、只在创建与轮换时显示一次 | 配置 `server.callers`；CLI `auth whoami` / `auth caller …`；HTTP `/v1/callers*`；Web 设置 → 用户 | 稳定（配置声明的调用方）；用户入库未发布 | [guide/en/security.md](guide/en/security.md) |
+| 用户管理（入库） | 根管理员在 web / CLI 新增、发 token、轮换、停用 / 启用、改上限与配额，不用改文件、不用重启；改写入审计（保留 90 天）；离线修复 `auth caller repair --offline` | CLI `auth caller add\|ls\|rotate\|disable\|enable\|set-ceiling\|set-limits\|audit`；HTTP `/v1/callers*`；Web 设置 → 用户 | 未发布 | server-config.md「用户入库」；[reference/http-api.md](reference/http-api.md#caller-management-v1callers) |
 | 权限矩阵 | 权限目录与路由所需权限；`whoami` 显示权限来源（root / config / db） | CLI `auth whoami` / `auth routes`；HTTP `/v1/auth/*`；Web 设置 → 权限 | 稳定 | [reference/permissions.md](reference/permissions.md) |
 | 会话授权 | 给终端会话临时发权限，可续期（最长 24h） | CLI `auth grant renew`；Web 设置 → 权限 | 未标注 | sessions-relay.md「会话授权」 |
-| 调用方上限 ceiling | 限定调用方可触及的项目、runner、worker、agent、exec、只读 | 配置 `server.callers[].ceiling`；Web 按上限过滤界面 | 变化中（已知未覆盖聚合、推送过滤等） | [runbook/2026-10-18-caller-ceiling-runbook.md](runbook/2026-10-18-caller-ceiling-runbook.md) |
+| 调用方上限 ceiling | 限定调用方可触及的项目、runner、worker、agent、exec、只读；根管理员可在「设置 → 用户」里改入库用户的上限（文件用户的写在配置文件） | 配置 `server.callers[].ceiling`；Web 按上限过滤界面；CLI `auth caller set-ceiling` | 变化中（已知未覆盖聚合、推送过滤等） | [runbook/2026-10-18-caller-ceiling-runbook.md](runbook/2026-10-18-caller-ceiling-runbook.md) |
 | 项目准入 | 每个项目允许的 agent / runner / exec / 交互；超时上限 | CLI `project add\|list\|show\|validate`；配置 `allowed_agents` 等 | 稳定 | server-config.md |
 | 秘密扫描与脱敏 | 日志与配置视图脱敏；跨 job 秘密扫描；对 job 与信件内的秘密抹除 | CLI `job redact` / `job secret-scan` / `session mail redact` | 稳定（脱敏）；其余未标注 | job-advanced.md「脱敏、秘密扫描与删除」；[design/2026-10-03-secret-sweep-design.md](design/2026-10-03-secret-sweep-design.md) |
 | 隧道目标白名单 | 目标必须在 worker 的 `tunnel.allow` 内 | worker 配置 `tunnel.allow` | 同隧道 | tcp-tunnel.md |
@@ -173,7 +174,7 @@
 | Issues / 记忆 `/memory` | tracker 的 issue 与记忆浏览编辑，跨项目搜索；记忆「待整理」视图 | 稳定 |
 | 统计 `/dashboard` | 任务、耗时、用量等统计 | 未标注 |
 | Runners / Agents / 项目 / Tunnels | 执行机、agent 健康度与探针、项目表单、隧道 | 稳定 |
-| 设置 | 配置编辑与重读 / 重启 server、通知、权限、扩展（菜单隐藏 `web.nav_hidden`） | 稳定 |
+| 设置 | 配置编辑与重读 / 重启 server、用户、通知、权限、扩展（菜单隐藏 `web.nav_hidden`） | 稳定 |
 
 ## 运维
 
