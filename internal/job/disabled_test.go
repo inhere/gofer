@@ -2,6 +2,7 @@ package job
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gookit/goutil/x/assert"
 
+	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
@@ -226,6 +228,89 @@ func TestDispatchTodoOfDisabledCallerIsRefused(t *testing.T) {
 		t.Fatalf("ListJobs: %v", lerr)
 	} else {
 		assert.Eq(t, 0, len(jobs), "a refused dispatch created a job")
+	}
+}
+
+// seedRecoverableSessionOf seeds the session fixture of the recovery tests under an explicit owner:
+// the row is written first (as seedRecoverableSession does) and then stamped with the caller the
+// session belongs to, so the recovery path resolves that owner's bounds.
+func seedRecoverableSessionOf(t *testing.T, s *Service, root, id, status, caller string) {
+	t.Helper()
+	seedRecoverableSession(t, s, root, id, status)
+	rec, ok, err := s.meta.GetJob(id)
+	if err != nil || !ok {
+		t.Fatalf("GetJob(%s): ok=%v err=%v", id, ok, err)
+	}
+	rec.CallerID, rec.OriginCaller = caller, caller
+	if err := s.meta.UpsertJob(rec); err != nil {
+		t.Fatalf("re-upsert job %s with its owner: %v", id, err)
+	}
+}
+
+// TestRecoveredSessionOfDisabledCallerKeepsRunning is D2: a session restored after a restart is
+// already a RUNNING job, so it is not re-judged — it comes back, takes another turn and ends
+// normally even though its owner was disabled in the meantime. The jobs it submits do go through
+// admission, and there the disabled owner is refused.
+func TestRecoveredSessionOfDisabledCallerKeepsRunning(t *testing.T) {
+	root := t.TempDir()
+	s := newACPService(t, root, acptest.Options{})
+	// The operator disables the session's owner while the server is down.
+	cfg := s.Config()
+	cfg.Server.Callers = []config.CallerConfig{{
+		ID: "dbuser", Source: config.CallerSourceDB, TokenHash: storedTokenHash, Disabled: true,
+	}}
+	s.Reload(cfg)
+	seedRecoverableSessionOf(t, s, root, "recover-disabled", StatusAwaitingInput, "dbuser")
+
+	if _, err := s.ReconcileOrphanJobs(); err != nil {
+		t.Fatal(err)
+	}
+	wait.For(t, 15*time.Second, "the session of a disabled caller is recovered and waiting", func() (bool, any) {
+		cur, _ := s.Get("recover-disabled")
+		return s.entry("recover-disabled") != nil && cur.Status == StatusAwaitingInput, cur.Status
+	})
+
+	// It keeps running: another turn completes and the session ends normally.
+	if err := s.SaySession("recover-disabled", "next"); err != nil {
+		t.Fatalf("SaySession: %v", err)
+	}
+	waitSessionTurn(t, s, "recover-disabled", 2)
+	if err := s.EndSession("recover-disabled"); err != nil {
+		t.Fatalf("EndSession: %v", err)
+	}
+	final, ok := s.Wait("recover-disabled")
+	assert.True(t, ok, "the recovered session must reach a terminal state")
+	assert.Eq(t, StatusDone, final.Status, "a recovered session runs to its end (error: %s)", final.Error)
+
+	// What it submits next is a NEW job of the same (now disabled) owner, and admission refuses it.
+	_, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "acpbot", Runner: "local", Prompt: "child", Cwd: ".",
+		TimeoutSec: 30, CallerID: "dbuser", OriginCaller: "dbuser",
+	})
+	assert.True(t, errors.Is(err, ErrCeilingDenied), "the child submit of a disabled caller must be refused: %v", err)
+}
+
+// TestPreflightFixedRequestRefusesDisabledTriggerOwner drives the TRIGGER entry: the
+// side-effect-free check an inbound trigger runs before it claims an event refuses a disabled owner,
+// so nothing is created for it.
+func TestPreflightFixedRequestRefusesDisabledTriggerOwner(t *testing.T) {
+	// No t.Parallel: the template fixture below uses t.Setenv.
+	root := t.TempDir()
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	s := newTestService(t, root)
+	dir := filepath.Join(root, ".gofer", "templates")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tpl.md"), []byte("---\nagent: exec\nrunner: local\n---\nrun\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	disableStoredCaller(t, s, "bot")
+	req := JobRequest{ProjectKey: "self", Template: "tpl", Channel: "trigger", OriginCaller: "bot", Cmd: []string{"true"}}
+	err := s.PreflightFixedRequest(req)
+	assert.True(t, errors.Is(err, ErrCeilingDenied), "a disabled trigger owner must be refused: %v", err)
+	if all, _ := s.ListJobs(ListOpts{Project: "self"}); len(all) != 0 {
+		t.Fatalf("preflight created %d job(s)", len(all))
 	}
 }
 

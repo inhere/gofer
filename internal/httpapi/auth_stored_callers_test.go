@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gookit/goutil/x/assert"
 
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // 鉴权支持入库用户（配置入库 P1，设计 docs/design/2026-11-03-config-into-db-design.md §鉴权，
@@ -208,6 +210,113 @@ func TestStoredCallerLongConnSurvivesSweepAndEndsOnDisable(t *testing.T) {
 	rotated := storedCaller("dbuser", "gct-dbuser-token-2")
 	s.SetServerConfig(&config.ServerConfig{Callers: []config.CallerConfig{rotated}})
 	waitLiveConnClosed(t, s, conn, "rotating a stored caller's token must end its long connection")
+}
+
+// TestStoredCallerRateLimitComesFromItsOwnEntry: the per-caller submit rate of a stored caller is
+// read from its caller entry, on the real POST /v1/jobs middleware — the first submit within the
+// burst is admitted, the next one is 429 with the Retry-After hint, and RAISING the quota on a live
+// service admits the next submit again (no restart, the bucket is re-synced in place).
+func TestStoredCallerRateLimitComesFromItsOwnEntry(t *testing.T) {
+	t.Parallel()
+	limited := storedCaller("dbuser", "gct-dbuser-token")
+	limited.RateLimit, limited.RateBurst = 1, 1 // one submit per second, burst one: the second is over
+	s := newTestServerCfg(t, config.ServerConfig{Callers: []config.CallerConfig{limited}})
+
+	submit := func() int {
+		resp := do(t, s, http.MethodPost, "/v1/jobs", "gct-dbuser-token", job.JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		})
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return resp.StatusCode
+		}
+		var created job.JobResult
+		decode(t, resp, &created)
+		if _, ok := s.jobs.Wait(created.ID); !ok {
+			t.Fatalf("Wait: job %s not found", created.ID)
+		}
+		return resp.StatusCode
+	}
+
+	assert.Eq(t, http.StatusOK, submit(), "the first submit is within the stored caller's quota")
+	resp := do(t, s, http.MethodPost, "/v1/jobs", "gct-dbuser-token", job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	defer resp.Body.Close()
+	assert.Eq(t, http.StatusTooManyRequests, resp.StatusCode, "a submit over the stored caller's quota is 429")
+	assert.Eq(t, "1", resp.Header.Get("Retry-After"), "the 429 carries the retry hint")
+
+	// The operator raises the quota. The rate config真源 is the JOB SERVICE's current snapshot, so
+	// that is what a reload replaces; the HTTP snapshot follows it for the same caller.
+	raised := storedCaller("dbuser", "gct-dbuser-token")
+	raised.RateLimit, raised.RateBurst = 50, 50
+	jc := s.jobs.Config()
+	jc.Server.Callers = []config.CallerConfig{raised}
+	s.jobs.Reload(jc)
+	s.SetServerConfig(&jc.Server)
+
+	// The bucket refills at the new rate, so the next submit is admitted again — poll (each poll is
+	// itself a submit, so a 429 is the expected first answer).
+	wait.For(t, 5*time.Second, "the raised quota admits the next submit", func() (bool, any) {
+		code := submit()
+		return code == http.StatusOK, code
+	})
+}
+
+// TestDisabledStoredCallerKeepsItsGrants: disabling a caller does NOT make its `caller:<id>` grants
+// orphans (only a caller the configuration stopped declaring does), so re-enabling it restores its
+// permissions without an operator having to reactivate anything.
+func TestDisabledStoredCallerKeepsItsGrants(t *testing.T) {
+	t.Parallel()
+	enabled := config.ServerConfig{
+		Callers: []config.CallerConfig{
+			{ID: "root", Token: "tok-root", CanAdmin: true},
+			storedCaller("dbuser", "gct-dbuser-token"),
+		},
+		// Every gate CLOSED, so the caller holds exactly what the database grants say.
+		Governance: config.GovernanceConfig{
+			RequireAnswerCapability: true, RequireAdminCapability: true,
+			RequireAttachCapability: true, RequireTunnelCapability: true,
+		},
+	}
+	s := newTestServerCfg(t, enabled)
+	grant := grantCaller(t, s, "dbuser", authz.PermTunnelOpen, 0)
+
+	disabled := enabled
+	disabledCaller := storedCaller("dbuser", "gct-dbuser-token")
+	disabledCaller.Disabled = true
+	disabled.Callers = []config.CallerConfig{
+		{ID: "root", Token: "tok-root", CanAdmin: true},
+		disabledCaller,
+	}
+	// The reload runs the orphan sweep over the new caller set.
+	s.SetServerConfig(&disabled)
+	assert.Eq(t, grantStateActive, liveGrantState(t, s, grant.ID),
+		"a disabled caller is still declared: its grant must not be orphaned")
+	assert.False(t, s.effective("dbuser", "").Has(authz.PermTunnelOpen),
+		"the grant applies to nobody while the caller is disabled")
+
+	// Re-enabling brings the same grant back into force — nothing was taken away.
+	s.SetServerConfig(&enabled)
+	assert.Eq(t, grantStateActive, liveGrantState(t, s, grant.ID))
+	assert.True(t, s.effective("dbuser", "").Has(authz.PermTunnelOpen),
+		"re-enabling must not need the grant to be reactivated")
+}
+
+// liveGrantState returns the state of one stored grant as the root administrator's list reports it.
+func liveGrantState(t *testing.T, s *Server, id string) string {
+	t.Helper()
+	var body authGrantsView
+	decode(t, do(t, s, http.MethodGet, "/v1/auth/grants", "tok-root", nil), &body)
+	for _, g := range body.Grants {
+		if g.ID == id {
+			return g.State
+		}
+	}
+	t.Fatalf("grant %s is not in the list: %+v", id, body.Grants)
+	return ""
 }
 
 // TestStoredCallerViewExposesSourceAndHint: the configuration view says where a caller comes from and
