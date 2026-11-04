@@ -43,7 +43,7 @@ func TestCallerTablesOnFreshDB(t *testing.T) {
 func TestCallerTxIsAtomic(t *testing.T) {
 	s := openTest(t)
 	boom := errors.New("boom")
-	err := s.WithCallerTx(func(tx CallerTx) error {
+	assert.ErrIs(t, s.WithCallerTx(func(tx CallerTx) error {
 		if err := tx.InsertCallerTx(storedCallerRow("ci")); err != nil {
 			return err
 		}
@@ -51,8 +51,7 @@ func TestCallerTxIsAtomic(t *testing.T) {
 			return err
 		}
 		return boom
-	})
-	assert.Err(t, err, boom)
+	}), boom)
 	rows, err := s.ListStoredCallers()
 	assert.NoErr(t, err)
 	assert.Len(t, rows, 0, "a rolled back transaction must leave no caller row")
@@ -110,7 +109,7 @@ func TestCallerTxOrphansGrantsInTheSameTransaction(t *testing.T) {
 	g, err := s.CreateAuthGrant(AuthGrant{Subject: "caller:ci", Pattern: perm})
 	assert.NoErr(t, err)
 	boom := errors.New("boom")
-	err = s.WithCallerTx(func(tx CallerTx) error {
+	assert.ErrIs(t, s.WithCallerTx(func(tx CallerTx) error {
 		ids, err := tx.ActiveGrantIDs("caller:ci")
 		if err != nil {
 			return err
@@ -119,8 +118,7 @@ func TestCallerTxOrphansGrantsInTheSameTransaction(t *testing.T) {
 			return err
 		}
 		return boom
-	})
-	assert.Err(t, err, boom)
+	}), boom)
 	got, ok, err := s.GetAuthGrant(g.ID)
 	assert.NoErr(t, err)
 	assert.True(t, ok)

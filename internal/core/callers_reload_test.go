@@ -45,7 +45,7 @@ func TestReloadRefusesStoreMarkerAndKeepsSnapshot(t *testing.T) {
 	reloadMarkerConfig(t, path)
 
 	result, err := cr.ReloadDetailed(path)
-	assert.Err(t, err, ErrStoreMarker)
+	assert.ErrIs(t, err, ErrStoreMarker)
 	assert.Contains(t, result.Error, "migrated into the database")
 
 	after := cr.Snapshot()

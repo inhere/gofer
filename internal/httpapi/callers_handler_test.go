@@ -315,9 +315,13 @@ func TestCallerAdminFileCallerCeilingWritesTheFile(t *testing.T) {
 	assert.True(t, strings.Contains(entries[0].AfterMasked, "self"), "the audit names the new ceiling")
 }
 
-// TestCallerAdminEnableAfterTakeoverNeedsRotation (D10): a stored caller a file entry took over
-// stays disabled and cannot be re-enabled with the token from before the takeover; rotating
-// first makes it usable again.
+// TestCallerAdminEnableAfterTakeoverNeedsRotation (D10) is the API's walk of the rule, in the
+// order an operator meets it:
+//
+//	file declares the id → reload takes the row over
+//	enable (file entry still there) → 409, the id is TAKEN (the other rule)
+//	file entry removed → reload; enable → 409 naming the ROTATION (the D10 rule)
+//	rotate, enable → the new token works at once, the pre-takeover token stays 401
 func TestCallerAdminEnableAfterTakeoverNeedsRotation(t *testing.T) {
 	s, cr, cfgPath := callerAdminServer(t)
 	created, status := addCaller(t, s, map[string]any{
@@ -339,15 +343,29 @@ func TestCallerAdminEnableAfterTakeoverNeedsRotation(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.True(t, ok && row.SupersededAt != 0, "the file entry takes the stored row over")
 
+	// While the file still declares the id, the 409 is about the id being taken (a row enabled
+	// here would be hidden again by the next merge).
 	resp := do(t, s, http.MethodPost, "/v1/callers/taken/enable", "tok-root", nil)
-	assert.Eq(t, http.StatusConflict, resp.StatusCode, "enabling a taken-over caller needs a rotation first")
-	_ = resp.Body.Close()
+	assert.Eq(t, http.StatusConflict, resp.StatusCode)
+	assert.True(t, strings.Contains(readBody(t, resp), "declared in the configuration file"),
+		"the 409 while the file entry exists is the id-taken refusal")
 
-	// The file entry is removed again; a rotation now makes enable possible.
+	// The file entry is removed; the row is STILL taken over, so enable must now be refused by
+	// the rotation rule itself — and the pre-takeover token must stay dead.
 	assert.NoErr(t, os.WriteFile(cfgPath, original, 0o600))
 	_, err = cr.ReloadConfigReport()
 	assert.NoErr(t, err)
+	resp = do(t, s, http.MethodPost, "/v1/callers/taken/enable", "tok-root", nil)
+	assert.Eq(t, http.StatusConflict, resp.StatusCode,
+		"without a rotation the taken-over caller must not be enabled")
+	assert.True(t, strings.Contains(readBody(t, resp), "rotate"),
+		"the 409 after the file entry is gone must name the rotation")
+	resp = do(t, s, http.MethodGet, "/v1/projects", created.Token, nil)
+	assert.Eq(t, http.StatusUnauthorized, resp.StatusCode,
+		"the pre-takeover token must not work while the row is taken over")
+	_ = resp.Body.Close()
 
+	// Rotate + enable: the new token works at once, the pre-takeover one stays dead.
 	rot := do(t, s, http.MethodPost, "/v1/callers/taken/rotate", "tok-root", nil)
 	assert.Eq(t, http.StatusOK, rot.StatusCode)
 	var rotated config.CallerChange
@@ -358,9 +376,55 @@ func TestCallerAdminEnableAfterTakeoverNeedsRotation(t *testing.T) {
 	resp = do(t, s, http.MethodGet, "/v1/projects", rotated.Token, nil)
 	assert.Eq(t, http.StatusOK, resp.StatusCode, "the rotated token works after enabling")
 	_ = resp.Body.Close()
-	// The token from before the takeover stays dead.
 	resp = do(t, s, http.MethodGet, "/v1/projects", created.Token, nil)
 	assert.Eq(t, http.StatusUnauthorized, resp.StatusCode, "the pre-takeover token must never come back")
+	_ = resp.Body.Close()
+}
+
+// TestCallerAdminWorkerIDRemovalUnblocksTheCaller: a stored caller whose id a worker binding uses
+// is hidden and blocked, not deleted. Removing the worker through the API, then rotating and
+// enabling, must make the caller usable at once — the caller write re-merges from the rows, so no
+// reload is needed.
+func TestCallerAdminWorkerIDRemovalUnblocksTheCaller(t *testing.T) {
+	s, cr, cfgPath := callerAdminServer(t)
+	created, status := addCaller(t, s, map[string]any{
+		"id": "w-ci", "ceiling": map[string]any{"projects": []string{"self"}},
+	})
+	assert.Eq(t, http.StatusCreated, status)
+
+	// A worker binding with the same id appears in the file (the CLI / a hand edit); the reload
+	// merges it and hides the row.
+	original, err := os.ReadFile(cfgPath)
+	assert.NoErr(t, err)
+	declared := strings.Replace(string(original), "\nstorage:",
+		"\n  workers:\n    w-ci:\n      token: worker-token\n\nstorage:", 1)
+	assert.True(t, declared != string(original), "the fixture gained a worker binding")
+	assert.NoErr(t, os.WriteFile(cfgPath, []byte(declared), 0o600))
+	_, err = cr.ReloadConfigReport()
+	assert.NoErr(t, err)
+	row, ok, err := cr.Store.GetStoredCaller("w-ci")
+	assert.NoErr(t, err)
+	assert.True(t, ok && row.SupersededAt != 0, "a worker's id hides the stored caller")
+	assert.True(t, cr.Config().OwnerBlocked("w-ci"), "the worker collision blocks the id as a job owner")
+	resp := do(t, s, http.MethodGet, "/v1/projects", created.Token, nil)
+	assert.Eq(t, http.StatusUnauthorized, resp.StatusCode, "a hidden caller authenticates nothing")
+	_ = resp.Body.Close()
+
+	// The worker is removed through the API (a config write through Core.Update).
+	resp = do(t, s, http.MethodDelete, "/v1/workers/w-ci", "tok-root", nil)
+	assert.Eq(t, http.StatusNoContent, resp.StatusCode, readBody(t, resp))
+	resp = do(t, s, http.MethodPost, "/v1/callers/w-ci/rotate", "tok-root", nil)
+	assert.Eq(t, http.StatusOK, resp.StatusCode)
+	var rotated config.CallerChange
+	decode(t, resp, &rotated)
+	resp = do(t, s, http.MethodPost, "/v1/callers/w-ci/enable", "tok-root", nil)
+	assert.Eq(t, http.StatusOK, resp.StatusCode, readBody(t, resp))
+	_ = resp.Body.Close()
+
+	// Immediately usable: the enable re-merged the row into the published snapshot.
+	resp = do(t, s, http.MethodGet, "/v1/projects", rotated.Token, nil)
+	assert.Eq(t, http.StatusOK, resp.StatusCode,
+		"after the worker is gone, rotate + enable must make the caller usable without a reload")
 	_ = resp.Body.Close()
 }
 
