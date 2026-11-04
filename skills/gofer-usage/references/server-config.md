@@ -826,7 +826,8 @@ server:
 - **`name` 是可选显示名**（只改显示）：job / 授权 / 审计里记的仍是 `id`，权限判定也只认 `id`，没有数据迁移。加载时去首尾空白，非空时在所有 caller 间唯一（忽略大小写）、至多 64 个字符、不含控制字符，否则配置校验拒绝。主 token 的调用方 `default` 的显示名写在 `id: default` 那一项上。`gofer auth whoami` 与 web（设置 → 权限、配置页的 callers 表）显示名称，悬停可见 id；没配 `name` 就显示 id。
 - 调用方 id 与 worker id 不得重名：`server.callers[].id` 撞上 `server.workers` 的键时配置校验直接拒绝。
 - agent 一侧把 `GOFER_SERVER_TOKEN` 换成 agent 的 token；人的 web / CLI 不用改。
-- callers / governance 需重启 server 生效。
+- `governance` 需重启 server 生效；**`callers` 是热载**：`gofer serve reload`（或 web「重新读取文件」）之后新加的 / 改过的 / 删掉的调用方立刻生效，不用重启。
+- **新增人不用改文件**：根管理员在 web「设置 → 用户」或 CLI `gofer auth caller add` 建用户、拿一次性 token、轮换、停用 / 启用、改上限与配额，配置文件一个字不动、不用重启。见下文「用户入库」。
 - 各项权限的含义、风险、来源，以及每条 HTTP 路由需要哪些权限：见 <https://github.com/inhere/gofer/blob/main/docs/reference/permissions.md>（由服务端代码生成，与二进制一致）。
 - **审计与自查**：授权增删、只靠会话授权通过的请求和被拒请求会进入 `GET /v1/auth/audit`；使用计数保留在授权行，审计记录保留 90 天。`gofer auth whoami` 显示本 token 是哪个调用方、是否根管理员、持有的每项权限及**来源**（`root` 根管理员 / `config` 由配置推出 / `db` 数据库授权，并给出是哪条授权给的）；权限不够的 403 正文里让人跑的就是它。`gofer auth routes` 列出服务端每条路由的声明与需要的权限（与上面那份生成文档同一份数据，但来自正在跑的那个二进制）。
 - **未知的 `/v1` 路径**：`/v1/` 下没有匹配的路由（含已删除的旧接口、拼错的路径）一律返回 404 + JSON 错误体（`error` / `detail`），不再回退到 web 首页 HTML；web 前端路由（非 `/v1`）仍回退 `index.html`。客户端遇到 404 JSON 先核对 server 版本与路径。
@@ -838,6 +839,60 @@ server:
 - gofer 派出的 job 本来就不继承 server token，用的是只对该 job 有效的凭据；worker 连接用各自的 `server.workers.<id>` token。这里拆的是 job 之外直接连 server 的客户端。
 - 拆分防的是误操作：能在 server 本机 runner 上提交 `exec` 的调用方，仍等于能在主机上执行命令。
 - **切 token 后旧会话会被拒**：会话的 owner 在首次登记时定死，之后换身份的注册 / 心跳 / 回复一律 403，web 上会话的状态、最新消息、进度停在切换那一刻。会话对象会带 `refused_caller_id` / `refused_at`，会话列表与详情显示「归属被拒」并给「转给 <caller>」按钮，CLI 用 `gofer session owner <sid> <caller>`（需 `session.transfer`）；转移后该 caller 的上报立即生效。详见 [sessions-relay.md](sessions-relay.md)。
+
+## 用户入库（web / CLI 管人，不改文件）
+
+根管理员可以在 web「设置 → 用户」或 CLI 上新增用户、发 token、轮换、停用 / 启用、改上限与配额。配置文件和 `server.callers` 都不用动，也不用重启：新用户下一个请求就能用。
+
+```bash
+gofer auth caller add ci --ceiling-project 'app-*' --ceiling-agent 'claude*'   # 建人，token 只打印一次
+gofer auth caller add bot --no-ceiling --rate-limit 2 --max-concurrent-jobs 2   # 明确不设上限
+gofer auth caller ls                                                          # 来源 / 状态 / token 提示 / 上限 / 配额
+gofer auth caller rotate ci                                                   # 换 token（旧 token 立刻失效，长连接断开）
+gofer auth caller disable ci                                                  # 停用（enable 恢复）
+gofer auth caller set-ceiling ci --ceiling-project p1                         # 换上限；--no-ceiling 改成不设上限
+gofer auth caller set-limits ci --max-concurrent-jobs 4                       # 改配额（下一个 job 就按新值排队）
+gofer auth caller audit --limit 20                                            # 谁改了什么（打码后的前后值）
+```
+
+- **token 只显示一次**：新增与轮换的响应里有完整 token，服务端只存它的 sha256，之后拿不回来（只能看 `token_hint` 这种提示，如 `gct_…1f2e`）。丢了就再 `rotate` 一次。token 不进数据库明文、不进日志、不进审计。
+- **上限（ceiling）必须二选一**：给一块 `--ceiling-*`，或明确 `--no-ceiling`。两样都不给、或给一个空上限块都是 400——空块读成「有限制」却什么都没限。四个列表是 glob，留空的维度不限制；**特例是 runner**：不给 `--ceiling-runner` 就是不允许本机 runner（`local` / `server`，它跑在 server 主机上、能读配置与所有 token），只允许远程 worker，要允许必须写名字。不设上限的新用户如果没开 `require_admin_capability`，还能改 `agents.*.command` 这类配置，接口会在 `warnings` 里提醒。
+- **id 不复用**：已有的用户（含停用、被接管）、配置文件里的用户、worker id 都不能再用；`default` / `system` / `root` 与 `job-` 前缀是保留的。
+- **改并发上限不用重启**：下一个 job 就按新容量排队，已在跑的照旧跑完。
+- **审计**：每次改动写一行（谁、何时、哪一项、打码后的前后值），`gofer auth caller audit` 或 web 用户页可见，保留 90 天。
+
+### 停用一个用户意味着什么
+
+- 它立刻无法认证（401），也不再持有任何权限。
+- 它名下**不再启动新任务**：定时触发、计划派发、审批放行、@ 触发、自动续跑 / 失败转移、接管都过准入检查并被拒（理由「调用方已停用」，属于永久拒绝，不重试）。
+- 已排队、刚拿到执行槽位的 job 直接失败且**不重试**（停用用户仍允许的只有「交付」与「交付核验」这两个收尾动作）。
+- **已经跑起来的**照跑：在跑的 job、重启后恢复的常驻会话都不会因为停用而被杀（停用不等于取消；要停就 `gofer job cancel`）。
+- 工作流 job 不在重试判断里：停用后它的下一步 `Submit` 被准入拒，所以会多跑一轮退避才失败。
+- 它名下的 schedule 仍在，但触发时被拒——想彻底停掉就一并删掉 schedule。
+
+### 配置文件里的用户
+
+`server.callers` 里声明的用户能力相同，但**不能在 web / CLI 上轮换、停用或启用**（409）——轮换会把明文 token 写回配置文件，`token_env` 也写不回。它的上限与配额可以改，写的是文件（`server:` 块的注释会丢，与配置页所有 server 写入一致），改完立即生效。要换成入库方式，就在配置文件里删掉该条目，再用 `caller add` 建同 id 的用户。
+
+**文件用户接管同 id 的入库用户**（写入配置并 reload 时发生）：
+
+- 入库行被标为「已被文件接管」并停用，它的 `caller:<id>` 授权被标孤儿，写一条审计；文件优先，不拒绝启动。
+- 之后删掉文件条目，旧 token **不会复活**：要先把这行轮换（旧 token 早已作废），再启用；孤儿授权用已有的 activate 恢复。
+- 接管期间，这个 id 名下的 schedule 按**文件用户**的上限运行（根管理员亲手声明的身份）。
+
+### 离线修复
+
+server 因为某一行入库用户起不来时（手改库导致的坏上限、坏配额、坏名字、坏哈希），先停 server，再：
+
+```bash
+gofer auth caller repair ci --offline
+```
+
+它只把这一行改得**更严**：坏上限换成最严的上限（什么都不匹配、只读），坏配额清空，坏名字清空，行转停用；不删行、不动 token 哈希，也不建库（路径写错就报错并打印实际库路径）。修完再起 server，然后轮换 + 启用这一行。
+
+### 备份与回退
+
+配置与用户都在数据库里时，**备份数据库就是备份配置**：用 SQLite 的一致性备份（`.backup` / `VACUUM INTO`），不要直接拷文件（有 WAL）。回退到不认识入库用户的旧版本前：先取消这些用户名下的 schedule、计划与排队 job——旧版本查不到这些用户，上限就不再生效，这些自动化会无上限地跑。回退后这些用户的 token 一律 401、它们的授权被标孤儿；重新升级回来再用 `gofer auth grant activate` 恢复。没用用户入库的部署不受影响。
 
 ## 出站代理（http_proxy）
 

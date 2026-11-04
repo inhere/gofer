@@ -8,7 +8,7 @@ It is written for the deployment it is built for: **one developer, or a small te
 
 - A server refuses to start without a token (`server.token_env` pointing at an environment variable is the recommended form; `server.token` writes it into the file and is not) unless you explicitly pass `--allow-empty-token` / set `server.allow_empty_token: true`, which is meant for experiments on a single machine.
 - Anyone holding a token can submit jobs through the CLI, HTTP or MCP. A job is a process on the executing machine, running **with the permissions of the gofer process that runs it**. So give a token only to people you trust, or to a CI system you control.
-- The other direction also holds: no token, no entry. Replace or delete the token and `gofer serve reload` and it is revoked — the same applies to any entry in `callers[]`.
+- The other direction also holds: no token, no entry. Replace or delete the token and `gofer serve reload` and it is revoked — the same applies to any entry in `callers[]`. A caller created from the console / `gofer auth caller add` does not live in the file at all: rotate it (`gofer auth caller rotate <id>`) and the old token stops working at once, or disable it to revoke everything it could do.
 - To see who you are and what you hold: `gofer auth whoami`. To see what a route requires: `gofer auth routes`.
 
 ## Listen address and network
@@ -51,6 +51,18 @@ Why both exist:
 - **Caller ceiling** — keep a token permanently inside a range ("this colleague's token may touch two projects, only codex, no exec"). Use it to hold an occasional visitor away from your core projects.
 
 The question that comes up most: **writing a ceiling and then allowing the local runner means there is no ceiling**. A real boundary is "worker runners only, no exec, named projects" — those project directories are not visible to that person anyway.
+
+## Callers stored in the database
+
+A caller does not have to be declared in the configuration file. A root administrator creates one in the console (Settings → Callers) or with `gofer auth caller add <id> --ceiling-project <key>`, and it works on the next request — no file edit, no restart.
+
+- **The token is shown once.** The server keeps only its sha256; a lost token is rotated, never recovered. Tokens do not appear in the database in plain text, in logs, or in the audit.
+- **A ceiling is mandatory, in one of two forms**: a `ceiling` block, or an explicit "no ceiling". An empty block is refused, because it reads like a limit while restricting nothing.
+- **Ceilings of stored callers are set from the console**, not the file (a caller the file declares keeps its ceiling in the file). Either way the ceiling is enforced by the same code.
+- **A stored caller can never be a root administrator**: `can_admin` lives in the configuration file only.
+- **Disabling** takes effect immediately: the caller cannot authenticate, and no new work of its owner starts (scheduled triggers, plan dispatch, approvals releasing jobs, retries, take-overs). Jobs it already has running finish; stopping them is a separate `gofer job cancel`.
+- **Every change is audited** (`config_audit`, masked values, 90 days). The audit is what makes "who gave this token which ceiling, and when" answerable without the file.
+- **Backups**: once callers live in the database, back the database up as one unit (a SQLite consistent backup, not a file copy — there is a WAL). Before downgrading to a release that does not know stored callers, cancel the schedules, plans and queued jobs they own: the old binary cannot find those callers, so their ceilings stop applying.
 
 ## metrics and health endpoints
 

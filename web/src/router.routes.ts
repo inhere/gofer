@@ -127,6 +127,12 @@ export const routes: RouteRecordRaw[] = [
         name: 'settings-permissions',
         component: () => import('./views/settings/Permissions.vue'),
       },
+      // 配置入库 P1：用户管理（新增 / 发 token / 轮换 / 停用 / 改上限 / 审计）。
+      {
+        path: 'callers',
+        name: 'settings-callers',
+        component: () => import('./views/settings/Callers.vue'),
+      },
       {
         path: 'work',
         name: 'settings-work',

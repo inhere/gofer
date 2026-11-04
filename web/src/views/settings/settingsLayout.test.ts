@@ -79,4 +79,12 @@ describe('SettingsLayout', () => {
     expect(html).toContain('About')
     expect(html).not.toContain('设置分区')
   })
+
+  it('hides the caller management section from a caller that is not a root administrator', async () => {
+    // 测试环境里取不到 whoami（没有 server）——按「不是根管理员」处理，用户管理的入口既不显示，
+    // 也就不存在点进去再吃 403 的情况。根管理员那一侧见 callersNavRoot.test.ts。
+    const html = await render('/settings/work')
+    expect(html).not.toContain('href="/settings/callers"')
+    expect(html).not.toContain('<option value="/settings/callers"')
+  })
 })

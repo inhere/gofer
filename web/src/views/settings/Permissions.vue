@@ -15,6 +15,7 @@ import {
   listAuthGrants,
   revokeAuthGrant,
 } from '../../api/permissions'
+import { listCallers } from '../../api/callers'
 import GrantRenewDialog from '../../components/GrantRenewDialog.vue'
 import { fmtAgo, fmtDateTime } from '../../api/time'
 import { callerLabel, callerTitle } from '../../utils/callerLabel'
@@ -91,6 +92,12 @@ async function loadAll(): Promise<void> {
     catalog.value = cat
     if (mode.value.canQueryGrants) {
       grants.value = await listAuthGrants()
+      // 用户页新建的用户立刻出现在这里的建议列表里；读不到不影响授权。
+      try {
+        managedCallerIds.value = (await listCallers()).callers.map((c) => c.id)
+      } catch {
+        managedCallerIds.value = []
+      }
     }
   } catch (e) {
     loadError.value = msg(e)
@@ -112,9 +119,13 @@ async function reloadGrants(): Promise<void> {
 // 授权列表自带的显示名优先，缺的用 whoami 的补。
 const namesOf = computed(() => ({ ...callerNames.value, ...(grants.value.caller_names ?? {}) }))
 const groups = computed(() => groupGrantsBySubject(grants.value.grants, grants.value.derived, namesOf.value))
-const callerIds = computed(() =>
-  groups.value.map((g) => parseSubject(g.subject)).flatMap((p) => (p?.kind === 'caller' ? [p.id] : [])),
-)
+// 建议列表：已经拿到授权的调用方 + 全部用户（配置入库 P1 起能列出存储用户）。
+// 用户列表只有根管理员读得到，取不到（403 / 无存储）就只用授权里出现过的 id。
+const managedCallerIds = ref<string[]>([])
+const callerIds = computed(() => {
+  const ids = groups.value.map((g) => parseSubject(g.subject)).flatMap((p) => (p?.kind === 'caller' ? [p.id] : []))
+  return [...new Set([...ids, ...managedCallerIds.value])].sort()
+})
 // 服务端判定的「此刻是否生效」（字段缺失时按 state / 有效期估计）。
 function effectiveOf(g: AuthGrant) {
   return grantEffectiveLabel(g, Math.floor(Date.now() / 1000))

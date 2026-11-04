@@ -18,11 +18,8 @@ func TestReloadChangedIgnoresAgentRedetect(t *testing.T) {
 	}
 }
 
-// TestReloadCeilingOnlyChangeIsHot: changing only a caller's ceiling is applied by the reload,
-// so the report lists server as changed and does NOT ask for a restart; changing anything
-// else of a caller (its token) still does.
 // TestReloadCeilingOnlyChangeIsHot: a caller list change is applied by the reload (the
-// caller list is hot), so head neither a ceiling-only change nor a token change asks for a
+// caller list is hot), so neither a ceiling-only change nor a token change asks for a
 // restart; both are reported as a change of the server partition.
 func TestReloadCeilingOnlyChangeIsHot(t *testing.T) {
 	no := false

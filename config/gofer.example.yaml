@@ -93,6 +93,10 @@ server:
   # (审计 / 按调用方筛选)。上面的单一 token 仍然有效(caller id 记为 "default")；删掉某项
   # 并 reload 即吊销该调用方。优先用 token_env，不要直接写 token。
   #
+  # 整段可热加载：改文件后 reload 即生效，不用重启。也可以不改文件——根管理员用
+  # `gofer auth caller add <id> --ceiling-…|--no-ceiling` 或在 web「设置 → 用户」里建人，
+  # token 只显示一次，库里只存 sha256；同样可以 rotate / disable / enable / 改上限与配额。
+  # 文件里的用户不能从 web/CLI 轮换、停用、启用（会写回明文 token），只能改上限与配额。
   # 每个 caller 可选的配额 / 限流(未写时用 governance 的默认值，再未写则不限)：
   #   max_concurrent_jobs  该 caller 同时在跑的 job 上限(超出的排队等槽，不拒绝)
   #   rate_limit           每秒提交请求数(令牌桶速率，只限 POST /v1/jobs 与 /v1/workflows)
@@ -105,7 +109,7 @@ server:
   #     max_concurrent_jobs: 8       # 覆盖 governance.default_caller_max_concurrent
   #     rate_limit: 20               # 覆盖 governance.default_rate_limit
   #     rate_burst: 40               # 覆盖 governance.default_rate_burst
-  #     # ceiling：这个 token 的作用范围上限（只减不加；不写 = 不限制）。可选，仅能改文件。
+  #     # ceiling：这个 token 的作用范围上限（只减不加；不写 = 不限制）。可选。
   #     # 写上限时本机 runner(local/server)与 exec 默认禁止，须显式列出才放开；
   #     # 上限子树按已知键严格解码（拼错即加载失败），ceiling: {} 直接报错。
   #     ceiling:
