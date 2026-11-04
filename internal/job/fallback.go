@@ -65,6 +65,12 @@ type failureDecision struct {
 // candidate left. It is PURE apart from reading the agents registry — it submits
 // nothing, so finish can pick the event before the failure becomes observable.
 func (s *Service) failureDecision(snap JobResult) failureDecision {
+	// 配置入库 P1: a job refused because its owner was disabled never ran at all. Recognised from
+	// the sentinel's fixed text (the persisted row carries text only, see errCallerDisabled) and
+	// taken over by nobody: a continuation or a transfer would be refused by admission again.
+	if strings.Contains(snap.Error, errCallerDisabled.Error()) {
+		return failureDecision{Class: FailureClassCallerDisabled}
+	}
 	// N2 §B: a budget stop is the ceiling doing its job — neither a provider flake nor a
 	// bug. It is recognised from the error text (the one thing a remote worker's result
 	// carries) and takes nothing over: continuing or handing the work to another agent

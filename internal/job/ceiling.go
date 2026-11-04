@@ -143,6 +143,13 @@ func admitCeiling(cfg *config.Config, req JobRequest) error {
 		return fmt.Errorf("%w: unknown internal exec kind %q", ErrCeilingDenied, req.InternalExec)
 	}
 	for _, owner := range ceilingOwners(req) {
+		// 配置入库 P1: a DISABLED caller (or an id the caller merge had to block) may not own a
+		// new job — checked BEFORE the ceiling, because such a caller has no ceiling and the
+		// "nothing to check" continue below would admit it. Only the closing acts of a job that
+		// already ran are released (D7, see disabledExecReleased).
+		if cfg.OwnerBlocked(owner) && !disabledExecReleasedFor(req) {
+			return fmt.Errorf("%w: caller %q is disabled", ErrCeilingDenied, owner)
+		}
 		ceil, ok := cfg.Server.CallerCeiling(owner)
 		if !ok {
 			continue
@@ -258,11 +265,17 @@ func (s *Service) CredentialCeilingOwner(jobID string) (string, error) {
 // names carries a ceiling, the derivative is refused rather than admitted as a system job.
 // An unrestricted (or unnamed) caller keeps the previous behaviour — a derived job of an
 // unknown origin that nobody restricted.
+//
+// A DISABLED chain caller is refused too (配置入库 P1): its id owns no new work, so the chain it
+// started ends here instead of being re-opened as an unbounded derivative.
 func inheritCeilingOwner(cfg *config.Config, src *JobResult, chainCaller string) (string, error) {
 	if src != nil {
 		return src.OriginCaller, nil
 	}
 	if chainCaller != "" && cfg != nil {
+		if cfg.OwnerBlocked(chainCaller) {
+			return "", fmt.Errorf("%w: caller %q is disabled", ErrCeilingDenied, chainCaller)
+		}
 		if _, ok := cfg.Server.CallerCeiling(chainCaller); ok {
 			return "", fmt.Errorf("%w: cannot determine the ceiling owner: the source job of this derivative is gone and caller %q is restricted",
 				ErrCeilingDenied, chainCaller)

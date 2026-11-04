@@ -32,6 +32,10 @@ type execGates struct {
 	exclusive bool // hold the same-directory lock for this job's WorkDir
 	stall     int  // AUTO-05: kill a job silent for this many seconds (0 = off)
 	dirWait   int  // JOB-11: fail a job queued on the directory lock this many seconds (0 = no cap)
+	// recheckOwners are the caller ids execute re-judges for a DISABLE once the job has passed
+	// its last queue (see disabledRecheckOwners). Empty means "not re-judged": a system job, a
+	// released internal exec, and a resumed resident session — which is already running (D2).
+	recheckOwners []string
 }
 
 // execute runs the job: it acquires the project concurrency slot, opens the log
@@ -198,6 +202,19 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		defer func() { releaseDir() }()
 		if waited {
 			slog.Info("job.dir_wait", "job_id", req.JobID, "holder", holder, "dir", req.WorkDir)
+		}
+	}
+
+	// 配置入库 P1 (plan T5): the caller that owns this job may have been DISABLED while the job
+	// sat in a queue — admission ran at submit time. Re-judge HERE, after the last queue (the
+	// directory lock) and before a single second of work runs: a refused job fails at once and is
+	// never retried (FailureClassCallerDisabled). A resumed resident session carries no owner to
+	// re-judge (D2): it keeps running until it ends or a human cancels it.
+	if gates.recheckOwners != nil {
+		if owner := s.disabledOwnerAmong(gates.recheckOwners); owner != "" {
+			releaseDir()
+			s.finish(entry, req.JobID, StatusFailed, -1, errCallerDisabledFor(owner))
+			return
 		}
 	}
 
@@ -1160,6 +1177,9 @@ func (s *Service) maybeRetryJob(snap JobResult) {
 	}
 	if snap.FailureClass == FailureClassBudget {
 		return // N2 §B: a retry would spend the same budget again
+	}
+	if snap.FailureClass == FailureClassCallerDisabled {
+		return // 配置入库 P1: the owner is disabled, so the retry would be refused by admission again
 	}
 	if snap.FailureClass == FailureClassTransient {
 		return // the takeover family (auto-resume / stall / fallback) owns transient failures

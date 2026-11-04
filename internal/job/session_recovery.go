@@ -127,6 +127,9 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 		stall = *request.StallTimeoutSec
 	}
 	dirWait := cfg.EffectiveDirLockMaxWaitSec(request.DirWaitMaxSec)
+	// No recheckOwners here (配置入库 P1, D2): a session restored after a restart is already a
+	// running job, so it keeps running until it ends or a human cancels it. The jobs it submits
+	// go through admission and are refused while its caller is disabled.
 	go s.execute(entry, run, execGates{
 		project:   s.semaphore(rec.ProjectKey, proj.MaxConcurrentJobs),
 		caller:    s.callerSemaphore(rec.CallerID, cfg.Server.CallerConcurrencyLimit(rec.CallerID)),

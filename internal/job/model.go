@@ -712,6 +712,10 @@ const (
 	// same budget again) nor "other" bug: no auto-resume, no failover, no health penalty
 	// for the provider.
 	FailureClassBudget = "budget"
+	// FailureClassCallerDisabled marks a job that was refused because the caller owning it
+	// was DISABLED (配置入库 P1): the work never ran. Nothing takes it over — a retry would be
+	// refused by admission again, and another agent would not change whose caller it is.
+	FailureClassCallerDisabled = "caller-disabled"
 )
 
 // JobResult is the persisted/queryable job state (plan §6.2).
