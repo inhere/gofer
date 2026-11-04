@@ -38,12 +38,21 @@ func WorkerTokenFingerprint(token string) string {
 
 // RegisterWorkerInto registers worker id in cfg: server.workers, runners and the
 // allowed_runners of each listed project. cfg is only mutated on success.
+//
+// A worker id must not collide with a caller id (including a disabled or stored one):
+// the worker token would shadow the caller's own, and the jobs of both identities would
+// be recorded under one owner (the same reasoning the loader's type-isolation check uses).
 func RegisterWorkerInto(cfg *Config, id string, labels, projects []string, token string) error {
 	if !workerIDPattern.MatchString(id) {
 		return fmt.Errorf("worker_id must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 	}
 	if err := CheckWorkerID(id); err != nil {
 		return err
+	}
+	for _, cc := range cfg.Server.Callers {
+		if cc.ID == id {
+			return fmt.Errorf("worker_id %q is already a caller id; a caller id and a worker id must be distinct", id)
+		}
 	}
 	if cfg.Server.Workers == nil {
 		cfg.Server.Workers = map[string]WorkerAuthConfig{}

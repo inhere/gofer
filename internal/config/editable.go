@@ -161,7 +161,11 @@ var fieldPolicies = map[string]FieldPolicy{
 	// Inbound triggers can keep submitting jobs: file-only, never console-writable
 	// (trigger design, decision 1).
 	"server.triggers": {HotReload: true},
-	"server.callers":  {RestartRequired: true},
+	// Callers are hot: the auth middleware resolves them from the live config snapshot on
+	// every request, so a reload applies an added / changed / removed caller at once. The
+	// write endpoint's vocabulary is still server|agents (no request carries a caller), and
+	// only the FILE callers are written back (fileProjection).
+	"server.callers": {HotReload: true},
 	// Per-caller scope ceilings (上限): FILE-ONLY by decision — a ceiling is a limit the
 	// operator sets on a token, and the console write endpoint's vocabulary is
 	// server|agents, so no request can carry it. The judgment reads it from the live

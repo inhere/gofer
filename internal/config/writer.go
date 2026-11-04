@@ -86,6 +86,9 @@ func Save(path string, cfg *Config) error {
 	if err := cfg.ValidateLocalPaths(); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
+	// Only the FILE callers are rendered: a caller merged in from the database must never
+	// end up in config.yaml (the file is the operator's document and the highest authority).
+	cfg = fileProjection(cfg)
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -113,7 +116,7 @@ func Save(path string, cfg *Config) error {
 // not have before is written to the main file. Only files whose content changed are
 // rewritten.
 func saveSplit(src *configSources, cfg *Config) error {
-	clean := withoutRuntimeValues(cfg)
+	clean := withoutRuntimeValues(fileProjection(cfg))
 	owner := func(key string) string {
 		if f, ok := src.byKey[key]; ok {
 			return f
@@ -157,7 +160,7 @@ func projectTopKeys(c *Config, keep func(string) bool) *Config {
 // managed top-level key whose value did NOT change taken from the original file text
 // instead, and every unknown top-level key carried over verbatim.
 func render(abs string, cfg *Config) ([]byte, error) {
-	newBytes, err := yaml.Marshal(withoutRuntimeValues(cfg))
+	newBytes, err := yaml.Marshal(withoutRuntimeValues(fileProjection(cfg)))
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}

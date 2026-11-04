@@ -34,13 +34,21 @@ func (c *Config) SourceFiles() []string {
 }
 
 // LoadWarnings returns the notices collected while decoding the config file(s):
-// retired sections that are ignored. Runtime-only (never written back to the file);
-// nil when there is nothing to report. The returned slice is a copy.
+// retired sections that are ignored. It also carries the notices the DATABASE callers
+// produced (D13), computed by the last caller merge, so every reader sees one list.
+// Runtime-only (never written back to the file); nil when there is nothing to report.
+// The returned slice is a copy.
 func (c *Config) LoadWarnings() []string {
-	if c == nil || len(c.loadWarnings) == 0 {
+	if c == nil {
 		return nil
 	}
-	return append([]string(nil), c.loadWarnings...)
+	if len(c.loadWarnings) == 0 && len(c.storedCallerWarnings) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(c.loadWarnings)+len(c.storedCallerWarnings))
+	out = append(out, c.loadWarnings...)
+	out = append(out, c.storedCallerWarnings...)
+	return out
 }
 
 // SectionSources maps each top-level section of a split config to the file holding
@@ -75,6 +83,18 @@ func (c *Config) SectionFile(key string) string {
 		return f
 	}
 	return c.sources.main
+}
+
+// HasTopKey reports whether a top-level key appears in any file the config was read from
+// (the main file or an `include` fragment). Unlike SectionFile it never falls back to the
+// main file, so "does the operator's document carry this key" and "which file holds it"
+// stay two different questions.
+func (c *Config) HasTopKey(key string) bool {
+	if c == nil || c.sources == nil || key == "" {
+		return false
+	}
+	_, ok := c.sources.byKey[key]
+	return ok
 }
 
 // SectionFileOf reads the config at mainPath (with its includes, without defaults or

@@ -146,8 +146,19 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
 	}
-	cr, err := core.Build(cfg, core.WithBuiltinDefaultProject())
+	// P1: the stored callers come from the metadata store, so open it and merge them into cfg
+	// before core.Build assembles anything from it. This path is READ-ONLY: a stored caller a
+	// file entry supersedes is only hidden here (the CLI does not write the database); the
+	// next server start does the takeover. A configuration carrying the P2 store marker is
+	// refused before the database is opened.
+	store, err := core.PrepareCallerStore(cfg, core.CallerMergeReadOnly)
 	if err != nil {
+		return errorx.Failf(mcpExitErr, "%v", err)
+	}
+	cr, err := core.Build(cfg, core.WithBuiltinDefaultProject(), core.WithStore(store))
+	if err != nil {
+		// Build did not take the store over: close it here (G051).
+		_ = store.Close()
 		return errorx.Failf(mcpExitErr, "%v", err)
 	}
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when the MCP

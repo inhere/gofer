@@ -58,7 +58,10 @@ func TestReloadReportsPeerRunnerRestartRequired(t *testing.T) {
 	}
 }
 
-func TestReloadReportsWorkersHotAndCallersRestart(t *testing.T) {
+// TestReloadReportsWorkersAndCallersHot: both server.workers and server.callers are applied
+// by a reload (the auth middleware reads the caller list from the live snapshot on every
+// request), so a change to either must be reported as changed, never as needing a restart.
+func TestReloadReportsWorkersAndCallersHot(t *testing.T) {
 	old := &config.Config{Server: config.ServerConfig{
 		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "one"}},
 		Callers: []config.CallerConfig{{ID: "operator", Token: "one"}},
@@ -74,8 +77,11 @@ func TestReloadReportsWorkersHotAndCallersRestart(t *testing.T) {
 	if containsString(result.RestartRequired, "server.workers") {
 		t.Fatalf("server.workers is hot-reloaded and must not require restart: %v", result.RestartRequired)
 	}
-	if !containsString(result.RestartRequired, "server.callers") {
-		t.Fatalf("server.callers still rebuilds auth at startup and must require restart: %v", result.RestartRequired)
+	if containsString(result.RestartRequired, "server.callers") {
+		t.Fatalf("server.callers is hot-reloaded and must not require restart: %v", result.RestartRequired)
+	}
+	if !containsString(result.Changed, "server") {
+		t.Fatalf("changed=%v, want server", result.Changed)
 	}
 }
 

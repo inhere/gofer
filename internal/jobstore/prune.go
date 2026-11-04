@@ -56,13 +56,22 @@ func (p RetentionPolicy) IsZero() bool { return p.MaxAge <= 0 && p.MaxCount <= 0
 // its interactions are removed atomically.
 func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prunedDirs []string, err error) {
 	defer s.emit(Change{Kind: ChangeJob})
+	cutoff := now - int64((90*24*time.Hour)/time.Second)
+	// D8: the config/value audit has its own retention window, so it is pruned BEFORE the
+	// job policy is asked — a deployment that keeps no job retention (a zero policy) would
+	// otherwise never expire an audit row.
+	s.writeMu.Lock()
+	_, auditErr := s.db.Exec(`DELETE FROM config_audit WHERE at < ?`, cutoff)
+	s.writeMu.Unlock()
+	if auditErr != nil {
+		return 0, nil, fmt.Errorf("jobstore: prune config audit: %w", auditErr)
+	}
 	if policy.IsZero() {
 		return 0, nil, nil
 	}
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	cutoff := now - int64((90*24*time.Hour)/time.Second)
 	if _, err := s.db.Exec(`DELETE FROM auth_audit WHERE at < ?`, cutoff); err != nil {
 		return 0, nil, fmt.Errorf("jobstore: prune auth audit: %w", err)
 	}
