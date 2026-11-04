@@ -139,6 +139,164 @@ agent status	flag token	bearer token override (prefer config/env: GOFER_SERVER_T
 auth	desc	Inspect permissions: who this credential is, what it holds, what routes need
 auth	help	
 auth	examples	
+auth caller	desc	Manage callers: add, list, rotate, disable / enable, change the ceiling or the quota
+auth caller	help	
+auth caller	examples	
+auth caller add	desc	Create a caller and print its token once (the token is never shown again)
+auth caller add	help	Creates a caller of this deployment and prints the token ONCE: the server keeps only its
+sha256, so a lost token has to be rotated, not recovered. The caller works on the next
+request — no reload, no restart, and the configuration file is not touched.
+
+A ceiling is REQUIRED, in one of its two forms:
+
+  --ceiling-project / --ceiling-runner / --ceiling-worker / --ceiling-agent <glob>  (repeatable)
+  --ceiling-allow-exec / --ceiling-global-memory / --ceiling-read-only
+      list what the caller may reach; every dimension left out is not restricted, EXCEPT
+      runners: with no --ceiling-runner the caller may NOT use the machine runner (local),
+      only remote workers. A job on the machine runner runs on the server host and can read
+      its configuration and every token, so a ceiling that allows it is not a security boundary.
+  --no-ceiling
+      say on purpose that the caller is unlimited. The answer warns what such a caller can do.
+
+The id is never reused: an existing caller (enabled, disabled or taken over), a caller of the
+configuration file and a worker binding all refuse the same id.
+
+  gofer auth caller add ci --ceiling-project p1 --ceiling-agent 'claude*'
+  gofer auth caller add bot --no-ceiling --rate-limit 2 --max-concurrent-jobs 2
+auth caller add	examples	
+auth caller add	flag ceiling-agent	agent key the caller may use (glob, repeatable)
+auth caller add	flag ceiling-allow-exec	allow exec jobs (agent exec, a Cmd, a Verify argv, hooks)
+auth caller add	flag ceiling-global-memory	allow writing memory that is not scoped to one project
+auth caller add	flag ceiling-project	project key the caller may use (glob, repeatable)
+auth caller add	flag ceiling-read-only	refuse every state-changing request of this caller
+auth caller add	flag ceiling-runner	runner key the caller may submit to (glob, repeatable). Without it the caller may NOT use the machine runner (local), only remote workers
+auth caller add	flag ceiling-worker	worker the caller's jobs may be routed to (glob, repeatable)
+auth caller add	flag config	path to the gofer config file
+auth caller add	flag max-concurrent-jobs	how many jobs this caller may run at once (0 = take the server.governance default)
+auth caller add	flag name	display name (optional; the id stays the identity)
+auth caller add	flag no-ceiling	do not limit this caller (the alternative to a --ceiling-* block)
+auth caller add	flag rate-burst	burst capacity of the submit rate (0 = derived from --rate-limit)
+auth caller add	flag rate-limit	submits per second (0 = take the server.governance default)
+auth caller add	flag server	server address (overrides config server.addr)
+auth caller add	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth caller audit	desc	Show who changed which caller, when, with the masked values
+auth caller audit	help	Prints the audit lines of every caller change, newest first: who did it, when, which entry,
+and the masked before / after values (name, quota, ceiling, state, token hint — never a token
+and never its hash).
+
+  gofer auth caller audit
+  gofer auth caller audit --limit 20
+auth caller audit	examples	
+auth caller audit	flag config	path to the gofer config file
+auth caller audit	flag limit	how many lines to show (default 100, at most 500)
+auth caller audit	flag server	server address (overrides config server.addr)
+auth caller audit	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth caller disable	desc	Switch a caller off: it authenticates nothing and starts no new job
+auth caller disable	help	Switches a caller off. From the next request on its token authenticates nothing, every
+permission of it is empty, and no new job of its owner starts (queued jobs fail instead of
+running). The ceiling of the entry keeps bounding the jobs it already started, and the caller
+stays listed so it can be enabled again.
+
+A caller declared in the configuration file cannot be disabled here: edit the file.
+
+  gofer auth caller disable ci
+auth caller disable	examples	
+auth caller disable	flag config	path to the gofer config file
+auth caller disable	flag server	server address (overrides config server.addr)
+auth caller disable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth caller enable	desc	Bring a disabled caller back
+auth caller enable	help	Brings a disabled caller back: the same token works again (disabling is not revoking).
+
+A caller a configuration-file entry TOOK OVER (same id) can only come back after a rotation:
+otherwise the token from before the takeover would work again.
+
+  gofer auth caller enable ci
+auth caller enable	examples	
+auth caller enable	flag config	path to the gofer config file
+auth caller enable	flag server	server address (overrides config server.addr)
+auth caller enable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth caller ls	desc	List the callers: source, state, token hint, ceiling and quota
+auth caller ls	help	Lists every caller this deployment knows: the ones declared in the configuration file and
+the ones stored in the database, including the disabled and the taken-over ones. The token is
+never shown — only `token_hint`, which is enough to tell two tokens apart.
+
+  gofer auth caller ls
+  gofer auth caller ls --json
+auth caller ls	examples	
+auth caller ls	flag config	path to the gofer config file
+auth caller ls	flag json	print the server's answer as JSON
+auth caller ls	flag server	server address (overrides config server.addr)
+auth caller ls	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth caller repair	desc	Make a broken stored caller startable again (offline, server stopped)
+auth caller repair	help	Repairs ONE stored caller while the server is NOT running, so a server that refuses to start
+because of that row starts again. It only ever makes the caller more restrictive and never
+deletes the row or touches the token hash:
+
+  - an unusable ceiling becomes the most restrictive one (nothing matches, read-only);
+  - an unusable quota is cleared;
+  - an unusable display name is cleared;
+  - a row repaired this way is disabled (rotate it and enable it once its fields are usable).
+
+It opens the database the configuration points at READ-ONLY in the sense of "existing only": a
+wrong path is an error instead of a new empty database, and the path is printed so you can see
+which database was repaired. The pid file of a daemon-mode serve is only a hint: stop the
+server first, so the repair cannot race a running one (`--force` repairs anyway, with a warning).
+
+  gofer auth caller repair ci --offline
+  gofer auth caller repair ci --offline --config /etc/gofer/config.yaml
+auth caller repair	examples	
+auth caller repair	flag config	path to the gofer config file
+auth caller repair	flag force	repair even when the pid file names a running serve (only a warning)
+auth caller repair	flag offline	required: repair a stopped server's database
+auth caller rotate	desc	Replace a caller's token; the old one stops working at once
+auth caller rotate	help	Replaces the caller's token and prints the new one ONCE. The old token stops working at
+once (an open long connection of that caller ends), and the caller keeps its state: rotating a
+disabled caller does not enable it.
+
+A caller declared in the configuration file cannot be rotated here: its token would have to be
+written into the file. Change (or remove) that entry instead.
+
+  gofer auth caller rotate ci
+auth caller rotate	examples	
+auth caller rotate	flag config	path to the gofer config file
+auth caller rotate	flag server	server address (overrides config server.addr)
+auth caller rotate	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth caller set-ceiling	desc	Replace a caller's ceiling (or remove it with --no-ceiling)
+auth caller set-ceiling	help	Replaces what the caller may reach. The whole ceiling is replaced, so a dimension left out is
+not restricted — EXCEPT runners: with no --ceiling-runner the caller may NOT use the machine
+runner (local), only remote workers.
+
+A caller declared in the configuration file has its ceiling written to that file (the server
+re-renders the `server:` block, so comments there are lost, like every other server-field
+write); a stored caller's ceiling is written to the database and applies at once.
+
+  gofer auth caller set-ceiling ci --ceiling-project p1 --ceiling-project p2
+  gofer auth caller set-ceiling ci --no-ceiling
+auth caller set-ceiling	examples	
+auth caller set-ceiling	flag ceiling-agent	agent key the caller may use (glob, repeatable)
+auth caller set-ceiling	flag ceiling-allow-exec	allow exec jobs (agent exec, a Cmd, a Verify argv, hooks)
+auth caller set-ceiling	flag ceiling-global-memory	allow writing memory that is not scoped to one project
+auth caller set-ceiling	flag ceiling-project	project key the caller may use (glob, repeatable)
+auth caller set-ceiling	flag ceiling-read-only	refuse every state-changing request of this caller
+auth caller set-ceiling	flag ceiling-runner	runner key the caller may submit to (glob, repeatable). Without it the caller may NOT use the machine runner (local), only remote workers
+auth caller set-ceiling	flag ceiling-worker	worker the caller's jobs may be routed to (glob, repeatable)
+auth caller set-ceiling	flag config	path to the gofer config file
+auth caller set-ceiling	flag no-ceiling	remove the ceiling: the caller becomes unlimited
+auth caller set-ceiling	flag server	server address (overrides config server.addr)
+auth caller set-ceiling	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth caller set-limits	desc	Replace a caller's quota (concurrency / submit rate)
+auth caller set-limits	help	Replaces the caller's quota overrides. A value left out means "take the server.governance
+default", so setting only --rate-limit clears the other two. A raised concurrency limit applies
+to the next job without a restart.
+
+  gofer auth caller set-limits ci --max-concurrent-jobs 4 --rate-limit 2
+auth caller set-limits	examples	
+auth caller set-limits	flag config	path to the gofer config file
+auth caller set-limits	flag max-concurrent-jobs	how many jobs this caller may run at once (0 = server.governance default)
+auth caller set-limits	flag rate-burst	burst capacity of the submit rate (0 = derived from --rate-limit)
+auth caller set-limits	flag rate-limit	submits per second (0 = server.governance default)
+auth caller set-limits	flag server	server address (overrides config server.addr)
+auth caller set-limits	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 auth grant	desc	Renew a grant that is still in force (creation and revoking happen on the web console)
 auth grant	help	
 auth grant	examples	

@@ -122,7 +122,7 @@ prints its reason — grant it again from the web console instead.
 	return &gcli.Command{
 		Name: "auth",
 		Desc: "Inspect permissions: who this credential is, what it holds, what routes need",
-		Subs: []*gcli.Command{whoami, routes, tree},
+		Subs: []*gcli.Command{whoami, routes, tree, newAuthCallerCmd()},
 	}
 }
 

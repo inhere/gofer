@@ -73,7 +73,7 @@ func TestPrepareCallerStoreRefusesStoreMarkerWithoutCreatingDB(t *testing.T) {
 	assert.True(t, marked.HasStoreMarker())
 
 	store, err := PrepareCallerStore(marked, CallerMergeServer)
-	assert.Err(t, err, ErrStoreMarker)
+	assert.ErrIs(t, err, ErrStoreMarker)
 	assert.Nil(t, store)
 	_, statErr := os.Stat(dbPath)
 	assert.True(t, os.IsNotExist(statErr), "the refused start must not create %s", dbPath)
@@ -225,7 +225,7 @@ func TestUpdateCallersValidationFailureRollsBack(t *testing.T) {
 		}
 		return boom
 	})
-	assert.Err(t, err, boom)
+	assert.ErrIs(t, err, boom)
 	assert.Eq(t, rev, cr.Snapshot().Rev, "a failed write must not publish")
 	rows, err := st.ListStoredCallers()
 	assert.NoErr(t, err)

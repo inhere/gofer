@@ -128,6 +128,14 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/auth/whoami` | `Public` | — | — | `NoProject` | 读 |
 | `GET` | `/v1/background-agents` | `Require` | `settings.read` | — | `NoProject` | 读 |
 | `POST` | `/v1/background-agents/{kind}/session/reset` | `Require` | `settings.write` | — | `NoProject` | 写 |
+| `GET` | `/v1/callers` | `Require` | `auth.manage` | — | `NoProject` | 读 |
+| `POST` | `/v1/callers` | `Require` | `auth.manage` | — | `NoProject` | 写 |
+| `GET` | `/v1/callers/audit` | `Require` | `auth.manage` | — | `NoProject` | 读 |
+| `PUT` | `/v1/callers/{id}/ceiling` | `Require` | `auth.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/callers/{id}/disable` | `Require` | `auth.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/callers/{id}/enable` | `Require` | `auth.manage` | — | `NoProject` | 写 |
+| `PUT` | `/v1/callers/{id}/limits` | `Require` | `auth.manage` | — | `NoProject` | 写 |
+| `POST` | `/v1/callers/{id}/rotate` | `Require` | `auth.manage` | — | `NoProject` | 写 |
 | `GET` | `/v1/config` | `Require` | `config.read` | — | `NoProject` | 读 |
 | `DELETE` | `/v1/config/agents/{key}` | `Require` | `config.write` | — | `NoProject` | 写 |
 | `PUT` | `/v1/config/agents/{key}` | `Require` | `config.write` | — | `NoProject` | 写 |

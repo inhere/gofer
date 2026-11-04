@@ -759,7 +759,7 @@ func (s *Server) handleAuthCreateGrant(c *rux.Context) {
 	}
 	if kind == authz.SubjectCaller && !s.isDeclaredCaller(id) {
 		writeError(c, http.StatusBadRequest, "unknown caller",
-			"caller "+id+" is not declared in server.callers")
+			"caller "+id+" is not declared on this server (see `gofer auth caller ls`)")
 		return
 	}
 	grant := jobstore.AuthGrant{

@@ -505,6 +505,10 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// clone→mutate→save→reload path the console's project writes use, so a config
 	// edit is atomic w.r.t. every reader and cannot be half-applied.
 	srv.SetConfigWriter(cr)
+	// 配置入库 P1 T6: the caller-administration routes write auth_callers rows through the same
+	// Core (the caller transaction + the merged snapshot); the CLI and the console never reach
+	// the database directly.
+	srv.SetCallers(cr)
 	// SESS-01 R2: the session-relay auto-arm thresholds live in the top-level
 	// `session:` block (legacy `server.session_auto_relay_idle_sec` is read as an
 	// alias), and only the whole config can resolve them. SUP-01 D's supervision

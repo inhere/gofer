@@ -184,7 +184,7 @@ func NewSessionCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("id", "session id (prefix ok when unique)", true)
-					c.AddArg("caller", "caller id to hand the session to (server.callers, or `default` for the server token)", true)
+					c.AddArg("caller", "caller id to hand the session to (`gofer auth caller ls`, or `default` for the server token)", true)
 				},
 				Func: runSessionOwner,
 			},
@@ -703,7 +703,7 @@ func runSessionOwner(c *gcli.Command, _ []string) error {
 	}
 	target := strings.TrimSpace(c.Arg("caller").String())
 	if target == "" {
-		return fmt.Errorf("caller id required (see server.callers, or `default` for the server token)")
+		return fmt.Errorf("caller id required (see `gofer auth caller ls`, or `default` for the server token)")
 	}
 	a, err := cli.SetSessionOwner(sid, target)
 	if err != nil {
