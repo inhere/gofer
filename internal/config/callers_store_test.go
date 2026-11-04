@@ -279,17 +279,34 @@ func TestRegisterWorkerRejectsCallerID(t *testing.T) {
 	assert.NoErr(t, RegisterWorkerInto(cfg, "w1", nil, nil, "gw_token"))
 }
 
-// TestValidateTriggersNamesTheFileRule (D1): an owner that is not a FILE caller is refused
-// with an error that says why, so an operator who reads it does not try the database.
+// TestValidateTriggersNamesTheFileRule (D1): the file is validated BEFORE any stored caller
+// is merged, so an owner that only the database knows is refused at load with an error that
+// says the owner must be a configuration-file caller — the operator reads why instead of
+// trying the database again.
 func TestValidateTriggersNamesTheFileRule(t *testing.T) {
-	cfg := &Config{Server: ServerConfig{Triggers: []TriggerConfig{{
-		Name: "t", OwnerCaller: "ci", Project: "app",
-	}}}}
-	_, err := ApplyStoredCallers(cfg, []StoredCallerInput{storedRow("ci")})
-	assert.NoErr(t, err)
-	err = validateTriggers(cfg)
+	// A config that declares one FILE caller (`operator`); the trigger's owner `ci` is a leaf
+	// the file does not have. No stored caller is merged: that is exactly the order the
+	// loader uses (decode → validate → merge).
+	cfg := &Config{Server: ServerConfig{
+		Callers: []CallerConfig{{ID: "operator", Token: "root-token", CanAdmin: true}},
+		Triggers: []TriggerConfig{{
+			Name: "t", OwnerCaller: "ci", Project: "app", Template: "jobs/t.yaml",
+			Auth: TriggerAuthConfig{SecretEnv: "TRIGGER_SECRET"},
+		}},
+	}}
+	err := validateTriggers(cfg)
 	assert.Err(t, err)
+	// The error comes from the OWNER check, not from a later missing field.
+	assert.Contains(t, err.Error(), "owner_caller")
+	assert.Contains(t, err.Error(), "\"ci\" is not declared")
 	assert.Contains(t, err.Error(), "configuration file")
+	assert.False(t, strings.Contains(err.Error(), "template"), "the owner check must run first: %v", err)
+
+	// The same config with the owner declared in the FILE passes that check.
+	cfg.Server.Callers = append(cfg.Server.Callers, CallerConfig{ID: "ci", Token: "ci-token"})
+	if err := validateTriggers(cfg); err != nil && strings.Contains(err.Error(), "owner_caller") {
+		t.Fatalf("a file-declared owner must be accepted, got %v", err)
+	}
 }
 
 // TestDecodeCallerCeilingAndLockedCeiling: the strict decoder refuses an unknown key and an
