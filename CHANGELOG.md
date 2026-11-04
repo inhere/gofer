@@ -11,9 +11,11 @@
 
 ## [未发布]
 
+## [0.210.0] - 2026-11-03
+
 ### 变更
 
-- 常驻 ACP job 的子 job 回执（gofer-rt3z，分批实施中）：
+- 常驻 ACP job 的子 job 回执（gofer-rt3z）：
   - 新增配置 `wakeup.child_events`（默认 `[job.terminal, job.needs_review]`），可选 `job.awaiting_approval`、
     `interaction.created`；`job.terminal` 始终包含，未知值拒绝。
   - 新增事件 `job.child_wake_failed`（子 job 有结果但回执送不到常驻父 job：父 job 已结束或回执过期），
