@@ -242,23 +242,8 @@ func validateCallerCeilings(cfg *Config) error {
 		if cc.ID != "" {
 			owner = fmt.Sprintf("server.callers[%q]", cc.ID)
 		}
-		for _, dim := range []struct {
-			key      string
-			patterns []string
-		}{
-			{"projects", ceil.Projects},
-			{"runners", ceil.Runners},
-			{"workers", ceil.Workers},
-			{"agents", ceil.Agents},
-		} {
-			for _, pattern := range dim.patterns {
-				if strings.TrimSpace(pattern) == "" {
-					return fmt.Errorf("%s.ceiling.%s: empty pattern", owner, dim.key)
-				}
-				if _, err := path.Match(pattern, "sample"); err != nil {
-					return fmt.Errorf("%s.ceiling.%s: invalid pattern %q: %w", owner, dim.key, pattern, err)
-				}
-			}
+		if err := validateCeilingGlobs(owner+".ceiling", ceil); err != nil {
+			return err
 		}
 		if cc.ID != "" && slices.Contains(roots, cc.ID) {
 			return fmt.Errorf("%s: caller %q is a root administrator (can_admin); a ceiling cannot apply to the root, "+
@@ -280,18 +265,49 @@ func callerCeilingWarnings(cfg *Config, label string) []string {
 	}
 	var out []string
 	for _, cc := range cfg.Server.Callers {
-		if cc.Ceiling == nil || !cc.Ceiling.AllowsRunner(BuiltinLocalRunner) {
+		if cc.IsStoredCaller() {
 			continue
 		}
-		name := cc.ID
-		if name == "" {
-			name = "(no id)"
+		if w, ok := callerCeilingWarning(label, cc); ok {
+			out = append(out, w)
 		}
-		out = append(out, fmt.Sprintf("%s: server.callers[%q].ceiling allows the machine runner (%s): "+
-			"a job there runs on the server host and can read its config and tokens, so this ceiling is not a security boundary",
-			label, name, BuiltinLocalRunner))
 	}
 	return out
+}
+
+// storedCallerCeilingWarnings is the same notice for the callers merged in from the
+// database (D13): their warnings live in their own slice on Config, because
+// callerCeilingWarnings runs on the FILE during the load (before any merge) and must keep
+// doing so — `config validate` has no database. label is `db`, so an operator can tell
+// which side produced the notice.
+func storedCallerCeilingWarnings(cfg *Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	var out []string
+	for _, cc := range cfg.Server.Callers {
+		if !cc.IsStoredCaller() {
+			continue
+		}
+		if w, ok := callerCeilingWarning("db", cc); ok {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// callerCeilingWarning renders the one notice a ceiling can produce, if it applies.
+func callerCeilingWarning(label string, cc CallerConfig) (string, bool) {
+	if cc.Ceiling == nil || !cc.Ceiling.AllowsRunner(BuiltinLocalRunner) {
+		return "", false
+	}
+	name := cc.ID
+	if name == "" {
+		name = "(no id)"
+	}
+	return fmt.Sprintf("%s: server.callers[%q].ceiling allows the machine runner (%s): "+
+		"a job there runs on the server host and can read its config and tokens, so this ceiling is not a security boundary",
+		label, name, BuiltinLocalRunner), true
 }
 
 // checkCeilingSubtree decodes every `ceiling` sub-tree of one config FILE strictly: an

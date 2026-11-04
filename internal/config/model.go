@@ -135,6 +135,15 @@ type Config struct {
 	// loadWarnings are notices produced while decoding the file(s): retired sections
 	// that are ignored. Runtime-only: never serialized, copied by Clone.
 	loadWarnings []string
+	// callerBlockedOwners holds the ids a caller merge had to block as JOB OWNERS even
+	// though no caller entry carries them (a stored caller whose id is also a worker id, so
+	// the two identities cannot be told apart — see config.ApplyStoredCallers).
+	// Runtime-only; copied by Clone.
+	callerBlockedOwners map[string]bool
+	// storedCallerWarnings are the load-time notices the DATABASE callers produce (D13):
+	// the file callers keep theirs in loadWarnings, and LoadWarnings concatenates the two so
+	// every reader sees one list. Recomputed on each merge.
+	storedCallerWarnings []string
 }
 
 type serveRuntimeOverride struct {
@@ -327,6 +336,14 @@ func (c *Config) Clone() *Config {
 		}
 		clone.injectedProjects = m
 	}
+	if c.callerBlockedOwners != nil {
+		m := make(map[string]bool, len(c.callerBlockedOwners))
+		for k, v := range c.callerBlockedOwners {
+			m[k] = v
+		}
+		clone.callerBlockedOwners = m
+	}
+	clone.storedCallerWarnings = slices.Clone(c.storedCallerWarnings)
 	if c.projectOverlays != nil {
 		m := make(map[string]projectOverlayRuntime, len(c.projectOverlays))
 		for key, value := range c.projectOverlays {
@@ -2106,6 +2123,23 @@ type CallerConfig struct {
 	// load) and an empty `ceiling: {}` is refused, because a ceiling that restricts
 	// nothing is a trap: it reads as if the caller had been limited.
 	Ceiling *CallerCeiling `yaml:"ceiling,omitempty"`
+
+	// Source records where this caller came from: the zero value is the configuration
+	// FILE (every file-declared entry, and every fixture, keeps it), CallerSourceDB marks a
+	// caller merged in from the auth_callers table. Runtime-only: never (de)serialized, and
+	// the write path projects the file callers back out before a save (fileProjection).
+	Source string `yaml:"-" json:"source,omitempty"`
+	// TokenHash is the hex sha256 of a STORED caller's token (the plaintext lives only in
+	// the creation/rotation response). Empty for a file caller, whose Token / TokenEnv is
+	// the source of truth.
+	TokenHash string `yaml:"-" json:"-"`
+	// TokenHint is `gct_…` plus the last four characters of a stored caller's token, for a
+	// list that can tell two tokens apart without showing either.
+	TokenHint string `yaml:"-" json:"token_hint,omitempty"`
+	// Disabled marks a stored caller that was disabled: it stays in the snapshot (its
+	// ceiling keeps bounding the jobs it already started) but must not authenticate, and no
+	// new job may run under it (Config.OwnerBlocked).
+	Disabled bool `yaml:"-" json:"disabled,omitempty"`
 }
 
 // MaxCallerNameLen caps a caller display name, in characters.
@@ -2258,7 +2292,12 @@ func (sc *ServerConfig) HasRootAdmin() bool {
 	if len(sc.RootAdminCallers()) > 0 {
 		return true
 	}
-	return len(sc.Callers) == 0 && !sc.AllowEmptyToken
+	// Only the FILE decides, and only the file's entries count: a caller stored in the
+	// database is never a root administrator (its can_admin is always false), and it must
+	// not make a deployment that declares no file caller look like one that does — the
+	// implicit `default` root is exactly the single-token deployment with no callers in the
+	// file.
+	return len(sc.FileCallers()) == 0 && !sc.AllowEmptyToken
 }
 
 // CallerRate resolves the effective per-caller submit rate (E17, design §7.3):

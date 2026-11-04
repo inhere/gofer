@@ -260,7 +260,7 @@ func validateTriggers(cfg *Config) error {
 			found, root = true, true
 		}
 		if !found {
-			return fmt.Errorf("%s.owner_caller %q is not declared", where, owner)
+			return fmt.Errorf("%s.owner_caller %q is not declared (owner_caller must name a caller declared in the configuration file)", where, owner)
 		}
 		if root {
 			return fmt.Errorf("%s.owner_caller %q must not be root", where, owner)
