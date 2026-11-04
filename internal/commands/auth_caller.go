@@ -518,13 +518,17 @@ func runCallerSetCeiling(c *gcli.Command, cli *client.Client) error {
 		return printTrackerJSON(c, change)
 	}
 	printCallerChange(c, change, false)
-	// D12: a file caller's ceiling is written to the configuration file, whose `server:` block is
-	// re-rendered — the comments in it are lost. A stored caller's write touches no file, so it
-	// gets no such note.
-	if config.CallerSourceLabel(change.Caller.Source) == config.CallerSourceFile {
-		c.Println(cliText("cli.auth.caller.ceiling_file_note"))
-	}
+	printCallerFileWriteNote(c, change)
 	return nil
+}
+
+// printCallerFileWriteNote is D12: a file caller's ceiling and limits are written to the
+// configuration file, whose `server:` block is re-rendered — the comments in it are lost. A stored
+// caller's write touches no file, so it gets no such note.
+func printCallerFileWriteNote(c *gcli.Command, change client.CallerChange) {
+	if config.CallerSourceLabel(change.Caller.Source) == config.CallerSourceFile {
+		c.Println(cliText("cli.auth.caller.file_write_note"))
+	}
 }
 
 // runAuthCallerSetLimits runs `gofer auth caller set-limits`.
@@ -552,6 +556,7 @@ func runCallerSetLimits(c *gcli.Command, cli *client.Client) error {
 		return printTrackerJSON(c, change)
 	}
 	printCallerChange(c, change, false)
+	printCallerFileWriteNote(c, change)
 	return nil
 }
 

@@ -162,50 +162,57 @@ func TestAuthCallerNoCeilingSendsTheFlag(t *testing.T) {
 	}
 }
 
-// TestAuthCallerSetCeilingNotesFileCommentLoss (D12): a ceiling written for a caller declared in the
-// configuration file loses that file's `server:` block comments, so the CLI says so; a stored
-// caller's write never touches the file and must stay silent. Both cases run through app.Run, so
+// TestAuthCallerFileWriteNotesCommentLoss (D12): a ceiling or limits written for a caller declared
+// in the configuration file lose that file's `server:` block comments, so the CLI says so; a stored
+// caller's write never touches the file and must stay silent. Every case runs through app.Run, so
 // the flag binding, the request and the printing are the ones a user gets (GR110).
-func TestAuthCallerSetCeilingNotesFileCommentLoss(t *testing.T) {
-	note := i18n.T(i18n.EN, "cli.auth.caller.ceiling_file_note")
+func TestAuthCallerFileWriteNotesCommentLoss(t *testing.T) {
+	note := i18n.T(i18n.EN, "cli.auth.caller.file_write_note")
 	if !strings.Contains(note, "comments") {
 		t.Fatalf("the en note must name the lost comments: %q", note)
 	}
-	for _, tc := range []struct {
-		source string
-		want   bool
+	commands := []struct {
+		name string
+		args []string
+		path string
 	}{
-		{"file", true},
-		{"db", false},
-	} {
-		t.Run(tc.source, func(t *testing.T) {
-			isolateAgentSessionEnv(t)
-			isolateCallerFlags(t)
-			t.Setenv(i18n.EnvLanguageVar, string(i18n.EN))
-			stub := &callerStubServer{body: map[string]any{
-				"caller": map[string]any{"id": "ci", "source": tc.source, "state": "active"},
-			}}
-			srv := httptest.NewServer(stub.handler())
-			t.Cleanup(srv.Close)
+		{"set-ceiling", []string{"--ceiling-project", "p1"}, "/v1/callers/ci/ceiling"},
+		{"set-limits", []string{"--rate-limit", "2"}, "/v1/callers/ci/limits"},
+	}
+	for _, cmd := range commands {
+		for _, tc := range []struct {
+			source string
+			want   bool
+		}{
+			{"file", true},
+			{"db", false},
+		} {
+			t.Run(cmd.name+"/"+tc.source, func(t *testing.T) {
+				isolateAgentSessionEnv(t)
+				isolateCallerFlags(t)
+				t.Setenv(i18n.EnvLanguageVar, string(i18n.EN))
+				stub := &callerStubServer{body: map[string]any{
+					"caller": map[string]any{"id": "ci", "source": tc.source, "state": "active"},
+				}}
+				srv := httptest.NewServer(stub.handler())
+				t.Cleanup(srv.Close)
 
-			var code int
-			out := captureOutput(t, func() {
-				code = NewApp("test").Run([]string{
-					"auth", "caller", "set-ceiling", "ci",
-					"--server", srv.URL, "--token", "tok-root", "--ceiling-project", "p1",
+				argv := append([]string{"auth", "caller", cmd.name, "ci", "--server", srv.URL, "--token", "tok-root"}, cmd.args...)
+				var code int
+				out := captureOutput(t, func() {
+					code = NewApp("test").Run(argv)
 				})
+				if code != 0 {
+					t.Fatalf("%s exit code=%d, out=%s", cmd.name, code, out)
+				}
+				if len(stub.requests) != 1 || stub.requests[0].path != cmd.path {
+					t.Fatalf("requests = %+v, want one to %s", stub.requests, cmd.path)
+				}
+				if got := strings.Contains(out, note); got != tc.want {
+					t.Fatalf("source %s: note printed=%v, want %v; out=%s", tc.source, got, tc.want, out)
+				}
 			})
-			if code != 0 {
-				t.Fatalf("set-ceiling exit code=%d, out=%s", code, out)
-			}
-			if len(stub.requests) != 1 || stub.requests[0].method != http.MethodPut ||
-				stub.requests[0].path != "/v1/callers/ci/ceiling" {
-				t.Fatalf("requests = %+v, want one PUT /v1/callers/ci/ceiling", stub.requests)
-			}
-			if got := strings.Contains(out, note); got != tc.want {
-				t.Fatalf("source %s: note printed=%v, want %v; out=%s", tc.source, got, tc.want, out)
-			}
-		})
+		}
 	}
 }
 
