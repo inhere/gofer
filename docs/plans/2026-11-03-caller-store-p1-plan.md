@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 配置入库 P1：用户入库 实施计划
 
-> 状态：Draft 0.4 / 待人工计划批准
+> 状态：Draft 0.4 / 已批准（用户 2026-11-03：“批准 P1 计划 0.4 并开始实施”）
 > issue：gofer-nhh7
 
 ## 修订记录
