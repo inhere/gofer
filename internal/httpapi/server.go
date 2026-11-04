@@ -204,6 +204,12 @@ type Server struct {
 	// entry layer never imports internal/core.
 	core ConfigWriter
 
+	// callers is the caller-administration seam behind the /v1/callers* routes (plan T6).
+	// Injected post-construction by SetCallers, for the same reason as core; nil (mcp/tests)
+	// makes those routes answer 503. The type is the narrow CallerAdmin interface (G022), so
+	// this entry layer never imports internal/core.
+	callers CallerAdmin
+
 	// settings is the extension-settings service (prompts, thresholds, exclusion lists in
 	// the database). Injected post-construction by SetSettings, for the same reason as
 	// core; nil (mcp/tests) makes the /v1/settings routes answer 503.
@@ -491,6 +497,11 @@ func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = sto
 // narrow interface); a nil writer leaves the routes mounted and answering 503, so —
 // like SetXfer — it mounts nothing and needs no router rebuild.
 func (s *Server) SetConfigWriter(cw ConfigWriter) { s.core = cw }
+
+// SetCallers injects the caller-administration seam (plan T6): the same Core the config write
+// surface uses, whose caller methods write the auth_callers rows and publish the merged
+// snapshot without touching the configuration file.
+func (s *Server) SetCallers(admin CallerAdmin) { s.callers = admin }
 
 // SetSettings wires the extension-settings service (serve builds it over the job store).
 // Without it the /v1/settings routes answer 503; the service is exposed through the same
@@ -1306,6 +1317,19 @@ func (s *Server) buildRouter() *rux.Router {
 		// 会话授权的续期（计划 T2.3）：只把仍然生效的会话授权往后挪，权限范围一点不变。
 		r.POST("/auth/grants/{id}/renew", s.handleAuthRenewGrant)
 		r.GET("/auth/audit", s.handleAuthAudit)
+
+		// 用户管理（配置入库 P1，计划 T6）：callers 的新增 / 轮换 / 停用 / 启用 / 改上限 /
+		// 改配额与审计。全部要求 auth.manage（只有根管理员持有），且每个 handler 先过
+		// grantAdminOnly —— 路由门禁不管非 user 类调用方，job 凭据能读所有 GET，不能让它
+		// 读到用户列表或审计。token 只在新增与轮换的响应里出现一次。
+		r.GET("/callers", s.handleCallersList)
+		r.POST("/callers", s.handleCallersAdd)
+		r.GET("/callers/audit", s.handleCallerAudit)
+		r.POST("/callers/{id}/rotate", s.handleCallerRotate)
+		r.POST("/callers/{id}/disable", s.handleCallerDisable)
+		r.POST("/callers/{id}/enable", s.handleCallerEnable)
+		r.PUT("/callers/{id}/ceiling", s.handleCallerSetCeiling)
+		r.PUT("/callers/{id}/limits", s.handleCallerSetLimits)
 
 		r.GET("/config", s.handleGetConfig)
 		// Extension settings (docs/design/2026-10-20-work-noise-and-db-settings-design.md):

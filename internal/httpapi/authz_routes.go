@@ -896,6 +896,21 @@ var routeDecls = map[string]routeDecl{
 	// judges 生效 exactly as the listing does before it lets the store move expires_at.
 	"POST /v1/auth/grants/{id}/renew": {user: Require(authz.PermAuthManage), scope: NoProject()},
 	"GET /v1/auth/audit":              {user: Require(authz.PermAuthManage), scope: NoProject()},
+
+	// ---- 配置入库 P1（计划 T6）：用户管理 ----
+	//
+	// Every caller-administration route carries auth.manage, the catalog's only root permission,
+	// and its handler repeats the caller-kind half (grantAdminOnly): the gate leaves a non-user
+	// caller alone by design, and a job credential may read every GET route through SEC-01 —
+	// which must not reach the caller list or the caller audit.
+	"GET /v1/callers":               {user: Require(authz.PermAuthManage), scope: NoProject()},
+	"POST /v1/callers":              {user: Require(authz.PermAuthManage), scope: NoProject()},
+	"GET /v1/callers/audit":         {user: Require(authz.PermAuthManage), scope: NoProject()},
+	"POST /v1/callers/{id}/rotate":  {user: Require(authz.PermAuthManage), scope: NoProject()},
+	"POST /v1/callers/{id}/disable": {user: Require(authz.PermAuthManage), scope: NoProject()},
+	"POST /v1/callers/{id}/enable":  {user: Require(authz.PermAuthManage), scope: NoProject()},
+	"PUT /v1/callers/{id}/ceiling":  {user: Require(authz.PermAuthManage), scope: NoProject()},
+	"PUT /v1/callers/{id}/limits":   {user: Require(authz.PermAuthManage), scope: NoProject()},
 }
 
 // pendingRoutes is the 待迁移 list of plan T1.4: every route whose user-side declaration,
