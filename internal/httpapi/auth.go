@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"net/http"
 	"strings"
 
@@ -27,7 +29,7 @@ const bearerPrefix = "Bearer "
 //
 // The token is never written to logs or to the response body (plan §11).
 func (s *Server) authMiddleware(c *rux.Context) {
-	callersEmpty := len(s.callerEntries()) == 0
+	callersEmpty := s.callerSetEmpty()
 	if callersEmpty {
 		if s.allowEmptyToken {
 			c.Set(ctxCallerID, "")
@@ -111,10 +113,22 @@ func (s *Server) lookupCallerEntry(token string) (callerEntry, bool) {
 // compares token against EVERY entry (so the cost does not leak which one matched) and
 // keeps the first match. Keeping it a free function lets one request resolve the
 // snapshot once and reuse the same set for several lookups.
+//
+// A configured caller is matched on its PLAINTEXT token, a caller stored in the database
+// on the sha256 of the presented token (its only form the database holds). The digest is
+// computed ONCE per lookup, not once per entry, and both comparisons are constant time.
 func lookupCallerIn(callers []callerEntry, token string) (callerEntry, bool) {
+	sum := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(sum[:])
 	caller, matched := callerEntry{}, false
 	for _, ce := range callers {
-		if subtle.ConstantTimeCompare([]byte(token), []byte(ce.token)) == 1 && !matched {
+		same := 0
+		if ce.tokenHash != "" {
+			same = subtle.ConstantTimeCompare([]byte(tokenHash), []byte(ce.tokenHash))
+		} else {
+			same = subtle.ConstantTimeCompare([]byte(token), []byte(ce.token))
+		}
+		if same == 1 && !matched {
 			caller, matched = ce, true
 		}
 	}

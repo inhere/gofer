@@ -21,14 +21,20 @@ func (s *Service) semaphore(projectKey string, limit int) chan struct{} {
 // callerSemaphore returns (creating if needed) the per-caller concurrency
 // semaphore (E17, design §7.2). Mirrors semaphore(): an empty caller id or a
 // limit <= 0 means unbounded and returns nil (no gating). Guarded by s.mu like
-// sems. Capacity is frozen at creation (hot-reload caveat, design §7.4).
+// sems.
+//
+// The capacity follows the CURRENT limit (配置入库 P1: a quota change must apply without a
+// restart): when the configured limit no longer matches the channel's capacity, a NEW
+// channel is installed. Jobs already queued or running keep the channel they captured and
+// release it when they end, so no slot is leaked — they simply finish under the old quota
+// while the next submissions are gated on the new one.
 func (s *Service) callerSemaphore(callerID string, limit int) chan struct{} {
 	if callerID == "" || limit <= 0 {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sem, ok := s.callerSems[callerID]; ok {
+	if sem, ok := s.callerSems[callerID]; ok && cap(sem) == limit {
 		return sem
 	}
 	sem := make(chan struct{}, limit)

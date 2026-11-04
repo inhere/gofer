@@ -1427,6 +1427,9 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		exclusive: req.ExclusiveDir != nil && *req.ExclusiveDir,
 		stall:     stallSec,
 		dirWait:   dirWaitSec,
+		// 配置入库 P1: the owners admission judged are re-judged once the job is through the
+		// queue, so a caller disabled in between never runs (see disabledRecheckOwners).
+		recheckOwners: disabledRecheckOwners(req),
 	}, runReq, timeout)
 	// The entry owns the temporary checkout from now on: its finish path removes it.
 	checkoutOwned = true

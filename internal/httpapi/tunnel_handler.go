@@ -21,7 +21,7 @@ var tunnelRendezvousTimeout = 15 * time.Second
 
 // tunnelAuth resolves the bearer token to a caller entry.
 func (s *Server) tunnelAuth(r *http.Request) (callerEntry, bool) {
-	empty := len(s.callerEntries()) == 0
+	empty := s.callerSetEmpty()
 	if empty && s.allowEmptyToken {
 		return callerEntry{id: "", kind: callerKindUser}, true
 	}
