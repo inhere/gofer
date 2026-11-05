@@ -2727,6 +2727,9 @@ type SessionRegister struct {
 	PeerNameSource string `json:"peer_name_source,omitempty"`
 	PeerStatus     string `json:"peer_status,omitempty"`
 	PeerMessaging  bool   `json:"peer_messaging,omitempty"`
+	// PeerSocket is the session's own Claude Code messaging endpoint; the server
+	// validates it and drops an unacceptable value (no address = the name path).
+	PeerSocket string `json:"peer_socket,omitempty"`
 }
 
 // SessionHeartbeat is the POST /v1/sessions/{sid}/heartbeat body.
@@ -2745,9 +2748,12 @@ type SessionHeartbeat struct {
 	PeerNameSource string `json:"peer_name_source,omitempty"`
 	PeerStatus     string `json:"peer_status,omitempty"`
 	PeerMessaging  *bool  `json:"peer_messaging,omitempty"`
-	ProgressText   string `json:"progress_text,omitempty"`
-	ProgressAt     int64  `json:"progress_at,omitempty"`
-	ClearProgress  bool   `json:"clear_progress,omitempty"`
+	// PeerSocket is the same three-state field: nil = this beat carries no address
+	// news, a pointer to "" clears the stored address.
+	PeerSocket    *string `json:"peer_socket,omitempty"`
+	ProgressText  string  `json:"progress_text,omitempty"`
+	ProgressAt    int64   `json:"progress_at,omitempty"`
+	ClearProgress bool    `json:"clear_progress,omitempty"`
 	// Cwd is the hook's current directory (the server records it as last_cwd, for display).
 	Cwd string `json:"cwd,omitempty"`
 	// StopParkSec (gofer-fv6a) announces that this Stop hook is PARKING for that many

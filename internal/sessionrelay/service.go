@@ -485,6 +485,10 @@ type RegisterInput struct {
 	PeerNameSource string
 	PeerStatus     string
 	PeerMessaging  bool
+	// PeerSocket is the session's own messaging endpoint (the hook's
+	// messagingSocketPath). The HTTP hook path validates it before storing
+	// (RegisterForOwner); "" means no address, i.e. the name path.
+	PeerSocket string
 }
 
 // Register upserts a session (see jobstore.UpsertAgentSession for the merge
@@ -500,6 +504,7 @@ func (s *Service) Register(in RegisterInput) (jobstore.AgentSession, error) {
 // refresh its own registration. The store performs this check atomically with
 // the upsert so two first registrations cannot race to transfer a session.
 func (s *Service) RegisterForOwner(in RegisterInput) (jobstore.AgentSession, bool, error) {
+	in.PeerSocket = checkPeerSocket(in.SessionID, in.PeerSocket)
 	return s.register(in, true)
 }
 
@@ -522,6 +527,7 @@ func (s *Service) register(in RegisterInput, enforceOwner bool) (jobstore.AgentS
 		Cwd: in.Cwd, Title: in.Title, Transcript: in.Transcript, TmuxPane: in.TmuxPane,
 		LastEvent: in.Event, LastHumanAt: humanAt, CallerID: in.CallerID,
 		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
+		PeerSocket: in.PeerSocket,
 	}
 	var a jobstore.AgentSession
 	var allowed bool
@@ -570,9 +576,12 @@ type HeartbeatInput struct {
 	PeerNameSource string
 	PeerStatus     string
 	PeerMessaging  *bool
-	ProgressText   string
-	ProgressAt     int64
-	ClearProgress  bool
+	// PeerSocket follows PeerMessaging: nil = this beat carried no address news,
+	// a pointer to "" clears the stored address. Validated on the HTTP hook path.
+	PeerSocket    *string
+	ProgressText  string
+	ProgressAt    int64
+	ClearProgress bool
 	// Cwd is the hook's current directory, recorded as last_cwd for display only.
 	Cwd string
 	// SubagentID / SubagentDelta ride SubagentStart (+1) / SubagentStop (-1)
@@ -637,6 +646,10 @@ func (s *Service) HeartbeatForOwner(sid string, in HeartbeatInput) (jobstore.Age
 		s.noteRefusedOwner(a, in.CallerID)
 		return jobstore.AgentSession{}, ErrSessionHeartbeatOwner
 	}
+	if in.PeerSocket != nil {
+		socket := checkPeerSocket(sid, *in.PeerSocket)
+		in.PeerSocket = &socket
+	}
 	return s.heartbeat(sid, in)
 }
 
@@ -700,6 +713,7 @@ func (s *Service) heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 		Event: touchEvent, State: state, LastMessage: in.LastMessage, Title: in.Title,
 		IdleSec: in.IdleSec, HumanInput: human, CallerID: in.CallerID,
 		PeerName: in.PeerName, PeerNameSource: in.PeerNameSource, PeerStatus: in.PeerStatus, PeerMessaging: in.PeerMessaging,
+		PeerSocket:   in.PeerSocket,
 		ProgressText: in.ProgressText, ProgressAt: in.ProgressAt, ClearProgress: in.ClearProgress,
 		Cwd: in.Cwd,
 		// gofer-fv6a: the Stop hook announces the park it is entering, and a human-input
