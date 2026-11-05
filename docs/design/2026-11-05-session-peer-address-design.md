@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # web 发消息按会话地址投递设计
 
-> 状态：Draft 0.5 / 已批准（0.4 用户 2026-11-05：“批准 g1lk 设计 0.4”；0.5 用户 2026-11-05：“按建议修订设计，继续 g1lk”，批准前已披露实测结果和修订内容，0.5 未做独立评审）
+> 状态：Draft 0.6 / 已批准（0.4 用户 2026-11-05：“批准 g1lk 设计 0.4”；0.5 用户 2026-11-05：“按建议修订设计，继续 g1lk”，批准前已披露实测结果和修订内容；0.5、0.6 未做独立评审；0.6 是重跑发现的修正，属于已批准的回复修复和结果判定范围，已向用户披露）
 > issue：gofer-g1lk
 
 ## 修订记录
@@ -13,6 +13,7 @@
 | 0.3 | 2026-11-05 | Claude（gofer 监督会话） | 按确认轮修订（阻塞 1 条、纠正 7 条）：回执改为任一行匹配且只看 stdout；常驻路径的工具失败作为结果值返回；同 runner 按归一化比较；清地址时同时关闭 messenger 路径；写明 SessionStart 时序待实测和默认 runner 前提 |
 | 0.4 | 2026-11-05 | Claude（gofer 监督会话） | 按最后一轮的 2 条纠正修订（未再复核）：回执与失败原因分开取值，`jobOutput` 不动；传话人历史按结果结构记录 |
 | 0.5 | 2026-11-05 | Claude（gofer 监督会话） | 按真实验收修订：模型会改写地址，提示词加固，同名时不写名字；模型行为的停止条件改为“投错或投两次才停”，残余风险写明；修复 hook 回复上报（放行 SendMessage、认中英文前缀），纠正“hook 是主路径”的旧说法 |
+| 0.6 | 2026-11-05 | Claude（gofer 监督会话） | 按验收重跑修订：hook 匹配 JSON 转义的 Windows 地址，认传话人名字（发送方或回复目标）；回执第一句算数；提示词要求照抄消息；记录加固在弱模型一次性路径上的实测 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -78,6 +79,9 @@ Review budget：按严谨模式上限；确认轮没有 `CORE_BLOCKING` 即停�
 | F6 | Windows，一次性路径，非 Claude 的弱模型，地址有效，5 轮 | 2 轮把 `uds:\\.\pipe…` 写成 `uds:\.\pipe…`，工具失败后回退名字送达；已核对 job 参数相同，是模型改写 |
 | F7 | Windows，失效地址，0.4 文案，每组 12 轮（样本小） | 中文改写 1 次；英文改写 3 次，其中 1 次第一次调用就发名字；中文加固文案 0 次 |
 | F8 | 容器，`claude-haiku-5-5`，常驻和一次性 | 没有改写 |
+| F9 | 同 F6 的弱模型，0.5 及以后的文案，三种情况各 5 轮 | 常驻改写 0/15；一次性改写 6/15，变成多写反斜杠；没有投错或投两次；地址有效的一组有 1 轮显示失败 |
+| F10 | 目标会话回复 | 地址在 transcript 里是 JSON 转义的；模型转发时可能丢前缀；目标可能回给名字 `gofer-web` 而不是 `from` 地址 |
+| F11 | 容器，一次性路径 | 模型回“已发送。消息已投递到…”，整行匹配会把已送达判成失败 |
 
 代码事实：
 
@@ -133,7 +137,7 @@ messenger 收到回复（仅 server 本机常驻路径）
 | `internal/sessionrelay/peeraddr.go`（新） | `validPeerSocket`、`messengerTarget`；调用都在 sessionrelay 内，hook 不做校验 |
 | `internal/sessionrelay/message.go`、`deliver_raw.go` | 三处提示词改用 `messengerTarget`；`wakeMessenger` 增加目标入参；常驻分支判定结果；一次性路径改用末行判定 |
 | `internal/sessionrelay/reply.go` | `RecordMessengerReply` 先按地址匹配，调整名字为空的校验顺序 |
-| `internal/hookrelay/permission.go`、`web_reply.go` | `SkipPostToolUse` 放行 `SendMessage`；`webMessageFrom` 认所有语言的人的前缀 |
+| `internal/hookrelay/permission.go`、`web_reply.go`、`internal/msgprefix` | `SkipPostToolUse` 放行 `SendMessage`；`webMessageFrom` 认所有语言的人的前缀、JSON 转义的地址、传话人名字（系统通知和信箱唤醒除外）；传话人名字下沉到 `msgprefix` |
 | `internal/messenger/resident.go`、`internal/worker/dispatch.go` | `read` 同时收集 SendMessage 的 tool_result；`Manager.Send` 返回结果结构；worker 写规范回执 |
 | `internal/sessionrelay/message.go:45`、`internal/httpapi/session_inject.go:54` | `ResidentMessenger` 接口与适配跟随结果结构；`session_inject.go` 增加 stdout 字段供回执判定，`jobOutput` 不动 |
 | `internal/jobstore/store.go`、`sessions.go` | 新列 `peer_socket`，基础 schema 与 ALTER 迁移（不建索引，G057）；写入时清同 runner 同地址 |
@@ -161,7 +165,7 @@ Windows:       ^\\\\\.\\pipe\\LOCAL\\cc-msg-[0-9a-f]{32}$
 
 ### 提示词
 
-新增 `sessionrelay.messenger.prompt_address`、`prompt_address_fallback`、`wake_prompt_address`、`wake_prompt_address_fallback`（en、zh-CN）。保留现有提示词的全部其他要求（回复只输出“已收到”、唤醒提示就是完整消息、只回复“已发送”或失败原因）。两个版本都明确写地址要逐字符照抄，反斜杠的个数不能变。带回退的版本多一句：
+新增 `sessionrelay.messenger.prompt_address`、`prompt_address_fallback`、`wake_prompt_address`、`wake_prompt_address_fallback`（en、zh-CN）。保留现有提示词的全部其他要求（回复只输出“已收到”、唤醒提示就是完整消息、只回复“已发送”或失败原因）。两个版本都明确写地址要逐字符照抄，反斜杠的个数不能变，消息从第一个字符起照抄。带回退的版本多一句：
 
 ```text
 第一次调用的 to 必须逐字符写成 uds:\\.\pipe\LOCAL\cc-msg-…，反斜杠全部保留，开头是两个就写两个。
@@ -175,7 +179,7 @@ Windows:       ^\\\\\.\\pipe\\LOCAL\\cc-msg-[0-9a-f]{32}$
 ### 投递结果判定
 
 - **常驻路径**（本机和 worker）：看本轮最后一次 SendMessage 的 tool_result。`success:true` 记已送达；`success:false` 或本轮没有调用记失败，原因取工具消息。`Manager.Send` 改为返回结果结构，工具失败是结果值，不经 `error` 返回：`message.go:210` 按错误文字里的 `start`、`exited`、`unavailable` 转一次性 job，错误文字碰巧含这些词就会再投一轮。worker 把结构转成规范回执（`sent` 或失败原因）写入 job 输出。
-- **一次性路径**：`messengerSaidSent` 改为只看 stdout，任一行去掉首尾标点和引号后整行等于回执即算成功（中英文）。现在中文“已发送”出现在任意位置都算，失败叙述带这三个字会误判；只看末行也不行，对方秒回时末行是“已收到”，stderr 也会混入输出（`session_inject.go:163-172`）。`deliver_reconcile.go:171`、`message.go:423` 用同一函数。回执和失败原因分开取值：`MessengerJob`、`InjectState`、`gaveUp` 增加单独的 stdout 字段供回执判定；`jobOutput` 不动，其他读取方（路径 C 的 `offlineMatch`、失败原因）继续拿 stdout 加 stderr。
+- **一次性路径**：`messengerSaidSent` 改为只看 stdout，任一行去掉首尾标点和引号后，整行或第一句（到 `。.！!` 为止，逗号不算）等于回执即算成功（中英文）。这样“已发送。消息已投递到…”算成功，“已发送失败”“已发送，但对方拒收”不算；代价是“已发送。但工具报错”这种自相矛盾的回复会判成功，一次性路径读不到工具结果，无法再分辨。现在中文“已发送”出现在任意位置都算，失败叙述带这三个字会误判；只看末行也不行，对方秒回时末行是“已收到”，stderr 也会混入输出（`session_inject.go:163-172`）。`deliver_reconcile.go:171`、`message.go:423` 用同一函数。回执和失败原因分开取值：`MessengerJob`、`InjectState`、`gaveUp` 增加单独的 stdout 字段供回执判定；`jobOutput` 不动，其他读取方（路径 C 的 `offlineMatch`、失败原因）继续拿 stdout 加 stderr。
 - **传话人历史**：`Send` 按结果结构记录（`resident.go:113-115`），工具失败在 Runners 抽屉里显示失败，不是成功。
 
 这项修正同样作用于名字路径：现在按名字发失败时，本机常驻路径也会误显示已送达。
@@ -283,3 +287,15 @@ Windows:       ^\\\\\.\\pipe\\LOCAL\\cc-msg-[0-9a-f]{32}$
 8. 回执：对方秒回（末行是“已收到”）、stderr 有警告、回复带标点都判成功；失败叙述里带“已发送”判失败；常驻路径工具失败不转一次性 job。
 9. 反向验证（SR1433）：把提示词改回只用名字，同名测试必须失败；去掉唯一性清理，pid 复用测试必须失败；`SkipPostToolUse` 改回跳过 `SendMessage`、`webMessageFrom` 改回只认中文，hook 回复测试必须失败。
 10. 回复显示：worker、一次性、本机常驻三条路径上，中文和英文 server 下，目标会话回给 messenger 的话都显示在选中的会话下，只显示一次。
+
+## 实施记录
+
+2026-11-05 实施完成，提交范围见 `feat/g1lk-peer-address` 的合并提交。T1–T7 由 suga（`opencode-go/deepseek-v4.1-flash`，计划模型当时过慢）实施，T7a 及之后由监督会话修改。
+
+- 真实验收：容器（Claude Code 2.1.318，`claude-haiku-5-5`）本机常驻、一次性场景 1–7，worker 场景 1–6 和英文场景 1；Windows（2.1.292，非 Claude 的 `deepseek-v4.1-flash`）本机常驻、一次性场景 1–7。全部通过，没有投错、没有投两次。
+- `UNVERIFIED_REAL_ENV: Windows pid 复用（管道名不可预置，由 T1 单测承担；复现：验收程序 -path resident -scen 5）`
+- `UNVERIFIED_REAL_ENV: 目标回给名字 gofer-web 时的 hook 上报（修复后两次重跑模型都回了地址，由单测承担；复现：验收程序 -path worker -scen 1 多轮）`
+- 弱模型的地址改写仍然存在（F9），只影响一次性路径，表现为显示失败或回退送达。
+- SessionStart 时序：两个平台 `-p` 模式 4/4，hook 运行时会话文件已写地址，没有窗口；交互模式没有实测。
+- 反向验证 12 项全部确认测试会失败。
+- 发版时补 `schema-v*` 快照（G057）和能力清单（G058）。
