@@ -236,8 +236,11 @@ func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
 		if res.Status != job.StatusDone || res.ExitCode != 0 {
 			t.Fatalf("messenger result %s = %+v, want done/0", id, res)
 		}
-		if resLog != "GOFER_MESSENGER=1" {
-			t.Fatalf("messenger child env %s = %q, want GOFER_MESSENGER=1", id, resLog)
+		// The host judges a one-shot job on its receipt, so the resident dispatch reports
+		// the canonical one — the child-env proof lives in internal/messenger, where the
+		// raw result text is readable.
+		if resLog != "sent" {
+			t.Fatalf("messenger receipt %s = %q, want sent", id, resLog)
 		}
 	}
 	jobs.mu.Lock()
@@ -245,6 +248,30 @@ func TestWorkerMessengerDispatchUsesResidentProcess(t *testing.T) {
 	jobs.mu.Unlock()
 	if submits != "" {
 		t.Fatalf("resident messenger unexpectedly submitted local job %q", submits)
+	}
+}
+
+// TestWorkerMessengerDispatchReportsFailedReceipt: a SendMessage tool failure is a
+// result value on the resident path, so the worker still finishes done/0 and writes the
+// canonical single-line failure receipt the host reads.
+func TestWorkerMessengerDispatchReportsFailedReceipt(t *testing.T) {
+	t.Setenv("GOFER_TEST_STREAM_JSON", "1")
+	t.Setenv("GOFER_TEST_STREAM_JSON_FAIL", "Failed to send to uds:/tmp/cc-socks/1.sock: ENOENT")
+	jobs := &stubJobs{}
+	cl, frames, sessionURL := dialLiveClient(t, jobs)
+	command := testcmd.Cmd(t, "stream-json-fake")
+	ctx, cancel := context.WithTimeout(context.Background(), wait.Timeout(t, 5*time.Second))
+	defer cancel()
+	cl.handleDispatch(ctx, sessionURL, wsproto.Dispatch{
+		JobID: "m-fail", Runner: builtinLocalRunner,
+		Messenger: &wsproto.MessengerDispatch{SessionName: "claude-main", Command: command, Cwd: ""},
+	})
+	res, resLog := waitForMessengerFrames(t, frames, "m-fail")
+	if res.Status != job.StatusDone || res.ExitCode != 0 {
+		t.Fatalf("messenger result = %+v, want done/0 (a tool failure is not a process failure)", res)
+	}
+	if want := "send failed: Failed to send to uds:/tmp/cc-socks/1.sock: ENOENT"; resLog != want {
+		t.Fatalf("messenger receipt = %q, want %q", resLog, want)
 	}
 }
 

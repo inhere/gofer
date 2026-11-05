@@ -38,11 +38,20 @@ type MessengerAbandoner interface {
 	AbandonMessengerJob(jobID string) (InjectResult, error)
 }
 
+// ResidentResult is the tool-level outcome of a resident SendMessage request: Sent
+// says whether the messenger's tool call delivered the text, Reason why it did not
+// (empty when the turn made no call, or when it succeeded). It is the resident
+// counterpart of the receipt the one-shot messenger job writes to its stdout.
+type ResidentResult struct {
+	Sent   bool
+	Reason string
+}
+
 // ResidentMessenger is an optional same-runner stream bridge. Implementations
 // may keep one process per runner and must serialize requests; callers fall back
 // to Messenger's one-shot job path when this capability is absent.
 type ResidentMessenger interface {
-	SendMessengerResident(ctx context.Context, runner, cwd, target string, command []string) (string, error)
+	SendMessengerResident(ctx context.Context, runner, cwd, target string, command []string) (ResidentResult, error)
 }
 
 // ConfigureMessaging applies the server-scoped message bridge policy.
@@ -197,11 +206,13 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 	lang := s.lang(a.ProjectKey)
 	if resident, ok := s.messenger.(ResidentMessenger); ok && s.IsServerLocalRunner(a.Runner) {
 		command := []string{s.messengerCommand, "-p", messengerPrompt(lang, a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
-		output, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, a.PeerName, command)
+		res, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, a.PeerName, command)
 		if rerr == nil {
+			// res.Sent is read by T5: a tool-level failure on this path must be reported as
+			// a failure instead of 「已送达」. T3 only carries the value through the seam.
+			_ = res
 			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
 			_ = s.store.AppendSessionOutbox(m)
-			_ = output
 			return m, nil
 		}
 		// Startup/early process failures fall back to the durable one-shot job. A

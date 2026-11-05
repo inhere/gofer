@@ -42,8 +42,8 @@ func TestResidentMessengerPeerReplyDoesNotShiftResults(t *testing.T) {
 	t.Cleanup(m.Close)
 
 	first, err := m.Send(context.Background(), "local", cwd, "target-1", command)
-	if err != nil || first != "已发送#1" {
-		t.Fatalf("first send = %q, %v; want 已发送#1", first, err)
+	if err != nil || first.Output != "已发送#1" {
+		t.Fatalf("first send = %q, %v; want 已发送#1", first.Output, err)
 	}
 	wait.Until(t, 10*time.Second, "verbatim peer reply handed to the handler", func() bool {
 		mu.Lock()
@@ -51,8 +51,8 @@ func TestResidentMessengerPeerReplyDoesNotShiftResults(t *testing.T) {
 		return len(got) == 1
 	})
 	second, err := m.Send(context.Background(), "local", cwd, "target-1", command)
-	if err != nil || second != "已发送#2" {
-		t.Fatalf("second send = %q, %v; want its own result 已发送#2 (not the previous reply's retelling)", second, err)
+	if err != nil || second.Output != "已发送#2" {
+		t.Fatalf("second send = %q, %v; want its own result 已发送#2 (not the previous reply's retelling)", second.Output, err)
 	}
 	mu.Lock()
 	r := got[0]

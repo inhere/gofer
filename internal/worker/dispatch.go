@@ -348,7 +348,13 @@ func (cl *Client) handleMessengerDispatch(ctx context.Context, d wsproto.Dispatc
 		list, err = cl.residentMessenger.ListAgents(callCtx, d.Runner, d.Messenger.Cwd, d.Messenger.Command)
 		output = list.RawOutput
 	} else {
-		output, err = cl.residentMessenger.Send(callCtx, d.Runner, d.Messenger.Cwd, d.Messenger.SessionName, d.Messenger.Command)
+		var res messenger.SendResult
+		res, err = cl.residentMessenger.Send(callCtx, d.Runner, d.Messenger.Cwd, d.Messenger.SessionName, d.Messenger.Command)
+		// The host judges a one-shot job on its receipt, so a resident dispatch reports
+		// the canonical one: "sent", or a single-line `send failed: <reason>`. A failed
+		// tool call keeps the job done/0 — the host reads stdout, not the exit code, and
+		// a tool failure is a result value, not a process failure.
+		output = res.Receipt()
 	}
 	if err == nil && strings.TrimSpace(output) != "" {
 		_ = cl.writeFrame(ctx, wsproto.TypeLog, d.JobID, wsproto.Log{JobID: d.JobID, Stream: "stdout", Seq: 1, Text: output})

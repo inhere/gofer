@@ -51,11 +51,18 @@ type sessionInjector struct {
 	workerProjectDir func(runner, projectKey string) string
 }
 
-func (x sessionInjector) SendMessengerResident(ctx context.Context, runner, cwd, target string, command []string) (string, error) {
+// SendMessengerResident adapts the resident stream bridge (messenger.Manager) to the
+// relay's seam: the relay must not import the messenger package (G022), so the tool
+// outcome travels as sessionrelay.ResidentResult.
+func (x sessionInjector) SendMessengerResident(ctx context.Context, runner, cwd, target string, command []string) (sessionrelay.ResidentResult, error) {
 	if x.resident == nil {
-		return "", errors.New("resident messenger unavailable")
+		return sessionrelay.ResidentResult{}, errors.New("resident messenger unavailable")
 	}
-	return x.resident.Send(ctx, runner, cwd, target, command)
+	res, err := x.resident.Send(ctx, runner, cwd, target, command)
+	if err != nil {
+		return sessionrelay.ResidentResult{}, err
+	}
+	return sessionrelay.ResidentResult{Sent: res.Sent, Reason: res.Reason}, nil
 }
 
 // SubmitMessenger adapts the Y6 one-shot Claude SendMessage bridge to the job
