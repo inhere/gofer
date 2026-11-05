@@ -2,7 +2,7 @@
 
 > 一句话定位：把 codex / claude 等 agent 与普通命令桥接成可追踪、可验收的异步任务（job）的控制平面，提供 CLI / HTTP / MCP / Web 四种入口；自身不内置模型。
 >
-> **适用版本：截至 v0.209.3**（CHANGELOG 最新已发布版本，2026-11-03）。
+> **适用版本：截至 v0.212.0**（CHANGELOG 最新已发布版本，2026-11-05）。
 
 ## 维护说明
 
@@ -89,7 +89,7 @@
 | 子项 | 说明 | 主要入口 | 稳定程度 | 文档 |
 |---|---|---|---|---|
 | 会话登记与中继 | 用 hooks 登记终端 Claude / Codex / omp 会话；停下时在 Web 等回复，三态 on / auto / off | CLI `init hooks`、`session relay on\|auto\|off`、`session ls` / `show` / `say`；Web「会话」 | 稳定 | [runbook/session-relay.md](runbook/session-relay.md)、[../skills/gofer-usage/references/sessions-relay.md](../skills/gofer-usage/references/sessions-relay.md) |
-| 传话与唤醒 | 给空闲会话送话，唤醒 / 接管已结束会话，`session watch` 盯 job，会话催办；常驻 job 派出的子 job 有结果时自动开新一轮（回执），父 job 先结束则告警人 | CLI `session say --deliver` / `resume` / `release-takeover` / `watch` / `nudge`；`job wakeup create`；`job run --session`、`--parent-wake-events`、`--no-parent-wake`；MCP `gofer_wakeup_create` | 稳定（子 job 回执为第一期，父 job 结束后的自动续接未做） | sessions-relay.md；[../skills/gofer-usage/references/files-and-wakeup.md](../skills/gofer-usage/references/files-and-wakeup.md) |
+| 传话与唤醒 | 给空闲会话送话，唤醒 / 接管已结束会话，`session watch` 盯 job，会话催办；常驻 job 派出的子 job 有结果时自动开新一轮（回执），父 job 先结束则告警人；Claude Code 会话优先按会话地址投递，同名时只到选中的会话，投不到显示失败 | CLI `session say --deliver` / `resume` / `release-takeover` / `watch` / `nudge`；`job wakeup create`；`job run --session`、`--parent-wake-events`、`--no-parent-wake`；MCP `gofer_wakeup_create` | 稳定（子 job 回执为第一期，父 job 结束后的自动续接未做） | sessions-relay.md；[../skills/gofer-usage/references/files-and-wakeup.md](../skills/gofer-usage/references/files-and-wakeup.md) |
 | 会话主题与查找 | 记录会话在做什么，按关键词或路径找谁在做某事 | CLI `session topic` / `session find`；MCP `gofer_session_set_topic` / `gofer_session_find` | 未标注 | [runbook/2026-10-16-capture-box-and-session-topics-runbook.md](runbook/2026-10-16-capture-box-and-session-topics-runbook.md) |
 | 等待与查看另一会话 | 等另一会话停下、看它当前显示的内容 | CLI `session wait` / `session screen`；MCP `gofer_session_wait` / `gofer_session_screen` / `gofer_session_tail` | 未标注 | sessions-relay.md「wait / screen」 |
 | 信箱 mail | 会话 / job / 收集箱之间按地址（`session:` `topic:` `job:` `path:` `agent:` 等）收发信；急件、群发、退信、暂停送达、已收到 / 已处理回应 | CLI `session mail send\|ls\|conv\|read\|ack\|pause\|resume\|reply\|cancel\|redact`；HTTP `/v1/mail*`；MCP `gofer_session_mail_*`；Web `/mail` | 变化中（stability.md 标实验） | [runbook/2026-10-18-mailbox-runbook.md](runbook/2026-10-18-mailbox-runbook.md) |
