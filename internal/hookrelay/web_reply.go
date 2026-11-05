@@ -68,7 +68,9 @@ func webMessageBody(body string) bool {
 // The address is searched in its JSON-escaped form too: a transcript line is JSON, so a
 // Windows pipe's backslashes are doubled there. And a body counts when the messenger sent
 // it, prefix or not: a model may forward the words without the prefix it was told to
-// keep, and it is still the person speaking (messengerBody).
+// keep, and it is still the person speaking (messengerBody). A session may also answer
+// the messenger by name ("gofer-web", or "gofer-web [ref]" after an ambiguity) instead of
+// by the address: then any message the messenger forwarded is what it answers.
 func webMessageFrom(path, address string) bool {
 	lines, err := transcriptTailLines(path, webReplyTail)
 	if err != nil {
@@ -78,6 +80,10 @@ func webMessageFrom(path, address string) bool {
 	escaped := jsonEscaped(address)
 	prefixes := personOpens()
 	messenger := []byte(msgprefix.MessengerName)
+	byName := address == msgprefix.MessengerName || strings.HasPrefix(address, msgprefix.MessengerName+" [")
+	if byName {
+		addr, escaped = messenger, messenger
+	}
 	quotedFrom := []byte(`from=\"` + string(escaped) + `\"`)
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
@@ -99,7 +105,8 @@ func webMessageFrom(path, address string) bool {
 			continue
 		}
 		for _, o := range []*replyOrigin{entry.Origin, attachmentOrigin(entry.Attachment)} {
-			if o != nil && o.Kind == "peer" && o.From == address && (webMessageBody(o.Body) || messengerBody(o)) {
+			if o != nil && o.Kind == "peer" && (o.From == address || (byName && o.Name == msgprefix.MessengerName)) &&
+				(webMessageBody(o.Body) || messengerBody(o)) {
 				return true
 			}
 		}

@@ -175,3 +175,31 @@ func TestWebReplyOfTrustsTheMessengerName(t *testing.T) {
 		}
 	}
 }
+
+// A session may answer the messenger by name rather than by the address; a name that is
+// not the messenger's stays out, and so does a notice the messenger forwarded.
+func TestWebReplyOfAcceptsTheMessengerName(t *testing.T) {
+	entry := func(name, body string) string {
+		b, err := json.Marshal(map[string]any{"type": "user", "origin": map[string]any{"kind": "peer", "from": messengerAddr, "name": name, "body": body}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, tc := range []struct {
+		to, name, body string
+		want           bool
+	}{
+		{"gofer-web", "gofer-web", "[from web, default] hi", true},
+		{"gofer-web [6e1391]", "gofer-web", "[from web, default] hi", true},
+		{"gofer-web", "gofer-web", "[gofer · job done] finished", false},
+		{"gofer-web", "other-session", "[from web, default] hi", false},
+		{"gofer-web-2", "gofer-web", "[from web, default] hi", false},
+	} {
+		transcript := writeTranscript(t, entry(tc.name, tc.body))
+		text, _ := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, tc.to, "hello")})
+		if (text != "") != tc.want {
+			t.Fatalf("to %q from %q %q: reply = %q, want reported=%v", tc.to, tc.name, tc.body, text, tc.want)
+		}
+	}
+}
