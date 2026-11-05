@@ -633,16 +633,14 @@ A session belongs to the caller that registered it (`session.caller_id`): a late
 - `POST /v1/sessions/{sid}/owner` body `{"caller_id": "<id>"}` hands the session to another caller. The session keeps its state, turns and job watches; the owner changes, the refusal note is cleared, and the response is the updated session view. The session's own `session:<sid>` grants are revoked in the same transaction: ownership is one of the things a session grant is judged by, so they stop applying anyway, and revoking them says so in the row. Gate: `session.transfer`, which belongs to the root administrators alone (it is in the 严格检查 group, independent of the governance switches) — not waived by anything, since "give my session to your token" is exactly what must stay with the operator. Worker credentials are `403` (a machine credential does not act for a person); job credentials are `403` through the SEC-01 default-deny route table (`POST /v1/sessions/*/owner` → "hand a session to another caller"). A caller the server cannot authenticate — not in `server.callers` and not the legacy token's `default` (worker ids count as unknown) — is `400`, an unknown session `404`.
 - CLI: `gofer session owner <sid> <caller>`; `gofer session show` prints the owner and the last refusal.
 
-## 会话间地址（只写不读的 hook 字段）
+## Session peer address (write-only hook field)
 
-Claude Code 会话可以直接收另一个会话发的消息，而这个端点只有 hook 知道：hook 从会话文件读到它，在 `POST /v1/sessions`（注册体）和 `POST /v1/sessions/{sid}/heartbeat` 里作为 `peer_socket` 上报（心跳不带该字段时已存的值不动，`""` 即清除）。
+A Claude Code session can receive a message from another session directly, and only the hook knows that endpoint: it reads the address from the session file and reports it as `peer_socket` in `POST /v1/sessions` (the register body) and `POST /v1/sessions/{sid}/heartbeat`. A heartbeat without the field leaves the stored value alone; `""` clears it.
 
-- 只接受 Claude Code 实际写出的两种形状：以 `/cc-socks/<pid>.sock` 结尾的 POSIX 绝对路径（路径段 `[A-Za-z0-9._-]`、不含 `..`、不超过 256 字符），或 Windows 命名管道 `\\.\pipe\LOCAL\cc-msg-<32 位小写十六进制>`。其它值一律按空存储（该会话保持原来的名字路径），服务端记一条只写 session id 的 `WARN`：地址是能力凭据，原值不进日志。
-- 只写不读：任何会话视图都不带它；它只用于写传话人的提示词，以及把传话人收到的回复归到哪个会话。
-- 一个地址只属于**同一个 runner** 上的一个会话：写入非空值时，同一 runner 上还持有该地址的其他行会在同一个事务里被清空地址（并置 `peer_messaging` 为 false）——退出的进程会把 pid 连同这个地址留给下一个会话。runner 标签按全系统同一口径比较（`local` / `server` 是同一个 runner，不分大小写）；没有 runner 的行不参与。
-- 投递目标：存了地址的会话按地址投递；同一 runner 上没有别的同名存活会话时，提示词才允许改按名字回退一次。没有地址时什么都不变，仍按名字投递。
-
-校验、投递判断与回复归属在 `internal/sessionrelay`；hook（`internal/hookrelay`）只上报会话文件里的值。
+- Only the two shapes Claude Code writes are accepted: an absolute POSIX path ending in `/cc-socks/<pid>.sock` (segments `[A-Za-z0-9._-]`, no `..`, at most 256 characters), or the Windows named pipe `\\.\pipe\LOCAL\cc-msg-<32 lower-case hex>`. Any other value is stored as empty, so the session keeps the name path, and the server logs a `WARN` naming the session id only; the rejected value is not logged.
+- Write-only: no session view has this field. The address is used to write the messenger's prompt and to attribute a reply the messenger receives. It can still appear in a messenger job's prompt and in a delivery failure reason the tool returned.
+- One address belongs to one session per runner: storing a non-empty value clears it, and `peer_messaging`, from the other rows of the same runner in the same transaction, because a dead process leaves its pid, and so this address, to the next session. Runner labels compare the same way everywhere (`local` and `server` are one runner, case-insensitive); a row without a runner takes no part.
+- Delivery: a session with an address is reached by that address. The prompt allows falling back to the name once only when no other live session of the same runner has the same name. Without an address nothing changes: delivery goes by name.
 
 ## Session stop-wait policy (watched jobs)
 
