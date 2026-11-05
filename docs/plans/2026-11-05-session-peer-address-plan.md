@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # web 发消息按会话地址投递 实施计划
 
-> 状态：Draft 0.1 / 待人工计划批准
+> 状态：Draft 0.2 / 待人工计划批准
 > issue：gofer-g1lk
 
 ## 修订记录
@@ -9,6 +9,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-11-05 | Claude（gofer 监督会话） | 初稿 |
+| 0.2 | 2026-11-05 | Claude（gofer 监督会话） | 按两路审核修订（阻塞 3 条，都在 T8）：真实验收的环境隔离写明清除变量和双向预检；进程退出改硬杀；排除开放回合路径并逐条断言走了地址。纠正：写明事务细节和 runner 来源；缺省失败原因和英文文案；真实帧交接；验证命令补全；反向验证加两项；验收 1 不允许用披露跳过 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -30,7 +31,9 @@
 
 - `host_or_non_offline_action=REQUIRED`
 
-需要的主机动作只有 T0、T8：经 `gofer job --runner local` 在 Windows 主机起一次性 Claude 进程和临时 server，产物只写工作区 `tmp/`。会消耗少量模型 token（`--model haiku`）。
+需要的主机动作：T0、T8 经 `gofer job --runner local` 在 Windows 主机起一次性 Claude 进程和临时 server；建、删 worktree；suga 实施 job；`gofer-verify`。脚本和记录写工作区 `tmp/`。T0、T8 消耗少量模型 token（`--model haiku`）。
+
+真实 Claude 进程会在用户目录留下 `sessions/<pid>.json` 和 transcript 目录，硬杀后也不会自己清掉。收尾只删自己记录的 pid 对应的文件和自己 cwd 对应的 transcript 目录。
 
 ## 输入与批准证据
 
@@ -65,13 +68,13 @@
 | # | 问题 | 决定 |
 |---|---|---|
 | R1 | `sameRunner` 在 sessionrelay，jobstore 不能反向 import（G022），而唯一性清理在 jobstore 事务内 | 新增 `config.SameRunnerLabel(a, b string) bool`，`sessionrelay.sameRunner` 改为调用它，行为不变。jobstore 已 import config |
-| R2 | runner 为空的行怎么算“同 runner”。空 runner 表示没说在哪里跑（client 模式容器），这种会话本来就投不了 | 写入方或其他行 runner 为空时都不参与清理。否则多个未设 runner 的容器互相清掉 `peer_messaging` |
+| R2 | runner 为空的行怎么算“同 runner”。空 runner 表示没说在哪里跑（client 模式容器），这种会话本来就投不了 | 写入方或其他行 runner 为空时都不参与清理，否则多个未设 runner 的容器互相清掉 `peer_messaging`。残余风险：未设 runner 的进程与带标签的 runner 在同一命名空间时，它复用旧行地址不会清掉旧行；只剩它同名时，回退也不把它算作同名。两者都可能投错，属于设计“前提”的延伸，不加机制。T7 在运维文档写明 client 模式必须设 `GOFER_HOOK_RUNNER` |
 | R3 | `ListAgentSessions` 默认只取 200 行，用它判断“有没有其他同名会话”和“按地址匹配”会漏 | 新增两个无上限查询：`ListLiveSessionsByPeerName`、`ListLiveSessionsByPeerSocket`（`state<>'ended'`，含内部会话）。查询失败按“有其他同名会话”处理，不写回退 |
 | R4 | 有地址但没有名字的会话走哪条路 | 现有门槛不变：`PeerName` 为空或 `PeerMessaging=false` 仍走 Deliver 阶梯（`message.go:155`、`deliver.go:1352`、`wakeViaMessenger`）。Claude 的会话文件总带名字，不为这种组合加分支 |
-| R5 | tool_result 存在但读不出 `success` 字段 | 判失败，状态用 `failed`（`failMessage`，不提供重试），原因写“无法识别工具结果”。这个状态的现有含义就是“尝试过、结果未知”，不会因重试投两次。T0 冻结的格式是唯一接受的形式，Claude Code 改格式时用户会看到失败而不是假的已送达，T0 的真实抽样防止出厂就错 |
-| R6 | worker 的规范回执形状 | `SendResult.Receipt()`：成功返回 `sent`；失败返回单行 `send failed: <原因>`（换行压成空格）。带前缀的单行不可能被整行匹配成回执，不依赖原因文字。worker 仍回 `done`、退出码 0，由 server 看 stdout 判定 |
+| R5 | tool_result 存在但读不出 `success` 字段 | 判失败，状态用 `failed`（`failMessage`，不提供重试），原因用英文固定文案 `unrecognized SendMessage result`（messenger 包不在 CJK 豁免内，也不翻译）。这个状态的现有含义就是“尝试过、结果未知”，不会因重试投两次。T0 冻结的格式是唯一接受的形式，Claude Code 改格式时用户会看到失败而不是假的已送达，T0 的真实抽样防止出厂就错 |
+| R6 | worker 的规范回执形状 | `SendResult.Receipt()`：成功返回 `sent`；失败返回单行 `send failed: <原因>`（换行压成空格）。`Reason` 为空时用固定原因 `no SendMessage call`，`Receipt()` 和历史共用；本机常驻分支显示 i18n 文案（T5）。带前缀的单行不可能被整行匹配成回执，不依赖原因文字。worker 仍回 `done`、退出码 0，由 server 看 stdout 判定 |
 | R7 | 常驻进程的 peer 回合里模型也可能调 SendMessage | 只在 `!peerTurn` 时记录；回合结束（投递给请求或走 `unsolicited`）都清空，同现有 `listing` |
-| R8 | `testcmd` 的常驻假进程只输出 result 帧，判定改后现有常驻测试全部变成“没有调用” | 假进程按 T0 的真实帧输出 SendMessage 的 tool_use 和 tool_result，由环境变量控制成败。这是设计“涉及文件”之外的预期路径 |
+| R8 | `testcmd` 的常驻假进程只输出 result 帧，判定改后现有常驻测试全部变成“没有调用” | 4 个模式（`GOFER_TEST_STREAM_JSON`、`_PEER`、`stream-json-env`、`stream-json-fake`）都按 T0 的真实帧输出 SendMessage 的 tool_use 和 tool_result，默认成功，由环境变量控制失败。这是设计“涉及文件”之外的预期路径 |
 | R9 | `MessengerJob` 如何带 stdout | 在 `output` 后增加返回值 `stdout string`。一次性路径的判定用 `stdout`，失败原因继续用 `output`。`runner_messenger_handler.go` 用 `_` 忽略。9 个测试文件的假实现机械跟改 |
 
 ## 前置检查与 fail-closed 条件
@@ -90,6 +93,8 @@ fail-closed，以下任一情况停止并回到设计：
 - T0 发现 Windows 上 `success:false` 时消息其实已投出，或 tool_result 在两个版本上形状不同且无法共同解析。
 - T8 中模型改写地址字符、或一轮内多发，多轮抽样里出现一次就算。
 - T8 中同名场景投给了未选中的会话。
+- T0 或 T8 中工具返回 `success:true`，接收方却没有收到（判定依据 D9 失效）。
+- T8 的隔离预检失败。
 
 派活约束（SR1433）：任务书写明 G021–G024、G031、idevstd 加载方式、SR1211 只暂存自己的文件；不做无关重排，不删注释；不在 export 了 `GIT_DIR`/`GIT_WORK_TREE` 的命令里跑测试；不起后台空等；job 用 `--sync`。子 agent 的完成报告只是声明，监督会话逐条核实并做反向验证。
 
@@ -107,13 +112,13 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
 
 ## 任务
 
-命令的运行目录都是 Git root（`inhere-tools/gofer` 或它的 worktree）。
+命令的运行目录都是 Git root（`inhere-tools/gofer` 或它的 worktree）。T1–T6 每个任务提交前都跑 `go build ./... && go vet ./...`（vet 编译测试文件），保证每个提交能编译。
 
 ### T0 实测冻结工具结果和时序
 
-- 文件: 只写工作区 `tmp/g1lk-impl/`；`internal/messenger/testdata/sendmessage-*.jsonl`（脱敏的真实帧，随 T3 提交）。
-- 动作: 用 `tmp/g1lk-probe/` 的脚本改写，常驻进程 `--output-format stream-json` 发 SendMessage，抓 tool_use、tool_result、`tool_use_result` 的原始帧。容器和 Windows 主机各抓成功、地址失效；容器再抓同名失败。Windows 用已退出进程的管道地址做失效场景，确认接收方没有收到。另用 `--settings` 挂一个只记录会话文件内容的 SessionStart hook，看该时刻 `messagingSocketPath` 是否已写。
-- 验证: `tmp/g1lk-impl/facts.md` 写明每个场景的帧形状和版本；帧脱敏后 `sh scripts/check-private-names.sh`。real-env：本任务本身就是真实验证。
+- 文件: 只写工作区 `tmp/g1lk-impl/`，脱敏的真实帧放 `tmp/g1lk-impl/frames/`，由 T3 复制到 worktree 的 `internal/messenger/testdata/`。
+- 动作: 用 `tmp/g1lk-probe/` 的脚本改写，常驻进程 `--output-format stream-json` 发 SendMessage，抓 tool_use、tool_result、`tool_use_result` 的原始帧。容器和 Windows 主机各抓成功、地址失效；容器再抓同名失败。两个平台都抓硬杀后的失效地址（socket 文件可能残留，错误不一定是 ENOENT），确认仍是 `success:false`；Windows 确认接收方没有收到。再抓 peer 回合的 `command_lifecycle` 和“请求排在 peer 回合之后”的帧序，确认 `peerTurn` 的依据在这两个版本上仍成立。另用 `--settings` 挂一个只记录会话文件内容的 SessionStart hook，看该时刻 `messagingSocketPath` 是否已写。
+- 验证: `tmp/g1lk-impl/facts.md` 写明每个场景的帧形状和版本；帧文件未跟踪，`check-private-names.sh` 扫不到，改用 `grep -E -f .private-names tmp/g1lk-impl/frames/*` 须无命中。real-env：本任务本身就是真实验证。
 - 完成标准: 解析规则能用一句话写出且覆盖两个版本；SessionStart 窗口有结论（有窗口时写进实施记录，按设计的残余风险处理）；没有触发 fail-closed。
 - 依赖: 无。
 
@@ -124,10 +129,10 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
   - 基础 schema 和 ALTER 迁移增加 `peer_socket TEXT NOT NULL DEFAULT ''`，不建索引。`selectSessionCols`、`scanSession` 增加列。
   - `AgentSession.PeerSocket string`；`SessionHeartbeat.PeerSocket *string`。
   - upsert：地址放在现有 peer 块内与 `peer_messaging` 一起覆盖（`sessions.go:682`），insert 同样写入。
-  - Touch：`PeerSocket != nil` 时写入，空值即清除，nil 不动。
-  - 新增 `clearPeerSocketOthersTx(tx, sid, socket, runner string) error`：`socket` 非空时查出其他行的 `session_id, runner`，用 `config.SameRunnerLabel` 逐行比较，相同的行置 `peer_socket=''`、`peer_messaging=0`。runner 为空的行跳过（R2）。upsert 和 Touch 在写入非空地址时改用事务，写入和清理同一事务；Touch 的 runner 取事务内读到的该行已存值。事务内只用 `tx`，不用 `s.db`，持有现有 `writeMu`。
+  - Touch：`PeerSocket != nil` 时写入，空值即清除，nil 不动。无行时回滚并返回 `(AgentSession{}, false, nil)`，hook 的先注册后重试不变。先 Commit，再做后面的消息日志追加，失败的返回方式与现状相同。
+  - 新增 `clearPeerSocketOthersTx(tx, sid, socket, runner string) error`：`socket` 非空时查出其他行的 `session_id, runner`，用 `config.SameRunnerLabel` 逐行比较，相同的行置 `peer_socket=''`、`peer_messaging=0`。runner 为空的行跳过（R2）。upsert 和 Touch 在写入非空地址时改用事务，写入和清理同一事务。只有本次确实写入了非空地址才清理：upsert 的 peer 门槛（`sessions.go:683`）没通过时不写也不清。runner 来源：upsert 更新分支取 `pick(in.Runner, existing.Runner)` 的结果，插入分支取 `in.Runner`，Touch 取事务内读到的已存值。拒绝分支和 `getSessionLocked` 都在 Begin 之前。事务内只用 `tx`，不用 `s.db`，持有现有 `writeMu`。
   - 新增 `ListLiveSessionsByPeerName(name string)`、`ListLiveSessionsByPeerSocket(socket string)`（R3）。
-- 验证: `go test ./internal/jobstore -run 'PeerSocket|OpenUpgradesPreviousReleaseSchema' -count=1`；用例覆盖空值清除、nil 不动、清理别的行、`server`/`local` 写法不同也清、不同 runner 不清、runner 为空不清、写失败回滚。
+- 验证: `go test ./internal/jobstore -run 'PeerSocket|OpenUpgradesPreviousReleaseSchema' -count=1` 和 `go test ./internal/config ./internal/sessionrelay -count=1`；用例覆盖空值清除、nil 不动、清理别的行、`server`/`local` 写法不同也清（直接写库构造，API 会归一化）、不同 runner 不清、runner 为空不清、空 runner 重新注册按已存 runner 清、门槛没过不写不清、未知会话返回 `ok=false`、写失败回滚。
 - 完成标准: 上述用例通过；旧库升级通过（验收 7）。
 - 依赖: T0。
 
@@ -140,13 +145,13 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
   - HTTP 请求结构接收字段（`session_handler.go:528`、`:870`），透传给 service，响应视图不加。
   - `validPeerSocket(raw string) string`：合法返回原值，否则返回 `""`。规则见设计“地址校验”，Linux 正则 `^(/[A-Za-z0-9._-]+)*/cc-socks/[0-9]+\.sock$` 加“路径段不含 `..`”和长度 ≤256；Windows 正则照抄设计。
   - `RegisterForOwner`、`HeartbeatForOwner` 校验：不合格转为空，`slog.Warn` 只写 session id，不写原值。
-- 验证: `go test ./internal/hookrelay ./internal/sessionrelay -run 'PeerSocket' -count=1`；含表驱动的合法和非法地址（`/var/run/docker.sock`、带 `..`、带空白和引号、超长、大写十六进制的 Windows 地址），及一条断言日志不含原值。HTTP 层一条经真实路由的注册加心跳用例，断言入库且 `GET /v1/sessions/{sid}` 响应不含 `peer_socket`。
+- 验证: `go test ./internal/hookrelay ./internal/sessionrelay ./internal/httpapi -run 'PeerSocket' -count=1`；含表驱动的合法和非法地址（`/var/run/docker.sock`、带 `..`、带空白和引号、超长、大写十六进制的 Windows 地址），及一条断言日志不含原值。HTTP 层一条经真实路由的注册加心跳用例，断言入库且 `GET /v1/sessions/{sid}` 响应不含 `peer_socket`。
 - 完成标准: 验收 6 的校验和日志部分通过；读取接口没有多出字段。
 - 依赖: T1。
 
 ### T3 常驻路径判定
 
-- 文件: `internal/messenger/resident.go`、`internal/messenger/snapshot.go`（如需）、`internal/worker/dispatch.go`、`internal/testutil/testcmd/testcmd/main.go`、`internal/sessionrelay/message.go`（接口）、`internal/httpapi/session_inject.go`（适配）、`internal/messenger/testdata/`、对应 `_test.go`。
+- 文件: `internal/messenger/resident.go`、`internal/messenger/snapshot.go`（如需）、`internal/worker/dispatch.go`、`internal/worker/dispatch_test.go`、`internal/sessionrelay/message_resident_test.go`、`internal/testutil/testcmd/testcmd/main.go`、`internal/sessionrelay/message.go`（接口）、`internal/httpapi/session_inject.go`（适配）、`internal/messenger/testdata/`、对应 `_test.go`。
 - 动作:
   - `messenger.SendResult{Output string; Sent bool; Reason string}`；`func (r SendResult) Receipt() string`（R6）。`Manager.Send` 改为返回 `(SendResult, error)`。工具失败是结果值，`error` 只表示进程和请求失败，语义与现在相同。
   - `read` 循环：tool_use 名为 SendMessage 时记下 id；对应 tool_result 按 T0 规则解析，覆盖本回合结果（取最后一次）；`peerTurn` 时不记录（R7）；读不出 `success` 时判失败（R5）；本回合没有调用时 `Sent=false`，`Reason` 留空。`event` 增加这些字段。
@@ -154,7 +159,8 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
   - `dispatch.go:351`：`output = res.Receipt()`。`list_agents` 分支不动。
   - `ResidentMessenger.SendMessengerResident` 返回 `(ResidentResult, error)`，`ResidentResult{Sent bool; Reason string}` 定义在 sessionrelay，由 `session_inject.go` 转换（sessionrelay 不 import messenger）。
   - `testcmd` 常驻假进程按 R8 扩展。
-- 验证: `go test ./internal/messenger ./internal/worker -run 'Send|Resident|Messenger' -count=1`；用 T0 的真实帧做解析用例（成功、ENOENT、同名、两次调用取最后、peer 回合不算、没有调用、缺字段）。
+  - `TestWorkerMessengerDispatchUsesResidentProcess` 现在用日志帧证明环境变量到达子进程，改为断言规范回执；环境标记的证明留给 `internal/messenger/resident_test.go`，那里读 `SendResult.Output`。
+- 验证: `go test ./internal/messenger ./internal/worker -run 'Send|Resident|Messenger' -count=1`、`go test ./internal/sessionrelay ./internal/httpapi -run 'Messenger|Resident|WebMessage' -count=1`、`go test ./internal/testutil/cjkscan -count=1`；用 T0 的真实帧做解析用例（成功、ENOENT、同名、两次调用取最后、peer 回合不算、没有调用、缺字段）。
 - 完成标准: 工具失败时 `Send` 返回 `err==nil`、`Sent=false`，历史记失败；worker 对应写出单行失败回执。
 - 依赖: T0。
 
@@ -165,7 +171,8 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
   - `messengerSaidSent(stdout string) bool`：逐行去空白后用 `unicode.IsPunct`、`unicode.IsSymbol` 去掉首尾字符，再整行比较 `已发送`，或不分大小写比较 `sent`。
   - `MessengerJob` 增加 `stdout` 返回值；`InjectState.Stdout`、`InjectResult.Stdout`；`session_inject.go` 用 `TailLog(jobID, StreamStdout, 4096)` 取值；`jobOutput` 不动。
   - 判定调用点改用 stdout：`message.go:235`、`deliver_raw.go:147`、`deliver_reconcile.go:171`、`settleTimedOutMessenger`。失败原因继续用 `output`。
-- 验证: `go test ./internal/sessionrelay ./internal/httpapi -run 'SaidSent|Messenger|Reconcile' -count=1`；表驱动：`已发送`、`已发送。`、`"sent"`、`**sent**`、末行是 `已收到` 且前面有回执、stderr 有警告只进 output、`消息未发送`、`没有已发送`、`the message was not sent`、`send failed: sent`。
+  - 测试跟改：假实现的 `stdout` 给回执而不是空串；`message_timeout_test.go:87`、`:125` 的字面量改用 `Stdout`。
+- 验证: `go test ./internal/sessionrelay ./internal/httpapi -run 'SaidSent|Messenger|Reconcile' -count=1`；httpapi 加一条经真实 job 日志的适配层用例，断言 `Stdout` 不含 stderr；表驱动：`已发送`、`已发送。`、`"sent"`、`**sent**`、末行是 `已收到` 且前面有回执、stderr 有警告只进 output、`消息未发送`、`没有已发送`、`the message was not sent`、`send failed: sent`。
 - 完成标准: 验收 8 的回执部分通过。
 - 依赖: T0。
 
@@ -177,7 +184,7 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
   - 新增 4 个 i18n 键（设计“提示词”），en、zh-CN 都加；不含 `] `。地址原样写入，名字继续 `%q`。
   - `messengerPrompt`、`wakeMessengerPrompt` 改收 `messengerTarget`；`wakeMessenger` 把 `peerName string` 换成 `target messengerTarget`，job 标题和 `TargetSession` 继续用名字。
   - 常驻分支（`message.go:200-205`）：`Sent=true` 记已送达；`Sent=false` 走 `failMessage`，原因取 `Reason`，空则用新 i18n 键 `sessionrelay.reason.messenger_no_send`，不转一次性 job；`error` 分支不变。
-- 验证: `go test ./internal/sessionrelay ./internal/i18n -run 'MessengerTarget|Prompt|Resident|Wake' -count=1`；含 Windows 地址的反斜杠不被加倍；`messengerOriginalMessage` 能切出原文；有同名不写回退、无同名写回退、无地址提示词与现在逐字相同；工具失败时 `residentFake.submitted==0`。
+- 验证: `go test ./internal/sessionrelay -run 'MessengerTarget|Prompt|Resident|Wake' -count=1`、`go test ./internal/i18n -run CatalogKeysMatch -count=1`、`go test ./internal/httpapi -run 'Messenger|Resident|WebMessage' -count=1`；含 Windows 地址的反斜杠不被加倍；`messengerOriginalMessage` 能切出原文；有同名不写回退、无同名写回退、无地址提示词与现在逐字相同；工具失败时 `residentFake.submitted==0`。
 - 完成标准: 没有地址时提示词不变（名字路径零变化，验收“无地址行为不变”）；工具失败显示失败（验收 4、8）。
 - 依赖: T1、T2、T3、T4。
 
@@ -187,41 +194,48 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
 - 动作: `RecordMessengerReply`：先要求 body 非空；`from` 去掉 `uds:` 前缀后过 `validPeerSocket`，用 `ListLiveSessionsByPeerSocket` 加 `sameRunner` 过滤，恰好一个就归属到它；否则按现有名字逻辑，`peerName` 为空才报错。
 - 验证: `go test ./internal/sessionrelay -run 'RecordMessengerReply' -count=1`；同名两个会话时按 `from` 归属正确；地址不匹配回到名字；名字为空但地址匹配能归属。
 - 完成标准: 同名时 server 本机常驻路径的回复显示在选中的会话下。
-- 依赖: T1。
+- 依赖: T1、T2。
 
 ### T7 文档
 
 - 文件: `docs/reference/http-api.md`、`skills/gofer-usage/references/sessions-relay.md`、`docs/runbook/container-worker.md`。
-- 动作: http-api 写注册、心跳的可选字段 `peer_socket`（只写不读）。sessions-relay 写投递规则：优先按地址，同名时投不到显示失败，常驻路径如实显示失败。按 G046 用通用视角，不写本仓库细节。container-worker 写每个容器要用独立 runner 及原因。
-- 验证: `sh scripts/check-private-names.sh`；人工核对文档说法与代码一致。
+- 动作: http-api 写注册、心跳的可选字段 `peer_socket`（只写不读）。sessions-relay 写投递规则：优先按地址，同名时投不到显示失败，常驻路径如实显示失败。按 G046 用通用视角，不写本仓库细节。container-worker 写每个容器要用独立 runner 及原因，client 模式必须设 `GOFER_HOOK_RUNNER`。
+- 验证: `PRIVATE_NAMES_FILE=<主 checkout 绝对路径>/.private-names sh scripts/check-private-names.sh`（worktree 里没有这个文件）；人工核对文档说法与代码一致。
 - 完成标准: G045 同步完成，汇报列出改了哪些文件。
 - 依赖: T5、T6。
 
 ### T8 真实验收（监督会话）
 
 - 文件: 只写工作区 `tmp/g1lk-impl/`（脚本、日志）。
-- 环境隔离: 用 worktree 的构建产物起临时 server（临时端口、临时配置目录和库）。真实 Claude 进程的 `PATH` 前置临时二进制，`GOFER_CONFIG_DIR` 指向临时目录，这样用户级 hook 配置里的 `gofer hook` 也报给临时 server。开跑前先起一个进程，确认线上 server 没有新增会话，否则停下改隔离方式。进程只按自己记录的 pid 停，收尾看临时 server 日志。不改用户配置。
-- 动作（Linux 容器：本机常驻、一次性、经临时 worker 三条路径；Windows 主机：本机常驻、一次性）:
-  1. 两个 `--name g1lk-dup` 存活会话，把其中一个在库里标 offline：web 接口发消息，只有选中的收到；回复显示在同一会话下；信箱唤醒同样验证（验收 1）。
-  2. 选中的进程退出、另一个存活：显示失败，另一个没有收到（验收 2）。
-  3. 选中的进程退出，一个未接入 gofer 的同名进程存活：回退名字，只投一次（验收 3）。
+- 环境隔离:
+  - 用 worktree 的构建产物起临时 server（临时端口、配置目录和库），临时 `.env` 写地址、token、run mode、runner。cwd 属于临时配置里的项目，否则报 `no_project`。
+  - 启动真实 Claude 前清除 `GOFER_JOB_ID`、`GOFER_JOB_TOKEN`、`GOFER_SERVER_ADDR`、`GOFER_SERVER_TOKEN`、`GOFER_CONFIG`、`GOFER_RUN_MODE`、`GOFER_HOOK_RUNNER`、`GOFER_PROJECT`、`GOFER_BIN`、`CLAUDECODE`、`CLAUDE_CODE_*`，再设 `GOFER_CONFIG_DIR` 指向临时目录、`PATH` 前置临时二进制。主机 job 里 `GOFER_JOB_ID` 会让 hook 直接退出，job 凭据优先于 `.env`，不清就可能报给线上 server。
+  - 双向预检：先起一个进程，临时 server 必须有这条会话，线上 server 必须没有；任一不符就停。
+  - 临时配置 `session.auto_relay_idle_sec: 0`、`auto_relay_turn_sec: 0`，排除开放回合路径。
+  - 每个场景用独立名字（如 `g1lk-s3-<路径>`）。硬杀留下的行不是 `ended`，同名会干扰后续场景。
+  - 临时 worker 路径：worker 注册到临时 server，`GOFER_HOOK_RUNNER` 等于 worker id。
+  - 进程只按自己记录的 pid 停；收尾看临时 server 日志并按“授权”一节清理。不改用户配置。
+- 动作（Linux 容器：本机常驻、一次性、经临时 worker 三条路径；Windows 主机：本机常驻、一次性）。场景 1–4 逐条断言消息 `channel=messenger`，并记录 messenger 的 tool_use 目标（`uds:` 或名字）；“退出”一律硬杀（Linux `kill -9`，Windows `Stop-Process -Force`），不触发 SessionEnd，发送前断言状态不是 `ended`:
+  1. 两个同名存活会话，用 `session.offline_after_sec` 让其中一个变 offline（发送前断言）：选中 offline 的发一次，只有它收到；再选 running 的发一次，只有它收到；回复显示在同一会话下；信箱唤醒同样验证（验收 1）。
+  2. 选中的进程硬杀、同名的另一个存活：显示失败，另一个没有收到，提示词不带回退（验收 2）。
+  3. 选中的进程硬杀，一个未接入 gofer 的同名进程存活（只给它设 `GOFER_MESSENGER=1`，走 hook 的 bypass，并核实临时 server 没有这行）：回退名字，只投一次（验收 3）。
   4. 经 API 注册不带地址的同名会话：工具失败，web 显示失败（验收 4，名字路径）。
-  5. 经 API 预置旧行（地址等于新进程将上报的值，runner 分别写 `server`、`local`），真实 SessionStart 之后旧行没有地址、`peer_messaging=0`（验收 5）。
+  5. Linux：`sh -c 'echo $$ >pid; 等预置完成; exec claude ...'` 先拿 pid（pid 不变的前提先实测），算出地址，预置带 `peer_name` 的旧行，用 SQL 把它的 runner 分别改成 `server`、`local`；断言第一次带地址的上报之后旧行没有地址、`peer_messaging=0`（验收 5）。Windows 的管道名不可预置，写 `UNVERIFIED_REAL_ENV`，由 T1 用例承担。
   6. 经 API 注册非法地址（真实会话文件的地址无法改成非法值）：入库为空、走名字路径、日志不含原值（验收 6）。
-  7. 模型行为：常驻和一次性各 5 轮，含 Windows 反斜杠地址；核对地址一字不差、每轮只有一次 SendMessage、回执判定正确。
+  7. 模型行为：逐轮记录每次 SendMessage 的 `to`，每种情况常驻和一次性各 5 轮，含 Windows 反斜杠地址。情况：地址有效；地址失效且有同名存活（不带回退，改发名字就会投错，出现一次就停）；地址失效且无同名（带回退，最多一次）；`wake_prompt_address*` 抽样。
 - 验证: `tmp/g1lk-impl/acceptance.md` 逐条记录命令、接收方日志片段（只记探针文字，不含真实消息）和结论。做不到的项写 `UNVERIFIED_REAL_ENV: <面>（复现：<命令>）`。
-- 完成标准: 验收 1–6 在两个平台都有证据，或有明确披露；没有触发 fail-closed。
+- 完成标准: 验收 1 在两个平台都有证据，不能用披露代替；验收 2–6 也都要有证据，只有确实不可构造的项（目前只有 Windows 的 T8.5）可以披露；没有触发 fail-closed。
 - 依赖: T7。
 
 ### T9 反向验证、全量和收尾（监督会话）
 
 - 文件: 设计稿“实施记录”、本计划状态、`.gofer/tracker/*`。
 - 动作:
-  - 反向验证（验收 9，在临时副本里改，不提交）：把 `messengerTargetFor` 改回只用名字，同名测试必须失败；去掉 `clearPeerSocketOthersTx`，pid 复用测试必须失败；`Receipt()` 失败也返回 `sent`，常驻判定测试必须失败。
+  - 反向验证（验收 9，在临时副本里改，不提交）：把 `messengerTargetFor` 改回只用名字，同名测试必须失败；去掉 `clearPeerSocketOthersTx`，pid 复用测试必须失败；`Receipt()` 失败也返回 `sent`，worker 判定测试必须失败；`read` 把 `success:false` 当成功，本机常驻判定测试必须失败；`Fallback` 恒为 true，同名不回退的测试必须失败。
   - 对 `git diff --stat` 查无关删除；逐条对照设计核实 suga 的声明。
   - `gofer-verify` 工作流（四路）通过。Windows 全量随发版前流程。
   - 合并回 main（`--no-ff`），删 worktree 和分支；设计稿补实施记录；计划进入 COMPLETE 时写不超过 8 行的完成总结；关 `gofer-g1lk`。
-- 验证: 反向验证输出写入 `tmp/g1lk-impl/reverse.md`；`gofer wf show <id>` 全绿；`sh scripts/check-private-names.sh` 通过；`git log` 核对提交只含本任务文件。
+- 验证: 反向验证输出写入 `tmp/g1lk-impl/reverse.md`；`gofer wf show <id>` 全绿；主 checkout 里 `sh scripts/check-private-names.sh` 通过；`git log` 核对提交只含本任务文件。
 - 完成标准: 见“目标与完成定义”。
 - 依赖: T8。
 
@@ -259,6 +273,6 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
 
 ## 完成 Gate 与剩余工作
 
-完成 Gate：T0–T9 通过；`gofer-verify` 全绿；真实验收有证据或有披露；设计稿补实施记录；`gofer-g1lk` 关闭。
+完成 Gate：T0–T9 通过；`gofer-verify` 全绿；真实验收按 T8 完成标准有证据；设计稿补实施记录；`gofer-g1lk` 关闭。
 
 剩余工作（不在本计划内）：随下一版发版时 push；发版后补 `schema-v*` 快照（G057）、更新能力清单（G058）。设计记录的残余风险（未装 hook 的 Claude 复用 pid）不处理。
