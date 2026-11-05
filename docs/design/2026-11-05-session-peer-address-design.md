@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # web 发消息按会话地址投递设计
 
-> 状态：Draft 0.2 / 待人工计划批准
+> 状态：Draft 0.3 / 待人工计划批准
 > issue：gofer-g1lk
 
 ## 修订记录
@@ -10,6 +10,7 @@
 |---|---|---|---|
 | 0.1 | 2026-11-05 | Claude（gofer 监督会话） | 初稿 |
 | 0.2 | 2026-11-05 | Claude（gofer 监督会话） | 按第 1 轮两路评审修订（阻塞 4 条）：offline 会话也用地址；地址改为同 runner 唯一，防 pid 复用；有其他同名会话时不回退名字；常驻路径判定投递结果；并收紧地址白名单、改更新语义、改正 messenger 路径描述 |
+| 0.3 | 2026-11-05 | Claude（gofer 监督会话） | 按确认轮修订（阻塞 1 条、纠正 7 条）：回执改为任一行匹配且只看 stdout；常驻路径的工具失败作为结果值返回；同 runner 按归一化比较；清地址时同时关闭 messenger 路径；写明 SessionStart 时序待实测和默认 runner 前提 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -26,7 +27,7 @@ Review budget：按严谨模式上限；确认轮没有 `CORE_BLOCKING` 即停�
 用户可见结果：
 
 - web 上选中哪个会话，消息就到哪个会话，对方的回复显示在这个会话下，会话空闲多久都一样。
-- 投不到时显示失败，绝不投给同名的另一个会话，也绝不显示已送达。
+- 有地址的会话投不到时显示失败，不投给同名的另一个会话，也不显示已送达。没有地址的会话（旧 hook、旧 Claude Code）投递目标与现在相同。
 - 撞名时不需要用户 `/rename`，也不需要用户理解地址。
 
 ## 名词
@@ -121,10 +122,11 @@ messenger 收到回复（仅 server 本机常驻路径）
 | `internal/sessionrelay/peeraddr.go`（新） | `validPeerSocket`、`messengerTarget`；调用都在 sessionrelay 内，hook 不做校验 |
 | `internal/sessionrelay/message.go`、`deliver_raw.go` | 三处提示词改用 `messengerTarget`；`wakeMessenger` 增加目标入参；常驻分支判定结果；一次性路径改用末行判定 |
 | `internal/sessionrelay/reply.go` | `RecordMessengerReply` 先按地址匹配，调整名字为空的校验顺序 |
-| `internal/messenger/resident.go` | `read` 同时收集 SendMessage 的 tool_result，放进 `event` 并返回给调用方 |
+| `internal/messenger/resident.go`、`internal/worker/dispatch.go` | `read` 同时收集 SendMessage 的 tool_result；`Manager.Send` 返回结果结构；worker 写规范回执 |
+| `internal/sessionrelay/message.go:45`、`internal/httpapi/session_inject.go:54` | `ResidentMessenger` 接口与适配跟随结果结构；`session_inject.go` 提供只含 stdout 的输出给回执判定 |
 | `internal/jobstore/store.go`、`sessions.go` | 新列 `peer_socket`，基础 schema 与 ALTER 迁移（不建索引，G057）；写入时清同 runner 同地址 |
 | `internal/i18n/lang/{en,zh-CN}/sessionrelay.ini` | 增加带地址的提示词 |
-| `docs/reference/http-api.md`、`skills/gofer-usage/references/sessions-relay.md`、`container-worker.md` | 写字段、投递规则和前提（G045） |
+| `docs/reference/http-api.md`、`skills/gofer-usage/references/sessions-relay.md`、`docs/runbook/container-worker.md` | 写字段、投递规则和前提（G045） |
 
 分层不变：hook 只上报，判断放 sessionrelay，存储放 jobstore，HTTP 层只透传。参照现有 `peer_messaging` 的上报路径。
 
@@ -142,7 +144,8 @@ Windows:       ^\\\\\.\\pipe\\LOCAL\\cc-msg-[0-9a-f]{32}$
 ### 地址更新
 
 - 地址与 `peer_messaging` 一起覆盖，空值即清除；旧 hook 的心跳不带字段（指针为 nil）时保持不变。
-- 写入非空地址时，同一事务把同 runner 其他行的相同地址清空。pid 被新会话复用时，新会话注册的那一刻旧记录就失去地址，消息不会投到新会话头上。
+- 写入非空地址时，同一事务把同 runner 其他行的地址清空，并把这些行的 `peer_messaging` 置 0。这样旧记录既不会按地址投到新会话，也不会按名字投到同名会话；它真还活着时，下次心跳会恢复。
+- “同 runner” 与 `sameRunner` 用同一等价关系（`local`、`server` 视为相同，不分大小写），不能用 SQL 等值比较：runner 按原值存储，旧行的写法可能不同。先按地址查出其他行，再在事务内逐行比较。心跳不带 runner，取该行已存的值。
 
 ### 提示词
 
@@ -157,8 +160,8 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 
 ### 投递结果判定
 
-- **常驻路径**：看本轮最后一次 SendMessage 的 tool_result。`success:true` 记已送达；`success:false` 或本轮没有调用记失败，原因取工具消息。worker 上的常驻 messenger 经 job 输出回传，走一次性路径的判定。
-- **一次性路径**：`messengerSaidSent` 改为只看末行，要求整行精确匹配（中英文）。现在中文“已发送”出现在任意位置都算成功，失败叙述里带这三个字会误判。
+- **常驻路径**（本机和 worker）：看本轮最后一次 SendMessage 的 tool_result。`success:true` 记已送达；`success:false` 或本轮没有调用记失败，原因取工具消息。`Manager.Send` 改为返回结果结构，工具失败是结果值，不经 `error` 返回：`message.go:210` 按错误文字里的 `start`、`exited`、`unavailable` 转一次性 job，错误文字碰巧含这些词就会再投一轮。worker 把结构转成规范回执（`sent` 或失败原因）写入 job 输出。
+- **一次性路径**：`messengerSaidSent` 改为只看 stdout，任一行去掉首尾标点和引号后整行等于回执即算成功（中英文）。现在中文“已发送”出现在任意位置都算，失败叙述带这三个字会误判；只看末行也不行，对方秒回时末行是“已收到”，stderr 也会混入输出（`session_inject.go:163-172`）。`deliver_reconcile.go:171`、`message.go:423` 用同一函数。
 
 这项修正同样作用于名字路径：现在按名字发失败时，本机常驻路径也会误显示已送达。
 
@@ -182,7 +185,12 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 
 ### pid 复用
 
-新会话拿到旧会话的 pid 时，注册即清掉旧记录的地址，旧记录退回名字路径。残余风险：新进程是没有装 gofer hook 的 Claude，它不注册，旧记录仍指向它。这种情况下消息会投到那个会话，机器上同时存在装和没装 hook 的 Claude 才会发生；gofer 无法识别，记录在此，不增加机制（SR1410.1）。
+新会话拿到旧会话的 pid 时，新会话第一次上报地址就清掉旧记录的地址和 messenger 路径。
+
+残余风险，gofer 无法识别，记录在此，不增加机制（SR1410.1）：
+
+- 新进程是没有装 gofer hook 的 Claude，它不上报，旧记录仍指向它。
+- SessionStart 时会话文件若还没写地址，新会话第一次上报要等到下一个 hook 事件，这段时间旧记录仍指向它。是否存在这个窗口待实测。
 
 ## 安全、数据、运维与回滚
 
@@ -196,7 +204,7 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 
 误投风险：有权写自己会话记录的调用方可以把地址设成同机另一个 Claude 会话的地址，从而让发给自己会话的消息投到那里，也会清掉对方记录的地址（对方下次心跳写回）。收紧白名单后，到达范围只有 Claude 会话，与伪造 `peer_name` 相同，没有扩大权限，不新增防护。
 
-前提：地址只在写入它的命名空间内有效，而 `runner` 是自报标签。一台机器上多个容器若自报同一个 runner，地址可能指向另一个容器的同 pid 路径；名字路径在这种情况下只会报错，地址路径可能静默投错。部署上每个容器要用独立的 runner（现有 worker 部署已如此），在 `container-worker.md` 写明，验收覆盖。
+前提：地址只在写入它的命名空间内有效，而 `runner` 是自报标签。两种情况会让标签和命名空间对不上：多个容器自报同一个 runner；容器未设 client 模式时默认报 `server`（`commands/hook.go:346`），在 Linux 主机上可能命中主机的同 pid 会话。名字路径在这种情况下只会报错，地址路径可能静默投错。部署上每个容器要用独立的 runner（现有 worker 部署已如此），在 `docs/runbook/container-worker.md` 写明，验收覆盖。
 
 数据：`agent_sessions` 增加 `peer_socket TEXT`，默认空，ALTER 迁移。不回填，下次 hook 事件写入。发版后按 G057 补该版本的 `schema-v*` 快照。
 
@@ -225,6 +233,7 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 
 - 模型按新提示词的行为：不改字符、不多发，常驻和一次性各多轮，含 Windows 反斜杠。
 - Windows 地址失效时工具的返回，以及 `success:false` 时消息确实没有投出（目前只实测过 Linux ENOENT 和撞名）。
+- SessionStart 时会话文件是否已写地址。没写时按残余风险处理，写进实施记录。
 
 ## 结论与人工计划 Gate
 
@@ -238,7 +247,8 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 2. 选中的会话已退出、另有同名会话时：显示失败，另一个会话没有收到。
 3. 没有其他同名会话、地址过期时：回退名字，消息只投一次。
 4. 本机常驻路径上工具返回失败时：web 显示失败，不显示已送达（名字路径也一样）。
-5. pid 复用：新会话注册后，旧记录没有地址。
+5. pid 复用：用真实 SessionStart，新会话上报后，旧记录没有地址，`peer_messaging` 为 0；旧行 runner 写法不同（`server`、`local`）时同样清掉。
 6. 非法地址（如 docker.sock、带 `..`）被拒绝，走名字路径；日志不含原值。
 7. 旧库升级通过 `TestOpenUpgradesPreviousReleaseSchema`。
-8. 反向验证（SR1433）：把提示词改回只用名字，同名测试必须失败；去掉唯一性清理，pid 复用测试必须失败。
+8. 回执：对方秒回（末行是“已收到”）、stderr 有警告、回复带标点都判成功；失败叙述里带“已发送”判失败；常驻路径工具失败不转一次性 job。
+9. 反向验证（SR1433）：把提示词改回只用名字，同名测试必须失败；去掉唯一性清理，pid 复用测试必须失败。
