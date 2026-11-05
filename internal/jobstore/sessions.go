@@ -342,7 +342,7 @@ type AgentSession struct {
 	// One address belongs to one row per runner (see clearPeerSocketOthersTx).
 	PeerSocket   string
 	ProgressText string
-	ProgressAt     int64
+	ProgressAt   int64
 	// LastCwd is the directory the hook reported on its most recent heartbeat — for
 	// DISPLAY only ("current directory"). It never replaces Cwd (the registered
 	// directory) and takes no part in the wake-up directory decision.
@@ -765,10 +765,10 @@ type SessionHeartbeat struct {
 	// PeerSocket follows PeerMessaging's three-state rule: nil = this beat carried
 	// no address news (the stored one stays), non-nil = store this value, so &""
 	// clears the address.
-	PeerSocket   *string
-	ProgressText string
-	ProgressAt     int64
-	ClearProgress  bool
+	PeerSocket    *string
+	ProgressText  string
+	ProgressAt    int64
+	ClearProgress bool
 	// Cwd is the hook's current directory (display only → last_cwd). "" leaves the
 	// stored value alone.
 	Cwd string
