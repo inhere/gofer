@@ -118,7 +118,7 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
 ### T0 实测冻结工具结果和时序
 
 - 文件: 只写工作区 `tmp/g1lk-impl/`，脱敏的真实帧放 `tmp/g1lk-impl/frames/`，由 T3 复制到 worktree 的 `internal/messenger/testdata/`。
-- 动作: 用 `tmp/g1lk-probe/` 的脚本改写，常驻进程 `--output-format stream-json` 发 SendMessage，抓 tool_use、tool_result、`tool_use_result` 的原始帧。容器和 Windows 主机各抓成功、地址失效；容器再抓同名失败。两个平台都抓硬杀后的失效地址（socket 文件可能残留，错误不一定是 ENOENT），确认仍是 `success:false`；Windows 确认接收方没有收到。再抓 peer 回合的 `command_lifecycle` 和“请求排在 peer 回合之后”的帧序，确认 `peerTurn` 的依据在这两个版本上仍成立。另用 `--settings` 挂一个只记录会话文件内容的 SessionStart hook，看该时刻 `messagingSocketPath` 是否已写。
+- 动作: 用 `tmp/g1lk-probe/` 的脚本改写，常驻进程 `--output-format stream-json` 发 SendMessage，抓 tool_use、tool_result、`tool_use_result` 的原始帧。容器和 Windows 主机各抓成功、地址失效；容器再抓同名失败。两个平台都抓硬杀后的失效地址（socket 文件可能残留，错误不一定是 ENOENT），确认仍是 `success:false`；Windows 确认接收方没有收到。再抓 peer 回合的 `command_lifecycle` 和“请求排在 peer 回合之后”的帧序，确认 `peerTurn` 的依据在这两个版本上仍成立。同时确认 messenger 进程 transcript 的位置，以及能从中读到 SendMessage 的 `input.to`（T8 依赖）。另用 `--settings` 挂一个只记录会话文件内容的 SessionStart hook，看该时刻 `messagingSocketPath` 是否已写。
 - 验证: `tmp/g1lk-impl/facts.md` 写明每个场景的帧形状和版本；帧文件未跟踪，`check-private-names.sh` 扫不到，改用 `grep -E -f .private-names tmp/g1lk-impl/frames/*` 须无命中。real-env：本任务本身就是真实验证。
 - 完成标准: 解析规则能用一句话写出且覆盖两个版本；SessionStart 窗口有结论（有窗口时写进实施记录，按设计的残余风险处理）；没有触发 fail-closed。
 - 依赖: 无。
