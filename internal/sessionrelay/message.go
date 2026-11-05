@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
@@ -18,9 +19,13 @@ import (
 // Messenger is the narrow seam for a one-shot SendMessage job. The relay owns
 // ordering and delivery semantics; the job/http assembly layer owns how a job
 // is submitted and how its bounded output is read.
+//
+// output is the job's combined output (stdout + stderr): it is what a failure is
+// reported with. stdout is STDOUT ALONE, the channel the messenger's receipt is read
+// from — stderr carries warnings that must not vote on whether the text went out.
 type Messenger interface {
 	SubmitMessenger(projectKey, runner, cwd string, command []string, title, caller string) (string, error)
-	MessengerJob(jobID string) (done bool, status string, exitCode int, output string, err error)
+	MessengerJob(jobID string) (done bool, status string, exitCode int, output, stdout string, err error)
 }
 
 // MessengerAbandoner is the optional half of the one-shot messenger seam that settles a
@@ -238,12 +243,12 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 	_ = s.store.AppendSessionOutbox(m)
 	deadline := time.Now().Add(s.messengerTimeout)
 	for {
-		done, status, code, output, jerr := s.messenger.MessengerJob(jobID)
+		done, status, code, output, stdout, jerr := s.messenger.MessengerJob(jobID)
 		if jerr != nil {
 			return s.failMessage(m, jerr.Error())
 		}
 		if done {
-			if status == "done" && code == 0 && messengerSaidSent(output) {
+			if status == "done" && code == 0 && messengerSaidSent(stdout) {
 				m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
 				_ = s.store.AppendSessionOutbox(m)
 				return m, nil
@@ -389,20 +394,32 @@ const messengerChannel = "messenger"
 // both (design 2026-10-27-i18n-design.md §5).
 var messengerSentMarkers = []string{"已发送", "sent"}
 
-// messengerSaidSent reports whether a messenger job's output carries a forwarding
-// receipt in any language. The zh receipt is matched anywhere in the output, which
-// is how it has always been read; the English word only as a whole line, so a
-// sentence that merely mentions it ("the message was not sent") is not a receipt.
-func messengerSaidSent(output string) bool {
-	if strings.Contains(output, messengerSentMarkers[0]) {
-		return true
-	}
-	for _, line := range strings.Split(output, "\n") {
-		if strings.EqualFold(strings.TrimSpace(line), messengerSentMarkers[1]) {
+// messengerSaidSent reports whether a messenger's STDOUT carries a forwarding receipt
+// on a line of its own: 「已发送」 or `sent` once the surrounding punctuation / symbols a
+// model likes to wrap it in (quotes, asterisks, a full stop) are trimmed, compared
+// case-insensitively. Two limits are deliberate:
+//   - only stdout votes: stderr carries warnings, and a warning mentioning the receipt
+//     used to be enough to report a lost message as delivered;
+//   - the whole line must match, and a receipt EARLIER in the output still counts — the
+//     target often answers in the same run (「已收到」 on the last line), while a failure
+//     narrative ("the message was not sent", "send failed: sent") is not a receipt.
+func messengerSaidSent(stdout string) bool {
+	for _, line := range strings.Split(stdout, "\n") {
+		line = trimReceiptLine(line)
+		if strings.EqualFold(line, messengerSentMarkers[0]) || strings.EqualFold(line, messengerSentMarkers[1]) {
 			return true
 		}
 	}
 	return false
+}
+
+// trimReceiptLine removes whitespace and then the leading / trailing punctuation and
+// symbols a receipt may be wrapped in.
+func trimReceiptLine(line string) string {
+	line = strings.TrimSpace(line)
+	return strings.TrimSpace(strings.TrimFunc(line, func(r rune) bool {
+		return unicode.IsPunct(r) || unicode.IsSymbol(r)
+	}))
 }
 
 // settleTimedOutMessenger decides what the expiry of messengerTimeout means for the text
@@ -431,7 +448,7 @@ func (s *Service) settleTimedOutMessenger(lang i18n.Lang, m jobstore.SessionMess
 		return m, nil
 	case strings.TrimSpace(res.Status) != "":
 		return s.undeliveredMessage(m, notStarted(lang, res).Error())
-	case res.ExitCode == 0 && messengerSaidSent(res.Output):
+	case res.ExitCode == 0 && messengerSaidSent(res.Stdout):
 		m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, s.nowFn().Unix()
 		_ = s.store.AppendSessionOutbox(m)
 		return m, nil

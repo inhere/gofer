@@ -170,12 +170,34 @@ func TestEnglishSessionTextHasNoCJK(t *testing.T) {
 // its prompt named, so the reader accepts the zh and the English word (design §5).
 func TestMessengerReceiptIsReadInBothLanguages(t *testing.T) {
 	t.Parallel()
-	for _, out := range []string{"已发送", "已发送\n", "sent", "Sent\n", "  sent  \n"} {
+	receipts := []string{
+		"已发送",
+		"已发送\n",
+		"已发送。",
+		"sent",
+		"Sent\n",
+		"  sent  \n",
+		"\"sent\"",
+		"**sent**",
+		// The target answered in the same run: its own 「已收到」 follows the receipt.
+		"已发送\n已收到",
+	}
+	for _, out := range receipts {
 		if !messengerSaidSent(out) {
 			t.Errorf("receipt %q was not read", out)
 		}
 	}
-	for _, out := range []string{"", "not sent", "the message was not sent", "failed: SendMessage denied"} {
+	notReceipts := []string{
+		"",
+		"not sent",
+		"the message was not sent",
+		"failed: SendMessage denied",
+		// The words inside a sentence are not a receipt, in either language.
+		"消息未发送",
+		"没有已发送",
+		"send failed: sent",
+	}
+	for _, out := range notReceipts {
 		if messengerSaidSent(out) {
 			t.Errorf("%q was read as a receipt", out)
 		}

@@ -34,11 +34,11 @@ func (f *notifyFake) SubmitMessenger(_, _, _ string, command []string, title, ca
 	return "messenger-job-1", nil
 }
 
-func (f *notifyFake) MessengerJob(string) (bool, string, int, string, error) {
+func (f *notifyFake) MessengerJob(string) (bool, string, int, string, string, error) {
 	if f.deliverErr != nil {
-		return true, "failed", 1, f.deliverErr.Error(), nil
+		return true, "failed", 1, f.deliverErr.Error(), "", nil
 	}
-	return true, "done", 0, "已发送", nil
+	return true, "done", 0, "已发送", "已发送", nil
 }
 
 // notifySession registers one live Claude session with a messenger address.

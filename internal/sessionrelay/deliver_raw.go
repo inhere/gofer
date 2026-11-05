@@ -139,12 +139,12 @@ func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd, pe
 	}
 	deadline := time.Now().Add(s.messengerTimeout)
 	for {
-		done, status, code, output, jerr := s.messenger.MessengerJob(jobID)
+		done, status, code, output, stdout, jerr := s.messenger.MessengerJob(jobID)
 		if jerr != nil {
 			return RawResult{}, jerr
 		}
 		if done {
-			if status == "done" && code == 0 && messengerSaidSent(output) {
+			if status == "done" && code == 0 && messengerSaidSent(stdout) {
 				return RawResult{Path: PathMessenger, JobID: jobID}, nil
 			}
 			reason := strings.TrimSpace(output)

@@ -120,8 +120,8 @@ func (m *recordingMessenger) SubmitMessenger(_, _, _ string, command []string, _
 	m.commands = append(m.commands, command)
 	return "msgr-job", nil
 }
-func (*recordingMessenger) MessengerJob(string) (bool, string, int, string, error) {
-	return true, "done", 0, "已发送", nil
+func (*recordingMessenger) MessengerJob(string) (bool, string, int, string, string, error) {
+	return true, "done", 0, "已发送", "已发送", nil
 }
 
 // A session reachable ONLY through the messenger (a Claude Code session with a SendMessage

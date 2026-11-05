@@ -24,8 +24,8 @@ func (m *rawMessenger) SubmitMessenger(_, _, _ string, command []string, _, _ st
 	return "job-msgr", nil
 }
 
-func (m *rawMessenger) MessengerJob(string) (bool, string, int, string, error) {
-	return true, "done", 0, "已发送", nil
+func (m *rawMessenger) MessengerJob(string) (bool, string, int, string, string, error) {
+	return true, "done", 0, "已发送", "已发送", nil
 }
 
 func assertNoWebTrace(t *testing.T, s *Service, sid, wantState string) {

@@ -26,8 +26,8 @@ func (m *cwdMessenger) SubmitMessenger(projectKey, _, cwd string, _ []string, _,
 	return "job-msgr", nil
 }
 
-func (m *cwdMessenger) MessengerJob(string) (bool, string, int, string, error) {
-	return true, "done", 0, "已发送", nil
+func (m *cwdMessenger) MessengerJob(string) (bool, string, int, string, string, error) {
+	return true, "done", 0, "已发送", "已发送", nil
 }
 
 // projectlessSession registers a session whose cwd belongs to no project (the shape the

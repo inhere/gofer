@@ -14,8 +14,8 @@ type stubMessenger struct{}
 func (stubMessenger) SubmitMessenger(string, string, string, []string, string, string) (string, error) {
 	return "j", nil
 }
-func (stubMessenger) MessengerJob(string) (bool, string, int, string, error) {
-	return true, "done", 0, "已发送", nil
+func (stubMessenger) MessengerJob(string) (bool, string, int, string, string, error) {
+	return true, "done", 0, "已发送", "已发送", nil
 }
 
 // CheckDeliverable mirrors SendMessage's routing without sending anything.

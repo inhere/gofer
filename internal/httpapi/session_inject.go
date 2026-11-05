@@ -126,15 +126,15 @@ func messengerJobChannel(runnerKey string) string {
 	return "resident"
 }
 
-func (x sessionInjector) MessengerJob(jobID string) (done bool, status string, exitCode int, output string, err error) {
+func (x sessionInjector) MessengerJob(jobID string) (done bool, status string, exitCode int, output, stdout string, err error) {
 	out, ok := x.jobs.Get(jobID)
 	if !ok {
-		return false, "", -1, "", errors.New("messenger job not found")
+		return false, "", -1, "", "", errors.New("messenger job not found")
 	}
 	if !job.IsTerminal(out.Status) {
-		return false, out.Status, out.ExitCode, "", nil
+		return false, out.Status, out.ExitCode, "", "", nil
 	}
-	return true, out.Status, out.ExitCode, x.jobOutput(jobID, out), nil
+	return true, out.Status, out.ExitCode, x.jobOutput(jobID, out), x.jobStdout(jobID), nil
 }
 
 // AbandonMessengerJob settles a one-shot messenger job gofer stops waiting for
@@ -161,7 +161,7 @@ func (x sessionInjector) InjectJob(jobID string) (sessionrelay.InjectState, erro
 		return sessionrelay.InjectState{Known: true, Status: out.Status}, nil
 	}
 	return sessionrelay.InjectState{Known: true, Done: true, Status: out.Status,
-		ExitCode: out.ExitCode, Output: x.jobOutput(jobID, out)}, nil
+		ExitCode: out.ExitCode, Output: x.jobOutput(jobID, out), Stdout: x.jobStdout(jobID)}, nil
 }
 
 // jobOutput is the bounded stdout+stderr tail of a finished job, falling back to the
@@ -181,6 +181,13 @@ func (x sessionInjector) jobOutput(jobID string, out job.JobResult) string {
 		output = out.Error
 	}
 	return output
+}
+
+// jobStdout is the stdout half of the same bounded tail. The messenger's receipt is
+// read from it, so stderr — warnings, progress notes — must never be part of it.
+func (x sessionInjector) jobStdout(jobID string) string {
+	stdout, _ := x.jobs.TailLog(jobID, store.StreamStdout, 4096)
+	return strings.TrimSpace(string(stdout))
 }
 
 // InjectSession runs one injection job to completion and reports its exit code
@@ -237,7 +244,7 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 
 // injectResult reads one finished (or failed) injection job's exit code and output tail.
 func (x sessionInjector) injectResult(out job.JobResult) sessionrelay.InjectResult {
-	return sessionrelay.InjectResult{JobID: out.ID, ExitCode: out.ExitCode, Output: x.jobOutput(out.ID, out)}
+	return sessionrelay.InjectResult{JobID: out.ID, ExitCode: out.ExitCode, Output: x.jobOutput(out.ID, out), Stdout: x.jobStdout(out.ID)}
 }
 
 // gaveUp resolves what the expiry of the wait window means for the TEXT (gofer-qzv5).

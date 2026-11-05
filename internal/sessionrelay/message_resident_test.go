@@ -19,8 +19,8 @@ func (f *residentFake) SubmitMessenger(string, string, string, []string, string,
 	f.submitted++
 	return "job-1", nil
 }
-func (*residentFake) MessengerJob(string) (bool, string, int, string, error) {
-	return true, "done", 0, "已发送", nil
+func (*residentFake) MessengerJob(string) (bool, string, int, string, string, error) {
+	return true, "done", 0, "已发送", "已发送", nil
 }
 func (f *residentFake) SendMessengerResident(_ context.Context, runner, _, target string, _ []string) (ResidentResult, error) {
 	f.residentCalls = append(f.residentCalls, runner+"|"+target)
