@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // The session peer address (design 2026-11-05 「地址校验」). A Claude Code session's
@@ -62,4 +64,51 @@ func checkPeerSocket(sid, raw string) string {
 	}
 	slog.Warn("sessionrelay: dropped an invalid session peer address", "session_id", sid)
 	return ""
+}
+
+// messengerTarget is where a messenger is told to send one session's text (design
+// 2026-11-05 「提示词」): the session's name, its peer address when it reported one,
+// and whether the prompt may fall back to the name.
+//
+// Fallback only means something together with an address: without one the name IS the
+// target, so there is nothing to fall back from.
+type messengerTarget struct {
+	Name     string
+	Socket   string
+	Fallback bool
+}
+
+// messengerTargetFor decides the target for a session that is reached through the
+// messenger. An address that no longer passes validPeerSocket (a row written before
+// the server validated, or a value that changed shape since) counts as no address, so
+// such a session keeps the name path exactly as it was before the column existed.
+//
+// The prompt may name the fallback only when no OTHER live session of the same runner
+// carries the same name (design 「地址过期」): the human picked THIS process, and a
+// name that is ambiguous would deliver into the wrong one. A row without a runner does
+// not take part — it never said where it runs (plan R2) — and a lookup that fails
+// counts as "a namesake exists" (no fallback), because guessing there delivers into the
+// wrong session. The warning carries the session id only: the address is a capability
+// and never reaches the log.
+func (s *Service) messengerTargetFor(a jobstore.AgentSession) messengerTarget {
+	t := messengerTarget{Name: strings.TrimSpace(a.PeerName), Socket: validPeerSocket(a.PeerSocket)}
+	if t.Socket == "" || t.Name == "" {
+		return t
+	}
+	others, err := s.store.ListLiveSessionsByPeerName(t.Name)
+	if err != nil {
+		slog.Warn("sessionrelay: list live sessions by peer name failed", "session_id", a.SessionID, "err", err)
+		return t
+	}
+	t.Fallback = true
+	for _, other := range others {
+		if other.SessionID == a.SessionID || strings.TrimSpace(other.Runner) == "" || strings.TrimSpace(a.Runner) == "" {
+			continue
+		}
+		if s.sameRunner(other.Runner, a.Runner) {
+			t.Fallback = false
+			break
+		}
+	}
+	return t
 }

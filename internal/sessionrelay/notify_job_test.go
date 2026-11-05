@@ -207,7 +207,7 @@ func TestFormatJobEndedNoticeUsesTheSystemNoticePrefix(t *testing.T) {
 // user called "gofer" (gofer-11gk). A person's message keeps the web prefix.
 func TestMessengerPromptKeepsNoticesApartFromWebMessages(t *testing.T) {
 	notice := FormatJobEndedNotice(i18n.ZhCN, JobEndedNotice{JobID: "job-m", Status: "done"})
-	prompt := messengerPrompt(i18n.ZhCN, "proj-a", OperatorGofer, notice)
+	prompt := messengerPrompt(i18n.ZhCN, messengerTarget{Name: "proj-a"}, OperatorGofer, notice)
 	line := prompt[strings.LastIndex(prompt, "\n")+1:]
 	if !strings.HasPrefix(line, JobDoneTag) {
 		t.Fatalf("forwarded line = %q, want the notice under %q", line, JobDoneTag)
@@ -215,7 +215,7 @@ func TestMessengerPromptKeepsNoticesApartFromWebMessages(t *testing.T) {
 	if strings.Contains(prompt, WebMessagePrefix) {
 		t.Fatalf("a system notice must not wear the web prefix: %q", prompt)
 	}
-	if web := messengerPrompt(i18n.ZhCN, "proj-a", "alice", "hi"); !strings.Contains(web, WebMessagePrefix+"，alice] hi") {
+	if web := messengerPrompt(i18n.ZhCN, messengerTarget{Name: "proj-a"}, "alice", "hi"); !strings.Contains(web, WebMessagePrefix+"，alice] hi") {
 		t.Fatalf("a person's message keeps the web prefix: %q", web)
 	}
 }

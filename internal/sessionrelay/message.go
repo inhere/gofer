@@ -209,16 +209,25 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 		return s.failMessage(m, i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.no_runner"))
 	}
 	lang := s.lang(a.ProjectKey)
+	target := s.messengerTargetFor(a)
 	if resident, ok := s.messenger.(ResidentMessenger); ok && s.IsServerLocalRunner(a.Runner) {
-		command := []string{s.messengerCommand, "-p", messengerPrompt(lang, a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
-		res, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, a.PeerName, command)
+		command := []string{s.messengerCommand, "-p", messengerPrompt(lang, target, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
+		res, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, target.Name, command)
 		if rerr == nil {
-			// res.Sent is read by T5: a tool-level failure on this path must be reported as
-			// a failure instead of 「已送达」. T3 only carries the value through the seam.
-			_ = res
-			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
-			_ = s.store.AppendSessionOutbox(m)
-			return m, nil
+			// A resident turn's SendMessage tool_result is the truth (design 「投递结果判定」):
+			// a tool-level failure is a failure the web must show, and it does NOT become a
+			// one-shot job — a second attempt could hand the same text over twice while the
+			// first one landed. An empty Reason means the turn called no SendMessage at all.
+			if res.Sent {
+				m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
+				_ = s.store.AppendSessionOutbox(m)
+				return m, nil
+			}
+			reason := strings.TrimSpace(res.Reason)
+			if reason == "" {
+				reason = i18n.T(lang, "sessionrelay.reason.messenger_no_send")
+			}
+			return s.failMessage(m, reason)
 		}
 		// Startup/early process failures fall back to the durable one-shot job. A
 		// timeout after a request was written is terminal for this message so a
@@ -234,8 +243,8 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 	case <-ctx.Done():
 		return s.failMessage(m, ctx.Err().Error())
 	}
-	command := []string{s.messengerCommand, "-p", messengerPrompt(lang, a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
-	jobID, err := s.messenger.SubmitMessenger(a.ProjectKey, a.Runner, a.Cwd, command, "session messenger · "+a.PeerName, origin)
+	command := []string{s.messengerCommand, "-p", messengerPrompt(lang, target, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
+	jobID, err := s.messenger.SubmitMessenger(a.ProjectKey, a.Runner, a.Cwd, command, "session messenger · "+target.Name, origin)
 	if err != nil {
 		return s.failMessage(m, err.Error())
 	}
@@ -349,15 +358,33 @@ func (s *Service) IsServerLocalRunner(label string) bool {
 // (gofer-02fu).
 const MessengerSessionName = "gofer-web"
 
-func messengerPrompt(lang i18n.Lang, name, operator, text string) string {
+func messengerPrompt(lang i18n.Lang, target messengerTarget, operator, text string) string {
 	if strings.TrimSpace(operator) == "" {
 		operator = "web"
 	}
-	// The second sentence keeps the resident messenger from retelling the target's
-	// answer: gofer shows that answer on the web itself (gofer-6er0). It must not
-	// contain "] " — the original text is cut after the first one.
-	return i18n.T(lang, "sessionrelay.messenger.prompt", "name", fmt.Sprintf("%q", name)) +
+	// The second sentence of the instruction keeps the resident messenger from retelling
+	// the target's answer: gofer shows that answer on the web itself (gofer-6er0). It must
+	// not contain "] " — the original text is cut after the first one.
+	return messengerInstruction(lang, target, "prompt") +
 		"\n" + messengerLine(lang, operator, text)
+}
+
+// messengerInstruction renders the messenger's own instruction, the part the prompt puts
+// before the forwarded text (design 「提示词」). Without an address it is the text gofer has
+// always sent, word for word: such a session keeps behaving exactly as before. With one,
+// it names the address to write into `to` verbatim and says what a tool failure means —
+// never fall back to the name while another live session on the same runner carries it
+// (the human picked THIS process), fall back once when nothing else has it.
+func messengerInstruction(lang i18n.Lang, target messengerTarget, base string) string {
+	key := "sessionrelay.messenger." + base
+	switch {
+	case target.Socket == "":
+	case target.Fallback:
+		key += "_address_fallback"
+	default:
+		key += "_address"
+	}
+	return i18n.T(lang, key, "name", fmt.Sprintf("%q", target.Name), "address", target.Socket)
 }
 
 // messengerLine is the line the messenger forwards, exactly as the target session

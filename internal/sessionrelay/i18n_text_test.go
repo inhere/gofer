@@ -70,8 +70,8 @@ func TestZhSessionTextIsUnchanged(t *testing.T) {
 			"agent", "claude", "cwd", "/w/proj", "basis", "依据句"),
 		"warning not ended": i18n.T(zh, "sessionrelay.resume.warning_not_ended"),
 		"warning offline":   i18n.T(zh, "sessionrelay.resume.warning_offline"),
-		"messenger prompt":  messengerPrompt(zh, "proj-a", "alice", "hi"),
-		"wake prompt":       wakeMessengerPrompt(zh, "peer-a", "<gofer-mail-wake/>"),
+		"messenger prompt":  messengerPrompt(zh, messengerTarget{Name: "proj-a"}, "alice", "hi"),
+		"wake prompt":       wakeMessengerPrompt(zh, messengerTarget{Name: "peer-a"}, "<gofer-mail-wake/>"),
 	}
 	want := map[string]string{
 		"job notice": "[gofer · job 完成] job-1 t status=needs_review exit=2 耗时1m30s" +
@@ -142,8 +142,8 @@ func TestEnglishSessionTextHasNoCJK(t *testing.T) {
 		ExplainReasonIn(en, ReasonEnded, a, nil),
 		ExplainReasonIn(en, "why", a, nil),
 		runnerLabelIn(en, ""),
-		messengerPrompt(en, "proj-a", "alice", "hi"),
-		wakeMessengerPrompt(en, "peer-a", "<gofer-mail-wake/>"),
+		messengerPrompt(en, messengerTarget{Name: "proj-a"}, "alice", "hi"),
+		wakeMessengerPrompt(en, messengerTarget{Name: "peer-a"}, "<gofer-mail-wake/>"),
 	}
 	for _, key := range []string{"sessionrelay.decision.permission_title", "sessionrelay.decision.question_title",
 		"sessionrelay.decision.online_title", "sessionrelay.decision.online_question",
