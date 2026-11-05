@@ -633,6 +633,17 @@ A session belongs to the caller that registered it (`session.caller_id`): a late
 - `POST /v1/sessions/{sid}/owner` body `{"caller_id": "<id>"}` hands the session to another caller. The session keeps its state, turns and job watches; the owner changes, the refusal note is cleared, and the response is the updated session view. The session's own `session:<sid>` grants are revoked in the same transaction: ownership is one of the things a session grant is judged by, so they stop applying anyway, and revoking them says so in the row. Gate: `session.transfer`, which belongs to the root administrators alone (it is in the 严格检查 group, independent of the governance switches) — not waived by anything, since "give my session to your token" is exactly what must stay with the operator. Worker credentials are `403` (a machine credential does not act for a person); job credentials are `403` through the SEC-01 default-deny route table (`POST /v1/sessions/*/owner` → "hand a session to another caller"). A caller the server cannot authenticate — not in `server.callers` and not the legacy token's `default` (worker ids count as unknown) — is `400`, an unknown session `404`.
 - CLI: `gofer session owner <sid> <caller>`; `gofer session show` prints the owner and the last refusal.
 
+## 会话间地址（只写不读的 hook 字段）
+
+Claude Code 会话可以直接收另一个会话发的消息，而这个端点只有 hook 知道：hook 从会话文件读到它，在 `POST /v1/sessions`（注册体）和 `POST /v1/sessions/{sid}/heartbeat` 里作为 `peer_socket` 上报（心跳不带该字段时已存的值不动，`""` 即清除）。
+
+- 只接受 Claude Code 实际写出的两种形状：以 `/cc-socks/<pid>.sock` 结尾的 POSIX 绝对路径（路径段 `[A-Za-z0-9._-]`、不含 `..`、不超过 256 字符），或 Windows 命名管道 `\\.\pipe\LOCAL\cc-msg-<32 位小写十六进制>`。其它值一律按空存储（该会话保持原来的名字路径），服务端记一条只写 session id 的 `WARN`：地址是能力凭据，原值不进日志。
+- 只写不读：任何会话视图都不带它；它只用于写传话人的提示词，以及把传话人收到的回复归到哪个会话。
+- 一个地址只属于**同一个 runner** 上的一个会话：写入非空值时，同一 runner 上还持有该地址的其他行会在同一个事务里被清空地址（并置 `peer_messaging` 为 false）——退出的进程会把 pid 连同这个地址留给下一个会话。runner 标签按全系统同一口径比较（`local` / `server` 是同一个 runner，不分大小写）；没有 runner 的行不参与。
+- 投递目标：存了地址的会话按地址投递；同一 runner 上没有别的同名存活会话时，提示词才允许改按名字回退一次。没有地址时什么都不变，仍按名字投递。
+
+校验、投递判断与回复归属在 `internal/sessionrelay`；hook（`internal/hookrelay`）只上报会话文件里的值。
+
 ## Session stop-wait policy (watched jobs)
 
 `session.stop_job_wait` (`away` default | `always` | `never`) decides what a Stop hook does about the session's watched jobs (a plan bound to the session, or a job with `source_session_id`). Every session answer (`POST /v1/sessions`, `POST /v1/sessions/{sid}/heartbeat`, `GET /v1/sessions`, `GET /v1/sessions/{sid}`) carries it as `stop_job_wait`, so a hook running where no config file of its own is readable (a container) still obeys the operator; a hook whose own config sets the key uses that instead. The hook owns the decision, because it owns the keyboard reading: `away` blocks only when the relay's own rules say the person is away (`relay=on`, or `relay=auto` with the idle over `auto_relay_idle_sec`; an unreadable idle counts as present), `always` keeps the pre-knob behaviour, `never` never blocks — a released Stop is not a lost notice, the next `SessionStart` / `UserPromptSubmit` catches it up.
