@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
@@ -129,10 +130,7 @@ func (s *Service) RecordMessengerReply(runner, peerName, from, body string) (job
 }
 
 func (s *Service) sameRunner(label, runner string) bool {
-	if s.IsServerLocalRunner(label) && s.IsServerLocalRunner(runner) {
-		return true
-	}
-	return strings.EqualFold(strings.TrimSpace(label), strings.TrimSpace(runner))
+	return config.SameRunnerLabel(label, runner)
 }
 
 func (s *Service) now() time.Time {

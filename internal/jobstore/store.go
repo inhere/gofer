@@ -549,6 +549,11 @@ var schemaStmts = []string{
   peer_name         TEXT,
   peer_status       TEXT,
   peer_messaging    INTEGER NOT NULL DEFAULT 0,
+  -- peer_socket（设计 2026-11-05 会话地址）: the Claude Code session's own messaging
+  -- endpoint (a local socket / pipe), written by the hook and validated by the
+  -- server. '' = no address, i.e. the name path. Additive, no index (a lookup is
+  -- by exact value on a small table; 旧库经 migrateAgentSessions 补列).
+  peer_socket       TEXT NOT NULL DEFAULT '',
   progress_text     TEXT,
   last_cwd          TEXT,
   usage_json        TEXT,
@@ -2426,6 +2431,9 @@ func (s *Store) migrateAgentSessions() error {
 		{"peer_status", "ALTER TABLE agent_sessions ADD COLUMN peer_status TEXT"},
 		{"peer_name_source", "ALTER TABLE agent_sessions ADD COLUMN peer_name_source TEXT"},
 		{"peer_messaging", "ALTER TABLE agent_sessions ADD COLUMN peer_messaging INTEGER NOT NULL DEFAULT 0"},
+		// peer_socket（设计 2026-11-05 会话地址）: a pre-column row reads back '' via COALESCE,
+		// i.e. "no address" — it keeps the name path until its next hook event.
+		{"peer_socket", "ALTER TABLE agent_sessions ADD COLUMN peer_socket TEXT NOT NULL DEFAULT ''"},
 		{"progress_text", "ALTER TABLE agent_sessions ADD COLUMN progress_text TEXT"},
 		{"progress_at", "ALTER TABLE agent_sessions ADD COLUMN progress_at INTEGER NOT NULL DEFAULT 0"},
 		{"last_cwd", "ALTER TABLE agent_sessions ADD COLUMN last_cwd TEXT"},
