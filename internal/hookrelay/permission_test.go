@@ -212,6 +212,9 @@ func TestPostToolUseSettlesOnlyItsOwnPendingPrompt(t *testing.T) {
 	assert.False(t, SkipPostToolUse(pending, opts.PermissionStateDir))
 	bash := payload(t, "claude", map[string]any{"session_id": "s1", "hook_event_name": "PostToolUse", "tool_name": "Bash"})
 	assert.False(t, SkipPostToolUse(bash, opts.PermissionStateDir))
+	// A SendMessage may be the session answering a web message: the hook must run.
+	send := payload(t, "claude", map[string]any{"session_id": "s1", "hook_event_name": "PostToolUse", "tool_name": sendMessageTool})
+	assert.False(t, SkipPostToolUse(send, opts.PermissionStateDir))
 
 	_, err := Run(f, other, opts)
 	assert.NoErr(t, err)

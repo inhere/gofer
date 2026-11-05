@@ -121,3 +121,19 @@ func TestWebReplyOfIgnoresStructuredMessage(t *testing.T) {
 		t.Fatalf("structured message reported as reply %q", text)
 	}
 }
+
+// The session holds the language the server wrote: an English server's web message is
+// answered and reported just like a Chinese one, and an English gofer notice still is not.
+func TestWebReplyOfRecognisesEveryLanguage(t *testing.T) {
+	for _, body := range []string{"[from web, default] hi", "[web reply, default] hi", "[来自 web，default] hi", "[来自 web 回复，default] hi"} {
+		transcript := writeTranscript(t, webMessageEntry(t, messengerAddr, body, false))
+		text, _ := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, messengerAddr, "hello")})
+		if text != "hello" {
+			t.Fatalf("answer to %q reported as %q, want hello", body, text)
+		}
+	}
+	transcript := writeTranscript(t, webMessageEntry(t, messengerAddr, "[gofer · job done] finished", false))
+	if text, _ := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, messengerAddr, "hello")}); text != "" {
+		t.Fatalf("answer to a gofer notice reported as %q", text)
+	}
+}

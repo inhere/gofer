@@ -66,11 +66,11 @@ func webMessageFrom(path, address string) bool {
 		return false
 	}
 	addr := []byte(address)
-	prefix := []byte(msgprefix.WebMessageOpen)
+	prefixes := personOpens()
 	quotedFrom := []byte(`from=\"` + address + `\"`)
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := lines[i]
-		if !bytes.Contains(line, addr) || !bytes.Contains(line, prefix) {
+		if !bytes.Contains(line, addr) || !containsAny(line, prefixes) {
 			continue
 		}
 		var entry struct {
@@ -89,6 +89,28 @@ func webMessageFrom(path, address string) bool {
 			}
 		}
 		if bytes.Contains(line, quotedFrom) {
+			return true
+		}
+	}
+	return false
+}
+
+// personOpens lists the opening words of a person's message in every language: the
+// session holds whatever language the server wrote when the message arrived, and
+// this quick filter must not be narrower than webMessageBody.
+func personOpens() [][]byte {
+	var out [][]byte
+	for _, kind := range []string{msgprefix.WebMessage, msgprefix.WebReply} {
+		for _, open := range msgprefix.PersonOpens(kind) {
+			out = append(out, []byte(open))
+		}
+	}
+	return out
+}
+
+func containsAny(line []byte, subs [][]byte) bool {
+	for _, sub := range subs {
+		if bytes.Contains(line, sub) {
 			return true
 		}
 	}

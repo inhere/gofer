@@ -151,9 +151,9 @@ func TestMessengerAddressPromptIsVerbatim(t *testing.T) {
 				assert.False(t, strings.Contains(got, `\\\\`),
 					"%s %s must not carry a %q-escaped address: %q", lang, base, got)
 				assert.Eq(t, 1, strings.Count(got, peerTestPipe), "%s %s names the address once", lang, base)
-				assert.True(t, strings.Contains(got, `"proj-4d"`), "%s %s keeps the quoted name", lang, base)
 				assert.False(t, strings.Contains(got, "] "), "%s %s must not contain \"] \": %q", lang, base, got)
 				if fallback {
+					assert.True(t, strings.Contains(got, `"proj-4d"`), "%s %s keeps the quoted name", lang, base)
 					assert.True(t, strings.Contains(got, fallbackSentence[lang]), "%s %s allows one fallback", lang, base)
 					assert.True(t, strings.Contains(got, "success:false"), "%s %s names the failure that allows it", lang, base)
 					continue
@@ -288,4 +288,23 @@ func TestWakeMessengerPromptUsesTheAddress(t *testing.T) {
 	}
 	assert.Eq(t, wakeMessengerPrompt(i18n.ZhCN, messengerTarget{Name: "peer-a"}, "<gofer-mail-wake/>"),
 		messengerInstruction(i18n.ZhCN, messengerTarget{Name: "peer-a"}, "wake_prompt")+"\n<gofer-mail-wake/>")
+}
+
+// With a namesake alive the name is the one target that delivers into the wrong session,
+// so the prompt does not hand it to the model; a fallback prompt must name it, and says
+// the first call goes to the address.
+func TestAddressPromptNamesTheSessionOnlyWithFallback(t *testing.T) {
+	first := map[i18n.Lang]string{i18n.ZhCN: "第一次调用", i18n.EN: "your first call"}
+	for _, lang := range []i18n.Lang{i18n.EN, i18n.ZhCN} {
+		for _, base := range []string{"prompt", "wake_prompt"} {
+			strict := messengerInstruction(lang, messengerTarget{Name: "proj-4d", Socket: peerTestPipe}, base)
+			assert.False(t, strings.Contains(strict, "proj-4d"), "%s %s must not carry the name: %q", lang, base, strict)
+			assert.True(t, strings.Contains(strict, "uds:"+peerTestPipe), "%s %s keeps the backslashes: %q", lang, base, strict)
+
+			fallback := messengerInstruction(lang, messengerTarget{Name: "proj-4d", Socket: peerTestPipe, Fallback: true}, base)
+			assert.True(t, strings.Contains(fallback, `"proj-4d"`), "%s %s names the fallback: %q", lang, base, fallback)
+			assert.True(t, strings.Contains(fallback, first[lang]), "%s %s puts the address first: %q", lang, base, fallback)
+			assert.True(t, strings.Contains(fallback, "uds:"+peerTestPipe), "%s %s keeps the backslashes: %q", lang, base, fallback)
+		}
+	}
 }
