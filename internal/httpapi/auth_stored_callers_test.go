@@ -219,7 +219,10 @@ func TestStoredCallerLongConnSurvivesSweepAndEndsOnDisable(t *testing.T) {
 func TestStoredCallerRateLimitComesFromItsOwnEntry(t *testing.T) {
 	t.Parallel()
 	limited := storedCaller("dbuser", "gct-dbuser-token")
-	limited.RateLimit, limited.RateBurst = 1, 1 // one submit per second, burst one: the second is over
+	// Burst one and a refill far slower than the test: the first submit waits for its job, and
+	// on a loaded machine that takes longer than a second, so a per-second rate would admit the
+	// second submit.
+	limited.RateLimit, limited.RateBurst = 0.001, 1
 	s := newTestServerCfg(t, config.ServerConfig{Callers: []config.CallerConfig{limited}})
 
 	submit := func() int {
