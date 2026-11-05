@@ -124,13 +124,11 @@ func messengerBody(o *replyOrigin) bool {
 	return o.Name == msgprefix.MessengerName && !msgprefix.IsSystem(body) && !strings.HasPrefix(body, mailWakeOpen)
 }
 
-// jsonEscaped is s as it appears inside a JSON string.
-func jsonEscaped(s string) []byte {
-	b, err := json.Marshal(s)
-	if err != nil || len(b) < 2 {
-		return []byte(s)
-	}
-	return b[1 : len(b)-1]
+// jsonEscaped is an address as it appears inside a JSON string. Only the backslashes of
+// a Windows pipe differ; a value with anything else to escape is not an address, and it
+// simply matches nothing in the transcript.
+func jsonEscaped(address string) []byte {
+	return []byte(strings.ReplaceAll(address, `\`, `\\`))
 }
 
 // personOpens lists the opening words of a person's message in every language: the
