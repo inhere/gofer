@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
@@ -18,9 +19,13 @@ import (
 // Messenger is the narrow seam for a one-shot SendMessage job. The relay owns
 // ordering and delivery semantics; the job/http assembly layer owns how a job
 // is submitted and how its bounded output is read.
+//
+// output is the job's combined output (stdout + stderr): it is what a failure is
+// reported with. stdout is STDOUT ALONE, the channel the messenger's receipt is read
+// from — stderr carries warnings that must not vote on whether the text went out.
 type Messenger interface {
 	SubmitMessenger(projectKey, runner, cwd string, command []string, title, caller string) (string, error)
-	MessengerJob(jobID string) (done bool, status string, exitCode int, output string, err error)
+	MessengerJob(jobID string) (done bool, status string, exitCode int, output, stdout string, err error)
 }
 
 // MessengerAbandoner is the optional half of the one-shot messenger seam that settles a
@@ -38,11 +43,20 @@ type MessengerAbandoner interface {
 	AbandonMessengerJob(jobID string) (InjectResult, error)
 }
 
+// ResidentResult is the tool-level outcome of a resident SendMessage request: Sent
+// says whether the messenger's tool call delivered the text, Reason why it did not
+// (empty when the turn made no call, or when it succeeded). It is the resident
+// counterpart of the receipt the one-shot messenger job writes to its stdout.
+type ResidentResult struct {
+	Sent   bool
+	Reason string
+}
+
 // ResidentMessenger is an optional same-runner stream bridge. Implementations
 // may keep one process per runner and must serialize requests; callers fall back
 // to Messenger's one-shot job path when this capability is absent.
 type ResidentMessenger interface {
-	SendMessengerResident(ctx context.Context, runner, cwd, target string, command []string) (string, error)
+	SendMessengerResident(ctx context.Context, runner, cwd, target string, command []string) (ResidentResult, error)
 }
 
 // ConfigureMessaging applies the server-scoped message bridge policy.
@@ -195,14 +209,25 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 		return s.failMessage(m, i18n.T(s.lang(a.ProjectKey), "sessionrelay.reason.no_runner"))
 	}
 	lang := s.lang(a.ProjectKey)
+	target := s.messengerTargetFor(a)
 	if resident, ok := s.messenger.(ResidentMessenger); ok && s.IsServerLocalRunner(a.Runner) {
-		command := []string{s.messengerCommand, "-p", messengerPrompt(lang, a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
-		output, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, a.PeerName, command)
+		command := []string{s.messengerCommand, "-p", messengerPrompt(lang, target, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
+		res, rerr := resident.SendMessengerResident(ctx, localRunnerKey, a.Cwd, target.Name, command)
 		if rerr == nil {
-			m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
-			_ = s.store.AppendSessionOutbox(m)
-			_ = output
-			return m, nil
+			// A resident turn's SendMessage tool_result is the truth (design 「投递结果判定」):
+			// a tool-level failure is a failure the web must show, and it does NOT become a
+			// one-shot job — a second attempt could hand the same text over twice while the
+			// first one landed. An empty Reason means the turn called no SendMessage at all.
+			if res.Sent {
+				m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
+				_ = s.store.AppendSessionOutbox(m)
+				return m, nil
+			}
+			reason := strings.TrimSpace(res.Reason)
+			if reason == "" {
+				reason = i18n.T(lang, "sessionrelay.reason.messenger_no_send")
+			}
+			return s.failMessage(m, reason)
 		}
 		// Startup/early process failures fall back to the durable one-shot job. A
 		// timeout after a request was written is terminal for this message so a
@@ -218,8 +243,8 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 	case <-ctx.Done():
 		return s.failMessage(m, ctx.Err().Error())
 	}
-	command := []string{s.messengerCommand, "-p", messengerPrompt(lang, a.PeerName, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
-	jobID, err := s.messenger.SubmitMessenger(a.ProjectKey, a.Runner, a.Cwd, command, "session messenger · "+a.PeerName, origin)
+	command := []string{s.messengerCommand, "-p", messengerPrompt(lang, target, operator, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
+	jobID, err := s.messenger.SubmitMessenger(a.ProjectKey, a.Runner, a.Cwd, command, "session messenger · "+target.Name, origin)
 	if err != nil {
 		return s.failMessage(m, err.Error())
 	}
@@ -227,12 +252,12 @@ func (s *Service) SendMessage(ctx context.Context, sid, text, operator, origin s
 	_ = s.store.AppendSessionOutbox(m)
 	deadline := time.Now().Add(s.messengerTimeout)
 	for {
-		done, status, code, output, jerr := s.messenger.MessengerJob(jobID)
+		done, status, code, output, stdout, jerr := s.messenger.MessengerJob(jobID)
 		if jerr != nil {
 			return s.failMessage(m, jerr.Error())
 		}
 		if done {
-			if status == "done" && code == 0 && messengerSaidSent(output) {
+			if status == "done" && code == 0 && messengerSaidSent(stdout) {
 				m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, time.Now().Unix()
 				_ = s.store.AppendSessionOutbox(m)
 				return m, nil
@@ -331,17 +356,35 @@ func (s *Service) IsServerLocalRunner(label string) bool {
 // the receiving session sees a web message as coming from "gofer-web" — the person
 // on the web — rather than from an auto-named session of the target's directory
 // (gofer-02fu).
-const MessengerSessionName = "gofer-web"
+const MessengerSessionName = msgprefix.MessengerName
 
-func messengerPrompt(lang i18n.Lang, name, operator, text string) string {
+func messengerPrompt(lang i18n.Lang, target messengerTarget, operator, text string) string {
 	if strings.TrimSpace(operator) == "" {
 		operator = "web"
 	}
-	// The second sentence keeps the resident messenger from retelling the target's
-	// answer: gofer shows that answer on the web itself (gofer-6er0). It must not
-	// contain "] " — the original text is cut after the first one.
-	return i18n.T(lang, "sessionrelay.messenger.prompt", "name", fmt.Sprintf("%q", name)) +
+	// The second sentence of the instruction keeps the resident messenger from retelling
+	// the target's answer: gofer shows that answer on the web itself (gofer-6er0). It must
+	// not contain "] " — the original text is cut after the first one.
+	return messengerInstruction(lang, target, "prompt") +
 		"\n" + messengerLine(lang, operator, text)
+}
+
+// messengerInstruction renders the messenger's own instruction, the part the prompt puts
+// before the forwarded text (design 「提示词」). Without an address it is the text gofer has
+// always sent, word for word: such a session keeps behaving exactly as before. With one,
+// it names the address to write into `to` verbatim and says what a tool failure means —
+// never fall back to the name while another live session on the same runner carries it
+// (the human picked THIS process), fall back once when nothing else has it.
+func messengerInstruction(lang i18n.Lang, target messengerTarget, base string) string {
+	key := "sessionrelay.messenger." + base
+	switch {
+	case target.Socket == "":
+	case target.Fallback:
+		key += "_address_fallback"
+	default:
+		key += "_address"
+	}
+	return i18n.T(lang, key, "name", fmt.Sprintf("%q", target.Name), "address", target.Socket)
 }
 
 // messengerLine is the line the messenger forwards, exactly as the target session
@@ -378,20 +421,46 @@ const messengerChannel = "messenger"
 // both (design 2026-10-27-i18n-design.md §5).
 var messengerSentMarkers = []string{"已发送", "sent"}
 
-// messengerSaidSent reports whether a messenger job's output carries a forwarding
-// receipt in any language. The zh receipt is matched anywhere in the output, which
-// is how it has always been read; the English word only as a whole line, so a
-// sentence that merely mentions it ("the message was not sent") is not a receipt.
-func messengerSaidSent(output string) bool {
-	if strings.Contains(output, messengerSentMarkers[0]) {
-		return true
-	}
-	for _, line := range strings.Split(output, "\n") {
-		if strings.EqualFold(strings.TrimSpace(line), messengerSentMarkers[1]) {
+// messengerSaidSent reports whether a messenger's STDOUT carries a forwarding receipt
+// on a line of its own: 「已发送」 or `sent` once the surrounding punctuation / symbols a
+// model likes to wrap it in (quotes, asterisks, a full stop) are trimmed, compared
+// case-insensitively. Two limits are deliberate:
+//   - only stdout votes: stderr carries warnings, and a warning mentioning the receipt
+//     used to be enough to report a lost message as delivered;
+//   - the whole line or its first sentence must match, and a receipt EARLIER in the
+//     output still counts — the target often answers in the same run (「已收到」 on the
+//     last line), and a model may explain after the receipt (「已发送。消息已投递到…」),
+//     while a failure narrative ("the message was not sent", "send failed: sent",
+//     「已发送失败」) is not a receipt.
+func messengerSaidSent(stdout string) bool {
+	for _, line := range strings.Split(stdout, "\n") {
+		if isSentMarker(trimReceiptLine(line)) || isSentMarker(trimReceiptLine(firstSentence(line))) {
 			return true
 		}
 	}
 	return false
+}
+
+func isSentMarker(s string) bool {
+	return strings.EqualFold(s, messengerSentMarkers[0]) || strings.EqualFold(s, messengerSentMarkers[1])
+}
+
+// firstSentence cuts line at its first sentence end. A comma does not end one, so
+// 「已发送，但对方拒收」 stays a narrative.
+func firstSentence(line string) string {
+	if i := strings.IndexAny(line, "。.！!"); i >= 0 {
+		return line[:i]
+	}
+	return line
+}
+
+// trimReceiptLine removes whitespace and then the leading / trailing punctuation and
+// symbols a receipt may be wrapped in.
+func trimReceiptLine(line string) string {
+	line = strings.TrimSpace(line)
+	return strings.TrimSpace(strings.TrimFunc(line, func(r rune) bool {
+		return unicode.IsPunct(r) || unicode.IsSymbol(r)
+	}))
 }
 
 // settleTimedOutMessenger decides what the expiry of messengerTimeout means for the text
@@ -420,7 +489,7 @@ func (s *Service) settleTimedOutMessenger(lang i18n.Lang, m jobstore.SessionMess
 		return m, nil
 	case strings.TrimSpace(res.Status) != "":
 		return s.undeliveredMessage(m, notStarted(lang, res).Error())
-	case res.ExitCode == 0 && messengerSaidSent(res.Output):
+	case res.ExitCode == 0 && messengerSaidSent(res.Stdout):
 		m.Status, m.Channel, m.UpdatedAt = jobstore.SessionMessageDelivered, messengerChannel, s.nowFn().Unix()
 		_ = s.store.AppendSessionOutbox(m)
 		return m, nil

@@ -100,20 +100,69 @@ func (m *Manager) Status(runner string) string { return m.Snapshot(runner).Statu
 // implementation lives in this package.
 func (m *Manager) ResidentMessengerStatus(runner string) string { return m.Status(runner) }
 
+// SendResult is what one SendMessage request did. Sent is the TOOL-level outcome of
+// the turn (did Claude Code hand the message to the target), Reason why it was not
+// sent; error values of Send keep their old meaning (the process or the request
+// failed), so a tool failure never looks like a reason to fall back.
+//
+// Output is the turn's own result text. It carries what the model said, so it is not
+// a receipt: a worker reports Receipt().
+type SendResult struct {
+	Output string
+	Sent   bool
+	Reason string
+}
+
+// ReasonNoSendCall is the reason recorded for a turn that did not call SendMessage at
+// all (the resident process answered something else).
+const ReasonNoSendCall = "no SendMessage call"
+
+// reasonUnrecognizedResult is the reason recorded when the turn did call SendMessage
+// but neither the tool_result text nor its tool_use_result carries a success field
+// (R5: a result gofer cannot read must read as a failure, never as delivered).
+const reasonUnrecognizedResult = "unrecognized SendMessage result"
+
+// Receipt is the canonical single-line receipt the one-shot job path is judged on: a
+// worker dispatch reports it as the job's stdout, and the host accepts only a whole
+// line equal to "sent" (or the zh 「已发送」) as a delivery — a failure receipt can
+// therefore never be mistaken for one.
+func (r SendResult) Receipt() string {
+	if r.Sent {
+		return "sent"
+	}
+	return "send failed: " + r.failureReason()
+}
+
+// failureReason is r.Reason as one line, or ReasonNoSendCall when the turn reported
+// no reason (no call, or a call whose result said nothing).
+func (r SendResult) failureReason() string {
+	if reason := strings.Join(strings.Fields(r.Reason), " "); reason != "" {
+		return reason
+	}
+	return ReasonNoSendCall
+}
+
 // Send writes one stream-json request and waits for its result. target is the
 // addressed session's name; it only labels the delivery history.
-func (m *Manager) Send(ctx context.Context, runner, cwd, target string, command []string) (string, error) {
+func (m *Manager) Send(ctx context.Context, runner, cwd, target string, command []string) (SendResult, error) {
 	// G043: "server" is the built-in runner's other spelling; state is keyed by the
 	// canonical key either way.
 	runner = config.NormalizeRunnerName(strings.ToLower(strings.TrimSpace(runner)))
 	if runner != config.BuiltinLocalRunner {
-		return "", errors.New("resident messenger only supports the local runner")
+		return SendResult{}, errors.New("resident messenger only supports the local runner")
 	}
 	prompt := promptFromCommand(command)
 	done := m.begin(runner, "send", target, originalMessage(prompt))
 	ev, err := m.roundTrip(ctx, runner, cwd, command, prompt)
-	done(err)
-	return ev.output, err
+	res := SendResult{Output: ev.output, Sent: ev.sent, Reason: ev.reason}
+	// The delivery history reports a tool-level failure as a failure (design §投递结果
+	// 判定): its error column is the reason, not the model's retelling.
+	historyErr := err
+	if historyErr == nil && !res.Sent {
+		historyErr = errors.New(res.failureReason())
+	}
+	done(historyErr)
+	return res, err
 }
 
 // roundTrip writes one user prompt to the runner's resident process and waits
@@ -256,6 +305,9 @@ func (p *process) read(stdout io.Reader) {
 	scanner.Buffer(make([]byte, 4096), 2<<20)
 	toolNames := map[string]string{}
 	listing := ""
+	// send is the SendMessage outcome of the turn in flight; a turn that calls the tool
+	// more than once is judged on its LAST call (T0).
+	send := sendOutcome{}
 	// peerTurn is true between command_lifecycle started/completed: Claude Code runs
 	// a message another session sent to this process (a target answering a web
 	// message) as its own queued command, bracketed by those frames, while turns
@@ -308,12 +360,22 @@ func (p *process) read(stdout io.Reader) {
 			}
 			continue
 		case "user":
-			// The ListAgents tool_result is the reliable listing: the final result
-			// frame is only the model's retelling of it.
 			for _, b := range contentBlocks(frame.Message.Content) {
-				if b.Type == "tool_result" && toolNames[b.ToolUseID] == "ListAgents" {
+				if b.Type != "tool_result" {
+					continue
+				}
+				switch toolNames[b.ToolUseID] {
+				case "ListAgents":
+					// The ListAgents tool_result is the reliable listing: the final result
+					// frame is only the model's retelling of it.
 					if text := blockText(b.Content); text != "" {
 						listing = text
+					}
+				case "SendMessage":
+					// A call in a peer turn answers a message another session sent to
+					// this process, so it says nothing about the request in flight (R7).
+					if !peerTurn {
+						send = parseSendMessageResult(b.Content, frame.ToolUseResult)
 					}
 				}
 			}
@@ -345,17 +407,19 @@ func (p *process) read(stdout io.Reader) {
 		// retelling and a second one blocked this reader for good (gofer-6er0).
 		if peerTurn || !p.waiting.Load() {
 			listing = ""
+			send = sendOutcome{}
 			p.unsolicited(output)
 			continue
 		}
 		p.waiting.Store(false) // one result per request; a stray second one is unsolicited
 		p.scanReplies("")      // a reply absorbed into this turn is in the transcript too
 		if frame.IsErr {
-			p.events <- event{err: errors.New(output)}
+			p.events <- event{err: errors.New(output), sent: send.sent, reason: send.reason}
 		} else {
-			p.events <- event{output: output, listing: listing}
+			p.events <- event{output: output, listing: listing, sent: send.sent, reason: send.reason}
 		}
 		listing = ""
+		send = sendOutcome{}
 	}
 	err := scanner.Err()
 	if err == nil {
@@ -379,6 +443,49 @@ func contentBlocks(raw json.RawMessage) []contentBlock {
 		return nil
 	}
 	return blocks
+}
+
+// sendOutcome is the tool-level result of one turn's SendMessage call.
+type sendOutcome struct {
+	sent   bool
+	reason string
+}
+
+// parseSendMessageResult reads a SendMessage tool_result (T0, frozen on Claude Code
+// 2.1.318 / 2.1.292): the content text is a JSON object with success (bool) and
+// message. A text that is not that JSON falls back to the same frame's
+// tool_use_result; a result that carries no success either way is a FAILURE with
+// reasonUnrecognizedResult — is_error is absent even when the send failed, so it can
+// never answer this question.
+func parseSendMessageResult(content, frameResult json.RawMessage) sendOutcome {
+	if outcome, ok := sendResultJSON(blockText(content)); ok {
+		return outcome
+	}
+	if outcome, ok := sendResultJSON(string(frameResult)); ok {
+		return outcome
+	}
+	return sendOutcome{reason: reasonUnrecognizedResult}
+}
+
+// sendResultJSON parses one SendMessage result text; ok is false unless it carries the
+// success field both known versions send.
+func sendResultJSON(text string) (sendOutcome, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return sendOutcome{}, false
+	}
+	var got struct {
+		Success *bool  `json:"success"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(text), &got) != nil || got.Success == nil {
+		return sendOutcome{}, false
+	}
+	out := sendOutcome{sent: *got.Success}
+	if !out.sent {
+		out.reason = strings.TrimSpace(got.Message)
+	}
+	return out, true
 }
 
 // blockText flattens a tool_result content (a string, or a list of text blocks).
@@ -620,6 +727,9 @@ type event struct {
 	output  string
 	listing string
 	err     error
+	// sent / reason are the SendMessage tool outcome of the turn (see SendResult).
+	sent   bool
+	reason string
 }
 
 // usableDir returns the first candidate that is an existing directory, or ""

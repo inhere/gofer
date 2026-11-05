@@ -19,6 +19,11 @@ type peerIdentity struct {
 	NameSource string
 	Status     string
 	Messaging  bool
+	// Socket is Claude Code's own messaging endpoint for this session
+	// (messagingSocketPath): where a peer sends a message to THIS process. The
+	// server validates it before storing (sessionrelay.validPeerSocket); a hook
+	// never decides whether an address is acceptable.
+	Socket string
 }
 
 // claudeSessionFile is the shape of <claude-config-dir>/sessions/<pid>.json.
@@ -98,7 +103,7 @@ func readPeerIdentity(sessionID, sessionsDir string) (peerIdentity, string) {
 		if json.Unmarshal(b, &raw) != nil || raw.SessionID != sessionID {
 			continue
 		}
-		return peerIdentity{Name: strings.TrimSpace(raw.Name), NameSource: strings.TrimSpace(raw.NameSource), Status: strings.TrimSpace(raw.Status), Messaging: strings.TrimSpace(raw.MessagingSocketPath) != ""}, ""
+		return peerIdentity{Name: strings.TrimSpace(raw.Name), NameSource: strings.TrimSpace(raw.NameSource), Status: strings.TrimSpace(raw.Status), Messaging: strings.TrimSpace(raw.MessagingSocketPath) != "", Socket: strings.TrimSpace(raw.MessagingSocketPath)}, ""
 	}
 	return peerIdentity{}, "matching session file not found"
 }

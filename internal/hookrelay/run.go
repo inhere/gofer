@@ -464,6 +464,7 @@ func (r *runner) register(event string) (client.AgentSession, error) {
 		Runner: r.opts.Runner, Cwd: r.p.Cwd, Transcript: r.p.TranscriptPath,
 		TmuxPane: r.opts.TmuxPane, Event: event, PeerName: peer.Name,
 		PeerStatus: peer.Status, PeerMessaging: peer.Messaging, PeerNameSource: peer.NameSource,
+		PeerSocket: peer.Socket,
 	})
 	if err != nil {
 		r.logHubRefusal(err)
@@ -505,6 +506,10 @@ func (r *runner) heartbeat(hb client.SessionHeartbeat) (a client.AgentSession, o
 	}
 	hb.PeerName, hb.PeerNameSource, hb.PeerStatus = peer.Name, peer.NameSource, peer.Status
 	hb.PeerMessaging = &peer.Messaging
+	// The address follows the same rule as the flag: a beat always carries this
+	// process's current value, so an address Claude Code dropped is cleared rather
+	// than kept alive by a stale row.
+	hb.PeerSocket = &peer.Socket
 	// Terminal-session usage (N2 §A): read the transcript's new bytes on Stop /
 	// SubagentStop / SessionEnd. The offset is only saved once the hub took the beat.
 	var commitUsage func(bool)

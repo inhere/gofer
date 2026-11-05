@@ -209,7 +209,7 @@ func (x sessionInjector) listWorkerAgents(ctx context.Context, runner string, pr
 	}
 	deadline := time.Now().Add(timeout + 5*time.Second)
 	for {
-		done, status, code, output, err := x.MessengerJob(jobID)
+		done, status, code, output, _, err := x.MessengerJob(jobID)
 		if err != nil {
 			return messenger.AgentList{}, err
 		}

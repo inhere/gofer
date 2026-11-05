@@ -168,7 +168,7 @@ func (s *Service) deliveryOutcome(lang i18n.Lang, m jobstore.SessionMessage, sta
 	case m.Channel == messengerChannel:
 		// The one-shot messenger's success is its receipt, not just exit 0 (gofer-kx53).
 		if state.Known && state.Done && state.Status == deliveryDoneStatus && state.ExitCode == 0 &&
-			messengerSaidSent(state.Output) {
+			messengerSaidSent(state.Stdout) {
 			next.Status, next.Error = jobstore.SessionMessageDelivered, ""
 		} else {
 			next.Status, next.Error = jobstore.SessionMessageFailed, deliveryFailureReason(lang, m, state)

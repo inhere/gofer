@@ -529,6 +529,10 @@ type registerSessionReq struct {
 	PeerNameSource string `json:"peer_name_source,omitempty"`
 	PeerStatus     string `json:"peer_status,omitempty"`
 	PeerMessaging  bool   `json:"peer_messaging,omitempty"`
+	// PeerSocket is the session's own messaging endpoint, written only: the server
+	// validates it, stores it, and never serves it back (the session view has no
+	// such field — an address is a capability, not display data).
+	PeerSocket string `json:"peer_socket,omitempty"`
 }
 
 // projectKeyForCwd finds the registered project whose host_path or
@@ -585,7 +589,7 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 		SessionID: body.SessionID, Agent: body.Agent, ProjectKey: projectKey, Runner: s.resolveRunnerName(body.Runner),
 		Cwd: body.Cwd, Title: body.Title, Transcript: body.Transcript, TmuxPane: body.TmuxPane,
 		Event: body.Event, CallerID: callerFromCtx(c), PeerName: body.PeerName, PeerNameSource: body.PeerNameSource,
-		PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
+		PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging, PeerSocket: body.PeerSocket,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "register session failed", err.Error())
@@ -866,14 +870,15 @@ type sessionHeartbeatReq struct {
 	// IdleSec is the OS input idle time in seconds (-1 = unknown), sent by the
 	// events that probe for it (Stop, Notification/idle_prompt). Omitted by
 	// older hooks: nil then means "no reading", NOT "the human is here".
-	IdleSec        *int64 `json:"idle_sec,omitempty"`
-	PeerName       string `json:"peer_name,omitempty"`
-	PeerNameSource string `json:"peer_name_source,omitempty"`
-	PeerStatus     string `json:"peer_status,omitempty"`
-	PeerMessaging  *bool  `json:"peer_messaging,omitempty"`
-	ProgressText   string `json:"progress_text,omitempty"`
-	ProgressAt     int64  `json:"progress_at,omitempty"`
-	ClearProgress  bool   `json:"clear_progress,omitempty"`
+	IdleSec        *int64  `json:"idle_sec,omitempty"`
+	PeerName       string  `json:"peer_name,omitempty"`
+	PeerNameSource string  `json:"peer_name_source,omitempty"`
+	PeerStatus     string  `json:"peer_status,omitempty"`
+	PeerMessaging  *bool   `json:"peer_messaging,omitempty"`
+	PeerSocket     *string `json:"peer_socket,omitempty"`
+	ProgressText   string  `json:"progress_text,omitempty"`
+	ProgressAt     int64   `json:"progress_at,omitempty"`
+	ClearProgress  bool    `json:"clear_progress,omitempty"`
 	// Cwd is the hook's current directory — shown as "current directory", never used
 	// to decide where a wake-up runs.
 	Cwd string `json:"cwd,omitempty"`
@@ -909,6 +914,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 		Event: body.Event, State: body.State, LastMessage: body.LastMessage, Title: body.Title,
 		Injected: body.Injected, IdleSec: body.IdleSec, CallerID: callerFromCtx(c),
 		PeerName: body.PeerName, PeerNameSource: body.PeerNameSource, PeerStatus: body.PeerStatus, PeerMessaging: body.PeerMessaging,
+		PeerSocket:   body.PeerSocket,
 		ProgressText: body.ProgressText, ProgressAt: body.ProgressAt, ClearProgress: body.ClearProgress,
 		Cwd: body.Cwd, SubagentID: body.SubagentID, SubagentDelta: body.SubagentDelta,
 		UsageDelta: body.UsageDelta, StopParkSec: body.StopParkSec,

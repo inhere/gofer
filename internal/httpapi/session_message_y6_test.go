@@ -13,8 +13,8 @@ func (m *y6Messenger) SubmitMessenger(string, string, string, []string, string, 
 	m.next++
 	return "y6-job", nil
 }
-func (*y6Messenger) MessengerJob(string) (bool, string, int, string, error) {
-	return true, "done", 0, "已发送", nil
+func (*y6Messenger) MessengerJob(string) (bool, string, int, string, string, error) {
+	return true, "done", 0, "已发送", "已发送", nil
 }
 
 func TestSessionMessageViaRelayWhenWaiting(t *testing.T) {

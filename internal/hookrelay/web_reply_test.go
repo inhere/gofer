@@ -121,3 +121,85 @@ func TestWebReplyOfIgnoresStructuredMessage(t *testing.T) {
 		t.Fatalf("structured message reported as reply %q", text)
 	}
 }
+
+// The session holds the language the server wrote: an English server's web message is
+// answered and reported just like a Chinese one, and an English gofer notice still is not.
+func TestWebReplyOfRecognisesEveryLanguage(t *testing.T) {
+	for _, body := range []string{"[from web, default] hi", "[web reply, default] hi", "[来自 web，default] hi", "[来自 web 回复，default] hi"} {
+		transcript := writeTranscript(t, webMessageEntry(t, messengerAddr, body, false))
+		text, _ := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, messengerAddr, "hello")})
+		if text != "hello" {
+			t.Fatalf("answer to %q reported as %q, want hello", body, text)
+		}
+	}
+	transcript := writeTranscript(t, webMessageEntry(t, messengerAddr, "[gofer · job done] finished", false))
+	if text, _ := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, messengerAddr, "hello")}); text != "" {
+		t.Fatalf("answer to a gofer notice reported as %q", text)
+	}
+}
+
+// A transcript line is JSON: a Windows pipe's backslashes are doubled there, and the
+// reply must still be matched to the address.
+func TestWebReplyOfMatchesAWindowsAddress(t *testing.T) {
+	const pipe = `uds:\\\\.\\pipe\\LOCAL\\cc-msg-0123456789abcdef0123456789abcdef`
+	transcript := writeTranscript(t, webMessageEntry(t, pipe, "[来自 web，default] hi", false))
+	text, to := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, pipe, "hello")})
+	if text != "hello" || to != pipe {
+		t.Fatalf("reply = %q to %q", text, to)
+	}
+}
+
+// A model may drop the prefix when it forwards: the sender's name still says it came
+// through the messenger. Gofer's own notices stay out, with or without a prefix.
+func TestWebReplyOfTrustsTheMessengerName(t *testing.T) {
+	entry := func(name, body string) string {
+		b, err := json.Marshal(map[string]any{"type": "user", "origin": map[string]any{"kind": "peer", "from": messengerAddr, "name": name, "body": body}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, tc := range []struct {
+		name, body string
+		want       bool
+	}{
+		{"gofer-web", "hi there", true},
+		{"gofer-web", "[gofer · job done] finished", false},
+		{"gofer-web", `<gofer-mail-wake count="1"/>`, false},
+		{"other-session", "hi there", false},
+	} {
+		transcript := writeTranscript(t, entry(tc.name, tc.body))
+		text, _ := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, messengerAddr, "hello")})
+		if (text != "") != tc.want {
+			t.Fatalf("%s %q: reply = %q, want reported=%v", tc.name, tc.body, text, tc.want)
+		}
+	}
+}
+
+// A session may answer the messenger by name rather than by the address; a name that is
+// not the messenger's stays out, and so does a notice the messenger forwarded.
+func TestWebReplyOfAcceptsTheMessengerName(t *testing.T) {
+	entry := func(name, body string) string {
+		b, err := json.Marshal(map[string]any{"type": "user", "origin": map[string]any{"kind": "peer", "from": messengerAddr, "name": name, "body": body}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, tc := range []struct {
+		to, name, body string
+		want           bool
+	}{
+		{"gofer-web", "gofer-web", "[from web, default] hi", true},
+		{"gofer-web [6e1391]", "gofer-web", "[from web, default] hi", true},
+		{"gofer-web", "gofer-web", "[gofer · job done] finished", false},
+		{"gofer-web", "other-session", "[from web, default] hi", false},
+		{"gofer-web-2", "gofer-web", "[from web, default] hi", false},
+	} {
+		transcript := writeTranscript(t, entry(tc.name, tc.body))
+		text, _ := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, tc.to, "hello")})
+		if (text != "") != tc.want {
+			t.Fatalf("to %q from %q %q: reply = %q, want reported=%v", tc.to, tc.name, tc.body, text, tc.want)
+		}
+	}
+}

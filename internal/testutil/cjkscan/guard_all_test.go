@@ -48,7 +48,7 @@ var guardAllExempt = map[string]Exempt{
 
 	"notify/catalog.go": {Max: 47, Class: classData, Why: "the event catalog is bilingual data: every entry carries its Zh and En text side by side (the console picks one by language), so the Chinese literals are one half of a translation table, not untranslated output"},
 
-	"sessionrelay/message.go": {Max: 1, Class: classProtocol, Why: "messengerSentMarkers[0]: the \"已发送\" receipt the zh messenger prompt asks the messenger agent to print; matched anywhere in its output (an English messenger prints \"sent\"), so the literal is recognition, not output"},
+	"sessionrelay/message.go": {Max: 1, Class: classProtocol, Why: "messengerSentMarkers[0]: the \"已发送\" receipt the zh messenger prompt asks the messenger agent to print; the receipt is read from the messenger job's STDOUT, one whole line after trimming its punctuation (an English messenger prints \"sent\"), so the literal is recognition, not output"},
 
 	"work/x2.go": {Max: 1, Class: classProtocol, Why: "completionBy is the stored author identifier of the completion write-back suggestion; changing it would split old and new rows"},
 

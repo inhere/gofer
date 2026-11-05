@@ -37,8 +37,8 @@ func (m *promptMessenger) SubmitMessenger(_, _, _ string, command []string, _, _
 	return "msgr-job", nil
 }
 
-func (*promptMessenger) MessengerJob(string) (bool, string, int, string, error) {
-	return true, "done", 0, "已发送", nil
+func (*promptMessenger) MessengerJob(string) (bool, string, int, string, string, error) {
+	return true, "done", 0, "已发送", "已发送", nil
 }
 
 func (m *promptMessenger) delivered() string {

@@ -100,7 +100,7 @@ func (s *Service) Wake(ctx context.Context, sid, text, by, origin string) (res R
 		if strings.TrimSpace(a.ProjectKey) == "" {
 			cwd = "."
 		}
-		return s.wakeMessenger(ctx, a.ProjectKey, a.Runner, cwd, a.PeerName, text, by, origin)
+		return s.wakeMessenger(ctx, a.ProjectKey, a.Runner, cwd, s.messengerTargetFor(a), text, by, origin)
 	}
 	inj, err = s.runTmuxInject(ctx, a, text, by, origin)
 	if err != nil {
@@ -120,12 +120,12 @@ func (s *Service) wakeViaMessenger(peerName string, peerMessaging bool, projectK
 // no web prefix, and the messenger is told not to retell any answer. It also says that the
 // wake notice IS the whole message: a live test had the messenger refuse to forward it
 // because it found "no message body, only a pending-mail notice".
-func wakeMessengerPrompt(lang i18n.Lang, name, text string) string {
-	return i18n.T(lang, "sessionrelay.messenger.wake_prompt", "name", fmt.Sprintf("%q", name)) + "\n" + text
+func wakeMessengerPrompt(lang i18n.Lang, target messengerTarget, text string) string {
+	return messengerInstruction(lang, target, "wake_prompt") + "\n" + text
 }
 
-func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd, peerName, text, by, origin string) (RawResult, error) {
-	command := []string{s.messengerCommand, "-p", wakeMessengerPrompt(s.lang(projectKey), peerName, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
+func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd string, target messengerTarget, text, by, origin string) (RawResult, error) {
+	command := []string{s.messengerCommand, "-p", wakeMessengerPrompt(s.lang(projectKey), target, text), "--allowedTools", "SendMessage,ListAgents", "--name", MessengerSessionName}
 	slot := s.messengerSlot(runner)
 	select {
 	case slot <- struct{}{}:
@@ -133,18 +133,18 @@ func (s *Service) wakeMessenger(ctx context.Context, projectKey, runner, cwd, pe
 	case <-ctx.Done():
 		return RawResult{}, ctx.Err()
 	}
-	jobID, err := s.messenger.SubmitMessenger(projectKey, runner, cwd, command, "mail wake · "+peerName, origin)
+	jobID, err := s.messenger.SubmitMessenger(projectKey, runner, cwd, command, "mail wake · "+target.Name, origin)
 	if err != nil {
 		return RawResult{}, err
 	}
 	deadline := time.Now().Add(s.messengerTimeout)
 	for {
-		done, status, code, output, jerr := s.messenger.MessengerJob(jobID)
+		done, status, code, output, stdout, jerr := s.messenger.MessengerJob(jobID)
 		if jerr != nil {
 			return RawResult{}, jerr
 		}
 		if done {
-			if status == "done" && code == 0 && messengerSaidSent(output) {
+			if status == "done" && code == 0 && messengerSaidSent(stdout) {
 				return RawResult{Path: PathMessenger, JobID: jobID}, nil
 			}
 			reason := strings.TrimSpace(output)

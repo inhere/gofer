@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/msgprefix"
@@ -104,13 +105,22 @@ func (s *Service) RecordReply(sid, text, peer, source, caller string) (m jobstor
 }
 
 // RecordMessengerReply is the fallback path: a resident messenger on runner
-// received a message from the Claude session named peerName. It is stored as
-// that session's reply when exactly one live gofer session on that runner has
-// that name (a name is only unique among the sessions alive at one time).
+// received a message from the Claude session named peerName. When the reply carries
+// the ADDRESS it was sent to and exactly one live gofer session on that runner holds
+// it, the reply belongs to that session — a name is only unique among the sessions
+// alive at one time, an address is not (design 2026-11-05). Otherwise it is stored as
+// that session's reply when exactly one live gofer session on that runner has that
+// name.
 func (s *Service) RecordMessengerReply(runner, peerName, from, body string) (jobstore.SessionMessage, bool, error) {
 	peerName = strings.TrimSpace(peerName)
-	if peerName == "" || strings.TrimSpace(body) == "" {
-		return jobstore.SessionMessage{}, false, fmt.Errorf("%w: peer name and body required", ErrInvalidInput)
+	if strings.TrimSpace(body) == "" {
+		return jobstore.SessionMessage{}, false, fmt.Errorf("%w: body required", ErrInvalidInput)
+	}
+	if m, created, ok, err := s.replyToPeerSocket(runner, from, body); ok || err != nil {
+		return m, created, err
+	}
+	if peerName == "" {
+		return jobstore.SessionMessage{}, false, fmt.Errorf("%w: no peer name or address to attribute the reply to", ErrInvalidInput)
 	}
 	list, err := s.store.ListAgentSessions(jobstore.ListSessionsOpts{})
 	if err != nil {
@@ -129,10 +139,40 @@ func (s *Service) RecordMessengerReply(runner, peerName, from, body string) (job
 }
 
 func (s *Service) sameRunner(label, runner string) bool {
-	if s.IsServerLocalRunner(label) && s.IsServerLocalRunner(runner) {
-		return true
+	return config.SameRunnerLabel(label, runner)
+}
+
+// peerSocketReplyPrefix is what a messenger's reply puts in front of the address it
+// sent the text to (messenger.PeerReply.From, e.g. "uds:/tmp/cc-socks/42.sock").
+const peerSocketReplyPrefix = "uds:"
+
+// replyToPeerSocket attributes a reply by the address the messenger used (design
+// 「撞名时发消息」 step 4): the sender names its own address, so the address — not a
+// shared name — says which session answered. ok is false when the reply carries no
+// address the server accepts, or when the address does not identify exactly one live
+// session on that runner; the caller then falls back to the name, as before. An error
+// means the lookup itself failed and nothing is stored: guessing there attaches the
+// words to the wrong session.
+func (s *Service) replyToPeerSocket(runner, from, body string) (jobstore.SessionMessage, bool, bool, error) {
+	socket := validPeerSocket(strings.TrimPrefix(strings.TrimSpace(from), peerSocketReplyPrefix))
+	if socket == "" {
+		return jobstore.SessionMessage{}, false, false, nil
 	}
-	return strings.EqualFold(strings.TrimSpace(label), strings.TrimSpace(runner))
+	list, err := s.store.ListLiveSessionsByPeerSocket(socket)
+	if err != nil {
+		return jobstore.SessionMessage{}, false, false, err
+	}
+	var match []jobstore.AgentSession
+	for _, a := range list {
+		if s.sameRunner(a.Runner, runner) {
+			match = append(match, a)
+		}
+	}
+	if len(match) != 1 {
+		return jobstore.SessionMessage{}, false, false, nil
+	}
+	m, created, err := s.RecordReply(match[0].SessionID, body, from, jobstore.SessionReplySourceMessenger, "")
+	return m, created, true, err
 }
 
 func (s *Service) now() time.Time {

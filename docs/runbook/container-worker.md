@@ -134,6 +134,8 @@ gofer session say <sid> "<文本>" --deliver          # 有 OPEN turn = 作答�
 gofer session say <sid> "<文本>" --deliver --takeover   # pane 没了时改走 --resume 接管(路径 B)
 ```
 
+**每个容器一个自己的 runner**：容器里会话登记的 runner 应当是**这个容器自己的** worker id，几个容器不要共用一个。会话名只在**同一个 runner** 内才唯一：共用一个标签时，两台机器上同名的两个会话在那台 runner 上就成了「同名」，按名字的投递和回复归属都会因为分不清而失败（能救回来的只有上报了会话间地址的 Claude Code 会话，没地址的自研 agent 无从区分）。`GOFER_RUN_MODE=client`（不跑 worker，只用 hook + CLI）的节点**必须**在 `.env` 里设 `GOFER_HOOK_RUNNER`（§2.2）：不设就等于没登记执行机，送话报 `no_runner`，会话间地址也无处归属。
+
 ## 5. 验收清单
 
 ```bash

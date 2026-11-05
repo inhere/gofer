@@ -30,7 +30,7 @@ func sendFake(t *testing.T, m *Manager) string {
 	if err != nil {
 		t.Fatalf("send = %v", err)
 	}
-	return got
+	return got.Output
 }
 
 // TestResidentMessengerRotatesAfterMaxMessages pins gofer-li3t: a resident process

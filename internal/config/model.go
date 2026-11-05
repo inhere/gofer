@@ -3510,6 +3510,18 @@ func IsLocalRunnerName(name string) bool {
 	return NormalizeRunnerName(name) == BuiltinLocalRunner
 }
 
+// SameRunnerLabel reports whether two runner labels name the same runner: the two
+// spellings of the built-in runner (local / server) are one runner, and every other
+// label compares case-insensitively after trimming. It is the ONE equivalence for
+// "same runner" — a plain string comparison misses the other spelling of the
+// built-in runner, which is stored exactly as the hook reported it (G043).
+func SameRunnerLabel(a, b string) bool {
+	if IsLocalRunnerName(a) && IsLocalRunnerName(b) {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
 // WorkerConfig is the top-level config for `gofer worker --config worker.yaml`
 // (ws-worker §6). The worker runs jobs locally with its own project/agent/runner
 // config and bridges log/status/result back over a single WebSocket to the hub.

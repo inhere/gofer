@@ -67,6 +67,10 @@ const (
 // know.
 const systemOpen = "[gofer · "
 
+// MessengerName is the Claude Code session name gofer's messenger runs under, so a
+// receiving session sees a forwarded message as coming from "gofer-web".
+const MessengerName = "gofer-web"
+
 // DefaultUser is the name used for a person whose name is not known (an anonymous
 // web caller, a reply recorded before the speaker was kept).
 const DefaultUser = "web"

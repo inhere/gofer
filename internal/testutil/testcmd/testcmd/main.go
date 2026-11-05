@@ -29,12 +29,14 @@ func main() {
 	}
 	if os.Args[1] == "-p" && os.Getenv("GOFER_TEST_STREAM_JSON") == "1" {
 		scanner := bufio.NewScanner(os.Stdin)
+		n := 0
 		for scanner.Scan() {
+			n++
 			result := "已发送"
 			if name := os.Getenv("GOFER_TEST_STREAM_JSON_ENV"); name != "" {
 				result = name + "=" + os.Getenv(name)
 			}
-			fmt.Printf(`{"type":"result","result":%q,"is_error":false,"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":20,"cache_creation_input_tokens":1},"total_cost_usd":0.25}`+"\n", result)
+			emitSendTurn("probe-target", result, fmt.Sprintf("tu_send_%d", n))
 		}
 		return
 	}
@@ -52,7 +54,7 @@ func main() {
 		for scanner.Scan() {
 			n++
 			fmt.Println(init)
-			fmt.Printf(`{"type":"result","result":"已发送#%d","is_error":false}`+"\n", n)
+			emitSendTurn("probe-target", fmt.Sprintf("已发送#%d", n), fmt.Sprintf("tu_peer_%d", n))
 			if n != 1 {
 				continue
 			}
@@ -92,7 +94,7 @@ func main() {
 	}
 	if os.Args[1] == "-p" && os.Getenv("GOFER_TEST_STREAM_JSON_ENV") != "" {
 		name := os.Getenv("GOFER_TEST_STREAM_JSON_ENV")
-		fmt.Printf(`{"type":"result","result":%q,"is_error":false}`+"\n", name+"="+os.Getenv(name))
+		emitSendTurn("probe-target", name+"="+os.Getenv(name), "tu_env_1")
 		return
 	}
 	switch os.Args[1] {
@@ -179,8 +181,10 @@ func main() {
 		// and return a Claude-shaped result for each. Tests use it to prove the
 		// worker keeps one process and routes each dispatch through stdin.
 		scanner := bufio.NewScanner(os.Stdin)
+		n := 0
 		for scanner.Scan() {
-			fmt.Println(`{"type":"result","result":"已发送","is_error":false,"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":20,"cache_creation_input_tokens":1},"total_cost_usd":0.25}`)
+			n++
+			emitSendTurn("probe-target", "已发送", fmt.Sprintf("tu_fake_%d", n))
 		}
 	case "sleep":
 		d, err := time.ParseDuration(arg(2))
@@ -511,6 +515,33 @@ func arg(i int) string {
 		os.Exit(2)
 	}
 	return os.Args[i]
+}
+
+// emitSendTurn prints one turn the way Claude Code 2.1.318 / 2.1.292 reports a
+// SendMessage call (the frames T0 froze): the assistant tool_use, the user
+// tool_result carrying the tool's JSON result (and the same object as
+// tool_use_result), then the result frame whose text is retell. The default is a
+// successful send; GOFER_TEST_STREAM_JSON_FAIL makes the tool report a failure and
+// uses its value as the tool's message, so a resident path can be judged on a real
+// failure shape.
+func emitSendTurn(to, retell, toolUseID string) {
+	success, message := true, "“"+retell+"” → "+to+"; in that session's inbox, not yet read by its Claude"
+	if fail := os.Getenv("GOFER_TEST_STREAM_JSON_FAIL"); fail != "" {
+		success, message = false, fail
+	}
+	assistant, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{
+		"role":    "assistant",
+		"content": []any{map[string]any{"type": "tool_use", "id": toolUseID, "name": "SendMessage", "input": map[string]any{"to": to, "message": retell}}},
+	}})
+	toolResult, _ := json.Marshal(map[string]any{"success": success, "message": message})
+	user, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{
+		"role": "user",
+		"content": []any{map[string]any{"type": "tool_result", "tool_use_id": toolUseID,
+			"content": []any{map[string]any{"type": "text", "text": string(toolResult)}}}},
+	}, "tool_use_result": map[string]any{"success": success, "message": message}})
+	fmt.Println(string(assistant))
+	fmt.Println(string(user))
+	fmt.Printf(`{"type":"result","result":%q,"is_error":false,"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":20,"cache_creation_input_tokens":1},"total_cost_usd":0.25}`+"\n", retell)
 }
 
 // durationArg parses os.Args[i] as a Go duration, or 0 when the argument is absent

@@ -21,8 +21,11 @@ type fakeAPI struct {
 	sessions  map[string]client.AgentSession
 	turns     map[string]client.Decision
 	registers int
-	beats     []client.SessionHeartbeat
-	waits     int
+	// lastRegister is the most recent registration body, so a test can assert the
+	// fields the response view does not carry back (the peer address).
+	lastRegister client.SessionRegister
+	beats        []client.SessionHeartbeat
+	waits        int
 	// scripted behaviour
 	failHeartbeat error
 	failRegister  error
@@ -93,6 +96,7 @@ func (f *fakeAPI) RegisterSession(in client.SessionRegister) (client.AgentSessio
 		return client.AgentSession{}, f.failRegister
 	}
 	f.registers++
+	f.lastRegister = in
 	a := f.sessions[in.SessionID]
 	a.SessionID, a.Agent, a.Cwd, a.Runner, a.State = in.SessionID, in.Agent, in.Cwd, in.Runner, "running"
 	a.PeerName, a.PeerStatus, a.PeerMessaging = in.PeerName, in.PeerStatus, in.PeerMessaging

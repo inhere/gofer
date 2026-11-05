@@ -336,8 +336,13 @@ type AgentSession struct {
 	PeerNameSource string
 	PeerStatus     string
 	PeerMessaging  bool
-	ProgressText   string
-	ProgressAt     int64
+	// PeerSocket is the session's own Claude Code messaging endpoint (Linux:
+	// /…/cc-socks/<pid>.sock, Windows: \\.\pipe\LOCAL\cc-msg-<hex>). The server
+	// validates it before storing; "" means "no address" and keeps the name path.
+	// One address belongs to one row per runner (see clearPeerSocketOthersTx).
+	PeerSocket   string
+	ProgressText string
+	ProgressAt   int64
 	// LastCwd is the directory the hook reported on its most recent heartbeat — for
 	// DISPLAY only ("current directory"). It never replaces Cwd (the registered
 	// directory) and takes no part in the wake-up directory decision.
@@ -397,7 +402,7 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(last_message,''),
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
   COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0), COALESCE(peer_name,''),
-  COALESCE(peer_name_source,''), COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(progress_text,''), COALESCE(progress_at,0),
+  COALESCE(peer_name_source,''), COALESCE(peer_status,''), COALESCE(peer_messaging,0), COALESCE(peer_socket,''), COALESCE(progress_text,''), COALESCE(progress_at,0),
   COALESCE(last_cwd,''), COALESCE(usage_json,''), COALESCE(usage_at,0),
   COALESCE(refused_caller_id,''), COALESCE(refused_at,0),
   COALESCE(topic,''), COALESCE(scope_json,''), COALESCE(topic_source,''), COALESCE(topic_at,0),
@@ -411,7 +416,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 		&a.Transcript, &a.TmuxPane, &a.CallerID, &a.State, &a.RelayMode,
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
-		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging,
+		&a.HandedOffJobID, &a.HandedOffAt, &a.PeerName, &a.PeerNameSource, &a.PeerStatus, &a.PeerMessaging, &a.PeerSocket,
 		&a.ProgressText, &a.ProgressAt, &a.LastCwd, &a.UsageJSON, &a.UsageAt,
 		&a.RefusedCallerID, &a.RefusedAt, &a.Topic, &scopeJSON, &a.TopicSource, &a.TopicAt, &a.HumanPrompts,
 		&a.StopParkUntil, &a.InjectMode, &a.MailPaused)
@@ -645,11 +650,11 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 		const q = `INSERT INTO agent_sessions
   (session_id, agent, project_key, runner, cwd, title, transcript, tmux_pane, caller_id, state,
 	   relay_mode, turn_no, last_message, last_event, last_seen_at, started_at, last_human_at, ended_at,
-	   peer_name, peer_status, peer_messaging, peer_name_source, incarnation)
-	  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL,?,?,?,?, lower(hex(randomblob(8))))`
-		_, err = s.db.Exec(q, sid, in.Agent, in.ProjectKey, in.Runner, in.Cwd, in.Title,
+	   peer_name, peer_status, peer_messaging, peer_name_source, peer_socket, incarnation)
+	  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL,?,?,?,?,?, lower(hex(randomblob(8))))`
+		_, err = s.writeSessionRow(sid, in.PeerSocket, in.Runner, q, []any{sid, in.Agent, in.ProjectKey, in.Runner, in.Cwd, in.Title,
 			in.Transcript, in.TmuxPane, in.CallerID, state, relayMode, in.LastEvent, now, now, in.LastHumanAt,
-			in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource)
+			in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource, in.PeerSocket})
 		if err == nil {
 			notifyChange = true
 		}
@@ -679,27 +684,34 @@ func (s *Store) upsertAgentSession(in AgentSession, requireOwner bool) (AgentSes
 	if in.LastHumanAt > 0 {
 		humanAt = in.LastHumanAt
 	}
-	peerName, peerStatus, peerMessaging, peerNameSource := existing.PeerName, existing.PeerStatus, existing.PeerMessaging, existing.PeerNameSource
+	peerName, peerStatus, peerMessaging, peerNameSource, peerSocket := existing.PeerName, existing.PeerStatus, existing.PeerMessaging, existing.PeerNameSource, existing.PeerSocket
+	// reportedSocket is the address THIS report carried: only such a write may take
+	// the address away from the other rows (writing the stored value back must not).
+	reportedSocket := ""
 	if strings.TrimSpace(in.PeerName) != "" || strings.TrimSpace(in.PeerStatus) != "" || in.PeerMessaging {
-		peerName, peerStatus, peerMessaging, peerNameSource = in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource
+		peerName, peerStatus, peerMessaging, peerNameSource, peerSocket = in.PeerName, in.PeerStatus, in.PeerMessaging, in.PeerNameSource, in.PeerSocket
+		reportedSocket = in.PeerSocket
 	}
+	// The runner this write leaves on the row: the label the peer-socket clean-up
+	// compares against (an address is unique per runner).
+	runner := pick(in.Runner, existing.Runner)
 	// An ended session re-registering under the same id comes back to `running` — and gets a new
 	// incarnation, so the grants of the life that ended stop applying (design §4).
 	q := `UPDATE agent_sessions SET agent=?, project_key=?, runner=?, cwd=?, title=?,
 	  transcript=?, tmux_pane=?, caller_id=?, state=?, last_event=?, last_human_at=?, last_seen_at=?, ended_at=NULL,
-	  peer_name=?, peer_status=?, peer_messaging=?, peer_name_source=?, ` + rotateIncarnationOnRevive
+	  peer_name=?, peer_status=?, peer_messaging=?, peer_name_source=?, peer_socket=?, ` + rotateIncarnationOnRevive
 	if in.CallerID != "" && (existing.CallerID == "" || existing.CallerID == in.CallerID) {
 		// The owner reported: whatever an earlier wrong-identity beat left behind is
 		// stale and must not keep the session flagged in the web.
 		q += `, refused_caller_id=NULL, refused_at=0`
 	}
 	q += ` WHERE session_id=?`
-	_, err = s.db.Exec(q, pick(in.Agent, existing.Agent), pick(in.ProjectKey, existing.ProjectKey),
-		pick(in.Runner, existing.Runner), pick(in.Cwd, existing.Cwd), pick(in.Title, existing.Title),
+	_, err = s.writeSessionRow(sid, reportedSocket, runner, q, []any{pick(in.Agent, existing.Agent), pick(in.ProjectKey, existing.ProjectKey),
+		runner, pick(in.Cwd, existing.Cwd), pick(in.Title, existing.Title),
 		pick(in.Transcript, existing.Transcript), pick(in.TmuxPane, existing.TmuxPane),
 		pick(in.CallerID, existing.CallerID),
 		state, pick(in.LastEvent, existing.LastEvent), humanAt, now,
-		peerName, peerStatus, peerMessaging, peerNameSource, state, sid)
+		peerName, peerStatus, peerMessaging, peerNameSource, peerSocket, state, sid})
 	if err == nil {
 		notifyChange = true
 	}
@@ -750,9 +762,13 @@ type SessionHeartbeat struct {
 	PeerNameSource string
 	PeerStatus     string
 	PeerMessaging  *bool
-	ProgressText   string
-	ProgressAt     int64
-	ClearProgress  bool
+	// PeerSocket follows PeerMessaging's three-state rule: nil = this beat carried
+	// no address news (the stored one stays), non-nil = store this value, so &""
+	// clears the address.
+	PeerSocket    *string
+	ProgressText  string
+	ProgressAt    int64
+	ClearProgress bool
 	// Cwd is the hook's current directory (display only → last_cwd). "" leaves the
 	// stored value alone.
 	Cwd string
@@ -865,14 +881,30 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 		sets = append(sets, "peer_messaging=?")
 		args = append(args, *hb.PeerMessaging)
 	}
+	if hb.PeerSocket != nil {
+		sets = append(sets, "peer_socket=?")
+		args = append(args, *hb.PeerSocket)
+	}
 	args = append(args, sid)
+	q := "UPDATE agent_sessions SET " + strings.Join(sets, ", ") + " WHERE session_id=?"
 	s.writeMu.Lock()
-	res, err := s.db.Exec("UPDATE agent_sessions SET "+strings.Join(sets, ", ")+" WHERE session_id=?", args...)
+	var n int64
+	var err error
+	if hb.PeerSocket != nil && *hb.PeerSocket != "" {
+		// A beat that stores an address also clears it from the other rows of the
+		// same runner, in ONE transaction (the row's stored runner is read there:
+		// a beat carries no runner).
+		n, err = s.touchPeerSocketLocked(sid, *hb.PeerSocket, q, args)
+	} else if res, xerr := s.db.Exec(q, args...); xerr != nil {
+		err = xerr
+	} else {
+		n, _ = res.RowsAffected()
+	}
 	if err != nil {
 		s.writeMu.Unlock()
 		return AgentSession{}, false, fmt.Errorf("jobstore: touch agent session %q: %w", sid, err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if n == 0 {
 		s.writeMu.Unlock()
 		return AgentSession{}, false, nil
 	}

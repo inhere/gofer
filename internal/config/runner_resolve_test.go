@@ -29,6 +29,38 @@ func TestNormalizeRunnerName(t *testing.T) {
 	}
 }
 
+// TestSameRunnerLabel pins the ONE "same runner" equivalence (plan R1): the two
+// spellings of the built-in runner are one runner, every other label compares
+// case-insensitively after trimming. A plain string comparison would miss the
+// other spelling, which is stored exactly as the hook reported it (G043).
+func TestSameRunnerLabel(t *testing.T) {
+	t.Parallel()
+	same := [][2]string{
+		{"local", "local"},
+		{"local", "server"},
+		{"server", "local"},
+		{" Server ", "LOCAL"},
+		{"w-lab", " W-LAB "},
+		{"", ""},
+	}
+	for _, c := range same {
+		if !SameRunnerLabel(c[0], c[1]) {
+			t.Errorf("SameRunnerLabel(%q, %q) = false, want true", c[0], c[1])
+		}
+	}
+	different := [][2]string{
+		{"local", "w-lab"},
+		{"local", ""},
+		{"", "w-lab"},
+		{"w-lab", "w-lab-2"},
+	}
+	for _, c := range different {
+		if SameRunnerLabel(c[0], c[1]) {
+			t.Errorf("SameRunnerLabel(%q, %q) = true, want false", c[0], c[1])
+		}
+	}
+}
+
 // TestRunnerDisplayName pins the display spelling (G043): a person reads `server`
 // for the built-in runner, every other runner keeps its own name. Display only —
 // the wire, the DB and every comparison keep `local`.

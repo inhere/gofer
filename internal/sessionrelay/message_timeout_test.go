@@ -29,8 +29,8 @@ type slowMessenger struct {
 func (f *slowMessenger) SubmitMessenger(string, string, string, []string, string, string) (string, error) {
 	return "job-msgr", nil
 }
-func (*slowMessenger) MessengerJob(string) (bool, string, int, string, error) {
-	return false, "running", 0, "", nil
+func (*slowMessenger) MessengerJob(string) (bool, string, int, string, string, error) {
+	return false, "running", 0, "", "", nil
 }
 func (f *slowMessenger) AbandonMessengerJob(id string) (InjectResult, error) {
 	f.mu.Lock()
@@ -84,7 +84,7 @@ func TestMessengerTimeoutRunningJobIsDeliveringThenSettles(t *testing.T) {
 	assert.Eq(t, jobstore.SessionMessageDelivering, outboxLatest(t, s, "sid-m-run", m.ID).Status)
 
 	// Terminal with the receipt: written back through the terminal-hook link.
-	f.setState(InjectState{Known: true, Done: true, Status: "done", ExitCode: 0, Output: "已发送"})
+	f.setState(InjectState{Known: true, Done: true, Status: "done", ExitCode: 0, Output: "已发送", Stdout: "已发送"})
 	settled, err := s.ReconcileDeliveryJob("job-msgr")
 	assert.NoErr(t, err)
 	assert.True(t, settled)
@@ -101,7 +101,7 @@ func TestMessengerTimeoutLateFailureIsWrittenBack(t *testing.T) {
 	assert.NoErr(t, err)
 
 	// exit 0 without the receipt is not a delivery.
-	f.setState(InjectState{Known: true, Done: true, Status: "done", ExitCode: 0, Output: "no such agent"})
+	f.setState(InjectState{Known: true, Done: true, Status: "done", ExitCode: 0, Output: "no such agent", Stdout: "no such agent"})
 	assert.NoErr(t, s.ReconcileDeliveries("sid-m-fail"))
 	final := outboxLatest(t, s, "sid-m-fail", m.ID)
 	assert.Eq(t, jobstore.SessionMessageFailed, final.Status)
@@ -122,7 +122,7 @@ func TestMessengerTimeoutUnstartedJobIsCancelledAndUndelivered(t *testing.T) {
 }
 
 func TestMessengerTimeoutJobFinishedMeanwhile(t *testing.T) {
-	f := &slowMessenger{abandon: InjectResult{JobID: "job-msgr", ExitCode: 0, Output: "已发送"}}
+	f := &slowMessenger{abandon: InjectResult{JobID: "job-msgr", ExitCode: 0, Output: "已发送", Stdout: "已发送"}}
 	s := newSlowMessengerSvc(t, f)
 	messengerSession(t, s, "sid-m-done")
 	m, err := s.SendMessage(context.Background(), "sid-m-done", "hello", "alice", "alice")
@@ -147,6 +147,6 @@ type plainSlowMessenger struct{}
 func (plainSlowMessenger) SubmitMessenger(string, string, string, []string, string, string) (string, error) {
 	return "job-plain", nil
 }
-func (plainSlowMessenger) MessengerJob(string) (bool, string, int, string, error) {
-	return false, "running", 0, "", nil
+func (plainSlowMessenger) MessengerJob(string) (bool, string, int, string, string, error) {
+	return false, "running", 0, "", "", nil
 }

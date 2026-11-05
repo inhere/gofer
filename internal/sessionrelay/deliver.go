@@ -279,6 +279,9 @@ type InjectResult struct {
 	// Output is the stdout tail; the pane check prints its reason code there
 	// (pane_missing / pane_busy:<cmd>).
 	Output string
+	// Stdout is STDOUT ALONE of the same tail (no stderr): it is what the messenger
+	// receipt is read from, so a warning on stderr cannot vote on a delivery.
+	Stdout string
 	// Status is the job's status at the moment the host gave up waiting for it — ""
 	// when the job ended inside the wait window, so ExitCode and Output are its own.
 	// A non-empty Status means the wait window elapsed first, and Running says which
@@ -335,6 +338,8 @@ type InjectState struct {
 	// (Done only).
 	ExitCode int
 	Output   string
+	// Stdout is the stdout half of that tail (Done only) — see InjectResult.Stdout.
+	Stdout string
 }
 
 // InjectProbe answers what an injection job is doing NOW, so a delivery that outlived

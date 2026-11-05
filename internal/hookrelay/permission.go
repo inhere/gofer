@@ -552,10 +552,11 @@ func (r *runner) releaseOpenPermission(fp string) {
 
 // SkipPostToolUse reports a Claude PostToolUse the hook has nothing to do for: the
 // template matches every tool (so the call that answered a permission prompt can
-// settle it), but only a shell tool carries progress / job watches, and any other
-// tool matters only when its prompt is still pending on the web. Checked before
-// the hub client is even built, so an ordinary Read / Edit costs one stat.
+// settle it), but only a shell tool carries progress / job watches, a SendMessage
+// may be the session answering a web message (reportWebReply), and any other tool
+// matters only when its prompt is still pending on the web. Checked before the hub
+// client is even built, so an ordinary Read / Edit costs one stat.
 func SkipPostToolUse(p Payload, dir string) bool {
 	return p.Event == "PostToolUse" && p.dialect() == AgentClaude &&
-		!isShellTool(p.ToolName) && !PermissionPending(p, dir)
+		!isShellTool(p.ToolName) && p.ToolName != sendMessageTool && !PermissionPending(p, dir)
 }
