@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # web 发消息按会话地址投递 实施计划
 
-> 状态：Draft 0.5 / 已批准并执行中（用户 2026-11-05：“批准 g1lk 计划 0.5 并开始实施”，批准前已披露第 4 轮的 3 条修订未再复核）
+> 状态：Draft 0.6 / 已批准并执行中（0.5 用户 2026-11-05：“批准 g1lk 计划 0.5 并开始实施”；0.6 用户 2026-11-05：“按建议修订设计，继续 g1lk”，批准前已披露修订内容，0.6 未做独立评审）
 > issue：gofer-g1lk
 
 ## 修订记录
@@ -13,10 +13,11 @@
 | 0.3 | 2026-11-05 | Claude（gofer 监督会话） | 按确认轮修订（阻塞 3 条，都在 T8）：测试会话设 `relay_mode=off`，防止发送后转入开放回合；用临时包装程序强制一次性路径，并按 `job_id` 区分路径；失败消息不断言 channel。纠正：offline 构造、信箱唤醒的配置和断言、`to` 从 transcript 读取、临时 server 和 worker 也清环境、Windows 按真实 pid 硬杀 |
 | 0.4 | 2026-11-05 | Claude（gofer 监督会话） | 按第 3 轮修订（阻塞 1 条，在 T8）：worker 常驻路径的消息带 `job_id`，断言改为 `MessengerMeta.Channel=resident`。纠正：临时项目 `allow_exec: true`；包装程序读完 stdin 第一行再退出、Windows 起子进程；一次性路径单独起 server；`session relay` 带 `--session` |
 | 0.5 | 2026-11-05 | Claude（gofer 监督会话） | 按第 4 轮的 3 条纠正修订（该轮无阻塞项，这三条未再复核）：临时项目配 `allowed_runners` 和 worker runner；一次性 server 有独立的 hook 目录，预检按所属 server 断言；channel 断言写明读取接口；T0 带包装程序实测 Windows 换行 |
+| 0.6 | 2026-11-05 | Claude（gofer 监督会话） | T8 命中 fail-closed 后按设计 0.5 修订：新增 T7a（提示词加固、hook 回复修复、文档）；模型行为的 fail-closed 改为投错或投两次；T8 全路径重跑；反向验证加两项 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
-思考模式：RIGOROUS。核心目标：同一台机器上两个存活的 Claude 会话同名时，web 消息和信箱唤醒仍能送到选中的那个会话，投不到时如实显示失败。Scope freeze：只实施设计 Draft 0.4 的范围和下文“对设计的细化”。Review budget：两路独立审核一轮加一轮确认，有阻塞项才继续，上限按严谨规划核心合同。停止条件：确认轮无 `CORE_BLOCKING`，停在计划 Gate。
+思考模式：RIGOROUS。核心目标：同一台机器上两个存活的 Claude 会话同名时，web 消息和信箱唤醒仍能送到选中的那个会话，投不到时如实显示失败。Scope freeze：只实施设计 Draft 0.5 的范围和下文“对设计的细化”。Review budget：两路独立审核一轮加一轮确认，有阻塞项才继续，上限按严谨规划核心合同。停止条件：确认轮无 `CORE_BLOCKING`，停在计划 Gate。
 
 ## 目标与完成定义
 
@@ -40,7 +41,7 @@
 
 ## 输入与批准证据
 
-- 设计：`docs/design/2026-11-05-session-peer-address-design.md` Draft 0.4。用户 2026-11-05：“批准 g1lk 设计 0.4”（批准前已披露最后 2 条修订未再复核）。
+- 设计：`docs/design/2026-11-05-session-peer-address-design.md` Draft 0.5。用户 2026-11-05：“批准 g1lk 设计 0.4”（批准前已披露最后 2 条修订未再复核）；“按建议修订设计，继续 g1lk”（0.5）。
 - 探针脚本和结果：工作区 `tmp/g1lk-probe/`（不入库，设计 F1–F5 已写明结论）。
 - 规范：G021–G024、G031、G032、G045、G056、G057、SR1211、SR1301、SR1402.1、SR1433、GR104、GR109。
 
@@ -94,7 +95,7 @@ workspace baseline：
 fail-closed，以下任一情况停止并回到设计：
 
 - T0 发现 Windows 上 `success:false` 时消息其实已投出，或 tool_result 在两个版本上形状不同且无法共同解析。
-- T8 中模型改写地址字符、或一轮内多发，多轮抽样里出现一次就算。
+- T8 中接收方收到同一消息两次（模型改写地址后回退送达只算一次，不停，改写次数记入 `acceptance.md`）。
 - T8 中同名场景投给了未选中的会话。
 - T0 或 T8 中工具返回 `success:true`，接收方却没有收到（判定依据 D9 失效）。
 - T8 的隔离预检失败。
@@ -107,11 +108,11 @@ fail-closed，以下任一情况停止并回到设计：
 W0  T0 实测冻结（监督会话，不改代码）
 W1  T1 存储 → T2 上报
 W2  T3 常驻判定、T4 回执判定（互不依赖）→ T5 目标与提示词 → T6 回复归属
-W3  T7 文档
+W3  T7 文档 → T7a 提示词加固与回复修复（监督会话，设计 0.5）
 W4  T8 真实验收（监督会话）→ T9 收尾
 ```
 
-T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex/gpt-6.1-terra`，挂 plan），每个任务一个提交。T0、T8、T9 由监督会话做。
+T1–T7 由 suga 在同一 worktree 顺序实施（计划写 `openai-codex/gpt-6.1-terra`，因其和 `gpt-6-sol` 当时过慢，实际用 `opencode-go/deepseek-v4.1-flash`），每个任务一个提交。T0、T7a、T8、T9 由监督会话做。
 
 ## 任务
 
@@ -207,6 +208,18 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
 - 完成标准: G045 同步完成，汇报列出改了哪些文件。
 - 依赖: T5、T6。
 
+### T7a 提示词加固与回复修复（监督会话）
+
+- 文件: `internal/i18n/lang/{en,zh-CN}/sessionrelay.ini`、`internal/sessionrelay/message_target_test.go`、`internal/hookrelay/permission.go`、`internal/hookrelay/web_reply.go`、`internal/hookrelay/permission_test.go`、`internal/hookrelay/web_reply_test.go`、`skills/gofer-usage/references/sessions-relay.md`。
+- 动作:
+  - 4 个 `*_address*` 提示词按设计 0.5 改写：地址逐字符照抄、反斜杠个数不变；带回退的版本写明第一次调用必须用地址；不带回退的版本不出现名字。
+  - `SkipPostToolUse` 放行 `SendMessage`（`sendMessageTool`），其他工具仍只花一次 stat。
+  - `webMessageFrom` 的快速过滤改为认 `msgprefix.PersonOpens` 给出的所有拼写（web 消息和 web 回复两类），不再只认中文。
+  - sessions-relay 写明弱模型可能改写地址：结果是显示失败或回退送达，建议传话人用可靠的模型。
+- 验证: `go test ./internal/sessionrelay ./internal/hookrelay ./internal/i18n ./internal/commands -run 'Prompt|Messenger|WebReply|SkipPostToolUse|Hook|CatalogKeysMatch' -count=1`；含不带回退的提示词不含名字、Windows 反斜杠不被加倍、`SendMessage` 不被跳过、英文前缀的 transcript 能上报。
+- 完成标准: 上述用例通过，一个提交。
+- 依赖: T7。
+
 ### T8 真实验收（监督会话）
 
 - 文件: 只写工作区 `tmp/g1lk-impl/`（脚本、日志）。
@@ -217,7 +230,7 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
   - 预检：每条路径先起一个进程，所属临时 server 必须有这条会话，另一个临时 server 和线上 server 都必须没有；任一不符就停。
   - 排除开放回合路径：临时配置 `session.auto_relay_idle_sec: 0`、`auto_relay_turn_sec: 0`；每个真实会话注册后、第一次发送前用 `gofer session relay off --session <sid>` 设为 `off` 并断言（`auto` 会话第一次发送成功就会被 `FollowWeb` 切到 `on`，下一条消息走回合路径，也不再被唤醒）；每次发送前断言没有 open turn。
   - 强制一次性路径：本机路径的 `messenger_command` 指向 `tmp/g1lk-impl/` 里的一次性 Go 包装程序（不入库），参数含 `--input-format` 时读完 stdin 第一行再退出（产生 `resident messenger exited`，避开写入失败的竞争），否则起真实 claude 的子进程，透传输出和退出码（Windows 不支持 exec）。两者都写绝对路径。`messenger_command` 是 server 级配置且不热加载，一次性路径单独起一个 server；本机常驻和 worker 用配真实 claude 的 server。worker 只有常驻路径，矩阵里不列一次性。
-  - 路径断言：成功消息要求 `channel=messenger`，本机一次性要求 `job_id` 非空，本机常驻要求为空；worker 常驻的消息也带 `job_id`，要求 `GET /v1/jobs/<job_id>` 的 `.messenger.channel` 等于 `resident`（本机一次性等于 `one-shot`；`gofer job show` 读不到这个字段）。消息字段从 `GET /v1/sessions/{sid}/messages` 读。失败消息没有 channel，用工具调用目标和 `error` 不是 Deliver 阶梯的原因判定。
+  - 路径断言：成功消息要求 `channel=messenger`，本机一次性要求 `job_id` 非空，本机常驻要求为空；worker 常驻的消息也带 `job_id`，要求 `GET /v1/jobs/<job_id>` 的 `.messenger.channel` 等于 `resident`（本机一次性等于 `one-shot`；`gofer job show` 读不到这个字段）。消息字段从 `GET /v1/sessions/{sid}/outbox` 读。失败消息没有 channel，用工具调用目标和 `error` 不是 Deliver 阶梯的原因判定。
   - `to` 的来源：从 messenger 进程的 transcript 读 SendMessage 的 `input.to`，常驻和一次性相同。T0 确认 transcript 位置，T8 预检确认读得到。
   - 信箱唤醒：临时配置调小 `mail.wake_idle_sec`、`mail.wake_interval_sec`。
   - 每个场景用独立名字（如 `g1lk-s3-<路径>`）。硬杀留下的行不是 `ended`，同名会干扰后续场景。
@@ -230,7 +243,8 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
   4. 经 API 注册不带地址的同名会话：工具失败，web 显示失败（验收 4，名字路径）。
   5. Linux：`sh -c 'echo $$ >pid; 等预置完成; exec claude ...'` 先拿 pid（pid 不变的前提先实测），算出地址，预置带 `peer_name` 的旧行，用 SQL 把它的 runner 分别改成 `server`、`local`；断言第一次带地址的上报之后旧行没有地址、`peer_messaging=0`（验收 5）。Windows 的管道名不可预置，写 `UNVERIFIED_REAL_ENV`，由 T1 用例承担。
   6. 经 API 注册非法地址（真实会话文件的地址无法改成非法值）：入库为空、走名字路径、日志不含原值（验收 6）。
-  7. 模型行为：逐轮记录每次 SendMessage 的 `to`，每种情况常驻和一次性各 5 轮，含 Windows 反斜杠地址。情况：地址有效；地址失效且有同名存活（不带回退，改发名字就会投错，出现一次就停）；地址失效且无同名（带回退，最多一次）；`wake_prompt_address*` 抽样。
+  7. 模型行为：逐轮记录每次 SendMessage 的 `to` 和接收方收到的次数，每种情况常驻和一次性各 5 轮，含 Windows 反斜杠地址。改写只记录次数；投错或投两次才判失败。情况：地址有效；地址失效且有同名存活（不带回退，提示词不含名字，改发名字且投到同名会话就停）；地址失效且无同名（带回退，最多一次）；`wake_prompt_address*` 抽样。
+- 重跑（设计 0.5）：提示词和 hook 都变了，容器三条路径和 Windows 两条路径都重跑全部场景。回复断言按验收 10：三条路径都要显示在选中的会话下且只有一条（`source` 可能是 `session` 或 `messenger`）；英文 server 另抽一次。
 - 验证: `tmp/g1lk-impl/acceptance.md` 逐条记录命令、接收方日志片段（只记探针文字，不含真实消息）和结论。做不到的项写 `UNVERIFIED_REAL_ENV: <面>（复现：<命令>）`。
 - 完成标准: 验收 1 在两个平台都有证据，不能用披露代替；验收 2–6 也都要有证据，只有确实不可构造的项（目前只有 Windows 的 T8.5）可以披露；没有触发 fail-closed。
 - 依赖: T7。
@@ -239,7 +253,7 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
 
 - 文件: 设计稿“实施记录”、本计划状态、`.gofer/tracker/*`。
 - 动作:
-  - 反向验证（验收 9，在临时副本里改，不提交）：把 `messengerTargetFor` 改回只用名字，同名测试必须失败；去掉 `clearPeerSocketOthersTx`，pid 复用测试必须失败；`Receipt()` 失败也返回 `sent`，worker 判定测试必须失败；`read` 把 `success:false` 当成功，本机常驻判定测试必须失败；`Fallback` 恒为 true，同名不回退的测试必须失败。
+  - 反向验证（验收 9，在临时副本里改，不提交）：把 `messengerTargetFor` 改回只用名字，同名测试必须失败；去掉 `clearPeerSocketOthersTx`，pid 复用测试必须失败；`Receipt()` 失败也返回 `sent`，worker 判定测试必须失败；`read` 把 `success:false` 当成功，本机常驻判定测试必须失败；`Fallback` 恒为 true，同名不回退的测试必须失败；`SkipPostToolUse` 改回跳过 `SendMessage`，对应测试必须失败；`webMessageFrom` 改回只认中文，英文前缀的测试必须失败。
   - 对 `git diff --stat` 查无关删除；逐条对照设计核实 suga 的声明。
   - `gofer-verify` 工作流（四路）通过。Windows 全量随发版前流程。
   - 合并回 main（`--no-ff`），删 worktree 和分支；设计稿补实施记录；计划进入 COMPLETE 时写不超过 8 行的完成总结；关 `gofer-g1lk`。
@@ -274,6 +288,7 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
 | 7 旧库升级 | T1 | `TestOpenUpgradesPreviousReleaseSchema` |
 | 8 回执判定，工具失败不转一次性 job | T4 T5 | T4、T5 用例 |
 | 9 反向验证 | T9 | `reverse.md` |
+| 10 回复显示，三条路径、中英文 | T7a | T8 重跑，T7a 用例 |
 | 待实测：模型行为 | T5 | T8.7 |
 | 待实测：Windows 失效返回 | T3 | T0 |
 | 待实测：SessionStart 时序 | T2 | T0，实施记录 |

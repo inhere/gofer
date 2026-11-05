@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # web 发消息按会话地址投递设计
 
-> 状态：Draft 0.4 / 已批准进入计划（用户 2026-11-05：“批准 g1lk 设计 0.4”，批准前已披露 0.4 的 2 条修订未再复核）；不授权实施
+> 状态：Draft 0.5 / 已批准（0.4 用户 2026-11-05：“批准 g1lk 设计 0.4”；0.5 用户 2026-11-05：“按建议修订设计，继续 g1lk”，批准前已披露实测结果和修订内容，0.5 未做独立评审）
 > issue：gofer-g1lk
 
 ## 修订记录
@@ -12,6 +12,7 @@
 | 0.2 | 2026-11-05 | Claude（gofer 监督会话） | 按第 1 轮两路评审修订（阻塞 4 条）：offline 会话也用地址；地址改为同 runner 唯一，防 pid 复用；有其他同名会话时不回退名字；常驻路径判定投递结果；并收紧地址白名单、改更新语义、改正 messenger 路径描述 |
 | 0.3 | 2026-11-05 | Claude（gofer 监督会话） | 按确认轮修订（阻塞 1 条、纠正 7 条）：回执改为任一行匹配且只看 stdout；常驻路径的工具失败作为结果值返回；同 runner 按归一化比较；清地址时同时关闭 messenger 路径；写明 SessionStart 时序待实测和默认 runner 前提 |
 | 0.4 | 2026-11-05 | Claude（gofer 监督会话） | 按最后一轮的 2 条纠正修订（未再复核）：回执与失败原因分开取值，`jobOutput` 不动；传话人历史按结果结构记录 |
+| 0.5 | 2026-11-05 | Claude（gofer 监督会话） | 按真实验收修订：模型会改写地址，提示词加固，同名时不写名字；模型行为的停止条件改为“投错或投两次才停”，残余风险写明；修复 hook 回复上报（放行 SendMessage、认中英文前缀），纠正“hook 是主路径”的旧说法 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -46,6 +47,7 @@ Review budget：按严谨模式上限；确认轮没有 `CORE_BLOCKING` 即停�
 - 没有其他同名会话时，地址失败可按名字回退一次；有其他同名会话时不回退。
 - 常驻路径判定投递结果，失败如实记录。
 - messenger 收到对方回复时，优先按地址归属到会话。
+- 修复目标会话的 hook 回复上报：worker 和一次性路径只靠它显示回复。
 
 非目标：
 
@@ -69,6 +71,14 @@ Review budget：按严谨模式上限；确认轮没有 `CORE_BLOCKING` 即停�
 
 只有 F1、F5 用的形式进入方案；F4 只作记录。这些探针只证明工具可用，模型按提示词的行为和 Windows 地址失效的结果要在实施时实测（见验收）。
 
+真实验收实测（2026-11-05，脚本在 `tmp/g1lk-impl/t8/`，未进仓库）：
+
+| # | 场景 | 结果 |
+|---|---|---|
+| F6 | Windows，一次性路径，非 Claude 的弱模型，地址有效，5 轮 | 2 轮把 `uds:\\.\pipe…` 写成 `uds:\.\pipe…`，工具失败后回退名字送达；已核对 job 参数相同，是模型改写 |
+| F7 | Windows，失效地址，0.4 文案，每组 12 轮（样本小） | 中文改写 1 次；英文改写 3 次，其中 1 次第一次调用就发名字；中文加固文案 0 次 |
+| F8 | 容器，`claude-haiku-5-5`，常驻和一次性 | 没有改写 |
+
 代码事实：
 
 - `internal/hookrelay/peer.go:33` 已解析 `MessagingSocketPath`，只转成 `Messaging` 布尔值后丢弃。会话文件是 Claude Code 的内部格式，现有约定是缺失时静默。
@@ -77,7 +87,7 @@ Review budget：按严谨模式上限；确认轮没有 `CORE_BLOCKING` 即停�
 - `message.go:200-205` 常驻路径在 `rerr==nil` 时直接记已送达，输出被丢弃；模型回复失败原因不算错误。只有一次性 job 路径检查 `messengerSaidSent`。
 - `internal/messenger/resident.go:313` 已从 tool_result 读取 ListAgents 的真实结果，可以同样读取 SendMessage。
 - `internal/sessionrelay/reply.go:110` `RecordMessengerReply` 按名字匹配，名字为空先报错，匹配数不是 1 时丢弃回复。这条路径只在 `internal/httpapi/server.go:962` 安装，只服务 server 本机的常驻 messenger；worker 上的回复只靠目标会话自己的 hook。
-- 主路径上，目标会话的 hook（`internal/hookrelay/web_reply.go`）按 session id 上报回复，不受撞名影响。
+- 目标会话的 hook（`internal/hookrelay/web_reply.go`）按 session id 上报回复，不受撞名影响，但它现在不工作：`SkipPostToolUse`（`permission.go:558`）跳过非 shell 工具，`SendMessage` 进不到 `postToolUse`；`webMessageFrom`（`web_reply.go:69`）也只认中文前缀。本机常驻路径靠 `RecordMessengerReply` 才显示回复，worker 和一次性路径不显示。两条路径同时上报时，`RecordReply` 按相同文本去重。
 - 心跳里 `peer_name` 只在非空时更新（`sessions.go:852`），注册的 upsert 也保留旧值（`sessions.go:682-685`）。地址不能照搬，否则校验失败时旧地址会留下。
 - `runner` 是 hook 自报的标签（`internal/commands/hook.go:332-346`），不能证明地址属于哪个命名空间。
 - 所有读取都走 `selectSessionCols` + `scanSession`，新增列不影响其他读路径。
@@ -123,6 +133,7 @@ messenger 收到回复（仅 server 本机常驻路径）
 | `internal/sessionrelay/peeraddr.go`（新） | `validPeerSocket`、`messengerTarget`；调用都在 sessionrelay 内，hook 不做校验 |
 | `internal/sessionrelay/message.go`、`deliver_raw.go` | 三处提示词改用 `messengerTarget`；`wakeMessenger` 增加目标入参；常驻分支判定结果；一次性路径改用末行判定 |
 | `internal/sessionrelay/reply.go` | `RecordMessengerReply` 先按地址匹配，调整名字为空的校验顺序 |
+| `internal/hookrelay/permission.go`、`web_reply.go` | `SkipPostToolUse` 放行 `SendMessage`；`webMessageFrom` 认所有语言的人的前缀 |
 | `internal/messenger/resident.go`、`internal/worker/dispatch.go` | `read` 同时收集 SendMessage 的 tool_result；`Manager.Send` 返回结果结构；worker 写规范回执 |
 | `internal/sessionrelay/message.go:45`、`internal/httpapi/session_inject.go:54` | `ResidentMessenger` 接口与适配跟随结果结构；`session_inject.go` 增加 stdout 字段供回执判定，`jobOutput` 不动 |
 | `internal/jobstore/store.go`、`sessions.go` | 新列 `peer_socket`，基础 schema 与 ALTER 迁移（不建索引，G057）；写入时清同 runner 同地址 |
@@ -150,14 +161,16 @@ Windows:       ^\\\\\.\\pipe\\LOCAL\\cc-msg-[0-9a-f]{32}$
 
 ### 提示词
 
-新增 `sessionrelay.messenger.prompt_address`、`prompt_address_fallback`、`wake_prompt_address`、`wake_prompt_address_fallback`（en、zh-CN）。保留现有提示词的全部其他要求（回复只输出“已收到”、唤醒提示就是完整消息、只回复“已发送”或失败原因）。带回退的版本多一句：
+新增 `sessionrelay.messenger.prompt_address`、`prompt_address_fallback`、`wake_prompt_address`、`wake_prompt_address_fallback`（en、zh-CN）。保留现有提示词的全部其他要求（回复只输出“已收到”、唤醒提示就是完整消息、只回复“已发送”或失败原因）。两个版本都明确写地址要逐字符照抄，反斜杠的个数不能变。带回退的版本多一句：
 
 ```text
-to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字符。
+第一次调用的 to 必须逐字符写成 uds:\\.\pipe\LOCAL\cc-msg-…，反斜杠全部保留，开头是两个就写两个。
 只有工具返回 success:false 时，才改发给 "proj-4d"，最多一次。
 ```
 
-不带回退的版本写“工具返回失败就报告失败原因，不要改发其他目标”。地址不经过 `%q`，原样写入；名字继续用 `%q`。
+不带回退的版本写“工具返回失败就报告失败原因，不要改发其他目标”，并且**整段提示词不出现名字**：有同名会话时，名字是唯一会投错的目标，模型没读到就发不出去。地址不经过 `%q`，原样写入；名字继续用 `%q`。
+
+提示词只能降低模型出错的概率，不能保证。残余风险见“模型改写地址”。
 
 ### 投递结果判定
 
@@ -174,7 +187,7 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 1. 用户在 web 选中会话 A，发送。A 可能已空闲很久、状态是 offline。
 2. A 有地址，提示词写 `uds:<A 的地址>`；因为有同名的 B，不写回退。
 3. messenger 发给 A，只有 A 收到；工具返回成功，记已送达。
-4. A 回复时，A 自己的 hook 按 session id 上报，显示在 A 下。server 本机常驻路径上，hook 没上报时再按 `From` 地址归属到 A。
+4. A 回复时，A 自己的 hook 按 session id 上报，显示在 A 下，三条路径都一样。server 本机常驻路径另按 `From` 地址归属到 A，相同文本去重。
 
 ### 地址过期
 
@@ -193,6 +206,18 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 
 - 新进程是没有装 gofer hook 的 Claude，它不上报，旧记录仍指向它。
 - SessionStart 时会话文件若还没写地址，新会话第一次上报要等到下一个 hook 事件，这段时间旧记录仍指向它。是否存在这个窗口待实测。
+
+### 模型改写地址
+
+| 模型的行为 | 结果 |
+|---|---|
+| 改写地址，同名会话存活 | 工具失败，显示失败，用户可以重发 |
+| 改写地址，没有同名会话 | 工具失败后回退名字，消息送到，只投一次 |
+| 第一次就发名字，选中的和同名的都存活 | 提示词里没有名字，模型要自己找到名字才会发生；万一发生，工具因同名报错（F2），显示失败 |
+| 第一次就发名字，选中的已退出，同名的存活 | 同样要模型自己找到名字（如调 ListAgents）；万一发生，**会投给同名的另一个会话**。这是残余的投错风险 |
+| 第一次就发名字，同名会话已退出 | gofer 不知道有同名时才可能：未接入 gofer 的同名进程存活，与名字路径现状相同 |
+
+除投错那一行外，结果都是如实显示失败或送到。投错那一行实测没有出现（0.4 文案还写着名字时，也只在没有同名的回退提示词里见过），所以这里不增加机制（SR1410.1），T8 出现一次就停。残余风险写进使用文档：传话人用的模型越弱，失败越多，建议用可靠的模型。更严的 `PreToolUse` 校验 `to` 不做，见 D12。
 
 ## 安全、数据、运维与回滚
 
@@ -228,12 +253,15 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 | D8 | 回退由提示词描述，不在 gofer 里重试 | 只有 messenger 能看到工具结果；gofer 重试要再判断第一次是否投出，容易重复投递 |
 | D9 | 常驻路径按 tool_result 判定 | 模型文字不可靠，tool_result 是工具真实结果；否则失败也显示已送达 |
 | D10 | 不做 Warn 之外的地址诊断 | 上报失败退回现有路径，用户无感，不增加机制 |
+| D11 | 模型改写地址不算投递缺陷，投错或投两次才算 | 改写在实测里只造成失败或回退送达（F6、F7），用户看到的结果都是真的；要求零改写在弱模型上做不到 |
+| D12 | 不加 `PreToolUse` 校验 `to` | 同名时提示词不写名字后，投错要同时满足选中的已退出、模型自己找到并改发名字，实测没有出现；钩子要给 messenger 进程增加配置和失败路径，代价大于收益。真实使用中出现投错再做 |
+| D13 | hook 回复修复纳入本次 | 否则 worker 和一次性路径过不了验收 1；两处都是小改动，且已有去重 |
 
 ## 待确认事项
 
 无阻塞项。实施时实测，结果不符就回到设计：
 
-- 模型按新提示词的行为：不改字符、不多发，常驻和一次性各多轮，含 Windows 反斜杠。
+- 模型按新提示词的行为：不投错、不投两次，常驻和一次性各多轮，含 Windows 反斜杠。改写次数记录在实施记录里。
 - Windows 地址失效时工具的返回，以及 `success:false` 时消息确实没有投出（目前只实测过 Linux ENOENT 和撞名）。
 - SessionStart 时会话文件是否已写地址。没写时按残余风险处理，写进实施记录。
 
@@ -253,4 +281,5 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 6. 非法地址（如 docker.sock、带 `..`）被拒绝，走名字路径；日志不含原值。
 7. 旧库升级通过 `TestOpenUpgradesPreviousReleaseSchema`。
 8. 回执：对方秒回（末行是“已收到”）、stderr 有警告、回复带标点都判成功；失败叙述里带“已发送”判失败；常驻路径工具失败不转一次性 job。
-9. 反向验证（SR1433）：把提示词改回只用名字，同名测试必须失败；去掉唯一性清理，pid 复用测试必须失败。
+9. 反向验证（SR1433）：把提示词改回只用名字，同名测试必须失败；去掉唯一性清理，pid 复用测试必须失败；`SkipPostToolUse` 改回跳过 `SendMessage`、`webMessageFrom` 改回只认中文，hook 回复测试必须失败。
+10. 回复显示：worker、一次性、本机常驻三条路径上，中文和英文 server 下，目标会话回给 messenger 的话都显示在选中的会话下，只显示一次。
