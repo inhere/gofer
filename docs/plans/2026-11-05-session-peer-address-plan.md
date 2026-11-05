@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # web 发消息按会话地址投递 实施计划
 
-> 状态：Draft 0.2 / 待人工计划批准
+> 状态：Draft 0.3 / 待人工计划批准
 > issue：gofer-g1lk
 
 ## 修订记录
@@ -10,6 +10,7 @@
 |---|---|---|---|
 | 0.1 | 2026-11-05 | Claude（gofer 监督会话） | 初稿 |
 | 0.2 | 2026-11-05 | Claude（gofer 监督会话） | 按两路审核修订（阻塞 3 条，都在 T8）：真实验收的环境隔离写明清除变量和双向预检；进程退出改硬杀；排除开放回合路径并逐条断言走了地址。纠正：写明事务细节和 runner 来源；缺省失败原因和英文文案；真实帧交接；验证命令补全；反向验证加两项；验收 1 不允许用披露跳过 |
+| 0.3 | 2026-11-05 | Claude（gofer 监督会话） | 按确认轮修订（阻塞 3 条，都在 T8）：测试会话设 `relay_mode=off`，防止发送后转入开放回合；用临时包装程序强制一次性路径，并按 `job_id` 区分路径；失败消息不断言 channel。纠正：offline 构造、信箱唤醒的配置和断言、`to` 从 transcript 读取、临时 server 和 worker 也清环境、Windows 按真实 pid 硬杀 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -208,15 +209,19 @@ T1–T7 由 suga 在同一 worktree 顺序实施（`-a suga --model openai-codex
 
 - 文件: 只写工作区 `tmp/g1lk-impl/`（脚本、日志）。
 - 环境隔离:
-  - 用 worktree 的构建产物起临时 server（临时端口、配置目录和库），临时 `.env` 写地址、token、run mode、runner。cwd 属于临时配置里的项目，否则报 `no_project`。
-  - 启动真实 Claude 前清除 `GOFER_JOB_ID`、`GOFER_JOB_TOKEN`、`GOFER_SERVER_ADDR`、`GOFER_SERVER_TOKEN`、`GOFER_CONFIG`、`GOFER_RUN_MODE`、`GOFER_HOOK_RUNNER`、`GOFER_PROJECT`、`GOFER_BIN`、`CLAUDECODE`、`CLAUDE_CODE_*`，再设 `GOFER_CONFIG_DIR` 指向临时目录、`PATH` 前置临时二进制。主机 job 里 `GOFER_JOB_ID` 会让 hook 直接退出，job 凭据优先于 `.env`，不清就可能报给线上 server。
+  - 用 worktree 的构建产物起临时 server（临时端口、配置目录和库），server 和 hook 用两个配置目录：hook 目录的 `.env` 写地址、token、`GOFER_RUN_MODE=client`、`GOFER_HOOK_RUNNER`（本机路径写 `local`，worker 路径写 worker id）；server 目录不设 client 模式（client 模式下 serve 拒绝启动）。cwd 属于临时配置里的项目，否则报 `no_project`。
+  - 启动真实 Claude、临时 server、临时 worker 前都清除 `GOFER_JOB_ID`、`GOFER_JOB_TOKEN`、`GOFER_SERVER_ADDR`、`GOFER_SERVER_TOKEN`、`GOFER_CONFIG`、`GOFER_RUN_MODE`、`GOFER_HOOK_RUNNER`、`GOFER_PROJECT`、`GOFER_BIN`、`CLAUDECODE`、`CLAUDE_CODE_*`，再设 `GOFER_CONFIG_DIR` 指向临时目录、`PATH` 前置临时二进制。主机 job 里 `GOFER_JOB_ID` 会让 hook 直接退出，job 凭据优先于 `.env`，不清就可能报给线上 server。
   - 双向预检：先起一个进程，临时 server 必须有这条会话，线上 server 必须没有；任一不符就停。
-  - 临时配置 `session.auto_relay_idle_sec: 0`、`auto_relay_turn_sec: 0`，排除开放回合路径。
+  - 排除开放回合路径：临时配置 `session.auto_relay_idle_sec: 0`、`auto_relay_turn_sec: 0`；每个真实会话注册后、第一次发送前用 `gofer session relay` 设为 `off`（`auto` 会话第一次发送成功就会被 `FollowWeb` 切到 `on`，下一条消息走回合路径，也不再被唤醒）；每次发送前断言没有 open turn。
+  - 强制一次性路径：本机路径的 `messenger_command` 指向 `tmp/g1lk-impl/` 里的一次性 Go 包装程序（不入库），参数含 `--input-format` 时立即退出，否则 exec 真实 claude，这样常驻启动失败后转一次性 job。常驻路径直接用真实 claude。worker 只有常驻路径，矩阵里不列一次性。
+  - 路径断言：成功消息要求 `channel=messenger`，一次性要求 `job_id` 非空，常驻要求为空。失败消息没有 channel，用工具调用目标和 `error` 不是 Deliver 阶梯的原因判定。
+  - `to` 的来源：从 messenger 进程的 transcript 读 SendMessage 的 `input.to`，常驻和一次性相同。T0 确认 transcript 位置，T8 预检确认读得到。
+  - 信箱唤醒：临时配置调小 `mail.wake_idle_sec`、`mail.wake_interval_sec`。
   - 每个场景用独立名字（如 `g1lk-s3-<路径>`）。硬杀留下的行不是 `ended`，同名会干扰后续场景。
   - 临时 worker 路径：worker 注册到临时 server，`GOFER_HOOK_RUNNER` 等于 worker id。
   - 进程只按自己记录的 pid 停；收尾看临时 server 日志并按“授权”一节清理。不改用户配置。
-- 动作（Linux 容器：本机常驻、一次性、经临时 worker 三条路径；Windows 主机：本机常驻、一次性）。场景 1–4 逐条断言消息 `channel=messenger`，并记录 messenger 的 tool_use 目标（`uds:` 或名字）；“退出”一律硬杀（Linux `kill -9`，Windows `Stop-Process -Force`），不触发 SessionEnd，发送前断言状态不是 `ended`:
-  1. 两个同名存活会话，用 `session.offline_after_sec` 让其中一个变 offline（发送前断言）：选中 offline 的发一次，只有它收到；再选 running 的发一次，只有它收到；回复显示在同一会话下；信箱唤醒同样验证（验收 1）。
+- 动作（Linux 容器：本机常驻、一次性、经临时 worker 三条路径；Windows 主机：本机常驻、一次性）。场景 1–4 按上面的路径断言，并记录 `to`（`uds:` 或名字）；“退出”一律硬杀（Linux `kill -9`，Windows `Stop-Process -Force`），pid 取 `sessions/<pid>.json` 的文件名（`.cmd` 入口下启动进程的 pid 是 shim），发送前断言该进程已退出、状态不是 `ended`:
+  1. 两个同名存活会话，用 `session.offline_after_sec` 等两个都变 offline（扫描周期 60s，阈值要大于第一次发送的耗时）。选中 A 发一次（发送前断言 A 是 offline），只有 A 收到。再给 B 喂一轮 stdin 让它恢复，选中 B 发一次（发送前断言 B 不是 offline），只有 B 收到。回复显示在同一会话下。信箱唤醒：发信前断言状态是 `idle` 或 `offline`，唤醒没有 outbox 行，改断言 messenger job 的提示词带地址、只有选中的会话收到（验收 1）。
   2. 选中的进程硬杀、同名的另一个存活：显示失败，另一个没有收到，提示词不带回退（验收 2）。
   3. 选中的进程硬杀，一个未接入 gofer 的同名进程存活（只给它设 `GOFER_MESSENGER=1`，走 hook 的 bypass，并核实临时 server 没有这行）：回退名字，只投一次（验收 3）。
   4. 经 API 注册不带地址的同名会话：工具失败，web 显示失败（验收 4，名字路径）。
