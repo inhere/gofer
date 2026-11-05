@@ -356,7 +356,7 @@ func (s *Service) IsServerLocalRunner(label string) bool {
 // the receiving session sees a web message as coming from "gofer-web" — the person
 // on the web — rather than from an auto-named session of the target's directory
 // (gofer-02fu).
-const MessengerSessionName = "gofer-web"
+const MessengerSessionName = msgprefix.MessengerName
 
 func messengerPrompt(lang i18n.Lang, target messengerTarget, operator, text string) string {
 	if strings.TrimSpace(operator) == "" {
@@ -427,17 +427,31 @@ var messengerSentMarkers = []string{"已发送", "sent"}
 // case-insensitively. Two limits are deliberate:
 //   - only stdout votes: stderr carries warnings, and a warning mentioning the receipt
 //     used to be enough to report a lost message as delivered;
-//   - the whole line must match, and a receipt EARLIER in the output still counts — the
-//     target often answers in the same run (「已收到」 on the last line), while a failure
-//     narrative ("the message was not sent", "send failed: sent") is not a receipt.
+//   - the whole line or its first sentence must match, and a receipt EARLIER in the
+//     output still counts — the target often answers in the same run (「已收到」 on the
+//     last line), and a model may explain after the receipt (「已发送。消息已投递到…」),
+//     while a failure narrative ("the message was not sent", "send failed: sent",
+//     「已发送失败」) is not a receipt.
 func messengerSaidSent(stdout string) bool {
 	for _, line := range strings.Split(stdout, "\n") {
-		line = trimReceiptLine(line)
-		if strings.EqualFold(line, messengerSentMarkers[0]) || strings.EqualFold(line, messengerSentMarkers[1]) {
+		if isSentMarker(trimReceiptLine(line)) || isSentMarker(trimReceiptLine(firstSentence(line))) {
 			return true
 		}
 	}
 	return false
+}
+
+func isSentMarker(s string) bool {
+	return strings.EqualFold(s, messengerSentMarkers[0]) || strings.EqualFold(s, messengerSentMarkers[1])
+}
+
+// firstSentence cuts line at its first sentence end. A comma does not end one, so
+// 「已发送，但对方拒收」 stays a narrative.
+func firstSentence(line string) string {
+	if i := strings.IndexAny(line, "。.！!"); i >= 0 {
+		return line[:i]
+	}
+	return line
 }
 
 // trimReceiptLine removes whitespace and then the leading / trailing punctuation and

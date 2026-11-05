@@ -137,3 +137,41 @@ func TestWebReplyOfRecognisesEveryLanguage(t *testing.T) {
 		t.Fatalf("answer to a gofer notice reported as %q", text)
 	}
 }
+
+// A transcript line is JSON: a Windows pipe's backslashes are doubled there, and the
+// reply must still be matched to the address.
+func TestWebReplyOfMatchesAWindowsAddress(t *testing.T) {
+	const pipe = `uds:\\\\.\\pipe\\LOCAL\\cc-msg-0123456789abcdef0123456789abcdef`
+	transcript := writeTranscript(t, webMessageEntry(t, pipe, "[来自 web，default] hi", false))
+	text, to := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, pipe, "hello")})
+	if text != "hello" || to != pipe {
+		t.Fatalf("reply = %q to %q", text, to)
+	}
+}
+
+// A model may drop the prefix when it forwards: the sender's name still says it came
+// through the messenger. Gofer's own notices stay out, with or without a prefix.
+func TestWebReplyOfTrustsTheMessengerName(t *testing.T) {
+	entry := func(name, body string) string {
+		b, err := json.Marshal(map[string]any{"type": "user", "origin": map[string]any{"kind": "peer", "from": messengerAddr, "name": name, "body": body}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, tc := range []struct {
+		name, body string
+		want       bool
+	}{
+		{"gofer-web", "hi there", true},
+		{"gofer-web", "[gofer · job done] finished", false},
+		{"gofer-web", `<gofer-mail-wake count="1"/>`, false},
+		{"other-session", "hi there", false},
+	} {
+		transcript := writeTranscript(t, entry(tc.name, tc.body))
+		text, _ := webReplyOf(Payload{ToolName: "SendMessage", TranscriptPath: transcript, ToolInput: sendMessageInput(t, messengerAddr, "hello")})
+		if (text != "") != tc.want {
+			t.Fatalf("%s %q: reply = %q, want reported=%v", tc.name, tc.body, text, tc.want)
+		}
+	}
+}

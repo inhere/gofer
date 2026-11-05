@@ -308,3 +308,12 @@ func TestAddressPromptNamesTheSessionOnlyWithFallback(t *testing.T) {
 		}
 	}
 }
+
+func TestMessengerSaidSentAcceptsAnExplainedReceipt(t *testing.T) {
+	for _, out := range []string{"已发送。消息已投递到收件箱，对方尚未读取。", "**已发送**。已投递", "Sent. It is in the inbox."} {
+		assert.True(t, messengerSaidSent(out), "%q is a receipt", out)
+	}
+	for _, out := range []string{"已发送失败。", "已发送，但对方拒收。", "not sent. the socket is stale", "send failed: sent."} {
+		assert.False(t, messengerSaidSent(out), "%q is not a receipt", out)
+	}
+}
