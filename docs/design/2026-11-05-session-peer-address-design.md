@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # web 发消息按会话地址投递设计
 
-> 状态：Draft 0.4 / 待人工计划批准
+> 状态：Draft 0.4 / 已批准进入计划（用户 2026-11-05：“批准 g1lk 设计 0.4”，批准前已披露 0.4 的 2 条修订未再复核）；不授权实施
 > issue：gofer-g1lk
 
 ## 修订记录
