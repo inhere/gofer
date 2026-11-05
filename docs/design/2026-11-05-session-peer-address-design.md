@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # web 发消息按会话地址投递设计
 
-> 状态：Draft 0.3 / 待人工计划批准
+> 状态：Draft 0.4 / 待人工计划批准
 > issue：gofer-g1lk
 
 ## 修订记录
@@ -11,6 +11,7 @@
 | 0.1 | 2026-11-05 | Claude（gofer 监督会话） | 初稿 |
 | 0.2 | 2026-11-05 | Claude（gofer 监督会话） | 按第 1 轮两路评审修订（阻塞 4 条）：offline 会话也用地址；地址改为同 runner 唯一，防 pid 复用；有其他同名会话时不回退名字；常驻路径判定投递结果；并收紧地址白名单、改更新语义、改正 messenger 路径描述 |
 | 0.3 | 2026-11-05 | Claude（gofer 监督会话） | 按确认轮修订（阻塞 1 条、纠正 7 条）：回执改为任一行匹配且只看 stdout；常驻路径的工具失败作为结果值返回；同 runner 按归一化比较；清地址时同时关闭 messenger 路径；写明 SessionStart 时序待实测和默认 runner 前提 |
+| 0.4 | 2026-11-05 | Claude（gofer 监督会话） | 按最后一轮的 2 条纠正修订（未再复核）：回执与失败原因分开取值，`jobOutput` 不动；传话人历史按结果结构记录 |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -123,7 +124,7 @@ messenger 收到回复（仅 server 本机常驻路径）
 | `internal/sessionrelay/message.go`、`deliver_raw.go` | 三处提示词改用 `messengerTarget`；`wakeMessenger` 增加目标入参；常驻分支判定结果；一次性路径改用末行判定 |
 | `internal/sessionrelay/reply.go` | `RecordMessengerReply` 先按地址匹配，调整名字为空的校验顺序 |
 | `internal/messenger/resident.go`、`internal/worker/dispatch.go` | `read` 同时收集 SendMessage 的 tool_result；`Manager.Send` 返回结果结构；worker 写规范回执 |
-| `internal/sessionrelay/message.go:45`、`internal/httpapi/session_inject.go:54` | `ResidentMessenger` 接口与适配跟随结果结构；`session_inject.go` 提供只含 stdout 的输出给回执判定 |
+| `internal/sessionrelay/message.go:45`、`internal/httpapi/session_inject.go:54` | `ResidentMessenger` 接口与适配跟随结果结构；`session_inject.go` 增加 stdout 字段供回执判定，`jobOutput` 不动 |
 | `internal/jobstore/store.go`、`sessions.go` | 新列 `peer_socket`，基础 schema 与 ALTER 迁移（不建索引，G057）；写入时清同 runner 同地址 |
 | `internal/i18n/lang/{en,zh-CN}/sessionrelay.ini` | 增加带地址的提示词 |
 | `docs/reference/http-api.md`、`skills/gofer-usage/references/sessions-relay.md`、`docs/runbook/container-worker.md` | 写字段、投递规则和前提（G045） |
@@ -161,7 +162,8 @@ to 必须原样写成 uds:\\.\pipe\LOCAL\cc-msg-…，不要改动其中的字�
 ### 投递结果判定
 
 - **常驻路径**（本机和 worker）：看本轮最后一次 SendMessage 的 tool_result。`success:true` 记已送达；`success:false` 或本轮没有调用记失败，原因取工具消息。`Manager.Send` 改为返回结果结构，工具失败是结果值，不经 `error` 返回：`message.go:210` 按错误文字里的 `start`、`exited`、`unavailable` 转一次性 job，错误文字碰巧含这些词就会再投一轮。worker 把结构转成规范回执（`sent` 或失败原因）写入 job 输出。
-- **一次性路径**：`messengerSaidSent` 改为只看 stdout，任一行去掉首尾标点和引号后整行等于回执即算成功（中英文）。现在中文“已发送”出现在任意位置都算，失败叙述带这三个字会误判；只看末行也不行，对方秒回时末行是“已收到”，stderr 也会混入输出（`session_inject.go:163-172`）。`deliver_reconcile.go:171`、`message.go:423` 用同一函数。
+- **一次性路径**：`messengerSaidSent` 改为只看 stdout，任一行去掉首尾标点和引号后整行等于回执即算成功（中英文）。现在中文“已发送”出现在任意位置都算，失败叙述带这三个字会误判；只看末行也不行，对方秒回时末行是“已收到”，stderr 也会混入输出（`session_inject.go:163-172`）。`deliver_reconcile.go:171`、`message.go:423` 用同一函数。回执和失败原因分开取值：`MessengerJob`、`InjectState`、`gaveUp` 增加单独的 stdout 字段供回执判定；`jobOutput` 不动，其他读取方（路径 C 的 `offlineMatch`、失败原因）继续拿 stdout 加 stderr。
+- **传话人历史**：`Send` 按结果结构记录（`resident.go:113-115`），工具失败在 Runners 抽屉里显示失败，不是成功。
 
 这项修正同样作用于名字路径：现在按名字发失败时，本机常驻路径也会误显示已送达。
 
