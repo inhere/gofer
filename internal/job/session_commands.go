@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
@@ -314,6 +315,12 @@ func isWorkerRemoteSession(cfg *config.Config, result JobResult) bool {
 	return ok && rc.Type == "worker"
 }
 
+// sessionCommandSeq makes command ids unique within this process: the clock alone is
+// not enough where its resolution is coarse (Windows), and two batches to one session
+// in the same tick would share an id — the worker drops ids it has seen, losing the
+// second batch.
+var sessionCommandSeq atomic.Uint64
+
 func sessionCommandID(jobID string) string {
-	return fmt.Sprintf("%s-%d", jobID, time.Now().UnixNano())
+	return fmt.Sprintf("%s-%d-%d", jobID, time.Now().UnixNano(), sessionCommandSeq.Add(1))
 }

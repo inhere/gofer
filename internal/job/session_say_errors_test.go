@@ -341,3 +341,17 @@ func (s *Service) entryForTest(t *testing.T, id string) *jobEntry {
 	}
 	return entry
 }
+
+// TestSessionCommandIDsAreUniqueWithinOneClockTick: ids made back to back differ even
+// where the clock does not advance between them (Windows CI once gave a second say
+// batch its predecessor's id, and the worker would have dropped it as seen).
+func TestSessionCommandIDsAreUniqueWithinOneClockTick(t *testing.T) {
+	seen := make(map[string]bool)
+	for i := 0; i < 10000; i++ {
+		id := sessionCommandID("say-unique")
+		if seen[id] {
+			t.Fatalf("command id %q repeated after %d ids", id, i)
+		}
+		seen[id] = true
+	}
+}
