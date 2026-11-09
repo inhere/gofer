@@ -46,6 +46,8 @@ const PAGE_ROOTS: Record<string, string> = {
   './Schedules.vue': 'page',
   './NewSchedule.vue': 'page',
   './Projects.vue': 'page',
+  './DocReader.vue': 'page',
+
   './Agents.vue': 'page',
   './Runners.vue': 'page',
   './settings/SettingsLayout.vue': 'page',

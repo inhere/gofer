@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # web 内置 Markdown 文档阅读 实施计划
 
-> 状态：Draft 0.1 / 已批准（2026-11-09，用户：「F3 选 A，三份计划批准」）
+> 状态：COMPLETE（2026-11-10）；Draft 0.1 已批准（2026-11-09，用户：「F3 选 A，三份计划批准」）
 > issue：gofer-i1bd
 
 ## 修订记录
@@ -293,3 +293,11 @@ W3  T8 真实验收（监督会话）→ T9 反向验证、全量与收尾（监
 完成 Gate：T0–T9 通过；`gofer-verify` 全绿；T8 按完成标准有证据或披露；设计稿补实施记录；`gofer-i1bd` 关闭。
 
 剩余工作（不在本计划内）：随下一批发版时 push 与发版；设计第二期（经 worker 读文件、worktree 文件、图片、`.txt`）另立 issue。
+
+## 完成总结（2026-11-10）
+
+- T1–T9 完成；T3–T7 由 suga 实施，两轮返工（删注释与压缩 CSS、缺测试、锚点被摘、job `base` 用了绝对路径、按钮内链接冒泡、正则误改）。
+- 计划缺陷：T6 的 `base: job.cwd` 未核实字段语义；T4/T5 的 DOM 级测试未核实测试环境（无 jsdom）。均已在设计稿实施记录写明处理。
+- T8 浏览器验收（`tmp/i1bd-impl/acceptance.md`）发现并修复目录 / 锚点失效与根目录锚点丢失；HTTP 反向全部符合。
+- 反向验证见 `tmp/i1bd-impl/reverse.md`；gofer-verify 四路通过。
+

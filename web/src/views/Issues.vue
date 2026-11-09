@@ -24,6 +24,7 @@ import { useRepoSync } from '../utils/useRepoSync'
 import { pageWriteBlock } from '../utils/pageGate'
 import { useWhoami } from '../store/whoami'
 import { fmtTrackerTime, trackerIssueMatches } from '../utils/trackerView'
+import { normalizeDocBase } from '../utils/docPath'
 import { t, te } from '../i18n'
 import Tabs from '../ui/Tabs.vue'
 import FilterChips from '../ui/FilterChips.vue'
@@ -134,6 +135,7 @@ async function submitNewIssue(): Promise<void> {
 }
 
 const repo = computed(() => repos.value.find((item) => item.tracker_id === trackerId.value))
+const issueDocContext = computed(() => repo.value ? { projectKey: repo.value.project_key, base: normalizeDocBase(repo.value.rel_path) } : undefined)
 const filteredIssues = computed(() => issues.value.filter((row) => trackerIssueMatches(row.data, row.id, statuses.value, typeFilter.value, tagFilter.value, query.value)))
 const issueNodes = computed<IssueNode[]>(() => issues.value.map((r) => ({ id: r.id, title: r.data.title, status: r.data.status, parent: r.data.parent, deps: r.data.deps })))
 const issueById = computed(() => new Map(issues.value.map((r) => [r.id, r])))
@@ -422,7 +424,7 @@ onMounted(async () => {
         <button type="button" class="page-btn" :disabled="currentPage >= pageCount" data-test="page-next" @click="gotoPage(currentPage + 1)">{{ t('issues.pager.next') }}</button>
       </nav>
     </template>
-    <IssueDrawer v-if="selected" :issue="selected" :all-issues="issueNodes" @open-issue="openById" :saving="saving" :write-block="writeBlock" :expected-rev="selectedRow?.rev ?? 0" @close="closeDrawer" @save="saveIssue" @comment="addComment" />
+    <IssueDrawer v-if="selected" :issue="selected" :doc-context="issueDocContext" :all-issues="issueNodes" @open-issue="openById" :saving="saving" :write-block="writeBlock" :expected-rev="selectedRow?.rev ?? 0" @close="closeDrawer" @save="saveIssue" @comment="addComment" />
   </main>
 </template>
 

@@ -3,13 +3,15 @@ import { computed, ref, watch } from 'vue'
 import StatusPill from '../ui/StatusPill.vue'
 import Drawer from '../ui/Drawer.vue'
 import { issueRelations, type IssueNode } from '../utils/issueTree'
+import DocLinkText from './DocLinkText.vue'
 import MarkdownBlock from './MarkdownBlock.vue'
 import RefsPanel from './RefsPanel.vue'
+import type { DocContext } from '../utils/docPath'
 import type { TrackerIssueView } from '../api/types'
 import { ISSUE_STATUS_VALUES, issueStatusText, type IssueStatus } from '../utils/statusText'
 import { t, te } from '../i18n'
 
-const props = defineProps<{ issue: TrackerIssueView; saving: boolean; expectedRev: number; allIssues?: IssueNode[]; writeBlock?: string }>()
+const props = defineProps<{ issue: TrackerIssueView; saving: boolean; expectedRev: number; allIssues?: IssueNode[]; writeBlock?: string; docContext?: DocContext }>()
 const emit = defineEmits<{
   (event: 'close'): void
   (event: 'save', value: { title: string; status: string; priority: number; description: string }): void
@@ -52,13 +54,17 @@ function sendComment(): void { if (comment.value.trim()) { emit('comment', comme
         <div v-if="rel.other.length" class="rel-group"><span class="rel-label">{{ t('issues.drawer.rel.other') }}</span><ul class="rel-list"><li v-for="o in rel.other" :key="`${o.type}-${o.id}`" data-test="rel-other"><span class="rel-type mono">{{ o.type }}</span><a href="#" class="rel-link" @click.prevent="emit('open-issue', o.id)"><span class="mono">{{ o.id }}</span> {{ o.node?.title ?? t('issues.drawer.rel.missing') }}</a><StatusPill v-if="o.node" :status="(o.node.status || 'open') as any" /></li></ul></div>
       </section>
       <label class="field">{{ t('issues.drawer.desc') }}<textarea v-model="description" class="in" rows="5" /></label>
-      <MarkdownBlock v-if="issue.description" :text="issue.description" />
+      <MarkdownBlock v-if="issue.description" :text="issue.description" :doc-context="docContext" />
+      <section v-if="issue.design" class="issue-design" data-test="issue-design">
+        <h3>{{ t('issues.drawer.design') }}</h3>
+        <MarkdownBlock :text="issue.design" :doc-context="docContext" />
+      </section>
       <div class="actions"><button class="btn btn--primary" type="button" :disabled="saving || !!props.writeBlock" :title="props.writeBlock || undefined" @click="save">{{ t('issues.drawer.save') }}</button></div>
       <h3>{{ t('issues.drawer.notes') }}</h3>
-      <ul v-if="issue.notes?.length" class="thread"><li v-for="note in issue.notes" :key="`${note.at}-${note.by}`"><span class="meta mono">{{ note.at }} · {{ note.by }}</span><p>{{ note.text }}</p></li></ul>
+      <ul v-if="issue.notes?.length" class="thread"><li v-for="note in issue.notes" :key="`${note.at}-${note.by}`"><span class="meta mono">{{ note.at }} · {{ note.by }}</span><DocLinkText :text="note.text" :doc-context="docContext" /></li></ul>
       <p v-else class="empty-line">{{ t('issues.drawer.none') }}</p>
       <h3>{{ t('issues.drawer.comments') }}</h3>
-      <ul v-if="issue.comments?.length" class="thread"><li v-for="item in issue.comments" :key="`${item.at}-${item.by}`"><span class="meta mono">{{ item.at }} · {{ item.by }}</span><p>{{ item.text }}</p></li></ul>
+      <ul v-if="issue.comments?.length" class="thread"><li v-for="item in issue.comments" :key="`${item.at}-${item.by}`"><span class="meta mono">{{ item.at }} · {{ item.by }}</span><DocLinkText :text="item.text" :doc-context="docContext" /></li></ul>
       <p v-else class="empty-line">{{ t('issues.drawer.none') }}</p>
       <RefsPanel kind="issue" :id="issue.id" />
       <div class="comment-form"><textarea v-model="comment" class="in" rows="4" :placeholder="t('issues.drawer.commentPlaceholder')" /><div class="comment-actions"><button class="btn" type="button" :disabled="!!props.writeBlock" :title="props.writeBlock || undefined" @click="sendComment">{{ t('issues.drawer.comment') }}</button></div></div>

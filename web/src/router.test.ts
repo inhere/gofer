@@ -16,6 +16,12 @@ describe('/board → /jobs rename', () => {
     expect(jobs?.component).toBeTypeOf('function')
   })
 
+  it('serves the project document reader route', () => {
+    const doc = entry('/projects/:key/doc')
+    expect(doc?.name).toBe('project-doc')
+    expect(doc?.component).toBeTypeOf('function')
+  })
+
   it('keeps /board as a redirect that carries the original query', () => {
     const board = entry('/board')
     expect(board).toBeTruthy()

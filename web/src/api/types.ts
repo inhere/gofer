@@ -1458,6 +1458,14 @@ export interface ReposResp {
   repos: RepoInfo[]
 }
 
+// Markdown 文档内容（GET /v1/projects/{key}/doc?path=<rel>&base=<rel>）。
+export interface ProjectDoc {
+  path: string
+  size: number
+  content: string
+  truncated: boolean
+}
+
 // 关键文件内容（E32，design §6.4）：GET /v1/projects/{key}/file?path=<rel>。
 // 字段与 internal/project/browse.go 的 FileContent JSON tag 对齐。
 // truncated=true 表示文件超过 256KB，content 为前缀切片。
@@ -3008,7 +3016,7 @@ export interface RefsResp {
   refs: RefItem[]
 }
 
-export interface TrackerIssueView { parent?: string; deps?: Array<{ id: string; type: string }>; id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
+export interface TrackerIssueView { parent?: string; deps?: Array<{ id: string; type: string }>; id: string; title: string; type: string; status: string; priority: number; description?: string; design?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
 
 export interface TrackerBatchSet { status?: string; close_reason?: string; add_tags?: string[] }
 export interface TrackerBatchResp { results: Array<{ id: string; ok: boolean; error?: string }>; ok: number; failed: number }

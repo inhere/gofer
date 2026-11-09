@@ -15,6 +15,7 @@
 
 - 独占 job 的目录锁由 `--scope` 推出，scope 不相交的 job 可在同一 checkout 并行；多路径锁改为原子获取，交叉顺序的 `--lock` 不再互等；`waiting_dir` 提示与帮助首选 `--scope`（gofer-341t）。
 - 「等我」里的会话传话回合收紧为真正在等人回复的：agent 在最后一条消息末行单独写 `[needs-reply]` 才算需要回复（hook 剥掉该行后上报 `needs_reply`，SessionStart 会告诉 agent 这个约定）；会话正在跑 job、子 agent 或盯着 job 时不进「等我」，工作台显示「监督中」；回合打开满 5 分钟才进「等我」，`/v1/today` 与 `/v1/inbox` 返回 `recheck_at` 供到点重拉；没有标记的回合在工作台显示为空闲。传话回合记录关闭时间 `released_at`。每日摘要里的「等我 N」改名「工作项·需要我 N」（gofer-cnxy）。
+- Web 控制台支持把项目内 Markdown 路径链接到可分享的只读阅读页，覆盖计划、待办、Issue 与任务汇报，并支持文档内相对链接、目录和错误提示（gofer-i1bd）。
 
 ### 修复
 

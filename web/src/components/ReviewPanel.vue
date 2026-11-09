@@ -19,7 +19,7 @@ import UnifiedDiff from './UnifiedDiff.vue'
 import Tabs from '../ui/Tabs.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import MemoryCandidatesTab from './MemoryCandidatesTab.vue'
-import { ApiError, acceptJob, createFindingIssue, fetchDiffText, logsTail, rejectJob } from '../api/client'
+import { ApiError, acceptJob, createFindingIssue, fetchDiffText, getProject, logsTail, rejectJob } from '../api/client'
 import { fmtDateTime } from '../api/time'
 import { formatTokens, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { acceptanceLines } from '../utils/acceptance'
@@ -34,9 +34,10 @@ import type { ReviewHints } from '../api/reviewHints'
 import { hasReviewHints, hotspotLine, removedCommentLine, reviewHintCount } from '../utils/reviewHints'
 import { tabFromQuery, type TabItem } from '../ui/tabs'
 import { t } from '../i18n'
+import { projectRelativeBase, type DocContext } from '../utils/docPath'
 import type { Job } from '../api/types'
 
-const props = defineProps<{ job: Job; blockedReason?: string }>()
+const props = defineProps<{ job: Job; blockedReason?: string; docRoots?: string[] }>()
 const emit = defineEmits<{
   (e: 'updated', job: Job): void
   (e: 'resumed', jobId: string): void
@@ -65,6 +66,28 @@ interface Resource {
 function newResource(): Resource {
   return { text: '', loading: false, error: '', loaded: false }
 }
+
+const projectRoots = ref<string[]>(props.docRoots ?? [])
+
+async function loadProjectRoots(): Promise<void> {
+  if (props.docRoots?.length) return
+  try {
+    const project = await getProject(props.job.project_key)
+    projectRoots.value = [project.host_path, project.container_path].filter((root): root is string => !!root)
+  } catch {
+    projectRoots.value = []
+  }
+}
+
+watch(() => props.docRoots, (roots) => {
+  if (roots) projectRoots.value = [...roots]
+})
+
+const docContext = computed<DocContext>(() => ({
+  projectKey: props.job.project_key,
+  base: projectRelativeBase(props.job.cwd, projectRoots.value),
+  worktreeBranch: props.job.worktree_path ? props.job.worktree_branch : undefined,
+}))
 
 const report = ref<Resource>(newResource())
 const diff = ref<Resource>(newResource())
@@ -404,6 +427,7 @@ function bootstrap(): void {
 }
 
 onMounted(() => {
+  void loadProjectRoots()
   bootstrap()
 })
 </script>
@@ -431,7 +455,7 @@ onMounted(() => {
           <input v-model="acceptanceChecked[i]" type="checkbox" />
           <span :class="{ 'rp-acc-done': acceptanceChecked[i] }">{{ l.text }}</span>
         </label>
-        <MarkdownBlock v-else :text="l.text" />
+        <MarkdownBlock v-else :text="l.text" :doc-context="docContext" />
       </template>
     </div>
 
@@ -469,7 +493,7 @@ onMounted(() => {
               <button class="rp-retry" type="button" @click="retry('report')">{{ t('review.act.retry') }}</button>
             </p>
             <p v-else-if="report.text.trim() === ''" class="rp-note">{{ t('review.note.noReport') }}</p>
-            <MarkdownBlock v-else :text="report.text" />
+            <MarkdownBlock v-else :text="report.text" :doc-context="docContext" />
           </div>
 
           <!-- 发现：汇报「## 发现但不碰」小节逐条列出，可复制成建 issue 的命令。 -->

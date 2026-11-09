@@ -83,6 +83,7 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('./views/NewSchedule.vue'),
   },
   { path: '/projects', name: 'projects', component: () => import('./views/Projects.vue') },
+  { path: '/projects/:key/doc', name: 'project-doc', component: () => import('./views/DocReader.vue') },
   { path: '/agents', name: 'agents', component: () => import('./views/Agents.vue') },
   // JOB-10：server 技能库（列表/详情/导入/更新/删除/导出）。
   { path: '/skills', redirect: '/settings/skills' },

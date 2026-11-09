@@ -23,5 +23,6 @@ import { workbench } from './workbench'
 import { refs } from './refs'
 import { shared } from './shared'
 import { errors } from './errors'
+import { docReader } from './docReader'
 
-export const pages: PageDict[] = [today, inbox, jobs, plans, workbench, sessions, review, mail, work, workflows, schedules, issues, memory, stats, newjob, runners, agents, projects, settings, access, refs, shared, errors]
+export const pages: PageDict[] = [today, inbox, jobs, plans, workbench, sessions, review, mail, work, workflows, schedules, issues, memory, stats, newjob, runners, agents, projects, settings, access, refs, shared, errors, docReader]
