@@ -1458,6 +1458,14 @@ export interface ReposResp {
   repos: RepoInfo[]
 }
 
+// Markdown 文档内容（GET /v1/projects/{key}/doc?path=<rel>&base=<rel>）。
+export interface ProjectDoc {
+  path: string
+  size: number
+  content: string
+  truncated: boolean
+}
+
 // 关键文件内容（E32，design §6.4）：GET /v1/projects/{key}/file?path=<rel>。
 // 字段与 internal/project/browse.go 的 FileContent JSON tag 对齐。
 // truncated=true 表示文件超过 256KB，content 为前缀切片。

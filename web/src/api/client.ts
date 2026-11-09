@@ -31,6 +31,7 @@ import type {
   Decision,
   DeliveriesResp,
   FileContent,
+  ProjectDoc,
   GitStatus,
   HealthResp,
   Interaction,
@@ -405,7 +406,14 @@ export function getProjectFile(key: string, path: string): Promise<FileContent> 
   )
 }
 
-// 任务书模板（SUP-01 P5）：项目 .gofer/templates 优先，随后服务端全局 templates/。
+export function getProjectDoc(key: string, path: string, base?: string): Promise<ProjectDoc> {
+  const params = new URLSearchParams({ path })
+  if (base && base !== '.') params.set('base', base)
+  return request<ProjectDoc>(
+    `/v1/projects/${encodeURIComponent(key)}/doc?${params.toString()}`,
+  )
+}
+
 export function listTemplates(projectKey: string): Promise<TemplatesResp> {
   return request<TemplatesResp>(
     `/v1/projects/${encodeURIComponent(projectKey)}/templates`,
