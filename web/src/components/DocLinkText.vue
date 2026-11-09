@@ -2,7 +2,11 @@
 import { RouterLink } from 'vue-router'
 import { docReaderLocation, findDocPaths, type DocContext } from '../utils/docPath'
 
-const props = defineProps<{ text: string; docContext?: DocContext }>()
+const props = defineProps<{ text: string; docContext?: DocContext; stopPropagation?: boolean }>()
+
+function onLinkClick(event: MouseEvent): void {
+  if (props.stopPropagation) event.stopPropagation()
+}
 
 function chunks(): Array<{ text: string; ref?: ReturnType<typeof findDocPaths>[number] }> {
   if (!props.docContext) return [{ text: props.text }]
@@ -22,7 +26,7 @@ function chunks(): Array<{ text: string; ref?: ReturnType<typeof findDocPaths>[n
 <template>
   <span class="doc-link-text">
     <template v-for="(chunk, index) in chunks()" :key="index">
-      <RouterLink v-if="chunk.ref && docContext" :to="docReaderLocation(docContext, chunk.ref)">{{ chunk.text }}</RouterLink>
+      <RouterLink v-if="chunk.ref && docContext" :to="docReaderLocation(docContext, chunk.ref)" @click="onLinkClick">{{ chunk.text }}</RouterLink>
       <span v-else>{{ chunk.text }}</span>
     </template>
   </span>

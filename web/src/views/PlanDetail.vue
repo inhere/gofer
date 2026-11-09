@@ -1506,7 +1506,7 @@ onUnmounted(() => {
                     :title="tr('plans.detail.todoOpen')"
                     data-test="todo-open"
                     @click="openTodo(t)"
-                  ><DocLinkText :text="t.title" :doc-context="todoDocContext(t)" /></button>
+                  ><DocLinkText :text="t.title" :doc-context="todoDocContext(t)" stop-propagation /></button>
                   <!-- PLAN-02 P2：认领这个条目的 agent（空 = 没人认领，故派发要先选 agent）。 -->
                   <span v-if="t.assignee" class="todo-assignee mono" :title="`assignee: ${t.assignee}`">
                     {{ t.assignee }}
