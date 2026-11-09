@@ -140,9 +140,9 @@ onMounted(() => void load())
 .doc-project { margin: 0 0 4px; color: var(--accent); }
 .doc-path { margin: 0; overflow-wrap: anywhere; }
 .doc-line, .doc-warning { color: var(--ink-3); margin: 6px 0 0; }
-.doc-warning { color: var(--warn, #a66a00); }
+.doc-warning { color: var(--run); }
 .doc-state, .doc-error { padding: 22px; border: 1px solid var(--line); }
-.doc-error { color: var(--danger, #b33); }
+.doc-error { color: var(--fail); }
 .doc-error p { color: var(--ink-3); }
 .doc-layout { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 28px; align-items: start; }
 .doc-content { min-width: 0; }
