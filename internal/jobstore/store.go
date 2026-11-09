@@ -2347,6 +2347,16 @@ func (s *Store) migratePlanDecisions() error {
 	if err := add("acked_by", "acked_by TEXT"); err != nil {
 		return err
 	}
+	// needs_reply: the agent marked this relay turn as one that needs a human
+	// reply (Stop hook parsed the [needs-reply] marker). released_at: when the
+	// turn was closed without an answer, for later retrospectives. Additive;
+	// old rows read 0 via COALESCE, and no base-schema statement refers to them.
+	if err := add("needs_reply", "needs_reply INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := add("released_at", "released_at INTEGER"); err != nil {
+		return err
+	}
 	if _, err := s.db.Exec(
 		`CREATE INDEX IF NOT EXISTS idx_plan_decisions_session ON plan_decisions(session_id, asked_at)`,
 	); err != nil {

@@ -74,6 +74,11 @@ type PlanDecision struct {
 	// §9.1 A): path A's tmux injection records {"path":"tmux","job_id":"…"} — the
 	// internal job that typed the reply into the terminal. Empty for real turns.
 	Detail string
+	// NeedsReply is set when the agent marked this relay turn as needing a human
+	// reply (the [needs-reply] marker). ReleasedAt is the unix second the turn was
+	// closed without an answer (0 = answered or still open).
+	NeedsReply bool  `json:"needs_reply,omitempty"`
+	ReleasedAt int64 `json:"released_at,omitempty"`
 }
 
 // SessionDecisionPage is a stable newest-first page of decisions. NextBefore is
@@ -118,14 +123,16 @@ const selectDecisionCols = `SELECT rowid, id, COALESCE(plan_id,''), COALESCE(tit
   state, COALESCE(timeout_sec,1800), asked_at,
   COALESCE(answered_at,0), COALESCE(answered_by,''),
 	COALESCE(session_id,''), COALESCE(kind,''), COALESCE(released_by,''), COALESCE(detail,'')
-	, COALESCE(acked_at,0), COALESCE(acked_by,'')
+	, COALESCE(acked_at,0), COALESCE(acked_by,''), COALESCE(needs_reply,0), COALESCE(released_at,0)
   FROM plan_decisions`
 
 func scanDecision(sc rowScanner) (PlanDecision, error) {
 	var d PlanDecision
+	var needsReply int
 	err := sc.Scan(&d.RowID, &d.ID, &d.PlanID, &d.Title, &d.Question, &d.OptionsJSON,
 		&d.Answer, &d.State, &d.TimeoutSec, &d.AskedAt, &d.AnsweredAt, &d.AnsweredBy,
-		&d.SessionID, &d.Kind, &d.ReleasedBy, &d.Detail, &d.AckedAt, &d.AckedBy)
+		&d.SessionID, &d.Kind, &d.ReleasedBy, &d.Detail, &d.AckedAt, &d.AckedBy, &needsReply, &d.ReleasedAt)
+	d.NeedsReply = needsReply != 0
 	return d, err
 }
 
@@ -195,13 +202,17 @@ func (s *Store) InsertDecision(d *PlanDecision) error {
 	if d.Detail != "" {
 		detail = d.Detail
 	}
+	needsReply := 0
+	if d.NeedsReply {
+		needsReply = 1
+	}
 	const q = `INSERT INTO plan_decisions
-  (id, plan_id, title, question, options_json, answer, state, timeout_sec, asked_at, answered_at, answered_by, session_id, kind, detail)
-  VALUES (?,?,?,?,?,NULL,?,?,?,NULL,NULL,?,?,?)`
+  (id, plan_id, title, question, options_json, answer, state, timeout_sec, asked_at, answered_at, answered_by, session_id, kind, detail, needs_reply)
+  VALUES (?,?,?,?,?,NULL,?,?,?,NULL,NULL,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, d.ID, planID, d.Title, d.Question, options,
-		d.State, d.TimeoutSec, d.AskedAt, sessionID, kind, detail); err != nil {
+		d.State, d.TimeoutSec, d.AskedAt, sessionID, kind, detail, needsReply); err != nil {
 		return fmt.Errorf("jobstore: insert decision %q: %w", d.ID, err)
 	}
 	return nil
@@ -372,7 +383,9 @@ func (s *Store) expireDueDecisions() error {
 func (s *Store) expireDueLocked() (int64, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	const q = `UPDATE plan_decisions SET state='EXPIRED'
+	// released_at is the deadline, not the scan time: expiry is lazy, so the scan
+	// can run long after the turn actually lapsed.
+	const q = `UPDATE plan_decisions SET state='EXPIRED', released_at = asked_at + timeout_sec
   WHERE state='OPEN' AND asked_at + timeout_sec <= ?`
 	res, err := s.db.Exec(q, s.unixNow())
 	if err != nil {
@@ -461,8 +474,8 @@ func (s *Store) ReleaseDecision(id, releasedBy string) (bool, error) {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.Exec(`UPDATE plan_decisions SET state='EXPIRED', released_by=?
-  WHERE id = ? AND state='OPEN'`, releasedBy, id)
+	res, err := s.db.Exec(`UPDATE plan_decisions SET state='EXPIRED', released_by=?, released_at=?
+  WHERE id = ? AND state='OPEN'`, releasedBy, s.unixNow(), id)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: release decision %q: %w", id, err)
 	}
@@ -482,7 +495,7 @@ func (s *Store) ExpireSessionDecisions(sessionID string) (int64, error) {
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.Exec(`UPDATE plan_decisions SET state='EXPIRED' WHERE state='OPEN' AND session_id = ?`, sessionID)
+	res, err := s.db.Exec(`UPDATE plan_decisions SET state='EXPIRED', released_at=? WHERE state='OPEN' AND session_id = ?`, s.unixNow(), sessionID)
 	if err != nil {
 		return 0, fmt.Errorf("jobstore: expire session decisions %q: %w", sessionID, err)
 	}
