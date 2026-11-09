@@ -1048,7 +1048,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.today = today.New(today.Deps{
 			Store: jobs.Meta(), Work: s.work, Steward: s.steward,
 			Runners: s.todayRunners, Version: func() string { return s.build.DisplayVersion() },
-			Language: func() i18n.Lang { return s.textLanguage("") },
+			Language:   func() i18n.Lang { return s.textLanguage("") },
+			Supervisor: s.relay,
 		})
 		s.synthesis = engine.New(engine.Deps{
 			Store: jobs.Meta(), Doctor: s.today, OneShot: engine.JobOneShot{Jobs: jobs, Agents: agents},

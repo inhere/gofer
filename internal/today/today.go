@@ -14,6 +14,7 @@ import (
 
 	"github.com/inhere/gofer/internal/i18n"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/steward"
 	"github.com/inhere/gofer/internal/work"
 )
@@ -96,6 +97,9 @@ type Response struct {
 	Waiting []Card `json:"waiting"`
 	// Snoozed counts the cards held back by an active 「稍后」 (T3, snooze.go).
 	Snoozed int `json:"snoozed"`
+	// RecheckAt is the unix second a relay turn that is only waiting out its grace period
+	// starts to qualify for Waiting; a client refetches then. 0 = nothing pending.
+	RecheckAt int64 `json:"recheck_at,omitempty"`
 	// Running is the 「正在跑」 line of the home page: terminal sessions in the running state
 	// and jobs in the running status (the two numbers link to the workbench).
 	Running     Running `json:"running"`
@@ -249,6 +253,14 @@ type Deps struct {
 	// reads as the default language. It is the language of text that gets stored and of
 	// reads that carry no request language.
 	Language func() i18n.Lang
+	// Supervisor answers whether anything supervises a session (jobs, sub-agents, job
+	// watches); a supervised session's relay turn is not 「等我」. nil = never supervised.
+	Supervisor Supervisor
+}
+
+// Supervisor is the supervision fact source (sessionrelay.Service implements it).
+type Supervisor interface {
+	Supervision(jobstore.AgentSession) sessionrelay.Supervision
 }
 
 // Service builds the home page payloads.
@@ -282,7 +294,7 @@ func (s *Service) Now() time.Time { return s.d.Now() }
 func (s *Service) Today(q Query) (Response, error) {
 	now := s.d.Now()
 	lang := s.lang(q.Lang)
-	cards, err := s.DecisionsIn(lang, q.IncludeExec)
+	cards, recheckAt, err := s.decisionsIn(lang, q.IncludeExec)
 	if err != nil {
 		return Response{}, err
 	}
@@ -306,7 +318,7 @@ func (s *Service) Today(q Query) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
-	return Response{Digest: digest, Cards: cards, Snoozed: len(snoozed), Running: running, Status: status, GeneratedAt: now.Unix()}, nil
+	return Response{Digest: digest, Cards: cards, Snoozed: len(snoozed), RecheckAt: recheckAt, Running: running, Status: status, GeneratedAt: now.Unix()}, nil
 }
 
 func startOfDay(now time.Time) time.Time {

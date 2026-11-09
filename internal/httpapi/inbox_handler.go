@@ -19,6 +19,8 @@ type inboxResponse struct {
 	GeneratedAt int64                   `json:"generated_at"`
 	// RulesVersion changes when the effective rules change (see GET /v1/inbox/rules).
 	RulesVersion string `json:"rules_version"`
+	// RecheckAt: a relay turn waiting out its grace period qualifies at this unix second.
+	RecheckAt int64 `json:"recheck_at,omitempty"`
 }
 
 func (s *Server) inboxCaller(c *rux.Context) (string, bool) {
@@ -69,7 +71,7 @@ func (s *Server) handleInbox(c *rux.Context) {
 	if !ok {
 		return
 	}
-	current, err := s.currentInboxItems(c)
+	current, recheckAt, err := s.currentInboxItems(c)
 	if err != nil {
 		writeError(c, 500, "build inbox failed", err.Error())
 		return
@@ -79,7 +81,7 @@ func (s *Server) handleInbox(c *rux.Context) {
 		writeError(c, 500, "read inbox state failed", err.Error())
 		return
 	}
-	out := inboxResponse{Columns: map[string][]inbox.Item{"action": {}, "fyi": {}}, Unread: map[string]int{"action": 0, "fyi": 0}, GeneratedAt: time.Now().Unix(), RulesVersion: inbox.RulesVersion(s.inboxConfig())}
+	out := inboxResponse{Columns: map[string][]inbox.Item{"action": {}, "fyi": {}}, Unread: map[string]int{"action": 0, "fyi": 0}, GeneratedAt: time.Now().Unix(), RulesVersion: inbox.RulesVersion(s.inboxConfig()), RecheckAt: recheckAt}
 	for _, item := range current {
 		if st, exists := states[item.Key]; exists && st.SourceRevision == item.SourceRevision {
 			item.State = inboxState(st)
@@ -146,15 +148,15 @@ func todayQueryForInbox(s *Server, c *rux.Context) (q today.Query) {
 // currentInboxItems builds the caller-visible projection without personal state, in display
 // order: the 「等我」 list (inbox.Waiting) first, then the person's own finished jobs newest
 // first.
-func (s *Server) currentInboxItems(c *rux.Context) ([]inbox.Item, error) {
+func (s *Server) currentInboxItems(c *rux.Context) ([]inbox.Item, int64, error) {
 	ic := s.inboxConfig()
 	resp, err := s.today.Today(todayQueryForInbox(s, c))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	waiting, fyi, err := s.waitingFor(c, resp.Cards)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	out := make([]inbox.Item, 0, len(waiting)+len(fyi))
 	for _, card := range append(waiting, fyi...) {
@@ -162,7 +164,7 @@ func (s *Server) currentInboxItems(c *rux.Context) ([]inbox.Item, error) {
 			out = append(out, item)
 		}
 	}
-	return out, nil
+	return out, resp.RecheckAt, nil
 }
 
 func inboxState(st jobstore.InboxItemState) string {
@@ -209,7 +211,7 @@ func (s *Server) handleInboxState(c *rux.Context) {
 		writeError(c, 400, "empty item keys", "keys must contain at least one item key")
 		return
 	}
-	current, err := s.currentInboxItems(c)
+	current, _, err := s.currentInboxItems(c)
 	if err != nil {
 		writeError(c, 500, "build inbox failed", err.Error())
 		return
