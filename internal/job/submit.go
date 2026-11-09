@@ -1398,15 +1398,17 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// operator watching serve.log needs the job id without opening the DB.
 		logJobSubmitted(jobID, req)
 		s.recordDecisions(jobID, req.decisions)
-		// gofer-3db4: an internal producer asked to be told when this job ends and its
-		// target could not be addressed — the work runs anyway, and this event is where
-		// the missing notice is explained instead of staying a silent mystery.
+		// gofer-341t: the declared scope could not be turned into a lock, so the job
+		// locks its cwd as before; the event says why.
 		if lockFallback != nil {
 			s.recordEvent(jobID, EventJobLockScopeFallback, map[string]any{
 				"reason": lockFallback.Reason,
 				"scope":  lockFallback.Scope,
 			})
 		}
+		// gofer-3db4: an internal producer asked to be told when this job ends and its
+		// target could not be addressed — the work runs anyway, and this event is where
+		// the missing notice is explained instead of staying a silent mystery.
 		if notifyDrop != nil {
 			s.recordEvent(jobID, EventNotifyDropped, map[string]any{
 				"reason": notifyDrop.Reason,
