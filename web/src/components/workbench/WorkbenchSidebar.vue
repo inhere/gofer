@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { WorkbenchStatus, WorkbenchThread } from '../../api/types'
+import { supervisionText } from '../../utils/supervision'
 import { t } from '../../i18n'
 import { formatDuration, formatRelative } from '../../utils/format'
 import FilterChips from '../../ui/FilterChips.vue'
@@ -213,6 +214,7 @@ defineExpose({ focusSearch })
               <span v-if="turnsText(thread)" class="ln-meta">{{ turnsText(thread) }}</span>
               <span v-if="durationText(thread)" class="ln-meta">{{ durationText(thread) }}</span>
               <span v-if="usageText(thread)" class="ln-meta">{{ usageText(thread) }}</span>
+              <span v-if="supervisionText(thread)" class="ln-meta ln-supervising">{{ supervisionText(thread) }}</span>
               <span v-if="thread.stalled" class="ln-stalled" :title="t('workbench.stalled')">stalled</span>
               <span v-if="thread.status === 'awaiting_input' && !thread.seen_at" class="ln-new" aria-hidden="true">●</span>
             </span>

@@ -128,7 +128,7 @@ Dismissed tidy-up suggestion: next step (from summarizer)
 job 77 (codex) finished, 2 commit(s)
 ## digest
 Work digest · 2027-02-14
-needs me 3 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
+work items needing me 3 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
 
 Parked for more than 7 days (5):
 - [human item](http://gofer.test/work?id=<ID>)
@@ -137,11 +137,11 @@ Parked for more than 7 days (5):
 - [remind me](http://gofer.test/work?id=<ID>)
 - [report c](http://gofer.test/work?id=<ID>)
 ## digest empty
-needs me 0 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
+work items needing me 0 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
 
 Nothing needs your attention today.
 ## digest yesterday
-needs me 0 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
+work items needing me 0 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
 
 Progress yesterday (12):
 - [yday](http://gofer.test/work?id=<ID>) (active)

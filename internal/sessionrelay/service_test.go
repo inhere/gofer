@@ -82,7 +82,7 @@ func TestNotifierHooks(t *testing.T) {
 	assert.Len(t, f.attention, 2)
 
 	// an opened turn always notifies
-	_, err = s.OpenTurn("sid-n", "选 A 还是 B？", 60)
+	_, err = s.OpenTurn("sid-n", "选 A 还是 B？", 60, false)
 	assert.NoErr(t, err)
 	assert.Len(t, f.waiting, 1)
 	assert.Eq(t, "sid-n:选 A 还是 B？", f.waiting[0])
@@ -100,14 +100,14 @@ func TestRelayHappyPath(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.SessionIdle, hb.State)
 	assert.Eq(t, jobstore.RelayModeAuto, hb.RelayMode)
-	_, err = s.OpenTurn("sid-a", "x", 60)
+	_, err = s.OpenTurn("sid-a", "x", 60, false)
 	assert.True(t, errors.Is(err, ErrRelayOff))
 
 	// Switch on, open a turn, wait → answered via Say.
 	on, err := s.SetRelayMode("sid-a", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.RelayModeOn, on.RelayMode)
-	d, err := s.OpenTurn("sid-a", "need a decision", 60)
+	d, err := s.OpenTurn("sid-a", "need a decision", 60, false)
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.DecisionKindRelay, d.Kind)
 	assert.Eq(t, "sid-a", d.SessionID)
@@ -145,7 +145,7 @@ func TestAckKeepsStopHookWaiting(t *testing.T) {
 	if _, err := s.SetRelayMode("sid-ack-wait", jobstore.RelayModeOn); err != nil {
 		t.Fatal(err)
 	}
-	d, err := s.OpenTurn("sid-ack-wait", "still waiting", 60)
+	d, err := s.OpenTurn("sid-ack-wait", "still waiting", 60, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestRelayOffReleasesWaitAndAutoOff(t *testing.T) {
 	assert.NoErr(t, err)
 	_, err = s.SetRelayMode("sid-b", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
-	d, err := s.OpenTurn("sid-b", "waiting", 60)
+	d, err := s.OpenTurn("sid-b", "waiting", 60, false)
 	assert.NoErr(t, err)
 
 	go func() {
@@ -218,7 +218,7 @@ func TestRelayExpiryAndErrors(t *testing.T) {
 	_, err := s.Register(RegisterInput{SessionID: "sid-c", Agent: "claude"})
 	assert.NoErr(t, err)
 	_, _ = s.SetRelayMode("sid-c", jobstore.RelayModeOn)
-	d, err := s.OpenTurn("sid-c", "short fuse", 2) // store min clamp = 2s
+	d, err := s.OpenTurn("sid-c", "short fuse", 2, false) // store min clamp = 2s
 	assert.NoErr(t, err)
 	assert.Eq(t, int64(2), d.TimeoutSec)
 
@@ -230,7 +230,7 @@ func TestRelayExpiryAndErrors(t *testing.T) {
 	assert.Eq(t, jobstore.RelayModeOn, idle.Session.RelayMode)
 
 	// A new turn expires the stale one and is the only answerable turn.
-	d2, err := s.OpenTurn("sid-c", "again", 60)
+	d2, err := s.OpenTurn("sid-c", "again", 60, false)
 	assert.NoErr(t, err)
 	open, _ := s.store.ListSessionDecisions("sid-c", jobstore.DecisionOpen, 10, "")
 	assert.Len(t, open.Decisions, 1)
@@ -580,7 +580,7 @@ func TestInterruptReleasesOpenTurnEvenWhenRelayOn(t *testing.T) {
 	assert.NoErr(t, err)
 	_, err = s.SetRelayMode("sid-esc", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
-	d, err := s.OpenTurn("sid-esc", "waiting", 60)
+	d, err := s.OpenTurn("sid-esc", "waiting", 60, false)
 	assert.NoErr(t, err)
 
 	a, err := s.Heartbeat("sid-esc", HeartbeatInput{Event: EventInterrupt})
@@ -592,7 +592,7 @@ func TestInterruptReleasesOpenTurnEvenWhenRelayOn(t *testing.T) {
 
 	// a human PROMPT still leaves an explicit-on turn alone (the mode drops to auto
 	// instead) — the behaviour this fix must not disturb.
-	d2, err := s.OpenTurn("sid-esc", "waiting again", 60)
+	d2, err := s.OpenTurn("sid-esc", "waiting again", 60, false)
 	assert.NoErr(t, err)
 	s.AutoOffOnPrompt = false
 	_, err = s.Heartbeat("sid-esc", HeartbeatInput{Event: EventUserPromptSubmit})
@@ -612,7 +612,7 @@ func TestAutoRuleDropReleasesTheOpenTurn(t *testing.T) {
 	assert.NoErr(t, err)
 	_, err = s.SetRelayMode("sid-auto", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
-	d, err := s.OpenTurn("sid-auto", "waiting", 60)
+	d, err := s.OpenTurn("sid-auto", "waiting", 60, false)
 	assert.NoErr(t, err)
 	// The wait decision flips to "no" without anyone touching the turn (stand-in
 	// for an auto rule that stopped applying).

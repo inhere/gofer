@@ -61,8 +61,8 @@ func TestCeilingTodayDigestIsScoped(t *testing.T) {
 		t.Errorf("restricted since_last = %v, want 1 done job (p1 only)", sinceLast)
 	}
 	text, _ := digest["text"].(string)
-	if !strings.Contains(text, "等我 1 ") {
-		t.Errorf("restricted digest text = %q, want the 「等我 1」 line of p1 only", text)
+	if !strings.Contains(text, "工作项·需要我 1 ") {
+		t.Errorf("restricted digest text = %q, want the 「工作项·需要我 1」 line of p1 only", text)
 	}
 
 	_, plainSinceLast := digestOf(ceilTokPlain)
@@ -75,8 +75,8 @@ func TestCeilingTodayDigestIsScoped(t *testing.T) {
 		v, _ := d["text"].(string)
 		return v
 	}()
-	if !strings.Contains(plainText, "等我 2 ") {
-		t.Errorf("unrestricted digest text = %q, want the 「等我 2」 line", plainText)
+	if !strings.Contains(plainText, "工作项·需要我 2 ") {
+		t.Errorf("unrestricted digest text = %q, want the 「工作项·需要我 2」 line", plainText)
 	}
 }
 

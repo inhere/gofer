@@ -80,7 +80,7 @@ func TestPermissionAnswerValidation(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrNoOpenTurn))
 
 	// a relay turn is not answerable as a permission
-	turn, err := s.OpenTurn("sid-v", "done", 600)
+	turn, err := s.OpenTurn("sid-v", "done", 600, false)
 	assert.NoErr(t, err)
 	_, err = s.AnswerPermission("sid-v", turn.ID, "allow", "u1")
 	assert.True(t, errors.Is(err, ErrUnknownTurn))
@@ -170,7 +170,7 @@ func TestPermissionIgnoresSupervisingGate(t *testing.T) {
 	assert.True(t, released)
 
 	// relay turns (Stop) keep the gate
-	_, err = s.OpenTurn("sid-g", "done", 600)
+	_, err = s.OpenTurn("sid-g", "done", 600, false)
 	assert.True(t, errors.Is(err, ErrRelayOff))
 }
 

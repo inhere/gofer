@@ -126,6 +126,14 @@ type RelaySummary struct {
 	LastMessage string `json:"last_message,omitempty"`
 }
 
+// Supervising says a relay session is being watched by other work (jobs in flight,
+// running sub-agents, watched jobs), so its open turn is not waiting for a person.
+type Supervising struct {
+	Jobs      int `json:"jobs,omitempty"`
+	Subagents int `json:"subagents,omitempty"`
+	Watches   int `json:"watches,omitempty"`
+}
+
 type Thread struct {
 	ID                  string            `json:"id"`
 	Kind                ThreadKind        `json:"kind"`
@@ -151,6 +159,8 @@ type Thread struct {
 	Jobs                []JobTurn         `json:"jobs,omitempty"`
 	PendingInteractions []job.Interaction `json:"pending_interactions,omitempty"`
 	Relay               *RelaySummary     `json:"relay,omitempty"`
+	// Supervising is set on a relay thread shown as working because something supervises it.
+	Supervising *Supervising `json:"supervising,omitempty"`
 	// Attachments is how images sent to this thread would be delivered (inline | file |
 	// none); AttachmentsReason says why when it is none. Both are absent while the
 	// attachment store is not wired.

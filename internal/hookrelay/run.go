@@ -23,7 +23,7 @@ import (
 type API interface {
 	RegisterSession(in client.SessionRegister) (client.AgentSession, error)
 	HeartbeatSession(sid string, hb client.SessionHeartbeat) (client.AgentSession, error)
-	OpenSessionTurn(sid, msg string, timeoutSec int64) (client.Decision, error)
+	OpenSessionTurn(sid, msg string, timeoutSec int64, needsReply bool) (client.Decision, error)
 	WaitSessionTurn(sid, decisionID string, waitSec int) (client.TurnStatus, error)
 	ReleaseSessionTurn(sid, decisionID string, idleSec int64) (bool, error)
 	SetSessionRelayMode(sid, mode string) (client.AgentSession, error)
@@ -208,7 +208,7 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		if err != nil {
 			return Result{}, nil // logged; the next event re-registers
 		}
-		return r.topicReminder(r.catchUp(Result{}, a), a), nil
+		return r.needsReplyReminder(r.topicReminder(r.catchUp(Result{}, a), a), a), nil
 	case "UserPromptSubmit":
 		// Only a prompt a HUMAN typed means "back at the keyboard" (auto-off).
 		// Claude Code also raises UserPromptSubmit for harness-generated turns:
@@ -568,7 +568,7 @@ func noticeResult(a client.AgentSession) Result {
 // the agent's last message becomes a turn and the hook blocks here until the
 // human answers on the web.
 func (r *runner) stop() Result {
-	last := r.lastMessage()
+	last, needsReply := r.lastMessage()
 	if ObserveOnly(r.p.dialect()) {
 		// The agent runs this hook detached: report the stop (state + last message)
 		// and return — there is nothing to block and no way to inject a reply.
@@ -639,7 +639,7 @@ func (r *runner) stop() Result {
 			wait = budget
 		}
 	}
-	turn, err := r.api.OpenSessionTurn(r.p.SessionID, last, int64(wait/time.Second))
+	turn, err := r.api.OpenSessionTurn(r.p.SessionID, last, int64(wait/time.Second), needsReply)
 	if err != nil {
 		r.log("open turn failed: %v", err) // 409 = relay flipped off in between
 		return Result{}
@@ -1037,20 +1037,29 @@ func (r *runner) releasedOnUserReturn(turnID string) bool {
 }
 
 // lastMessage picks the agent's last assistant text: Codex hands it over on
-// stdin, Claude keeps it in the transcript.
-func (r *runner) lastMessage() string {
-	if msg := strings.TrimSpace(r.p.LastAssistantMessage); msg != "" {
-		return truncate(r.lang(), msg, r.opts.MaxMessage)
-	}
-	if r.p.TranscriptPath != "" && r.p.dialect() != DialectGeneric {
-		text, err := LastAssistantTextIn(r.lang(), r.p.TranscriptPath, r.opts.MaxMessage)
+// stdin, Claude keeps it in the transcript. The needs-reply marker is judged on
+// the FULL text and stripped before truncation (a long reply would otherwise lose
+// its last line, which is where the marker sits), so what is relayed never
+// carries the marker.
+func (r *runner) lastMessage() (msg string, needsReply bool) {
+	full := strings.TrimSpace(r.p.LastAssistantMessage)
+	if full == "" && r.p.TranscriptPath != "" && r.p.dialect() != DialectGeneric {
+		// maxBytes 0 = no truncation here; truncate happens after the marker split.
+		text, err := LastAssistantTextIn(r.lang(), r.p.TranscriptPath, 0)
 		if err != nil {
 			r.log("transcript read failed: %v", err)
-		} else if text != "" {
-			return text
+		} else {
+			full = text
 		}
 	}
-	return noMessageFallback(r.lang())
+	if full == "" {
+		return noMessageFallback(r.lang()), false
+	}
+	body, needs := splitNeedsReply(full)
+	if strings.TrimSpace(body) == "" {
+		return noMessageFallback(r.lang()), needs
+	}
+	return truncate(r.lang(), body, r.opts.MaxMessage), needs
 }
 
 // webReplyContinuation is what the Stop hands the agent when its relay turn was

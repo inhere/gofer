@@ -7,6 +7,7 @@ import { answerInteraction, cancelJob, getJob, puntInteraction } from '../../api
 import { appendCapped, streamJob } from '../../api/sse'
 import { canCancelJob } from '../../utils/jobCancel'
 import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, WorkbenchThread } from '../../api/types'
+import { supervisionText } from '../../utils/supervision'
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
 import { attachmentCapability } from '../../utils/attachments'
 import { formatNumber, formatRelative } from '../../utils/format'
@@ -81,8 +82,8 @@ let visibilityObserver: IntersectionObserver | null = null
 let seenTimer: number | null = null
 const paneVisible = ref(false)
 const documentVisible = ref(document.visibilityState === 'visible')
-
 const thread = computed(() => context.threadsByID.value.get(props.threadId))
+
 const latestJobID = computed(() => thread.value?.latest_job_id ?? '')
 const latestJob = ref<Job | null>(null)
 watch([latestJobID, () => thread.value?.raw_status], async () => {
@@ -432,6 +433,7 @@ onUnmounted(() => {
         >{{ thread.title }}</button>
         <div class="meta-head">
           <StatusPill :status="thread.status" />
+          <span v-if="thread.supervising" class="tag supervising">{{ supervisionText(thread) }}</span>
           <span class="tag">{{ thread.project_key || t('workbench.list.unassigned') }}</span>
           <span v-if="thread.turns > 1" class="muted">{{ t('workbench.row.turns', { n: thread.turns }) }}</span>
           <UncommittedBadge :count="latestJob?.uncommitted_count" :files="latestJob?.uncommitted_files" />

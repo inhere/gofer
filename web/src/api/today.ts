@@ -128,6 +128,8 @@ export interface TodayResponse {
   snoozed: number
   status: TodayStatus
   generated_at: number
+  // Unix second at which a grace-period relay turn should be fetched again.
+  recheck_at?: number
 }
 
 export interface TodayHandled {

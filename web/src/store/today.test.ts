@@ -5,6 +5,8 @@ const calls: string[] = []
 let keepaliveDepth = 0
 let failWrite = false
 let serverCards: TodayCard[] = []
+let recheckAt = 0
+let todayFetches = 0
 const audits: Array<Record<string, unknown>> = []
 
 vi.mock('../api/client', () => ({
@@ -27,7 +29,10 @@ vi.mock('../api/client', () => ({
 }))
 vi.mock('../api/steward', () => ({}))
 vi.mock('../api/today', () => ({
-  getToday: () => Promise.resolve({ waiting: serverCards, generated_at: 1 } as unknown as TodayResponse),
+  getToday: () => {
+    todayFetches++
+    return Promise.resolve({ waiting: serverCards, recheck_at: recheckAt, generated_at: 1 } as unknown as TodayResponse)
+  },
   listTodayHandled: () => Promise.resolve({ handled: [] }),
   recordTodayAction: (b: { card_key: string }) => {
     audits.push(b)
@@ -92,11 +97,34 @@ describe('card actions', () => {
   beforeEach(() => {
     calls.length = 0
     failWrite = false
+    recheckAt = 0
+    todayFetches = 0
     serverCards = [workCard()]
     today.hiddenKeys.value = new Set()
   })
-  afterEach(() => today.undoQueue.flush(false))
+  afterEach(() => {
+    vi.useRealTimers()
+    today.undoQueue.flush(false)
+  })
 
+  it('refetches at the server grace-period recheck time', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1000)
+      recheckAt = 6
+      await today.refreshToday()
+      expect(todayFetches).toBe(1)
+      vi.advanceTimersByTime(4000)
+      await Promise.resolve()
+      expect(todayFetches).toBe(1)
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(todayFetches).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it('records the audit only after the write succeeds, both keepalive on unload', async () => {
     today.actOnCard(workCard(), workCard().actions[0])
     today.undoQueue.flush(true)

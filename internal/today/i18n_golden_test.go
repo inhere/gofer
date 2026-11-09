@@ -77,7 +77,7 @@ func todayTextOutputs(t *testing.T, lang i18n.Lang) string {
 		Detail: `{"tool_name":"AskUserQuestion","summary":"s","questions":[{"question":"Pick","options":[{"label":"One"},{"label":"Two"}]}]}`}))
 	_, err = st.UpsertAgentSession(jobstore.AgentSession{SessionID: "sid-3", Agent: "claude", ProjectKey: "p1", Title: "relay s", State: jobstore.SessionWaitingReply})
 	must(err)
-	must(st.InsertDecision(&jobstore.PlanDecision{ID: "dr", Title: "turn", Question: "q", Kind: jobstore.DecisionKindRelay, SessionID: "sid-3", AskedAt: ago(10), TimeoutSec: 86400}))
+	must(st.InsertDecision(&jobstore.PlanDecision{ID: "dr", Title: "turn", Question: "q", Kind: jobstore.DecisionKindRelay, SessionID: "sid-3", AskedAt: ago(10), TimeoutSec: 86400, NeedsReply: true}))
 
 	// --- review, approval
 	putJob(t, st, jobstore.JobRecord{ID: "j-rev", ProjectKey: "p1", Agent: "codex", Status: job.StatusNeedsReview, EndedAt: ago(300), WorktreePath: "/wt/2", PlanID: "p-1", TodoID: "t1"})

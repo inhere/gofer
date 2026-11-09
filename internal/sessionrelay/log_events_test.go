@@ -156,7 +156,7 @@ func TestOpenTurnAndMailTurnLogTheStateChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := newLogRecorder(t)
-	turn, err := s.OpenTurn("sid-log-0005", "which one?", 60)
+	turn, err := s.OpenTurn("sid-log-0005", "which one?", 60, false)
 	if err != nil {
 		t.Fatal(err)
 	}

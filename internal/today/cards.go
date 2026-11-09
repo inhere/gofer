@@ -28,8 +28,15 @@ func (s *Service) Decisions(includeExec bool) ([]Card, error) {
 
 // DecisionsIn is Decisions with the card text in lang ("" = the server's language).
 func (s *Service) DecisionsIn(lang i18n.Lang, includeExec bool) ([]Card, error) {
+	cards, _, err := s.decisionsIn(lang, includeExec)
+	return cards, err
+}
+
+// decisionsIn is DecisionsIn plus the recheck_at of the build (0 = none): the moment a
+// relay turn held back only by the grace period starts to qualify.
+func (s *Service) decisionsIn(lang i18n.Lang, includeExec bool) ([]Card, int64, error) {
 	if s == nil || s.d.Store == nil {
-		return nil, errors.New("today: no store")
+		return nil, 0, errors.New("today: no store")
 	}
 	b := &builder{s: s, lang: s.lang(lang), now: s.d.Now().Unix(), cards: []Card{}, todos: map[string][]jobstore.PlanTodo{}, jobs: map[string]*jobstore.JobRecord{}}
 	steps := []func() error{
@@ -42,7 +49,7 @@ func (s *Service) DecisionsIn(lang i18n.Lang, includeExec bool) ([]Card, error) 
 	}
 	for _, step := range steps {
 		if err := step(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 	for i := range b.cards {
@@ -52,7 +59,7 @@ func (s *Service) DecisionsIn(lang i18n.Lang, includeExec bool) ([]Card, error) 
 		}
 	}
 	SortCards(b.cards)
-	return b.cards, nil
+	return b.cards, b.recheckAt, nil
 }
 
 type builder struct {
@@ -62,6 +69,8 @@ type builder struct {
 	cards []Card
 	todos map[string][]jobstore.PlanTodo
 	jobs  map[string]*jobstore.JobRecord
+	// recheckAt is the earliest unix second a grace-held relay turn qualifies (0 = none).
+	recheckAt int64
 }
 
 func (b *builder) store() *jobstore.Store { return b.s.d.Store }
@@ -384,6 +393,17 @@ func (b *builder) addPermissionCard(c Card, d *jobstore.PlanDecision) error {
 
 // relay folds a session's open turns into one card (design §2.1: 同会话只出一张).
 func (b *builder) relay(sid string, turns []*jobstore.PlanDecision) error {
+	sess, ok, err := b.store().GetAgentSession(sid)
+	if err != nil {
+		return err
+	}
+	var sp *jobstore.AgentSession
+	if ok {
+		sp = &sess
+	}
+	if turns = b.gateRelayTurns(sp, turns); len(turns) == 0 {
+		return nil
+	}
 	sort.SliceStable(turns, func(i, j int) bool { return turns[i].AskedAt < turns[j].AskedAt })
 	first := turns[0]
 	c := Card{
@@ -396,10 +416,6 @@ func (b *builder) relay(sid string, turns []*jobstore.PlanDecision) error {
 			{ID: "reply", Label: b.tr("action.reply"), Style: "primary", NeedsText: true},
 			{ID: "ack", Label: b.tr("action.ack")},
 		},
-	}
-	sess, ok, err := b.store().GetAgentSession(sid)
-	if err != nil {
-		return err
 	}
 	if ok {
 		c.ProjectKey, c.Agent = sess.ProjectKey, sess.Agent

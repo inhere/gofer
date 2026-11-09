@@ -33,6 +33,8 @@ export interface InboxResponse {
   // 顶栏徽标：只算 action 栏的未读
   total_unread: number
   generated_at: number
+  // Unix second at which a grace-period relay turn should be fetched again.
+  recheck_at?: number
 }
 
 export type InboxStateAction = 'seen' | 'clear' | 'restore'

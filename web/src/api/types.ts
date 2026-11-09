@@ -2267,6 +2267,8 @@ export interface WorkbenchThread {
   jobs?: WorkbenchJobTurn[]
   pending_interactions?: Interaction[]
   relay?: WorkbenchRelaySummary
+  // A relay turn is supervised by jobs, sub-agents, or watched jobs.
+  supervising?: { jobs?: number; subagents?: number; watches?: number }
   // 附图能力位（inline / file / none）：字段缺失 = 老服务端，输入框按「不支持附图」处理。
   attachments?: WorkbenchAttachmentMode
   // 能力位为 none 时的原因（服务端给的一句话；缺了就用默认说法）。

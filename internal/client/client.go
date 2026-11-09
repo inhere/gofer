@@ -3102,8 +3102,12 @@ func (c *Client) ListSessionMessages(sid string) ([]SessionMessage, error) {
 
 // OpenSessionTurn posts the agent's last message as a relay turn (hook Stop).
 // A 409 error means relay is off.
-func (c *Client) OpenSessionTurn(sid, msg string, timeoutSec int64) (Decision, error) {
-	body, err := json.Marshal(map[string]any{"body": msg, "timeout_sec": timeoutSec})
+func (c *Client) OpenSessionTurn(sid, msg string, timeoutSec int64, needsReply bool) (Decision, error) {
+	req := map[string]any{"body": msg, "timeout_sec": timeoutSec}
+	if needsReply {
+		req["needs_reply"] = true // omitted when false: the server reads absence as false
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return Decision{}, fmt.Errorf("encode open turn: %w", err)
 	}

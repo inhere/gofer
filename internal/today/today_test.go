@@ -167,11 +167,11 @@ func TestRelayOneCardPerSessionAndAckedSkipped(t *testing.T) {
 	assert.NoErr(t, err)
 	for _, id := range []string{"d1", "d2"} {
 		assert.NoErr(t, st.InsertDecision(&jobstore.PlanDecision{ID: id, Title: "turn", Question: "q " + id, Kind: jobstore.DecisionKindRelay,
-			SessionID: "s1", AskedAt: ago(10), TimeoutSec: 86400}))
+			SessionID: "s1", AskedAt: ago(10), TimeoutSec: 86400, NeedsReply: true}))
 	}
 	// An acknowledged turn of another session is not pending.
 	assert.NoErr(t, st.InsertDecision(&jobstore.PlanDecision{ID: "d3", Title: "turn", Question: "q", Kind: jobstore.DecisionKindRelay,
-		SessionID: "s2", AskedAt: ago(10), TimeoutSec: 86400}))
+		SessionID: "s2", AskedAt: ago(10), TimeoutSec: 86400, NeedsReply: true}))
 	_, err = st.AckDecision("d3", "me")
 	assert.NoErr(t, err)
 	// A plain global question.

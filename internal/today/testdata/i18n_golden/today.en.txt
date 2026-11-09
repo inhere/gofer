@@ -78,7 +78,7 @@ Waiting for job j-run to end
 runner w-mac is offline
 ## digest
 Work digest · 2026-10-09
-needs me 0 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
+work items needing me 0 · waiting on a resource 0 · needs me on site 0 · awaiting review 0
 
 Nothing needs your attention today.
 ## steward alerts

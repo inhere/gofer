@@ -14,7 +14,7 @@ func TestProjectThreadsOnlyIncludesInteractiveAndContinuousSessions(t *testing.T
 		{ID: "continuous", ProjectKey: "p", Agent: "acp", SessionID: "sid-cont", SessionStateJSON: `{"session":true,"turn_no":1}`, Status: "awaiting_input"},
 	}}
 
-	got := projectThreads(snapshot, 0)
+	got := projectThreads(snapshot, 0, nil)
 	if len(got) != 2 {
 		t.Fatalf("projected %d threads, want 2", len(got))
 	}

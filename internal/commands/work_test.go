@@ -138,7 +138,7 @@ func TestWorkCLIEndToEnd(t *testing.T) {
 
 	// digest
 	out = workCLIOK(t, server, "digest")
-	if !strings.Contains(out, "工作摘要") || !strings.Contains(out, "等我 0") {
+	if !strings.Contains(out, "工作摘要") || !strings.Contains(out, "工作项·需要我 0") {
 		t.Fatalf("digest:\n%s", out)
 	}
 	if out := workCLIOK(t, server, "digest", "--send"); !strings.Contains(out, "queued to 0 webhook(s)") {

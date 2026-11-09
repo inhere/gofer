@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InboxItem } from '../api/inbox'
 
 const posted: unknown[] = []
 const fetched: Array<{ includeCleared?: boolean; includeExec?: boolean }> = []
-let server: { columns: { action: InboxItem[]; fyi: InboxItem[] } } = { columns: { action: [], fyi: [] } }
+let server: { columns: { action: InboxItem[]; fyi: InboxItem[] }; recheck_at?: number } = { columns: { action: [], fyi: [] } }
 
 vi.mock('../api/inbox', () => ({
   getInbox: vi.fn(async (opts: { includeCleared?: boolean; includeExec?: boolean }) => {
@@ -34,7 +34,30 @@ beforeEach(() => {
   }
 })
 
+afterEach(() => {
+  vi.useRealTimers()
+})
+
 describe('inbox store', () => {
+  it('refetches when a grace-period relay turn becomes eligible', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1000)
+      server.recheck_at = 6
+      await refreshInbox()
+      expect(fetched).toHaveLength(1)
+      vi.advanceTimersByTime(4000)
+      await Promise.resolve()
+      expect(fetched).toHaveLength(1)
+      vi.advanceTimersByTime(1000)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(fetched).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('derives the badge from the action column only', async () => {
     await refreshInbox()
     expect(inboxData.value?.unread).toEqual({ action: 1, fyi: 2 })

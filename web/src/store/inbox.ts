@@ -23,6 +23,19 @@ export const inboxBadgeCount = computed(() => inboxBadge(inboxData.value))
 
 let refreshSeq = 0
 
+let recheckTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleRecheck(at: number | undefined): void {
+  if (recheckTimer) clearTimeout(recheckTimer)
+  recheckTimer = null
+  if (!at || at <= 0) return
+  const delay = Math.max(0, at * 1000 - Date.now())
+  recheckTimer = setTimeout(() => {
+    recheckTimer = null
+    void refreshInbox()
+  }, delay)
+}
+
 export async function refreshInbox(): Promise<void> {
   const seq = ++refreshSeq
   try {
@@ -30,6 +43,7 @@ export async function refreshInbox(): Promise<void> {
     // 更晚发起的请求（或写操作后的本地更新）已经生效时，丢弃过期响应。
     if (seq !== refreshSeq) return
     inboxData.value = normalizeInbox(data)
+    scheduleRecheck(data.recheck_at)
     inboxError.value = ''
     inboxUnavailable.value = false
   } catch (e) {
@@ -82,6 +96,8 @@ export function startInbox(): void {
 export function stopInbox(): void {
   handles.forEach((h) => h.stop())
   handles = []
+  if (recheckTimer) clearTimeout(recheckTimer)
+  recheckTimer = null
 }
 
 // markInbox：写个人状态。keys 为空 = 按栏批量（带 column）。失败抛出，调用方提示。
