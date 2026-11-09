@@ -13,6 +13,12 @@ import DOMPurify from 'dompurify'
 import { docReaderLocation, isDocPath, resolveDocHref, type DocContext } from '../utils/docPath'
 import { t } from '../i18n'
 
+// 两个可选渲染开关，默认都关——其它用法（产物预览、汇报）行为不变：
+//  - breaks：源码里的单个换行渲染成 <br>。标准 markdown 会把它们并成一段，而「一行一条」
+//    的字段（如待办备注，--append-note 每次追加一行、服务端用换行连接）需要保住换行。
+//  - externalLinks：链接在新标签页打开（备注里的缺陷系统等外部链接会把当前页顶掉）。
+//    target / rel 在 sanitize 之后追加：只补两个常量属性，不放松白名单。
+// docContext / docDir：见文件头；不传时输出与原来逐字相同。
 const props = defineProps<{
   text: string
   breaks?: boolean
