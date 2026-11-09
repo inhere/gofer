@@ -36,7 +36,7 @@ export function isDocPath(path: string): boolean {
 
 export function findDocPaths(text: string): Array<DocRef & { start: number; end: number }> {
   const out: Array<DocRef & { start: number; end: number }> = []
-  const tokenRe = /(?<![A-Za-z0-9_./~:-])(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.(?:md|markdown)(?::\d+|#[^\s`"'()[\]{}<>，。；：！？、]*)?/gi
+  const tokenRe = /(?<![A-Za-z0-9_./~:<>-])(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.(?:md|markdown)(?::\d+|#[^\s`"'()[\]{}<>，。；：！？、]*)?/gi
   for (const match of text.matchAll(tokenRe)) {
     const token = match[0]
     const ref = parseDocRef(token)
