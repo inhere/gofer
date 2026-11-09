@@ -51,7 +51,8 @@ describe('shared message-body style', () => {
 
 describe('every markdown / message renderer opts into .msg-body', () => {
   it('MarkdownBlock (the shared markdown path) carries it', () => {
-    expect(src('components/MarkdownBlock.vue')).toContain('<div class="md msg-body" v-html="html"></div>')
+    expect(src('components/MarkdownBlock.vue')).toContain('<div class="md msg-body"')
+    expect(src('components/MarkdownBlock.vue')).toContain('v-html="html"')
   })
 
   const sites: [string, string][] = [
