@@ -261,6 +261,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `DELETE` | `/v1/projects/{key}` | `Require` | `project.write` | — | `PathProject(key)` | 写 |
 | `GET` | `/v1/projects/{key}` | `Public` | — | — | `PathProject(key)` | 读 |
 | `PUT` | `/v1/projects/{key}` | `Require` | `project.write` | — | `PathProject(key)` | 写 |
+| `GET` | `/v1/projects/{key}/doc` | `Public` | — | — | `PathProject(key)` | 读 |
 | `GET` | `/v1/projects/{key}/file` | `Public` | — | — | `PathProject(key)` | 读 |
 | `GET` | `/v1/projects/{key}/git` | `Public` | — | — | `PathProject(key)` | 读 |
 | `GET` | `/v1/projects/{key}/repos` | `Public` | — | — | `PathProject(key)` | 读 |

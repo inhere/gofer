@@ -87,3 +87,38 @@ func (s *Server) handleGetProjectFile(c *rux.Context) {
 	}
 	c.JSON(http.StatusOK, fc)
 }
+
+// handleGetProjectDoc serves GET /v1/projects/{key}/doc?path=<rel>&base=<rel> (web
+// doc reader). Error mapping: unknown key → 404; missing path → 400; a project
+// that does not run locally → 409 project_not_local; forbidden path / extension →
+// 403; missing / escaping / non-regular file → 404; binary → 415. No detail ever
+// carries an absolute path.
+func (s *Server) handleGetProjectDoc(c *rux.Context) {
+	proj, err := s.projects.Get(c.Param("key"))
+	if err != nil {
+		writeError(c, http.StatusNotFound, "unknown project", err.Error())
+		return
+	}
+	rel := c.Query("path")
+	if rel == "" {
+		writeError(c, http.StatusBadRequest, "missing path", "query param 'path' is required")
+		return
+	}
+
+	dc, err := project.ReadDoc(s.projects.Config(), proj, c.Query("base"), rel)
+	if err != nil {
+		switch {
+		case errors.Is(err, project.ErrProjectNotLocal):
+			writeError(c, http.StatusConflict, "project_not_local", "project runs on a worker; the server cannot read its files")
+		case errors.Is(err, project.ErrForbiddenDoc):
+			writeError(c, http.StatusForbidden, "forbidden doc", "only markdown documents under visible project paths may be read")
+		case errors.Is(err, project.ErrBinary):
+			writeError(c, http.StatusUnsupportedMediaType, "binary file", "file is not text and cannot be previewed")
+		default:
+			// not found, escape and any other failure share one generic 404.
+			writeError(c, http.StatusNotFound, "no such file", "file not found")
+		}
+		return
+	}
+	c.JSON(http.StatusOK, dc)
+}

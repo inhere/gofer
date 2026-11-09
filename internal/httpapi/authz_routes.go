@@ -805,6 +805,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/mcp-servers/{name}/test":                {user: Require(authz.PermMcpTest), scope: NoProject()},
 	"GET /v1/projects":                                {user: Public(), scope: Filter()},
 	"GET /v1/projects/{key}":                          {user: Public(), scope: PathProject("key")},
+	"GET /v1/projects/{key}/doc":                      {user: Public(), scope: PathProject("key")},
 	"GET /v1/projects/{key}/file":                     {user: Public(), scope: PathProject("key")},
 	"GET /v1/projects/{key}/git":                      {user: Public(), scope: PathProject("key")},
 	"GET /v1/projects/{key}/repos":                    {user: Public(), scope: PathProject("key")},
