@@ -972,6 +972,7 @@ func (s *Server) handleSetSessionRelay(c *rux.Context) {
 type openTurnReq struct {
 	Body       string `json:"body"`
 	TimeoutSec int64  `json:"timeout_sec,omitempty"`
+	NeedsReply bool   `json:"needs_reply,omitempty"`
 }
 
 // handleOpenTurn posts the agent's last message as a relay turn
@@ -993,7 +994,7 @@ func (s *Server) handleOpenTurn(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	d, err := s.relay.OpenTurn(c.Param("sid"), body.Body, body.TimeoutSec)
+	d, err := s.relay.OpenTurn(c.Param("sid"), body.Body, body.TimeoutSec, body.NeedsReply)
 	if err != nil {
 		writeError(c, relayStatus(err), "open turn failed", err.Error())
 		return

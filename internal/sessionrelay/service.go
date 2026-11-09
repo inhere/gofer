@@ -916,7 +916,7 @@ const maxTurnBody = 16 * 1024
 // store). The session must currently wait — explicitly (`on`), or through one of
 // the auto rules (WaitReason) — else ErrRelayOff (the hook re-checks the switch
 // through Heartbeat first, this guards the race).
-func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDecision, error) {
+func (s *Service) OpenTurn(sid, body string, timeoutSec int64, needsReply bool) (jobstore.PlanDecision, error) {
 	a, ok, err := s.store.GetAgentSession(sid)
 	if err != nil {
 		return jobstore.PlanDecision{}, err
@@ -957,6 +957,7 @@ func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDec
 		TimeoutSec: timeoutSec,
 		SessionID:  sid,
 		Kind:       jobstore.DecisionKindRelay,
+		NeedsReply: needsReply,
 	}
 	if err := s.store.InsertDecision(&d); err != nil {
 		return jobstore.PlanDecision{}, err

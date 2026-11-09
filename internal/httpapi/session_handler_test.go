@@ -1112,7 +1112,7 @@ func TestHeartbeatOwnerlessRacePinsOwnerBeforeReleasingTurn(t *testing.T) {
 	if _, err := s.jobs.Meta().SetSessionRelayMode(sid, jobstore.RelayModeOn); err != nil {
 		t.Fatal(err)
 	}
-	turn, err := s.relay.OpenTurn(sid, "awaiting owner", 120)
+	turn, err := s.relay.OpenTurn(sid, "awaiting owner", 120, false)
 	if err != nil {
 		t.Fatal(err)
 	}

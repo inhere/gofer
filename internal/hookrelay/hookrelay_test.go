@@ -49,6 +49,8 @@ type fakeAPI struct {
 	watchListCalls int
 	// replies are the PostSessionReply calls: {sid, text, to}.
 	replies [][3]string
+	// openedNeedsReply records the needs_reply flag of each OpenSessionTurn call.
+	openedNeedsReply []bool
 }
 
 func (f *fakeAPI) PostSessionReply(sid, text, to string) (client.SessionMessage, error) {
@@ -154,7 +156,7 @@ func (f *fakeAPI) HeartbeatSession(sid string, hb client.SessionHeartbeat) (clie
 	return a, nil
 }
 
-func (f *fakeAPI) OpenSessionTurn(sid, msg string, timeoutSec int64) (client.Decision, error) {
+func (f *fakeAPI) OpenSessionTurn(sid, msg string, timeoutSec int64, needsReply bool) (client.Decision, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	a := f.sessions[sid]
@@ -163,6 +165,7 @@ func (f *fakeAPI) OpenSessionTurn(sid, msg string, timeoutSec int64) (client.Dec
 	}
 	d := client.Decision{ID: "dec-1", Question: msg, State: "OPEN", TimeoutSec: timeoutSec, SessionID: sid, Kind: "relay"}
 	f.turns[d.ID] = d
+	f.openedNeedsReply = append(f.openedNeedsReply, needsReply)
 	return d, nil
 }
 
@@ -686,7 +689,7 @@ func TestSessionStartTopicReminder(t *testing.T) {
 	}
 	// No topic: the reminder is the context.
 	res := start(newFake(), "tp1")
-	assert.Eq(t, TopicReminder, res.Context)
+	assert.Eq(t, TopicReminder+"\n\n"+NeedsReplyReminder, res.Context)
 	assert.StrContains(t, res.Context, "gofer session topic")
 
 	// Inferred topic counts as none.
@@ -704,10 +707,10 @@ func TestSessionStartTopicReminder(t *testing.T) {
 		t.Fatalf("catch-up must come first: %q", res.Context)
 	}
 
-	// Self / human topics: no reminder.
+	// Self / human topics: no topic reminder (the needs-reply line is still added).
 	for _, src := range []string{"self", "human"} {
 		f = newFake()
 		f.sessions["tp4"] = client.AgentSession{SessionID: "tp4", Topic: "fix login", TopicSource: src}
-		assert.Eq(t, "", start(f, "tp4").Context)
+		assert.Eq(t, NeedsReplyReminder, start(f, "tp4").Context)
 	}
 }

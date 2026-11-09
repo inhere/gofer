@@ -103,7 +103,7 @@ func TestWakeNeverAnswersAnOpenTurn(t *testing.T) {
 	tmuxSession(t, s, "sid-wake-turn")
 	_, err := s.SetRelayMode("sid-wake-turn", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
-	turn, err := s.OpenTurn("sid-wake-turn", "which plan?", 60)
+	turn, err := s.OpenTurn("sid-wake-turn", "which plan?", 60, false)
 	assert.NoErr(t, err)
 
 	_, err = s.Wake(context.Background(), "sid-wake-turn", "WAKE-TEXT", "gofer-mail", "gofer-mail")

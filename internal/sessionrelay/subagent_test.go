@@ -96,7 +96,7 @@ func TestSubagentStopReleasesBlockedAutoTurn(t *testing.T) {
 	s.subagents.apply("sc", "a1", 1, time.Now().Unix())
 	s.subagents.apply("sc", "a2", 1, time.Now().Unix())
 	s.SkipWhenSupervising = false // keep the wait armed so the turn can open
-	d, err := s.OpenTurn("sc", "done?", 600)
+	d, err := s.OpenTurn("sc", "done?", 600, false)
 	assert.NoErr(t, err)
 
 	subBeat(t, s, "sc", EventSubagentStop, "a1")
@@ -120,7 +120,7 @@ func TestSubagentStopReleasesExplicitOnTurn(t *testing.T) {
 	assert.NoErr(t, err)
 	_, err = s.SetRelayMode("sd", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
-	d, err := s.OpenTurn("sd", "q", 600)
+	d, err := s.OpenTurn("sd", "q", 600, false)
 	assert.NoErr(t, err)
 	subBeat(t, s, "sd", EventSubagentStart, "a1")
 	subBeat(t, s, "sd", EventSubagentStop, "a1")
@@ -159,7 +159,7 @@ func TestSubagentReleaseMarkAndSayReleased(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.False(t, handled)
 
-	_, err = s.OpenTurn("se", "q", 600)
+	_, err = s.OpenTurn("se", "q", 600, false)
 	assert.NoErr(t, err)
 	subBeat(t, s, "se", EventSubagentStart, "a1")
 	subBeat(t, s, "se", EventSubagentStop, "a1")
@@ -197,7 +197,7 @@ func TestSubagentUnpairedStopKeepsTurnOpen(t *testing.T) {
 	assert.NoErr(t, err)
 	_, err = s.SetRelayMode("sf", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
-	d, err := s.OpenTurn("sf", "q", 600)
+	d, err := s.OpenTurn("sf", "q", 600, false)
 	assert.NoErr(t, err)
 	before, _, _ := s.store.GetAgentSession("sf")
 

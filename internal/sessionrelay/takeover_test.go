@@ -279,7 +279,7 @@ func TestOpenTurnRefusedWhenHandedOff(t *testing.T) {
 	assert.True(t, ok)
 	assert.Eq(t, "", s.WaitReason(got))
 
-	_, err = s.OpenTurn("sid-taken", "still here?", 60)
+	_, err = s.OpenTurn("sid-taken", "still here?", 60, false)
 	assert.True(t, errors.Is(err, ErrRelayOff))
 
 	// The original terminal keeps beating (its agent stops, the human types, the CLI

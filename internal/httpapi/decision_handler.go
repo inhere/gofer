@@ -42,6 +42,10 @@ type decisionView struct {
 	Detail  string `json:"detail,omitempty"`
 	AckedAt int64  `json:"acked_at,omitempty"`
 	AckedBy string `json:"acked_by,omitempty"`
+	// NeedsReply: the agent flagged this relay turn as needing a person's reply.
+	// ReleasedAt: unix second a turn was closed without an answer.
+	NeedsReply bool  `json:"needs_reply,omitempty"`
+	ReleasedAt int64 `json:"released_at,omitempty"`
 	// Permission is the parsed detail of a terminal permission prompt
 	// (kind="permission"): tool, readable summary, redacted input, the
 	// "always allow" choices. nil for every other kind.
@@ -57,6 +61,7 @@ func toDecisionView(d jobstore.PlanDecision) decisionView {
 		AskedAt: d.AskedAt, AnsweredAt: d.AnsweredAt, AnsweredBy: d.AnsweredBy,
 		SessionID: d.SessionID, Kind: d.Kind, ReleasedBy: d.ReleasedBy, Detail: d.Detail,
 		AckedAt: d.AckedAt, AckedBy: d.AckedBy,
+		NeedsReply: d.NeedsReply, ReleasedAt: d.ReleasedAt,
 	}
 	if d.Kind == jobstore.DecisionKindPermission {
 		p := sessionrelay.ParsePermissionDetail(d.Detail)

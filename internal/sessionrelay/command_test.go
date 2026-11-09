@@ -213,7 +213,7 @@ func TestDeliverCommandOpenTurnFirst(t *testing.T) {
 	cmdSession(t, s, "sid-cmd-turn", "%1")
 	_, err := s.SetRelayMode("sid-cmd-turn", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
-	_, err = s.OpenTurn("sid-cmd-turn", "q?", 60)
+	_, err = s.OpenTurn("sid-cmd-turn", "q?", 60, false)
 	assert.NoErr(t, err)
 	res, err := s.Deliver(context.Background(), "sid-cmd-turn", "a", "alice", "alice", false)
 	assert.NoErr(t, err)

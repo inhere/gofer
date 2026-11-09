@@ -46,7 +46,7 @@ func TestDeliverAnswersOpenTurnFirst(t *testing.T) {
 	tmuxSession(t, s, "sid-turn-first")
 	_, err := s.SetRelayMode("sid-turn-first", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
-	turn, err := s.OpenTurn("sid-turn-first", "which plan?", 60)
+	turn, err := s.OpenTurn("sid-turn-first", "which plan?", 60, false)
 	assert.NoErr(t, err)
 
 	res, err := s.Deliver(context.Background(), "sid-turn-first", "plan B", "alice", "alice", false)

@@ -92,7 +92,7 @@ func TestSendMessageAnswersTheOpenTurn(t *testing.T) {
 	if _, err := s.SetRelayMode("sid-drift", jobstore.RelayModeOn); err != nil {
 		t.Fatal(err)
 	}
-	turn, err := s.OpenTurn("sid-drift", "waiting for a reply", 300)
+	turn, err := s.OpenTurn("sid-drift", "waiting for a reply", 300, false)
 	assert.NoErr(t, err)
 	// The state drifts off waiting_reply while the turn stays open.
 	_, err = s.Heartbeat("sid-drift", HeartbeatInput{State: jobstore.SessionRunning})

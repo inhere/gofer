@@ -83,7 +83,7 @@ func TestCheckDeliverableMirrorsSendMessage(t *testing.T) {
 		assert.Eq(t, ReasonNoTmux, DeliverReason(s.CheckDeliverable(sid)))
 		_, err := s.SetRelayMode(sid, "on")
 		assert.NoErr(t, err)
-		_, err = s.OpenTurn(sid, "which?", 60)
+		_, err = s.OpenTurn(sid, "which?", 60, false)
 		assert.NoErr(t, err)
 		assert.NoErr(t, s.CheckDeliverable(sid)) // an open turn is reachable
 	})
