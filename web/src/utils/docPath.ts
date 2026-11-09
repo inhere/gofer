@@ -27,6 +27,33 @@ export function parseDocRef(raw: string): DocRef | null {
   return { path, ...(lineMatch ? { line: Number(lineMatch[1]) } : {}), ...(anchor ? { anchor } : {}) }
 }
 
+export function normalizeDocBase(base: string | undefined): string | undefined {
+  if (!base || base.includes('\\')) return undefined
+  const value = base
+  if (!value || value === '.') return undefined
+  if (value.startsWith('/') || /^[A-Za-z]:\//.test(value) || value.includes(':')) return undefined
+  const parts = value.split('/')
+  if (parts.some((part) => !part || part === '.' || part === '..' || part.startsWith('.'))) return undefined
+  return value
+}
+
+export function projectRelativeBase(cwd: string, roots: string[]): string | undefined {
+  const normalizedCwd = cwd.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (!normalizedCwd) return undefined
+  for (const root of roots) {
+    const normalizedRoot = root.replace(/\\/g, '/').replace(/\/+$/, '') || '/'
+    const windowsPath = /^[A-Za-z]:\//.test(normalizedRoot) || /^[A-Za-z]:\//.test(normalizedCwd)
+    const comparableCwd = windowsPath ? normalizedCwd.toLowerCase() : normalizedCwd
+    const comparableRoot = windowsPath ? normalizedRoot.toLowerCase() : normalizedRoot
+    if (comparableCwd === comparableRoot) return undefined
+    const prefix = comparableRoot === '/' ? '/' : `${comparableRoot}/`
+    if (!comparableCwd.startsWith(prefix)) continue
+    const relative = normalizedCwd.slice(normalizedRoot === '/' ? 1 : normalizedRoot.length + 1)
+    return normalizeDocBase(relative)
+  }
+  return undefined
+}
+
 export function isDocPath(path: string): boolean {
   const ref = parseDocRef(path)
   if (!ref || /\s/.test(path) || ref.path.includes(':')) return false

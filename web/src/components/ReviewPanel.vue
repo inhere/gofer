@@ -19,7 +19,7 @@ import UnifiedDiff from './UnifiedDiff.vue'
 import Tabs from '../ui/Tabs.vue'
 import StatusPill from '../ui/StatusPill.vue'
 import MemoryCandidatesTab from './MemoryCandidatesTab.vue'
-import { ApiError, acceptJob, createFindingIssue, fetchDiffText, logsTail, rejectJob } from '../api/client'
+import { ApiError, acceptJob, createFindingIssue, fetchDiffText, getProject, logsTail, rejectJob } from '../api/client'
 import { fmtDateTime } from '../api/time'
 import { formatTokens, shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { acceptanceLines } from '../utils/acceptance'
@@ -34,10 +34,10 @@ import type { ReviewHints } from '../api/reviewHints'
 import { hasReviewHints, hotspotLine, removedCommentLine, reviewHintCount } from '../utils/reviewHints'
 import { tabFromQuery, type TabItem } from '../ui/tabs'
 import { t } from '../i18n'
-import type { DocContext } from '../utils/docPath'
+import { projectRelativeBase, type DocContext } from '../utils/docPath'
 import type { Job } from '../api/types'
 
-const props = defineProps<{ job: Job; blockedReason?: string }>()
+const props = defineProps<{ job: Job; blockedReason?: string; docRoots?: string[] }>()
 const emit = defineEmits<{
   (e: 'updated', job: Job): void
   (e: 'resumed', jobId: string): void
@@ -67,9 +67,25 @@ function newResource(): Resource {
   return { text: '', loading: false, error: '', loaded: false }
 }
 
+const projectRoots = ref<string[]>(props.docRoots ?? [])
+
+async function loadProjectRoots(): Promise<void> {
+  if (props.docRoots?.length) return
+  try {
+    const project = await getProject(props.job.project_key)
+    projectRoots.value = [project.host_path, project.container_path].filter((root): root is string => !!root)
+  } catch {
+    projectRoots.value = []
+  }
+}
+
+watch(() => props.docRoots, (roots) => {
+  if (roots) projectRoots.value = [...roots]
+})
+
 const docContext = computed<DocContext>(() => ({
   projectKey: props.job.project_key,
-  base: props.job.cwd || undefined,
+  base: projectRelativeBase(props.job.cwd, projectRoots.value),
   worktreeBranch: props.job.worktree_path ? props.job.worktree_branch : undefined,
 }))
 
@@ -411,6 +427,7 @@ function bootstrap(): void {
 }
 
 onMounted(() => {
+  void loadProjectRoots()
   bootstrap()
 })
 </script>

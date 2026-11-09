@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { docReaderLocation, findDocPaths, isDocPath, parseDocRef, resolveDocHref } from './docPath'
+import { docReaderLocation, findDocPaths, isDocPath, normalizeDocBase, parseDocRef, projectRelativeBase, resolveDocHref } from './docPath'
 
 describe('docPath', () => {
   it('parses paths and optional line or anchor suffixes', () => {
@@ -25,6 +25,21 @@ describe('docPath', () => {
     expect(resolveDocHref('docs/design', '../../../a.md')).toBeNull()
     expect(resolveDocHref('docs/design', '#heading')).toBeNull()
     expect(resolveDocHref('docs/design', 'https://example.test/a.md')).toBeNull()
+  })
+
+  it('maps absolute job directories to safe project-relative bases', () => {
+    expect(projectRelativeBase('d:\\Work\\Proj\\Sub\\x', ['D:/work/proj'])).toBe('Sub/x')
+    expect(projectRelativeBase('/srv/proj2/sub', ['/srv/proj'])).toBeUndefined()
+    expect(projectRelativeBase('/srv/proj', ['/srv/proj'])).toBeUndefined()
+    expect(projectRelativeBase('/srv/proj/.worktrees/a/sub', ['/srv/proj'])).toBeUndefined()
+    expect(projectRelativeBase('/srv/proj/sub/x', ['/srv/proj'])).toBe('sub/x')
+  })
+
+  it('validates relative bases before sending them to the server', () => {
+    expect(normalizeDocBase('.')).toBeUndefined()
+    expect(normalizeDocBase('.worktrees/a')).toBeUndefined()
+    expect(normalizeDocBase('sub\\x')).toBeUndefined()
+    expect(normalizeDocBase('sub/x')).toBe('sub/x')
   })
 
   it('builds a shareable reader location', () => {

@@ -10,6 +10,7 @@
 //  - WEB-10 看板（PlanBoard）：同一份详情数据派生五列，拖拽落点走 patchTodo（乐观更新 +
 //    失败回滚），链操作走 planRun/planPause/planResume；看板/列表视图选择写在 URL 的 ?view=。
 import { runnerLabel } from '../utils/runnerDisplay'
+import { normalizeDocBase } from '../utils/docPath'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -110,7 +111,8 @@ const progress = computed(() => (plan.value ? planProgressModel(plan.value) : nu
 const tr = t
 function todoDocContext(todo: Todo): { projectKey: string; base?: string } | undefined {
   const projectKey = todo.project || plan.value?.project
-  return projectKey ? { projectKey, base: todo.cwd || undefined } : undefined
+  const base = normalizeDocBase(todo.cwd)
+  return projectKey ? { projectKey, base } : undefined
 }
 
 
