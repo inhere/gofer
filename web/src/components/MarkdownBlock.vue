@@ -61,7 +61,7 @@ function rewrite(clean: string): string {
       return
     }
     if (href.startsWith('#')) {
-      if (props.docDir && context.path) {
+      if (props.docDir !== undefined && context.path) {
         try {
           const anchor = decodeURIComponent(href.slice(1))
           link.setAttribute('href', readerHref(context, context.path, undefined, anchor))
