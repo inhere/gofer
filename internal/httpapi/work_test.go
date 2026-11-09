@@ -403,7 +403,7 @@ func TestWorkItemsDueAndDigestEndpoints(t *testing.T) {
 	resp := do(t, s, http.MethodGet, "/v1/work-items/digest", testToken, nil)
 	var d work.Digest
 	decode(t, resp, &d)
-	if d.NeedsMe != 1 || !strings.HasPrefix(d.Text, "等我 1 · ") {
+	if d.NeedsMe != 1 || !strings.HasPrefix(d.Text, "工作项·需要我 1 · ") {
 		t.Fatalf("digest = %+v", d)
 	}
 	resp = do(t, s, http.MethodPost, "/v1/work-items/digest", testToken, nil)

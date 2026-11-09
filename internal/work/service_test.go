@@ -310,7 +310,7 @@ func TestDigestContentIsDeterministicAndSentOncePerDay(t *testing.T) {
 	assert.Eq(t, 1, d1.Onsite)
 	assert.Eq(t, 1, d1.ParkedOver)
 	assert.Eq(t, 1, d1.Yesterday)
-	assert.True(t, strings.HasPrefix(d1.Text, "等我 2 · 等资源 1 · 需现场 1 · 待验收 0"))
+	assert.True(t, strings.HasPrefix(d1.Text, "工作项·需要我 2 · 等资源 1 · 需现场 1 · 待验收 0"))
 	assert.True(t, strings.Contains(d1.Text, "搁置超过 7 天（1）："))
 	assert.True(t, strings.Contains(d1.Text, "[老搁置](http://gofer.test/work?id="+old.ID+")"))
 	assert.True(t, strings.Contains(d1.Text, "[昨天动过](http://gofer.test/work?id="+yw.ID+")（进行中）"))

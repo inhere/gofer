@@ -128,7 +128,7 @@ issue g-9 已关闭；todo todo-g 已完成，建议把状态改为「完成」�
 job 77（codex） 完成，2 个提交
 ## digest
 工作摘要 · 2027-02-14
-等我 3 · 等资源 0 · 需现场 0 · 待验收 0
+工作项·需要我 3 · 等资源 0 · 需现场 0 · 待验收 0
 
 搁置超过 7 天（5）：
 - [human item](http://gofer.test/work?id=<ID>)
@@ -137,11 +137,11 @@ job 77（codex） 完成，2 个提交
 - [remind me](http://gofer.test/work?id=<ID>)
 - [report c](http://gofer.test/work?id=<ID>)
 ## digest empty
-等我 0 · 等资源 0 · 需现场 0 · 待验收 0
+工作项·需要我 0 · 等资源 0 · 需现场 0 · 待验收 0
 
 今天没有需要关注的工作项。
 ## digest yesterday
-等我 0 · 等资源 0 · 需现场 0 · 待验收 0
+工作项·需要我 0 · 等资源 0 · 需现场 0 · 待验收 0
 
 昨日有进展（12）：
 - [yday](http://gofer.test/work?id=<ID>)（进行中）
