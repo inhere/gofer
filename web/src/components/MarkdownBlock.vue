@@ -1,7 +1,11 @@
 <script setup lang="ts">
-// markdown 渲染块：marked 渲染 → DOMPurify.sanitize → 可选的文档链接改写。
+// markdown 渲染块：marked 渲染 → DOMPurify.sanitize → v-html。
 // XSS 安全核心：内容是不可信的 agent 产出（产物文件 / job 汇报），绝不裸注入未
-// sanitize 的 HTML。链接改写只处理消毒后的 DOM，并且只写入前端生成的属性。
+// sanitize 的 HTML。FilePreview（.md 产物预览）与验收面板「汇报」共用这一条路径。
+// docContext 开启时，消毒后的 DOM 会额外改写项目内 Markdown 链接。
+//
+// 不设自身高度/滚动：容器（.fp-md / 验收面板）决定，块内只负责排版。
+// 溢出（长行 / 代码块 / 宽表格）统一交给全局的 .msg-body（styles/msg.css、issue gofer-ndub）。
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { marked } from 'marked'
@@ -104,6 +108,9 @@ function onClick(event: MouseEvent): void {
 </template>
 
 <style scoped>
+/* scoped 不穿透动态 HTML，故用 :deep() 给常见元素补排版。
+   不撑宽容器的规则（min-width / overflow-wrap / pre 与 table 横滚）在 styles/msg.css 的
+   .msg-body 里统一处理，这里只管排版，不再各写一份 word-break。 */
 .md {
   font-size: 13px;
   line-height: 1.6;
@@ -117,13 +124,23 @@ function onClick(event: MouseEvent): void {
   margin: 1em 0 0.5em;
   line-height: 1.3;
 }
-.md :deep(h1) { font-size: 1.5em; }
-.md :deep(h2) { font-size: 1.3em; }
-.md :deep(h3) { font-size: 1.15em; }
-.md :deep(a) { color: var(--accent); }
+.md :deep(h1) {
+  font-size: 1.5em;
+}
+.md :deep(h2) {
+  font-size: 1.3em;
+}
+.md :deep(h3) {
+  font-size: 1.15em;
+}
+.md :deep(a) {
+  color: var(--accent);
+}
 .md :deep(p),
 .md :deep(ul),
-.md :deep(ol) { margin: 0.5em 0; }
+.md :deep(ol) {
+  margin: 0.5em 0;
+}
 .md :deep(code) {
   font-family: var(--font-mono, monospace);
   font-size: 0.92em;
@@ -138,16 +155,32 @@ function onClick(event: MouseEvent): void {
   padding: 10px 12px;
   overflow: auto;
 }
-.md :deep(pre code) { background: none; padding: 0; }
+.md :deep(pre code) {
+  background: none;
+  padding: 0;
+}
 .md :deep(blockquote) {
   margin: 0.5em 0;
   padding-left: 12px;
   border-left: 2px solid var(--line);
   color: var(--ink-3);
 }
-.md :deep(table) { border-collapse: collapse; margin: 0.5em 0; }
+.md :deep(table) {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+}
 .md :deep(th),
-.md :deep(td) { border: 1px solid var(--line); padding: 4px 10px; text-align: left; }
-.md :deep(img) { max-width: 100%; }
-.md :deep(hr) { border: none; border-top: 1px solid var(--line); margin: 1em 0; }
+.md :deep(td) {
+  border: 1px solid var(--line);
+  padding: 4px 10px;
+  text-align: left;
+}
+.md :deep(img) {
+  max-width: 100%;
+}
+.md :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 1em 0;
+}
 </style>
