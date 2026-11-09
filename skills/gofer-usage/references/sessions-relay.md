@@ -88,6 +88,12 @@ gofer session find <关键词|路径>                    # 找哪个会话在做
 
 不布防的情况：你名下还有 job 在跑、或会话里有子 agent 在跑（视同「监督中」，受 `session.auto_relay_skip_when_supervising` 控制；显式 `on` 不受影响）。最后一个子 agent 结束时，已阻塞的等待会被释放（auto 与显式 `on` 都一样：主 agent 先处理子 agent 的结果，下一次 Stop 再继续等 web 回复）。只有按 id 配对过 SubagentStart 的子 agent 才算数：没有对应 start 的 SubagentStop（Claude Code 的旁路查询）不放开等待、不改状态。放开后若 Claude Code 没有为此开新一轮，会话停在 idle、没人等待：会话视图（`gofer session show` / HTTP）带 `released_by=subagent_done`、`released_at`，web 抽屉提示「等待已被子 agent 结束放开」；此时 `say` 不再 409，而是改走传话通道（messenger）开启新一轮，下一次 prompt / Stop 到来后标记清除。
 
+## 回合是否需要人回复
+
+中继回合是否进入 web 的「等我」队列由 agent 明确声明，不从自由文本猜测：需要人回复时，在最后一条消息的末行单独写 `[needs-reply]`（大小写敏感、整行匹配）；汇报或不需要人回复时不要写。标记会从展示正文中剥掉后随回合一起上报。没有标记的回合不会进入「等我」，但仍可在工作台查看和回复。
+
+带标记的回合也要同时满足：未被确认、已打开满 5 分钟，且会话当前不在监督中。会话正在运行 job、子 agent 或被盯 job 时，回合不进入「等我」；工作台显示「监督中」及非零的监督计数。只因 5 分钟宽限期暂未到的回合会在 `GET /v1/today` / `GET /v1/inbox` 的 `recheck_at` 指定时间重新计算。
+
 ## 人回来即放行
 
 - 判据一开的等待：hook 每 ≤5 秒重探空闲值，人一碰键鼠就放行。
