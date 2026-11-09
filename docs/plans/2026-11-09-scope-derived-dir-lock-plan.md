@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 目录锁由 --scope 推出 实施计划
 
-> 状态：Draft 0.1
+> 状态：Draft 0.1 / 已批准（2026-11-09，用户：「F3 选 A，三份计划批准」）
 > issue：gofer-341t
 
 ## 修订记录

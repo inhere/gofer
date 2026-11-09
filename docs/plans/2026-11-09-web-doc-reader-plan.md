@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # web 内置 Markdown 文档阅读 实施计划
 
-> 状态：Draft 0.1
+> 状态：Draft 0.1 / 已批准（2026-11-09，用户：「F3 选 A，三份计划批准」）
 > issue：gofer-i1bd
 
 ## 修订记录

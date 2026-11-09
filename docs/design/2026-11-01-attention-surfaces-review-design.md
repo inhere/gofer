@@ -1,7 +1,7 @@
 # 注意力面复盘：今天 / 工作项 / 收件箱为什么没人用，以及怎么收
 
 > issue：gofer-cnxy
-> 状态：0.3 —— F1 / F2 / F4 与 digest 改名已批准（2026-11-09，用户：「等我按建议」）；F3 的具体约定（末行 `[needs-reply]` 标记）是本稿新提出的，待用户确认
+> 状态：0.3 / 已批准 —— F1 / F2 / F4 与 digest 改名（用户：「等我按建议」）；F3 末行 `[needs-reply]` 标记约定选 A（2026-11-09，用户：「F3 选 A，三份计划批准」）
 > 相关：`docs/design/2026-10-09-dashboard-redesign-design.md`、`2026-10-23-ui-redesign-design.md`、`2026-10-28-inbox-triage-design.md`；外部参照 dsh-superagent-prototype 的 `docs/000-philosophy.md`、`docs/005-panel.md`（本地副本在 WP `local/dsh-superagent-prototype/`），以及 xhen 的调研 `inhere-tools/xhen/docs/research/2026-10-31-dsh-superagent-prototype.md`。
 
 ## 修订记录

@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 「等我」误报修正（RV1 F1–F4）实施计划
 
-> 状态：Draft 0.1 / 待人工计划批准
+> 状态：Draft 0.1 / 已批准（2026-11-09，用户：「F3 选 A，三份计划批准」）
 > issue：gofer-cnxy
 
 ## 修订记录
