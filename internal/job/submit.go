@@ -73,6 +73,13 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// validation, result base dir all read the same snapshot).
 	cfg := s.config()
 
+	// gofer-341t: lock_source is a server stamp. An outside submit's value is dropped here,
+	// BEFORE the held request is captured below; only the hold re-entry, a continuation
+	// and a rerun (their request comes from a stored request_json) keep it.
+	if req.heldJobID == "" && req.ResumeSourceAgent == "" && req.SourceJobID == "" {
+		req.LockSource = ""
+	}
+
 	// gofer-9b1b: a held submit keeps the request AS RECEIVED — before any resolution
 	// below rewrites it — because approval re-submits exactly that request (and every
 	// resolution step runs again then). The internal json:"-" markers a server-side
@@ -481,6 +488,21 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			return JobResult{}, gerr
 		} else if ok {
 			return s.reuseRequestJob(rec, req)
+		}
+	}
+	// gofer-341t: an exclusive job that declared --scope but no --lock gets its directory
+	// lock derived from the scope. Placed AFTER workDir/Worktree are known and BEFORE the
+	// lock paths are resolved and the repo-mode check, so everything downstream (resolved
+	// paths, held paths, repo mode, resume) sees the derived set as a declared one.
+	// dirExclusive (decided above) is never revisited: the scope narrows a lock, it does
+	// not decide whether there is one.
+	var lockFallback *scopeLockFallback
+	if !remote && dirExclusive && len(req.LockPaths) == 0 && !req.Worktree && len(cleanScope(req.Scope)) > 0 {
+		paths, reason := scopeLockPathsForSubmit(context.Background(), cfg.ExecPath(proj), workDir, req.Scope)
+		if reason == "" {
+			req.LockPaths, req.LockSource = paths, "scope"
+		} else {
+			lockFallback = &scopeLockFallback{Reason: reason, Scope: cleanScope(req.Scope)}
 		}
 	}
 	if !remote && len(req.LockPaths) > 0 {
@@ -1189,6 +1211,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// 事后排查据此回答"这次运行当初是否（被允许）独占这棵工作树"。
 			DirExclusive:  dirExclusive,
 			LockPaths:     req.LockPaths,
+			LockSource:    req.LockSource,
 			HeldLockPaths: heldLockPaths,
 			// GATE-01 S3：人工验收同样是 job 的持久属性（jobs.require_review），决定
 			// finish 是落 done 还是 needs_review，resume 继承、show/web 可见。
@@ -1378,6 +1401,12 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		// gofer-3db4: an internal producer asked to be told when this job ends and its
 		// target could not be addressed — the work runs anyway, and this event is where
 		// the missing notice is explained instead of staying a silent mystery.
+		if lockFallback != nil {
+			s.recordEvent(jobID, EventJobLockScopeFallback, map[string]any{
+				"reason": lockFallback.Reason,
+				"scope":  lockFallback.Scope,
+			})
+		}
 		if notifyDrop != nil {
 			s.recordEvent(jobID, EventNotifyDropped, map[string]any{
 				"reason": notifyDrop.Reason,

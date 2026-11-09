@@ -429,6 +429,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		// JOB-11：旧行 COALESCE 成 0 = "共享"，正是 JOB-11 之前的语义。
 		DirExclusive: rec.DirExclusive,
 		LockPaths:    request.LockPaths,
+		LockSource:   request.LockSource,
 		// 人工验收（GATE-01 S3）：旧行全为 0/空 = "未要求、未验收"。
 		RequireReview: rec.RequireReview,
 		ReviewedBy:    rec.ReviewedBy,

@@ -1,9 +1,13 @@
 package job
 
 import (
+	"context"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Declared-scope checks for the review (gofer-3nxa.3). The web console carries the same
@@ -168,4 +172,38 @@ func globRegexp(glob string) string {
 	}
 	b.WriteString("$")
 	return b.String()
+}
+
+// scopeLockFallback is why a --scope did not narrow the directory lock (R4): the lock
+// stays on the working directory and the job records job.lock_scope_fallback.
+type scopeLockFallback struct {
+	Reason string
+	Scope  []string
+}
+
+// scopeLockPathsForSubmit turns a declared scope into project-root-relative lock paths:
+// ScopeLockPaths gives repo-relative prefixes (scope globs are repo-root relative, like
+// the review's scope check), which are re-based from the repo top onto the project root.
+// A non-empty reason means "do not derive": invalid_glob / empty_prefix from the pure
+// derivation, not_git when workDir is no git checkout, outside_project when a prefix
+// lies outside the project root (a repo bigger than the project).
+func scopeLockPathsForSubmit(ctx context.Context, projectRoot, workDir string, scope []string) ([]string, string) {
+	prefixes, reason := ScopeLockPaths(scope)
+	if reason != "" || len(prefixes) == 0 {
+		return nil, reason
+	}
+	top, err := gitTopLevel(ctx, workDir)
+	if err != nil {
+		return nil, "not_git"
+	}
+	top, root := util.RealPath(top), util.RealPath(projectRoot)
+	out := make([]string, 0, len(prefixes))
+	for _, p := range prefixes {
+		rel, relErr := filepath.Rel(root, filepath.Join(top, filepath.FromSlash(p)))
+		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, "outside_project"
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	return out, ""
 }
