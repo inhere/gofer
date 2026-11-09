@@ -84,14 +84,14 @@ gofer job watch <id>         # 异步任务跟随到结束
 - **同步 / 异步**：`--sync` 等到终态（默认约 30 秒，`--wait-timeout` 放宽，等不到转异步）；长任务不加 `--sync`，配 `--timeout` 后 `job watch`。脚本里取 job id：`… 2>&1 | grep -oE '(job-)?[0-9]{8}-[0-9]{6}-[0-9a-f]{8}' | head -1`（新 id 形如 `job-20261021-212412-6a715d34`；没有 `job-` 的旧 id 照常可用，故此模式两种都认）。
 - **agent**（`-a`）：`exec` 跑命令（命令放 `--` 之后）；`codex` / `claude` 等跑 AI agent（`--prompt "…"` 或任务文件 `-f task.md`）。能用哪些看项目的 `allowed_agents` / `gofer agent list`。
 - **runner**（`--runner`）：默认 `server`（server 本机）；`<worker-id>` 派到那台 worker。容器里能做的活直接在容器里跑，不必绕 gofer。
-- 交给 agent 的实施 job 带 `--acceptance "<验收列表>"` / `--scope 'glob,…'`：gofer 会注入「验收标准」「交付约定」两节——只改范围内的东西，范围外发现写进汇报的「## 发现但不碰」，可复用经验写进「## 可复用经验」。
+- 交给 agent 的实施 job 带 `--acceptance "<验收列表>"` / `--scope 'glob,…'`：gofer 会注入「验收标准」「交付约定」两节；对独占 job，`--scope` 还会把目录锁收窄到声明的路径——只改范围内的东西，范围外发现写进汇报的「## 发现但不碰」，可复用经验写进「## 可复用经验」。
 - **给 agent job 带 `--prime-keywords "子系统,语言,模块"`**：注入的规则 / 记忆里，命中的给全文、排最前并标「（相关）」，任务要用的资料不会被预算截掉。派活时写上任务涉及的子系统 / 语言 / 模块名（缺省读 `$GOFER_PRIME_KEYWORDS`，显式 flag 优先）；记忆侧给专属记忆补 `when.keywords` 以被命中，见 [tracker.md](references/tracker.md)「按任务关键词选材」。
 - 中断了用 `gofer job resume <id> --prompt "…"` 续跑同一会话，**不要重派整份任务书**。只读审查加 `--read-only`。更多（持续会话、模型、预算、verify、worktree、模板、故障转移）见 [job-advanced.md](references/job-advanced.md)。
 - **派长 job 加 `--notify`**（或 `--notify-session <sid>`）：job 一结束就经传话人推一条系统通知给你，不必等自己停下才发现；默认关（每条通知起一次传话人进程）。详见 [job-advanced.md](references/job-advanced.md)。
 
 ### 并行实施
 
-- 多个 agent 同时改代码：每个一个 git worktree（目录按**项目约定的目录**，或用 job 的 `--worktree`），合并用 `--no-ff`，合并后删 worktree 与分支。
+- 多个 agent 同时改同一 checkout 的不同目录：各自带 `--scope 'glob,…'`，目录锁会随声明收窄，互不重叠时可以并行；同一处要并行改或需要独立提交，用 job 的 `--worktree`。
 - **开 worktree 前先提交 tracker**：worktree 里的 `.gofer/tracker` 是建分支那一刻的副本，之后新建的 issue 它看不到。
 - 多个 worktree 各自改 tracker 后，`git merge` 由 tracker 合并驱动按记录自动合并；新克隆跑一次 `gofer repo merge-driver --install`。并行改 `CHANGELOG.md`「未发布」段的，再跑一次 `gofer repo changelog-merge --install`。
 - 子 agent 的任务书可以很短：「先跑 `gofer repo prime` 和 `gofer issue brief <id>` 接手，然后实施」+ worktree 路径 + 不许 push + 验证要求 + 汇报要有「发现但不碰」。
