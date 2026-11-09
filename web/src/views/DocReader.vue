@@ -122,7 +122,7 @@ onMounted(() => void load())
         <MarkdownBlock
           v-if="doc"
           :text="doc.content"
-          :doc-context="{ projectKey, worktreeBranch: worktreeBranch || undefined }"
+          :doc-context="{ projectKey, path: doc?.path, worktreeBranch: worktreeBranch || undefined }"
           :doc-dir="docDir"
         />
       </article>

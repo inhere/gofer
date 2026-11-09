@@ -54,6 +54,23 @@ function rewrite(clean: string): string {
       link.setAttribute('rel', 'noopener noreferrer')
       return
     }
+    if (href.startsWith('#')) {
+      if (props.docDir && context.path) {
+        try {
+          const anchor = decodeURIComponent(href.slice(1))
+          link.setAttribute('href', readerHref(context, context.path, undefined, anchor))
+          link.setAttribute('data-doc-link', 'true')
+          return
+        } catch {
+          // Keep malformed anchors as plain text below.
+        }
+      }
+      const span = document.createElement('span')
+      span.setAttribute('title', href)
+      span.textContent = link.textContent ?? ''
+      link.replaceWith(span)
+      return
+    }
     const base = props.docDir ?? context.base ?? ''
     const resolved = resolveDocHref(base, href)
     if (resolved && isDocPath(resolved)) {

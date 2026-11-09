@@ -10,6 +10,7 @@ export interface DocContext {
   projectKey: string
   base?: string
   worktreeBranch?: string
+  path?: string
 }
 
 export function parseDocRef(raw: string): DocRef | null {
