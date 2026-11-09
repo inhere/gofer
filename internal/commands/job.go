@@ -1481,7 +1481,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.workerLabels, "worker-labels", "comma-separated labels to auto-select a worker (runner=worker, when --worker-id is unset)", jobRunOptCategory("Target", ""))
 
 	// Execution: command/prompt construction and execution policy.
-	c.StrOpt2(&jobRunOpts.cwd, "cwd", "working dir within the project", jobRunOptCategory("Execution", "."))
+	c.StrOpt2(&jobRunOpts.cwd, "cwd", "working directory within the project; determines where the job runs", jobRunOptCategory("Execution", "."))
 	// WT-01: run in a managed git worktree (own branch gofer/<job-id>) so parallel
 	// jobs stop sharing one checkout/index.
 	c.BoolOpt2(&jobRunOpts.worktree, "worktree", "run in a managed git worktree of the project checkout (branch gofer/<job-id>, kept afterwards)", gflag.WithCategory("Execution"))
@@ -1504,14 +1504,14 @@ func bindJobRunFlags(c *gcli.Command) {
 	jobRunOpts.budget.bind(c, "Execution")
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
 	c.VarOpt(&jobRunOpts.readDirs, "read-dir", "", "extra read-only directory (project-relative or absolute; repeatable)", gflag.WithCategory("Execution"))
-	c.VarOpt(&jobRunOpts.lock, "lock", "", "project-relative directory lock path (repeatable)", gflag.WithCategory("Execution"))
-	c.StrOpt2(&jobRunOpts.lockWait, "lock-wait", "directory lock wait cap in seconds (0 = no cap, if server allows)", jobRunOptCategory("Execution", ""))
+	c.VarOpt(&jobRunOpts.lock, "lock", "", "project-relative directory lock path (repeatable)", gflag.WithCategory("Directory lock (advanced)"))
+	c.StrOpt2(&jobRunOpts.lockWait, "lock-wait", "directory lock wait cap in seconds (0 = no cap, if server allows)", jobRunOptCategory("Directory lock (advanced)", ""))
 	// bd h-aii-0ql3：只读 job（cli-agent 追加沙箱参数 / acp-agent session/set_mode）。
 	c.BoolOpt2(&jobRunOpts.readOnly, "read-only", "run read-only: audit/analysis only, the agent cannot write (cli-agent read_only_args / acp-agent acp.modes.read_only)", gflag.WithCategory("Execution"))
 	// JOB-11：同 cwd 串行锁的两个反转开关。默认规则 = 可写 agent job 独占其工作目录、
 	// exec/只读 job 共享；两者都不给 = 交给 server 按默认规则判定（三态）。
-	c.BoolOpt2(&jobRunOpts.exclusiveDir, "exclusive-dir", "force the exclusive same-directory lock for this job (an exec job included): no other exclusive job runs in this directory, its ancestors or its subdirectories", gflag.WithCategory("Execution"))
-	c.BoolOpt2(&jobRunOpts.sharedDir, "shared-dir", "give up the exclusive same-directory lock for this job (share the tree with other jobs, at your own risk)", gflag.WithCategory("Execution"))
+	c.BoolOpt2(&jobRunOpts.exclusiveDir, "exclusive-dir", "force the exclusive same-directory lock for this job (an exec job included): no other exclusive job runs in this directory, its ancestors or its subdirectories", gflag.WithCategory("Directory lock (advanced)"))
+	c.BoolOpt2(&jobRunOpts.sharedDir, "shared-dir", "give up the exclusive same-directory lock for this job (share the tree with other jobs, at your own risk)", gflag.WithCategory("Directory lock (advanced)"))
 	// AUTO-05：输出停滞窗口。默认 = agent 配置 > server.stall_timeout_sec（900s）；exec job
 	// 默认关（构建/测试本来就会长时间没输出），交互 job 恒关。gcli 无法区分"没给"与"给了 0"，
 	// 所以"关掉"由 --no-stall 表达（与 --verify/--no-verify、--fallback/--no-fallback 同一手法）。
@@ -1521,7 +1521,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.BoolOpt2(&jobRunOpts.review, "review", "require human review: on a normal completion the job parks in needs_review until someone accepts or rejects it", gflag.WithCategory("Execution"))
 	// gofer-3nxa.4：验收标准——非 exec agent 的 prompt 末尾追加「## 验收标准」节，验收面板 / job review 显示。
 	// gofer-3nxa.3：声明改动范围（验收时越界文件标「范围外」）+ 单次关闭「交付约定」节。
-	c.VarOpt(&jobRunOpts.scope, "scope", "", "declared change scope: path globs relative to the repo root (comma-separated and/or repeatable); changed files outside it are marked in review", gflag.WithCategory("Execution"))
+	c.VarOpt(&jobRunOpts.scope, "scope", "", "declared change scope: path globs relative to the repo root (comma-separated and/or repeatable); an exclusive job also narrows its directory lock to these paths; changed files outside it are marked in review", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.noScopeDisc, "no-scope-discipline", cliText("cli.job.flag.no_scope_discipline"), gflag.WithCategory("Execution"))
 	c.StrOpt2(&jobRunOpts.acceptance, "acceptance", cliText("cli.job.flag.acceptance"), jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.checkPrompt, "check-prompt", "delivery-check requirement for the server-side structured checker (not a shell command)", jobRunOptCategory("Execution", ""))

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gookit/gcli/v3"
@@ -56,6 +57,34 @@ func TestJobRunDirLockFlags(t *testing.T) {
 	jobRunOpts = jobRunFlags{}
 	if code := app.Run([]string{"job", "run", "-p", "self", "-a", "exec", "--exclusive-dir", "--shared-dir", "--", "go", "version"}); code == 0 {
 		t.Fatalf("--exclusive-dir with --shared-dir must be refused, got exit code 0 (req=%+v)", got)
+	}
+}
+
+func TestJobRunLockOptionsInAdvancedCategory(t *testing.T) {
+	cmd := NewApp("test").GetCommand("job").GetCommand("run")
+	for _, name := range []string{"lock", "lock-wait", "exclusive-dir", "shared-dir"} {
+		opt := cmd.Opt(name)
+		if opt == nil {
+			t.Fatalf("--%s is not registered", name)
+		}
+		if opt.Category != "Directory lock (advanced)" {
+			t.Errorf("--%s category = %q, want Directory lock (advanced)", name, opt.Category)
+		}
+	}
+	for _, name := range []string{"cwd", "scope", "worktree", "read-only"} {
+		opt := cmd.Opt(name)
+		if opt == nil {
+			t.Fatalf("--%s is not registered", name)
+		}
+		if opt.Category != "Execution" {
+			t.Errorf("--%s category = %q, want Execution", name, opt.Category)
+		}
+	}
+	if got := cmd.Opt("scope").Desc; !strings.Contains(got, "narrows its directory lock") {
+		t.Errorf("--scope help = %q, want directory-lock guidance", got)
+	}
+	if got := cmd.Opt("cwd").Desc; !strings.Contains(got, "determines where the job runs") {
+		t.Errorf("--cwd help = %q, want run-directory guidance", got)
 	}
 }
 
