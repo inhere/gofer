@@ -14,6 +14,10 @@ describe('docPath', () => {
     ])
   })
 
+  it('recognises paths after a plain arrow prefix', () => {
+    expect(findDocPaths('->docs/a.md')).toEqual([{ start: 2, end: 11, path: 'docs/a.md' }])
+  })
+
   it('rejects unsafe or non-markdown paths', () => {
     for (const value of ['/a.md', '~/a.md', 'C:/a.md', 'a\\b.md', '../a.md', '.env.md', 'docs/.x/a.md', 'secret:x.md', 'a.txt', 'my doc.md', 'https://x/a.md']) {
       expect(isDocPath(value), value).toBe(false)

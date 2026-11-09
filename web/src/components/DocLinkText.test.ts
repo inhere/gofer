@@ -18,10 +18,11 @@ describe('DocLinkText', () => {
     expect(html).not.toContain('href=')
   })
 
-  it('does not treat markup-looking text as a document link', async () => {
+  it('escapes markup-looking text while still linking its document path', async () => {
     const html = await render('<b>docs/a.md</b>', { projectKey: 'demo' })
-    expect(html).toContain('&lt;b&gt;docs/a.md&lt;/b&gt;')
-    expect(html).not.toContain('href=')
+    expect(html).toContain('&lt;b&gt;')
+    expect(html).not.toContain('<b>')
+    expect(html).toContain('href="/projects/demo/doc?path=docs/a.md"')
   })
 
   it('renders links with the button-safe propagation option', async () => {
