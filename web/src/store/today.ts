@@ -113,6 +113,19 @@ export function endTodayVisit(nowSec = Math.floor(Date.now() / 1000)): void {
   visitStart = 0
 }
 
+let recheckTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleRecheck(at: number | undefined): void {
+  if (recheckTimer) clearTimeout(recheckTimer)
+  recheckTimer = null
+  if (!at || at <= 0) return
+  const delay = Math.max(0, at * 1000 - Date.now())
+  recheckTimer = setTimeout(() => {
+    recheckTimer = null
+    void refreshToday()
+  }, delay)
+}
+
 export async function refreshToday(): Promise<void> {
   const seq = ++refreshSeq
   try {
@@ -120,6 +133,7 @@ export async function refreshToday(): Promise<void> {
     const keys = new Set(waitingCards(data).map((c) => c.key))
     hiddenKeys.value = settleHidden(hiddenKeys.value, committedKeys, keys, undoQueue.current.value?.key, seq)
     todayData.value = data
+    scheduleRecheck(data.recheck_at)
     todayError.value = ''
   } catch (e) {
     todayError.value = e instanceof Error ? e.message : String(e)
@@ -155,6 +169,8 @@ export function startToday(): void {
 export function stopToday(): void {
   handles.forEach((h) => h.stop())
   handles = []
+  if (recheckTimer) clearTimeout(recheckTimer)
+  recheckTimer = null
   undoQueue.flush(true)
 }
 

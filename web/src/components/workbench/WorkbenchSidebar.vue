@@ -82,6 +82,16 @@ function usageText(thread: WorkbenchThread): string {
   return t('workbench.row.tokens', { n: formatNumber(tokens) })
 }
 
+function supervisionText(thread: WorkbenchThread): string {
+  const s = thread.supervising
+  if (!s) return ''
+  const parts: string[] = [t('workbench.row.supervising')]
+  if (s.jobs) parts.push(t('workbench.row.supervisingJobs', { n: s.jobs }))
+  if (s.subagents) parts.push(t('workbench.row.supervisingSubagents', { n: s.subagents }))
+  if (s.watches) parts.push(t('workbench.row.supervisingWatches', { n: s.watches }))
+  return parts.join(' · ')
+}
+
 function formatNumber(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
 }
@@ -213,6 +223,7 @@ defineExpose({ focusSearch })
               <span v-if="turnsText(thread)" class="ln-meta">{{ turnsText(thread) }}</span>
               <span v-if="durationText(thread)" class="ln-meta">{{ durationText(thread) }}</span>
               <span v-if="usageText(thread)" class="ln-meta">{{ usageText(thread) }}</span>
+              <span v-if="supervisionText(thread)" class="ln-meta ln-supervising">{{ supervisionText(thread) }}</span>
               <span v-if="thread.stalled" class="ln-stalled" :title="t('workbench.stalled')">stalled</span>
               <span v-if="thread.status === 'awaiting_input' && !thread.seen_at" class="ln-new" aria-hidden="true">●</span>
             </span>

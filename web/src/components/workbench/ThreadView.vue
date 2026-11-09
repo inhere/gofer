@@ -81,8 +81,18 @@ let visibilityObserver: IntersectionObserver | null = null
 let seenTimer: number | null = null
 const paneVisible = ref(false)
 const documentVisible = ref(document.visibilityState === 'visible')
-
 const thread = computed(() => context.threadsByID.value.get(props.threadId))
+
+function supervisionText(thread: WorkbenchThread): string {
+  const s = thread.supervising
+  if (!s) return ''
+  const parts: string[] = [t('workbench.row.supervising')]
+  if (s.jobs) parts.push(t('workbench.row.supervisingJobs', { n: s.jobs }))
+  if (s.subagents) parts.push(t('workbench.row.supervisingSubagents', { n: s.subagents }))
+  if (s.watches) parts.push(t('workbench.row.supervisingWatches', { n: s.watches }))
+  return parts.join(' · ')
+}
+
 const latestJobID = computed(() => thread.value?.latest_job_id ?? '')
 const latestJob = ref<Job | null>(null)
 watch([latestJobID, () => thread.value?.raw_status], async () => {
@@ -432,6 +442,7 @@ onUnmounted(() => {
         >{{ thread.title }}</button>
         <div class="meta-head">
           <StatusPill :status="thread.status" />
+          <span v-if="thread.supervising" class="tag supervising">{{ supervisionText(thread) }}</span>
           <span class="tag">{{ thread.project_key || t('workbench.list.unassigned') }}</span>
           <span v-if="thread.turns > 1" class="muted">{{ t('workbench.row.turns', { n: thread.turns }) }}</span>
           <UncommittedBadge :count="latestJob?.uncommitted_count" :files="latestJob?.uncommitted_files" />
