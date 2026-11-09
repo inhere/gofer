@@ -3014,7 +3014,7 @@ export interface RefsResp {
   refs: RefItem[]
 }
 
-export interface TrackerIssueView { parent?: string; deps?: Array<{ id: string; type: string }>; id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
+export interface TrackerIssueView { parent?: string; deps?: Array<{ id: string; type: string }>; id: string; title: string; type: string; status: string; priority: number; description?: string; design?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
 
 export interface TrackerBatchSet { status?: string; close_reason?: string; add_tags?: string[] }
 export interface TrackerBatchResp { results: Array<{ id: string; ok: boolean; error?: string }>; ok: number; failed: number }

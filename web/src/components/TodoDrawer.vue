@@ -24,6 +24,7 @@ import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { depsSatisfied } from '../utils/planBoard'
 import { usageBadge, verifyLabel } from '../utils/jobOutcome'
 import type { AgentInfo, Job, JobEvent, Todo, TodoStatus } from '../api/types'
+import type { DocContext } from '../utils/docPath'
 
 const props = defineProps<{
   todo: Todo | null
@@ -35,6 +36,7 @@ const props = defineProps<{
   agents: AgentInfo[]
   // 非空 = 没有写权限（自己的 plan 之外），文案即禁用原因。
   writeBlock?: string
+  docContext?: DocContext
 }>()
 
 const emit = defineEmits<{
@@ -356,7 +358,7 @@ const canDispatch = computed(() => {
         <!-- 备注是一行一条的（--append-note 每次追加一行、服务端用换行连接）：breaks 保住
              换行，externalLinks 让裸 URL（缺陷系统等）可点并在新标签页打开。
              抽屉加宽后备注行会过长，正文限到 72ch 才好读（用户反馈：备注以前挤在 480px 里）。 -->
-        <MarkdownBlock class="td-note" :text="todo.note" breaks external-links />
+        <MarkdownBlock class="td-note" :text="todo.note" breaks external-links :doc-context="docContext" />
       </section>
 
       <section class="td-sec" data-test="todo-drawer-times">

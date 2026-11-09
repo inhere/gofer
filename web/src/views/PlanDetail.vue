@@ -20,6 +20,7 @@ import PlanBoard from '../components/PlanBoard.vue'
 import TodoDrawer from '../components/TodoDrawer.vue'
 import RefsPanel from '../components/RefsPanel.vue'
 import CommentThread from '../components/CommentThread.vue'
+import DocLinkText from '../components/DocLinkText.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import PlanSupervisor from '../components/PlanSupervisor.vue'
 import ExperimentalBadge from '../components/ExperimentalBadge.vue'
@@ -107,6 +108,11 @@ const progress = computed(() => (plan.value ? planProgressModel(plan.value) : nu
 
 // 待办循环里的变量名是 `t`（Todo），会遮蔽 i18n 的 t()：循环内用这个别名。
 const tr = t
+function todoDocContext(todo: Todo): { projectKey: string; base?: string } | undefined {
+  const projectKey = todo.project || plan.value?.project
+  return projectKey ? { projectKey, base: todo.cwd || undefined } : undefined
+}
+
 
 // plan 的写操作（改状态 / leader / 挂起 · 继续 · 启动 / 交接说明）在服务端都是
 // PATCH /v1/plans/{id}、POST /v1/plans/{id}/{run,pause,resume}、PUT /v1/plans/{id}/handoff 上的
@@ -1144,7 +1150,7 @@ onUnmounted(() => {
           {{ t('plans.detail.canFinish') }}
         </p>
       </div>
-      <p v-if="plan.description" class="head-desc">{{ plan.description }}</p>
+      <DocLinkText v-if="plan.description" :text="plan.description" :doc-context="plan.project ? { projectKey: plan.project } : undefined" class="head-desc" />
       <dl class="meta mono">
         <div class="meta-row">
           <dt>{{ t('plans.detail.id') }}</dt>
@@ -1498,7 +1504,7 @@ onUnmounted(() => {
                     :title="tr('plans.detail.todoOpen')"
                     data-test="todo-open"
                     @click="openTodo(t)"
-                  >{{ t.title }}</button>
+                  ><DocLinkText :text="t.title" :doc-context="todoDocContext(t)" /></button>
                   <!-- PLAN-02 P2：认领这个条目的 agent（空 = 没人认领，故派发要先选 agent）。 -->
                   <span v-if="t.assignee" class="todo-assignee mono" :title="`assignee: ${t.assignee}`">
                     {{ t.assignee }}
@@ -1870,6 +1876,7 @@ onUnmounted(() => {
       :jobs="plan?.jobs ?? []"
       :agents="agents"
       :write-block="planWriteBlock()"
+      :doc-context="todoOpen ? todoDocContext(todoOpen) : undefined"
       @status="onTodoStatus"
       @dispatch="onTodoDrawerDispatch"
       @open-job="openJob"
