@@ -178,3 +178,11 @@ waiting_dir: holder=<job-id> lock_paths=<路径>（来自 --scope | 来自 cwd�
 ## 已定事项（2026-11-09）
 
 用户原话：「设计都按推荐项批准」。「待确认事项」逐项按各自的推荐项定案；批准授权进入实施计划，不授权实施。
+
+## 实施记录（2026-11-09）
+
+- 按计划 `docs/plans/2026-11-09-scope-derived-dir-lock-plan.md` 实施，合并提交 `04f5eeed`（分支 `feat/341t-scope-lock`）。
+- 核心：`ScopeLockPaths`（`internal/job/scope_check.go`）、`dirLocks.Acquire` 多路径原子获取、Submit 盖章 `LockPaths` / `LockSource=scope` 与 `job.lock_scope_fallback` 事件；`resolveDirExclusive` 与 schema 未改。
+- 表层：`job show` 显示锁来源、`job run` 帮助新增「Directory lock (advanced)」分组、gofer-usage skill / http-api / CHANGELOG / 能力清单同步。
+- 验证：反向验证全部按计划执行（交叉顺序测试改前 8s 超时失败）；gofer-verify 中 web / vet / CodeQL 通过，linux-race 只有 `TestDetectExistingCLI` 构建锁超时（已知 gofer-nj8m，单独 -race 重跑通过）。
+- 偏离：`LockSource` 清空条件额外排除 `SourceJobID`（重跑）；无 `ResumeSourceAgent` 的续接继承锁路径但不带来源标签，只影响 `job show` 显示。

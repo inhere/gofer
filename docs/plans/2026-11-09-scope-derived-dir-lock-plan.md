@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 目录锁由 --scope 推出 实施计划
 
-> 状态：Draft 0.1 / 已批准（2026-11-09，用户：「F3 选 A，三份计划批准」）
+> 状态：COMPLETE（2026-11-09）；Draft 0.1 已批准（2026-11-09，用户：「F3 选 A，三份计划批准」）
 > issue：gofer-341t
 
 ## 修订记录
@@ -262,3 +262,11 @@ W4  T6 skill 与 http-api（依赖 T3、T4）→ T8 CHANGELOG 与能力清单（
 完成 Gate：T1–T8 通过；反向验证写入 `tmp/341t-impl/reverse.md`；`gofer-verify` 全绿；合并回 main（`--no-ff`）并删 worktree 和分支；设计稿补实施记录；计划进入 COMPLETE 时写不超过 8 行的完成总结；关 `gofer-341t`。
 
 剩余工作（不在本计划内）：攒批发版时 push 并更新能力清单版本号（G058）；Q6 常驻会话等待输入时让出锁、Q7 MCP 补 `worktree` 字段，另开 issue。
+
+## 完成总结（2026-11-09）
+
+- T1–T8 完成，合并 `04f5eeed`；worktree 与分支已删。
+- 执行方：T1/T2/T3/T7 sonnet 子 agent，T4/T5/T6/T8 suga（gpt-6.1-terra），监督会话审查并补两处（注释位置、repo 模式文档句）。
+- 反向验证全部执行并失败于预期处；gofer-verify 仅 linux-race 有已知构建锁超时（gofer-nj8m），单独重跑通过。
+- 测试须在 git 仓库之外的 TMPDIR 下跑（`t.TempDir()` 落进仓库会让非 git 断言失败、基线扫描变慢）。
+- 未发版；按攒批节奏随下一版发布。
