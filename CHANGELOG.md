@@ -13,6 +13,7 @@
 
 ### 变更
 
+- Web 控制台支持把项目内 Markdown 路径链接到可分享的只读阅读页，覆盖计划、待办、Issue 与任务汇报，并支持文档内相对链接、目录和错误提示（gofer-i1bd）。
 - 独占 job 的目录锁由 `--scope` 推出，scope 不相交的 job 可在同一 checkout 并行；多路径锁改为原子获取，交叉顺序的 `--lock` 不再互等；`waiting_dir` 提示与帮助首选 `--scope`（gofer-341t）。
 
 ### 修复
