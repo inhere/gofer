@@ -278,7 +278,7 @@ gofer job wait <id>... [--any] [--timeout 30m]             # 等到终态，输�
 
 - **首选 `--scope '<glob>,…'`**：同一 checkout 改不同目录时，独占 job 会把目录锁收窄到 scope 推出的路径；声明多大就锁多大，scope 不相交的 job 可以并行。空前缀（如 `**/*.go`）、不在 git 仓库内或推导路径越出项目根时，退回锁 cwd，并记录 `job.lock_scope_fallback` 事件。
 - **需要独立提交或同一处并行改，用 `--worktree`**：同一 checkout 的并行提交仍可能争用 `.git/index.lock`，worktree 能隔离分支与索引。`--worktree` job 不取目录锁；`--lock` 与 `--worktree` 同用时，锁声明不生效。
-- `--lock <子目录>`（可重复）作为显式进阶选项把锁收窄到指定目录——顶层目录包含多个仓库时可用；项目开 `dir_lock_mode: repo` 后，cwd 下有嵌套仓库的可写 job 必须声明 `--lock` 或显式 `--shared-dir` / `--exclusive-dir`，否则提交被拒并列出可选仓库；**续接**（`job resume --lock`）同样能换锁，见上「中断后续跑」。
+- `--lock <子目录>`（可重复）作为显式进阶选项把锁收窄到指定目录——顶层目录包含多个仓库时可用；项目开 `dir_lock_mode: repo` 后，cwd 下有嵌套仓库的可写 job 必须声明 `--lock`（能推出锁路径的 `--scope` 也算）或显式 `--shared-dir` / `--exclusive-dir`，否则提交被拒并列出可选仓库；**续接**（`job resume --lock`）同样能换锁，见上「中断后续跑」。
 - `--shared-dir` 放弃独占（自担风险）；`--exclusive-dir` 强制独占（exec 也独占）。
 - `--lock-wait <秒>` 限等锁时长（0 = 不限，是否允许由 server 决定）；超时报错写出实际锁路径与持有者。串联多个长 job 时显式设值。
 - agent 的 `max_concurrent` 另限单个 agent 的并发，超出停在 `queued`。
