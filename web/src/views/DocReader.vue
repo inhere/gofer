@@ -36,7 +36,7 @@ function errorMessage(status: number, withWorktree: boolean): string {
   if (status === 409) return t('docReader.error.remote')
   if (status === 403) return t('docReader.error.forbidden')
   if (status === 415) return t('docReader.error.binary')
-  if (status === 400) return t('docReader.error.missing')
+  if (status === 400) return t('docReader.error.missingPath')
   if (withWorktree) return t('docReader.error.missingWorktree', { branch: worktreeBranch.value })
   return t('docReader.error.missing')
 }
@@ -55,13 +55,16 @@ async function load(): Promise<void> {
   loading.value = true
   try {
     doc.value = await getProjectDoc(projectKey.value, path.value, base.value || undefined)
-    await nextTick()
-    decorateHeadings()
   } catch (error) {
     errorStatus.value = error instanceof ApiError ? error.status : 0
     errorText.value = errorMessage(errorStatus.value, !!worktreeBranch.value)
   } finally {
     loading.value = false
+  }
+  // 正文在 loading=false 之后才渲染（v-else），所以等下一帧再给标题编号、建目录、按 anchor 滚动。
+  if (doc.value) {
+    await nextTick()
+    decorateHeadings()
   }
 }
 
@@ -80,6 +83,11 @@ function decorateHeadings(): void {
     const match = result.find((item) => item.text.trim().toLocaleLowerCase() === wanted)
     if (match) document.getElementById(match.id)?.scrollIntoView({ block: 'start' })
   }
+}
+
+// 目录项只在页内滚动：改 URL 的 hash 会触发路由 fullPath 变化，进而整页重新加载文档。
+function scrollToHeading(id: string): void {
+  document.getElementById(id)?.scrollIntoView({ block: 'start' })
 }
 
 function readerUrl(): string {
@@ -109,7 +117,7 @@ onMounted(() => void load())
         <p v-if="line" class="doc-line">{{ t('docReader.line', { line }) }}</p>
         <p v-if="doc?.truncated" class="doc-warning">{{ t('docReader.truncated') }}</p>
       </div>
-      <button v-if="doc" class="btn" type="button" data-test="copy-doc-path" @click="copyPath">{{ copied ? t('docReader.copied') : t('docReader.copy') }}</button>
+      <button v-if="doc" class="doc-copy" type="button" data-test="copy-doc-path" @click="copyPath">{{ copied ? t('docReader.copied') : t('docReader.copy') }}</button>
     </header>
 
     <p v-if="loading" class="doc-state">{{ t('docReader.loading') }}</p>
@@ -128,7 +136,7 @@ onMounted(() => void load())
       </article>
       <nav v-if="headings.length" class="doc-toc" :aria-label="t('docReader.toc')">
         <strong>{{ t('docReader.toc') }}</strong>
-        <a v-for="heading in headings" :key="heading.id" :href="`#${heading.id}`" :class="`doc-toc-l${heading.level}`">{{ heading.text }}</a>
+        <a v-for="heading in headings" :key="heading.id" :href="`#${heading.id}`" :class="`doc-toc-l${heading.level}`" @click.prevent="scrollToHeading(heading.id)">{{ heading.text }}</a>
       </nav>
     </div>
   </main>
@@ -151,6 +159,8 @@ onMounted(() => void load())
 .doc-toc a:hover { color: var(--accent); }
 .doc-toc-l2 { padding-left: 10px; }
 .doc-toc-l3 { padding-left: 20px; }
+.doc-copy { flex: none; background: transparent; color: var(--accent); border: 1px solid var(--line); border-radius: var(--r-chip); padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.doc-copy:hover { border-color: var(--accent); }
 @media (max-width: 760px) {
   .doc-layout { display: flex; flex-direction: column; }
   .doc-toc { position: static; order: -1; width: 100%; border-left: 0; border-bottom: 1px solid var(--line); padding: 0 0 10px; }
