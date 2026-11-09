@@ -231,7 +231,7 @@ job run	flag check-prompt	delivery-check requirement for the server-side structu
 job run	flag collect	glob collected from the job's cwd into its artifacts after the job ends (repeatable, e.g. 'tmp/out/*.csv')
 job run	flag cols	initial terminal columns for --interactive (0 = server default 80)
 job run	flag config	path to the gofer config file
-job run	flag cwd	working dir within the project
+job run	flag cwd	working directory within the project; determines where the job runs
 job run	flag deliver	with --worktree: deliver the branch once done / accepted: none | merge | push | pr (overrides the project's delivery.mode)
 job run	flag deliver-branch	with --deliver push|pr: the remote branch name
 job run	flag env	extra env var for the job process: K=V (repeatable). The value is stored with the job (request_json) — never pass secrets here
@@ -280,7 +280,7 @@ job run	flag role	role preset: fills agent/system_prompt/project/tags when unset
 job run	flag rows	initial terminal rows for --interactive (0 = server default 24)
 job run	flag rule	MANDATORY rule to inject at the top of this job's prompt (repeatable; adds to the server/agent/project bindings)
 job run	flag runner	runner key (server = server-local; local is a compatibility alias)
-job run	flag scope	declared change scope: path globs relative to the repo root (comma-separated and/or repeatable); changed files outside it are marked in review
+job run	flag scope	declared change scope: path globs relative to the repo root (comma-separated and/or repeatable); an exclusive job also narrows its directory lock to these paths; changed files outside it are marked in review
 job run	flag secret	secret to give this job by name (repeatable or comma-separated; declared under secrets: and allowed by the project; server runner only)
 job run	flag server	server address (overrides config server.addr)
 job run	flag session	keep an ACP agent in the same job across turns

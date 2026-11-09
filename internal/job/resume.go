@@ -408,6 +408,7 @@ func applyResumeLocks(req *JobRequest, opts ResumeOptions) {
 		return
 	}
 	req.LockPaths = append([]string(nil), opts.LockPaths...)
+	req.LockSource = "" // an explicit --lock replaces the derived set
 	exclusive := true
 	req.ExclusiveDir = &exclusive
 }
@@ -441,6 +442,7 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		// than back in the main checkout where the branch's work is not visible.
 		Cwd:         s.resumeCwd(src),
 		LockPaths:   lockPathsFromRequest(src.RequestJSON),
+		LockSource:  srcReq.LockSource,
 		LockWaitSec: lockWaitFromRequest(src.RequestJSON),
 		CallerID:    callerID,
 		// The ceiling owner is inherited from the SOURCE job, never from the caller id of

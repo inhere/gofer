@@ -214,6 +214,7 @@ func applyOverrides(base *JobRequest, ov RebuildOverrides) {
 	}
 	if ov.LockPaths != nil {
 		base.LockPaths = append([]string(nil), *ov.LockPaths...)
+		base.LockSource = "" // the override replaces any scope-derived set
 		// A declared lock asks for the lock — even when the source ran --shared-dir
 		// (the same reading resolveDirExclusive gives a submit's --lock).
 		if len(base.LockPaths) > 0 {
