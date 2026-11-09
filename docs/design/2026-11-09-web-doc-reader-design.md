@@ -195,3 +195,17 @@ flowchart LR
 ## 已定事项（2026-11-09）
 
 用户原话：「设计都按推荐项批准」。「待确认事项」逐项按各自的推荐项定案；批准授权进入实施计划，不授权实施。
+
+## 实施记录（2026-11-10）
+
+- 计划：`docs/plans/2026-11-09-web-doc-reader-plan.md`（COMPLETE）。分支 `feat/i1bd-doc-reader`，`--no-ff` 合并回 main。
+- 服务端：`internal/project/doc.go` 的 `ReadDoc`（路径规则、先 base 后根、扩展名白名单、256KB 截断、远程项目 `ErrProjectNotLocal`）；`GET /v1/projects/{key}/doc`（`project_browse_handler.go`，声明为 `Public()` + `PathProject("key")`）。
+- 安全补强（审查发现）：项目内符号链接可绕过点开头段与扩展名规则读到 `.env` 等文件；`readDocCandidate` 在 `SafeJoinReal` 之后对真实路径再按 `validDocPath` 与白名单复核（`docRealPathAllowed`）。同类风险的 `ReadKeyFile` 由 gofer-i72n 跟进。
+- web：`utils/docPath.ts`（识别、相对解析、`projectRelativeBase`）、`DocLinkText.vue`、`MarkdownBlock.vue` 消毒后在 DOM 上改写链接、阅读页 `views/DocReader.vue`（路由 `/projects/:key/doc`）、五类文本与 issue `design` 字段接入。
+- 与计划的偏离：
+  - job 汇报的 `base`：job 视图的 `cwd` 是执行目录绝对路径，不能直接作 `base`（服务端会 403）；改为按项目 `host_path` / `container_path` 换算成项目相对路径，换算不了不传。
+  - 页内锚点 `[x](#标题)` 在阅读页内保留为链接（计划未写，原实现会摘掉）。
+  - web 测试环境没有 DOM 库，`MarkdownBlock` 的链接改写与 XSS、阅读页目录无法在 vitest 中执行；改由真实浏览器验收覆盖（`tmp/i1bd-impl/acceptance.md` 项 2、7 与两轮复验），「改成消毒前改写」的反向验证未做。是否引入 DOM 测试依赖另立 issue。
+- 验收中修复：阅读页目录 / 标题 id / `anchor` 滚动未生效（标题处理早于正文渲染）；目录点击改为页内滚动；缺 `path` 的单独文案；根目录文档的页内锚点被丢弃（`docDir` 为空串的判断）。
+- 验证：后端 6 项反向验证与 web `..` 反向验证均按预期失败；主机 vue-tsc + vitest 全量 289 文件 / 2077 用例通过；gofer-verify 四路（`7bf2b1fd`）通过。
+
