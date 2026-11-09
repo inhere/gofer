@@ -2,6 +2,7 @@ package job
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -74,7 +75,7 @@ func OutOfScope(files, scope []string) []string {
 // glob without wildcards also covers everything under it as a directory (`internal/job`
 // = `internal/job/**`). A leading `./` and a trailing `/` are ignored.
 func ScopeMatch(glob, file string) bool {
-	glob = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(glob), "./"), "/")
+	glob = normScopeGlob(glob)
 	file = strings.TrimPrefix(file, "./")
 	if glob == "" {
 		return false
@@ -84,6 +85,62 @@ func ScopeMatch(glob, file string) bool {
 	}
 	re, err := regexp.Compile(globRegexp(glob))
 	return err == nil && re.MatchString(file)
+}
+
+// normScopeGlob is the glob normalisation shared by ScopeMatch and ScopeLockPaths:
+// surrounding whitespace, a leading `./` and a trailing `/` are dropped.
+func normScopeGlob(glob string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(glob), "./"), "/")
+}
+
+// ScopeLockPaths derives the directory-lock paths a declared scope needs (gofer-341t):
+// per glob, the repo-relative slash path before its first wildcard segment (a glob
+// without wildcards locks the path itself, file or directory, no stat). Pure string work.
+// prefixes are de-duplicated, entries contained in another entry dropped (no common
+// ancestor is taken) and sorted. A non-empty reason means "do not derive": invalid_glob
+// (absolute or `..` path) or empty_prefix (some glob has no fixed prefix, e.g. `**/*.go`,
+// so only the whole repo covers it). Empty scope yields (nil, "").
+func ScopeLockPaths(scope []string) (prefixes []string, reason string) {
+	var all []string
+	for _, g := range cleanScope(scope) {
+		g = normScopeGlob(g)
+		if g == "" {
+			continue
+		}
+		if strings.HasPrefix(g, "/") || strings.Contains(g, "\\") || (len(g) > 1 && g[1] == ':') {
+			return nil, "invalid_glob"
+		}
+		var fixed []string
+		for _, seg := range strings.Split(g, "/") {
+			if seg == ".." {
+				return nil, "invalid_glob"
+			}
+			if strings.ContainsAny(seg, "*?") {
+				break // the first wildcard segment and everything after it is not fixed
+			}
+			if seg != "" && seg != "." {
+				fixed = append(fixed, seg)
+			}
+		}
+		if len(fixed) == 0 {
+			return nil, "empty_prefix"
+		}
+		all = append(all, strings.Join(fixed, "/"))
+	}
+	sort.Strings(all)
+	for _, p := range all {
+		covered := false
+		for _, kept := range prefixes {
+			if dirContains(kept, p) { // duplicate, or inside a shorter kept prefix
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			prefixes = append(prefixes, p)
+		}
+	}
+	return prefixes, ""
 }
 
 // globRegexp translates a scope glob into an anchored regular expression.

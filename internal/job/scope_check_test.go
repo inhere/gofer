@@ -1,6 +1,7 @@
 package job
 
 import (
+	"math/rand"
 	"reflect"
 	"testing"
 )
@@ -60,5 +61,74 @@ func TestDiffFilesChangedFilesList(t *testing.T) {
 	diff := "diff --git a/a.go b/a.go\n+x\n\n=== changed files ===\na.go\nb/c.go\n"
 	if got := DiffFiles(diff); !reflect.DeepEqual(got, []string{"a.go", "b/c.go"}) {
 		t.Fatalf("DiffFiles = %q", got)
+	}
+}
+
+func TestScopeLockPaths(t *testing.T) {
+	cases := []struct {
+		name   string
+		scope  []string
+		want   []string
+		reason string
+	}{
+		{"dir", []string{"internal/job"}, []string{"internal/job"}, ""},
+		{"dir globstar", []string{"internal/job/**"}, []string{"internal/job"}, ""},
+		{"ext glob", []string{"web/src/*.vue"}, []string{"web/src"}, ""},
+		{"partial segment wildcard", []string{"internal/job*"}, []string{"internal"}, ""},
+		{"dot slash and trailing slash", []string{"./a/b/"}, []string{"a/b"}, ""},
+		{"file itself", []string{"docs/x.md"}, []string{"docs/x.md"}, ""},
+		{"dotdot", []string{"a/../b"}, nil, "invalid_glob"},
+		{"absolute", []string{"/etc/x"}, nil, "invalid_glob"},
+		{"empty prefix globstar", []string{"**/*.go"}, nil, "empty_prefix"},
+		{"empty prefix star", []string{"*.md"}, nil, "empty_prefix"},
+		{"one empty prefix poisons the set", []string{"src/**", "*.md"}, nil, "empty_prefix"},
+		{"contained dropped", []string{"a/x/**", "a/**"}, []string{"a"}, ""},
+		{"contained dropped sibling sorts between", []string{"a/x", "a-b", "a"}, []string{"a", "a-b"}, ""},
+		{"no common ancestor", []string{"src/api/**", "web/src/*.vue"}, []string{"src/api", "web/src"}, ""},
+		{"duplicates and order", []string{"web/**", "src/**", "web"}, []string{"src", "web"}, ""},
+		{"empty scope", nil, nil, ""},
+		{"blank entries", []string{" ", ""}, nil, ""},
+	}
+	for _, c := range cases {
+		got, reason := ScopeLockPaths(c.scope)
+		if reason != c.reason || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: ScopeLockPaths(%q) = %q, %q; want %q, %q", c.name, c.scope, got, reason, c.want, c.reason)
+		}
+	}
+}
+
+// Whatever a glob matches must lie inside the lock prefix derived from it, otherwise a
+// job could write a covered file without holding the lock.
+func TestScopeLockPathsCoversScopeMatch(t *testing.T) {
+	globs := []string{
+		"internal/job/**", "internal/job/*.go", "internal/job", "internal/job*", "./docs/*.md",
+		"docs/**/x.md", "src/?.ts", "src/a?/**", "web/src/*.vue", "a.b", "a/b/c.go", "**/*.md", "*.md",
+	}
+	segs := []string{"internal", "internal/job", "internal/jobx", "internal/jobstore", "docs", "docs/design", "src", "src/ab", "src/a", "web/src", "web", "a", "a/b"}
+	names := []string{"x.md", "a.go", "a.ts", "ab.ts", "x.vue", "a.b", "aXb", "c.go", "submit.go", "x.go"}
+	rng := rand.New(rand.NewSource(341))
+	files := []string{"internal/jobx/a.go", "internal/job/x.go", "README.md"}
+	for i := 0; i < 400; i++ {
+		files = append(files, segs[rng.Intn(len(segs))]+"/"+names[rng.Intn(len(names))])
+		files = append(files, segs[rng.Intn(len(segs))]+"/"+segs[rng.Intn(len(segs))]+"/"+names[rng.Intn(len(names))])
+	}
+	files = append(files, names...)
+	for _, g := range globs {
+		prefixes, reason := ScopeLockPaths([]string{g})
+		if reason != "" {
+			continue // no fixed prefix: the caller falls back to locking the whole cwd
+		}
+		for _, f := range files {
+			if !ScopeMatch(g, f) {
+				continue
+			}
+			inside := false
+			for _, p := range prefixes {
+				inside = inside || dirContains(p, f)
+			}
+			if !inside {
+				t.Errorf("glob %q matches %q but prefixes %q do not contain it", g, f, prefixes)
+			}
+		}
 	}
 }
