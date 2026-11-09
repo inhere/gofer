@@ -430,23 +430,9 @@ func (s *Service) supervisingDetail(a jobstore.AgentSession) (string, bool) {
 		return "", false
 	}
 	// Running sub-agents (N1 §C) supervise on their own: no caller identity needed.
-	subs := s.SubagentCount(a.SessionID)
-	if a.CallerID == "" {
-		if subs > 0 {
-			return fmt.Sprintf("supervising %d subagents", subs), true
-		}
-		return "", false
-	}
-	since := int64(0)
-	if s.SupervisingWindowSec > 0 {
-		since = s.nowFn().Unix() - int64(s.SupervisingWindowSec)
-	}
-	n, err := s.store.CountActiveJobsByCaller(a.CallerID, since)
-	if err != nil {
-		slog.Warn("sessionrelay: count supervising jobs failed", "session_id", a.SessionID,
-			"caller_id", a.CallerID, "err", err)
-		n = 0
-	}
+	// Watches are deliberately not part of this gate (Stop behaviour is unchanged).
+	v := s.Supervision(a)
+	n, subs := v.Jobs, v.Subagents
 	switch {
 	case n == 0 && subs == 0:
 		return "", false
