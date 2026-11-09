@@ -2955,13 +2955,23 @@ func runJobShow(c *gcli.Command, _ []string) error {
 		c.Printf("agent_budget: %s\n", line)
 	}
 	// JOB-11：同 cwd 独占/共享 + 等在目录锁上时的持有者——回答"为什么我的 job 还没跑"。
-	c.Printf("dir:        %s\n", dirLockLabel(res.DirExclusive))
+	dirLabel := dirLockLabel(res.DirExclusive)
+	if res.WorktreePath != "" && len(res.LockPaths) > 0 {
+		dirLabel += " " + cliText("cli.job.show.worktree_no_dir_lock")
+	}
+	c.Printf("dir:        %s\n", dirLabel)
 	if res.Status == job.StatusWaitingDir {
 		lockPaths := res.LockPaths
 		if len(lockPaths) == 0 {
 			lockPaths = []string{res.Cwd}
 		}
-		c.Printf("waiting_dir: holder=%s lock_paths=%s\n", res.WaitingOnJob, strings.Join(lockPaths, ", "))
+		lockSource := "cli.job.show.waiting_dir_source_cwd"
+		if res.LockSource == "scope" {
+			lockSource = "cli.job.show.waiting_dir_source_scope"
+		} else if len(res.LockPaths) > 0 {
+			lockSource = "cli.job.show.waiting_dir_source_lock"
+		}
+		c.Printf("waiting_dir: holder=%s lock_paths=%s %s\n", res.WaitingOnJob, strings.Join(lockPaths, ", "), cliText(lockSource))
 		c.Println(cliText("cli.job.show.waiting_dir_help"))
 	}
 	// GATE-01 S3：人工验收——是否要求人验收，以及已经做出的裁决（谁/何时/为什么）。

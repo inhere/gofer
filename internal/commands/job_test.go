@@ -585,6 +585,64 @@ func TestNewClientConfigPresentNoServerFlagStillWorks(t *testing.T) {
 	}
 }
 
+// TestJobShowWaitingDirLockSource makes the lock provenance visible in the waiting line:
+// scope-derived paths, explicit --lock paths, and the legacy cwd fallback each have a
+// distinct localized label. A worktree keeps its declaration for review but explains
+// that it does not take the checkout directory lock.
+func TestJobShowWaitingDirLockSource(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	t.Cleanup(func() { jobConnOpts.server, jobConnOpts.token = "", "" })
+	t.Setenv("GOFER_LANG", "zh-CN")
+
+	results := map[string]job.JobResult{
+		"job-scope": {ID: "job-scope", ProjectKey: "self", Status: job.StatusWaitingDir, Cwd: ".", DirExclusive: true, WaitingOnJob: "holder", LockPaths: []string{"src/api"}, LockSource: "scope"},
+		"job-lock":  {ID: "job-lock", ProjectKey: "self", Status: job.StatusWaitingDir, Cwd: ".", DirExclusive: true, WaitingOnJob: "holder", LockPaths: []string{"src"}},
+		"job-cwd":   {ID: "job-cwd", ProjectKey: "self", Status: job.StatusWaitingDir, Cwd: ".", DirExclusive: true, WaitingOnJob: "holder"},
+		"job-wt":    {ID: "job-wt", ProjectKey: "self", Status: job.StatusRunning, Cwd: ".", DirExclusive: true, LockPaths: []string{"src"}, WorktreePath: "worktree/job-wt"},
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/wakeups") {
+			_, _ = w.Write([]byte(`{"wakeups":[]}`))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/retries") {
+			_, _ = w.Write([]byte(`{"job_id":"","retries":[]}`))
+			return
+		}
+		for id, result := range results {
+			if r.URL.Path == "/v1/jobs/"+id {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(result)
+				return
+			}
+		}
+		http.NotFound(w, r)
+	}))
+	defer ts.Close()
+
+	cases := []struct {
+		id, want string
+	}{
+		{"job-scope", "（来自 --scope）"},
+		{"job-lock", "（来自 --lock）"},
+		{"job-cwd", "（来自 cwd）"},
+		{"job-wt", "（worktree 不取目录锁）"},
+	}
+	for _, tc := range cases {
+		out := captureOutput(t, func() {
+			if code := NewApp("test").Run([]string{"job", "show", tc.id, "--server", ts.URL}); code != 0 {
+				t.Errorf("job show %s exit code=%d", tc.id, code)
+			}
+		})
+		if !strings.Contains(out, tc.want) {
+			t.Errorf("job show %s output missing %q:\n%s", tc.id, tc.want, out)
+		}
+	}
+}
+
 // TestJobShowPrintsRecoveringSince: RECOV-01. A job held `recovering` (its worker's
 // connection dropped; the hub is holding it for the reconnect window) must show WHEN
 // it entered that state — otherwise `job show` gives no hint that the job is waiting
