@@ -239,7 +239,7 @@ func hasGitDir(dir string) bool {
 
 // ReadKeyFile reads a whitelisted key file under a project's execution root (E32,
 // D3, §8). Layered guards, in order: basename ∈ keyFileAllowlist (else
-// ErrForbiddenFile) → SafeJoin(ExecPath, rel) anti-traversal (escape → error) →
+// ErrForbiddenFile) → SafeJoinReal(ExecPath, rel) anti-traversal + symlink escape (escape → error) →
 // must be a regular file (else fs.ErrNotExist) → text-only (binary → ErrBinary).
 // Content over maxKeyFileBytes is truncated (Truncated=true), not rejected.
 func ReadKeyFile(cfg *config.Config, proj config.ProjectConfig, rel string) (FileContent, error) {
@@ -247,24 +247,26 @@ func ReadKeyFile(cfg *config.Config, proj config.ProjectConfig, rel string) (Fil
 		return FileContent{}, ErrForbiddenFile
 	}
 
-	abs, err := SafeJoin(cfg.ExecPath(proj), rel)
+	abs, err := SafeJoinReal(cfg.ExecPath(proj), rel)
 	if err != nil {
-		return FileContent{}, err // traversal / absolute path → handler 404
+		return FileContent{}, err // traversal / symlink escape / missing → handler 404
 	}
 
-	fi, err := os.Stat(abs)
-	if err != nil {
-		return FileContent{}, err // os.ErrNotExist → handler 404
-	}
-	if !fi.Mode().IsRegular() {
-		return FileContent{}, fs.ErrNotExist // dir / special file: treat as not found
-	}
-
+	// Open the resolved real path, then judge the opened file itself (not a
+	// separate Stat of the path) so a swap between check and open can't matter.
 	f, err := os.Open(abs)
 	if err != nil {
 		return FileContent{}, err
 	}
 	defer func() { _ = f.Close() }()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return FileContent{}, err
+	}
+	if !fi.Mode().IsRegular() {
+		return FileContent{}, fs.ErrNotExist // dir / special file: treat as not found
+	}
 
 	// Read one byte past the cap to detect truncation without loading the whole
 	// (possibly large) file.

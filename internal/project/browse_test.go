@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gookit/goutil/x/assert"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -258,4 +259,61 @@ func TestReadKeyFile_NotFound(t *testing.T) {
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("err=%v, want os.ErrNotExist", err)
 	}
+}
+
+func TestReadKeyFile_Symlink(t *testing.T) {
+	mk := func(t *testing.T) (root, outside string) {
+		root, outside = t.TempDir(), t.TempDir()
+		if err := os.WriteFile(filepath.Join(outside, "README.md"), []byte("LEAK"), 0o644); err != nil {
+			t.Fatalf("write outside: %v", err)
+		}
+		return
+	}
+	link := func(t *testing.T, target, name string) {
+		if err := os.Symlink(target, name); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+	}
+
+	t.Run("file link outside rejected", func(t *testing.T) {
+		root, outside := mk(t)
+		link(t, filepath.Join(outside, "README.md"), filepath.Join(root, "README.md"))
+		cfg, proj := cfgFor(root)
+		_, err := ReadKeyFile(cfg, proj, "README.md")
+		assert.Err(t, err)
+		assert.False(t, errors.Is(err, ErrForbiddenFile))
+	})
+	t.Run("dir link outside rejected", func(t *testing.T) {
+		root, outside := mk(t)
+		link(t, outside, filepath.Join(root, "sub"))
+		cfg, proj := cfgFor(root)
+		_, err := ReadKeyFile(cfg, proj, "sub/README.md")
+		assert.Err(t, err)
+	})
+	t.Run("file link inside allowed", func(t *testing.T) {
+		root, _ := mk(t)
+		if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "docs", "real.txt"), []byte("INSIDE"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		link(t, filepath.Join(root, "docs", "real.txt"), filepath.Join(root, "README.md"))
+		cfg, proj := cfgFor(root)
+		fc, err := ReadKeyFile(cfg, proj, "README.md")
+		assert.NoErr(t, err)
+		assert.Eq(t, "INSIDE", fc.Content)
+	})
+	t.Run("dot dot still rejected", func(t *testing.T) {
+		root, _ := mk(t)
+		cfg, proj := cfgFor(root)
+		_, err := ReadKeyFile(cfg, proj, "../README.md")
+		assert.Err(t, err)
+	})
+	t.Run("missing is not exist", func(t *testing.T) {
+		root, _ := mk(t)
+		cfg, proj := cfgFor(root)
+		_, err := ReadKeyFile(cfg, proj, "README.md")
+		assert.ErrIs(t, err, os.ErrNotExist)
+	})
 }

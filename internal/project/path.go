@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // EnsureGoferGitignore makes the generated .gofer/jobs and .gofer/attachments
@@ -202,4 +203,27 @@ func JobResultDir(cfg *config.Config, projKey string, proj config.ProjectConfig,
 		return "", err
 	}
 	return filepath.Join(base, jobID), nil
+}
+
+// SafeJoinReal is SafeJoin plus symlink resolution, for READING project files: it
+// returns the real (symlink-free) path of the target, and rejects a target whose
+// real path leaves the real execRoot (a symlink file or an intermediate symlink
+// directory pointing outside). Symlinks that stay inside the project are allowed.
+// A missing target returns an error wrapping os.ErrNotExist; an escape returns a
+// generic error that does not carry the resolved path.
+func SafeJoinReal(execRoot, rel string) (string, error) {
+	abs, err := SafeJoin(execRoot, rel)
+	if err != nil {
+		return "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err // os.ErrNotExist when missing (also for dangling links)
+	}
+	root := util.RealPath(execRoot) // root may itself sit behind a symlink
+	r, err := filepath.Rel(root, real)
+	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) || filepath.IsAbs(r) {
+		return "", fmt.Errorf("path %q escapes project root", rel)
+	}
+	return real, nil
 }

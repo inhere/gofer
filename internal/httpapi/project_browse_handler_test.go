@@ -169,6 +169,27 @@ func TestHandleGetFile_Traversal404(t *testing.T) {
 	}
 }
 
+func TestHandleGetFile_SymlinkEscape404(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	initGitRepo(t, repo)
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("LEAK"), 0o644); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+	// Replace the whitelisted README.md with a link to a file outside the project.
+	_ = os.Remove(filepath.Join(repo, "README.md"))
+	if err := os.Symlink(outside, filepath.Join(repo, "README.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	s := newBrowseServer(t, repo)
+
+	resp := do(t, s, http.MethodGet, "/v1/projects/self/file?path=README.md", testToken, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404 for symlink escape", resp.StatusCode)
+	}
+}
+
 func TestHandleGetFile_Binary415(t *testing.T) {
 	t.Parallel()
 	repo := t.TempDir()
