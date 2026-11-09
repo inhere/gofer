@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // ErrProjectNotLocal is returned by ReadDoc when the project does not run on the
@@ -98,6 +99,12 @@ func readDocCandidate(root, cand string) (DocContent, error) {
 	if err != nil {
 		return DocContent{}, errDocNotFound
 	}
+	// SafeJoinReal allows symlinks that stay inside the project, so the requested name
+	// alone proves nothing: docs/x.md may point at .env or .git/config. The resolved
+	// real path must pass the same segment and extension rules as the request.
+	if !docRealPathAllowed(root, abs) {
+		return DocContent{}, errDocNotFound
+	}
 	// Stat before open so a FIFO / device can never block the open.
 	if st, err := os.Stat(abs); err != nil || !st.Mode().IsRegular() {
 		return DocContent{}, errDocNotFound
@@ -129,4 +136,15 @@ func readDocCandidate(root, cand string) (DocContent, error) {
 		return DocContent{}, ErrBinary
 	}
 	return DocContent{Path: cand, Size: fi.Size(), Content: string(data), Truncated: truncated}, nil
+}
+
+// docRealPathAllowed applies validDocPath and the extension whitelist to abs (a
+// SafeJoinReal result, symlink-free) taken relative to the real project root.
+func docRealPathAllowed(root, abs string) bool {
+	rel, err := filepath.Rel(util.RealPath(root), abs)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	return validDocPath(rel) && docExts[strings.ToLower(path.Ext(rel))]
 }

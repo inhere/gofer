@@ -175,7 +175,16 @@ func TestReadDoc_NotFound(t *testing.T) {
 		{"symlink dir escape", "", "linkdir/x.md"},
 		{"symlink escape via base", "linkdir", "x.md"},
 		{"directory named d.md", "", "d.md"},
+		{"in-project symlink to hidden file", "", "leak-env.md"},
+		{"in-project symlink to non-markdown", "", "leak-txt.md"},
+		{"in-project symlink dir into .git", "", "gitlink/x.md"},
 	}
+	// Symlinks that stay inside the project but land on what a direct request may not
+	// read (hidden segment, non-markdown): the rules apply to the resolved path too.
+	writeDocFile(t, filepath.Join(f.root, ".env"), "SECRET\n")
+	mustSymlink(t, filepath.Join(f.root, ".env"), filepath.Join(f.root, "leak-env.md"))
+	mustSymlink(t, filepath.Join(f.root, "x.txt"), filepath.Join(f.root, "leak-txt.md"))
+	mustSymlink(t, filepath.Join(f.root, ".git"), filepath.Join(f.root, "gitlink"))
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dc, err := ReadDoc(f.cfg, f.proj, tc.base, tc.rel)
