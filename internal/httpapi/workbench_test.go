@@ -626,7 +626,12 @@ func TestThreadsAttentionQueueOrder(t *testing.T) {
 	_ = getWorkbenchThreads(t, s, testToken, "since=1")
 	now := time.Now().Unix()
 	seedWorkbenchRelay(t, s, "relay-old", "self", jobstore.SessionWaitingReply, now-500, now-300)
-	decision := jobstore.PlanDecision{Title: "relay", Question: "reply", State: jobstore.DecisionOpen, SessionID: "relay-old", Kind: jobstore.DecisionKindRelay, AskedAt: now - 300, TimeoutSec: 3600}
+	// The running job below is the default caller's: a relay session of that caller would
+	// count as supervised by it and leave the attention queue, so this one is another's.
+	if _, err := s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{SessionID: "relay-old", Agent: "claude", ProjectKey: "self", CallerID: "relay-owner"}); err != nil {
+		t.Fatal(err)
+	}
+	decision := jobstore.PlanDecision{Title: "relay", Question: "reply", State: jobstore.DecisionOpen, SessionID: "relay-old", Kind: jobstore.DecisionKindRelay, AskedAt: now - 300, TimeoutSec: 3600, NeedsReply: true}
 	if err := s.jobs.Meta().InsertDecision(&decision); err != nil {
 		t.Fatal(err)
 	}

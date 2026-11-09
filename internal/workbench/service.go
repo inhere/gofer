@@ -159,7 +159,7 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
-	resp := s.buildResponse(projectThreads(snapshot, seenBaseline), snapshot, query, true)
+	resp := s.buildResponse(projectThreads(snapshot, seenBaseline, s.relaySupervision()), snapshot, query, true)
 	resp.Since = since
 	return resp, nil
 }
@@ -242,7 +242,7 @@ func (s *Service) listPage(callerID string, query Query) (Response, error) {
 			first, firstSet = page.Snapshot, true
 		}
 		byID := make(map[string]projection)
-		for _, p := range projectThreads(page.Snapshot, seenBaseline) {
+		for _, p := range projectThreads(page.Snapshot, seenBaseline, s.relaySupervision()) {
 			byID[p.thread.ID] = p
 		}
 		for _, key := range page.Keys {
@@ -374,7 +374,7 @@ func (s *Service) buildResponse(projections []projection, snapshot jobstore.Work
 	return Response{Projects: projects, Attention: attention, Total: total}
 }
 
-func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64) []projection {
+func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64, sup supervisionFunc) []projection {
 	prefs := make(map[string]jobstore.WorkbenchThreadPref, len(snapshot.Prefs))
 	for _, pref := range snapshot.Prefs {
 		prefs[pref.ThreadID] = pref
@@ -415,7 +415,7 @@ func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64) []p
 	}
 	for _, session := range snapshot.Sessions {
 		id := "r:" + session.SessionID
-		out = append(out, projectRelayThread(id, session, prefs[id], openTurns[session.SessionID]))
+		out = append(out, projectRelayThread(id, session, prefs[id], openTurns[session.SessionID], sup))
 	}
 	return out
 }
@@ -524,7 +524,7 @@ func (s *Service) SeenAll(callerID string) (int64, error) {
 	return s.store.SetWorkbenchSeenBaseline(normalizeCaller(callerID), s.now().Unix())
 }
 
-func projectRelayThread(id string, session jobstore.AgentSession, pref jobstore.WorkbenchThreadPref, decisions []jobstore.PlanDecision) projection {
+func projectRelayThread(id string, session jobstore.AgentSession, pref jobstore.WorkbenchThreadPref, decisions []jobstore.PlanDecision, sup supervisionFunc) projection {
 	title := strings.TrimSpace(session.Title)
 	if title == "" {
 		title = strings.TrimSpace(session.Agent)
@@ -551,6 +551,21 @@ func projectRelayThread(id string, session jobstore.AgentSession, pref jobstore.
 		}
 		return decisions[i].ID < decisions[j].ID
 	})
+	// An open turn only needs a person when the agent marked it needs_reply, and not while
+	// something supervises the session (same facts as the waiting list). A turn that does
+	// not need a reply is just a report: the thread is idle, still answerable.
+	if len(decisions) > 0 {
+		if !relayTurnsNeedReply(decisions) {
+			thread.Status = StatusIdle
+			return projection{thread: thread}
+		}
+		if sup != nil {
+			if v := supervisingOf(sup(session)); v != nil {
+				thread.Status, thread.Supervising = StatusWorking, v
+				return projection{thread: thread}
+			}
+		}
+	}
 	if len(decisions) > 0 || session.State == jobstore.SessionWaitingReply || session.State == jobstore.SessionNeedsAttention {
 		thread.Status = StatusBlocked
 		thread.WaitingSince = session.LastSeenAt
