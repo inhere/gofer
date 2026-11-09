@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { WorkbenchStatus, WorkbenchThread } from '../../api/types'
+import { supervisionText } from '../../utils/supervision'
 import { t } from '../../i18n'
 import { formatDuration, formatRelative } from '../../utils/format'
 import FilterChips from '../../ui/FilterChips.vue'
@@ -80,16 +81,6 @@ function usageText(thread: WorkbenchThread): string {
   const tokens = thread.usage?.total_tokens ?? 0
   if (tokens <= 0) return ''
   return t('workbench.row.tokens', { n: formatNumber(tokens) })
-}
-
-function supervisionText(thread: WorkbenchThread): string {
-  const s = thread.supervising
-  if (!s) return ''
-  const parts: string[] = [t('workbench.row.supervising')]
-  if (s.jobs) parts.push(t('workbench.row.supervisingJobs', { n: s.jobs }))
-  if (s.subagents) parts.push(t('workbench.row.supervisingSubagents', { n: s.subagents }))
-  if (s.watches) parts.push(t('workbench.row.supervisingWatches', { n: s.watches }))
-  return parts.join(' · ')
 }
 
 function formatNumber(n: number): string {

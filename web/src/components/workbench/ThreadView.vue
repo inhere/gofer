@@ -7,6 +7,7 @@ import { answerInteraction, cancelJob, getJob, puntInteraction } from '../../api
 import { appendCapped, streamJob } from '../../api/sse'
 import { canCancelJob } from '../../utils/jobCancel'
 import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, WorkbenchThread } from '../../api/types'
+import { supervisionText } from '../../utils/supervision'
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
 import { attachmentCapability } from '../../utils/attachments'
 import { formatNumber, formatRelative } from '../../utils/format'
@@ -82,16 +83,6 @@ let seenTimer: number | null = null
 const paneVisible = ref(false)
 const documentVisible = ref(document.visibilityState === 'visible')
 const thread = computed(() => context.threadsByID.value.get(props.threadId))
-
-function supervisionText(thread: WorkbenchThread): string {
-  const s = thread.supervising
-  if (!s) return ''
-  const parts: string[] = [t('workbench.row.supervising')]
-  if (s.jobs) parts.push(t('workbench.row.supervisingJobs', { n: s.jobs }))
-  if (s.subagents) parts.push(t('workbench.row.supervisingSubagents', { n: s.subagents }))
-  if (s.watches) parts.push(t('workbench.row.supervisingWatches', { n: s.watches }))
-  return parts.join(' · ')
-}
 
 const latestJobID = computed(() => thread.value?.latest_job_id ?? '')
 const latestJob = ref<Job | null>(null)
