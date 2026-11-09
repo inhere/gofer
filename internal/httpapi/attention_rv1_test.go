@@ -70,3 +70,29 @@ func TestWaitingCountEqualsListRV1(t *testing.T) {
 		t.Fatalf("recheck_at is %ds ahead, want about 200", d)
 	}
 }
+
+// TestRelayWaitingAckRV1 exercises the HTTP ack path end to end: a qualifying relay
+// turn is listed in today, then disappears after the user marks it read.
+func TestRelayWaitingAckRV1(t *testing.T) {
+	s := inboxTestServer(t, nil)
+	seedRelayTurn(t, s, "s-ack", true, 900)
+
+	var before todayWaitingResp
+	todayCall(t, s, http.MethodGet, "/v1/today", "tok-alice", nil, http.StatusOK, &before)
+	if got := keysSorted(before.Waiting); !equalStrings(got, []string{"relay:s-ack"}) {
+		t.Fatalf("before ack waiting = %v, want relay:s-ack", got)
+	}
+
+	resp := do(t, s, http.MethodPost, "/v1/sessions/s-ack/turns/d-s-ack/ack", "tok-alice", nil)
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		t.Fatalf("ack status = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	var after todayWaitingResp
+	todayCall(t, s, http.MethodGet, "/v1/today", "tok-alice", nil, http.StatusOK, &after)
+	if got := keysSorted(after.Waiting); len(got) != 0 {
+		t.Fatalf("after ack waiting = %v, want empty", got)
+	}
+}

@@ -86,6 +86,22 @@ func TestStopNeedsReplyFromTranscript(t *testing.T) {
 	assert.Eq(t, "pick one", f.turns["dec-1"].Question)
 }
 
+// TestStopNeedsReplyWithEmptyAssistantMessage covers clients that send an explicit empty
+// last_assistant_message while the transcript still contains the final marker.
+func TestStopNeedsReplyWithEmptyAssistantMessage(t *testing.T) {
+	transcript := filepath.Join(t.TempDir(), "t.jsonl")
+	line := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"please answer\n[needs-reply]"}]}}` + "\n"
+	assert.NoErr(t, os.WriteFile(transcript, []byte(line), 0o600))
+	f := newFake()
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, WaitReason: client.WaitModeOn}
+	f.answerAfter, f.answer = 1, "go"
+	p := payload(t, "claude", map[string]any{"session_id": "s1", "hook_event_name": "Stop", "last_assistant_message": "", "transcript_path": transcript})
+	_, err := Run(f, p, fastOpts(nil))
+	assert.NoErr(t, err)
+	assert.Eq(t, []bool{true}, f.openedNeedsReply)
+	assert.Eq(t, "please answer", f.turns["dec-1"].Question)
+}
+
 func TestSessionStartNeedsReplyReminder(t *testing.T) {
 	start := func(agent string) Result {
 		res, err := Run(newFake(), payload(t, agent, map[string]any{"session_id": "r1", "hook_event_name": "SessionStart", "cwd": "/w"}), fastOpts(nil))
