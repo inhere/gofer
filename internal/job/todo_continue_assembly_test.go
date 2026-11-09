@@ -68,7 +68,7 @@ var continuationFieldClasses = map[string]string{
 	// not inherited
 	"Hold": fieldCleared, "HoldReason": fieldCleared, "HoldTimeoutSec": fieldCleared, "Fallback": fieldCleared,
 	"Deliver": fieldCleared, "DeliverDraft": fieldCleared, "DeliverBranch": fieldCleared,
-	"LockPaths": fieldCleared, "Secrets": fieldCleared, "EnvFiles": fieldCleared, "ReviewFixed": fieldCleared,
+	"LockPaths": fieldCleared, "LockSource": fieldCleared, "Secrets": fieldCleared, "EnvFiles": fieldCleared, "ReviewFixed": fieldCleared,
 	"Template": fieldCleared, "TemplateVars": fieldCleared, "Worktree": fieldCleared, "WorktreeBase": fieldCleared,
 	"WorktreeName": fieldCleared, "WorktreeBranch": fieldCleared, "Ref": fieldCleared,
 	"ExclusiveDir": fieldCleared, "Env": fieldCleared,
