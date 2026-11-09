@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -455,5 +456,177 @@ func TestAgentMaxConcurrentQueues(t *testing.T) {
 		if _, ok := waitingDirEvent(t, s, final.ID); ok {
 			t.Fatalf("job %s waited on the directory lock; the agent semaphore must be what serialized it", final.ID)
 		}
+	}
+}
+
+// TestDirLockCrossOrderNoDeadlock: 两个 job 以相反顺序声明同一组锁（[a,b] 与 [b,a]）不得
+// 互相持有并等待。持有者 H1(a)、H2(b) 先占住两条路径，A 与 B 各自排队；H1 先放手，旧的
+// 逐条获取会让 A 拿到 a 后卡在 b，H2 放手后 B 拿到 b 又卡在 a——互等直到等锁上限。
+// 原子获取下 H2 放手后队首的 A 一次拿全，随后 B 跑完。
+func TestDirLockCrossOrderNoDeadlock(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if err := os.Mkdir(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := dirlockService(t, root, nil, func(cfg *config.Config) {
+		cfg.Server.DirLockMaxWaitSec = intPtr(8)
+	})
+	bin := testcmd.Path(t)
+	lockJob := func(sleep string, paths ...string) JobRequest {
+		return JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd: []string{bin, "sleep", sleep}, Cwd: ".", TimeoutSec: 60,
+			ExclusiveDir: boolPtr(true), LockPaths: paths,
+		}
+	}
+	h1 := mustSubmit(t, s, lockJob("700ms", "a"))
+	h2 := mustSubmit(t, s, lockJob("2s", "b"))
+	waitForStatus(t, s, h1.ID, StatusRunning, 10*time.Second)
+	waitForStatus(t, s, h2.ID, StatusRunning, 10*time.Second)
+
+	a := mustSubmit(t, s, lockJob("200ms", "a", "b"))
+	waitStatus(t, s, a.ID, 10*time.Second, StatusWaitingDir)
+	b := mustSubmit(t, s, lockJob("200ms", "b", "a"))
+	waitStatus(t, s, b.ID, 10*time.Second, StatusWaitingDir)
+
+	for _, j := range []JobResult{h1, h2, a, b} {
+		final, _ := s.Wait(j.ID)
+		if final.Status != StatusDone {
+			t.Fatalf("job %s = %s (%s), want done: cross-ordered lock sets must not deadlock", final.ID, final.Status, final.Error)
+		}
+	}
+}
+
+// asyncAcq is an Acquire running on a goroutine: `queued` fires once it has parked
+// (onWait ran), `done` carries the outcome once Acquire returns.
+type asyncAcq struct {
+	queued chan struct{}
+	done   chan acqOutcome
+}
+
+type acqOutcome struct {
+	release func()
+	holder  string
+	err     error
+}
+
+func acquireAsync(ctx context.Context, d *dirLocks, dirs []string, jobID string) *asyncAcq {
+	a := &asyncAcq{queued: make(chan struct{}, 1), done: make(chan acqOutcome, 1)}
+	go func() {
+		rel, holder, _, err := d.Acquire(ctx, dirs, jobID, func(string, string) { a.queued <- struct{}{} })
+		a.done <- acqOutcome{rel, holder, err}
+	}()
+	return a
+}
+
+func (a *asyncAcq) mustQueue(t *testing.T) {
+	t.Helper()
+	select {
+	case <-a.queued:
+	case <-time.After(5 * time.Second):
+		t.Fatal("waiter never queued")
+	}
+}
+
+func (a *asyncAcq) mustGrant(t *testing.T) acqOutcome {
+	t.Helper()
+	select {
+	case o := <-a.done:
+		if o.err != nil {
+			t.Fatalf("Acquire: %v", o.err)
+		}
+		return o
+	case <-time.After(5 * time.Second):
+		t.Fatal("waiter was never granted")
+		return acqOutcome{}
+	}
+}
+
+func (a *asyncAcq) mustStillWait(t *testing.T) {
+	t.Helper()
+	select {
+	case <-a.done:
+		t.Fatal("waiter was granted while a path it wants is still taken")
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
+// TestDirLockMultiPathAtomic: B wants [a,b] while A holds [a]. B parks WITHOUT taking b
+// (C, asking for just [b] behind B, is FIFO-queued rather than slipping in, and b is not
+// in the held table); when A lets go B gets both at once, then C follows.
+func TestDirLockMultiPathAtomic(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
+	d := newDirLocks()
+	ctx := context.Background()
+
+	relA, _, waited, err := d.Acquire(ctx, []string{a}, "A", nil)
+	if err != nil || waited {
+		t.Fatalf("A: waited=%v err=%v", waited, err)
+	}
+	qb := acquireAsync(ctx, d, []string{a, b}, "B")
+	qb.mustQueue(t)
+	d.mu.Lock()
+	_, bHeld := d.held[lockDirKey(b)]
+	d.mu.Unlock()
+	if bHeld {
+		t.Fatal("a queued [a,b] waiter must not hold b while it waits for a")
+	}
+	qc := acquireAsync(ctx, d, []string{b}, "C")
+	qc.mustQueue(t) // FIFO: queued behind B although b itself is free
+
+	relA()
+	ob := qb.mustGrant(t)
+	if ob.holder != "A" {
+		t.Fatalf("B holder = %q, want A", ob.holder)
+	}
+	d.mu.Lock()
+	gotB, gotA := d.held[lockDirKey(b)], d.held[lockDirKey(a)]
+	d.mu.Unlock()
+	if gotA != "B" || gotB != "B" {
+		t.Fatalf("B must hold both paths at once: a=%q b=%q", gotA, gotB)
+	}
+	qc.mustStillWait(t)
+	ob.release()
+	qc.mustGrant(t).release()
+}
+
+// TestDirLockMultiPathCancelHoldsNothing: a waiter cancelled while queued for [a,b]
+// leaves nothing behind, so a later [b] runs at once.
+func TestDirLockMultiPathCancelHoldsNothing(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
+	d := newDirLocks()
+
+	relA, _, _, _ := d.Acquire(context.Background(), []string{a}, "A", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	qb := acquireAsync(ctx, d, []string{a, b}, "B")
+	qb.mustQueue(t)
+	cancel()
+	select {
+	case o := <-qb.done:
+		if o.err == nil {
+			t.Fatal("cancelled waiter must return the context error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled waiter did not return")
+	}
+
+	relC, _, waited, err := d.Acquire(context.Background(), []string{b}, "C", nil)
+	if err != nil || waited {
+		t.Fatalf("C on [b] after B's cancel: waited=%v err=%v, want an immediate grant", waited, err)
+	}
+	relC()
+	relA()
+	d.mu.Lock()
+	left := len(d.held) + len(d.waiters)
+	d.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("lock table not empty after all releases: %d entries", left)
 	}
 }

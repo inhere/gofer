@@ -152,28 +152,11 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		if len(lockDirs) == 0 {
 			lockDirs = []string{req.WorkDir}
 		}
-		releases := make([]func(), 0, len(lockDirs))
-		holder, waited, derr := "", false, error(nil)
-		for _, lockDir := range lockDirs {
-			release, blockedBy, didWait, acquireErr := s.dirLock.Acquire(waitCtx, lockDir, req.JobID, func(blocker string) {
-				s.enterWaitingDir(entry, req.JobID, blocker, lockDir)
-			})
-			if acquireErr != nil {
-				derr = acquireErr
-				holder = blockedBy
-				break
-			}
-			releases = append(releases, release)
-			if blockedBy != "" {
-				holder = blockedBy
-			}
-			waited = waited || didWait
-		}
-		release := func() {
-			for i := len(releases) - 1; i >= 0; i-- {
-				releases[i]()
-			}
-		}
+		// One Acquire for the whole set: it is granted atomically, so a job never holds
+		// some paths while waiting for the rest (no hold-and-wait between jobs).
+		release, holder, waited, derr := s.dirLock.Acquire(waitCtx, lockDirs, req.JobID, func(blocker, blockedDir string) {
+			s.enterWaitingDir(entry, req.JobID, blocker, blockedDir, lockDirs)
+		})
 		if cancelWait != nil {
 			cancelWait()
 		}
@@ -620,13 +603,13 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 // snapshot (so a crash leaves an inspectable row rather than a job that looks
 // queued for no reason) and records job.waiting_dir. Like the semaphore waits, the
 // job is NOT running yet: no execution slot, no process — the state is queuing.
-func (s *Service) enterWaitingDir(entry *jobEntry, jobID, holder, dir string) {
+func (s *Service) enterWaitingDir(entry *jobEntry, jobID, holder, dir string, lockPaths []string) {
 	// E13 ordering, same as finish(): the event that explains the state lands
 	// BEFORE the state is observable, so a reader that sees waiting_dir (Get /
 	// SSE / the web timeline) always finds the job.waiting_dir row naming the
 	// holder — recording it after the flip let TestDirLockSerializesWritableAgentJobs
 	// observe the status with no event yet under load.
-	s.recordEvent(jobID, EventJobWaitingDir, map[string]any{"holder_job": holder, "dir": dir})
+	s.recordEvent(jobID, EventJobWaitingDir, map[string]any{"holder_job": holder, "dir": dir, "lock_paths": lockPaths})
 
 	entry.mu.Lock()
 	entry.result.Status = StatusWaitingDir

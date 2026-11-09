@@ -29,14 +29,15 @@ type dirLocks struct {
 	waiters []*dirWaiter
 }
 
-// dirWaiter is one queued exclusive job: the directory it wants (already
-// normalized), the job id, and the channel closed when it is granted the lock.
+// dirWaiter is one queued exclusive job: ALL the directories it wants (already
+// normalized; granted together or not at all), the job id, and the channel closed when
+// it is granted the lock set.
 type dirWaiter struct {
-	dir      string
+	dirs     []string
 	jobID    string
 	granted  bool
 	ready    chan struct{}
-	holderAt string // who held the directory when this waiter queued (for reporting)
+	holderAt string // who held a wanted directory when this waiter queued (for reporting)
 }
 
 // newDirLocks builds an empty lock table (one per Service: the locks are
@@ -45,12 +46,15 @@ func newDirLocks() *dirLocks {
 	return &dirLocks{held: map[string]string{}}
 }
 
-// Acquire takes the exclusive directory lock for dir on behalf of jobID, waiting
-// (FIFO) while any held or already-queued directory overlaps it. onWait, when
-// non-nil, is called ONCE with the blocking job id the moment this job is queued and
-// is about to block — the caller uses it to make the wait OBSERVABLE (the job's
-// `waiting_dir` state + event) while it is happening; a job that is granted at once
-// never calls it. It returns:
+// Acquire takes the exclusive directory lock for ALL of dirs on behalf of jobID,
+// waiting (FIFO) while any held or already-queued directory overlaps any of them. The
+// set is ONE waiter: it is granted all at once and released all at once, so a job never
+// holds some paths while waiting for the others (two jobs declaring [a,b] and [b,a]
+// cannot deadlock each other). onWait, when non-nil, is called ONCE with the blocking
+// job id and the wanted path that is blocked, the moment this job is queued and is about
+// to block — the caller uses it to make the wait OBSERVABLE (the job's `waiting_dir`
+// state + event) while it is happening; a job that is granted at once never calls it.
+// It returns:
 //
 //   - release: idempotent, ALWAYS non-nil on success — call it once the job's process
 //     is over and BEFORE the terminal state becomes observable (a workflow step
@@ -65,47 +69,65 @@ func newDirLocks() *dirLocks {
 //
 // onWait is what the design's "waiting_dir must be observable" requirement costs: a
 // return-value-only API cannot report anything until the wait is already over.
-func (d *dirLocks) Acquire(ctx context.Context, dir, jobID string, onWait func(holder string)) (release func(), holder string, waited bool, err error) {
-	if dir == "" {
-		// A job with no local working directory (a remote one: the path belongs to
-		// another machine) has nothing to serialize here.
+func (d *dirLocks) Acquire(ctx context.Context, dirs []string, jobID string, onWait func(holder, dir string)) (release func(), holder string, waited bool, err error) {
+	// Empty entries (a remote job's path belongs to another machine) have nothing to
+	// serialize here; orig keeps the caller's spelling for reporting.
+	var keys, orig []string
+	for _, dir := range dirs {
+		if dir != "" {
+			keys = append(keys, lockDirKey(dir))
+			orig = append(orig, dir)
+		}
+	}
+	if len(keys) == 0 {
 		return func() {}, "", false, nil
 	}
-	key := lockDirKey(dir)
 
 	d.mu.Lock()
-	if !d.conflictsLocked(key) {
-		d.held[key] = jobID
+	blocked := d.blockedIndexLocked(keys)
+	if blocked < 0 {
+		d.holdLocked(keys, jobID)
 		d.mu.Unlock()
-		return d.releaser(key, jobID), "", false, nil
+		return d.releaser(keys, jobID), "", false, nil
 	}
 	w := &dirWaiter{
-		dir:      key,
+		dirs:     keys,
 		jobID:    jobID,
 		ready:    make(chan struct{}),
-		holderAt: d.firstHolderLocked(key),
+		holderAt: d.firstHolderLocked(keys),
 	}
 	d.waiters = append(d.waiters, w)
 	d.mu.Unlock()
 
 	if onWait != nil {
-		onWait(w.holderAt)
+		onWait(w.holderAt, orig[blocked])
 	}
+	return d.await(ctx, w, keys)
+}
 
+// await parks on a queued waiter until it is granted or ctx ends.
+func (d *dirLocks) await(ctx context.Context, w *dirWaiter, keys []string) (release func(), holder string, waited bool, err error) {
 	select {
 	case <-w.ready:
-		// Granted (the releaser moved the key into `held` for us, honouring FIFO with
+		// Granted (the releaser moved the keys into `held` for us, honouring FIFO with
 		// a possible wait behind other waiters). `holderAt` is who blocked us then.
-		return d.releaser(key, jobID), w.holderAt, true, nil
+		return d.releaser(keys, w.jobID), w.holderAt, true, nil
 	case <-ctx.Done():
 		if d.abandon(w) {
 			// Removed from the queue before it was granted: no lock to release.
 			return func() {}, w.holderAt, true, ctx.Err()
 		}
-		// Raced with the grant pass: we HOLD the lock now, so hand it straight back
-		// (the caller is not going to use it) instead of leaking a directory forever.
-		d.releaser(key, jobID)()
+		// Raced with the grant pass: we HOLD the locks now, so hand them straight back
+		// (the caller is not going to use them) instead of leaking a directory forever.
+		d.releaser(keys, w.jobID)()
 		return func() {}, w.holderAt, true, ctx.Err()
+	}
+}
+
+// holdLocked records every key as held by jobID. Caller holds mu.
+func (d *dirLocks) holdLocked(keys []string, jobID string) {
+	for _, k := range keys {
+		d.held[k] = jobID
 	}
 }
 
@@ -128,24 +150,26 @@ func (d *dirLocks) abandon(w *dirWaiter) bool {
 	return false
 }
 
-// releaser returns the idempotent release func for key held by jobID: it drops the
-// lock, then hands it to whatever the queue now allows (FIFO).
-func (d *dirLocks) releaser(key, jobID string) func() {
+// releaser returns the idempotent release func for the keys held by jobID: it drops
+// them all, then hands them to whatever the queue now allows (FIFO).
+func (d *dirLocks) releaser(keys []string, jobID string) func() {
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			d.mu.Lock()
 			defer d.mu.Unlock()
-			if cur, ok := d.held[key]; ok && cur == jobID {
-				delete(d.held, key)
+			for _, key := range keys {
+				if cur, ok := d.held[key]; ok && cur == jobID {
+					delete(d.held, key)
+				}
 			}
 			d.grantLocked()
 		})
 	}
 }
 
-// grantLocked walks the FIFO queue and grants every waiter whose directory no
-// longer conflicts with the HELD set. Earlier grants of this very pass are added to
+// grantLocked walks the FIFO queue and grants every waiter whose directories no
+// longer conflict with the HELD set. Earlier grants of this very pass are added to
 // `held` as they are made, so the pass is by construction FIFO-correct: a later
 // waiter whose directory overlaps an earlier grant keeps waiting (it must not be
 // granted while its neighbour is about to run), and no waiter can ever be compared
@@ -153,12 +177,12 @@ func (d *dirLocks) releaser(key, jobID string) func() {
 func (d *dirLocks) grantLocked() {
 	kept := d.waiters[:0]
 	for _, w := range d.waiters {
-		if d.conflictsHeldLocked(w.dir) {
+		if d.anyConflictsHeldLocked(w.dirs) {
 			kept = append(kept, w)
 			continue
 		}
 		w.granted = true
-		d.held[w.dir] = w.jobID
+		d.holdLocked(w.dirs, w.jobID)
 		close(w.ready)
 	}
 	d.waiters = kept
@@ -175,29 +199,45 @@ func (d *dirLocks) conflictsHeldLocked(dir string) bool {
 	return false
 }
 
-// conflictsLocked reports whether dir overlaps anything held or anything already
-// queued. Queued waiters count too: a newcomer that clashes with someone who is
-// ahead in line waits behind them (strict FIFO), instead of slipping past a job that
-// was only blocked by a different holder.
-func (d *dirLocks) conflictsLocked(dir string) bool {
-	if d.conflictsHeldLocked(dir) {
-		return true
-	}
-	for _, w := range d.waiters {
-		if dirsOverlap(dir, w.dir) {
+// anyConflictsHeldLocked reports whether any of dirs overlaps a held directory.
+func (d *dirLocks) anyConflictsHeldLocked(dirs []string) bool {
+	for _, dir := range dirs {
+		if d.conflictsHeldLocked(dir) {
 			return true
 		}
 	}
 	return false
 }
 
-// firstHolderLocked names the job blocking dir (the first overlapping holder), or ""
-// when nothing held overlaps it (then a QUEUED waiter is what blocks it, and the
-// caller is told a queue — not a specific job — is ahead).
-func (d *dirLocks) firstHolderLocked(dir string) string {
-	for held, id := range d.held {
-		if dirsOverlap(dir, held) {
-			return id
+// blockedIndexLocked returns the index of the first of dirs that overlaps anything held
+// or anything already queued, or -1 when none does. Queued waiters count too: a newcomer
+// that clashes with someone who is ahead in line waits behind them (strict FIFO),
+// instead of slipping past a job that was only blocked by a different holder.
+func (d *dirLocks) blockedIndexLocked(dirs []string) int {
+	for i, dir := range dirs {
+		if d.conflictsHeldLocked(dir) {
+			return i
+		}
+		for _, w := range d.waiters {
+			for _, wd := range w.dirs {
+				if dirsOverlap(dir, wd) {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+// firstHolderLocked names the job blocking dirs (the first overlapping holder), or ""
+// when nothing held overlaps them (then a QUEUED waiter is what blocks, and the caller
+// is told a queue — not a specific job — is ahead).
+func (d *dirLocks) firstHolderLocked(dirs []string) string {
+	for _, dir := range dirs {
+		for held, id := range d.held {
+			if dirsOverlap(dir, held) {
+				return id
+			}
 		}
 	}
 	return ""
