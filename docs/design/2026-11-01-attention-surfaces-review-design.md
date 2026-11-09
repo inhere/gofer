@@ -1,8 +1,18 @@
 # 注意力面复盘：今天 / 工作项 / 收件箱为什么没人用，以及怎么收
 
 > issue：gofer-cnxy
-> 状态：0.2 已批准（见 §7）
+> 状态：0.3 —— F1 / F2 / F4 与 digest 改名已批准（2026-11-09，用户：「等我按建议」）；F3 的具体约定（末行 `[needs-reply]` 标记）是本稿新提出的，待用户确认
 > 相关：`docs/design/2026-10-09-dashboard-redesign-design.md`、`2026-10-23-ui-redesign-design.md`、`2026-10-28-inbox-triage-design.md`；外部参照 dsh-superagent-prototype 的 `docs/000-philosophy.md`、`docs/005-panel.md`（本地副本在 WP `local/dsh-superagent-prototype/`），以及 xhen 的调研 `inhere-tools/xhen/docs/research/2026-10-31-dsh-superagent-prototype.md`。
+
+## 修订记录
+
+| 版本 | 日期 | 作者 | 摘要 |
+|---|---|---|---|
+| 0.1 | 2026-11-01 | Claude | 初稿（补记） |
+| 0.2 | 2026-11-01 | Claude | §6 全部按推荐定案（§7）；§8 记忆整理三层（补记） |
+| 0.3 | 2026-11-09 | Claude | RV1 复盘误报约 25%，新增 §9：监督中的会话不进「等我」（F1）、relay 回合满 5 分钟才进（F2）、只有带「需要回复」标记的回合归第 2 类（F3）、记录回合关闭时间（F4）；digest 的「等我 N」改名 |
+
+> 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
 ## 1. 背景
 
@@ -80,6 +90,7 @@ dsh-superagent 的核心原则正好对着这个问题：
 - 一周内「等我」条目的误报率（点开发现不需要处理的比例）目标 < 10%。
 - 「等我」为空时，今天页首屏不出现任何需要阅读的文字（健康状态不占地方）。
 - 用户主观：是否愿意把今天页 / 「等我」当作每天第一眼。
+- RV1（2026-11-09）未达标，修正与再次衡量见 §9。
 
 ## 6. 待确认项
 
@@ -123,3 +134,47 @@ dsh-superagent 的核心原则正好对着这个问题：
   - **触发时机**：`gofer repo sync` 推送之前（`commands/repo.go` 只转发一次调用）。理由：它在仓库检出里跑，路径 / 提交检查才有意义；归档产生的墓碑在同一次同步里到达 server 与其它 clone；不放在写后自动同步（`tryAutoSync`）里，否则 `restore` 一个过期 handoff 会被立刻再归档；不放在 prime（读热路径，不改数据、不跑 git）。开关 `prime.doctor.auto_archive`，默认开（设计 §8 已批准，且可 `restore`）。
   - **待整理**：web 记忆页 `?view=tidy`。列表由已取回的记忆 + doctor 现算（`utils/memories.ts` 的 `tidyItems`；server 项目 / 全局记忆没有 doctor，按自带 `flags` 补 `flagged`），不新增读接口。保留 = 清除标记（仓库记忆另把其它发现写进 `doctor_ignore`）；改写 = 打开详情抽屉；归档只有仓库记忆。新增写接口 `POST /v1/tracker/memories/{id}/archive`、`DELETE /v1/tracker/memories/{id}/flag`（`memory.write`，人凭据；已登记 `routeDecls`，permissions.md 已重生成）。
   - **删除**：`gofer_memory_suggest`、`/v1/memory-suggestions*`、巡检「仓库记忆整理」步骤与 `steward_memory` 模板、`today.MemoryHygiene` / 建议存取 / 采纳逻辑、web 的建议卡文案；`memory_suggestions` 表按 G057 保留不删。
+
+## 9. RV1 复盘与修正（2026-11-09 已定）
+
+用户 2026-11-09：「等我按建议」——F1–F4 全做，digest 的「等我 N」一并处理。
+
+### 9.1 复盘结论
+
+一周（11-02 ～ 11-09，生产 v0.212.1）进入过「等我」的 222 条，主估计误报 55 条，**误报率约 25%**（下限 5.9%，上限 43.7%），目标 < 10% 未达到。误报**全部**来自第 2 类里的会话 relay 回合（174 条中误报 55、可疑 42）；第 1 类 job hold 42 条、终端权限弹窗 6 条零误报，第 3～6 类本周 0 条。根因三条：会话在等子 agent / 被盯 job 时回合仍算「待你回答」；汇报型回合与提问型不分；没有宽限期。报告与原始数据在工作区 `tmp/rv1/report.md`（不入库，含业务名）。
+
+### 9.2 F1 监督中的会话不进「等我」
+
+- **判据（核实后）**：`sessionrelay.supervisingDetail` 现有两条事实——会话内在跑的子 agent（`SubagentCount`，内存计数，按 SubagentStart/Stop 维护）与会话调用方的活跃 job（`CountActiveJobsByCaller(caller_id, now - supervising_window)`）；它不看 job watch，且受 `session.auto_relay_skip_when_supervising` 开关控制。F1 用三条事实：上述两条 + 会话的 job watch（`session_job_watches` 有行：被盯 job 结束后 hook 会以 `watched_job` 收回回合，人无需回答）。任一成立即「监督中」。
+- **取法**：sessionrelay 新增 `Supervision(a AgentSession) Supervision{Jobs, Subagents, Watches int}`，只读事实、**不受开关与 relay 模式影响**（开关管 Stop 停不停，不管列表）。`supervisingDetail` 改为复用它的前两项，Stop 行为零变化（不把 watch 加进 Stop 门槛）。today 在 `Deps` 加接口 `Supervisor`（与 `StewardStatus` 同模式），由 httpapi 装配时注入 `s.relay`；workbench 按 `RelayMessenger` 的做法对已有 `Relay` 做接口断言取得。today / workbench 现已 import sessionrelay 取纯函数与常量（方向不变，sessionrelay 不 import 二者），本次不新增对 `*sessionrelay.Service` 的直接依赖（G022/G024）。接口为 nil 或查询失败按「不在监督」处理（同 `supervisingDetail` 的失败口径，记 Warn）。
+- **现算**：每次构建「等我」（`today.decisions()` → `relay()`）与工作台投影时对有开放回合的会话现算，不在 Stop 时落库。回合打开后才开始的监督（之后派的 job、起的子 agent）在下一次构建即生效；监督结束后同理立即回到 F2/F3 的判断。
+- **显示**：「等我」不出该会话的 relay 卡；工作台线程显示「监督中」（带 job / 子 agent / 被盯 job 数），不进工作台的 attention。
+
+### 9.3 F2 宽限期
+
+- relay 回合打开满 5 分钟才进「等我」。**用常量**（today 包 `relayGraceSec = 300`），不加配置项：没有调参需求，RV2 再看。
+- 起点是回合的 `asked_at`（`OpenTurn` 会先关掉同会话的旧回合，一个会话同时只有一个开放回合）。
+- 过滤发生在卡片生成处，「等我」列表、`total_unread`、顶栏徽标同源同数（§4.1）。宽限到点不产生存储变更事件，`/v1/today` 与 `/v1/inbox` 返回 `recheck_at`（最早一个被宽限挡住的回合的到点时刻，0 = 无），web 到点重拉一次。
+
+### 9.4 F3 只有「需要回复」的回合归第 2 类
+
+- **核实**：Claude Code 的 Stop hook 输入里只有 `session_id`、`transcript_path`、`cwd`、`stop_hook_active`、`last_assistant_message` 等（`hookrelay/payload.go`），没有「在问人」的字段。AskUserQuestion 是阻塞型工具调用，回合结束（Stop）时不可能悬而未答：中继在等时它已经走 PreToolUse 变成「问题」权限卡（第 2 类，现状不变），人在终端时直接在终端答。`gofer_ask_human` 产生 `KindDecision`，已是第 2 类、不变。所以 relay 回合缺的是「agent 明确要人回复」这一事实。
+- **判据（决策）**：agent 在最后一条消息的**末行单独写协议标记 `[needs-reply]`**（去首尾空白后整行逐字匹配，ASCII，不随语言变）。Stop hook 从 `last_assistant_message`（缺省时用 transcript 尾部，与现有 `lastMessage()` 同源）判断，剥掉该行后把正文与布尔字段 `needs_reply` 一起交给 `POST /v1/sessions/{sid}/turns`。agent 怎么知道：SessionStart 注入一行提示（与 `TopicReminder` 同通道，仅 `CatchUpAgent` 方言），gofer-usage skill 的会话中继说明同步。
+- **为什么不是问句启发式**：§4.1 原则是「不读任何模型摘要」，最后一条消息是模型原文而非摘要，但按「是否以问句结尾」归类仍是从自由文本推断在等人（dsh 明确否决）；RV1 用同样启发式只能给出 5.9%～43.7% 的宽区间，且汇报结尾的客套问句（「需要我继续吗？」）正是误报来源。标记是 agent 的**显式声明**（同 `gofer work report`），整行精确匹配，不做语义判断。也不用新 CLI / MCP 调用：要多一次工具调用，还得把标记挂到「下一个」回合上，有竞态；标记随它描述的回合一起到达，天然原子。
+- **存储**：`plan_decisions` 加 `needs_reply INTEGER NOT NULL DEFAULT 0`，经 `migratePlanDecisions` 的 ALTER 添加，基础 schema 里不建引用它的索引（G057）；下次发版后补 `testdata/schema-v<版本>.sql` 快照。
+- **无标记的回合**：不进「等我」；工作台线程显示「空闲」（监督中则显示「监督中」），回复框照常可用，Stop 照常停住等 web 回复——中继行为不变，只改「是否叫人」。会话自身的 `state`（`waiting_reply`）保持原义不改。
+- **旧 hook（G032）**：请求不带 `needs_reply` 读作 false，不加兼容分支。hook 与 server 是同一个 gofer 二进制，随发版一起升级；未升级的 worker 机器上，其会话的提问在升级前不进「等我」（仍在工作台可见），发版说明写明。
+- **推送不在本次**：`OpenTurn` 的「会话等待回复」推送仍按现状发，RV2 再看是否改成同口径。
+
+### 9.5 F4 记录回合关闭时间
+
+`plan_decisions` 加 `released_at INTEGER`（ALTER，旧行 NULL 读作 0）：`ReleaseDecision` 与 `ExpireSessionDecisions` 写当前时间，`expireDueLocked` 写 `asked_at + timeout_sec`（真实到期时刻，而不是扫描时刻）；作答仍记 `answered_at`。决策读接口多返回 `released_at`（additive）。
+
+### 9.6 digest 的「等我 N」
+
+核实：`work.Service` 摘要用 `work.digest.counts`，`{needs_me}` 是工作项 `needs_me` 状态数，与「等我」列表无关。最小改动是**改名**，只改 `work.ini` 两种语言的这一条文案（zh「工作项·需要我 {needs_me}」，en「work items needing me {needs_me}」），不改代码与字段；去掉要动摘要构建与测试，改动更大。
+
+### 9.7 判定顺序与衡量
+
+- 会话 relay 回合进「等我」第 2 类须同时满足：未读（`acked_at = 0`）∧ `needs_reply` ∧ 不在监督中 ∧ 打开满 5 分钟。§4.1 表格第 2 类的「relay 结构化状态」即指这四条。
+- **RV2**：F1–F4 随下一批发版上线后满 7 天复盘一次，方法同 RV1，`released_at` 补上关闭时间盲区。除误报率（目标 < 10%）外加一项**漏报观察**：无标记回合中人在打开后 30 分钟内于 web 作答的条数（说明 agent 该标没标），用于决定是否加强 SessionStart 提示。
