@@ -124,3 +124,11 @@ xfer put：字面预检 → 打开 `os.Root` → `MkdirAll(父目录)` → 写�
 
 用户（web）原话：「按推荐」。Q1 选 A（四处一次改完）、Q2 选 A（接受 `os.Root` 对绝对链接的限制，含 Windows 目录联接，skill 传输说明写明）、Q3 选 A（随下一批发版）。批准授权进入实施计划，不授权实施。批准后实测发现 Windows 根内联接也被拒，已补入「已确认事实」与「行为变化 1」，并在回复中向用户说明。
 
+## 实施记录（2026-11-10）
+
+- 计划：`docs/plans/2026-11-10-project-file-symlink-boundary-plan.md`（COMPLETE）。分支 `fix/i72n-symlink-boundary`，`--no-ff` 合并回 main。
+- `ReadKeyFile`：`SafeJoinReal` 后按真实文件名再判白名单，不通过按不存在（404）处理；响应 `name` 取请求名。
+- `internal/project/root.go`：`OpenInRoot`、`ExistsInRoot`（`Lstat`）、`PlaceInRoot` / `Placement`（`Commit` / `Abort`）。server 本机传输 get/put、本机附件目录、hub 侧 job 附带上传（`core.placeVerified`）、worker 传输 get/put 与 job 附带上传全部改走这组函数；`job.XferBridge.FetchUpload` 改为 `(ctx, xferID, projectKey, root, rel)`。
+- 与计划的偏离：错误前缀 `create destination directory:` / `open temp file:` 放进 `PlaceInRoot`；`PlaceInRoot` 先建根目录（保持本机附件目录首次落位的旧行为）；临时文件在 `Commit` 时才关闭（关闭失败的报错归入「move payload into place」）；产物收集的 `writeVerified` 不在范围，保留并与新函数共用 `checkCopied`。计划把传输命令误写为 `gofer tool xfer`，实际为 `gofer tool cp`（`--force`），验收与文档均按实际命令。
+- 验证：真实验收（容器内临时 server，`tmp/i72n-impl/acceptance.md`）全部通过；反向验证三项（读边界、写边界、真实名复核）共 11 个用例按预期失败（`tmp/i72n-impl/reverse.md`）；gofer-verify 四路（`3f7c6b32`）通过。Windows 行为以 `tmp/i72n-probe` 实测为准。
+
