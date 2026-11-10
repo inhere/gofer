@@ -2,8 +2,13 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
+	"sort"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -152,5 +157,79 @@ func TestListJobsEndpointRequiresAuth(t *testing.T) {
 	resp := do(t, s, http.MethodGet, "/v1/jobs", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status=%d, want 401", resp.StatusCode)
+	}
+}
+
+// putHoldRow stores a human-hold row owned by caller.
+func putHoldRow(t *testing.T, s *Server, id, caller, status, holdJSON string) {
+	t.Helper()
+	now := time.Now().Unix()
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: id, ProjectKey: "self", Agent: "exec", Runner: "local", Status: status,
+		Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, UpdatedAt: now,
+		CallerID: caller, HoldJSON: holdJSON,
+	}); err != nil {
+		t.Fatalf("upsert %s: %v", id, err)
+	}
+}
+
+func TestListJobsEndpointHoldFilter(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	putHoldRow(t, s, "hold-wait", "", job.StatusAwaitingApproval, `{"reason":"push"}`)
+	putHoldRow(t, s, "hold-done", "", job.StatusCancelled, `{"decision":"rejected"}`)
+	putHoldRow(t, s, "hold-park", "", job.StatusAwaitingApproval, `{"kind":"update"}`)
+
+	ids := func(query string) []string {
+		var out []string
+		for _, j := range listJobs(t, s, query) {
+			out = append(out, j.ID)
+		}
+		sort.Strings(out)
+		return out
+	}
+	if got := ids("?hold=pending"); !slices.Equal(got, []string{"hold-wait"}) {
+		t.Fatalf("hold=pending = %v", got)
+	}
+	if got := ids("?hold=decided"); !slices.Equal(got, []string{"hold-done"}) {
+		t.Fatalf("hold=decided = %v", got)
+	}
+	if got := ids("?hold=any"); !slices.Equal(got, []string{"hold-done", "hold-wait"}) {
+		t.Fatalf("hold=any = %v", got)
+	}
+	if got := ids(""); len(got) != 3 {
+		t.Fatalf("no hold filter = %v, want 3 rows", got)
+	}
+
+	resp := do(t, s, http.MethodGet, "/v1/jobs?hold=bad", testToken, nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("hold=bad status=%d, want 400", resp.StatusCode)
+	}
+	if body := readBody(t, resp); !strings.Contains(body, "hold must be pending, decided or any") {
+		t.Fatalf("hold=bad body = %s", body)
+	}
+}
+
+// TestListJobsEndpointHoldFilterOwnOnly: a caller without job.read.others keeps the
+// filter-form answer (its own jobs only) under hold=any.
+func TestListJobsEndpointHoldFilterOwnOnly(t *testing.T) {
+	t.Parallel()
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+	})
+	s.setDBGrants(nil) // alice holds no database grant, so no job.read.others
+	putHoldRow(t, s, "hold-alice", "alice", job.StatusAwaitingApproval, `{"reason":"mine"}`)
+	putHoldRow(t, s, "hold-bob", "bob", job.StatusAwaitingApproval, `{"reason":"theirs"}`)
+
+	resp := do(t, s, http.MethodGet, "/v1/jobs?hold=any", "tok-alice", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		Jobs []job.JobResult `json:"jobs"`
+	}
+	decode(t, resp, &body)
+	if len(body.Jobs) != 1 || body.Jobs[0].ID != "hold-alice" {
+		t.Fatalf("alice hold=any = %+v, want only hold-alice", body.Jobs)
 	}
 }

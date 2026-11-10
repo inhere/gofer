@@ -95,6 +95,7 @@ job list	flag agent	filter by agent key
 job list	flag all	include internal delivery jobs (messenger)
 job list	flag caller	filter by caller id
 job list	flag config	path to the gofer config file
+job list	flag hold	only human-hold jobs: pending (awaiting a decision) / decided (approved, rejected, expired) / any
 job list	flag limit	max jobs to return (0 = server default)
 job list	flag plan	filter by plan id (exact match)
 job list	flag project	filter by project key

@@ -22,6 +22,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/board', redirect: (to) => ({ path: '/jobs', query: to.query }) },
   // REV-01 验收台：待验收 job 队列（列表 + 行内裁决），详情面板在 /jobs/:id。
   { path: '/review', name: 'review', component: () => import('./views/ReviewQueue.vue') },
+  { path: '/approvals', name: 'approvals', component: () => import('./views/Approvals.vue') },
   { path: '/sessions', name: 'sessions', component: () => import('./views/Sessions.vue') },
   // 信箱（design 2026-10-16「二、gofer 信箱」）：会话 / job / 调用方之间的信件往来。
   // 深链：/mail?state=held（待指派，Today 卡的入口）、/mail?session=<sid>（会话抽屉）。

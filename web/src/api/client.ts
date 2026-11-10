@@ -678,6 +678,9 @@ export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
   if (opts?.status) {
     params.set('status', opts.status)
   }
+  if (opts?.hold) {
+    params.set('hold', opts.hold)
+  }
   if (opts?.project) {
     params.set('project', opts.project)
   }

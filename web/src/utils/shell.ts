@@ -138,6 +138,7 @@ export const SHELL_NAV_GROUPS: readonly ShellNavGroup[] = [
       { to: '/inbox', key: 'nav.inbox', icon: 'inbox' },
       { to: '/mail', key: 'nav.mail', icon: 'mail' },
       { to: '/review', key: 'nav.review', icon: 'review' },
+      { to: '/approvals', key: 'nav.approvals', icon: 'review' },
       { to: '/issues', key: 'nav.issues', icon: 'issues' },
       // 记忆（issue gofer-hez1）：原 Issues 页的记忆页签，独立成页后放进「协作」组。
       { to: '/memory', key: 'nav.memory', icon: 'memory' },
@@ -250,6 +251,7 @@ export const PALETTE_PAGES: readonly PalettePage[] = [
   { key: 'nav.sessions', to: '/sessions', projectFilter: true },
   { key: 'nav.mail', to: '/mail', projectFilter: false },
   { key: 'nav.review', to: '/review', projectFilter: true },
+  { key: 'nav.approvals', to: '/approvals', projectFilter: true },
   { key: 'nav.issues', to: '/issues', projectFilter: true },
   { key: 'nav.memory', to: '/memory', projectFilter: true },
   { key: 'nav.dashboard', to: '/dashboard', projectFilter: true },

@@ -124,3 +124,12 @@ CLI：`gofer job ls --hold pending|decided|any`，经 `internal/client` 的列�
 ## 已定事项（2026-11-10）
 
 用户：「两份设计 Q1–Q3 按推荐，批准进入计划」。Q1=A（列表只链接到 job 详情，在原批准面板上决定）；Q2=A（CLI 加 `job ls --hold`）；Q3=A（只做 hold job）。
+
+## 实施记录（2026-11-10）
+
+- 后端（3d5b93c4）：`jobstore` 新文件 `jobs_hold_filter.go`（枚举、常量 SQL，取值包 `CASE WHEN json_valid`）；`job.ListJobs` 在合并后与 status 同处按 `holdMatches` 过滤；handler 非法值 400；client 与 `job list --hold` 传参（中文帮助快照多一行）。
+- web（c3446ec1、64020fb6）：`/approvals` 两页签、项目筛选、加载更多，提交时间取 `expires_at - timeout_sec`；菜单与命令面板登记；验收台入口改跳；手机表头隐藏为验收后返工。
+- 文档（826c019c、38d27ea4）：skill references、http-api、CHANGELOG；补回被误删的小节标题与 `hold_origin` 说明。
+- 验证：真实验收（临时 server，批准 / 拒绝 / 过期 / 待批 + 运行中普通 job，CLI 与浏览器）通过；反向 3 项均按预期失败；gofer-verify 四路通过（wf-20261110-214610-3e858dba）。
+- 未在真实环境覆盖：无 `job.read.others` 调用方只看自己的、升级停放排除（单测覆盖）。
+

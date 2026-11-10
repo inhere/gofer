@@ -282,6 +282,7 @@ type ListQuery struct {
 	Limit       int      // <= 0 => DefaultListLimit
 	Offset      int      // skip the first Offset rows (pagination); ignored when <= 0
 	Since       int64    // when > 0, keep only jobs with started_at >= Since
+	Hold        string   // HoldFilter* value: keep only human-hold jobs (pending/decided/any); empty = no filter
 }
 
 // WorktreeRecord is the WT-01 projection of one job's managed worktree: the row
@@ -1213,6 +1214,9 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 	if q.Since > 0 {
 		where = append(where, "started_at >= ?")
 		args = append(args, q.Since)
+	}
+	if err := appendHoldFilter(&where, q.Hold); err != nil {
+		return nil, err
 	}
 
 	query := selectCols

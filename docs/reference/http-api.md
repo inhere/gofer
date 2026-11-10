@@ -313,6 +313,8 @@ The local row of `GET /v1/runners` carries `messenger_detail` read in-process; a
 
 ## Jobs held for approval
 
+`GET /v1/jobs` 支持 `hold=pending|decided|any`：`pending` 只列仍在等待人工批准的 hold job，`decided` 只列已经有决定的人工 hold job，`any` 列两者。三个取值都只匹配人工审批（`hold.kind` 为空），不会包含升级停放的 job（`hold.kind=update`）。`hold` 与其它查询条件按 AND 组合，非法取值返回 `400`。
+
 - Submit: `POST /v1/jobs` with `hold: true` (optional `hold_reason`, `hold_timeout_sec`) returns **202** with `X-Gofer-Async: 1`; the body is the JobResult plus `approve_url` (empty when `server.web_base_url` is not set). The job stays in `awaiting_approval` and is not dispatched.
 - Approve: `POST /v1/jobs/{id}/approve`, body `{note?}`; returns the started JobResult (usually `queued`).
 - Reject: `POST /v1/jobs/{id}/reject`, body `{note?}` or `{reason?}` (optional for a held job; `resume: true` is a 400); the job ends `cancelled` with `error="hold rejected by <who>[: <note>]"`. Withdraw: `POST /v1/jobs/{id}/cancel`.

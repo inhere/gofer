@@ -28,6 +28,7 @@ const PAGE_ROOTS: Record<string, string> = {
   './Workbench.vue': 'page page--full',
   './Board.vue': 'page',
   './ReviewQueue.vue': 'page',
+  './Approvals.vue': 'page',
   './Sessions.vue': 'page',
   './Mail.vue': 'page page--full',
   './Work.vue': 'page',

@@ -2,6 +2,8 @@ package job
 
 import (
 	"path/filepath"
+	"slices"
+	"sort"
 	"testing"
 	"time"
 
@@ -488,5 +490,72 @@ func TestListJobsRestartRecoversFromIndex(t *testing.T) {
 		if r.Status != StatusDone {
 			t.Fatalf("recovered job should be terminal (done), got %s for %s", r.Status, r.ID)
 		}
+	}
+}
+
+// holdListIDs lists jobs under a hold filter and returns the sorted ids.
+func holdListIDs(t *testing.T, s *Service, hold string) []string {
+	t.Helper()
+	list, err := s.ListJobs(ListOpts{Hold: hold})
+	if err != nil {
+		t.Fatalf("ListJobs(hold=%q): %v", hold, err)
+	}
+	ids := make([]string, 0, len(list))
+	for _, j := range list {
+		ids = append(ids, j.ID)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// TestListJobsHoldFilterMergesMemoryOverDB: the filter runs on the merged rows, so a
+// DB row that is still awaiting while memory already holds the decision is decided,
+// not pending; a running plain job and an update park never match.
+func TestListJobsHoldFilterMergesMemoryOverDB(t *testing.T) {
+	t.Parallel()
+	s := newTestService(t, t.TempDir())
+	base := func(id string, at int64) JobResult {
+		return JobResult{ID: id, ProjectKey: "self", Agent: "exec", Runner: "local", Cwd: ".", ResultDir: t.TempDir(), StartedAt: at}
+	}
+	pending := base("hold-pending", 100)
+	pending.Status = StatusAwaitingApproval
+	pending.Hold = &HoldState{Reason: "push"}
+	stale := base("hold-stale", 101)
+	stale.Status = StatusAwaitingApproval
+	stale.Hold = &HoldState{Reason: "push"}
+	decided := base("hold-decided", 102)
+	decided.Status = StatusCancelled
+	decided.Hold = &HoldState{Decision: "rejected"}
+	park := base("hold-park", 103)
+	park.Status = StatusAwaitingApproval
+	park.Hold = &HoldState{Kind: HoldKindUpdate}
+	for _, r := range []JobResult{pending, stale, decided, park} {
+		if err := s.persist(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Memory: hold-stale was approved and is running; a plain job is running.
+	approved := stale
+	approved.Status = StatusRunning
+	approved.Hold = &HoldState{Reason: "push", Decision: "approved"}
+	plain := base("plain-running", 104)
+	plain.Status = StatusRunning
+	s.mu.Lock()
+	s.jobs[approved.ID] = &jobEntry{result: approved, done: make(chan struct{})}
+	s.jobs[plain.ID] = &jobEntry{result: plain, done: make(chan struct{})}
+	s.mu.Unlock()
+
+	if got := holdListIDs(t, s, jobstore.HoldFilterPending); !slices.Equal(got, []string{"hold-pending"}) {
+		t.Fatalf("pending = %v, want [hold-pending]", got)
+	}
+	if got := holdListIDs(t, s, jobstore.HoldFilterDecided); !slices.Equal(got, []string{"hold-decided", "hold-stale"}) {
+		t.Fatalf("decided = %v, want [hold-decided hold-stale]", got)
+	}
+	if got := holdListIDs(t, s, jobstore.HoldFilterAny); !slices.Equal(got, []string{"hold-decided", "hold-pending", "hold-stale"}) {
+		t.Fatalf("any = %v", got)
+	}
+	if got := holdListIDs(t, s, ""); len(got) != 5 {
+		t.Fatalf("no filter = %v, want 5 rows", got)
 	}
 }
