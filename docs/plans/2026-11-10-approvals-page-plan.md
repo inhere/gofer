@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 审批记录页 实施计划
 
-> 状态：Draft 0.1 / 待批准
+> 状态：Draft 0.2 / 待批准
 > issue：gofer-nt9o
 
 ## 修订记录
@@ -9,6 +9,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-11-10 | Claude（gofer 监督会话） | 初稿 |
+| 0.2 | 2026-11-10 | Claude（gofer 监督会话） | 按计划评审修订：hold 过滤移到合并之后（N1）；`json_extract` 包 `CASE WHEN json_valid`（N2）；web `listJobs` 真正发出 `hold`（N3）；基线命令拆分、CLI 校验一行、GR110 走桩 server、400 写法（N4–N7） |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -58,12 +59,12 @@
 
 | # | 问题 | 定案 |
 |---|---|---|
-| R1 | 枚举与 SQL | `internal/jobstore/jobs_hold_filter.go`：`const HoldFilterPending = "pending"`、`HoldFilterDecided = "decided"`、`HoldFilterAny = "any"`；`func ValidHoldFilter(v string) bool`；`func holdFilterSQL(v string) (string, error)` 返回常量片段：公共部分 `json_valid(hold_json) AND COALESCE(json_extract(hold_json,'$.kind'),'') = ''`，pending 加 `AND status = 'awaiting_approval'`，decided 加 `AND COALESCE(json_extract(hold_json,'$.decision'),'') <> ''`。`ListQuery.Hold string`；`ListJobs` 只加一行调用。 |
-| R2 | 内存合并 | `internal/job/list.go` 内存 overlay 循环加 `if opts.Hold != "" && !holdMatches(snap, opts.Hold) { continue }`；`holdMatches` 放 `internal/job/hold.go` 或新文件 `list_hold.go`：`snap.Hold != nil && snap.Hold.Kind == HoldKindHuman`，pending 加 `snap.Status == StatusAwaitingApproval`，decided 加 `snap.Hold.Decision != ""`。`ListOpts.Hold` 传给 `ListQuery.Hold`。 |
-| R3 | handler | `internal/httpapi/job_handler.go` 列表 handler：读 `hold`，非空且 `!jobstore.ValidHoldFilter` → 400（错误文案与现有参数错误一致，走现有 i18n 错误码习惯）。 |
-| R4 | client / CLI | `internal/client/client.go` `ListJobs`：`opts.Hold` 非空时 `q.Set("hold", …)`。`internal/commands/job.go` `jobListOpts` 加 `hold` 字段与 `c.StrOpt(&jobListOpts.hold, "hold", "", "", "…pending/decided/any…")`，映射到 `ListOpts.Hold`；CLI 侧也先校验，非法值本地报错。`jobListOpts` 已登记在 flag 快照，若测试要求逐字段登记则同步。 |
-| R5 | web 页面 | `web/src/views/Approvals.vue`（新）；数据经 `web/src/api/client.ts` 现有 `listJobs`（加 `hold` 参数类型）；纯函数放 `web/src/utils/approvals.ts`（新）：`holdSubmittedAt(job)`（`expires_at - timeout_sec`，缺字段返回 undefined）、`holdOriginLabel(job)`、`decisionTone(decision)`。分页：每页 50，「加载更多」用 `offset`。项目筛选走页面通用的项目筛选（`projectFilter`）。页签状态放 query（`?tab=decided`）便于返回。 |
-| R6 | web 测试 | 测试环境无 jsdom（见 gofer-zszn），不写 DOM 级测试：`approvals.test.ts` 测 R5 纯函数；菜单顺序改 `shell.test.ts`；页面 i18n 由现有 `noHardcodedCjk` / `i18nKeyUsage` 测试覆盖；页面行为由 T4 浏览器验收覆盖。 |
+| R1 | 枚举与 SQL | `internal/jobstore/jobs_hold_filter.go`：`const HoldFilterPending = "pending"`、`HoldFilterDecided = "decided"`、`HoldFilterAny = "any"`；`func ValidHoldFilter(v string) bool`；`func holdFilterSQL(v string) (string, error)` 返回常量片段：SQLite 不保证 AND 的求值顺序，`json_extract` 对坏行或空串会报错，所以取值一律包一层：`json_extract(CASE WHEN json_valid(hold_json) THEN hold_json END, '$.kind')`。公共部分 `json_valid(hold_json) AND COALESCE(json_extract(CASE WHEN json_valid(hold_json) THEN hold_json END,'$.kind'),'') = ''`，pending 加 `AND status = 'awaiting_approval'`，decided 加 `AND COALESCE(json_extract(CASE WHEN json_valid(hold_json) THEN hold_json END,'$.decision'),'') <> ''`。`ListQuery.Hold string`；`ListJobs` 只加一行调用。 |
+| R2 | 内存合并 | 过滤放在 `internal/job/list.go` 合并之后、与 status 过滤同处（第 4 步，`list.go:175` 附近），对合并后的每一行判断——overlay 循环里的 `continue` 只是不覆盖，DB 已合入的旧行会留下（决定会变，与 status 同理）。`holdMatches` 放 `internal/job/hold.go` 或新文件 `list_hold.go`：`snap.Hold != nil && snap.Hold.Kind == HoldKindHuman`，pending 加 `snap.Status == StatusAwaitingApproval`，decided 加 `snap.Hold.Decision != ""`。`ListOpts.Hold`（`list.go:17`）传给 `ListQuery.Hold`。 |
+| R3 | handler | `internal/httpapi/job_handler.go` 列表 handler：读 `hold`，非空且 `!jobstore.ValidHoldFilter` → 400，写法照 `workbench_handler.go:139-148`（`writeError(c, 400, "invalid hold", "hold must be pending, decided or any")`）。 |
+| R4 | client / CLI | `internal/client/client.go` `ListJobs`：`opts.Hold` 非空时 `q.Set("hold", …)`。`internal/commands/job.go` `jobListOpts` 加 `hold` 字段与 `c.StrOpt(&jobListOpts.hold, "hold", "", "", "…pending/decided/any…")`，映射到 `ListOpts.Hold`；CLI 侧只用 `jobstore.ValidHoldFilter` 一行校验（`job.go` 已 4210 行，不加其他逻辑）。`jobListOpts` 已按整个结构体登记在 `flagreset_test.go:47`，加字段无需另登记。 |
+| R5 | web 页面 | `web/src/views/Approvals.vue`（新）；数据经 `web/src/api/client.ts` 现有 `listJobs`（`client.ts:676-720` 逐字段 `params.set`：加类型的同时加 `if (opts.hold) params.set('hold', opts.hold)`）；纯函数放 `web/src/utils/approvals.ts`（新）：`holdSubmittedAt(job)`（`expires_at - timeout_sec`，缺字段返回 undefined）、`holdOriginLabel(job)`、`decisionTone(decision)`。分页：每页 50，「加载更多」用 `offset`。项目筛选走页面通用的项目筛选（`projectFilter`）。页签状态放 query（`?tab=decided`）便于返回。 |
+| R6 | web 测试 | 测试环境无 jsdom（见 gofer-zszn），不写 DOM 级测试：`approvals.test.ts` 测 R5 纯函数，并用 `vi.stubGlobal('fetch', …)` 断言 `listJobs({ hold: 'decided' })` 的请求带 `hold=decided`；菜单顺序改 `shell.test.ts`；页面 i18n 由现有 `noHardcodedCjk` / `i18nKeyUsage` 测试覆盖；页面行为由 T4 浏览器验收覆盖。 |
 
 ## 前置检查与 fail-closed 条件
 
@@ -71,7 +72,7 @@ workspace baseline：主机建 worktree `.worktrees/nt9o`（分支 `feat/nt9o-ap
 
 fail-closed（出现即停，回报监督会话）：
 
-- 基线 `go test ./internal/jobstore ./internal/job -run 'List' ./internal/httpapi -run 'ListJobs'` 在未改动时失败。
+- 基线 `go test ./internal/jobstore ./internal/job -run 'List' -count=1` 与 `go test ./internal/httpapi -run 'ListJobs' -count=1` 在未改动时失败。
 - 发现需要改 schema、权限声明或 hold 状态机。
 
 ## 波次与依赖
@@ -94,13 +95,13 @@ W3  T4 真实验收（Claude）→ T5 反向验证、全量与收尾（Claude）
 ### T1 后端筛选
 
 - 执行方：sonnet 子 agent（判定逻辑与查询）。
-- 文件：`internal/jobstore/jobs_hold_filter.go`（新）及测试、`internal/jobstore/jobs.go`（一行调用 + `ListQuery.Hold` 字段）、`internal/job/list.go`、`internal/job/model.go` 或 list 所在处的 `ListOpts.Hold`、`internal/job/list_hold.go`（新，可选）、`internal/httpapi/job_handler.go`、`internal/client/client.go`、`internal/commands/job.go` 及各自测试。
+- 文件：`internal/jobstore/jobs_hold_filter.go`（新）及测试、`internal/jobstore/jobs.go`（一行调用 + `ListQuery.Hold` 字段）、`internal/job/list.go`（`ListOpts.Hold` 与第 4 步过滤）、`internal/job/list_hold.go`（新，可选）、`internal/httpapi/job_handler.go`、`internal/client/client.go`、`internal/commands/job.go` 及各自测试。
 - 动作：按 R1–R4。
 - 验证：
   - `go test ./internal/jobstore -run 'Hold' -count=1`：人工待批、批准、拒绝、过期、撤回、升级停放、坏 JSON 行、普通 job 各一行，三个取值结果正确，坏行不报错。
-  - `go test ./internal/job -run 'ListJobs.*Hold|Hold.*List' -count=1`：内存里有运行中的普通 job 与已批准仍在运行的 hold job，pending/decided 结果正确。
+  - `go test ./internal/job -run 'ListJobs.*Hold|Hold.*List' -count=1`：内存里有运行中的普通 job 与已批准仍在运行的 hold job，pending/decided 结果正确；DB 行仍是待批、内存已批准时，该 job 不在 pending 里。
   - `go test ./internal/httpapi -run 'ListJobs' -count=1`：`hold=bad` 400；无 `job.read.others` 只返回自己的。
-  - `go test ./internal/commands -run 'JobList|JobLs' -count=1`：经真实命令分发 `job ls --hold decided` 把参数送到桩 server（GR110）；`--hold bad` 本地报错。
+  - `go test ./internal/commands -run 'JobList|JobLs' -count=1`：经真实命令分发 `job ls --hold decided` 把参数送到 httptest 桩 server（GR110；不得替换 `listCmd.Func`，`job_tags_test.go:52-60` 的写法不算真实分发）；`--hold bad` 本地报错。
   - 提交前 `go build ./... && go vet ./...`；`go test ./internal/jobstore ./internal/job ./internal/httpapi ./internal/commands -count=1`。
 
 ### T2 web 页面
@@ -126,7 +127,7 @@ W3  T4 真实验收（Claude）→ T5 反向验证、全量与收尾（Claude）
 ### T5 反向验证、全量与收尾
 
 - 执行方：Claude。
-- 反向（临时副本，不提交）：去掉内存合并过滤 → T1 内存用例必须失败；去掉 kind 条件 → 升级停放用例必须失败；去掉 `json_valid` → 坏 JSON 用例必须失败。记录 `tmp/nt9o-impl/reverse.md`。
+- 反向（临时副本，不提交）：去掉合并后的 hold 过滤 → T1 内存用例必须失败；去掉 kind 条件 → 升级停放用例必须失败；去掉 `json_valid` → 坏 JSON 用例必须失败。记录 `tmp/nt9o-impl/reverse.md`。
 - `git diff --stat main...` 查无关删除；gofer-verify 四路通过；合并（`--no-ff`）；删 worktree 与分支；设计稿补实施记录；计划 COMPLETE 写不超过 8 行总结；关 `gofer-nt9o`。
 
 ## 回滚与恢复

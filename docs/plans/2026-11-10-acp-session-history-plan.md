@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # ACP 持续会话历史与继续 实施计划
 
-> 状态：Draft 0.1 / 待批准
+> 状态：Draft 0.2 / 待批准
 > issue：gofer-7yrg
 
 ## 修订记录
@@ -9,6 +9,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-11-10 | Claude（gofer 监督会话） | 初稿 |
+| 0.2 | 2026-11-10 | Claude（gofer 监督会话） | 按计划评审修订：短路用例数据 ≥101（S1）；T3 用独立 worktree，`api/workbench.ts` 并入 T1（S2）；补两个源码断言测试（S3）；路由目标排首、cursor 页去重说明、helper 放 `filter.go`、`include` 支持逗号、改库前停 server（S4–S7） |
 
 > 仅语义变化递增版本；纯 identity/provenance/元数据纠正沿用原版本，并在 Git/进度记录中留痕。
 
@@ -62,10 +63,10 @@
 |---|---|---|
 | R1 | Query 字段 | `workbench.Query` 加 `Source string`（`""`/`acp`/`pty`/`relay`）、`Live bool`、`Include []string`。常量 `SourceACP`/`SourcePTY`/`SourceRelay` 与 `ValidSource(v)` 放 `internal/workbench/filter.go`（新）。 |
 | R2 | 判断函数 | `filter.go`：`func threadMatchesSource(t Thread, src string) bool`——acp：`t.Kind != KindRelay && !t.Interactive`；pty：`t.Kind != KindRelay && t.Interactive`；relay：`t.Kind == KindRelay`。`func threadLive(t Thread) bool`——relay：`t.RawStatus` 不是 `ended` / `offline`；job 来源：`t.Jobs` 任意一项 `!job.IsTerminal(status)`（与 store「线程内任意一行非终态」一致；`t.Jobs` 为空时退回 `RawStatus`）。`listPage` 的 `match` 与 `buildResponse` 的过滤各加一行调用这两个函数。注意过滤在 `Summary()` 之前（`Summary` 会去掉 `interactive` 与 `jobs`）。 |
-| R3 | `live=1` 短路 | `listPage` 循环：`query.Live` 时只收集 `key.Exception` 的线程，第一次 `LoadWorkbenchPage` 后即 break，`HasMore=false`、`NextCursor=""`。带 cursor 的 `live=1` 请求直接返回空页。 |
-| R4 | `include` | handler 读 `include`（可重复），>8 或任一 `workbench.ParseThreadID`（现有解析函数，按实际名）失败 → 400；`listPage` 仅在 `query.Cursor == ""` 时 `pinned = append(pinned, query.Include...)`（去重），不写偏好。非分页的 `List` 路径忽略 `include`。 |
+| R3 | `live=1` 短路 | `listPage` 循环：`query.Live` 时只收集 `key.Exception` 的线程，第一次 `LoadWorkbenchPage` 后即 break，`HasMore=false`、`NextCursor=""`。带 cursor 的 `live=1` 请求直接返回空页。判断与 R4 的并入写成 `filter.go` 里的 helper，`service.go`（已 1137 行）只加调用。 |
+| R4 | `include` | handler 读 `include`（可重复，也支持逗号分隔，与现有 `full` 一致，`workbench_handler.go:176-183`），>8 或任一 `workbench.ParseThreadID`（现有解析函数，按实际名）失败 → 400；`listPage` 仅在 `query.Cursor == ""` 时 `pinned = append(pinned, query.Include...)`（去重），不写偏好。非分页的 `List` 路径忽略 `include`。带 cursor 的后续页里该线程按普通线程可能再出现，工作台 `appendOlderPage` 已按首页 id 去重（`threadPaging.ts:72-84`）。 |
 | R5 | handler | `internal/httpapi/workbench_handler.go` `handleListWorkbenchThreads`：按现有 `status` / `detail` 的校验写法解析 `source`、`live`（`1`/`true`；其他非空值 400）、`include`。 |
-| R6 | 工作台前端 | `web/src/api/workbench.ts` query 类型加 `source`、`live`、`include?: string[]`（重复参数）。`threadPaging.ts` 首页参数函数加 `include` 入参。新 `web/src/components/workbench/deepLink.ts`：`includeIDs(routeThread, wanted): string[]`（并集、去空、去重、截 8）与 `needsReload(routeThread, loaded): boolean`。`Workbench.vue` 只加接线：`loadThreads` 首页请求传 `includeIDs(route.query.thread, wantedFullIDs())`；`route.query.thread` 的 watch 中 `needsReload` 为真时调用 `loadThreads()` 一次。行数增量不超过 ~10 行。 |
+| R6 | 工作台前端 | `web/src/api/workbench.ts` query 类型加 `source`、`live`、`include?: string[]`（重复参数）。`threadPaging.ts` 首页参数函数加 `include` 入参。新 `web/src/components/workbench/deepLink.ts`：`includeIDs(routeThread, wanted): string[]`（路由目标排第一，其后并集、去空、去重、截 8）与 `needsReload(routeThread, loaded): boolean`。`Workbench.vue` 只加接线：`loadThreads` 首页请求传 `includeIDs(route.query.thread, wantedFullIDs())`；`route.query.thread` 的 watch 中 `needsReload` 为真时调用 `loadThreads()` 一次。行数增量不超过 ~10 行。 |
 | R7 | 会话页 | 新 `web/src/components/SessionsAcpTab.vue`：props `project`、`showEnded`、`readOnly`、工作项关联所需数据；取数 `listWorkbenchThreads({ source: 'acp', since: 1, limit: 50, live: !showEnded || undefined, project })`，「加载更多」用 `next_cursor` 追加；卡片字段与按钮按设计 §3；`emit` 计数给父页签（`N` / `N+`）。`Sessions.vue` 删掉旧 `acpSessions` / `loadAcpSessions` / ACP 卡片模板，换成组件；工作项关联逻辑按需下沉或经 props/emit 复用，行为不变。纯函数（卡片状态文案、链接）放 `web/src/utils/acpThreads.ts`（新）。 |
 | R8 | web 测试 | 无 jsdom：`deepLink.test.ts`、`acpThreads.test.ts` 测纯函数；`sessionsAcpList.test.ts`（源码断言式）改为断言新组件存在与关键调用（`source: 'acp'`、`/workbench?thread=`）；页面行为由 T5 浏览器验收覆盖。 |
 
@@ -84,11 +85,11 @@ fail-closed（出现即停，回报监督会话）：
 ```
 W0  T0 前置核对（Claude）
 W1  T1 后端筛选与 include（sonnet 子 agent）
-W2  T2 工作台深链（sonnet 子 agent，接 T1 同一 worktree 顺序进行）‖ T3 会话页 ACP 页签 + T4 文档（suga，gpt）
+W2  T2 工作台深链（sonnet 子 agent，`.worktrees/7yrg`）‖ T3 会话页 ACP 页签 + T4 文档（suga，gpt，`.worktrees/7yrg-web`）
 W3  T5 真实验收（Claude）→ T6 反向验证、全量与收尾（Claude）
 ```
 
-T2 与 T3 改不同文件（T3 不碰 `Workbench.vue` / `threadPaging.ts` / `deepLink.ts`），T3 只依赖 T1 的参数；`web/src/api/workbench.ts` 由 T2 改，T3 基于 T2 提交后的版本开工（T2 先提交该文件）。
+`web/src/api/workbench.ts` 的类型改动并入 T1 一起提交。T3 用独立 worktree `.worktrees/7yrg-web`（分支 `feat/7yrg-acp-tab`，从 T1 完成后的 `feat/7yrg-acp-history` 提交开出），与 T2 并行、不共用 index；T2 完成后先合 T3 分支进 `feat/7yrg-acp-history`（两边改不同文件），再整体合入 main。
 
 ## 任务
 
@@ -100,24 +101,25 @@ T2 与 T3 改不同文件（T3 不碰 `Workbench.vue` / `threadPaging.ts` / `dee
 ### T1 后端筛选与 include
 
 - 执行方：sonnet 子 agent（判定逻辑、可见性）。
-- 文件：`internal/workbench/filter.go`（新）与测试、`internal/workbench/model.go`（Query 字段）、`internal/workbench/service.go`（`match` / `buildResponse` 各一行调用、R3 短路、R4 并入）、`internal/httpapi/workbench_handler.go` 及测试。
+- 文件：`web/src/api/workbench.ts`（query 类型：`source`、`live`、`include?: string[]` 按重复参数发出）、`internal/workbench/filter.go`（新）与测试、`internal/workbench/model.go`（Query 字段）、`internal/workbench/service.go`（`match` / `buildResponse` 各一行调用、R3 短路、R4 并入）、`internal/httpapi/workbench_handler.go` 及测试。
 - 动作：按 R1–R5。
 - 验证：
-  - `go test ./internal/workbench -count=1`：acp / pty / relay 各自只返回对应线程（含置顶、活跃附带的线程）；`live=1` 只返回未结束线程且 `has_more=false`，并断言 store 只被调用一次（桩计数或等价手段）；旧行未结束、最新行已结束的线程算 live；`include` 让 30 天前未置顶线程出现在首页、带 cursor 时不生效、偏好表未写入；`include` 指向 `Keep` 拒绝的线程时不返回。
+  - `go test ./internal/workbench -count=1`：acp / pty / relay 各自只返回对应线程（含置顶、活跃附带的线程）；`live=1` 只返回未结束线程且 `has_more=false`，并断言 store 只被调用一次（`workbench.Store` 是接口，测试里嵌入真实 store、覆盖 `LoadWorkbenchPage` 计数；数据须含 ≥101 个已结束且能通过筛选的线程，否则没有短路也只调一次）；旧行未结束、最新行已结束的线程算 live；`include` 让 30 天前未置顶线程出现在首页、带 cursor 时不生效、偏好表未写入；`include` 指向 `Keep` 拒绝的线程时不返回。
   - `go test ./internal/httpapi -run 'Workbench' -count=1`：`source=bad`、`live=x`、`include` 非法格式、9 个 `include` → 400；受限调用方经 `include` 拿不到别人的线程。
   - 提交前 `go build ./... && go vet ./...`。
 
 ### T2 工作台深链
 
 - 执行方：sonnet 子 agent（前端状态与刷新时序；T1 完成后同一 agent 续做或新派）。
-- 文件：`web/src/api/workbench.ts`、`web/src/components/workbench/threadPaging.ts`、`web/src/components/workbench/deepLink.ts`（新）与测试、`web/src/views/Workbench.vue`（接线）。
-- 动作：按 R6。先提交 `api/workbench.ts` 的类型改动，通知监督会话后 T3 才开工。
+- 文件：`web/src/components/workbench/threadPaging.ts`、`web/src/components/workbench/deepLink.ts`（新）与测试、`web/src/views/Workbench.vue`（接线）。
+- 动作：按 R6（`api/workbench.ts` 已在 T1 改好）。
 - 验证：主机 job `npx vue-tsc --noEmit && npx vitest run && npx vite build`；`Workbench.vue` 行数增量 ≤ 10（`git diff --stat`）。
 
 ### T3 会话页 ACP 页签
 
 - 执行方：suga（gpt）。
-- 文件：`web/src/components/SessionsAcpTab.vue`（新）、`web/src/utils/acpThreads.ts`（新）与测试、`web/src/views/Sessions.vue`、`web/src/views/sessionsAcpList.test.ts`、i18n（`web/src/i18n/` 现有 sessions 文案处）。
+- worktree：`.worktrees/7yrg-web`（见「波次与依赖」）。
+- 文件：`web/src/components/SessionsAcpTab.vue`（新）、`web/src/utils/acpThreads.ts`（新）与测试、`web/src/views/Sessions.vue`、`web/src/views/sessionsAcpList.test.ts`、`web/src/views/sessionsCards.test.ts`、`web/src/views/sessionsP4.test.ts`（这两个源码断言 ACP 标记，改为指向 `SessionsAcpTab.vue`，不许删断言）、i18n（`web/src/i18n/` 现有 sessions 文案处）。
 - 动作：按 R7、R8 与设计 §3。`Sessions.vue` 行数只减不增。任务书写明：不改无关代码、不删注释、不压缩样式、不改 `Workbench.vue`。
 - 验证：同 T2 的主机 web 构建与测试；`wc -l web/src/views/Sessions.vue` 小于改前。
 
@@ -131,7 +133,7 @@ T2 与 T3 改不同文件（T3 不碰 `Workbench.vue` / `threadPaging.ts` / `dee
 ### T5 真实验收
 
 - 执行方：Claude。
-- 环境：worktree 构建（嵌入新 web）的 Linux 二进制，容器内临时 server（临时端口与配置目录，只按自记 pid 停）。造数据：起一个 ACP 持续会话（suga-acp 或 codex-acp，`--shared-dir`），说两轮后 `job end`；起一个交互式 PTY job；为「旧会话」用例，在临时库里把一条已结束 ACP 会话的 `started_at` / `updated_at` 改到 30 天前（只改临时 server 的库）。
+- 环境：worktree 构建（嵌入新 web）的 Linux 二进制，容器内临时 server（临时端口与配置目录，只按自记 pid 停）。造数据：起一个 ACP 持续会话（suga-acp 或 codex-acp，`--shared-dir`），说两轮后 `job end`；起一个交互式 PTY job；为「旧会话」用例，先停临时 server，再在临时库里把一条已结束 ACP 会话的 `started_at` / `updated_at` 改到 30 天前（只改临时 server 的库；容器无 sqlite3 时用一次性 Go 小程序改），再启动。
 - 动作：
   - 会话页 ACP 页签：勾 / 不勾「显示已结束」、项目筛选、加载更多；卡片数 = 接口各页之和；PTY 会话不出现。
   - 「打开会话」打开旧会话 → 定位显示两轮对话 → 等一次推送或手动刷新仍在 → 发一条消息 → 续接 job 生成、回复出现在同一线程 → 该线程未置顶。
