@@ -60,6 +60,9 @@ export const sessions: PageDict = {
     'sessions.acp.previewAwaiting': '等待你的下一句话',
     'sessions.acp.previewOpen': '打开会话查看过程',
     'sessions.acp.openJob': '查看过程',
+    'sessions.acp.openSession': '打开会话',
+    'sessions.acp.loadMore': '加载更多',
+    'sessions.acp.loadingMore': '加载中…',
 
     // 卡片里的通用字段（业务内容不翻译）
     'sessions.card.open': '打开',
@@ -404,6 +407,9 @@ export const sessions: PageDict = {
     'sessions.acp.previewAwaiting': 'Waiting for your next message',
     'sessions.acp.previewOpen': 'Open the session to see what happened',
     'sessions.acp.openJob': 'Open job',
+    'sessions.acp.openSession': 'Open session',
+    'sessions.acp.loadMore': 'Load more',
+    'sessions.acp.loadingMore': 'Loading…',
 
     'sessions.card.open': 'Open',
     'sessions.card.grant': 'Grant',

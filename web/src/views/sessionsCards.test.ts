@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
 const source = Object.values(import.meta.glob('./Sessions.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
+const acp = Object.values(import.meta.glob('../components/SessionsAcpTab.vue', { eager: true, query: '?raw', import: 'default' }))[0] as string
 
 // 三个区都由表格改成了卡片（共用 InfoCard，与「工作」页同一套）；这里钉住：
 // 默认只显示关键信息、其余在展开里、既有功能一个不少。
 describe('Sessions page cards', () => {
   it('uses the shared InfoCard for the agent, ACP and terminal areas (no private card markup)', () => {
     expect(source).toContain("import InfoCard from '../components/InfoCard.vue'")
-    expect(source.match(/<InfoCard\b/g)?.length).toBe(3)
-    for (const hook of ['data-test="agent-cards"', 'data-test="acp-cards"', 'data-test="pty-cards"']) {
-      expect(source).toContain(hook)
+    expect(source.match(/<InfoCard\b/g)?.length).toBe(2)
+    expect(acp.match(/<InfoCard\b/g)?.length).toBe(1)
+    for (const hook of ['data-test="agent-cards"', 'data-test="pty-cards"']) {
+      expect(source + acp).toContain(hook)
     }
-    expect(source.match(/class="icard-grid"/g)?.length).toBe(3)
+    expect(acp).toContain('data-test="acp-cards"')
+    expect(source.match(/class="icard-grid"/g)?.length).toBe(2)
+    expect(acp.match(/class="icard-grid"/g)?.length).toBe(1)
     // the old tables are gone
     expect(source).not.toContain('class="table"')
     expect(source).not.toContain('thead--agent')
@@ -19,14 +23,14 @@ describe('Sessions page cards', () => {
 
   it('each area keeps its own expand/collapse state through the shared helper', () => {
     expect(source).toContain("import { toggleExpanded } from '../utils/cardExpand'")
-    for (const [set, id] of [['expandedAgent', 's.session_id'], ['expandedAcp', 'item.id'], ['expandedPty', 's.pty_session_id']]) {
-      expect(source).toContain(`:expanded="${set}.has(${id})"`)
-      expect(source).toContain(`@toggle="${set} = toggleExpanded(${set}, ${id})"`)
+    for (const [area, set, id] of [[source, 'expandedAgent', 's.session_id'], [acp, 'expandedAcp', 'item.id'], [source, 'expandedPty', 's.pty_session_id']] as const) {
+      expect(area).toContain(`:expanded="${set}.has(${id})"`)
+      expect(area).toContain(`@toggle="${set} = toggleExpanded(${set}, ${id})"`)
     }
   })
 
   it('keeps only the key info in the card head and moves the rest into the expandable details', () => {
-    const agent = source.slice(source.indexOf('data-test="agent-cards"'), source.indexOf('data-test="acp-cards"'))
+    const agent = source.slice(source.indexOf('data-test="agent-cards"'), source.indexOf('data-test="pty-cards"'))
     const metaAt = agent.indexOf('<template #meta>')
     const actionsAt = agent.indexOf('<template #actions>')
     const detailsAt = agent.indexOf('<template #details>')
@@ -57,7 +61,7 @@ describe('Sessions page cards', () => {
     expect(source).toContain('@click="onWake(s)"')
     expect(source).toContain('v-model="showEnded"')
     expect(source).toContain('@click="loadAgentSessions()"')
-    expect(source).toContain('@click="loadAcpSessions()"')
+    expect(acp).toContain('@click="loadAcpSessions()"')
     expect(source).toContain('@click="load()"')
     expect(source).toContain('@open="openDrawer(s.session_id)"')
     expect(source).toContain('<SessionDrawer')
@@ -65,11 +69,11 @@ describe('Sessions page cards', () => {
   })
 
   it('shows the ACP and terminal cards with their own key info and actions', () => {
-    expect(source).toContain("t('sessions.acp.openJob')")
+    expect(source + acp).toContain("t('sessions.acp.openJob')")
     expect(source).toContain("t('sessions.card.openTerminal')")
     expect(source).toContain("t('sessions.card.downloadRecording')")
     expect(source).toContain('onDownloadRecording(s)')
-    expect(source).toContain("t('sessions.card.turns')")
+    expect(source + acp).toContain("t('sessions.card.turns')")
   })
 
   it('lays out one column on a phone and several on a desktop through the shared grid', () => {

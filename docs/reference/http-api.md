@@ -26,7 +26,7 @@ Permissions: what each `/v1` route needs, and what every permission means (what 
 | templates | `GET /v1/projects/{key}/templates`, `GET /v1/projects/{key}/templates/{name}?var=k=v` (read-only; the detail endpoint returns the server's render of it) |
 | jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}[?include=events,comments,deliveries,retries,wakeups,pty_sessions,artifacts,session_jobs,messages]`, `/logs/{stdout,stderr}`, `/stream` (日志 SSE), `/acp/stream`（归一化 ACP SSE）, `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/previews`, `DELETE …/previews/{preview_id}`, `POST/GET …/follow-ups`, `DELETE …/follow-ups/{follow_up_id}`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/worktree/merge`, `POST …/attach-ticket`, `GET …/pty/sessions` |
 | interactions | `POST/GET /v1/jobs/{id}/interactions`, `POST …/{iid}/answer`, `POST …/{iid}/punt`, `GET /v1/interactions` |
-| workbench | `GET /v1/workbench/threads?project=&status=&q=&since=&active_within=&limit=&cursor=&detail=full\|summary`, `PATCH /v1/workbench/threads/{s:\|j:\|r:…}`, `POST …/turn` |
+| workbench | `GET /v1/workbench/threads?project=&status=&q=&since=&active_within=&limit=&cursor=&detail=full\|summary&source=&live=&include=`, `PATCH /v1/workbench/threads/{s:\|j:\|r:…}`, `POST …/turn` |
 | plans / decisions | `POST/GET /v1/plans`, `GET /v1/plans/{id}`, `POST …/todos`, `POST …/jobs`, `POST …/run\|pause\|resume`, `POST/GET /v1/decisions`, `POST /v1/decisions/{id}/answer` |
 | session relay | `GET/POST /v1/sessions`, `POST /v1/sessions/{sid}/heartbeat`, `…/relay`, `…/inject-mode` (delivery mode auto\|hold\|force), `…/held/send` (现在送), `…/say`, `…/deliver`, `…/release-takeover`, `…/owner` (admin hand-over), `…/wait` (long poll on the state), `…/screen` (its text tail), `…/turns`, `PATCH /v1/sessions/{sid}` (topic / scope) |
 | workflows / schedules | `GET /v1/workflow-templates[/{name}]`, `POST /v1/workflow-templates/{name}/render`, `GET /v1/workflow-templates/{name}/source`, `PUT/DELETE /v1/workflow-templates/{name}?scope=global\|project`, `POST /v1/workflows/{id}/save-as-template`, `POST/GET /v1/workflows`, `…/{id}/cancel`, `…/{id}/pick`, `…/{id}/rerun`, `…/events`, `…/export`; `POST/GET /v1/schedules`, `…/{id}` (incl. `PATCH`), `…/{id}/events`, `…/enable`, `…/disable`, `…/run-now`, `…/rotate-token`, `POST /v1/schedules/{id}/trigger?token=…` (unauthenticated, schedule token) |
@@ -710,7 +710,18 @@ Letters between sessions, session jobs and callers. A letter is stored on the se
 - **Permissions** (deny unless stated). The caller's own letters (sent, or received through its own sessions / jobs / capture box) need nothing. Another caller's terminal session needs `session.reply.others`, its session job `job.manage.others` (reading: `job.read.others`); for a `topic:` / `path:` address the sender's `session.read.others` first filters the candidates and the unique hit is then judged like an explicit address. `GET /v1/mail` is the filter form: it lists the caller's own letters and adds another caller's only when the recipient type's `.others` permission is held. A job credential may only send to its job's `source_session_id`, its plan's `supervisor_session_id` and its caller (only the caller when the job has no source session), only read and answer the letters of its own job, and cannot readdress. A worker token is refused. A refused send stores nothing. Redaction (`POST /v1/mail/{id}/redact`) follows job redaction: the letter's own two sides — the caller that sent it and the owner of its recipient — or a holder of `job.delete.others`; a job credential may not redact.
 - **Caller ceilings.** A caller with a `ceiling` (and a job credential, with its job owner's) can only send to sessions / jobs of its projects and sees only letters with an end inside them: a recipient outside answers **404**, the same as a missing one, a letter whose sender and recipient are both outside is 404, and a letter with no session or job end at all (caller to caller) is outside a project-restricting ceiling.
 
-## Workbench image attachments (`/v1/attachments*`)
+## Workbench threads
+
+`GET /v1/workbench/threads` returns the visible conversation threads grouped under `projects[].threads[]`. In paged mode, `limit` and `cursor` control the keyset pages; `next_cursor` and `has_more` describe whether an older page is available.
+
+- `source=acp|pty|relay` narrows the result to ACP session threads, interactive PTY threads, or relay threads. A missing value keeps all sources.
+- `live=1` keeps only threads with a non-terminal job or an online relay. It is a single first-page query and returns no further pages; other non-empty values are rejected.
+- `include=<thread-id>` adds a visible thread to the first page even when it is outside the normal time window. The parameter may be repeated or contain comma-separated ids; at most eight ids are accepted. It is ignored on cursor pages and does not change the user's pinned-thread preferences.
+- `source`, `live`, and `include` are validated before the response is built. An unknown source, invalid live value, malformed thread id, or more than eight include ids returns **400**.
+
+`project`, `status`, `q`, `source`, `live`, and `include` are applied before the page is cut, so pagination counts only matching visible threads. `include` does not bypass the existing visibility filter: a thread the caller cannot see is omitted.
+
+
 
 Images attached to a workbench message are uploaded first and referenced by id when the message is sent. Only user-class callers use these routes; a job credential and a worker are refused (403).
 

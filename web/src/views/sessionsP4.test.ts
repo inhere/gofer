@@ -7,6 +7,7 @@ function raw(pattern: Record<string, unknown>): string {
 }
 
 const page = raw(import.meta.glob('./Sessions.vue', { eager: true, query: '?raw', import: 'default' }))
+const acp = raw(import.meta.glob('../components/SessionsAcpTab.vue', { eager: true, query: '?raw', import: 'default' }))
 const drawer = raw(import.meta.glob('../components/SessionDrawer.vue', { eager: true, query: '?raw', import: 'default' }))
 const thread = raw(import.meta.glob('../components/workbench/ThreadView.vue', { eager: true, query: '?raw', import: 'default' }))
 const dict = raw(import.meta.glob('../i18n/pages/sessions.ts', { eager: true, query: '?raw', import: 'default' }))
@@ -27,7 +28,7 @@ describe('sessions page P4', () => {
     expect(page).toContain('<ProjectFilter')
     expect(page).toContain('<FilterChips v-model="statusFilter" :items="statusChips"')
     expect(page).toContain('v-for="s in filteredAgent"')
-    expect(page).toContain('v-for="item in filteredAcp"')
+    expect(acp).toContain('v-for="item in filteredAcp"')
     expect(page).toContain('v-for="s in filteredPty"')
   })
 
@@ -51,7 +52,7 @@ describe('sessions page P4', () => {
       'data-test="acp-link-pick"',
       'data-test="pty-link-pick"',
     ]) {
-      expect(page + drawer).toContain(hook)
+      expect(page + acp + drawer).toContain(hook)
     }
     expect(drawer).toContain('data-test="drawer-send-held"')
   })
