@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # ACP 持续会话历史与继续 实施计划
 
-> 状态：Draft 0.2 / 已批准（2026-11-10，用户：「两份计划批准」）
+> 状态：COMPLETE（2026-11-10）；Draft 0.2 已批准（2026-11-10，用户：「两份计划批准」）
 > issue：gofer-7yrg
 
 ## 修订记录
@@ -168,3 +168,10 @@ W3  T5 真实验收（Claude）→ T6 反向验证、全量与收尾（Claude）
 ## 完成 Gate 与剩余工作
 
 T6 完成即本计划完成；发版另行进行。
+
+## 完成总结（2026-11-10）
+
+- T1/T2 sonnet（9625dd9d、fede3a90）；T3/T4 suga 在独立 worktree（dc071248、5a9f1097）后合入；验收返工组件样式（04c5b6bd，suga job 写完后 stalled，监督审阅后提交）。
+- 与计划不一致：无实质偏离；验收临时 server 改在主机运行（容器无 ACP agent 的模型配置）。
+- 验证：真实验收与反向验证见工作区 `tmp/7yrg-impl/`；gofer-verify 四路通过。
+
