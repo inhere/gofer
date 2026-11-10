@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 续跑与 worktree 合并清理互斥设计
 
-> 状态：Draft 0.2 / 待批准
+> 状态：Draft 0.3 / 待批准
 > issue：gofer-fi7f
 
 ## 修订记录
@@ -10,6 +10,7 @@
 |---|---|---|---|
 | 0.1 | 2026-11-11 | Claude | 初稿：事故复盘、代码核查与修复方案 |
 | 0.2 | 2026-11-11 | Claude | 按两轴评审修订：补故障转移入口（F1）与全部八个入口的被拒处理（F3/S1）；新增 `WorktreeFrom` 统一继承；合并不排除自身（F2）；开跑前复查位置与非 transient（F4）；可用判定改为分支 ref 存在、不要求 HEAD（F5）、RealPath 比较（S6）；worktree 在项目根外单独 reason（F6）；测试钩子（F7）；hold 与残余竞态说明（F8/F9）；新文件规避 GR104（S4）；事件常量（S5）；入口映射与同步文件清单（S2/S3）；交付合并列为非目标（S7） |
+| 0.3 | 2026-11-11 | Claude | 第 2 轮评审修订：重试是第九条路径——新增失败类 `worktree-gone`，不自动续跑 / 不转移 / 不重试，续跑的重试也带 `WorktreeFrom`（R1/C1）；转移的 `WorktreeFrom` 取失败 job 自身 id，带交付的 job 转移维持现状（C2）；事件改名 `job.continuation_skipped{entry, reason}`（N3）；测试钩子复位与不并行（N2）；hold 事实表述更正（N4）；同步清单补故障转移一段与第三条 CHANGELOG（N1） |
 
 需要用户：答复 Q1–Q3（或接受全部推荐项），并明确批准进入计划编写。批准设计不等于授权实施。
 
@@ -33,7 +34,7 @@
 ## 已确认事实（代码，候选 92f943b3）
 
 - 自动续跑在 job 失败时立即提交：`execute.go:928` → `autoResume`（`execute.go:1113`）→ `resumeJob`；资格（`autoResumeEligible`，`execute.go:1100`）不看 worktree。
-- 「接着干」的入口共八处，前六处经 `resumeJob` → `Submit`，待办接续与故障转移直接组请求 `Submit`：
+- 「接着干」的入口共九处，前六处经 `resumeJob` → `Submit`，待办接续、故障转移与失败重试直接组请求 `Submit`：
 
   | 入口 | 位置 | 失败时现状 |
   |---|---|---|
@@ -45,6 +46,7 @@
   | 唤醒续接 | `wakeup.go:661` | 非 ErrNoSession 的错误返回，唤醒记失败 |
   | 待办接续 | `todo_continue.go:330-340` | 派发失败返回 |
   | **故障转移（换 agent）** | `fallback.go:250` `fallBack` | 直接 `Submit` |
+| **失败重试** | `execute.go:1157` `maybeRetryJob` → 重试清扫 | 从 `request_json` 重建请求再 `Submit`；内部字段不在 JSON 里 |
 
 - 续跑的 cwd：`resumeCwd`（`resume.go:766`）——源 job 有 `WorktreePath` 且它在项目根下时取 worktree，否则取源 job 提交时的相对 cwd，即**主 checkout**。
 - 续跑是否接手 worktree：`InheritWorktree = src.WorktreePath != ""`（`resume.go:509`、`todo_continue.go:340`）；提交时 `inheritedWorktree`（`resume.go:793`）只检查目录存在；返回 nil 时**照常当普通 job 提交**（`submit.go:660-665`，该分支还要求 `ResumedFrom` 非空）。
@@ -58,7 +60,7 @@
 
 ## 总体方案
 
-新代码集中在新文件 `internal/job/continuation_guard.go`（`worktree.go` 1221 行、`submit.go` 1842 行、`execute.go` 1290 行均已超 GR104 上限，只加调用行）：错误 `ErrContinuationWorktreeGone`、判定函数、事件常量 `EventJobAutoResumeSkipped = "job.auto_resume_skipped"` 与记录函数。
+新代码集中在新文件 `internal/job/continuation_guard.go`（`worktree.go` 1221 行、`submit.go` 1842 行、`execute.go` 1290 行均已超 GR104 上限，只加调用行）：错误 `ErrContinuationWorktreeGone`、失败类 `FailureClassWorktreeGone = "worktree-gone"`、判定函数、事件常量 `EventJobContinuationSkipped = "job.continuation_skipped"`（payload `{entry, reason, worktree_path}`，entry 取 `auto` / `uncommitted` / `followup` / `fallback` / `retry`）与记录函数。
 
 ### 1. 统一的继承判定与提交时拒绝
 
@@ -68,37 +70,42 @@
   - 来源是 worktree job 且 worktree 可用、续跑 cwd 在其内 → 继承（现状）；
   - 来源是 worktree job 但 worktree 不可用 → 返回 `ErrContinuationWorktreeGone`（reason `worktree_gone`），不提交；
   - worktree 可用但续跑 cwd 不在其内（项目根是仓库子目录，worktree 在根外，`resume.go:780` 回落）→ 同一错误，reason `worktree_outside_project`。
-- **来源字段**：新增内部字段 `WorktreeFrom`（json:"-"，与 `InheritWorktree` 同处理，hold 期间随 `hold.go` 持久化的 carry 一起保存）。`resumeJob` 与待办接续设为源 job id；**故障转移也设为源 job id**（不再依赖 `ResumedFrom`），从而转移 job 也继承 worktree、行上记录路径、能被 `worktreeUsers` 看到。`InheritWorktree` 判定改为 `src.WorktreeBranch != ""`。
+- **来源字段**：新增内部字段 `JobRequest.WorktreeFrom`（`json:"-"`）；hold 期间随 `heldInternals`（`hold.go:136-176`）保存——那里是带 json tag 的字段，capture / restore 各加一行，与 `InheritWorktree` 相同。`resumeJob` 与待办接续设为源 job id；**故障转移设为失败 job 自身的 id（`snap.ID`）**，与它的 `resumeCwd(snap)` 同源（不依赖 `ResumedFrom`），从而转移 job 也继承 worktree、行上记录路径、能被 `worktreeUsers` 看到。`InheritWorktree` 判定改为 `src.WorktreeBranch != ""`。
+- **重试**：重试清扫重建请求时，若失败 job 的行上有 `WorktreeBranch` 且它本身是续跑 / 转移（`ResumedFrom` 或 `WorktreeFrom` 来源），把 `WorktreeFrom` 设为失败 job 的 id，让重试同样经过检查；首次以 `--worktree` 提交的 job 重试仍新建 worktree（现状）。
+- **带交付的 job 故障转移**：维持现状（`config.go:76` 要求交付需 worktree 或续跑来源，转移请求两者都没有，被拒），本次不改。
 - **各入口被拒后的结果**：
 
   | 入口 | 被拒后 |
   |---|---|
   | 手动 resume | HTTP 409 / CLI 报错，文案说明不会改到主 checkout、需要时另起 job |
-  | 自动续跑 / 未提交改动续投 | 不续跑；源 job 记 `job.auto_resume_skipped{reason, worktree_path}`，调用方照常记 `job.terminal`，失败照常进「等我」 |
+  | 自动续跑 / 未提交改动续投 | 不续跑；源 job 记 `job.continuation_skipped`，调用方照常记 `job.terminal`，失败照常进「等我」 |
   | 交付核验续接 | 走现有 `parkAfterFailedCheckResume`，原因文案带 reason |
-  | follow-up | follow-up 释放回待处理（现状），另记 `job.auto_resume_skipped` 并 Warn 日志（不再无声丢弃） |
+  | follow-up | follow-up 释放回待处理（现状），另记 `job.continuation_skipped{entry:followup}` 并 Warn 日志（不再无声丢弃） |
   | 唤醒续接 | 唤醒记失败（现状路径），错误文本带 reason |
   | 待办接续 | 派发失败返回（现状路径） |
-  | 故障转移 | 不转移；源 job 记 `job.auto_resume_skipped`，照常 terminal |
+  | 故障转移 | 不转移；源 job 记 `job.continuation_skipped{entry:fallback}`，照常 terminal |
+| 失败重试 | 不重试；源 job 记 `job.continuation_skipped{entry:retry}`，失败 job 保持 failed |
 
 ### 2. 开跑前复查
 
-`execute.go` 在所有并发槽 / 目录锁之后、`recheckOwners` 旁边（`runCtx` 之前）加一行调用：`entry.wt != nil && !entry.wt.Temp && req.Forward == nil` 时再判 `worktreeUsable`；不可用则 `finish(StatusFailed)`，错误为 `ErrContinuationWorktreeGone`，失败归类为**非 transient**（不触发自动续跑或故障转移），不启动 agent。
+`execute.go` 在所有并发槽 / 目录锁之后、`recheckOwners` 旁边（`runCtx` 之前）加一行调用：`entry.wt != nil && !entry.wt.Temp && req.Forward == nil` 时再判 `worktreeUsable`；不可用则 `finish(StatusFailed)`，错误为 `ErrContinuationWorktreeGone`，不启动 agent。
+
+**失败类**：`failureDecision`（`fallback.go:67`）开头照 `errCallerDisabled` 的写法按错误文本哨兵识别，提前返回 `FailureClassWorktreeGone`（不判 transient、不续跑、不转移）；`maybeRetryJob`（`execute.go:1157`）照 `FailureClassCallerDisabled` 跳过该类。这样复查失败不会经任何路径再跑一次。
 
 ### 3. 有活着的 job 时不合并、不清理
 
 - `MergeWorktree` 合并前查 `worktreeUsers(path)`，**不排除被合并的 job 自身**（它若已结束含 needs_review 本就被过滤；若还在跑正是要拦的）：非空就拒绝（Q1），返回现有 `ErrWorktreeInUse`（`worktree_handler.go:111` 已映射 409），列出 job id 与状态，提示等待或 `gofer job cancel <id>`。
-- `cleanupMergedWorktree` 删除前再查一次：命中则跳过清理、结果给 warning（合并不回滚）。为测试这一分支，在两次检查之间留一个包内测试钩子（`var beforeMergeCleanup func()`，生产为 nil）。
+- `cleanupMergedWorktree` 删除前再查一次：命中则跳过清理、结果给 warning（合并不回滚）。为测试这一分支，在两次检查之间留一个包内测试钩子（`var beforeMergeCleanup func()`，生产为 nil，调用前判 nil）；用到它的测试照 `outcomes_test.go:215-217` 的写法保存旧值并 `t.Cleanup` 复原，且不加 `t.Parallel()`（G053）。
 
 ### 4. 残余与不做的事
 
 - 不加跨 Submit / Merge 的锁（SR1410）。已知残余：清理前复查之后、删除完成之前恰好有续跑开跑且 agent 已启动——窗口在毫秒级，接受。
-- 等待审批的续跑（hold）在批准前没有 jobs 行，合并前检查看不到；批准后重新走 Submit，被提交时检查拒绝，结果安全。
+- 等待审批的续跑（hold）在批准前的行（`awaiting_approval`，`hold.go:499`）上没有 `worktree_path`，合并前检查看不到它；批准时经 `submitAdmitted` 重新提交（`hold.go:623`），若被提交时检查拒绝，该行以 failed 结束（`failApprovedHold`），结果安全。
 
 ### 5. 入口层映射与文档同步
 
 - `ErrContinuationWorktreeGone` 在 `internal/httpapi` 的 `submitStatus` 映射 409（resume 经 `resumeStatus` 落到它，待办派发同样得到 409）；MCP / CLI 只透传错误文本。
-- 文档：`docs/reference/http-api.md`（worktree/merge 段 409 原因与 cleanup 跳过 warning；Job resume 错误列表加 409；todo `continue_from` 段）；`skills/gofer-usage/references/job-advanced.md`（「中断后续跑」：worktree 已删除时不能续跑，自动续跑条目加 `job.auto_resume_skipped`；合并规则：有 job 在用时 merge 返回 409）；`skills/gofer-usage/references/plans-workflows.md`（待办接续）；`CHANGELOG.md`「未发布」变更两条。SKILL.md 无需更新。
+- 文档：`docs/reference/http-api.md`（worktree/merge 段 409 原因与 cleanup 跳过 warning；Job resume 错误列表加 409；todo `continue_from` 段）；`skills/gofer-usage/references/job-advanced.md`（「中断后续跑」：worktree 已删除时不能续跑，自动续跑条目加 `job.continuation_skipped`；合并规则：有 job 在用时 merge 返回 409；「停滞看门狗、故障转移与重试」一段：转移的 job 继承源 worktree，worktree 失效时不转移、不重试）；`skills/gofer-usage/references/plans-workflows.md`（待办接续）；`CHANGELOG.md`「未发布」变更三条（续跑拒绝、merge 409、故障转移继承 worktree）。SKILL.md 无需更新。
 
 ## 架构
 
@@ -108,8 +115,8 @@
 
 1. job A（worktree W，分支 B）被判 stalled → 自动续跑：W 可用 → 续跑 A′ 提交并落库（路径 W）。
 2. 监督方 `merge A --cleanup`：`worktreeUsers(W)` 含 A′ → 409，提示等 A′ 结束或取消 A′。
-3. 反过来：先合并清理 W → A 被自动续跑：W 不可用 → 不续跑，A 记 `job.auto_resume_skipped`；手动 `job resume A` → 409；A 的故障转移同样不提交。
-4. A′ 已提交、排队时 W 被删 → A′ 开跑前复查失败（非 transient），不启动 agent。
+3. 反过来：先合并清理 W → A 被自动续跑：W 不可用 → 不续跑，A 记 `job.continuation_skipped`；手动 `job resume A` → 409；A 的故障转移同样不提交。
+4. A′ 已提交、排队时 W 被删 → A′ 开跑前复查失败（失败类 `worktree-gone`），不启动 agent，也不会被重试 / 续跑 / 转移。
 
 ## 安全、数据、运维与回滚
 
@@ -136,11 +143,11 @@
   - worktree 被 `worktree merge --cleanup` 删除后，手动 resume 返回 `ErrContinuationWorktreeGone`，库里没有新 job，主 checkout 无改动。
   - 登记已删、目录仍在（模拟 Windows 删不掉目录）时同样拒绝。
   - 分支被切换（HEAD 不是原分支）时拒绝。
-  - 自动续跑遇到失效 worktree：不提交续跑，源 job 有 `job.auto_resume_skipped` 事件。
+  - 自动续跑遇到失效 worktree：不提交续跑，源 job 有 `job.continuation_skipped{entry:auto}` 事件。
   - 待办接续遇到失效 worktree：拒绝。
   - 续跑提交后、开跑前删掉 worktree：续跑失败且未启动 agent 进程。
   - worktree 上有排队 / 运行中的续跑时 `MergeWorktree` 返回 `ErrWorktreeInUse`，分支未合并；清理前复查命中时合并成功、清理跳过并有 warning。
-- 补充单测：故障转移在 worktree 已删时不提交、在 worktree 可用时继承（行上有 worktree_path）；未提交续投被拒记事件；交付核验续接被拒走 park；源 job 自身仍在跑时 `MergeWorktree` 得 `ErrWorktreeInUse`；worktree 在项目根外时 reason 为 `worktree_outside_project`；detached HEAD（模拟 rebase 中）仍可续跑；清理前复查命中（测试钩子）时合并成功、清理跳过有 warning。排队期间删 worktree 用 `max_concurrent=1` + 占槽 job 压住续跑；等待用 `wait.For` / `jobs.Wait`，阈值远大于用例耗时（G051–G052）；Windows「目录删不掉但登记已删」复用 `worktree_remove_windows_test.go` 的做法。
+- 补充单测：故障转移在 worktree 已删时不提交、在 worktree 可用时继承（行上有 worktree_path，`WorktreeFrom` 为失败 job 自身）；复查失败的 job 失败类为 `worktree-gone` 且不排重试、不续跑；带重试策略的续跑在 worktree 清理后重试被拒；未提交续投被拒记事件；交付核验续接被拒走 park；源 job 自身仍在跑时 `MergeWorktree` 得 `ErrWorktreeInUse`；worktree 在项目根外时 reason 为 `worktree_outside_project`；detached HEAD（模拟 rebase 中）仍可续跑；清理前复查命中（测试钩子）时合并成功、清理跳过有 warning。排队期间删 worktree 用 `max_concurrent=1` + 占槽 job 压住续跑；等待用 `wait.For` / `jobs.Wait`，阈值远大于用例耗时（G051–G052）；Windows「目录删不掉但登记已删」复用 `worktree_remove_windows_test.go` 的做法。
 - 真实验收（临时 server，exec agent 足以模拟）：造一个 worktree job → 手动 resume 让它在 worktree 里 `sleep` → `worktree merge --cleanup` 得 409；取消后合并清理成功 → 再 resume 得 409，主 checkout 无改动。
 - 反向验证：去掉提交时检查 → 「清理后 resume」用例失败；去掉合并前检查 → 「在用时合并」用例失败。
 
