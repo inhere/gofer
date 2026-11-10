@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"path/filepath"
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -39,8 +40,8 @@ func JobXferBridge(cl *Client, lim xfer.Limits) job.XferBridge {
 	return jobXfer{cl: cl, limits: job.CollectLimits{MaxFile: lim.MaxBytes, MaxTotal: lim.CollectMaxBytes}}
 }
 
-// FetchUpload streams the staged transfer onto this machine at dst.
-func (x jobXfer) FetchUpload(ctx context.Context, xferID, _, dst string) error {
+// FetchUpload streams the staged transfer onto this machine at rel under root.
+func (x jobXfer) FetchUpload(ctx context.Context, xferID, _, root, rel string) error {
 	base := x.cl.hubBase()
 	if base == "" {
 		return errors.New("worker has no live hub connection")
@@ -56,7 +57,7 @@ func (x jobXfer) FetchUpload(ctx context.Context, xferID, _, dst string) error {
 	// Size/sha256 are unknown to the job request (it carries only the id), so the
 	// fetch verifies against what the hub ANNOUNCES in the response headers — which is
 	// the digest the staging area settled the payload with.
-	_, _, err = x.cl.xferFetch(tctx, contentURL, wsproto.FileXfer{XferID: xferID, Op: "put"}, dst)
+	_, _, err = x.cl.xferFetch(tctx, contentURL, wsproto.FileXfer{XferID: xferID, Op: "put"}, filepath.Join(root, rel))
 	return err
 }
 

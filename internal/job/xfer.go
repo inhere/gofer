@@ -32,10 +32,12 @@ import (
 // pull what it collected (it cannot write the hub's result dir). The job package
 // therefore stays free of HTTP, of the wire and of internal/xfer (G022).
 type XferBridge interface {
-	// FetchUpload places the staged transfer xferID at dst — an absolute path this
-	// machine resolved (the job's cwd + the request's Dest) — and returns an error
-	// describing why it could not (the job then fails with it).
-	FetchUpload(ctx context.Context, xferID, projectKey, dst string) error
+	// FetchUpload places the staged transfer xferID at rel under root — the job's
+	// workDir or result dir on this machine and the request's Dest (already vetted by
+	// SafeJoin) — and returns an error describing why it could not (the job then fails
+	// with it). The bridge must write through project.PlaceInRoot (os.Root), so that a
+	// link inside root cannot lead the upload out of it.
+	FetchUpload(ctx context.Context, xferID, projectKey, root, rel string) error
 	// PullCollected fetches one file the EXECUTING machine matched for collection into
 	// dst (an absolute path in the job's artifact directory on THIS machine) and
 	// returns its size. Only a machine that OWNS the job's result dir implements it;
@@ -185,7 +187,9 @@ func (s *Service) materializeUploads(ctx context.Context, entry *jobEntry, req r
 				res.Error = err.Error()
 				break
 			}
-			if err := s.xfer.FetchUpload(ctx, up.XferID, projectKey, dst); err != nil {
+			// dst is only the literal pre-check result (and the size read below); the
+			// bridge writes through os.Root over root, so a link in the tree cannot lead out.
+			if err := s.xfer.FetchUpload(ctx, up.XferID, projectKey, root, up.Dest); err != nil {
 				res.Error = err.Error()
 				break
 			}

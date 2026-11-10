@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -213,4 +214,201 @@ func assertXferState(t *testing.T, mgr *Manager, id string, want State, wantErr 
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// linkFixture is a project root plus a sibling directory the root must never reach.
+type linkFixture struct {
+	mgr           *Manager
+	root, outside string
+}
+
+func newLinkFixture(t *testing.T) linkFixture {
+	t.Helper()
+	top := t.TempDir()
+	root, outside := filepath.Join(top, "proj"), filepath.Join(top, "outside")
+	for _, d := range []string{filepath.Join(root, "docs"), outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{Projects: map[string]config.ProjectConfig{"alpha": {HostPath: root}}}
+	return linkFixture{mgr: newLocalRunnerFixture(t, &cfg), root: root, outside: outside}
+}
+
+// mustSymlink mirrors the repo convention: Windows without the symlink privilege
+// skips, any other host fails.
+func mustSymlink(t *testing.T, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink creation requires admin or Developer Mode on Windows: %v", err)
+		}
+		t.Fatalf("symlink %s -> %s: %v", newname, oldname, err)
+	}
+}
+
+// putAndDeliver stages payload as a put to rel and delivers it.
+func (f linkFixture) putAndDeliver(t *testing.T, rel string, payload []byte, force bool) string {
+	t.Helper()
+	rec, err := f.mgr.StagePut("tester", "local", "alpha", rel, int64(len(payload)), sha256Hex(payload), force)
+	if err != nil {
+		t.Fatalf("StagePut: %v", err)
+	}
+	w, err := f.mgr.Store().Writer(rec.ID)
+	if err != nil {
+		t.Fatalf("Writer: %v", err)
+	}
+	if _, err := w.Write(payload); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if err := f.mgr.CommitPut(rec.ID, int64(len(payload)), sha256Hex(payload)); err != nil {
+		t.Fatalf("CommitPut: %v", err)
+	}
+	if err := f.mgr.Deliver(context.Background(), rec.ID); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	return rec.ID
+}
+
+func (f linkFixture) getAndDeliver(t *testing.T, rel string) string {
+	t.Helper()
+	rec, err := f.mgr.StageGet("tester", "local", "alpha", rel)
+	if err != nil {
+		t.Fatalf("StageGet: %v", err)
+	}
+	if err := f.mgr.Deliver(context.Background(), rec.ID); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	return rec.ID
+}
+
+func entryCount(t *testing.T, dir string) int {
+	t.Helper()
+	es, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(es)
+}
+
+func TestLocalRunnerGetLinkOutsideRoot(t *testing.T) {
+	f := newLinkFixture(t)
+	if err := os.WriteFile(filepath.Join(f.outside, "secret.txt"), []byte("LEAK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, filepath.Join("..", "outside", "secret.txt"), filepath.Join(f.root, "leak.txt"))
+	mustSymlink(t, filepath.Join("..", "outside"), filepath.Join(f.root, "out"))
+
+	for _, rel := range []string{"leak.txt", "out/secret.txt"} {
+		id := f.getAndDeliver(t, rel)
+		rec, _, _ := f.mgr.Get(id)
+		if State(rec.State) != StateFailed {
+			t.Fatalf("%s: state=%s, want failed", rel, rec.State)
+		}
+		if rec.Error == "source not found" || strings.Contains(rec.Error, f.outside) {
+			t.Fatalf("%s: error=%q must be an escape error without the real path", rel, rec.Error)
+		}
+	}
+}
+
+func TestLocalRunnerGetRelativeLinkInsideRoot(t *testing.T) {
+	f := newLinkFixture(t)
+	if err := os.WriteFile(filepath.Join(f.root, "docs", "a.md"), []byte("INSIDE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, "docs", filepath.Join(f.root, "ok"))
+	id := f.getAndDeliver(t, "ok/a.md")
+	assertXferState(t, f.mgr, id, StateDone, "")
+}
+
+func TestLocalRunnerPutDirLinkOutsideRoot(t *testing.T) {
+	f := newLinkFixture(t)
+	mustSymlink(t, filepath.Join("..", "outside"), filepath.Join(f.root, "out"))
+
+	for _, force := range []bool{false, true} {
+		id := f.putAndDeliver(t, "out/x.txt", []byte("payload"), force)
+		rec, _, _ := f.mgr.Get(id)
+		if State(rec.State) != StateFailed {
+			t.Fatalf("force=%v: state=%s, want failed", force, rec.State)
+		}
+	}
+	id := f.putAndDeliver(t, "out/new/deeper.txt", []byte("payload"), false)
+	assertFailed(t, f.mgr, id)
+	if n := entryCount(t, f.outside); n != 0 {
+		t.Fatalf("outside dir has %d entries, want none", n)
+	}
+}
+
+func assertFailed(t *testing.T, mgr *Manager, id string) {
+	t.Helper()
+	rec, _, _ := mgr.Get(id)
+	if State(rec.State) != StateFailed {
+		t.Fatalf("xfer %s state=%s, want failed", id, rec.State)
+	}
+}
+
+func TestLocalRunnerPutRelativeLinkInsideRoot(t *testing.T) {
+	f := newLinkFixture(t)
+	mustSymlink(t, "docs", filepath.Join(f.root, "ok"))
+	id := f.putAndDeliver(t, "ok/new.md", []byte("hello"), false)
+	assertXferState(t, f.mgr, id, StateDone, "")
+	if b, err := os.ReadFile(filepath.Join(f.root, "docs", "new.md")); err != nil || string(b) != "hello" {
+		t.Fatalf("landed file = %q, %v", b, err)
+	}
+}
+
+func TestLocalRunnerPutExistingLinkNeedsForce(t *testing.T) {
+	f := newLinkFixture(t)
+	secret := filepath.Join(f.outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("LEAK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, filepath.Join("..", "outside", "secret.txt"), filepath.Join(f.root, "lnk.txt"))
+	mustSymlink(t, "no-such-target", filepath.Join(f.root, "dangling.txt"))
+
+	for _, rel := range []string{"lnk.txt", "dangling.txt"} {
+		id := f.putAndDeliver(t, rel, []byte("NEW"), false)
+		assertXferState(t, f.mgr, id, StateFailed, "exists")
+	}
+	// force replaces the link itself; the file it pointed at is untouched.
+	id := f.putAndDeliver(t, "lnk.txt", []byte("NEW"), true)
+	assertXferState(t, f.mgr, id, StateDone, "")
+	if b, _ := os.ReadFile(secret); string(b) != "LEAK" {
+		t.Fatalf("the file outside the root was modified: %q", b)
+	}
+	if fi, err := os.Lstat(filepath.Join(f.root, "lnk.txt")); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("lnk.txt should now be a regular file: %v %v", fi, err)
+	}
+}
+
+func TestLocalRunnerOwnAttachmentLinkOutside(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv("GOFER_CONFIG_DIR", cfgDir)
+	cfg := &config.Config{}
+	mgr := newLocalRunnerFixture(t, &cfg)
+	base := OwnAttachmentsDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustSymlink(t, outside, filepath.Join(base, "20260101"))
+
+	srcFile := filepath.Join(t.TempDir(), "src.txt")
+	if err := os.WriteFile(srcFile, []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := mgr.StagePutToAttachments("tester", "local", srcFile, "20260101/x.txt", false)
+	if err != nil {
+		t.Fatalf("StagePutToAttachments: %v", err)
+	}
+	if err := mgr.Deliver(context.Background(), rec.ID); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	assertFailed(t, mgr, rec.ID)
+	if n := entryCount(t, outside); n != 0 {
+		t.Fatalf("outside dir has %d entries, want none", n)
+	}
 }

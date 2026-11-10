@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/inhere/gofer/internal/config"
@@ -54,7 +53,7 @@ func (r *LocalRunner) Run(ctx context.Context, rec jobstore.XferRecord) (RunResu
 	if rec.Target == TargetAttachments {
 		return r.runOwnAttachment(ctx, rec)
 	}
-	target, proj, err := r.resolve(rec.ProjectKey, rec.Path)
+	target, root, proj, err := r.resolve(rec.ProjectKey, rec.Path)
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -63,7 +62,7 @@ func (r *LocalRunner) Run(ctx context.Context, rec jobstore.XferRecord) (RunResu
 	}
 	switch Op(rec.Op) {
 	case OpPut:
-		if err := r.runPut(rec, target); err != nil {
+		if err := r.runPut(rec, root, rec.Path); err != nil {
 			return RunResult{}, err
 		}
 		// The placement succeeded, so the attachment cleanup runs now (it is best effort
@@ -71,7 +70,7 @@ func (r *LocalRunner) Run(ctx context.Context, rec jobstore.XferRecord) (RunResu
 		PruneAttachmentsAfterPut(r.cfg(), proj, target, "server")
 		return RunResult{AbsPath: target}, nil
 	case OpGet:
-		return RunResult{}, r.runGet(rec, target)
+		return RunResult{}, r.runGet(rec, root, rec.Path)
 	default:
 		return RunResult{}, fmt.Errorf("unknown transfer op %q", rec.Op)
 	}
@@ -93,7 +92,9 @@ func (r *LocalRunner) runOwnAttachment(ctx context.Context, rec jobstore.XferRec
 	if err := ctx.Err(); err != nil {
 		return RunResult{}, err
 	}
-	if err := r.runPut(rec, target); err != nil {
+	// OwnAttachmentsPath only vets the path lexically; the placement itself goes
+	// through os.Root over the attachment dir, so a link in there cannot lead out.
+	if err := r.runPut(rec, OwnAttachmentsDir(), rec.Path); err != nil {
 		return RunResult{}, err
 	}
 	PruneOwnAttachmentsAfterPut(target, "server")
@@ -103,26 +104,29 @@ func (r *LocalRunner) runOwnAttachment(ctx context.Context, rec jobstore.XferRec
 // resolve maps a project-relative path onto the server's own filesystem, refusing
 // anything that escapes the project's execution root. It is the SAME boundary a job's
 // `--cwd` obeys (design §一.1), so a transfer can never reach outside what a job could.
+// SafeJoin is the literal pre-check (and names the absolute destination a put reports);
+// the actual reads and writes go through os.Root over the returned root (project.OpenInRoot
+// / PlaceInRoot), which is what stops a link inside the project from leading out of it.
 // The project entry comes back with the path because the post-placement cleanup resolves
 // the attachment directory from it.
-func (r *LocalRunner) resolve(projectKey, path string) (string, config.ProjectConfig, error) {
+func (r *LocalRunner) resolve(projectKey, path string) (target, root string, proj config.ProjectConfig, err error) {
 	cfg := r.cfg()
 	if cfg == nil {
-		return "", config.ProjectConfig{}, errors.New("xfer: server config is not available")
+		return "", "", config.ProjectConfig{}, errors.New("xfer: server config is not available")
 	}
 	proj, ok := cfg.Projects[projectKey]
 	if !ok {
-		return "", config.ProjectConfig{}, fmt.Errorf("unknown project %q", projectKey)
+		return "", "", config.ProjectConfig{}, fmt.Errorf("unknown project %q", projectKey)
 	}
-	root := cfg.ExecPath(proj)
+	root = cfg.ExecPath(proj)
 	if root == "" {
-		return "", config.ProjectConfig{}, fmt.Errorf("project %q has no execution path", projectKey)
+		return "", "", config.ProjectConfig{}, fmt.Errorf("project %q has no execution path", projectKey)
 	}
-	target, err := project.SafeJoin(root, path)
+	target, err = project.SafeJoin(root, path)
 	if err != nil {
-		return "", config.ProjectConfig{}, fmt.Errorf("path escapes project: %w", err)
+		return "", "", config.ProjectConfig{}, fmt.Errorf("path escapes project: %w", err)
 	}
-	return target, proj, nil
+	return target, root, proj, nil
 }
 
 func (r *LocalRunner) cfg() *config.Config {
@@ -132,11 +136,19 @@ func (r *LocalRunner) cfg() *config.Config {
 	return r.Config()
 }
 
-// runPut copies the staged payload onto the destination, temp file first so a
-// half-written file is never visible where the project's tools read it.
-func (r *LocalRunner) runPut(rec jobstore.XferRecord, dst string) error {
+// runPut copies the staged payload onto rel under root, temp file first so a
+// half-written file is never visible where the project's tools read it. The temp file
+// sits next to the destination (project.PlaceInRoot) and the payload is verified before
+// the rename.
+func (r *LocalRunner) runPut(rec jobstore.XferRecord, root, rel string) error {
 	if rec.Force == 0 {
-		if _, err := os.Stat(dst); err == nil {
+		// Lstat semantics: any existing entry, link (even dangling or leading out of the
+		// root) included, counts as "exists"; force replaces the link itself.
+		exists, err := project.ExistsInRoot(root, rel)
+		if err != nil {
+			return fmt.Errorf("check destination: %w", err)
+		}
+		if exists {
 			return ErrExists
 		}
 	}
@@ -148,39 +160,29 @@ func (r *LocalRunner) runPut(rec jobstore.XferRecord, dst string) error {
 		return err
 	}
 	defer src.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("create destination directory: %w", err)
-	}
-	tmp := dst + ".gofer-tmp-" + rec.ID
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	pl, err := project.PlaceInRoot(root, rel, rec.ID)
 	if err != nil {
-		return fmt.Errorf("open temp file: %w", err)
+		return err
 	}
 	h := sha256.New()
-	n, cerr := io.Copy(io.MultiWriter(f, h), src)
-	closeErr := f.Close()
-	if cerr != nil || closeErr != nil {
-		reason := cerr
-		if reason == nil {
-			reason = closeErr
-		}
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write destination: %w", reason)
+	n, cerr := io.Copy(io.MultiWriter(pl.File(), h), src)
+	if cerr != nil {
+		pl.Abort()
+		return fmt.Errorf("write destination: %w", cerr)
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
 	// Verify what actually landed. The staged payload was already checked against the
 	// client's declaration at upload time; this catches the remaining case — the
 	// staging file no longer being the bytes the journal describes.
 	if rec.Size > 0 && n != rec.Size {
-		_ = os.Remove(tmp)
+		pl.Abort()
 		return fmt.Errorf("size mismatch: copied %d bytes, staged %d", n, rec.Size)
 	}
 	if rec.SHA256 != "" && !strings.EqualFold(rec.SHA256, sum) {
-		_ = os.Remove(tmp)
+		pl.Abort()
 		return fmt.Errorf("sha256 mismatch: copied %s, staged %s", sum, rec.SHA256)
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
+	if err := pl.Commit(); err != nil {
 		return fmt.Errorf("move payload into place: %w", err)
 	}
 	return nil
@@ -188,11 +190,11 @@ func (r *LocalRunner) runPut(rec jobstore.XferRecord, dst string) error {
 
 // runGet copies the source INTO the staging area so the client can download it, and
 // reports the size + sha256 it read.
-func (r *LocalRunner) runGet(rec jobstore.XferRecord, src string) error {
+func (r *LocalRunner) runGet(rec jobstore.XferRecord, root, rel string) error {
 	if r.Store == nil {
 		return errors.New("xfer: local runner has no staging store")
 	}
-	f, err := os.Open(src)
+	f, err := project.OpenInRoot(root, rel)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return ErrNotFound
