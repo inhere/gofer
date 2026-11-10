@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 审批记录页设计
 
-> 状态：Draft 0.3 / 待批准
+> 状态：Draft 0.3 / 已批准（2026-11-10，Q1–Q3 均按推荐项）
 > issue：gofer-nt9o
 
 ## 修订记录
@@ -120,3 +120,7 @@ CLI：`gofer job ls --hold pending|decided|any`，经 `internal/client` 的列�
 ## 结论与人工计划 Gate
 
 方案只加一个下推到 SQL 的筛选与一个只读页面，不新增存储与权限。等用户答复 Q1–Q3 并批准后写计划。
+
+## 已定事项（2026-11-10）
+
+用户：「两份设计 Q1–Q3 按推荐，批准进入计划」。Q1=A（列表只链接到 job 详情，在原批准面板上决定）；Q2=A（CLI 加 `job ls --hold`）；Q3=A（只做 hold job）。
