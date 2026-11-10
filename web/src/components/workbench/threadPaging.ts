@@ -10,6 +10,8 @@ export interface ThreadListFilters {
   project?: string
   status?: WorkbenchStatus | ''
   q?: string
+  // 无论窗口如何都要带回的会话 id（深链目标 / 打开着的会话）。
+  include?: string[]
 }
 
 // 首页请求。搜索（q 非空）不受窗口与分页限制：要搜的往往就是很久以前的会话，since=1 即「全部历史」。
@@ -18,6 +20,7 @@ export function firstPageQuery(filters: ThreadListFilters): WorkbenchThreadQuery
     project: filters.project || undefined,
     status: filters.status || '',
     q: filters.q?.trim() || undefined,
+    include: filters.include?.length ? filters.include : undefined,
   }
   if (base.q) return { ...base, since: 1 }
   return { ...base, active_within: WORKBENCH_ACTIVE_WITHIN_SEC, limit: WORKBENCH_PAGE_SIZE }

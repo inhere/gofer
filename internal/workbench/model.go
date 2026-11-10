@@ -91,6 +91,14 @@ type Query struct {
 	// Keep, when set, is an extra visibility filter (the caller's ownership / ceiling)
 	// applied before a page is cut, so a page fills with visible threads only.
 	Keep func(Thread) bool
+	// Source narrows to one thread source (SourceACP / SourcePTY / SourceRelay; "" = all).
+	Source string
+	// Live keeps only threads with something running; in paged mode it is a single first
+	// page (no cursor, HasMore=false).
+	Live bool
+	// Include lists thread ids that ride along on the first page like pinned ones (they
+	// still pass every other filter). Ignored with a cursor and by the unpaged listing.
+	Include []string
 	// IncludeInternal also lists web session-messenger delivery jobs (all=1).
 	IncludeInternal bool
 }

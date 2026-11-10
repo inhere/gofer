@@ -124,3 +124,12 @@
 ## 已定事项（2026-11-10）
 
 用户：「两份设计 Q1–Q3 按推荐，批准进入计划」。Q1=A（复用工作台线程接口，加 `source` 筛选）；Q2=A（沿用「显示已结束」开关，默认不勾）；Q3=A（跳工作台对应线程回看与继续）。
+
+## 实施记录（2026-11-10）
+
+- 后端（9625dd9d）：`internal/workbench/filter.go` 集中 `source` / `live` / `include` 判断与 live 短路、include 并入；`service.go` 只加调用；handler 校验（`include` 支持重复与逗号，≤8）。`web/src/api/workbench.ts` 发出三个参数。
+- 工作台深链（fede3a90）：`deepLink.ts` 的 `includeIDs` / `needsReload`；`Workbench.vue` 净增 3 行，首页每次加载带 路由目标 ∪ 打开的线程。
+- 会话页（dc071248、04c5b6bd）：ACP 页签抽成 `SessionsAcpTab.vue`，按线程出卡、服务端分页 / 项目 / live，「打开会话」进工作台；组件样式为验收后返工。文档（5a9f1097）。
+- 验证：主机临时 server + suga-acp 真实验收（30 天前的旧会话可找到、可打开、刷新不丢、续接回复正确）通过；续接时回放**不会**重复写入新 job 输出；反向 4 项均按预期失败；gofer-verify 四路通过（wf-20261110-215615-92999758）。
+- 未在真实环境覆盖：PTY 会话排除（单测覆盖）。
+

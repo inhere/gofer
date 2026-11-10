@@ -143,7 +143,42 @@ func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid status", "status must be blocked|working|review|done|idle")
 		return
 	}
+	source := strings.TrimSpace(c.Query("source"))
+	if !workbench.ValidSource(source) {
+		writeError(c, http.StatusBadRequest, "invalid source", "source must be acp|pty|relay")
+		return
+	}
+	var live bool
+	switch strings.TrimSpace(c.Query("live")) {
+	case "":
+	case "1", "true":
+		live = true
+	default:
+		writeError(c, http.StatusBadRequest, "invalid live", "live must be 1|true")
+		return
+	}
+	// include=<thread id> (repeatable, or comma separated): at most 8 valid thread ids.
+	var include []string
+	for _, v := range c.Req.URL.Query()["include"] {
+		for _, id := range strings.Split(v, ",") {
+			if id = strings.TrimSpace(id); id == "" {
+				continue
+			}
+			if _, _, perr := workbench.ParseThreadID(id); perr != nil {
+				writeError(c, http.StatusBadRequest, "invalid include", "include must be thread ids like s:<id>, j:<id> or r:<id>")
+				return
+			}
+			include = append(include, id)
+		}
+	}
+	if len(include) > 8 {
+		writeError(c, http.StatusBadRequest, "invalid include", "include accepts at most 8 thread ids")
+		return
+	}
 	result, err := s.workbench.List(callerFromCtx(c), workbench.Query{
+		Source:  source,
+		Live:    live,
+		Include: include,
 		Lang:    s.requestLang(c),
 		Project: strings.TrimSpace(c.Query("project")),
 		Status:  status,

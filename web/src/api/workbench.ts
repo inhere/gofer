@@ -35,6 +35,12 @@ export interface WorkbenchThreadQuery {
   // ones open in the console) that must stay complete.
   detail?: 'summary'
   full?: string[]
+  // 来源筛选：acp（持续 ACP 会话）| pty（交互式 PTY）| relay。
+  source?: 'acp' | 'pty' | 'relay' | ''
+  // live=1 只返回仍在运行的会话（单页，无 has_more）。
+  live?: boolean
+  // 首页随带这些线程（同置顶线程，不写偏好）；带 cursor 的后续页无效。
+  include?: string[]
 }
 
 export function listWorkbenchThreads(query: WorkbenchThreadQuery = {}): Promise<WorkbenchThreadsResp> {
@@ -48,6 +54,9 @@ export function listWorkbenchThreads(query: WorkbenchThreadQuery = {}): Promise<
   if (query.cursor) params.set('cursor', query.cursor)
   if (query.detail) params.set('detail', query.detail)
   for (const id of query.full ?? []) params.append('full', id)
+  if (query.source) params.set('source', query.source)
+  if (query.live) params.set('live', '1')
+  for (const id of query.include ?? []) params.append('include', id)
   const suffix = params.size > 0 ? `?${params.toString()}` : ''
   return request<WorkbenchThreadsResp>(`/v1/workbench/threads${suffix}`)
 }

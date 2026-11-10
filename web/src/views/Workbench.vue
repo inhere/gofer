@@ -57,6 +57,7 @@ import {
   threadsOf,
   type ThreadListFilters,
 } from '../components/workbench/threadPaging'
+import { includeIDs, needsReload } from '../components/workbench/deepLink'
 
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
@@ -270,7 +271,7 @@ async function loadThreads(): Promise<void> {
   try {
     const filters = currentFilters()
     const next = await listWorkbenchThreads({
-      ...firstPageQuery(filters),
+      ...firstPageQuery({ ...filters, include: includeIDs(route.query.thread, full) }),
       detail: summary ? 'summary' : undefined,
       full: summary ? full : undefined,
     })
@@ -764,7 +765,9 @@ function paletteAction(action: 'stop' | 'continue' | 'detail' | 'split-h' | 'spl
 watch(
   () => route.query.thread,
   () => {
-    if (layoutReady.value) locateRequestedThread(true)
+    if (!layoutReady.value) return
+    locateRequestedThread(true)
+    if (needsReload(route.query.thread, threadsByID.value)) void loadThreads()
   },
 )
 
