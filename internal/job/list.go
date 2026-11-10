@@ -46,6 +46,9 @@ type ListOpts struct {
 	All bool
 	// Since, when > 0, keeps only jobs with started_at >= Since (E5; unix 秒)。
 	Since int64
+	// Hold, when non-empty, keeps only human-hold jobs: jobstore.HoldFilterPending,
+	// HoldFilterDecided or HoldFilterAny (job list --hold / ?hold=).
+	Hold string
 	// Limit caps the number of returned jobs; <= 0 means defaultListLimit.
 	Limit int
 	// Offset skips the first Offset rows after sorting; <= 0 means no offset.
@@ -110,6 +113,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 			return jobstore.InternalJobTags
 		}(),
 		Since: opts.Since,
+		Hold:  opts.Hold,
 		Limit: dbLimit,
 	})
 	for _, rec := range recs {
@@ -173,6 +177,9 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	out := make([]JobResult, 0, len(merged))
 	for _, rec := range merged {
 		if opts.Status != "" && rec.Status != opts.Status {
+			continue
+		}
+		if !holdMatches(rec, opts.Hold) {
 			continue
 		}
 		out = append(out, rec)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/xfer"
 )
@@ -309,7 +310,7 @@ func submitStatus(err error) int {
 
 // handleListJobs returns job snapshots merged from the per-project index and
 // the in-memory live state. Optional query params: status, project, caller,
-// tag, agent, runner, session, plan, source_job, workflow_id, since (unix 秒), limit, offset. A non-numeric limit/since/
+// tag, agent, runner, session, plan, source_job, workflow_id, hold (pending|decided|any), since (unix 秒), limit, offset. A non-numeric limit/since/
 // offset falls back to 0 (default/no-filter). The list is always a non-nil array,
 // so an empty result serialises as {"jobs":[]}。
 func (s *Server) handleListJobs(c *rux.Context) {
@@ -322,6 +323,11 @@ func (s *Server) handleListJobs(c *rux.Context) {
 	if !s.mayListAllJobs(c) {
 		// 过滤型（设计 §1）：没有 job.read.others 的调用方只看到自己的 job，不报 403。
 		caller = callerFromCtx(c)
+	}
+	hold := strings.TrimSpace(c.Query("hold"))
+	if hold != "" && !jobstore.ValidHoldFilter(hold) {
+		writeError(c, http.StatusBadRequest, "invalid hold", "hold must be pending, decided or any")
+		return
 	}
 	project := c.Query("project")
 	var projects []string
@@ -355,6 +361,7 @@ func (s *Server) handleListJobs(c *rux.Context) {
 		SourceJob:  c.Query("source_job"),
 		WorkflowID: c.Query("workflow_id"),
 		Since:      since,
+		Hold:       hold,
 		Limit:      limit,
 		Offset:     offset,
 		All:        all,
