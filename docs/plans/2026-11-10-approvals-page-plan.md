@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 审批记录页 实施计划
 
-> 状态：Draft 0.2 / 已批准（2026-11-10，用户：「两份计划批准」）
+> 状态：COMPLETE（2026-11-10）；Draft 0.2 已批准（2026-11-10，用户：「两份计划批准」）
 > issue：gofer-nt9o
 
 ## 修订记录
@@ -151,3 +151,10 @@ W3  T4 真实验收（Claude）→ T5 反向验证、全量与收尾（Claude）
 ## 完成 Gate 与剩余工作
 
 T5 完成即本计划完成；发版另行进行。
+
+## 完成总结（2026-11-10）
+
+- T1 sonnet（3d5b93c4）；T2/T3 suga（c3446ec1、826c019c）；监督补回文档误删（38d27ea4）；验收返工手机表头（64020fb6）。
+- 与计划不一致：`ListJobs` 内为 3 行 if 块；新 flag 需同步中文帮助 golden；计划写的 `job ls` 是 `job list` 的别名。
+- 验证：真实验收与反向验证见工作区 `tmp/nt9o-impl/`；gofer-verify 四路通过。
+
