@@ -59,6 +59,8 @@ gofer job show <id>                          # 多出 hold_reason / hold_origin 
                                              # 决定后 hold_decision: <approved|rejected|expired|cancelled> by=… at=…、hold_note
 ```
 
+`hold_origin` 是提交来源：`job:<id>`（job 凭据）、`agent-session:<id>`（agent 会话）或提交渠道（cli / web / mcp …）。
+
 `GET /v1/jobs?hold=pending|decided|any` 也可用于审批记录页：`pending` 只列待人工批准的 hold job，`decided` 只列已有决定的记录，`any` 列两者。它们只匹配人工审批，不包含升级停放的 job；可与 `-p` / 项目筛选及分页参数组合，非法取值返回 `400`。
 
 - CLI：`gofer job ls --hold pending` 看待批记录，`gofer job ls --hold decided` 看已决记录，`gofer job ls --hold any` 看全部人工审批记录。

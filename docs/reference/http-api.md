@@ -311,6 +311,8 @@ The local row of `GET /v1/runners` carries `messenger_detail` read in-process; a
 
 返回新 job 的 JobResult（其中的 `plan_id` / `todo_id` 即落到新 job 上的值）。错误：404（源 job 不存在）、400（源 job 非终态、无 `session_id`、agent 不支持续接、跨 runner）。
 
+## Jobs held for approval
+
 `GET /v1/jobs` 支持 `hold=pending|decided|any`：`pending` 只列仍在等待人工批准的 hold job，`decided` 只列已经有决定的人工 hold job，`any` 列两者。三个取值都只匹配人工审批（`hold.kind` 为空），不会包含升级停放的 job（`hold.kind=update`）。`hold` 与其它查询条件按 AND 组合，非法取值返回 `400`。
 
 - Submit: `POST /v1/jobs` with `hold: true` (optional `hold_reason`, `hold_timeout_sec`) returns **202** with `X-Gofer-Async: 1`; the body is the JobResult plus `approve_url` (empty when `server.web_base_url` is not set). The job stays in `awaiting_approval` and is not dispatched.
