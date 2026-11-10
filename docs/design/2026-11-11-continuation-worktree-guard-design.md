@@ -71,7 +71,7 @@
   - 来源是 worktree job 但 worktree 不可用 → 返回 `ErrContinuationWorktreeGone`（reason `worktree_gone`），不提交；
   - worktree 可用但续跑 cwd 不在其内（项目根是仓库子目录，worktree 在根外，`resume.go:780` 回落）→ 同一错误，reason `worktree_outside_project`。
 - **来源字段**：新增内部字段 `JobRequest.WorktreeFrom`（`json:"-"`）；hold 期间随 `heldInternals`（`hold.go:136-176`）保存——那里是带 json tag 的字段，capture / restore 各加一行，与 `InheritWorktree` 相同。`resumeJob` 与待办接续设为源 job id；**故障转移设为失败 job 自身的 id（`snap.ID`）**，与它的 `resumeCwd(snap)` 同源（不依赖 `ResumedFrom`），从而转移 job 也继承 worktree、行上记录路径、能被 `worktreeUsers` 看到。`InheritWorktree` 判定改为 `src.WorktreeBranch != ""`。
-- **重试**：重试清扫重建请求时，若失败 job 的行上有 `WorktreeBranch` 且它本身是续跑 / 转移（`ResumedFrom` 或 `WorktreeFrom` 来源），把 `WorktreeFrom` 设为失败 job 的 id，让重试同样经过检查；首次以 `--worktree` 提交的 job 重试仍新建 worktree（现状）。
+- **重试**：重试清扫（`retry_sweep.go:78` 已 `Get(rec.SourceJobID)` 取到失败 job 的行）在 `src.WorktreeBranch != "" && !req.Worktree` 时设 `req.WorktreeFrom = rec.SourceJobID`——续跑、待办接续、转移的请求都是 `Worktree=false` 但继承了 worktree；首次以 `--worktree` 提交的 job 请求里 `worktree:true`，重试仍新建 worktree（现状）。失败 job 的行已被保留期清理时取不到行，这次重试不带 `WorktreeFrom`；重试记录形成于失败刚发生时、早于保留期清理，残余接受。
 - **带交付的 job 故障转移**：维持现状（`config.go:76` 要求交付需 worktree 或续跑来源，转移请求两者都没有，被拒），本次不改。
 - **各入口被拒后的结果**：
 
@@ -147,7 +147,7 @@
   - 待办接续遇到失效 worktree：拒绝。
   - 续跑提交后、开跑前删掉 worktree：续跑失败且未启动 agent 进程。
   - worktree 上有排队 / 运行中的续跑时 `MergeWorktree` 返回 `ErrWorktreeInUse`，分支未合并；清理前复查命中时合并成功、清理跳过并有 warning。
-- 补充单测：故障转移在 worktree 已删时不提交、在 worktree 可用时继承（行上有 worktree_path，`WorktreeFrom` 为失败 job 自身）；复查失败的 job 失败类为 `worktree-gone` 且不排重试、不续跑；带重试策略的续跑在 worktree 清理后重试被拒；未提交续投被拒记事件；交付核验续接被拒走 park；源 job 自身仍在跑时 `MergeWorktree` 得 `ErrWorktreeInUse`；worktree 在项目根外时 reason 为 `worktree_outside_project`；detached HEAD（模拟 rebase 中）仍可续跑；清理前复查命中（测试钩子）时合并成功、清理跳过有 warning。排队期间删 worktree 用 `max_concurrent=1` + 占槽 job 压住续跑；等待用 `wait.For` / `jobs.Wait`，阈值远大于用例耗时（G051–G052）；Windows「目录删不掉但登记已删」复用 `worktree_remove_windows_test.go` 的做法。
+- 补充单测：故障转移在 worktree 已删时不提交、在 worktree 可用时继承（行上有 worktree_path，`WorktreeFrom` 为失败 job 自身）；复查失败的 job 失败类为 `worktree-gone` 且不排重试、不续跑；带重试策略的续跑与转移 job 在 worktree 清理后重试被拒；未提交续投被拒记事件；交付核验续接被拒走 park；源 job 自身仍在跑时 `MergeWorktree` 得 `ErrWorktreeInUse`；worktree 在项目根外时 reason 为 `worktree_outside_project`；detached HEAD（模拟 rebase 中）仍可续跑；清理前复查命中（测试钩子）时合并成功、清理跳过有 warning。排队期间删 worktree 用 `max_concurrent=1` + 占槽 job 压住续跑；等待用 `wait.For` / `jobs.Wait`，阈值远大于用例耗时（G051–G052）；Windows「目录删不掉但登记已删」复用 `worktree_remove_windows_test.go` 的做法。
 - 真实验收（临时 server，exec agent 足以模拟）：造一个 worktree job → 手动 resume 让它在 worktree 里 `sleep` → `worktree merge --cleanup` 得 409；取消后合并清理成功 → 再 resume 得 409，主 checkout 无改动。
 - 反向验证：去掉提交时检查 → 「清理后 resume」用例失败；去掉合并前检查 → 「在用时合并」用例失败。
 
