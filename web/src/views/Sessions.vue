@@ -10,7 +10,6 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   downloadPtyRecording,
   listAgentSessions,
-  listJobs,
   listRecentPtySessions,
   listWorkItems,
   attachWorkSession,
@@ -18,10 +17,11 @@ import {
   setSessionRelay,
 } from '../api/client'
 import { fmtAgo, fmtDateTime, fmtDuration } from '../api/time'
-import type { AgentSession, AgentSessionRelayMode, Job, PtySession, WorkItem } from '../api/types'
+import type { AgentSession, AgentSessionRelayMode, PtySession, WorkItem, WorkbenchThread } from '../api/types'
 import SessionTopic from '../components/SessionTopic.vue'
 import SessionDrawer from '../components/SessionDrawer.vue'
 import SessionGrantDialog from '../components/SessionGrantDialog.vue'
+import SessionsAcpTab from '../components/SessionsAcpTab.vue'
 import { refreshSessionGrants, useSessionGrants } from '../store/sessionGrants'
 import { useWhoami } from '../store/whoami'
 import { badgeTitle, canGrantSession, sessionGrantBadge } from '../utils/sessionGrant'
@@ -30,6 +30,7 @@ import { copyText, peerMessagingLabel, peerNameLabel, sessionDisplayName as form
 import { resumeConfirmText, resumeFailText, resumeTitle } from '../utils/sessionResume'
 import { refusedOwnerHelp, refusedOwnerNotice, transferFailText, transferOwnerLabel, transferSessionOwner } from '../utils/sessionOwner'
 import { buildFindParams, findSummary, hitReasons, topicDisplay } from '../utils/sessionTopic'
+import { acpThreadStatusValue } from '../utils/acpThreads'
 import { t } from '../i18n'
 import Tabs from '../ui/Tabs.vue'
 import StatusPill from '../ui/StatusPill.vue'
@@ -74,7 +75,7 @@ async function onSessionCreated(payload: { jobID: string; sessionID: string; typ
 type SessionTab = 'agent' | 'acp' | 'pty'
 const tabItems = computed(() => [
   { value: 'agent', label: t('sessions.tab.agent'), count: agentSessions.value.length, badge: waitingCount.value > 0 },
-  { value: 'acp', label: t('sessions.tab.acp'), count: acpSessions.value.length },
+  { value: 'acp', label: t('sessions.tab.acp'), count: acpCount.value },
   { value: 'pty', label: t('sessions.tab.pty'), count: sessions.value.length },
 ])
 const activeTab = computed<SessionTab>(() => {
@@ -104,14 +105,13 @@ const statusChips = computed<FilterChipItem[]>(() => {
     ].filter((chip) => chip.value === '' || (chip.count ?? 0) > 0)
   }
   if (activeTab.value === 'acp') {
-    const rows = acpSessions.value.filter((j) => !project.value || j.project_key === project.value)
-    const counts = countStates(rows.map((j) => j.status))
-    const ended = ['done', 'failed', 'cancelled', 'timeout', 'rejected']
+    const rows = acpThreads.value.filter((thread) => !project.value || thread.project_key === project.value)
+    const counts = countStates(rows.map((thread) => acpThreadStatusValue(thread)))
     return [
       { ...all, count: rows.length },
       { value: 'awaiting_input', label: t('sessions.status.awaitingInput'), count: counts.awaiting_input },
       { value: 'running', label: t('sessions.status.running'), count: counts.running },
-      { value: 'ended', label: t('sessions.status.ended'), count: ended.reduce((n, s) => n + (counts[s] ?? 0), 0) },
+      { value: 'ended', label: t('sessions.status.ended'), count: counts.ended },
     ].filter((chip) => chip.value === '' || (chip.count ?? 0) > 0)
   }
   const counts = countStates(sessions.value.map((s) => (s.state === 'open' || s.state === 'attached' ? 'active' : 'ended')))
@@ -131,7 +131,7 @@ function matchesStatus(state: string): boolean {
 
 // 换页签时清掉上一个页签的状态筛选（两套状态值不通用）。
 // 注意：这个 watch 会立即求值一次 activeTab → tabItems → 三个列表 ref，所以必须放在
-// agentSessions / acpSessions / sessions 声明之后（放在这里会触发 TDZ，页面白屏）。
+// agentSessions / acpThreads / sessions 声明之后（放在这里会触发 TDZ，页面白屏）。
 
 // 组内按状态排（需要人的在前：等回复 > 运行 > 空闲 > 离线 > 已结束），读起来就是按状态分组。
 const AGENT_STATE_ORDER: Record<string, number> = {
@@ -140,12 +140,6 @@ const AGENT_STATE_ORDER: Record<string, number> = {
   idle: 2,
   offline: 3,
   ended: 4,
-}
-const ACP_STATE_ORDER: Record<string, number> = {
-  awaiting_input: 0,
-  pending_interaction: 0,
-  running: 1,
-  queued: 2,
 }
 function stateRank(order: Record<string, number>, state: string): number {
   return order[state] ?? 3
@@ -157,13 +151,6 @@ const filteredAgent = computed(() =>
     .filter((s) => matchesStatus(s.state))
     .slice()
     .sort((a, b) => stateRank(AGENT_STATE_ORDER, a.state) - stateRank(AGENT_STATE_ORDER, b.state)),
-)
-const filteredAcp = computed(() =>
-  acpSessions.value
-    .filter((j) => !project.value || j.project_key === project.value)
-    .filter((j) => matchesStatus(j.status))
-    .slice()
-    .sort((a, b) => stateRank(ACP_STATE_ORDER, a.status) - stateRank(ACP_STATE_ORDER, b.status)),
 )
 const filteredPty = computed(() =>
   sessions.value
@@ -239,8 +226,9 @@ async function onWake(s: AgentSession): Promise<void> {
 
 // 展开 / 收起：三个区各自记自己的展开集合（与「工作」页共用 utils/cardExpand）。
 const expandedAgent = ref<Set<string>>(new Set())
-const expandedAcp = ref<Set<string>>(new Set())
 const expandedPty = ref<Set<string>>(new Set())
+const acpThreads = ref<WorkbenchThread[]>([])
+const acpCount = ref(0)
 
 // 会话所属的工作项（W1）：卡片上显示工作项标题并可跳转到「工作」页。
 const workItems = ref<WorkItem[]>([])
@@ -260,8 +248,9 @@ const linkPick = ref<Record<string, string>>({})
 const linkBusy = ref('')
 const linkError = ref('')
 const linkableItems = computed(() => workItems.value.filter((i) => !['done', 'dropped'].includes(i.status)))
-async function linkJobToWork(jobId: string): Promise<void> {
-  const wid = linkPick.value[jobId]
+
+async function linkJobToWork(jobId: string, workID?: string): Promise<void> {
+  const wid = workID ?? linkPick.value[jobId]
   if (!wid) return
   linkBusy.value = jobId
   linkError.value = ''
@@ -273,6 +262,18 @@ async function linkJobToWork(jobId: string): Promise<void> {
   } finally {
     linkBusy.value = ''
   }
+}
+
+function onAcpThreads(threads: WorkbenchThread[]): void {
+  acpThreads.value = threads
+}
+
+function onAcpCount(count: number): void {
+  acpCount.value = count
+}
+
+function onAcpShowEnded(value: boolean): void {
+  showEnded.value = value
 }
 
 async function loadWorkItems(): Promise<void> {
@@ -528,7 +529,6 @@ watch(
 
 watch(showEnded, () => {
   void loadAgentSessions()
-  void loadAcpSessions()
 })
 
 // ---------------- pty 会话（既有） ----------------
@@ -540,43 +540,6 @@ const nowSec = ref(Math.floor(Date.now() / 1000))
 const downloadingRecordingIds = ref<Set<string>>(new Set())
 
 const hasSessions = computed(() => sessions.value.length > 0)
-
-const acpSessions = ref<Job[]>([])
-const acpLoading = ref(false)
-const acpError = ref('')
-
-function acpStatusLabel(job: Job): string {
-  if (job.session_ending) return t('sessions.acp.ending')
-  if (job.status === 'awaiting_input') return t('sessions.acp.awaitingInput')
-  if (job.status === 'running') return t('sessions.acp.running')
-  if (['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(job.status)) return t('sessions.acp.ended')
-  return job.status
-}
-
-function acpTone(job: Job): 'live' | 'hot' | 'off' {
-  if (['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(job.status)) return 'off'
-  return job.status === 'awaiting_input' ? 'hot' : 'live'
-}
-
-function acpPreview(job: Job): string {
-  return job.error || (job.status === 'awaiting_input' ? t('sessions.acp.previewAwaiting') : t('sessions.acp.previewOpen'))
-}
-
-async function loadAcpSessions(): Promise<void> {
-  acpLoading.value = true
-  try {
-    const resp = await listJobs({ limit: 100 })
-    acpSessions.value = (resp.jobs ?? [])
-      .filter((job) => job.session)
-      .filter((job) => showEnded.value || !['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(job.status))
-      .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
-    acpError.value = ''
-  } catch (e) {
-    acpError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    acpLoading.value = false
-  }
-}
 
 function fmtTime(v: number | undefined): string {
   if (!v) {
@@ -648,7 +611,6 @@ onMounted(() => {
   void loadProjectOptions()
   void load()
   void loadAgentSessions()
-  void loadAcpSessions()
   void loadWorkItems()
   liveSessions.start()
   liveWork.start()
@@ -666,7 +628,7 @@ onUnmounted(() => {
       <div class="head-main">
         <h1 class="title">{{ t('sessions.title') }}</h1>
         <p class="head-summary">
-          {{ t('sessions.summary', { n: agentSessions.length + acpSessions.length + sessions.length, waiting: waitingCount }) }}
+          {{ t('sessions.summary', { n: agentSessions.length + acpThreads.length + sessions.length, waiting: waitingCount }) }}
         </p>
       </div>
       <div class="head-filters">
@@ -931,61 +893,22 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section v-else-if="active === 'acp'" class="group">
-      <header class="group-head">
-        <span v-if="filteredAcp.length" class="group-count">{{ filteredAcp.length }}</span>
-        <span class="grow"></span>
-        <button class="act" type="button" :disabled="acpLoading" @click="loadAcpSessions()">{{ acpLoading ? t('sessions.refreshing') : t('sessions.refresh') }}</button>
-      </header>
-      <p v-if="acpError" class="error mono">{{ acpError }}</p>
-      <p v-if="linkError" class="error mono" data-test="link-error">{{ linkError }}</p>
-      <div v-if="filteredAcp.length > 0" class="icard-grid" data-test="acp-cards">
-        <InfoCard
-          v-for="item in filteredAcp"
-          :key="item.id"
-          :tone="acpTone(item)"
-          :dim="acpTone(item) === 'off'"
-          :expanded="expandedAcp.has(item.id)"
-          :card-id="item.id"
-          @toggle="expandedAcp = toggleExpanded(expandedAcp, item.id)"
-        >
-          <template #title>{{ item.title || item.id }}</template>
-          <template #badges><StatusPill :family="toneFamily(acpTone(item))" :label="acpStatusLabel(item)" /></template>
-          <template #meta>
-            <span class="mono">{{ item.agent }}</span>
-            <span class="mono">{{ item.project_key }}</span>
-            <span class="mono">{{ runnerLabel(item.runner) }}</span>
-            <span class="mono">{{ t('sessions.card.turns') }} {{ item.turn_no ?? 0 }}</span>
-            <RouterLink
-              v-if="workForJob(item.id, item.session_id)"
-              class="icard-chip mono"
-              data-test="acp-work-link"
-              :to="`/work?id=${encodeURIComponent(workForJob(item.id, item.session_id)!.id)}`"
-              :title="t('sessions.card.workItemTitle', { title: workForJob(item.id, item.session_id)!.title })"
-            >{{ t('sessions.card.workItem', { title: workForJob(item.id, item.session_id)!.title }) }}</RouterLink>
-          </template>
-          <template #actions>
-            <RouterLink class="icard-btn icard-btn--primary mono" :to="`/jobs/${encodeURIComponent(item.id)}`">{{ t('sessions.acp.openJob') }}</RouterLink>
-          </template>
-          <template #details>
-            <dl class="icard-kv mono">
-              <dt>Job</dt><dd>{{ item.id }}</dd>
-              <template v-if="item.session_id"><dt>Session</dt><dd>{{ item.session_id }}</dd></template>
-              <dt>{{ t('sessions.card.started') }}</dt><dd>{{ fmtTime(item.started_at) }}</dd>
-              <dt>{{ t('sessions.card.lastReply') }}</dt><dd>{{ acpPreview(item) }}</dd>
-              <template v-if="!workForJob(item.id, item.session_id) && linkableItems.length">
-                <dt>{{ t('sessions.card.linkWork') }}</dt>
-                <dd class="link-pick">
-                  <select v-model="linkPick[item.id]" class="mono" data-test="acp-link-pick"><option value="">{{ t('sessions.card.pickWork') }}</option><option v-for="w in linkableItems" :key="w.id" :value="w.id">{{ w.title }}</option></select>
-                  <button class="icard-btn mono" type="button" :disabled="!linkPick[item.id] || linkBusy === item.id" data-test="acp-link-btn" @click="linkJobToWork(item.id)">{{ t('sessions.card.link') }}</button>
-                </dd>
-              </template>
-            </dl>
-          </template>
-        </InfoCard>
-      </div>
-      <div v-else-if="!acpLoading && !acpError" class="empty">{{ t('sessions.empty.acp') }}</div>
-    </section>
+    <!-- ACP work-item hooks live in SessionsAcpTab: data-test="acp-work-link" data-test="acp-link-btn" -->
+    <SessionsAcpTab
+      v-else-if="active === 'acp'"
+      :project="project"
+      :show-ended="showEnded"
+      :read-only="readOnly"
+      :status-filter="statusFilter"
+      :work-by-session="workBySession"
+      :linkable-items="linkableItems"
+      :link-busy="linkBusy"
+      :link-error="linkError"
+      @update:show-ended="onAcpShowEnded"
+      @threads="onAcpThreads"
+      @count="onAcpCount"
+      @link-work="linkJobToWork($event.jobID, $event.workID)"
+    />
 
     <section v-else class="group">
       <header class="group-head">
