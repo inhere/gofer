@@ -345,7 +345,7 @@ onUnmounted(() => {
     overflow: visible;
     border: 0;
   }
-  .approval-row--head {
+  .approval-row.approval-row--head {
     display: none;
   }
   .approval-row {
