@@ -125,3 +125,11 @@ describe('load-more i18n', () => {
     }
   })
 })
+
+describe('firstPageQuery include', () => {
+  it('include 放进首页 query，空则省略', () => {
+    expect(firstPageQuery({ include: ['a', 'b'] }).include).toEqual(['a', 'b'])
+    expect(firstPageQuery({ include: [] }).include).toBeUndefined()
+    expect(firstPageQuery({ q: 'x', include: ['a'] }).include).toEqual(['a'])
+  })
+})
