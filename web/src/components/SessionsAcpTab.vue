@@ -186,3 +186,94 @@ watch(() => [props.project, props.showEnded], () => { void loadAcpSessions() })
     <div v-else-if="!acpLoading && !acpError && filteredAcp.length === 0" class="empty">{{ t('sessions.empty.acp') }}</div>
   </section>
 </template>
+
+<style scoped>
+.link-pick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.link-pick select { max-width: 100%; min-width: 0; }
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.error {
+  color: var(--fail);
+  font-size: 12px;
+  border: 1px solid var(--fail);
+  border-radius: var(--r-chip);
+  padding: 8px 10px;
+  margin: 0 0 12px;
+  word-break: break-word;
+}
+.act {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  padding: 4px 10px;
+  font-size: 11px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.act:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.act:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 分组（Agent 会话 / ACP 持续会话 / 终端会话） */
+.group {
+  margin-bottom: 26px;
+}
+.group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.grow {
+  flex: 1;
+}
+.group-count {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 0 7px;
+  font-size: 10px;
+  color: var(--ink-3);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--ink-3);
+  user-select: none;
+}
+.check input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.empty {
+  border: 1px solid var(--line);
+  border-radius: var(--r-chip);
+  color: var(--ink-3);
+  font-size: 13px;
+  padding: 28px 14px;
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .group-head {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+</style>
