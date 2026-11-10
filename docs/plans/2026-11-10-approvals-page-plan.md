@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 审批记录页 实施计划
 
-> 状态：Draft 0.2 / 待批准
+> 状态：Draft 0.2 / 已批准（2026-11-10，用户：「两份计划批准」）
 > issue：gofer-nt9o
 
 ## 修订记录
