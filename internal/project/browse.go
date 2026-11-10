@@ -240,7 +240,7 @@ func hasGitDir(dir string) bool {
 // ReadKeyFile reads a whitelisted key file under a project's execution root (E32,
 // D3, §8). Layered guards, in order: basename ∈ keyFileAllowlist (else
 // ErrForbiddenFile) → SafeJoinReal(ExecPath, rel) anti-traversal + symlink escape (escape → error) →
-// must be a regular file (else fs.ErrNotExist) → text-only (binary → ErrBinary).
+// the resolved real basename must also be allowlisted (else fs.ErrNotExist) → must be a regular file (else fs.ErrNotExist) → text-only (binary → ErrBinary).
 // Content over maxKeyFileBytes is truncated (Truncated=true), not rejected.
 func ReadKeyFile(cfg *config.Config, proj config.ProjectConfig, rel string) (FileContent, error) {
 	if !keyFileAllowlist[filepath.Base(rel)] {
@@ -250,6 +250,13 @@ func ReadKeyFile(cfg *config.Config, proj config.ProjectConfig, rel string) (Fil
 	abs, err := SafeJoinReal(cfg.ExecPath(proj), rel)
 	if err != nil {
 		return FileContent{}, err // traversal / symlink escape / missing → handler 404
+	}
+	// The allowlist above only saw the requested name; a link inside the project
+	// (README.md -> .env) stays under the root yet resolves to another file. Judge
+	// the resolved real name too (same idea as docRealPathAllowed) and answer as
+	// "not found" so the real name is not revealed.
+	if !keyFileAllowlist[filepath.Base(abs)] {
+		return FileContent{}, fs.ErrNotExist
 	}
 
 	// Open the resolved real path, then judge the opened file itself (not a
@@ -288,7 +295,7 @@ func ReadKeyFile(cfg *config.Config, proj config.ProjectConfig, rel string) (Fil
 	}
 
 	return FileContent{
-		Name:      filepath.Base(abs),
+		Name:      filepath.Base(rel),
 		Size:      fi.Size(),
 		Content:   string(data),
 		Truncated: truncated,

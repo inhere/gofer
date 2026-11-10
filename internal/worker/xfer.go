@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -127,7 +126,10 @@ func (cl *Client) runFileXfer(ctx context.Context, sessionURL string, fr wsproto
 	}
 	// SafeJoin is the SAME boundary a local job's --cwd obeys (review #8: the worker
 	// re-validates with its own config): a path that escapes the project root is
-	// refused here, before this machine's filesystem is touched at all.
+	// refused here, before this machine's filesystem is touched at all. It is the literal
+	// pre-check and names the absolute destination a put reports; the reads and writes
+	// themselves go through os.Root over run.root, which also stops a link inside the
+	// project from leading out of it.
 	target, err := project.SafeJoin(run.root, fr.Path)
 	if err != nil {
 		return 0, "", "", fmt.Errorf("path escapes project: %w", err)
@@ -142,7 +144,7 @@ func (cl *Client) runFileXfer(ctx context.Context, sessionURL string, fr wsproto
 	}
 	switch fr.Op {
 	case "put":
-		n, sum, ferr := cl.xferFetch(ctx, contentURL, fr, target)
+		n, sum, ferr := cl.xferFetch(ctx, contentURL, fr, run.root, fr.Path)
 		if ferr != nil {
 			return 0, "", "", ferr
 		}
@@ -151,7 +153,7 @@ func (cl *Client) runFileXfer(ctx context.Context, sessionURL string, fr wsproto
 		xfer.PruneAttachmentsAfterPut(run.cfg, run.proj, target, "worker")
 		return n, sum, target, nil
 	case "get":
-		n, sum, gerr := cl.xferSend(ctx, contentURL, target)
+		n, sum, gerr := cl.xferSend(ctx, contentURL, run.root, fr.Path)
 		return n, sum, "", gerr
 	default:
 		return 0, "", "", fmt.Errorf("unknown transfer op %q", fr.Op)
@@ -180,7 +182,7 @@ func (cl *Client) runOwnAttachmentXfer(ctx context.Context, sessionURL string, f
 	}
 	switch fr.Op {
 	case "put":
-		n, sum, ferr := cl.xferFetch(ctx, contentURL, fr, target)
+		n, sum, ferr := cl.xferFetch(ctx, contentURL, fr, xfer.OwnAttachmentsDir(), fr.Path)
 		if ferr != nil {
 			return 0, "", "", ferr
 		}
@@ -189,7 +191,7 @@ func (cl *Client) runOwnAttachmentXfer(ctx context.Context, sessionURL string, f
 		// there is no relative fallback a receiver could resolve.
 		return n, sum, target, nil
 	case "get":
-		n, sum, gerr := cl.xferSend(ctx, contentURL, target)
+		n, sum, gerr := cl.xferSend(ctx, contentURL, xfer.OwnAttachmentsDir(), fr.Path)
 		return n, sum, "", gerr
 	default:
 		return 0, "", "", fmt.Errorf("unknown transfer op %q", fr.Op)
@@ -224,10 +226,17 @@ func (cl *Client) xferProject(key string) (xferRun, error) {
 	return xferRun{cfg: cfg, proj: proj, root: root}, nil
 }
 
-// xferFetch runs op=put: download the staged payload and put it at dst.
-func (cl *Client) xferFetch(ctx context.Context, contentURL string, fr wsproto.FileXfer, dst string) (int64, string, error) {
+// xferFetch runs op=put: download the staged payload and put it at rel under root
+// (project.PlaceInRoot, so no link on the way can lead out of root).
+func (cl *Client) xferFetch(ctx context.Context, contentURL string, fr wsproto.FileXfer, root, rel string) (int64, string, error) {
 	if !fr.Force {
-		if _, err := os.Stat(dst); err == nil {
+		// Lstat semantics: any existing entry, a link (dangling or leading out of the
+		// root) included, counts as "exists"; force replaces the link itself.
+		exists, err := project.ExistsInRoot(root, rel)
+		if err != nil {
+			return 0, "", fmt.Errorf("check destination: %w", err)
+		}
+		if exists {
 			// Refuse BEFORE downloading: the answer is the same either way, and
 			// streaming 256MB only to throw it away is pure waste.
 			return 0, "", errXferExists
@@ -249,31 +258,22 @@ func (cl *Client) xferFetch(ctx context.Context, contentURL string, fr wsproto.F
 	if fr.Size > 0 && resp.ContentLength >= 0 && resp.ContentLength != fr.Size {
 		return 0, "", fmt.Errorf("size mismatch: server announced %d bytes, expected %d", resp.ContentLength, fr.Size)
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return 0, "", fmt.Errorf("create destination directory: %w", err)
-	}
-	// Write NEXT TO the destination (same filesystem, so the rename is atomic) under a
-	// transfer-scoped temp name, and only then rename: a half-written payload must
-	// never be visible where the project's tools read it.
-	tmp := dst + ".gofer-tmp-" + fr.XferID
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	// PlaceInRoot writes NEXT TO the destination (same filesystem, so the rename is
+	// atomic) under a transfer-scoped temp name, and only Commit renames: a half-written
+	// payload must never be visible where the project's tools read it.
+	pl, err := project.PlaceInRoot(root, rel, fr.XferID)
 	if err != nil {
-		return 0, "", fmt.Errorf("open temp file: %w", err)
+		return 0, "", err
 	}
 	h := sha256.New()
-	n, cerr := io.Copy(io.MultiWriter(f, h), resp.Body)
-	closeErr := f.Close()
-	if cerr != nil || closeErr != nil {
-		reason := cerr
-		if reason == nil {
-			reason = closeErr
-		}
-		_ = os.Remove(tmp)
-		return 0, "", fmt.Errorf("write payload: %w", reason)
+	n, cerr := io.Copy(io.MultiWriter(pl.File(), h), resp.Body)
+	if cerr != nil {
+		pl.Abort()
+		return 0, "", fmt.Errorf("write payload: %w", cerr)
 	}
 	sum := hex.EncodeToString(h.Sum(nil))
 	if fr.Size > 0 && n != fr.Size {
-		_ = os.Remove(tmp)
+		pl.Abort()
 		return 0, "", fmt.Errorf("size mismatch: received %d bytes, expected %d", n, fr.Size)
 	}
 	// A payload's digest is what proves the bytes arrived intact. The requester only
@@ -285,19 +285,19 @@ func (cl *Client) xferFetch(ctx context.Context, contentURL string, fr wsproto.F
 		want = resp.Header.Get("X-Gofer-Sha256")
 	}
 	if want != "" && !strings.EqualFold(want, sum) {
-		_ = os.Remove(tmp)
+		pl.Abort()
 		return 0, "", fmt.Errorf("sha256 mismatch: received %s, expected %s", sum, want)
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.Remove(tmp)
+	if err := pl.Commit(); err != nil {
 		return 0, "", fmt.Errorf("move payload into place: %w", err)
 	}
 	return n, sum, nil
 }
 
-// xferSend runs op=get: hash the source file and upload it to the staging area.
-func (cl *Client) xferSend(ctx context.Context, contentURL, src string) (int64, string, error) {
-	f, err := os.Open(src)
+// xferSend runs op=get: hash the source file (rel under root, opened through os.Root)
+// and upload it to the staging area.
+func (cl *Client) xferSend(ctx context.Context, contentURL, root, rel string) (int64, string, error) {
+	f, err := project.OpenInRoot(root, rel)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, "", errXferSourceNotFound

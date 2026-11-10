@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -374,6 +375,114 @@ func TestFileXferRejectsEscapeOnWorker(t *testing.T) {
 	outside := filepath.Join(filepath.Dir(workerHost), "..", "etc", "passwd")
 	if _, err := os.Stat(outside); err == nil {
 		t.Fatalf("escaping transfer wrote %s", outside)
+	}
+}
+
+// linkOutside makes <workerHost>/out a RELATIVE directory link to a fresh directory
+// outside the project root (an absolute link would be refused for its own reason) and
+// returns that directory. Windows without the symlink privilege skips.
+func linkOutside(t *testing.T, workerHost string) string {
+	t.Helper()
+	outside := t.TempDir()
+	rel, err := filepath.Rel(workerHost, outside)
+	if err != nil {
+		t.Fatalf("rel: %v", err)
+	}
+	if err := os.Symlink(rel, filepath.Join(workerHost, "out")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink creation requires admin or Developer Mode on Windows: %v", err)
+		}
+		t.Fatalf("symlink: %v", err)
+	}
+	return outside
+}
+
+// TestFileXferGetThroughLinkOutsideRootFails: a get whose path goes through a link that
+// leaves the worker's project root fails (not as "source not found") and the staged
+// payload is never produced; an in-tree relative link still works.
+func TestFileXferGetThroughLinkOutsideRootFails(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	hub, workerHost := startXferWorker(t, ctx)
+
+	outside := linkOutside(t, workerHost)
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("LEAK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := hub.mgr.StageGet("e2e-tester", e2eWorkerID, "alpha", "out/secret.txt")
+	if err != nil {
+		t.Fatalf("StageGet: %v", err)
+	}
+	if err := hub.mgr.Deliver(ctx, rec.ID); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	row := xferRow(t, hub.mgr, rec.ID)
+	if row.State != string(xfer.StateFailed) {
+		t.Fatalf("get through an outside link: state = %s, want failed", row.State)
+	}
+	if row.Error == "source not found" || strings.Contains(row.Error, outside) {
+		t.Fatalf("error = %q, want an escape error that does not name the real path", row.Error)
+	}
+
+	// The in-tree relative link works.
+	if err := os.MkdirAll(filepath.Join(workerHost, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workerHost, "docs", "a.md"), []byte("INSIDE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("docs", filepath.Join(workerHost, "ok")); err != nil {
+		t.Fatal(err)
+	}
+	okRec, err := hub.mgr.StageGet("e2e-tester", e2eWorkerID, "alpha", "ok/a.md")
+	if err != nil {
+		t.Fatalf("StageGet: %v", err)
+	}
+	if err := hub.mgr.Deliver(ctx, okRec.ID); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	if row := xferRow(t, hub.mgr, okRec.ID); row.State != string(xfer.StateDone) {
+		t.Fatalf("get through an in-tree link: state = %s (error=%q), want done", row.State, row.Error)
+	}
+}
+
+// TestFileXferPutThroughLinkOutsideRootFails: a put whose parent directory is a link out
+// of the worker's project root fails (with and without force) and creates nothing
+// outside; an in-tree relative link still works.
+func TestFileXferPutThroughLinkOutsideRootFails(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	hub, workerHost := startXferWorker(t, ctx)
+
+	outside := linkOutside(t, workerHost)
+	for _, force := range []bool{false, true} {
+		rec := stagePutPayload(t, hub.mgr, "alpha", "out/x.bin", []byte("payload"), force)
+		if err := hub.mgr.Deliver(ctx, rec.ID); err != nil {
+			t.Fatalf("Deliver: %v", err)
+		}
+		if row := xferRow(t, hub.mgr, rec.ID); row.State != string(xfer.StateFailed) {
+			t.Fatalf("force=%v: put through an outside link state = %s, want failed", force, row.State)
+		}
+	}
+	if es, err := os.ReadDir(outside); err != nil || len(es) != 0 {
+		t.Fatalf("outside dir = %v (err=%v), want empty", es, err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(workerHost, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("docs", filepath.Join(workerHost, "ok")); err != nil {
+		t.Fatal(err)
+	}
+	rec := stagePutPayload(t, hub.mgr, "alpha", "ok/new.md", []byte("hello"), false)
+	if err := hub.mgr.Deliver(ctx, rec.ID); err != nil {
+		t.Fatalf("Deliver: %v", err)
+	}
+	if row := xferRow(t, hub.mgr, rec.ID); row.State != string(xfer.StateDone) {
+		t.Fatalf("put through an in-tree link: state = %s (error=%q), want done", row.State, row.Error)
+	}
+	if b, err := os.ReadFile(filepath.Join(workerHost, "docs", "new.md")); err != nil || string(b) != "hello" {
+		t.Fatalf("landed file = %q, %v", b, err)
 	}
 }
 

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
@@ -28,18 +30,25 @@ type stubXfer struct {
 type fetchCall struct {
 	xferID     string
 	projectKey string
-	dst        string
+	dst        string // filepath.Join(root, rel)
 }
 
-func (x *stubXfer) FetchUpload(_ context.Context, xferID, projectKey, dst string) error {
-	x.fetches = append(x.fetches, fetchCall{xferID: xferID, projectKey: projectKey, dst: dst})
+// FetchUpload places the payload the way the real bridges do: through
+// project.PlaceInRoot, so the symlink boundary is exercised, not stubbed away.
+func (x *stubXfer) FetchUpload(_ context.Context, xferID, projectKey, root, rel string) error {
+	x.fetches = append(x.fetches, fetchCall{xferID: xferID, projectKey: projectKey, dst: filepath.Join(root, rel)})
 	if x.fetchErr != nil {
 		return x.fetchErr
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	pl, err := project.PlaceInRoot(root, rel, xferID)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, x.payload, 0o644)
+	if _, err := pl.File().Write(x.payload); err != nil {
+		pl.Abort()
+		return err
+	}
+	return pl.Commit()
 }
 
 // PullCollected is never reached from these tests: a job's own machine publishes what it
@@ -122,6 +131,66 @@ func TestUploadFailureFailsJobWithoutRunningAgent(t *testing.T) {
 	}
 	if got := final.Xfer.Uploads[0].Error; !strings.Contains(got, "staged payload is gone") {
 		t.Fatalf("upload error = %q, want the transfer's reason", got)
+	}
+}
+
+// TestUploadThroughDirLinkOutsideFailsJob: an upload whose Dest goes through a directory
+// link that leaves the job's cwd fails the job (upload_failed event, agent never
+// started) and nothing is created outside the tree. A relative link inside the tree
+// still works.
+func TestUploadThroughDirLinkOutsideFailsJob(t *testing.T) {
+	t.Parallel()
+	top := t.TempDir()
+	root, outside := filepath.Join(top, "proj"), filepath.Join(top, "outside")
+	for _, d := range []string{filepath.Join(root, "docs"), outside} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join("..", "outside"), filepath.Join(root, "out")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink creation requires admin or Developer Mode on Windows: %v", err)
+		}
+		t.Fatal(err)
+	}
+	if err := os.Symlink("docs", filepath.Join(root, "ok")); err != nil {
+		t.Fatal(err)
+	}
+	s := newTestService(t, root)
+	s.SetXferBridge(&stubXfer{payload: []byte("data"), owns: true})
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local", Cwd: ".", TimeoutSec: 30,
+		Cmd:     testcmd.Cmd(t, "write-files", "ran.txt", "yes"),
+		Uploads: []UploadSpec{{XferID: "xf-3", Dest: "out/x.bin"}},
+	})
+	if final.Status != StatusFailed {
+		t.Fatalf("status = %s, want failed", final.Status)
+	}
+	if !strings.Contains(final.Error, "upload out/x.bin:") {
+		t.Fatalf("error = %q, want it to name the destination", final.Error)
+	}
+	if es, err := os.ReadDir(outside); err != nil || len(es) != 0 {
+		t.Fatalf("outside dir = %v (err=%v), want empty", es, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "ran.txt")); !os.IsNotExist(err) {
+		t.Fatalf("the agent ran despite the failed upload (stat err=%v)", err)
+	}
+	if types := eventTypes(t, s, final.ID); !hasSubsequence(types, []string{EventJobRunning, EventJobUploadFailed, EventJobTerminal}) {
+		t.Fatalf("events = %v, want running → upload_failed → terminal", types)
+	}
+
+	// The in-tree relative link is fine.
+	ok := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local", Cwd: ".", TimeoutSec: 30,
+		Cmd:     testcmd.Cmd(t, "write-files", "ran.txt", "yes"),
+		Uploads: []UploadSpec{{XferID: "xf-4", Dest: "ok/y.bin"}},
+	})
+	if ok.Status != StatusDone {
+		t.Fatalf("in-tree link upload: status = %s (err=%s), want done", ok.Status, ok.Error)
+	}
+	if b, err := os.ReadFile(filepath.Join(root, "docs", "y.bin")); err != nil || string(b) != "data" {
+		t.Fatalf("landed file = %q, %v", b, err)
 	}
 }
 

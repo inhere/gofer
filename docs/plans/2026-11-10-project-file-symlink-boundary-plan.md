@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 项目文件读写的符号链接边界 实施计划
 
-> 状态：Draft 0.1 / 已批准（2026-11-10，用户：「计划批准」）
+> 状态：COMPLETE（2026-11-10）；Draft 0.1 已批准（2026-11-10，用户：「计划批准」）
 > issue：gofer-i72n
 
 ## 修订记录
@@ -166,3 +166,10 @@ W3  T6 真实验收（Claude）→ T7 反向验证、全量与收尾（Claude）
 完成 Gate：T0–T7 通过；反向验证写入 `tmp/i72n-impl/reverse.md`；gofer-verify 全绿；合并并清理；设计稿实施记录；关 issue。
 
 剩余工作：随下一批发版时 push 与发版。
+
+## 完成总结（2026-11-10）
+
+- T0–T7 完成；T1–T4 由 sonnet 子 agent 实施（6 处细节偏离均为保持旧行为或逐提交可编译，已审查接受），T5 由 suga 实施，一次通过。
+- 计划错误：传输命令写成 `gofer tool xfer`，实际为 `gofer tool cp`；不影响实现，验收按实际命令执行。
+- 真实验收全部通过；反向验证 11 个用例按预期失败；gofer-verify 四路通过。
+

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/xfer"
 )
 
@@ -32,10 +33,12 @@ type hubJobXfer struct {
 // hubJobXferFor builds the hub's job file seam over an assembled transfer manager.
 func hubJobXferFor(mgr *xfer.Manager) job.XferBridge { return hubJobXfer{mgr: mgr} }
 
-// FetchUpload copies a staged put into dst. The record must be a put of the job's own
+// FetchUpload copies a staged put to rel under root (the job's workDir or result dir; the
+// job package already vetted rel with SafeJoin). The write goes through os.Root, so a
+// link inside root cannot lead the upload out of it. The record must be a put of the job's own
 // project in a staged state: those are the same conditions the HTTP submit validated,
 // re-checked here because this path does not go through HTTP.
-func (h hubJobXfer) FetchUpload(_ context.Context, xferID, projectKey, dst string) error {
+func (h hubJobXfer) FetchUpload(_ context.Context, xferID, projectKey, root, rel string) error {
 	rec, ok, err := h.mgr.Get(xferID)
 	if err != nil {
 		return err
@@ -57,7 +60,7 @@ func (h hubJobXfer) FetchUpload(_ context.Context, xferID, projectKey, dst strin
 		return err
 	}
 	defer src.Close()
-	return writeVerified(src, dst, rec.Size, rec.SHA256)
+	return placeVerified(src, root, rel, xferID, rec.Size, rec.SHA256)
 }
 
 // PullCollected stages a get for the collecting worker, drives it to done, copies the
@@ -129,18 +132,48 @@ func writeVerified(src io.Reader, dst string, size int64, sha string) error {
 		_ = os.Remove(tmp)
 		return reason
 	}
-	got := hex.EncodeToString(h.Sum(nil))
-	if size > 0 && n != size {
+	if err := checkCopied(n, hex.EncodeToString(h.Sum(nil)), size, sha); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("size mismatch: copied %d bytes, staged %d", n, size)
-	}
-	if sha != "" && !strings.EqualFold(sha, got) {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("sha256 mismatch: copied %s, staged %s", got, sha)
+		return err
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
 		return err
+	}
+	return nil
+}
+
+// placeVerified is writeVerified for a destination INSIDE root: the same copy-hash-verify
+// -then-rename sequence, but the write goes through project.PlaceInRoot (os.Root), so the
+// parent directories, the temp file and the final rename cannot follow a link out of root.
+// The temp file sits next to the destination so a half-written file is never visible
+// where the job's tools read it.
+func placeVerified(src io.Reader, root, rel, tmpSuffix string, size int64, sha string) error {
+	pl, err := project.PlaceInRoot(root, rel, tmpSuffix)
+	if err != nil {
+		return err
+	}
+	h := sha256.New()
+	n, copyErr := io.Copy(io.MultiWriter(pl.File(), h), src)
+	if copyErr != nil {
+		pl.Abort()
+		return copyErr
+	}
+	if err := checkCopied(n, hex.EncodeToString(h.Sum(nil)), size, sha); err != nil {
+		pl.Abort()
+		return err
+	}
+	return pl.Commit()
+}
+
+// checkCopied enforces the size / sha256 the transfer journal declared (zero = not
+// declared) against what actually landed.
+func checkCopied(n int64, got string, size int64, sha string) error {
+	if size > 0 && n != size {
+		return fmt.Errorf("size mismatch: copied %d bytes, staged %d", n, size)
+	}
+	if sha != "" && !strings.EqualFold(sha, got) {
+		return fmt.Errorf("sha256 mismatch: copied %s, staged %s", got, sha)
 	}
 	return nil
 }

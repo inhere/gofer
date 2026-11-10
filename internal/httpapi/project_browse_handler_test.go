@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -187,6 +188,56 @@ func TestHandleGetFile_SymlinkEscape404(t *testing.T) {
 	resp := do(t, s, http.MethodGet, "/v1/projects/self/file?path=README.md", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status=%d, want 404 for symlink escape", resp.StatusCode)
+	}
+}
+
+func TestHandleGetFile_LinkToNonAllowlisted404(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	initGitRepo(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("SECRET=1\n"), 0o644); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+	_ = os.Remove(filepath.Join(repo, "README.md"))
+	if err := os.Symlink(".env", filepath.Join(repo, "README.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	s := newBrowseServer(t, repo)
+
+	resp := do(t, s, http.MethodGet, "/v1/projects/self/file?path=README.md", testToken, nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404 for link to non-allowlisted file", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if strings.Contains(string(body), "SECRET") || strings.Contains(string(body), ".env") {
+		t.Fatalf("response leaks target: %s", body)
+	}
+}
+
+func TestHandleGetFile_LinkToAllowlistedInRoot200(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	initGitRepo(t, repo)
+	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "docs", "README.md"), []byte("# real\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_ = os.Remove(filepath.Join(repo, "README.md"))
+	if err := os.Symlink(filepath.Join("docs", "README.md"), filepath.Join(repo, "README.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	s := newBrowseServer(t, repo)
+
+	resp := do(t, s, http.MethodGet, "/v1/projects/self/file?path=README.md", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200", resp.StatusCode)
+	}
+	var fc project.FileContent
+	decode(t, resp, &fc)
+	if fc.Name != "README.md" || fc.Content != "# real\n" {
+		t.Fatalf("unexpected file content: %+v", fc)
 	}
 }
 

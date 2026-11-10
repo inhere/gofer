@@ -2,6 +2,7 @@ package project
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -295,10 +296,10 @@ func TestReadKeyFile_Symlink(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(root, "docs", "real.txt"), []byte("INSIDE"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "docs", "README.md"), []byte("INSIDE"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		link(t, filepath.Join(root, "docs", "real.txt"), filepath.Join(root, "README.md"))
+		link(t, filepath.Join(root, "docs", "README.md"), filepath.Join(root, "README.md"))
 		cfg, proj := cfgFor(root)
 		fc, err := ReadKeyFile(cfg, proj, "README.md")
 		assert.NoErr(t, err)
@@ -316,4 +317,41 @@ func TestReadKeyFile_Symlink(t *testing.T) {
 		_, err := ReadKeyFile(cfg, proj, "README.md")
 		assert.ErrIs(t, err, os.ErrNotExist)
 	})
+}
+
+func TestReadKeyFile_LinkToNonAllowlistedInRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("SECRET=1\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	mustSymlink(t, ".env", filepath.Join(dir, "README.md"))
+	cfg, proj := cfgFor(dir)
+
+	fc, err := ReadKeyFile(cfg, proj, "README.md")
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("err=%v, want fs.ErrNotExist", err)
+	}
+	if fc.Content != "" || fc.Name != "" {
+		t.Fatalf("content leaked: %+v", fc)
+	}
+}
+
+func TestReadKeyFile_LinkToAllowlistedInRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "README.md"), []byte("# real\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	mustSymlink(t, filepath.Join("docs", "README.md"), filepath.Join(dir, "README.md"))
+	cfg, proj := cfgFor(dir)
+
+	fc, err := ReadKeyFile(cfg, proj, "README.md")
+	if err != nil {
+		t.Fatalf("ReadKeyFile err: %v", err)
+	}
+	if fc.Name != "README.md" || fc.Content != "# real\n" {
+		t.Fatalf("unexpected FileContent: %+v", fc)
+	}
 }
