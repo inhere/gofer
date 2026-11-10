@@ -175,6 +175,9 @@ const pageScanBatch = 100
 // (project, status, q, Keep), so a filtered page is not sparse, and the cursor always
 // points at a thread that is part of the page (never at one the caller may not see).
 func (s *Service) listPage(callerID string, query Query) (Response, error) {
+	if liveCursorPageEmpty(query) {
+		return Response{}, nil
+	}
 	curAt, curID, err := decodeCursor(query.Cursor)
 	if err != nil {
 		return Response{}, err
@@ -207,8 +210,12 @@ func (s *Service) listPage(callerID string, query Query) (Response, error) {
 			pinned = append(pinned, pref.ThreadID)
 		}
 	}
+	pinned = withIncluded(pinned, query)
 	needle := strings.ToLower(strings.TrimSpace(query.Q))
 	match := func(thread *Thread) bool {
+		if !threadPassesSourceLive(*thread, query) {
+			return false
+		}
 		if query.Project != "" && thread.ProjectKey != query.Project {
 			return false
 		}
@@ -257,8 +264,14 @@ func (s *Service) listPage(callerID string, query Query) (Response, error) {
 				selected = append(selected, p)
 				continue
 			}
+			if query.Live {
+				continue
+			}
 			ordinary = append(ordinary, p)
 			ordKeys = append(ordKeys, key)
+		}
+		if query.Live {
+			break
 		}
 		if len(ordinary) > limit {
 			more = true
@@ -306,6 +319,9 @@ func (s *Service) buildResponse(projections []projection, snapshot jobstore.Work
 			continue
 		}
 		if needle != "" && !threadMatches(thread, needle) {
+			continue
+		}
+		if !threadPassesSourceLive(thread, query) {
 			continue
 		}
 		if query.Keep != nil && !query.Keep(thread) {
