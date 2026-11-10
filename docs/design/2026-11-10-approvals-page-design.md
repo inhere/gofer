@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 审批记录页设计
 
-> 状态：Draft 0.1 / 待批准
+> 状态：Draft 0.2 / 待批准
 > issue：gofer-nt9o
 
 ## 修订记录
@@ -9,6 +9,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-11-10 | Claude | 初稿：现状核查与方案 |
+| 0.2 | 2026-11-10 | Claude | 按两轴评审修订：内存合并同口径过滤（F1）；提交时间取自 hold、排序说明（F2）；`json_valid` 保护与常量 SQL（A4/F3）；落点补 client、命令面板（F4/A2）；同步文件清单（A1/A2）；GR110/GR104 落点（A3）；审批与可见权限说明（F5） |
 
 需要用户：答复 Q1–Q3（或接受全部推荐项），并明确批准进入计划编写。批准设计不等于授权实施。
 
@@ -52,23 +53,36 @@
 | `decided` | hold 是人工审批，且 `json_extract(hold_json,'$.decision')` 非空 |
 | `any` | hold 是人工审批（待批 + 已决） |
 
-「hold 是人工审批」= `COALESCE(hold_json,'') <> ''` 且 `COALESCE(json_extract(hold_json,'$.kind'),'') = ''`。非法值返回 400。与其余筛选（project、caller、since、limit/offset）AND 组合；权限沿用 `GET /v1/jobs` 现有规则（无 `job.read.others` 只看自己的），不新增权限。
+「hold 是人工审批」= `json_valid(hold_json)` 且 `COALESCE(json_extract(hold_json,'$.kind'),'') = ''`（`json_valid` 对 NULL / 空串为假，个别坏行不会让整条查询失败）。
 
-排序沿用列表的 `started_at DESC`（提交时间）。
+- 取值是枚举：定义与校验放 `job` 层（handler 用它返回 400，jobstore 遇到未知值报错）。三个取值各对应一段代码常量 SQL，入参不拼进 SQL。
+- 拼条件的 helper 放 jobstore 新文件（如 `jobs_hold_filter.go`），`ListJobs` 里只加一行调用：`internal/jobstore/jobs.go` 已 1271 行，超过 GR104 上限，不再往里加逻辑。
+- **内存合并同口径过滤**：`job.ListJobs` 会把内存里的 live job 并进结果，`internal/job/list.go:130` 要求内存过滤与 SQL「逐维一致」。同处加：`snap.Hold != nil && snap.Hold.Kind == ""`，`pending` 再要求 `status = awaiting_approval`，`decided` 再要求 `Hold.Decision != ""`。否则运行中的普通 job 会混进列表。
+- 与其余筛选（project、caller、status、since、limit/offset）AND 组合；`hold` 与显式 `status` 同时给时也按 AND（如 `hold=decided&status=cancelled` = 拒绝 / 过期 / 撤回的）。
+- 权限沿用 `GET /v1/jobs` 现有规则（无 `job.read.others` 只看自己的），不新增权限。注意：批准他人 job 的权限是 `job.review.others`，只有该权限、没有 `job.read.others` 的调用方在审批页看不到别人的待批——沿用现状，不在本次调整。
 
-CLI：`gofer job ls --hold pending|decided|any`，同一参数直传。
+排序沿用列表的 `started_at DESC`。批准后 job 会以批准时刻重新开始，`started_at` 变成批准时间（派给 worker 的在回报前为 0），所以「已决」页签大致按最近处理排序，不是严格的提交顺序。页面显示的**提交时间**取 `hold.expires_at - hold.timeout_sec`（提交时固定），不用 `started_at`。
+
+CLI：`gofer job ls --hold pending|decided|any`，经 `internal/client` 的列表查询参数直传。
 
 ### 2. web「审批」页
 
-- 路由 `/approvals`，菜单项放协作组、`/review` 之后，键 `nav.approvals`（中「审批」/ 英 “Approvals”），图标复用现有图标。
+- 路由 `/approvals`（`web/src/router.routes.ts`），菜单项放协作组、`/review` 之后，键 `nav.approvals`（中「审批」/ 英 “Approvals”），图标复用现有图标；同时登记命令面板 `PALETTE_PAGES`（`web/src/utils/shell.ts:243`，`projectFilter: true`），并更新 `shell.test.ts:105` 的菜单顺序断言。页面全部文案走 i18n（`web/src/i18n/zh.ts` / `en.ts` 或页面分包）。
 - 页面两个页签：**待批**（`hold=pending`）、**已决**（`hold=decided`），各自分页（加载更多）；支持项目筛选（与其他列表页一致的 `projectFilter`）。
 - 每行：标题（链接到 job 详情）、项目、申请来源（`caller_id` + `hold.origin`）、提交时间、理由、命令 / prompt 摘要（截断，悬浮看全文）；待批行加剩余时间（`expires_at`）；已决行加结果徽标、决定人、决定时间、备注。批准后 job 的运行结果（done / failed）作为次要信息显示在结果旁。
 - 待批行的操作：见 Q1。
-- 验收台 `ReviewQueue.vue` 里「N 个待批」的入口改跳 `/approvals`（原来跳 `/jobs?status=awaiting_approval`）。
+- 验收台 `ReviewQueue.vue` 里「N 个待批」的入口（`APPROVAL_LIST` 常量，`:53`）改跳 `/approvals`（原来跳 `/jobs?status=awaiting_approval`）。
+
+### 3. 文档同步（G045 / G058）
+
+- `skills/gofer-usage/references/hold-approval.md`：补 `job ls --hold` 与 web「审批」页；`references/commands.md` 若列有 `job ls` 的 flag 同步补；`references/web-console.md` 补「审批」页。
+- `docs/reference/http-api.md`：`GET /v1/jobs` 的 `hold` 参数语义与 400。
+- `docs/capabilities.md`：待批 job 一行加 Web `/approvals` 与 CLI `--hold`（发版时随能力清单更新）。
+- `CHANGELOG.md` 新增条目。
 
 ## 架构
 
-入口（`httpapi` 解析 `hold` 参数、`commands` 加 flag）→ `job.ListOpts.Hold` → `jobstore.ListQuery.Hold` 生成 SQL 条件。G021 / G022 方向不变。路由不变，`authz_routes.go` 不需要新声明。
+入口（`httpapi` 解析 `hold` 参数；`commands` 加 flag，经 `internal/client` 传参）→ `job.ListOpts.Hold`（同时用于内存合并过滤）→ `jobstore.ListQuery.Hold` 生成 SQL 条件。G021 / G022 方向不变。路由不变，`authz_routes.go` 不需要新声明。
 
 ## 关键流程
 
@@ -96,7 +110,8 @@ CLI：`gofer job ls --hold pending|decided|any`，同一参数直传。
 
 ## 验收
 
-- 真实 server：提交三个 `--hold` exec job，分别批准、拒绝、等过期（`--hold-timeout` 取短值）；再留一个待批。`job ls --hold pending|decided|any` 与 web 两个页签结果正确，字段与 job 详情一致。
+- 真实 server：提交三个 `--hold` exec job，分别批准、拒绝、等过期（`--hold-timeout` 取短值）；再留一个待批；同时有一个普通 job 在运行。`job ls --hold pending|decided|any` 与 web 两个页签结果正确，字段与 job 详情一致；运行中的普通 job 不出现；批准后仍在运行的 job 出现在「已决」；提交时间与提交时刻一致。
+- 单测：jobstore 三个取值的 SQL 结果（含坏 JSON 行、升级停放行）；`job.ListJobs` 内存合并过滤；`internal/commands` 经真实命令分发的 `job ls --hold` 用例（GR110；新增全局 `*Opts` 要登记 `TestFlagGlobalsRegistryComplete`）；web 菜单顺序测试更新。
 - 升级停放的 job 不出现在任何页签（用测试数据构造）。
 - 无 `job.read.others` 的调用方只看到自己提交的审批。
 - `hold=bad` 返回 400。
