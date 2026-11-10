@@ -33,7 +33,7 @@
 | `job run`（别名 `add`） | 提交 | SKILL.md；进阶 flag 见 [job-advanced.md](job-advanced.md) |
 | `tool refs <id>` | 列出引用该 issue / job / plan / todo / workflow 的可见对象 | `gofer tool refs gofer-abcd`；也可用 MCP `gofer_refs` |
 | `job logs <id>` / `show <id>` / `watch <id>` | 读输出 / 查状态 / 跟随到结束 | |
-| `job list`（`ls`） | 列 job：`-p` `--status` `--tag` `--agent` `--runner` `--plan` `--session` `--since <unix秒>` `--limit` `--all` | |
+| `job list`（`ls`） | 列 job：`-p` `--status` `--hold pending\|decided\|any` `--tag` `--agent` `--runner` `--plan` `--session` `--since <unix秒>` `--limit` `--all` | |
 | `job cancel <id>` | 取消 | `needs_review` 用 reject |
 | `job set <id> --title "…"` | 改 / 清空标题 | |
 | `job rerun <id>` | 原请求重提（新会话） | |

@@ -11,6 +11,10 @@
 
 ## [未发布]
 
+### 新增
+
+- Web 控制台新增「审批」记录页，可按待批 / 已决查看人工审批 hold job；CLI 新增 `gofer job ls --hold pending|decided|any`。
+
 ### 变更
 
 - 独占 job 的目录锁由 `--scope` 推出，scope 不相交的 job 可在同一 checkout 并行；多路径锁改为原子获取，交叉顺序的 `--lock` 不再互等；`waiting_dir` 提示与帮助首选 `--scope`（gofer-341t）。
