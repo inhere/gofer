@@ -1557,6 +1557,8 @@ export interface JobsResp {
 
 export interface ListJobsOpts {
   status?: JobStatus
+  // 人工审批 hold 记录过滤；升级停放（kind=update）不属于这些集合。
+  hold?: 'pending' | 'decided' | 'any'
   project?: string
   // E5 检索维度：tag（标签精确元素）/ agent / runner / since（unix 秒）/ caller。
   tag?: string
