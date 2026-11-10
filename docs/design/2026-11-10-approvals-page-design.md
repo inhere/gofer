@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 审批记录页设计
 
-> 状态：Draft 0.2 / 待批准
+> 状态：Draft 0.3 / 待批准
 > issue：gofer-nt9o
 
 ## 修订记录
@@ -10,6 +10,7 @@
 |---|---|---|---|
 | 0.1 | 2026-11-10 | Claude | 初稿：现状核查与方案 |
 | 0.2 | 2026-11-10 | Claude | 按两轴评审修订：内存合并同口径过滤（F1）；提交时间取自 hold、排序说明（F2）；`json_valid` 保护与常量 SQL（A4/F3）；落点补 client、命令面板（F4/A2）；同步文件清单（A1/A2）；GR110/GR104 落点（A3）；审批与可见权限说明（F5） |
+| 0.3 | 2026-11-10 | Claude | 枚举定义移到 jobstore，避免反向依赖（R2-4） |
 
 需要用户：答复 Q1–Q3（或接受全部推荐项），并明确批准进入计划编写。批准设计不等于授权实施。
 
@@ -55,7 +56,7 @@
 
 「hold 是人工审批」= `json_valid(hold_json)` 且 `COALESCE(json_extract(hold_json,'$.kind'),'') = ''`（`json_valid` 对 NULL / 空串为假，个别坏行不会让整条查询失败）。
 
-- 取值是枚举：定义与校验放 `job` 层（handler 用它返回 400，jobstore 遇到未知值报错）。三个取值各对应一段代码常量 SQL，入参不拼进 SQL。
+- 取值是枚举：常量定义在 jobstore（`job` 层引用，G022 方向不变）；handler 先校验并返回 400，jobstore 遇到未知值报错只是防御（`job.ListJobs` 不吞这个错：未知值在 handler 已被拒）。三个取值各对应一段代码常量 SQL，入参不拼进 SQL。
 - 拼条件的 helper 放 jobstore 新文件（如 `jobs_hold_filter.go`），`ListJobs` 里只加一行调用：`internal/jobstore/jobs.go` 已 1271 行，超过 GR104 上限，不再往里加逻辑。
 - **内存合并同口径过滤**：`job.ListJobs` 会把内存里的 live job 并进结果，`internal/job/list.go:130` 要求内存过滤与 SQL「逐维一致」。同处加：`snap.Hold != nil && snap.Hold.Kind == ""`，`pending` 再要求 `status = awaiting_approval`，`decided` 再要求 `Hold.Decision != ""`。否则运行中的普通 job 会混进列表。
 - 与其余筛选（project、caller、status、since、limit/offset）AND 组合；`hold` 与显式 `status` 同时给时也按 AND（如 `hold=decided&status=cancelled` = 拒绝 / 过期 / 撤回的）。

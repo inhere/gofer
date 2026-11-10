@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # ACP 持续会话历史与继续设计
 
-> 状态：Draft 0.2 / 待批准
+> 状态：Draft 0.3 / 待批准
 > issue：gofer-7yrg
 
 ## 修订记录
@@ -10,6 +10,7 @@
 |---|---|---|---|
 | 0.1 | 2026-11-10 | Claude | 初稿：现状核查（含线上浏览器实测）与方案 |
 | 0.2 | 2026-11-10 | Claude | 按两轴评审修订：工作台深链能打开时间窗外的旧线程（F6，复用置顶附带机制）；筛选改为 `source=acp`，排除终端 PTY 会话（F7）；「显示已结束」改服务端 `live=1`（F8）；项目筛选走服务端（F10）；ACP 页签抽组件控制行数（C2）；同步文件与测试（C1/C3）；验收可观察化（F9） |
+| 0.3 | 2026-11-10 | Claude | 第 2 轮评审修订：`include` 覆盖当前打开的线程而非只看路由参数，刷新后旧线程不丢（R2-1）；`live=1` 与 store 非终态口径一致并跳过普通页扫描（R2-2/R2-3）；深链逻辑放 `threadPaging.ts` 与小函数，`Workbench.vue` 只加接线（C4）；同步工作台深链说明（C5） |
 
 需要用户：答复 Q1–Q3（或接受全部推荐项），并明确批准进入计划编写。批准设计不等于授权实施。
 
@@ -51,7 +52,7 @@
 `GET /v1/workbench/threads` 新增：
 
 - `source=acp|pty|relay`（`workbench.Query.Source`）。线程只有两类 job 来源（`service.go:388-393`）：交互式 PTY job 与常驻 ACP job；另有 relay 会话。`acp` = job 来源且 `!Interactive`；`pty` = job 来源且 `Interactive`；`relay` = `Kind == relay`。不能用现有的 `kind=agent`：它只看 `SessionID` 非空（`service.go:426-429`），补录到 session id 的 PTY job 也算 agent。
-- `live=1`（`Query.Live`）：只要 `RawStatus` 不是终态的线程。
+- `live=1`（`Query.Live`）：只要未结束的线程，口径与 store 的「活跃」判定一致——job 来源用 `workbenchNonTerminalSQL`（`internal/jobstore/workbench.go:340`），relay 用 `state NOT IN (ended, offline)`（`internal/jobstore/workbench_page.go:71`）。因为活跃线程在首页全部作为例外线程返回，`live=1` 时只取首页例外线程、跳过普通页扫描，`has_more` 恒为 false；否则 `since=1` 时每次都会扫完全部历史。
 
 两者都在 `listPage` 的 `match`（`service.go:211`，活跃 / 置顶附带的线程也先经过它）和 `buildResponse` 的同一处过滤里判断，不写第三份；判断函数放 `model.go` 或新文件（`service.go` 已 1137 行，GR104）。非法值 400，校验方式同现有 `status`（`internal/httpapi/workbench_handler.go:139-148`）。路由已声明，不涉及 G056。
 
@@ -61,8 +62,10 @@
 
 方案：复用「置顶线程随首页附带、不受时间窗限制」的现成机制（`listPage` 把置顶 id 传给 `LoadWorkbenchPage` 的 `PinnedIDs`）。
 
-- 接口新增 `include=<thread id>`（`Query.Include`，单个，格式按现有线程 id 校验）：仅在首页（无 cursor）并入本次请求的 `PinnedIDs`，照常过 `match`（含 `Keep` 可见性），不写入用户的置顶偏好。
-- 工作台首页请求在路由带 `?thread=` 时附带 `include`；路由的 `thread` 变成一个未加载的 id 时，重新加载首页一次，加载完成后按现有逻辑定位。
+- 接口新增 `include`（`Query.Include []string`，可重复，最多 8 个，每个按现有线程 id 格式校验，超限或非法 400）：仅在首页（无 cursor）并入本次请求的 `PinnedIDs`，照常过 `match`（含 `Keep` 可见性），不写入用户的置顶偏好。
+- 工作台每次加载首页（含推送触发的刷新、选中后的补拉）都附带 `include` = 路由 `?thread=` 目标 ∪ 当前选中与当前标签页各窗格的线程（即现有 `wantedFullIDs()`，`Workbench.vue:252`，至多 1 + 4 个）。这样定位后 `?thread=` 被清掉，打开着的旧线程也不会在下一次刷新时消失。
+- 路由的 `thread` 变成一个未加载的 id 时，重新加载首页一次，加载完成后按现有逻辑定位。
+- 代码落点：拼 `include` 放 `web/src/components/workbench/threadPaging.ts`（首页参数）；「目标未加载则重载一次」的判断写成 `web/src/components/workbench/` 下的小函数。`Workbench.vue` 已 1084 行（GR104），只加接线所需的几行。
 
 ### 3. 会话页 ACP 页签
 
@@ -76,7 +79,7 @@
 ### 4. 文档同步（G045 / G058）
 
 - `docs/reference/http-api.md`：`GET /v1/workbench/threads` 的 `source`、`live`、`include` 参数与 400，说明它们和 project / status / q 一样在切页前过滤。
-- `skills/gofer-usage/references/web-console.md`：会话页 ACP 页签按会话列出、「打开会话」进工作台继续。
+- `skills/gofer-usage/references/web-console.md`：会话页 ACP 页签按会话列出、「打开会话」进工作台继续；工作台段（现写「会话列表默认只拉最近 7 天」）补「`?thread=` 深链可打开时间窗外的会话，不会因此置顶」。
 - `docs/capabilities.md`：会话 / 工作台相关行随发版更新；`CHANGELOG.md` 新增条目。
 
 ## 架构
@@ -109,10 +112,10 @@
 ## 验收
 
 - 线上数据（只读）：ACP 页签勾「显示已结束」并加载完全部页后，卡片数等于 `GET /v1/workbench/threads?source=acp&since=1` 各页 `threads` 之和，不再是 0；同一会话续接多次只有一张卡；终端 PTY 会话不出现。
-- 深链：从 ACP 页签打开一个最近活动早于 7 天、未置顶的已结束会话，工作台能定位并显示对话，可继续发言；该线程没有因此变成置顶。
+- 深链：从 ACP 页签打开一个最近活动早于 7 天、未置顶的已结束会话，工作台能定位并显示对话；之后触发一次刷新（或等一次推送），线程仍在窗格里；发言能续接；该线程没有因此变成置顶。
 - 临时 server：起一个 ACP 持续会话（`--shared-dir`），说两轮后 `job end`；在会话页找到它 → 打开会话 → 看到两轮对话 → 发一条消息 → 生成续接 job、回复出现在同一线程。检查续接 job 的输出是否重复了前两轮（只记录，见「未确认」）。
 - `source=bad`、`live=x`、格式非法的 `include` 返回 400；`source=relay` 只返回 relay 线程；`include` 指向调用方不可见的线程时不返回它。
-- 单测：`source` / `live` 过滤（含活跃 / 置顶附带的线程）、`include` 只在首页生效且不改偏好；web 组件测试见上。
+- 单测：`source` / `live` 过滤（含活跃 / 置顶附带的线程；`live=1` 不扫普通页）、`include` 多值与上限、只在首页生效且不改偏好；web 组件测试见上。
 
 ## 结论与人工计划 Gate
 
