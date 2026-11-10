@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 项目文件读写的符号链接边界 实施计划
 
-> 状态：Draft 0.1 / 待批准
+> 状态：Draft 0.1 / 已批准（2026-11-10，用户：「计划批准」）
 > issue：gofer-i72n
 
 ## 修订记录
