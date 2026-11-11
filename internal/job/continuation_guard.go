@@ -51,7 +51,11 @@ type ContinuationWorktreeError struct {
 }
 
 func (e *ContinuationWorktreeError) Error() string {
-	return ErrContinuationWorktreeGone.Error() + " (" + e.Reason + "): " + e.Path +
+	where := ""
+	if e.Path != "" { // a cleaned-up worktree leaves no path on the source row
+		where = ": " + e.Path
+	}
+	return ErrContinuationWorktreeGone.Error() + " (" + e.Reason + ")" + where +
 		"; the work is not continued in the main checkout, start a new job instead"
 }
 

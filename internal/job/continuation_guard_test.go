@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gookit/goutil/x/assert"
+
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -588,4 +590,15 @@ func TestMergeWorktreeCleanupSkippedWhenContinuationStarts(t *testing.T) {
 	if got, _ := s.Get(j.ID); got.WorktreePath != j.WorktreePath {
 		t.Fatalf("worktree_path = %q, want the registration kept (%q)", got.WorktreePath, j.WorktreePath)
 	}
+}
+
+func TestContinuationWorktreeErrorText(t *testing.T) {
+	t.Run("with path", func(t *testing.T) {
+		e := &ContinuationWorktreeError{Reason: reasonWorktreeGone, Path: "/w/x"}
+		assert.Eq(t, "continuation worktree gone (worktree_gone): /w/x; the work is not continued in the main checkout, start a new job instead", e.Error())
+	})
+	t.Run("cleaned up, no path", func(t *testing.T) {
+		e := &ContinuationWorktreeError{Reason: reasonWorktreeGone}
+		assert.Eq(t, "continuation worktree gone (worktree_gone); the work is not continued in the main checkout, start a new job instead", e.Error())
+	})
 }
