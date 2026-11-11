@@ -94,3 +94,11 @@ https://herdr.dev/zh-cn/docs/concepts/ — 终端里的 agent 编排器。吸收
 | 7 | worktree 浏览器 IDE / 只读文件浏览、worker 负载上报、来源 CIDR 限制、工作台 slash 菜单 | 均无 | 低 |
 
 安全注意：一行安装命令不得带秘密（liaison 把 AK/SK 放在 `curl \| bash` 命令行里），脚本与二进制校验 sha256、拒绝 root。不学：浏览器 DB / RDP / SSH 工作区与 LLM Playground（访问网关产品面）；内置 shell agent（归 suga / xhen）；Casbin 组织域 IAM（粒度不如现有 authz）；网段扫描式服务发现。
+
+## LobeHub（lobehub/lobehub，2026-11-11）
+
+已转型为 "Super-Agents on Your Team"：多租户 SaaS（Hono/tRPC + PostgreSQL），Task 指派 agent、外接 15 种 CLI、执行设备、GitHub PR 闭环、IM 入站。模型判断内置在平台；按分工 gofer 只取其工程细节。高推荐：PR 闭环细节（三种绑定方式、合并即验收、CI 失败带日志尾唤醒且每 PR 限次合批、只认可信评审人、单条跟踪评论原地更新；`apps/server/src/services/scm/`）；人的打回理由提炼为交付规范（`services/expertise/`）。中高：外部 issue 单向同步（`taskExternalLink`）、准入策略逐条 off / shadow / enforce 且决策落库（`conversationWake/aggregator.ts`）、线程跟进状态机与暂存重放（`conversationWake/scheduler/`）。其余见 [统一整理](2026-11-11-super-agent-workflow-survey.md)。不学：插话分类器与打扰策略（归 xhen）、provider 与上下文引擎（归 suga）、Marketplace / RAG / 多 workspace RBAC。
+
+## crewbot-connector（super-agent.team 的开源本地 daemon，2026-11-11）
+
+约 1.9k 行 TS：出站 WebSocket 把网页 bot 会话映射到本机 ACP 进程。服务器被完全信任（网页可直接给 `full` 档），不学其安全模型。可借鉴：外部线程 id ↔ agent 会话 id 两层映射、resume 失败降级新会话；入站至少一次投递 + msgId 去重 + 接收回执（prompt / injected）；出站按会话递增序号、确认后清 outbox、重连补传（gofer worker 镜像事件现为断线即丢，`internal/worker/client.go`）；运行中插话按 ACP 能力选择插入或排队；被吊销即自清凭据、三态核对防误删。不学：运行时 npm 安装适配器并改写 codex 产物打开联网、logout 递归删除工作目录、内存中的去重与 outbox。
