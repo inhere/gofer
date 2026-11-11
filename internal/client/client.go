@@ -1757,8 +1757,11 @@ type Plan struct {
 	// Notify is this plan's end-notification switch (gofer-3db4): on|off, `off` by
 	// default. With it on, every job the plan dispatches tells the plan's supervisor
 	// session that it ended.
-	Notify string   `json:"notify,omitempty"`
-	Tags   []string `json:"tags,omitempty"`
+	Notify string `json:"notify,omitempty"`
+	// CompleteOn is when this plan's todos count as done: job (default) | merge (a
+	// worktree todo waits for its delivery to land).
+	CompleteOn string   `json:"complete_on,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 	// Warnings carries what a write could not refuse outright — today the "N running
 	// job(s) will wake the leader when they finish" note a leader-on PATCH returns.
 	Warnings []string `json:"warnings,omitempty"`
@@ -2088,6 +2091,18 @@ func (c *Client) SetPlanNotify(planID, notify string) (Plan, error) {
 	body, err := json.Marshal(map[string]string{"notify": notify})
 	if err != nil {
 		return Plan{}, fmt.Errorf("encode set plan notify: %w", err)
+	}
+	var p Plan
+	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)
+	return p, err
+}
+
+// SetPlanCompleteOn sets when a plan's todos count as done (PATCH /v1/plans/{id}):
+// `job` (default) when the job finishes, `merge` when its delivery lands.
+func (c *Client) SetPlanCompleteOn(planID, completeOn string) (Plan, error) {
+	body, err := json.Marshal(map[string]string{"complete_on": completeOn})
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode set plan complete_on: %w", err)
 	}
 	var p Plan
 	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)

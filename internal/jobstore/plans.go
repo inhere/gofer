@@ -48,6 +48,17 @@ const (
 // ValidPlanNotify reports whether s is a value the notify switch accepts.
 func ValidPlanNotify(s string) bool { return s == PlanNotifyOff || s == PlanNotifyOn }
 
+// Plan complete_on values: when does a todo of the plan count as done? `job` (the
+// default, and what an old row reads as) = when its job finishes; `merge` = when the
+// job's deliverable has landed (a worktree todo waits for its merge).
+const (
+	PlanCompleteOnJob   = "job"
+	PlanCompleteOnMerge = "merge"
+)
+
+// ValidPlanCompleteOn reports whether s is a value the complete_on field accepts.
+func ValidPlanCompleteOn(s string) bool { return s == PlanCompleteOnJob || s == PlanCompleteOnMerge }
+
 // Plan is the SQLite-persisted plan grouping header. It is neutral (no
 // internal/job import) so job/http layers can drive it without an import cycle.
 type Plan struct {
@@ -80,11 +91,17 @@ type Plan struct {
 	// (through the session messenger). PlanNotifyOff (the default) leaves each job's own
 	// --notify to decide. A plan with the switch on and no supervisor session notifies
 	// nobody — there is no address — and `plan show` says so.
-	Notify    string
-	Tags      []string
-	CreatedAt int64
-	UpdatedAt int64
+	Notify string
+	// CompleteOn is when this plan's todos count as done: PlanCompleteOnJob (default) or
+	// PlanCompleteOnMerge (a worktree todo waits for its delivery to land).
+	CompleteOn string
+	Tags       []string
+	CreatedAt  int64
+	UpdatedAt  int64
 }
+
+// MergeCompletion reports whether this plan completes a todo only once its delivery lands.
+func (p Plan) MergeCompletion() bool { return p.CompleteOn == PlanCompleteOnMerge }
 
 // NotifyOn reports whether this plan's dispatches notify their supervising session.
 func (p Plan) NotifyOn() bool { return p.Notify == PlanNotifyOn }
@@ -93,7 +110,7 @@ const selectPlanCols = `SELECT plan_id, COALESCE(title,''), COALESCE(description
   status, COALESCE(owner,''), COALESCE(progress,0), COALESCE(project_key,''),
   COALESCE(paused,0), COALESCE(blocked_todo,''), COALESCE(leader,'off'),
   COALESCE(tags_json,''), created_at, updated_at, COALESCE(supervisor_session_id,''),
-  COALESCE(notify,'off') FROM plans`
+  COALESCE(notify,'off'), COALESCE(complete_on,'job') FROM plans`
 
 func scanPlan(sc rowScanner) (Plan, error) {
 	var (
@@ -102,7 +119,7 @@ func scanPlan(sc rowScanner) (Plan, error) {
 		tagsJSON string
 	)
 	err := sc.Scan(&p.PlanID, &p.Title, &p.Description, &p.Status, &p.Owner,
-		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.Leader, &tagsJSON, &p.CreatedAt, &p.UpdatedAt, &p.SupervisorSessionID, &p.Notify)
+		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.Leader, &tagsJSON, &p.CreatedAt, &p.UpdatedAt, &p.SupervisorSessionID, &p.Notify, &p.CompleteOn)
 	if tagsJSON != "" {
 		_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
 	}
@@ -112,6 +129,9 @@ func scanPlan(sc rowScanner) (Plan, error) {
 	p.Paused = paused != 0
 	if !ValidPlanNotify(p.Notify) {
 		p.Notify = PlanNotifyOff
+	}
+	if !ValidPlanCompleteOn(p.CompleteOn) {
+		p.CompleteOn = PlanCompleteOnJob
 	}
 	return p, err
 }
@@ -139,17 +159,25 @@ func (s *Store) InsertPlan(p Plan) error {
 	if !ValidPlanNotify(p.Notify) {
 		p.Notify = PlanNotifyOff
 	}
+	// An empty complete_on means the default; a non-empty invalid one is refused (the
+	// entrances check first, this is the backstop).
+	if p.CompleteOn == "" {
+		p.CompleteOn = PlanCompleteOnJob
+	}
+	if !ValidPlanCompleteOn(p.CompleteOn) {
+		return fmt.Errorf("jobstore: InsertPlan: invalid complete_on %q", p.CompleteOn)
+	}
 	p.Tags = NormalizePlanTags(p.Tags)
 	tagsJSON, err := json.Marshal(p.Tags)
 	if err != nil {
 		return fmt.Errorf("jobstore: encode plan tags: %w", err)
 	}
 	const q = `INSERT INTO plans
-	  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, tags_json, created_at, updated_at, supervisor_session_id, notify)
-	  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, tags_json, created_at, updated_at, supervisor_session_id, notify, complete_on)
+	  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	_, execErr := s.db.Exec(q, p.PlanID, p.Title, p.Description, p.Status, p.Owner,
-		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, string(tagsJSON), p.CreatedAt, p.UpdatedAt, p.SupervisorSessionID, p.Notify)
+		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, string(tagsJSON), p.CreatedAt, p.UpdatedAt, p.SupervisorSessionID, p.Notify, p.CompleteOn)
 	s.writeMu.Unlock()
 	if execErr != nil {
 		return fmt.Errorf("jobstore: insert plan %q: %w", p.PlanID, execErr)
@@ -170,6 +198,30 @@ func (s *Store) SetPlanNotify(id, notify string) error {
 	s.writeMu.Unlock()
 	if err != nil {
 		return fmt.Errorf("jobstore: set plan notify: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	s.emit(Change{Kind: ChangePlan})
+	return nil
+}
+
+// SetPlanCompleteOn sets when the plan's todos count as done (job | merge). An invalid
+// value is an error (unlike the switches above, it changes behaviour, so it never
+// falls back silently).
+func (s *Store) SetPlanCompleteOn(id, completeOn string) error {
+	if !ValidPlanCompleteOn(completeOn) {
+		return fmt.Errorf("jobstore: invalid complete_on %q: must be job or merge", completeOn)
+	}
+	s.writeMu.Lock()
+	res, err := s.db.Exec(`UPDATE plans SET complete_on=?, updated_at=? WHERE plan_id=?`, completeOn, s.unixNow(), id)
+	s.writeMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("jobstore: set plan complete_on: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {

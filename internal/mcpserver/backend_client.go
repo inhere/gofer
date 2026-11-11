@@ -244,6 +244,14 @@ func (b *clientBackend) SetPlanSupervisorSessionID(planID, supervisorSessionID s
 	return clientPlanToView(p), nil
 }
 
+func (b *clientBackend) SetPlanCompleteOn(planID, completeOn string) (planView, error) {
+	p, err := b.cli.SetPlanCompleteOn(planID, completeOn)
+	if err != nil {
+		return planView{}, err
+	}
+	return clientPlanToView(p), nil
+}
+
 func (b *clientBackend) SetPlanNotify(planID, notify string) (planView, error) {
 	p, err := b.cli.SetPlanNotify(planID, notify)
 	if err != nil {
@@ -392,6 +400,7 @@ func clientPlanToView(p client.Plan) planView {
 		Project:             p.Project,
 		SupervisorSessionID: p.SupervisorSessionID,
 		Notify:              p.Notify,
+		CompleteOn:          p.CompleteOn,
 		Paused:              p.Paused,
 		BlockedTodo:         p.BlockedTodo,
 		CreatedAt:           p.CreatedAt,

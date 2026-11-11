@@ -1199,7 +1199,7 @@ func newJobWorktreeCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.BoolOpt(&jobWorktreeOpts.squash, "squash", "", false, "squash the selected branch into one commit")
 					c.BoolOpt(&jobWorktreeOpts.cleanupOthers, "cleanup-others", "", false, "after merging, force-remove the other fan worktrees (and branches) of the same workflow step")
-					c.BoolOpt(&jobWorktreeOpts.todoDone, "todo-done", "", false, "after merging, mark the job's plan todo done (ignored, with a note, for a job without one)")
+					c.BoolOpt(&jobWorktreeOpts.todoDone, "todo-done", "", false, "after merging, mark the job's plan todo done (ignored, with a note, for a job without one). Has no effect for a plan with complete_on=merge: merging always completes the todo there")
 					c.StrOpt(&jobWorktreeOpts.note, "note", "", "", cliText("cli.job.flag.worktree_note"))
 					c.StrOpt(&jobWorktreeOpts.comment, "comment", "", "", "after merging, record this comment on the job")
 					c.BoolOpt(&jobWorktreeOpts.cleanup, "cleanup", "", false, "after merging, unlink the dependency links, remove the worktree and delete the merged branch")

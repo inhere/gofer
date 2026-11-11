@@ -416,6 +416,9 @@ var schemaStmts = []string{
   -- never starts spending a messenger process per finished job). Added by
   -- migratePlans on a pre-existing db.
   notify       TEXT NOT NULL DEFAULT 'off',
+  -- complete_on: when a todo of the plan counts as done ('job' = job finished, the
+  -- default; 'merge' = delivery landed). Added by migratePlans on a pre-existing db.
+  complete_on  TEXT NOT NULL DEFAULT 'job',
   tags_json    TEXT NOT NULL DEFAULT '[]',
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
@@ -2287,6 +2290,11 @@ func (s *Store) migratePlans() error {
 	// column nothing told a session anything, so an upgrade must not start spending a
 	// messenger process per finished job.
 	if err := add("notify", "notify TEXT NOT NULL DEFAULT 'off'"); err != nil {
+		return err
+	}
+	// complete_on: `job` for an existing plan — the pre-column behaviour (a todo is done
+	// when its job is done), so an upgrade never changes when a plan's todos complete.
+	if err := add("complete_on", "complete_on TEXT NOT NULL DEFAULT 'job'"); err != nil {
 		return err
 	}
 	if err := add("tags_json", "tags_json TEXT NOT NULL DEFAULT '[]'"); err != nil {
