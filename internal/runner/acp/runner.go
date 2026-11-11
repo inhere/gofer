@@ -84,6 +84,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	policy := req.ACP.Approval.WithDefaults()
 
 	events, err := openEventWriter(req.ACP.ResultDir, req.ACP.AppendEvents)
+	events.setMask(req.Mask)
 	if err != nil {
 		// Best-effort: the event stream is audit/telemetry, the agent's text is the
 		// job's product. Log and run without it.

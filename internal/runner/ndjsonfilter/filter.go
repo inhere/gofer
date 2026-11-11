@@ -117,6 +117,12 @@ type Options struct {
 	// Meter, when non-nil, is the job's budget meter (N2 §B GATE-02): every parsed line
 	// is offered to it (see meterEvent) before any keep/projection decision.
 	Meter *runner.BudgetMeter
+	// Turns, when non-nil together with a TurnDialect (TurnsClaude / TurnsSuga),
+	// receives one TurnRecord per agent turn (turns.jsonl). It reads the parsed rows
+	// before the keep whitelist, like the meter, so the dropped per-token rows still
+	// feed it. The caller owns the writer's underlying file.
+	Turns       *TurnWriter
+	TurnDialect string
 }
 
 // matcher is one compiled whitelist entry.
@@ -165,6 +171,8 @@ type Filter struct {
 
 	// signals counts turns / tool calls for the dashboard's job metrics (Signals).
 	signals signalCounter
+	// turns writes the per-turn transcript; nil when not requested.
+	turns turnObserver
 }
 
 // New builds a Filter. stdout receives the agent's final text and events the
@@ -173,6 +181,9 @@ type Filter struct {
 func New(stdout, events io.Writer, opt Options) *Filter {
 	f := &Filter{raw: opt.Raw, proj: newProjector(opt.Projector, opt.AllAssistantText), fields: opt.Fields, onSession: opt.OnSession, maxLine: opt.MaxLineBytes, maxEvent: opt.MaxEventBytes, meter: opt.Meter, projKind: opt.Projector}
 	f.signals.kind = opt.Projector
+	if opt.Turns != nil {
+		f.turns = newTurnObserver(opt.TurnDialect, opt.Turns)
+	}
 	if f.maxLine <= 0 {
 		f.maxLine = DefaultMaxLineBytes
 	}
@@ -294,6 +305,9 @@ func (f *Filter) writeLine(line []byte) error {
 	typ, _ := obj["type"].(string)
 	f.meterEvent(typ, obj)
 	f.signals.observe(typ, obj)
+	if f.turns != nil {
+		f.turns.observe(typ, obj)
+	}
 	if !f.keepAll && typ != alwaysKeepType && !f.matches(obj) {
 		f.dropped++
 		return nil
@@ -476,6 +490,10 @@ func (f *Filter) Close() error {
 		if err := f.writeLine(line); err != nil {
 			return err
 		}
+	}
+	if f.turns != nil {
+		f.turns.finish()
+		f.turns = nil // a second Close must not write the open turn again
 	}
 	if f.stdoutAt != nil || f.finalSent {
 		return nil

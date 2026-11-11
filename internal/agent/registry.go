@@ -408,6 +408,7 @@ var builtinNDJSON = map[string]builtinNDJSONDef{
 			"result",
 		},
 		projector: ndjsonfilter.ProjectorClaude,
+		turns:     ndjsonfilter.TurnsClaude,
 	},
 	// suga's `--output-format stream-json` stream is its own dialect (all of its
 	// event names — session / turn_start / plan / tool_call / tool_result / result —
@@ -432,6 +433,7 @@ var builtinNDJSON = map[string]builtinNDJSONDef{
 		projector:  ndjsonfilter.ProjectorGeneric,
 		stdoutPath: "result",
 		usagePath:  "usage",
+		turns:      ndjsonfilter.TurnsSuga,
 	},
 }
 
@@ -445,6 +447,15 @@ func NDJSONProjectorFor(key string, a config.AgentConfig) string {
 		return def.projector
 	}
 	return ndjsonfilter.ProjectorGeneric
+}
+
+// NDJSONTurnsFor resolves the per-turn transcript dialect of an agent (same lookup
+// as NDJSONProjectorFor); "" means the agent writes no turns.jsonl.
+func NDJSONTurnsFor(key string, a config.AgentConfig) string {
+	if def, ok := builtinNDJSONFor(key, a); ok {
+		return def.turns
+	}
+	return ""
 }
 
 // applyOutputDefaults fills an agent's ndjson_keep from the built-in list for that
@@ -495,6 +506,9 @@ type builtinNDJSONDef struct {
 	// only when the config left that field unset, exactly like keep / stdout.
 	stdoutPath string
 	usagePath  string
+	// turns names the per-turn transcript dialect (ndjsonfilter.TurnsClaude /
+	// TurnsSuga); "" = this agent writes no turns.jsonl.
+	turns string
 }
 
 // builtinNDJSONFor looks a built-in ndjson config up by agent key, then by the

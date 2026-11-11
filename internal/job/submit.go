@@ -983,6 +983,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			}
 			run = ar
 			runReq.ACP = acpRequest(cfg, ac, req, prompt, resultDir)
+			runReq.Mask = secretMaskFunc(secretValues) // gofer-mmh0: acp.jsonl never carries a granted secret
 			runReq.ACP.MCPServers = mergeACPMCP(runReq.ACP.MCPServers, mcpInj.ACP)
 			// GATE-01: the approval gate asks THROUGH this job's interaction surface
 			// (the card lands in web/CLI/MCP exactly like any other interaction, and a

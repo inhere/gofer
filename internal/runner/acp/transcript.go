@@ -196,8 +196,16 @@ func truncate(text string) string {
 // serialised because notification handling and permission answers use different
 // goroutines.
 type eventWriter struct {
-	mu sync.Mutex
-	f  *os.File
+	mu   sync.Mutex
+	f    *os.File
+	mask func(string) string // job secret mask (Request.Mask); nil = none
+}
+
+// setMask installs the secret mask applied to every event's strings before encoding.
+func (w *eventWriter) setMask(mask func(string) string) {
+	if w != nil {
+		w.mask = mask
+	}
 }
 
 func openEventWriter(resultDir string, appendExisting bool) (*eventWriter, error) {
@@ -222,6 +230,9 @@ func openEventWriter(resultDir string, appendExisting bool) (*eventWriter, error
 func (w *eventWriter) write(event map[string]any) {
 	if w == nil || w.f == nil {
 		return
+	}
+	if w.mask != nil {
+		event = maskEvent(event, w.mask)
 	}
 	b, err := json.Marshal(event)
 	if err != nil {
