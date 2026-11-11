@@ -492,3 +492,100 @@ func TestContinuationTodoDispatchRefusedBound(t *testing.T) {
 		t.Fatalf("jobs = %d, want only the predecessor", len(jobs))
 	}
 }
+
+// mergeFixture is a finished --worktree job with one commit on its branch.
+func mergeFixture(t *testing.T) (*Service, string, JobResult) {
+	t.Helper()
+	repo, _ := gitRepo(t)
+	s := newWorktreeService(t, repo, t.TempDir())
+	j := submitAndWait(t, s, JobRequest{ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 60, Worktree: true})
+	if j.Status != StatusDone || j.WorktreePath == "" {
+		t.Fatalf("setup: status=%s worktree=%q err=%s", j.Status, j.WorktreePath, j.Error)
+	}
+	writeRepoFile(t, j.WorktreePath, "guard.txt", "guard\n")
+	gitOutIn(t, j.WorktreePath, "add", "guard.txt")
+	gitOutIn(t, j.WorktreePath, "commit", "-q", "-m", "guard")
+	return s, repo, j
+}
+
+// liveJobIn records a job that has not ended and works in j's worktree (what a queued /
+// running continuation looks like to the merge check).
+func liveJobIn(t *testing.T, s *Service, j JobResult, id, status string) jobstore.JobRecord {
+	t.Helper()
+	rec := jobstore.JobRecord{
+		ID: id, ProjectKey: "repo", Agent: "exec", Runner: builtinLocalRunner, Status: status,
+		Cwd: j.Cwd, ResultDir: filepath.Join(t.TempDir(), id), RequestJSON: `{}`,
+		StartedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+		WorktreePath: j.WorktreePath, WorktreeBranch: j.WorktreeBranch, WorktreeBaseSHA: j.WorktreeBaseSHA,
+	}
+	if err := s.Meta().UpsertJob(rec); err != nil {
+		t.Fatalf("seed %s: %v", id, err)
+	}
+	return rec
+}
+
+func TestMergeWorktreeRefusedWhileContinuationLive(t *testing.T) {
+	s, repo, j := mergeFixture(t)
+	cont := liveJobIn(t, s, j, "cont-live", StatusQueued)
+	_, err := s.MergeWorktree(j.ID, MergeOptions{Cleanup: true})
+	if !errors.Is(err, ErrWorktreeInUse) {
+		t.Fatalf("merge error = %v, want ErrWorktreeInUse", err)
+	}
+	if !strings.Contains(err.Error(), "cont-live") || !strings.Contains(err.Error(), "cancel") || strings.Contains(err.Error(), "--force") {
+		t.Fatalf("error = %q, want the live job, the cancel hint and no --force advice", err)
+	}
+	if _, serr := os.Stat(filepath.Join(repo, "guard.txt")); serr == nil {
+		t.Fatal("the refused merge changed the main checkout")
+	}
+	if !isDir(j.WorktreePath) {
+		t.Fatal("the refused merge removed the worktree")
+	}
+	// Once the continuation has ended the same merge goes through.
+	cont.Status = StatusDone
+	if err := s.Meta().UpsertJob(cont); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.MergeWorktree(j.ID, MergeOptions{})
+	if err != nil || !res.Merged {
+		t.Fatalf("merge after it ended: %+v err=%v", res, err)
+	}
+}
+
+func TestMergeWorktreeRefusedWhileMergedJobRuns(t *testing.T) {
+	s, repo, j := mergeFixture(t)
+	j.Status = StatusRunning
+	if err := s.persist(j); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.MergeWorktree(j.ID, MergeOptions{})
+	if !errors.Is(err, ErrWorktreeInUse) || !strings.Contains(err.Error(), j.ID) {
+		t.Fatalf("merge error = %v, want ErrWorktreeInUse naming the job itself", err)
+	}
+	if _, serr := os.Stat(filepath.Join(repo, "guard.txt")); serr == nil {
+		t.Fatal("the refused merge changed the main checkout")
+	}
+}
+
+// A continuation that starts between the merge check and the cleanup: the merge stands,
+// the cleanup is skipped with a warning, the checkout and its registration stay.
+func TestMergeWorktreeCleanupSkippedWhenContinuationStarts(t *testing.T) {
+	s, _, j := mergeFixture(t)
+	old := beforeMergeCleanup
+	t.Cleanup(func() { beforeMergeCleanup = old })
+	beforeMergeCleanup = func() { liveJobIn(t, s, j, "cont-late", StatusRunning) }
+
+	res, err := s.MergeWorktree(j.ID, MergeOptions{Cleanup: true})
+	if err != nil || !res.Merged {
+		t.Fatalf("merge = %+v err=%v, want it to succeed", res, err)
+	}
+	if res.Removed || len(res.Warnings) != 1 || !strings.HasPrefix(res.Warnings[0], "cleanup skipped: ") || !strings.Contains(res.Warnings[0], "cont-late") {
+		t.Fatalf("removed=%v warnings=%q, want one `cleanup skipped:` warning naming the job", res.Removed, res.Warnings)
+	}
+	if !isDir(j.WorktreePath) {
+		t.Fatal("the checkout was removed under a live job")
+	}
+	if got, _ := s.Get(j.ID); got.WorktreePath != j.WorktreePath {
+		t.Fatalf("worktree_path = %q, want the registration kept (%q)", got.WorktreePath, j.WorktreePath)
+	}
+}

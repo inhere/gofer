@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -32,6 +33,10 @@ const (
 	// Reasons of a ContinuationWorktreeError.
 	reasonWorktreeGone           = "worktree_gone"
 	reasonWorktreeOutsideProject = "worktree_outside_project"
+
+	// worktreeInUseFormat is the ErrWorktreeInUse text of a merge / merge cleanup that
+	// finds a live job in the worktree: path, then the job list.
+	worktreeInUseFormat = "%w: %s is used by %s; wait for them to finish or cancel them"
 )
 
 // ErrContinuationWorktreeGone: the worktree job being carried on has no usable worktree
@@ -124,6 +129,31 @@ func (s *Service) recheckContinuationWorktree(entry *jobEntry, req runner.Reques
 		return &ContinuationWorktreeError{Reason: reasonWorktreeGone, Path: wt.Path}
 	}
 	return nil
+}
+
+// beforeMergeCleanup is a test seam between the merge-time and the cleanup-time check;
+// nil in production.
+var beforeMergeCleanup func()
+
+// guardWorktreeIdle refuses a merge (and, at cleanup time, the removal) while a live job
+// still works in the worktree at path; same rule as `worktree rm`.
+func (s *Service) guardWorktreeIdle(path string, cleanup bool) error {
+	if cleanup && beforeMergeCleanup != nil {
+		beforeMergeCleanup()
+	}
+	if users := s.worktreeUsers(path); len(users) > 0 {
+		return fmt.Errorf(worktreeInUseFormat, ErrWorktreeInUse, path, strings.Join(users, ", "))
+	}
+	return nil
+}
+
+// cleanupWarning is the merge warning for a failed --cleanup: a checkout kept because a
+// job is using it is "skipped", anything else "failed".
+func cleanupWarning(err error) string {
+	if errors.Is(err, ErrWorktreeInUse) {
+		return "cleanup skipped: " + err.Error()
+	}
+	return "cleanup failed: " + err.Error()
 }
 
 // recordContinuationSkipped writes job.continuation_skipped on the source job when err

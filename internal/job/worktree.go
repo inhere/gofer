@@ -686,6 +686,9 @@ func (s *Service) MergeWorktree(jobID string, opts MergeOptions) (MergeResult, e
 	if !st.Exists {
 		return out, ErrWorktreeGone
 	}
+	if err := s.guardWorktreeIdle(st.Path, false); err != nil {
+		return out, err // a live job (the merged one included) still works in it (gofer-fi7f)
+	}
 	// The merge may legitimately wait out a lock (up to indexLockWait), so the budget is
 	// the worktree timeout plus that wait rather than the worktree timeout alone.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*worktreeTimeout)
@@ -713,7 +716,7 @@ func (s *Service) MergeWorktree(jobID string, opts MergeOptions) (MergeResult, e
 	}
 	if opts.Cleanup {
 		if rerr := s.cleanupMergedWorktree(ctx, res, st); rerr != nil {
-			out.Warnings = append(out.Warnings, "cleanup failed: "+rerr.Error())
+			out.Warnings = append(out.Warnings, cleanupWarning(rerr))
 		} else {
 			out.Removed, out.Exists = true, false
 		}
@@ -761,6 +764,9 @@ func (s *Service) markMergeTodoDone(ctx context.Context, res JobResult, branch, 
 // refuses anything else, so a mistaken cleanup cannot drop unmerged work). The row's
 // worktree_path is cleared so `worktree ls` stops advertising a checkout that is gone.
 func (s *Service) cleanupMergedWorktree(ctx context.Context, res JobResult, st WorktreeStatus) error {
+	if err := s.guardWorktreeIdle(st.Path, true); err != nil {
+		return err // a continuation started since the merge check: keep the checkout (gofer-fi7f)
+	}
 	projCfg := s.config().Projects[st.Project]
 	wt := &worktreeRef{Path: st.Path, Branch: st.Branch, BaseSHA: st.BaseSHA,
 		Links: mergeWorktreeLinks(st.Links, projCfg.WorktreeLinks())}
