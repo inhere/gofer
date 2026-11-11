@@ -112,6 +112,7 @@ gofer job resume <源 job-id> \
 ```
 
 - 前提：源 job 已终态、捕获到 `session_id`、agent 有续接模板（内置 claude / codex / suga）、同一 runner。产生**新 job id**。
+- 如果源 job 是 worktree job，续跑前还必须确认 worktree 仍有效且续跑目录位于该 worktree 内。worktree 已删除或失效（例如目录残留但不再是 git checkout、分支已删除）时，手动 resume 报错，自动续跑不再进行并在源 job 记录 `job.continuation_skipped`；不会回落到主 checkout，需要时另起新 job。
 - plan：默认**继承**源 job 的 plan（提交时的 `--plan`、plan 自动派发、`gofer plan attach` 都算）；`--plan <plan-id>` 挂到别的 plan，`--no-plan` 不挂任何 plan（同时丢弃继承的 checklist 挂接，因为 todo 属于创建它的那个 plan）。`gofer job show` 会列出 `plan:` / `todo:`。
 - acp-agent 的 resume 不需要模板：新开一个持续会话并载入源会话，`--prompt` 可省（直接进 `awaiting_input` 等 `say`）。agent 不支持载入会话（或配了 `acp.load_session: false`）时报不支持。
 - `--mode session|interactive|batch` 显式选续接形态：`session` = 持续 ACP（需本机或较新 worker）；`interactive` = pty（需项目 `allow_interactive` 且 agent 有交互续接模板）；`batch` = 一次性，必须带 `--prompt`。
@@ -264,13 +265,13 @@ gofer job worktree rm <job-id> [--force] [--delete-branch]  # 清理；分支默
 gofer job wait <id>... [--any] [--timeout 30m]             # 等到终态，输出状态 / 退出码 / 标题
 ```
 
-合并规则：只支持 server 本机 runner（远程 worker 的返回 409）；主 checkout 不能有未提交的**已跟踪**改动且须在命名分支——但改动若只在 `.gofer/tracker/` 下则放行（其它文件会在 409 里列出文件名）；`.git/index.lock` 被占用时每秒检查、最多等 60 秒，超时 409 且不删锁；冲突时自动 abort 复原并列出冲突文件，**不做任何收尾**；从不 push。
+合并规则：只支持 server 本机 runner（远程 worker 的返回 409）；主 checkout 不能有未提交的**已跟踪**改动且须在命名分支——但改动若只在 `.gofer/tracker/` 下则放行（其它文件会在 409 里列出文件名）；`.git/index.lock` 被占用时每秒检查、最多等 60 秒，超时 409 且不删锁；冲突时自动 abort 复原并列出冲突文件，**不做任何收尾**；worktree 上有仍在使用它的 job（包括被合并 job 自身仍在运行）时 merge 返回 409，并列出这些 job；从不 push。
 
 合并成功后的收尾（都可省略，失败只给 warning，不影响已完成的合并）：
 
 - `--todo-done [--note <说明>]`：把该 job 所属 plan todo 标 done，说明默认 `<分支> 合入 <主线短 sha>`；job 不属 todo 时忽略并提示。
 - `--comment <评论>`：在 job 上留一条评论（按当前凭据身份，`@` 照现有规则处理）。
-- `--cleanup`：删依赖链接 → 删 worktree → `git branch -d` 删已合并分支。
+- `--cleanup`：删依赖链接 → 删 worktree → `git branch -d` 删已合并分支。若合并后、清理前有 job 开始使用该 worktree，合并照常成功但跳过清理，并在结果 `warnings` 中写一条以 `cleanup skipped:` 开头的警告。
 
 `job wait` 用来代替手写轮询：默认等到全部 job 终态，`--any` 任一终态即返回；`--timeout` 到点非零退出并列出还在跑的 job。
 
@@ -316,6 +317,7 @@ gofer job accept <job-id> --no-deliver                                         #
 - **停滞**：非交互 job 若 N 秒内 stdout / stderr 都没有新输出，判停滞、杀进程、`failed: stalled: no output for Ns`；该错误按瞬时错误处理，自动续投 / 故障转移会接管。N = `--stall-timeout` > agent `stall_timeout_sec` > server `stall_timeout_sec`（默认 900）。exec job 默认不判停滞，交互 job 恒不判；等人作答与 verify 期间不计时。`--no-stall` 关掉。
 - **故障转移**：agent 因供应商错误（rate limit、at capacity、429、stream disconnected 等）挂掉、自己也续不了时，server 用候选 agent 以原请求重提一个新 job（同一 cwd，prompt 前加「上一次由 X 执行、只做剩余部分」，标题加 `(→omp)`），继承 plan / tags / review / verify 等。候选来源 `--fallback a,b` > 项目 `agent_fallbacks` > agent `fallback_agents`，提交时冻结；`--no-fallback` 关掉。配置见 [server-config.md](server-config.md)「故障转移与健康度」。
 - **重试**：`--retry <n>[:<退避秒列表>]` 失败后按退避重跑（n 含首次），`--retry-on <退出码>` 限定只在这些退出码时重跑，`--no-retry` 关掉。`gofer job retry ls <id>` 看重试链、`job retry cancel` 取消某次待重试。
+- 故障转移出的 job 继承源 job 的 worktree。worktree 失效时不转移、不重试；若 job 在开跑前复查发现 worktree 已失效，会以失败类 `worktree-gone` 结束，不会被续跑、转移或重试。
 
 ## 任务书模板（-t / --var）
 
