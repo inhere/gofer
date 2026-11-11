@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 第 1 批：todo 按交付完成、长 job 记录按回合查看 实施计划
 
-> 状态：Draft 0.3 / 待批准
+> 状态：Draft 0.3 / 已批准（用户 2026-11-11：「计划 0.3 批准」，含人工 Gate 所列偏离）
 > issue：gofer-94yq、gofer-mmh0（含 gofer-tykh）、gofer-gqap、gofer-8hlc、gofer-juo0、gofer-ehvd、gofer-r20b、gofer-5x85
 
 ## 修订记录
@@ -33,6 +33,7 @@
 ## 输入与批准证据
 
 - 设计：`docs/design/2026-11-11-todo-completion-and-job-transcript-design.md` Draft 0.3。用户 2026-11-11：「设计 Q1–Q6 按推荐，批准进入计划」。
+- 计划：Draft 0.3（3dfa2146）。用户 2026-11-11：「计划 0.3 批准」。
 
 ## Capability Discovery
 
