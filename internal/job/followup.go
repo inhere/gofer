@@ -3,6 +3,7 @@ package job
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -166,7 +167,10 @@ func (s *Service) processFollowUps(snap JobResult) {
 	reviewEach := len(items) == 1 && items[0].ReviewEach
 	res, err := s.resumeJob(snap.ID, prompt, snap.Runner, snap.CallerID, 0, nil, ResumeOptions{Internal: true, ReviewEach: reviewEach})
 	if err != nil {
-		_ = s.meta.ReleaseFollowUps(ids)
+		if rerr := s.meta.ReleaseFollowUps(ids); rerr != nil {
+			slog.Warn("follow-up release failed", "job_id", snap.ID, "err", rerr)
+		}
+		s.recordContinuationSkipped(snap.ID, "followup", err)
 		return
 	}
 	_ = s.meta.CompleteFollowUps(ids, res.ID)

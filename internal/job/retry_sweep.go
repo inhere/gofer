@@ -76,6 +76,9 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 		// (it is not in request_json). A pruned source leaves it empty, which is what
 		// a retry of an unknown origin can honestly claim.
 		if src, ok := s.Get(rec.SourceJobID); ok {
+			if !req.Worktree {
+				req.WorktreeFrom = worktreeFromID(src) // a continuation / takeover keeps its worktree (gofer-fi7f)
+			}
 			req.CallerID = src.CallerID
 			req.SourceJobID = src.SourceJobID
 			req.OriginCaller = src.OriginCaller
@@ -102,6 +105,10 @@ func (s *Service) SweepDueRetries(now int64, limit int, lease int64) (started, f
 		}
 		res, serr := s.Submit(req)
 		if serr != nil {
+			if s.cancelRetryWorktreeGone(rec, serr) {
+				failed++
+				continue
+			}
 			if errors.Is(serr, ErrCeilingDenied) {
 				// PERMANENT: waiting cannot change a ceiling, so the row is cancelled instead of
 				// being released for another attempt (design §准入).

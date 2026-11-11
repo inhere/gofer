@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -506,7 +505,7 @@ func (s *Service) continuationBase(src JobResult, jobID, callerID string, autoAt
 		AutoResumeAttempt: autoAttempt,
 		// GIT-02 (gofer-glyo): the continuation finishes the same branch, so it is
 		// delivered the way its source would have been.
-		InheritWorktree: src.WorktreePath != "",
+		WorktreeFrom: worktreeFromID(src),
 		// JOB-06②: the continuation works with the same grants (names only; the
 		// values are resolved again on the executing machine).
 		Secrets:       srcReq.Secrets,
@@ -784,26 +783,6 @@ func (s *Service) resumeCwd(src JobResult) string {
 		return orig
 	}
 	return filepath.ToSlash(rel)
-}
-
-// inheritedWorktree is the managed worktree a continuation of jobID keeps: the
-// source's own, when the continuation's resolved cwd is inside it and it still
-// exists. Anything else (a plain source, a worktree since removed, a cwd elsewhere)
-// is nil and the continuation is an ordinary job.
-func (s *Service) inheritedWorktree(jobID, workDir string) *worktreeRef {
-	src, ok := s.Get(jobID)
-	if !ok || src.WorktreePath == "" || src.WorktreeBranch == "" {
-		return nil
-	}
-	if fi, err := os.Stat(src.WorktreePath); err != nil || !fi.IsDir() {
-		return nil
-	}
-	rel, err := filepath.Rel(util.RealPath(src.WorktreePath), util.RealPath(workDir))
-	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
-		return nil
-	}
-	return &worktreeRef{Path: src.WorktreePath, Branch: src.WorktreeBranch, BaseSHA: src.WorktreeBaseSHA,
-		Links: src.WorktreeLinks}
 }
 
 // cwdFromRequestJSON recovers the original RELATIVE cwd from a job's persisted

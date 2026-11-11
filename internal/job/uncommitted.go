@@ -321,6 +321,7 @@ func (s *Service) resumeUncommitted(snap JobResult) bool {
 		if errors.Is(err, ErrCeilingDenied) {
 			s.recordCeilingDenied(snap.ID, "uncommitted-resume", err)
 		}
+		s.recordContinuationSkipped(snap.ID, "uncommitted", err)
 		return false
 	}
 	snap.AutoResumedBy = res.ID

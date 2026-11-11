@@ -201,6 +201,12 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		}
 	}
 
+	if err := s.recheckContinuationWorktree(entry, req); err != nil {
+		releaseDir()
+		s.finish(entry, req.JobID, StatusFailed, -1, err)
+		return
+	}
+
 	// Every queue is behind this job and the status is about to become `running`: THIS is
 	// where the execution deadline starts (F12). classify()/run.Run below use runCtx, so a
 	// deadline that fires mid-run is still reported as `timeout`, while anything the job
@@ -1120,6 +1126,7 @@ func (s *Service) autoResume(snap JobResult, hit string) bool {
 		if errors.Is(err, ErrCeilingDenied) {
 			s.recordCeilingDenied(snap.ID, "auto-resume", err)
 		}
+		s.recordContinuationSkipped(snap.ID, "auto", err)
 		return false
 	}
 	snap.AutoResumedBy = res.ID
@@ -1161,7 +1168,7 @@ func (s *Service) maybeRetryJob(snap JobResult) {
 	if snap.FailureClass == FailureClassBudget {
 		return // N2 §B: a retry would spend the same budget again
 	}
-	if snap.FailureClass == FailureClassCallerDisabled {
+	if snap.FailureClass == FailureClassCallerDisabled || snap.FailureClass == FailureClassWorktreeGone {
 		return // 配置入库 P1: the owner is disabled, so the retry would be refused by admission again
 	}
 	if snap.FailureClass == FailureClassTransient {

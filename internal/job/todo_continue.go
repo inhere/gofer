@@ -337,7 +337,7 @@ func (s *Service) assembleContinuation(lang i18n.Lang, cfg *config.Config, pred 
 	req.SessionID = predJob.SessionID
 	req.ResumedFrom, req.SourceJobID = predJob.ID, predJob.ID
 	req.Cwd = s.resumeCwd(predJob)
-	req.InheritWorktree = predJob.WorktreePath != ""
+	req.WorktreeFrom = worktreeFromID(predJob)
 	// This item's own changes are measured from where the previous one ended; the
 	// worktree's branch base (WorktreeBaseSHA) is not touched.
 	req.BaselineSHA = s.predecessorEndPoint(predJob)

@@ -71,6 +71,9 @@ func (s *Service) failureDecision(snap JobResult) failureDecision {
 	if strings.Contains(snap.Error, errCallerDisabled.Error()) {
 		return failureDecision{Class: FailureClassCallerDisabled}
 	}
+	if strings.Contains(snap.Error, ErrContinuationWorktreeGone.Error()) {
+		return failureDecision{Class: FailureClassWorktreeGone}
+	}
 	// N2 §B: a budget stop is the ceiling doing its job — neither a provider flake nor a
 	// bug. It is recognised from the error text (the one thing a remote worker's result
 	// carries) and takes nothing over: continuing or handing the work to another agent
@@ -293,6 +296,7 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 	// The work continues where it stopped: inside the source's worktree when it had
 	// one (never a second worktree), else in the same relative cwd.
 	req.Cwd = s.resumeCwd(snap)
+	req.WorktreeFrom = worktreeFromID(snap)
 	req.Worktree = false
 	req.WorktreeBase = ""
 	// A fresh session: the new agent must not inherit the failed agent's — or its own
@@ -320,6 +324,7 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 		if errors.Is(err, ErrCeilingDenied) {
 			s.recordCeilingDenied(snap.ID, "fallback", err)
 		}
+		s.recordContinuationSkipped(snap.ID, "fallback", err)
 		slog.Warn("fallback submit failed", "job_id", snap.ID, "agent", nextAgent, "err", err)
 		return false
 	}

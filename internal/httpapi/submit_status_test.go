@@ -22,6 +22,7 @@ func TestSubmitStatusMapping(t *testing.T) {
 		{"no eligible worker → 503", fmt.Errorf("%w: labels", job.ErrNoEligibleWorker), http.StatusServiceUnavailable},
 		{"invalid request → 400", fmt.Errorf("%w: x", job.ErrInvalidRequest), http.StatusBadRequest},
 		{"decision hook deny → 403", fmt.Errorf("%w h: no", job.ErrDecisionDenied), http.StatusForbidden},
+		{"continuation worktree gone → 409", fmt.Errorf("%w: x", job.ErrContinuationWorktreeGone), http.StatusConflict},
 		{"generic → 400", errors.New("boom"), http.StatusBadRequest},
 	}
 	for _, tc := range cases {

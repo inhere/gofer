@@ -305,6 +305,9 @@ func submitStatus(err error) int {
 	if errors.Is(err, job.ErrDecisionDenied) || errors.Is(err, job.ErrCeilingDenied) {
 		return http.StatusForbidden
 	}
+	if errors.Is(err, job.ErrContinuationWorktreeGone) {
+		return http.StatusConflict
+	}
 	return http.StatusBadRequest
 }
 
