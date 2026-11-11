@@ -342,6 +342,19 @@ job show	examples
 job show	flag config	path to the gofer config file
 job show	flag server	server address (overrides config server.addr)
 job show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job transcript	desc	按回合查看长 job 的记录（默认概要；--turns / --head / --tail / --search）；--out 导出到本地文件
+job transcript	help	
+job transcript	examples	
+job transcript	flag config	path to the gofer config file
+job transcript	flag cursor	continue a truncated page: the <turn:offset> it printed
+job transcript	flag head	full text of the first N turns
+job transcript	flag out	write the whole result (all pages) to this local file instead of printing one page
+job transcript	flag outline	one line per turn with a preview (the default)
+job transcript	flag search	find turns containing this literal text (at most 200 characters)
+job transcript	flag server	server address (overrides config server.addr)
+job transcript	flag tail	full text of the last N turns
+job transcript	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job transcript	flag turns	full text of turns A-B (or one turn A)
 job wait	desc	Wait until the given jobs are terminal (all of them, or any with --any)
 job wait	help	
 job wait	examples	

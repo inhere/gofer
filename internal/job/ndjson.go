@@ -22,6 +22,7 @@ type ndjsonCapture struct {
 	filter *ndjsonfilter.Filter
 	under  io.WriteCloser
 	raw    *os.File
+	turns  *os.File // turns.jsonl sidecar (closed after the filter wrote its last turn)
 }
 
 // Write implements io.Writer (the runner streams the child's stdout into it).
@@ -32,6 +33,12 @@ func (c *ndjsonCapture) Write(p []byte) (int, error) { return c.filter.Write(p) 
 // (ignored errors).
 func (c *ndjsonCapture) Close() error {
 	err := c.filter.Close()
+	if c.turns != nil {
+		if cerr := c.turns.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+		c.turns = nil
+	}
 	if c.raw != nil {
 		if cerr := c.raw.Close(); cerr != nil && err == nil {
 			err = cerr
@@ -93,7 +100,13 @@ func (s *Service) captureNDJSON(entry *jobEntry, jobID, runnerName string, stdou
 			opt.Raw = f
 		}
 	}
-	return &ndjsonCapture{filter: ndjsonfilter.New(stdout, stderr, opt), under: stdout, raw: raw}
+	// gofer-mmh0: the per-turn transcript rides the same parse (turns.jsonl).
+	entry.mu.Lock()
+	secretValues := entry.secretValues
+	entry.mu.Unlock()
+	turnsW, turnsFile, dialect := openTurnsWriter(resultDir, jobID, agentKey, ac, secretValues)
+	opt.Turns, opt.TurnDialect = turnsW, dialect
+	return &ndjsonCapture{filter: ndjsonfilter.New(stdout, stderr, opt), under: stdout, raw: raw, turns: turnsFile}
 }
 
 // recordNDJSONCapture writes what the projector observed onto the job result

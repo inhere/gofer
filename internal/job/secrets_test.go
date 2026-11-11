@@ -129,3 +129,17 @@ func TestJobSecretRefusals(t *testing.T) {
 		t.Errorf("short value: %v", err)
 	}
 }
+
+// maskSecrets is the pure form of the stream masker: longest value first, empty values
+// skipped, nothing to do without values.
+func TestMaskSecrets(t *testing.T) {
+	if got := maskSecrets("a ab abc", []string{"ab", "abc", ""}); got != "a *** ***" {
+		t.Fatalf("maskSecrets = %q", got)
+	}
+	if got := maskSecrets("plain", nil); got != "plain" {
+		t.Fatalf("maskSecrets without values = %q", got)
+	}
+	if secretMaskFunc([]string{""}) != nil || secretMaskFunc(nil) != nil {
+		t.Fatal("secretMaskFunc must be nil without a non-empty value")
+	}
+}

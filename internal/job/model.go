@@ -738,6 +738,9 @@ type JobResult struct {
 	// FromSession mirrors JobRequest.FromSession (gofer-f4z8): the earlier session this
 	// job's NEW session inherited its context from. Derived from request_json.
 	FromSession string `json:"from_session,omitempty"`
+	// TurnCount is how many turns the job's transcript has (gofer-mmh0). Filled only
+	// by the single-job detail response (GET /v1/jobs/{id}); 0 / absent elsewhere.
+	TurnCount int `json:"turn_count,omitempty"`
 	// Acceptance mirrors JobRequest.Acceptance: the criteria the review checks the
 	// report against. Derived from request_json, so it needs no column.
 	Acceptance string `json:"acceptance,omitempty"`

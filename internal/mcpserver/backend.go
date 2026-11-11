@@ -6,6 +6,7 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/streaming"
 	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/today"
 	"github.com/inhere/gofer/internal/trigger"
@@ -28,6 +29,8 @@ type Backend interface {
 	GetJob(id string) (job.JobResult, error)
 	SetJobTitle(id, title string) (job.JobResult, error)
 	TailLog(id, stream string, maxBytes int64) (string, error)
+	// GetJobTranscript reads one page of a job's per-turn transcript (gofer_get_job_transcript).
+	GetJobTranscript(id string, q streaming.TranscriptQuery) (streaming.JobTranscriptPage, error)
 	CancelJob(id string) (job.JobResult, error)
 	SayJob(id, message string) (job.JobResult, error)
 	EndJob(id string) (job.JobResult, error)

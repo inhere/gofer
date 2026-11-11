@@ -107,6 +107,11 @@ func newServer(b Backend, scoped string) *mcp.Server {
 	}, tailLogHandler(b))
 
 	addGoferTool(s, &mcp.Tool{
+		Name:        "gofer_get_job_transcript",
+		Description: "Read a long job's record turn by turn, paged: outline (default) lists every turn with a preview, turns=A-B / head / tail return full turn text, search finds a literal substring; at most one mode. A response marked truncated carries next; pass it back as cursor (turn:offset) to continue.",
+	}, jobTranscriptHandler(b))
+
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_cancel_job",
 		Description: "Request cancellation of a running job and return its current state.",
 	}, cancelJobHandler(b))

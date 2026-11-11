@@ -138,6 +138,11 @@ type Request struct {
 	Stdout           io.Writer         // child stdout sink / mirrored remote stdout (see type doc)
 	Stderr           io.Writer         // child stderr sink / mirrored remote stderr (see type doc)
 
+	// Mask, when non-nil, replaces the job's granted secret values in text the
+	// runner persists itself (the ACP runner's acp.jsonl events). Local-only like
+	// OnProcessStarted: it is never part of Forward or any wire protocol.
+	Mask func(string) string
+
 	// Interactive requests a pty-backed run. Cols/Rows are the initial terminal
 	// size in character cells; zero values let the runner apply its defaults.
 	Interactive         bool

@@ -26,6 +26,10 @@ const (
 	// (bd h-aii-rpky). It is never read by gofer — nothing in the read paths knows
 	// it — and it is as large as the raw stream, so it is off by default.
 	StdoutRawFile = "stdout.raw.log"
+	// TurnsFile is the per-turn transcript an ndjson agent (claude / suga) writes
+	// while it runs: one JSON line per agent turn (gofer-mmh0). Secret values are
+	// masked in it; `job transcript` reads it.
+	TurnsFile = "turns.jsonl"
 	// PtyTranscriptFile is an interactive pty job's de-ANSI'd text transcript
 	// (PTY-01): its pty output never reaches StdoutFile, so this is what
 	// `job logs`/the web log page fall back to.

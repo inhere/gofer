@@ -432,6 +432,12 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobFindings,
 			},
 			{
+				Name:   "transcript",
+				Desc:   cliText("cli.job.desc.transcript"),
+				Config: configJobTranscript,
+				Func:   runJobTranscript,
+			},
+			{
 				Name: "comment",
 				Desc: "Comment on a job. A mention like @omp or @reviewer in a USER's comment dispatches a job for it; inside a job (GOFER_JOB_ID set) the comment is recorded as that agent's and dispatches nothing",
 				Config: func(c *gcli.Command) {
@@ -3070,6 +3076,9 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if res.Error != "" {
 		c.Printf("error:      %s\n", res.Error)
 	}
+	if hint := turnHint(res); hint != "" {
+		c.Println(hint)
+	}
 	return nil
 }
 
@@ -3283,6 +3292,7 @@ func runJobLogs(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Print(out)
+	printTurnHintForLogs(cli, id)
 	return nil
 }
 

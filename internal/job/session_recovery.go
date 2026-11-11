@@ -104,6 +104,16 @@ func (s *Service) resumeLocalSession(rec jobstore.JobRecord) error {
 		runReq.LockPaths = append(runReq.LockPaths, path)
 	}
 	runReq.ACP = acpRequest(cfg, ac, request, "", rec.ResultDir)
+	// gofer-mmh0: acp.jsonl never carries a granted secret. A recovered session whose
+	// secrets can no longer be resolved is not resumed (the caller's recovery-failure
+	// handling applies): running it would write the values unmasked.
+	if len(request.Secrets) > 0 {
+		_, secretValues, serr := resolveSecrets(cfg, request.Secrets)
+		if serr != nil {
+			return fmt.Errorf("reload secrets: %w", serr)
+		}
+		runReq.Mask = secretMaskFunc(secretValues)
+	}
 	if request.Steward {
 		if serr := applyStewardRun(&runReq); serr != nil {
 			return serr
