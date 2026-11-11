@@ -47,3 +47,50 @@
 ## herdr（2026-09-26）
 
 https://herdr.dev/zh-cn/docs/concepts/ — 终端里的 agent 编排器。吸收：工作区 → 标签页 → 窗格三层、agent 五态与**状态逐层上卷**（blocked 的 agent 让窗格/标签页/工作区都显示 blocked）、服务器持有进程 + 客户端随时分离重连、前缀键 + 鼠标原生。不照搬：它靠屏幕快照/前台进程猜 agent 状态，gofer 有结构化事件。落点：WEB-11 web 工作台（`design/2026-09-26-web-workbench-design.md`）。
+
+## dsh-superagent-prototype 二次调研（deepseek-ai，2026-11-11，读到源码）
+
+首次调研只读了 README 与 docs/000–005（结论已用于「等我」收敛，见 `design/2026-11-01-attention-surfaces-review-design.md`）。本次补读 006–007、SETUP 与 `src/sources/github*.ts`、`src/core/stage.ts`、prompts。上游 2026-10-31 重新提交了同一份内容，无新增。
+
+| # | 做法 | gofer 现状 | 推荐 |
+|---|---|---|---|
+| 1 | **PR 跟到合并**：按分支名或上报编号绑定 PR；只在 CI 失败集合变化时产生输入；合并 / 关闭即结束工单并通知来源 | delivery `pr` 模式开完 PR 即止；workflow 有 `wait-ci` 步骤（`internal/delivery/step.go` 读 check-runs），但不把失败回灌给原 job，也不随合并完成 todo | 高 |
+| 2 | **入站事件挂回已有工作**：同一线程上人的后续消息交给原工单，已结束的在原授权下恢复；机器人 / CI 消息不恢复 | trigger 只派一次性 job（trigger 设计 §2 非目标） | 高 |
+| 3 | **健康分级与静默巡检**：`status` 退出码 0/1/2/3；每部件唯一写者的健康项；连续 N 次失败才报；巡检无变化不说话、尊重手动停止 | `serve status` 总返回 0；只有 `/health` | 高 |
+| 4 | **中断后续跑带固定恢复说明**：先核对目录、git 与远端状态，不重复已做的外部动作 | 续跑 prompt 无此段 | 高 |
+| 5 | 入站分 off / observe / auto，observe 只记「本会接受」 | trigger 无只记录模式 | 中 |
+| 6 | 「无可行动」结束（dropped），不进「等我」 | 无对应结论 | 中 |
+| 7 | 为人的消息预留执行槽、唤醒优先于新启动 | 并发信号量无预留 | 中 |
+| 8 | 注入给模型的内容设体积预算并测漂移 | 无 prompt 体积测试 | 中 |
+
+不学：LLM 路由的主会话与 Eval→Mandate 全套实体（模型判断归 xhen，gofer 只取确定性 gate）；改写历史的致谢 force push；worker shim / 独立 gitconfig（并入 SEC-02 再评估）；记录永不删除。
+
+## Proma（proma-ai/Proma，2026-11-11）
+
+本地优先的 Electron 桌面 agent 应用（单机单用户、按会话；AGPL）。主动协作设计稿里只有 Automation（定时任务）落地，Monitor / 推荐 / 审批未实现。
+
+| # | 做法 | gofer 现状 | 推荐 |
+|---|---|---|---|
+| 1 | **定时任务运行健康**：上轮未结束则本轮记 skipped；连续失败达上限自动暂停；`maxRuns` 跑满自动停用（与手动暂停区分） | `sweepSchedules`（`internal/serve/serve.go`）到点即提交，不看上轮是否在跑；无失败计数与运行上限 | 高 |
+| 2 | **定时任务跨轮上下文**：每轮注入任务身份与「不要再建定时任务」，配滚动笔记（开跑先读、结束追加） | schedule 只套参数，不带上轮结果 | 高 |
+| 3 | **会话记录分步读取**：outline（每回合一行：角色、预览、工具次数、约 token）+ 按回合区间导出，超限写文件只回路径 | 只有 `job logs` / `session tail` | 中高 |
+| 4 | 条件监视：便宜探针按指纹变化才派 agent（仅设计） | 有 trigger / wakeup / `wait-ci`，无通用探针 | 中 |
+| 5 | agent 自管定时任务的工具（运行中省略 id 即自身，禁重入） | MCP 无 schedule 工具 | 中 |
+
+归 xhen：Todo / 日程提醒、推荐引擎与降噪、IM 双向命令、桌面状态岛、记忆刷新邀请。归 suga：探索分支、单轮重试预算、会话内消息排队。不学：父会话代答子会话的权限请求（gofer 不让父 job 替子 job 作答）；定时任务强制放开权限；进程内 50 个子会话。
+
+## liaison（liaisonio/liaison，2026-11-11）
+
+自托管私有服务访问网关（Go manager + edge，AGPL）：connector → application → access，浏览器工作区、LLM 范围 key、浏览器驱动 codex / claude、code-server。以「访问资源」为中心，无 job / 计划 / 验收；对 gofer 的价值在机器接入、凭据生命周期与审计。
+
+| # | 做法 | gofer 现状 | 推荐 |
+|---|---|---|---|
+| 1 | **管理操作审计**：每次变更记用户、动作、资源、IP、成败、耗时，可筛选 | 只有鉴权审计（`auth_audit`）；`routeDecls` 已有读写分类，可在中间件统一记 | 高 |
+| 2 | **worker 一行接入 + 注册为用户级服务 + 远程卸载** | 有 `worker join` 配对与远程升级；新机器需自备二进制；`internal/servicemgr` 只托管 serve，worker 只有 `-d` | 高 |
+| 3 | 调用方 token 到期、最近使用时间、可识别前缀 | caller 有 hash / 停用 / 轮换（gofer-nhh7 入库进行中），无到期与最近使用 | 中 |
+| 4 | 回合耗时分解（首次进展、等人、工具活跃） | 无 | 中 |
+| 5 | client 浏览器回环登录 / 配对接入 | `init client` 写明文 token | 中 |
+| 6 | 按 job 签发 LLM 虚拟 key 与用量账本 | 无模型网关；边界需先设计（provider 归 suga） | 中低 |
+| 7 | worktree 浏览器 IDE / 只读文件浏览、worker 负载上报、来源 CIDR 限制、工作台 slash 菜单 | 均无 | 低 |
+
+安全注意：一行安装命令不得带秘密（liaison 把 AK/SK 放在 `curl \| bash` 命令行里），脚本与二进制校验 sha256、拒绝 root。不学：浏览器 DB / RDP / SSH 工作区与 LLM Playground（访问网关产品面）；内置 shell agent（归 suga / xhen）；Casbin 组织域 IAM（粒度不如现有 authz）；网段扫描式服务发现。
