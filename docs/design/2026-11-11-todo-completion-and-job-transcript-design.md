@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 第 1 批：todo 按交付完成、长 job 记录按回合查看 设计
 
-> 状态：Draft 0.3 / 待评审
+> 状态：Draft 0.3 已批准（2026-11-11，用户：「设计 Q1–Q6 按推荐，批准进入计划」，Q1–Q6=A；两轴评审 PASS，Spec 第 3 轮 P1–P3 转入计划）
 > issue：gofer-94yq、gofer-mmh0（含 gofer-tykh）；随批：gofer-gqap、gofer-8hlc、gofer-juo0（Quick），gofer-ehvd、gofer-r20b、gofer-5x85（小改，接口变化见 §4）
 > 来源：`docs/refer/2026-11-11-super-agent-workflow-survey.md`「分批」第 1 批
 
@@ -138,7 +138,7 @@
 
 ## 待确认事项
 
-- Q1–Q6。
+- 无（Q1–Q6 均按推荐 A，用户 2026-11-11 批准）。
 
 ## 验收
 
