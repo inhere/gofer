@@ -1,1 +1,1 @@
-上一次运行被瞬时的错误中断（stream ended after retries）。先用 git status / git log 看清做到哪里了，只补完剩下的工作，不要重做已提交的部分，然后按原来的要求汇报。
+上一次运行被瞬时的错误中断（stream ended after retries）。先用 git status / git log 看清做到哪里了，只补完剩下的工作，不要重做已提交的部分。恢复前先核对远端与外部状态（已推送的分支、已开的 PR、已发出的消息），不要重复已完成的外部动作，然后按原来的要求汇报。

@@ -29,7 +29,7 @@ func TestRenderRefocusAllSections(t *testing.T) {
 		"- [可能] gofer-k23r 终端投递不覆盖输入（in_progress） → gofer issue brief gofer-k23r",
 		"- p-1 会话收尾（2/5，下一项 写测试） → gofer plan brief p-1",
 		"- job-9 全量测试（running） → gofer job show job-9",
-		"- 来自 alice：先看这个 → gofer mail show 12",
+		"- 来自 alice：先看这个 → gofer session mail read 12",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("section missing %q:\n%s", want, out)

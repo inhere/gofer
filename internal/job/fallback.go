@@ -370,7 +370,13 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 // over. The matched error text is quoted (bounded to the same 120 chars the event
 // carries) so the new agent can recognise the failure mode.
 func fallbackPrompt(lang i18n.Lang, fromAgent, hit, prompt string) string {
-	return i18n.T(lang, "job.fallback.resume", "agent", fromAgent, "hit", strings.TrimSpace(hit)) + "\n\n" + prompt
+	resume := i18n.T(lang, "job.fallback.resume", "agent", fromAgent, "hit", strings.TrimSpace(hit))
+	if lang == i18n.EN {
+		resume += " Before resuming, check remote and external state (pushed branches, opened PRs, and sent messages); do not repeat external actions that are already complete."
+	} else {
+		resume += "恢复前先核对远端与外部状态（已推送的分支、已开的 PR、已发出的消息），不要重复已完成的外部动作。"
+	}
+	return resume + "\n\n" + prompt
 }
 
 // fallbackTitle marks a takeover in the title ("<title> (→omp)") so a plan or board

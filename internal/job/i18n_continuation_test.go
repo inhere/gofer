@@ -23,13 +23,13 @@ func TestZhContinuationPromptsUnchanged(t *testing.T) {
 	src := JobResult{ProjectKey: "self"}
 
 	wantAuto := "上一次运行被瞬时的错误中断（stream ended after retries）。" +
-		"先用 git status / git log 看清做到哪里了，只补完剩下的工作，不要重做已提交的部分，然后按原来的要求汇报。"
+		"先用 git status / git log 看清做到哪里了，只补完剩下的工作，不要重做已提交的部分。恢复前先核对远端与外部状态（已推送的分支、已开的 PR、已发出的消息），不要重复已完成的外部动作，然后按原来的要求汇报。"
 	if got := autoResumePrompt(cfg, src, " stream ended after retries "); got != wantAuto {
 		t.Errorf("auto-resume prompt changed:\n got: %s\nwant: %s", got, wantAuto)
 	}
 
 	wantUncommitted := "上一轮结束时有 2 个文件改动未提交：a.go、b.go。" +
-		"请按功能点检查并本地提交（conventional commit），不要 push，不要提交无关文件；不应提交的请说明原因。"
+		"请按功能点检查并本地提交（conventional commit），不要 push，不要提交无关文件；恢复前先核对远端与外部状态（已推送的分支、已开的 PR、已发出的消息），不要重复已完成的外部动作；不应提交的请说明原因。"
 	if got := uncommittedResumePrompt(i18n.ZhCN, []string{"a.go", "b.go"}); got != wantUncommitted {
 		t.Errorf("uncommitted resume prompt changed:\n got: %s\nwant: %s", got, wantUncommitted)
 	}
@@ -49,7 +49,8 @@ func TestAutoResumePromptKeepsTheEnglishOriginal(t *testing.T) {
 		Projects: map[string]config.ProjectConfig{"self": {}}}
 	want := "The previous run was interrupted by a transient error (stream ended after retries). " +
 		"Check git status / git log to see how far you got, finish only the remaining work, " +
-		"do not redo committed work, then report as originally asked."
+		"do not redo committed work. Before resuming, check remote and external state (pushed branches, opened PRs, and sent messages); do not repeat external actions that are already complete. " +
+			"Then report as originally asked."
 	if got := autoResumePrompt(cfg, JobResult{ProjectKey: "self"}, "stream ended after retries"); got != want {
 		t.Errorf("English auto-resume prompt changed:\n got: %s\nwant: %s", got, want)
 	}
