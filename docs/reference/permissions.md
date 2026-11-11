@@ -200,6 +200,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/jobs/{id}/review-hints` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `POST` | `/v1/jobs/{id}/say` | `InHandler(deny)` | `job.manage.others` | `job` | `Resource(job)` | 写 |
 | `GET` | `/v1/jobs/{id}/stream` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
+| `GET` | `/v1/jobs/{id}/transcript` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `GET` | `/v1/jobs/{id}/wakeups` | `InHandler(deny)` | `job.read.others` | — | `Resource(job)` | 读 |
 | `POST` | `/v1/jobs/{id}/wakeups` | `InHandler(deny)` | `job.wake.others`、`job.submit`、`job.manage.others` | `job` | `Resource(job)` | 写 |
 | `DELETE` | `/v1/jobs/{id}/worktree` | `InHandler(deny)` | `job.manage.others` | — | `Resource(job)` | 写 |

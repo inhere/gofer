@@ -186,6 +186,9 @@ var jobAuthzCases = []authzCase{
 	{key: "GET /v1/jobs/{id}/logs/stderr", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/logs/stderr", nil}
 	}},
+	{key: "GET /v1/jobs/{id}/transcript", req: func(e *authzCaseEnv) caseReq {
+		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/transcript", nil}
+	}},
 	{key: "GET /v1/jobs/{id}/stream", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodGet, "/v1/jobs/" + e.job.ID + "/stream", nil}
 	}, skipOwn: true},

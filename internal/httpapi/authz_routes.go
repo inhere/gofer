@@ -289,6 +289,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/jobs/{id}/previews/{preview_id}/renew": {user: InHandler(permDeny, authz.PermJobReadOthers, authz.PermJobManageOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/logs/stdout":                  {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/logs/stderr":                  {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
+	"GET /v1/jobs/{id}/transcript":                   {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/stream":                       {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/acp/stream":                   {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},
 	"GET /v1/jobs/{id}/events":                       {user: InHandler(permDeny, authz.PermJobReadOthers), scope: Resource("job")},

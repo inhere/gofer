@@ -11,6 +11,7 @@ import (
 	"github.com/inhere/gofer/internal/authz"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/streaming"
 )
 
 // Q1: GET /v1/jobs/{id}?include=a,b,c folds the detail page's side requests into one
@@ -244,6 +245,7 @@ func (s *Server) handleGetJob(c *rux.Context) {
 		s.denyJobAction(c, authz.PermJobReadOthers)
 		return
 	}
+	res.TurnCount = streaming.TurnCount(res) // gofer-mmh0: only the single-job response carries it
 	view := jobDetailView{
 		JobResult: res,
 		// can_attach 是详情视图计算位；列表端点保持原 JobResult 数组不变。

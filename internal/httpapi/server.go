@@ -1595,6 +1595,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/request", s.handleGetJobRequest)
 		r.GET("/jobs/{id}/logs/stdout", s.handleJobLogsStdout)
 		r.GET("/jobs/{id}/logs/stderr", s.handleJobLogsStderr)
+		r.GET("/jobs/{id}/transcript", s.handleJobTranscript)
 		r.GET("/jobs/{id}/stream", s.handleJobStream)
 		r.GET("/jobs/{id}/acp/stream", s.handleJobACPStream)
 

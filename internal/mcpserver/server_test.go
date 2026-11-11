@@ -127,16 +127,17 @@ func TestListToolsAllPresent(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	want := map[string]bool{
-		"gofer_list_projects": false,
-		"gofer_list_agents":   false,
-		"gofer_run_job":       false,
-		"gofer_get_job":       false,
-		"gofer_job_set":       false,
-		"gofer_tail_log":      false,
-		"gofer_cancel_job":    false,
-		"gofer_job_say":       false,
-		"gofer_job_end":       false,
-		"gofer_job_follow_up": false,
+		"gofer_list_projects":      false,
+		"gofer_list_agents":        false,
+		"gofer_run_job":            false,
+		"gofer_get_job":            false,
+		"gofer_job_set":            false,
+		"gofer_tail_log":           false,
+		"gofer_get_job_transcript": false,
+		"gofer_cancel_job":         false,
+		"gofer_job_say":            false,
+		"gofer_job_end":            false,
+		"gofer_job_follow_up":      false,
 		// GATE-01 S3: an agent may refuse a delivery it deems unacceptable, never
 		// accept one (there is deliberately no gofer_accept_job).
 		"gofer_reject_job":         false,

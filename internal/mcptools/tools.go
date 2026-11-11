@@ -71,6 +71,7 @@ var registry = []Tool{
 	{Name: "gofer_list_agents", Class: ReadOnly},
 	{Name: "gofer_get_job", Class: ReadOnly},
 	{Name: "gofer_tail_log", Class: ReadOnly},
+	{Name: "gofer_get_job_transcript", Class: ReadOnly},
 	{Name: "gofer_get_interactions", Class: ReadOnly},
 	{Name: "gofer_get_artifacts", Class: ReadOnly},
 	{Name: "gofer_get_result", Class: ReadOnly},
