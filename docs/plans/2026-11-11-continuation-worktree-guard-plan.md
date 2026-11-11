@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 续跑与 worktree 合并清理互斥 实施计划
 
-> 状态：Draft 0.3 已批准（2026-11-11，用户：「计划 0.3 批准」）
+> 状态：COMPLETE（2026-11-11）；Draft 0.3 已批准（2026-11-11，用户：「计划 0.3 批准」）
 > issue：gofer-fi7f
 
 ## 修订记录
@@ -172,3 +172,9 @@ W4  T4 真实验收（Claude）→ T5 反向验证、全量与收尾（Claude）
 ## 完成 Gate 与剩余工作
 
 T5 完成即本计划完成；发版另行进行。
+
+## 完成总结（2026-11-11）
+
+- T1/T2 sonnet（e745606b、573768b1）；T3 suga（f6ea888c）；验收发现空路径文案，监督修正（fd022abc）；合并 287c538b。
+- 与计划不一致：`execute.go` 净增约 8 行、`worktree.go` 7 行，略超「≤6 行」，均为调用行；钩子与 merge 文案常量放新文件。
+- 真实验收与反向验证见工作区 `tmp/fi7f-impl/`（acceptance.md、reverse.md）；gofer-verify 首轮 `internal/job` 因测试辅助程序构建锁超时失败（环境），重跑四路通过。

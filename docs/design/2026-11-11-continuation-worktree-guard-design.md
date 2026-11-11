@@ -152,3 +152,10 @@
 ## 结论与人工计划 Gate
 
 核心是把八个「接着干」入口回落到主 checkout 的隐式路径统一改成显式拒绝（含故障转移），并让合并在 worktree 仍被使用时停下；不加锁、不改 schema。等用户答复 Q1–Q3 并批准后写计划。
+
+## 实施记录（2026-11-11）
+
+- 计划 `docs/plans/2026-11-11-continuation-worktree-guard-plan.md` Draft 0.3（已批准）；合并 `287c538b`。
+- 与本设计的偏离（随计划批准）：验收「分支被切换时拒绝」改为「分支 ref 被删除时拒绝、detached HEAD 仍可续跑」（以 §1 为准）；§5「待办派发得到 409」只在 plan 绑定监督会话时成立（`handleDispatchTodo` 映射），未绑定时为派发失败（200、`dispatched=false` 带原因）。
+- 兼容分支：`heldInternals.inherit_worktree` 读取映射到 `WorktreeFrom`，标 `DEPRECATED(v0.214): remove in v0.217`。
+- 另立：gofer-ufhk（Q3）、gofer-7rj5（自动交付合并）、gofer-5x85（`job rerun`）、gofer-juo0（待办接续条件 6）、gofer-fgwc（复查失败收尾的只读 git）。
