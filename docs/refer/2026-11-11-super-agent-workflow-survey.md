@@ -30,12 +30,17 @@
 | 机器与凭据 | worker join、远程升级、caller 入库（进行中） | ㉔ worker 一行接入 + 注册为用户级服务（liaison；可用 gookit/ext servicemgr）；㉕ token 到期与最近使用（liaison）；㉖ 被吊销即自清本地凭据、三态核对防断网误删（crewbot） | gofer |
 | 查看 | `job logs`、`session tail` | ㉗ 长记录 outline + 按回合导出（Proma） | gofer |
 
-## 建议分批
+## 分批（2026-11-11 用户：按最有用、最常用分批，附带简单 issue）
 
-1. **底层可靠性**（小，彼此独立）：⑧ 恢复说明、⑯ 定时任务运行健康、㉑ 状态退出码、㉒ 管理审计。
-2. **闭环主干**（一份总设计、分阶段）：⑤ 线程映射 → ⑥ 线程调度 → ⑦ PR 跟到合并 → ⑪⑫⑬ 回复原线程与可靠投递。①（PR / CI 轮询）随 ⑦ 一起。
-3. **准入与判断**：③ 策略管线与只记录、④ 规则三态 + suga 评估 job、⑭ 无可行动结局。
-4. **其后**：⑰ 跨轮上下文、⑲ 打回沉淀、⑳ 平台摩擦、㉔ worker 服务化、㉕㉖ 凭据、㉗ 记录分步读取、㉓ 镜像补传、⑨ steering、⑩ 预留槽、② 外部 issue 同步、⑱ 探针。
+| 批 | 主题 | 主项 | 附带的简单 issue |
+|---|---|---|---|
+| 1 | 日常派活与跟进更省心 | gofer-94yq todo 以合并 / 验收为准；gofer-gqap 续跑恢复说明（⑧）；gofer-mmh0 长 job 记录按回合查看（㉗，含 gofer-tykh） | gofer-8hlc 接手提示命令写错；gofer-ehvd 换 agent 被跳过时用户看不到原因；gofer-r20b 缺 runner 报成无权限；gofer-5x85 rerun 落残留目录；gofer-juo0 待办接续条件 6 |
+| 2 | 定时与巡检少打扰 | gofer-ss3b 定时任务运行健康（⑯）；gofer-vqoe 前置检查（⑱）；gofer-2a86 跨轮上下文（⑰）；gofer-4ymk `serve status` 退出码分级（㉑⑮） | gofer-qm3l 同 worker_id 互顶无提示；gofer-fgwc 复查失败收尾的只读 git |
+| 3 | 可追溯与机器接入 | gofer-1uwh 管理操作审计（㉒）；gofer-ivmr 镜像事件断线补传（㉓）；gofer-glzl worker 一行接入与服务化（㉔）；token 到期与最近使用并入 gofer-nhh7（㉕） | gofer-73l5 回执计数 |
+| 4 | super-agent 闭环主干（总设计，分阶段） | gofer-eeod：①⑤⑥⑦⑪⑫⑬，关联 gofer-rztq、gofer-759l | — |
+| 5 | 准入与学习 | gofer-8jqg 准入只观察与 suga 评估（③④⑭）；gofer-vquf 打回沉淀与平台摩擦（⑲⑳） | — |
+
+运行中插话（⑨）需要 suga 先支持，外部 issue 同步（②）与预留执行槽（⑩）暂不排批。
 
 ## 统一不学
 
