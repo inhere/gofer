@@ -44,6 +44,7 @@ func (s *Service) decisionsIn(lang i18n.Lang, includeExec bool) ([]Card, int64, 
 		b.decisions,
 		func() error { return b.reviews(includeExec) },
 		b.approvals,
+		b.awaitingMerge,
 		b.mailHeld,
 		b.blockedPlans,
 	}

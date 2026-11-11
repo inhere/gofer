@@ -334,6 +334,20 @@ func (b *localBackend) SetPlanSupervisorSessionID(planID, supervisorSessionID st
 	return planView{}, fmt.Errorf("supervisor_session_id requires an authenticated HTTP backend; local MCP has no authenticated caller context")
 }
 
+func (b *localBackend) SetPlanCompleteOn(planID, completeOn string) (planView, error) {
+	if err := b.jobs.Meta().SetPlanCompleteOn(planID, completeOn); err != nil {
+		return planView{}, err
+	}
+	p, ok, err := b.jobs.Meta().GetPlan(planID)
+	if err != nil {
+		return planView{}, err
+	}
+	if !ok {
+		return planView{}, fmt.Errorf("unknown plan %q", planID)
+	}
+	return planHeaderView(p), nil
+}
+
 func (b *localBackend) SetPlanNotify(planID, notify string) (planView, error) {
 	if err := b.jobs.Meta().SetPlanNotify(planID, notify); err != nil {
 		return planView{}, err

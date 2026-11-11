@@ -98,7 +98,10 @@ func (s *Service) linkTodoSubmit(todoID, jobID string) {
 // item and quotes what was delivered, needs_review leaves it doing and says a
 // delivery is waiting, and every failure appends why. Runs after the terminal row
 // is persisted, on both the finish() and the accept/reject paths.
-func (s *Service) linkTodoOutcome(snap JobResult) {
+//
+// resumePending is the uncommitted-work guard's "resume" decision: the job is about to
+// be continued, so its todo is not finished yet (see todoCompletion).
+func (s *Service) linkTodoOutcome(snap JobResult, resumePending bool) {
 	if snap.TodoID == "" {
 		return
 	}
@@ -108,12 +111,25 @@ func (s *Service) linkTodoOutcome(snap JobResult) {
 		slog.Debug("link todo on finish: unknown todo", "todo_id", snap.TodoID, "job_id", snap.ID)
 		return
 	}
+	completed := false
 	switch snap.Status {
 	case StatusDone:
+		plan, _, _ := s.meta.GetPlan(todo.PlanID) // a lookup failure reads as the default `job` mode
+		dec := s.todoCompletion(snap, plan, resumePending)
+		if !dec.complete {
+			if dec.note != "" {
+				s.appendTodoNote(snap, dec.note)
+			}
+			break
+		}
+		completed = true
 		if _, err := s.meta.UpdateTodoStatus(snap.TodoID, jobstore.TodoDone, nil); err != nil {
 			slog.Warn("complete todo on job done", "todo_id", snap.TodoID, "job_id", snap.ID, "err", err)
 		}
 		s.appendTodoNote(snap, todoDoneLine(snap))
+		if dec.note != "" {
+			s.appendTodoNote(snap, dec.note)
+		}
 	case StatusNeedsReview:
 		s.appendTodoNote(snap, i18n.T(s.notifyLang(snap.ProjectKey), "job.todo_note.needs_review", "job", snap.ID))
 	default: // failed / timeout / cancelled / rejected
@@ -124,7 +140,7 @@ func (s *Service) linkTodoOutcome(snap JobResult) {
 	// and its dependents keep waiting for the human's verdict) — and a failure parks
 	// the plan instead, in maybeBlockPlan, which runs once the takeover decision is
 	// final (see finish).
-	if snap.Status == StatusDone {
+	if completed {
 		// The job's caller was authenticated at submit. Preserve that identity when
 		// advancing a bound plan so its next automatic dispatch inherits the same
 		// supervisor session instead of becoming an unauthenticated internal write.

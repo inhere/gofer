@@ -700,7 +700,7 @@ func (s *Service) MergeWorktree(jobID string, opts MergeOptions) (MergeResult, e
 	out.Merged, out.Base = true, base
 	// Closing steps run AFTER a successful merge only, in this order; each is reported and
 	// a failure is a warning — the branch is merged, that part cannot be undone by them.
-	if opts.TodoDone {
+	if opts.TodoDone || s.todoMergeCompletes(res.TodoID) {
 		s.markMergeTodoDone(ctx, res, st.Branch, main, opts.Note, &out)
 	}
 	if body := strings.TrimSpace(opts.Comment); body != "" {
@@ -753,6 +753,9 @@ func (s *Service) markMergeTodoDone(ctx context.Context, res JobResult, branch, 
 			reason = err.Error()
 		}
 		out.Warnings = append(out.Warnings, "--todo-done: "+reason)
+		if err != nil {
+			s.todoCompleteFailed(res.ID, res.TodoID, err)
+		}
 		return
 	}
 	out.TodoID, out.TodoDone, out.TodoNote = res.TodoID, true, note
@@ -896,6 +899,7 @@ func (s *Service) RemoveWorktree(jobID string, force, deleteBranch bool) (Worktr
 		if perr := s.persist(res); perr != nil {
 			slog.Warn("remove worktree: clear worktree_path", "job_id", jobID, "err", perr)
 		}
+		s.todoWorktreeDiscarded(res)
 	}
 	slog.Info("job.worktree_removed", "event", "job.worktree_removed", "component", "job",
 		"job_id", jobID, "path", st.Path, "branch", st.Branch, "delete_branch", deleteBranch)

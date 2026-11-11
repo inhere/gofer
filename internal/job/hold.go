@@ -760,7 +760,7 @@ func (s *Service) finishUnrun(snap JobResult) {
 		}
 		s.metrics.JobTerminal(snap.Status, snap.CallerID, snap.ProjectKey, snap.Agent, snap.Runner, dur)
 	}
-	s.linkTodoOutcome(snap)
+	s.linkTodoOutcome(snap, false)
 	s.maybeBlockPlan(snap)
 	s.notifyTerminalHooks(snap)
 	// gofer-3db4: a job that never ran still ENDED (a rejected / expired hold, a

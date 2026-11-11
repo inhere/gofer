@@ -208,6 +208,7 @@ func (s *Service) recordDelivery(jobID string, res DeliveryResult) error {
 	default:
 		s.recordEvent(jobID, EventJobDelivered, detail)
 	}
+	s.todoDeliveryRecorded(snap, r)
 	return nil
 }
 

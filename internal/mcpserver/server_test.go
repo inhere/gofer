@@ -154,6 +154,7 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_update_plan_tags":            false,
 		"gofer_set_plan_supervisor_session": false,
 		"gofer_set_plan_notify":             false,
+		"gofer_set_plan_complete_on":        false,
 		"gofer_list_plans":                  false,
 		"gofer_get_plan":                    false,
 		"gofer_add_todo":                    false,

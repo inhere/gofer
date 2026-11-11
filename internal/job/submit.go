@@ -227,6 +227,12 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// for a submit a ceiling refuses. It is the single point every submission path funnels
 	// through (HTTP, timer, plan item, retry, hold approval), and the refusal is permanent
 	// (ErrCeilingDenied), so a re-submission path terminates instead of retrying.
+	// A missing runner is a malformed request, whoever asks: say so before the ceiling
+	// judges the empty name (a caller with a ceiling used to get "runner "" is not in
+	// the caller's ceiling", a permission error for a missing field).
+	if req.Runner == "" {
+		return JobResult{}, fmt.Errorf("%w: runner is required", ErrInvalidRequest)
+	}
 	if err := admitCeiling(cfg, req); err != nil {
 		return JobResult{}, err
 	}
@@ -304,9 +310,11 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	// the ONE list the root resolved. A job that IS a takeover inherits the plan it
 	// was handed (json:"-" internal field) instead of re-reading a config that may
 	// have changed while the chain was running.
-	fallback := &FallbackState{Candidates: resolveFallbackCandidates(cfg, req.ProjectKey, req.Agent, req.FallbackAgents)}
+	fallbackCands, fallbackSkipped := resolveFallbackCandidates(cfg, req.ProjectKey, req.Agent, req.FallbackAgents)
+	fallback := &FallbackState{Candidates: fallbackCands}
 	if req.Fallback != nil {
 		fallback = req.Fallback
+		fallbackSkipped = nil // the root already recorded what it dropped
 	}
 	if len(fallback.Candidates) == 0 {
 		fallback = nil
@@ -1386,6 +1394,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			"from": substitutedFrom, "to": req.Agent, "reason": "degraded",
 		})
 	}
+	s.recordFallbackSkipped(jobID, fallbackSkipped)
 	// E13: the queued snapshot is durably persisted (or best-effort for the
 	// no-request_id case) — record the lifecycle event now that submission is a
 	// fact. Detail carries the identity/routing fields (no secrets, SR403). An approved

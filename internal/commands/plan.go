@@ -44,12 +44,15 @@ var planCreateOpts = struct {
 	// notify opts the plan into end-notifications at creation (gofer-3db4): every job
 	// the plan dispatches tells the plan's supervisor session that it ended.
 	notify bool
-	tags   string
+	// completeOn is when the plan's todos count as done: job (default) | merge.
+	completeOn string
+	tags       string
 }{}
 
 var planSetOpts = struct {
 	leader                 string
 	notify                 string
+	completeOn             string
 	tags                   string
 	untag                  string
 	supervisorSessionID    string
@@ -410,6 +413,7 @@ func NewPlanCmd() *gcli.Command {
 					c.BoolOpt(&planCreateOpts.noSupervisor, "no-supervisor", "", false, cliText("cli.plan.flag.no_supervisor"))
 					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (the global leader switch must also be on)")
 					c.BoolOpt(&planCreateOpts.notify, "notify", "", false, "notify the plan's supervisor session when a job this plan dispatches ends (needs a bound supervisor session; each notice starts a messenger process)")
+					c.StrOpt(&planCreateOpts.completeOn, "complete-on", "", "", "when the plan's todos count as done: job (default, when the job finishes) | merge (a worktree todo waits until its delivery lands; `worktree merge` then completes it)")
 					c.StrOpt(&planCreateOpts.tags, "tags", "", "", "comma-separated plan tags")
 				},
 				Func: runPlanCreate,
@@ -450,6 +454,7 @@ func NewPlanCmd() *gcli.Command {
 					c.AddArg("plan-id", "plan id", true)
 					c.StrOpt(&planSetOpts.leader, "leader", "", "", "leader rounds for this plan: on | off")
 					c.StrOpt(&planSetOpts.notify, "notify", "", "", "notify the plan's supervisor session when a job this plan dispatches ends: on | off (needs a bound supervisor session; each notice starts a messenger process)")
+					c.StrOpt(&planSetOpts.completeOn, "complete-on", "", "", "when the plan's todos count as done: job (default, when the job finishes) | merge (a worktree todo waits until its delivery lands; `worktree merge` then completes it)")
 					c.StrOpt(&planSetOpts.tags, "tags", "", "", "replace the plan's tags with this comma-separated list")
 					c.StrOpt(&planSetOpts.untag, "untag", "", "", "remove these comma-separated plan tags")
 					c.StrOpt(&planSetOpts.supervisorSessionID, "supervisor-session-id", "", "", "bind a supervisor session (the plan owner, or a caller with can_admin, must own it)")
@@ -704,6 +709,9 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	if planCreateOpts.notify {
 		planNotify = jobstore.PlanNotifyOn
 	}
+	if err := checkCompleteOnFlag(planCreateOpts.completeOn); err != nil {
+		return err
+	}
 	tags := splitCSV(planCreateOpts.tags)
 	var p client.Plan
 	var bind client.SupervisorAutoBind
@@ -720,6 +728,12 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 		p, err = cli.SetPlanNotify(p.PlanID, planNotify)
 		if err != nil {
 			return fmt.Errorf("plan %s created but enabling notify failed: %w", p.PlanID, err)
+		}
+	}
+	if v := strings.TrimSpace(planCreateOpts.completeOn); v != "" {
+		p, err = cli.SetPlanCompleteOn(p.PlanID, v)
+		if err != nil {
+			return fmt.Errorf("plan %s created but setting complete_on failed: %w", p.PlanID, err)
 		}
 	}
 	c.Printf("plan %s created: status=%s leader=%s\n", p.PlanID, p.Status, p.Leader)
@@ -747,13 +761,16 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 // planSetChanges renders what `plan set` changed, from the plan the last write
 // returned: only the fields the command touched, so a tag edit no longer reads as a
 // leader change.
-func planSetChanges(p client.Plan, leader, notify, tags, supervisor bool) []string {
+func planSetChanges(p client.Plan, leader, notify, completeOn, tags, supervisor bool) []string {
 	var out []string
 	if leader {
 		out = append(out, "leader -> "+p.Leader)
 	}
 	if notify {
 		out = append(out, "notify -> "+effectivePlanNotifyWord(p.Notify))
+	}
+	if completeOn {
+		out = append(out, "complete_on -> "+effectivePlanCompleteOnWord(p.CompleteOn))
 	}
 	if tags {
 		t := strings.Join(p.Tags, ",")
@@ -820,6 +837,10 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	if planNotify != "" && !jobstore.ValidPlanNotify(planNotify) {
 		return fmt.Errorf("invalid --notify %q: must be on or off", planNotify)
 	}
+	if err := checkCompleteOnFlag(planSetOpts.completeOn); err != nil {
+		return err
+	}
+	completeOn := strings.TrimSpace(planSetOpts.completeOn)
 	var tags *[]string
 	if strings.TrimSpace(planSetOpts.tags) != "" {
 		v := splitCSV(planSetOpts.tags)
@@ -829,8 +850,8 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	if planSetOpts.supervisorSessionID != "" && planSetOpts.clearSupervisorSession {
 		return fmt.Errorf("--supervisor-session-id and --clear-supervisor-session are mutually exclusive")
 	}
-	if leader == "" && planNotify == "" && tags == nil && len(untag) == 0 && planSetOpts.supervisorSessionID == "" && !planSetOpts.clearSupervisorSession {
-		return fmt.Errorf("plan set requires --leader, --notify, --tags, --untag, --supervisor-session-id, or --clear-supervisor-session")
+	if leader == "" && planNotify == "" && completeOn == "" && tags == nil && len(untag) == 0 && planSetOpts.supervisorSessionID == "" && !planSetOpts.clearSupervisorSession {
+		return fmt.Errorf("plan set requires --leader, --notify, --complete-on, --tags, --untag, --supervisor-session-id, or --clear-supervisor-session")
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -842,6 +863,9 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	}
 	if err == nil && planNotify != "" {
 		p, err = cli.SetPlanNotify(planID, planNotify)
+	}
+	if err == nil && completeOn != "" {
+		p, err = cli.SetPlanCompleteOn(planID, completeOn)
 	}
 	if err == nil && (tags != nil || len(untag) > 0) {
 		p, err = cli.UpdatePlanTags(planID, tags, untag)
@@ -856,7 +880,7 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	for _, line := range planSetChanges(p, leader != "", planNotify != "", tags != nil || len(untag) > 0, planSetOpts.supervisorSessionID != "" || planSetOpts.clearSupervisorSession) {
+	for _, line := range planSetChanges(p, leader != "", planNotify != "", completeOn != "", tags != nil || len(untag) > 0, planSetOpts.supervisorSessionID != "" || planSetOpts.clearSupervisorSession) {
 		c.Printf("plan %s %s\n", p.PlanID, line)
 	}
 	for _, w := range p.Warnings {
@@ -1293,6 +1317,7 @@ func printPlan(c *gcli.Command, p client.Plan) {
 	if p.Notify == jobstore.PlanNotifyOn && p.SupervisorSessionID == "" {
 		c.Printf("             (no supervisor session bound: the plan's jobs notify nobody; bind one with `plan set %s --supervisor-session-id <sid>`)\n", p.PlanID)
 	}
+	c.Printf("complete_on: %s\n", effectivePlanCompleteOnWord(p.CompleteOn))
 	if p.Project != "" {
 		c.Printf("project:     %s\n", p.Project)
 	}

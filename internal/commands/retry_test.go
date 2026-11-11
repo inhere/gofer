@@ -239,6 +239,9 @@ func TestJobShowPrintsRetry(t *testing.T) {
 		case "/v1/jobs/job-rt/wakeups":
 			_, _ = w.Write([]byte(`{"wakeups":[]}`))
 			return
+		case "/v1/jobs/job-rt/events":
+			_, _ = w.Write([]byte(`{"events":[]}`))
+			return
 		case "/v1/jobs/job-rt/retries":
 			_, _ = w.Write([]byte(`{"job_id":"job-rt","retries":[
 				{"id":"rt-2","attempt":3,"max_attempts":3,"state":"pending","reason":"exit_code=7","next_run_at":1758500060},

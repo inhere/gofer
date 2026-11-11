@@ -141,6 +141,7 @@ var registry = []Tool{
 	{Name: "gofer_update_plan_tags", Class: Write, Idempotent: true},
 	{Name: "gofer_set_plan_supervisor_session", Class: Write, Idempotent: true},
 	{Name: "gofer_set_plan_notify", Class: Write, Idempotent: true},
+	{Name: "gofer_set_plan_complete_on", Class: Write, Idempotent: true},
 	{Name: "gofer_add_todo", Class: Write},
 	{Name: "gofer_update_todo", Class: Write, Idempotent: true},
 	{Name: "gofer_dispatch_todo", Class: Write},

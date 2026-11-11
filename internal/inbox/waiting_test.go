@@ -22,6 +22,7 @@ func TestClassifyFirstMatchWins(t *testing.T) {
 		{"approval interaction", Signals{ApprovalInteraction: true}, CatApproval, true},
 		{"question", Signals{Question: true}, CatAnswer, true},
 		{"review", Signals{NeedsReview: true}, CatReview, true},
+		{"awaiting merge", Signals{AwaitingMerge: true}, CatAwaitingMerge, true},
 		{"plan blocked", Signals{PlanBlocked: true}, CatPlanStuck, true},
 		{"todo needs review alone", Signals{TodoNeedsReview: true}, CatPlanStuck, true},
 		{"failed", Signals{FailedBySelf: true}, CatFailed, true},
@@ -31,9 +32,12 @@ func TestClassifyFirstMatchWins(t *testing.T) {
 		{"question beats review", Signals{Question: true, NeedsReview: true}, CatAnswer, true},
 		{"review beats todo review", Signals{NeedsReview: true, TodoNeedsReview: true}, CatReview, true},
 		{"review beats plan blocked", Signals{NeedsReview: true, PlanBlocked: true}, CatReview, true},
+		{"review beats awaiting merge", Signals{NeedsReview: true, AwaitingMerge: true}, CatReview, true},
+		{"awaiting merge beats plan blocked", Signals{AwaitingMerge: true, PlanBlocked: true}, CatAwaitingMerge, true},
+		{"awaiting merge beats failed", Signals{AwaitingMerge: true, FailedBySelf: true}, CatAwaitingMerge, true},
 		{"plan blocked beats failed", Signals{PlanBlocked: true, FailedBySelf: true}, CatPlanStuck, true},
 		{"failed beats delivery", Signals{FailedBySelf: true, DeliveryHeld: true}, CatFailed, true},
-		{"everything", Signals{true, true, true, true, true, true, true, true}, CatApproval, true},
+		{"everything", Signals{true, true, true, true, true, true, true, true, true}, CatApproval, true},
 	}
 	for _, tc := range cases {
 		got, ok := Classify(tc.sig)
@@ -46,7 +50,7 @@ func TestClassifyFirstMatchWins(t *testing.T) {
 // Every category is reachable and the order is the design's.
 func TestCategoriesExhaustiveAndOrdered(t *testing.T) {
 	t.Parallel()
-	sigs := []Signals{{HeldForApproval: true}, {Question: true}, {NeedsReview: true}, {PlanBlocked: true}, {FailedBySelf: true}, {DeliveryHeld: true}}
+	sigs := []Signals{{HeldForApproval: true}, {Question: true}, {NeedsReview: true}, {AwaitingMerge: true}, {PlanBlocked: true}, {FailedBySelf: true}, {DeliveryHeld: true}}
 	for i, c := range Categories {
 		got, _ := Classify(sigs[i])
 		if got != c || Rank(c) != i {
@@ -86,21 +90,23 @@ func TestWaitingFiltersGroupsAndLabels(t *testing.T) {
 		card(today.KindDecision, "decision:d3", today.Refs{DecisionID: "d3"}, ""),
 		card(today.KindPlanBlocked, "plan_blocked:p1", today.Refs{PlanID: "p1", JobID: "j1"}, ""),
 		card(today.KindMailHeld, today.MailHeldCardKey, today.Refs{}, ""),
+		card(today.KindTodoAwaitingMerge, "todo_awaiting_merge:t1", today.Refs{TodoID: "t1", PlanID: "p2", JobID: "j10"}, today.AwaitingMergeWaiting),
 		card(KindJobFailed, "job.terminal:j9", today.Refs{JobID: "j9"}, ""),
 	}
 	got := Waiting(i18n.EN, cards)
 	want := map[string]Category{
-		"interaction:j1/i1":   CatApproval, // won over review:j1, which is dropped
-		"interaction:j2/i2":   CatAnswer,
-		"interaction:j3/i3":   CatApproval,
-		"approval:j4":         CatApproval,
-		"permission:d1":       CatApproval,
-		"permission:d2":       CatAnswer,
-		"relay:s3":            CatAnswer,
-		"decision:d3":         CatAnswer,
-		"plan_blocked:p1":     CatPlanStuck,
-		today.MailHeldCardKey: CatDelivery,
-		"job.terminal:j9":     CatFailed,
+		"interaction:j1/i1":      CatApproval, // won over review:j1, which is dropped
+		"interaction:j2/i2":      CatAnswer,
+		"interaction:j3/i3":      CatApproval,
+		"approval:j4":            CatApproval,
+		"permission:d1":          CatApproval,
+		"permission:d2":          CatAnswer,
+		"relay:s3":               CatAnswer,
+		"decision:d3":            CatAnswer,
+		"plan_blocked:p1":        CatPlanStuck,
+		"todo_awaiting_merge:t1": CatAwaitingMerge,
+		today.MailHeldCardKey:    CatDelivery,
+		"job.terminal:j9":        CatFailed,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("len = %d, want %d: %+v", len(got), len(want), keysOf(got))
