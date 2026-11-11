@@ -42,6 +42,7 @@ export const today: PageDict = {
     'today.kind.suggestion': '建议',
     'today.kind.merge': '合并建议',
     'today.kind.plan_blocked': '计划受阻',
+    'today.kind.todo_awaiting_merge': '待你收尾',
     'today.kind.memory': '记忆整理',
     'today.kind.capture': '收集箱',
     'today.kind.mail_held': '信件待指派',
@@ -72,6 +73,8 @@ export const today: PageDict = {
     'today.action.openMailHeld': '去指派',
     'today.action.openPlan': '打开 plan',
     'today.action.openEnroll': '去处理',
+    'today.action.todoDone': '标记完成',
+    'today.action.todoSkip': '跳过',
     'today.action.report': '请求汇报',
     'today.action.park': '搁置',
     'today.action.adopt': '采纳',
@@ -94,6 +97,11 @@ export const today: PageDict = {
     'today.card.confirm': '确认{label}',
     'today.card.replyPlaceholder': '{label}…（Enter 发送，Esc 取消）',
     'today.card.optionalPlaceholder': '{label}理由（可不填，Enter 发送，Esc 取消）',
+    'today.awaitingMerge.awaiting_merge': '待合并',
+    'today.awaitingMerge.pushed': '已推送，待合并',
+    'today.awaitingMerge.delivery_failed': '交付失败，待处理',
+    'today.awaitingMerge.discarded': '工作树已丢弃，待收尾',
+    'today.awaitingMerge.merged_unmarked': '已合并但待办未标记',
 
     // 右栏
 
@@ -245,6 +253,7 @@ export const today: PageDict = {
     'today.kind.suggestion': 'Suggestion',
     'today.kind.merge': 'Merge advice',
     'today.kind.plan_blocked': 'Plan blocked',
+    'today.kind.todo_awaiting_merge': 'Awaiting your wrap-up',
     'today.kind.memory': 'Memory cleanup',
     'today.kind.capture': 'Inbox',
     'today.kind.mail_held': 'Unassigned mail',
@@ -274,6 +283,8 @@ export const today: PageDict = {
     'today.action.openMailHeld': 'Assign it',
     'today.action.openPlan': 'Open the plan',
     'today.action.openEnroll': 'Handle it',
+    'today.action.todoDone': 'Mark done',
+    'today.action.todoSkip': 'Skip',
     'today.action.report': 'Ask for a report',
     'today.action.park': 'Park',
     'today.action.adopt': 'Accept',
@@ -296,6 +307,11 @@ export const today: PageDict = {
     'today.card.confirm': 'Confirm {label}',
     'today.card.replyPlaceholder': '{label}… (Enter to send, Esc to cancel)',
     'today.card.optionalPlaceholder': 'Reason for {label} (optional, Enter to send, Esc to cancel)',
+    'today.awaitingMerge.awaiting_merge': 'Awaiting merge',
+    'today.awaitingMerge.pushed': 'Pushed, awaiting merge',
+    'today.awaitingMerge.delivery_failed': 'Delivery failed, needs handling',
+    'today.awaitingMerge.discarded': 'Worktree discarded, needs wrap-up',
+    'today.awaitingMerge.merged_unmarked': 'Merged but todo was not marked done',
 
 
     'today.status.label': 'Status',

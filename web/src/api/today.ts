@@ -16,6 +16,7 @@ export type TodayCardKind =
   | 'suggestion'
   | 'merge'
   | 'plan_blocked'
+  | 'todo_awaiting_merge'
   | 'memory'
   // 收集箱汇总卡（key capture:box），点「去整理」跳 /work?tab=capture
   | 'capture'
@@ -32,7 +33,7 @@ export type TodayCardKind =
   | 'job.child_wake_failed'
 
 // 「等我」六类（互斥、穷尽，按此顺序第一个命中）：待批准 / 待回答 / 待验收 / 计划卡住 / 你提交的任务失败 / 投递待确认
-export type WaitingCategory = 'approval' | 'answer' | 'review' | 'plan_stuck' | 'failed' | 'delivery'
+export type WaitingCategory = 'approval' | 'answer' | 'review' | 'awaiting_merge' | 'plan_stuck' | 'failed' | 'delivery'
 
 export type TodayUrgency = 'now' | 'blocking' | 'normal'
 

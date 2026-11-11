@@ -8,7 +8,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import RejectDialog from '../RejectDialog.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
-import { actionKey, actionLabel, actionLink, adviceAction, blockShort, cardLink, expiresText, waitText } from '../../utils/today'
+import { actionKey, actionLabel, actionLink, adviceAction, awaitingMergeLabel, blockShort, cardLink, expiresText, waitText } from '../../utils/today'
 import { approveAction, focusActions, replyAction as replyActionOf } from '../../utils/todayFocus'
 import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
@@ -64,7 +64,9 @@ const advice = computed(() => adviceAction(props.card))
 const otherActions = computed(() => props.card.actions.filter((a) => a !== advice.value))
 // 类型 pill（设计稿 §7.1）：卡片种类走 i18n，业务内容（标题、摘要）不翻译。
 // 「等我」列表里的卡优先显示服务端的类别文案（等谁、要什么）
-const kindLabel = computed(() => props.card.waiting_label || t(`today.kind.${props.card.kind}`))
+const kindLabel = computed(() => props.card.kind === 'todo_awaiting_merge'
+  ? awaitingMergeLabel(props.card.subtype)
+  : (props.card.waiting_label || t(`today.kind.${props.card.kind}`)))
 const short = computed(() => blockShort(props.card))
 const wait = computed(() => waitText(props.card, props.nowSec))
 const expires = computed(() => expiresText(props.card, props.nowSec))

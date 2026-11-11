@@ -123,6 +123,7 @@ describe('applyStateLocally', () => {
 describe('labels, families and links', () => {
   it('maps kinds to dictionary keys and falls back for unknown kinds', () => {
     expect(kindLabelKey('job.failed')).toBe('inbox.kind.job.failed')
+    expect(kindLabelKey('todo_awaiting_merge')).toBe('inbox.kind.todo_awaiting_merge')
     expect(kindLabelKey('something_new')).toBe('inbox.kind.other')
     expect(INBOX_KINDS).toContain('job.terminal')
   })
@@ -142,6 +143,7 @@ describe('labels, families and links', () => {
   it('derives a target from refs and kind', () => {
     expect(itemLink({ kind: 'job.failed', refs: { job_id: 'j 1' } })).toBe('/jobs/j%201')
     expect(itemLink({ kind: 'plan_blocked', refs: { plan_id: 'p1' } })).toBe('/plans/p1')
+    expect(itemLink({ kind: 'todo_awaiting_merge', refs: { plan_id: 'p1', job_id: 'j1' } })).toBe('/plans/p1')
     expect(itemLink({ kind: 'mail_held', refs: {} })).toBe('/mail?state=held')
     expect(itemLink({ kind: 'interaction', refs: {} })).toBe('')
   })

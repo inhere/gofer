@@ -156,6 +156,8 @@ describe('Inbox page', () => {
     expect(inboxSrc).toContain('seenKeys(itemsOf(col))')
     expect(inboxSrc).toContain("run('clear', { keys, column: col }")
     expect(inboxSrc).toContain("run('restore', { keys: [it.key] }")
+    expect(inboxSrc).toContain('businessActions(it)')
+    expect(inboxSrc).toContain('runCardAction(')
   })
 })
 

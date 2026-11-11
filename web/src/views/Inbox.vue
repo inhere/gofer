@@ -14,6 +14,7 @@ import Toast from '../ui/Toast.vue'
 import { toastDuration } from '../ui/toast'
 import type { TabItem } from '../ui/tabs'
 import { t } from '../i18n'
+import { actionLabel, runCardAction } from '../utils/today'
 import { includeExec } from '../store/today'
 import {
   inboxBusy,
@@ -33,6 +34,7 @@ import { INBOX_COLUMNS, emptyInbox, itemFamily, itemLink, kindLabelKey, seenKeys
 const data = computed(() => inboxData.value ?? emptyInbox())
 
 const toast = ref<{ text: string; tone: 'neutral' | 'danger' } | null>(null)
+const actionBusy = ref('')
 const TOAST_FALLBACK_MS = 4000
 
 function itemsOf(col: InboxColumn): InboxItem[] {
@@ -65,6 +67,24 @@ async function run(
   } catch (e) {
     showToast(t('inbox.toast.failed', { msg: e instanceof Error ? e.message : String(e) }), 'danger')
     void refreshInbox()
+  }
+}
+
+function businessActions(it: InboxItem): InboxItem['actions'] {
+  return it.kind === 'todo_awaiting_merge' ? it.actions.filter((a) => a.id === 'todo_done' || a.id === 'todo_skip') : []
+}
+
+async function runItemAction(it: InboxItem, action: InboxItem['actions'][number]): Promise<void> {
+  if (actionBusy.value) return
+  actionBusy.value = `${it.key}:${action.id}`
+  try {
+    await runCardAction({ kind: it.kind as import('../api/today').TodayCardKind, refs: it.refs }, action)()
+    showToast(actionLabel(action))
+    await refreshInbox()
+  } catch (e) {
+    showToast(t('inbox.toast.failed', { msg: e instanceof Error ? e.message : String(e) }), 'danger')
+  } finally {
+    actionBusy.value = ''
   }
 }
 
@@ -182,6 +202,17 @@ onUnmounted(() => {
                     <RouterLink v-if="itemLink(it)" class="inb-btn" :to="itemLink(it)" data-test="inbox-open">
                       {{ t('inbox.act.open') }}
                     </RouterLink>
+                    <button
+                      v-for="action in businessActions(it)"
+                      :key="action.id"
+                      class="inb-btn"
+                      type="button"
+                      :disabled="!!actionBusy"
+                      :data-test="`inbox-action-${action.id}`"
+                      @click="runItemAction(it, action)"
+                    >
+                      {{ actionLabel(action) }}
+                    </button>
                     <button
                       v-if="it.state === 'unread'"
                       class="inb-btn"

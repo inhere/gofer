@@ -2817,6 +2817,8 @@ export interface Plan {
   leader?: 'on' | 'off'
   // gofer-3db4：plan 级结束通知开关（详情恒发；缺省视为 off）。
   notify?: 'on' | 'off'
+  // gofer-3db4：plan 级完成时机；缺省按 job 处理（旧 server / 旧数据兼容）。
+  complete_on?: 'job' | 'merge'
   tags?: string[]
   // LEAD-02 C2：PATCH /v1/plans/{id} 的附带提示（omitempty）。例如"开启 leader 时还有在跑的
   // 成员 job，它们结束时才会唤醒 leader"——是提醒不是错误，前端就地展示即可。

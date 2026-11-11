@@ -101,6 +101,7 @@ export const INBOX_KINDS: readonly string[] = [
   'suggestion',
   'merge',
   'plan_blocked',
+  'todo_awaiting_merge',
   'memory',
   'capture',
   'mail_held',

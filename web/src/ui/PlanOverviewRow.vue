@@ -65,6 +65,7 @@ function open(): void {
         <span v-if="plan.project" class="prow-chip" lang="en">{{ plan.project }}</span>
         <span v-if="plan.paused" class="prow-chip prow-chip--paused">{{ t('plans.overview.paused') }}</span>
         <span v-if="plan.leader === 'on'" class="prow-chip prow-chip--leader">{{ t('plans.overview.leaderOn') }}</span>
+        <span class="prow-chip prow-chip--complete-on">{{ t(plan.complete_on === 'merge' ? 'plans.overview.completeOnMerge' : 'plans.overview.completeOnJob') }}</span>
         <span v-for="tag in plan.tags ?? []" :key="tag" class="prow-chip">{{ tag }}</span>
       </span>
     </span>
