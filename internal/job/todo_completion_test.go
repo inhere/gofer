@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,8 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/delivery"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/testutil/wait"
 )
 
 // mergePlanWorktreeJob runs one worktree job for todo-m of a complete_on=merge plan
@@ -299,3 +302,51 @@ func TestTodoCompleteFailedEvent(t *testing.T) {
 type errTest string
 
 func (e errTest) Error() string { return string(e) }
+
+// tightenOnFirstRun is an uncommittedRunner that, during the first run, tightens the
+// caller's ceiling: the job was admitted, but the continuation the uncommitted-work guard
+// then decides on is refused at submit (ErrCeilingDenied), the seam used by
+// ceiling_redispatch_test.go for derived submissions.
+type tightenOnFirstRun struct {
+	*uncommittedRunner
+	svc *Service
+	t   *testing.T
+}
+
+func (r *tightenOnFirstRun) Run(ctx context.Context, req runner.Request) runner.Result {
+	if r.calls.Load() == 0 {
+		reloadCeiling(r.t, r.svc, "caller-a", func(c *config.CallerCeiling) {
+			c.Projects, c.Runners = []string{"other"}, []string{"local"}
+		})
+	}
+	return r.uncommittedRunner.Run(ctx, req)
+}
+
+// TestResumeSubmitFailureStillJudgesTodo (R5 补调): the guard decided "resume" but the
+// continuation could not be submitted. The first job's todo must not stay doing forever:
+// it is judged once, with no continuation pending, and (default job mode) completes.
+func TestResumeSubmitFailureStillJudgesTodo(t *testing.T) {
+	repo := t.TempDir()
+	uncommittedGit(t, repo, "init")
+	uncommittedWrite(t, repo, "base.txt", "base")
+	uncommittedGit(t, repo, "add", "base.txt")
+	uncommittedGit(t, repo, "commit", "-m", "base")
+	run := &tightenOnFirstRun{uncommittedRunner: &uncommittedRunner{repo: repo}, t: t}
+	s := uncommittedService(t, repo, "resume", run)
+	run.svc = s
+	seedPlanTodo(t, s, "plan-rf", "todo-rf")
+
+	first := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "fake", Runner: "local", Prompt: "work",
+		Cwd: ".", TimeoutSec: 30, TodoID: "todo-rf", CallerID: "caller-a", OriginCaller: "caller-a"})
+	waitForJobEvents(t, s, first.ID, "job.ceiling_denied", EventJobTerminal)
+	s.WaitTerminalHooks(10 * time.Second)
+
+	got, _ := s.Get(first.ID)
+	if got.AutoResumedBy != "" || run.calls.Load() != 1 {
+		t.Fatalf("job = auto_resumed_by %q after %d runs, want no continuation", got.AutoResumedBy, run.calls.Load())
+	}
+	wait.For(t, 10*time.Second, "todo judged after the failed continuation", func() (bool, any) {
+		td := getTodo(t, s, "todo-rf")
+		return td.Status == jobstore.TodoDone, td.Status
+	})
+}
