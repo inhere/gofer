@@ -37,7 +37,7 @@
 | 1 | 日常派活与跟进更省心 | gofer-94yq todo 以合并 / 验收为准；gofer-gqap 续跑恢复说明（⑧）；gofer-mmh0 长 job 记录按回合查看（㉗，含 gofer-tykh） | gofer-8hlc 接手提示命令写错；gofer-ehvd 换 agent 被跳过时用户看不到原因；gofer-r20b 缺 runner 报成无权限；gofer-5x85 rerun 落残留目录；gofer-juo0 待办接续条件 6 |
 | 2 | 定时与巡检少打扰 | gofer-ss3b 定时任务运行健康（⑯）；gofer-vqoe 前置检查（⑱）；gofer-2a86 跨轮上下文（⑰）；gofer-4ymk `serve status` 退出码分级（㉑⑮） | gofer-qm3l 同 worker_id 互顶无提示；gofer-fgwc 复查失败收尾的只读 git |
 | 3 | 可追溯与机器接入 | gofer-1uwh 管理操作审计（㉒）；gofer-ivmr 镜像事件断线补传（㉓）；gofer-glzl worker 一行接入与服务化（㉔）；token 到期与最近使用并入 gofer-nhh7（㉕） | gofer-73l5 回执计数 |
-| 4 | super-agent 闭环主干（总设计，分阶段） | gofer-eeod：①⑤⑥⑦⑪⑫⑬，关联 gofer-rztq、gofer-759l | — |
+| 4 | super-agent 闭环主干（总设计，分阶段） | gofer-eeod：①⑤⑥⑦⑪⑫⑬，关联 gofer-rztq、gofer-759l；并入 Squad 重做 gofer-ayas（leader 角色作为一个阶段：先 plan 来源，后外部事件来源，与底座共用） | — |
 | 5 | 准入与学习 | gofer-8jqg 准入只观察与 suga 评估（③④⑭）；gofer-vquf 打回沉淀与平台摩擦（⑲⑳） | — |
 
 运行中插话（⑨）需要 suga 先支持，外部 issue 同步（②）与预留执行槽（⑩）暂不排批。
