@@ -50,7 +50,7 @@ func TestAutoResumePromptKeepsTheEnglishOriginal(t *testing.T) {
 	want := "The previous run was interrupted by a transient error (stream ended after retries). " +
 		"Check git status / git log to see how far you got, finish only the remaining work, " +
 		"do not redo committed work. Before resuming, check remote and external state (pushed branches, opened PRs, and sent messages); do not repeat external actions that are already complete. " +
-			"Then report as originally asked."
+		"Then report as originally asked."
 	if got := autoResumePrompt(cfg, JobResult{ProjectKey: "self"}, "stream ended after retries"); got != want {
 		t.Errorf("English auto-resume prompt changed:\n got: %s\nwant: %s", got, want)
 	}
