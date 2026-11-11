@@ -135,13 +135,15 @@ gofer plan pause <plan>                        # 临时挂住整条链（在跑�
 - 前序项已完成（需要验收的已被接受），且它的 job 留下了可续的会话。
 - 本项与前序用同一会话族的 agent（exec 不行），且配置允许续接（ACP agent 未关闭会话加载；cli agent 有续接模板；本项指定的 model / 预算在该 agent 上可用）。
 - 两项用同一个 runner，且是本机 runner（暂不支持 worker）。
-- 本项没有另设工作目录，或与前序一致；前序用了 worktree 时，该目录还在。
+- 本项没有另设工作目录，或与前序一致；前序用了 worktree 时，该目录还在且仍是有效的 git worktree。
 - 前序不需要自动交付（有自动交付的项不接续）。
 - 本项与前序的只读设置一致。
 - 前序的会话没有被另一项占用（一个前序只能被一个后继接续，不支持并行后继）。
 - 连续接续次数未达上限：项目配置 `continue_max_chain`，默认 3，0 = 不限，最大 10。人工 resume、自动续投、返工不计入链长。
 
-**不满足时**：不报错，照常在新会话里派发本项，并在 todo 上写 `continue_note`（「未接续：原因」，`plan show` 与 web 都能看到），同时记 `job.continue_fallback` 事件。前序留有未合并的 worktree 分支时，本项的新 worktree 基于该分支，`continue_note` 会说明。
+**不满足时**：除 worktree 失效这一安全拒绝外，不报错，照常在新会话里派发本项，并在 todo 上写 `continue_note`（「未接续：原因」，`plan show` 与 web 都能看到），同时记 `job.continue_fallback` 事件。前序留有未合并的 worktree 分支时，本项的新 worktree 基于该分支，`continue_note` 会说明。
+
+**前序 worktree 已失效时**：这是硬拒绝，不会回落到主 checkout，也不会创建新会话。失效包括 worktree 已清理、目录残留但不再是 git checkout、分支已删除，或续接目录不在该 worktree 内。plan 绑定监督会话时，显式派发返回 HTTP `409`；未绑定监督会话时，派发失败但 HTTP 仍返回 `200`，结果为 `dispatched=false` 并带有原因。
 
 **续接的 job 拿到什么**：prompt 是一行承接说明加本项自己的任务书、验收标准、交付约定和时限行；规则、prime、工具段不再重复注入（前序会话里已有）。cli agent 走会话恢复命令，ACP agent 一次性加载会话、跑完这一轮即结束。续接 job 的结果、待验收、失败与自动续投都和普通 job 一样挂在本项上；agent 侧拒绝续接（如会话已被清理）时 job 失败并带原因，可 `--no-continue` 后重新派发。
 

@@ -65,7 +65,7 @@ func TestContinuationBaselineWorktree(t *testing.T) {
 			}
 			cont := submitAndWait(t, s, JobRequest{ProjectKey: "repo", Agent: "exec", Runner: "local",
 				Cmd: []string{"git", "cherry-pick", shaB}, Cwd: s.resumeCwd(pred), TimeoutSec: 60,
-				ResumedFrom: pred.ID, SourceJobID: pred.ID, InheritWorktree: true, BaselineSHA: baseline,
+				ResumedFrom: pred.ID, SourceJobID: pred.ID, WorktreeFrom: pred.ID, BaselineSHA: baseline,
 				TodoID: "t-b", Scope: []string{"b.txt"}})
 			if cont.Status != StatusDone || cont.WorktreePath != pred.WorktreePath {
 				t.Fatalf("continuation: status=%s worktree=%q (want %q) err=%s", cont.Status, cont.WorktreePath, pred.WorktreePath, cont.Error)
@@ -129,7 +129,7 @@ func TestContinuationBaselineCommittedLeftover(t *testing.T) {
 	writeRepoFile(t, pred.WorktreePath, "README.md", "left by the predecessor\n")
 	cont := submitAndWait(t, s, JobRequest{ProjectKey: "repo", Agent: "exec", Runner: "local",
 		Cmd: []string{"git", "commit", "-q", "-am", "commit the leftover"}, Cwd: s.resumeCwd(pred), TimeoutSec: 60,
-		ResumedFrom: pred.ID, SourceJobID: pred.ID, InheritWorktree: true, BaselineSHA: s.predecessorEndPoint(pred)})
+		ResumedFrom: pred.ID, SourceJobID: pred.ID, WorktreeFrom: pred.ID, BaselineSHA: s.predecessorEndPoint(pred)})
 	if cont.Status != StatusDone || len(cont.Commits) != 1 {
 		t.Fatalf("continuation: %s commits=%v err=%s", cont.Status, cont.Commits, cont.Error)
 	}

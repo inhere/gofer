@@ -428,8 +428,8 @@ func TestFallbackInheritsWorktreeTodoVerify(t *testing.T) {
 	}
 	src = waitFellBack(t, s, src.ID)
 	next, _ := s.Get(src.FellBackTo)
-	if next.WorktreePath != "" {
-		t.Fatalf("a fallback continues in the source worktree, it must not create another one (got %q)", next.WorktreePath)
+	if next.WorktreePath != src.WorktreePath {
+		t.Fatalf("a fallback continues in the source worktree (recorded on its row), it must not create another one (got %q, want %q)", next.WorktreePath, src.WorktreePath)
 	}
 	// Same-directory, possibly different spelling: the worktree path is git's
 	// RESOLVED form, the continuation's cwd is resolved against the configured

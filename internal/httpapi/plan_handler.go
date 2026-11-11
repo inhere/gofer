@@ -1212,6 +1212,9 @@ func (s *Server) handleDispatchTodo(c *rux.Context) {
 				status = http.StatusNotFound
 			}
 		}
+		if errors.Is(err, job.ErrContinuationWorktreeGone) {
+			status = http.StatusConflict
+		}
 		writeError(c, status, "dispatch todo failed", err.Error())
 		return
 	}

@@ -635,11 +635,11 @@ type JobRequest struct {
 	// TodoForeign below, which stay json:"-". It also makes `job rerun` of a
 	// continuation re-continue the same session (decided 2026-09-18, SUP-02 R1).
 	ResumedFrom string `json:"resumed_from,omitempty" yaml:"resumed_from,omitempty"`
-	// InheritWorktree: this continuation (stamped by ResumeJob only, never from a
-	// client body) runs in and owns its source's managed worktree, so its commits,
-	// review and delivery cover that branch (gofer-glyo).
-	InheritWorktree   bool `json:"-" yaml:"-"`
-	AutoResumeAttempt int  `json:"-" yaml:"-"`
+	// WorktreeFrom: id of the worktree job this continuation / takeover / retry
+	// carries on (set by server entry points only, never from a client body); it
+	// runs in and owns that job's worktree or is refused (gofer-fi7f).
+	WorktreeFrom      string `json:"-" yaml:"-"`
+	AutoResumeAttempt int    `json:"-" yaml:"-"`
 	// CheckResumeCount is how many delivery-check resumes the chain this job belongs to
 	// has used, including the one that created it (stamped by the check resume only).
 	CheckResumeCount int `json:"-" yaml:"-"`

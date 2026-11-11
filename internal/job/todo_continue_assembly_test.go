@@ -59,12 +59,13 @@ const (
 var continuationFieldClasses = map[string]string{
 	// from the predecessor
 	"SessionID": fieldPred, "ResumedFrom": fieldPred, "SourceJobID": fieldPred, "Cwd": fieldPred,
-	"InheritWorktree": fieldPred, "Runner": fieldPred, "MCP": fieldPred, "SessionApproval": fieldPred,
+	"Runner": fieldPred, "MCP": fieldPred, "SessionApproval": fieldPred,
 	"Language": fieldPred,
 	// set by the assembler
 	"Agent": fieldAssembled, "Cmd": fieldAssembled, "Prompt": fieldAssembled, "Model": fieldAssembled,
 	"TimeoutSec": fieldAssembled, "KnowledgeCapture": fieldAssembled, "RulesResolved": fieldAssembled,
 	"SkillsResolved": fieldAssembled, "ResumeSourceAgent": fieldAssembled, "BaselineSHA": fieldAssembled,
+	"WorktreeFrom": fieldAssembled, // predecessor id, only when it is a worktree job (WorktreeBranch set)
 	// not inherited
 	"Hold": fieldCleared, "HoldReason": fieldCleared, "HoldTimeoutSec": fieldCleared, "Fallback": fieldCleared,
 	"Deliver": fieldCleared, "DeliverDraft": fieldCleared, "DeliverBranch": fieldCleared,
@@ -147,6 +148,7 @@ func TestTodoContinuationFieldClassification(t *testing.T) {
 	// The predecessor holds a value in everything the continuation must not inherit.
 	seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, func(j *JobResult) {
 		j.WorktreePath = root
+		j.WorktreeBranch = "gofer/j-pred"
 		j.RequireReview = true
 		j.MCP = []string{"mcp-1"}
 		j.RequestJSON = `{"agent":"ca","prompt":"work","cwd":"sub","title":"pred title (resumed)","model":"m-pred","hold":true,"hold_reason":"approve me",` +
@@ -160,7 +162,7 @@ func TestTodoContinuationFieldClassification(t *testing.T) {
 
 	wantPred := map[string]any{
 		"SessionID": "sess-p", "ResumedFrom": "j-pred", "SourceJobID": "j-pred", "Cwd": "sub",
-		"InheritWorktree": true, "Runner": "local", "MCP": []string{"mcp-1"},
+		"Runner": "local", "MCP": []string{"mcp-1"},
 		"SessionApproval": &config.ApprovalConfig{Mode: config.ApprovalAsk},
 		// The text language rides along: a continuation's own time-limit line must
 		// speak the language its predecessor's job was admitted in.
@@ -184,6 +186,9 @@ func TestTodoContinuationFieldClassification(t *testing.T) {
 				t.Errorf("%s = %v, want the ordinary request's %v", f.Name, got.Interface(), base.Interface())
 			}
 		}
+	}
+	if cont.WorktreeFrom != "j-pred" {
+		t.Errorf("WorktreeFrom = %q, want the predecessor id of a worktree job", cont.WorktreeFrom)
 	}
 	if cont.Title != "succ item" || strings.Contains(cont.Title, "resumed") {
 		t.Errorf("Title = %q, want the item's own title", cont.Title)

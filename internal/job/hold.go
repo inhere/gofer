@@ -152,7 +152,8 @@ type heldInternals struct {
 	Fallback          *FallbackState `json:"fallback,omitempty"`
 	RequestedAgent    string         `json:"requested_agent,omitempty"`
 	EnvDenyExtra      []string       `json:"env_deny_extra,omitempty"`
-	InheritWorktree   bool           `json:"inherit_worktree,omitempty"`
+	WorktreeFrom      string         `json:"worktree_from,omitempty"`
+	InheritWorktree   bool           `json:"inherit_worktree,omitempty"` // DEPRECATED(v0.214): remove in v0.217
 	// gofer-dzv3: an update park stops ANY submit, internal producers included, so
 	// the chain/workflow/plan/leader/steward/messenger markers a server-side producer
 	// sets ride the record too — a released step job must still be that workflow step,
@@ -182,7 +183,7 @@ func captureHeldInternals(r *JobRequest) *heldInternals {
 		SkillsResolved: r.SkillsResolved, RulesResolved: r.RulesResolved, MCPResolved: r.MCPResolved,
 		TodoForeign: r.TodoForeign, SourceJobID: r.SourceJobID, Attempt: r.Attempt,
 		ResumeSourceAgent: r.ResumeSourceAgent, AutoResumeAttempt: r.AutoResumeAttempt, CheckResumeCount: r.CheckResumeCount,
-		FellBackFrom: r.FellBackFrom, RequestedAgent: r.RequestedAgent, InheritWorktree: r.InheritWorktree,
+		FellBackFrom: r.FellBackFrom, RequestedAgent: r.RequestedAgent, WorktreeFrom: r.WorktreeFrom,
 		WorkflowID: r.WorkflowID, StepIndex: r.StepIndex, FanIndex: r.FanIndex,
 		LeaderOfPlan: r.LeaderOfPlan, Steward: r.Steward,
 		InitialInput: r.InitialInput, InitialInputQuietMs: r.InitialInputQuietMs, Stdin: r.Stdin,
@@ -218,7 +219,10 @@ func (h *heldInternals) restore(r *JobRequest) {
 	r.CheckResumeCount = h.CheckResumeCount
 	r.FellBackFrom, r.Fallback, r.RequestedAgent = h.FellBackFrom, h.Fallback, h.RequestedAgent
 	r.EnvDenyExtra = h.EnvDenyExtra
-	r.InheritWorktree = h.InheritWorktree
+	r.WorktreeFrom = h.WorktreeFrom
+	if h.InheritWorktree && r.WorktreeFrom == "" { // DEPRECATED(v0.214): remove in v0.217
+		r.WorktreeFrom = r.ResumedFrom
+	}
 	r.WorkflowID, r.StepIndex, r.FanIndex = h.WorkflowID, h.StepIndex, h.FanIndex
 	r.LeaderOfPlan, r.Steward = h.LeaderOfPlan, h.Steward
 	r.Messenger = h.Messenger

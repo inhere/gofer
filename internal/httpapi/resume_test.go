@@ -34,6 +34,7 @@ func TestResumeStatusMapping(t *testing.T) {
 		{"cross-runner", job.ErrCrossRunner, http.StatusBadRequest},
 		{"unknown-project", job.ErrUnknownProject, http.StatusNotFound},
 		{"invalid-request", job.ErrInvalidRequest, http.StatusBadRequest},
+		{"worktree-gone", &job.ContinuationWorktreeError{Reason: "worktree_gone", Path: "/x"}, http.StatusConflict},
 	}
 	for _, tc := range cases {
 		if got := resumeStatus(tc.err); got != tc.want {
@@ -143,6 +144,45 @@ func TestResumeClaudeJobReturnsLinkedJob(t *testing.T) {
 	// t.TempDir removes the tree (a lingering writer makes RemoveAll fail with
 	// "directory not empty").
 	waitDone(t, s, newJob.ID)
+}
+
+// TestResumeWorktreeGoneIs409: resuming a worktree job whose worktree was cleaned up is
+// refused with 409 instead of continuing in the main checkout, and no job is created.
+func TestResumeWorktreeGoneIs409(t *testing.T) {
+	t.Parallel()
+	s := newResumeTestServer(t)
+	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+		ProjectKey: "self", Agent: "claude", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, Sync: true,
+	})
+	var src job.JobResult
+	decode(t, resp, &src)
+	if src.SessionID == "" {
+		t.Fatalf("claude source job has no session_id (%+v)", src)
+	}
+	// The row of a worktree job after a merge cleanup: the branch is kept, the path is not.
+	rec, ok, err := s.jobs.Meta().GetJob(src.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetJob: ok=%v err=%v", ok, err)
+	}
+	rec.WorktreeBranch, rec.WorktreePath = "gofer/"+src.ID, ""
+	if err := s.jobs.Meta().UpsertJob(rec); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	before, _ := s.jobs.ListJobs(job.ListOpts{Project: "self"})
+
+	rr := do(t, s, http.MethodPost, "/v1/jobs/"+src.ID+"/resume", testToken, resumeJobReq{Prompt: "again"})
+	if rr.StatusCode != http.StatusConflict {
+		t.Fatalf("resume of a cleaned-up worktree job status=%d, want 409", rr.StatusCode)
+	}
+	var body errorBody
+	decode(t, rr, &body)
+	if !strings.Contains(body.Detail, "worktree_gone") {
+		t.Fatalf("detail = %q, want the reason", body.Detail)
+	}
+	if after, _ := s.jobs.ListJobs(job.ListOpts{Project: "self"}); len(after) != len(before) {
+		t.Fatalf("jobs %d -> %d, a refused resume must not create one", len(before), len(after))
+	}
 }
 
 // TestResumeCrossRunnerRejected: an explicit runner differing from the source is
