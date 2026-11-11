@@ -5,6 +5,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/inhere/gofer/internal/config"
 )
@@ -75,6 +76,9 @@ func normalizeSecretNames(in []string) []string {
 // tail of each write that could be the start of a value split across two writes is
 // held back until the next write or Close.
 type secretMasker struct {
+	// mu serialises Write / Close: an ACP job's stderr is written both by the
+	// child-process copy goroutine and by the runner's own diagnostics.
+	mu       sync.Mutex
 	w        io.WriteCloser
 	strs     []string
 	keep     int // longest value - 1: the bytes that may still grow into a value
@@ -137,6 +141,8 @@ func secretMaskFunc(values []string) func(string) string {
 }
 
 func (m *secretMasker) Write(p []byte) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	buf := m.mask(append(m.pending, p...))
 	cut := len(buf) - m.keep
 	if cut <= 0 {
@@ -153,6 +159,8 @@ func (m *secretMasker) Write(p []byte) (int, error) {
 // Close flushes what was held back and closes the underlying writer. A second
 // Close only repeats the first one's result.
 func (m *secretMasker) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.closed {
 		return m.closeErr
 	}
