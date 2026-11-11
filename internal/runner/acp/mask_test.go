@@ -64,3 +64,27 @@ func TestACPRunnerMasksSecretsInEventStream(t *testing.T) {
 		t.Fatalf("acp.jsonl = %s", b)
 	}
 }
+
+// A secret straddling the 512-byte cut of a truncated record field must not leave any
+// prefix of itself behind: the field is masked first, cut second.
+func TestEventWriterClipMasksBeforeTruncating(t *testing.T) {
+	const secret = "SECRETVALUE-0123456789-abcdef"
+	w := &eventWriter{}
+	w.setMask(func(s string) string { return strings.ReplaceAll(s, secret, "***") })
+	// The secret starts 10 bytes before the cut at maxRawBytes.
+	raw := strings.Repeat("a", maxRawBytes-10) + secret + strings.Repeat("b", 100)
+	got := w.clip(raw)
+	for n := 4; n <= len(secret); n++ {
+		if strings.Contains(got, secret[:n]) {
+			t.Fatalf("clip kept a %d-byte prefix of the secret: %q", n, got[len(got)-40:])
+		}
+	}
+	// Without a mask (or a nil writer) it is plain truncate.
+	if (*eventWriter)(nil).clip(raw) != truncate(raw) || (&eventWriter{}).clip(raw) != truncate(raw) {
+		t.Fatal("clip without a mask must equal truncate")
+	}
+	// The old order would have leaked: truncate-then-mask keeps the prefix.
+	if !strings.Contains(truncate(raw), secret[:4]) {
+		t.Fatal("test setup: the cut must fall inside the secret")
+	}
+}

@@ -652,7 +652,7 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 		}
 		h.flushMessage()
 		h.flushThought()
-		h.events.write(toolCallEvent(u.ToolCall))
+		h.events.write(toolCallEvent(u.ToolCall, h.events.clip))
 		h.recordToolCall(u.ToolCall)
 	case acp.UpdatePlan:
 		if u.Plan == nil {
@@ -672,7 +672,7 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 		// SUP-01 E: the agent's token/cost accounting. It stays in the event stream as
 		// it always did, and the runner keeps the running tally so the job row can
 		// record what the run cost.
-		h.events.write(map[string]any{"t": u.Kind, "raw": truncate(string(u.Raw))})
+		h.events.write(map[string]any{"t": u.Kind, "raw": h.events.clip(string(u.Raw))})
 		if got := usageFromUpdate(u.Raw); got != nil {
 			h.mu.Lock()
 			h.usage = overlayUsage(h.usage, got)
@@ -683,7 +683,7 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 	default:
 		// A variant S0 does not model: keep the raw payload so the stream stays a
 		// complete record of the turn.
-		h.events.write(map[string]any{"t": u.Kind, "raw": truncate(string(u.Raw))})
+		h.events.write(map[string]any{"t": u.Kind, "raw": h.events.clip(string(u.Raw))})
 	}
 }
 
@@ -792,7 +792,7 @@ func (h *handler) recordToolCall(tc *acp.ToolCall) {
 	if tc == nil {
 		return
 	}
-	event := toolCallEvent(tc)
+	event := toolCallEvent(tc, h.events.clip)
 	payload, _ := json.Marshal(event)
 	h.mu.Lock()
 	_, seenStatus := h.toolStatus[tc.ToolCallID]
@@ -1245,7 +1245,7 @@ func (h *handler) recordPermission(p acp.RequestPermissionParams, kind, outcome,
 		ev["option_kind"] = optionKind
 	}
 	if p.ToolCall != nil && len(p.ToolCall.RawInput) > 0 {
-		ev["raw_input"] = truncate(string(p.ToolCall.RawInput))
+		ev["raw_input"] = h.events.clip(string(p.ToolCall.RawInput))
 	}
 	h.events.write(ev)
 
