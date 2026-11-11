@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 续跑与 worktree 合并清理互斥 实施计划
 
-> 状态：Draft 0.3 / 待批准
+> 状态：Draft 0.3 已批准（2026-11-11，用户：「计划 0.3 批准」）
 > issue：gofer-fi7f
 
 ## 修订记录
