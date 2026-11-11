@@ -235,7 +235,18 @@ func (s *Service) todoContinuationRequest(plan jobstore.Plan, todo jobstore.Plan
 
 	// 6
 	if predJob.WorktreePath != "" {
-		if st, err := os.Stat(predJob.WorktreePath); err != nil || !st.IsDir() {
+		// The same judgement the continuation guard makes at submit (a leftover directory
+		// that git no longer sees as a checkout, or a branch that is gone, is not usable).
+		usable := false
+		if predJob.WorktreeBranch == "" { // not a managed worktree branch: the guard does not judge it either
+			st, err := os.Stat(predJob.WorktreePath)
+			usable = err == nil && st.IsDir()
+		} else {
+			wctx, wcancel := context.WithTimeout(context.Background(), worktreeTimeout)
+			usable = worktreeUsable(wctx, predJob.WorktreePath, predJob.WorktreeBranch)
+			wcancel()
+		}
+		if !usable {
 			return JobRequest{}, continueText(lang, "worktree_gone")
 		}
 		if EffectiveDeliveryMode(cfg, requestOfJob(predJob)) != delivery.ModeNone {

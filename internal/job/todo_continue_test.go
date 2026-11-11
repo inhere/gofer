@@ -147,6 +147,18 @@ func continuedBy(t *testing.T, s *Service, predID string) string {
 	return pred.ContinuedBy
 }
 
+// contGitCheckout turns dir into a real git checkout whose branch exists, the shape a
+// usable worktree has (worktreeUsable: its own toplevel, branch ref present).
+func contGitCheckout(t *testing.T, dir, branch string) {
+	t.Helper()
+	gitOutIn(t, dir, "init", "-q", "-b", "main")
+	gitOutIn(t, dir, "config", "user.email", "gofer-test@example.com")
+	gitOutIn(t, dir, "config", "user.name", "gofer-test")
+	gitOutIn(t, dir, "config", "commit.gpgsign", "false")
+	gitOutIn(t, dir, "commit", "-q", "--allow-empty", "-m", "init")
+	gitOutIn(t, dir, "branch", branch)
+}
+
 // TestTodoContinueConditions: every condition has a case that fails it, and a case that
 // is just inside it. A todo that passes all ten gets a continuation request and keeps its
 // claim.
@@ -252,10 +264,22 @@ func TestTodoContinueConditions(t *testing.T) {
 			want: "worktree 已不存在",
 		},
 		{
-			name: "6 predecessor needs auto delivery",
+			// gofer-juo0: the same judgement as the continuation guard — an existing directory
+			// that git does not see as the branch's checkout is not a usable worktree.
+			name: "6 leftover directory is not a worktree",
 			setup: func(t *testing.T, s *Service, root string) {
 				seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, func(j *JobResult) {
-					j.WorktreePath = root
+					j.WorktreePath, j.WorktreeBranch = root, "gofer/pred"
+				})
+			},
+			want: "worktree 已不存在",
+		},
+		{
+			name: "6 predecessor needs auto delivery",
+			setup: func(t *testing.T, s *Service, root string) {
+				contGitCheckout(t, root, "gofer/pred")
+				seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, func(j *JobResult) {
+					j.WorktreePath, j.WorktreeBranch = root, "gofer/pred"
 					j.RequestJSON = `{"agent":"ca","prompt":"work","cwd":".","deliver":"merge"}`
 				})
 			},
@@ -264,7 +288,8 @@ func TestTodoContinueConditions(t *testing.T) {
 		{
 			name: "6 worktree present and no delivery",
 			setup: func(t *testing.T, s *Service, root string) {
-				seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, func(j *JobResult) { j.WorktreePath = root })
+				contGitCheckout(t, root, "gofer/pred")
+				seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, func(j *JobResult) { j.WorktreePath, j.WorktreeBranch = root, "gofer/pred" })
 			},
 			want: contHolds,
 		},

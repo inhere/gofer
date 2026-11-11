@@ -3016,6 +3016,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if res.BaseSHA != "" {
 		c.Printf("base_sha:   %s\n", res.BaseSHA)
 	}
+	printJobFallbackSkipped(c, cli, res.ID)
 	if len(res.Commits) > 0 {
 		c.Printf("commits:    %d\n", len(res.Commits))
 		for _, cm := range res.Commits {
