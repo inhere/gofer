@@ -750,7 +750,7 @@ func (c *InboxConfig) IsEnabled() bool {
 // DefaultInboxRules returns the shipped two-column policy.
 func DefaultInboxRules() []InboxRule {
 	return []InboxRule{
-		{ID: "action", Column: "action", Kinds: []string{"interaction", "decision", "relay", "permission", "approval", "work", "plan_blocked", "mail_held", "review", "capture", "suggestion", "merge", "memory",
+		{ID: "action", Column: "action", Kinds: []string{"interaction", "decision", "relay", "permission", "approval", "work", "plan_blocked", "todo_awaiting_merge", "mail_held", "review", "capture", "suggestion", "merge", "memory",
 			// job.failed: a failed / timed-out job nobody has continued yet; the person decides
 			// whether to resume or retry it. See the inbox handler's terminal-job classification.
 			// job.child_wake_failed: a child job's result can no longer reach the resident parent

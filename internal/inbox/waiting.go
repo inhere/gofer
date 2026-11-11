@@ -13,16 +13,17 @@ import (
 type Category string
 
 const (
-	CatApproval  Category = "approval"   // 待你批准
-	CatAnswer    Category = "answer"     // 待你回答
-	CatReview    Category = "review"     // 待你验收
-	CatPlanStuck Category = "plan_stuck" // 计划卡住
-	CatFailed    Category = "failed"     // 你提交的任务失败了
-	CatDelivery  Category = "delivery"   // 投递待你确认
+	CatApproval      Category = "approval"       // 待你批准
+	CatAnswer        Category = "answer"         // 待你回答
+	CatReview        Category = "review"         // 待你验收
+	CatAwaitingMerge Category = "awaiting_merge" // 待你收尾
+	CatPlanStuck     Category = "plan_stuck"     // 计划卡住
+	CatFailed        Category = "failed"         // 你提交的任务失败了
+	CatDelivery      Category = "delivery"       // 投递待你确认
 )
 
 // Categories is the judgement order: first match wins.
-var Categories = []Category{CatApproval, CatAnswer, CatReview, CatPlanStuck, CatFailed, CatDelivery}
+var Categories = []Category{CatApproval, CatAnswer, CatReview, CatAwaitingMerge, CatPlanStuck, CatFailed, CatDelivery}
 
 // KindJobFailed is the card kind of a failed job a person submitted.
 const KindJobFailed = today.KindJobFailed
@@ -41,6 +42,9 @@ type Signals struct {
 	Question bool
 	// NeedsReview: job status needs_review.
 	NeedsReview bool
+	// AwaitingMerge: a todo of a complete_on=merge plan whose job ended done and whose
+	// deliverable has not landed (today.KindTodoAwaitingMerge).
+	AwaitingMerge bool
 	// PlanBlocked: plan status blocked.
 	PlanBlocked bool
 	// TodoNeedsReview: a plan todo whose job waits in needs_review.
@@ -62,6 +66,8 @@ func Classify(s Signals) (Category, bool) {
 		return CatAnswer, true
 	case s.NeedsReview:
 		return CatReview, true
+	case s.AwaitingMerge:
+		return CatAwaitingMerge, true
 	case s.PlanBlocked || s.TodoNeedsReview:
 		return CatPlanStuck, true
 	case s.FailedBySelf:
@@ -113,6 +119,8 @@ func signalsOf(c today.Card) (subject string, s Signals, ok bool) {
 		return "session:" + c.Refs.SessionID, Signals{Question: true}, true
 	case today.KindReview:
 		return "job:" + c.Refs.JobID, Signals{NeedsReview: true, TodoNeedsReview: c.Refs.TodoID != ""}, true
+	case today.KindTodoAwaitingMerge:
+		return "todo:" + c.Refs.TodoID, Signals{AwaitingMerge: true}, true
 	case today.KindPlanBlocked:
 		return "plan:" + c.Refs.PlanID, Signals{PlanBlocked: true}, true
 	case today.KindMailHeld:
