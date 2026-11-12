@@ -662,6 +662,11 @@ func TestJobShowPrintsRecoveringSince(t *testing.T) {
 			_, _ = w.Write([]byte(`{"wakeups":[]}`))
 			return
 		}
+		// ...and its events (the failover candidates `job show` lists).
+		if r.URL.Path == "/v1/jobs/job-rec/events" {
+			_, _ = w.Write([]byte(`{"events":[]}`))
+			return
+		}
 		// ...and its retry chain (AUTO-03), which prints no line when nothing is
 		// waiting either.
 		if r.URL.Path == "/v1/jobs/job-rec/retries" {

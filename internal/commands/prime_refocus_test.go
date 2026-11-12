@@ -112,7 +112,7 @@ func TestPrimeRefocusSectionRendersSessionFocus(t *testing.T) {
 		"主题：gofer 开发",
 		"→ gofer issue brief g-1",
 		"→ gofer plan brief p-1",
-		"→ gofer mail show 7",
+		"→ gofer session mail read 7",
 	} {
 		if !strings.Contains(section, want) {
 			t.Fatalf("section missing %q: %s", want, section)

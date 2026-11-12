@@ -240,6 +240,8 @@ func TestJobShowPrintsHold(t *testing.T) {
 		switch r.URL.Path {
 		case "/v1/jobs/job-s/wakeups":
 			_, _ = w.Write([]byte(`{"wakeups":[]}`))
+		case "/v1/jobs/job-s/events":
+			_, _ = w.Write([]byte(`{"events":[]}`))
 		case "/v1/jobs/job-s/retries":
 			_, _ = w.Write([]byte(`{"job_id":"job-s","retries":[]}`))
 		case "/v1/jobs/job-s":

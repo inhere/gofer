@@ -8,4 +8,4 @@
 在等的 job：
 - job-9 全量测试（running） → gofer job show job-9
 未回的信件：
-- 来自 alice：先看这个 → gofer mail show 12
+- 来自 alice：先看这个 → gofer session mail read 12

@@ -46,8 +46,10 @@ type planView struct {
 	// With it on, every job the plan dispatches tells the supervisor session that it
 	// ended; a plan with it on and NO supervisor session notifies nobody, which the
 	// `notify_unbound` warning below states out loud.
-	Notify string   `json:"notify"`
-	Tags   []string `json:"tags,omitempty"`
+	Notify string `json:"notify"`
+	// CompleteOn is when the plan's todos count as done: job (default) | merge, always present.
+	CompleteOn string   `json:"complete_on"`
+	Tags       []string `json:"tags,omitempty"`
 	// Warnings carries what the write could not express as an error — today only "turning
 	// the leader on will wake a round when the N member jobs still in flight finish"
 	// (LEAD-02, 0.2 decision ④). Omitted when there is nothing to say.
@@ -103,6 +105,7 @@ func toPlanView(p jobstore.Plan) planView {
 		BlockedTodo:         p.BlockedTodo,
 		Leader:              effectivePlanLeader(p.Leader),
 		Notify:              effectivePlanNotify(p.Notify),
+		CompleteOn:          effectivePlanCompleteOn(p.CompleteOn),
 		Tags:                p.Tags,
 		CreatedAt:           p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
@@ -260,8 +263,10 @@ type createPlanReq struct {
 	// Notify opts the plan into end-notifications at creation (gofer-3db4, `plan create
 	// --notify`): every job it dispatches tells the plan's supervisor session that it
 	// ended. Empty/`off` is the default.
-	Notify string   `json:"notify,omitempty"`
-	Tags   []string `json:"tags,omitempty"`
+	Notify string `json:"notify,omitempty"`
+	// CompleteOn picks when the plan's todos count as done: job (default) | merge.
+	CompleteOn string   `json:"complete_on,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 // updatePlanReq is the PATCH /v1/plans/{id} body (P6): move a plan along its lifecycle
@@ -277,6 +282,7 @@ type updatePlanReq struct {
 	// Notify flips the per-plan end-notification switch: on|off. A pointer so an omitted
 	// field preserves the plan's value while an explicit `off` turns it off (gofer-3db4).
 	Notify              *string   `json:"notify,omitempty"`
+	CompleteOn          *string   `json:"complete_on,omitempty"`
 	Tags                *[]string `json:"tags,omitempty"`
 	Untag               []string  `json:"untag,omitempty"`
 	SupervisorSessionID *string   `json:"supervisor_session_id,omitempty"`
@@ -338,6 +344,10 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid notify", "notify must be on or off")
 		return
 	}
+	completeOn, ok := parseCreateCompleteOn(c, body.CompleteOn)
+	if !ok {
+		return
+	}
 	now := time.Now().Unix()
 	p := jobstore.Plan{
 		PlanID: planID, Title: body.Title, Description: body.Description,
@@ -346,6 +356,7 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		SupervisorSessionID: strings.TrimSpace(body.SupervisorSessionID),
 		Leader:              leader,
 		Notify:              planNotify,
+		CompleteOn:          completeOn,
 		Tags:                jobstore.NormalizePlanTags(body.Tags),
 		CreatedAt:           now, UpdatedAt: now,
 	}
@@ -682,7 +693,11 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 			return
 		}
 	}
-	if status == "" && body.Progress == nil && leader == "" && body.Tags == nil && len(body.Untag) == 0 && body.SupervisorSessionID == nil && body.Notify == nil {
+	completeOn, ok := parseUpdateCompleteOn(c, body.CompleteOn)
+	if !ok {
+		return
+	}
+	if status == "" && body.Progress == nil && leader == "" && body.Tags == nil && len(body.Untag) == 0 && body.SupervisorSessionID == nil && body.Notify == nil && completeOn == "" {
 		writeError(c, http.StatusBadRequest, "nothing to update",
 			"give at least one of status / progress / leader / notify / tags / untag")
 		return
@@ -777,6 +792,12 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 	if body.Notify != nil {
 		if err := s.jobs.Meta().SetPlanNotify(id, planNotify); err != nil {
 			writeError(c, http.StatusInternalServerError, "update plan notify failed", err.Error())
+			return
+		}
+	}
+	if completeOn != "" {
+		if err := s.jobs.Meta().SetPlanCompleteOn(id, completeOn); err != nil {
+			writeError(c, http.StatusInternalServerError, "update plan complete_on failed", err.Error())
 			return
 		}
 	}

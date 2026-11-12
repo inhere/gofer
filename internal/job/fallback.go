@@ -19,6 +19,25 @@ import (
 // the bound only exists to make a corrupted lineage terminate.
 const fallbackChainMaxHops = 8
 
+// EventJobFallbackSkipped is recorded on a job for each failover candidate that was
+// dropped without being tried: one the project does not admit at submit time, or one
+// whose takeover submission was refused when the chain was about to move on. Detail:
+// agent, reason. Without it the only trace was a server log line, and the job just failed.
+const EventJobFallbackSkipped = "job.fallback_skipped"
+
+// fallbackSkip is one candidate resolveFallbackCandidates dropped, and why.
+type fallbackSkip struct {
+	Agent  string
+	Reason string
+}
+
+// recordFallbackSkipped writes one job.fallback_skipped event per dropped candidate.
+func (s *Service) recordFallbackSkipped(jobID string, skipped []fallbackSkip) {
+	for _, sk := range skipped {
+		s.recordEvent(jobID, EventJobFallbackSkipped, map[string]any{"agent": sk.Agent, "reason": sk.Reason})
+	}
+}
+
 // resolveFallbackCandidates resolves the ordered, ADMITTED candidate list for a job
 // (SUP-01 P3). The list come from the request (`--fallback`), else the project's
 // agent_fallbacks, else the agent's own fallback_agents; every candidate is then held
@@ -28,12 +47,14 @@ const fallbackChainMaxHops = 8
 //
 // Duplicates and the agent itself are dropped for the same reason: they can only
 // repeat work already under way. The result is frozen into jobs.fallback_json at
-// submit, so this runs ONCE per chain.
-func resolveFallbackCandidates(cfg *config.Config, projectKey, agentKey string, explicit []string) []string {
+// submit, so this runs ONCE per chain. The candidates the project does not admit are
+// returned too, so the caller can put them on the job (job.fallback_skipped).
+func resolveFallbackCandidates(cfg *config.Config, projectKey, agentKey string, explicit []string) ([]string, []fallbackSkip) {
 	if len(explicit) == 0 {
 		explicit = cfg.AgentFallbacksFor(projectKey, agentKey)
 	}
 	var out []string
+	var skipped []fallbackSkip
 	seen := map[string]bool{agentKey: true}
 	for _, cand := range explicit {
 		switch {
@@ -41,12 +62,13 @@ func resolveFallbackCandidates(cfg *config.Config, projectKey, agentKey string, 
 			slog.Warn("fallback candidate skipped (already in the chain)", "project", projectKey, "agent", agentKey, "candidate", cand)
 		case agent.CheckAllowed(cfg, projectKey, cand) != nil:
 			slog.Warn("fallback candidate skipped (not allowed in project)", "project", projectKey, "agent", agentKey, "candidate", cand)
+			skipped = append(skipped, fallbackSkip{Agent: cand, Reason: agent.CheckAllowed(cfg, projectKey, cand).Error()})
 		default:
 			seen[cand] = true
 			out = append(out, cand)
 		}
 	}
-	return out
+	return out, skipped
 }
 
 // failureDecision is the terminal-time verdict for a FAILED job (SUP-01 P3): how it
@@ -325,6 +347,7 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 			s.recordCeilingDenied(snap.ID, "fallback", err)
 		}
 		s.recordContinuationSkipped(snap.ID, "fallback", err)
+		s.recordFallbackSkipped(snap.ID, []fallbackSkip{{Agent: nextAgent, Reason: err.Error()}})
 		slog.Warn("fallback submit failed", "job_id", snap.ID, "agent", nextAgent, "err", err)
 		return false
 	}

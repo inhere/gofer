@@ -1611,6 +1611,15 @@ export function setPlanNotify(id: string, notify: 'on' | 'off'): Promise<Plan> {
   })
 }
 
+// plan 级完成时机（gofer-94yq）：merge 模式下 worktree todo 等交付合并后才完成。
+export function setPlanCompleteOn(id: string, completeOn: 'job' | 'merge'): Promise<Plan> {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ complete_on: completeOn }),
+  })
+}
+
 // plan 作用域事件流（LEAD-02 C2）：GET /v1/plans/{id}/events，**最新在前**（seq 降序）。
 // before 是翻页游标（只取 seq < before），limit 缺省 50、服务端上限 200。与 job 事件流
 // （listEvents：升序、SSE 增量跟随）方向相反——这里是只读翻页，不跟随。返回解包后的数组。

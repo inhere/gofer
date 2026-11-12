@@ -146,7 +146,7 @@ func TestACPToolCallContentRefreshReachesArtifactAndStderr(t *testing.T) {
 	h.recordToolCall(refresh)
 	h.recordToolCall(refresh) // identical refresh remains coalesced
 
-	event := toolCallEvent(refresh)
+	event := toolCallEvent(refresh, truncate)
 	resultDir := t.TempDir()
 	writer, err := openEventWriter(resultDir, false)
 	if err != nil {

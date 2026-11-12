@@ -30,6 +30,9 @@ func TestJobShowPrintsCheckContinuation(t *testing.T) {
 		case "/v1/jobs/job-chk/wakeups":
 			_, _ = w.Write([]byte(`{"wakeups":[]}`))
 			return
+		case "/v1/jobs/job-chk/events":
+			_, _ = w.Write([]byte(`{"events":[]}`))
+			return
 		case "/v1/jobs/job-chk/retries":
 			_, _ = w.Write([]byte(`{"job_id":"job-chk","retries":[]}`))
 			return

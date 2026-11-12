@@ -107,6 +107,11 @@ func newServer(b Backend, scoped string) *mcp.Server {
 	}, tailLogHandler(b))
 
 	addGoferTool(s, &mcp.Tool{
+		Name:        "gofer_get_job_transcript",
+		Description: "Read a long job's record turn by turn, paged: outline (default) lists every turn with a preview, turns=A-B / head / tail return full turn text, search finds a literal substring; at most one mode. A response marked truncated carries next; pass it back as cursor (turn:offset) to continue.",
+	}, jobTranscriptHandler(b))
+
+	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_cancel_job",
 		Description: "Request cancellation of a running job and return its current state.",
 	}, cancelJobHandler(b))
@@ -201,6 +206,10 @@ func newServer(b Backend, scoped string) *mcp.Server {
 		Name:        "gofer_set_plan_notify",
 		Description: "Turn a plan's end-notification switch on or off (on|off): with it on, every job the plan dispatches tells the plan's supervisor session that it ended, through the session messenger.",
 	}, setPlanNotifyHandler(b))
+	addGoferTool(s, &mcp.Tool{
+		Name:        "gofer_set_plan_complete_on",
+		Description: "Set when a plan's todos count as done (job|merge): job (default) = when the job finishes; merge = a worktree todo waits until its delivery lands (worktree merge or a merged delivery).",
+	}, setPlanCompleteOnHandler(b))
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_plans",
 		Description: "List plans, optionally requiring every tag and matching a title or id keyword.",
@@ -480,6 +489,8 @@ type planView struct {
 	// Notify (gofer-3db4) is the plan's end-notification switch: with it `on`, every job
 	// this plan dispatches tells the supervisor session that it ended. `off` by default.
 	Notify string `json:"notify,omitempty"`
+	// CompleteOn is when the plan's todos count as done: job (default) | merge.
+	CompleteOn string `json:"complete_on,omitempty"`
 	// SupervisorNote (gofer_create_plan only) says whether the plan was bound to the
 	// calling agent's own session, or why not.
 	SupervisorNote string `json:"supervisor_note,omitempty"`
@@ -643,6 +654,7 @@ func planHeaderView(p jobstore.Plan) planView {
 		Project:             p.ProjectKey,
 		SupervisorSessionID: p.SupervisorSessionID,
 		Notify:              p.Notify,
+		CompleteOn:          p.CompleteOn,
 		Paused:              p.Paused,
 		BlockedTodo:         p.BlockedTodo,
 		Tags:                p.Tags,
@@ -969,6 +981,8 @@ type createPlanToolInput struct {
 	// it on, every job the plan dispatches tells the supervisor session that it ended.
 	// Omitted/`off` is the default; `on` needs a bound supervisor session.
 	Notify string `json:"notify,omitempty"`
+	// CompleteOn picks when the plan's todos count as done: job (default) | merge.
+	CompleteOn string `json:"complete_on,omitempty"`
 }
 
 func createPlanHandler(b Backend) mcp.ToolHandlerFor[createPlanToolInput, planView] {
@@ -989,6 +1003,12 @@ func createPlanHandler(b Backend) mcp.ToolHandlerFor[createPlanToolInput, planVi
 			pv, err = b.SetPlanNotify(pv.PlanID, strings.TrimSpace(in.Notify))
 			if err != nil {
 				return nil, planView{}, fmt.Errorf("plan %s created but setting notify failed: %w", pv.PlanID, err)
+			}
+		}
+		if v := strings.TrimSpace(in.CompleteOn); v != "" {
+			pv, err = setPlanCompleteOn(b, pv.PlanID, v)
+			if err != nil {
+				return nil, planView{}, fmt.Errorf("plan %s created but setting complete_on failed: %w", pv.PlanID, err)
 			}
 		}
 		return nil, pv, nil

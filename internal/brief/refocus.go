@@ -171,7 +171,7 @@ func RenderRefocusIn(lang i18n.Lang, r Refocus, resumed bool, budget int) string
 			if m.Subject != "" {
 				line += briefText(lang, "brief.refocus.mail_subject", "subject", m.Subject)
 			}
-			line += fmt.Sprintf(" → gofer mail show %d", m.ID)
+			line += fmt.Sprintf(" → gofer session mail read %d", m.ID)
 			if !add(line) {
 				return b.String()
 			}

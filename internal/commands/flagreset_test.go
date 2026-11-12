@@ -53,6 +53,7 @@ func flagGlobals() map[string]any {
 		"jobRunOpts":            &jobRunOpts,
 		"jobSecretScanOpts":     &jobSecretScanOpts,
 		"jobSetOpts":            &jobSetOpts,
+		"jobTranscriptOpts":     &jobTranscriptOpts,
 		"jobWakeupOpts":         &jobWakeupOpts,
 		"jobWaitOpts":           &jobWaitOpts,
 		"jobWatchOpts":          &jobWatchOpts,

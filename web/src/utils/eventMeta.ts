@@ -60,6 +60,7 @@ export const EVENT_META: Record<string, { icon: LucideIcon }> = {
   'job.upload_failed': { icon: TriangleAlert },
   'job.files_collected': { icon: PackageCheck },
   'job.fell_back': { icon: CornerUpRight },
+  'job.fallback_skipped': { icon: TriangleAlert },
   'job.agent_substituted': { icon: CornerUpRight },
   'job.dir_wait_timeout': { icon: Timer },
   'job.env_allowed': { icon: Check },
@@ -100,6 +101,7 @@ export const EVENT_META: Record<string, { icon: LucideIcon }> = {
   // MCP-05 阶段 A（S4 补）：评论本身与它的三种派活结果。job / plan / todo 上的评论各自记在
   // 自己作用域的事件流里（plan / todo 走 plan:<id>），所以在 job 时间线看到的就是挂在
   // 这条 job 上的评论。
+  'todo.complete_failed': { icon: TriangleAlert },
   'comment.created': { icon: Pencil },
   'comment.triggered': { icon: ArrowRight },
   'comment.trigger_throttled': { icon: Timer },
@@ -189,6 +191,10 @@ export function eventDetailText(ev: JobEvent): string {
       if (d.estimated) parts.push(t('util.eventDet.estimated'))
       return parts.join(' · ')
     }
+    case 'job.fallback_skipped':
+      return [d.agent, d.reason].filter(Boolean).map(String).join(' · ')
+    case 'todo.complete_failed':
+      return [d.todo_id, d.error || d.reason].filter(Boolean).map(String).join(' · ')
     case 'job.delivered':
     case 'job.delivery_failed':
       return [d.mode, d.state, d.branch, d.pr_url, d.error || d.note].filter(Boolean).map(String).join(' · ')

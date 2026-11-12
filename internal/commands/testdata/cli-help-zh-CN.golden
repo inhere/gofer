@@ -342,6 +342,19 @@ job show	examples
 job show	flag config	path to the gofer config file
 job show	flag server	server address (overrides config server.addr)
 job show	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job transcript	desc	按回合查看长 job 的记录（默认概要；--turns / --head / --tail / --search）；--out 导出到本地文件
+job transcript	help	
+job transcript	examples	
+job transcript	flag config	path to the gofer config file
+job transcript	flag cursor	continue a truncated page: the <turn:offset> it printed
+job transcript	flag head	full text of the first N turns
+job transcript	flag out	write the whole result (all pages) to this local file instead of printing one page
+job transcript	flag outline	one line per turn with a preview (the default)
+job transcript	flag search	find turns containing this literal text (at most 200 characters)
+job transcript	flag server	server address (overrides config server.addr)
+job transcript	flag tail	full text of the last N turns
+job transcript	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+job transcript	flag turns	full text of turns A-B (or one turn A)
 job wait	desc	Wait until the given jobs are terminal (all of them, or any with --any)
 job wait	help	
 job wait	examples	
@@ -430,7 +443,7 @@ job worktree merge	flag config	path to the gofer config file
 job worktree merge	flag note	note for --todo-done (default: `<branch> 合入 <main short sha>`)
 job worktree merge	flag server	server address (overrides config server.addr)
 job worktree merge	flag squash	squash the selected branch into one commit
-job worktree merge	flag todo-done	after merging, mark the job's plan todo done (ignored, with a note, for a job without one)
+job worktree merge	flag todo-done	after merging, mark the job's plan todo done (ignored, with a note, for a job without one). Has no effect for a plan with complete_on=merge: merging always completes the todo there
 job worktree merge	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 job worktree rm	desc	Remove a job's managed worktree (refuses uncommitted changes without --force)
 job worktree rm	help	
@@ -532,6 +545,7 @@ plan comments	flag token	bearer token override (prefer config/env: GOFER_SERVER_
 plan create	desc	Create a plan
 plan create	help	
 plan create	examples	
+plan create	flag complete-on	when the plan's todos count as done: job (default, when the job finishes) | merge (a worktree todo waits until its delivery lands; `worktree merge` then completes it)
 plan create	flag config	path to the gofer config file
 plan create	flag desc	plan description
 plan create	flag leader	opt this plan into leader rounds (the global leader switch must also be on)
@@ -612,6 +626,7 @@ plan set	desc	Set a plan-level field (--leader on|off turns this plan's leader r
 plan set	help	
 plan set	examples	
 plan set	flag clear-supervisor-session	clear the existing supervisor session binding
+plan set	flag complete-on	when the plan's todos count as done: job (default, when the job finishes) | merge (a worktree todo waits until its delivery lands; `worktree merge` then completes it)
 plan set	flag config	path to the gofer config file
 plan set	flag leader	leader rounds for this plan: on | off
 plan set	flag notify	notify the plan's supervisor session when a job this plan dispatches ends: on | off (needs a bound supervisor session; each notice starts a messenger process)

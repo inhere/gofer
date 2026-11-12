@@ -35,7 +35,7 @@ import { t } from '../i18n'
 import {
   addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
   setPlanHandoff,
-  planResume, planRun, setPlanLeader, setPlanNotify, updatePlan, updateTodo, updateTodoStatus,
+  planResume, planRun, setPlanCompleteOn, setPlanLeader, setPlanNotify, updatePlan, updateTodo, updateTodoStatus,
 } from '../api/client'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { getAgentsCached } from '../api/metaCache'
@@ -192,6 +192,8 @@ const leaderError = ref('')
 const notifySaving = ref(false)
 const notifyWarnings = ref<string[]>([])
 const notifyError = ref('')
+const completeOnSaving = ref(false)
+const completeOnError = ref('')
 
 // plan 作用域事件流（LEAD-02 C2）：默认折叠，展开才拉第一页；「加载更多」用当前最小 seq 作
 // before 往前翻。plan 整刷（含轮询）时若面板是展开的，顺带重取第一页——不另起轮询。
@@ -952,6 +954,24 @@ async function onToggleNotify(ev: Event): Promise<void> {
   }
 }
 
+// 完成时机（gofer-94yq）：照 notify 的 PATCH 交互做，旧服务端缺字段按 job 展示。
+async function onCompleteOnChange(ev: Event): Promise<void> {
+  const input = ev.target as HTMLSelectElement
+  if (completeOnSaving.value || !plan.value) return
+  const next = input.value === 'merge' ? 'merge' : 'job'
+  completeOnSaving.value = true
+  completeOnError.value = ''
+  try {
+    const updated = await setPlanCompleteOn(props.id, next)
+    plan.value = { ...plan.value, ...updated }
+  } catch (err) {
+    completeOnError.value = err instanceof Error ? err.message : String(err)
+    input.value = plan.value.complete_on ?? 'job'
+  } finally {
+    completeOnSaving.value = false
+  }
+}
+
 // loadEvents(true) 拉第一页（最新在前）；false 用当前最小 seq 作 before 续一页。
 // 满页 = 可能还有更老的，不满页 = 到底了（服务端没有总数可问）。
 async function loadEvents(reset: boolean): Promise<void> {
@@ -1183,6 +1203,23 @@ onUnmounted(() => {
           <dt>{{ t('plans.detail.progressField') }}</dt>
           <dd>{{ plan.progress }}</dd>
         </div>
+        <div class="meta-row">
+          <dt>{{ t('plans.detail.completeOn') }}</dt>
+          <dd>
+            <select
+              class="op-input complete-on-select"
+              data-test="plan-complete-on"
+              :value="plan.complete_on ?? 'job'"
+              :disabled="completeOnSaving || !!planWriteBlock()"
+              :title="planWriteBlock() || undefined"
+              @change="onCompleteOnChange"
+            >
+              <option value="job">{{ t('plans.detail.completeOnJob') }}</option>
+              <option value="merge">{{ t('plans.detail.completeOnMerge') }}</option>
+            </select>
+          </dd>
+        </div>
+        <p v-if="completeOnError" class="error mono">{{ completeOnError }}</p>
         <div class="meta-row">
           <dt>{{ t('plans.detail.created') }}</dt>
           <dd>{{ fmtDateTime(plan.created_at) }}</dd>

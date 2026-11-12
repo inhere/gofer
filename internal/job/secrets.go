@@ -1,11 +1,11 @@
 package job
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/inhere/gofer/internal/config"
 )
@@ -76,8 +76,11 @@ func normalizeSecretNames(in []string) []string {
 // tail of each write that could be the start of a value split across two writes is
 // held back until the next write or Close.
 type secretMasker struct {
+	// mu serialises Write / Close: an ACP job's stderr is written both by the
+	// child-process copy goroutine and by the runner's own diagnostics.
+	mu       sync.Mutex
 	w        io.WriteCloser
-	values   [][]byte
+	strs     []string
 	keep     int // longest value - 1: the bytes that may still grow into a value
 	pending  []byte
 	closeErr error
@@ -93,24 +96,53 @@ func newSecretMasker(w io.WriteCloser, values []string) io.WriteCloser {
 		if v == "" {
 			continue
 		}
-		m.values = append(m.values, []byte(v))
+		m.strs = append(m.strs, v)
 		if len(v)-1 > m.keep {
 			m.keep = len(v) - 1
 		}
 	}
-	// Longest first, so a value that contains another is masked whole.
-	slices.SortFunc(m.values, func(a, b []byte) int { return len(b) - len(a) })
 	return m
 }
 
 func (m *secretMasker) mask(b []byte) []byte {
-	for _, v := range m.values {
-		b = bytes.ReplaceAll(b, v, []byte(secretMaskText))
+	return []byte(maskSecrets(string(b), m.strs))
+}
+
+// maskSecrets replaces every secret value in text with ***, longest value first so a
+// value that contains another is masked whole (the same rule as secretMasker, for
+// callers that hold a whole string: the per-turn transcript, acp.jsonl events). Empty
+// values are skipped; with no values text is returned as is.
+func maskSecrets(text string, values []string) string {
+	if text == "" || len(values) == 0 {
+		return text
 	}
-	return b
+	vs := make([]string, 0, len(values))
+	for _, v := range values {
+		if v != "" {
+			vs = append(vs, v)
+		}
+	}
+	slices.SortFunc(vs, func(a, b string) int { return len(b) - len(a) })
+	for _, v := range vs {
+		text = strings.ReplaceAll(text, v, secretMaskText)
+	}
+	return text
+}
+
+// secretMaskFunc returns maskSecrets bound to values, or nil when there is nothing
+// to mask (so callers can skip the work).
+func secretMaskFunc(values []string) func(string) string {
+	for _, v := range values {
+		if v != "" {
+			return func(text string) string { return maskSecrets(text, values) }
+		}
+	}
+	return nil
 }
 
 func (m *secretMasker) Write(p []byte) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	buf := m.mask(append(m.pending, p...))
 	cut := len(buf) - m.keep
 	if cut <= 0 {
@@ -127,6 +159,8 @@ func (m *secretMasker) Write(p []byte) (int, error) {
 // Close flushes what was held back and closes the underlying writer. A second
 // Close only repeats the first one's result.
 func (m *secretMasker) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.closed {
 		return m.closeErr
 	}

@@ -14,6 +14,7 @@ import {
   planResume,
   rejectJob,
   requestWorkReport,
+  updateTodoStatus,
   saySession,
   sendSessionMessage,
 } from '../api/client'
@@ -127,7 +128,11 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
 
 // actionLabel 是动作按钮上显示的文案：已知动作走 i18n（跟界面语言一致），未知的原样显示。
 export function actionLabel(a: Pick<TodayAction, 'id' | 'label'>): string {
-  const key = ACTION_LABEL_KEYS[`${a.id}:${a.label}`]
+  const key = a.id === 'todo_done'
+    ? 'today.action.todoDone'
+    : a.id === 'todo_skip'
+      ? 'today.action.todoSkip'
+      : ACTION_LABEL_KEYS[`${a.id}:${a.label}`]
   return key ? t(key) : a.label
 }
 
@@ -176,7 +181,9 @@ export function cardLink(card: TodayCard): string {
       return ENROLLMENTS_LINK
     case 'decision':
     case 'plan_blocked':
+    case 'todo_awaiting_merge':
       if (r.plan_id) return `/plans/${encodeURIComponent(r.plan_id)}`
+      if (r.job_id) return `/jobs/${encodeURIComponent(r.job_id)}`
       break
     case 'memory':
       if (r.tracker_id) {
@@ -191,6 +198,11 @@ export function cardLink(card: TodayCard): string {
 }
 
 // 卡片上「跳转类」操作的目标：diff 去 job；open 带站内路径 value（如收集箱）就用它；其余用卡片标题的目标。
+export function awaitingMergeLabel(subtype: string | undefined): string {
+  const known = ['awaiting_merge', 'pushed', 'delivery_failed', 'discarded', 'merged_unmarked']
+  return subtype && known.includes(subtype) ? t(`today.awaitingMerge.${subtype}`) : t('today.kind.todo_awaiting_merge')
+}
+
 export function actionLink(card: TodayCard, a: TodayAction): string {
   if (a.id === 'diff' && card.refs.job_id) return `/jobs/${encodeURIComponent(card.refs.job_id)}`
   if (a.id === 'open' && a.value && a.value.startsWith('/') && !a.value.startsWith('//')) return a.value
@@ -217,7 +229,7 @@ export function tomorrowNine(now = new Date()): number {
 }
 
 // 把一次卡片操作映射为现有写接口调用。返回的函数同步发起第一个请求（keepalive 包装依赖这一点）。
-export function runCardAction(card: TodayCard, a: TodayAction, text = ''): () => Promise<unknown> {
+export function runCardAction(card: Pick<TodayCard, 'kind' | 'refs'>, a: TodayAction, text = ''): () => Promise<unknown> {
   const r = card.refs
   switch (card.kind) {
     case 'interaction':
@@ -263,6 +275,10 @@ export function runCardAction(card: TodayCard, a: TodayAction, text = ''): () =>
     case 'merge':
       if (a.id === 'dismiss') return () => dismissMergeSuggestion(r.merge_id ?? 0)
       return () => acceptMergeSuggestion(r.merge_id ?? 0)
+    case 'todo_awaiting_merge':
+      if (a.id === 'todo_done') return () => updateTodoStatus(r.todo_id ?? '', 'done')
+      if (a.id === 'todo_skip') return () => updateTodoStatus(r.todo_id ?? '', 'skipped')
+      break
     case 'plan_blocked':
       return () => planResume(r.plan_id ?? '')
   }

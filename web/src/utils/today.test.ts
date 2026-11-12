@@ -22,6 +22,7 @@ vi.mock('../api/client', () => {
     planResume: rec('planResume'),
     rejectJob: rec('rejectJob'),
     requestWorkReport: rec('requestWorkReport'),
+    updateTodoStatus: rec('updateTodoStatus'),
     saySession: rec('saySession'),
     sendSessionMessage: rec('sendSessionMessage'),
   }
@@ -197,6 +198,13 @@ describe('today helpers', () => {
     expect(calls[0]).toMatch(/^patchWorkItem\("w",\{"status":"parked","park_until":\d+\}\)$/)
   })
 
+  it('marks awaiting-merge todos done or skipped through the todo API and opens their plan', async () => {
+    const c = card({ kind: 'todo_awaiting_merge', refs: { todo_id: 't1', plan_id: 'p1', job_id: 'j1' } })
+    await runCardAction(c, { id: 'todo_done', label: '标记完成' })()
+    await runCardAction(c, { id: 'todo_skip', label: '跳过' })()
+    expect(calls).toEqual(['updateTodoStatus("t1","done")', 'updateTodoStatus("t1","skipped")'])
+    expect(cardLink(c)).toBe('/plans/p1')
+  })
   it('no longer offers 交给管家 (punt only marked the interaction needs_human)', () => {
     expect(doneLabel({ id: 'ack', label: '已读' })).toBe('已标已读')
     calls.length = 0

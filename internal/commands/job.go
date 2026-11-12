@@ -432,6 +432,12 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobFindings,
 			},
 			{
+				Name:   "transcript",
+				Desc:   cliText("cli.job.desc.transcript"),
+				Config: configJobTranscript,
+				Func:   runJobTranscript,
+			},
+			{
 				Name: "comment",
 				Desc: "Comment on a job. A mention like @omp or @reviewer in a USER's comment dispatches a job for it; inside a job (GOFER_JOB_ID set) the comment is recorded as that agent's and dispatches nothing",
 				Config: func(c *gcli.Command) {
@@ -1199,7 +1205,7 @@ func newJobWorktreeCmd() *gcli.Command {
 					bindServerFlags(c)
 					c.BoolOpt(&jobWorktreeOpts.squash, "squash", "", false, "squash the selected branch into one commit")
 					c.BoolOpt(&jobWorktreeOpts.cleanupOthers, "cleanup-others", "", false, "after merging, force-remove the other fan worktrees (and branches) of the same workflow step")
-					c.BoolOpt(&jobWorktreeOpts.todoDone, "todo-done", "", false, "after merging, mark the job's plan todo done (ignored, with a note, for a job without one)")
+					c.BoolOpt(&jobWorktreeOpts.todoDone, "todo-done", "", false, "after merging, mark the job's plan todo done (ignored, with a note, for a job without one). Has no effect for a plan with complete_on=merge: merging always completes the todo there")
 					c.StrOpt(&jobWorktreeOpts.note, "note", "", "", cliText("cli.job.flag.worktree_note"))
 					c.StrOpt(&jobWorktreeOpts.comment, "comment", "", "", "after merging, record this comment on the job")
 					c.BoolOpt(&jobWorktreeOpts.cleanup, "cleanup", "", false, "after merging, unlink the dependency links, remove the worktree and delete the merged branch")
@@ -3016,6 +3022,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if res.BaseSHA != "" {
 		c.Printf("base_sha:   %s\n", res.BaseSHA)
 	}
+	printJobFallbackSkipped(c, cli, res.ID)
 	if len(res.Commits) > 0 {
 		c.Printf("commits:    %d\n", len(res.Commits))
 		for _, cm := range res.Commits {
@@ -3069,6 +3076,9 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	}
 	if res.Error != "" {
 		c.Printf("error:      %s\n", res.Error)
+	}
+	if hint := turnHint(res); hint != "" {
+		c.Println(hint)
 	}
 	return nil
 }
@@ -3283,6 +3293,7 @@ func runJobLogs(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Print(out)
+	printTurnHintForLogs(cli, id)
 	return nil
 }
 

@@ -32,6 +32,10 @@ const (
 	// awaiting_approval): approve it (it then runs) or reject it (cancelled, never run).
 	KindApproval    = "approval"
 	KindPlanBlocked = "plan_blocked"
+	// KindTodoAwaitingMerge is a todo of a complete_on=merge plan whose job ended done
+	// but whose deliverable has not landed: a person merges (or closes) it. The card's
+	// Subtype says why (see AwaitingMerge*).
+	KindTodoAwaitingMerge = "todo_awaiting_merge"
 	// KindMailHeld is the single summary card for letters nobody could receive (the gofer
 	// mailbox, plan M7): they wait as held until somebody readdresses or cancels them.
 	KindMailHeld = "mail_held"

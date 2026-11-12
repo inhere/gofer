@@ -445,24 +445,32 @@ func todoContinueGone(t *testing.T) (*Service, string) {
 	return s, root
 }
 
-// Unbound plan: the refusal is a dispatch failure recorded on the todo.
-func TestContinuationTodoDispatchRefusedUnbound(t *testing.T) {
+// gofer-juo0: the todo-continuation decision (condition 6) judges the predecessor's
+// worktree with the same worktreeUsable the continuation guard uses, so a leftover
+// directory is no longer "present": the item is not continued — it falls back to the
+// ordinary dispatch (a fresh job, the reason on the todo) instead of being refused at
+// submit time by the guard.
+func TestContinuationTodoGoneWorktreeFallsBackToOrdinaryDispatch(t *testing.T) {
 	s, _ := todoContinueGone(t)
 	d, err := s.DispatchTodo(contSucc, "")
 	if err != nil {
 		t.Fatalf("DispatchTodo: %v", err)
 	}
-	if d.Job != nil || !strings.Contains(d.Reason, reasonWorktreeGone) {
-		t.Fatalf("dispatch = job %v reason %q, want no job and a worktree_gone reason", d.Job, d.Reason)
+	if d.Job == nil {
+		t.Fatalf("dispatch = no job (reason %q), want the ordinary job", d.Reason)
 	}
-	if td := getTodo(t, s, contSucc); !strings.Contains(td.DispatchError, reasonWorktreeGone) {
-		t.Fatalf("todo dispatch_error = %q", td.DispatchError)
+	if d.Job.ResumedFrom != "" || d.Job.SessionID != "" {
+		t.Fatalf("job = resumed_from %q session %q, want a fresh (non-continuation) job", d.Job.ResumedFrom, d.Job.SessionID)
 	}
+	if td := getTodo(t, s, contSucc); td.DispatchError != "" || !strings.Contains(td.ContinueNote, "worktree") {
+		t.Fatalf("todo = dispatch_error %q continue_note %q, want no error and the worktree reason noted", td.DispatchError, td.ContinueNote)
+	}
+	s.Wait(d.Job.ID)
 }
 
-// Plan bound to a supervising session: an explicit dispatch returns the error (the
-// HTTP layer maps it to 409) and starts no job.
-func TestContinuationTodoDispatchRefusedBound(t *testing.T) {
+// The same predecessor with a plan bound to a supervising session: the explicit dispatch
+// also runs the ordinary job (no 409 — the continuation was never attempted).
+func TestContinuationTodoGoneWorktreeBoundPlanDispatchesOrdinary(t *testing.T) {
 	s, root := newContinueService(t)
 	if _, err := s.Meta().UpsertAgentSession(jobstore.AgentSession{
 		SessionID: "sup-1", Agent: "suag", ProjectKey: "self", Runner: "local", Cwd: root, CallerID: "caller-a",
@@ -485,14 +493,14 @@ func TestContinuationTodoDispatchRefusedBound(t *testing.T) {
 		j.WorktreePath = root
 		j.WorktreeBranch = "gofer/j-pred"
 	})
-	_, err := s.DispatchTodo(contSucc, "caller-a")
-	if !errors.Is(err, ErrContinuationWorktreeGone) {
-		t.Fatalf("DispatchTodo error = %v, want ErrContinuationWorktreeGone", err)
+	d, err := s.DispatchTodo(contSucc, "caller-a")
+	if err != nil {
+		t.Fatalf("DispatchTodo error = %v, want the ordinary dispatch", err)
 	}
-	jobs, _ := s.ListJobs(ListOpts{Project: "self"})
-	if len(jobs) != 1 {
-		t.Fatalf("jobs = %d, want only the predecessor", len(jobs))
+	if d.Job == nil || d.Job.ResumedFrom != "" {
+		t.Fatalf("dispatch = %+v, want a fresh job", d)
 	}
+	s.Wait(d.Job.ID)
 }
 
 // mergeFixture is a finished --worktree job with one commit on its branch.

@@ -146,6 +146,7 @@ func TestTodoContinuationFieldClassification(t *testing.T) {
 		td.Model = "m-succ"
 	})
 	// The predecessor holds a value in everything the continuation must not inherit.
+	contGitCheckout(t, root, "gofer/j-pred") // a usable worktree (condition 6 asks git, like the guard)
 	seedContJob(t, s, "j-pred", contPred, "sess-p", StatusDone, 100, func(j *JobResult) {
 		j.WorktreePath = root
 		j.WorktreeBranch = "gofer/j-pred"

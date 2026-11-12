@@ -174,6 +174,13 @@ func (s *Service) RebuildJob(jobID string, ov RebuildOverrides, callerID, client
 	// which may name a session that is gone by now. The re-submit degrades instead of
 	// refusing: the rerun is gofer re-running its own work, not a caller naming a target.
 	base.NotifyDegradable = true
+	// A rerun of a continuation / takeover (a job that carried on another job's worktree)
+	// carries on the same worktree again: the stored request keeps only the relative cwd,
+	// so without this the rerun landed in whatever directory the cleaned-up worktree left
+	// behind. A worktree that is gone is refused here like any other continuation (409).
+	if src.ResumedFrom != "" || src.FellBackFrom != "" {
+		base.WorktreeFrom = worktreeFromID(src)
+	}
 	return s.Submit(base)
 }
 

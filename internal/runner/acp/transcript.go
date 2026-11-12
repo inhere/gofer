@@ -137,7 +137,7 @@ func promptEvent(text string) map[string]any {
 	return event
 }
 
-func toolCallEvent(tc *acpproto.ToolCall) map[string]any {
+func toolCallEvent(tc *acpproto.ToolCall, clip func(string) string) map[string]any {
 	event := map[string]any{"t": "tool_call", "tool_call_id": tc.ToolCallID}
 	if tc.Title != "" {
 		event["title"] = tc.Title
@@ -160,10 +160,10 @@ func toolCallEvent(tc *acpproto.ToolCall) map[string]any {
 		event["locations"] = append([]acpproto.ToolCallLocation(nil), tc.Locations...)
 	}
 	if len(tc.RawInput) > 0 {
-		event["raw_input"] = truncate(string(tc.RawInput))
+		event["raw_input"] = clip(string(tc.RawInput))
 	}
 	if len(tc.RawOutput) > 0 {
-		event["raw_output"] = truncate(string(tc.RawOutput))
+		event["raw_output"] = clip(string(tc.RawOutput))
 	}
 	return event
 }
@@ -196,8 +196,25 @@ func truncate(text string) string {
 // serialised because notification handling and permission answers use different
 // goroutines.
 type eventWriter struct {
-	mu sync.Mutex
-	f  *os.File
+	mu   sync.Mutex
+	f    *os.File
+	mask func(string) string // job secret mask (Request.Mask); nil = none
+}
+
+// clip shortens text for a record field (truncate), masking the job's secrets FIRST: a
+// secret straddling the cut would otherwise leave its prefix in the kept part. Nil-safe.
+func (w *eventWriter) clip(text string) string {
+	if w != nil && w.mask != nil {
+		text = w.mask(text)
+	}
+	return truncate(text)
+}
+
+// setMask installs the secret mask applied to every event's strings before encoding.
+func (w *eventWriter) setMask(mask func(string) string) {
+	if w != nil {
+		w.mask = mask
+	}
 }
 
 func openEventWriter(resultDir string, appendExisting bool) (*eventWriter, error) {
@@ -222,6 +239,9 @@ func openEventWriter(resultDir string, appendExisting bool) (*eventWriter, error
 func (w *eventWriter) write(event map[string]any) {
 	if w == nil || w.f == nil {
 		return
+	}
+	if w.mask != nil {
+		event = maskEvent(event, w.mask)
 	}
 	b, err := json.Marshal(event)
 	if err != nil {
