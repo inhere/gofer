@@ -9,6 +9,7 @@
 - [todo 的派发字段](#todo-的派发字段)
 - [范式一：todo 指派即派发](#范式一todo-指派即派发)
 - [范式二：todo 依赖链 + plan run](#范式二todo-依赖链--plan-run)
+- [完成时机：todo 何时算完成（--complete-on）](#完成时机todo-何时算完成--complete-on)
 - [方案规则与 plan import](#方案规则与-plan-import)
 - [决策点问人（gofer_ask_human）](#决策点问人gofer_ask_human)
 - [主 Agent 会话与 job 来源会话](#主-agent-会话与-job-来源会话)
@@ -26,7 +27,7 @@
 
 ```bash
 gofer plan create --title "<标题>" [--desc "目标 / 范围 / 验收"] [--project <p>] [--tags x,y] \
-    [--supervisor-session-id <sid> | --no-supervisor]
+    [--supervisor-session-id <sid> | --no-supervisor] [--complete-on job|merge]
 gofer plan list / show <id> / archive <id>
 gofer plan add-todo <plan> "T1 …" [--note "…"] [派发字段...]     # 建出来是 pending（add-todo 没有 --status）
 gofer plan set-todo <todo> --status pending|ready|doing|done|skipped [--note "结论"] [--append-note "追加一行"]
@@ -37,7 +38,7 @@ gofer plan brief <plan> [--json] [--max-lines N]      # 接手包
 gofer plan comment <plan> "…" [--todo <todo>] / comments <plan>
 ```
 
-- `plan show` 在每个 todo 下列出挂接的 job（状态 / agent / 用时）、assignee 与派发错误，头部有用量汇总。
+- `plan show` 在每个 todo 下列出挂接的 job（状态 / agent / 用时）、assignee 与派发错误，头部有用量汇总，并打出 `complete_on:`（见下文「完成时机」）。`plan set <plan> --complete-on merge|job` 随时改这一项（默认 `job`）。
 - `set-todo --status doing` 记开始时间，`done` / `skipped` 记完结时间；裸调用 = done，`--undone` = pending；`--note` 写**结果 / 验收一句话**，过程在 job logs。
 - todo 状态：`pending`（不会自动派发）→ `ready`（可派发）→ `doing` → `done` / `skipped`。server 重启**不补派** ready 的项（派发只发生在写入时）。
 - plan 状态：`open` / `blocked`（链停在某一项等人处理，非终态）/ `done`（全部 done|skipped 自动置）/ `archived`；另有暂停开关 `plan pause` / `plan resume`。
@@ -143,7 +144,7 @@ gofer plan pause <plan>                        # 临时挂住整条链（在跑�
 
 **不满足时**：除 worktree 失效这一安全拒绝外，不报错，照常在新会话里派发本项，并在 todo 上写 `continue_note`（「未接续：原因」，`plan show` 与 web 都能看到），同时记 `job.continue_fallback` 事件。前序留有未合并的 worktree 分支时，本项的新 worktree 基于该分支，`continue_note` 会说明。
 
-**前序 worktree 已失效时**：这是硬拒绝，不会回落到主 checkout，也不会创建新会话。失效包括 worktree 已清理、目录残留但不再是 git checkout、分支已删除，或续接目录不在该 worktree 内。plan 绑定监督会话时，显式派发返回 HTTP `409`；未绑定监督会话时，派发失败但 HTTP 仍返回 `200`，结果为 `dispatched=false` 并带有原因。
+**前序 worktree 已失效时**：这是硬拒绝，不会回落到主 checkout，也不会创建新会话。失效包括 worktree 已清理、目录残留但不再是 git checkout、分支已删除，或续接目录不在该 worktree 内。plan 绑定监督会话时，显式派发返回 HTTP `409`；未绑定监督会话时，派发失败但 HTTP 仍返回 `200`，结果为 `dispatched=false` 并带有原因。`job rerun` 一个续跑 / 故障转移出来的 job 走同一处判定，worktree 失效同样返回 `409`。
 
 **续接的 job 拿到什么**：prompt 是一行承接说明加本项自己的任务书、验收标准、交付约定和时限行；规则、prime、工具段不再重复注入（前序会话里已有）。cli agent 走会话恢复命令，ACP agent 一次性加载会话、跑完这一轮即结束。续接 job 的结果、待验收、失败与自动续投都和普通 job 一样挂在本项上；agent 侧拒绝续接（如会话已被清理）时 job 失败并带原因，可 `--no-continue` 后重新派发。
 
@@ -152,6 +153,56 @@ gofer plan pause <plan>                        # 临时挂住整条链（在跑�
 **事件**：`job.continued` / `job.continue_fallback`，字段见上面「可订阅事件」。
 
 **局限**：同一个前序项不能有并行的后继；只用于 plan 里的 todo，不适用于 worker 上的任务；一个会话跨多项时上下文会变长，所以有链长上限。
+
+**与 `complete_on=merge` 的 plan 一起用**：这种 plan 的后项要等前项交付落地（合并）后才派发，那时前项分支已经进主线，本项从前项会话接续时不能再「基于前项分支」开工；要接续就别在合并时带 `--cleanup`——它会删掉 worktree 和分支，接续随即因 worktree 失效被拒（见下一节）。
+
+## 完成时机：todo 何时算完成（--complete-on）
+
+plan 级字段 `complete_on` 决定一个 todo 绑定的 job 成功结束后，这一项算不算完成、后续项要不要立刻派发：
+
+| 取值 | 含义 |
+|---|---|
+| `job`（默认） | job 成功即完成该 todo，链照常往下走（一直以来的行为） |
+| `merge` | `--worktree` 交付的 todo 等交付真正落地（合并）后才完成，后续 todo 这时才派发 |
+
+```bash
+gofer plan create --title "<标题>" --project <p> --complete-on merge   # 建时就定
+gofer plan set <plan> --complete-on merge|job                        # 改一个已有 plan
+gofer plan show <plan> | head -3                                    # 看当前的 complete_on
+```
+
+`merge` 下逐种 job 形态怎么判（都按 job 行的结构化事实，不读 note）：
+
+| job 形态 | todo | 后续项 |
+|---|---|---|
+| 没有 worktree（含 `ref:` 临时检出） | 完成 | 派发 |
+| 本机 worktree、没有领先提交 | 完成，note 写「无改动」 | 派发 |
+| 本机 worktree、交付方式 `none`（缺省：等人合并） | 保持 `doing`，note 写「已完成，待合并：分支 <分支>（job <id>）」 | 合并后才派发 |
+| 本机 worktree、交付方式 `merge` | 交付结果为 `merged` 时完成；冲突 / 失败 / 仍在待定则保持 `doing` 并记原因 | 交付落地时 |
+| 本机 worktree、交付 `push` / `pr` | 保持 `doing`，note 写「已推送 / PR 已开，待合并」 | 等人合并后收尾（gofer 不跟 PR） |
+| 远程 worker 上的 worktree job | job 结束即完成，note 注明「远程 job，合并不经 gofer」 | 派发 |
+
+两种模式共同的修正：job 正在被自动续跑（未提交改动守卫判定要续跑，或行上已经挂了续跑 job）时**不完成**、不推进，由续跑那次结束时再判一次，所以链不会在续跑还没跑完时就往前派。
+
+- **合并即完成**：`merge` 模式下 `gofer job worktree merge <job-id>` 合并成功就完成该 todo（`--todo-done` 在这里不起作用，不看它）；`job` 模式仍然只有带 `--todo-done` 才顺手标完成（见 [job-advanced.md](job-advanced.md)「并行」）。
+- **丢弃**：`gofer job worktree rm <job-id>` 删掉一个 merge 模式下待合并的 worktree 时，todo 保持 `doing`，note 记「worktree 已丢弃，未合并」，「待你收尾」卡片提示手动标记完成或跳过。
+- **自动续跑 / 验收**：`needs_review` 的项在 accept 时才判定；reject 与重跑同样走这一处判定，判定入口只有一个。
+- web：计划详情元信息行「完成时机」下拉（job 结束 / 交付合并），计划总览每行带「完成：job 结束 / 完成：交付合并」标记。
+- MCP：`gofer_create_plan` 的 `complete_on` 与 `gofer_set_plan_complete_on`（`job` / `merge`）。HTTP 字段与错误码见 `docs/reference/http-api.md`。
+
+### 待你收尾（今天页 / 收件箱）
+
+`merge` 模式的 plan 里，job 已 `done`、这一项还是 `doing`、也没有正在跑的后续 job 时，「等我」列表出现一张「待你收尾」卡（收件箱「要处理」栏里的类别 `awaiting_merge`，排在「待你验收」之后、「计划卡住」之前）。卡片按 job 行的交付状态分子类型：
+
+| 子类型 | 什么时候 | 主操作 |
+|---|---|---|
+| 待合并 | 分支还没合并 | 打开（去计划页 / `worktree merge`） |
+| 已推送 | 交付 `push` / `pr` 已经推出去 | 打开 |
+| 交付失败 | 交付结果为 `failed` | 打开 |
+| 已丢弃 | worktree 已删掉且没合并 | 跳过 / 标记完成 / 打开 |
+| 已合并，待标记完成 | 分支合进去了，但这一项没能写成功（job 上有 `todo.complete_failed` 事件） | 标记完成 / 打开 |
+
+卡片只读库里的事实（不跑 git、不读 todo 备注），所以合并 / 丢弃 / 标记完成后它自己消失；处理完一项，plan 才会派发下一项。
 
 ## 方案规则与 plan import
 
