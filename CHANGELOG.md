@@ -11,11 +11,26 @@
 
 ## [未发布]
 
+### 新增
+
+- plan 新增完成时机 `complete_on`：`job`（默认，job 成功即完成对应的待办）或 `merge`（`--worktree` 交付的待办等交付真正落地才完成，后续待办此时才派发）。入口：`gofer plan create|set --complete-on`、`gofer plan show` 的 `complete_on:`、web 计划详情的「完成时机」、HTTP 计划创建与 `PATCH`、MCP `gofer_create_plan` / `gofer_set_plan_complete_on`。
+- 「等我」与收件箱新增「待你收尾」：完成时机为合并的 plan 里，job 已结束而交付还没落地时出卡，按待合并 / 已推送 / 交付失败 / 已丢弃 / 已合并待标记完成分状态，可直接标记完成或跳过；收件箱「要处理」栏的新类别排在「待你验收」之后、「计划卡住」之前，默认归「要处理」。
+- `gofer job transcript <id>`：按回合查看长 job 的记录（默认概要、`--turns A-B` 全文、`--head` / `--tail N`、`--search` 字面搜索、`--cursor` 翻页、`--out` 导出到本地文件），多回合 job 不再只剩最后一轮回复。来源：claude / suga 执行时写的逐回合记录、ACP job 的结构化记录（含远程 worker 上的 ACP job），其他 agent 回退为整份 stdout。接口 `GET /v1/jobs/{id}/transcript`，MCP `gofer_get_job_transcript`；多回合 job 的 `job show` / `job logs` 末尾提回合数（`GET /v1/jobs/{id}` 新增 `turn_count`，列表不带）。
+
 ### 变更
 
 - 续跑（包括自动续跑、待办接续、故障转移与重试）在 worktree 已失效时被拒绝，不再回落到主 checkout。
 - worktree 上有 job 在使用时，`worktree merge` 返回 409；清理期间若有 job 开始使用该 worktree，合并照常成功但跳过清理，并给出警告。
 - 故障转移出的 job 继承源 job 的 worktree。
+- `job rerun` 一个续跑 / 故障转移出来的 job 时，会继续用它那份 worktree；worktree 已失效（已清理、分支已删、目录不再是 git checkout）时返回 409，不再落到残留目录或主 checkout 里跑。
+- `POST /v1/jobs` 缺 `runner` 时先报 400 `runner is required`，再判调用方上限 / 权限（此前带上限的调用方会得到 403）。
+- 故障转移时被跳过的候选 agent 记一条 `job.fallback_skipped` 事件（候选 agent + 原因），`job show` 能看到为什么没换成它，不再只剩一行 server 日志。
+- 完成时机为合并的 plan 里，`worktree merge` 成功即完成该待办（`--todo-done` 不起作用）；丢弃 worktree 时待办保持进行中并注明「未合并」。两种完成时机下，job 正在续跑时都不再提前完成待办。
+- 续跑类提示（自动续投、未提交改动续投、待办接续）与故障转移的前缀提示新增一句：先核对远端与外部状态（已推送的分支、已开的 PR、已发出的消息），不重复已完成的外部动作。
+
+### 修复
+
+- ACP job 的结构化记录 `artifacts/acp.jsonl` 写入时按该 job 授予的 secret 值掩码（truncate 前脱敏），记录与 web「消息」页不再出现明文 secret。修复前已写下的旧记录不回写，读取时只做模式脱敏。
 
 ## [0.213.0] - 2026-11-10
 
