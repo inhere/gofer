@@ -24,6 +24,7 @@
 - [提交与 diff 采集](#提交与-diff-采集)
 - [工具调用审批（pending_interaction）](#工具调用审批pending_interaction)
 - [日志：stdout / stderr 的分工](#日志stdout--stderr-的分工)
+- [按回合读长 job 的记录（job transcript）](#按回合读长-job-的记录job-transcript)
 - [规则、skill 与角色](#规则skill-与角色)
 - [脱敏、秘密扫描与删除](#脱敏秘密扫描与删除)
 - [派活给主机 agent 的注意事项](#派活给主机-agent-的注意事项)
@@ -122,8 +123,8 @@ gofer job resume <源 job-id> \
 - `--lock <子目录>` 覆盖继承的目录锁：续接默认照抄源 job 的 `lock_paths`（没有就是锁整个 cwd），而持续会话一旦落在项目根就**锁住整个项目根**，别的子目录 job 只能排队等锁（表现为新建 job 停在 `waiting_dir`）。只想动某个子模块时 `gofer job resume <id> --lock gookit/ini` 把锁换到那个子目录（可重复）；声明锁也会同时要求独占（源 job 是 `--shared-dir` 时同样生效）。cwd 不能改：ACP 的 `session/load` 必须在同一 cwd 加载会话，要换目录请新开 job。
 - 结束通知默认**继承**：源 job 用 `--notify` / `plan create --notify` 开了通知时，续跑结束也通知**同一个会话**（续跑的 request 没有源会话可依靠，所以目标会话被显式带过来）；不想被通知加 `--no-notify`。
 - 命中瞬时错误时 gofer 会自动续跑一次（`auto_resume_max`）。哪些错误算瞬时、哪些 agent 默认带内置模式（claude / codex / omp / suga），见 [server-config.md](server-config.md#故障转移与健康度)。 agent 自带 `error_kind` 时以它为准：只有 `provider_transient` 续投，额度 / 被拒 / 非法响应与未知取值都不续投（额度类错误会在 job 错误里写出重置时间）。
-- 续接类提示语（自动续投、上一轮有未提交改动时的续投、plan 单项接着上一项会话的衔接语）按**该 job 的语言**输出：`projects.<key>.language` → `server.language`，以源 job 提交时固定的语言为准（见 [server-config.md](server-config.md)）。自己写 `--prompt` 时用什么语言随意，那是你的文本。
-- `job rerun <id>` = 原请求重提，**新会话**，agent 重读全部上下文。
+- 续接类提示语（自动续投、上一轮有未提交改动时的续投、plan 单项接着上一项会话的衔接语）按**该 job 的语言**输出：`projects.<key>.language` → `server.language`，以源 job 提交时固定的语言为准（见 [server-config.md](server-config.md)）。它们都带上一条要求：先核对远端与外部状态（已推送的分支、已开的 PR、已发出的消息），不重复已完成的外部动作。自己写 `--prompt` 时用什么语言随意，那是你的文本。
+- `job rerun <id>` = 原请求重提，**新会话**，agent 重读全部上下文。若源 job 本身是续跑 / 故障转移出来的 job，rerun 会继续用它那份 worktree；worktree 已失效（已清理、分支已删、目录不再是 git checkout）时直接返回 `409`，不会落回主 checkout，也不会落到一个随便的目录里跑。
 
 ## 继承旧会话开新会话（--from-session）
 
@@ -315,7 +316,7 @@ gofer job accept <job-id> --no-deliver                                         #
 ## 停滞看门狗、故障转移与重试
 
 - **停滞**：非交互 job 若 N 秒内 stdout / stderr 都没有新输出，判停滞、杀进程、`failed: stalled: no output for Ns`；该错误按瞬时错误处理，自动续投 / 故障转移会接管。N = `--stall-timeout` > agent `stall_timeout_sec` > server `stall_timeout_sec`（默认 900）。exec job 默认不判停滞，交互 job 恒不判；等人作答与 verify 期间不计时。`--no-stall` 关掉。
-- **故障转移**：agent 因供应商错误（rate limit、at capacity、429、stream disconnected 等）挂掉、自己也续不了时，server 用候选 agent 以原请求重提一个新 job（同一 cwd，prompt 前加「上一次由 X 执行、只做剩余部分」，标题加 `(→omp)`），继承 plan / tags / review / verify 等。候选来源 `--fallback a,b` > 项目 `agent_fallbacks` > agent `fallback_agents`，提交时冻结；`--no-fallback` 关掉。配置见 [server-config.md](server-config.md)「故障转移与健康度」。
+- **故障转移**：agent 因供应商错误（rate limit、at capacity、429、stream disconnected 等）挂掉、自己也续不了时，server 用候选 agent 以原请求重提一个新 job（同一 cwd，prompt 前加「上一次由 X 执行、只做剩余部分」，标题加 `(→omp)`），继承 plan / tags / review / verify 等。候选来源 `--fallback a,b` > 项目 `agent_fallbacks` > agent `fallback_agents`，提交时冻结；`--no-fallback` 关掉。配置见 [server-config.md](server-config.md)「故障转移与健康度」。候选被跳过（项目不允许该 agent、或轮到时重提被拒）不再只剩一行 server 日志：job 上记 `job.fallback_skipped` 事件（`agent` + `reason`），`job show` 的事件里能看到为什么没换成它。
 - **重试**：`--retry <n>[:<退避秒列表>]` 失败后按退避重跑（n 含首次），`--retry-on <退出码>` 限定只在这些退出码时重跑，`--no-retry` 关掉。`gofer job retry ls <id>` 看重试链、`job retry cancel` 取消某次待重试。
 - 故障转移出的 job 继承源 job 的 worktree。worktree 失效时不转移、不重试；若 job 在开跑前复查发现 worktree 已失效，会以失败类 `worktree-gone` 结束，不会被续跑、转移或重试。
 
@@ -370,9 +371,31 @@ gofer job answer <id> <interaction-id> <optionId>   # 作答（web 交互面板 
 - `gofer job logs <id>` 读 stdout / stderr；交互 job 读 `pty.txt`。
 - 配了 `output_format: ndjson` 的 agent（claude stream-json、omp json 等）：**stdout = 最终答复，stderr = 过程事件**（逐 token 增量在采集时丢弃，单行事件过长会截断）。`job show` 的 `ndjson_kept` / `ndjson_dropped` / `ndjson_truncated` 是保留 / 丢弃 / 截断行数；agent 定义开 `ndjson_raw: true` 才另存未过滤的 `stdout.raw.log`。
 - 看不到输出时先分清「agent 没输出」还是「被过滤了」：开 `ndjson_raw` 重跑一次对照。
-- acp-agent：`stdout.log` 是 agent 文本，`stderr.log` 是紧凑事件行，`artifacts/acp.jsonl` 是完整结构化记录。
+- acp-agent：`stdout.log` 是 agent 文本，`stderr.log` 是紧凑事件行，`artifacts/acp.jsonl` 是完整结构化记录（按授予的 `--secret` 值掩码后写入；修复前写下的旧记录没有这层掩码，读取时只做模式脱敏）。
 - `job show` 还打出 dir（独占 / 共享、等锁时的持有者）、todo、`base_sha`、commits、verify、usage（用量与成本）、xfer 计数。
 - 时间按服务端本地时区渲染并带偏移。
+- 多回合的 job（多轮 `say` 的持续会话、ACP job）只看 logs 会丢掉前面的回合：`job show` / `job logs` 末尾会多一行「共 N 回合」，用 `job transcript` 逐回合读（下一节）；`job logs` 的这行打在 stderr，不影响脚本读 stdout。
+
+## 按回合读长 job 的记录（job transcript）
+
+一个 job 可能有很多回合：持续会话里每轮 `say`、ACP job 的每次 prompt。stdout 只留最后一轮回复，所以要回看某几轮或找一句话时用 `job transcript`：
+
+```bash
+gofer job transcript <id>                       # 概要：每回合一行（回合号、角色、字数、工具、用量、错误、开头预览）；默认就是它
+gofer job transcript <id> --turns 2-3           # 第 2–3 回合全文（--turns 2 = 只第 2 回合）
+gofer job transcript <id> --head 2 | --tail 2   # 头 / 尾 N 回合全文
+gofer job transcript <id> --search "<关键词>"   # 哪些回合包含这个词，及其前后片段
+gofer job transcript <id> --out notes.md        # 自动翻页，把全部结果写成客户端本地文件（server 不写文件）
+```
+
+- **一次只取一个模式**：`--outline` / `--turns` / `--head` / `--tail` / `--search` 互斥（都不给 = 概要）；`--search` 是字面子串（不分词、不调外部命令），最长 200 字符。参数不合法一律 `400`。
+- **分页**：一次响应最多 64KB 正文。被截断时命令末尾打印 `-- more: --cursor <回合:偏移>`，带这个 `--cursor` 再请一次就从断点接着取——一个很大的回合也能分几次取完。`--out` 自己跟着游标翻到底。
+- **数据来源**（按顺序取到哪个用哪个）：
+  - claude / suga 这类 stream-json agent：执行时就写好的逐回合记录（每回合正文有上限，超出标 truncated）；正文写入前已按该 job 授予的 secret 值掩码。
+  - ACP job（含跑在远程 worker 上的 ACP job）：该 job 的结构化事件记录 `artifacts/acp.jsonl`，按 prompt 切成回合，带工具计数。
+  - 其他 agent（codex exec 等纯文本日志）：没有回合概念，整份 stdout 当一个回合返回。
+- 权限与读日志相同（别人的 job 需要相应的读权限）；接口只读。HTTP `GET /v1/jobs/{id}/transcript`（参数与游标同上），MCP `gofer_get_job_transcript`。
+- 远程非 ACP job 目前只回传 stdout / stderr 到 server，所以它的转录就是那份 stdout（一个回合）。`job show` / `job logs` 里的回合数是同一套判定。
 
 ## 规则、skill 与角色
 
