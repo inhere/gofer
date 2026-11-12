@@ -152,3 +152,20 @@
 ## 结论与人工计划 Gate
 
 只在 `complete_on=merge` 的 plan 把 todo 完成点移到交付落地，并补「待你收尾」可见性；所有 plan 修正续跑进行中提前完成的问题。执行时按回合写记录，统一经 `job transcript` 分页读取，多回合 job 不再丢前几轮回复。等用户答复 Q1–Q6 并批准后写计划。
+
+## 实施记录（2026-11-12）
+
+计划：`docs/plans/2026-11-11-todo-completion-and-job-transcript-plan.md`（Draft 0.3）。两条子 agent 链（§1、§2）各一个 worktree 并行，§3 / §4 小修复随 §1 链，提示语、Web 与文档由 suga 实施，合并到 `feat/b1` 后整体合入 main。
+
+对设计的偏离（计划人工 Gate 已批准）：
+- ACP 回合不另写 `turns.jsonl`，复用 `artifacts/acp.jsonl`，读取逻辑在 `internal/streaming`（`JobTranscript`）。
+- `acp.jsonl` 写入时对授予的 secret 值打掩码（先掩码后截断）；历史 ACP 记录不回写。
+- 计划外的小调整：残留目录的旧 worktree 回落到普通派发；新增 MCP 工具 `gofer_set_plan_complete_on`；`job logs` 的回合提示写到 stderr；符号链接越界返回 403。
+
+已知边界：
+- `acp.jsonl` 中长消息按 1MB 切分，secret 恰好跨切分边界时两半各自不命中掩码。
+- 回合数（`turn_count`）依赖 `acp.jsonl` 每行按键排序后 `t` 为首键的前缀，写入格式变更时需同步。
+
+验证：反向验证 8 项破坏全部按预期失败；主机真实验收两个场景通过（`complete_on=merge` 串联派发与「待你收尾」卡片、suga CLI 与 suga-acp 两回合会话的转录读取）；gofer-verify：web、跨平台 vet、codeql 通过；linux-race 只有一条测试仍固定旧的信件命令文案，改正后该包 -race -shuffle 本地重跑通过。验证中发现并修复 ACP stderr 两个写入者并发写 `secretMasker` 的数据竞争。
+
+后续问题另立 issue：`stdout.raw.log` 不脱敏；ACP 审批卡片的工具输入摘要先截断后使用；恢复 ACP 会话后未补授予的 secret 值；suga 回合正文跨工具调用的文本段之间无分隔。
