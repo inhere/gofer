@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.3.0 -->
 # 第 1 批：todo 按交付完成、长 job 记录按回合查看 实施计划
 
-> 状态：Draft 0.3 / 已批准（用户 2026-11-11：「计划 0.3 批准」，含人工 Gate 所列偏离）
+> 状态：Draft 0.3 / 已批准（用户 2026-11-11：「计划 0.3 批准」，含人工 Gate 所列偏离）；**已完成**（2026-11-12 合入 main `43c2cda0`，实施记录见设计稿末尾）
 > issue：gofer-94yq、gofer-mmh0（含 gofer-tykh）、gofer-gqap、gofer-8hlc、gofer-juo0、gofer-ehvd、gofer-r20b、gofer-5x85
 
 ## 修订记录
