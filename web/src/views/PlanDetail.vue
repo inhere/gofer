@@ -972,6 +972,7 @@ async function onCompleteOnChange(ev: Event): Promise<void> {
   }
 }
 
+// loadEvents(true) 拉第一页（最新在前）；false 用当前最小 seq 作 before 续一页。
 // 满页 = 可能还有更老的，不满页 = 到底了（服务端没有总数可问）。
 async function loadEvents(reset: boolean): Promise<void> {
   if (eventsLoading.value) return
@@ -1197,6 +1198,10 @@ onUnmounted(() => {
             <button class="op-btn" type="button" :disabled="tagsSaving" @click="saveTags">{{ tagsSaving ? t('plans.detail.saving') : t('plans.detail.save') }}</button>
             <span v-if="plan.tags?.length" class="tag-list"><span v-for="tag in plan.tags" :key="tag" class="plan-tag mono">{{ tag }}</span></span>
           </dd>
+        </div>
+        <div v-if="plan.progress != null" class="meta-row">
+          <dt>{{ t('plans.detail.progressField') }}</dt>
+          <dd>{{ plan.progress }}</dd>
         </div>
         <div class="meta-row">
           <dt>{{ t('plans.detail.completeOn') }}</dt>
