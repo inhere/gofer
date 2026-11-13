@@ -53,6 +53,8 @@
     "Role": "",
     "RulesJSON": "",
     "Runner": "local",
+    "ScheduleID": "",
+    "ScheduleTrigger": "",
     "SessionID": "",
     "SkillsJSON": "",
     "Source": "",

@@ -105,6 +105,8 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		UpdatedAt:        r.UpdatedAt,
 		CallerID:         r.CallerID,
 		OriginCaller:     r.OriginCaller,
+		ScheduleID:       r.ScheduleID,
+		ScheduleTrigger:  r.ScheduleTrigger,
 		SourceSessionID:  r.SourceSessionID,
 		RequestID:        r.RequestID,
 		// 产出与审计字段（job-outcomes-audit）。
@@ -450,6 +452,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Error:            rec.Error,
 		CallerID:         rec.CallerID,
 		OriginCaller:     rec.OriginCaller,
+		ScheduleID:       rec.ScheduleID,
+		ScheduleTrigger:  rec.ScheduleTrigger,
 		SourceSessionID:  rec.SourceSessionID,
 		// gofer-3db4: the job's end-notification request, recovered from request_json
 		// (no column) — the terminal notify reads it off this snapshot.

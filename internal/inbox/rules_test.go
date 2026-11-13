@@ -45,6 +45,8 @@ var notInboxEvents = map[string]string{
 	"plan.advance_paused":       "plan page / webhook concern",
 	notify.EventUpdateAvailable: "system notice, not tied to a work item",
 	"config.updated":            "system audit event",
+	"schedule.run_skipped":      "a skipped run is by design, not a call to action; it stays on the schedule's event stream",
+	"schedule.run_failed":       "history on the schedule's event stream; a failure streak reaches the inbox as schedule.paused",
 }
 
 // Every notify catalog event is either announced to the inbox (config.InboxEventKinds) or

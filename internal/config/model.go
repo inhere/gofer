@@ -756,7 +756,8 @@ func DefaultInboxRules() []InboxRule {
 			// job.child_wake_failed: a child job's result can no longer reach the resident parent
 			// that submitted it (the parent ended or the receipt expired) — only a person can
 			// pick it up now.
-			"job.failed", "job.child_wake_failed"}, Priority: 100},
+			// schedule.paused: a schedule gofer stopped after max_failures consecutive failed runs.
+			"job.failed", "job.child_wake_failed", "schedule.paused"}, Priority: 100},
 		{ID: "fyi", Column: "fyi", Kinds: []string{"job.terminal", "work.digest", "activity", "comment", "agent.reply", "lane"}, Priority: 90},
 	}
 }

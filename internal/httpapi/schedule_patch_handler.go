@@ -26,11 +26,16 @@ type patchScheduleReq struct {
 	Params     *[]job.ScheduleParam `json:"params"`
 	Enabled    *bool                `json:"enabled"`
 	TimeoutSec *int                 `json:"timeout_sec"`
+	// Run health (design 2026-11-12 §1).
+	Overlap     *string `json:"overlap"`
+	MaxRuns     *int    `json:"max_runs"`
+	MaxFailures *int    `json:"max_failures"`
 }
 
 // patchScheduleEditable are the only body keys PATCH accepts.
 var patchScheduleEditable = map[string]bool{
 	"cron": true, "at": true, "title": true, "params": true, "enabled": true, "timeout_sec": true,
+	"overlap": true, "max_runs": true, "max_failures": true,
 }
 
 // patchScheduleForbiddenKeys is the identity half: sending one of these is a 400 that says
@@ -86,6 +91,9 @@ func (s *Server) handlePatchSchedule(c *rux.Context) {
 		ParamsJSON:   rec.ParamsJSON,
 		Enabled:      rec.Enabled,
 		NextRunAt:    rec.NextRunAt,
+		Overlap:      overlapOrDefault(rec.Overlap),
+		MaxRuns:      rec.MaxRuns,
+		MaxFailures:  rec.MaxFailures,
 	}
 
 	// ---- when it runs ----
@@ -152,6 +160,30 @@ func (s *Server) handlePatchSchedule(c *rux.Context) {
 		upd.RequestJSON = string(raw)
 	}
 
+	// ---- run health ----
+	if req.Overlap != nil {
+		o := strings.TrimSpace(*req.Overlap)
+		if o != jobstore.ScheduleOverlapSkip && o != jobstore.ScheduleOverlapAllow {
+			writeError(c, http.StatusBadRequest, "invalid schedule patch", "overlap must be skip or allow")
+			return
+		}
+		upd.Overlap = o
+	}
+	if req.MaxRuns != nil {
+		if *req.MaxRuns < 0 {
+			writeError(c, http.StatusBadRequest, "invalid schedule patch", "max_runs must be >= 0")
+			return
+		}
+		upd.MaxRuns = *req.MaxRuns
+	}
+	if req.MaxFailures != nil {
+		if *req.MaxFailures < 0 {
+			writeError(c, http.StatusBadRequest, "invalid schedule patch", "max_failures must be >= 0")
+			return
+		}
+		upd.MaxFailures = *req.MaxFailures
+	}
+
 	// ---- enable switch ----
 	if req.Enabled != nil {
 		// "This schedule should be running" asks job.submit, exactly like POST .../enable:
@@ -199,7 +231,7 @@ func readPatchScheduleReq(c *rux.Context) (patchScheduleReq, error) {
 	var req patchScheduleReq
 	raw, _ := io.ReadAll(c.Req.Body)
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return req, fmt.Errorf("empty body: send at least one of cron, at, title, params, enabled, timeout_sec")
+		return req, fmt.Errorf("empty body: send at least one of cron, at, title, params, enabled, timeout_sec, overlap, max_runs, max_failures")
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
@@ -212,7 +244,7 @@ func readPatchScheduleReq(c *rux.Context) (patchScheduleReq, error) {
 		if what, known := patchScheduleForbiddenKeys[key]; known {
 			return req, fmt.Errorf("%s cannot be changed by PATCH: delete the schedule and create a new one", what)
 		}
-		return req, fmt.Errorf("unknown field %q (editable: cron, at, title, params, enabled, timeout_sec)", key)
+		return req, fmt.Errorf("unknown field %q (editable: cron, at, title, params, enabled, timeout_sec, overlap, max_runs, max_failures)", key)
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return req, err

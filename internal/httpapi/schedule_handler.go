@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,7 +37,19 @@ type createScheduleReq struct {
 	// Params declares the schedule's parameters (design 2026-10-22 §D1). Their defaults
 	// are overlaid on the stored request env at every run; a run-now may override them.
 	Params []job.ScheduleParam `json:"params,omitempty"`
+	// Run health (design 2026-11-12 §1). Omitted = the new-schedule defaults: overlap
+	// "skip", max_failures 3, max_runs 0 (unlimited). A `once` schedule ignores them.
+	Overlap     string `json:"overlap,omitempty"`
+	MaxRuns     *int   `json:"max_runs,omitempty"`
+	MaxFailures *int   `json:"max_failures,omitempty"`
 }
+
+// Defaults of a newly created schedule's run health; schedules that existed before the
+// feature keep overlap=allow and no failure pause (the migration writes those).
+const (
+	defaultScheduleOverlap     = jobstore.ScheduleOverlapSkip
+	defaultScheduleMaxFailures = 3
+)
 
 // scheduleView is the JSON projection of one schedule. TriggerToken is masked for a caller that
 // neither owns the schedule nor is a root administrator (gofer-hxld, restated on the authz root
@@ -62,6 +73,15 @@ type scheduleView struct {
 	// Params is the schedule's parameter declaration list (design 2026-10-22 §D1);
 	// omitted when it declares none.
 	Params []job.ScheduleParam `json:"params,omitempty"`
+	// Run health (design 2026-11-12 §1). RunCount / ConsecutiveFailures count
+	// timer-started runs only; PausedReason says why a disabled schedule stopped
+	// ("failures" | "max_runs"; empty = stopped by hand or never paused).
+	Overlap             string `json:"overlap"`
+	MaxRuns             int    `json:"max_runs"`
+	RunCount            int    `json:"run_count"`
+	MaxFailures         int    `json:"max_failures"`
+	ConsecutiveFailures int    `json:"consecutive_failures"`
+	PausedReason        string `json:"paused_reason,omitempty"`
 }
 
 func (s *Server) handleCreateSchedule(c *rux.Context) {
@@ -116,6 +136,11 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		return
 	}
 
+	overlap, maxRuns, maxFailures, err := scheduleHealthInput(req.Overlap, req.MaxRuns, req.MaxFailures)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid schedule", err.Error())
+		return
+	}
 	enabled, catchUp := 1, 1
 	if req.Enabled != nil && !*req.Enabled {
 		enabled = 0
@@ -135,6 +160,9 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		CatchUp:      catchUp,
 		ProjectKey:   req.Request.ProjectKey,
 		ParamsJSON:   paramsJSON,
+		Overlap:      overlap,
+		MaxRuns:      maxRuns,
+		MaxFailures:  maxFailures,
 		// The creator is the schedule's ceiling owner: the sweeper and the webhook submit
 		// with it, so a timer made by a restricted caller stays bounded after the creating
 		// request is gone (design 2026-10-18, 上限所有者).
@@ -357,12 +385,16 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 	// end-notification whose target has gone is dropped (with an event) instead of
 	// refusing the run the person just asked for.
 	req.NotifyDegradable = true
-	res, err := s.jobs.Submit(req)
+	run, err := s.jobs.ScheduleDispatcher().Dispatch(nil, rec, jobstore.ScheduleTriggerRunNow, req)
 	if err != nil {
-		s.recordScheduleRunFailed(rec, err)
 		writeError(c, scheduleStatus(err), "run schedule failed", err.Error())
 		return
 	}
+	if run.Skipped {
+		writeScheduleSkipped(c, run)
+		return
+	}
+	res := run.Result
 	// §D3: the overrides a person chose are part of the schedule's own history — this is
 	// what answers "who ran it for real, and with which settings" afterwards.
 	detail := map[string]any{"schedule_id": rec.ID, "job_id": res.ID}
@@ -502,12 +534,16 @@ func (s *Server) handleScheduleTrigger(c *rux.Context) {
 	// gofer-3db4: the webhook fires the schedule's stored request — the trigger is an
 	// external event, not a caller naming a notify target, so an unusable one is dropped.
 	req.NotifyDegradable = true
-	res, err := s.jobs.Submit(req)
+	run, err := s.jobs.ScheduleDispatcher().Dispatch(nil, rec, jobstore.ScheduleTriggerWebhook, req)
 	if err != nil {
-		s.recordScheduleRunFailed(rec, err)
 		writeError(c, scheduleStatus(err), "trigger schedule failed", err.Error())
 		return
 	}
+	if run.Skipped {
+		writeScheduleSkipped(c, run)
+		return
+	}
+	res := run.Result
 	s.jobs.RecordJobEvent(res.ID, job.EventScheduleTriggered, map[string]any{
 		"source": "webhook", "schedule_id": id,
 	})
@@ -518,17 +554,42 @@ func (s *Server) handleScheduleTrigger(c *rux.Context) {
 // started (AUTO-02b), next to cli / web / mcp / cron.
 const channelWebhook = "webhook"
 
-// recordScheduleRunFailed writes the schedule-scope failure event when a submit of the schedule's
-// stored request was refused by the CEILING — the same event the sweeper writes in
-// serve.submitDueSchedule (gofer-7798 phase two E6). Whoever owns the timer can then read
-// GET /v1/schedules/{id}/events and see why nothing ran, instead of watching for a job that never
-// appears. Any other refusal is the requesting caller's own bad request and is answered only.
-func (s *Server) recordScheduleRunFailed(rec jobstore.ScheduleRecord, err error) {
-	if !errors.Is(err, job.ErrCeilingDenied) {
-		return
+// writeScheduleSkipped answers a run-now / webhook that the schedule's overlap policy
+// refused: 409, naming the unfinished job (the skip is already on the schedule's own
+// event stream, written by the dispatcher).
+func writeScheduleSkipped(c *rux.Context, run job.ScheduleRun) {
+	writeError(c, http.StatusConflict, "schedule run skipped",
+		"the previous run (job "+run.PrevJobID+") has not finished and the schedule's overlap policy is skip")
+}
+
+// scheduleHealthInput validates the run-health fields of a create request and fills the
+// defaults of a new schedule.
+func scheduleHealthInput(overlap string, maxRuns, maxFailures *int) (string, int, int, error) {
+	overlap = strings.TrimSpace(overlap)
+	if overlap == "" {
+		overlap = defaultScheduleOverlap
 	}
-	s.jobs.RecordScopedEvent(job.ScheduleEventScope(rec.ID), job.EventScheduleRunFailed, rec.ProjectKey,
-		map[string]any{"schedule_id": rec.ID, "reason": err.Error()})
+	if overlap != jobstore.ScheduleOverlapSkip && overlap != jobstore.ScheduleOverlapAllow {
+		return "", 0, 0, fmt.Errorf("overlap must be skip or allow")
+	}
+	runs, failures := 0, defaultScheduleMaxFailures
+	if maxRuns != nil {
+		runs = *maxRuns
+	}
+	if maxFailures != nil {
+		failures = *maxFailures
+	}
+	if runs < 0 || failures < 0 {
+		return "", 0, 0, fmt.Errorf("max_runs and max_failures must not be negative")
+	}
+	return overlap, runs, failures, nil
+}
+
+func overlapOrDefault(o string) string {
+	if o == "" {
+		return jobstore.ScheduleOverlapAllow
+	}
+	return o
 }
 
 // triggerRateWindow is the per-schedule minimum spacing between webhook triggers
@@ -581,8 +642,14 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 		// handleListSchedules / handleGetSchedule project it through scheduleToViewFor,
 		// which masks it for a caller that neither owns the schedule nor administers the
 		// deployment (gofer-hxld).
-		TriggerToken: rec.TriggerToken,
-		Params:       params,
+		TriggerToken:        rec.TriggerToken,
+		Params:              params,
+		Overlap:             overlapOrDefault(rec.Overlap),
+		MaxRuns:             rec.MaxRuns,
+		RunCount:            rec.RunCount,
+		MaxFailures:         rec.MaxFailures,
+		ConsecutiveFailures: rec.ConsecutiveFailures,
+		PausedReason:        rec.PausedReason,
 	}
 }
 

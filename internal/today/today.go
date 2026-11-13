@@ -48,6 +48,12 @@ const (
 	// package from the job.child_wake_failed events). Like KindJobFailed it enters the 「等我」
 	// list but is not a queue card: advice cannot be written for it.
 	KindChildWakeFailed = "job.child_wake_failed"
+	// KindSchedulePaused is the card of a schedule gofer paused after max_failures
+	// consecutive failed runs (inbox.SchedulePausedCards builds it outside this package
+	// from the schedule rows). Like KindJobFailed it enters the 「等我」 list but is not a
+	// queue card: advice cannot be written for it. The card goes away when the schedule is
+	// enabled again.
+	KindSchedulePaused = "schedule.paused"
 )
 
 // MailHeldCardKey is the stable key of the held-mail summary card; MailHeldLink is the web
@@ -172,6 +178,7 @@ type Refs struct {
 	ThreadID    string   `json:"thread_id,omitempty"`
 	PlanID      string   `json:"plan_id,omitempty"`
 	TodoID      string   `json:"todo_id,omitempty"`
+	ScheduleID  string   `json:"schedule_id,omitempty"`
 }
 
 // Action is one card button. ID names the existing write API the console calls

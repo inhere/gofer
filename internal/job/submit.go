@@ -1254,6 +1254,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			RequestJSON:     string(reqJSON),
 			CallerID:        req.CallerID,
 			OriginCaller:    req.OriginCaller,
+			ScheduleID:      req.ScheduleID,
+			ScheduleTrigger: req.ScheduleTrigger,
 			SourceSessionID: req.SourceSessionID,
 			// gofer-3db4: the decided end-notification (request_json carries it; the
 			// snapshot fields are what the terminal notify reads).

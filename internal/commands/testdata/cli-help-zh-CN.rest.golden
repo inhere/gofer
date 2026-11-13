@@ -794,7 +794,10 @@ schedule add	flag config	path to the gofer config file
 schedule add	flag cron	standard 5-field cron expression
 schedule add	flag cwd	working dir within the project
 schedule add	flag delay	create a one-shot schedule after a duration, e.g. 30s/5m
+schedule add	flag max-failures	pause the schedule after this many consecutive failed runs (default 3 for new schedules, 0 = never)
+schedule add	flag max-runs	stop the schedule after this many timer runs (0 = unlimited)
 schedule add	flag name	schedule name (required)
+schedule add	flag overlap	when the previous run is unfinished: skip (default for new schedules) or allow
 schedule add	flag param-def	declare a param as NAME[:type]=default[#desc] (repeatable; type: string|int|bool)
 schedule add	flag params-file	YAML file with the full param declaration list (name/type/default/desc/choices)
 schedule add	flag plan	attach the job to a plan (grouping key)
@@ -815,7 +818,7 @@ schedule disable	examples
 schedule disable	flag config	path to the gofer config file
 schedule disable	flag server	server address (overrides config server.addr)
 schedule disable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-schedule edit	desc	Edit a schedule in place: cron/at, title, params, enabled, timeout (the command, agent, runner and project cannot change)
+schedule edit	desc	Edit a schedule in place: cron/at, title, params, enabled, timeout, overlap, run limits (the command, agent, runner and project cannot change)
 schedule edit	help	
 schedule edit	examples	
 schedule edit	flag at	new one-shot run time (RFC3339 or unix seconds)
@@ -823,6 +826,9 @@ schedule edit	flag config	path to the gofer config file
 schedule edit	flag cron	new cron expression (recomputes the next run)
 schedule edit	flag disable	turn the schedule off
 schedule edit	flag enable	turn the schedule on
+schedule edit	flag max-failures	pause the schedule after this many consecutive failed runs (default 3 for new schedules, 0 = never)
+schedule edit	flag max-runs	stop the schedule after this many timer runs (0 = unlimited)
+schedule edit	flag overlap	when the previous run is unfinished: skip (default for new schedules) or allow
 schedule edit	flag param-def	declare a param as NAME[:type]=default[#desc] (repeatable; type: string|int|bool)
 schedule edit	flag params-file	YAML file with the full param declaration list (name/type/default/desc/choices)
 schedule edit	flag server	server address (overrides config server.addr)
@@ -835,7 +841,7 @@ schedule enable	examples
 schedule enable	flag config	path to the gofer config file
 schedule enable	flag server	server address (overrides config server.addr)
 schedule enable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-schedule events	desc	List a schedule's own events (schedule.run_failed…), newest first
+schedule events	desc	List a schedule's own events (run_skipped, run_failed, paused…), newest first
 schedule events	help	
 schedule events	examples	
 schedule events	flag before	only events older than this seq

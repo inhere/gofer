@@ -38,14 +38,26 @@ type ScheduleRecord struct {
 	// ParamsJSON is the schedule's declared parameter list as opaque JSON (design
 	// 2026-10-22 §D1), decoded by job.DecodeScheduleParams. Empty = no params.
 	ParamsJSON string
-	CreatedAt  int64
-	UpdatedAt  int64
+	// Run health (design 2026-11-12 §1). Overlap is "skip" or "allow"; MaxRuns /
+	// MaxFailures of 0 mean unlimited / never auto-pause. RunCount and
+	// ConsecutiveFailures count timer-started runs only. PausedReason says why the
+	// schedule is disabled ("failures", "max_runs"; empty = stopped by hand).
+	Overlap             string
+	MaxRuns             int
+	RunCount            int
+	MaxFailures         int
+	ConsecutiveFailures int
+	PausedReason        string
+	CreatedAt           int64
+	UpdatedAt           int64
 }
 
 const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'cron'), cron_expr, request_json, enabled,
   next_run_at, COALESCE(last_run_at,0), COALESCE(last_job_id,''),
   COALESCE(catch_up,0), COALESCE(project_key,''), COALESCE(trigger_token,''),
-  COALESCE(creator_caller,''), COALESCE(params_json,''), created_at, updated_at
+  COALESCE(creator_caller,''), COALESCE(params_json,''), created_at, updated_at,
+  COALESCE(overlap,'allow'), COALESCE(max_runs,0), COALESCE(run_count,0), COALESCE(max_failures,0),
+  COALESCE(consecutive_failures,0), COALESCE(paused_reason,'')
   FROM schedules`
 
 func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
@@ -54,6 +66,7 @@ func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
 		&r.ID, &r.Name, &r.ScheduleType, &r.CronExpr, &r.RequestJSON, &r.Enabled,
 		&r.NextRunAt, &r.LastRunAt, &r.LastJobID,
 		&r.CatchUp, &r.ProjectKey, &r.TriggerToken, &r.CreatorCaller, &r.ParamsJSON, &r.CreatedAt, &r.UpdatedAt,
+		&r.Overlap, &r.MaxRuns, &r.RunCount, &r.MaxFailures, &r.ConsecutiveFailures, &r.PausedReason,
 	)
 	return r, err
 }
@@ -66,15 +79,20 @@ func (s *Store) InsertSchedule(r ScheduleRecord) error {
 	if r.ScheduleType == "" {
 		r.ScheduleType = "cron"
 	}
+	if r.Overlap == "" {
+		r.Overlap = ScheduleOverlapAllow
+	}
 	const q = `INSERT INTO schedules
   (id, name, schedule_type, cron_expr, request_json, enabled, next_run_at, last_run_at,
-   last_job_id, catch_up, project_key, trigger_token, creator_caller, params_json, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   last_job_id, catch_up, project_key, trigger_token, creator_caller, params_json, created_at, updated_at,
+   overlap, max_runs, run_count, max_failures, consecutive_failures, paused_reason)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		r.ID, r.Name, r.ScheduleType, r.CronExpr, r.RequestJSON, r.Enabled, r.NextRunAt, r.LastRunAt,
 		r.LastJobID, r.CatchUp, r.ProjectKey, r.TriggerToken, r.CreatorCaller, r.ParamsJSON, r.CreatedAt, r.UpdatedAt,
+		r.Overlap, r.MaxRuns, r.RunCount, r.MaxFailures, r.ConsecutiveFailures, r.PausedReason,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert schedule %q: %w", r.ID, err)
 	}
@@ -127,8 +145,11 @@ func (s *Store) SetScheduleEnabled(id string, enabled int) error {
 	now := time.Now().Unix()
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	// Any manual switch clears the pause bookkeeping: enabling starts a fresh failure
+	// streak (run_count stays, raise max_runs to keep going); disabling by hand is not
+	// an automatic pause.
 	if _, err := s.db.Exec(
-		`UPDATE schedules SET enabled = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE schedules SET enabled = ?, consecutive_failures = 0, paused_reason = '', updated_at = ? WHERE id = ?`,
 		enabled, now, id,
 	); err != nil {
 		return fmt.Errorf("jobstore: set schedule %q enabled: %w", id, err)
@@ -205,6 +226,11 @@ type ScheduleUpdate struct {
 	ParamsJSON  string
 	Enabled     int
 	NextRunAt   int64
+	// Run health knobs (design 2026-11-12 §1); the handler passes the current value
+	// through when the PATCH leaves one unset.
+	Overlap     string
+	MaxRuns     int
+	MaxFailures int
 }
 
 // UpdateSchedule writes a schedule's mutable fields in one statement.
@@ -214,9 +240,13 @@ func (s *Store) UpdateSchedule(id string, u ScheduleUpdate) error {
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(
 		`UPDATE schedules SET name = ?, schedule_type = ?, cron_expr = ?, request_json = ?,
-   params_json = ?, enabled = ?, next_run_at = ?, updated_at = ? WHERE id = ?`,
-		u.Name, u.ScheduleType, u.CronExpr, u.RequestJSON, u.ParamsJSON, u.Enabled, u.NextRunAt,
-		time.Now().Unix(), id,
+   params_json = ?, next_run_at = ?, overlap = ?, max_runs = ?, max_failures = ?, updated_at = ?,
+   consecutive_failures = CASE WHEN enabled = 0 AND ? = 1 THEN 0 ELSE consecutive_failures END,
+   paused_reason = CASE WHEN ? = 1 OR enabled = 1 THEN '' ELSE paused_reason END,
+   enabled = ? WHERE id = ?`,
+		u.Name, u.ScheduleType, u.CronExpr, u.RequestJSON, u.ParamsJSON, u.NextRunAt,
+		u.Overlap, u.MaxRuns, u.MaxFailures, time.Now().Unix(),
+		u.Enabled, u.Enabled, u.Enabled, id,
 	); err != nil {
 		return fmt.Errorf("jobstore: update schedule %q: %w", id, err)
 	}
