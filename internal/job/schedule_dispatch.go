@@ -43,6 +43,8 @@ const (
 	ScheduleSkipUnchanged       = "unchanged"
 	// ScheduleSkipCheckRunning: the schedule's previous pre-run check has not returned yet.
 	ScheduleSkipCheckRunning = "check_running"
+	// ScheduleSkipDraining: the check passed but the server was draining for an upgrade.
+	ScheduleSkipDraining = "server_draining"
 )
 
 // Dispatch submits one run of the schedule: overlap check, then the submit, then the

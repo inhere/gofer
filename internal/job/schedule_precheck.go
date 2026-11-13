@@ -354,6 +354,7 @@ func (d *ScheduleDispatcher) submitChecked(rec jobstore.ScheduleRecord, req JobR
 	permit, err := d.s.BeginUpgradeWork()
 	if err != nil {
 		slog.Info("schedule run dropped: server is draining", "schedule_id", rec.ID, "err", err)
+		d.recordSkipped(rec, ScheduleSkipDraining, "")
 		return
 	}
 	defer permit.Release()
