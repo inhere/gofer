@@ -225,6 +225,7 @@ type Client struct {
 	writeCacheFn func(p *wsproto.Policy, seq uint64) error
 
 	backoff      backoffPolicy
+	replaced     replacedTracker // hub-replaced counter (noteReplaced)
 	pingInterval time.Duration
 	readDeadline time.Duration
 
@@ -1052,6 +1053,7 @@ func (cl *Client) Run(ctx context.Context) error {
 		// Upgrade handover: the hub closed this connection because the replacement
 		// process took the worker id over. Re-dialling now would steal it back, so wait
 		// until the handover either completes (this process exits) or rolls back.
+		held := cl.holdReconnect.Load()
 		for cl.holdReconnect.Load() {
 			select {
 			case <-ctx.Done():
@@ -1063,6 +1065,7 @@ func (cl *Client) Run(ctx context.Context) error {
 		// and back off before retrying.
 		idx = (idx + 1) % len(cl.urls)
 		wait := cl.backoff.next(attempt)
+		wait = max(wait, cl.noteReplaced(err, held))
 		attempt++
 		if err != nil {
 			cl.notify("retry:" + err.Error())

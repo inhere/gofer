@@ -1541,7 +1541,23 @@ const (
 	// asked for job terminals.
 	EventAgentDegraded  = "agent.degraded"
 	EventAgentRecovered = "agent.recovered"
+	// EventWorkerReplaced is recorded on the WORKER's own scope (`worker:<id>`, see
+	// WorkerEventScope) when a worker connection is replaced by one with a DIFFERENT
+	// instance_id: two processes share the worker_id, or a restart raced its
+	// predecessor's teardown. {worker_id, old_instance, new_instance, old_remote,
+	// new_remote, suppressed}: at most one row per worker per 10 minutes, suppressed
+	// counts the replacements skipped since the previous row. Subscribable, not in
+	// the default notification set.
+	EventWorkerReplaced = "worker.replaced"
 )
+
+// workerScopePrefix is the scope-id prefix of a worker's own event stream
+// (`worker:<id>`): a worker connection is not a job.
+const workerScopePrefix = "worker:"
+
+// WorkerEventScope is the synthetic event-scope id of a worker, the stream
+// EventWorkerReplaced is recorded on.
+func WorkerEventScope(workerID string) string { return workerScopePrefix + workerID }
 
 // scheduleScopePrefix is the scope-id prefix of a schedule's own event stream
 // (`schedule:<id>`, mirroring planScopePrefix): a schedule is not a job, and a run it

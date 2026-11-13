@@ -529,6 +529,8 @@ func (h *Hub) NoteEvent(scope string, ev JobEvent) {
 		h.Notify(TopicPlans)
 	case strings.HasPrefix(scope, "agent:"), scope == "config":
 		h.Notify(TopicMeta)
+	case strings.HasPrefix(scope, "worker:"):
+		h.Notify(TopicRunners)
 	case strings.HasPrefix(scope, "xfer:"), strings.HasPrefix(scope, "session:"):
 		// no browser topic
 	default:

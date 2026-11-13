@@ -101,6 +101,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		stdout:       req.Stdout,
 		stderr:       req.Stderr,
 		events:       events,
+		mask:         req.Mask,
 		onJobEvent:   req.OnJobEvent,
 		meter:        req.Meter,
 		policy:       policy,
@@ -566,6 +567,9 @@ type handler struct {
 	stderr     io.Writer
 	events     *eventWriter
 	onJobEvent func(string, map[string]any)
+	// mask replaces the job's granted secret values in text that leaves the runner on
+	// an approval card (Request.Mask); nil = nothing to mask.
+	mask func(string) string
 	// policy is the RESOLVED approval policy of this job.
 	policy config.ApprovalConfig
 	// approvals raises a permission interaction and blocks for the answer; nil when
@@ -1040,6 +1044,7 @@ func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.Pe
 	if kind != "" {
 		prompt = fmt.Sprintf("%s (kind=%s)", prompt, kind)
 	}
+	prompt = maskWith(h.mask, prompt) // the title is the agent's text and may echo a secret
 	hint := h.policy.Mode + ": kind=" + kind
 
 	if h.approvals == nil {
@@ -1061,7 +1066,7 @@ func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.Pe
 	out, err := h.approvals.RequestApproval(ctx, runner.ApprovalRequest{
 		Prompt:     prompt,
 		Options:    approvalRequestOptions(p.Options),
-		ToolCall:   approvalRequestToolCall(p.ToolCall),
+		ToolCall:   approvalRequestToolCall(p.ToolCall, h.mask),
 		PolicyHint: hint,
 		TimeoutSec: h.policy.TimeoutSec,
 		// The gate now waits on a human: announce it as soon as the card exists (this
@@ -1318,21 +1323,31 @@ func approvalRequestOptions(options []acp.PermissionOption) []runner.ApprovalOpt
 }
 
 // approvalRequestToolCall projects the gated tool call onto the runner-neutral shape,
-// summarising rawInput (an approver needs the shape, not a megabyte payload).
-func approvalRequestToolCall(tc *acp.ToolCall) *runner.ApprovalToolCall {
+// summarising rawInput (an approver needs the shape, not a megabyte payload). Every
+// agent-supplied string goes through mask first; rawInput is masked BEFORE it is cut
+// to the summary size, so a secret straddling the cut cannot survive as a fragment.
+func approvalRequestToolCall(tc *acp.ToolCall, mask func(string) string) *runner.ApprovalToolCall {
 	if tc == nil {
 		return nil
 	}
 	out := &runner.ApprovalToolCall{
 		ID:              tc.ToolCallID,
-		Title:           tc.Title,
+		Title:           maskWith(mask, tc.Title),
 		Kind:            tc.Kind,
-		RawInputSummary: truncate(string(tc.RawInput)),
+		RawInputSummary: truncate(maskWith(mask, string(tc.RawInput))),
 	}
 	for _, l := range tc.Locations {
-		out.Locations = append(out.Locations, l.Path)
+		out.Locations = append(out.Locations, maskWith(mask, l.Path))
 	}
 	return out
+}
+
+// maskWith applies mask when there is one.
+func maskWith(mask func(string) string, text string) string {
+	if mask == nil {
+		return text
+	}
+	return mask(text)
 }
 
 // toolCallID / toolCallTitle read a possibly-absent tool call.
