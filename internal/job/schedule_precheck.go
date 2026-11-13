@@ -18,6 +18,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/procattr"
 	"github.com/inhere/gofer/internal/util"
 )
 
@@ -198,6 +199,7 @@ func runPrecheck(ctx context.Context, cfg *config.Config, dir string, p Schedule
 	cmd := exec.CommandContext(ctx, p.Argv[0], p.Argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = util.EnvironWithout(precheckEnvDeny(cfg), nil, extra)
+	procattr.Background(cmd)
 	out := newTailHashWriter(precheckOutputTail)
 	cmd.Stdout = out
 	cmd.Stderr = nil // not kept: a check reports through its exit status and stdout

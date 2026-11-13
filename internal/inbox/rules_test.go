@@ -14,6 +14,7 @@ import (
 // TestNotifyCatalogEventsAreClassified until it is mapped in config.inboxKindEvents or
 // listed here: that is the "catalog grew, who decides its column" guard.
 var notInboxEvents = map[string]string{
+	"worker.replaced":           "operator diagnostics on the worker page and in the server log; nothing a person decides from the inbox",
 	"job.reviewed":              "outcome of a review a person just made; nothing left to decide",
 	"job.hold_approved":         "outcome of an approval; the held job moves on by itself",
 	"job.hold_rejected":         "outcome of an approval; informational on the job page",
