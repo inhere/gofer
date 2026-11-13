@@ -869,6 +869,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// one are recorded on the todo. Best-effort: a todo write must never affect a job.
 	if persistErr == nil {
 		s.linkTodoOutcome(snap, guardDecision == "resume")
+		s.scheduleOutcome(snap, guardDecision == "resume")
 		// gofer-3nxa.2: the delivery's 「## 可复用经验」 items become memory candidates
 		// (a no-op unless Submit asked for the section). Here, before the needs_review
 		// return, so a delivery parked for review shows them in the review panel.
@@ -944,6 +945,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		// The continuation never started, so the todo it would have finished is judged now.
 		if persistErr == nil && guardDecision == "resume" && !autoResumed {
 			s.linkTodoOutcome(snap, false)
+			s.scheduleOutcome(snap, false)
 		}
 	}
 	if persistErr == nil && isFinished(status) {

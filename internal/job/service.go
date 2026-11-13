@@ -183,6 +183,8 @@ type Service struct {
 	// are upserted here (one row per job id) and ListJobs/Get read it back. Logs
 	// stay as files in the per-job result dir. See design §6/§8/§10.
 	meta *jobstore.Store
+	// schedDisp is the one entry every schedule run goes through (schedule_dispatch.go).
+	schedDisp *ScheduleDispatcher
 
 	// events is the append-only lifecycle event sink for recordEvent (E13). It is
 	// nil in production (recordEvent falls back to s.meta); tests inject a failing
@@ -525,6 +527,7 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 		nowFn:      time.Now,
 	}
 	s.cfg.Store(cfg)
+	s.schedDisp = newScheduleDispatcher(s)
 	// JOB-09: the wakeup event matcher is an in-process subscriber of every recorded
 	// event (it fires the wakeups whose event filter matches). Registered here, so
 	// every Service — hub, worker, test — gets it without extra wiring.

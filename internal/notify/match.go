@@ -60,7 +60,10 @@ import (
 // to look at the child's result. The older job.wakeup_failed stays OUT of every default:
 // it also counts failures of a repeating timer parked on a live job, which would be a
 // notification every tick.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe, "job.delivery_failed", EventUpdateAvailable, "job.child_wake_failed"}
+//
+// schedule.paused joins them: gofer stopped a timer by itself (a failure streak or its
+// run limit), and nothing will run again until a person looks.
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe, "job.delivery_failed", EventUpdateAvailable, "job.child_wake_failed", "schedule.paused"}
 
 // EventUpdateAvailable fires once per newly found gofer release (server.update).
 const EventUpdateAvailable = "update.available"

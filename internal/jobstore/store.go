@@ -1808,6 +1808,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateSchedules(); err != nil {
 		return err
 	}
+	if err := s.migrateScheduleHealth(); err != nil {
+		return err
+	}
 	if err := s.migratePlanTodos(); err != nil {
 		return err
 	}

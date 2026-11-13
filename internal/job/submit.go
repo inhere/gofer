@@ -176,6 +176,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 	if req.Language == "" {
 		req.Language = string(cfg.LanguageFor(req.ProjectKey))
 	}
+	injectScheduleContext(cfg, &req)
 	injectPromptSections(cfg, &req)
 	// 常驻 job 的派发提示（design 2026-11-03-resident-job-child-wakeup-design.md 「范围」4）:
 	// 只有拿得到提交权限的会话 job 才会派子 job，也就只有它需要这段。权限按 job 的 agent /
@@ -1254,6 +1255,8 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			RequestJSON:     string(reqJSON),
 			CallerID:        req.CallerID,
 			OriginCaller:    req.OriginCaller,
+			ScheduleID:      req.ScheduleID,
+			ScheduleTrigger: req.ScheduleTrigger,
 			SourceSessionID: req.SourceSessionID,
 			// gofer-3db4: the decided end-notification (request_json carries it; the
 			// snapshot fields are what the terminal notify reads).

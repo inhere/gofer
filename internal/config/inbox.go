@@ -23,6 +23,7 @@ var inboxKindEvents = map[string][]string{
 	"job.terminal":          {"job.terminal"},
 	"work.digest":           {"work.digest"},
 	"job.child_wake_failed": {"job.child_wake_failed"},
+	"schedule.paused":       {"schedule.paused"},
 }
 
 // InboxKinds lists every inbox kind of the built-in policy, default column order.

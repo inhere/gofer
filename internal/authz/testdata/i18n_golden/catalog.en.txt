@@ -18,6 +18,7 @@ session.transfer	Transfer session ownership
 plan.manage.others	Other callers' plan edit / run / pause / resume / attach / todo add, edit and dispatch / handoff
 plan.supervise.others	Bind a supervisor to someone else's plan, or bind someone else's session
 schedule.manage.others	Other callers' schedule delete / enable-disable / rotate token / run-now (run-now also needs `job.submit`)
+schedule.precheck	Set or change a schedule's pre-run check (a command the server runs under its own identity before each due tick; clearing one needs no permission)
 steward.manage	steward start / stop / restart / ask / review, and writing notes
 memory.write	Write and delete tracker memories and scoped memories (injected into every job's prompt), adopt memory suggestions
 memory.synthesis.run	Trigger the daily memory synthesis by hand (`POST /v1/memory-syntheses/run`, incl. a `force` rerun): calls a read-only, tool-less model once according to the `memory.synthesis` config and costs money; also needs `memory.synthesis.enabled`

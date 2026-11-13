@@ -791,13 +791,20 @@ schedule add	flag agent	agent key (required)
 schedule add	flag at	create a one-shot schedule at RFC3339 or unix seconds
 schedule add	flag catch-up	run once after a missed tick within the server grace window
 schedule add	flag config	path to the gofer config file
+schedule add	flag context	on (default for new schedules) or off: tell each run its run number and how the previous run ended
 schedule add	flag cron	standard 5-field cron expression
 schedule add	flag cwd	working dir within the project
 schedule add	flag delay	create a one-shot schedule after a duration, e.g. 30s/5m
+schedule add	flag max-failures	pause the schedule after this many consecutive failed runs (default 3 for new schedules, 0 = never)
+schedule add	flag max-runs	stop the schedule after this many timer runs (0 = unlimited)
 schedule add	flag name	schedule name (required)
+schedule add	flag overlap	when the previous run is unfinished: skip (default for new schedules) or allow
 schedule add	flag param-def	declare a param as NAME[:type]=default[#desc] (repeatable; type: string|int|bool)
 schedule add	flag params-file	YAML file with the full param declaration list (name/type/default/desc/choices)
 schedule add	flag plan	attach the job to a plan (grouping key)
+schedule add	flag precheck	command the server runs before each due tick, split on spaces and run without a shell: exit 0 = go, exit 2 = skip quietly, else a failed run (needs the schedule.precheck permission; local runner only)
+schedule add	flag precheck-skip-unchanged	skip a run whose pre-run check output is the same as the last submitted run's
+schedule add	flag precheck-timeout	pre-run check timeout in seconds (0 = 60, at most 300)
 schedule add	flag project	project key (required)
 schedule add	flag prompt	prompt text for cli-agent (use -- <argv...> for exec)
 schedule add	flag role	role preset: fills agent/system_prompt/project/tags when unset
@@ -815,16 +822,24 @@ schedule disable	examples
 schedule disable	flag config	path to the gofer config file
 schedule disable	flag server	server address (overrides config server.addr)
 schedule disable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-schedule edit	desc	Edit a schedule in place: cron/at, title, params, enabled, timeout (the command, agent, runner and project cannot change)
+schedule edit	desc	Edit a schedule in place: cron/at, title, params, enabled, timeout, overlap, run limits (the command, agent, runner and project cannot change)
 schedule edit	help	
 schedule edit	examples	
 schedule edit	flag at	new one-shot run time (RFC3339 or unix seconds)
+schedule edit	flag clear-precheck	remove the schedule's pre-run check
 schedule edit	flag config	path to the gofer config file
+schedule edit	flag context	on (default for new schedules) or off: tell each run its run number and how the previous run ended
 schedule edit	flag cron	new cron expression (recomputes the next run)
 schedule edit	flag disable	turn the schedule off
 schedule edit	flag enable	turn the schedule on
+schedule edit	flag max-failures	pause the schedule after this many consecutive failed runs (default 3 for new schedules, 0 = never)
+schedule edit	flag max-runs	stop the schedule after this many timer runs (0 = unlimited)
+schedule edit	flag overlap	when the previous run is unfinished: skip (default for new schedules) or allow
 schedule edit	flag param-def	declare a param as NAME[:type]=default[#desc] (repeatable; type: string|int|bool)
 schedule edit	flag params-file	YAML file with the full param declaration list (name/type/default/desc/choices)
+schedule edit	flag precheck	command the server runs before each due tick, split on spaces and run without a shell: exit 0 = go, exit 2 = skip quietly, else a failed run (needs the schedule.precheck permission; local runner only)
+schedule edit	flag precheck-skip-unchanged	skip a run whose pre-run check output is the same as the last submitted run's
+schedule edit	flag precheck-timeout	pre-run check timeout in seconds (0 = 60, at most 300)
 schedule edit	flag server	server address (overrides config server.addr)
 schedule edit	flag timeout	new job timeout in seconds (0 = server default)
 schedule edit	flag title	new title
@@ -835,7 +850,7 @@ schedule enable	examples
 schedule enable	flag config	path to the gofer config file
 schedule enable	flag server	server address (overrides config server.addr)
 schedule enable	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
-schedule events	desc	List a schedule's own events (schedule.run_failed…), newest first
+schedule events	desc	List a schedule's own events (run_skipped, run_failed, paused…), newest first
 schedule events	help	
 schedule events	examples	
 schedule events	flag before	only events older than this seq

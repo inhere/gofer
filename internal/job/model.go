@@ -476,6 +476,16 @@ type JobRequest struct {
 	// it) but is NEVER reached by an agent: it is not in the prompt, and MCP / standalone
 	// host paths carry no ceiling. Empty = a system job (see SystemJob).
 	OriginCaller string `json:"origin_caller,omitempty" yaml:"-"`
+	// ScheduleID / ScheduleTrigger name the schedule that started this job and how
+	// (jobstore.ScheduleTrigger*). Server-set by the schedule dispatcher only, never
+	// persisted in request_json (the job row's own columns carry them), so a retry or a
+	// replayed request never counts toward a schedule's health.
+	ScheduleID      string `json:"-" yaml:"-"`
+	ScheduleTrigger string `json:"-" yaml:"-"`
+	// ScheduleContext is the run's schedule context (run number, previous run), set by the
+	// schedule dispatcher for a schedule with context on; Submit renders it into the start of
+	// an agent job's prompt. In memory only: never in request_json or on the wire.
+	ScheduleContext *ScheduleContext `json:"-" yaml:"-"`
 	// ExtraCeilingOwners are ADDITIONAL ceiling owners a derived request must also satisfy
 	// (design decision 8): a plan item dispatched by one caller for a todo AUTHORED by
 	// another carries the author here, so both bounds apply. Server-set, never from a body;
@@ -884,6 +894,11 @@ type JobResult struct {
 	// a retry, a failover or a wakeup re-entered after a restart still knows whom to
 	// bound the next job by.
 	OriginCaller string `json:"origin_caller,omitempty"`
+	// ScheduleID / ScheduleTrigger mirror JobRequest: the schedule that started this job
+	// and how (timer | run_now | webhook). Persisted to jobs.schedule_id /
+	// jobs.schedule_trigger; empty = not started by a schedule.
+	ScheduleID      string `json:"schedule_id,omitempty"`
+	ScheduleTrigger string `json:"schedule_trigger,omitempty"`
 	// SourceSessionID is the trusted caller-side session provenance, not the agent session.
 	SourceSessionID string `json:"source_session_id,omitempty"`
 	// Notify / NotifySession mirror JobRequest (gofer-3db4): this job asks gofer to tell a
@@ -1532,6 +1547,19 @@ const (
 	// event answers "who really deleted something, and with which settings" without
 	// replaying every default. A run-now that overrode nothing records no params key.
 	EventScheduleRunNow = "schedule.run_now"
+	// EventScheduleRunSkipped is recorded on the SCHEDULE's own scope when a run was not
+	// submitted on purpose (design 2026-11-12 §1/§2): {schedule_id, reason, job_id?}.
+	// reason is previous_running (overlap=skip and the previous job is unfinished; job_id
+	// names it), precheck (the pre-run check said nothing to do) or unchanged (its output
+	// is the same as last time). A skip is not a failure. Not in the default notification
+	// set.
+	EventScheduleRunSkipped = "schedule.run_skipped"
+	// EventSchedulePaused is recorded on the SCHEDULE's own scope when gofer stopped a
+	// schedule by itself: {schedule_id, reason, failures, last_job_id}. reason is failures
+	// (max_failures consecutive failed runs) or max_runs (the run limit was reached). It
+	// is in the default notification set, so whoever watches notifications hears that the
+	// timer stopped; a failures pause also becomes a 「等我」 card.
+	EventSchedulePaused = "schedule.paused"
 	// Agent health transitions (design §六), recorded on the AGENT's own scope
 	// (`agent:<key>`, see AgentEventScope) because they belong to no job:
 	//   - agent.degraded  {agent, transient_fail, window_sec, last_error}

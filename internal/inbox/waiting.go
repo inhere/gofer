@@ -131,6 +131,10 @@ func signalsOf(c today.Card) (subject string, s Signals, ok bool) {
 		// The stranded child receipt is a job of the parent's that needs a person now: it
 		// shares the parent's subject, so one parent never appears twice.
 		return "job:" + c.Refs.JobID, Signals{FailedBySelf: true}, true
+	case KindSchedulePaused:
+		// A schedule paused by its failure streak is a failure of something the person
+		// set up: it files under the same 「失败」 class, with the schedule as its subject.
+		return "schedule:" + c.Refs.ScheduleID, Signals{FailedBySelf: true}, true
 	}
 	return "", Signals{}, false
 }

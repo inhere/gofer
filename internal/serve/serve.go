@@ -8,8 +8,6 @@ package serve
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -1065,7 +1063,9 @@ func sweepSchedules(now int64, due []jobstore.ScheduleRecord, missGrace int64,
 				setEnabled(r.ID, 0)
 				continue
 			}
-			setLast(r.ID, jobID)
+			if jobID != "" {
+				setLast(r.ID, jobID)
+			}
 			setEnabled(r.ID, 0)
 			continue
 		}
@@ -1091,7 +1091,9 @@ func sweepSchedules(now int64, due []jobstore.ScheduleRecord, missGrace int64,
 			errf("gofer: schedule %s submit failed: %v\n", r.ID, err)
 			continue
 		}
-		setLast(r.ID, jobID)
+		if jobID != "" { // "" = the run was skipped (overlap, pre-run check)
+			setLast(r.ID, jobID)
+		}
 	}
 }
 
@@ -1108,38 +1110,7 @@ func sweepSchedules(now int64, due []jobstore.ScheduleRecord, missGrace int64,
 // the error goes back to the sweep: the run is lost, the schedule itself is KEPT (the
 // sweep has already advanced its next instant — design §准入「定时运行同样终止并记录」).
 func submitDueSchedule(jobs *job.Service, permit *job.AdmissionPermit, r jobstore.ScheduleRecord) (string, error) {
-	var req job.JobRequest
-	if err := json.Unmarshal([]byte(r.RequestJSON), &req); err != nil {
-		return "", err
-	}
-	req.Channel = "cron"
-	req.OriginCaller = r.CreatorCaller
-	if req.OriginCaller == "" {
-		req.OriginCaller = req.CallerID
-	}
-	// Design 2026-10-22 §D2: a due run uses the schedule's parameter DEFAULTS, overlaid on
-	// the env the request stored. A row whose params cannot be decoded is a broken row, not
-	// a reason to fire it with a half-applied env: report the error instead.
-	params, err := job.DecodeScheduleParams(r.ParamsJSON)
-	if err != nil {
-		return "", err
-	}
-	if err := job.ApplyScheduleParams(&req, params, nil); err != nil {
-		return "", err
-	}
-	// gofer-3db4: a cron tick is gofer's own trigger — an end-notification the stored
-	// request asks for but nobody can be told about is dropped (with a
-	// job.notify_dropped event) instead of losing the run.
-	req.NotifyDegradable = true
-	res, err := jobs.SubmitWithPermit(permit, req)
-	if err != nil {
-		if errors.Is(err, job.ErrCeilingDenied) {
-			jobs.RecordScopedEvent(job.ScheduleEventScope(r.ID), job.EventScheduleRunFailed, r.ProjectKey,
-				map[string]any{"schedule_id": r.ID, "reason": err.Error()})
-		}
-		return "", err
-	}
-	return res.ID, nil
+	return jobs.ScheduleDispatcher().FireTimer(permit, r)
 }
 
 // sweepDueWakeups handles one JOB-09 pass over the timer wakeups (design §五.2).

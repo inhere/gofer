@@ -616,6 +616,20 @@ type Schedule struct {
 	TriggerToken string `json:"trigger_token,omitempty"`
 	// Params is the schedule's parameter declaration list (design 2026-10-22 §D1).
 	Params []job.ScheduleParam `json:"params,omitempty"`
+	// Run health (design 2026-11-12 §1): MaxRuns / RunCount / ConsecutiveFailures count
+	// timer-started runs only; PausedReason is "failures" or "max_runs" for a schedule
+	// gofer stopped itself.
+	Overlap             string `json:"overlap,omitempty"`
+	MaxRuns             int    `json:"max_runs,omitempty"`
+	RunCount            int    `json:"run_count,omitempty"`
+	MaxFailures         int    `json:"max_failures,omitempty"`
+	ConsecutiveFailures int    `json:"consecutive_failures,omitempty"`
+	PausedReason        string `json:"paused_reason,omitempty"`
+	// Precheck is the command the server runs before each due tick (design 2026-11-12 §2).
+	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
+	// Context is "on" or "off": whether each run gets its run number and the previous
+	// run's outcome.
+	Context string `json:"context,omitempty"`
 }
 
 // CreateScheduleRequest is POST /v1/schedules. Enabled/CatchUp are pointers so
@@ -634,6 +648,14 @@ type CreateScheduleRequest struct {
 	Webhook bool `json:"webhook,omitempty"`
 	// Params declares the schedule's parameters (design 2026-10-22 §D1).
 	Params []job.ScheduleParam `json:"params,omitempty"`
+	// Run health (design 2026-11-12 §1); nil = the server's new-schedule default.
+	Overlap     string `json:"overlap,omitempty"`
+	MaxRuns     *int   `json:"max_runs,omitempty"`
+	MaxFailures *int   `json:"max_failures,omitempty"`
+	// Precheck is the pre-run check; setting one needs the schedule.precheck permission.
+	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
+	// Context is "on" or "off"; "" = the server default (on).
+	Context string `json:"context,omitempty"`
 }
 
 // PatchScheduleRequest is PATCH /v1/schedules/{id} (design 2026-10-22 §D4). Every field
@@ -646,6 +668,14 @@ type PatchScheduleRequest struct {
 	Params     *[]job.ScheduleParam `json:"params,omitempty"`
 	Enabled    *bool                `json:"enabled,omitempty"`
 	TimeoutSec *int                 `json:"timeout_sec,omitempty"`
+	// Run health (design 2026-11-12 §1).
+	Overlap     *string `json:"overlap,omitempty"`
+	MaxRuns     *int    `json:"max_runs,omitempty"`
+	MaxFailures *int    `json:"max_failures,omitempty"`
+	// Precheck: a JSON object sets the pre-run check, the literal null clears it, nil
+	// leaves it alone.
+	Precheck json.RawMessage `json:"precheck,omitempty"`
+	Context  *string         `json:"context,omitempty"`
 }
 
 // PatchSchedule edits a schedule in place and returns the updated view.
