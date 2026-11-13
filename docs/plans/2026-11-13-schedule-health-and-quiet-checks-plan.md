@@ -42,7 +42,7 @@
 ## 前置与 fail-closed 条件
 
 - 主机建三个 worktree：`.worktrees/b2`（`feat/b2`，集成）、`.worktrees/b2-a`（`feat/b2-a`，A 链）、`.worktrees/b2-b`（`feat/b2-b`，B 链），基于当前 main，`.git` 改相对 gitdir，`web/node_modules` 链接主 checkout。
-- Go 命令：`GOWORK=off`，`GOCACHE` 在 `tmp/_cache/<名>`，`TMPDIR=/d/work/inhere/my-tools-dev/tmp/gotmp/<名>`（不得放在 `/d/work/inhere` 下）。
+- Go 命令：`GOWORK=off`，`GOCACHE` 在 `tmp/_cache/<名>`，`TMPDIR=/tmp/gofer-gotmp/<名>`（容器本地，须在任何 git 仓库之外；不得放在 `/d/work/inhere` 下）。
 - fail-closed（出现即停，回报）：基线 `go test ./internal/job ./internal/jobstore ./internal/serve ./internal/wshub ./internal/commands -count=1` 未改动时失败；需要改 worker 协议，或需要设计未列的权限。
 
 ## 波次与依赖
