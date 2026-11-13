@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # 第 2 批：定时与巡检少打扰 实施计划
 
-> 状态：Draft 0.1（待用户批准）
+> 状态：Draft 0.1 已批准（2026-11-13，用户：「计划 0.1 批准」）
 > 设计：`docs/design/2026-11-12-schedule-health-and-quiet-checks-design.md` Draft 0.2（已批准，Q1–Q8=A）
 > issue：gofer-ss3b、gofer-vqoe、gofer-2a86、gofer-4ymk、gofer-qm3l、gofer-fgwc、gofer-oby3、gofer-j01b
 
