@@ -216,6 +216,16 @@ func TestScheduleContextMaskingAndFence(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, store.TurnsFile), append(b, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The context itself must be masked: stdout below is masked again by the job's own
+	// masker, so it cannot tell whether the agent was handed the raw value.
+	probe := JobRequest{Agent: "fake", Prompt: "task", Secrets: []string{"ctx-secret"}}
+	s.ScheduleDispatcher().attachScheduleContext(getSchedule(t, s, rec.ID), jobstore.ScheduleTriggerTimer, &probe)
+	if probe.ScheduleContext == nil || probe.ScheduleContext.Prev == nil {
+		t.Fatal("no previous-run context attached")
+	}
+	if reply := probe.ScheduleContext.Prev.Reply; strings.Contains(reply, secret) || !strings.Contains(reply, "ok ***") {
+		t.Fatalf("previous reply in the context is not masked: %q", reply)
+	}
 	second := fireTimerAndWait(t, s, rec)
 	out := jobStdout(t, root, second.ID)
 	if strings.Contains(out, secret) {
