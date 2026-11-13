@@ -190,6 +190,9 @@ var catalogEvents = []EventInfo{
 	{Key: "config.updated", Group: "system",
 		Zh: "有人通过网页 / 接口改了配置（审计用）",
 		En: "Someone changed the config through the console / API (audit)"},
+	{Key: "worker.replaced", Group: "system",
+		Zh: "同一 worker_id 被另一个进程顶替连接（10 分钟内每个 worker 最多一条）",
+		En: "A worker connection was replaced by another process with the same worker_id (at most one per worker per 10 minutes)"},
 }
 
 // EventCatalog returns the catalog with each entry's Default / DesktopDefault flags filled

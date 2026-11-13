@@ -16,6 +16,9 @@ type workerDetailView struct {
 	// across restarts so the outcome stays readable after the worker comes back.
 	Upgrade        *workerupgrade.Record  `json:"upgrade,omitempty"`
 	UpgradeHistory []workerupgrade.Record `json:"upgrade_history,omitempty"`
+	// LastReplaced is the latest time another process with a different instance_id
+	// took this worker_id over; nil when it never happened.
+	LastReplaced *workerReplacedView `json:"last_replaced,omitempty"`
 }
 
 func (s *Server) handleWorkerView(c *rux.Context) {
@@ -29,7 +32,7 @@ func (s *Server) handleWorkerView(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown worker", "worker "+id+" is not configured")
 		return
 	}
-	view := workerDetailView{WorkerID: id, Upgrade: s.latestUpgrade(id), UpgradeHistory: s.upgradeHistory(id)}
+	view := workerDetailView{WorkerID: id, Upgrade: s.latestUpgrade(id), UpgradeHistory: s.upgradeHistory(id), LastReplaced: s.latestReplaced(id)}
 	if s.workers != nil {
 		if status, ok := s.workers.WorkerStatus(id); ok {
 			view.Connected = status.Connected

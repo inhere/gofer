@@ -24,6 +24,19 @@ type WorkerDetail struct {
 	// Upgrade is the latest remote-upgrade attempt (any state), nil when none.
 	Upgrade        *WorkerUpgradeRecord  `json:"upgrade,omitempty"`
 	UpgradeHistory []WorkerUpgradeRecord `json:"upgrade_history,omitempty"`
+	// LastReplaced is the latest takeover of this worker_id by a process with a
+	// different instance_id; nil when none was recorded.
+	LastReplaced *WorkerReplaced `json:"last_replaced,omitempty"`
+}
+
+// WorkerReplaced is one worker.replaced observation.
+type WorkerReplaced struct {
+	At          int64  `json:"at"`
+	OldInstance string `json:"old_instance,omitempty"`
+	NewInstance string `json:"new_instance,omitempty"`
+	OldRemote   string `json:"old_remote,omitempty"`
+	NewRemote   string `json:"new_remote,omitempty"`
+	Suppressed  int    `json:"suppressed,omitempty"`
 }
 
 type RunnerWorkerDetail struct {
