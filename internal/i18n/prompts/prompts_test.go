@@ -48,6 +48,11 @@ var goldenData = map[string]any{
 		NeedsInput:  true,
 		Instruction: "then merge the results",
 	},
+	NameScheduleContext: ScheduleContextData{
+		Name: "nightly-check", Run: 4, Timer: true, Submitted: 4, HasPrev: true,
+		PrevJobID: "job-prev-1", PrevStatus: "failed", PrevEnded: "2026-11-13T02:00:00Z",
+		PrevReply: "tests failed in pkg/a; retry next time", PrecheckOutput: "3 new issues", Fence: "```",
+	},
 	NameSummarizerInstruction: struct{}{},
 	NameSummarizerFormat:      struct{}{},
 	NameWorkflowPlan:          WorkflowPlanData{Task: "${vars.task}", Guidance: "planner guidance"},

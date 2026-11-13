@@ -45,6 +45,8 @@ var scheduleOpts = struct {
 	overlap     string
 	maxRuns     string
 	maxFailures string
+	// context is "on" | "off" (add: default on; edit: unchanged when unset).
+	context string
 	// precheck / precheckTimeout / precheckSkipUnchanged / clearPrecheck are the pre-run
 	// check flags of add and edit (design 2026-11-12 §2).
 	precheck              string
@@ -216,6 +218,7 @@ func bindScheduleParamFlags(c *gcli.Command) {
 func bindScheduleHealthFlags(c *gcli.Command) {
 	c.StrOpt(&scheduleOpts.overlap, "overlap", "", "", "when the previous run is unfinished: skip (default for new schedules) or allow")
 	c.StrOpt(&scheduleOpts.maxRuns, "max-runs", "", "", "stop the schedule after this many timer runs (0 = unlimited)")
+	c.StrOpt(&scheduleOpts.context, "context", "", "", "on (default for new schedules) or off: tell each run its run number and how the previous run ended")
 	c.StrOpt(&scheduleOpts.maxFailures, "max-failures", "", "", "pause the schedule after this many consecutive failed runs (default 3 for new schedules, 0 = never)")
 }
 
@@ -244,6 +247,15 @@ func schedulePrecheckFromFlags() (*job.SchedulePrecheck, error) {
 		return nil, err
 	}
 	return pc, nil
+}
+
+// scheduleContextFromFlag validates --context ("" = not given).
+func scheduleContextFromFlag() (string, error) {
+	v := strings.TrimSpace(scheduleOpts.context)
+	if v != "" && v != "on" && v != "off" {
+		return "", fmt.Errorf("--context must be on or off")
+	}
+	return v, nil
 }
 
 func scheduleHealthFromFlags() (overlap string, maxRuns, maxFailures *int, err error) {
@@ -337,6 +349,9 @@ func buildScheduleCreateRequest(c *gcli.Command, cli *client.Client) (client.Cre
 	if out.Precheck, err = schedulePrecheckFromFlags(); err != nil {
 		return client.CreateScheduleRequest{}, err
 	}
+	if out.Context, err = scheduleContextFromFlag(); err != nil {
+		return client.CreateScheduleRequest{}, err
+	}
 	if delayRaw != "" {
 		d, err := time.ParseDuration(delayRaw)
 		if err != nil {
@@ -417,6 +432,7 @@ func runScheduleShow(c *gcli.Command, _ []string) error {
 	c.Printf("project:     %s\n", s.ProjectKey)
 	c.Printf("enabled:     %s\n", scheduleEnabledText(s))
 	c.Printf("overlap:     %s\n", scheduleOverlapText(s))
+	c.Printf("context:     %s\n", scheduleContextText(s))
 	c.Printf("runs:        %s\n", scheduleRunsText(s))
 	c.Printf("failures:    %s\n", scheduleFailuresText(s))
 	c.Printf("precheck:    %s\n", schedulePrecheckText(s))
@@ -607,6 +623,14 @@ func runScheduleEdit(c *gcli.Command, _ []string) error {
 		req.MaxFailures = maxFailures
 		touched = true
 	}
+	ctxMode, err := scheduleContextFromFlag()
+	if err != nil {
+		return err
+	}
+	if ctxMode != "" {
+		req.Context = &ctxMode
+		touched = true
+	}
 	pc, err := schedulePrecheckFromFlags()
 	if err != nil {
 		return err
@@ -635,7 +659,7 @@ func runScheduleEdit(c *gcli.Command, _ []string) error {
 		touched = true
 	}
 	if !touched {
-		return fmt.Errorf("nothing to change: give at least one of --cron, --at, --title, --param-def, --params-file, --timeout, --enable, --disable, --overlap, --max-runs, --max-failures, --precheck, --clear-precheck")
+		return fmt.Errorf("nothing to change: give at least one of --cron, --at, --title, --param-def, --params-file, --timeout, --enable, --disable, --overlap, --max-runs, --max-failures, --precheck, --clear-precheck, --context")
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -750,6 +774,13 @@ func schedulePrecheckText(s client.Schedule) string {
 		out += "  (skip when the output is unchanged)"
 	}
 	return out
+}
+
+func scheduleContextText(s client.Schedule) string {
+	if s.Context == "" {
+		return "off"
+	}
+	return s.Context
 }
 
 func scheduleOverlapText(s client.Schedule) string {

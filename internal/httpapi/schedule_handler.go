@@ -45,6 +45,9 @@ type createScheduleReq struct {
 	// Precheck is the command the server runs before each due tick (design 2026-11-12 §2);
 	// setting one needs the schedule.precheck permission and a runner on this server.
 	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
+	// Context is "on" (default for a new schedule) or "off": whether each run is told its
+	// run number and how the previous run ended (design 2026-11-12 §3).
+	Context string `json:"context,omitempty"`
 }
 
 // Defaults of a newly created schedule's run health; schedules that existed before the
@@ -87,6 +90,8 @@ type scheduleView struct {
 	PausedReason        string `json:"paused_reason,omitempty"`
 	// Precheck is the schedule's pre-run check, omitted when it has none.
 	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
+	// Context is "on" or "off" (see createScheduleReq).
+	Context string `json:"context"`
 }
 
 func (s *Server) handleCreateSchedule(c *rux.Context) {
@@ -152,6 +157,11 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid schedule", err.Error())
 		return
 	}
+	contextMode, err := scheduleContextInput(req.Context)
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid schedule", err.Error())
+		return
+	}
 	precheckJSON := ""
 	if req.Precheck.IsSet() {
 		if !s.acceptSchedulePrecheck(c, req.Precheck, req.Request.Runner) {
@@ -185,6 +195,7 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		MaxRuns:      maxRuns,
 		MaxFailures:  maxFailures,
 		PrecheckJSON: precheckJSON,
+		Context:      contextMode,
 		// The creator is the schedule's ceiling owner: the sweeper and the webhook submit
 		// with it, so a timer made by a restricted caller stays bounded after the creating
 		// request is gone (design 2026-10-18, 上限所有者).
@@ -614,6 +625,25 @@ func storedPrecheck(rec jobstore.ScheduleRecord) *job.SchedulePrecheck {
 	return pc
 }
 
+// scheduleContextInput validates the context field of a create request; omitted = on (the
+// new-schedule default).
+func scheduleContextInput(v string) (string, error) {
+	switch v = strings.TrimSpace(v); v {
+	case "":
+		return jobstore.ScheduleContextOn, nil
+	case jobstore.ScheduleContextOn, jobstore.ScheduleContextOff:
+		return v, nil
+	}
+	return "", fmt.Errorf("context must be on or off")
+}
+
+func contextOrDefault(v string) string {
+	if v == "" {
+		return jobstore.ScheduleContextOff
+	}
+	return v
+}
+
 func overlapOrDefault(o string) string {
 	if o == "" {
 		return jobstore.ScheduleOverlapAllow
@@ -680,6 +710,7 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 		ConsecutiveFailures: rec.ConsecutiveFailures,
 		PausedReason:        rec.PausedReason,
 		Precheck:            storedPrecheck(rec),
+		Context:             contextOrDefault(rec.Context),
 	}
 }
 

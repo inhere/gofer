@@ -101,7 +101,7 @@ var continuationFieldClasses = map[string]string{
 	"Retry": fieldTodo, "WorkflowID": fieldTodo, "StepIndex": fieldTodo, "Attempt": fieldTodo, "FanIndex": fieldTodo,
 	"NoFallback": fieldTodo, "FellBackFrom": fieldTodo, "RequestedAgent": fieldTodo,
 	// set only by the schedule dispatcher; a plan item is not a schedule run
-	"ScheduleID": fieldTodo, "ScheduleTrigger": fieldTodo,
+	"ScheduleID": fieldTodo, "ScheduleTrigger": fieldTodo, "ScheduleContext": fieldTodo,
 	// Submit's own bookkeeping
 	"admissionPermit": fieldInternal, "heldJobID": fieldInternal, "held": fieldInternal, "decisions": fieldInternal,
 	"ruleRefs": fieldInternal, "ruleBytes": fieldInternal, "rulesSkipped": fieldInternal,

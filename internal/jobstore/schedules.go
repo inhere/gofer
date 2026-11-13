@@ -53,8 +53,11 @@ type ScheduleRecord struct {
 	// fingerprint of the last check whose run was submitted (skip_unchanged).
 	PrecheckJSON        string
 	PrecheckFingerprint string
-	CreatedAt           int64
-	UpdatedAt           int64
+	// Context is "on" or "off": whether a run is given its schedule context (run number,
+	// previous run, prompt section). Rows written before the column read "off".
+	Context   string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'cron'), cron_expr, request_json, enabled,
@@ -63,7 +66,7 @@ const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'
   COALESCE(creator_caller,''), COALESCE(params_json,''), created_at, updated_at,
   COALESCE(overlap,'allow'), COALESCE(max_runs,0), COALESCE(run_count,0), COALESCE(max_failures,0),
   COALESCE(consecutive_failures,0), COALESCE(paused_reason,''),
-  COALESCE(precheck_json,''), COALESCE(precheck_fingerprint,'')
+  COALESCE(precheck_json,''), COALESCE(precheck_fingerprint,''), COALESCE(context,'off')
   FROM schedules`
 
 func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
@@ -73,7 +76,7 @@ func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
 		&r.NextRunAt, &r.LastRunAt, &r.LastJobID,
 		&r.CatchUp, &r.ProjectKey, &r.TriggerToken, &r.CreatorCaller, &r.ParamsJSON, &r.CreatedAt, &r.UpdatedAt,
 		&r.Overlap, &r.MaxRuns, &r.RunCount, &r.MaxFailures, &r.ConsecutiveFailures, &r.PausedReason,
-		&r.PrecheckJSON, &r.PrecheckFingerprint,
+		&r.PrecheckJSON, &r.PrecheckFingerprint, &r.Context,
 	)
 	return r, err
 }
@@ -89,19 +92,22 @@ func (s *Store) InsertSchedule(r ScheduleRecord) error {
 	if r.Overlap == "" {
 		r.Overlap = ScheduleOverlapAllow
 	}
+	if r.Context == "" {
+		r.Context = ScheduleContextOff
+	}
 	const q = `INSERT INTO schedules
   (id, name, schedule_type, cron_expr, request_json, enabled, next_run_at, last_run_at,
    last_job_id, catch_up, project_key, trigger_token, creator_caller, params_json, created_at, updated_at,
    overlap, max_runs, run_count, max_failures, consecutive_failures, paused_reason,
-   precheck_json, precheck_fingerprint)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   precheck_json, precheck_fingerprint, context)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		r.ID, r.Name, r.ScheduleType, r.CronExpr, r.RequestJSON, r.Enabled, r.NextRunAt, r.LastRunAt,
 		r.LastJobID, r.CatchUp, r.ProjectKey, r.TriggerToken, r.CreatorCaller, r.ParamsJSON, r.CreatedAt, r.UpdatedAt,
 		r.Overlap, r.MaxRuns, r.RunCount, r.MaxFailures, r.ConsecutiveFailures, r.PausedReason,
-		r.PrecheckJSON, r.PrecheckFingerprint,
+		r.PrecheckJSON, r.PrecheckFingerprint, r.Context,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert schedule %q: %w", r.ID, err)
 	}
@@ -244,6 +250,8 @@ type ScheduleUpdate struct {
 	// value to keep afterwards (the handler passes "" when the argv changed).
 	PrecheckJSON        string
 	PrecheckFingerprint string
+	// Context replaces the context mode ("on" | "off"); "" leaves it as it is.
+	Context string
 }
 
 // UpdateSchedule writes a schedule's mutable fields in one statement.
@@ -256,11 +264,11 @@ func (s *Store) UpdateSchedule(id string, u ScheduleUpdate) error {
    params_json = ?, next_run_at = ?, overlap = ?, max_runs = ?, max_failures = ?, updated_at = ?,
    consecutive_failures = CASE WHEN enabled = 0 AND ? = 1 THEN 0 ELSE consecutive_failures END,
    paused_reason = CASE WHEN ? = 1 OR enabled = 1 THEN '' ELSE paused_reason END,
-   precheck_json = ?, precheck_fingerprint = ?,
+   precheck_json = ?, precheck_fingerprint = ?, context = COALESCE(NULLIF(?, ''), context),
    enabled = ? WHERE id = ?`,
 		u.Name, u.ScheduleType, u.CronExpr, u.RequestJSON, u.ParamsJSON, u.NextRunAt,
 		u.Overlap, u.MaxRuns, u.MaxFailures, time.Now().Unix(),
-		u.Enabled, u.Enabled, u.PrecheckJSON, u.PrecheckFingerprint, u.Enabled, id,
+		u.Enabled, u.Enabled, u.PrecheckJSON, u.PrecheckFingerprint, u.Context, u.Enabled, id,
 	); err != nil {
 		return fmt.Errorf("jobstore: update schedule %q: %w", id, err)
 	}

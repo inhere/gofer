@@ -482,6 +482,10 @@ type JobRequest struct {
 	// replayed request never counts toward a schedule's health.
 	ScheduleID      string `json:"-" yaml:"-"`
 	ScheduleTrigger string `json:"-" yaml:"-"`
+	// ScheduleContext is the run's schedule context (run number, previous run), set by the
+	// schedule dispatcher for a schedule with context on; Submit renders it into the start of
+	// an agent job's prompt. In memory only: never in request_json or on the wire.
+	ScheduleContext *ScheduleContext `json:"-" yaml:"-"`
 	// ExtraCeilingOwners are ADDITIONAL ceiling owners a derived request must also satisfy
 	// (design decision 8): a plan item dispatched by one caller for a todo AUTHORED by
 	// another carries the author here, so both bounds apply. Server-set, never from a body;

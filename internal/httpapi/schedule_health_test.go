@@ -36,6 +36,9 @@ func TestScheduleCreateRunHealthDefaultsAndValidation(t *testing.T) {
 	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	def := createHealthSchedule(t, s, healthScheduleReq("defaults", []string{"go", "version"}))
+	if def.Context != "on" {
+		t.Fatalf("a new schedule's context = %q, want on", def.Context)
+	}
 	if def.Overlap != "skip" || def.MaxFailures != 3 || def.MaxRuns != 0 || def.RunCount != 0 || def.ConsecutiveFailures != 0 || def.PausedReason != "" {
 		t.Fatalf("defaults = %+v", def)
 	}
@@ -303,5 +306,44 @@ func TestSchedulePrecheckPatch(t *testing.T) {
 	}
 	if rec, _, _ := meta.GetSchedule(v.ID); rec.PrecheckJSON != "" || rec.PrecheckFingerprint != "" {
 		t.Fatalf("row after clear: json=%q fingerprint=%q", rec.PrecheckJSON, rec.PrecheckFingerprint)
+	}
+}
+
+// context: omitted = on for a new schedule; off is stored; anything else is a 400; PATCH
+// switches it and refuses a bad value.
+func TestScheduleContextCreateAndPatch(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t, testToken, false)
+	off := healthScheduleReq("ctx-off", []string{"go", "version"})
+	off.Context = "off"
+	v := createHealthSchedule(t, s, off)
+	if v.Context != "off" {
+		t.Fatalf("created context = %q, want off", v.Context)
+	}
+	bad := healthScheduleReq("ctx-bad", []string{"go", "version"})
+	bad.Context = "maybe"
+	if resp := do(t, s, http.MethodPost, "/v1/schedules", testToken, bad); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("context=maybe: status=%d, want 400", resp.StatusCode)
+	}
+
+	resp := do(t, s, http.MethodPatch, "/v1/schedules/"+v.ID, testToken, map[string]any{"context": "on"})
+	var after scheduleView
+	decode(t, resp, &after)
+	if after.Context != "on" {
+		t.Fatalf("patched context = %q, want on", after.Context)
+	}
+	for _, body := range []map[string]any{{"context": "maybe"}, {"context": ""}} {
+		r := do(t, s, http.MethodPatch, "/v1/schedules/"+v.ID, testToken, body)
+		if r.StatusCode != http.StatusBadRequest {
+			t.Fatalf("patch %v: status=%d, want 400", body, r.StatusCode)
+		}
+		r.Body.Close()
+	}
+	// A patch that does not mention it leaves it alone.
+	keep := do(t, s, http.MethodPatch, "/v1/schedules/"+v.ID, testToken, map[string]any{"title": "renamed"})
+	var kept scheduleView
+	decode(t, keep, &kept)
+	if kept.Context != "on" {
+		t.Fatalf("context = %q after an unrelated patch, want on", kept.Context)
 	}
 }

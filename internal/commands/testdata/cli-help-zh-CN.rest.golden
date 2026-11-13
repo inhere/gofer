@@ -791,6 +791,7 @@ schedule add	flag agent	agent key (required)
 schedule add	flag at	create a one-shot schedule at RFC3339 or unix seconds
 schedule add	flag catch-up	run once after a missed tick within the server grace window
 schedule add	flag config	path to the gofer config file
+schedule add	flag context	on (default for new schedules) or off: tell each run its run number and how the previous run ended
 schedule add	flag cron	standard 5-field cron expression
 schedule add	flag cwd	working dir within the project
 schedule add	flag delay	create a one-shot schedule after a duration, e.g. 30s/5m
@@ -827,6 +828,7 @@ schedule edit	examples
 schedule edit	flag at	new one-shot run time (RFC3339 or unix seconds)
 schedule edit	flag clear-precheck	remove the schedule's pre-run check
 schedule edit	flag config	path to the gofer config file
+schedule edit	flag context	on (default for new schedules) or off: tell each run its run number and how the previous run ended
 schedule edit	flag cron	new cron expression (recomputes the next run)
 schedule edit	flag disable	turn the schedule off
 schedule edit	flag enable	turn the schedule on

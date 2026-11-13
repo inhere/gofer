@@ -64,6 +64,7 @@ func (d *ScheduleDispatcher) Dispatch(permit *AdmissionPermit, rec jobstore.Sche
 	if run, skipped, err := d.overlapSkip(rec); skipped || err != nil {
 		return run, err
 	}
+	d.attachScheduleContext(rec, trigger, &req)
 	req.ScheduleID = rec.ID
 	req.ScheduleTrigger = trigger
 	var (

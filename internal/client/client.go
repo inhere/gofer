@@ -627,6 +627,9 @@ type Schedule struct {
 	PausedReason        string `json:"paused_reason,omitempty"`
 	// Precheck is the command the server runs before each due tick (design 2026-11-12 §2).
 	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
+	// Context is "on" or "off": whether each run gets its run number and the previous
+	// run's outcome.
+	Context string `json:"context,omitempty"`
 }
 
 // CreateScheduleRequest is POST /v1/schedules. Enabled/CatchUp are pointers so
@@ -651,6 +654,8 @@ type CreateScheduleRequest struct {
 	MaxFailures *int   `json:"max_failures,omitempty"`
 	// Precheck is the pre-run check; setting one needs the schedule.precheck permission.
 	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
+	// Context is "on" or "off"; "" = the server default (on).
+	Context string `json:"context,omitempty"`
 }
 
 // PatchScheduleRequest is PATCH /v1/schedules/{id} (design 2026-10-22 §D4). Every field
@@ -670,6 +675,7 @@ type PatchScheduleRequest struct {
 	// Precheck: a JSON object sets the pre-run check, the literal null clears it, nil
 	// leaves it alone.
 	Precheck json.RawMessage `json:"precheck,omitempty"`
+	Context  *string         `json:"context,omitempty"`
 }
 
 // PatchSchedule edits a schedule in place and returns the updated view.

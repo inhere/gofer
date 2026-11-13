@@ -189,6 +189,7 @@ func TestSetScheduleEnabledClearsPause(t *testing.T) {
 	assert.Eq(t, "", got.PausedReason)
 	assert.Eq(t, "", got.PrecheckJSON)
 	assert.Eq(t, "", got.PrecheckFingerprint)
+	assert.Eq(t, ScheduleContextOff, got.Context) // an old schedule is not suddenly told about its runs
 }
 
 // The pre-run check declaration and its fingerprint round trip; UpdateSchedule replaces or
@@ -268,4 +269,21 @@ func TestUpgradedScheduleRowKeepsOldBehavior(t *testing.T) {
 	assert.Eq(t, 0, got.MaxRuns)
 	assert.Eq(t, 0, got.RunCount)
 	assert.Eq(t, "", got.PausedReason)
+}
+
+// UpdateSchedule changes the context mode only when it is given.
+func TestUpdateScheduleContextMode(t *testing.T) {
+	s := openTest(t)
+	insertHealthSchedule(t, s, "sch-cx", func(r *ScheduleRecord) { r.Context = ScheduleContextOn })
+	got, _, _ := s.GetSchedule("sch-cx")
+	assert.Eq(t, ScheduleContextOn, got.Context)
+	upd := ScheduleUpdate{Name: got.Name, ScheduleType: "cron", CronExpr: got.CronExpr, RequestJSON: got.RequestJSON,
+		Enabled: 1, NextRunAt: got.NextRunAt, Overlap: got.Overlap}
+	assert.NoErr(t, s.UpdateSchedule("sch-cx", upd)) // Context "" = unchanged
+	got, _, _ = s.GetSchedule("sch-cx")
+	assert.Eq(t, ScheduleContextOn, got.Context)
+	upd.Context = ScheduleContextOff
+	assert.NoErr(t, s.UpdateSchedule("sch-cx", upd))
+	got, _, _ = s.GetSchedule("sch-cx")
+	assert.Eq(t, ScheduleContextOff, got.Context)
 }

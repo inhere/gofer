@@ -346,6 +346,8 @@ func (d *ScheduleDispatcher) submitChecked(rec jobstore.ScheduleRecord, req JobR
 	_, secretValues, _ := resolveSecrets(cfg, req.Secrets)
 	output := maskSecrets(strings.TrimRight(res.Tail, " \t\r\n"), secretValues)
 	req.Env = util.EnvWith(req.Env, map[string]string{EnvPrecheckOutput: output})
+	// Dispatch fills in the rest of the schedule context; the check output rides along.
+	req.ScheduleContext = &ScheduleContext{PrecheckOutput: output}
 	if req.Template != "" {
 		req.TemplateVars = util.EnvWith(req.TemplateVars, map[string]string{precheckVarOutput: output})
 	}

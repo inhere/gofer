@@ -16,6 +16,13 @@ const (
 	ScheduleOverlapAllow = "allow"
 )
 
+// Schedule context modes (schedules.context): whether each run is told which run of the
+// schedule it is and how the previous one ended.
+const (
+	ScheduleContextOn  = "on"
+	ScheduleContextOff = "off"
+)
+
 // Schedule paused reasons (schedules.paused_reason). Empty = stopped by hand.
 const (
 	SchedulePausedFailures = "failures"
@@ -64,6 +71,8 @@ func (s *Store) migrateScheduleHealth() error {
 		// fingerprint of the output of the last check whose run was submitted.
 		{"precheck_json", "precheck_json TEXT NOT NULL DEFAULT ''"},
 		{"precheck_fingerprint", "precheck_fingerprint TEXT NOT NULL DEFAULT ''"},
+		// Cross-run context (design 2026-11-12 §3): rows that predate it stay off.
+		{"context", "context TEXT NOT NULL DEFAULT 'off'"},
 	} {
 		if _, ok := cols[c.name]; ok {
 			continue
