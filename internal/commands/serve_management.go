@@ -102,6 +102,9 @@ type serveStatusOutput struct {
 	// AuthToken is where the managed service's auth token comes from and whether
 	// this terminal resolves the same one (gofer-t9md). Never the value itself.
 	AuthToken *serveAuthTokenStatus `json:"auth_token,omitempty"`
+	// portListening is set when the configured port is not owned by the verified
+	// server: whether anything at all accepts connections there (exit-code input).
+	portListening bool
 }
 
 // versionAuthMismatch is the diagnosis of a 401 from the version probe: the token
@@ -154,6 +157,9 @@ func newServeManagementCommands(info buildinfo.Info) []*gcli.Command {
 	status := &gcli.Command{Name: "status", Desc: "Inspect native registration, server identity and health", Config: func(c *gcli.Command) {
 		bindManageName(c)
 		c.BoolOpt(&manageOpts.asJSON, "json", "", false, "print JSON")
+		// The verdict is already in the output (state=...) and the exit code; the
+		// default handler would print the coded error again (and corrupt --json).
+		c.On(gcli.EvtCmdRunError, func(*gcli.HookCtx) bool { return true })
 	}, Func: runServeManagedStatus}
 	logs := &gcli.Command{Name: "logs", Desc: "Read the managed application log", Config: func(c *gcli.Command) {
 		bindConfigFlag(c)
@@ -412,8 +418,12 @@ func runServeManagedStatus(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	state, code := classifyServeStatus(out)
 	if manageOpts.asJSON {
-		return json.NewEncoder(os.Stdout).Encode(out)
+		if err := json.NewEncoder(os.Stdout).Encode(serveStatusJSON{serveStatusOutput: out, State: state, ExitCode: code}); err != nil {
+			return err
+		}
+		return serveStatusExitError(state, code)
 	}
 	c.Printf("name=%s registered=%t native=%s active=%t server_pid=%d verified=%t port_owned=%t health=%s registered_version=%s running_version=%s\n",
 		out.Name, out.Registered, out.NativeState, out.Active, out.ServerPID, out.ServerVerified,
@@ -435,7 +445,8 @@ func runServeManagedStatus(c *gcli.Command, _ []string) error {
 			c.Printf("%s\n", line)
 		}
 	}
-	return nil
+	c.Printf("state=%s\n", state)
+	return serveStatusExitError(state, code)
 }
 
 func inspectManagedStatus(ctx context.Context, m *servicemgr.Manager) (serveStatusOutput, error) {
@@ -513,6 +524,7 @@ func inspectManagedStatus(ctx context.Context, m *servicemgr.Manager) (serveStat
 	out.PortOwned = owned
 	if !owned {
 		out.IdentityError = "configured port is not owned by the verified server PID"
+		out.portListening = managedPortListening(host, rawPort)
 		return out, nil
 	}
 	probeHost := host
