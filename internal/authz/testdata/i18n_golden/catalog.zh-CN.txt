@@ -18,6 +18,7 @@ session.transfer	转移会话归属
 plan.manage.others	他人 plan 的修改 / run / pause / resume / attach / todo 增改与派发 / handoff
 plan.supervise.others	给他人 plan 绑定 supervisor，或绑定他人会话
 schedule.manage.others	他人 schedule 的删除 / 启停 / 轮换 token / run-now（run-now 另需 `job.submit`）
+schedule.precheck	设置或修改 schedule 的前置检查（server 在每次到点前以自身身份运行的命令；清除前置检查不需要）
 steward.manage	steward start / stop / restart / ask / review，以及 notes 写入
 memory.write	写、删 tracker 记忆与 scoped 记忆（会注入所有 job 的 prompt），采纳记忆建议
 memory.synthesis.run	手动触发每日记忆综合（`POST /v1/memory-syntheses/run`，含 `force` 重跑）：会按 `memory.synthesis` 配置调用一次只读、无工具的模型并产生费用；另需 `memory.synthesis.enabled`

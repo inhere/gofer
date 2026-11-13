@@ -257,6 +257,9 @@ const (
 	PermPlanManageOthers     = "plan.manage.others"
 	PermPlanSuperviseOthers  = "plan.supervise.others"
 	PermScheduleManageOthers = "schedule.manage.others"
+	// PermSchedulePrecheck sets or changes a schedule's pre-run check: a command the
+	// server itself runs before each due tick (design 2026-11-12 §2).
+	PermSchedulePrecheck = "schedule.precheck"
 
 	// steward, memories, tracker.
 	PermStewardManage = "steward.manage"
@@ -380,6 +383,14 @@ var catalog = []Permission{
 	{
 		Name: PermScheduleManageOthers, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeYes, Source: SourceSeed, SeedVersion: SeedV1,
+	},
+	{
+		// A pre-run check executes a command on the server machine with the server's own
+		// identity on every tick, so it is for the root administrator and whoever is
+		// granted it explicitly; it is not seeded, a session never holds it, and a job
+		// credential cannot reach the schedule routes at all (SEC-01 default-denies them).
+		Name: PermSchedulePrecheck, Risk: RiskHigh, SessionGrantable: false,
+		Scope: ScopeNo, Source: SourceRoot,
 	},
 	{
 		Name: PermStewardManage, Risk: RiskHigh, SessionGrantable: false,

@@ -500,7 +500,10 @@ var routeDecls = map[string]routeDecl{
 	// 是「他人 schedule 的删除 / 启停 / 轮换 token / run-now」的写动作（不像紧邻的 xfer.manage.others
 	// 行写了「读取」），而读带出来的 trigger_token 已由 gofer-hxld 按调用方掩码 —— 附录 A 的建议列曾把
 	// 读划给该权限，但「附录 A 的『建议权限』列以正文为准」。
-	"POST /v1/schedules":                   {user: Require(authz.PermJobSubmit), scope: BodyProject()},
+	// Creating asks job.submit always and schedule.precheck only when the body carries a
+	// non-empty pre-run check (a command the server will run before every tick): the handler
+	// decides both, because only it sees the body.
+	"POST /v1/schedules":                   {user: InHandler(permDeny, authz.PermJobSubmit, authz.PermSchedulePrecheck), scope: BodyProject()},
 	"GET /v1/schedules":                    {user: Public(), scope: Filter()},
 	"POST /v1/schedules/cron-preview":      {user: Public(), scope: NoProject(), rw: ReadSafe()},
 	"GET /v1/schedules/{id}":               {user: Public(), scope: Resource("schedule")},
@@ -513,7 +516,9 @@ var routeDecls = map[string]routeDecl{
 	// PATCH edits the task in place (cron/at, title, params, enabled, timeout_sec): the same
 	// permission as deleting it. The handler asks job.submit on top when the body sets
 	// enabled:true, because that turns the cron loop loose on the stored request.
-	"PATCH /v1/schedules/{id}": {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit), scope: Resource("schedule")},
+	// Setting or changing a pre-run check additionally asks schedule.precheck (only when the
+	// body carries a non-empty one; clearing it needs nothing).
+	"PATCH /v1/schedules/{id}": {user: InHandler(permDeny, authz.PermScheduleManageOthers, authz.PermJobSubmit, authz.PermSchedulePrecheck), scope: Resource("schedule")},
 
 	// ---- plan T1.5d: plans 与 todos、work items（含 Today 首页）----
 	//

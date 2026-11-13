@@ -801,6 +801,9 @@ schedule add	flag overlap	when the previous run is unfinished: skip (default for
 schedule add	flag param-def	declare a param as NAME[:type]=default[#desc] (repeatable; type: string|int|bool)
 schedule add	flag params-file	YAML file with the full param declaration list (name/type/default/desc/choices)
 schedule add	flag plan	attach the job to a plan (grouping key)
+schedule add	flag precheck	command the server runs before each due tick, split on spaces and run without a shell: exit 0 = go, exit 2 = skip quietly, else a failed run (needs the schedule.precheck permission; local runner only)
+schedule add	flag precheck-skip-unchanged	skip a run whose pre-run check output is the same as the last submitted run's
+schedule add	flag precheck-timeout	pre-run check timeout in seconds (0 = 60, at most 300)
 schedule add	flag project	project key (required)
 schedule add	flag prompt	prompt text for cli-agent (use -- <argv...> for exec)
 schedule add	flag role	role preset: fills agent/system_prompt/project/tags when unset
@@ -822,6 +825,7 @@ schedule edit	desc	Edit a schedule in place: cron/at, title, params, enabled, ti
 schedule edit	help	
 schedule edit	examples	
 schedule edit	flag at	new one-shot run time (RFC3339 or unix seconds)
+schedule edit	flag clear-precheck	remove the schedule's pre-run check
 schedule edit	flag config	path to the gofer config file
 schedule edit	flag cron	new cron expression (recomputes the next run)
 schedule edit	flag disable	turn the schedule off
@@ -831,6 +835,9 @@ schedule edit	flag max-runs	stop the schedule after this many timer runs (0 = un
 schedule edit	flag overlap	when the previous run is unfinished: skip (default for new schedules) or allow
 schedule edit	flag param-def	declare a param as NAME[:type]=default[#desc] (repeatable; type: string|int|bool)
 schedule edit	flag params-file	YAML file with the full param declaration list (name/type/default/desc/choices)
+schedule edit	flag precheck	command the server runs before each due tick, split on spaces and run without a shell: exit 0 = go, exit 2 = skip quietly, else a failed run (needs the schedule.precheck permission; local runner only)
+schedule edit	flag precheck-skip-unchanged	skip a run whose pre-run check output is the same as the last submitted run's
+schedule edit	flag precheck-timeout	pre-run check timeout in seconds (0 = 60, at most 300)
 schedule edit	flag server	server address (overrides config server.addr)
 schedule edit	flag timeout	new job timeout in seconds (0 = server default)
 schedule edit	flag title	new title

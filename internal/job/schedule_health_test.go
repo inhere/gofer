@@ -161,6 +161,7 @@ func setCmd(t *testing.T, s *Service, id string, cmd []string) {
 	err := s.meta.UpdateSchedule(id, jobstore.ScheduleUpdate{
 		Name: cur.Name, ScheduleType: cur.ScheduleType, CronExpr: cur.CronExpr, RequestJSON: healthRequestJSON(t, cmd),
 		Enabled: cur.Enabled, NextRunAt: cur.NextRunAt, Overlap: cur.Overlap, MaxRuns: cur.MaxRuns, MaxFailures: cur.MaxFailures,
+		PrecheckJSON: cur.PrecheckJSON, PrecheckFingerprint: cur.PrecheckFingerprint,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -173,6 +174,7 @@ func setOverlap(t *testing.T, s *Service, id, overlap string) {
 	err := s.meta.UpdateSchedule(id, jobstore.ScheduleUpdate{
 		Name: cur.Name, ScheduleType: cur.ScheduleType, CronExpr: cur.CronExpr, RequestJSON: cur.RequestJSON,
 		Enabled: cur.Enabled, NextRunAt: cur.NextRunAt, Overlap: overlap, MaxRuns: cur.MaxRuns, MaxFailures: cur.MaxFailures,
+		PrecheckJSON: cur.PrecheckJSON, PrecheckFingerprint: cur.PrecheckFingerprint,
 	})
 	if err != nil {
 		t.Fatal(err)

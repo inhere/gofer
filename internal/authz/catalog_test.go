@@ -79,6 +79,8 @@ var addedRows = []struct {
 	{PermMcpTest, designRow{PermSettingsRead, RiskLow, true, ScopeYes, SourceSeed, SeedV3}},
 	{PermMcpTest, designRow{PermSettingsWrite, RiskMedium, false, ScopeYes, SourceRoot, NotSeeded}},
 	{PermMcpTest, designRow{PermTriggerRead, RiskMedium, false, ScopeNo, SourceRoot, NotSeeded}},
+	// schedule.precheck (design 2026-11-12 §2): high risk, root-only until granted, never a session's.
+	{PermScheduleManageOthers, designRow{PermSchedulePrecheck, RiskHigh, false, ScopeNo, SourceRoot, NotSeeded}},
 }
 
 // expectedCatalog returns the design table with addedRows spliced in where the catalog puts
@@ -150,7 +152,7 @@ func TestPermissionConstantsMatchCatalog(t *testing.T) {
 		PermJobReviewOthers, PermJobWakeOthers, PermInteractionAnswer,
 		PermSessionReadOthers, PermSessionReplyOthers, PermSessionManageOthers,
 		PermSessionPermissionAnswer, PermSessionTransfer,
-		PermPlanManageOthers, PermPlanSuperviseOthers, PermScheduleManageOthers,
+		PermPlanManageOthers, PermPlanSuperviseOthers, PermScheduleManageOthers, PermSchedulePrecheck,
 		PermStewardManage, PermMemoryWrite, PermMemorySynthesisRun, PermTrackerSync, PermTrackerDelete,
 		PermTunnelOpen, PermTunnelHosted, PermTunnelManageOthers,
 		PermXferWrite, PermXferManageOthers, PermSecretScanAll,

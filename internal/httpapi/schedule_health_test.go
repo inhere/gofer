@@ -3,8 +3,11 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
+	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -161,5 +164,144 @@ func TestScheduleRunNowAndWebhookHonourOverlap(t *testing.T) {
 	after, _, _ := meta.GetSchedule(created.ID)
 	if after.RunCount != 0 {
 		t.Fatalf("run_count = %d after a run-now, want 0", after.RunCount)
+	}
+}
+
+// precheckServer has an ordinary caller (alice: job.submit, no schedule.precheck — it is not
+// seeded), a root administrator and a peer runner a schedule may name.
+func precheckServer(t *testing.T) *Server {
+	t.Helper()
+	return newTestServerCfgWith(t, config.ServerConfig{
+		Callers: []config.CallerConfig{
+			{ID: "alice", Token: "tok-alice"},
+			{ID: "root", Token: "tok-root", CanAdmin: true},
+		},
+	}, func(cfg *config.Config) {
+		cfg.Runners = map[string]config.RunnerConfig{"peer": {Type: "peer-http", BaseURL: "http://peer.example.test"}}
+		p := cfg.Projects["self"]
+		p.AllowedRunners = []string{"local", "peer"}
+		cfg.Projects["self"] = p
+	})
+}
+
+func precheckCreate(name, runner string, pc *job.SchedulePrecheck) createScheduleReq {
+	return createScheduleReq{
+		Name: name, Cron: "*/5 * * * *", Precheck: pc,
+		Request: job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: runner, Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30},
+	}
+}
+
+// Setting a pre-run check needs schedule.precheck (a caller holding only job.submit gets a 403
+// naming it, and nothing is stored); creating without one still works; a root administrator
+// may set it, and the view shows it.
+func TestSchedulePrecheckCreatePermission(t *testing.T) {
+	t.Parallel()
+	s := precheckServer(t)
+	pc := &job.SchedulePrecheck{Argv: []string{"true"}, TimeoutSec: 30, SkipUnchanged: true}
+
+	resp := do(t, s, http.MethodPost, "/v1/schedules", "tok-alice", precheckCreate("alice-pre", "local", pc))
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("create with precheck as alice: status=%d, want 403 (body %s)", resp.StatusCode, readBody(t, resp))
+	}
+	body := readBody(t, resp)
+	if !strings.Contains(body, authz.PermSchedulePrecheck) {
+		t.Fatalf("403 body %q must name %s", body, authz.PermSchedulePrecheck)
+	}
+	if list, _ := s.jobs.Meta().ListSchedules("", false); len(list) != 0 {
+		t.Fatalf("a refused create stored %d schedule(s)", len(list))
+	}
+
+	plain := do(t, s, http.MethodPost, "/v1/schedules", "tok-alice", precheckCreate("alice-plain", "local", nil))
+	if plain.StatusCode != http.StatusOK {
+		t.Fatalf("create without precheck as alice: status=%d", plain.StatusCode)
+	}
+	plain.Body.Close()
+
+	ok := do(t, s, http.MethodPost, "/v1/schedules", "tok-root", precheckCreate("root-pre", "local", pc))
+	if ok.StatusCode != http.StatusOK {
+		t.Fatalf("create with precheck as root: status=%d (body %s)", ok.StatusCode, readBody(t, ok))
+	}
+	var v scheduleView
+	decode(t, ok, &v)
+	if v.Precheck == nil || len(v.Precheck.Argv) != 1 || v.Precheck.TimeoutSec != 30 || !v.Precheck.SkipUnchanged {
+		t.Fatalf("view precheck = %+v", v.Precheck)
+	}
+}
+
+// A pre-run check runs on the server, so a schedule on a remote runner cannot have one (400);
+// the check's own shape is validated (empty argv is "no check", a timeout above 300 is 400).
+func TestSchedulePrecheckRunnerAndShape(t *testing.T) {
+	t.Parallel()
+	s := precheckServer(t)
+	remote := do(t, s, http.MethodPost, "/v1/schedules", "tok-root", precheckCreate("remote", "peer", &job.SchedulePrecheck{Argv: []string{"true"}}))
+	if remote.StatusCode != http.StatusBadRequest {
+		t.Fatalf("precheck on a peer runner: status=%d, want 400 (body %s)", remote.StatusCode, readBody(t, remote))
+	}
+	remote.Body.Close()
+	noCheck := do(t, s, http.MethodPost, "/v1/schedules", "tok-root", precheckCreate("remote-plain", "peer", nil))
+	if noCheck.StatusCode != http.StatusOK {
+		t.Fatalf("a peer-runner schedule without a precheck: status=%d, want 200 (body %s)", noCheck.StatusCode, readBody(t, noCheck))
+	}
+	noCheck.Body.Close()
+	long := do(t, s, http.MethodPost, "/v1/schedules", "tok-root", precheckCreate("long", "local", &job.SchedulePrecheck{Argv: []string{"true"}, TimeoutSec: 301}))
+	if long.StatusCode != http.StatusBadRequest {
+		t.Fatalf("timeout 301: status=%d, want 400", long.StatusCode)
+	}
+	long.Body.Close()
+}
+
+// PATCH: setting needs schedule.precheck; clearing (null) needs nothing, even for a caller
+// without the permission; the same argv keeps the output fingerprint, a different one clears it.
+func TestSchedulePrecheckPatch(t *testing.T) {
+	t.Parallel()
+	s := precheckServer(t)
+	created := do(t, s, http.MethodPost, "/v1/schedules", "tok-root", precheckCreate("patch-pre", "local",
+		&job.SchedulePrecheck{Argv: []string{"check", "--all"}, SkipUnchanged: true}))
+	var v scheduleView
+	decode(t, created, &v)
+	meta := s.jobs.Meta()
+	if err := meta.SetSchedulePrecheckFingerprint(v.ID, "abc123"); err != nil {
+		t.Fatal(err)
+	}
+	// alice owns nothing here, but holds schedule.manage.others by default: she may edit, yet
+	// not set a precheck.
+	denied := do(t, s, http.MethodPatch, "/v1/schedules/"+v.ID, "tok-alice",
+		map[string]any{"precheck": map[string]any{"argv": []string{"other"}}})
+	if denied.StatusCode != http.StatusForbidden {
+		t.Fatalf("patch precheck as alice: status=%d, want 403 (body %s)", denied.StatusCode, readBody(t, denied))
+	}
+	denied.Body.Close()
+
+	// Same command, other timeout: fingerprint kept.
+	same := do(t, s, http.MethodPatch, "/v1/schedules/"+v.ID, "tok-root",
+		map[string]any{"precheck": map[string]any{"argv": []string{"check", "--all"}, "timeout_sec": 90, "skip_unchanged": true}})
+	if same.StatusCode != http.StatusOK {
+		t.Fatalf("patch same argv: status=%d", same.StatusCode)
+	}
+	same.Body.Close()
+	if rec, _, _ := meta.GetSchedule(v.ID); rec.PrecheckFingerprint != "abc123" {
+		t.Fatalf("fingerprint = %q after a patch with the same argv, want it kept", rec.PrecheckFingerprint)
+	}
+	// Different command: fingerprint cleared.
+	diff := do(t, s, http.MethodPatch, "/v1/schedules/"+v.ID, "tok-root",
+		map[string]any{"precheck": map[string]any{"argv": []string{"check", "--new"}}})
+	diff.Body.Close()
+	rec, _, _ := meta.GetSchedule(v.ID)
+	if rec.PrecheckFingerprint != "" || !strings.Contains(rec.PrecheckJSON, "--new") {
+		t.Fatalf("after changing argv: fingerprint=%q json=%s", rec.PrecheckFingerprint, rec.PrecheckJSON)
+	}
+
+	// Clearing needs no permission, and leaves the rest of the schedule alone.
+	cleared := do(t, s, http.MethodPatch, "/v1/schedules/"+v.ID, "tok-alice", map[string]any{"precheck": nil})
+	if cleared.StatusCode != http.StatusOK {
+		t.Fatalf("clear precheck as alice: status=%d (body %s)", cleared.StatusCode, readBody(t, cleared))
+	}
+	var after scheduleView
+	decode(t, cleared, &after)
+	if after.Precheck != nil {
+		t.Fatalf("precheck still set after clearing: %+v", after.Precheck)
+	}
+	if rec, _, _ := meta.GetSchedule(v.ID); rec.PrecheckJSON != "" || rec.PrecheckFingerprint != "" {
+		t.Fatalf("row after clear: json=%q fingerprint=%q", rec.PrecheckJSON, rec.PrecheckFingerprint)
 	}
 }

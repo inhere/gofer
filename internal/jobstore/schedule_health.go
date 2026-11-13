@@ -60,6 +60,10 @@ func (s *Store) migrateScheduleHealth() error {
 		{"max_failures", "max_failures INTEGER NOT NULL DEFAULT 0"},
 		{"consecutive_failures", "consecutive_failures INTEGER NOT NULL DEFAULT 0"},
 		{"paused_reason", "paused_reason TEXT NOT NULL DEFAULT ''"},
+		// Pre-run check (design 2026-11-12 §2): the opaque precheck JSON ("" = none) and the
+		// fingerprint of the output of the last check whose run was submitted.
+		{"precheck_json", "precheck_json TEXT NOT NULL DEFAULT ''"},
+		{"precheck_fingerprint", "precheck_fingerprint TEXT NOT NULL DEFAULT ''"},
 	} {
 		if _, ok := cols[c.name]; ok {
 			continue
@@ -210,4 +214,19 @@ func (s *Store) PauseSchedule(id, reason string) (bool, error) {
 		return false, fmt.Errorf("jobstore: pause schedule %q rows: %w", id, err)
 	}
 	return n == 1, nil
+}
+
+// SetSchedulePrecheckFingerprint records the output fingerprint of the pre-run check
+// whose run was just submitted (the basis of skip_unchanged).
+func (s *Store) SetSchedulePrecheckFingerprint(id, fingerprint string) error {
+	defer s.emit(Change{Kind: ChangeSchedule})
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(
+		`UPDATE schedules SET precheck_fingerprint = ?, updated_at = ? WHERE id = ?`,
+		fingerprint, time.Now().Unix(), id,
+	); err != nil {
+		return fmt.Errorf("jobstore: set schedule %q precheck fingerprint: %w", id, err)
+	}
+	return nil
 }

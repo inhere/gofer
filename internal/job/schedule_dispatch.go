@@ -15,10 +15,12 @@ import (
 // to, parameter overrides, HTTP status mapping — and hand over a finished JobRequest.
 type ScheduleDispatcher struct {
 	s *Service
+	// pool bounds the pre-run checks (schedule_precheck.go).
+	pool *precheckPool
 }
 
 func newScheduleDispatcher(s *Service) *ScheduleDispatcher {
-	return &ScheduleDispatcher{s: s}
+	return &ScheduleDispatcher{s: s, pool: newPrecheckPool()}
 }
 
 // ScheduleDispatcher returns the service's dispatcher.
@@ -39,6 +41,8 @@ const (
 	ScheduleSkipPreviousRunning = "previous_running"
 	ScheduleSkipPrecheck        = "precheck"
 	ScheduleSkipUnchanged       = "unchanged"
+	// ScheduleSkipCheckRunning: the schedule's previous pre-run check has not returned yet.
+	ScheduleSkipCheckRunning = "check_running"
 )
 
 // Dispatch submits one run of the schedule: overlap check, then the submit, then the
@@ -151,10 +155,26 @@ func (d *ScheduleDispatcher) runSubmitted(rec jobstore.ScheduleRecord, jobID str
 // schedule itself is KEPT (the sweep has already advanced its next instant).
 func (d *ScheduleDispatcher) FireTimer(permit *AdmissionPermit, rec jobstore.ScheduleRecord) (string, error) {
 	req, err := d.timerRequest(rec)
+	var pc *SchedulePrecheck
+	if err == nil {
+		pc, err = DecodeSchedulePrecheck(rec.PrecheckJSON)
+	}
 	if err != nil {
 		// A row that cannot even be decoded is a failed run, not a silent one.
 		d.submitFailed(rec, jobstore.ScheduleTriggerTimer, err)
 		return "", err
+	}
+	if pc != nil {
+		// The overlap rule comes before the check: no point in checking while the
+		// previous run is still going. The check itself runs in the pool, so the sweep
+		// is not held up; the run is submitted (or skipped, or failed) from there.
+		if _, skipped, oerr := d.overlapSkip(rec); oerr != nil {
+			return "", oerr
+		} else if skipped {
+			return "", nil
+		}
+		d.startCheck(rec, *pc, req)
+		return "", nil
 	}
 	run, err := d.Dispatch(permit, rec, jobstore.ScheduleTriggerTimer, req)
 	if err != nil || run.Skipped {

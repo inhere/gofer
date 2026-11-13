@@ -42,6 +42,9 @@ type createScheduleReq struct {
 	Overlap     string `json:"overlap,omitempty"`
 	MaxRuns     *int   `json:"max_runs,omitempty"`
 	MaxFailures *int   `json:"max_failures,omitempty"`
+	// Precheck is the command the server runs before each due tick (design 2026-11-12 §2);
+	// setting one needs the schedule.precheck permission and a runner on this server.
+	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
 }
 
 // Defaults of a newly created schedule's run health; schedules that existed before the
@@ -82,9 +85,17 @@ type scheduleView struct {
 	MaxFailures         int    `json:"max_failures"`
 	ConsecutiveFailures int    `json:"consecutive_failures"`
 	PausedReason        string `json:"paused_reason,omitempty"`
+	// Precheck is the schedule's pre-run check, omitted when it has none.
+	Precheck *job.SchedulePrecheck `json:"precheck,omitempty"`
 }
 
 func (s *Server) handleCreateSchedule(c *rux.Context) {
+	// The route is InHandler (the pre-run check's permission depends on the body), so the
+	// plain job.submit requirement the gate used to enforce is asked here, first.
+	if !s.can(c, authz.PermJobSubmit) {
+		s.denyScheduleAction(c, authz.PermJobSubmit)
+		return
+	}
 	var req createScheduleReq
 	if err := c.BindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
@@ -141,6 +152,16 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid schedule", err.Error())
 		return
 	}
+	precheckJSON := ""
+	if req.Precheck.IsSet() {
+		if !s.acceptSchedulePrecheck(c, req.Precheck, req.Request.Runner) {
+			return
+		}
+		if precheckJSON, err = job.EncodeSchedulePrecheck(req.Precheck); err != nil {
+			writeError(c, http.StatusBadRequest, "invalid schedule precheck", err.Error())
+			return
+		}
+	}
 	enabled, catchUp := 1, 1
 	if req.Enabled != nil && !*req.Enabled {
 		enabled = 0
@@ -163,6 +184,7 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		Overlap:      overlap,
 		MaxRuns:      maxRuns,
 		MaxFailures:  maxFailures,
+		PrecheckJSON: precheckJSON,
 		// The creator is the schedule's ceiling owner: the sweeper and the webhook submit
 		// with it, so a timer made by a restricted caller stays bounded after the creating
 		// request is gone (design 2026-10-18, 上限所有者).
@@ -585,6 +607,13 @@ func scheduleHealthInput(overlap string, maxRuns, maxFailures *int) (string, int
 	return overlap, runs, failures, nil
 }
 
+// storedPrecheck decodes a schedule's pre-run check for a view; a row whose declaration
+// cannot be decoded shows none (the sweep reports it as a failed run).
+func storedPrecheck(rec jobstore.ScheduleRecord) *job.SchedulePrecheck {
+	pc, _ := job.DecodeSchedulePrecheck(rec.PrecheckJSON)
+	return pc
+}
+
 func overlapOrDefault(o string) string {
 	if o == "" {
 		return jobstore.ScheduleOverlapAllow
@@ -650,6 +679,7 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 		MaxFailures:         rec.MaxFailures,
 		ConsecutiveFailures: rec.ConsecutiveFailures,
 		PausedReason:        rec.PausedReason,
+		Precheck:            storedPrecheck(rec),
 	}
 }
 

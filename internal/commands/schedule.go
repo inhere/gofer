@@ -45,6 +45,12 @@ var scheduleOpts = struct {
 	overlap     string
 	maxRuns     string
 	maxFailures string
+	// precheck / precheckTimeout / precheckSkipUnchanged / clearPrecheck are the pre-run
+	// check flags of add and edit (design 2026-11-12 §2).
+	precheck              string
+	precheckTimeout       int
+	precheckSkipUnchanged bool
+	clearPrecheck         bool
 }{}
 
 // NewScheduleCmd builds the `schedule` command group. It talks to the running
@@ -126,6 +132,8 @@ func NewScheduleCmd() *gcli.Command {
 					bindServerFlags(c)
 					bindScheduleParamFlags(c)
 					bindScheduleHealthFlags(c)
+					bindSchedulePrecheckFlags(c)
+					c.BoolOpt(&scheduleOpts.clearPrecheck, "clear-precheck", "", false, "remove the schedule's pre-run check")
 					c.StrOpt(&scheduleOpts.editCron, "cron", "", "", "new cron expression (recomputes the next run)")
 					c.StrOpt(&scheduleOpts.editAt, "at", "", "", "new one-shot run time (RFC3339 or unix seconds)")
 					c.StrOpt(&scheduleOpts.editTitle, "title", "", "", "new title")
@@ -191,6 +199,7 @@ func bindScheduleAddFlags(c *gcli.Command) {
 	c.StrOpt(&jobRunOpts.systemPrompt, "system-prompt", "", "", "resident system prompt injected via the agent")
 	bindScheduleParamFlags(c)
 	bindScheduleHealthFlags(c)
+	bindSchedulePrecheckFlags(c)
 	c.AddArg("cmd", "raw command for exec agent (after --)", false, true)
 }
 
@@ -212,6 +221,31 @@ func bindScheduleHealthFlags(c *gcli.Command) {
 
 // scheduleHealthFromFlags reads the run-health flags: the overlap spelling and the two
 // counts, each nil / "" when the flag was not given.
+// bindSchedulePrecheckFlags binds the pre-run check flags shared by `schedule add` and
+// `schedule edit`.
+func bindSchedulePrecheckFlags(c *gcli.Command) {
+	c.StrOpt(&scheduleOpts.precheck, "precheck", "", "", "command the server runs before each due tick, split on spaces and run without a shell: exit 0 = go, exit 2 = skip quietly, else a failed run (needs the schedule.precheck permission; local runner only)")
+	c.IntOpt(&scheduleOpts.precheckTimeout, "precheck-timeout", "", 0, "pre-run check timeout in seconds (0 = 60, at most 300)")
+	c.BoolOpt(&scheduleOpts.precheckSkipUnchanged, "precheck-skip-unchanged", "", false, "skip a run whose pre-run check output is the same as the last submitted run's")
+}
+
+// schedulePrecheckFromFlags builds the declaration from --precheck and its companions;
+// nil when --precheck was not given.
+func schedulePrecheckFromFlags() (*job.SchedulePrecheck, error) {
+	argv := strings.Fields(scheduleOpts.precheck)
+	if len(argv) == 0 {
+		if scheduleOpts.precheckTimeout != 0 || scheduleOpts.precheckSkipUnchanged {
+			return nil, fmt.Errorf("--precheck-timeout and --precheck-skip-unchanged need --precheck")
+		}
+		return nil, nil
+	}
+	pc := &job.SchedulePrecheck{Argv: argv, TimeoutSec: scheduleOpts.precheckTimeout, SkipUnchanged: scheduleOpts.precheckSkipUnchanged}
+	if err := pc.Validate(); err != nil {
+		return nil, err
+	}
+	return pc, nil
+}
+
 func scheduleHealthFromFlags() (overlap string, maxRuns, maxFailures *int, err error) {
 	overlap = strings.TrimSpace(scheduleOpts.overlap)
 	if overlap != "" && overlap != "skip" && overlap != "allow" {
@@ -300,6 +334,9 @@ func buildScheduleCreateRequest(c *gcli.Command, cli *client.Client) (client.Cre
 	if out.Overlap, out.MaxRuns, out.MaxFailures, err = scheduleHealthFromFlags(); err != nil {
 		return client.CreateScheduleRequest{}, err
 	}
+	if out.Precheck, err = schedulePrecheckFromFlags(); err != nil {
+		return client.CreateScheduleRequest{}, err
+	}
 	if delayRaw != "" {
 		d, err := time.ParseDuration(delayRaw)
 		if err != nil {
@@ -382,6 +419,7 @@ func runScheduleShow(c *gcli.Command, _ []string) error {
 	c.Printf("overlap:     %s\n", scheduleOverlapText(s))
 	c.Printf("runs:        %s\n", scheduleRunsText(s))
 	c.Printf("failures:    %s\n", scheduleFailuresText(s))
+	c.Printf("precheck:    %s\n", schedulePrecheckText(s))
 	c.Printf("catch_up:    %s\n", enabledText(s.CatchUp))
 	c.Printf("next_run:    %s\n", formatScheduleTime(s.NextRunAt))
 	c.Printf("last_run:    %s\n", formatScheduleTime(s.LastRunAt))
@@ -569,6 +607,25 @@ func runScheduleEdit(c *gcli.Command, _ []string) error {
 		req.MaxFailures = maxFailures
 		touched = true
 	}
+	pc, err := schedulePrecheckFromFlags()
+	if err != nil {
+		return err
+	}
+	if pc != nil && scheduleOpts.clearPrecheck {
+		return fmt.Errorf("--precheck and --clear-precheck are mutually exclusive")
+	}
+	if pc != nil {
+		raw, merr := json.Marshal(pc)
+		if merr != nil {
+			return merr
+		}
+		req.Precheck = raw
+		touched = true
+	}
+	if scheduleOpts.clearPrecheck {
+		req.Precheck = json.RawMessage("null")
+		touched = true
+	}
 	if len(scheduleOpts.paramDefs) > 0 || strings.TrimSpace(scheduleOpts.paramsFile) != "" {
 		params, err := scheduleParamsFromFlags()
 		if err != nil {
@@ -578,7 +635,7 @@ func runScheduleEdit(c *gcli.Command, _ []string) error {
 		touched = true
 	}
 	if !touched {
-		return fmt.Errorf("nothing to change: give at least one of --cron, --at, --title, --param-def, --params-file, --timeout, --enable, --disable, --overlap, --max-runs, --max-failures")
+		return fmt.Errorf("nothing to change: give at least one of --cron, --at, --title, --param-def, --params-file, --timeout, --enable, --disable, --overlap, --max-runs, --max-failures, --precheck, --clear-precheck")
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -681,6 +738,18 @@ func scheduleFailuresText(s client.Schedule) string {
 		return fmt.Sprintf("%d consecutive (pauses at %d)", s.ConsecutiveFailures, s.MaxFailures)
 	}
 	return fmt.Sprintf("%d consecutive (never pauses)", s.ConsecutiveFailures)
+}
+
+// schedulePrecheckText summarises the pre-run check ("-" when there is none).
+func schedulePrecheckText(s client.Schedule) string {
+	if !s.Precheck.IsSet() {
+		return "-"
+	}
+	out := strings.Join(s.Precheck.Argv, " ")
+	if s.Precheck.SkipUnchanged {
+		out += "  (skip when the output is unchanged)"
+	}
+	return out
 }
 
 func scheduleOverlapText(s client.Schedule) string {

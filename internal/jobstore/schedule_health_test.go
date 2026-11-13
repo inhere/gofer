@@ -187,6 +187,33 @@ func TestSetScheduleEnabledClearsPause(t *testing.T) {
 	assert.NoErr(t, s.SetScheduleEnabled("sch-e", 0))
 	got, _, _ = s.GetSchedule("sch-e")
 	assert.Eq(t, "", got.PausedReason)
+	assert.Eq(t, "", got.PrecheckJSON)
+	assert.Eq(t, "", got.PrecheckFingerprint)
+}
+
+// The pre-run check declaration and its fingerprint round trip; UpdateSchedule replaces or
+// clears them as the caller says.
+func TestSchedulePrecheckColumns(t *testing.T) {
+	s := openTest(t)
+	insertHealthSchedule(t, s, "sch-pc", func(r *ScheduleRecord) { r.PrecheckJSON = `{"argv":["x"]}` })
+	got, _, _ := s.GetSchedule("sch-pc")
+	assert.Eq(t, `{"argv":["x"]}`, got.PrecheckJSON)
+	assert.NoErr(t, s.SetSchedulePrecheckFingerprint("sch-pc", "fp1"))
+	got, _, _ = s.GetSchedule("sch-pc")
+	assert.Eq(t, "fp1", got.PrecheckFingerprint)
+
+	upd := ScheduleUpdate{Name: got.Name, ScheduleType: "cron", CronExpr: got.CronExpr, RequestJSON: got.RequestJSON,
+		Enabled: 1, NextRunAt: got.NextRunAt, Overlap: got.Overlap, MaxFailures: got.MaxFailures,
+		PrecheckJSON: got.PrecheckJSON, PrecheckFingerprint: got.PrecheckFingerprint}
+	assert.NoErr(t, s.UpdateSchedule("sch-pc", upd))
+	got, _, _ = s.GetSchedule("sch-pc")
+	assert.Eq(t, "fp1", got.PrecheckFingerprint)
+
+	upd.PrecheckJSON, upd.PrecheckFingerprint = "", ""
+	assert.NoErr(t, s.UpdateSchedule("sch-pc", upd))
+	got, _, _ = s.GetSchedule("sch-pc")
+	assert.Eq(t, "", got.PrecheckJSON)
+	assert.Eq(t, "", got.PrecheckFingerprint)
 }
 
 // The same through PATCH's UpdateSchedule: enabling a paused schedule clears the pause;

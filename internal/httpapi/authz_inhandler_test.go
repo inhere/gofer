@@ -498,10 +498,20 @@ var planAuthzCases = []authzCase{
 }
 
 // scheduleAuthzCases is the reverse-case registry of plan T1.5e: the write entries of the
-// schedule container. The domain's other three routes need no case here — the two reads are
-// Public and POST /v1/schedules is a Require(job.submit) — so the derivation below (which reads
-// the declaration table) claims exactly these six.
+// schedule container. The two reads are Public and need no case; creating (job.submit, plus
+// schedule.precheck for a body that carries a pre-run check) and the write entries below are
+// InHandler, and the derivation below (which reads the declaration table) claims them all.
 var scheduleAuthzCases = []authzCase{
+	// Creating asks job.submit first and schedule.precheck for a body with a pre-run check, so
+	// the request that decides both carries one. There is no "someone else's schedule" here:
+	// the refused half is a caller holding nothing, the own half holds both permissions.
+	{key: "POST /v1/schedules", req: func(*authzCaseEnv) caseReq {
+		return caseReq{http.MethodPost, "/v1/schedules", map[string]any{
+			"name": "case-create", "cron": "*/5 * * * *",
+			"request":  map[string]any{"project_key": "self", "agent": "exec", "runner": "local", "cmd": []string{"go", "version"}, "cwd": "."},
+			"precheck": map[string]any{"argv": []string{"true"}},
+		}}
+	}},
 	{key: "DELETE /v1/schedules/{id}", req: func(e *authzCaseEnv) caseReq {
 		return caseReq{http.MethodDelete, "/v1/schedules/" + e.schedule(), nil}
 	}},
@@ -534,10 +544,13 @@ var scheduleAuthzCases = []authzCase{
 		return caseReq{http.MethodPost, "/v1/schedules/" + e.schedule() + "/rotate-token", nil}
 	}},
 	// PATCH asks the manage rule for everything it edits, plus job.submit when the body sets
-	// enabled:true (the switch turns the cron loop loose with no later checkpoint) — so the
-	// request that decides both is an enable patch.
+	// enabled:true (the switch turns the cron loop loose with no later checkpoint) and
+	// schedule.precheck when it sets a pre-run check — so the request that decides all three
+	// is an enable patch that also sets one.
 	{key: "PATCH /v1/schedules/{id}", req: func(e *authzCaseEnv) caseReq {
-		return caseReq{http.MethodPatch, "/v1/schedules/" + e.schedule(), map[string]any{"enabled": true}}
+		return caseReq{http.MethodPatch, "/v1/schedules/" + e.schedule(), map[string]any{
+			"enabled": true, "precheck": map[string]any{"argv": []string{"true"}},
+		}}
 	}},
 }
 
