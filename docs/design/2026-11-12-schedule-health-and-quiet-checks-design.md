@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 第 2 批：定时与巡检少打扰 设计
 
-> 状态：Draft 0.2（待用户答复「待确认事项」Q1–Q8）
+> 状态：Draft 0.2 已批准（2026-11-13，用户：「Q1–Q8 按推荐，批准」）
 > issue：gofer-ss3b、gofer-vqoe、gofer-2a86、gofer-4ymk；随批：gofer-qm3l、gofer-fgwc（小改），gofer-oby3、gofer-j01b（第 1 批遗留的掩码问题）
 > 来源：`docs/refer/2026-11-11-super-agent-workflow-survey.md`「分批」第 2 批（⑮⑯⑰⑱㉑）
 
@@ -158,7 +158,7 @@ precheck:
 
 ## 决策
 
-见「待确认事项」，答复后转入此处。
+Q1–Q8 均按推荐 A（用户 2026-11-13 批准），见下表。
 
 ## 待确认事项
 
@@ -187,5 +187,7 @@ precheck:
 - 文档（G045 / G046）：`skills/gofer-usage/references` 中 schedule、worker、serve 运维相关篇；`docs/reference/http-api.md`（schedule 字段、`gone`、新事件）；`docs/reference/permissions.md`（生成）；CLI 帮助 golden（`internal/commands/testdata/cli-help-*.golden`）；`CHANGELOG.md`（含行为变化）；`docs/capabilities.md` 随发版（G058）。
 
 ## 结论与人工计划 Gate
+
+已批准，进入计划：`docs/plans/2026-11-13-schedule-health-and-quiet-checks-plan.md`。
 
 定时任务加叠跑跳过、失败自动暂停、运行上限、前置检查与无变化跳过，每轮带上一轮结果；`serve status` 按状态返回退出码；补 worker 互顶提示、残留目录探测与两处 secret 掩码。已有 schedule 行为不变，新默认只对新建生效。等用户答复 Q1–Q8 并批准后写计划。
