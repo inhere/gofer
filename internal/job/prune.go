@@ -32,6 +32,15 @@ func (s *Service) retireWorktree(w jobstore.WorktreeRecord) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 	defer cancel()
+	if !worktreeUsable(ctx, w.Path, w.Branch) {
+		// A folder is there, but git does not see it as this branch's checkout (a
+		// leftover, or it resolves to another repository). Nothing proves it is
+		// redundant and it may hold files nobody else has: keep it and its git
+		// registration, and say so.
+		slog.Warn("job.worktree_retained", append(logArgs,
+			"reason", "directory exists but is not a checkout of the branch; inspect it and remove it by hand")...)
+		return
+	}
 	wt := &worktreeRef{Path: w.Path, Branch: w.Branch, BaseSHA: w.BaseSHA}
 	head, ahead, dirty := wt.worktreeState(ctx)
 	switch {

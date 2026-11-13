@@ -580,6 +580,11 @@ type WorktreeStatus struct {
 	Merged bool `json:"merged"`
 	// Exists reports that the worktree directory is present on THIS machine.
 	Exists bool `json:"exists"`
+	// State is "gone" when the recorded directory is present on THIS machine but is no
+	// longer a checkout of the job's branch (a leftover folder, or git resolves it to
+	// another repository): Exists is false then and no live state is probed. Empty
+	// otherwise (a directory that is absent here is just Exists=false).
+	State string `json:"state,omitempty"`
 	// Warnings explain a removal that completed with a leftover on disk (a Windows
 	// directory a process still holds open): the branch and the worktree registration are
 	// gone as asked, only the directory itself could not be deleted.
@@ -588,6 +593,10 @@ type WorktreeStatus struct {
 	// created (not what the project config says now).
 	Links []string `json:"links,omitempty"`
 }
+
+// WorktreeStateGone is WorktreeStatus.State of a recorded worktree whose directory is
+// still on disk but is not a checkout of the job's branch any more.
+const WorktreeStateGone = "gone"
 
 var (
 	// ErrNoManagedWorktree: the job carries no WT-01 managed worktree (nothing to
@@ -841,6 +850,10 @@ func (s *Service) WorktreeStatus(jobID string) (WorktreeStatus, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
 	defer cancel()
+	if !worktreeUsable(ctx, res.WorktreePath, res.WorktreeBranch) {
+		st.State = WorktreeStateGone // a leftover directory: do not read git state through it
+		return st, nil
+	}
 	st.Exists = true
 	if head, ahead, dirty := wt.worktreeState(ctx); head != "" {
 		st.HeadSHA, st.CommitsAhead, st.Dirty = head, ahead, dirty
