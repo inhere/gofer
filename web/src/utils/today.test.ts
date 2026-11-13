@@ -25,6 +25,8 @@ vi.mock('../api/client', () => {
     updateTodoStatus: rec('updateTodoStatus'),
     saySession: rec('saySession'),
     sendSessionMessage: rec('sendSessionMessage'),
+    // 设计 2026-11-12 §1：定时任务被暂停的卡用「启用」动作
+    setScheduleEnabled: rec('setScheduleEnabled'),
   }
 })
 vi.mock('../api/steward', () => ({
@@ -40,6 +42,7 @@ vi.mock('../api/steward', () => ({
 
 const {
   actionLabel,
+  actionLink,
   adviceAction,
   blockShort,
   cardLink,
@@ -210,6 +213,30 @@ describe('today helpers', () => {
     calls.length = 0
     void runCardAction(card({ kind: 'interaction', refs: { job_id: 'j', interaction_id: 'i' } }), { id: 'answer', label: '', value: 'x' })()
     expect(calls.some((c) => c.startsWith('punt'))).toBe(false)
+  })
+
+  it('enables a paused schedule from its card and links to the schedule page', async () => {
+    calls.length = 0
+    const c = card({
+      kind: 'schedule.paused',
+      key: 'schedule.paused:sch-1',
+      refs: { schedule_id: 'sch-1' },
+      actions: [
+        { id: 'enable', label: '启用', style: 'primary', value: 'sch-1' },
+        { id: 'open', label: '看详情', style: 'link', value: '/schedules' },
+      ],
+    })
+    // 「启用」走现有的启用接口（服务端同时清零连续失败数与暂停原因）
+    await runCardAction(c, c.actions[0])()
+    expect(calls).toEqual(['setScheduleEnabled("sch-1",true)'])
+    // 「看详情」是纯跳转：不调写接口，目标就是 /schedules
+    expect(isLocalAction(c.actions[1])).toBe(true)
+    await runCardAction(c, c.actions[1])()
+    expect(calls).toHaveLength(1)
+    expect(cardLink(c)).toBe('/schedules')
+    expect(actionLink(c, c.actions[1])).toBe('/schedules')
+    // 服务端中文动作名对到本页 i18n（换成英文界面也能读）
+    expect(actionLabel(c.actions[0])).toBe('启用')
   })
 
   it('settles hidden cards: in-flight stay hidden, committed reappear on a later refresh', () => {

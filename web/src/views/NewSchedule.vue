@@ -14,6 +14,13 @@ import BackLink from '../ui/BackLink.vue'
 import SearchSelect from '../ui/SearchSelect.vue'
 import type { SearchOption } from '../ui/searchSelect'
 import { createSchedule } from '../api/client'
+import {
+  NEW_SCHEDULE_HEALTH,
+  createHealthFields,
+  scheduleApiError,
+  schedulePrecheck,
+  type ScheduleHealthForm,
+} from '../utils/scheduleHealth'
 import { getMetaCached } from '../api/metaCache'
 import type {
   CreateScheduleReq,
@@ -50,6 +57,10 @@ const runAtLocal = ref('')
 
 // 参数声明（设计 2026-10-22 §D1）：一行一个，值作为 job 的环境变量。
 const params = ref<ScheduleParam[]>([])
+
+// 运行健康 / 前置检查 / 跨轮上下文（设计 2026-11-12 §1–§3）：默认值取新调度的默认
+//（叠跑跳过、连续失败 3 次暂停、不限次数、上下文开）。
+const health = ref<ScheduleHealthForm>({ ...NEW_SCHEDULE_HEALTH })
 
 function addParamRow(): void {
   params.value = [...params.value, { name: '', type: 'string', default: '', desc: '' }]
@@ -291,6 +302,13 @@ function reconvergeToWorker() {
   }
 }
 
+// 前置检查在 server 本机执行（设计 2026-11-12 §2）：远程 runner 的调度不能设置。
+const precheckAllowed = computed(() => isLocalRunner(runnerName.value))
+
+function isLocalRunner(name: string): boolean {
+  return !name || name === 'local' || name === 'server'
+}
+
 const validationError = computed<string>(() => {
   if (name.value.trim() === '') {
     return t('schedules.new.needName')
@@ -335,6 +353,14 @@ const validationError = computed<string>(() => {
   }
   if (isExec.value && command.value.trim() === '') {
     return t('schedules.new.needCommand')
+  }
+  // 前置检查：远程 runner 不能设置（后端也是 400）；超时上限 300 秒。
+  const precheck = schedulePrecheck(health.value)
+  if (precheck && !precheckAllowed.value) {
+    return t('schedules.precheck.localOnly')
+  }
+  if (precheck && (precheck.timeout_sec ?? 0) > 300) {
+    return t('schedules.precheck.timeoutMax')
   }
   if (isWorkerRunner.value) {
     if (workerMode.value === 'id' && workerId.value === '') {
@@ -469,10 +495,14 @@ async function onSubmit() {
     if (declared.length > 0) {
       req.params = declared
     }
+    // 运行健康 / 前置检查 / 跨轮上下文（设计 2026-11-12 §1–§3）
+    Object.assign(req, createHealthFields(health.value))
     await createSchedule(req)
     void router.push('/schedules')
   } catch (e) {
-    submitError.value = e instanceof Error ? e.message : String(e)
+    // 403 = 没有 schedule.precheck 权限（只有带前置检查的请求会被这么拒）
+    const hint = scheduleApiError(e, { sendsPrecheck: schedulePrecheck(health.value) !== undefined })
+    submitError.value = hint || (e instanceof Error ? e.message : String(e))
   } finally {
     submitting.value = false
   }
@@ -796,6 +826,93 @@ onMounted(() => {
             <input v-model="enabled" type="checkbox" />
             <span>{{ t('schedules.new.enabled') }}</span>
           </label>
+        </div>
+      </div>
+
+      <!-- 运行健康（设计 2026-11-12 §1）：叠跑策略、运行上限、失败自动暂停、跨轮上下文 -->
+      <div class="row">
+        <div class="field">
+          <label class="label mono" for="ns-overlap">{{ t('schedules.health.overlap') }}</label>
+          <select id="ns-overlap" v-model="health.overlap" class="control mono" data-test="new-overlap">
+            <option value="skip">{{ t('schedules.health.overlapSkip') }}</option>
+            <option value="allow">{{ t('schedules.health.overlapAllow') }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label mono" for="ns-context">{{ t('schedules.health.context') }}</label>
+          <select id="ns-context" v-model="health.context" class="control mono" data-test="new-context">
+            <option value="on">{{ t('schedules.health.contextOn') }}</option>
+            <option value="off">{{ t('schedules.health.contextOff') }}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label class="label mono" for="ns-max-runs">{{ t('schedules.health.maxRuns') }}</label>
+          <input
+            id="ns-max-runs"
+            v-model="health.maxRuns"
+            class="control mono"
+            type="number"
+            min="0"
+            step="1"
+            data-test="new-max-runs"
+          />
+          <p class="field-hint mono">{{ t('schedules.health.maxRunsHint') }}</p>
+        </div>
+        <div class="field">
+          <label class="label mono" for="ns-max-failures">{{ t('schedules.health.maxFailures') }}</label>
+          <input
+            id="ns-max-failures"
+            v-model="health.maxFailures"
+            class="control mono"
+            type="number"
+            min="0"
+            step="1"
+            data-test="new-max-failures"
+          />
+          <p class="field-hint mono">{{ t('schedules.health.maxFailuresHint') }}</p>
+        </div>
+      </div>
+
+      <!-- 前置检查（设计 2026-11-12 §2）：argv 不经 shell，一行一个参数 -->
+      <div class="field">
+        <span class="label mono">{{ t('schedules.precheck.title') }}</span>
+        <p class="field-hint mono">{{ t('schedules.precheck.argvHint') }} {{ t('schedules.precheck.permission') }}</p>
+        <p v-if="!precheckAllowed" class="field-hint mono" data-test="new-precheck-remote">
+          {{ t('schedules.precheck.localOnly') }}
+        </p>
+        <textarea
+          v-model="health.precheckArgv"
+          class="control mono area"
+          rows="3"
+          spellcheck="false"
+          :disabled="!precheckAllowed"
+          :placeholder="t('schedules.precheck.argv')"
+          data-test="new-precheck-argv"
+        ></textarea>
+        <div class="row">
+          <div class="field">
+            <label class="label mono" for="ns-precheck-timeout">{{ t('schedules.precheck.timeout') }}</label>
+            <input
+              id="ns-precheck-timeout"
+              v-model="health.precheckTimeout"
+              class="control mono"
+              type="number"
+              min="0"
+              max="300"
+              step="1"
+              :disabled="!precheckAllowed"
+              data-test="new-precheck-timeout"
+            />
+          </div>
+          <div class="field field--check">
+            <label class="check mono">
+              <input v-model="health.precheckSkipUnchanged" type="checkbox" :disabled="!precheckAllowed" data-test="new-precheck-skip-unchanged" />
+              <span>{{ t('schedules.precheck.skipUnchanged') }}</span>
+            </label>
+          </div>
         </div>
       </div>
 

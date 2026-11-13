@@ -49,6 +49,8 @@ export const inbox: PageDict = {
     'inbox.kind.capture': '收集箱',
     'inbox.kind.mail_held': '信件待指派',
     'inbox.kind.worker_enroll': 'worker 申请',
+    // 设计 2026-11-12 §1：定时任务连续失败被 gofer 自己暂停（internal/inbox/schedule_paused.go）
+    'inbox.kind.schedule.paused': '定时任务已暂停',
     'inbox.kind.job.terminal': '任务结束',
     'inbox.kind.job.failed': '任务失败',
     'inbox.kind.job.child_wake_failed': '回执送不到',
@@ -110,6 +112,7 @@ export const inbox: PageDict = {
     'inbox.kind.capture': 'Capture box',
     'inbox.kind.mail_held': 'Held mail',
     'inbox.kind.worker_enroll': 'Worker request',
+    'inbox.kind.schedule.paused': 'Schedule paused',
     'inbox.kind.job.terminal': 'Job finished',
     'inbox.kind.job.failed': 'Job failed',
     'inbox.kind.job.child_wake_failed': 'Receipt stranded',

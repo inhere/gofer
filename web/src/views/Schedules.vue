@@ -22,6 +22,14 @@ import { fmtDateTime } from '../api/time'
 import { formatRelative } from '../utils/format'
 import { CRON_PREVIEW_DELAY_MS, runCronPreview, type CronPreviewState } from '../utils/cronPreview'
 import { boolValue, envPreview, hasParams, paramControl, paramDefaults } from '../utils/scheduleParams'
+import {
+  NEW_SCHEDULE_HEALTH,
+  patchHealthFields,
+  precheckEdited,
+  scheduleApiError,
+  scheduleHealthForm,
+  type ScheduleHealthForm,
+} from '../utils/scheduleHealth'
 import { t } from '../i18n'
 import ProjectFilter from '../ui/ProjectFilter.vue'
 import Sheet from '../ui/Sheet.vue'
@@ -94,7 +102,8 @@ async function onRun(s: Schedule, params?: Record<string, string>): Promise<void
     notice.value = t('schedules.triggeredNotice', { name: s.name, id: job.id })
     await fetchSchedules()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    // 设计 2026-11-12 §1：叠跑策略是 skip 时，上一轮还没结束的立即运行是 409。
+    error.value = scheduleApiError(e) || (e instanceof Error ? e.message : String(e))
   } finally {
     setBusy(s.id, false)
   }
@@ -140,6 +149,10 @@ const editAt = ref('')
 const editTimeout = ref('')
 const editEnabled = ref(true)
 const editParams = ref<ScheduleParam[]>([])
+// 运行健康 / 前置检查 / 跨轮上下文（设计 2026-11-12 §1–§3）：表单值与进入时的基线，
+// 前置检查没改就不进 PATCH 体（设置它要 schedule.precheck 权限）。
+const editHealth = ref<ScheduleHealthForm>({ ...NEW_SCHEDULE_HEALTH })
+const editHealthBaseline = ref<ScheduleHealthForm>({ ...NEW_SCHEDULE_HEALTH })
 // 编辑 cron 时的试算：停手 CRON_PREVIEW_DELAY_MS 后向服务端要「下几次运行」；
 // cronPreviewSeq 丢弃过期的响应（输入比请求快时只认最后一次）。
 const cronPreview = ref<CronPreviewState>({ kind: 'empty' })
@@ -180,6 +193,8 @@ function openEdit(s: Schedule): void {
   editTimeout.value = String(s.request.timeout_sec ?? 0)
   editEnabled.value = s.enabled === 1
   editParams.value = (s.params ?? []).map((p) => ({ ...p, choices: p.choices ? [...p.choices] : undefined }))
+  editHealth.value = scheduleHealthForm(s)
+  editHealthBaseline.value = scheduleHealthForm(s)
   editOpen.value = true
 }
 
@@ -239,12 +254,14 @@ async function saveEdit(): Promise<void> {
       timeout_sec: Number.isFinite(timeout) ? timeout : 0,
       ...(enabledChanged ? { enabled: editEnabled.value } : {}),
       ...(s.type === 'once' ? (at > 0 ? { at } : {}) : { cron: editCron.value.trim() }),
+      ...patchHealthFields(editHealth.value, editHealthBaseline.value),
     })
     editOpen.value = false
     notice.value = t('schedules.saved', { name: updated.name, next: fmtDateTime(updated.next_run_at) })
     await fetchSchedules()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
+    const hint = scheduleApiError(e, { sendsPrecheck: precheckEdited(editHealth.value, editHealthBaseline.value) })
+    error.value = hint || (e instanceof Error ? e.message : String(e))
   } finally {
     setBusy(s.id, false)
   }
@@ -308,6 +325,28 @@ function reqSummary(s: Schedule): string {
     parts.push(`prompt: ${r.prompt.split('\n')[0]}`)
   }
   return parts.join('  ')
+}
+
+// 运行健康的两行文案（设计 2026-11-12 §1）：第 n 次 / 上限、连续失败数。
+function runsText(s: Schedule): string {
+  const n = s.run_count ?? 0
+  const max = s.max_runs ?? 0
+  return max > 0 ? t('schedules.health.runs', { n, max }) : t('schedules.health.runsUnlimited', { n })
+}
+
+function pausedText(s: Schedule): string {
+  if (s.paused_reason === 'failures') {
+    return t('schedules.health.pausedFailures', { n: s.consecutive_failures ?? 0 })
+  }
+  if (s.paused_reason === 'max_runs') {
+    return t('schedules.health.pausedMaxRuns', { max: s.max_runs ?? 0 })
+  }
+  return ''
+}
+
+// 前置检查只能在 server 本机跑（设计 2026-11-12 §2）：远程 runner 的调度只展示、不可设。
+function isLocalRunner(name: string | undefined): boolean {
+  return !name || name === 'local' || name === 'server'
 }
 
 // Q3：`schedules` 主题的失效通知触发重拉；WS 断开超过 15s 才由 30s 一次的兜底轮询接手（恢复后自动停）。
@@ -399,6 +438,15 @@ onUnmounted(() => {
               <span class="sch-id mono" :title="s.id">{{ s.id }}</span>
               <span class="sch-pr">{{ s.project_key }} · {{ s.request.agent }} · {{ runnerLabel(s.request.runner) }}</span>
             </span>
+            <!-- 运行健康（设计 2026-11-12 §1）：第几次 / 上限、连续失败、为什么被暂停 -->
+            <span class="sch-health">
+              <span class="hchip" data-test="schedule-runs">{{ runsText(s) }}</span>
+              <span v-if="(s.consecutive_failures ?? 0) > 0" class="hchip hchip--warn" data-test="schedule-failures">
+                {{ t('schedules.health.failures', { n: s.consecutive_failures ?? 0 }) }}
+              </span>
+              <span v-if="pausedText(s)" class="hchip hchip--warn" data-test="schedule-paused">{{ pausedText(s) }}</span>
+              <span v-if="s.precheck" class="hchip" data-test="schedule-precheck">{{ s.precheck.argv.join(' ') }}</span>
+            </span>
           </span>
           <span class="col-cron mono" :title="s.cron || t('schedules.typeOnce')">
             {{ scheduleType(s) === 'cron' ? s.cron : t('schedules.typeOnce') }}
@@ -476,6 +524,25 @@ onUnmounted(() => {
             <span class="dv">{{ scheduleType(s) }}</span>
             <span class="dk">{{ t('schedules.detailCatchUp') }}</span>
             <span class="dv">{{ s.catch_up ? 'true' : 'false' }}</span>
+            <!-- 运行健康 / 前置检查 / 跳轮上下文（设计 2026-11-12 §1–§3） -->
+            <span class="dk">{{ t('schedules.health.overlap') }}</span>
+            <span class="dv">{{ s.overlap === 'skip' ? t('schedules.health.overlapSkip') : t('schedules.health.overlapAllow') }}</span>
+            <span class="dk">{{ t('schedules.detailRuns') }}</span>
+            <span class="dv" data-test="detail-runs">{{ runsText(s) }}</span>
+            <template v-if="pausedText(s)">
+              <span class="dk">{{ t('schedules.detailPaused') }}</span>
+              <span class="dv">{{ pausedText(s) }}</span>
+            </template>
+            <span class="dk">{{ t('schedules.health.context') }}</span>
+            <span class="dv">{{ s.context === 'off' ? t('schedules.health.contextOff') : t('schedules.health.contextOn') }}</span>
+            <template v-if="s.precheck">
+              <span class="dk">{{ t('schedules.detailPrecheck') }}</span>
+              <span class="dv mono" data-test="detail-precheck">
+                {{ s.precheck.argv.join(' ') }}
+                <template v-if="s.precheck.timeout_sec"> · {{ s.precheck.timeout_sec }}s</template>
+                <template v-if="s.precheck.skip_unchanged"> · {{ t('schedules.precheck.skipUnchanged') }}</template>
+              </span>
+            </template>
             <span class="dk">{{ t('schedules.detailCwd') }}</span>
             <span class="dv mono">{{ s.request.cwd || '.' }}</span>
             <template v-if="s.request.title">
@@ -622,6 +689,73 @@ onUnmounted(() => {
         <span class="ekey">{{ t('schedules.editForm.enabled') }}</span>
         <input v-model="editEnabled" type="checkbox" data-test="edit-enabled" />
       </label>
+
+      <!-- 运行健康（设计 2026-11-12 §1） -->
+      <label class="erow">
+        <span class="ekey">{{ t('schedules.health.overlap') }}</span>
+        <select v-model="editHealth.overlap" data-test="edit-overlap">
+          <option value="skip">{{ t('schedules.health.overlapSkip') }}</option>
+          <option value="allow">{{ t('schedules.health.overlapAllow') }}</option>
+        </select>
+      </label>
+      <label class="erow">
+        <span class="ekey">{{ t('schedules.health.maxRuns') }}</span>
+        <input v-model="editHealth.maxRuns" type="number" min="0" step="1" data-test="edit-max-runs" />
+      </label>
+      <label class="erow">
+        <span class="ekey">{{ t('schedules.health.maxFailures') }}</span>
+        <input v-model="editHealth.maxFailures" type="number" min="0" step="1" data-test="edit-max-failures" />
+      </label>
+      <p class="modal-hint">{{ t('schedules.health.maxRunsHint') }}{{ t('schedules.health.maxFailuresHint') }}</p>
+      <label class="erow">
+        <span class="ekey">{{ t('schedules.health.context') }}</span>
+        <select v-model="editHealth.context" data-test="edit-context">
+          <option value="on">{{ t('schedules.health.contextOn') }}</option>
+          <option value="off">{{ t('schedules.health.contextOff') }}</option>
+        </select>
+      </label>
+
+      <!-- 前置检查（设计 2026-11-12 §2）：argv 不经 shell，一行一个参数；只能在 server 本机跑 -->
+      <div class="precheck-editor">
+        <div class="preview-head">{{ t('schedules.precheck.title') }}</div>
+        <p class="modal-hint">
+          {{ t('schedules.precheck.argvHint') }} {{ t('schedules.precheck.permission') }}
+        </p>
+        <p v-if="editTarget && !isLocalRunner(editTarget.request.runner)" class="modal-hint" data-test="edit-precheck-remote">
+          {{ t('schedules.precheck.localOnly') }}
+        </p>
+        <label class="erow">
+          <span class="ekey">{{ t('schedules.precheck.argv') }}</span>
+          <textarea
+            v-model="editHealth.precheckArgv"
+            class="pcol-desc mono area"
+            rows="3"
+            spellcheck="false"
+            :disabled="!!editTarget && !isLocalRunner(editTarget.request.runner)"
+            data-test="edit-precheck-argv"
+          ></textarea>
+        </label>
+        <label class="erow">
+          <span class="ekey">{{ t('schedules.precheck.timeout') }}</span>
+          <input
+            v-model="editHealth.precheckTimeout"
+            type="number"
+            min="0"
+            step="1"
+            :disabled="!!editTarget && !isLocalRunner(editTarget.request.runner)"
+            data-test="edit-precheck-timeout"
+          />
+        </label>
+        <label class="erow erow--check">
+          <span class="ekey">{{ t('schedules.precheck.skipUnchanged') }}</span>
+          <input
+            v-model="editHealth.precheckSkipUnchanged"
+            type="checkbox"
+            :disabled="!!editTarget && !isLocalRunner(editTarget.request.runner)"
+            data-test="edit-precheck-skip-unchanged"
+          />
+        </label>
+      </div>
 
       <div class="params-editor">
         <div class="preview-head">{{ t('schedules.editForm.params') }}</div>
@@ -886,6 +1020,29 @@ onUnmounted(() => {
   font-size: var(--fs-xs);
   min-width: 0;
 }
+/* 运行健康一行（设计 2026-11-12 §1）：第 n 次 / 上限、连续失败、暂停原因、前置检查 */
+.sch-health {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  min-width: 0;
+}
+.hchip {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-3);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hchip--warn {
+  color: var(--fail);
+  border-color: var(--fail);
+}
 .sch-id {
   color: var(--accent);
   flex: none;
@@ -1124,6 +1281,17 @@ onUnmounted(() => {
 }
 .params-editor {
   margin-top: var(--s3);
+}
+/* 前置检查编辑器（设计 2026-11-12 §2）：argv 文本框 + 超时 + 无变化跳过 */
+.precheck-editor {
+  margin-top: var(--s3);
+}
+.precheck-editor .area {
+  font-family: inherit;
+  resize: vertical;
+}
+.erow--check {
+  align-items: center;
 }
 .prow--edit {
   margin-bottom: 6px;

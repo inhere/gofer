@@ -264,6 +264,9 @@ export const jobs: PageDict = {
     'jobs.detail.wt.gone': 'worktree 目录已不存在',
     'jobs.detail.wt.ahead': '{n} 个提交尚未合并',
     'jobs.detail.wt.nothing': '没有可合并的提交',
+    // 设计 2026-11-12 §6：登记的目录还在，但已不是该分支的 checkout（残留目录 / 其它仓库）
+    'jobs.detail.wt.stateGone': '目录还在，但已不是该分支的 checkout',
+    'jobs.detail.wt.stateGoneHint': 'gofer 不会删未经确认的目录；确认后请手动清理，并检查分支是否还在。',
     'jobs.detail.termExited': '进程已退出',
     'jobs.detail.termExitedCode': '进程已退出 · exit {code}',
     'jobs.detail.ptyBytes': '输入 {in} / 输出 {out} 字节',
@@ -605,6 +608,8 @@ export const jobs: PageDict = {
     'jobs.detail.wt.gone': 'The worktree directory is gone',
     'jobs.detail.wt.ahead': '{n} commits are not merged yet',
     'jobs.detail.wt.nothing': 'Nothing to merge',
+    'jobs.detail.wt.stateGone': 'The directory exists but is no longer a checkout of this branch',
+    'jobs.detail.wt.stateGoneHint': 'gofer never deletes unconfirmed content; clean it up by hand after checking the branch.',
     'jobs.detail.termExited': 'The process exited',
     'jobs.detail.termExitedCode': 'The process exited · exit {code}',
     'jobs.detail.ptyBytes': 'in {in} / out {out} bytes',

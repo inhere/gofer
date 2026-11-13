@@ -31,6 +31,9 @@ export type TodayCardKind =
   // 子 job 有结果但回执送不到常驻父 job（父 job 已结束 / 回执过期），卡片指向父 job
   // （服务端生成，不是 today 的原生卡）
   | 'job.child_wake_failed'
+  // 设计 2026-11-12 §1（internal/inbox/schedule_paused.go）：定时任务连续失败达阈值后被
+  // gofer 自己暂停。动作 enable（立即重新启用）/ open（去定时任务页）。
+  | 'schedule.paused'
 
 // 「等我」六类（互斥、穷尽，按此顺序第一个命中）：待批准 / 待回答 / 待验收 / 计划卡住 / 你提交的任务失败 / 投递待确认
 export type WaitingCategory = 'approval' | 'answer' | 'review' | 'awaiting_merge' | 'plan_stuck' | 'failed' | 'delivery'
@@ -70,6 +73,8 @@ export interface TodayRefs {
   todo_id?: string
   field?: string
   merge_id?: number
+  // schedule.paused 卡：被暂停的定时任务 id（enable 动作的入参）。
+  schedule_id?: string
   // memory 卡：它针对的仓库 tracker 记忆（旧版本的记忆整理卡；服务端已不再产生）
   tracker_id?: string
   memory_key?: string
