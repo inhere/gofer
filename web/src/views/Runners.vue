@@ -114,9 +114,14 @@ async function fetchRunners(): Promise<void> {
 
 // loadReplaced 拉每台 worker 的最近一次被顶替记录（设计 2026-11-12 §5）：它只在
 // GET /v1/workers/{id} 的明细里，所以列表拉完后顺手补一次；失败静默（只是辅助提示）。
+// live 推送会频繁触发 fetchRunners，明细最多每 60 秒补拉一轮，避免每次推送都对每台 worker 发请求。
 const replaced = ref<Record<string, WorkerReplaced | undefined>>({})
+let replacedLoadedAt = 0
 
 async function loadReplaced(): Promise<void> {
+  const now = Date.now()
+  if (now - replacedLoadedAt < 60_000) return
+  replacedLoadedAt = now
   const list = workers.value
   const out: Record<string, WorkerReplaced | undefined> = {}
   await Promise.all(
@@ -138,7 +143,7 @@ async function loadReplaced(): Promise<void> {
 function replacedText(w: Runner): string {
   const r = replaced.value[w.worker_id || w.name]
   if (!r) return ''
-  const parts = [t('runners.worker.replaced', { time: fmtDateTime(Math.floor((r.at || 0) / 1000)) })]
+  const parts = [t('runners.worker.replaced', { time: fmtDateTime(r.at || 0) })]
   if (r.old_instance || r.new_instance) {
     parts.push(t('runners.worker.replacedDetail', { old: r.old_instance ?? '?', new: r.new_instance ?? '?' }))
   }
