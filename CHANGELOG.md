@@ -16,6 +16,11 @@
 - plan 新增完成时机 `complete_on`：`job`（默认，job 成功即完成对应的待办）或 `merge`（`--worktree` 交付的待办等交付真正落地才完成，后续待办此时才派发）。入口：`gofer plan create|set --complete-on`、`gofer plan show` 的 `complete_on:`、web 计划详情的「完成时机」、HTTP 计划创建与 `PATCH`、MCP `gofer_create_plan` / `gofer_set_plan_complete_on`。
 - 「等我」与收件箱新增「待你收尾」：完成时机为合并的 plan 里，job 已结束而交付还没落地时出卡，按待合并 / 已推送 / 交付失败 / 已丢弃 / 已合并待标记完成分状态，可直接标记完成或跳过；收件箱「要处理」栏的新类别排在「待你验收」之后、「计划卡住」之前，默认归「要处理」。
 - `gofer job transcript <id>`：按回合查看长 job 的记录（默认概要、`--turns A-B` 全文、`--head` / `--tail N`、`--search` 字面搜索、`--cursor` 翻页、`--out` 导出到本地文件），多回合 job 不再只剩最后一轮回复。来源：claude / suga 执行时写的逐回合记录、ACP job 的结构化记录（含远程 worker 上的 ACP job），其他 agent 回退为整份 stdout。接口 `GET /v1/jobs/{id}/transcript`，MCP `gofer_get_job_transcript`；多回合 job 的 `job show` / `job logs` 末尾提回合数（`GET /v1/jobs/{id}` 新增 `turn_count`，列表不带）。
+- **定时任务运行健康**：schedule 新增叠跑策略（上一轮未结束时跳过 / 照常提交）、运行次数上限、连续失败自动暂停。入口：`gofer schedule add|edit --overlap --max-runs --max-failures`、HTTP 创建与 `PATCH`、web 定时页与新建页；`schedule list` 的 `RUNS` 列显示「第 n 次 / 上限」，`schedule show` 另有 `overlap` / `runs` / `failures` 与被自动暂停的原因，立即运行在叠跑策略下遇到未结束的上一轮时被拒（409）。连续失败达到上限时 gofer 自己停掉调度，发 `schedule.paused` 通知，并在「等我」里出一张「定时任务已暂停」卡（可直接「启用」）。次数与连续失败只统计定时触发，`schedule run` 与 webhook 不计入也不清零；人工启用会清零失败计数与暂停原因。
+- **定时任务前置检查**：`gofer schedule add|edit --precheck "<命令> <参数…>" [--precheck-timeout 秒] [--precheck-skip-unchanged] [--clear-precheck]`（HTTP schedule 的 `precheck {argv, timeout_sec, skip_unchanged}`）让 server 在每次到点、提交任务之前先跑一条命令：退出码 0 = 提交、2 = 本轮跳过、其它或超时 = 一轮失败；输出末尾 4KB 以 `GOFER_PRECHECK_OUTPUT` 环境变量与 `{{precheck_output}}` 模板变量交给任务，`skip_unchanged` 时输出与上次实际提交的那次相同就跳过。命令不经 shell、只在 server 本机执行（远程 runner 的调度设不了，400），环境里剥掉 gofer 自己的凭据；设置或修改它需要新权限 `schedule.precheck`（默认只有根管理员）。
+- **定时任务跨轮上下文**：`--context on|off`（HTTP `context`）。开着时每一轮拿到 `GOFER_SCHEDULE_ID` / `GOFER_SCHEDULE_RUN` / `GOFER_PREV_JOB_ID` / `GOFER_PREV_STATUS`（带模板的请求另有 `{{schedule_run}}` 等小写变量），agent job 的 prompt 前面多一段固定文案说明这是第几次、上一次结果如何（引用上一轮最后一条回复末尾，按数据围起并注明不是指令）。
+- **`gofer serve status` 按真实状态返回退出码**：`0` 正常、`1` 检查本身出错、`3` 未运行、`4` 部件故障、`5` 待配置（参照 LSB status 的 0 / 3）；`--json` 新增 `state` 与 `exit_code`，文本输出末行是 `state=…`，可直接用在脚本、监控与编排里。
+- **同一 worker_id 两个进程互顶有提示了**：server 侧写 `worker.replaced`（worker 自己的事件流 `worker:<id>`，10 分钟内每个 worker 最多一条，附期间被拦下的次数）；`GET /v1/workers/{id}` 新增 `last_replaced`（时刻、新旧 instance_id 与远端地址），`gofer worker show <id>` 与 web 运行节点页据此显示「最近一次被同名进程顶替」并提示只保留一个进程。同一进程重连不会报。
 
 ### 变更
 
@@ -27,10 +32,14 @@
 - 故障转移时被跳过的候选 agent 记一条 `job.fallback_skipped` 事件（候选 agent + 原因），`job show` 能看到为什么没换成它，不再只剩一行 server 日志。
 - 完成时机为合并的 plan 里，`worktree merge` 成功即完成该待办（`--todo-done` 不起作用）；丢弃 worktree 时待办保持进行中并注明「未合并」。两种完成时机下，job 正在续跑时都不再提前完成待办。
 - 续跑类提示（自动续投、未提交改动续投、待办接续）与故障转移的前缀提示新增一句：先核对远端与外部状态（已推送的分支、已开的 PR、已发出的消息），不重复已完成的外部动作。
+- **新建 schedule 的默认值与已有 schedule 不同（行为变化）**：新建的调度默认 `overlap=skip`（上一轮未结束就跳过这一轮）、`max_failures=3`（连续失败 3 次自动暂停）、`context=on`（每轮带上轮次与上一轮结果）；升级前已存在的调度保持原行为（`overlap=allow`、不因失败暂停、`context=off`），要这些保护就 `gofer schedule edit` 逐个打开。
+- **`gofer serve status` 不再恒返回 0（行为变化）**：未登记受管 server 返回 5、未运行返回 3、部件故障返回 4、健康返回 0；把它当「永远成功」的探针、或脚本里 `serve status` 的退出码没被检查过的地方要相应修正。
 
 ### 修复
 
 - ACP job 的结构化记录 `artifacts/acp.jsonl` 写入时按该 job 授予的 secret 值掩码（truncate 前脱敏），记录与 web「消息」页不再出现明文 secret。修复前已写下的旧记录不回写，读取时只做模式脱敏。
+- `stdout.raw.log`（agent 设了 `ndjson_raw: true` 时的原始事件流旁文件）与 ACP 审批卡片（工具输入摘要、标题、路径与拼出的提问文本）里的授予 secret 现在都打掩码：前者在分流写入前经过带尾部缓冲的掩码器（跨两次写入的 secret 也能处理），文件权限改为 0600；后者改为先掩码再截断，不再从 512 字节的摘要里泄出明文。
+- 残留 worktree 目录（登记的路径还在，但 git 已不认它是该分支的 checkout）不再被当作 checkout 去读 git 状态：`GET` / `DELETE /v1/jobs/{id}/worktree` 返回 `state: "gone"`，`gofer job worktree ls` 与 web 任务详情直接说明「目录还在，但已不是该分支的 checkout」；保留期清扫对这种目录只保留登记并记一条警告，不删未经确认的内容。
 
 ## [0.213.0] - 2026-11-10
 
