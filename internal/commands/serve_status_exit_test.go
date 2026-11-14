@@ -92,3 +92,15 @@ func TestServeStatusCommandUnconfiguredExitsFive(t *testing.T) {
 	assert.Eq(t, 5, code)
 	assert.StrContains(t, out, "state=unconfigured")
 }
+
+// A check that cannot even run (here: an invalid instance name) exits 1, the code the
+// docs give for "the check itself failed", not gcli's generic error code.
+func TestServeStatusCommandCheckFailureExitsOne(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	prev := manageOpts
+	t.Cleanup(func() { manageOpts = prev })
+	var code int
+	out := captureOutput(t, func() { code = NewApp("test").Run([]string{"serve", "status", "--name", "bad/name"}) })
+	assert.Eq(t, 1, code)
+	assert.StrContains(t, out, "invalid service name")
+}

@@ -410,13 +410,13 @@ func waitManagedReady(ctx context.Context, m *servicemgr.Manager) error {
 func runServeManagedStatus(c *gcli.Command, _ []string) error {
 	m, err := managerFor(manageOpts.name)
 	if err != nil {
-		return err
+		return serveStatusCheckError(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := inspectManagedStatus(ctx, m)
 	if err != nil {
-		return err
+		return serveStatusCheckError(err)
 	}
 	state, code := classifyServeStatus(out)
 	if manageOpts.asJSON {

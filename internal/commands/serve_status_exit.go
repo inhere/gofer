@@ -12,6 +12,7 @@ import (
 // gofer's own.
 const (
 	serveStatusExitOK       = 0
+	serveStatusExitCheck    = 1
 	serveStatusExitDown     = 3
 	serveStatusExitDegraded = 4
 	serveStatusExitUnconfig = 5
@@ -80,4 +81,10 @@ func serveStatusExitError(state string, code int) error {
 		return nil
 	}
 	return errorx.Failf(code, "serve status: state=%s", state)
+}
+
+// serveStatusCheckError gives a failed check (no manager, unreadable spec or native
+// registration) the documented exit code 1 instead of gcli's generic error code.
+func serveStatusCheckError(err error) error {
+	return errorx.Failf(serveStatusExitCheck, "serve status: %v", err)
 }
