@@ -456,6 +456,8 @@ func (s *Service) parkJob(cfg *config.Config, proj config.ProjectConfig, req *Jo
 		RequestJSON:       string(requestJSON),
 		CallerID:          req.CallerID,
 		OriginCaller:      req.OriginCaller,
+		ScheduleID:        req.ScheduleID,
+		ScheduleTrigger:   req.ScheduleTrigger,
 		SourceSessionID:   req.SourceSessionID,
 		RequestID:         req.RequestID,
 		Tags:              req.Tags,
@@ -597,6 +599,9 @@ func (s *Service) ApproveJob(jobID, by, note string) (JobResult, error) {
 	if err := json.Unmarshal([]byte(rec.RequestJSON), &req); err != nil {
 		return JobResult{}, fmt.Errorf("decode request_json of %q: %w", jobID, err)
 	}
+	// The schedule link lives on the row, not in request_json: carry it into the re-entry so
+	// the approved job stays the schedule's run.
+	req.ScheduleID, req.ScheduleTrigger = rec.ScheduleID, rec.ScheduleTrigger
 	now := s.nowFn().Unix()
 	hr.Decision, hr.DecidedBy, hr.DecidedAt, hr.Note = HoldDecisionApproved, by, now, strings.TrimSpace(note)
 	carry := hr.Carry
@@ -761,6 +766,7 @@ func (s *Service) finishUnrun(snap JobResult) {
 		s.metrics.JobTerminal(snap.Status, snap.CallerID, snap.ProjectKey, snap.Agent, snap.Runner, dur)
 	}
 	s.linkTodoOutcome(snap, false)
+	s.scheduleOutcome(snap, false)
 	s.maybeBlockPlan(snap)
 	s.notifyTerminalHooks(snap)
 	// gofer-3db4: a job that never ran still ENDED (a rejected / expired hold, a

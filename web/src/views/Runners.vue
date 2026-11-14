@@ -18,9 +18,9 @@ import MessengerDrawer from '../components/MessengerDrawer.vue'
 import RunnerDirs from '../components/RunnerDirs.vue'
 import StatusGlyph from '../ui/StatusGlyph.vue'
 import StatusPill from '../ui/StatusPill.vue'
-import { listEnrollments, listProjects, listRunners, registerWorker, reloadWorker, upgradeWorker, ApiError } from '../api/client'
+import { listEnrollments, listProjects, listRunners, registerWorker, reloadWorker, upgradeWorker, getWorkerView, ApiError } from '../api/client'
 import { TOPIC_WORKER_ENROLLMENTS } from '../api/live'
-import type { Runner, RunnersServerInfo, WorkerEnrollment } from '../api/types'
+import type { Runner, RunnersServerInfo, WorkerEnrollment, WorkerReplaced } from '../api/types'
 import { messengerDisplay } from '../utils/messenger'
 import { createLiveTopic } from '../utils/useLiveTopic'
 import { t } from '../i18n'
@@ -103,12 +103,51 @@ async function fetchRunners(): Promise<void> {
     error.value = ''
     loaded.value = true
     nowMs.value = Date.now()
+    void loadReplaced()
   } catch (e) {
     // 401 已由 client 处理（跳转登录）；其余仅给出头部错误条，保留上一帧
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
   }
+}
+
+// loadReplaced 拉每台 worker 的最近一次被顶替记录（设计 2026-11-12 §5）：它只在
+// GET /v1/workers/{id} 的明细里，所以列表拉完后顺手补一次；失败静默（只是辅助提示）。
+// live 推送会频繁触发 fetchRunners，明细最多每 60 秒补拉一轮，避免每次推送都对每台 worker 发请求。
+const replaced = ref<Record<string, WorkerReplaced | undefined>>({})
+let replacedLoadedAt = 0
+
+async function loadReplaced(): Promise<void> {
+  const now = Date.now()
+  if (now - replacedLoadedAt < 60_000) return
+  replacedLoadedAt = now
+  const list = workers.value
+  const out: Record<string, WorkerReplaced | undefined> = {}
+  await Promise.all(
+    list.map(async (w) => {
+      const id = w.worker_id || w.name
+      if (!id) return
+      try {
+        const view = await getWorkerView(id)
+        if (view.last_replaced) out[id] = view.last_replaced
+      } catch {
+        // 离线 / 无权限时拿不到明细：不显示这一行
+      }
+    }),
+  )
+  replaced.value = out
+}
+
+// replacedText 是 worker 卡上那行「最近一次被同名进程顶替」：时间 + 新旧 instance_id。
+function replacedText(w: Runner): string {
+  const r = replaced.value[w.worker_id || w.name]
+  if (!r) return ''
+  const parts = [t('runners.worker.replaced', { time: fmtDateTime(r.at || 0) })]
+  if (r.old_instance || r.new_instance) {
+    parts.push(t('runners.worker.replacedDetail', { old: r.old_instance ?? '?', new: r.new_instance ?? '?' }))
+  }
+  return parts.join(' · ')
 }
 
 // fetchEnrollments 拉待决定 / 最近 24 小时的申请。403（非个人账号一类）整区隐藏，
@@ -592,6 +631,10 @@ function beatLabel(r: Runner): string {
             </div>
             <RunnerDirs v-if="w.status === 'connected'" :runner="w" />
             <p v-if="w.worker?.draining" class="upgrade-line upgrade-line--warn">{{ t('runners.worker.draining') }}</p>
+            <!-- 设计 2026-11-12 §5：同一个 worker_id 有两个进程在连时会互相顶替 -->
+            <p v-if="replacedText(w)" class="upgrade-line upgrade-line--warn" data-test="worker-replaced">
+              {{ replacedText(w) }} · {{ t('runners.worker.replacedHint') }}
+            </p>
             <p v-if="w.upgrade" class="upgrade-line" :class="upgradeStateClass(w.upgrade)">{{ upgradeSummary(w.upgrade) }}</p>
             <p v-if="upgradeBlockReason(w, serverInfo) && w.upgrade?.state !== 'pending'" class="upgrade-hint">{{ upgradeBlockReason(w, serverInfo) }}</p>
             <!-- 异构 worker：升级二进制取自下载源（server.update），同平台用 server 自身可执行文件 -->

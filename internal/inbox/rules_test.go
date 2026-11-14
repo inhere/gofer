@@ -14,6 +14,7 @@ import (
 // TestNotifyCatalogEventsAreClassified until it is mapped in config.inboxKindEvents or
 // listed here: that is the "catalog grew, who decides its column" guard.
 var notInboxEvents = map[string]string{
+	"worker.replaced":           "operator diagnostics on the worker page and in the server log; nothing a person decides from the inbox",
 	"job.reviewed":              "outcome of a review a person just made; nothing left to decide",
 	"job.hold_approved":         "outcome of an approval; the held job moves on by itself",
 	"job.hold_rejected":         "outcome of an approval; informational on the job page",
@@ -45,6 +46,8 @@ var notInboxEvents = map[string]string{
 	"plan.advance_paused":       "plan page / webhook concern",
 	notify.EventUpdateAvailable: "system notice, not tied to a work item",
 	"config.updated":            "system audit event",
+	"schedule.run_skipped":      "a skipped run is by design, not a call to action; it stays on the schedule's event stream",
+	"schedule.run_failed":       "history on the schedule's event stream; a failure streak reaches the inbox as schedule.paused",
 }
 
 // Every notify catalog event is either announced to the inbox (config.InboxEventKinds) or

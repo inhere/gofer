@@ -50,6 +50,7 @@ var EventGroups = []EventGroup{
 	{Key: "session", Zh: "持续会话", En: "Sessions"},
 	{Key: "plan", Zh: "计划与工作流", En: "Plans"},
 	{Key: "work", Zh: "工作项", En: "Work items"},
+	{Key: "schedule", Zh: "定时任务", En: "Schedules"},
 	{Key: "system", Zh: "系统", En: "System"},
 }
 
@@ -172,6 +173,17 @@ var catalogEvents = []EventInfo{
 		Zh: "计划暂停时到了推进时机，条目原地不动",
 		En: "A plan advance was due while the plan is paused"},
 
+	// schedule
+	{Key: "schedule.paused", Group: "schedule",
+		Zh: "定时任务被自动暂停（连续失败达到上限，或运行次数用完）",
+		En: "A schedule was paused automatically (too many consecutive failures, or its run limit was reached)"},
+	{Key: "schedule.run_skipped", Group: "schedule",
+		Zh: "定时任务这一轮没有提交（上一轮还在跑，或前置检查说无事可做）",
+		En: "A schedule run was skipped on purpose (the previous run is still going, or its pre-run check found nothing to do)"},
+	{Key: "schedule.run_failed", Group: "schedule",
+		Zh: "定时任务这一轮没能提交（被拒绝、请求无效或前置检查失败）",
+		En: "A schedule run could not be submitted (refused, invalid request or a failed pre-run check)"},
+
 	// work
 	{Key: EventWorkRemind, Group: "work",
 		Zh: "工作项到了提醒时间",
@@ -190,6 +202,9 @@ var catalogEvents = []EventInfo{
 	{Key: "config.updated", Group: "system",
 		Zh: "有人通过网页 / 接口改了配置（审计用）",
 		En: "Someone changed the config through the console / API (audit)"},
+	{Key: "worker.replaced", Group: "system",
+		Zh: "同一 worker_id 被另一个进程顶替连接（10 分钟内每个 worker 最多一条）",
+		En: "A worker connection was replaced by another process with the same worker_id (at most one per worker per 10 minutes)"},
 }
 
 // EventCatalog returns the catalog with each entry's Default / DesktopDefault flags filled

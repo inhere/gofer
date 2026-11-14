@@ -168,6 +168,7 @@ func (s *Service) reviewJob(jobID, by, note, verdict string, resume, skipDeliver
 	// accepted item is done (the note gets its commit line now), a rejected one
 	// appends the rejection. Best-effort, like every other todo write.
 	s.linkTodoOutcome(snap, false)
+	s.scheduleOutcome(snap, false)
 	// PLAN-03: a rejected item is a failed one for the chain — the plan parks on it so
 	// the human sees the chain stopped where the work did. An ACCEPTED item advances
 	// inside linkTodoOutcome (it became done).

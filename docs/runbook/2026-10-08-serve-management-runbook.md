@@ -111,6 +111,20 @@ gofer serve restart --name '<name>' -c '<config-file>'
 
 记录命令与退出码、`status --json`、升级 ID 与最终 `upgrade status --json`、原生任务/unit 状态、PID/程序版本/端口归属、日志路径、配置与候选的哈希。凭据、私钥、完整 token 和敏感 URL 不进入证据。隔离实例结束后核对其任务/unit 与进程均消失，资产保留情况符合预期。
 
+## `serve status` 退出码
+
+`gofer serve status` 的退出码可以直接给脚本、监控与编排用（参照 LSB status 的约定，0 / 3 与它一致）：
+
+| 退出码 | `state` | 含义 | 判据（`--json` 字段） |
+|---|---|---|---|
+| 0 | `running` | 正常 | `registered` 且 `active` 且 `server_pid > 0` 且 `port_owned` 且 `health=healthy`，运行版本与登记版本一致，`/v1/stats` 鉴权一致 |
+| 1 | — | 检查本身出错 | 读 spec / 配置失败（也是通用错误码）；此时没有可信的 `state` |
+| 3 | `stopped` | 未运行 | 未登记但有 spec，或进程不在（`active=false` / `server_pid=0`），或 `port_owned=false` 且端口无人监听 |
+| 4 | `degraded` | 部件故障 | 进程在，但 `server_verified=false`、`health` 为 `unreachable` / `http_<code>` / `unverified`、端口被别的进程占、鉴权不符或版本不一致 |
+| 5 | `unconfigured` | 待配置 | 连 spec 都没有（从未 `serve register`） |
+
+`--json` 在原有字段之外多 `state` 与 `exit_code`；文本输出最后一行是 `state=…`。非零时进程退出码就是上表的值。`gofer doctor` 复用同一份检查，但不改自己的退出码与输出；把 `serve status` 当「永远成功」的探针的老脚本要相应修正。
+
 ## 排障与升级
 
 Windows 任务只在用户登录后进入交互 session；Locked/RDP 桌面的 GUI 能力取决于该会话与权限等级。Linux `system` 与 `user` scope 的权限和生命周期不同，`user` 不会自动获得 linger。若 `status` 标明原生入口缺失、身份不匹配或 `port_owned=false`，先读对应应用与原生日志，再按本 runbook 的只读核对重建事实；不要绕过所有权拒绝。当前脚本入口与新入口并存期间，切换顺序及具体机器路径由获批准的迁移操作记录给出。

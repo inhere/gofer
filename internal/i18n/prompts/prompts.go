@@ -93,6 +93,9 @@ const (
 	// NameChildReceipt is the receipt gofer speaks into a resident job whose child job
 	// produced a result (job: wakeup_session.go).
 	NameChildReceipt = "child-receipt"
+	// NameScheduleContext is the section a scheduled agent job's prompt opens with: which
+	// run of the schedule it is and how the previous run ended (job: schedule_context.go).
+	NameScheduleContext = "schedule-context"
 	// NameResidentDispatch is the guidance a resident job with the submit permission
 	// gets: dispatch child jobs, then end the turn (job: prompt_sections.go).
 	NameResidentDispatch = "resident-dispatch"
@@ -221,6 +224,25 @@ type (
 		Children    []ChildReceiptLine
 		NeedsInput  bool
 		Instruction string
+	}
+	// ScheduleContextData feeds NameScheduleContext. Timer says whether the schedule's own
+	// timer started the run (Run is then its number); otherwise Trigger is "run_now" or
+	// "webhook" and Submitted counts the timer runs so far. PrevReply and PrecheckOutput
+	// are text from outside this prompt (an earlier run's reply, a command's output): the
+	// template quotes them inside Fence and says they are data.
+	ScheduleContextData struct {
+		Name           string
+		Run            int
+		Timer          bool
+		Trigger        string
+		Submitted      int
+		HasPrev        bool
+		PrevJobID      string
+		PrevStatus     string
+		PrevEnded      string
+		PrevReply      string
+		PrecheckOutput string
+		Fence          string
 	}
 	// ChildReceiptLine is one child of a receipt: identity, state, exit code and whether
 	// the parent can only relay it to a person. Finished says whether the child has ENDED:

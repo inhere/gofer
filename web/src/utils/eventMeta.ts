@@ -123,6 +123,14 @@ export const EVENT_META: Record<string, { icon: LucideIcon }> = {
   'plan.leader_skipped': { icon: SkipForward },
   'plan.leader_cancelled': { icon: Ban },
   'plan.leader_exhausted': { icon: Flag },
+  // 设计 2026-11-12 §1：定时任务的运行健康——本轮按策略跳过（上一轮未结束 / 前置检查 /
+  // 输出没变 / 检查还在跑 / server 停机）、gofer 自己暂停了它（连续失败 / 跑满次数）、
+  // 提交失败。前两个记在 schedule:<id> 作用域。
+  'schedule.run_skipped': { icon: SkipForward },
+  'schedule.paused': { icon: Pause },
+  'schedule.run_failed': { icon: TriangleAlert },
+  // 设计 2026-11-12 §5：同一 worker_id 被另一个进程（不同 instance_id）顶替。
+  'worker.replaced': { icon: CornerUpRight },
 }
 
 export function eventIcon(type: string): LucideIcon {
@@ -131,6 +139,24 @@ export function eventIcon(type: string): LucideIcon {
 export function eventLabel(type: string): string {
   const key = `util.event.${type}`
   return te(key) ? t(key) : type
+}
+
+// 定时任务本轮跳过的原因（设计 2026-11-12 §1/§2）：reason 是后端固定枚举，
+// 不认识的就原样显示（服务端新增原因时不会变成空白）。
+const SKIP_REASONS = ['previous_running', 'precheck', 'unchanged', 'check_running', 'server_draining']
+function skipReasonText(reason: unknown): string {
+  const r = String(reason ?? '')
+  if (r === '') return ''
+  return SKIP_REASONS.includes(r) ? t(`util.eventDet.skip.${r}`) : r
+}
+
+// 定时任务被自动暂停的原因（设计 2026-11-12 §1）：failures 带连续失败数，
+// max_runs 带上限；人工停用不会有这条事件。
+function pauseReasonText(d: Record<string, unknown>): string {
+  const reason = String(d.reason ?? '')
+  if (reason === 'failures') return t('util.eventDet.paused.failures', { n: String(d.failures ?? '?') })
+  if (reason === 'max_runs') return t('util.eventDet.paused.max_runs', { max: String(d.max_runs ?? '?') })
+  return reason
 }
 
 // 解析 detail_json，提取每类事件的关键字段拼成一行补充说明（无则空）。
@@ -299,6 +325,22 @@ export function eventDetailText(ev: JobEvent): string {
       return [d.by && `by ${d.by}`, t('util.eventDet.cancelRounds', { n: String(d.cancelled ?? '?') })].filter(Boolean).map(String).join(' · ')
     case 'plan.leader_exhausted':
       return [t('util.eventDet.usedRounds', { n: String(d.rounds ?? '?') }), d.job].filter(Boolean).map(String).join(' · ')
+    // 设计 2026-11-12 §1：定时任务为什么没派（跳过不算失败）——reason 是固定枚举，
+    // 翻成一句话；prev 的 job id 它自己就说明了。
+    case 'schedule.run_skipped':
+      return [skipReasonText(d.reason), d.job_id].filter(Boolean).map(String).join(' · ')
+    case 'schedule.paused':
+      return [pauseReasonText(d), d.last_job_id].filter(Boolean).map(String).join(' · ')
+    case 'schedule.run_failed':
+      return [d.reason, d.error, d.job_id].filter(Boolean).map(String).join(' · ')
+    // 设计 2026-11-12 §5：新旧 instance_id / 远端地址，suppressed = 限频期间被合并的次数。
+    case 'worker.replaced': {
+      const pair = d.old_instance || d.new_instance
+        ? t('util.eventDet.replaced', { old: String(d.old_instance ?? '?'), new: String(d.new_instance ?? '?') })
+        : ''
+      const extra = Number(d.suppressed ?? 0) > 0 ? t('util.eventDet.replacedTimes', { n: String(d.suppressed) }) : ''
+      return [pair + extra, d.new_remote].filter(Boolean).join(' · ')
+    }
     default:
       return ''
   }

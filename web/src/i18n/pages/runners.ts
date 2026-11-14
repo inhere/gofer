@@ -86,6 +86,10 @@ export const runners: PageDict = {
     'runners.worker.upgradeCapabilityUnknown': '该 worker 无法自升级：{reason}',
     'runners.worker.draining': '排空中：不再接新任务，等在途任务结束',
     'runners.worker.history': '升级历史（最近 {n} 次）',
+    // 设计 2026-11-12 §5：同一个 worker_id 被另一个进程（不同 instance_id）顶替
+    'runners.worker.replaced': '最近一次被同名进程顶替：{time}',
+    'runners.worker.replacedDetail': '{old} → {new}',
+    'runners.worker.replacedHint': '同一 worker_id 有两个进程在连：它们会互相顶替，请只保留一个。',
     'runners.worker.emptyTitle': '还没有 worker 上线。',
     'runners.worker.emptyHint': '接入一台即可加入舰队：',
 
@@ -299,6 +303,9 @@ export const runners: PageDict = {
     'runners.worker.upgradeCapabilityUnknown': 'This worker cannot self-upgrade: {reason}',
     'runners.worker.draining': 'Draining: no new jobs, waiting for running ones to finish',
     'runners.worker.history': 'Upgrade history (latest {n})',
+    'runners.worker.replaced': 'Last displaced by another process with the same id: {time}',
+    'runners.worker.replacedDetail': '{old} → {new}',
+    'runners.worker.replacedHint': 'Two processes share this worker_id and keep displacing each other; keep only one.',
     'runners.worker.emptyTitle': 'No workers connected.',
     'runners.worker.emptyHint': 'Bring one online to grow the fleet:',
 

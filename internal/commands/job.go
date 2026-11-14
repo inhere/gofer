@@ -1313,6 +1313,9 @@ func runJobWorktreeList(c *gcli.Command, _ []string) error {
 		if !st.Exists {
 			state = "MISSING"
 		}
+		if st.State == job.WorktreeStateGone {
+			state = "GONE: directory is not a checkout of the branch"
+		}
 		c.Printf("%-14s %-28s %-26s %5d %-6s %-7s %s (%s)\n",
 			st.JobID, st.Project, st.Branch, st.CommitsAhead,
 			yesNo(st.Dirty), yesNo(st.Merged), st.Path, state)

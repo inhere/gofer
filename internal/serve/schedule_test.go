@@ -154,3 +154,15 @@ func TestSweepSchedulesOnceAdvanceFalseSkipsSubmitAndDisable(t *testing.T) {
 	assert.Eq(t, 0, submits)
 	assert.Eq(t, 0, disables)
 }
+
+// A skipped run (overlap, pre-run check) comes back with no job id and no error: the
+// tick is already advanced, and last_job_id must keep naming the previous real run.
+func TestSweepSchedulesSkippedRunDoesNotSetLast(t *testing.T) {
+	setLast := 0
+	sweepSchedules(120, []jobstore.ScheduleRecord{{ID: "s1", CronExpr: "*/1 * * * *", NextRunAt: 60, CatchUp: 1}}, 3600,
+		func(string, int64) (int64, error) { return 180, nil },
+		func(string, int64, int64) (bool, error) { return true, nil },
+		func(jobstore.ScheduleRecord) (string, error) { return "", nil },
+		func(string, string) { setLast++ }, func(string, int) {}, func(string, ...any) {}, func(string, ...any) {})
+	assert.Eq(t, 0, setLast)
+}

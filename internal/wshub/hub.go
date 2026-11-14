@@ -178,6 +178,10 @@ type Hub struct {
 	// beatObs hears a worker's heartbeat, throttled to one call per worker per
 	// BeatNotifyInterval (SetHeartbeatObserver). Atomic like presenceObs.
 	beatObs atomic.Pointer[func(workerID string)]
+
+	// replaceObs hears a connection replaced by one with a different instance_id
+	// (SetReplaceObserver). Atomic like presenceObs.
+	replaceObs atomic.Pointer[func(ReplaceInfo)]
 }
 
 // BeatNotifyInterval caps how often one worker's heartbeat reaches the heartbeat
@@ -622,6 +626,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 		if old.superseded.Load() {
 			wc.adopt(old)
 		}
+		h.notifyReplaced(old, wc)
 		old.gracefulClose("replaced by new registration")
 	}
 	h.notifyPresence(reg.WorkerID, true)

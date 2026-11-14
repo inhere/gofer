@@ -955,6 +955,9 @@ const wtMergeText = computed<string>(() => {
   if (!wtMergeInfo.value.ok) return wtMergeInfo.value.reason
   const st = wtStatus.value
   if (!st) return ''
+  // 设计 2026-11-12 §6：目录还在但已不是该分支的 checkout（残留目录 / 其它仓库），
+  // 比单纯的「目录不存在」更需要人看。
+  if (st.state === 'gone') return t('jobs.detail.wt.stateGone')
   if (st.merged) return t('jobs.detail.wt.merged')
   if (!st.exists) return t('jobs.detail.wt.gone')
   return st.commits_ahead > 0 ? t('jobs.detail.wt.ahead', { n: st.commits_ahead }) : t('jobs.detail.wt.nothing')
@@ -2368,6 +2371,12 @@ onUnmounted(() => {
       <div v-if="job.worktree_path" class="meta-item">
         <span class="meta-k mono">worktree</span>
         <span class="meta-v mono" :title="job.worktree_path">{{ job.worktree_path }}</span>
+      </div>
+      <!-- 设计 2026-11-12 §6：state=gone = 目录还在，但已不是该分支的 checkout。gofer 不删
+           未经确认的目录，只把情况说清楚。 -->
+      <div v-if="wtStatus?.state === 'gone'" class="meta-item" data-test="wt-state-gone">
+        <span class="meta-k mono">wt_state</span>
+        <span class="meta-v mono">{{ t('jobs.detail.wt.stateGone') }} · {{ t('jobs.detail.wt.stateGoneHint') }}</span>
       </div>
       <div v-if="job.worktree_branch" class="meta-item">
         <span class="meta-k mono">wt_branch</span>

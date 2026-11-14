@@ -293,6 +293,10 @@ func runWorkerShow(c *gcli.Command, _ []string) error {
 	if w.Upgrade != nil {
 		c.Printf("last_upgrade: %s %s %s\n", upgradeTime(*w.Upgrade), w.Upgrade.State, describeWorkerUpgrade(*w.Upgrade))
 	}
+	if r := w.LastReplaced; r != nil {
+		c.Printf("last_replaced: %s by instance %s from %s (was %s from %s); another process uses this worker_id\n",
+			time.Unix(r.At, 0).Format("2006-01-02 15:04:05"), r.NewInstance, r.NewRemote, r.OldInstance, r.OldRemote)
+	}
 	if len(w.UpgradeHistory) > 0 {
 		c.Printf("upgrade_history (latest %d):\n", min(len(w.UpgradeHistory), workerUpgradeHistoryShown))
 		for i, item := range w.UpgradeHistory {

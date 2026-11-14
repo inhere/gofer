@@ -17,6 +17,7 @@ import {
   updateTodoStatus,
   saySession,
   sendSessionMessage,
+  setScheduleEnabled,
 } from '../api/client'
 import { acceptMergeSuggestion, dismissMergeSuggestion } from '../api/steward'
 import { CAPTURE_BOX_LINK } from './capture'
@@ -119,6 +120,9 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
   'open:去指派': 'today.action.openMailHeld',
   'open:打开 plan': 'today.action.openPlan',
   'open:去处理': 'today.action.openEnroll',
+  // 被 gofer 自己暂停的定时任务（设计 2026-11-12 §1）：主动作是直接重新启用它。
+  // 服务端的动作名随请求语言变化，zh 下是「启用」。
+  'enable:启用': 'today.action.enableSchedule',
   'report:请求汇报': 'today.action.report',
   'park:搁置': 'today.action.park',
   'adopt:采纳': 'today.action.adopt',
@@ -179,6 +183,9 @@ export function cardLink(card: TodayCard): string {
     case 'worker_enroll':
       // worker 自助注册：卡片的唯一动作就是跳 Runners 页的「待接受」区
       return ENROLLMENTS_LINK
+    case 'schedule.paused':
+      // 被自动暂停的定时任务：动作里带 value=/schedules，未知时也回到定时页
+      return '/schedules'
     case 'decision':
     case 'plan_blocked':
     case 'todo_awaiting_merge':
@@ -281,6 +288,11 @@ export function runCardAction(card: Pick<TodayCard, 'kind' | 'refs'>, a: TodayAc
       break
     case 'plan_blocked':
       return () => planResume(r.plan_id ?? '')
+    case 'schedule.paused':
+      // 设计 2026-11-12 §1：卡片上的唯一写操作是「启用」——沿用现有的启用接口
+      // （POST /v1/schedules/{id}/enable，服务端同时清零连续失败数与暂停原因）。
+      if (a.id === 'enable') return () => setScheduleEnabled(r.schedule_id ?? '', true)
+      break
   }
   return () => Promise.resolve(null)
 }

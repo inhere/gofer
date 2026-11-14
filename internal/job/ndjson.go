@@ -21,8 +21,8 @@ import (
 type ndjsonCapture struct {
 	filter *ndjsonfilter.Filter
 	under  io.WriteCloser
-	raw    *os.File
-	turns  *os.File // turns.jsonl sidecar (closed after the filter wrote its last turn)
+	raw    io.Closer // stdout.raw.log sidecar, behind its own secret masker
+	turns  *os.File  // turns.jsonl sidecar (closed after the filter wrote its last turn)
 }
 
 // Write implements io.Writer (the runner streams the child's stdout into it).
@@ -89,21 +89,24 @@ func (s *Service) captureNDJSON(entry *jobEntry, jobID, runnerName string, stdou
 	// ReconcileOrphanJobs with an empty session_id and `job resume` could not
 	// continue the work. Persisting it on first sight costs one narrow UPDATE.
 	opt.OnSession = func(sid string) { s.persistLiveSession(entry, jobID, agentKey, sid) }
-	var raw *os.File
+	// The granted secret values are read before the raw sidecar opens: it is written
+	// verbatim from the child's stdout, so it needs the same masker the logs get.
+	entry.mu.Lock()
+	secretValues := entry.secretValues
+	entry.mu.Unlock()
+	var raw io.Closer
 	if ac.NDJSONRaw && resultDir != "" {
-		f, err := os.OpenFile(filepath.Join(resultDir, store.StdoutRawFile), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(filepath.Join(resultDir, store.StdoutRawFile), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 		if err != nil {
 			// best-effort 排障旁路：打不开就不写 raw，绝不影响 job。
 			slog.Warn("job.ndjson_raw_sidecar", "job_id", jobID, "agent", agentKey, "err", err)
 		} else {
-			raw = f
-			opt.Raw = f
+			rw := newSecretMasker(f, secretValues) // holds back a tail so a value split across writes is masked
+			raw = rw
+			opt.Raw = rw
 		}
 	}
 	// gofer-mmh0: the per-turn transcript rides the same parse (turns.jsonl).
-	entry.mu.Lock()
-	secretValues := entry.secretValues
-	entry.mu.Unlock()
 	turnsW, turnsFile, dialect := openTurnsWriter(resultDir, jobID, agentKey, ac, secretValues)
 	opt.Turns, opt.TurnDialect = turnsW, dialect
 	return &ndjsonCapture{filter: ndjsonfilter.New(stdout, stderr, opt), under: stdout, raw: raw, turns: turnsFile}

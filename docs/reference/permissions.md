@@ -42,6 +42,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `plan.manage.others` | 他人 plan 的修改 / run / pause / resume / attach / todo 增改与派发 / handoff | 中 | 否 | 是 | 种入 |
 | `plan.supervise.others` | 给他人 plan 绑定 supervisor，或绑定他人会话 | 中 | 否 | 是 | 仅根 |
 | `schedule.manage.others` | 他人 schedule 的删除 / 启停 / 轮换 token / run-now（run-now 另需 `job.submit`） | 中 | 否 | 是 | 种入 |
+| `schedule.precheck` | 设置或修改 schedule 的前置检查（server 在每次到点前以自身身份运行的命令；清除前置检查不需要） | 高 | 否 | 否 | 仅根 |
 | `steward.manage` | steward start / stop / restart / ask / review，以及 notes 写入 | 高 | 否 | 否 | 种入 |
 | `memory.write` | 写、删 tracker 记忆与 scoped 记忆（会注入所有 job 的 prompt），采纳记忆建议 | 危险 | 否 | 是 | 种入 |
 | `memory.synthesis.run` | 手动触发每日记忆综合（`POST /v1/memory-syntheses/run`，含 `force` 重跑）：会按 `memory.synthesis` 配置调用一次只读、无工具的模型并产生费用；另需 `memory.synthesis.enabled` | 危险 | 否 | 是 | 仅根 |
@@ -284,11 +285,11 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `GET` | `/v1/runners` | `Public` | — | — | `NoProject` | 读 |
 | `GET` | `/v1/runners/{name}/messenger/agents` | `Public` | — | — | `NoProject` | 读 |
 | `GET` | `/v1/schedules` | `Public` | — | — | `Filter` | 读 |
-| `POST` | `/v1/schedules` | `Require` | `job.submit` | — | `BodyProject` | 写 |
+| `POST` | `/v1/schedules` | `InHandler(deny)` | `job.submit`、`schedule.precheck` | — | `BodyProject` | 写 |
 | `POST` | `/v1/schedules/cron-preview` | `Public` | — | — | `NoProject` | 读（ReadSafe） |
 | `DELETE` | `/v1/schedules/{id}` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
 | `GET` | `/v1/schedules/{id}` | `Public` | — | — | `Resource(schedule)` | 读 |
-| `PATCH` | `/v1/schedules/{id}` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — | `Resource(schedule)` | 写 |
+| `PATCH` | `/v1/schedules/{id}` | `InHandler(deny)` | `schedule.manage.others`、`job.submit`、`schedule.precheck` | — | `Resource(schedule)` | 写 |
 | `POST` | `/v1/schedules/{id}/disable` | `InHandler(deny)` | `schedule.manage.others` | — | `Resource(schedule)` | 写 |
 | `POST` | `/v1/schedules/{id}/enable` | `InHandler(deny)` | `schedule.manage.others`、`job.submit` | — | `Resource(schedule)` | 写 |
 | `GET` | `/v1/schedules/{id}/events` | `Public` | — | — | `Resource(schedule)` | 读 |

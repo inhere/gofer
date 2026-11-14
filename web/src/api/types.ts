@@ -1997,6 +1997,19 @@ export interface WorkerView {
   worker?: RunnerWorker
   upgrade?: WorkerUpgradeRecord
   upgrade_history?: WorkerUpgradeRecord[]
+  // 最近一次被「同名（同 worker_id）另一个进程」顶替；从未发生过时后端不下发。
+  last_replaced?: WorkerReplaced
+}
+
+// GET /v1/workers/{id} 的 last_replaced（internal/httpapi/worker_replaced_view.go 的
+// workerReplacedView）：新旧 instance_id 与远端地址，suppressed 是限频期间的重复次数。
+export interface WorkerReplaced {
+  at: number
+  old_instance?: string
+  new_instance?: string
+  old_remote?: string
+  new_remote?: string
+  suppressed?: number
 }
 
 // GET /v1/workers/{id}/projects：worker 自己在 worker.yaml 里声明的项目（worker 自有）。
@@ -2511,6 +2524,27 @@ export interface Schedule {
   request: SubmitJobReq
   // params：参数声明（设计 2026-10-22 §D1）；未声明时后端不下发。
   params?: ScheduleParam[]
+  // 运行健康（设计 2026-11-12 §1）：overlap=skip 时上一轮未结束就跳过本轮；
+  // max_runs 到 N 次定时触发后自动停用（0=不限）；max_failures 连续失败 N 次自动暂停
+  // （0=不暂停）。run_count / consecutive_failures 只统计定时触发（channel=cron）。
+  overlap?: 'skip' | 'allow'
+  max_runs?: number
+  run_count?: number
+  max_failures?: number
+  consecutive_failures?: number
+  // paused_reason：failures / max_runs = gofer 自己停的；空 = 人工停用或从未暂停。
+  paused_reason?: '' | 'failures' | 'max_runs'
+  // 前置检查（设计 2026-11-12 §2）：到点先在 server 本机跑一遍，再决定提交还是跳过。
+  precheck?: SchedulePrecheck
+  // 跨轮上下文（设计 2026-11-12 §3）：on = 每轮告诉 job 这是第几轮、上一轮怎么结束的。
+  context?: 'on' | 'off'
+}
+
+// 定时任务的前置检查：不经 shell 的 argv + 超时 + 输出无变化时跳过。
+export interface SchedulePrecheck {
+  argv: string[]
+  timeout_sec?: number
+  skip_unchanged?: boolean
 }
 
 // 定时任务的一个参数声明：值以环境变量传给 job（string|int|bool|choice）。
@@ -2538,6 +2572,15 @@ export interface CreateScheduleReq {
   enabled?: boolean
   catch_up?: boolean
   params?: ScheduleParam[]
+  // 运行健康（设计 2026-11-12 §1）：省略时后端取新调度的默认值
+  // （overlap=skip、max_failures=3、max_runs=0）。
+  overlap?: 'skip' | 'allow'
+  max_runs?: number
+  max_failures?: number
+  // 前置检查（§2）：设置需权限 schedule.precheck；非本机 runner 会被拒（400）。
+  precheck?: SchedulePrecheck
+  // 跨轮上下文（§3）：省略 = on。
+  context?: 'on' | 'off'
 }
 
 // POST /v1/schedules/cron-preview 的响应：表达式接下来几次的运行时间（unix 秒）。
@@ -2548,6 +2591,8 @@ export interface CronPreviewResp {
 
 // PATCH /v1/schedules/{id}（设计 2026-10-22 §D4）：只能改调度自身的设置，命令 /
 // agent / runner / project 在服务端直接被拒（要换就删掉重建）。
+// 设计 2026-11-12 §1/§2/§3 另加运行健康、前置检查与跨轮上下文；precheck 传 null 表示清除
+// （清除不需要 schedule.precheck 权限）。
 export interface PatchScheduleReq {
   cron?: string
   at?: number
@@ -2555,6 +2600,11 @@ export interface PatchScheduleReq {
   params?: ScheduleParam[]
   enabled?: boolean
   timeout_sec?: number
+  overlap?: 'skip' | 'allow'
+  max_runs?: number
+  max_failures?: number
+  precheck?: SchedulePrecheck | null
+  context?: 'on' | 'off'
 }
 
 // 工作流（job 链）。状态取值是 JobStatus 的子集（running/done/failed/cancelled），
@@ -3122,6 +3172,11 @@ export interface WorktreeStatus {
   dirty: boolean
   merged: boolean
   exists: boolean
+  // 设计 2026-11-12 §6：state=gone 表示登记的目录还在本机，但已不是该 job 分支的
+  // checkout（残留目录 / git 把它解析到别的仓库）——此时 exists 为 false、不再探活。
+  state?: 'gone'
+  // 删除完成但目录残留在磁盘上的说明（Windows 上仍被进程占用等）。
+  warnings?: string[]
   // 仅 merge 返回：被 cleanup_others 清理掉的兄弟 fan job
   cleaned?: string[]
 }
