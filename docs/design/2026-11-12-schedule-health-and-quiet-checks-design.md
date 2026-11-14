@@ -191,3 +191,21 @@ Q1–Q8 均按推荐 A（用户 2026-11-13 批准），见下表。
 已批准，进入计划：`docs/plans/2026-11-13-schedule-health-and-quiet-checks-plan.md`。
 
 定时任务加叠跑跳过、失败自动暂停、运行上限、前置检查与无变化跳过，每轮带上一轮结果；`serve status` 按状态返回退出码；补 worker 互顶提示、残留目录探测与两处 secret 掩码。已有 schedule 行为不变，新默认只对新建生效。等用户答复 Q1–Q8 并批准后写计划。
+
+## 实施记录（2026-11-14）
+
+计划 `docs/plans/2026-11-13-schedule-health-and-quiet-checks-plan.md`（plan-20261113-230731-c6e89db2）。两条链并行实施后合入 feat/b2：A 链（§1–§3：运行健康、前置检查、跨轮上下文）、B 链（§4–§7：serve status 退出码、worker 顶替、残留目录、两处 secret 掩码）；Web 与文档随后在 b2 上完成。
+
+与设计的差异：
+
+- jobs 表除 `schedule_id` 外另加 `schedule_trigger` 列（timer / run_now / webhook），健康计数只认 timer，不靠 channel 推断。
+- `schedule.precheck` 权限来源为根管理员、不种入：只有根管理员与显式授予的调用方能设置前置检查；清除不需要该权限。
+- 叠跑判定把 `paused_for_update` 也算作未结束。
+- `schedule.run_skipped` 的 reason 多两种：`check_running`（上一次检查还没返回）与 `server_draining`（检查通过时 server 正在为升级排空）。
+- 前置检查进程以后台进程组启动（Windows 不弹窗、不随控制台信号退出）。
+- `serve status` 检查本身出错统一退出 1（验收发现原先落到 gcli 通用码 2）。
+- CLI 在 `schedule add/edit` 加 `--overlap`、`--max-runs`、`--max-failures`、`--context`、`--precheck`、`--precheck-timeout`、`--precheck-skip-unchanged`、`--clear-precheck`，并加 `schedule events`。
+
+验证：`internal/...` 全量通过；反向验证 6 项（去叠跑判定、去上下文掩码、去 raw 日志掩码、审批卡片先截断后掩码、去失败清零、去环境剥离）对应用例均失败，其中上下文掩码一项原测试测不出（stdout 二次掩码），已改为直接断言上下文；主机临时 server 真实验收全部场景通过，exit 3 由单测覆盖（需停正式 server，未实测）。
+
+遗留（另立 issue）：带 `--hold` 的定时 job 批准后丢失定时上下文段；`GOFER_PRECHECK_OUTPUT` 随请求持久化，重跑会重放旧输出；检查进行中 server 关机会丢该轮且无事件；残留目录保留登记的用例只是行为断言。
