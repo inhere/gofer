@@ -11,6 +11,8 @@
 
 ## [未发布]
 
+## [0.214.0] - 2026-11-14
+
 ### 新增
 
 - plan 新增完成时机 `complete_on`：`job`（默认，job 成功即完成对应的待办）或 `merge`（`--worktree` 交付的待办等交付真正落地才完成，后续待办此时才派发）。入口：`gofer plan create|set --complete-on`、`gofer plan show` 的 `complete_on:`、web 计划详情的「完成时机」、HTTP 计划创建与 `PATCH`、MCP `gofer_create_plan` / `gofer_set_plan_complete_on`。
@@ -40,6 +42,7 @@
 - ACP job 的结构化记录 `artifacts/acp.jsonl` 写入时按该 job 授予的 secret 值掩码（truncate 前脱敏），记录与 web「消息」页不再出现明文 secret。修复前已写下的旧记录不回写，读取时只做模式脱敏。
 - `stdout.raw.log`（agent 设了 `ndjson_raw: true` 时的原始事件流旁文件）与 ACP 审批卡片（工具输入摘要、标题、路径与拼出的提问文本）里的授予 secret 现在都打掩码：前者在分流写入前经过带尾部缓冲的掩码器（跨两次写入的 secret 也能处理），文件权限改为 0600；后者改为先掩码再截断，不再从 512 字节的摘要里泄出明文。
 - 残留 worktree 目录（登记的路径还在，但 git 已不认它是该分支的 checkout）不再被当作 checkout 去读 git 状态：`GET` / `DELETE /v1/jobs/{id}/worktree` 返回 `state: "gone"`，`gofer job worktree ls` 与 web 任务详情直接说明「目录还在，但已不是该分支的 checkout」；保留期清扫对这种目录只保留登记并记一条警告，不删未经确认的内容。
+- 待办接续改判 worktree 是否可用（与续跑守卫同一判断）：上一项的 worktree 已不可用时按普通派发，不再在提交时就报错拒绝。
 
 ## [0.213.0] - 2026-11-10
 
