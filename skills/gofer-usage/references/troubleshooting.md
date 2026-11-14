@@ -40,6 +40,9 @@
 | 子 agent 在 worktree 里 `issue brief <新 id>` 找不到 | worktree 里的 tracker 是建分支时的副本；先提交 tracker 再开 worktree。 |
 | 看不到 ndjson agent 的输出 | stdout 只留最终答复、过程事件在 stderr；开 agent 的 `ndjson_raw: true` 重跑对照。 |
 | 偶发失败 | 先单独重跑确认；连续出现或「单跑也挂」的不要当偶发，查根因。 |
+| 定时任务某些轮次没跑 | 新建调度默认「上一轮未结束时跳过」：`gofer schedule show <id>` 看 `overlap`，`schedule events <id>` 里的 `schedule.run_skipped` 写原因（`previous_running` / `precheck` / `unchanged` / `check_running`）；要叠跑就 `schedule edit <id> --overlap allow`。 |
+| 定时任务不再触发 | 先看是不是 gofer 自己停的：`schedule show <id>` 的 `enabled` 行会写 `false (paused: failures)` / `false (paused: max_runs)`，`schedule events <id>` 有 `schedule.paused`；修好后 `schedule enable <id>`（连续失败计数与暂停原因清零）。 |
+| `worker show` 有 `last_replaced`、worker 日志反复 `worker.replaced` | 同一个 `worker_id` 有两个进程在连（旧后台进程没停、两台机器同 id），只留一个进程或换 id，见 [operations.md](operations.md)「同一 worker_id 的两个进程互顶」。 |
 
 ## project 不在 worker 上
 

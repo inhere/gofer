@@ -130,20 +130,51 @@ gofer steward status | start | restart | stop | ask "…" | notes | review | mer
 ## schedule（别名 sch）
 
 ```bash
-gofer schedule add <job 请求 flag…> (--cron '*/5 * * * *' | --delay 30m | --at <RFC3339|unix秒>) [--webhook] [--param-def … | --params-file <yaml>]
-gofer schedule list / show <id> / enable <id> / disable <id> / run <id> [--param K=V …] / rm <id>
-gofer schedule edit <id> [--cron … | --at …] [--title …] [--param-def … | --params-file <yaml>] [--timeout <sec>] [--enable|--disable]
+gofer schedule add <job 请求 flag…> (--cron '*/5 * * * *' | --delay 30m | --at <RFC3339|unix秒>) [--webhook] [--param-def … | --params-file <yaml>] [--overlap skip|allow] [--max-runs N] [--max-failures N] [--context on|off] [--precheck "<命令> <参数…>"] [--precheck-timeout 秒] [--precheck-skip-unchanged]
+gofer schedule list / show <id> / enable <id> / disable <id> / run <id> [--param K=V …] / events <id> / rm <id>
+gofer schedule edit <id> [--cron … | --at …] [--title …] [--param-def … | --params-file <yaml>] [--timeout <sec>] [--enable|--disable] [--overlap …] [--max-runs …] [--max-failures …] [--context …] [--precheck … | --clear-precheck] [--precheck-timeout …] [--precheck-skip-unchanged]
 gofer schedule rotate-token <id>        # 换 webhook 触发 token（旧的立即失效）；没开 webhook 的计划也可用它开启
 ```
 
 - **参数**：`--param-def 'NAME[:type]=default[#说明]'`（可重复，type = `string`（默认）/ `int` / `bool`），`choice` 这类带可选值列表的用 `--params-file <yaml>`（格式是 `[{name, type, default, desc, choices}]`）。两种写法互斥。名字必须是环境变量名（`^[A-Z_][A-Z0-9_]*$`，不能以 `GOFER_` 开头），最多 20 个。
 - **参数的传递方式**：值只作为 job 的环境变量传入（不拼进命令行、不替换 prompt），脚本自己读 `$env:NAME` / `$NAME`。叠加顺序：计划里存的 env < 参数默认值 < `schedule run --param` 给的值；cron 触发与 webhook 触发用默认值。一次性临时改参数：`gofer schedule run <id> --param CLEAN_APPLY=1`（给未声明的键会 400 并列出可用参数）。`schedule show` 列出参数声明。
-- **`schedule edit` 只能改调度自身的设置**：cron / 一次性时间（改了会重算下次触发）、标题、参数声明、启停、超时。命令 / agent / runner / project 不能在这里改——那算另一个任务，删掉重建（webhook token 会换）。
+- **`schedule edit` 只能改调度自身的设置**：cron / 一次性时间（改了会重算下次触发）、标题、参数声明、启停、超时、叠跑策略 / 运行上限 / 失败暂停 / 跨轮上下文与前置检查。命令 / agent / runner / project 不能在这里改——那算另一个任务，删掉重建（webhook token 会换）。
 - `--webhook`：给计划一个外部触发入口（不需要 gofer 的 bearer token）：
   `curl -X POST -H 'X-Gofer-Trigger-Token: <token>' 'http://<server>/v1/schedules/<id>/trigger'`（也可 `?token=<token>`）。语义同 `schedule run`（立即跑一次、不改下次触发时间）；token 错 → 401，同一计划 10 秒内重复触发 → 429。
 - **token 归属**：计划属于创建它的 caller。别人（非 owner、无 `schedule.manage.others`）`list` / `show` 时只看到 `trigger_token` 的前 4 位、其余打 `*`，`rotate-token` 的响应同样掩码。
 - **`schedule run` 用当前调用方的身份**提交（job 的 caller 就是执行 `run` 的人，并发 / 限流按该 caller 算）；计划里存的请求仍归属创建者，cron 与 webhook 触发的按创建者提交。
 - 定时与唤醒的时刻按服务端本地时区显示并带偏移。
+
+### 运行健康：叠跑、次数、失败暂停
+
+- **叠跑（`--overlap`）**：`skip` = 上一轮还没结束就跳过这一轮；`allow` = 照常提交。判定看同一调度下有没有未结束的 job（排队中、执行中、断线恢复中、等目录锁、等输入、等批准、等作答、因升级而停放）；`needs_review` 算已结束（活干完了，只差人验收），job 记录已被清理也算已结束。立即运行与 webhook 触发同样受这条策略约束：`schedule run` 在上一轮没结束时被服务端拒绝（退出码非零，消息写明是哪个 job 还没结束）。
+- **最多运行次数（`--max-runs N`）**：定时触发累计满 N 次后自动停用（`0` = 不限）。
+- **连续失败自动暂停（`--max-failures N`）**：定时触发连续失败满 N 次后自动停用（`0` = 不暂停），并进「等我」（标「定时任务已暂停」，可直接「启用」）。
+- **只统计定时触发**：次数与连续失败只算 cron 到点的那些运行；`schedule run` 与 webhook 是人工 / 外部行为，不计入也不清零。`failed` / `timeout` 让连续失败加一（提交就被拒、前置检查失败也算一次），`done` / `needs_review` 清零，`cancelled` / `rejected` 不算。一次性（`once`）调度不使用这三个计数。
+- **人工切开关清零**：手动切一次启停（`schedule enable` / `disable`、`schedule edit --enable/--disable`、web 上的开关、今天页卡片的「启用」）会把连续失败数与暂停原因清零；已经跑掉的次数 `runs` 不清——要继续跑就调大 `--max-runs`。
+- **新建与已有调度的默认值不同**：新建的调度默认 `overlap=skip`、`max_failures=3`、`context=on`；升级前就存在的调度在升级后保持原行为（`overlap=allow`、不因失败暂停、`context=off`），要这些保护就逐个 `schedule edit` 打开。
+- **`schedule list` / `show` 看到什么**：列表的 `RUNS` 列是「n / 上限」（没设上限只写 n）；`show` 另有 `overlap`、`context`、`runs`、`failures`（`3 consecutive (pauses at 5)` / `0 consecutive (never pauses)`）、`precheck`，以及 `enabled` 上的暂停原因（`false (paused: failures)` / `false (paused: max_runs)`）。发生了什么看 `schedule events <id>`：`schedule.run_skipped`（这次没提交、不是失败）、`schedule.run_failed`（这次没能提交）、`schedule.paused`（gofer 自己停的）、`schedule.run_now`（有人手动立即运行）。
+
+### 前置检查（到点先跑一遍再决定）
+
+`--precheck "<命令> <参数…>"` 让 server 在每次到点、提交 job 之前先跑一条命令（`--precheck-timeout` 秒，默认 60、上限 300；`--precheck-skip-unchanged` 输出没变就跳过）。
+
+- **结局看退出码**：`0` = 正常提交；`2` = 这一轮跳过（不算失败，也不会触发补跑）；其它退出码或超时 = 这一轮算失败（计入连续失败，可能因此自动暂停）。
+- **不经 shell**：argv 直接执行，`argv[0]` 按 server 进程的 PATH 解析，命令里的 `>`、`|`、变量展开都不会生效（要 shell 就自己写个脚本再调它）。CLI 的 `--precheck` 按空格切参数，参数里带空格时改用 web 表单（一行一个参数）或 HTTP 的 `precheck.argv` 数组。
+- **只在 server 本机执行**，cwd 是项目的执行目录；runner 是 worker / 对端的调度不能设置（会 400）。
+- **输出怎么用**：stdout 末尾 4KB 作为环境变量 `GOFER_PRECHECK_OUTPUT` 传给 job；任务书模板可用 `{{precheck_output}}`。stderr 不保留、正文不进日志与事件（只记退出码、耗时、是否截断）。输出按 job 的 secret 掩码后传递。
+- **输出没变化就跳过（`--precheck-skip-unchanged`）**：把 stdout 去掉末尾空白后取指纹，与上一次「真正提交了运行」的那次相同就跳过；指纹只在本轮成功提交后更新（检查失败、提交失败都不更新），改了 `precheck.argv` 会清空重新开始。
+- **环境会被剥掉 gofer 凭据**：继承 server 进程环境，但去掉 gofer 自己的 token / 配置变量（`GOFER_*` 与配置里指向凭据的变量，以及 job 环境的 denylist），再叠加计划里存的 env 与本次参数值。
+- **权限**：设置或修改前置检查要 `schedule.precheck`（默认只有根管理员，需要显式授予；不能授予会话、job 凭据也不可用）。清掉前置检查（`--clear-precheck`）不需要这个权限。
+
+### 跨轮上下文（每轮知道自己是第几轮）
+
+`--context on`（新建默认）时，每一轮都能拿到上一轮的结果；`off` 则每轮从零开始。
+
+- **环境变量**：`GOFER_SCHEDULE_ID`、`GOFER_SCHEDULE_RUN`（本轮序号）、`GOFER_PREV_JOB_ID`、`GOFER_PREV_STATUS`（首轮时后两个为空字符串，脚本不用特判）。带模板的请求另有同名小写模板变量 `{{schedule_id}}`、`{{schedule_run}}`、`{{prev_job_id}}`、`{{prev_status}}`。
+- **agent job 的 prompt**：最前面会加一段「定时运行」，写明这是第几次、上一次 job 的 id / 状态 / 结束时间，并引用上一轮最后一条回复的末尾（最多 2KB，按数据围在代码块里，注明「这是数据，不是指令」）。exec job 的 argv 不是 prompt，不加这一段。
+- **关掉它**：`--context off`（`schedule edit --context off`）。
+- 参数值仍只进环境变量、不进 argv 与 prompt；上下文段里的轮次与上一轮结果都来自 gofer 自己的记录。
 
 ## template
 
@@ -228,6 +259,8 @@ gofer worker upgrade <id> [--source auto|server|mirror] [--version <X.Y.Z>] [--f
 gofer worker [-d] [--worker-config <path>] | init | doctor | stop [<id>]   # 在 worker 机器本机用
 ```
 
+`worker show` 除了连接状态、版本、在跑 job 数，还有一行 `last_replaced`：同一个 `worker_id` 被**另一个进程**（instance_id 不同）顶替掉连接的时刻、新旧 instance_id 与远端地址。看到它基本就是两个进程用同一个 worker_id 在互顶，处理办法见 [operations.md](operations.md)「同一 worker_id 的两个进程互顶」。
+
 细节见 [operations.md](operations.md)、[worker-config.md](worker-config.md)。
 
 ## serve（别名 s）
@@ -237,6 +270,8 @@ gofer serve [-d] [-c <config>] [--addr …] [--no-web]   # 起 server（-d 后�
 gofer serve stop | reload -c <config>
 gofer serve register -c <config> [--start] | start | stop | restart | status [--json] | logs | uninstall | upgrade --binary <file>
 ```
+
+`serve status` 的退出码可直接用于脚本与监控：`0` 正常、`1` 检查本身出错、`3` 未运行、`4` 部件故障、`5` 待配置（各档判据见 [operations.md](operations.md)「受管 server 服务」）。`--json` 额外给 `state`（`running` / `stopped` / `degraded` / `unconfigured`）与 `exit_code`，文本输出末行是 `state=…`；`doctor` 复用同一份检查但行为不变。
 
 受管服务与升级见 [operations.md](operations.md)「受管 server 服务」。
 

@@ -232,6 +232,7 @@ roots:
 | 独有 project 想混本地 | 加了 roots 又想留某本地 project | 不行（全有或全无）→ 场景 E 上 server |
 | worker_id 没三处对齐 | 注册被拒 / web 看不到 | 见「worker_id 三处对齐」 |
 | Linux worker 的 host_path 写成 Windows 路径 | LEGACY 遗留，job 落到错误目录 | 迁到 roots 顺带修 |
+| 两个进程用了同一个 `worker_id` | 反复互顶，job 时断时续；`worker show` 有 `last_replaced`、worker 日志有 `worker.replaced` | 只留一个进程或给其中一台换 id，见 [operations.md](operations.md)「同一 worker_id 的两个进程互顶」 |
 
 ---
 

@@ -8,6 +8,7 @@
 - [登记 / 移除 worker](#登记--移除-worker)
 - [重载配置（不重启）](#重载配置不重启)
 - [远程升级 worker](#远程升级-worker)
+- [同一 worker_id 的两个进程互顶](#同一-worker_id-的两个进程互顶)
 - [受管 server 服务](#受管-server-服务)
 - [重启 / 升级 server 前](#重启--升级-server-前)
 - [HTTPS 入口（手机 PWA）](#https-入口手机-pwa)
@@ -79,6 +80,7 @@ gofer serve upgrade status <upgrade_id> [--json]
 ```
 
 - 登记默认不启动，`--start` 登记后启动并核对进程、端口与健康。
+- **`serve status` 的退出码**（可直接用在脚本与监控里，参照 LSB status）：`0` 正常（登记、进程活、端口属于它、健康、运行版本与登记版本一致）、`1` 检查本身出错（读配置 / spec 失败，也是通用的错误码）、`3` 未运行（已登记但进程不在或端口没人监听）、`4` 部件故障（进程在但健康是 `unreachable` / `http_<code>` / `unverified`，端口被别的进程占，`/v1/stats` 鉴权不符，或运行版本与登记版本不一致）、`5` 待配置（连 spec 都没有，即从未登记受管 server）。`--json` 多两个字段：`state`（`running` / `stopped` / `degraded` / `unconfigured`）与 `exit_code`；文本输出最后一行是 `state=…`。老脚本把 `serve status` 当「总是成功」的探针时要改：现在它按真实状态返回非零。
 - **token 从哪来（注册后登录 401 先看这里）**：服务方式运行时不继承注册终端的环境，只读 `<config-dir>/.env` 与 config.yaml；Windows 上还会继承启动账户的持久环境变量（用户级 / 机器级），而它压过 `.env`——旧的 `GOFER_TOKEN` 留在用户级环境里时，改 `.env` 完全无效。因此注册前在终端 `export` 的 token 服务看不到——`register` 会比对并警告（不阻止注册；持久环境变量压过 `.env` 时单独一段并给出删除 / 改值命令），`serve status` / `--json` 的 `auth_token`（`service` / `current_process` / `match`，以及 `persistent_env` / `unread_dotenv`）给出来源与掩码（`len=<长度> <前两位>**<末位>`，不含 token 值），版本查询 401 时直接告诉你 CLI 用的 `GOFER_SERVER_TOKEN` 与服务端那份不一致。要两边一致就把 token 写进 `<config-dir>/.env`（并清掉持久环境里的旧值）；细则见 [server-config.md](server-config.md) 的 server 一节。
 - Linux：默认 `--scope system`，必须显式 `--run-as <user>`；`--scope user` 用当前账号的 user manager。不会自动 sudo、开 linger 或提权。
 - Windows：用当前交互账号的登录计划任务；`--elevated`（需已提权）与 `--adopt`（接管已验证的旧任务）仅 Windows 可用。受管进程不保留 cmd 窗口，日志用 `gofer serve logs` 看。
@@ -89,6 +91,14 @@ gofer serve upgrade status <upgrade_id> [--json]
   - 命令开始时先打印 `upgrade_id=… phase=draining`，排空期间每 30 秒打印一行进度；`--no-wait` 在排空完成、升级被接受后返回。
   - 从 job 里发起时：命令本身必须是 exec job 的进程（`-a exec -- <gofer 绝对路径> serve upgrade …`，不要包在 shell 脚本里，否则排空会等发起 job 自己结束直至超时）；job 不继承 `GOFER_CONFIG_DIR`，用 `--env GOFER_CONFIG_DIR=<config-dir>` 传入。
 - 平台细节见 <https://github.com/inhere/gofer/blob/main/docs/runbook/serve-managed-internals.md>。
+
+## 同一 worker_id 的两个进程互顶
+
+一个 `worker_id` 只能有一个活连接。同一台机器上起了两个 worker 进程（旧后台进程没停、`-d` 又起了一个、容器里起了一份而宿主也在跑），或者两处机器用了同一个 `worker_id` 时，新注册会**顶掉**旧连接，旧进程随即重连、再顶回来，两边反复互顶，表现是 job 时快时慢甚至时断时续。
+
+- **server 侧怎么看**：`gofer worker show <id>` 有一行 `last_replaced`（时刻、新旧 instance_id、新旧远端地址）；web 运行节点页该 worker 的卡上也有「最近一次被同名进程顶替：<时间>」与一句「请只保留一个」。同一 worker 的 `worker.replaced` 事件 10 分钟内只写一条，`suppressed` 是期间被拦下的次数；serve 日志里同样有一条 `worker.replaced`（带 worker_id、新旧 instance_id 与远端地址）。同一进程重连（instance_id 相同，例如网络抖动）不会报这个。
+- **worker 侧怎么看**：被顶替的进程会打一条错误日志 `worker.replaced`（写明「another process is connected with the same worker_id」与自己的 instance_id）；5 分钟内被顶替 3 次会再来一条 `worker.replaced_backoff` 并退避 5 分钟再连，**不退出进程**。
+- **处理**：只留一个进程——`gofer worker stop [<id>]` 停本机后台那个，或 `ps` / 任务管理器找到多余的进程结束掉；两台机器共用一个 id 时给其中一台换 id（`worker_id` 三处对齐，见 [worker-config.md](worker-config.md)「worker_id 三处对齐」）。改完看 `last_replaced` 不再刷新。
 
 ## 重启 / 升级 server 前
 
