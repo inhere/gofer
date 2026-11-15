@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 第 3 批：可追溯与机器接入 设计
 
-> 状态：Draft 0.1（待用户审）
+> 状态：Draft 0.1 已批准（2026-11-14，用户：「第 3 批设计批准，按推荐」，Q1–Q9 = 推荐项）
 > issue：gofer-1uwh（管理操作审计）、gofer-ivmr（断线补传）、gofer-glzl（worker 一行接入，范围按用户 2026-11-14「本机安装 / 注册 / 卸载，远程卸载延后」）、gofer-nhh7 的 token 到期与最近使用（㉕）、gofer-dcmc（server 健康项与连续失败才报，第 2 批 Q7 延后）；随批：gofer-73l5
 > 来源：`docs/refer/2026-11-11-super-agent-workflow-survey.md`「分批」第 3 批（㉑㉒㉓㉔㉕）
 
@@ -127,7 +127,7 @@ token：
 
 ## 决策
 
-见下表推荐项；用户批准后转为决策。
+Q1–Q9 按推荐项（用户 2026-11-14 批准）。
 
 ## 待确认事项
 
