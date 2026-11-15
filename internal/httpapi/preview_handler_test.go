@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -214,7 +215,11 @@ func TestPreviewClosedWhenJobEnds(t *testing.T) {
 // freePreviewPort returns the first of four consecutive ports that are free right now.
 func freePreviewPort(t *testing.T) int {
 	t.Helper()
-	for base := 31000; base < 60000; base += 53 {
+	// Start at a random block: packages run in parallel and probe-then-close is racy, so
+	// two tests starting from the same fixed base kept colliding on the first block.
+	start := 31000 + rand.IntN(400)*53
+	for i := 0; i < 500; i++ {
+		base := 31000 + (start-31000+i*53)%(60000-31000)
 		var lns []net.Listener
 		ok := true
 		for p := base; p < base+4; p++ {

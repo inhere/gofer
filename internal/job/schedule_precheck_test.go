@@ -274,7 +274,7 @@ func TestPrecheckNotRunWhileOverlapping(t *testing.T) {
 	s := newTestService(t, root)
 	marker := filepath.Join(root, "check-ran")
 	precheckSchedule(t, s, "sch-po", []string{"sleep", "60"},
-		SchedulePrecheck{Argv: []string{"sh", "-c", "echo x >> " + marker}}, nil)
+		SchedulePrecheck{Argv: []string{"sh", "-c", "echo x >> " + filepath.ToSlash(marker)}}, nil)
 	// A running job of the schedule: the previous run.
 	prev := jobstore.JobRecord{ID: "prev-run", ProjectKey: "self", Agent: "exec", Runner: "local", Status: StatusRunning,
 		Cwd: ".", ResultDir: t.TempDir(), RequestJSON: "{}", StartedAt: 100, ScheduleID: "sch-po", ScheduleTrigger: jobstore.ScheduleTriggerTimer}
@@ -327,7 +327,9 @@ func TestPrecheckPoolBoundsConcurrency(t *testing.T) {
 	root := t.TempDir()
 	s := newTestService(t, root)
 	log := filepath.Join(root, "check.log")
-	script := "echo start >> " + log + "; sleep 1; echo end >> " + log + "; exit 2"
+	// sh on Windows (Git Bash) reads backslashes as escapes: hand it a forward-slash path.
+	shLog := filepath.ToSlash(log)
+	script := "echo start >> " + shLog + "; sleep 1; echo end >> " + shLog + "; exit 2"
 	const n = 7
 	for i := 0; i < n; i++ {
 		id := "sch-pool-" + string(rune('a'+i))

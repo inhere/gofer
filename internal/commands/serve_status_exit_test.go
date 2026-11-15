@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -84,6 +85,9 @@ func TestServeStatusJSONCarriesStateAndExitCode(t *testing.T) {
 // TestServeStatusCommandUnconfiguredExitsFive runs the real command with no
 // registered server: state line printed, exit code 5.
 func TestServeStatusCommandUnconfiguredExitsFive(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skip("managed services are not supported on " + runtime.GOOS)
+	}
 	t.Setenv(config.EnvConfigDir, t.TempDir())
 	prev := manageOpts
 	t.Cleanup(func() { manageOpts = prev })
@@ -96,6 +100,9 @@ func TestServeStatusCommandUnconfiguredExitsFive(t *testing.T) {
 // A check that cannot even run (here: an invalid instance name) exits 1, the code the
 // docs give for "the check itself failed", not gcli's generic error code.
 func TestServeStatusCommandCheckFailureExitsOne(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		t.Skip("managed services are not supported on " + runtime.GOOS)
+	}
 	t.Setenv(config.EnvConfigDir, t.TempDir())
 	prev := manageOpts
 	t.Cleanup(func() { manageOpts = prev })
