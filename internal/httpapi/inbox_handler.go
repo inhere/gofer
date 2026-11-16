@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/inbox"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/today"
+	"github.com/inhere/gofer/internal/util"
 )
 
 type inboxResponse struct {
@@ -141,7 +142,7 @@ func (s *Server) waitingFor(c *rux.Context, queue []today.Card) (waiting, fyi []
 	// A server self-check item that stayed broken waits for a person too (design 2026-11-14
 	// §5); the list is server-wide, so the caller's project scope does not filter it.
 	unhealthy = s.healthCards(s.requestLang(c))
-	cards := make([]today.Card, 0, len(queue)+len(failed)+len(stranded)+len(paused)+len(expiring)+len(unhealthy))
+	cards := make([]today.Card, 0, util.CapSum(len(queue), len(failed), len(stranded), len(paused), len(expiring), len(unhealthy)))
 	cards = append(append(append(append(append(append(cards, queue...), failed...), stranded...), paused...), expiring...), unhealthy...)
 	return inbox.Waiting(s.requestLang(c), cards), fyi, nil
 }
