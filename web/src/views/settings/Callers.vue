@@ -8,6 +8,7 @@
 // - 配置文件里声明的用户（source=file）不能在这里轮换 / 停用 / 启用（服务端 409，会把明文写回
 //   配置文件）；它的上限与配额可以改，写回文件，界面因此提示 `server:` 块的注释会丢。
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   addCaller,
   disableCaller,
@@ -39,6 +40,7 @@ import {
   isFileCaller,
   limitBlocker,
   quotaText,
+  rotateQueryId,
   sourceText,
   stateText,
   stateTone,
@@ -46,6 +48,8 @@ import {
 import type { CeilingMode } from '../../utils/callers'
 
 const { isRoot } = useWhoami()
+const route = useRoute()
+const router = useRouter()
 
 const rows = ref<CallerView[]>([])
 const audit = ref<CallerAuditEntry[]>([])
@@ -81,6 +85,7 @@ async function load(): Promise<void> {
     const r = await listCallers()
     rows.value = r.callers ?? []
     loaded.value = true
+    openRotateFromQuery()
     audit.value = (await listCallerAudit(50)).entries ?? []
   } catch (e) {
     error.value = msg(e)
@@ -230,6 +235,21 @@ function openPanel(v: CallerView, kind: 'ceiling' | 'limits' | 'rotate'): void {
 
 function closePanel(): void {
   panel.value = null
+}
+
+// openRotateFromQuery：从今天页的调用方 token 卡片点「轮换」过来时（/settings/callers?rotate=<id>），
+// 列表加载完就打开那个调用方的轮换面板。轮换会让旧 token 立刻失效，新 token 只在响应里出现一次，
+// 人得在这里确认并抄走（卡片上直接换会把新 token 丢掉）。打开后把参数从地址栏摘掉，
+// 刷新 / 返回不会又开一次。
+function openRotateFromQuery(): void {
+  const id = rotateQueryId(route.query)
+  if (!id) return
+  const v = rows.value.find((r) => r.id === id)
+  if (!v) return
+  openPanel(v, 'rotate')
+  const query = { ...route.query }
+  delete query.rotate
+  void router.replace({ query })
 }
 
 async function onSavePanel(): Promise<void> {

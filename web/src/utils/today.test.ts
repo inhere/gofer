@@ -50,6 +50,7 @@ const {
   doneLabel,
   groupByTier,
   handledActionLabel,
+  isLinkAction,
   isLocalAction,
   isTypingTarget,
   runCardAction,
@@ -138,7 +139,7 @@ describe('today helpers', () => {
     await runCardAction(c, c.actions[1])()
     await runCardAction(c, c.actions[1], '  先别推  ')()
     // 「看详情」是纯跳转：不进撤销窗口、不调写接口
-    expect(isLocalAction(c.actions[2])).toBe(true)
+    expect(isLocalAction(c, c.actions[2])).toBe(true)
     await runCardAction(c, c.actions[2])()
     expect(calls).toEqual(['approveJob("j9")', 'rejectJob("j9","",false)', 'rejectJob("j9","先别推",false)'])
     // 标题跳 job 详情（待批面板在那里），不跳 plan
@@ -230,13 +231,28 @@ describe('today helpers', () => {
     await runCardAction(c, c.actions[0])()
     expect(calls).toEqual(['setScheduleEnabled("sch-1",true)'])
     // 「看详情」是纯跳转：不调写接口，目标就是 /schedules
-    expect(isLocalAction(c.actions[1])).toBe(true)
+    expect(isLocalAction(c, c.actions[1])).toBe(true)
     await runCardAction(c, c.actions[1])()
     expect(calls).toHaveLength(1)
     expect(cardLink(c)).toBe('/schedules')
     expect(actionLink(c, c.actions[1])).toBe('/schedules')
     // 服务端中文动作名对到本页 i18n（换成英文界面也能读）
     expect(actionLabel(c.actions[0])).toBe('启用')
+  })
+
+  it('marks link actions: diff / open anywhere, and rotate on an expiring-token card', () => {
+    const act = (id: string, value?: string) => ({ id, label: '', value })
+    const token = card({ kind: 'caller.token_expiring', refs: { caller_id: 'alice' } })
+    expect(isLinkAction(token, act('diff'))).toBe(true)
+    expect(isLinkAction(token, act('open'))).toBe(true)
+    // 卡片上的轮换只跳转：新 token 只在轮换响应里出现一次，在卡片上换掉就丢了
+    expect(isLinkAction(token, act('rotate', 'alice'))).toBe(true)
+    // 其它卡上叫 rotate 的动作（若有）仍当作写操作处理
+    expect(isLinkAction(card({ kind: 'schedule.paused' }), act('rotate'))).toBe(false)
+    expect(isLinkAction(token, act('ack'))).toBe(false)
+    // 跳转类不进撤销窗口、不记审计
+    expect(isLocalAction(token, act('rotate', 'alice'))).toBe(true)
+    expect(isLocalAction(token, act('ack'))).toBe(false)
   })
 
   it('settles hidden cards: in-flight stay hidden, committed reappear on a later refresh', () => {

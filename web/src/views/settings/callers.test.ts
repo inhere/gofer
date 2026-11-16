@@ -32,6 +32,7 @@ import {
   isFileCaller,
   limitBlocker,
   quotaText,
+  rotateQueryId,
   splitPatterns,
 } from '../../utils/callers'
 import type { CallerView } from '../../api/types'
@@ -150,6 +151,25 @@ describe('行的可用动作', () => {
   it('配额写成一行的紧凑形式（0 = 用默认）', () => {
     expect(quotaText(view({ max_concurrent_jobs: 2, rate_limit: 1.5, rate_burst: 4 }))).toBe('2 / 1.5 / 4')
     expect(quotaText(view())).toBe('- / - / -')
+  })
+})
+
+describe('从今天页的 token 卡片跳过来', () => {
+  it('只认单个字符串形式的 ?rotate=<调用方 id>', () => {
+    expect(rotateQueryId({ rotate: 'alice' })).toBe('alice')
+    expect(rotateQueryId({ rotate: ['a', 'b'] })).toBe('')
+    expect(rotateQueryId({ rotate: null })).toBe('')
+    expect(rotateQueryId({})).toBe('')
+    expect(rotateQueryId({ tab: 'rotate' })).toBe('')
+  })
+
+  it('列表加完后按 query 打开轮换面板，并把参数从地址栏摘掉', () => {
+    // 面板走现有的 openPanel(v, 'rotate')：人在里面确认并抄走新 token
+    expect(page).toMatch(/function openRotateFromQuery\(\): void \{[\s\S]*openPanel\(v, 'rotate'\)/)
+    // 加载完（rows 已就位）就调它，否则刷新 / 重拉时也会再开一次
+    expect(page).toMatch(/loaded\.value = true\s*\n\s*openRotateFromQuery\(\)/)
+    expect(page).toContain('delete query.rotate')
+    expect(page).toContain('router.replace({ query })')
   })
 })
 
