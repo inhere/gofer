@@ -359,8 +359,8 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// (work-item drafting, the summarizer and the steward prompts) take it through
 	// srv.Settings().
 	srv.SetSettings(settings.NewService(cr.Store))
-	// The admin audit queue drains before the store closes (this defer runs first).
-	defer srv.CloseAudit()
+	// The admin audit queue and the caller last-used stamps drain before the store closes (this defer runs first).
+	defer srv.Drain()
 	// The mailbox deliverer (plan M5): wakes idle sessions, sends letter bodies to suga
 	// sessions and ACP session jobs, parks overdue letters. It sends through the server's
 	// own relay, and stops (waiting for a sweep in flight) before the store closes.

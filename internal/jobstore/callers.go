@@ -84,18 +84,25 @@ type StoredCaller struct {
 	// RotatedAt is when the token was last rotated (0 = never).
 	RotatedAt int64
 	UpdatedAt int64
+	// ExpiresAt is when the token stops authenticating (unix seconds; 0 = never expires).
+	ExpiresAt int64
+	// LastUsedAt is when the token last authenticated, as flushed by the server (unix
+	// seconds, at most a minute stale; 0 = never seen). Only TouchCallersUsed writes it.
+	LastUsedAt int64
 }
 
 const selectStoredCallerCols = `SELECT id, COALESCE(name,''), COALESCE(token_hash,''),
   COALESCE(token_hint,''), COALESCE(limits_json,''), COALESCE(ceiling_yaml,''),
   COALESCE(disabled_at,0), COALESCE(superseded_at,0), COALESCE(created_by,''),
-  COALESCE(created_at,0), COALESCE(rotated_at,0), COALESCE(updated_at,0)
+  COALESCE(created_at,0), COALESCE(rotated_at,0), COALESCE(updated_at,0),
+  COALESCE(expires_at,0), COALESCE(last_used_at,0)
   FROM auth_callers`
 
 func scanStoredCaller(sc rowScanner) (StoredCaller, error) {
 	var c StoredCaller
 	err := sc.Scan(&c.ID, &c.Name, &c.TokenHash, &c.TokenHint, &c.LimitsJSON, &c.CeilingYAML,
-		&c.DisabledAt, &c.SupersededAt, &c.CreatedBy, &c.CreatedAt, &c.RotatedAt, &c.UpdatedAt)
+		&c.DisabledAt, &c.SupersededAt, &c.CreatedBy, &c.CreatedAt, &c.RotatedAt, &c.UpdatedAt,
+		&c.ExpiresAt, &c.LastUsedAt)
 	return c, err
 }
 
@@ -230,11 +237,11 @@ func (t *callerTx) InsertCallerTx(c StoredCaller) error {
 	}
 	if _, err := t.tx.Exec(`INSERT INTO auth_callers
   (id, name, token_hash, token_hint, limits_json, ceiling_yaml, disabled_at, superseded_at,
-   created_by, created_at, rotated_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+   created_by, created_at, rotated_at, updated_at, expires_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		c.ID, c.Name, c.TokenHash, c.TokenHint, c.LimitsJSON, c.CeilingYAML,
 		nullableInt(c.DisabledAt), nullableInt(c.SupersededAt), c.CreatedBy, c.CreatedAt,
-		nullableInt(c.RotatedAt), c.UpdatedAt); err != nil {
+		nullableInt(c.RotatedAt), c.UpdatedAt, nullableInt(c.ExpiresAt)); err != nil {
 		return fmt.Errorf("jobstore: insert caller %s: %w", c.ID, err)
 	}
 	return nil
@@ -248,11 +255,12 @@ func (t *callerTx) UpdateCallerTx(c StoredCaller) error {
 		c.UpdatedAt = t.now
 	}
 	res, err := t.tx.Exec(`UPDATE auth_callers SET name=?, token_hash=?, token_hint=?,
-  limits_json=?, ceiling_yaml=?, disabled_at=?, superseded_at=?, rotated_at=?, updated_at=?
+  limits_json=?, ceiling_yaml=?, disabled_at=?, superseded_at=?, rotated_at=?, updated_at=?,
+  expires_at=?
   WHERE id=?`,
 		c.Name, c.TokenHash, c.TokenHint, c.LimitsJSON, c.CeilingYAML,
 		nullableInt(c.DisabledAt), nullableInt(c.SupersededAt), nullableInt(c.RotatedAt),
-		c.UpdatedAt, c.ID)
+		c.UpdatedAt, nullableInt(c.ExpiresAt), c.ID)
 	if err != nil {
 		return fmt.Errorf("jobstore: update caller %s: %w", c.ID, err)
 	}

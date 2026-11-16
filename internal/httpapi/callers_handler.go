@@ -21,6 +21,7 @@ package httpapi
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -38,8 +39,9 @@ import (
 type CallerAdmin interface {
 	// AddCaller creates a stored caller and answers its token once.
 	AddCaller(spec config.CallerSpec, actor string) (config.CallerChange, error)
-	// RotateCaller replaces a stored caller's token and answers the new one once.
-	RotateCaller(id, actor string) (config.CallerChange, error)
+	// RotateCallerExpiring replaces a stored caller's token and answers the new one once;
+	// exp.Set false keeps the caller's current expiry.
+	RotateCallerExpiring(id, actor string, exp config.CallerExpiry) (config.CallerChange, error)
 	// DisableCaller switches a stored caller off (idempotent).
 	DisableCaller(id, actor string) (config.CallerChange, error)
 	// EnableCaller brings a stored caller back; a caller a file entry took over must have been
@@ -77,6 +79,15 @@ type callerAddReq struct {
 	RateBurst         int                   `json:"rate_burst"`
 	Ceiling           *config.CallerCeiling `json:"ceiling"`
 	NoCeiling         bool                  `json:"no_ceiling"`
+	// Expires is when the token stops working: `90d`, a date such as 2026-12-31, or `never`
+	// (the default when left out).
+	Expires string `json:"expires"`
+}
+
+// callerRotateReq is the optional body of POST /v1/callers/{id}/rotate: Expires (same forms
+// as adding) replaces the expiry; left out, the caller keeps its current one.
+type callerRotateReq struct {
+	Expires *string `json:"expires"`
 }
 
 // callerCeilingReq is the body of PUT /v1/callers/{id}/ceiling (same two forms as adding).
@@ -135,10 +146,15 @@ func (s *Server) handleCallersAdd(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
+	expiresAt, err := config.ParseCallerExpiry(req.Expires, s.authNow())
+	if err != nil {
+		s.writeCallerError(c, "cannot add the caller", err)
+		return
+	}
 	change, err := admin.AddCaller(config.CallerSpec{
 		ID: req.ID, Name: req.Name,
 		MaxConcurrentJobs: req.MaxConcurrentJobs, RateLimit: req.RateLimit, RateBurst: req.RateBurst,
-		Ceiling: req.Ceiling, NoCeiling: req.NoCeiling,
+		Ceiling: req.Ceiling, NoCeiling: req.NoCeiling, ExpiresAt: expiresAt,
 	}, callerFromCtx(c))
 	if err != nil {
 		s.writeCallerError(c, "cannot add the caller", err)
@@ -156,7 +172,23 @@ func (s *Server) handleCallerRotate(c *rux.Context) {
 	if !ok {
 		return
 	}
-	change, err := admin.RotateCaller(c.Param("id"), callerFromCtx(c))
+	var req callerRotateReq
+	if c.Req.ContentLength != 0 {
+		if err := c.BindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+			return
+		}
+	}
+	var exp config.CallerExpiry
+	if req.Expires != nil {
+		at, err := config.ParseCallerExpiry(*req.Expires, s.authNow())
+		if err != nil {
+			s.writeCallerError(c, "cannot rotate the caller", err)
+			return
+		}
+		exp = config.CallerExpiry{Set: true, At: at}
+	}
+	change, err := admin.RotateCallerExpiring(c.Param("id"), callerFromCtx(c), exp)
 	if err != nil {
 		s.writeCallerError(c, "cannot rotate the caller", err)
 		return

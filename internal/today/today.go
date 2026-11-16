@@ -54,6 +54,12 @@ const (
 	// queue card: advice cannot be written for it. The card goes away when the schedule is
 	// enabled again.
 	KindSchedulePaused = "schedule.paused"
+	// KindCallerTokenExpiring is the card of a stored caller whose token expires within 7
+	// days, or already has (inbox.CallerTokenCards builds it outside this package from the
+	// auth_callers rows). It enters the 「等我」 list under the attention class, only for a
+	// person who can rotate the token; it is not a queue card. Rotating the token (or
+	// disabling the caller) removes it.
+	KindCallerTokenExpiring = "caller.token_expiring"
 )
 
 // MailHeldCardKey is the stable key of the held-mail summary card; MailHeldLink is the web
@@ -179,6 +185,8 @@ type Refs struct {
 	PlanID      string   `json:"plan_id,omitempty"`
 	TodoID      string   `json:"todo_id,omitempty"`
 	ScheduleID  string   `json:"schedule_id,omitempty"`
+	// CallerID (caller.token_expiring cards) is the caller whose token expires.
+	CallerID string `json:"caller_id,omitempty"`
 }
 
 // Action is one card button. ID names the existing write API the console calls

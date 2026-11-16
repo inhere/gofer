@@ -184,6 +184,7 @@ func storedCallerInputs(rows []jobstore.StoredCaller) []config.StoredCallerInput
 			CeilingYAML:  r.CeilingYAML,
 			DisabledAt:   r.DisabledAt,
 			SupersededAt: r.SupersededAt,
+			ExpiresAt:    r.ExpiresAt,
 		})
 	}
 	return out
@@ -340,13 +341,14 @@ func (c *Core) AddCaller(spec config.CallerSpec, actor string) (config.CallerCha
 		row := jobstore.StoredCaller{
 			ID: id, Name: name, TokenHash: hash, TokenHint: hint, LimitsJSON: string(limitsJSON),
 			CeilingYAML: ceilingYAML, CreatedBy: actor, CreatedAt: now, UpdatedAt: now,
+			ExpiresAt: spec.ExpiresAt,
 		}
 		if err := tx.InsertCallerTx(row); err != nil {
 			return err
 		}
 		return tx.InsertConfigAudit(jobstore.ConfigAuditEntry{
 			At: now, Actor: actor, Path: callerAuditPath + id,
-			AfterMasked: callerAuditValue(row.Name, row.TokenHint, row.CeilingYAML, row.LimitsJSON, false),
+			AfterMasked: callerRowAuditValue(row),
 		})
 	})
 	if err != nil {
@@ -359,6 +361,13 @@ func (c *Core) AddCaller(spec config.CallerSpec, actor string) (config.CallerCha
 // allowed on a disabled or taken-over row and does not change either state: it only makes the
 // previous token useless (design §「用户生命周期」).
 func (c *Core) RotateCaller(id, actor string) (config.CallerChange, error) {
+	return c.RotateCallerExpiring(id, actor, config.CallerExpiry{})
+}
+
+// RotateCallerExpiring is RotateCaller that can also change the expiry of the new token:
+// exp.Set false keeps the caller's current expiry (a rotation does not silently turn an
+// expiring token into a permanent one), true replaces it (exp.At 0 = never expires).
+func (c *Core) RotateCallerExpiring(id, actor string, exp config.CallerExpiry) (config.CallerChange, error) {
 	if c == nil || c.Store == nil {
 		return config.CallerChange{}, fmt.Errorf("rotate caller: no metadata store")
 	}
@@ -378,6 +387,9 @@ func (c *Core) RotateCaller(id, actor string) (config.CallerChange, error) {
 		now := tx.Now()
 		before := callerRowAuditValue(row)
 		row.TokenHash, row.TokenHint = hash, hint
+		if exp.Set {
+			row.ExpiresAt = exp.At
+		}
 		// D10: the rotation must be strictly NEWER than a takeover, because enabling a
 		// taken-over row checks exactly that. The stamps are second-granular, so a rotation in
 		// the same second as the takeover takes the next one.
@@ -802,6 +814,7 @@ func (c *Core) storedCallerView(cfg *config.Config, row jobstore.StoredCaller,
 		ID: row.ID, Name: row.Name, Source: config.CallerSourceDB, State: config.CallerStateActive,
 		TokenSet: true, TokenHint: row.TokenHint,
 		CreatedBy: row.CreatedBy, CreatedAt: row.CreatedAt, RotatedAt: row.RotatedAt, UpdatedAt: row.UpdatedAt,
+		ExpiresAt: row.ExpiresAt, LastUsedAt: row.LastUsedAt,
 	}
 	switch {
 	case row.SupersededAt != 0:
@@ -863,7 +876,11 @@ func callerAuditValue(name, hint, ceilingYAML, limitsJSON string, disabled bool)
 
 // callerRowAuditValue is callerAuditValue for a stored row.
 func callerRowAuditValue(row jobstore.StoredCaller) string {
-	return callerAuditValue(row.Name, row.TokenHint, row.CeilingYAML, row.LimitsJSON, row.DisabledAt != 0)
+	v := callerAuditValue(row.Name, row.TokenHint, row.CeilingYAML, row.LimitsJSON, row.DisabledAt != 0)
+	if row.ExpiresAt != 0 {
+		v += fmt.Sprintf(" expires_at=%d", row.ExpiresAt)
+	}
+	return v
 }
 
 // callerEntryAuditValue is callerAuditValue for a caller of the configuration file.

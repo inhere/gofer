@@ -50,6 +50,9 @@ var authCallerOpts struct {
 
 	auditLimit int
 
+	// expires is --expires of add / rotate: 90d, a date such as 2026-12-31, or never.
+	expires string
+
 	offline bool
 	force   bool
 	asJSON  bool
@@ -90,6 +93,7 @@ configuration file and a worker binding all refuse the same id.
 			c.IntOpt(&authCallerOpts.rateBrst, "rate-burst", "", 0, "burst capacity of the submit rate (0 = derived from --rate-limit)")
 			bindCallerCeilingFlags(c)
 			c.BoolOpt(&authCallerOpts.noCeiling, "no-ceiling", "", false, "do not limit this caller (the alternative to a --ceiling-* block)")
+			c.StrOpt(&authCallerOpts.expires, "expires", "", "", "token lifetime: 90d, a date such as 2026-12-31, or never (default never)")
 		},
 		Func: runAuthCallerAdd,
 	}
@@ -119,11 +123,16 @@ disabled caller does not enable it.
 A caller declared in the configuration file cannot be rotated here: its token would have to be
 written into the file. Change (or remove) that entry instead.
 
-  gofer auth caller rotate ci`,
+--expires <90d | 2026-12-31 | never> sets the new token's expiry; without it the caller keeps
+its current expiry.
+
+  gofer auth caller rotate ci
+  gofer auth caller rotate ci --expires 90d`,
 		Config: func(c *gcli.Command) {
 			bindConfigFlag(c)
 			bindServerFlags(c)
 			c.AddArg("id", "caller id", true)
+			c.StrOpt(&authCallerOpts.expires, "expires", "", "", "new token lifetime: 90d, a date, or never (default: keep the current expiry)")
 		},
 		Func: runAuthCallerRotate,
 	}
@@ -331,7 +340,7 @@ func runCallerAdd(c *gcli.Command, cli *client.Client) error {
 	change, err := cli.AddCaller(client.CallerAddRequest{
 		ID: id, Name: authCallerOpts.name,
 		MaxConcurrentJobs: authCallerOpts.maxConc, RateLimit: authCallerOpts.rateLim, RateBurst: authCallerOpts.rateBrst,
-		Ceiling: ceil, NoCeiling: authCallerOpts.noCeiling,
+		Ceiling: ceil, NoCeiling: authCallerOpts.noCeiling, Expires: authCallerOpts.expires,
 	})
 	if err != nil {
 		return authFail("%v", err)
@@ -371,12 +380,20 @@ func runCallerList(c *gcli.Command, cli *client.Client) error {
 			width = len(cl.ID)
 		}
 	}
-	c.Printf("%-*s  %-55s  %-10s  %-14s  %s\n", width, "ID", "NAME", "SOURCE", "STATE", "CEILING / QUOTA")
+	c.Printf("%-*s  %-55s  %-10s  %-14s  %-16s  %-16s  %s\n", width, "ID", "NAME", "SOURCE", "STATE", "EXPIRES", "LAST USED", "CEILING / QUOTA")
 	for _, cl := range callers {
-		c.Printf("%-*s  %-55s  %-10s  %-14s  %s\n", width, cl.ID, callerNameCell(cl), cl.Source, cl.State,
-			callerLimitCell(cl))
+		c.Printf("%-*s  %-55s  %-10s  %-14s  %-16s  %-16s  %s\n", width, cl.ID, callerNameCell(cl), cl.Source, cl.State,
+			callerStampCell(cl.ExpiresAt, "never"), callerStampCell(cl.LastUsedAt, "-"), callerLimitCell(cl))
 	}
 	return nil
+}
+
+// callerStampCell renders a unix stamp for the list (none = the given placeholder).
+func callerStampCell(ts int64, none string) string {
+	if ts == 0 {
+		return none
+	}
+	return time.Unix(ts, 0).Format("2006-01-02 15:04")
 }
 
 // callerNameCell renders the name (or the token hint when the name is empty), so a list row
@@ -435,7 +452,7 @@ func runCallerRotate(c *gcli.Command, cli *client.Client) error {
 	if id == "" {
 		return authFail("give the caller id to rotate: gofer auth caller rotate <id>")
 	}
-	change, err := cli.RotateCaller(id)
+	change, err := cli.RotateCaller(id, authCallerOpts.expires)
 	if err != nil {
 		return authFail("%v", err)
 	}
@@ -608,6 +625,9 @@ func printCallerChange(c *gcli.Command, change client.CallerChange, showToken bo
 		c.Printf("token hint:  %s\n", change.Caller.TokenHint)
 	}
 	c.Printf("limits:      %s\n", callerLimitCell(change.Caller))
+	if change.Caller.ExpiresAt != 0 {
+		c.Printf("expires:     %s\n", callerAuditTime(change.Caller.ExpiresAt))
+	}
 	if showToken && change.Token != "" {
 		c.Printf("\ntoken: %s\n", change.Token)
 		c.Println("This is the only time the token is shown: the server keeps just its hash.")

@@ -195,6 +195,7 @@ auth caller add	flag ceiling-read-only	refuse every state-changing request of th
 auth caller add	flag ceiling-runner	runner key the caller may submit to (glob, repeatable). Without it the caller may NOT use the machine runner (local), only remote workers
 auth caller add	flag ceiling-worker	worker the caller's jobs may be routed to (glob, repeatable)
 auth caller add	flag config	path to the gofer config file
+auth caller add	flag expires	token lifetime: 90d, a date such as 2026-12-31, or never (default never)
 auth caller add	flag max-concurrent-jobs	how many jobs this caller may run at once (0 = take the server.governance default)
 auth caller add	flag name	display name (optional; the id stays the identity)
 auth caller add	flag no-ceiling	do not limit this caller (the alternative to a --ceiling-* block)
@@ -279,9 +280,14 @@ disabled caller does not enable it.
 A caller declared in the configuration file cannot be rotated here: its token would have to be
 written into the file. Change (or remove) that entry instead.
 
+--expires <90d | 2026-12-31 | never> sets the new token's expiry; without it the caller keeps
+its current expiry.
+
   gofer auth caller rotate ci
+  gofer auth caller rotate ci --expires 90d
 auth caller rotate	examples	
 auth caller rotate	flag config	path to the gofer config file
+auth caller rotate	flag expires	new token lifetime: 90d, a date, or never (default: keep the current expiry)
 auth caller rotate	flag server	server address (overrides config server.addr)
 auth caller rotate	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 auth caller set-ceiling	desc	Replace a caller's ceiling (or remove it with --no-ceiling)

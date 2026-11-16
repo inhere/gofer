@@ -101,6 +101,9 @@ type callerEntry struct {
 	// resolved with the entry so a re-judgment never has to hash again.
 	fingerprint string
 	kind        string
+	// expiresAt is when a stored caller's token stops authenticating (unix seconds, 0 = never).
+	// The entry stays in the set after that so the request can be refused as token_expired.
+	expiresAt int64
 }
 
 // callerFromCtx returns the authenticated caller id stored by authMiddleware,
@@ -353,6 +356,10 @@ type Server struct {
 	// audit is the asynchronous writer of admin_audit (admin_audit.go); created by New,
 	// drained by CloseAudit.
 	audit *auditRecorder
+	// usage batches the last-used stamps of stored callers (caller_expiry.go); authClock is
+	// the clock token expiry is judged by (nil = time.Now; a test pins it).
+	usage     *callerUsage
+	authClock func() time.Time
 
 	// xfer is the XFER-01 transfer manager behind /v1/xfer*. Injected
 	// post-construction by SetXfer (serve), like SetMetrics. The routes are
@@ -1065,6 +1072,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	}
 	s.live = s.newPushHub()
 	s.audit = s.newAdminAuditRecorder()
+	s.usage = s.newCallerUsage()
 	s.router = s.buildRouter()
 	return s
 }
@@ -1238,7 +1246,7 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 			if hash == "" {
 				continue // nothing to authenticate against (the merge refuses this row)
 			}
-			out = append(out, callerEntry{id: cc.ID, tokenHash: hash, fingerprint: tokenFingerprintOfHash(hash), kind: callerKindUser})
+			out = append(out, callerEntry{id: cc.ID, tokenHash: hash, fingerprint: tokenFingerprintOfHash(hash), kind: callerKindUser, expiresAt: cc.ExpiresAt})
 		}
 	}
 	return out

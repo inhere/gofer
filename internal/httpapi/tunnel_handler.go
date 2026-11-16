@@ -30,6 +30,9 @@ func (s *Server) tunnelAuth(r *http.Request) (callerEntry, bool) {
 		return callerEntry{}, false
 	}
 	ce, ok := s.lookupCallerEntry(tok)
+	if ok && s.callerTokenExpired(ce) {
+		return callerEntry{}, false
+	}
 	return ce, ok
 }
 
