@@ -527,8 +527,19 @@ func (s *Service) confirmSayBatchLocked(parentJobID string) {
 			continue
 		}
 		child, ok := s.Get(it.childJobID)
-		if !ok || child.Status != it.status {
-			continue // the child moved on: keep the sentinel so the new state fires again
+		if !ok {
+			continue // the row is gone (pruned): nothing left to count or report
+		}
+		if child.Status != it.status {
+			// The child moved on between the send and this confirmation: the sentinel is kept
+			// so the newer state fires again, but the receipt the parent just worked through
+			// WAS delivered — counting it here (and again only on the newer state's own
+			// confirmation) keeps one fire per delivery. DropPendingSay cannot see this
+			// delivery at all: it retires sentinels nobody was spoken to.
+			if _, err := s.meta.CountWakeupSayFire(it.wakeupID); err != nil {
+				slog.Warn("wakeup say: count delivered", "wakeup_id", it.wakeupID, "job_id", parentJobID, "err", err)
+			}
+			continue
 		}
 		disable := IsTerminal(child.Status) || it.mode == jobstore.WakeupModeOnce
 		if err := s.meta.CompleteWakeupSay(it.wakeupID, disable); err != nil {

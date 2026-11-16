@@ -322,6 +322,31 @@ func (s *Store) CompleteWakeupSay(id string, disable bool) error {
 	return nil
 }
 
+// CountWakeupSayFire counts one DELIVERED receipt and leaves the sentinel in place. It
+// is the confirmation of a receipt whose child changed state before the confirmation
+// landed (confirmSayBatchLocked): the parent did read that receipt, so it is a fire, but
+// the sentinel now stands for the NEWER state, which still has to reach the parent and
+// counts on its own confirmation — one fire per delivery. The CAS on the sentinel keeps
+// a row a confirmation already cleared (or a re-arm that replaced it) from counting
+// twice; the bool reports whether this call counted.
+func (s *Store) CountWakeupSayFire(id string) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(
+		`UPDATE job_wakeups SET last_fired_at = ?, fired_count = COALESCE(fired_count,0) + 1
+     WHERE id = ? AND continuation_job_id = ?`,
+		time.Now().Unix(), id, WakeupPendingSay,
+	)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: count wakeup %q say fire: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("jobstore: count wakeup %q say fire rows: %w", id, err)
+	}
+	return n == 1, nil
+}
+
 // DropPendingSay clears the pending-say sentinel of a receipt that has nothing left to
 // say, WITHOUT counting a fire, moving last_fired_at or disabling the row: the receipt
 // turned out to be meaningless (an automatic receipt whose child is still running and no
@@ -329,6 +354,10 @@ func (s *Store) CompleteWakeupSay(id string, disable bool) error {
 // so the row has to stay armed. It is the counterpart of CompleteWakeupSay for a receipt
 // abandoned instead of delivered; the CAS on the sentinel keeps a newer trigger (or a
 // confirmation) from being overwritten, and the bool reports whether this call cleared it.
+//
+// A receipt the parent never saw (a trigger a person answered before it was spoken, see
+// dropMeaninglessReceipt) is not a fire; a receipt that WAS spoken was already counted at
+// its confirmation, whether or not the child had moved on by then (CountWakeupSayFire).
 func (s *Store) DropPendingSay(id string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
