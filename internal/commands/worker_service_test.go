@@ -21,13 +21,13 @@ func TestPurgeWorkerAssetsScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"worker.yaml":                     "worker_id: w1\n",
-		"config.yaml":                     "server: {}\n",
-		".env":                            "GOFER_WORKER_TOKEN=secret\nOTHER=1\nexport GOFER_WORKER_TOKEN=secret2\n",
-		filepath.Join("run", "worker-w1.pid"):  "1234\n",
-		filepath.Join("run", "worker-w1.log"):  "log\n",
+		"worker.yaml":                            "worker_id: w1\n",
+		"config.yaml":                            "server: {}\n",
+		".env":                                   "GOFER_WORKER_TOKEN=secret\nOTHER=1\nexport GOFER_WORKER_TOKEN=secret2\n",
+		filepath.Join("run", "worker-w1.pid"):    "1234\n",
+		filepath.Join("run", "worker-w1.log"):    "log\n",
 		filepath.Join("run", "worker-other.pid"): "5678\n",
-		filepath.Join("run", "serve.pid"):      "999\n",
+		filepath.Join("run", "serve.pid"):        "999\n",
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
