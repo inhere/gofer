@@ -16,6 +16,25 @@ gofer worker add <worker-id> --wsl <distro> --project <project>
 
 命令默认把 worker 安装到用户可写目录：Linux/macOS 为 `~/.local/bin/gofer`，Windows 为 `%LOCALAPPDATA%\gofer\bin\gofer.exe`。自升级需要在运行中可执行文件所在目录创建临时文件并原子替换；系统目录（如 `/usr/local/bin`）通常由 root 拥有，普通 worker 无法写入。
 
+## 一行接入（server 自带安装脚本）
+
+在要接入的机器上以**将要跑 worker 的那个普通用户**执行（不要用 root / sudo）：
+
+```bash
+# Linux / macOS
+curl -fsSL <server>/install.sh | sh
+```
+
+```powershell
+# Windows（PowerShell）
+irm <server>/install.ps1 | iex
+```
+
+- 脚本里只有 server 地址，**没有任何 token**；它做四件事：装二进制 → `worker join --server <addr>`（屏幕显示配对码，管理员在 web Runners 页接受后写本地 token）→ `worker service register --start`（用户级常驻：Linux systemd --user、Windows 登录任务）。
+- 二进制取 server 自己的版本，地址与 sha256 来自 `GET <server>/install/manifest?os=&arch=`（由 `server.update` 的 mirror / GitHub 发布物提供）；**校验值缺失或对不上就失败**，不会装未校验的二进制。
+- server 地址取 `server.web_base_url`，没配则用请求的 Host（含协议）。以 root 运行会直接退出。
+- 已有现成配置的机器仍可用 `gofer worker init` / `worker add --ssh`；要重来一次先 `gofer worker service uninstall --purge`。
+
 
 ## 目录
 

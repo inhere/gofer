@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/inhere/gofer/internal/config"
 )
 
 const (
@@ -43,7 +45,11 @@ type Spec struct {
 	RuntimeDir        string       `json:"runtime_dir"`
 	RunAs             string       `json:"run_as,omitempty"`
 	Elevated          bool         `json:"elevated,omitempty"`
+	// Kind is the process this registration runs. An empty value is a spec
+	// written before workers could be registered and reads as serve.
+	Kind              Kind          `json:"kind,omitempty"`
 	Serve             ServeOptions `json:"serve"`
+	Worker            WorkerOptions `json:"worker,omitempty"`
 	RegisteredVersion string       `json:"registered_version,omitempty"`
 }
 
@@ -69,6 +75,14 @@ func (s Spec) Validate() error {
 	}
 	if !validName(s.Name) {
 		return fmt.Errorf("invalid service name %q", s.Name)
+	}
+	switch s.Kind {
+	case "", KindServe, KindWorker:
+	default:
+		return fmt.Errorf("unsupported service kind %q", s.Kind)
+	}
+	if err := s.validateKindOptions(); err != nil {
+		return err
 	}
 	if s.Owner == "" {
 		return errors.New("service owner is required")
@@ -105,6 +119,41 @@ func (s Spec) Validate() error {
 	// originally discovered the config through GOFER_CONFIG.
 	if s.RuntimeDir != filepath.Join(filepath.Dir(s.ConfigFile), "run") {
 		return fmt.Errorf("runtime_dir must be beside the managed -c config file: %q", s.RuntimeDir)
+	}
+	return nil
+}
+
+// validateKindOptions rejects the option block of the other kind, so a spec can
+// never describe a worker that also carries serve flags (or the reverse).
+func (s Spec) validateKindOptions() error {
+	if s.EffectiveKind() == KindWorker {
+		if s.Serve != (ServeOptions{}) {
+			return errors.New("serve options are only valid for a serve registration")
+		}
+		if !workerID.MatchString(s.Worker.ID) {
+			return fmt.Errorf("invalid worker id %q", s.Worker.ID)
+		}
+		if err := config.CheckWorkerID(s.Worker.ID); err != nil {
+			return err
+		}
+		if s.Worker.ConfigDir != s.ConfigDir {
+			return errors.New("worker config_dir must equal the registration config_dir")
+		}
+		if s.ConfigFile != workerConfigPath(s.ConfigDir) {
+			return fmt.Errorf("a worker registration runs %q", workerConfigPath(s.ConfigDir))
+		}
+		// Workers run as the login user only: no system-wide unit and no elevated
+		// Windows task.
+		if s.Backend == BackendSystemdSystem {
+			return errors.New("worker registrations are user-level only; use a systemd user unit")
+		}
+		if s.Elevated {
+			return errors.New("worker registrations always run with least privilege")
+		}
+		return nil
+	}
+	if s.Worker != (WorkerOptions{}) {
+		return errors.New("worker options are only valid for a worker registration")
 	}
 	return nil
 }

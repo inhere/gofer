@@ -76,7 +76,7 @@ func (m *Manager) SaveSpec(spec Spec) error {
 		return err
 	}
 	if err == nil && current != spec {
-		pid, readErr := daemon.ReadPIDFile(filepath.Join(current.RuntimeDir, "serve.pid"))
+		pid, readErr := daemon.ReadPIDFile(filepath.Join(current.RuntimeDir, current.PIDFileName()))
 		if readErr == nil && daemon.PIDAlive(pid) {
 			return ErrRunningSpecChange
 		}
@@ -120,7 +120,7 @@ func (m *Manager) InspectServer() (daemon.ProcessIdentity, error) {
 	if err != nil {
 		return daemon.ProcessIdentity{}, err
 	}
-	pid, err := daemon.ReadPIDFile(filepath.Join(spec.RuntimeDir, "serve.pid"))
+	pid, err := daemon.ReadPIDFile(filepath.Join(spec.RuntimeDir, spec.PIDFileName()))
 	if err != nil {
 		return daemon.ProcessIdentity{}, err
 	}

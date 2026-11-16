@@ -112,6 +112,9 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 |---|---|---|---|---|---|---|
 | `GET` | `/*` | `NoUserSurface` | — | `静态` | `NoProject` | 读 |
 | `GET` | `/health` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
+| `GET` | `/install.ps1` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
+| `GET` | `/install.sh` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
+| `GET` | `/install/manifest` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
 | `GET` | `/metrics` | `NoUserSurface` | — | `自身凭据` | `NoProject` | 读 |
 | `GET` | `/v1/agents` | `Public` | — | — | `NoProject` | 读 |
 | `POST` | `/v1/agents/{id}/probe` | `Require` | `job.submit` | — | `NoProject` | 写 |
