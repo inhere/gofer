@@ -37,6 +37,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/desktop"
 	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/install"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -1252,6 +1253,14 @@ func (s *Server) buildRouter() *rux.Router {
 	r.Use(s.requestLangMiddleware)
 
 	r.GET("/health", s.handleHealth)
+
+	// The one-line worker installer (/install.sh, /install.ps1, /install/manifest): public
+	// and read-only, like /health — the machine running it has no gofer credential yet. The
+	// scripts carry no secret and the manifest only names this server's version, its
+	// download URL and its sha256 (internal/install).
+	r.GET("/install.sh", s.handleInstallScript(install.ScriptSh))
+	r.GET("/install.ps1", s.handleInstallScript(install.ScriptPS1))
+	r.GET("/install/manifest", s.handleInstallManifest)
 
 	// E16: Prometheus scrape endpoint. Sibling of /health, registered OUTSIDE the
 	// /v1 authMiddleware group: scrapers rarely carry a Bearer token and the

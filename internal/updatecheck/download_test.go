@@ -169,16 +169,22 @@ func TestAssetForBeforeCheck(t *testing.T) {
 }
 
 // A worker upgrade can name another release than the checked latest (gofer-n1vj): a
-// mirror serves it through its template (unverified — it publishes the latest checksums
-// only), a GitHub release through its tag.
+// mirror serves it through its template with THAT release's checksum (its own latest.yaml
+// beside the binaries, plan R20), a GitHub release through its tag.
 func TestAssetForVersion(t *testing.T) {
 	latest, older := []byte("0.160.0 linux binary"), []byte("0.150.0 linux arm64 binary")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/latest.yaml":
 			_, _ = w.Write([]byte("version: 0.160.0\nfiles:\n  gofer-linux-amd64: " + sum(latest) + "\n"))
+		case "/0.160.0/latest.yaml":
+			_, _ = w.Write([]byte("version: 0.160.0\nfiles:\n  gofer-linux-amd64: " + sum(latest) + "\n"))
+		case "/0.150.0/latest.yaml":
+			_, _ = w.Write([]byte("version: 0.150.0\nfiles:\n  gofer-linux-arm64: " + sum(older) + "\n"))
 		case "/0.160.0/gofer-linux-amd64":
 			_, _ = w.Write(latest)
+		case "/0.140.0/gofer-linux-amd64":
+			_, _ = w.Write(latest) // a release whose checksum the mirror does not keep
 		case "/0.150.0/gofer-linux-arm64":
 			_, _ = w.Write(older)
 		default:
@@ -201,9 +207,10 @@ func TestAssetForVersion(t *testing.T) {
 		}
 	}
 
-	// Any other version goes into the template; the mirror has no checksum for it.
+	// Any other version goes into the template; its checksum comes from that release's
+	// own latest.yaml, so the download is verified.
 	a, err := c.AssetForVersion(ctx, "linux", "arm64", "0.150.0")
-	if err != nil || a.URL != srv.URL+"/0.150.0/gofer-linux-arm64" || a.SHA256 != "" || a.Version != "0.150.0" {
+	if err != nil || a.URL != srv.URL+"/0.150.0/gofer-linux-arm64" || a.SHA256 != sum(older) || a.Version != "0.150.0" {
 		t.Fatalf("asset = %+v, %v", a, err)
 	}
 	p, err := c.Download(ctx, a, t.TempDir())
@@ -212,6 +219,19 @@ func TestAssetForVersion(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(p); !bytes.Equal(got, older) {
 		t.Fatalf("downloaded %q", got)
+	}
+
+	// A mirror that keeps only the latest release's latest.yaml cannot verify an older
+	// binary: the download is refused instead of installing unverified.
+	bare := checker("0.160.0", config.UpdateConfig{LatestURL: srv.URL + "/latest.yaml",
+		URLTemplate: srv.URL + "/{version}/{name}-{os}-{arch}{ext}"}, "linux", "amd64")
+	bare.Check(ctx)
+	a, err = bare.AssetForVersion(ctx, "linux", "amd64", "0.140.0")
+	if err != nil || a.SHA256 != "" {
+		t.Fatalf("asset without a checksum = %+v, %v", a, err)
+	}
+	if _, err := bare.Download(ctx, a, t.TempDir()); err == nil || !strings.Contains(err.Error(), "published no sha256") {
+		t.Fatalf("an unverifiable download: %v", err)
 	}
 
 	// A mirror without a template cannot name a release binary.

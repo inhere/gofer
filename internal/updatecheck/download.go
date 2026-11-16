@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -93,8 +95,9 @@ var platformPartRe = regexp.MustCompile(`^[a-z0-9]+$`)
 // AssetForVersion resolves a platform's binary of ONE release (gofer-n1vj): "" or the
 // latest checked release is what AssetFor returns; another version is resolved from the
 // source itself — the mirror's url_template with that {version}, or that GitHub release's
-// assets. A mirror publishes the checksums of its latest release only, so any other
-// version is downloaded unverified (the URL is the administrator's own template).
+// assets. Either way its checksum comes from that release's latest.yaml: a release whose
+// checksum the source does not publish stays empty here and Download then refuses it
+// (Q8: an unverified download is not allowed).
 func (c *Checker) AssetForVersion(ctx context.Context, goos, goarch, version string) (Asset, error) {
 	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
 	if version == "" {
@@ -122,9 +125,53 @@ func (c *Checker) AssetForVersion(ctx context.Context, goos, goarch, version str
 		if t == "" {
 			return Asset{}, errors.New("server.update.url_template is not configured, so the mirror cannot name a release binary")
 		}
-		return Asset{OS: goos, Arch: goarch, Version: version, URL: expand(t, version, goos, goarch)}, nil
+		a := Asset{OS: goos, Arch: goarch, Version: version, URL: expand(t, version, goos, goarch)}
+		a.SHA256 = c.mirrorChecksum(ctx, u, a.URL, version, goos, goarch)
+		return a, nil
 	}
 	return c.gitHubAssetFor(ctx, u, goos, goarch, version)
+}
+
+// mirrorChecksum reads the sha256 of one platform's binary of `version` from the
+// latest.yaml the mirror keeps NEXT TO that release's binaries (the url_template's own
+// directory). Its version must name the release asked for: a mirror that keeps only the
+// latest release's latest.yaml cannot verify an older binary, and returning that one's
+// checksums would fail every such download with a mismatch instead of the truth. "" = the
+// source published none, which Download refuses.
+func (c *Checker) mirrorChecksum(ctx context.Context, u config.UpdateConfig, binaryURL, version, goos, goarch string) string {
+	metaURL, err := checksumFileURL(binaryURL)
+	if err != nil {
+		slog.Warn("update.checksums_unavailable", "event", "update.checksums_unavailable", "version", version, "error", err)
+		return ""
+	}
+	body, err := c.get(ctx, u, metaURL, "")
+	if err != nil {
+		slog.Warn("update.checksums_unavailable", "event", "update.checksums_unavailable", "version", version, "error", err)
+		return ""
+	}
+	meta, err := parseLatest(body)
+	if err != nil {
+		slog.Warn("update.checksums_unavailable", "event", "update.checksums_unavailable", "version", version, "error", err)
+		return ""
+	}
+	if got := strings.TrimPrefix(strings.TrimSpace(meta.Version), "v"); got != version {
+		slog.Warn("update.checksums_unavailable", "event", "update.checksums_unavailable", "version", version,
+			"error", fmt.Sprintf("%s names version %q", metaURL, got))
+		return ""
+	}
+	return meta.Files[BinaryName(goos, goarch)]
+}
+
+// checksumFileURL is the latest.yaml beside a release binary: its directory plus
+// latest.yaml, without the binary's query.
+func checksumFileURL(binaryURL string) (string, error) {
+	u, err := url.Parse(binaryURL)
+	if err != nil {
+		return "", err
+	}
+	u.Path = path.Dir(strings.TrimSuffix(u.Path, "/")) + "/latest.yaml"
+	u.RawQuery, u.Fragment = "", ""
+	return u.String(), nil
 }
 
 // gitHubAssetFor resolves another release of the GitHub source: that release's archive
@@ -214,7 +261,7 @@ func (c *Checker) Download(ctx context.Context, a Asset, dir string) (string, er
 	if err != nil {
 		return "", err
 	}
-	if err := verifySHA256(tmp.Name(), a.SHA256); err != nil {
+	if err := verifySHA256(tmp.Name(), a.SHA256, name); err != nil {
 		return "", err
 	}
 	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
@@ -318,11 +365,14 @@ func extractZip(dst io.Writer, src io.Reader, dir string, names ...string) error
 	return fmt.Errorf("the archive has no %s", names[0])
 }
 
-// verifySHA256 checks file against want; an empty want (nothing published) passes.
-func verifySHA256(file, want string) error {
+// verifySHA256 checks file against want, the checksum the update source published for the
+// release binary name. A download nothing can verify is refused (Q8): a source without
+// checksums (an old release, a mirror without latest.yaml) fails here rather than
+// installing blind.
+func verifySHA256(file, want, name string) error {
 	want = strings.ToLower(strings.TrimSpace(want))
 	if want == "" {
-		return nil
+		return fmt.Errorf("the update source published no sha256 for %s, so the download cannot be verified", name)
 	}
 	f, err := os.Open(file)
 	if err != nil {
