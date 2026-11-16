@@ -257,9 +257,12 @@ gofer worker join --server <addr> [--id <提议 id>] [--labels a,b] [--roots fro
 gofer worker reload <id> [--reason …] | reload --local [<id>]
 gofer worker upgrade <id> [--source auto|server|mirror] [--version <X.Y.Z>] [--file …] [--force] [--no-wait]
 gofer worker [-d] [--worker-config <path>] | init | doctor | stop [<id>]   # 在 worker 机器本机用
+gofer worker service register [--id <id>] [--start] | start | stop | status [--json] | uninstall [--purge]
 ```
 
 `worker show` 除了连接状态、版本、在跑 job 数，还有一行 `last_replaced`：同一个 `worker_id` 被**另一个进程**（instance_id 不同）顶替掉连接的时刻、新旧 instance_id 与远端地址。看到它基本就是两个进程用同一个 worker_id 在互顶，处理办法见 [operations.md](operations.md)「同一 worker_id 的两个进程互顶」。
+
+`worker service` 把本机这个 worker 登记成**用户级**系统服务（Linux systemd `--user`、Windows 登录任务；macOS 暂不支持，用 `worker -d`）：`register` 只登记（`--start` 登完就起）、`status` 退出码同 `serve status`、`uninstall` 只摘登记而 `--purge` 连 worker.yaml 与 `.env` 里的 token 一起删。它管的就是 `<config-dir>/worker.yaml`，所以没有 `--worker-config`；`worker stop` 停的是 daemon 模式的后台进程，不是它。详见 [worker-config.md](worker-config.md)「常驻为系统服务」。
 
 细节见 [operations.md](operations.md)、[worker-config.md](worker-config.md)。
 
