@@ -754,17 +754,19 @@ server:
 ```
 
 - 占位符：`{name}`（`gofer`）、`{os}` / `{arch}`（server 的系统与架构）、`{ext}`（Windows 为 `.exe`）、`{version}`（最新版本号）。
+- **下载必须带 sha256**：取不到校验值的二进制一概不装（一键更新、远程 worker 升级、一行安装都一样），错误文案写「更新源缺少校验值」。mirror 给非最新版本下载时取该版本目录下的 `latest.yaml`（即 `url_template` 展开后的二进制同目录，里面 `version` 要与所取版本一致），所以按版本分目录的 mirror 要在每个版本目录里放一份 `latest.yaml`。
 - 下载链接：mirror 按 `url_template` 指向**裸二进制**（`make build-all` 的产物，如 `gofer-linux-amd64`、`gofer-windows-amd64.exe`）；GitHub 取 release 里 `gofer-{os}-{arch}` 开头的**压缩包**（`.tar.gz` / `.zip`；包内只有一个文件，名为 `gofer`（Windows 为 `gofer.exe`），更新时也兼容旧版压缩包里带平台后缀的名字）。`latest.yaml` 读 `version` / `released_at` / `description` 与 `files`（各平台二进制文件名 → sha256，`make latest-yaml` 生成）；GitHub release 也带一份 `latest.yaml`。server 自己下载 GitHub 资产（`latest.yaml`、一键更新的二进制）走 `api.github.com` 的资产地址，不依赖 `github.com` 下载链接可达。
 - 版本按 `X.Y.Z` 比较；开发构建（`0.152.3-2-gabc`）不会把同一个基础版本报成新版本。
 - 只能改配置文件（server 会去请求这些地址）；改完 `gofer serve reload` 生效。发现新版本时 serve 日志记 `update.available`。
 - 接口：`GET /v1/update`（最近一次结果）、`POST /v1/update/check`（立即检查；job 凭据不可调用）。
+- 公开的安装入口（无 token，只读）：`GET <server>/install.sh`、`GET <server>/install.ps1`、`GET <server>/install/manifest?os=&arch=`（server 自身版本的下载地址、文件名与 sha256；取不到校验值返回 404）。脚本内容只有 server 地址，不含任何 token。
 
 ### 一键更新
 
 以服务方式运行的 server（`gofer serve register`）可在「设置 → 关于」点「立即更新」：
 
 - 确认框列出运行中的 job 数和 worker（默认勾选全部在线的），并可选最长等多久（30 分钟 / 1 小时 / 2 小时 / 4 小时，默认 2 小时）；勾选的 worker 在 server 更新后一同升级。
-- server 下载本平台二进制（有 sha256 就校验，并核对 `--version`），然后**等机器空闲**：
+- server 下载本平台二进制（**必须有 sha256 才装**，并核对 `--version`），然后**等机器空闲**：
   - 运行中的 job（本机的）跑完才重启；worker 上已经在跑的 job 不算，也不受影响（worker 进程留着它，server 回来后再接管）。
   - 等待期间**新提交的 job 照常接收，但先停住**（非终态 `paused_for_update`，不占执行位）——不会出现 503；更新完成 / 失败 / 被取消时自动开跑，job id 不变，不需要重新提交。gofer 自己的短内部 job 不停：会话送达 / 注入（`relay-deliver` / `relay-inject`）与传话人（`session-messenger`）照常跑——停住它们只会丢掉要送的消息，而重启并不差这几秒。
   - 等待期间 web 转达给会话的消息即使内部 job 没跑完也不会再被记成「失败」：状态是「送达中」，job 结束时回写真实结果（gofer-qzv5）。
