@@ -350,6 +350,10 @@ type Server struct {
 	metricsEnabled bool
 	metricsToken   string
 
+	// audit is the asynchronous writer of admin_audit (admin_audit.go); created by New,
+	// drained by CloseAudit.
+	audit *auditRecorder
+
 	// xfer is the XFER-01 transfer manager behind /v1/xfer*. Injected
 	// post-construction by SetXfer (serve), like SetMetrics. The routes are
 	// ALWAYS mounted (they answer 503 while it is nil), so this seam needs no
@@ -1060,6 +1064,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.wireWorkJobOutcomes(jobs) // WORK-06: linked job outcomes on the work journal
 	}
 	s.live = s.newPushHub()
+	s.audit = s.newAdminAuditRecorder()
 	s.router = s.buildRouter()
 	return s
 }
@@ -1318,6 +1323,8 @@ func (s *Server) buildRouter() *rux.Router {
 		// 会话授权的续期（计划 T2.3）：只把仍然生效的会话授权往后挪，权限范围一点不变。
 		r.POST("/auth/grants/{id}/renew", s.handleAuthRenewGrant)
 		r.GET("/auth/audit", s.handleAuthAudit)
+		// The admin audit trail (admin_audit.go): every write request, refusals included.
+		r.GET("/audit", s.handleAdminAudit)
 
 		// 用户管理（配置入库 P1，计划 T6）：callers 的新增 / 轮换 / 停用 / 启用 / 改上限 /
 		// 改配额与审计。全部要求 auth.manage（只有根管理员持有），且每个 handler 先过

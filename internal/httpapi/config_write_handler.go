@@ -1168,6 +1168,17 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			return fmt.Errorf("dir_lock_max_wait_sec must be >= 0 (0 = no cap)")
 		}
 		sc.DirLockMaxWaitSec = v
+	case "audit_retention_days":
+		// Read by the audit prune loop at every tick: 0 / null = the default (90 days),
+		// a negative value keeps the audit tables forever.
+		v, err := fieldValue[*int](f)
+		if err != nil {
+			return err
+		}
+		sc.AuditRetentionDays = 0
+		if v != nil {
+			sc.AuditRetentionDays = *v
+		}
 	case "dir_lock_allow_unbounded_wait":
 		v, err := fieldValue[*bool](f)
 		if err != nil {
@@ -1647,6 +1658,8 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 			doc[name] = sc.DirLockMaxWaitSec
 		case "dir_lock_allow_unbounded_wait":
 			doc[name] = sc.DirLockAllowUnboundedWait
+		case "audit_retention_days":
+			doc[name] = sc.AuditRetentionDays
 		case "agent_health":
 			if sc.AgentHealth == nil {
 				doc[name] = nil

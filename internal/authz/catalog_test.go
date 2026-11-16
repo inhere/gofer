@@ -79,6 +79,8 @@ var addedRows = []struct {
 	{PermMcpTest, designRow{PermSettingsRead, RiskLow, true, ScopeYes, SourceSeed, SeedV3}},
 	{PermMcpTest, designRow{PermSettingsWrite, RiskMedium, false, ScopeYes, SourceRoot, NotSeeded}},
 	{PermMcpTest, designRow{PermTriggerRead, RiskMedium, false, ScopeNo, SourceRoot, NotSeeded}},
+	// audit.read (design 2026-11-14 §1): the admin audit trail; root-only until granted, never a session's.
+	{PermMcpTest, designRow{PermAuditRead, RiskMedium, false, ScopeNo, SourceRoot, NotSeeded}},
 	// schedule.precheck (design 2026-11-12 §2): high risk, root-only until granted, never a session's.
 	{PermScheduleManageOthers, designRow{PermSchedulePrecheck, RiskHigh, false, ScopeNo, SourceRoot, NotSeeded}},
 }
@@ -157,7 +159,7 @@ func TestPermissionConstantsMatchCatalog(t *testing.T) {
 		PermTunnelOpen, PermTunnelHosted, PermTunnelManageOthers,
 		PermXferWrite, PermXferManageOthers, PermSecretScanAll,
 		PermUpdateCheck, PermUpdateApply, PermWorkerUpgrade, PermWorkerUpgradeUpload,
-		PermWorkerManage, PermConfigRead, PermMcpTest, PermSettingsRead, PermSettingsWrite, PermTriggerRead,
+		PermWorkerManage, PermConfigRead, PermMcpTest, PermSettingsRead, PermSettingsWrite, PermTriggerRead, PermAuditRead,
 		PermConfigWrite, PermProjectWrite,
 		PermRulesWrite, PermSkillsWrite, PermAuthManage,
 	}
