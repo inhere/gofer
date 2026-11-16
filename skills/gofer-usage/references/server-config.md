@@ -831,7 +831,7 @@ server:
 - `governance` 需重启 server 生效；**`callers` 是热载**：`gofer serve reload`（或 web「重新读取文件」）之后新加的 / 改过的 / 删掉的调用方立刻生效，不用重启。
 - **新增人不用改文件**：根管理员在 web「设置 → 用户」或 CLI `gofer auth caller add` 建用户、拿一次性 token、轮换、停用 / 启用、改上限与配额，配置文件一个字不动、不用重启。见下文「用户入库」。
 - 各项权限的含义、风险、来源，以及每条 HTTP 路由需要哪些权限：见 <https://github.com/inhere/gofer/blob/main/docs/reference/permissions.md>（由服务端代码生成，与二进制一致）。
-- **审计与自查**：授权增删、只靠会话授权通过的请求和被拒请求会进入 `GET /v1/auth/audit`；使用计数保留在授权行，审计记录保留 90 天。`gofer auth whoami` 显示本 token 是哪个调用方、是否根管理员、持有的每项权限及**来源**（`root` 根管理员 / `config` 由配置推出 / `db` 数据库授权，并给出是哪条授权给的）；权限不够的 403 正文里让人跑的就是它。`gofer auth routes` 列出服务端每条路由的声明与需要的权限（与上面那份生成文档同一份数据，但来自正在跑的那个二进制）。
+- **审计与自查**：授权增删、只靠会话授权通过的请求和被拒请求会进入 `GET /v1/auth/audit`；使用计数保留在授权行，两张审计表（`auth_audit` 与下面的管理操作审计）都按 `server.audit_retention_days` 保留（默认 90 天）。管理类写操作的留痕见下文「管理操作审计」。`gofer auth whoami` 显示本 token 是哪个调用方、是否根管理员、持有的每项权限及**来源**（`root` 根管理员 / `config` 由配置推出 / `db` 数据库授权，并给出是哪条授权给的）；权限不够的 403 正文里让人跑的就是它。`gofer auth routes` 列出服务端每条路由的声明与需要的权限（与上面那份生成文档同一份数据，但来自正在跑的那个二进制）。
 - **未知的 `/v1` 路径**：`/v1/` 下没有匹配的路由（含已删除的旧接口、拼错的路径）一律返回 404 + JSON 错误体（`error` / `detail`），不再回退到 web 首页 HTML；web 前端路由（非 `/v1`）仍回退 `index.html`。客户端遇到 404 JSON 先核对 server 版本与路径。
 - **授权可以落库、按主体发**：一条授权 = 主体（`users` 全体用户类调用方 / `caller:<id>` 某个调用方 / `session:<sid>` 某个终端会话）+ 名称模式（`tunnel.*`、`job.*.others`、`*`），存数据库、立即生效。升级后行为不变（原来不检查的那组仍发给全体），能新加的是「单独发给某个调用方」（如只给容器里的会话约 `tunnel.open`）。接口：`GET/POST /v1/auth/grants`、`DELETE /v1/auth/grants/{id}`（撤销，行留着）、`POST /v1/auth/grants/{id}/activate`（恢复孤儿）、`POST /v1/auth/grants/{id}/renew`（把仍然生效的会话授权往后延，上限 24 小时）；只有**根管理员**能管理授权（`auth.manage` 是任何模式都匹配不到的保留权限），worker / job 凭据一律 403。
 - **网页管理**：根管理员在 web「设置 → 权限」里查看目录与审计、新增 / 撤销授权、恢复孤儿授权；不是根管理员或没有根管理员的部署，该页只读。
@@ -849,8 +849,10 @@ server:
 ```bash
 gofer auth caller add ci --ceiling-project 'app-*' --ceiling-agent 'claude*'   # 建人，token 只打印一次
 gofer auth caller add bot --no-ceiling --rate-limit 2 --max-concurrent-jobs 2   # 明确不设上限
-gofer auth caller ls                                                          # 来源 / 状态 / token 提示 / 上限 / 配额
+gofer auth caller add ci-bot --no-ceiling --expires 90d                        # 让 token 90 天后失效
+gofer auth caller ls                                                          # 来源 / 状态 / token 提示 / 到期 / 最近使用 / 上限 / 配额
 gofer auth caller rotate ci                                                   # 换 token（旧 token 立刻失效，长连接断开）
+gofer auth caller rotate ci --expires 2026-12-31                              # 换 token 并定新的到期日
 gofer auth caller disable ci                                                  # 停用（enable 恢复）
 gofer auth caller set-ceiling ci --ceiling-project p1                         # 换上限；--no-ceiling 改成不设上限
 gofer auth caller set-limits ci --max-concurrent-jobs 4                       # 改配额（下一个 job 就按新值排队）
@@ -858,6 +860,10 @@ gofer auth caller audit --limit 20                                            # 
 ```
 
 - **token 只显示一次**：新增与轮换的响应里有完整 token，服务端只存它的 sha256，之后拿不回来（只能看 `token_hint` 这种提示，如 `gct_…1f2e`）。丢了就再 `rotate` 一次。token 不进数据库明文、不进日志、不进审计。
+- **到期时间**（`--expires`，入库用户才有）：`90d`（从现在的天数）、`36h` 一类时长、`2026-12-31`（到那天结束，UTC）、RFC 3339 时间，或 `never`；**默认 `never`**，所以升级不会把现有自动化锁在门外。给的是过去的时间直接报错。`add` 时写定；`rotate` 时**不写 `--expires` 就保留原来的到期时间**（想改长改短、想改成永久都在 `rotate` 上写）。配置文件里声明的用户不参与到期。
+- **到期之后**：这个 token 的请求一律 401，`GET /v1/auth/audit` 里记 `request.denied reason=token_expired`；用户行仍在列表里（上限继续约束它已经跑起来的 job）。要恢复就 `rotate --expires <新到期>`（换新 token 并给新的到期时间）；轮换不改变停用状态，停用的还得 `enable`。
+- **到期提醒**：**到期前 7 天**在「等我」出一张「调用方 token 即将到期」卡（动作：轮换 / 看详情），过期当天同一张卡改成「已过期」；停用与已被文件接管的用户不提醒（没什么可轮的）。web「设置 → 用户」的行同时显示到期与最近使用，**超过 30 天没用过的行标灰**，方便淘汰。
+- **最近使用**：命中 token 时在内存里记时间，每分钟批量落库一次，所以列表里的「最近使用」最多差一分钟。从没用过的显示 `-`。
 - **上限（ceiling）必须二选一**：给一块 `--ceiling-*`，或明确 `--no-ceiling`。两样都不给、或给一个空上限块都是 400——空块读成「有限制」却什么都没限。四个列表是 glob，留空的维度不限制；**特例是 runner**：不给 `--ceiling-runner` 就是不允许本机 runner（`local` / `server`，它跑在 server 主机上、能读配置与所有 token），只允许远程 worker，要允许必须写名字。不设上限的新用户如果没开 `require_admin_capability`，还能改 `agents.*.command` 这类配置，接口会在 `warnings` 里提醒。
 - **id 不复用**：已有的用户（含停用、被接管）、配置文件里的用户、worker id 都不能再用；`default` / `system` / `root` 与 `job-` 前缀是保留的。
 - **改并发上限不用重启**：下一个 job 就按新容量排队，已在跑的照旧跑完。
@@ -895,6 +901,24 @@ gofer auth caller repair ci --offline
 ### 备份与回退
 
 配置与用户都在数据库里时，**备份数据库就是备份配置**：用 SQLite 的一致性备份（`.backup` / `VACUUM INTO`），不要直接拷文件（有 WAL）。回退到不认识入库用户的旧版本前：先取消这些用户名下的 schedule、计划与排队 job——旧版本查不到这些用户，上限就不再生效，这些自动化会无上限地跑。回退后这些用户的 token 一律 401、它们的授权被标孤儿；重新升级回来后在 web「设置 → 权限」里逐条重新启用，或对每条调 `POST /v1/auth/grants/{id}/activate`（CLI 没有 `auth grant activate`，`auth grant` 只有 `renew`）。没用用户入库的部署不受影响。
+
+## 管理操作审计
+
+改动类操作（每条写路由）统一留痕：谁、何时、调了哪条路由、对哪个资源、结果如何。除了 `gofer auth caller audit`（调用方自身的增删改）之外，查看入口是 `gofer auth audit` / `GET /v1/audit` / web「设置 → 审计」。
+
+```bash
+gofer auth audit                                   # 最近 100 行，最新在前
+gofer auth audit --status fail --since 24h         # 昨天以来失败的写请求
+gofer auth audit --caller ops --route /v1/schedules --limit 50
+gofer auth audit --since 2026-11-01 --until 2026-11-30 --json
+```
+
+- **记什么**：只记写路由（方法不是 GET / HEAD，或显式标成会改状态的），**被拒绝的也记**（401 / 403 正是要追的部分）。一行里有调用方 id 与类型（人 / worker / job）、会话 id、job id、方法与路由模板（如 `POST /v1/schedules/{id}/run`）、由路径参数拼出的资源 id、状态码、耗时、客户端 IP、失败时的错误摘要。**不记请求体与查询值**，只记查询键名（值里可能带 token）。
+- **豁免**：少数高频且没有管理意义的路由不记（worker 自己的连接 / 上传 / 心跳、会话心跳、工作项日志追加）。其余写路由一律记。
+- **查看权限**：`audit.read`，默认只有根管理员有，可以授予某个调用方或会话。worker 与 job 凭据一律 403（不是「没记录」）。
+- **筛选与时区**：`--caller` 精确匹配调用方 id，`--route` 是路由模板的子串（写 `/v1/schedules` 就够），`--status` 只收 `ok`（< 400）/ `fail`（>= 400），`--since` / `--until` 接「从现在的时长」（`24h`）、`YYYY-MM-DD` 日期、RFC 3339 时间或 unix 秒。`--until` 只写到日期时含那一天整天；日期按 UTC 解析。再加几页时 `--cursor` 填上一页末尾打印的 `--cursor` 值（筛选条件变了就要从头来，游标只对同一组筛选有意义）。
+- **保留**：`server.audit_retention_days`，默认 90 天，负数 = 永久保留；同一保留期也适用于 `auth_audit`。清理循环**总是**运行（不再依赖 `storage.retention` 配了才启动），整段可热加载，改完 `gofer serve reload` 生效。
+- 写入是异步批量的：队列满了丢新行并在 `/metrics` 计数，不拖慢请求；所以某一行可能晚一两秒才出现在列表里（`GET /v1/audit` 会先把队列刷完再查）。
 
 ## 出站代理（http_proxy）
 

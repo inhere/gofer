@@ -281,10 +281,12 @@ gofer serve register -c <config> [--start] | start | stop | restart | status [--
 gofer auth whoami [--json]     # 本 token 是哪个调用方、是否根管理员、持有哪些权限及来源
 gofer auth routes [--json]     # 服务端每条路由的声明与需要的权限
 gofer auth grant renew <grant-id> --for 4h   # 把一条仍然生效的会话授权往后延（最长 24h）
+gofer auth audit [--caller <id>] [--route <text>] [--status ok|fail]   # 管理操作审计：谁调了哪条写路由、结果如何
+                 [--since 24h|2026-11-01] [--until …] [--cursor N] [--limit 50] [--json]
 
-gofer auth caller add <id> (--ceiling-* … | --no-ceiling)   # 新增用户，token 只打印一次
-gofer auth caller ls [--json]                               # 来源 / 状态 / token 提示 / 上限 / 配额
-gofer auth caller rotate <id>                               # 换 token（旧 token 立刻失效）
+gofer auth caller add <id> (--ceiling-* … | --no-ceiling) [--expires 90d|2026-12-31|never]   # 新增用户，token 只打印一次
+gofer auth caller ls [--json]                               # 来源 / 状态 / token 提示 / 到期 / 最近使用 / 上限 / 配额
+gofer auth caller rotate <id> [--expires …]                 # 换 token（旧 token 立刻失效；不写到到期就保留原值）
 gofer auth caller disable <id> | enable <id>                # 停用 / 启用
 gofer auth caller set-ceiling <id> (--ceiling-* … | --no-ceiling)
 gofer auth caller set-limits <id> [--max-concurrent-jobs N] [--rate-limit N] [--rate-burst N]
@@ -294,8 +296,9 @@ gofer auth caller repair <id> --offline [--force]           # server 起不来�
 
 - `whoami` 报的是**服务端**的判定结果：每项权限的来源是 `root`（根管理员）/ `config`（由配置推出，只读）/ `db`（数据库授权，并给出是哪条授权给的）；`--json` 给脚本用。权限不够时的 403 正文让人跑的就是它。它还会打印这个请求附带的**会话 id 与来源环境变量**（`GOFER_SESSION_ID` 或唯一那个 agent 会话变量；多个不一致就不带），靠会话授权拿到的权限就在同一份列表里（见 [sessions-relay.md](sessions-relay.md)「会话授权」）。
 - `routes` 与生成文档 `docs/reference/permissions.md` 同一份数据，但来自正在跑的那个二进制。详见 [server-config.md](server-config.md) 末尾的权限段。
+- `auth audit` 是**管理操作审计**（与 `auth caller audit` 那张调用方改动表不是一回事），需 `audit.read`（默认只有根管理员）：每行是时间 / 调用方 / 状态码 / 路由模板 / 资源 id / 错误摘要，**被拒的写请求也在里面**。筛选项：`--caller` 精确、`--route` 是子串、`--status` 只收 `ok` / `fail`、`--since` / `--until` 接 `24h` 这类时长或日期，分页把上一页打印的 `--cursor` 填回去。保留期是 `server.audit_retention_days`。详见 [server-config.md](server-config.md)「管理操作审计」。
 - `grant renew` 是这组里唯一的授权**写**操作（新增与撤销授权在 web 上做）：授权快到期时把同一条授权的到期时间往后挪，不重新发一条，所以范围不会变。用法与生效条件见 [sessions-relay.md](sessions-relay.md)「会话授权」。
-- `auth caller` 是**瘦客户端**，全部经 server（不直接写库、不改配置文件），需根管理员；新用户下一个请求就能用，不用重启。`add` / `set-ceiling` 必须给一块 `--ceiling-project` / `--ceiling-runner` / `--ceiling-worker` / `--ceiling-agent`（可重复，glob）加上 `--ceiling-allow-exec` / `--ceiling-global-memory` / `--ceiling-read-only`，或明确 `--no-ceiling`；给空上限块或两样都给都报错。**不写 `--ceiling-runner` = 不允许本机 runner**（只允许远程 worker）。`repair` 必须带 `--offline`，且只在 server 停着时用：它只把这一行改得更严（坏上限 —— 最严上限、坏配额清空、坏名字清空、行转停用），不删行、不动 token 哈希。详见 [server-config.md](server-config.md)「用户入库」。
+- `auth caller` 是**瘦客户端**，全部经 server（不直接写库、不改配置文件），需根管理员；新用户下一个请求就能用，不用重启。`add` / `set-ceiling` 必须给一块 `--ceiling-project` / `--ceiling-runner` / `--ceiling-worker` / `--ceiling-agent`（可重复，glob）加上 `--ceiling-allow-exec` / `--ceiling-global-memory` / `--ceiling-read-only`，或明确 `--no-ceiling`；给空上限块或两样都给都报错。**不写 `--ceiling-runner` = 不允许本机 runner**（只允许远程 worker）。`--expires` 只对入库用户有效（配置文件里的用户不会过期）：`90d` / 时长 / `2026-12-31` / RFC 3339 或 `never`（默认），`rotate` 不写就保留原到期；到期的 token 一律 401，到期前 7 天在「等我」出卡。`repair` 必须带 `--offline`，且只在 server 停着时用：它只把这一行改得更严（坏上限 —— 最严上限、坏配额清空、坏名字清空、行转停用），不删行、不动 token 哈希。详见 [server-config.md](server-config.md)「用户入库」。
 
 ## tunnel（别名 tun）
 
