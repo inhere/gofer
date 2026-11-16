@@ -46,6 +46,9 @@ type SessionStateReconciler interface {
 type AdoptedJob struct {
 	Sink                 JobSink
 	StdoutOff, StderrOff int64
+	// EventSeq / AcpOff are the v30 resume cursors (see ResumeCursorSink) as persisted by
+	// the previous process: the job row's applied event seq and the mirrored acp.jsonl size.
+	EventSeq, AcpOff int64
 }
 
 // SetAdopter wires the RECOV-01 R4 adoption seam. Like SetRecoverWindow it is called
@@ -82,7 +85,7 @@ func (h *Hub) planAdoption(reg wsproto.Register, plan pendingRecovery) pendingRe
 		if h.hasLiveSink(reg.WorkerID, jobID) {
 			continue
 		}
-		plan.resumed[jobID] = &recoveringJob{sink: aj.Sink, stdoutOff: aj.StdoutOff, stderrOff: aj.StderrOff}
+		plan.resumed[jobID] = &recoveringJob{sink: aj.Sink, stdoutOff: aj.StdoutOff, stderrOff: aj.StderrOff, eventSeq: aj.EventSeq, acpOff: aj.AcpOff}
 	}
 	return plan
 }

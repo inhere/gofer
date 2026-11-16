@@ -17,10 +17,10 @@ func TestPreviewDoesNotRaiseRegistrationFloor(t *testing.T) {
 	if MinProtocolVersion != 2 {
 		t.Fatalf("MinProtocolVersion = %d: shipping preview must not evict old workers", MinProtocolVersion)
 	}
-	if CurrentProtocolVersion != PreviewMinProtocolVersion {
+	if CurrentProtocolVersion < PreviewMinProtocolVersion {
 		t.Fatalf("CurrentProtocolVersion = %d, PreviewMinProtocolVersion = %d", CurrentProtocolVersion, PreviewMinProtocolVersion)
 	}
-	if SupportsPreview(CurrentProtocolVersion - 1) {
+	if SupportsPreview(PreviewMinProtocolVersion - 1) {
 		t.Fatal("a v28 worker must not be treated as preview capable")
 	}
 }

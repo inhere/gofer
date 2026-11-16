@@ -436,6 +436,14 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		}
 		s.recordEvent(req.JobID, eventType, detail)
 	}
+	// Protocol v30: a worker's numbered events are de-duplicated against the job row.
+	req.OnWorkerJobEvent = func(eventType string, detail map[string]any, seq int64) {
+		if eventType == EventJobTurnStarted || eventType == EventJobTurnEnded || eventType == EventJobAwaitingInput {
+			return
+		}
+		s.recordWorkerEvent(req.JobID, eventType, detail, seq)
+	}
+	req.WorkerEventSeq = func() int64 { return s.WorkerEventSeq(req.JobID) }
 	// XFER-01 X2: the job's staged uploads are placed in its cwd BEFORE the agent
 	// starts. A job that cannot be given its files must not run at all — the agent
 	// would work on a cwd the caller did not describe, and its output would look like

@@ -31,6 +31,9 @@ const pendingCancelCap = 256
 type recoveringJob struct {
 	sink                 JobSink
 	stdoutOff, stderrOff int64
+	// eventSeq / acpOff are the v30 resume cursors (see ResumeCursorSink), captured at
+	// suspend time like the offsets above.
+	eventSeq, acpOff int64
 }
 
 // recoverySet holds the jobs of ONE worker that are being held in `recovering`
@@ -97,7 +100,10 @@ type lostJob struct {
 
 // resumeEntries renders the ack's resume list in a deterministic (job-id sorted)
 // order, carrying the server-side offsets the worker must rewind to.
-func (p pendingRecovery) resumeEntries() []wsproto.ResumeJob {
+//
+// withCursors adds the v30 cursors (EventSeq / AcpOff): only a worker that speaks v30
+// gets them, so an older worker's ack is byte-for-byte what it always was.
+func (p pendingRecovery) resumeEntries(withCursors bool) []wsproto.ResumeJob {
 	if len(p.resumed) == 0 {
 		return nil
 	}
@@ -109,7 +115,11 @@ func (p pendingRecovery) resumeEntries() []wsproto.ResumeJob {
 	out := make([]wsproto.ResumeJob, 0, len(ids))
 	for _, id := range ids {
 		rj := p.resumed[id]
-		out = append(out, wsproto.ResumeJob{JobID: id, StdoutOff: rj.stdoutOff, StderrOff: rj.stderrOff})
+		e := wsproto.ResumeJob{JobID: id, StdoutOff: rj.stdoutOff, StderrOff: rj.stderrOff}
+		if withCursors {
+			e.EventSeq, e.AcpOff = rj.eventSeq, rj.acpOff
+		}
+		out = append(out, e)
 	}
 	return out
 }
@@ -159,10 +169,15 @@ func (h *Hub) suspendOnDisconnect(wc *workerConn, jobIDs []string) {
 		if heldJobs[i].sk != nil {
 			heldJobs[i].off[0], heldJobs[i].off[1] = heldJobs[i].sk.Suspend("worker disconnected")
 		}
+		var evSeq, acpOff int64
+		if cs, ok := heldJobs[i].sk.(ResumeCursorSink); ok {
+			evSeq, acpOff = cs.ResumeCursor()
+		}
 		h.recMu.Lock()
 		if rs := h.recov[wc.workerID]; rs != nil {
 			if rj := rs.jobs[heldJobs[i].id]; rj != nil {
 				rj.stdoutOff, rj.stderrOff = heldJobs[i].off[0], heldJobs[i].off[1]
+				rj.eventSeq, rj.acpOff = evSeq, acpOff
 			}
 		}
 		h.recMu.Unlock()

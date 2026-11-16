@@ -1264,6 +1264,12 @@ const (
 	// (status is passed|failed|timeout|skipped) — the evidence behind the job's own
 	// terminal status, and the event a notification subscriber watches for a red build.
 	EventJobVerifyFinished = "job.verify_finished"
+	// EventJobEventsLost is the worker telling the host that mirrored events were dropped
+	// before they could be delivered (protocol v30, the worker's unconfirmed buffer
+	// overflowed while the connection was down): {count}. It is raised by the worker's
+	// connection client itself, not by its job service, and is recorded on the host job
+	// like any other mirrored event.
+	EventJobEventsLost = "job.events_lost"
 	// EventJobUploadFailed is a job's upload step failing (XFER-01 X2):
 	// {dest, xfer_id, error}. It is recorded BEFORE the agent would have started, so a
 	// subscriber sees the failure as its own event rather than only as the job's error.

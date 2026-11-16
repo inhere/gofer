@@ -522,6 +522,7 @@ func (cl *Client) observeJobEvent(localID, eventType string, detail map[string]a
 			ev.InteractionID = id
 		}
 	}
+	cl.stampJobEvent(remoteID, &ev)
 	select {
 	case cl.jobEvents <- ev:
 	default:
@@ -549,6 +550,8 @@ func (cl *Client) jobEventLoop(ctx context.Context) {
 			if err := cl.writeFrame(ctx, wsproto.TypeJobEvent, ev.JobID, ev); err != nil {
 				slog.Debug("worker.job_event_not_sent", "worker_id", cl.workerID,
 					"job_id", ev.JobID, "type", ev.Type, "err", err)
+			} else {
+				cl.markJobEventSent(ev.JobID, ev.Seq)
 			}
 		}
 	}
@@ -634,6 +637,15 @@ type inflightJob struct {
 	// kept for replay (workerResultTTL).
 	result   *wsproto.Result
 	resultAt time.Time
+	// outcome is the Outcome frame that precedes the cached Result on replay.
+	outcome *wsproto.Outcome
+	// Job-event replay (protocol v30, see event_replay.go): evSeq is the last event
+	// number handed out, evBuf the unconfirmed events, evSent the highest one written to
+	// the wire, evLost the events dropped on overflow that never went out.
+	evSeq  int64
+	evBuf  []wsproto.JobEvent
+	evSent int64
+	evLost int64
 }
 
 // wireStatus is the status reported for this job in the register frame: the local
@@ -867,10 +879,13 @@ func (cl *Client) applyResume(ctx context.Context, conn *websocket.Conn, resumes
 			// window governs what happens to it.
 			continue
 		}
+		if cl.jobEventSeqEnabled() {
+			cl.jobEventsAck(r.JobID, r.EventSeq, r.AcpOff)
+		}
 		slog.Info("worker.job_resumed", "event", "worker.job_resumed", "component", "worker",
 			"worker_id", cl.workerID, "job_id", r.JobID, "stdout_off", r.StdoutOff, "stderr_off", r.StderrOff)
 	}
-	cl.replayCachedResults(ctx, conn)
+	cl.replayJobState(ctx, conn)
 }
 
 // The worker Client is the pty session observer on the worker side (wired by the
@@ -1194,8 +1209,8 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	// still on the raw connection, so no frame can carry a pre-rewind offset — and
 	// only then is the connection published and the (still running) log tailers free
 	// to push onto it again.
+	cl.serverProto.Store(int64(reg.ProtocolVersion)) // before applyResume: replay is gated on it
 	cl.applyResume(ctx, conn, reg.Resume)
-	cl.serverProto.Store(int64(reg.ProtocolVersion))
 	cl.setConn(conn)
 	cl.markHandoverReady()
 

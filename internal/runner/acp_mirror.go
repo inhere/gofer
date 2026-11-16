@@ -13,6 +13,20 @@ func ACPArtifactPath(resultDir string) string {
 	return filepath.Join(resultDir, "artifacts", "acp.jsonl")
 }
 
+// ACPMirrorSize is the byte size of the host job's mirrored acp.jsonl under resultDir
+// (0 when there is none yet): the offset a reconnecting worker rewinds its "acp" stream
+// to (protocol v30), the same role the stdout/stderr byte counts play.
+func ACPMirrorSize(resultDir string) int64 {
+	if resultDir == "" {
+		return 0
+	}
+	st, err := os.Stat(ACPArtifactPath(resultDir))
+	if err != nil {
+		return 0
+	}
+	return st.Size()
+}
+
 // AppendACPMirror appends one mirrored chunk of a remote job's acp.jsonl to the host
 // job's copy under resultDir, creating the artifacts dir on first use. The file is
 // opened per chunk on purpose: a mirror chunk is rare (a few per turn) and the sinks
