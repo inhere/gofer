@@ -328,7 +328,7 @@ gofer doctor --bundle [-o <path>] [--lines 500]   # 导出脱敏诊断 zip（默
 gofer doctor --print                              # 只打印清单与摘要，不创建文件
 ```
 
-诊断包只包含版本 / 系统 / 运行模式、脱敏配置与 `.env` 路径、日志尾部、worker / agent 状态和受管服务状态；不会收集 token 原值、对话、信件或记忆。上传前仍应检查清单和内容。
+诊断包只包含版本 / 系统 / 运行模式、脱敏配置与 `.env` 路径、日志尾部、worker / agent 状态、受管服务状态与 server 自检结果（`health-checks.json`）；不会收集 token 原值、对话、信件或记忆。上传前仍应检查清单和内容。
 
 ## tool
 
