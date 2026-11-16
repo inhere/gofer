@@ -914,7 +914,7 @@ gofer auth audit --since 2026-11-01 --until 2026-11-30 --json
 ```
 
 - **记什么**：只记写路由（方法不是 GET / HEAD，或显式标成会改状态的），**被拒绝的也记**（401 / 403 正是要追的部分）。一行里有调用方 id 与类型（人 / worker / job）、会话 id、job id、方法与路由模板（如 `POST /v1/schedules/{id}/run`）、由路径参数拼出的资源 id、状态码、耗时、客户端 IP、失败时的错误摘要。**不记请求体与查询值**，只记查询键名（值里可能带 token）。
-- **豁免**：少数高频且没有管理意义的路由不记（worker 自己的连接 / 上传 / 心跳、会话心跳、工作项日志追加）。其余写路由一律记。
+- **豁免**：少数高频且没有管理意义的路由不记（worker 自己的连接与上传：`/v1/workers/connect`、`tunnel-connect`、`preview-connect`、`pty-connect`、`PUT /v1/xfer/{id}/content`；会话心跳；工作项日志追加）。其余写路由一律记。
 - **查看权限**：`audit.read`，默认只有根管理员有，可以授予某个调用方或会话。worker 与 job 凭据一律 403（不是「没记录」）。
 - **筛选与时区**：`--caller` 精确匹配调用方 id，`--route` 是路由模板的子串（写 `/v1/schedules` 就够），`--status` 只收 `ok`（< 400）/ `fail`（>= 400），`--since` / `--until` 接「从现在的时长」（`24h`）、`YYYY-MM-DD` 日期、RFC 3339 时间或 unix 秒。`--until` 只写到日期时含那一天整天；日期按 UTC 解析。再加几页时 `--cursor` 填上一页末尾打印的 `--cursor` 值（筛选条件变了就要从头来，游标只对同一组筛选有意义）。
 - **保留**：`server.audit_retention_days`，默认 90 天，负数 = 永久保留；同一保留期也适用于 `auth_audit`。清理循环**总是**运行（不再依赖 `storage.retention` 配了才启动），整段可热加载，改完 `gofer serve reload` 生效。
