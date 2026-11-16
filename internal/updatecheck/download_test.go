@@ -285,6 +285,27 @@ func TestAssetForVersionGitHubTag(t *testing.T) {
 	}
 }
 
+// A checksum the update source did not publish is not a checksum: the download is
+// refused instead of passing unverified (Q8).
+func TestVerifySHA256NeedsAChecksum(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "gofer-linux-amd64")
+	if err := os.WriteFile(file, []byte("binary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"", "   "} {
+		err := verifySHA256(file, want, "gofer-linux-amd64")
+		if err == nil || !strings.Contains(err.Error(), "published no sha256") || !strings.Contains(err.Error(), "gofer-linux-amd64") {
+			t.Fatalf("want %q: err = %v, want the missing-checksum error", want, err)
+		}
+	}
+	if err := verifySHA256(file, sum([]byte("binary")), "gofer-linux-amd64"); err != nil {
+		t.Fatalf("the matching checksum was refused: %v", err)
+	}
+	if err := verifySHA256(file, sum([]byte("other")), "gofer-linux-amd64"); err == nil || !strings.Contains(err.Error(), "sha256 mismatch") {
+		t.Fatalf("a wrong checksum: %v", err)
+	}
+}
+
 func TestReleaseVersion(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
 		{"0.152.3", "0.152.3"},
