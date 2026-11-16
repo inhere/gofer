@@ -148,6 +148,9 @@ func (s *Service) deliverOne(ctx context.Context, d jobstore.Delivery, nconf *co
 		post = notify.PostWebhook
 	}
 	err := post(postCtx, kind, target, eventType, body, hmacSecret, *nconf)
+	// The notification health probe counts these streaks: one channel that keeps
+	// refusing messages is a fault, one refused attempt is not (design 2026-11-14 §5).
+	s.deliveryStreaks.Record(notify.ChannelName(kind, d.Target), err)
 	now := s.nowFn().Unix()
 	if err == nil {
 		if mErr := s.meta.MarkDelivered(d.ID, now); mErr != nil {

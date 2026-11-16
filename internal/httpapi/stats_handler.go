@@ -34,6 +34,10 @@ type statsResp struct {
 	ServerTZOffsetSec int    `json:"server_tz_offset_sec"`
 	Version           string `json:"version,omitempty"`
 	UptimeSec         int64  `json:"uptime_sec"`
+	// HealthFailing names the server self-check items that are failing (design 2026-11-14
+	// §5); absent when everything is healthy. `serve status` reads it to report exit 4
+	// (degraded) and to print which item is at fault.
+	HealthFailing []string `json:"health_failing,omitempty"`
 }
 
 // statsDBBudget caps the row-count pass of the db block (see jobstore.DBStats): a
@@ -358,6 +362,9 @@ func (s *Server) buildStatsGlobal() (statsResp, *statsErr) {
 		ServerTZOffsetSec:  serverTZOffsetSec(),
 		Version:            s.build.DisplayVersion(),
 		UptimeSec:          s.uptimeSec(),
+		// The self-check verdict is server-global, so a caller under a project ceiling does
+		// not get it either (it takes buildStatsFor's scoped branch, which leaves it nil).
+		HealthFailing: s.healthFailing(),
 	}, nil
 }
 

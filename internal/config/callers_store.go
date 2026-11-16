@@ -87,6 +87,7 @@ type StoredCallerInput struct {
 	CeilingYAML  string
 	DisabledAt   int64
 	SupersededAt int64
+	ExpiresAt    int64
 }
 
 // CallerLimits is the stored quota block (auth_callers.limits_json).
@@ -295,6 +296,7 @@ func storedCallerEntry(row StoredCallerInput) (CallerConfig, []string, error) {
 		TokenHash: strings.TrimSpace(row.TokenHash),
 		TokenHint: strings.TrimSpace(row.TokenHint),
 		Disabled:  disabled,
+		ExpiresAt: row.ExpiresAt,
 		// A stored caller is NEVER a root administrator: can_admin is the operator's file
 		// key for the identity that must not be editable from the console, so a database
 		// row cannot claim it whatever a hand-edited database says.

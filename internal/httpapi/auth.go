@@ -62,6 +62,12 @@ func (s *Server) authMiddleware(c *rux.Context) {
 		c.Abort()
 		return
 	}
+	if s.callerTokenExpired(caller) {
+		s.denyExpiredToken(c, caller)
+		c.Abort()
+		return
+	}
+	s.noteCallerUsed(caller)
 	c.Set(ctxCallerID, caller.id)
 	c.Set(ctxCallerKind, caller.kind)
 	c.Next()

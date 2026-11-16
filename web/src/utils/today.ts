@@ -123,6 +123,8 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
   // 被 gofer 自己暂停的定时任务（设计 2026-11-12 §1）：主动作是直接重新启用它。
   // 服务端的动作名随请求语言变化，zh 下是「启用」。
   'enable:启用': 'today.action.enableSchedule',
+  // 设计 2026-11-14 §4：即将到期 / 已过期的调用方 token，主动作是去调用方页轮换它（卡片上只跳转）。
+  'rotate:轮换': 'today.action.rotateToken',
   'report:请求汇报': 'today.action.report',
   'park:搁置': 'today.action.park',
   'adopt:采纳': 'today.action.adopt',
@@ -149,9 +151,17 @@ export function handledActionLabel(actionId: string, label: string): string {
   return actionLabel({ id: actionId, label })
 }
 
+// isLinkAction：点了只做跳转、不发写请求的操作——diff / open，以及即将到期的调用方 token 卡的
+//「轮换」。轮换会让旧 token 立刻失效，新 token 只在响应里出现一次：在卡片上调掉它，人看不到新
+// token，用它的自动化就被锁在门外。所以卡片只跳到调用方页（actionLink）让人在面板里确认并抄走。
+export function isLinkAction(card: Pick<TodayCard, 'kind'>, a: Pick<TodayAction, 'id'>): boolean {
+  if (a.id === 'diff' || a.id === 'open') return true
+  return card.kind === 'caller.token_expiring' && a.id === 'rotate'
+}
+
 // 纯跳转 / 展开类操作：不进撤销窗口、不记审计。
-export function isLocalAction(a: TodayAction): boolean {
-  return a.id === 'diff' || a.id === 'open' || a.id === 'reply' || a.id === 'rerun'
+export function isLocalAction(card: Pick<TodayCard, 'kind'>, a: TodayAction): boolean {
+  return isLinkAction(card, a) || a.id === 'reply' || a.id === 'rerun'
 }
 
 // 卡片标题的跳转目标（design §6）：会话类 → 工作台；工作项 → Works 抽屉；plan → 详情；job → 详情。
@@ -186,6 +196,12 @@ export function cardLink(card: TodayCard): string {
     case 'schedule.paused':
       // 被自动暂停的定时任务：动作里带 value=/schedules，未知时也回到定时页
       return '/schedules'
+    case 'caller.token_expiring':
+      // 设计 2026-11-14 §4：调用方页能看到到期 / 最近使用，并在那里轮换。
+      return '/settings/callers'
+    case 'server.health':
+      // 设计 2026-11-14 §5：自检项与它的连续失败数在设置的自检页。
+      return '/settings/health'
     case 'decision':
     case 'plan_blocked':
     case 'todo_awaiting_merge':
@@ -212,6 +228,14 @@ export function awaitingMergeLabel(subtype: string | undefined): string {
 
 export function actionLink(card: TodayCard, a: TodayAction): string {
   if (a.id === 'diff' && card.refs.job_id) return `/jobs/${encodeURIComponent(card.refs.job_id)}`
+  // 自检卡的「看详情」：服务端给的 value 是 /settings，具体区块在自检页。
+  if (card.kind === 'server.health' && a.id === 'open') return '/settings/health'
+  // 到期 token 卡的「轮换」：不在这里换，跳到调用方页并由页面按 ?rotate= 打开那个调用方的轮换
+  // 面板（新 token 只在响应里出现一次，人得在面板里看到）。动作没带 id 时退回调用方页。
+  if (card.kind === 'caller.token_expiring' && a.id === 'rotate') {
+    const id = a.value || card.refs.caller_id || ''
+    if (id) return `/settings/callers?rotate=${encodeURIComponent(id)}`
+  }
   if (a.id === 'open' && a.value && a.value.startsWith('/') && !a.value.startsWith('//')) return a.value
   return cardLink(card)
 }

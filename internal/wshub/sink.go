@@ -76,3 +76,12 @@ type JobSink interface {
 	// EXPIRES (err = worker lost), not at the moment of the disconnect.
 	OnDisconnect(err error)
 }
+
+// ResumeCursorSink is optionally implemented by a JobSink that can tell the hub how far
+// the host job has caught up with the worker's mirrored events (protocol v30): the
+// highest applied JobEvent.Seq and the size of the mirrored acp.jsonl. The hub echoes
+// both in the resume ack (ResumeJob.EventSeq / AcpOff) to a v30 worker; a sink without
+// it simply reports no cursor, which leaves the worker's replay at "send everything".
+type ResumeCursorSink interface {
+	ResumeCursor() (eventSeq, acpOff int64)
+}

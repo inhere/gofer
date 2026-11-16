@@ -49,6 +49,8 @@ export const today: PageDict = {
     'today.kind.worker_enroll': 'worker 申请',
     // 设计 2026-11-12 §1：定时任务连续失败被 gofer 自己暂停（internal/inbox/schedule_paused.go）
     'today.kind.schedule.paused': '定时任务已暂停',
+    'today.kind.caller.token_expiring': '调用方 token 到期',
+    'today.kind.server.health': 'server 自检故障',
 
     // 队列与卡片
     'today.queue.empty': '没有等你的事 · 今天处理了 {n} 张',
@@ -77,6 +79,7 @@ export const today: PageDict = {
     'today.action.openEnroll': '去处理',
     // 定时任务被自动暂停的卡（设计 2026-11-12 §1）：直接把调度重新启用
     'today.action.enableSchedule': '启用',
+    'today.action.rotateToken': '轮换',
     'today.action.todoDone': '标记完成',
     'today.action.todoSkip': '跳过',
     'today.action.report': '请求汇报',
@@ -263,6 +266,8 @@ export const today: PageDict = {
     'today.kind.mail_held': 'Unassigned mail',
     'today.kind.worker_enroll': 'Worker request',
     'today.kind.schedule.paused': 'Schedule paused',
+    'today.kind.caller.token_expiring': 'Caller token expiring',
+    'today.kind.server.health': 'Server self-check failing',
 
     'today.queue.empty': 'Nothing is waiting for you · {n} handled today',
     'today.queue.emptyHint': 'Work in progress keeps running; new decisions show up here.',
@@ -289,6 +294,7 @@ export const today: PageDict = {
     'today.action.openPlan': 'Open the plan',
     'today.action.openEnroll': 'Handle it',
     'today.action.enableSchedule': 'Enable',
+    'today.action.rotateToken': 'Rotate',
     'today.action.todoDone': 'Mark done',
     'today.action.todoSkip': 'Skip',
     'today.action.report': 'Ask for a report',

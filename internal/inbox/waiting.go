@@ -19,11 +19,12 @@ const (
 	CatAwaitingMerge Category = "awaiting_merge" // 待你收尾
 	CatPlanStuck     Category = "plan_stuck"     // 计划卡住
 	CatFailed        Category = "failed"         // 你提交的任务失败了
+	CatAttention     Category = "attention"      // 需要你处理（gofer 自己停掉的定时任务、即将到期的 token）
 	CatDelivery      Category = "delivery"       // 投递待你确认
 )
 
 // Categories is the judgement order: first match wins.
-var Categories = []Category{CatApproval, CatAnswer, CatReview, CatAwaitingMerge, CatPlanStuck, CatFailed, CatDelivery}
+var Categories = []Category{CatApproval, CatAnswer, CatReview, CatAwaitingMerge, CatPlanStuck, CatFailed, CatAttention, CatDelivery}
 
 // KindJobFailed is the card kind of a failed job a person submitted.
 const KindJobFailed = today.KindJobFailed
@@ -54,6 +55,9 @@ type Signals struct {
 	FailedBySelf bool
 	// DeliveryHeld: a letter held for nobody to receive, or bounced.
 	DeliveryHeld bool
+	// Attention: something gofer itself stopped or is about to stop that only a person can
+	// put right (a schedule paused by its failure streak, a caller token about to expire).
+	Attention bool
 }
 
 // Classify returns the first Category whose fact holds, in Categories order; ok is false
@@ -72,6 +76,8 @@ func Classify(s Signals) (Category, bool) {
 		return CatPlanStuck, true
 	case s.FailedBySelf:
 		return CatFailed, true
+	case s.Attention:
+		return CatAttention, true
 	case s.DeliveryHeld:
 		return CatDelivery, true
 	}
@@ -132,9 +138,15 @@ func signalsOf(c today.Card) (subject string, s Signals, ok bool) {
 		// shares the parent's subject, so one parent never appears twice.
 		return "job:" + c.Refs.JobID, Signals{FailedBySelf: true}, true
 	case KindSchedulePaused:
-		// A schedule paused by its failure streak is a failure of something the person
-		// set up: it files under the same 「失败」 class, with the schedule as its subject.
-		return "schedule:" + c.Refs.ScheduleID, Signals{FailedBySelf: true}, true
+		// A schedule gofer paused by its failure streak is no job of the person's that
+		// failed: it files under 「需要你处理」, with the schedule as its subject.
+		return "schedule:" + c.Refs.ScheduleID, Signals{Attention: true}, true
+	case KindCallerTokenExpiring:
+		return "caller:" + c.Refs.CallerID, Signals{Attention: true}, true
+	case KindServerHealth:
+		// A server self-check item that stayed broken is no job of the person's: it files
+		// under 「需要你处理」, with the item itself (its stable check name) as the subject.
+		return c.Key, Signals{Attention: true}, true
 	}
 	return "", Signals{}, false
 }

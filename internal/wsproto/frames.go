@@ -66,7 +66,9 @@ const (
 	// v28 adds the optional dispatch.read_dirs (see ReadDirsMinProtocolVersion).
 	// v29 adds the preview_open frame and the preview-connect data endpoint (see
 	// PreviewMinProtocolVersion).
-	CurrentProtocolVersion = 29
+	// v30 adds job-event replay after a reconnect: JobEvent.seq, ResumeJob.event_seq
+	// and ResumeJob.acp_off (see JobEventSeqMinProtocolVersion).
+	CurrentProtocolVersion = 30
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -654,6 +656,12 @@ type ResumeJob struct {
 	JobID     string `json:"job_id"`
 	StdoutOff int64  `json:"stdout_off,omitempty"`
 	StderrOff int64  `json:"stderr_off,omitempty"`
+	// EventSeq (v30) is the highest JobEvent.Seq the hub has applied for the job: the
+	// worker drops its buffered events up to it and replays the rest in order.
+	EventSeq int64 `json:"event_seq,omitempty"`
+	// AcpOff (v30) is the byte size of the host job's mirrored artifacts/acp.jsonl: the
+	// worker rewinds its "acp" stream offset to it, like stdout/stderr.
+	AcpOff int64 `json:"acp_off,omitempty"`
 }
 
 // Registered (s→w, P1): handshake ack. ServerTime is in milliseconds (SR102, in
@@ -881,6 +889,12 @@ type JobEvent struct {
 	// approval-gate events do; the verify events do not). It is lifted out of the
 	// detail so de-duplication does not have to parse it.
 	InteractionID string `json:"interaction_id,omitempty"`
+	// Seq (v30) numbers the worker's mirrored events per job, from 1. The hub applies an
+	// event only when its Seq is above the highest one already applied for that job, so
+	// a replay after a reconnect neither inserts a second row nor re-fires a notification.
+	// 0 = an older worker that does not number its events (the hub then keeps the
+	// per-connection identity dedup).
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // Log (w→s, P1): an incremental log frame. Seq is monotonic per job (the same

@@ -145,6 +145,11 @@ func TestPrecheckFailureAndTimeoutCountAsFailures(t *testing.T) {
 	if strings.Contains(evs[0].Detail, "SECRET-LOOKING-OUTPUT") {
 		t.Fatalf("the event carries the check output: %s", evs[0].Detail)
 	}
+	// run_failed is recorded just before the streak counter moves: wait for the counter
+	// instead of reading it the instant the event shows up (a loaded run read 0 here).
+	wait.Until(t, 10*time.Second, "failure streak counted", func() bool {
+		return getSchedule(t, s, "sch-pf").ConsecutiveFailures == 1
+	})
 	if got := getSchedule(t, s, "sch-pf"); got.ConsecutiveFailures != 1 || got.PrecheckFingerprint != "" {
 		t.Fatalf("failures=%d fingerprint=%q after a failed check", got.ConsecutiveFailures, got.PrecheckFingerprint)
 	}

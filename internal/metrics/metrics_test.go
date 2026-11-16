@@ -122,3 +122,15 @@ func TestNilMetricsIsNoOp(t *testing.T) {
 		func() (int, int) { return 0, 0 },
 	)
 }
+
+// TestAuditDroppedCounts: the admin audit drop counter is exported and nil-safe.
+func TestAuditDroppedCounts(t *testing.T) {
+	var nilM *Metrics
+	nilM.AuditDropped() // no-op
+	m := New()
+	m.AuditDropped()
+	m.AuditDropped()
+	if body := scrapeBody(t, m); !strings.Contains(body, "gofer_audit_dropped_total 2") {
+		t.Errorf("scrape misses the drop counter:\n%s", body)
+	}
+}

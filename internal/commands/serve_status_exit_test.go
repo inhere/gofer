@@ -47,6 +47,9 @@ func TestClassifyServeStatusExitCodes(t *testing.T) {
 		{"health unverified", mut(func(s *serveStatusOutput) { s.Health = "unverified" }), "degraded", 4},
 		{"stats auth mismatch", mut(func(s *serveStatusOutput) { s.VersionAuthMismatch = &versionAuthMismatch{} }), "degraded", 4},
 		{"version drift", mut(func(s *serveStatusOutput) { s.RunningVersion = "v0.9.0" }), "degraded", 4},
+		// A failing server self-check item is the part-level verdict (design 2026-11-14 §5):
+		// the service runs, one of its parts does not.
+		{"health check failing", mut(func(s *serveStatusOutput) { s.HealthFailing = []string{"disk"} }), "degraded", 4},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -44,8 +44,8 @@ func TestSchedulePausedCards(t *testing.T) {
 	}
 
 	waiting := Waiting(i18n.ZhCN, cards)
-	if len(waiting) != 1 || waiting[0].Waiting != string(CatFailed) {
-		t.Fatalf("waiting = %+v, want one entry in the failed class", waiting)
+	if len(waiting) != 1 || waiting[0].Waiting != string(CatAttention) {
+		t.Fatalf("waiting = %+v, want one entry in the attention class (not 「failed」)", waiting)
 	}
 	// Enabling the schedule (which clears the reason) removes the card.
 	src.list[0].Enabled, src.list[0].PausedReason = 1, ""

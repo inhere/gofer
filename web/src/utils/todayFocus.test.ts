@@ -57,6 +57,18 @@ describe('focus actions', () => {
     expect(focusActions(adv).map((a) => a.id)).toEqual(['rerun', 'accept'])
   })
 
+  it('leaves the expiring-token card\'s rotate out: it navigates to the rotate panel', () => {
+    const token = card({
+      kind: 'caller.token_expiring',
+      refs: { caller_id: 'alice' },
+      actions: [
+        { id: 'rotate', label: '轮换', style: 'primary', value: 'alice' },
+        { id: 'open', label: '看详情', style: 'link', value: '/settings/callers' },
+      ],
+    })
+    expect(focusActions(token)).toEqual([])
+  })
+
   it('a = the ok-styled action, r = the text action', () => {
     expect(approveAction(card())?.id).toBe('accept')
     expect(replyAction(card())).toBeNull()

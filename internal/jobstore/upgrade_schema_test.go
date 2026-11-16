@@ -50,6 +50,19 @@ func TestOpenUpgradesPreviousReleaseSchema(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reopen the migrated %s database: %v", fixture, err)
 			}
+			// The token lifetime columns of auth_callers are added to an old database, and the
+			// admin audit table exists.
+			if err := s.WithCallerTx(func(tx CallerTx) error {
+				return tx.InsertCallerTx(StoredCaller{ID: "up-caller", TokenHash: "h", ExpiresAt: 99})
+			}); err != nil {
+				t.Fatalf("insert a caller with an expiry on the migrated database: %v", err)
+			}
+			if rows, err := s.ListStoredCallers(); err != nil || len(rows) == 0 || rows[len(rows)-1].ExpiresAt != 99 {
+				t.Fatalf("list callers on the migrated database: %+v %v", rows, err)
+			}
+			if err := s.InsertAdminAuditBatch([]AdminAuditEntry{{Method: "POST", Route: "POST /x", Status: 200}}); err != nil {
+				t.Fatalf("admin audit on the migrated database: %v", err)
+			}
 			if _, _, err := s.ListWorkflowsPage(WorkflowListFilter{}, 10, 0); err != nil {
 				t.Fatalf("list workflows on the migrated database: %v", err)
 			}

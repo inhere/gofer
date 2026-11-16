@@ -30,6 +30,8 @@ type Caller struct {
 	CreatedAt         int64          `json:"created_at,omitempty"`
 	RotatedAt         int64          `json:"rotated_at,omitempty"`
 	UpdatedAt         int64          `json:"updated_at,omitempty"`
+	ExpiresAt         int64          `json:"expires_at,omitempty"`
+	LastUsedAt        int64          `json:"last_used_at,omitempty"`
 	Warnings          []string       `json:"warnings,omitempty"`
 }
 
@@ -63,6 +65,8 @@ type CallerAddRequest struct {
 	RateBurst         int            `json:"rate_burst,omitempty"`
 	Ceiling           *CallerCeiling `json:"ceiling,omitempty"`
 	NoCeiling         bool           `json:"no_ceiling,omitempty"`
+	// Expires is when the token stops working: 90d, a date, or never (left out = never).
+	Expires string `json:"expires,omitempty"`
 }
 
 // CallerCeilingRequest is the body of PUT /v1/callers/{id}/ceiling.
@@ -105,9 +109,14 @@ func (c *Client) AddCaller(req CallerAddRequest) (CallerChange, error) {
 	return c.postCallerChange("/v1/callers", req)
 }
 
-// RotateCaller replaces a caller's token (POST /v1/callers/{id}/rotate).
-func (c *Client) RotateCaller(id string) (CallerChange, error) {
-	return c.postCallerChange("/v1/callers/"+url.PathEscape(id)+"/rotate", nil)
+// RotateCaller replaces a caller's token (POST /v1/callers/{id}/rotate). expires (90d, a
+// date, or never) replaces the token's expiry; empty keeps the current one.
+func (c *Client) RotateCaller(id, expires string) (CallerChange, error) {
+	var body any
+	if expires != "" {
+		body = map[string]string{"expires": expires}
+	}
+	return c.postCallerChange("/v1/callers/"+url.PathEscape(id)+"/rotate", body)
 }
 
 // DisableCaller switches a caller off (POST /v1/callers/{id}/disable).

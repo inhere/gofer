@@ -131,6 +131,11 @@ export const EVENT_META: Record<string, { icon: LucideIcon }> = {
   'schedule.run_failed': { icon: TriangleAlert },
   // 设计 2026-11-12 §5：同一 worker_id 被另一个进程（不同 instance_id）顶替。
   'worker.replaced': { icon: CornerUpRight },
+  // 设计 2026-11-14 §2/§5：worker 断线期间的事件缓冲溢出（时间线缺口）、server 自检项
+  // 转为故障 / 恢复。
+  'job.events_lost': { icon: TriangleAlert },
+  'server.health_failing': { icon: TriangleAlert },
+  'server.health_recovered': { icon: Check },
 }
 
 export function eventIcon(type: string): LucideIcon {
@@ -157,6 +162,15 @@ function pauseReasonText(d: Record<string, unknown>): string {
   if (reason === 'failures') return t('util.eventDet.paused.failures', { n: String(d.failures ?? '?') })
   if (reason === 'max_runs') return t('util.eventDet.paused.max_runs', { max: String(d.max_runs ?? '?') })
   return reason
+}
+
+// 自检项的名字是稳定标识（storage / disk / sweep / notification），翻成一句人话；
+// 不认识的（服务端后加的检查项）原样显示。
+function healthCheckText(name: unknown): string {
+  const n = String(name ?? '')
+  if (n === '') return ''
+  const key = `util.eventDet.healthCheck.${n}`
+  return te(key) ? t(key) : n
 }
 
 // 解析 detail_json，提取每类事件的关键字段拼成一行补充说明（无则空）。
@@ -341,6 +355,20 @@ export function eventDetailText(ev: JobEvent): string {
       const extra = Number(d.suppressed ?? 0) > 0 ? t('util.eventDet.replacedTimes', { n: String(d.suppressed) }) : ''
       return [pair + extra, d.new_remote].filter(Boolean).join(' · ')
     }
+    // 设计 2026-11-14 §2：断线期间缓冲溢出被丢掉的事件数——时间线上这里有个缺口。
+    case 'job.events_lost':
+      return t('util.eventDet.eventsLost', { n: String(d.count ?? '?') })
+    // 设计 2026-11-14 §5：哪一项自检、连续失败几次、最后一次的错误。
+    case 'server.health_failing':
+      return [healthCheckText(d.check), t('util.eventDet.healthFailures', { n: String(d.failures ?? '?') }), d.error]
+        .filter(Boolean)
+        .map(String)
+        .join(' · ')
+    case 'server.health_recovered':
+      return [healthCheckText(d.check), t('util.eventDet.healthFailures', { n: String(d.failures ?? '?') })]
+        .filter(Boolean)
+        .map(String)
+        .join(' · ')
     default:
       return ''
   }

@@ -499,7 +499,7 @@ func newMemCallers() CallerAdmin { return memCallers{} }
 func (memCallers) AddCaller(config.CallerSpec, string) (config.CallerChange, error) {
 	return config.CallerChange{Token: "gct_test", Caller: config.CallerView{ID: "ci"}}, nil
 }
-func (memCallers) RotateCaller(id, _ string) (config.CallerChange, error) {
+func (memCallers) RotateCallerExpiring(id, _ string, _ config.CallerExpiry) (config.CallerChange, error) {
 	return config.CallerChange{Caller: config.CallerView{ID: id}}, nil
 }
 func (memCallers) DisableCaller(id, _ string) (config.CallerChange, error) {

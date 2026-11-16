@@ -8,7 +8,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import RejectDialog from '../RejectDialog.vue'
 import type { TodayAction, TodayCard } from '../../api/today'
-import { actionKey, actionLabel, actionLink, adviceAction, awaitingMergeLabel, blockShort, cardLink, expiresText, waitText } from '../../utils/today'
+import { actionKey, actionLabel, actionLink, adviceAction, awaitingMergeLabel, blockShort, cardLink, expiresText, isLinkAction, waitText } from '../../utils/today'
 import { approveAction, focusActions, replyAction as replyActionOf } from '../../utils/todayFocus'
 import { commandLine, originText } from '../../utils/approval'
 import { snoozeHints, snoozeOptions, wokeText, type SnoozeOption } from '../../utils/todaySnooze'
@@ -103,7 +103,7 @@ function styleClass(a: TodayAction): string {
 function onAction(a: TodayAction, viaAdvice = false): void {
   // 灰显的写操作即使在专注模式里按了数字键 / a / r 也不发请求（服务端反正会 403）。
   if (actionBlock(a)) return
-  if (a.id === 'diff' || a.id === 'open') {
+  if (isLinkAction(props.card, a)) {
     emit('navigate')
     return
   }
@@ -296,11 +296,11 @@ function linkFor(a: TodayAction): string {
         >{{ t('today.card.advice', { label: actionLabel(advice) }) }}</button>
         <template v-for="a in otherActions" :key="actionKey(a)">
           <RouterLink
-            v-if="a.id === 'diff' || a.id === 'open'"
+            v-if="isLinkAction(card, a)"
             :to="linkFor(a)"
             class="dc-btn dc-btn--link"
             @click="emit('navigate')"
-          >{{ a.label }}</RouterLink>
+          >{{ actionLabel(a) }}</RouterLink>
           <button
             v-else
             class="dc-btn"

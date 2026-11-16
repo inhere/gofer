@@ -10,7 +10,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	yaml "github.com/goccy/go-yaml"
 )
@@ -48,6 +50,52 @@ type CallerSpec struct {
 	// NoCeiling states that the caller gets NO ceiling on purpose (the opposite of leaving the
 	// ceiling out, which is an error).
 	NoCeiling bool
+	// ExpiresAt is when the token stops working (unix seconds); 0 = never expires.
+	ExpiresAt int64
+}
+
+// CallerExpiry is the expiry input of a rotation: Set false keeps the caller's current
+// expiry, Set true replaces it with At (0 = never expires).
+type CallerExpiry struct {
+	Set bool
+	At  int64
+}
+
+// ParseCallerExpiry reads a `--expires` / `expires` value relative to now: `never` (or an
+// empty string) = no expiry, `<N>d` = N days from now, a Go duration (`36h`) = from now, a
+// date `YYYY-MM-DD` = the END of that day (UTC), an RFC 3339 time. The answer is unix
+// seconds, 0 meaning never; a time that is not in the future is refused.
+func ParseCallerExpiry(raw string, now time.Time) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.EqualFold(raw, "never") {
+		return 0, nil
+	}
+	var at time.Time
+	switch {
+	case strings.HasSuffix(raw, "d"):
+		n, err := strconv.Atoi(strings.TrimSuffix(raw, "d"))
+		if err != nil || n <= 0 {
+			return 0, CallerInputErrorf("expires %q: days must be a positive number such as 90d", raw)
+		}
+		at = now.Add(time.Duration(n) * 24 * time.Hour)
+	default:
+		if d, err := time.ParseDuration(raw); err == nil {
+			if d <= 0 {
+				return 0, CallerInputErrorf("expires %q: the duration must be positive", raw)
+			}
+			at = now.Add(d)
+		} else if t, err := time.Parse("2006-01-02", raw); err == nil {
+			at = t.Add(24*time.Hour - time.Second)
+		} else if t, err := time.Parse(time.RFC3339, raw); err == nil {
+			at = t
+		} else {
+			return 0, CallerInputErrorf("expires %q: use 90d, a date such as 2026-12-31, or never", raw)
+		}
+	}
+	if !at.After(now) {
+		return 0, CallerInputErrorf("expires %q is not in the future", raw)
+	}
+	return at.Unix(), nil
 }
 
 // CallerView is one caller as the management routes report it: where it comes from, whether it
@@ -70,8 +118,12 @@ type CallerView struct {
 	CreatedBy         string         `json:"created_by,omitempty"`
 	CreatedAt         int64          `json:"created_at,omitempty"`
 	RotatedAt         int64          `json:"rotated_at,omitempty"`
-	UpdatedAt         int64          `json:"updated_at,omitempty"`
-	Warnings          []string       `json:"warnings,omitempty"`
+	// ExpiresAt is when a stored caller's token stops working (0 / absent = never);
+	// LastUsedAt is when it last authenticated (at most a minute stale).
+	ExpiresAt  int64    `json:"expires_at,omitempty"`
+	LastUsedAt int64    `json:"last_used_at,omitempty"`
+	UpdatedAt  int64    `json:"updated_at,omitempty"`
+	Warnings   []string `json:"warnings,omitempty"`
 }
 
 // CallerChange is the answer of a caller write: the caller as it is now, the token when the

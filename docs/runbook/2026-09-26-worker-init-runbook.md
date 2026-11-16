@@ -3,6 +3,35 @@
 > 配套 design [`../design/2026-09-25-rules-injection-and-worker-init-design.md`](../design/2026-09-25-rules-injection-and-worker-init-design.md) §二（CFG-05）、§三 F-g / F-e。
 > 相关：[容器 worker 接入](./container-worker.md)、[worker 策略迁移](./2026-07-15-worker-policy-migration.md)。
 
+## 一行安装（server 自带安装脚本）
+
+新机器上可以连 gofer 都不装：server 自己提供安装脚本，内容只含 server 地址（不含任何 token）：
+
+```bash
+# Linux / macOS
+curl -fsSL <server>/install.sh | sh
+```
+
+```powershell
+# Windows（PowerShell）
+irm <server>/install.ps1 | iex
+```
+
+脚本做的事与上述向导一样，只是把前几步串起来：
+
+1. 向 `GET <server>/install/manifest?os=&arch=` 要 **server 自己那个版本**的二进制地址与 sha256；
+2. 下载并校验 sha256（**取不到校验值就失败**，不会装未校验的二进制），装到用户目录（`~/.local/bin` / `%LOCALAPPDATA%\gofer\bin`）；
+3. 以 root 运行（`id -u` = 0）则直接退出——worker 是用户级的东西，要用将要跑它的那个普通账号执行；
+4. `gofer worker join --server <addr>`：屏幕显示配对码，管理员在 web Runners 页的「待接受」里输入即完成登记（要求 server 开着 `server.worker_enrollment.enabled`）；
+5. `gofer worker service register --start` 登记成用户级服务（Linux systemd `--user`，Windows 登录任务；**macOS 不做这一步**，脚本只装二进制并接入，常驻用 `gofer worker -d`）。
+
+注意事项：
+
+- 安装取的是 **server 自己版本的**校验值。mirror 已发布新版本而 server 未升级的那段时间，安装会因取不到对应版本的校验值被拒——先把 server 更新到那个版本，或在它发布后再装。
+- 安装脚本与二进制都来自 server 或其下载源，能篡改 server 响应的人本来就能控制整台机器；校验值防的是下载损坏与 mirror 被替换。
+- 已有现成配置的机器仍用 `gofer worker init` / `worker add --ssh`；要重来一次先 `gofer worker service uninstall --purge`（连 worker.yaml、`.env` 里的 token 与运行时文件一起删），再重跑一行命令。
+- 老版本不支持 `worker service`：回退到这类版本前先 `gofer worker service uninstall`。
+
 ## 一条命令接入：`gofer worker init`
 
 新机器不必再手写 worker.yaml（`worker_id` / `server_link.urls` / token / roots 映射 / agents 五项全靠手抄，抄错就是"连不上"或"跑不了任何 project"）。

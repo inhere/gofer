@@ -8,8 +8,10 @@
 - [登记 / 移除 worker](#登记--移除-worker)
 - [重载配置（不重启）](#重载配置不重启)
 - [远程升级 worker](#远程升级-worker)
-- [同一 worker_id 的两个进程互顶](#同一-worker_id-的两个进程互顶)
+- [worker 断线后补传哪些东西](#worker-断线后补传哪些东西)
 - [受管 server 服务](#受管-server-服务)
+- [同一 worker_id 的两个进程互顶](#同一-worker_id-的两个进程互顶)
+- [server 自检与健康](#server-自检与健康)
 - [重启 / 升级 server 前](#重启--升级-server-前)
 - [HTTPS 入口（手机 PWA）](#https-入口手机-pwa)
 - [job 的环境清洗](#job-的环境清洗)
@@ -60,11 +62,20 @@ gofer worker upgrade <id> [--source auto|server|mirror] [--version <X.Y.Z>] [--f
 ```
 
 - 二进制去哪取（`--source`）：`auto`（默认）——与 server 同 os / arch 用 server 自己的可执行文件，其他平台从下载源（配置里的 `server.update`：mirror 的 `url_template` 或 GitHub release）取该平台的发布包；`server` 强制用 server 自身二进制（平台不同直接报错）；`mirror` 强制从下载源取。`--file` 时先上传到 server 暂存（优先于 `--source`），worker 下载后校验 sha256 并试跑 `--version`。
-- `--version` 指定下载哪个发布版本（默认跟 server 同版本；server 本身是开发构建时用下载源的最新版）。下载源的 sha256 只发布最新版，其他版本不校验（URL 全部来自管理员配置）。
-- 其它平台的 worker 不需要再手工找二进制：下载源没配好（检查失败 / 平台没有对应包）时命令直接报原因，可回退 `--file`。
+- `--version` 指定下载哪个发布版本（默认跟 server 同版本；server 本身是开发构建时用下载源的最新版）。下载的二进制**必须**有 sha256 才安装：mirror 取该版本目录下的 `latest.yaml`（版本号要与所取的版本一致），GitHub 取该 tag 的 release 里的 `latest.yaml`；取不到就报「更新源缺少校验值」并失败。
+- 其它平台的 worker 不需要再手工找二进制：下载源没配好（检查失败 / 平台没有对应包 / 缺校验值）时命令直接报原因，可回退 `--file`。
 - worker 先排空（不再接新 job，在途 job 做完，默认最多等 600 秒，超时放弃升级并恢复接单；`--force` 不等），再切换二进制、拉起新进程；新进程注册成功后旧进程退出，60 秒内没注册则还原旧二进制，记为 `rolled_back`。
 - CLI 默认等最终结果，打印「已升级到 vX（耗时）」或「已回滚：原因」，失败时退出码非 0。升级期间向该 worker 提交 job 会失败（`worker is being upgraded`）。
 - 太旧的 worker 不支持远程升级，会提示手动升级一次。`gofer worker show <id>` 与 web Runners 卡片显示最近 5 次升级记录（带时间）。旧二进制保留为 `<exe>.old` 供手动回退。
+
+## worker 断线后补传哪些东西
+
+worker 连着 server 时把 job 的审批事件镜像、结果摘要（Outcome）与 ACP 记录（`acp.jsonl` 镜像）发给 server；断线时这几类以前是丢掉的，现在**重连后补回来**（协议 v30，两端都够新才启用）：
+
+- worker 给每个 job 的镜像事件编号，发出去后先留在本地的未确认缓冲里（每个 job 最多 256 条、整台 worker 最多 4096 条，超出丢最旧的并计数）。server 按编号去重（`jobs.worker_event_seq`），所以重放**不会**多出事件行、不会重复发 webhook 与通知。
+- 重连握手时 server 回已应用的进度（`event_seq` 与 ACP 已写字节数 `acp_off`），worker 丢掉已确认的、按序重放其余，ACP 记录像 stdout / stderr 一样从字节偏移重发；断开期间 job 结束的，顺序是「事件 → Outcome → Result」。
+- 真的溢出丢了事件时，重连后补一条 `job.events_lost {count}` 事件，job 时间线上能看到缺口（不是静默丢失）。
+- 两边有一端旧（协议 < 30）时照旧：连接内的重复仍按旧 FIFO 去重，断线期间的镜像事件与 ACP 记录仍可能丢——所以派活机器与 server 一起升级才能真正不掉东西。
 
 ## 受管 server 服务
 
@@ -80,7 +91,7 @@ gofer serve upgrade status <upgrade_id> [--json]
 ```
 
 - 登记默认不启动，`--start` 登记后启动并核对进程、端口与健康。
-- **`serve status` 的退出码**（可直接用在脚本与监控里，参照 LSB status）：`0` 正常（登记、进程活、端口属于它、健康、运行版本与登记版本一致）、`1` 检查本身出错（读配置 / spec 失败，也是通用的错误码）、`3` 未运行（已登记但进程不在或端口没人监听）、`4` 部件故障（进程在但健康是 `unreachable` / `http_<code>` / `unverified`，端口被别的进程占，`/v1/stats` 鉴权不符，或运行版本与登记版本不一致）、`5` 待配置（连 spec 都没有，即从未登记受管 server）。`--json` 多两个字段：`state`（`running` / `stopped` / `degraded` / `unconfigured`）与 `exit_code`；文本输出最后一行是 `state=…`。老脚本把 `serve status` 当「总是成功」的探针时要改：现在它按真实状态返回非零。
+- **`serve status` 的退出码**（可直接用在脚本与监控里，参照 LSB status）：`0` 正常（登记、进程活、端口属于它、健康、运行版本与登记版本一致）、`1` 检查本身出错（读配置 / spec 失败，也是通用的错误码）、`3` 未运行（已登记但进程不在或端口没人监听）、`4` 部件故障（进程在但健康是 `unreachable` / `http_<code>` / `unverified`，端口被别的进程占，`/v1/stats` 鉴权不符，运行版本与登记版本不一致，或 **server 自检有故障项**——这时文本输出会列出项名，如 `health_failing: storage`）、`5` 待配置（连 spec 都没有，即从未登记受管 server）。`--json` 多两个字段：`state`（`running` / `stopped` / `degraded` / `unconfigured`）与 `exit_code`；文本输出最后一行是 `state=…`。老脚本把 `serve status` 当「总是成功」的探针时要改：现在它按真实状态返回非零。
 - **token 从哪来（注册后登录 401 先看这里）**：服务方式运行时不继承注册终端的环境，只读 `<config-dir>/.env` 与 config.yaml；Windows 上还会继承启动账户的持久环境变量（用户级 / 机器级），而它压过 `.env`——旧的 `GOFER_TOKEN` 留在用户级环境里时，改 `.env` 完全无效。因此注册前在终端 `export` 的 token 服务看不到——`register` 会比对并警告（不阻止注册；持久环境变量压过 `.env` 时单独一段并给出删除 / 改值命令），`serve status` / `--json` 的 `auth_token`（`service` / `current_process` / `match`，以及 `persistent_env` / `unread_dotenv`）给出来源与掩码（`len=<长度> <前两位>**<末位>`，不含 token 值），版本查询 401 时直接告诉你 CLI 用的 `GOFER_SERVER_TOKEN` 与服务端那份不一致。要两边一致就把 token 写进 `<config-dir>/.env`（并清掉持久环境里的旧值）；细则见 [server-config.md](server-config.md) 的 server 一节。
 - Linux：默认 `--scope system`，必须显式 `--run-as <user>`；`--scope user` 用当前账号的 user manager。不会自动 sudo、开 linger 或提权。
 - Windows：用当前交互账号的登录计划任务；`--elevated`（需已提权）与 `--adopt`（接管已验证的旧任务）仅 Windows 可用。受管进程不保留 cmd 窗口，日志用 `gofer serve logs` 看。
@@ -99,6 +110,22 @@ gofer serve upgrade status <upgrade_id> [--json]
 - **server 侧怎么看**：`gofer worker show <id>` 有一行 `last_replaced`（时刻、新旧 instance_id、新旧远端地址）；web 运行节点页该 worker 的卡上也有「最近一次被同名进程顶替：<时间>」与一句「请只保留一个」。同一 worker 的 `worker.replaced` 事件 10 分钟内只写一条，`suppressed` 是期间被拦下的次数；serve 日志里同样有一条 `worker.replaced`（带 worker_id、新旧 instance_id 与远端地址）。同一进程重连（instance_id 相同，例如网络抖动）不会报这个。
 - **worker 侧怎么看**：被顶替的进程会打一条错误日志 `worker.replaced`（写明「another process is connected with the same worker_id」与自己的 instance_id）；5 分钟内被顶替 3 次会再来一条 `worker.replaced_backoff` 并退避 5 分钟再连，**不退出进程**。
 - **处理**：只留一个进程——`gofer worker stop [<id>]` 停本机后台那个，或 `ps` / 任务管理器找到多余的进程结束掉；两台机器共用一个 id 时给其中一台换 id（`worker_id` 三处对齐，见 [worker-config.md](worker-config.md)「worker_id 三处对齐」）。改完看 `last_replaced` 不再刷新。
+
+## server 自检与健康
+
+server 自己每 60 秒检几项关键部件，**连续失败达到阈值**才算故障，一次成功就恢复（一次慢查询不会弹卡）：
+
+| 项名 | 检什么 |
+|---|---|
+| `storage` | 数据库能不能**写**（往库里写一行探针，只读文件 / 磁盘满 / WAL 坏在这里暴露） |
+| `disk` | 数据库所在卷剩余空间：低于 **1 GiB 或卷容量的 5%**（谁先到）即失败 |
+| `sweep` | 定时扫描是否卡住：距上一次**完整**扫过超过 3 个扫描周期 |
+| `notification` | 出站通知：某个通道连续投递失败达到阈值（错误里会点名是哪个通道） |
+
+- 阈值是 `server.health.fail_threshold`（默认 3，即约 3 分钟），改完 `gofer serve reload` 生效。没接通知通道时 `notification` 项不报错。
+- **看结果**：`GET /v1/health/checks`（登录就能读：每项 `name` / `ok` / `consecutive_failures` / `failing` / `last_error` / `checked_at`）、web「设置 → 自检」页、`gofer doctor` 的诊断包（`health-checks.json`）。`ok=false` 只是最近一次没过，`failing=true` 才是达到阈值的故障。
+- **机器可读的那个信号**：公开的 `/health` 多一个 `degraded: true|false`（不带细节，保持公开）；`/v1/stats` 多 `health_failing`（故障项名字数组，健康时不出现）。`serve status` 有故障项时归 4 并列出项名，可直接拿去监控。
+- **通知与卡片**：某项**转为故障**时在 server 自己那条事件流（作用域 `server:gofer`，不带项目，所以没配项目过滤的 webhook 都会收到）写一条 `server.health_failing`（带 `check` / `failures` / `error`），「等我」出一张「需要你处理」类的卡片（带项名、连续失败次数与最近一次错误，「看详情」落到设置 › 自检）；**同一个故障期间只发一次**，第一次成功时写 `server.health_recovered` 并收卡。卡片是现算的（读最新一次自检结果），不存库，所以不会残留过期状态。
 
 ## 重启 / 升级 server 前
 

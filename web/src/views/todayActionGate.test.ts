@@ -22,8 +22,9 @@ describe('今天页：卡片写操作按权限灰显', () => {
   it('灰显的动作不发请求（专注模式的数字键 / a / r 也走同一条路）', () => {
     expect(card).toContain('if (actionBlock(a)) return')
   })
-  it('纯查看的链接（看 diff / 打开 plan）不受影响', () => {
-    expect(card).toContain("v-if=\"a.id === 'diff' || a.id === 'open'\"")
+  it('纯查看的链接（看 diff / 打开 plan / 去轮换 token）不受影响', () => {
+    expect(card).toContain('v-if="isLinkAction(card, a)"')
+    expect(card).toContain('if (isLinkAction(props.card, a)) {')
   })
 })
 

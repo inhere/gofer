@@ -26,6 +26,8 @@ server:
   # token: ""              # 直接写 token(不要把真实 token 提交进仓库)
   # 必须显式设为 true 才允许不配置任何 token 启动。
   allow_empty_token: false
+  # health:                # 健康自检（每 60 秒一次，结果见 GET /v1/health/checks）
+  #   fail_threshold: 3    # 同一项连续失败多少次才算故障；0/未写 = 3
   # 本地服务路径可以用 {config_dir} 开头：它由 GOFER_CONFIG_DIR 决定，-c 只选配置文件、
   # 不改变它。只有支持的本地路径字段会展开这个前缀(项目 / worker 路径不展开)。
   # tls:
@@ -179,6 +181,10 @@ server:
     enabled: false                 # 未写这一段 / true = 提供 /metrics；false = 不提供
     token: ""                      # 空 = 免认证抓取；非空 = 要求 Authorization: Bearer <token>
     # 开启示例：enabled: true + token: "<长随机串>"
+
+  # audit_retention_days：审计表(管理操作 admin_audit 与授权 auth_audit)的保存天数，由 serve 的
+  # 清理循环删除更早的行。未写 / 0 = 90 天；写负数 = 永久保留。
+  audit_retention_days: 90
 
   # triggers：外部事件 -> 固定任务书的一次性 job；默认关闭、只能改文件(详见 docs/reference/http-api.md)。
   # provider 缺省 generic(HMAC + 时间戳)；github 兼容 GitHub webhook(X-Hub-Signature-256，

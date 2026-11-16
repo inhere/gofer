@@ -37,6 +37,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/desktop"
 	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/install"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -101,6 +102,9 @@ type callerEntry struct {
 	// resolved with the entry so a re-judgment never has to hash again.
 	fingerprint string
 	kind        string
+	// expiresAt is when a stored caller's token stops authenticating (unix seconds, 0 = never).
+	// The entry stays in the set after that so the request can be refused as token_expired.
+	expiresAt int64
 }
 
 // callerFromCtx returns the authenticated caller id stored by authMiddleware,
@@ -323,6 +327,10 @@ type Server struct {
 	// callers (most tests, mcp) pass nil.
 	prober  runnerProber
 	workers workerRegistry
+
+	// health is the server self-check runner (nil = no checks wired, which every reader
+	// treats as "anything is fine"). Set by serve through SetHealthChecks.
+	health  healthChecker
 	tunnels *tunnel.Registry
 
 	// forwarders is the TUN-03 hub-side registry of online `gofer tun forward`
@@ -349,6 +357,14 @@ type Server struct {
 	metrics        *metrics.Metrics
 	metricsEnabled bool
 	metricsToken   string
+
+	// audit is the asynchronous writer of admin_audit (admin_audit.go); created by New,
+	// drained by CloseAudit.
+	audit *auditRecorder
+	// usage batches the last-used stamps of stored callers (caller_expiry.go); authClock is
+	// the clock token expiry is judged by (nil = time.Now; a test pins it).
+	usage     *callerUsage
+	authClock func() time.Time
 
 	// xfer is the XFER-01 transfer manager behind /v1/xfer*. Injected
 	// post-construction by SetXfer (serve), like SetMetrics. The routes are
@@ -1060,6 +1076,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.wireWorkJobOutcomes(jobs) // WORK-06: linked job outcomes on the work journal
 	}
 	s.live = s.newPushHub()
+	s.audit = s.newAdminAuditRecorder()
+	s.usage = s.newCallerUsage()
 	s.router = s.buildRouter()
 	return s
 }
@@ -1233,7 +1251,7 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 			if hash == "" {
 				continue // nothing to authenticate against (the merge refuses this row)
 			}
-			out = append(out, callerEntry{id: cc.ID, tokenHash: hash, fingerprint: tokenFingerprintOfHash(hash), kind: callerKindUser})
+			out = append(out, callerEntry{id: cc.ID, tokenHash: hash, fingerprint: tokenFingerprintOfHash(hash), kind: callerKindUser, expiresAt: cc.ExpiresAt})
 		}
 	}
 	return out
@@ -1248,10 +1266,22 @@ func (s *Server) buildRouter() *rux.Router {
 	// Slow-request observation runs OUTSIDE the error middleware so it still measures a
 	// request whose handler panicked (httpErrorMiddleware recovers the panic below it).
 	r.Use(s.httpSlowMiddleware)
+	// The admin audit wraps the WHOLE chain (every group middleware and the route gate), so
+	// a request refused by authentication, a credential whitelist or the rate limit is
+	// recorded too. It sits outside httpErrorMiddleware to see the status of a recovered panic.
+	r.Use(s.auditMiddleware)
 	r.Use(s.httpErrorMiddleware)
 	r.Use(s.requestLangMiddleware)
 
 	r.GET("/health", s.handleHealth)
+
+	// The one-line worker installer (/install.sh, /install.ps1, /install/manifest): public
+	// and read-only, like /health — the machine running it has no gofer credential yet. The
+	// scripts carry no secret and the manifest only names this server's version, its
+	// download URL and its sha256 (internal/install).
+	r.GET("/install.sh", s.handleInstallScript(install.ScriptSh))
+	r.GET("/install.ps1", s.handleInstallScript(install.ScriptPS1))
+	r.GET("/install/manifest", s.handleInstallManifest)
 
 	// E16: Prometheus scrape endpoint. Sibling of /health, registered OUTSIDE the
 	// /v1 authMiddleware group: scrapers rarely carry a Bearer token and the
@@ -1318,6 +1348,8 @@ func (s *Server) buildRouter() *rux.Router {
 		// 会话授权的续期（计划 T2.3）：只把仍然生效的会话授权往后挪，权限范围一点不变。
 		r.POST("/auth/grants/{id}/renew", s.handleAuthRenewGrant)
 		r.GET("/auth/audit", s.handleAuthAudit)
+		// The admin audit trail (admin_audit.go): every write request, refusals included.
+		r.GET("/audit", s.handleAdminAudit)
 
 		// 用户管理（配置入库 P1，计划 T6）：callers 的新增 / 轮换 / 停用 / 启用 / 改上限 /
 		// 改配额与审计。全部要求 auth.manage（只有根管理员持有），且每个 handler 先过
@@ -1333,6 +1365,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.PUT("/callers/{id}/limits", s.handleCallerSetLimits)
 
 		r.GET("/config", s.handleGetConfig)
+		// The server self-check items (design 2026-11-14 §5): a logged-in caller may read
+		// them, and they name no project / carry no secret. /health publishes the single
+		// degraded bit instead, since it stays public.
+		r.GET("/health/checks", s.handleHealthChecks)
 		// Extension settings (docs/design/2026-10-20-work-noise-and-db-settings-design.md):
 		// the registry, one key, an export of the modified keys and an import with a dry-run
 		// preview. `settings.read` is seeded to `users`, `settings.write` is not; both are

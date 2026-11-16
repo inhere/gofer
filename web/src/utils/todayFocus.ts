@@ -1,6 +1,6 @@
 // N3「专注处理」（T3，design §4）的纯逻辑：键位映射、操作序号、进度。
 import type { TodayAction, TodayCard } from '../api/today'
-import { adviceAction } from './today'
+import { adviceAction, isLinkAction } from './today'
 
 export type FocusCommand =
   | { kind: 'next' }
@@ -42,10 +42,10 @@ export function focusCommand(key: string, opts: { typing?: boolean; modifier?: b
 }
 
 // 操作按钮的序号顺序（1-9）：「按建议」主按钮在最前，其余按卡上顺序；纯跳转（看 diff / 打开
-// plan）不编号，免得在专注模式里一按数字就离开。
+// plan / 去轮换 token）不编号，免得在专注模式里一按数字就离开。
 export function focusActions(card: TodayCard): TodayAction[] {
   const adv = adviceAction(card)
-  const rest = card.actions.filter((a) => a !== adv && a.id !== 'diff' && a.id !== 'open')
+  const rest = card.actions.filter((a) => a !== adv && !isLinkAction(card, a))
   return adv ? [adv, ...rest] : rest
 }
 

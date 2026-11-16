@@ -1558,6 +1558,11 @@ func (s *Store) migrate() error {
 	if err := add("session_id", "session_id TEXT"); err != nil { // agent CLI 会话 id
 		return err
 	}
+	// 断线补传（protocol v30）：worker 镜像事件已应用的最大序号，InsertWorkerJobEvent 在
+	// 同一事务里判定并推进。旧行默认 0。
+	if err := add("worker_event_seq", "worker_event_seq INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	if err := add("source_session_id", "source_session_id TEXT"); err != nil { // source session provenance, distinct from agent session_id
 		return err
 	}
@@ -1796,6 +1801,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateAuth(); err != nil {
 		return err
 	}
+	if err := s.migrateCallerUsage(); err != nil {
+		return err
+	}
 	if err := s.migrateWorkflows(); err != nil {
 		return err
 	}
@@ -1836,6 +1844,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateMail(); err != nil {
+		return err
+	}
+	if err := s.ensureHealthProbe(); err != nil {
 		return err
 	}
 	if err := s.migrateTracker(); err != nil {

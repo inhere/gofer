@@ -106,7 +106,7 @@ func (m *Manager) WindowsRegister(spec Spec, opts WindowsRegisterOptions) error 
 			} else if !errors.Is(stateErr, os.ErrNotExist) {
 				return stateErr
 			}
-			if pid, pidErr := daemon.ReadPIDFile(filepath.Join(previousSpec.RuntimeDir, "serve.pid")); pidErr == nil && daemon.PIDAlive(pid) {
+			if pid, pidErr := daemon.ReadPIDFile(filepath.Join(previousSpec.RuntimeDir, previousSpec.PIDFileName())); pidErr == nil && daemon.PIDAlive(pid) {
 				return ErrRunningSpecChange
 			} else if pidErr != nil && !errors.Is(pidErr, os.ErrNotExist) {
 				return pidErr
@@ -333,7 +333,7 @@ func (m *Manager) windowsStopLocked(spec Spec) error {
 	} else if state.Server.PID > 0 && daemon.PIDAlive(state.Server.PID) {
 		return fmt.Errorf("refuse to stop pid=%d after its creation identity changed", state.Server.PID)
 	} else if state.Server.PID == 0 {
-		pid, readErr := daemon.ReadPIDFile(filepath.Join(spec.RuntimeDir, "serve.pid"))
+		pid, readErr := daemon.ReadPIDFile(filepath.Join(spec.RuntimeDir, spec.PIDFileName()))
 		if readErr == nil && daemon.PIDAlive(pid) {
 			return fmt.Errorf("refuse to stop pid=%d without recorded server identity", pid)
 		}
@@ -441,7 +441,7 @@ func (m *Manager) windowsLogPath() string {
 }
 
 func (m *Manager) windowsOutPath(spec Spec) string {
-	return filepath.Join(spec.RuntimeDir, "serve.out.log")
+	return filepath.Join(spec.RuntimeDir, spec.OutLogName())
 }
 
 // The state lock is separate from the registration lock: stop may hold the

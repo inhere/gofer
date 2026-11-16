@@ -68,6 +68,12 @@ func classifyServeStatus(out serveStatusOutput) (state string, code int) {
 	if out.Health != "healthy" || out.VersionAuthMismatch != nil {
 		return serveStatusStateDegraded, serveStatusExitDegraded
 	}
+	// A failing server self-check item (design 2026-11-14 §5): the service answers and its
+	// identity checks out, but one of its parts is broken — the same 4 (degraded) verdict as
+	// an unverified identity, so a caller that already handles 4 sees it.
+	if len(out.HealthFailing) > 0 {
+		return serveStatusStateDegraded, serveStatusExitDegraded
+	}
 	if out.RegisteredVersion != "" && out.RunningVersion != "" && out.RegisteredVersion != out.RunningVersion {
 		return serveStatusStateDegraded, serveStatusExitDegraded
 	}

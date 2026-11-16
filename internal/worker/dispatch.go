@@ -14,8 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
-
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/messenger"
 	"github.com/inhere/gofer/internal/runner"
@@ -312,11 +310,13 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	// (渲染命令/result.json/diff/产物清单, P1–P3)。把清单+小结果经 Outcome 帧回传
 	// host（大产物文件留 worker 侧, 不进帧 — D6），在 Result 帧之前发出，保证 host
 	// 端读循环先 OnOutcome 再 Finish。仅在有产出时发，旧 worker 不发 = host 端为空。
+	var outcome *wsproto.Outcome
 	if o, send := outcomeFrame(d.JobID, final); send {
-		_ = cl.writeFrame(ctx, wsproto.TypeOutcome, d.JobID, o)
+		outcome = &o
 	}
 
-	cl.sendResult(ctx, d.JobID, wsproto.Result{
+	// Outcome then Result; an Outcome that cannot go out parks both for replay (v30).
+	cl.sendTerminal(ctx, d.JobID, outcome, wsproto.Result{
 		JobID:     d.JobID,
 		Status:    final.Status,
 		ExitCode:  final.ExitCode,
@@ -722,7 +722,7 @@ func acpMirrorChunk(path string, offset int64, limit int) (chunk []byte, next in
 //   - on success the in-flight entry is dropped — the hub owns the job from here on;
 //   - on failure (the connection is down, or dropped exactly while the job was
 //     finishing) the Result is CACHED on the entry and replayed by
-//     replayCachedResults after the next successful register. The local job is
+//     replayJobState after the next successful register. The local job is
 //     already terminal, so nothing needs recomputing — the hub just never heard it.
 func (cl *Client) sendResult(ctx context.Context, remoteJobID string, res wsproto.Result) error {
 	if err := cl.writeFrame(ctx, wsproto.TypeResult, remoteJobID, res); err != nil {
@@ -731,27 +731,6 @@ func (cl *Client) sendResult(ctx context.Context, remoteJobID string, res wsprot
 	}
 	cl.inflightDrop(remoteJobID)
 	return nil
-}
-
-// replayCachedResults re-sends every terminal Result that could not be delivered
-// while the connection was down (RECOV-01) and drops each entry that lands. It runs
-// from applyResume, on the freshly handshaken connection and BEFORE that connection
-// is published — so the hub's recovery plan (which saw these jobs as terminal in our
-// `inflight` snapshot and is holding their host jobs in `recovering`, waiting for the
-// Result) gets the authoritative ending. A Result whose entry is past
-// workerResultTTL was already swept by inflightResult: the hub has given up on that
-// job, and replaying into a finished job would be noise.
-func (cl *Client) replayCachedResults(ctx context.Context, conn *websocket.Conn) {
-	for _, id := range cl.inflightIDs() {
-		res, ok := cl.inflightResult(id)
-		if !ok {
-			continue
-		}
-		if err := cl.writeFrameOn(ctx, conn, wsproto.TypeResult, id, res); err != nil {
-			return // still not deliverable: keep the cache for the next reconnect
-		}
-		cl.inflightDrop(id)
-	}
 }
 
 // pumpInteractions observes the local job's interactions and pushes a frame for

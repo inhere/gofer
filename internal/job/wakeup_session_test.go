@@ -355,6 +355,70 @@ func TestWakeupSessionKeepsSentinelWhenChildMovedOn(t *testing.T) {
 	assert.True(t, strings.Contains(texts[1], StatusDone), "say = %q, want the new state", texts[1])
 }
 
+// TestWakeupSessionCountsDeliveryBeforeChildMovedOn: a receipt that WAS spoken counts as
+// one fire even when its child changed state before the confirmation (a person answered
+// the approval, so the child runs on). The row keeps its sentinel for the newer state,
+// but the delivery the parent already saw must not vanish from fired_count — a real run
+// showed two delivered receipts and fired_count=1, because the confirmation skipped the
+// moved-on child and the receipt the tick then dropped counts nothing either.
+func TestWakeupSessionCountsDeliveryBeforeChildMovedOn(t *testing.T) {
+	t.Parallel()
+	s, sender, parent := wakeupSessionFixture(t)
+	parent.mu.Lock()
+	parent.result.Status = StatusRunning
+	parent.mu.Unlock()
+	addChildJob(t, s, "child-still", StatusAwaitingApproval, 0, "")
+	moved := addChildJob(t, s, "child-answered", StatusAwaitingApproval, 0, "")
+	wStill := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-still", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventJobAwaitingApproval}),
+	})
+	wMoved := addChildReceipt(t, s, jobstore.WakeupRecord{
+		JobID: parent.result.ID, FilterJobID: "child-answered", AutoChild: 1,
+		EventTypesJSON: jobstore.EncodeStringList([]string{EventJobTerminal, EventJobAwaitingApproval}),
+	})
+
+	// Both approvals arrive during a turn: two receipts parked as one batch.
+	s.deliverChildReceipt(wStill, EventJobAwaitingApproval)
+	s.deliverChildReceipt(wMoved, EventJobAwaitingApproval)
+	assert.Eq(t, 0, len(sayTexts(sender)), "a busy session was interrupted")
+
+	// The parent goes idle and is woken by ONE receipt naming both children.
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 2,
+	}, false)
+	texts := sayTexts(sender)
+	assert.Eq(t, 1, len(texts))
+	assert.True(t, strings.Contains(texts[0], "child-still") && strings.Contains(texts[0], "child-answered"),
+		"say = %q, want both children", texts[0])
+
+	// A person answers the second child's approval while the parent works the receipt: it
+	// runs on and needs nobody, so it moved on before the confirmation.
+	setChildStatus(t, s, moved, StatusRunning)
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 3,
+	}, false)
+
+	assert.Eq(t, int64(1), childWakeRow(t, s, wStill.ID).FiredCount, "the confirmed receipt did not count")
+	got := childWakeRow(t, s, wMoved.ID)
+	assert.Eq(t, int64(1), got.FiredCount, "a delivered receipt lost its fire when the child moved on")
+	// The receipt parked for the moved-on child said nothing the parent can act on: it was
+	// dropped without a second count, and the row stays armed for the child's own end.
+	assert.Eq(t, "", got.ContinuationJobID, "the meaningless receipt kept its sentinel")
+	assert.Eq(t, 1, got.Enabled, "dropping a receipt retired the row")
+	assert.Eq(t, 1, len(sayTexts(sender)), "the tick woke the parent for a receipt nobody needs")
+
+	// The child's end is a SECOND delivery and counts once more — never twice for one say.
+	setChildStatus(t, s, moved, StatusDone)
+	s.deliverChildReceipt(childWakeRow(t, s, wMoved.ID), EventJobTerminal)
+	s.applyRemoteSessionState(parent, WorkerInflightJob{
+		JobID: parent.result.ID, SessionStatus: StatusAwaitingInput, TurnNo: 4,
+	}, false)
+	last := childWakeRow(t, s, wMoved.ID)
+	assert.Eq(t, int64(2), last.FiredCount, "two delivered receipts did not count twice")
+	assert.Eq(t, 0, last.Enabled, "the terminal receipt stayed armed")
+}
+
 // TestWakeupSessionTurnDiedIsNotDelivered: a turn that started but never came back to
 // awaiting_input is NOT a delivered receipt — the turn counter alone would say it was.
 func TestWakeupSessionTurnDiedIsNotDelivered(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/desktop"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/notify"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
@@ -283,6 +284,12 @@ type Service struct {
 	// a provider business error (gofer-map1).
 	postFn func(ctx context.Context, kind, target, eventType string, body []byte, secretValue string, cfg config.NotificationConfig) error
 
+	// deliveryStreaks counts the consecutive failed deliveries per outbound channel
+	// (notify.ChannelStreaks). The E14 executor records every attempt into it; the
+	// server self-check's notification probe reads it (design 2026-11-14 §5). nil =
+	// nothing is counting (tests, a process without health checks wired).
+	deliveryStreaks *notify.ChannelStreaks
+
 	// metrics is the E16 lifecycle-counter sink (nil = no metrics wired). It is
 	// injected post-construction by SetMetrics (commands.buildCore) so the job
 	// package never imports prometheus. All埋点 sites guard `if s.metrics != nil`.
@@ -385,6 +392,10 @@ func (s *Service) Validate(cfg *config.Config, req JobRequest, remote bool) (con
 // once at assemble time (commands.buildCore) before the service starts handling
 // jobs; passing nil leaves metrics disabled (every埋点 is a no-op).
 func (s *Service) SetMetrics(m MetricsSink) { s.metrics = m }
+
+// SetDeliveryStreaks hands the E14 delivery executor the per-channel
+// consecutive-failure counter the server self-check reads (nil = stop counting).
+func (s *Service) SetDeliveryStreaks(c *notify.ChannelStreaks) { s.deliveryStreaks = c }
 
 // Stats returns a live snapshot of the in-flight job set for the metrics
 // GaugeFuncs (design §6.4). It is evaluated at scrape time, so the critical

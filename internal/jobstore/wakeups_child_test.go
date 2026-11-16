@@ -102,6 +102,49 @@ func TestWakeupPendingSay(t *testing.T) {
 	}
 }
 
+// TestWakeupCountSayFireKeepsSentinel: counting a receipt the parent DID read, whose
+// child then changed state, leaves the sentinel in place (the newer state is still owed)
+// and the later drop of that sentinel does not count a second fire. A row nobody was
+// spoken to is counted by neither.
+func TestWakeupCountSayFireKeepsSentinel(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertWakeup(WakeupRecord{
+		ID: "wk-moved", JobID: "parent-1", Kind: WakeupKindEvent,
+		EventTypesJSON: EncodeStringList([]string{"job.terminal"}),
+		FilterJobID:    "child-1", Mode: WakeupModeContinuous, Enabled: 1, CreatedAt: 1, AutoChild: 1,
+	}))
+	counted, err := s.CountWakeupSayFire("wk-moved")
+	assert.NoErr(t, err)
+	if counted {
+		t.Fatalf("a receipt nobody was spoken to counted a fire")
+	}
+
+	assert.NoErr(t, s.MarkWakeupPendingSay("wk-moved"))
+	counted, err = s.CountWakeupSayFire("wk-moved")
+	assert.NoErr(t, err)
+	if !counted {
+		t.Fatalf("the delivered receipt was not counted")
+	}
+	row, _, _ := s.GetWakeup("wk-moved")
+	if row.FiredCount != 1 || row.ContinuationJobID != WakeupPendingSay || row.Enabled != 1 {
+		t.Fatalf("row = %+v, want one fire, the sentinel kept and the row armed", row)
+	}
+	if row.LastFiredAt == 0 {
+		t.Fatalf("row = %+v, want the fire time stamped", row)
+	}
+
+	// The sentinel goes later (the newer state was dropped): still one fire, once.
+	dropped, err := s.DropPendingSay("wk-moved")
+	assert.NoErr(t, err)
+	if !dropped {
+		t.Fatalf("the counted sentinel was not droppable")
+	}
+	row, _, _ = s.GetWakeup("wk-moved")
+	if row.FiredCount != 1 || row.ContinuationJobID != "" || row.Enabled != 1 {
+		t.Fatalf("row = %+v, want one fire, the sentinel cleared and the row armed", row)
+	}
+}
+
 // TestListAutoChildFinishedBefore: the reconcile scan returns the enabled child
 // receipts whose child job ENDED before the cut-off — never one still running, never
 // one awaiting a human decision (needs_review is not terminal), never a row that was

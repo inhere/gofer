@@ -140,6 +140,14 @@ export function fileSourceNote(): string {
   return t('settings.callers.fileNote')
 }
 
+// rotateQueryId：今天页的调用方 token 卡片点「轮换」会跳到这里并带上 ?rotate=<调用方 id>——
+// 轮换会让旧 token 立刻失效，新 token 只在响应里出现一次，所以卡片不在原地换，而是要人在这个
+// 页面的轮换面板里确认并抄走。认识的只有单个字符串，数组 / 空值当作没带。
+export function rotateQueryId(query: Record<string, unknown>): string {
+  const q = query.rotate
+  return typeof q === 'string' ? q : ''
+}
+
 // addBlocker 是「新增」表单的提交前校验：id 必填、上限二选一、选「受限」时至少填一项。
 // 返回空串表示可以提交。
 export function addBlocker(req: { id: string; mode: CeilingMode; form: CallerCeilingForm }): string {

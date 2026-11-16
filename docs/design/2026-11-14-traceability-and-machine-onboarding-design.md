@@ -156,3 +156,22 @@ Q1–Q9 按推荐项（用户 2026-11-14 批准）。
 ## 结论与人工计划 Gate
 
 改动类操作统一留痕；worker 断线期间的审批事件、产出和 ACP 记录重连后补齐且不重复；新机器一条命令接入为用户级服务；调用方 token 可设到期并显示最近使用；server 自检关键部件、连续失败才报。等用户答复 Q1–Q9 并批准后写计划。
+
+## 实施记录（2026-11-16）
+
+计划 `docs/plans/2026-11-15-traceability-and-machine-onboarding-plan.md`（plan-20261116-142517-592428ac）。sonnet 做审计、token 到期、断线补传；suga（oc-go deepseek-v4.1-flash）做 servicemgr 与 worker 服务、安装脚本、健康项、回执计数、Web、文档。三条链并行后合入 feat/b3。
+
+与设计的差异：
+
+- 审计做成路由器级全局中间件（不是挂在单条路由上），因此 group 中间件拒绝的 401（含 token 过期）/ 403（job 凭据越权）/ 429 与 `/v1` 之外的写路由都会记；`admin_audit` 另有 `query_keys` 列（只存查询键名）；7 条高频路由豁免（worker 握手与数据面、会话心跳、工作项日志追加）。
+- 清理：新增 `PruneAuditBefore` 同时清 `admin_audit` 与 `auth_audit`，由独立且总是启动的审计清理循环调用（原 `PruneAuthAudit` 未接）。
+- `audit.read` 风险中、来源根管理员、不种入、不可授予会话。
+- token 即将到期卡只给持 `auth.manage` 的人看；卡片上的「轮换」跳到调用方页并打开轮换面板（不在卡片上直接轮换——新 token 只在那次响应里出现一次）。
+- 健康项：新增定时扫描时钟与通知按通道的连续失败计数作为探针来源；`server.health.fail_threshold` 改了要重启。
+- worker 服务：`servicemgr.Spec` 加 `Kind`（旧 spec 读作 serve），Windows 守护沿用 `serve supervise`；`worker service status` 退出码沿用 serve status 分级。
+- 安装脚本：server 地址只接受白名单字符的 http(s) URL（审查发现原先 `$(…)` / 反引号可注入）；macOS 安装后不注册服务、提示 `gofer worker -d`；manifest 取 server 自身版本，扁平 mirror 在 server 落后于 mirror 时拒绝安装。
+- 补传：协议 v30；Outcome 随 Result 一起缓存重放（不受协议版本门控）；缓冲溢出只统计从未写出的事件。
+
+验证：`internal/...` 全量通过；反向验证 5 项（审计挂载、到期判定、按序号去重、root 检查、连续计数）均失败；真实验收见 `tmp/b3-impl/acceptance.md`（审计、token 到期、健康项、Linux / Windows 一行安装与 `uninstall --purge`、断线补传）。
+
+遗留（另立 issue）：断线期间结束的远程 job 丢失断线时写出的 stdout / stderr 尾部（gofer-1dwi，原有缺口）；`auth caller ls` 对已过期调用方仍显示 active；worker join 非终端输出时倒计时刷屏且显示 0s left；join 结束提示未提 `worker service register`；worker service 的报错沿用 serve status 文案；连接健康时 64 条队列满的事件丢弃仍不计入 lost。

@@ -27,7 +27,23 @@ app-new:
 
 ## 配方 2：接一台新 worker 节点
 
-**推荐：一步接入向导**
+**最省事：一行安装（server 里自带的脚本）**
+
+在要接入的机器上，以将要跑 worker 的那个普通用户（不要 root / sudo）执行：
+
+```bash
+curl -fsSL <server>/install.sh | sh             # Linux / macOS
+```
+
+```powershell
+irm <server>/install.ps1 | iex                   # Windows
+```
+
+它装二进制（校验 sha256）→ `worker join`（屏幕显示配对码，管理员在 web Runners 页输入接受）→ `worker service register --start`，完事后就是一个登录即起的用户级服务。前提是 server 开了 `server.worker_enrollment.enabled`。
+
+> 安装取的是 **server 自己那个版本**的二进制与校验值（`GET <server>/install/manifest`）：mirror 已经发布了新版本、server 还没升级的那段时间，安装会因为取不到对应版本的校验值而失败——先把 server 更新到那个版本（或等它发布）再装。以 root 运行会直接退出。
+
+**推荐：一步接入向导（已经装了 gofer、要手工指定 id / 项目 / token 时）**
 
 ```bash
 # 管理员（任意能连 server 的机器）：
@@ -96,6 +112,7 @@ gofer worker join --server <server-addr> [--id <提议 id>] [--labels <标签>] 
 - 项目由接受时的人选择（发送方没有 `--project`）。
 - 被拒绝 / 超时 / 被同一来源的新申请顶替 / Ctrl-C 放弃都会打印原因并非零退出，重新接入再跑一次即可。
 - 接受后 worker 机器上的后续步骤（写配置、doctor）失败时 token 已在 `.env`、worker 已在 server 上登记，按提示跑 `gofer worker init --server <server-addr> --id <worker-id> --yes` 收尾。
+- 接受后想常驻就 `gofer worker service register --start`（用户级：Linux systemd --user、Windows 登录任务；macOS 暂不支持，用 `gofer worker -d`）；删干净用 `gofer worker service uninstall --purge`。详见 [worker-config.md](worker-config.md)「常驻为系统服务」。
 - 超过 2 分钟无人处理即过期；接受后一直没被领取（默认 60 秒）的登记会被 server 自动撤销，不会留下没人拿 token 的 worker。
 
 ## 配方 3：把一台 worker 从 LEGACY 迁到 POLICY（加 roots，可回滚）

@@ -16,9 +16,49 @@ gofer worker add <worker-id> --wsl <distro> --project <project>
 
 命令默认把 worker 安装到用户可写目录：Linux/macOS 为 `~/.local/bin/gofer`，Windows 为 `%LOCALAPPDATA%\gofer\bin\gofer.exe`。自升级需要在运行中可执行文件所在目录创建临时文件并原子替换；系统目录（如 `/usr/local/bin`）通常由 root 拥有，普通 worker 无法写入。
 
+## 一行接入（server 自带安装脚本）
+
+在要接入的机器上以**将要跑 worker 的那个普通用户**执行（不要用 root / sudo）：
+
+```bash
+# Linux / macOS
+curl -fsSL <server>/install.sh | sh
+```
+
+```powershell
+# Windows（PowerShell）
+irm <server>/install.ps1 | iex
+```
+
+- 脚本里只有 server 地址，**没有任何 token**；它做四件事：装二进制 → `worker join --server <addr>`（屏幕显示配对码，管理员在 web Runners 页接受后写本地 token）→ `worker service register --start`（用户级常驻：Linux systemd --user、Windows 登录任务）。
+- 二进制取 server 自己的版本，地址与 sha256 来自 `GET <server>/install/manifest?os=&arch=`（由 `server.update` 的 mirror / GitHub 发布物提供）；**校验值缺失或对不上就失败**，不会装未校验的二进制。
+- server 地址取 `server.web_base_url`，没配则用请求的 Host（含协议）。以 root 运行会直接退出。
+- **安装取 server 自己版本的校验值**：mirror 已经发了新版本、server 还没升级的那段时间，安装会因取不到对应版本的校验值被拒——先把 server 更新到那个版本再装。
+- 已有现成配置的机器仍可用 `gofer worker init` / `worker add --ssh`；要重来一次先 `gofer worker service uninstall --purge`。
+
+## 常驻为系统服务（worker service）
+
+把本机这个 worker 登记成**用户级**系统服务，登录后自动拉起，不用守着终端：
+
+```bash
+gofer worker service register [--id <worker-id>] [--start]   # 登记（默认 id 取 worker.yaml 的 worker_id；--start 登完就起）
+gofer worker service start | stop
+gofer worker service status [--json]                       # 退出码同 serve status：0 在跑 / 3 未运行 / 4 有故障 / 5 未配置
+gofer worker service uninstall [--purge]                   # 摘掉登记；--purge 连身份一起删
+```
+
+- **平台**：Linux 是 systemd `--user` 单元（要在未登录时常驻，另需 `loginctl enable-linger <user>`）；Windows 是登录触发的计划任务，以**最低权限**运行；**macOS 暂不支持**，用 `gofer worker -d` 后台跑（由登录项 / launchd 自己拉起）。
+- **不要在 root 下登记**（Linux 直接拒绝）：登记属于某个登录用户，root 的 systemd 实例做出来的单元没人能起——要跑 worker 的那个用户自己执行。Windows 不拒绝管理员身份，但任务仍以最低权限跑。
+- **只服务这一份文件**：登记管的就是 `<config-dir>/worker.yaml`（所以这组命令没有 `--worker-config`）；一个配置目录一个 worker。
+- **`--purge` 删什么**：不写时只摘服务登记（配置与 token 留着，还能用 `start` 或前台跑）；写了额外删除 worker.yaml、`.env` 里的 `GOFER_WORKER_TOKEN` 一行与运行时文件 `run/worker-<id>.*`。用于「这台机器不再接入」。
+- **`worker stop` 不是它**：`gofer worker stop [<id>]` 停的是 daemon 模式（`-d`）起的后台进程，注册成服务后要停服务用 `worker service stop`。
+- 回退到不认识 `worker service` 的旧版本前先 `gofer worker service uninstall`（否则旧版本管不了这个登记）。
+
 
 ## 目录
 
+- [一行接入（server 自带安装脚本）](#一行接入server-自带安装脚本)
+- [常驻为系统服务（worker service）](#常驻为系统服务worker-service)
 - [结构总览](#结构总览)
 - [模式：LEGACY vs POLICY](#模式legacy-vs-policy)
 - [roots（POLICY 核心）](#rootspolicy-核心)

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gookit/gcli/v3"
@@ -99,6 +100,10 @@ type serveStatusOutput struct {
 	// VersionAuthMismatch is set when the /v1/stats probe got 401: this CLI's token
 	// is not one the service accepts (gofer-t9md).
 	VersionAuthMismatch *versionAuthMismatch `json:"version_auth_mismatch,omitempty"`
+	// HealthFailing names the server self-check items that are failing (design
+	// 2026-11-14 §5), read from /v1/stats. A non-empty list is the degraded verdict:
+	// the service runs, a part of it does not.
+	HealthFailing []string `json:"health_failing,omitempty"`
 	// AuthToken is where the managed service's auth token comes from and whether
 	// this terminal resolves the same one (gofer-t9md). Never the value itself.
 	AuthToken *serveAuthTokenStatus `json:"auth_token,omitempty"`
@@ -431,6 +436,9 @@ func runServeManagedStatus(c *gcli.Command, _ []string) error {
 	if out.IdentityError != "" {
 		c.Printf("identity: %s\n", out.IdentityError)
 	}
+	if len(out.HealthFailing) > 0 {
+		c.Printf("health_failing: %s\n", strings.Join(out.HealthFailing, ", "))
+	}
 	for _, line := range statusFileLines(&out) {
 		c.Printf("%s\n", line)
 	}
@@ -557,7 +565,8 @@ func inspectManagedStatus(ctx context.Context, m *servicemgr.Manager) (serveStat
 		}
 		out.Health = "healthy"
 		cliToken, cliSrc := cliStatsToken(&configValue.Server)
-		version, versionErr := readManagedRuntimeVersion(probeCtx, client, probeHost, rawPort, cliToken)
+		version, failing, versionErr := readManagedRuntimeVersion(probeCtx, client, probeHost, rawPort, cliToken)
+		out.HealthFailing = failing
 		if versionErr != nil {
 			out.VersionError = versionErr.Error()
 			var authErr statsAuthError
@@ -594,35 +603,37 @@ type statsAuthError struct{ status int }
 
 func (e statsAuthError) Error() string { return fmt.Sprintf("stats returned HTTP %d", e.status) }
 
-func readManagedRuntimeVersion(ctx context.Context, client *http.Client, host, port, token string) (string, error) {
+func readManagedRuntimeVersion(ctx context.Context, client *http.Client, host, port, token string) (string, []string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, port)+"/v1/stats", nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("stats unavailable: %w", err)
+		return "", nil, fmt.Errorf("stats unavailable: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
-			return "", statsAuthError{status: resp.StatusCode}
+			return "", nil, statsAuthError{status: resp.StatusCode}
 		}
-		return "", fmt.Errorf("stats returned HTTP %d", resp.StatusCode)
+		return "", nil, fmt.Errorf("stats returned HTTP %d", resp.StatusCode)
 	}
 	var payload struct {
 		Version string `json:"version"`
+		// HealthFailing is the server self-check's failing item names; absent while healthy.
+		HealthFailing []string `json:"health_failing"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
-		return "", fmt.Errorf("decode stats version: %w", err)
+		return "", nil, fmt.Errorf("decode stats version: %w", err)
 	}
 	if payload.Version == "" {
-		return "", errors.New("stats has no build version")
+		return "", payload.HealthFailing, errors.New("stats has no build version")
 	}
-	return payload.Version, nil
+	return payload.Version, payload.HealthFailing, nil
 }
 
 func managedApplicationLog(spec servicemgr.Spec) (string, error) {
