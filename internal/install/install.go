@@ -121,7 +121,7 @@ type Manifest struct {
 func ManifestFor(ctx context.Context, src Resolver, req Request) (Manifest, error) {
 	version := updatecheck.ReleaseVersion(req.Version)
 	if version == "" {
-		return Manifest{}, fmt.Errorf("%w (%q): install a released version to use the installer", ErrNoReleaseVersion, req.Version)
+		return Manifest{}, fmt.Errorf("%w (%q): only a released build has a version to download", ErrNoReleaseVersion, req.Version)
 	}
 	goos, goarch := strings.TrimSpace(req.OS), strings.TrimSpace(req.Arch)
 	if goos == "" {
