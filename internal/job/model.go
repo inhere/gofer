@@ -1566,6 +1566,17 @@ const (
 	// is in the default notification set, so whoever watches notifications hears that the
 	// timer stopped; a failures pause also becomes a 「等我」 card.
 	EventSchedulePaused = "schedule.paused"
+	// Server self-check transitions (design 2026-11-14 §5, plan R10/R11), recorded on the
+	// SERVER's own scope (see ServerEventScope) because they belong to no job and no
+	// project:
+	//   - server.health_failing   {check, failures, error}
+	//   - server.health_recovered {check, failures}
+	// The runner announces a transition ONCE (a fault is not repeated while it lasts), so
+	// these rows are the announcement, not a heartbeat. server.health_failing is in the
+	// default notification set — a server part that keeps failing is something only a
+	// person can put right — and it also becomes a 「等我」 card under 「需要你处理」.
+	EventServerHealthFailing   = "server.health_failing"
+	EventServerHealthRecovered = "server.health_recovered"
 	// Agent health transitions (design §六), recorded on the AGENT's own scope
 	// (`agent:<key>`, see AgentEventScope) because they belong to no job:
 	//   - agent.degraded  {agent, transient_fail, window_sec, last_error}
@@ -1601,6 +1612,14 @@ const scheduleScopePrefix = "schedule:"
 // ScheduleEventScope is the synthetic event-scope id of a schedule, the stream
 // EventScheduleRunFailed is recorded on.
 func ScheduleEventScope(scheduleID string) string { return scheduleScopePrefix + scheduleID }
+
+// serverScopeID is the one event-stream id of the gofer server itself
+// (`server:gofer`, mirroring the `schedule:<id>` / `agent:<key>` streams): the server
+// self-check transitions are recorded there, since no job and no project owns them.
+const serverScopeID = "server:gofer"
+
+// ServerEventScope is the synthetic event-scope id of the server itself.
+func ServerEventScope() string { return serverScopeID }
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via
 // recordWorkflowEvent at the corresponding workflow-engine transition. The detail

@@ -60,6 +60,12 @@ const (
 	// person who can rotate the token; it is not a queue card. Rotating the token (or
 	// disabling the caller) removes it.
 	KindCallerTokenExpiring = "caller.token_expiring"
+	// KindServerHealth is the card of a server self-check item that reached its
+	// consecutive-failure threshold (inbox.HealthCards builds it outside this package from
+	// the self-check runner's latest results). It enters the 「等我」 list under the
+	// attention class and goes away by itself on the first successful run of the item; it
+	// is not a queue card, so advice cannot be written for it.
+	KindServerHealth = "server.health"
 )
 
 // MailHeldCardKey is the stable key of the held-mail summary card; MailHeldLink is the web

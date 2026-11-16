@@ -63,7 +63,13 @@ import (
 //
 // schedule.paused joins them: gofer stopped a timer by itself (a failure streak or its
 // run limit), and nothing will run again until a person looks.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe, "job.delivery_failed", EventUpdateAvailable, "job.child_wake_failed", "schedule.paused"}
+//
+// server.health_failing joins them (design 2026-11-14 §5): a part of the server itself
+// (its storage, the data volume, the schedule sweep, an outbound channel) stayed broken
+// for the consecutive-failure threshold — only a person can put that right. It fires on
+// the transition alone, so a fault lasting an hour is one message, and the recovery
+// (server.health_recovered) is NOT a default: it closes the loop the fault opened.
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "job.awaiting_approval", "plan.blocked", "job.retry_exhausted", "job.budget_exceeded", "plan.leader_exhausted", "session.awaiting_reply", EventWorkRemind, EventWorkDigest, EventWorkNeedsMe, "job.delivery_failed", EventUpdateAvailable, "job.child_wake_failed", "schedule.paused", "server.health_failing"}
 
 // EventUpdateAvailable fires once per newly found gofer release (server.update).
 const EventUpdateAvailable = "update.available"

@@ -143,6 +143,10 @@ func signalsOf(c today.Card) (subject string, s Signals, ok bool) {
 		return "schedule:" + c.Refs.ScheduleID, Signals{Attention: true}, true
 	case KindCallerTokenExpiring:
 		return "caller:" + c.Refs.CallerID, Signals{Attention: true}, true
+	case KindServerHealth:
+		// A server self-check item that stayed broken is no job of the person's: it files
+		// under 「需要你处理」, with the item itself (its stable check name) as the subject.
+		return c.Key, Signals{Attention: true}, true
 	}
 	return "", Signals{}, false
 }

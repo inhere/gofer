@@ -759,7 +759,9 @@ func DefaultInboxRules() []InboxRule {
 			// schedule.paused: a schedule gofer stopped after max_failures consecutive failed runs.
 			"job.failed", "job.child_wake_failed", "schedule.paused",
 			// caller.token_expiring: a stored caller's token expires within 7 days (or has).
-			"caller.token_expiring"}, Priority: 100},
+			// server.health: a server self-check item (storage / disk / sweep / notification) kept
+			// failing past server.health.fail_threshold; only a person can put it right.
+			"caller.token_expiring", "server.health"}, Priority: 100},
 		{ID: "fyi", Column: "fyi", Kinds: []string{"job.terminal", "work.digest", "activity", "comment", "agent.reply", "lane"}, Priority: 90},
 	}
 }

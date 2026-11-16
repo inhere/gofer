@@ -115,7 +115,7 @@ func (s *Server) handleInboxRules(c *rux.Context) {
 // The home page, the inbox's action column and the top-bar badge all read what this returns,
 // so they cannot disagree. fyi is the person's own finished jobs (the inbox's second column).
 func (s *Server) waitingFor(c *rux.Context, queue []today.Card) (waiting, fyi []today.Card, err error) {
-	var failed, stranded, paused, expiring []today.Card
+	var failed, stranded, paused, expiring, unhealthy []today.Card
 	if s.jobs != nil && s.jobs.Meta() != nil {
 		var allow func(string) bool
 		if s.ceilingActive(c) {
@@ -138,8 +138,11 @@ func (s *Server) waitingFor(c *rux.Context, queue []today.Card) (waiting, fyi []
 	if expiring, err = s.callerTokenCards(c); err != nil {
 		return nil, nil, err
 	}
-	cards := make([]today.Card, 0, len(queue)+len(failed)+len(stranded)+len(paused)+len(expiring))
-	cards = append(append(append(append(append(cards, queue...), failed...), stranded...), paused...), expiring...)
+	// A server self-check item that stayed broken waits for a person too (design 2026-11-14
+	// §5); the list is server-wide, so the caller's project scope does not filter it.
+	unhealthy = s.healthCards(s.requestLang(c))
+	cards := make([]today.Card, 0, len(queue)+len(failed)+len(stranded)+len(paused)+len(expiring)+len(unhealthy))
+	cards = append(append(append(append(append(append(cards, queue...), failed...), stranded...), paused...), expiring...), unhealthy...)
 	return inbox.Waiting(s.requestLang(c), cards), fyi, nil
 }
 

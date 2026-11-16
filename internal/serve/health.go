@@ -9,6 +9,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/httpapi"
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/notify"
 	"github.com/inhere/gofer/internal/serve/healthcheck"
 )
@@ -42,6 +43,7 @@ func startHealthCheck(c *gcli.Command, cr *core.Core, sweeps *sweepClock, srv *h
 		{Name: healthcheck.CheckNotification, Probe: healthcheck.NotifyProbe(streaks.Fails, threshold)},
 	}
 	runner := healthcheck.New(threshold, checks...)
+	runner.OnTransition(healthEventRecorder(cr.Jobs.RecordScopedEvent))
 	srv.SetHealthChecks(runner)
 	c.Printf("gofer: health self-check enabled (interval=%s, fail_threshold=%d)\n", healthcheck.DefaultInterval, threshold)
 
@@ -51,6 +53,26 @@ func startHealthCheck(c *gcli.Command, cr *core.Core, sweeps *sweepClock, srv *h
 		runner.Loop(healthcheck.DefaultInterval, stop)
 	}()
 	return done
+}
+
+// healthEventRecorder returns the two self-check transition callbacks: a fault is
+// announced ONCE (the runner fires on the change only), so a fault that lasts an hour
+// writes one event and one notification, and the first success closes it with
+// server.health_recovered. Both go on the server's own event stream (`server:gofer`) with
+// no project key: no job and no project owns a server part, and the webhook fan-out treats
+// the empty project as "every webhook without a project filter". rec is
+// job.Service.RecordScopedEvent.
+func healthEventRecorder(rec func(scope, eventType, projectKey string, detail map[string]any)) (failing, recovered func(healthcheck.Result)) {
+	emit := func(eventType string) func(healthcheck.Result) {
+		return func(res healthcheck.Result) {
+			detail := map[string]any{"check": res.Name, "failures": res.ConsecutiveFailures}
+			if res.LastError != "" {
+				detail["error"] = res.LastError
+			}
+			rec(job.ServerEventScope(), eventType, "", detail)
+		}
+	}
+	return emit(job.EventServerHealthFailing), emit(job.EventServerHealthRecovered)
 }
 
 // dataDir is the volume the free-space self-check watches: the metadata database's

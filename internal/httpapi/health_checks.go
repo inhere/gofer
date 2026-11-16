@@ -5,7 +5,10 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/i18n"
+	"github.com/inhere/gofer/internal/inbox"
 	"github.com/inhere/gofer/internal/serve/healthcheck"
+	"github.com/inhere/gofer/internal/today"
 )
 
 // healthChecker is the slice of the server self-check runner (internal/serve/healthcheck)
@@ -36,6 +39,25 @@ func (s *Server) handleHealthChecks(c *rux.Context) {
 // healthDegraded is the single bit /health publishes: an item is failing, no detail.
 func (s *Server) healthDegraded() bool {
 	return s.health != nil && s.health.Degraded()
+}
+
+// healthCards builds the 「等我」 cards of the self-check items that reached their
+// consecutive-failure threshold. The list is read from the runner's LATEST snapshot on every
+// request, so a fault appears as soon as it is reported and disappears on the item's first
+// successful run — nothing is stored, so nothing can go stale. The items name no project, so
+// the caller's project scope does not filter them.
+func (s *Server) healthCards(lang i18n.Lang) []today.Card {
+	if s.health == nil {
+		return nil
+	}
+	var items []inbox.HealthItem
+	for _, res := range s.health.Snapshot() {
+		if !res.Failing {
+			continue
+		}
+		items = append(items, inbox.HealthItem{Name: res.Name, Failures: res.ConsecutiveFailures, LastError: res.LastError, At: res.CheckedAt})
+	}
+	return inbox.HealthCards(lang, items)
 }
 
 // healthFailing lists the failing check names for /v1/stats and `serve status`.

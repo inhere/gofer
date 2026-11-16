@@ -330,7 +330,7 @@ type Server struct {
 
 	// health is the server self-check runner (nil = no checks wired, which every reader
 	// treats as "anything is fine"). Set by serve through SetHealthChecks.
-	health healthChecker
+	health  healthChecker
 	tunnels *tunnel.Registry
 
 	// forwarders is the TUN-03 hub-side registry of online `gofer tun forward`

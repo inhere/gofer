@@ -48,6 +48,7 @@ var notInboxEvents = map[string]string{
 	"config.updated":            "system audit event",
 	"schedule.run_skipped":      "a skipped run is by design, not a call to action; it stays on the schedule's event stream",
 	"schedule.run_failed":       "history on the schedule's event stream; a failure streak reaches the inbox as schedule.paused",
+	"server.health_recovered":   "closes the fault the server.health card announced; nothing left to do",
 }
 
 // Every notify catalog event is either announced to the inbox (config.InboxEventKinds) or
