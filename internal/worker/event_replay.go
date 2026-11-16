@@ -213,6 +213,13 @@ func (cl *Client) cachedOutcome(remoteID string) *wsproto.Outcome {
 // replay is enabled for this hub), then, for a job that already ended, the cached
 // Outcome and Result. A write failure stops the whole replay and keeps every cache for
 // the next reconnect.
+//
+// It runs from applyResume, on the freshly handshaken connection and BEFORE that
+// connection is published — so the hub's recovery plan (which saw these jobs as terminal
+// in our `inflight` snapshot and is holding their host jobs in `recovering`, waiting for
+// the Result) gets the authoritative ending (RECOV-01). A Result whose entry is past
+// workerResultTTL was already swept by inflightResult: the hub has given up on that job,
+// and replaying into a finished job would be noise.
 func (cl *Client) replayJobState(ctx context.Context, conn *websocket.Conn) {
 	ids := cl.inflightIDs()
 	sort.Strings(ids)
