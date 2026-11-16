@@ -326,9 +326,11 @@ func (s *Store) CompleteWakeupSay(id string, disable bool) error {
 // is the confirmation of a receipt whose child changed state before the confirmation
 // landed (confirmSayBatchLocked): the parent did read that receipt, so it is a fire, but
 // the sentinel now stands for the NEWER state, which still has to reach the parent and
-// counts on its own confirmation — one fire per delivery. The CAS on the sentinel keeps
-// a row a confirmation already cleared (or a re-arm that replaced it) from counting
-// twice; the bool reports whether this call counted.
+// counts on its own confirmation — one fire per delivery. The CAS on the sentinel refuses
+// a row whose sentinel another delivery already took (cleared by a confirmation or
+// replaced by a re-arm); "once per delivery" is the batch confirmation's doing, since a
+// batch is confirmed exactly once (confirmSayBatchLocked). The bool reports whether this
+// call counted.
 func (s *Store) CountWakeupSayFire(id string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
