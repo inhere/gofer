@@ -64,6 +64,9 @@ var mirroredEventTypes = map[string]bool{
 	EventJobAwaitingInput:      true,
 	EventJobVerifyStarted:      true,
 	EventJobVerifyFinished:     true,
+	// Raised by the worker client (not the job service) when its replay buffer overflowed;
+	// listed so the mirrored vocabulary stays in one place.
+	EventJobEventsLost: true,
 	// SEC-01: the allowance is resolved on the machine that SPAWNS the child, which for
 	// a dispatched job is the worker — the host would otherwise never learn that this
 	// job ran with a variable its denylist would have stripped, which is exactly the
