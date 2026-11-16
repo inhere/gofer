@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.2.0 -->
 # 第 4 批：自主推进（plan 推进引擎与决策点） 总设计
 
-> 状态：Draft 0.1（待用户审）
+> 状态：Approved（Draft 0.1；用户 2026-11-16 批准，Q1–Q6 均按推荐 A）
 > issue：gofer-eeod（闭环主干，本设计为其底座）、gofer-jaoy（agent 自报终态）、gofer-n3kw（job 诊断）、gofer-5hdh（有上限的返工）、gofer-ds7i（动作绑定轮次）、gofer-zoww（终态复盘）；关联 gofer-ayas（Squad / leader）
 > 方向：gofer memory `gofer-autonomy-direction`（用户 2026-11-16 认可）
 > 参考：`docs/refer/2026-11-11-super-agent-workflow-survey.md`、`docs/refer/2026-11-15-loopforge-notes.md`
@@ -138,4 +138,4 @@ plan 结束后确定性统计事实（各 todo 耗时、返工轮数、决策点
 
 ## 结论与人工计划 Gate
 
-gofer 加一个确定性的 plan 推进引擎，判断只在四类窄决策点交给一次性 agent，agent 只能从白名单里选动作；放权分三级、红线永远要人、预算统一熔断；先只记录、量化一致率，再逐级放权。第 4 批建议只做 P1 + P2。等用户答复 Q1–Q6 并批准后写 P1 + P2 的计划。
+gofer 加一个确定性的 plan 推进引擎，判断只在四类窄决策点交给一次性 agent，agent 只能从白名单里选动作；放权分三级、红线永远要人、预算统一熔断；先只记录、量化一致率，再逐级放权。第 4 批建议只做 P1 + P2。用户 2026-11-16 批准，Q1–Q6 均取 A；下一步写 P1 + P2 的计划。
