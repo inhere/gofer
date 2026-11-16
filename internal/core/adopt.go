@@ -73,6 +73,8 @@ func (a *jobAdopter) AdoptAfterRestart(workerID, instanceID string, inflight []w
 			Sink:      &adoptSink{aj: aj, workerID: workerID, resultDir: res.ResultDir},
 			StdoutOff: stdoutOff,
 			StderrOff: stderrOff,
+			EventSeq:  a.jobs.WorkerEventSeq(id),
+			AcpOff:    runner.ACPMirrorSize(res.ResultDir),
 		}
 	}
 	return out, lost
@@ -125,6 +127,10 @@ func (s *adoptSink) OnSessionStatus(status wsproto.Status) {
 // and verify step must keep reaching the host row through this sink too.
 func (s *adoptSink) OnJobEvent(ev wsproto.JobEvent) {
 	if ev.Type == job.EventJobTurnStarted || ev.Type == job.EventJobTurnEnded || ev.Type == job.EventJobAwaitingInput {
+		return
+	}
+	if ev.Seq > 0 {
+		s.aj.OnWorkerJobEvent(ev.Type, workerrunner.JobEventDetail(ev, s.workerID), ev.Seq)
 		return
 	}
 	s.aj.OnJobEvent(ev.Type, workerrunner.JobEventDetail(ev, s.workerID))

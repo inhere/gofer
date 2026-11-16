@@ -432,6 +432,12 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 			req.OnJobEvent(eventType, withWorkerOrigin(detail, workerID))
 		}
 	}
+	if req.OnWorkerJobEvent != nil {
+		sink.onWorkerJobEvent = func(eventType string, detail map[string]any, seq int64) {
+			req.OnWorkerJobEvent(eventType, withWorkerOrigin(detail, workerID), seq)
+		}
+	}
+	sink.eventSeq = req.WorkerEventSeq
 	// Wire the interaction bridge: an inbound interaction{open} is injected onto
 	// the host job (via req.Interactions, the same remoteInteractionSink peer-http
 	// uses) and the host-side answer is sent back over WS (hub.Answer). Mirrors
@@ -872,6 +878,11 @@ type boundedSink struct {
 	// onJobEvent (nil-safe) records a worker-raised job event (SUP-01 G) on the HOST
 	// job, tagged with the origin the runner stamps. Set from req.OnJobEvent.
 	onJobEvent func(eventType string, detail map[string]any)
+	// onWorkerJobEvent / eventSeq (nil-safe) are the v30 numbered-event path: the first
+	// records an event de-duplicated by its seq, the second reads the highest applied seq
+	// for the resume ack.
+	onWorkerJobEvent func(eventType string, detail map[string]any, seq int64)
+	eventSeq         func() int64
 	// resultDir is the HOST job's result dir: "acp" log frames (protocol v22) are
 	// appended to its artifacts/acp.jsonl instead of a stdio writer (gofer-e2x7).
 	// Empty drops them.
@@ -1065,10 +1076,24 @@ func (s *boundedSink) Resume() {
 // hub has already dropped duplicates. Nil-safe: a host job with no event sink simply
 // ignores it.
 func (s *boundedSink) OnJobEvent(ev wsproto.JobEvent) {
+	if ev.Seq > 0 && s.onWorkerJobEvent != nil {
+		s.onWorkerJobEvent(ev.Type, decodeJobEventDetail(ev), ev.Seq)
+		return
+	}
 	if s.onJobEvent == nil {
 		return
 	}
 	s.onJobEvent(ev.Type, decodeJobEventDetail(ev))
+}
+
+// ResumeCursor implements wshub.ResumeCursorSink (protocol v30): the highest worker
+// event seq the host job has applied and the size of its mirrored acp.jsonl, which the
+// hub echoes in the resume ack so the worker replays from exactly there.
+func (s *boundedSink) ResumeCursor() (eventSeq, acpOff int64) {
+	if s.eventSeq != nil {
+		eventSeq = s.eventSeq()
+	}
+	return eventSeq, runner.ACPMirrorSize(s.resultDir)
 }
 
 // OnInteraction implements wshub.JobSink: it forwards one worker interaction frame

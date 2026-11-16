@@ -318,6 +318,13 @@ func (a *AdoptedJob) OnJobEvent(eventType string, detail map[string]any) {
 	a.s.recordEvent(a.jobID, eventType, detail)
 }
 
+// OnWorkerJobEvent is OnJobEvent for a numbered event (protocol v30): recorded only when
+// seq is above the job row's applied cursor, so a replay after a reconnect or a server
+// restart adds no row and fires no notification.
+func (a *AdoptedJob) OnWorkerJobEvent(eventType string, detail map[string]any, seq int64) {
+	a.s.recordWorkerEvent(a.jobID, eventType, detail, seq)
+}
+
 // OnOutcome stashes the worker-captured产出 (P4) so the terminal path applies it
 // before finishing the job (nil when the worker sent no outcome frame),
 // latest-wins, and mirrors the dispatched path's G1 behaviour: the first frame

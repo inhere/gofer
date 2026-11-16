@@ -276,6 +276,14 @@ type Request struct {
 	// wires it to its event log; the runner never touches the store itself.
 	OnJobEvent func(eventType string, detail map[string]any)
 
+	// OnWorkerJobEvent (nil-safe) is OnJobEvent for an event a WORKER mirrored with its
+	// per-job sequence number (protocol v30): the job service records it only when seq
+	// is above the highest already applied, so a replay after a reconnect adds no row and
+	// fires no notification. WorkerEventSeq returns that highest applied seq (the cursor
+	// the hub echoes in the resume ack). Only the remote worker runner reads them.
+	OnWorkerJobEvent func(eventType string, detail map[string]any, seq int64)
+	WorkerEventSeq   func() int64
+
 	// Meter, when non-nil, is the job's budget meter (N2 §B GATE-02): a runner that
 	// observes the agent's accounting itself (the acp runner) feeds it; it is also wired
 	// into the ndjson capture by the job service. Local-only, never on the wire. nil =

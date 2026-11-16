@@ -591,7 +591,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// so they are reconciled against the store separately and merged into the same plan
 	// (their resume offsets come from the log files on disk).
 	plan = h.planAdoption(reg, plan)
-	ack.Resume = plan.resumeEntries()
+	ack.Resume = plan.resumeEntries(wsproto.SupportsJobEventSeq(reg.ProtocolVersion))
 	ackedRev := int64(0)
 	if h.policySrc != nil && wsproto.SupportsPolicy(reg.ProtocolVersion) {
 		if p, ok := h.policySrc.PolicyFor(reg.WorkerID); ok {
@@ -828,7 +828,11 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			if derr != nil {
 				continue
 			}
-			if wc.jobEventSeen(ev) {
+			// v30: a numbered event is de-duplicated by the sink against the job's durable
+			// cursor (it survives reconnects and server restarts), not by this
+			// connection's identity window.
+			numbered := ev.Seq > 0 && wsproto.SupportsJobEventSeq(wc.protocolVersion())
+			if !numbered && wc.jobEventSeen(ev) {
 				slog.Debug("worker.job_event_duplicate", "event", "worker.job_event_duplicate", "component", "server",
 					"worker_id", wc.workerID, "job_id", env.JobID, "type", ev.Type)
 				continue

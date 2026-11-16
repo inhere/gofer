@@ -193,6 +193,37 @@ func (s *Service) RecordJobEvent(jobID, eventType string, detail map[string]any)
 }
 
 func (s *Service) recordEvent(jobID, eventType string, detail any) {
+	s.recordEventSeq(jobID, eventType, detail, 0)
+}
+
+// workerEventSink is the de-duplicating write side for worker-mirrored events
+// (protocol v30), satisfied by *jobstore.Store like eventSink.
+type workerEventSink interface {
+	InsertWorkerJobEvent(e jobstore.JobEvent, seq int64) (int64, bool, error)
+}
+
+// recordWorkerEvent records one event a worker mirrored for a job this server
+// dispatched (or adopted), de-duplicated by the worker's per-job sequence number: a
+// replay after a reconnect (seq already applied) inserts nothing and triggers no
+// webhook, observer or push. See jobstore.InsertWorkerJobEvent.
+func (s *Service) recordWorkerEvent(jobID, eventType string, detail any, workerSeq int64) {
+	s.recordEventSeq(jobID, eventType, detail, workerSeq)
+}
+
+// WorkerEventSeq returns the highest worker event sequence applied for the job (0 =
+// none / unknown): the cursor the hub echoes in the reconnect ack.
+func (s *Service) WorkerEventSeq(jobID string) int64 {
+	n, err := s.meta.WorkerEventSeq(jobID)
+	if err != nil {
+		slog.Warn("worker event seq", "job_id", jobID, "err", err)
+		return 0
+	}
+	return n
+}
+
+// recordEventSeq is recordEvent's body. workerSeq > 0 routes the insert through the
+// de-duplicating path and reports "not applied" as a silent no-op.
+func (s *Service) recordEventSeq(jobID, eventType string, detail any, workerSeq int64) {
 	var dj string
 	if detail != nil {
 		if b, err := json.Marshal(detail); err == nil && len(b) <= MaxEventDetailBytes {
@@ -204,12 +235,28 @@ func (s *Service) recordEvent(jobID, eventType string, detail any) {
 		sink = s.meta
 	}
 	at := s.nowFn().Unix()
-	seq, err := sink.InsertJobEvent(jobstore.JobEvent{
+	ev := jobstore.JobEvent{
 		JobID:  jobID,
 		Type:   eventType,
 		Detail: dj,
 		At:     at,
-	})
+	}
+	var seq int64
+	var err error
+	if workerSeq > 0 {
+		var ws workerEventSink = s.meta
+		if custom, ok := sink.(workerEventSink); ok {
+			ws = custom
+		}
+		var applied bool
+		seq, applied, err = ws.InsertWorkerJobEvent(ev, workerSeq)
+		if err == nil && !applied {
+			slog.Debug("recordEvent: worker event replay skipped", "job_id", jobID, "type", eventType, "worker_seq", workerSeq)
+			return
+		}
+	} else {
+		seq, err = sink.InsertJobEvent(ev)
+	}
 	if err != nil {
 		slog.Warn("recordEvent: insert job event", "job_id", jobID, "type", eventType, "err", err)
 		return
