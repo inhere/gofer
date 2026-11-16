@@ -1,7 +1,7 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # 第 3 批：可追溯与机器接入 实施计划
 
-> 状态：Draft 0.1（待用户审）
+> 状态：Draft 0.1 已批准（2026-11-15，用户：「3 批计划 Draft 0.1 批准，实施 sonnet 只做最核心的，其他都排 suga oc-go dsv4.1 做」）；执行方按下节「分工调整」
 > 设计：`docs/design/2026-11-14-traceability-and-machine-onboarding-design.md` Draft 0.1（已批准，Q1–Q9 = 推荐项）
 > issue：gofer-1uwh、gofer-ivmr、gofer-glzl、gofer-nhh7（㉕ 部分）、gofer-dcmc、gofer-73l5
 
@@ -49,9 +49,23 @@
 | R20 | 升级路径校验（Q8） | `verifySHA256` 期望值为空即报错；镜像模板下载改为同时取该版本 `latest.yaml` 的校验值；错误文案说明「更新源缺少校验值」 |
 | R21 | 73l5 | 回执确认时子 job 状态已变的分支也计 `fired_count`，补用例 |
 
+## 分工调整（用户批准时要求）
+
+sonnet 只做出错代价最高的三项：T1 审计（每个写请求都经过）、T2 token 到期判定（鉴权）、T4 断线补传（协议与并发）。其余全部派 suga，模型 `opencode-go/deepseek-v4.1-flash`。R9 的「需要你处理」类与 R12 改类随 T2 落地（T2 的到期卡先用到它），T3 直接使用。
+
+```
+W0  T0 前置（Claude）
+W1  [b3-a] T1 → T2（sonnet A）‖ [b3-b] T4（sonnet B）‖ [b3-c] T5 → T6（suga）
+W2  审查三条链；合并 → b3（Claude，--no-ff）；b3 上相关包测试
+W3  [b3] T3 健康项 → T7 73l5 → T8 web → T9 文档（suga，依次）
+W4  T10（Claude）
+```
+
+suga 任务的审查加一条：servicemgr 改动后 serve 已有用例与 golden 全部不变，安装脚本模板逐行看。
+
 ## 前置与 fail-closed 条件
 
-- T0（Claude）：导出 v0.214.x 的 schema 到 `internal/jobstore/testdata/schema-v0.214.0.sql`（G057，第 2 批改过 schema）；主机建三个 worktree：`.worktrees/b3`（`feat/b3`，集成）、`.worktrees/b3-a`、`.worktrees/b3-b`，基于当时的 main，`.git` 改相对 gitdir，`web/node_modules` 链接主 checkout。
+- T0（Claude）：导出 v0.214.x 的 schema 到 `internal/jobstore/testdata/schema-v0.214.0.sql`（G057，第 2 批改过 schema）；主机建四个 worktree：`.worktrees/b3`（`feat/b3`，集成）、`.worktrees/b3-a`、`.worktrees/b3-b`、`.worktrees/b3-c`，基于当时的 main，`.git` 改相对 gitdir，`web/node_modules` 链接主 checkout。
 - Go 命令：`GOWORK=off`，`GOCACHE` 在 `tmp/_cache/<名>`，`TMPDIR=/tmp/gofer-gotmp/<名>`。
 - fail-closed（出现即停，回报）：基线相关包测试在未改动时失败；需要设计未列的权限；补传需要改 stdout/stderr 或交互的现有恢复路径；servicemgr 泛化需要改变 serve 已登记服务的行为。
 
