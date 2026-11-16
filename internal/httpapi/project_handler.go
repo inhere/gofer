@@ -26,6 +26,10 @@ func (s *Server) handleHealth(c *rux.Context) {
 		"ok":          true,
 		"service":     "gofer",
 		"server_time": time.Now().UnixMilli(),
+		// degraded is the self-check verdict with NO detail (design 2026-11-14 §5): /health
+		// stays public, so it only says whether some item is failing — the items themselves
+		// are on the login-only /v1/health/checks.
+		"degraded": s.healthDegraded(),
 	}
 	if cfg := s.serverCfg(); cfg != nil {
 		if base := strings.TrimSpace(cfg.WebBaseURL); base != "" {

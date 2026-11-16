@@ -231,6 +231,14 @@ func collectDiagnostics(info buildinfo.Info, lines int) ([]diagnosticFile, diagn
 	} else {
 		workers, werr := cli.ListWorkers()
 		agents, aerr := cli.ListAgents()
+		// The server self-check (design 2026-11-14 §5): the same items /v1/health/checks
+		// serves, so a bundle shows which part the server itself calls broken.
+		checks, cerr := cli.HealthChecks()
+		if cerr != nil {
+			addJSON("health-checks.json", map[string]string{"error": "health checks unavailable"})
+		} else {
+			addJSON("health-checks.json", checks)
+		}
 		if werr != nil {
 			addJSON("workers.json", map[string]string{"error": "worker list unavailable"})
 		} else {

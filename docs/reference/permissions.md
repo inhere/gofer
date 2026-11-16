@@ -154,6 +154,7 @@ worker 用自己的令牌、job 用自己的凭据，两者都不走这套权限
 | `POST` | `/v1/decisions` | `Public` | — | `job` | `Resource(plan)` | 写 |
 | `GET` | `/v1/decisions/{id}` | `Public` | — | — | `Resource(decision)` | 读 |
 | `POST` | `/v1/decisions/{id}/answer` | `InHandler(deny)` | `interaction.answer`、`session.reply.others` | — | `Resource(decision)` | 写 |
+| `GET` | `/v1/health/checks` | `Public` | — | — | `NoProject` | 读 |
 | `GET` | `/v1/inbox` | `Public` | — | — | `Filter` | 读 |
 | `GET` | `/v1/inbox/rules` | `Public` | — | — | `NoProject` | 读 |
 | `POST` | `/v1/inbox/state` | `Public` | — | — | `NoProject` | 读（ReadSafe） |

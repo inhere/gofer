@@ -327,6 +327,10 @@ type Server struct {
 	// callers (most tests, mcp) pass nil.
 	prober  runnerProber
 	workers workerRegistry
+
+	// health is the server self-check runner (nil = no checks wired, which every reader
+	// treats as "anything is fine"). Set by serve through SetHealthChecks.
+	health healthChecker
 	tunnels *tunnel.Registry
 
 	// forwarders is the TUN-03 hub-side registry of online `gofer tun forward`
@@ -1361,6 +1365,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.PUT("/callers/{id}/limits", s.handleCallerSetLimits)
 
 		r.GET("/config", s.handleGetConfig)
+		// The server self-check items (design 2026-11-14 §5): a logged-in caller may read
+		// them, and they name no project / carry no secret. /health publishes the single
+		// degraded bit instead, since it stays public.
+		r.GET("/health/checks", s.handleHealthChecks)
 		// Extension settings (docs/design/2026-10-20-work-noise-and-db-settings-design.md):
 		// the registry, one key, an export of the modified keys and an import with a dry-run
 		// preview. `settings.read` is seeded to `users`, `settings.write` is not; both are

@@ -880,6 +880,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/runners": {user: Public(), scope: NoProject()},
 	"GET /v1/runners/{name}/messenger/agents": {user: Public(), scope: NoProject()},
 	"GET /v1/stats":           {user: Public(), scope: Filter()},
+	"GET /v1/health/checks":   {user: Public(), scope: NoProject()},
 	"GET /v1/stats/overview":  {user: Public(), scope: Filter()},
 	"POST /v1/stats/backfill": {user: Public(), scope: NoProject()},
 
