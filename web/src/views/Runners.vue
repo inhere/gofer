@@ -44,6 +44,11 @@ const topologyOpen = ref(true)
 // 按权限隐藏：升级 worker 需要 worker.upgrade；添加 / 重新加载配置需要 worker.manage。
 const { can } = useWhoami()
 const addOpen = ref(false)
+// 一行安装（设计 2026-11-14 §3）：脚本由 server 自己提供（GET /install.sh 与 /install.ps1），
+// 里面只带 server 地址、不带任何秘密。屏幕上会显示配对码，管理员在「待接受」里批准。
+const serverOrigin = window.location.origin
+const installSh = `curl -fsSL ${serverOrigin}/install.sh | sh`
+const installPs = `irm ${serverOrigin}/install.ps1 | iex`
 const addID = ref('')
 const addLabels = ref('')
 const addProjects = ref('')
@@ -524,6 +529,21 @@ function beatLabel(r: Runner): string {
           {{ addOpen ? t('runners.collapse') : t('runners.add.title') }}
         </button>
       </header>
+      <!-- 一行安装置顶：在新机器上跑一条命令，屏幕上的配对码到「待接受」里批准即成 -->
+      <div class="install" data-test="install-one-line">
+        <p class="install-title">{{ t('runners.add.installTitle') }}</p>
+        <p class="install-line">
+          <span class="install-os">{{ t('runners.add.installLinux') }}</span>
+          <code data-test="install-sh">{{ installSh }}</code>
+        </p>
+        <p class="install-line">
+          <span class="install-os">{{ t('runners.add.installWindows') }}</span>
+          <code data-test="install-ps">{{ installPs }}</code>
+        </p>
+        <p class="install-hint">{{ t('runners.add.installHint') }}</p>
+      </div>
+      <details class="other-way" data-test="add-worker-other">
+        <summary>{{ t('runners.add.otherWay') }}</summary>
       <form v-if="addOpen" class="add-form" @submit.prevent="addWorker">
         <div class="field">
           <label class="label" for="aw-id">{{ t('runners.add.id') }}</label>
@@ -548,6 +568,7 @@ function beatLabel(r: Runner): string {
         <p>{{ t('runners.add.token') }}<code>{{ issuedToken }}</code></p>
         <p>{{ t('runners.add.command') }}<code>{{ issuedCommand }}</code></p>
       </div>
+      </details>
     </section>
 
     <section class="group topology-group">

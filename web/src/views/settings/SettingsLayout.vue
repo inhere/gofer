@@ -28,6 +28,10 @@ const sections: SettingsSection[] = [
   { to: '/settings/permissions', key: 'settings.nav.permissions' },
   // 配置入库 P1：用户管理（新增 / 发 token / 轮换 / 停用 / 改上限），只给根管理员。
   { to: '/settings/callers', key: 'settings.nav.callers', rootOnly: true },
+  // 设计 2026-11-14 §1：管理操作审计（audit.read）。
+  { to: '/settings/audit', key: 'settings.nav.audit' },
+  // 设计 2026-11-14 §5：server 自检（各项状态、连续失败数、最后错误）。
+  { to: '/settings/health', key: 'settings.nav.health' },
   // W2a：工作项的被动整理 / 请求超时 / 自动交接 / 每日摘要
   { to: '/settings/work', key: 'settings.nav.work' },
   // K5：扩展设置（数据库里的降噪阈值 / 排除名单 / 提示词覆盖）。

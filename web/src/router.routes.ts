@@ -135,6 +135,18 @@ export const routes: RouteRecordRaw[] = [
         name: 'settings-callers',
         component: () => import('./views/settings/Callers.vue'),
       },
+      // 设计 2026-11-14 §1：管理操作审计（写路由的留痕，权限 audit.read）。
+      {
+        path: 'audit',
+        name: 'settings-audit',
+        component: () => import('./views/settings/Audit.vue'),
+      },
+      // 设计 2026-11-14 §5：server 自检（每项连续失败数 / 最后错误 / 检查时间）。
+      {
+        path: 'health',
+        name: 'settings-health',
+        component: () => import('./views/settings/Health.vue'),
+      },
       {
         path: 'work',
         name: 'settings-work',

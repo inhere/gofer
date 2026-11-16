@@ -23,6 +23,7 @@ import type { CallerAuditEntry, CallerCeilingView, CallerView } from '../../api/
 import { t } from '../../i18n'
 import { useWhoami } from '../../store/whoami'
 import FormSection from '../../ui/FormSection.vue'
+import { expiresText, expiresTone, isStale, lastUsedText } from '../../utils/callerExpiry'
 import {
   addBlocker,
   canDisable,
@@ -54,6 +55,11 @@ const error = ref('')
 const notice = ref('')
 const warnings = ref<string[]>([])
 const busyId = ref('')
+// nowSec 是到期 / 陈旧的判定基准（每分钟走一格）：纯本地，不发请求。
+const nowSec = ref(Math.floor(Date.now() / 1000))
+window.setInterval(() => {
+  nowSec.value = Math.floor(Date.now() / 1000)
+}, 60000)
 
 // reveal 是「刚拿到的 token」：只有新增与轮换会填它，closeReveal 之后引用清空，页面上不再可见。
 const reveal = ref<{ id: string; token: string } | null>(null)
@@ -105,15 +111,8 @@ async function copyToken(): Promise<void> {
 }
 
 // ---- 动作（轮换 / 停用 / 启用）----
-async function onRotate(v: CallerView): Promise<void> {
-  if (!window.confirm(t('settings.callers.confirmRotate', { id: v.id }))) return
-  await act(v.id, async () => {
-    const change = await rotateCaller(v.id)
-    if (change.token) reveal.value = { id: change.caller.id, token: change.token }
-    notice.value = t('settings.callers.rotated', { id: v.id })
-    showWarnings(change.warnings)
-  })
-}
+// 轮换走编辑面板：先定到期（留空 = 保留原到期），再确认换 token。
+const rotateExpires = ref('')
 
 async function onDisable(v: CallerView): Promise<void> {
   if (!window.confirm(t('settings.callers.confirmDisable', { id: v.id }))) return
@@ -149,7 +148,7 @@ async function act(id: string, fn: () => Promise<void>): Promise<void> {
 
 // ---- 新增 ----
 const addOpen = ref(false)
-const addState = reactive({ id: '', name: '', maxConcurrent: '', rateLimit: '', rateBurst: '' })
+const addState = reactive({ id: '', name: '', maxConcurrent: '', rateLimit: '', rateBurst: '', expires: '' })
 const addMode = ref<CeilingMode>('limited')
 const addCeiling = reactive(emptyCeilingForm())
 const addError = computed(() =>
@@ -162,6 +161,7 @@ function resetAdd(): void {
   addState.maxConcurrent = ''
   addState.rateLimit = ''
   addState.rateBurst = ''
+  addState.expires = ''
   addMode.value = 'limited'
   Object.assign(addCeiling, emptyCeilingForm())
 }
@@ -182,6 +182,7 @@ async function onCreate(): Promise<void> {
       rate_burst: Number(addState.rateBurst.trim() || 0),
       ceiling: addMode.value === 'limited' ? (ceilingFromForm(addCeiling) ?? undefined) : undefined,
       no_ceiling: addMode.value === 'none',
+      expires: addState.expires.trim() || undefined,
     })
     if (change.token) reveal.value = { id: change.caller.id, token: change.token }
     notice.value = t('settings.callers.added', { id: change.caller.id })
@@ -197,23 +198,27 @@ async function onCreate(): Promise<void> {
 }
 
 // ---- 改上限 / 改配额（一次只开一个编辑面板）----
-const panel = ref<{ id: string; kind: 'ceiling' | 'limits' } | null>(null)
+const panel = ref<{ id: string; kind: 'ceiling' | 'limits' | 'rotate' } | null>(null)
 const editMode = ref<CeilingMode>('limited')
 const editCeiling = reactive(emptyCeilingForm())
 const editLimits = reactive({ maxConcurrent: '', rateLimit: '', rateBurst: '' })
-const panelBlocker = computed(() =>
-  panel.value?.kind === 'ceiling'
+const panelBlocker = computed(() => {
+  if (panel.value?.kind === 'rotate') return ''
+  return panel.value?.kind === 'ceiling'
     ? ceilingBlocker(editMode.value, editCeiling)
-    : limitBlocker(editLimits.maxConcurrent, editLimits.rateLimit, editLimits.rateBurst),
-)
+    : limitBlocker(editLimits.maxConcurrent, editLimits.rateLimit, editLimits.rateBurst)
+})
 const panelRow = computed(() => rows.value.find((r) => r.id === panel.value?.id) ?? null)
 
-function openPanel(v: CallerView, kind: 'ceiling' | 'limits'): void {
+function openPanel(v: CallerView, kind: 'ceiling' | 'limits' | 'rotate'): void {
   panel.value = { id: v.id, kind }
   notice.value = ''
   warnings.value = []
   error.value = ''
-  if (kind === 'ceiling') {
+  if (kind === 'rotate') {
+    // 留空 = 保留原到期（服务端只在你显式给了才改）。
+    rotateExpires.value = ''
+  } else if (kind === 'ceiling') {
     editMode.value = v.ceiling ? 'limited' : 'none'
     Object.assign(editCeiling, ceilingToForm(v.ceiling))
   } else {
@@ -231,7 +236,13 @@ async function onSavePanel(): Promise<void> {
   const p = panel.value
   if (!p || panelBlocker.value) return
   await act(p.id, async () => {
-    if (p.kind === 'ceiling') {
+    if (p.kind === 'rotate') {
+      const expires = rotateExpires.value.trim()
+      const change = await rotateCaller(p.id, expires || undefined)
+      if (change.token) reveal.value = { id: change.caller.id, token: change.token }
+      notice.value = t('settings.callers.rotated', { id: p.id })
+      showWarnings(change.warnings)
+    } else if (p.kind === 'ceiling') {
       const ceil = editMode.value === 'limited' ? ceilingFromForm(editCeiling) : null
       const change = ceil
         ? await setCallerCeiling(p.id, { ceiling: ceil })
@@ -253,6 +264,11 @@ async function onSavePanel(): Promise<void> {
 
 function ceilingOf(v: CallerView): CallerCeilingView | null {
   return v.ceiling ?? null
+}
+
+// 行是否标灰：超过 30 天没用过（从未使用且建了超过 30 天也算）。
+function rowStale(v: CallerView): boolean {
+  return isStale(v, nowSec.value)
 }
 </script>
 
@@ -301,13 +317,15 @@ function ceilingOf(v: CallerView): CallerCeilingView | null {
               <th>{{ t('settings.callers.col.source') }}</th>
               <th>{{ t('settings.callers.col.state') }}</th>
               <th>token</th>
+              <th>{{ t('settings.callers.col.expires') }}</th>
+              <th>{{ t('settings.callers.col.lastUsed') }}</th>
               <th>{{ t('settings.callers.col.ceiling') }}</th>
               <th>{{ t('settings.callers.col.quota') }}</th>
               <th>{{ t('settings.callers.col.actions') }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="v in rows" :key="v.id" :data-caller="v.id">
+            <tr v-for="v in rows" :key="v.id" :data-caller="v.id" :class="{ 'row--stale': rowStale(v) }">
               <td class="mono">{{ v.id }}</td>
               <td>{{ v.name || '-' }}</td>
               <td>
@@ -317,6 +335,10 @@ function ceilingOf(v: CallerView): CallerCeilingView | null {
                 <span class="tag" :class="`tag--${stateTone(v.state)}`">{{ stateText(v.state) }}</span>
               </td>
               <td class="mono">{{ v.token_hint || (v.token_set ? t('settings.callers.tokenSet') : '-') }}</td>
+              <td>
+                <span class="tag" :class="`tag--${expiresTone(v.expires_at, nowSec)}`">{{ expiresText(v.expires_at, nowSec) }}</span>
+              </td>
+              <td class="mono">{{ lastUsedText(v.last_used_at) }}</td>
               <td>
                 <span>{{ ceilingModeText(ceilingOf(v)) }}</span>
                 <ul v-if="ceilingSummaryLines(ceilingOf(v)).length > 0" class="ceiling">
@@ -330,7 +352,7 @@ function ceilingOf(v: CallerView): CallerCeilingView | null {
                   type="button"
                   :disabled="!canRotate(v) || busyId === v.id"
                   :title="isFileCaller(v) ? fileSourceNote() : ''"
-                  @click="onRotate(v)"
+                  @click="openPanel(v, 'rotate')"
                 >
                   {{ t('settings.callers.act.rotate') }}
                 </button>
@@ -363,7 +385,7 @@ function ceilingOf(v: CallerView): CallerCeilingView | null {
               </td>
             </tr>
             <tr v-if="loaded && rows.length === 0">
-              <td colspan="8">{{ t('settings.callers.empty') }}</td>
+              <td colspan="10">{{ t('settings.callers.empty') }}</td>
             </tr>
           </tbody>
         </table>
@@ -375,7 +397,14 @@ function ceilingOf(v: CallerView): CallerCeilingView | null {
         :title="t('settings.callers.panel.title', { id: panel.id })"
         :desc="isFileCaller(panelRow) ? t('settings.callers.panel.fileDesc') : t('settings.callers.panel.desc')"
       >
-        <template v-if="panel.kind === 'ceiling'">
+        <template v-if="panel.kind === 'rotate'">
+          <label class="field">
+            <span>{{ t('settings.callers.field.expires') }}</span>
+            <input v-model="rotateExpires" class="mono" data-testid="caller-rotate-expires" :placeholder="t('settings.callers.ph.expires')" />
+            <small>{{ t('settings.callers.hint.rotateExpires') }}</small>
+          </label>
+        </template>
+        <template v-else-if="panel.kind === 'ceiling'">
           <label class="field">
             <span>{{ t('settings.callers.field.mode') }}</span>
             <select v-model="editMode" class="mono">
@@ -477,6 +506,11 @@ function ceilingOf(v: CallerView): CallerCeilingView | null {
             <label class="check"><input v-model="addCeiling.globalMemory" type="checkbox" /> {{ t('settings.callers.field.globalMemory') }}</label>
             <label class="check"><input v-model="addCeiling.readOnly" type="checkbox" /> {{ t('settings.callers.field.readOnly') }}</label>
           </template>
+          <label class="field">
+            <span>{{ t('settings.callers.field.expires') }}</span>
+            <input v-model="addState.expires" class="mono" data-testid="caller-add-expires" :placeholder="t('settings.callers.ph.expires')" />
+            <small>{{ t('settings.callers.hint.expires') }}</small>
+          </label>
           <label class="field">
             <span>{{ t('settings.callers.field.maxConcurrent') }}</span>
             <input v-model="addState.maxConcurrent" class="mono" inputmode="numeric" />
@@ -606,6 +640,10 @@ function ceilingOf(v: CallerView): CallerCeilingView | null {
 .tag--file,
 .tag--db {
   color: var(--ink-3);
+}
+/* 超过 30 天没用过的行标灰：方便挑出该淘汰的 token */
+.table tr.row--stale td {
+  opacity: 0.55;
 }
 
 .reveal {

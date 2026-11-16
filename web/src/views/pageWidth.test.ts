@@ -65,6 +65,9 @@ const NESTED_OR_NARROW = [
   './settings/McpServers.vue',
   './settings/Notifications.vue',
   './settings/Callers.vue',
+  // 设计 2026-11-14 §1/§5：审计与自检两个新设置子页
+  './settings/Audit.vue',
+  './settings/Health.vue',
   './settings/Permissions.vue',
   './settings/Rules.vue',
   './settings/Tunnels.vue',

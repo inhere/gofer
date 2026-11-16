@@ -33,8 +33,10 @@ export function addCaller(req: CallerAddReq): Promise<CallerChange> {
 }
 
 // rotateCaller 换一个新 token（旧 token 立刻失效，长连接被断开），回答里的 token 同样只此一次。
-export function rotateCaller(id: string): Promise<CallerChange> {
-  return request<CallerChange>(`/v1/callers/${encodeURIComponent(id)}/rotate`, json('POST'))
+// expires 不传 = 保留原到期时间（服务端只在你显式给了才改）。
+export function rotateCaller(id: string, expires?: string): Promise<CallerChange> {
+  const body = expires !== undefined && expires !== '' ? { expires } : undefined
+  return request<CallerChange>(`/v1/callers/${encodeURIComponent(id)}/rotate`, json('POST', body))
 }
 
 export function disableCaller(id: string): Promise<CallerChange> {

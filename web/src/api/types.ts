@@ -1069,6 +1069,10 @@ export interface CallerView {
   rotated_at?: number
   updated_at?: number
   warnings?: string[]
+  // 到期时间与最近一次使用（unix 秒；0 / 缺省 = 永不过期 / 从未使用），见
+  // internal/config/caller_admin.go 的 CallerView。配置文件里的用户（source=file）两者都空。
+  expires_at?: number
+  last_used_at?: number
 }
 
 export interface CallerChange {
@@ -1089,6 +1093,8 @@ export interface CallerAddReq extends CallerLimits {
   // ceiling 与 no_ceiling 二选一：上限块，或者明确「不设上限」。
   ceiling?: CallerCeilingView
   no_ceiling?: boolean
+  // expires 是 token 的到期：时长（`90d`）、日期（`2026-12-31`）或 `never`（缺省）。
+  expires?: string
 }
 
 // CallerAuditEntry 是 config_audit 的一行：谁、什么时候、改了哪个条目、打码后的前后值。
@@ -1099,6 +1105,51 @@ export interface CallerAuditEntry {
   before_masked?: string
   after_masked?: string
   at: number
+}
+
+// ---- 管理操作审计（GET /v1/audit，设计 2026-11-14 §1）----
+// 字段与 internal/jobstore/admin_audit.go 的 AdminAuditEntry 一一对应：只有元数据，
+// 没有请求体与查询值（query_keys 是键名）。
+
+export interface AdminAuditEntry {
+  id: number
+  at: number
+  caller_id?: string
+  caller_kind?: string
+  session_id?: string
+  job_id?: string
+  // route 是路由模板（如 `POST /v1/schedules/{id}/run`），target 是路径参数拼成的 name=value。
+  method: string
+  route: string
+  target?: string
+  query_keys?: string
+  status: number
+  duration_ms: number
+  ip?: string
+  error?: string
+}
+
+export interface AdminAuditResp {
+  entries: AdminAuditEntry[]
+  count: number
+  // next_cursor 为下一页的游标；缺省 = 没有下一页。
+  next_cursor?: number
+}
+
+// ---- server 自检（GET /v1/health/checks，设计 2026-11-14 §5）----
+
+export interface HealthCheck {
+  // name 是稳定的检查项标识（storage / disk / sweep / notification），显示时按 i18n key 翻译。
+  name: string
+  ok: boolean
+  consecutive_failures: number
+  failing: boolean
+  last_error?: string
+  checked_at: number
+}
+
+export interface HealthChecksResp {
+  checks: HealthCheck[]
 }
 
 export interface CallerAuditResp {

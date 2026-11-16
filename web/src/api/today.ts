@@ -34,9 +34,14 @@ export type TodayCardKind =
   // 设计 2026-11-12 §1（internal/inbox/schedule_paused.go）：定时任务连续失败达阈值后被
   // gofer 自己暂停。动作 enable（立即重新启用）/ open（去定时任务页）。
   | 'schedule.paused'
+  // 设计 2026-11-14 §4/§5：调用方 token 快到期 / 已过期（动作 rotate / open）与 server 自检项
+  // 故障（动作 open），都属于「需要你处理」。
+  | 'caller.token_expiring'
+  | 'server.health'
 
-// 「等我」六类（互斥、穷尽，按此顺序第一个命中）：待批准 / 待回答 / 待验收 / 计划卡住 / 你提交的任务失败 / 投递待确认
-export type WaitingCategory = 'approval' | 'answer' | 'review' | 'awaiting_merge' | 'plan_stuck' | 'failed' | 'delivery'
+// 「等我」七类（互斥、穷尽，按此顺序第一个命中）：待批准 / 待回答 / 待验收 / 计划卡住 / 你提交的任务失败 /
+// 需要你处理（gofer 自己停掉的定时任务、即将到期的 token、自检故障）/ 投递待确认
+export type WaitingCategory = 'approval' | 'answer' | 'review' | 'awaiting_merge' | 'plan_stuck' | 'failed' | 'attention' | 'delivery'
 
 export type TodayUrgency = 'now' | 'blocking' | 'normal'
 
@@ -75,6 +80,8 @@ export interface TodayRefs {
   merge_id?: number
   // schedule.paused 卡：被暂停的定时任务 id（enable 动作的入参）。
   schedule_id?: string
+  // caller.token_expiring 卡：要轮换的调用方 id（rotate 动作的入参）。
+  caller_id?: string
   // memory 卡：它针对的仓库 tracker 记忆（旧版本的记忆整理卡；服务端已不再产生）
   tracker_id?: string
   memory_key?: string

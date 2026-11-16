@@ -15,6 +15,11 @@ export const runners: PageDict = {
     'runners.collapse': '收起',
 
     'runners.add.title': '添加 worker',
+    'runners.add.installTitle': '在新机器上一条命令接入',
+    'runners.add.installLinux': 'Linux / macOS',
+    'runners.add.installWindows': 'Windows（PowerShell）',
+    'runners.add.installHint': '脚本会从本 server 下载并校验二进制、注册为用户级服务；屏幕上会显示配对码，请到上方「待接受」里批准。',
+    'runners.add.otherWay': '其他方式（已有 token / 手工初始化）',
     'runners.add.id': 'ID（worker 标识）',
     'runners.add.labels': '标签（逗号分隔，可选）',
     'runners.add.projects': '项目（逗号分隔，可选）',
@@ -232,6 +237,11 @@ export const runners: PageDict = {
     'runners.collapse': 'Collapse',
 
     'runners.add.title': 'Add a worker',
+    'runners.add.installTitle': 'Join a machine with one command',
+    'runners.add.installLinux': 'Linux / macOS',
+    'runners.add.installWindows': 'Windows (PowerShell)',
+    'runners.add.installHint': 'The script downloads and verifies the binary from this server and registers it as a user-level service; it prints a pairing code — approve it under Pending above.',
+    'runners.add.otherWay': 'Other ways (existing token / manual init)',
     'runners.add.id': 'ID (worker identifier)',
     'runners.add.labels': 'Labels (comma separated, optional)',
     'runners.add.projects': 'Projects (comma separated, optional)',

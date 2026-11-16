@@ -20,6 +20,7 @@ import {
   setScheduleEnabled,
 } from '../api/client'
 import { acceptMergeSuggestion, dismissMergeSuggestion } from '../api/steward'
+import { rotateCaller } from '../api/callers'
 import { CAPTURE_BOX_LINK } from './capture'
 import { ENROLLMENTS_LINK } from './enrollments'
 import { MAIL_HELD_LINK } from './mail'
@@ -123,6 +124,8 @@ const ACTION_LABEL_KEYS: Record<string, string> = {
   // 被 gofer 自己暂停的定时任务（设计 2026-11-12 §1）：主动作是直接重新启用它。
   // 服务端的动作名随请求语言变化，zh 下是「启用」。
   'enable:启用': 'today.action.enableSchedule',
+  // 设计 2026-11-14 §4：即将到期 / 已过期的调用方 token，主动作是直接轮换它。
+  'rotate:轮换': 'today.action.rotateToken',
   'report:请求汇报': 'today.action.report',
   'park:搁置': 'today.action.park',
   'adopt:采纳': 'today.action.adopt',
@@ -186,6 +189,12 @@ export function cardLink(card: TodayCard): string {
     case 'schedule.paused':
       // 被自动暂停的定时任务：动作里带 value=/schedules，未知时也回到定时页
       return '/schedules'
+    case 'caller.token_expiring':
+      // 设计 2026-11-14 §4：调用方页能看到到期 / 最近使用，并在那里轮换。
+      return '/settings/callers'
+    case 'server.health':
+      // 设计 2026-11-14 §5：自检项与它的连续失败数在设置的自检页。
+      return '/settings/health'
     case 'decision':
     case 'plan_blocked':
     case 'todo_awaiting_merge':
@@ -212,6 +221,8 @@ export function awaitingMergeLabel(subtype: string | undefined): string {
 
 export function actionLink(card: TodayCard, a: TodayAction): string {
   if (a.id === 'diff' && card.refs.job_id) return `/jobs/${encodeURIComponent(card.refs.job_id)}`
+  // 自检卡的「看详情」：服务端给的 value 是 /settings，具体区块在自检页。
+  if (card.kind === 'server.health' && a.id === 'open') return '/settings/health'
   if (a.id === 'open' && a.value && a.value.startsWith('/') && !a.value.startsWith('//')) return a.value
   return cardLink(card)
 }
@@ -292,6 +303,11 @@ export function runCardAction(card: Pick<TodayCard, 'kind' | 'refs'>, a: TodayAc
       // 设计 2026-11-12 §1：卡片上的唯一写操作是「启用」——沿用现有的启用接口
       // （POST /v1/schedules/{id}/enable，服务端同时清零连续失败数与暂停原因）。
       if (a.id === 'enable') return () => setScheduleEnabled(r.schedule_id ?? '', true)
+      break
+    case 'caller.token_expiring':
+      // 设计 2026-11-14 §4：「轮换」直接调现有的轮换接口（POST /v1/callers/{id}/rotate）。
+      // 不传 expires = 保留调用方原来的到期时间。
+      if (a.id === 'rotate') return () => rotateCaller(a.value || r.caller_id || '')
       break
   }
   return () => Promise.resolve(null)
