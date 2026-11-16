@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -37,6 +38,10 @@ const (
 //go:embed install.sh install.ps1
 var templates embed.FS
 
+// plainServerURL is the only server-address shape an installer accepts: scheme, a host
+// (name, IPv4 or bracketed IPv6) with an optional port, and an optional plain path.
+var plainServerURL = regexp.MustCompile(`^https?://[A-Za-z0-9.\-]+(:[0-9]+)?(/[A-Za-z0-9._~/\-]*)?$|^https?://\[[0-9A-Fa-f:.]+\](:[0-9]+)?(/[A-Za-z0-9._~/\-]*)?$`)
+
 // Script returns the installer script named name with the server address filled in.
 // The result holds exactly the server's address: no credential, no version, no path of
 // this machine.
@@ -45,10 +50,11 @@ func Script(name, server string) ([]byte, error) {
 	if server == "" {
 		return nil, errors.New("no server address to put into the installer")
 	}
-	if strings.ContainsAny(server, "\"' \t\r\n") {
-		// The address is spliced into a quoted shell string: an address with a quote or
-		// a blank would end it and turn the rest into code.
-		return nil, fmt.Errorf("server address %q is not a plain URL", server)
+	// The address is spliced into a quoted shell / PowerShell string, where a quote, a
+	// blank, `$(…)` or a backtick would turn the rest into code. Only a plain http(s) URL
+	// made of an allowlist of characters goes in.
+	if !plainServerURL.MatchString(server) {
+		return nil, fmt.Errorf("server address %q is not a plain http(s) URL", server)
 	}
 	if _, err := url.Parse(server); err != nil {
 		return nil, fmt.Errorf("server address %q: %v", server, err)

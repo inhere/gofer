@@ -176,3 +176,22 @@ func TestManifestFromMirror(t *testing.T) {
 		t.Fatalf("manifest = %+v", m)
 	}
 }
+
+// Shell or PowerShell code hidden in the server address never reaches the script.
+func TestScriptRejectsAddressesThatCouldRunCode(t *testing.T) {
+	for _, bad := range []string{
+		"http://host/$(id)", "http://host/`id`", "http://h$(id)", "http://host;id", "http://host/a b",
+		`http://host/"x`, "ftp://host", "http://host/?q=1", "http://host/x&y", "javascript:alert(1)",
+	} {
+		for _, name := range []string{ScriptSh, ScriptPS1} {
+			if _, err := Script(name, bad); err == nil {
+				t.Errorf("Script(%s, %q) accepted an address that is not a plain URL", name, bad)
+			}
+		}
+	}
+	for _, good := range []string{"http://127.0.0.1:8767", "https://gofer.example.com/base", "http://[::1]:8767"} {
+		if _, err := Script(ScriptSh, good); err != nil {
+			t.Errorf("Script(%q) = %v, want accepted", good, err)
+		}
+	}
+}

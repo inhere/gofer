@@ -94,8 +94,13 @@ echo "installed $target"
 "$target" worker join --server "$SERVER" --yes </dev/null ||
 	fail "worker join failed (nothing was registered; rerun $target worker join --server $SERVER)"
 
-"$target" worker service register --start ||
-	fail "registered the worker, but the OS service could not be set up: run $target worker service register --start"
+if [ "$os" = "darwin" ]; then
+	# There is no managed service on macOS yet: keep the worker running in the background.
+	echo "registered the worker; macOS has no managed service yet — start it with: $target worker -d"
+else
+	"$target" worker service register --start ||
+		fail "registered the worker, but the OS service could not be set up: run $target worker service register --start"
+fi
 
 case ":$PATH:" in
 *":$dir:"*) ;;
