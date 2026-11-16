@@ -243,10 +243,12 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	startWorkflowLoop(c, cr.Workflow(), stopWorkflow)
 
 	// AUTO-02 cron schedule sweeper: advance due schedules first, then submit the
-	// embedded job request. The stop channel follows the other serve-owned loops.
+	// embedded job request. The stop channel follows the other serve-owned loops, and
+	// every completed pass stamps the clock the health self-check's sweep probe reads.
 	stopSchedule := make(chan struct{})
 	defer close(stopSchedule)
-	startScheduleLoop(c, cr, stopSchedule)
+	sweeps := &sweepClock{}
+	startScheduleLoop(c, cr, sweeps, stopSchedule)
 
 	// R2/AUTO-03 durable job retry: submit the retry rows a failed job's finish path
 	// wrote — including the ones a PREVIOUS process left behind, which is the point of
@@ -359,6 +361,15 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// (work-item drafting, the summarizer and the steward prompts) take it through
 	// srv.Settings().
 	srv.SetSettings(settings.NewService(cr.Store))
+	// The server self-check (design 2026-11-14 §5): its four probes ride along with the
+	// loops below and its results are served by /v1/health/checks, /health and
+	// /v1/stats. Stopped and waited for before the store closes, like every other loop.
+	stopHealth := make(chan struct{})
+	healthDone := startHealthCheck(c, cr, sweeps, srv, stopHealth)
+	defer func() {
+		close(stopHealth)
+		<-healthDone
+	}()
 	// The admin audit queue and the caller last-used stamps drain before the store closes (this defer runs first).
 	defer srv.Drain()
 	// The mailbox deliverer (plan M5): wakes idle sessions, sends letter bodies to suga
@@ -1170,15 +1181,22 @@ func sweepDueWakeups(now int64, due []jobstore.WakeupRecord,
 	}
 }
 
+// scheduleSweepCadence resolves the AUTO-02 sweep interval: schedule.sweep_interval_sec
+// when set, else scheduleSweepInterval. The schedule loop and the health self-check's
+// sweep probe (which allows three of these) read the same number.
+func scheduleSweepCadence(cfg *config.Config) time.Duration {
+	if cfg != nil && cfg.Schedule.SweepIntervalSec > 0 {
+		return time.Duration(cfg.Schedule.SweepIntervalSec) * time.Second
+	}
+	return scheduleSweepInterval
+}
+
 // startScheduleLoop launches the AUTO-02 cron schedule sweeper. It mirrors the
 // other serve loops: sweep once at startup for crash recovery, then on every
 // configured tick, and exit when stop closes.
-func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+func startScheduleLoop(c *gcli.Command, cr *core.Core, sweeps *sweepClock, stop <-chan struct{}) {
 	sched := cr.Config().Schedule
-	interval := scheduleSweepInterval
-	if sched.SweepIntervalSec > 0 {
-		interval = time.Duration(sched.SweepIntervalSec) * time.Second
-	}
+	interval := scheduleSweepCadence(cr.Config())
 	missGrace := int64(sched.MissGraceSec)
 	if missGrace <= 0 {
 		missGrace = 3600
@@ -1256,6 +1274,9 @@ func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 			// DATABASE: the in-process receipt state is empty after a restart, so the idle
 			// hooks alone would never see those rows.
 			cr.Jobs.SweepPendingSays(time.Now())
+			// The pass is complete: the health self-check's sweep probe measures how long
+			// ago the loop last got this far, so a loop that stalls fails that item.
+			sweeps.Mark(time.Now())
 		}
 
 		run()
