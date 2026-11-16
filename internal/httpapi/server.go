@@ -1261,6 +1261,10 @@ func (s *Server) buildRouter() *rux.Router {
 	// Slow-request observation runs OUTSIDE the error middleware so it still measures a
 	// request whose handler panicked (httpErrorMiddleware recovers the panic below it).
 	r.Use(s.httpSlowMiddleware)
+	// The admin audit wraps the WHOLE chain (every group middleware and the route gate), so
+	// a request refused by authentication, a credential whitelist or the rate limit is
+	// recorded too. It sits outside httpErrorMiddleware to see the status of a recovered panic.
+	r.Use(s.auditMiddleware)
 	r.Use(s.httpErrorMiddleware)
 	r.Use(s.requestLangMiddleware)
 

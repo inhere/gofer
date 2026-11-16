@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/authz"
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -283,4 +284,95 @@ func TestNoAuditExemptionList(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(wantKeys, "\n") {
 		t.Errorf("NoAudit routes differ:\n got  %v\n want %v", got, wantKeys)
 	}
+}
+
+// auditRows flushes the queue and reads every admin_audit row straight from the store.
+func auditRows(t *testing.T, s *Server) []jobstore.AdminAuditEntry {
+	t.Helper()
+	s.FlushAudit()
+	rows, _, err := s.jobs.Meta().ListAdminAudit(jobstore.AdminAuditFilter{Limit: jobstore.MaxAdminAuditLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
+// TestAdminAuditRecordsRequestsRefusedByGroupMiddleware: a write refused by authentication
+// (bad token, expired caller token), by the job-credential whitelist or by the rate limit is
+// recorded exactly once, with the refusal reason; a read with a bad token is not recorded.
+func TestAdminAuditRecordsRequestsRefusedByGroupMiddleware(t *testing.T) {
+	t.Run("bad token write", func(t *testing.T) {
+		s := authTestServer(t)
+		if resp := do(t, s, http.MethodPost, "/v1/auth/grants", "tok-wrong", map[string]any{"subject": "caller:alice", "pattern": authz.PermTunnelOpen}); resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("bad token = %d, want 401", resp.StatusCode)
+		}
+		rows := auditRows(t, s)
+		if len(rows) != 1 || rows[0].Status != http.StatusUnauthorized || rows[0].Route != "POST /v1/auth/grants" || rows[0].CallerID != "" || rows[0].IP == "" || rows[0].Error != "unauthorized" {
+			t.Fatalf("rows = %+v, want one 401 line with an empty caller, the ip and the reason", rows)
+		}
+	})
+	t.Run("bad token read", func(t *testing.T) {
+		s := authTestServer(t)
+		if resp := do(t, s, http.MethodGet, "/v1/auth/grants", "tok-wrong", nil); resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("bad token read = %d, want 401", resp.StatusCode)
+		}
+		if rows := auditRows(t, s); len(rows) != 0 {
+			t.Fatalf("a read must not be recorded: %+v", rows)
+		}
+	})
+	t.Run("expired caller token write", func(t *testing.T) {
+		s, clock, token := expiryFixture(t, "1d")
+		s.FlushAudit()
+		before := len(auditRows(t, s))
+		*clock = clock.Add(48 * time.Hour)
+		if resp := do(t, s, http.MethodPost, "/v1/callers/ci/rotate", token, nil); resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("expired token = %d, want 401", resp.StatusCode)
+		}
+		rows := auditRows(t, s)
+		if len(rows) != before+1 || rows[0].Status != http.StatusUnauthorized || rows[0].Route != "POST /v1/callers/{id}/rotate" || rows[0].Target != "id=ci" {
+			t.Fatalf("rows = %+v (before %d), want one more 401 line", rows, before)
+		}
+	})
+	t.Run("job credential outside its whitelist", func(t *testing.T) {
+		s := authTestServer(t)
+		tok := seedJobToken(t, s, "job-audit", jobstore.JobCredentialMember, "")
+		resp := do(t, s, http.MethodPost, "/v1/schedules", tok, map[string]any{})
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("job credential on a write outside SEC-01 = %d, want 403", resp.StatusCode)
+		}
+		rows := auditRows(t, s)
+		if len(rows) != 1 || rows[0].Status != http.StatusForbidden || rows[0].CallerKind != "job" || rows[0].JobID != "job-audit" || rows[0].Route != "POST /v1/schedules" || rows[0].Error == "" {
+			t.Fatalf("rows = %+v, want one 403 line carrying the job id and a reason", rows)
+		}
+	})
+	t.Run("rate limited write", func(t *testing.T) {
+		s := newRateLimitedServer(t, 1, 1)
+		req := job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30}
+		first := do(t, s, http.MethodPost, "/v1/jobs", testToken, req)
+		if first.StatusCode != http.StatusOK {
+			t.Fatalf("first submit = %d", first.StatusCode)
+		}
+		drainSubmittedJob(t, s, first)
+		resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, req)
+		if resp.StatusCode != http.StatusTooManyRequests {
+			t.Fatalf("second submit = %d, want 429", resp.StatusCode)
+		}
+		_ = resp.Body.Close()
+		var limited []jobstore.AdminAuditEntry
+		for _, r := range auditRows(t, s) {
+			if r.Status == http.StatusTooManyRequests {
+				limited = append(limited, r)
+			}
+		}
+		if len(limited) != 1 || limited[0].Error != "rate limited" || limited[0].Route != "POST /v1/jobs" {
+			t.Fatalf("429 lines = %+v, want exactly one", limited)
+		}
+	})
+	t.Run("unmatched route", func(t *testing.T) {
+		s := authTestServer(t)
+		do(t, s, http.MethodPost, "/v1/no-such-route", "tok-root", map[string]any{})
+		if rows := auditRows(t, s); len(rows) != 0 {
+			t.Fatalf("a 404 must not be recorded: %+v", rows)
+		}
+	})
 }

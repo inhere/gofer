@@ -13,7 +13,8 @@ import (
 )
 
 // Admin audit (design 2026-11-14 §1, plan R1–R4): every WRITE route is recorded in
-// admin_audit after it ran — including the requests authzGate refused — with metadata only.
+// admin_audit after it ran — including the requests refused by authentication, the
+// credential whitelists, authzGate or the rate limit — with metadata only.
 // The request body, the response body and the query VALUES never reach the table (they can
 // carry secrets); the query contributes its key names.
 
@@ -57,15 +58,29 @@ func noteAuditError(c *rux.Context, status int, msg string) {
 	}
 }
 
-// auditGate records one write route's request after the rest of the chain (authzGate and
-// the handler) ran, so the final status — 401 / 403 included — is known. It never changes
-// the response and never fails the request: a recording problem is the recorder's.
-func (s *Server) auditGate(decl routeDecl) rux.HandlerFunc {
-	return func(c *rux.Context) {
-		start := time.Now()
-		c.Next()
-		s.audit.add(buildAuditEntry(c, decl, time.Since(start)))
+// auditMiddleware records one write request after the whole chain ran, so the final status —
+// a 401 from authentication, a 403 from a credential whitelist or the route gate, a 429 from
+// the rate limit — is known. Whether the request is auditable is decided by the declaration
+// of the MATCHED route (`<METHOD> <route template>`, the keying wrapRoutes uses): only a
+// write route not marked NoAudit is recorded, and a request that matched no route (404) is
+// not. It never changes the response and never fails the request.
+func (s *Server) auditMiddleware(c *rux.Context) {
+	start := time.Now()
+	c.Next()
+	rt := c.Route()
+	if rt == nil {
+		return
 	}
+	key := canonicalRouteKey(c.Req.Method, rt.Path())
+	decl, ok := routeDecls[key]
+	if !ok {
+		return
+	}
+	decl.key = key
+	if !decl.auditable() {
+		return
+	}
+	s.audit.add(buildAuditEntry(c, decl, time.Since(start)))
 }
 
 // buildAuditEntry derives the admin_audit row from the finished request.

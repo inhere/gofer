@@ -139,7 +139,7 @@ type routeDecl struct {
 	// decides: GET / HEAD read, everything else write. Annotation only until S4b.
 	rw rwClass
 	// audit is the admin-audit opt-out (NoAudit). Left zero, a write route is recorded in
-	// admin_audit (auditGate); every use of NoAudit must be on the reviewed list of
+	// admin_audit (auditMiddleware); every use of NoAudit must be on the reviewed list of
 	// authz_audit_test.go.
 	audit auditOpt
 	// key is the canonical route key (`<METHOD> <path>`) the declaration was registered
@@ -1008,13 +1008,7 @@ func (s *Server) wrapRoutes(r *rux.Router) {
 				continue
 			}
 			decl.key = key
-			// auditGate sits OUTSIDE authzGate so a request the gate refuses is recorded too;
-			// it adds nothing for a read route or a NoAudit one (auditable is false).
-			if decl.auditable() {
-				rt.Use(s.auditGate(decl), s.authzGate(decl))
-			} else {
-				rt.Use(s.authzGate(decl))
-			}
+			rt.Use(s.authzGate(decl))
 		}
 	})
 	if len(undeclared) > 0 {
