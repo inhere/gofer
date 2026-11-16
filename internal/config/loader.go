@@ -891,6 +891,11 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("server.agent_health.recover_after_ok must be >= 0")
 		}
 	}
+	// 健康自检（design 2026-11-14 §5）：fail_threshold 是连续失败次数（0 = 默认 3），
+	// 负数没有意义，加载时就拒绝。
+	if n := cfg.Server.Health.FailThreshold; n < 0 {
+		return fmt.Errorf("server.health.fail_threshold must be >= 0")
+	}
 	// RECOV-01: a negative recovery window has no meaning (nil = default 120s,
 	// 0 = recovery disabled); reject it at load rather than silently treating it as
 	// "disabled" or clamping it to something surprising at disconnect time.

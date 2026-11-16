@@ -1846,6 +1846,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateMail(); err != nil {
 		return err
 	}
+	if err := s.ensureHealthProbe(); err != nil {
+		return err
+	}
 	if err := s.migrateTracker(); err != nil {
 		return err
 	}

@@ -26,6 +26,8 @@ server:
   # token: ""              # 直接写 token(不要把真实 token 提交进仓库)
   # 必须显式设为 true 才允许不配置任何 token 启动。
   allow_empty_token: false
+  # health:                # 健康自检（每 60 秒一次，结果见 GET /v1/health/checks）
+  #   fail_threshold: 3    # 同一项连续失败多少次才算故障；0/未写 = 3
   # 本地服务路径可以用 {config_dir} 开头：它由 GOFER_CONFIG_DIR 决定，-c 只选配置文件、
   # 不改变它。只有支持的本地路径字段会展开这个前缀(项目 / worker 路径不展开)。
   # tls:

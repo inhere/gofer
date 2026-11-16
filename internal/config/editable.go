@@ -111,6 +111,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.worker_queue_max_wait_sec":     {RestartRequired: true},
 	"server.dir_lock_allow_unbounded_wait": {Editable: true},
 	"server.agent_health":                  {Editable: true},
+	// server.health (design 2026-11-14 §5) is read once when the self-check loop is
+	// built, so a change applies on the next serve restart rather than at the next tick.
+	"server.health": {RestartRequired: true},
 	// The audit retention is read by the prune loop at every tick from the current config
 	// generation, so a hot edit applies to the next tick.
 	"server.audit_retention_days": {Editable: true},

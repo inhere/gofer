@@ -980,6 +980,11 @@ type ServerConfig struct {
 	// an absent block resolves to the documented defaults. It only classifies
 	// reported health — nothing in the job path consults it unless pre_dispatch is on.
 	AgentHealth *AgentHealthConfig `yaml:"agent_health,omitempty"`
+	// Health is the server self-check block (design 2026-11-14 §5): how many
+	// CONSECUTIVE failed checks of one item make it count as failing. An absent
+	// block keeps the documented default (3), so the degradation window is about
+	// three minutes at the 60s cadence.
+	Health HealthConfig `yaml:"health,omitempty"`
 	// Xfer is the XFER-01 transfer policy (design §一.1): the per-transfer byte
 	// ceiling and how long a staged/finished transfer survives in the staging area.
 	// An absent block (all zero) keeps the documented defaults (256MB / 24h) — the
