@@ -14,8 +14,11 @@ import (
 // workerServiceRefuseRoot: a worker service is a USER-level registration, so
 // registering it as root would create a unit in root's own user manager that no
 // login session ever reaches. The one-line install script has the same rule.
+// workerServiceEUID is the effective uid seam: tests cannot run as root.
+var workerServiceEUID = os.Geteuid
+
 func workerServiceRefuseRoot() error {
-	if os.Geteuid() == 0 {
+	if workerServiceEUID() == 0 {
 		return errors.New("do not register a worker service as root: it must run as the login user " +
 			"that owns worker.yaml; rerun as that user (systemd --user, and `loginctl enable-linger <user>` to keep it up while logged out)")
 	}
