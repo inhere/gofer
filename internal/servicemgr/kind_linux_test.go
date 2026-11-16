@@ -26,7 +26,7 @@ func TestWorkerSystemdUnitContent(t *testing.T) {
 	for _, want := range []string{
 		"# Gofer-Managed: " + spec.Owner,
 		"Description=Gofer managed worker w-t5",
-		`ExecStart="`, `"worker" "--worker-config" ` + `"` + filepath.Base(spec.ConfigFile) + `"`,
+		`ExecStart="`, `"worker" "--worker-config" "` + spec.ConfigFile + `"`,
 		`Environment="GOFER_CONFIG_DIR=` + spec.ConfigDir,
 		`Environment="GOFER_MANAGED_SPEC=` + filepath.Join(spec.ConfigDir, "run", "service", spec.Name+".json"),
 		"WantedBy=default.target",
