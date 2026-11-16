@@ -317,6 +317,12 @@ func TestWorkerUpgradeSourceVersion(t *testing.T) {
 			_, _ = w.Write([]byte("version: 0.160.0\n"))
 			return
 		}
+		// The release's own latest.yaml sits beside its binaries (plan R20): another
+		// version's download is verified with it, so a source without one is refused.
+		if r.URL.Path == "/0.150.0/latest.yaml" {
+			_, _ = w.Write([]byte("version: 0.150.0\nfiles:\n  " + updatecheck.BinaryName(oos, oarch) + ": " + hexSum(old) + "\n"))
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/0.150.0/") {
 			mu.Lock()
 			served = r.URL.Path

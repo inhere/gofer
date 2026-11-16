@@ -31,7 +31,7 @@ try {
 if (-not $manifest.url) { Fail 'the manifest has no download url' }
 if (-not $manifest.name) { Fail 'the manifest has no file name' }
 if (-not $manifest.sha256) {
-	Fail "the manifest has no sha256 for windows/$arch: refusing to install an unverified download"
+	Fail "the manifest has no sha256 for windows/${arch}: refusing to install an unverified download"
 }
 
 $tmp = Join-Path $env:TEMP ('gofer-install-' + [Guid]::NewGuid().ToString('N'))
