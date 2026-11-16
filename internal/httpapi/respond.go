@@ -56,6 +56,7 @@ const errKeyPrefix = "err."
 
 // writeAPIError writes e.
 func writeAPIError(c *rux.Context, e *apiError) {
+	noteAuditError(c, e.Status, e.Msg)
 	c.JSON(e.Status, errorBody{Error: e.Msg, Detail: e.Detail, Code: e.Code, Params: e.Params})
 }
 
@@ -90,6 +91,7 @@ func (s *Server) errText(c *rux.Context, name string, args ...any) string {
 // writeError encodes an errorBody at the given HTTP status. msg is the short
 // machine-ish summary; detail carries the human-readable specifics.
 func writeError(c *rux.Context, status int, msg, detail string) {
+	noteAuditError(c, status, msg)
 	c.JSON(status, errorBody{Error: msg, Detail: detail})
 }
 

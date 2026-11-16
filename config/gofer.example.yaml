@@ -180,6 +180,10 @@ server:
     token: ""                      # 空 = 免认证抓取；非空 = 要求 Authorization: Bearer <token>
     # 开启示例：enabled: true + token: "<长随机串>"
 
+  # audit_retention_days：审计表(管理操作 admin_audit 与授权 auth_audit)的保存天数，由 serve 的
+  # 清理循环删除更早的行。未写 / 0 = 90 天；写负数 = 永久保留。
+  audit_retention_days: 90
+
   # triggers：外部事件 -> 固定任务书的一次性 job；默认关闭、只能改文件(详见 docs/reference/http-api.md)。
   # provider 缺省 generic(HMAC + 时间戳)；github 兼容 GitHub webhook(X-Hub-Signature-256，
   # X-GitHub-Delivery 持久去重)。github 只能用 github.<字段> 引用白名单变量：repository / number /

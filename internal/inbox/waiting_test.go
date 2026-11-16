@@ -37,7 +37,10 @@ func TestClassifyFirstMatchWins(t *testing.T) {
 		{"awaiting merge beats failed", Signals{AwaitingMerge: true, FailedBySelf: true}, CatAwaitingMerge, true},
 		{"plan blocked beats failed", Signals{PlanBlocked: true, FailedBySelf: true}, CatPlanStuck, true},
 		{"failed beats delivery", Signals{FailedBySelf: true, DeliveryHeld: true}, CatFailed, true},
-		{"everything", Signals{true, true, true, true, true, true, true, true, true}, CatApproval, true},
+		{"attention", Signals{Attention: true}, CatAttention, true},
+		{"failed beats attention", Signals{FailedBySelf: true, Attention: true}, CatFailed, true},
+		{"attention beats delivery", Signals{Attention: true, DeliveryHeld: true}, CatAttention, true},
+		{"everything", Signals{true, true, true, true, true, true, true, true, true, true}, CatApproval, true},
 	}
 	for _, tc := range cases {
 		got, ok := Classify(tc.sig)
@@ -50,7 +53,7 @@ func TestClassifyFirstMatchWins(t *testing.T) {
 // Every category is reachable and the order is the design's.
 func TestCategoriesExhaustiveAndOrdered(t *testing.T) {
 	t.Parallel()
-	sigs := []Signals{{HeldForApproval: true}, {Question: true}, {NeedsReview: true}, {AwaitingMerge: true}, {PlanBlocked: true}, {FailedBySelf: true}, {DeliveryHeld: true}}
+	sigs := []Signals{{HeldForApproval: true}, {Question: true}, {NeedsReview: true}, {AwaitingMerge: true}, {PlanBlocked: true}, {FailedBySelf: true}, {Attention: true}, {DeliveryHeld: true}}
 	for i, c := range Categories {
 		got, _ := Classify(sigs[i])
 		if got != c || Rank(c) != i {

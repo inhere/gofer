@@ -675,6 +675,14 @@ func TestCeilingReadOnlyMatrix(t *testing.T) {
 			// for any ceilinged caller (TestCeilingBlocksTriggeringInternalJobsOutOfScope).
 			continue
 		}
+		if key == "GET /v1/audit" {
+			// The trail itself lists the matrix's earlier refusals ("caller ceiling" is the
+			// error text of those lines), so the body check below cannot tell them apart.
+			if status == http.StatusForbidden {
+				t.Errorf("%s: read refused for the read-only caller: %d %s", key, status, resp)
+			}
+			continue
+		}
 		if strings.Contains(resp, `"caller ceiling"`) {
 			t.Errorf("%s: read / ReadSafe request refused by the ceiling: %d %s", key, status, resp)
 		}

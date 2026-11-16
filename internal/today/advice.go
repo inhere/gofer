@@ -58,7 +58,8 @@ func Advisable(kind string, a Action) bool {
 // queue, but not the two kinds the 「等我」 list adds from outside it (a failed job, a child
 // receipt that can no longer reach its resident parent).
 func CanAdvise(kind string) bool {
-	return kind != KindJobFailed && kind != KindChildWakeFailed && kind != KindSchedulePaused
+	return kind != KindJobFailed && kind != KindChildWakeFailed && kind != KindSchedulePaused &&
+		kind != KindCallerTokenExpiring
 }
 
 // Advise validates and stores the advice for one card of the current queue. by is the

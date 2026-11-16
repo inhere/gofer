@@ -30,6 +30,8 @@ type Metrics struct {
 
 	workflowsTerminal *prometheus.CounterVec // {status} (P4/T4.3)
 	workflowDuration  prometheus.Histogram   // submit→terminal seconds (P4/T4.3)
+
+	auditDropped prometheus.Counter // admin_audit entries dropped on a full queue
 }
 
 // New builds a Metrics with a fresh private registry pre-loaded with the Go
@@ -77,6 +79,11 @@ func New() *Metrics {
 		Help:    "Workflow submit→terminal duration in seconds (whole chain)",
 		Buckets: []float64{5, 15, 30, 60, 120, 300, 600, 1800, 3600},
 	})
+	m.auditDropped = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "gofer_audit_dropped_total",
+		Help: "Admin audit entries dropped because the write queue was full",
+	})
+	m.reg.MustRegister(m.auditDropped)
 	m.reg.MustRegister(m.httpRequests, m.httpDuration, m.jobsSubmitted, m.jobsTerminal, m.jobDuration,
 		m.workflowsTerminal, m.workflowDuration)
 	return m
@@ -130,6 +137,14 @@ func (m *Metrics) ObserveHTTP(method, route, status string, sec float64) {
 	}
 	m.httpRequests.WithLabelValues(method, route, status).Inc()
 	m.httpDuration.WithLabelValues(method, route).Observe(sec)
+}
+
+// AuditDropped counts one admin audit entry dropped on a full queue. nil-safe.
+func (m *Metrics) AuditDropped() {
+	if m == nil {
+		return
+	}
+	m.auditDropped.Inc()
 }
 
 // RegisterRuntimeGauges registers the in-flight / queued / workers gauges as

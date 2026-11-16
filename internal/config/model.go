@@ -757,7 +757,9 @@ func DefaultInboxRules() []InboxRule {
 			// that submitted it (the parent ended or the receipt expired) — only a person can
 			// pick it up now.
 			// schedule.paused: a schedule gofer stopped after max_failures consecutive failed runs.
-			"job.failed", "job.child_wake_failed", "schedule.paused"}, Priority: 100},
+			"job.failed", "job.child_wake_failed", "schedule.paused",
+			// caller.token_expiring: a stored caller's token expires within 7 days (or has).
+			"caller.token_expiring"}, Priority: 100},
 		{ID: "fyi", Column: "fyi", Kinds: []string{"job.terminal", "work.digest", "activity", "comment", "agent.reply", "lane"}, Priority: 90},
 	}
 }
@@ -1011,6 +1013,10 @@ type ServerConfig struct {
 	// explicit 0, which removes the cap (queue until a slot frees or the job is
 	// cancelled). Read at assemble / runner-reload time.
 	WorkerQueueMaxWaitSec *int `yaml:"worker_queue_max_wait_sec,omitempty"`
+	// AuditRetentionDays is how long the audit tables (admin_audit and auth_audit) keep
+	// their rows. 0 / unset = DefaultAuditRetentionDays; a negative value keeps them
+	// forever. Applied by the serve prune loop, which always runs.
+	AuditRetentionDays int `yaml:"audit_retention_days,omitempty"`
 	// DirLockAllowUnboundedWait controls explicit lock_wait_sec: 0 requests.
 	// nil defaults to true, preserving the existing unbounded-wait behavior.
 	DirLockAllowUnboundedWait *bool `yaml:"dir_lock_allow_unbounded_wait,omitempty"`
@@ -1357,6 +1363,18 @@ func (c *Config) EffectiveDirLockMaxWaitSec(requested *int) int {
 		return *c.Server.DirLockMaxWaitSec
 	}
 	return DefaultDirLockMaxWaitSec
+}
+
+// DefaultAuditRetentionDays is the audit retention when server.audit_retention_days is unset.
+const DefaultAuditRetentionDays = 90
+
+// EffectiveAuditRetentionDays resolves server.audit_retention_days: 0 takes the default,
+// a negative value is returned as it is (keep forever).
+func (sc ServerConfig) EffectiveAuditRetentionDays() int {
+	if sc.AuditRetentionDays == 0 {
+		return DefaultAuditRetentionDays
+	}
+	return sc.AuditRetentionDays
 }
 
 // DefaultWorkerQueueMaxWaitSec is how long a job may queue for a free slot on a remote
@@ -2141,6 +2159,11 @@ type CallerConfig struct {
 	// ceiling keeps bounding the jobs it already started) but must not authenticate, and no
 	// new job may run under it (Config.OwnerBlocked).
 	Disabled bool `yaml:"-" json:"disabled,omitempty"`
+	// ExpiresAt is when a stored caller's token stops authenticating (unix seconds; 0 = never).
+	// The caller stays in the snapshot after that — the server refuses its requests (401,
+	// token_expired) — so the ceiling keeps bounding what it started. A file caller never
+	// expires.
+	ExpiresAt int64 `yaml:"-" json:"-"`
 }
 
 // MaxCallerNameLen caps a caller display name, in characters.

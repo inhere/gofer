@@ -40,6 +40,7 @@ mcp.test	Test an MCP server connection (starts a process on the server)
 settings.read	Read extension settings (`GET /v1/settings`, a single key, export): key table, defaults, current values, descriptions
 settings.write	Write extension settings (PUT / DELETE a single key, import): prompts, thresholds and exclusion lists; every write is audited
 trigger.read	Read the redacted view of inbound triggers (`GET /v1/triggers`, a single trigger, delivery records; MCP `gofer_trigger_list` / `gofer_trigger_show`): name, owner, project, template, rate-limit / dedupe policy and latest status, without secrets or payloads; job credentials cannot read it
+audit.read	Read the admin audit trail (`GET /v1/audit`, `gofer auth audit`): who called which write route on which resource and when, with status and client IP; it holds no request body or query value
 config.write	Write the config (incl. steward / work), validate, reload
 project.write	Add, edit and delete projects
 rules.write	Write the rules library

@@ -139,6 +139,29 @@ agent status	flag token	bearer token override (prefer config/env: GOFER_SERVER_T
 auth	desc	Inspect permissions: who this credential is, what it holds, what routes need
 auth	help	
 auth	examples	
+auth audit	desc	Show the admin audit trail: who called which write route, when, and how it ended
+auth audit	help	Prints the admin audit, newest first: every write request (refusals included), with the
+caller, the route, the target resource, the status and the client IP. Request bodies and query
+values are never recorded. Needs the audit.read permission.
+
+--since / --until take a duration back from now (24h), a date (2026-12-31), an RFC 3339 time or
+unix seconds. When more lines exist, the output ends with the --cursor value of the next page.
+
+  gofer auth audit
+  gofer auth audit --status fail --since 24h
+  gofer auth audit --caller ops --route /v1/schedules --limit 50
+auth audit	examples	
+auth audit	flag caller	only this caller id
+auth audit	flag config	path to the gofer config file
+auth audit	flag cursor	page cursor printed by the previous page
+auth audit	flag json	print the server's answer as JSON
+auth audit	flag limit	how many lines to show (default 100, at most 500)
+auth audit	flag route	only routes containing this text (e.g. /v1/schedules)
+auth audit	flag server	server address (overrides config server.addr)
+auth audit	flag since	not before: a duration back from now (24h), a date, an RFC 3339 time or unix seconds
+auth audit	flag status	ok (status < 400) or fail (status >= 400)
+auth audit	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+auth audit	flag until	not after (same forms as --since)
 auth caller	desc	Manage callers: add, list, rotate, disable / enable, change the ceiling or the quota
 auth caller	help	
 auth caller	examples	
@@ -172,6 +195,7 @@ auth caller add	flag ceiling-read-only	refuse every state-changing request of th
 auth caller add	flag ceiling-runner	runner key the caller may submit to (glob, repeatable). Without it the caller may NOT use the machine runner (local), only remote workers
 auth caller add	flag ceiling-worker	worker the caller's jobs may be routed to (glob, repeatable)
 auth caller add	flag config	path to the gofer config file
+auth caller add	flag expires	token lifetime: 90d, a date such as 2026-12-31, or never (default never)
 auth caller add	flag max-concurrent-jobs	how many jobs this caller may run at once (0 = take the server.governance default)
 auth caller add	flag name	display name (optional; the id stays the identity)
 auth caller add	flag no-ceiling	do not limit this caller (the alternative to a --ceiling-* block)
@@ -256,9 +280,14 @@ disabled caller does not enable it.
 A caller declared in the configuration file cannot be rotated here: its token would have to be
 written into the file. Change (or remove) that entry instead.
 
+--expires <90d | 2026-12-31 | never> sets the new token's expiry; without it the caller keeps
+its current expiry.
+
   gofer auth caller rotate ci
+  gofer auth caller rotate ci --expires 90d
 auth caller rotate	examples	
 auth caller rotate	flag config	path to the gofer config file
+auth caller rotate	flag expires	new token lifetime: 90d, a date, or never (default: keep the current expiry)
 auth caller rotate	flag server	server address (overrides config server.addr)
 auth caller rotate	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
 auth caller set-ceiling	desc	Replace a caller's ceiling (or remove it with --no-ceiling)

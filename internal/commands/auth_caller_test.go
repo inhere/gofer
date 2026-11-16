@@ -255,3 +255,44 @@ func TestAuthCallerRepairDoesNotCreateADatabase(t *testing.T) {
 		t.Fatal("repair must not create the database")
 	}
 }
+
+// TestAuthCallerExpiresFlagReachesTheRequest: `add --expires 90d` sends expires in the body,
+// `rotate` without the flag sends no body (the server keeps the expiry), `rotate --expires
+// never` sends it, and the answer's expiry is printed.
+func TestAuthCallerExpiresFlagReachesTheRequest(t *testing.T) {
+	isolateAgentSessionEnv(t)
+	isolateCallerFlags(t)
+	stub := &callerStubServer{body: map[string]any{
+		"caller": map[string]any{"id": "ci", "source": "db", "state": "active", "token_set": true, "token_hint": "gct_…abcd", "expires_at": 1790000000},
+		"token":  "gct_minted-token",
+	}}
+	srv := httptest.NewServer(stub.handler())
+	t.Cleanup(srv.Close)
+	run := func(args ...string) string {
+		t.Helper()
+		resetFlagGlobals()
+		var code int
+		out := captureOutput(t, func() {
+			code = NewApp("test").Run(append(args, "--server", srv.URL, "--token", "tok-root"))
+		})
+		if code != 0 {
+			t.Fatalf("%v: exit code=%d, out=%s", args, code, out)
+		}
+		return out
+	}
+	out := run("auth", "caller", "add", "ci", "--no-ceiling", "--expires", "90d")
+	if len(stub.requests) != 1 || !strings.Contains(stub.requests[0].body, `"expires":"90d"`) {
+		t.Fatalf("add body: %+v", stub.requests)
+	}
+	if !strings.Contains(out, "expires:") {
+		t.Errorf("the add output does not show the expiry:\n%s", out)
+	}
+	run("auth", "caller", "rotate", "ci")
+	if got := stub.requests[1]; got.path != "/v1/callers/ci/rotate" || strings.Contains(got.body, "expires") {
+		t.Fatalf("rotate without --expires must not send one: %+v", got)
+	}
+	run("auth", "caller", "rotate", "ci", "--expires", "never")
+	if got := stub.requests[2]; !strings.Contains(got.body, `"expires":"never"`) {
+		t.Fatalf("rotate --expires never: %+v", got)
+	}
+}

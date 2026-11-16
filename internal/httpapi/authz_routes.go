@@ -138,6 +138,10 @@ type routeDecl struct {
 	// rw is the explicit read / write override (ReadSafe / Mutating). Left zero, the method
 	// decides: GET / HEAD read, everything else write. Annotation only until S4b.
 	rw rwClass
+	// audit is the admin-audit opt-out (NoAudit). Left zero, a write route is recorded in
+	// admin_audit (auditMiddleware); every use of NoAudit must be on the reviewed list of
+	// authz_audit_test.go.
+	audit auditOpt
 	// key is the canonical route key (`<METHOD> <path>`) the declaration was registered
 	// under. wrapRoutes fills it in before attaching the gate; the table literals leave it
 	// empty. The ceiling gate reads it for the read / write class of the route.
@@ -204,7 +208,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/memory-syntheses/run":                    {user: Require(authz.PermMemorySynthesisRun), scope: BodyProject()},
 	"PATCH /v1/work-items/{id}":                        {user: Public(), jobCred: "PATCH /v1/work-items/*", scope: Resource("work_item")},
 	"POST /v1/work-items/capture":                      {user: Public(), jobCred: "POST /v1/work-items/capture", scope: BodyProject()},
-	"POST /v1/work-items/{id}/journal":                 {user: Public(), jobCred: "POST /v1/work-items/*/journal", scope: Resource("work_item")},
+	"POST /v1/work-items/{id}/journal":                 {user: Public(), jobCred: "POST /v1/work-items/*/journal", scope: Resource("work_item"), audit: NoAudit()},
 	"POST /v1/work-items/{id}/report-request":          {user: InHandler(permDeny, authz.PermSessionReplyOthers), jobCred: "POST /v1/work-items/*/report-request", scope: Resource("work_item")},
 	"POST /v1/work-items/{id}/summarize":               {user: Public(), jobCred: "POST /v1/work-items/*/summarize", scope: Resource("work_item")},
 	"POST /v1/work-items/{id}/merge-suggestions":       {user: Public(), jobCred: "POST /v1/work-items/*/merge-suggestions", scope: Resource("work_item")},
@@ -246,7 +250,7 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/workers/{id}/assignable":     {user: Public(), workerSelf: true, scope: Resource("worker")},
 	"GET /v1/workers/{id}/upgrade/file":   {user: NoUserSurface(), workerSelf: true, scope: Resource("worker")},
 	"GET /v1/xfer/{id}/content":           {user: InHandler(permDeny, authz.PermXferManageOthers), workerSelf: true, scope: Resource("xfer")},
-	"PUT /v1/xfer/{id}/content":           {user: NoUserSurface(), workerSelf: true, scope: Resource("xfer")},
+	"PUT /v1/xfer/{id}/content":           {user: NoUserSurface(), workerSelf: true, scope: Resource("xfer"), audit: NoAudit()},
 	"GET /health":                         {user: NoUserSurface(), external: "none", scope: NoProject()},
 	"GET /metrics":                        {user: NoUserSurface(), external: "metrics.token", scope: NoProject()},
 	"GET /v1/jobs/{id}/attach":            {user: NoUserSurface(), external: "attach ticket", scope: Resource("job"), rw: Mutating()},
@@ -415,7 +419,7 @@ var routeDecls = map[string]routeDecl{
 	// the thread is not already waiting for input. A branch that produces no job — a plain tmux
 	// deliver, a relay thread turn — does not check it (InHandler, the handler decides).
 	"POST /v1/sessions":                    {user: Public(), scope: BodyProject()},
-	"POST /v1/sessions/{sid}/heartbeat":    {user: Public(), scope: Resource("session")},
+	"POST /v1/sessions/{sid}/heartbeat":    {user: Public(), scope: Resource("session"), audit: NoAudit()},
 	"POST /v1/sessions/{sid}/replies":      {user: Public(), scope: Resource("session")},
 	"POST /v1/sessions/{sid}/owner":        {user: Require(authz.PermSessionTransfer), scope: Resource("session")},
 	"GET /v1/sessions/{sid}/messages":      {user: InHandler(permDeny, authz.PermSessionReadOthers), scope: Resource("session")},
@@ -849,10 +853,10 @@ var routeDecls = map[string]routeDecl{
 	"GET /v1/workers/{id}/projects":           {user: Public(), scope: Resource("worker")},
 	"POST /v1/workers/{id}/upgrade":           {user: InHandler(permDeny, authz.PermWorkerUpgrade, authz.PermWorkerUpgradeUpload), scope: Resource("worker")},
 	"PUT /v1/workers/{id}/upgrade/file":       {user: Require(authz.PermWorkerUpgradeUpload), scope: Resource("worker")},
-	"GET /v1/workers/connect":                 {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating()},
-	"GET /v1/workers/tunnel-connect":          {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating()},
-	"GET /v1/workers/preview-connect":         {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating()},
-	"GET /v1/workers/pty-connect":             {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating()},
+	"GET /v1/workers/connect":                 {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating(), audit: NoAudit()},
+	"GET /v1/workers/tunnel-connect":          {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating(), audit: NoAudit()},
+	"GET /v1/workers/preview-connect":         {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating(), audit: NoAudit()},
+	"GET /v1/workers/pty-connect":             {user: NoUserSurface(), workerSelf: true, scope: NoProject(), rw: Mutating(), audit: NoAudit()},
 
 	// ---- plan T1.5i: the rest (agents, runners, meta, stats) ----
 	//
@@ -903,6 +907,7 @@ var routeDecls = map[string]routeDecl{
 	// judges 生效 exactly as the listing does before it lets the store move expires_at.
 	"POST /v1/auth/grants/{id}/renew": {user: Require(authz.PermAuthManage), scope: NoProject()},
 	"GET /v1/auth/audit":              {user: Require(authz.PermAuthManage), scope: NoProject()},
+	"GET /v1/audit":                   {user: Require(authz.PermAuditRead), scope: NoProject()},
 
 	// ---- 配置入库 P1（计划 T6）：用户管理 ----
 	//

@@ -290,6 +290,7 @@ const (
 	PermSettingsRead  = "settings.read"
 	PermSettingsWrite = "settings.write"
 	PermTriggerRead   = "trigger.read"
+	PermAuditRead     = "audit.read"
 	PermConfigWrite   = "config.write"
 	PermProjectWrite  = "project.write"
 	PermRulesWrite    = "rules.write"
@@ -474,6 +475,10 @@ var catalog = []Permission{
 	},
 	{
 		Name: PermTriggerRead, Risk: RiskMedium, SessionGrantable: false,
+		Scope: ScopeNo, Source: SourceRoot,
+	},
+	{
+		Name: PermAuditRead, Risk: RiskMedium, SessionGrantable: false,
 		Scope: ScopeNo, Source: SourceRoot,
 	},
 	{

@@ -104,6 +104,9 @@ func TestExampleYAMLParses(t *testing.T) {
 	if cfg.Server.TokenEnv != "GOFER_TOKEN" {
 		t.Errorf("server.token_env = %q", cfg.Server.TokenEnv)
 	}
+	if cfg.Server.AuditRetentionDays != 90 || cfg.Server.EffectiveAuditRetentionDays() != 90 {
+		t.Errorf("server.audit_retention_days = %d", cfg.Server.AuditRetentionDays)
+	}
 
 	// The shipped default leaves storage subdirs unset so the resolver can distinguish
 	// the new project-root layout from an explicit legacy setting.

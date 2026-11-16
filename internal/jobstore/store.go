@@ -1796,6 +1796,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateAuth(); err != nil {
 		return err
 	}
+	if err := s.migrateCallerUsage(); err != nil {
+		return err
+	}
 	if err := s.migrateWorkflows(); err != nil {
 		return err
 	}
