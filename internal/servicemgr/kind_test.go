@@ -124,7 +124,7 @@ func TestWorkerSpecCommandAndRuntimeNames(t *testing.T) {
 	if got := spec.Description(); got != "Gofer managed worker w-t5" {
 		t.Fatalf("worker description = %q", got)
 	}
-	wantSupervisor := "worker supervise --spec " + m.SpecPath()
+	wantSupervisor := "serve supervise --spec " + m.SpecPath()
 	if got := strings.Join(spec.SupervisorArgs(m.SpecPath()), " "); got != wantSupervisor {
 		t.Fatalf("worker supervisor args = %q", got)
 	}

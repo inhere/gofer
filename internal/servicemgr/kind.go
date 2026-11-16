@@ -68,10 +68,11 @@ func (s Spec) ApplicationLogName() string {
 	return "serve.log"
 }
 
-// SupervisorArgs is the hidden command a Windows task starts: the copied
-// supervisor image re-runs this binary with the kind it manages.
+// SupervisorArgs is the hidden command a Windows task starts. The same entry
+// serves both kinds: it loads the spec and supervises whatever Kind it names, so
+// a worker registration needs no separate hidden command.
 func (s Spec) SupervisorArgs(specPath string) []string {
-	return []string{string(s.EffectiveKind()), "supervise", "--spec", specPath}
+	return []string{"serve", "supervise", "--spec", specPath}
 }
 
 // CommandArgs is the managed process command line, built per kind from an

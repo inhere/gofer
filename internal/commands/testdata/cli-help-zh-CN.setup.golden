@@ -123,6 +123,39 @@ worker remove	examples
 worker remove	flag config	path to the gofer config file
 worker remove	flag server	server address (overrides config server.addr)
 worker remove	flag token	bearer token override (prefer config/env: GOFER_SERVER_TOKEN)
+worker service	desc	Manage the OS-level registration that keeps this host's worker running
+worker service	help	
+worker service	examples	
+worker service	flag config	path to the gofer config file
+worker service	flag id	worker id (default: worker_id from worker.yaml)
+worker service register	desc	Register this host's worker as a user-level OS service (does not start it)
+worker service register	help	
+worker service register	examples	
+worker service register	flag config	path to the gofer config file
+worker service register	flag id	worker id (default: worker_id from worker.yaml)
+worker service register	flag start	start after registration
+worker service start	desc	Start the registered worker service
+worker service start	help	
+worker service start	examples	
+worker service start	flag config	path to the gofer config file
+worker service start	flag id	worker id (default: worker_id from worker.yaml)
+worker service status	desc	Inspect the registered worker service
+worker service status	help	
+worker service status	examples	
+worker service status	flag config	path to the gofer config file
+worker service status	flag id	worker id (default: worker_id from worker.yaml)
+worker service status	flag json	print JSON
+worker service stop	desc	Stop the registered worker service
+worker service stop	help	
+worker service stop	examples	
+worker service stop	flag config	path to the gofer config file
+worker service stop	flag id	worker id (default: worker_id from worker.yaml)
+worker service uninstall	desc	Stop and remove the OS registration
+worker service uninstall	help	
+worker service uninstall	examples	
+worker service uninstall	flag config	path to the gofer config file
+worker service uninstall	flag id	worker id (default: worker_id from worker.yaml)
+worker service uninstall	flag purge	also delete worker.yaml, the GOFER_WORKER_TOKEN .env line and run/worker-<id>.*
 worker show	desc	Show one worker connection, protocol, capabilities and policy state
 worker show	help	
 worker show	examples	

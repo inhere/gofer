@@ -132,6 +132,7 @@ func flagGlobals() map[string]any {
 		"workerManageOpts":      &workerManageOpts,
 		"workerOpts":            &workerOpts,
 		"workerReloadOpts":      &workerReloadOpts,
+		"workerServiceOpts":     &workerServiceOpts,
 		"workerShowOpts":        &workerShowOpts,
 		"workerStopOpts":        &workerStopOpts,
 		"workerUpgradeOpts":     &workerUpgradeOpts,
