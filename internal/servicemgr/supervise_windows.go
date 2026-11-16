@@ -113,7 +113,7 @@ func Supervise(ctx context.Context, specPath string) error {
 		if failures >= maxFastFailures {
 			return fmt.Errorf("server failed %d times within %s", failures, fastFailure)
 		}
-		args, err := spec.ServerArgs()
+		args, err := spec.CommandArgs()
 		if err != nil {
 			return err
 		}

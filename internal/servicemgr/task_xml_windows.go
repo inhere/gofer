@@ -92,7 +92,7 @@ func makeTaskDocument(spec Spec, supervisorPath, specPath string) (taskDocument,
 	doc.Settings.Restart.Count = 3
 	doc.Actions.Context = "Author"
 	doc.Actions.Exec.Command = supervisorPath
-	doc.Actions.Exec.Arguments = windows.ComposeCommandLine([]string{"serve", "supervise", "--spec", specPath})
+	doc.Actions.Exec.Arguments = windows.ComposeCommandLine(spec.SupervisorArgs(specPath))
 	doc.Actions.Exec.WorkingDirectory = spec.WorkDir
 	return doc, nil
 }
@@ -137,14 +137,14 @@ func verifyOwnedTask(xmlText string, spec Spec, supervisorPath, specPath string)
 	if actual.Registration.Description != taskDescription(spec) || actual.Registration.URI != `\`+spec.Name ||
 		actual.Principals.Principal.ID != "Author" || actual.Actions.Context != "Author" ||
 		!strings.EqualFold(actual.Actions.Exec.Command, supervisorPath) ||
-		actual.Actions.Exec.Arguments != windows.ComposeCommandLine([]string{"serve", "supervise", "--spec", specPath}) ||
+		actual.Actions.Exec.Arguments != windows.ComposeCommandLine(spec.SupervisorArgs(specPath)) ||
 		actual.Actions.Exec.WorkingDirectory != spec.WorkDir ||
 		actual.Principals.Principal.UserID != spec.Owner || actual.Principals.Principal.LogonType != "InteractiveToken" ||
 		actualLevel != wantLevel || triggerOwner != spec.Owner {
 		return fmt.Errorf("task %q is not this managed instance: description=%v uri=%v command=%v arguments=%v workdir=%v owner=%v logon=%v level=%v trigger=%v",
 			spec.Name, actual.Registration.Description == taskDescription(spec), actual.Registration.URI == `\`+spec.Name,
 			strings.EqualFold(actual.Actions.Exec.Command, supervisorPath),
-			actual.Actions.Exec.Arguments == windows.ComposeCommandLine([]string{"serve", "supervise", "--spec", specPath}),
+			actual.Actions.Exec.Arguments == windows.ComposeCommandLine(spec.SupervisorArgs(specPath)),
 			actual.Actions.Exec.WorkingDirectory == spec.WorkDir, actual.Principals.Principal.UserID == spec.Owner,
 			actual.Principals.Principal.LogonType == "InteractiveToken", actualLevel == wantLevel,
 			triggerOwner == spec.Owner)

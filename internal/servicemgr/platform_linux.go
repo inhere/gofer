@@ -151,7 +151,7 @@ func unitContent(spec Spec) ([]byte, error) {
 			return nil, errors.New("user service owner must be current user")
 		}
 	}
-	args, err := spec.ServerArgs()
+	args, err := spec.CommandArgs()
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func unitContent(spec Spec) ([]byte, error) {
 	}
 	var out strings.Builder
 	fmt.Fprintf(&out, "# Gofer-Managed: %s\n", spec.Owner)
-	out.WriteString("[Unit]\nDescription=Gofer managed server\nAfter=network.target\nStartLimitIntervalSec=60\nStartLimitBurst=5\n\n[Service]\nType=simple\n")
+	out.WriteString("[Unit]\nDescription=" + spec.Description() + "\nAfter=network.target\nStartLimitIntervalSec=60\nStartLimitBurst=5\n\n[Service]\nType=simple\n")
 	if spec.Backend == BackendSystemdSystem {
 		fmt.Fprintf(&out, "User=%s\n", spec.RunAs)
 	}
@@ -511,7 +511,7 @@ func (b systemdBackend) status(ctx context.Context, m *Manager, spec Spec) (Syst
 		if err != nil {
 			return status, err
 		}
-		args, err := spec.ServerArgs()
+		args, err := spec.CommandArgs()
 		if err != nil {
 			return status, err
 		}
@@ -597,9 +597,9 @@ func systemdApplicationLog(spec Spec) (string, error) {
 		if !filepath.IsAbs(dir) {
 			dir = filepath.Join(spec.WorkDir, dir)
 		}
-		return filepath.Join(dir, "serve.log"), nil
+		return filepath.Join(dir, spec.ApplicationLogName()), nil
 	}
-	return filepath.Join(spec.RuntimeDir, "serve.log"), nil
+	return filepath.Join(spec.RuntimeDir, spec.ApplicationLogName()), nil
 }
 
 // SystemdJournal reads the native journal without routing through a shell.
