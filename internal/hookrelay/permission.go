@@ -64,6 +64,9 @@ type PermissionDecision struct {
 	Behavior           string            `json:"behavior"`
 	UpdatedPermissions []json.RawMessage `json:"updatedPermissions,omitempty"`
 	Message            string            `json:"message,omitempty"`
+	// UpdatedInput rewrites the tool input of an allowed call (the answered
+	// AskUserQuestion questions).
+	UpdatedInput json.RawMessage `json:"updatedInput,omitempty"`
 }
 
 // PermissionJSON renders the PermissionRequest hook output for d.
@@ -153,6 +156,13 @@ func PermissionView(lang i18n.Lang, tool string, input json.RawMessage) (summary
 	if tool == "" {
 		tool = "tool"
 	}
+	if tool == AskUserQuestionTool {
+		if q := firstQuestionText(input); q != "" {
+			// A question card is judged by its question: never the raw input JSON.
+			q = redactText(oneLineText(q))
+			return truncateRunes(tool+" "+q, permissionSummaryRunes), q
+		}
+	}
 	m := decodeInput(input)
 	var what string
 	switch {
@@ -189,6 +199,20 @@ func PermissionView(lang i18n.Lang, tool string, input json.RawMessage) (summary
 		summary = tool + " " + what
 	}
 	return truncateRunes(summary, permissionSummaryRunes), detail
+}
+
+// firstQuestionText is the first question of an AskUserQuestion input ("" when the
+// input carries none).
+func firstQuestionText(input json.RawMessage) string {
+	var in struct {
+		Questions []struct {
+			Question string `json:"question"`
+		} `json:"questions"`
+	}
+	if err := json.Unmarshal(input, &in); err != nil || len(in.Questions) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(in.Questions[0].Question)
 }
 
 // marshalPlain is json.Marshal(Indent) without HTML escaping: a shell command's
@@ -411,6 +435,9 @@ func waitTerminalDenied(p Payload, wait time.Duration) bool {
 // is away, waits for their web answer. No answer = no output: the terminal dialog
 // that is already on screen simply stays.
 func (r *runner) permissionRequest() Result {
+	if r.p.ToolName == AskUserQuestionTool && r.p.dialect() == AgentClaude && !ObserveOnly(r.p.dialect()) {
+		return r.askQuestionPermission()
+	}
 	summary, detail := PermissionView(r.lang(), r.p.ToolName, r.p.ToolInput)
 	msg := permissionMessage(r.lang(), summary)
 	if ObserveOnly(r.p.dialect()) {
