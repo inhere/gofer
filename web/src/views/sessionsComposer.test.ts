@@ -45,4 +45,10 @@ describe('new session sheet', () => {
     expect(workbenchPage).toContain('thread: `s:${payload.sessionID}`')
     expect(workbenchPage).not.toContain('? `/jobs/')
   })
+
+  it('feeds the container-worker default into the runner pick for a fresh ACP session', () => {
+    // An empty current runner must not fall straight to the project's first runner.
+    expect(sheet).toContain("const preferred = runnerName.value ||")
+    expect(sheet).toContain('pickRunner(preferred, selectedProject.value, runners.value, runnerBlocks.value)')
+  })
 })

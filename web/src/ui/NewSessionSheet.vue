@@ -125,8 +125,13 @@ function chooseDefaults(): void {
   if (!agentKey.value || !agents.value.some((a) => a.key === agentKey.value)) {
     agentKey.value = type.value === 'acp' ? defaultSessionAgent(agents.value) : agents.value[0]?.key ?? ''
   }
+  // An ACP session with no runner picked yet prefers the online container worker
+  // (defaultSessionRunner); pickRunner then only keeps it if it is usable. Feeding the
+  // empty value straight to pickRunner fell to the project's first runner every time.
+  const preferred = runnerName.value ||
+    (type.value === 'acp' ? defaultSessionRunner(runners.value, meta.value.workers, agentKey.value) : '')
   runnerName.value =
-    pickRunner(runnerName.value, selectedProject.value, runners.value, runnerBlocks.value) ||
+    pickRunner(preferred, selectedProject.value, runners.value, runnerBlocks.value) ||
     (type.value === 'acp'
       ? defaultSessionRunner(runners.value, meta.value.workers, agentKey.value)
       : runners.value[0]?.name ?? 'local')
