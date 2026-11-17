@@ -1,6 +1,8 @@
 package workbench
 
 import (
+	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -117,8 +119,82 @@ func TestQueryFiltersAndCounts(t *testing.T) {
 	}
 }
 
-// TestThreadSearchCoversTopicAndLastMessage pins the q search: a thread is found by its
-// title, project (topic), agent and — for a relay thread — the last message.
+// TestQueryCountsIgnorePaging pins the paged case: a source tab shows the same counts on
+// every page (the numbers describe the time window, not the page) and each count IS the
+// number of rows that tab returns over all its pages.
+func TestQueryCountsIgnorePaging(t *testing.T) {
+	store := openWorkbenchStore(t)
+	now := time.Now().Unix()
+	want := map[string][]string{}
+	// Terminal rows only, so no live / pinned thread rides along as a first-page exception:
+	// every thread is an ordinary page entry.
+	for i := 0; i < 7; i++ {
+		sid := fmt.Sprintf("acp-%02d", i)
+		seedKindThread(t, store, sid, false, now-int64(i+1), job.StatusDone)
+		want[SourceACP] = append(want[SourceACP], "s:"+sid)
+	}
+	for i := 0; i < 3; i++ {
+		sid := fmt.Sprintf("pty-%02d", i)
+		seedKindThread(t, store, sid, true, now-int64(i+1), job.StatusDone)
+		want[SourcePTY] = append(want[SourcePTY], "s:"+sid)
+	}
+	for i := 0; i < 2; i++ {
+		sid := fmt.Sprintf("rel-%02d", i)
+		seedRelaySession(t, store, sid, jobstore.SessionEnded, now-int64(i+1))
+		want[SourceRelay] = append(want[SourceRelay], "r:"+sid)
+	}
+	for _, ids := range want {
+		sort.Strings(ids)
+	}
+	svc := NewService(store, nil, nil)
+	window := int64(86400)
+
+	// Reference: the unpaged listing counts every thread of the window once.
+	full, err := svc.List("alice", Query{Since: now - window, Counts: true})
+	assert.NoErr(t, err)
+	if full.Counts == nil {
+		t.Fatal("counts=1 returned no counts without paging")
+	}
+	wantCounts := *full.Counts
+	assert.Eq(t, ThreadSourceCounts{
+		ACP: len(want[SourceACP]), PTY: len(want[SourcePTY]), Relay: len(want[SourceRelay]),
+		All: len(want[SourceACP]) + len(want[SourcePTY]) + len(want[SourceRelay]),
+	}, wantCounts)
+
+	// Paged: one source tab, three rows a page, four pages of it.
+	for _, src := range []string{SourceACP, SourcePTY, SourceRelay} {
+		t.Run(src, func(t *testing.T) {
+			var ids []string
+			cursor := ""
+			page := 0
+			for {
+				resp, err := svc.List("alice", Query{Since: now - window, Source: src, Limit: 3, Cursor: cursor, Counts: true})
+				assert.NoErr(t, err)
+				if resp.Counts == nil {
+					t.Fatalf("counts=1 returned no counts (source=%s page=%d)", src, page)
+				}
+				// The counts do not follow the page or the source tab.
+				assert.Eq(t, wantCounts, *resp.Counts)
+				ids = append(ids, threadIDs(resp)...)
+				page++
+				if !resp.HasMore {
+					break
+				}
+				cursor = resp.NextCursor
+				if page > 20 {
+					t.Fatalf("cursor never ended (source=%s)", src)
+				}
+			}
+			if len(want[src]) > 3 && page < 2 {
+				t.Fatalf("source=%s fitted in %d page(s): the case needs several pages", src, page)
+			}
+			// The tab's own count is exactly what its pages returned.
+			sort.Strings(ids)
+			assert.Eq(t, want[src], ids)
+		})
+	}
+}
+
 func TestThreadSearchCoversTopicAndLastMessage(t *testing.T) {
 	store := openWorkbenchStore(t)
 	now := time.Now().Unix()
@@ -137,7 +213,7 @@ func TestThreadSearchCoversTopicAndLastMessage(t *testing.T) {
 		needle string
 		want   []string
 	}{
-		{needle: "billing", want: []string{"s:search"}},           // title
+		{needle: "billing", want: []string{"s:search"}},            // title
 		{needle: "beta", want: []string{"s:search"}},               // topic (project key)
 		{needle: "flux capacitor", want: []string{"r:rel-search"}}, // last message
 		{needle: "nothing-here"},

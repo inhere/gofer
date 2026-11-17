@@ -62,6 +62,29 @@ func threadPassesSourceLive(t Thread, q Query) bool {
 	return !q.Live || threadLive(t)
 }
 
+// threadPassesFilters is every listing filter except the source one (project, status,
+// search, agent / runner, live and the caller's Keep). The per-source counts and the
+// listing run this same predicate, so a tab's number is the number of rows the tab's own
+// request returns; needle is the already lower-cased Query.Q.
+func threadPassesFilters(t Thread, q Query, needle string) bool {
+	if q.Project != "" && t.ProjectKey != q.Project {
+		return false
+	}
+	if q.Status != "" && t.Status != q.Status {
+		return false
+	}
+	if needle != "" && !threadMatches(t, needle) {
+		return false
+	}
+	if !threadPassesAgentRunner(t, q) {
+		return false
+	}
+	if !threadPassesLive(t, q) {
+		return false
+	}
+	return q.Keep == nil || q.Keep(t)
+}
+
 // threadPassesAgentRunner applies the agent / runner narrowing (empty = any).
 func threadPassesAgentRunner(t Thread, q Query) bool {
 	if q.Agent != "" && t.Agent != q.Agent {

@@ -98,8 +98,8 @@ type Query struct {
 	Runner string
 	// Counts asks for the per-source counts of the threads that pass every filter EXCEPT
 	// Source, so a source tab can show how many threads each other tab holds. The counts
-	// cover the threads this response was built from (the whole window of an unpaged
-	// listing, the page of a paged one).
+	// cover the whole time window of the request, not the page: paging and Source leave
+	// them unchanged.
 	Counts bool
 	// Live keeps only threads with something running; in paged mode it is a single first
 	// page (no cursor, HasMore=false).
