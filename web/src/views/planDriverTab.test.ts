@@ -181,6 +181,12 @@ describe('driver tab wiring', () => {
     expect(tab).toContain('driverErrorText(e)')
   })
 
+  it('lets the figures be re-read without leaving the page', () => {
+    // 记录会在别人推进同一个 plan 时增长，详情页的轮询不带它。
+    expect(tab).toContain('data-test="plan-driver-refresh"')
+    expect(tab).toContain("t('plans.driver.refresh')")
+  })
+
   it('gates both writes on the plan write permission', () => {
     expect(tab).toContain(':disabled="busy || !canWrite"')
     expect(tab).toContain('data-test="plan-driver-gate"')

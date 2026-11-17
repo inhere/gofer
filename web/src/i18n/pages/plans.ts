@@ -325,6 +325,7 @@ export const plans: PageDict = {
 
     // 推进记录页签（设计 2026-11-16 §1，计划 R12）：driver 状态、预算与一致率。
     'plans.driver.title': '推进记录',
+    'plans.driver.refresh': '刷新',
     'plans.driver.loading': '读取推进记录…',
     'plans.driver.offHint': '推进引擎未启用：gofer 照常按人或 job 触发的推进继续，不会记录“本来会做什么”。',
     'plans.driver.levelNote': '本版只提供「只记录」：引擎算出本来会做的动作并记录，不真的派发、续接、重试或暂停；其余等级在后续版本提供。',
@@ -708,6 +709,7 @@ export const plans: PageDict = {
 
     // Drive-log tab (design 2026-11-16 §1, plan R12): driver state, budget and agreement.
     'plans.driver.title': 'Drive log',
+    'plans.driver.refresh': 'Refresh',
     'plans.driver.loading': 'Loading the drive log…',
     'plans.driver.offHint': 'The driver is off: gofer keeps advancing the plan exactly as a person or a job asks, and records nothing about what it would have done.',
     'plans.driver.levelNote': 'This version only offers record: the engine works out the action it would take and logs it, without dispatching, resuming, retrying or pausing anything. Other levels arrive later.',

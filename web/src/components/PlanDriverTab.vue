@@ -113,6 +113,10 @@ watch(() => props.planId, load)
       <h2 class="section-title mono">{{ t('plans.driver.title') }}</h2>
       <span v-if="enabled" class="pd-level mono" data-test="plan-driver-level">{{ driverLevelLabel(status?.level) }}</span>
       <span v-if="enabled && status?.enabled_at" class="pd-since mono">{{ t('plans.driver.enabledAt', { at: fmtDateTime(status.enabled_at) }) }}</span>
+      <!-- 记录在 plan 推进时增长（可能来自其他人的 job），详情页的轮询不会带上它，所以给一个手动的刷新。 -->
+      <button class="op-btn pd-refresh" type="button" data-test="plan-driver-refresh" :disabled="busy" @click="load">
+        {{ t('plans.driver.refresh') }}
+      </button>
     </div>
 
     <p v-if="loadError" class="error mono" data-test="plan-driver-load-error">{{ loadError }}</p>
@@ -256,6 +260,7 @@ watch(() => props.planId, load)
 .section-title { font-size: 12px; letter-spacing: 0.08em; color: var(--ink-3); text-transform: uppercase; margin: 0; }
 .pd-level { font-size: 11px; padding: 1px 7px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); }
 .pd-since { font-size: 11px; color: var(--ink-3); }
+.pd-refresh { margin-left: auto; }
 .pd-body { margin-top: 10px; }
 .pd-note { margin: 8px 0 0; font-size: 12px; color: var(--ink-2); }
 .pd-note--dim { color: var(--ink-3); }
