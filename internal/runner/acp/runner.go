@@ -304,6 +304,7 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 	prompt := req.ACP.Prompt
 	var images []runner.ImageInput
 	turn := req.ACP.InitialTurnNo
+	skipAwait := false // a turn that was not started: the session is still awaiting input
 	for {
 		if prompt != "" || len(images) > 0 {
 			if len(images) > 0 && !imageCapable {
@@ -317,6 +318,14 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 					if errors.Is(err, runner.ErrSessionEndRequested) {
 						events.write(map[string]any{"t": "stop", "stop_reason": "manual_end"})
 						return runner.Result{SessionID: sessionID, ExitCode: 0, SessionEndReason: "manual_end"}
+					}
+					var unsent *runner.TurnNotStartedError
+					if errors.As(err, &unsent) {
+						// The prompt is NOT sent: say so in the stream (with the message,
+						// so it stays visible and can be sent again) and keep waiting.
+						events.write(map[string]any{"t": "turn_unsent", "text": unsent.Reason, "prompt": prompt})
+						prompt, images, skipAwait = "", nil, true
+						continue
 					}
 					return runner.Result{SessionID: sessionID, ExitCode: -1, Err: err}
 				}
@@ -394,12 +403,13 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 				}
 			}
 		}
-		if req.ACP.OnAwaitInput != nil {
+		if req.ACP.OnAwaitInput != nil && !skipAwait {
 			if err := req.ACP.OnAwaitInput(); err != nil {
 				result.ExitCode, result.Err = -1, err
 				return result
 			}
 		}
+		skipAwait = false
 		events.write(map[string]any{"t": "awaiting_input", "turn": turn})
 		var idleTimer *time.Timer
 		var idleC <-chan time.Time

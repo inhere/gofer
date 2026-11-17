@@ -63,6 +63,8 @@ type stubJobs struct {
 	// carries and the caller's --no-rules.
 	gotEnv     map[string]string
 	gotNoRules bool
+	// gotKeepDirLock captures the request's keep_dir_lock (R8).
+	gotKeepDirLock bool
 
 	// interactions returned by GetInteractions (drives the worker→hub open bridge).
 	interactions []job.Interaction
@@ -83,6 +85,7 @@ func (s *stubJobs) Submit(req job.JobRequest) (job.JobResult, error) {
 	s.gotInteractive = req.Interactive
 	s.gotCols, s.gotRows = req.Cols, req.Rows
 	s.gotEnv, s.gotNoRules = req.Env, req.NoRules
+	s.gotKeepDirLock = req.KeepDirLock
 	s.mu.Unlock()
 	if s.submitErr != nil {
 		return job.JobResult{}, s.submitErr

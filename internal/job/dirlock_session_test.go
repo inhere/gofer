@@ -220,3 +220,58 @@ func TestSessionCancelWhileWaitingForDirLock(t *testing.T) {
 		t.Fatalf("cancelled session = %s (%s)", final.Status, final.Error)
 	}
 }
+
+// The wait cap running out does not fail the session: the message is not sent, the job
+// is back to awaiting_input with job.dir_wait_timeout and a visible "unsent" line in the
+// stream, and the message can be sent again once the directory is free.
+func TestSessionDirLockWaitTimeoutLeavesSessionAwaiting(t *testing.T) {
+	root := t.TempDir()
+	s := newACPService(t, root, acptest.Options{})
+	capSec := 1
+	sess, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".",
+		Prompt: "first message", Session: true, TimeoutSec: 60, IdleTimeoutSec: 120, LockWaitSec: &capSec,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStatus(t, s, sess.ID, 15*time.Second, StatusAwaitingInput)
+	rel, _, _, err := s.dirLock.Acquire(context.Background(), []string{root}, "j-other", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			rel()
+		}
+	}()
+	if err := s.SaySession(sess.ID, "lost message"); err != nil {
+		t.Fatal(err)
+	}
+	wait.Until(t, 15*time.Second, "job.dir_wait_timeout", func() bool { return len(dirEvents(t, s, sess.ID, EventJobDirWaitTimeout)) > 0 })
+	ev := dirEvents(t, s, sess.ID, EventJobDirWaitTimeout)[0]
+	if ev["holder_job"] != "j-other" || ev["unsent"] != true {
+		t.Fatalf("timeout event = %v", ev)
+	}
+	// the stream names the unsent message, and the session is still awaiting input with
+	// room for a new message
+	wait.Until(t, 10*time.Second, "unsent line in the stream", func() bool {
+		cur, _ := s.Get(sess.ID)
+		raw, _ := os.ReadFile(filepath.Join(cur.ResultDir, "artifacts", "acp.jsonl"))
+		return strings.Contains(string(raw), "turn_unsent") && strings.Contains(string(raw), "j-other") && strings.Contains(string(raw), "lost message")
+	})
+	cur, _ := s.Get(sess.ID)
+	if cur.Status != StatusAwaitingInput || cur.TurnNo != 1 {
+		t.Fatalf("session = %s turn %d, want awaiting_input turn 1 (never failed)", cur.Status, cur.TurnNo)
+	}
+	rel()
+	released = true
+	wait.Until(t, 10*time.Second, "send again accepted", func() bool { return s.SaySession(sess.ID, "again") == nil })
+	wait.Until(t, 15*time.Second, "turn 2", func() bool {
+		c, _ := s.Get(sess.ID)
+		return c.Status == StatusAwaitingInput && c.TurnNo == 2
+	})
+	_ = s.EndSession(sess.ID)
+	s.Wait(sess.ID)
+}

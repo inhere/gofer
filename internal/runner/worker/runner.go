@@ -553,6 +553,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		ExclusiveDir:    f.ExclusiveDir,
 		StallTimeoutSec: f.StallTimeoutSec,
 		DirWaitMaxSec:   f.DirWaitMaxSec,
+		KeepDirLock:     f.KeepDirLock,
 		EnvDenyExtra:    f.EnvDenyExtra,
 		// SEC-01: the job's own credential. Only a peer at
 		// wsproto.JobCredentialMinProtocolVersion or above understands the field, so it

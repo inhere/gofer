@@ -41,6 +41,14 @@ func (s *Service) configureResidentACP(entry *jobEntry, request *runner.ACPReque
 		// until it has the lock.
 		if hold := entry.dirHold.Load(); hold != nil {
 			if err := hold.reacquire(); err != nil {
+				var unsent *runner.TurnNotStartedError
+				if errors.As(err, &unsent) {
+					// Nothing was sent: the input slot is free again for a new message.
+					entry.mu.Lock()
+					entry.sessionCommandPending = false
+					entry.mu.Unlock()
+					s.scheduleSessionReply(entry)
+				}
 				return err
 			}
 		}

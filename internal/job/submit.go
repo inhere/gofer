@@ -918,6 +918,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 			// JOB-11 (F12): and so does the directory-lock wait cap — the lock is held
 			// on that machine, so the policy this hub resolved is what applies there.
 			DirWaitMaxSec: req.DirWaitMaxSec,
+			KeepDirLock:   req.KeepDirLock,
 			EnvDenyExtra:  req.EnvDenyExtra,
 		}
 		// gofer-e2x7: a worker mirrors its acp.jsonl into this host job's result dir.

@@ -170,9 +170,11 @@ func (h *sessionDirHold) reacquire() error {
 		if h.ctx.Err() != nil {
 			return h.ctx.Err()
 		}
+		// The wait cap ran out: the message is NOT sent and the session goes back to
+		// awaiting_input (the person can send it again); it is never failed for this.
 		lockPathText := strings.Join(h.dirs, ", ")
-		h.s.recordEvent(h.jobID, EventJobDirWaitTimeout, map[string]any{"holder_job": holder, "dir": lockPathText, "wait_sec": h.wait})
-		return fmt.Errorf("dir lock wait exceeded %ds (holder %q, dir %s)", h.wait, holder, lockPathText)
+		h.s.recordEvent(h.jobID, EventJobDirWaitTimeout, map[string]any{"holder_job": holder, "dir": lockPathText, "wait_sec": h.wait, "unsent": true})
+		return &runner.TurnNotStartedError{Reason: i18n.T(h.lang(), "job.dir_wait.unsent", "holder", holder)}
 	}
 	if h.closed {
 		h.mu.Unlock()
@@ -239,14 +241,20 @@ func (h *sessionDirHold) changeNote(mark uint64) string {
 			parts = append(parts, id)
 		}
 	}
-	lang := i18n.Default
-	if cfg := h.s.cfg.Load(); cfg != nil {
-		h.entry.mu.Lock()
-		key := h.entry.result.ProjectKey
-		h.entry.mu.Unlock()
-		lang = cfg.LanguageFor(key)
-	}
+	lang := h.lang()
 	name := i18n.T(lang, "job.dir_wait.title")
 	body := i18n.T(lang, "job.dir_wait.changed", "jobs", strings.Join(parts, ", "))
 	return renderRulesSectionIn(lang, []RuleRef{{Name: name}}, map[string]string{name: body})
+}
+
+// lang is the language of the session's project.
+func (h *sessionDirHold) lang() i18n.Lang {
+	cfg := h.s.cfg.Load()
+	if cfg == nil {
+		return i18n.Default
+	}
+	h.entry.mu.Lock()
+	key := h.entry.result.ProjectKey
+	h.entry.mu.Unlock()
+	return cfg.LanguageFor(key)
 }
