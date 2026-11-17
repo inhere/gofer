@@ -75,6 +75,10 @@ func TestE2EWorkerSessionYieldsDirLockAndNotesNextTurn(t *testing.T) {
 		for _, ev := range events {
 			// the note rides the prompt record's injected part (split from the text)
 			if inj, _ := ev["injected"].(string); ev["kind"] == "prompt" && ev["text"] == "second turn" && strings.Contains(inj, "gofer:rules-end") {
+				// the note names the job by the HUB's id, not the worker-local one
+				if !strings.Contains(inj, other.ID) {
+					t.Fatalf("note does not name the hub job %s: %q", other.ID, inj)
+				}
 				return true, nil
 			}
 		}

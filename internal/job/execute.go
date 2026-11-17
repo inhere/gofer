@@ -156,6 +156,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		}
 		// One Acquire for the whole set: it is granted atomically, so a job never holds
 		// some paths while waiting for the rest (no hold-and-wait between jobs).
+		if entry.hubJobID != "" {
+			s.dirLock.setLabel(req.JobID, entry.hubJobID)
+			defer s.dirLock.clearLabel(req.JobID)
+		}
 		release, holder, waited, derr := s.dirLock.Acquire(waitCtx, lockDirs, req.JobID, func(blocker, blockedDir string) {
 			s.enterWaitingDir(entry, req.JobID, blocker, blockedDir, lockDirs)
 		})

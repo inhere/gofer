@@ -32,6 +32,9 @@ type dirLocks struct {
 	// directory meanwhile.
 	grants []dirGrant
 	seq    uint64
+	// labels maps a job id to the id people know it by (a worker's local job -> the
+	// hub's id) while the job is live; copied into the grant log when it is granted.
+	labels map[string]string
 }
 
 // dirWaiter is one queued exclusive job: ALL the directories it wants (already

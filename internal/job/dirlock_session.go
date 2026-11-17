@@ -29,13 +29,33 @@ const dirGrantLogMax = 256
 type dirGrant struct {
 	seq   uint64
 	jobID string
+	label string // the id people know the job by ("" = jobID)
 	keys  []string
 }
+
+// setLabel / clearLabel manage the display id of a live job.
+func (d *dirLocks) setLabel(jobID, label string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.labels == nil {
+		d.labels = map[string]string{}
+	}
+	d.labels[jobID] = label
+}
+
+func (d *dirLocks) clearLabel(jobID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.labels, jobID)
+}
+
+// dirUser is a job that used a directory: its own id and the id people know it by.
+type dirUser struct{ id, label string }
 
 // recordGrantLocked appends to the grant log. Caller holds mu.
 func (d *dirLocks) recordGrantLocked(keys []string, jobID string) {
 	d.seq++
-	d.grants = append(d.grants, dirGrant{seq: d.seq, jobID: jobID, keys: append([]string(nil), keys...)})
+	d.grants = append(d.grants, dirGrant{seq: d.seq, jobID: jobID, label: d.labels[jobID], keys: append([]string(nil), keys...)})
 	if over := len(d.grants) - dirGrantLogMax; over > 0 {
 		d.grants = append([]dirGrant(nil), d.grants[over:]...)
 	}
@@ -50,10 +70,10 @@ func (d *dirLocks) mark() uint64 {
 
 // usersSince lists (in grant order, once each) the jobs other than self that were
 // granted a lock overlapping keys after mark.
-func (d *dirLocks) usersSince(mark uint64, keys []string, self string) []string {
+func (d *dirLocks) usersSince(mark uint64, keys []string, self string) []dirUser {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	var out []string
+	var out []dirUser
 	seen := map[string]bool{}
 	for _, g := range d.grants {
 		if g.seq <= mark || g.jobID == self || seen[g.jobID] {
@@ -61,7 +81,7 @@ func (d *dirLocks) usersSince(mark uint64, keys []string, self string) []string 
 		}
 		if keysOverlap(keys, g.keys) {
 			seen[g.jobID] = true
-			out = append(out, g.jobID)
+			out = append(out, dirUser{id: g.jobID, label: g.label})
 		}
 	}
 	return out
@@ -239,11 +259,15 @@ func (h *sessionDirHold) changeNote(mark uint64) string {
 		return ""
 	}
 	parts := make([]string, 0, len(users))
-	for _, id := range users {
-		if r, ok := h.s.Get(id); ok && strings.TrimSpace(r.Title) != "" {
-			parts = append(parts, fmt.Sprintf("%s (%s)", id, strings.TrimSpace(r.Title)))
+	for _, u := range users {
+		shown := u.id
+		if u.label != "" {
+			shown = u.label // a worker names its jobs by the hub's id
+		}
+		if r, ok := h.s.Get(u.id); ok && strings.TrimSpace(r.Title) != "" {
+			parts = append(parts, fmt.Sprintf("%s (%s)", shown, strings.TrimSpace(r.Title)))
 		} else {
-			parts = append(parts, id)
+			parts = append(parts, shown)
 		}
 	}
 	lang := h.lang()

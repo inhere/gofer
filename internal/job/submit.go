@@ -1209,6 +1209,7 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		baselineSHA:     req.BaselineSHA,
 		secretValues:    secretValues,
 		sessionCommands: sessionCommands,
+		hubJobID:        req.CredentialJobID,
 		result: JobResult{
 			ID:                jobID,
 			ProjectKey:        req.ProjectKey,
