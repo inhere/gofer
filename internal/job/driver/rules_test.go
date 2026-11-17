@@ -38,6 +38,7 @@ func TestDecideJobRules(t *testing.T) {
 		{"rework below the ceiling still resumes", job.PlanEventAdvance, done(jobFacts{SelfDecision: job.ResultRework}), reworkBudget{Limit: 2, Spent: 1}, ActionResumeWithNotes, RuleSelfReworkResume},
 		{"transient failure retries", job.PlanEventBlock, failed(job.TerminationTransient, jobFacts{}), reworkBudget{}, ActionRetry, RuleFailureTransientRetry},
 		{"stalled failure retries like a transient one", job.PlanEventBlock, failed(job.TerminationStalled, jobFacts{}), reworkBudget{}, ActionRetry, RuleFailureTransientRetry},
+		{"interrupted failure (gofer stopped it) retries", job.PlanEventBlock, failed(job.TerminationInterrupted, jobFacts{}), reworkBudget{}, ActionRetry, RuleFailureInterruptedRetry},
 		{"other failure escalates", job.PlanEventBlock, failed(job.TerminationAgentError, jobFacts{}), reworkBudget{}, ActionEscalate, RuleFailureOtherEscalate},
 		{"needs_review with nothing stronger escalates", job.PlanEventObserve, jobFacts{Status: job.StatusNeedsReview, Termination: job.TerminationUnknown}, reworkBudget{}, ActionEscalate, RuleNeedsReviewEscalate},
 		{"needs_review with a failed check resumes", job.PlanEventObserve, jobFacts{Status: job.StatusNeedsReview, CheckVerdict: "fail"}, reworkBudget{}, ActionResumeWithNotes, RuleCheckFailedResume},

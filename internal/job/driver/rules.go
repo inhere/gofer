@@ -110,6 +110,9 @@ func decideJob(kind string, f jobFacts, rw reworkBudget) (Decision, bool) {
 		switch f.Termination {
 		case job.TerminationTransient, job.TerminationStalled:
 			return d(ActionRetry, RuleFailureTransientRetry)
+		case job.TerminationInterrupted:
+			// gofer stopped the job (a serve restart), the agent never got its say: retry.
+			return d(ActionRetry, RuleFailureInterruptedRetry)
 		}
 		return d(ActionEscalate, RuleFailureOtherEscalate)
 	}

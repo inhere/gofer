@@ -150,7 +150,7 @@ gofer 加一个确定性的 plan 推进引擎，判断只在四类窄决策点�
 - **自报终态**（R9）：MCP `gofer_submit_result`（完整面 + leader 面，管家面不注册）、`POST /v1/jobs/{id}/result`（仅本 job 凭据，同 job 第二次 409）、`job show` 与 web 概览展示、job 注入的规则段一行提示。
 - **终止原因与诊断**（R10）：`job.TerminationReason` 纯函数（不新增列）、`gofer job diagnose`、`GET /v1/jobs/{id}/diagnosis`、web 诊断抽屉。
 - **统一一次性调用器**（R11，`internal/oneshot`）：交付核验改走它，每日限额由 `background_agent_runs`（`kind = job_check`）落库计数，重启不清零。
-- **driver**（R3–R8，`internal/job/driver`）：双接口依赖倒置（job 侧 `PlanDriver`，driver 侧 `HostOps`），`plan_drivers` / `plan_driver_actions` 两张表，七种动作 + 写死的风险表，13 条规则，三项预算按 plan 累计并在 record 下标 `would_pause`，报告按动作 / 规则汇总一致率与「最近 20 个 ≥ 90%」建议。
+- **driver**（R3–R8，`internal/job/driver`）：双接口依赖倒置（job 侧 `PlanDriver`，driver 侧 `HostOps`），`plan_drivers` / `plan_driver_actions` 两张表，七种动作 + 写死的风险表，14 条规则（其中被中断的 job——gofer 自己在运行中途停了——按 `failure_interrupted_retry` 记重试，不是 agent 的错），三项预算按 plan 累计并在 record 下标 `would_pause`，报告按动作 / 规则汇总一致率与「最近 20 个 ≥ 90%」建议。
 - **入口与界面**（R4 / R12）：`gofer plan drive on|off|status|report`、`GET|PUT|DELETE /v1/plans/{id}/driver`、`GET /v1/plans/{id}/driver/report`、web 计划详情「推进记录」页签、job 详情自报终态与「诊断」。
 
 ### 与计划的偏离

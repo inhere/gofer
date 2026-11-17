@@ -72,9 +72,13 @@ const (
 	RuleCheckFailedResume     = "check_failed_resume"
 	RuleReworkBudgetEscalate  = "rework_budget_exhausted"
 	RuleFailureTransientRetry = "failure_transient_retry"
-	RuleFailureOtherEscalate  = "failure_other_escalate"
-	RuleBudgetExhausted       = "budget_exhausted"
-	RuleNeedsReviewEscalate   = "needs_review_escalate"
+	// RuleFailureInterruptedRetry: gofer itself went away under the job (a serve restart
+	// failed it as an orphan). Nothing is known about the work, so it is not the agent's
+	// failure: rerun it, like a transient one.
+	RuleFailureInterruptedRetry = "failure_interrupted_retry"
+	RuleFailureOtherEscalate    = "failure_other_escalate"
+	RuleBudgetExhausted         = "budget_exhausted"
+	RuleNeedsReviewEscalate     = "needs_review_escalate"
 )
 
 // Outcomes stamped on an action once what actually happened is known (plan R7).
