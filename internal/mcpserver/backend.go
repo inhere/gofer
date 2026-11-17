@@ -28,6 +28,9 @@ type Backend interface {
 	RunJob(req job.JobRequest) (job.JobResult, error)
 	GetJob(id string) (job.JobResult, error)
 	SetJobTitle(id, title string) (job.JobResult, error)
+	// SubmitJobResult records the outcome the calling job reports about itself
+	// (gofer_submit_result); a job may only report its own.
+	SubmitJobResult(id string, in job.SelfResultInput) (job.JobResult, error)
 	TailLog(id, stream string, maxBytes int64) (string, error)
 	// GetJobTranscript reads one page of a job's per-turn transcript (gofer_get_job_transcript).
 	GetJobTranscript(id string, q streaming.TranscriptQuery) (streaming.JobTranscriptPage, error)

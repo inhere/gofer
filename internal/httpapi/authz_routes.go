@@ -169,6 +169,7 @@ var routeDecls = map[string]routeDecl{
 	"POST /v1/jobs/{id}/wakeups":                       {user: InHandler(permDeny, authz.PermJobWakeOthers, authz.PermJobSubmit, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/wakeups", scope: Resource("job")},
 	"POST /v1/jobs/{id}/say":                           {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/say", scope: Resource("job")},
 	"POST /v1/jobs/{id}/end":                           {user: InHandler(permDeny, authz.PermJobManageOthers), jobCred: "POST /v1/jobs/*/end", scope: Resource("job")},
+	"POST /v1/jobs/{id}/result":                        {user: NoUserSurface(), jobCred: "POST /v1/jobs/*/result", scope: Resource("job")}, // the job's own report only: the handler refuses every user-class caller
 	"POST /v1/sessions/{sid}/watches":                  {user: InHandler(permDeny, authz.PermSessionReplyOthers), jobCred: "POST /v1/sessions/*/watches", scope: Resource("session")},
 	"POST /v1/work-items/{id}/report":                  {user: Public(), jobCred: "POST /v1/work-items/*/report", scope: Resource("work_item")},
 	"PATCH /v1/todos/{todo_id}":                        {user: InHandler(permDeny, authz.PermPlanManageOthers, authz.PermJobSubmit), jobCred: "PATCH /v1/todos/*", scope: Resource("todo")},

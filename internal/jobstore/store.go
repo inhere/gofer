@@ -1797,6 +1797,9 @@ func (s *Store) migrate() error {
 	if err := add("check_error", "check_error TEXT"); err != nil {
 		return err
 	}
+	if err := s.migrateJobSelfResult(cols); err != nil {
+		return err
+	}
 	// 权限表与种入（设计「数据层」/§3，plan T1.3）：建表与种入同一个事务，见 migrateAuth。
 	if err := s.migrateAuth(); err != nil {
 		return err

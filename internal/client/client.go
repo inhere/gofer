@@ -312,6 +312,18 @@ func (c *Client) SetJobTitle(id, title string) (job.JobResult, error) {
 	return res, err
 }
 
+// SubmitJobResult reports the outcome of the job the caller's credential belongs to
+// (gofer_submit_result): a job credential may only report its own job, once.
+func (c *Client) SubmitJobResult(id string, in job.SelfResultInput) (job.JobResult, error) {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return job.JobResult{}, fmt.Errorf("encode job result: %w", err)
+	}
+	var res job.JobResult
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/result", bytes.NewReader(body), &res)
+	return res, err
+}
+
 // GetJobWorktree fetches the live state of a job's WT-01 managed worktree (branch,
 // HEAD, commits ahead of the base, uncommitted changes, merged-into-base). A job
 // without a managed worktree is a 404 from the server.

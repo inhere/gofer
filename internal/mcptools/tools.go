@@ -134,6 +134,8 @@ var registry = []Tool{
 	{Name: "gofer_answer_interaction", Class: Write},
 	{Name: "gofer_punt_interaction", Class: Write},
 	{Name: "gofer_ask_human", Class: Write},
+	// Advisory: a job's own report of how it ended is recorded and shown, never acted on.
+	{Name: "gofer_submit_result", Class: Write, Advisory: true},
 
 	// Plan / todo writes.
 	{Name: "gofer_create_plan", Class: Write},

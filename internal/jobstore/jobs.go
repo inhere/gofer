@@ -261,6 +261,13 @@ type JobRecord struct {
 	CheckJSON        string
 	CheckResumeCount int
 	CheckError       string
+	// ResultDecision / ResultReason / ResultReportJSON / ResultAttempt are the outcome the
+	// job's agent reported about itself (gofer_submit_result); written only by
+	// SetJobSelfResult. Empty / 0 = no report.
+	ResultDecision   string
+	ResultReason     string
+	ResultReportJSON string
+	ResultAttempt    int
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -394,7 +401,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
 	COALESCE(uncommitted_count,0), COALESCE(resume_agent,''), COALESCE(session_state_json,''),
 	COALESCE(hold_expires_at,0), COALESCE(hold_json,''), COALESCE(mcp_json,''), COALESCE(delivery_json,''),
 	COALESCE(check_json,''), COALESCE(check_resume_count,0), COALESCE(check_error,''),
-	COALESCE(schedule_id,''), COALESCE(schedule_trigger,'') FROM jobs`
+	COALESCE(schedule_id,''), COALESCE(schedule_trigger,''),
+	COALESCE(result_decision,''), COALESCE(result_reason,''), COALESCE(result_report_json,''), COALESCE(result_attempt,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -430,6 +438,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.HoldExpiresAt, &r.HoldJSON, &r.MCPJSON, &r.DeliveryJSON,
 		&r.CheckJSON, &r.CheckResumeCount, &r.CheckError,
 		&r.ScheduleID, &r.ScheduleTrigger,
+		&r.ResultDecision, &r.ResultReason, &r.ResultReportJSON, &r.ResultAttempt,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
