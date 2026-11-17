@@ -1,4 +1,4 @@
-你派出的子 job 有了结果：
+你派出或关注的 job 有了结果：
 
 - job-child-a：done（退出码 0）；查看输出：gofer job logs job-child-a
 

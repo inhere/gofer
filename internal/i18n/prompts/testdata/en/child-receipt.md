@@ -1,4 +1,4 @@
-A child job you submitted has a result:
+A job you submitted or asked to be notified about has a result:
 
 - job-child-a: done (exit code 0); read its output: gofer job logs job-child-a
 

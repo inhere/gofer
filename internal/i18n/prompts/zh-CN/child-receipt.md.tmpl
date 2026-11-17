@@ -1,4 +1,4 @@
-你派出的子 job 有了结果：
+你派出或关注的 job 有了结果：
 {{range .Children}}
 - {{.JobID}}：{{.Status}}{{if .Finished}}（退出码 {{.ExitCode}}）{{end}}；查看输出：gofer job logs {{.JobID}}{{if .NeedsInput}}。它需要你的输入，但你不能代答，请转告人{{end}}
 {{end}}{{if .NeedsInput}}

@@ -1,4 +1,4 @@
-A child job you submitted has a result:
+A job you submitted or asked to be notified about has a result:
 {{range .Children}}
 - {{.JobID}}: {{.Status}}{{if .Finished}} (exit code {{.ExitCode}}){{end}}; read its output: gofer job logs {{.JobID}}{{if .NeedsInput}}. It needs your input, but you cannot answer for it — tell a person{{end}}
 {{end}}{{if .NeedsInput}}
