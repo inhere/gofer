@@ -46,7 +46,7 @@ const prompt = Object.values(import.meta.glob('../components/SessionPermissionPr
 describe('session drawer permission prompt', () => {
   it('never lets the reply box answer a permission prompt', () => {
     expect(drawer).toContain("t.state === 'OPEN' && t.kind !== 'permission'")
-    expect(drawer).toContain("entry.turn.kind === 'permission'")
+    expect(drawer).toContain("turnRow(entry.id).turn.kind === 'permission'")
   })
 
   it('answers through the session permission endpoint', () => {

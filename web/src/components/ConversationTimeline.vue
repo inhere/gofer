@@ -1,3 +1,4 @@
+<script setup lang="ts">
 // 统一对话时间线（设计稿 §2，计划 R12）。
 //
 // 工作台对话、job 详情「消息」、会话抽屉共用这一套渲染：人的消息与 agent 消息都用
@@ -9,6 +10,7 @@
 //   #custom  自己渲染一条（kind: 'custom'）
 //   #extra   在气泡 / 提示行下面追加内容（送达状态、重试、撤销等）
 import { ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import type { AttachmentRef } from '../api/types'
 import { t } from '../i18n'
 import MarkdownBlock from './MarkdownBlock.vue'
