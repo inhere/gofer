@@ -477,6 +477,10 @@ func (s *Service) applyOutcome(entry *jobEntry, o *runner.Outcome) {
 	if o.SessionID != "" {
 		entry.result.SessionID = o.SessionID
 	}
+	// v32: the worker's own reason the resident session ended (idle_timeout, ...).
+	if o.SessionEndReason != "" {
+		entry.result.SessionEndReason = o.SessionEndReason
+	}
 	// WT-01：执行机自报的受管 worktree 位置与分支状态（它持有那台机器的路径）。旧 worker
 	// 不发这组字段 → 全空，host 行保持无 worktree（回归红线：不伪造）。
 	if o.WorktreePath != "" {

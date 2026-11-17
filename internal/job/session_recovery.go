@@ -178,6 +178,9 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 		status = state.Status
 	}
 	entry.mu.Lock()
+	if state.TurnNo > 0 {
+		state.TurnNo += entry.turnBase
+	}
 	// A report of a turn after the one a remote say was sent on means the worker
 	// consumed it; without this the host refused every later say.
 	if entry.sessionCommandPending && !entry.sessionEnding && state.TurnNo > entry.sessionCommandTurn {
@@ -201,6 +204,9 @@ func (s *Service) applyRemoteSessionState(entry *jobEntry, state WorkerInflightJ
 		entry.result.Status = StatusAwaitingInput
 	case StatusRunning, "started", "turn_started":
 		entry.result.Status = StatusRunning
+	case StatusWaitingDir:
+		// The session's own job on the worker is parked on the directory lock.
+		entry.result.Status = StatusWaitingDir
 	case "session_ending":
 		entry.result.SessionEnding = true
 	}

@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -118,6 +119,15 @@ func (s *Service) ReconcileAdoption(workerID, instanceID string, inflight []Work
 					continue
 				}
 			}
+		}
+		if instanceID != "" && rec.WorkerInstanceID != "" && rec.WorkerInstanceID != instanceID {
+			// The worker PROCESS restarted: a session may be reloaded on the new one.
+			rerr := s.resumeRemoteSession(rec, nil)
+			if rerr == nil {
+				continue
+			}
+			slog.Info("job.session_not_reloaded", "event", "job.session_not_reloaded", "component", "server",
+				"job_id", rec.ID, "worker_id", workerID, "reason", rerr.Error())
 		}
 		lost = append(lost, rec.ID)
 		if n, ferr := s.meta.FailRecoveringJob(rec.ID, s.nowFn().Unix(), adoptLostReason); ferr != nil {
@@ -316,6 +326,7 @@ func (a *AdoptedJob) Offsets() (stdoutOff, stderrOff int64) {
 // events the host row must record (detail already carries the worker origin).
 func (a *AdoptedJob) OnJobEvent(eventType string, detail map[string]any) {
 	a.s.recordEvent(a.jobID, eventType, detail)
+	a.s.noteRemoteWaitingDir(a.jobID, eventType, detail)
 }
 
 // OnWorkerJobEvent is OnJobEvent for a numbered event (protocol v30): recorded only when
@@ -323,6 +334,7 @@ func (a *AdoptedJob) OnJobEvent(eventType string, detail map[string]any) {
 // restart adds no row and fires no notification.
 func (a *AdoptedJob) OnWorkerJobEvent(eventType string, detail map[string]any, seq int64) {
 	a.s.recordWorkerEvent(a.jobID, eventType, detail, seq)
+	a.s.noteRemoteWaitingDir(a.jobID, eventType, detail)
 }
 
 // OnOutcome stashes the worker-captured产出 (P4) so the terminal path applies it
@@ -379,6 +391,9 @@ func (a *AdoptedJob) Resume() {
 // classify/finish path a dispatched job uses, so outcomes, notifications, the jobstore
 // row and workflow advancement all behave identically.
 func (a *AdoptedJob) OnDisconnect(err error) {
+	if errors.Is(err, runner.ErrWorkerRestarted) && a.reloadSession() {
+		return
+	}
 	if a.entry.snapshot().Session && err != nil && (strings.Contains(err.Error(), "worker lost") || strings.Contains(err.Error(), "worker restarted")) {
 		err = remoteSessionWorkerRestartError(a.s.notifyLang(a.entry.snapshot().ProjectKey), a.jobID)
 	}

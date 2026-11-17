@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -318,7 +319,11 @@ type ACPRequest struct {
 	// It is called once per session, before OnSessionReady (initialize runs on every
 	// start, including a session/load recovery, so the fact is re-learned each time).
 	OnImageCapability func(bool)
-	OnTurnStart       func() error
+	// OnLoadCapability reports whether the agent advertised agentCapabilities.loadSession,
+	// i.e. whether the session can be reloaded by a later process. Called with
+	// OnImageCapability.
+	OnLoadCapability func(bool)
+	OnTurnStart      func() error
 	// TurnNote, when set, is called right after OnTurnStart succeeded and returns text
 	// put in front of that turn's prompt ("" = nothing).
 	TurnNote             func() string
@@ -595,6 +600,14 @@ type Forward struct {
 	// PermissionTier is the job's approval tier (auto|ask|strict), applied by the executor's
 	// own approval gate; "" = as configured.
 	PermissionTier string
+	// Hosted marks a persistent session that is never ended for being idle; the executor's own
+	// Submit applies it (protocol v32).
+	Hosted bool
+	// WaitWorkerOnline makes the runner wait up to this long for the target worker to be
+	// connected before it dispatches, instead of failing at once when it is offline. Set only
+	// for the re-dispatch of a session whose worker process restarted (the new process may
+	// still be registering); 0 = fail immediately, the default.
+	WaitWorkerOnline time.Duration
 	// NoRules is the caller's `--no-rules`: the executing machine must not add the
 	// sections it renders itself (its declared tools, CFG-16). The rules were already
 	// decided — and skipped — by the submitting machine.
@@ -766,6 +779,8 @@ type Outcome struct {
 	// `job resume` / `list --session` for remotely-executed jobs. Empty = the
 	// remote produced no session id (unsupported agent / not captured).
 	SessionID string `json:"session_id,omitempty"`
+	// SessionEndReason is why the execution machine's resident session ended (v32).
+	SessionEndReason string `json:"session_end_reason,omitempty"`
 	// WT-01: the managed worktree the job ran in — recorded on the EXECUTION machine
 	// (it owns that path), so a host row for a runner=worker/peer job still shows
 	// where the deliverable branch lives. All empty/0 for a non-worktree job and for

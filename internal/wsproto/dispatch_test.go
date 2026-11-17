@@ -186,3 +186,21 @@ func TestDispatchPermissionTierIsAdditiveAndGated(t *testing.T) {
 		t.Fatal("permission tier floor must be v31 and not above the current version")
 	}
 }
+
+func TestDispatchHostedIsAdditiveAndGated(t *testing.T) {
+	b, _ := json.Marshal(Dispatch{JobID: "j1", Hosted: true})
+	var back Dispatch
+	if err := json.Unmarshal(b, &back); err != nil || !back.Hosted {
+		t.Fatalf("round trip: %v %v", back.Hosted, err)
+	}
+	if plain, _ := json.Marshal(Dispatch{JobID: "j2"}); strings.Contains(string(plain), "hosted") {
+		t.Fatalf("plain dispatch grew hosted: %s", plain)
+	}
+	if SupportsHosted(HostedMinProtocolVersion-1) || !SupportsHosted(HostedMinProtocolVersion) ||
+		HostedMinProtocolVersion != 32 || CurrentProtocolVersion < HostedMinProtocolVersion {
+		t.Fatal("hosted floor must be v32 and not above the current version")
+	}
+	if !SupportsPermissionTier(CurrentProtocolVersion) {
+		t.Fatal("raising the protocol must not drop the permission tier floor")
+	}
+}

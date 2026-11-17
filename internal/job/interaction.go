@@ -412,7 +412,11 @@ func (s *Service) ReconcileOrphanJobs() (int, error) {
 	if err != nil {
 		return len(records), err
 	}
+	// The orphans just failed may have left pending interactions behind; the startup
+	// sweep ran before them.
+	_, _ = s.meta.ReconcileOrphanInteractions(s.nowFn().Unix())
 	for _, rec := range records {
+		s.expireStaleInteractions(rec.ID, rec.ResultDir)
 		if startErr := s.resumeLocalSession(rec); startErr != nil {
 			s.failLocalSessionRecovery(rec.ID, startErr)
 		}
@@ -479,7 +483,10 @@ func (s *Service) workerRunnerNames() []string {
 // is what CLI/web then show as the job's error. Best-effort at the caller: serve logs
 // a failure and carries on. Returns the rows failed.
 func (s *Service) FailRecoveringJobs(reason string) (int, error) {
-	return s.meta.FailRecoveringJobs(s.nowFn().Unix(), reason)
+	// A session being re-dispatched onto a restarted worker process is owned by its
+	// execute, which waits for the process and ends the job itself; failing the row here
+	// would leave a live entry behind a terminal row.
+	return s.meta.FailRecoveringJobsExcept(s.nowFn().Unix(), reason, s.redispatchingJobIDs())
 }
 
 // MarkInteractionNeedsHuman flags a pending interaction as "punted to a human" by the通用

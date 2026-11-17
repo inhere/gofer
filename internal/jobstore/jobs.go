@@ -714,7 +714,7 @@ func (s *Store) GetJobByRequestID(reqID string) (JobRecord, bool, error) {
 // deliberately excludes `recovering`: only a WORKER job ever enters that state, and
 // such jobs are held (not failed) via orphanWorkerJobStatuses instead. Kept local so
 // jobstore never imports job.
-var nonTerminalJobStatuses = []string{"queued", "running", "waiting_dir"}
+var nonTerminalJobStatuses = []string{"queued", "running", "waiting_dir", "pending_interaction"}
 
 // ClaimLocalSessionsForRecovery moves resident local ACP jobs into a durable
 // recovering state before the ordinary orphan sweep can fail running rows.
@@ -722,7 +722,7 @@ var nonTerminalJobStatuses = []string{"queued", "running", "waiting_dir"}
 // existing orphan behavior.
 func (s *Store) ClaimLocalSessionsForRecovery(ts int64) ([]JobRecord, error) {
 	defer s.emit(Change{Kind: ChangeJob})
-	rows, err := s.db.Query(selectCols + ` WHERE runner='local' AND status IN ('running','awaiting_input')
+	rows, err := s.db.Query(selectCols + ` WHERE runner='local' AND status IN ('running','awaiting_input','pending_interaction')
   AND COALESCE(session_state_json,'') <> ''`)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list local session recovery candidates: %w", err)
@@ -1142,12 +1142,25 @@ func (s *Store) CountRecoveringJobs() (int, error) {
 // (which should name the cause, e.g. "worker lost") goes in the error column so
 // CLI/web show WHY the job ended. Returns rows failed.
 func (s *Store) FailRecoveringJobs(ts int64, reason string) (int, error) {
+	return s.FailRecoveringJobsExcept(ts, reason, nil)
+}
+
+// FailRecoveringJobsExcept is FailRecoveringJobs leaving the rows of keep alone (jobs a
+// live process still owns).
+func (s *Store) FailRecoveringJobsExcept(ts int64, reason string, keep []string) (int, error) {
 	defer s.emit(Change{Kind: ChangeJob})
 	q := `UPDATE jobs SET status = 'failed', error = ?, ended_at = ?, updated_at = ?
   WHERE status = 'recovering'`
+	args := []any{reason, ts, ts}
+	if len(keep) > 0 {
+		q += " AND id NOT IN (" + strings.TrimSuffix(strings.Repeat("?,", len(keep)), ",") + ")"
+		for _, id := range keep {
+			args = append(args, id)
+		}
+	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.Exec(q, reason, ts, ts)
+	res, err := s.db.Exec(q, args...)
 	if err != nil {
 		return 0, fmt.Errorf("jobstore: fail recovering jobs: %w", err)
 	}

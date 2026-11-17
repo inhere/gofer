@@ -244,6 +244,8 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 				entry.mu.Lock()
 				entry.result.Status = StatusRunning
 				entry.result.StartedAt = now
+				entry.result.RecoveringSince, entry.result.Error = 0, "" // a reloaded session leaves `recovering` here
+				entry.result.WaitingOnJob = ""                           // no longer waiting for a directory lock on the worker
 				snap := entry.result
 				entry.mu.Unlock()
 				_ = s.persist(snap)
@@ -444,6 +446,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			return
 		}
 		s.recordEvent(req.JobID, eventType, detail)
+		s.noteRemoteWaitingDir(req.JobID, eventType, detail)
 	}
 	// Protocol v30: a worker's numbered events are de-duplicated against the job row.
 	req.OnWorkerJobEvent = func(eventType string, detail map[string]any, seq int64) {
@@ -451,6 +454,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			return
 		}
 		s.recordWorkerEvent(req.JobID, eventType, detail, seq)
+		s.noteRemoteWaitingDir(req.JobID, eventType, detail)
 	}
 	req.WorkerEventSeq = func() int64 { return s.WorkerEventSeq(req.JobID) }
 	// XFER-01 X2: the job's staged uploads are placed in its cwd BEFORE the agent
@@ -505,6 +509,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		close(storeProbeDone)
 	}
 	res := run.Run(runCtx, req)
+	res = s.redispatchWorkerSession(runCtx, entry, run, &req, res)
 	close(storeProbeStop)
 	<-storeProbeDone
 	entry.mu.Lock()

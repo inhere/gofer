@@ -7,8 +7,8 @@ import (
 )
 
 func TestRemoteSessionProtocolV13RoundTrip(t *testing.T) {
-	if CurrentProtocolVersion != 31 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 31 (v31 adds the dispatch permission tier)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 32 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 32 (v32 adds the dispatch hosted flag)", CurrentProtocolVersion)
 	}
 	if !SupportsSessionJob(SessionJobMinProtocolVersion) {
 		t.Fatal("v13 worker must support session jobs")

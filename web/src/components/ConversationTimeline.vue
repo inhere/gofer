@@ -192,6 +192,11 @@ function attachmentsOf(entry: ConversationMessageEntry): AttachmentRef[] {
         >{{ t('conversation.resend') }}</button>
       </div>
 
+      <!-- 会话备注：一行小字 -->
+      <div v-else-if="entry.kind === 'note'" class="session-note mono" data-test="timeline-note">
+        {{ t(`conversation.note.${entry.code}`) }}
+      </div>
+
       <!-- 调用方自己渲染的一条（会话抽屉的终端轮次） -->
       <slot v-else name="custom" :entry="entry" />
     </template>
@@ -284,6 +289,12 @@ function attachmentsOf(entry: ConversationMessageEntry): AttachmentRef[] {
   margin-top: 5px;
   color: var(--time);
   font-size: var(--fs-xs);
+}
+.session-note {
+  align-self: center;
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  text-align: center;
 }
 .injected {
   align-self: flex-start;

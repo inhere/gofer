@@ -11,6 +11,7 @@ export type ACPEventKind =
   | 'usage'
   | 'stop'
   | 'truncated'
+  | 'session_note'
 
 export interface ACPEventBase {
   seq: number
@@ -86,6 +87,12 @@ export interface ACPTruncatedEvent extends ACPEventBase {
   skipped: number
 }
 
+// 会话备注：服务端在会话转录里留的一行说明（如重启前的提问已失效），按 code 显示文案。
+export interface ACPSessionNoteEvent extends ACPEventBase {
+  kind: 'session_note'
+  code?: string
+}
+
 export type ACPEvent =
   | ACPTextEvent
   | ACPToolEvent
@@ -94,6 +101,7 @@ export type ACPEvent =
   | ACPUsageEvent
   | ACPStopEvent
   | ACPTruncatedEvent
+  | ACPSessionNoteEvent
 
 export interface ACPRound {
   jobId: string
@@ -110,6 +118,7 @@ const ACP_KINDS = new Set<ACPEventKind>([
   'usage',
   'stop',
   'truncated',
+  'session_note',
 ])
 
 export function isACPEvent(value: unknown): value is ACPEvent {
@@ -214,7 +223,8 @@ export function groupACPRounds(
       (event) => event.kind === 'prompt'
         || event.kind === 'message'
         || event.kind === 'tool'
-        || event.kind === 'permission',
+        || event.kind === 'permission'
+        || event.kind === 'session_note',
     ),
   }))
 }
@@ -224,6 +234,7 @@ export function groupACPRounds(
 export type ACPTimelineBlock =
   | { kind: 'text'; event: ACPTextEvent }
   | { kind: 'permission'; event: ACPPermissionEvent }
+  | { kind: 'note'; event: ACPSessionNoteEvent }
   | { kind: 'tools'; events: ACPToolEvent[]; failed: number; running: number }
 
 export function timelineBlocks(events: readonly ACPEvent[]): ACPTimelineBlock[] {
@@ -244,6 +255,7 @@ export function timelineBlocks(events: readonly ACPEvent[]): ACPTimelineBlock[] 
     flush()
     if (event.kind === 'prompt' || event.kind === 'message') blocks.push({ kind: 'text', event })
     else if (event.kind === 'permission') blocks.push({ kind: 'permission', event })
+    else if (event.kind === 'session_note') blocks.push({ kind: 'note', event })
   }
   flush()
   return blocks

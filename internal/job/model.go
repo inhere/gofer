@@ -852,6 +852,10 @@ type JobResult struct {
 	// session reported by the worker (protocol v25 — an older worker never reports it,
 	// so it stays false and callers use file delivery).
 	SessionImages bool `json:"session_images,omitempty"`
+	// SessionLoadable is whether the session's ACP agent advertised agentCapabilities.loadSession,
+	// learned from initialize on the process that runs the session. Kept in memory only: a
+	// worker reads it from its own live session to decide whether an upgrade must wait for it.
+	SessionLoadable bool `json:"-"`
 	// RequestedTimeoutSec is the timeout_sec the caller actually asked for (0 =
 	// unset, the server default applies). It differs from TimeoutSec only when the
 	// ceiling truncated it.

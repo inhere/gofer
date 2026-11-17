@@ -69,7 +69,9 @@ const (
 	// v30 adds job-event replay after a reconnect: JobEvent.seq, ResumeJob.event_seq
 	// and ResumeJob.acp_off (see JobEventSeqMinProtocolVersion).
 	// v31 adds the optional dispatch.permission_tier (see PermissionTierMinProtocolVersion).
-	CurrentProtocolVersion = 31
+	// v32 adds the optional dispatch.hosted and outcome.session_end_reason (see
+	// HostedMinProtocolVersion).
+	CurrentProtocolVersion = 32
 )
 
 // UpgradeMinProtocolVersion is the first protocol version that can receive a
@@ -179,6 +181,16 @@ const PermissionTierMinProtocolVersion = 31
 
 // SupportsPermissionTier reports whether a worker understands dispatch.permission_tier.
 func SupportsPermissionTier(proto int) bool { return proto >= PermissionTierMinProtocolVersion }
+
+// HostedMinProtocolVersion is the first protocol version whose Dispatch carries hosted
+// (a persistent session that is never ended for being idle) and whose Outcome carries
+// session_end_reason. A worker below it would ignore hosted and apply its own idle default
+// to the session, ending it after 30 minutes — so the hub REFUSES a hosted session for such
+// a worker instead of downgrading it (see job.checkHostedWorker).
+const HostedMinProtocolVersion = 32
+
+// SupportsHosted reports whether a worker understands dispatch.hosted.
+func SupportsHosted(proto int) bool { return proto >= HostedMinProtocolVersion }
 
 // ReadDirsMinProtocolVersion is the first protocol version whose Dispatch carries
 // read_dirs. An older worker would ignore the field and run without the requested
@@ -750,6 +762,10 @@ type Dispatch struct {
 	// its local Submit, which tightens ITS approval gate with it (never loosens). Empty =
 	// as configured. A worker below PermissionTierMinProtocolVersion is refused it.
 	PermissionTier string `json:"permission_tier,omitempty"`
+	// Hosted marks a persistent session (Session) that is never ended for being idle and has
+	// no maximum length. The worker's own Submit applies it, which is what keeps it from
+	// filling in the idle default. A worker below HostedMinProtocolVersion is refused it.
+	Hosted bool `json:"hosted,omitempty"`
 	// NoRules carries the caller's `--no-rules` ("no gofer-injected context"). The hub
 	// already applied it to the rules it rendered into Prompt; the worker needs it only
 	// to skip the section IT renders — its own declared tools (CFG-16). An old worker
@@ -1006,6 +1022,9 @@ type Outcome struct {
 	// SessionID 是 worker 侧本地 JobResult 捕获/注入得到的 agent 会话标识(P3)，随
 	// Outcome 帧回传 host，host 端 applyOutcome 落到 entry.result.SessionID。空=未捕获。
 	SessionID string `json:"session_id,omitempty"`
+	// SessionEndReason (v32) is why the worker's resident session ended (idle_timeout,
+	// manual_end, ...); the host records it on the job row. Empty = not a session or no reason.
+	SessionEndReason string `json:"session_end_reason,omitempty"`
 	// WT-01：worker 侧受管 worktree 的位置与分支状态（该路径在那台机器上）。旧 worker
 	// 不发这组字段 → host 行保持无 worktree（不伪造）。
 	WorktreePath    string `json:"worktree_path,omitempty"`

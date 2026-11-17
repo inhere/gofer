@@ -88,6 +88,13 @@ export interface ConversationUnsentEntry {
   prompt: string
 }
 
+export interface ConversationNoteEntry {
+  // 会话备注：时间线里居中的一行小字（如「重启前的提问已失效，请重新发起」）。
+  kind: 'note'
+  id: string
+  code: string
+}
+
 export interface ConversationCustomEntry {
   // 调用方自己渲染的一条（会话抽屉的终端轮次等）：组件只留位置，内容走 #custom 插槽。
   kind: 'custom'
@@ -101,6 +108,7 @@ export type ConversationEntry =
   | ConversationInteractionEntry
   | ConversationInjectedEntry
   | ConversationUnsentEntry
+  | ConversationNoteEntry
   | ConversationCustomEntry
 
 export type ConversationMessageEntryKind = ConversationSpeaker
@@ -155,6 +163,10 @@ export function acpEventEntries(
       if (speaker === 'user' && block.event.injected) {
         entries.push({ kind: 'injected', id: `injected-${block.event.seq}`, text: block.event.injected })
       }
+      continue
+    }
+    if (block.kind === 'note') {
+      entries.push({ kind: 'note', id: `note-${block.event.seq}`, code: block.event.code ?? '' })
       continue
     }
     if (block.kind === 'permission') {

@@ -111,3 +111,20 @@ func TestE2EWorkerSessionKeepDirLockQueuesSameDirJob(t *testing.T) {
 	end()
 	waitHostStatus(t, hub.jobs, other.ID, job.StatusDone, 30*time.Second)
 }
+
+// A job parked on the worker's directory lock shows as waiting_dir (with its holder) on the
+// hub's row, not as queued, until it starts.
+func TestE2EWorkerJobWaitingOnDirLockShowsWaitingDirOnHub(t *testing.T) {
+	hub, _, _, _, end, stop := startWorkerSession(t, true)
+	defer stop()
+	other := createJob(t, hub.ts, job.JobRequest{
+		ProjectKey: "alpha", Agent: "acpbot", Runner: "remote-w1", WorkerID: e2eWorkerID,
+		Prompt: "side work", Cwd: ".", TimeoutSec: 60,
+	})
+	wait.For(t, 20*time.Second, "hub row shows waiting_dir behind the session", func() (bool, any) {
+		r, _ := hub.jobs.Get(other.ID)
+		return r.Status == job.StatusWaitingDir && r.WaitingOnJob != "", r.Status
+	})
+	end()
+	waitHostStatus(t, hub.jobs, other.ID, job.StatusDone, 30*time.Second)
+}
