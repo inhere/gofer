@@ -111,3 +111,14 @@ func TestDiagnoseChainSkipsMissingLink(t *testing.T) {
 		t.Fatalf("missing link: %+v", got)
 	}
 }
+
+// TestDiagnoseFirstFailureExcludesTheTarget: the diagnosed job's own failure IS the
+// diagnosis' top-level reason, so "first failure" only ever names an EARLIER job — a job
+// with no earlier attempt reports none instead of repeating itself.
+func TestDiagnoseFirstFailureExcludesTheTarget(t *testing.T) {
+	t.Parallel()
+	chain := []DiagnosisLink{{JobID: "job-a", Status: StatusFailed, Reason: TerminationAgentError, Error: "boom"}}
+	if got := firstFailingLink(chain, "job-a"); got != nil {
+		t.Fatalf("first failure = %+v, want none for a lone job", got)
+	}
+}

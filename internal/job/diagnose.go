@@ -201,8 +201,9 @@ func diagnoseChainWith(id string, get func(string) (JobResult, bool), retries fu
 }
 
 // firstFailingLink returns the EARLIEST link that ended badly — the origin of the chain's
-// failure, which is what a person should read first. The diagnosed job itself is skipped
-// only when another failing link exists earlier; a lone failure is still reported.
+// failure, which is what a person should read first. The diagnosed job itself is never a
+// candidate: its own reason and error are the diagnosis' top-level answer, so a "first
+// failure" always names an EARLIER job, and a job with no earlier attempt has none.
 func firstFailingLink(chain []DiagnosisLink, target string) *DiagnosisLink {
 	for i := range chain {
 		l := chain[i]
