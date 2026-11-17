@@ -134,6 +134,9 @@ var registry = []Tool{
 	{Name: "gofer_answer_interaction", Class: Write},
 	{Name: "gofer_punt_interaction", Class: Write},
 	{Name: "gofer_ask_human", Class: Write},
+	// gofer_ask: a session's own question to the person watching it. Asking is the whole
+	// point of the call, so the approval gate does not ask permission to ask.
+	{Name: "gofer_ask", Class: Write, Advisory: true},
 
 	// Plan / todo writes.
 	{Name: "gofer_create_plan", Class: Write},

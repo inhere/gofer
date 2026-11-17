@@ -22,6 +22,7 @@ import (
 // absent: run_job, cancel, reject, every config / plan / presence tool, accept, merge,
 // delete — and anything that could end a work item.
 var stewardToolNames = []string{
+	"gofer_ask",
 	"gofer_get_job",
 	"gofer_issue_get",
 	"gofer_issue_list",

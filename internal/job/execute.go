@@ -806,6 +806,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	var toWake []chan struct{}
 	for _, rec := range entry.interactions {
 		if rec.data.Status == InteractionPending {
+			stopInteractionExpiry(rec)
 			rec.data.Status = InteractionCancelled
 			rec.data.AnsweredAt = snap.EndedAt
 			cancelled = append(cancelled, rec.data)

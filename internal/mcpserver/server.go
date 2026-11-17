@@ -75,6 +75,14 @@ func newServer(b Backend, scoped string) *mcp.Server {
 		registerStewardTools(s, b)
 		return s
 	}
+	// gofer_ask: a resident session's own gofer MCP carries only the question tool; the
+	// resident mailbox session keeps its full surface and gains it.
+	if mailResidentMode() {
+		registerGoferAsk(s, b)
+	} else if goferAskMode() {
+		registerGoferAsk(s, b)
+		return s
+	}
 
 	addGoferTool(s, &mcp.Tool{
 		Name:        "gofer_list_projects",

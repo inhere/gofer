@@ -1110,6 +1110,10 @@ func (s *Service) submitAdmitted(req JobRequest) (JobResult, error) {
 		if req.MailResident {
 			applyMailResidentRun(&runReq)
 		}
+		// gofer_ask: a resident ACP session can put a question to the person watching it.
+		if wantsGoferAsk(req) {
+			applyGoferAskRun(&runReq)
+		}
 		// MCP-05 阶段 B: a LEADER job tells its agent process (and the gofer MCP child
 		// that process spawns) which plan it leads, so the MCP surface can narrow itself
 		// to the leader tool whitelist. Server-set from the request's marker (which is
