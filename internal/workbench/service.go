@@ -225,6 +225,9 @@ func (s *Service) listPage(callerID string, query Query) (Response, error) {
 		if needle != "" && !threadMatches(*thread, needle) {
 			return false
 		}
+		if !threadPassesAgentRunner(*thread, query) {
+			return false
+		}
 		return query.Keep == nil || query.Keep(*thread)
 	}
 
@@ -309,6 +312,7 @@ func (s *Service) buildResponse(projections []projection, snapshot jobstore.Work
 	groups := make(map[string]*ProjectGroup)
 	attention := make([]AttentionItem, 0)
 	needle := strings.ToLower(strings.TrimSpace(query.Q))
+	var counts ThreadSourceCounts
 	for _, p := range projections {
 		thread := p.thread
 		s.annotateAttachments(query.Lang, &thread)
@@ -321,10 +325,19 @@ func (s *Service) buildResponse(projections []projection, snapshot jobstore.Work
 		if needle != "" && !threadMatches(thread, needle) {
 			continue
 		}
-		if !threadPassesSourceLive(thread, query) {
+		if !threadPassesAgentRunner(thread, query) {
+			continue
+		}
+		if !threadPassesLive(thread, query) {
 			continue
 		}
 		if query.Keep != nil && !query.Keep(thread) {
+			continue
+		}
+		// The per-source counts stop here: they ignore the source filter itself, so the
+		// numbers hold while a caller switches tabs (and still respect every other filter).
+		counts.add(thread)
+		if !threadMatchesSource(thread, query.Source) {
 			continue
 		}
 		group := ensureGroup(groups, thread.ProjectKey)
@@ -387,7 +400,7 @@ func (s *Service) buildResponse(projections []projection, snapshot jobstore.Work
 		}
 		return attention[i].ThreadID < attention[j].ThreadID
 	})
-	return Response{Projects: projects, Attention: attention, Total: total}
+	return Response{Projects: projects, Attention: attention, Total: total, Counts: responseCounts(counts, query)}
 }
 
 func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64, sup supervisionFunc) []projection {
@@ -1089,12 +1102,24 @@ func recordWaitAt(rec jobstore.JobRecord) int64 {
 }
 
 func threadMatches(thread Thread, needle string) bool {
-	for _, value := range []string{thread.Title, thread.ID, thread.Agent, thread.Cwd} {
+	values := []string{thread.Title, thread.ID, thread.Agent, thread.Cwd, thread.ProjectKey}
+	if thread.Relay != nil {
+		values = append(values, thread.Relay.LastMessage)
+	}
+	for _, value := range values {
 		if strings.Contains(strings.ToLower(value), needle) {
 			return true
 		}
 	}
 	return false
+}
+
+// responseCounts exposes the per-source counts only when the caller asked for them.
+func responseCounts(counts ThreadSourceCounts, query Query) *ThreadSourceCounts {
+	if !query.Counts {
+		return nil
+	}
+	return &counts
 }
 
 func ensureGroup(groups map[string]*ProjectGroup, projectKey string) *ProjectGroup {

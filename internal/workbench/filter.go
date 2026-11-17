@@ -62,6 +62,33 @@ func threadPassesSourceLive(t Thread, q Query) bool {
 	return !q.Live || threadLive(t)
 }
 
+// threadPassesAgentRunner applies the agent / runner narrowing (empty = any).
+func threadPassesAgentRunner(t Thread, q Query) bool {
+	if q.Agent != "" && t.Agent != q.Agent {
+		return false
+	}
+	return q.Runner == "" || t.Runner == q.Runner
+}
+
+// threadPassesLive is the live part of the thread filter on its own, so a listing can
+// count per source before the source filter drops threads.
+func threadPassesLive(t Thread, q Query) bool {
+	return !q.Live || threadLive(t)
+}
+
+// add threads to the per-source counts by the same rule threadMatchesSource uses.
+func (c *ThreadSourceCounts) add(t Thread) {
+	switch {
+	case t.Kind == KindRelay:
+		c.Relay++
+	case t.Interactive:
+		c.PTY++
+	default:
+		c.ACP++
+	}
+	c.All++
+}
+
 // liveCursorPageEmpty: a live listing is a single first page, so a cursor request
 // has nothing to return.
 func liveCursorPageEmpty(q Query) bool {
